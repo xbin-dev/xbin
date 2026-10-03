@@ -270,7 +270,7 @@ async function routedVMHost(browser, check) {
   const tilesUsed = await q.locator('[data-vm-tiles-used]').textContent().catch(() => '');
   check(/tile sandboxes\s+1 GiB of 2 GiB · 1 VM\b/.test(tilesUsed.replace(/\s+/g, ' ')), `the tile sandboxes' sub-budget shows (${tilesUsed.replace(/\s+/g, ' ').trim()})`);
   const view = (await q.locator('[data-vm-policy="view"]').textContent()).replace(/\s+/g, ' ');
-  check(/tile sandboxes ✓ \(emulated ✗\)/.test(view) && /\(tiles 2 GiB\)/.test(view), `the policy line shows the tiles switches and budget (${view.trim()})`);
+  check(/tile sandboxes on \(emulated off\)/.test(view) && /\(tiles 2 GiB\)/.test(view), `the policy line shows the tiles switches and budget (${view.trim()})`);
   check(await q.locator('tr[data-sbx-id="tile-child"][data-depth="1"]').count() === 1, "a tile's own sandbox nests under its parent");
   const head = await q.locator('tr.sbx-tile[data-sbx-tile="apps/web"]').textContent();
   check(/150\.0M in use/.test(head), `the tile leaf's memory is counted once for its two generations (100M, plus its sandboxes' 20M and 30M) (${head.replace(/\s+/g, ' ').trim()})`);
@@ -375,7 +375,7 @@ async function idleVMTile(browser, check) {
   await gotoTab(C.page, 'components', TILE);
   await sleep(2500);
   const irow = C.page.locator('tr', { has: C.page.locator('a', { hasText: TILE }) }).first();
-  check(await irow.locator('[data-sbx-cell="vm"].idle').count() === 1, 'components: an idle tile asking for a VM shows ⧉ VM, muted');
+  check(await irow.locator('[data-sbx-cell="vm"].idle').count() === 1, 'components: an idle tile asking for a VM shows its VM badge, muted');
   await shot(C.page, 'admin-components-vm');
   await closeCtx(C.ctx, C.page);
 }

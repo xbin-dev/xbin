@@ -84,10 +84,10 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
     const draft = this._polDraft(key);
     if (!draft) {
       return html`
-        ${(rows ?? []).map((r) => html`<div class="mono" style="font-size:11px">
+        ${(rows ?? []).map((r) => html`<div class="mono">
           tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}</div>`)}
         ${!(rows ?? []).length ? html`<div class="empty">no rows (no ceiling)</div>` : nothing}
-        <button class="act" style="margin-top:3px" @click=${() => this._polSet(key,
+        <button class="act" style="margin-top:4px" @click=${() => this._polSet(key,
           (rows ?? []).map((r) => ({ tiles: r.tiles, deny: [...(r.deny ?? [])], mayCallText: (r.mayCall ?? []).join(', ') })))}>edit</button>`;
     }
     const upd = (i, patch) => this._polSet(key, draft.map((r, j) => (j === i ? { ...r, ...patch } : r)));
@@ -97,19 +97,19 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
           <td><input size="14" placeholder="* (all covered tiles)" .value=${r.tiles}
                 @input=${(e) => upd(i, { tiles: e.target.value })}></td>
           <td style="white-space:nowrap">${['net', 'gpu', 'xbin-caps', 'ingress'].map((k) => html`
-            <label class="muted" style="font-size:10.5px; margin-right:5px">
+            <label class="muted" style="margin-right:6px">
               <input type="checkbox" .checked=${r.deny.includes(k)}
                 @change=${(e) => upd(i, { deny: e.target.checked ? [...r.deny, k] : r.deny.filter((d) => d !== k) })}>deny ${k}</label>`)}</td>
           <td><input size="20" placeholder="mayCall: a/*, res:a/* (empty = any)" .value=${r.mayCallText}
                 @input=${(e) => upd(i, { mayCallText: e.target.value })}></td>
-          <td><button class="act rm" title="remove row" @click=${() => this._polSet(key, draft.filter((_, j) => j !== i))}>✕</button></td>
+          <td><button class="act quiet rm icon" title="remove row" aria-label="remove row" @click=${() => this._polSet(key, draft.filter((_, j) => j !== i))}><bx-icon name="xmark"></bx-icon></button></td>
         </tr>`)}
       </table>
       <div style="margin-top:4px">
         <button class="act" @click=${() => this._polSet(key, [...draft, { tiles: '*', deny: [], mayCallText: '' }])}>+ row</button>
         <button class="act go" @click=${() => this._polSave(key)}>save</button>
         <button class="act" @click=${() => this._polStop(key)}>cancel</button>
-        <span class="muted" style="font-size:10.5px; margin-left:6px">
+        <span class="muted hint" style="margin-left:6px">
           deny strips the capability; mayCall allow-lists external call targets
           (a tile's own scope is always exempt); deny beats every allowance</span>
       </div>`;
@@ -136,7 +136,7 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
     const lock = synced ? 'synced from an IdP group — detach to edit by hand' : '';
     return html`<tr style=${m.suspended ? 'opacity:.55' : ''}>
       <td class="mono">${m.id}${m.suspended ? html` <span class="pill">suspended</span>` : nothing}${synced ? html` <span class="pill sync"
-          title="synced from IdP group ${(m.viaGroups ?? []).join(', ')} — follows the group at every sign-in">⟳ ${(m.viaGroups ?? []).join(', ')}</span>` : nothing}</td>
+          title="synced from IdP group ${(m.viaGroups ?? []).join(', ')} — follows the group at every sign-in"><bx-icon name="refresh"></bx-icon>${(m.viaGroups ?? []).join(', ')}</span>` : nothing}</td>
       <td><select title=${lock || 'role preset'} ?disabled=${synced} @change=${(e) => {
             const p = PRESETS[e.target.value];
             if (p) save(p);
@@ -146,17 +146,17 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
       <td><select title=${lock || 'org-wide level on tiles the org OWNS'} ?disabled=${synced} @change=${(e) => save({ level: e.target.value })}>
           ${['read', 'write', 'terminal'].map((l) => html`<option ?selected=${m.level === l}>${l}</option>`)}
         </select></td>
-      <td><label class="muted" style="font-size:11px"><input type="checkbox" .checked=${!!m.create} ?disabled=${synced}
+      <td><label class="muted"><input type="checkbox" .checked=${!!m.create} ?disabled=${synced}
             @change=${(e) => save({ create: e.target.checked })} title=${lock || 'may create org-owned tiles'}> create</label></td>
-      <td><label class="muted" style="font-size:11px"><input type="checkbox" .checked=${!!m.admin} ?disabled=${synced}
+      <td><label class="muted"><input type="checkbox" .checked=${!!m.admin} ?disabled=${synced}
             @change=${(e) => save({ admin: e.target.checked })} title=${lock || 'org management: members, ACLs, transfers, allowance approvals'}> admin</label></td>
-      <td><label class="muted" style="font-size:11px"><input type="checkbox" .checked=${!!m.suspended}
+      <td><label class="muted"><input type="checkbox" .checked=${!!m.suspended}
             @change=${(e) => save({ suspended: e.target.checked })}
             title="pause this membership — it confers nothing while suspended, but keeps its knobs (D34)"> susp</label></td>
       <td style="text-align:right; white-space:nowrap">
         ${synced ? html`<button class="act" title="stop syncing this membership; it becomes manual"
           @click=${async () => { await save({ via: '' }); if (!this._err) this._emit('bx-admin-notice', `${o.id}: ${m.id} is now a manual member`); }}>detach</button>` : nothing}
-        <button class="act rm" title=${synced ? 'removes now — comes back at their next sign-in while the rule stands' : 'remove from the org'}
+        <button class="act quiet rm" title=${synced ? 'removes now — comes back at their next sign-in while the rule stands' : 'remove from the org'}
           @click=${() => this._dropMembership(o.id, m.id)}>remove</button></td>
     </tr>`;
   }
@@ -201,8 +201,8 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
             }}>
             ${['admin', 'developer', 'viewer', 'custom'].map((p) => html`<option value=${p} ?selected=${presetOf(knobs(r)) === p} ?disabled=${p === 'custom'}>${p}</option>`)}
           </select>
-          <button class="act rm" title="delete the rule (synced members stay until their next sign-in)"
-            @click=${() => save(rules.filter((x) => x.group !== r.group))}>✕</button>
+          <button class="act quiet rm icon" title="delete the rule (synced members stay until their next sign-in)" aria-label="delete the rule"
+            @click=${() => save(rules.filter((x) => x.group !== r.group))}><bx-icon name="xmark"></bx-icon></button>
         </span>`)}
         ${!rules.length ? html`<span class="empty">no rules — members are added by hand</span>` : nothing}
       </div>
@@ -224,7 +224,7 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
         }}>add rule</button>
         ${known.length ? html`<span class="empty">${known.length} unmapped group${known.length === 1 ? '' : 's'} seen at sign-ins — start typing</span>` : nothing}
       </div>
-      <div class="foot">${hint.text} Synced members show ⟳ and follow the group at
+      <div class="foot">${hint.text} Synced members show the sync mark and follow the group at
         every sign-in — leave the group, lose the membership. ${!sso.enabled ? 'SSO is off — rules take effect once a provider is active (sign-in tab).' : ''}</div>`;
   }
   _idpGroupHint(preset) {
@@ -254,14 +254,14 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
     const owned = (o.ownedTiles ?? []).length;
     const pol = (o.policy ?? []).length;
     return html`<tr class="row">
-      <td><a class="link org mono" @click=${() => this._open(o.id)}>${o.id}</a>${o.name && o.name !== o.id ? html` <span class="muted">${o.name}</span>` : nothing}</td>
-      <td class="n">${members.length}${synced ? html` <span class="muted" title="synced from IdP groups">· ⟳ ${synced}</span>` : nothing}</td>
+      <td><a class="path org" @click=${() => this._open(o.id)}>${o.id}</a>${o.name && o.name !== o.id ? html` <span class="muted">${o.name}</span>` : nothing}</td>
+      <td class="n">${members.length}${synced ? html` <span class="muted" title="synced from IdP groups">· <bx-icon name="refresh" label="synced"></bx-icon> ${synced}</span>` : nothing}</td>
       <td class="n">${admins}</td>
       <td>${sets.map((s) => html`<span class="pill mono">${s}</span>`)}${allow ? html`<span class="pill" title="extra allowances on top of its sets">+${allow} extra</span>` : nothing}${!sets.length && !allow ? html`<span class="empty">none</span>` : nothing}</td>
-      <td>${nets.map((s) => html`<span class="pill mono">${s}</span>`)}${o.netHost ? html`<span class="pill pol" title="a set grants host networking">⚠ host</span>` : nothing}${!nets.length ? html`<span class="empty">none</span>` : nothing}</td>
+      <td>${nets.map((s) => html`<span class="pill mono">${s}</span>`)}${o.netHost ? html`<span class="pill hostnet" title="a set grants host networking"><bx-icon name="warning"></bx-icon>host</span>` : nothing}${!nets.length ? html`<span class="empty">none</span>` : nothing}</td>
       <td class="n">${owned || html`<span class="empty">0</span>`}</td>
       <td class="n">${pol ? `${pol} row${pol === 1 ? '' : 's'}` : html`<span class="empty">none</span>`}</td>
-      <td style="text-align:right"><button class="act go" data-org=${o.id} @click=${() => this._open(o.id)}>manage →</button></td>
+      <td style="text-align:right"><button class="act quiet" data-org=${o.id} @click=${() => this._open(o.id)}>manage →</button></td>
     </tr>`;
   }
 
@@ -282,10 +282,10 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
         <button class="act go">add org</button>
       </form>
 
-      <h4 style="margin-top:18px">workspace-wide</h4>
+      <h4 style="margin-top:16px">workspace-wide</h4>
       ${this._panel('workspace defaults', 'baseline visibility every user gets (D27) — pattern → level', this._defaultsEditor())}
       ${this._panel('new accounts', 'what every NEW account starts with (D52)', html`
-        <p class="muted" style="font-size:11px; max-width:70ch; margin:0 0 6px">Copied onto the row at creation (admin-added, invited, or SSO
+        <p class="muted hint" style="max-width:70ch; margin:0 0 8px">Copied onto the row at creation (admin-added, invited, or SSO
           auto-provisioned) on top of what the creator specifies; editable per user afterwards. This is where "everyone from the
           SSO domain lands in org X as a developer" lives. Never grants admin.</p>
         ${this._newUsersEditor()}`)}
@@ -300,7 +300,7 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
       ${this._panel('workspace policy', 'pattern-keyed ceiling on what tiles may be granted, applied to EVERY tile (D20)', html`
         ${this._policyEditor('', this.wsPolicy)}
         <div class="foot">org and permission-set rows add on top; any deny wins; deny beats every allowance.</div>`)}
-      <p class="muted" style="font-size:11px; margin-top:10px; max-width:70ch">
+      <p class="muted hint" style="margin-top:12px; max-width:70ch">
         Effective access is a union: workspace admin · tile OWNER (terminal) · org member level /
         org-admin terminal on org-owned tiles · org shares · a user's own entries · workspace
         defaults. Org admins manage members and org-tile ACLs in the
@@ -321,7 +321,7 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
       <div class="orghead">
         <span class="id mono">${o.id}</span>
         ${o.name && o.name !== o.id ? html`<span class="muted">${o.name}</span>` : nothing}
-        <span class="muted" style="font-size:11px">${members.length} member${members.length === 1 ? '' : 's'}${synced ? ` · ${synced} synced` : ''}
+        <span class="muted hint">${members.length} member${members.length === 1 ? '' : 's'}${synced ? ` · ${synced} synced` : ''}
           · ${owned.length} owned tile${owned.length === 1 ? '' : 's'}</span>
       </div>
 
@@ -339,9 +339,9 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
 
       ${this._panel('network', 'the network sets this org holds — what its tiles reach (D54)', this._orgNetBlock(o, opath))}
 
-      ${this._panel('owned tiles', 'tiles the org owns (D24) — ⇄ transfers ownership', owned.length
+      ${this._panel('owned tiles', 'tiles the org owns (D24) — transfer reassigns one', owned.length
         ? html`<div>${owned.map((p) => html`
-            <span class="pill mono">${p} <a class="link" title="transfer ownership" @click=${() => this._transferTile(p)}>⇄</a></span>`)}</div>`
+            <span class="pill mono">${p} <button class="act quiet" title="transfer ownership" @click=${() => this._transferTile(p)}>transfer</button></span>`)}</div>`
         : html`<div class="empty">none — tiles members create with Create land here, and transfers bring others in</div>`)}
 
       ${this._panel('policy ceiling', 'applies to the org\'s owned tiles on top of the workspace policy (D20)', this._policyEditor(o.id, o.policy))}
@@ -368,10 +368,10 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
             @click=${() => this._setDraft(`orgallow:${o.id}`, { rows: (o.allow ?? []).map(parseAllow), err: '' })}>edit</button></label>
       </div>
       ${this._draft(`orgallow:${o.id}`) ? this._orgAllowEditor(o, opath) : nothing}
-      ${(o.resolvedAllow ?? []).length ? html`<div style="margin-top:5px">
-        <span class="muted" style="font-size:10.5px">org admins may self-approve:</span>
+      ${(o.resolvedAllow ?? []).length ? html`<div style="margin-top:4px">
+        <span class="muted hint">org admins may self-approve:</span>
         ${o.resolvedAllow.map((a) => html`<span class="pill mono" title=${describeAllow(a)}>${a}</span>`)}</div>`
-        : html`<div class="empty" style="margin-top:5px">no allowances — every grant/binding goes through a workspace admin</div>`}
+        : html`<div class="empty" style="margin-top:4px">no allowances — every grant/binding goes through a workspace admin</div>`}
       <div class="foot">allowance grammar: res:/gpu:/cap:/net:internet|host|lan:…|provider:…/iface:&lt;svc&gt;/ingress:host|zone|listen:&lt;range&gt;/tile:&lt;pat&gt; — xbin is never delegable</div>`;
   }
 
@@ -389,13 +389,13 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
             .options=${names.map((n) => ({ value: n, label: n }))}
             .selected=${sets} placeholder="— none —"
             @change=${(e) => this._orgAPI('PATCH', opath, { netSets: e.detail.selected })}></bx-multiselect></label>
-        ${!names.length ? html`<a class="link" style="font-size:11px" @click=${() => this._emit('bx-admin-tab', 'netsets')}>create one in network sets →</a>` : nothing}
+        ${!names.length ? html`<a class="link hint" @click=${() => this._emit('bx-admin-tab', 'netsets')}>create one in network sets →</a>` : nothing}
       </div>
       ${sets.length ? html`
-        <div style="margin-top:5px">
-          <span class="muted" style="font-size:10.5px">org tiles reach:</span>
+        <div style="margin-top:4px">
+          <span class="muted hint">org tiles reach:</span>
           ${rules.filter((r) => r !== 'host').map((r) => html`<span class="pill mono" title=${r}>${ruleLabel(r)}</span>`)}
-          ${o.netHost ? html`<span class="pill pol" title="a set grants host networking: every org-bound tile and terminal shares the host's network stack — no relay, no filtering, no metering">⚠ host networking</span>` : nothing}
+          ${o.netHost ? html`<span class="pill hostnet" title="a set grants host networking: every org-bound tile and terminal shares the host's network stack — no relay, no filtering, no metering"><bx-icon name="warning"></bx-icon>host networking</span>` : nothing}
           ${!rules.length ? html`<span class="empty">nothing — the attached sets carry no rules (airgapped, incl. DNS)</span>` : nothing}
         </div>
         <div class="foot">org-owned tiles that declare
@@ -413,7 +413,7 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
     const d = this._draft(key);
     const wire = d.rows.map(fmtAllow);
     const ok = !d.rows.some((r) => allowProblem(r)) && new Set(wire).size === wire.length;
-    return html`<div class="editor" style="margin-top:6px">
+    return html`<div class="editor" style="margin-top:8px">
       <div class="muted" style="margin-bottom:2px">Extra entries for <b>this org only</b> (on top of its sets) — its admins may approve, on their own tiles:</div>
       ${allowRows(d.rows, (rows) => this._setDraft(key, { ...this._draft(key), rows }), { gotoTab: (x) => this._emit('bx-admin-tab', x) })}
       ${d.err ? html`<div class="err" role="alert">${d.err}</div>` : nothing}
@@ -500,7 +500,7 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
     const row = (label, body) => html`<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:4px">
       <span style="min-width:9ch; font-weight:600">${label}</span>${body}</div>`;
     return html`
-      <div style="font-size:12px; max-width:64ch">
+      <div style="max-width:64ch">
         ${row('tiles', html`
           ${Object.entries(nu.tiles ?? {}).map(([p, l]) => html`<span class="pill lv-${l}">${p} · ${l}</span>`)}
           ${!Object.keys(nu.tiles ?? {}).length ? html`<span class="muted">none</span>` : nothing}
@@ -524,7 +524,7 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
           <bx-multiselect style="min-width:130px" .options=${this._setOpts(this.netsets?.sets)} .selected=${nu.netSets ?? []} placeholder="— none —"
             @change=${(e) => this._putDefaults({ newUsers: { ...nu, netSets: e.detail.selected } })}></bx-multiselect>`)}
         ${row('orgs', html`
-          ${rows.map((r) => html`<span style="display:inline-flex; gap:4px; align-items:center; border:1px solid var(--bx-border, #363c45); border-radius:6px; padding:2px 6px">
+          ${rows.map((r) => html`<span class="rule">
             <span class="mono">${r.org}</span>
             <select title="org-wide level on tiles the org owns"
               @change=${(e) => saveOrgs(rows.map((x) => (x.org === r.org ? { ...x, level: e.target.value } : x)))}>
@@ -532,7 +532,7 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
             </select>
             <label class="muted"><input type="checkbox" .checked=${!!r.create} title="may create org-owned tiles"
               @change=${(e) => saveOrgs(rows.map((x) => (x.org === r.org ? { ...x, create: e.target.checked } : x)))}> create</label>
-            <button class="act rm" title="stop auto-joining this org" @click=${() => saveOrgs(rows.filter((x) => x.org !== r.org))}>✕</button>
+            <button class="act quiet rm icon" title="stop auto-joining this org" aria-label="stop auto-joining this org" @click=${() => saveOrgs(rows.filter((x) => x.org !== r.org))}><bx-icon name="xmark"></bx-icon></button>
           </span>`)}
           ${!rows.length ? html`<span class="muted">none — new accounts join no org</span>` : nothing}
           ${unused.length ? html`<select @change=${(e) => { const id = e.target.value; e.target.value = ''; if (id) saveOrgs([...rows, { org: id, level: 'read' }]); }}>

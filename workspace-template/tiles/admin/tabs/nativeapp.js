@@ -18,11 +18,11 @@ export class BxAdminNativeApp extends WithRouter(LitElement) {
     _err: { state: true },
   };
   static styles = [base, css`
-    .card { max-width: 560px; border: 1px solid var(--bx-border, #363c45); border-radius: 8px; padding: 12px 14px; background: var(--bx-panel, #23272e); }
-    .card h4 { margin: 0 0 6px; }
-    label.sw { display: flex; gap: 8px; align-items: flex-start; font-size: 12px; margin-top: 8px; }
-    .hint { color: var(--bx-muted, #868f9a); font-size: 12px; }
-    .state { margin-top: 8px; font-size: 12px; }
+    .card { max-width: 560px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: var(--bx-pad); background: var(--bx-panel); }
+    .card h4 { margin: 0 0 8px; }
+    label.sw { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; }
+    .hint { color: var(--bx-muted); }
+    .state { margin-top: 8px; display: flex; gap: 6px; align-items: center; }
   `];
 
   constructor() { super(); this._state = null; this._busy = false; }
@@ -63,7 +63,7 @@ export class BxAdminNativeApp extends WithRouter(LitElement) {
         <span><b>Open tiles natively in the app</b> where they have a native UI.</span>
       </label>
       <div class="state">
-        <span class="dot" style="background:${s.enabled ? 'var(--bx-green, #4caf50)' : 'var(--bx-amber, #f2a71b)'}"></span>
+        <bx-icon class=${s.enabled ? 'st-healthy' : 'warn-ic'} name=${s.enabled ? 'ok' : 'warning'}></bx-icon>
         ${s.enabled ? html`on — the app is told native runtime ${s.version}`
           : html`off — the app is told native runtime 0 and opens web pages; tiles open in the app switch to their web pages now`}
       </div>

@@ -198,7 +198,7 @@ export class BxAdminBackup extends WithRouter(LitElement) {
     if (!k) return nothing;
     if (k.mode === 'plaintext') return html`<p class="muted">Archives are plain tars: the plaintext-vault mode
       (--insecure-vault / --no-auth) seals nothing.</p>`;
-    if (k.mode === 'vault-locked') return html`<p><b style="color: var(--bx-amber, #f2a71b)">No backup runs: the vault
+    if (k.mode === 'vault-locked') return html`<p><b class="warn-ic"><bx-icon name="warning"></bx-icon> No backup runs: the vault
       isn't set up yet</b>, and every archive is sealed under a key it holds. Set it up on the Vault tab
       (or <code>bx vault unseal</code>).</p>`;
     const when = k.lastExport ? new Date(k.lastExport).toLocaleString() : 'never';
@@ -210,11 +210,11 @@ export class BxAdminBackup extends WithRouter(LitElement) {
       <div class="keys-status">
         <span class="mono">${k.keys} key${k.keys === 1 ? '' : 's'}</span>
         · last export: <span class="mono">${when}</span>
-        ${k.unexported ? html` · <b style="color: var(--bx-amber, #f2a71b)">${k.unexported} not in any export yet</b>` : nothing}
+        ${k.unexported ? html` · <b class="warn-ic"><bx-icon name="warning"></bx-icon> ${k.unexported} not in any export yet</b>` : nothing}
         ${k.lastExport ? html` · erased since your last export: <span class="mono">${k.erasedSinceExport}</span>` : nothing}
-        · <a class="link" @click=${() => this._exportKeys()}>export key bundle</a>
+        · <button class="act quiet" @click=${() => this._exportKeys()}>export key bundle</button>
       </div>
-      ${k.passphraseChanged && k.keys ? html`<p><b style="color: var(--bx-amber, #f2a71b)">The vault passphrase changed
+      ${k.passphraseChanged && k.keys ? html`<p><b class="warn-ic"><bx-icon name="warning"></bx-icon> The vault passphrase changed
         after the last export</b>: export a fresh bundle and destroy the older ones — they still open with the old
         passphrase.</p>` : nothing}
       ${k.lastExport && k.erasedSinceExport ? html`<p class="muted">Export again and destroy older bundles: they still hold
@@ -235,11 +235,11 @@ export class BxAdminBackup extends WithRouter(LitElement) {
         </select></td>
         <td class="mono">${sched
           ? html`${sched.schedule}${sched.retention ? ' ·keep ' + sched.retention : ''}
-              <a class="link" title="remove schedule" @click=${() => this._clearSchedule(c.path)}>✕</a>`
+              <button class="act quiet rm icon" title="remove schedule" aria-label="remove schedule" @click=${() => this._clearSchedule(c.path)}><bx-icon name="xmark"></bx-icon></button>`
           : this._scheduleForm(c.path)}</td>
         <td style="white-space:nowrap">
-          <a class="link" @click=${() => !busy && this._backupNow(c.path)}>${busy ? 'working…' : 'back up'}</a>
-          · <a class="link" @click=${() => this._toggleVersions(c.path)}>versions${open ? ' ▾' : ''}</a>
+          <button class="act quiet" ?disabled=${busy} @click=${() => !busy && this._backupNow(c.path)}>${busy ? 'working…' : 'back up'}</button>
+          <button class="act quiet" aria-expanded=${open ? 'true' : 'false'} @click=${() => this._toggleVersions(c.path)}>versions <bx-icon name=${open ? 'caret-down' : 'caret-right'}></bx-icon></button>
         </td>
       </tr>
       ${open ? html`<tr><td colspan="5">${this._versionsList(c.path)}</td></tr>` : nothing}`;
@@ -252,9 +252,9 @@ export class BxAdminBackup extends WithRouter(LitElement) {
   _lifecycleControls(c) {
     const st = c.state || 'enabled';
     const busy = this._busy === c.path;
-    const act = (label, state, opts = {}) => html`<a
-      class="link ${opts.gated ? 'gated' : ''}" title=${opts.title || ''}
-      @click=${() => !busy && !opts.gated && this._setLifecycle(c.path, state)}>${busy ? '…' : label}</a>`;
+    const act = (label, state, opts = {}) => html`<button
+      class="act quiet ${opts.gated ? 'gated' : ''}" title=${opts.title || ''} aria-disabled=${opts.gated ? 'true' : 'false'}
+      @click=${() => !busy && !opts.gated && this._setLifecycle(c.path, state)}>${busy ? '…' : label}</button>`;
 
     if (st === 'enabled') return html`enabled · ${act('disable', 'disabled')}`;
     if (st === 'disabled') {
@@ -265,7 +265,7 @@ export class BxAdminBackup extends WithRouter(LitElement) {
       return html`disabled · ${act('enable', 'enabled')}
         · ${act('offload', 'offloaded', { gated: !ready, title: why })}
         · ${act('offload+src', 'offloaded-full', { gated: !ready, title: whyFull })}
-        ${ready ? nothing : html`<span class="muted" style="font-size:11px"> (back up to enable offload)</span>`}`;
+        ${ready ? nothing : html`<span class="muted hint"> (back up to enable offload)</span>`}`;
     }
     // offloaded / offloaded-full
     return html`${st} · ${act('restore', 'enabled')}`;
@@ -282,9 +282,9 @@ export class BxAdminBackup extends WithRouter(LitElement) {
 
   _scheduleForm(comp) {
     return html`<span>
-      <input class="ev" placeholder="24h" style="width:48px">
-      <input class="kp" placeholder="keep" style="width:44px">
-      <a class="link" @click=${(e) => { const s = e.target.parentElement; this._setSchedule(comp, s.querySelector('.ev').value, s.querySelector('.kp').value); }}>set</a>
+      <input class="ev" placeholder="24h" style="width:56px">
+      <input class="kp" placeholder="keep" style="width:64px">
+      <button class="act quiet" @click=${(e) => { const s = e.currentTarget.parentElement; this._setSchedule(comp, s.querySelector('.ev').value, s.querySelector('.kp').value); }}>set</button>
     </span>`;
   }
 
@@ -298,8 +298,8 @@ export class BxAdminBackup extends WithRouter(LitElement) {
         <td class="muted">${v.time}</td>
         <td class="mono">${fmtBytes(v.size)}</td>
         <td style="white-space:nowrap">
-          <a class="link" @click=${() => this._restoreVersion(comp, v.version)}>restore</a>
-          · <a class="link" @click=${() => this._restoreFile(comp, v.version)}>file…</a>
+          <button class="act quiet" @click=${() => this._restoreVersion(comp, v.version)}>restore</button>
+          <button class="act quiet" @click=${() => this._restoreFile(comp, v.version)}>file…</button>
         </td>
       </tr>`)}
     </table>`;

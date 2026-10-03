@@ -162,7 +162,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
             ? `last sign-in ${agoCoarse(d.lastUsed)}${d.lastIP ? ` from ${d.lastIP}` : ''}` : 'not signed in yet'}</span>
           <span class="muted mono" title="the origin this device signs in to">${d.origin}</span>
           <span style="flex:1"></span>
-          <button class="act rm" @click=${() => this._revokeDevice(u.id, d)}>revoke</button>
+          <button class="act quiet rm" @click=${() => this._revokeDevice(u.id, d)}>revoke</button>
         </div>`)}
       <div class="orow" style="margin-top:4px"><span style="flex:1"></span>
         <button class="act" @click=${() => this._toggleDevices(u.id)}>close</button></div>
@@ -173,7 +173,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     const p = presetOf(m);
     return p !== 'custom' ? p : `${m.level}${m.create ? '+create' : ''}`;
   }
-  // The users table's org pills: manual vs ⟳ synced (dashed), ★ org admin.
+  // The users table's org pills: manual vs synced (dashed, the sync mark), the key for an org admin.
   _userOrgsCell(u) {
     const pills = [];
     for (const o of (this.orgs ?? [])) {
@@ -182,7 +182,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
       const synced = m.via === 'sso';
       pills.push(html`<span class="pill ${m.admin ? 'crown' : ''} ${synced ? 'sync' : ''}" style=${m.suspended ? 'opacity:.55' : ''}
         title=${synced ? `synced from IdP group ${(m.viaGroups ?? []).join(', ')} — follows the group at every sign-in` : 'manual membership'}>
-        ${m.admin ? '★ ' : ''}${synced ? '⟳ ' : ''}${o.id} · ${this._presetLabel(m)}${m.suspended ? ' · suspended' : ''}</span>`);
+        ${m.admin ? html`<bx-icon name="key" label="org admin"></bx-icon>` : ''}${synced ? html`<bx-icon name="refresh" label="synced"></bx-icon>` : ''}${o.id} · ${this._presetLabel(m)}${m.suspended ? ' · suspended' : ''}</span>`);
     }
     return pills.length ? pills : html`<span class="muted">—</span>`;
   }
@@ -243,15 +243,15 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
   _viewAsBox() {
     const v = this._viewAs;
     if (!v) return nothing;
-    return html`<div data-viewas style="margin:8px 0; padding:8px 10px; border:1px solid var(--bx-amber, #f2a71b);
-        border-radius:6px; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
-      <b style="font-size:12px">👁 viewing as ${v.id}</b>
-      <span class="muted" style="font-size:11px">${v.opened ? 'opened in a new tab — exit from the banner there.' : 'the browser blocked the new tab — open it yourself:'}</span>
+    return html`<div data-viewas style="margin:8px 0; padding:8px 12px; border:1px solid var(--bx-warn); background:var(--bx-warn-bg);
+        border-radius:var(--bx-radius); display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <b style="display:inline-flex; gap:6px; align-items:center"><bx-icon name="eye"></bx-icon>viewing as ${v.id}</b>
+      <span class="muted">${v.opened ? 'opened in a new tab — exit from the banner there.' : 'the browser blocked the new tab — open it yourself:'}</span>
       <a class="link" href=${v.url} target="_blank" rel="noopener">open</a>
       <input class="mono" size="40" readonly .value=${v.url} @focus=${(e) => e.target.select()}>
       <button class="act" @click=${() => navigator.clipboard?.writeText(v.url)}>copy</button>
-      <span class="muted" style="font-size:10.5px">read-only · works for 2 minutes, in this browser only · every tab is them until you exit</span>
-      <button class="act" @click=${() => { this._viewAs = null; }}>✕</button>
+      <span class="muted hint">read-only · works for 2 minutes, in this browser only · every tab is them until you exit</span>
+      <button class="act quiet icon" aria-label="dismiss" title="dismiss" @click=${() => { this._viewAs = null; }}><bx-icon name="xmark"></bx-icon></button>
     </div>`;
   }
 
@@ -261,13 +261,13 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
   _inviteBox() {
     const inv = this._invite;
     if (!inv) return nothing;
-    return html`<div style="margin:8px 0; padding:8px 10px; border:1px solid var(--bx-green, #4caf50);
-        border-radius:6px; display:flex; gap:8px; align-items:center; flex-wrap:wrap">
-      <b style="font-size:12px">invite link for ${inv.id}</b>
+    return html`<div style="margin:8px 0; padding:8px 12px; border:1px solid var(--bx-ok); background:var(--bx-ok-bg);
+        border-radius:var(--bx-radius); display:flex; gap:8px; align-items:center; flex-wrap:wrap">
+      <b>invite link for ${inv.id}</b>
       <input class="mono" size="46" readonly .value=${inv.url} @focus=${(e) => e.target.select()}>
       <button class="act" @click=${() => navigator.clipboard?.writeText(inv.url)}>copy</button>
-      <span class="muted" style="font-size:10.5px">single-use · expires in 72h · send it to them yourself</span>
-      <button class="act" @click=${() => { this._invite = null; }}>✕</button>
+      <span class="muted hint">single-use · expires in 72h · send it to them yourself</span>
+      <button class="act quiet icon" aria-label="dismiss" title="dismiss" @click=${() => { this._invite = null; }}><bx-icon name="xmark"></bx-icon></button>
     </div>`;
   }
 
@@ -278,7 +278,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     if (!reqs.length) return nothing;
     return html`
       <h4>access requests</h4>
-      ${reqs.map((q) => html`<div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin:3px 0; font-size:12px">
+      ${reqs.map((q) => html`<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:4px 0">
         <span class="mono">${q.user}</span> wants
         <select id="rq-${q.user}-${q.tile}">
           ${['read', 'write', 'terminal'].map((l) => html`<option value=${l} ?selected=${q.level === l}>${l}</option>`)}
@@ -357,7 +357,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
       <h4>users ${users.length ? html`<span class="muted" style="text-transform:none; letter-spacing:0">— ${users.length} account${users.length === 1 ? '' : 's'}
         · ${nAdmins} admin${nAdmins === 1 ? '' : 's'}${nDisabled ? ` · ${nDisabled} disabled` : ''}${nInvited ? ` · ${nInvited} invited` : ''}</span>` : nothing}</h4>
       ${users.length > 1 ? html`
-      <div class="filterbar" style="margin:4px 0 6px">
+      <div class="filterbar" style="margin:4px 0 8px">
         <input class="q" type="search" placeholder="filter by id, name, email or org…" .value=${this._usersQ ?? ''}
           @input=${(e) => { this._usersQ = e.target.value; }}>
         <div class="chips">
@@ -408,10 +408,10 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
             <option value="viewer">as viewer</option>
             <option value="admin">as org admin</option>
           </select>` : nothing}
-        <label class="muted" style="font-size:11px"><input type="checkbox" name="termApi"> term-api</label>
-        <label class="muted" style="font-size:11px" title="internet in terminals on personal/workspace tiles (org tiles follow their org's network sets)"><input type="checkbox" name="termNet"> term-net</label>
-        <label class="muted" style="font-size:11px" title="may not own tiles personally — org-owned tiles only (D88)"><input type="checkbox" name="noPersonalTiles"> no personal tiles</label>
-        <label class="muted" style="font-size:11px" title="capped at write on every tile: no shells, agent sessions or backend logs (D88)"><input type="checkbox" name="noTerminal"> no terminal</label>
+        <label class="muted"><input type="checkbox" name="termApi"> term-api</label>
+        <label class="muted" title="internet in terminals on personal/workspace tiles (org tiles follow their org's network sets)"><input type="checkbox" name="termNet"> term-net</label>
+        <label class="muted" title="may not own tiles personally — org-owned tiles only (D88)"><input type="checkbox" name="noPersonalTiles"> no personal tiles</label>
+        <label class="muted" title="capped at write on every tile: no shells, agent sessions or backend logs (D88)"><input type="checkbox" name="noTerminal"> no terminal</label>
         <select name="signin" title="how this account signs in" @change=${(e) => { this._newSignin = e.target.value; }}>
           <option value="password" ?selected=${signin === 'password'}>sign-in: password</option>
           <option value="invite" ?selected=${signin === 'invite'}>sign-in: invite link</option>
@@ -423,7 +423,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
       })()}
       ${this._inviteBox()}
       ${this._viewAsBox()}
-      <p class="muted" style="font-size:11px;margin-top:6px; max-width:80ch">
+      <p class="muted hint" style="margin-top:8px; max-width:80ch">
         <b>SSO</b>: no password, no link — the bound email's IdP sign-in lands on this account.
         <b>Invite link</b>: a single-use link they open to set a password (there is no self-signup).
         Every new account also gets the <b>new accounts</b> seed (organisations tab); more orgs
@@ -447,7 +447,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
         ${u.name !== u.id || u.email ? html`<div class="sub">${u.name !== u.id ? u.name : ''}${u.email ? html` <span
           title="SSO binding — a verified ${u.email} sign-in lands on this account">&lt;${u.email}&gt;</span>` : nothing}</div>` : nothing}</td>
       <td><span class="pill">${u.role}</span>${synced ? html`<span class="pill sync"
-          title="workspace admin via an IdP group rule (sign-in › group sync) — demote by removing them from the group">⟳ synced</span>` : nothing}${u.disabled ? html`<span class="pill off" title="account disabled — can't sign in; everything is kept for re-enable (D34)">disabled</span>` : nothing}${u.invitePending ? html`<span class="pill" title="an unredeemed invite link is out">invited</span>` : nothing}</td>
+          title="workspace admin via an IdP group rule (sign-in › group sync) — demote by removing them from the group"><bx-icon name="refresh"></bx-icon>synced</span>` : nothing}${u.disabled ? html`<span class="pill off" title="account disabled — can't sign in; everything is kept for re-enable (D34)">disabled</span>` : nothing}${u.invitePending ? html`<span class="pill" title="an unredeemed invite link is out">invited</span>` : nothing}</td>
       <td>${this._userOrgsCell(u)}</td>
       <td>${u.role === 'admin' ? html`<span class="muted">all</span>`
         : html`${Object.entries(u.tiles || {}).map(([p, l]) => html`<span class="pill lv-${l}">${p} · ${l}</span>`)}
@@ -461,20 +461,20 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
             ? html`<span class="muted">—</span>` : nothing}`}</td>
       <td style="white-space:nowrap">${this._lastLoginCell(u)}</td>
       <td style="text-align:right; white-space:nowrap">
-        <button class="act" title="org memberships — join, leave, level, detach from IdP sync" @click=${() => this._toggleDraft(orgsKey, () => true)}>orgs…</button>
+        <button class="act quiet" title="org memberships — join, leave, level, detach from IdP sync" @click=${() => this._toggleDraft(orgsKey, () => true)}>orgs…</button>
         ${u.role === 'admin' ? nothing : html`
-          <button class="act" title="per-tile access outside orgs" @click=${() => this._toggleDraft(tilesKey,
+          <button class="act quiet" title="per-tile access outside orgs" @click=${() => this._toggleDraft(tilesKey,
             () => Object.entries(u.tiles ?? {}).map(([target, level]) => ({ target, level })))}>tiles…</button>
-          <button class="act" title="the tiles they own: switches, permission and network sets (D88)"
+          <button class="act quiet" title="the tiles they own: switches, permission and network sets (D88)"
             @click=${() => this._toggleDraft(personalKey, () => true)}>personal…</button>`}
-        ${u.deviceCount ? html`<button class="act" title="the xbin app devices enrolled for this account"
+        ${u.deviceCount ? html`<button class="act quiet" title="the xbin app devices enrolled for this account"
           @click=${() => this._toggleDevices(u.id)}>devices (${u.deviceCount})…</button>` : nothing}
         ${this._pwEdit === u.id ? html`
           <form style="display:inline-flex; gap:4px" @submit=${(e) => { e.preventDefault();
               const pw = e.target.pw.value; this._pwEdit = null; this._resetPw(u.id, pw); }}>
             <input name="pw" type="password" size="12" placeholder="new password (min 8)" autofocus>
             <button class="act" type="submit">set</button>
-            <button class="act" type="button" @click=${() => { this._pwEdit = null; }}>✕</button>
+            <button class="act quiet icon" type="button" aria-label="cancel" title="cancel" @click=${() => { this._pwEdit = null; }}><bx-icon name="xmark"></bx-icon></button>
           </form>` : nothing}
         ${this._userMenu(u)}
       </td>
@@ -494,8 +494,8 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     const upath = `/users/${encodeURIComponent(u.id)}`;
     const opts = (m) => Object.keys(m ?? {}).sort().map((n) => ({ value: n, label: n }));
     const pl = u.personal ?? {};
-    return html`<div class="personal" style="padding:6px 8px; background:var(--bx-panel-2, #2b3038); border-radius:6px; font-size:12px">
-      <div style="display:flex; gap:14px; flex-wrap:wrap; align-items:center">
+    return html`<div class="personal editor">
+      <div style="display:flex; gap:16px; flex-wrap:wrap; align-items:center">
         <label><input type="checkbox" name="noPersonalTiles" .checked=${!!u.noPersonalTiles}
           @change=${(e) => this._orgAPI('PATCH', upath, { noPersonalTiles: e.target.checked })}> no personal tiles</label>
         <label title="capped at write on every tile; switching it on ends their open terminals and agent sessions"><input type="checkbox" name="noTerminal" .checked=${!!u.noTerminal}
@@ -507,13 +507,13 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
           <bx-multiselect class="nsets" style="min-width:130px" .options=${opts(this.netsets?.sets)} .selected=${u.netSets ?? []}
             placeholder="— none —" @change=${(e) => this._orgAPI('PATCH', upath, { netSets: e.detail.selected })}></bx-multiselect></label>
       </div>
-      <div style="margin-top:5px">
-        <span class="muted" style="font-size:10.5px">may approve on own tiles:</span>
+      <div style="margin-top:4px">
+        <span class="muted hint">may approve on own tiles:</span>
         ${(pl.allow ?? []).map((a) => html`<span class="pill mono">${a}</span>`)}
         ${!(pl.allow ?? []).length ? html`<span class="muted">nothing — only narrowing (revoke, unbind, none)</span>` : nothing}
       </div>
-      <div style="margin-top:3px">
-        <span class="muted" style="font-size:10.5px">personal network:</span>
+      <div style="margin-top:4px">
+        <span class="muted hint">personal network:</span>
         ${(pl.netRules ?? []).map((r) => html`<span class="pill mono" title="default egress of their tiles and a terminal scope there">${r}</span>`)}
         ${!(pl.netRules ?? []).length ? html`<span class="muted">none — their tiles' net slots stay unbound; terminals follow term-net</span>` : nothing}
       </div>
@@ -525,7 +525,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     const synced = u.roleVia === 'sso';
     const live = (this.sessions ?? []).filter((s) => s.user === u.id).length;
     return html`<details class="menu">
-      <summary>more ▾</summary>
+      <summary>more <bx-icon name="caret-down"></bx-icon></summary>
       <div class="items" @click=${(e) => this._menuDone(e)}>
         <button ?disabled=${synced} title=${synced ? 'role comes from an IdP group rule — change it in sign-in › group sync' : ''}
           @click=${() => this._patchUser(u.id, { role: u.role === 'admin' ? 'user' : 'admin' })}>${u.role === 'admin' ? 'demote to user' : 'make admin'}</button>
@@ -578,7 +578,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
             <label class="muted"><input type="checkbox" .checked=${!!m.create} ?disabled=${synced} @change=${(e) => this._setMembership(o.id, u.id, { create: e.target.checked })}> create</label>
             <label class="muted"><input type="checkbox" .checked=${!!m.admin} ?disabled=${synced} @change=${(e) => this._setMembership(o.id, u.id, { admin: e.target.checked })}> org admin</label>
             <label class="muted"><input type="checkbox" .checked=${!!m.suspended} @change=${(e) => this._setMembership(o.id, u.id, { suspended: e.target.checked })}> suspended</label>
-            ${synced ? html`<span class="pill sync" title="synced from IdP group — knobs follow the rule at every sign-in">⟳ ${(m.viaGroups ?? []).join(', ')}</span>
+            ${synced ? html`<span class="pill sync" title="synced from IdP group — knobs follow the rule at every sign-in"><bx-icon name="refresh"></bx-icon>${(m.viaGroups ?? []).join(', ')}</span>
               <button class="act" title="stop syncing this membership; it becomes manual" @click=${async () => { await this._setMembership(o.id, u.id, { via: '' }); if (!this._err) this._emit('bx-admin-notice', `${o.id}: ${u.id} is now a manual member`); }}>detach</button>` : nothing}
             ${ruleMatches ? html`<span class="muted" title="a group rule also matches this user; remove this manual row to let sync manage it">manual (rule also matches)</span>` : nothing}`
             : html`<span class="muted">not a member — tick to join as developer</span>`}
@@ -589,7 +589,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
         ${groups.length ? groups.map((g) => { const org = ruleFor(this.orgs, g); return html`<span class="pill mono" title=${org ? `rule → ${org}` : 'no rule maps this group'}>${g}${org ? ` → ${org}` : ''}</span>`; })
           : html`<span class="muted">none seen yet</span>`}
         <span style="flex:1"></span>
-        <span class="muted" style="font-size:10.5px">changes save immediately · one request per click</span>
+        <span class="muted hint">changes save immediately · one request per click</span>
         <button class="act" @click=${() => this._dropDraft(key)}>close</button>
       </div>
     </div>`;

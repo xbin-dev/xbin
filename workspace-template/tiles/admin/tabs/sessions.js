@@ -40,18 +40,18 @@ export class BxAdminSessions extends WithRouter(LitElement) {
         ${!all.length ? html`<tr><td class="muted" colspan="6">no live sessions</td></tr>`
           : !ss.length ? html`<tr><td class="muted" colspan="6">no sessions match</td></tr>`
           : repeat(ss, (s) => `${s.user}:${s.created}:${s.ip}`, (s) => html`<tr>
-          <td class="mono">${s.user}${s.name && s.name !== s.user ? html` <span class="muted">${s.name}</span>` : nothing}${s.impersonatedBy
-            ? html` <span class="pill" title="an admin's read-only view of this user (D64) — ends when they exit the banner">👁 viewed by ${s.impersonatedBy}</span>` : nothing}${s.via === 'device' || s.via === 'app'
-            ? html` <span class="pill" title=${s.via === 'device' ? `the xbin app, signed in with device ${s.device}` : 'the xbin app, signed in with a password or SSO'}>📱 app</span>` : nothing}</td>
-          <td title=${new Date(s.created * 1000).toLocaleString()}>${this._ago(s.created)}</td>
-          <td title=${new Date(s.lastActive * 1000).toLocaleString()}>${this._ago(s.lastActive)}</td>
+          <td class="mono">${s.user}${s.name && s.name !== s.user ? html` <span class="muted sans">${s.name}</span>` : nothing}${s.impersonatedBy
+            ? html` <span class="pill" title="an admin's read-only view of this user (D64) — ends when they exit the banner"><bx-icon name="eye"></bx-icon>viewed by ${s.impersonatedBy}</span>` : nothing}${s.via === 'device' || s.via === 'app'
+            ? html` <span class="pill" title=${s.via === 'device' ? `the xbin app, signed in with device ${s.device}` : 'the xbin app, signed in with a password or SSO'}><bx-icon name="device"></bx-icon>app</span>` : nothing}</td>
+          <td class="mono" title=${new Date(s.created * 1000).toLocaleString()}>${this._ago(s.created)}</td>
+          <td class="mono" title=${new Date(s.lastActive * 1000).toLocaleString()}>${this._ago(s.lastActive)}</td>
           <td class="mono">${s.ip || '—'}</td>
           <td class="mono">${s.lastIP || '—'}</td>
           <td style="text-align:right">${s.current ? html`<span class="pill" title="the session you are signed in with right now">this session</span>`
-            : html`<button class="act rm" title="ends ALL of ${s.user}'s sessions (${perUser[s.user]})" @click=${() => this._signOutUser(s.user)}>sign out</button>`}</td>
+            : html`<button class="act quiet rm" title="ends ALL of ${s.user}'s sessions (${perUser[s.user]})" @click=${() => this._signOutUser(s.user)}>sign out</button>`}</td>
         </tr>`)}
       </table>
-      <p class="muted" style="font-size:11px;margin-top:6px;max-width:72ch">
+      <p class="muted hint" style="margin-top:8px;max-width:72ch">
         Bootstrap <b>token logins</b> (<span class="mono">/login?token=…</span>) are
         stateless and don't appear here. An IP with activity in the last hour counts as
         <b>recently authenticated</b>: that's the second half of the rule serving tile

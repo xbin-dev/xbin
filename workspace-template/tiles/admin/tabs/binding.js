@@ -79,15 +79,15 @@ export class BxAdminBinding extends WithRouter(WithFilter(WithDrafts(LitElement)
           <td class="mono">${grantArrow(g)}</td>
           <td><span class="pill">${g.role}</span></td>
           <td style="text-align:right">${g.blocked
-            ? html`<span class="err-pill" title=${g.blocked}>⛔ blocked by policy</span>`
+            ? html`<span class="err-pill" title=${g.blocked}><bx-icon name="error"></bx-icon>blocked by policy</span>`
             : html`<button class="act go" @click=${() => this._grant(g.from, g.target, g.role)}>approve</button>`}</td>
-        </tr>${g.warning ? html`<tr><td colspan="3" class="warn-line" data-grant-warning=${g.from + ' ' + g.target}>⚠ ${g.warning}</td></tr>` : nothing}`)}</table>` : nothing}
+        </tr>${g.warning ? html`<tr><td colspan="3" class="warn-line" data-grant-warning=${g.from + ' ' + g.target}><bx-icon name="warning"></bx-icon> ${g.warning}</td></tr>` : nothing}`)}</table>` : nothing}
 
       <h4>active grants</h4>
       <table>${grants.length ? grants.map((g) => html`<tr>
         <td class="mono">${grantArrow(g)}</td>
         <td><span class="pill">${g.role}</span></td>
-        <td style="text-align:right"><button class="act rm" @click=${() => this._revoke(g)}>revoke</button></td>
+        <td style="text-align:right"><button class="act quiet rm" @click=${() => this._revoke(g)}>revoke</button></td>
       </tr>`) : html`<tr><td class="muted">${this._q ? 'no matching grants' : 'none'}</td></tr>`}</table>
 
       <h4>add grant</h4>
@@ -217,9 +217,9 @@ export class BxAdminBinding extends WithRouter(WithFilter(WithDrafts(LitElement)
             <input name="ref" size="28" placeholder="lan:10.0.0.0/8 · internet:api.example.com:443" .value=${custom}
               title="filtered egress (D35): lan:<ip|cidr>[:port] or internet:<host|ip|cidr>[:port][,…] — hostnames are DNS-pinned; no globs in bindings — or set:<name>, one network set (D65)">
             <button class="act go">bind</button>
-            <button class="act" type="button" @click=${() => this._dropDraft(ck)}>✕</button></form>` : nothing}
-        ${inert ? html`<span class="pill pol" title=${inert}>inert</span> <span class="warn-line" style="display:inline">${inert}</span>` : nothing}
-        ${org ? html`<span class="muted" style="font-size:10.5px" title="owned by org:${org.id} — its network sets bound this list">🏢 ${org.id}</span>` : nothing}
+            <button class="act quiet icon" type="button" aria-label="cancel" title="cancel" @click=${() => this._dropDraft(ck)}><bx-icon name="xmark"></bx-icon></button></form>` : nothing}
+        ${inert ? html`<span class="pill pol" title=${inert}><bx-icon name="error"></bx-icon>inert</span> <span class="warn-line" style="display:inline">${inert}</span>` : nothing}
+        ${org ? html`<span class="muted hint" title="owned by org:${org.id} — its network sets bound this list"><bx-icon name="org"></bx-icon> ${org.id}</span>` : nothing}
       </td></tr>`;
   }
 
@@ -257,7 +257,7 @@ export class BxAdminBinding extends WithRouter(WithFilter(WithDrafts(LitElement)
     return html`<span class="pill" title="a global bind: every person's partition and the global instance see it">global</span>
       ${mine.map((b) => html`<span class="pill" title=${b.live ? `${b.user}'s personal bind: only their partition sees it` : `inert: ${b.why}`}>
         personal · ${b.user} → ${b.provider}${b.live ? '' : ' (inert)'}
-        <a class="link" title="remove this personal bind" @click=${() => this._dropPersonal(b)}>✕</a></span>`)}`;
+        <button class="act quiet icon" title="remove this personal bind" aria-label="remove this personal bind" @click=${() => this._dropPersonal(b)}><bx-icon name="xmark"></bx-icon></button></span>`)}`;
   }
   async _dropPersonal(b) {
     try {

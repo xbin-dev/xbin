@@ -119,11 +119,11 @@ export class BxAdminPartitions extends WithRouter(WithFilter(LitElement)) {
         <td class="mono">${o.user}</td><td class="mono" title=${o.partition}>${shortId(o.partition)}</td>
         <td>${orphanWhy(o.reason)}</td>
         <td class="mono">${when(o.since)}</td>
-        <td><button class="act rm" ?disabled=${this._busy} @click=${() => this._askPurge([o])}>purge…</button></td>
+        <td><button class="act quiet rm" ?disabled=${this._busy} @click=${() => this._askPurge([o])}>purge…</button></td>
       </tr>`)}
     </table>
     <div class="pt-bar"><button class="act rm" data-pt-purge-all ?disabled=${this._busy} @click=${() => this._askPurge(rows)}>purge all orphans…</button>
-      <span class="muted" style="font-size:11px">An orphan is deleted 30 days after its person's deletion or its tile's removal; purging deletes it now, with its backup keys.</span></div>`;
+      <span class="muted hint">An orphan is deleted 30 days after its person's deletion or its tile's removal; purging deletes it now, with its backup keys.</span></div>`;
   }
 
   _purgeAsk() {
@@ -142,7 +142,7 @@ export class BxAdminPartitions extends WithRouter(WithFilter(LitElement)) {
     const open = this._open.has(t.tile), tot = t.totals || {};
     const notes = tileNotes(t);
     return html`<tr class="pt-row ${open ? 'open' : ''}" data-pt-tile=${t.tile} data-state=${t.state} @click=${() => this._toggle(t.tile)}>
-      <td><span class="caret ${open ? 'o' : ''}">▶</span> <span class="mono">${t.tile}</span></td>
+      <td><span class="caret ${open ? 'o' : ''}"><bx-icon name=${open ? 'caret-down' : 'caret-right'}></bx-icon></span> <span class="mono">${t.tile}</span></td>
       <td><span class="pt-mode">${modeName(t.spec)}</span></td>
       <td class="pt-state ${t.state}">${stateWords(t.state)}${t.request && !t.request.declined ? html` <span class="muted">→ ${modeName(t.request.spec)}</span>` : nothing}
         ${t.request?.declined ? html` <span class="muted">(declined ${modeName(t.request.spec)})</span>` : nothing}</td>
@@ -177,7 +177,7 @@ export class BxAdminPartitions extends WithRouter(WithFilter(LitElement)) {
         never what it holds. Open a tile to decide its mode, stop or reset a person's partition, or restore one from a backup.` : nothing}</p>
       ${admin ? nothing : html`<div class="pt-warn" data-pt-notadmin>You aren't a workspace admin: this view shows each tile's state and
         any request (a tile's manager can keep or switch its mode here), never who holds a partition.</div>`}
-      ${d.isolated === false ? html`<div class="pt-warn" data-pt-unisolated>⚠ xbind runs without <span class="mono">--isolate</span>:
+      ${d.isolated === false ? html`<div class="pt-warn" data-pt-unisolated><bx-icon name="warning"></bx-icon> xbind runs without <span class="mono">--isolate</span>:
         people's partitions can't start here (a tile that asks for them runs no one's).</div>` : nothing}
       ${tiles.length ? html`
         ${this._filterBar('filter by tile or mode…', cats, rows.length, tiles.length)}
@@ -187,7 +187,7 @@ export class BxAdminPartitions extends WithRouter(WithFilter(LitElement)) {
         </table>
         ${admin ? html`<div class="pt-bar"><button class="act" data-pt-untracked=${u ? 'checked' : ''} ?disabled=${this._busy}
           @click=${() => this._checkUntracked()}>${u ? 'check untracked files again' : 'check untracked files'}</button>
-          <span class="muted" style="font-size:11px">files a person left in a partitioned tile's shared directory, which its repository
+          <span class="muted hint">files a person left in a partitioned tile's shared directory, which its repository
             doesn't track${u ? html` — checked ${when(u.at)}, ${untrackedSummary(u.byTile)}` : ''}</span></div>` : nothing}`
         : html`<p class="muted" data-pt-none>No tile keeps each person's data apart yet. A tile asks for it with
           <span class="mono">"partition": ["user"]</span> in its xbin.json.</p>`}

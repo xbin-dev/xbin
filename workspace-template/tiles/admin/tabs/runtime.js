@@ -20,6 +20,13 @@ import { diffHTML, hl, langFor } from '/vendor/bx-code.js';
 import { base, runtimeCss } from '../admin-css.js';
 import { fmtBytes, fmtDur, setLifecycle, WithFilter, WithRouter } from '../shared.js';
 
+// A backend state's icon before its word (a status badge, R2 of D184).
+const STATE_ICON = { healthy: 'ok', failed: 'error', building: 'wait' };
+const stateBadge = (st) => html`<span class="state ${st}">${STATE_ICON[st] ? html`<bx-icon name=${STATE_ICON[st]}></bx-icon>` : nothing}${st}</span>`;
+// How a backend is isolated, in words with its glyph: a VM, the rootless
+// namespace sandbox, or the host (no sandbox — a warning).
+const SBX = { vm: ['vm', 'VM'], namespace: ['lock', 'ns'], host: ['warning', 'host'] };
+
 export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
   static properties = {
     view: { type: String },            // components | resources
@@ -148,7 +155,7 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
       <div class="hd">
         <a class="link" @click=${() => { this._codeComp = null; }}>← components</a>
         <span class="path">${this._codeComp}</span>
-        ${this._codeLog?.remote ? html`<span class="muted" style="font-size:11px" title="git remote (origin)">${this._codeLog.remote.replace(/^https:\/\/|\.git$/g, '')}</span>` : nothing}
+        ${this._codeLog?.remote ? html`<span class="muted mono" title="git remote (origin)">${this._codeLog.remote.replace(/^https:\/\/|\.git$/g, '')}</span>` : nothing}
       </div>
       <div class="code">
         <div class="side">
@@ -162,7 +169,7 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
           <div class="hist">
             <div class="grouphd">history</div>
             <div class="row ${this._codeMode === 'diff' && this._codeDiff?.rev === '' ? 'on' : ''}"
-                 @click=${() => this._loadDiff('')}>● uncommitted changes</div>
+                 @click=${() => this._loadDiff('')}><bx-icon name="live"></bx-icon> uncommitted changes</div>
             ${noRepo ? html`<div class="row muted">not a git repo</div>`
               : log.length ? log.map((c) => html`
                 <div class="row ${this._codeMode === 'diff' && this._codeDiff?.rev === c.hash ? 'on' : ''}"
@@ -206,8 +213,8 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
   // read even if a mask is peeled). Green when the kernel supports each.
   _guardStatus(p) {
     p = p || {};
-    const mark = (on) => (on ? '✓' : '✗');
-    const land = p.landlock ? `✓ (ABI ${p.landlockAbi})` : '✗';
+    const mark = (on) => (on ? html`<bx-icon class="st-healthy" name="check" label="on"></bx-icon>` : html`<bx-icon class="st-failed" name="xmark" label="off"></bx-icon>`);
+    const land = p.landlock ? html`${mark(true)} (ABI ${p.landlockAbi})` : mark(false);
     return html`<span title="seccomp mount guard · Landlock read guard"
       >mount ${mark(p.seccomp)} · read ${land}</span>`;
   }
@@ -250,9 +257,8 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
     };
     return html`
       <h4>resources</h4>
-      <div class="strip" style="gap:2px">
-        ${types.map((t) => html`<button class="act ${t === active ? 'on' : ''}"
-          style=${t === active ? 'font-weight:600' : ''}
+      <div class="strip" style="gap:4px">
+        ${types.map((t) => html`<button class="chip ${t === active ? 'on' : ''}" aria-pressed=${t === active ? 'true' : 'false'}
           @click=${() => { this._resType = t; }}>${t}
           <span class="muted">${resources.filter((r) => r.type === t).length}</span></button>`)}
       </div>
@@ -268,16 +274,16 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
     return html`<div class="detail">
       <div>
         <h5>sandbox</h5>
-        <div class="mono">${{ vm: '⧉ VM', namespace: '🔒 namespace sandbox', host: 'none — host (no --isolate)' }[b.sandbox] || '—'}${b.vm ? ` · ${b.vm.memMiB} MiB · ${b.vm.vcpus} vCPU · ${b.vm.emulated ? 'emulated' : 'KVM'}` : ''}</div>
-        ${b.sandbox === 'vm' ? html`<div class="muted" style="font-size:11px">pid, threads and namespaces here are the VM's host-side jail (the shim); its VMM holds the guest's memory — the cgroup line is what the VM uses</div>` : nothing}
-        <a class="link" style="font-size:11px" @click=${() => this._emit('bx-admin-tab', 'sandboxes')}>all sandboxes →</a>
+        <div class="mono">${{ vm: html`<bx-icon name="vm"></bx-icon> VM`, namespace: html`<bx-icon name="lock"></bx-icon> namespace sandbox`, host: 'none — host (no --isolate)' }[b.sandbox] || '—'}${b.vm ? ` · ${b.vm.memMiB} MiB · ${b.vm.vcpus} vCPU · ${b.vm.emulated ? 'emulated' : 'KVM'}` : ''}</div>
+        ${b.sandbox === 'vm' ? html`<div class="muted hint">pid, threads and namespaces here are the VM's host-side jail (the shim); its VMM holds the guest's memory — the cgroup line is what the VM uses</div>` : nothing}
+        <a class="link hint" @click=${() => this._emit('bx-admin-tab', 'sandboxes')}>all sandboxes →</a>
       </div>
       <div>
         <h5>process</h5>
         <div class="mono">runtime ${b.runtime || 'static'} · gen ${b.gen} · up ${fmtDur(b.uptimeSec)}</div>
         <div class="mono">threads ${b.threads || '—'} · restarts ${b.restarts} · last req ${b.lastReqSec < 0 ? 'never' : fmtDur(b.lastReqSec) + ' ago'}</div>
         ${b.cgroup ? html`<div class="mono">cgroup: ${fmtBytes(b.cgroup.memCurrent)}${b.cgroup.memMax > 0 ? ' / ' + fmtBytes(b.cgroup.memMax) : ''} · cpu ${(b.cgroup.cpuUsec / 1e6).toFixed(1)}s · ${b.cgroup.pidsCurrent} pid(s)</div>` : nothing}
-        ${b.error ? html`<div class="err-pill">${b.error}</div>` : nothing}
+        ${b.error ? html`<div class="err-pill"><bx-icon name="error"></bx-icon>${b.error}</div>` : nothing}
       </div>
       <div>
         <h5>namespaces</h5>
@@ -287,15 +293,15 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
       </div>
       <div>
         <h5>egress ${act ? html`· ${fmtBytes(act.txBytes)}↑ ${fmtBytes(act.rxBytes)}↓ · ${act.active} active` : nothing}</h5>
-        ${b.netRef ? html`<div class="mono" style="font-size:11px">net ${b.netRef === 'org'
-            ? html`<span class="pill" title=${(b.netRules ?? []).join('\n') || 'org network (no relay rules)'}>🏢 ${b.netSource || 'org network'}</span>`
+        ${b.netRef ? html`<div class="mono">net ${b.netRef === 'org'
+            ? html`<span class="pill" title=${(b.netRules ?? []).join('\n') || 'org network (no relay rules)'}><bx-icon name="org"></bx-icon>${b.netSource || 'org network'}</span>`
             : b.netRef}${b.net ? html` <span class="muted">· ${b.net}</span>` : nothing}</div>` : nothing}
-        ${b.netNote ? html`<div class="warn-line">⚠ ${b.netNote}</div>` : nothing}
+        ${b.netNote ? html`<div class="warn-line"><bx-icon name="warning"></bx-icon><span>${b.netNote}</span></div>` : nothing}
         ${(b.egress && b.egress.length) ? html`<div class="mono">${b.egress.join(', ')}</div>` : html`<span class="muted">${b.isolated ? 'no egress granted (deny-all)' : 'unrestricted (host network)'}</span>`}
         ${act && act.recent && act.recent.length ? html`
           <table class="flowtab"><tbody>
             ${act.recent.slice(0, 12).map((f) => html`<tr>
-              <td class=${f.allowed ? 'flow-allow' : 'flow-deny'}>${f.allowed ? '✓' : '⛔'}</td>
+              <td class=${f.allowed ? 'flow-allow' : 'flow-deny'}>${f.allowed ? html`<bx-icon name="check" label="allowed"></bx-icon>` : html`<bx-icon name="error" label="denied"></bx-icon>`}</td>
               <td class="mono">${f.proto} ${f.dst}:${f.port}</td>
               <td class="mono">${fmtBytes(f.txBytes)}↑ ${fmtBytes(f.rxBytes)}↓</td>
               <td class="muted">${this._flowTime(f)}</td>
@@ -314,20 +320,20 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
     if (st.mode === 'sealed') {
       return html`<div class="vault-banner sealed" @click=${goVault}
         title="open the vault tab to unseal">
-        🔒 VAULT SEALED — encrypted resources are unmounted and stateful components are HELD.
-        Click to unseal.</div>`;
+        <bx-icon name="lock"></bx-icon><span>VAULT SEALED — encrypted resources are unmounted and stateful components are HELD.
+        Click to unseal.</span></div>`;
     }
     if (st.mode === 'unconfigured') {
       return html`<div class="vault-banner sealed" @click=${goVault}
         title="open the vault tab to set a passphrase">
-        🔒 VAULT UNCONFIGURED — secret & resource storage is refused until a passphrase is set.
-        Click to set one.</div>`;
+        <bx-icon name="lock"></bx-icon><span>VAULT UNCONFIGURED — secret & resource storage is refused until a passphrase is set.
+        Click to set one.</span></div>`;
     }
     if (st.mode === 'plaintext') {
       return html`<div class="vault-banner warn" @click=${goVault}>
-        ⚠ vault: plaintext at rest (dev mode) — click to encrypt.</div>`;
+        <bx-icon name="warning"></bx-icon><span>vault: plaintext at rest (dev mode) — click to encrypt.</span></div>`;
     }
-    return html`<div class="vault-banner ok">vault unsealed — encryption at rest active</div>`;
+    return html`<div class="vault-banner ok"><bx-icon name="ok"></bx-icon><span>vault unsealed — encryption at rest active</span></div>`;
   }
 
   // ---- components (runtime → components): the tile roster ----
@@ -378,10 +384,10 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
         <div class="stat"><div class="n">${c.components}</div><div class="l">components</div></div>
         <div class="stat"><div class="n">${c.exposed}</div><div class="l">expose APIs</div></div>
         <div class="stat"><div class="n">${c.grants}</div><div class="l">grants</div></div>
-        <div class="stat ${c.pending ? 'warn' : ''}"><div class="n">${c.pending}</div><div class="l">pending</div></div>
+        <div class="stat ${c.pending ? 'warn' : ''}"><div class="n">${c.pending ? html`<bx-icon name="warning"></bx-icon>` : nothing}${c.pending}</div><div class="l">pending</div></div>
       </div>
       ${this._filterBar('filter tiles by path, runtime or use…', cats, rows.length, all.length)}
-      ${hiddenN ? html`<label class="muted" style="font-size:11px;display:inline-flex;gap:5px;align-items:center;margin:2px 0 6px">
+      ${hiddenN ? html`<label class="muted" style="display:inline-flex;gap:6px;align-items:center;margin:2px 0 8px">
         <input type="checkbox" .checked=${!!this.showHidden}
           @change=${(e) => { this._emit('bx-admin-show-hidden', e.target.checked); }}> show hidden (${hiddenN})</label>` : nothing}
       <table>
@@ -394,7 +400,7 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
           <tr><th>component</th><th>state</th><th></th></tr>
           ${off.map((k) => html`<tr>
             <td class="mono">${k.path}</td>
-            <td><span class="pill st-failed">${k.state}</span></td>
+            <td><span class="badge"><bx-icon name="archive"></bx-icon>${k.state}</span></td>
             <td style="text-align:right"><a class="link" @click=${() => this._emit('bx-admin-tab', 'backup')}>restore in Backup →</a></td>
           </tr>`)}
         </table>` : nothing}`;
@@ -402,19 +408,20 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
 
   _compRow(k, b) {
     const open = this._rtOpen.has(k.path);
-    const state = b ? html`<span class="state ${b.state}">${b.state}</span>`
+    const state = b ? stateBadge(b.state)
       : html`<span class="muted">${(k.runtime && k.runtime !== 'static') ? 'idle' : 'static'}</span>`;
     return html`
       <tr>
-        <td><span class="caret ${open ? 'o' : ''}" style="cursor:pointer" @click=${() => this._toggleComp(k.path)}>▶</span></td>
-        <td class="mono"><a class="link" @click=${() => this._openCode(k.path)} title="view code & history">${k.path}</a>${k.manifestError ? html` <span class="st-failed" title=${k.manifestError}>⚠</span>` : nothing}${b?.deployment ? html` <span class="muted" title="the primary, the deployment ${k.path} serves">· ${b.deployment}</span>` : nothing}</td>
+        <td><span class="caret ${open ? 'o' : ''}" role="button" aria-expanded=${open ? 'true' : 'false'} aria-label="details"
+          @click=${() => this._toggleComp(k.path)}><bx-icon name=${open ? 'caret-down' : 'caret-right'}></bx-icon></span></td>
+        <td class="mono"><a class="path" @click=${() => this._openCode(k.path)} title="view code & history">${k.path}</a>${k.manifestError ? html` <bx-icon class="st-failed" name="error" label="manifest error" title=${k.manifestError}></bx-icon>` : nothing}${b?.deployment ? html` <span class="muted" title="the primary, the deployment ${k.path} serves">· ${b.deployment}</span>` : nothing}</td>
         <td class="muted">${k.runtime || 'static'}</td>
         <td>${state}</td>
         <td>${this._sbxCell(k, b)}</td>
         <td>${k.roles ? Object.keys(k.roles).map((r) => html`<span class="pill">${r}</span>`) : html`<span class="muted">—</span>`}</td>
         <td>${(k.uses ?? []).map((u) => html`<span class="pill">${u.target}:${u.role}</span>`)}</td>
-        <td>${k.hasVault ? '🔑' : ''}</td>
-        <td>${this._lifecycleCell(k)}</td>
+        <td>${k.hasVault ? html`<bx-icon class="lock" name="key" label="has a vault" title="has a vault"></bx-icon>` : ''}</td>
+        <td class="acts">${this._lifecycleCell(k)}</td>
       </tr>
       ${open ? html`<tr><td></td><td colspan="8">${this._compDetail(k, b)}</td></tr>` : nothing}`;
   }
@@ -426,17 +433,18 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
     const key = `${k.path}+${d.deployment}`, openKey = `\n${key}`, open = this._rtOpen.has(openKey); // never a tile path
     return html`
       <tr data-deployment=${key}>
-        <td><span class="caret ${open ? 'o' : ''}" style="cursor:pointer" @click=${() => this._toggleBk(openKey)}>▶</span></td>
+        <td><span class="caret ${open ? 'o' : ''}" role="button" aria-expanded=${open ? 'true' : 'false'} aria-label="details"
+          @click=${() => this._toggleBk(openKey)}><bx-icon name=${open ? 'caret-down' : 'caret-right'}></bx-icon></span></td>
         <td class="mono" style="padding-left:18px" title="a tile deployment of ${k.path}, at /c/${key}/">└ ${d.deployment}</td>
         <td class="muted">${d.runtime || 'static'}</td>
-        <td><span class="state ${d.state}">${d.state}</span></td>
+        <td>${stateBadge(d.state)}</td>
         <td>${this._sbxCell(k, d)}</td>
-        <td class="mono muted" colspan="4">gen ${d.gen} · ${d.checkpoint ? `pinned to c:${d.checkpoint.slice(0, 7)}` : '● work tree'}</td>
+        <td class="mono muted" colspan="4">gen ${d.gen} · ${d.checkpoint ? `pinned to c:${d.checkpoint.slice(0, 7)}` : html`<bx-icon name="live"></bx-icon> work tree`}</td>
       </tr>
       ${open ? html`<tr><td></td><td colspan="8">${this._bkDetail(d)}</td></tr>` : nothing}`;
   }
 
-  // _sbxCell: how the backend is isolated (D112) — ⧉ VM, 🔒 the namespace
+  // _sbxCell: how the backend is isolated (D112) — a VM, the namespace
   // sandbox, or host (no --isolate) — for a running generation, else how it
   // would start (muted): the manifest's "vm" ask where isolation is on.
   _sbxCell(k, b) {
@@ -444,11 +452,11 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
     const iso = !!this._rt?.host?.isolate;
     const running = b && b.state === 'healthy';
     const mode = b?.sandbox || (iso && k.vm ? 'vm' : iso && ['go', 'node', 'python'].includes(k.runtime) ? 'namespace' : 'host');
-    const label = { vm: '⧉ VM', namespace: '🔒 ns', host: 'host' }[mode] || mode;
+    const [icon, word] = SBX[mode] || ['', mode];
     const title = mode === 'vm' ? (b?.vm ? `a VM: ${b.vm.memMiB} MiB · ${b.vm.vcpus} vCPU · ${b.vm.emulated ? 'emulated (no KVM)' : 'KVM'}` : 'runs in a VM (D89)')
       : mode === 'namespace' ? 'the rootless namespace sandbox'
       : k.vm ? 'asks for a VM ("vm" in xbin.json), but isolation is off here: it runs on the host' : 'no sandbox: xbind runs without --isolate';
-    return html`<span class="sbxmode ${mode} ${running ? '' : 'idle'}" data-sbx-cell=${mode} title=${title}>${label}</span>${running ? nothing : html` <span class="muted" style="font-size:10.5px">when it starts</span>`}`;
+    return html`<span class="sbxmode ${mode} ${running ? '' : 'idle'}" data-sbx-cell=${mode} title=${title}>${icon ? html`<bx-icon name=${icon}></bx-icon>` : nothing}${word}</span>${running ? nothing : html` <span class="muted hint">when it starts</span>`}`;
   }
 
   // Component detail (expanded): who can reach it (access relations) + live
@@ -462,11 +470,11 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
         ${acc === undefined || acc === null ? html`<span class="muted">loading…</span>`
           : acc.error ? html`<span class="err-pill">${acc.error}</span>`
           : html`
-            ${acc.org ? html`<div class="mono" style="font-size:11px;margin-bottom:3px">org: ${acc.org}</div>` : nothing}
+            ${acc.org ? html`<div class="mono" style="margin-bottom:4px">org: ${acc.org}</div>` : nothing}
             ${(acc.entries ?? []).length === 0 ? html`<span class="muted">no users or teams have access (admins always do)</span>` : html`
             <table class="tbl"><tr><th>who</th><th>level</th><th>via</th></tr>
               ${acc.entries.map((e) => html`<tr>
-                <td>${e.kind === 'team' ? '👥' : '👤'} <span class="mono">${e.id}</span></td>
+                <td><bx-icon name=${e.kind === 'team' ? 'people' : 'person'} label=${e.kind === 'team' ? 'team' : 'person'}></bx-icon> <span class="mono">${e.id}</span></td>
                 <td><span class="pill">${e.level}</span></td>
                 <td class="muted">${e.source}</td></tr>`)}
             </table>`}
@@ -484,8 +492,9 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
 
   // Multi-line SVG sparkline over a stats series. keys/colors pick up to two
   // fields of each point; scaled to the window max (shared across lines).
+  // colors are series classes (runtimeCss .s0–.s5: the ANSI chart order).
   _stSpark(series, keys, colors, w = 84, ht = 18) {
-    if (!series || series.length < 2) return html`<span class="muted" style="font-size:10px">—</span>`;
+    if (!series || series.length < 2) return html`<span class="muted hint">—</span>`;
     let max = 0;
     for (const p of series) for (const k of keys) max = Math.max(max, p[k] || 0);
     const step = w / (series.length - 1);
@@ -494,8 +503,8 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
     const p1 = pts(keys[0]);
     const p2 = keys[1] ? pts(keys[1]) : '';
     return html`<svg class="spark" width=${w} height=${ht} viewBox="0 0 ${w} ${ht}">
-      <polyline points=${p1} fill="none" stroke=${colors[0]} stroke-width="1.2"></polyline>
-      <polyline points=${p2} fill="none" stroke=${colors[1] || 'none'} stroke-width="1.2"></polyline>
+      <polyline class=${colors[0]} points=${p1} fill="none" stroke-width="1.2"></polyline>
+      ${p2 ? svg`<polyline class=${colors[1]} points=${p2} fill="none" stroke-width="1.2"></polyline>` : nothing}
     </svg>`;
   }
 
@@ -534,34 +543,36 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
     const s = this._stSort;
     return html`<th class="sortable" title=${title || ''}
       @click=${() => { this._stSort = { col, dir: s.col === col ? -s.dir : (col === 'tile' || col === 'org' ? 1 : -1) }; }}>
-      ${label}${s.col === col ? (s.dir > 0 ? ' ▲' : ' ▼') : ''}</th>`;
+      ${label}${s.col === col ? html` <bx-icon name=${s.dir > 0 ? 'chevron-up' : 'chevron-down'} label=${s.dir > 0 ? 'ascending' : 'descending'}></bx-icon>` : ''}</th>`;
   }
 
   // The four chart specs shared by cells and the expanded view. I/O series
   // are syscall-level (all file activity incl. FUSE-backed resources).
+  // Series colours are classes: the chart colours, the six normal ANSI tokens
+  // in the order blue, magenta, cyan, green, yellow, red (D184).
   static stMetrics = [
-    { label: 'cpu', keys: ['cpu'], colors: ['var(--bx-accent,#f5a623)'], fmt: (c) => `${(c.cpu || 0).toFixed(1)}%` },
-    { label: 'mem', keys: ['mem'], colors: ['var(--bx-green, #4caf50)'], fmt: (c, el) => fmtBytes(c.mem || 0) },
-    { label: 'i/o r+w', keys: ['rbps', 'wbps'], colors: ['#5b8def', 'var(--bx-red, #ef5350)'], fmt: (c, el) => `${fmtBytes(c.rbps || 0)}/s · ${fmtBytes(c.wbps || 0)}/s` },
-    { label: 'iops r+w', keys: ['riops', 'wiops'], colors: ['#5b8def', 'var(--bx-red, #ef5350)'], fmt: (c) => `${Math.round(c.riops || 0)} · ${Math.round(c.wiops || 0)}` },
+    { label: 'cpu', keys: ['cpu'], colors: ['s0'], fmt: (c) => `${(c.cpu || 0).toFixed(1)}%` },
+    { label: 'mem', keys: ['mem'], colors: ['s3'], fmt: (c, el) => fmtBytes(c.mem || 0) },
+    { label: 'i/o r+w', keys: ['rbps', 'wbps'], colors: ['s0', 's1'], fmt: (c, el) => `${fmtBytes(c.rbps || 0)}/s · ${fmtBytes(c.wbps || 0)}/s` },
+    { label: 'iops r+w', keys: ['riops', 'wiops'], colors: ['s0', 's1'], fmt: (c) => `${Math.round(c.riops || 0)} · ${Math.round(c.wiops || 0)}` },
   ];
 
   // N-line sparkline over precomputed numeric arrays (shared max). Used by
   // the totals charts, where one line per org can exceed _stSpark's two.
   _stSparkN(lines, w = 220, ht = 44) {
     const len = Math.max(0, ...lines.map((l) => l.vals.length));
-    if (len < 2) return html`<span class="muted" style="font-size:10px">gathering…</span>`;
+    if (len < 2) return html`<span class="muted hint">gathering…</span>`;
     let max = 0;
     for (const l of lines) for (const v of l.vals) max = Math.max(max, v);
     const step = w / (len - 1);
     return html`<svg class="spark" width=${w} height=${ht} viewBox="0 0 ${w} ${ht}">
-      ${lines.map((l) => svg`<polyline fill="none" stroke=${l.color} stroke-width="1.3"
+      ${lines.map((l) => svg`<polyline class=${l.color} fill="none" stroke-width="1.3"
         points=${l.vals.map((v, i) => `${((i + (len - l.vals.length)) * step).toFixed(1)},${(ht - (max ? v / max : 0) * (ht - 2) - 1).toFixed(1)}`).join(' ')}></polyline>`)}
     </svg>`;
   }
 
-  static orgPalette = ['#5b8def', '#43a047', '#f5a623', '#e5484d', '#9c27b0',
-    '#00acc1', '#8d6e63', '#7cb342'];
+  // the i-th org's series: the chart colours in their order, cycling
+  static orgSeries = (i) => i % 6;
 
   // Workspace totals: each metric summed across tiles point-by-point
   // (series share the sampler's cadence; aligned on the tail). "by org"
@@ -593,11 +604,11 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
     const chart = (m) => {
       const totalNow = tiles.reduce((s, t) => s + val(t.cur || {}, m.keys), 0);
       const lines = orgs
-        ? orgs.map(([org, list], i) => ({ org, color: BxAdminRuntime.orgPalette[i % BxAdminRuntime.orgPalette.length], vals: sum(list, m.keys) }))
+        ? orgs.map(([org, list], i) => ({ org, color: `s${BxAdminRuntime.orgSeries(i)}`, vals: sum(list, m.keys) }))
         : [{ color: m.colors[0], vals: sum(tiles, m.keys) }];
       return html`<div class="stchart">
-        <div class="muted" style="font-size:10px;text-transform:uppercase;letter-spacing:.06em">${m.label}
-          <b style="text-transform:none;letter-spacing:0"> ${m.label === 'cpu' ? `${totalNow.toFixed(1)}%`
+        <div class="lbl">${m.label}
+          <b> ${m.label === 'cpu' ? `${totalNow.toFixed(1)}%`
             : m.label.startsWith('iops') ? `${Math.round(totalNow)}/s`
             : `${fmtBytes(totalNow)}${m.label === 'mem' ? '' : '/s'}`}</b></div>
         ${this._stSparkN(lines)}
@@ -605,15 +616,14 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
     };
     return html`
       <h4 style="display:flex;align-items:center;gap:12px">workspace totals
-        <label class="muted" style="font-size:11px;font-weight:400;display:inline-flex;gap:5px;align-items:center">
+        <label class="muted" style="font:var(--bx-font-ui);text-transform:none;letter-spacing:0;display:inline-flex;gap:6px;align-items:center">
           <input type="checkbox" .checked=${this._stTotOrg}
             @change=${(e) => { this._stTotOrg = e.target.checked; }}>
           by org</label></h4>
       <div class="stbig" style="padding:4px 0 2px">${M.map(chart)}</div>
-      ${orgs && orgs.length > 1 ? html`<div class="strip" style="gap:10px;flex-wrap:wrap">
-        ${orgs.map(([org], i) => html`<span class="muted mono" style="font-size:10.5px">
-          <span style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${BxAdminRuntime.orgPalette[i % BxAdminRuntime.orgPalette.length]}"></span>
-          ${org}</span>`)}
+      ${orgs && orgs.length > 1 ? html`<div class="strip" style="gap:12px;flex-wrap:wrap">
+        ${orgs.map(([org], i) => html`<span class="muted mono">
+          <span class="key-sq k${BxAdminRuntime.orgSeries(i)}"></span>${org}</span>`)}
       </div>` : nothing}`;
   }
 
@@ -643,7 +653,7 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
       const open = this._stOpen === t.path;
       return html`<tr class="strow ${open ? 'on' : ''}" @click=${() => { this._stOpen = open ? null : t.path; }}>
         <td class="mono">${t.path}</td>
-        ${this._stGroup ? nothing : html`<td class="muted mono" style="font-size:11px">${t.owner || '—'}</td>`}
+        ${this._stGroup ? nothing : html`<td class="muted mono">${t.owner || '—'}</td>`}
         <td>${this._stCell(t, M[0].keys, M[0].colors, (c) => M[0].fmt(c, this))}</td>
         <td>${this._stCell(t, M[1].keys, M[1].colors, (c) => M[1].fmt(c, this))}</td>
         <td>${this._stCell(t, M[2].keys, M[2].colors, (c) => M[2].fmt(c, this))}</td>
@@ -652,8 +662,8 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
       </tr>
       ${open ? html`<tr><td colspan=${this._stGroup ? 6 : 7} class="stbig">
         ${M.map((m) => html`<div class="stchart">
-          <div class="muted" style="font-size:10px;text-transform:uppercase;letter-spacing:.06em">${m.label}
-            <b style="text-transform:none;letter-spacing:0"> ${m.fmt(t.cur || {}, this)}</b></div>
+          <div class="lbl">${m.label}
+            <b> ${m.fmt(t.cur || {}, this)}</b></div>
           ${this._stSpark(t.series, m.keys, m.colors, 300, 56)}
         </div>`)}
       </td></tr>` : nothing}`;
@@ -683,11 +693,11 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
       <div class="strip">
         <input placeholder="filter by name prefix…" .value=${this._stFilter}
           @input=${(e) => { this._stFilter = e.target.value; }} style="width:200px">
-        <label class="muted" style="font-size:11px;display:inline-flex;gap:5px;align-items:center">
+        <label class="muted" style="display:inline-flex;gap:6px;align-items:center">
           <input type="checkbox" .checked=${this._stGroup}
             @change=${(e) => { this._stGroup = e.target.checked; this._stSort = this._stGroup && this._stSort.col === 'org' ? { col: 'cpu', dir: -1 } : this._stSort; }}>
           group by org</label>
-        ${stats && !stats.cgroup ? html`<span class="muted" style="font-size:10.5px" title="run under the installed service (systemd Delegate=yes) for exact whole-tree accounting">process-tree sampling</span>` : nothing}
+        ${stats && !stats.cgroup ? html`<span class="muted hint" title="run under the installed service (systemd Delegate=yes) for exact whole-tree accounting">process-tree sampling</span>` : nothing}
       </div>
       ${rows.length === 0 ? html`<p class="muted">${tiles.length === 0
         ? 'no running backends — live stats appear when a tile’s backend runs.'
@@ -734,10 +744,13 @@ export class BxAdminRuntime extends WithRouter(WithFilter(LitElement)) {
   _lifecycleCell(k) {
     const st = k.state || 'enabled';
     const disabled = st !== 'enabled';
-    return html`${disabled ? html`<span class="pill st-failed" title="not running">${st}</span> ` : nothing}
-      <a class="link" @click=${() => this._setLifecycle(k.path, disabled ? 'enabled' : 'disabled')}>${st === 'hidden' ? 'unhide' : disabled ? 'enable' : 'disable'}</a>
-      ${st !== 'hidden' ? html` · <a class="link" title="disabled + removed from sidebars until unhidden (D42)"
-        @click=${() => this._setLifecycle(k.path, 'hidden')}>hide</a>` : nothing}`;
+    // the row's actions are quiet buttons (product-ui §9: the accent is for
+    // primary actions, not a column of links)
+    return html`${disabled ? html`<span class="badge" title="not running">${st}</span> ` : nothing}
+      <button class="act quiet" ?disabled=${this._busy === k.path}
+        @click=${() => this._setLifecycle(k.path, disabled ? 'enabled' : 'disabled')}>${st === 'hidden' ? 'unhide' : disabled ? 'enable' : 'disable'}</button>
+      ${st !== 'hidden' ? html`<button class="act quiet" ?disabled=${this._busy === k.path} title="disabled + removed from sidebars until unhidden (D42)"
+        @click=${() => this._setLifecycle(k.path, 'hidden')}>hide</button>` : nothing}`;
   }
 
   async _setLifecycle(path, state) {

@@ -37,23 +37,25 @@ import {
 // The view's styles (partitions.js adopts them too).
 export const partitionsCss = css`
   .pt-intro { max-width: 760px; }
-  .pt-warn { color: var(--bx-amber, #f2a71b); font-size: 12px; margin: 4px 0 8px; }
+  .pt-warn { display: flex; gap: 6px; align-items: baseline; color: var(--bx-warn); margin: 4px 0 8px; }
   table.pt td, table.pt th { padding-right: 12px; }
   table.pt td.num, table.pt th { white-space: nowrap; }
   tr.pt-row { cursor: pointer; }
-  tr.pt-row:hover td { background: var(--bx-panel-2, #2b3038); }
-  tr.pt-row.open td { background: var(--bx-panel-2, #2b3038); }
+  tr.pt-row:hover td { background: var(--bx-hover); }
+  tr.pt-row.open td { background: var(--bx-selection); }
   td.pt-detail { padding: 6px 0 12px 18px; border-top: 0; }
-  .pt-mode { display: inline-block; font-size: 11px; padding: 0 6px; border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--bx-part, #3fb5a3) 55%, transparent); color: var(--bx-part, #3fb5a3); }
-  .pt-state.pending, .pt-state.invalid { color: var(--bx-amber, #f2a71b); }
-  .pt-note { display: block; font-size: 11px; }
-  .pt-note.warn { color: var(--bx-amber, #f2a71b); }
-  .pt-note.ok { color: var(--bx-green, #4caf50); }
-  .pt-note.info { color: var(--bx-muted, #868f9a); }
-  .pt-ask { margin: 6px 0; padding: 8px 10px; border-radius: 6px; font-size: 12px; max-width: 760px;
-    background: color-mix(in srgb, var(--bx-amber, #f2a71b) 14%, transparent); }
-  .pt-ask .row { display: flex; gap: 6px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
+  /* a partition mode: a square badge in the partition marker's colour */
+  .pt-mode { box-sizing: border-box; display: inline-flex; align-items: center; height: 20px; padding: 0 6px;
+    font: var(--bx-font-meta); border-radius: var(--bx-radius); border: 1px solid var(--bx-part); color: var(--bx-part); }
+  .pt-state.pending, .pt-state.invalid { color: var(--bx-warn); }
+  .pt-note { display: block; font: var(--bx-font-meta); }
+  .pt-note.warn { color: var(--bx-warn); }
+  .pt-note.ok { color: var(--bx-ok); }
+  .pt-note.info { color: var(--bx-muted); }
+  /* a confirmation that deletes or replaces: the warning tint, its border */
+  .pt-ask { margin: 8px 0; padding: 8px 12px; border-radius: var(--bx-radius); max-width: 760px;
+    background: var(--bx-warn-bg); border: 1px solid var(--bx-warn); }
+  .pt-ask .row { display: flex; gap: 8px; margin-top: 8px; align-items: center; flex-wrap: wrap; }
   .pt-ask ul { margin: 4px 0 0; padding-left: 18px; }
   .pt-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 10px 0 4px; }
 `;
@@ -71,11 +73,11 @@ export class BxAdminPartitionTile extends WithRouter(LitElement) {
     :host { display: block; }
     .grid { display: flex; gap: 18px; flex-wrap: wrap; align-items: flex-start; }
     .grid > div { min-width: 240px; }
-    .line { font-size: 12px; margin: 2px 0; }
+    .line { margin: 2px 0; }
     table.pt td.acts { white-space: nowrap; }
     input.typed { min-width: 18em; }
-    .hist { font-size: 11.5px; width: auto; }
-    .hist td { padding: 2px 10px 2px 0; }
+    .hist { width: auto; }
+    .hist td { height: auto; padding: 2px 12px 2px 0; }
   `];
 
   constructor() { super(); this._ask = null; this._limits = null; this._busy = false; }
@@ -189,7 +191,7 @@ export class BxAdminPartitionTile extends WithRouter(LitElement) {
           .value=${dr.partitionMiB} @input=${(e) => { this._limits = { ...dr, partitionMiB: e.target.value }; }}></label>
         <button class="act go" type="submit" ?disabled=${this._busy}>save</button>
         <button class="act" type="button" @click=${() => { this._limits = null; }}>cancel</button>
-        <span class="muted" style="font-size:10.5px">empty: unchanged · 0: back to the default</span>
+        <span class="muted hint">empty: unchanged · 0: back to the default</span>
       </form>` : nothing}
     </div>`;
   }
@@ -258,10 +260,10 @@ export class BxAdminPartitionTile extends WithRouter(LitElement) {
           <td data-pt-mail>${mailText(r.mail) || html`<span class="muted">—</span>`}</td>
           <td>${r.logShare?.until ? html`<span title="read it in the tile's logs panel in the shell">shared until ${when(r.logShare.until)}</span>` : html`<span class="muted">private</span>`}</td>
           <td class="acts">${r.state === 'orphaned' ? nothing : html`
-            ${r.running ? html`<button class="act" data-pt-stop ?disabled=${this._busy}
+            ${r.running ? html`<button class="act quiet" data-pt-stop ?disabled=${this._busy}
               @click=${() => this._act('/partitions/stop', partitionOp(this.tile, r), `stopped ${r.user}'s instance of ${this.tile}`)}>stop</button>` : nothing}
-            <button class="act rm" data-pt-reset ?disabled=${this._busy} @click=${() => { this._ask = { kind: 'reset', row: r, typed: '' }; }}>reset…</button>
-            <button class="act" data-pt-restore ?disabled=${this._busy} @click=${() => this._openRestore(r)}>restore…</button>`}</td>
+            <button class="act quiet rm" data-pt-reset ?disabled=${this._busy} @click=${() => { this._ask = { kind: 'reset', row: r, typed: '' }; }}>reset…</button>
+            <button class="act quiet" data-pt-restore ?disabled=${this._busy} @click=${() => this._openRestore(r)}>restore…</button>`}</td>
         </tr>${this._personAsk(r)}`)}
     </table>`;
   }
@@ -278,7 +280,7 @@ export class BxAdminPartitionTile extends WithRouter(LitElement) {
           <td class="mono">${b.user}</td><td class="mono">${b.slot}</td><td class="mono">${b.provider}</td>
           <td>${b.live ? 'live' : html`<span class="pt-note warn">${b.why || 'not live'}</span>`}</td>
           <td class="mono">${when(b.at)}</td>
-          <td><button class="act rm" data-pt-unbind ?disabled=${this._busy}
+          <td><button class="act quiet rm" data-pt-unbind ?disabled=${this._busy}
             @click=${() => this._act('/partitions/binds', { id: b.id, user: b.user }, `removed ${b.user}'s personal bind ${b.slot} → ${b.provider}`, { method: 'DELETE' })}>remove</button></td>
         </tr>`)}
       </table>`;
