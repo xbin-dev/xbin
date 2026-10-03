@@ -117,6 +117,7 @@ extension View {
     public func tabItem<V: View>(@ViewBuilder _ label: () -> V) -> some View { _V(self) }
     public func buttonStyle<S: PrimitiveButtonStyle>(_ style: S) -> some View { _V(self) }
     public func buttonBorderShape(_ shape: ButtonBorderShape) -> some View { _V(self) }
+    public func scrollContentBackground(_ visibility: Visibility) -> some View { _V(self) }
     public func controlSize(_ controlSize: ControlSize) -> some View { _V(self) }
     public func listStyle<S: ListStyle>(_ style: S) -> some View { _V(self) }
     public func listRowBackground<V: View>(_ view: V?) -> some View { _V(self) }

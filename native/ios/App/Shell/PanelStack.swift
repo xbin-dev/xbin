@@ -1,4 +1,5 @@
 import SwiftUI
+import XbinRenderer
 import UIKit
 import XbinCore
 
@@ -51,7 +52,7 @@ struct PanelStack<Content: View>: View {
                 ForEach(Array(nav.entries.enumerated()), id: \.element.id) { i, e in
                     let shown = shown(i, top: top)
                     content(e.panel)
-                        .background(Color(uiColor: .systemBackground))
+                        .concreteBackground()
                         .overlay { Color.black.opacity(dim(i, top: top, width: w)).allowsHitTesting(false) }
                         .offset(x: offset(i, top: top, width: w))
                         // Only what can be seen is drawn — and reachable: a panel

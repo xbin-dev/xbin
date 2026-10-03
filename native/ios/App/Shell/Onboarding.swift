@@ -251,7 +251,8 @@ struct OnboardingStack<Root: View>: View {
     var body: some View {
         NavigationStack(path: $flow.path) {
             root()
-                .navigationDestination(for: OnboardingStep.self) { step in OnboardingPage(flow: flow, step: step) }
+                .concreteBackground()
+                .navigationDestination(for: OnboardingStep.self) { step in OnboardingPage(flow: flow, step: step).concreteBackground() }
         }
         .disabled(flow.busy != nil)
         .overlay {

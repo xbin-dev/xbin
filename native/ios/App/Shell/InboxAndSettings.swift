@@ -1,4 +1,5 @@
 import SwiftUI
+import XbinRenderer
 import XbinCore
 import XbinTerm
 
@@ -52,6 +53,7 @@ struct InboxView: View {
                 }
             }
             .refreshable { for w in app.workspaces { await w.refreshSessions() } }
+            .concreteBackground()
             .navigationTitle("Needs you")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .task { for w in app.workspaces { await w.refreshSessions() } }
@@ -187,6 +189,7 @@ struct SettingsView: View {
                     LabeledContent("Version") { Text(verbatim: AppInfo.version) }
                 }
             }
+            .concreteBackground()
             .navigationTitle("Settings")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
             .task {

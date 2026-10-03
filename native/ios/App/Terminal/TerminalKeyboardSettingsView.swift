@@ -81,6 +81,7 @@ struct TerminalKeyboardSettingsView: View {
                 Text("With ⌥ as Meta, ⌥-letter sends Escape and the letter (for Emacs and shells) instead of the layout's ⌥ characters.")
             }
         }
+        .concreteBackground()
         .navigationTitle("Terminal Keyboard")
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {

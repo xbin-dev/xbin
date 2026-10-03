@@ -60,7 +60,6 @@ extension View {
     public func onDrag(_ data: @escaping () -> NSItemProvider) -> some View { _V(self) }
     public func searchable(text: Binding<String>, placement: SearchFieldPlacement = .automatic, prompt: LocalizedStringKey) -> some View { _V(self) }
     public func presentationDetents(_ detents: Set<PresentationDetent>, selection: Binding<PresentationDetent>) -> some View { _V(self) }
-    public func scrollContentBackground(_ visibility: Visibility) -> some View { _V(self) }
     public func handlesExternalEvents(preferring: Set<String>, allowing: Set<String>) -> some View { _V(self) }
     public func interactiveDismissDisabled(_ disabled: Bool = true) -> some View { _V(self) }
     public func fileImporter(isPresented: Binding<Bool>, allowedContentTypes: [UTType], allowsMultipleSelection: Bool,

@@ -56,6 +56,7 @@ struct AddDeviceView: View {
                     }
                 }
             }
+            .concreteBackground()
             .navigationTitle("Add a device")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }

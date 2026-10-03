@@ -272,8 +272,8 @@ struct ListNodeView: View {
             Group {
                 switch style {
                 case "plain": List { ListRows(node: node) }.listStyle(.plain)
-                case "grouped": List { ListRows(node: node) }.listStyle(.grouped)
-                default: List { ListRows(node: node) }.listStyle(.insetGrouped)
+                case "grouped": List { ListRows(node: node) }.listStyle(.grouped).concreteBackground()
+                default: List { ListRows(node: node) }.listStyle(.insetGrouped).concreteBackground()
                 }
             }
             .environment(\.xbinPlacement, .list)

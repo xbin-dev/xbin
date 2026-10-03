@@ -239,6 +239,14 @@ extension View {
             .buttonBorderShape(.roundedRectangle(radius: XbinShapes.radius))
     }
 
+    /// Base Two's concrete behind a list or form (D185): the canvas shows
+    /// where iOS's grouped grey was; the rows stay on the panel. The app's
+    /// panels sit on it (PanelStack); a sheet's or a navigation page's own
+    /// list takes it here.
+    public func concreteBackground() -> some View {
+        scrollContentBackground(.hidden).background(XbinColor.background)
+    }
+
     /// A Base Two card: the panel, 2 pt corners, a hairline edge.
     public func xbinCard(_ fill: Color = XbinColor.surface, edge: Bool = true) -> some View {
         background(fill, in: .xbinPlate)
