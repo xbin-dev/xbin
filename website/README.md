@@ -76,10 +76,14 @@ else holds a hex value. `css/site.css` is the components, by the brand's names:
   `.page-install`): the hero grid, `.flow` copy columns, `.flip` for a visual on the
   left, `.phones`, `.it`, `.steps`.
 
-Every rule counts against every page's 60 KB, so keep a page's own rules few.
+Every rule counts against every page's 60 KB, so keep a page's own rules few. A row
+that scrolls sideways edge to edge (`.phones` on phones) draws its focus ring inside
+(`outline-offset: -3px`), where the viewport cannot cut it off.
 
 Corners are 2 px wherever one shows; focus is the cyan ring (3 px, 2 px gap) from
-`:focus-visible`; motion plays once and is off under `prefers-reduced-motion`.
+`:focus-visible`, and the root's `scroll-padding-block` (16 px) keeps a focused
+element's ring clear of the viewport's top and bottom edges; motion plays once and is
+off under `prefers-reduced-motion`.
 
 ### The one script
 

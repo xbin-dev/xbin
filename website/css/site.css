@@ -4,7 +4,7 @@
 
 /* ---------- base ---------- */
 *,*::before,*::after{box-sizing:border-box}
-html{-webkit-text-size-adjust:100%;text-size-adjust:100%;scroll-padding-top:16px}
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%;scroll-padding-block:16px}
 body{display:flex;flex-direction:column;min-height:100vh;min-height:100svh;margin:0;background:var(--bg);color:var(--text);font:var(--t-body);-webkit-font-smoothing:antialiased;-moz-osx-font-smoothing:grayscale;overflow-x:clip}
 main{flex:1 0 auto}
 img,svg,video{display:block;max-width:100%;height:auto}
@@ -309,6 +309,9 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
   .page-ios .phones{max-width:640px}
 }
 @media (max-width:600px){
+  /* the hero's two large buttons share a row on a 390 px phone only in the web font, by
+     a pixel, so the font's arrival moved the page: on phones they always stack */
+  .page-security .ihero .actions{flex-direction:column;align-items:flex-start}
   .page-security :is(.leadins,.four){grid-template-columns:minmax(0,1fr)}
   .page-security .four :is(li,li+li){padding-left:0;border-left:0}
   .page-security .four li+li{border-top:1px solid var(--divider)}
@@ -435,6 +438,7 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
   .page-product .flip>.flow,.page-product .flip>.flow+*{grid-column:auto;grid-row:auto}
   .page-product .phones{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;margin-inline:calc(var(--edge) * -1);padding:0 var(--edge) var(--s-2);scroll-padding-inline:var(--edge)}
   .page-product .phones>*{flex:0 0 min(64vw,280px);scroll-snap-align:start}
+  .page-product .phones:focus-visible{outline-offset:-3px}
   .page-install .steps{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
 @media (max-width:600px){
