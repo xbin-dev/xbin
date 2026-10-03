@@ -21,18 +21,18 @@ Each section below gives the evidence behind its row.
 
 ## The claims
 
-All claims are for **a big workstation** (Setup below), not a small VPS.
+All claims are for **a big workstation** (Setup below: 96 cores, 755 GiB), not a small VPS, and each claim sentence says so: a line lifted into the film carries its machine with it. Where a claim needs more (a workspace in RAM, a small app), the sentence says that too.
 
 | # | Claim | Basis |
 |---|---|---|
-| 1 | **A Firecracker microVM sandbox boots and runs its first command in under 0.3 s** (median 0.22 s). | 90 of 90 under 249 ms; p90 234 ms. Workspace on tmpfs (§1) |
-| 1 | **64 microVM sandboxes asked for at once all answer within 1 s, and none fail.** | 5 bursts of 64, the slowest 943 ms; 600 VMs in 20 bursts of 8–64, 0 failed. One burst of 32 took 1.35 s (§1) |
-| 1 | **A VM terminal shows its prompt in about 0.2 s** (a namespace terminal in 0.06 s). | 100 VM terminals: median 177 ms, p90 204 ms, one outlier 706 ms (§1) |
-| 2 | **Save a page and it's on screen in under 0.35 s**, including a deliberate 0.3 s settle. | 90 saves painted in Chromium, max 336.8 ms (§2) |
-| 2 | **Save Go code and the rebuilt backend serves in under 0.8 s.** | 90 saves, max 784.2 ms (§2) |
-| 3 | **Redeploy under load without dropping a read.** 0 of 5.39 M GETs failed over 60 live redeploys at about 30,000 requests/s. | Writes caught at the exact swap instant can fail: 15 of 2.34 M POSTs got a 502. Worst wait 0.56 s, one request in 35 of 60 redeploys (§3) |
-| 4 | **With a 300 ms round trip, what you type appears within one frame (≤ 17 ms) instead of after 0.3 s.** | 240 keys with prediction on or auto: in the DOM within 1.6 ms, painted by the next frame (≤ 16.7 ms). Off: ≥ 301.7 ms (§4) |
-| 5 | **A person's own instance starts on their first request in under 0.3 s, then answers in about a millisecond.** | 39 cold starts, max 264.8 ms; 4,500 warm requests: 98 % under 1 ms, p99 1.5 ms, max 3.2 ms. Encrypted file volumes add about 0.03 s each (§5) |
+| 1 | **On a 96-core workstation with the workspace in RAM, a Firecracker microVM sandbox boots and runs its first command in under 0.3 s** (median 0.22 s). | 90 of 90 under 249 ms; p90 234 ms. Workspace on tmpfs only: on this box's disk every VM create was refused (below xbind's free-space reserve), so nothing here says what a disk-backed workspace takes (§1) |
+| 1 | **On a 96-core workstation with the workspace in RAM, 64 microVM sandboxes started at once answered in under a second in each of 5 runs (worst 0.94 s), and none failed.** | 5 bursts of 64 — under the 10 samples these rules ask for, so never "always": the slowest 943 ms. 600 VMs in 20 bursts of 8–64, 0 failed; one burst of 8 took 0.80 s and one of 32 1.35 s (§1) |
+| 1 | **On a 96-core workstation, a VM terminal shows its prompt in about a quarter second** (a namespace terminal in 0.06 s). | 100 VM terminals: median 177 ms, p90 204 ms, one outlier 706 ms on disk (§1) |
+| 2 | **On a 96-core workstation, save a page and it's on screen in under 0.35 s**, including a deliberate 0.3 s settle. | 90 saves painted in Chromium, max 336.8 ms (§2) |
+| 2 | **On a 96-core workstation, save Go code and the rebuilt backend serves in under 0.8 s.** | 90 saves, max 784.2 ms: 16 ms of room, on 96 cores — a smaller machine builds slower, and none was measured (§2) |
+| 3 | **On a 96-core workstation, redeploy under load without dropping a read.** 0 of 5.39 M GETs failed over 60 live redeploys at about 30,000 requests/s. | Writes caught at the exact swap instant can fail: 15 of 2.34 M POSTs got a 502. Worst wait 0.56 s, one request in 35 of 60 redeploys (§3) |
+| 4 | **With a 300 ms round trip, what you type appears within one frame (≤ 17 ms) instead of after 0.3 s** (measured on a 96-core workstation; the prediction runs in the browser). | 240 keys with prediction on or auto: in the DOM within 1.6 ms, painted by the next frame (≤ 16.7 ms). Off: ≥ 301.7 ms (§4) |
+| 5 | **On a 96-core workstation, a small app's own instance for a person starts on their first request in under 0.3 s, then answers in about a millisecond.** | A minimal Go tile with a kv store (`apps/notes`): 39 cold starts, max 264.8 ms; 4,500 warm requests: 97 % under 1 ms, p99 1.5 ms, max 3.2 ms. Encrypted file volumes add about 0.03 s each. Not the agent: its own instance took 2.4 s on a 4-vCPU VPS — never pair this claim with footage of it (§5) |
 | 6 | Install time: **not measured here.** It needs a fresh VPS (§6). | — |
 
 ## Setup
@@ -40,7 +40,7 @@ All claims are for **a big workstation** (Setup below), not a small VPS.
 | | |
 |---|---|
 | Date | runs between `Sat Oct  3 12:01:08 AM CEST 2026` and about 12:31 AM CEST (`date`, in each run's `machine-*.txt`) |
-| Product code | **4a9b5b47** (origin/master, v0.3.67), unchanged. The runs were taken from this branch (bc9061fd … d5ac8b7c), which adds only the measuring tools: `hack/demo/`, plus `test/xbindtest` listening on a given port. Each run's `machine-*.txt` names its exact commit |
+| Product code | **4a9b5b47** (origin/master, v0.3.67), unchanged. The runs were taken from this branch (bc9061fd … d5ac8b7c), which adds only the measuring tools: `hack/demo/`, plus `test/xbindtest` listening on a given port. Each run's `machine-*.txt` names its exact commit (run2's says `-dirty`: the tree held uncommitted measuring-tool edits, no product code). The film set's branch has since changed product code — the CORS headers a tile's MCP client needs, the chat tile v4, traefik v5, the shell's and the agent template's narrow layouts — so before the film quotes a number, run the suite again on the release it names |
 | Machine | AMD Ryzen Threadripper PRO 7995WX, 96 cores / 192 threads; 755 GiB RAM; NVMe, btrfs (zstd) on dm-crypt, 97.5 % full; Linux 7.2.8-arch1-2 (Arch); `/dev/kvm`; NVIDIA RTX 5070 Ti (none of these use it) |
 | VMs | Firecracker v1.17.0, guest kernel 6.18.54, the rootfs as an erofs image (erofs-utils 1.9.4) |
 | xbind | `xbind --dev --isolate --rootfs .rootfs --workspace <fresh> --listen 127.0.0.1:9341` (`test/xbindtest`). Owner auth is on and the vault is unsealed. `--dev` logs every request at debug level, which costs time if anything |
@@ -54,7 +54,7 @@ All claims are for **a big workstation** (Setup below), not a small VPS.
 - **run1, run4 and run5** have the workspace on tmpfs (RAM). §1's tile sandboxes come only from these runs: xbind starts no tile sandbox while the workspace disk is below its 10 % free reserve (`internal/broker/diskmon.go`), and the only writable disk here is 97.5 % full.
   - On the same disk, VM terminals took 6 ms longer at the median than on tmpfs, 10 ms at the p90, and had one outlier.
   - Partition cold starts took 34 ms longer at the median.
-  - §1's claim therefore keeps more than 50 ms of room.
+  - VM sandboxes weren't measured on disk at all: every create was refused below the reserve. The terminals' numbers don't stand in for them — a sandbox also creates and formats its guest's 20 GiB disk, a terminal doesn't — so §1's sandbox claims say "with the workspace in RAM". Measuring them on disk needs a disk with more than 10 % free (NVMe-backed: a loop-mounted btrfs image takes root, which this session hasn't).
 
 **Two things this session can't do,** both because it runs inside a single-uid user namespace (the agent's tool sandbox):
 
@@ -95,7 +95,8 @@ On a dev box, run it with the tool sandbox off. The code is in `hack/demo/measur
 | `run3-prodlike` | workspace on disk, run dir on tmpfs | everything, swap 40 saves. Tile sandboxes were refused (low disk), terminals ran |
 | `run4-vm-tmpfs` | tmpfs | VM only |
 | `run5-vm-tmpfs-3rounds` | tmpfs | VM only, three rounds of the 8/16/32/64 bursts, with xbind's log |
-| `run6-gocryptfs` | inside `unshare -Urm`, volumes on disk and on tmpfs | gocryptfs init and mount, 20 times each |
+| `run6-gocryptfs` | inside `unshare -Urm`, volumes on tmpfs (its "disk" file too: the script archived with it used `/tmp`) | gocryptfs init and mount, 20 times each |
+| `run7-gocryptfs-nvme` | inside `unshare -Urm`, volumes on the NVMe (btrfs on dm-crypt) | the same, with the exact command and a machine file |
 
 ## 1. Firecracker microVM sandboxes: request → answering
 
@@ -153,9 +154,9 @@ The bursts are runs 1 and 4 (one round each) and run5 (three rounds), in that or
 
 **Claims:**
 
-- *"A Firecracker microVM sandbox boots and runs its first command in under 0.3 s"* (all 90 under 249 ms, measured on tmpfs; the room covers a disk-backed workspace).
-- *"64 microVMs asked for at once all answer within 1 s, none failed"* (5 of 5 bursts). Don't generalise to "any burst under 1 s": a burst of 32 once took 1.35 s.
-- *"A VM terminal is ready in about 0.2 s"*. 9 in 10 of 100 took under 0.21 s (p90 204 ms); the worst took 0.71 s.
+- *"On a 96-core workstation with the workspace in RAM, a Firecracker microVM sandbox boots and runs its first command in under 0.3 s"* (all 90 under 249 ms, on tmpfs). Not for a disk-backed workspace: never measured (Setup).
+- *"On a 96-core workstation with the workspace in RAM, 64 microVMs started at once answered in under a second in each of 5 runs (worst 0.94 s), none failed"*. Five bursts are fewer than the rules' ten: say "in each of 5 runs", never "always", and don't generalise to "any burst under 1 s" — a burst of 8 took 0.80 s and one of 32 1.35 s. For "always": 20 bursts of 64 on disk, the worst rounded up.
+- *"On a 96-core workstation, a VM terminal is ready in about a quarter second"*. The p90 is 204 ms, which the rules round up to 0.25 s; the worst took 0.71 s.
 
 Not measured: the coding-sandbox manager's own bookkeeping (see Setup), and VMs on a smaller host.
 
@@ -194,8 +195,8 @@ Most of a static save's time is the watcher's 300 ms debounce, which lets an edi
 
 **Claims:**
 
-- *"Save a page and it's on screen in under 0.35 s"* (90 of 90 under 337 ms).
-- *"Save Go code and the rebuilt backend serves in under 0.8 s"* (90 of 90 under 785 ms, warm build cache). For "about a second": the cold first build of a new tile took 4.2–4.6 s.
+- *"On a 96-core workstation, save a page and it's on screen in under 0.35 s"* (90 of 90 under 337 ms).
+- *"On a 96-core workstation, save Go code and the rebuilt backend serves in under 0.8 s"* (90 of 90 under 785 ms, warm build cache). The room is 16 ms, and the build is the part a smaller machine does slower: without "on a 96-core workstation" in the sentence, don't say it; for a customer's machine, measure on one (a 4-vCPU VPS). The cold first build of a new tile took 4.2–4.6 s.
 
 ## 3. Blue/green swap under load
 
@@ -238,7 +239,7 @@ What the failures and the spike are:
 
 **Raw:** `run{1,2,3}*/swap-requests.csv.gz` (every request) and `swap.summary.json` (failures with bodies, the 20 slowest, each save's timeline).
 
-**Claim:** *"Redeploy under load without dropping a read: 0 of 5.4 million GETs failed across 60 live redeploys at ~30,000 requests/s."* Don't claim zero failed requests: 15 of 2.3 M POSTs that hit the swap instant got a 502. For latency, say "requests keep answering in about a millisecond; at worst one request waits for the rebuild, about half a second".
+**Claim:** *"On a 96-core workstation, redeploy under load without dropping a read: 0 of 5.4 million GETs failed across 60 live redeploys at ~30,000 requests/s."* Don't claim zero failed requests: 15 of 2.3 M POSTs that hit the swap instant got a 502. For latency, say "requests keep answering in about a millisecond; at worst one request waits for the rebuild, about half a second".
 
 ## 4. Predictive echo at a 300 ms round trip
 
@@ -290,7 +291,7 @@ This was measured for keys typed one at a time at a shell prompt. Fast bursts, a
   - **warm:** 300 `GET /notes` each for 5 people.
 - **Encrypted volumes, on their own.** A tile whose state is a `filesystem`, `sqlite` or `blob` resource also mounts an encrypted volume per person: gocryptfs, which can't mount in this session (Setup). xbind's own `gocryptfs` binary (v2.6.1+xbin) was timed with xbind's flags (`-q -passfile /dev/stdin`, `-scryptn 10` for partition volumes): `init`, a first mount and a remount, 20 times each inside `unshare -Urm`, with the volumes on the NVMe and on tmpfs.
 
-**Command:** `hack/demo/measure/run.sh partition`. For the volumes, `hack/demo/measure/gocryptfs-cost.sh`; the copy that ran sits in `run6-gocryptfs/`, and its output's first line names the binary.
+**Command:** `hack/demo/measure/run.sh partition`. For the volumes, `hack/demo/measure/gocryptfs-cost.sh`: `run7-gocryptfs-nvme/` holds the run with the volumes on the NVMe (the exact command, the script as it ran and a machine file beside the samples; the output's first line names the binary). run6's "disk" row doesn't stand: the script archived with it put the volumes under `/tmp` (tmpfs), and it has no machine file.
 
 **Numbers** (run3 is production-like; `all` pools runs 1–3):
 
@@ -300,20 +301,20 @@ This was measured for keys typed one at a time at a shell prompt. Fast bursts, a
 | restart after a stop (next request) | 12 | 212.6 | 228.9 | 233.0 | 235.1 | (36) 225.1 / 232.8 / 235.1 |
 | warm request (`GET /notes`, 2 kv reads) | 1500 | 0.3 | 0.4 | 0.6 | 3.2 | (4500) 0.4 / 0.5 / 3.2 |
 | first person ever (tile's first build + start) | 1 | | 4231.8 | | | |
-| gocryptfs volume on disk: init + first mount | 20 | 26.1 | 29.7 | 31.6 | 31.6 | |
-| gocryptfs volume on disk: remount | 20 | 12.9 | 14.9 | 16.8 | 17.6 | |
-| gocryptfs volume on tmpfs: init + first mount | 20 | 22.9 | 25.3 | 27.5 | 30.6 | |
-| gocryptfs volume on tmpfs: remount | 20 | 13.9 | 15.8 | 18.4 | 18.7 | |
+| gocryptfs volume on the NVMe (run7): init + first mount | 20 | 26.6 | 29.5 | 31.7 | 33.6 | |
+| gocryptfs volume on the NVMe (run7): remount | 20 | 12.6 | 14.9 | 16.5 | 18.7 | |
+| gocryptfs volume on tmpfs (run6): init + first mount | 20 | 22.9 | 25.3 | 27.5 | 30.6 | |
+| gocryptfs volume on tmpfs (run6): remount | 20 | 13.9 | 15.8 | 18.4 | 18.7 | |
 
 With the workspace on tmpfs (run1), cold starts were 34 ms faster at the median: 201.2 against 235.2 ms.
 
-**Raw:** `run3-prodlike/partition.jsonl`, `run6-gocryptfs/gocryptfs-cost-{disk,tmpfs}.jsonl`.
+**Raw:** `run3-prodlike/partition.jsonl`, `run7-gocryptfs-nvme/gocryptfs-cost-nvme.jsonl`, `run6-gocryptfs/gocryptfs-cost-tmpfs.jsonl`.
 
 **Claims:**
 
-- *"Your own instance starts on your first request in under 0.3 s; after that it answers in about a millisecond"* (39 of 39 cold starts under 265 ms; 98 % of 4,500 warm requests under 1 ms, p90 0.5 ms, p99 1.5 ms, the worst 3.2 ms). Don't say "always under 1 ms".
-- For a tile that keeps encrypted files, add up to about 32 ms per volume on a person's first start, or 19 ms on a restart. Two volumes would still fit under 0.35 s (264.8 + 2 × 31.6 ms).
-- For comparison, the I2 measurement on a 4-vCPU VPS (`plans/partitions/records/I2.md`) put the agent template's first start at 2.4 s, almost all of it the template's own schema migration.
+- *"On a 96-core workstation, a small app's own instance starts on your first request in under 0.3 s; after that it answers in about a millisecond"* (39 of 39 cold starts under 265 ms; 97 % of 4,500 warm requests under 1 ms — 4,403 of them — p90 0.5 ms, p99 1.5 ms, the worst 3.2 ms). Don't say "always under 1 ms", and keep "a small app": `apps/notes` is a minimal Go tile with a kv store.
+- For a tile that keeps encrypted files, add up to about 34 ms per volume on a person's first start, or 19 ms on a restart (run7, the NVMe). Two volumes would still fit under 0.35 s (264.8 + 2 × 33.6 ms).
+- **Not the film set's partitioned apps.** The agent template (the set's agent, sqlite in an encrypted volume) is far heavier: the I2 measurement on a 4-vCPU VPS (`plans/partitions/records/I2.md`) put its first start at 2.4 s, almost all of it the template's own schema migration. The expenses app (node) wasn't measured. Never pair this claim with footage of the agent or of the partitions page; to claim either, measure its cold partition starts on the set.
 
 ## 6. Install
 
