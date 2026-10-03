@@ -1,14 +1,17 @@
 package scaffold
 
+// indexTpl opts the new tile in to the person's appearance
+// (data-bx-theme="auto": light or dark, D184) and styles it from theme.css's
+// tokens only, so it starts out right in both themes.
 const indexTpl = `<!doctype html>
-<html lang="en">
+<html lang="en" data-bx-theme="auto">
 <head>
   <meta charset="utf-8">
   <title>%[1]s</title>
   <link rel="stylesheet" href="/vendor/theme.css">
   <style>
-    body { padding: 10px 14px; }
-    h3 { margin: 0 0 6px; font-size: 13px; }
+    body { padding: var(--bx-pad); }
+    h3 { margin: 0 0 8px; font: var(--bx-font-title); }
   </style>
 </head>
 <body class="bx">
