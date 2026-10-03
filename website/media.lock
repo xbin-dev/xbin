@@ -6,4 +6,5 @@
 #
 #   <sha256>  <path under website/media/>  <source: where the file comes from>
 #
-# Nothing yet: the 12 s film (F-1) waits for the product theme (D184).
+# Nothing yet: the 12 s film (F-1) waits for the product theme (D184). Its four
+# files go in as film/F-1-{day,night}.{mp4,webm} (website/shots.todo.md).
