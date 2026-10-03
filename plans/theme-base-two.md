@@ -1,9 +1,9 @@
 # Base Two in the workspace: the token contract and the plan (D184)
 
-> Status: **design approved by the owner at gate B2 (2026-10-03); W9 builds it.**
-> Branch `theme/base-two` (from `promo/film-set`). This file is the contract
-> six packages build against in parallel; the decision record is D184 in
-> `plans/DECISIONS.md`.
+> Status: **live** — the contract W9's six packages built against, all six
+> merged and integrated on `theme/base-two` (from `promo/film-set`,
+> 2026-10-03); it still steers what is open (§6). The decision record is
+> D184 in `plans/DECISIONS.md`, with what shipped and how it was verified.
 
 Inputs: the brand system (`/tmp/claude-1000/xbin-brand/w3/system/`: `brand.md`
 §4, §5.3, §9, §11; `product-ui.md`; `tokens.json`, the `light.product` and
@@ -292,6 +292,7 @@ palette with contrast in both themes, so no chart token set is needed.
 | `--bx-grid` | `4px` | — |
 | `--bx-text-size` / `--bx-text-line` | `13px` / `18px` | `14px` / `20px` |
 | `--bx-term-size` / `--bx-term-line` | `12px` / `18px` | `13px` / `20px` |
+| `--bx-mono-size` (mono beside UI text: ids, paths, times; added at integration, P5's ask) | `12px` | `13px` |
 
 **Layout and motion**
 

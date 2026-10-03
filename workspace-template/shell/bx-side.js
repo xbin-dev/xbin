@@ -24,11 +24,9 @@ import { sideCss, statusCss, prbCss, partCss } from './shell-css.js';
 
 // The tree's row icons — drawn glyphs (/vendor/bx-icons.js), never emoji or
 // font glyphs, so they look the same everywhere: a tile is an app (a
-// window), a screen a grid of cards (drawn here in the set's manner: the
-// set has no grid glyph yet).
+// window), a screen a grid of cards.
 const APP_ICON = html`<bx-icon name="window"></bx-icon>`;
-const SCREEN_ICON = html`<svg class="ic" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor"
-  stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter"><path d="M2.75 2.75h4v4h-4zM9.25 2.75h4v4h-4zM2.75 9.25h4v4h-4zM9.25 9.25h4v4h-4z"/></svg>`;
+const SCREEN_ICON = html`<bx-icon name="grid"></bx-icon>`;
 const caret = (open) => html`<bx-icon name=${open ? 'caret-down' : 'caret-right'}></bx-icon>`;
 
 export class BxSide extends LitElement {

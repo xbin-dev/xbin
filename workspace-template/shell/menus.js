@@ -134,7 +134,7 @@ export function canvasMenuItems(s, a) {
   } else {
     items.push({ icon: 'plus', label: 'Create a new tile…', disabled: true, hint: s.ownerHint ?? 'org-only policy — ask an org admin' });
   }
-  items.push({ icon: 'split', label: 'New screen', action: () => a.addScreen() });
+  items.push({ icon: 'grid', label: 'New screen', action: () => a.addScreen() });
   items.push({ kind: 'sep' });
   items.push({ icon: 'restore', label: 'Bring windows on-screen', hint: 'pop-ups, floats', action: () => a.fitWindows(true) });
   return items;

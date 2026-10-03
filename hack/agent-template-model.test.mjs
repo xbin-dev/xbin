@@ -525,7 +525,7 @@ test('rules: who may do what', () => {
   assert.equal(rules.halt({ manager: false }, true, []).shown, false);
   assert.equal(rules.halt({ manager: true }, false, [{ status: 'waiting_input' }]).shown, false, 'waiting for a person is not running');
   assert.equal(rules.halt({ manager: true }, false, [{ status: 'running' }]).shown, true);
-  assert.deepEqual([rules.halt({ manager: true }, true, []).label, rules.halt({ manager: true }, true, []).icon], ['HALTED', 'stop']);
+  assert.deepEqual([rules.halt({ manager: true }, true, []).label, rules.halt({ manager: true }, true, []).icon], ['HALTED', 'power']);
 
   const d = { owner: 'bob', visibility: 'team', teamRole: 'viewer', members: [{ user: 'alice', role: 'viewer' }] };
   assert.deepEqual(rules.share(d, { user: 'alice' }), { own: false, vis: 'team-viewer', leave: true });

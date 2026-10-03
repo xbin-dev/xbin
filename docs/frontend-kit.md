@@ -159,7 +159,7 @@ opted-in document gets); the names and what they are for:
 | Code | `--bx-syn-keyword`, `-string`, `-number`, `-comment`, `-function`, `-type`, `-attr`, `-builtin`, `-deletion`, `-addition`; `--bx-diff-add`, `-del`, `-hunk`, `-context`, each with `-bg` | highlighted code and diffs |
 | Terminal | `--bx-term-bg`, `-fg`, `-cursor`, `-cursor-ink`, `-selection`, and the 16 ANSI colours `--bx-term-black` … `--bx-term-bright-white` | xterm's theme |
 | Type | `--bx-sans` (Instrument Sans), `--bx-mono` (JetBrains Mono), `--bx-display` (Bricolage Grotesque); `--bx-font` (the UI shorthand), `--bx-font-micro`, `-meta`, `-ui`, `-body`, `-title`, `-heading`, `-hero`, `-code`, `-number`; `--bx-tracking-micro` / `-heading` / `-hero` | `font: var(--bx-font-…)` |
-| Density | `--bx-row` (28px; 32px comfortable), `--bx-control-h`, `--bx-pad`, `--bx-grid` (4px), `--bx-text-size` / `-line`, `--bx-term-size` / `-line`, `--bx-density` | compact or comfortable |
+| Density | `--bx-row` (28px; 32px comfortable), `--bx-control-h`, `--bx-pad`, `--bx-grid` (4px), `--bx-text-size` / `-line`, `--bx-term-size` / `-line`, `--bx-mono-size` (mono beside UI text: ids, paths, times; 12px, 13px comfortable), `--bx-density` | compact or comfortable |
 | Layout, motion | `--bx-titlebar-h`, `--bx-topbar-h`, `--bx-statusbar-h`, `--bx-sidebar-w`, `--bx-rail-w`, `--bx-dock-w`, `--bx-elevated-h`; `--bx-ease-out`, `--bx-ease-in-out`, `--bx-dur-instant` / `-ui` / `-panel` / `-window` (0 under reduced motion) | |
 | The theme in force | `--bx-scheme` (`dark` or `light`) | for code that paints |
 
@@ -254,20 +254,20 @@ alone. The names follow the native vocabulary's where the meaning is the
 same:
 
 `agent` `archive` `arrow-left` `arrow-right` `bell` `bell-slash` `bolt`
-`box` `branch` `calendar` `caret-down` `caret-right` `chart` `chat` `check`
-`chevron-down` `chevron-left` `chevron-right` `chevron-up` `clipboard`
-`clock` `code` `compact` `copy` `cpu` `database` `deploy` `device` `diff`
-`doc` `download` `ellipsis` `error` `eye` `eye-slash` `file` `filter`
-`folder` `globe` `grip` `home` `host` `info` `key` `link` `list` `live`
-`lock` `mail` `maximize` `menu` `minimize` `minus` `network` `ok` `org`
-`paperclip` `pause` `pencil` `people` `person` `photo` `pin` `play` `plug`
-`plus` `popout` `question` `refresh` `restore` `save` `search` `send`
-`server` `settings` `shield` `signal` `split` `tag` `terminal` `thought`
-`trash` `unlock` `upload` `vm` `wait` `warning` `window` `xmark`, and the
-aliases `attach` `back` `building` `channel` `close` `collapse` `danger`
-`edit` `expand` `external` `forward` `gear` `gpu` `hourglass` `image`
-`laptop` `logs` `more` `package` `phone` `rack` `reload` `stop` `storage`
-`team` `user` `view-as` `warn` `wrench`.
+`box` `branch` `calendar` `call` `caret-down` `caret-right` `chart` `chat`
+`check` `chevron-down` `chevron-left` `chevron-right` `chevron-up`
+`clipboard` `clock` `code` `compact` `copy` `cpu` `database` `deploy`
+`device` `diff` `doc` `download` `ellipsis` `error` `eye` `eye-slash`
+`file` `filter` `folder` `globe` `grid` `grip` `home` `host` `info` `key`
+`link` `list` `live` `lock` `mail` `maximize` `menu` `minimize` `minus`
+`network` `ok` `org` `paperclip` `pause` `pencil` `people` `person`
+`photo` `pin` `play` `plug` `plus` `popout` `power` `question` `refresh`
+`restore` `save` `search` `send` `server` `settings` `shield` `signal`
+`split` `tag` `terminal` `thought` `trash` `unlock` `upload` `vm` `wait`
+`warning` `window` `xmark`, and the aliases `attach` `back` `building`
+`channel` `close` `collapse` `danger` `edit` `expand` `external` `forward`
+`gear` `gpu` `hourglass` `image` `laptop` `logs` `more` `package` `phone`
+`rack` `reload` `stop` `storage` `team` `user` `view-as` `warn` `wrench`.
 
 A person's own emoji (a folder's icon, an agent class's) is their content,
 and is shown as they wrote it.

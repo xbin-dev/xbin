@@ -62,7 +62,7 @@ export class BxOrganisations extends LitElement {
     h3:first-of-type { margin-top: 2px; }
     .muted { color: var(--bx-muted); }
     .hint { font: var(--bx-font-meta); }
-    .mono { font-family: var(--bx-mono); font-size: var(--bx-term-size); }
+    .mono { font-family: var(--bx-mono); font-size: var(--bx-mono-size, 12px); }
     code { font: var(--bx-font-code); }
     /* a tag: square, 20px, a 1px border */
     .pill { box-sizing: border-box; display: inline-flex; align-items: center; gap: 4px; height: 20px; padding: 0 6px;

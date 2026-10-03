@@ -7,7 +7,7 @@ import { getJSON, sendJSON, money, num, ago, dateShort, inDays, avatar, badge, b
 const BOARD = ['lead', 'qualified', 'demo', 'proposal', 'negotiation'];
 const HEALTH = { good: ['ok', 'Healthy'], watch: ['warn', 'Watch'], risk: ['bad', 'At risk'] };
 // what an activity was: its icon (bx-icons)
-const TYPE_ICON = { call: 'phone', email: 'mail', meeting: 'calendar', note: 'pencil', stage: 'arrow-right' };
+const TYPE_ICON = { call: 'call', email: 'mail', meeting: 'calendar', note: 'pencil', stage: 'arrow-right' };
 
 class LarkspanCrm extends LitElement {
   static properties = {

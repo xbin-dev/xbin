@@ -242,6 +242,7 @@
   --bx-text-line: 18px;
   --bx-term-size: 12px;
   --bx-term-line: 18px;
+  --bx-mono-size: 12px;           /* mono beside UI text: ids, paths, times */
 
   /* layout sizes (product-ui 2) */
   --bx-titlebar-h: 28px;
@@ -462,6 +463,7 @@
   --bx-text-line: 20px;
   --bx-term-size: 13px;
   --bx-term-line: 20px;
+  --bx-mono-size: 13px;
 }
 
 /* ---- the system's accessibility settings ---- */
@@ -535,9 +537,10 @@ body.bx {
 }
 .bx input[type="checkbox"], .bx input[type="radio"], .bx input[type="range"] { min-height: 0; padding: 0; }
 /* Defaults a .bx document's own rules override (no specificity): the
-   placeholder in subtle (product-ui 6), code in the mono face. */
+   placeholder in subtle (product-ui 6), code in the mono face without
+   ligatures (JetBrains Mono would draw -> and => as arrows). */
 :where(.bx) ::placeholder { color: var(--bx-subtle); opacity: 1; }
-:where(.bx) :where(pre, code, kbd, samp) { font-family: var(--bx-mono); }
+:where(.bx) :where(pre, code, kbd, samp) { font-family: var(--bx-mono); font-variant-ligatures: none; }
 .bx :focus-visible, .bx:focus-visible {
   outline: var(--bx-focus-outline);
   outline-offset: var(--bx-focus-offset);

@@ -89,7 +89,7 @@ export const base = [scrollCss, css`
          vertical-align: top; }
     /* tables inside a row's detail or a card: no sticky header */
     td th, .detail th, .panel th, .card th, .editor th, details th { position: static; background: none; }
-    .mono { font-family: var(--bx-mono); font-size: var(--bx-term-size); }
+    .mono { font-family: var(--bx-mono); font-size: var(--bx-mono-size, 12px); }
     /* a control inside a mono cell keeps the UI's type; so do words (a display name beside an id) */
     .mono button, .mono .sans { font-family: var(--bx-sans); font-size: var(--bx-text-size); }
     /* a tag (a role, a grant, a path): square, 20px, mono, a 1px border */

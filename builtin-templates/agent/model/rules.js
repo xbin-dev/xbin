@@ -195,8 +195,8 @@ const ACTIVE = new Set(['running', 'awaiting', 'sleeping', 'waiting_input', 'que
 export function halt(me, on, rows) {
   return {
     shown: !!me.manager && (!!on || rows.some((r) => ACTIVE.has(r.status) && r.status !== 'waiting_input')),
-    label: on ? 'HALTED' : '', // the web draws the stop glyph before it (D184)
-    icon: 'stop',
+    label: on ? 'HALTED' : '', // the web draws the power glyph before it (D184), as the native view does
+    icon: 'power',
     title: on ? 'Resume — the agent is halted' : 'Stop every running agent now',
   };
 }

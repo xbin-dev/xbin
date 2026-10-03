@@ -17,7 +17,7 @@ const NAMES = [
   'people', 'eye', 'eye-slash', 'device', 'bell', 'bell-slash', 'save', 'link', 'box', 'photo', 'signal', 'clipboard',
   'wait', 'compact', 'calendar', 'trash', 'thought', 'paperclip', 'pencil', 'search', 'bolt', 'arrow-right', 'arrow-left',
   'window', 'agent', 'server', 'copy', 'download', 'upload', 'send', 'play', 'pause', 'filter', 'tag', 'home', 'chart',
-  'clock', 'question', 'archive', 'chat', 'grip',
+  'clock', 'question', 'archive', 'chat', 'grip', 'grid', 'power', 'call',
 ];
 const ALIASES = {
   close: 'xmark', more: 'ellipsis', gear: 'settings', external: 'popout', logs: 'list', rack: 'server',
