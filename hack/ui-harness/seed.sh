@@ -198,13 +198,10 @@ CS="$WS/apps/coding-sandbox"
 # (every fake_*_test.go: the fake grows a file per contract part — stdio came after tty)
 for f in "$REPO"/builtin-templates/coding-sandbox/_backend/fake_*_test.go; do b=${f##*/}; cp "$f" "$CS/_backend/${b%_test.go}.go"; done
 sed -i 's|"db": { "type": "sqlite" }|"db": { "type": "sqlite" }, "boxes": { "type": "filesystem" }|' "$CS/scope.json"
-# (a copy's xbin.json is plain JSON: the template block and comments go)
-python3 - "$CS/xbin.json" <<'PY'
-import json, sys
-m = json.load(open(sys.argv[1]))
-m["uses"].append({"target": "res:apps/coding-sandbox/boxes", "role": "writer"})
-json.dump(m, open(sys.argv[1], "w"), indent=2)
-PY
+# (a copy's xbin.json keeps the template's comments and layout — JSONC, so
+# no json.load: one more uses line after the db's, as hack/demo/seed.sh does)
+sed -i '/"target": "res:apps\/coding-sandbox\/db"/a\    { "target": "res:apps/coding-sandbox/boxes", "role": "writer" },' "$CS/xbin.json"
+grep -q '"res:apps/coding-sandbox/boxes"' "$CS/xbin.json" || { echo "seed: the boxes resource did not land in $CS/xbin.json" >&2; exit 1; }
 # dev1 may open its page with read access: a read-only view (D122 addendum)
 api PUT /access '{"tile":"apps/coding-sandbox","kind":"user","id":"dev1","level":"read"}'
 

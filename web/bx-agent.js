@@ -314,7 +314,7 @@ export class BxAgent extends LitElement {
       this.requestUpdate();
       this._maybePoll();
       this._refetch();
-    } catch (e) { if (e.status === 404) this._end(); /* else transient: the live stream or the next poll recovers */ }
+    } catch (e) { if (e.status === 404) this._gone(); /* else transient: the live stream or the next poll recovers */ }
   }
 
   async _refetch() {
@@ -323,7 +323,7 @@ export class BxAgent extends LitElement {
       const r = await this._get(`since=${this._tx.lastSeq}`);
       if (this._tx.apply(r.events || [], !!r.truncated)) this.requestUpdate();
       this._maybePoll();
-    } catch (e) { if (e.status === 404) this._end(); }
+    } catch (e) { if (e.status === 404) this._gone(); }
   }
 
   _reset() { this._tx.reset(); this._fromKey = this._toKey = null; this._all = false; this._opened.clear(); }
@@ -379,9 +379,11 @@ export class BxAgent extends LitElement {
     else if (!busy && this._poll) { clearInterval(this._poll); this._poll = null; }
   }
 
-  _end() {
+  _gone() {
     // the session is gone server-side (exited, removed): the frame keeps the
-    // tab as ended so the transcript — and the reason — stay readable
+    // tab as ended so the transcript — and the reason — stay readable. (Not
+    // _end: that name is the rendered window's end index, a field that
+    // shadowed the method, so a 404 threw instead of ending the tab.)
     this.ended = true;
     this._maybePoll();
     this.dispatchEvent(new CustomEvent('bx-exit', { bubbles: true }));

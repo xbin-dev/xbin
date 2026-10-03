@@ -835,6 +835,7 @@ PASSES.agentSignins = require('./passes/agentsignins').agentSignins; // D179: sa
 PASSES.demoStills = require('../demo/stills').demoStills; // the demo film set's stills (HARNESS_SEED=demo; hack/demo/README.md)
 PASSES.appearance = require('./passes/appearance').appearance; // D184: no flash, the relay, a second tab, the hint cookie, density, fonts
 PASSES.themeCanary = require('./passes/themecanary').themeCanary; // D184: every colour, font and radius on screen from a token, in both themes
+PASSES.termTheme = require('./passes/termtheme').termTheme; // D184: an open terminal follows the person's theme; a picked palette stays
 
 (async () => {
   const args = process.argv.slice(2);

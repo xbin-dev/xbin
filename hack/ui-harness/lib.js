@@ -127,7 +127,13 @@ async function gotoTab(page, hash, waitText) {
 }
 
 async function shot(page, name, opts = {}) {
+  // A full-page shot leaves Chromium at another scroll offset than its
+  // scroll anchoring remembers: the next layout snaps the page back and a
+  // click right after the shot lands elsewhere (passes/sandboxes.js traced
+  // it). Put the scroll back where it was.
+  const at = await page.evaluate(() => [scrollX, scrollY]).catch(() => null);
   await page.screenshot({ path: `${OUT}/${name}.png`, fullPage: true, ...opts });
+  if (at) await page.evaluate(([x, y]) => window.scrollTo(x, y), at).catch(() => {});
   log('wrote', name + '.png');
 }
 

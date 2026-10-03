@@ -79,8 +79,9 @@ async function personalBinds(browser) {
     check(await tr.locator('span.pill', { hasText: /^global$/ }).count() === 1, 'the slot is labelled global');
     check(await pill.count() === 1, "dev1's personal bind is listed, labelled personal");
     await shot(A.page, 'admin-wiring-personal');
-    await pill.locator('a', { hasText: '✕' }).click();
-    await until(async () => (await pill.count()) === 0, 'the ✕ removes it');
+    // the remove control is a drawn xmark (D184), found by its name
+    await pill.locator('button[aria-label="remove this personal bind"]').click();
+    await until(async () => (await pill.count()) === 0, 'the remove control removes it');
     const left = await (await api(B.ctx, 'GET', '/partitions/binds')).json();
     check(Array.isArray(left.binds) && left.binds.length === 0, `removed: dev1 has none (${JSON.stringify(left)})`);
   } finally {

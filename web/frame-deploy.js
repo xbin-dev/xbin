@@ -426,7 +426,7 @@ export function deployTestApi(f) {
     get state() { return r()?.state ?? null; },
     get loaded() { return !!r()?.loaded; },
     get changed() { return vmOf(f).changed; },
-    get chip() { const c = vmOf(f).chip; return c ? { text: c.text, compact: c.compact, title: c.title } : null; },
+    get chip() { const c = vmOf(f).chip; return c ? { text: c.text, compact: c.compact, title: c.title, icon: c.icon || '' } : null; },
     get offer() { return !!vmOf(f).offer; },
     get entry() { const vm = vmOf(f); return vm.zero && vm.entry ? { ...vm.entry } : null; }, // drawn in the zero state only
     get banner() { const l = vmOf(f).launcher; return l?.banner ? { ...l.banner } : null; },
