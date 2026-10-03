@@ -1,0 +1,114 @@
+/* xbin Base Two: the brand's tokens for the web (plans/brand.md; values from the
+   brand system's tokens.json, light and dark). Every colour a page uses comes from
+   here; components never carry hex values of their own. The theme follows the
+   visitor's system setting through prefers-color-scheme: no toggle, nothing stored.
+   Colour order is size order, in both themes: yellow 1, green 2, magenta 4, cobalt 8. */
+
+/* ---------- type: self-hosted woff2, the latin subsets plus two symbol subsets ---------- */
+@font-face{font-family:"Bricolage Grotesque";src:url("../fonts/bricolage-grotesque-800.woff2") format("woff2");font-weight:800;font-style:normal;font-display:swap}
+@font-face{font-family:"Bricolage Grotesque";src:url("../fonts/bricolage-grotesque-800-sym.woff2") format("woff2");font-weight:800;font-style:normal;font-display:swap;unicode-range:U+2192,U+2264-2265}
+@font-face{font-family:"Bricolage Grotesque";src:url("../fonts/bricolage-grotesque-600.woff2") format("woff2");font-weight:600;font-style:normal;font-display:swap}
+@font-face{font-family:"Instrument Sans";src:url("../fonts/instrument-sans-400.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap}
+@font-face{font-family:"Instrument Sans";src:url("../fonts/instrument-sans-400-sym.woff2") format("woff2");font-weight:400;font-style:normal;font-display:swap;unicode-range:U+2190-2199}
+@font-face{font-family:"Instrument Sans";src:url("../fonts/instrument-sans-600.woff2") format("woff2");font-weight:600;font-style:normal;font-display:swap}
+@font-face{font-family:"Instrument Sans";src:url("../fonts/instrument-sans-600-sym.woff2") format("woff2");font-weight:600;font-style:normal;font-display:swap;unicode-range:U+2190-2199}
+@font-face{font-family:"JetBrains Mono";src:url("../fonts/jetbrains-mono-500.woff2") format("woff2");font-weight:500;font-style:normal;font-display:swap}
+
+:root{
+  color-scheme:light dark;
+
+  /* fields: announce, never act, never signal */
+  --yellow:#FFD000;--yellow-ink:#0B0C12;
+  --green:#00A86B;--green-ink:#0B0C12;
+  --magenta:#DB0072;--magenta-ink:#FFFFFF;
+  --cobalt:#1F3DFF;--cobalt-ink:#FFFFFF;
+  --ink:#0B0C12;--paper:#FFFFFF;
+
+  /* concrete: cool neutrals that end in the brand ink */
+  --c-0:#FFFFFF;--c-25:#F7F8FA;--c-50:#F1F2F5;--c-100:#E8E9EE;--c-150:#DCDEE4;--c-200:#CDD0D8;
+  --c-300:#B1B4BF;--c-400:#9396A4;--c-500:#7E8194;--c-600:#626576;--c-700:#4B4D5C;--c-800:#33353F;
+  --c-850:#262730;--c-900:#1F2028;--c-925:#16171D;--c-950:#111218;--c-1000:#0B0C12;
+
+  /* the page: light */
+  --bg:#FFFFFF;--surface:#F1F2F5;--surface-2:#E8E9EE;--surface-3:#DCDEE4;
+  --text:#0B0C12;--muted:#4B4D5C;--subtle:#626576;
+  --border:#7E8194;--divider:#CDD0D8;
+  --accent:#1F3DFF;--accent-hover:#1530D6;--accent-ink:#FFFFFF;--link:#1F3DFF;
+  --focus:#0086A6;--focus-gap:#FFFFFF;
+  --ok:#436C0C;--ok-bg:#EEF5E1;--warn:#9A4A06;--warn-bg:#FBEEDF;
+  --danger:#C81E1E;--danger-bg:#FBE7E7;--info:#3D4A5C;--info-bg:#ECEEF2;
+
+  /* the command band: ink in light, cobalt in dark; actions white with ink labels */
+  --band:#0B0C12;--band-text:#FFFFFF;--band-soft:#B4B7C8;--band-rule:#2A2D40;--band-prompt:#FFD000;
+  --band-action:#FFFFFF;--band-action-hover:#E8E9EE;--band-action-ink:#0B0C12;--band-focus:#0086A6;
+
+  /* a photograph's solid stand-in while it loads, or if it never does */
+  --photo-fallback:#FFD000;
+  /* the data chart: the years before the bend in concrete, after it in cobalt */
+  --chart-pre:#DCDEE4;--chart-post:var(--cobalt);
+  /* the footer's ground */
+  --foot:#F1F2F5;
+
+  /* screen-print grain on every field, band and mat: printed, never plastic */
+  --grain:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 .11 0'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+
+  /* families */
+  --f-display:"Bricolage Grotesque","Arial Black","Helvetica Neue",Arial,system-ui,sans-serif;
+  --f-text:"Instrument Sans",system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;
+
+  /* the web scale (size / line); headings scale down to their phone sizes below 600 px */
+  --t-micro:800 11px/16px var(--f-display);
+  --t-caption:400 12px/16px var(--f-text);
+  --t-small:400 14px/20px var(--f-text);
+  --t-body:400 16px/24px var(--f-text);
+  --t-lead:600 20px/28px var(--f-text);
+  --t-h4:600 24px/30px var(--f-display);
+  --t-h3:800 clamp(24px,1.6vw + 12px,32px)/1.125 var(--f-display);
+  --t-h2:800 clamp(32px,2.2vw + 18px,48px)/1.04 var(--f-display);
+  --t-h1:800 clamp(40px,3.3vw + 18px,64px)/.97 var(--f-display);
+  --t-display:800 clamp(56px,5.6vw + 18px,96px)/.92 var(--f-display);
+  --t-command:500 20px/27px var(--f-mono);
+  --ls-h4:-.01em;--ls-h3:-.02em;--ls-h2:-.03em;--ls-h1:-.035em;--ls-display:-.04em;--ls-micro:.09em;
+
+  /* space: base two with half steps */
+  --s-1:4px;--s-2:8px;--s-3:12px;--s-4:16px;--s-5:24px;--s-6:32px;--s-7:48px;--s-8:64px;--s-9:96px;--s-10:128px;
+
+  /* grid: margins, gutters, content to 1440 px; --edge is the margin that keeps content
+     inside 1440 px on wide screens while fields and bands bleed full width */
+  --pad:clamp(16px,3.34vw,48px);
+  --gutter:clamp(16px,2.8vw,40px);
+  --maxw:1440px;
+  --edge:max(var(--pad),calc((100vw - var(--maxw)) / 2 + var(--pad)));
+
+  /* corners: 2 px wherever a corner shows; full-bleed bands and fields show none */
+  --r:2px;
+  --hairline:1px;--rule:2px;--rule-plate:3px;
+
+  /* motion: grow once, then hold */
+  --ease-out:cubic-bezier(.16,1,.3,1);
+  --ease-in-out:cubic-bezier(.65,0,.35,1);
+  --d-instant:80ms;--d-ui:120ms;--d-panel:200ms;--d-window:240ms;--d-announce:720ms;
+}
+
+@media (prefers-color-scheme:dark){
+  :root{
+    /* cobalt lifts so the biggest field still separates from the ink page; the order stays */
+    --cobalt:#3350FF;
+
+    --bg:#0B0C12;--surface:#16171D;--surface-2:#1F2028;--surface-3:#262730;
+    --text:#F3F4F8;--muted:#A3A6B6;--subtle:#8A8D9E;
+    --border:#666A7E;--divider:#2C2E38;
+    --accent:#8C9BFF;--accent-hover:#A9B4FF;--accent-ink:#0B0C12;--link:#8C9BFF;
+    --focus:#3DD6F5;--focus-gap:#0B0C12;
+    --ok:#A3CF5E;--ok-bg:#1C2612;--warn:#F2994A;--warn-bg:#2B1D10;
+    --danger:#FF7A7A;--danger-bg:#2E1416;--info:#A9B4C6;--info-bg:#1C2029;
+
+    --band:#3350FF;--band-text:#FFFFFF;--band-soft:#E8EBFF;--band-rule:#5A72FF;--band-prompt:#FFEB70;
+    --band-action:#FFFFFF;--band-action-hover:#E8EBFF;--band-action-ink:#0B0C12;--band-focus:#FFFFFF;
+
+    --photo-fallback:#1F2028;
+    --chart-pre:#262730;
+    --foot:#16171D;
+  }
+}

@@ -1,42 +1,68 @@
 <!doctype html>
-<!-- og.png master. Render: chromium --headless --screenshot=og.png \
-       --window-size=1200,630 --hide-scrollbars og.html -->
-<html><head><meta charset="utf-8"><style>
-  @font-face{font-family:"IBM Plex Sans";src:url("fonts/IBMPlexSans-Bold.woff2") format("woff2");font-weight:700}
-  @font-face{font-family:"IBM Plex Sans";src:url("fonts/IBMPlexSans-SemiBold.woff2") format("woff2");font-weight:600}
-  *{box-sizing:border-box;margin:0}
-  body{width:1200px;height:630px;overflow:hidden;background:#16181d;color:#d4d9e0;
-    font-family:-apple-system,"Segoe UI",system-ui,sans-serif;position:relative}
-  .bg{position:absolute;inset:0;background:
-    radial-gradient(900px 420px at 82% -10%,rgba(245,166,35,.14),transparent 60%),
-    radial-gradient(#363c45 1.2px,transparent 1.8px);background-size:auto,30px 30px}
-  .in{position:relative;padding:74px 84px;height:100%;display:flex;flex-direction:column}
-  .brand{display:flex;align-items:center;gap:16px;font:600 30px "IBM Plex Sans";letter-spacing:.05em}
-  h1{font:700 76px/1.05 "IBM Plex Sans";letter-spacing:-.025em;margin-top:88px;max-width:900px}
-  h1 .a{color:#f5a623}
-  .sub{margin-top:26px;font:26px ui-monospace,Menlo,Consolas,monospace;color:#868f9a}
-  .sub b{color:#d4d9e0;font-weight:400}
-  .foot{margin-top:auto;display:flex;align-items:center;gap:14px;
-    font:22px ui-monospace,Menlo,Consolas,monospace;color:#5c6672}
-  .foot .pill{border:1px solid #454d59;border-radius:999px;padding:6px 18px;color:#868f9a}
-  .foot .url{margin-left:auto;color:#f5a623}
-</style></head><body>
-  <div class="bg"></div>
-  <div class="in">
-    <div class="brand">
-      <svg viewBox="0 0 64 64" width="52" height="52">
-        <path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" fill="#f5a623"/>
-        <path d="M21 21 43 43M43 21 21 43" stroke="#1b1e24" stroke-width="9"/>
-        <circle cx="53" cy="11" r="2.6" fill="#1b1e24" opacity=".4"/>
-        <circle cx="11" cy="53" r="2.6" fill="#1b1e24" opacity=".4"/>
-      </svg>X/BIN
-    </div>
-    <h1>An office for <span class="a">your agents.</span></h1>
-    <div class="sub"><b>self-hosted</b> · <b>sandboxed</b> · <b>IT holds the keys</b></div>
+<!-- The share card's master artwork (visual OG-1), not a page: og.png is this file
+     rendered at 1200 x 630 in the light theme (website/README.md has the command). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1200, initial-scale=1">
+<meta name="color-scheme" content="light">
+<title>xbin: Software has entered its exponential era</title>
+<link rel="stylesheet" href="css/tokens.css">
+<style>
+/* Announce volume, 1200 x 630: the stair at left in doubling order, the glass hall at right,
+   the trial command on an ink plate at its foot. Social cards have no theme: light only. */
+html,body{margin:0;width:1200px;height:630px;overflow:hidden;background:var(--paper);color:var(--ink);-webkit-font-smoothing:antialiased}
+.era{display:flex;height:10px}
+.era i{display:block;flex:1}
+.era i:nth-child(1){box-shadow:inset 0 0 0 1px var(--ink)}
+.era i:nth-child(2){background:var(--yellow)}
+.era i:nth-child(3){flex:2;background:var(--green)}
+.era i:nth-child(4){flex:4;background:var(--magenta)}
+.era i:nth-child(5){flex:8;background:var(--cobalt)}
+.card{display:grid;grid-template-columns:760px 440px;height:620px}
+.left{display:flex;flex-direction:column;justify-content:space-between;padding:44px 0 40px}
+.stair{margin:0;font:800 27px var(--f-display)}
+.stair span{display:block;width:max-content;padding:var(--pt) .3em var(--pb) 48px;font-size:calc(27px * var(--m));line-height:var(--lh);letter-spacing:var(--ls);white-space:nowrap;background-color:var(--fld);background-image:var(--grain);color:var(--fld-ink)}
+.s1{--m:1;--lh:1.16;--pt:.08em;--pb:.06em;--ls:-.01em;--fld:var(--yellow);--fld-ink:var(--yellow-ink)}
+.s2{--m:2;--lh:1.06;--pt:.06em;--pb:.04em;--ls:-.02em;--fld:var(--green);--fld-ink:var(--green-ink)}
+.s3{--m:4;--lh:1.04;--pt:.04em;--pb:.05em;--ls:-.035em;--fld:var(--magenta);--fld-ink:var(--magenta-ink)}
+.s4{--m:8;--lh:.8;--pt:.05em;--pb:.1em;--ls:-.045em;--fld:var(--cobalt);--fld-ink:var(--cobalt-ink)}
+@supports (text-box:trim-both cap alphabetic){
+  .stair span{text-box:trim-both cap alphabetic;line-height:1}
+  .s1{--pt:.34em;--pb:.3em}
+  .s2{--pt:.22em;--pb:.2em}
+  .s3{--pt:.16em;--pb:.27em}
+  .s4{text-box:trim-both ex alphabetic;--pt:.13em;--pb:.13em}
+}
+.foot{display:flex;align-items:flex-end;gap:28px;padding:0 40px 0 48px}
+.foot img{flex:none;margin-bottom:2px}
+.def{margin:0;padding-left:24px;border-left:3px solid var(--ink);font:600 19px/1.3 var(--f-text);max-width:440px}
+.def small{display:block;margin-top:8px;font:500 15px/1 var(--f-mono);color:var(--muted)}
+.photo{position:relative;overflow:hidden;background:var(--photo-fallback)}
+.photo img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:72% 62%;display:block}
+.plate{position:absolute;left:0;right:0;bottom:0;padding:16px 22px 18px;background-color:var(--ink);background-image:var(--grain);color:var(--paper)}
+.plate p{margin:0 0 8px;font:600 14px/1.2 var(--f-text);color:var(--band-soft)}
+.plate code{display:block;font:500 20px/1.2 var(--f-mono);white-space:nowrap}
+.plate code b{font-weight:500;color:var(--yellow)}
+</style>
+</head>
+<body>
+<div class="era" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></div>
+<div class="card">
+  <div class="left">
+    <h1 class="stair"><span class="s1">Software has</span> <span class="s2">entered its</span> <span class="s3">exponential</span> <span class="s4">era.</span></h1>
     <div class="foot">
-      <span class="pill">MIT / Apache-2.0</span>
-      <span class="pill">one binary</span>
-      <span class="url">xbin.dev</span>
+      <img src="img/wordmark.svg" alt="xbin" width="112" height="44">
+      <p class="def">A workspace where people and AI agents build the systems a company runs on.<small>xbin.dev</small></p>
     </div>
   </div>
-</body></html>
+  <div class="photo">
+    <img src="art/hall-day.jpg" alt="Sheets of yellow, green, magenta and cobalt glass hanging in a sunlit gallery, laying stripes of coloured light across the concrete floor." width="2736" height="1536">
+    <div class="plate">
+      <p>Try it free for an hour</p>
+      <code><b>$</b> ssh xbin@vcpu.sh</code>
+    </div>
+  </div>
+</div>
+</body>
+</html>
