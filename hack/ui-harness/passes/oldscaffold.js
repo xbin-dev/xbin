@@ -13,9 +13,14 @@
 //     (level and message, all an old shell reads), and its frame shows
 //     xbind's in-frame switch page with the tile's note;
 //   - the old admin console opens and lists both tiles;
+//   - the theme (D184): with the admin's light theme on a light system the
+//     old root, shell and admin console, which never opted in, stay Night;
+//     a new tile that opts in is light from its first document, and the old
+//     shell, which sends no xbin:appearance, leaves it so;
 //   - no page error anywhere.
-// The workspace's own scaffold comes back at the end, byte for byte, and
-// apps/opend's request is withdrawn (its code asks nothing again).
+// The workspace's own scaffold (root/ too: an old workspace has an old root
+// page) comes back at the end, byte for byte, apps/opend's request is
+// withdrawn (its code asks nothing again), and the admin's theme is unset.
 // It needs the workspace's own scaffold served: run.sh's default xbind
 // overlays the source tree's (--dev-overlay), so the pass SKIPs there, said
 // so — neither the default run nor CI covers it; run it as
@@ -31,7 +36,8 @@ const REPO = process.env.REPO || path.join(__dirname, '..', '..', '..');
 const OLD = process.env.HARNESS_OLD_SCAFFOLD || 'v0.3.65';
 const PART = 'apps/opart', PEND = 'apps/opend';
 const NOTE = 'Each person keeps their own notes here.';
-const DIRS = ['shell', 'tiles/admin'];
+const DIRS = ['root', 'shell', 'tiles/admin'];
+const THEMED = 'apps/othemed'; // a new tile that opts in to the theme (D184)
 
 async function until(fn, label, timeout = 15000) {
   const deadline = Date.now() + timeout;
@@ -129,9 +135,16 @@ async function oldScaffold(browser) {
     const p = await until(async () => { const c = await comp(PEND); return c.partition?.state === 'pending' && c; }, `${PEND} pending`);
     check(p.partition.request?.user && !p.partition.user, `${PEND} asks for user partitions and is pending (${JSON.stringify(p.partition)})`);
 
+    // ---- the theme: the admin's light, a light system (D184) ----
+    fs.mkdirSync(path.join(WS, THEMED), { recursive: true });
+    fs.writeFileSync(path.join(WS, THEMED, 'xbin.json'), '{"title":"opted in"}');
+    fs.writeFileSync(path.join(WS, THEMED, 'index.html'), '<!doctype html><html lang="en" data-bx-theme="auto"><head><link rel="stylesheet" href="/vendor/theme.css"></head><body class="bx"><h1 id="t">opted in</h1></body></html>\n');
+    await until(async () => (await api('GET', `/components/${THEMED}`)).status() === 200, `${THEMED} registered`);
+    await A.ctx.request.fetch(`${URL}/api/xbin/prefs/theme`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, data: '"light"' });
+
     // ---- the old shell ----
     sc.swap();
-    S = await login(browser, 'admin', 'admin');
+    S = await login(browser, 'admin', 'admin', { colorScheme: 'light' });
     S.page.on('pageerror', (e) => errors.push(`shell: ${e.message}`));
     await openShell(S.page);
     const src = await S.page.evaluate(async () => (await (await fetch('/c/shell/bx-shell.js', { cache: 'no-store' })).text()).includes('bx-part-consent'));
@@ -145,6 +158,16 @@ async function oldScaffold(browser) {
     const banner = (await alerts.allInnerTexts()).find((x) => x.includes(PEND)) || '';
     check(/partition mode switch/.test(banner) && banner.includes(PEND), `the old shell's /alerts banner names ${PEND}'s switch request (${banner.slice(0, 200)})`);
     await shot(S.page, 'old-scaffold-shell');
+    const scheme = (f) => f.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bx-scheme').trim() || 'none');
+    const rootScheme = await scheme(S.page.mainFrame());
+    check(rootScheme === 'dark', `${OLD}'s root page and shell stay Night under the admin's light theme on a light system (--bx-scheme ${rootScheme})`);
+    await openTile(S.page, THEMED);
+    const tf = await tileFrame(S.page, THEMED);
+    await tf.waitForSelector('#t', { timeout: 15000 });
+    await sleep(500); // a negative to come: an old shell that relayed would have reset it by now
+    const tileScheme = await scheme(tf);
+    check(tileScheme === 'light', `a new tile that opts in follows the admin's light inside the old shell, which sends it nothing (--bx-scheme ${tileScheme})`);
+    await shotEl(S.page, `bx-canvas .card[data-path="${THEMED}"]`, 'old-scaffold-themed');
     for (const t of [PART, PEND]) await openTile(S.page, t);
     const pf = await tileFrame(S.page, PART);
     await pf.waitForSelector('#t', { timeout: 15000 });
@@ -166,6 +189,8 @@ async function oldScaffold(browser) {
     await S.page.locator('text=components').first().waitFor({ timeout: 15000 });
     await settle(S.page);
     check(await S.page.locator('text=/^\\s*partitions\\s*$/').count() === 0, `the admin console served is ${OLD}'s: no partitions tab`);
+    const adminScheme = await scheme(S.page.mainFrame());
+    check(adminScheme === 'dark', `${OLD}'s admin console stays Night too (--bx-scheme ${adminScheme})`);
     for (const t of [PART, PEND]) {
       check(await S.page.locator(`text=${t}`).count() > 0, `the old admin console renders and lists ${t}`);
     }
@@ -175,6 +200,7 @@ async function oldScaffold(browser) {
     sc.restore();
     if (S) await closeCtx(S.ctx, S.page).catch(() => {});
     writeTile(PEND, null); // the request withdrawn
+    await A.ctx.request.fetch(`${URL}/api/xbin/prefs/theme`, { method: 'DELETE' }).catch(() => {});
     await until(async () => (await comp(PEND)).partition?.state !== 'pending', `${PEND}'s request withdrawn`).catch(() => {});
     await A.ctx.close();
   }

@@ -408,20 +408,34 @@ kit — docs/frontend-kit.md lists every module a tile may import, always by
 absolute URL, never a bare specifier.) Frames live-reload on save; backend
 build errors overlay the frame with compiler output until the next good save.
 
-**Theme & shell.** The workspace look is a dark-steel, dense theme defined by
-CSS tokens in `/vendor/theme.css` — link it and use `--bx-bg/-panel/
--panel-2/-border/-text/-muted/-accent/-green/-amber/-red/-radius/-shadow/
--font/-mono` (plus `body.bx` base and the `.bx-label` small-caps class).
-The sheet also gives your document the workspace's thin scrollbars, with the
-one the next scroll would move tinted amber; a lit component's own shadow
-root takes them with `import { scrollCss } from '/vendor/scroll-css.js'` in
-its `static styles`.
-Match it in your components; override tokens per document to retheme. The
+**Theme & shell.** The workspace look is Base Two (D184): Concrete Night
+(dark) and Concrete Day (light), dense, square 2px corners, defined by CSS
+tokens in `/vendor/theme.css`. It follows the person's system light/dark
+setting unless they pick one in Settings → Theme (Density: Compact or
+Comfortable). A page follows the person only when it opts in —
+`<html lang="en" data-bx-theme="auto">` plus the `theme.css` link; without
+the attribute it stays Night. Use the tokens and nothing else for colour,
+type and shape: `--bx-bg/-panel/-panel-2/-border/-border-strong/-text/
+-muted/-subtle/-accent/-accent-ink/-link/-ok/-warn/-danger/-info/-radius/
+-shadow-pop/-font/-mono/-sans` and the rest (docs/frontend-kit.md §Theme
+lists them, with the rules: the accent only for primary actions, selection
+and prose links; status as icon + word + colour; 13px or larger; corners
+`var(--bx-radius)` or 0; no emoji as icons — `<bx-icon name>` from
+`/vendor/bx-icons.js`). `body.bx` gives the base and `.bx` the controls
+(`button.primary`, `.quiet`, `.danger`, fields, the focus ring); code that
+paints (a canvas, xterm) reads `token()` and repaints in `onAppearance()`
+from `/vendor/bx-theme.js`. Look at your tile in both themes. The sheet
+also gives your document the workspace's thin scrollbars, with the one the
+next scroll would move tinted in the focus colour; a lit component's own
+shadow root takes them with `import { scrollCss } from
+'/vendor/scroll-css.js'` in its `static styles`. Override tokens per
+document only to retheme deliberately (a document's own `:root` rule after
+the link wins in both themes). The
 entire workspace layout (top bar, sidebar, card canvas) is the **`shell/`
 component in this workspace** — `<bx-shell>` in `shell/bx-shell.js`,
 composed by `root/index.html`. Edit it like any component; shells nest
-(`shell/index.html` is a working nested preview). Sidebar dots encode
-runtime: gray static, blue go, green node, amber python. Canvas
+(`shell/index.html` is a working nested preview). A sidebar row's mark
+shows the tile's state, not its runtime (the runtime is in its tooltip). Canvas
 cards drag by their title bar on a snappable grid. **Menus:** right-click
 the empty canvas for *open tile* (recent + find), *create a new tile* as an
 owner, *new screen*, and *bring windows on-screen* (floating windows clamp

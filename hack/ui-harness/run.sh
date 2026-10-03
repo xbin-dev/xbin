@@ -16,6 +16,9 @@
 #                       every pass, or just the named ones (node shots.js --list)
 #   ./run.sh --stop     stop xbind
 #   TILE_ASSETS=tokens|origins ./run.sh …   the same under strict tile asset gating
+#   HARNESS_THEME=light ./run.sh …   every browser context reports a light
+#                       system (default dark, lib.js): documents that follow
+#                       the person's theme draw Concrete Day (D184)
 #   HARNESS_ISOLATE=1 (or ISOLATE=1) [ROOTFS=dir] ./run.sh …   xbind --isolate
 #                       over ROOTFS (else $XBIN_TEST_ROOTFS, else the repo's
 #                       .rootfs): backends and tile sandboxes run live, and

@@ -11,7 +11,12 @@
 //     loads (cookie), and it has its own localStorage — not shared with a
 //     second tile;
 //   - the tile report lists the absolute reference, `bx fix assets --write`
-//     rewrites it, and after a reload it loads in every mode.
+//     rewrites it, and after a reload it loads in every mode;
+//   - the theme (D184): the probe opts in, so with the person's light it
+//     carries the injected meta and is light from its document, and the
+//     fonts theme.css names load from /vendor/fonts/ — cross-origin from an
+//     opaque frame (Origin: null) in legacy and tokens, from its own origin
+//     in origins.
 const path = require('path');
 const { execFileSync } = require('child_process');
 const { URL, fs, sleep, log, login, closeCtx, settle, openShell, usePersonalScreen, openTile, closeTile, tileFrame, shot, checker } = require('../lib');
@@ -20,11 +25,13 @@ const MODE = process.env.TILE_ASSETS || 'legacy';
 const WS = process.env.WS;
 const TILE = 'apps/assetprobe', TILE2 = 'apps/assetprobe2';
 const DOT = '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#f5a623"/></svg>';
-const INDEX = `<!doctype html><html><head><meta charset="utf-8">
+const INDEX = `<!doctype html><html data-bx-theme="auto"><head><meta charset="utf-8">
+<link rel="stylesheet" href="/vendor/theme.css">
 <link rel="stylesheet" href="style.css">
 <script type="module" src="app.js"></script>
-</head><body>
+</head><body class="bx">
 <div id="bg" class="bg">asset probe (${MODE})</div>
+<code id="mono" style="font: var(--bx-font-code)">mono</code>
 <img id="rel" src="img/dot.svg" width="8" height="8">
 <img id="abs" src="/c/${TILE}/img/dot.svg" width="8" height="8">
 <p><a id="frag" href="#target">to target</a> · <a id="page" href="page2.html?from=probe">page 2</a> · <a id="route" href="settings">route</a></p>
@@ -98,10 +105,27 @@ async function tileAssets(browser) {
   const before = await report();
   check(before?.breaking?.tokens === 1 && before.findings.some((f) => f.fix === 'img/dot.svg'), `the tile report lists the absolute self-reference (${JSON.stringify(before?.breaking)})`);
 
+  // the person's light theme: the probe's document carries it (D184)
+  const pref = (m, data) => ctx.request.fetch(`${URL}/api/xbin/prefs/theme`, { method: m, headers: { 'Content-Type': 'application/json' }, ...(data ? { data: JSON.stringify(data) } : {}) });
+  await pref('PUT', 'light');
   await openShell(page);
   await usePersonalScreen(page);
   await openTile(page, TILE);
   let f = await ready(page);
+  const look = await f.evaluate(async () => {
+    await document.fonts.ready;
+    return {
+      meta: document.querySelector('head > meta[name="xbin-theme"]')?.content ?? '',
+      scheme: getComputedStyle(document.documentElement).getPropertyValue('--bx-scheme').trim(),
+      loaded: [...document.fonts].filter((x) => x.status === 'loaded').map((x) => x.family.replace(/"/g, '')),
+      body: getComputedStyle(document.body).fontFamily.split(',')[0].replace(/"/g, ''),
+      mono: getComputedStyle(document.getElementById('mono')).fontFamily.split(',')[0].replace(/"/g, ''),
+    };
+  });
+  await pref('DELETE');
+  check(look.meta === 'light' && look.scheme === 'light', `${MODE}: the person's light reaches the tile's document (meta ${look.meta || 'none'}, --bx-scheme ${look.scheme})`);
+  check(look.loaded.includes('Instrument Sans') && look.loaded.includes('JetBrains Mono'), `${MODE}: the fonts load from /vendor/fonts/ (${look.loaded.join(', ') || 'none'})`);
+  check(look.body === 'Instrument Sans' && look.mono === 'JetBrains Mono', `${MODE}: …and the tile draws in them (${look.body}; ${look.mono})`);
   const p0 = await probe(f);
   const frameURL = new globalThis.URL(f.url());
   log(`tile-assets[${MODE}]: frame at ${frameURL.origin}${frameURL.pathname}`);
@@ -220,16 +244,28 @@ async function originsAdversarial(ctx, page, check) {
   await tab.close();
 
   await openTile(page, TILE);
-  const f = await ready(page);
-  await f.evaluate((u) => {
-    const i = document.createElement('iframe');
-    i.id = 'evil'; i.src = u; document.body.prepend(i);
-  }, `${URL}/c/${TILE2}/`);
-  await sleep(2500);
-  const nested = [];
-  for (const fr of page.frames()) {
-    if (fr.parentFrame() !== f) continue;
-    nested.push({ url: fr.url(), probe2: await fr.evaluate(() => !!window.probe2).catch(() => false) });
+  // The probe may still be reloading from the codemod's write (its watcher):
+  // a nested frame made in a document that is then replaced goes with it,
+  // and the check would find none. So the frame is made in the probe's
+  // current document and looked for under it; a probe replaced meanwhile
+  // gets it again.
+  let nested = [];
+  for (let attempt = 0; attempt < 3 && !nested.length; attempt++) {
+    const f = await ready(page);
+    await f.evaluate((u) => {
+      const i = document.createElement('iframe');
+      i.id = 'evil'; i.src = u; document.body.prepend(i);
+    }, `${URL}/c/${TILE2}/`).catch(() => {});
+    for (const end = Date.now() + 8000; Date.now() < end && !f.isDetached();) {
+      if (page.frames().some((fr) => fr.parentFrame() === f && fr.url() !== 'about:blank')) break;
+      await sleep(200);
+    }
+    await sleep(2500); // the nested frame settles on whatever it ends up showing
+    if (f.isDetached()) continue;
+    for (const fr of page.frames()) {
+      if (fr.parentFrame() !== f) continue;
+      nested.push({ url: fr.url(), probe2: await fr.evaluate(() => !!window.probe2).catch(() => false) });
+    }
   }
   check(nested.length > 0 && nested.every((n) => !n.probe2 && !new globalThis.URL(n.url, URL).hostname.startsWith('t-')),
     `origins: a tile framing another tile's workspace URL doesn't get it authenticated (${JSON.stringify(nested)})`);

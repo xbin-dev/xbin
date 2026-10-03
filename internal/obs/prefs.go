@@ -3,15 +3,13 @@ package obs
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 	"path/filepath"
 	"sync"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
-	"github.com/xbin-dev/xbin/internal/fsutil"
+	"github.com/xbin-dev/xbin/internal/prefsfile"
 	"github.com/xbin-dev/xbin/internal/server"
-	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Per-user preferences (plans/multi-user.md follow-on): small, non-secret UI
@@ -23,8 +21,10 @@ import (
 //
 // Bucket = data/prefs/<user>/<component>.json, where user is the human's id
 // (or "root" for the root token / single-user) and component is the calling
-// tile ("root" for the shell / main page). A tile deployment beyond main
-// keeps its own buckets (deployprefs.go).
+// tile ("root" for the shell / main page); internal/prefsfile is the path
+// rule's one home (the document injection reads the shell's bucket for the
+// person's theme, D184). A tile deployment beyond main keeps its own
+// buckets (deployprefs.go).
 //
 // A write is a read-modify-write of the whole bucket file, so writes to one
 // bucket are serialised by a per-bucket lock (two clients saving different
@@ -43,11 +43,11 @@ func (o *Plane) registerPrefs(srv *server.Server) {
 func prefsKeys(p auth.Principal) (user, comp string) {
 	user = p.UserID
 	if user == "" {
-		user = "root" // root token / single-user
+		user = prefsfile.Root // root token / single-user
 	}
 	comp = p.Component
 	if comp == "" {
-		comp = "root" // the shell / main page
+		comp = prefsfile.Root // the shell / main page
 	}
 	return
 }
@@ -56,14 +56,13 @@ func prefsKeys(p auth.Principal) (user, comp string) {
 // beyond main, that deployment's name ("" for main's bucket and a person's).
 func (o *Plane) prefsBucket(p auth.Principal) (path, dep string, err error) {
 	user, comp := prefsKeys(p)
-	dir := filepath.Join(o.Root, "data", "prefs", util.CompKey(user))
 	if dep, err = o.prefsDeployment(p); err != nil {
 		return "", "", err
 	}
 	if dep != "" {
-		return filepath.Join(dir, prefsDeploymentFile(comp, dep)), dep, nil
+		return filepath.Join(prefsfile.Dir(o.Root, user), prefsDeploymentFile(comp, dep)), dep, nil
 	}
-	return filepath.Join(dir, util.CompKey(comp)+".json"), "", nil
+	return prefsfile.Path(o.Root, user, comp), "", nil
 }
 
 func (o *Plane) prefsRead(p auth.Principal) (map[string]json.RawMessage, error) {
@@ -71,30 +70,7 @@ func (o *Plane) prefsRead(p auth.Principal) (map[string]json.RawMessage, error) 
 	if err != nil {
 		return nil, err
 	}
-	return readPrefsFile(path)
-}
-
-func readPrefsFile(path string) (map[string]json.RawMessage, error) {
-	out := map[string]json.RawMessage{}
-	bts, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return out, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return out, json.Unmarshal(bts, &out)
-}
-
-func writePrefsFile(path string, m map[string]json.RawMessage) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	bts, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return err
-	}
-	return fsutil.WriteFileAtomic(path, bts, 0o644)
+	return prefsfile.Read(path)
 }
 
 // prefsLock returns the lock guarding one bucket file.
@@ -124,12 +100,12 @@ func (o *Plane) prefsUpdate(p auth.Principal, fn func(map[string]json.RawMessage
 	mu := o.prefsLock(path)
 	mu.Lock()
 	defer mu.Unlock()
-	m, err := readPrefsFile(path)
+	m, err := prefsfile.Read(path)
 	if err != nil {
 		return "", err
 	}
 	fn(m)
-	return dep, writePrefsFile(path, m)
+	return dep, prefsfile.Write(path, m)
 }
 
 // prefsChange is a `prefs` event's data: which key of the bucket named by

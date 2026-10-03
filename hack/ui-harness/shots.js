@@ -10,7 +10,7 @@
 // member access (dot underscore) in this directory fails `make js-check`.
 const {
   URL, fs, sleep, log, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen,
-  openTile, closeTile, tileFrame, gotoTab, shot, dumpSelects, checker, pw, showPickers,
+  openTile, closeTile, tileFrame, gotoTab, shot, dumpSelects, checker, pw, showPickers, themed,
 } = require('./lib');
 // Passes past this file's size budget live in passes/*.js (one module per feature).
 const { users } = require('./passes/users');
@@ -833,6 +833,8 @@ PASSES.agentHosted = require('./passes/agenthosted').agentHosted; // B2d: non-se
 PASSES.agentHarness = require('./passes/agentharness').agentHarness; // D147: coding agents in the agent template (not under HARNESS_ISOLATE: its fake adapter is a host path)
 PASSES.agentSignins = require('./passes/agentsignins').agentSignins; // D179: saved sign-ins for coding agents (partitioned under HARNESS_AGENT_PARTITION=1)
 PASSES.demoStills = require('../demo/stills').demoStills; // the demo film set's stills (HARNESS_SEED=demo; hack/demo/README.md)
+PASSES.appearance = require('./passes/appearance').appearance; // D184: no flash, the relay, a second tab, the hint cookie, density, fonts
+PASSES.themeCanary = require('./passes/themecanary').themeCanary; // D184: every colour, font and radius on screen from a token, in both themes
 
 (async () => {
   const args = process.argv.slice(2);
@@ -840,7 +842,8 @@ PASSES.demoStills = require('../demo/stills').demoStills; // the demo film set's
   const picked = args.flatMap((a) => a.startsWith('--pass=') ? a.slice(7).split(',') : a.startsWith('--pass') ? [] : a.startsWith('-') ? [] : a.split(','));
   const names = picked.length ? picked : Object.keys(PASSES);
   for (const n of names) if (!PASSES[n]) throw new Error(`unknown pass ${n} (node shots.js --list)`);
-  const browser = await pw.chromium.launch(process.env.TILE_ASSETS === 'origins' ? { args: ['--host-resolver-rules=MAP *.localhost 127.0.0.1'] } : {});
+  // every context reports the system theme HARNESS_THEME names (dark by default; lib.js)
+  const browser = themed(await pw.chromium.launch(process.env.TILE_ASSETS === 'origins' ? { args: ['--host-resolver-rules=MAP *.localhost 127.0.0.1'] } : {}));
   const t0 = Date.now();
   try {
     for (const n of names) {

@@ -23,8 +23,23 @@ fs.mkdirSync(OUT, { recursive: true });
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log('[shots]', ...a);
 
+// The system theme every context reports (D184: documents that opt in follow
+// it): dark unless HARNESS_THEME=light. Playwright's own default is light,
+// which would flip every screenshot once the shell and tiles follow the
+// system. A pass that needs one (appearance, themeCanary) passes colorScheme
+// itself; themed() makes it the default for contexts a pass creates.
+const THEME = process.env.HARNESS_THEME || 'dark';
+if (THEME !== 'light' && THEME !== 'dark') throw new Error(`HARNESS_THEME=${THEME}: light or dark`);
+function themed(browser) {
+  const newContext = browser.newContext.bind(browser);
+  browser.newContext = (opts = {}) => newContext({ colorScheme: THEME, ...opts });
+  const newPage = browser.newPage.bind(browser);
+  browser.newPage = (opts = {}) => newPage({ colorScheme: THEME, ...opts });
+  return browser;
+}
+
 async function login(browser, user, pass, ctxOpts = {}) {
-  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, deviceScaleFactor: 1, ...ctxOpts });
+  const ctx = await browser.newContext({ viewport: { width: 1400, height: 900 }, deviceScaleFactor: 1, colorScheme: THEME, ...ctxOpts });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => log(`${user}: PAGE ERROR`, e.message));
   page.on('console', (m) => { if (m.type() === 'error') log(`${user}: console.error`, m.text().slice(0, 200)); });
@@ -172,4 +187,4 @@ const PICKERS = ':is(.titlebar, .toolsrow)';
 // those tiles skip on it rather than time out.
 const noGocryptfs = () => process.env.HARNESS_NO_GOCRYPTFS || '';
 
-module.exports = { pw, URL, OUT, fs, sleep, log, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, closeTile, tileFrame, gotoTab, shot, shotEl, dumpSelects, checker, showPickers, PICKERS, noGocryptfs };
+module.exports = { pw, URL, OUT, fs, sleep, log, THEME, themed, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, closeTile, tileFrame, gotoTab, shot, shotEl, dumpSelects, checker, showPickers, PICKERS, noGocryptfs };

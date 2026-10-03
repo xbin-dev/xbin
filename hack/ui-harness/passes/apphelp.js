@@ -17,21 +17,22 @@ const LINK = `xbin://enroll?u=${encodeURIComponent(ORIGIN)}&c=${CODE}`;
 const W = 1280, H = 800, CROP = 560; // CSS px; the crop is the top bar's right end
 
 // ring: numbered accent rings around page rects (help-screen callouts),
-// drawn over the page for the screenshot and removed after.
+// drawn over the page for the screenshot and removed after — in the
+// shell's own accent and accent ink, square like the rest of it (D184).
 function ring(page, rects) {
   return page.evaluate((rs) => {
     for (const [i, r] of rs.entries()) {
       const d = document.createElement('div');
       d.className = 'help-ring';
       d.style.cssText = `position:fixed; z-index:99999; pointer-events:none; left:${r.x - 4}px; top:${r.y - 4}px;
-        width:${r.width + 8}px; height:${r.height + 8}px; border:2px solid #f5a623; border-radius:9px;
-        box-shadow:0 0 0 4px rgba(245,166,35,.28), 0 0 18px rgba(245,166,35,.45); box-sizing:border-box`;
+        width:${r.width + 8}px; height:${r.height + 8}px; border:2px solid var(--bx-accent); border-radius:var(--bx-radius);
+        box-shadow:0 0 0 4px color-mix(in srgb, var(--bx-accent) 28%, transparent); box-sizing:border-box`;
       const n = document.createElement('div');
       n.className = 'help-ring';
       n.textContent = String(i + 1);
       n.style.cssText = `position:fixed; z-index:99999; pointer-events:none; left:${r.x - 34}px; top:${r.y + r.height / 2 - 11}px;
-        width:22px; height:22px; border-radius:50%; background:#f5a623; color:#23272e; font:700 13px/22px system-ui, sans-serif;
-        text-align:center; box-shadow:0 2px 8px rgba(0,0,0,.5)`;
+        width:22px; height:22px; border-radius:var(--bx-radius); background:var(--bx-accent); color:var(--bx-accent-ink);
+        font:var(--bx-font-number); line-height:22px; text-align:center; box-shadow:var(--bx-shadow-pop)`;
       document.body.append(d, n);
     }
   }, rects);

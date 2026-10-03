@@ -35,8 +35,9 @@ sudo sysctl -w fs.inotify.max_user_watches=524288   # persist in /etc/sysctl.d/
 
 Every tile's **title bar carries a `>_` button** — the terminal. Click the one
 on the welcome tile and a floating terminal window opens (drag it by the title
-bar, resize from the corner, ctrl+scroll for font size; the 🔧 in its corner
-picks a color theme and the **predictive echo** mode — on a slow link what
+bar, resize from the corner, ctrl+scroll for font size; the settings menu in
+its corner picks a palette — by default it follows the workspace's light or
+dark theme — and the **predictive echo** mode — on a slow link what
 you type appears at once, underlined until the server confirms it, the way
 mosh does it, inside full-screen tools like Claude Code too; *auto* turns it
 on when the round trip passes 100 ms) with a
@@ -88,7 +89,11 @@ see it** — no deploy step (unless you pause live reload on the tile to edit
 without shipping each save: [tile-deployments.md](/docs/tile-deployments.md)).
 The layout around everything is itself a component (`shell/`) with the
 theme in `/vendor/theme.css` — edit either (from its own card's terminal) and
-watch the whole workspace restyle. Drag any card by its title bar to rearrange
+watch the whole workspace restyle. The workspace follows your system's light
+or dark setting (Settings → Theme overrides it for you, and Density makes it
+roomier); a tile follows too once its page opts in with
+`<html data-bx-theme="auto">` ([frontend-kit.md](/docs/frontend-kit.md)
+§Theme). Drag any card by its title bar to rearrange
 it — a card in the way is pushed aside (a dashed outline shows where it will
 land; back off and it stays put; cover a neighbour squarely and it steps into
 the space you left instead, swapping the two); organise work into named **screens** (the tabs at the top — add with `+`,

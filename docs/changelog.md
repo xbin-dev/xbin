@@ -12,6 +12,28 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-03
 
+- **The workspace follows your system's light or dark setting** (Base Two:
+  Concrete Day and Concrete Night, D184). Settings → Theme overrides it per
+  person (System, Light, Dark), and Density offers Comfortable; terminals
+  follow unless you pick a palette in their settings menu, which now lists
+  Concrete Night and Concrete Day. A tile document follows only when it
+  opts in with `<html data-bx-theme="auto">` and links `/vendor/theme.css`;
+  every other document that links the sheet stays dark, with new values
+  under the same tokens (`--bx-green`, `--bx-amber`, `--bx-red` keep working
+  as aliases of `--bx-ok`, `--bx-warn`, `--bx-danger`). New tokens:
+  surfaces, focus, status tints, shadows, window chrome, part tabs, syntax
+  and diff colours, the terminal's 16 colours, type and density
+  ([frontend-kit.md](/docs/frontend-kit.md) §Theme). New modules:
+  `/vendor/bx-theme.js` (follow the person's appearance from code) and
+  `/vendor/bx-icons.js` (`<bx-icon name>`). xbind adds
+  `<meta name="xbin-theme">` / `<meta name="xbin-density">` to a tile
+  document when the person chose a theme or density, and frames hear
+  changes as `xbin:appearance` ([protocol.md](/docs/protocol.md)); the docs
+  viewer follows the person too. Corners are 2 px; the fonts are Instrument
+  Sans, JetBrains Mono and Bricolage Grotesque, served from
+  `/vendor/fonts/`. The builtin tiles' new versions follow the theme; `bx
+  builtin update` brings the shell, root and admin console (until then an
+  older shell stays dark). Nothing to change.
 - **Fix: MCP from a tile's page works** — the builtin chat tile's tools from
   the MCP servers bound to its `mcp` slot. Its client sends MCP's
   `Mcp-Session-Id` and `MCP-Protocol-Version` headers after `initialize`,

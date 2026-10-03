@@ -61,6 +61,26 @@ the owner token and `--no-auth`, and in a non-primary deployment's document,
 `/c/<tile>+<name>/`, whose one instance every writer shares; none when the
 viewer reaches none), which the client exposes as `xbin.partition`; an
 admin viewing as someone gets the document without a frame token.
+The person's **appearance** (D184) rides the same block, only when they
+chose one: `<meta name="xbin-theme" content="light">` (or `dark`; absent:
+follow the system) and `<meta name="xbin-density" content="comfortable">`
+(absent: compact), from the `theme` and `density` keys of their shell
+bucket (§HTTP routes › `/prefs`). The person is the principal's: a
+session's or device's, the person behind a frame or terminal token, the
+viewed person while an admin views as someone, the owner's (`root`'s
+bucket) for the root token and `--no-auth`; a tile's backend gets neither.
+Every injected document carries them — tile pages, deployment URLs,
+partitioned tiles, chrome, the native runtime document — and so does the
+docs viewer (`/docs/…`); a person who never chose gets the injection as
+before, byte for byte. `/vendor/theme.css` reads them in documents that opt
+in with `<html data-bx-theme="auto">`; frames hear later changes as
+`xbin:appearance` (§Tile ↔ shell messaging). xbind's own pages that get no
+injection — the sign-in pages before anyone is signed in, the partitions
+page — read the **hint cookie** `xbin_theme=light|dark` (absent: the
+system's; `Path=/`, `SameSite=Lax`, 400 days, `Secure` on https, not
+HttpOnly, never sent to tile origins). The shell keeps it equal to the
+person's choice (`/vendor/bx-theme.js`); it is a UI hint, never a
+credential, and any other value is ignored.
 Server-side, any request carrying
 the cookie with the opaque-origin fingerprint — `Sec-Fetch-Site: cross-site`
 (or `same-site`) on a non-navigation, or a non-GET navigation to `/api/*` or
@@ -1710,7 +1730,16 @@ DELETE /prefs/<key>               remove it
                                    clients; an optional request header
                                    `X-Prefs-Writer: <id>` (≤64 chars) is
                                    echoed in it as data.writer, so a client
-                                   can skip its own writes)
+                                   can skip its own writes. Two keys of the
+                                   shell's own bucket are the person's
+                                   appearance (D184), which xbind reads into
+                                   every document it serves them:
+                                   `theme` "light" | "dark" (absent or
+                                   "system": follow the system) and
+                                   `density` "comfortable" (absent:
+                                   compact); any other value reads as the
+                                   default. Only chrome writes that bucket —
+                                   a tile's PUT lands in its own)
 GET    /users                     admin or xbin:users. [{id,name,role,
                                    tiles:{path:level}, termApi, termNet,
                                    canCreate (deprecated, ignored — D82),
@@ -6690,7 +6719,23 @@ tile → frame   xbin:window-close {id}                close a window it opened
 tile → frame   xbin:open-deployments {tile}          open another tile's Deployments panel
 tile → parent  xbin:scroll-focus {}                  the pointer entered this document (cosmetic)
 frame → tile   xbin:reply    {id, result}            dialog result / window closed
+frame → tile   xbin:appearance {theme, density}      the person's appearance changed (cosmetic)
 ```
+
+`xbin:appearance` (D184) keeps a frame's theme and density in step with
+its embedder's: `<bx-frame>` posts it to its iframe on every load and on
+every change of the person's choice, and only when its own document
+follows the person (`<html data-bx-theme="auto">`) — an older shell that
+never opted in sends nothing, so a tile keeps what xbind injected. `theme`
+is `system`, `light` or `dark`; `density` is `compact` or `comfortable`.
+`xbin-client.js` applies it only from its parent window (on a tile's own
+origin, only from the workspace origin) and only with those values: it
+rewrites the document's `xbin-theme` / `xbin-density` metas, so a document
+that opted in restyles at once, its own frames pass it on, and code that
+paints from tokens hears it through `/vendor/bx-theme.js`'s
+`onAppearance()`. It carries no credential and asks for nothing; a tile
+can post it only to frames it embeds, which changes nothing but their
+colours.
 
 `xbin:open-deployments` (the admin console's runtime → deployments tab
 links with it) asks the shell to open `tile`'s terminal window on its

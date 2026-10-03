@@ -271,6 +271,13 @@ into `<head>`:
 - `<meta name="xbin-component">` and a short-lived frame token (minted only
   when a human or the tile itself loads the document — another tile that
   fetches your page gets it with an empty token)
+- only when the person viewing chose an appearance in the shell's settings
+  (D184): `<meta name="xbin-theme" content="light|dark">` (absent: follow
+  the system) and `<meta name="xbin-density" content="comfortable">`
+  (absent: compact). `/vendor/theme.css` reads them at first paint in a
+  document that opts in with `<html data-bx-theme="auto">`
+  ([frontend-kit.md](/docs/frontend-kit.md) §Theme); a document that
+  doesn't is unaffected. A person who never chose gets none
 - `<script type="module" src="/vendor/xbin-client.js">` — the in-frame API
   (`xbin.self`, `xbin.fetch`, `xbin.bus`; see [sdk.md](/docs/sdk.md))
 - only at a tile deployment's URL (`/c/<tile>+<name>/`,
@@ -488,8 +495,12 @@ frame the root inside the root if you enjoy that sort of thing.
 ### `<bx-terminal>`
 
 The terminal of `<bx-frame>`'s pop-up: xterm.js with predictive echo (D70),
-the 🔧 menu (theme, font size, prediction) and Ctrl+scroll for the font
-size. It speaks the terminal wire ([protocol.md](protocol.md) §The terminal
+its settings menu (palette, font size, prediction) and Ctrl+scroll for the
+font size. The palette is *Workspace (follows the theme)* unless the person
+picks one: its colours are the `--bx-term-*` tokens, so an open terminal
+turns light or dark with the workspace, live; the named palettes include
+*Concrete Night* and *Concrete Day* (a dark terminal in a light workspace is
+one pick) (D184). The font is the `--bx-mono` token, JetBrains Mono. It speaks the terminal wire ([protocol.md](protocol.md) §The terminal
 wire) to one of two places:
 
 - **xbind's `/ws/term`** — the `cwd`, `net`, `gpu`, `api`, `vm` and
@@ -550,8 +561,9 @@ most 1 MiB; a read (`?`) is ignored — nothing is answered back. In a tile,
 new tabs need `cap:open-links`.
 
 Events: `bx-session` (`detail.id`; on `/ws/term` also the scope fields) and
-`bx-exit`. Theme, font size and prediction are kept in `localStorage` where
-the document has one; a sandboxed tile has none, and gets the defaults.
+`bx-exit`. A picked palette, the font size and prediction are kept in
+`localStorage` where the document has one; a sandboxed tile has none, and
+gets the defaults (the workspace palette, the theme's terminal size).
 Escape goes to the program in the terminal — don't put it in a modal
 `<dialog>`, which closes on Escape (the agent template's terminal pane is a
 fixed panel for that reason).

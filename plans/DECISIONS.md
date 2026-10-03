@@ -10535,17 +10535,17 @@ Deviations and refinements made while implementing; all deliberate:
 
 - **D184 — Base Two in the workspace: Concrete Day and Concrete Night; a
   document opts in, the person's choice rides the D4 injection, frames
-  follow by message (design, 2026-10-03; W9).** plans/theme-base-two.md
-  (the contract, the mechanism, the guard and six packages), web/theme.css,
-  web/bx-theme.js, web/bx-icons.js, web/theme-boot.js. (D182 and D183 are
-  taken on other branches: claim-account, the website.) The owner approved
-  the Base Two product theme at gate B2 with its defaults (Q4–Q13) and
-  asked for 2 px corners everywhere, the system's light or dark with a
-  per-person override, and a light theme audited until no hard-coded style
-  is left. xbin was dark-only: one token set and `color-scheme: dark`, 10
-  of 396 radius rules on a token and 40 pills, 521 colour literals outside
-  token fallbacks, 213 lines of emoji used as icons, sign-in pages and the
-  native renderer on palettes of their own.
+  follow by message (2026-10-03; W9).** plans/theme-base-two.md (the
+  contract, the mechanism, the guard and six packages), web/theme.css,
+  web/bx-theme.js, web/bx-icons.js, web/theme-boot.js. (The two numbers
+  before this one are taken on other branches: claim-account and the
+  website.) The owner approved the Base Two product theme at gate B2 with
+  its defaults (Q4–Q13) and asked for 2 px corners everywhere, the system's
+  light or dark with a per-person override, and a light theme audited until
+  no hard-coded style is left. xbin was dark-only: one token set and
+  `color-scheme: dark`, 10 of 396 radius rules on a token and 40 pills, 521
+  colour literals outside token fallbacks, 213 lines of emoji used as icons,
+  sign-in pages and the native renderer on palettes of their own.
   - **A document opts in; every other document stays dark.**
     `<html data-bx-theme="auto">` plus the `theme.css` link follows the
     person; a document that links the sheet without it gets Concrete Night,
@@ -10554,36 +10554,37 @@ Deviations and refinements made while implementing; all deliberate:
     legible. `theme.css` is still never injected; bare documents render from
     fallbacks that equal Night.
   - **The person's choice is two keys in the shell's prefs bucket**
-    (`theme`: light|dark, absent = system; `density`: comfortable, absent =
-    compact), written with the existing `PUT/DELETE /prefs/<key>`; only
-    chrome writes that bucket. Its `prefs` event carries the change to the
-    person's other tabs and devices. No new route.
+    (`theme`: light|dark, absent or "system" = the system's; `density`:
+    comfortable, absent = compact), written with the existing
+    `PUT/DELETE /prefs/<key>`; only chrome writes that bucket. Its `prefs`
+    event carries the change to the person's other tabs and devices. No new
+    route.
   - **First paint comes from the D4 block**: `<meta name="xbin-theme">` and
     `<meta name="xbin-density">`, added only when set (a person who never
     chose gets today's bytes), read by `:root:where([data-bx-theme="auto"]
     :has(> head > meta…))` selectors; "system" is `prefers-color-scheme`, so
     no script is involved. `:where()` keeps `:root`'s specificity (a
     document's own `:root` override still wins) and forgives a browser
-    without `:has()`, which stays Night. Verified in Chromium 149: the
-    first animation frame of a sandboxed frame is already right for every
-    choice × system; an iframe evaluates `prefers-color-scheme` against the
-    system, not its embedder.
+    without `:has()`, which stays Night. The person is the principal's user
+    (the viewed person under view-as), `root`'s bucket for the owner token
+    and `--no-auth`; a tile's backend and a credential-less load get none.
   - **Live changes travel by message.** `setAppearance()` rewrites the
     document's metas and fires `xbin-appearance`; `<bx-frame>` posts
     `{type: 'xbin:appearance', theme, density}` to its iframe on every load
     and change, only when its own document follows; `xbin-client.js`
-    applies it from its parent alone, and nested frames relay. An old shell
-    that never opted in sends nothing.
+    applies it from its parent alone (from the workspace origin alone on a
+    tile origin), and nested frames relay. An old shell that never opted in
+    sends nothing.
   - **Pages without an injection read a hint cookie**, `xbin_theme`
     (light|dark, a UI hint and never a credential), kept by `bx-theme.js`
     and by `xbin-client.js` in a top-level chrome document: the sign-in
     pages render the meta from it server-side, the static partitions page
     copies it with a synchronous `/vendor/theme-boot.js`; the docs viewer
     reads the person's prefs like the injection.
-  - **Terminals follow unless the person picked a palette**: the 🔧 menu's
-    stored `default` builds xterm's theme from `--bx-term-*` and rebuilds it
-    on every change; picks (now with Concrete Night and Day) stay per
-    browser.
+  - **Terminals follow unless the person picked a palette**: the terminal
+    menu's stored `default` builds xterm's theme from `--bx-term-*` and
+    rebuilds it on every change; picks (now with Concrete Night and Day)
+    stay per browser.
   - **Tokens**: tokens.json's product blocks with Q4's Night lift (panel and
     panel-2 one ramp step up, the dependent steps with them, windows edged
     in border_strong, status tints recomputed on the lifted panel, subtle
@@ -10601,10 +10602,10 @@ Deviations and refinements made while implementing; all deliberate:
     carried one gain an `icon` field; a person's own emoji (folders, agent
     classes) is content and is left alone.
   - **The guard**: `make theme-check` = `theme-fallbacks.mjs` (resolving
-    aliases, checking the two Day blocks are identical) + a new lint
-    (colour, radius, font, small type, emoji, contrast) with an allowlist
-    and inline `theme-ok:` reasons; harness passes for no-flash and a canary
-    audit of the rendered UI in both themes.
+    aliases, checking the two Day blocks are identical) + a lint (colour,
+    radius, font, small type, emoji, contrast) with an allowlist and inline
+    `theme-ok:` reasons; harness passes for no-flash and a canary audit of
+    the rendered UI in both themes.
   - **Rejected:** injecting `theme.css` (it would flip third-party tiles,
     compat rule 5); `<meta name="color-scheme">` as the opt-in (boilerplate
     could turn a tile light by accident); a cookie as the person's store
@@ -10616,10 +10617,67 @@ Deviations and refinements made while implementing; all deliberate:
     class applied by script after load (a flash); relying on an iframe's
     `prefers-color-scheme` following its embedder (Chromium doesn't);
     generating `theme.css` (a build step for one file; checking the two Day
-    blocks are equal is cheaper); a per-tile theme pin.
+    blocks are equal is cheaper); a per-tile theme pin; a static import of
+    `bx-theme.js` in `xbin-client.js` (a page that couldn't load it would
+    lose `window.xbin`: it loads beside the client, its listener there from
+    the start).
   - **Plan**: six packages with disjoint files (P1 core, P2 shell, P3 core
     elements, P4 xbind's pages, P5 shipped tiles and templates, P6 the film
     set); merged P1, P3, P2, P4, P5, P6, then one integration step that
-    regenerates the 1159 stale fallbacks and takes the lint to zero.
-  - Status: design. P1 completes this entry with what shipped and how it
-    was verified.
+    regenerates the stale fallbacks and takes the lint to zero.
+  - **Shipped with P1 (core):** the fonts, vendored and pinned like the
+    rest of `web/vendor/` (`hack/vendor.sh` fetches Instrument Sans 400,
+    600 and 400 italic and Bricolage Grotesque 600, 800 from @fontsource
+    5.3.0 as latin and latin-ext halves with their `unicode-range`, and
+    JetBrains Mono 400, 500, 700 v2.304 whole — all 128 box-drawing and 32
+    block characters; `hack/vendor.sha256` lists `fonts/`, which
+    `check-pins.sh` now walks); the injection (`internal/server`
+    appearance.go: the two keys read through `internal/prefsfile`, the
+    bucket path's one home now that obs and server both need it, cached per
+    file by identity, size and modification time); the docs viewer on
+    tokens with the person's metas; `xbin-client.js`'s relay and cookie;
+    tests for the contract modules; the guard (`theme-fallbacks.mjs`
+    extended — comments stripped, aliases and composites resolved, font
+    tokens exempt, Day blocks compared, paths — and the new
+    `theme-lint.mjs` with `hack/theme-allow.txt`); the harness's dark
+    default and `HARNESS_THEME`, the `appearance` and `themeCanary`
+    passes, the theme in `tileAssets` and `oldScaffold`; the builder docs
+    (frontend-kit §Theme, protocol, elements, compat rule 5, getting
+    started, the workspace AGENTS.md, maintenance, the changelog).
+  - **Verified (P1):** `go test ./internal/server/... ./internal/obs/...
+    ./internal/prefsfile/...` — a person who never chose, or whose bucket
+    holds junk (nine kinds, a half-written file), gets today's bytes (frame
+    tokens masked); light, dark and comfortable land in the block before
+    the document's own head; the owner token, the owner's frame and shell
+    read root's bucket, a session, frame and terminal the person's;
+    view-as the viewed person's; an instance none; a deployment URL, its
+    native document, a partitioned tile, the tokens and origins modes and
+    the native runtime document all carry it; the cache sees a
+    replacement, a same-size rewrite in place and a removal; the docs
+    viewer is opted in with no literal of its own; the fonts are served as
+    font/woff2 and answer `Origin: null`. A mutation that drops the metas
+    fails 22 checks. `node --test hack/theme-*.test.mjs
+    hack/xbin-client-*.test.mjs` (the DOM shim's bx-theme, theme-boot,
+    icons, client relay, fallbacks and lint suites). In Chromium (the UI
+    harness, test seed): the `appearance` pass, 57 checks in each of the
+    legacy, tokens and origins modes — for system, light and dark on a
+    light and a dark system, a tab, a sandboxed frame and a chrome frame of
+    an opted-in tile are right at their first animation frame, rows
+    included, and never repaint another background; a tile that didn't opt
+    in stays Night; the shell leaves the hint cookie equal to the choice;
+    the sandboxed frame loads all three families cross-origin (on its own
+    tile origin in origins mode) and draws in them; xbin:appearance from
+    the parent restyles a frame at once and from the frame itself does
+    nothing. `tileAssets` (fonts and the meta under every gating mode),
+    `oldScaffold` (v0.3.65's root, shell and admin console stay Night under
+    a person's light on a light system; a new opted-in tile inside follows
+    the injected light; nothing breaks), `appHelp`, `adminTabs`. The shell's
+    own change reaching frames, a second tab following through the prefs
+    event and terminals following SKIP until P2 and P3 land.
+  - **Left for the integration step:** merge P2–P6; `node
+    hack/theme-fallbacks.mjs --fix` (1149 stale fallbacks at P1) and the
+    lint to zero (2135 findings at P1: colour 581, radius 396, font 27,
+    small 875, emoji 256, contrast 0); `make check`, `make tile-check`,
+    `make integration`; every harness pass, and appearance, themeCanary,
+    scrollbars, windows, oldScaffold and tileAssets with HARNESS_THEME=light
+    too; the audit's numbers again; this entry and the plan's status final.
