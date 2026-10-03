@@ -96,11 +96,12 @@ async function top(cam, p) {
 // moving — the mouse parked on the top bar's edge (over a scroller, it
 // would tint that scroller's bar), two frames, a beat for late paints
 // (fonts, a chart's first draw)
-async function shoot(cam, name, caption, { settleMs = 600 } = {}) {
+// persona: who the frame shows signed in, when not the shot's `who`
+async function shoot(cam, name, caption, { settleMs = 600, persona } = {}) {
   await cam.page.mouse.move(Math.round(cam.o.width / 2), 2);
   await cam.settle();
   await cam.sleep(settleMs);
-  return cam.still(name, { caption });
+  return cam.still(name, { caption, ...(persona ? { persona } : {}) });
 }
 
 module.exports = { company, layouts, isPhone, fontFor, screenId, CARD, layoutPref, api, pref, signIn, fitPhone, tile, openConversation, top, shoot };

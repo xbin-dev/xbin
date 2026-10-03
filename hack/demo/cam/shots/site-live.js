@@ -58,7 +58,7 @@ module.exports = async (cam) => {
     await code.locator('.diff:has-text("timelineCss")').first().waitFor({ timeout: 20000 });
     await cam.mark('code-window', `bx-frame[src="${TILE}"] .pop`);
     await cam.mark('diff', code.locator('.diff').first());
-    await site.shoot(cam, 'diff', "The same change as Tomás Reyes (CTO) reviews it in the tile's code window: board.js's working-tree diff that draws the new timeline, beside the tracker's history of Lark's commits");
+    await site.shoot(cam, 'diff', "The same change as Tomás Reyes (CTO) reviews it in the tile's code window: board.js's working-tree diff that draws the new timeline, beside the tracker's history of Lark's commits", { persona: 'tomas' });
     await cam.fr(TILE, (f) => f.closeTerminal());
   }
   original(cam);

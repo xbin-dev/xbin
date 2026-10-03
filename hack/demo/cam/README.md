@@ -59,7 +59,7 @@ module.exports.setup = async (cam) => {
 | `cam.scroll(dy, {at})` | a wheel flick, eased |
 | `cam.hold(ms)` / `cam.sleep(ms)` | a beat (skipped at `--pace fast`) / a wait (never skipped) |
 | `cam.mark(name, t?, extra?)` | `{name, t, box, …extra}` into the sidecar; `{optional: true}` tolerates a missing target |
-| `cam.still(name, {cursor, caption})` | `<take>-<name>.png` at size × dpr; no cursor unless asked (while x11/screencast roll, the cursor stays: hiding it would show); `caption`: what it shows, kept in the sidecar |
+| `cam.still(name, {cursor, caption, …})` | `<take>-<name>.png` at size × dpr; no cursor unless asked (while x11/screencast roll, the cursor stays: hiding it would show); `caption` (what it shows) and other fields go into the sidecar with it |
 | `cam.cursorAt(t)`, `cam.showCursor(v)` | place / hide the cursor without a move |
 | `cam.sh`, `cam.fr`, `cam.waitFor`, `cam.waitSel`, `cam.settle`, `cam.openShell`, `cam.usePersonalScreen`, `cam.openTile`, `cam.in(tile)` | the UI harness helpers (`hack/ui-harness/lib.js`) on this page |
 | `cam.args`, `cam.o` | `--set k=v` over the module's `defaults`; the run's options (url, size, …) |

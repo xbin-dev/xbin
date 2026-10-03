@@ -41,7 +41,7 @@ function main(dir) {
         dpr: side.dpr,
         device: side.viewport.width < 820 ? 'phone' : 'desk',
         shot: side.shot,
-        persona: side.args?.who || null,
+        persona: s.persona || side.args?.who || null,
         what: s.caption || null,
         marks: side.marks.filter((m) => m.t > prev && m.t <= s.t).map(({ name, t, box, ...rest }) => ({ name, t, box, ...rest })),
         sidecar: f,

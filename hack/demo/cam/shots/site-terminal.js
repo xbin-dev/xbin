@@ -45,7 +45,7 @@ module.exports = async (cam) => {
   }
   await cam.mark('terminal', TERM);
   await site.shoot(cam, 'shell', site.isPhone(cam)
-    ? "A terminal on a phone: Priya's brief for the onboarding tracker, and who wrote its commits — Lark six, Priya two"
+    ? "A terminal on a phone, on the onboarding tracker: its six small source files, and who wrote its commits — Lark six, Priya two"
     : "Jonas Lindqvist opens a terminal on the onboarding tracker: the tile's files and its git history — Lark's commits, and Priya's", { settleMs: 900 });
 };
 
@@ -53,7 +53,7 @@ module.exports.description = "a terminal on a tile: the onboarding tracker's fil
 module.exports.defaults = {
   who: 'jonas', screen: 'Onboarding',
   commands: "ls|git log --format='%h %an: %s' -7",
-  phoneCommands: 'fold -sw 38 BRIEF.md|git shortlog -sn',
+  phoneCommands: 'wc -l *.js|git shortlog -sn',
   pop: { x: 380, y: 95, w: 700, h: 400 },
 };
 
