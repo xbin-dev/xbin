@@ -114,9 +114,12 @@ async function demoStills(browser) {
     await sleep(400);
     await still(page, '05-person-expenses');
 
-    // Inbox
+    // Inbox: the threads, and the day's meetings beside them (read through
+    // the inbox's backend: on a fresh set the first read waits for its start)
     await screen(page, 's-inbox');
-    await shown(await tile(page, 'apps/email'), '.msg');
+    const mail = await tile(page, 'apps/email');
+    await shown(mail, '.msg');
+    await shown(mail, '.today b', 90000);
     await sleep(400);
     await still(page, '06-person-inbox');
     await sh(page, (t) => t.setScreen('s-today'));

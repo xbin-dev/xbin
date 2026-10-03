@@ -98,19 +98,28 @@
         } catch (e) { this._err = `Couldn't open the inbox: ${e.message}`; }
       }
       // the example's server-side path: our backend calls apps/calendar with
-      // our identity. On a weekend, what's ahead instead: Monday's meetings,
-      // from the calendar's own API (as the person reading, who can see it)
-      async _loadToday() {
-        const t = new Date(), ahead = t.getDay() === 6 ? 2 : t.getDay() === 0 ? 1 : 0;
-        let r;
-        if (ahead) {
-          const d = new Date(t); d.setDate(d.getDate() + ahead);
-          const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-          r = await xbin.fetch(`/api/apps/calendar/events?day=${day}`);
-          this._dayName = r.ok ? d.toLocaleDateString('en-US', { weekday: 'long' }) : 'Today';
-        }
-        if (!r?.ok) r = await xbin.fetch(`/api/${xbin.self}/today`);
-        this._today = r.ok ? (await r.json()).events.sort((a, b) => (a.time || '').localeCompare(b.time || '')) : null;
+      // our identity. On a weekend, the working day just ended — Friday, the
+      // day a set seeded then is dated (hack/demo/clock.py) and the one the
+      // calendar shows — from the calendar's own API (as the person reading,
+      // who can see it). Our backend may still be starting (its Go build, on
+      // a fresh set): a failed read is tried again, not left as "—".
+      async _loadToday(tries = 0) {
+        const t = new Date(), back = t.getDay() === 6 ? 1 : t.getDay() === 0 ? 2 : 0;
+        let r = null;
+        try {
+          if (back) {
+            const d = new Date(t); d.setDate(d.getDate() - back);
+            const day = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+            r = await xbin.fetch(`/api/apps/calendar/events?day=${day}`);
+            if (r.ok) this._dayName = d.toLocaleDateString('en-US', { weekday: 'long' });
+          }
+          if (!r?.ok) r = await xbin.fetch(`/api/${xbin.self}/today`);
+          if (r.ok) {
+            this._today = (await r.json()).events.sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+            return;
+          }
+        } catch { /* not answering yet */ }
+        if (tries < 40) setTimeout(() => this._loadToday(tries + 1), 1500);
       }
       async _send(t) {
         const body = this.renderRoot.querySelector('textarea')?.value.trim();
