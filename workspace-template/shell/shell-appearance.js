@@ -8,12 +8,18 @@
  * with the X-Prefs-Writer header, so this tab skips its own `prefs` event
  * while the person's other tabs and devices follow it (followAppearance).
  * Viewing the workspace as someone shows their choice and changes nothing.
+ * The page restyles only when it follows the person (the workspace's root
+ * page carries data-bx-theme="auto"): a root page from before D184 — the
+ * shell updated alone (`bx builtin update scaffold:shell`), or a root of the
+ * workspace's own — doesn't, so the rows show the choice, disabled, and say
+ * what brings the root page up to date; the shell never opts that page in
+ * itself (its own token overrides would mix with Concrete Day).
  * Extracted from bx-shell, which is at its size budget: bx-shell renders
  * appearanceRows(this) in its settings menu, calls followAppearance(this, e)
  * on a `prefs` event, and keeps the state (_look, _who, _writer).
  */
-import { html } from 'lit';
-import { appearance, setAppearance, THEMES, DENSITIES } from '/vendor/bx-theme.js';
+import { html, nothing } from 'lit';
+import { appearance, setAppearance, follows, THEMES, DENSITIES } from '/vendor/bx-theme.js';
 import { foreignWrite } from './layout-sync.js';
 
 // The appearance keys of the shell's prefs bucket: absent = the default.
@@ -23,7 +29,7 @@ const xfetch = (...a) => (window.xbin?.fetch ?? fetch)(...a);
 // pickAppearance(shell, key, value): the person picked one in the menu.
 export function pickAppearance(shell, key, value) {
   const def = APPEARANCE.find(([k]) => k === key);
-  if (shell._who?.readOnly || !def || !def[2].includes(value) || appearance()[key] === value) return;
+  if (shell._who?.readOnly || !follows() || !def || !def[2].includes(value) || appearance()[key] === value) return;
   setAppearance({ [key]: value });
   shell._look = appearance();
   const url = `/api/xbin/prefs/${key}`, headers = { 'X-Prefs-Writer': shell._writer };
@@ -48,17 +54,23 @@ export async function followAppearance(shell, e) {
   }
 }
 
+// The words for a root page that doesn't follow the person (an admin
+// updates it: docs/changelog.md, D184).
+const OLD_ROOT = "this workspace's root page is older than its shell: an admin brings it up to date with bx builtin update scaffold:root";
+
 // appearanceRows(shell): the settings menu's Theme and Density, square
 // segmented controls, the pressed one the person's choice (aria-pressed).
 export function appearanceRows(shell) {
-  const look = shell._look ?? appearance(), ro = !!shell._who?.readOnly;
+  const look = shell._look ?? appearance(), ro = !!shell._who?.readOnly, old = !follows();
   const seg = (key, label, opts) => html`<div class="row"><span id=${`ap-${key}`}>${label}</span>
     <span class="seg" role="group" aria-labelledby=${`ap-${key}`}>${opts.map(([v, word, tip]) => html`<button
-      aria-pressed=${look[key] === v ? 'true' : 'false'} ?disabled=${ro} data-appearance=${`${key}:${v}`}
-      title=${ro ? 'read-only while you view the workspace as someone: this is their choice' : tip}
+      aria-pressed=${look[key] === v ? 'true' : 'false'} ?disabled=${ro || old} data-appearance=${`${key}:${v}`}
+      title=${ro ? 'read-only while you view the workspace as someone: this is their choice' : old ? OLD_ROOT : tip}
       @click=${() => pickAppearance(shell, key, v)}>${word}</button>`)}</span></div>`;
   return html`
     ${seg('theme', 'Theme', [['system', 'System', "follow this device's light or dark setting"],
       ['light', 'Light', 'Concrete Day, whatever the device says'], ['dark', 'Dark', 'Concrete Night, whatever the device says']])}
-    ${seg('density', 'Density', [['compact', 'Compact', '28 px rows, 13 px text'], ['comfortable', 'Comfortable', '32 px rows, 14 px text']])}`;
+    ${seg('density', 'Density', [['compact', 'Compact', '28 px rows, 13 px text'], ['comfortable', 'Comfortable', '32 px rows, 14 px text']])}
+    ${old ? html`<div class="gshint" data-appearance-old>Theme and density need this workspace's root page from this xbind — an admin runs
+      <code>bx builtin update scaffold:root</code></div>` : nothing}`;
 }

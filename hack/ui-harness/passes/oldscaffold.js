@@ -17,6 +17,11 @@
 //     old root, shell and admin console, which never opted in, stay Night;
 //     a new tile that opts in is light from its first document, and the old
 //     shell, which sends no xbin:appearance, leaves it so;
+//   - this shell on the old root page alone (the shell updated, the root
+//     not: `bx builtin update scaffold:shell` only, or a root of the
+//     workspace's own): the page stays Night, and the settings menu's Theme
+//     and Density show the choice disabled, saying what updates the root —
+//     a click changes neither the page nor the saved choice;
 //   - no page error anywhere.
 // The workspace's own scaffold (root/ too: an old workspace has an old root
 // page) comes back at the end, byte for byte, apps/opend's request is
@@ -28,7 +33,7 @@
 // (and give --shots runs against that instance HARNESS_NO_OVERLAY=1 too).
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { URL, fs, login, closeCtx, openShell, usePersonalScreen, openTile, tileFrame, settle, sleep, shot, shotEl, checker } = require('../lib');
+const { URL, fs, login, closeCtx, openShell, usePersonalScreen, openTile, tileFrame, settle, sleep, sh, shot, shotEl, checker } = require('../lib');
 
 const WS = process.env.WS || '';
 const HARNESS_DIR = process.env.HARNESS_DIR || '';
@@ -75,16 +80,16 @@ function files(dir) {
 
 // the scaffold swap: the workspace's own copied aside, the old release's
 // written over it (files the old one lacks removed); restore undoes it
-function scaffold() {
+function scaffold(dirs = DIRS) {
   if (!WS.endsWith('/ws') || !HARNESS_DIR || !WS.startsWith(HARNESS_DIR)) throw new Error(`refusing to swap the scaffold of WS=${WS}`);
   const base = path.join(HARNESS_DIR, 'old-scaffold');
   const backup = path.join(base, 'backup'), old = path.join(base, 'old');
   fs.rmSync(base, { recursive: true, force: true });
   fs.mkdirSync(old, { recursive: true });
-  const tar = execFileSync('git', ['-C', REPO, 'archive', OLD, ...DIRS.map((d) => `workspace-template/${d}`)]);
+  const tar = execFileSync('git', ['-C', REPO, 'archive', OLD, ...dirs.map((d) => `workspace-template/${d}`)]);
   execFileSync('tar', ['-x', '-C', old], { input: tar });
   const swap = () => {
-    for (const d of DIRS) {
+    for (const d of dirs) {
       const ws = path.join(WS, d), was = path.join(old, 'workspace-template', d);
       fs.cpSync(ws, path.join(backup, d), { recursive: true, filter: noGit });
       const keep = new Set(files(was));
@@ -93,7 +98,7 @@ function scaffold() {
     }
   };
   const restore = () => {
-    for (const d of DIRS) {
+    for (const d of dirs) {
       const ws = path.join(WS, d), mine = path.join(backup, d);
       if (!fs.existsSync(mine)) continue;
       const keep = new Set(files(mine));
@@ -205,11 +210,50 @@ async function oldScaffold(browser) {
     await A.ctx.close();
   }
   // the workspace's own scaffold is back, byte for byte
-  for (const d of DIRS) {
-    const mine = path.join(sc.backup, d), ws = path.join(WS, d);
-    const same = files(mine).join('\n') === files(ws).join('\n') && files(mine).every((f) => fs.readFileSync(path.join(mine, f)).equals(fs.readFileSync(path.join(ws, f))));
-    check(same, `the workspace's own ${d}/ is restored byte for byte`);
+  const restored = (s, dirs) => {
+    for (const d of dirs) {
+      const mine = path.join(s.backup, d), ws = path.join(WS, d);
+      const same = files(mine).join('\n') === files(ws).join('\n') && files(mine).every((f) => fs.readFileSync(path.join(mine, f)).equals(fs.readFileSync(path.join(ws, f))));
+      check(same, `the workspace's own ${d}/ is restored byte for byte`);
+    }
+  };
+  restored(sc, DIRS);
+
+  // ---- this shell on the old root page alone (D184) ----
+  const sr = scaffold(['root']);
+  const B = await login(browser, 'admin', 'admin', { colorScheme: 'light' });
+  const errs = [];
+  B.page.on('pageerror', (e) => errs.push(e.message));
+  const theme = async () => (await B.ctx.request.get(`${URL}/api/xbin/prefs/theme`)).text();
+  try {
+    await B.ctx.request.fetch(`${URL}/api/xbin/prefs/theme`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, data: '"light"' });
+    sr.swap();
+    await openShell(B.page);
+    const follows = await B.page.evaluate(() => document.documentElement.getAttribute('data-bx-theme'));
+    check(follows === null, `the root page served is ${OLD}'s: no data-bx-theme (${follows})`);
+    const scheme = () => B.page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bx-scheme').trim());
+    check(await scheme() === 'dark', 'this shell on the old root page: the page stays Night under the admin\'s light on a light system');
+    await sh(B.page, (t) => t.openSettings());
+    await settle(B.page);
+    const rows = B.page.locator('bx-shell [data-appearance^="theme:"], bx-shell [data-appearance^="density:"]');
+    const states = await rows.evaluateAll((bs) => bs.map((b) => [b.dataset.appearance, b.disabled, b.getAttribute('aria-pressed'), b.title]));
+    check(states.length === 5 && states.every(([, dis]) => dis), `Theme and Density are disabled (${JSON.stringify(states.map(([k, d]) => `${k}:${d}`))})`);
+    check(states.some(([k, , p]) => k === 'theme:light' && p === 'true'), 'they still show the choice: Light pressed');
+    check(states.every(([, , , title]) => /scaffold:root/.test(title)), 'each says what updates the root page in its tooltip');
+    const hint = await B.page.locator('bx-shell [data-appearance-old]').innerText().catch(() => '');
+    check(/bx builtin update scaffold:root/.test(hint), `the menu says it: "${hint.replace(/\s+/g, ' ')}"`);
+    await shotEl(B.page, 'bx-shell .wsmenu', 'old-scaffold-root-settings');
+    // a click that reaches the button anyway changes neither the page nor the choice
+    await B.page.locator('bx-shell [data-appearance="theme:dark"]').dispatchEvent('click');
+    await sleep(400);
+    check(await scheme() === 'dark' && JSON.parse(await theme()) === 'light', `a click changes nothing: the page Night, the saved choice still light (${await theme()})`);
+    check(errs.length === 0, `no page error with this shell on the old root (${errs.join(' | ')})`);
+  } finally {
+    sr.restore();
+    await B.ctx.request.fetch(`${URL}/api/xbin/prefs/theme`, { method: 'DELETE' }).catch(() => {});
+    await closeCtx(B.ctx, B.page).catch(() => {});
   }
+  restored(sr, ['root']);
   done();
 }
 

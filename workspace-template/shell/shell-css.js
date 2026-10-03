@@ -277,6 +277,7 @@ export const shellCss = [scrollCss, baseCss, chromeCss, css`
     .wsmenu .fs input[type=range] { width: 104px; margin: 0 4px; accent-color: var(--bx-accent, #8C9BFF); background: transparent; }
     .wsmenu .fs b.gs { min-width: 92px; text-align: left; }
     .wsmenu .gshint { margin: 0 0 4px; font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); color: var(--bx-muted, #A3A6B6); }
+    .wsmenu .gshint code { font-family: var(--bx-mono, "JetBrains Mono", ui-monospace, monospace); font-variant-ligatures: none; }
     .wsmenu .step {
       display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; min-width: 28px; height: 28px; padding: 0 6px; cursor: pointer;
       color: var(--bx-text, #E9EAF0); background: var(--bx-panel, #1F2028);
