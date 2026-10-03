@@ -65,11 +65,14 @@ curl -fsSL "$JB/OFL.txt" -o "$F/OFL-jetbrains-mono.txt"
 # Each font's url() in web/theme.css carries its version (?v=, the first 8
 # hex digits of its SHA-256): xbind serves a font asked for with its own
 # version as immutable (internal/server/vendor.go), so the URL changes with
-# the bytes. internal/server TestVendorFonts checks they agree.
+# the bytes. internal/server TestVendorFonts checks they agree. The name's
+# dots are escaped with sed, not ${n//…}: this is /bin/sh, and dash has no
+# such expansion.
 for f in "$F"/*.woff2; do
   n=$(basename "$f")
   v=$(sha256sum "$f" | cut -c1-8)
-  sed -i -E 's|(url\("fonts/'"${n//./\\.}"')(\?v=[0-9a-f]*)?"\)|\1?v='"$v"'")|' web/theme.css
+  re=$(printf '%s\n' "$n" | sed 's/[.]/\\./g')
+  sed -i -E 's|(url\("fonts/'"$re"')(\?v=[0-9a-f]*)?"\)|\1?v='"$v"'")|' web/theme.css
 done
 
 # Pin what was fetched: hack/check-pins.sh verifies the tree against this
