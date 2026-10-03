@@ -94,7 +94,7 @@ function cardTpl(b, depth) {
   const tpl = html`<toolcard title=${c.title} icon=${(HARNESSES[c.provider] || {}).icon || 'agent'} family="agent" state=${STATE[c.state.key] || 'running'}
       chips=${chips} open=${open} @toggle=${reopen(b.id, c.id)} @open=${c.id ? () => openChild(c.id) : nothing}>
     <text tone=${c.state.tone === 'warn' ? 'warn' : c.state.tone === 'bad' ? 'danger' : nothing}>${c.status}</text>
-    <text style="footnote" tone="muted">${[c.name, c.where, c.meta].filter(Boolean).join(' · ')}</text>
+    <text style="footnote" tone="muted">${[c.name, c.where ? `in ${c.where}` : '', c.meta].filter(Boolean).join(' · ')}</text>
     ${c.task ? html`<text style="footnote" tone="muted" lines=${3}>${'task: ' + c.task}</text>` : nothing}
     <transcript>
       ${c.plan ? html`<plan entries=${planEntries(run.harness.plan)}/>` : nothing}

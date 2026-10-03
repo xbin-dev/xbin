@@ -26,12 +26,12 @@ export function homeScreen() {
       <menu icon="ellipsis" label="More">${mainMenu()}</menu>
     </toolbar>
     ${ui.err ? html`<notice tone="danger" text=${ui.err}/>` : nothing}
-    ${app.halted ? html`<notice tone="warn" title="Halted" text="Every run of this agent is stopped. Resume it from ⋯."/>` : nothing}
+    ${app.halted ? html`<notice tone="warn" title="Halted" text="Every run of this agent is stopped. Resume it from More."/>` : nothing}
     ${appNotices(app).map((n) => html`<notice tone=${n.kind === 'sandbox' ? 'warn' : 'info'} text=${n.text}/>`)}
     ${homeSetupTpl()}
     <text style="title2">${H.hi}</text>
     <text tone="muted">${H.sub}</text>
-    ${mcpBound ? nothing : html`<notice tone="info" text="No MCP servers are bound yet — see ⋯ → Settings → MCP."/>`}
+    ${mcpBound ? nothing : html`<notice tone="info" text="No MCP servers are bound yet — see More → Settings → MCP."/>`}
     <section title="Try">${repeat(H.examples, (e) => e, (e) => html`<row title=${e} icon="sparkles"
       @tap=${() => { ui.draft = e; ctx.paint(); }}/>`)}</section>
     ${app.needs && app.needs.length ? html`<section title="Needs you">${repeat(app.needs, (n) => `${n.reason}:${n.run.id}:${n.subRun || ''}`, (n) => html`

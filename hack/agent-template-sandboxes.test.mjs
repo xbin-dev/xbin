@@ -1,6 +1,6 @@
 // hack/agent-template-sandboxes.test.mjs — coding sandboxes (D115) in the
 // agent template's shared model: the composer's picker
-// (builtin-templates/agent/model/sandboxes.js sandboxPicker), the ▣ badge
+// (builtin-templates/agent/model/sandboxes.js sandboxPicker), the sandbox badge
 // and why a binding no longer resolves, the Sandboxes dialog's rows and
 // their actions, the create form, the sandbox tool cards
 // (model/tool-heads.js: the box family, its sublines and outcomes), and the
@@ -61,7 +61,8 @@ test('the picker: only where the class has the sandbox toolset; grouped; the rea
   const p = S.sandboxPicker(L, v, { user: 'alice' });
   assert.equal(p.shown, true);
   assert.equal(p.value, `${MGR}|mine-old`);
-  assert.equal(p.label, '▣ mine-old');
+  assert.equal(p.label, 'mine-old');
+  assert.equal(p.icon, 'box', 'the web draws the sandbox glyph; the words stand alone');
   assert.deepEqual(p.groups.map((g) => g.id), ['here', 'mine', 'shared', 'team']);
   const here = p.groups[0].rows;
   assert.deepEqual(here.map((r) => r.name), ['mine-old', 'gone', 'bound'], 'what it has attached, and what it is bound to');
@@ -186,7 +187,8 @@ test('the badge: name · cwd, the attached ones, and why a binding no longer res
   assert.equal(S.sandboxBadge(conv({}), list([])), null);
   const v = conv({ sandbox: bind('api', { cwd: '/work/api' }), attached: [bind('api', { cwd: '/old' }), bind('web')] });
   let b = S.sandboxBadge(v, list([sb('api'), sb('web')]));
-  assert.equal(b.label, '▣ api · /work/api');
+  assert.equal(b.label, 'api · /work/api');
+  assert.equal(b.icon, 'box');
   assert.equal(b.broken, '');
   assert.deepEqual(b.attached.map((a) => [a.name, a.cwd, a.on]), [['api', '/work/api', true], ['web', '/work', false]], 'the active one with its newest cwd');
   assert.equal(b.canChange, true);
@@ -203,7 +205,7 @@ test('the badge: name · cwd, the attached ones, and why a binding no longer res
   const f = S.sandboxBadge(v, list([sb('web')]), undefined, { fixed: 'Codex' });
   assert.deepEqual([f.canChange, f.fixed, f.advice], [false, true, 'start a new chat with Codex in another sandbox']);
   assert.deepEqual([f.talk, b.talk, S.sandboxBadge({ ...v, access: 'viewer' }, list([sb('api')]), undefined, { fixed: 'Codex' }).talk], [true, true, false],
-    'a participant still talks there (the ▣ popover\'s Ports, D135) — a viewer does not');
+    'a participant still talks there (the sandbox badge\'s popover: Ports, D135) — a viewer does not');
   assert.match(f.broken, /^gone/);
   assert.match(S.sandboxBadge(v, list([sb('api')]), undefined, { fixed: 'Codex' }).title, /— fixed for this conversation$/);
 });
@@ -441,11 +443,11 @@ test('the store: pick at home, bind, cwd, detach, create, lifecycle, run events'
 
   // in a conversation: a pick binds it (PATCH its root), then its config is read again
   await app.select(5);
-  assert.equal(app.sbx.badge().label, '▣ api · /work');
+  assert.equal(app.sbx.badge().label, 'api · /work');
   assert.deepEqual([app.sbx.badge().canChange, app.sbx.badge().fixed], [true, false]);
   const cv = app.session.current();
   const hb = app.sbx.badge({ ...cv, run: { ...cv.run, engine: 'harness', harness: { provider: 'claude', name: 'Claude Code' } } });
-  assert.deepEqual([hb.label, hb.canChange, hb.fixed, hb.advice], ['▣ api · /work', false, true, 'start a new chat with Claude Code in another sandbox'],
+  assert.deepEqual([hb.label, hb.canChange, hb.fixed, hb.advice], ['api · /work', false, true, 'start a new chat with Claude Code in another sandbox'],
     'a coding agent\'s conversation: its sandbox is fixed');
   assert.equal(app.sbx.picker().groups[0].id, 'here');
   await app.sbx.choose(`${MGR}|web`);
@@ -461,13 +463,13 @@ test('the store: pick at home, bind, cwd, detach, create, lifecycle, run events'
   await app.sbx.setCwd(' /work/web ');
   const lastPatch = () => JSON.parse(calls.filter((c) => c.method === 'PATCH').pop().body);
   assert.deepEqual(lastPatch(), { sandbox: { ref: `${MGR}|web`, cwd: '/work/web' } });
-  assert.equal(app.sbx.badge().label, '▣ web · /work/web');
+  assert.equal(app.sbx.badge().label, 'web · /work/web');
   // re-picking an attached one keeps its working directory — from the picker
   // and from "Use here" (review: both reset it to the workdir)
   await app.sbx.choose(`${MGR}|api`);
   await app.sbx.choose(`${MGR}|web`);
   assert.deepEqual(lastPatch(), { sandbox: { ref: `${MGR}|web`, cwd: '/work/web' } }, 'the picker sends its stored cwd');
-  assert.equal(app.sbx.badge().label, '▣ web · /work/web');
+  assert.equal(app.sbx.badge().label, 'web · /work/web');
   await app.sbx.perform(`${MGR}|api`, 'use');
   await app.sbx.perform(`${MGR}|web`, 'use');
   assert.deepEqual(lastPatch(), { sandbox: { ref: `${MGR}|web`, cwd: '/work/web' } }, '"Use here" too');
@@ -511,7 +513,7 @@ test('the store: pick at home, bind, cwd, detach, create, lifecycle, run events'
   const reads = () => calls.filter((c) => c.url.endsWith('/runs/5/view?limit=1')).length;
   const before = reads();
   app.event({ type: 'run', run: 5, root: 5, data: { id: 5, sandbox: { ref: `${MGR}|fresh`, name: 'fresh', cwd: '/srv' }, attached: 2 } });
-  assert.equal(app.sbx.badge().label, '▣ fresh · /srv', 'at once');
+  assert.equal(app.sbx.badge().label, 'fresh · /srv', 'at once');
   assert.equal(reads(), before, 'the same attached count: nothing to read');
   app.event({ type: 'run', run: 5, root: 5, data: { id: 5, sandbox: null, attached: 1 } });
   assert.equal(app.sbx.badge(), null);

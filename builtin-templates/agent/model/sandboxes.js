@@ -1,6 +1,6 @@
 // model/sandboxes.js — coding sandboxes (D115) as both views show them: the
 // composer's sandbox picker (the open conversation's, or the next new
-// chat's — only where the class has the sandbox toolset), the ▣ badge (the
+// chat's — only where the class has the sandbox toolset), the sandbox badge (the
 // active sandbox and its working directory, and why a binding no longer
 // resolves), the Sandboxes dialog's rows (state, manager, egress, owner, the
 // actions your rights allow), a terminal onto one (its manager's `tty`, the
@@ -11,6 +11,14 @@
 // DOM, no calls — model/sandbox-store.js keeps the state and makes the calls
 // (API.md "Coding sandboxes").
 
+// A sandbox's glyph (bx-icons `box`, the app's `box`): the web view draws
+// it before a sandbox's name where a string is rich (the badge, a terminal
+// tab, a coding agent's card); the strings carry the words alone (D184
+// §1.6), so an <option>, a title or the app's subtitle reads without it.
+export const GLYPH = 'box';
+// The text glyph the labels began with before D184, kept for an instance's
+// own code that imports it; the template's views never draw it.
+// theme-ok: an export kept for compatibility, never drawn (D184)
 export const ICON = '▣';
 
 // What a sandbox's state is called; the transitional ones end in "…".
@@ -244,7 +252,8 @@ export function sandboxPicker(list, conv, me, opts = {}) {
   return {
     shown, value, cls: cls || null,
     loading: !!list && !list.loaded,
-    label: `${ICON} ${active ? active.name || splitRef(value).id : 'No sandbox'}`,
+    label: active ? active.name || splitRef(value).id : 'No sandbox',
+    icon: GLYPH,
     title: conv ? 'the coding sandbox this conversation works in, from its next turn' : 'the coding sandbox your next new chat starts in',
     disabled: !talk,
     none: { value: '', label: 'No sandbox', on: !value },
@@ -258,7 +267,7 @@ export function sandboxPicker(list, conv, me, opts = {}) {
   };
 }
 
-// sandboxBadge: the open conversation's ▣ — its active sandbox and working
+// sandboxBadge: the open conversation's sandbox badge — its active sandbox and working
 // directory, and why the binding no longer resolves (gone, its manager
 // unbound or down, its class no longer allows it) with what to do (advice);
 // every attached one for the popover (switch, detach). null when it has none.
@@ -278,7 +287,8 @@ export function sandboxBadge(conv, list, now = Date.now(), { fixed = '' } = {}) 
   const manager = (s && s.manager) || b.manager || splitRef(b.ref).provider;
   return {
     ref: b.ref, name, cwd: b.cwd || '', manager, egress, state,
-    label: `${ICON} ${name}${b.cwd ? ' · ' + b.cwd : ''}`,
+    label: `${name}${b.cwd ? ' · ' + b.cwd : ''}`,
+    icon: GLYPH, // drawn before the label (the web's badge)
     broken,
     detail: [manager, EGRESS[egress] || egress, STATES[state] || state].filter(Boolean).join(' · '),
     title: broken ? `${name}: ${broken}` : `works in ${name}${b.cwd ? ' at ' + b.cwd : ''} (${[manager, EGRESS[egress] || egress].filter(Boolean).join(', ')}) — ${fixed ? 'fixed for this conversation' : 'change it here'}`,

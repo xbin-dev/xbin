@@ -9,8 +9,8 @@
 // running behind a pill, across conversations); the top bar's >_ Terminal
 // opens a shell at the agent's cwd; an API key is sent once and never
 // echoed; a device code shows its page and code; a sandbox the person may
-// not use says whom to ask, one that is gone says so; the pill and the ▣
-// badge answer the keyboard; a coding agent's ▣ offers no change.
+// not use says whom to ask, one that is gone says so; the pill and the sandbox
+// badge answer the keyboard; a coding agent's badge offers no change.
 //
 //   node test/harness-term.mjs        (needs playwright + a chromium build)
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
@@ -91,7 +91,7 @@ await page.waitForSelector('#hlogin');
 ok('while the sandboxes are still being read: the login terminal waits, no "no terminal" note', !(await page.$('#hl-noterm'))
   && await page.$eval('#hlogin [data-kind="terminal"]', (b) => b.disabled && !/No terminal/.test(b.title)));
 await page.evaluate(() => window.__sbxGo());
-ok('a login park: the sign-in card, saying where', (await text('#hlogin b')) === 'Codex needs you to sign in (in ▣ api-dev).', await text('#hlogin b'));
+ok('a login park: the sign-in card, saying where', (await text('#hlogin b')) === 'Codex needs you to sign in (in api-dev).', await text('#hlogin b'));
 ok('…the shared home\'s warning', /credentials land in api-dev's home: anyone who may use it acts as you with Codex there/.test(await text('#hl-warn')), await text('#hl-warn'));
 ok('…its three methods', JSON.stringify(await page.$$eval('#hlogin [data-kind]', (els) => els.map((e) => [e.dataset.kind, e.dataset.method])))
   === JSON.stringify([['terminal', 'chatgpt'], ['api-key', 'openai-api-key'], ['device-code', 'device-code']]));
@@ -112,7 +112,7 @@ await page.click('#hlogin [data-kind="terminal"]');
 await page.waitForSelector('#sbxterm-pane bx-terminal');
 await until((s) => window.__tty.dials.includes(s), LOGIN_SRC);
 ok('the login tab dials the manager\'s tty with the agent\'s sign-in command, at its cwd', (await dials()).at(-1) === LOGIN_SRC, (await dials()).at(-1));
-ok('…its header says what it signs in, where', (await text('#sbxterm-pane .sbxthd b')) === 'Sign in · Codex · ▣ api-dev' && (await text('.sbxthint')).includes('copy it'));
+ok('…its header says what it signs in, where', (await text('#sbxterm-pane .sbxthd b')) === 'Sign in · Codex · api-dev' && (await text('.sbxthint')).includes('copy it'));
 await until(() => document.querySelector('#sbxterm-pane bx-terminal').testApi().text().includes('running: codex login'));
 ok('…and runs it', true);
 ok('…with Signed in? Retry at hand', (await text('#sbxterm-retry')) === 'Signed in? Retry Codex');
@@ -124,7 +124,7 @@ await page.click('#sbxterm-new');
 await until(() => document.querySelectorAll('#sbxterm-pane .sbxtab').length === 2);
 await until((s) => window.__tty.dials.filter((d) => d === s).length === 1, SHELL_SRC);
 const tabs = await page.$$eval('#sbxterm-pane .sbxtab', (els) => els.map((e) => ({ key: e.dataset.tab, label: e.querySelector('.lb').textContent.trim(), on: e.classList.contains('on') })));
-ok('＋ opens another tab: a shell at the same cwd, shown', tabs.length === 2 && tabs[0].label === 'Sign in · Codex' && tabs[1].label === '▣ api-dev' && tabs[1].on, JSON.stringify(tabs));
+ok('＋ opens another tab: a shell at the same cwd, shown', tabs.length === 2 && tabs[0].label === 'Sign in · Codex' && tabs[1].label === 'api-dev' && tabs[1].on, JSON.stringify(tabs));
 const shellKey = tabs[1].key;
 ok('…the other tab\'s terminal stays, out of sight', !(await shown(loginKey)) && (await shown(shellKey)));
 await until((k) => document.querySelector(`bx-terminal[data-tab="${k}"]`).testApi().text().includes('sandbox$'), shellKey);
@@ -183,16 +183,16 @@ ok('…an ended shell is not ended again', (await calls('DELETE', /execs/)).leng
 await page.click('#hterm');
 await page.waitForSelector('#sbxterm-pane bx-terminal');
 await until((n) => window.__tty.dials.length > n, nDials + 0);
-ok('>_ Terminal: a shell in its sandbox at its cwd', (await dials()).at(-1) === SHELL_SRC && (await text('#sbxterm-pane .sbxthd b')) === '▣ api-dev', (await dials()).at(-1));
+ok('>_ Terminal: a shell in its sandbox at its cwd', (await dials()).at(-1) === SHELL_SRC && (await text('#sbxterm-pane .sbxthd b')) === 'api-dev', (await dials()).at(-1));
 await page.click('#sbxterm-close');
 await until(() => !document.getElementById('sbxterm-pane'));
 
-// --- a coding agent's ▣: its sandbox is fixed for the conversation (the backend refuses a change) -----------
+// --- a coding agent's sandbox badge: its sandbox is fixed for the conversation (the backend refuses a change) -----------
 await go(21, '#sbxbadge');
 await page.focus('#sbxbadge');
 await page.keyboard.press('Enter');
 await page.waitForSelector('#sbxpop');
-ok('a coding agent\'s ▣ (opened from the keyboard): its working directory, read-only', (await text('#sbx-cwd-fixed')) === '/work/api'
+ok('a coding agent\'s sandbox badge (opened from the keyboard): its working directory, read-only', (await text('#sbx-cwd-fixed')) === '/work/api'
   && !(await page.$('#sbx-cwd')) && !(await page.$('#sbx-cwd-set')));
 ok('…no switch or Detach', !(await page.$('#sbx-detach')) && !(await page.$('#sbxpop .sbxatt')));
 ok('…Open terminal and Manage stay', !!(await page.$('#sbx-term')) && !!(await page.$('#sbx-manage')));
@@ -262,17 +262,17 @@ ok('a sandbox you may not use: whom to ask, no methods', (await text('#hl-ask'))
 await go(33, '#hlogin');
 await page.waitForSelector('#hl-gone');
 ok('a sandbox that is gone: what is wrong and what to do, Retry — no methods, no one to ask, no shared-home warning',
-  (await text('#hl-gone')) === '▣ gone-box: gone — its manager no longer has it. Codex can\'t sign in there — start a new chat with Codex in another sandbox.'
+  (await text('#hl-gone')) === 'gone-box: gone — its manager no longer has it. Codex can\'t sign in there — start a new chat with Codex in another sandbox.'
   && !(await page.$('#hl-ask')) && !(await page.$('#hl-warn')) && !(await page.$('#hlogin [data-kind]')) && !!(await page.$('#hl-retry')), await text('#hlogin'));
 await page.click('#sbxbadge');
 await page.waitForSelector('#sbx-broken');
-ok('…its ▣ says the way out is a new chat', (await text('#sbx-broken')) === 'gone — its manager no longer has it — start a new chat with Codex in another sandbox',
+ok('…its badge says the way out is a new chat', (await text('#sbx-broken')) === 'gone — its manager no longer has it — start a new chat with Codex in another sandbox',
   await text('#sbx-broken'));
 await page.click('.mback');
 
 // a view-only reader: what it waits for, no actions
 await go(32, '#hlogin');
-ok('a view-only reader: the card says what it waits for and offers nothing', (await text('#hlogin b')) === 'Codex is waiting for a sign-in (in ▣ api-dev).'
+ok('a view-only reader: the card says what it waits for and offers nothing', (await text('#hlogin b')) === 'Codex is waiting for a sign-in (in api-dev).'
   && (await text('#hl-view')).includes('You may only read this conversation') && !(await page.$('#hlogin [data-kind], #hl-retry, #hl-warn, #hl-confirm')), await text('#hlogin'));
 
 // the end seam's rule: another park is not this card's (an approval or a question is harness-ask.js's, U4)

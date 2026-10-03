@@ -114,12 +114,12 @@ test('the setup card: no sandbox fits → Create; not signed in there → say so
 
 test('a row\'s kind, the top bar\'s chip', () => {
   const rows = Object.fromEntries(seed.runs.map((r) => [r.id, r]));
-  assert.deepEqual(HS.kindOf(rows[21]), { provider: 'claude', mono: 'CC', name: 'Claude Code', title: 'Claude Code answers here — in ▣ api-dev' });
+  assert.deepEqual(HS.kindOf(rows[21]), { provider: 'claude', mono: 'CC', name: 'Claude Code', title: 'Claude Code answers here — in api-dev' });
   assert.equal(HS.kindOf(rows[24]).mono, 'CX');
   assert.equal(HS.kindOf(rows[25]), null, 'the built-in agent\'s: none');
   const t = HS.topChip(seed.views[21]);
   assert.deepEqual([t.mono, t.label, t.tone], ['CC', 'Claude Code · ready', 'ok']);
-  assert.match(t.title, /^Claude Code answers this conversation in ▣ api-dev at \/work\/api — fixed for its life/);
+  assert.match(t.title, /^Claude Code answers this conversation in api-dev at \/work\/api — fixed for its life/);
   assert.equal(t.shared, 'api-dev is shared — the people who may use it can read what Claude Code does here');
   assert.equal(HS.topChip(seed.views[25]), null);
 });

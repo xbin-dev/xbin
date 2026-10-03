@@ -1,5 +1,5 @@
 // terminal.mjs — a terminal in a coding sandbox (D115; a manager's `tty`,
-// docs/sandbox-manager.md) on the web: the ▣ popover offers "Open terminal"
+// docs/sandbox-manager.md) on the web: the sandbox badge's popover offers "Open terminal"
 // only where the sandbox's manager says `tty` in its hello (disabled, with
 // why, for an archived one), and a Sandboxes row "Terminal"; the pane holds
 // the real <bx-terminal src> dialling the manager's …/tty route through the

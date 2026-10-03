@@ -12,7 +12,7 @@
 // DOM — node-tested in hack/agent-template-harness-start.test.mjs.
 import { HARNESSES, findHarness, nameOf, monogram, whyNot, resolveClass, sandboxFits, harnessOf, stateWords } from './harness.js';
 import { HOME } from './home.js';
-import { splitRef, classAllows, taintWhy, firewallEgress, STATES as SBX_STATES, ICON as SBX } from './sandboxes.js';
+import { splitRef, classAllows, taintWhy, firewallEgress, STATES as SBX_STATES } from './sandboxes.js';
 import * as classes from './classes.js';
 import { AGENT } from './harness-store.js'; // "Who answers": the built-in agent (prefs/agent)
 import { harnessesHere, homedWhy, keepsHome, KEEPS_HOME, sharedSees } from './harness-homes.js'; // a partitioned agent's rules
@@ -197,7 +197,7 @@ export function kindOf(r) {
   if (!h) return null;
   const name = nameOf(h);
   const where = h.sandbox && (h.sandbox.name || splitRef(h.sandbox.ref).id);
-  return { provider: h.provider || '', mono: monogram(h.provider), name, title: `${name} answers here${where ? ` — in ${SBX} ${where}` : ''}` };
+  return { provider: h.provider || '', mono: monogram(h.provider), name, title: `${name} answers here${where ? ` — in ${where}` : ''}` };
 }
 
 // topChip: the open conversation's coding agent for its top bar —
@@ -214,7 +214,7 @@ export function topChip(v) {
   const where = sb.name || (sb.ref ? splitRef(sb.ref).id : '');
   const shared = sb.shared ? `${where} is shared — the people who may use it can read what ${name} does here` : '';
   return { mono: monogram(h.provider), name, state: st.state, word: st.word, tone: st.tone, label: `${name} · ${st.word}`,
-    title: [`${name} answers this conversation${where ? ` in ${SBX} ${where}${sb.cwd ? ' at ' + sb.cwd : ''}` : ''} — fixed for its life`,
+    title: [`${name} answers this conversation${where ? ` in ${where}${sb.cwd ? ' at ' + sb.cwd : ''}` : ''} — fixed for its life`,
       st.title, shared, keepsHome(v && v.run) && publishes(v.run.id) ? KEEPS_HOME : ''].filter(Boolean).join('\n'), shared };
 }
 

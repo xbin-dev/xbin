@@ -91,7 +91,7 @@ globalThis.agentChat = { testApi: () => win.testApi() }; // the UI harness's vie
 // localStorage: tile frames are sandboxed opaque origins with no localStorage
 // at all, and touching it throws — at module scope that kills the whole tile.
 const classPicker = makeClassPicker(app, $('cpick'));
-// The coding sandbox (D115): #ssel beside the model, the top bar's ▣, the Sandboxes dialog.
+// The coding sandbox (D115): #ssel beside the model, the top bar's sandbox badge, the Sandboxes dialog.
 const ports = makePorts(app, { openLive: (det) => openLive(det), repaint: () => paint() }); // the popover's Ports section
 const sbxUI = makeSandboxUI(app, { sel: $('ssel'), dlg: $('sbxdlg'), repaint: () => paint(), popExtra: ports.tpl });
 extCtx.sbxUI = sbxUI; // the seams' modules open its dialog (harness-start.js: Create, prefilled)

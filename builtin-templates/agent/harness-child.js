@@ -5,7 +5,7 @@
 //
 //   header   its monogram and name, the link's label (else the task), #id,
 //            its state; under it what it does now (the status line) and
-//            where it works (▣ sandbox:cwd) with its counters — tool calls,
+//            where it works (sandbox:cwd, after the box glyph) with its counters — tool calls,
 //            files +a −d, cost, time
 //   park     its permission request, plan approval or question
 //            (harness-ask.js's cards) and its sign-in (signin.js's) — drawn
@@ -186,7 +186,7 @@ function cardTpl(b, ui, depth, opts = {}) {
       <span class="tw"><bx-icon name=${open ? 'caret-down' : 'caret-right'}></bx-icon></span>
     </div>
     <div class="hkline"><span class="hks" data-tone=${c.state.tone}>${c.status}</span></div>
-    ${c.where || c.meta ? html`<div class="hkmeta">${c.where ? html`<span class="mono">${c.where}</span>` : nothing}${c.where && c.meta ? ' · ' : ''}${c.meta}</div>` : nothing}
+    ${c.where || c.meta ? html`<div class="hkmeta">${c.where ? html`<span class="mono">${c.whereIcon ? html`<bx-icon name=${c.whereIcon}></bx-icon>` : nothing}${c.where}</span>` : nothing}${c.where && c.meta ? ' · ' : ''}${c.meta}</div>` : nothing}
     ${c.park ? html`<div class="hkpark">${parkTpl(app, b, run, c, who)}</div>` : nothing}
     ${note ? html`<div class="anote muted small" role="status"><bx-icon name="warning"></bx-icon><span>${note}</span></div>` : nothing}
     ${open ? bodyTpl(b, ui, depth, c) : nothing}
@@ -216,6 +216,7 @@ style.textContent = `
   .hkid .hkline { padding: 0 12px 0 34px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hkid .hkmeta { padding: 1px 12px 0 34px; font: var(--bx-font-meta); color: var(--bx-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hkid .hkmeta .mono { font: var(--bx-font-code); }
+  .hkid .hkmeta .mono > bx-icon { --bx-icon-size: 12px; margin-right: 4px; vertical-align: -1px; }
   .hkid .hkpark { padding: 2px 12px 0 34px; }
   .hkid .hkpark .ask { margin: 4px 0; }
   .hkid .hkact { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; padding: 4px 12px 8px 32px; }

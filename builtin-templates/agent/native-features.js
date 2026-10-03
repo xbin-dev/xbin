@@ -98,7 +98,7 @@ export const IMPLEMENTS = {
   'top.task': 'native/chat.js — runMenu Task (rules.topBar task) → native/tools.js taskTpl: every request, read-only (actions.asks)',
   'top.task.delegated': 'native/harness-board.js — the Task screen\'s Delegated section through ext.task: a row per coding agent below the run (app.board.delegated), a tap to its chat',
   'top.board': 'native/harness-board.js — a toolbar button while any needs you (not at home — Needs you is on the page — nor in a coding agent\'s own chat, whose bar is full) and ⋯ → Coding agents (N), at home the main menu\'s (app.board.chip)',
-  'top.sandbox': 'native/chat.js — ▣ in the subtitle (badgeWords), a notice when the binding no longer resolves (brokenTpl), runMenu → native/sandboxes.js boxTpl: the working directory, the attached ones, Detach, Manage…',
+  'top.sandbox': 'native/chat.js — the sandbox in the subtitle (badgeWords), a notice when the binding no longer resolves (brokenTpl), runMenu → native/sandboxes.js boxTpl: the working directory, the attached ones, Detach, Manage…',
   'top.harness': 'native/harness-start.js — first in the subtitle (the subtitle seam; model/harness-start.js topChip): a badge beside Mode and Model pushed More off a phone\'s bar',
   'top.status': 'native/chat.js — the subtitle',
   'top.viewOnly': 'native/chat.js — the subtitle',
@@ -134,7 +134,7 @@ export const IMPLEMENTS = {
   'tools.sandboxes': 'native/sandboxes.js — listTpl: a row per sandbox, its actions (sandboxRows) behind swipe and ⋯, archive and delete confirmed',
   'tools.sandboxes.create': 'native/sandboxes.js — newTpl (createForm → app.sbx.create)',
   'tools.sandboxes.shareTerminal': 'native/sandboxes.js — a row\'s Share with a terminal tile… (swipe or ⋯) pushes shareTpl: the path field, For, Share in the toolbar, Stop sharing behind a shared row\'s swipe (confirmed)',
-  'tools.sandboxes.terminal': 'native/sandboxes.js — a row\'s Terminal and the ▣ screen\'s Open terminal → native/terminal.js termTpl: <terminal src> on the tile\'s relay (model/sandboxes.js relaySrc; app.sbx.tty = RELAY in native.js)',
+  'tools.sandboxes.terminal': 'native/sandboxes.js — a row\'s Terminal and the Sandbox screen\'s Open terminal → native/terminal.js termTpl: <terminal src> on the tile\'s relay (model/sandboxes.js relaySrc; app.sbx.tty = RELAY in native.js)',
   'tools.terminal': 'native/terminal.js — ⋯ → Terminal in a coding agent\'s conversation: termTpl on its run\'s relay (model/terminals.js runTerminalSrc)',
 
   // Sharing

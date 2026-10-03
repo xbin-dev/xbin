@@ -190,10 +190,10 @@ export function openChild(id) {
 const STEP = {
   error: ['!', 'danger', (d) => d.error || d.text || ''],
   compaction: ['≡', 'muted', (d) => ctx.app.rules.compactionWords(d)],
-  yield: ['⏸', 'muted', (d) => `slept ${d.seconds ?? ''}s`],
-  finish: ['✓', 'ok', (d) => (d.result ? `finished: ${d.result}` : 'finished')],
+  yield: ['⏸', 'muted', (d) => `slept ${d.seconds ?? ''}s`], // theme-ok: the native step primitive takes its glyph as text the app draws (vocab step.glyph)
+  finish: ['✓', 'ok', (d) => (d.result ? `finished: ${d.result}` : 'finished')], // theme-ok: the step primitive's text glyph
   state_changed: ['✳', 'accent', (d) => `state changed${d.summary ? ': ' + d.summary : ''}`],
-  cancel: ['⏹', 'warn', (d) => `cancelled${d.reason ? ': ' + d.reason : ''}`],
+  cancel: ['⏹', 'warn', (d) => `cancelled${d.reason ? ': ' + d.reason : ''}`], // theme-ok: the step primitive's text glyph
   ask: ['?', 'accent', (d) => `asked: ${d.question || ''}`],
   render: ['▢', 'accent', (d) => `rendered ${d.path || ''} v${d.version || ''}`],
   live: ['◎', 'accent', (d) => `showing ${d.name || d.sandbox || 'the sandbox'}:${d.port || ''}${d.path || '/'} live`],
@@ -210,7 +210,7 @@ function stepTpl(b) {
   if (b.kind === 'live' && d.sandbox) {
     return html`<toolcard title=${text(d)} icon="globe" family="live" state="ok" @open=${() => openLive(run, d, false)}/>`;
   }
-  if (b.kind === 'finish' && d.result) return html`<step glyph="✓" tone="ok" text="finished"/><markdown source=${d.result}/>`;
+  if (b.kind === 'finish' && d.result) return html`<step glyph="✓" tone="ok" text="finished"/><markdown source=${d.result}/>`; // theme-ok: the step primitive's text glyph
   return html`<step glyph=${glyph} tone=${tone} text=${text(d)}/>`;
 }
 

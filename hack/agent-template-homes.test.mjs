@@ -346,7 +346,7 @@ test('a person\'s partition: the sandbox a coding agent starts in is her own; it
   const opts = HS.sandboxOptions(claude, list);
   assert.deepEqual(opts.map((o) => [o.name, o.disabled]), [['my-dev', false], ['api-dev', true]], 'the team\'s is disabled…');
   assert.equal(opts[1].why, HH.notOwn('api-dev'), '…saying why');
-  assert.equal(HS.fitsWhy(claude)(TEAM), HH.notOwn('api-dev'), 'the composer\'s ▣ picker says the same');
+  assert.equal(HS.fitsWhy(claude)(TEAM), HH.notOwn('api-dev'), 'the composer\'s sandbox picker says the same');
   assert.equal(HS.preferredSandbox(claude, list, API_DEV, API_DEV).value, OWN.ref, 'a remembered team sandbox is passed over');
   const p = HS.agentPicker(cat(), 'claude', { list, remembered: { claude: API_DEV } });
   assert.ok(p.shown && p.harness && p.rows.length === 5, 'her partition: coding agents answer');

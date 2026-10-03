@@ -36,7 +36,6 @@
 // when its screen goes and names no session to attach again — the web's
 // dock keeps several (model/features.js DIFFERENCES.native).
 import { html, nothing } from '/vendor/xb-native.js';
-import { ICON } from '../model/sandboxes.js';
 import { isHarness, harnessOf, findHarness } from '../model/harness.js';
 import { signIn, methodLabel, runTerminalSrc, isHttps } from '../model/terminals.js';
 import { newGuided, guidedStarted, guidedFailed, guidedFinished, guidedWords, cleanCode, nameFor, shownMethods } from '../model/harness-signins.js';
@@ -179,7 +178,7 @@ function signInTpl(s) {
       : `Runs ${c.command} in ${c.sandbox.name}, as you — then Retry.`}>
     <row title=${c.guided ? 'Use a terminal instead' : 'Open a login terminal'} icon="terminal" nav ?disabled=${blocked || !!tt.why}
       @tap=${blocked || tt.why ? nothing : () => push({ kind: 'term', src: runTerminalSrc(c.run, { login: true }), login: true, run: c.run, harness: c.name,
-        title: `Sign in · ${c.name}`, subtitle: `${ICON} ${c.sandbox.name}` })}/>
+        title: `Sign in · ${c.name}`, subtitle: `in ${c.sandbox.name}` })}/>
   </section>`;
   const sendKey = (m) => run('key', async () => {
     const apiKey = keys.get(s) || '';
@@ -261,7 +260,7 @@ function signInTpl(s) {
     </section>`;
   };
   const METHOD = { terminal: term, 'api-key': key, 'device-code': device };
-  return html`<screen title=${`Sign in to ${c.name}`} subtitle=${`${ICON} ${c.sandbox.name}`} style="form">
+  return html`<screen title=${`Sign in to ${c.name}`} subtitle=${`in ${c.sandbox.name}`} style="form">
     <toolbar><button icon="refresh" ?busy=${s.busy === 'retry'} @tap=${retry}>Retry</button></toolbar>
     <section><notice tone="warn" text=${c.goneText || c.warn}/></section>
     ${s.err ? html`<section><notice tone="danger" text=${s.err}/></section>` : nothing}

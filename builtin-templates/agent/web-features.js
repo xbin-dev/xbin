@@ -132,7 +132,7 @@ export const IMPLEMENTS = {
   'tools.live.follow': 'agent.js — syncPreview',
   'tools.live.reload': 'agent.js — #prev-reload',
   'tools.live.check': 'live-status.js — #live-strip, #live-check, .lsmsg (model/live.js probeWords)',
-  'tools.live.ports': 'ports.js — #sbx-ports in the ▣ popover (sandboxes.js popExtra)',
+  'tools.live.ports': 'ports.js — #sbx-ports in the sandbox badge\'s popover (sandboxes.js popExtra)',
   'tools.sandboxes': 'sandboxes.js — the #sbxdlg dialog: .sbxrow [data-act] (model/sandboxes.js sandboxRows → app.sbx.act, share, remove, choose)',
   'tools.sandboxes.terminal': 'sandboxes.js — #sbx-term in the popover, a row\'s [data-act="terminal"] → openTerm: a tab of the terminal dock (terminals.js termDock) with <bx-terminal src> on the manager (model/sandboxes.js terminal → app.sbx.terminal, endTerminal)',
   'tools.sandboxes.create': 'sandboxes.js — #sbx-form (model/sandboxes.js createForm → app.sbx.create)',

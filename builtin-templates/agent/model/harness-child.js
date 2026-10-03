@@ -14,7 +14,7 @@
 // Pure (no DOM, no lit): node-tested in hack/agent-template-harness-child.test.mjs.
 import { isHarness, nameOf, monogram, pendingOf, pendingWords, countsWords, planOf } from './harness.js';
 import { parseArgs } from './tool-heads.js';
-import { ICON } from './sandboxes.js';
+import { GLYPH } from './sandboxes.js';
 import { barredWhy } from './harness-homes.js';
 
 export const TAIL = 3;      // the child's blocks a card shows
@@ -149,7 +149,8 @@ export function childCard(b, run, now = Date.now()) {
     provider, mono: monogram(provider), name,
     title: link.label || firstLine(task, 100) || run.title || b.headline || name,
     task,
-    where: sname ? `${ICON} ${sname}${sb.cwd ? ':' + sb.cwd : ''}` : '',
+    where: sname ? `${sname}${sb.cwd ? ':' + sb.cwd : ''}` : '',
+    whereIcon: sname ? GLYPH : '', // drawn before where (the web's card)
     state: { key, ...CARD[key] },
     status: statusLine(key, run, park, name, answer),
     counts, cost, elapsed, meta: [counts, cost, elapsed].filter(Boolean).join(' · '),

@@ -735,7 +735,7 @@ const boxes = () => [sb('api', { boundTo: [9] }), sb('web', { state: 'stopped', 
   sb('wide', { egress: 'open' }), sb('team-box', { mine: false, owner: { user: 'carol' }, visibility: 'team', canManage: false, canEdit: false })];
 const bodies = (r, method, re) => called(r, method, re).map((c) => JSON.parse(c.body));
 
-test('coding sandboxes (D115): the picker, the ▣ badge and its screen, the tool cards', async () => {
+test('coding sandboxes (D115): the picker, the sandbox badge and its screen, the tool cards', async () => {
   const view = { run: { title: 'fix the build', status: 'idle' }, class: CODING,
     config: { sandbox: bound('api'), attached: [bound('api'), bound('web')] },
     messages: [msg(1, 'user', 'make the tests pass', { runId: 9 }), msg(2, 'assistant', '', { runId: 9, toolCalls: [
@@ -770,11 +770,11 @@ test('coding sandboxes (D115): the picker, the ▣ badge and its screen, the too
   assert.deepEqual(p.p.options.map((o) => [o.label, o.icon]), [
     ['No sandbox', 'minus'], ['api', 'box'], ['web (stopped)', 'box'], ['wide — unavailable', 'lock'],
     ['team-box · team', 'box'], ['New sandbox…', 'plus'], ['Manage sandboxes…', 'list']], 'short: the bar shows the current one beside the model');
-  assert.match(topScreen(r.snapshots.chat).p.subtitle, /idle · ▣ Coding · ▣ api · \/work/, 'the ▣ badge in the header');
+  assert.match(topScreen(r.snapshots.chat).p.subtitle, /idle · ▣ Coding · sandbox api · \/work/, 'the sandbox in the header, in words');
   assert.equal(called(r, 'GET', /\/sandboxes$/).length, 1, 'the list is read once');
   const note = texts(r.snapshots.refused, 'notice', 'text').find((t) => /wide/.test(t || ''));
   assert.match(note, /^wide: the Coding class doesn't allow a sandbox with open network/);
-  // the tool cards: ▣ as a terminal, the command inside, what it came to on the card
+  // the tool cards: a sandbox call as a terminal, the command inside, what it came to on the card
   const bash = find(r.snapshots.chat, { t: 'toolcard', p: { title: 'Run the tests' } });
   assert.equal(bash.p.family, 'box');
   assert.equal(bash.p.icon, 'terminal');
@@ -784,7 +784,7 @@ test('coding sandboxes (D115): the picker, the ▣ badge and its screen, the too
   // a pick binds it from the next turn, and the header follows
   const patches = bodies(r, 'PATCH', /\/runs\/9$/);
   assert.deepEqual(patches[0], { sandbox: { ref: `${MGR}|web`, cwd: '/work' } }, 'the refused pick sent nothing; an attached one keeps its cwd');
-  assert.match(topScreen(r.snapshots.bound).p.subtitle, /▣ web · \/work/);
+  assert.match(topScreen(r.snapshots.bound).p.subtitle, /sandbox web · \/work/);
   // ⋯ → Sandbox: its working directory, the attached ones, Detach
   const box = topScreen(r.snapshots.box);
   assert.equal(box.p.title, 'web');
@@ -794,7 +794,7 @@ test('coding sandboxes (D115): the picker, the ▣ badge and its screen, the too
   assert.deepEqual(patches.slice(1), [{ sandbox: { ref: `${MGR}|web`, cwd: '/work/web' } }, { sandbox: { ref: `${MGR}|api`, cwd: '/work' } }, { detach: `${MGR}|api` }]);
   assert.equal(topScreen(r.snapshots.switched).p.title, 'api', 'switching makes another the active one');
   assert.equal(topScreen(r.snapshots.detached).p.title, 'fix the build', 'detached: back on the conversation');
-  assert.doesNotMatch(topScreen(r.snapshots.detached).p.subtitle, /▣ api/);
+  assert.doesNotMatch(topScreen(r.snapshots.detached).p.subtitle, /sandbox api/);
   assert.equal(find(r.snapshots.detached, { t: 'button', p: { label: 'Sandbox: api' } }), null);
 });
 
@@ -872,8 +872,8 @@ test('coding sandboxes (D115): a binding that no longer resolves is marked; a vi
     { tap: { t: 'button', p: { label: 'Sandbox: vanished (broken)' } } },
     { snapshot: 'box' },
   ], { state: { hash: 'c=9' } });
-  assert.match(topScreen(r.snapshots.chat).p.subtitle, /▣ vanished · \/srv · broken/);
-  const warn = find(r.snapshots.chat, { t: 'notice', p: { tone: 'warn', title: '▣ vanished' } });
+  assert.match(topScreen(r.snapshots.chat).p.subtitle, /sandbox vanished · \/srv · broken/);
+  const warn = find(r.snapshots.chat, { t: 'notice', p: { tone: 'warn', title: 'Sandbox vanished' } });
   assert.match(warn.p.text, /^gone — its manager no longer has it — pick another sandbox, or detach it/);
   assert.equal(find(r.snapshots.chat, { t: 'picker', p: { label: 'Sandbox' } }), null, 'a viewer gets no picker');
   const box = topScreen(r.snapshots.box);

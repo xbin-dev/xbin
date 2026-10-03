@@ -31,11 +31,13 @@ test('the dock: tabs open, show, hide behind a pill, close to a neighbour; a New
   assert.deepEqual([a.key, a.purpose, a.gen, a.session, a.ended, 'shown' in a], [1, 'shell', 1, '', '', false], 'only a tab\'s own fields');
   const b = d.open({ ref: API_DEV, name: 'api-dev', src: '/m/tty?cmd=codex%20login', purpose: 'login', run: 24, harness: 'Codex' });
   assert.equal(d.active, b.key, 'a new tab is shown');
-  assert.deepEqual([T.tabLabel(a), T.tabLabel(b)], ['▣ api-dev', 'Sign in · Codex']);
+  assert.deepEqual([T.tabLabel(a), T.tabLabel(b)], ['api-dev', 'Sign in · Codex']);
+  // words in the strings; the web draws a shell's sandbox glyph beside them (D184 §1.6)
+  assert.deepEqual([T.tabIcon(a), T.tabIcon(b), T.tabHead(a).icon, T.tabHead(b).icon], ['box', '', 'box', '']);
   const hb = T.tabHead(b);
-  assert.deepEqual([hb.title, hb.where, hb.retry, hb.done], ['Sign in · Codex · ▣ api-dev', 'its workdir', 'Retry Codex', '']);
+  assert.deepEqual([hb.title, hb.where, hb.retry, hb.done], ['Sign in · Codex · api-dev', 'its workdir', 'Retry Codex', '']);
   assert.match(hb.hint, /copy it from the terminal/);
-  assert.deepEqual([T.tabHead(a).title, T.tabHead(a).where, T.tabHead(a).retry, T.tabHead(a).hint], ['▣ api-dev', '/work/api', '', '']);
+  assert.deepEqual([T.tabHead(a).title, T.tabHead(a).where, T.tabHead(a).retry, T.tabHead(a).hint], ['api-dev', '/work/api', '', '']);
   d.hide();
   assert.deepEqual([d.hidden, d.pill()], [true, '2 terminals']);
   d.select(a.key);
@@ -80,7 +82,7 @@ test('the sign-in card: only for a login park; what it offers and says', () => {
   assert.deepEqual([c.run, c.park, c.name, c.command, c.shared, c.canUse, c.ask, c.device], [24, 'Xq3login', 'Codex', 'codex login', true, null, '', null]);
   assert.deepEqual(c.sandbox, { ref: API_DEV, name: 'api-dev', cwd: '/work/api' });
   assert.deepEqual(c.methods.map((m) => m.kind), ['terminal', 'api-key', 'device-code']);
-  assert.equal(c.title, 'Codex needs you to sign in (in ▣ api-dev).');
+  assert.equal(c.title, 'Codex needs you to sign in (in api-dev).');
   assert.match(c.warn, /^The credentials land in api-dev's home: anyone who may use it acts as you with Codex there/);
   assert.equal(c.confirmLabel, 'api-dev is shared — sign in anyway');
   assert.equal(T.signIn(seed.views[24], { list: list() }).canUse, true, 'a sandbox you may use');
@@ -105,7 +107,7 @@ test('the sign-in card: only for a login park; what it offers and says', () => {
   const mgr = (extra = {}) => ({ provider: SBX, title: 'Coding sandboxes', ok: true, ...extra });
   const g = T.signIn(v, { list: S.listOf({ sandboxes: seed.sandboxes, managers: [mgr()] }), me: 'admin' });
   assert.deepEqual([g.canUse, g.ask, g.gone], [null, '', 'gone — its manager no longer has it'], 'gone: nobody to ask');
-  assert.equal(g.goneText, '▣ bobs: gone — its manager no longer has it. Codex can\'t sign in there — start a new chat with Codex in another sandbox.');
+  assert.equal(g.goneText, 'bobs: gone — its manager no longer has it. Codex can\'t sign in there — start a new chat with Codex in another sandbox.');
   const down = T.signIn(v, { list: S.listOf({ sandboxes: [], managers: [mgr({ ok: false, error: 'connection refused' })] }) });
   assert.equal(down.gone, 'its manager (Coding sandboxes) is unavailable: connection refused');
   assert.match(down.goneText, /Codex can't sign in there — Retry once it is back, or start a new chat with Codex in another sandbox\.$/, 'a manager that may come back: Retry');
@@ -182,14 +184,14 @@ test('native: a login park — the notice, Sign in in the composer and the menu;
   const chat = r.snapshots.chat;
   const notice = find(chat, { t: 'notice', p: { title: 'Sign in to Codex' } });
   assert.ok(notice, 'the notice in the transcript');
-  assert.equal(notice.p.text, 'Codex needs you to sign in (in ▣ api-dev). Tap Sign in below.');
+  assert.equal(notice.p.text, 'Codex needs you to sign in (in api-dev). Tap Sign in below.');
   assert.ok(find(chat, { t: 'button', p: { label: 'Sign in' }, in: { t: 'composer' } }), 'Sign in in the composer');
   assert.ok(find(chat, { t: 'button', p: { label: 'Sign in…' }, in: { t: 'menu' } }), '…and the menu');
   assert.ok(find(chat, { t: 'button', p: { label: 'Terminal' }, in: { t: 'menu' } }), 'a shell at its cwd in the menu');
   assert.equal(find(chat, { t: 'approval' }), null, 'no built-in card for it');
 
   const scr = topScreen(r.snapshots.screen);
-  assert.deepEqual([scr.p.title, scr.p.subtitle], ['Sign in to Codex', '▣ api-dev']);
+  assert.deepEqual([scr.p.title, scr.p.subtitle], ['Sign in to Codex', 'in api-dev']);
   assert.match(find(scr, { t: 'notice', p: { tone: 'warn' } }).p.text, /credentials land in api-dev's home/);
   assert.equal(find(scr, { t: 'toggle' }).p.label, 'api-dev is shared — sign in anyway');
   assert.equal(find(scr, { t: 'row', p: { title: 'Open a login terminal' } }).p.disabled, true, 'shared: the confirm first');
@@ -197,7 +199,7 @@ test('native: a login park — the notice, Sign in in the composer and the menu;
   assert.ok(find(topScreen(r.snapshots.confirmed), { t: 'row', p: { title: 'Open a login terminal' } }).p.disabled !== true, 'confirmed: offered');
 
   const term = topScreen(r.snapshots.term);
-  assert.deepEqual([term.p.title, term.p.subtitle], ['Sign in · Codex', '▣ api-dev']);
+  assert.deepEqual([term.p.title, term.p.subtitle], ['Sign in · Codex', 'in api-dev']);
   assert.deepEqual(find(term, { t: 'terminal' }).p, { src: 'runs/24/harness/terminal?login=1', title: 'Sign in · Codex' }, 'the run\'s relay, tile-relative');
   assert.deepEqual(posts(r, /\/runs\/24\/resume$/), [null], 'Retry: POST /resume');
   assert.equal(find(r.snapshots.retried, { t: 'terminal' }), null, '…and the login terminal goes');
@@ -275,7 +277,7 @@ test('native: whom to ask; a shell at the agent\'s cwd; a sandbox\'s terminal th
   };
   const r = await run([{ wait: 50 }, { snapshot: 'chat' }, { tap: { t: 'button', p: { label: 'Sign in…' }, in: { t: 'menu' } } }, { snapshot: 'screen' }], 'c=24', theirs);
   assert.equal(find(r.snapshots.chat, { t: 'notice', p: { title: 'Sign in to Codex' } }).p.text,
-    'Codex needs you to sign in (in ▣ bobs). Ask bob to sign in — the sandbox is theirs.');
+    'Codex needs you to sign in (in bobs). Ask bob to sign in — the sandbox is theirs.');
   assert.equal(find(r.snapshots.chat, { t: 'button', p: { label: 'Sign in' }, in: { t: 'composer' } }), null, 'nothing to tap');
   assert.equal(find(r.snapshots.chat, { t: 'button', p: { label: 'Terminal' }, in: { t: 'menu' } }), null, 'no shell there either');
   const scr = topScreen(r.snapshots.screen);
@@ -285,8 +287,8 @@ test('native: whom to ask; a shell at the agent\'s cwd; a sandbox\'s terminal th
   // its sandbox gone (not in the list read): said as such — not "ask admin" — with Retry, no methods, no shared-home warning
   const gone = (s) => { s.sandboxes = s.sandboxes.filter((x) => x.ref !== API_DEV); return s; };
   const g = await run([{ wait: 50 }, { snapshot: 'chat' }, { tap: { t: 'button', p: { label: 'Sign in…' }, in: { t: 'menu' } } }, { snapshot: 'screen' }], 'c=24', gone);
-  const GONE = '▣ api-dev: gone — its manager no longer has it. Codex can\'t sign in there — start a new chat with Codex in another sandbox.';
-  assert.equal(find(g.snapshots.chat, { t: 'notice', p: { title: 'Sign in to Codex' } }).p.text, `Codex needs you to sign in (in ▣ api-dev). ${GONE}`);
+  const GONE = 'api-dev: gone — its manager no longer has it. Codex can\'t sign in there — start a new chat with Codex in another sandbox.';
+  assert.equal(find(g.snapshots.chat, { t: 'notice', p: { title: 'Sign in to Codex' } }).p.text, `Codex needs you to sign in (in api-dev). ${GONE}`);
   assert.equal(find(g.snapshots.chat, { t: 'button', p: { label: 'Sign in' }, in: { t: 'composer' } }), null, 'nothing to sign in to');
   const gs = topScreen(g.snapshots.screen);
   assert.deepEqual(all(gs, { t: 'notice' }).map((n) => n.p.text), [GONE], 'no shared-home warning, nobody to ask');
@@ -294,7 +296,7 @@ test('native: whom to ask; a shell at the agent\'s cwd; a sandbox\'s terminal th
   assert.equal(find(gs, { t: 'row', p: { title: 'Open a login terminal' } }), null);
   assert.ok(find(gs, { t: 'button', p: { label: 'Signed in? Retry' } }), 'Retry stays');
 
-  // a shell at the agent's cwd (⋯ → Terminal), and the ▣ screen and Sandboxes rows (the tile's relay)
+  // a shell at the agent's cwd (⋯ → Terminal), and the Sandbox screen and Sandboxes rows (the tile's relay)
   const r2 = await run([
     { wait: 50 },
     { tap: { t: 'button', p: { label: 'Terminal' }, in: { t: 'menu' } } },
@@ -346,7 +348,7 @@ test('native, a partitioned agent: a shared conversation\'s coding agent — the
   // #24 (below 2^40) in admin's own partition: the shared space's, at the global instance
   const r = await run(steps, 'c=24', (s) => ({ ...s, partition: 'user:admin' }));
   const chat = r.snapshots.chat;
-  assert.equal(find(chat, { t: 'notice', p: { title: 'Sign in to Codex' } }).p.text, `Codex is waiting for a sign-in (in ▣ api-dev). ${SIGNIN_SHARED}`);
+  assert.equal(find(chat, { t: 'notice', p: { title: 'Sign in to Codex' } }).p.text, `Codex is waiting for a sign-in (in api-dev). ${SIGNIN_SHARED}`);
   assert.equal(find(chat, { t: 'button', p: { label: 'Sign in' }, in: { t: 'composer' } }), null, 'no Sign in in the composer…');
   assert.equal(find(chat, { t: 'button', p: { label: 'Sign in…' }, in: { t: 'menu' } }), null, '…nor in the menu');
   const comp = find(chat, { t: 'composer' }).p;
@@ -356,6 +358,6 @@ test('native, a partitioned agent: a shared conversation\'s coding agent — the
   assert.ok(r.calls.filter((c) => /\/runs\/24\//.test(c.url)).length > 0);
   // the global instance's own page: none signs in there
   const g = await run([{ wait: 50 }, { snapshot: 'chat' }], 'c=24', (s) => ({ ...s, partition: 'global' }));
-  assert.equal(find(g.snapshots.chat, { t: 'notice', p: { title: 'Sign in to Codex' } }).p.text, `Codex is waiting for a sign-in (in ▣ api-dev). ${SIGNIN_GLOBAL}`);
+  assert.equal(find(g.snapshots.chat, { t: 'notice', p: { title: 'Sign in to Codex' } }).p.text, `Codex is waiting for a sign-in (in api-dev). ${SIGNIN_GLOBAL}`);
   assert.equal(find(g.snapshots.chat, { t: 'button', p: { label: 'Sign in…' }, in: { t: 'menu' } }), null);
 });

@@ -57,7 +57,8 @@ test('childCard: working through its plan — identity, the status line, where, 
   assert.equal(c.task, 'Split the router into one file per resource');
   assert.deepEqual(c.state, { key: 'working', word: 'working', tone: 'run' });
   assert.equal(c.status, 'Running: Run go vet ./...');
-  assert.equal(c.where, '▣ api-dev:/work/api');
+  assert.equal(c.where, 'api-dev:/work/api');
+  assert.equal(c.whereIcon, 'box', 'the web draws the sandbox glyph before it');
   assert.equal(c.meta, '7 tool calls · 2 files +31 −4 · 19m', 'counters, then the time since it started');
   assert.equal(c.plan.text, '1/3 · now: Split the router');
   assert.equal(c.park, null);
@@ -274,14 +275,14 @@ test('native: three cards — identity as chips, the status line, where; a park 
   assert.deepEqual(cards[0].p.chips, [{ text: 'CC' }, { text: '#26' }, { text: 'working', tone: 'accent' }]);
   assert.deepEqual(cards[1].p.chips[2], { text: 'needs approval', tone: 'warn' });
   assert.ok(find(cards[0], { t: 'text', has: 'Running: Run go vet ./...' }) || JSON.stringify(cards[0]).includes('Running: Run go vet ./...'), 'the status line');
-  assert.ok(JSON.stringify(cards[0]).includes('Claude Code · ▣ api-dev:/work/api · 7 tool calls · 2 files +31 −4'), 'who, where, counters');
+  assert.ok(JSON.stringify(cards[0]).includes('Claude Code · in api-dev:/work/api · 7 tool calls · 2 files +31 −4'), 'who, where, counters');
   assert.ok(find(cards[0], { t: 'plan' }), 'its plan');
   const ap = find(cards[1], { t: 'approval' });
   assert.deepEqual(ap.p.options.map((o) => o.id), ['approved', 'approved-for-session', 'abort']);
   assert.match(ap.p.title, /^Codex asks to run a command: psql -f migrations\/0007_users\.sql$/);
   const si = find(cards[2], { t: 'notice' });
   assert.equal(si.p.tone, 'warn');
-  assert.match(si.p.text, /^Claude Code needs you to sign in \(in ▣ api-dev\)\. Open it \(↗\) and tap Sign in\.$/);
+  assert.match(si.p.text, /^Claude Code needs you to sign in \(in api-dev\)\. Open it \(↗\) and tap Sign in\.$/);
   assert.deepEqual(reads(r, /\/runs\/26\/view/), [], 'a closed card reads nothing');
   assert.deepEqual(sent(r, 'POST', /\/runs\/27\/approve$/), [{ park: 'Xq3kid', option: 'approved' }], 'answered on the child');
   assert.deepEqual(sent(r, 'POST', /\/runs\/25\/approve$/), []);
@@ -297,7 +298,7 @@ test('native: a card\'s sign-in in a sandbox the list read lacks (just made: the
   s.routes = [['GET', '/sandboxes$', cached]]; // ?fresh=1 is the stub's: it has it
   const r = await runSeed([{ wait: 100 }, { snapshot: 'p' }], 'c=25', s);
   const si = find(find(r.snapshots.p.root, CARD('Write the changelog')), { t: 'notice' });
-  assert.equal(si.p.text, 'Claude Code needs you to sign in (in ▣ fresh-box). Open it (↗) and tap Sign in.');
+  assert.equal(si.p.text, 'Claude Code needs you to sign in (in fresh-box). Open it (↗) and tap Sign in.');
   assert.equal(reads(r, /\/sandboxes\?fresh=1$/).length, 1, 'read again once');
 });
 

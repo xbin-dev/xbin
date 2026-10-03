@@ -174,7 +174,7 @@ ext.register({
             ${h ? html`<div class="hint" id="n-agent-hint">${cls ? cls[0].toUpperCase() + cls.slice(1) + '. ' : ''}A coding agent keeps its own instructions.</div>` : nothing}</div>
           ${h ? html`<div class="field"><label>Its sandbox — fixed for the conversation</label>
             <select id="n-sandbox" @change=${(e) => { f.ref = e.target.value; redraw(); }}>
-              ${ref ? nothing : html`<option value="" selected>— none it fits: create one from the composer's ▣ —</option>`}
+              ${ref ? nothing : html`<option value="" selected>— none it fits: create one with the composer's sandbox picker —</option>`}
               ${opts.map((o) => html`<option value=${o.value} ?selected=${o.value === ref} ?disabled=${o.disabled} title=${o.why}>${o.label}${o.disabled ? ` — ${o.why}` : ''}</option>`)}</select></div>` : nothing}`;
       },
       body() {

@@ -176,7 +176,7 @@ for (const where of ['conv', 'home']) {
 
 // --- a child's sign-in in a sandbox the list read doesn't have yet: read again (once), not "gone" -------------
 // (28 signs in to a sandbox of its own, just made — the backend's cached list, read first, lacks it; not 25's,
-// whose ▣ reads the list again anyway)
+// whose sandbox badge reads the list again anyway)
 {
   const s = kidsSeed();
   const FRESH = 'apps/coding-sandbox|sb-fresh';

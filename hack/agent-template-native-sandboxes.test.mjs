@@ -90,7 +90,7 @@ test('coding sandboxes (D115): a re-pick keeps its cwd; a private one into a tea
   assert.equal(find(r.snapshots.cancelled, sheet), null, 'Cancel closes it');
   assert.deepEqual(patches.slice(1), [{ sandbox: { ref: `${MGR}|private-box` } }], 'only Use it here bound it');
   assert.equal(find(r.snapshots.used, sheet), null);
-  assert.match(topScreen(r.snapshots.used).p.subtitle, /▣ private-box · \/work/);
+  assert.match(topScreen(r.snapshots.used).p.subtitle, /sandbox private-box · \/work/);
   // the Sandboxes screen: Start moves nothing under the finger (review: the rows re-sorted by activity)
   const titles = (tree) => all(topScreen(tree), { t: 'row' }).map((x) => x.p.title);
   assert.deepEqual(titles(r.snapshots.list), ['api', 'private-box', 'wide', 'web', 'bobs', 'team-box']);
@@ -122,7 +122,7 @@ test('coding sandboxes: a coding agent\'s conversation keeps its sandbox — its
   const seed = harnessSeed();
   seed.sandboxes = seed.sandboxes.filter((x) => !x.ref.endsWith('|sb-7f3a'));
   const g = await run(seed, [{ wait: 50 }, { snapshot: 'chat' }], { state: { hash: 'c=21' } });
-  const n = find(g.snapshots.chat, { t: 'notice', p: { title: '▣ api-dev' } });
+  const n = find(g.snapshots.chat, { t: 'notice', p: { title: 'Sandbox api-dev' } });
   assert.equal(n && n.p.text, 'gone — its manager no longer has it — start a new chat with Claude Code in another sandbox');
 });
 

@@ -171,6 +171,10 @@ function progressLabel(r) {
   return p ? `Progress (${p.done}/${p.total})` : 'Progress';
 }
 
+// The tool-call line's glyph: the step primitive takes it as text, which
+// the app draws (vocab step.glyph).
+const CALLS_GLYPH = '✎'; // theme-ok: the native step primitive's text glyph
+
 // progressScreen: the harness's plan as it keeps it, what the conversation
 // changed (across restarts), the context in use and the cost.
 function progressScreen(s) {
@@ -182,7 +186,7 @@ function progressScreen(s) {
   return html`<screen title="Progress" subtitle=${nameOf(h) + (p ? ` · ${p.text}` : '')} style="scroll">
     <transcript>
       ${p ? html`<plan entries=${planEntries(p)}/>` : html`<step glyph="–" tone="muted" text="no plan this session"/>`}
-      <step glyph="✎" tone="muted" text=${c || 'no tool calls yet'}/>
+      <step glyph=${CALLS_GLYPH} tone="muted" text=${c || 'no tool calls yet'}/>
       ${u ? html`<step glyph="◔" tone=${u.tone === 'bad' ? 'danger' : u.tone === 'warn' ? 'warn' : 'muted'} text=${u.title || u.text}/>` : nothing}
     </transcript>
   </screen>`;

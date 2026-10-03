@@ -598,9 +598,9 @@ test('a login park: the activity line has no spinner, the sign-in card says who 
   assert.equal(H.activityStill({ id: 2, status: 'waiting_input' }), false, 'the built-in agent\'s');
   const v = (access) => ({ access, run: r('login', { pendingState: login }), config: { harness: { ref: 'apps/coding-sandbox|sb-1', cwd: '/w' } } });
   const own = T.signIn(v('owner'));
-  assert.deepEqual([own.talk, own.view, own.title], [true, '', 'Codex needs you to sign in (in ▣ sb-1).']);
+  assert.deepEqual([own.talk, own.view, own.title], [true, '', 'Codex needs you to sign in (in sb-1).']);
   const ro = T.signIn(v('viewer'));
-  assert.deepEqual([ro.talk, ro.title], [false, 'Codex is waiting for a sign-in (in ▣ sb-1).']);
+  assert.deepEqual([ro.talk, ro.title], [false, 'Codex is waiting for a sign-in (in sb-1).']);
   assert.match(ro.view, /only read this conversation/);
 });
 

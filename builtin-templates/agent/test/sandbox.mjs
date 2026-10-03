@@ -1,7 +1,7 @@
 // sandbox.mjs — coding sandboxes (D115) on the web: the composer's picker
 // (#ssel) shows only where the class has the sandbox toolset and binds what
 // you pick (PATCH /runs {sandbox}; at home the new chat is asked with it);
-// the top bar's ▣ badge says the sandbox and its working directory, or why
+// the top bar's sandbox badge says the sandbox and its working directory, or why
 // the binding no longer resolves, and its popover sets the cwd, switches
 // among the attached ones and detaches; the Sandboxes dialog lists them with
 // their lifecycle actions and creates one for the conversation; the sandbox
@@ -149,7 +149,7 @@ ok('a new chat is asked with the picked sandbox', ask.sandbox && ask.sandbox.ref
 // --- a conversation: the badge, the popover ------------------------------------------------
 await page.goto(`${ORIGIN}/#c=1`);
 await page.waitForSelector('#sbxbadge');
-ok('the badge: ▣ name · cwd', (await page.textContent('#sbxbadge')).trim() === '▣ api · /work', await page.textContent('#sbxbadge'));
+ok('the badge: the box glyph, then name · cwd', (await page.textContent('#sbxbadge')).trim() === 'api · /work', await page.textContent('#sbxbadge'));
 ok('the picker shows its sandbox', (await page.$eval('#ssel', (el) => el.value)) === `${MGR}|api`);
 const here = await page.$$eval('#ssel optgroup', (els) => els.map((e) => e.label));
 ok('…with This conversation first', here[0] === 'This conversation', here.join('|'));
@@ -217,7 +217,7 @@ await page.selectOption('#ssel', `${MGR}|web`);
 await page.waitForFunction(() => document.getElementById('sbxbadge').textContent.includes('web'));
 ok('a re-pick sends its stored cwd', JSON.stringify(await lastBody('PATCH', /\/runs\/1$/)) === JSON.stringify({ sandbox: { ref: `${MGR}|web`, cwd: '/work/web' } }),
   JSON.stringify(await lastBody('PATCH', /\/runs\/1$/)));
-ok('…the badge says it', (await page.textContent('#sbxbadge')).trim() === '▣ web · /work/web', await page.textContent('#sbxbadge'));
+ok('…the badge says it', (await page.textContent('#sbxbadge')).trim() === 'web · /work/web', await page.textContent('#sbxbadge'));
 await page.click('#sbxbadge');
 await page.waitForSelector('#sbxpop .sbxatt');
 await page.click(`#sbxpop .sbxatt[data-ref="${MGR}|api"]`);
@@ -260,7 +260,7 @@ await page.waitForFunction(() => (document.getElementById('sbxbadge') || {}).tex
 const cards = await page.$$eval('.tcard[data-fam="box"] .tch', (els) => els.map((e) => ({
   hl: e.querySelector('.hl').textContent.replace(/\s+/g, ' ').trim(),
   oc: e.querySelector('.oc') ? e.querySelector('.oc').textContent : '', tone: e.querySelector('.oc') ? e.querySelector('.oc').className : '' })));
-ok('four sandbox cards, the ▣ family', cards.length === 4, JSON.stringify(cards));
+ok('four sandbox cards, the sandbox family', cards.length === 4, JSON.stringify(cards));
 ok('bash: the summary, the command under it', cards[0].hl === 'Run the tests$ go test ./...', cards[0].hl);
 ok('…and the footer: exit 1 · 14s · job 3, marked bad', cards[0].oc === 'exit 1 · 14s · job 3' && /\bbad\b/.test(cards[0].tone), JSON.stringify(cards[0]));
 ok('grep: pattern and count', cards[1].hl === 'Search /TODO/ under src' && cards[1].oc === '2 matches', JSON.stringify(cards[1]));

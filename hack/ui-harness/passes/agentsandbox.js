@@ -7,7 +7,7 @@
 //   - the composer's class picker lists internal / web / coding; the sandbox
 //     picker (#ssel) shows only for a class with the sandbox toolset;
 //   - a sandbox made in the Sandboxes dialog becomes the next new chat's; the
-//     top bar's ▣ badge says it, and its popover sets the working directory
+//     top bar's sandbox badge says it, and its popover sets the working directory
 //     (from the next turn);
 //   - bash (its exit reading), write, edit, a command that outlives its
 //     timeout as a job, and a job that survives the agent's backend swap;
@@ -18,7 +18,7 @@
 //   - people (D83): dev1 doesn't see admin's private sandbox; in a
 //     team-shared conversation dev1 works in its team sandbox;
 //   - a terminal (phase 3: <bx-terminal src> on the manager's tty, the page's
-//     frame token): Open terminal in the ▣ popover dials the fake's …/tty at
+//     frame token): Open terminal in the sandbox badge's popover dials the fake's …/tty at
 //     the binding's working directory; typed input is echoed, `pwd` is that
 //     directory, Larger resizes the PTY (`stty size`), Close kills the shell
 //     at the manager; the manager refuses dev1 admin's private sandbox.
@@ -137,7 +137,7 @@ const mgr = (page, p, opt) => page.evaluate(async ([p, opt]) => {
   return { status: r.status, body };
 }, [p, opt]);
 
-// terminal: the ▣ popover's Open terminal on the bound sandbox (id) at cwd —
+// terminal: the sandbox badge's popover's Open terminal on the bound sandbox (id) at cwd —
 // echo, pwd, a resize the PTY sees, Close ending the shell at the manager.
 async function terminal(a, check, id, cwd) {
   const dialled = [];
@@ -213,7 +213,7 @@ async function browserAndDownload(a, check, home, runId) {
   const checked = await turn(a, 'sandbox browser', 'Checked: ', 90000);
   const bcard = await lastCard(a, 'browser_check');
   check(bcard && bcard.fam === 'box' && bcard.hl.includes('Check the page in a browser') && bcard.hl.includes('Check ./page.html in a browser (+ script)'),
-    `browser_check is a ▣ card headed by its summary, the target under it (${bcard && bcard.hl})`);
+    `browser_check is a sandbox card headed by its summary, the target under it (${bcard && bcard.hl})`);
   if (!hasPW) {
     check(/not available in this sandbox|could not start Chromium/.test(checked), `without Playwright here it says what the sandbox lacks (${checked.slice(0, 200)})`);
   } else {
@@ -280,7 +280,7 @@ async function agentSandbox(browser) {
     await a.press('#msg', 'Enter');
     await until(a, () => [...document.querySelectorAll('#timeline .msg.assistant:not(.live)')].some((e) => e.textContent.includes('Quick answer.')), null, 30000);
     check(/Internal/.test(await a.textContent('#top .clsbadge')), `the new chat is in the internal class (${(await a.textContent('#top .clsbadge')).trim()})`);
-    check(await hidden(a, '#ssel') && !(await a.$('#sbxbadge')), 'an internal chat: no sandbox picker, no ▣ badge');
+    check(await hidden(a, '#ssel') && !(await a.$('#sbxbadge')), 'an internal chat: no sandbox picker, no sandbox badge');
     await pickClass(a, 'coding');
     check(!(await hidden(a, '#ssel')), 'at home in the coding class: the sandbox picker shows');
 
@@ -316,7 +316,9 @@ async function agentSandbox(browser) {
     check(pwdCard && pwdCard.fam === 'box' && pwdCard.ic === 'box', `bash is a sandbox card, the box glyph (${JSON.stringify(pwdCard)})`);
     check(pwdCard && /^exit 0\b/.test(pwdCard.oc) && /\bok\b/.test(pwdCard.tone), `its reading says how it ended: "${pwdCard && pwdCard.oc}"`);
     check(pwdCard && pwdCard.hl.includes('Where am I') && pwdCard.hl.includes('$ pwd'), `headed by the summary, the command under it (${pwdCard && pwdCard.hl})`);
-    check((await badge(a)).startsWith(`▣ ${BOX}`), `the top bar's badge names the sandbox (${await badge(a)})`);
+    check((await badge(a)).startsWith(BOX), `the top bar's badge names the sandbox (${await badge(a)})`);
+    check(await a.$eval('#sbxbadge', (e) => e.querySelector(':scope > bx-icon')?.getAttribute('name')).catch(() => '') === 'box',
+      'its glyph is drawn (bx-icon box), not a ▣ in the words (D184)');
 
     // the popover: the working directory, from the next turn
     const home = workdir.replace(/\/work$/, '/home');
@@ -325,7 +327,7 @@ async function agentSandbox(browser) {
     await a.fill('#sbx-cwd', home);
     await a.click('#sbx-cwd-set');
     await until(a, (h) => document.getElementById('sbxbadge')?.textContent.includes(h), home, 10000);
-    check((await badge(a)) === `▣ ${BOX} · ${home}`, `Set: the badge says ▣ name · cwd (${await badge(a)})`);
+    check((await badge(a)) === `${BOX} · ${home}`, `Set: the badge says name · cwd (${await badge(a)})`);
     check(!(await a.$('#sbx-err')), 'the popover took the working directory');
     await shot(a, 'agent-sandbox-badge', { fullPage: false });
     await a.keyboard.press('Escape');
@@ -339,7 +341,7 @@ async function agentSandbox(browser) {
     // write, edit, and what the file says now
     check((await turn(a, 'sandbox write', 'Wrote it.')) !== '', '"sandbox write": the agent wrote hello.txt');
     const wcard = await lastCard(a, 'write');
-    check(wcard && wcard.fam === 'box' && wcard.hl.includes('Write hello.txt'), `write is a ▣ card (${wcard && wcard.hl})`);
+    check(wcard && wcard.fam === 'box' && wcard.hl.includes('Write hello.txt'), `write is a sandbox card (${wcard && wcard.hl})`);
     check((await turn(a, 'sandbox edit', 'Edited it.')) !== '', '"sandbox edit": the agent edited it');
     const ecard = await lastCard(a, 'edit');
     check(ecard && ecard.hl.includes('Edit hello.txt: hi → hello'), `the edit card shows old → new (${ecard && ecard.hl})`);

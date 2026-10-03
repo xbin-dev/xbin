@@ -217,6 +217,7 @@
     .sbxthint { padding: 2px 12px 4px; margin: 0; }
     /* a crowded header (a finished login: ended, "Finished. Signed in?", Retry, New shell) gives up the title, cwd and manager first — never what to do next */
     .sbxthd > b { overflow: hidden; text-overflow: ellipsis; min-width: 4em; }
+    .sbxthd > bx-icon, .sbxtab > bx-icon { flex: none; color: var(--bx-muted); }
     .sbxthd > .btn, .sbxthd > .badge, .sbxthd > #sbxterm-done { flex: none; }
     /* a narrow window: the header wraps rather than cut its buttons off (close included) */
     @media (max-width: 640px) { .sbxthd { flex-wrap: wrap; row-gap: 4px; } }
@@ -269,6 +270,7 @@
        message row that wraps */
     .composer .cpicks { flex: 0 0 auto; flex-wrap: wrap; max-width: 100%; }
     .composer .cpicks > * { flex: none; }
+    .composer .cpicks > .sselic { align-self: center; margin-right: -4px; color: var(--bx-muted); }
     .composer .cpicks:not(:has(> :not([hidden]))) { display: none; }
     .composer .cinput { flex: 1 1 17em; }
     .bx .composer textarea { flex: 1; min-width: 0; resize: none; min-height: var(--bx-control-h); max-height: 40vh; }
@@ -697,7 +699,7 @@
           <span class="clspick apick" id="apick" hidden></span>
           <span class="clspick" id="cpick" hidden></span>
           <select class="msel" id="msel" title="the model" hidden></select>
-          <select class="msel ssel" id="ssel" title="the coding sandbox" hidden></select>
+          <bx-icon class="sselic" id="sselic" name="box" hidden></bx-icon><select class="msel ssel" id="ssel" title="the coding sandbox" hidden></select>
         </span>
         <span class="cinput">
           <button class="btn ghost icon" id="clip" title="Attach files (or drop / paste them) — they land in the run's session files" aria-label="Attach files"><bx-icon name="paperclip"></bx-icon></button>

@@ -1,7 +1,7 @@
 // native/sandboxes.js — coding sandboxes (D115) in the native view: the
 // Sandbox picker in the chat and home toolbars (the app's composer holds
 // buttons only; shown where the class — the open conversation's, or the
-// next new chat's — has the sandbox toolset), the ▣ badge (the header's
+// next new chat's — has the sandbox toolset), the sandbox badge (the header's
 // subtitle, a notice when the binding no longer resolves, and ⋯ → Sandbox:
 // the working directory, switching among the attached ones, Detach,
 // Manage… — a coding agent's conversation keeps its sandbox: its cwd
@@ -9,7 +9,7 @@
 // actions your rights allow, the create form, and sharing one with a
 // terminal tile (the builtin sandbox-terminal, D121). What they say is
 // model/sandboxes.js, what they do app.sbx (model/sandbox-store.js); the web
-// draws the same from sandboxes.js. A terminal (a row's Terminal, the ▣
+// draws the same from sandboxes.js. A terminal (a row's Terminal, the sandbox
 // screen's Open terminal) is native/terminal.js's, through the tile's relay
 // (app.sbx.tty = RELAY: the app's terminal dials only the tile's own routes).
 import { html, repeat, nothing } from '/vendor/xb-native.js';
@@ -79,19 +79,21 @@ export function sandboxAskSheet() {
   </sheet>`;
 }
 
-// badgeWords: the open conversation's ▣ for its header's subtitle ('' = none).
+// badgeWords: the open conversation's sandbox for its header's subtitle, in
+// words (a subtitle holds no icon: D184) ('' = none).
 export function badgeWords(v) {
   const b = ctx.app.sbx.badge(v);
   if (!b) return '';
   ctx.app.sbx.ensure();
-  return b.label + (b.broken ? ' · broken' : '');
+  return `sandbox ${b.label}` + (b.broken ? ' · broken' : '');
 }
 
 // brokenTpl: why the binding no longer resolves, said in the transcript.
 export function brokenTpl(v) {
   const b = ctx.app.sbx.badge(v);
   if (!b || !b.broken) return nothing;
-  return html`<notice tone="warn" title=${`${S.ICON} ${b.name}`} text=${`${b.broken} — ${b.fixed ? b.advice : 'pick another sandbox, or detach it (⋯ → Sandbox)'}`}/>`;
+  const fix = b.fixed ? b.advice : 'pick another sandbox, or detach it (More → Sandbox)';
+  return html`<notice tone="warn" title=${`Sandbox ${b.name}`} text=${`${b.broken} — ${fix}`}/>`;
 }
 
 // sandboxMenuTpl: the run menu's way to the badge's screen.
@@ -128,7 +130,7 @@ function boxTpl(s) {
   };
   const setCwd = run(async () => { await app.sbx.setCwd(s.cwd); s.cwd = S.bindingOf(app.session.current())?.cwd ?? s.cwd; });
   const tt = app.sbx.terminal(b.ref, b.cwd);
-  return html`<screen title=${b.name} subtitle=${`${S.ICON} ${b.detail}`} style="form">
+  return html`<screen title=${b.name} subtitle=${b.detail} style="form">
     ${b.broken ? html`<section><notice tone="warn" title="The binding no longer resolves" text=${`${b.broken} — ${b.advice}.`}/></section>` : nothing}
     ${errTpl(s)}
     ${b.fixed ? html`<section footer="Fixed for this conversation: a coding agent keeps the sandbox and directory it started in.">
@@ -187,7 +189,7 @@ function listTpl(s) {
     ${s.msg ? html`<section><notice tone="ok" text=${s.msg}/></section>` : nothing}
     ${errTpl(s)}
     ${!L.loaded && !app.sbx.error ? html`<section><progress label="loading…"/></section>` : rows.length ? html`<section
-        footer="Swipe a sandbox, or its ⋯, for what you may do with it.">${repeat(rows, (r) => r.ref, (r) => rowTpl(r, s.busy, act, L.managers.length > 1))}</section>`
+        footer="Swipe a sandbox, or open its menu, for what you may do with it.">${repeat(rows, (r) => r.ref, (r) => rowTpl(r, s.busy, act, L.managers.length > 1))}</section>`
       : L.loaded ? html`<section><empty icon="box" title="No sandboxes yet"/></section>` : nothing}
   </screen>`;
 }
@@ -284,7 +286,7 @@ function shareTpl(s) {
     try { await app.sbx.unshare(s.ref, c.consumer); } catch (e) { s.err = e.message; }
     ctx.paint();
   };
-  return html`<screen title="Share with a terminal tile" subtitle=${`${S.ICON} ${name}`} style="form">
+  return html`<screen title="Share with a terminal tile" subtitle=${`Sandbox ${name}`} style="form">
     <toolbar><button role="primary" ?busy=${!!s.busy} ?disabled=${!vm.ok} @tap=${share}>Share</button></toolbar>
     ${s.err || (vm.error && vm.tile) ? html`<section><notice tone="danger" text=${s.err || vm.error}/></section>` : nothing}
     <section footer="A terminal tile — the builtin sandbox-terminal — gives people terminals onto it in a browser and over SSH. It checks who may use the sandbox as well: a share never widens that.">

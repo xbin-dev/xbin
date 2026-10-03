@@ -45,7 +45,7 @@ ok('identity: monogram, name, the link\'s label, #id, state', (await text(`${car
   && head26.includes('Split the router') && head26.includes('#26') && (await text(`${card(26)} .hkst`)) === 'working', head26);
 ok('the status line: what it runs now', (await text(`${card(26)} .hkline`)).trim() === 'Running: Run go vet ./...');
 const meta26 = await text(`${card(26)} .hkmeta`);
-ok('where it works and its counters', meta26.includes('▣ api-dev:/work/api') && meta26.includes('7 tool calls · 2 files +31 −4'), meta26);
+ok('where it works and its counters', meta26.includes('api-dev:/work/api') && meta26.includes('7 tool calls · 2 files +31 −4'), meta26);
 ok('Codex\'s: CX, its state says it waits for you', (await text(`${card(27)} .ach .kind`)) === 'CX' && (await text(`${card(27)} .hkst`)) === 'needs approval');
 ok('the signed-out one says so', (await text(`${card(28)} .hkst`)) === 'needs sign-in'
   && (await text(`${card(28)} .hkline`)).includes('needs you to sign in to Claude Code'));

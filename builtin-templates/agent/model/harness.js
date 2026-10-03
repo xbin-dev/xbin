@@ -226,7 +226,7 @@ export function usageBadge(u) {
 }
 
 // PLAN_MARK: a plan entry's status as a glyph (○ pending, ◐ in progress, ● done).
-export const PLAN_MARK = { pending: '○', in_progress: '◐', completed: '●' };
+export const PLAN_MARK = { pending: '○', in_progress: '◐', completed: '●' }; // theme-ok: the native plan's status marks, text the app draws
 
 // planEntries: a plan's entries as the native `plan` takes them — {text,
 // status} with status one of pending, in_progress, completed.

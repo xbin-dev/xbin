@@ -17,7 +17,7 @@
 //   the person's (a partitioned agent: model/harness-homes.js).
 //
 // Pure (no DOM, no lit): node-tested in hack/agent-template-harness-term.test.mjs.
-import { ICON, bindingOf, sharesOf, brokenWhy, splitRef } from './sandboxes.js';
+import { GLYPH, bindingOf, sharesOf, brokenWhy, splitRef } from './sandboxes.js';
 import { harnessOf, nameOf } from './harness.js';
 import { access } from './rules.js';
 import { homeOf } from './homes.js';
@@ -107,14 +107,18 @@ export function termsOf(app) {
 }
 
 // tabLabel: a tab's name in the strip — the sandbox, or what it signs in.
-export const tabLabel = (t) => (t.purpose === 'login' ? `Sign in · ${t.harness || 'coding agent'}` : `${ICON} ${t.name}`);
+export const tabLabel = (t) => (t.purpose === 'login' ? `Sign in · ${t.harness || 'coding agent'}` : t.name);
+// tabIcon: the glyph a shell's tab is drawn with ('' for a sign-in's: its
+// words say what it is).
+export const tabIcon = (t) => (t.purpose === 'login' ? '' : GLYPH);
 
-// tabHead: the shown tab's header — {title, where, manager, hint}.
+// tabHead: the shown tab's header — {title, icon, where, manager, hint}.
 export function tabHead(t) {
   if (!t) return null;
   const login = t.purpose === 'login';
   return {
-    title: login ? `Sign in · ${t.harness || 'coding agent'} · ${ICON} ${t.name}` : `${ICON} ${t.name}`,
+    title: login ? `Sign in · ${t.harness || 'coding agent'} · ${t.name}` : t.name,
+    icon: tabIcon(t),
     where: t.cwd || 'its workdir',
     manager: t.manager || '',
     // a sign-in prints a link: opening it needs the tile's open-links grant
@@ -206,9 +210,9 @@ export function signIn(v, { list = null, entry = null, me = null } = {}) {
     ask: canUse !== false ? '' : binder && binder !== who ? `Ask ${binder} to sign in — the sandbox is theirs.`
       : `You may no longer use ${sname} — ${owner && owner !== who ? `ask ${owner} to share it with you again, or ` : ''}${newChat}.`,
     gone,
-    goneText: gone ? `${ICON} ${sname}: ${gone}. ${name} can't sign in there — ${mgr && mgr.ok === false ? 'Retry once it is back, or ' : ''}${newChat}.` : '',
+    goneText: gone ? `${sname}: ${gone}. ${name} can't sign in there — ${mgr && mgr.ok === false ? 'Retry once it is back, or ' : ''}${newChat}.` : '',
     device: login.device && login.device.url ? { url: login.device.url, message: login.device.message || '' } : null,
-    title: talk ? `${name} needs you to sign in (in ${ICON} ${sname}).` : `${name} is waiting for a sign-in (in ${ICON} ${sname}).`,
+    title: talk ? `${name} needs you to sign in (in ${sname}).` : `${name} is waiting for a sign-in (in ${sname}).`,
     talk, away, view: away || (talk ? '' : 'You may only read this conversation: someone who may write in it signs it in.'),
     warn: `The credentials land in ${sname}'s home: anyone who may use it acts as you with ${name} there, and its clones and snapshots keep them.`,
     confirmLabel: `${sname} is shared — sign in anyway`,

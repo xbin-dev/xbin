@@ -45,9 +45,9 @@ function probeHint(p) {
   const e = String(p.error || '');
   switch (p.refusal) {
     case 'not-listening': return 'nothing listens on that port in the sandbox: its server isn\'t running (the agent starts it with bash, background:true)';
-    case 'state': return 'the sandbox isn\'t running: start it (▣ → Manage…), then its server';
+    case 'state': return 'the sandbox isn\'t running: start it (the sandbox badge → Manage…), then its server';
     case 'unsupported': return /predates|restart/.test(e)
-      ? 'the sandbox was started before its runtime served ports: restart it (▣ → Manage…: Stop, then Start), then its server'
+      ? 'the sandbox was started before its runtime served ports: restart it (the sandbox badge → Manage…: Stop, then Start), then its server'
       : 'its manager doesn\'t serve ports (it, or xbind, predates live previews)';
     case 'not-attached': case 'not-found': case 'none': return 'that sandbox isn\'t bound to this conversation any more';
     case 'not-allowed': return 'whoever bound the sandbox may no longer use it here';

@@ -4,7 +4,7 @@
 // /vendor/xb/preview-host.js). Against backend.mjs's fake backend and its
 // live stream, it walks what a person does: home, the drawer, a
 // conversation, a streamed answer, an approval, typing and sending, the
-// menu's Files, back, a coding sandbox (the toolbar's picker, ▣, ⋯ → Sandbox,
+// menu's Files, back, a coding sandbox (the toolbar's picker, the subtitle, ⋯ → Sandbox,
 // Manage) — and checks that nothing errs and no diagnostic is
 // raised. The node tests (hack/agent-template-native.test.mjs) cover the
 // semantics screen by screen; this proves the same code in WebKit's shoes
@@ -171,17 +171,17 @@ await page.evaluate(() => { const r = window.__views[3].run; r.pendingState = { 
 await view.locator('xb-approval button:has-text("Approve")').click();
 ok('a refused verdict says why', await shown('xb-notice:has-text("no longer pending")'));
 
-// a coding sandbox (D115): ▣ in the subtitle, the card's outcome, the toolbar's picker, ⋯ → Sandbox, Manage
+// a coding sandbox (D115): the sandbox in the subtitle, the card's outcome, the toolbar's picker, ⋯ → Sandbox, Manage
 const subtitle = () => page.evaluate(() => window.navOf().c[window.navOf().c.length - 1].p.subtitle || '');
 await view.locator('button[aria-label="Conversations"]').first().click();
 await view.locator('xb-sheet xb-row:has-text("fix the build") .row-main').click();
 ok('a coding conversation opens', await titled('fix the build'));
-ok('▣ its sandbox in the subtitle', await page.waitForFunction(() => /▣ api · \/work/.test(window.topTitle() && window.navOf().c.at(-1).p.subtitle)).then(() => true, () => false), await subtitle());
+ok('its sandbox in the subtitle, in words', await page.waitForFunction(() => /sandbox api · \/work/.test(window.topTitle() && window.navOf().c.at(-1).p.subtitle)).then(() => true, () => false), await subtitle());
 ok('the bash card says what it came to', await shown('xb-toolcard:has-text("exit 1 · 14s · job 3")'));
 await view.locator('select[aria-label="Sandbox"]').selectOption({ label: 'web (stopped)' });
 ok('the picker binds from the next turn', await page.waitForFunction(() => window.__calls.some((c) => c.method === 'PATCH' && c.url.endsWith('/runs/5')
   && JSON.parse(c.body).sandbox?.ref === 'apps/coding-sandbox|web')).then(() => true, () => false));
-ok('…and the subtitle follows', await page.waitForFunction(() => /▣ web · \/work/.test(window.navOf().c.at(-1).p.subtitle)).then(() => true, () => false), await subtitle());
+ok('…and the subtitle follows', await page.waitForFunction(() => /sandbox web · \/work/.test(window.navOf().c.at(-1).p.subtitle)).then(() => true, () => false), await subtitle());
 await view.locator('xb-menu button[aria-label="More"]:visible').first().click();
 await view.locator('.pop button:has-text("Sandbox: web")').click();
 ok('⋯ → Sandbox is pushed', await titled('web'));

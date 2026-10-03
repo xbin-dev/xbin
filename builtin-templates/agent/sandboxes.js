@@ -54,6 +54,10 @@ export function makeSandboxUI(app, { sel, dlg, repaint, popExtra }) {
   function paint() {
     const p = app.sbx.picker();
     sel.hidden = !p.shown;
+    // the sandbox glyph before the picker (its <option>s hold words only);
+    // an instance whose page predates it has none
+    const ic = sel.previousElementSibling;
+    if (ic && ic.id === 'sselic') ic.hidden = !p.shown;
     if (!p.shown) return;
     app.sbx.ensure();
     sel.disabled = p.disabled;
@@ -72,7 +76,7 @@ export function makeSandboxUI(app, { sel, dlg, repaint, popExtra }) {
     if (pop.open && pop.ref !== b.ref) { pop.ref = b.ref; pop.cwd = b.cwd; }
     return html`<span class="sbxwrap"><span class="badge sbxbadge ${b.broken ? 'broken' : ''}" id="sbxbadge" role="button" tabindex="0"
         aria-expanded=${pop.open ? 'true' : 'false'} title=${b.title} @click=${() => toggle(b)}
-        @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(b); } }}>${b.label}${b.broken ? html`<bx-icon name="warning" label="broken"></bx-icon>` : nothing}</span>${pop.open ? popTpl(b) : nothing}</span>`;
+        @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(b); } }}><bx-icon name=${b.icon}></bx-icon>${b.label}${b.broken ? html`<bx-icon name="warning" label="broken"></bx-icon>` : nothing}</span>${pop.open ? popTpl(b) : nothing}</span>`;
   }
   function toggle(b) {
     pop.open = !pop.open;
@@ -287,10 +291,11 @@ export function makeSandboxUI(app, { sel, dlg, repaint, popExtra }) {
 }
 
 // optionsTpl: the picker's <option>s — none, the groups, then the actions.
+// An <option> holds no icon: the words stand alone (D184 §1.6).
 function optionsTpl(p) {
-  return html`<option value="" ?selected=${!p.value}>${S.ICON} ${p.none.label}</option>
+  return html`<option value="" ?selected=${!p.value}>${p.none.label}</option>
     ${p.groups.map((g) => html`<optgroup label=${g.label}>${g.rows.map((r) => html`<option value=${r.value} ?selected=${r.on}
-      ?disabled=${r.disabled} title=${r.why || r.detail}>${S.ICON} ${r.label}</option>`)}</optgroup>`)}
+      ?disabled=${r.disabled} title=${r.why || r.detail}>${r.label}</option>`)}</optgroup>`)}
     ${p.loading ? html`<option disabled value="+loading">loading…</option>` : nothing}
     <optgroup label="Sandboxes">${p.actions.map((a) => html`<option value=${a.id === 'new' ? NEW : MANAGE} ?disabled=${a.disabled}
       title=${a.why}>${a.label}</option>`)}</optgroup>`;

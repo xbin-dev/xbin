@@ -11,7 +11,7 @@
 // with the shells still running, leaving a pill in the top bar; Escape
 // stays with the shell. What the tabs say is model/terminals.js.
 import { html, render, nothing, repeat } from '/vendor/lit-all.min.js';
-import { termsOf, tabLabel, tabHead } from './model/terminals.js';
+import { termsOf, tabLabel, tabIcon, tabHead } from './model/terminals.js';
 import { isHarness, harnessOf } from './model/harness.js';
 import { ext, ctx } from './web-ext.js';
 
@@ -78,9 +78,9 @@ export function termDock(app) {
         @keydown=${(e) => { if (e.key === 'Escape') e.stopPropagation(); }}>
       ${T.tabs.length > 1 ? html`<div class="sbxttabs" role="tablist">${repeat(T.tabs, (x) => x.key, (x) => html`<span role="tab"
           class="sbxtab ${x.key === T.active ? 'on' : ''} ${x.ended ? 'ended' : ''}" data-tab=${x.key} aria-selected=${x.key === T.active ? 'true' : 'false'}
-          title=${`${tabLabel(x)} — ${x.cwd || 'its workdir'}${x.ended ? ' (ended)' : ''}`} @click=${() => T.select(x.key)}><span class="lb">${tabLabel(x)}</span><button
+          title=${`${tabLabel(x)} — ${x.cwd || 'its workdir'}${x.ended ? ' (ended)' : ''}`} @click=${() => T.select(x.key)}>${tabIcon(x) ? html`<bx-icon name=${tabIcon(x)}></bx-icon>` : nothing}<span class="lb">${tabLabel(x)}</span><button
           class="x" data-close=${x.key} title="Close — ends the shell" aria-label="Close — ends the shell" @click=${(e) => { e.stopPropagation(); close(x.key); }}><bx-icon name="xmark"></bx-icon></button></span>`)}</div>` : nothing}
-      <div class="sbxthd"><b>${h.title}</b><span class="mono muted" title="the working directory">${h.where}</span>
+      <div class="sbxthd">${h.icon ? html`<bx-icon name=${h.icon}></bx-icon>` : nothing}<b>${h.title}</b><span class="mono muted" title="the working directory">${h.where}</span>
         <span class="muted">${h.manager}</span>
         ${t.ended ? html`<span class="badge" id="sbxterm-ended">${t.ended}</span>` : nothing}
         <span style="flex:1"></span>

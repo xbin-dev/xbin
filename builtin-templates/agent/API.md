@@ -2050,7 +2050,7 @@ status and type, or the refusal and what to do about it — nothing listening
 (restart the sandbox), xbind's 401s (the link expired or the sign-in ended:
 Reload; the link works only from where you signed in within the hour),
 the tile-origin 403. A page that answers an error is said there, with the
-frame hidden, never shown blank. The ▣ popover's **Ports** section lists
+frame hidden, never shown blank. The sandbox badge's popover's **Ports** section lists
 the previews with their probes and **Open**, and probes any port of the
 active sandbox. `test/live-policy.mjs` drives a hostile page through the real
 frame in Chromium (and the strip's Check on an answer, a `not-listening`
@@ -2084,7 +2084,7 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   sandbox keeps the typed message, drops the pick and says why — the next
   new chat goes without one until another is picked. New sandbox is not
   offered in a conversation you may only read.
-- **The ▣ badge** in the top bar: the active sandbox and its `cwd` — or,
+- **The sandbox badge** (the box glyph) in the top bar: the active sandbox and its `cwd` — or,
   marked, why the binding no longer resolves (its class no longer allows it,
   its manager is unbound or unavailable, its manager no longer has it). Its
   popover sets the working directory (absolute; empty is the sandbox's
@@ -2126,7 +2126,7 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   a share never widens who may use the sandbox; a row says who it is
   shared with.
 - **A terminal** where the sandbox's manager offers one (`tty` in its
-  hello): **Open terminal** in the ▣ popover (the active sandbox, at the
+  hello): **Open terminal** in the sandbox badge's popover (the active sandbox, at the
   conversation's working directory) and **Terminal** on a Sandboxes row (at
   the working directory the open conversation has it at, else its
   workdir). The pane (`#sbxterm`, over the chat — not a modal: Escape goes
@@ -2153,7 +2153,7 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   conversation's `class` is read again too — its badge, the mixed warning
   and what its sandboxes may be follow the edit, as the backend applies it
   from the conversation's next step.
-- **Tool cards**: the coding tools are the ▣ family. A card shows the call's
+- **Tool cards**: the coding tools are the sandbox family. A card shows the call's
   own words (the command, `old → new`, the pattern) under the model's
   summary, and what it came to, read from the result: bash's footer
   (`exit 1 · 14s · job 3`, `still running · 2m00s · job 3`, `job 3
@@ -2164,14 +2164,14 @@ the calls); the web draws it in `sandboxes.js`, the native view in
   home toolbars, beside the model's, with short labels (a picker cannot
   disable an option: one you may not use is marked, and picking it says
   why; a private one into a conversation other people are in asks in a
-  sheet first). The ▣ badge is in the conversation's subtitle, a notice in the
+  sheet first). The sandbox is named in the conversation's subtitle (in words: a subtitle holds no icon), a notice in the
   transcript says why a binding no longer resolves, and ⋯ → Sandbox pushes
   the popover's screen (working directory, the attached ones, Detach,
   Manage sandboxes… — a coding agent's: its working directory read-only
   and Manage only). The Sandboxes screen puts each row's actions behind
   its swipe and ⋯ (Archive and Delete confirmed), New sandbox pushes
   the create form, and Share with a terminal tile… pushes its form (Stop
-  sharing behind a share's swipe, confirmed). A ▣ tool card is a `terminal` icon; what the call came to
+  sharing behind a share's swipe, confirmed). A sandbox tool card is a `terminal` icon; what the call came to
   is a chip (`exit 1 · 14s · job 3` in red), its command the card's first
   line. A row's **Terminal** and the Sandbox screen's **Open terminal**
   push a Terminal screen: the app's `terminal` dials only the tile's own
@@ -3052,7 +3052,7 @@ never wakes that build either.
 call is as its own card instead of the subagent card (`harness-child.js`,
 `native/harness-child.js`): its monogram and name, the link's label, `#id`
 and state; what it does now (its `harness.activity`, a park, its answer's
-first line); where it works (`▣ sandbox:cwd`) and its counters (`counts`,
+first line); where it works (`sandbox:cwd`, after the box glyph on the web) and its counters (`counts`,
 `usage.cost`, the time since its link was made). The card reads no route
 for that — its summary is the link's `child` with the run and `harness`
 events since. A park — a permission, a plan approval, a question, a
@@ -3158,7 +3158,7 @@ the same model.
 | `harness-start.js` | starting a conversation with a coding agent: "Who answers" (`agentPicker`), the sandbox it starts in (`sandboxOptions`, `preferredSandbox`, `createPrefill`), the home's setup card (`setupOf`), a row's kind and the top bar's chip (`kindOf`, `topChip`), the new-chat dialog's part of the ask (`newChatPick`); `keepSandbox` keeps the next chat's sandbox one the coding agent picked fits (wired by `createApp`; `app.newClassId()` is the class a new ask starts in) |
 | `harness-ask.js` | a coding harness asking and driven, in words both views draw (below): a permission request as its own options (`permission`: reject first when it defaults to no, an explicit option the owner's only, the call, a diff preview, what "always" remembers; a plan approval with its plan), a question (`question`, `formFields`/`formContent`/`missingRequired`, `nativeSchema`/`nativeContent` for the native `question`; url mode), the live mode and options (`controls`), Auto / Always approve (`settingOf`), the slash menu (`slashCommands`, `slashMatches`), and the composer while a turn runs (`steerWords`; `steerTrack` notices a message steered into it) |
 | `ext.js` | seams: named hooks a view calls at fixed points of its drawing, filled by feature modules (below) |
-| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty` — or, for the native view, the tile's relay (`RELAY`, `relaySrc`): the route, a command, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list (in a person's partition, where the open conversation lives: `listAt(home)`), the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
+| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the sandbox badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty` — or, for the native view, the tile's relay (`RELAY`, `relaySrc`): the route, a command, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list (in a person's partition, where the open conversation lives: `listAt(home)`), the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
 | `homes.js`, `home-api.js`, `moves.js` | a partitioned instance's two homes (a person's own partition, the shared space): a conversation's home by its id, calls and streams sent there; a shared conversation that moved to your own space, followed (`movedTo`) |
 | `harness-homes.js` | coding agents in a partitioned instance (§Coding agents, "In a partitioned instance (the UI)"): whether this page starts one (`harnessesHere`), whether a sandbox is your own space's (`homedWhy`), where a sign-in is offered (`signInAway`), a shared new chat's "Who answers" (`sharedNewChat`) and the sandbox it takes along (`sharedSees`), a run in the shared space that isn't driven (`barredWhy`), and that a coding agent's conversation never moves (`keepsHome`, `unshareWhy`) |
 | `harness-child.js` | a coding agent the agent started, as its card in the parent's chat (`childCard`: its state, status line, where, counters, park, what it may do; `childRun`: the link's child with the stream's newer summary; `tailOf`, `loadTail`: its last blocks, read once; `tailError`: why they couldn't be), and a row's coding agents at work below it (`kidsWords`) |
@@ -3197,7 +3197,7 @@ home sends the draft (`POST /ask {draft, files}`).
 | `native/home.js`, `native/convs.js`, `native/share.js` | home and Needs you; the conversations drawer (a `sheet edge="leading"`), new chat with options, rename; the share sheet |
 | `native/tools.js`, `native/settings.js` | memory, files (+ editor, share/export), skills, the workflow tree, one call in full, the render preview (a `canvas html=` island, `native/render-doc.js` — the web's CSP); settings for managers |
 | `native/classes.js` | agent classes: the Class picker in the home toolbar, the new-chat sheet's class, Settings → Classes (the list, one class's form), an automation's class row and picker |
-| `native/sandboxes.js` | coding sandboxes: the Sandbox picker in the chat and home toolbars, the ▣ in the subtitle and the broken-binding notice, the Sandbox screen (⋯ → Sandbox), the Sandboxes screen and the create form |
+| `native/sandboxes.js` | coding sandboxes: the Sandbox picker in the chat and home toolbars, the sandbox in the subtitle and the broken-binding notice, the Sandbox screen (⋯ → Sandbox), the Sandboxes screen and the create form |
 | `native/terminal.js` | the Terminal screen (the app's `terminal` on the tile's relays) and a coding agent's sign-in: the notice, Sign in in the composer and ⋯, the Sign in screen |
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
