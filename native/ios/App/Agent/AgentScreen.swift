@@ -374,7 +374,10 @@ struct AgentScreen: View {
                 .padding(10)
                 .background(XbinColor.warnBackground)
             }
+            // Agent output sits on the panel, a person's turns on the inset
+            // panel (product-ui 8).
             AgentTranscriptList(model: m)
+                .background(XbinColor.surface)
             if let p = m.streamProblem {
                 Label { Text(verbatim: p) } icon: { Image(systemName: XbinGlyphs.symbol("warning")) }
                     .font(.footnote).foregroundStyle(XbinColor.warn).padding(.horizontal)
