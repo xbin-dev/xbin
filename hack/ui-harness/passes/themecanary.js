@@ -38,13 +38,20 @@ const EXEMPT = [
 
 // The canary sheet: theme.css's tokens, colour by colour, as fingerprints.
 async function canaryCss(scheme) {
-  const { readTheme } = await import(path.join(REPO, 'hack', 'theme-fallbacks.mjs'));
-  const { tokens, raw } = readTheme(fs.readFileSync(path.join(REPO, 'web', 'theme.css'), 'utf8'));
+  const { readTheme, dayBlocks } = await import(path.join(REPO, 'hack', 'theme-fallbacks.mjs'));
+  const css = fs.readFileSync(path.join(REPO, 'web', 'theme.css'), 'utf8');
+  const { tokens, raw } = readTheme(css);
+  const inDay = new Set((dayBlocks(css)[0] || []).map((d) => d.split(':')[0].trim()));
   const COLOUR = /#[0-9a-fA-F]{3,8}\b|rgba?\([^)]*\)/g;
   const decl = [];
   let n = 1;
   for (const [name, value] of Object.entries(tokens)) {
-    if (/var\(/.test(raw[name])) continue; // aliases and composites follow what they name
+    // an alias follows what it names, in both themes; a composite of other
+    // tokens (the focus ring, the type shorthands) too. A role Night
+    // computes from other tokens (color-mix(): the hover, the tints, the
+    // accent's hover), or one Day sets to a value of its own (the accent's
+    // ink, the title bars), is a token of its own: a fingerprint of its own.
+    if (/var\(/.test(raw[name]) && !/color-mix\(/.test(raw[name]) && !inDay.has(name)) continue;
     if (/^--bx-(sans|mono|display)$/.test(name)) {
       decl.push(`${name}: "Canary${{ sans: 'Sans', mono: 'Mono', display: 'Display' }[name.slice(5)]}"`);
     } else if (name === '--bx-radius') {

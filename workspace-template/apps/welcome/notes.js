@@ -10,13 +10,13 @@ import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
 
 // Notes are plates (Base Two, D184): the panel, a 1px edge, 2px corners, in
-// light and dark alike. A topic's `color` names it in the data only; the
-// one coloured block is the featured "start here" note — the first-run
-// screen's single field (cobalt), as the brand allows.
+// light and dark alike. The one coloured block is the featured "start
+// here" note — the first-run screen's single field (cobalt), as the brand
+// allows.
 
 const NOTES = [
   {
-    id: 'building', title: 'Building & Terminal', color: 'sky',
+    id: 'building', title: 'Building & Terminal',
     featured: true, badge: 'start here',
     teaser: 'the >_ button in a tile\u2019s title bar opens a real terminal — this is how you build xbin',
     intro: html`
@@ -36,7 +36,7 @@ const NOTES = [
     docs: 'getting-started.md',
     children: [
       {
-        id: 'the-button', title: 'the >_ button', color: 'sky',
+        id: 'the-button', title: 'the >_ button',
         teaser: 'click a tile\u2019s title-bar >_ → a shell in that component',
         body: html`
           <p>Every tile's title bar has a <strong><code>&gt;_</code>
@@ -60,7 +60,7 @@ const NOTES = [
           story.</p>`,
       },
       {
-        id: 'with-agent', title: 'build with an agent', color: 'sky',
+        id: 'with-agent', title: 'build with an agent',
         teaser: 'run claude / opencode; AGENTS.md tells it the rules',
         body: html`
           <p>The intended workflow is agent-first. In the terminal, start
@@ -80,7 +80,7 @@ const NOTES = [
           terminals, you log the agent in once and it stays logged in.</p>`,
       },
       {
-        id: 'two-filesystems', title: 'terminal ≠ deployment', color: 'sky',
+        id: 'two-filesystems', title: 'terminal ≠ deployment',
         teaser: 'what you build in is not what the backend runs in',
         body: html`
           <p>The single most useful thing to internalize: <strong>the terminal's
@@ -109,7 +109,7 @@ const NOTES = [
     ],
   },
   {
-    id: 'glue', title: 'api glue', color: 'blue',
+    id: 'glue', title: 'api glue',
     teaser: 'how components call each other — one switchboard, no direct wires',
     intro: html`
       <p>Everything is HTTP through xbind. A component at
@@ -125,7 +125,7 @@ const NOTES = [
     docs: 'elements.md',
     children: [
       {
-        id: 'frontend', title: 'frontend → api', color: 'blue',
+        id: 'frontend', title: 'frontend → api',
         teaser: 'xbin.fetch, and why raw fetch 403s',
         body: html`
           <p>Component pages get a <code>xbin</code> global injected. Use
@@ -143,7 +143,7 @@ await xbin.fetch('/api/apps/calendar/events')  // another app — needs a grant<
           <pre>xbin.bus.on('res:apps/thing/bus/', (topic, data) => { /* re-render */ })</pre>`,
       },
       {
-        id: 'backend', title: 'backend → backend', color: 'blue',
+        id: 'backend', title: 'backend → backend',
         teaser: 'outbound calls via the gateway socket',
         body: html`
           <p>Backends call other components through the gateway. In Go the
@@ -160,7 +160,7 @@ await xbin.fetch('/api/apps/calendar/events')  // another app — needs a grant<
           xbind injects after checking the grant.</p>`,
       },
       {
-        id: 'discover', title: 'discovering an api', color: 'blue',
+        id: 'discover', title: 'discovering an api',
         teaser: 'API.md is the contract; bx api reads it for you',
         body: html`
           <p>Every component that exposes roles ships an
@@ -177,7 +177,7 @@ bx ls                   # what exists in this workspace</pre>
     ],
   },
   {
-    id: 'theme', title: 'light & dark', color: 'slate',
+    id: 'theme', title: 'light & dark',
     teaser: 'your page follows the person’s theme once it opts in — style with the tokens',
     intro: html`
       <p>The workspace follows each person's light or dark setting (their
@@ -203,7 +203,7 @@ bx ls                   # what exists in this workspace</pre>
     docs: 'frontend-kit.md',
   },
   {
-    id: 'auth', title: 'auth & identity', color: 'purple',
+    id: 'auth', title: 'auth & identity',
     teaser: 'your path is your identity; xbind vouches for every call',
     intro: html`
       <p>A component's <strong>path is its identity</strong> —
@@ -217,7 +217,7 @@ bx ls                   # what exists in this workspace</pre>
     docs: 'auth.md',
     children: [
       {
-        id: 'principals', title: 'the principals', color: 'purple',
+        id: 'principals', title: 'the principals',
         teaser: 'admins and users are people; elements are least-privileged tenants',
         body: html`
           <p>The callers, in descending trust:</p>
@@ -242,7 +242,7 @@ bx ls                   # what exists in this workspace</pre>
           granted it that role.</p>`,
       },
       {
-        id: 'headers', title: 'verified headers', color: 'purple',
+        id: 'headers', title: 'verified headers',
         teaser: 'X-XBin-From / X-XBin-Role — the only truth',
         body: html`
           <p>xbind <strong>strips</strong> any inbound
@@ -264,7 +264,7 @@ bx ls                   # what exists in this workspace</pre>
     ],
   },
   {
-    id: 'rbac', title: 'roles & grants', color: 'green',
+    id: 'rbac', title: 'roles & grants',
     teaser: 'callee declares roles, caller requests, owner approves',
     intro: html`
       <p>Permissioning is a three-way handshake. The <strong>callee
@@ -279,7 +279,7 @@ bx ls                   # what exists in this workspace</pre>
     docs: 'auth.md',
     children: [
       {
-        id: 'declare', title: 'declaring roles', color: 'green',
+        id: 'declare', title: 'declaring roles',
         teaser: 'expose.roles in the manifest, RoleFunc in code',
         body: html`
           <p>In the callee's <code>xbin.json</code>:</p>
@@ -299,7 +299,7 @@ mux.Handle("POST /items", xbin.RoleFunc("writer", add))  // writer and up</pre>
           against.</p>`,
       },
       {
-        id: 'grant', title: 'requesting & granting', color: 'green',
+        id: 'grant', title: 'requesting & granting',
         teaser: 'uses → pending → bx grant',
         body: html`
           <p>The caller asks in its own manifest:</p>
@@ -321,7 +321,7 @@ bx grants                                # list everything, incl. pending</pre>
           <code>xbin.json</code> — it's machine-rewritten.</p>`,
       },
       {
-        id: 'convention', title: 'role conventions', color: 'green',
+        id: 'convention', title: 'role conventions',
         teaser: 'reader ⊂ writer ⊂ admin, implication downward',
         body: html`
           <p>Stick to <code>reader</code> / <code>writer</code> /
@@ -342,7 +342,7 @@ bx grants                                # list everything, incl. pending</pre>
     ],
   },
   {
-    id: 'vault', title: 'vault', color: 'pink',
+    id: 'vault', title: 'vault',
     teaser: 'per-element secrets — never in source, manifests, or env',
     intro: html`
       <p>Each element has a private key-value vault for third-party
@@ -352,7 +352,7 @@ bx grants                                # list everything, incl. pending</pre>
     docs: 'auth.md',
     children: [
       {
-        id: 'use', title: 'using it', color: 'pink',
+        id: 'use', title: 'using it',
         teaser: 'bx vault set + xbin.Secret',
         body: html`
           <p>You (the owner) write secrets in; the value is read from stdin
@@ -368,7 +368,7 @@ bx vault rm  apps/email imap-pass</pre>
           (<code>/api/xbin/&hellip;</code> — see docs/protocol.md).</p>`,
       },
       {
-        id: 'bounds', title: 'boundaries', color: 'pink',
+        id: 'bounds', title: 'boundaries',
         teaser: 'no cross-element access — share via an API instead',
         body: html`
           <p><strong>There is no cross-element vault access.</strong> If two
@@ -385,7 +385,7 @@ bx vault rm  apps/email imap-pass</pre>
     ],
   },
   {
-    id: 'storage', title: 'data storage', color: 'yellow',
+    id: 'storage', title: 'data storage',
     teaser: 'kv · sqlite · blob — declared per scope, granted like APIs',
     intro: html`
       <p>Backends must not keep state in RAM: <strong>every save is a new
@@ -403,7 +403,7 @@ bx vault rm  apps/email imap-pass</pre>
     docs: 'resources.md',
     children: [
       {
-        id: 'kv', title: 'kv', color: 'yellow',
+        id: 'kv', title: 'kv',
         teaser: 'namespaced key-value, ≤1 MiB per value',
         body: html`
           <p>The default choice for config, small documents, and anything
@@ -416,7 +416,7 @@ keys, _ := kv.List("item/")</pre>
           <pre>GET/PUT/DELETE /api/xbin/kv/res:apps/thing/kvx/&lt;key&gt;</pre>`,
       },
       {
-        id: 'filesystem', title: 'filesystem', color: 'yellow',
+        id: 'filesystem', title: 'filesystem',
         teaser: 'a rw directory — same-scope only',
         body: html`
           <p><code>XBIN_RES_STORE</code> is a <strong>directory</strong> path
@@ -433,7 +433,7 @@ db, _ := sql.Open("sqlite", dir+"/app.db?_pragma=journal_mode(WAL)")</pre>
           reader grant on calendar's API, never a shared file.</p>`,
       },
       {
-        id: 'blob', title: 'blob', color: 'yellow',
+        id: 'blob', title: 'blob',
         teaser: 'file store for attachments and uploads, ≤256 MiB/write',
         body: html`
           <p>A path-addressed file store for things too big or too binary
@@ -447,7 +447,7 @@ db, _ := sql.Open("sqlite", dir+"/app.db?_pragma=journal_mode(WAL)")</pre>
     ],
   },
   {
-    id: 'events', title: 'events & time', color: 'orange',
+    id: 'events', title: 'events & time',
     teaser: 'bus for "something changed", cron for "do this later"',
     intro: html`
       <p>Two resources cover async: a <strong>bus</strong> for live
@@ -457,7 +457,7 @@ db, _ := sql.Open("sqlite", dir+"/app.db?_pragma=journal_mode(WAL)")</pre>
     docs: 'resources.md',
     children: [
       {
-        id: 'bus', title: 'bus', color: 'orange',
+        id: 'bus', title: 'bus',
         teaser: 'at-most-once notifications — not a queue',
         body: html`
           <p>Publish from anywhere, subscribe in frontends:</p>
@@ -475,7 +475,7 @@ xbin.bus.on('res:apps/thing/bus/', (topic, data) => refresh())</pre>
           frontends subscribe, backends sweep.</p>`,
       },
       {
-        id: 'cron', title: 'cron', color: 'orange',
+        id: 'cron', title: 'cron',
         teaser: 'scheduled POSTs to your own endpoints',
         body: html`
           <p>Cron delivers scheduled POSTs to your own API — it wakes an
@@ -491,7 +491,7 @@ xbin.bus.on('res:apps/thing/bus/', (topic, data) => refresh())</pre>
     ],
   },
   {
-    id: 'lifecycle', title: 'backend lifecycle', color: 'cyan',
+    id: 'lifecycle', title: 'backend lifecycle',
     teaser: 'a save is a new process; design for the swap',
     intro: html`
       <p>Backends are cattle with a very short memory. They start lazily on
@@ -502,7 +502,7 @@ xbin.bus.on('res:apps/thing/bus/', (topic, data) => refresh())</pre>
     docs: 'elements.md',
     children: [
       {
-        id: 'swap', title: 'the swap', color: 'cyan',
+        id: 'swap', title: 'the swap',
         teaser: 'blue/green on every save, 30 s drain',
         body: html`
           <p>On save, xbind builds the new generation and swaps traffic to
@@ -517,7 +517,7 @@ xbin.bus.on('res:apps/thing/bus/', (topic, data) => refresh())</pre>
           usable.</p>`,
       },
       {
-        id: 'broken', title: 'when it breaks', color: 'cyan',
+        id: 'broken', title: 'when it breaks',
         teaser: 'bx logs first, always',
         body: html`
           <p>A backend that crashes <strong>3× fast</strong> is marked
@@ -534,7 +534,7 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
     ],
   },
   {
-    id: 'isolation', title: 'isolation', color: 'teal',
+    id: 'isolation', title: 'isolation',
     teaser: 'every backend and terminal is a sandbox — default-deny, per-component',
     intro: html`
       <p>Nothing runs in the open. Each component's <strong>backend</strong> runs
@@ -546,7 +546,7 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
     docs: 'isolation.md',
     children: [
       {
-        id: 'backend-box', title: 'the backend sandbox', color: 'teal',
+        id: 'backend-box', title: 'the backend sandbox',
         teaser: 'your dir (read-only), your resources (rw), zero egress',
         body: html`
           <p>A running backend sees the base rootfs (Go/Node/Python + tools), its
@@ -562,7 +562,7 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
           resource dir is a throwaway overlay, gone on the next save.</p>`,
       },
       {
-        id: 'terminal-box', title: 'terminal isolation', color: 'teal',
+        id: 'terminal-box', title: 'terminal isolation',
         teaser: 'a component terminal can only touch its component + $HOME',
         body: html`
           <p>Open a terminal on <code>apps/thing</code> and you see <strong>your
@@ -580,7 +580,7 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
           work in the browser or with host-side <code>bx</code>.</p>`,
       },
       {
-        id: 'dev-layer', title: 'the dev sandbox', color: 'teal',
+        id: 'dev-layer', title: 'the dev sandbox',
         teaser: '$HOME shared; a persistent, resettable per-component rootfs',
         body: html`
           <p>A terminal's filesystem changes (an <code>apt install</code>, a
@@ -607,7 +607,7 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
     ],
   },
   {
-    id: 'interfaces', title: 'interfaces', color: 'slate',
+    id: 'interfaces', title: 'interfaces',
     teaser: 'typed, swappable plumbing — request a capability, owner binds a provider',
     intro: html`
       <p>Grants wire component→component calls. <strong>Interfaces</strong> wire
@@ -619,7 +619,7 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
     docs: 'protocol.md',
     children: [
       {
-        id: 'iface-model', title: 'request · provide · bind', color: 'slate',
+        id: 'iface-model', title: 'request · provide · bind',
         teaser: 'declare the slot; leave binding to the owner',
         body: html`
           <p>Declare what you need and what you offer in the manifest:</p>
@@ -632,7 +632,7 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
           human-in-the-loop as a grant.</p>`,
       },
       {
-        id: 'iface-net', title: 'network egress', color: 'slate',
+        id: 'iface-net', title: 'network egress',
         teaser: 'no egress by default; bind internet / a VPN / a firewall tile',
         body: html`
           <p>A sandboxed backend has <strong>zero IP egress</strong> until its
@@ -652,7 +652,7 @@ bx doctor              # manifest errors, missing API.md, dangling deps</pre>
           from the binding graph, no code.</p>`,
       },
       {
-        id: 'iface-http', title: 'service dependencies', color: 'slate',
+        id: 'iface-http', title: 'service dependencies',
         teaser: 'call a service contract, not a hard-coded provider',
         body: html`
           <p>When you need a service with a standard shape (an LLM, object store,
@@ -666,7 +666,7 @@ $XBIN_IFACE_LLM_URL                 // backend env</pre>
           changes.</p>`,
       },
       {
-        id: 'iface-multi', title: 'many inputs · many outputs', color: 'slate',
+        id: 'iface-multi', title: 'many inputs · many outputs',
         teaser: 'multi:true slots bind a set; providers expose #instances',
         body: html`
           <p>Need <em>all</em> the owner's channels on one slot? Opt in with
@@ -684,7 +684,7 @@ $XBIN_IFACE_CHANNELS               // same, JSON in the backend env</pre>
     ],
   },
   {
-    id: 'ingress', title: 'going public', color: 'teal',
+    id: 'ingress', title: 'going public',
     teaser: 'declare an exposed endpoint; binding it IS publishing',
     intro: html`
       <p>Everything so far stays inside the workspace. To face the internet, a
@@ -696,7 +696,7 @@ $XBIN_IFACE_CHANNELS               // same, JSON in the backend env</pre>
     docs: 'ingress.md',
     children: [
       {
-        id: 'ingress-declare', title: 'declaring an endpoint', color: 'teal',
+        id: 'ingress-declare', title: 'declaring an endpoint',
         teaser: 'exposes + a public paths allowlist (default-deny)',
         body: html`
           <pre>"exposes": {
@@ -710,7 +710,7 @@ $XBIN_IFACE_CHANNELS               // same, JSON in the backend env</pre>
           owner — the allowlist only shapes what <em>strangers</em> reach.</p>`,
       },
       {
-        id: 'ingress-publish', title: 'publishing (= binding)', color: 'teal',
+        id: 'ingress-publish', title: 'publishing (= binding)',
         teaser: 'bind to the builtin listener or a terminator tile, with a route',
         body: html`
           <pre>bx expose apps/blog web=runtime --host blog.example.com
@@ -730,7 +730,7 @@ bx expose apps/mc   game=runtime --listen :25565</pre>
           admin/allowance territory.</p>`,
       },
       {
-        id: 'ingress-caller', title: 'the anonymous caller', color: 'teal',
+        id: 'ingress-caller', title: 'the anonymous caller',
         teaser: 'From: ingress — no role, your app owns its own auth',
         body: html`
           <p>Public requests reach your backend as
@@ -748,7 +748,7 @@ bx expose apps/mc   game=runtime --listen :25565</pre>
     ],
   },
   {
-    id: 'people', title: 'sharing & people', color: 'purple',
+    id: 'people', title: 'sharing & people',
     teaser: 'tiles have owners; orgs share them; asking for access is one click',
     intro: html`
       <p>Every tile has an <strong>owner</strong> — you, an org, or the
@@ -770,7 +770,7 @@ bx expose apps/mc   game=runtime --listen :25565</pre>
     docs: 'auth.md',
   },
   {
-    id: 'backups', title: 'backups', color: 'rose',
+    id: 'backups', title: 'backups',
     teaser: 'per-component archives to a pluggable store; free disk with offload',
     intro: html`
       <p>A component's state — its source (with git history + remote), its
@@ -782,7 +782,7 @@ bx expose apps/mc   game=runtime --listen :25565</pre>
     docs: 'protocol.md',
     children: [
       {
-        id: 'backup-restore', title: 'backup & restore', color: 'rose',
+        id: 'backup-restore', title: 'backup & restore',
         teaser: 'bind an archiver; back up now or on a schedule; restore a version or one file',
         body: html`
           <p>Bind a component's <code>@archive</code> interface to an archiver tile
@@ -802,7 +802,7 @@ POST /api/xbin/restore   { "component": "apps/thing", "file": "data/kv.json" }</
           everywhere.</p>`,
       },
       {
-        id: 'offload', title: 'lifecycle & offload', color: 'rose',
+        id: 'offload', title: 'lifecycle & offload',
         teaser: 'disable frees compute; offload archives + frees disk',
         body: html`
           <p>Components have a lifecycle the owner controls:</p>

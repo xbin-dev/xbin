@@ -8,9 +8,61 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, writeFileSync, readFileSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { readTheme, checkDayBlocks, dayBlocks, scan, isFontToken } from './theme-fallbacks.mjs';
+import { readTheme, checkDayBlocks, dayBlocks, scan, isFontToken, mixColour, dayTokens, compatTokens, checkCompatBlock, COMPAT_NAMES } from './theme-fallbacks.mjs';
 
 const css = readFileSync(new URL('../web/theme.css', import.meta.url), 'utf8');
+
+test('color-mix() in sRGB computes as a browser does, to a hex colour', () => {
+  assert.equal(mixColour('in srgb, #FFFFFF 50%, #000000'), '#808080');
+  assert.equal(mixColour('in srgb, #A3A6B6 8.3%, #1F2028'), '#2A2B34');
+  assert.equal(mixColour('in srgb, #000 25%, #fff'), '#BFBFBF', 'short hex; the other side takes the rest');
+  assert.equal(mixColour('in srgb, 25% #000, #fff'), '#BFBFBF', 'a percentage may lead');
+  assert.equal(mixColour('in srgb, #000, #fff'), '#808080', 'none given: half and half');
+  assert.equal(mixColour('in srgb, #000 20%, #fff 20%'), '#808080', 'a pair under 100 is scaled to it');
+  assert.equal(mixColour('in oklch, #000 50%, #fff'), null, 'another space is not computed');
+  assert.equal(mixColour('in srgb, #000 40%, transparent'), null, 'a non-hex side is not computed');
+});
+
+test('the roles Night writes from the old names resolve to the literals they replaced', () => {
+  const { tokens, raw } = readTheme(css);
+  // written from other tokens, so a document's own palette (the old names) carries them …
+  for (const name of ['--bx-hover', '--bx-code-bg', '--bx-accent-hover', '--bx-accent-ink', '--bx-link', '--bx-ok-bg', '--bx-warn-bg', '--bx-danger-bg', '--bx-info-bg',
+    '--bx-titlebar', '--bx-titlebar-active', '--bx-title-text', '--bx-title-text-inactive', '--bx-window-border', '--bx-control-hover', '--bx-close-hover', '--bx-close-hover-ink']) {
+    assert.match(raw[name], /var\(--bx-/, `${name} is written from other tokens`);
+  }
+  // … and compute to Base Two's Night values exactly
+  assert.deepEqual(
+    ['--bx-hover', '--bx-code-bg', '--bx-accent-hover', '--bx-accent-ink', '--bx-link', '--bx-ok-bg', '--bx-warn-bg', '--bx-danger-bg', '--bx-info-bg'].map((n) => tokens[n]),
+    ['#2A2B34', '#16171D', '#A9B4FF', '#0B0C12', '#8C9BFF', '#2F352E', '#382F2C', '#3A2B32', '#30323B']);
+  assert.deepEqual(
+    ['--bx-titlebar', '--bx-titlebar-active', '--bx-title-text', '--bx-title-text-inactive', '--bx-window-border', '--bx-control-hover', '--bx-close-hover', '--bx-close-hover-ink'].map((n) => tokens[n]),
+    ['#1F2028', '#262730', '#E9EAF0', '#8E91A2', '#666A7E', '#33353F', '#FF7A7A', '#0B0C12']);
+  // a palette of the document's own, through the old names, carries them
+  const own = readTheme(css.replace(/(:root \{[\s\S]*?--bx-panel: )#1F2028/, '$1#FFFFFF').replace(/(:root \{[\s\S]*?--bx-muted: )#A3A6B6/, '$1#5B6470')).tokens;
+  assert.equal(own['--bx-hover'], '#F1F2F3', 'a light panel: a light hover, not Night\'s');
+  assert.equal(own['--bx-danger-bg'], '#FFEFEF', 'a light panel: a light tint');
+});
+
+test('Day: what Night writes from other tokens follows Day\'s values of them', () => {
+  const day = dayTokens(css);
+  assert.deepEqual(['--bx-link', '--bx-title-text', '--bx-title-text-inactive', '--bx-close-hover', '--bx-red', '--bx-green', '--bx-amber'].map((n) => day[n]),
+    ['#1F3DFF', '#0B0C12', '#626576', '#C81E1E', '#C81E1E', '#436C0C', '#9A4A06']);
+  assert.equal(day['--bx-panel'], '#FFFFFF');
+});
+
+test('a document that didn\'t opt in: the old names keep their old values, and the status colours follow them', () => {
+  const c = compatTokens(css);
+  assert.deepEqual(['--bx-green', '--bx-amber', '--bx-red'].map((n) => c[n]), ['#4CAF50', '#F2A71B', '#EF5350']);
+  assert.deepEqual(['--bx-ok', '--bx-warn', '--bx-danger', '--bx-info'].map((n) => c[n]), ['#4CAF50', '#F2A71B', '#EF5350', '#A3A6B6']);
+  assert.equal(c['--bx-panel'], '#1F2028', 'Night\'s other tokens stand');
+  assert.equal(readTheme(css).tokens['--bx-red'], '#FF7A7A', 'an opted-in document\'s Night: the old names are the status colours');
+  assert.deepEqual(checkCompatBlock(css), []);
+  const extra = css.replace(/(\/\* bx-compat:start \*\/)/, '$1\n  --bx-panel: #000000;');
+  assert.match(checkCompatBlock(extra).join('\n'), /the bx-compat block sets --bx-panel/);
+  const short = css.replace(/\s*--bx-info: var\(--bx-muted\);/, '');
+  assert.match(checkCompatBlock(short).join('\n'), /doesn't set --bx-info/);
+  assert.deepEqual(COMPAT_NAMES.length, 7);
+});
 
 test('the real theme: aliases and composites resolve to Night literals', () => {
   const { tokens, raw } = readTheme(css);

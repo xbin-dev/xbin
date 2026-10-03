@@ -13,3 +13,6 @@ web/theme.css  colour,font,radius  the token file: values are written here
 web/term-palettes.js  colour  the terminal settings menu's named palettes (data; programs choose ANSI colours)
 web/xb/render-theme.js  colour,font,radius  the native renderer's token table; it previews the app, whose shapes follow iOS
 web/xb/render-*.js  radius  the native renderer draws the app's shapes (frontend-kit: it follows the app's look)
+builtin-templates/agent/model/features.js  emoji  the agent template's feature catalogue (parity-test data): it names the controls it describes by their glyphs (⋯ the app's More menu, ✕ a close control), and is never drawn
+builtin-templates/agent/web-features.js  emoji  the web view's half of the feature catalogue: data for the parity test, never drawn
+builtin-templates/agent/native-features.js  emoji  the native view's half of the feature catalogue: data for the parity test, never drawn

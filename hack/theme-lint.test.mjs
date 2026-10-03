@@ -124,7 +124,7 @@ test('font: a family outside the tokens', () => {
   ]);
 });
 
-test('small: literal sizes under 13px; the tokens and relative sizes pass', () => {
+test('small: sizes under 13px in px, pt, relative units and keywords; the tokens pass', () => {
   assert.deepEqual(run({
     'web/a.css': [
       '.a { font-size: 12px; }',
@@ -133,14 +133,128 @@ test('small: literal sizes under 13px; the tokens and relative sizes pass', () =
       '.d { font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); }',
       '.e { font-size: .85em; }',
       '.f { font-size: 10.5px; }',
+      '.g { font-size: .7em; font-size: 9pt; font-size: x-small; }',
+      '.h { font-size: 0.92em; font-size: 10pt; font-size: small; font-size: 0; font-size: 95%; }',
+      '.i { font: 600 var(--my-size,10px)/1 var(--bx-sans); font-size: var(--other, .8rem); }',
+      '.j { font-size: var(--bx-text-size, 13px); font: var(--bx-font-meta, 400 12px/16px x); }',
+      '.k { font: italic 600 smaller var(--bx-sans); font-size: 80%; }',
     ].join('\n'),
-    'web/b.js': "const t = new Terminal({ fontSize: 11 });\nconst svg = '<text font-size=\"9\">x</text>';\n",
+    'web/b.js': "const t = new Terminal({ fontSize: 11 });\nconst svg = '<text font-size=\"9\">x</text>';\nel.style.fontSize = '0.75em';\n",
   }, { checks: ['small'] }), [
     'web/a.css:1: small: 12px',
     'web/a.css:2: small: 11px',
+    'web/a.css:5: small: .85em',
     'web/a.css:6: small: 10.5px',
-    'web/b.js:1: small: 11',
+    'web/a.css:7: small: .7em',
+    'web/a.css:7: small: 9pt',
+    'web/a.css:7: small: x-small',
+    'web/a.css:9: small: .8rem',
+    'web/a.css:9: small: 10px',
+    'web/a.css:11: small: 80%',
+    'web/a.css:11: small: smaller',
+    'web/b.js:1: small: 11px',
     'web/b.js:2: small: 9px',
+    'web/b.js:3: small: 0.75em',
+  ]);
+});
+
+test('colour: CSS named colours where a colour stands; not class names, keys or prose', () => {
+  assert.deepEqual(run({
+    'web/a.css': [
+      '.a { color: red; background: lightgray; border: 1px solid DarkSlateGray; }',
+      '.green { color: var(--bx-ok); } .red > b { fill: none; }',
+      '.b { outline: 2px solid gold !important; --my-tint: teal; }',
+      '.c { background: var(--bx-panel, white); color: var(--mine, tan); }',
+      '.d { color: currentColor; background: transparent; border-color: Canvas; }',
+    ].join('\n'),
+    'web/b.js': [
+      "el.style.color = 'red'; el.style.backgroundColor = 'navy';",
+      "el.style.setProperty('border-color', 'orange');",
+      "ctx.fillStyle = 'olive'; ctx.strokeStyle = 'tomato';",
+      "const o = { tone: 'red', color: 'plum', white: 1 };",
+      "const t = html`<svg><path fill=\"maroon\" stroke='none'/></svg><p>the red one</p>`;",
+      "const w = css`.x { white-space: nowrap; }`;",
+    ].join('\n'),
+  }, { checks: ['colour'] }), [
+    'web/a.css:1: colour: red',
+    'web/a.css:1: colour: lightgray',
+    'web/a.css:1: colour: DarkSlateGray',
+    'web/a.css:3: colour: gold',
+    'web/a.css:3: colour: teal',
+    'web/a.css:4: colour: tan',
+    'web/b.js:1: colour: red',
+    'web/b.js:1: colour: navy',
+    'web/b.js:2: colour: orange',
+    'web/b.js:3: colour: olive',
+    'web/b.js:3: colour: tomato',
+    'web/b.js:4: colour: plum',
+    'web/b.js:5: colour: maroon',
+  ]);
+});
+
+test('colour: drop-shadow() and the text fill colour style; a mask only in its own declaration; data: URIs', () => {
+  assert.deepEqual(run({
+    'web/a.css': [
+      '.a { filter: drop-shadow(0 1px 2px rgba(0,0,0,.5)); }',
+      '.b { -webkit-text-fill-color: #fff; }',
+      '.c { -webkit-mask: url(a.svg); background: #fff; }',
+      '.d { mask: linear-gradient(#000, transparent); }',
+      '.e { background-image: url("data:image/svg+xml,%3Csvg%3E%3Cpath fill=\'%23999\' stroke=\'white\'/%3E%3C/svg%3E"); }',
+      '.f { -webkit-mask: url("data:image/svg+xml,%3Csvg%3E%3Cpath stroke=\'white\'/%3E%3C/svg%3E") 0 0 / 8px; }',
+      '.g { background: url("data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="); }',
+    ].join('\n'),
+  }, { checks: ['colour'] }), [
+    'web/a.css:1: colour: rgba(0,0,0,.5)',
+    'web/a.css:2: colour: #fff',
+    'web/a.css:3: colour: #fff',
+    'web/a.css:5: colour: #999 (in a data: URI)',
+    'web/a.css:5: colour: white (in a data: URI)',
+  ]);
+});
+
+test('radius: an SVG rect\'s rx/ry other than 0', () => {
+  assert.deepEqual(run({
+    'web/a.js': 'const t = html`<svg><rect rx="6" width="4" height="4"/><rect rx="0" ry="0"/><ellipse ry=\'3\'/></svg>`;\n',
+  }, { checks: ['radius'] }), [
+    'web/a.js:1: radius: rx=6',
+    'web/a.js:1: radius: ry=3',
+  ]);
+});
+
+test('emoji: the text glyphs §1.6 replaces; typography passes', () => {
+  assert.deepEqual(run({
+    'web/a.js': [
+      "const t = html`<button>⚙</button><span>✏ edit</span><b>✉ ☰ ✕ ★ ⏸ ▣</b>`;",
+      "const ok = 'a – b − c « d » ‹ e › f → g × h';",
+      "const both = 'ℹ️ info, then ℹ';",
+    ].join('\n'),
+  }, { checks: ['emoji'] }), [
+    'web/a.js:1: emoji: ⚙ (a text glyph: draw <bx-icon>)',
+    'web/a.js:1: emoji: ✏ (a text glyph: draw <bx-icon>)',
+    'web/a.js:1: emoji: ✉ (a text glyph: draw <bx-icon>)',
+    'web/a.js:1: emoji: ☰ (a text glyph: draw <bx-icon>)',
+    'web/a.js:1: emoji: ✕ (a text glyph: draw <bx-icon>)',
+    'web/a.js:1: emoji: ★ (a text glyph: draw <bx-icon>)',
+    'web/a.js:1: emoji: ⏸ (a text glyph: draw <bx-icon>)',
+    'web/a.js:1: emoji: ▣ (a text glyph: draw <bx-icon>)',
+    'web/a.js:3: emoji: ℹ️',
+    'web/a.js:3: emoji: ℹ (a text glyph: draw <bx-icon>)',
+  ]);
+});
+
+test('theme-ok on the line before excepts the next line only when it is the comment alone', () => {
+  assert.deepEqual(run({
+    'web/a.js': [
+      "const qr = { background: '#fff' }; // theme-ok: a QR code is dark on light",
+      "const next = { color: '#000' };",
+      '// theme-ok: an avatar hue derived from an id',
+      "const avatar = { background: 'hsl(200 40% 40%)' };",
+      "const t = html`<b>✕</b>`; // theme-ok: a data table's glyph",
+      "const u = html`<b>✕</b>`;",
+    ].join('\n'),
+  }), [
+    'web/a.js:2: colour: #000',
+    'web/a.js:6: emoji: ✕ (a text glyph: draw <bx-icon>)',
   ]);
 });
 
@@ -156,6 +270,10 @@ test('emoji: pictographs, presentation selectors and escapes', () => {
     'web/a.js:1: emoji: 🔒',
     'web/a.js:2: emoji: ⚠️',
     'web/a.js:3: emoji: \\u{1F512}',
+    // › is typography; ✓ ▸ ⋯ are icons set in a font (§1.6: check, caret-right, ellipsis)
+    'web/a.js:4: emoji: ✓ (a text glyph: draw <bx-icon>)',
+    'web/a.js:4: emoji: ▸ (a text glyph: draw <bx-icon>)',
+    'web/a.js:4: emoji: ⋯ (a text glyph: draw <bx-icon>)',
   ]);
 });
 
@@ -215,8 +333,15 @@ test('contrast: the real theme holds; a lowered pair fails, named', () => {
   const f = contrastFindings(lowered);
   assert.ok(f.length >= 1);
   assert.match(f.map((x) => x.literal).join('\n'), /--bx-subtle on --bx-panel \(Day\) 2\.\d\d < 4\.5/);
-  const night = css.replace(/(:root \{[\s\S]*?--bx-accent-ink: )#0B0C12/, '$1#8C9BFF');
+  const night = css.replace(/(:root \{[\s\S]*?--bx-accent-ink: )var\(--bx-bg\)/, '$1#8C9BFF');
+  assert.notEqual(night, css);
   assert.match(contrastFindings(night).map((x) => x.literal).join('\n'), /--bx-accent-ink on --bx-accent \(Night\) 1\.00 < 4\.5/);
+  // a derived role is held to its pair too: the hover computed from a lowered muted
+  const hover = css.replace(/(:root \{[\s\S]*?--bx-hover: color-mix\(in srgb, var\(--bx-muted\) )8\.3%/, '$160%');
+  assert.match(contrastFindings(hover).map((x) => x.literal).join('\n'), /--bx-text on --bx-hover \(Night\) \d\.\d\d < 4\.5/);
+  // and the not-opted-in document's old values: a lowered one fails, named
+  const compat = css.replace(/(\/\* bx-compat:start \*\/[\s\S]*?--bx-red: )#EF5350/, '$1#C62828');
+  assert.match(contrastFindings(compat).map((x) => x.literal).join('\n'), /--bx-danger on --bx-panel \(Compat\) \d\.\d\d < 4\.5/);
 });
 
 test('the strippers keep lines and columns', () => {

@@ -19,34 +19,49 @@
 //
 // The checks:
 //   colour   a hex colour, rgb()/rgba()/hsl()/hsla()/hwb()/lab()/lch()/
-//            oklab()/oklch()/color(), or black/white, on a line that styles
-//            (a colour-bearing declaration, style=, .style, setProperty,
+//            oklab()/oklch()/color(), on a line that styles (a
+//            colour-bearing declaration — filter: drop-shadow() and
+//            -webkit-text-fill-color included — style=, .style, setProperty,
 //            fill/stroke, fillStyle/strokeStyle, light-dark(), color-mix(),
 //            a gradient), or a string that is nothing but a colour (a data
-//            table, an xterm theme). Not a finding: the fallback inside
-//            var(--bx-x, …) when theme.css defines --bx-x (theme-fallbacks
-//            checks its value); transparent, currentColor, inherit; a line
-//            about a mask (alpha only). A fallback of a token theme.css
-//            doesn't define IS a finding: a hard-coded colour in a var().
+//            table, an xterm theme); a CSS named colour (red, lightgray, …:
+//            every one but transparent, currentColor and the system colours)
+//            as the value of a colour-bearing declaration, a .style
+//            assignment, setProperty, fillStyle/strokeStyle or a fill/stroke/
+//            color attribute; a colour in an SVG data: URI (%23-escaped hex
+//            included). Not a finding: the fallback inside var(--bx-x, …)
+//            when theme.css defines --bx-x (theme-fallbacks checks its
+//            value); transparent, currentColor, inherit; a colour in a mask
+//            declaration's value (alpha only). A fallback of a token
+//            theme.css doesn't define IS a finding: a hard-coded colour in a
+//            var().
 //   radius   a border-*radius (or borderRadius) other than 0 or
-//            var(--bx-radius…).
+//            var(--bx-radius…); an SVG rx/ry other than 0.
 //   font     a font / font-family (fontFamily, ctx.font) naming a family
 //            outside var(--bx-…).
-//   small    a literal font size under 13px (font-size, the font shorthand,
-//            fontSize, an SVG font-size): 11px micro caps and 12px meta are
-//            the --bx-font-micro / --bx-font-meta tokens.
+//   small    a font size under 13px (font-size, the font shorthand,
+//            fontSize, an SVG font-size): px, pt (under 9.75pt), a
+//            relative size under 0.9em/rem/% of the text it sits in (under
+//            12px at the 13px UI size) and x-small, xx-small, smaller —
+//            including a var() fallback of a token theme.css doesn't
+//            define. 11px micro caps and 12px meta are the --bx-font-micro /
+//            --bx-font-meta tokens.
 //   emoji    a pictographic emoji (the audit's ranges, an emoji presentation
-//            selector, a \u{1F…} escape) in UI source.
+//            selector, a \u{1F…} escape) or one of the text glyphs plans'
+//            §1.6 replaces with a drawn one (✕ ⋯ ☰ ⚙ ✉ ✏ ★ ⏸ ▣ …) in UI
+//            source; a data table mapping them says so with theme-ok.
 //   contrast the pairs of plans' §1.4 recomputed from theme.css's Night and
-//            Day values against WCAG thresholds (4.5 text, 3 UI parts).
+//            Day values against WCAG thresholds (4.5 text, 3 UI parts), and
+//            the not-opted-in document's status colours (its old values).
 //
 // Exceptions, each with a reason: hack/theme-allow.txt (`<path-glob>
-// <checks> <reason>`), or `theme-ok: <reason>` in a comment on the line or
-// the line before (the `// exec-ok:` precedent).
+// <checks> <reason>`), or `theme-ok: <reason>` in a comment on the line —
+// or on the line before, when that line is the comment and nothing else
+// (the `// exec-ok:` precedent).
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, extname, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { readTheme } from './theme-fallbacks.mjs';
+import { readTheme, dayTokens as themeDay, compatTokens } from './theme-fallbacks.mjs';
 
 const ROOT = new URL('..', import.meta.url).pathname.replace(/\/$/, '');
 export const TREES = ['web', 'workspace-template', 'builtin-tiles', 'builtin-templates', 'examples', 'hack/demo/tiles', 'internal/server'];
@@ -200,11 +215,30 @@ export function strip(file, src) {
 
 const HEX = /(?<![&\w#])#(?:[0-9a-fA-F]{8}|[0-9a-fA-F]{6}|[0-9a-fA-F]{4}|[0-9a-fA-F]{3})(?![\w-])/g;
 const FUNC = /\b(?:rgba?|hsla?|hwb|lab|lch|oklab|oklch)\(|\bcolor\(\s*(?:srgb|srgb-linear|display-p3|a98-rgb|prophoto-rgb|rec2020|xyz)/gi;
-const NAMED = /(?<![\w-])(?:black|white)(?![\w-])(?!\s*:)/gi;
+// The CSS named colours (CSS Color 4), every one: transparent, currentColor
+// and the system colours (Canvas, CanvasText, …) aren't among them.
+export const NAMED_COLOURS = new Set(`aliceblue antiquewhite aqua aquamarine azure beige bisque black blanchedalmond blue
+  blueviolet brown burlywood cadetblue chartreuse chocolate coral cornflowerblue cornsilk crimson cyan darkblue darkcyan
+  darkgoldenrod darkgray darkgreen darkgrey darkkhaki darkmagenta darkolivegreen darkorange darkorchid darkred darksalmon
+  darkseagreen darkslateblue darkslategray darkslategrey darkturquoise darkviolet deeppink deepskyblue dimgray dimgrey
+  dodgerblue firebrick floralwhite forestgreen fuchsia gainsboro ghostwhite gold goldenrod gray green greenyellow grey
+  honeydew hotpink indianred indigo ivory khaki lavender lavenderblush lawngreen lemonchiffon lightblue lightcoral
+  lightcyan lightgoldenrodyellow lightgray lightgreen lightgrey lightpink lightsalmon lightseagreen lightskyblue
+  lightslategray lightslategrey lightsteelblue lightyellow lime limegreen linen magenta maroon mediumaquamarine
+  mediumblue mediumorchid mediumpurple mediumseagreen mediumslateblue mediumspringgreen mediumturquoise
+  mediumvioletred midnightblue mintcream mistyrose moccasin navajowhite navy oldlace olive olivedrab orange orangered
+  orchid palegoldenrod palegreen paleturquoise palevioletred papayawhip peachpuff peru pink plum powderblue purple
+  rebeccapurple red rosybrown royalblue saddlebrown salmon sandybrown seagreen seashell sienna silver skyblue
+  slateblue slategray slategrey snow springgreen steelblue tan teal thistle tomato turquoise violet wheat white
+  whitesmoke yellow yellowgreen`.split(/\s+/));
+// A property whose value is, or holds, a colour (a custom property may).
+const COLOUR_PROPS = String.raw`color|background(?:-color|-image)?|border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-color)?|outline(?:-color)?|fill|stroke|(?:box-|text-)?shadow|stop-color|flood-color|lighting-color|caret-color|accent-color|column-rule(?:-color)?|text-decoration(?:-color)?|scrollbar-color|(?:backdrop-)?filter|-webkit-text-fill-color|-webkit-text-stroke(?:-color)?|--[\w-]+`;
+const COLOUR_PROP = new RegExp(`^(?:${COLOUR_PROPS})$`, 'i');
 const CTX = new RegExp([
-  String.raw`(?:^|[^\w-])(?:color|background(?:-color|-image)?|border(?:-(?:top|right|bottom|left|block|inline)(?:-(?:start|end))?)?(?:-color)?|outline(?:-color)?|fill|stroke|(?:box-|text-)?shadow|stop-color|flood-color|lighting-color|caret-color|accent-color|column-rule(?:-color)?|text-decoration(?:-color)?|scrollbar-color|--[\w-]+)\s*:`,
-  String.raw`\bstyle\s*=|\.style\b|setProperty\(|\b(?:fill|stroke)(?:Style)?\s*=|shadowColor|\bstop-color\s*=|\bcolor\s*=|light-dark\(|color-mix\(|gradient\(`,
+  String.raw`(?:^|[^\w-])(?:${COLOUR_PROPS})\s*:`,
+  String.raw`\bstyle\s*=|\.style\b|setProperty\(|\b(?:fill|stroke)(?:Style)?\s*=|shadowColor|\bstop-color\s*=|\bcolor\s*=|light-dark\(|color-mix\(|gradient\(|drop-shadow\(`,
 ].join('|'), 'i');
+const kebab = (s) => s.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 
 // the extent of every var( … ) on a line: [{start, end, token, comma}]
 function varsOf(line) {
@@ -236,15 +270,81 @@ const wholeString = (line, s, e) => {
   return (q === "'" || q === '"' || q === '`') && line[e] === q;
 };
 
+// spans(line, re, group): [start, end) of a regex group in each match
+function spansOf(line, re, group) {
+  const out = [];
+  for (const m of line.matchAll(re)) {
+    const v = m[group];
+    if (v === undefined) continue;
+    const s = m.index + m[0].lastIndexOf(v);
+    out.push([s, s + v.length]);
+  }
+  return out;
+}
+const inSpans = (spans, p) => spans.some(([s, e]) => p >= s && p < e);
+
+// A mask declaration's value: alpha only, never a colour anyone sees.
+const maskSpans = (line) => [
+  ...spansOf(line, /(?:^|[^\w-])(?:-webkit-)?mask(?:-[a-z-]+)?\s*:\s*([^;}]*)/gi, 1),
+  ...spansOf(line, /\b(?:[Ww]ebkitMask|mask)[A-Za-z]*\s*[:=]\s*(['"`])((?:(?!\1).)*)\1/g, 2),
+];
+
+// The SVG data: URIs on a line, %-escaped (a hex colour as %23…): each one's
+// payload [start, end) and text, up to the quote it opened with (or the
+// url( … )'s close). A base64 one can't be read and isn't listed.
+function dataSvgs(line) {
+  const out = [];
+  for (let at = line.indexOf('data:image/svg+xml'); at >= 0; at = line.indexOf('data:image/svg+xml', at + 1)) {
+    const comma = line.indexOf(',', at);
+    if (comma < 0) break;
+    if (/base64/i.test(line.slice(at, comma))) continue;
+    const q = line[at - 1];
+    let end = line.indexOf(q === '"' || q === "'" || q === '`' ? q : ')', comma + 1);
+    if (end < 0) end = line.length;
+    out.push({ start: comma + 1, end, text: line.slice(comma + 1, end) });
+  }
+  return out;
+}
+
+// The values a line gives to colour-bearing properties, by where they
+// stand: a declaration (CSS, style="", a lit css`` template, a JS style
+// object's 'value'), a .style assignment, setProperty, a canvas's
+// fillStyle/strokeStyle/shadowColor, an SVG or HTML colour attribute.
+// [{start, end}] in the line.
+function colourValueSpans(line) {
+  const out = [];
+  for (const m of line.matchAll(/(?:^|[\s;{"'`(,])(-{0,2}[a-zA-Z][\w-]*)\s*:\s*(['"`]?)([^;{}"'`]*)/g)) {
+    if (!COLOUR_PROP.test(kebab(m[1]))) continue;
+    const s = m.index + m[0].length - m[3].length;
+    out.push([s, s + m[3].length]);
+  }
+  for (const m of line.matchAll(/\.style\.([a-zA-Z]+)\s*=\s*(['"`])((?:(?!\2).)*)\2/g)) {
+    if (!COLOUR_PROP.test(kebab(m[1]))) continue;
+    const s = m.index + m[0].length - 1 - m[3].length;
+    out.push([s, s + m[3].length]);
+  }
+  for (const m of line.matchAll(/setProperty\(\s*(['"`])([\w-]+)\1\s*,\s*(['"`])((?:(?!\3).)*)\3/g)) {
+    if (!COLOUR_PROP.test(m[2])) continue;
+    const s = m.index + m[0].length - 1 - m[4].length;
+    out.push([s, s + m[4].length]);
+  }
+  out.push(...spansOf(line, /\b(?:fillStyle|strokeStyle|shadowColor)\s*=\s*(['"`])((?:(?!\1).)*)\1/g, 2));
+  out.push(...spansOf(line, /(?:^|[\s<])(?:fill|stroke|color|stop-color|flood-color|lighting-color|bgcolor)\s*=\s*(['"])((?:(?!\1).)*)\1/gi, 2));
+  return out;
+}
+
 function colourFindings(line, tokens) {
-  if (/mask/i.test(line)) return [];
   const ctx = CTX.test(line);
   const vars = varsOf(line);
+  const masks = maskSpans(line);
+  const svgs = dataSvgs(line);
+  const dataSpans = svgs.map((d) => [d.start, d.end]);
   const out = [];
   const consider = (lit, s, e, named) => {
+    if (inSpans(masks, s) || inSpans(dataSpans, s)) return; // a mask's alpha; a data: URI's, below
     const fb = fallbackOf(vars, s, tokens);
     if (fb === 'known') return;
-    if (fb === 'unknown' || ctx || (!named && wholeString(line, s, e))) out.push(lit);
+    if (fb === 'unknown' || named || ctx || wholeString(line, s, e)) out.push(lit);
   };
   for (const m of line.matchAll(HEX)) {
     if (/querySelector|getElementById|location\.hash|href\s*=|\bid\s*=/.test(line) && !ctx) continue;
@@ -258,7 +358,23 @@ function colourFindings(line, tokens) {
     if (/var\(/.test(lit) && !/\d/.test(lit.replace(/var\([^)]*\)/g, ''))) continue; // rgb(var(--x)) and friends
     consider(lit, m.index, end + 1, false);
   }
-  if (ctx) for (const m of line.matchAll(NAMED)) consider(m[0], m.index, m.index + m[0].length, true);
+  // a named colour, where a colour-bearing property's value stands
+  for (const [s, e] of colourValueSpans(line)) {
+    for (const m of line.slice(s, e).matchAll(/(?<![\w.#$/-])[A-Za-z]+(?![\w-])/g)) {
+      if (NAMED_COLOURS.has(m[0].toLowerCase())) consider(m[0], s + m.index, s + m.index + m[0].length, true);
+    }
+  }
+  // what an SVG data: URI draws (a mask's draws alpha only)
+  for (const d of svgs) {
+    if (inSpans(masks, d.start)) continue;
+    let svg = d.text;
+    try { svg = decodeURIComponent(svg); } catch { svg = svg.replace(/%23/gi, '#'); }
+    for (const h of svg.matchAll(HEX)) out.push(`${h[0]} (in a data: URI)`);
+    for (const f of svg.matchAll(FUNC)) out.push(`${f[0]}… (in a data: URI)`);
+    for (const a of svg.matchAll(/(?:fill|stroke|stop-color|color)\s*[=:]\s*['"]?([A-Za-z]+)/g)) {
+      if (NAMED_COLOURS.has(a[1].toLowerCase())) out.push(`${a[1]} (in a data: URI)`);
+    }
+  }
   return out;
 }
 
@@ -286,6 +402,9 @@ function radiusFindings(line) {
   for (const m of line.matchAll(/(?:^|[^\w-])border(?:-[a-z]+)*-radius\s*:\s*([^;}"'`\n]+)/gi)) if (!radiusOK(m[1].trim())) out.push(m[1].trim());
   for (const m of line.matchAll(/\bborderRadius\s*[:=]\s*(['"`])([^'"`]*)\1/g)) if (!radiusOK(m[2].trim())) out.push(m[2].trim());
   for (const m of line.matchAll(/\bborderRadius\s*[:=]\s*(\d+(?:\.\d+)?)\b/g)) if (Number(m[1]) !== 0) out.push(m[1]);
+  // an SVG rect's corners (rx/ry, attribute or property)
+  for (const m of line.matchAll(/(?:^|[\s<;{"'`])(rx|ry)\s*=\s*(['"])\s*([^'"]*?)\s*\2/g)) if (!/^0(?:\.0+)?(?:px)?$/.test(m[3])) out.push(`${m[1]}=${m[3]}`);
+  for (const m of line.matchAll(/(?:^|[\s;{"'`])(rx|ry)\s*:\s*([^;}"'`\n]+)/g)) if (!radiusOK(m[2].trim())) out.push(`${m[1]}: ${m[2].trim()}`);
   return out;
 }
 
@@ -321,23 +440,68 @@ function fontFindings(line) {
   return out;
 }
 
-function smallFindings(line) {
-  const out = [];
-  const px = (s) => Number(s);
-  for (const m of line.matchAll(/(?:^|[^\w-])font-size\s*:\s*(\d*\.?\d+)px/gi)) if (px(m[1]) < 13) out.push(`${m[1]}px`);
-  for (const m of line.matchAll(/\bfont-size\s*=\s*["']?(\d*\.?\d+)(?:px)?\b/gi)) if (px(m[1]) < 13) out.push(`${m[1]}px`);
-  for (const v of fontValues(line)) {
-    const size = /(?:^|\s)(\d*\.?\d+)px(?:\s*\/|\s|$)/.exec(withoutVars(v));
-    if (size && px(size[1]) < 13) out.push(`${size[1]}px`);
+// tooSmall(size) → the size as written when it is under 13px ('' when it
+// isn't, or isn't a size): px (or unitless: an SVG attribute, fontSize),
+// pt, a size relative to the text it sits in under 0.9 (under 12px at the
+// 13px UI size; 12px meta is the --bx-font-meta token), and the small
+// keywords.
+const SMALL_WORDS = new Set(['xx-small', 'x-small', 'smaller']);
+export function tooSmall(size) {
+  const t = String(size).trim().toLowerCase();
+  if (SMALL_WORDS.has(t)) return t;
+  const m = /^(\d*\.?\d+)(px|pt|em|rem|%)?$/.exec(t);
+  if (!m || Number(m[1]) === 0) return '';
+  const n = Number(m[1]);
+  switch (m[2]) {
+    case 'pt': return (n * 4) / 3 < 13 ? t : '';
+    case 'em': case 'rem': return n < 0.9 ? t : '';
+    case '%': return n < 90 ? t : '';
+    default: return n < 13 ? (m[2] ? t : `${t}px`) : '';
   }
-  for (const m of line.matchAll(/\bfontSize\s*[:=]\s*['"`]?(\d*\.?\d+)(px)?\b/g)) if (px(m[1]) < 13) out.push(`${m[1]}${m[2] ?? ''}`);
+}
+
+// sizeParts(value, tokens) → a size value's parts, a var() of a token
+// theme.css doesn't define replaced by its fallback's (a var() of one it
+// does define is left out: theme-fallbacks keeps its fallback Night's)
+function sizeParts(v, tokens) {
+  const out = [];
+  for (const p of splitTop(v)) {
+    const vm = /^var\(\s*(--[\w-]+)\s*(?:,([\s\S]*))?\)$/.exec(p);
+    if (vm) { if (!(vm[1] in tokens) && vm[2] !== undefined) out.push(...sizeParts(vm[2], tokens)); continue; }
+    out.push(p);
+  }
+  return out;
+}
+const SIZE = /^(?:\d*\.?\d+(?:px|pt|em|rem|%)|xx-small|x-small|small|medium|large|x-large|xx-large|xxx-large|smaller|larger)$/i;
+
+function smallFindings(line, tokens = {}) {
+  const out = [];
+  const add = (s) => { const t = tooSmall(s); if (t) out.push(t); };
+  for (const m of line.matchAll(/(?:^|[^\w-])font-size\s*:\s*([^;}"'`\n]+)/gi)) for (const p of sizeParts(m[1].replace(/!important/, ''), tokens)) add(p);
+  for (const m of line.matchAll(/\bfont-size\s*=\s*["']?(\d*\.?\d+(?:px|pt|em|%)?)/gi)) add(m[1]);
+  // the font shorthand: its size is the first part that is a size
+  for (const m of line.matchAll(/(?:^|[^\w-])font\s*:\s*([^;}`\n]*)|\.font\s*=\s*(['"`])((?:(?!\2).)*)\2/gi)) {
+    const v = m[1] ?? m[3] ?? '';
+    const size = sizeParts(v.replace(/['"]/g, ' '), tokens).find((p) => SIZE.test(p));
+    if (size) add(size);
+  }
+  for (const m of line.matchAll(/\bfontSize\s*[:=]\s*['"`]?(\d*\.?\d+(?:px|pt|em|rem|%)?)/g)) add(m[1]);
   return out;
 }
 
 // the audit's pictographs (emoji.py), an emoji presentation selector, and
 // \u{1F…} / surrogate escapes in source
 const EMOJI = /.\uFE0F|[\u{1F300}-\u{1FAFF}\u2614\u2615\u26A0\u26A1\u26D4\u2705\u274C\u2B50\u23F3\u231B]|\\u\{1F[0-9A-Fa-f]{3}\}|\\uD83[C-E]\\uD[C-F][0-9A-Fa-f]{2}/gu;
-const emojiFindings = (line) => [...line.matchAll(EMOJI)].map((m) => m[0]);
+// The text glyphs plans' §1.6 replaces with drawn ones: an icon set in
+// whatever font has the character (✕ ✖ ⋯ ☰ ⚙ ✉ ✎ ✏ ★ ☆ ⏵ ⏸ ⏹ ▣ □ ⧉ ▤ ⇄ ⇋ ⇈
+// ⟲ ↻ ⎇ ● ▸ ▾ ✓ ✔ ℹ). Typography (– − « » ‹ › → ×) is not among them.
+export const GLYPHS = /[✕✖⋯☰⚙✉✎✏★☆⏵⏸⏹▣□⧉▤⇄⇋⇈⟲↻⎇●▸▾✓✔ℹ]/gu;
+function emojiFindings(line) {
+  const out = [], taken = [];
+  for (const m of line.matchAll(EMOJI)) { out.push(m[0]); taken.push([m.index, m.index + m[0].length]); }
+  for (const m of line.matchAll(GLYPHS)) if (!inSpans(taken, m.index)) out.push(`${m[0]} (a text glyph: draw <bx-icon>)`);
+  return out;
+}
 
 const LINE_CHECKS = { colour: colourFindings, radius: radiusFindings, font: fontFindings, small: smallFindings, emoji: emojiFindings };
 
@@ -378,20 +542,28 @@ export const PAIRS = [
   ['--bx-term-white', '--bx-term-bg', T, ['Night']], ['--bx-term-black', '--bx-term-bg', T, ['Day']],
 ];
 
-// the theme's Day values: Night overridden by the first Day block
-export function dayTokens(css, night) {
-  const block = /\/\*\s*bx-day:start\s*\*\/([\s\S]*?)\/\*\s*bx-day:end\s*\*\//.exec(css);
-  const day = { ...night };
-  if (block) for (const d of block[1].matchAll(/(--bx-[a-z0-9-]+)\s*:\s*([^;]+);/g)) day[d[1]] = d[2].trim();
-  return day;
-}
+// A document that didn't opt in: Night with the old names' old values,
+// which its status colours follow (theme.css's bx-compat block). They are
+// the colours such a document had before Base Two, kept so white text in
+// a fill of one reads as it did: as text on the panel they hold 4.5:1; on
+// panel-2 and on their own tints the old red reads 4.26:1 and 4.06:1 (3.80
+// and 3.77 on the old panels, before Base Two), so those are held to 3:1 —
+// the floor those pairs have always had, never lower.
+export const COMPAT_PAIRS = [
+  ...['--bx-ok', '--bx-warn', '--bx-danger', '--bx-info'].flatMap((s) => [[s, '--bx-panel', T, ['Compat']], [s, '--bx-panel-2', UI, ['Compat']], [s, `${s}-bg`, UI, ['Compat']]]),
+  ['--bx-close-hover-ink', '--bx-close-hover', T, ['Compat']],
+];
+
+// the theme's Day values (theme-fallbacks' dayTokens: Night with the first
+// Day block over it, resolved together); kept for callers of the old name
+export const dayTokens = (css) => themeDay(css);
 
 export function contrastFindings(css) {
   const night = readTheme(css).tokens;
-  const themes = { Night: night, Day: dayTokens(css, night) };
+  const themes = { Night: night, Day: themeDay(css), Compat: compatTokens(css) };
   const lineOf = (name) => { const i = css.indexOf(`${name}:`); return i < 0 ? 1 : css.slice(0, i).split('\n').length; };
   const out = [];
-  for (const [fg, bg, min, which] of PAIRS) {
+  for (const [fg, bg, min, which] of [...PAIRS, ...COMPAT_PAIRS]) {
     for (const t of which) {
       const a = themes[t][fg], b = themes[t][bg];
       if (!/^#[0-9a-f]{3,8}$/i.test(a ?? '') || !/^#[0-9a-f]{3,8}$/i.test(b ?? '')) {
@@ -467,9 +639,12 @@ export function lint({ root = ROOT, paths = [], checks = CHECKS, css, allow = []
     const src = readFileSync(abs, 'utf8');
     const raw = src.split('\n');
     const lines = strip(abs, src).split('\n');
+    // theme-ok on the line itself; on the line before only when that line
+    // is the comment alone (else it is that line's reason, not this one's)
+    const ok = (i) => THEME_OK.test(raw[i]) || (i > 0 && THEME_OK.test(raw[i - 1]) && !lines[i - 1].trim());
     lines.forEach((line, i) => {
       if (!line.trim()) return;
-      if (THEME_OK.test(raw[i]) || (i > 0 && THEME_OK.test(raw[i - 1]))) return;
+      if (ok(i)) return;
       for (const check of checks) {
         if (!LINE_CHECKS[check] || allowed(file, check)) continue;
         for (const literal of LINE_CHECKS[check](line, tokens)) findings.push({ file, line: i + 1, check, literal });

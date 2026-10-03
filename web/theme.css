@@ -16,7 +16,14 @@
    docs/protocol.md). The rules below read them with :has(), so the right
    theme is there at first paint. Without :has() a document stays Night.
 
-   Old names keep working: --bx-green, --bx-amber and --bx-red follow
+   A document that sets the old names for a palette of its own (its own
+   :root after this sheet) keeps it: where a Base Two role sits on what the
+   old names give, Night writes it from them (the hover, the code well, the
+   accent's hover and ink, links, the status tints, window chrome), so the
+   role follows the document's values, as the same rules followed them
+   before Base Two. In a document that didn't opt in, --bx-green, --bx-amber
+   and --bx-red keep their old values (white text on them reads as it did),
+   and ok, warn and danger follow them; in one that did, the old names are
    ok, warn and danger. --bx-part is the partition marker, not a brand part
    colour (those are the part-tab tokens). Custom properties pierce shadow
    DOM, so core elements pick these up wherever the document sets them;
@@ -74,9 +81,10 @@
 /* ---- Concrete Night: every document's default (and an opted-in document
    in dark). hack/theme-fallbacks.mjs reads this block: its values are what
    every var() fallback must equal. Values are literals, except the old-name
-   aliases and the composites (focus ring, type), which are var() references
-   so they follow the theme; the script resolves them to Night literals. No
-   token names inside comments in this block: the script would read them. ---- */
+   aliases, the composites (focus ring, type) and the roles written from the
+   old names (each with the literal it computes to beside it, exactly:
+   theme-fallbacks resolves them, color-mix() in sRGB included, to Night
+   literals). No token names inside comments in this block. ---- */
 :root {
   /* surfaces, back to front */
   --bx-bg: #0B0C12;               /* the canvas (shell_bg) */
@@ -84,12 +92,12 @@
   --bx-sidebar: #111218;
   --bx-panel: #1F2028;            /* windows, cards, bars: lifted one step (B2 Q4) */
   --bx-panel-2: #262730;          /* inset panels, inputs, toolbars */
-  --bx-hover: #2A2B34;
+  --bx-hover: color-mix(in srgb, var(--bx-muted) 8.3%, var(--bx-panel));   /* #2A2B34: the panel, a step toward the muted text */
   --bx-selection: #262C5C;
   --bx-selection-text: #E9EAF0;
   --bx-border: #33353F;
   --bx-border-strong: #666A7E;    /* component borders: 3:1 on the canvas */
-  --bx-code-bg: #16171D;          /* code panes: a well one step below the panel */
+  --bx-code-bg: color-mix(in srgb, var(--bx-text) 5%, var(--bx-bg));      /* #16171D: code panes, a well one step below the panel */
 
   /* text */
   --bx-text: #E9EAF0;
@@ -98,9 +106,9 @@
 
   /* the accent: actions, selection and prose links only (B2 Q6) */
   --bx-accent: #8C9BFF;
-  --bx-accent-hover: #A9B4FF;
-  --bx-accent-ink: #0B0C12;       /* text on an accent fill */
-  --bx-link: #8C9BFF;
+  --bx-accent-hover: color-mix(in srgb, var(--bx-accent) 75%, #FFFFFF);    /* #A9B4FF */
+  --bx-accent-ink: var(--bx-bg);  /* #0B0C12: text on an accent fill, the page colour */
+  --bx-link: var(--bx-accent);    /* #8C9BFF */
 
   /* focus: a 3px cyan ring, 2px outside, over a 2px gap in the page colour */
   --bx-focus: #3DD6F5;
@@ -110,17 +118,19 @@
   --bx-focus-outline: var(--bx-focus-width) solid var(--bx-focus);
   --bx-focus-halo: 0 0 0 var(--bx-focus-offset) var(--bx-focus-gap);
 
-  /* status: always with an icon and a word; the tints are backgrounds */
+  /* status: always with an icon and a word; the tints are backgrounds, 12%
+     of the colour over the panel */
   --bx-ok: #A3CF5E;
-  --bx-ok-bg: #2F352E;
+  --bx-ok-bg: color-mix(in srgb, var(--bx-ok) 12%, var(--bx-panel));         /* #2F352E */
   --bx-warn: #F2994A;
-  --bx-warn-bg: #382F2C;
+  --bx-warn-bg: color-mix(in srgb, var(--bx-warn) 12%, var(--bx-panel));     /* #382F2C */
   --bx-danger: #FF7A7A;
-  --bx-danger-bg: #3A2B32;
+  --bx-danger-bg: color-mix(in srgb, var(--bx-danger) 12%, var(--bx-panel)); /* #3A2B32 */
   --bx-info: #A9B4C6;
-  --bx-info-bg: #30323B;
+  --bx-info-bg: color-mix(in srgb, var(--bx-info) 12%, var(--bx-panel));     /* #30323B */
 
-  /* old names, aliased: they follow the theme */
+  /* old names: in an opted-in document they are ok, warn and danger (a
+     document that didn't opt in keeps their old values: the next block) */
   --bx-green: var(--bx-ok);
   --bx-amber: var(--bx-warn);
   --bx-red: var(--bx-danger);
@@ -146,16 +156,17 @@
   --bx-elevated-bg: #FFD000;      /* view-as and every elevated mode */
   --bx-elevated-ink: #0B0C12;
 
-  /* window chrome (product-ui 3): windows get a border_strong edge (B2 Q4) */
-  --bx-titlebar: #1F2028;
-  --bx-titlebar-active: #262730;
-  --bx-title-text: #E9EAF0;
-  --bx-title-text-inactive: #8E91A2;
-  --bx-window-border: #666A7E;
+  /* window chrome (product-ui 3): windows get a border_strong edge (B2 Q4);
+     the bars are the panel steps, so a document's own panel carries them */
+  --bx-titlebar: var(--bx-panel);                  /* #1F2028 */
+  --bx-titlebar-active: var(--bx-panel-2);         /* #262730 */
+  --bx-title-text: var(--bx-text);                 /* #E9EAF0 */
+  --bx-title-text-inactive: var(--bx-subtle);      /* #8E91A2 */
+  --bx-window-border: var(--bx-border-strong);     /* #666A7E */
   --bx-window-border-active: #9396A4;
-  --bx-control-hover: #33353F;
-  --bx-close-hover: #FF7A7A;
-  --bx-close-hover-ink: #0B0C12;
+  --bx-control-hover: var(--bx-border);            /* #33353F */
+  --bx-close-hover: var(--bx-danger);              /* #FF7A7A */
+  --bx-close-hover-ink: var(--bx-bg);              /* #0B0C12 */
 
   /* shadows: a card, a window at rest, the active window, a pop-over */
   --bx-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
@@ -269,11 +280,34 @@
   color-scheme: dark;
 }
 
+/* ---- a document that didn't opt in: the old names keep the values they
+   had before Base Two, so white text in a badge or button filled with one
+   reads as it did, and the status colours follow them, so a document that
+   sets them for a palette of its own carries it into the core elements'
+   errors, warnings and badges (info follows the muted text). Night's other
+   tokens stand. The selector keeps :root's specificity: a document's own
+   :root { … } after this sheet still wins. hack/theme-fallbacks.mjs checks
+   that it sets nothing else (D184). ---- */
+:root:where(:not([data-bx-theme="auto"])) {
+  /* bx-compat:start */
+  --bx-green: #4CAF50;
+  --bx-amber: #F2A71B;
+  --bx-red: #EF5350;
+  --bx-ok: var(--bx-green);
+  --bx-warn: var(--bx-amber);
+  --bx-danger: var(--bx-red);
+  --bx-info: var(--bx-muted);
+  /* bx-compat:end */
+}
+
 /* ---- Concrete Day, for opted-in documents only. The same block twice:
    when the person chose light, and when they chose nothing (system) on a
    light system. hack/theme-fallbacks.mjs checks the two are identical.
    The selectors keep :root's specificity, so a document's own
-   :root { … } override, linked after this sheet, wins in both themes. ---- */
+   :root { … } override, linked after this sheet, wins in both themes.
+   What Night writes from other tokens and Day doesn't list (links, the
+   title text, the close control's colour, the old names) follows Day's
+   values of those tokens. ---- */
 :root:where([data-bx-theme="auto"]:has(> head > meta[name="xbin-theme"][content="light"])) {
   /* bx-day:start */
   --bx-bg: #E8E9EE;
@@ -293,7 +327,6 @@
   --bx-accent: #1F3DFF;
   --bx-accent-hover: #1530D6;
   --bx-accent-ink: #FFFFFF;
-  --bx-link: #1F3DFF;
   --bx-focus: #0086A6;
   --bx-focus-gap: #FFFFFF;
   --bx-ok: #436C0C;
@@ -309,12 +342,9 @@
   --bx-part-tab-shell: #1F3DFF;
   --bx-titlebar: #F1F2F5;
   --bx-titlebar-active: #FFFFFF;
-  --bx-title-text: #0B0C12;
-  --bx-title-text-inactive: #626576;
   --bx-window-border: #CDD0D8;
   --bx-window-border-active: #33353F;
   --bx-control-hover: #E8E9EE;
-  --bx-close-hover: #C81E1E;
   --bx-close-hover-ink: #FFFFFF;
   --bx-shadow: 0 1px 2px rgba(11, 12, 18, 0.08);
   --bx-shadow-rest: 0 1px 0 rgba(11, 12, 18, 0.04), 0 8px 24px rgba(11, 12, 18, 0.1);
@@ -383,7 +413,6 @@
     --bx-accent: #1F3DFF;
     --bx-accent-hover: #1530D6;
     --bx-accent-ink: #FFFFFF;
-    --bx-link: #1F3DFF;
     --bx-focus: #0086A6;
     --bx-focus-gap: #FFFFFF;
     --bx-ok: #436C0C;
@@ -399,12 +428,9 @@
     --bx-part-tab-shell: #1F3DFF;
     --bx-titlebar: #F1F2F5;
     --bx-titlebar-active: #FFFFFF;
-    --bx-title-text: #0B0C12;
-    --bx-title-text-inactive: #626576;
     --bx-window-border: #CDD0D8;
     --bx-window-border-active: #33353F;
     --bx-control-hover: #E8E9EE;
-    --bx-close-hover: #C81E1E;
     --bx-close-hover-ink: #FFFFFF;
     --bx-shadow: 0 1px 2px rgba(11, 12, 18, 0.08);
     --bx-shadow-rest: 0 1px 0 rgba(11, 12, 18, 0.04), 0 8px 24px rgba(11, 12, 18, 0.1);
@@ -470,11 +496,13 @@
 
 /* ---- the system's accessibility settings ---- */
 @media (prefers-contrast: more) {
-  /* dividers become the text colour (brand 11) */
+  /* dividers become the text colour (brand 11); a window control under the
+     pointer, which Night writes from the divider colour, takes the hover */
   :root:where([data-bx-theme="auto"]) {
     --bx-border: var(--bx-text);
     --bx-border-strong: var(--bx-text);
     --bx-window-border: var(--bx-text);
+    --bx-control-hover: var(--bx-hover);
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -504,13 +532,16 @@ body.bx {
   color: var(--bx-muted);
 }
 
-/* Controls (product-ui 6): 28px, square corners, the focus ring. A button
-   is secondary by default; .primary is the accent fill, .quiet text only,
-   .danger the destructive outline (a danger fill only inside a
-   confirmation). */
+/* Controls (product-ui 6): square corners, the strong edge, the focus
+   ring. A button is secondary by default. In a document that opted in
+   (data-bx-theme="auto") controls are 28px (32px comfortable) and a button
+   takes the variants: .primary the accent fill, .quiet text only, .danger
+   the destructive outline (a danger fill only inside a confirmation),
+   :disabled faded. A document that didn't opt in keeps its own sizes and
+   its own meaning for those class names, which this sheet never styled
+   before Base Two; and the variants are written at the base rule's
+   specificity, so a document's own later rule for one wins (D184). */
 .bx button, button.bx {
-  box-sizing: border-box;
-  min-height: var(--bx-control-h);
   padding: 4px 11px;
   background: var(--bx-panel);
   border: 1px solid var(--bx-border-strong);
@@ -521,15 +552,14 @@ body.bx {
   cursor: pointer;
 }
 .bx button:hover, button.bx:hover { background: var(--bx-hover); }
-.bx button.primary, button.bx.primary { background: var(--bx-accent); border-color: var(--bx-accent); color: var(--bx-accent-ink); }
-.bx button.primary:hover, button.bx.primary:hover { background: var(--bx-accent-hover); border-color: var(--bx-accent-hover); }
-.bx button.quiet, button.bx.quiet { background: transparent; border-color: transparent; }
-.bx button.quiet:hover, button.bx.quiet:hover { background: transparent; color: var(--bx-accent); }
-.bx button.danger, button.bx.danger { color: var(--bx-danger); border-color: var(--bx-danger); }
-.bx button:disabled, button.bx:disabled { opacity: 0.5; cursor: default; }
+:where([data-bx-theme="auto"]) :is(.bx button, button.bx) { box-sizing: border-box; min-height: var(--bx-control-h); }
+:where([data-bx-theme="auto"]) :is(.bx button, button.bx):where(.primary) { background: var(--bx-accent); border-color: var(--bx-accent); color: var(--bx-accent-ink); }
+:where([data-bx-theme="auto"]) :is(.bx button, button.bx):where(.primary):hover { background: var(--bx-accent-hover); border-color: var(--bx-accent-hover); }
+:where([data-bx-theme="auto"]) :is(.bx button, button.bx):where(.quiet) { background: transparent; border-color: transparent; }
+:where([data-bx-theme="auto"]) :is(.bx button, button.bx):where(.quiet):hover { background: transparent; color: var(--bx-accent); }
+:where([data-bx-theme="auto"]) :is(.bx button, button.bx):where(.danger) { color: var(--bx-danger); border-color: var(--bx-danger); }
+:where([data-bx-theme="auto"]) :is(.bx button, button.bx):where(:disabled) { opacity: 0.5; cursor: default; }
 .bx input, input.bx, .bx select, select.bx, .bx textarea, textarea.bx {
-  box-sizing: border-box;
-  min-height: var(--bx-control-h);
   padding: 4px 8px;
   background: var(--bx-panel);
   border: 1px solid var(--bx-border-strong);
@@ -537,6 +567,7 @@ body.bx {
   color: var(--bx-text);
   font: var(--bx-font);
 }
+:where([data-bx-theme="auto"]) :is(.bx input, input.bx, .bx select, select.bx, .bx textarea, textarea.bx) { box-sizing: border-box; min-height: var(--bx-control-h); }
 .bx input[type="checkbox"], .bx input[type="radio"], .bx input[type="range"] { min-height: 0; padding: 0; }
 /* Defaults a .bx document's own rules override (no specificity): the
    placeholder in subtle (product-ui 6), code in the mono face without
