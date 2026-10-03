@@ -19,7 +19,7 @@ class LarkCrm extends LitElement {
   };
 
   static styles = [scrollCss, baseCss, css`
-    .app { display: grid; grid-template-rows: auto auto 1fr; height: 100%; min-width: 0; }
+    .app { display: grid; grid-template-rows: auto auto 1fr; height: 100%; min-width: 0; container-type: inline-size; }
     header { display: flex; align-items: center; gap: 14px; padding: 10px 16px 0; border-bottom: 1px solid var(--bx-border); }
     .brand { display: flex; align-items: center; gap: 8px; font-weight: 650; font-size: 14px; padding-bottom: 9px; }
     .brand i { width: 18px; height: 18px; border-radius: 5px; background: linear-gradient(135deg, #12857a, #0c5f58); display: grid; place-items: center;
@@ -36,6 +36,8 @@ class LarkCrm extends LitElement {
     .kpi:last-child { border-right: 0; }
     .kpi b { display: block; font-size: 17px; font-weight: 650; letter-spacing: -.01em; margin-top: 1px; }
     .kpi small { color: var(--bx-muted); font-size: 11px; margin-left: 4px; font-weight: 400; }
+    /* a narrow window keeps the three headline numbers rather than a cut row */
+    @container (max-width: 760px) { .kpi.more { display: none; } .kpi.arr { border-right: 0; margin-right: 0; } }
     main { overflow: auto; min-height: 0; position: relative; }
 
     /* pipeline board */
@@ -157,9 +159,9 @@ class LarkCrm extends LitElement {
         ${s ? html`
           <div class="kpi"><span class="label">Open pipeline</span><b class="num">${money(s.pipeline, true)}<small>${s.openDeals} deals</small></b></div>
           <div class="kpi"><span class="label">Weighted forecast</span><b class="num">${money(s.weighted, true)}</b></div>
-          <div class="kpi"><span class="label">Won, last 30 days</span><b class="num">${money(s.won30, true)}</b></div>
-          <div class="kpi"><span class="label">ARR</span><b class="num">${money(s.arr, true)}<small>${s.customers} customers</small></b></div>
-          <div class="kpi"><span class="label">Win rate</span><b class="num">${s.winRate == null ? '—' : s.winRate + '%'}</b></div>` : html`<span class="muted">Loading…</span>`}
+          <div class="kpi more"><span class="label">Won, last 30 days</span><b class="num">${money(s.won30, true)}</b></div>
+          <div class="kpi arr"><span class="label">ARR</span><b class="num">${money(s.arr, true)}<small>${s.customers} customers</small></b></div>
+          <div class="kpi more"><span class="label">Win rate</span><b class="num">${s.winRate == null ? '—' : s.winRate + '%'}</b></div>` : html`<span class="muted">Loading…</span>`}
       </div>
       <main>
         ${this._err ? html`<div class="err">${this._err}</div>` : nothing}

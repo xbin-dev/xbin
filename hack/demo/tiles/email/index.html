@@ -71,6 +71,12 @@
         textarea { width: 100%; min-height: 110px; resize: vertical; background: var(--bx-panel-2); border: 1px solid var(--bx-border); border-radius: 8px; color: inherit;
                    font: inherit; font-size: 12.8px; line-height: 1.5; padding: 9px 11px; margin-bottom: 8px; }
         .empty { color: var(--bx-muted); padding: 30px; text-align: center; }
+        /* a phone: the thread list alone, full width */
+        @media (max-width: 560px) {
+          :host { grid-template-columns: minmax(0, 1fr); }
+          nav, .read { display: none; }
+          .list { border-right: 0; }
+        }
       `];
 
       constructor() { super(); this._threads = []; this._folder = 'Inbox'; }

@@ -45,6 +45,15 @@ class MyExpenses extends LitElement {
     .none b { color: var(--bx-text); }
     form { display: grid; grid-template-columns: 120px 1fr 120px 110px auto; gap: 8px; padding: 10px 12px; margin-bottom: 14px; border: 1px dashed var(--bx-border); border-radius: 9px; }
     form input, form select { background: var(--bx-panel-2); border: 1px solid var(--bx-border); border-radius: 6px; color: inherit; font: inherit; font-size: 12px; padding: 5px 8px; min-width: 0; }
+    /* a phone: the totals two by two, an item's date and amount around what it was */
+    @media (max-width: 560px) {
+      .wrap { padding: 12px 12px 18px; }
+      header { flex-wrap: wrap; }
+      .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .it { grid-template-columns: 44px minmax(0, 1fr) auto; gap: 8px; padding: 8px 10px; }
+      .it .ic, .it .rc { display: none; }
+      .sh { flex-wrap: wrap; }
+    }
   `];
 
   connectedCallback() { super.connectedCallback(); this._load(); }
