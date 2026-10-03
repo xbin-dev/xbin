@@ -57,10 +57,14 @@ tab, D74) with `/vendor/bx-md.js` (its hardened markdown renderer),
 `/vendor/agent-fold.js`, `/vendor/agent-pages.js` (the session log folded,
 and the pages of it the tab holds, D124/D130), `/vendor/agent-tools.js`,
 `/vendor/agent-cards.js`, `/vendor/agent-slash.js`,
-`/vendor/agent-testapi.js` (its test surface) and
+`/vendor/agent-css.js` (its styles), `/vendor/agent-testapi.js` (its test
+surface) and
 `/vendor/frame-titlebar.js` (the pop-up's title bar), `/vendor/term-predict.js`
 (the terminal's prediction engine, D70), `/vendor/term-src.js` (where
-`<bx-terminal src>` connects and when it reconnects), `/vendor/term-sessions.js` (the
+`<bx-terminal src>` connects and when it reconnects),
+`/vendor/term-chrome.js` (the terminal's own markup and styles, and
+xterm's loader), `/vendor/term-palettes.js` (the terminal settings menu's
+named palettes, D184), `/vendor/term-sessions.js` (the
 frame's view of the terminal session directory, D73),
 `/vendor/frame-deploy.js` (the terminal window's live reload controls: the
 `⇈` entry, the chip and its menu, Reload now, the launcher's banner, the
@@ -79,7 +83,8 @@ every question; `target` — `primary`, a deployment's name or `off` — is the
 active tab's, whose row it tags `Dev API`) with `/vendor/deploy-panel.js` (the panel's pure view
 model, beside `deploy-state.js`), `/vendor/frame-panels.js` (the terminal
 window's body: which panel shows, the terminal beside it, the divider —
-D129), `/vendor/frame-testapi.js` (`<bx-frame>`'s
+D129), `/vendor/frame-css.js` (`<bx-frame>`'s own styles),
+`/vendor/frame-testapi.js` (`<bx-frame>`'s
 test surface for the UI harness), and the shell's own siblings under
 `shell/`. They are served, and they will keep being served, but their
 shapes follow the shell.

@@ -50,6 +50,6 @@
     ]}
   ]},
   {"k":"r.1:/api/apps/agent","t":"section","p":{"title":"apps/agent","footer":"/api/apps/agent"},"c":[
-    {"k":"r.1:/api/apps/agent.0","t":"notice","p":{"tone":"danger","text":"⚠ HTTP 502"}}
+    {"k":"r.1:/api/apps/agent.0","t":"notice","p":{"tone":"danger","text":"HTTP 502"}}
   ]}
 ]}}

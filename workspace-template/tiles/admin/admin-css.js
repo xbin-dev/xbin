@@ -171,6 +171,23 @@ export const base = [scrollCss, css`
     .seteditor select[name=kind] { min-width: 150px; }
 `];
 
+// The router's own nav (admin.js), Base Two (D184): text tabs, the active
+// one underlined in the accent (product-ui §6) — the group row in the UI's
+// weight, the sub-tabs under it — sticky together; their height is
+// --admin-nav-h, under which the tabs' table headers stick.
+export const navCss = css`
+  :host { display: block; font: var(--bx-font); color: var(--bx-text); background: var(--bx-panel); }
+  .nav { position: sticky; top: 0; z-index: 2; background: var(--bx-panel); border-bottom: 1px solid var(--bx-border); }
+  /* two-level nav: a primary group row + a sub-tab row under it */
+  .groups, .tabs { display: flex; gap: 4px; padding: 0 8px; flex-wrap: wrap; }
+  .tabs { border-top: 1px solid var(--bx-border); }
+  .groups button, .tabs button { box-sizing: border-box; min-height: 32px; border: 0; border-bottom: 2px solid transparent;
+    background: none; padding: 4px 8px 2px; cursor: pointer; color: var(--bx-muted); }
+  .groups button { font-weight: 600; }
+  .groups button:hover, .tabs button:hover { color: var(--bx-text); }
+  .groups button.on, .tabs button.on { color: var(--bx-text); border-bottom-color: var(--bx-accent); }
+`;
+
 export const mapCss = css`
     /* ---- access map (structure + effective-access matrix) ---- */
     /* a level: a square letter; read, write and terminal in the first three

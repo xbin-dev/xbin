@@ -33,15 +33,12 @@
  * only "Save and update for everyone" publishes it (revisioned — a stale save
  * asks whether to reload theirs or overwrite). Members may hide, reorder and
  * copy them; org admins rename them from the tab.
- * **Appearance** (D184): the page follows the person's theme (System ·
- * Light · Dark) and density (Compact · Comfortable), set in the settings
- * menu: /vendor/bx-theme.js restyles this document and every frame at
- * once, and the choice is the `theme` / `density` keys of this bucket
- * (absent = the default), which the person's other tabs and devices follow
- * through the `prefs` event.
+ * **Appearance** (D184): the person's theme and density, the `theme` /
+ * `density` keys of this bucket, picked in the settings menu and followed
+ * across their tabs and devices: shell-appearance.js.
  */
 import { LitElement, html, nothing, repeat } from 'lit';
-import { appearance, setAppearance, THEMES, DENSITIES } from '/vendor/bx-theme.js';
+import { appearance } from '/vendor/bx-theme.js';
 import '/vendor/bx-frame.js';
 import '/vendor/bx-grants.js';
 import '/vendor/bx-bindings.js';
@@ -77,11 +74,9 @@ import { overlaps, spotNear } from './grid-layout.js';
 import { canvasMenuItems, tileMenuItems, offloaded, hidden } from './menus.js';
 import { ago, newDraft, withDraft, withoutDraft, publish, conflictDialog } from './rev-draft.js';
 import { nextZ, frontWindow, onWindowFront, activeWindow } from './zorder.js';
-import { follow as followLayout, editing as layoutEditing, foreignWrite } from './layout-sync.js';
+import { follow as followLayout, editing as layoutEditing } from './layout-sync.js';
 import { framedTile } from './partition-mode.js';
-
-// The appearance keys of the shell's prefs bucket (D184): absent = the default.
-const APPEARANCE = [['theme', 'system', THEMES], ['density', 'compact', DENSITIES]];
+import { appearanceRows, followAppearance } from './shell-appearance.js';
 
 // Convert a legacy column-based tile ({col, height}) to a fixed-grid tile
 // ({x,y,w,h}); tiles already in grid form pass through. Old columns become grid
@@ -223,7 +218,7 @@ export class BxShell extends LitElement {
       if (e.type === 'status') this._onStatusEvent(e); // tile health / notifications
       if (e.type === 'pr') this._loadPRs();            // change-proposal badges (⇄)
       if (e.type === 'prefs') followLayout(this, e, LAYOUT_PREF); // the app / another tab saved the layout
-      if (e.type === 'prefs') this._followAppearance(e); // another tab or device changed the theme or density
+      if (e.type === 'prefs') followAppearance(this, e); // another tab or device changed the theme or density
     });
     this._loadStatuses();
     this._loadPRs();
@@ -1086,52 +1081,6 @@ export class BxShell extends LitElement {
     window.dispatchEvent(new CustomEvent('bx-ambient-zoom', { detail: { zoom: z } }));
   }
 
-  // ---- appearance (D184): the theme and density, per person ----
-  // A pick restyles this page and every frame in it at once (setAppearance:
-  // bx-frame relays it to its iframe), then is saved in this bucket — PUT
-  // the key, or DELETE it for the default — with the X-Prefs-Writer header,
-  // so this tab skips its own `prefs` event while the person's other tabs
-  // and devices follow it (_followAppearance). Viewing the workspace as
-  // someone shows their choice and changes nothing.
-  _pickAppearance(key, value) {
-    const def = APPEARANCE.find(([k]) => k === key);
-    if (this._who?.readOnly || !def || !def[2].includes(value) || appearance()[key] === value) return;
-    setAppearance({ [key]: value });
-    this._look = appearance();
-    const f = window.xbin?.fetch ?? fetch, url = `/api/xbin/prefs/${key}`, headers = { 'X-Prefs-Writer': this._writer };
-    (value === def[1]
-      ? f(url, { method: 'DELETE', headers })
-      : f(url, { method: 'PUT', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(value) }))
-      .catch(() => { /* offline: this page has it; the next pick saves */ });
-  }
-  // Another client changed the theme or density: read the key, follow it.
-  async _followAppearance(e) {
-    for (const [key, def, values] of APPEARANCE) {
-      if (!foreignWrite(e, key, this._writer)) continue;
-      let v = def;
-      try {
-        const r = await (window.xbin?.fetch ?? fetch)(`/api/xbin/prefs/${key}`);
-        if (r.ok) { const j = await r.json(); if (values.includes(j)) v = j; } else if (r.status !== 404) continue;
-      } catch { continue; /* offline: the next event, or a reload, has it */ }
-      setAppearance({ [key]: v });
-      this._look = appearance();
-    }
-  }
-  // The settings menu's Theme and Density: square segmented controls, the
-  // pressed one the person's choice (aria-pressed).
-  _appearanceRows() {
-    const look = this._look ?? appearance(), ro = !!this._who?.readOnly;
-    const seg = (key, label, opts) => html`<div class="row"><span id=${`ap-${key}`}>${label}</span>
-      <span class="seg" role="group" aria-labelledby=${`ap-${key}`}>${opts.map(([v, word, tip]) => html`<button
-        aria-pressed=${look[key] === v ? 'true' : 'false'} ?disabled=${ro} data-appearance=${`${key}:${v}`}
-        title=${ro ? 'read-only while you view the workspace as someone: this is their choice' : tip}
-        @click=${() => this._pickAppearance(key, v)}>${word}</button>`)}</span></div>`;
-    return html`
-      ${seg('theme', 'Theme', [['system', 'System', "follow this device's light or dark setting"],
-        ['light', 'Light', 'Concrete Day, whatever the device says'], ['dark', 'Dark', 'Concrete Night, whatever the device says']])}
-      ${seg('density', 'Density', [['compact', 'Compact', '28 px rows, 13 px text'], ['comfortable', 'Comfortable', '32 px rows, 14 px text']])}`;
-  }
-
   // Every folder operation takes a context (see _folderCtx): the user's own
   // top-level folders, or a shared set being curated through a draft.
   _addFolder(ctx = this._folderCtx('top')) {
@@ -1815,7 +1764,7 @@ export class BxShell extends LitElement {
             <div class="hd">settings</div>
             ${this._who?.kind === 'user' ? html`<button class="act add-device" data-add-device title="the xbin app on a phone or tablet: a QR code to scan"
               @click=${() => { this._settingsOpen = false; openDevices({ add: true }); }}><bx-icon name="device" size="20"></bx-icon><b>add a device</b><span>the xbin app on your phone · QR code</span></button>` : nothing}
-            ${this._appearanceRows()}
+            ${appearanceRows(this)}
             <div class="row"><span>Font size</span>
               <span class="fs">
                 <button class="step" title="smaller" aria-label="smaller text" @click=${() => this._saveSettings({ fontSize: (this._settings.fontSize || 13) - 1 })}><bx-icon name="minus"></bx-icon></button>

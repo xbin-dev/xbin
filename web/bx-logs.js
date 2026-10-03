@@ -46,36 +46,9 @@ import { logsQuery, echoOK, logChoices, badgeText, globalProbe } from '/vendor/l
 import { wireLinks } from '/vendor/term-links.js';
 import { themeName, paletteFor } from '/vendor/term-palettes.js';
 import { token, onAppearance } from '/vendor/bx-theme.js';
+import { loadXterm } from '/vendor/term-chrome.js'; // xterm, once per document: the terminal's tags, shared by id
 
 const LISTING_TTL = 30000; // how long the switcher trusts its listing on a new stream
-
-// Same loader as bx-terminal: the tag is shared by id, so wait for ITS load
-// rather than resolving because it already exists (the terminal and this
-// view mount together when logs open first).
-const scriptOnce = (src) => {
-  const id = 'bxs-' + src.replace(/\W/g, '');
-  let s = document.getElementById(id);
-  if (s?.dataset.loaded) return Promise.resolve();
-  if (!s) {
-    s = document.createElement('script');
-    s.id = id; s.src = src;
-    document.head.appendChild(s);
-  }
-  return new Promise((res, rej) => {
-    s.addEventListener('load', () => { s.dataset.loaded = '1'; res(); }, { once: true });
-    s.addEventListener('error', rej, { once: true });
-  });
-};
-
-let xtermReady = null;
-function loadXterm() {
-  xtermReady ??= (async () => {
-    await scriptOnce('/vendor/xterm.js');
-    await scriptOnce('/vendor/addon-fit.js');
-    await scriptOnce('/vendor/addon-web-links.js');
-  })();
-  return xtermReady;
-}
 
 // The theme prefs live in localStorage under the terminal's keys — a log
 // viewer sitting next to shells should match them. Kept a tiny local copy of

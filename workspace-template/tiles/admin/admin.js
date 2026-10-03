@@ -15,11 +15,11 @@
  * grants/reload/users event stream. docs/maintenance.md → "The admin
  * console's tabs" is the contributor's guide.
  */
-import { LitElement, html, css, nothing } from 'lit';
+import { LitElement, html, nothing } from 'lit';
 
 import { xbinApi as api } from '/vendor/bx-kit.js';
 import '/vendor/bx-icons.js'; // <bx-icon name>: the drawn glyphs every tab uses (D184)
-import { base } from './admin-css.js';
+import { base, navCss } from './admin-css.js';
 // Tab elements (tiles/admin/tabs/*): each owns its data, endpoints and CSS
 // slice; the router keeps the nav, the shared lists and the global err /
 // notice slots, which the tabs feed through composed events.
@@ -68,22 +68,7 @@ export class BxAdmin extends WithDrafts(LitElement) {
     _denied: { state: true },
   };
 
-  // Base Two (D184): text tabs, the active one underlined in the accent
-  // (product-ui §6) — the group row in the UI's weight, the sub-tabs under
-  // it — sticky together; their height is --admin-nav-h, under which the
-  // tabs' table headers stick.
-  static styles = [base, css`
-    :host { display: block; font: var(--bx-font); color: var(--bx-text); background: var(--bx-panel); }
-    .nav { position: sticky; top: 0; z-index: 2; background: var(--bx-panel); border-bottom: 1px solid var(--bx-border); }
-    /* two-level nav: a primary group row + a sub-tab row under it */
-    .groups, .tabs { display: flex; gap: 4px; padding: 0 8px; flex-wrap: wrap; }
-    .tabs { border-top: 1px solid var(--bx-border); }
-    .groups button, .tabs button { box-sizing: border-box; min-height: 32px; border: 0; border-bottom: 2px solid transparent;
-      background: none; padding: 4px 8px 2px; cursor: pointer; color: var(--bx-muted); }
-    .groups button { font-weight: 600; }
-    .groups button:hover, .tabs button:hover { color: var(--bx-text); }
-    .groups button.on, .tabs button.on { color: var(--bx-text); border-bottom-color: var(--bx-accent); }
-  `];
+  static styles = [base, navCss]; // the router's own: its two-level nav (admin-css.js)
 
   // Two-level nav (deployments run to thousands of tiles, so the flat tab row
   // no longer scales). Primary GROUPS, each with sub-tabs; sub-tab ids stay

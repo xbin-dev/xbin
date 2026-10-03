@@ -17,7 +17,7 @@
       {"k":"r.0.5.2","t":"row","p":{"title":"Your keys","icon":"key","nav":true,"detail":"1"},"e":["tap"]}
     ]}
   ]},
-  {"k":"r.1","t":"screen","p":{"title":"API dev","subtitle":"▣ running","style":"form"},"c":[
+  {"k":"r.1","t":"screen","p":{"title":"API dev","subtitle":"running","style":"form"},"c":[
     {"k":"r.1.1","t":"section","c":[
       {"k":"r.1.1.0","t":"notice","p":{"tone":"ok","text":"Copied https://xbin.test/ — paste it into a browser, then open Sandbox terminals there."}}
     ]},
