@@ -638,7 +638,8 @@ everywhere a corner shows. Motion: ease out `cubic-bezier(.16,1,.3,1)`, in-out
 |---|---|
 | The site's tokens (light and dark) and styles | `website/css/tokens.css`, `website/css/site.css` |
 | Fonts and their licences | `website/fonts/` |
-| The mark's master files and rules | `plans/brand/marks/` (the site's copies in `website/img/`, `website/favicon.svg`) |
+| The mark's master files and rules | `plans/brand/marks/` (the site's copies in `website/img/`, `website/favicon.svg`; the product's in `web/` and drawn inline, `plans/brand/marks/README.md`) |
+| The product design guide for tile builders (people and agents) | `docs/design.md` (served at `/docs/design.md`); its short form is *Design guidelines* in `workspace-template/AGENTS.md` |
 | The glass-hall photographs, prompts and reports | `website/art/` (their web sizes in `website/img/`, `make website-images`) |
 | The product screenshots and the film still to shoot | `website/shots.todo.md` |
 | The share card | `website/og.html` → `website/og.png` |
