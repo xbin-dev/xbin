@@ -137,7 +137,10 @@ function persistentShim(ctx, page) {
 }
 
 class Backend {
-  // o: {pw, width, height, dpr, fps, out, take, codec, quality, frames, display, chromium, log}
+  // o: {pw, width, height, dpr, fps, out, take, codec, quality, frames, display, chromium, theme, log}
+  // theme: the system's light or dark the page sees (prefers-color-scheme),
+  // which the workspace follows (D184); dark unless asked — Playwright's
+  // own default is light
   constructor(o) {
     this.o = o;
     this.clock = new RealClock();
@@ -151,7 +154,7 @@ class Backend {
   async launch() {
     this.browser = await this.o.pw.chromium.launch({ headless: true, ignoreDefaultArgs: ['--hide-scrollbars'], args: this.launchArgs() });
   }
-  ctxOpts() { return { viewport: null, deviceScaleFactor: undefined }; }
+  ctxOpts() { return { viewport: null, deviceScaleFactor: undefined, colorScheme: this.o.theme || 'dark' }; }
   // what lib.js login() takes as a browser: newContext(opts) → {newPage()}
   browserLike() { return this.browser; }
   // roll(): start recording; cut(): stop → {file, firstFrameAt (on this.clock), …}
@@ -197,7 +200,7 @@ class X11Backend extends Backend {
     if (!o.display) throw new Error('x11 capture needs an X display: run it through capture.sh (Xvfb), or set DISPLAY');
     this.udd = profile(o.tmp);
     this.ctx = await o.pw.chromium.launchPersistentContext(this.udd, {
-      headless: false, viewport: null,
+      headless: false, viewport: null, colorScheme: o.theme || 'dark',
       executablePath: o.chromium || undefined,
       ignoreDefaultArgs: ['--enable-automation'],
       args: [...this.launchArgs(), '--kiosk', '--window-position=0,0', ...QUIET],

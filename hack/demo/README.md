@@ -73,7 +73,9 @@ HARNESS_SEED=demo PORT=9301 HARNESS_DIR=/tmp/film/h DEMO_STILLS=/tmp/film/stills
 fakeopenai with the demo script, and runs the `demoStills` pass instead of
 the test passes (`stills.js`): it signs in as a regular person and as the
 admin, walks their seeded screens and saves 1440×900 frames at device scale
-2 to `$DEMO_STILLS` (default `$HARNESS_DIR/out/stills`). Its xbind gets none
+2 to `$DEMO_STILLS` (default `$HARNESS_DIR/out/stills`), in the theme
+`DEMO_THEME` names: `dark` (the default, Concrete Night: the stills as they
+always were), `light` (Concrete Day: `NN-name-light.png`) or `both`. Its xbind gets none
 of the test seed's fakes — no scripted "fake" agent provider, no fakesbx
 coding agent, no fakebin `claude` on its PATH — so a terminal's `+`
 launcher films what a real workspace offers. The set's password is
@@ -166,6 +168,23 @@ Success, Operations, each with its tiles and network sets (`internet`,
 signs in to their own screens (`data/layouts.json`) at a 17 px font (the
 shell's settings pref), or their own size there (Maya's four-app Company
 screen and Lukas's sandboxes at 15 px).
+
+## Light and dark
+
+The set's apps follow the workspace's theme (D184) like any app that opts
+in: each page is `<html data-bx-theme="auto">` and links `/vendor/theme.css`,
+so it is Concrete Day or Concrete Night as the person's system (or their
+choice in the shell's settings) says. No one on the set has a theme of their
+own: a capture picks it as the browser's light or dark — `DEMO_THEME` for the
+stills, `--theme` for the camera (`cam/README.md`), both defaulting to dark —
+and both clear a choice an earlier take left. `themes.js` names them.
+
+The tiles style themselves from the theme's tokens alone: no colour, font
+stack, corner or shadow of their own, no type under 13 px but the micro and
+meta tokens, status as an icon, a word and its colour (`/vendor/bx-icons.js`),
+people as their initials on a square of concrete, the calendar's categories
+in the theme's order for categorical colour (blue, magenta, cyan: customers,
+reviews, the company's own days). `hack/demo-theme.test.mjs` checks it.
 
 ## Changing it
 

@@ -16,6 +16,9 @@
 //   --fps N         60       --quality lossless|high   --codec auto|h264_nvenc|libx264
 //   --frames png|jpeg        beginframe's frame format (png: lossless, slower)
 //   --pace human|fast        fast: no glides, no typing beat, no holds (still's default)
+//   --theme dark|light       the system's light or dark, which the workspace
+//                   follows (D184; default $DEMO_THEME, else dark); a light
+//                   take's default name ends in -light
 //   --url URL       xbind (default $URL, else http://127.0.0.1:$PORT, PORT 8697)
 //   --user U --pass P        login for cam.login() (default $XBIN_USER/$XBIN_PASS, admin/admin)
 //   --take NAME     file stem (default: the shot's name)      --seed S   motion seed (1)
@@ -34,13 +37,15 @@ const path = require('path');
 
 const HERE = __dirname;
 const REPO = path.resolve(HERE, '../../..');
+const { suffix } = require('../themes');
 // a mistake on the command line: said in one line, no stack
 const usage = (msg) => Object.assign(new Error(msg), { usage: true });
 
 function parse(argv) {
   const o = { mode: 'video', capture: null, size: '1920x1080', dpr: 2, fps: 60, quality: 'lossless', codec: 'auto', frames: 'png',
     pace: null, url: null, user: process.env.XBIN_USER || 'admin', pass: process.env.XBIN_PASS || 'admin', take: null, seed: 1,
-    set: {}, display: process.env.DISPLAY || '', keepFrames: false, list: false, shot: null, out: null, cursorScale: 1 };
+    set: {}, display: process.env.DISPLAY || '', keepFrames: false, list: false, shot: null, out: null, cursorScale: 1,
+    theme: process.env.DEMO_THEME || 'dark' };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     const val = () => { if (i + 1 >= argv.length) throw usage(`${a} needs a value`); return argv[++i]; };
@@ -55,6 +60,7 @@ function parse(argv) {
       case '--codec': o.codec = val(); break;
       case '--frames': o.frames = val(); break;
       case '--pace': o.pace = val(); break;
+      case '--theme': o.theme = val(); break;
       case '--url': o.url = val(); break;
       case '--user': o.user = val(); break;
       case '--pass': o.pass = val(); break;
@@ -78,6 +84,7 @@ function parse(argv) {
   if (!['still', 'video', 'scratch'].includes(o.mode)) throw usage(`--mode is still|video|scratch, got ${o.mode}`);
   if (o.mode === 'video') o.capture = o.capture || 'beginframe';
   if (o.capture && !['beginframe', 'x11', 'screencast'].includes(o.capture)) throw usage(`--capture is beginframe|x11|screencast, got ${o.capture}`);
+  if (!['dark', 'light'].includes(o.theme)) throw usage(`--theme is dark|light (one per take; site-stills.sh shoots both), got ${o.theme}`);
   o.pace = o.pace || (o.mode === 'still' ? 'fast' : 'human');
   o.url = (o.url || process.env.URL || `http://127.0.0.1:${process.env.PORT || 8697}`).replace(/\/$/, '');
   return o;
@@ -105,7 +112,11 @@ function argValues(defaults, set) {
 
 async function main() {
   const o = parse(process.argv.slice(2));
-  if (o.help) { console.log(fs.readFileSync(__filename, 'utf8').split('\n').slice(1, 30).map((l) => l.replace(/^\/\/ ?/, '')).join('\n')); return 0; }
+  if (o.help) {
+    const head = fs.readFileSync(__filename, 'utf8').split('\n').slice(1);
+    console.log(head.slice(0, head.findIndex((l) => !l.startsWith('//'))).map((l) => l.replace(/^\/\/ ?/, '')).join('\n'));
+    return 0;
+  }
   if (o.list) { listShots(); return 0; }
   if (!o.shot) throw usage('which shot? node shot.js <shot-module> --out <dir> (--list)');
   if (!o.out) throw usage('--out <dir> is required');
@@ -114,7 +125,7 @@ async function main() {
   const action = typeof shot === 'function' ? shot : shot.action;
   if (typeof action !== 'function') throw usage(`${file}: export an async (cam) => {…}`);
   const name = path.basename(file).replace(/\.js$/, '');
-  o.take = o.take || name;
+  o.take = o.take || name + suffix(o.theme);
   o.out = path.resolve(o.out);
   fs.mkdirSync(o.out, { recursive: true });
 
@@ -126,7 +137,7 @@ async function main() {
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'xbin-cam-'));
   const bo = { pw: lib.pw, width: o.width, height: o.height, dpr: o.dpr, fps: o.fps, out: o.out, take: o.take, codec: o.codec,
-    quality: o.quality, frames: o.frames, display: o.display, chromium: process.env.CAM_CHROMIUM || '', tmp, log };
+    quality: o.quality, frames: o.frames, display: o.display, chromium: process.env.CAM_CHROMIUM || '', theme: o.theme, tmp, log };
   const rec = require('./rec');
   let backend;
   if (o.mode === 'still') backend = new rec.Backend(bo);
@@ -137,8 +148,8 @@ async function main() {
 
   const { Cam } = require('./cam');
   const cam = new Cam({ backend, lib, out: o.out, take: o.take, shot: name, mode: o.mode, width: o.width, height: o.height, dpr: o.dpr,
-    fps: o.fps, seed: o.seed, pace: o.pace, user: o.user, pass: o.pass, url: o.url, args: argValues(shot.defaults, o.set), cursorScale: o.cursorScale, log });
-  log(`${o.mode}${backend.capture !== 'none' ? ` (${backend.capture})` : ''} ${o.width}x${o.height}@${o.dpr}x → ${o.out}/${o.take}.*`);
+    fps: o.fps, seed: o.seed, pace: o.pace, theme: o.theme, user: o.user, pass: o.pass, url: o.url, args: argValues(shot.defaults, o.set), cursorScale: o.cursorScale, log });
+  log(`${o.mode}${backend.capture !== 'none' ? ` (${backend.capture})` : ''} ${o.width}x${o.height}@${o.dpr}x ${o.theme} → ${o.out}/${o.take}.*`);
   let failed = null;
   // Ctrl-C: let the browser and ffmpeg go, drop the scratch frames
   process.once('SIGINT', () => {

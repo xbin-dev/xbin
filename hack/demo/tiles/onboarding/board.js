@@ -1,6 +1,7 @@
 // board.js — the onboarding tracker: a card per customer we're onboarding,
 // soonest go-live first, with progress, the next step and the checklist.
 import { LitElement, html, nothing } from 'lit';
+import '/vendor/bx-icons.js';
 import { styles } from './styles.js';
 import { loadCustomers, saveCustomer } from './store.js';
 import { crmAccount } from './crm.js';
@@ -9,8 +10,8 @@ import { checklist } from './checklist.js';
 const DAY = 864e5;
 const day = (t) => new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 const until = (t) => { const d = Math.ceil((t - Date.now()) / DAY); return d <= 0 ? 'today' : d === 1 ? 'tomorrow' : `in ${d} days`; };
-const HEALTH = { good: ['var(--ok)', 'healthy'], watch: ['var(--warn)', 'watch'], risk: ['var(--bad)', 'at risk'] };
-const hue = (id) => { let h = 0; for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return [14, 32, 152, 168, 190, 210, 232, 262, 290, 330, 350, 46][h % 12]; };
+// the CRM's health: a status (its colour), its icon and its word
+const HEALTH = { good: ['ok', 'ok', 'healthy'], watch: ['warn', 'warning', 'watch'], risk: ['bad', 'error', 'at risk'] };
 const initials = (n) => String(n || '?').split(/\s+/).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 
 class OnboardingBoard extends LitElement {
@@ -59,16 +60,16 @@ class OnboardingBoard extends LitElement {
     return html`<div class="card">
       <div class="top">
         <div><div class="name">${c.name}</div><div class="what">${c.title}</div></div>
-        <span class="av" style="--h:${hue(c.csm)}" title=${c.csmName}>${initials(c.csmName)}</span>
+        <span class="av" title=${c.csmName}>${initials(c.csmName)}</span>
       </div>
       <div class="facts">
         ${a ? html`<span class="chip">${a.status === 'customer' ? a.plan : 'Prospect'}</span><span class="chip">${a.vans} vans · ${a.depots} depot${a.depots > 1 ? 's' : ''}</span>` : nothing}
-        ${h ? html`<span class="chip"><span class="dot" style="--c:${h[0]}"></span>${h[1]}</span>` : nothing}
+        ${h ? html`<span class="chip ${h[0]}"><bx-icon name=${h[1]}></bx-icon>${h[2]}</span>` : nothing}
         <span class="chip">go-live ${day(c.goLive)}</span>
       </div>
       <div class="bar"><i style="width:${Math.round(100 * done / c.steps.length)}%"></i></div>
       <div class="prog"><span><b>${done}</b> of ${c.steps.length} steps</span><span>go-live ${until(c.goLive)}</span></div>
-      ${nx ? html`<div class="next ${late ? 'late' : ''}">Next: <b>${nx.title}</b> <span>· ${late ? `late, was due ${day(nx.due)}` : `due ${day(nx.due)}`}</span></div>` : html`<div class="next">Ready for go-live</div>`}
+      ${nx ? html`<div class="next ${late ? 'late' : ''}">${late ? html`<bx-icon name="error"></bx-icon> ` : nothing}Next: <b>${nx.title}</b> <span>· ${late ? `late, was due ${day(nx.due)}` : `due ${day(nx.due)}`}</span></div>` : html`<div class="next">Ready for go-live</div>`}
       ${this._open[c.id] ? checklist(c, {
         open: !!this._shown[c.id],
         onToggle: (cc, s, on) => this._toggle(cc, s, on),

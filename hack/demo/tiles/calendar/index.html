@@ -2,7 +2,7 @@
 <!-- The team calendar: a week view over examples/calendar's backend (GET
      /events?day=, POST /events; live via its bus). The demo film set lays
      this page over the example's own. -->
-<html lang="en">
+<html lang="en" data-bx-theme="auto">
 <head>
   <meta charset="utf-8">
   <title>calendar</title>
@@ -14,6 +14,7 @@
   <script type="module">
     import { LitElement, html, css, nothing } from 'lit';
     import { scrollCss } from '/vendor/scroll-css.js';
+    import '/vendor/bx-icons.js';
 
     const pad = (n) => String(n).padStart(2, '0');
     const key = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -23,39 +24,60 @@
     const workWeek = () => monday(new Date());
     const fmt = (d, o) => d.toLocaleDateString('en-US', o);
     const nowHM = () => { const n = new Date(); return `${pad(n.getHours())}:${pad(n.getMinutes())}`; };
+    // an event's category, by its title, in the theme's order for
+    // categorical colour (blue, magenta, cyan, …): meetings with customers,
+    // reviews and the board, the company's own days; routine ones (the
+    // standup, Friday demos) take none
+    const category = (title) => /standup|demos/i.test(title) ? 'var(--bx-border-strong)'
+      : /review|incident|hiring|board/i.test(title) ? 'var(--bx-term-magenta)'
+      : /all-hands|lunch|offsite/i.test(title) ? 'var(--bx-term-cyan)' : 'var(--bx-term-blue)';
 
     class TeamCalendar extends LitElement {
       static properties = { _start: { state: true }, _days: { state: true }, _adding: { state: true }, _narrow: { state: true } };
       static styles = [scrollCss, css`
         :host { display: grid; grid-template-rows: auto 1fr; height: 100%; font: var(--bx-font); color: var(--bx-text); background: var(--bx-panel); }
         * { box-sizing: border-box; }
-        header { display: flex; align-items: center; gap: 10px; padding: 12px 16px 10px; border-bottom: 1px solid var(--bx-border); }
-        h1 { margin: 0; font-size: 15px; font-weight: 650; }
-        .range { color: var(--bx-muted); font-size: 12.5px; }
+        ::selection { background: var(--bx-selection); color: var(--bx-selection-text); }
+        ::placeholder { color: var(--bx-subtle); opacity: 1; }
+        :focus-visible { outline: var(--bx-focus-outline); outline-offset: var(--bx-focus-offset); box-shadow: var(--bx-focus-halo); }
+        header { display: flex; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--bx-border); }
+        h1 { margin: 0; font: var(--bx-font-title); }
+        .range { color: var(--bx-muted); font-variant-numeric: tabular-nums; }
         .sp { flex: 1; }
-        button { font: inherit; font-size: 12px; color: inherit; background: var(--bx-panel-2); border: 1px solid var(--bx-border); border-radius: 6px; padding: 3px 10px; cursor: pointer; }
+        button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: var(--bx-control-h); padding: 4px 10px;
+                 font: inherit; font-weight: 600; color: var(--bx-text); background: var(--bx-panel); border: 1px solid var(--bx-border-strong);
+                 border-radius: var(--bx-radius); cursor: pointer; }
+        button:hover { background: var(--bx-hover); }
+        button.icon { width: var(--bx-control-h); padding: 0; }
+        button.primary { background: var(--bx-accent); border-color: var(--bx-accent); color: var(--bx-accent-ink); }
+        button.primary:hover { background: var(--bx-accent-hover); border-color: var(--bx-accent-hover); }
         .week { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); min-height: 0; overflow: auto; }
-        .agenda { overflow: auto; padding: 4px 14px 16px; }
-        .agenda h2 { font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--bx-muted); margin: 12px 2px 8px; }
-        .agenda h2 b { color: var(--bx-accent); font-weight: 600; }
-        .day { border-right: 1px solid var(--bx-border); padding: 8px 8px 14px; min-width: 0; }
+        .agenda { overflow: auto; padding: 4px 16px 16px; }
+        .agenda h2 { margin: 12px 2px 8px; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase; color: var(--bx-muted); }
+        .agenda h2 b { color: var(--bx-text); }
+        .day { border-right: 1px solid var(--bx-border); padding: 8px 8px 16px; min-width: 0; }
         .day:last-child { border-right: 0; }
-        .dh { display: flex; align-items: baseline; gap: 6px; padding: 2px 4px 8px; }
-        .dh .w { font-size: 11px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--bx-muted); }
-        .dh .n { font-size: 17px; font-weight: 650; }
-        .day.today { background: color-mix(in srgb, var(--bx-accent) 4%, transparent); }
-        .day.today .n { color: #1b1e24; background: var(--bx-accent); border-radius: 999px; padding: 0 7px; }
-        .ev { border-radius: 7px; padding: 6px 8px; margin-bottom: 6px; background: var(--bx-panel-2); border: 1px solid var(--bx-border);
-              border-left: 3px solid var(--c, var(--bx-accent)); }
-        .ev .t { font-family: var(--bx-mono); font-size: 11px; color: var(--c, var(--bx-accent)); }
-        .ev .x { font-size: 12.3px; font-weight: 600; line-height: 1.3; margin-top: 1px; }
-        .ev .p { font-size: 11px; color: var(--bx-muted); line-height: 1.35; margin-top: 1px; }
-        .ev.past { opacity: .55; }
-        .now { height: 0; border-top: 2px solid var(--bx-red); margin: 2px 0 8px; position: relative; }
-        .now::before { content: ''; position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; border-radius: 50%; background: var(--bx-red); }
-        .free { color: var(--bx-muted); font-size: 11.5px; padding: 2px 4px; }
+        .dh { display: flex; align-items: center; gap: 6px; padding: 2px 4px 8px; }
+        .dh .w { font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase; color: var(--bx-muted); }
+        .dh .n { min-width: 26px; padding: 0 4px; border-radius: var(--bx-radius); text-align: center; font: var(--bx-font-title); font-variant-numeric: tabular-nums; }
+        /* today: its date on an ink square */
+        .day.today .w { color: var(--bx-text); }
+        .day.today .n { background: var(--bx-text); color: var(--bx-panel); }
+        /* an event: its category as the rule on its left, the time in mono */
+        .ev { border-radius: var(--bx-radius); padding: 6px 8px; margin-bottom: 6px; background: var(--bx-panel-2); border: 1px solid var(--bx-border);
+              border-left: 3px solid var(--c); }
+        .ev .t { font: var(--bx-font-meta); font-family: var(--bx-mono); color: var(--bx-muted); }
+        .ev .x { font-weight: 600; line-height: 1.3; margin-top: 2px; }
+        .ev .p { font: var(--bx-font-meta); color: var(--bx-muted); margin-top: 2px; }
+        .ev.past .x { color: var(--bx-muted); }
+        /* now: a line with the live square */
+        .now { height: 0; border-top: 2px solid var(--bx-accent); margin: 2px 0 8px; position: relative; }
+        .now::before { content: ''; position: absolute; left: -4px; top: -5px; width: 8px; height: 8px; background: var(--bx-accent); }
+        .free { font: var(--bx-font-meta); color: var(--bx-muted); padding: 2px 4px; }
         form { display: flex; gap: 6px; padding: 8px 16px; border-bottom: 1px solid var(--bx-border); }
-        input, select { background: var(--bx-panel-2); border: 1px solid var(--bx-border); color: inherit; border-radius: 6px; padding: 4px 8px; font: inherit; font-size: 12px; }
+        input, select { min-height: var(--bx-control-h); padding: 4px 8px; font: inherit; color: var(--bx-text); background: var(--bx-panel);
+                        border: 1px solid var(--bx-border-strong); border-radius: var(--bx-radius); }
+        input[name=time] { font-family: var(--bx-mono); }
         input[name=title] { flex: 1; }
       `];
 
@@ -87,7 +109,7 @@
           <select name="day">${this._days.map((d) => html`<option value=${key(d.date)} ?selected=${key(d.date) === today}>${fmt(d.date, { weekday: 'short', day: 'numeric' })}</option>`)}</select>
           <input name="time" placeholder="10:00" size="5" required>
           <input name="title" placeholder="What, and who" required>
-          <button>Add</button>
+          <button class="primary">Add</button>
         </form>`;
       }
       async _add(e) {
@@ -102,9 +124,7 @@
       _event(ev, d, today, hm) {
         const [title, people] = ev.title.split(' · ');
         const past = key(d.date) < today || (key(d.date) === today && (ev.time || '') < hm);
-        const c = /standup|demos/i.test(title) ? 'var(--bx-muted)' : /review|incident|hiring|board/i.test(title) ? '#a68cf0'
-          : /all-hands|lunch|offsite/i.test(title) ? '#3fbfae' : 'var(--bx-accent)';
-        return html`<div class="ev ${past ? 'past' : ''}" style="--c:${c}">
+        return html`<div class="ev ${past ? 'past' : ''}" style="--c:${category(title)}">
           <div class="t">${ev.time}</div><div class="x">${title}</div>${people ? html`<div class="p">${people}</div>` : nothing}</div>`;
       }
       _agenda(today, hm) {
@@ -122,7 +142,7 @@
         const today = key(new Date()), hm = nowHM();
         if (this._narrow) {
           return html`<div><header><h1>Calendar</h1><span class="sp"></span>
-            <button @click=${() => { this._adding = !this._adding; }}>${this._adding ? 'Cancel' : '+ Event'}</button></header>
+            <button @click=${() => { this._adding = !this._adding; }}>${this._adding ? 'Cancel' : html`<bx-icon name="plus"></bx-icon>Event`}</button></header>
             ${this._adding ? this._form(today) : nothing}</div>${this._agenda(today, hm)}`;
         }
         return html`
@@ -131,10 +151,10 @@
               <h1>Team calendar</h1>
               <span class="range">${fmt(this._start, { month: 'short', day: 'numeric' })} – ${fmt(end, { month: 'short', day: 'numeric', year: 'numeric' })}</span>
               <span class="sp"></span>
-              <button @click=${() => this._week(-1)} title="Previous week">‹</button>
+              <button class="icon" @click=${() => this._week(-1)} title="Previous week" aria-label="Previous week"><bx-icon name="chevron-left"></bx-icon></button>
               <button @click=${() => this._week(0)}>This week</button>
-              <button @click=${() => this._week(1)} title="Next week">›</button>
-              <button @click=${() => { this._adding = !this._adding; }}>${this._adding ? 'Cancel' : '+ Event'}</button>
+              <button class="icon" @click=${() => this._week(1)} title="Next week" aria-label="Next week"><bx-icon name="chevron-right"></bx-icon></button>
+              <button @click=${() => { this._adding = !this._adding; }}>${this._adding ? 'Cancel' : html`<bx-icon name="plus"></bx-icon>Event`}</button>
             </header>
             ${this._adding ? this._form(today) : nothing}
           </div>

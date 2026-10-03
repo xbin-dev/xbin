@@ -54,7 +54,7 @@ class BeginFrameBackend extends Backend {
     // a persistent context: its first page is the one target created with
     // begin-frame control (Playwright's own newPage targets are not)
     this.ctx = await o.pw.chromium.launchPersistentContext(this.udd, {
-      headless: true, viewport: null, ignoreDefaultArgs: ['--hide-scrollbars'], args: [...this.launchArgs(), ...FLAGS],
+      headless: true, viewport: null, colorScheme: o.theme || 'dark', ignoreDefaultArgs: ['--hide-scrollbars'], args: [...this.launchArgs(), ...FLAGS],
     });
     this.page = this.ctx.pages()[0] || await this.ctx.newPage();
     this.cdp = await this.ctx.newCDPSession(this.page);
