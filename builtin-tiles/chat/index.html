@@ -15,10 +15,13 @@
        iframe (height:100% here collapses the tile). */
     html, body { margin: 0; }
     body { padding: 10px 14px 12px; box-sizing: border-box; display: flex; flex-direction: column; height: 560px; }
-    .top { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+    /* a narrow tile (a phone): the row wraps rather than push New chat off the edge */
+    .top { display: flex; align-items: center; gap: 6px 8px; margin-bottom: 8px; flex-wrap: wrap; }
     .top h3 { margin: 0; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
               text-transform: uppercase; color: var(--bx-muted); }
     .top .sp { flex: 1; }
+    .top #model { min-width: 0; flex: 0 1 auto; }
+    .top #clear { flex: none; white-space: nowrap; }
     .tools-chip { font-size: 10.5px; color: var(--bx-muted); font-family: var(--bx-mono);
                   white-space: nowrap; cursor: default; }
     .tools-chip.err { color: var(--bx-red); cursor: help; }

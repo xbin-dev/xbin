@@ -21,8 +21,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   answers expose `Mcp-Session-Id` ([protocol.md](/docs/protocol.md)
   §Authentication). Nothing to change.
 - **chat tile v4**: a model round that only calls tools (no text, no
-  reasoning) no longer draws an empty reply bubble above its tool cards.
-  `bx builtin update tile:chat` takes it.
+  reasoning) no longer draws an empty reply bubble above its tool cards,
+  and on a narrow tile (a phone) its top row wraps instead of cutting
+  "New chat" off. `bx builtin update tile:chat` takes it.
 - **Fix: the shell on a phone** (under 820 px, the stacked layout) no longer
   draws the canvas's crosshair grid over the tab strip, the bind panel and
   every card's head: there is no snap grid to show there, and it is gone.
