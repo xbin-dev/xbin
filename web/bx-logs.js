@@ -34,13 +34,18 @@
  *
  * Shares the terminal theme/font-size prefs (bx-term-theme / bx-term-fontsize
  * in localStorage, and the live `bx-term-pref` event) so it looks like the
- * shells beside it. xterm loads lazily; renders into a shadow root with
- * xterm's stylesheet linked so it works anywhere.
+ * shells beside it: the same palette (web/term-palettes.js — the workspace's,
+ * from the --bx-term-* tokens, follows the person's appearance live, D184),
+ * the --bx-mono face and the density's size until the person picks one.
+ * xterm loads lazily; renders into a shadow root with xterm's stylesheet
+ * linked so it works anywhere.
  */
 
 import { scrollCssText } from '/vendor/bx-scroll.js';
 import { logsQuery, echoOK, logChoices, badgeText, globalProbe } from '/vendor/logs-partition.js';
 import { wireLinks } from '/vendor/term-links.js';
+import { themeName, paletteFor } from '/vendor/term-palettes.js';
+import { token, onAppearance } from '/vendor/bx-theme.js';
 
 const LISTING_TTL = 30000; // how long the switcher trusts its listing on a new stream
 
@@ -74,17 +79,21 @@ function loadXterm() {
 
 // The theme prefs live in localStorage under the terminal's keys — a log
 // viewer sitting next to shells should match them. Kept a tiny local copy of
-// the resolver so bx-logs stays independent of bx-terminal's internals.
+// the reads so bx-logs stays independent of bx-terminal's internals. A
+// sandboxed frame has no localStorage: reading it throws there — the defaults.
+const stored = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+// the size the person picked, or null: the density's --bx-term-size (sizeOf)
 function savedFontSize() {
-  const n = Number(localStorage.getItem('bx-term-fontsize'));
-  return n >= 7 && n <= 28 ? n : 12.5;
+  const n = Number(stored('bx-term-fontsize') ?? NaN);
+  return n >= 7 && n <= 28 ? n : null;
 }
-function termBg() {
-  return getComputedStyle(document.body).getPropertyValue('--bx-term-bg').trim() || '#262c36';
+function sizeOf(el) {
+  const n = parseFloat(token('--bx-term-size', el));
+  return n >= 7 && n <= 28 ? n : 12;
 }
 
 export class BxLogs extends HTMLElement {
-  #term; #fit; #ro; #ac; #host; #closed = false; #onPref; #gen = 0;
+  #term; #fit; #ro; #ac; #host; #closed = false; #onPref; #onStorage; #offLook; #gen = 0;
   // the partition switcher: the default's answer (X-XBin-Partition), the
   // listing it was built from (per component, and when), whether the global
   // instance's log is the viewer's to read, and its entries
@@ -102,17 +111,27 @@ export class BxLogs extends HTMLElement {
         `<style>
           ${scrollCssText}
           :host{display:block; position:relative}
-          .host{height:100%; background:var(--bx-term-bg, #262c36)}
-          .badge{position:absolute; top:4px; right:10px; z-index:6;
-            font:10px/1.6 system-ui,sans-serif; letter-spacing:.05em; text-transform:uppercase;
-            color:#c7ccd4; background:rgba(140,148,161,.18); border-radius:5px;
-            padding:0 7px; pointer-events:none; opacity:.8;}
-          .corner{position:absolute; top:4px; right:10px; z-index:6; display:flex; gap:6px; align-items:center}
+          /* the face xterm reads (#start): the --bx-mono token, Night's where a
+             document has no theme.css */
+          .host{height:100%; background:var(--bx-term-bg, #0B0C12);
+            font-family:var(--bx-mono, "JetBrains Mono", ui-monospace, monospace)}
+          /* as the terminal: 8px 12px around the screen (fit measures inside it) */
+          .host .xterm{padding:8px 12px}
+          .badge{position:absolute; top:6px; right:12px; z-index:6; box-sizing:border-box; height:20px; padding:0 6px;
+            display:inline-flex; align-items:center; white-space:nowrap; pointer-events:none;
+            font:var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif); letter-spacing:var(--bx-tracking-micro, 0.06em);
+            text-transform:uppercase; color:var(--bx-muted, #A3A6B6); background:var(--bx-panel, #1F2028);
+            border:1px solid var(--bx-border, #33353F); border-radius:var(--bx-radius, 2px);}
+          .corner{position:absolute; top:6px; right:12px; z-index:6; display:flex; gap:6px; align-items:center}
           .corner .badge{position:static}
-          .part{font:10.5px/1.4 system-ui,sans-serif; color:#c7ccd4; background:rgba(40,46,56,.92);
-            border:1px solid rgba(140,148,161,.4); border-radius:5px; padding:0 4px; cursor:pointer}
+          .part{box-sizing:border-box; height:24px; max-width:40ch; padding:0 6px; cursor:pointer;
+            font:var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); color:var(--bx-text, #E9EAF0);
+            background:var(--bx-panel, #1F2028); border:1px solid var(--bx-border-strong, #666A7E); border-radius:var(--bx-radius, 2px)}
+          .part:focus-visible{outline:var(--bx-focus-outline, 3px solid #3DD6F5); outline-offset:var(--bx-focus-offset, 2px);
+            box-shadow:var(--bx-focus-halo, 0 0 0 2px #0B0C12)}
           .part[hidden]{display:none}
-          .host.bar{box-sizing:border-box; padding-top:24px}
+          /* the switcher's strip over the log: the screen starts below it */
+          .host.bar .xterm{padding-top:36px}
         </style>` +
         `<div class="host"></div>` +
         `<div class="corner"><select class="part" hidden aria-label="whose log" title="which partition's log"></select>` +
@@ -129,7 +148,24 @@ export class BxLogs extends HTMLElement {
     this.#ro?.disconnect();
     this.#term?.dispose();
     if (this.#onPref) window.removeEventListener('bx-term-pref', this.#onPref);
+    if (this.#onStorage) window.removeEventListener('storage', this.#onStorage);
+    this.#offLook?.(); this.#offLook = null;
     this.#listingFor = ''; // opened again: what the switcher offers is asked again
+  }
+
+  // the palette in force: the one the terminals' settings menu picked, or the
+  // workspace's from the --bx-term-* tokens at this element
+  #applyTheme(name = stored('bx-term-theme')) {
+    const theme = paletteFor(themeName(name), (t) => token(t, this));
+    if (this.#term) this.#term.options.theme = theme;
+    if (this.#host) this.#host.style.background = theme.background;
+    return theme;
+  }
+  #applySize(n = savedFontSize() ?? sizeOf(this)) {
+    if (!this.#term) return;
+    const px = Math.max(7, Math.min(28, Math.round(n)));
+    if (this.#term.options.fontSize !== px) this.#term.options.fontSize = px;
+    try { this.#fit.fit(); } catch { }
   }
 
   attributeChangedCallback(name, oldV, newV) {
@@ -150,10 +186,18 @@ export class BxLogs extends HTMLElement {
     const css = this.shadowRoot.querySelector('link[rel="stylesheet"]');
     if (css && !css.sheet) await new Promise((r) => { css.addEventListener('load', r, { once: true }); css.addEventListener('error', r, { once: true }); setTimeout(r, 2000); });
     if (this.#closed) return;
+    const fontSize = Math.max(7, Math.min(28, Math.round(savedFontSize() ?? sizeOf(this))));
+    // the face (the --bx-mono token as .host resolves it), loaded before
+    // xterm measures a cell — as the terminal does (bx-terminal.js)
+    const fontFamily = getComputedStyle(this.#host).fontFamily;
+    if (document.fonts?.load) {
+      await Promise.race([document.fonts.load(`${fontSize}px ${fontFamily}`).catch(() => { }), new Promise((r) => setTimeout(r, 1500))]);
+      if (this.#closed) return;
+    }
     this.#term = new window.Terminal({
-      fontSize: Math.max(7, Math.min(28, Math.round(savedFontSize()))),
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      theme: { background: termBg() },
+      fontSize, fontFamily,
+      fontWeight: 400, fontWeightBold: 700, drawBoldTextInBrightColors: false, // bold is weight, never colour
+      theme: this.#applyTheme(),
       scrollback: 8000,
       disableStdin: true,       // read-only: no cursor, no input
       cursorStyle: 'underline',
@@ -165,18 +209,24 @@ export class BxLogs extends HTMLElement {
     // links as in a terminal (term-links.js; a log never writes the clipboard)
     wireLinks(this.#term, { focused: () => false });
     this.#term.open(this.#host);
-    this.#host.style.background = termBg();
+    this.#applyTheme();
     try { this.#fit.fit(); } catch { }
     this.#ro = new ResizeObserver(() => { try { this.#fit.fit(); } catch { } });
     this.#ro.observe(this);
-    // Follow the shared terminal font-size preference (theme too).
+    // Follow the shared terminal preferences — the palette and the size —
+    // from the terminals in this document, other tabs, and the person's
+    // appearance (the workspace palette and the density's size).
     this.#onPref = (e) => {
-      if (e.detail?.fontSize && this.#term) {
-        this.#term.options.fontSize = Math.max(7, Math.min(28, Math.round(e.detail.fontSize)));
-        try { this.#fit.fit(); } catch { }
-      }
+      if (e.detail?.theme) this.#applyTheme(e.detail.theme);
+      if (e.detail?.fontSize) this.#applySize(e.detail.fontSize);
     };
     window.addEventListener('bx-term-pref', this.#onPref);
+    this.#onStorage = (e) => {
+      if (e.key === 'bx-term-theme') this.#applyTheme();
+      if (e.key === 'bx-term-fontsize') this.#applySize();
+    };
+    window.addEventListener('storage', this.#onStorage);
+    this.#offLook = onAppearance(() => { this.#applyTheme(); this.#applySize(); });
     this.#stream();
   }
 

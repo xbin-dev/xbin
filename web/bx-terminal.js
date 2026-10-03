@@ -48,13 +48,25 @@
  * /vendor/term-predict.js; when a program hides the cursor (Ink apps such as
  * Claude Code, most TUIs) the engine learns where typed text lands from the
  * echo instead (D71). Per-browser mode in localStorage['bx-term-predict']:
- * auto (on when the RTT is over 100 ms), on, off. The 🔧 menu shows the RTT.
+ * auto (on when the RTT is over 100 ms), on, off. The settings menu shows the RTT.
+ *
+ * Colours and type (D184): the settings menu's palette is per browser
+ * (localStorage['bx-term-theme'], web/term-palettes.js). "Workspace (follows
+ * the theme)", every terminal's until the person picks another, is built from
+ * the --bx-term-* tokens at this element and rebuilt when the person's
+ * appearance changes (onAppearance, /vendor/bx-theme.js), so an open terminal
+ * changes with the shell. The face is the --bx-mono token (JetBrains Mono),
+ * loaded before xterm measures its cells; the size is the person's pick, else
+ * the density's --bx-term-size. Bold is weight, never a brighter colour.
  */
 import { Predictor, srttUpdate, SRTT_SHOW } from '/vendor/term-predict.js';
 import { srcTarget, reattachSrc, canReattach, endedByClose, RETRIES, LIVED, backoff, exitWords } from '/vendor/term-src.js';
 import { sandboxed } from '/vendor/bx-kit.js';
 import { wireLinks, joinedLinksAt, rowOf } from '/vendor/term-links.js';
 import { scrollCssText } from '/vendor/bx-scroll.js';
+import { TERM_THEMES, THEME_LABELS, themeName, paletteFor } from '/vendor/term-palettes.js';
+import { token, onAppearance } from '/vendor/bx-theme.js';
+import { iconSvg } from '/vendor/bx-icons.js';
 
 // Load a classic script once per document. Several elements (the terminal,
 // the read-only logs view) share the tag by id, so a second caller must wait
@@ -78,36 +90,32 @@ const scriptOnce = (src) => {
 // reading it throws there — the defaults then.
 const stored = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
 
+// The size the person picked (the menu's stepper, ctrl+scroll), or null:
+// then the density's --bx-term-size (sizeOf).
 function savedFontSize() {
-  const n = Number(stored('bx-term-fontsize'));
-  return n >= 7 && n <= 28 ? n : 12.5;
+  const n = Number(stored('bx-term-fontsize') ?? NaN);
+  return n >= 7 && n <= 28 ? n : null;
+}
+// sizeOf(el): the --bx-term-size token at el (12 compact, 13 comfortable;
+// 12 where a document has no theme.css).
+function sizeOf(el) {
+  const n = parseFloat(token('--bx-term-size', el));
+  return n >= 7 && n <= 28 ? n : 12;
 }
 
-// Familiar terminal color schemes (xterm theme objects). "default" keeps xbin's
-// dark-steel background (from the --bx-term-bg token) with xterm's own palette;
-// the rest are the well-known ones. Shared across terminals via localStorage.
-const TERM_THEMES = {
-  'default': null,
-  'dracula': { background: '#282a36', foreground: '#f8f8f2', cursor: '#f8f8f2', selectionBackground: '#44475a', black: '#21222c', red: '#ff5555', green: '#50fa7b', yellow: '#f1fa8c', blue: '#bd93f9', magenta: '#ff79c6', cyan: '#8be9fd', white: '#f8f8f2', brightBlack: '#6272a4', brightRed: '#ff6e6e', brightGreen: '#69ff94', brightYellow: '#ffffa5', brightBlue: '#d6acff', brightMagenta: '#ff92df', brightCyan: '#a4ffff', brightWhite: '#ffffff' },
-  'nord': { background: '#2e3440', foreground: '#d8dee9', cursor: '#d8dee9', selectionBackground: '#434c5e', black: '#3b4252', red: '#bf616a', green: '#a3be8c', yellow: '#ebcb8b', blue: '#81a1c1', magenta: '#b48ead', cyan: '#88c0d0', white: '#e5e9f0', brightBlack: '#4c566a', brightRed: '#bf616a', brightGreen: '#a3be8c', brightYellow: '#ebcb8b', brightBlue: '#81a1c1', brightMagenta: '#b48ead', brightCyan: '#8fbcbb', brightWhite: '#eceff4' },
-  'solarized-dark': { background: '#002b36', foreground: '#839496', cursor: '#93a1a1', selectionBackground: '#073642', black: '#073642', red: '#dc322f', green: '#859900', yellow: '#b58900', blue: '#268bd2', magenta: '#d33682', cyan: '#2aa198', white: '#eee8d5', brightBlack: '#586e75', brightRed: '#cb4b16', brightGreen: '#657b83', brightYellow: '#839496', brightBlue: '#657b83', brightMagenta: '#6c71c4', brightCyan: '#93a1a1', brightWhite: '#fdf6e3' },
-  'solarized-light': { background: '#fdf6e3', foreground: '#657b83', cursor: '#586e75', selectionBackground: '#eee8d5', black: '#073642', red: '#dc322f', green: '#859900', yellow: '#b58900', blue: '#268bd2', magenta: '#d33682', cyan: '#2aa198', white: '#eee8d5', brightBlack: '#586e75', brightRed: '#cb4b16', brightGreen: '#657b83', brightYellow: '#839496', brightBlue: '#657b83', brightMagenta: '#6c71c4', brightCyan: '#93a1a1', brightWhite: '#fdf6e3' },
-  'monokai': { background: '#272822', foreground: '#f8f8f2', cursor: '#f8f8f0', selectionBackground: '#49483e', black: '#272822', red: '#f92672', green: '#a6e22e', yellow: '#f4bf75', blue: '#66d9ef', magenta: '#ae81ff', cyan: '#a1efe4', white: '#f8f8f2', brightBlack: '#75715e', brightRed: '#f92672', brightGreen: '#a6e22e', brightYellow: '#f4bf75', brightBlue: '#66d9ef', brightMagenta: '#ae81ff', brightCyan: '#a1efe4', brightWhite: '#f9f8f5' },
-  'gruvbox-dark': { background: '#282828', foreground: '#ebdbb2', cursor: '#ebdbb2', selectionBackground: '#504945', black: '#282828', red: '#cc241d', green: '#98971a', yellow: '#d79921', blue: '#458588', magenta: '#b16286', cyan: '#689d6a', white: '#a89984', brightBlack: '#928374', brightRed: '#fb4934', brightGreen: '#b8bb26', brightYellow: '#fabd2f', brightBlue: '#83a598', brightMagenta: '#d3869b', brightCyan: '#8ec07c', brightWhite: '#ebdbb2' },
-  'one-dark': { background: '#282c34', foreground: '#abb2bf', cursor: '#528bff', selectionBackground: '#3e4451', black: '#282c34', red: '#e06c75', green: '#98c379', yellow: '#e5c07b', blue: '#61afef', magenta: '#c678dd', cyan: '#56b6c2', white: '#abb2bf', brightBlack: '#5c6370', brightRed: '#e06c75', brightGreen: '#98c379', brightYellow: '#e5c07b', brightBlue: '#61afef', brightMagenta: '#c678dd', brightCyan: '#56b6c2', brightWhite: '#ffffff' },
-  'tango-dark': { background: '#2e3436', foreground: '#d3d7cf', cursor: '#d3d7cf', selectionBackground: '#555753', black: '#2e3436', red: '#cc0000', green: '#4e9a06', yellow: '#c4a000', blue: '#3465a4', magenta: '#75507b', cyan: '#06989a', white: '#d3d7cf', brightBlack: '#555753', brightRed: '#ef2929', brightGreen: '#8ae234', brightYellow: '#fce94f', brightBlue: '#729fcf', brightMagenta: '#ad7fa8', brightCyan: '#34e2e2', brightWhite: '#eeeeec' },
-  'github-light': { background: '#ffffff', foreground: '#24292e', cursor: '#24292e', selectionBackground: '#c8e1ff', black: '#24292e', red: '#d73a49', green: '#28a745', yellow: '#dbab09', blue: '#0366d6', magenta: '#5a32a3', cyan: '#0598bc', white: '#6a737d', brightBlack: '#959da5', brightRed: '#cb2431', brightGreen: '#22863a', brightYellow: '#b08800', brightBlue: '#005cc5', brightMagenta: '#5a32a3', brightCyan: '#3192aa', brightWhite: '#d1d5da' },
-};
-const THEME_LABELS = {
-  'default': 'Default (dark-steel)', 'dracula': 'Dracula', 'nord': 'Nord',
-  'solarized-dark': 'Solarized Dark', 'solarized-light': 'Solarized Light',
-  'monokai': 'Monokai', 'gruvbox-dark': 'Gruvbox Dark', 'one-dark': 'One Dark',
-  'tango-dark': 'Tango Dark', 'github-light': 'GitHub Light',
-};
+// The palette the person picked (web/term-palettes.js), shared across
+// terminals via localStorage; 'default' follows the workspace's theme.
+const savedTheme = () => themeName(stored('bx-term-theme'));
 
-function savedTheme() {
-  const t = stored('bx-term-theme');
-  return t && t in TERM_THEMES ? t : 'default';
+// fontsLoaded(family, px): xterm measures its cells once (and again only when
+// its font options change), so the face must be there first. Waits for the
+// regular and bold faces, at most `wait` ms; a face that fails to load (or a
+// document without it) resolves at once: the fallback face is measured then.
+function fontsLoaded(family, px, wait = 1500) {
+  const fs = document.fonts;
+  if (!fs?.load || !family) return Promise.resolve();
+  const both = Promise.all([fs.load(`${px}px ${family}`), fs.load(`700 ${px}px ${family}`)]).catch(() => { });
+  return Promise.race([both, new Promise((r) => setTimeout(r, wait))]);
 }
 
 let xtermReady = null;
@@ -146,7 +154,10 @@ export class BxTerminal extends HTMLElement {
   // math stays exact (its canvas cell metrics ignore CSS zoom; its pointer
   // coords don't — the mismatch drifts selection/right-click, worse the further
   // from the top-left). See _applySettings in bx-shell.
-  #baseFont = savedFontSize(); #ambient = 1;
+  #baseFont = savedFontSize() ?? 12; #ambient = 1;
+  // the xterm theme in force (resolved once per change: #redraw reads it on
+  // every write), and the subscriptions to the person's appearance and fonts
+  #theme = null; #offLook = null; #onFonts = null;
 
   connectedCallback() {
     // NB: do NOT force `display: block` here. The host (bx-frame) hides inactive
@@ -166,33 +177,46 @@ export class BxTerminal extends HTMLElement {
         `<style>
           ${scrollCssText}
           :host{display:block; position:relative}
-          .host{height:100%;background:var(--bx-term-bg, #262c36)}
-          .gear{position:absolute; top:4px; right:10px; z-index:8; width:22px; height:22px;
-            border:0; border-radius:5px; padding:0; cursor:pointer; font-size:13px; line-height:22px;
-            background:rgba(140,148,161,.18); color:#c7ccd4; opacity:0; transition:opacity .15s;}
-          :host(:hover) .gear, .gear:focus, .gear.open{opacity:.85}
-          .gear:hover{background:rgba(140,148,161,.34)}
-          .tmenu{position:absolute; top:30px; right:10px; z-index:9; min-width:210px;
-            background:var(--bx-panel,#23272e); color:var(--bx-text, #d4d9e0);
-            border:1px solid var(--bx-border, #363c45); border-radius:8px; padding:8px;
-            box-shadow:0 10px 30px rgba(0,0,0,.5); font:12px/1.4 system-ui,sans-serif;}
+          /* the face and size xterm reads (#start): the tokens, Night's where
+             a document has no theme.css */
+          .host{height:100%; background:var(--bx-term-bg, #0B0C12);
+            font-family:var(--bx-mono, "JetBrains Mono", ui-monospace, monospace); font-size:var(--bx-term-size, 12px)}
+          /* product-ui §7: 8px 12px around the screen (fit measures inside it) */
+          .host .xterm{padding:8px 12px}
+          button, select{font:inherit}
+          :focus-visible{outline:var(--bx-focus-outline, 3px solid #3DD6F5); outline-offset:var(--bx-focus-offset, 2px);
+            box-shadow:var(--bx-focus-halo, 0 0 0 2px #0B0C12)}
+          .gear, .lag{position:absolute; top:6px; z-index:8; box-sizing:border-box; height:24px; padding:0;
+            border:1px solid var(--bx-border, #33353F); border-radius:var(--bx-radius, 2px); cursor:pointer;
+            background:var(--bx-panel, #1F2028); color:var(--bx-muted, #A3A6B6);}
+          .gear{right:12px; width:24px; display:grid; place-items:center; opacity:0;
+            transition:opacity var(--bx-dur-ui, 120ms) var(--bx-ease-out, cubic-bezier(0.16, 1, 0.3, 1));}
+          :host(:hover) .gear, .gear:focus-visible, .gear.open{opacity:1}
+          .gear:hover, .gear.open{color:var(--bx-text, #E9EAF0); background:var(--bx-hover, #2A2B34)}
+          .gear svg, .lag svg{display:block; flex:none}
+          .tmenu{position:absolute; top:34px; right:12px; z-index:9; min-width:232px; box-sizing:border-box;
+            background:var(--bx-panel, #1F2028); color:var(--bx-text, #E9EAF0);
+            border:1px solid var(--bx-border, #33353F); border-radius:var(--bx-radius, 2px); padding:8px var(--bx-pad, 12px);
+            box-shadow:var(--bx-shadow-pop, 0 12px 32px rgba(0, 0, 0, 0.6)); font:var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif);}
           .tmenu[hidden]{display:none}
-          .tmenu .hd{font-size:9.5px; letter-spacing:.08em; text-transform:uppercase;
-            color:var(--bx-muted, #868f9a); font-weight:600; margin:0 2px 6px;}
-          .tmenu .row{display:flex; align-items:center; justify-content:space-between; gap:8px; margin:5px 2px;}
-          .tmenu select{flex:1; min-width:0; font:inherit; font-size:12px; padding:3px 6px;
-            border:1px solid var(--bx-border, #363c45); border-radius:5px;
-            background:var(--bx-bg,#1b1e24); color:var(--bx-text, #d4d9e0);}
+          .tmenu .hd{font:var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif);
+            letter-spacing:var(--bx-tracking-micro, 0.06em); text-transform:uppercase; color:var(--bx-muted, #A3A6B6); margin:0 0 6px;}
+          .tmenu .row{display:flex; align-items:center; justify-content:space-between; gap:8px; margin:4px 0;}
+          .tmenu select{flex:1; min-width:0; box-sizing:border-box; height:var(--bx-control-h, 28px); padding:0 6px;
+            border:1px solid var(--bx-border-strong, #666A7E); border-radius:var(--bx-radius, 2px);
+            background:var(--bx-panel, #1F2028); color:var(--bx-text, #E9EAF0);}
           .tmenu .fs{display:flex; align-items:center; gap:6px;}
-          .tmenu .fs b{min-width:30px; text-align:center; font-variant-numeric:tabular-nums;}
-          .tmenu .step{width:22px; height:22px; border:1px solid var(--bx-border, #363c45);
-            border-radius:5px; background:var(--bx-bg,#1b1e24); color:var(--bx-text, #d4d9e0);
-            cursor:pointer; font:inherit; line-height:1;}
-          .tmenu .step:hover{background:var(--bx-panel-2, #2b3038);}
-          .tmenu .pstat{font-size:10.5px; color:var(--bx-muted, #868f9a); margin:-2px 2px 4px;}
-          .lag{position:absolute; top:4px; right:36px; z-index:8; height:22px; padding:0 7px; border:0; border-radius:5px;
-            font:11px/22px system-ui,sans-serif; background:rgba(140,148,161,.18); color:var(--bx-muted, #868f9a);
-            cursor:pointer; user-select:none;}
+          .tmenu .fs b{min-width:30px; text-align:center; font-weight:600; font-variant-numeric:tabular-nums;}
+          .tmenu .step{width:var(--bx-control-h, 28px); height:var(--bx-control-h, 28px); padding:0;
+            display:grid; place-items:center; border:1px solid var(--bx-border-strong, #666A7E);
+            border-radius:var(--bx-radius, 2px); background:var(--bx-panel, #1F2028); color:var(--bx-text, #E9EAF0); cursor:pointer;}
+          .tmenu .step:hover{background:var(--bx-hover, #2A2B34);}
+          .tmenu .pstat{font:var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif);
+            font-variant-numeric:tabular-nums; color:var(--bx-muted, #A3A6B6); margin:2px 0 0;}
+          /* the slow-link chip: predictive echo is drawing what you type */
+          .lag{right:42px; display:flex; align-items:center; gap:4px; padding:0 7px; user-select:none;
+            font:var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); font-variant-numeric:tabular-nums;}
+          .lag:hover{color:var(--bx-text, #E9EAF0); background:var(--bx-hover, #2A2B34)}
           .lag[hidden]{display:none}
           /* the prediction overlay: a layer over xterm's screen, one span per run
              of predicted cells, placed by the renderer's cell metrics (works in
@@ -208,16 +232,16 @@ export class BxTerminal extends HTMLElement {
           :host(.pcur) .host .xterm .xterm-screen .xterm-rows .xterm-cursor.xterm-cursor-underline{border-bottom:0 !important; height:100% !important;}
         </style>` +
         `<div class="host"></div>` +
-        `<button class="gear" title="terminal settings" aria-label="terminal settings">🔧</button>` +
-        `<button class="lag" hidden title="slow link: typed text is shown before the server confirms it (predictive echo, 🔧)"></button>` +
+        `<button class="gear" title="terminal settings" aria-label="terminal settings" aria-haspopup="true">${iconSvg('settings')}</button>` +
+        `<button class="lag" hidden title="slow link: typed text is shown before the server confirms it (predictive echo, terminal settings)">${iconSvg('bolt')}<span class="lagt"></span></button>` +
         `<div class="tmenu" hidden>` +
           `<div class="hd">terminal</div>` +
-          `<div class="row"><span>Theme</span><select class="theme"></select></div>` +
+          `<div class="row"><span>Theme</span><select class="theme" aria-label="terminal theme"></select></div>` +
           `<div class="row"><span>Font size</span>` +
-            `<span class="fs"><button class="step" data-d="-1" aria-label="smaller">−</button>` +
+            `<span class="fs"><button class="step" data-d="-1" aria-label="smaller" title="smaller">${iconSvg('minus')}</button>` +
             `<b class="fsv"></b>` +
-            `<button class="step" data-d="1" aria-label="larger">+</button></span></div>` +
-          `<div class="row"><span>Predictive echo</span><select class="predict">` +
+            `<button class="step" data-d="1" aria-label="larger" title="larger">${iconSvg('plus')}</button></span></div>` +
+          `<div class="row"><span>Predictive echo</span><select class="predict" aria-label="predictive echo">` +
             `<option value="auto">auto · on when RTT &gt; ${SRTT_SHOW} ms</option>` +
             `<option value="on">on</option><option value="off">off</option></select></div>` +
           `<div class="pstat"></div>` +
@@ -237,23 +261,51 @@ export class BxTerminal extends HTMLElement {
     if (this.#onPref) window.removeEventListener('bx-term-pref', this.#onPref);
     if (this.#onStorage) window.removeEventListener('storage', this.#onStorage);
     if (this.#onAmbient) window.removeEventListener('bx-ambient-zoom', this.#onAmbient);
+    this.#offLook?.(); this.#offLook = null;
+    if (this.#onFonts) document.fonts?.removeEventListener?.('loadingdone', this.#onFonts);
   }
 
   // --- settings (theme + font size) ---------------------------------------
 
-  // #themeObj resolves a theme name to an xterm theme object. "default" is the
-  // --bx-term-bg background with xterm's own palette.
+  // #themeObj resolves a palette's name to an xterm theme object; 'default'
+  // is the workspace's, read from the --bx-term-* tokens at this element.
   #themeObj(name = savedTheme()) {
-    return TERM_THEMES[name] ||
-      { background: getComputedStyle(this).getPropertyValue('--bx-term-bg').trim() || '#262c36' };
+    return paletteFor(name, (t) => token(t, this));
   }
 
-  #applyTheme(name) {
-    const theme = this.#themeObj(name);
+  #applyTheme(name = savedTheme()) {
+    name = themeName(name);
+    const theme = this.#theme = this.#themeObj(name);
     if (this.#term) this.#term.options.theme = theme;
-    if (this.#host && theme.background) this.#host.style.background = theme.background;
+    if (this.#host) this.#host.style.background = theme.background;
     const sel = this.shadowRoot?.querySelector('.theme');
     if (sel && sel.value !== name) sel.value = name;
+    this.#redraw();
+  }
+
+  // #followLook: the person's appearance changed (the shell's theme or
+  // density, the system's light/dark): the workspace palette and the
+  // density's size are read again; a palette or a size the person picked stays.
+  #followLook() {
+    if (savedTheme() === 'default') this.#applyTheme('default');
+    if (savedFontSize() === null) {
+      const n = sizeOf(this);
+      if (n !== this.#baseFont) { this.#baseFont = n; this.#applyFont(); }
+      const fsv = this.shadowRoot?.querySelector('.fsv');
+      if (fsv) fsv.textContent = String(this.#baseFont);
+    }
+  }
+
+  // #remeasure: a face that loaded after xterm measured its cells (a slow
+  // link past fontsLoaded's wait): xterm measures again only when a font
+  // option changes, so the family is set again (a leading space is the same
+  // CSS family list), then the grid refits.
+  #remeasure() {
+    const t = this.#term;
+    if (!t) return;
+    const f = t.options.fontFamily;
+    t.options.fontFamily = f.startsWith(' ') ? f.trimStart() : ` ${f}`;
+    try { this.#fit.fit(); } catch { }
     this.#redraw();
   }
 
@@ -343,6 +395,7 @@ export class BxTerminal extends HTMLElement {
     const close = () => {
       menu.hidden = true;
       gear.classList.remove('open');
+      gear.setAttribute('aria-expanded', 'false');
       document.removeEventListener('pointerdown', onDoc, true);
     };
     gear.addEventListener('click', (e) => {
@@ -354,6 +407,7 @@ export class BxTerminal extends HTMLElement {
         this.#status();
         menu.hidden = false;
         gear.classList.add('open');
+        gear.setAttribute('aria-expanded', 'true');
         document.addEventListener('pointerdown', onDoc, true);
       } else {
         close();
@@ -381,10 +435,17 @@ export class BxTerminal extends HTMLElement {
     window.addEventListener('bx-term-pref', this.#onPref);
     this.#onStorage = (e) => {
       if (e.key === 'bx-term-theme') this.#applyTheme(savedTheme());
-      if (e.key === 'bx-term-fontsize') { this.#setFontSize(savedFontSize()); showFs(); }
+      if (e.key === 'bx-term-fontsize') {
+        const n = savedFontSize();
+        if (n === null) this.#followLook(); else this.#setFontSize(n);
+        showFs();
+      }
       if (e.key === 'bx-term-predict') this.#setPredict(savedPredict(), false);
     };
     window.addEventListener('storage', this.#onStorage);
+    // the person's appearance (D184): the workspace palette and the density's size follow it
+    this.#offLook?.();
+    this.#offLook = onAppearance(() => this.#followLook());
   }
 
   // --- predictive echo (D70) ----------------------------------------------
@@ -445,8 +506,8 @@ export class BxTerminal extends HTMLElement {
     layer.hidden = b.viewportY !== b.baseY;
     const cs = getComputedStyle(rows);
     const cw = parseFloat(cs.width) / term.cols, chh = parseFloat(cs.height) / term.rows;
-    const theme = this.#themeObj();
-    const bg = theme.background || '#262c36', fg = theme.foreground || cs.color || '#ffffff';
+    const theme = this.#theme ??= this.#themeObj();
+    const bg = theme.background, fg = theme.foreground || cs.color;
     this.style.setProperty('--bxp-fg', fg);
     const spans = [];
     const put = (row, col, text, style) => {
@@ -460,14 +521,15 @@ export class BxTerminal extends HTMLElement {
     if (r.cursor) {
       const run = r.cells.find((c) => c.row === r.cursor.row && c.col <= r.cursor.col && r.cursor.col < c.col + c.text.length);
       const ch = run ? run.text[r.cursor.col - run.col] : (fb.charAt(r.cursor.row, r.cursor.col) || ' ');
-      put(r.cursor.row, r.cursor.col, ch, { background: theme.cursor || fg, color: bg });
+      put(r.cursor.row, r.cursor.col, ch, { background: theme.cursor || fg, color: theme.cursorAccent || bg });
     }
     layer.replaceChildren(...spans);
     this.classList.toggle('pcur', !!r.cursor);
     const lag = this.shadowRoot.querySelector('.lag');
     if (lag) {
       lag.hidden = !(this.#pred.shown() && (this.#pred.srttTrigger || this.#pred.glitchTrigger > 0));
-      lag.textContent = `⚡ ${this.#rttText().slice(4)}`;
+      const t = lag.querySelector('.lagt'), words = this.#rttText().slice(4);
+      if (t && t.textContent !== words) t.textContent = words;
     }
   }
 
@@ -560,14 +622,22 @@ export class BxTerminal extends HTMLElement {
     const css = this.shadowRoot.querySelector('link[rel="stylesheet"]');
     if (css && !css.sheet) await new Promise((r) => { css.addEventListener('load', r, { once: true }); css.addEventListener('error', r, { once: true }); setTimeout(r, 2000); });
     if (this.#closed) return;
-    this.#baseFont = savedFontSize();
+    this.#baseFont = savedFontSize() ?? sizeOf(this);
     this.#ambient = this.#detectAmbient();
+    const fontSize = Math.max(7, Math.min(44, Math.round(this.#baseFont * this.#ambient)));
+    // the face: the --bx-mono token as .host resolves it (its fallback where
+    // a document has no theme.css), loaded before xterm measures a cell
+    const fontFamily = getComputedStyle(this.#host).fontFamily;
+    await fontsLoaded(fontFamily, fontSize);
+    if (this.#closed) return;
+    this.#theme = this.#themeObj();
     this.#term = new window.Terminal({
-      fontSize: Math.max(7, Math.min(44, Math.round(this.#baseFont * this.#ambient))),
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      // Color scheme: the user's saved theme (settings menu), or the
-      // --bx-term-bg token with xterm's default palette. See TERM_THEMES.
-      theme: this.#themeObj(),
+      fontSize, fontFamily,
+      // bold is weight (700), never a brighter colour (D184, product-ui §7)
+      fontWeight: 400, fontWeightBold: 700, drawBoldTextInBrightColors: false,
+      // the palette the person picked in the settings menu, or the
+      // workspace's from the --bx-term-* tokens (web/term-palettes.js)
+      theme: this.#theme,
       scrollback: 4000,
     });
     this.#fit = new window.FitAddon.FitAddon();
@@ -590,8 +660,14 @@ export class BxTerminal extends HTMLElement {
       return true;
     });
     this.#term.open(this.#host);
-    this.#host.style.background = this.#themeObj().background || ''; // match themed bg
+    this.#host.style.background = this.#theme.background; // the padding around the screen, in the palette's bg
     this.#applyAmbient(this.#ambient); // counter the ancestor zoom + fit
+    // the terminal's face arriving after the wait above: measure the cells again
+    const face = fontFamily.split(',')[0].replace(/["']/g, '').trim();
+    this.#onFonts = (e) => {
+      if (!this.#closed && [...(e.fontfaces || [])].some((f) => f.family.replace(/["']/g, '').trim() === face)) this.#remeasure();
+    };
+    document.fonts?.addEventListener?.('loadingdone', this.#onFonts);
     // Follow the workspace font-size setting: it zooms the whole shell, but the
     // terminal counters that and re-scales via its font so xterm's mouse math
     // stays exact (see #applyAmbient). The ResizeObserver re-detects on any
