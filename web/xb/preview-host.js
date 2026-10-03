@@ -53,9 +53,9 @@ function start() {
     const c = fullCaps();
     inj.caps = { ...c, features: [...c.features, VOCAB.widget.feature], widgetSize: wsize };
   }
-  // theme.css for the faces the renderer names (Bricolage Grotesque,
-  // JetBrains Mono: D184); the page around the view in the renderer's own
-  // colours (render-theme.js), so it matches the view in either scheme
+  // theme.css for the preview's own strip (its error lines, on the theme's
+  // tokens: D184); the page around the view in the renderer's colours — the
+  // app's (render-theme.js) — so it matches the view in either scheme
   const sheet = document.createElement('link');
   sheet.rel = 'stylesheet';
   sheet.href = '/vendor/theme.css';

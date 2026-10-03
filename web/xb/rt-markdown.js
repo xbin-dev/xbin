@@ -23,7 +23,7 @@ const ENT = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', copy
   trade: '™', hellip: '…', mdash: '—', ndash: '–', lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”',
   bull: '•', middot: '·', deg: '°', times: '×', divide: '÷', euro: '€', pound: '£', yen: '¥', cent: '¢',
   sect: '§', para: '¶', plusmn: '±', laquo: '«', raquo: '»', larr: '←', rarr: '→', uarr: '↑', darr: '↓',
-  harr: '↔', check: '✓', hearts: '♥', micro: 'µ', frac12: '½', frac14: '¼', frac34: '¾', shy: '­' };
+  harr: '↔', check: '✓', hearts: '♥', micro: 'µ', frac12: '½', frac14: '¼', frac34: '¾', shy: '­' }; // theme-ok: HTML entities decode to their characters (content, not icons)
 function entities(s) {
   if (s.indexOf('&') < 0) return s;
   return s.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|[a-zA-Z][a-zA-Z0-9]*);/g, (all, e) => {

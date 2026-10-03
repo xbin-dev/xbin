@@ -174,7 +174,7 @@ export const CONTENT_CSS = css`
   .md-check { display: flex; color: var(--xb-muted); padding-top: 2px; }
   .md-check.on { color: var(--xb-ok); }
   .md-check .ic { width: 16px; height: 16px; }
-  .md code { font-family: var(--xb-mono); font-size: 0.86em; background: var(--xb-fill); border-radius: 5px; padding: 1px 5px; }
+  .md code { font-family: var(--xb-mono); font-size: 0.86em; background: var(--xb-fill); border-radius: 5px; padding: 1px 5px; } /* theme-ok: inline code at 0.86em of the app's 17pt body (14.6px), as the app draws it */
   .md-code { margin: 0 0 10px; border-radius: 10px; background: var(--xb-surface2); overflow: hidden; }
   .md-lang { font: var(--xb-font-caption); color: var(--xb-muted); padding: 6px 12px 0; }
   .md-code pre { margin: 0; padding: 8px 12px 10px; overflow-x: auto; font-family: var(--xb-mono); font-size: calc(var(--xb-size-subheadline) * 0.93); line-height: 1.45; }
@@ -257,8 +257,7 @@ export const CONTENT_CSS = css`
 
   xb-terminal { display: block; border-radius: 10px; overflow: hidden; background: var(--xb-term-bg); color: var(--xb-term-fg); min-height: var(--xb-h-m); }
   xb-terminal.cell { border-radius: 0; padding: 0; }
-  .term-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font: var(--xb-font-caption); color: var(--xb-muted); background: var(--xb-surface2);
-    border-bottom: 1px solid var(--xb-separator); }
+  .term-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font: var(--xb-font-caption); color: var(--xb-term-muted); background: var(--xb-term-bar); }
   .term-bar .ic { width: 16px; height: 16px; }
   .term-body { margin: 0; padding: 10px 12px; font-family: var(--xb-mono); font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
   .term-cur { display: inline-block; width: 8px; height: 15px; background: var(--xb-term-cursor); vertical-align: -3px; animation: xb-blink 1s steps(2) infinite; }

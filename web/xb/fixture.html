@@ -16,9 +16,9 @@
   set({theme, text}), events (what the view sent: [k, type, payload, n]),
   ready (a promise, settled once the first tree is drawn).
 
-  The page is on the theme's tokens (D184): it opts in, so its background
-  is Concrete Day or Night with the scheme (the renderer's own bg in each),
-  and theme.css serves the faces the renderer names.
+  The page is on the theme's tokens (D184): it opts in, so what shows
+  around the view is Concrete Day or Night with the scheme. The view paints
+  its own, the app's look (render-theme.js).
 -->
 <link rel="stylesheet" href="/vendor/theme.css">
 <style>

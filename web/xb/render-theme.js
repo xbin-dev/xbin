@@ -6,69 +6,76 @@
  * previews and fixture screenshots use (the app maps the same roles to iOS
  * system colours and Dynamic Type).
  *
- * Colour roles (D184): Base Two's product tokens, Concrete Day (light) and
- * Concrete Night (dark) — web/theme.css's values; the renderer keeps its own
- * table, as the app draws a tile's view the same whatever page is around it:
+ * Colour roles: the app's — it draws a tile's native view with the iOS
+ * system colours and its own palette (native/ios … XbinRendererModel/
+ * Tokens.swift, XbinPalette: the amber tint and its text shades, the user's
+ * bubble, the chart series), which this table equals, on the surfaces the
+ * web shell had before Base Two. The workspace's pages took Base Two
+ * (D184); the app keeps this look until it adopts it (D184 Open), and a
+ * preview (`bx preview --native`, the fixture screenshots) shows what the
+ * phone draws, so the two change together:
  *   --xb-bg --xb-surface --xb-surface2 --xb-border --xb-text --xb-muted
- *   --xb-accent (fills: cobalt, periwinkle in dark) --xb-accent-text (text
- *   and icons in the accent) --xb-on-accent (the accent ink)
- *   --xb-ok --xb-warn --xb-danger
- * Derived: --xb-separator (the border) --xb-fill --xb-control-on (a
- *   selected segment) --xb-bubble (the user's chat turns: panel-2)
- *   --xb-scrim --xb-shadow --xb-chart-1…6 (the terminal's ANSI order: blue,
- *   magenta, cyan, green, yellow, red)
- *   --xb-term-bg --xb-term-fg --xb-term-cursor (the terminal primitive)
- *   --xb-on-danger (a badge's text) --xb-knob --xb-knob-shadow (a switch's
- *   thumb) --xb-control-shadow (a selected segment's lift) --xb-lightbox
- *   (behind a full-screen image)
+ *   --xb-accent (fills: the amber) --xb-accent-text (text and icons in the
+ *   accent) --xb-on-accent --xb-ok --xb-warn --xb-danger
+ * Derived: --xb-separator --xb-fill --xb-control-on (a selected segment)
+ *   --xb-bubble (the user's chat turns) --xb-scrim --xb-shadow
+ *   --xb-chart-1…6
+ *   --xb-term-bg --xb-term-fg --xb-term-cursor --xb-term-bar --xb-term-muted
+ *   (the terminal primitive, dark in both schemes) --xb-on-danger (a
+ *   badge's text) --xb-knob --xb-knob-shadow (a switch's thumb)
+ *   --xb-control-shadow (a selected segment's lift) --xb-lightbox (behind a
+ *   full-screen image)
  * Type roles (iOS default point sizes as px, body 17; `text="large"` = iOS
  * xxxLarge): --xb-font-<role> as a `font` shorthand, roles largeTitle title
  * title2 title3 headline body callout subheadline footnote caption caption2
  * mono (kebab-cased: --xb-font-large-title, --xb-font-title-2 …), with
- * --xb-size-<role> and --xb-line-<role> (px) beside each. Body and controls
- * stay the system font (Dynamic Type, product-ui §10); large titles are
- * Bricolage Grotesque 800 (--xb-display), mono JetBrains Mono — the faces
- * theme.css serves (a page that doesn't load it falls back down the stacks).
+ * --xb-size-<role> and --xb-line-<role> (px) beside each, in the system
+ * faces the app draws (Dynamic Type; mono the system monospace).
  * Gaps (stack gap only): --xb-gap-none|xs|s|m|l|xl|xxl = 0 4 8 12 16 24 32.
  * Heights (image/chart/canvas): --xb-h-xs|s|m|l|xl = 48 96 160 240 360.
- * Shape (the app's own, iOS): --xb-radius-group --xb-radius-control — the
- * app keeps its corners until it adopts Base Two's (plan §6).
+ * Shape (the app's own, iOS): --xb-radius-group --xb-radius-control.
  *
  * The scheme follows prefers-color-scheme unless the <xb-view> element says
  * theme="light" | theme="dark"; text="large" switches the type scale.
  */
 import { css, unsafeCSS } from '/vendor/lit-all.min.js';
 
+// The app's palette (XbinPalette and the iOS system colours it falls back
+// to): the amber tint and its text shades, the amber bubble, the amber-first
+// chart, on the surfaces the web shell had before Base Two. The app keeps it
+// until it adopts Base Two (D184 Open), and a preview shows what the phone
+// draws, so this table stays equal to it.
 const LIGHT = {
-  bg: '#E8E9EE', surface: '#FFFFFF', surface2: '#F7F8FA', border: '#CDD0D8',
-  text: '#0B0C12', muted: '#4B4D5C', accent: '#1F3DFF', 'accent-text': '#1F3DFF',
-  'on-accent': '#FFFFFF', ok: '#436C0C', warn: '#9A4A06', danger: '#C81E1E',
-  separator: '#CDD0D8', fill: '#EEF0F4', 'control-on': '#FFFFFF', bubble: '#F7F8FA',
-  scrim: 'rgba(11, 12, 18, 0.32)', shadow: '0 1px 0 rgba(11, 12, 18, 0.06), 0 12px 32px rgba(11, 12, 18, 0.18)',
-  'chart-1': '#1F3DFF', 'chart-2': '#B0005C', 'chart-3': '#0E7490', 'chart-4': '#00794A',
-  'chart-5': '#8A6100', 'chart-6': '#C81E1E',
-  'term-bg': '#FFFFFF', 'term-fg': '#1C1D24', 'term-cursor': '#1F3DFF',
-  'on-danger': '#FFFFFF', knob: '#FFFFFF', 'knob-shadow': '0 2px 6px rgba(11, 12, 18, 0.2), 0 0 0 0.5px rgba(11, 12, 18, 0.06)',
-  'control-shadow': '0 1px 3px rgba(11, 12, 18, 0.14), 0 0 0 0.5px rgba(11, 12, 18, 0.04)', lightbox: 'rgba(11, 12, 18, 0.92)',
+  bg: '#f6f7f9', surface: '#ffffff', surface2: '#eef0f3', border: '#d5d9df',
+  text: '#1b1e24', muted: '#5f6873', accent: '#f5a623', 'accent-text': '#a86400',
+  'on-accent': '#1b1e24', ok: '#2e7d32', warn: '#9a6700', danger: '#c62828',
+  separator: 'rgba(60, 64, 72, 0.18)', fill: 'rgba(118, 118, 128, 0.12)', 'control-on': '#ffffff', bubble: '#fde8c2',
+  scrim: 'rgba(0, 0, 0, 0.32)', shadow: '0 1px 3px rgba(0, 0, 0, 0.12), 0 6px 20px rgba(0, 0, 0, 0.08)',
+  'chart-1': '#e08e0b', 'chart-2': '#2f6fd6', 'chart-3': '#2e7d32', 'chart-4': '#8e44ad',
+  'chart-5': '#00838f', 'chart-6': '#c2185b',
+  // the terminal primitive is dark in both schemes, as in the app
+  'term-bg': '#11141a', 'term-fg': '#d4d9e0', 'term-cursor': '#d4d9e0', 'term-bar': '#1b1e24', 'term-muted': '#868f9a',
+  'on-danger': '#ffffff', knob: '#ffffff', 'knob-shadow': '0 2px 6px rgba(0, 0, 0, 0.2), 0 0 0 0.5px rgba(0, 0, 0, 0.06)',
+  'control-shadow': '0 1px 3px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.04)', lightbox: 'rgba(0, 0, 0, 0.92)',
 };
 const DARK = {
-  bg: '#0B0C12', surface: '#1F2028', surface2: '#262730', border: '#33353F',
-  text: '#E9EAF0', muted: '#A3A6B6', accent: '#8C9BFF', 'accent-text': '#8C9BFF',
-  'on-accent': '#0B0C12', ok: '#A3CF5E', warn: '#F2994A', danger: '#FF7A7A',
-  separator: '#33353F', fill: '#2A2B34', 'control-on': '#5C5F70', bubble: '#262730',
-  scrim: 'rgba(0, 0, 0, 0.55)', shadow: '0 12px 32px rgba(0, 0, 0, 0.6)',
-  'chart-1': '#6F86FF', 'chart-2': '#FF5FB0', 'chart-3': '#4FC3DC', 'chart-4': '#4CD69B',
-  'chart-5': '#FFD54A', 'chart-6': '#FF6B6B',
-  'term-bg': '#0B0C12', 'term-fg': '#E6E7EE', 'term-cursor': '#8C9BFF',
-  'on-danger': '#0B0C12', knob: '#FFFFFF', 'knob-shadow': '0 2px 6px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(0, 0, 0, 0.12)',
-  'control-shadow': '0 1px 3px rgba(0, 0, 0, 0.4), 0 0 0 0.5px rgba(0, 0, 0, 0.12)', lightbox: 'rgba(11, 12, 18, 0.92)',
+  bg: '#1b1e24', surface: '#23272e', surface2: '#2b3038', border: '#363c45',
+  text: '#d4d9e0', muted: '#868f9a', accent: '#f5a623', 'accent-text': '#f5a623',
+  'on-accent': '#1b1e24', ok: '#4caf50', warn: '#f2a71b', danger: '#ef5350',
+  separator: 'rgba(160, 170, 185, 0.16)', fill: 'rgba(118, 118, 128, 0.24)', 'control-on': '#5a616c', bubble: '#343a44',
+  scrim: 'rgba(0, 0, 0, 0.55)', shadow: '0 1px 3px rgba(0, 0, 0, 0.5), 0 8px 24px rgba(0, 0, 0, 0.35)',
+  'chart-1': '#f5a623', 'chart-2': '#5b9cf6', 'chart-3': '#4caf50', 'chart-4': '#b27ee0',
+  'chart-5': '#26c6da', 'chart-6': '#f06292',
+  'term-bg': '#11141a', 'term-fg': '#d4d9e0', 'term-cursor': '#d4d9e0', 'term-bar': '#1b1e24', 'term-muted': '#868f9a',
+  'on-danger': '#ffffff', knob: '#ffffff', 'knob-shadow': '0 2px 6px rgba(0, 0, 0, 0.2), 0 0 0 0.5px rgba(0, 0, 0, 0.06)',
+  'control-shadow': '0 1px 3px rgba(0, 0, 0, 0.14), 0 0 0 0.5px rgba(0, 0, 0, 0.04)', lightbox: 'rgba(0, 0, 0, 0.92)',
 };
 
 // [weight, size, line-height] per type role — iOS "Large" (the default) and
-// "xxxLarge" (the large-text screenshots). The large title is the one brand
-// flourish: Bricolage Grotesque 800.
+// "xxxLarge" (the large-text screenshots), in the system font as the app
+// draws them.
 const TYPE = {
-  'large-title': [[800, 34, 41], [800, 40, 48]],
+  'large-title': [[400, 34, 41], [400, 40, 48]],
   title: [[400, 28, 34], [400, 34, 41]],
   'title-2': [[400, 22, 28], [400, 28, 34]],
   'title-3': [[400, 20, 25], [400, 26, 32]],
@@ -83,18 +90,16 @@ const TYPE = {
 };
 
 const colors = (o) => Object.entries(o).map(([k, v]) => `--xb-${k}: ${v};`).join('\n');
-const FAMILY = { mono: '--xb-mono', 'large-title': '--xb-display' };
 const types = (i) => Object.entries(TYPE).map(([k, t]) => {
   const [w, s, l] = t[i];
-  return `--xb-font-${k}: ${w} ${s}px/${l}px var(${FAMILY[k] || '--xb-family'});
+  return `--xb-font-${k}: ${w} ${s}px/${l}px var(${k === 'mono' ? '--xb-mono' : '--xb-family'});
 --xb-size-${k}: ${s}px; --xb-line-${k}: ${l}px;`;
 }).join('\n');
 
 export const TOKENS = css`
   :host {
     --xb-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    --xb-display: "Bricolage Grotesque", "Arial Black", "Helvetica Neue", Arial, system-ui, sans-serif;
-    --xb-mono: "JetBrains Mono", ui-monospace, "SF Mono", SFMono-Regular, Menlo, "DejaVu Sans Mono", Consolas, monospace;
+    --xb-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, "DejaVu Sans Mono", Consolas, monospace;
     --xb-gap-none: 0px; --xb-gap-xs: 4px; --xb-gap-s: 8px; --xb-gap-m: 12px;
     --xb-gap-l: 16px; --xb-gap-xl: 24px; --xb-gap-xxl: 32px;
     --xb-h-xs: 48px; --xb-h-s: 96px; --xb-h-m: 160px; --xb-h-l: 240px; --xb-h-xl: 360px;
@@ -123,7 +128,7 @@ export const TOKENS = css`
 
 // Type-role classes (`text style=…`, and the renderer's own labels).
 export const TYPE_CLASSES = css`
-  .t-largeTitle { font: var(--xb-font-large-title); letter-spacing: -0.02em; }
+  .t-largeTitle { font: var(--xb-font-large-title); letter-spacing: 0.2px; }
   .t-title { font: var(--xb-font-title); letter-spacing: 0.2px; }
   .t-title2 { font: var(--xb-font-title-2); letter-spacing: 0.1px; }
   .t-title3 { font: var(--xb-font-title-3); letter-spacing: 0.1px; }

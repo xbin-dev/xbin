@@ -605,8 +605,12 @@ The app draws these with the same components as its own agent screen.
 Tiles name roles, never raw values: a `tone`, a type role, a gap, a height.
 Each renderer maps them — the app to iOS system colours (xbin amber as the
 tint) and Dynamic Type, so every native tile follows the user's light/dark
-setting and text size; the reference renderer to the web shell's palette
-plus a light one. Padding, radii and elevation belong to the renderer.
+setting and text size; the reference renderer to the same look (the app's
+amber on the palette the web shell had before Base Two, plus a light one),
+so a preview shows what the phone draws. The workspace's own pages draw
+Base Two (D184); the app, and with it the reference renderer, keeps this
+palette until it adopts Base Two. Padding, radii and elevation belong to
+the renderer.
 `bx lint --native` flags raw colours (`tone="#f00"`, `rgb(…)`).
 
 <!-- generated:tokens (node hack/native-docs.mjs --write) -->
