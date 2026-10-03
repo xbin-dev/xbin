@@ -1,0 +1,9 @@
+# website/media.lock: the site's media over 1 MiB, which git does not keep
+# (`make large-files`). The files live in website/media/ (gitignored) and the
+# pages reference them as /media/<path>. `make website` copies every file listed
+# here into dist/media/ and refuses to build when one is missing or its sha256
+# differs (hack/check-website.sh --dist). One line per file:
+#
+#   <sha256>  <path under website/media/>  <source: where the file comes from>
+#
+# Nothing yet: the 12 s film (F-1) waits for the product theme (D184).

@@ -20,6 +20,8 @@ dist/
 website/dist/
 # the prebuilt helpers served from the site (hack/helpers-static.sh) — binaries, never tracked
 website/static-helpers/
+# the site's media over 1 MiB, pinned by website/media.lock (sha256 and source per file)
+website/media/
 builtin-tiles/*/backend/backend
 builtin-templates/*/_backend/_backend
 examples/*/backend/backend
