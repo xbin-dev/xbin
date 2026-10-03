@@ -234,7 +234,10 @@
     /* the pickers, then the message row; when both don't fit one line (a narrow tile, many pickers)
        the message row takes a line of its own, so the box keeps its width and Send stays on screen */
     .composer .cpicks, .composer .cinput { display: flex; gap: 6px; align-items: flex-end; min-width: 0; }
-    .composer .cpicks { flex: 0 1 auto; flex-wrap: wrap; }
+    /* the pickers keep their width (a squeezed one read "a…"): it is the
+       message row that wraps */
+    .composer .cpicks { flex: 0 0 auto; flex-wrap: wrap; max-width: 100%; }
+    .composer .cpicks > * { flex: none; }
     .composer .cpicks:not(:has(> :not([hidden]))) { display: none; }
     .composer .cinput { flex: 1 1 17em; }
     .composer textarea { flex: 1; min-width: 0; resize: none; min-height: 30px; max-height: 40vh; line-height: 1.4; padding: 5px 8px; }
@@ -567,6 +570,23 @@
              display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
     .brand { cursor: pointer; }
     .brand:hover { color: var(--bx-text); }
+    /* A narrow tile (a phone's stacked card, a slim window): one column —
+       the open conversation, or home, at full width; the conversation list
+       slides in over it from the top bar's ☰ (agent.js sideToggle), and the
+       conversation's less frequent controls fold behind its ⋯. */
+    .top .delbtn:hover { color: var(--bx-red); border-color: color-mix(in srgb, var(--bx-red) 50%, var(--bx-border)); }
+    .navbtn, .navmore { display: none; }
+    .sideback { display: none; }
+    @media (max-width: 560px) {
+      .wrap { grid-template-columns: minmax(0, 1fr); }
+      .side { position: fixed; top: 0; bottom: 0; left: 0; z-index: 36; width: min(300px, 86vw);
+              transform: translateX(-102%); transition: transform .18s ease; box-shadow: 6px 0 24px rgba(0,0,0,.4); }
+      .wrap.sideopen .side { transform: none; }
+      .wrap.sideopen .sideback { display: block; position: fixed; inset: 0; z-index: 35; background: rgba(0,0,0,.4); }
+      .navbtn, .navmore { display: inline-flex; }
+      .top:not(.more) .tmore { display: none; }
+      .top .title { min-width: 80px; }
+    }
   </style>
 </head>
 <body class="bx">
@@ -585,6 +605,7 @@
       <div class="views" id="views"></div>
       <div class="runs" id="runs"></div>
     </div>
+    <div class="sideback" id="sideback"></div>
     <div class="main" id="main">
       <div class="top" id="top"></div>
       <div class="timeline" id="timeline"></div>

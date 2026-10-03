@@ -34,6 +34,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   policies tab instead of saying "hover". The view-as banner and the
   partitions page are reworded ("…in every tab of this browser, until you
   exit"; "through the workspace").
+- **Agent template: a narrow layout.** In a tile under 560 px (a phone's
+  stacked card) the page is one column — the open conversation, or home —
+  and the conversation list slides in from the top bar's ☰; Compact, Learn
+  skill, Memory, Files and Delete fold behind its ⋯. Everywhere, Memory and
+  Files show a count only once there is one, Delete is no longer a red
+  button in every header (it turns red on hover), and the composer's
+  pickers keep their width — the message row wraps instead of squeezing
+  the model picker to "a…". New agents get it; an existing one through
+  `bx template updates`.
 - **traefik tile v5**: its setup script unpacks the traefik binary as the
   sandbox's own user (`tar --no-same-owner`). It failed ("Cannot change
   ownership to uid 1001") where a tile sandbox maps a single uid, as on a

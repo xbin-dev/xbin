@@ -88,8 +88,10 @@ const SCENARIOS = [
 ];
 
 // 220px is far below anything the shell produces; if it holds there it holds.
+// 380 is a phone's stacked card: the narrow layout (one column, the list a
+// drawer).
 const HEIGHTS = [220, 320, 420, 500, 640, 900];
-const WIDTHS = [700, 1100];
+const WIDTHS = [380, 700, 1100];
 
 for (const [w] of WIDTHS.map((x) => [x])) {
   for (const [label, setup] of SCENARIOS) {

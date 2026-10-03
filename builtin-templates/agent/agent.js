@@ -184,12 +184,26 @@ function setHash(h) {
 
 // --- painting -------------------------------------------------------------------
 
+// The narrow layout (index.html, max-width 560px): the conversation list is
+// a drawer the top bar's ☰ opens, closed again by picking a conversation,
+// going home or tapping beside it; the ⋯ unfolds the top bar's less frequent
+// controls (.tmore). Wider, neither button shows and nothing folds.
+let topMore = false;
+function sideOpen(on) { document.querySelector('.wrap').classList.toggle('sideopen', on); }
+$('sideback').onclick = () => sideOpen(false);
+for (const ev of ['select', 'home', 'page']) app.on(ev, () => sideOpen(false));
+const navTpl = () => html`<button class="btn ghost btnsm navbtn" title="Conversations" @click=${() => sideOpen(true)}>☰</button>`;
+const moreTpl = () => html`<button class="btn ghost btnsm navmore" title=${topMore ? 'fewer controls' : 'more controls'}
+  @click=${() => { topMore = !topMore; $('top').classList.toggle('more', topMore); paint(); }}>${topMore ? '‹' : '⋯'}</button>`;
+
 function topTpl(v) {
-  if (!v) return app.page === 'automations' ? html`<span class="title">Automations</span>`
-    : html`<span class="title">${HOME.title}</span><span class="muted" style="font-size:11.5px">${HOME.tagline}</span>${ext.top(null) || nothing}`;
+  if (!v) return app.page === 'automations' ? html`${navTpl()}<span class="title">Automations</span>`
+    : html`${navTpl()}<span class="title">${HOME.title}</span><span class="muted" style="font-size:11.5px">${HOME.tagline}</span>${ext.top(null) || nothing}`;
   const r = v.run;
   const t = rules.topBar(v, convs.find(r.rootId || r.id), app.me);
-  return html`${t.crumb ? html`<a class="crumb" @click=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Automations ›</a>` : nothing}
+  // a count shows once there is something to count
+  const n = (k) => (k ? ` (${k})` : '');
+  return html`${navTpl()}${t.crumb ? html`<a class="crumb" @click=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Automations ›</a>` : nothing}
     <span class="title" title=${r.title || ''}>${t.title}</span>
     <span class="badge clsbadge" title=${t.cls.title}>${t.cls.label}</span>
     ${hostedChipTpl(v)}
@@ -199,17 +213,18 @@ function topTpl(v) {
     <span class="badge ${r.status}">${r.status}</span>
     ${t.viewOnly ? html`<span class="badge" title="shared with you to read">view only</span>` : nothing}
     ${t.retry ? html`<button class="btn ghost btnsm" @click=${() => control('resume')} title="Drive the run again">Retry</button>` : nothing}
-    ${t.compact ? html`<button class="btn ghost btnsm" @click=${() => control('compact')}>Compact</button>` : nothing}
-    ${t.learn ? html`<button class="btn ghost btnsm" @click=${() => control('learn')} title="Distill this run into a reusable skill">Learn skill</button>` : nothing}
-    ${t.memory != null ? html`<button class="btn ghost btnsm" @click=${() => control('mem')}>Memory (${t.memory})</button>` : nothing}
-    <button class="btn ghost btnsm" @click=${() => control('files')} title="This run's session files">Files (${t.files})</button>
+    ${t.compact ? html`<button class="btn ghost btnsm tmore" @click=${() => control('compact')}>Compact</button>` : nothing}
+    ${t.learn ? html`<button class="btn ghost btnsm tmore" @click=${() => control('learn')} title="Distill this run into a reusable skill">Learn skill</button>` : nothing}
+    ${t.memory != null ? html`<button class="btn ghost btnsm tmore" @click=${() => control('mem')} title="What the agent remembers">Memory${n(t.memory)}</button>` : nothing}
+    <button class="btn ghost btnsm tmore" @click=${() => control('files')} title="This run's session files">Files${n(t.files)}</button>
     ${t.tree ? html`<span class="badge wfchip" @click=${() => control('wf')} title="open the workflow tree">⑂ tree</span>` : nothing}
     ${ext.top(v) || nothing}
     ${t.sharing || t.publish ? html`<button class="btn ghost btnsm sharepill ${t.share.tone}" @click=${() => openShare(t.shareRun, app.me, () => convs.load())}
       title=${t.share.title}>${t.share.icon} ${t.share.label}</button>` : nothing}
     ${t.grants.map((g) => html`<span class="badge grantchip" title=${g.title}>${g.label}${g.revoke
       ? html`<button class="linkbtn" title="stop it now" @click=${() => session.revokeGrant(g.run, g.cap).catch((e) => alert(e.message))}>revoke</button>` : nothing}</span>`)}
-    ${t.del ? html`<button class="btn rm btnsm" @click=${() => control('delete')}>Delete</button>` : nothing}
+    ${t.del ? html`<button class="btn ghost btnsm tmore delbtn" @click=${() => control('delete')} title="Delete this conversation and its history">Delete</button>` : nothing}
+    ${moreTpl()}
     ${taskTpl(v)}`;
 }
 
