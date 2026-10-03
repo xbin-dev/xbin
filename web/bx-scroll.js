@@ -9,8 +9,9 @@
  *                          3px at the outer edge and fattens while hovered or
  *                          dragged (the width never changes, so xterm's one-time
  *                          measurement holds); the scroller carrying
- *                          [data-bx-scroll] gets a hazard-amber thumb. Fine
- *                          pointers only — touch keeps its native overlay bars.
+ *                          [data-bx-scroll] gets a thumb in the focus colour
+ *                          (cyan: it says where scrolling input goes, D184).
+ *                          Fine pointers only — touch keeps its native bars.
  *                          Shadow roots include it (lit: unsafeCSS); the same
  *                          rules sit in /vendor/theme.css for documents.
  *   installScrollFocus() — keeps [data-bx-scroll] on the scroller the next
@@ -34,17 +35,17 @@
  * gets them, Chromium never does. Dependency-free: tile documents load it.
  */
 
-const THUMB = 'color-mix(in srgb, var(--bx-muted, #868f9a) 40%, transparent)';
-const THUMB_HOT = 'color-mix(in srgb, var(--bx-muted, #868f9a) 75%, transparent)';
-const TINT = 'color-mix(in srgb, var(--bx-accent, #f5a623) 60%, transparent)';
-const TINT_HOT = 'color-mix(in srgb, var(--bx-accent, #f5a623) 90%, transparent)';
+const THUMB = 'color-mix(in srgb, var(--bx-muted, #A3A6B6) 40%, transparent)';
+const THUMB_HOT = 'color-mix(in srgb, var(--bx-muted, #A3A6B6) 75%, transparent)';
+const TINT = 'color-mix(in srgb, var(--bx-focus, #3DD6F5) 70%, transparent)';
+const TINT_HOT = 'var(--bx-focus, #3DD6F5)';
 
 export const scrollCssText = `
 @media (hover: hover) and (pointer: fine) {
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
   ::-webkit-scrollbar-thumb { background: ${THUMB}; background-clip: padding-box;
-    border: 0 solid transparent; border-left-width: 3px; border-radius: 6px; }
+    border: 0 solid transparent; border-left-width: 3px; border-radius: var(--bx-radius, 2px); }
   ::-webkit-scrollbar-thumb:horizontal { border-left-width: 0; border-top-width: 3px; }
   ::-webkit-scrollbar-thumb:hover, ::-webkit-scrollbar-thumb:active { border-width: 0; background-color: ${THUMB_HOT}; }
   [data-bx-scroll]::-webkit-scrollbar-thumb { background-color: ${TINT}; }

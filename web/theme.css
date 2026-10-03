@@ -1,33 +1,471 @@
-/* xbin dark-steel theme tokens — graphite panels, hazard-amber accent.
-   The workspace default: light-gray text on darkish steel, matching the
-   X/BIN mark's material. Loaded via <link href="/vendor/theme.css"> in
-   main-document pages and component views. Custom properties pierce shadow
-   DOM, so core elements (bx-frame, bx-grants, bx-shell) pick these up
-   wherever the document sets them; every element also carries values as
-   var() fallbacks, so bare documents still render. */
+/* xbin theme: the Base Two product tokens (D184), Concrete Night and
+   Concrete Day. Loaded via <link rel="stylesheet" href="/vendor/theme.css">;
+   it is never injected into a document.
+
+   Every document that links this sheet gets Concrete Night, as it got the
+   dark-steel palette before: a third-party tile that hard-codes light text
+   stays legible. A document turns light only when it opts in:
+
+     <html data-bx-theme="auto">
+
+   An opted-in document follows the person's appearance. xbind's document
+   injection adds <meta name="xbin-theme" content="light|dark"> when the
+   person chose a theme (absent = follow the system) and
+   <meta name="xbin-density" content="comfortable"> when they chose that
+   density; the embedding frame keeps both current (xbin:appearance,
+   docs/protocol.md). The rules below read them with :has(), so the right
+   theme is there at first paint. Without :has() a document stays Night.
+
+   Old names keep working: --bx-green, --bx-amber and --bx-red follow
+   ok, warn and danger. --bx-part is the partition marker, not a brand part
+   colour (those are the part-tab tokens). Custom properties pierce shadow
+   DOM, so core elements pick these up wherever the document sets them;
+   every element also carries var() fallbacks equal to the Night values
+   (make theme-check), so a bare document still renders.
+
+   Values: docs/frontend-kit.md (the token table). Contrast holds WCAG 2.2
+   AA in both themes: body text 4.5:1, UI parts 3:1. */
+
+/* ---- fonts: self-hosted, OFL 1.1 (fonts/OFL-*.txt) ---- */
+@font-face { font-family: "Instrument Sans"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url("fonts/instrument-sans-400.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Instrument Sans"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url("fonts/instrument-sans-400-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "Instrument Sans"; font-style: normal; font-weight: 600; font-display: swap;
+  src: url("fonts/instrument-sans-600.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Instrument Sans"; font-style: normal; font-weight: 600; font-display: swap;
+  src: url("fonts/instrument-sans-600-ext.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 400; font-display: swap;
+  src: url("fonts/jetbrains-mono-400.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 500; font-display: swap;
+  src: url("fonts/jetbrains-mono-500.woff2") format("woff2"); }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 700; font-display: swap;
+  src: url("fonts/jetbrains-mono-700.woff2") format("woff2"); }
+@font-face { font-family: "Bricolage Grotesque"; font-style: normal; font-weight: 600; font-display: swap;
+  src: url("fonts/bricolage-grotesque-600.woff2") format("woff2"); }
+@font-face { font-family: "Bricolage Grotesque"; font-style: normal; font-weight: 800; font-display: swap;
+  src: url("fonts/bricolage-grotesque-800.woff2") format("woff2"); }
+
+/* ---- Concrete Night: every document's default (and an opted-in document
+   in dark). hack/theme-fallbacks.mjs reads this block: its values are what
+   every var() fallback must equal. Values are literals, except the old-name
+   aliases and the composites (focus ring, type), which are var() references
+   so they follow the theme; the script resolves them to Night literals. No
+   token names inside comments in this block: the script would read them. ---- */
 :root {
-  --bx-bg: #1b1e24;            /* canvas — the logo steel */
-  --bx-term-bg: #262c36;       /* terminal panes — a notch brighter than the
-                                  canvas/panels so they read as their own
-                                  surface, slightly blue like a classic term */
-  --bx-panel: #23272e;         /* cards, bars, sidebars — the logo plate */
-  --bx-panel-2: #2b3038;       /* inset panels, hover rows */
-  --bx-border: #363c45;
-  --bx-text: #d4d9e0;          /* light gray */
-  --bx-muted: #868f9a;
-  --bx-accent: #f5a623;        /* hazard amber */
-  --bx-green: #4caf50;
-  --bx-amber: #f2a71b;
-  --bx-red: #ef5350;
-  --bx-radius: 6px;
-  --bx-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
-  --bx-font: 13px/1.45 -apple-system, "Segoe UI", "Inter", system-ui, sans-serif;
-  --bx-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  /* surfaces, back to front */
+  --bx-bg: #0B0C12;               /* the canvas (shell_bg) */
+  --bx-canvas-dot: #1F2028;
+  --bx-sidebar: #111218;
+  --bx-panel: #1F2028;            /* windows, cards, bars: lifted one step (B2 Q4) */
+  --bx-panel-2: #262730;          /* inset panels, inputs, toolbars */
+  --bx-hover: #2A2B34;
+  --bx-selection: #262C5C;
+  --bx-selection-text: #E9EAF0;
+  --bx-border: #33353F;
+  --bx-border-strong: #666A7E;    /* component borders: 3:1 on the canvas */
+  --bx-code-bg: #16171D;          /* code panes: a well one step below the panel */
+
+  /* text */
+  --bx-text: #E9EAF0;
+  --bx-muted: #A3A6B6;
+  --bx-subtle: #8E91A2;           /* placeholders, tertiary text: 4.5:1 on hover */
+
+  /* the accent: actions, selection and prose links only (B2 Q6) */
+  --bx-accent: #8C9BFF;
+  --bx-accent-hover: #A9B4FF;
+  --bx-accent-ink: #0B0C12;       /* text on an accent fill */
+  --bx-link: #8C9BFF;
+
+  /* focus: a 3px cyan ring, 2px outside, over a 2px gap in the page colour */
+  --bx-focus: #3DD6F5;
+  --bx-focus-gap: #0B0C12;
+  --bx-focus-width: 3px;
+  --bx-focus-offset: 2px;
+  --bx-focus-outline: var(--bx-focus-width) solid var(--bx-focus);
+  --bx-focus-halo: 0 0 0 var(--bx-focus-offset) var(--bx-focus-gap);
+
+  /* status: always with an icon and a word; the tints are backgrounds */
+  --bx-ok: #A3CF5E;
+  --bx-ok-bg: #2F352E;
+  --bx-warn: #F2994A;
+  --bx-warn-bg: #382F2C;
+  --bx-danger: #FF7A7A;
+  --bx-danger-bg: #3A2B32;
+  --bx-info: #A9B4C6;
+  --bx-info-bg: #30323B;
+
+  /* old names, aliased: they follow the theme */
+  --bx-green: var(--bx-ok);
+  --bx-amber: var(--bx-warn);
+  --bx-red: var(--bx-danger);
+
+  /* the partition marker (the yours/shared/global mark), not a part colour */
+  --bx-part: #3FB5A3;
+
+  /* the brand fields and the part tabs: the same in both themes, except
+     that cobalt lifts in Night */
+  --bx-field-yellow: #FFD000;
+  --bx-field-yellow-ink: #0B0C12;
+  --bx-field-green: #00A86B;
+  --bx-field-green-ink: #0B0C12;
+  --bx-field-magenta: #DB0072;
+  --bx-field-magenta-ink: #FFFFFF;
+  --bx-field-cobalt: #3350FF;
+  --bx-field-cobalt-ink: #FFFFFF;
+  --bx-part-tab-shell: #3350FF;
+  --bx-part-tab-terminal: #00A86B;
+  --bx-part-tab-agent: #DB0072;
+  --bx-part-tab-admin: #FFD000;
+  --bx-part-tab-h: 3px;
+  --bx-elevated-bg: #FFD000;      /* view-as and every elevated mode */
+  --bx-elevated-ink: #0B0C12;
+
+  /* window chrome (product-ui 3): windows get a border_strong edge (B2 Q4) */
+  --bx-titlebar: #1F2028;
+  --bx-titlebar-active: #262730;
+  --bx-title-text: #E9EAF0;
+  --bx-title-text-inactive: #8E91A2;
+  --bx-window-border: #666A7E;
+  --bx-window-border-active: #9396A4;
+  --bx-control-hover: #33353F;
+  --bx-close-hover: #FF7A7A;
+  --bx-close-hover-ink: #0B0C12;
+
+  /* shadows: a card, a window at rest, the active window, a pop-over */
+  --bx-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --bx-shadow-rest: 0 10px 28px rgba(0, 0, 0, 0.4);
+  --bx-shadow-active: 0 16px 40px rgba(0, 0, 0, 0.55);
+  --bx-shadow-pop: 0 12px 32px rgba(0, 0, 0, 0.6);
+  --bx-scrim: rgba(0, 0, 0, 0.55);
+
+  /* shape: 2px everywhere, no pills */
+  --bx-radius: 2px;
+
+  /* syntax highlighting (a tool palette: 4.5:1 on the code well, the
+     selection and the diff tints) */
+  --bx-syn-keyword: #FF8CC8;
+  --bx-syn-string: #7BE0B0;
+  --bx-syn-number: #FFD54A;
+  --bx-syn-comment: #9598A9;
+  --bx-syn-function: #96A6FF;
+  --bx-syn-type: #5CCBE3;
+  --bx-syn-attr: #F5B07A;
+  --bx-syn-builtin: #C6A8FF;
+  --bx-syn-deletion: #FF8F8F;
+  --bx-syn-addition: #7BE0B0;
+
+  /* diffs: line text and line tints */
+  --bx-diff-add: #5EDBA5;
+  --bx-diff-add-bg: #1D302D;
+  --bx-diff-del: #FF8F8F;
+  --bx-diff-del-bg: #342429;
+  --bx-diff-hunk: #5CCBE3;
+  --bx-diff-hunk-bg: #1C2830;
+  --bx-diff-context: #A3A6B6;
+  --bx-diff-context-bg: transparent;
+
+  /* terminals (product-ui 7): fg, bg, cursor, selection and the ANSI 16 */
+  --bx-term-bg: #0B0C12;
+  --bx-term-fg: #E6E7EE;
+  --bx-term-cursor: #8C9BFF;
+  --bx-term-cursor-ink: #0B0C12;
+  --bx-term-selection: #262C5C;
+  --bx-term-black: #1C1D26;
+  --bx-term-red: #FF6B6B;
+  --bx-term-green: #4CD69B;
+  --bx-term-yellow: #FFD54A;
+  --bx-term-blue: #6F86FF;
+  --bx-term-magenta: #FF5FB0;
+  --bx-term-cyan: #4FC3DC;
+  --bx-term-white: #C9CBD6;
+  --bx-term-bright-black: #5C5F70;
+  --bx-term-bright-red: #FF8F8F;
+  --bx-term-bright-green: #7BE6B6;
+  --bx-term-bright-yellow: #FFE27A;
+  --bx-term-bright-blue: #96A6FF;
+  --bx-term-bright-magenta: #FF8CC8;
+  --bx-term-bright-cyan: #85DCEC;
+  --bx-term-bright-white: #FFFFFF;
+
+  /* type: Instrument Sans for the UI, JetBrains Mono for code and
+     terminals, Bricolage Grotesque for headings and empty states. UI text
+     is 13px or larger: 11px only for caps micro labels, 12px only for
+     timestamps and meta (B2 Q8). */
+  --bx-sans: "Instrument Sans", system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --bx-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  --bx-display: "Bricolage Grotesque", "Arial Black", "Helvetica Neue", Arial, system-ui, sans-serif;
+  --bx-font: var(--bx-text-size)/var(--bx-text-line) var(--bx-sans);
+  --bx-font-micro: 600 11px/14px var(--bx-sans);
+  --bx-font-meta: 400 12px/16px var(--bx-sans);
+  --bx-font-ui: 400 var(--bx-text-size)/var(--bx-text-line) var(--bx-sans);
+  --bx-font-body: 400 14px/20px var(--bx-sans);
+  --bx-font-title: 600 16px/22px var(--bx-sans);
+  --bx-font-heading: 600 20px/26px var(--bx-display);
+  --bx-font-hero: 800 32px/36px var(--bx-display);
+  --bx-font-code: 400 var(--bx-term-size)/var(--bx-term-line) var(--bx-mono);
+  --bx-font-number: 600 var(--bx-text-size)/var(--bx-text-line) var(--bx-sans);
+  --bx-tracking-micro: 0.06em;
+  --bx-tracking-heading: -0.01em;
+  --bx-tracking-hero: -0.02em;
+
+  /* density: compact is the default (B2 Q10) */
+  --bx-density: compact;
+  --bx-row: 28px;
+  --bx-control-h: 28px;
+  --bx-pad: 12px;
+  --bx-grid: 4px;
+  --bx-text-size: 13px;
+  --bx-text-line: 18px;
+  --bx-term-size: 12px;
+  --bx-term-line: 18px;
+
+  /* layout sizes (product-ui 2) */
+  --bx-titlebar-h: 28px;
+  --bx-topbar-h: 40px;
+  --bx-statusbar-h: 24px;
+  --bx-sidebar-w: 248px;
+  --bx-rail-w: 48px;
+  --bx-dock-w: 400px;
+  --bx-elevated-h: 28px;
+
+  /* motion: confirm state changes, nothing else */
+  --bx-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --bx-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --bx-dur-instant: 80ms;
+  --bx-dur-ui: 120ms;
+  --bx-dur-panel: 200ms;
+  --bx-dur-window: 240ms;
+
+  /* which theme is in force, for code that paints (xterm, canvases) */
+  --bx-scheme: dark;
 
   color-scheme: dark;
 }
 
-/* Base for component documents that opt in by linking this sheet. */
+/* ---- Concrete Day, for opted-in documents only. The same block twice:
+   when the person chose light, and when they chose nothing (system) on a
+   light system. hack/theme-fallbacks.mjs checks the two are identical.
+   The selectors keep :root's specificity, so a document's own
+   :root { … } override, linked after this sheet, wins in both themes. ---- */
+:root:where([data-bx-theme="auto"]:has(> head > meta[name="xbin-theme"][content="light"])) {
+  /* bx-day:start */
+  --bx-bg: #E8E9EE;
+  --bx-canvas-dot: #CDD0D8;
+  --bx-sidebar: #F1F2F5;
+  --bx-panel: #FFFFFF;
+  --bx-panel-2: #F7F8FA;
+  --bx-hover: #EEF0F4;
+  --bx-selection: #DDE2FF;
+  --bx-selection-text: #0B0C12;
+  --bx-border: #CDD0D8;
+  --bx-border-strong: #7E8194;
+  --bx-code-bg: #FFFFFF;
+  --bx-text: #0B0C12;
+  --bx-muted: #4B4D5C;
+  --bx-subtle: #626576;
+  --bx-accent: #1F3DFF;
+  --bx-accent-hover: #1530D6;
+  --bx-accent-ink: #FFFFFF;
+  --bx-link: #1F3DFF;
+  --bx-focus: #0086A6;
+  --bx-focus-gap: #FFFFFF;
+  --bx-ok: #436C0C;
+  --bx-ok-bg: #EEF5E1;
+  --bx-warn: #9A4A06;
+  --bx-warn-bg: #FBEEDF;
+  --bx-danger: #C81E1E;
+  --bx-danger-bg: #FBE7E7;
+  --bx-info: #3D4A5C;
+  --bx-info-bg: #ECEEF2;
+  --bx-part: #1F8778;
+  --bx-field-cobalt: #1F3DFF;
+  --bx-part-tab-shell: #1F3DFF;
+  --bx-titlebar: #F1F2F5;
+  --bx-titlebar-active: #FFFFFF;
+  --bx-title-text: #0B0C12;
+  --bx-title-text-inactive: #626576;
+  --bx-window-border: #CDD0D8;
+  --bx-window-border-active: #33353F;
+  --bx-control-hover: #E8E9EE;
+  --bx-close-hover: #C81E1E;
+  --bx-close-hover-ink: #FFFFFF;
+  --bx-shadow: 0 1px 2px rgba(11, 12, 18, 0.08);
+  --bx-shadow-rest: 0 1px 0 rgba(11, 12, 18, 0.04), 0 8px 24px rgba(11, 12, 18, 0.1);
+  --bx-shadow-active: 0 1px 0 rgba(11, 12, 18, 0.06), 0 14px 36px rgba(11, 12, 18, 0.16);
+  --bx-shadow-pop: 0 1px 0 rgba(11, 12, 18, 0.06), 0 12px 32px rgba(11, 12, 18, 0.18);
+  --bx-scrim: rgba(11, 12, 18, 0.32);
+  --bx-syn-keyword: #A3005A;
+  --bx-syn-string: #00754A;
+  --bx-syn-number: #875C00;
+  --bx-syn-comment: #626576;
+  --bx-syn-function: #2A3FD0;
+  --bx-syn-type: #0B6A85;
+  --bx-syn-attr: #9A4A06;
+  --bx-syn-builtin: #6A3DB8;
+  --bx-syn-deletion: #B81C1C;
+  --bx-syn-addition: #00754A;
+  --bx-diff-add: #00754A;
+  --bx-diff-add-bg: #E6F2ED;
+  --bx-diff-del: #B81C1C;
+  --bx-diff-del-bg: #FBEDED;
+  --bx-diff-hunk: #0B6A85;
+  --bx-diff-hunk-bg: #ECF4F6;
+  --bx-diff-context: #4B4D5C;
+  --bx-term-bg: #FFFFFF;
+  --bx-term-fg: #1C1D24;
+  --bx-term-cursor: #1F3DFF;
+  --bx-term-cursor-ink: #FFFFFF;
+  --bx-term-selection: #DDE2FF;
+  --bx-term-black: #1C1D24;
+  --bx-term-red: #C81E1E;
+  --bx-term-green: #00794A;
+  --bx-term-yellow: #8A6100;
+  --bx-term-blue: #1F3DFF;
+  --bx-term-magenta: #B0005C;
+  --bx-term-cyan: #0E7490;
+  --bx-term-white: #7A7D8C;
+  --bx-term-bright-black: #5A5D6C;
+  --bx-term-bright-red: #E0352B;
+  --bx-term-bright-green: #00965C;
+  --bx-term-bright-yellow: #A87800;
+  --bx-term-bright-blue: #4A63FF;
+  --bx-term-bright-magenta: #D4007A;
+  --bx-term-bright-cyan: #0891B2;
+  --bx-term-bright-white: #A6A9B8;
+  --bx-scheme: light;
+  color-scheme: light;
+  /* bx-day:end */
+}
+@media (prefers-color-scheme: light) {
+  :root:where([data-bx-theme="auto"]:not(:has(> head > meta[name="xbin-theme"][content="dark"]))) {
+    /* bx-day:start */
+    --bx-bg: #E8E9EE;
+    --bx-canvas-dot: #CDD0D8;
+    --bx-sidebar: #F1F2F5;
+    --bx-panel: #FFFFFF;
+    --bx-panel-2: #F7F8FA;
+    --bx-hover: #EEF0F4;
+    --bx-selection: #DDE2FF;
+    --bx-selection-text: #0B0C12;
+    --bx-border: #CDD0D8;
+    --bx-border-strong: #7E8194;
+    --bx-code-bg: #FFFFFF;
+    --bx-text: #0B0C12;
+    --bx-muted: #4B4D5C;
+    --bx-subtle: #626576;
+    --bx-accent: #1F3DFF;
+    --bx-accent-hover: #1530D6;
+    --bx-accent-ink: #FFFFFF;
+    --bx-link: #1F3DFF;
+    --bx-focus: #0086A6;
+    --bx-focus-gap: #FFFFFF;
+    --bx-ok: #436C0C;
+    --bx-ok-bg: #EEF5E1;
+    --bx-warn: #9A4A06;
+    --bx-warn-bg: #FBEEDF;
+    --bx-danger: #C81E1E;
+    --bx-danger-bg: #FBE7E7;
+    --bx-info: #3D4A5C;
+    --bx-info-bg: #ECEEF2;
+    --bx-part: #1F8778;
+    --bx-field-cobalt: #1F3DFF;
+    --bx-part-tab-shell: #1F3DFF;
+    --bx-titlebar: #F1F2F5;
+    --bx-titlebar-active: #FFFFFF;
+    --bx-title-text: #0B0C12;
+    --bx-title-text-inactive: #626576;
+    --bx-window-border: #CDD0D8;
+    --bx-window-border-active: #33353F;
+    --bx-control-hover: #E8E9EE;
+    --bx-close-hover: #C81E1E;
+    --bx-close-hover-ink: #FFFFFF;
+    --bx-shadow: 0 1px 2px rgba(11, 12, 18, 0.08);
+    --bx-shadow-rest: 0 1px 0 rgba(11, 12, 18, 0.04), 0 8px 24px rgba(11, 12, 18, 0.1);
+    --bx-shadow-active: 0 1px 0 rgba(11, 12, 18, 0.06), 0 14px 36px rgba(11, 12, 18, 0.16);
+    --bx-shadow-pop: 0 1px 0 rgba(11, 12, 18, 0.06), 0 12px 32px rgba(11, 12, 18, 0.18);
+    --bx-scrim: rgba(11, 12, 18, 0.32);
+    --bx-syn-keyword: #A3005A;
+    --bx-syn-string: #00754A;
+    --bx-syn-number: #875C00;
+    --bx-syn-comment: #626576;
+    --bx-syn-function: #2A3FD0;
+    --bx-syn-type: #0B6A85;
+    --bx-syn-attr: #9A4A06;
+    --bx-syn-builtin: #6A3DB8;
+    --bx-syn-deletion: #B81C1C;
+    --bx-syn-addition: #00754A;
+    --bx-diff-add: #00754A;
+    --bx-diff-add-bg: #E6F2ED;
+    --bx-diff-del: #B81C1C;
+    --bx-diff-del-bg: #FBEDED;
+    --bx-diff-hunk: #0B6A85;
+    --bx-diff-hunk-bg: #ECF4F6;
+    --bx-diff-context: #4B4D5C;
+    --bx-term-bg: #FFFFFF;
+    --bx-term-fg: #1C1D24;
+    --bx-term-cursor: #1F3DFF;
+    --bx-term-cursor-ink: #FFFFFF;
+    --bx-term-selection: #DDE2FF;
+    --bx-term-black: #1C1D24;
+    --bx-term-red: #C81E1E;
+    --bx-term-green: #00794A;
+    --bx-term-yellow: #8A6100;
+    --bx-term-blue: #1F3DFF;
+    --bx-term-magenta: #B0005C;
+    --bx-term-cyan: #0E7490;
+    --bx-term-white: #7A7D8C;
+    --bx-term-bright-black: #5A5D6C;
+    --bx-term-bright-red: #E0352B;
+    --bx-term-bright-green: #00965C;
+    --bx-term-bright-yellow: #A87800;
+    --bx-term-bright-blue: #4A63FF;
+    --bx-term-bright-magenta: #D4007A;
+    --bx-term-bright-cyan: #0891B2;
+    --bx-term-bright-white: #A6A9B8;
+    --bx-scheme: light;
+    color-scheme: light;
+    /* bx-day:end */
+  }
+}
+
+/* ---- comfortable density (a person's choice; compact is the default) ---- */
+:root:where([data-bx-theme="auto"]:has(> head > meta[name="xbin-density"][content="comfortable"])) {
+  --bx-density: comfortable;
+  --bx-row: 32px;
+  --bx-control-h: 32px;
+  --bx-pad: 16px;
+  --bx-text-size: 14px;
+  --bx-text-line: 20px;
+  --bx-term-size: 13px;
+  --bx-term-line: 20px;
+}
+
+/* ---- the system's accessibility settings ---- */
+@media (prefers-contrast: more) {
+  /* dividers become the text colour (brand 11) */
+  :root:where([data-bx-theme="auto"]) {
+    --bx-border: var(--bx-text);
+    --bx-border-strong: var(--bx-text);
+    --bx-window-border: var(--bx-text);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --bx-dur-instant: 0ms; --bx-dur-ui: 0ms; --bx-dur-panel: 0ms; --bx-dur-window: 0ms; }
+}
+
+/* ---- the UA's own controls in an opted-in document: checkboxes, radios
+   and ranges take the accent; placeholders and text selection the tokens.
+   (A shadow root needs its own ::placeholder and ::selection rules.) ---- */
+:root:where([data-bx-theme="auto"]) { accent-color: var(--bx-accent); }
+:where([data-bx-theme="auto"]) ::placeholder { color: var(--bx-subtle); opacity: 1; }
+:where([data-bx-theme="auto"]) ::selection { background: var(--bx-selection); color: var(--bx-selection-text); }
+
+/* ---- base for documents that opt in to it with <body class="bx"> ---- */
 body.bx {
   margin: 0;
   background: var(--bx-panel);
@@ -35,55 +473,73 @@ body.bx {
   font: var(--bx-font);
 }
 
-/* Small-caps section label, as in the sidebar/property groups. */
+/* The micro caps label (sidebar sections, property groups, table heads). */
 .bx-label {
-  font-size: 10.5px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font: var(--bx-font-micro);
+  letter-spacing: var(--bx-tracking-micro);
   text-transform: uppercase;
   color: var(--bx-muted);
 }
 
-/* Dense controls. */
+/* Controls (product-ui 6): 28px, square corners, the focus ring. A button
+   is secondary by default; .primary is the accent fill, .quiet text only,
+   .danger the destructive outline (a danger fill only inside a
+   confirmation). */
 .bx button, button.bx {
+  box-sizing: border-box;
+  min-height: var(--bx-control-h);
+  padding: 4px 11px;
   background: var(--bx-panel);
-  border: 1px solid var(--bx-border);
+  border: 1px solid var(--bx-border-strong);
   border-radius: var(--bx-radius);
   color: var(--bx-text);
   font: var(--bx-font);
-  font-size: 12px;
-  padding: 3px 10px;
+  font-weight: 600;
   cursor: pointer;
 }
-.bx button:hover, button.bx:hover { background: var(--bx-panel-2); }
-.bx input, input.bx, .bx select, select.bx {
-  background: var(--bx-panel-2);
-  border: 1px solid var(--bx-border);
+.bx button:hover, button.bx:hover { background: var(--bx-hover); }
+.bx button.primary, button.bx.primary { background: var(--bx-accent); border-color: var(--bx-accent); color: var(--bx-accent-ink); }
+.bx button.primary:hover, button.bx.primary:hover { background: var(--bx-accent-hover); border-color: var(--bx-accent-hover); }
+.bx button.quiet, button.bx.quiet { background: transparent; border-color: transparent; }
+.bx button.quiet:hover, button.bx.quiet:hover { background: transparent; color: var(--bx-accent); }
+.bx button.danger, button.bx.danger { color: var(--bx-danger); border-color: var(--bx-danger); }
+.bx button:disabled, button.bx:disabled { opacity: 0.5; cursor: default; }
+.bx input, input.bx, .bx select, select.bx, .bx textarea, textarea.bx {
+  box-sizing: border-box;
+  min-height: var(--bx-control-h);
+  padding: 4px 8px;
+  background: var(--bx-panel);
+  border: 1px solid var(--bx-border-strong);
   border-radius: var(--bx-radius);
   color: var(--bx-text);
   font: var(--bx-font);
-  font-size: 12px;
-  padding: 3px 8px;
 }
-.bx input:focus, input.bx:focus { outline: 2px solid color-mix(in srgb, var(--bx-accent) 45%, transparent); }
+.bx input[type="checkbox"], .bx input[type="radio"], .bx input[type="range"] { min-height: 0; padding: 0; }
+.bx :focus-visible, .bx:focus-visible {
+  outline: var(--bx-focus-outline);
+  outline-offset: var(--bx-focus-offset);
+  box-shadow: var(--bx-focus-halo);
+}
+.bx table { font-variant-numeric: tabular-nums; }
 
-/* Thin themed scrollbars + the focused-scroll tint (D123). Kept identical to
-   scrollCssText in /vendor/bx-scroll.js (hack/scroll-css.test.mjs checks);
-   xbin-client.js loads that module's tracker, which sets [data-bx-scroll],
-   in tile documents that link this sheet. */
+/* Thin themed scrollbars + the focused-scroll tint (D123), the tint in the
+   focus colour (D184). Kept identical to scrollCssText in /vendor/bx-scroll.js
+   (hack/scroll-css.test.mjs checks); xbin-client.js loads that module's
+   tracker, which sets [data-bx-scroll], in tile documents that link this
+   sheet. */
 /* bx-scroll:start */
 @media (hover: hover) and (pointer: fine) {
   ::-webkit-scrollbar { width: 6px; height: 6px; }
   ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--bx-muted, #868f9a) 40%, transparent); background-clip: padding-box;
-    border: 0 solid transparent; border-left-width: 3px; border-radius: 6px; }
+  ::-webkit-scrollbar-thumb { background: color-mix(in srgb, var(--bx-muted, #A3A6B6) 40%, transparent); background-clip: padding-box;
+    border: 0 solid transparent; border-left-width: 3px; border-radius: var(--bx-radius, 2px); }
   ::-webkit-scrollbar-thumb:horizontal { border-left-width: 0; border-top-width: 3px; }
-  ::-webkit-scrollbar-thumb:hover, ::-webkit-scrollbar-thumb:active { border-width: 0; background-color: color-mix(in srgb, var(--bx-muted, #868f9a) 75%, transparent); }
-  [data-bx-scroll]::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--bx-accent, #f5a623) 60%, transparent); }
-  [data-bx-scroll]::-webkit-scrollbar-thumb:hover, [data-bx-scroll]::-webkit-scrollbar-thumb:active { background-color: color-mix(in srgb, var(--bx-accent, #f5a623) 90%, transparent); }
+  ::-webkit-scrollbar-thumb:hover, ::-webkit-scrollbar-thumb:active { border-width: 0; background-color: color-mix(in srgb, var(--bx-muted, #A3A6B6) 75%, transparent); }
+  [data-bx-scroll]::-webkit-scrollbar-thumb { background-color: color-mix(in srgb, var(--bx-focus, #3DD6F5) 70%, transparent); }
+  [data-bx-scroll]::-webkit-scrollbar-thumb:hover, [data-bx-scroll]::-webkit-scrollbar-thumb:active { background-color: var(--bx-focus, #3DD6F5); }
   @supports not selector(::-webkit-scrollbar) {
-    * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--bx-muted, #868f9a) 40%, transparent) transparent; }
-    [data-bx-scroll] { scrollbar-color: color-mix(in srgb, var(--bx-accent, #f5a623) 60%, transparent) transparent; }
+    * { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--bx-muted, #A3A6B6) 40%, transparent) transparent; }
+    [data-bx-scroll] { scrollbar-color: color-mix(in srgb, var(--bx-focus, #3DD6F5) 70%, transparent) transparent; }
   }
 }
 /* bx-scroll:end */

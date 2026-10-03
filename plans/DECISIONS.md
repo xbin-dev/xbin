@@ -10532,3 +10532,94 @@ Deviations and refinements made while implementing; all deliberate:
     v0.3.61: not served, `account` accepted). The app target, the UI tests
     (XbinPartitionsTests, on the e2e workspace's new `apps/parted`) and the
     look of the marker need the Apple CI / Mac mini.
+
+- **D184 — Base Two in the workspace: Concrete Day and Concrete Night; a
+  document opts in, the person's choice rides the D4 injection, frames
+  follow by message (design, 2026-10-03; W9).** plans/theme-base-two.md
+  (the contract, the mechanism, the guard and six packages), web/theme.css,
+  web/bx-theme.js, web/bx-icons.js, web/theme-boot.js. (D182 and D183 are
+  taken on other branches: claim-account, the website.) The owner approved
+  the Base Two product theme at gate B2 with its defaults (Q4–Q13) and
+  asked for 2 px corners everywhere, the system's light or dark with a
+  per-person override, and a light theme audited until no hard-coded style
+  is left. xbin was dark-only: one token set and `color-scheme: dark`, 10
+  of 396 radius rules on a token and 40 pills, 521 colour literals outside
+  token fallbacks, 213 lines of emoji used as icons, sign-in pages and the
+  native renderer on palettes of their own.
+  - **A document opts in; every other document stays dark.**
+    `<html data-bx-theme="auto">` plus the `theme.css` link follows the
+    person; a document that links the sheet without it gets Concrete Night,
+    new values under the same names (`--bx-green/-amber/-red` alias
+    ok/warn/danger), so a third-party tile that hard-codes light text stays
+    legible. `theme.css` is still never injected; bare documents render from
+    fallbacks that equal Night.
+  - **The person's choice is two keys in the shell's prefs bucket**
+    (`theme`: light|dark, absent = system; `density`: comfortable, absent =
+    compact), written with the existing `PUT/DELETE /prefs/<key>`; only
+    chrome writes that bucket. Its `prefs` event carries the change to the
+    person's other tabs and devices. No new route.
+  - **First paint comes from the D4 block**: `<meta name="xbin-theme">` and
+    `<meta name="xbin-density">`, added only when set (a person who never
+    chose gets today's bytes), read by `:root:where([data-bx-theme="auto"]
+    :has(> head > meta…))` selectors; "system" is `prefers-color-scheme`, so
+    no script is involved. `:where()` keeps `:root`'s specificity (a
+    document's own `:root` override still wins) and forgives a browser
+    without `:has()`, which stays Night. Verified in Chromium 149: the
+    first animation frame of a sandboxed frame is already right for every
+    choice × system; an iframe evaluates `prefers-color-scheme` against the
+    system, not its embedder.
+  - **Live changes travel by message.** `setAppearance()` rewrites the
+    document's metas and fires `xbin-appearance`; `<bx-frame>` posts
+    `{type: 'xbin:appearance', theme, density}` to its iframe on every load
+    and change, only when its own document follows; `xbin-client.js`
+    applies it from its parent alone, and nested frames relay. An old shell
+    that never opted in sends nothing.
+  - **Pages without an injection read a hint cookie**, `xbin_theme`
+    (light|dark, a UI hint and never a credential), kept by `bx-theme.js`
+    and by `xbin-client.js` in a top-level chrome document: the sign-in
+    pages render the meta from it server-side, the static partitions page
+    copies it with a synchronous `/vendor/theme-boot.js`; the docs viewer
+    reads the person's prefs like the injection.
+  - **Terminals follow unless the person picked a palette**: the 🔧 menu's
+    stored `default` builds xterm's theme from `--bx-term-*` and rebuilds it
+    on every change; picks (now with Concrete Night and Day) stay per
+    browser.
+  - **Tokens**: tokens.json's product blocks with Q4's Night lift (panel and
+    panel-2 one ramp step up, the dependent steps with them, windows edged
+    in border_strong, status tints recomputed on the lifted panel, subtle
+    nudged to keep 4.5:1 on hover), Q5's window chrome, new syntax and diff
+    palettes (Q7; 4.5:1 on the code well, the selection and the diff
+    tints), the focus ring as tokens (3 px cyan, 2 px gap in the page
+    colour), shadows for windows at rest, active and pop-overs, 2 px radius,
+    Instrument Sans / JetBrains Mono / Bricolage Grotesque self-hosted
+    (OFL), density and motion. `--bx-part` stays the partition marker;
+    brand parts are `--bx-part-tab-*` (Q12). The scroll tint moves from the
+    accent to the focus colour: it marks where scrolling input goes.
+  - **Icons**: `/vendor/bx-icons.js` (`<bx-icon name>`), drawn to brand §9
+    and named after the native vocabulary where meanings match; an emoji
+    leaves a string with its space and the words stay; view models that
+    carried one gain an `icon` field; a person's own emoji (folders, agent
+    classes) is content and is left alone.
+  - **The guard**: `make theme-check` = `theme-fallbacks.mjs` (resolving
+    aliases, checking the two Day blocks are identical) + a new lint
+    (colour, radius, font, small type, emoji, contrast) with an allowlist
+    and inline `theme-ok:` reasons; harness passes for no-flash and a canary
+    audit of the rendered UI in both themes.
+  - **Rejected:** injecting `theme.css` (it would flip third-party tiles,
+    compat rule 5); `<meta name="color-scheme">` as the opt-in (boilerplate
+    could turn a tile light by accident); a cookie as the person's store
+    (per browser, and credentialless sandboxed frames send none: their first
+    paint would be wrong); `light-dark()` for every token (one definition,
+    but every document's Night would then depend on 2024 browsers, and a
+    browser without it would render nothing rather than Night); an inline
+    script in the injection (new executable injection, and tile CSPs); a
+    class applied by script after load (a flash); relying on an iframe's
+    `prefers-color-scheme` following its embedder (Chromium doesn't);
+    generating `theme.css` (a build step for one file; checking the two Day
+    blocks are equal is cheaper); a per-tile theme pin.
+  - **Plan**: six packages with disjoint files (P1 core, P2 shell, P3 core
+    elements, P4 xbind's pages, P5 shipped tiles and templates, P6 the film
+    set); merged P1, P3, P2, P4, P5, P6, then one integration step that
+    regenerates the 1159 stale fallbacks and takes the lint to zero.
+  - Status: design. P1 completes this entry with what shipped and how it
+    was verified.
