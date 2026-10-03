@@ -230,6 +230,9 @@ struct PanelBar: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            // Base Two's concrete under the panel's own lists and forms,
+            // inside its NavigationStack, where the page paints it (D185).
+            .concreteBackground()
             .background(PanelAccessibility(hidden: !panelActive).accessibilityHidden(true))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

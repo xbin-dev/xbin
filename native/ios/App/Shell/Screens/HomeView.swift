@@ -485,7 +485,7 @@ struct StatusDot: View {
 /// Compact lists (D128): single-line rows about 36 pt tall.
 extension View {
     func compactList() -> some View {
-        listStyle(.sidebar).environment(\.defaultMinListRowHeight, 34)
+        listStyle(.sidebar).environment(\.defaultMinListRowHeight, 34).concreteBackground()
     }
 
     func compactRow() -> some View {
