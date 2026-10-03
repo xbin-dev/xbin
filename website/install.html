@@ -20,8 +20,11 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/fonts/bricolage-grotesque-800.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="/fonts/instrument-sans-400.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/css/tokens.css">
 <link rel="stylesheet" href="/css/site.css">
+<noscript><style>.copy{display:none}</style></noscript>
 </head>
 <body class="page-install">
 <!-- shared header: the same on every page but for aria-current and the Try link's target (hack/check-website.sh) -->
@@ -54,15 +57,90 @@
 </header>
 <!-- /shared header -->
 
-<main id="content" data-todo="page">
-  <!-- TODO-PAGE: the page builder sets the rest of site/install.md here, verbatim, with the
-       classes in css/site.css (website/README.md has the page structure). The hero below is
-       the deck's own crumb, H1 and lead in the Inform template. -->
+<main id="content">
+  <!-- site/install.md, set verbatim. S-11 is provisional (figure[data-shot]) until it is captured. -->
   <section class="ihero" id="top" aria-labelledby="top-h">
     <div class="wrap">
       <p class="crumb">Install</p>
       <h1 class="h1" id="top-h">Install xbin.</h1>
       <p class="lead">One command. The installer prints its plan and asks before it changes anything.</p>
+      <a class="more" href="#trial">Or try it free for an hour</a>
+    </div>
+  </section>
+
+  <section class="band" id="command" aria-labelledby="command-h">
+    <div class="wrap">
+      <h2 class="band-h" id="command-h">Upgrade to exponential era software</h2>
+      <div class="cmd">
+        <p>On a Linux machine, run:</p>
+        <code class="cmd-code" id="cmd-install" tabindex="0">curl -fsSL https://xbin.dev/install.sh | sh</code>
+        <button class="copy" type="button" data-copy="curl -fsSL https://xbin.dev/install.sh | sh" aria-describedby="cmd-install">Copy</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="first" aria-labelledby="first-h">
+    <div class="wrap">
+      <p class="label-mono">01 · First run</p>
+      <h2 class="h2" id="first-h">It shows you the plan, then it asks.</h2>
+      <ol class="steps">
+        <li><h3 class="h4">1 · It prints its plan.</h3><p class="body">Before it touches anything, the installer lists what it will do on this machine.</p></li>
+        <li><h3 class="h4">2 · It asks.</h3><p class="body">Nothing changes until you answer.</p></li>
+        <li><h3 class="h4">3 · It installs.</h3><p class="body">With your yes, it installs xbin.</p></li>
+        <li><h3 class="h4">4 · You sign in.</h3><p class="body">Then you sign in to your new workspace from a browser.</p></li>
+      </ol>
+      <div class="split">
+        <div class="flow">
+          <p class="body">To read the script before you run it, open <code>deploy/install.sh</code> in <a href="https://github.com/xbin-dev/xbin">the source ↗</a>.</p>
+          <p class="body">Pinning a version and installing system-wide are covered on the Operations page of <a href="https://github.com/xbin-dev/xbin/tree/master/docs">the docs ↗</a>.</p>
+        </div>
+        <figure class="shot" data-shot="S-11 installer plan, green mat: a brand terminal on a fresh Linux machine, curl -fsSL https://xbin.dev/install.sh | sh at the prompt and the installer’s real output waiting for an answer (its end if taller than the frame); unedited, no hostname.">
+          <div class="mat mat-terminal"><span class="mat-tab">installer</span><div class="ph" role="img" aria-label="A terminal: the xbin installer has printed its plan and is asking before it changes anything."><mark data-todo="shot">S-11</mark></div></div>
+          <figcaption>The installer’s plan on a fresh machine, waiting for an answer.</figcaption>
+        </figure>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec sec-rule" id="requirements" aria-labelledby="requirements-h">
+    <div class="wrap split">
+      <div>
+        <p class="label-mono">02 · Requirements</p>
+        <h2 class="h2" id="requirements-h">What the machine needs.</h2>
+      </div>
+      <div class="plate">
+        <h3 class="plate-h">Requirements</h3>
+        <dl>
+          <div><dt>Operating system</dt><dd>Linux</dd></div>
+          <div><dt>Sandboxes</dt><dd>Linux namespaces by default. A microVM when an app needs root, such as Docker; microVMs need KVM (<code>/dev/kvm</code>).</dd></div>
+          <div><dt>Free disk</dt><dd>More than 10&nbsp;% free on the workspace’s disk. xbin starts no app sandbox while less than 10&nbsp;% is free.</dd></div>
+        </dl>
+      </div>
+    </div>
+  </section>
+
+  <section class="band" id="trial" aria-labelledby="trial-h">
+    <div class="wrap">
+      <h2 class="band-h" id="trial-h">Or try it free for an hour.</h2>
+      <div class="cmd cmd-trial">
+        <p>A hosted xbin workspace, free for an hour, started with one ssh command. All you need is an ssh client.</p>
+        <code class="cmd-code" id="cmd-try" tabindex="0">ssh xbin@vcpu.sh</code>
+        <button class="copy" type="button" data-copy="ssh xbin@vcpu.sh" aria-describedby="cmd-try">Copy</button>
+        <p class="cmd-link"><a href="https://vcpu.sh/xbin">Trial details ↗</a></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="upgrade" aria-labelledby="upgrade-h">
+    <div class="wrap split">
+      <div>
+        <p class="label-mono">03 · Later</p>
+        <h2 class="h2" id="upgrade-h">Upgrading and uninstalling.</h2>
+      </div>
+      <div class="flow">
+        <p class="body">Both are covered in the docs. Every xbin workspace also serves its own documentation.</p>
+        <p class="actions"><a class="btn btn-secondary btn-lg" href="https://github.com/xbin-dev/xbin/tree/master/docs">Read the docs ↗</a></p>
+      </div>
     </div>
   </section>
 </main>
@@ -108,5 +186,7 @@
   </div>
 </footer>
 <!-- /shared footer -->
+<p class="sr" id="copied" aria-live="polite"></p>
+<script type="module" src="/js/copy.js"></script>
 </body>
 </html>
