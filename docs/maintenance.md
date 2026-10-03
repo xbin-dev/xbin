@@ -13,7 +13,7 @@ test or a Makefile target next to the thing that needs remembering.
 
 ```
 hack/dev-setup.sh       # once per machine (and after an upgrade): what the checks need here, fixed
-make check              # the guards (make guards: fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files), then test
+make check              # the guards (make guards: fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files website-guard), then test
 make integration-deps   # once, and after a pull: the helpers (prebuilt), Firecracker, xbind/bx/xbin-vmagent, .rootfs if missing
 make integration        # when the runner / sandbox / broker path changed
 make hooks              # once per clone: the sub-second subset runs pre-commit

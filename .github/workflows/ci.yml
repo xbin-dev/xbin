@@ -32,7 +32,8 @@ jobs:
         include:
           # the definition of done (docs/maintenance.md) without its unit
           # tests: fmt-check, vet, js-check, js-test, native-check,
-          # theme-check, shellcheck, pins-offline, large-files
+          # theme-check, shellcheck, pins-offline, large-files,
+          # website-guard
           - { name: check, run: make -j4 -O guards, cache: check }
           - { name: unit 1/2, run: make test SHARD=1/2, cache: unit-1, helpers: true }
           - { name: unit 2/2, run: make test SHARD=2/2, cache: unit-2, helpers: true }
