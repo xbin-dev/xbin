@@ -7,7 +7,7 @@
 // draws the same model, held level by model/features.js.
 import { html, render, nothing } from '/vendor/lit-all.min.js';
 import { createApp } from './model/app.js';
-import { opsTab, imagesTab } from './web-ops.js';
+import { opsTab, imagesTab, substrateLabel } from './web-ops.js';
 import { settingsTab } from './web-settings.js';
 import { mineTab } from './web-mine.js';
 
@@ -28,6 +28,10 @@ export function start(root) {
     paint();
   };
   app.on(paint);
+  // The substrate xbind's own runtime is: the workspace — by its branding
+  // title, the name its people know it by (GET /api/xbin/branding).
+  xbin.fetch('/api/xbin/branding').then((r) => (r.ok ? r.json() : null))
+    .then((d) => { ui.brand = (d && d.title) || ''; paint(); }).catch(() => {});
 
   const tabs = () => (app.operator
     ? [['ops', 'Sandboxes'], ['images', 'Images'], ['settings', 'Settings'], ['mine', 'Yours']]
@@ -42,7 +46,7 @@ export function start(root) {
     const b = app.backend();
     return html`<header class="top">
         <h3>Coding sandboxes</h3>
-        ${app.operator ? html`<span class="pill" title="the substrate the sandboxes run on">${b.name}</span>` : nothing}
+        ${app.operator ? html`<span class="pill" title="the substrate the sandboxes run on">${substrateLabel(b, ui)}</span>` : nothing}
         <nav class="tabs" role="tablist">${t.map(([id, label]) => html`<button role="tab" class="tab ${ui.tab === id ? 'on' : ''}"
           id=${'tab-' + id} aria-selected=${ui.tab === id} @click=${() => go(id)}>${label}</button>`)}</nav>
         <span class="grow"></span>

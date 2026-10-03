@@ -20,7 +20,7 @@ export function opsTab(app, ui) {
   const b = app.backend();
   const rows = app.opRows();
   return html`
-    ${backendTpl(b)}
+    ${backendTpl(b, ui)}
     <h4>Sandboxes (${rows.length})</h4>
     ${rows.length ? html`<table class="grid" id="ops-table">
       <thead><tr><th>sandbox</th><th>consumer</th><th>owner</th><th>state</th><th>image</th><th>size</th><th>network</th>
@@ -32,9 +32,16 @@ export function opsTab(app, ui) {
     ${orphansTpl(app, ui)}`;
 }
 
-function backendTpl(b) {
+// substrateLabel: what the sandboxes run on, as people know it — xbind's own
+// runtime is the workspace itself (its branding title once read: ui.brand);
+// another backend by its name.
+export function substrateLabel(b, ui) {
+  return b.name === 'xbin' ? ((ui && ui.brand) || 'this workspace') : b.name;
+}
+
+function backendTpl(b, ui) {
   return html`<div class="substrate" id="substrate">
-      <span class="muted">substrate</span> <b>${b.name}</b>
+      <span class="muted">substrate</span> <b title=${b.name === 'xbin' ? 'the workspace\'s own sandbox runtime' : ''}>${substrateLabel(b, ui)}</b>
       ${b.modes.length ? html` · <span class="muted">modes</span> ${b.modes.map((m) => m.mode + (m.accel ? ` (${m.accel})` : '')).join(', ')}` : nothing}
       ${b.caps.length ? html` · <span class="muted">offers</span> <code>${b.caps.join(' ')}</code>` : nothing}
       ${b.egress.length ? html` · <span class="muted">networks</span> ${b.egress.map((e) => F.EGRESS[e] || e).join(', ')}` : nothing}

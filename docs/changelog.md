@@ -43,6 +43,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   pickers keep their width — the message row wraps instead of squeezing
   the model picker to "a…". New agents get it; an existing one through
   `bx template updates`.
+- **Coding-sandbox template:** the operators' page names xbind's own runtime
+  by the workspace's branding title (else "this workspace") rather than
+  "xbin"; a sandbox only its owner may use reads "private"; the quota
+  table's headers line up with their numbers. New managers get it (an
+  existing one through `bx template updates`).
 - **traefik tile v5**: its setup script unpacks the traefik binary as the
   sandbox's own user (`tar --no-same-owner`). It failed ("Cannot change
   ownership to uid 1001") where a tile sandbox maps a single uid, as on a

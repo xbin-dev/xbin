@@ -72,12 +72,12 @@ export function ownerText(o) {
 export const usersText = (u) => (u === '*' ? 'everyone it serves' : (Array.isArray(u) && u.length ? u.join(', ') : 'nobody'));
 
 // whoText: who may use a sandbox, in words: here (its home consumer's people:
-// the owner and members, or everyone it serves), then each consumer it is
-// shared with and whom there.
+// the owner alone — private — or with members, or everyone it serves), then
+// each consumer it is shared with and whom there.
 export function whoText(s) {
   const members = (s && s.members) || [];
   const here = s && s.visibility === 'team' ? 'everyone its consumer serves'
-    : `its owner${members.length ? ` and ${members.join(', ')}` : ''}`;
+    : members.length ? `its owner and ${members.join(', ')}` : 'private';
   return [here, ...((s && s.shares) || []).map((x) => `${consumerText(x.consumer, x.partitionId)} (${usersText(x.users)})`)].join(' · ');
 }
 
