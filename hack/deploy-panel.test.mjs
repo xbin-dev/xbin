@@ -44,15 +44,15 @@ const ids = (list) => list.map((a) => `${a.id}${a.enabled ? '' : '✗'}`);
 // vault, deliveries, the git line of a pinned deployment; Undo after a roll back.
 test('the panel: rows, header and overview', () => {
   const s = m2();
-  assert.deepEqual(panelRows(s, { ...opts, target: 'dev' }).map((r) => [r.name, r.primary, r.code, r.status, r.data, r.deliveries, r.target]), [
-    ['main', true, '📌 c:3f2a1c9', 'static', 'original', 'deliveries: active', false], ['dev', false, '● work tree', 'healthy', 'seeded from main · 2d ago', 'deliveries: on', true]]);
+  assert.deepEqual(panelRows(s, { ...opts, target: 'dev' }).map((r) => [r.name, r.primary, r.code, r.icon, r.status, r.data, r.deliveries, r.target]), [
+    ['main', true, 'c:3f2a1c9', 'pin', 'static', 'original', 'deliveries: active', false], ['dev', false, 'work tree', 'live', 'healthy', 'seeded from main · 2d ago', 'deliveries: on', true]]);
   const h = panelHeader(s, opts);
   assert.equal(h.text, 'Live reload: dev — saves reach apps/crm+dev. The primary, main, is pinned to c:3f2a1c9.');
   assert.deepEqual([h.actions.map((a) => a.id), h.actions[1].items.map((i) => i.id)], [['pause', 'attach'], ['attach/main']]);
-  assert.deepEqual(overview(s, 'dev', opts).lines, [['code', '● work tree'], ['status', 'healthy'], ['data', 'seeded from main · 2d ago'],
+  assert.deepEqual(overview(s, 'dev', opts).lines, [['code', 'work tree', 'live'], ['status', 'healthy'], ['data', 'seeded from main · 2d ago'],
     ['limits', 'memory: 256 MiB (set by a tile manager) · disk: the tile\'s default (50 GiB)'], ['vault', '4 secrets · 1 is a placeholder'], ['deliveries', 'deliveries: on'], ['alwaysOn', 'alwaysOn: off']]);
   const mo = overview(s, 'main', { ...opts, entry: { deployment: 'main', how: 'promote', from: 'dev', by: 'user:ana', finishedAt: at(120), result: 'ok' } });
-  assert.deepEqual(mo.lines.slice(0, 2), [['primary', 'primary — everything from outside reaches it'], ['code', '📌 c:3f2a1c9 · promoted from dev by ana, 2h ago']]);
+  assert.deepEqual(mo.lines.slice(0, 2), [['primary', 'primary — everything from outside reaches it'], ['code', 'c:3f2a1c9 · promoted from dev by ana, 2h ago', 'pin']]);
   assert.deepEqual([mo.gitLine, mo.url, overview(s, 'dev', opts).gitLine], ['git: deploy/main — git fetch xbin-deploy', '/c/apps/crm/', null]);
   const rb = paused({ deployments: [mainPinned({ checkpoint: { id: 'c:1e9d0aa', hash: '1e9d0aa0' }, lastDeploy: { id: 5, how: 'rollback', at: at(5), by: 'user:ana', result: 'ok' } })] });
   const hu = panelHeader(rb, { ...opts, undo: { id: 5, deployment: 'main', how: 'rollback', previous: 'c:3f2a1c9', result: 'ok' } });
@@ -66,8 +66,8 @@ test('the panel: rows, header and overview', () => {
 });
 
 // covers D129 — the side list's tags: "Dev API" on the active tab's target
-// (the primary's row for 'primary', none for 'off' or no tab), "● live
-// reload" on the live reload target's row (none while paused, none in the
+// (the primary's row for 'primary', none for 'off' or no tab), "live
+// reload" (after the live glyph) on the live reload target's row (none while paused, none in the
 // zero state); each tooltip says what it means.
 test('the panel: the Dev API and live reload tags', () => {
   const s = m2(); // live reload on dev
@@ -78,7 +78,7 @@ test('the panel: the Dev API and live reload tags', () => {
   assert.deepEqual(tags(attachedMain(), 'primary'), ['main:apilr']);
   assert.deepEqual(tags(paused(), 'primary'), ['main:api'], 'paused: saves reach nobody');
   assert.equal(ds.TAG.devApi, 'Dev API');
-  assert.equal(ds.TAG.liveReload, '● live reload');
+  assert.equal(ds.TAG.liveReload, 'live reload');
   assert.equal(ds.TAG.devApiTitle(s, 'dev'), "Dev API: this tab's API calls and bx commands reach apps/crm+dev (XBIN_DEPLOYMENT=dev). The tile API select switches it; switching restarts the session.");
   assert.match(ds.TAG.devApiTitle(s, 'main'), /reach main, the primary \(XBIN_DEPLOYMENT is unset\)/);
   assert.deepEqual([ds.TAG.liveReloadTitle(s, 'dev'), ds.TAG.liveReloadTitle(s, 'main')], ['Live reload: saves reach apps/crm+dev.', 'Live reload: saves reach apps/crm (main, the primary).']);
@@ -101,8 +101,8 @@ test('the panel: actions follow the server\'s can, a protected primary included'
   const prot = m2({ protectedPrimary: true, deployments: [mainM2({ can: depCan({ deploy: no(PROTECTED), promoteTo: no(PROTECTED) }) }), devM2()] });
   const pa = panelActions(prot, 'dev', opts);
   assert.deepEqual([pa[1].why, pa[0].enabled], [PROTECTED, true], 'promote onto main refused; deploy to dev stays');
-  assert.deepEqual([panelActions(prot, '', opts)[1].label, panelRows(prot)[0].protected, overview(prot, 'main', opts).lines[0][1], panelActions(zero(), 'main', opts)],
-    ['Unprotect the primary', true, 'primary — everything from outside reaches it · 🛡 protected', []]);
+  assert.deepEqual([panelActions(prot, '', opts)[1].label, panelRows(prot)[0].protected, overview(prot, 'main', opts).lines[0], panelActions(zero(), 'main', opts)],
+    ['Unprotect the primary', true, ['primary', 'primary — everything from outside reaches it · protected', 'shield'], []]);
 });
 
 // covers D119c D127b D64 — a reader's filtered view names and counts no other
@@ -158,9 +158,9 @@ test('the panel: registrations, Run now, would notify and the deploy log', () =>
     { id: 8, how: 'promote', from: 'dev', checkpoint: 'c:3f2a1c9', by: 'user:ana', agent: true, finishedAt: at(120), result: 'ok' },
     { id: 7, how: 'rollback', checkpoint: 'c:1e9d0aa', by: 'user:bob', finishedAt: at(60 * 48), result: 'ok' },
     { id: 6, how: 'resume', followsWorkTree: true, by: 'user:ana', finishedAt: at(60 * 72), result: 'ok' }], opts);
-  assert.deepEqual(log.map((r) => [r.code, r.how, r.result, r.who, r.state, r.rollback?.label ?? null]), [
-    ['📌 c:9d1e3b4', 'deploy', 'failed — exit status 1', 'ana · 1m ago', '', null], ['📌 c:3f2a1c9', 'promote (from dev)', 'ok', 'ana (agent) · 2h ago', 'running', null],
-    ['📌 c:1e9d0aa', 'roll back', 'ok', 'bob · 2d ago', '', 'Roll back to c:1e9d0aa'], ['● work tree', 'resume live reload', 'ok', 'ana · 3d ago', '', null]]);
+  assert.deepEqual(log.map((r) => [r.code, r.icon, r.how, r.result, r.who, r.state, r.rollback?.label ?? null]), [
+    ['c:9d1e3b4', 'pin', 'deploy', 'failed — exit status 1', 'ana · 1m ago', '', null], ['c:3f2a1c9', 'pin', 'promote (from dev)', 'ok', 'ana (agent) · 2h ago', 'running', null],
+    ['c:1e9d0aa', 'pin', 'roll back', 'ok', 'bob · 2d ago', '', 'Roll back to c:1e9d0aa'], ['work tree', 'live', 'resume live reload', 'ok', 'ana · 3d ago', '', null]]);
   assert.equal(diffLine('c:3f2a1c9', 'c:7b19e02', { files: 3, add: 40, del: 12 }), 'c:3f2a1c9 → c:7b19e02 · 3 files, +40 −12');
 });
 

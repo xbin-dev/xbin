@@ -3,29 +3,42 @@
 // terminal scope picker never drift: rule kinds, parsing/formatting, labels,
 // client-side shape hints (the server is authoritative), and the net-slot
 // option list. Plain ES module, no deps (served like bx-multiselect.js).
+//
+// Glyphs (D184): words carry no emoji. A place that can draw an icon draws
+// the glyph named here (/vendor/bx-icons.js) before the words: `glyph` on a
+// rule kind, `icon` on a net-slot option, scopeGlyph() for a scope, and
+// ruleGlyph() for a rule; an <option> shows the words alone. RULE_KINDS'
+// `icon`, SCOPE_ICON, SET_ICON and scopeIcon() are what older admin
+// consoles, organisations tiles and shells print before a label: they are
+// empty now, so those print the words alone.
 
 export const RULE_KINDS = [
-  { id: 'internet', label: 'all internet', icon: '🌐', prefix: 'internet', hasValue: false,
+  { id: 'internet', label: 'all internet', icon: '', glyph: 'globe', prefix: 'internet', hasValue: false,
     help: 'every public address through the metered egress relay (no LAN)' },
-  { id: 'internet-to', label: 'internet destination', icon: '→', prefix: 'internet:', hasValue: true,
+  { id: 'internet-to', label: 'internet destination', icon: '', glyph: 'arrow-right', prefix: 'internet:', hasValue: true,
     placeholder: 'api.stripe.com:443 · *.github.com · 203.0.113.0/24:443',
     help: 'a public host, hostname glob (one *), address or CIDR, optional :port — hostnames are DNS-pinned' },
-  { id: 'lan', label: 'LAN range', icon: '🖧', prefix: 'lan:', hasValue: true,
+  { id: 'lan', label: 'LAN range', icon: '', glyph: 'network', prefix: 'lan:', hasValue: true,
     placeholder: '10.0.0.0/8', help: 'a private address or CIDR, optional :port' },
-  { id: 'host', label: 'host networking', icon: '⚠', prefix: 'host', hasValue: false,
+  { id: 'host', label: 'host networking', icon: '', glyph: 'warning', prefix: 'host', hasValue: false,
     help: 'the host’s own network stack — no relay, no filtering, no metering' },
-  { id: 'provider', label: 'provider tile', icon: '⇢', prefix: 'provider:', hasValue: true,
+  { id: 'provider', label: 'provider tile', icon: '', glyph: 'plug', prefix: 'provider:', hasValue: true,
     placeholder: 'apps/vpn · apps/*', help: 'a net-provider tile (path or glob) tiles may be bound through' },
 ];
 
-export const SCOPE_ICON = { org: '🏢', personal: '👤', internet: '🌐', host: '🖧', none: '⛔' };
+/** The glyph of a terminal scope or a binding ref (bx-icons.js names). */
+export const SCOPE_GLYPH = Object.freeze({ org: 'org', personal: 'person', internet: 'globe', host: 'network', none: 'error' });
 /** A named network set (D65) as a terminal scope or a binding ref: 'set:<name>'. */
-export const SET_ICON = '🔗';
-/** scopeIcon('set:infra-net') → '🔗'; scopeIcon('org') → '🏢'; unknown → '·'. */
-export function scopeIcon(id) {
+export const SET_GLYPH = 'link';
+/** scopeGlyph('set:infra-net') → 'link'; scopeGlyph('org') → 'org'; unknown → ''. */
+export function scopeGlyph(id) {
   const s = String(id ?? '');
-  return s.startsWith('set:') ? SET_ICON : (SCOPE_ICON[s] ?? '·');
+  return s.startsWith('set:') ? SET_GLYPH : (Object.hasOwn(SCOPE_GLYPH, s) ? SCOPE_GLYPH[s] : '');
 }
+/** Older callers print these before a label: empty, so the words stand alone (D184). */
+export const SCOPE_ICON = Object.freeze({ org: '', personal: '', internet: '', host: '', none: '' });
+export const SET_ICON = '';
+export const scopeIcon = () => '';
 /** scopeLabel('set:infra-net') → 'net set: infra-net' (the server labels the rest). */
 export function scopeLabel(id) {
   const s = String(id ?? '');
@@ -108,17 +121,19 @@ export function ruleProblem(str) {
   return '';
 }
 
-/** ruleLabel('lan:10.0.0.0/8') → '🖧 LAN 10.0.0.0/8' */
+/** ruleLabel('lan:10.0.0.0/8') → 'LAN 10.0.0.0/8' (words: ruleGlyph() is its glyph) */
 export function ruleLabel(str) {
   const r = parseRule(str);
   switch (r.kind) {
-    case 'internet': return '🌐 all internet';
-    case 'host': return '⚠ host networking';
-    case 'lan': return `🖧 LAN ${r.value}`;
-    case 'provider': return `⇢ via ${r.value}`;
-    default: return `→ ${r.value}`;
+    case 'internet': return 'all internet';
+    case 'host': return 'host networking';
+    case 'lan': return `LAN ${r.value}`;
+    case 'provider': return `via ${r.value}`;
+    default: return `to ${r.value}`;
   }
 }
+/** ruleGlyph('lan:10.0.0.0/8') → 'network': the rule kind's glyph. */
+export const ruleGlyph = (str) => RULE_KINDS.find((k) => k.id === parseRule(str).kind)?.glyph ?? '';
 
 /** setSummary(rules) → {labels, host, text} */
 export function setSummary(rules) {
@@ -174,7 +189,8 @@ export function blockedTitle(o) {
 
 /**
  * netOptions({org, providers, pending, options}) → [{id, label, title,
- * disabled?}] for a net slot's picker. `org` is the owning org (with
+ * disabled?, icon?}] for a net slot's picker (icon: the scope's glyph, for a
+ * picker that can draw one; an <option> shows the label). `org` is the owning org (with
  * netSets/resolvedNet) or null; `providers` are provider-tile paths;
  * `options` is the server's option list for the slot (GET /bindings
  * netOptions[comp] — bound or not), else `pending` is its pending row (its
@@ -227,25 +243,25 @@ export function netOptions({ org, providers = [], pending, options, sandbox = fa
     : defaultPersonal ? { id: '', label: '— default: personal network —', title: personal?.label ?? '' }
       : { id: '', label: '— unbound (no egress) —', title: '' };
   out.push(unbound);
-  if (personal) out.push({ id: 'personal', label: `${SCOPE_ICON.personal} personal network`, title: personal.label, disabled: !personalSets });
+  if (personal) out.push({ id: 'personal', label: 'personal network', title: personal.label, disabled: !personalSets, icon: SCOPE_GLYPH.personal });
   if (org) {
-    out.push({ id: 'org', label: `${SCOPE_ICON.org} ${orgNetLabel(org)}`,
-      title: serverLabel('org', (org.resolvedNet ?? []).map(ruleLabel).join('\n')) });
+    out.push({ id: 'org', label: orgNetLabel(org),
+      title: serverLabel('org', (org.resolvedNet ?? []).map(ruleLabel).join('\n')), icon: SCOPE_GLYPH.org });
   }
   for (const o of list) {
     if (!String(o.id).startsWith('set:')) continue;
     const l = o.label ?? '';
     const why = /workspace admins only/.test(l) ? 'workspace admins only' : /not covered/.test(l) ? 'not covered'
       : /not bindable/.test(l) ? 'not bindable' : /says host/.test(l) ? 'says host' : '';
-    out.push({ id: o.id, label: `${SET_ICON} ${scopeLabel(o.id)}${why ? ` — ${why}` : ''}`, title: l, disabled: !!o.blocked, set: true });
+    out.push({ id: o.id, label: `${scopeLabel(o.id)}${why ? ` — ${why}` : ''}`, title: l, disabled: !!o.blocked, set: true, icon: SET_GLYPH });
   }
-  out.push({ id: 'internet', label: `${SCOPE_ICON.internet} internet`, title: serverLabel('internet', 'public internet through the relay') });
+  out.push({ id: 'internet', label: 'internet', title: serverLabel('internet', 'public internet through the relay'), icon: SCOPE_GLYPH.internet });
   if (!sandbox) {
-    out.push({ id: 'host', label: `${SCOPE_ICON.host} host`, title: serverLabel('host', 'share the host network (powerful)') });
-    for (const p of providers) out.push({ id: p, label: `⇢ ${p}`, title: serverLabel(p, 'net provider tile') });
+    out.push({ id: 'host', label: 'host', title: serverLabel('host', 'share the host network (powerful)'), icon: SCOPE_GLYPH.host });
+    for (const p of providers) out.push({ id: p, label: `via ${p}`, title: serverLabel(p, 'net provider tile'), icon: 'plug' });
   }
-  if (sandbox) out.push({ id: 'none', label: `${SCOPE_ICON.none} none — no network, decided`, title: serverLabel('none', 'no network') });
-  else if (org || personalSets) out.push({ id: 'none', label: `${SCOPE_ICON.none} none — explicitly offline`, title: serverLabel('none', 'no egress') });
+  if (sandbox) out.push({ id: 'none', label: 'none — no network, decided', title: serverLabel('none', 'no network'), icon: SCOPE_GLYPH.none });
+  else if (org || personalSets) out.push({ id: 'none', label: 'none — explicitly offline', title: serverLabel('none', 'no egress'), icon: SCOPE_GLYPH.none });
   out.push({ id: '__custom', label: 'custom…', title: sandbox
     ? 'lan:<cidr>, internet:<host|cidr>[:port], or set:<name> (a network set without host — workspace admins)'
     : 'lan:<cidr>, internet:<host|cidr>[:port], or set:<name> (a network set — workspace admins)' });

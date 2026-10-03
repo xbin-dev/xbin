@@ -12,7 +12,7 @@
 // deploy-branch.js (a deployment's branch, D131) and touches no DOM, so
 // hack/deploy-panel.test.mjs runs it under node (`make js-test`).
 
-import { who, ago, LABEL, control, chipItems, branchOffers, REASON, shared } from './deploy-state.js';
+import { who, ago, LABEL, GLYPH, control, chipItems, branchOffers, REASON, shared } from './deploy-state.js';
 import * as branch from './deploy-branch.js';
 
 const { facts, zeroSentence, cp, pausedSentence, serving, dep, CODE_MOVES, howPhrase, files, MINUS, others, plural, dataText, edgeLabel } = shared;
@@ -20,7 +20,10 @@ const { facts, zeroSentence, cp, pausedSentence, serving, dep, CODE_MOVES, howPh
 // the deploy log's `how`, in words
 const HOW = { deploy: 'deploy', promote: 'promote', rollback: 'roll back', 'reload-now': 'reload now', resume: 'resume live reload', pause: 'live reload paused', attach: 'live reload attached', add: 'added', protect: 'protected', reassign: 'primary reassigned', restart: 'restart' };
 const same = (a, b) => !!a && !!b && (a.startsWith(b) || b.startsWith(a)); // two prefixes of one checkpoint id
-const pointer = (d) => (d?.checkpoint?.id ? `📌 ${d.checkpoint.id}` : '● work tree');
+// what a deployment runs, in words, and its glyph (D184): pinned to a
+// checkpoint, or following the work tree
+const pointer = (d) => (d?.checkpoint?.id ? d.checkpoint.id : 'work tree');
+const pointerIcon = (d) => (d?.checkpoint?.id ? GLYPH.pinned : GLYPH.attached);
 const deliveriesText = (d) => (typeof d.deliveries !== 'boolean' ? '' : d.primary ? 'deliveries: active' : `deliveries: ${d.deliveries ? 'on' : 'off'}`);
 
 function statusText(d) {
@@ -31,22 +34,25 @@ function statusText(d) {
 
 // The side list's two tags (D129): "Dev API" on the deployment the active
 // tab's API calls and bx commands reach (its target: XBIN_DEPLOYMENT when
-// non-primary), and "● live reload" on the one saves reach. Each is one
-// compact line; the tooltip says what it means.
+// non-primary), and "live reload" (drawn after the live glyph,
+// liveReloadIcon) on the one saves reach. Each is one compact line; the
+// tooltip says what it means.
 export const TAG = Object.freeze({
   devApi: 'Dev API',
   devApiTitle: (s, name) => `Dev API: this tab's API calls and bx commands reach ${name === (s?.primary || 'main') ? `${name}, the primary (XBIN_DEPLOYMENT is unset)` : `${s?.tile}+${name} (XBIN_DEPLOYMENT=${name})`}. The tile API select switches it; switching restarts the session.`,
-  liveReload: '● live reload',
+  liveReload: 'live reload',
+  liveReloadIcon: GLYPH.attached,
   liveReloadTitle: (s, name) => `Live reload: saves reach ${name === (s?.primary || 'main') ? `${s?.tile} (${name}, the primary)` : `${s?.tile}+${name}`}.`,
 });
 
 // panelRows(state, opts) → the side list, primary first; opts.target: the
 // active tab's target (its row carries the Dev API tag); the live reload
-// target's row carries liveReload.
+// target's row carries liveReload. code is what a deployment runs, in words;
+// icon its glyph ('pin': a checkpoint, 'live': the work tree).
 export function panelRows(s, opts = {}) {
   const P = s?.primary || 'main', t = opts.target === 'primary' ? P : opts.target;
   return [...(s?.deployments || [])].sort((a, b) => (b.name === P) - (a.name === P) || a.name.localeCompare(b.name)).map((d) => ({
-    name: d.name, primary: d.name === P, protected: d.name === P && !!s.protectedPrimary, code: pointer(d), status: statusText(d),
+    name: d.name, primary: d.name === P, protected: d.name === P && !!s.protectedPrimary, code: pointer(d), icon: pointerIcon(d), status: statusText(d),
     data: dataText(d, opts), deliveries: deliveriesText(d), target: !!t && t === d.name, liveReload: !!s.record && !!s.liveReload && s.liveReload === d.name,
     lastDeployFailed: d.lastDeploy?.result === 'failed', branch: d.branch || '',
   }));
@@ -65,7 +71,7 @@ export function panelHeader(s, opts = {}) {
   const actions = chipItems(s, { ...opts, panel: false }).filter((it) => !it.kind && !it.offer && (it.op || it.items)).map((it) => {
     const id = it.op || (it.label === LABEL.resume ? 'resume' : 'attach');
     const items = it.items?.map((x) => ({ id: `${id}/${x.deployment}`, label: x.label, enabled: x.enabled, why: x.hint || '', title: x.title }));
-    return { id, label: it.label, enabled: it.enabled, why: it.hint || '', title: it.title, ...(items ? { items } : {}) };
+    return { id, label: it.label, enabled: it.enabled, why: it.hint || '', title: it.title, ...(it.icon ? { icon: it.icon } : {}), ...(items ? { items } : {}) };
   });
   const u = opts.undo;
   if (f.paused && ['deploy', 'promote', 'rollback'].includes(f.cause) && u?.previous && u.deployment === f.last && u.result === 'ok') {
@@ -76,14 +82,15 @@ export function panelHeader(s, opts = {}) {
   return { text, actions, offers };
 }
 
-// overview(state, name, opts) → {heading, lines: [[label, text]], url, gitLine, gitNote}; opts.entry:
-// the newest deploy-log entry, which says how the code got there.
+// overview(state, name, opts) → {heading, lines: [[label, text, icon?]], url, gitLine, gitNote}; opts.entry:
+// the newest deploy-log entry, which says how the code got there. A line's icon is the glyph drawn
+// before its text (D184): the code's pointer, a protected primary's shield.
 export function overview(s, name, opts = {}) {
   const d = dep(s, name), e = opts.entry?.deployment === name ? opts.entry : d?.lastDeploy, lines = [];
   if (!d) return null;
   const how = e?.how ? (CODE_MOVES.has(e.how) ? howPhrase(e) : HOW[e.how] || e.how) : '', at = e?.finishedAt || e?.at || e?.requestedAt;
-  if (d.primary) lines.push(['primary', `primary — everything from outside reaches it${s.protectedPrimary ? ' · 🛡 protected' : ''}`]);
-  lines.push(['code', `${pointer(d)}${how ? ` · ${how}${e.by ? ` by ${who(e.by)}` : ''}${at ? `, ${ago(at, opts.now)}` : ''}` : ''}`],
+  if (d.primary) lines.push(s.protectedPrimary ? ['primary', 'primary — everything from outside reaches it · protected', 'shield'] : ['primary', 'primary — everything from outside reaches it']);
+  lines.push(['code', `${pointer(d)}${how ? ` · ${how}${e.by ? ` by ${who(e.by)}` : ''}${at ? `, ${ago(at, opts.now)}` : ''}` : ''}`, pointerIcon(d)],
     ['status', `${statusText(d)}${d.status?.error ? ` — ${d.status.error}` : ''}`]);
   const bl = branch.overviewLine(s, name);
   if (bl !== null) lines.push(['branch', bl]);
@@ -103,7 +110,7 @@ export function overview(s, name, opts = {}) {
 // healthy — a static tile's deployments, which run no backend, always are (the server's rule).
 export const reassignable = (s) => others(s).filter((y) => dep(s, y)?.can?.primary?.ok && ['healthy', 'static'].includes(dep(s, y)?.status?.state));
 
-// panelActions(state, name, opts) → [{id, label, enabled, why, title, on? (a switch), to?}] of a
+// panelActions(state, name, opts) → [{id, label, enabled, why, title, on? (a switch), to?, icon?}] of a
 // deployment, or the tile-wide page (name ''); what the viewer may not use is disabled with its reason.
 export function panelActions(s, name, opts = {}) {
   const P = s?.primary || 'main', out = [], d = dep(s, name), c = (op, y = name) => control(s, op, y, opts);
@@ -133,7 +140,7 @@ export function panelActions(s, name, opts = {}) {
     if (d.alwaysOnDeclared) add('alwaysOn', `alwaysOn: ${d.alwaysOn ? 'on' : 'off'}`, c('alwaysOn'), `Keep ${name} running, never idle-stopped.`, { on: !!d.alwaysOn });
   }
   add('limits', 'Set limits…', c('limits'), `${name}'s memory and disk share, never above ${s.tile}'s.`);
-  add('open', 'open ↗', d.primary && !d.can ? { enabled: true, why: '' } : c('open'), `Open ${d.primary ? s.tile : `${s.tile}+${name}`} in a new tab.`);
+  add('open', 'open', d.primary && !d.can ? { enabled: true, why: '' } : c('open'), `Open ${d.primary ? s.tile : `${s.tile}+${name}`} in a new tab.`, { icon: 'popout' });
   return out;
 }
 
@@ -188,14 +195,16 @@ export function registrationsNote(s, name) {
 
 export const wouldNotifyRows = (s, name, opts = {}) => (dep(s, name)?.wouldNotify || []).map((w) => `would notify ${who(w.to)} · "${w.title}" · ${ago(w.at, opts.now)}`);
 
-// logRows(state, name, entries, opts) → the deploy log: the entry that runs now, Roll back on older ok ones.
+// logRows(state, name, entries, opts) → the deploy log: the entry that runs now, Roll back on older ok ones;
+// code in words, icon its glyph ('live': the work tree, 'pin': a checkpoint).
 export function logRows(s, name, entries, opts = {}) {
   const d = dep(s, name), cur = d?.checkpoint?.id;
   let found = false;
   return (entries || []).map((e) => {
     const running = !found && e.result === 'ok' && (e.followsWorkTree ? !!d?.liveReload : same(e.checkpoint, cur)), back = e.result === 'ok' && !e.followsWorkTree && !!e.checkpoint && !same(e.checkpoint, cur);
     found ||= running;
-    return { id: e.id, checkpoint: e.checkpoint || '', code: e.followsWorkTree || !e.checkpoint ? '● work tree' : `📌 ${e.checkpoint}`, how: `${HOW[e.how] || e.how}${e.how === 'promote' && e.from ? ` (from ${e.from})` : ''}`,
+    const wt = e.followsWorkTree || !e.checkpoint;
+    return { id: e.id, checkpoint: e.checkpoint || '', code: wt ? 'work tree' : e.checkpoint, icon: wt ? GLYPH.attached : GLYPH.pinned, how: `${HOW[e.how] || e.how}${e.how === 'promote' && e.from ? ` (from ${e.from})` : ''}`,
       result: e.result === 'failed' ? `failed${e.error ? ` — ${e.error}` : ''}` : e.result === 'running' ? `running${e.phase ? ` · ${e.phase}` : ''}` : e.result,
       who: `${who(e.by)}${e.agent ? ' (agent)' : ''} · ${ago(e.finishedAt || e.requestedAt, opts.now)}`, feed: !e.feed || e.feed === 'work-tree' ? 'work tree' : e.feed, branch: e.branch || '',
       state: running ? 'running' : '', rollback: back ? { label: `Roll back to ${e.checkpoint}`, ...control(s, 'rollback', name, opts) } : null };

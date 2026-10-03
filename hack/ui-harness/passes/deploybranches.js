@@ -7,7 +7,7 @@
 //      repository is then on it; the side list and the overview's Branch row
 //      show it, with Set branch… and Clear branch;
 //   2. a mismatch pause: the work tree switched (git switch -c) and a save —
-//      nothing reaches feat, live reload pauses, the chip reads ⎇, its menu
+//      nothing reaches feat, live reload pauses, the chip names the branch, its menu
 //      and the panel's header offer "Keep feat on … this time" and "Add a
 //      deployment for …", and the open terminal prints the grey line;
 //   3. the follow offer: the chip's "Add a deployment for …" opens the
@@ -76,7 +76,8 @@ async function run(X) {
   const acts = await D.pn(P, (p) => p.actions().map((a) => a.id));
   const ov = await D.pn(P, (p) => p.overview);
   const text = await D.pn(P, (p) => p.text());
-  check(acts.includes('branch') && acts.includes('clearBranch') && ov.some(([k, v]) => k === 'branch' && v === FEAT) && text.includes('⎇ wpd-feat'),
+  check(acts.includes('branch') && acts.includes('clearBranch') && ov.some(([k, v]) => k === 'branch' && v === FEAT) && text.includes('wpd-feat')
+    && await P.locator(`${sel} bx-deployments nav.side .row bx-icon[name="branch"]`).count() > 0,
     `the overview's Branch row and its Set branch… / Clear branch; the side list names it (${JSON.stringify(acts)}, ${JSON.stringify(ov)})`);
   await shot(P, 'deploybranches-overview', { fullPage: false });
 
@@ -88,9 +89,9 @@ async function run(X) {
   save('deployy: a save on wpd-other');
   s = await until(A.ctx, (b) => b.liveReload === '' && b.lastLiveReload === 'feat', 'live reload paused by the switch');
   check(s.body.liveReload === '' && dep(s.body, 'feat')?.lastDeploy?.by === 'xbind', `a save on wpd-other paused live reload on feat, xbind's own pause (${JSON.stringify(dep(s.body, 'feat')?.lastDeploy)})`);
-  await waitFor(P, (t, a) => /⎇/.test(t.frameFor(a)?.testApi().deploy.chip?.text || ''), TILE, { timeout: 10000, label: 'the chip reads ⎇' }).catch(() => { });
+  await waitFor(P, (t, a) => /· branch /.test(t.frameFor(a)?.testApi().deploy.chip?.text || ''), TILE, { timeout: 10000, label: 'the chip names the branch' }).catch(() => { });
   const chip = await fr(P, TILE, (f) => f.deploy.chip);
-  check(chip?.text === `📌 Live reload paused · ⎇ ${OTHER}`, `the chip names the work tree's branch (${chip?.text})`);
+  check(chip?.text === `Live reload paused · branch ${OTHER}`, `the chip names the work tree's branch (${chip?.text})`);
   const items = await fr(P, TILE, (f) => f.deploy.chipItems().map((x) => x.label).filter(Boolean));
   check(items.includes(`Keep feat on ${OTHER} this time`) && items.includes(`Add a deployment for ${OTHER}…`), `the chip's menu offers keep and add (${JSON.stringify(items.slice(0, 5))})`);
   await D.pn(P, (p) => { p.refresh(); return true; });
@@ -142,7 +143,7 @@ async function run(X) {
   s = await until(A.ctx, (b) => b.liveReload === '', 'paused');
   git('switch', '-q', OTHER);
   await fr(P, TILE, (f) => f.deploy.refresh());
-  await fr(P, TILE, (f) => { f.deploy.chipAction('Resume live reload on ▸/feat'); return true; });
+  await fr(P, TILE, (f) => { f.deploy.chipAction('Resume live reload on/feat'); return true; });
   await waitFor(P, (t, a) => /requires branch/.test(t.frameFor(a)?.testApi().dialog?.title || ''), TILE, { timeout: 15000, label: 'the mismatch question' });
   const q = await D.dialog(P);
   check(q?.title === 'feat requires branch wpd-feat' && (q.buttons || []).some((b) => b.label === `Use ${OTHER} this time`), `a 409 mismatch asks to use it this time (${q?.title})`);

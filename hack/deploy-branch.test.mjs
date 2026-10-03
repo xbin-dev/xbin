@@ -43,8 +43,8 @@ test('the feature and the facts', () => {
 test('a branch switch on the chip, the menu and the launcher', () => {
   const s = switched('hotfix');
   const c = ds.chip(s, opts);
-  assert.equal(c.text, '📌 Live reload paused · ⎇ hotfix');
-  assert.equal(c.compact, '📌 ⎇');
+  assert.equal(c.text, 'Live reload paused · branch hotfix');
+  assert.equal(c.compact, 'branch');
   assert.equal(c.title, 'Live reload paused — the work tree is on hotfix, and dev requires feature: dev keeps running c:5e5e5e5.');
   const items = ds.chipItems(s, opts);
   assert.deepEqual(labels(items).slice(0, 5), ['Live reload', c.title, 'Keep dev on hotfix this time', 'Add a deployment for hotfix…', undefined]);
@@ -57,7 +57,7 @@ test('a branch switch on the chip, the menu and the launcher', () => {
   assert.deepEqual(r.map((it) => [it.label, it.op, it.deployment]), [['Resume live reload on qa (release)', 'resume', 'qa']]);
   // back on dev's branch: resume it
   const back = switched('feature');
-  assert.equal(ds.chip(back, opts).text, '📌 Live reload paused · 2');
+  assert.equal(ds.chip(back, opts).text, 'Live reload paused · 2');
   assert.equal(ds.chip(back, opts).title, 'Live reload paused when the work tree left feature; it is on feature again — resume live reload on dev to follow saves.');
   assert.deepEqual(ds.chipItems(back, opts).filter((it) => it.offer).map((it) => [it.label, it.op, it.deployment]), [['Resume live reload on dev', 'resume', 'dev']]);
   // attached: a checkout that changed no file yet — follow qa, and the tooltip says what the next save does

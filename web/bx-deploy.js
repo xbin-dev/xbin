@@ -44,8 +44,9 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
 import { unsafeHTML } from 'lit';
-import { diffHTML, diffStats } from '/vendor/bx-code.js';
+import { diffHTML, diffStats, codeCss } from '/vendor/bx-code.js';
 import { onEvent, onReconnect } from '/vendor/events-socket.js';
+import '/vendor/bx-icons.js';
 import { qualifiedSrc } from '/vendor/frame-info.js';
 import * as dsState from '/vendor/deploy-state.js';
 import * as dsPanel from '/vendor/deploy-panel.js';
@@ -96,10 +97,11 @@ async function getJSON(url) {
 }
 
 const dep = (s, name) => s?.deployments?.find((d) => d.name === name) || null;
-const glyphed = (text) => {
-  const m = /^([●📌⇡⇈🛡↗]\S*)\s(.*)$/u.exec(text || '');
-  return m ? html`<span aria-hidden="true">${m[1]}</span> ${m[2]}` : text;
-};
+// glyphed(text, icon): the words after their glyph (the view model's icon,
+// a /vendor/bx-icons.js name, D184); the glyph is decorative, the words say it
+const glyphed = (text, icon) => (icon ? html`<bx-icon name=${icon}></bx-icon>${text ? html` ${text}` : nothing}` : text);
+// a deployment's status words, with the status glyph where there is one (R2)
+const STATUS_ICON = { healthy: 'ok', failed: 'error', building: 'wait' };
 
 export class BxDeployments extends LitElement {
   static properties = {
@@ -123,77 +125,91 @@ export class BxDeployments extends LitElement {
     _drill: { state: true },  // narrow: the main pane is shown instead of the side list
   };
 
-  static styles = [scrollCss, css`
-    :host { display: flex; flex-direction: column; height: 100%; min-height: 0; font: 12px/1.5 var(--bx-mono, ui-monospace, monospace);
-      color: var(--bx-text, #d4d9e0); background: var(--bx-panel, #23272e); }
-    button { font: inherit; color: inherit; cursor: pointer; }
+  static styles = [scrollCss, codeCss, css`
+    /* UI text in the UI face; checkpoints, names and code in the code face (D184) */
+    :host { display: flex; flex-direction: column; height: 100%; min-height: 0; font: var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif);
+      color: var(--bx-text, #E9EAF0); background: var(--bx-panel, #1F2028); }
+    button, select { font: inherit; color: inherit; cursor: pointer; }
     button[disabled] { opacity: .5; cursor: default; }
-    .head { flex: none; padding: 7px 12px; border-bottom: 1px solid var(--bx-border, #363c45); display: flex; flex-direction: column; gap: 5px; }
-    .sentence { color: var(--bx-text, #d4d9e0); }
+    :focus-visible { outline: var(--bx-focus-outline, 3px solid #3DD6F5); outline-offset: calc(-1 * var(--bx-focus-width, 3px)); }
+    .btn:focus-visible, select:focus-visible { outline-offset: var(--bx-focus-offset, 2px); box-shadow: var(--bx-focus-halo, 0 0 0 2px #0B0C12); }
+    .mono, .nm, .lbr { font-family: var(--bx-mono, "JetBrains Mono", ui-monospace, monospace); }
+    .head { flex: none; padding: 8px 12px; border-bottom: 1px solid var(--bx-border, #33353F); display: flex; flex-direction: column; gap: 6px; }
+    .sentence { color: var(--bx-text, #E9EAF0); }
+    .sentence bx-icon, .kv bx-icon, .row bx-icon, .pill bx-icon, .title bx-icon { color: var(--bx-muted, #A3A6B6); }
     .btns { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
-    .btn { background: var(--bx-panel-2, #2b3038); border: 1px solid var(--bx-border, #363c45); border-radius: 4px; padding: 3px 9px; white-space: nowrap; }
-    .btn:hover:not([disabled]) { border-color: var(--bx-accent, #f5a623); }
-    .btn.danger { color: var(--bx-red, #ef5350); }
-    .btn[role=switch][aria-checked=true] { border-color: var(--bx-green, #4caf50); color: var(--bx-green, #4caf50); }
-    .why { color: var(--bx-muted, #868f9a); font-size: 10.5px; }
-    .said { color: var(--bx-muted, #868f9a); font-size: 11px; min-height: 0; }
-    .err { color: var(--bx-red, #ef5350); white-space: pre-wrap; }
+    /* buttons are secondary (product-ui §6): panel, 1px border-strong, 600 */
+    .btn { display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; min-height: var(--bx-control-h, 28px); padding: 0 11px;
+      background: var(--bx-panel, #1F2028); border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
+      font-weight: 600; white-space: nowrap; }
+    .btn:hover:not([disabled]) { background: var(--bx-hover, #2A2B34); }
+    .btn.danger { color: var(--bx-danger, #FF7A7A); border-color: var(--bx-danger, #FF7A7A); }
+    .btn[role=switch][aria-checked=true] { border-color: var(--bx-ok, #A3CF5E); color: var(--bx-ok, #A3CF5E); }
+    .btn .caret { color: var(--bx-muted, #A3A6B6); }
+    .why { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); }
+    .said { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); min-height: 0; }
+    .err { color: var(--bx-danger, #FF7A7A); white-space: pre-wrap; }
+    .err bx-icon { margin-right: 6px; }
     /* the panel's own width decides the narrow layouts (container queries,
        below), so it works in a pane beside the terminal as on a phone */
     .body { flex: 1; display: flex; min-height: 0; container: dbody / inline-size; }
-    .side { width: 230px; flex: none; display: flex; flex-direction: column; overflow: auto; border-right: 1px solid var(--bx-border, #363c45); }
-    .row { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 5px 8px;
-      border-bottom: 1px solid color-mix(in srgb, var(--bx-border, #363c45) 40%, transparent); }
-    .row:hover { background: var(--bx-panel-2, #2b3038); }
-    .row.on { background: color-mix(in srgb, var(--bx-accent, #f5a623) 22%, transparent); }
+    .side { width: 230px; flex: none; display: flex; flex-direction: column; overflow: auto; border-right: 1px solid var(--bx-border, #33353F); }
+    .row { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 6px 12px;
+      border-bottom: 1px solid var(--bx-border, #33353F); }
+    .row:hover { background: var(--bx-hover, #2A2B34); }
+    .row.on { background: var(--bx-selection, #262C5C); color: var(--bx-selection-text, #E9EAF0); box-shadow: inset 2px 0 0 var(--bx-accent, #8C9BFF); }
     /* a row's name and tags: each tag one compact line; a tag that doesn't
        fit moves to the next line whole */
     .row .t { display: flex; flex-wrap: wrap; gap: 2px 6px; align-items: baseline; }
     .row .t .nm { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .row .m { color: var(--bx-muted, #868f9a); font-size: 10.5px; display: block; }
-    .row.add { color: var(--bx-accent, #f5a623); }
-    .pill { font-size: 9.5px; letter-spacing: .04em; padding: 0 5px; border-radius: 3px; border: 1px solid var(--bx-border, #363c45); color: var(--bx-muted, #868f9a);
-      white-space: nowrap; flex: none; }
-    .pill.primary { color: var(--bx-accent, #f5a623); }
-    .pill.target { color: var(--bx-green, #4caf50); }
-    .pill.lr { color: var(--bx-text, #d4d9e0); }
-    .lbr { display: block; color: var(--bx-muted, #868f9a); font-size: 10.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .offers .btn { border-color: var(--bx-accent, #f5a623); }
-    .bad { color: var(--bx-red, #ef5350); }
-    .st-healthy { color: var(--bx-green, #4caf50); } .st-building { color: var(--bx-accent, #f5a623); } .st-failed { color: var(--bx-red, #ef5350); }
+    .row .m { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); display: block; }
+    .row.add { color: var(--bx-text, #E9EAF0); font-weight: 600; }
+    /* tags: square, 20px, micro caps, 1px border */
+    .pill { display: inline-flex; align-items: center; gap: 4px; box-sizing: border-box; height: 20px; padding: 0 6px; white-space: nowrap; flex: none;
+      font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase;
+      border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); color: var(--bx-muted, #A3A6B6); }
+    .pill bx-icon { --bx-icon-size: 12px; }
+    .pill.primary, .pill.target, .pill.lr { color: var(--bx-text, #E9EAF0); border-color: var(--bx-border-strong, #666A7E); }
+    .lbr { display: block; color: var(--bx-muted, #A3A6B6); font-size: var(--bx-term-size, 12px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .bad { color: var(--bx-danger, #FF7A7A); }
+    .st-healthy { color: var(--bx-ok, #A3CF5E); } .st-building { color: var(--bx-muted, #A3A6B6); } .st-failed { color: var(--bx-danger, #FF7A7A); }
+    .st-healthy bx-icon, .st-failed bx-icon, .st-building bx-icon { color: inherit; --bx-icon-size: 12px; margin-right: 2px; }
     .main { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; container: dmain / inline-size; }
-    .title { padding: 7px 12px 0; font-weight: 600; display: flex; gap: 8px; align-items: baseline; }
-    .tabs { display: flex; flex: none; border-bottom: 1px solid var(--bx-border, #363c45); padding: 0 8px; overflow-x: auto; }
-    .tabs button { background: none; border: 0; color: var(--bx-muted, #868f9a); padding: 6px 8px; border-bottom: 2px solid transparent; white-space: nowrap; }
-    .tabs button.on { color: var(--bx-text, #d4d9e0); border-bottom-color: var(--bx-accent, #f5a623); }
+    .title { padding: 8px 12px 0; font: var(--bx-font-title, 600 16px/22px "Instrument Sans", system-ui, sans-serif); display: flex; gap: 8px; align-items: center; }
+    .tabs { display: flex; flex: none; border-bottom: 1px solid var(--bx-border, #33353F); padding: 0 8px; overflow-x: auto; }
+    .tabs button { background: none; border: 0; color: var(--bx-muted, #A3A6B6); height: var(--bx-row, 28px); padding: 0 8px; border-bottom: 2px solid transparent; white-space: nowrap; }
+    .tabs button:hover { color: var(--bx-text, #E9EAF0); }
+    .tabs button.on { color: var(--bx-text, #E9EAF0); font-weight: 600; border-bottom-color: var(--bx-accent, #8C9BFF); }
     .pane { flex: 1; overflow: auto; min-height: 0; padding: 8px 12px; }
     .pane.flush { padding: 0; display: flex; flex-direction: column; }
-    .kv { display: grid; grid-template-columns: max-content 1fr; gap: 3px 14px; }
-    .kv .k { color: var(--bx-muted, #868f9a); }
-    .muted { color: var(--bx-muted, #868f9a); }
-    .git { margin-top: 10px; padding: 6px 9px; background: var(--bx-panel-2, #2b3038); border: 1px solid var(--bx-border, #363c45); border-radius: 5px; }
-    .tbl { display: grid; gap: 0; }
-    .tr { display: grid; grid-template-columns: var(--cols); gap: 10px; align-items: center; padding: 4px 0;
-      border-bottom: 1px solid color-mix(in srgb, var(--bx-border, #363c45) 40%, transparent); }
-    .tr.hd { color: var(--bx-muted, #868f9a); font-size: 10px; text-transform: uppercase; letter-spacing: .05em; }
-    .tr .lb { display: none; color: var(--bx-muted, #868f9a); font-size: 10px; }
-    select { font: inherit; color: inherit; background: var(--bx-panel-2, #2b3038); border: 1px solid var(--bx-border, #363c45); border-radius: 4px; padding: 2px 4px; max-width: 100%; }
-    h4 { margin: 12px 0 4px; font-size: 11px; color: var(--bx-muted, #868f9a); font-weight: 600; }
-    .actions { flex: none; position: sticky; bottom: 0; padding: 7px 12px; border-top: 1px solid var(--bx-border, #363c45);
-      background: var(--bx-panel, #23272e); display: flex; flex-direction: column; gap: 4px;
+    .kv { display: grid; grid-template-columns: max-content 1fr; gap: 4px 16px; }
+    .kv .k { color: var(--bx-muted, #A3A6B6); }
+    .muted { color: var(--bx-muted, #A3A6B6); }
+    .git { margin-top: 12px; padding: 8px 12px; background: var(--bx-panel-2, #262730); border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px);
+      font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); }
+    .git .why { font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); margin-top: 4px; }
+    .tbl { display: grid; gap: 0; font-variant-numeric: tabular-nums; }
+    .tr { display: grid; grid-template-columns: var(--cols); gap: 10px; align-items: center; min-height: var(--bx-row, 28px); padding: 2px 0;
+      border-bottom: 1px solid var(--bx-border, #33353F); }
+    .tr.hd { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em);
+      text-transform: uppercase; border-bottom: 2px solid var(--bx-text, #E9EAF0); }
+    .tr .lb { display: none; color: var(--bx-muted, #A3A6B6); font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif); text-transform: uppercase; letter-spacing: var(--bx-tracking-micro, 0.06em); }
+    select { box-sizing: border-box; min-height: var(--bx-control-h, 28px); padding: 0 6px; max-width: 100%;
+      background: var(--bx-panel, #1F2028); border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px); }
+    h4 { margin: 16px 0 4px; font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em);
+      text-transform: uppercase; color: var(--bx-muted, #A3A6B6); }
+    .actions { flex: none; position: sticky; bottom: 0; padding: 8px 12px; border-top: 1px solid var(--bx-border, #33353F);
+      background: var(--bx-panel, #1F2028); display: flex; flex-direction: column; gap: 4px;
       /* a short or narrow pane: the buttons and their reasons scroll, never cover the title and tabs */
       max-height: 45%; overflow: auto; }
     .zero { padding: 12px 16px; display: flex; flex-direction: column; gap: 12px; max-width: 640px; }
-    .zero b { color: var(--bx-text, #d4d9e0); }
+    .zero b { color: var(--bx-text, #E9EAF0); }
     .view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
-    .view .vlabel { flex: none; padding: 2px 10px; font-size: 10.5px; color: var(--bx-accent, #f5a623); border-bottom: 1px solid var(--bx-border, #363c45); }
+    .view .vlabel { flex: none; padding: 2px 12px; font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace);
+      color: var(--bx-text, #E9EAF0); border-bottom: 1px solid var(--bx-border, #33353F); }
     .view bx-frame { flex: 1; min-height: 0; }
-    pre.diff { margin: 0; padding: 8px 0; white-space: pre; tab-size: 4; overflow: auto; }
-    .diff .fh { color: var(--bx-muted, #868f9a); display: block; }
-    .diff .h { color: #61afef; display: block; }
-    .diff .d { color: #98c379; display: block; background: color-mix(in srgb, #98c379 10%, transparent); }
-    .diff .a { color: #e06c75; display: block; background: color-mix(in srgb, #e06c75 10%, transparent); }
-    .diff .ctx { display: block; color: #abb2bf; }
+    pre, code { font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); }
+    pre.diff { margin: 0; padding: 8px 0; white-space: pre; tab-size: 4; overflow: auto; background: var(--bx-code-bg, #16171D); }
     .back { display: none; }
     /* narrow (a phone, a pane beside the terminal): the side list, or the
        selected row's page with a way back */
@@ -571,8 +587,14 @@ export class BxDeployments extends LitElement {
     const click = onClick || ((e) => (a.items ? this._openMenu(e, a.items) : this._act(a.id)));
     const sw = typeof a.on === 'boolean';
     return html`<button class=${'btn' + (/^(remove|reset)$/.test(a.id) ? ' danger' : '')} ?disabled=${!a.enabled || this._busy}
-        title=${a.why || a.title || ''} aria-label=${a.label.replace(/^[⇡↗]\s*|\s*↗$/u, '')} role=${sw ? 'switch' : nothing} aria-checked=${sw ? String(a.on) : nothing}
-        aria-haspopup=${a.items ? 'menu' : nothing} @click=${click}>${glyphed(a.label)}</button>`;
+        title=${a.why || a.title || ''} aria-label=${a.label} role=${sw ? 'switch' : nothing} aria-checked=${sw ? String(a.on) : nothing}
+        aria-haspopup=${a.items ? 'menu' : nothing} @click=${click}>${glyphed(a.label, a.icon)}${a.items ? html`<bx-icon class="caret" name="caret-down"></bx-icon>` : nothing}</button>`;
+  }
+
+  // a deployment's status in words, after the status glyph where there is one
+  _status(text) {
+    const k = String(text || '').split(' ')[0], icon = STATUS_ICON[k];
+    return html`<span class=${'st-' + k}>${icon ? html`<bx-icon name=${icon}></bx-icon>` : nothing}${text}</span>`;
   }
 
   // the reasons of disabled controls, visible (touch has no tooltips)
@@ -584,10 +606,10 @@ export class BxDeployments extends LitElement {
   _header(s, o) {
     const h = ds.panelHeader(s, o);
     return html`<div class="head">
-      ${s.record ? html`<div class="sentence">${glyphed(h.text)}</div>` : nothing}
+      ${s.record ? html`<div class="sentence">${h.text}</div>` : nothing}
       ${!s.record || !h.actions.length ? nothing : html`<div class="btns">${h.actions.map((a) => this._button(a))}</div>${this._whys(h.actions)}`}
       ${!h.offers?.length ? nothing : html`<div class="btns offers" aria-label="Follow the branch">${h.offers.map((a) => this._button(a))}</div>${this._whys(h.offers)}`}
-      ${this._error ? html`<div class="err" role="alert">${this._error}</div>` : nothing}
+      ${this._error ? html`<div class="err" role="alert"><bx-icon name="error"></bx-icon>${this._error}</div>` : nothing}
       <div class="said" aria-live="polite">${this._said}</div>
     </div>`;
   }
@@ -604,21 +626,21 @@ export class BxDeployments extends LitElement {
     return html`<nav class="side" aria-label="Deployments">
       <button class=${'row' + (this._sel === '' ? ' on' : '')} @click=${() => this._select('')}><span class="t">tile-wide</span></button>
       ${ds.panelRows(s, o).map((r) => html`<button class=${'row' + (this._sel === r.name ? ' on' : '')} @click=${() => this._select(r.name)}>
-        <span class="t"><span class="nm">${r.name}</span>${r.primary ? html`<span class="pill primary">primary</span>` : nothing}${r.protected ? html`<span aria-label="protected">🛡</span>` : nothing}
+        <span class="t"><span class="nm">${r.name}</span>${r.primary ? html`<span class="pill primary">primary</span>` : nothing}${r.protected ? html`<bx-icon name="shield" label="protected"></bx-icon>` : nothing}
           ${r.target ? html`<span class="pill target" title=${ds.TAG.devApiTitle(s, r.name)}>${ds.TAG.devApi}</span>` : nothing}
-          ${r.liveReload ? html`<span class="pill lr" title=${ds.TAG.liveReloadTitle(s, r.name)}>${ds.TAG.liveReload}</span>` : nothing}</span>
-        <span class="m">${glyphed(r.code)} · <span class=${'st-' + r.status.split(' ')[0]}>${r.status}</span>${r.lastDeployFailed ? html` · <span class="bad">last deploy failed</span>` : nothing}</span>
-        ${r.data || r.deliveries || r.branch ? html`<span class="m">${[r.branch && `⎇ ${r.branch}`, r.data, r.deliveries].filter(Boolean).join(' · ')}</span>` : nothing}
+          ${r.liveReload ? html`<span class="pill lr" title=${ds.TAG.liveReloadTitle(s, r.name)}>${glyphed(ds.TAG.liveReload, ds.TAG.liveReloadIcon)}</span>` : nothing}</span>
+        <span class="m"><span class="mono">${glyphed(r.code, r.icon)}</span> · ${this._status(r.status)}${r.lastDeployFailed ? html` · <span class="bad">last deploy failed</span>` : nothing}</span>
+        ${r.data || r.deliveries || r.branch ? html`<span class="m">${r.branch ? html`<bx-icon name="branch"></bx-icon> <span class="mono">${r.branch}</span>${r.data || r.deliveries ? ' · ' : ''}` : nothing}${[r.data, r.deliveries].filter(Boolean).join(' · ')}</span>` : nothing}
       </button>`)}
       <button class="row add" ?disabled=${!add.enabled || this._busy} title=${add.why || nothing}
-        @click=${() => this._act('add')}>+ Add deployment…</button>
+        @click=${() => this._act('add')}><bx-icon name="plus"></bx-icon> Add deployment…</button>
       ${add.enabled || !add.why ? nothing : html`<div class="why" style="padding:0 8px">${add.why}</div>`}
     </nav>`;
   }
 
   _tileWide(s, o) {
     const acts = ds.panelActions(s, '', o), rows = ds.edgeRows(s, o), P = s.primary || 'main', c = s.caps;
-    return html`<div class="title">Primary: ${P}${s.protectedPrimary ? html` · <span aria-hidden="true">🛡</span> protected` : nothing}</div>
+    return html`<div class="title">Primary: <span class="mono">${P}</span>${s.protectedPrimary ? html` · <bx-icon name="shield"></bx-icon> protected` : nothing}</div>
       <div class="pane">
         ${c ? html`<div class="muted">${ds.REASON.caps(c, s.tile)}</div>` : nothing}
         <h4>Non-primary access</h4>
@@ -641,7 +663,7 @@ export class BxDeployments extends LitElement {
   _overview(s, o, name) {
     const v = ds.overview(s, name, o);
     if (!v) return nothing;
-    return html`<div class="kv">${v.lines.map(([k, t]) => html`<span class="k">${k}</span><span>${glyphed(t)}</span>`)}
+    return html`<div class="kv">${v.lines.map(([k, t, icon]) => html`<span class="k">${k}</span><span>${glyphed(t, icon)}</span>`)}
         <span class="k">url</span><span><a href=${v.url} target="_blank" rel="noopener">${v.url}</a></span></div>
       ${v.gitLine ? html`<div class="git">${v.gitLine} <button class="btn" @click=${() => navigator.clipboard?.writeText('git fetch xbin-deploy')}
           aria-label="copy git fetch xbin-deploy">copy</button><div class="why">${v.gitNote}</div></div>` : nothing}`;
@@ -653,7 +675,7 @@ export class BxDeployments extends LitElement {
     return html`<div class="tbl" style="--cols: 110px minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) 70px 270px">
       <div class="tr hd"><span>code</span><span>how</span><span>result</span><span>who</span><span>feed</span><span></span></div>
       ${ds.logRows(s, name, this._log, o).map((r) => html`<div class="tr">
-        <span>${glyphed(r.code)}${r.branch ? html`<span class="lbr" title=${`taken on branch ${r.branch}`}>⎇ ${r.branch}</span>` : nothing}</span><span>${r.how}</span><span class=${r.result.startsWith('failed') ? 'bad' : ''}>${r.result}</span><span>${r.who}</span><span>${r.feed}</span>
+        <span class="mono">${glyphed(r.code, r.icon)}${r.branch ? html`<span class="lbr" title=${`taken on branch ${r.branch}`}><bx-icon name="branch"></bx-icon> ${r.branch}</span>` : nothing}</span><span>${r.how}</span><span class=${r.result.startsWith('failed') ? 'bad' : ''}>${r.result}</span><span>${r.who}</span><span>${r.feed}</span>
         <span class="btns">${r.state ? html`<span class="pill target">${r.state}</span>` : nothing}${r.rollback ? html`
           ${this._button({ id: `rollback/${r.checkpoint}`, ...r.rollback })}${this._button({ id: `diff/${r.checkpoint}`, label: 'diff', enabled: true })}` : nothing}</span>
       </div>`)}
@@ -687,10 +709,10 @@ export class BxDeployments extends LitElement {
     const label = r.op === 'promote' ? `Promote ${r.from} → ${r.to}…` : `Deploy to ${r.to}`;
     return html`<div class="pane">
         <div class="btns">${r.op === 'promote' ? html`From ${pick('from')} To ${pick('to')}` : nothing}
-          <button class="btn" @click=${() => { this._review = null; }}>‹ ${this._sel}</button></div>
-        ${r.note ? html`<div class="err">${r.note}</div>` : nothing}
+          <button class="btn" @click=${() => { this._review = null; }}><bx-icon name="chevron-left"></bx-icon>${this._sel}</button></div>
+        ${r.note ? html`<div class="err"><bx-icon name="warning"></bx-icon>${r.note}</div>` : nothing}
         ${r.stale ? html`<div class="why">${ds.REASON.stale} <button class="btn" @click=${() => this._openReview(r)}>Refresh</button></div>` : nothing}
-        ${r.error ? html`<div class="err">${r.error}</div>` : r.patch == null ? html`<div class="muted">…</div>` : html`
+        ${r.error ? html`<div class="err"><bx-icon name="error"></bx-icon>${r.error}</div>` : r.patch == null ? html`<div class="muted">…</div>` : html`
           <div class="muted">${ds.diffLine(r.cpFrom, r.cpTo, r.stats)}</div>
           <pre class="diff">${unsafeHTML(diffHTML(r.patch))}</pre>`}
       </div>
@@ -721,7 +743,7 @@ export class BxDeployments extends LitElement {
       <div class=${'body' + (drill ? ' drill' : '')}>
         ${this._side(s, o)}
         <section class="main">
-          <button class="btn back" @click=${() => { this._drill = false; }}>‹ Deployments</button>
+          <button class="btn back" @click=${() => { this._drill = false; }}><bx-icon name="chevron-left"></bx-icon>Deployments</button>
           ${this._sel === '' ? this._tileWide(s, o) : this._deployment(s, o)}
         </section>
       </div>`;

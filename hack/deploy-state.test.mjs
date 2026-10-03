@@ -23,7 +23,7 @@ import {
 
 // covers D119c PO-10 — the zero-state row: no chip, no offer, no launcher line,
 // no frame chip, today's two tile API options byte for byte, and exactly one
-// entry point (⇈), whose menu offers Pause live reload; an xbind without tile
+// entry point (the deploy glyph), whose menu offers Pause live reload; an xbind without tile
 // deployments (state null) draws nothing at all.
 test('the zero state: one entry point, today\'s API select, nothing else', () => {
   const s = zero();
@@ -42,7 +42,7 @@ test('the zero state: one entry point, today\'s API select, nothing else', () =>
   assert.equal(vm.api.value, 'on');
   assert.deepEqual(vm.api.notes, []);
   assert.equal(apiOptions(s, { api: false }).value, 'off', 'the echo, not a guess');
-  assert.deepEqual(vm.entry, { text: '⇈', title: 'deployments — live reload, deploy, promote, roll back', count: 0 });
+  assert.deepEqual(vm.entry, { text: '', title: 'deployments — live reload, deploy, promote, roll back', count: 0, icon: 'deploy' });
   const shown = [vm.entry, vm.chip, vm.offer, vm.launcher, frameChip(undefined, s)].filter(Boolean);
   assert.equal(shown.length, 1, 'at most one entry point');
   assert.deepEqual(labels(vm.items), ['<header>', 'Live reload: main — every save reaches everyone using apps/crm.', 'Pause live reload']);
@@ -91,7 +91,7 @@ test('the zero state: a tile that can\'t pause shows why', () => {
 });
 
 // covers D119b — live reload paused with files changed: the chip and its
-// count, the offer, the menu (Reload now first, Resume on ▸ with the last
+// count, the offer, the menu (Reload now first, Resume on (a submenu) with the last
 // target), the launcher's amber banner.
 test('paused, 3 files changed: chip, pending count, offer, menu, launcher', () => {
   const s = paused();
@@ -99,17 +99,18 @@ test('paused, 3 files changed: chip, pending count, offer, menu, launcher', () =
   assert.equal(vm.paused, true);
   assert.equal(vm.changed, 3);
   assert.deepEqual(vm.chip, {
-    text: '📌 Live reload paused · 3', compact: '📌 3', base: '📌 Live reload paused · 3', baseCompact: '📌 3',
+    text: 'Live reload paused · 3', compact: '3', base: 'Live reload paused · 3', baseCompact: '3',
     title: 'Live reload paused by ana 12m ago — 3 files changed since c:3f2a1c9, which main runs. Reload now ships them to main once.',
-    failed: false, count: 3,
+    failed: false, count: 3, icon: 'pin',
   });
-  assert.deepEqual(vm.offer, { label: '⇡ Reload now · 3', title: 'Ship the work tree to main once (3 files); main stays pinned.' });
-  assert.deepEqual(labels(vm.items), ['<header>', vm.chip.title, '⇡ Reload now · 3', 'Resume live reload on ▸']);
+  assert.deepEqual(vm.offer, { label: 'Reload now · 3', title: 'Ship the work tree to main once (3 files); main stays pinned.', icon: 'refresh' });
+  assert.equal(byLabel(vm.items, 'Reload now · 3').icon, 'refresh', 'the menu item carries its glyph');
+  assert.deepEqual(labels(vm.items), ['<header>', vm.chip.title, 'Reload now · 3', 'Resume live reload on']);
   assert.equal(vm.items[1].enabled, false, 'the sentence is a disabled item');
-  const rn = byLabel(vm.items, '⇡ Reload now · 3');
+  const rn = byLabel(vm.items, 'Reload now · 3');
   assert.equal(rn.enabled, true);
   assert.equal(rn.op, 'reloadNow');
-  const rs = byLabel(vm.items, 'Resume live reload on ▸');
+  const rs = byLabel(vm.items, 'Resume live reload on');
   assert.equal(rs.enabled, true);
   assert.deepEqual(rs.items.map((it) => [it.label, it.enabled, it.op, it.deployment]), [['main', true, 'resume', 'main']]);
   assert.equal(rs.items[0].title, 'main follows the work tree again; the 3 changed files ship now.');
@@ -119,13 +120,13 @@ test('paused, 3 files changed: chip, pending count, offer, menu, launcher', () =
     subtitle: '· target: main', note: null,
   });
   assert.deepEqual(vm.api.options, TODAY, 'main-only: today\'s two options');
-  assert.deepEqual(vm.entry, { text: '⇈', title: 'deployments — live reload, deploy, promote, roll back', count: 0 });
+  assert.deepEqual(vm.entry, { text: '', title: 'deployments — live reload, deploy, promote, roll back', count: 0, icon: 'deploy' });
   assert.equal(vm.barKey, '|1|3|1|1|0');
 
   const one = paused({ workTree: { changed: 1, since: 'c:3f2a1c9' } });
   assert.match(chip(one, opts).title, /— 1 file changed since c:3f2a1c9, which main runs\./);
   assert.equal(offer(one, opts).title, 'Ship the work tree to main once (1 file); main stays pinned.');
-  assert.equal(byLabel(chipItems(one, opts), 'Resume live reload on ▸').items[0].title, 'main follows the work tree again; the 1 changed file ships now.');
+  assert.equal(byLabel(chipItems(one, opts), 'Resume live reload on').items[0].title, 'main follows the work tree again; the 1 changed file ships now.');
   assert.match(launcher(one, opts).banner.text, /^Live reload is paused: 1 file changed since/);
 
   const agent = paused({ liveReloadSince: { at: at(3 * 60 + 5), by: 'user:ana', agent: true } });
@@ -137,11 +138,11 @@ test('paused, 3 files changed: chip, pending count, offer, menu, launcher', () =
 test('paused, nothing changed: no count, no offer, Reload now says why', () => {
   const s = paused({ workTree: { changed: 0, since: 'c:3f2a1c9' } });
   const c = chip(s, opts);
-  assert.equal(c.text, '📌 Live reload paused');
-  assert.equal(c.compact, '📌');
+  assert.equal(c.text, 'Live reload paused');
+  assert.equal(c.compact, '');
   assert.equal(c.title, 'Live reload paused by ana 12m ago — no changes since c:3f2a1c9.');
   assert.equal(offer(s, opts), null);
-  const rn = byLabel(chipItems(s, opts), '⇡ Reload now');
+  const rn = byLabel(chipItems(s, opts), 'Reload now');
   assert.equal(rn.enabled, false);
   assert.equal(rn.hint, 'No changes since c:3f2a1c9.');
   assert.deepEqual(launcher(s, opts).banner, { text: 'Live reload is paused: no changes since c:3f2a1c9.', tone: 'paused', reloadNow: false });
@@ -157,11 +158,11 @@ test('a failed deploy: the chip says so, and Reload now retries', () => {
   });
   const c = chip(s, opts);
   assert.equal(c.failed, true);
-  assert.equal(c.text, '📌 Live reload paused · deploy failed');
-  assert.equal(c.compact, '📌!');
-  assert.equal(c.base, '📌 Live reload paused');
+  assert.equal(c.text, 'Live reload paused · deploy failed');
+  assert.equal(c.compact, '!');
+  assert.equal(c.base, 'Live reload paused');
   assert.equal(c.title, 'Live reload paused by ana 12m ago — no changes since c:3f2a1c9. The last deploy to main failed; main keeps running c:3f2a1c9. Reload now retries.');
-  const rn = byLabel(chipItems(s, opts), '⇡ Reload now');
+  const rn = byLabel(chipItems(s, opts), 'Reload now');
   assert.equal(rn.enabled, true, 'a failed last target retries');
   assert.equal(launcher(s, opts).banner.text, 'Live reload is paused: no changes since c:3f2a1c9, and the last deploy to main failed.');
   assert.equal(launcher(s, opts).banner.reloadNow, true);
@@ -183,14 +184,14 @@ test('paused by protection or by a code move', () => {
     caller: terminalCaller({ can: { pause: yes, resume: no(PROTECTED, 'state'), reloadNow: no(PROTECTED), add: yes } }),
   });
   const c = chip(prot, opts);
-  assert.equal(c.text, '📌 Live reload paused', 'no count when protection paused it');
-  assert.equal(c.compact, '📌');
+  assert.equal(c.text, 'Live reload paused', 'no count when protection paused it');
+  assert.equal(c.compact, '');
   assert.equal(c.title, 'Live reload paused when sales1 protected main — main is pinned to c:3f2a1c9.');
   const items = chipItems(prot, opts);
-  const rn = byLabel(items, '⇡ Reload now · 3');
+  const rn = byLabel(items, 'Reload now · 3');
   assert.equal(rn.enabled, false);
   assert.equal(rn.hint, PROTECTED, 'the server\'s protected reason');
-  const rs = byLabel(items, 'Resume live reload on ▸');
+  const rs = byLabel(items, 'Resume live reload on');
   assert.deepEqual(rs.items, [], 'never resume onto a protected primary');
   assert.equal(rs.enabled, false);
   assert.equal(rs.hint, PROTECTED);
@@ -199,7 +200,7 @@ test('paused by protection or by a code move', () => {
 
   const rb = paused({ deployments: [mainPinned({ checkpoint: { id: 'c:1e9d0aa', hash: '1e9d0aa0' }, lastDeploy: { id: 5, how: 'rollback', at: at(5), by: 'user:ana', result: 'ok' } })] });
   assert.equal(chip(rb, opts).title, 'Live reload paused — main was rolled back to c:1e9d0aa. The work tree still holds the code you rolled back from: resuming ships it again.');
-  assert.equal(chip(rb, opts).text, '📌 Live reload paused · 3', 'the count stays');
+  assert.equal(chip(rb, opts).text, 'Live reload paused · 3', 'the count stays');
 
   const pr = paused({ deployments: [mainPinned({ checkpoint: { id: 'c:7b19e02', hash: '7b19e020' }, lastDeploy: { id: 6, how: 'promote', from: 'dev', at: at(5), by: 'user:ana', result: 'ok' } })] });
   assert.equal(chip(pr, opts).title, 'Live reload paused — main received c:7b19e02 from dev. Resuming ships the work tree to main.');
@@ -216,8 +217,8 @@ test('attached to the primary, with a record', () => {
   const vm = viewModel(s, opts);
   assert.equal(vm.paused, false);
   assert.equal(vm.changed, null);
-  assert.equal(vm.chip.text, '● Live reload: main');
-  assert.equal(vm.chip.compact, '● main');
+  assert.equal(vm.chip.text, 'Live reload: main');
+  assert.equal(vm.chip.compact, 'main');
   assert.equal(vm.chip.title, 'Live reload: main — every save reaches everyone using apps/crm.');
   assert.equal(vm.offer, null);
   assert.deepEqual(labels(vm.items), ['<header>', vm.chip.title, 'Pause live reload']);
@@ -227,21 +228,21 @@ test('attached to the primary, with a record', () => {
 });
 
 // covers D119b D127p — attached to a non-primary deployment: the chip, the
-// launcher's plain line, Attach ▸, and the tile API select's target entries
+// launcher's plain line, Attach (a submenu), and the tile API select's target entries
 // with D127p's default (the primary) and the saves/calls note.
 test('attached to a non-primary deployment: chip, launcher, targets', () => {
   const s = onDev();
   const vm = viewModel(s, opts);
-  assert.equal(vm.chip.text, '● Live reload: dev');
-  assert.equal(vm.chip.compact, '● dev');
+  assert.equal(vm.chip.text, 'Live reload: dev');
+  assert.equal(vm.chip.compact, 'dev');
   assert.equal(vm.chip.title, 'Live reload: dev — saves reach apps/crm+dev. The primary, main, is pinned to c:3f2a1c9.');
-  assert.deepEqual(labels(vm.items), ['<header>', vm.chip.title, 'Pause live reload', 'Attach live reload to ▸']);
-  const att = byLabel(vm.items, 'Attach live reload to ▸');
+  assert.deepEqual(labels(vm.items), ['<header>', vm.chip.title, 'Pause live reload', 'Attach live reload to']);
+  const att = byLabel(vm.items, 'Attach live reload to');
   assert.deepEqual(att.items.map((it) => [it.label, it.enabled, it.op, it.deployment]), [['main', true, 'attach', 'main']]);
   assert.equal(att.items[0].title, 'main follows every save; dev is pinned to its current code.');
   assert.equal(att.hint, '', 'a usable submenu carries no reason');
   const noAttach = onDev({ deployments: [mainPinned({ can: depCan({ attach: no(NEEDS_TERMINAL('Attach live reload')) }) }), devLive()] });
-  const na = byLabel(chipItems(noAttach, opts), 'Attach live reload to ▸');
+  const na = byLabel(chipItems(noAttach, opts), 'Attach live reload to');
   assert.equal(na.enabled, false);
   assert.equal(na.hint, NEEDS_TERMINAL('Attach live reload'), 'the per-deployment reason');
   assert.equal(byLabel(vm.items, 'Pause live reload').title, 'Keep dev on the code it runs now; saves stop reaching it until Reload now or Resume live reload.');
@@ -251,19 +252,20 @@ test('attached to a non-primary deployment: chip, launcher, targets', () => {
     note: 'Saves reach dev; new sessions call main. Switch in the tile API select after starting.',
   });
   assert.deepEqual(vm.api.options, [
-    { value: 'primary', label: '🔌 target: main (primary)' }, { value: 'dev', label: '🔌 target: dev' }, { value: 'off', label: '⛔ no API' }]);
+    { value: 'primary', label: 'target: main (primary)', icon: 'plug' }, { value: 'dev', label: 'target: dev', icon: 'plug' }, { value: 'off', label: 'no API', icon: 'error' }]);
   assert.equal(vm.api.value, 'primary');
   assert.equal(vm.api.def, 'primary');
   assert.deepEqual(vm.api.notes, ['Saves reach dev; this terminal calls main.']);
   assert.deepEqual(apiOptions(s, { deployment: 'dev' }).notes, [], 'saves and calls agree');
   assert.equal(apiOptions(s, { api: false }).value, 'off');
-  assert.deepEqual(vm.entry, { text: '⇈ 2', title: 'deployments — live reload, deploy, promote, roll back', count: 2 });
+  assert.deepEqual(vm.entry, { text: '2', title: 'deployments — live reload, deploy, promote, roll back', count: 2, icon: 'deploy' });
+  assert.equal(vm.chip.icon, 'live', 'saves reach the target: the live glyph');
   assert.equal(frameChip(summary(), s).title, 'main pinned to c:3f2a1c9 · saves reach dev');
   assert.equal(vm.barKey, 'dev|0||2|0|0');
 
   const long = onDev({ liveReload: 'feature-login-flow', lastLiveReload: 'feature-login-flow', deployments: [mainPinned(), devLive({ name: 'feature-login-flow' })] });
-  assert.equal(chip(long, opts).compact, '● feature-l…', 'the degraded bar cuts long names');
-  assert.equal(chip(long, opts).text, '● Live reload: feature-login-flow');
+  assert.equal(chip(long, opts).compact, 'feature-l…', 'the degraded bar cuts long names');
+  assert.equal(chip(long, opts).text, 'Live reload: feature-login-flow');
 
   // a deployment the viewer may not open is not a target entry
   const hidden = onDev({ deployments: [mainPinned(), devLive({ can: depCan({ open: no('deployments of apps/crm need write access') }) })] });
@@ -275,16 +277,16 @@ test('attached to a non-primary deployment: chip, launcher, targets', () => {
 test('a protected primary is never a target', () => {
   const s = onDev({ protectedPrimary: true });
   const a = apiOptions(s, { deployment: 'dev' });
-  assert.deepEqual(a.options, [{ value: 'dev', label: '🔌 target: dev' }, { value: 'off', label: '⛔ no API' }]);
+  assert.deepEqual(a.options, [{ value: 'dev', label: 'target: dev', icon: 'plug' }, { value: 'off', label: 'no API', icon: 'error' }]);
   assert.equal(a.def, 'dev');
   assert.deepEqual(a.notes, ['main is protected: terminals and agents can\'t call it.']);
   assert.equal(launcher(s, opts).subtitle, '· target: dev (main is protected)');
   assert.equal(launcher(s, opts).note, null, 'new sessions call where saves go');
-  assert.deepEqual(chipItems(s, opts).find((it) => it.label === 'Attach live reload to ▸'), undefined, 'nothing to attach to but the protected primary');
+  assert.deepEqual(chipItems(s, opts).find((it) => it.label === 'Attach live reload to'), undefined, 'nothing to attach to but the protected primary');
 
   const both = paused({ protectedPrimary: true });
   const b = apiOptions(both);
-  assert.deepEqual(b.options, [{ value: 'off', label: '⛔ no API' }], 'protected and paused: API off only');
+  assert.deepEqual(b.options, [{ value: 'off', label: 'no API', icon: 'error' }], 'protected and paused: API off only');
   assert.equal(b.def, 'off');
   assert.equal(defaultTarget(both), 'off');
   assert.equal(launcher(both, opts).subtitle, '· tile API off (main is protected and live reload is paused)');
@@ -301,8 +303,8 @@ test('a reader sees the primary only', () => {
   assert.equal(vm.reader, true);
   assert.equal(vm.paused, false, 'a reader can\'t tell paused from attached elsewhere');
   assert.equal(vm.changed, null);
-  assert.equal(vm.chip.text, '📌 main pinned to c:3f2a1c9');
-  assert.equal(vm.chip.compact, '📌 main');
+  assert.equal(vm.chip.text, 'main pinned to c:3f2a1c9');
+  assert.equal(vm.chip.compact, 'main');
   assert.equal(vm.chip.title, 'main is pinned to c:3f2a1c9: saves in the work tree don\'t reach it.');
   assert.equal(vm.offer, null);
   assert.deepEqual(labels(vm.items), ['<header>', vm.chip.title]);
@@ -312,10 +314,10 @@ test('a reader sees the primary only', () => {
   assert.deepEqual(vm.entry.count, 0, 'no count');
   assert.doesNotMatch(JSON.stringify(vm), /\bdev\b|\bfiles?\b/, 'no other deployment, no file count');
 
-  assert.equal(chip(reader({ liveReload: 'main' }), opts).text, '● Live reload: main');
+  assert.equal(chip(reader({ liveReload: 'main' }), opts).text, 'Live reload: main');
   const bad = reader();
   bad.deployments[0].lastDeploy.result = 'failed';
-  assert.equal(chip(bad, opts).text, '📌 main pinned to c:3f2a1c9 · deploy failed');
+  assert.equal(chip(bad, opts).text, 'main pinned to c:3f2a1c9 · deploy failed');
   assert.equal(chip(bad, opts).title, 'main is pinned to c:3f2a1c9: saves in the work tree don\'t reach it. The last deploy to main failed; main keeps running c:3f2a1c9.');
 });
 
@@ -326,16 +328,16 @@ test('a write-level caller may operate nothing', () => {
   const s = paused({ caller: { level: 'write', manager: false, humanSession: true, readOnly: false,
     can: { pause: no(NEEDS_TERMINAL('Pause live reload')), resume: no(NEEDS_TERMINAL('Resume live reload')), reloadNow: no(NEEDS_TERMINAL('Reload now')), add: no(NEEDS_TERMINAL('Add deployment')) } } });
   const items = chipItems(s, opts);
-  const rn = byLabel(items, '⇡ Reload now · 3');
+  const rn = byLabel(items, 'Reload now · 3');
   assert.equal(rn.enabled, false);
   assert.equal(rn.hint, NEEDS_TERMINAL('Reload now'));
-  const rs = byLabel(items, 'Resume live reload on ▸');
+  const rs = byLabel(items, 'Resume live reload on');
   assert.equal(rs.enabled, false);
   assert.equal(rs.items[0].hint, NEEDS_TERMINAL('Resume live reload'));
   assert.equal(offer(s, opts), null);
   assert.equal(launcher(s, opts).banner.reloadNow, false);
   assert.equal(frameChip(summary(), s), null, 'write level: no frame chip');
-  assert.equal(frameChip(summary(), paused({ caller: terminalCaller({ level: 'admin' }) })).text, '📌 pinned');
+  assert.equal(frameChip(summary(), paused({ caller: terminalCaller({ level: 'admin' }) })).text, 'pinned');
   assert.equal(frameChip(summary(), paused({ caller: { level: 'tile' } })), null, 'a tile credential: no chip');
   // a missing permission is a no, never a yes
   assert.deepEqual(control(paused({ caller: { level: 'terminal', can: {} } }), 'reloadNow'), { enabled: false, why: '', kind: '' });
@@ -346,10 +348,10 @@ test('a write-level caller may operate nothing', () => {
 test('view-as renders every action disabled', () => {
   const s = paused({ caller: terminalCaller({ readOnly: true, can: { pause: yes, resume: yes, reloadNow: yes } }) });
   const items = chipItems(s, { ...opts, viewing: 'dev1' });
-  const rn = byLabel(items, '⇡ Reload now · 3');
+  const rn = byLabel(items, 'Reload now · 3');
   assert.equal(rn.enabled, false);
   assert.equal(rn.hint, 'dev1 may do this — you are viewing as dev1 (read-only).');
-  assert.equal(byLabel(items, 'Resume live reload on ▸').items[0].hint, 'dev1 may do this — you are viewing as dev1 (read-only).');
+  assert.equal(byLabel(items, 'Resume live reload on').items[0].hint, 'dev1 may do this — you are viewing as dev1 (read-only).');
   assert.equal(offer(s, { ...opts, viewing: 'dev1' }), null);
   assert.equal(launcher(s, opts).banner.reloadNow, false);
   assert.equal(control(s, 'reloadNow').why, 'this user may do this — you are viewing as another user (read-only).');
@@ -360,9 +362,9 @@ test('view-as renders every action disabled', () => {
 });
 
 // covers D119b — the frame chip: only while the primary is pinned, only for
-// terminal level, "📌 pinned" at rest, the sentence on hover.
+// terminal level, "pinned" (after the pin glyph) at rest, the sentence on hover.
 test('the frame chip', () => {
-  assert.deepEqual(frameChip(summary(), paused()), { text: '📌 pinned', title: 'main pinned to c:3f2a1c9 · live reload paused' });
+  assert.deepEqual(frameChip(summary(), paused()), { text: 'pinned', title: 'main pinned to c:3f2a1c9 · live reload paused', icon: 'pin' });
   assert.equal(frameChip(summary({ pinned: false }), paused()), null);
   assert.equal(frameChip(null, paused()), null);
   assert.equal(frameChip(summary(), null), null);
@@ -375,7 +377,7 @@ test('the frame chip', () => {
 test('toMenu builds bx-menu items', () => {
   const calls = [];
   const menu = toMenu(chipItems(onDev(), { ...opts, panel: true }), (op, d) => calls.push([op, d]));
-  assert.deepEqual(menu.map((m) => m.kind ? `<${m.kind}>` : m.label).slice(2), ['Pause live reload', 'Attach live reload to ▸', '<sep>', '⇈ Deployments…']);
+  assert.deepEqual(menu.map((m) => m.kind ? `<${m.kind}>` : m.label).slice(2), ['Pause live reload', 'Attach live reload to', '<sep>', 'Deployments…']);
   assert.equal(menu[1].disabled, true, 'the sentence');
   assert.equal(menu[1].action, undefined);
   menu[2].action();
@@ -383,7 +385,7 @@ test('toMenu builds bx-menu items', () => {
   menu[5].action();
   assert.deepEqual(calls, [['pause', undefined], ['attach', 'main'], ['deployments', undefined]]);
   const off = toMenu(chipItems(paused({ workTree: { changed: 0, since: 'c:3f2a1c9' } }), opts), () => {});
-  const rn = off.find((m) => m.label === '⇡ Reload now');
+  const rn = off.find((m) => m.label === 'Reload now');
   assert.equal(rn.disabled, true);
   assert.equal(rn.hint, 'No changes since c:3f2a1c9.');
   assert.equal(rn.action, undefined);
@@ -527,7 +529,7 @@ test('applyEvent', () => {
   assert.equal(r.state.workTree.changed, 5);
   assert.equal(r.state.workTree.since, 'c:3f2a1c9');
   assert.equal(s.workTree.changed, 3, 'the input is not mutated');
-  assert.equal(chip(r.state, opts).text, '📌 Live reload paused · 5');
+  assert.equal(chip(r.state, opts).text, 'Live reload paused · 5');
   assert.equal(applyEvent(zero(), { op: 'work-tree', changed: 5 }).state.workTree, undefined, 'no count outside a pause');
   assert.equal(applyEvent(attachedMain(), { op: 'work-tree', changed: 5 }).state.workTree, undefined);
   assert.equal(applyEvent(s, { op: 'record', what: ['liveReload'] }).refetch, true);
@@ -547,7 +549,7 @@ test('who and ago', () => {
   assert.equal(ago(at(60 * 3), NOW), '3h ago');
   assert.equal(ago(at(60 * 24 * 2 + 5), NOW), '2d ago');
   assert.equal(ago('soon', NOW), '');
-  assert.deepEqual(GLYPH, { attached: '●', pinned: '📌', reloadNow: '⇡', layout: '⇈' });
+  assert.deepEqual(GLYPH, { attached: 'live', pinned: 'pin', reloadNow: 'refresh', layout: 'deploy', api: 'plug', noApi: 'error' });
 });
 
 // Every string the module can produce for the sample states.
@@ -556,7 +558,7 @@ function everyString() {
   const walk = (v) => {
     if (typeof v === 'string') out.push(v);
     else if (Array.isArray(v)) v.forEach(walk);
-    else if (v && typeof v === 'object') Object.values(v).forEach(walk);
+    else if (v && typeof v === 'object') Object.entries(v).forEach(([k, x]) => { if (k !== 'icon') walk(x); }); // icon: a glyph's name, not words
   };
   const states = [zero(), paused(), paused({ workTree: { changed: 0, since: 'c:3f2a1c9' } }), attachedMain(), onDev(), onDev({ protectedPrimary: true }),
     paused({ protectedPrimary: true, deployments: [mainPinned({ lastDeploy: { how: 'protect', by: 'user:sales1', result: 'ok' } })] }),
@@ -605,10 +607,10 @@ test('strings use the glossary\'s words', () => {
     }
     assert.doesNotMatch(s, /pause the tile/i);
   }
-  // "pinned" says to what, except the frame chip at rest (📌 pinned) and
+  // "pinned" says to what, except the frame chip at rest (pinned, after its glyph) and
   // "stays pinned" in the terminal window
   for (const s of strings) {
-    if (s === '📌 pinned') continue;
+    if (s === 'pinned') continue;
     for (const m of s.matchAll(/\bpinned\b/g)) {
       const rest = s.slice(m.index + 6);
       const before = s.slice(Math.max(0, m.index - 6), m.index);

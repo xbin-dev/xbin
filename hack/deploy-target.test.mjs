@@ -32,7 +32,7 @@ test('the tile API select shows the echo', () => {
   assert.deepEqual(apiOptions(s, { api: true, deployment: 'dev' }).value, 'dev');
   const gone = apiOptions(s, { api: true, deployment: 'old' });
   assert.deepEqual(gone.options.map((o) => o.value), ['primary', 'dev', 'old', 'off'], 'the removed target, before "no API"');
-  assert.equal(gone.options[2].label, '🔌 target: old');
+  assert.equal(gone.options[2].label, 'target: old');
   assert.equal(gone.value, 'old');
   const hidden = onDev({ deployments: [mainPinned(), devLive({ can: depCan({ open: no('deployments of apps/crm need write access') }) })] });
   assert.deepEqual(apiOptions(hidden, { deployment: 'dev' }).options.map((o) => o.value), ['primary', 'dev', 'off']);

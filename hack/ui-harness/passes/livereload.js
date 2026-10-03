@@ -1,7 +1,7 @@
 // hack/ui-harness/passes/livereload.js — covers D119c D119e PO-10 T12 SC-ZERO
 // SC-LIVE-RELOAD-PAUSE (15-test-plan §7.2, 10-ux §14.3) — pausing live reload
 // from the terminal window, which is binary-served (web/frame-deploy.js):
-//   0. the zero state: at most one entry point (⇈) in the bar or the tools
+//   0. the zero state: at most one entry point (the deploy glyph) in the bar or the tools
 //      row, no chip, no frame chip, the tile API select's two options of
 //      today; the dry run behind its Pause live reload captures nothing;
 //   1. dev1 pauses live reload from that entry: the chip, the frame chip over
@@ -11,7 +11,7 @@
 //      Reload now offer appears, the empty window's banner says so;
 //   3. Reload now (the offer, the frame dialog): both frames reload once with
 //      the new content, still paused, nothing pending;
-//   4. Resume live reload on ▸ main: the zero state again (no record), no
+//   4. Resume live reload on (submenu) main: the zero state again (no record), no
 //      chip, and the next save reloads the frame;
 //   5. apps/crawler (node) on an xbind without --isolate: Pause live reload
 //      disabled with the server's reason, and the server refuses it too; with
@@ -30,7 +30,10 @@ const TILE = 'apps/reloady';
 const NODE = 'apps/crawler';
 const WS = process.env.WS || '';
 const sel = (t) => `bx-frame[src="${t}"]`;
-const TODAY = [['on', '🔌 tile API'], ['off', '⛔ no API']];
+const TODAY = [['on', 'tile API'], ['off', 'no API']];
+// an option's words (D184: an <option> holds no glyph; a titlebar from before
+// it may still lead with one)
+const words = (t) => t.replace(/^[^\p{L}\p{N}]+/u, '');
 
 async function stateOf(ctx, tile) {
   const r = await ctx.request.get(`${URL}/api/xbin/deployments?tile=${encodeURIComponent(tile)}`);
@@ -155,12 +158,12 @@ async function flow(check, A, R, tile) {
   let d = await dep(P, tile);
   const pin = (d.state.deployments || []).find((x) => x.primary)?.checkpoint?.id || '';
   check(/^c:[0-9a-f]+$/.test(pin), `${tile}: main is pinned to a checkpoint (${pin})`);
-  check(!!d.chip && d.chip.text.startsWith('📌 Live reload paused'), `${tile}: the chip reads live reload paused (${JSON.stringify(d.chip)})`);
+  check(!!d.chip && d.chip.text.startsWith('Live reload paused') && d.chip.icon === 'pin', `${tile}: the chip reads live reload paused (${JSON.stringify(d.chip)})`);
   check(await P.locator(`${sel(tile)} button.lr`).count() >= 1 && await P.locator(`${sel(tile)} button.dentry`).count() === 0, `${tile}: the chip replaced the entry point`);
   const headIcon = P.locator(`bx-canvas .card[data-path="${tile}"] .head button.dpb`);
   const iconShown = await headIcon.waitFor({ timeout: 10000 }).then(() => true, () => false);
   check(await P.locator(`${sel(tile)} .frame-wrap .dchip`).count() === 0 && iconShown && ((await headIcon.getAttribute('title')) || '').includes(pin),
-    `${tile}: no 📌 chip inside the tile window; its head's ⇈ names ${pin} (${JSON.stringify({ chips: await P.locator(`${sel(tile)} .frame-wrap .dchip`).count(), iconShown, title: await headIcon.getAttribute('title').catch(() => null), heads: await P.locator(`bx-canvas .card[data-path="${tile}"] .head`).count() })})`);
+    `${tile}: no pinned chip inside the tile window; its head's deploy button names ${pin} (${JSON.stringify({ chips: await P.locator(`${sel(tile)} .frame-wrap .dchip`).count(), iconShown, title: await headIcon.getAttribute('title').catch(() => null), heads: await P.locator(`bx-canvas .card[data-path="${tile}"] .head`).count() })})`);
   check(await waitTerm(P, tile, /\[live reload paused by dev1 — main is pinned to c:[0-9a-f]+; saves no longer reach it( — new terminals get the xbin-deploy remote)?\]/), `${tile}: the open terminal got the grey line`);
   await shot(P, `livereload-paused-${path.basename(tile)}`, { fullPage: false });
   if (R) {
@@ -169,7 +172,7 @@ async function flow(check, A, R, tile) {
       `infra1 (read) gets the reader view: main pinned, nothing else (${rs.status} ${JSON.stringify(rs.body).slice(0, 160)})`);
     await openWindow(R.page, tile);
     const r = await dep(R.page, tile);
-    check(r.chip?.text === `📌 main pinned to ${pin}` && r.items.every((it) => it.kind || !it.enabled),
+    check(r.chip?.text === `main pinned to ${pin}` && r.items.every((it) => it.kind || !it.enabled),
       `infra1's window shows main pinned, no usable control (${JSON.stringify({ chip: r.chip })})`);
   }
 
@@ -183,21 +186,21 @@ async function flow(check, A, R, tile) {
   d = await dep(P, tile);
   check(d.reloads === before.a && (!R || (await dep(R.page, tile)).reloads === before.r), `${tile}: no frame reloaded on the save (reloads ${d.reloads})`);
   check(await pageText(P, tile) === old, `${tile}: the frame still shows the pinned page`);
-  check(d.chip?.text === `📌 Live reload paused · ${d.changed}` && d.offer, `${tile}: the chip counts it and the offer shows (${d.chip?.text})`);
-  if (!d.narrow) check(/Reload now · \d+/.test(await P.locator(`${sel(tile)} .titlebar button.offer`).innerText().catch(() => '')), `${tile}: the bar's ⇡ Reload now offer`);
+  check(d.chip?.text === `Live reload paused · ${d.changed}` && d.offer, `${tile}: the chip counts it and the offer shows (${d.chip?.text})`);
+  if (!d.narrow) check(/Reload now · \d+/.test(await P.locator(`${sel(tile)} .titlebar button.offer`).innerText().catch(() => '')), `${tile}: the bar's Reload now offer`);
   await fr(P, tile, (f) => { for (let i = f.tabs.length - 1; i >= 0; i--) f.closeTab(i); });
   await sessionsGone(A.ctx, tile);
   await fr(P, tile, (f) => f.open('term'));
   await waitSel(P, `${sel(tile)} .launcher .ldep.paused`, { timeout: 10000 });
   const banner = await P.locator(`${sel(tile)} .launcher .ldep`).innerText();
   check(/Live reload is paused: \d+ files? changed since c:[0-9a-f]+, the checkpoint main runs\./.test(banner) && await P.locator(`${sel(tile)} .launcher .lreload`).count() === 1,
-    `${tile}: the empty window's banner, with ⇡ Reload now (${banner.replace(/\s+/g, ' ')})`);
+    `${tile}: the empty window's banner, with Reload now (${banner.replace(/\s+/g, ' ')})`);
   await shot(P, `livereload-launcher-${path.basename(tile)}`, { fullPage: false });
 
   // ---- 3. Reload now ----
   await showPickers(P, tile);
   d = await dep(P, tile);
-  if (d.narrow) await fr(P, tile, (f) => f.deploy.chipAction(f.deploy.chipItems().find((x) => /^⇡ Reload now/.test(x.label || '')).label));
+  if (d.narrow) await fr(P, tile, (f) => f.deploy.chipAction(f.deploy.chipItems().find((x) => /^Reload now/.test(x.label || '')).label));
   else await press(P.locator(`${sel(tile)} .titlebar button.offer`));
   await waitDialog(P, tile, 'the Reload now confirmation');
   const rd = await dialog(P, tile);
@@ -246,7 +249,8 @@ async function run(browser, { check, skip }, M, A, ctxs) {
   // ---- 0. the zero state ----
   await openWindow(A.page, TILE);
   let d = await dep(A.page, TILE);
-  const opts = await A.page.locator(`${sel(TILE)} ${PICKERS} select.scope`).evaluateAll((ss) => ss.map((s) => [...s.options].map((o) => [o.value, o.textContent.trim()])));
+  const opts = (await A.page.locator(`${sel(TILE)} ${PICKERS} select.scope`).evaluateAll((ss) => ss.map((s) => [...s.options].map((o) => [o.value, o.textContent.trim()]))))
+    .map((o) => o.map(([v, t]) => [v, words(t)]));
   check(opts.some((o) => JSON.stringify(o) === JSON.stringify(TODAY)), `the tile API select offers exactly today's two options (${JSON.stringify(opts)})`);
   check(JSON.stringify(await fr(A.page, TILE, (f) => f.deploy.apiOptions(0).map((o) => [o.value, o.label]))) === JSON.stringify(TODAY), 'and so do the test names');
   check(!d.chip && !d.offer && !d.banner && await A.page.locator(`${sel(TILE)} button.lr, ${sel(TILE)} button.offer, ${sel(TILE)} .ldep`).count() === 0, 'no chip, no offer, no banner');
@@ -257,7 +261,7 @@ async function run(browser, { check, skip }, M, A, ctxs) {
     skip(`GET /api/xbin/deployments answers ${st.status} here (${st.error || 'no JSON state'}): this xbind doesn't serve pause live reload, so parts 1–6 can't run`);
     return;
   }
-  check(d.state?.record === false && d.entry?.text === '⇈' && entries === 1, `the zero state shows one entry point, ⇈ (${JSON.stringify(d.entry)}, ${entries} drawn)`);
+  check(d.state?.record === false && d.entry?.text === '' && d.entry?.icon === 'deploy' && entries === 1, `the zero state shows one entry point, the deploy glyph (${JSON.stringify(d.entry)}, ${entries} drawn)`);
   const zero = d.items.map((it) => (it.kind ? `<${it.kind}>` : it.label));
   check(JSON.stringify(zero) === JSON.stringify(['<header>', `Live reload: main — every save reaches everyone using ${TILE}.`, 'Pause live reload']) && d.items[2].enabled,
     `its menu offers Pause live reload (${JSON.stringify(zero)})`);
