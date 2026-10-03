@@ -13,6 +13,9 @@ import { WithRouter } from '../shared.js';
 
 const MAX_ICON = 256 * 1024;
 const ICON_TYPES = 'image/svg+xml,image/png,image/jpeg,image/webp,image/x-icon';
+// xbin's own mark (D183), as the favicon draws it: at 32px its hinted
+// drawing lands on whole pixels
+const DEFAULT_ICON = '/vendor/favicon.svg';
 
 export class BxAdminBranding extends WithRouter(LitElement) {
   static properties = {
@@ -27,10 +30,7 @@ export class BxAdminBranding extends WithRouter(LitElement) {
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
     .row input[type=text] { flex: 1; min-width: 200px; }
     .preview { display: flex; align-items: center; gap: 12px; margin-top: 8px; }
-    .preview img, .preview svg { width: 32px; height: 32px; object-fit: contain; border-radius: var(--bx-radius); background: var(--bx-panel-2); padding: 2px; }
-    /* xbin's default mark: the plate in the accent, the X in its ink (D184) */
-    .preview .plate { fill: var(--bx-accent); }
-    .preview .x { stroke: var(--bx-accent-ink); }
+    .preview img { width: 32px; height: 32px; object-fit: contain; border-radius: var(--bx-radius); background: var(--bx-panel-2); padding: 2px; }
     .hint { color: var(--bx-muted); }
   `];
 
@@ -84,7 +84,7 @@ export class BxAdminBranding extends WithRouter(LitElement) {
         <h4>Workspace icon</h4>
         <div class="hint">Replaces xbin's mark as the favicon and the header logo, here and on the sign-in page. SVG, PNG, JPEG, WebP or ICO, up to 256 KiB — a square works best.</div>
         <div class="preview">
-          ${b.hasIcon ? html`<img src=${b.icon} alt="">` : html`<svg viewBox="0 0 64 64" aria-hidden="true"><path class="plate" d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z"></path><path class="x" d="M21 21 43 43M43 21 21 43" stroke-width="9"></path></svg>`}
+          <img src=${b.hasIcon ? b.icon : DEFAULT_ICON} alt="">
           <span class="hint">${b.hasIcon ? 'the custom icon' : "xbin's own mark"}</span>
         </div>
         <div class="row">

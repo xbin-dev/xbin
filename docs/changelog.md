@@ -28,7 +28,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   the word in the page's text colour, and carry the mark as their favicon
   — unless the workspace set its own branding (D76): its title (after its
   icon) as before, and a workspace icon set without a title now stands
-  beside the wordmark, never beside xbin's tile.
+  beside the wordmark, never beside xbin's tile. The shell's header does
+  the same, in its text colour, before the workspace chip
+  (`bx builtin update scaffold:shell`), and the admin console's branding
+  tab previews the new mark (`scaffold:tiles/admin`); until then an older
+  shell keeps drawing the old mark in the accent.
 - **The workspace follows your system's light or dark setting** (Base Two:
   Concrete Day and Concrete Night, D184). Settings → Theme overrides it per
   person (System, Light, Dark), and Density offers Comfortable; terminals

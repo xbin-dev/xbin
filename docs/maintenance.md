@@ -279,6 +279,20 @@ decision, and `assets_test.go` refuses:
 The test walks the real embed, so it catches anything `go:embed` picked up —
 run `make test` after adding files under those trees.
 
+xbin's mark ships in `web/` as copies of the brand's masters (D183;
+`plans/brand/marks/` in the repo), and `TestProductMarksAreTheMasters`
+holds `/vendor/favicon.svg` (the hinted favicon) and `/vendor/logo.svg`
+(the lockup with wordmark A) to them byte for byte. The PNGs beside them
+are rendered from the masters, never from each other: `favicon-32.png`
+from `favicon-32.svg` (`rsvg-convert -w 32 -h 32`), `favicon.png` and
+`favicon-256.png` from `mark.svg` (512 and 256), `logo.png` from
+`lockup-a.svg` (1200 wide), and `apple-touch-icon.png` is the site's
+(180, from `icon-1024.svg`). The drawings inlined where no image may load
+— xbind's own pages (`internal/server/brandmark.go`) and the shell's
+default brand (`shell/shell-brand.js`) — are checked against `logo.svg`'s
+paths by their tests. A swap of the wordmark (A for B) changes all of
+these together.
+
 ## Editing the scaffold: the dev overlay
 
 A workspace owns its copies of `workspace-template/` (the shell, the admin
@@ -585,7 +599,9 @@ sign-in page, the shell, a terminal and the code window, the agent chat,
 the admin console, the partitions page) is checked for anything else, in
 both schemes — the UA defaults and runtime colours a source scan can't see
 (`CANARY_REPORT=1` lists without failing). Its few exceptions, with
-reasons, are `EXEMPT` in the pass; text a person wrote (a folder's emoji)
+reasons, are `EXEMPT` in the pass (xbin's mark among them: its tile's
+shapes, classed `m-tile`, `m-b` and `m-x`, keep the brand's colours in
+both themes, D183); text a person wrote (a folder's emoji)
 sits in an element marked `data-bx-content` and isn't counted as an emoji.
 `appearance` is the mechanism's pass: no flash at the first frame in every
 kind of document, the relay, the hint cookie, density, fonts in every

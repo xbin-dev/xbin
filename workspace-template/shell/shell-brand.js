@@ -3,12 +3,44 @@
  * them. An admin sets both from the admin tile (GET/PUT /api/xbin/branding):
  * the title replaces the word "workspace" in the header and the tab title,
  * the icon replaces xbin's mark as the favicon and the header logo. Nothing
- * set = xbin's own (the mark, X/BIN, the "workspace" chip). Extracted from
- * bx-shell, which is at its size budget.
+ * set = xbin's own (the mark and wordmark, the "workspace" chip). Extracted
+ * from bx-shell, which is at its size budget.
  */
-import { html } from 'lit';
+import { html, svg } from 'lit';
 
 const DEFAULT_ICON = '/vendor/favicon.svg';
+
+// xbin's mark and wordmark (D183): the bˣ tile, a white b with a yellow x
+// raised as its exponent on a square cobalt tile, and wordmark A, "xbin" in
+// Bricolage Grotesque 800 — the paths of /vendor/logo.svg, the brand's
+// lockup (hack/shell-brand.test.mjs keeps them equal). Inline, so the word
+// takes the header's text colour and follows the person's theme; the tile
+// keeps its colours in both themes. The mark's units: the tile is 1024.
+const B = 'M128 128H288V448C304 404 356 376 440 376C572 376 672 482 672 640C672 798 572 904 440 904C356 904 308 884 288 856V896H128ZM288 576C288 536 336 512 416 512C500 512 544 556 544 640C544 724 500 768 416 768C336 768 288 744 288 704Z';
+const X = 'M640 128H728L768 189L808 128H896L812 256L896 384H808L768 323L728 384H640L724 256Z';
+// wordmark A in the font's units (baseline 0, x-height 528), glyph by glyph
+const WORD = [
+  'M0 0 174 -264 1 -528H186L273 -334H292L379 -528H564L390 -264L565 0H381L292 -196H273L186 0Z',
+  'M913.3 14Q863.3 14 825.8 -5Q788.3 -24 764.8 -62Q741.3 -100 733.3 -156H714.3L711.3 0H579.3V-259V-720H740.3V-545Q740.3 -521 736.8 -494.5Q733.3 -468 727.8 -439Q722.3 -410 716.3 -377H739.3Q753.3 -431 776.3 -467Q799.3 -503 833.8 -521.5Q868.3 -540 915.3 -540Q981.3 -540 1029.8 -506Q1078.3 -472 1105.3 -409.5Q1132.3 -347 1132.3 -260Q1132.3 -176 1105.8 -114.5Q1079.3 -53 1030.3 -19.5Q981.3 14 913.3 14ZM853.3 -116Q886.3 -116 911.3 -134.5Q936.3 -153 949.8 -186.5Q963.3 -220 963.3 -265Q963.3 -311 950.3 -343.5Q937.3 -376 913.8 -394Q890.3 -412 857.3 -412Q835.3 -412 816.8 -404Q798.3 -396 784.3 -382Q770.3 -368 760.3 -350.5Q750.3 -333 745.3 -313.5Q740.3 -294 740.3 -275V-254Q740.3 -233 746.3 -209Q752.3 -185 765.8 -164Q779.3 -143 800.8 -129.5Q822.3 -116 853.3 -116Z',
+  'M1184.8 0V-528H1345.8V0ZM1265.8 -602Q1219.8 -602 1195.3 -621.5Q1170.8 -641 1170.8 -677Q1170.8 -715 1195.3 -734.5Q1219.8 -754 1265.8 -754Q1312.8 -754 1337.3 -734.5Q1361.8 -715 1361.8 -678Q1361.8 -641 1337.3 -621.5Q1312.8 -602 1265.8 -602Z',
+  'M1425.2 0V-318V-528H1555.2L1557.2 -373H1577.2Q1590.2 -429 1614.2 -467Q1638.2 -505 1675.2 -523.5Q1712.2 -542 1762.2 -542Q1855.2 -542 1903.7 -477Q1952.2 -412 1952.2 -270V0H1790.2V-252Q1790.2 -334 1766.7 -371.5Q1743.2 -409 1697.2 -409Q1659.2 -409 1634.7 -386Q1610.2 -363 1598.2 -325Q1586.2 -287 1586.2 -240V0Z',
+].join(' ');
+// theme-ok: the mark's own colours (D183), brand fields that stay the same in both themes: never a token
+const COBALT = '#1F3DFF', WHITE = '#FFFFFF', YELLOW = '#FFD000';
+
+// the tile's three shapes; their classes tell the harness's theme canary
+// these colours are the mark's
+const tile = svg`<rect class="m-tile" width="1024" height="1024" fill=${COBALT}></rect><path class="m-b" fill=${WHITE} fill-rule="evenodd" d=${B}></path><path class="m-x" fill=${YELLOW} d=${X}></path>`;
+
+// the lockup as lockup A sets it, without its clear space: the word 2u
+// after the tile (x 1280), on the b's baseline (y 896) at its x-height
+// (512 of the font's 528: 32/33); shell-css sizes it by its height
+const lockup = () => html`<svg class="lockup" viewBox="0 0 3174 1024" role="img" aria-label="xbin"><title>xbin</title>${tile}<path class="m-w" fill="currentColor" transform="translate(1280 896) scale(0.969697)" d=${WORD}></path></svg>`;
+// the tile alone, beside a workspace's title
+const markOnly = () => html`<svg class="mark" viewBox="0 0 1024 1024" width="20" height="20" aria-hidden="true">${tile}</svg>`;
+// the word alone, beside a workspace's own icon: xbin's tile never stands
+// next to another brand's mark
+const wordOnly = () => html`<svg class="word" viewBox="0 -754 1953 768" role="img" aria-label="xbin"><title>xbin</title><path fill="currentColor" d=${WORD}></path></svg>`;
 
 // loadBrand: the current brand, read as the human (a raw fetch — xbin.fetch
 // would downgrade to the chrome element); xbin's own on any failure.
@@ -32,22 +64,13 @@ export function applyFavicon(brand) {
   if (brand?.icon) link.removeAttribute('type'); else link.setAttribute('type', 'image/svg+xml');
 }
 
-// brandLogo: the header's logo block. Branded: the icon (or xbin's mark)
-// and the title, replacing the wordmark and the chip. Unbranded: xbin's
-// mark, X/BIN and the "workspace" chip — what the header always showed.
-// xbin's own mark is drawn from the tokens (D184): the plate in the accent,
-// the X in the accent's ink, so it holds in both themes; a workspace's own
-// icon is its own.
+// brandLogo: the header's logo block. Unbranded: xbin's mark and wordmark,
+// then the "workspace" chip. Branded: the workspace's icon (xbin's tile
+// when it set none) and its title, replacing the lockup and the chip; an
+// icon set without a title stands beside xbin's word, with the chip.
 export function brandLogo(shell) {
   const b = shell._brand || {};
-  const mark = b.icon
-    ? html`<img class="mark" src=${b.icon} alt="" width="20" height="20">`
-    : html`<svg class="mark" viewBox="0 0 64 64" width="20" height="20" aria-hidden="true">
-        <path d="M18 4H56a4 4 0 0 1 4 4v38L46 60H8a4 4 0 0 1-4-4V18z" style="fill: var(--bx-accent, #8C9BFF)"></path>
-        <path d="M21 21 43 43M43 21 21 43" fill="none" style="stroke: var(--bx-accent-ink, #0B0C12)" stroke-width="9" stroke-linecap="butt"></path>
-        <circle cx="53" cy="11" r="2.6" style="fill: var(--bx-accent-ink, #0B0C12)" opacity=".4"></circle>
-        <circle cx="11" cy="53" r="2.6" style="fill: var(--bx-accent-ink, #0B0C12)" opacity=".4"></circle>
-      </svg>`;
-  if (b.title) return html`<span class="logo">${mark}<span class="ws-title">${b.title}</span></span>`;
-  return html`<span class="logo">${mark}X/BIN</span><span class="ws-chip">${shell.name}</span>`;
+  const icon = b.icon ? html`<img class="mark" src=${b.icon} alt="" width="20" height="20">` : null;
+  if (b.title) return html`<span class="logo">${icon || markOnly()}<span class="ws-title">${b.title}</span></span>`;
+  return html`<span class="logo">${icon ? html`${icon}${wordOnly()}` : lockup()}</span><span class="ws-chip">${shell.name}</span>`;
 }
