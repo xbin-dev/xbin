@@ -1,23 +1,24 @@
 <!doctype html>
-<html lang="en">
+<!-- data-bx-theme="auto": the page follows the person's light or dark theme.
+     body.bx gives it theme.css's type, controls (.primary is the accent
+     button) and focus ring; its own styles use the tokens only
+     (docs/frontend-kit.md). -->
+<html lang="en" data-bx-theme="auto">
 <head>
   <meta charset="utf-8">
   <title>calendar</title>
   <link rel="stylesheet" href="/vendor/theme.css">
   <style>
-    body { padding: 10px 14px; }
-    h3 { margin: 0 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+    body { padding: var(--bx-pad); }
+    h3 { margin: 0 0 8px; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro);
          text-transform: uppercase; color: var(--bx-muted); }
-    ul { list-style: none; padding: 0; margin: 0 0 10px; }
-    li { padding: 2px 0; font-size: 12.5px; border-bottom: 1px solid var(--bx-border); }
+    ul { list-style: none; padding: 0; margin: 0 0 12px; }
+    li { min-height: var(--bx-row); display: flex; align-items: center; gap: 8px;
+         border-bottom: 1px solid var(--bx-border); }
     li:last-child { border-bottom: 0; }
-    li b { color: var(--bx-accent); font-family: var(--bx-mono); font-weight: 600; font-size: 12px; }
-    form { display: flex; gap: 6px; }
-    input { background: var(--bx-panel); border: 1px solid var(--bx-border); color: inherit;
-            border-radius: 5px; padding: 3px 8px; font: inherit; font-size: 12px; }
+    li b { font: var(--bx-font-code); font-weight: 600; }
+    form { display: flex; gap: 8px; }
     input[name=title] { flex: 1; }
-    button { background: var(--bx-green); color: #fff; border: 0; border-radius: 5px;
-             padding: 3px 12px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; }
     .empty { color: var(--bx-muted); }
   </style>
 </head>
@@ -27,7 +28,7 @@
   <form id="add">
     <input name="time" placeholder="HH:MM" size="5">
     <input name="title" placeholder="new event" required>
-    <button>add</button>
+    <button class="primary">add</button>
   </form>
   <script type="module">
     const list = document.getElementById('list');

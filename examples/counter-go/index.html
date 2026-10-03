@@ -1,19 +1,19 @@
 <!doctype html>
-<html lang="en">
+<!-- data-bx-theme="auto": the page follows the person's light or dark theme;
+     its styles use theme.css's tokens only (docs/frontend-kit.md). -->
+<html lang="en" data-bx-theme="auto">
 <head>
   <meta charset="utf-8">
   <title>counter</title>
   <link rel="stylesheet" href="/vendor/theme.css">
   <style>
-    body { padding: 10px 14px; display: flex; align-items: center; gap: 12px; }
-    button { background: var(--bx-accent); color: #fff; border: 0; border-radius: 6px;
-             padding: 4px 12px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; }
-    #n { font: 600 20px var(--bx-mono); color: var(--bx-accent); min-width: 3ch; }
+    body { padding: var(--bx-pad); display: flex; align-items: center; gap: 12px; }
+    #n { font: var(--bx-font-heading); font-variant-numeric: tabular-nums; min-width: 3ch; }
   </style>
 </head>
 <body class="bx">
   <span id="n">…</span>
-  <button id="inc">+1</button>
+  <button id="inc" class="primary">+1</button>
   <script type="module">
     // xbin.fetch attributes this call to examples/counter-go (its own API —
     // always allowed). Other elements calling it need a grant. See /docs/auth.md.

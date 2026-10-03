@@ -1,21 +1,24 @@
 <!doctype html>
-<html lang="en">
+<!-- data-bx-theme="auto": the page follows the person's light or dark theme;
+     its styles use theme.css's tokens only, its status icons
+     /vendor/bx-icons.js (docs/frontend-kit.md). -->
+<html lang="en" data-bx-theme="auto">
 <head>
   <meta charset="utf-8">
   <title>email</title>
   <link rel="stylesheet" href="/vendor/theme.css">
   <style>
-    body { padding: 10px 14px; }
-    h3 { margin: 0 0 4px; font-size: 13px; color: var(--bx-text); }
+    body { padding: var(--bx-pad); }
+    h3 { margin: 0 0 4px; font: var(--bx-font-title); }
     .cal { background: var(--bx-panel-2); border: 1px solid var(--bx-border);
-           border-radius: 6px; padding: 6px 10px; margin-top: 8px; }
-    .cal h4 { margin: 0 0 3px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+           border-radius: var(--bx-radius); padding: 8px 12px; margin-top: 8px; }
+    .cal h4 { margin: 0 0 4px; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro);
               text-transform: uppercase; color: var(--bx-muted); }
     ul { list-style: none; padding: 0; margin: 0; }
-    li { font-size: 12.5px; padding: 1px 0; }
-    li b { color: var(--bx-accent); font-family: var(--bx-mono); font-size: 12px; }
-    .empty, .denied { color: var(--bx-muted); font-size: 12px; }
-    .denied { color: var(--bx-red); }
+    li { padding: 2px 0; display: flex; gap: 8px; align-items: baseline; }
+    li b { font: var(--bx-font-code); font-weight: 600; }
+    .empty { color: var(--bx-muted); }
+    .denied { color: var(--bx-danger); }
   </style>
 </head>
 <body class="bx">
@@ -26,13 +29,14 @@
     <ul id="today"><li class="empty">loading…</li></ul>
   </div>
   <script type="module">
+    import '/vendor/bx-icons.js'; // <bx-icon name>: the workspace's drawn glyphs
     const el = document.getElementById('today');
     const load = async () => {
       // Server-side path: our backend calls calendar with our identity.
       const r = await xbin.fetch(`/api/${xbin.self}/today`);
       if (!r.ok) {
         const e = await r.json().catch(() => ({}));
-        el.innerHTML = `<li class="denied">${e.error ?? r.status} — approve the grant on the root page</li>`;
+        el.innerHTML = `<li class="denied"><bx-icon name="error"></bx-icon>${e.error ?? r.status} — approve the grant on the root page</li>`;
         return;
       }
       const d = await r.json();
