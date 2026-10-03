@@ -1,4 +1,5 @@
 import SwiftUI
+import XbinRenderer
 import XbinTerm
 
 /// Scrollback search (plans/native.md §12), Safari-style above the keyboard:
@@ -109,7 +110,7 @@ struct TerminalSelectionBar: View {
                 Button("All") { controller.selectAllText() }
                     .buttonStyle(.bordered)
                 Button("Copy") { controller.copySelection() }
-                    .buttonStyle(.borderedProminent)
+                    .xbinPrimary()
                     .disabled(controller.selection.isEmpty)
                     .keyboardShortcut("c", modifiers: .command)
             }

@@ -1,6 +1,7 @@
 import Observation
 import SwiftTerm
 import UIKit
+import XbinRendererModel
 import XbinCore
 import XbinTerm
 
@@ -86,6 +87,7 @@ final class TerminalController: NSObject {
         super.init()
         terminalView.controller = self
         terminalView.terminalDelegate = self
+        TerminalLook.apply(terminalView, size: AppSettings.terminalFontSize)
         keyboard.settings = TerminalPrefs.keyboard
         terminalView.optionAsMetaKey = keyboard.settings.optionAsMeta
         // The black terminal takes the dark keyboard, under its dark key row (KeyRow).
@@ -105,7 +107,7 @@ final class TerminalController: NSObject {
         #endif
         overlay.isUserInteractionEnabled = false
         selectionOverlay.controller = self
-        container.backgroundColor = .black
+        container.backgroundColor = UIColor(terminalHex: XbinPalette.Terminal.background)
         for v in [terminalView, overlay, selectionOverlay] as [UIView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(v)
@@ -275,7 +277,7 @@ final class TerminalController: NSObject {
     func setFont(_ size: Double) {
         fontSize = min(max(size, 7), 32)
         AppSettings.terminalFontSize = fontSize
-        terminalView.font = UIFont.monospacedSystemFont(ofSize: fontSize, weight: .regular)
+        TerminalLook.setFont(terminalView, size: fontSize)
         session?.redraw()
     }
 
@@ -468,8 +470,8 @@ final class PredictionOverlayView: UIView {
 
     override func draw(_ rect: CGRect) {
         guard !scrolledBack, let ctx = UIGraphicsGetCurrentContext() else { return }
-        let fg = UIColor.label
-        let bg = UIColor.black
+        let fg = UIColor(terminalHex: XbinPalette.Terminal.foreground)
+        let bg = UIColor(terminalHex: XbinPalette.Terminal.background)
         for run in current.cells {
             for (i, ch) in run.cells.enumerated() {
                 let r = CGRect(x: CGFloat(run.col + i) * cell.width, y: CGFloat(run.row) * cell.height,
@@ -483,7 +485,7 @@ final class PredictionOverlayView: UIView {
         }
         if let c = current.cursor {
             let r = CGRect(x: CGFloat(c.col) * cell.width, y: CGFloat(c.row) * cell.height, width: cell.width, height: cell.height)
-            ctx.setFillColor(UIColor.systemOrange.withAlphaComponent(0.55).cgColor)
+            ctx.setFillColor(UIColor(terminalHex: XbinPalette.Terminal.cursor).withAlphaComponent(0.55).cgColor)
             ctx.fill(r)
         }
     }

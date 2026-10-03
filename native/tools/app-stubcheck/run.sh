@@ -33,7 +33,7 @@ out=${1:-${TMPDIR:-/tmp}/xbin-app-stubcheck}
 app=$repo/native/ios/App
 term=$repo/native/tools/term-stubcheck/Stubs
 FILES="Tiles/TileAttach.swift Tiles/TileTerminal.swift Tiles/TileCanvas.swift Tiles/TileHatches.swift
-Tiles/Widgets/TileCard.swift Terminal/KeyRow.swift Terminal/SessionTab.swift Agent/AgentAttachments.swift Agent/AgentChat.swift Agent/AgentScreen.swift"
+Tiles/Widgets/TileCard.swift Terminal/KeyRow.swift Terminal/TerminalLook.swift Terminal/SessionTab.swift Agent/AgentAttachments.swift Agent/AgentChat.swift Agent/AgentScreen.swift"
 
 # The renderer's stubs and checkable sources.
 "$repo/native/tools/swiftui-stubcheck/run.sh" --sources-only "$out/renderer"

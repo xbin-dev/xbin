@@ -1,4 +1,5 @@
 import SwiftUI
+import XbinRenderer
 import UIKit
 import XbinTerm
 
@@ -61,7 +62,7 @@ struct TerminalKeyboardSettingsView: View {
                 Button("Use as the extra key") { useSnippet() }
                     .disabled(snippet.isEmpty)
                 if let snippetProblem {
-                    Text(verbatim: snippetProblem).font(.footnote).foregroundStyle(.red)
+                    Text(verbatim: snippetProblem).font(.footnote).foregroundStyle(XbinColor.danger)
                 }
             } header: {
                 Text("Snippet")

@@ -1,4 +1,5 @@
 import SwiftUI
+import XbinRenderer
 import UIKit
 import XbinTerm
 
@@ -121,7 +122,7 @@ struct TabletopKeyPanel: View {
         guard case .modifier(let m) = key else { return nil }
         switch controller.keyboard.sticky.state(m) {
         case .off: return nil
-        case .once, .locked: return .orange
+        case .once, .locked: return Color(xbinHex: XbinPalette.Terminal.cursor)
         }
     }
 }

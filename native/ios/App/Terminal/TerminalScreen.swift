@@ -1,4 +1,5 @@
 import SwiftUI
+import XbinRenderer
 import UIKit
 import XbinCore
 import XbinTerm
@@ -41,7 +42,7 @@ struct TerminalScreen: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            Color.black.ignoresSafeArea()
+            Color(uiColor: UIColor(terminalHex: XbinPalette.Terminal.background)).ignoresSafeArea()
             if let c = controller {
                 TerminalArea(controller: c)
                     .ignoresSafeArea(.container, edges: fullScreen ? .all : [])
@@ -67,7 +68,7 @@ struct TerminalScreen: View {
             if tab == nil || panelActive {
                 ToolbarItemGroup(placement: .primaryAction) {
                     if let c = controller, c.lagging, let rtt = c.rtt {
-                        Text(verbatim: "\(Int(rtt)) ms").font(.caption.monospacedDigit()).foregroundStyle(.orange)
+                        LagLabel(ms: Int(rtt))
                     }
                     Menu {
                         Button("Find", systemImage: "magnifyingglass") { controller?.openFind() }
@@ -198,7 +199,8 @@ struct Banner: View {
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
-        .background(.regularMaterial, in: Capsule())
+        .background(XbinColor.surface, in: .xbinPlate)
+        .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.borderStrong, lineWidth: 1))
         .padding(.top, 8)
     }
 }
@@ -331,5 +333,19 @@ struct TermSessionsSheet: View {
             } message: { Text("Installed packages and files outside the tile are wiped; the tile's own files stay.") }
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+/// The round trip while the link lags (status: the wait glyph, the
+/// measured time, the warn colour).
+private struct LagLabel: View {
+    let ms: Int
+
+    var body: some View {
+        let symbol = XbinGlyphs.symbol("wait")
+        Label(String(ms) + " ms", systemImage: symbol)
+            .labelStyle(.titleAndIcon)
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(XbinColor.warn)
     }
 }

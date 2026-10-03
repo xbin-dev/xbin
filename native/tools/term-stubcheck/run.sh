@@ -28,7 +28,12 @@ out=${1:-${TMPDIR:-/tmp}/xbin-term-stubcheck}
 shared=$repo/native/tools/swiftui-stubcheck/Stubs
 
 mkdir -p "$out/Sources"
-rm -rf "$out/Sources/SwiftUI" "$out/Sources/UIKit" "$out/Sources/SwiftTerm" "$out/Sources/TermCheck"
+rm -rf "$out/Sources/SwiftUI" "$out/Sources/UIKit" "$out/Sources/SwiftTerm" "$out/Sources/TermCheck" \
+  "$out/Sources/Charts" "$out/Sources/QuickLook" "$out/Sources/XbinRendererModel" "$out/Sources/XbinRendererCheck"
+# The renderer (its model and views, which the terminal's chrome draws
+# with: XbinColor, the plate, the palette — D185), as app-stubcheck has it.
+"$repo/native/tools/swiftui-stubcheck/run.sh" --sources-only "$out/renderer"
+for m in Charts QuickLook XbinRendererModel XbinRendererCheck; do cp -R "$out/renderer/Sources/$m" "$out/Sources/"; done
 cp -R "$shared/SwiftUI" "$shared/UIKit" "$out/Sources/"
 cp "$here/Stubs/UIKitTerm.swift" "$out/Sources/UIKit/"
 cp "$here/Stubs/SwiftUITerm.swift" "$out/Sources/SwiftUI/"
@@ -44,8 +49,11 @@ for f in "$repo"/native/ios/App/Terminal/*.swift; do
   b=$(basename "$f")
   # URLSession's WebSocket API isn't Linux's; Stubs/AppStubs.swift declares its init.
   [ "$b" = WebSocketTransport.swift ] && continue
-  # No Objective-C runtime here: @objc goes, #selector(x) becomes a stub Selector("x").
-  sed -E -e 's/@objc //g' -e 's/#selector\(([A-Za-z_][A-Za-z0-9_]*)(\([^)]*\))?\)/Selector("\1")/g' "$f" >"$out/Sources/TermCheck/$b"
+  # No Objective-C runtime here: @objc goes, #selector(x) becomes a stub Selector("x");
+  # the renderer module is XbinRendererCheck here and does not re-export its model.
+  sed -E -e 's/@objc //g' -e 's/#selector\(([A-Za-z_][A-Za-z0-9_]*)(\([^)]*\))?\)/Selector("\1")/g' \
+    -e 's/^import XbinRenderer$/import XbinRendererCheck\
+import XbinRendererModel/' "$f" >"$out/Sources/TermCheck/$b"
 done
 
 cat >"$out/Package.swift" <<PKG
@@ -63,8 +71,14 @@ let package = Package(
         .target(name: "UIKit"),
         .target(name: "SwiftUI", dependencies: ["UIKit"]),
         .target(name: "SwiftTerm", dependencies: ["UIKit"], swiftSettings: [.swiftLanguageMode(.v5)]),
+        .target(name: "Charts", dependencies: ["SwiftUI"]),
+        .target(name: "QuickLook", dependencies: ["SwiftUI"]),
+        .target(name: "XbinRendererModel", dependencies: [.product(name: "XbinCore", package: "XbinCore")]),
+        .target(name: "XbinRendererCheck", dependencies: [
+            "SwiftUI", "UIKit", "Charts", "QuickLook", "XbinRendererModel", .product(name: "XbinCore", package: "XbinCore"),
+        ]),
         .target(name: "TermCheck", dependencies: [
-            "SwiftUI", "UIKit", "SwiftTerm",
+            "SwiftUI", "UIKit", "SwiftTerm", "XbinRendererModel", "XbinRendererCheck",
             .product(name: "XbinCore", package: "XbinCore"),
             .product(name: "XbinTerm", package: "XbinTerm"),
         ]),

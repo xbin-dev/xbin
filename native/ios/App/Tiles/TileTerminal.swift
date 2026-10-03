@@ -201,8 +201,9 @@ final class TileTerminalController: NSObject {
         terminalView.controller = self
         terminalView.terminalDelegate = self
         terminalView.keyboardAppearance = .dark // as the shell's terminal (KeyRow)
+        TerminalLook.apply(terminalView, size: 12)
         terminalView.inputAccessoryView = TileTermAccessory(controller: self)
-        container.backgroundColor = .black
+        container.backgroundColor = UIColor(terminalHex: XbinPalette.Terminal.background)
         terminalView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(terminalView)
         NSLayoutConstraint.activate([
@@ -407,7 +408,7 @@ struct TileTerminalHost: UIViewRepresentable {
 
     func makeUIView(context: Context) -> UIView {
         let v = UIView()
-        v.backgroundColor = .black
+        v.backgroundColor = UIColor(terminalHex: XbinPalette.Terminal.background)
         adopt(into: v)
         return v
     }
@@ -442,7 +443,8 @@ struct TileTerminalElement: View {
                 Text(verbatim: controller.displayTitle).lineLimit(1)
                 Spacer(minLength: 4)
                 if controller.phase.isLive {
-                    Circle().fill(Color.green).frame(width: 6, height: 6).accessibilityLabel("Connected")
+                    Rectangle().fill(Color(uiColor: UIColor(terminalHex: XbinPalette.Terminal.cursor))).frame(width: 6, height: 6)
+                        .accessibilityLabel("Connected")
                 }
                 Image(systemName: "arrow.up.left.and.arrow.down.right").accessibilityHidden(true)
             }
@@ -460,14 +462,14 @@ struct TileTerminalElement: View {
                         .font(.caption)
                         .foregroundStyle(Color.white.opacity(0.7))
                         .padding(8)
-                        .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 6))
+                        .background(Color(uiColor: UIColor(terminalHex: XbinPalette.Terminal.bar)), in: RoundedRectangle(cornerRadius: XbinShapes.radius))
                         .padding(8)
                 }
             }
             .frame(maxWidth: .infinity, minHeight: 200, maxHeight: .infinity)
         }
-        .background(Color.black, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color(uiColor: UIColor(terminalHex: XbinPalette.Terminal.background)), in: RoundedRectangle(cornerRadius: XbinShapes.radius))
+        .clipShape(RoundedRectangle(cornerRadius: XbinShapes.radius))
         .contentShape(Rectangle())
         .onTapGesture { controller.expanded = true }
         .accessibilityElement(children: .combine)
@@ -492,7 +494,7 @@ struct TileTerminalFullScreen: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .top) {
-                Color.black.ignoresSafeArea()
+                Color(uiColor: UIColor(terminalHex: XbinPalette.Terminal.background)).ignoresSafeArea()
                 if controller.expanded {
                     TileTerminalHost(controller: controller)
                 }
