@@ -13,7 +13,7 @@ const no = (why, kind = 'authority') => ({ ok: false, why, kind });
 const PROTECTED = `the primary of ${T} (main) is protected: only tile managers change its code, and not from a terminal or agent session`;
 const ISOLATE = 'pinning a backend to a checkpoint needs isolation (--isolate)';
 const NEEDS_TERMINAL = (op) => `${op} needs terminal-level access on ${T}`;
-const TODAY = [{ value: 'on', label: '🔌 tile API' }, { value: 'off', label: '⛔ no API' }];
+const TODAY = [{ value: 'on', label: 'tile API', icon: 'plug' }, { value: 'off', label: 'no API', icon: 'error' }];
 
 const terminalCaller = (over = {}) => ({
   level: 'terminal', manager: false, humanSession: true, readOnly: false,

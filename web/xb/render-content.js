@@ -134,6 +134,7 @@ export const canvasDocument = (body) => '<!doctype html><html><head><meta charse
   + '<meta name="color-scheme" content="light dark">'
   + '<meta name="referrer" content="no-referrer">'
   // -apple-system-body is WebKit's; elsewhere the declaration before it holds.
+  // theme-ok: the island is the app's own WebView page (CanvasDocument.wrap, canvas-parity.test.mjs): the system body font (product-ui §10)
   + '<style>html,body{margin:0;padding:0;background:transparent;font:17px/1.29 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;'
   + 'font:-apple-system-body;-webkit-text-size-adjust:100%}</style>'
   + `</head><body>${body}</body></html>`;
@@ -254,12 +255,13 @@ export const CONTENT_CSS = css`
   .big .e-title { font: var(--xb-font-title-2); font-weight: 700; }
   .big .e-text { font: var(--xb-font-callout); color: var(--xb-muted); max-width: 300px; }
 
-  xb-terminal { display: block; border-radius: 10px; overflow: hidden; background: #11141a; color: #d4d9e0; min-height: var(--xb-h-m); }
+  xb-terminal { display: block; border-radius: 10px; overflow: hidden; background: var(--xb-term-bg); color: var(--xb-term-fg); min-height: var(--xb-h-m); }
   xb-terminal.cell { border-radius: 0; padding: 0; }
-  .term-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font: var(--xb-font-caption); color: #868f9a; background: #1b1e24; }
+  .term-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font: var(--xb-font-caption); color: var(--xb-muted); background: var(--xb-surface2);
+    border-bottom: 1px solid var(--xb-separator); }
   .term-bar .ic { width: 16px; height: 16px; }
   .term-body { margin: 0; padding: 10px 12px; font-family: var(--xb-mono); font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
-  .term-cur { display: inline-block; width: 8px; height: 15px; background: #d4d9e0; vertical-align: -3px; animation: xb-blink 1s steps(2) infinite; }
+  .term-cur { display: inline-block; width: 8px; height: 15px; background: var(--xb-term-cursor); vertical-align: -3px; animation: xb-blink 1s steps(2) infinite; }
 
   xb-canvas { display: block; border-radius: 10px; overflow: hidden; background: var(--xb-surface); }
   xb-canvas.cell { border-radius: 0; padding: 0; }

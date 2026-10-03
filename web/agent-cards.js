@@ -13,9 +13,10 @@
  * output — is memoized on its block (cached(), per version), and a folded
  * card's body renders only once the reader opens it (a._isOpen/_toggled).
  */
-import { html, css, nothing, noChange, directive, Directive } from 'lit';
-import { md, mdInto } from '/vendor/bx-md.js';
-import { diffHTML, diffStats } from '/vendor/bx-code.js';
+import { html, css, nothing, noChange, directive, Directive, unsafeCSS } from 'lit';
+import { md, mdInto, mdCssText } from '/vendor/bx-md.js';
+import { diffHTML, diffStats, codeCss } from '/vendor/bx-code.js';
+import '/vendor/bx-icons.js';
 import { headline, commandOf, isPlanApproval, planText, stripAnsi, rawText, unifiedDiff, filesStat, formFields, formContent } from '/vendor/agent-tools.js';
 import { cached } from '/vendor/agent-fold.js';
 
@@ -34,7 +35,12 @@ class MdLive extends Directive {
 }
 export const mdLive = directive(MdLive);
 
-export const KIND_ICON = { read: '📖', edit: '✏️', delete: '🗑️', move: '↪', search: '🔎', execute: '⚙', think: '💭', fetch: '🌐', switch_mode: '⇄', other: '•' };
+// a tool call's kind → its glyph (/vendor/bx-icons.js, D184); 'other' has none
+export const KIND_ICON = Object.freeze({ read: 'doc', edit: 'pencil', delete: 'trash', move: 'arrow-right', search: 'search', execute: 'terminal', think: 'thought', fetch: 'globe', switch_mode: 'refresh', other: '' });
+const kindIcon = (tk) => (KIND_ICON[tk] ? html`<bx-icon class="ic" name=${KIND_ICON[tk]}></bx-icon>` : html`<span class="ic"></span>`);
+// a status badge: its glyph, its word, its colour (R2)
+const STATUS_ICON = { completed: 'ok', failed: 'error', cancelled: 'error', pending: 'wait', in_progress: 'wait' };
+const statusIcon = (st) => (STATUS_ICON[st] ? html`<bx-icon name=${STATUS_ICON[st]}></bx-icon>` : nothing);
 
 const OUT_CAP = 20000; // chars of command output shown before "show all"
 const running = (t) => t.status === 'pending' || t.status === 'in_progress';
@@ -95,7 +101,7 @@ function contentItems(t, skipText) {
 // a shell command: its first lines, the rest one click away, and a copy button
 function commandBlock(cmd) {
   const lines = String(cmd).split('\n');
-  const copy = html`<button class="copy" title="copy the command" @click=${(e) => { e.preventDefault(); navigator.clipboard?.writeText(cmd); }}>copy</button>`;
+  const copy = html`<button class="copy" title="copy the command" @click=${(e) => { e.preventDefault(); navigator.clipboard?.writeText(cmd); }}><bx-icon name="copy"></bx-icon>copy</button>`;
   if (lines.length <= 3) return html`<div class="cmdwrap"><pre class="cmd">${cmd}</pre>${copy}</div>`;
   return html`<details class="cmdx"><summary><pre class="cmd preview">${lines.slice(0, 3).join('\n')}</pre>
       <span class="more">show all ${lines.length} lines</span></summary>
@@ -129,11 +135,13 @@ export function toolCard(a, t) {
       : plan
         ? [planText(t) ? html`<div class="md plan-md" .innerHTML=${cached(t, 'plan', () => md(planText(t)))}></div>` : nothing]
         : [hasContent(t) ? contentItems(t) : nothing, t.output ? outputBlock(t) : nothing, t.files ? filesBlock(a, t, t.files) : nothing, rawInputBlock(t)];
+  // a finished command shows its exit status in place of the generic word (product-ui §8)
+  const exited = t.exitCode != null && !running(t);
   return html`<details class="tool ${exec ? 'exec' : ''}" ?open=${dflt} @toggle=${(e) => a._toggled(e, t, 'body', dflt)}>
-    <summary><span class="ic">${KIND_ICON[t.tk] || KIND_ICON.other}</span>
+    <summary>${kindIcon(t.tk)}
       <span class="title" title=${exec ? commandOf(t) : t.title || ''}>${title}</span>
-      ${t.exitCode != null && t.exitCode !== 0 ? html`<span class="chip failed">exit ${t.exitCode}</span>` : nothing}
-      <span class="chip ${t.status}">${String(t.status).replace('_', ' ')}${cached(t, 'stat', () => diffStat(t))}</span></summary>
+      ${exited ? html`<span class="chip ${t.exitCode === 0 ? 'completed' : 'failed'}">${statusIcon(t.exitCode === 0 ? 'completed' : 'failed')}exit ${t.exitCode}${cached(t, 'stat', () => diffStat(t))}</span>`
+        : html`<span class="chip ${t.status}">${statusIcon(t.status)}${String(t.status).replace('_', ' ')}${cached(t, 'stat', () => diffStat(t))}</span>`}</summary>
     ${body.some((x) => x !== nothing) ? html`<div class="body">${body}</div>` : nothing}
   </details>`;
 }
@@ -148,10 +156,10 @@ function subagentCard(a, t) {
   const steps = t.children.filter((c) => c.kind === 'tool').length;
   const dflt = live || t.status === 'failed';
   return html`<details class="tool sub" ?open=${dflt} @toggle=${(e) => a._toggled(e, t, 'body', dflt)}>
-    <summary><span class="ic">⧉</span>
+    <summary><bx-icon class="ic" name="agent"></bx-icon>
       <span class="title" title=${prompt}>${kind ? html`<span class="muted">${kind}</span> ` : nothing}${headline(t)}</span>
       ${steps ? html`<span class="chip">${steps} step${steps === 1 ? '' : 's'}</span>` : nothing}
-      <span class="chip ${t.status}">${String(t.status).replace('_', ' ')}</span></summary>
+      <span class="chip ${t.status}">${statusIcon(t.status)}${String(t.status).replace('_', ' ')}</span></summary>
     ${dflt || a._isOpen(t, 'body') ? html`<div class="body">
       ${prompt ? html`<details class="raw"><summary>prompt</summary><div class="md" .innerHTML=${cached(t, 'prompt', () => md(prompt))}></div></details>` : nothing}
       <div class="children">${t.children.map((c) => a._block(c))}</div>
@@ -236,15 +244,17 @@ export function permCard(a, b) {
   if (b.meta && b.meta.defaultToNo) opts.sort((x, y) => (/reject/.test(x.kind || '') ? -1 : 0) - (/reject/.test(y.kind || '') ? -1 : 0));
   const scoped = b.rule ? b.rule.scoped : true; // hide "for the session" when it can't be scoped
   const desc = (b.meta && b.meta.description) || '';
+  // the agent's first allow option is the primary button; the rest secondary (product-ui §8)
+  const first = opts.find((o) => !/reject/.test(o.kind || ''));
   return html`<div class="perm">
-    <div class="q"><b>Permission</b> — ${heading}${desc ? html`<div class="desc">${desc}</div>` : nothing}</div>
+    <div class="q"><b><bx-icon name="warning"></bx-icon>Permission</b> — ${heading}${desc ? html`<div class="desc">${desc}</div>` : nothing}</div>
     ${cmd ? commandBlock(cmd) : tc.rawInput != null ? html`<pre class="cmd">${rawText(tc.rawInput)}</pre>` : nothing}
     <div class="pbody">${contentItems({ ...view, status: 'pending' }, heading)}</div>
     ${scoped && b.rule && (b.rule.kind || b.rule.title) ? html`<div class="rulenote">“Allow for the session” auto-approves later ${b.rule.kind || ''} calls${b.rule.title ? html` titled “${b.rule.title}”` : ''}.</div>` : nothing}
     <div class="btns">
       ${opts.length
-        ? opts.filter((o) => scoped || o.kind !== 'allow_always').map((o) => html`<button class="${/reject/.test(o.kind || '') ? 'deny' : 'allow'}" @click=${() => a._permit(b.pid, null, o.optionId)}>${o.name || o.optionId}</button>`)
-        : html`<button class="allow" @click=${() => a._permit(b.pid, 'allow_once')}>Allow once</button>
+        ? opts.filter((o) => scoped || o.kind !== 'allow_always').map((o) => html`<button class="${/reject/.test(o.kind || '') ? 'deny' : o === first ? 'allow primary' : 'allow'}" @click=${() => a._permit(b.pid, null, o.optionId)}>${o.name || o.optionId}</button>`)
+        : html`<button class="allow primary" @click=${() => a._permit(b.pid, 'allow_once')}>Allow once</button>
            ${scoped ? html`<button class="allow" @click=${() => a._permit(b.pid, 'allow_always')}>Allow for the session</button>` : nothing}
            <button class="deny" @click=${() => a._permit(b.pid, 'reject_once')}>Deny</button>`}
     </div>
@@ -284,83 +294,94 @@ function planCard(a, b) {
   </div>`;
 }
 
-export const cardsCss = css`
-  .muted { color: var(--bx-muted, #868f9a); font-size: 11.5px; }
-  .mono { font-family: var(--bx-mono, ui-monospace, monospace); }
+// The cards' styles (D184): code and diffs on codeCss (bx-code.js), rendered
+// markdown on mdCssText (bx-md.js), everything else on the tokens — tool
+// calls as code-face blocks, status as square badges with their glyph and
+// word, a permission request in the warn tint, buttons per product-ui §6.
+export const cardsCss = [codeCss, css`
+  .muted { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); }
+  .mono { font-family: var(--bx-mono, "JetBrains Mono", ui-monospace, monospace); }
   .md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
-  .md pre { background: var(--bx-bg, #1b1e24); padding: 6px 8px; border-radius: 5px; overflow-x: auto; font: 11px var(--bx-mono, ui-monospace, monospace); }
-  .md :not(pre) > code { background: var(--bx-bg, #1b1e24); padding: .1em .3em; border-radius: 3px; font-family: var(--bx-mono, ui-monospace, monospace); }
-  .tool { border: 1px solid var(--bx-border, #363c45); border-radius: 6px; margin: 0 0 8px; overflow: hidden; }
-  .tool > summary { list-style: none; cursor: pointer; padding: 5px 9px; display: flex; align-items: center; gap: 6px;
-    font: 11px var(--bx-mono, ui-monospace, monospace); }
+  ${unsafeCSS(mdCssText('.md'))}
+  .tool { border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); margin: 0 0 8px; overflow: hidden; background: var(--bx-panel, #1F2028); }
+  .tool > summary { list-style: none; cursor: pointer; min-height: var(--bx-row, 28px); box-sizing: border-box; padding: 4px 8px;
+    display: flex; align-items: center; gap: 8px; font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); }
+  .tool > summary:hover { background: var(--bx-hover, #2A2B34); }
   .tool > summary::-webkit-details-marker { display: none; }
+  .tool .ic { flex: none; width: 16px; color: var(--bx-muted, #A3A6B6); }
   .tool .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .chip { font: 9.5px var(--bx-mono, ui-monospace, monospace); text-transform: uppercase; letter-spacing: .03em;
-    padding: 1px 5px; border-radius: 3px; background: var(--bx-panel-2, #2b3038); color: var(--bx-muted, #868f9a); white-space: nowrap; }
-  .chip.completed { color: var(--bx-green, #4caf50); }
-  .chip.failed, .chip.cancelled { color: var(--bx-red, #ef5350); }
-  .chip.in_progress, .chip.pending { color: var(--bx-amber, #f2a71b); }
-  .tool .body { padding: 6px 9px; border-top: 1px solid var(--bx-border, #363c45); display: flex; flex-direction: column; gap: 6px; }
+  /* a status badge: square, 20px, micro caps, glyph + word + colour */
+  .chip { display: inline-flex; align-items: center; gap: 4px; box-sizing: border-box; height: 20px; padding: 0 6px; white-space: nowrap; flex: none;
+    font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase;
+    font-variant-numeric: tabular-nums; border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); color: var(--bx-muted, #A3A6B6); }
+  .chip bx-icon { --bx-icon-size: 12px; }
+  .chip.completed { color: var(--bx-ok, #A3CF5E); background: var(--bx-ok-bg, #2F352E); border-color: currentColor; }
+  .chip.failed, .chip.cancelled { color: var(--bx-danger, #FF7A7A); background: var(--bx-danger-bg, #3A2B32); border-color: currentColor; }
+  .chip.in_progress, .chip.pending { color: var(--bx-warn, #F2994A); background: var(--bx-warn-bg, #382F2C); border-color: currentColor; }
+  .tool .body { padding: 8px; border-top: 1px solid var(--bx-border, #33353F); display: flex; flex-direction: column; gap: 8px; }
   .tool .body:empty { display: none; }
-  .tool pre, .perm pre { margin: 0; font: 11px var(--bx-mono, ui-monospace, monospace); white-space: pre-wrap; overflow-x: auto; }
+  .tool pre, .perm pre { margin: 0; font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); white-space: pre-wrap; overflow-x: auto; }
   .cmdwrap { position: relative; }
-  pre.cmd { background: var(--bx-bg, #1b1e24); border-radius: 5px; padding: 6px 8px; max-height: 320px; overflow: auto; }
-  .copy { position: absolute; top: 3px; right: 3px; font: 10px var(--bx-mono, ui-monospace, monospace); border: 1px solid var(--bx-border, #363c45);
-    background: var(--bx-panel, #23272e); color: var(--bx-muted, #868f9a); border-radius: 4px; padding: 0 5px; cursor: pointer; opacity: .6; }
-  .copy:hover { opacity: 1; }
+  pre.cmd { background: var(--bx-code-bg, #16171D); border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); padding: 8px 12px; max-height: 320px; overflow: auto; }
+  .copy { position: absolute; top: 4px; right: 4px; display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; cursor: pointer;
+    font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); border: 1px solid var(--bx-border, #33353F);
+    background: var(--bx-panel, #1F2028); color: var(--bx-muted, #A3A6B6); border-radius: var(--bx-radius, 2px); }
+  .copy:hover { color: var(--bx-text, #E9EAF0); border-color: var(--bx-border-strong, #666A7E); }
   .cmdx > summary { list-style: none; cursor: pointer; } .cmdx > summary::-webkit-details-marker { display: none; }
   .cmdx[open] > summary .preview { display: none; }
-  .cmdx .more { font: 10.5px var(--bx-mono, ui-monospace, monospace); color: var(--bx-accent, #f5a623); }
+  .cmdx .more { font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); color: var(--bx-link, #8C9BFF); }
   .cmdx[open] .more::after { content: ' (hide)'; }
-  pre.out { color: var(--bx-text, #d4d9e0); border-left: 2px solid var(--bx-border, #363c45); padding-left: 8px; max-height: 360px; overflow: auto; }
-  .raw > summary, .outx > summary { cursor: pointer; font: 10.5px var(--bx-mono, ui-monospace, monospace); color: var(--bx-muted, #868f9a); }
-  .diff { font: 11px var(--bx-mono, ui-monospace, monospace); }
-  .diff .fh { color: var(--bx-muted, #868f9a); display: block; }
-  .diff .h { color: var(--bx-accent, #f5a623); display: block; }
-  .diff .d { color: var(--bx-green, #4caf50); display: block; background: color-mix(in srgb, var(--bx-green, #4caf50) 12%, transparent); }
-  .diff .a { color: var(--bx-red, #ef5350); display: block; background: color-mix(in srgb, var(--bx-red, #ef5350) 12%, transparent); }
-  .diff .ctx { display: block; color: var(--bx-text, #d4d9e0); }
-  .files > summary { cursor: pointer; font: 11px var(--bx-mono, ui-monospace, monospace); color: var(--bx-text, #d4d9e0); }
-  .fadd { color: var(--bx-green, #4caf50); } .fdel { color: var(--bx-red, #ef5350); }
-  .flist { list-style: none; margin: 4px 0; padding: 0; font: 11px var(--bx-mono, ui-monospace, monospace); }
+  pre.out { color: var(--bx-text, #E9EAF0); border-left: 2px solid var(--bx-border, #33353F); padding-left: 8px; max-height: 360px; overflow: auto; }
+  .raw > summary, .outx > summary { cursor: pointer; font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); color: var(--bx-muted, #A3A6B6); }
+  .diff { font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); background: var(--bx-code-bg, #16171D); }
+  .files > summary { cursor: pointer; font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); color: var(--bx-text, #E9EAF0); }
+  .fadd { color: var(--bx-diff-add, #5EDBA5); } .fdel { color: var(--bx-diff-del, #FF8F8F); }
+  .fadd, .fdel { font-variant-numeric: tabular-nums; }
+  .flist { list-style: none; margin: 4px 0; padding: 0; font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); }
   .flist li { display: flex; gap: 6px; align-items: baseline; }
   .flist .fp { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .fs { width: 1.2em; text-align: center; border-radius: 3px; font-weight: 700; color: var(--bx-muted, #868f9a); }
-  .fs.added { color: var(--bx-green, #4caf50); } .fs.deleted { color: var(--bx-red, #ef5350); } .fs.modified, .fs.renamed { color: var(--bx-amber, #f2a71b); }
+  .fs { width: 1.2em; text-align: center; font-weight: 700; color: var(--bx-muted, #A3A6B6); }
+  .fs.added { color: var(--bx-diff-add, #5EDBA5); } .fs.deleted { color: var(--bx-diff-del, #FF8F8F); } .fs.modified, .fs.renamed { color: var(--bx-warn, #F2994A); }
   .files pre.diff { max-height: 420px; overflow: auto; margin-top: 4px; }
-  .turn-changes { border: 1px solid var(--bx-border, #363c45); border-radius: 6px; padding: 5px 9px; margin: 0 0 8px; }
-  .tool.sub { border-color: color-mix(in srgb, var(--bx-accent, #f5a623) 45%, var(--bx-border, #363c45)); }
-  .tool.sub .children { border-left: 2px solid color-mix(in srgb, var(--bx-accent, #f5a623) 45%, transparent); padding-left: 8px; }
+  .turn-changes { border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); padding: 4px 8px; margin: 0 0 8px; }
+  .tool.sub { border-color: var(--bx-border-strong, #666A7E); }
+  .tool.sub .children { border-left: 2px solid var(--bx-border-strong, #666A7E); padding-left: 8px; }
   .tool.sub .children:empty { display: none; }
   .tool.sub .children .row { margin-bottom: 6px; }
-  .tool.sub .answer { border-top: 1px dashed var(--bx-border, #363c45); padding-top: 6px; }
-  .perm { border: 1px solid var(--bx-amber, #f2a71b); border-radius: 6px; padding: 8px 10px; margin: 0 0 10px;
-    background: color-mix(in srgb, var(--bx-amber, #f2a71b) 8%, var(--bx-panel, #23272e)); display: flex; flex-direction: column; gap: 6px; }
-  .perm .desc { color: var(--bx-muted, #868f9a); font-size: 12px; margin-top: 2px; }
+  .tool.sub .answer { border-top: 1px solid var(--bx-border, #33353F); padding-top: 8px; }
+  /* a permission request: attention, in the warn tint, its glyph and word */
+  .perm { border: 1px solid var(--bx-warn, #F2994A); border-radius: var(--bx-radius, 2px); padding: 8px 12px; margin: 0 0 12px;
+    background: var(--bx-warn-bg, #382F2C); display: flex; flex-direction: column; gap: 8px; }
+  .perm .q > b bx-icon { color: var(--bx-warn, #F2994A); margin-right: 6px; }
+  .perm .desc { color: var(--bx-muted, #A3A6B6); margin-top: 2px; }
   .perm .pbody:empty { display: none; }
-  .perm .rulenote { color: var(--bx-muted, #868f9a); font-size: 11.5px; }
-  .perm.settled-card { opacity: .8; }
-  .perm .btns { display: flex; gap: 6px; flex-wrap: wrap; }
+  .perm .rulenote { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); }
+  /* answered: nothing waits on it any more — a plain card */
+  .perm.settled-card { border-color: var(--bx-border, #33353F); background: var(--bx-panel, #1F2028); }
+  .perm .btns { display: flex; gap: 8px; flex-wrap: wrap; }
   .perm .btns.col { flex-direction: column; align-items: stretch; }
-  .perm button { border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);
-    border-radius: 5px; padding: 4px 10px; cursor: pointer; font: 12px var(--bx-sans, system-ui); text-align: left; }
-  .perm button.allow { border-color: var(--bx-green, #4caf50); }
-  .perm button.allow.primary { background: color-mix(in srgb, var(--bx-green, #4caf50) 22%, var(--bx-panel, #23272e)); font-weight: 600; }
-  .perm button.deny { border-color: var(--bx-red, #ef5350); }
-  .perm .settled { color: var(--bx-muted, #868f9a); font: 11px var(--bx-mono, ui-monospace, monospace); }
-  .ask .field { border-top: 1px solid var(--bx-border, #363c45); padding-top: 6px; display: flex; flex-direction: column; gap: 3px; }
-  .ask .fh { font-weight: 600; font-size: 12.5px; }
-  .ask .fd { color: var(--bx-text, #d4d9e0); font-size: 12.5px; }
+  .perm button { box-sizing: border-box; min-height: var(--bx-control-h, 28px); padding: 4px 11px; cursor: pointer; text-align: left;
+    border: 1px solid var(--bx-border-strong, #666A7E); background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0);
+    border-radius: var(--bx-radius, 2px); font: var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif); font-weight: 600; }
+  .perm button:hover { background: var(--bx-hover, #2A2B34); }
+  .perm button.primary { background: var(--bx-accent, #8C9BFF); border-color: var(--bx-accent, #8C9BFF); color: var(--bx-accent-ink, #0B0C12); }
+  .perm button.primary:hover { background: var(--bx-accent-hover, #A9B4FF); border-color: var(--bx-accent-hover, #A9B4FF); }
+  .perm .settled { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); }
+  .ask .field { border-top: 1px solid var(--bx-border, #33353F); padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .ask .fh { font-weight: 600; }
+  .ask .fd { color: var(--bx-text, #E9EAF0); }
   .ask .opts { display: flex; flex-direction: column; gap: 2px; }
-  .ask .opt { display: flex; gap: 6px; align-items: baseline; font-size: 12.5px; cursor: pointer; }
-  .ask .opt .od { color: var(--bx-muted, #868f9a); }
-  .ask .txt { background: var(--bx-bg, #1b1e24); color: var(--bx-text, #d4d9e0); border: 1px solid var(--bx-border, #363c45);
-    border-radius: 5px; padding: 4px 7px; font: 12px var(--bx-sans, system-ui); }
-  .ask .answers { margin: 0; padding-left: 16px; font-size: 12.5px; }
-  .plan-card { border-color: var(--bx-accent, #f5a623); background: color-mix(in srgb, var(--bx-accent, #f5a623) 6%, var(--bx-panel, #23272e)); }
-  .plan-md { max-height: 50vh; overflow: auto; background: var(--bx-panel, #23272e); border: 1px solid var(--bx-border, #363c45);
-    border-radius: 5px; padding: 8px 12px; font-size: 13px; }
-  .reject-row { display: flex; gap: 6px; align-items: flex-end; }
-  .reject-row textarea { flex: 1; resize: vertical; background: var(--bx-bg, #1b1e24); color: var(--bx-text, #d4d9e0);
-    border: 1px solid var(--bx-border, #363c45); border-radius: 5px; padding: 5px 7px; font: 12px var(--bx-sans, system-ui); }
-`;
+  .ask .opt { display: flex; gap: 6px; align-items: baseline; cursor: pointer; }
+  .ask .opt input { accent-color: var(--bx-accent, #8C9BFF); }
+  .ask .opt .od { color: var(--bx-muted, #A3A6B6); }
+  .ask .txt { box-sizing: border-box; min-height: var(--bx-control-h, 28px); background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0);
+    border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px); padding: 4px 8px; font: var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif); }
+  .ask .txt::placeholder, .reject-row textarea::placeholder { color: var(--bx-subtle, #8E91A2); opacity: 1; }
+  .ask .answers { margin: 0; padding-left: 16px; }
+  .plan-card { border-color: var(--bx-border-strong, #666A7E); background: var(--bx-panel, #1F2028); }
+  .plan-md { max-height: 50vh; overflow: auto; background: var(--bx-panel-2, #262730); border: 1px solid var(--bx-border, #33353F);
+    border-radius: var(--bx-radius, 2px); padding: 8px 12px; font: var(--bx-font-body, 400 14px/20px "Instrument Sans", system-ui, sans-serif); }
+  .reject-row { display: flex; gap: 8px; align-items: flex-end; }
+  .reject-row textarea { flex: 1; resize: vertical; box-sizing: border-box; background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0);
+    border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px); padding: 4px 8px; font: var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif); }
+`];

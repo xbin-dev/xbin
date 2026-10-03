@@ -15,7 +15,8 @@ export const mark = html`<svg class="mark" viewBox="0 0 16 16" role="img" aria-l
   fill="none" stroke="currentColor" stroke-width="1.6" style="color: var(--pt-part)"/><path d="M8 1.5 A6.5 6.5 0 0 0 8 14.5 Z"
   fill="currentColor" style="color: var(--pt-part)"/></svg>`;
 
-const said = (st) => html`${st.err ? html`<p class="err" role="alert">${st.err}</p>` : nothing}${st.done ? html`<p class="done">${st.done}</p>` : nothing}`;
+// what an action said: an error, or done (glyph, words, colour — D184)
+const said = (st) => html`${st.err ? html`<p class="err" role="alert"><bx-icon name="error"></bx-icon>${st.err}</p>` : nothing}${st.done ? html`<p class="done"><bx-icon name="ok"></bx-icon>${st.done}</p>` : nothing}`;
 
 // ---- header ----
 
@@ -28,7 +29,7 @@ export function headerSection(host, m) {
       <h1>${mark} Your partitions</h1>
       <span class="who">signed in as <b>${who}</b>${me.admin ? ' · workspace admin' : ''}</span>
       <span class="grow"></span>
-      <a class="small" href="/">← workspace</a>
+      <a class="small" href="/"><bx-icon name="arrow-left"></bx-icon> workspace</a>
     </header>
     <p class="lead">Tiles that keep each person's data apart run one instance per person — your partition — holding
       your data, vault and registrations. Here you see them, who can change the code that runs on your data, and
@@ -38,9 +39,9 @@ export function headerSection(host, m) {
       <span class="chip ${pol.partitionConsent ? 'ok' : 'off'}" title="the workspace setting partitionConsent">consent before another tile uses your data: ${pol.partitionConsent ? 'on' : 'off'}</span>
       <span class="chip ${pol.credentialResetConfirm ? 'ok' : 'off'}" title="the workspace setting credentialResetConfirm">credential resets wait for you: ${pol.credentialResetConfirm ? 'on' : 'off'}</span>
     </div>
-    ${me.impersonatedBy ? html`<div class="banner">View-as (${me.impersonatedBy}): read-only, and a person's partitions stay theirs — this page shows little.</div>` : nothing}
-    ${me.kind === 'root' ? html`<div class="banner">The root token is no person: it holds no partitions, consents or personal binds. Sign in as yourself to see yours; as the owner you still decide switches here.</div>` : nothing}
-    ${m.errors.map((e) => html`<div class="banner err">${e}</div>`)}`;
+    ${me.impersonatedBy ? html`<div class="banner"><bx-icon name="eye"></bx-icon>View-as (${me.impersonatedBy}): read-only, and a person's partitions stay theirs — this page shows little.</div>` : nothing}
+    ${me.kind === 'root' ? html`<div class="banner"><bx-icon name="info"></bx-icon>The root token is no person: it holds no partitions, consents or personal binds. Sign in as yourself to see yours; as the owner you still decide switches here.</div>` : nothing}
+    ${m.errors.map((e) => html`<div class="banner err"><bx-icon name="error"></bx-icon>${e}</div>`)}`;
 }
 
 // ---- credentials an admin made for the person (held) ----
@@ -243,7 +244,7 @@ function trustPanel(m, t) {
   const writers = (w) => (Array.isArray(w) && w.length ? w.join(', ') : 'nobody but admins');
   return html`<details class="trust" ?open=${warn.length > 0}>
     <summary>Trust: who can change the code that runs on your data${warn.length ? html` <span class="chip warn">${plural(warn.length, 'warning')}</span>` : nothing}</summary>
-    ${warn.map((w) => html`<p class="warn small">⚠ ${w}</p>`)}
+    ${warn.map((w) => html`<p class="warn small"><bx-icon name="warning"></bx-icon>${w}</p>`)}
     <dl class="facts">
       <dt>its code</dt><dd>${writers(tr.writers)} (writers), and ${tr.admins || 'every workspace admin'}</dd>
       <dt>saves</dt><dd>${tr.liveReload ? html`<span class="warn">reach it live</span>` : 'don\'t reach it live'}${tr.protected ? ' · primary protected' : ''}${tr.reviewedOnly ? ' · reviewed code only' : ''}</dd>

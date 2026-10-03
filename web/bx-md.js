@@ -30,6 +30,31 @@ marked.use({
 export const md = (s) => { try { return marked.parse(String(s ?? '')); } catch { return esc(s); } };
 
 /**
+ * mdCssText(scope): how rendered markdown looks under `scope` (a selector),
+ * as CSS text for any shadow root (lit: unsafeCSS(mdCssText('.md'))): code
+ * blocks in the code face on the code well, inline code, tables with
+ * tabular figures, quotes and links — on the theme's tokens (D184), with
+ * Night's values where a document has no theme.css.
+ */
+export function mdCssText(scope) {
+  const s = (sel) => sel.split(',').map((x) => `${scope} ${x.trim()}`).join(', ');
+  return `
+  ${s('pre')} { margin: 8px 0; padding: 8px 12px; overflow-x: auto; background: var(--bx-code-bg, #16171D);
+    border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); }
+  ${s(':not(pre) > code')} { padding: 0 4px; background: var(--bx-code-bg, #16171D); border: 1px solid var(--bx-border, #33353F);
+    border-radius: var(--bx-radius, 2px); font-family: var(--bx-mono, "JetBrains Mono", ui-monospace, monospace); font-size: 0.92em; }
+  ${s('pre code')} { padding: 0; background: none; border: 0; font: inherit; }
+  ${s('pre, code')} { font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0; }
+  ${s('table')} { border-collapse: collapse; margin: 8px 0; font-variant-numeric: tabular-nums; }
+  ${s('th, td')} { padding: 4px 10px; border: 1px solid var(--bx-border, #33353F); text-align: left; vertical-align: top; }
+  ${s('th')} { font-weight: 600; background: var(--bx-panel-2, #262730); }
+  ${s('blockquote')} { margin: 8px 0; padding: 0 12px; border-left: 2px solid var(--bx-border-strong, #666A7E); color: var(--bx-muted, #A3A6B6); }
+  ${s('a')} { color: var(--bx-link, #8C9BFF); }
+  ${s('hr')} { border: 0; border-top: 1px solid var(--bx-border, #33353F); }
+  ${s('.md-img')} { color: var(--bx-muted, #A3A6B6); font-style: italic; }`;
+}
+
+/**
  * mdInto(el, s, memo): render markdown into el a top-level block at a time
  * (D130): the text is lexed whole, but only blocks whose source changed are
  * rendered and swapped — a streaming message re-parses its last paragraph,

@@ -22,6 +22,7 @@
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
+import '/vendor/bx-icons.js';
 
 export class BxDialog extends LitElement {
   static properties = {
@@ -31,46 +32,53 @@ export class BxDialog extends LitElement {
                             // so a tile can't pass its modal off as system chrome
   };
 
+  // product-ui §6 (D184): square, 1px border-strong, the title type, the
+  // pop-over shadow over the scrim; controls 28px with the focus ring; the
+  // primary button in the accent with the accent ink, a destructive one the
+  // danger outline. Show the plan, then ask: the spec's message is the plan.
   static styles = [scrollCss, css`
     :host { position: fixed; inset: 0; z-index: 4000; display: none; }
     :host([open]) { display: block; }
-    .backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .45); }
+    .backdrop { position: absolute; inset: 0; background: var(--bx-scrim, rgba(0, 0, 0, 0.55)); }
     .box {
       position: absolute; left: 50%; top: 42%; transform: translate(-50%, -50%);
-      width: min(440px, 92vw); max-height: 82vh; overflow: auto;
-      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);
-      border: 1px solid var(--bx-border, #363c45); border-radius: 10px;
-      box-shadow: 0 0 0 1px rgba(0, 0, 0, .4), 0 14px 44px rgba(0, 0, 0, .5);
-      padding: 16px 18px;
-      font: var(--bx-font, 13px/1.5 -apple-system, system-ui, sans-serif);
+      width: min(440px, 92vw); max-height: 82vh; overflow: auto; box-sizing: border-box;
+      background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0);
+      border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
+      box-shadow: var(--bx-shadow-pop, 0 12px 32px rgba(0, 0, 0, 0.6));
+      padding: 16px;
+      font: var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif);
     }
-    .attrib { font: 10px var(--bx-mono, monospace); color: var(--bx-muted, #868f9a);
-      letter-spacing: .04em; margin: 0 0 6px; }
-    h3 { margin: 0 0 8px; font-size: 14px; }
-    .msg { white-space: pre-wrap; margin: 0 0 6px; font-size: 12.5px; color: var(--bx-text, #d4d9e0); }
-    .err { white-space: pre-wrap; margin: 6px 0; padding: 7px 10px; font-size: 12.5px; border-radius: 6px;
-      color: var(--bx-red, #ef5350); border: 1px solid color-mix(in srgb, var(--bx-red, #ef5350) 55%, transparent);
-      background: color-mix(in srgb, var(--bx-red, #ef5350) 12%, transparent); }
-    label { display: block; font-size: 10.5px; font-weight: 600; letter-spacing: .05em;
-      text-transform: uppercase; color: var(--bx-muted, #868f9a); margin: 10px 0 2px; }
+    .attrib { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; color: var(--bx-muted, #A3A6B6);
+      font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); }
+    .attrib .from { font-family: var(--bx-mono, "JetBrains Mono", ui-monospace, monospace); }
+    h3 { margin: 0 0 8px; font: var(--bx-font-title, 600 16px/22px "Instrument Sans", system-ui, sans-serif); }
+    .msg { white-space: pre-wrap; margin: 0 0 8px; color: var(--bx-text, #E9EAF0); }
+    .err { white-space: pre-wrap; margin: 8px 0; padding: 8px 12px; border-radius: var(--bx-radius, 2px);
+      color: var(--bx-danger, #FF7A7A); border: 1px solid var(--bx-danger, #FF7A7A); background: var(--bx-danger-bg, #3A2B32); }
+    .err bx-icon { margin-right: 6px; }
+    label { display: block; margin: 12px 0 4px; color: var(--bx-muted, #A3A6B6);
+      font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase; }
     input, textarea, select {
-      width: 100%; box-sizing: border-box; font: inherit; font-size: 12.5px; padding: 5px 8px;
-      border: 1px solid var(--bx-border, #363c45); border-radius: 6px;
-      background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0);
+      width: 100%; box-sizing: border-box; min-height: var(--bx-control-h, 28px); font: inherit; padding: 4px 8px;
+      border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
+      background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0);
     }
+    input::placeholder, textarea::placeholder { color: var(--bx-subtle, #8E91A2); opacity: 1; }
     textarea { resize: vertical; }
-    input:focus, textarea:focus, select:focus {
-      outline: 2px solid color-mix(in srgb, var(--bx-accent, #f5a623) 35%, transparent);
-    }
-    label.chk { display: flex; align-items: center; gap: 7px; font-size: 12.5px;
-      text-transform: none; letter-spacing: 0; color: var(--bx-text, #d4d9e0); font-weight: 400; }
-    label.chk input { width: auto; accent-color: var(--bx-accent, #f5a623); }
-    .btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 15px; }
-    button { font: inherit; font-size: 12.5px; padding: 5px 14px; border-radius: 6px; cursor: pointer;
-      border: 1px solid var(--bx-border, #363c45); background: var(--bx-panel, #23272e); color: var(--bx-text, #d4d9e0); }
-    button:hover { background: var(--bx-panel-2, #2b3038); }
-    button.primary { background: var(--bx-accent, #f5a623); border-color: transparent; color: #23272e; font-weight: 600; }
-    button.danger { color: var(--bx-red, #ef5350); border-color: color-mix(in srgb, var(--bx-red, #ef5350) 45%, transparent); }
+    :focus-visible { outline: var(--bx-focus-outline, 3px solid #3DD6F5); outline-offset: var(--bx-focus-offset, 2px);
+      box-shadow: var(--bx-focus-halo, 0 0 0 2px #0B0C12); }
+    label.chk { display: flex; align-items: center; gap: 8px; margin: 12px 0 4px; font: inherit;
+      text-transform: none; letter-spacing: 0; color: var(--bx-text, #E9EAF0); }
+    label.chk input { width: auto; min-height: 0; accent-color: var(--bx-accent, #8C9BFF); }
+    .btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+    button { box-sizing: border-box; min-height: var(--bx-control-h, 28px); font: inherit; font-weight: 600; padding: 4px 11px;
+      border-radius: var(--bx-radius, 2px); cursor: pointer;
+      border: 1px solid var(--bx-border-strong, #666A7E); background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0); }
+    button:hover { background: var(--bx-hover, #2A2B34); }
+    button.primary { background: var(--bx-accent, #8C9BFF); border-color: var(--bx-accent, #8C9BFF); color: var(--bx-accent-ink, #0B0C12); }
+    button.primary:hover { background: var(--bx-accent-hover, #A9B4FF); border-color: var(--bx-accent-hover, #A9B4FF); }
+    button.danger { color: var(--bx-danger, #FF7A7A); border-color: var(--bx-danger, #FF7A7A); }
   `];
 
   #onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); this.#resolve(null); } };
@@ -131,10 +139,10 @@ export class BxDialog extends LitElement {
     return html`
       <div class="backdrop" @click=${() => this.#resolve(null)}></div>
       <div class="box" role="dialog" aria-modal="true">
-        ${this.from ? html`<div class="attrib">▟ ${this.from}</div>` : nothing}
+        ${this.from ? html`<div class="attrib"><bx-icon name="window"></bx-icon><span class="from">${this.from}</span></div>` : nothing}
         ${s.title ? html`<h3>${s.title}</h3>` : nothing}
         ${s.message ? html`<p class="msg">${s.message}</p>` : nothing}
-        ${s.error ? html`<p class="err" role="alert">${s.error}</p>` : nothing}
+        ${s.error ? html`<p class="err" role="alert"><bx-icon name="error"></bx-icon>${s.error}</p>` : nothing}
         <form @submit=${submit}>
           ${(s.fields ?? []).map((f) => this.#field(f))}
           <div class="btns">

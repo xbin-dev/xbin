@@ -175,7 +175,8 @@ async function personPage(browser) {
 
     // ---- 1. a switch decision (and a keep) ----
     const sw = p.locator(`${PAGE} [data-decide="${SW}"]`);
-    check(/user → unpartitioned/.test(await sw.innerText()) && /all data in this tile/.test(await sw.innerText()),
+    // the R → Q badge is set in micro caps (innerText reads it upper case)
+    check(/user → unpartitioned/i.test(await sw.innerText()) && /all data in this tile/.test(await sw.innerText()),
       'the pending switch says R → Q and what it deletes');
     await sw.locator('button[data-act="switch"]').click();
     await sw.locator('[data-confirm="switch"] [data-counts]').waitFor({ timeout: 10000 });

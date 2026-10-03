@@ -22,6 +22,7 @@
  * guided command.
  */
 import { LitElement, html, css, nothing } from 'lit';
+import '/vendor/bx-icons.js';
 import { SigninReader, typedLine, cleanCode } from '/vendor/signin-scan.js';
 import { SIGNIN_PURPOSE } from '/vendor/term-sessions.js';
 
@@ -42,24 +43,37 @@ export class BxAgentSignin extends LitElement {
     _copied: { state: true },
   };
 
+  // D184: signed out is a warning (its glyph, words and tint); the step to
+  // take is the primary button (the accent, its ink); the link and the code
+  // are in the code face; controls 28px with the focus ring.
   static styles = css`
-    :host { display: block; margin-bottom: 6px; }
-    .box { border: 1px solid var(--bx-amber, #f2a71b); border-radius: 5px; background: var(--bx-panel-2, #2b3038); padding: 6px 8px;
-      font: 11px var(--bx-mono, ui-monospace, monospace); color: var(--bx-text, #d4d9e0); display: flex; flex-direction: column; gap: 6px; }
+    :host { display: block; margin-bottom: 8px; }
+    .box { border: 1px solid var(--bx-warn, #F2994A); border-radius: var(--bx-radius, 2px); background: var(--bx-warn-bg, #382F2C); padding: 8px 12px;
+      font: var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif); color: var(--bx-text, #E9EAF0); display: flex; flex-direction: column; gap: 8px; }
     .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .row form { display: contents; }
     .msg { flex: 1; min-width: 0; }
-    .go, button, a.go { border: 1px solid var(--bx-amber, #f2a71b); border-radius: 5px; padding: 3px 10px; font: inherit; white-space: nowrap; cursor: pointer; }
-    .go { background: var(--bx-amber, #f2a71b); color: #1b1e24; font-weight: 700; text-decoration: none; }
-    button { background: transparent; color: var(--bx-text, #d4d9e0); }
+    .msg bx-icon { color: var(--bx-warn, #F2994A); margin-right: 6px; }
+    :focus-visible { outline: var(--bx-focus-outline, 3px solid #3DD6F5); outline-offset: var(--bx-focus-offset, 2px);
+      box-shadow: var(--bx-focus-halo, 0 0 0 2px #0B0C12); }
+    .go, button, a.go { display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; min-height: var(--bx-control-h, 28px); padding: 0 11px;
+      border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px); font: inherit; font-weight: 600; white-space: nowrap; cursor: pointer; }
+    button { background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0); }
+    button:hover:not([disabled]) { background: var(--bx-hover, #2A2B34); }
+    .go, button.go { background: var(--bx-accent, #8C9BFF); border-color: var(--bx-accent, #8C9BFF); color: var(--bx-accent-ink, #0B0C12); text-decoration: none; }
+    .go:hover, button.go:hover:not([disabled]) { background: var(--bx-accent-hover, #A9B4FF); border-color: var(--bx-accent-hover, #A9B4FF); }
     button[disabled] { opacity: .5; cursor: default; }
-    button.link { border: 0; padding: 0; color: var(--bx-muted, #868f9a); text-decoration: underline; }
-    input { flex: 1; min-width: 12em; background: var(--bx-bg, #1b1e24); color: var(--bx-text, #d4d9e0); border: 1px solid var(--bx-border, #363c45);
-      border-radius: 5px; padding: 3px 6px; font: inherit; }
-    input.url { color: var(--bx-muted, #868f9a); }
-    .status { color: var(--bx-muted, #868f9a); white-space: pre-wrap; overflow-wrap: anywhere; }
-    .status.ok { color: var(--bx-green, #4caf50); }
-    .status.bad { color: var(--bx-red, #ef5350); }
+    button.link { min-height: 0; border: 0; padding: 0; background: none; color: var(--bx-muted, #A3A6B6); font-weight: 400; text-decoration: underline; }
+    button.link:hover:not([disabled]) { background: none; color: var(--bx-text, #E9EAF0); }
+    input { flex: 1; min-width: 12em; box-sizing: border-box; min-height: var(--bx-control-h, 28px);
+      background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0); border: 1px solid var(--bx-border-strong, #666A7E);
+      border-radius: var(--bx-radius, 2px); padding: 0 8px; font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); }
+    input::placeholder { color: var(--bx-subtle, #8E91A2); opacity: 1; font: var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif); }
+    input.url { color: var(--bx-muted, #A3A6B6); }
+    .status { color: var(--bx-muted, #A3A6B6); white-space: pre-wrap; overflow-wrap: anywhere; }
+    .status.ok { color: var(--bx-ok, #A3CF5E); }
+    .status.bad { color: var(--bx-danger, #FF7A7A); }
+    .status bx-icon { margin-right: 6px; }
   `;
 
   constructor() {
@@ -223,15 +237,15 @@ export class BxAgentSignin extends LitElement {
     const [cls, line] = this._status();
     return html`<div class="box" data-phase=${p}>
       <div class="row">
-        <span class="msg"><b>Sign in to ${name}</b></span>
+        <span class="msg">${p === 'done' ? nothing : html`<bx-icon name="warning"></bx-icon>`}<b>Sign in to ${name}</b></span>
         ${p === 'idle' ? html`<button class="go start" @click=${() => this.start()}>Sign in</button>` : nothing}
         ${p === 'failed' || p === 'ended' || p === 'error' ? html`<button class="go retry" @click=${() => this.start()}>Try again</button>` : nothing}
         ${p === 'old' ? html`<button class="go fallback" @click=${() => this._terminal(true)}>Sign in in a terminal</button>` : nothing}
       </div>
       ${live ? html`
         <div class="row">
-          <a class="go open" href=${st.url} target="_blank" rel="noopener noreferrer">Open sign-in page ↗</a>
-          <button class="copy" @click=${() => this._copy()}>${this._copied ? 'Copied' : 'Copy link'}</button>
+          <a class="go open" href=${st.url} target="_blank" rel="noopener noreferrer">Open sign-in page<bx-icon name="popout"></bx-icon></a>
+          <button class="copy" @click=${() => this._copy()}><bx-icon name=${this._copied ? 'check' : 'copy'}></bx-icon>${this._copied ? 'Copied' : 'Copy link'}</button>
           <input class="url" readonly aria-label="the sign-in link" .value=${st.url} @focus=${(e) => e.target.select()}>
         </div>
         <div class="row"><form @submit=${(e) => this._finish(e)}>
@@ -239,7 +253,7 @@ export class BxAgentSignin extends LitElement {
             placeholder=${st.code ? 'Paste the code the page shows' : 'Waiting for the CLI to ask for the code…'} ?disabled=${!st.code || p === 'checking'}>
           <button class="finish" type="submit" ?disabled=${!st.code || p === 'checking'}>Finish</button>
         </form></div>` : nothing}
-      <div class="status ${cls}" role="status">${line}</div>
+      <div class="status ${cls}" role="status">${cls === 'ok' ? html`<bx-icon name="ok"></bx-icon>` : cls === 'bad' ? html`<bx-icon name="error"></bx-icon>` : nothing}${line}</div>
       ${p === 'done' ? nothing : html`<div class="row">
         <button class="link terminal" @click=${() => this._terminal(false)}>Use a terminal instead</button>
         ${p === 'starting' || live ? html`<button class="link cancel" @click=${() => this._cancel()}>Cancel</button>` : nothing}

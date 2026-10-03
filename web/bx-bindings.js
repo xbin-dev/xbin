@@ -11,8 +11,13 @@
 import { LitElement, html, css, nothing, repeat } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
 import '/vendor/bx-multiselect.js';
+import '/vendor/bx-icons.js';
 import { onEvent } from '/vendor/events-socket.js';
 import { bindPreselect, blockedTitle } from '/vendor/bx-netrules.js';
+
+// a link-like control that opens or closes a list: focusable, Enter and Space work
+const toggle = (label, fn) => html`<a role="button" tabindex="0" @click=${fn}
+  @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); } }}>${label}</a>`;
 
 export class BxBindings extends LitElement {
   static properties = {
@@ -28,54 +33,57 @@ export class BxBindings extends LitElement {
   static styles = [scrollCss, css`
     :host {
       display: block;
-      font: var(--bx-font, 13px/1.45 system-ui, sans-serif);
-      color: var(--bx-text, #d4d9e0);
+      font: var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif);
+      color: var(--bx-text, #E9EAF0);
     }
+    :focus-visible { outline: var(--bx-focus-outline, 3px solid #3DD6F5); outline-offset: var(--bx-focus-offset, 2px);
+      box-shadow: var(--bx-focus-halo, 0 0 0 2px #0B0C12); }
+    /* a card: a border, no shadow (D184) */
     .panel {
-      background: var(--bx-panel, #23272e);
-      border: 1px solid var(--bx-border, #363c45);
-      border-left: 3px solid var(--bx-accent, #f5a623);
-      border-radius: var(--bx-radius, 6px);
-      box-shadow: var(--bx-shadow, 0 1px 2px rgba(0, 0, 0, 0.35));
-      padding: 8px 12px;
+      background: var(--bx-panel, #1F2028);
+      border: 1px solid var(--bx-border, #33353F);
+      border-radius: var(--bx-radius, 2px);
+      padding: 8px var(--bx-pad, 12px) 12px;
     }
     h4 {
-      margin: 0 0 4px; font-size: 10.5px; font-weight: 600;
-      letter-spacing: .08em; text-transform: uppercase;
-      color: var(--bx-muted, #868f9a);
+      margin: 4px 0 8px; color: var(--bx-muted, #A3A6B6);
+      font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif);
+      letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase;
     }
     /* a narrow panel (a phone): the provider's picker takes a line of its
        own rather than shrink to "apps/egress-appr…" */
-    .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 3px 0; }
-    .who { font-family: var(--bx-mono, ui-monospace, monospace); font-size: 12px; }
-    .slot { color: var(--bx-accent, #f5a623); font-size: 12px; font-weight: 600; }
-    .kind { color: var(--bx-muted, #868f9a); font-size: 11px; }
-    select {
-      flex: 1 1 14em; min-width: 0; font: inherit; font-size: 12px;
-      padding: 2px 6px; border: 1px solid var(--bx-border, #363c45);
-      border-radius: 5px; background: var(--bx-panel, #23272e); color: inherit;
+    .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-height: var(--bx-row, 28px); padding: 4px 0;
+      border-top: 1px solid var(--bx-border, #33353F); }
+    .who { font-family: var(--bx-mono, "JetBrains Mono", ui-monospace, monospace); }
+    .slot { font-weight: 600; }
+    .kind { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); }
+    select, input {
+      box-sizing: border-box; min-width: 0; min-height: var(--bx-control-h, 28px); font: inherit; padding: 0 8px;
+      border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
+      background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0);
     }
-    .none { color: var(--bx-muted, #868f9a); font-size: 12px; flex: 1; font-style: italic; }
+    select { flex: 1 1 14em; }
+    input { flex: 2; }
+    input::placeholder { color: var(--bx-subtle, #8E91A2); opacity: 1; }
+    .none { color: var(--bx-muted, #A3A6B6); flex: 1; font-style: italic; }
+    /* buttons (product-ui §6): bind and publish are the primary action */
     button {
-      background: var(--bx-green, #4caf50); color: #fff; border: 0;
-      border-radius: 5px; padding: 2px 10px; cursor: pointer;
-      font: inherit; font-size: 12px; font-weight: 600;
+      box-sizing: border-box; min-height: var(--bx-control-h, 28px); padding: 0 11px; cursor: pointer;
+      background: var(--bx-accent, #8C9BFF); color: var(--bx-accent-ink, #0B0C12);
+      border: 1px solid var(--bx-accent, #8C9BFF); border-radius: var(--bx-radius, 2px);
+      font: inherit; font-weight: 600;
     }
-    button:disabled { opacity: .45; cursor: default; }
-    button.rm {
-      background: var(--bx-panel, #23272e); color: var(--bx-red, #ef5350);
-      border: 1px solid color-mix(in srgb, var(--bx-red, #ef5350) 40%, transparent);
-      font-weight: 500;
-    }
-    a { color: var(--bx-muted, #868f9a); font-size: 12px; cursor: pointer; }
-    a:hover { color: var(--bx-accent, #f5a623); }
-    input {
-      flex: 2; min-width: 0; font: inherit; font-size: 12px;
-      padding: 2px 6px; border: 1px solid var(--bx-border, #363c45);
-      border-radius: 5px; background: var(--bx-panel, #23272e); color: inherit;
-    }
+    button:hover:not(:disabled) { background: var(--bx-accent-hover, #A9B4FF); border-color: var(--bx-accent-hover, #A9B4FF); }
+    button:disabled { opacity: .5; cursor: default; }
+    /* a row's unbind: a quiet button in the danger colour (R1: row actions are quiet) */
+    button.rm { background: transparent; color: var(--bx-danger, #FF7A7A); border-color: transparent; }
+    button.rm:hover { background: transparent; border-color: var(--bx-danger, #FF7A7A); }
+    a { display: inline-block; color: var(--bx-muted, #A3A6B6); cursor: pointer; text-decoration: none; }
+    a:hover { color: var(--bx-text, #E9EAF0); text-decoration: underline; }
+    .panel > a { margin-top: 8px; }
     select.mode { flex: none; width: auto; }
-    .rerr { color: var(--bx-red, #ef5350); font-size: 11.5px; padding: 0 0 3px 2px; }
+    .rerr { color: var(--bx-danger, #FF7A7A); padding: 0 0 4px 2px; }
+    .rerr bx-icon { margin-right: 6px; }
   `];
 
   constructor() {
@@ -205,7 +213,7 @@ export class BxBindings extends LitElement {
       // they can't rewire are no line on every screen (as bx-grants)
       const n = this._approvable ? active.filter((b) => this._approvable[b.component]).length : active.length;
       return n === 0 ? nothing
-        : html`<a @click=${() => { this._showAll = true; }}>${n} interface ${n === 1 ? 'binding' : 'bindings'}</a>`;
+        : toggle(`${n} interface ${n === 1 ? 'binding' : 'bindings'}`, () => { this._showAll = true; });
     }
     return html`<div class="panel">
       ${this._pending.length > 0 ? html`
@@ -252,10 +260,10 @@ export class BxBindings extends LitElement {
               <button ?disabled=${!cur || !this._routeReady(p)}
                 @click=${() => this._bind(p)}>${p.expose ? 'publish' : 'bind'}</button>`}
           </div>
-          ${this._errs[key] ? html`<div class="rerr">${this._errs[key]}</div>` : nothing}`;
+          ${this._errs[key] ? html`<div class="rerr" role="alert"><bx-icon name="error"></bx-icon>${this._errs[key]}</div>` : nothing}`;
         })}` : nothing}
       ${this._showAll ? html`
-        <h4 style="margin-top:.6rem">active bindings</h4>
+        <h4 style="margin-top:12px">active bindings</h4>
         ${active.map((b) => html`
           <div class="row">
             <span class="who">${b.component}</span>
@@ -263,8 +271,7 @@ export class BxBindings extends LitElement {
             <span class="none">→ ${b.provider}</span>
             <button class="rm" @click=${() => this._unbind(b)}>unbind</button>
           </div>`)}
-        <a @click=${() => { this._showAll = false; }}>hide</a>` : (active.length > 0 ? html`
-        <a @click=${() => { this._showAll = true; }}>show all bindings</a>` : nothing)}
+        ${toggle('hide', () => { this._showAll = false; })}` : (active.length > 0 ? toggle('show all bindings', () => { this._showAll = true; }) : nothing)}
     </div>`;
   }
 }

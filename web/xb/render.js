@@ -119,6 +119,7 @@ const BASE_CSS = css`
   .spin { width: 20px; height: 20px; flex: none; animation: xb-spin 1s steps(12) infinite; color: var(--xb-muted); }
   @keyframes xb-spin { to { transform: rotate(360deg); } }
   xb-unknown { display: flex; align-items: center; gap: 8px; padding: 10px 12px; color: var(--xb-muted);
+    /* theme-ok: the app's shapes (the native renderer draws them; plan §6) */
     border: 1px dashed var(--xb-border); border-radius: 8px; font: var(--xb-font-footnote); }
   xb-unknown.cell { border: 0; border-radius: 0; padding: 11px 16px; }
   xb-fragment { display: contents; }

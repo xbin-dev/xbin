@@ -6,7 +6,7 @@
 // starts on none, never on internet (WP-11b).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { netOptions, bindPreselect, blockedTitle } from '../web/bx-netrules.js';
+import { netOptions, bindPreselect, blockedTitle, ruleLabel, ruleGlyph, scopeGlyph, scopeIcon, SCOPE_ICON, SET_ICON, RULE_KINDS } from '../web/bx-netrules.js';
 
 const org = { id: 'sales', netSets: ['devs-net'], resolvedNet: ['internet', 'lan:10.42.0.0/16'] };
 const server = [
@@ -84,4 +84,24 @@ test('a blocked option says why: a set that says host is no sandbox network', ()
   assert.match(blockedTitle({ label: 'internet — public internet — outside your network allowance (ask a workspace admin)', blocked: true }), /allowance/);
   assert.match(blockedTitle({ label: 'set:vpn — network set (provider:apps/*) — provider-only, not bindable', blocked: true }), /provider-only/);
   assert.equal(blockedTitle({ label: 'internet — public internet — not covered by the org\'s network sets', blocked: true }), 'refused by the owning org\'s network sets');
+});
+
+// D184 — words carry no emoji: an option's label is its words (an <option>
+// can't hold an icon), its glyph rides along as `icon`; a rule's words and
+// glyph come apart the same way. What older consoles print before a label
+// (RULE_KINDS' icon, SCOPE_ICON, SET_ICON, scopeIcon) is empty, so they print
+// the words alone.
+test('labels are words; glyphs ride along by name', () => {
+  const pictograph = /[\u{1F300}-\u{1FAFF}☀-➿←-⇿]/u;
+  const opts = netOptions({ org, providers: ['apps/vpn'], options: server, pending: { default: 'org' } });
+  for (const o of opts) assert.doesNotMatch(o.label, pictograph, `no glyph in ${JSON.stringify(o.label)}`);
+  const by = Object.fromEntries(opts.map((o) => [o.id, o]));
+  assert.deepEqual([by.org.icon, by['set:lab'].icon, by.internet.icon, by.host.icon, by['apps/vpn'].icon, by.none.icon, by[''].icon],
+    ['org', 'link', 'globe', 'network', 'plug', 'error', undefined]);
+  assert.equal(by['apps/vpn'].label, 'via apps/vpn');
+  assert.deepEqual(['internet', 'host', 'lan:10.0.0.0/8', 'provider:apps/vpn', 'internet:api.example.net:443'].map((r) => [ruleLabel(r), ruleGlyph(r)]),
+    [['all internet', 'globe'], ['host networking', 'warning'], ['LAN 10.0.0.0/8', 'network'], ['via apps/vpn', 'plug'], ['to api.example.net:443', 'arrow-right']]);
+  assert.deepEqual([scopeGlyph('org'), scopeGlyph('personal'), scopeGlyph('set:infra'), scopeGlyph('bogus'), scopeGlyph('toString')], ['org', 'person', 'link', '', '']);
+  assert.deepEqual([scopeIcon('org'), SET_ICON, Object.values(SCOPE_ICON).join('')], ['', '', '']);
+  for (const k of RULE_KINDS) { assert.equal(k.icon, '', k.id); assert.ok(k.glyph, k.id); }
 });

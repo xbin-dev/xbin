@@ -27,17 +27,23 @@
 
 import * as branch from './deploy-branch.js';
 
-export const GLYPH = Object.freeze({ attached: '●', pinned: '📌', reloadNow: '⇡', layout: '⇈' });
+// The glyphs (/vendor/bx-icons.js names, D184) the window draws beside the
+// words: a view model carries its glyph as `icon` and its words without one
+// (the chip, the offer, the menu's items, the entry point, the tile API
+// select's entries, the frame chip). Where a glyph can't be drawn (an
+// <option>, a tooltip) the words stand alone.
+export const GLYPH = Object.freeze({ attached: 'live', pinned: 'pin', reloadNow: 'refresh', layout: 'deploy', api: 'plug', noApi: 'error' });
 
 // The labels a view model's menu items carry: the frame's test names find an
-// item by them (a submenu item as "<parent>/<name>").
+// item by them (a submenu item as "<parent>/<name>"). A submenu's own arrow
+// is the menu's to draw.
 export const LABEL = Object.freeze({
   header: 'Live reload',
   pause: 'Pause live reload',
-  resume: 'Resume live reload on ▸',
-  attach: 'Attach live reload to ▸',
-  reloadNow: '⇡ Reload now',
-  deployments: '⇈ Deployments…',
+  resume: 'Resume live reload on',
+  attach: 'Attach live reload to',
+  reloadNow: 'Reload now',
+  deployments: 'Deployments…',
 });
 
 // What a refusal dialog calls each operation ("Reload now was refused").
@@ -175,42 +181,46 @@ function failedSentence(s, f) {
 }
 
 // chip(state, opts) → null in the zero state, else
-// {text, compact, title, failed, count}: the full bar's text, the degraded
-// bar's, and the sentence that is both its tooltip and its aria-label.
-// `text` and `compact` already end in the failure mark when `failed`
-// (base/baseCompact are without it, for a red span).
+// {text, compact, title, failed, count, icon}: the full bar's text, the
+// degraded bar's, and the sentence that is both its tooltip and its
+// aria-label; icon is the glyph drawn before them ('pin' while saves don't
+// reach the target, 'live' while they do). `text` and `compact` already end
+// in the failure mark when `failed` (base/baseCompact are without it, for a
+// red span). The degraded bar's words may be empty: the glyph alone.
 export function chip(s, opts = {}) {
   const f = facts(s);
   if (f.zero) return null;
   const P = f.primary;
-  let base, baseCompact, title, count = null;
+  let base, baseCompact, title, count = null, icon = GLYPH.pinned;
   if (f.reader && s.liveReload !== P) {
     const pin = cp(s, P);
-    base = `📌 ${P} pinned to ${pin}`;
-    baseCompact = `📌 ${cut(P)}`;
+    base = `${P} pinned to ${pin}`;
+    baseCompact = cut(P);
     title = `${P} is pinned to ${pin}: saves in the work tree don't reach it.`;
   } else if (f.paused && f.cause === 'branch' && f.b.off) { // the work tree left the target's branch (D131)
-    base = `📌 Live reload paused · ⎇ ${f.b.wtb || 'no branch'}`;
-    baseCompact = '📌 ⎇';
+    base = `Live reload paused · ${f.b.wtb ? `branch ${f.b.wtb}` : 'no branch'}`;
+    baseCompact = 'branch';
     title = pausedSentence(s, f, opts);
   } else if (f.paused) {
     count = f.cause === 'protect' ? null : f.changed;
-    base = count > 0 ? `📌 Live reload paused · ${count}` : '📌 Live reload paused';
-    baseCompact = count > 0 ? `📌 ${count}` : '📌';
+    base = count > 0 ? `Live reload paused · ${count}` : 'Live reload paused';
+    baseCompact = count > 0 ? `${count}` : '';
     title = pausedSentence(s, f, opts);
   } else if (f.attached === P) {
-    base = `● Live reload: ${P}`;
-    baseCompact = `● ${cut(P)}`;
+    icon = GLYPH.attached;
+    base = `Live reload: ${P}`;
+    baseCompact = cut(P);
     title = `Live reload: ${P} — every save reaches everyone using ${s.tile}.`;
   } else {
     const A = f.attached;
-    base = `● Live reload: ${A}`;
-    baseCompact = `● ${cut(A)}`;
+    icon = GLYPH.attached;
+    base = `Live reload: ${A}`;
+    baseCompact = cut(A);
     title = `Live reload: ${A} — saves reach ${s.tile}+${A}. The primary, ${P}, is pinned to ${cp(s, P)}.${branch.offSentence(f.b, A)}`;
   }
   const failed = !!f.failed;
   return { text: failed ? `${base} · deploy failed` : base, compact: failed ? `${baseCompact}!` : baseCompact, base, baseCompact,
-    title: failed ? `${title} ${failedSentence(s, f)}` : title, failed, count };
+    title: failed ? `${title} ${failedSentence(s, f)}` : title, failed, count, icon };
 }
 
 // offer(state, opts) → the full bar's Reload now offer, or null: only while
@@ -219,7 +229,7 @@ export function offer(s, opts = {}) {
   const f = facts(s);
   if (!f.paused || !(f.changed > 0)) return null;
   if (!reloadNowControl(s, f, opts).enabled) return null;
-  return { label: `⇡ Reload now · ${f.changed}`, title: reloadNowTip(f) };
+  return { label: `${LABEL.reloadNow} · ${f.changed}`, title: reloadNowTip(f), icon: GLYPH.reloadNow };
 }
 
 const reloadNowTip = (f) => (f.changed > 0
@@ -236,7 +246,7 @@ const zeroSentence = (s) => `Live reload: ${s.primary || 'main'} — every save 
 
 // chipItems(state, opts) → the chip's menu, as data:
 //   [{kind:'header', label} | {kind:'sep'} |
-//    {label, enabled, hint, op?, deployment?, title?, items?}]
+//    {label, enabled, hint, op?, deployment?, title?, items?, icon?}]
 // op is pause | resume | reloadNow | attach | deployments; a submenu's items
 // carry the deployment they act on. The tooltip sentence is a disabled item
 // (no op). A reader gets the header and the sentence only. opts.panel: the
@@ -253,7 +263,7 @@ export function chipItems(s, opts = {}) {
   if (!f.reader) {
     if (f.paused) {
       const rc = reloadNowControl(s, f, opts);
-      items.push({ label: f.changed > 0 ? `${LABEL.reloadNow} · ${f.changed}` : LABEL.reloadNow, enabled: rc.enabled, hint: rc.why, op: 'reloadNow', title: reloadNowTip(f) });
+      items.push({ label: f.changed > 0 ? `${LABEL.reloadNow} · ${f.changed}` : LABEL.reloadNow, enabled: rc.enabled, hint: rc.why, op: 'reloadNow', title: reloadNowTip(f), icon: GLYPH.reloadNow });
       const rs = control(s, 'resume', null, opts);
       const sub = resumeCandidates(s, f).map((Y) => ({ label: Y, enabled: rs.enabled, hint: rs.why, op: 'resume', deployment: Y, title: resumeTip(f, Y) }));
       items.push({ label: LABEL.resume, enabled: sub.some((it) => it.enabled), hint: sub.length ? rs.why : (rs.why || `${f.primary} is protected: live reload can't attach to it.`), items: sub });
@@ -271,7 +281,7 @@ export function chipItems(s, opts = {}) {
       }
     }
   }
-  if (opts.panel) items.push({ kind: 'sep' }, { label: LABEL.deployments, enabled: true, hint: '', op: 'deployments' });
+  if (opts.panel) items.push({ kind: 'sep' }, { label: LABEL.deployments, enabled: true, hint: '', op: 'deployments', icon: GLYPH.layout });
   return items;
 }
 
@@ -293,11 +303,13 @@ const attachCandidates = (s, f) => (s.deployments || []).map((d) => d.name)
   .filter((n) => n !== f.attached && !(s.protectedPrimary && n === f.primary));
 
 // toMenu(items, run) → <bx-menu> items: run(op, deployment) is called for a
-// chosen item the viewer may use; disabled items keep their reason as hint.
+// chosen item the viewer may use; disabled items keep their reason as hint,
+// and an item's glyph rides along as its icon.
 export function toMenu(items, run) {
   return items.map((it) => {
     if (it.kind) return { ...it };
     const m = { label: it.label, disabled: !it.enabled };
+    if (it.icon) m.icon = it.icon;
     if (it.hint) m.hint = it.hint;
     if (it.items) m.items = toMenu(it.items, run);
     else if (it.enabled && it.op) m.action = () => run(it.op, it.deployment, it);
@@ -306,12 +318,12 @@ export function toMenu(items, run) {
 }
 
 // entry(state) → the one control a tile shows for its deployments, on every
-// tile of an xbind that has them (null when it doesn't): the ⇈ button, with
-// a count once the viewer's state lists two or more deployments.
+// tile of an xbind that has them (null when it doesn't): the deploy glyph
+// (icon), with a count (text) once the viewer's state lists two or more.
 export function entry(s) {
   if (!s) return null;
   const n = s.record ? (s.deployments || []).length : 0;
-  return { text: n >= 2 ? `${GLYPH.layout} ${n}` : GLYPH.layout, title: LAYOUT_TIP, count: n >= 2 ? n : 0 };
+  return { text: n >= 2 ? `${n}` : '', title: LAYOUT_TIP, count: n >= 2 ? n : 0, icon: GLYPH.layout };
 }
 
 // ---- the tile API select (a session's target) ----
@@ -324,28 +336,29 @@ export function defaultTarget(s) {
   return A && A !== (s.primary || 'main') ? A : 'off';
 }
 
-// apiOptions(state, session) → {options: [{value, label}], value, def, notes}
-// for the tile API select. A tile with no record, or whose only deployment
-// is an unprotected primary, keeps today's two options ('on' / 'off').
+// apiOptions(state, session) → {options: [{value, label, icon}], value, def, notes}
+// for the tile API select (an <option> shows the label alone; icon is the
+// glyph a richer picker draws). A tile with no record, or whose only
+// deployment is an unprotected primary, keeps today's two options ('on' / 'off').
 // Otherwise one entry per deployment the viewer may reach ('primary' or a
 // name), never a protected primary, then 'off'. value is the session's echo
 // ({api, deployment}), never a guess; notes are lines for the select's title.
 export function apiOptions(s, session = {}) {
-  const off = { value: 'off', label: '⛔ no API' };
+  const off = { value: 'off', label: 'no API', icon: GLYPH.noApi };
   const deps = s?.record ? (s.deployments || []) : [];
   if (!s || !s.record || (deps.length <= 1 && !s.protectedPrimary)) {
-    return { options: [{ value: 'on', label: '🔌 tile API' }, off], value: session?.api === false ? 'off' : 'on', def: 'on', notes: [] };
+    return { options: [{ value: 'on', label: 'tile API', icon: GLYPH.api }, off], value: session?.api === false ? 'off' : 'on', def: 'on', notes: [] };
   }
   const P = s.primary || 'main';
   const options = [];
-  if (!s.protectedPrimary) options.push({ value: 'primary', label: `🔌 target: ${P} (primary)` });
+  if (!s.protectedPrimary) options.push({ value: 'primary', label: `target: ${P} (primary)`, icon: GLYPH.api });
   deps.filter((d) => d.name !== P && d.can?.open?.ok === true).map((d) => d.name).sort()
-    .forEach((n) => options.push({ value: n, label: `🔌 target: ${n}` }));
+    .forEach((n) => options.push({ value: n, label: `target: ${n}`, icon: GLYPH.api }));
   options.push(off);
   const value = session?.api === false ? 'off' : (session?.deployment || 'primary');
   // a named target the list lacks (removed, or no longer the viewer's to
   // open) is still what the session calls: shown, so the select never guesses
-  if (value !== 'off' && value !== 'primary' && !options.some((o) => o.value === value)) options.splice(-1, 0, { value, label: `🔌 target: ${value}` });
+  if (value !== 'off' && value !== 'primary' && !options.some((o) => o.value === value)) options.splice(-1, 0, { value, label: `target: ${value}`, icon: GLYPH.api });
   const notes = [];
   if (s.protectedPrimary) notes.push(`${P} is protected: terminals and agents can't call it.`);
   const A = s.liveReload || '';
@@ -409,7 +422,7 @@ export function keepTargets(tabs, prev = [], rows = []) {
 
 // launcher(state, opts) → null in the zero state and for readers, else
 // {banner, subtitle, note}: banner is null or {text, tone ('paused' amber |
-// 'plain'), reloadNow (show the ⇡ Reload now button)}; subtitle ends each
+// 'plain'), reloadNow (show the Reload now button)}; subtitle ends each
 // session card's line (what a new session calls); note is a line under the
 // cards when saves and new sessions go to different places.
 export function launcher(s, opts = {}) {
@@ -440,7 +453,7 @@ export function launcher(s, opts = {}) {
 
 // ---- the frame chip (over the tile, for people whose saves it concerns) ----
 
-// frameChip(summary, state) → null or {text, title}. summary is the tile's
+// frameChip(summary, state) → null or {text, title, icon}. summary is the tile's
 // /components `deployments` block ({primary, pinned, protected}); the chip
 // shows only while the primary is pinned, to viewers with terminal level.
 export function frameChip(summary, s) {
@@ -451,7 +464,7 @@ export function frameChip(summary, s) {
   if (s.liveReload === P) return null;
   const why = dep(s, P)?.lastDeploy?.result === 'failed' ? 'deploy failed'
     : s.liveReload ? `saves reach ${s.liveReload}` : 'live reload paused';
-  return { text: '📌 pinned', title: `${P} pinned to ${cp(s, P)} · ${why}` };
+  return { text: 'pinned', title: `${P} pinned to ${cp(s, P)} · ${why}`, icon: GLYPH.pinned };
 }
 
 // ---- a frame of a deployment (<bx-frame src="<tile>+<name>">) ----

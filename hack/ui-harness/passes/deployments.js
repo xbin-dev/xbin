@@ -7,7 +7,7 @@
 //      the tile API select's entries and D127p's default; a session switched to
 //      dev says XBIN_DEPLOYMENT=dev, and switching restarts it;
 //   1b. the window's panes (D129): Deployments opens full width (no
-//      launcher beside it); the rows' Dev API and ● live reload tags, one
+//      launcher beside it); the rows' Dev API and live reload tags, one
 //      line each, the Dev API tag following a tab switch; ⇋ puts the
 //      terminal beside the panel; the divider drags (the width saved in the
 //      window pref), takes → and resets on a double-click; a narrow pane
@@ -17,8 +17,8 @@
 //      infra1 (read) gets 403 there, and its view of the tile — the state,
 //      the panel, the chip, the select — names no non-primary deployment (a
 //      filtered view, not a 403);
-//   2b. the tile window's head: ⇈ (a non-primary deployment, main pinned;
-//      no 📌 chip inside the window) picks what the window shows — dev:
+//   2b. the tile window's head: the deploy glyph (a non-primary deployment, main pinned;
+//      no pinned chip inside the window) picks what the window shows — dev:
 //      its page and a +dev tag, kept in the layout across a reload; main
 //      again: no tag;
 //   3. Promote dev → main: the diff names the file; the bare URL then serves
@@ -137,10 +137,17 @@ const panes = (page) => page.locator(`${sel} .panels`).evaluate((el) => {
 const tagsOf = (page) => page.locator(`${sel} bx-deployments nav.side .row .t`).evaluateAll((ts) => ts.map((t) => ({
   name: t.querySelector('.nm')?.textContent.trim() || '',
   shown: t.getBoundingClientRect().width > 0,
+  // a tag's lines are its words' (a glyph beside them, centred on the
+  // tag, is not a line of text)
   pills: [...t.querySelectorAll('.pill')].map((p) => {
-    const r = document.createRange();
-    r.selectNodeContents(p);
-    return { text: p.textContent.trim(), title: p.title, lines: new Set([...r.getClientRects()].map((x) => Math.round(x.top))).size };
+    const tops = new Set(), w = document.createTreeWalker(p, NodeFilter.SHOW_TEXT);
+    for (let n = w.nextNode(); n; n = w.nextNode()) {
+      if (!n.textContent.trim()) continue;
+      const r = document.createRange();
+      r.selectNodeContents(n);
+      for (const x of r.getClientRects()) tops.add(Math.round(x.top));
+    }
+    return { text: p.textContent.trim(), title: p.title, lines: tops.size };
   }),
 })));
 // the window pref as saved (term-sessions.js prefKey)
@@ -316,13 +323,13 @@ async function stepAdd(X) {
   await waitPanel(P, (p, d) => p.state?.record && p.rows.some((r) => r.name === d) && p.state.liveReload === d, DEV, 'dev added, live reload on it');
   const rows = await pn(P, (p) => p.rows);
   const main = rows.find((r) => r.name === 'main'), dv = rows.find((r) => r.name === DEV);
-  check(!!main?.primary && /^📌 c:[0-9a-f]{7,}$/.test(main?.code || '') && dv?.code === '● work tree',
-    `the rows: main pinned to a checkpoint, dev following the work tree (${JSON.stringify(rows.map((r) => [r.name, r.code]))})`);
+  check(!!main?.primary && /^c:[0-9a-f]{7,}$/.test(main?.code || '') && main.icon === 'pin' && dv?.code === 'work tree' && dv.icon === 'live',
+    `the rows: main pinned to a checkpoint, dev following the work tree (${JSON.stringify(rows.map((r) => [r.name, r.code, r.icon]))})`);
   // the window's own state follows the add's deployments event (debounced)
-  await waitFor(P, (t, a) => t.frameFor(a.tile)?.testApi().deploy.chip?.text === a.want, { tile: TILE, want: `● Live reload: ${DEV}` },
+  await waitFor(P, (t, a) => t.frameFor(a.tile)?.testApi().deploy.chip?.text === a.want, { tile: TILE, want: `Live reload: ${DEV}` },
     { timeout: 10000, label: 'the chip follows the add' }).catch(() => { });
   const chip = await fr(P, TILE, (f) => f.deploy.chip);
-  check(chip?.text === `● Live reload: ${DEV}`, `the chip reads ● Live reload: dev (${chip?.text})`);
+  check(chip?.text === `Live reload: ${DEV}`, `the chip reads Live reload: dev (${chip?.text})`);
   // the launcher (the window without sessions) says what a new session calls
   await fr(P, TILE, (f) => f.open('term'));
   await settle(P);
@@ -331,7 +338,7 @@ async function stepAdd(X) {
   // a new tab: the tile API select's entries, D127p's default
   const i = await newShell(P);
   const opts = await fr(P, TILE, (f, t, idx) => f.deploy.apiOptions(idx).map((o) => [o.value, o.label]), i);
-  check(JSON.stringify(opts) === JSON.stringify([['primary', '🔌 target: main (primary)'], [DEV, `🔌 target: ${DEV}`], ['off', '⛔ no API']]),
+  check(JSON.stringify(opts) === JSON.stringify([['primary', 'target: main (primary)'], [DEV, `target: ${DEV}`], ['off', 'no API']]),
     `the tile API select offers main (primary), dev and no API (${JSON.stringify(opts)})`);
   check(await fr(P, TILE, (f, t, idx) => f.deploy.target(idx), i) === 'primary', "the new tab calls the primary (D127p's default)");
   check(await envDeployment(P, i) === '', 'its shell has no XBIN_DEPLOYMENT (it follows the primary)');
@@ -352,7 +359,7 @@ async function stepAdd(X) {
 
 // 1b. the window's panes and the panel's tags (D129): with a session,
 // Deployments still opens full width; its rows tag the active tab's target
-// "Dev API" and the live reload target "● live reload", each on one line,
+// "Dev API" and the live reload target "live reload" (after the live glyph), each on one line,
 // and the Dev API tag follows a tab switch; ⇋ puts the terminal beside the
 // panel, the divider drags (the width is saved in the window pref, the
 // layout is not), takes the arrow keys and resets on a double-click; a
@@ -382,10 +389,10 @@ async function stepPanes(X) {
     `with a session too, Deployments opens full width (${JSON.stringify(full)})`);
   const tags = await tagsOf(P);
   const pills = (name) => tags.find((r) => r.name === name)?.pills || [];
-  const devApi = pills('main').find((p) => p.text === 'Dev API'), lr = pills(DEV).find((p) => p.text === '● live reload');
+  const devApi = pills('main').find((p) => p.text === 'Dev API'), lr = pills(DEV).find((p) => p.text === 'live reload');
   check(!!devApi && devApi.lines === 1 && /^Dev API: this tab's API calls and bx commands reach main, the primary/.test(devApi.title) && !pills(DEV).some((p) => p.text === 'Dev API'),
     `the active tab calls the primary: main's row reads Dev API, on one line, with its tooltip (${JSON.stringify(tags)})`);
-  check(!!lr && lr.lines === 1 && lr.title === `Live reload: saves reach ${TILE}+${DEV}.`, `dev's row reads ● live reload, on one line (${JSON.stringify(pills(DEV))})`);
+  check(!!lr && lr.lines === 1 && lr.title === `Live reload: saves reach ${TILE}+${DEV}.`, `dev's row reads live reload, on one line (${JSON.stringify(pills(DEV))})`);
   check(!tags.some((r) => r.pills.some((p) => /target of this terminal/.test(p.text))), 'no row says "target of this terminal"');
   await shotEl(P, `${sel} .pop`, 'deployments-full');
   await fr(P, TILE, (f, t, idx) => { f.setActiveTab(idx); return true; }, j);
@@ -497,7 +504,7 @@ async function stepURL(X) {
   await shot(R.page, 'deployments-reader', { fullPage: false });
 }
 
-// 2b. the window head: ⇈ picks the deployment the tile's window shows
+// 2b. the window head: the deploy glyph picks the deployment the tile's window shows
 async function stepWindow(X) {
   const { check, A } = X, P = A.page;
   const head = P.locator(`bx-canvas .card[data-path="${TILE}"] .head`);
@@ -510,12 +517,12 @@ async function stepWindow(X) {
     await menu.waitFor({ state: 'detached', timeout: 10000 });
   };
   const icon = head.locator('button.dpb');
-  check(await icon.count() === 1, `the window head carries ⇈ (${await icon.getAttribute('title').catch(() => 'none')})`);
-  check(await P.locator(`bx-canvas .card[data-path="${TILE}"] .frame-wrap .dchip`).count() === 0, 'no 📌 chip inside the tile window');
+  check(await icon.count() === 1, `the window head carries the deploy button (${await icon.getAttribute('title').catch(() => 'none')})`);
+  check(await P.locator(`bx-canvas .card[data-path="${TILE}"] .frame-wrap .dchip`).count() === 0, 'no pinned chip inside the tile window');
   await icon.click();
   await menu.waitFor({ timeout: 10000 });
   const labels = await menu.locator('button.it .lb').allTextContents();
-  check(labels.includes('main') && labels.includes(DEV) && labels.includes('Deployments…'), `the ⇈ menu: main, ${DEV}, Deployments… (${JSON.stringify(labels)})`);
+  check(labels.includes('main') && labels.includes(DEV) && labels.includes('Deployments…'), `the deploy menu: main, ${DEV}, Deployments… (${JSON.stringify(labels)})`);
   await shot(P, 'deployments-window-menu', { fullPage: false });
   await P.keyboard.press('Escape');
   await menu.waitFor({ state: 'detached', timeout: 10000 });
