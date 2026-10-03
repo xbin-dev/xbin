@@ -11002,3 +11002,72 @@ Deviations and refinements made while implementing; all deliberate:
     agent template's browser tests `terminal.mjs`, `harness-term.mjs` and
     `native.mjs` time out waiting for a terminal on this machine, at the
     integrated commit as well (not looked into).
+
+- **D185 — Base Two in the iOS app: the native renderer and the app's
+  chrome on Concrete Day and Night, the M3 icon and mark (2026-10-04;
+  brand/ios).** native/ios (XbinRendererModel/Tokens.swift, XbinRenderer/
+  Theme.swift, App/Shell/BrandMark.swift, App/Terminal/TerminalLook.swift,
+  App/Resources/AppIcon.icon and Fonts/), web/xb/render-theme.js. (If
+  another branch took this number for the tile agent's guidelines, renumber
+  one of them at the merge.) The owner, on D184's review: "we should
+  restyle iOS app to be consistent with the web, keeping similar design
+  language. For logo we have the new one". The app still drew its amber
+  XbinPalette on iOS's grouped greys, and the reference renderer had gone
+  back to that look so a preview matched the phone (D184 §6 Open).
+  - **One palette, in the renderer's model.** XbinPalette holds theme.css's
+    Day/Night values (surfaces, ink, accent and its ink, focus, status and
+    tints, the partition marker, part tabs, the brand fields, the mark's
+    colours, the chart series in the ANSI order, the terminal's palette) as
+    pairs; XbinColor turns them into colours that follow the appearance, and
+    the app's screens use the same roles. render-theme.js is Base Two again
+    and ThemeParityTests holds it equal to XbinPalette, so a builder's
+    preview keeps showing what the phone draws.
+  - **The appearance follows the person.** A window takes the theme the
+    person chose in the workspace it shows (the shell bucket's `theme`, the
+    key xbind already injects into the tiles' pages; re-read on its `prefs`
+    event), else the phone's. Before, a person who chose dark saw dark tiles
+    inside light native chrome. The app never writes the key: the web's
+    Settings → Theme stays the one place to choose.
+  - **Faces: system for text, the brand's for two roles.** Body, controls
+    and inline titles are the system font (Dynamic Type intact); navigation
+    large titles, the renderer's `largeTitle` and the first-run stair are
+    Bricolage Grotesque 800, terminals and `mono` JetBrains Mono (regular
+    and bold; bold is weight, `useBrightColors` off). The TTFs are made from
+    web/vendor/fonts by native/ios/scripts/app-fonts.sh (the web's own
+    glyphs; Bricolage's latin and latin-ext halves merged), bundled with
+    their OFL texts and listed in Info.plist's UIAppFonts.
+  - **Shapes: 2 pt on what the app draws itself** — cards (screens'
+    cards, the launcher's boxes, the renderer's card groups, chat cards,
+    notices, code, images, terminals, a widget's card), badges, the switcher
+    plate and buttons (`.buttonBorderShape(.roundedRectangle(radius: 2))`).
+    Navigation and tab bars, sheets, lists' inset sections, switches,
+    segmented controls and search fields stay iOS's.
+  - **Part tabs** are a 3 pt rule on a card's top edge: green for a
+    terminal, magenta for an agent session (the sessions screen's tabs and
+    the launcher's boxes), yellow on the admin console's card (as the web
+    canvas marks `tiles/admin`). User tiles get none.
+  - **Glyphs: SF Symbols, mapped from the web's.** View models carry the
+    web's glyph names (DeployView now ports deploy-state.js's emoji-free
+    words with an `icon`: pin, live, refresh, shield); XbinGlyphs maps a
+    name to the SF Symbol of the same meaning, and status is that glyph, a
+    word and the status colour (a tile's status was a coloured dot). SF
+    Symbols rather than the web's drawn glyphs as template assets: they
+    scale and weigh with Dynamic Type and sit with the bars, menus and lists
+    the system draws in SF Symbols; a second icon idiom inside the native
+    chrome would be the inconsistency. Agents' sparkles go (brand §9): the
+    agent glyph is `square.on.square`, SF Symbols' nearest to two linked
+    squares.
+  - **The terminal stays dark in both appearances**, now in Concrete
+    Night's terminal palette (the web terminal's "Concrete Night"), with
+    its dark keyboard and a key row of square keys; sticky modifiers take
+    the terminal's accent. The renderer's `terminal` primitive does the same.
+  - **The mark and the icon.** XbinMark draws M3 from the masters' path
+    data (plans/brand/marks), XbinLockup sets it with wordmark A in the text
+    colour. AppIcon.icon is the cobalt fill with the white b and the yellow
+    x as two flat layers (no specular, no translucency); the dark, clear and
+    tinted looks stay the system's derivations (native/AGENTS.md), checked
+    with ictool.
+  - **First run** is the one place the stair appears (product-ui 10):
+    "Your apps / on your / phone." on yellow, green and magenta over the
+    definition, then the four ways in, which stay (Run your own xbin is a
+    product function). The About pages follow the voice rules.

@@ -10,6 +10,20 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-04
+
+- **The iOS app and a tile's native view take Base Two** (D185): Concrete
+  Day and Concrete Night, the cobalt accent (periwinkle in dark), status in
+  its colours with a glyph and a word, square corners (2 pt) on cards,
+  badges and buttons, large titles in Bricolage Grotesque 800 and terminals
+  in JetBrains Mono, with the new mark and app icon. A native view's roles
+  keep their names (`tone`, the type roles, gaps and heights,
+  [native.md](/docs/native.md) §Tokens): `accent` is the cobalt where it was
+  the amber, `largeTitle` is set in Bricolage Grotesque, `mono` in JetBrains
+  Mono, and `bx preview --native` shows the same look the phone draws. The
+  app follows the person's Theme setting (System, Light, Dark) in the
+  workspace a window shows, as the tiles' own pages in it already did.
+
 ## 2026-10-03
 
 - **The workspace follows your system's light or dark setting** (Base Two:

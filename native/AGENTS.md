@@ -746,13 +746,16 @@ the files in agreement with the code.
 
 **The icon** is `App/Resources/AppIcon.icon`, an Icon Composer document (the
 iOS 26+ format: Liquid Glass, with the dark, clear and tinted looks derived
-by the system). It holds two layers drawn from `web/favicon.svg` at 13×,
-offset 96, on the 1024 canvas: `plate.svg`, the amber chamfered plate with
-its rivets, and `x.svg`, the charcoal X in a group of its own, raised above
-the plate with a shadow. The background is an automatic gradient of the
-shell's steel `#2a2f37`. Edit the SVGs, or open the document in Icon Composer
-(`/Applications/Xcode.app/Contents/Applications/Icon Composer.app`). Preview
-every look on the Mac without a build:
+by the system). It is the mark, M3 (D183, D185; the masters are
+`plans/brand/marks/`, `icon-1024.svg` the full-bleed drawing): a solid
+cobalt `#1F3DFF` fill, square art the system masks, and two flat layers on
+the 1024 canvas, `b.svg` (the white b, even-odd) and `x.svg` (the yellow x
+`#FFD000`, in a group of its own above it), with no specular highlight and
+no translucency (the brand's mark never glows). The derived Dark look sets a
+cobalt b and the yellow x on near-black; Clear and Tinted are the system's
+monochrome. Edit the SVGs from the masters, or open the document in Icon
+Composer (`/Applications/Xcode.app/Contents/Applications/Icon Composer.app`).
+Preview every look on the Mac without a build:
 
 ```sh
 T="/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool"
@@ -764,6 +767,16 @@ done
 
 The build compiles it into `Assets.car` (`ASSETCATALOG_COMPILER_APPICON_NAME:
 AppIcon` in project.yml), with the marketing icon App Store Connect wants.
+
+**The faces** (D185) are `App/Resources/Fonts/`: Bricolage Grotesque 800
+(large titles, the first-run stair) and JetBrains Mono regular and bold
+(terminals, code), with their OFL texts, listed in `App-Info.plist`'s
+`UIAppFonts`. They are the workspace's own (`web/vendor/fonts`, pinned by
+`hack/vendor.sh`), converted by `native/ios/scripts/app-fonts.sh`
+(woff2_decompress and fontTools; the same bytes every run): rerun it when
+vendor.sh moves a font. XbinRendererModel's `XbinFaces` names them; a face
+that isn't registered falls back to the system's (the package-mode snapshot
+tests draw with the system font).
 
 **Privacy.** The app's code collects nothing for the developer. It talks to
 the workspaces its user adds, which are their servers, and fetches the kill

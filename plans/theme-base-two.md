@@ -1433,16 +1433,14 @@ static scan. Line references are `promo/film-set`'s.
   the old X/BIN mark, so the favicons, `logo.*`, `apple-touch-icon.png`, the
   sign-in mark and the shell's default mark change to it next. Until then
   the wordmark is text.
-- **The iOS app**: its colours and type (`XbinPalette` in Tokens.swift:
-  amber) stay as they are, and so does the native reference renderer
-  (`web/xb/render-theme.js`), which previews the app and moves with it
-  (review round: it had moved to Base Two alone). Its web views get the
-  person's override through the injected meta while its native chrome
-  follows the phone. The app can
-  relay `xbin:appearance` itself (its document-start script already relays
-  messages), if the owner wants app pages to follow the phone instead.
-  The native renderer keeps the app's shapes (iOS idioms, product-ui §10)
-  until the app adopts Base Two corners.
+- **The iOS app**: done in D185 (brand/ios). `XbinPalette` is Concrete
+  Day and Night, the native reference renderer (`web/xb/render-theme.js`)
+  moved with it (ThemeParityTests holds the two equal), large titles are
+  Bricolage Grotesque 800 and terminals JetBrains Mono, the app's own
+  cards, badges and buttons have 2 px corners (iOS's bars, sheets and list
+  sections keep theirs), and a window follows the person's `theme` in the
+  workspace it shows, as its web views already did through the injected
+  meta. The mark and the app icon are M3.
 - **Comfortable density** ships as tokens and the setting; how far each
   surface uses `--bx-row`/`--bx-pad` beyond the shell and admin tables is
   the packages' judgement.

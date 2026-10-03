@@ -603,14 +603,17 @@ The app draws these with the same components as its own agent screen.
 ## Tokens
 
 Tiles name roles, never raw values: a `tone`, a type role, a gap, a height.
-Each renderer maps them — the app to iOS system colours (xbin amber as the
-tint) and Dynamic Type, so every native tile follows the user's light/dark
-setting and text size; the reference renderer to the same look (the app's
-amber on the palette the web shell had before Base Two, plus a light one),
-so a preview shows what the phone draws. The workspace's own pages draw
-Base Two (D184); the app, and with it the reference renderer, keeps this
-palette until it adopts Base Two. Padding, radii and elevation belong to
-the renderer.
+Each renderer maps them to Base Two (D184, D185), the workspace's own look:
+Concrete Day and Concrete Night, the cobalt accent (periwinkle in dark),
+ok, warn and danger in their status colours, square corners (2 pt) on
+cards, badges and buttons. The app draws them with Dynamic Type, so every
+native tile follows the person's light/dark setting (their theme in the
+workspace, else the phone's) and text size: body and controls in the
+system font, `largeTitle` in Bricolage Grotesque 800, `mono` in JetBrains
+Mono, the `terminal` primitive dark in both appearances. The reference
+renderer draws the same table (`web/xb/render-theme.js`), so a preview
+shows what the phone draws. Padding, radii and elevation belong to the
+renderer.
 `bx lint --native` flags raw colours (`tone="#f00"`, `rgb(…)`).
 
 <!-- generated:tokens (node hack/native-docs.mjs --write) -->
@@ -624,7 +627,7 @@ the renderer.
 | `icon` | 72 names (Icons below) | a curated icon name; an unknown one draws a neutral placeholder | `row icon`, `tab icon`, `icon name`, `empty icon`, `button icon`, `picker options[].icon`, `menu icon`, `toolcard icon` |
 <!-- /generated:tokens -->
 
-`tone` means: `muted` secondary, `accent` the xbin amber, `ok` success,
+`tone` means: `muted` secondary, `accent` the accent (cobalt; periwinkle in dark), `ok` success,
 `warn` needs attention, `danger` failure or destructive. Gap and height
 values are points (the reference renderer draws them as px).
 
