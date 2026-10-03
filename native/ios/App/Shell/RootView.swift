@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import XbinCore
+import XbinRenderer
 
 /// One window's root: its workspace full screen (the Welcome when there is
 /// none, Onboarding.swift), the switcher over it (a two-finger swipe down,
@@ -62,6 +63,9 @@ struct RootView: View {
         .onAppear(perform: appeared)
         .onChange(of: phase) { _, p in phaseChanged(p) }
         .onChange(of: scene.current) { _, t in remember(t) }
+        // The person's theme in the workspace this window shows, else the
+        // phone's (D185).
+        .preferredColorScheme(WindowAppearance.colorScheme(for: scene.selected?.appearance))
         // Outermost, so the backgrounds (the ⌘ shortcuts) and the sheets
         // above see this window's model too.
         .environment(scene)
@@ -99,6 +103,35 @@ struct RootView: View {
         // The window's value follows what it shows, so "open in a new
         // window" for a place already open brings that window forward.
         if target != t { target = t }
+    }
+}
+
+/// A window's appearance (D185): Debug builds' `-XbinAppearance`, else the
+/// person's theme in the workspace the window shows (the web shell's
+/// Settings → Theme), else the phone's (nil) — as the tiles' own pages
+/// follow it through xbind's injected meta.
+enum WindowAppearance {
+    static func colorScheme(for theme: AppearancePref?) -> ColorScheme? {
+        if let d = debugColorScheme { return d }
+        switch theme {
+        case .light?: return .light
+        case .dark?: return .dark
+        case .system?, nil: return nil
+        }
+    }
+
+    /// Debug builds' `-XbinAppearance light|dark`: the UI tests take their
+    /// screenshots in both (a simulator's own appearance is set from outside).
+    static var debugColorScheme: ColorScheme? {
+        #if DEBUG
+        switch UserDefaults.standard.string(forKey: "XbinAppearance") {
+        case "dark": return .dark
+        case "light": return .light
+        default: return nil
+        }
+        #else
+        return nil
+        #endif
     }
 }
 
@@ -205,9 +238,9 @@ struct PanelBar: ViewModifier {
                         HStack(spacing: 3) {
                             Image(systemName: "arrow.left.arrow.right").font(.footnote.weight(.semibold))
                             if app.needsYouCount > 0 {
-                                Text(verbatim: "\(app.needsYouCount)").font(.caption2.bold())
+                                Text(verbatim: "\(app.needsYouCount)").font(.caption2.bold().monospacedDigit())
                                     .padding(.horizontal, 5).padding(.vertical, 1)
-                                    .background(Color.xbinAmber, in: Capsule()).foregroundStyle(.black)
+                                    .background(XbinColor.accent, in: .xbinPlate).foregroundStyle(XbinColor.onAccent)
                             }
                         }
                     }
@@ -256,9 +289,9 @@ private struct SignInProblemBar: View {
                     Button("Sign in again") {
                         scene.addRequest = .signInAgain(workspace: workspace.id, server: workspace.origin)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .xbinPrimary()
                 } else {
-                    Button("Try again") { Task { await workspace.signIn() } }.buttonStyle(.borderedProminent)
+                    Button("Try again") { Task { await workspace.signIn() } }.xbinPrimary()
                 }
                 Button("Dismiss") { workspace.signInProblem = nil }
             }
@@ -270,7 +303,8 @@ private struct SignInProblemBar: View {
 }
 
 /// The workspace's branding icon (D76) — its `data:` image (BrandImages),
-/// an emoji, or else its initial on amber.
+/// an emoji, or else its initial on a neutral plate (no field colour: the
+/// cobalt tile is xbin's own mark).
 struct BrandIcon: View {
     let workspace: WorkspaceModel
     var size: CGFloat = 28
@@ -281,12 +315,13 @@ struct BrandIcon: View {
             if let image = BrandImages.shared.image(icon) {
                 Image(uiImage: image).resizable().interpolation(.high).scaledToFit()
             } else {
-                RoundedRectangle(cornerRadius: size * 0.25).fill(Color.xbinAmber.opacity(0.9))
+                RoundedRectangle.xbinPlate.fill(XbinColor.surface2)
+                RoundedRectangle.xbinPlate.strokeBorder(XbinColor.borderStrong, lineWidth: 1)
                 if let icon, icon.count <= 4, !icon.isEmpty {
                     Text(verbatim: icon).font(.system(size: size * 0.6))
                 } else {
                     Text(verbatim: String(workspace.title.prefix(1)).uppercased())
-                        .font(.system(size: size * 0.55, weight: .bold)).foregroundStyle(.black)
+                        .font(.system(size: size * 0.55, weight: .bold)).foregroundStyle(XbinColor.text)
                 }
             }
         }
@@ -304,7 +339,7 @@ private struct LockView: View {
             Rectangle().fill(.background).ignoresSafeArea()
             VStack(spacing: 16) {
                 Image(systemName: "lock.fill").font(.largeTitle)
-                Button("Unlock") { Task { await app.unlock() } }.buttonStyle(.borderedProminent)
+                Button("Unlock") { Task { await app.unlock() } }.xbinPrimary()
             }
         }
     }

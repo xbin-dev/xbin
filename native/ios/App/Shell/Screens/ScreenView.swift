@@ -87,7 +87,7 @@ struct ScreenView: View {
                     Text("Edit the screen to add tiles, or create one.")
                 } actions: {
                     Button("Edit") { editor = ScreenEditor(screen: s, cards: [], hidden: workspace.mobile.hidden(for: s.id, screenTiles: s.tiles)) }
-                        .buttonStyle(.borderedProminent)
+                        .xbinPrimary()
                 }
                 .padding(.top, 60)
             }
@@ -102,7 +102,7 @@ struct ScreenView: View {
             }
             .padding(XbinWidgetMetrics.margin)
         }
-        .background(Color(uiColor: .systemGroupedBackground))
+        .background(XbinColor.background)
         .refreshable { await workspace.refresh() }
     }
 
@@ -110,9 +110,12 @@ struct ScreenView: View {
         let tile = workspace.tile(c.path) ?? TileInfo(path: c.path)
         TileCard(tile: tile, size: c.size, workspace: workspace)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
-            .clipShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
-            .contentShape(RoundedRectangle(cornerRadius: Self.corner, style: .continuous))
+            // A Base Two card: the panel, square corners, a hairline edge;
+            // the admin console's card carries the yellow part tab, as the
+            // web canvas's does (product-ui 3).
+            .xbinCard()
+            .xbinPartTab(tile.path == "tiles/admin" ? .admin : nil)
+            .contentShape(RoundedRectangle(cornerRadius: Self.corner, style: .circular))
             .onTapGesture { workspace.open(.tile(c.path), in: nav) }
             .contextMenu { TileMenu(workspace: workspace, tile: tile) { workspace.open($0, in: nav) } }
             .accessibilityElement(children: .contain)

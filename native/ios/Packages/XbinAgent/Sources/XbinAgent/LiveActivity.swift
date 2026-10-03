@@ -313,7 +313,7 @@ public struct AgentActivityDisplay: Sendable, Hashable {
         switch s.phase {
         case .running:
             status = "Working"
-            symbol = "sparkles"
+            symbol = "square.on.square" // the agents' two linked squares (D185: no sparkles)
             badge = ""
         case .waiting:
             status = s.pending > 1 ? "\(s.pending) waiting for you" : "Waiting for you"

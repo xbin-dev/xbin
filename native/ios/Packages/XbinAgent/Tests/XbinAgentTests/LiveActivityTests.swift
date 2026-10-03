@@ -174,7 +174,7 @@ import Testing
     @Test func display() {
         let local = AgentActivityAttributes(ws: "w", workspace: "Acme", session: "fix login", appWorkspace: "0f3a-1", sessionID: "s1:2")
         let r = AgentActivityDisplay(attributes: local, state: AgentActivityState(phase: .running, since: 1_790_000_000), stale: false)
-        #expect(r.title == "fix login" && r.subtitle == "Acme" && r.status == "Working" && r.symbol == "sparkles" && r.badge == "")
+        #expect(r.title == "fix login" && r.subtitle == "Acme" && r.status == "Working" && r.symbol == "square.on.square" && r.badge == "")
         #expect(r.timerStart == Date(timeIntervalSince1970: 1_790_000_000))
         #expect(r.link == "xbin://0f3a-1/agent/s1:2")
         let w = AgentActivityDisplay(attributes: local, state: AgentActivityState(phase: .waiting, since: 1, pending: 3), stale: false)

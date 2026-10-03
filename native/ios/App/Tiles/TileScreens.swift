@@ -1,4 +1,5 @@
 import SwiftUI
+import XbinRenderer
 import UIKit
 import WebKit
 import XbinCore
@@ -76,7 +77,7 @@ struct WebTileScreen: View {
                     } description: {
                         Text(verbatim: err)
                     } actions: {
-                        Button("Try again") { c.reload() }.buttonStyle(.borderedProminent)
+                        Button("Try again") { c.reload() }.xbinPrimary()
                     }
                     .background(.background)
                 }
@@ -205,7 +206,7 @@ struct TileDialogSheet: View {
             Form {
                 if !spec.message.isEmpty { Section { Text(verbatim: spec.message) } }
                 if !spec.error.isEmpty {
-                    Section { Label { Text(verbatim: spec.error) } icon: { Image(systemName: "exclamationmark.triangle") }.foregroundStyle(.red) }
+                    Section { Label { Text(verbatim: spec.error) } icon: { Image(systemName: XbinGlyphs.symbol("error")) }.foregroundStyle(XbinColor.danger) }
                 }
                 if !spec.fields.isEmpty {
                     Section {

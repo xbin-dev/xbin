@@ -1,4 +1,5 @@
 import SwiftUI
+import XbinRenderer
 import XbinCore
 
 // The sign-in pages of the onboarding stack (Onboarding.swift): Log in, the
@@ -100,7 +101,7 @@ struct MethodsPage: View {
                         Text("Not encrypted: this address uses http, so your password and everything you do here can be read on the network, unless the network itself is encrypted (a VPN such as Tailscale). Use https if you can.")
                             .font(.footnote)
                     } icon: {
-                        Image(systemName: "lock.open").foregroundStyle(.orange)
+                        Image(systemName: "lock.open").foregroundStyle(XbinColor.warn)
                     }
                 }
             }
@@ -224,7 +225,7 @@ struct InviteAcceptPage: View {
                 Text("Choose a password")
             } footer: {
                 if mismatch {
-                    Text("The passwords don't match.").foregroundStyle(.red)
+                    Text("The passwords don't match.").foregroundStyle(XbinColor.danger)
                 } else {
                     Text("At least 8 characters. You'll use it to sign in from a browser; this device gets its own key.")
                 }
@@ -276,7 +277,7 @@ struct ProblemSection: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Label(p.title, systemImage: symbol(p.kind))
                         .font(.headline)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(XbinColor.danger)
                     Text(p.message).font(.callout)
                 }
                 .padding(.vertical, 4)

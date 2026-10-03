@@ -1,6 +1,7 @@
 import SwiftUI
 import XbinAgent
 import XbinCore
+import XbinRenderer
 
 /// "+ Create tile" (D125): a name and an owner — the choices the web
 /// shell offers (TileCreate.owners) — then `POST /api/xbin/create`. For a
@@ -43,7 +44,7 @@ struct CreateTileSheet: View {
                     }
                 }
                 if let error {
-                    Section { Label { Text(verbatim: error) } icon: { Image(systemName: "exclamationmark.triangle") }.foregroundStyle(.red) }
+                    Section { Label { Text(verbatim: error) } icon: { Image(systemName: XbinGlyphs.symbol("error")) }.foregroundStyle(XbinColor.danger) }
                 }
             }
             .navigationTitle("New tile")
@@ -153,7 +154,7 @@ struct BuildChooser: View {
                         HStack {
                             Text(verbatim: p.name).foregroundStyle(.primary)
                             Spacer()
-                            if provider == p.id { Image(systemName: "checkmark").foregroundStyle(Color.xbinAmber) }
+                            if provider == p.id { Image(systemName: "checkmark").foregroundStyle(XbinColor.accent) }
                         }
                     }
                     .tint(.primary) // a choice, not an action
@@ -161,14 +162,14 @@ struct BuildChooser: View {
                 }
             }
             if let error {
-                Section { Label { Text(verbatim: error) } icon: { Image(systemName: "exclamationmark.triangle") }.foregroundStyle(.red) }
+                Section { Label { Text(verbatim: error) } icon: { Image(systemName: XbinGlyphs.symbol("error")) }.foregroundStyle(XbinColor.danger) }
             }
             Section {
                 Button {
                     Task { await start() }
                 } label: {
                     HStack {
-                        Label("Start building", systemImage: "sparkles")
+                        Label("Start building", systemImage: "hammer")
                         if starting { Spacer(); ProgressView() }
                     }
                 }

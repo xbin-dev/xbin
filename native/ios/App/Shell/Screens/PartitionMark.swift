@@ -1,4 +1,5 @@
 import SwiftUI
+import XbinRenderer
 import UIKit
 import XbinCore
 
@@ -56,7 +57,7 @@ struct PausedBadge: View {
         .font(.caption2.weight(.semibold))
         .foregroundStyle(.secondary)
         .padding(.horizontal, 6).padding(.vertical, 2)
-        .background(Color.secondary.opacity(0.15), in: Capsule())
+        .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 1))
         .fixedSize()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: TilePartition.pausedText))

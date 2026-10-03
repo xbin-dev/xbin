@@ -1,5 +1,6 @@
 import ActivityKit
 import SwiftUI
+import UIKit
 import WidgetKit
 import XbinAgent
 
@@ -9,7 +10,18 @@ import XbinAgent
 // view is its own small struct and the configuration's closures are one
 // call each — Xcode's type checker gives up on big inline builders.
 
-private let amber = Color(red: 0xF5 / 255, green: 0xA6 / 255, blue: 0x23 / 255)
+// Base Two (D185): the accent — cobalt, periwinkle on dark — for an agent
+// that works or waits for you, ok for one that is done.
+private let accentColor = Color(uiColor: UIColor { traits in
+    traits.userInterfaceStyle == .dark
+        ? UIColor(red: 0x8C / 255, green: 0x9B / 255, blue: 0xFF / 255, alpha: 1)
+        : UIColor(red: 0x1F / 255, green: 0x3D / 255, blue: 0xFF / 255, alpha: 1)
+})
+private let okColor = Color(uiColor: UIColor { traits in
+    traits.userInterfaceStyle == .dark
+        ? UIColor(red: 0xA3 / 255, green: 0xCF / 255, blue: 0x5E / 255, alpha: 1)
+        : UIColor(red: 0x43 / 255, green: 0x6C / 255, blue: 0x0C / 255, alpha: 1)
+})
 
 struct AgentActivityWidget: Widget {
     var body: some WidgetConfiguration {
@@ -39,9 +51,9 @@ struct AgentCard {
 
     var accent: Color {
         switch display.phase {
-        case .waiting: return amber
-        case .idle: return .green
-        case .running: return display.stale ? .secondary : amber
+        case .waiting: return accentColor
+        case .idle: return okColor
+        case .running: return display.stale ? .secondary : accentColor
         }
     }
 }

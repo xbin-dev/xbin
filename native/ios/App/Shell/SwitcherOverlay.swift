@@ -1,6 +1,6 @@
 import SwiftUI
 import XbinCore
-import XbinRendererModel
+import XbinRenderer
 
 /// The workspace switcher (plans/native.md §4): every workspace with its
 /// branding and what needs you there, one line each (D128); what was used
@@ -54,7 +54,9 @@ struct SwitcherOverlay: View {
                 .scrollContentBackground(.hidden)
                 .frame(maxHeight: 520)
             }
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22))
+            // Opaque, like a sign plate (product-ui 3: no translucency).
+            .background(XbinColor.surface, in: .xbinPlate)
+            .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.borderStrong, lineWidth: 1))
             .padding(.horizontal, 10)
             .padding(.top, 6)
             .frame(maxWidth: 560)
@@ -108,8 +110,8 @@ struct SwitcherOverlay: View {
             Spacer(minLength: 4)
             let waiting = w.needsYou.count
             if waiting > 0 {
-                Text(verbatim: "\(waiting)").font(.caption.bold()).padding(.horizontal, 7).padding(.vertical, 2)
-                    .background(Color.xbinAmber, in: Capsule()).foregroundStyle(.black)
+                Text(verbatim: "\(waiting)").font(.caption.bold().monospacedDigit()).padding(.horizontal, 7).padding(.vertical, 2)
+                    .background(XbinColor.accent, in: .xbinPlate).foregroundStyle(XbinColor.onAccent)
             }
             if index < 9 { Text(verbatim: "⌘\(index + 1)").font(.caption2.monospaced()).foregroundStyle(.tertiary) }
             if w.id == scene.selectedID { Image(systemName: "checkmark").foregroundStyle(.tint) }
@@ -122,9 +124,12 @@ struct TileBadge: View {
     let text: String
 
     var body: some View {
+        // A tile's own word: Base Two's square badge with a 1 pt edge, in
+        // ink (no field colour on what a tile says).
         Text(verbatim: text).font(.caption2.bold()).lineLimit(1)
             .padding(.horizontal, 6).padding(.vertical, 1)
-            .background(Color.xbinAmber.opacity(0.9), in: Capsule()).foregroundStyle(.black)
+            .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.borderStrong, lineWidth: 1))
+            .foregroundStyle(XbinColor.text)
             .accessibilityLabel(Text(verbatim: text))
     }
 }

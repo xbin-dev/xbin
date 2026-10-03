@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import UIKit
+import XbinRendererModel
 import WebKit
 import XbinCore
 
@@ -34,7 +35,7 @@ struct CanvasIsland: View {
                 ProgressView()
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: XbinShapes.radius))
         .onAppear { if c.webView.url == nil { c.load() } }
         .sheet(item: Binding(get: { c.tileDialog },
                              set: { if $0 == nil, let d = c.tileDialog { c.resolveDialog(d.id, button: nil, values: [:]) } })) { d in
@@ -120,7 +121,7 @@ struct CanvasRefused: View {
     let src: String
 
     var body: some View {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
+        RoundedRectangle(cornerRadius: XbinShapes.radius)
             .strokeBorder(Color.secondary.opacity(0.4), style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
             .overlay {
                 Label("Not a page of this tile: \(src)", systemImage: "exclamationmark.triangle")
