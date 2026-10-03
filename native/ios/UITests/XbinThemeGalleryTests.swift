@@ -55,8 +55,9 @@ final class XbinThemeGalleryTests: XCTestCase {
 
             // A native tile and a web tile.
             e.openTile("apps/counter")
-            XCTAssertTrue(e.app.buttons.matching(NSPredicate(format: "label == %@", "+1")).firstMatch.waitForExistence(timeout: 60),
-                          "the native counter")
+            // The tile's own row (a screen's card may show the widget's +1).
+            let count = e.app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "Count,")).firstMatch
+            XCTAssertTrue(count.waitForExistence(timeout: 60), "the native counter")
             shot(e, "native-tile")
             e.openTile("apps/welcome")
             XCTAssertTrue(e.app.webViews.firstMatch.staticTexts["the mental model"].waitForExistence(timeout: 30), "apps/welcome's page")
