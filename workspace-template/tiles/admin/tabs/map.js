@@ -17,8 +17,9 @@ import { WithRouter } from '../shared.js';
 // "1 allowance", "4 allowances"
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 // a pointer that hovers: a pill's title shows its rows; a touch screen's
-// can't, so the hint points at the policies tab instead
-const HOVER = typeof matchMedia !== 'function' || matchMedia('(hover: hover)').matches;
+// can't — nor, as a rule, a phone-sized one's — so there the hint points at
+// the policies tab instead
+const HOVER = typeof matchMedia !== 'function' || matchMedia('(hover: hover) and (min-width: 821px)').matches;
 
 export class BxAdminMap extends WithRouter(LitElement) {
   static properties = {

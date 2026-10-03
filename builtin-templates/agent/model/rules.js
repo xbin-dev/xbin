@@ -284,7 +284,7 @@ export function modelPicker(v, homePick, catalog) {
   const data = (catalog && catalog.data) || [];
   const provs = [...new Set(data.map((m) => m.provider))];
   const value = v ? ((v.config && v.config.pick) || '') : (homePick || '');
-  const options = [{ value: '', label: 'auto — the agent\'s default', group: '' },
+  const options = [{ value: '', label: 'default model', group: '' }, // the agent's own (its config): a short label, it shows in a narrow picker
     ...data.map((m) => ({ value: m.ref || m.id, label: provs.length > 1 ? `${m.id} · ${providerName(m.provider)}` : m.id, group: m.provider || '' }))];
   if (value && !options.some((o) => o.value === value)) options.push({ value, label: `${modelName(value)} (not listed now)`, group: '' });
   return {

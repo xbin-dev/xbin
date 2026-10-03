@@ -31,8 +31,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   active", "20 interface bindings" (no more "(s)"), and a person's own view
   (`GET /grants` scope `mine`) with nothing waiting shows no count at all;
   admins (workspace or org) keep it. The admin console's access map says
-  "1 allowance", "2 policy rows", and on a touch screen points at the
-  policies tab instead of saying "hover". The view-as banner and the
+  "1 allowance", "2 policy rows", and on a touch or phone-sized screen
+  points at the policies tab instead of saying "hover". The view-as banner and the
   partitions page are reworded ("…in every tab of this browser, until you
   exit"; "through the workspace").
 - **Agent template: a narrow layout.** In a tile under 560 px (a phone's
@@ -42,7 +42,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   Files show a count only once there is one, Delete is no longer a red
   button in every header (it turns red on hover), and the composer's
   pickers keep their width — the message row wraps instead of squeezing
-  the model picker to "a…". New agents get it; an existing one through
+  the model picker to "a…" (whose default now reads "default model"). New agents get it; an existing one through
   `bx template updates`.
 - **Coding-sandbox template:** the operators' page names xbind's own runtime
   by the workspace's branding title (else "this workspace") rather than

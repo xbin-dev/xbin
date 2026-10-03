@@ -37,9 +37,10 @@ const CSS = `
   .top .hsetup .why { color: var(--bx-muted); font-size: 11.5px; }
   .badge.hchip { display: inline-flex; gap: 4px; align-items: center; text-transform: none; letter-spacing: 0; }
   .badge.hchip.warn { color: var(--bx-yellow, #d9a441); } .badge.hchip.bad { color: var(--bx-red); } .badge.hchip.run { color: var(--bx-accent); }
-  /* a narrow composer (a 480px tile beside the list): the pickers keep their icons (their row is index.html's .cpicks) */
+  /* a narrow composer (a 480px tile beside the list): the class picker keeps its icon (their row is index.html's
+     .cpicks); the model picker keeps its words — squeezed to 50px it read "a…" — and the message row wraps instead */
   .composer { container-type: inline-size; }
-  @container (max-width: 420px) { .composer .clsbtn .nm { display: none; } .composer .msel { max-width: 50px; } }
+  @container (max-width: 420px) { .composer .clsbtn .nm { display: none; } }
 `;
 if (!document.getElementById('harness-start-css')) {
   document.head.append(Object.assign(document.createElement('style'), { id: 'harness-start-css', textContent: CSS }));
