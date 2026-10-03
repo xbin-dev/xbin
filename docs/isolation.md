@@ -623,7 +623,8 @@ line, and the guest sets those modes at every boot, before anything runs —
 character devices in that devtmpfs only (no symbolic link, no other mount
 on the way), permission bits only. `0666 /dev/fuse` and `0666
 /dev/net/tun` are what a distribution's udev rules give and what rootless
-podman needs. Being the sandbox's own file, it grants nothing its root
+podman needs; the coding-sandbox template writes them for an image whose
+user may `sudo`. Being the sandbox's own file, it grants nothing its root
 couldn't.
 
 **Host requirements:** KVM (`/dev/kvm` usable by the xbind user — the

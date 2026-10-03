@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-03
 
+- **coding-sandbox: an image's `sudo`** (`builtin-templates/coding-sandbox/API.md`
+  §Images). `images[].sudo: true` lets the sandboxes' user become root
+  with `sudo` (no password) in VM sandboxes, and makes `/dev/fuse` and
+  `/dev/net/tun` usable by it at every boot (rootless podman, FUSE);
+  `/ops/state` marks the sandboxes that have it (`sudo`). A namespace
+  sandbox can't give it: a manager whose mode is `namespace` refuses such
+  an image, and `auto` without VMs makes its sandboxes without it and says
+  so in hello's `notes`. A changed `sudo` rebuilds an image with a setup
+  script; images without it keep their builds. Nothing to change.
 - **VM sandboxes: `/etc/xbin-vm-devices` opens devices to the guest's
   users** ([isolation.md](isolation.md) §VM sandboxes). `/dev` is a fresh
   devtmpfs at every boot and the guest runs no udev, so `/dev/fuse` and

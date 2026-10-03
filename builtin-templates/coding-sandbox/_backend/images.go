@@ -30,7 +30,15 @@ type buildJob struct {
 	err  error
 }
 
-func setupHash(im Image) string { return hashOf([]string{im.Setup}) }
+// setupHash names what a build of im is: its script, and its sudo (the grant
+// is in the build's snapshot). Without sudo it is the script's alone, as
+// before sudo was: an image's existing build stays current.
+func setupHash(im Image) string {
+	if im.Sudo {
+		return hashOf([]string{im.Setup, "sudo"})
+	}
+	return hashOf([]string{im.Setup})
+}
 
 // usableBuild is the build of b that a sandbox of the image clones for
 // setup hash h in mode: b itself when it is ready and current, else the
@@ -220,7 +228,7 @@ func (m *Manager) build(ctx context.Context, im Image, mode string) (out *builtI
 	}
 	lay := m.layout(rt)
 	tpl := record{ID: "image:" + im.ID, Name: "image " + im.ID, Workdir: lay.Workdir, Home: lay.Home, User: lay.User,
-		UID: lay.UID, GID: lay.GID, Shell: lay.Shell}
+		UID: lay.UID, GID: lay.GID, Shell: lay.Shell, Sudo: im.Sudo && sudoWorks(mode)}
 	info, err := be.Create(ctx, xbin.SandboxSpec{Name: b.Runtime, Mode: mode, MemMiB: size.MemMiB, VCPUs: size.VCPUs, DiskGiB: size.DiskGiB,
 		Net: &xbin.SandboxNet{Egress: egressClass(egress)}, Defaults: defaultsOf(tpl),
 		Labels: map[string]string{"coding-sandbox/image": im.ID}, ClientID: b.Runtime})

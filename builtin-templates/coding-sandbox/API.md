@@ -80,9 +80,10 @@ trusts its consumers.
   snapshot ids are the substrate's.
 - **Its own table** (the `db` resource): per sandbox the id, runtime name,
   name, image, size, egress asked, owner, visibility, members, shares,
-  labels, layout, version and an overlay state (`creating`, `deleting`,
-  `error`); create and snapshot `clientId`s (per consumer; per consumer and
-  sandbox — a user partition is a consumer of its own); the built images;
+  labels, layout, whether its user may sudo, version and an overlay state
+  (`creating`, `deleting`, `error`); create and snapshot `clientId`s (per
+  consumer; per consumer and sandbox — a user partition is a consumer of
+  its own); the built images;
   the config. Execs and their output are the
   substrate's; exec `clientId`s are deduped in memory, and passed to the
   substrate prefixed with the consumer, so two consumers of a shared
@@ -111,7 +112,9 @@ trusts its consumers.
   layout's shell. A terminal's command also gets `TERM`, `COLORTERM` and
   `LANG` (the runtime's, docs/protocol.md §Tile sandboxes). On a substrate
   that runs everything as root (the runtime's `users: root`), the user is
-  root at `/root`.
+  root at `/root`. The user may become root with `sudo` only where its
+  image says so (`sudo`, §Images) — in a VM sandbox, never a namespace
+  one.
 - **`caps`** are the substrate's (`exec`, `files`, `tar`, `tty`,
   `snapshots`, `clone`, and `ports` and `stdio` where xbind serves them);
   `archive` isn't offered yet (its routes answer 501). Hello's also carry
@@ -224,6 +227,25 @@ the substrate's `snapshots` and `clone`; where they're missing, images with
 a script aren't offered and hello's `notes` say so — plain images (no
 `setup`) always are.
 
+**`sudo`** (default off) lets the layout's user become root with `sudo`,
+no password (the account's is locked), in a **VM sandbox** (D182). A
+sandbox's first start writes the grant — an image with a setup script's
+build does, so every clone has it: `/etc/sudoers.d/<user>` (`<user>
+ALL=(ALL:ALL) NOPASSWD: ALL`, 0440) names the user, since commands run
+without supplementary groups and a `%sudo` membership wouldn't reach them;
+and `/etc/xbin-vm-devices` has the VM make `/dev/fuse` and `/dev/net/tun`
+everyone's at each boot, as a distribution's udev rules do — rootless
+podman and FUSE mounts need them (docs/isolation.md §VM sandboxes). Root
+in the VM is the VM's own: the sandbox's network, mounts and files outside
+it stay what they were. A namespace sandbox runs with no new privileges,
+where `sudo` can't work: a manager whose mode is `namespace` refuses an
+image with it, and in `auto` mode, while the substrate offers no VMs, its
+sandboxes get none and hello's `notes` say so. A changed `sudo` rebuilds
+an image with a setup script, as a changed script does; a sandbox keeps
+what it was made with (a clone, its source's), and `/ops/state` marks the
+sandboxes that have it. The setup script runs as root either way: `sudo`
+is for the user's own commands, a coding agent's included.
+
 ## Quotas
 
 Set by operators (`config.quotas`), each field 0 for no limit:
@@ -270,7 +292,7 @@ the tile): `403 not-allowed` otherwise. Errors are the contract's shape.
 | Route | |
 |---|---|
 | `GET /me` | `{user, level, write, operator, self}` — anyone the tile serves: the person, their level on the tile (`read`, `write`, `terminal`; `""` with no person), whether they may change sandboxes on the page, whether they are an operator |
-| `GET /ops/state` | `{self, backend: {name, registered, error?}, runtime?, runtimeError?, listError?, offer: {caps, egress, images, sizes, notes}, config, images: [built image], sandboxes: [sandbox + {consumer, runtime, mode, diskBytes, execsRunning, base}], orphans: [{name, state, labels, created}], usage: {consumers, people}}` |
+| `GET /ops/state` | `{self, backend: {name, registered, error?}, runtime?, runtimeError?, listError?, offer: {caps, egress, images, sizes, notes}, config, images: [built image], sandboxes: [sandbox + {consumer, runtime, mode, diskBytes, execsRunning, base, sudo?}], orphans: [{name, state, labels, created}], usage: {consumers, people}}` |
 | `PUT /ops/config` | above → the state |
 | `PATCH /ops/sandboxes/{id}` | the contract's PATCH body without who may use it (name, labels, egress, size, autoStopMin, version) → the sandbox. `visibility`, `members` or `shares` are `403 not-allowed`: they change only through the home consumer |
 | `POST /ops/sandboxes/{id}/start` · `/stop` | `?wait=` → the sandbox |
@@ -489,7 +511,11 @@ notes have the commands):
    snapshots are as they were).
 8. Images: a setup script builds once, as root, with `IMAGE_ID` and the
    layout in its environment (a template sandbox, snapshotted); the next
-   sandbox of it is a clone (`from`), a changed script rebuilds.
+   sandbox of it is a clone (`from`), a changed script rebuilds. An image's
+   `sudo`: in a VM, `sudo -n id -u` answers 0 (on a rootfs with
+   `/etc/xbin-rootfs-modes`) and `/dev/fuse` and `/dev/net/tun` are 0666
+   at the first boot and after a restart; in a namespace sandbox there is
+   no grant, and hello's `notes` say why.
 9. Terminals through a consumer and through the page (`<bx-terminal
    src>`), with a gorilla client through the proxy as a page's `xbin.ws`:
    the session frame carries the contract's ids, a tty exec outlives its

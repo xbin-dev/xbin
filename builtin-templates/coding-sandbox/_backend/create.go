@@ -137,6 +137,7 @@ func (m *Manager) create(w http.ResponseWriter, r *http.Request) {
 	start := q.Start == nil || *q.Start
 	plan := &createPlan{Start: start, AutoStopMin: m.config().AutoStopMin}
 	image, size := im.ID, sz
+	sudo := im.Sudo && sudoWorks(mode)
 	if q.From != nil { // a clone: of a sandbox the caller may use, now or at a snapshot
 		m.mu.Lock()
 		src := m.recs[q.From.Sandbox]
@@ -161,7 +162,8 @@ func (m *Manager) create(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		plan.FromRuntime, plan.FromID, plan.FromSnap = s.Runtime, s.ID, q.From.Snapshot
-		image = s.Image // a clone is of its source's image, whatever the body says
+		image = s.Image                  // a clone is of its source's image, whatever the body says
+		sudo = s.Sudo && sudoWorks(mode) // …and has its root: its sudo, if it had it
 		if q.Size == "" {
 			if x, ok := m.config().size(s.Size); ok {
 				size = x
@@ -175,7 +177,7 @@ func (m *Manager) create(w http.ResponseWriter, r *http.Request) {
 	rec := &record{ID: "sb-" + randHex(5), Runtime: "s" + randHex(6), Name: q.Name, Image: image, Size: size.ID,
 		Egress: orStr(q.Egress, "none"), Owner: owner{User: c.user, Via: c.from, PartitionID: c.partID, Partition: c.part, Asserted: !c.verified && c.user != ""},
 		Visibility: orStr(q.Visibility, "private"), Members: q.Members, Labels: q.Labels,
-		Workdir: lay.Workdir, Home: lay.Home, User: lay.User, UID: lay.UID, GID: lay.GID, Shell: lay.Shell,
+		Workdir: lay.Workdir, Home: lay.Home, User: lay.User, UID: lay.UID, GID: lay.GID, Shell: lay.Shell, Sudo: sudo,
 		Created: now(), Version: 1, Overlay: "creating", Plan: plan, Mode: mode}
 	if rec.Members == nil {
 		rec.Members = []string{}
