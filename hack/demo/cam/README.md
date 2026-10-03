@@ -269,7 +269,7 @@ pure parts.
   the script's fallback). Real keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, …)
   belong to the workspace's model gateway, not here.
 - **Test takes are not footage.** The example shots' takes against the UI
-  harness (`agent`, `terminal`, `framecheck`: the X/BIN logo, "ok: …"
+  harness (`agent`, `terminal`, `framecheck`: the harness's seed, "ok: …"
   answers, test tiles) go to a directory of their own —
   `.film-media/cam/tests/` — never beside the masters an edit picks from.
 - **Retakes start the same.** The example shots reset what they touch:
