@@ -240,8 +240,11 @@ api PUT /net-sets/internet     '{"rules":["internet"]}'
 api PUT /net-sets/office-lan   '{"rules":["lan:10.20.0.0/16"]}'
 api PUT /net-sets/routing-apis '{"rules":["internet:*.mapdata.example:443","internet:api.geocode.example:443"]}'
 api PUT /net-sets/depot-iot    '{"rules":["lan:10.20.64.0/20","internet:*.telematics.example:443"]}'
+# Operations' tiles may also go out through the egress approver (below),
+# where each new destination waits for a person
+api PUT /net-sets/approved-egress '{"rules":["provider:apps/egress-approver"]}'
 api PATCH /orgs/engineering '{"netSets":["internet","office-lan","routing-apis"]}'
-api PATCH /orgs/operations  '{"netSets":["office-lan","depot-iot"]}'
+api PATCH /orgs/operations  '{"netSets":["office-lan","depot-iot","approved-egress"]}'
 api PATCH /orgs/sales       '{"netSets":["internet"]}'
 api PATCH /orgs/leadership  '{"netSets":["internet"]}'
 
@@ -360,6 +363,27 @@ if [[ -z "$DEMO_ISOLATE" ]]; then
   wait_manifest apps/coding-sandbox res:apps/coding-sandbox/boxes
   TRIES=300 until_ok GET /api/apps/coding-sandbox/ops/state
   call PUT /api/apps/coding-sandbox/ops/config '{"backend":"local","backendConfig":{"root":"res:boxes"}}'
+  sandboxes=1
+else
+  # The manager makes VM sandboxes (its operators' mode): VM tile sandboxes
+  # are an admin's switch, on where xbind can run VMs (the installer turns
+  # it on with KVM; a fresh `xbind init` leaves it off)
+  sandboxes=""
+  call -s GET /api/xbin/vm >/dev/null
+  if [[ "$(jget 'd["status"]["available"]')" == True ]]; then api PUT /vm/policy '{"tiles":true}' && sandboxes=1
+  else echo "  (no VMs here: $(jget 'd["status"].get("reason", "")') — the coding sandboxes stay empty)"; fi
+fi
+# The engineers' sandboxes, made from the tile's own page (their own, each
+# private to them; operators see them all): two running, one stopped.
+# sbx USER NAME SIZE START
+sbx() {
+  call -u "$1" -f apps/coding-sandbox POST "/api/apps/coding-sandbox/sbx/sandboxes?wait=110" \
+    "$(python3 -c 'import json,sys; print(json.dumps({"name": sys.argv[1], "size": sys.argv[2], "egress": "internet", "start": sys.argv[3] == "1"}))' "$2" "$3" "$4")"
+}
+if [[ -n "$sandboxes" ]] && TRIES=300 until_ok -u tomas -f apps/coding-sandbox GET /api/apps/coding-sandbox/sbx/hello; then
+  sbx lukas planner-oom-repro medium 1
+  sbx tomas routing-engine small 1
+  sbx hana driver-app-4-12 small 0
 fi
 
 say "Lark, the team's agent (builtin agent template)"
@@ -468,6 +492,17 @@ api POST /bindings "{\"component\":\"apps/traefik\",\"slot\":\"websecure\",\"pro
 TRIES=60 until_ok GET /api/apps/traefik/state
 call -s POST /api/apps/traefik/settings "{\"email\":\"ops@$DOMAIN\",\"staging\":true}" || echo "  (traefik's settings: $C ${R:0:200})"
 
+say "telematics feeds (apps/telematics): Operations' newest tile, its network through the egress approver"
+# A new tile with a `net` interface: an admin decides where its egress goes
+# (the shell's "interfaces to bind" — the network still unbinds it again to
+# show that). Here: through the egress approver. It makes no network calls.
+new_tile apps/telematics org:operations node "$TILES/telematics"
+cp "$DATA/telematics.json" "$WS/apps/telematics/feeds.json"
+commit_as apps/telematics "$(person owen)" "-1 days 17:05" "Telematics feeds: Samsara and Geotab van positions, NWS weather alerts"
+# (xbind takes the net slot once it has read the manifest laid over the
+# scaffold's: until then the bind is refused)
+TRIES=60 until_ok POST /api/xbin/bindings '{"component":"apps/telematics","slot":"net","provider":"apps/egress-approver"}'
+
 # =========================================================================
 say "who sees what: the shared apps for everyone, the teams' own for their members"
 api PUT /defaults '{"defaultTiles":{"apps/calendar":"read","apps/email":"read","apps/chat":"read","apps/lark":"read","apps/expenses":"read"}}'
@@ -527,6 +562,7 @@ lark_ask tomas "Anything in last night's ops report I should look at before the 
 lark_ask priya "Which renewals are coming up in the next 90 days, and are any at risk?"
 lark_ask priya "Prep me for the Brightwell renewal call at 10:00. Where do things stand, and what should I raise?"
 lark_ask daniel "Draft a follow-up to Dana at Brightwell after today's call: we agreed on a three-year term covering all 202 vans and a two-week driver-app pilot in Dayton in December."
+lark_ask maya "How is our pipeline looking this quarter?"
 
 vis=team; [[ -n "$DEMO_ISOLATE" ]] && vis=private   # a person's partition keeps its automations its own
 schedule() { # user name cron goal
@@ -590,8 +626,15 @@ for who, p in L["people"].items():
                                    "tabOrder": [s["id"] for s in screens], "hiddenOrg": {}, "recent": [], "drafts": {}}))
 PY
 while IFS=$'\t' read -r u body; do call -u "$u" PUT /api/xbin/prefs/layout "$body"; done < "$TMP/layouts"
-cfield '"\n".join(p["id"] for p in c["people"])' > "$TMP/ids"
-while read -r u; do call -u "$u" PUT /api/xbin/prefs/settings '{"fontSize":17}'; done < "$TMP/ids"
+# (17 px, or a person's own size in layouts.json: Maya's overview screen
+# fits four apps at 15)
+py "$COMPANY" "$DATA/layouts.json" > "$TMP/fonts" <<'PY'
+import json, sys
+c = json.load(open(sys.argv[1])); L = json.load(open(sys.argv[2]))["people"]
+for p in c["people"]:
+    print(p["id"] + "\t" + json.dumps({"fontSize": L.get(p["id"], {}).get("fontSize", 17)}))
+PY
+while IFS=$'\t' read -r u body; do call -u "$u" PUT /api/xbin/prefs/settings "$body"; done < "$TMP/fonts"
 
 # =========================================================================
 if [[ "${DEMO_LLM:-fake}" == real ]]; then

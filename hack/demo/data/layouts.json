@@ -1,5 +1,5 @@
 {
-  "_comment": "What each person sees when they sign in: their screens (the shell's tabs) and tiles, in the shell's grid (48 px units; x, y, w, h in px). Sized for a 1440×900 window at the demo's 17 px font: the canvas is 19 units wide with a 150 px sidebar, 22 with it collapsed, and 11 high below the shell's grants line. Written to each person's layout pref by hack/demo/seed.sh; 'default' is the workspace's seed screen for everyone else.",
+  "_comment": "What each person sees when they sign in: their screens (the shell's tabs) and tiles, in the shell's grid (48 px units; x, y, w, h in px). Sized for a 1440×900 window at the demo's 17 px font: the canvas is 19 units wide with a 150 px sidebar, 22 with it collapsed, and 11 high below the shell's grants line; a person's own fontSize (Maya: 15 px) makes it 24 × 13. Written to each person's layout pref by hack/demo/seed.sh; 'default' is the workspace's seed screen for everyone else.",
   "default": [
     { "path": "apps/lark", "x": 0, "y": 0, "w": 624, "h": 528 },
     { "path": "apps/calendar", "x": 624, "y": 0, "w": 288, "h": 528 }
@@ -28,6 +28,20 @@
         { "name": "Expenses", "tiles": [ { "path": "apps/expenses", "x": 0, "y": 0, "w": 912, "h": 528 } ] }
       ]
     },
+    "maya": {
+      "fontSize": 15,
+      "collapsed": true,
+      "screens": [
+        { "name": "Company", "tiles": [
+          { "path": "apps/lark", "x": 0, "y": 0, "w": 480, "h": 624 },
+          { "path": "apps/crm", "x": 480, "y": 0, "w": 672, "h": 288 },
+          { "path": "apps/ops-report", "x": 480, "y": 288, "w": 384, "h": 336 },
+          { "path": "apps/calendar", "x": 864, "y": 288, "w": 288, "h": 336 } ] },
+        { "name": "Today", "tiles": [
+          { "path": "apps/lark", "x": 0, "y": 0, "w": 768, "h": 624 },
+          { "path": "apps/calendar", "x": 768, "y": 0, "w": 384, "h": 624 } ] }
+      ]
+    },
     "tomas": {
       "collapsed": true,
       "screens": [
@@ -38,7 +52,33 @@
           { "path": "apps/ops-report", "x": 0, "y": 0, "w": 672, "h": 528 },
           { "path": "apps/metrics", "x": 672, "y": 0, "w": 384, "h": 528 } ] },
         { "name": "Pipeline", "tiles": [ { "path": "apps/crm", "x": 0, "y": 0, "w": 1056, "h": 528 } ] },
-        { "name": "Build", "tiles": [ { "path": "apps/onboarding", "x": 0, "y": 0, "w": 1056, "h": 528 } ] }
+        { "name": "Build", "tiles": [ { "path": "apps/onboarding", "x": 0, "y": 0, "w": 1056, "h": 528 } ] },
+        { "name": "Sandboxes", "tiles": [ { "path": "apps/coding-sandbox", "x": 0, "y": 0, "w": 1056, "h": 528 } ] },
+        { "name": "Network", "tiles": [
+          { "path": "apps/telematics", "x": 0, "y": 0, "w": 528, "h": 432 },
+          { "path": "apps/egress-approver", "x": 528, "y": 0, "w": 528, "h": 432 } ] },
+        { "name": "Admin", "tiles": [ { "path": "tiles/admin", "x": 0, "y": 0, "w": 1056, "h": 528 } ] }
+      ]
+    },
+    "lukas": {
+      "fontSize": 15,
+      "collapsed": true,
+      "screens": [
+        { "name": "Sandboxes", "tiles": [ { "path": "apps/coding-sandbox", "x": 0, "y": 0, "w": 1152, "h": 624 } ] },
+        { "name": "Ops", "tiles": [ { "path": "apps/ops-report", "x": 0, "y": 0, "w": 1152, "h": 624 } ] },
+        { "name": "Today", "tiles": [
+          { "path": "apps/lark", "x": 0, "y": 0, "w": 768, "h": 624 },
+          { "path": "apps/calendar", "x": 768, "y": 0, "w": 384, "h": 624 } ] }
+      ]
+    },
+    "jonas": {
+      "sideWidth": 150,
+      "screens": [
+        { "name": "Onboarding", "tiles": [ { "path": "apps/onboarding", "x": 0, "y": 0, "w": 912, "h": 528 } ] },
+        { "name": "Customers", "tiles": [ { "path": "apps/crm", "x": 0, "y": 0, "w": 912, "h": 528 } ] },
+        { "name": "Today", "tiles": [
+          { "path": "apps/lark", "x": 0, "y": 0, "w": 624, "h": 528 },
+          { "path": "apps/calendar", "x": 624, "y": 0, "w": 288, "h": 528 } ] }
       ]
     },
     "ruth": {

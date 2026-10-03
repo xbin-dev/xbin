@@ -1,0 +1,11 @@
+{
+  // Telematics feeds (feeds.json, API.md): van positions from the
+  // customers' telematics providers and weather alerts for the depots'
+  // counties, for live dispatch. New on the film set: its network (`net`)
+  // waits for an admin to decide where it goes — the internet, or the
+  // egress approver, where every new destination waits for a person.
+  "runtime": "node",
+  "interfaces": {
+    "net": { "kind": "net" }
+  }
+}
