@@ -212,12 +212,17 @@ async function menus(browser) {
     for (const p of ['apps/leads', 'apps/pinned', 'apps/racks']) { t.toggleTile(p); t.toggleTile(p); }
   });
   await waitSel(page, '.card[data-path="apps/crawler"] bx-frame', { state: 'attached' });
-  const below = await sh(page, (t) => { // empty canvas: below every card, at the right
-    const r = t.query('.canvas').getBoundingClientRect();
-    const bottom = Math.max(0, ...t.openTiles.filter((o) => !o.float).map((o) => o.y + o.h));
-    // the canvas is a scroll space wider than the window: clamp into view
-    return { x: Math.min(r.right, innerWidth) - 100, y: Math.min(r.top + bottom + 60, innerHeight - 40) };
-  });
+  // empty canvas in view: the grants and bindings plates above the canvas
+  // grow with the seed (D184's plates are taller), so "below every card"
+  // can fall under the fold onto a card. Lay the screen out as menuOpen
+  // does — the crawler alone at the origin, put back at the end — and click
+  // to its right, near the canvas's top.
+  const saved = await sh(page, (t) => t.openTiles.map((o) => ({ ...o })));
+  await sh(page, (t) => t.setGeom(() => [{ path: 'apps/crawler', x: 0, y: 0, w: 576, h: 384 }]));
+  await waitSel(page, '.card[data-path="apps/crawler"] bx-frame', { state: 'attached' });
+  await sh(page, (t) => t.query('.canvas').scrollIntoView({ block: 'start' }));
+  await settle(page);
+  const below = await sh(page, (t) => { const r = t.query('.canvas').getBoundingClientRect(); return { x: r.left + 700, y: r.top + 60 }; });
   await page.mouse.click(below.x, below.y, { button: 'right' });
   await waitSel(page, 'bx-menu .it');
   await shot(page, 'menu-canvas', { fullPage: false });
@@ -275,6 +280,7 @@ async function menus(browser) {
   await page.mouse.click(1300, 860);
   await settle(page);
   log('admin popover after outside click:', await sh(page, (t) => !!t.adminWindow));
+  await sh(page, (t, tiles) => { t.setGeom(() => tiles); return t.flushSave(); }, saved);
   await closeCtx(ctx, page);
 }
 

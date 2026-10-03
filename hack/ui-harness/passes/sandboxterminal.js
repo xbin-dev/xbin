@@ -55,14 +55,20 @@ async function openTerminalTile(ctx) {
   return { page, errors };
 }
 
-// sshAs runs `ssh -i key login@host cmd` (OpenSSH, no agent, a connection
-// of its own — never a ControlMaster the user's ssh config keeps, which
-// would skip the login): what it printed on stdout and stderr, and its status.
+// The ssh client's options: a connection of its own, as the pass alone
+// says — no config file (-F /dev/null: neither the user's nor the system's
+// ssh_config.d, whose ProxyCommands or ControlMasters would change the
+// login, and which ssh refuses to read when its owner looks wrong, as in a
+// user namespace that maps only the caller), no agent, no known hosts.
+const SSH = (keyFile, port) => ['-F', '/dev/null', '-i', keyFile, '-p', port, '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null',
+  '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'LogLevel=ERROR', '-o', 'ConnectTimeout=15',
+  '-o', 'ControlMaster=no', '-o', 'ControlPath=none'];
+
+// sshAs runs `ssh -i key login@host cmd` (OpenSSH, SSH above): what it
+// printed on stdout and stderr, and its status.
 function sshAs(keyFile, login_, host, port, cmd) {
   try {
-    const out = execFileSync('ssh', ['-i', keyFile, '-p', port, '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null',
-      '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'LogLevel=ERROR', '-o', 'ConnectTimeout=15',
-      '-o', 'ControlMaster=no', '-o', 'ControlPath=none',
+    const out = execFileSync('ssh', [...SSH(keyFile, port),
       `${login_}@${host}`, cmd], { encoding: 'utf8', timeout: 45000, env: { ...process.env, SSH_AUTH_SOCK: '' }, stdio: ['ignore', 'pipe', 'pipe'] });
     return { out, status: 0 };
   } catch (e) { return { out: `${e.stdout || ''}${e.stderr || ''}`, status: e.status }; }
@@ -219,16 +225,14 @@ async function sandboxTerminal(browser) {
 
   let out = '';
   try {
-    out = execFileSync('ssh', ['-i', keyFile, '-p', port, '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null',
-      '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'LogLevel=ERROR', '-o', 'ConnectTimeout=15',
+    out = execFileSync('ssh', [...SSH(keyFile, port),
       `${login_}@${host}`, 'echo hi-ssh'], { encoding: 'utf8', timeout: 45000, env: { ...process.env, SSH_AUTH_SOCK: '' } });
   } catch (e) { out = `ERR ${e.status}: ${e.stderr || e.message}`; }
   log(`sandboxTerminal: ssh said ${JSON.stringify(out)}`);
   check(out.split(/\r?\n/).includes('hi-ssh'), `ssh -i key -p ${port} ${login_}@${host} echo hi-ssh → hi-ssh (${JSON.stringify(out.slice(0, 300))})`);
   let refused = '';
   try {
-    execFileSync('ssh', ['-i', keyFile, '-p', port, '-o', 'StrictHostKeyChecking=no', '-o', 'UserKnownHostsFile=/dev/null',
-      '-o', 'BatchMode=yes', '-o', 'IdentitiesOnly=yes', '-o', 'LogLevel=ERROR', '-o', 'ConnectTimeout=15',
+    execFileSync('ssh', [...SSH(keyFile, port),
       `nope-${stamp}@${host}`, 'true'], { encoding: 'utf8', timeout: 45000, env: { ...process.env, SSH_AUTH_SOCK: '' } });
   } catch (e) { refused = `${e.stdout || ''}${e.stderr || ''}`; }
   check(/no sandbox "nope-/.test(refused) && refused.includes(login_), `an unknown sandbox name lists the ones you may use (${JSON.stringify(refused.slice(0, 200))})`);

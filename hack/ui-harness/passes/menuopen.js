@@ -24,9 +24,16 @@ async function menuOpen(browser) {
   await sh(page, (t) => { t.setGridScale(1); t.setGeom(() => [{ path: 'apps/crawler', x: 0, y: 0, w: 576, h: 384 }]); return t.flushSave(); });
   await waitSel(page, '.gtile[data-path="apps/crawler"]', { state: 'attached' });
   await settle(page);
-  // canvas logical px → viewport px (scale 1)
-  const origin = await sh(page, (t) => { const r = t.query('.canvas').getBoundingClientRect(); return { x: r.left, y: r.top }; });
-  const rightClick = (p) => page.mouse.click(origin.x + p.x, origin.y + p.y, { button: 'right' });
+  // canvas logical px → viewport px (scale 1), measured at each click: the
+  // seeded grant plates and bindings above the canvas can push it past the
+  // fold (D184's plates are taller), so its top is scrolled into view first,
+  // and a tile opened by the click before may have scrolled it again
+  const rightClick = async (p) => {
+    await sh(page, (t) => t.query('.canvas').scrollIntoView({ block: 'start' }));
+    await settle(page);
+    const o = await sh(page, (t) => { const r = t.query('.canvas').getBoundingClientRect(); return { x: r.left, y: r.top }; });
+    await page.mouse.click(o.x + p.x, o.y + p.y, { button: 'right' });
+  };
   const tileOf = (path) => sh(page, (t, p) => t.openTiles.find((o) => o.path === p) ?? null, path);
   const clearOfOthers = async (path) => {
     const all = await sh(page, (t) => t.openTiles.filter((o) => !o.float));

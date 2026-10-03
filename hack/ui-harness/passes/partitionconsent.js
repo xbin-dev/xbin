@@ -187,6 +187,10 @@ async function partitionConsent(browser) {
     await P2.locator(ask(B)).waitFor({ timeout: 15000 });
     check(await D.page.locator(ask(A)).count() === 0, `only ${B}'s ask shows: ${A}'s stays declined`);
     const allow = qb.locator('button.allow');
+    // Allow arms only while the whole ask is in view (bx-part-consent
+    // _obscured): above it the shell stacks the trust warnings, the grant
+    // plates and the bindings (taller since D184), so bring it into view first
+    await qb.scrollIntoViewIfNeeded();
     await qb.locator('button.allow:not([disabled])').waitFor({ timeout: 5000 });
     // a pop-out window of B's over the question, Allow still in view: Allow is off
     const qbox = await qb.locator('.q').boundingBox();

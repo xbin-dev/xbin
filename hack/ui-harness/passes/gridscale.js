@@ -35,6 +35,9 @@ async function gridScale(browser) {
 
   // a 96 px drag at 0.5× is a 192-unit move; offline (at 384) is pushed, its ghost at 288 px
   const head = page.locator('.card[data-path="apps/crawler"] .head').first();
+  // the seed's grant plates and bindings above the canvas can push it under
+  // the fold (D184's plates are taller): a real drag needs the head in view
+  await head.scrollIntoViewIfNeeded();
   const hb = await head.boundingBox();
   await page.mouse.move(hb.x + 30, hb.y + hb.height / 2);
   await page.mouse.down();
