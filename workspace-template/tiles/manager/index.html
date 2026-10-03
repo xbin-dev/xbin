@@ -4,69 +4,67 @@
      /api/xbin/create; Clone → POST /api/xbin/clone; Template → GET/POST
      /api/xbin/templates; Import → GET/POST /api/xbin/builtins. All need this
      element's xbin:writer grant (declared in xbin.json). -->
-<html lang="en">
+<html lang="en" data-bx-theme="auto">
 <head>
   <meta charset="utf-8">
   <title>Tile Manager</title>
   <link rel="stylesheet" href="/vendor/theme.css">
   <style>
+    /* body.bx: theme.css's type, controls and focus ring; this sheet uses its
+       tokens only, so the tile is right in light and dark (D184). Tabs are
+       text tabs, the active one underlined in the accent; .btn is the
+       primary button, .btn.ghost a secondary one. */
     body { padding: 0; }
-    .tabs { display: flex; gap: 2px; padding: 6px 8px 0;
-            border-bottom: 1px solid var(--bx-border); background: var(--bx-panel-2); }
-    .tabs button { border: 1px solid transparent; border-bottom: none; background: none;
-      font: inherit; font-size: 12px; padding: 4px 12px; cursor: pointer;
-      color: var(--bx-muted); border-radius: 5px 5px 0 0; }
-    .tabs button.on { background: var(--bx-panel); color: var(--bx-text);
-      border-color: var(--bx-border); margin-bottom: -1px; }
-    .body { padding: 10px 14px 12px; }
-    h3 { margin: 0 0 8px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em;
+    .hint { font: var(--bx-font-meta); }
+    .tabs { display: flex; gap: 4px; padding: 0 8px; border-bottom: 1px solid var(--bx-border); }
+    .tabs button { min-height: 32px; border: 0; border-bottom: 2px solid transparent; background: none;
+      padding: 4px 8px 2px; cursor: pointer; color: var(--bx-muted); font-weight: 400; }
+    .tabs button:hover { background: none; color: var(--bx-text); }
+    .tabs button.on { color: var(--bx-text); border-bottom-color: var(--bx-accent); }
+    .body { padding: var(--bx-pad); }
+    h3 { margin: 0 0 8px; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro);
          text-transform: uppercase; color: var(--bx-muted); }
-    .field { margin-bottom: 7px; }
-    .field label { display: block; font-size: 10.5px; font-weight: 600;
-                   letter-spacing: .06em; text-transform: uppercase;
-                   color: var(--bx-muted); margin-bottom: 2px; }
-    .field input {
-      width: 100%; box-sizing: border-box;
-      background: var(--bx-panel); border: 1px solid var(--bx-border);
-      border-radius: 5px; color: var(--bx-text);
-      font: 12.5px/1.4 inherit; padding: 4px 8px;
-    }
-    .field input:focus { outline: 2px solid color-mix(in srgb, var(--bx-accent) 30%, transparent); }
-    .slug-row { display: flex; align-items: center; gap: 0; }
+    .field { margin-bottom: 8px; }
+    .field label { display: block; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro);
+                   text-transform: uppercase; color: var(--bx-muted); margin-bottom: 4px; }
+    .field input, .field select { width: 100%; }
+    .slug-row { display: flex; align-items: stretch; gap: 0; }
     .slug-row .prefix {
-      font: 11.5px var(--bx-mono); color: var(--bx-muted);
-      background: var(--bx-panel-2); border: 1px solid var(--bx-border);
-      border-right: 0; border-radius: 5px 0 0 5px; padding: 4px 4px 4px 8px;
+      display: flex; align-items: center; font: var(--bx-font-code); color: var(--bx-muted);
+      background: var(--bx-panel-2); border: 1px solid var(--bx-border-strong);
+      border-right: 0; border-radius: 0; padding: 0 4px 0 8px;
     }
-    .slug-row input { border-radius: 0 5px 5px 0; font-family: var(--bx-mono); font-size: 11.5px; }
-    .actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
-    .btn {
-      background: var(--bx-accent); color: #fff; border: 0; border-radius: 5px;
-      padding: 4px 14px; cursor: pointer; font: inherit; font-size: 12px; font-weight: 600;
-    }
-    .btn:hover { background: color-mix(in srgb, var(--bx-accent) 88%, #000); }
-    .btn:disabled { opacity: .5; cursor: default; }
-    .msg { font-size: 11.5px; }
-    .msg.ok { color: var(--bx-green); }
-    .msg.err { color: var(--bx-red); display: inline-block; padding: 5px 9px; border-radius: 6px;
-               border: 1px solid color-mix(in srgb, var(--bx-red) 55%, transparent);
-               background: color-mix(in srgb, var(--bx-red) 12%, transparent); }
+    body.bx .slug-row input { border-radius: 0; font-family: var(--bx-mono); }
+    .actions { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+    .bx button.btn { background: var(--bx-accent); border-color: var(--bx-accent); color: var(--bx-accent-ink); }
+    .bx button.btn:hover { background: var(--bx-accent-hover); border-color: var(--bx-accent-hover); }
+    .bx button.btn.ghost { background: var(--bx-panel); border-color: var(--bx-border-strong); color: var(--bx-text); }
+    .bx button.btn.ghost:hover { background: var(--bx-hover); }
+    .msg { display: inline-flex; gap: 6px; align-items: baseline; }
+    .msg.ok { color: var(--bx-ok); }
+    .msg.err { color: var(--bx-danger); padding: 4px 8px; border-radius: var(--bx-radius);
+               border: 1px solid var(--bx-danger); background: var(--bx-danger-bg); }
     .muted { color: var(--bx-muted); }
     /* import list */
-    .tile { border: 1px solid var(--bx-border); border-radius: 6px; padding: 8px 10px;
+    .tile { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 8px 12px;
             margin-bottom: 8px; }
     .tile .h { display: flex; align-items: baseline; gap: 8px; }
-    .tile .title { font-weight: 600; font-size: 12.5px; }
-    .tile .name { font: 11px var(--bx-mono); color: var(--bx-muted); }
+    .tile .title { font-weight: 600; }
+    .tile .name { font: var(--bx-font-code); color: var(--bx-muted); }
     .tile .spacer { flex: 1; }
-    .tile .desc { font-size: 12px; color: var(--bx-muted); margin: 4px 0 6px; line-height: 1.45; }
-    .tile .tags span { display: inline-block; font-size: 10px; padding: 0 6px; border-radius: 999px;
-      background: var(--bx-panel-2); border: 1px solid var(--bx-border); margin-right: 3px; color: var(--bx-muted); }
-    .tile .row { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
-    .tile .row input { font: 11.5px var(--bx-mono); padding: 3px 7px; border: 1px solid var(--bx-border);
-      border-radius: 5px; background: var(--bx-panel); color: var(--bx-text); }
-    .tile .installed { color: var(--bx-green); font-size: 11px; }
-    .imsg { font-size: 11.5px; margin-top: 4px; }
+    .tile .desc { color: var(--bx-muted); margin: 4px 0 8px; }
+    .tile .desc.files { font: var(--bx-font-code); }
+    /* tags: square, micro caps, a 1px border */
+    .tile .tags span { display: inline-flex; align-items: center; height: 20px; box-sizing: border-box; padding: 0 6px;
+      font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase;
+      border-radius: var(--bx-radius); border: 1px solid var(--bx-border-strong); margin-right: 4px; color: var(--bx-muted); }
+    .tile .row { display: flex; align-items: center; gap: 8px; margin-top: 8px; }
+    body.bx .tile .row input { font-family: var(--bx-mono); }
+    .tile .installed { display: inline-flex; gap: 4px; align-items: center; color: var(--bx-ok); }
+    .imsg { margin-top: 4px; }
+    .imsg.ok { color: var(--bx-ok); }
+    .imsg.err { color: var(--bx-danger); }
+    .warn { color: var(--bx-warn); }
   </style>
 </head>
 <body class="bx">
@@ -98,7 +96,7 @@
         <select id="owner">
           <option value="">— me (personal) —</option>
         </select>
-        <p class="muted" style="font-size:11px;margin:4px 0 0">
+        <p class="muted hint" style="margin:4px 0 0">
           Personal tiles: capability requests (net, containers, ports) need a
           workspace admin. Org-owned: the org's admins can approve within
           their allowance.</p>
@@ -111,7 +109,7 @@
   </div>
 
   <div class="body" id="clone-tab" hidden>
-    <p class="muted" style="font-size:12px;margin:0 0 8px">
+    <p class="muted" style="margin:0 0 8px">
       Fork an existing tile: copies its code (git history included — the repos
       stay related), rewrites references to the old path, and registers an
       independent tile. Secrets and stored resource data don't come along;
@@ -120,15 +118,13 @@
       pinned checkpoint, and it starts with live reload on.</p>
     <div class="field">
       <label for="clone-src">Source tile</label>
-      <select id="clone-src" style="width:100%; box-sizing:border-box; background:var(--bx-panel);
-        border:1px solid var(--bx-border); border-radius:5px; color:var(--bx-text);
-        font:11.5px var(--bx-mono); padding:4px 8px"></select>
+      <select id="clone-src" style="font-family:var(--bx-mono)"></select>
     </div>
     <div class="field">
       <label for="clone-path">Clone to</label>
       <div class="slug-row">
         <input id="clone-path" placeholder="apps/my-fork" autocomplete="off" spellcheck="false"
-               style="font-family:var(--bx-mono); font-size:11.5px; border-radius:5px">
+               style="font-family:var(--bx-mono)">
       </div>
     </div>
     <div class="field" id="clone-owner-field" hidden>
@@ -142,7 +138,7 @@
   </div>
 
   <div class="body" id="template-tab" hidden>
-    <p class="muted" style="font-size:12px;margin:0 0 8px">
+    <p class="muted" style="margin:0 0 8px">
       Templates are blueprints — pick one and give it a name to stamp out an
       independent component you own and can build up. Builtin and any workspace
       component marked as a template both show here.</p>
@@ -151,14 +147,14 @@
   </div>
 
   <div class="body" id="import-tab" hidden>
-    <p class="muted" style="font-size:12px;margin:0 0 8px">
+    <p class="muted" style="margin:0 0 8px">
       Optional tiles bundled with xbin. Import copies one into this workspace;
       cross-scope tiles will need a grant you approve afterwards.</p>
     <div id="tiles"><span class="muted">loading…</span></div>
   </div>
 
   <div class="body" id="git-tab" hidden>
-    <p class="muted" style="font-size:12px;margin:0 0 8px">
+    <p class="muted" style="margin:0 0 8px">
       Install a component from a git remote — GitHub, GitLab, or any git URL. It's
       cloned in as its own repo, so its origin remote makes it updatable later.</p>
     <div class="field">
@@ -173,7 +169,7 @@
   </div>
 
   <div class="body" id="updates-tab" hidden>
-    <p class="muted" style="font-size:12px;margin:0 0 8px">
+    <p class="muted" style="margin:0 0 8px">
       Newer versions of builtin components (the shell, manager/admin tiles,
       imported tiles) that shipped with this xbind. <b>Replace</b> takes the new
       version (discarding local edits); <b>Propose as PR</b> files the update as
@@ -186,6 +182,15 @@
   </div>
 
   <script type="module">
+    import '/vendor/bx-icons.js'; // <bx-icon name>: drawn glyphs (D184)
+    // say(el, cls, text): a status line — "… ok" and "… err" carry their icon before the words
+    const say = (el, cls, text) => {
+      el.className = cls;
+      const kind = /\bok\b/.test(cls) ? 'ok' : /\berr\b/.test(cls) ? 'error' : '';
+      const icon = kind ? document.createElement('bx-icon') : null;
+      if (icon) icon.setAttribute('name', kind);
+      el.replaceChildren(...(icon ? [icon] : []), document.createTextNode(text));
+    };
     // --- tabs ---
     const tabs = document.querySelectorAll('.tabs button');
     tabs.forEach((b) => b.onclick = () => {
@@ -262,7 +267,7 @@
     const ownerSel = document.getElementById('owner');
     const ownerField = document.getElementById('owner-field');
     attachOwner(ownerSel, ownerField).then((c) => {
-      if (c?.blocked) { msg.className = 'msg err'; msg.textContent = c.blocked; btn.disabled = true; }
+      if (c?.blocked) { say(msg, 'msg err', c.blocked); btn.disabled = true; }
     });
     const cloneOwner = document.getElementById('clone-owner');
     attachOwner(cloneOwner, document.getElementById('clone-owner-field'));
@@ -278,9 +283,9 @@
         });
         const d = await r.json().catch(() => ({}));
         if (!r.ok) throw new Error(d.error ?? r.status);
-        msg.className = 'msg ok'; msg.textContent = `created ${d.path} — it's in the sidebar`;
+        say(msg, 'msg ok', `created ${d.path} — it's in the sidebar`);
         pretty.value = ''; slug.value = ''; slugTouched = false;
-      } catch (e) { msg.className = 'msg err'; msg.textContent = String(e.message ?? e); }
+      } catch (e) { say(msg, 'msg err', String(e.message ?? e)); }
       finally { btn.disabled = false; }
     });
 
@@ -310,7 +315,7 @@
       const from = cloneSrc.value, to = clonePath.value.trim().replace(/^\/+|\/+$/g, '');
       const cmsg = document.getElementById('clone-msg');
       const cbtn = document.getElementById('clone-btn');
-      if (!from || !to) { cmsg.className = 'msg err'; cmsg.textContent = 'pick a source and a destination path'; return; }
+      if (!from || !to) { say(cmsg, 'msg err', 'pick a source and a destination path'); return; }
       cbtn.disabled = true; cmsg.className = 'msg'; cmsg.textContent = 'cloning…';
       try {
         const r = await xbin.fetch('/api/xbin/clone', {
@@ -322,9 +327,9 @@
         let note = `cloned to ${d.path}`;
         if (d.rewritten?.length) note += ` (${d.rewritten.length} file(s) re-pathed)`;
         if (d.pendingGrants?.length) note += `. Approve ${d.pendingGrants.length} grant(s) in the admin grants panel.`;
-        cmsg.className = 'msg ok'; cmsg.textContent = note + " — it's in the sidebar";
+        say(cmsg, 'msg ok', note + " — it's in the sidebar");
         clonePath.value = ''; clonePathTouched = false;
-      } catch (e) { cmsg.className = 'msg err'; cmsg.textContent = String(e.message ?? e); }
+      } catch (e) { say(cmsg, 'msg err', String(e.message ?? e)); }
       finally { cbtn.disabled = false; }
     };
 
@@ -347,11 +352,11 @@
         for (const t of (d.tags || [])) opts.push(`<option value="${esc(t)}">${esc(t)}</option>`);
         info.innerHTML = `
           <div class="tile">
-            <div class="row"><span class="muted" style="font-size:11px;min-width:64px">version</span>
+            <div class="row"><span class="muted" style="min-width:72px">version</span>
               <select id="git-ref">${opts.join('') || '<option value="">(default)</option>'}</select></div>
-            <div class="row"><span class="muted" style="font-size:11px;min-width:64px">install at</span>
+            <div class="row"><span class="muted" style="min-width:72px">install at</span>
               <input id="git-path" value="apps/${esc(gitSlug(url))}" size="20"></div>
-            <div class="row" id="git-owner-row" hidden><span class="muted" style="font-size:11px;min-width:64px">owner</span>
+            <div class="row" id="git-owner-row" hidden><span class="muted" style="min-width:72px">owner</span>
               <select id="git-owner" class="owner"></select></div>
             <div class="actions"><button class="btn" id="git-import" type="button">Import</button>
               <span class="msg" id="git-imsg" aria-live="polite"></span></div>
@@ -375,8 +380,8 @@
         if (!r.ok) throw new Error(d.error ?? r.status);
         let note = `imported ${d.path} — it's in the sidebar`;
         if (d.pendingGrants?.length) note += `. Approve ${d.pendingGrants.length} grant(s) in the admin grants panel.`;
-        imsg.className = 'msg ok'; imsg.textContent = note;
-      } catch (e) { imsg.className = 'msg err'; imsg.textContent = String(e.message ?? e); }
+        say(imsg, 'msg ok', note);
+      } catch (e) { say(imsg, 'msg err', String(e.message ?? e)); }
       finally { btn.disabled = false; }
     }
 
@@ -406,7 +411,7 @@
           <div class="h"><span class="title">Template updates</span></div>
           <div class="desc">These instances' templates gained fixes in this xbind. Apply from the
             instance's terminal — you pick what to adopt:</div>
-          ${list.map((i) => `<div class="desc" style="font-family:var(--bx-mono);font-size:11px">
+          ${list.map((i) => `<div class="desc files">
             ${esc(i.path)} <span class="muted">← template ${esc(i.template)}</span><br>
             <span class="muted">git fetch template &amp;&amp; git merge ${i.legacy ? '--allow-unrelated-histories ' : ''}template/main</span>
           </div>`).join('')}
@@ -426,12 +431,12 @@
           <span class="name">${esc(t.source)}</span><span class="spacer"></span></div>
         <div class="desc">${esc(t.description || '')}</div>
         ${parts ? `<div class="row">
-          <label class="muted" style="font-size:11px" title="One backend per person (${esc(t.partition.join(' + '))}): each person's data stays in their own partition">
+          <label class="muted hint" title="One backend per person (${esc(t.partition.join(' + '))}): each person's data stays in their own partition">
             <input type="checkbox" class="apart" ${blocked ? 'disabled' : 'checked'}> Keep each person's data apart</label>
-          ${blocked ? `<span class="muted" style="font-size:11px">(${esc(t.partitionSkipped)})</span>` : ''}
+          ${blocked ? `<span class="muted hint">(${esc(t.partitionSkipped)})</span>` : ''}
         </div>` : ''}
         <div class="row">
-          <span class="muted" style="font-size:11px">create at</span>
+          <span class="muted hint">create at</span>
           <input class="path" value="apps/${esc(t.defaultName || '')}" size="18">
           <select class="owner" title="owner of the new tile" hidden style="max-width:12em"></select>
           <button class="btn make">create</button>
@@ -450,14 +455,14 @@
           });
           const d = await r.json();
           if (!r.ok) throw new Error(d.error ?? r.status);
-          imsg.className = 'imsg ok'; imsg.style.color = 'var(--bx-green)';
+          imsg.className = 'imsg ok';
           let note = `created ${d.path} — it's in the sidebar`;
           if (Array.isArray(d.partition) && d.partition.length) note += ', keeping each person\'s data apart';
           if (d.pendingGrants && d.pendingGrants.length) {
             note += `. Approve ${d.pendingGrants.length} grant(s) in the admin/grants panel.`;
           }
           imsg.textContent = note;
-        } catch (e) { imsg.className = 'imsg err'; imsg.style.color = 'var(--bx-red)'; imsg.textContent = String(e.message ?? e); }
+        } catch (e) { say(imsg, 'imsg err', String(e.message ?? e)); }
         finally { b.disabled = false; }
       };
       return el;
@@ -480,13 +485,13 @@
       const ver = u.fromVersion === u.toVersion ? `v${u.toVersion}` : `v${u.fromVersion}→v${u.toVersion}`;
       const counts = [];
       if (u.clean) counts.push(`${u.clean} clean`);
-      if (u.conflicts) counts.push(`<span style="color:var(--bx-amber, #f2a71b)">${u.conflicts} conflict</span>`);
-      if (u.adopted) counts.push('<span style="color:var(--bx-amber, #f2a71b)">adopted — no base</span>');
+      if (u.conflicts) counts.push(`<span class="warn"><bx-icon name="warning"></bx-icon> ${u.conflicts} conflict</span>`);
+      if (u.adopted) counts.push('<span class="warn"><bx-icon name="warning"></bx-icon> adopted — no base</span>');
       el.innerHTML = `
         <div class="h"><span class="title">${esc(u.id)}</span>
           <span class="name">${esc(u.installPath)} · ${ver}</span><span class="spacer"></span></div>
         <div class="desc">${counts.join(' · ')}</div>
-        <div class="desc" style="font-family:var(--bx-mono);font-size:11px">${(u.files || []).map((f) =>
+        <div class="desc files">${(u.files || []).map((f) =>
           `${esc(f.path)} <span class="muted">(${esc(f.status)})</span>`).join('<br>')}</div>
         <div class="row">
           ${u.missing
@@ -512,9 +517,9 @@
           });
           const d = await r.json();
           if (!r.ok) throw new Error(d.error ?? r.status);
-          imsg.className = 'imsg ok'; imsg.style.color = 'var(--bx-green)';
+          imsg.className = 'imsg ok';
           imsg.textContent = mode === 'pr' && d.pr
-            ? `proposed as ${d.pr.target}#${d.pr.number} — review it in the tile's terminal (⇄ tab); closing it merged completes the update`
+            ? `proposed as ${d.pr.target}#${d.pr.number} — review it in the tile's terminal (its change proposals tab); closing it merged completes the update`
             : mode === 'pr'
               ? 'nothing to propose — recorded as applied'
               : mode === 'merge'
@@ -526,7 +531,7 @@
           notes.hidden = !(Array.isArray(d.notes) && d.notes.length);
           notes.innerHTML = notes.hidden ? '' : `<b>${esc(u.id)}</b>: ${d.notes.map((n) => esc(n)).join('<br>')}`;
           loadUpdates();
-        } catch (e) { imsg.className = 'imsg err'; imsg.style.color = 'var(--bx-red)'; imsg.textContent = String(e.message ?? e); }
+        } catch (e) { say(imsg, 'imsg err', String(e.message ?? e)); }
         finally { b.disabled = false; }
       });
       return el;
@@ -549,11 +554,11 @@
       el.innerHTML = `
         <div class="h"><span class="title">${esc(t.title || t.name)}</span>
           <span class="name">${esc(t.name)}</span><span class="spacer"></span>
-          ${t.installed ? '<span class="installed">✓ installed</span>' : ''}</div>
+          ${t.installed ? '<span class="installed"><bx-icon name="check"></bx-icon> installed</span>' : ''}</div>
         <div class="desc">${esc(t.description || '')}</div>
         <div class="tags">${(t.tags || []).map((x) => `<span>${esc(x)}</span>`).join('')}</div>
         <div class="row">
-          <span class="muted" style="font-size:11px">import as</span>
+          <span class="muted hint">import as</span>
           <input class="path" value="${esc(t.defaultPath)}" size="18">
           <select class="owner" title="owner of the imported tile" hidden style="max-width:12em"></select>
           <button class="btn imp">${t.installed ? 'import copy' : 'import'}</button>
@@ -570,14 +575,14 @@
           });
           const d = await r.json();
           if (!r.ok) throw new Error(d.error ?? r.status);
-          imsg.className = 'imsg ok'; imsg.style.color = 'var(--bx-green)';
+          imsg.className = 'imsg ok';
           let note = `imported ${d.path} — it's in the sidebar`;
           if (d.pendingGrants && d.pendingGrants.length) {
             note += `. Approve ${d.pendingGrants.length} grant(s) in the admin/grants panel.`;
           }
           imsg.textContent = note;
           loadBuiltins();
-        } catch (e) { imsg.className = 'imsg err'; imsg.style.color = 'var(--bx-red)'; imsg.textContent = String(e.message ?? e); }
+        } catch (e) { say(imsg, 'imsg err', String(e.message ?? e)); }
         finally { b.disabled = false; }
       };
       return el;
