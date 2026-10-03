@@ -16,6 +16,9 @@
 //      dev1 (a reader and the tile's manager); sales1, an outsider, has none;
 //   4. dev1 keeps the current mode from their session (POST
 //      /partitions/mode): the frame shows the tile again, and the banner goes.
+// The page is on the Base Two tokens (D184): it opts in, loads xbind's
+// /vendor/theme.css under its sandbox CSP (no violation), and follows the
+// system's light or dark live, inside the old shell as well.
 // The tile's manifest goes back to unpartitioned at the end (withdrawn).
 const path = require('path');
 const { execFileSync } = require('child_process');
@@ -72,10 +75,13 @@ async function useOldShell(ctx, old) {
 // frameText: the tile frame's visible text and a few facts about its page.
 const frameFacts = async (page) => (await tileFrame(page, TILE)).evaluate(() => ({
   text: document.body?.innerText || '',
-  switchPage: !!document.querySelector('.card[role=alert]'),
+  switchPage: !!document.querySelector('.plate[role=alert]'),
   noteMarkup: !!document.querySelector('.note b'),
   tile: !!document.getElementById('pmode-tile'),
   scripts: document.scripts.length,
+  auto: document.documentElement.getAttribute('data-bx-theme'),
+  sheet: [...document.styleSheets].some((s) => (s.href || '').endsWith('/vendor/theme.css')),
+  scheme: getComputedStyle(document.documentElement).getPropertyValue('--bx-scheme').trim(),
 })).catch(() => ({ text: '', switchPage: false }));
 
 const banner = (page) => page.locator('bx-shell .alerts .alert', { hasText: `partition mode switch is requested for ${TILE}` });
@@ -102,6 +108,8 @@ async function partitionSwitch(browser) {
     check(r.partition.request?.user === true && r.partition.user === false, `pending: unpartitioned → user (${JSON.stringify(r.partition)})`);
 
     B = await login(browser, 'dev1', 'devpass123');
+    const cspErrors = [];
+    B.page.on('console', (m) => { if (/Content Security Policy/i.test(m.text())) cspErrors.push(m.text().slice(0, 160)); });
     const served = await useOldShell(B.ctx, old);
     await openShell(B.page);
     check(served.has('bx-shell.js') && served.has('bx-canvas.js') && !old.files.has('partition-mode.js'),
@@ -119,7 +127,19 @@ async function partitionSwitch(browser) {
     await banner(B.page).first().waitFor({ timeout: 15000 });
     check(await banner(B.page).count() === 1, 'the shell\'s top banner shows the partition-switch alert to a reader');
     await shot(B.page, 'partition-switch-shell');
+    // the page follows the system, live: dark, then light (no hint cookie
+    // here); then the context's own scheme again
+    const initial = await B.page.evaluate(() => (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'));
+    for (const scheme of ['dark', 'light']) {
+      await B.page.emulateMedia({ colorScheme: scheme });
+      f = await until(async () => { const x = await frameFacts(B.page); return x.scheme === scheme && x; }, `the switch page in ${scheme}`, 5000)
+        .catch(() => frameFacts(B.page));
+      check(f.auto === 'auto' && f.sheet && f.scheme === scheme, `the switch page opts in, loads theme.css and follows a ${scheme} system (${JSON.stringify({ auto: f.auto, sheet: f.sheet, scheme: f.scheme })})`);
+      await shotEl(B.page, `.card[data-path="${TILE}"]`, `partition-switch-frame-${scheme}`);
+    }
+    await B.page.emulateMedia({ colorScheme: initial });
     await shotEl(B.page, `.card[data-path="${TILE}"]`, 'partition-switch-frame');
+    check(cspErrors.length === 0, `the page's sandbox CSP lets its sheet and fonts load (${cspErrors.join(' | ') || 'no violation'})`);
 
     const C = await login(browser, 'sales1', 'salespass123');
     await useOldShell(C.ctx, old);
