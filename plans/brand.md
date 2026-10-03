@@ -418,9 +418,10 @@ zone composed in where content will sit.
   boxes for the quiet zone. Store the prompt and generation report next to each image
   (`website/art/*.json`).
 - A person reviews every image before use. Images that drift (sheets not doubling, haze,
-  neon) are regenerated or cropped to the part that holds. The current night image
-  (`website/art/hall-night.jpg`) has sheets of roughly equal size and visible spotlights:
-  it ships until its replacement is generated.
+  neon) are regenerated or cropped to the part that holds. The night image
+  (`website/art/hall-night.jpg`) is the 2k replacement for the first one, whose sheets
+  were roughly equal in size and whose spotlights showed. It is one of four takes; a box
+  edit replaced its ceiling truss with more wall, and its report sits beside it.
 - Every image has alt text, and a solid fallback (yellow in light, concrete 900 in dark)
   so the layout holds without it.
 
@@ -628,7 +629,8 @@ everywhere a corner shows. Motion: ease out `cubic-bezier(.16,1,.3,1)`, in-out
 | The site's tokens (light and dark) and styles | `website/css/tokens.css`, `website/css/site.css` |
 | Fonts and their licences | `website/fonts/` |
 | The mark's master files and rules | `plans/brand/marks/` (the site's copies in `website/img/`, `website/favicon.svg`) |
-| The glass-hall photographs, prompts and reports | `website/art/` |
+| The glass-hall photographs, prompts and reports | `website/art/` (their web sizes in `website/img/`, `make website-images`) |
+| The product screenshots and the film still to shoot | `website/shots.todo.md` |
 | The share card | `website/og.html` → `website/og.png` |
 | The site's structure, copy rules, build and checks | `website/README.md` |
 | Measured figures | `hack/demo/measurements.md` |

@@ -100,13 +100,27 @@ open in the same tab and carry ↗.
 - **Marks:** `img/mark.svg`, `img/wordmark.svg` (wordmark A; swapping in B is this one
   file) and `favicon.svg` are copies of `plans/brand/marks/`; `apple-touch-icon.png` is
   `icon-1024.svg` at 180 px (`rsvg-convert`, then `oxipng`).
-- **The glass hall** (`art/`): the generated masters with their prompts and reports
-  (`hall-day.jpg` 2736 × 1536, `hall-night.jpg` 1360 × 768, the `.json` beside each) and
-  the crops the hero loads: the square the hero's portrait column can show
-  (`hall-day-1536.webp`, `hall-day-1024.webp`, `hall-night-768.webp`, cut at 70 % across
-  so `object-position: 70% 62%` keeps the art direction's framing) and the full frame for
-  the phone strip (`*-strip.webp`), WebP from the masters with PIL. The night image's
-  sheets do not double; it ships until its replacement is generated (same names).
+- **The glass hall:** the generated masters, with their prompts and reports, are in
+  `art/` (`hall-day.jpg` and `hall-night.jpg`, both 2736 × 1536, with the `.json` beside
+  each). `art/` itself is not served. The files the hero loads are in `img/`, written
+  from the masters by `make website-images` (`hack/website-images.py`, Pillow with
+  AVIF) as AVIF with a JPEG fallback, at 1× and 2×:
+  - the square the hero's portrait column shows (`hall-{day,night}-880` and `-1536`), the
+    master's full height cut at 70 % across so `object-position: 70% 62%` keeps the
+    art direction's framing. The column is at most 880 px tall, and 1536 is the
+    masters' height;
+  - the full frame for the phone strip (`hall-{day,night}-strip-900` and `-1800`).
+
+  The script refuses any file over 240 KB, so the hero's largest candidate stays inside
+  the first-screen budget. The night image is the 2k replacement that `site/visuals.md`
+  P-2 commissioned. Its report lists the four takes, the edit that took the ceiling out
+  of the frame and the one retouch.
+- **The film** (F-1, the 12 s loop) waits for the product theme. Its poster frames
+  `img/film/F-1-{day,night}-poster.webp` are flat placeholders in the product theme's
+  shell background, there only for building the markup. They never ship: the sections
+  ship without the film until it is shot. Its MP4 and WebM go in `media/` (below).
+- **Product screenshots** are captured after the product's re-theme. `shots.todo.md`
+  lists each one with its persona, screen, size, theme, mat and file names.
 - **The curve** (`#curve`, visual D-1) is drawn from `data/software-per-year.json`,
   the series the research pass's history register gives for it (new repositories
   created on GitHub per year, every point with its source; the 2026 point an
@@ -129,7 +143,7 @@ when installed).
 ## Build
 
 ```
-make website        # website/dist: every page, css/, fonts/, img/, art/*.webp, js/,
+make website        # website/dist: every page, css/, fonts/, img/, js/,
                     # data/, app/, install.sh, og.png, favicon.svg,
                     # apple-touch-icon.png, media/ as media.lock pins it,
                     # static/helpers/
@@ -183,7 +197,7 @@ each rule on a copy of the site):
 
 New with Base Two: `/product.html`, `/security.html`, `/install.html`, `/ios.html`,
 `/404.html`, `/favicon.svg`, `/apple-touch-icon.png`, `/css/`, `/fonts/`, `/img/`,
-`/art/`, `/data/software-per-year.json`, `/js/copy.js`. No longer served: the old site's `/js/` islands, `/vendor/`,
+`/data/software-per-year.json`, `/js/copy.js`. No longer served: the old site's `/js/` islands, `/vendor/`,
 `/shots/` and its IBM Plex fonts (`website/shots/` stays in git for the repository
 README's image).
 

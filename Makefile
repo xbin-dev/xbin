@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: guards dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website website-check website-og website-chart check js-check native-check swift-test swift-stubcheck theme-check tile-check shellcheck pins pins-offline hooks release vulncheck
+.PHONY: guards dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website website-check website-og website-chart website-images check js-check native-check swift-test swift-stubcheck theme-check tile-check shellcheck pins pins-offline hooks release vulncheck
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -258,6 +258,12 @@ website-og:
 website-chart:
 	@node hack/website-chart.mjs
 
+# Re-export the site's photographs at web sizes (website/img/: AVIF and JPEG, 1×
+# and 2×) and the film's poster placeholders from the masters in website/art/
+# (hack/website-images.py, Pillow with AVIF; website/README.md → "Assets").
+website-images:
+	@python3 hack/website-images.py
+
 # Every var(--bx-*, <literal>) fallback in shipped frontends equals web/theme.css.
 theme-check:
 	@node hack/theme-fallbacks.mjs
@@ -323,9 +329,10 @@ vendor:
 	./hack/vendor.sh
 
 # Assemble the static xbin.dev site into website/dist (no build step: the
-# files as they are, website/README.md): every page, css/, fonts/, img/, the
-# photographs' crops in art/, js/, data/, app/, install.sh, og.png and the icons, and
-# website/media/ as website/media.lock pins it (the site's check runs first,
+# files as they are, website/README.md): every page, css/, fonts/, img/ (the
+# marks and the photographs at web sizes), js/, data/, app/, install.sh, og.png
+# and the icons, and website/media/ as website/media.lock pins it (the
+# photographs' masters in art/ stay out of it; the site's check runs first,
 # with --dist). It refuses to build a site that would stop serving the
 # prebuilt helpers: when hack/helpers.sha256 lists sets, the site serves them
 # at /static/helpers, so website/static-helpers/ must be there (stage it with
@@ -335,11 +342,10 @@ website:
 	  echo 'website: hack/helpers.sha256 lists prebuilt helpers, which https://xbin.dev/static/helpers serves, but website/static-helpers/ is missing: stage them first (hack/helpers-static.sh; docs/maintenance.md → "Prebuilt helpers")' >&2; exit 1; fi
 	@./hack/check-website.sh --dist
 	@rm -rf website/dist
-	@mkdir -p website/dist/art
+	@mkdir -p website/dist
 	@cp website/*.html website/install.sh website/og.png website/favicon.svg website/apple-touch-icon.png website/dist/
 	@rm website/dist/og.html
 	@cp -r website/css website/fonts website/img website/data website/app website/dist/
-	@cp website/art/*.webp website/dist/art/
 	@if [ -d website/js ]; then cp -r website/js website/dist/; fi
 	@grep '^[^#[:space:]]' website/media.lock | awk '{print $$2}' | while read -r f; do \
 	  mkdir -p "website/dist/media/$$(dirname "$$f")" && cp "website/media/$$f" "website/dist/media/$$f"; done
