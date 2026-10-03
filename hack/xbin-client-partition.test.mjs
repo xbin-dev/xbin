@@ -9,10 +9,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-// xbin-client.js is a classic script with no exports: load a fresh instance
-// into a stub document (hack/xbin-client-ws.test.mjs's way) and record what
-// it hands to fetch.
-const src = readFileSync(new URL('../web/xbin-client.js', import.meta.url), 'utf8');
+// xbin-client.js exports nothing: load a fresh instance into a stub
+// document (hack/xbin-client-ws.test.mjs's way, its bx-theme.js import
+// pointed at the file) and record what it hands to fetch.
+const src = readFileSync(new URL('../web/xbin-client.js', import.meta.url), 'utf8')
+  .replace("'/vendor/bx-theme.js'", JSON.stringify(new URL('../web/bx-theme.js', import.meta.url).href));
 let n = 0;
 async function load(metas, href = 'https://ws.example/c/apps/agent/') {
   const calls = [];

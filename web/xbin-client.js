@@ -40,7 +40,15 @@
  *                             open, state/saveState — see /vendor/xb-native.js
  *
  * It also reports the document's height to the embedding <bx-frame> so
- * auto-sized frames work. See /docs/elements.md and /docs/protocol.md.
+ * auto-sized frames work, and keeps the document's appearance in step with
+ * its embedder's (D184): xbind injects the person's theme and density as
+ * <meta name="xbin-theme"> / <meta name="xbin-density"> when they chose
+ * one, and a later change arrives as xbin:appearance from the parent, which
+ * /vendor/bx-theme.js applies — a document that opted in with
+ * <html data-bx-theme="auto"> restyles at once, and its own <bx-frame>s
+ * pass it on. In a top-level chrome document (the shell) it refreshes the
+ * xbin_theme hint cookie from the injected choice, for xbind's pages that
+ * get no injection. See /docs/elements.md and /docs/protocol.md.
  *
  * Isolation (docs/auth.md §Who is calling): non-chrome tiles run in a SANDBOXED opaque
  * origin — no parent/sibling DOM, no localStorage/IDB/cookies, and the
@@ -52,6 +60,7 @@
  * own origin (strict tile asset gating's origins mode) the server names the
  * workspace origin: messages go to it only, and replies must come from it.
  */
+import { MESSAGE as APPEARANCE, appearance, applyAppearanceMessage, rememberTheme } from '/vendor/bx-theme.js';
 
 const meta = (name) => document.querySelector(`meta[name="${name}"]`)?.content ?? '';
 
@@ -297,6 +306,26 @@ if (framed) {
   new ResizeObserver(report).observe(document.documentElement);
   addEventListener('load', report);
 }
+
+// --- appearance (D184; docs/protocol.md "Tile ↔ shell messaging") ---
+// The embedder posts xbin:appearance {theme, density} on every load of this
+// frame and on every change of the person's choice. Applied from our parent
+// window only (and, on a tile's own origin, only from the workspace), with
+// the values bx-theme.js accepts: it rewrites this document's metas, so a
+// document that opted in restyles at once and its own <bx-frame>s pass the
+// change on; one that didn't opt in only hears it (onAppearance).
+if (framed) {
+  addEventListener('message', (e) => {
+    if (e.source !== window.parent || e.data?.type !== APPEARANCE) return;
+    if (WORKSPACE && e.origin !== WORKSPACE) return;
+    applyAppearanceMessage(e.data);
+  });
+}
+// The shell — a top-level, unsandboxed document — keeps the xbin_theme hint
+// cookie equal to the choice xbind injected, whatever the shell's age:
+// xbind's sign-in pages and the partitions page read it. (A sandboxed
+// document has no cookies.)
+if (!framed && !sandboxTokens) rememberTheme(appearance().theme);
 
 // --- dialogs & pop-out windows (docs/elements.md §Dialogs & windows) ---
 // A tile is an iframe, so anything that must float over the workspace is

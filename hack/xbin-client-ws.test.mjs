@@ -7,9 +7,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 
-// The client has no import/export statements, so node would load the file
-// as CommonJS (cached once per path); a data: URL is always a fresh module.
-const src = readFileSync(new URL('../web/xbin-client.js', import.meta.url), 'utf8');
+// The client exports nothing, and a data: URL is always a fresh module (a
+// file path would be cached once). Its one import, /vendor/bx-theme.js, is
+// pointed at the file: a data: URL module resolves absolute URLs only.
+const src = readFileSync(new URL('../web/xbin-client.js', import.meta.url), 'utf8')
+  .replace("'/vendor/bx-theme.js'", JSON.stringify(new URL('../web/bx-theme.js', import.meta.url).href));
 let n = 0;
 // Load a fresh instance of the client into a stub document and return the
 // URLs of the sockets it opens.

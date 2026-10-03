@@ -74,7 +74,13 @@ partitioned tiles, chrome, the native runtime document — and so does the
 docs viewer (`/docs/…`); a person who never chose gets the injection as
 before, byte for byte. `/vendor/theme.css` reads them in documents that opt
 in with `<html data-bx-theme="auto">`; frames hear later changes as
-`xbin:appearance` (§Tile ↔ shell messaging).
+`xbin:appearance` (§Tile ↔ shell messaging). xbind's own pages that get no
+injection — the sign-in pages before anyone is signed in, the partitions
+page — read the **hint cookie** `xbin_theme=light|dark` (absent: the
+system's; `Path=/`, `SameSite=Lax`, 400 days, `Secure` on https, not
+HttpOnly, never sent to tile origins). The shell keeps it equal to the
+person's choice (`/vendor/bx-theme.js`); it is a UI hint, never a
+credential, and any other value is ignored.
 Server-side, any request carrying
 the cookie with the opaque-origin fingerprint — `Sec-Fetch-Site: cross-site`
 (or `same-site`) on a non-navigation, or a non-GET navigation to `/api/*` or
@@ -6713,7 +6719,23 @@ tile → frame   xbin:window-close {id}                close a window it opened
 tile → frame   xbin:open-deployments {tile}          open another tile's Deployments panel
 tile → parent  xbin:scroll-focus {}                  the pointer entered this document (cosmetic)
 frame → tile   xbin:reply    {id, result}            dialog result / window closed
+frame → tile   xbin:appearance {theme, density}      the person's appearance changed (cosmetic)
 ```
+
+`xbin:appearance` (D184) keeps a frame's theme and density in step with
+its embedder's: `<bx-frame>` posts it to its iframe on every load and on
+every change of the person's choice, and only when its own document
+follows the person (`<html data-bx-theme="auto">`) — an older shell that
+never opted in sends nothing, so a tile keeps what xbind injected. `theme`
+is `system`, `light` or `dark`; `density` is `compact` or `comfortable`.
+`xbin-client.js` applies it only from its parent window (on a tile's own
+origin, only from the workspace origin) and only with those values: it
+rewrites the document's `xbin-theme` / `xbin-density` metas, so a document
+that opted in restyles at once, its own frames pass it on, and code that
+paints from tokens hears it through `/vendor/bx-theme.js`'s
+`onAppearance()`. It carries no credential and asks for nothing; a tile
+can post it only to frames it embeds, which changes nothing but their
+colours.
 
 `xbin:open-deployments` (the admin console's runtime → deployments tab
 links with it) asks the shell to open `tile`'s terminal window on its

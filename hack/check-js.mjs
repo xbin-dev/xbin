@@ -87,9 +87,13 @@ function checkHTML(file) {
 
 // The frontend kit (web/bx-kit.js, docs/frontend-kit.md) is the one home of
 // these helpers; a second definition anywhere shipped is the drift this
-// check exists to stop. bx-code.js keeps the highlight helpers it exports.
+// check exists to stop. bx-code.js keeps the highlight helpers it exports,
+// bx-theme.js a document's appearance and bx-icons.js the drawn glyphs
+// (D184: a copy of either is a theme that stops following the person).
 const KIT = { 'web/bx-kit.js': /^(?:export )?(?:const|function|async function) (api|xbinApi|selfApi|jbody|esc|deepActive|pathHas|clampBox|clampWin)\b/,
-  'web/bx-code.js': /^(?:export )?(?:const|function) (escHTML|langFor|hl|diffHTML|LANG_BY_EXT)\b/ };
+  'web/bx-code.js': /^(?:export )?(?:const|function) (escHTML|langFor|hl|diffHTML|LANG_BY_EXT)\b/,
+  'web/bx-theme.js': /^(?:export )?(?:const|function) (setAppearance|applyAppearanceMessage|appearanceMessage|onAppearance|rememberTheme)\b/,
+  'web/bx-icons.js': /^(?:export )?(?:const|function) (iconSvg|hasIcon)\b/ };
 function checkKitDuplicates(file) {
   const rel = relative(ROOT, file);
   if (rel.startsWith('hack/')) return;
