@@ -2,7 +2,7 @@ package server
 
 import (
 	"bufio"
-	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -175,14 +175,17 @@ func (s *Server) tileDocOnWorkspace(w http.ResponseWriter, r *http.Request, owne
 		return true
 	}
 	h.Set("Content-Type", "text/html; charset=utf-8")
-	h.Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'")
+	h.Set("Content-Security-Policy", tileNavCSP)
 	h.Set("X-Frame-Options", "DENY")
 	t := htmlEscape(target)
-	fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=%s"><title>xbin</title>
-<body style="font:14px system-ui,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1rem">
-<p>Opening the tile… <a href="%s">continue</a></p></body>`, t, t)
+	_, _ = io.WriteString(w, s.notePage(r, `<meta http-equiv="refresh" content="0;url=`+t+`">`+"\n",
+		`<p>Opening the tile… <a href="`+t+`">continue</a></p>`))
 	return true
 }
+
+// tileNavCSP is the interstitial's: nothing runs, nothing loads but its
+// styles (inline, and /vendor/theme.css with its fonts: D184), never framed.
+const tileNavCSP = "default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; frame-ancestors 'none'"
 
 // trustedInitiator: the navigation came from the workspace itself or from
 // the user, or moves a tile's frame between the pages of its own tree

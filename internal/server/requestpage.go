@@ -10,6 +10,9 @@ import (
 // the tile and its owner (who to ask) and files an access request inline —
 // the human mirror of the elements' pending-grant loop. Served only to
 // session principals; elements and anonymous callers keep the bare 403.
+// Styled as xbind's other pages (pagetheme.go, D184); it carries no request
+// to read the theme cookie from, so /vendor/theme-boot.js reads it in the
+// browser (the page is top-level on the workspace origin and runs script).
 func (s *Server) serveRequestAccessPage(w http.ResponseWriter, tile string) {
 	owner := s.policy().OwnerOf(tile)
 	ownerLine := "a workspace admin manages this tile"
@@ -20,7 +23,7 @@ func (s *Server) serveRequestAccessPage(w http.ResponseWriter, tile string) {
 		ownerLine = "owned by <b>" + htmlEscape(owner) + "</b> — they (or a workspace admin) can grant access"
 	}
 	tileJSON, _ := json.Marshal(tile) // safe literal for the inline script
-	page := strings.ReplaceAll(requestAccessHTML, "{{TILE_JSON}}", string(tileJSON))
+	page := strings.ReplaceAll(s.brandPage(requestAccessHTML, ""), "{{TILE_JSON}}", string(tileJSON))
 	page = strings.ReplaceAll(page, "{{TILE}}", htmlEscape(tile))
 	page = strings.ReplaceAll(page, "{{OWNER}}", ownerLine)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -29,48 +32,46 @@ func (s *Server) serveRequestAccessPage(w http.ResponseWriter, tile string) {
 	_, _ = w.Write([]byte(page))
 }
 
-const requestAccessHTML = `<!doctype html>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+// requestAccessHTML: theme-boot.js runs before the theme.css link, so the
+// person's theme is there at first paint. The script shows one of three
+// status lines (pagetheme.go's glyphs): a request already pending (info),
+// filed (ok), or refused (error).
+const requestAccessHTML = pageOpen + `<script src="/vendor/theme-boot.js"></script>
+<link rel="stylesheet" href="/vendor/theme.css">
 <title>no access — request it?</title>
-<style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
-         background:#0d1117; color:#e6edf3; font:15px/1.5 system-ui, sans-serif; }
-  .card { width:min(420px, calc(100vw - 32px)); background:#161b22; border:1px solid #30363d;
-          border-radius:8px; padding:28px; }
-  h1 { font-size:17px; margin:0 0 6px; }
-  code { background:#0d1117; border:1px solid #30363d; border-radius:4px; padding:1px 6px; }
-  p { color:#9da7b3; margin:10px 0; }
-  .row { display:flex; gap:8px; margin-top:14px; }
-  select, button { font:inherit; border-radius:6px; border:1px solid #30363d; background:#0d1117;
-                   color:#e6edf3; padding:8px 12px; }
-  button.go { background:#238636; border-color:#2ea043; cursor:pointer; }
-  .msg { margin-top:12px; font-size:13px; color:#7ee787; display:none; }
-  .err { color:#f85149; }
-</style>
-<div class="card">
+<link rel="icon" href="{{ICON}}">
+<style>` + pageCSS + `
+.row{display:flex;gap:8px;margin-top:16px}
+.row select{flex:1;min-width:0;width:auto}
+.row button{flex:none;width:auto;margin:0}
+</style></head><body class="bx">
+<div class="plate">
+  <div class="logo">{{LOGO}}</div>
+  <div class="main">
   <h1>No access to <code>{{TILE}}</code></h1>
   <p>{{OWNER}}.</p>
   <div class="row">
-    <select id="lvl">
+    <select id="lvl" aria-label="Access level">
       <option value="read">read — view and use</option>
       <option value="write">write — edit and drive</option>
       <option value="terminal">terminal — a shell on it</option>
     </select>
-    <button class="go" id="req">Request access</button>
+    <button class="primary" id="req">Request access</button>
   </div>
-  <div class="msg" id="msg"></div>
+  <div class="alert info" id="info" role="status" hidden>` + svgInfo + `<span></span></div>
+  <div class="alert ok" id="ok" role="status" hidden>` + svgOK + `<span></span></div>
+  <div class="alert error" id="err" role="alert" hidden>` + svgError + `<span></span></div>
+  </div>
 </div>
 <script>
   const tile = {{TILE_JSON}};
-  const msg = document.getElementById('msg');
-  const show = (t, err) => { msg.textContent = t; msg.style.display = 'block';
-                             msg.classList.toggle('err', !!err); };
+  const show = (kind, t) => {
+    for (const k of ['info', 'ok', 'err']) document.getElementById(k).hidden = k !== kind;
+    document.querySelector('#' + kind + ' span').textContent = t;
+  };
   fetch('/api/xbin/access-requests').then(r => r.ok ? r.json() : null).then(d => {
     if (d && (d.requests ?? []).some(q => q.mine && q.tile === tile))
-      show('You already have a pending request for this tile — its manager has been able to see it since you filed it.');
+      show('info', 'You already have a pending request for this tile — its manager has been able to see it since you filed it.');
   }).catch(() => {});
   document.getElementById('req').onclick = async () => {
     const level = document.getElementById('lvl').value;
@@ -79,8 +80,8 @@ const requestAccessHTML = `<!doctype html>
       body: JSON.stringify({ tile, level }),
     });
     const d = await r.json().catch(() => ({}));
-    if (r.ok) show('Requested ' + level + ' — the tile\'s manager will see it in their organisations panel.');
-    else show(d.error ?? ('request failed (' + r.status + ')'), true);
+    if (r.ok) show('ok', 'Requested ' + level + ' — the tile\'s manager will see it in their organisations panel.');
+    else show('err', d.error ?? ('request failed (' + r.status + ')'));
   };
 </script>
-`
+</body></html>`

@@ -18,7 +18,8 @@ package server
 // deciding happens where a manager's session is: bx partition switch|keep,
 // POST /api/xbin/partitions/mode, and the surfaces built on it. The tile's
 // partitionNote — the tile's own words, sandbox-writable — is shown as text,
-// escaped.
+// escaped. It is styled as xbind's other pages (pagetheme.go, D184): the one
+// thing it loads is xbind's own /vendor/theme.css, with its fonts.
 
 import (
 	"net/http"
@@ -28,9 +29,9 @@ import (
 	"github.com/xbin-dev/xbin/internal/registry"
 )
 
-// partitionPageCSP confines the page: its inline style alone, no script,
-// an opaque origin.
-const partitionPageCSP = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+// partitionPageCSP confines the page: its styles alone (inline, and
+// /vendor/theme.css with its fonts), no script, an opaque origin.
+const partitionPageCSP = "default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; sandbox"
 
 // servePartitionSwitchPage answers a document request for owner's files
 // with the switch page while owner's partition mode switch is pending, and
@@ -54,7 +55,7 @@ func (s *Server) servePartitionSwitchPage(w http.ResponseWriter, r *http.Request
 	h.Set("X-Content-Type-Options", "nosniff")
 	s.setDocCSP(w, r, partitionPageCSP)
 	w.WriteHeader(http.StatusConflict)
-	_, _ = w.Write([]byte(s.partitionSwitchPage(owner, from, to, c.Manifest.PartitionNote)))
+	_, _ = w.Write([]byte(s.partitionSwitchPage(r, owner, from, to, c.Manifest.PartitionNote)))
 	return true
 }
 
@@ -84,7 +85,9 @@ func partitionDocument(r *http.Request, owner, rel string) bool {
 }
 
 // partitionSwitchPage is the page's HTML; every value it shows is escaped.
-func (s *Server) partitionSwitchPage(tile string, from, to registry.PartitionSpec, note string) string {
+// It follows the theme r's hint cookie names; the brand shows as its title
+// alone (the CSP loads no image, and the page is no place for the icon).
+func (s *Server) partitionSwitchPage(r *http.Request, tile string, from, to registry.PartitionSpec, note string) string {
 	t := "<code>" + htmlEscape(tile) + "</code>"
 	who := "a workspace admin"
 	switch owner := s.policy().OwnerOf(tile); {
@@ -104,8 +107,9 @@ func (s *Server) partitionSwitchPage(tile string, from, to registry.PartitionSpe
 		deletes = "Switching deletes " + d + "."
 	}
 	var b strings.Builder
-	b.WriteString(partitionPageHead)
-	b.WriteString(`<div class="card" role="alert"><h1>Partition mode switch requested</h1>`)
+	b.WriteString(themed(partitionPageHead, r))
+	b.WriteString(`<div class="plate wide notice" role="alert"><div class="logo">` + brandLogo(s.brand(), false) + `</div><div class="main">`)
+	b.WriteString(`<h1 class="status">` + svgWarning + `Partition mode switch requested</h1>`)
 	b.WriteString(`<p>A partition mode switch is requested for ` + t + ` (<b>` + htmlEscape(from.String()) + `</b> → <b>` +
 		htmlEscape(to.String()) + `</b>). <strong>` + htmlEscape(deletes) + `</strong></p>`)
 	if n := strings.TrimSpace(note); n != "" {
@@ -114,29 +118,17 @@ func (s *Server) partitionSwitchPage(tile string, from, to registry.PartitionSpe
 	b.WriteString(`<p>Until a manager decides, ` + t + ` doesn't run.</p>`)
 	b.WriteString(`<p class="who">Who decides: ` + who + ` — they switch (` + htmlEscape(registry.SwitchDeleting(from, to)) + `) or keep the current mode (nothing is deleted), at <code>` +
 		htmlEscape(where) + `</code> or with <code>bx partition switch ` + htmlEscape(tile) + `</code> / <code>bx partition keep ` +
-		htmlEscape(tile) + `</code>.</p></div>`)
+		htmlEscape(tile) + `</code>.</p></div></div></body></html>`)
 	return b.String()
 }
 
-const partitionPageHead = `<!doctype html>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+// partitionPageHead: the page's head and its own rules (the deletion in the
+// warning colour, the tile's note set off as a quote).
+const partitionPageHead = pageOpen + `{{THEME}}
 <title>partition mode switch requested</title>
-<style>
-  :root { color-scheme: light dark; --bg:#eef0f2; --card:#f6f7f8; --fg:#3b4046; --muted:#6a727b; --line:#cfd4da; --warn:#9a6700; }
-  @media (prefers-color-scheme: dark) {
-    :root { --bg:#0d1117; --card:#161b22; --fg:#c9d1d9; --muted:#8b949e; --line:#30363d; --warn:#d29922; }
-  }
-  * { box-sizing: border-box; }
-  body { margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center; padding:16px;
-         background:var(--bg); color:var(--fg); font:15px/1.5 system-ui, sans-serif; }
-  .card { width:min(480px, 100%); background:var(--card); border:1px solid var(--line); border-left:4px solid var(--warn);
-          border-radius:8px; padding:24px; filter:grayscale(0.4); }
-  h1 { font-size:17px; margin:0 0 8px; }
-  p { margin:10px 0; overflow-wrap:anywhere; }
-  strong { color:var(--warn); }
-  .note { border-left:2px solid var(--line); padding-left:10px; white-space:pre-wrap; }
-  .who { color:var(--muted); font-size:13px; }
-  code { border:1px solid var(--line); border-radius:4px; padding:0 5px; }
-</style>
+<style>` + pageCSS + `
+strong{color:var(--bx-warn)}
+.note{padding-left:10px;border-left:2px solid var(--bx-border);white-space:pre-wrap}
+.who{color:var(--bx-muted)}
+</style></head><body class="bx">
 `

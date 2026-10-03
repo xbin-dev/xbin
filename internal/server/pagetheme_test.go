@@ -12,6 +12,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/branding"
+	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/users"
 )
 
@@ -156,6 +157,39 @@ func serverPages() []pageCase {
 			}
 			return wantPage(t, redeemWeb(h, out["url"].(string), "", "10.1.0.1", map[string]string{"Cookie": c}), 200, "Continue as bob")
 		}},
+		{name: "request-access", icon: true, clientTheme: true, status: []string{"info", "ok", "error"}, render: func(t *testing.T, c string, b bool) *httptest.ResponseRecorder {
+			w := newAssetWS(t, TileAssetsLegacy)
+			setBrand(t, w.s, b)
+			return wantPage(t, w.do("/c/apps/a/", w.session("bob"), hdr("Accept", "text/html"), rawCookie(c)), 403, "No access to <code>apps/a</code>")
+		}},
+		{name: "partition-switch", status: []string{"warning"}, csp: partitionPageCSP, render: func(t *testing.T, c string, b bool) *httptest.ResponseRecorder {
+			w := newAssetWS(t, TileAssetsLegacy)
+			setBrand(t, w.s, b)
+			pendWS(t, w, registry.PartitionSpec{}, registry.PartitionSpec{User: true})
+			return wantPage(t, w.do("/c/apps/a/", w.session("ana"), hdr("Sec-Fetch-Dest", "iframe"), rawCookie(c)), 409, "Partition mode switch requested")
+		}},
+		{name: "partition-switch-on-tile-origin", status: []string{"warning"},
+			csp: partitionPageCSP + "; frame-ancestors 'self' http://xbin.localhost:9260", render: func(t *testing.T, c string, b bool) *httptest.ResponseRecorder {
+				w := newAssetWS(t, TileAssetsOrigins)
+				setBrand(t, w.s, b)
+				tc, _ := w.exchange("apps/a", "ana", "/c/apps/a/")
+				pendWS(t, w, registry.PartitionSpec{}, registry.PartitionSpec{User: true})
+				return wantPage(t, w.do("/c/apps/a/", append(hopNav, host(w.originHost("apps/a")), cookie(tc.Name, tc.Value), rawCookie(c))...), 409, "Partition mode switch requested")
+			}},
+		{name: "tile-navigation", csp: tileNavCSP, render: func(t *testing.T, c string, b bool) *httptest.ResponseRecorder {
+			w := newAssetWS(t, TileAssetsOrigins)
+			setBrand(t, w.s, b)
+			return wantPage(t, w.do("/c/apps/a/", w.session("ana"), hdr("Sec-Fetch-Site", "cross-site"), hdr("Sec-Fetch-Mode", "navigate"),
+				hdr("Sec-Fetch-Dest", "document"), rawCookie(c)), 200, "Opening the tile")
+		}},
+		{name: "tile-origin-refusal", status: []string{"warning"},
+			csp: "sandbox; default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; frame-ancestors 'self' http://xbin.localhost:9260",
+			render: func(t *testing.T, c string, b bool) *httptest.ResponseRecorder {
+				w := newAssetWS(t, TileAssetsOrigins)
+				setBrand(t, w.s, b)
+				return wantPage(t, w.do("/c/apps/a/?xbin_retry=1", host(w.originHost("apps/a")), hdr("Sec-Fetch-Site", "same-origin"),
+					hdr("Sec-Fetch-Mode", "navigate"), hdr("Sec-Fetch-Dest", "document"), rawCookie(c)), 401, "Open it from the workspace")
+			}},
 	}
 }
 

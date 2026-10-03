@@ -4,7 +4,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/subtle"
-	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -186,7 +186,10 @@ func (s *Server) serveTileOrigin(w http.ResponseWriter, r *http.Request, id stri
 		_, _ = w.Write([]byte("ok\n"))
 		return
 	case strings.HasPrefix(p, "/vendor/") && (r.Method == http.MethodGet || r.Method == http.MethodHead):
-		s.handleVendor(w, r) // xbind's own public code, as on the workspace origin
+		// xbind's own public code, as on the workspace origin — with its
+		// Origin: null answer: a sandboxed page here (the partition switch
+		// page, the refusal below) loads theme.css's fonts in CORS mode
+		nullOriginCORS(http.HandlerFunc(s.handleVendor)).ServeHTTP(w, r)
 		return
 	case strings.HasPrefix(p, "/c/"):
 		if rel := strings.TrimPrefix(p, "/c/"); strings.HasPrefix(rel, "~") {
@@ -509,12 +512,13 @@ func (s *Server) tileOriginDenied(w http.ResponseWriter, r *http.Request, code i
 	}
 	back := strings.TrimRight(s.ExternalURL, "/") + s.workspacePath(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'unsafe-inline'; "+s.tileFrameAncestors())
+	// nothing runs; its styles (inline, and /vendor/theme.css with its
+	// fonts: D184) load from this origin
+	w.Header().Set("Content-Security-Policy", "sandbox; default-src 'none'; style-src 'self' 'unsafe-inline'; font-src 'self'; "+s.tileFrameAncestors())
 	w.WriteHeader(code)
-	fmt.Fprintf(w, `<!doctype html><meta charset="utf-8"><title>xbin</title>
-<body style="font:14px system-ui,sans-serif;max-width:36rem;margin:3rem auto;padding:0 1rem">
-<p>This tile's session on its own origin has ended or was never started — reload the tile from the workspace.</p>
-<p><a href="%s" target="_top">Open it from the workspace</a></p></body>`, htmlEscape(back))
+	_, _ = io.WriteString(w, s.notePage(r, "",
+		pageAlert("warning", "This tile's session on its own origin has ended or was never started — reload the tile from the workspace.")+
+			`<p><a href="`+htmlEscape(back)+`" target="_top">Open it from the workspace</a></p>`))
 }
 
 // hasQueryKey / dropQueryKey work on the raw query so the other parameters
