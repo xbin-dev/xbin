@@ -83,6 +83,20 @@
         { "calls": [{ "name": "mcp:get_account", "args": { "query": "Brightwell", "summary": "Look up Brightwell in the CRM" } }] },
         { "text": "At **{{#1.account.name}}** it's **{{#1.contacts.0.name}}**, {{#1.contacts.0.title}} ({{#1.contacts.0.email}}). Note on file: {{#1.contacts.0.note}}" }
       ]
+    },
+    {
+      "_comment": "The 'agent at work' shot (hack/demo/cam/shots/site-agent.js) asks this on camera: each step waits (delayMs) like a model thinking, and the last one long enough to film Lark mid-task, its tool calls done and the answer still coming.",
+      "match": ["lakeshore", "alder street", "account owner"],
+      "title": "Lakeshore and Alder Street, last night",
+      "steps": [
+        { "delayMs": 2000, "thinking": "Last night's report first: on-time and exceptions by customer.",
+          "calls": [{ "name": "mcp:latest_report", "args": { "summary": "Read last night's ops report" } }] },
+        { "delayMs": 2500, "thinking": "Lakeshore ran {{customers.2.onTime}}% on time and Alder Street {{customers.5.onTime}}%. Pulling both accounts, their owners and what's open.",
+          "calls": [
+            { "name": "mcp:get_account", "args": { "query": "Lakeshore", "summary": "Look up Lakeshore Medical Couriers" } },
+            { "name": "mcp:get_account", "args": { "query": "Alder Street", "summary": "Look up Alder Street Couriers" } }] },
+        { "delayMs": 30000, "text": "**Last night ({{#1.date|date}})**\n\n- **{{#2.account.name}}**: {{#1.customers.2.onTime}}% on time, {{#1.customers.2.exceptions}} exceptions over {{#1.customers.2.stops|int}} stops. The CRM has them at risk; the renewal is due {{#2.account.renewal|date}}, with *{{#2.deals.0.name}}* at {{#2.deals.0.stage}}.\n- **{{#3.account.name}}**: {{#1.customers.5.onTime}}% on time, {{#1.customers.5.exceptions}} exceptions over {{#1.customers.5.stops|int}} stops. On *watch*: the Android 15 logouts, two driver-app tickets this week.\n\n**Note for {{#2.deals.0.owner}}** (Lakeshore)\n\n*Lakeshore ran {{#1.customers.2.onTime}}% on time last night, {{#1.customers.2.exceptions}} exceptions. Sam Whitaker still wants the API latency SLA in writing before the renewal; worth bringing these numbers to the exec sponsor call with Maya.*\n\n**Note for {{#3.deals.0.owner}}** (Alder Street)\n\n*Alder Street ran {{#1.customers.5.onTime}}% on time. Most of the misses are the Android 15 logouts; the fix (4.12) is at 20% of drivers. I'd hold the driver-app add-on until it's everywhere, as the deal's next step says.*\n\nWant me to send these to them in the team chat?" }
+      ]
     }
   ]
 }
