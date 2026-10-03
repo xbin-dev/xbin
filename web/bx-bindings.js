@@ -43,12 +43,14 @@ export class BxBindings extends LitElement {
       letter-spacing: .08em; text-transform: uppercase;
       color: var(--bx-muted, #868f9a);
     }
-    .row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+    /* a narrow panel (a phone): the provider's picker takes a line of its
+       own rather than shrink to "apps/egress-appr…" */
+    .row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 3px 0; }
     .who { font-family: var(--bx-mono, ui-monospace, monospace); font-size: 12px; }
     .slot { color: var(--bx-accent, #f5a623); font-size: 12px; font-weight: 600; }
     .kind { color: var(--bx-muted, #868f9a); font-size: 11px; }
     select {
-      flex: 1; min-width: 0; font: inherit; font-size: 12px;
+      flex: 1 1 14em; min-width: 0; font: inherit; font-size: 12px;
       padding: 2px 6px; border: 1px solid var(--bx-border, #363c45);
       border-radius: 5px; background: var(--bx-panel, #23272e); color: inherit;
     }

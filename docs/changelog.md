@@ -27,6 +27,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 - **Fix: the shell on a phone** (under 820 px, the stacked layout) no longer
   draws the canvas's crosshair grid over the tab strip, the bind panel and
   every card's head: there is no snap grid to show there, and it is gone.
+  The bind panel's provider picker takes a line of its own there rather
+  than shrink to "apps/egress-appr…".
 - **The grants and bindings line** reads "1 grant active", "11 grants
   active", "20 interface bindings" (no more "(s)"), and a person's own view
   (`GET /grants` scope `mine`) with nothing waiting shows no count at all;
