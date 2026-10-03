@@ -56,10 +56,10 @@ class Cam {
   rand(lo, hi) { return this.r.range(lo, hi); }
 
   // ---- pages -------------------------------------------------------------
-  // ctxOpts: the capture's context options; a phone-sized viewport (under
-  // the shell's 820 px breakpoint) is a touch screen, as a phone is — its
-  // pages see (hover: none) and (pointer: coarse)
-  ctxOpts() { return { ...this.backend.ctxOpts(), ...(this.o.width < 820 ? { hasTouch: true } : {}) }; }
+  // ctxOpts: the capture's context options. (A phone-sized viewport is no
+  // touch emulation: Chromium's then swaps the pages' thin scrollbars for
+  // classic ones with arrows, which no phone shows.)
+  ctxOpts() { return this.backend.ctxOpts(); }
   // login: lib.js login() on this capture's browser and context options
   async login(user = this.o.user, pass = this.o.pass) {
     const { page } = await this.lib.login(this.backend.browserLike(), user, pass, this.ctxOpts());

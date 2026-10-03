@@ -197,8 +197,7 @@ the set put it back: `live` restores the tracker's files (even when it
 fails partway, and only into the film set: its branding must be the
 company's), `network` binds the tile again, `agent` deletes its earlier
 take's conversation. The set's password is random: `$DEMO_PASSWORD`, else
-`<ws>.password`. A phone-sized viewport is a touch screen (`hasTouch`: its
-pages see `hover: none`).
+`<ws>.password`.
 
 Marks inside a tile are in the page's viewport px too: Playwright reports a
 tile frame's elements in the frame's own px, which the shell's font zoom

@@ -137,14 +137,16 @@ async function demoStills(browser) {
     await fr(page, 'apps/onboarding', (f) => f.setPop({ x: 360, y: 150, w: 720, h: 470 }));
     const code = page.locator('bx-frame[src="apps/onboarding"] bx-code');
     await code.locator('button:has-text("Changes")').dispatchEvent('click');
-    const commit = code.locator('.commit:has-text("Read plan, fleet size and health")');
+    // (the checklist's commit: its diff is the tile's own code, no platform
+    // call in it)
+    const commit = code.locator('.commit:has-text("Checklist per customer")');
     await commit.waitFor({ timeout: 20000 });
     // the code window's first load, still in flight when the commit is
     // picked this early, can put it back on the working tree (bx-code's
     // _load: !this._diff → _loadDiff('')): pick it again until its diff shows
     for (let i = 0; ; i++) {
       await commit.dispatchEvent('click');
-      try { await code.locator('.diff:has-text("crmAccount")').waitFor({ timeout: 4000 }); break; } catch (e) { if (i >= 4) throw e; }
+      try { await code.locator('.diff:has-text("was due")').waitFor({ timeout: 4000 }); break; } catch (e) { if (i >= 4) throw e; }
     }
     await sleep(800);
     await still(page, '08-admin-agent-built-app');
