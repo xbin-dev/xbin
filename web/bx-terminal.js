@@ -966,6 +966,9 @@ export class BxTerminal extends HTMLElement {
       links: (row) => { const b = t.#term?.buffer.active; return b ? joinedLinksAt((j) => rowOf(t.#term, j), t.#term.cols, b.baseY + row) : []; },
       cellPoint: (row, col) => { const r = t.#term?.element?.querySelector('.xterm-screen')?.getBoundingClientRect(); return r ? { x: r.left + (col + 0.5) * r.width / t.#term.cols, y: r.top + (row + 0.5) * r.height / t.#term.rows } : null; },
       get linkHandler() { return !!t.#term?.options.linkHandler; },
+      // the look in force (D184): the palette's name ('default': the
+      // workspace's, from the --bx-term-* tokens), xterm's theme, face and size
+      get look() { const o = t.#term?.options; return o ? { name: savedTheme(), theme: { ...o.theme }, fontFamily: o.fontFamily, fontSize: o.fontSize } : null; },
     };
   }
 }
