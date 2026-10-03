@@ -43,11 +43,25 @@ migrations is checked against it.
    palette before, and turns light only when it opts in with
    `<html data-bx-theme="auto">` — so a third-party tile that hard-codes
    light text stays legible. `theme.css` is never injected. Old token names
-   keep working (`--bx-green`, `--bx-amber`, `--bx-red` alias ok, warn and
-   danger). Third-party documents that never link `theme.css` are styled
-   only by the fallback values in `web/bx-*.js`; fallbacks are not removed,
-   and they equal Night's values (`make theme-check` regenerates them from
-   `theme.css` when the palette changes).
+   keep working: in a document that didn't opt in, `--bx-green`,
+   `--bx-amber` and `--bx-red` keep their old values (`#4CAF50`, `#F2A71B`,
+   `#EF5350`: white text on a fill of one reads as it did) and the status
+   colours follow them; in one that opted in they are ok, warn and danger.
+   A document that sets the old names for a palette of its own keeps it:
+   the roles Base Two added on top of them — the hover, the code well, the
+   accent's hover and ink, links, the status tints, window chrome — are
+   written from them in Night, so they follow the document's values; the
+   rest a document sets itself if it wants them its own
+   ([frontend-kit.md](/docs/frontend-kit.md) §Theme › A palette of your
+   own). The `.bx` controls' variants (`button.primary`, `.quiet`,
+   `.danger`, `:disabled`) and their 28 px size apply only in a document
+   that opted in, at the base rule's specificity, so a document's own
+   classes of those names keep their meaning. Third-party documents that
+   never link `theme.css` are styled only by the fallback values in
+   `web/bx-*.js`; fallbacks are not removed, and they equal Night's values
+   (`make theme-check` regenerates them from `theme.css` when the palette
+   changes). What a tile from before Base Two sees, and how to keep its
+   look: [changes/2026-10-03-base-two.md](/docs/changes/2026-10-03-base-two.md).
 6. **CLI is a superset.** Every `bx` invocation accepted today stays
    accepted: interleaved positionals, repeated accumulating flags, `--flag
    value` and `--flag=value`, `--no-x` pairs. Where behaviour changes (an

@@ -41,12 +41,36 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   shows as a glyph of its own shape with its word (`ok`, `info`, `warning`,
   `error`), never a coloured or breathing dot alone; emoji used as icons
   became drawn glyphs, and view-model strings lost their emoji (a test that
-  matched "🔌 tile API" matches "tile API"). New token `--bx-mono-size`
-  (mono beside UI text). The builtin tiles follow the theme as chat v5,
-  egress-approver v4, llm-gw v10, prometheus-viewer v4, s3-archiver v4,
-  sandbox-terminal v9, traefik v6 and webhooks v4 (`bx builtin update
-  tile:<name>`); `bx builtin update` brings the shell, root and admin
-  console (until then an older shell stays dark). Nothing to change.
+  matched "🔌 tile API" matches "tile API"; the agent template's sandbox
+  labels lost their ▣: "▣ api-dev · /work" is "api-dev · /work", the web
+  drawing the box glyph beside it). New token `--bx-mono-size` (mono beside
+  UI text). The builtin tiles follow the theme as chat v5, egress-approver
+  v4, llm-gw v10, prometheus-viewer v4, s3-archiver v4, sandbox-terminal
+  v9, traefik v6 and webhooks v4 (`bx builtin update tile:<name>`). The
+  scaffold takes it one unit at a time: `bx builtin update scaffold:root`,
+  `scaffold:shell`, `scaffold:tiles/admin`, and likewise
+  `scaffold:tiles/manager`, `scaffold:tiles/apidocs`,
+  `scaffold:tiles/organisations` and `scaffold:apps/welcome` (`bx builtin
+  updates` lists them). Until the root page is updated the shell stays
+  dark, and with the new shell on an old root page its Theme and Density
+  are shown disabled, saying so. `/vendor/` answers now carry an `ETag`
+  (a reload revalidates to a 304) and `Vary: Origin`, and a font asked for
+  with its version (`?v=`, as `theme.css` writes it) is immutable, so a
+  reload draws the theme's faces from the cache ([protocol.md](/docs/protocol.md)).
+  The native reference renderer (`bx preview --native`, `<xb-view>`) keeps
+  drawing the app's look — amber — since the iOS app hasn't taken Base Two
+  yet. **What a tile from before Base Two sees** (it links `theme.css`
+  without opting in): Concrete Night's colours and faces, 2 px corners,
+  `--bx-font`'s new face and 13/18 type, `.bx` buttons in weight 600 on a
+  stronger edge and the focus ring — but its own palette, if it set the old
+  token names, still carries (the hover, the code well, the dialog's tints
+  and the accent's hover and ink are written from them); `--bx-green`,
+  `--bx-amber` and `--bx-red` keep their old values there, so white text
+  on them reads as before; and its own `button.primary`, `.quiet`,
+  `.danger` and compact sizes stay its own (those variants and the 28 px
+  controls apply only once it opts in). Nothing has to change; to keep a
+  look exactly, or to opt in, see
+  [changes/2026-10-03-base-two.md](/docs/changes/2026-10-03-base-two.md).
 - **Fix: the Agent tab ends a session that is gone.** When its session
   answered 404 (exited or removed server-side) the tab threw instead of
   showing the transcript as ended; it now keeps it, greyed, as it does for a

@@ -422,7 +422,8 @@ lists them, with the rules: the accent only for primary actions, selection
 and prose links; status as icon + word + colour; 13px or larger; corners
 `var(--bx-radius)` or 0; no emoji as icons — `<bx-icon name>` from
 `/vendor/bx-icons.js`). `body.bx` gives the base and `.bx` the controls
-(`button.primary`, `.quiet`, `.danger`, fields, the focus ring); code that
+(buttons, fields, the focus ring; in an opted-in page also `button.primary`,
+`.quiet`, `.danger` and the 28px size); code that
 paints (a canvas, xterm) reads `token()` and repaints in `onAppearance()`
 from `/vendor/bx-theme.js`. Look at your tile in both themes. The sheet
 also gives your document the workspace's thin scrollbars, with the one the
@@ -430,7 +431,9 @@ next scroll would move tinted in the focus colour; a lit component's own
 shadow root takes them with `import { scrollCss } from
 '/vendor/scroll-css.js'` in its `static styles`. Override tokens per
 document only to retheme deliberately (a document's own `:root` rule after
-the link wins in both themes). The
+the link wins in both themes; in Night the hover, the code well, the
+accent's hover and ink and the status tints follow the old names you set —
+docs/frontend-kit.md §Theme › A palette of your own lists what doesn't). The
 entire workspace layout (top bar, sidebar, card canvas) is the **`shell/`
 component in this workspace** — `<bx-shell>` in `shell/bx-shell.js`,
 composed by `root/index.html`. Edit it like any component; shells nest

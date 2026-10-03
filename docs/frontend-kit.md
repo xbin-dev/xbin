@@ -34,7 +34,7 @@ import '/vendor/bx-frame.js';
 | `/vendor/theme.css` | the design tokens (§Theme below: Concrete Night and Concrete Day, D184), the self-hosted fonts, opt-in `.bx` base and control styles, and the workspace's thin scrollbars (D123): on a mouse/trackpad a 6px bar whose thumb is drawn 3px and fattens under the pointer, the scroller the next wheel or key would move tinted in the focus colour (`[data-bx-scroll]`); touch keeps its native bars. Link it to take the theme; it is **never injected** into your document, and your document turns light only when it opts in (`<html data-bx-theme="auto">`). A document that links it also gets the focused-scroll tracker (below) from `xbin-client.js`; `<meta name="xbin-scroll-focus" content="off">` opts out |
 | `/vendor/bx-theme.js` | a document's appearance, for code that paints or follows the person (§Theme): `appearance()`, `setAppearance()`, `follows()`, `scheme()`, `token(name, el)`, `onAppearance(cb)`. Dependency-free |
 | `/vendor/bx-icons.js` | `<bx-icon name="lock">` and `iconSvg(name, {size, label})`: the workspace's drawn glyphs, 16px in `currentColor` (§Theme › Icons). Dependency-free |
-| `/vendor/fonts/` | Instrument Sans, JetBrains Mono and Bricolage Grotesque (woff2, SIL OFL 1.1, the licences beside them); `theme.css` loads them — use the `--bx-sans`, `--bx-mono` and `--bx-display` tokens rather than naming them |
+| `/vendor/fonts/` | Instrument Sans, JetBrains Mono and Bricolage Grotesque (woff2, SIL OFL 1.1, the licences beside them); `theme.css` loads them, each URL with its version, which xbind serves as immutable — a reload draws them from the cache. Use the `--bx-sans`, `--bx-mono` and `--bx-display` tokens rather than naming them |
 | `/vendor/bx-scroll.js` | the scrollbar CSS for **shadow roots** (a document stylesheet does not reach them): `scrollCssText`, the same rules `theme.css` carries — a lit element puts `unsafeCSS(scrollCssText)` (or `/vendor/scroll-css.js`'s shared `scrollCss`) in its `static styles`. Importing it installs `installScrollFocus()` once per document: it keeps `data-bx-scroll` on the scroller the next scroll would move — the innermost scrollable under the mouse, the one a wheel actually latches onto (at its end, the next one out), or the focused element's on a scroll key — and hands off to/from framed documents (`xbin:scroll-focus`, [protocol.md](/docs/protocol.md)). Dependency-free |
 | `/vendor/scroll-window.js` | `ScrollWindow` — a long list that renders a window of its rows and never moves what the reader is looking at (D124, D130; the Agent tab's, framework-free): `attach(scroller)` (it sets `overflow-anchor: none`), then `before()` right before every render and `after()` right after it, in the same frame — the bottom stays pinned while the reader is there, else the first visible row keeps its place. Rows are the scroller's direct children with a key (`rows`: a selector, default `:scope > [data-k]`; `keyOf(el)`). `wantsAbove()` / `wantsBelow()` say when to render (or fetch) more rows, `trimAbove()` / `trimBelow()` the key of the last row to keep once more than 6 views of rows lie beyond the view (keep 2.5: never ping-pongs with the 1.5-view fill); `onScroll`, `onResize`, `atBottom`, `keepView`, `toBottom()`, `firstVisible()`, `rowsPerView()`. A touch scroll grows the window only once it settles. Dependency-free |
 | `/vendor/xb-native.js` | a tile's **native UI** for the xbin mobile app: `html`, `render`, `repeat`, `nothing` (lit-shaped), and `widget` (the tile's card on the app's screens) over the native vocabulary (`/vendor/xb/vocab.js`: `screen`, `section`, `row`, `field`, `button`, …). A tile's `native.js` imports it; the app runs that file in a hidden document with the tile's own identity and draws what it renders with platform UI, re-rendering by patches. Also exports `native` — in the app the same object as `xbin.native` (`caps`, `supports()`, `meta()`, `copy()`, `share()`, `open()`, `state`, `saveState()`, `widgetSize`, `on('widgetsize')`). Outside the app nothing loads `native.js`; browsers keep showing `index.html`. The reference — templates, every primitive, the rules — is [native.md](/docs/native.md). Worked examples: `examples/counter-go/native.js` (one round trip, and a widget) and `examples/calendar/native.js` (a list, a form, a bus refresh); the builtin chat, egress-approver, prometheus-viewer, s3-archiver and webhooks tiles ship one too — logic a page and its native view share lives in a plain module both import (chat's `chat-core.js`, the viewer's `prom.js`) |
@@ -135,7 +135,10 @@ the device's light or dark setting.
 - A document that links the sheet **without** the attribute gets Concrete
   Night — new values under the same names — so a tile written for the old
   dark palette, light text hard-coded, stays legible. It turns light only
-  when it opts in.
+  when it opts in. Two things there stay as they were: the old status
+  names keep their old values (below), and `button.primary`, `.quiet`,
+  `.danger` and the 28 px control size are left to the document (Controls,
+  below).
 - A document that doesn't link the sheet: the core elements in it render
   from their fallbacks, which are Night.
 - `<body class="bx">` takes the base: the panel background, the text colour
@@ -156,7 +159,7 @@ opted-in document gets); the names and what they are for:
 | Accent | `--bx-accent`, `--bx-accent-hover`, `--bx-accent-ink` (text and icons on the accent), `--bx-link` | primary actions, selection, prose links: nothing else |
 | Focus | `--bx-focus`, `--bx-focus-gap`, `--bx-focus-width`, `--bx-focus-offset`, `--bx-focus-outline`, `--bx-focus-halo` | the focus ring |
 | Status | `--bx-ok`, `--bx-warn`, `--bx-danger`, `--bx-info`, each with a `-bg` tint | always with an icon and a word |
-| Old names | `--bx-green`, `--bx-amber`, `--bx-red` | aliases of ok, warn and danger: they keep working |
+| Old names | `--bx-green`, `--bx-amber`, `--bx-red` | text colours that keep working. In a document that opted in they are ok, warn and danger; in one that didn't they keep their values from before Base Two (`#4CAF50`, `#F2A71B`, `#EF5350`), and `--bx-ok` / `-warn` / `-danger` follow them there (`--bx-info` follows `--bx-muted`). A fill is a `-bg` tint with the status colour or `--bx-text` on it — not an old name, whose Day value is a dark text colour |
 | Partition marker | `--bx-part` | yours / shared / global ([partitions.md](/docs/partitions.md)) |
 | Window chrome | `--bx-titlebar`, `--bx-titlebar-active`, `--bx-title-text`, `--bx-title-text-inactive`, `--bx-window-border`, `--bx-window-border-active`, `--bx-control-hover`, `--bx-close-hover` / `-ink` | |
 | Parts and fields | `--bx-part-tab-shell` / `-terminal` / `-agent` / `-admin` (3px tabs, `--bx-part-tab-h`), `--bx-field-yellow` / `-green` / `-magenta` / `-cobalt` with `-ink`, `--bx-elevated-bg` / `-ink` | brand colour, sparingly (below) |
@@ -203,14 +206,47 @@ Rules of use:
 ### Controls
 
 In a `.bx` document (or on a `.bx` element): `button` is a secondary button
-(the panel, a `--bx-border-strong` edge), `button.primary` the accent fill
-with the accent ink, `button.quiet` text only, `button.danger` the
-destructive outline (a danger fill only inside a confirmation); `input`,
-`select` and `textarea` are 28px (32px comfortable) fields with a strong
-edge; every interactive element gets the focus ring on `:focus-visible`;
-tables get tabular figures; `.bx-label` is the micro caps label. An
-opted-in document also gets `accent-color` for checkboxes, radios and
-ranges, and themed placeholders and text selection.
+(the panel, a `--bx-border-strong` edge, 600 weight), and `input`, `select`
+and `textarea` are fields with a strong edge; every interactive element
+gets the focus ring on `:focus-visible`; tables get tabular figures;
+`.bx-label` is the micro caps label. In a document that **opted in**,
+`button.primary` is the accent fill with the accent ink, `button.quiet` text
+only, `button.danger` the destructive outline (a danger fill only inside a
+confirmation), a disabled button fades, and controls are 28 px (32 px
+comfortable). Those wait for the opt-in because a document from before Base
+Two may give the same class names a meaning — and sizes — of its own; and
+they are written at the base rule's specificity (`.bx button`), so your own
+later `button.primary { … }` still wins. An opted-in document also gets
+`accent-color` for checkboxes, radios and ranges, and themed placeholders
+and text selection.
+
+### A palette of your own
+
+A document may set the tokens itself — its own `:root { … }` after the
+`theme.css` link wins in both themes. A tile from before Base Two did it
+through the old names (`--bx-bg`, `--bx-panel`, `--bx-panel-2`,
+`--bx-border`, `--bx-text`, `--bx-muted`, `--bx-accent`, `--bx-green`,
+`--bx-amber`, `--bx-red`, `--bx-term-bg`, …), and in Night the roles Base
+Two added on top of them are written from them, so they follow:
+
+| Role | Written from (Night) |
+|---|---|
+| `--bx-hover` | the panel, 8.3% toward `--bx-muted` |
+| `--bx-code-bg` | `--bx-bg`, 5% toward `--bx-text` |
+| `--bx-accent-hover`, `--bx-accent-ink`, `--bx-link` | the accent 25% toward white; `--bx-bg`; the accent |
+| `--bx-ok-bg`, `-warn-bg`, `-danger-bg`, `-info-bg` | 12% of the status colour over the panel |
+| `--bx-ok`, `-warn`, `-danger`, `-info` (a document that didn't opt in) | `--bx-green`, `-amber`, `-red`, `--bx-muted` |
+| `--bx-titlebar`, `-titlebar-active`, `--bx-title-text`, `-inactive` | the panel, `--bx-panel-2`, the text, `--bx-subtle` |
+| `--bx-window-border`, `--bx-control-hover`, `--bx-close-hover`, `-ink` | `--bx-border-strong`, `--bx-border`, the danger colour, `--bx-bg` |
+
+Each computes to Concrete Night's value exactly when nothing is set. The
+rest are values of their own: set them too if your palette needs them —
+`--bx-selection` with `--bx-selection-text`, `--bx-focus` with
+`--bx-focus-gap`, `--bx-subtle`, `--bx-border-strong`, `--bx-part`, the
+syntax (`--bx-syn-*`) and diff (`--bx-diff-*`) palettes a `<bx-code>`
+draws code in, and the terminal's (`--bx-term-*`). A document that opts in
+gets Concrete Day's own values for those roles in light; set them in your
+`:root` rule for both themes if you keep a palette of your own there.
 
 ### `/vendor/bx-theme.js`
 

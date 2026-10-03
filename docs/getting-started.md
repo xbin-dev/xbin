@@ -47,12 +47,13 @@ stays inside the canvas, so scrolling always reaches it. (Frames
 embedded outside the shell keep the small 7×7 corner square for the same
 thing.)
 
-The pop-up's title bar also has a **layout switch** — `>_` terminal · `{ }`
-code · `▤` logs · `⇄` proposals, and `⇋`, which puts the terminal beside
-whichever panel shows, split by a divider you drag. The **code panel** is a buildless VS-Code-ish browser: a
+The pop-up's title bar also has a **layout switch** — drawn glyphs, each
+named in its tooltip: terminal · code · logs · proposals, and *beside*
+(the split glyph), which puts the terminal beside whichever panel shows,
+split by a divider you drag. The **code panel** is a buildless VS-Code-ish browser: a
 collapsible file tree + syntax-highlighted viewer, and a **Changes** tab that
 shows the working-tree diff (what you're about to commit) and any commit's diff
-for review — right beside the terminal with `⇋`. It's read-only; editing
+for review — right beside the terminal with *beside*. It's read-only; editing
 is the terminal's job.
 
 Beside the `+` that opens a new terminal tab is **`+🤖`**, which opens an
