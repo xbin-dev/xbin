@@ -76,7 +76,8 @@ const newRoot = "/newroot"
 // assembleRoot builds the workload's root at /newroot: an overlay whose lower
 // is the read-only rootfs image (under the layer with the image's special
 // modes, modes_linux.go) and whose upper is the persistent VM disk or a
-// tmpfs, plus fresh kernel filesystems inside it.
+// tmpfs, plus fresh kernel filesystems inside it, their devices moded as the
+// root asks (devices_linux.go).
 func (a *agent) assembleRoot(r proto.Root) error {
 	typ := r.ImageType
 	if typ == "" {
@@ -133,6 +134,7 @@ func (a *agent) assembleRoot(r proto.Root) error {
 			logf("rootfs modes: %d directories set, %d left as they are", fixed, skipped)
 		}
 	}
+	deviceModes(newRoot)
 	return nil
 }
 

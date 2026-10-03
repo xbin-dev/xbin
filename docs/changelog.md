@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-03
 
+- **VM sandboxes: `/etc/xbin-vm-devices` opens devices to the guest's
+  users** ([isolation.md](isolation.md) §VM sandboxes). `/dev` is a fresh
+  devtmpfs at every boot and the guest runs no udev, so `/dev/fuse` and
+  `/dev/net/tun` are root's (0600). A guest's root may now list the modes
+  it wants in `/etc/xbin-vm-devices` (`0666 /dev/fuse` a line), and the
+  guest sets them at every boot, before anything runs — character devices
+  only. Without the file nothing changes.
 - **VM sandboxes: the base image's setuid, setgid and sticky bits are back
   in the guest** ([isolation.md](isolation.md) §VM sandboxes). In a VM,
   `sudo`, `su`, `passwd` and `mount` were plain 0755 and `/var/tmp`

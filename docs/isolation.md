@@ -615,6 +615,17 @@ sandbox replaced itself (`apt`) stays its own, and a rebase finds the newer
 base's. An image without the list boots as before. An image of your own
 `FROM` the base that adds setuid programs runs the same step again, last.
 
+**Devices for the guest's other users.** `/dev` is a fresh devtmpfs at
+every boot and the guest runs no udev, so its nodes are root's (`/dev/fuse`
+and `/dev/net/tun` are 0600). A root that wants some of them usable by
+other users lists them in `/etc/xbin-vm-devices`, `<mode> /dev/<node>` a
+line, and the guest sets those modes at every boot, before anything runs —
+character devices in that devtmpfs only (no symbolic link, no other mount
+on the way), permission bits only. `0666 /dev/fuse` and `0666
+/dev/net/tun` are what a distribution's udev rules give and what rootless
+podman needs. Being the sandbox's own file, it grants nothing its root
+couldn't.
+
 **Host requirements:** KVM (`/dev/kvm` usable by the xbind user — the
 installer adds it to the `kvm` group; a cloud VM needs nested
 virtualization) and the release bundle's `firecracker`, `vmlinux`,
