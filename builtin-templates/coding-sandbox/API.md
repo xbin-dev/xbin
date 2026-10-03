@@ -246,6 +246,51 @@ what it was made with (a clone, its source's), and `/ops/state` marks the
 sandboxes that have it. The setup script runs as root either way: `sudo`
 is for the user's own commands, a coding agent's included.
 
+### An image that develops xbin
+
+xbin's own checks (its `make check`, the isolated suites, rootfs builds
+with podman) want more of a machine than the base gives: root, rootless
+containers, FUSE, a newer Node. An image like this one, documented here
+and not a default, gives a VM sandbox what they need (its script below;
+the page's image editor takes it as it is):
+
+```jsonc
+{"id": "xbin-dev", "title": "xbin development: sudo, podman, Node 24", "sudo": true,
+ "tools": ["git", "go", "node", "make", "podman", "shellcheck", "zstd"], "buildEgress": "internet",
+ "harnesses": [{"id": "claude"}, {"id": "codex"}],
+ "setup": "…the script below…"}
+```
+
+```sh
+set -eu
+apt-get update
+apt-get install -y --no-install-recommends zstd fuse3 uidmap podman attr libcap2-bin shellcheck python3-yaml
+# rootless podman for the sandbox's user: its subordinate ids; FUSE mounts others may enter
+for f in /etc/subuid /etc/subgid; do
+  grep -q "^$SANDBOX_USER:" "$f" 2>/dev/null || echo "$SANDBOX_USER:100000:65536" >> "$f"
+done
+grep -qx user_allow_other /etc/fuse.conf || echo user_allow_other >> /etc/fuse.conf
+# Node 24 (xbin's CI) in place of the base's; the global packages stay
+case "$(dpkg --print-architecture)" in amd64) na=x64 ;; arm64) na=arm64 ;; esac
+v=$(curl -fsSL https://nodejs.org/dist/index.json | grep -o '"version":"v24\.[0-9.]*"' | head -n 1 | cut -d'"' -f4)
+f=node-$v-linux-$na.tar.xz
+curl -fsSL -o "/tmp/$f" "https://nodejs.org/dist/$v/$f"
+curl -fsSL "https://nodejs.org/dist/$v/SHASUMS256.txt" | grep " $f\$" | (cd /tmp && sha256sum -c -)
+rm -rf /usr/local/node/bin/node /usr/local/node/include/node /usr/local/node/lib/node_modules/npm /usr/local/node/lib/node_modules/corepack
+tar -C /usr/local/node --strip-components=1 -xJf "/tmp/$f" && rm -f "/tmp/$f"
+# Chromium's system libraries, for the Playwright tests
+playwright install-deps chromium
+apt-get clean && rm -rf /var/lib/apt/lists/*
+```
+
+In a sandbox of it, `hack/dev-setup.sh --check` (in xbin's checkout) says
+what is still missing, and `hack/dev-setup.sh` fixes what it can as the
+user, with `sudo` for the rest. The VM runs no init, so what a boot resets
+is yours to redo — `sudo sysctl -w fs.inotify.max_user_watches=524288`
+when a file watcher runs out, say. Without systemd the tests that need a
+delegated cgroup skip, and a VM xbind starts inside runs emulated (the
+guest has no KVM).
+
 ## Quotas
 
 Set by operators (`config.quotas`), each field 0 for no limit:

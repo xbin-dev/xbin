@@ -21,7 +21,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   manager whose mode is `namespace` refuses such an image, and `auto`
   without VMs makes its sandboxes without it and says so in hello's
   `notes`. A changed `sudo` rebuilds an image with a setup script; images
-  without it keep their builds. Nothing to change.
+  without it keep their builds. API.md also documents `xbin-dev`, an image
+  in which a VM sandbox develops xbin itself (podman, FUSE, Node 24) — an
+  example, not a default. Nothing to change.
 - **VM sandboxes: `/etc/xbin-vm-devices` opens devices to the guest's
   users** ([isolation.md](isolation.md) §VM sandboxes). `/dev` is a fresh
   devtmpfs at every boot and the guest runs no udev, so `/dev/fuse` and
