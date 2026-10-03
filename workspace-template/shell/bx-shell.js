@@ -1718,7 +1718,7 @@ export class BxShell extends LitElement {
       </div>` : nothing}
       ${this._who?.impersonatedBy ? html`<div class="viewas" role="status">
         <span>👁 viewing as <b>${this._who.name && this._who.name !== this._who.id ? `${this._who.name} (${this._who.id})` : this._who.id}</b>
-          — read-only: this is what they see; every change is refused until you exit (every tab of this browser is them)</span>
+          — read-only: this is what they see, in every tab of this browser, until you exit</span>
         <button class="chip" title="back to your own session" @click=${() => this._exitViewAs()}>exit view</button>
       </div>` : nothing}
       <div class="top">

@@ -23,6 +23,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 - **chat tile v4**: a model round that only calls tools (no text, no
   reasoning) no longer draws an empty reply bubble above its tool cards.
   `bx builtin update tile:chat` takes it.
+- **Fix: the shell on a phone** (under 820 px, the stacked layout) no longer
+  draws the canvas's crosshair grid over the tab strip, the bind panel and
+  every card's head: there is no snap grid to show there, and it is gone.
+- **The grants and bindings line** reads "1 grant active", "11 grants
+  active", "20 interface bindings" (no more "(s)"), and a person's own view
+  (`GET /grants` scope `mine`) with nothing waiting shows no count at all;
+  admins (workspace or org) keep it. The admin console's access map says
+  "1 allowance", "2 policy rows", and on a touch screen points at the
+  policies tab instead of saying "hover". The view-as banner and the
+  partitions page are reworded ("…in every tab of this browser, until you
+  exit"; "through the workspace").
 - **traefik tile v5**: its setup script unpacks the traefik binary as the
   sandbox's own user (`tar --no-same-owner`). It failed ("Cannot change
   ownership to uid 1001") where a tile sandbox maps a single uid, as on a

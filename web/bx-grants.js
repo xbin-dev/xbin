@@ -137,8 +137,12 @@ export class BxGrants extends LitElement {
 
   render() {
     if (this._pending.length === 0 && !this._showAll) {
-      return this._grants.length === 0 ? nothing
-        : html`<a @click=${() => { this._showAll = true; }}>${this._grants.length} grant(s) active</a>`;
+      // The count is an admin's way into the list (a workspace admin's, an
+      // org admin's); a person's own tiles' grants (scope "mine"), with
+      // nothing waiting on them, are no line on every screen.
+      if (this._grants.length === 0 || this._scope === 'mine') return nothing;
+      const n = this._grants.length;
+      return html`<a @click=${() => { this._showAll = true; }}>${n} ${n === 1 ? 'grant' : 'grants'} active</a>`;
     }
     const scoped = !!this._scope; // non-admin filtered view: honor approvable
     return html`<div class="panel">

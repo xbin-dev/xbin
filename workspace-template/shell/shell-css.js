@@ -415,6 +415,10 @@ export const canvasCss = [scrollCss, css`
         position: static !important; min-width: 0 !important; min-height: 0 !important;
         display: flex; flex-direction: column; gap: 10px; background: none;
       }
+      /* no snap grid to show: and a static .canvas would size the crosshair
+         overlay to whatever positioned box is above it, drawing it over the
+         tab strip, the bind panel and every card head */
+      .canvas::before { display: none; }
       .gtile {
         position: static !important; left: auto !important; top: auto !important;
         width: 100% !important; min-height: 260px; max-height: 82vh;

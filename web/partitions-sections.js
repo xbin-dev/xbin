@@ -32,7 +32,7 @@ export function headerSection(host, m) {
     </header>
     <p class="lead">Tiles that keep each person's data apart run one instance per person — your partition — holding
       your data, vault and registrations. Here you see them, who can change the code that runs on your data, and
-      what you decide. Nobody else reads your partition through xbind — not the tile's writers, not admins
+      what you decide. Nobody else reads your partition through the workspace — not the tile's writers, not admins
       (<a href="/docs/partitions.md" target="_blank" rel="noopener">how partitions work</a>).</p>
     <div class="row small">
       <span class="chip ${pol.partitionConsent ? 'ok' : 'off'}" title="the workspace setting partitionConsent">consent before another tile uses your data: ${pol.partitionConsent ? 'on' : 'off'}</span>

@@ -196,7 +196,7 @@ export class BxBindings extends LitElement {
     const active = this._active();
     if (this._pending.length === 0 && !this._showAll) {
       return active.length === 0 ? nothing
-        : html`<a @click=${() => { this._showAll = true; }}>${active.length} interface binding(s)</a>`;
+        : html`<a @click=${() => { this._showAll = true; }}>${active.length} interface ${active.length === 1 ? 'binding' : 'bindings'}</a>`;
     }
     return html`<div class="panel">
       ${this._pending.length > 0 ? html`

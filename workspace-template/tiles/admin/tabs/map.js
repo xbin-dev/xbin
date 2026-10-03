@@ -14,6 +14,12 @@ import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
 import { base, mapCss } from '../admin-css.js';
 import { WithRouter } from '../shared.js';
 
+// "1 allowance", "4 allowances"
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+// a pointer that hovers: a pill's title shows its rows; a touch screen's
+// can't, so the hint points at the policies tab instead
+const HOVER = typeof matchMedia !== 'function' || matchMedia('(hover: hover)').matches;
+
 export class BxAdminMap extends WithRouter(LitElement) {
   static properties = {
     users: { attribute: false },     // [{id, name, role, …}] from the router
@@ -81,7 +87,7 @@ export class BxAdminMap extends WithRouter(LitElement) {
       <div class="snode ws">
         <div class="shead">workspace</div>
         <div>admins: ${wsAdmins.length ? wsAdmins.map((a) => html`<span class="pill crown">★ ${a}</span>`) : html`<span class="muted">root token only</span>`}
-          ${this.wsPolicy?.length ? html`<span class="pill pol" title=${this.wsPolicy.map((r) => `tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}`).join('\n')}>⛔ ${this.wsPolicy.length} policy row(s)</span>` : nothing}
+          ${this.wsPolicy?.length ? html`<span class="pill pol" title=${this.wsPolicy.map((r) => `tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}`).join('\n')}>⛔ ${plural(this.wsPolicy.length, 'policy row')}</span>` : nothing}
         </div>
         ${outside.length ? html`<div style="margin-top:3px"><span class="muted" style="font-size:11px">in no org:</span> ${outside.map((u) => html`<span class="pill">${u}</span>`)}</div>` : nothing}
       </div>
@@ -89,8 +95,8 @@ export class BxAdminMap extends WithRouter(LitElement) {
         <div class="snode org">
           <div class="shead"><span class="mono">${o.id}</span>${o.name !== o.id ? html` <span class="muted">${o.name}</span>` : nothing}
             ${(o.sets ?? []).map((n) => html`<span class="pill" title="permission set">⛭ ${n}</span>`)}
-            ${(o.resolvedAllow ?? []).length ? html`<span class="pill" title=${'org admins may self-approve:\n' + o.resolvedAllow.join('\n')}>✓ ${o.resolvedAllow.length} allowance(s)</span>` : nothing}
-            ${o.policy?.length ? html`<span class="pill pol" title=${o.policy.map((r) => `tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}`).join('\n')}>⛔ ${o.policy.length} policy row(s)</span>` : nothing}
+            ${(o.resolvedAllow ?? []).length ? html`<span class="pill" title=${'org admins may self-approve:\n' + o.resolvedAllow.join('\n')}>✓ ${plural(o.resolvedAllow.length, 'allowance')}</span>` : nothing}
+            ${o.policy?.length ? html`<span class="pill pol" title=${o.policy.map((r) => `tiles=${r.tiles}${r.deny?.length ? ` deny=${r.deny.join(',')}` : ''}${r.mayCall?.length ? ` mayCall=${r.mayCall.join(',')}` : ''}`).join('\n')}>⛔ ${plural(o.policy.length, 'policy row')}</span>` : nothing}
           </div>
           <div>${(o.members ?? []).length ? (o.members ?? []).map(person) : html`<span class="muted">no members</span>`}</div>
           ${(o.ownedTiles ?? []).length ? html`<div style="margin-top:3px">
@@ -235,7 +241,7 @@ export class BxAdminMap extends WithRouter(LitElement) {
       <p class="muted" style="font-size:11px; max-width:64ch; margin-top:2px">
         Who is where: ★ = admin of that box. Level pills on teams are their
         grants (union — the highest matching source wins per tile); ⛔ marks a
-        policy ceiling on what those tiles may be granted (hover for rows).</p>
+        policy ceiling on what those tiles may be granted (${HOVER ? 'hover for its rows' : 'the policies tab lists its rows'}).</p>
       ${this._structureView()}
 
       <h4 style="margin-top:14px">effective access</h4>
