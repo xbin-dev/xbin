@@ -3,12 +3,19 @@
  * Shows pending `uses` requests with the callee's role descriptions and
  * one-click approve; lists and revokes existing grants. Renders nothing when
  * there is nothing to decide, so it can sit permanently in the root page.
+ * A pending request is a sign plate (D184, product-ui §8): an ink header
+ * bar over label and value rows, Approve as the primary button.
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
 import { onEvent } from '/vendor/events-socket.js';
 import { capInfo } from '/vendor/bx-allow.js';
 import { grantArrow } from '/vendor/bx-grant-row.js';
+import '/vendor/bx-icons.js';
+
+// a link-like control that opens or closes a list: focusable, Enter and Space work
+const toggle = (label, fn) => html`<a role="button" tabindex="0" @click=${fn}
+  @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); } }}>${label}</a>`;
 
 // Reserved targets have no component to look role docs up on.
 const reservedTarget = (t) => /^(res:|cap:|gpu:|net:|xbin$|xbin:|code$|code:)/.test(t);
@@ -26,49 +33,70 @@ export class BxGrants extends LitElement {
   static styles = [scrollCss, css`
     :host {
       display: block;
-      font: var(--bx-font, 13px/1.45 system-ui, sans-serif);
-      color: var(--bx-text, #d4d9e0);
+      font: var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif);
+      color: var(--bx-text, #E9EAF0);
     }
+    :focus-visible { outline: var(--bx-focus-outline, 3px solid #3DD6F5); outline-offset: var(--bx-focus-offset, 2px);
+      box-shadow: var(--bx-focus-halo, 0 0 0 2px #0B0C12); }
+    /* a card: a border, no shadow (D184) */
     .panel {
-      background: var(--bx-panel, #23272e);
-      border: 1px solid var(--bx-border, #363c45);
-      border-left: 3px solid var(--bx-amber, #f2a71b);
-      border-radius: var(--bx-radius, 6px);
-      box-shadow: var(--bx-shadow, 0 1px 2px rgba(0, 0, 0, 0.35));
-      padding: 8px 12px;
+      background: var(--bx-panel, #1F2028);
+      border: 1px solid var(--bx-border, #33353F);
+      border-radius: var(--bx-radius, 2px);
+      padding: 8px var(--bx-pad, 12px) 12px;
     }
     h4 {
-      margin: 0 0 4px; font-size: 10.5px; font-weight: 600;
-      letter-spacing: .08em; text-transform: uppercase;
-      color: var(--bx-muted, #868f9a);
+      margin: 4px 0 8px; color: var(--bx-muted, #A3A6B6);
+      font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif);
+      letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase;
     }
-    .row { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
-    .who { font-family: var(--bx-mono, ui-monospace, monospace); font-size: 12px; }
-    .role { color: var(--bx-accent, #f5a623); font-size: 12px; font-weight: 600; }
-    .desc { color: var(--bx-muted, #868f9a); font-size: 12px; flex: 1;
-            overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* a grant request: the sign plate — an ink header bar (it inverts in
+       Night), label and value rows separated by hairlines */
+    .plate { margin: 0 0 8px; border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
+      background: var(--bx-panel, #1F2028); overflow: hidden; }
+    .ph { display: flex; align-items: center; gap: 8px; padding: 4px 12px; background: var(--bx-text, #E9EAF0); color: var(--bx-panel, #1F2028);
+      font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif);
+      font-family: var(--bx-display, "Bricolage Grotesque", "Arial Black", system-ui, sans-serif);
+      letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase; }
+    .ph .dir { margin-left: auto; color: inherit; border-color: currentColor; }
+    .pr { display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 12px; align-items: baseline;
+      padding: 5px 12px; border-top: 1px solid var(--bx-border, #33353F); }
+    .ph + .pr { border-top: 0; }
+    .pr .k { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif);
+      letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase; }
+    .pacts { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--bx-border, #33353F); }
+    .row { display: flex; align-items: center; gap: 8px; min-height: var(--bx-row, 28px); border-top: 1px solid var(--bx-border, #33353F); }
+    .who { font-family: var(--bx-mono, "JetBrains Mono", ui-monospace, monospace); overflow-wrap: anywhere; }
+    .role { font-weight: 600; }
+    .desc { color: var(--bx-muted, #A3A6B6); flex: 1; min-width: 0; }
+    .row .desc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    /* buttons (product-ui §6): secondary by default, Approve the primary */
     button {
-      background: var(--bx-green, #4caf50); color: #fff; border: 0;
-      border-radius: 5px; padding: 2px 10px; cursor: pointer;
-      font: inherit; font-size: 12px; font-weight: 600;
+      box-sizing: border-box; min-height: var(--bx-control-h, 28px); padding: 0 11px; cursor: pointer;
+      background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0);
+      border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
+      font: inherit; font-weight: 600;
     }
-    button.rm {
-      background: var(--bx-panel, #23272e); color: var(--bx-red, #ef5350);
-      border: 1px solid color-mix(in srgb, var(--bx-red, #ef5350) 40%, transparent);
-      font-weight: 500;
-    }
-    a { color: var(--bx-muted, #868f9a); font-size: 12px; cursor: pointer; }
-    a:hover { color: var(--bx-accent, #f5a623); }
+    button:hover:not(:disabled) { background: var(--bx-hover, #2A2B34); }
+    button.primary { background: var(--bx-accent, #8C9BFF); border-color: var(--bx-accent, #8C9BFF); color: var(--bx-accent-ink, #0B0C12); }
+    button.primary:hover { background: var(--bx-accent-hover, #A9B4FF); border-color: var(--bx-accent-hover, #A9B4FF); }
+    /* a row's revoke: a quiet button in the danger colour (R1: row actions are quiet) */
+    button.rm { background: transparent; border-color: transparent; color: var(--bx-danger, #FF7A7A); }
+    button.rm:hover:not(:disabled) { background: transparent; border-color: var(--bx-danger, #FF7A7A); }
+    button:disabled { opacity: .5; cursor: default; }
+    a { display: inline-block; color: var(--bx-muted, #A3A6B6); cursor: pointer; text-decoration: none; }
+    a:hover { color: var(--bx-text, #E9EAF0); text-decoration: underline; }
+    .panel > a { margin-top: 8px; }
     .dir {
-      font-size: 10px; padding: 0 5px; border-radius: 999px;
-      border: 1px solid var(--bx-border, #363c45); color: var(--bx-muted, #868f9a);
-      text-transform: uppercase; letter-spacing: .04em; white-space: nowrap;
+      display: inline-flex; align-items: center; box-sizing: border-box; height: 20px; padding: 0 6px; white-space: nowrap;
+      border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); color: var(--bx-muted, #A3A6B6);
+      font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase;
     }
-    .ask { color: var(--bx-muted, #868f9a); font-size: 11.5px; white-space: nowrap; }
-    .by { color: var(--bx-muted, #868f9a); font-size: 11px; white-space: nowrap; }
-    .err { color: var(--bx-red, #ef5350); font-size: 12px; padding: 2px 0; }
+    .ask, .by { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); white-space: nowrap; }
+    .err { color: var(--bx-danger, #FF7A7A); padding: 2px 0 8px; }
+    .err bx-icon, .warn bx-icon { margin-right: 6px; }
     /* a partitioned tile asking for another's people's data (docs/partitions.md) */
-    .warn { color: var(--bx-amber, #f2a71b); font-size: 11.5px; padding: 0 0 4px 12px; }
+    .warn { color: var(--bx-warn, #F2994A); background: var(--bx-warn-bg, #382F2C); padding: 5px 12px; border-top: 1px solid var(--bx-border, #33353F); }
   `];
 
   constructor() {
@@ -142,31 +170,32 @@ export class BxGrants extends LitElement {
       // nothing waiting on them, are no line on every screen.
       if (this._grants.length === 0 || this._scope === 'mine') return nothing;
       const n = this._grants.length;
-      return html`<a @click=${() => { this._showAll = true; }}>${n} ${n === 1 ? 'grant' : 'grants'} active</a>`;
+      return toggle(`${n} ${n === 1 ? 'grant' : 'grants'} active`, () => { this._showAll = true; });
     }
     const scoped = !!this._scope; // non-admin filtered view: honor approvable
     return html`<div class="panel">
-      ${this._err ? html`<div class="err">${this._err}</div>` : nothing}
+      ${this._err ? html`<div class="err" role="alert"><bx-icon name="error"></bx-icon>${this._err}</div>` : nothing}
       ${this._pending.length > 0 ? html`
         <h4>pending access requests</h4>
-        ${this._pending.map((p) => html`
-          <div class="row" style=${p.blocked ? 'opacity:.55' : ''}>
-            <span class="who">${grantArrow(p)}</span>
-            <span class="role">${p.role}</span>
-            ${p.direction ? html`<span class="dir">${p.direction}</span>` : nothing}
-            <span class="desc" title=${p.blocked ?? capInfo(p.target)?.desc ?? ''}>${p.blocked
-              ? `blocked by policy — ${p.blocked}`
-              : p.target.startsWith('cap:') ? (capInfo(p.target)?.label ?? '')
-                : this._roleDocs[p.target]?.[p.role] ?? ''}</span>
-            ${p.blocked
+        ${this._pending.map((p) => {
+          const desc = p.blocked ? `blocked by policy — ${p.blocked}`
+            : p.target.startsWith('cap:') ? (capInfo(p.target)?.label ?? '') : this._roleDocs[p.target]?.[p.role] ?? '';
+          return html`
+          <div class="plate" style=${p.blocked ? 'opacity:.55' : ''}>
+            <div class="ph"><bx-icon name="key"></bx-icon>Grant request${p.direction ? html`<span class="dir">${p.direction}</span>` : nothing}</div>
+            <div class="pr"><span class="k">request</span><span class="who">${grantArrow(p)}</span></div>
+            <div class="pr"><span class="k">role</span><span class="role">${p.role}</span></div>
+            ${desc ? html`<div class="pr"><span class="k">grants</span><span class="desc" title=${p.blocked ?? capInfo(p.target)?.desc ?? ''}>${desc}</span></div>` : nothing}
+            ${p.warning ? html`<div class="warn" data-grant-warning><bx-icon name="warning"></bx-icon>${p.warning}</div>` : nothing}
+            <div class="pacts">${p.blocked
               ? html`<button disabled title=${p.blocked}>blocked</button>`
               : (scoped && !p.approvable)
                 ? html`<span class="ask" title="who can approve this request">ask: ${this._askWho(p) || 'a workspace admin'}</span>`
-                : html`<button @click=${() => this._approve(p)}>approve</button>`}
-          </div>
-          ${p.warning ? html`<div class="warn" data-grant-warning>⚠ ${p.warning}</div>` : nothing}`)}` : nothing}
+                : html`<button class="primary" @click=${() => this._approve(p)}>Approve</button>`}</div>
+          </div>`;
+        })}` : nothing}
       ${this._showAll ? html`
-        <h4 style="margin-top:.6rem">active grants</h4>
+        <h4 style="margin-top:12px">active grants</h4>
         ${this._grants.map((g) => html`
           <div class="row">
             <span class="who">${grantArrow(g)}</span>
@@ -175,8 +204,7 @@ export class BxGrants extends LitElement {
             <span class="desc">${g.approvedBy ? html`<span class="by">· approved by ${g.approvedBy}</span>` : nothing}</span>
             <button class="rm" @click=${() => this._revoke(g)}>revoke</button>
           </div>`)}
-        <a @click=${() => { this._showAll = false; }}>hide</a>` : html`
-        <a @click=${() => { this._showAll = true; }}>show all grants</a>`}
+        ${toggle('hide', () => { this._showAll = false; })}` : toggle('show all grants', () => { this._showAll = true; })}
     </div>`;
   }
 }
