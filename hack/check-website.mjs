@@ -395,18 +395,21 @@ markup();
 marks();
 media();
 
-const todos = { data: 0, copy: 0, page: [] };
+const todos = { data: 0, copy: 0, shot: 0, page: [] };
 for (const f of htmlFiles) {
   const html = read(f);
-  todos.data += (html.match(/<mark data-todo="data">/g) || []).length;
+  // slots are marks on the page; a TODO-COPY gap is a comment by design
+  const shown = stripComments(html);
+  todos.data += (shown.match(/<mark data-todo="data">/g) || []).length;
   todos.copy += (html.match(/TODO-COPY/g) || []).length;
+  todos.shot += (shown.match(/<mark data-todo="shot">/g) || []).length;
   if (/<main\b[^>]*data-todo="page"/.test(html)) todos.page.push(relative(SITE, f));
 }
 const pad = (s, n) => String(s).padEnd(n);
 console.log(`website: ${pages.length} pages; budgets in KB (HTML+CSS ≤ ${BUDGET.htmlCss}, JS ≤ ${BUDGET.js}, fonts ≤ ${BUDGET.fonts}, first-screen images ≤ ${BUDGET.images})`);
 for (const r of budgetRows) console.log(`  ${pad(r.page, 15)} html+css ${pad(kb(r.htmlCss), 6)} js ${pad(kb(r.js), 6)} fonts ${pad(kb(r.fonts), 7)} images ${kb(r.images)}`);
-if (todos.data || todos.copy || todos.page.length) {
-  notes.push(`open: ${todos.data} data slot(s) waiting for the research pass, ${todos.copy} TODO-COPY gap(s), pages still stubs: ${todos.page.join(', ') || 'none'}`);
+if (todos.data || todos.copy || todos.shot || todos.page.length) {
+  notes.push(`open: ${todos.data} data slot(s) waiting for the research pass, ${todos.copy} TODO-COPY gap(s), ${todos.shot} shot(s) waiting for their capture (shots.todo.md), pages still stubs: ${todos.page.join(', ') || 'none'}`);
 }
 for (const n of notes) console.log(`  ${n}`);
 if (failures.length) {

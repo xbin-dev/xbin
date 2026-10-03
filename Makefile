@@ -330,14 +330,15 @@ vendor:
 
 # Assemble the static xbin.dev site into website/dist (no build step: the
 # files as they are, website/README.md): every page, css/, fonts/, img/ (the
-# marks and the photographs at web sizes), the product shots in shots/ (*.webp;
-# its PNGs are the repository README's), js/, data/, app/, install.sh, og.png
-# and the icons, and website/media/ as website/media.lock pins it (the
-# photographs' masters in art/ stay out of it; the site's check runs first,
-# with --dist). It refuses to build a site that would stop serving the
-# prebuilt helpers: when hack/helpers.sha256 lists sets, the site serves them
-# at /static/helpers, so website/static-helpers/ must be there (stage it with
-# hack/helpers-static.sh; docs/maintenance.md → "Prebuilt helpers").
+# marks, the photographs at web sizes and the product shots), js/, data/,
+# app/, install.sh, og.png and the icons, and website/media/ as
+# website/media.lock pins it. The photographs' masters in art/ stay out, and so
+# do the film's placeholder posters in img/film/ until the lock pins the film.
+# The site's guard runs first, with --dist. It refuses to build a site that
+# would stop serving the prebuilt helpers: when hack/helpers.sha256 lists
+# sets, the site serves them at /static/helpers, so website/static-helpers/
+# must be there (stage it with hack/helpers-static.sh; docs/maintenance.md →
+# "Prebuilt helpers").
 website:
 	@if grep -q '^[^#[:space:]]' hack/helpers.sha256 && [ ! -d website/static-helpers ]; then \
 	  echo 'website: hack/helpers.sha256 lists prebuilt helpers, which https://xbin.dev/static/helpers serves, but website/static-helpers/ is missing: stage them first (hack/helpers-static.sh; docs/maintenance.md → "Prebuilt helpers")' >&2; exit 1; fi
@@ -347,7 +348,7 @@ website:
 	@cp website/*.html website/install.sh website/og.png website/favicon.svg website/apple-touch-icon.png website/dist/
 	@rm website/dist/og.html
 	@cp -r website/css website/fonts website/img website/data website/app website/dist/
-	@if ls website/shots/*.webp >/dev/null 2>&1; then mkdir -p website/dist/shots && cp website/shots/*.webp website/dist/shots/; fi
+	@grep -q '^[0-9a-f]\{64\}[[:space:]][[:space:]]*film/' website/media.lock || rm -rf website/dist/img/film
 	@if [ -d website/js ]; then cp -r website/js website/dist/; fi
 	@grep '^[^#[:space:]]' website/media.lock | awk '{print $$2}' | while read -r f; do \
 	  mkdir -p "website/dist/media/$$(dirname "$$f")" && cp "website/media/$$f" "website/dist/media/$$f"; done

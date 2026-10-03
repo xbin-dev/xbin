@@ -196,6 +196,10 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
 .mat-admin{--mat:var(--yellow);--mat-ink:var(--yellow-ink)}
 .shot{margin:0}
 .shot figcaption{margin-top:var(--s-3);font:var(--t-small);color:var(--muted)}
+/* a shot that waits for its capture (website/shots.todo.md): a concrete frame at the shot's
+   aspect inside its mat, the visual's ID marked; its alt text is the frame's aria-label */
+.ph{display:grid;place-items:center;aspect-ratio:16 / 10;background:var(--surface-2)}
+.ph-phone{aspect-ratio:1179 / 2556}
 
 /* ---------- plates: the 1970s sign plate, an ink bar over label and value rows ---------- */
 .plate{border:3px solid var(--text);border-radius:var(--r);background:var(--bg)}
@@ -288,11 +292,7 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
 .page-security .card{padding:var(--s-5) var(--s-5) var(--s-6);border-radius:var(--r);background:var(--surface)}
 :is(.page-security,.page-ios) .figs .h4{margin-bottom:var(--s-2)}
 .page-security .evidence li{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:var(--s-1) var(--s-5)}
-/* a shot that waits for its capture: a neutral frame at its ratio, its visual ID in the corner */
-:is(.page-security,.page-ios) .shot-todo{display:flex;align-items:flex-end;aspect-ratio:16/10;padding:var(--s-3);background:var(--surface-2);color:var(--muted);font:500 12px/1 var(--f-mono)}
-:is(.page-security,.page-ios) .shot-todo::after{content:attr(data-id)}
 /* iOS: phone screens staggered by 24 px steps, rising to the right; the parts' magenta rules (C-3) */
-.page-ios .shot-todo{aspect-ratio:1179/2556}
 .page-ios .phones{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s-4)}
 .page-ios .phones li:first-child{margin-top:48px}
 .page-ios .phones li:nth-child(2){margin-top:24px}
@@ -415,9 +415,6 @@ mark[data-todo]{padding:1px 4px;border-radius:var(--r);background:var(--warn-bg)
 .page-product .flip>.flow+*{grid-column:1;grid-row:1}
 .page-product .proof{align-self:end}
 .page-product .figs{grid-template-columns:repeat(2,minmax(0,1fr))}
-/* a shot still to be captured: its mat and tab around a concrete frame at the shot's aspect */
-:is(.page-product,.page-install) .ph{display:grid;place-items:center;aspect-ratio:16 / 10;background:var(--surface-2)}
-.page-product .ph-phone{aspect-ratio:1179 / 2556}
 .page-product .phones{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--s-4)}
 .page-product .it{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));column-gap:var(--gutter)}
 .page-product .it li{padding-block:var(--s-4);border-top:1px solid var(--divider);font-size:17px;line-height:1.55}

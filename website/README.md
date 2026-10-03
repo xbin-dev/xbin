@@ -59,25 +59,24 @@ else holds a hex value. `css/site.css` is the components, by the brand's names:
   `.measure-note`, `.chart`;
 - product shots: `figure.shot` around `.mat.mat-shell|-terminal|-agents|-admin` with
   `span.mat-tab`, the image, and a `figcaption`; give every image below the first
-  screen `loading="lazy"`, and a light and a dark source in a `<picture>`;
+  screen `loading="lazy"`, and a light and a dark source in a `<picture>`; a shot that
+  waits for its capture is `.ph` (`.ph-phone` for a phone screen) in its mat (below,
+  "Assets");
 - plates: `.plate` with `.plate-h` and a `dl`;
 - commands: `.cmd` blocks in a `.cmds` grid on the band (`code.cmd-code` sized to stay
   on one line, the `$ ` prompt drawn by CSS and never copied, `button.copy
   data-copy="…"`), or `.code` with a `pre` elsewhere;
 - Inform pages: `.ihero` (crumb, h1, lead); the privacy text: `.prose`; the 404:
   `.nf`, `.link-list`;
-- security and iOS (their own section, scoped to `body.page-security` and
-  `body.page-ios`): `.ih-grid` (the hero's copy beside the facts plate or the phone
-  screens), `.four`, `.leadins`, `.card`, `.evidence`, `.phones`, and `.shot-todo`, a
-  shot that waits for its capture: `figure.shot` with the visual's description in
-  `data-shot`, its part's mat around a neutral frame at the shot's ratio with the alt
-  text as its `aria-label`, the visual's ID in the corner. Swap in the image when the
-  capture exists.
+- security and iOS (their own section, before the footer's, scoped to
+  `body.page-security` and `body.page-ios`): `.ih-grid` (the hero's copy beside the
+  facts plate or the phone screens), `.four`, `.leadins`, `.card`, `.evidence`,
+  `.phones`;
+- product and install (their own section, at the end, scoped to `.page-product` and
+  `.page-install`): the hero grid, `.flow` copy columns, `.flip` for a visual on the
+  left, `.phones`, `.it`, `.steps`.
 
-Product and install have their own section at the end of `css/site.css`, each rule
-scoped by the page's body class (`.page-product`, `.page-install`: the hero grid,
-`.flow` copy columns, `.flip` for a visual on the left, `.ph` shot frames, `.phones`,
-`.it`, `.steps`). Every rule counts against every page's 60 KB, so keep them few.
+Every rule counts against every page's 60 KB, so keep a page's own rules few.
 
 Corners are 2 px wherever one shows; focus is the cyan ring (3 px, 2 px gap) from
 `:focus-visible`; motion plays once and is off under `prefers-reduced-motion`.
@@ -133,9 +132,19 @@ open in the same tab and carry ↗.
 - **The film** (F-1, the 12 s loop) waits for the product theme. Its poster frames
   `img/film/F-1-{day,night}-poster.webp` are flat placeholders in the product theme's
   shell background, there only for building the markup. They never ship: the sections
-  ship without the film until it is shot. Its MP4 and WebM go in `media/` (below).
-- **Product screenshots** are captured after the product's re-theme. `shots.todo.md`
-  lists each one with its persona, screen, size, theme, mat and file names.
+  ship without the film until it is shot, and `make website` leaves `img/film/` out of
+  `dist/` until `media.lock` pins the film. Its MP4 and WebM go in `media/` (below).
+- **Product shots** are captured after the product's re-theme (D184). `shots.todo.md`
+  lists each one with its persona, screen, size, theme, mat and file names; their web
+  sizes go in `img/shots/`. Each sits in `figure.shot` with `data-shot`, which names
+  the capture `site/visuals.md` asks for (`grep data-shot` lists them all). Until it
+  exists, the mat holds a concrete frame at the shot's aspect (`.ph`, `.ph-phone` for a
+  phone screen) with a visible `<mark data-todo="shot">S-…</mark>` and the visual's alt
+  as its `aria-label`; the guard counts them. A still from the film set stands in only
+  where it shows what the spec asks for: today that is S-9 on the security page,
+  `img/shots/S-9-interim.webp` (`.film-media/stills/07-admin-desk-view-as.png`, the
+  current product theme, one theme only, 1600 × 1000), until the Concrete Day and Night
+  captures replace it in a `<picture>`.
 - **The curve** (`#curve`, visual D-1) is drawn from `data/software-per-year.json`,
   the series the research pass's history register gives for it (new repositories
   created on GitHub per year, every point with its source; the 2026 point an
@@ -145,19 +154,6 @@ open in the same tab and carry ↗.
   it, and the numbers in a "Show the numbers" table. Edit the data, never the block. A
   projection (the dashed "If the curve holds" line) is drawn only once the data file
   carries one.
-- **Product shots** wait for the product theme (D184). Each sits in `figure.shot` with
-  `data-shot`, which names the capture `site/visuals.md` asks for (`grep data-shot`
-  lists them all). Until it exists, the mat holds a concrete frame at the shot's
-  aspect (`.ph`, `.ph-phone` for the phone shots) with a visible
-  `<mark data-todo="shot">S-…</mark>` and the visual's alt as its `aria-label`, or an
-  interim still where the film set has one that matches: `img/shots/*-interim.webp`,
-  WebP from `.film-media/stills` (the current theme, one theme only), its alt marked
-  `TODO-COPY`. The film F-1 ships without a stand-in, as `site/visuals.md` says.
-- **Security's shots** (`shots/*.webp`, served at `/shots/`; the PNGs beside them are
-  the old site's, kept for the repository README and not served): `S-9-interim.webp` is
-  the film set's still of view-as-user (`.film-media/stills/07-admin-desk-view-as.png`,
-  the current product theme) at 1600 × 1000, until the Concrete Day and Night captures
-  replace it as `S-9-light.webp` and `S-9-dark.webp` in a `<picture>` (`site/visuals.md`).
 - **Media over 1 MiB** (the 12 s film, later) stays out of git: it lives in
   `website/media/` (gitignored) and `media.lock` pins each file's sha256 and source.
 
@@ -171,10 +167,10 @@ when installed).
 ## Build
 
 ```
-make website        # website/dist: every page, css/, fonts/, img/, js/,
-                    # data/, app/, install.sh, og.png, favicon.svg,
-                    # apple-touch-icon.png, media/ as media.lock pins it,
-                    # static/helpers/
+make website        # website/dist: every page, css/, fonts/, img/ (but img/film/
+                    # until the film is locked), js/, data/, app/, install.sh,
+                    # og.png, favicon.svg, apple-touch-icon.png, media/ as
+                    # media.lock pins it, static/helpers/
 ```
 
 It runs the site's check with `--dist` first. `dist/` is the deployable artifact (any
@@ -212,6 +208,9 @@ each rule on a copy of the site):
 - **Media:** `media.lock` well formed; with `--dist`, every locked file present with
   its sha256.
 
+It also counts what is still open: data slots, `TODO-COPY` gaps, shots waiting for
+their capture, stub pages.
+
 ## Preserved URLs
 
 | URL | Serves |
@@ -225,9 +224,9 @@ each rule on a copy of the site):
 
 New with Base Two: `/product.html`, `/security.html`, `/install.html`, `/ios.html`,
 `/404.html`, `/favicon.svg`, `/apple-touch-icon.png`, `/css/`, `/fonts/`, `/img/`,
-`/data/software-per-year.json`, `/js/copy.js`, `/shots/*.webp`. No longer served: the old site's `/js/` islands, `/vendor/`,
-its `/shots/*.png` and its IBM Plex fonts (those PNGs stay in `website/shots/` for the
-repository README's image).
+`/data/software-per-year.json`, `/js/copy.js`. No longer served: the old site's `/js/` islands, `/vendor/`,
+`/shots/` and its IBM Plex fonts (`website/shots/` stays in git for the repository
+README's image).
 
 ### app/ios.json: the iOS app's kill switch
 
