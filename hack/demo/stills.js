@@ -52,8 +52,11 @@ async function openConversation(agent, title) {
   await agent.evaluate((id) => { location.hash = `c=${id}`; }, id);
 }
 
+const layouts = JSON.parse(fs.readFileSync(path.join(__dirname, 'data/layouts.json'), 'utf8'));
 async function person(browser, who) {
   const { ctx, page } = await login(browser, who, PASS, VIEW);
+  // their font as seeded (another pass, a phone still, may have left another)
+  await page.context().request.put(`${URL}/api/xbin/prefs/settings`, { data: { fontSize: layouts.people[who]?.fontSize ?? 17 } });
   await openShell(page);
   await waitFor(page, (t) => t.screens.length > 1, null, { timeout: 15000, label: `${who}'s seeded screens` });
   return { ctx, page };

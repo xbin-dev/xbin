@@ -55,7 +55,7 @@ module.exports.defaults = {
   // the tile's own files (what its team wrote; not the workspace's manifest)
   commands: "ls *.js *.md|git log --format='%h %an: %s' -7",
   // ~40 columns: short lines, enough of them to fill the sheet
-  phoneCommands: "wc -l *.js|git shortlog -sn|git log --format='%h %<(7)%an %ar' -8",
+  phoneCommands: "wc -l *.js|git shortlog -sn|git log --format='%h %<(12)%an %ar' -8",
   pop: { x: 380, y: 95, w: 700, h: 400 },
 };
 

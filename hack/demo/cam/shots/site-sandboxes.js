@@ -47,7 +47,12 @@ async function phoneShell(cam, doc) {
     await cam.type(cam.args.phoneCommand);
     await cam.press('Enter');
     await cam.sleep(2500);
-    await doc.locator('#detail').evaluate((el) => el.scrollIntoView({ block: 'start' }));
+    // from the top of his list (the page's header is sticky: a card scrolled
+    // to the top hides under it): his card, the shell's output under it
+    await doc.locator('.card.sbx.on').first().evaluate((el) => {
+      for (let p = el.parentElement; p; p = p.parentElement) if (p.scrollHeight > p.clientHeight) p.scrollTop = 0;
+      document.scrollingElement.scrollTop = 0;
+    });
     await cam.mark('shell', doc.locator('#term'));
     return true;
   } catch (e) {
@@ -59,7 +64,8 @@ async function phoneShell(cam, doc) {
 
 module.exports.description = "the coding sandboxes: the engineers' VM sandboxes and their quotas";
 module.exports.defaults = { who: 'lukas', screen: 'Sandboxes', running: 'planner-oom-repro,routing-engine',
-  phoneCommand: 'go version; nproc; free -h | head -2' };
+  // (short lines: a phone's shell is ~40 columns)
+  phoneCommand: 'nproc; head -1 /proc/meminfo; go version' };
 
 module.exports.setup = async (cam) => {
   await site.signIn(cam, cam.args.who, { screen: cam.args.screen });

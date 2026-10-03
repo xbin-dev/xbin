@@ -7,7 +7,7 @@
         { "from": { "name": "Daniel Mensah", "email": "daniel@larkspan.example" }, "to": "dana.whitfield@brightwell.example", "at": 330,
           "body": "Hi Dana,\n\nAttached is the revised order form: 60 additional vans for the Dayton DC from {{longdate:+66}}, on a three-year term, with the $70 per van rate held from your current agreement.\n\nEllen's redlines on the MSA are all accepted except the liability cap in 9.2; I've suggested a middle ground in the comments.\n\nBest,\nDaniel" },
         { "from": { "name": "Dana Whitfield", "email": "dana.whitfield@brightwell.example" }, "to": "daniel@larkspan.example", "at": 46,
-          "body": "Thanks Daniel — this looks right. Ellen is fine with your wording on 9.2.\n\nOne ask before we sign: can Marcus's team pilot the driver app in Dayton for two weeks in December, before the full rollout in January? He wants his drivers comfortable before the holiday volume is behind us.\n\nIf that works, I'll have the signed form back to you by {{weekday:+2}}.\n\nDana" }
+          "body": "Thanks Daniel — this looks right. Ellen is fine with your wording on 9.2.\n\nOne ask before we sign: can Marcus's team pilot the driver app in Dayton for two weeks before the full rollout? He wants his drivers comfortable before the holiday volume is behind us.\n\nIf that works, I'll have the signed form back to you by {{weekday:+2}}.\n\nDana" }
       ] },
     { "id": "pinewood-week2", "subject": "Pilot week 2: crane windows on the north yard", "labels": ["Customers"], "unread": true,
       "messages": [
