@@ -33,7 +33,7 @@ export function mineTab(app, ui) {
 function createTpl(app, ui) {
   if (!ui.forms.create) {
     const c = app.createForm({});
-    return html`<button class="go" id="new" ?disabled=${!!c.cant} title=${c.cant} @click=${() => { ui.forms.create = {}; ui.paint(); }}>＋ New sandbox</button>
+    return html`<button class="go" id="new" ?disabled=${!!c.cant} title=${c.cant} @click=${() => { ui.forms.create = {}; ui.paint(); }}><bx-icon name="plus"></bx-icon>New sandbox</button>
       ${c.cant ? html`<span class="muted small">${c.cant}</span>` : nothing}`;
   }
   const vm = app.createForm(ui.forms.create);

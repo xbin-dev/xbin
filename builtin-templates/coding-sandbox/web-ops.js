@@ -193,7 +193,7 @@ export function imagesTab(app, ui) {
       ${im.setup ? html`<details><summary class="small">setup script${im.buildEgress ? ` (network while it builds: ${im.buildEgress})` : ''}</summary><pre>${im.setup}</pre></details>` : nothing}
       ${im.built && im.built.log ? html`<details class="log"><summary class="small">the last build's output</summary><pre>${im.built.log}</pre></details>` : nothing}
     </div>`)}</div>
-    ${form ? imageFormTpl(ui, form, save) : html`<button class="go" id="image-new" @click=${() => { ui.forms.image = O.imageForm(); ui.paint(); }}>＋ New image</button>`}`;
+    ${form ? imageFormTpl(ui, form, save) : html`<button class="go" id="image-new" @click=${() => { ui.forms.image = O.imageForm(); ui.paint(); }}><bx-icon name="plus"></bx-icon>New image</button>`}`;
 }
 
 function imageFormTpl(ui, form, save) {

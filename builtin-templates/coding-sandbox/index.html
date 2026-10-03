@@ -75,6 +75,8 @@
     .bx button.ghost { background: none; border-color: transparent; }
     .bx button.ghost:hover { background: none; color: var(--bx-accent); }
     .bx button.icon { display: inline-flex; align-items: center; justify-content: center; min-width: var(--bx-control-h); padding: 0; }
+    /* a drawn glyph before a button's words: the plus of New sandbox (D184) */
+    .bx button:has(> bx-icon):not(.icon) { display: inline-flex; align-items: center; gap: 4px; }
     .bx button.on { background: var(--bx-selection); border-color: var(--bx-accent); color: var(--bx-selection-text); }
     .link { cursor: pointer; display: inline-flex; gap: 6px; align-items: center; }
     .link:hover { text-decoration: underline; }
