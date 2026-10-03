@@ -92,9 +92,9 @@ func (s *Server) partitionSwitchPage(r *http.Request, tile string, from, to regi
 	who := "a workspace admin"
 	switch owner := s.policy().OwnerOf(tile); {
 	case strings.HasPrefix(owner, "org:"):
-		who = "an admin of <b>" + htmlEscape(owner) + "</b>, which owns it, or a workspace admin"
+		who = "an admin of <code>" + htmlEscape(owner) + "</code>, which owns it, or a workspace admin"
 	case strings.HasPrefix(owner, "user:"):
-		who = "its owner, <b>" + htmlEscape(owner) + "</b>, or a workspace admin"
+		who = "its owner, <code>" + htmlEscape(owner) + "</code>, or a workspace admin"
 	}
 	where := "/xbin/partitions"
 	if o := s.workspaceOrigin(); o != "" {

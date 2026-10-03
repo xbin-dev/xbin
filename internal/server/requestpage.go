@@ -18,9 +18,9 @@ func (s *Server) serveRequestAccessPage(w http.ResponseWriter, tile string) {
 	ownerLine := "a workspace admin manages this tile"
 	switch {
 	case strings.HasPrefix(owner, "org:"):
-		ownerLine = "owned by <b>" + htmlEscape(owner) + "</b> — its org admins (or a workspace admin) can grant access"
+		ownerLine = "owned by <code>" + htmlEscape(owner) + "</code> — its org admins (or a workspace admin) can grant access"
 	case strings.HasPrefix(owner, "user:"):
-		ownerLine = "owned by <b>" + htmlEscape(owner) + "</b> — they (or a workspace admin) can grant access"
+		ownerLine = "owned by <code>" + htmlEscape(owner) + "</code> — they (or a workspace admin) can grant access"
 	}
 	tileJSON, _ := json.Marshal(tile) // safe literal for the inline script
 	page := strings.ReplaceAll(s.brandPage(requestAccessHTML, ""), "{{TILE_JSON}}", string(tileJSON))
