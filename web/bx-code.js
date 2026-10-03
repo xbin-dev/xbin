@@ -16,6 +16,41 @@ import { scrollCss } from '/vendor/scroll-css.js';
 import { unsafeHTML } from 'lit';
 import hljs from '/vendor/highlight.min.js';
 import { onEvent } from '/vendor/events-socket.js';
+import '/vendor/bx-icons.js';
+
+// codeCss: how code and diffs look (D184): highlight.js's classes on the
+// --bx-syn-* tokens, and diffHTML's lines on the --bx-diff-* tokens — a
+// changed line keeps its syntax colours on its tint, its +/- marker in the
+// diff colour; file headers in the text colour, 600; unchanged lines in the
+// context colour. Shared by every element that shows code or a diff
+// (bx-prs, bx-deploy, the Agent tab's cards), so they read the same.
+export const codeCss = css`
+  .hljs-comment, .hljs-quote { color: var(--bx-syn-comment, #9598A9); font-style: italic; }
+  .hljs-keyword, .hljs-selector-tag, .hljs-section, .hljs-name, .hljs-doctag, .hljs-variable.language_ { color: var(--bx-syn-keyword, #FF8CC8); }
+  .hljs-string, .hljs-regexp, .hljs-char.escape_, .hljs-meta .hljs-string { color: var(--bx-syn-string, #7BE0B0); }
+  .hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet { color: var(--bx-syn-number, #FFD54A); }
+  .hljs-title, .hljs-title.function_ { color: var(--bx-syn-function, #96A6FF); }
+  .hljs-type, .hljs-title.class_, .hljs-class .hljs-title { color: var(--bx-syn-type, #5CCBE3); }
+  .hljs-attr, .hljs-attribute, .hljs-property, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id, .hljs-selector-pseudo { color: var(--bx-syn-attr, #F5B07A); }
+  .hljs-built_in, .hljs-meta, .hljs-template-variable, .hljs-variable { color: var(--bx-syn-builtin, #C6A8FF); }
+  .hljs-deletion { color: var(--bx-syn-deletion, #FF8F8F); background: var(--bx-diff-del-bg, #342429); }
+  .hljs-addition { color: var(--bx-syn-addition, #7BE0B0); background: var(--bx-diff-add-bg, #1D302D); }
+  .hljs-params, .hljs-punctuation, .hljs-operator { color: inherit; }
+  .hljs-subst { color: var(--bx-text, #E9EAF0); }
+  .hljs-emphasis { font-style: italic; }
+  .hljs-strong { font-weight: 600; }
+  .hljs-link { color: var(--bx-link, #8C9BFF); }
+  .diff .fh { display: block; color: var(--bx-text, #E9EAF0); font-weight: 600; }
+  .diff .h { display: block; color: var(--bx-diff-hunk, #5CCBE3); background: var(--bx-diff-hunk-bg, #1C2830); }
+  .diff .d { display: block; color: var(--bx-text, #E9EAF0); background: var(--bx-diff-add-bg, #1D302D); }
+  .diff .a { display: block; color: var(--bx-text, #E9EAF0); background: var(--bx-diff-del-bg, #342429); }
+  .diff .d > .mk { color: var(--bx-diff-add, #5EDBA5); }
+  .diff .a > .mk { color: var(--bx-diff-del, #FF8F8F); }
+  .diff .ctx { display: block; color: var(--bx-diff-context, #A3A6B6); background: var(--bx-diff-context-bg, transparent); }
+  .pl, .mi { font-variant-numeric: tabular-nums; }
+  .pl { color: var(--bx-diff-add, #5EDBA5); }
+  .mi { color: var(--bx-diff-del, #FF8F8F); }
+`;
 
 const LANG_BY_EXT = {
   js: 'javascript', mjs: 'javascript', cjs: 'javascript', ts: 'typescript',
@@ -60,8 +95,8 @@ export function diffHTML(diff) {
     }
     if (raw.startsWith('@@')) { out.push(`<span class="h">${escHTML(raw)}</span>`); continue; }
     const sign = raw[0];
-    if (sign === '+') out.push(`<span class="d">+${hl(raw.slice(1), lang)}</span>`);
-    else if (sign === '-') out.push(`<span class="a">-${hl(raw.slice(1), lang)}</span>`);
+    if (sign === '+') out.push(`<span class="d"><span class="mk">+</span>${hl(raw.slice(1), lang)}</span>`);
+    else if (sign === '-') out.push(`<span class="a"><span class="mk">-</span>${hl(raw.slice(1), lang)}</span>`);
     else if (sign === ' ') out.push(`<span class="ctx"> ${hl(raw.slice(1), lang)}</span>`);
     else out.push(`<span class="fh">${escHTML(raw)}</span>`);
   }
@@ -119,83 +154,84 @@ export class BxCode extends LitElement {
     _q: { state: true },       // file filter
   };
 
-  static styles = [scrollCss, css`
-    :host { display: flex; height: 100%; min-height: 0; font: 12px/1.5 var(--bx-mono, ui-monospace, monospace);
-      color: var(--bx-text, #d4d9e0); background: var(--bx-panel, #23272e); }
-    .side { width: 210px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--bx-border, #363c45); min-height: 0; }
-    .tabs { display: flex; flex: none; border-bottom: 1px solid var(--bx-border, #363c45); }
-    .tabs button { flex: 1; background: none; border: 0; color: var(--bx-muted, #868f9a); padding: 6px 4px;
-      font: inherit; cursor: pointer; border-bottom: 2px solid transparent; }
-    .tabs button.on { color: var(--bx-text, #d4d9e0); border-bottom-color: var(--bx-accent, #f5a623); }
-    .filter { flex: none; margin: 5px; padding: 3px 6px; border: 1px solid var(--bx-border, #363c45); border-radius: 4px;
-      background: var(--bx-panel-2, #2b3038); color: inherit; font: inherit; }
-    .list { flex: 1; overflow: auto; padding: 2px 0 8px; min-height: 0; }
-    .row { display: flex; align-items: center; gap: 3px; padding: 1px 8px 1px 0; cursor: pointer; white-space: nowrap; }
-    .row:hover { background: var(--bx-panel-2, #2b3038); }
-    .row.on { background: color-mix(in srgb, var(--bx-accent, #f5a623) 22%, transparent); color: #fff; }
-    .row .tw { display: inline-block; width: 12px; text-align: center; color: var(--bx-muted, #868f9a); }
-    .row .ic { opacity: .6; }
-    .commit { padding: 4px 8px; cursor: pointer; border-bottom: 1px solid color-mix(in srgb, var(--bx-border, #363c45) 40%, transparent); white-space: normal; }
-    .commit:hover { background: var(--bx-panel-2, #2b3038); }
-    .commit.on { background: color-mix(in srgb, var(--bx-accent, #f5a623) 22%, transparent); }
-    .commit .subj { color: var(--bx-text, #d4d9e0); }
-    .commit .meta { color: var(--bx-muted, #868f9a); font-size: 10.5px; display: flex; align-items: baseline; gap: 6px; }
+  static styles = [scrollCss, codeCss, css`
+    /* UI text in the UI face; code, paths, ids and times in the code face (D184) */
+    :host { display: flex; height: 100%; min-height: 0; font: var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif);
+      color: var(--bx-text, #E9EAF0); background: var(--bx-panel, #1F2028); }
+    button, input { font: inherit; }
+    :focus-visible { outline: var(--bx-focus-outline, 3px solid #3DD6F5); outline-offset: calc(-1 * var(--bx-focus-width, 3px)); }
+    .side { width: 230px; flex: none; display: flex; flex-direction: column; border-right: 1px solid var(--bx-border, #33353F); min-height: 0; }
+    .tabs { display: flex; flex: none; border-bottom: 1px solid var(--bx-border, #33353F); }
+    .tabs button { flex: 1; background: none; border: 0; color: var(--bx-muted, #A3A6B6); height: var(--bx-row, 28px); padding: 0 4px;
+      cursor: pointer; border-bottom: 2px solid transparent; }
+    .tabs button:hover { color: var(--bx-text, #E9EAF0); }
+    .tabs button.on { color: var(--bx-text, #E9EAF0); font-weight: 600; border-bottom-color: var(--bx-accent, #8C9BFF); }
+    .filter { flex: none; box-sizing: border-box; height: var(--bx-control-h, 28px); margin: 8px; padding: 0 8px;
+      border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
+      background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0); font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); }
+    .filter::placeholder { color: var(--bx-subtle, #8E91A2); opacity: 1; }
+    .filter:focus-visible { outline-offset: var(--bx-focus-offset, 2px); }
+    .list { flex: 1; overflow: auto; padding: 0 0 8px; min-height: 0; }
+    /* the file tree: 28px rows, the selected one in the selection colour with the accent rule */
+    .row { display: flex; align-items: center; gap: 4px; min-height: var(--bx-row, 28px); padding: 0 8px 0 0; cursor: pointer; white-space: nowrap;
+      font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); }
+    .row:hover { background: var(--bx-hover, #2A2B34); }
+    .row.on { background: var(--bx-selection, #262C5C); color: var(--bx-selection-text, #E9EAF0); box-shadow: inset 2px 0 0 var(--bx-accent, #8C9BFF); }
+    .row .tw { display: inline-flex; width: 16px; flex: none; justify-content: center; color: var(--bx-muted, #A3A6B6); }
+    .row .ic { display: inline-flex; flex: none; color: var(--bx-muted, #A3A6B6); }
+    .commit { padding: 6px 12px; cursor: pointer; border-bottom: 1px solid var(--bx-border, #33353F); white-space: normal; }
+    .commit:hover { background: var(--bx-hover, #2A2B34); }
+    .commit.on { background: var(--bx-selection, #262C5C); color: var(--bx-selection-text, #E9EAF0); box-shadow: inset 2px 0 0 var(--bx-accent, #8C9BFF); }
+    .commit .subj { color: inherit; }
+    .commit .meta { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif);
+      font-variant-numeric: tabular-nums; display: flex; align-items: baseline; gap: 6px; }
+    .commit .meta .id { font-family: var(--bx-mono, "JetBrains Mono", ui-monospace, monospace); }
     .commit .meta .cnt { margin-left: auto; white-space: nowrap; }
-    .main { flex: 1; overflow: auto; min-height: 0; padding: 0; }
-    .path { position: sticky; top: 0; background: var(--bx-panel, #23272e); border-bottom: 1px solid var(--bx-border, #363c45);
-      padding: 5px 10px; color: var(--bx-muted, #868f9a); z-index: 2; display: flex; align-items: baseline; gap: 10px; }
-    .path .stat { margin-left: auto; white-space: nowrap; }
+    .commit .wt { display: inline-block; width: 8px; height: 8px; margin-right: 6px; background: var(--bx-muted, #A3A6B6); vertical-align: 1px; }
+    /* the code well: a pane one step below the panel */
+    .main { flex: 1; overflow: auto; min-height: 0; padding: 0; background: var(--bx-code-bg, #16171D); }
+    .path { position: sticky; top: 0; background: var(--bx-panel, #1F2028); border-bottom: 1px solid var(--bx-border, #33353F);
+      padding: 5px 12px; color: var(--bx-text, #E9EAF0); z-index: 2; display: flex; align-items: baseline; gap: 10px;
+      font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); }
+    .path .stat { margin-left: auto; white-space: nowrap; color: var(--bx-muted, #A3A6B6); font-variant-numeric: tabular-nums; }
+    pre, code { font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); }
     pre { margin: 0; padding: 8px 12px; white-space: pre; tab-size: 4; }
     pre.wrap { white-space: pre-wrap; word-break: break-word; }
-    .muted { color: var(--bx-muted, #868f9a); padding: 12px; display: block; }
-    .err { color: var(--bx-red, #ef5350); padding: 12px; }
+    .muted { color: var(--bx-muted, #A3A6B6); padding: 12px; display: block; }
+    .err { color: var(--bx-danger, #FF7A7A); padding: 12px; display: block; }
+    .err bx-icon { margin-right: 6px; }
     /* file view with a line-number gutter */
     .fileview { display: flex; align-items: stretch; min-width: max-content; }
     .gutter { position: sticky; left: 0; padding: 8px 8px 8px 12px; text-align: right; z-index: 1;
-      color: color-mix(in srgb, var(--bx-muted, #868f9a) 70%, transparent);
-      background: var(--bx-panel, #23272e); border-right: 1px solid var(--bx-border, #363c45);
+      color: var(--bx-subtle, #8E91A2); font-variant-numeric: tabular-nums;
+      background: var(--bx-code-bg, #16171D); border-right: 1px solid var(--bx-border, #33353F);
       user-select: none; -webkit-user-select: none; }
     .code { flex: 1; }
-    /* change-count colors */
-    .pl { color: #98c379; } .mi { color: #e06c75; }
-    /* diff line colors */
-    .diff .fh { color: var(--bx-muted, #868f9a); display: block; }
-    .diff .h { color: #61afef; display: block; }
-    .diff .d { color: #98c379; display: block; background: color-mix(in srgb, #98c379 10%, transparent); }
-    .diff .a { color: #e06c75; display: block; background: color-mix(in srgb, #e06c75 10%, transparent); }
-    .diff .ctx { display: block; color: #abb2bf; }
-    /* analysis */
-    .ahead { padding: 8px 10px 4px; color: var(--bx-muted, #868f9a); text-transform: uppercase; letter-spacing: .05em; font-size: 10px; }
-    .arow { position: relative; display: flex; align-items: center; gap: 6px; padding: 3px 10px; }
+    /* analysis: series in the ANSI order (blue, then magenta: D184 §1.1) */
+    .ahead { padding: 12px 12px 4px; color: var(--bx-muted, #A3A6B6);
+      font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase; }
+    .arow { position: relative; display: flex; align-items: center; gap: 6px; min-height: var(--bx-row, 28px); padding: 0 12px; }
     .arow .an { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .arow .ac { color: var(--bx-muted, #868f9a); }
-    .arow .abar { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--bx-accent, #f5a623); opacity: .5; }
+    .arow .ac { color: var(--bx-muted, #A3A6B6); font-variant-numeric: tabular-nums; }
+    .arow .abar { position: absolute; left: 0; bottom: 0; height: 2px; background: var(--bx-term-blue, #6F86FF); }
     .cards { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; }
-    .cd { flex: 1 1 120px; min-width: 108px; background: var(--bx-panel-2, #2b3038);
-      border: 1px solid var(--bx-border, #363c45); border-radius: 6px; padding: 8px 10px; }
-    .cd .v { font-size: 15px; color: var(--bx-text, #d4d9e0); }
-    .cd .l { font-size: 10px; color: var(--bx-muted, #868f9a); margin-top: 2px; text-transform: uppercase; letter-spacing: .04em; }
-    .chart-title { padding: 6px 12px 0; color: var(--bx-muted, #868f9a); }
+    .cd { flex: 1 1 120px; min-width: 108px; background: var(--bx-panel, #1F2028);
+      border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); padding: 8px 12px; }
+    .cd .v { font: var(--bx-font-title, 600 16px/22px "Instrument Sans", system-ui, sans-serif); font-variant-numeric: tabular-nums; color: var(--bx-text, #E9EAF0); }
+    .cd .l { font: var(--bx-font-micro, 600 11px/14px "Instrument Sans", system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em);
+      color: var(--bx-muted, #A3A6B6); margin-top: 2px; text-transform: uppercase; }
+    .chart-title { padding: 8px 12px 0; color: var(--bx-muted, #A3A6B6); }
     .chart { display: flex; align-items: flex-end; gap: 1px; height: 120px; padding: 12px 12px 0; }
     .chart .col { position: relative; flex: 1; height: 100%; }
-    .chart .b { position: absolute; bottom: 0; width: 100%; border-radius: 1px 1px 0 0; min-height: 0; }
-    .chart .b.loc { background: color-mix(in srgb, var(--bx-accent, #f5a623) 85%, transparent); }
-    .chart .b.up { background: color-mix(in srgb, #61afef 55%, transparent); }
-    .axis { display: flex; justify-content: space-between; padding: 3px 12px 0; color: var(--bx-muted, #868f9a); font-size: 10px; }
-    .legend { display: flex; gap: 14px; padding: 8px 12px; color: var(--bx-muted, #868f9a); font-size: 11px; }
-    .legend .k { display: inline-flex; align-items: center; gap: 5px; }
-    .legend .s { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
-    .legend .s.loc { background: var(--bx-accent, #f5a623); } .legend .s.up { background: #61afef; }
-    /* highlight.js — Atom-One-Dark-ish, scoped */
-    .hljs-comment, .hljs-quote { color: #7f8896; font-style: italic; }
-    .hljs-keyword, .hljs-selector-tag, .hljs-doctag, .hljs-formula { color: #c678dd; }
-    .hljs-name, .hljs-section, .hljs-tag, .hljs-deletion { color: #e06c75; }
-    .hljs-string, .hljs-regexp, .hljs-addition, .hljs-meta .hljs-string { color: #98c379; }
-    .hljs-number, .hljs-literal, .hljs-type, .hljs-params, .hljs-template-variable, .hljs-variable { color: #d19a66; }
-    .hljs-title, .hljs-class .hljs-title, .hljs-function .hljs-title { color: #61afef; }
-    .hljs-attr, .hljs-attribute, .hljs-symbol, .hljs-bullet, .hljs-meta { color: #56b6c2; }
-    .hljs-built_in, .hljs-selector-class, .hljs-selector-id { color: #e5c07b; }
-    .hljs-emphasis { font-style: italic; } .hljs-strong { font-weight: 700; }
+    .chart .b { position: absolute; bottom: 0; width: 100%; min-height: 0; }
+    .chart .b.loc { background: var(--bx-term-blue, #6F86FF); }
+    .chart .b.up { background: var(--bx-term-magenta, #FF5FB0); }
+    .axis { display: flex; justify-content: space-between; padding: 4px 12px 0; color: var(--bx-muted, #A3A6B6);
+      font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); font-variant-numeric: tabular-nums; }
+    .legend { display: flex; gap: 16px; padding: 8px 12px; color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); }
+    .legend .k { display: inline-flex; align-items: center; gap: 6px; }
+    .legend .s { width: 8px; height: 8px; display: inline-block; }
+    .legend .s.loc { background: var(--bx-term-blue, #6F86FF); } .legend .s.up { background: var(--bx-term-magenta, #FF5FB0); }
   `];
 
   constructor() {
@@ -335,14 +371,14 @@ export class BxCode extends LitElement {
         const show = open || q;
         return html`
           <div class="row" style="padding-left:${depth * 12 + 4}px" @click=${() => this._toggleDir(dpath)}>
-            <span class="tw">${show ? '▾' : '▸'}</span><span class="ic">📁</span>${name}
+            <span class="tw"><bx-icon name=${show ? 'caret-down' : 'caret-right'}></bx-icon></span><span class="ic"><bx-icon name="folder"></bx-icon></span>${name}
           </div>
           ${show ? this._renderDir(node.dirs[name], dpath, depth + 1) : nothing}`;
       })}
       ${files.filter((f) => !q || f.path.toLowerCase().includes(q)).map((f) => html`
-        <div class="row ${this._sel === f.path ? 'on' : ''}" style="padding-left:${depth * 12 + 16}px"
+        <div class="row ${this._sel === f.path ? 'on' : ''}" style="padding-left:${depth * 12 + 20}px"
              @click=${() => this._openFile(f.path)} title=${f.path}>
-          <span class="ic">📄</span>${f.name}
+          <span class="ic"><bx-icon name="file"></bx-icon></span>${f.name}
         </div>`)}`;
   }
 
@@ -361,7 +397,7 @@ export class BxCode extends LitElement {
     return html`
       <div class="list">
         <div class="commit ${this._rev === '' ? 'on' : ''}" @click=${() => this._loadDiff('')}>
-          <div class="subj">● Working tree</div>
+          <div class="subj"><span class="wt" aria-hidden="true"></span>Working tree</div>
           <div class="meta">uncommitted changes${wt && (wt.add || wt.del) ? html`
             <span class="cnt"><span class="pl">+${wt.add}</span> <span class="mi">−${wt.del}</span></span>` : nothing}</div>
         </div>
@@ -370,7 +406,7 @@ export class BxCode extends LitElement {
                @click=${() => this._loadDiff(c.hash || c.rev)}>
             <div class="subj">${c.subject ?? c.message ?? (c.hash || '').slice(0, 8)}</div>
             <div class="meta">
-              <span>${(c.short || c.hash || c.rev || '').slice(0, 8)}</span>
+              <span class="id">${(c.short || c.hash || c.rev || '').slice(0, 8)}</span>
               <span class="cnt"><span class="pl">+${c.add ?? 0}</span> <span class="mi">−${c.del ?? 0}</span></span>
             </div>
             <div class="meta">${c.author ?? ''} · ${c.date ? relTime(Date.parse(c.date) / 1000) : ''}</div>
@@ -431,7 +467,7 @@ export class BxCode extends LitElement {
   }
 
   _analysisSidebar() {
-    if (this._err) return html`<span class="err">${this._err}</span>`;
+    if (this._err) return html`<span class="err"><bx-icon name="error"></bx-icon>${this._err}</span>`;
     if (!this._activity) return html`<span class="muted">loading…</span>`;
     const a = this._analysis();
     if (!a) return html`<span class="muted">not a git repo</span>`;
@@ -449,7 +485,7 @@ export class BxCode extends LitElement {
   }
 
   _analysisMain() {
-    if (this._err) return html`<div class="err">${this._err}</div>`;
+    if (this._err) return html`<div class="err"><bx-icon name="error"></bx-icon>${this._err}</div>`;
     if (!this._activity) return html`<span class="muted">loading…</span>`;
     const a = this._analysis();
     if (!a) return html`<span class="muted">not a git repo</span>`;
@@ -468,7 +504,7 @@ export class BxCode extends LitElement {
 
   _mainPane() {
     if (this._tab === 'analysis') return this._analysisMain();
-    if (this._err) return html`<div class="err">${this._err}</div>`;
+    if (this._err) return html`<div class="err"><bx-icon name="error"></bx-icon>${this._err}</div>`;
     if (this._tab === 'changes') {
       if (!this._diff) return html`<span class="muted">loading…</span>`;
       if (this._diff.repo === false) return html`<span class="muted">not a git repo</span>`;
