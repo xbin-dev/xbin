@@ -336,16 +336,17 @@ struct TermSessionsSheet: View {
     }
 }
 
-/// The round trip while the link lags (status: the wait glyph, the
-/// measured time, the warn colour).
+/// The round trip while the link lags: the measured time in the warn
+/// colour, on one line (a bar item has little room).
 private struct LagLabel: View {
     let ms: Int
 
     var body: some View {
-        let symbol = XbinGlyphs.symbol("wait")
-        Label(String(ms) + " ms", systemImage: symbol)
-            .labelStyle(.titleAndIcon)
+        Text(verbatim: String(ms) + " ms")
             .font(.caption.monospacedDigit())
             .foregroundStyle(XbinColor.warn)
+            .lineLimit(1)
+            .fixedSize()
+            .accessibilityLabel(Text("Round trip \(ms) milliseconds"))
     }
 }
