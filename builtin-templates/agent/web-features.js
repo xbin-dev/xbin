@@ -233,4 +233,7 @@ export const IMPLEMENTS = {
   'harness.login.remember': 'signin.js — #hl-remember and #hl-rname, or #hl-noremember saying why (model/harness-signins.js rememberOf)',
   'harness.signins': 'harness-catalog.js — #hsignins in the ⚙ Coding agents tab: .hsrow rows (Default, Make default, Rename, Forget), a paste form per coding agent (model/harness-signins.js signinGroups)',
   'harness.account': 'harness-controls.js — #hctl\'s label ends with the account; its popover\'s Account section switches it (model/harness-signins.js accountOf, app.harness.pickSignin)',
+  // Projects — the page, the board, new projects and tasks, settings, a task's chips
+  // Projects — the coordinator, events, upgrades, team projects
+  // CI in the conversation
 };

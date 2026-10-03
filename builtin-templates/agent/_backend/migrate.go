@@ -76,11 +76,6 @@ func (d *DB) migrate() error {
 	if err := d.addFileMetaSchema(); err != nil { // D136: hashes, sources, earlier versions
 		return err
 	}
-	for _, add := range schemaAdds { // each feature's own tables, registered from its init() (projects_types.go)
-		if err := add(d); err != nil {
-			return err
-		}
-	}
 	for _, q := range []string{
 		`CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status, wake_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_runs_parent ON runs(parent_id)`,
@@ -618,4 +613,19 @@ func jsonField(raw, key string) string {
 	}
 	s, _ := m[key].(string)
 	return strings.TrimSpace(s)
+}
+
+// addFeatureSchemas runs each feature's own tables (schemaAdds,
+// projects_seams.go) on the agent's own database — openDB, after migrate().
+// Never on team: migrateTeamRuns runs migrate() alone, so team's schema (and
+// teamCovers, which compares it) stays the run store's. Then d.features
+// says they are in.
+func (d *DB) addFeatureSchemas() error {
+	for _, add := range schemaAdds {
+		if err := add(d); err != nil {
+			return err
+		}
+	}
+	d.features = true
+	return nil
 }

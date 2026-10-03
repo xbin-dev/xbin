@@ -32,7 +32,8 @@ loop, and a coordinator managing implementers on the owner's behalf (from a
 phone, say) while the owner can still talk to any implementer directly.
 
 What the design rests on, checked in the code of this branch (line numbers
-as of `77d35ba9`; builders re-check before editing):
+as of S0's commits — `B/db.go` and `B/channels.go` count S0's own lines;
+builders re-check before editing):
 
 **Runs, origins, homes**
 
@@ -50,7 +51,7 @@ as of `77d35ba9`; builders re-check before editing):
 - The run JSON already has a `task` key: the pinned task (D133;
   `DB.taskView`, B/asks.go:344, used in B/events.go:327 and
   B/stream.go:133). Projects use **`projectTask`** (§7.4).
-- `deleteOneRun` (B/db.go:434) deletes a run's rows in one transaction;
+- `deleteOneRun` (B/db.go:442) deletes a run's rows in one transaction;
   `handleDeleteRun` (B/handlers.go:243) and `deleteConversation`
   (B/homes.go:467) call it.
 - `Config` is additive JSON (B/llm.go:46); `handlePutConfig`
@@ -65,7 +66,7 @@ as of `77d35ba9`; builders re-check before editing):
 
 - In a person's partition, conversations number from 2^40
   (`partitionIDBase`, B/partition_start.go:25; `seedPartitionIDs` called
-  from `openDB`, B/db.go:177); triggers mirror it (`seedTriggerIDs`,
+  from `openDB`, B/db.go:185); triggers mirror it (`seedTriggerIDs`,
   B/trigger_registry.go:345). `model/homes.js` `homeOf(id)` routes by it.
 - A person's partition refuses sharing (`userNoShare`,
   B/partition_routes.go:66; `sharesInPartition`): its conversations are
@@ -75,7 +76,10 @@ as of `77d35ba9`; builders re-check before editing):
   `harnessClass`, B/harness_pass.go:592).
 - At global, a person's partition calling in looks like that person
   (`personFromPartition`, B/partition_routes.go:53), never like the tile
-  itself (docs/partitions.md §The global instance and people's partitions).
+  itself (docs/partitions.md §The global instance and people's partitions)
+  — and so does that person's **frame or terminal** in the partition: a
+  body arriving that way is the person's own input, whatever code in the
+  partition was meant to send it (true of scm-github's relay too, §5.6).
   A partition reaches its own global with `callGlobal` (B/gwcall.go:135).
 - The global instance hands a person's events to their partition by
   partition mail (`handEvent` → `queueHandoff("event", …)`,
@@ -91,16 +95,29 @@ as of `77d35ba9`; builders re-check before editing):
   (docs/partitions.md §Providers).
 - `hostedRoute` (B/hosted_serve.go:80) intercepts, at global, every route
   whose pattern contains `{id}` (:90): project routes use `{pid}`.
+- A person's partition drives the hosted conversations it hosts with the
+  same engine code over the shared `team` database (`newEngine(tr, …)`,
+  B/hosted_engine.go:81; `hostedID`, B/team_runs.go:32), and `team`'s schema
+  is `migrate()`'s (`migrateTeamRuns`, B/team_runs.go:59), which
+  `teamCovers` (:118) compares column by column: so every project hook
+  skips hosted runs, and the project tables are never made in `team` (§6,
+  §14.1).
 
 **The engine**
 
 - `Engine.pass` (B/actor.go:106) reads the run, then
-  `rows := e.db.undelivered(run.ID)` (:123), then forks to `harnessPass`
-  for a coding agent (:124) — the workspace gate goes between the two.
+  `rows := e.db.undelivered(run.ID)` (:124), then forks to `harnessPass`
+  for a coding agent (:125) — the workspace gate goes between the two.
 - A reply to a parked built-in run denies its parked calls (B/actor.go:161).
 - The child-side settle (`settleOwnLink`) runs only for `ParentID != 0`, at
-  three sites: `stopRun` (B/actor.go:337), `endTurnTx` (B/actor.go:784) and
-  `endHarnessTurnTx` (B/harness_engine.go:1322). Top-level runs wake on
+  five sites: `stopRun` (B/actor.go:342), `endTurnTx` (B/actor.go:789), a
+  subagent's `ask_user` turned into a blocker (B/actor_tools.go:327),
+  `endHarnessTurnTx` (B/harness_engine.go:1322) and a coding agent's cancel
+  (B/harness_pass.go:569, which bypasses `stopRun`). A run's move to
+  `waiting_input` happens outside every one of them — an approval park
+  (B/actor_tools.go:176), `ask_user` (:341), a coding agent's park
+  (B/harness_park.go:146) and its sign-in (B/harness_login.go:164) — all
+  through `DB.setStatus` (B/db.go:384; `setStatusOnly` :392). Top-level runs wake on
   background notices (`hasNotices`, B/links.go:112; used at
   B/actor.go:186 and :205). `deliverBoundary` (B/actor.go:828) delivers
   them via `deliverNotices` (:893).
@@ -140,8 +157,8 @@ as of `77d35ba9`; builders re-check before editing):
 - Redaction: `redactor.apply` (B/harness_redact.go:58) masks exact secrets
   and the Anthropic token shape; the harness stdout reader and the harness
   log apply it (B/harness_engine.go:1040, :1084; B/harness_log.go:150).
-  Every tool result is written by `addMessage` (B/db.go:522) and rewritten
-  by `rewriteMessage` (B/db.go:570).
+  Every tool result is written by `addMessage` (B/db.go:529) and rewritten
+  by `rewriteMessage` (B/db.go:577).
 - New sandboxes are labelled `xbin.agent/home` in a partitioned agent
   (`withHomeLabel`, B/sandbox_partition.go:92); agent-made sandboxes use
   clientId `agent:<root>:name:<n>` (B/sandbox_create.go:63).
@@ -152,7 +169,7 @@ as of `77d35ba9`; builders re-check before editing):
   (:167) resolves the caller and, for a route on one run, its access
   (`needLevel`, :217). `rootACL.level` (B/acl.go:53) is the access shape.
 - `/adapter/*` routes take the `channel` role (`adapterGuard`,
-  B/channels.go:212); **any** bound adapter holds it — a route there that
+  B/channels.go:217); **any** bound adapter holds it — a route there that
   only scm providers may call must check the caller is one (§11.1).
 - `handleMessage` (B/inbox.go:224) takes a person's message to a run;
   `noteParentTx` (B/harness_spawn.go:348) is the precedent for noting a
@@ -162,13 +179,15 @@ as of `77d35ba9`; builders re-check before editing):
   B/tooldesc_test.go:29. Adding a class toolset needs the stored-classes
   rollback trick (B/classes.go:276): project tools are gated on
   `Config.Project` instead.
-- `channelDeliver` (B/channels.go:474) resets a session whose class or
+- `channelDeliver` (B/channels.go:479) resets a session whose class or
   owner changed — a chat can't be pointed at an existing conversation
   today.
 - `agent.js` is at 885 of its 949-line budget (hack/size-budget.txt:28);
   the web view's seams are `web-ext.js` (`block`, `end`, `top`, `paint`,
-  `newChat`, `task`); the native view's are `native/ext.js` (`screen`,
-  `toolbar`, …; no drawer seam). Feature keys live in `model/features.js`;
+  `newChat`, `task`; S0 adds `side`, `page`, `crumb`, `dock`, `card`,
+  `childStatus`, `sbx`, §13.2); the native view's are `native/ext.js`
+  (`screen`, `toolbar`, …; S0 adds `drawer`, `dock`, `card`,
+  `childStatus`, §13.3). Feature keys live in `model/features.js`;
   `DIFFERENCES` lists a view's intended gaps.
 - Both views keep their state in `model/`; `model/app.js` wires the stores
   (`app.board = createBoard(app)`, :422) and routes stream events to them
@@ -191,10 +210,18 @@ as of `77d35ba9`; builders re-check before editing):
 
 **Commands as root**
 
-- ACP's `terminal/create` carries only `sessionId`, `command`, `args`,
-  `env`, `cwd` and `outputByteLimit` (`TermCreateParams`,
-  sdk/acp/types.go:366): no user or privilege field. Coding agents run their
-  commands as the sandbox's layout user (§18).
+- ACP (protocol version 1, the one `sdk/acp` pins, sdk/acp/types.go:8) has
+  no privilege field anywhere: upstream's `CreateTerminalRequest` is
+  `sessionId`, `command`, `args`, `env`, `cwd`, `outputByteLimit` and
+  `_meta` (extension metadata for client and agent to agree on, not a
+  privilege channel), and its session requests carry none either. More to
+  the point, AgTT advertises no client terminals (`harnessCaps`,
+  B/harness_engine.go:180: "no files or terminals of the client's"), so
+  `terminal/create` never reaches xbin: adapters run their commands
+  themselves, as the sandbox's user (docs/sandbox-manager.md §Inside a
+  sandbox). So nothing in the sandbox contract can be "run as root" for a
+  coding agent (§18); sudo in VM sandboxes is the separate sandbox track,
+  whose decision records the ruling.
 
 **GitHub** (from GitHub's documentation; four points are spikes, §5.11)
 
@@ -220,12 +247,12 @@ as of `77d35ba9`; builders re-check before editing):
 | Naming | **Tile `scm-github`** — named for what it does; **contract and service `scm`**, so one agent slot `scm` binds any provider (a later `scm-gitlab`). |
 | Packaging | **Builtin template** (`builtin-templates/scm-github`, `template.partition: ["user","global"]`). No change to xbind core. Without `--isolate` an instance is unpartitioned and offers bot tokens only. |
 | Personal projects | Live in a person's partition, use their own GitHub sign-in, and only ever in a private sandbox of their own. |
-| Team projects | A shared definition and task board at the agent's global instance. **Each task runs in its creator's own partition**: their own workspace sandbox, with coding agents allowed. Members see the board; only the creator opens that task's transcript. Coding agents stay barred at global (D158's rule). |
+| Team projects | A shared definition and task board at the agent's global instance. **Each task runs in its creator's own partition**: their own workspace sandbox, with coding agents allowed. Members see the board; only the creator opens that task's transcript. Coding agents stay barred at global (D172's rule; the plan's "D179" meant it). |
 | Where tasks run | Worktrees in one workspace sandbox. Big tasks fork it. |
 | Screenshots in PRs | **Deferred.** GitHub has no public upload API; the browser's drag-and-drop uses an internal endpoint. Recorded in the decision; revisit if GitHub adds an API. |
 | Scope | Everything: scm-github, projects, coordinator, forks, events, team projects. |
 | CI in coding mode | CI for a project task, or for a coding session's pushed branches, is **visible and inspectable in the tile**: live progress down to job steps, logs where the platform serves them, annotations, and links to runs, jobs and PRs on the platform. It must fit the existing coding-agent UI (D147), not sit beside it (§13.5). |
-| Run as root | Added to the sandbox contract only if ACP has it. It doesn't (§1, §18): sudo in VM sandboxes is a separate track. |
+| Run as root | Added to the sandbox contract only if ACP has it. It doesn't (§1, §18): sudo in VM sandboxes is a separate track, and its decision records the ruling. |
 | Execution | A workflow. **Pause for the owner after this contract freeze, and again before landing.** |
 | Quality bar | Upstream-acceptable: AGENTS.md hard rules, docs as contract, docs/compat.md, records and decisions, tests, review. |
 
@@ -248,10 +275,14 @@ as of `77d35ba9`; builders re-check before editing):
 | V8 | The coordinator is created lazily, one per person per project, in the person's own home (a membership's partition for a team project). A team coordinator at global is deferred. | Plan §5; coding agents and person tokens never at global. |
 | V9 | Project runs refuse publish, copy into another home, hosting and moves (409); `GET /runs/{id}/export` (a download) stays. | A task's worktree, branch and credentials belong to its home. |
 | V10 | The channel attach (`/project <name>` in a DM) ships last and may slip to a follow-up without blocking the landing. | Plan §5 "last slice". |
-| V11 | CI is refreshed live (every ~15 s) only while someone has the CI dock open on a conversation with work in progress; otherwise webhooks, and the §11.5 cadence, keep it current. | One person reading a log doesn't cost the installation's rate limit for everyone else. |
-| V12 | **Re-run** is a person's click only (participant of the conversation), with their own identity where one exists; no tool offers it to a model. | A rerun spends CI minutes and can deploy. |
-| V13 | A coding session's pushed branches are found at turn end from git's own record of pushes (`update by push` in the remote-tracking ref's reflog), only when an scm provider is bound and the conversation has a sandbox. | One `Run` per turn; no guessing from branch names. |
+| V11 | CI is refreshed every ~15 s only while someone has the CI dock open on a conversation with work in progress; with the dock closed, a watch with anything pending is re-read in the background at 60 s for 20 min after a push, then at §11.5's cadence, and only while webhooks for it aren't arriving; a conversation's opening reads once. | One person reading a log doesn't cost the installation's rate limit for everyone else, yet the chip doesn't sit at "pending" when nobody looks. |
+| V12 | **Re-run** is a person's click only (participant of the conversation), **as that person** — only in their own partition of a partitioned provider; never the bot (403 `identity` elsewhere); no tool offers it to a model. | A rerun spends CI minutes and can deploy; the bot would let anyone re-run anything (plan §8: "a person's identity only"). |
+| V13 | A coding session's pushed branches are found at the end of each run's turn — the root's or a coding agent child's — from git's own record of pushes (`update by push` in a remote-tracking ref's reflog), only when an scm provider is bound and the run has a sandbox. | One `Run` per turn; no guessing from branch names. |
 | V14 | Team definitions subscribe to nothing in v1; members' tasks subscribe personally (`for: user:<id>`). | Nothing at global acts on events yet (no team coordinator). |
+| V15 | Where a home's identity is the bot (the global instance; an unpartitioned agent), naming a repo — a project, a repo added, a conversation made a project, a CI watch — needs the agent's manager, or the **scm bot rule** a manager sets (people and repo globs, §9.1). A partitioned agent's global instance holds team definitions only. | The binding grants the agent the bot's whole view; the agent must not hand it to everyone who may start a run (a confused deputy). |
+| V16 | A membership's sandbox is cloned from the team's seed only when the membership works as the bot (its `policy.as` is `bot`, which `membersAsBot` permits); one that works as the person always starts fresh (its own `repo` jobs). | The seed is writable by every team member; anything planted there (a hook, a PATH shim, a credential helper) would run beside the person's token. |
+| V17 | A membership runs the definition's security-relevant part (setup scripts, instructions, checks, task class, identity, reviews, auto-PR…) only as its member last accepted it; a change waits on "Review the team project's changes". | The definition's owner is any person at global: adopting their setup script silently would run their code beside the member's token. |
+| V18 | Project tasks never run in a class with internal reach (409 `class-internal`), and the coordinator reaches only such tasks. | Every task reads scm text (CI logs, reviews, issues); the coordinator, in the web lane, steers them. |
 
 ## 3. Architecture
 
@@ -288,10 +319,10 @@ as of `77d35ba9`; builders re-check before editing):
 
 | What | Home (agent) | Runs | scm identity | scm reached | Events |
 |---|---|---|---|---|---|
-| A personal project (partitioned agent) | the person's partition (ids ≥ 2^40), private | its tasks (built-in or coding agent), its coordinator, its worker | `person` (default), or `bot` if the provider's `botForPeople` allows | the person's partition of scm-github | scm-github global → agent global (`for: user:<id>`) → mail `handoff/scm` → the partition |
-| A team project's definition | the agent's global instance (ids < 2^40), team-visible | no tasks; its worker keeps the optional seed sandbox | `bot` only | scm-github's global | `for: global` (issues, the definition's repos) |
+| A personal project (partitioned agent) | the person's partition (ids ≥ 2^40), private | its tasks (built-in or coding agent), its coordinator, its worker | `person` (default), or `bot` if `policy.as` asks and the provider's `botForPeople` allows | the person's partition of scm-github | scm-github global → agent global (`for: user:<id>`) → mail `handoff/scm` → the partition |
+| A team project's definition — the only kind a partitioned agent's global instance holds (409 for another) | the agent's global instance (ids < 2^40), team-visible | no tasks; its worker keeps the optional seed sandbox | `bot` only, for reads; naming its repos takes the bot rule (§9.1) | scm-github's global | `for: global` (issues, the definition's repos) |
 | A team project's membership | each member's partition (`kind: membership`, `team_ref` = the global id) | that member's tasks and their coordinator | as a personal project | the member's partition of scm-github | as a personal project; board rows go to global (§12) |
-| A project in an unpartitioned agent | the one instance; members and team visibility as conversations have them | tasks and one coordinator per person | `bot` only (no partition can hold a person's sign-in) | scm-github's global (or an unpartitioned scm-github) | `for: global` |
+| A project in an unpartitioned agent | the one instance; members and team visibility as conversations have them | tasks and one coordinator per person | `bot` only (no partition can hold a person's sign-in); naming its repos takes the bot rule (§9.1) | scm-github's global (or an unpartitioned scm-github) | `for: global` |
 
 A partitioned agent bound to an unpartitioned scm-github: every home
 reaches the one instance; a person's partition gets `bot` only, and only
@@ -307,7 +338,7 @@ under `botForPeople` (§4.4).
 | Coordinator | its home's engine, web lane | `Config.Project` role `coordinator` |
 | Webhook intake, subscriptions, outbox | scm-github global | the App |
 | Sign-in, person tokens | scm-github in the person's partition; scoping/revoking relayed through its global | the person |
-| CI watches, the CI view, logs, reruns (§6.9, §7.6) | the conversation's home | reads as the home's default identity (a person's partition: that person; elsewhere the bot); a rerun as the clicking person where one exists. No token enters a sandbox for CI. |
+| CI watches, the CI view, logs, reruns (§6.9, §7.6) | the conversation's home | reads as the home's default identity (a person's partition: that person; elsewhere the bot, for repos the bot rule lets that conversation name); a rerun only as the clicking person in their own partition. No token enters a sandbox for CI. |
 | Team board rows (§12) | written by each member's partition, kept at the agent's global | the member (`personFromPartition`) |
 
 ## 4. The scm contract, protocol 1
@@ -345,14 +376,19 @@ The provider decides from the verified headers, never from the body:
 |---|---|---|
 | `X-XBin-From` another tile, no `X-XBin-Partition` (an unpartitioned consumer) or `global` | **tile** | (From, Deployment, "") |
 | `X-XBin-From` another tile, `X-XBin-Partition: user:<id>` — reaching this provider's own partition of that person | **person's consumer** | (From, Deployment, Partition-Id) |
-| the provider's own partition calling its own global (`From` = self, `Partition: user:<id>`, role reader/writer) | **relay** (§5.6) | — |
+| the provider's own partition calling its own global (`From` = self, `Partition: user:<id>`, role reader/writer) — its backend, **or the person's frame or terminal there**, which arrive identically | **relay** (§5.6) | — |
 | a person through the provider's own page (frame, `User` set) | **person** (page) | — |
 | the owner token, or the tile itself at global (`From` = self, no partition or `global`) | **self/owner** | — |
 
 A global instance never treats a call carrying `X-XBin-Partition: user:…`
-as itself, even when `X-XBin-From` is its own path. View-as (`ViewedBy`) is
-never a person here. A consumer can't assert a person: the only person a
-call can be is the partition it arrives in.
+as itself, even when `X-XBin-From` is its own path: such a call whose role
+isn't reader or writer is 403, never self. A relay call's **body is the
+person's own input** — their frame or terminal in the provider's partition
+reaches global with exactly the headers its backend has (docs/partitions.md
+§The global instance and people's partitions) — so global re-checks every
+field of it as it would a stranger's (§5.6). View-as (`ViewedBy`) is never
+a person here. A consumer can't assert a person: the only person a call
+can be is the partition it arrives in.
 
 ### 4.4 Identities
 
@@ -377,6 +413,13 @@ Rules every provider keeps:
   never accepted.
 - Write calls (`POST /scm/pulls`, `PATCH`, comments) made as `bot` use the
   bot; made as `person`, the person's token.
+- **A consumer that acts for people with the bot authorises each person
+  itself.** The binding grants the consumer tile the bot's view; it says
+  nothing about which of the consumer's own users may use it. A consumer
+  whose instance has no person identity (a tile at global, an unpartitioned
+  consumer) and lets people name repos, read them or get tokens for them
+  must decide per person what they may name (the agent: §9.1's bot rule) —
+  otherwise everyone who can use the consumer gets the bot's view.
 
 ### 4.5 Conventions
 
@@ -481,12 +524,15 @@ own key — tokens are cached and revoked by it.
  "identity": {"kind": "person", "login": "octocat", "id": 583231},
  "author": {"name": "octocat", "email": "583231+octocat@users.noreply.github.com"},
  "repos": ["acme/web", "acme/api"],
- "permissions": {"contents": "write", "pull_requests": "write", "issues": "write", "metadata": "read"}}
+ "permissions": {"contents": "write", "pull_requests": "write", "issues": "read", "checks": "read",
+                 "statuses": "read", "actions": "read", "metadata": "read"}}
 ```
 
 - Presets: `read` — contents, metadata, pull_requests, issues, checks,
-  statuses, actions: read. `write` — contents, pull_requests, issues:
-  write; checks, statuses, actions, metadata: read. Never
+  statuses, actions: read. `write` — contents, pull_requests: write;
+  issues, checks, statuses, actions, metadata: read (a task's git and `gh`
+  need no more; a consumer opens pull requests and comments through the
+  provider, whose own write token holds what those need, §5.7). Never
   `administration`; `workflows: write` only on request and only under the
   provider's `allowWorkflows`.
 - A repeat with the same (consumer, purpose, repos, permissions) returns
@@ -622,18 +668,20 @@ untrusted.
 
   A provider fills what its host has: a host with no step detail sends
   `steps: []`; one with no commit statuses sends `statuses: []`.
-- `GET /scm/checks/jobs/{id}/log?repo=&tailBytes=&since=&as=` → a job's
-  log:
+- `GET /scm/checks/jobs/{id}/log?repo=&tailBytes=&since=&until=&as=` → a
+  job's log:
 
   ```json
-  {"id": "88001", "text": "…", "bytes": 482113, "complete": true, "truncated": true,
+  {"id": "88001", "text": "…", "bytes": 482113, "from": 416577, "complete": true, "truncated": true,
    "url": "https://github.com/acme/web/actions/runs/7001/job/88001"}
   ```
 
   `bytes` is the whole log's length; `text` its bytes from
-  `max(since, bytes − tailBytes)` (`tailBytes` default 65536, at most
-  1048576; `since` a byte offset, default 0), cut back to a line start;
-  `truncated` when that cut anything. `complete` is false while the job
+  `max(since, end − tailBytes)` to `end` = `until` (a byte offset; default
+  and at most `bytes`), `tailBytes` default 65536, at most 1048576, `since`
+  default 0; the start is cut forward to a line start and `from` is where
+  `text` starts — a viewer pages back with `until=<from>`; `truncated` when
+  anything before `from` was left out. `complete` is false while the job
   runs and the host serves partial logs. The text is as the host serves it
   (escape codes kept; a consumer strips them) and untrusted.
   **409 `in-progress`** with `url` while the job runs on a host that serves
@@ -672,8 +720,10 @@ untrusted.
   to get — they are many (a job alone reports queued, in progress and
   completed).
 - A person's subscription is checked: the provider must know the person's
-  verified login and that they can read the repo (§5.10). A tile's
-  subscription needs the bot to see the repo.
+  verified login and that they can read the repo — when it is made, and
+  again before an event of a private repo is delivered for it (access is
+  lost: the event is dropped and the subscription deleted; §5.10). A
+  tile's subscription needs the bot to see the repo.
 - `GET /scm/subscriptions` → `{items}` (this consumer's, for this caller);
   `DELETE /scm/subscriptions/{id}` → **204**.
 
@@ -689,6 +739,7 @@ v1**:
   "protocol": 1,
   "eventId": "scm:github.com:72d3162e-cc78-11e3-81ab-4c9367dc0958",
   "for": "user:alice",
+  "forPid": "p_8d1f…",
   "scm": {"provider": "apps/scm-github", "host": "github.com"},
   "kind": "checks",
   "action": "completed",
@@ -727,6 +778,12 @@ what it shows with them and never acts on them alone — `checks.completed`
 (a suite, or a final status) is the one that says CI is done. A provider
 that can't send progress events leaves them out; consumers then read
 `GET /scm/checks`.
+- `forPid` (with `for: user:<id>`): the partition id of the person the
+  subscription was made in (`X-XBin-Partition-Id`). A person deleted and
+  re-created under the same id is another person with another partition
+  id (docs/partitions.md): a consumer drops an event whose `forPid` isn't
+  its partition's, and a provider never delivers an old person's
+  subscriptions to a new one (§5.6).
 - `actor.self` marks the provider's own app or bot. `actor.association`
   is `OWNER`, `MEMBER`, `COLLABORATOR`, `CONTRIBUTOR` or `NONE`.
 - `topic` grammar (kept for agent-inbox compatibility):
@@ -779,7 +836,11 @@ Each item is the conditional GET of its route (`pull` → `/scm/pulls/{n}`,
   rewritten before `refreshAfter`. Never the refresh token (a consumer
   never has one).
 - A person's token only in a private sandbox homed in that person's
-  partition, never one a non-secure (hosted) conversation used.
+  partition, never one a non-secure (hosted) conversation used, nor one
+  made from a sandbox other people could write to (a clone of a shared
+  sandbox).
+- A bot token only in a sandbox whose every user may act through the bot
+  for those repos (§4.4's last rule).
 - A clone or fork gets its own `purpose`; the source's is revoked when the
   source leaves.
 - Redact token values everywhere output is kept.
@@ -816,7 +877,7 @@ default path is `apps/scm-github`; resource targets are written
 |---|---|---|
 | `G/xbin.json` | G1 | the manifest (§5.2) |
 | `G/scope.json` | G1 | `state` kv, `conf` kv `"shared":"read"`, `tick` cron |
-| `G/go.mod.tile`, `G/go.sum` | G1 | module `scm-github`; requires the sdk only (as `builtin-tiles/llm-gw/go.mod.tile`): JWT, HTTP and storage from the standard library and the sdk |
+| `G/go.mod.tile`, `G/go.sum` | G1 | module `scm-github`, **`go 1.24`** (as llm-gw and coding-sandbox: a higher go line breaks the tile's build after a downgrade to xbind v0.3.64 or older, docs/compat.md); requires the sdk only (as `builtin-tiles/llm-gw/go.mod.tile`): JWT, HTTP and storage from the standard library and the sdk |
 | `G/index.html`, `G/scm.js` | G1 | the page: setup (managers), your sign-in, installations, policy, webhook health |
 | `G/native.js` | G1 | the native view of the same page (status, your sign-in, Forget) |
 | `G/API.md`, `G/AGENTS.md`, `G/CLAUDE.md` | G1 (G2 adds §Events) | §5.14 |
@@ -832,7 +893,7 @@ default path is `apps/scm-github`; resource targets are written
     "defaultName": "scm-github",
     "partition": ["user", "global"]
   },
-  "partitionNote": "Every person's GitHub sign-in is forgotten (they sign in again), with the identity directory, subscriptions and the undelivered events. The App's keys and settings stay at the global instance.",
+  "partitionNote": "A full switch forgets every person's GitHub sign-in (they sign in again). A full switch, or removing global, deletes the App's keys and secrets, the identity directory, subscriptions and undelivered events: paste the keys again, or make a new private key in the App's settings.",
   "runtime": "go",
   "entry": "./_backend",
   "uses": [
@@ -882,7 +943,8 @@ By `xbin.Partition()` (sdk/partition.go):
 `mode.go` decides the mode once at start and the caller class per request
 (§4.3): `self`, `owner`, `relay` (global only: `personFromPartition`'s rule —
 `From == xbin.Self()`, `User != ""`, `Partition` `user:…`, role reader or
-writer), `person-page` (a person in a frame, no ViewedBy), `tile`
+writer; any other call with `Partition: user:…` is 403, never `self` or
+`owner`, an admin's included), `person-page` (a person in a frame, no ViewedBy), `tile`
 (another tile, no partition or `global`), `person-consumer` (another tile,
 `Partition: user:<id>`, in user mode). `consumerKey = From|Deployment|Partition-Id`.
 
@@ -905,15 +967,16 @@ ingress, or the owner/admin testing (`builtin-tiles/webhooks` rule).
 | global vault | `app-webhook-secret`, `app-webhook-secret-prev` | the webhook secret; `-prev` for 24 h after a rotation |
 | global `state` | `app` | `{appId, clientId, slug, owner, htmlUrl, host, apiBase, webBase, keyFingerprint, createdAt}` |
 | global `state` | `policy` | §5.9 |
-| global `state` | `ident/<xbin user>` | `{login, id, at}` — the identity directory |
-| global `state` | `sub/<id>`, `outbox/<id>`, `seen/<delivery>`, `inst/<owner>` | subscriptions, outbox items, delivery dedupe (7 d), installation cache |
+| global `state` | `ident/<xbin user>` | `{login, id, pid, at}` — the identity directory; `pid` the person's partition id (`X-XBin-Partition-Id`) |
+| global `state` | `sub/<id>`, `outbox/<id>`, `seen/<installation>/<delivery>`, `inst/<owner>`, `access/<login>/<repo>` | subscriptions (a person's with its `pid`), outbox items (with `forPid`), delivery dedupe per allowed installation (7 d, ≤ 10 000 each), installation cache, read-access cache (≤ 1 h) |
 | `conf` (global writes, partitions read) | `public` | `{clientId, slug, host, apiBase, webBase, deviceFlow, installUrl, policy: {botForPeople, allowWorkflows}, configured}` — never a secret |
 | a person's partition vault | `user-refresh`, `user-access`, `signin-device` | the refresh token, the current parent access token with its expiry, a pending device code |
 | a person's partition `state` | `person` | `{login, id, expiresAt, refreshExpiresAt, epoch}` |
 
 No secret is ever written to kv, a log line, an error or a response. A
-token in memory is a `secretString` type whose `String()`/`MarshalJSON`
-say `[secret]`; the one response that carries a token (`POST /scm/token`)
+token in memory is a `secretString` type whose `String()`, `GoString()`,
+`Format` and `MarshalJSON` say `[secret]` (as the agent's `scmSecret`, so
+`%#v` and `%+v` of a struct holding one hide it too); the one response that carries a token (`POST /scm/token`)
 builds its JSON explicitly.
 
 ### 5.5 Setup (managers, at global; G1)
@@ -927,7 +990,7 @@ builds its JSON explicitly.
   the manager types it). 200 `{app, hook: {url, active}}`. Secrets are
   write-only from then on (`GET /setup/app` shows the fingerprint only).
 - **Manifest flow (spike S1).** `POST /setup/manifest {org?, name,
-  publicHost?, preset: "standard"|"workflows"}` → `{postUrl, manifest,
+  publicHost?, presets: ["ci"?, "workflows"?]}` → `{postUrl, manifest,
   state}`; `state` 32 random bytes (base64url), single use, 1 h, bound to the
   manager who asked. The page submits a form POST to `postUrl` in a new tab
   (`cap:open-links`). The code comes back by (a) ingress `GET
@@ -938,12 +1001,20 @@ builds its JSON explicitly.
   says so.
 - **App permissions** (both paths; the manifest's `default_permissions`):
   `contents: write`, `pull_requests: write`, `issues: write`, `checks:
-  read`, `statuses: read`, `actions: write` (job logs need read; reruns
-  write), `metadata: read`; `workflows: write` only with preset
-  `workflows`. **Events:** `pull_request`, `pull_request_review`,
-  `pull_request_review_comment`, `issue_comment`, `issues`, `push`,
-  `check_suite`, `check_run`, `status`, `workflow_run`, `workflow_job`,
-  `installation`, `installation_repositories`.
+  read`, `statuses: read`, `actions: read` (job logs), `metadata: read`,
+  and the organization permission `members: read` (the access events
+  below); preset `ci` adds `actions: write` (reruns — it also allows
+  dispatching, cancelling and deleting runs, so it is opt-in), preset
+  `workflows` adds `workflows: write`. **Events:** `pull_request`,
+  `pull_request_review`, `pull_request_review_comment`, `issue_comment`,
+  `issues`, `push`, `check_suite`, `check_run`, `status`, `workflow_run`,
+  `workflow_job`, `installation`, `installation_repositories`, `member`,
+  `membership`, `organization` (the last three only refresh the access
+  cache, §5.10, and are never forwarded).
+- **Accounts.** Setup writes `allowedAccounts` = the App's own account
+  (§5.9); a manager adds others. Installations on any other account are
+  listed as **foreign installations** (`GET /setup/installations`) with a
+  link to remove them — a public App can be installed by anyone.
 - **Afterwards the page shows:** "Enable Device Flow" (link to the App's
   settings + **Check**: `POST /setup/check` probes
   `/login/device/code` and answers `{deviceFlow: true|false}`), "Expire
@@ -977,17 +1048,26 @@ builds its JSON explicitly.
   vault and state, then relay `DELETE /partition/identity`.
 
 **The relay** — routes at **global** for a person's own partition
-(class `relay`; the person is the call's `User`, never a body field):
+(class `relay`; the person is the call's `User`, never a body field).
+**A relay body is the person's own input** (§4.3): their frame or terminal
+in their partition calls these routes exactly as the partition's backend
+does, so global trusts nothing in it — it re-checks every field against
+the App and the policy, as below, and the partition's own checks are a
+convenience. The caller's partition id (`X-XBin-Partition-Id`) is
+compared with `ident/<user>.pid` on every call: a different one (a person
+deleted and re-created under the same id) wipes the old `ident/<user>`
+and every subscription and outbox item of the old one before anything
+else.
 
 | Route | Body | Global does | Answer |
 |---|---|---|---|
-| `POST /partition/identity` | `{accessToken}` | `GET /user` with it; stores `ident/<user>` = `{login, id, at}`; forgets the token | 200 `{login, id}`; 401 → 403 `identity` |
+| `POST /partition/identity` | `{accessToken}` | `POST /applications/{clientId}/token` (basic auth `clientId:clientSecret`) with `{access_token}` — which answers only for a token **this App** issued, with its `user`; stores `ident/<user>` = `{login, id, pid, at}` from that answer (never from `GET /user`: any token the person holds — a PAT, another App's — would name a login); forgets the token | 200 `{login, id}`; 404/422 → 403 `identity` |
 | `DELETE /partition/identity` | — | deletes `ident/<user>` and that person's subscriptions | 204 |
-| `POST /partition/scope` | `{accessToken, owner, repos, permissions}` | `POST /applications/{clientId}/token/scoped` (basic auth `clientId:clientSecret`) with `{access_token, target: owner, repositories, permissions}` | 200 `{token, expiresAt, repos, permissions}`; 422 → 400 `invalid` |
+| `POST /partition/scope` | `{accessToken, owner, repos, permissions, access}` | checks the token as `identity` does (its user must be `ident/<user>`); computes the permissions **itself** — the preset for `access` (§4.8), narrowed by `permissions`, `workflows: write` only under `allowWorkflows`; `owner` within `allowedAccounts`; then `POST /applications/{clientId}/token/scoped` (basic auth) with `{access_token, target: owner, repositories, permissions}`; the answer's expiry capped by `personTtlMin` | 200 `{token, expiresAt, repos, permissions}`; 422 → 400 `invalid`; a policy refusal → 403 `not-allowed` |
 | `POST /partition/revoke-token` | `{accessToken}` | `DELETE /applications/{clientId}/token` | 204 |
 | `POST /partition/revoke-grant` | `{accessToken}` | `DELETE /applications/{clientId}/grant` | 204 |
-| `POST /partition/bot-token` | §4.8 token body | policy `botForPeople`: `off` → 403 `identity`; `own-access` → `GET /repos/{o}/{r}/collaborators/{login}/permission` with an installation token, `login` from `ident/<user>` (none: 409 `signin`), every repo at least `write` (or `read` for `access: read`); `on` → as a tile's request | §4.8 token answer, `identity.kind: "bot"` |
-| `POST /partition/subscriptions` | `{consumer, sub}` — `consumer` the calling tile's path as the partition saw it (`X-XBin-From`), `sub` §4.10's body | §5.10 person checks with `ident/<user>`; stored with `for: user:<user>` and that consumer (deliveries go to the `agents` binding whose path is `consumer`) | §4.10 |
+| `POST /partition/bot-token` | §4.8 token body | policy `botForPeople`: `off` → 403 `identity`; `own-access` → `GET /repos/{o}/{r}/collaborators/{login}/permission` with an installation token, `login` from `ident/<user>` (none: 409 `signin`), every repo at least `write` (or `read` for `access: read`); `on` → as a tile's request; in every case global applies the whole policy itself — the preset, `allowWorkflows`, `allowedAccounts`, `botRepos` | §4.8 token answer, `identity.kind: "bot"` |
+| `POST /partition/subscriptions` | `{consumer, sub}` — `consumer` the calling tile's path as the partition saw it (`X-XBin-From`), `sub` §4.10's body | `consumer` must be the path of one of global's `agents` bindings (else 400 `invalid`) — a person naming another bound consumer only sends their own events (`for: user:<user>`, `forPid`) there; §5.10 person checks with `ident/<user>`; stored with `for: user:<user>`, the caller's `pid` and that consumer | §4.10 |
 | `DELETE /partition/subscriptions/{id}` | — | only that person's | 204 |
 
 Global never stores or logs `accessToken`; the relay handlers take it in a
@@ -1020,8 +1100,10 @@ Global never stores or logs `accessToken`; the relay handlers take it in a
   tokens). Person: relay `revoke-token`. A policy change empties the bot
   cache. `POST /api/revoke-all` revokes every cached bot token.
 - **Internal write token.** Writes made `as: bot` (`POST /scm/pulls`,
-  `PATCH`, comments, rerun) use a separate cached installation token with
-  only the permissions that write needs; never handed out.
+  `PATCH`, comments) use a separate cached installation token with only
+  the permissions that write needs (`pull_requests`, `issues: write` for
+  comments); never handed out. A rerun is never made as the bot (§4.9:
+  consumers offer it to people, as themselves).
 
 ### 5.8 The contract routes (G1)
 
@@ -1049,9 +1131,9 @@ Global never stores or logs `accessToken`; the relay handlers take it in a
   `in-progress` with the job's `html_url`); the tail is cut after download,
   reading at most 8 MiB. Annotations: `GET /check-runs/{id}/annotations`.
   Rerun: `POST /actions/runs/{id}/rerun-failed-jobs` or `…/rerun` with the
-  internal write token (bot) or the person's scoped token with `actions:
-  write` (person); offered as `checks.rerun` only while the App has
-  `actions: write`.
+  person's scoped token with `actions: write` — `as: bot` is 403
+  `identity`; offered as `checks.rerun` only while the App has `actions:
+  write` (preset `ci`) and `allowRerun` is on.
 - Spike S4: is there any partial-log API for a running job? (GitHub's live
   log page streams through an undocumented endpoint; if nothing public
   exists, `in-progress` stands.)
@@ -1060,11 +1142,11 @@ Global never stores or logs `accessToken`; the relay handlers take it in a
 
 | Key | Type | Default | Meaning |
 |---|---|---|---|
-| `botForPeople` | `off` \| `own-access` \| `on` | `off` | whether a person's partition may get a bot token (§4.4) |
+| `botForPeople` | `off` \| `own-access` \| `on` | `off` | whether a person's partition may get a bot token (§4.4). `own-access` and `on` let a person mint a bot token for themselves directly — their frame reaches `/partition/bot-token` — outside any consumer's sandbox gate; the page says so beside the switch |
 | `botRepos` | list of `owner/name` globs | `["*/*"]` | which repos a bot token (any caller) may name; a request outside → 403 `not-allowed` |
 | `allowWorkflows` | bool | `false` | whether `workflows: write` may be asked for (preset `workflows` App only) |
-| `allowedAccounts` | list of logins | `[]` (any the App is installed on) | the accounts (orgs, users) tokens, reads and events may concern; others → 403 `not-allowed` (a public App's guard) |
-| `allowRerun` | bool | `true` | offer `checks.rerun` (if the App has `actions: write`) |
+| `allowedAccounts` | list of logins | the App's own account (written at setup); `[]` refuses everything | the accounts (orgs, users) tokens, reads and events may concern; others → 403 `not-allowed`, and their webhook deliveries are dropped before anything else (a public App's guard, §5.10) |
+| `allowRerun` | bool | `true` | offer `checks.rerun` — only while the App has `actions: write` (preset `ci`), so off by default in effect |
 | `personTtlMin` | int | `0` (the epoch decides) | caps a person token's life below the epoch |
 
 `PUT /api/policy` (manager) replaces it; `GET /api/policy` reads it;
@@ -1075,9 +1157,14 @@ Global never stores or logs `accessToken`; the relay handlers take it in a
 1. **Receipt** — `POST /hook/github`: ingress (or owner/admin testing);
    body ≤ 8 MiB; HMAC `X-Hub-Signature-256` in constant time against the
    current and `-prev` secret (the `builtin-tiles/webhooks/backend/verify.go`
-   pattern); dedupe on `X-GitHub-Delivery` (`seen/`, 7 days, ≤ 10 000);
-   `installation*` refresh `inst/` and are not forwarded; `ping` answers
-   200. Everything else: normalise (`normalize.go`, §4.10 table; one
+   pattern); a delivery whose `installation.account` isn't in
+   `allowedAccounts` is dropped **before** dedupe and normalisation
+   (counted; its installation shows as foreign, §5.5); dedupe on
+   `X-GitHub-Delivery` per allowed installation (`seen/<installation>/`,
+   7 days, ≤ 10 000 each — one installation's traffic can't evict
+   another's); `installation*` refresh `inst/`, and `member`, `membership`,
+   `organization` and `installation_repositories` drop the `access/` cache
+   entries they touch — none of them is forwarded; `ping` answers 200. Everything else: normalise (`normalize.go`, §4.10 table; one
    delivery may yield several events, `eventId` suffix `:<i>`), match
    subscriptions, write one outbox item per (consumer, `for`), answer
    **202** at once.
@@ -1098,12 +1185,18 @@ Global never stores or logs `accessToken`; the relay handlers take it in a
    from `ident/<user>` (none → 409 `signin`) and their read access with
    `GET /repos/{o}/{r}/collaborators/{login}/permission` (installation
    token; `none` → 403 `not-allowed`). In user mode `/scm/subscriptions`
-   relays. Expiry 30 days; `key` replaces.
+   relays. Expiry 30 days; `key` replaces. A person's subscription keeps
+   the `pid` it was made with.
 4. **Outbox and delivery** (`outbox.go`, `deliver.go`): one item per
    (event, consumer, `for`); a worker POSTs `/adapter/scm/event` to the
    consumer through the `agents` binding (`XBIN_IFACE_AGENTS` endpoints;
    the consumer is the binding whose tile path equals the subscription's
-   `From`). 200 → delivered; 404 → dropped, counted; anything else →
+   `From`). An item `for: user:<id>` of a **private** repo is checked
+   first: the person's read access again (`access/<login>/<repo>`, cached
+   ≤ 1 h, dropped by the access events of step 1); `none` → the item is
+   dropped and that person's subscriptions on the repo deleted. Every
+   person's item carries its subscription's `pid` as the event's `forPid`.
+   200 → delivered; 404 → dropped, counted; anything else →
    retry 10 s doubling to 1 h, for 24 h, then dropped and counted. The
    `tick` cron (`@every 1m`) is registered while the outbox holds items and
    removed when empty. Optional catch-up: on start, `GET
@@ -1174,12 +1267,17 @@ contract; API.md is GitHub's side of it and links there.
 All tables are additive and idempotent (`CREATE … IF NOT EXISTS`, `ALTER
 TABLE … ADD COLUMN` guarded by a column check, as `migrate_conv.go` does),
 created by a function each WP registers in **`schemaAdds`** (§14.1) from
-its own file's `init()`; `migrate()` runs them after `addFileMetaSchema`
-(B/migrate.go:76), in registration order. No schema function relies on
-another's tables (no foreign keys, no triggers across them). `migrate()`
-also runs on the team database (B/team_runs.go): the tables appear there
-empty, which is harmless. Every WP adds a migrate-twice test and an
-old-database fixture test (docs/compat.md).
+its own file's `init()`; `openDB` runs them after `migrate()`
+(`addFeatureSchemas`, B/migrate.go, S0), in registration order. No schema
+function relies on another's tables (no foreign keys, no triggers across
+them). They never run on the `team` database: `migrateTeamRuns`
+(B/team_runs.go:59) calls `migrate()` alone, so `team`'s schema — which
+`teamCovers` compares across versions — stays the run store's, and no hook
+writes a project or CI row there (hosted runs are skipped, §14.1). Every
+WP adds a migrate-twice test and an old-database fixture test — the
+fixture written with `seedOldDB` (B/harness_store_test.go:37, as
+`TestHarnessMigrationKeepsOldRows` does), per AGENTS.md's "migrations
+idempotent with a fixture test".
 
 Times are Unix ms (`*_ms`, `created`, `at`); JSON columns default to a
 valid empty value. Types are SQLite's.
@@ -1207,6 +1305,9 @@ CREATE TABLE IF NOT EXISTS projects (
   fork_snap_ms INTEGER NOT NULL DEFAULT 0,
   state        TEXT    NOT NULL DEFAULT 'active', -- active | archived | deleting
   version      INTEGER NOT NULL DEFAULT 1,       -- bumped by every PATCH
+  from_seed    INTEGER NOT NULL DEFAULT 0,       -- membership: its sandbox was cloned from the team's seed (§12.2)
+  def_hash     TEXT    NOT NULL DEFAULT '',      -- membership: the accepted definition's security hash (§12.2)
+  def_pending  TEXT    NOT NULL DEFAULT '',      -- membership: a changed definition awaiting acceptance (its JSON; '' none); the API shows its hash
   created_by   TEXT    NOT NULL DEFAULT '',
   created_ms   INTEGER NOT NULL DEFAULT 0,
   updated_ms   INTEGER NOT NULL DEFAULT 0
@@ -1217,7 +1318,11 @@ CREATE INDEX IF NOT EXISTS idx_projects_sbx ON projects(sandbox_ref) WHERE sandb
 ```
 
 - The slug comes from the name (lowercased, non-alphanumerics → `-`,
-  trimmed, ≤ 40), with `-2`, `-3`… on a clash.
+  trimmed, ≤ 40), with `-2`, `-3`… on a clash — a membership's too (its
+  directory is local to the member's partition, §12.2).
+- `kind`: `personal` in a person's partition and in an unpartitioned
+  agent; `team` only at a partitioned agent's global instance, which holds
+  no other kind (409); `membership` only in a person's partition.
 - A person's partition numbers projects from 2^40: `seedProjectIDs` in
   `addProjectSchema`, the `seedTriggerIDs` pattern (B/trigger_registry.go:345,
   `sqlite_sequence` row `projects` at `partitionIDBase−1`), when
@@ -1227,6 +1332,9 @@ CREATE INDEX IF NOT EXISTS idx_projects_sbx ON projects(sandbox_ref) WHERE sandb
 - A coordinator is not a column: it is the run with `origin='project'`,
   `origin_id=<pid>` and `session_key='proj:<pid>:coord:<user>'` (one per
   person per project; §10.1).
+- `from_seed`, `def_hash`, `def_pending`: P1 creates the columns (one
+  table, one migration) and carries them in `Project`; T writes them and
+  owns what they mean (§12.2); K's gate reads `from_seed` (§9.2).
 
 ### 6.2 `project_members` (P1)
 
@@ -1318,6 +1426,7 @@ CREATE TABLE IF NOT EXISTS project_checkouts (
   state      TEXT    NOT NULL DEFAULT 'pending',  -- pending | added | setup | ready | failed | removed | kept
   setup_exit INTEGER,                            -- NULL: no setup ran
   error      TEXT    NOT NULL DEFAULT '',
+  remote_sha TEXT    NOT NULL DEFAULT '',          -- the task branch on the remote at the last refs check (§8.3 refs)
   PRIMARY KEY (task_id, repo_slug)
 );
 ```
@@ -1434,8 +1543,9 @@ CREATE TABLE IF NOT EXISTS ci_watch (
   etag       TEXT    NOT NULL DEFAULT '',
   sub_key    TEXT    NOT NULL DEFAULT '',       -- its scm subscription key (ci:<id>)
   by_user    TEXT    NOT NULL DEFAULT '',       -- manual: who added it
-  carded     TEXT    NOT NULL DEFAULT '',       -- '<sha>:<state>' of the last inline card (one per outcome)
+  carded     TEXT    NOT NULL DEFAULT '',       -- '<sha>:<state>' of the last final outcome (CIWatchView.outcome: the inline card's key)
   error      TEXT    NOT NULL DEFAULT '',
+  refusal    TEXT    NOT NULL DEFAULT '',       -- the provider's refusal on the last read (signin → the dock offers a sign-in)
   fetched_ms INTEGER NOT NULL DEFAULT 0,
   updated_ms INTEGER NOT NULL DEFAULT 0,
   ended_ms   INTEGER NOT NULL DEFAULT 0         -- stopped watching (kept 7 days, then deleted)
@@ -1446,8 +1556,10 @@ CREATE INDEX IF NOT EXISTS idx_ciw_sha ON ci_watch(scm, repo, sha);
 ```
 
 At most 10 live watches per conversation (the oldest `pushed` one ends
-first). Reading CI needs only read access through the home's scm identity;
-no token enters a sandbox for it.
+first). A watch always has a `ref`: one asked for by PR number takes the
+PR's head branch (`GET /scm/pulls/{n}`) before it is inserted. Reading CI
+needs only read access through the home's scm identity; no token enters a
+sandbox for it.
 
 ### 6.10 Tables of other WPs
 
@@ -1456,7 +1568,7 @@ no token enters a sandbox for it.
 | `project_refs` | E | `scm TEXT`, `repo TEXT`, `kind TEXT` (branch \| pr \| issue \| sha), `value TEXT`, `project_id INTEGER`, `n INTEGER`, `created INTEGER` | PK (scm, repo, kind, value, project_id, n); index (scm, repo, kind, value) |
 | `scm_poll` | E | `project_id INTEGER`, `n INTEGER`, `repo TEXT`, `kind TEXT` (pull \| checks \| comments), `item TEXT` (scmPollItem JSON), `etag TEXT`, `due_ms INTEGER`, `step INTEGER`, `pending_since INTEGER`, `last_ms INTEGER` | PK (project_id, n, repo, kind); index (due_ms) |
 | `scm_seen` | E | `key TEXT` (an `eventId`, or a semantic key §11.4), `at INTEGER` | PK (key); pruned after 7 days |
-| `project_board` | T (global) | `project_id INTEGER`, `member TEXT`, `n INTEGER`, `title TEXT`, `col TEXT`, `state TEXT`, `waiting TEXT`, `branch TEXT`, `prs TEXT` (JSON), `ci TEXT` (CISummary JSON), `run INTEGER` (the member's run id — never opened by others), `updated_ms INTEGER`, `stale INTEGER`, `hidden INTEGER` | PK (project_id, member, n) |
+| `project_board` | T (global) | `project_id INTEGER`, `member TEXT`, `member_pid TEXT` (the member's partition id: a `PUT` from another one deletes the member's rows first), `n INTEGER`, `title TEXT`, `col TEXT`, `state TEXT`, `waiting TEXT`, `branch TEXT`, `prs TEXT` (JSON), `ci TEXT` (CISummary JSON), `run INTEGER` (the member's run id — never opened by others), `updated_ms INTEGER`, `stale INTEGER`, `hidden INTEGER` | PK (project_id, member, n) |
 | `project_board_out` | T (partition) | `project_id INTEGER` (the membership), `n INTEGER`, `body TEXT` (the row's JSON), `tries INTEGER`, `next_ms INTEGER` | PK (project_id, n) — the latest row wins |
 | `project_attach` | C | `session_key TEXT`, `project_id INTEGER`, `user TEXT`, `handoff TEXT`, `last_in INTEGER` | PK (session_key) |
 
@@ -1481,7 +1593,17 @@ no token enters a sandbox for it.
 S0): set when a project run is made and never changed. `childConfig`
 (B/links.go:591) copies the pointer to subagents — read it, never write
 through it. `handlePutConfig` (B/handlers.go:484) strips it, as it strips
-`Engine` and `Harness` (S0). An older binary ignores the field.
+`Engine` and `Harness` (S0). It is derived data: `project_tasks.run_id`
+and a coordinator's session key are authoritative, and P1 writes the
+field again when a run with origin `project` lacks it (§6.15). **Every
+reader of a project run's role goes through `projectRefOf(run)`** (P1,
+`project_store.go`): `cfg.Project` when it is there, else — for a run with
+origin `project` only — the role derived from those two and written back.
+The workspace gate (§8.6), `acquireLLM` (§8.7), `deliverBoundary`'s
+coordinator test and the idle-wake checks (§10.5), the coordinator's tool
+gate (§10.3) and the run view's keys (§7.4) all use it; none tests the
+stored field alone (`classOf`'s clamp, §10.2, reads `cfg.Project` after
+the gate has restored it).
 
 ### 6.13 Access
 
@@ -1505,7 +1627,7 @@ through it. `handlePutConfig` (B/handlers.go:484) strips it, as it strips
 
 ### 6.14 Deletion and moves
 
-- `deleteOneRun` (B/db.go:435) runs `runDeletedHooks` (§14.1) inside its
+- `deleteOneRun` (B/db.go:442) runs `runDeletedHooks` (§14.1) inside its
   transaction: P1 sets `project_tasks.run_id=0, phase='deleted'` and kicks
   the sweep (cleanup queued, §8.8); V ends that run's watches; C drops the
   run's `project_attach`.
@@ -1519,6 +1641,29 @@ through it. `handlePutConfig` (B/handlers.go:484) strips it, as it strips
 - Project runs never move home (`isChat` already says so for origin
   `project`, B/homes_move.go:120).
 
+### 6.15 Rollback
+
+What an older agent build (one without Projects) does with what this one
+left, and what the next upgrade does about it. Nothing needs cleaning up
+by hand.
+
+| Left behind | The older build | On upgrading again |
+|---|---|---|
+| The tables (§6.1–§6.10) | never reads them; its `migrate()` leaves them alone | used as they are |
+| `Config.Project` on a run | keeps it until it rewrites the run's config through its own `Config` — a model pick (B/conversations.go:414), a sandbox bind (`storeBinding`, B/sandbox_bind.go:314), any harness edit — which drops the unknown field (`parseConfig`, B/llm.go) | P1 derives it again from `project_tasks.run_id` (a task) or the session key `proj:<pid>:coord:<user>` (a coordinator) the first time it reads such a run (`projectRefOf(run)`), and writes it back; every reader of the role goes through `projectRefOf` (§6.12) — the gate, the wake check, delivery, the coordinator's tools, the model-call gate — so a coordinator still wakes and a task is still gated before the field is back |
+| A task or coordinator run (origin `project`) | leaves it out of the chat list (`chatOrigins`) and keeps it home; reachable by its link, search and `/needs` | listed under its project again |
+| A conversation upgraded into a project (P2 flips its origin) | leaves it out of the chat list too (by link and search only) — the one visible regression; the record and API.md say so | task 1 of its project |
+| A task parked by the workspace gate (`sleeping` or `waiting_input` with `pendingState.kind = "project"`, its inbox unconsumed) | its engine takes the run up at the next wake and answers the queued input without the gate: the turn runs in whatever workspace is there, without fresh credentials (a push fails; nothing leaks — the gate never wrote a token the older build could see, and it scrubs nothing either); `/needs` shows the unknown park as waiting with its `result` text | the gate parks again if the workspace isn't ready |
+| Queued starts and held inputs (`project_queue`) | never delivered | delivered by the pump |
+| Credential files in sandboxes | stay until they expire (≤ 1 h bot, ≤ ~7 h person) — the older build neither refreshes nor scrubs them | re-written or scrubbed by the gate |
+
+`TestProjectRefRederivedAfterOldBinaryRewrite` (P1): a task run and a
+coordinator whose configs were rewritten without `project` answer their
+role through `projectRefOf` at once (the gate parks the task; the model-call
+gate counts it as a task) and have the field again after the next read;
+C's `TestEventDeliveryAndWakeCoalesced` wakes such a coordinator on an
+undelivered event and delivers it.
+
 ## 7. Agent: routes
 
 ### 7.1 Conventions
@@ -1527,6 +1672,25 @@ through it. `handlePutConfig` (B/handlers.go:484) strips it, as it strips
   **`routeTables`** (§14.1) from `init()`; `routes()` (B/routes.go:139)
   mounts them through the same chain as every route (`agentRole`,
   `hostedRoute`, `guard`, `partitionRoute`). No WP edits `routes.go`.
+  **`/adapter/*` routes are never in `routeTables`**: that chain's
+  `agentRole` is `RoleFunc("admin")` (B/partition_routes.go:37), and a
+  bound provider calls with the `channel` role only. They go in
+  **`adapterRouteTables`**, which `adapterRoutes` (B/channels.go) mounts
+  with `adapterGuard` (S0 wired it).
+- **The bot rule** (V15). Where the home's identity is the bot — a
+  partitioned agent's global instance, an unpartitioned agent — every
+  route that **names a repo** checks `scmBotAllowed(who, repo)` (§9.1) for
+  each repo it names and answers 403 "naming ‹repo› for the bot takes a
+  manager, or the agent's scm bot rule" otherwise: `POST /projects`, `POST
+  /projects/{pid}/repos`, `POST /runs/{id}/project` (P2's upgrade, §8.10),
+  `POST /runs/{id}/ci/watch`. A route or tool that reads through a
+  project's identity reads only what the project already names — `GET
+  /projects/{pid}/issues`, `POST /projects/{pid}/tasks/batch`, `TaskSpec.Issue`, and the coordinator's `scm_pr`, `scm_issues` and
+  `task_create` issues form (§10.3): each `repo` must be one of the
+  project's (400, or a tool error, otherwise), at every home — or what the
+  caller may name (`GET /projects/scm/repos`: filtered by `scmBotAllowed`).
+  In a person's partition the bot rule doesn't apply: the person's own
+  identity at the provider decides.
 - Project routes name the project **`{pid}`**, never `{id}`: at global
   `hostedRoute` intercepts every pattern with `{id}` (B/hosted_serve.go:90).
   `guard` doesn't resolve `{pid}`: project routes use `needAny`/`needStart`/
@@ -1558,28 +1722,30 @@ of the project (`projectNeed`) or, on `/runs/{id}`, of the conversation
 | WP | Method and path | Need | Body | Answer |
 |---|---|---|---|---|
 | K | `GET /projects/scm` | Any | — | `{providers: [{scm, title, kind, hosts, caps, identities, you, app, events, notes, error?}]}` — every bound provider's hello as the caller's home sees it (cached 60 s; 10 s after an error) |
-| K | `GET /projects/scm/repos?scm=&q=&cursor=` | Any | — | `scmPage[scmRepo]`, through the provider as this home |
+| K | `GET /projects/scm/repos?scm=&q=&cursor=` | Any | — | `scmPage[scmRepo]`, through the provider as this home; at a bot home only the repos `scmBotAllowed(who, …)` lets the caller name |
+| K | `GET /projects/scm/bot` | Any (a manager) | — | `scmBotRule` `{users, repos}` — 403 for others |
+| K | `PUT /projects/scm/bot` | Any (a manager) | `scmBotRule` | `scmBotRule`; 409 in a person's partition (no bot home) |
 | K | `GET /projects/scm/signin?scm=` | User | — | `scmSigninState` (`state: none\|pending\|done`) — a person's partition only (elsewhere 409 "sign in to GitHub from your own space") |
 | K | `POST /projects/scm/signin` | User | `{scm}` | `scmSigninState` (pending with `signin`, or done) |
 | K | `GET /projects/scm/signin/{pollId}?scm=` | User | — | `scmSigninState` |
 | K | `DELETE /projects/scm/signin?scm=` | User | — | 204; scrubs every credential of this person's projects first (§9.6) |
 | P1 | `GET /projects?state=&kind=&cursor=` | Any | — | `{items: [ProjectView], next}` — those the caller may see, newest activity first |
-| P1 | `POST /projects` | Start | `{name, scm, repos: [{repo, slug?, setup?}], sandbox: {ref} \| {new: {provider, image?, size?, egress?}}, policy?, share?: {visibility, teamRole, members: [{user, role}]}, kind?: "team"}` | **201** `{project: ProjectView, jobs: [ProjectJob]}`. 409 `share` in a person's partition; `kind: "team"` only at global (and a person there must send `share`); 400 a repo the provider can't see (its refusal passed through) |
+| P1 | `POST /projects` | Start | `{name, scm, repos: [{repo, slug?, setup?}], sandbox: {ref} \| {new: {provider, image?, size?, egress?}}, policy?, share?: {visibility, teamRole, members: [{user, role}]}, kind?: "team"}` | **201** `{project: ProjectView, jobs: [ProjectJob]}`. 409 `share` in a person's partition; at a partitioned agent's global `kind` must be `"team"` (409 otherwise) and a person there must send `share`; `"team"` elsewhere is 409; 403 a repo the bot rule refuses (§7.1); 409 `class-internal` / 403 a `policy.taskClass` the caller may not use (§10.2); 400 a repo the provider can't see (its refusal passed through) |
 | P1 | `GET /projects/{pid}` | V | — | `{project: ProjectView}` |
-| P1 | `PATCH /projects/{pid}` | O | `{version, name?, policy?, visibility?, teamRole?, state?: "active"\|"archived"}` | `{project}`; **412** `{error, version}` when `version` is stale; 409 `visibility` in a person's partition |
+| P1 | `PATCH /projects/{pid}` | O | `{version, name?, policy?, visibility?, teamRole?, state?: "active"\|"archived"}` | `{project}`; **412** `{error, version}` when `version` is stale; 409 `visibility` in a person's partition; 409 `class-internal` for a `policy.taskClass` with internal reach |
 | P1 | `DELETE /projects/{pid}?sandbox=keep\|delete` | O | — | **202** `{state: "deleting"}` |
 | P1 | `GET /projects/{pid}/members` | V | — | `{owner, members: [{user, role}]}` |
 | P1 | `POST /projects/{pid}/members` | O | `{user, role}` | `{owner, members}` (userNoShare in a person's partition) |
 | P1 | `DELETE /projects/{pid}/members/{user}` | V (self) / O | — | 204 |
-| P1 | `POST /projects/{pid}/repos` | O | `{repo, slug?, setup?}` | **201** `{repo: ProjectRepo, jobs}` |
+| P1 | `POST /projects/{pid}/repos` | O | `{repo, slug?, setup?}` | **201** `{repo: ProjectRepo, jobs}`; 403 a repo the bot rule refuses (§7.1) |
 | P1 | `PATCH /projects/{pid}/repos/{slug}` | O | `{setup?, checkout?}` | `{repo}` |
 | P1 | `DELETE /projects/{pid}/repos/{slug}?force=` | O | — | **202**; 409 `busy` while open tasks use it, unless `force=1` |
 | P1 | `GET /projects/{pid}/status` | V | — | `ProjectStatus` (§7.3) |
 | P1 | `POST /projects/{pid}/warm` | P | — | **202** `{jobs}`: start the sandbox, fetch, refresh credentials |
-| P1 | `GET /projects/{pid}/issues?repo=&q=&state=&labels=&cursor=` | V | — | `scmPage[scmIssue]` (bodies clipped to 2 KiB; untrusted) |
+| P1 | `GET /projects/{pid}/issues?repo=&q=&state=&labels=&cursor=` | V | — | `scmPage[scmIssue]` (bodies clipped to 2 KiB; untrusted); `repo` must be one of the project's (400 otherwise) |
 | P1 | `GET /projects/{pid}/tasks?col=&phase=&q=&mine=&cursor=&limit=` | V | — | `{items: [TaskView], next}` |
-| P1 | `POST /projects/{pid}/tasks` | P | `TaskSpec` | **201** `{task: TaskView, run: <runSummary>}`; 429 `limit` past `maxOpenTasks` for the coordinator; 409 `barred` (a coding agent where none may run, §8.1) |
-| P1 | `POST /projects/{pid}/tasks/batch` | P | `{issues: [{repo, number}] (≤ 20), size?, agent?, text?}` | **201** `{tasks: [TaskView], errors: [{issue, error}]}` |
+| P1 | `POST /projects/{pid}/tasks` | P | `TaskSpec` | **201** `{task: TaskView, run: <runSummary>}`; 429 `limit` past `maxOpenTasks` for the coordinator; 409 `barred` (a coding agent where none may run, §8.1); 409 `class-internal`, 403 a class the caller may not use or whose sandbox managers exclude the project's (§10.2) |
+| P1 | `POST /projects/{pid}/tasks/batch` | P | `{issues: [{repo, number}] (≤ 20), size?, agent?, text?}` | **201** `{tasks: [TaskView], errors: [{issue, error}]}`; 400 when any `repo` isn't one of the project's (§7.1) |
 | P1 | `GET /projects/{pid}/tasks/{n}` | V | — | `TaskView` |
 | P1 | `POST /projects/{pid}/tasks/{n}/cancel` | P | `{reason?}` | `TaskView` |
 | P1 | `GET /projects/{pid}/events?since=&limit=` | V | — | `{items: [ProjectEvent], next}` |
@@ -1589,24 +1755,26 @@ of the project (`projectNeed`) or, on `/runs/{id}`, of the conversation
 | P1 | `POST /runs/{id}/task/close` | P | `{cleanup?, closePRs?}` | `TaskView` (phase `closed`) |
 | P1 | `POST /runs/{id}/task/cleanup` | O | `{force?}` | **202**; 409 `dirty` `{error, repos: [{slug, dirty, unpushed}]}` without `force` |
 | P2 | `POST /runs/{id}/task/pr` | P | `{draft?, title?, body?}` | **202** `{job}`; the PR arrives in `TaskView.prs` |
-| P2 | `GET /runs/{id}/project/detect` | O | — | `{sandbox, cwd, candidates: [{path, remote, host, repo, scm, defaultBranch, branch, dirty, ssh}]}` |
-| P2 | `POST /runs/{id}/project` | O | `{name, scm, repos: [{path, repo}], branch?: "keep"\|"new", switchHttps?: [path], policy?}` | **201** `{project, task}` (the conversation is task 1) |
+| P2 | `GET /runs/{id}/project/detect` | O | — | `{sandbox, cwd, candidates: [{path, remote, host, repo, scm, defaultBranch, branch, dirty, ssh, hasCredentials}]}` — `remote` without userinfo (§8.10) |
+| P2 | `POST /runs/{id}/project` | O | `{name, scm, repos: [{path, repo}], branch?: "keep"\|"new", switchHttps?: [path], policy?}` | **201** `{project, task}` (the conversation is task 1); 409 at a partitioned agent's global (it holds team definitions only, which have no tasks); 403 a repo the bot rule refuses at a bot home (§7.1); 409 `class-internal` when the conversation's class or `policy.taskClass` has internal reach, 403 one the caller may not use (§10.2) |
 | P2 | `POST /projects/{pid}/fork-base` | O | `{now?: true}` | **202** `{job}`; `now` stops the sandbox to snapshot it (the UI confirms first) |
 | C | `POST /projects/{pid}/coordinator` | P | `{text?}` | `{run: <runSummary>}` — the caller's coordinator, made on first use; `text` queued to it |
 | C | `GET /projects/{pid}/needs` | V | — | `{items}` — `/needs` items of the project's runs (each with `project: {id, name, n}`) |
-| E | `POST /adapter/scm/event` | `adapterGuard` + the caller is a bound scm provider (`scmBound()` holds `X-XBin-From`), else 403 | event v1 (§4.10) | 200 `{taken: true}` (or a duplicate); 404 no such subscriber here |
+| E | `POST /adapter/scm/event` (in `adapterRouteTables`, not `routeTables`) | `adapterGuard` (the `channel` role) + the caller is a bound scm provider (`scmBound()` holds `X-XBin-From`), else 403 | event v1 (§4.10) | 200 `{taken: true}` (or a duplicate); 404 no such subscriber here |
 | T | `GET /projects/{pid}/board?cursor=` | V (global) | — | `{items: [BoardRow], next}` |
 | T | `PUT /projects/{pid}/board/{n}` | P (global), `personFromPartition` only | `BoardRow` | 200; 403 not from the member's own partition; 404 not a member (the partition archives its membership, §12.5) |
 | T | `POST /projects/{pid}/board/{member}/{n}/hide` | O (global) | — | 204 |
 | T | `POST /projects/{pid}/seed` | O (global, team) | `{sandbox: {ref} \| {new: {…}}}` | **202** `{jobs}` |
 | T | `GET /memberships` | User (a person's partition) | — | `{items: [ProjectView]}` — this person's memberships |
-| T | `POST /memberships` | User (a person's partition) | `{team: <global pid>, sandbox?: {ref} \| {new: {…}}}` | **201** `{project}` (or 200, the existing one) |
+| T | `POST /memberships` | User (a person's partition) | `{team: <global pid>, sandbox?: {ref} \| {new: {…}}, accept: <hash>}` | **201** `{project}` (or 200, the existing one); 409 `{error, defHash, definition}` when `accept` isn't the definition's current security hash (the member is shown it first, §12.2) |
+| T | `GET /memberships/{pid}/pending` | User (the member) | — | `{hash, accepted, pending}` — the security part (§12.2) as the member accepted it and as the definition has it now (`pending` null, `hash` "", when nothing waits) |
+| T | `POST /memberships/{pid}/accept` | User (the member) | `{hash}` | `{project}` — the pending definition becomes the running one; 409 when `hash` isn't the pending one's |
 | V | `GET /runs/{id}/ci?fresh=` | V | — | `CIView` (§7.3) of the conversation's root |
-| V | `GET /runs/{id}/ci/jobs/{job}/log?watch=&tail=&since=` | V | — | `{text, bytes, complete, truncated, url}` — ANSI stripped, redacted (§9.7); `tail` ≤ 262144 (default 65536); 409 `{error, refusal: "in-progress", url}` |
-| V | `GET /runs/{id}/ci/checks/{check}/annotations?watch=&cursor=` | V | — | `{items: [scmAnnotation], next}`, redacted |
-| V | `POST /runs/{id}/ci/watch` | P | `{scm?, repo, ref?, pr?}` | **201** `CIWatchView`; 400 neither `ref` nor `pr`; 409 `limit` past 10 |
+| V | `GET /runs/{id}/ci/jobs/{job}/log?watch=&tail=&since=&until=` | V | — | `{text, bytes, from, complete, truncated, url}` — ANSI stripped, redacted (§9.7); `tail` ≤ 262144 (default 65536); `job` must be in the watch's stored snapshot (404 otherwise); 409 `{error, refusal: "in-progress", url}` |
+| V | `GET /runs/{id}/ci/checks/{check}/annotations?watch=&cursor=` | V | — | `{items: [scmAnnotation], next}`, redacted; `check` must be in the watch's snapshot (404 otherwise) |
+| V | `POST /runs/{id}/ci/watch` | P | `{scm?, repo, ref?, pr?}` | **201** `CIWatchView`; 400 neither `ref` nor `pr`; 409 `limit` past 10; 403 a repo the bot rule refuses (§7.1) |
 | V | `DELETE /runs/{id}/ci/watch/{wid}` | P | — | 204 |
-| V | `POST /runs/{id}/ci/rerun` | P, and a person (not view-as) | `{watch, runId, failedOnly}` | **202** `{runId, attempt}`; 501 `unsupported` without `checks.rerun` |
+| V | `POST /runs/{id}/ci/rerun` | P, and a person (not view-as), in their own partition | `{watch, runId, failedOnly}` | **202** `{runId, attempt}`; `runId` must be a workflow run in the watch's snapshot (404 otherwise); 403 `identity` where the home has no person identity (the global instance, an unpartitioned agent); 501 `unsupported` without `checks.rerun` |
 
 ### 7.3 Answer shapes
 
@@ -1639,8 +1807,11 @@ of the project (`projectNeed`) or, on `/runs/{id}`, of the conversation
  "current": "test (ubuntu) › go test ./...", "startedAt": …, "updatedAt": …, "url": "…/actions/runs/7001"}
 ```
 
-`live` is the provider's `events.healthy`. `canRerun` is the caller a
-person with participant level and the provider lists `checks.rerun`.
+`live` is the provider's `events.healthy`. `canRerun`: the caller is a
+person with participant level, in their own partition, and the provider
+lists `checks.rerun`. `canWatch`: a sandbox is bound (or the run is a
+task), an scm provider is bound, and the caller is a participant. Each
+watch carries its `refusal` and `outcome` (§6.9).
 
 ### 7.4 Stream events
 
@@ -1651,24 +1822,30 @@ person with participant level and the provider lists `checks.rerun`.
   stream for `task`. Not replayed: a client re-reads what changed. Changes
   are coalesced per (project, change, n) for 250 ms.
 - **`ci`** (V): `{"type": "ci", "run": <root>, "root": <root>, "data":
-  {"root", "watch", "summary": CISummary, "state"}}` — to the root's
-  viewers, coalesced per root (key `ci:<root>`, like drafts): a client
-  that falls behind sees only the latest.
-- The run view (`handleView`, B/stream.go:152) and `GET /runs/{id}` gain
+  {"root", "watch", "summary": CISummary, "state", "outcome"}}` — to the
+  root's viewers, coalesced per root (key `ci:<root>`, like drafts): a
+  client that falls behind sees only the latest. Nothing in it is a
+  one-shot cue: the inline cards come from each watch's `outcome`, which
+  the next event and `GET /runs/{id}/ci` repeat.
+- The run view (`viewWith`, B/stream.go:156) and `GET /runs/{id}` gain
+  keys through **`runViewHooks`** (§14.1; P1 places the two calls):
   **`project`** `{id, name, n, role}` on a project run and
-  **`projectTask`** (`TaskView`) on a task — not `task`, which is the pinned
-  task (D133).
+  **`projectTask`** (`TaskView`, with `ProjectPark.signin` only for the
+  person who must sign in) on a task — not `task`, which is the pinned task
+  (D133) — from P1; **`ci`** `{summary: CISummary|null, canWatch}` from V,
+  so the chip is right the moment a conversation opens.
 
 ### 7.5 `API.md` "## Projects" outline
 
-S0 writes the skeleton (one `###` per area, each "implemented by its work
-package"); each WP fills **only its own subsection** with the routes and
-shapes above, in API.md's style (bold lead-ins, code blocks, no `plans/`
-links):
+S0 writes the skeleton (one `###` per area, each saying what it covers and
+"Described when it lands." — no plans vocabulary in a served doc); each WP
+fills **only its own subsection** with the routes and shapes above, in
+API.md's style (bold lead-ins, code blocks, no `plans/` links), replacing
+that sentence:
 
 | Subsection | WP |
 |---|---|
-| `### Projects and tasks` — the model, homes, policy keys, states, the board columns, refusals | P1 |
+| `### Projects and tasks` — the model, homes, policy keys, states, the board columns, refusals; rolling back to a build without Projects (§6.15) | P1 |
 | `### The workspace` — layout, jobs, the gate, ports, setup | P1 |
 | `### scm providers and credentials` — the slot, sign-in, the gate, files, redaction | K |
 | `### Big tasks, upgrades and pull requests` | P2 |
@@ -1683,42 +1860,60 @@ links):
 **What is watched.**
 
 - **Project tasks** (`source: task`): the task's branch and each PR head,
-  per repo — made by V's `projectRefsHooks` entry when a task's branch is
-  pushed or a PR opens, and lazily by `GET /runs/{id}/ci` on a task.
+  per repo — made by V's `projectRefsHooks` entry when P1's `refs` job sees
+  the branch on the remote or a PR opens (§8.3), and lazily by `GET
+  /runs/{id}/ci` on a task.
 - **Coding sessions outside projects** (`source: pushed`, V13): V's
-  `turnEndHooks` entry, for a root conversation (or a child coding agent
-  under it) with a sandbox binding (`cfg.Sandbox` or `cfg.Harness.Ref`),
-  when `scmBound()` is not empty — `AfterCommit`, off the engine's path,
-  one `Run` (10 s) in the sandbox, cwd the binding's, env `SINCE` = the
-  turn's start (unix seconds):
+  `turnEndHooks` entry, for **any run's** turn end — a root conversation,
+  or a coding agent child under it (D147), whose turn the hook sees itself
+  (§14.1: the hooks run at every turn end, not only top-level ones) — with
+  a sandbox binding (the root's `cfg.Sandbox`; a child's `cfg.Harness.Ref`
+  and `Cwd`), when `scmBound()` is not empty. Skipped: runs with origin
+  `project` (P1's `refs` job covers them, so a branch never gets two
+  watches) and hosted runs (never reach a hook). `AfterCommit`, off the
+  engine's path: one `Run` (10 s) in **that run's** sandbox, cwd that run's
+  binding, env `SINCE` = **that run's** turn start (unix seconds):
 
   ```sh
   set -eu
   for top in $( { git rev-parse --show-toplevel 2>/dev/null || find . -maxdepth 3 -name .git -prune -print | sed 's#/\.git$##'; } | sort -u); do
-    git -C "$top" for-each-ref --format='%(refname:short) %(upstream) %(objectname)' refs/heads |
-    while read -r br up sha; do
-      [ -n "$up" ] || continue
-      line=$(git -C "$top" reflog show --date=unix --format='%gd %gs' -n 1 "$up" 2>/dev/null || true)
+    git -C "$top" for-each-ref --format='%(refname) %(objectname)' refs/remotes |
+    while read -r ref sha; do
+      case "$ref" in */HEAD) continue ;; esac
+      line=$(git -C "$top" reflog show --date=unix --format='%gd %gs' -n 1 "$ref" 2>/dev/null || true)
       case "$line" in *"update by push"*) ;; *) continue ;; esac
       at=$(printf '%s' "$line" | sed -n 's/.*@{\([0-9]*\)}.*/\1/p')
       [ "${at:-0}" -ge "$SINCE" ] || continue
-      remote=${up#refs/remotes/}; remote=${remote%%/*}
-      printf '%s\t%s\t%s\t%s\t%s\n' "$top" "$br" "${up#refs/remotes/$remote/}" "$sha" "$(git -C "$top" remote get-url "$remote")"
+      rest=${ref#refs/remotes/}; remote=${rest%%/*}; br=${rest#*/}
+      printf '%s\t%s\t%s\t%s\n' "$top" "$br" "$sha" "$(git -C "$top" remote get-url "$remote")"
     done
   done
   ```
 
-  (Checked by hand with git 2.53.0: a `git push -u` writes `update by push` to
-  the remote-tracking ref's reflog in a non-bare clone; §8.3 turns
-  `core.logAllRefUpdates` on in base repos so worktrees of a bare base
-  behave the same. Paths with spaces are skipped.) Each line — toplevel,
-  local branch, remote branch, sha, remote URL — whose URL's host is in a
-  bound provider's `hosts` becomes (or refreshes) a watch: `repo` from the
-  URL's path (`.git` trimmed), `ref` the remote branch, `sha`, `run_id` the
-  run. A PR for it is looked up once (`GET /scm/pulls?head=&state=open`).
-  Then a subscription (key `ci:<watch id>`, kinds `[checks, pull, workflow,
-  job, check, push]`, branches `[ref]`).
-- **By hand** (`source: manual`): `POST /runs/{id}/ci/watch`.
+  (Checked by hand with git 2.53.0 against a local bare origin: a `git
+  push origin feature` — with or without `-u` — writes `update by push` to
+  `refs/remotes/origin/feature`'s reflog in a non-bare clone, and an older
+  push is ignored; §8.3 turns `core.logAllRefUpdates` on in base repos so
+  worktrees of a bare base behave the same. Paths with spaces and remote
+  names with `/` are skipped.) Each line — toplevel, remote branch, sha,
+  remote URL — is parsed in memory; the URL's userinfo is dropped
+  (`url.Parse`, `u.User = nil`) before anything is kept, answered or
+  logged (an `https://user:token@host/…` remote is common), and the Run's
+  output is never stored. A line whose URL's host is in a bound provider's
+  `hosts` becomes (or refreshes) a watch: `repo` from the URL's path
+  (`.git` trimmed), `ref` the remote branch, `sha`, `run_id` the run that
+  pushed, `root_run` its root. At a bot home (the global instance — its
+  built-in conversations may push from a sandbox, though no coding agent
+  runs there — or an unpartitioned agent) the watch is made only for a
+  repo a project of that home names whose ACL makes the conversation's
+  owner a participant, or one `scmBotAllowed(owner, repo)` allows (§7.1) —
+  and in a conversation others share (team visibility, members) only for a
+  repo of such a project: a faked remote URL and reflog can't make the bot
+  read a repo nobody authorised. A PR for it is looked up once (`GET
+  /scm/pulls?head=&state=open`). Then a subscription (key `ci:<watch id>`,
+  kinds `[checks, pull, workflow, job, check, push]`, branches `[ref]`).
+- **By hand** (`source: manual`): `POST /runs/{id}/ci/watch` (the bot
+  rule at a bot home; a PR number resolved to its head branch first).
 
 **Keeping it current.**
 
@@ -1729,29 +1924,52 @@ links):
   with the stored `etag`); a `push` moves `sha` to the new head (the
   snapshot starts over); a merged or closed PR, or a deleted branch, sets
   `gone` and ends the watch after 24 h.
+- **Step progress comes from reads.** GitHub's `workflow_job` webhook
+  fires on queued, in progress and completed — not per step — so a job's
+  `steps` and `CISummary.current` ("job › step") are as fresh as the last
+  `GET /scm/checks`; a summary drops `current` once it is older than the
+  snapshot it came from.
 - Reads: `GET /runs/{id}/ci?fresh=1` re-reads a watch whose snapshot is
   older than 10 s (webhooks unhealthy) or 30 s (healthy) and still has
   anything not completed — at most one upstream read per watch at a time,
   coalesced across viewers. The dock asks with `fresh=1` every 15 s while
-  it is open and anything is pending (V11); nothing polls when nobody
-  looks, except E's task polling (§11.5).
-- Each outcome (`<sha>:<state>` with state success or failure) is emitted
-  once with `final: true` in the `ci` event (`carded` remembers it): the
-  inline card's cue.
+  it is open and anything is pending (V11); opening a conversation reads
+  once. **In the background** (V's `ownerLoops` entry, §14.1: in the engine
+  owner, never holding the engine up or waking it), a
+  live watch with anything pending and no event for its sha in the last
+  2 min is re-read every 60 s for the first 20 min after its push, then at
+  §11.5's cadence (10 min until 2 h, 30 min until 24 h), then left until
+  someone looks — so the chip, a child card's glyph and the outcome card
+  move with the dock closed and webhooks missing. A task's watch is read
+  by V; E's polling (§11.5) acts on the outcome for the task.
+- Each outcome (`<sha>:<state>` with state success or failure) is kept on
+  the watch (`carded`, shown as `outcome`): the inline card's key. A
+  client draws a card for every watch whose `outcome` it hasn't
+  dismissed — from `GET /runs/{id}/ci` or any later `ci` event — so a
+  coalesced event never loses one.
 - Identity: reads as the home's default (§9.1); a manual watch of a repo
   the identity can't see answers the provider's 404. A refusal on a read
   is kept on the watch (`error`, `refusal`): `signin` makes the dock offer
   "Sign in to ‹provider›" (K's `/projects/scm/signin`), then retry.
+- Ids: a job, check or workflow run named by a route (the log,
+  annotations, a rerun) must be one in the watch's stored snapshot — 404
+  otherwise; the agent never reads or acts on an id a caller made up.
 - Text: snapshot titles, summaries, step names, annotation messages and
   log text are redacted (`scmRedact`, §9.7) before they are stored or
   served, and served as plain text the UI never renders as markdown or
   HTML.
 - Rerun: `POST /runs/{id}/ci/rerun` — a person (`who.kind == whoUser`, not
-  view-as) with participant level; as that person in their own partition,
-  else as the bot; logged in the conversation's journal as a note ("‹who›
-  re-ran the failed jobs of ‹run›").
+  view-as) with participant level, **in their own partition, as
+  themselves** (`as: person`); 403 `identity` at the global instance or in
+  an unpartitioned agent (no person identity; never the bot, V12); logged
+  in the conversation's journal as a note ("‹who› re-ran the failed jobs
+  of ‹run›").
 - `TaskView.ci` (`taskCISummary`, §14.2) and the board row's `ci` are the
-  task's watches' `CISummary`.
+  task's watches' `CISummary`. V tells the board when it changes:
+  `projectTaskChanged(t, pid, n, "ci")` (§14.1), which P1 fills (the
+  `project` event and `taskChangedHooks`). The task's PR chip shows
+  `TaskPR.checks` (E keeps it) only while `TaskView.ci` is null; once V
+  has a summary the CI chip is the one source.
 
 ## 8. Agent: the workspace pipeline (P1; P2 where marked)
 
@@ -1801,16 +2019,17 @@ default branch, `$PFX` the branch prefix, `$BR` the branch.
 
 | Kind | WP | Does |
 |---|---|---|
-| `sandbox` | P1 | Find or create the workspace sandbox: an existing `{ref}` gets the label `xbin.agent/project=<uid>` patched on; `{new}` creates with clientId `agent:proj:<pid>:sbx:<k>` (k counts attempts, as `sandbox_creates`), labels `xbin.agent/project=<uid>` plus `withHomeLabel` (B/sandbox_partition.go:92), visibility private (or the project's, for a team seed); start it; `mkdir -p "$P/.repos" "$P/tasks" "$P/.xbin"`; record `dir`. |
+| `sandbox` | P1 | Find or create the workspace sandbox: an existing `{ref}` gets the label `xbin.agent/project=<uid>` patched on (for display and lookup only — a label proves nothing, and no gate reads it, §9.2); `{new}` creates with clientId `agent:proj:<pid>:sbx:<k>` (k counts attempts, as `sandbox_creates`), labels `xbin.agent/project=<uid>` plus `withHomeLabel` (B/sandbox_partition.go:92), visibility private (or the project's, for a team seed); start it; `mkdir -p "$P/.repos" "$P/tasks" "$P/.xbin"`; record `dir`. |
 | `creds` | K | §9 — runs before `repo` for every repo of a private host and before each task's `prepare`; idempotent. |
 | `repo` | P1 | Background exec, clientId `agent:proj:<pid>:repo:<slug>:<attempt>`, timeout 30 min: the script below. Learns `$DEF` from the provider (`GET /scm/repo`), else `git ls-remote --symref "$U" HEAD`. Then `protected` from the provider; `policy.protection` `refuse` with an unprotected default branch fails the job with the reason (V6). |
 | `fetch` | P1 | `git -C "$B" fetch -q --prune --no-tags origin` (Run, 120 s); records `fetched_ms`, `head`. Every `fetchEveryMin` while the project has a task working or a page open on it (the project's `status` was read in the last 5 min); before `prepare` when older than 2 min. Never wakes a stopped partition just to fetch. |
 | `prepare` | P1 | One Run for every repo of the task: the script below; then `.task-env` and the checkout rows. A big task runs `fork` first (P2). |
-| `setup` | P1 | When the repo has a setup script: write `P/.xbin/setup-<slug>.sh` (files API, 0755), background exec with cwd `$C`, env §8.5, clientId `agent:proj:<pid>:setup:<n>:<slug>`, timeout `setupTimeoutSec`. Keeps the redacted tail (8 KiB). `setupBlocking` (default true): `bind` waits for it; a failure **doesn't block** the task — the tail goes into the first prompt (V3). |
+| `setup` | P1 | When the repo has a setup script — in a membership, the script as its member accepted it (§12.2), never a newer one: write `P/.xbin/setup-<slug>.sh` (files API, 0755), background exec with cwd `$C`, env §8.5, clientId `agent:proj:<pid>:setup:<n>:<slug>`, timeout `setupTimeoutSec`. Keeps the redacted tail (8 KiB). `setupBlocking` (default true): `bind` waits for it; a failure **doesn't block** the task — the tail goes into the first prompt (V3). |
 | `bind` | P1 | `prepareBinding(creator, cfg, {Ref: task sandbox, Cwd})` (B/sandbox_bind.go:234), then `storeBinding(t, run, …)` (:314) — and for a coding agent `cfg.Harness.Ref`/`Cwd` (already set at creation; checked equal). `ws=ready`, emit, queue an `inboxWake`. |
 | `snapshot` | P2 | §8.9 |
 | `fork` | P2 | §8.9 |
 | `pr` | P2 | `git -C "$C" push` (the helper supplies the token) for every repo with commits ahead of `origin/$DEF`; then `POST /scm/pulls {repo, head: $BR, base: $DEF, title, body, draft, clientId: "agent:proj:<pid>:pr:<n>:<slug>"}`; records `TaskPR`; `phase=pr`; runs `projectRefsHooks`. |
+| `refs` | P1 | **What the task pushed itself.** Queued by P1's `turnEndHooks` entry at the end of every turn of a task (`AfterCommit`; deduped by the live-job index), because the brief tells the agent to push and `gh pr create` works in the sandbox — nothing else would notice. One Run per task over its checkouts: `git -C "$C" rev-parse -q --verify "refs/remotes/origin/$BR"` (the push updated it — worktrees share the base's refs). A sha other than `project_checkouts.remote_sha`: store it. Then, when the sha moved **or** the branch is on the remote and `prs` holds no open PR for that repo (the agent pushed in one turn and ran `gh pr create` in a later one): `GET /scm/pulls?repo=&head=$BR&state=open`, merged into `project_tasks.prs` (`phase=pr` once one is open). When either changed, `projectRefsHooks` (E's subscription and routing, V's task watches) run in the transaction that recorded it. Nothing changed: nothing. Also queued through `projectRefsCheck(t, pid, n)` (§14.1) by E for a `pull.opened`/`reopened` on the task's branch (§11.3), so a PR opened outside the task's turns is recorded too. |
 | `poll` | E | §11.5 |
 | `subscribe` | E | §11.2 |
 | `cleanup` | P1 (P2 adds the fork) | §8.8 |
@@ -1865,7 +2084,9 @@ itself (mode `main`).
 
 - `project_worker.go` runs in the **engine owner** only: started at
   takeover beside `sweepSigninExecs` (B/engine.go:172), stopped by
-  `BeginShutdown` (:432). `updateHoldLocked` (B/owner.go:96) gains `||
+  `BeginShutdown` (:432). Beside it P1 starts every `ownerLoops` entry
+  (§14.1) with a context `BeginShutdown` cancels — V's CI refresher
+  (§7.6); they count in neither `hasWork` nor the hold. `updateHoldLocked` (B/owner.go:96) gains `||
   e.projectsHoldLocked()`; `hasWork` (B/engine.go:484) counts queued and
   running `project_jobs` — one-line edits each.
 - Claiming a job writes the engine **epoch** under `e.fenced`; at takeover,
@@ -1879,7 +2100,7 @@ itself (mode `main`).
 - Failures: `attempts` + 1, `next_ms` backoff (10 s doubling to 10 min), up
   to 5 attempts, then `failed` with the error, the task `ws=failed` and an
   event `workspace` (wake).
-- The kinds' runners live in `projectJobKinds` (projects_types.go); each WP
+- The kinds' runners live in `projectJobKinds` (projects_seams.go); each WP
   registers its kinds in `init()`. A job of a kind nobody registered fails
   "not in this build".
 
@@ -1887,8 +2108,10 @@ itself (mode `main`).
 
 Every exec in a task's workspace — the setup, the jobs, a bash job of the
 task (`jobExecEnv`, B/sandbox_jobs.go:64), the coding agent (after
-`credEnv`, B/harness_engine.go:545) — gets `projectEnv(run)` (P1) merged
-with `scmProjectEnv(p, home)` (K):
+`credEnv`, B/harness_engine.go:545) — gets `projectEnv(run)` (P1), which
+merges in `scmProjectEnv(p, home)` (K's hook) itself. P1 owns both call
+lines (one in `spawnHarness` after `credEnv`, one in `jobExecEnv`); K
+edits neither file, so `GH_CONFIG_DIR` is set once:
 
 | Var | Value |
 |---|---|
@@ -1909,14 +2132,25 @@ if run.ParentID == 0 && run.Origin == originProject && !e.projectGate(run, rows)
 ```
 
 - Cancel and interrupt rows always pass.
-- The gate reads the database only — never the network.
+- The gate reads the database only — never the network: it never calls
+  `scmEnsureCreds`, and it never reads K's `project_creds` itself (K's
+  table, built in parallel): when `scmCredsDue(t, p, k)` (§14.1, K fills
+  it: a credential missing or due within 10 min) says so, it queues a
+  `creds` job and parks as `preparing`; the job's `bind`-like finish (an
+  `inboxWake`) lets the turn run. Before K is in, the hook says no.
+- A run with origin `project` whose config lacks `Config.Project` (an
+  older build rewrote it, §6.15) is given it again here first
+  (`projectRefOf`, §6.12).
 - `ws` `pending`/`queued`/`preparing`: park once with status `sleeping`
   and `pendingState {kind: "project", project: ProjectPark}`, leaving the
   inbox unconsumed (it counts as work: the worker's jobs hold the engine).
 - `ws` `signin`/`failed`/`blocked`: status `waiting_input` with the same
   `pendingState`; `handleNeeds` (B/conversations.go:471) gains `case
   "project"` (reason `project`, "‹task› needs you: sign in to GitHub" /
-  "its workspace failed").
+  "its workspace failed"). The sign-in's device code is
+  `scmPendingSignin(owner, scm)` (§14.1: K keeps the last 409 `signin` the
+  provider answered for that person), put into the view only for that
+  person (`runViewHooks`, §9.8).
 - `bind` finishing queues an `inboxWake`, which lets the parked turn run.
 - A coordinator (role `coordinator`) is never gated.
 
@@ -1928,15 +2162,18 @@ if run.ParentID == 0 && run.Origin == originProject && !e.projectGate(run, rows)
 - Task starts and the coordinator's messages go through `project_queue`;
   `projectPump(pid)` (in one transaction) counts holders and moves queued
   items, oldest first, into their runs' inboxes while `holders <
-  maxTasks`. It runs after a turn ends (`turnEndHooks`), a cancel, a create,
-  a queue insert and a policy change; never while the tile is halted.
+  maxTasks`. It runs after a turn ends (`turnEndHooks`), whenever a task
+  run's status changes (`runStatusHooks` — a park, a cancel of a coding
+  agent, a wake: §1 lists the writes that bypass the turn ends), a
+  create, a queue insert and a policy change; never while the tile is
+  halted.
 - An item with `hold_park=1` waits while its run is `waiting_input` (the
   coordinator never answers a park, §10.4); the pump releases it once the
-  run leaves that state.
+  run leaves that state — seen through `runStatusHooks`.
 - A person's direct message (`POST /runs/{id}/message`) **bypasses** the
   queue but counts as a holder.
 - Built-in task runs take the subagent class at the model-call gate:
-  `acquireLLM(ctx, run.Depth == 0 && !cfg.Project.isTask())` at
+  `acquireLLM(ctx, run.Depth == 0 && !projectRefOf(run).isTask())` at
   B/actor.go:631 and B/compact.go:372 (one-line edits). The project page
   warns when the engine is built-in and `maxTasks` exceeds the person's
   subagent slots.
@@ -1989,9 +2226,19 @@ if run.ParentID == 0 && run.Origin == originProject && !e.projectGate(run, rows)
    -print`; per toplevel: `git remote get-url origin`, `git symbolic-ref
    -q --short refs/remotes/origin/HEAD`, `git branch --show-current`, `git
    status --porcelain | wc -l`. The host matched to a bound provider's
-   `hosts` names the `scm`; an `ssh` remote is marked.
-2. `POST /runs/{id}/project`: creates the project in the conversation's
-   home, labels the sandbox, records the repos `mode=adopted` with
+   `hosts` names the `scm`; an `ssh` remote is marked. A remote URL's
+   userinfo is dropped (`url.Parse`, `u.User = nil`) before it is
+   answered, stored or logged, and the candidate says `hasCredentials:
+   true` so the dialog offers `switchHttps` (the project's helper replaces
+   it).
+2. `POST /runs/{id}/project`: refused at a partitioned agent's global
+   (409: it holds team definitions only), for a repo `scmBotAllowed`
+   refuses at a bot home (403, §7.1), and for a conversation whose class —
+   or the `policy.taskClass` sent — has internal reach (409
+   `class-internal`) or isn't `usableBy` the caller (403), as a task's
+   class is checked (§10.2): the conversation becomes a task, and a task
+   never has internal reach (V18). Then it creates the project in the
+   conversation's home, labels the sandbox, records the repos `mode=adopted` with
    `base_path` the toplevel, and makes the conversation **task 1**: its
    `origin` becomes `project`, `origin_id` the project, `Config.Project`
    set, checkouts `mode=main`, `ws=ready`. `branch: "new"` runs `git switch
@@ -2012,8 +2259,9 @@ if run.ParentID == 0 && run.Origin == originProject && !e.projectGate(run, rows)
 - Coding agents: there is no system prompt (B/harness_pass.go), so the
   same brief starts the first `hprompt`, the task text last.
 - Issue text and setup output are clipped (8 KiB) and framed `[untrusted —
-  from <host>: …]`. A class with internal reach and egress is refused for
-  an issue from a public repo (409 `class-mixed`).
+  from <host>: …]`. Every task takes scm text — issues, CI logs, forwarded
+  reviews — so a task's class never has internal reach, whatever the
+  repo's visibility (V18, §10.2).
 
 ## 9. Agent: credentials (K)
 
@@ -2033,8 +2281,29 @@ if run.ParentID == 0 && run.Origin == originProject && !e.projectGate(run, rows)
   (bot only). The agent never sends `as: person` from global.
 - Default identity per project: `policy.as` if set; else `person` in a
   person's partition (personal and membership projects), `bot` elsewhere.
-  A membership may use `bot` only when `policy.botForPeople` and the
-  provider's `you.identities` both allow it.
+  A membership may use `bot` only when `policy.membersAsBot` and the
+  provider's `you.identities` both allow it: `membersAsBot` is a
+  permission, never the identity — a membership works as the bot only when
+  its `policy.as` is `bot` (§12.2).
+- **The bot rule** (V15, §7.1). Where the home's identity is the bot, the
+  agent is the bot's only gatekeeper (§4.4's last rule): `scmBotAllowed(w,
+  repo)` (K fills it) is true for the agent's managers (`w.manager()`,
+  which is true for every element, B/access.go:78: a tile holding a grant
+  to the agent is a manager everywhere already) and for a person the
+  **scm bot rule** names with a repo glob that matches — a setting:
+  `scmBotRule {users, repos}` as JSON in the bot home's own database
+  (`putSetting("scm_bot_rule", …)`, read with `getSetting`; `GET|PUT
+  /projects/scm/bot`, managers only; empty by default). Only a bot home
+  reads it — a partitioned agent's global instance or an unpartitioned
+  agent, each its own database; a person's partition never consults it. A
+  build without Projects keeps it as an unknown setting, and it rides
+  along wherever the database goes (a backup, a rollback, the next
+  upgrade). Checked where a repo is named (a project, a repo added, an
+  upgrade, a CI watch) — reads and tokens afterwards follow
+  from the project, whose ACL decides who acts in it. The project's later
+  participants act through the bot for its repos; that is what naming the
+  repo granted, and the person who named it is recorded (`created_by`,
+  the job's `by_user`).
 - **Live tokens** are held in memory only: `liveTokens[pid|sandboxRef|host]
   = {token, expiresAt, refreshAfter, purpose, identity}`. `purpose` =
   `proj:<uid>:<sandboxRef>`. Nothing durable holds a token (`project_creds`
@@ -2048,13 +2317,17 @@ write and refresh.
 
 | `as` | Every one of these must hold |
 |---|---|
-| `person` | `userMode()`; `p.Owner` is the partition's person (`runUser`); `p.Kind` is `personal` or `membership`; `p.Visibility` private and no members; `sandboxPrivate(box)` (B/harness_engine.go:774) and the sandbox's owner is that person; `homedHere(box)` (B/sandbox_partition.go:56); not `hostedUsed(ref)` (B/harness_creds.go:395) — nor, for a fork, of its source |
-| `bot` | the sandbox carries `xbin.agent/project=<uid>`; `homedHere(box)`; not `hostedUsed(ref)`; and, in a person's partition, the project allows the bot (`policy.as == "bot"` or `botForPeople`) |
+| `person` | `userMode()`; `p.Owner` is the partition's person (`runUser`); `p.Kind` is `personal` or `membership`; `p.Visibility` private and no members; `sandboxPrivate(box)` (B/harness_engine.go:774) and the sandbox's owner is that person; `homedHere(box)` (B/sandbox_partition.go:56); not `hostedUsed(ref)` (B/harness_creds.go:395) — nor, for a fork, of its source; **not a sandbox the project cloned from a team's seed** (`p.FromSeed`, `why` `seed-clone`: the seed is writable by the whole team, V16). That is all the gate can tell of a sandbox's past: the manager reports no clone ancestry (the sandbox answer has no source, docs/sandbox-manager.md §Snapshots, clones and archives), so a sandbox the person cloned from a seed themselves, outside the agent, passes (`credWhy` can't tell either): cloning a seed by hand is the person's own act, outside what the agent can check |
+| `bot` | **where:** in a person's partition `homedHere(box)`; elsewhere the sandbox is homed at this agent's own identity — `box.Owner.Via == xbin.Self()`, no `partitionId`, not `box.Shared` (the test `homedAtOwnGlobal` makes, B/sandbox_partition.go:75, without its user-mode clause). **who:** every user of the sandbox may act in the project — its owner, each member, the team when its visibility is `team` — at participant level or above on the project's ACL — `projectLevelOf(p, user)` (§14.1, P1 fills it from `loadProjectACL`; `lvNone` until P1 is in, so the clause fails closed) for the owner and each member; team visibility: the project's is `team` with `teamRole` participant (columns of `Project`) — and it has no shares (a share's shape is the manager's: fail closed). **history:** not `hostedUsed(ref)`. **policy:** in a person's partition the project's identity is the bot — `policy.as == "bot"`, which a membership may set only under `membersAsBot` (§9.1) |
 
-A team **seed** sandbox never gets a credential (§12.1). A refusal sets
+The `xbin.agent/project=<uid>` label is for display and lookup only; no
+row above reads it (any participant could patch it onto a sandbox). A team
+**seed** sandbox never gets a credential (§12.1). A refusal sets
 `project_creds.state='blocked'` with `why`, the task `ws=failed` with
 "credentials can't go into ‹sandbox›: ‹why›", and scrubs anything already
-there.
+there. K's `TestCredGateMatrix` covers each clause: person/bot × private,
+shared, member-shared, team-visible, another owner's, hosted-used, a fork,
+a seed clone, not homed, at its own global identity, a team seed.
 
 ### 9.3 Files
 
@@ -2096,13 +2369,22 @@ exec's env (§8.5) and in `P/.xbin/env` for terminals.
   `project_creds`. Long harness turns keep the partition running, so the
   timer fires.
 - `ensureCreds(ctx, p, k, ref, minLeft)` (the `scmEnsureCreds` hook) runs
-  **synchronously** before every git step of the worker, before `bind`,
-  and when a task's turn starts (P1 calls it in the gate's ready path, off
-  the database transaction, bounded 15 s); `minLeft` 10 min.
-- 409 `signin` from the provider: `ws=signin`, the task parks
-  (`ProjectPark.signin` — the device code only in the requesting person's
-  own view, §9.8), and the worker polls `SigninPoll` every `intervalMs`
-  while the card is shown, for at most 15 min.
+  **synchronously** in the worker — before every git step, before `bind`,
+  and in the `creds` job the gate queues when a task's token is near its
+  refresh (§8.6) — never on the engine's path; `minLeft` 10 min.
+- 409 `signin` from the provider: K keeps the answer's `signin` in memory
+  per (person, provider) — what `scmPendingSignin` answers — `ws=signin`,
+  the task parks (`ProjectPark.signin` — the device code only in the
+  requesting person's own view, §9.8), and K's `creds` job polls
+  `SigninPoll` itself: it answers `jobOutcome{WaitMs: intervalMs}` (the
+  job `waiting`, `next_ms` = now + `intervalMs`) while the sign-in is
+  pending, for at most 15 min, then writes the credential and finishes —
+  P1's worker loop only runs the job; it never calls the provider for K.
+- `scmCredsDue(t, p, k)` (§14.1) is K's answer to the gate (§8.6), from
+  `project_creds` alone: no live credential for the task's sandbox, or its
+  `refresh_ms` within 10 min. `GET
+  /projects/scm/signin` reads the provider's state with `SigninState`
+  (`GET /scm/signin`), which starts nothing.
 
 ### 9.6 Scrub
 
@@ -2126,11 +2408,16 @@ one-line call):
 ### 9.7 Redaction
 
 - **Patterns** (added to `redactor.apply`, B/harness_redact.go:58, beside
-  `tokenShape`): `gh[pousr]_[A-Za-z0-9_]{30,}` and
-  `github_pat_[A-Za-z0-9_]{22,}`; plus **every live token** exactly (a
-  package-level set the client keeps, read by every redactor). Masking is
-  same-length (`mask`).
-- **Applied at:** `addMessage` (B/db.go:522) and `rewriteMessage` (:570) on
+  `tokenShape`): `gh[pousr]_[^\s"'@]{30,}` and `github_pat_[^\s"'@]{22,}`
+  — up to the next space, quote or `@`, assuming no charset (a stateless
+  `ghs_` token is ~520 characters of a format GitHub doesn't document);
+  plus **every live token** exactly (a package-level set the client keeps,
+  read by every redactor). Masking is same-length (`mask`).
+- **In memory** a token is an `scmSecret` (scm_types.go, S0): `%v`, `%+v`,
+  `%#v` and `json.Marshal` of anything holding one say `[secret]`;
+  `Reveal()` is the one way to the value (the credential files, the
+  explicitly built revoke body). `TestSCMSecretNeverShows` (S0) pins it.
+- **Applied at:** `addMessage` (B/db.go:529) and `rewriteMessage` (:577) on
   `content` (every tool result passes through one of them); the harness
   stdout reader (B/harness_engine.go:1040) and the harness log
   (B/harness_log.go:150) — both through `redactor.apply`, so they gain the
@@ -2138,16 +2425,18 @@ one-line call):
   `last`, `project_events.body`; CI log text, annotations and snapshots
   (V, through `scmRedact`); log excerpts sent to tasks (E).
 - `scmRedact` (the hook, §14.2) is `redactText` with the live set.
-- **The seeded-token test** (K's, and C's for its tools): a token minted by
-  the fake provider and printed by a task's bash (`cat` of the cred file,
-  `env`, an error) appears in no row, log, event, job output or transcript.
+- **The seeded-token test** (K's for what K owns, C's for its tools, and
+  the lead's at gate 1 for a task, §15.2): a token minted by the fake
+  provider and printed by bash (`cat` of the cred file, `env`, an error)
+  appears in no row, log, event, job output or transcript.
 
 ### 9.8 Who sees what
 
 - The device code (`signin.userCode`) is shown only to the person who must
-  sign in: `ProjectPark.signin` is filled only in that person's own
-  `GET /runs/{id}/view` and `GET /runs/{id}/task` (never a stream event,
-  never another viewer), as `harness.login.device` is (D147 §4.3.2).
+  sign in: `ProjectPark.signin` is filled from `scmPendingSignin` only in
+  that person's own `GET /runs/{id}/view` and `GET /runs/{id}/task` (P1's
+  `runViewHooks` entry checks `who`; never a stream event, never another
+  viewer), as `harness.login.device` is (D147 §4.3.2).
 - `GET /projects/{pid}/status` shows credential metadata (identity, login,
   expiry, state, why), never a token.
 
@@ -2176,14 +2465,38 @@ func (ag *Agent) coordinatorOf(t *DB, run *Run, cfg Config) (*Project, error) //
 func (d *DB) projectTaskOf(p *Project, n int64) (*ProjectTask, *Run, error)    // by project-local number, never a run id
 ```
 
-No `ParentID` walk and no lane-equality check (the replaced `Engine.node`
-rule, B/subagent_tools.go): project membership is the boundary. Subagents
-of a coordinator get no project tools. Writes run under `e.fenced`, pokes
+No `ParentID` walk (the replaced `Engine.node` rule, B/subagent_tools.go):
+project membership is the boundary. **The lane rule stays, as a class
+rule** (V18): `Engine.node` refuses to reach a run in another capability
+lane (B/subagent_tools.go:205); here the coordinator is in the web lane
+and no task's class holds `tsInternal` (`refusalClassInternal`, 409
+`class-internal`: `POST /projects` and `PATCH` on `policy.taskClass`,
+`TaskSpec.Class`, the coordinator's `task_create`, and P2's upgrade, whose
+conversation becomes a task, §8.10). The rule is on
+`tsInternal`, not on lane equality: a class without egress is lane
+`private` in `lane()` (B/classes.go:177), yet has no internal reach
+either. A task's stored lane can't hold that line: `clampTo("web")` strips
+`tsInternal`, but `clampTo("private")` (B/classes.go:192–203) strips only
+egress, so a lane-`private` task whose class is later edited to add
+`tsInternal` would gain it. So P1 adds one line to `classState.classOf`
+(B/classes.go:398), after `clampTo`: a config with `Project` set (a task
+or a coordinator, and their subagents, which copy it; the gate restores a
+task's before any turn, §8.6, and a coordinator is in the web lane, which
+`clampTo` already holds) loses `tsInternal` and its MCP servers
+(`c.Toolsets = without(c.Toolsets, tsInternal); c.MCP = classSet{}`),
+whatever its lane, at turn start and at every tool call alike.
+`projectTaskOf` refuses, as `Engine.node` does ("in a different capability
+lane"), a task whose run's class or lane has internal reach anyway (a
+run made by an older build, a class edited in the database). A class is
+also checked as `POST /ask` checks it: `usableBy(who)` (the class's
+`who`: managers-only classes need a manager) for the person creating, and
+`allowsManager` for the project's sandbox manager. Subagents of a
+coordinator get no project tools. Writes run under `e.fenced`, pokes
 `AfterCommit`.
 
 ### 10.3 Tools
 
-Offered at depth 0 only, when `cfg.Project.isCoordinator()` (the way
+Offered at depth 0 only, when `projectRefOf(run).isCoordinator()` (§6.12; the way
 `cfg.Channel` gates `attach_to_reply`, B/tools.go:208 — no new toolset,
 which would need the stored-classes rollback trick, B/classes.go).
 Dispatched in `runTool` (B/tools.go:331) beside the thread tools. First
@@ -2205,6 +2518,12 @@ sentences are pinned in B/tooldesc_test.go:29 — exactly these:
   `project_queue` (`source: coordinator`, `hold_park=1`); `scm_pr` answers
   the CI aggregate (`CISummary` plus failing jobs, their failing step and a
   log excerpt of ≤ 2 KiB each, ≤ 8 KiB in all, redacted, framed untrusted).
+- `repo` in `scm_pr`, `scm_issues` and `task_create`'s issues form must
+  be one of the project's repos (§7.1) — a tool error ("‹repo› isn't one
+  of this project's repos") otherwise, at every home: the coordinator
+  reads through the project's identity, which may be the bot, and a
+  prompt-injected coordinator must not read a repo nobody named for the
+  project.
 - Results are text for the model, clipped with `inlineBudget`.
 
 ### 10.4 Authority
@@ -2239,11 +2558,19 @@ sentences are pinned in B/tooldesc_test.go:29 — exactly these:
   (B/actor.go:893), the coordinator's undelivered events become one message:
   `[project updates — tasks and the scm provider reporting, not a person]`
   then one line block per event (`#<n> <kind>: <text>`), and are marked
-  `delivered`, `msg_id`.
+  `delivered`, `msg_id`. The call site is P1's one line in
+  `deliverBoundary` for a run `projectRefOf(run).isCoordinator()` calls a
+  coordinator (§6.12), calling
+  `projectDeliverHook` (§14.1); C fills the hook (building the text and
+  the `mark` that sets `delivered`/`msg_id`) and never edits actor.go.
+- **What wakes it:** P1's `turnEndHooks` entry for a task's turn, and its
+  `runStatusHooks` entry for a task run that moves to `waiting_input`
+  without a turn ending (an approval park, `ask_user`, a coding agent's
+  question or sign-in, §1) — "it waits for a person" is written there.
 - **Wake:** the idle-wake checks at B/actor.go:186 and :205 gain `||
-  e.db.hasProjectWake(run.ID)` (C adds `hasProjectWake`; the one-line edits
-  to actor.go are P1's — P1 places `|| projectWake(e.db, run)` calling the
-  `projectWakeHook` C fills). Coalesced to one wake per 60 s with
+  projectWakeHook(e.db, run)` — P1's one-line edits; C fills the hook
+  (§14.1: an undelivered `wake=1` event for this coordinator, the run's
+  role read through `projectRefOf`, §6.12) and never edits actor.go. Coalesced to one wake per 60 s with
   `armTimer` (B/engine.go:363). `userWake` (B/resume_mode.go:70) counts
   undelivered `wake=1` events (P1's hunk).
 - A person messaging a task directly: a hook in `handleMessage`
@@ -2265,7 +2592,7 @@ sentences are pinned in B/tooldesc_test.go:29 — exactly these:
 
 Opt-in channel rule `projects: true`. In a DM from a linked person who
 participates, `/project <name>` writes `project_attach`; `channelDeliver`
-(B/channels.go:474) checks the attachment before resetting and delivers to
+(B/channels.go:479) checks the attachment before resetting and delivers to
 that person's coordinator; in a partitioned agent the person's
 `handoff/dm` consumer checks the same. `/project off` or `/new` detaches.
 Personal projects only.
@@ -2274,8 +2601,8 @@ Personal projects only.
 
 ### 11.1 Intake
 
-1. `POST /adapter/scm/event` (E's route table, mounted with `adapterGuard`
-   like B/channels.go's adapter routes): the caller's `X-XBin-From` must be
+1. `POST /adapter/scm/event` (E's `adapterRouteTables` entry, §7.1;
+   `adapterRoutes` mounts it with `adapterGuard`): the caller's `X-XBin-From` must be
    in `scmBound()` — any other adapter holding the channel role gets 403
    ("only a bound scm provider delivers scm events"). Body: event v1 ≤ 1
    MiB; `protocol` 1 (else 400). The `scm.provider` field is ignored —
@@ -2289,7 +2616,10 @@ Personal projects only.
      `topicEvent`, B/handoff.go:100), reusing `queueHandoff` as `handEvent`
      does (B/trigger_registry.go:259); the partition's handler (registered
      from `init()`, as B/handoff_user.go:39) dedupes on `eventId` again and
-     handles it. Answer 200 once queued.
+     handles it. Answer 200 once queued. The partition's handler drops an
+     event whose `forPid` isn't `partitionID()` (B/mode.go:143; counted): a
+     person re-created under the same id never gets the old one's events
+     (§4.10).
    - `user:<id>` at an unpartitioned agent or a person's partition: 404
      (not ours).
 4. **Handling** (in the home that owns it): `scmEventHooks` run first
@@ -2301,8 +2631,9 @@ Personal projects only.
 - E's `subscribe` job keeps one subscription per task and repo, key
   `task:<pid>:<n>:<repo slug>`: `{repo, branches: [task branch], prs:
   [its PRs], kinds: [pull, checks, comment, review, push, workflow, job,
-  check]}`, posted when the task's branch exists remotely or it has a PR
-  (`projectRefsHooks`), re-posted at 25 days, deleted at cleanup.
+  check]}`, posted when P1's `refs` job (§8.3) sees the task's branch on
+  the remote or a PR opens (`projectRefsHooks`), re-posted at 25 days,
+  deleted at cleanup.
 - Issue subscriptions (`issues: true`, kinds `[issue]`, key
   `issues:<pid>:<repo slug>`) only when `policy.autoLabel` is set.
 - From a person's partition the provider relays to its global (`for:
@@ -2323,6 +2654,7 @@ on its PR, then its branch, then its sha. Then:
 | `checks.completed`, all green | on the head; PR open | task state `awaiting-review`; event `pr.ready` (wake); `pr-ready` push |
 | `review` (changes requested, commented), `comment` on the task's PR | actor association OWNER / MEMBER / COLLABORATOR, or in `policy.reviews.allow`; `policy.reviews.forward` not `off` (`all` forwards everyone) | coalesced `policy.reviews.batchSec` (120 s), then one task input with the bodies and inline comments with `path:line` (≤ 8 KiB, untrusted framing); event `review` |
 | the same | anyone else | quiet event `comment` ("not forwarded") |
+| `pull.opened` / `pull.reopened` | the PR's head is the task's branch and `prs` doesn't hold it | `projectRefsCheck(t, pid, n)` (§14.1, P1 fills it): the task's `refs` job runs again and records the PR (§8.3) |
 | `pull.merged` / `pull.closed` | — | phase `merged` / `closed`; scrub (§9.6); cleanup per `policy.cleanup` (P2's rules); event (wake) |
 | `push` to the task branch | actor is not the task's identity | quiet note queued to the task ("someone else pushed to <branch>: pull before pushing"); head sha updated |
 | `issue.opened` / `labeled` | repo of the project | quiet event `issue`; wake when the label is `policy.autoLabel` |
@@ -2372,7 +2704,7 @@ docs/scm.md), the caller check, `for` and the partition hand-off.
   person reaches it from their page with `?xbin-partition=global`, or a
   manager). It holds the name, repos, policy, members and an optional
   **seed sandbox**; it has **no tasks** and no coordinator (coding agents
-  are barred at global, D158).
+  are barred at global, D172).
 - Its worker keeps only the seed: `sandbox`, `repo`, `fetch` and the
   fork-base `snapshot` jobs (P2's) — never `creds`: **a seed holds no
   credential**, so its `repo` jobs work only for repos the sandbox can
@@ -2387,21 +2719,50 @@ docs/scm.md), the caller check, `for` and the partition hand-off.
   definition (`callGlobal GET /projects/<gpid>`, B/gwcall.go:135 — the
   person calling as themselves; 404 if they can't see it) and creates a
   `projects` row `kind='membership'`, `team_ref=<gpid>`, owner the person,
-  private, with the definition's name, slug, scm, host, repos and policy.
-  Made lazily: when the member opens the team project's page and picks
-  "Work on this", or creates a task in it.
+  private, with the definition's name, scm, host, repos and policy, and
+  its own slug made from the name by §6.1's rule (`-2`, `-3`… on a clash
+  in this partition). Made lazily: when the member opens the team project's page and picks
+  "Work on this", or creates a task in it; creating one shows the
+  definition's security part (below) first and sends its hash as
+  `accept` (§7.2).
 - **Its sandbox:** the person's own, private, homed in their partition —
-  `sandbox: {ref}` one they have, or `{new}`; when the seed has a fork-base
-  snapshot and the manager can clone it for this person (a team-visible
-  seed they can see, `clone` cap), `from: {sandbox: seed, snapshot}`;
-  otherwise fresh, with the `repo` jobs. Then `creds` as a personal
-  project's (the person's identity; the bot only when `policy.botForPeople`
-  and the provider allows it).
+  `sandbox: {ref}` one they have, or `{new}`. Only when the identity §9.1
+  resolves for the membership is the bot — its accepted `policy.as` is
+  `bot`, which `policy.membersAsBot` and the provider's `you.identities`
+  allow (V16; `membersAsBot` alone, with `as` unset, is the person) — and
+  the seed has a fork-base snapshot
+  the manager can clone for this person (a team-visible seed they can see,
+  `clone` cap), is it `from: {sandbox: seed, snapshot}` with
+  `from_seed=1`. Otherwise it starts fresh with its own `repo` jobs. Then
+  `creds`: the person's identity — never in a seed clone (§9.2
+  `seed-clone`) — or the bot when `policy.as` is `bot`. A seed-cloned
+  membership whose accepted definition no longer resolves to the bot
+  (`as` changed, or `membersAsBot` off) fails its tasks with `seed-clone`,
+  and its page offers "start in a fresh sandbox". T's
+  `TestPersonCredsRefusedInSeedClone` includes a definition with
+  `membersAsBot` and `as` unset: its membership starts fresh
+  (`from_seed=0`) and its person credential is written.
 - **Definition sync:** the membership re-reads the definition (ETag on
   `version`) when its page opens, before each task start, and every 10 min
-  while it has open tasks; repos, policy and name follow the definition
-  (a removed repo stops new tasks using it; running ones keep their
-  checkouts).
+  while it has open tasks. The name and removed repos follow at once (a
+  removed repo stops new tasks using it; running ones keep their
+  checkouts). The **security part** follows only on acceptance (V17):
+  the canonical JSON of `{repos: [{repo, setup}], policy: instructions,
+  checks, prConventions, taskClass, engine, harness, as, membersAsBot,
+  reviews, autoPR, autoLabel, ci, coordinator, workflows, protection,
+  branchPrefix}` (the remaining policy keys follow at once), and
+  `def_hash` is its SHA-256. While it differs, `def_pending` keeps the new
+  definition and the membership keeps running the values it accepted (its
+  own row's `policy` and `project_repos.setup`; an added repo isn't used
+  yet). A `note` project event (`pevNote`, wake; the coordinator can only
+  tell the person, never accept) and the page card "Review the team
+  project's changes" tell the member; the card reads `GET
+  /memberships/{pid}/pending` (the member only: `{hash, accepted,
+  pending}`: the security part as accepted — the membership's own `policy`
+  and `project_repos.setup` — and as pending, from `def_pending`'s JSON,
+  `hash` its hash) and shows the two side by side,
+  each changed key and setup script marked; `POST /memberships/{pid}/accept
+  {hash}` adopts exactly what it showed (409 if the definition moved on).
 - Its tasks, its coordinator and its credentials are a personal project's
   in every respect (§8–§11), coding agents allowed. Its coordinator's
   `task_list {scope: "team"}` reads the board.
@@ -2421,13 +2782,24 @@ docs/scm.md), the caller check, `for` and the partition hand-off.
 - At global, `PUT /projects/{pid}/board/{n}` is accepted only from a
   person's partition (`personFromPartition`, B/partition_routes.go:53) whose
   person is a participant of the definition; `member` is that person,
-  never a body field.
+  never a body field. The row keeps the caller's partition id
+  (`member_pid`, `X-XBin-Partition-Id`); a `PUT` from a different one
+  deletes that member's rows first (a re-created person starts fresh).
+- Global validates every row: `title`, `waiting`, `branch` and
+  `ci.current` are clipped (200 chars) and shown as plain text, never
+  markdown or HTML; each `prs[].url` and `ci.url` must be https on the
+  definition's `host` (`projects.host`) or it is dropped; `run` must be
+  ≥ 2^40 (a partition's id, B/partition_start.go:25) or the `PUT` is 400,
+  and is offered only to that member, as "open (theirs)"; anything else
+  in the body is ignored.
 - A `project` stream event (`change: "board"`) at global tells viewers.
 
 ### 12.4 Credentials and events
 
-A person's identity by default; the bot only under `policy.botForPeople`
-and the provider's `botForPeople`. A person's token never enters the seed.
+A person's identity by default; the bot only when the accepted
+definition's `policy.as` is `bot`, which its `policy.membersAsBot` and the
+provider's `botForPeople` must allow (§9.1, §12.2). A person's token never enters the seed, nor a
+sandbox cloned from it (V16).
 Events are personal (`for: user:<id>`, §11.2); the board follows from the
 member's partition.
 
@@ -2454,7 +2826,7 @@ named here.
 | Module | WP | Exports |
 |---|---|---|
 | `model/project-api.js` | U1 | `projectApi(app, pid)` → the home's API for a project (`homeApi(homeOf(pid))`, model/home-api.js); route helpers for §7.2 |
-| `model/projects.js` | U1 | `createProjects(app)` → `{list, load(), open(pid), opened, board(pid), tasks(pid, filter), take(ev), create(body), createTask(pid, spec), batch(pid, issues), patch(pid, body), remove(pid, sandbox), status(pid), warm(pid), issues(pid, q), signin(scm), …}` — the `AutoPage` pattern (model/auto.js); events `projects`, `project` |
+| `model/projects.js` | U1 | `createProjects(app)` → `{list, load(), open(pid), opened, board(pid), tasks(pid, filter), take(ev), create(body), createTask(pid, spec), batch(pid, issues), patch(pid, body), remove(pid, sandbox), status(pid), warm(pid), issues(pid, q), signin(scm), pending(pid), accept(pid, hash), …}` — the `AutoPage` pattern (model/auto.js); events `projects`, `project` |
 | `model/project-task.js` | U1 | pure words for a task conversation: `taskChips(view)` (branch, PR #n with state, the setup outcome), `prepCard(view, me)` (the workspace steps; the sign-in card only for the person who must sign in), `prButton(view)`, `crumb(view)` ("‹project› ›"), `columnOf(task)` |
 | `model/ci.js` | V | §13.5 |
 | `model/app.js` | U1 (V) | U1: `app.projects = createProjects(app)`; `app.projects.take(ev)` in `app.event`; `page: 'projects'`, `app.openProjects(pid?)`; `follow()` of `#proj`. V: `app.ci = createCI(app)`; `app.ci.take(ev)` in `app.event` (two lines) |
@@ -2463,17 +2835,25 @@ named here.
 
 ### 13.2 Web (U1; V for CI; U2 for C, E, P2 and T surfaces)
 
-**Seams** — `web-ext.js` gains (U1 adds `side`, `page`, `crumb`; V adds
-`dock`), documented in its header like the others:
+**Seams** — S0 added these to `web-ext.js`, documented in its header like
+the others; nobody else edits that file. Each call site is placed by the
+WP that draws there (named after each):
 
 ```js
-//   side()       entries in the sidebar under Automations (a list of templates)
-//   page(p)      the page app.page names when no conversation is open (not 'automations'):
-//                {top: template, body: template} — the first module that knows p answers
-//   crumb(v)     a link before the open conversation's title ("Web ›"), when no automation crumb is shown
-//   dock(v)      sections of the right dock beside Coding agents: {key, title, badge?, tpl()}
+//   side()         entries in the sidebar under Automations            — agent.js (U1)
+//   page(p)        the page app.page names when no conversation is open
+//                  (not 'automations'): {top, body} templates — the first
+//                  module that knows p answers                         — agent.js (U1)
+//   crumb(v)       a link before the open conversation's title ("Web ›")
+//                  when no automation crumb is shown                   — agent.js (U1)
+//   dock(v)        sections of the right dock beside Coding agents:
+//                  {key, title, badge?, tpl()}                         — harness-board.js (V)
+//   card(task)     chips on a project board's task card (a TaskView)   — projects.js (U1)
+//   childStatus(r) words after a coding agent card's status line       — harness-child.js (V)
+//   sbx(b, close)  actions at the end of the ▣ sandbox popover (#sbxpop;
+//                  b the conversation's binding, close() closes it)    — sandboxes.js (U2)
 export const ext = makeExt({ block: 'first', end: 'all', top: 'all', paint: 'each', newChat: 'all', task: 'all',
-  side: 'all', page: 'first', crumb: 'first', dock: 'all' });
+  side: 'all', page: 'first', crumb: 'first', dock: 'all', card: 'all', childStatus: 'all', sbx: 'all' });
 ```
 
 **`agent.js`** (885 of 949 lines; U1 adds at most 12, nobody else adds any):
@@ -2488,26 +2868,30 @@ export const ext = makeExt({ block: 'first', end: 'all', top: 'all', paint: 'eac
 | Module | WP | What |
 |---|---|---|
 | `project-web.js` | U1 | the import list (one line per module, each in its own slot, as harness-web.js) |
-| `projects.js` | U1 (U2 adds C, E, T sections) | `side` entry "Projects" (with needs-you count); `page('projects')`: the list (yours, team), a project's page — board columns (§6.11) with task cards (title, #n, state, branch, PR, **CI chip** from `task.ci` else `prs[].checks`), "New task" (text, size, agent, repos), the issue picker (batch), the event feed (U2), the coordinator card (U2), the team board and "Work on this" (U2) |
-| `project-new.js` | U1 (U2 adds upgrade) | the new-project dialog (provider, repos picker `GET /projects/scm/repos`, sandbox pick or new, policy basics); the "Make this a project…" dialog (U2, P2's routes) |
+| `projects.js` | U1 (U2 adds C, E, T sections) | `side` entry "Projects" (with needs-you count); `page('projects')`: the list (yours, team), a project's page — board columns (§6.11) with task cards (title, #n, state, branch, PR; the **CI chip** is `${ext.card(task) \|\| nothing}`, V's; the PR chip shows `prs[].checks` only while `task.ci` is null), "New task" (text, size, agent, repos), the issue picker (batch), the event feed (U2), the coordinator card (U2), the team board (its rows' text plain, never markdown, §12.3) and "Work on this" with the definition's security part to accept, and the "Review the team project's changes" card (U2, §12.2: `GET /memberships/{pid}/pending`, the accepted and the pending security part side by side, changed keys and setup scripts marked, then Accept) |
+| `project-new.js` | U1 (U2 adds upgrade) | the new-project dialog (provider, repos picker `GET /projects/scm/repos`, sandbox pick or new, policy basics); the "Make this a project…" dialog (U2, P2's routes), opened by U2's `sbx(b, close)` action in the ▣ popover of a non-project conversation with a sandbox |
 | `project-settings.js` | U1 | repos (add, remove, setup script), policy (every key of `ProjectPolicy`, grouped), members (unpartitioned and team), status (sandbox, repos, credentials, jobs, warnings), archive and delete |
-| `project-chips.js` | U1 | `top(v)` on a task: branch chip, PR chip (↗ to the PR), "Open PR" (P2's route; hidden until `POST /runs/{id}/task/pr` answers other than 404); `crumb(v)`; `end(s)`: the prep card (steps, Retry) and the sign-in card (device code and link, for the person only); `task(v)`: the task's project, size, repos, checkouts |
-| `ci-dock.js` | V | §13.5: `top` (the CI chip), `dock` (the CI section), `paint` (live refresh on/off); exports `openCI(root, {job?})`, `ciChildTpl(runId)` |
+| `project-chips.js` | U1 | `top(v)` on a task: branch chip, PR chip (↗ to the PR; its checks only while `task.ci` is null), "Open PR" (P2's route; hidden until `POST /runs/{id}/task/pr` answers other than 404); `crumb(v)`; `end(s)`: the prep card (steps, Retry) and the sign-in card (device code and link, for the person only); `task(v)`: the task's project, size, repos, checkouts |
+| `ci-dock.js` | V | §13.5: `top` (the CI chip), `dock` (the CI section), `childStatus` (the child glyph), `card` (the board chip), `paint` (live refresh on/off); exports `openCI(root, {job?})` (V's own modules only) |
 | `ci-cards.js` | V | `end(s)`: CI outcome cards; their "Open logs" calls `openCI` |
 | `harness-board.js` | V (≤ 30 lines) | becomes the right dock's host: `st.tab` (`'agents'` or a section key); a tab strip when `ext.dock(v)` answers any section; the dock opens for a section even with no coding agents; `export function openDock(key)` |
-| `harness-child.js` | V (1 line) | the card's status line shows `ciChildTpl(r.id)` — CI of what that coding agent pushed |
+| `harness-child.js` | V (1 line) | the status line gains `${ext.childStatus(r) \|\| nothing}` — CI of what that coding agent pushed; no import (it imports `ext` already, and importing ci-dock.js would close a cycle through harness-board.js) |
 | `harness-web.js` | V (2 lines) | `import './ci-dock.js';` and `import './ci-cards.js';` in a "CI" slot after U7 |
+| `sandboxes.js` | U2 (2 lines) | `import { ext } from './web-ext.js';` and `${ext.sbx(b, closePop) \|\| nothing}` at the end of `.sbxacts` |
 
-### 13.3 Native (U2)
+### 13.3 Native (U2; V for CI)
 
-| Module | What |
-|---|---|
-| `native/ext.js` | gains `drawer: 'all'` (rows in the conversations drawer, after Automations) |
-| `native/convs.js` | one line: `${ext.drawer(close) || nothing}` after the Automations row |
-| `native/project-all.js` | the import list; `native.js` gains one import of it |
-| `native/projects.js` | screens (`ext.screen`) `projects`, `project` (board as sections per column), `project-task-new`, `project-settings`, `project-team`; the drawer row "Projects" |
-| `native/project-task.js` | `toolbar(v)` branch/PR items, `subtitle(v)` "‹project› #n", `menu(v)` "Make this a project…" (a non-project conversation with a sandbox), `end(v, s)` prep and sign-in cards, `task(s)` the project section |
-| `native/ci.js` | `toolbar(v)` the CI item (the chip's words); screens `ci` (watches → runs → jobs with progress), `ci-job` (steps, the log with search and follow, "Open live log ↗"), `ci-annotations`; `end(v, s)` outcome cards; `menu(v)` "Watch CI for…"; "Re-run failed" for people |
+| Module | WP | What |
+|---|---|---|
+| `native/ext.js` | S0 | S0 added `drawer`, `dock`, `card` and `childStatus` (documented in its header); nobody else edits it. Call sites are placed by the WP that draws there: U2 `drawer` (native/convs.js) and `card` (its board rows), V `dock` (native/harness-board.js) and `childStatus` (native/harness-child.js) |
+| `native/convs.js` | U2 (1 line) | `${ext.drawer(close) \|\| nothing}` after the Automations row |
+| `native/project-all.js` | U2 | the import list; `native.js` gains one import of it |
+| `native/projects.js` | U2 | screens (`ext.screen`) `projects`, `project` (board as sections per column; each task row ends with `ext.card(task)`, V's CI words), `project-task-new`, `project-settings`, `project-team`; the drawer row "Projects" |
+| `native/project-task.js` | U2 | `toolbar(v)` branch/PR items, `subtitle(v)` "‹project› #n", `menu(v)` "Make this a project…" (a non-project conversation with a sandbox), `end(v, s)` prep and sign-in cards, `task(s)` the project section |
+| `native/ci.js` | V | `dock(v)` the CI section of the Coding agents screen (watches → runs → jobs with progress) and its badge on the Coding agents toolbar button (no separate toolbar item); pushed screens `ci-job` (steps, the log with search and follow, "Open live log ↗") and `ci-annotations`; `childStatus(r)` the glyph on a coding agent row; `card(task)` the native board's CI words; `end(v, s)` outcome cards; `menu(v)` "Watch CI for…"; "Re-run failed" for people |
+| `native/harness-board.js` | V (≤ 6 lines) | calls `ext.dock(v)` after its sections; shows the toolbar button when any dock section answers, with its badge |
+| `native/harness-child.js` | V (1 line) | `${ext.childStatus(r) \|\| nothing}` after a coding agent row's status |
+| `native/harness-all.js` | V (1 line) | `import './ci.js';` in a "CI" slot |
 
 ### 13.4 Router
 
@@ -2515,16 +2899,18 @@ export const ext = makeExt({ block: 'first', end: 'all', top: 'all', paint: 'eac
 `homeOf(id)`); tasks stay `#c=<id>` with the crumb back. Native deep links
 map onto the same words (`app.follow()`).
 
-### 13.5 CI in the coding UI (V; native U2)
+### 13.5 CI in the coding UI (V, web and native)
 
 **Where it shows — inside the D147 coding-agent UI, not beside it:**
 
 - **The CI chip** in the conversation's top bar, right after the ⌨ coding
   agents chip (`ext.top`, harness-board.js; ci-dock.js registers after it):
   "CI ● 3/5 jobs · 2:14" while running, "CI ✓" green, "CI ✗ test (ubuntu)"
-  red, "CI —" when nothing reported yet; hidden when the conversation has
-  no watch. Its tone follows `CISummary.state`. Clicking it opens the right
-  dock on the **CI** tab (`openDock('ci')`). At home it is absent.
+  red, "CI —" when nothing reported yet, and also when there is no watch
+  but `ci.canWatch` (the run view, §7.4); hidden when neither. Its tone
+  follows `CISummary.state`. Clicking it opens the right dock on the
+  **CI** tab (`openDock('ci')`); for "CI —" without a watch that section
+  holds only "Watch CI for…". At home it is absent.
 - **The CI section of the right dock** (`#hboard`, the third grid column
   from 1100 px, over the chat below that): tabs "Coding agents · CI"
   when both have content. Per watch: `repo · branch` (↗ the branch),
@@ -2538,24 +2924,34 @@ map onto the same words (`app.follow()`).
   statuses follow, each with ↗ `detailsUrl`/`url`. A "Watch CI for…" form
   (repo, branch or PR) at the end.
 - **The log viewer** (in the dock, replacing the section until ← Back): a
-  lazy tail (64 KiB, more on "Earlier"), ANSI stripped, monospace, plain
-  text (never markdown or HTML), a search box (highlight, next/previous),
-  **Follow** while the job runs on a host that serves partial logs
-  (re-read `since=bytes` every 5 s); on 409 `in-progress`: the job's steps
-  with "the log is ready when the job finishes" and **Open live log ↗**.
+  lazy tail (64 KiB; "Earlier" asks `until=<from>` of the last answer and
+  prepends it), ANSI stripped, monospace, plain text (never markdown or
+  HTML), a search box (highlight, next/previous), **Follow** while the job
+  runs on a host that serves partial logs (re-read `since=bytes` every
+  5 s); on 409 `in-progress`: the job's steps with "the log is ready when
+  the job finishes" and **Open live log ↗**. While the viewer is shown the
+  dock widens (the `.wrap.dockon` third column becomes `minmax(340px,
+  50vw)`; below 1100 px it is already an overlay).
 - **Inline cards** at the end of the transcript (`ext.end`, ci-cards.js):
   "CI passed on ‹branch›" / "CI failed on ‹branch› — test (ubuntu) › go
   test ./…" with **Open logs** (the dock on that job) and ✕ (dismissed per
-  `watch:sha:state`, in `localStorage`); one per outcome (`final: true`).
+  `<watch>:<outcome>`, in `localStorage`); one per watch whose `outcome`
+  isn't dismissed, from `GET /runs/{id}/ci` or any `ci` event.
 - **Child cards** (harness-child.js): a coding agent that pushed shows a
-  small CI glyph with its state in its status line (`ciChildTpl`).
-- **The project board**: each task card's CI chip (U1 draws `task.ci`); a
-  click opens the task with the dock on CI (U2 wires `openCI`).
-- **Native** (`native/ci.js`): the toolbar item, the `ci` / `ci-job` /
-  `ci-annotations` screens with the same content and actions, outcome
-  cards at the transcript end, "Watch CI for…" in the menu.
+  small CI glyph with its state in its status line (`ext.childStatus`,
+  registered by ci-dock.js).
+- **The project board**: V's `card(task)` entry (ci-dock.js; native/ci.js
+  natively) draws each task card's CI chip from `task.ci` and opens the
+  task with the dock on CI itself; U1's board and U2's native board call
+  `ext.card(task)` — nothing outside V's files imports `openCI`.
+- **Native** (`native/ci.js`, V): the CI section of the Coding agents
+  screen (`dock(v)`; its badge on the Coding agents toolbar button, no
+  separate toolbar item), the pushed `ci-job` and `ci-annotations` screens
+  with the same content and actions, the child glyph (`childStatus`), the
+  board's CI words (`card`), outcome cards at the transcript end, "Watch
+  CI for…" in the menu.
 
-**`model/ci.js`** (V; U2's `native/ci.js` builds on exactly this):
+**`model/ci.js`** (V; `native/ci.js`, V's too, builds on exactly this):
 
 ```js
 export function createCI(app) → {
@@ -2566,9 +2962,9 @@ export function createCI(app) → {
   rows(root) → [{watch, title, state, urls, runs: [{id, name, event, attempt, state, tone, url, elapsedMs,
                  jobs: [JobRow]}], checks: [CheckRow], statuses: [StatusRow]}],
   child(root, runId) → {tone, title} | null,
-  cards(root) → [{key, tone, text, watch, job}],           // final outcomes not dismissed
+  cards(root) → [{key, tone, text, watch, job}],           // each watch's outcome not dismissed (key <watch>:<outcome>)
   dismiss(key),
-  log(root, watch, job, {tail, since}) → Promise<{text, bytes, complete, truncated, url, inProgress}>,
+  log(root, watch, job, {tail, since, until}) → Promise<{text, bytes, from, complete, truncated, url, inProgress}>,
   annotations(root, watch, check) → Promise<[{path, startLine, endLine, level, title, message}]>,
   watch(root, {scm, repo, ref, pr}), unwatch(root, wid), rerun(root, {watch, runId, failedOnly}),
   live(root, on),                 // the dock shows root: refresh with fresh=1 every 15 s while anything is pending
@@ -2603,60 +2999,81 @@ the key in that view.
 | `proj.signin` | sign in to the provider (device code for the person only) | U1 | U2 |
 | `proj.coordinator` | the coordinator card: open it, message it | U2 | U2 |
 | `proj.events` | the project's event feed | U2 | U2 |
-| `proj.team` | team board, "Work on this", stale rows | U2 | U2 |
+| `proj.team` | team board, "Work on this", accepting a definition's changes, stale rows | U2 | U2 |
 | `proj.delete` | archive and delete (sandbox keep/delete) | U1 | U2 |
 | `top.task.chips` | a task's branch and PR chips | U1 | U2 |
 | `top.task.pr` | Open PR | U1 | U2 |
 | `chat.task.prep` | the prep and sign-in cards | U1 | U2 |
 | `link.project` | `#proj` / `#proj=<id>` and the crumb | U1 | U2 |
-| `ci.chip` | the CI chip in the top bar (toolbar item natively) | V | U2 |
-| `ci.dock` | the CI section of the right dock (the `ci` screen) | V | U2 |
-| `ci.jobs` | runs → jobs → steps with live progress | V | U2 |
-| `ci.logs` | job logs: tail, search, follow, live-log link | V | U2 |
-| `ci.annotations` | annotations as `path:line` | V | U2 |
-| `ci.links` | ↗ to runs, jobs, checks, PRs and branches on the platform | V | U2 |
-| `ci.rerun` | Re-run failed (people only) | V | U2 |
-| `ci.watch` | Watch CI for… and unwatch | V | U2 |
-| `ci.cards` | outcome cards in the transcript | V | U2 |
-| `ci.board` | CI chips on the project board and child cards | V (U1 draws the board chip) | U2 |
+| `ci.chip` | the CI chip in the top bar (the Coding agents button's badge natively) | V | V |
+| `ci.dock` | the CI section of the right dock (of the Coding agents screen natively) | V | V |
+| `ci.jobs` | runs → jobs → steps with live progress | V | V |
+| `ci.logs` | job logs: tail, search, follow, live-log link | V | V |
+| `ci.annotations` | annotations as `path:line` | V | V |
+| `ci.links` | ↗ to runs, jobs, checks, PRs and branches on the platform | V | V |
+| `ci.rerun` | Re-run failed (people only) | V | V |
+| `ci.watch` | Watch CI for… and unwatch | V | V |
+| `ci.cards` | outcome cards in the transcript | V | V |
+| `ci.board` | CI chips on the project board and child cards | V (U1 places `ext.card`) | V (U2 places `ext.card`) |
 
 **S0 registers every key above** in `model/features.js` (the two areas
 included), each listed for **both** views as not built yet: the lists
 `stagedWeb` and `stagedNative` there, spread into `DIFFERENCES` — grouped
-by stage (web: U1's keys, then U2's, then V's; native: U2's), one comment
-line between groups so each WP's edits stay in its own hunk. A WP that
-implements a key in a view adds the view's `IMPLEMENTS` line
-(`web-features.js` / `native-features.js`) and deletes the key from that
-view's staged list — nothing else in those files. When the lists are
-empty the integrator deletes them and `STAGED`.
+by stage (web: U1's keys, then U2's, then V's; native: U2's, then V's), one
+comment line between groups so each WP's edits stay in its own hunk. A WP
+that implements a key in a view adds the view's `IMPLEMENTS` line
+(`web-features.js` / `native-features.js`; under its own slot comment,
+which S0 placed at the end of each: on the web U1's, U2's, then V's;
+natively U2's — every native `proj.*`, `top.task.*`, `chat.task.prep` and
+`link.project` key — then V's, as U1 implements no native key) and deletes the
+key from that view's staged list — nothing else in those files; comment
+lines stay (the integrator removes the slots and groups with the lists). When the lists are
+empty the integrator deletes them and `STAGED` (the landing gate, §16.6).
 `hack/agent-template-features.test.mjs` enforces the rest (a key both
 implemented and staged is "stale" and fails).
 
 ## 14. Go seams
 
-S0 commits these in B (types, constants, registration points and no-op
-hooks; nothing changes behaviour until a WP registers or fills one):
+S0 commits these in B and A (types, constants, registration points, no-op
+hooks and view seams; nothing changes behaviour until a WP registers or
+fills one):
 
 | File | What |
 |---|---|
-| `B/projects_types.go` | every Projects and CI shape of §6–§13 (`Project`, `ProjectView`, `ProjectStatus`, `ProjectRepo`, `ProjectTask`, `TaskPR`, `ProjectCheckout`, `IssueRef`, `TaskAgent`, `TaskSpec`, `TaskFilter`, `ActOpts`, `TaskView`, `TaskPorts`, `TaskRefs`, `ProjectPark`, `BoardRow`, `taskInput`, `ProjectEvent`, `ProjectJob`, `jobOutcome`, `projectJobFunc`, `ProjectPolicy` and its parts with `defaultProjectPolicy()`, `CISummary`, `CIJobs`, `CIView`, `CIWatchView`, `CIURLs`), their constants (origins, roles, kinds, states, columns, sources, event kinds, job kinds, credential states, CI sources, `evProject`, `evCI`, `pendKindProject`), `coordSessionKey`, and the seams below |
-| `B/scm_types.go` | the scm contract, protocol 1, as the agent speaks it: `scmHello` and its parts, `scmTokenReq`, `scmToken` (its `String()` never shows the token), `scmRevokeReq`, `scmSignin`, `scmSigninState`, `scmPage[T]`, `scmRepo`, `scmQuery`, `scmRef`, `scmActor`, `scmPullReq`, `scmPull`, `scmPullPatch`, `scmComment`, `scmChecks`, `scmCounts`, `scmWorkflowRun`, `scmJob`, `scmStep`, `scmCheck`, `scmStatus`, `scmJobLog`, `scmAnnotation`, `scmRerunReq`, `scmRerun`, `scmIssue`, `scmPollReq`/`Item`/`Resp`/`Result`, `scmSubscription`, `scmEvent` and its parts, the caps, kinds and refusals, `scmError` with `scmRefused`, and `scmAPI` with `scmFor`/`scmBound` |
+| `B/projects_types.go` | every Projects and CI shape of §6–§13 (`Project`, `ProjectView`, `ProjectStatus`, `ProjectRepo`, `ProjectTask`, `TaskPR`, `ProjectCheckout`, `IssueRef`, `TaskAgent`, `TaskSpec`, `TaskFilter`, `ActOpts`, `TaskView`, `TaskPorts`, `TaskRefs`, `ProjectPark`, `BoardRow`, `taskInput`, `ProjectEvent`, `ProjectJob`, `jobOutcome`, `projectJobFunc`, `ProjectPolicy` and its parts with `defaultProjectPolicy()`, `CISummary`, `CIJobs`, `CIView`, `CIWatchView`, `CIURLs`), their constants (origins, roles, kinds, states, columns, sources, event kinds, job kinds, credential states, CI sources, `evProject`, `evCI`, `pendKindProject`), `coordSessionKey` |
+| `B/projects_seams.go` | the registration points and hooks (§14.1) — the only place they are declared |
+| `B/scm_types.go` | the scm contract, protocol 1, as the agent speaks it: `scmHello` and its parts, `scmTokenReq`, `scmSecret` (prints and marshals as `"[secret]"` under `%v`, `%+v`, `%#v` and JSON; `Reveal` is the one way to the value), `scmToken` (its token an `scmSecret`; its `String()` never shows it), `scmRevokeReq`, `scmSignin`, `scmSigninState`, `scmPage[T]`, `scmRepo`, `scmQuery`, `scmRef`, `scmActor`, `scmPullReq`, `scmPull`, `scmPullPatch`, `scmComment`, `scmChecks`, `scmCounts`, `scmWorkflowRun`, `scmJob`, `scmStep`, `scmCheck`, `scmStatus`, `scmJobLog` (with `from`, §4.9), `scmAnnotation`, `scmRerunReq`, `scmRerun`, `scmIssue`, `scmPollReq`/`Item`/`Resp`/`Result`, `scmSubscription`, `scmEvent` and its parts, the caps, kinds and refusals, `scmError` with `scmRefused`, and `scmAPI` with `scmFor`/`scmBound` (§14.3) |
 | `B/llm.go` | `Config.Project *ProjectRef` (`json:"project,omitempty"`) |
 | `B/handlers.go` | `handlePutConfig` strips `Project` with `Engine` and `Harness` |
 | `B/routes.go` | `routes()` mounts every `routeTables` entry |
-| `B/migrate.go` | `migrate()` runs every `schemaAdds` entry after `addFileMetaSchema` |
-| `B/projects_seams_test.go` | the strip, the Config round trip, the registration points, the policy's JSON names |
-| `A/model/features.js` | the `proj` and `ci` areas and keys, staged for both views (§13.6) |
+| `B/channels.go` | `adapterRoutes()` mounts every `adapterRouteTables` entry with `adapterGuard` |
+| `B/migrate.go` | `addFeatureSchemas()` runs every `schemaAdds` entry, then sets `DB.features` |
+| `B/db.go` | `openDB` calls `addFeatureSchemas()` after `migrate()` — on the agent's own database only; team (`migrateTeamRuns`) runs `migrate()` alone. `DB.features` (copied into every `Tx` view) says the feature schemas are in: `addFeatureSchemas` sets it last, so it is false while `migrate()` rewrites legacy rows and always on team |
+| `B/projects_seams_test.go` | the strip, the Config round trip, the registration points, adapter routes behind `adapterGuard`, feature schemas never on team, `scmSecret` never shown, the policy's JSON names (§15.2 S0) |
+| `A/web-ext.js` | the web seams `side`, `page`, `crumb`, `dock`, `card`, `childStatus`, `sbx`, documented in its header (§13.2); their call sites are placed by the WP that draws there |
+| `A/native/ext.js` | the native seams `drawer`, `dock`, `card`, `childStatus` (§13.3); call sites as above |
+| `A/model/features.js` | the `proj` and `ci` areas and keys, staged for both views, one comment line per WP's group (§13.6) |
+| `A/web-features.js`, `A/native-features.js` | slot comments at the end under which each WP adds its `IMPLEMENTS` lines (§13.6): on the web U1's, U2's and V's; natively U2's and V's |
 
-### 14.1 Registration points and hooks (verbatim from projects_types.go)
+### 14.1 Registration points and hooks (verbatim from projects_seams.go)
+
+The file without its package clause and imports:
 
 ```go
-// --- seams ----------------------------------------------------------------------------
+// projects_seams.go — the registration points and hooks of Projects and CI
+// (projects_types.go has the shapes): lists each part appends to from its
+// init() (routeTables, adapterRouteTables and schemaAdds are wired; the
+// others' call sites land with the part that owns the moment, one line
+// each), and hooks one part fills from its init(). Each default does
+// nothing, or refuses where nothing would be wrong, so every part compiles
+// and runs before the one that fills it is in. A list runs its entries in
+// registration order — never rely on the order.
 //
-// Registration points (lists each part appends to from its init(); the
-// call sites are in place) and hooks (one part fills it from init(); each
-// default does nothing, or refuses where nothing would be wrong). A list
-// runs its entries in registration order — never rely on the order.
+// Hosted conversations (a person's partition driving them over team,
+// hosted_engine.go) never reach a hook: every call site skips a run whose id
+// is hostedID (team_runs.go), and schemaAdds never run on team
+// (addFeatureSchemas), so nothing of a project or a CI watch is ever written
+// to team.
 
 // errNotInBuild: the part that does this isn't in this build.
 var errNotInBuild = errors.New("not in this build")
@@ -2666,16 +3083,41 @@ var (
 	// routeTable() (the same agentRole, hostedRoute, guard, partitionRoute
 	// chain), so no part edits routes.go.
 	routeTables []func() []routeDef
-	// schemaAdds are each part's tables: migrate() runs them after
-	// addFileMetaSchema. Additive and idempotent; none may rely on another's.
+	// adapterRouteTables are each part's /adapter/* routes: adapterRoutes()
+	// (channels.go) mounts them with adapterGuard — the channel role a bound
+	// adapter or provider holds, never the admin chain routeTables get (a
+	// bound provider isn't admin). The handler still checks which tile is
+	// calling (X-XBin-From).
+	adapterRouteTables []func() map[string]http.HandlerFunc
+	// schemaAdds are each part's tables: openDB runs them after migrate()
+	// (addFeatureSchemas, migrate.go) — on the agent's own database only,
+	// never on team. Additive and idempotent; none may rely on another's.
 	schemaAdds []func(d *DB) error
-	// turnEndHooks run inside the transaction that ends a top-level run's
-	// turn (endTurnTx, endHarnessTurnTx) or stops it (stopRun) — why is the
-	// end (endAnswered…, or "canceled"/"interrupted"), outcome the link
+	// turnEndHooks run inside the transaction that ends any run's turn —
+	// top-level or a subagent, built-in or a coding agent (endTurnTx,
+	// endHarnessTurnTx) — or stops it (stopRun, a coding agent's cancel in
+	// harness_pass.go); each entry filters the runs it cares about
+	// (run.ParentID, the origin). why is one word for every site:
+	// "answered", "finished", "incomplete", "error", "canceled" or
+	// "interrupted" (the sites map their own to these); outcome is the link
 	// outcome's words, result its text. Database only; anything slower goes
-	// in t.AfterCommit. (Projects: the task's state and events; CI: pushed
-	// branches.)
+	// in t.AfterCommit. (Projects: the task's state and events, the refs
+	// check; CI: pushed branches.)
 	turnEndHooks []func(t *DB, run *Run, why, outcome, result string)
+	// runStatusHooks run whenever a run's status is written (DB.setStatus,
+	// DB.setStatusOnly), in the same handle — a park waiting for a person
+	// (an approval, ask_user, a coding agent's question or sign-in), a
+	// cancel, a wake — so no move to or from waiting_input is missed; never
+	// where the handle's features flag is off (migrate() rewriting a legacy
+	// database's rows before any feature table exists; team). Keep an entry
+	// to an indexed lookup; anything more in t.AfterCommit.
+	runStatusHooks []func(t *DB, runID int64, status string)
+	// runViewHooks add keys to a run's answers (viewWith for GET
+	// /runs/{id}/view, handleGetRun for GET /runs/{id}): project,
+	// projectTask (Projects), ci (the CI view's summary and canWatch). view
+	// is the answer being built; w is who asks (what only they may see, a
+	// device code, goes in only for them).
+	runViewHooks []func(t *DB, w who, run *Run, view map[string]any)
 	// runDeletedHooks run inside deleteOneRun's transaction for every run
 	// deleted.
 	runDeletedHooks []func(t *DB, runID int64) error
@@ -2693,13 +3135,34 @@ var (
 	// scmEventHooks see every scm event the home handles (deduped, in the
 	// home that owns it), before projects route it: the CI watches.
 	scmEventHooks []func(t *DB, ev *scmEvent)
+	// ownerLoops are background loops of the engine owner: started beside
+	// the project worker at takeover, their ctx cancelled at BeginShutdown.
+	// They never hold the engine or wake it (hasWork doesn't count them): a
+	// loop works while the engine runs anyway. (CI: refreshing live watches.)
+	ownerLoops []func(ctx context.Context, e *Engine)
 )
 
-// The scm credentials (K, scm_creds.go): write, refresh and scrub a
-// project's token in a sandbox, behind scmCredWhy.
+// projectJobKinds is the project worker's table: each part registers its
+// kinds from init(). A job of a kind nobody registered fails "not in this
+// build".
+var projectJobKinds = map[string]projectJobFunc{}
+
+// The scm client and credentials (K, scm*.go): who may name a repo for the
+// bot; write, refresh and scrub a project's token in a sandbox, behind
+// scmCredWhy.
 var (
+	// scmBotAllowed says whether w may name repo for the bot — where the
+	// home's identity is the bot (the global instance, an unpartitioned
+	// agent): creating a project, adding a repo, making a conversation a
+	// project, a CI watch. The agent's managers may; others only as the
+	// agent's scm bot rule (scmBotRule, the bot home's setting
+	// scm_bot_rule) allows. Not consulted in a person's partition, where
+	// the person's own identity decides.
+	scmBotAllowed = func(w who, repo string) bool { return w.manager() }
 	// scmEnsureCreds makes sure ref holds a live credential for p (and k,
-	// when it is a task's own sandbox) with at least minLeft to run.
+	// when it is a task's own sandbox) with at least minLeft to run. It
+	// calls the provider and the sandbox: never on the engine's path (the
+	// gate queues a creds job instead).
 	scmEnsureCreds = func(ctx context.Context, p *Project, k *ProjectTask, ref string, minLeft time.Duration) error {
 		return nil
 	}
@@ -2708,7 +3171,8 @@ var (
 	// recorded (share, stop, archive, delete, repo-removed, forget, left).
 	scmScrubCreds = func(ctx context.Context, p *Project, ref, why string) error { return nil }
 	// scmProjectEnv is what a project's execs and coding agents get from
-	// the credentials (GH_CONFIG_DIR); P1 adds the task's ports.
+	// the credentials (GH_CONFIG_DIR); P1's projectEnv merges it with the
+	// task's own (ports, branch).
 	scmProjectEnv = func(p *Project, home string) map[string]string { return nil }
 	// scmGitConfig is the git config a base repo (or a clone) of p gets for
 	// host — key/value pairs, in order (the credential helper lines); home
@@ -2717,6 +3181,14 @@ var (
 	// scmRedact masks scm tokens — their shapes and every live one — in
 	// text a row, a log or a job's output keeps.
 	scmRedact = func(s string) string { return s }
+	// scmPendingSignin is the device-flow sign-in under way for user at
+	// provider scm, as the last 409 signin from the provider said (nil:
+	// none): the workspace gate's park shows it to that person only.
+	scmPendingSignin = func(user, scm string) *scmSignin { return nil }
+	// scmCredsDue says, from the database alone, whether k's credential (or
+	// p's, for no task) is missing or due for a refresh within 10 min: the
+	// workspace gate then queues a creds job and parks.
+	scmCredsDue = func(t *DB, p *Project, k *ProjectTask) bool { return false }
 )
 
 // Projects (P1), for the parts that build on them in parallel.
@@ -2726,6 +3198,18 @@ var (
 	projectsInSandbox = func(ref string) []*Project { return nil }
 	// projectReposOf is project pid's repos.
 	projectReposOf = func(pid int64) []ProjectRepo { return nil }
+	// projectLevelOf is user's level on p's ACL (owner, participant,
+	// viewer; lvNone: none, or Projects isn't in): the credential gate's
+	// "every user of the sandbox may act in the project".
+	projectLevelOf = func(p *Project, user string) level { return lvNone }
+	// projectRefsCheck queues task n's refs job (its pushed branch and open
+	// PRs read again): a PR opened outside the task's turns.
+	projectRefsCheck = func(t *DB, pid, n int64) {}
+	// projectTaskChanged says task n of project pid changed (what as
+	// taskChangedHooks'): it emits the project stream event and runs
+	// taskChangedHooks — what a part that changes a task's derived state
+	// (its CI) calls.
+	projectTaskChanged = func(t *DB, pid, n int64, what string) {}
 )
 
 // Big tasks, upgrades and pull requests (P2).
@@ -2743,6 +3227,11 @@ var (
 	// projectWakeHook says whether a coordinator run has an undelivered
 	// event that should wake it (the idle-wake checks in actor.go call it).
 	projectWakeHook = func(d *DB, run *Run) bool { return false }
+	// projectDeliverHook is a coordinator's undelivered project events as
+	// one message's text, at a step boundary (deliverBoundary, beside
+	// deliverNotices); the caller writes the message and then calls mark
+	// with its id, which marks the events delivered. "": nothing to deliver.
+	projectDeliverHook = func(t *DB, run *Run) (text string, mark func(msgID int64)) { return "", nil }
 	// projectCoordPrompt is a coordinator's # Project block.
 	projectCoordPrompt = func(p *Project, run *Run) string { return "" }
 )
@@ -2757,20 +3246,37 @@ var taskCISummary = func(runID int64) *CISummary { return nil }
 | Seam | Call site placed by | Registered / filled by |
 |---|---|---|
 | `routeTables` | S0 (routes.go) | P1, K, P2, C, E, T, V — one `routeTables = append(routeTables, xxxRoutes)` in each WP's own file |
-| `schemaAdds` | S0 (migrate.go) | P1 (`addProjectSchema`), K (`project_creds`), E, T, V, C |
-| `turnEndHooks` | P1: three one-line sites beside `settleOwnLink` (B/actor.go:342, :789; B/harness_engine.go:1322), for `run.ParentID == 0` | P1 (`projectTurnEnd`), V (`ciTurnEnd`) |
-| `runDeletedHooks` | P1: one line in `deleteOneRun` (B/db.go:435) | P1, V, C |
-| `projectRefsHooks` | P1 (branch pushed, head moved), P2 (PR opened) | E (subscriptions, `project_refs`), V (task watches) |
+| `adapterRouteTables` | S0 (channels.go `adapterRoutes`) | E (`POST /adapter/scm/event`, §11.1) |
+| `schemaAdds` | S0 (migrate.go `addFeatureSchemas`, called by openDB) | P1 (`addProjectSchema`), K (`project_creds`), E, T, V, C |
+| `turnEndHooks` | P1: one line at each of four sites, after the `ParentID` branch so it runs for every run (hosted ids skipped): `stopRun` (B/actor.go:311, after the `ParentID` branch at :337–343), `endTurnTx` (:753, after the `settleOwnLink` block at :785–790), `endHarnessTurnTx` (B/harness_engine.go:1272, after the if/else at :1316–1323), the coding agent's cancel (B/harness_pass.go:564–569); each site maps its own `why` to the seam's six words | P1 (`projectTurnEnd`, filters `ParentID == 0` and origin `project`), V (`ciTurnEnd`) |
+| `runStatusHooks` | P1: one line each in `DB.setStatus` and `DB.setStatusOnly` (B/db.go:384, :392), after the `UPDATE` succeeds, skipped for `hostedID` and while `!d.features` (§14: `migrate()` calls both on a legacy database — B/migrate.go:525–565 — before `addFeatureSchemas` made any project table, and team never has them) | P1 (pump, `hold_park`, the `task.state` wake, `onTaskChange` "state") |
+| `runViewHooks` | P1: one line each in `viewWith` (B/stream.go:156, GET /runs/{id}/view) and `handleGetRun` (B/handlers.go:216), skipped for `hostedID` | P1 (`project`, `projectTask`, the pending sign-in for its person), V (`ci`) |
+| `runDeletedHooks` | P1: one line in `deleteOneRun` (B/db.go:442) | P1, V, C |
+| `projectRefsHooks` | P1 (the `refs` job, §8.3), P2 (the `pr` job) | E (subscriptions, `project_refs`), V (task watches) |
 | `projectEventHooks` | P1 (`addProjectEvent`) | C (needs, pushes), T (board events) |
 | `taskChangedHooks` | P1 (`onTaskChange`) | T (board push) |
+| `projectTaskChanged` | V (a task watch's summary changed, what `"ci"`) | P1 (`onTaskChange`: the `project` event, change `"task"`, and `taskChangedHooks`) |
 | `scmEventHooks` | E (its handler) | V |
-| `scmEnsureCreds`, `scmScrubCreds`, `scmProjectEnv`, `scmGitConfig`, `scmRedact` | P1 (worker, gate, env), K (sandbox routes) | K |
+| `ownerLoops` | P1: at takeover beside the project worker (B/engine.go:172), each with a context `BeginShutdown` (:432) cancels; not counted in `hasWork` or the hold — a loop never keeps the engine up or wakes it | V (the CI refresher, §7.6) |
+| `projectJobKinds` (projects_seams.go) | P1's worker | P1 (sandbox, repo, fetch, prepare, setup, bind, refs, cleanup), K (creds, scrub), P2 (snapshot, fork, pr), E (poll, subscribe) |
+| `scmBotAllowed` | P1 (`POST /projects`, `POST /projects/{pid}/repos`), P2 (`POST /runs/{id}/project`, §8.10), V (`POST /runs/{id}/ci/watch`, a pushed watch at a bot home, §7.6), K (`GET /projects/scm/repos`) | K (the default lets managers only) |
+| `scmEnsureCreds`, `scmScrubCreds`, `scmProjectEnv`, `scmGitConfig`, `scmRedact` | P1 (worker, env via `projectEnv`), K (sandbox routes) | K |
+| `scmPendingSignin` | P1 (the gate's park and its `runViewHooks` entry, §8.6, §9.8) | K |
+| `scmCredsDue` | P1 (the gate, §8.6: true → a `creds` job and a park) | K (from `project_creds`, §9.5) |
 | `scmFor`, `scmBound` (scm_types.go) | everyone | K |
 | `projectsInSandbox`, `projectReposOf` | K | P1 |
+| `projectLevelOf` | K (the bot row of `scmCredWhy`, §9.2) | P1 (`loadProjectACL`, §6.13) |
+| `projectRefsCheck` | E (`pull.opened`/`reopened` on a task's branch, §11.3) | P1 (queues the task's `refs` job, §8.3) |
 | `provisionFork`, `projectRested` | P1 (prepare of a big task; turn end) | P2 |
-| `projectWakeHook`, `projectCoordPrompt` | P1 (actor.go wake checks; context.go) | C |
+| `projectWakeHook`, `projectCoordPrompt` | P1 (the two idle-wake checks in actor.go, §10.5; context.go) | C (the run's role through `projectRefOf`, §6.12 — never the stored `cfg.Project` alone) |
+| `projectDeliverHook` | P1: one line in `deliverBoundary` (B/actor.go:828) beside `deliverNotices` (:893), for a run `projectRefOf(run).isCoordinator()` calls a coordinator (§6.12): write the text as one message, then `mark(msgID)` | C |
 | `taskCISummary` | P1 (`TaskView`), T (board rows) | V |
-| `projectJobKinds` | P1's worker | P1 (sandbox, repo, fetch, prepare, setup, bind, cleanup), K (creds, scrub), P2 (snapshot, fork, pr), E (poll, subscribe) |
+
+
+Every call site P1 places for a run (turn end, status, view, delete, wake,
+delivery) skips a run whose `hostedID(run.ID)` (B/team_runs.go:32), team's
+own `DB.setStatus` included: hosted conversations never reach a hook, and
+nothing of a project or a CI watch is written to team (§1, §6).
 
 ### 14.3 The client interface (verbatim from scm_types.go)
 
@@ -2786,7 +3292,8 @@ type scmAPI interface {
 
 	Token(ctx context.Context, req scmTokenReq) (*scmToken, error)
 	Revoke(ctx context.Context, req scmRevokeReq) error
-	Signin(ctx context.Context) (*scmSigninState, error)
+	Signin(ctx context.Context) (*scmSigninState, error)      // POST /scm/signin: starts one when needed
+	SigninState(ctx context.Context) (*scmSigninState, error) // GET /scm/signin: the state, starting nothing
 	SigninPoll(ctx context.Context, pollID string) (*scmSigninState, error)
 	Forget(ctx context.Context) error
 
@@ -2799,8 +3306,8 @@ type scmAPI interface {
 	PullPatch(ctx context.Context, n int, p scmPullPatch) (*scmPull, error)
 	Comments(ctx context.Context, repo string, n int, since int64, as string) (*scmPage[scmComment], error)
 
-	Checks(ctx context.Context, repo, ref, ifNoneMatch, as string) (*scmChecks, error) // nil, nil: not modified
-	JobLog(ctx context.Context, repo, job string, tailBytes int, since int64, as string) (*scmJobLog, error)
+	Checks(ctx context.Context, repo, ref, ifNoneMatch, as string) (*scmChecks, error)                              // nil, nil: not modified
+	JobLog(ctx context.Context, repo, job string, tailBytes int, since, until int64, as string) (*scmJobLog, error) // until 0: the end
 	Annotations(ctx context.Context, repo, check, cursor, as string) (*scmPage[scmAnnotation], error)
 	Rerun(ctx context.Context, req scmRerunReq) (*scmRerun, error)
 
@@ -2876,23 +3383,27 @@ agent WP's tests use (§15.1).
 
 | WP | Tests |
 |---|---|
-| S0 | `TestConfigProjectSeam`, `TestProjectSeamsRegistration`, `TestProjectPolicyDefaults`; `hack/agent-template-features.test.mjs` with the staged keys |
-| G1 | `TestJWTSignsPKCS1AndPKCS8`; `TestIdentityMatrix`, `TestGlobalNeverTreatsPartitionAsSelf`, `TestPersonModeRefusesOtherPerson`, `TestLegacyBotOnly`, `TestBotForPeoplePolicy`; `TestBotTokenDownScoped`, `TestBotTokenCacheMarginPerConsumer`, `TestReposSpanOwners`, `TestNotInstalled`, `TestPermissionsNarrowOnly`, `TestRevokeByValueAndPurpose`, `TestLongStatelessTokens`, `TestBotReposPolicy`, `TestAllowedAccounts`; `TestSigninDeviceFlow`, `TestSigninExpiredDenied`, `TestSigninDisabled`, `TestTokenWithoutSigninStartsFlow`; `TestRefreshDirectRotates`, `TestEpochCapsExpiry`, `TestBadRefreshNeedsSignin`, `TestScopedViaGlobal`, `TestRelayRefusesOthers`, `TestForgetRevokesGrant`, `TestIdentityRegistrationVerifiedAtGlobal`; `TestHelloShape`, `TestHelloProtocolRefusal`, `TestUpstreamErrorMapping`, `TestReposPagination`, `TestPullCreateIdempotent`, `TestMergeableUnknown`, `TestReadyForReviewGraphQL`, `TestCommentsTimeline`, `TestChecksCombined` (runs, jobs, steps, checks with `job`, statuses, counts, state), `TestJobLogCompletedOnly` (409 `in-progress` with `url`; tail and `since`), `TestAnnotations`, `TestRerunCapAndIdentity`, `TestConditionalETag`, `TestPollChangedOnly`; `TestSetupManifestState`, `TestSetupIngressCallback`, `TestSetupPasteValidates`, `TestSetupNeedsManager`; `TestNoSecretsInResponsesOrLogs` |
-| G2 | `TestWebhookHMAC` (current and previous secret), `TestWebhookDedupe`, `TestOutboxRetryAndTick`, `TestNormalize<Kind>` per fixture (incl. `TestNormalizeWorkflowJobSteps`), `TestProgressKindsOptIn`, `TestOneDeliveryPerConsumer` (`subs`), `TestEventsCursor`, `TestSubscriptionPersonChecks`, `TestEventsHealth` |
-| P1 | `TestProjectSchemaMigratesTwice`, `TestProjectSchemaOldDB` (a fixture database from before), `TestProjectIDsFrom2to40` (under `setMode` user), `TestProjectAccessMatrix` (`accessFixture`/`callAs`: owner, participant, viewer, view-as, element, nobody, at global and in a partition), `TestProjectRoutesUsePid`, `TestTaskRunsNotChats`, `TestProjectRunBarred` (publish, copy, hosting, moves, PATCH sharing → 409), `TestWorktreeFlow` (repo → prepare → bind, real git, a bare local origin, odd workdir), `TestPrepareIdempotent`, `TestGateParksAndResumes`, `TestGateLetsCancelThrough`, `TestQueueFIFOAndSlots`, `TestWaitingRunHoldsSlot`, `TestHoldParkInput`, `TestTakeoverResumesJobs` (epoch fencing), `TestCleanupRefusesUnpushed`, `TestCleanupForceOwnerOnly`, `TestDeleteRunMarksTask`, `TestProjectPromptStable`, `TestTaskClassAtModelGate`, `TestProjectStreamEvent` |
-| K | `TestScmHelloCache`, `TestScmRefusalDecode`, `TestCredGateMatrix` (person/bot × private/shared/hosted-used/fork/not-homed/team-seed), `TestCredFilesMode0600`, `TestGitCredentialFill` (real `git credential fill` through the helper), `TestRefreshRewritesFile`, `TestScrubOnShare`, `TestScrubOnStopDeleteForget`, `TestRedactPatternsAndLive`, `TestSeededTokenNeverStored` (a token printed by a task's bash, `cat` of the cred file, an error: in no row, log, event, job output or transcript), `TestSigninParksTask`, `TestDeviceCodeOnlyToRequester` |
+| S0 | `TestConfigProjectSeam`, `TestProjectSeamsRegistration`, `TestAdapterRouteTables`, `TestFeatureSchemasNotOnTeam`, `TestSCMSecretNeverShows`, `TestProjectPolicyDefaults`; `hack/agent-template-features.test.mjs` with the staged keys |
+| G1 | `TestJWTSignsPKCS1AndPKCS8`; `TestIdentityMatrix`, `TestGlobalNeverTreatsPartitionAsSelf`, `TestPersonModeRefusesOtherPerson`, `TestLegacyBotOnly`, `TestBotForPeoplePolicy`; `TestBotTokenDownScoped`, `TestBotTokenCacheMarginPerConsumer`, `TestReposSpanOwners`, `TestNotInstalled`, `TestPermissionsNarrowOnly`, `TestRevokeByValueAndPurpose`, `TestLongStatelessTokens`, `TestBotReposPolicy`, `TestAllowedAccounts`; `TestSigninDeviceFlow`, `TestSigninExpiredDenied`, `TestSigninDisabled`, `TestTokenWithoutSigninStartsFlow`; `TestRefreshDirectRotates`, `TestEpochCapsExpiry`, `TestBadRefreshNeedsSignin`, `TestScopedViaGlobal`, `TestRelayRefusesOthers`, `TestForgetRevokesGrant`, `TestIdentityRegistrationVerifiedAtGlobal`, `TestIdentityRequiresAppToken` (a PAT or another App's token at `/partition/identity` → 403 `identity`), `TestRelayRevalidatesPolicy` (from the person's frame headers: `/partition/scope` with a permission wider than the preset, `workflows: write` without `allowWorkflows`, or an owner outside `allowedAccounts`, and `/partition/bot-token` outside `botRepos`, each refused at global), `TestRelayNewPartitionWipesOld`; `TestHelloShape`, `TestHelloProtocolRefusal`, `TestUpstreamErrorMapping`, `TestReposPagination`, `TestPullCreateIdempotent`, `TestMergeableUnknown`, `TestReadyForReviewGraphQL`, `TestCommentsTimeline`, `TestChecksCombined` (runs, jobs, steps, checks with `job`, statuses, counts, state), `TestJobLogCompletedOnly` (409 `in-progress` with `url`; tail and `since`), `TestAnnotations`, `TestRerunCapAndIdentity`, `TestConditionalETag`, `TestPollChangedOnly`; `TestSetupManifestState`, `TestSetupIngressCallback`, `TestSetupPasteValidates`, `TestSetupNeedsManager`; `TestNoSecretsInResponsesOrLogs` |
+| G2 | `TestWebhookHMAC` (current and previous secret), `TestWebhookDedupe`, `TestOutboxRetryAndTick`, `TestNormalize<Kind>` per fixture (incl. `TestNormalizeWorkflowJobSteps`), `TestProgressKindsOptIn`, `TestOneDeliveryPerConsumer` (`subs`), `TestEventsCursor`, `TestSubscriptionPersonChecks`, `TestDeliveryRechecksAccess` (collaborator permission turned `none`: no further private-repo item, that person's subscriptions on the repo deleted; a member or membership webhook drops the cached access), `TestEventsHealth` |
+| P1 | `TestProjectSchemaMigratesTwice`, `TestProjectSchemaOldDB` (a fixture database from before), `TestProjectIDsFrom2to40` (under `setMode` user), `TestProjectAccessMatrix` (`accessFixture`/`callAs`: owner, participant, viewer, view-as, element, nobody, at global and in a partition; and the bot rule at a bot home: a non-manager naming a repo 403, a bot-rule person with a matching glob 201, a kind other than team at a partitioned global 409, kind team elsewhere 409), `TestTaskClassNeverInternal` (`POST /projects`, `PATCH` `policy.taskClass` and `TaskSpec.Class` with an internal class → 409 `class-internal`; a managers-only class from a non-manager → 403; a class edited after the task started — a lane-`private` one gaining `tsInternal` — leaves the task's `classOf` without `tsInternal` or MCP), `TestTaskReposOfProjectOnly` (`tasks/batch`, `TaskSpec.Issue` and `GET /projects/{pid}/issues` naming a repo the project doesn't have → 400, at a bot home and in a partition), `TestProjectRoutesUsePid`, `TestTaskRunsNotChats`, `TestProjectRunBarred` (publish, copy, hosting, moves, PATCH sharing → 409), `TestWorktreeFlow` (repo → prepare → bind, real git, a bare local origin, odd workdir), `TestPrepareIdempotent`, `TestGateParksAndResumes`, `TestGateLetsCancelThrough`, `TestQueueFIFOAndSlots`, `TestWaitingRunHoldsSlot`, `TestHoldParkInput`, `TestTakeoverResumesJobs` (epoch fencing), `TestCleanupRefusesUnpushed`, `TestCleanupForceOwnerOnly`, `TestDeleteRunMarksTask`, `TestProjectPromptStable`, `TestTaskClassAtModelGate`, `TestProjectStreamEvent`, `TestTurnEndHooksEverySite` (a top-level run, a subagent, a coding agent's turn end and its cancel each run `turnEndHooks` once, with the seam's `why` words), `TestRunStatusHooksOnPark` (an approval park, `ask_user` and a coding agent's question reach `runStatusHooks`; a hosted id never does, nor the legacy rows `migrate()` rewrites when a database from before Projects is opened), `TestRefsJobFiresHooks` (a task's branch on the remote, then a moved head, each runs `projectRefsHooks` once; a PR opened in a later turn without a new push, and one opened outside any turn through `projectRefsCheck`, are recorded in `prs`), `TestSigninParksTask`, `TestDeviceCodeOnlyToRequester` (both with `scmEnsureCreds`/`scmPendingSignin` stubbed), `TestHostedRunReachesNoHook` (a hosted run's turn end, status change, view and delete call no hook and write no row to team), `TestProjectRefRederivedAfterOldBinaryRewrite` (§6.15) |
+| K | `TestScmHelloCache`, `TestScmRefusalDecode`, `TestCredGateMatrix` (person/bot × private, shared, member-shared, team-visible, another owner's, hosted-used, a fork, a seed clone, not homed, at its own global identity, a team seed; the bot row with `projectLevelOf` stubbed: a member below participant refuses, the default `lvNone` refuses), `TestCredsDue` (`scmCredsDue` from `project_creds` alone), `TestScmBotRule` (`scmBotAllowed` for a manager, a matching rule glob and anyone else; `GET/PUT /projects/scm/bot` manager-only, `PUT` 409 in a person's partition; `GET /projects/scm/repos` filtered), `TestCredFilesMode0600`, `TestGitCredentialFill` (real `git credential fill` through the helper), `TestRefreshRewritesFile`, `TestScrubOnShare`, `TestScrubOnStopDeleteForget`, `TestRedactPatternsAndLive`, `TestSeededTokenNeverStored` (a token printed by a bash job in a plain run, `cat` of the cred file, an error: in no row, log, job output or transcript), `TestPendingSigninKept` (a 409 `signin` fills `scmPendingSignin` per person and provider; done clears it), `TestSigninStateStartsNothing` |
 | U1 | `hack/agent-template-projects.test.mjs` (model: list, board columns, task words, prep and sign-in cards, router), `hack/agent-template-features.test.mjs`, `test/projects.mjs` with `test/projects-stub.mjs` (browser, stub routes) |
-| E | `TestScmEventCallerMustBeProvider`, `TestScmEventDedupe`, `TestHandoffScmToPartition`, `TestRoutingTable` (each row of §11.3), `TestCIFailureInputCapped`, `TestSupersededShaIgnored`, `TestReviewAssociationFilter`, `TestReviewBatching`, `TestOwnIdentityIgnored`, `TestPollCadence`, `TestPollWebhookSemanticDedupe`, `TestPollDueInUserWake`, `TestSubscriptionLifecycle` |
-| C | `TestCoordinatorClassFirewall`, `TestCoordinatorToolsGated` (depth 0, `Config.Project` coordinator only), `TestToolDescriptionFirstSentences` (the eight pinned), `TestResolverByNumberOnly`, `TestCoordinatorCannotAnswerPark`, `TestCreateLimits`, `TestEventDeliveryAndWakeCoalesced`, `TestNeedsProjectField`, `TestDigestPushes`, `TestSeededTokenNotInTools` (scm_pr's log excerpt), `TestChannelAttach` (if the slice ships) |
-| P2 | `TestSnapshotOnlyWhenQuiet`, `TestForkFlow` (fork, prune, repair, fresh creds), `TestForkFallbackFresh`, `TestUpgradeDetect`, `TestUpgradeAdoptsTask1`, `TestUpgradeNeverRemovesMain`, `TestAutoPROnRest`, `TestPRJobIdempotent` |
-| T | `TestTeamDefinitionAtGlobal`, `TestMembershipCreate`, `TestBoardPushOnlyFromOwnPartition`, `TestBoardOutboxRetry`, `TestSeedHoldsNoCredential`, `TestMemberRemovedArchives`, `TestTeamCoordinatorSeesBoard` |
-| V | `TestCIWatchSchema` (twice, old DB), `TestPushedBranchDetection` (real git: reflog `update by push`, an older push ignored, a non-scm host ignored), `TestCIAggregate`, `TestCIProgressEventsPatchSnapshot`, `TestCIFreshCoalesced`, `TestCILogRedactedAndStripped`, `TestCILogInProgress`, `TestCIAnnotationsRedacted`, `TestCIRerunPersonOnly`, `TestCIWatchLimits`, `TestCIFinalOnce`, `TestTaskCISummary`; `hack/agent-template-ci.test.mjs` (model/ci.js: chip words, progress, tones, ANSI strip, cards and dismissal); `test/ci.mjs` with a stub (the chip, the dock tab, a job's steps, the log viewer's search, Open live log) |
-| U2 | `hack/agent-template-native-projects.test.mjs`, `hack/agent-template-native-ci.test.mjs`; the features test with every staged key gone |
+| E | `TestScmEventCallerMustBeProvider` (mounted through `adapterRouteTables`: a bound provider holding only the `channel` role, not admin, gets 200; another channel-role adapter 403), `TestScmEventDedupe`, `TestHandoffScmToPartition`, `TestScmEventForPidMismatchDropped`, `TestRoutingTable` (each row of §11.3), `TestCIFailureInputCapped`, `TestSupersededShaIgnored`, `TestReviewAssociationFilter`, `TestReviewBatching`, `TestOwnIdentityIgnored`, `TestPollCadence`, `TestPollWebhookSemanticDedupe`, `TestPollDueInUserWake`, `TestSubscriptionLifecycle` |
+| C | `TestCoordinatorClassFirewall`, `TestCoordinatorCannotReachInternalTask` (`task_message`, `task_result`, `task_status` refuse a task whose run's class or lane has internal reach), `TestCoordinatorToolsGated` (depth 0, a coordinator by `projectRefOf` only; `scm_pr`, `scm_issues` and `task_create`'s issues form naming a repo outside the project → a tool error, at a bot home and in a partition), `TestToolDescriptionFirstSentences` (the eight pinned), `TestResolverByNumberOnly`, `TestCoordinatorCannotAnswerPark`, `TestCreateLimits`, `TestEventDeliveryAndWakeCoalesced` (incl. a coordinator whose stored config lost `project`, §6.15), `TestNeedsProjectField`, `TestDigestPushes`, `TestSeededTokenNotInTools` (scm_pr's log excerpt), `TestChannelAttach` (if the slice ships) |
+| P2 | `TestSnapshotOnlyWhenQuiet`, `TestForkFlow` (fork, prune, repair, fresh creds), `TestForkFallbackFresh`, `TestUpgradeDetect`, `TestUpgradeAdoptsTask1`, `TestUpgradeRefusals` (a repo the bot rule refuses at a bot home → 403; at a partitioned agent's global → 409; a conversation whose class, or a `policy.taskClass`, has internal reach → 409 `class-internal`, one the caller may not use → 403), `TestUpgradeNeverRemovesMain`, `TestAutoPROnRest`, `TestPRJobIdempotent` |
+| T | `TestTeamDefinitionAtGlobal`, `TestMembershipCreate`, `TestBoardPushOnlyFromOwnPartition`, `TestBoardOutboxRetry`, `TestBoardRowsResetForNewPartition`, `TestBoardRowSanitized`, `TestSeedHoldsNoCredential`, `TestPersonCredsRefusedInSeedClone`, `TestMembershipSetupNeedsAcceptance` (a changed setup, `policy.as` bot or `reviews.forward` all isn't run until accepted; `GET /memberships/{pid}/pending` shows the accepted and the pending part to the member only; a stale hash → 409), `TestMemberRemovedArchives`, `TestTeamCoordinatorSeesBoard` |
+| V | `TestCIWatchSchema` (twice, old DB), `TestPushedBranchDetection` (real git: reflog `update by push`, an older push ignored, a non-scm host ignored, a hosted run makes no watch), `TestPushedBranchDetectionChild` (a coding agent child pushes after its parent's turn ended: the watch has `run_id` the child, `root_run` the root), `TestCIAggregate`, `TestCIProgressEventsPatchSnapshot`, `TestCIFreshCoalesced`, `TestCILogRedactedAndStripped`, `TestCILogInProgress`, `TestCIAnnotationsRedacted`, `TestCIRerunPersonOnly`, `TestCIWatchBotRule` (at a bot home neither a manual nor a pushed watch is made for an unnamed repo, even from a faked remote and reflog), `TestCIIdsFromSnapshot` (a log, annotations or rerun naming an id outside the snapshot → 404), `TestCIWatchLimits`, `TestCIBackgroundRefresh` (the `ownerLoops` entry re-reads a pending watch with no event at the §7.6 cadence and stops with the context), `TestCIOutcomeCardedOnce`, `TestTaskCISummary`; `hack/agent-template-ci.test.mjs` (model/ci.js: chip words, progress, tones, ANSI strip, cards and dismissal), `hack/agent-template-native-ci.test.mjs` (native/ci.js: the dock section, the child glyph, the board words, the `ci-job` screen); `test/ci.mjs` with a stub (the chip, the dock tab, a job's steps, the log viewer's search, Open live log) |
+| U2 | `hack/agent-template-native-projects.test.mjs`; the features test with its staged keys gone |
+| Gate 1 (the lead, on `projects-scm` after merging wave 1) | `TestSeededTokenNeverStoredTask` (the fake provider's token printed by a task's bash: in no row, log, event, job output or transcript) |
 
 ### 15.3 Commands
 
-- Agent WPs: `TILE_TEST_FLAGS="-count=1 -run '<Area>'" hack/tile-check.sh agent`
-  while iterating; at the end `TILE_TEST_FLAGS="-race -count=1"
+- Agent WPs: `TILE_TEST_FLAGS="-count=1 -v -run TestA|TestB" hack/tile-check.sh agent`
+  while iterating — the pattern **unquoted and without spaces**:
+  tile-check.sh word-splits `TILE_TEST_FLAGS` without re-parsing quotes,
+  so `-run 'X'` matches nothing and passes having run no test (`-v` shows
+  what ran); at the end `TILE_TEST_FLAGS="-race -count=1"
   hack/tile-check.sh agent`.
 - G1, G2: `hack/tile-check.sh scm-github`; `go test ./internal/builtins/...`
   (the template catalog loads it; its manifest's roles match its guards).
@@ -2932,7 +3443,7 @@ leaves `plans/projects-scm/records/<WP>.md` (the template is
 |---|---|---|---|
 | **S0** spec and seams | 0 | this spec; `records/README.md`, `records/S0.md`; §14's seams; the staged feature keys; the API.md "## Projects" skeleton | — |
 | **G1** scm-github core | 1 | §5 except §5.10: the template, modes, setup (paste; the manifest flow behind spike S1), device flow, identity directory and relay, bot and person tokens, hello, repos, pulls, issues, checks with runs/jobs/steps, job logs, annotations, rerun, poll; the fake GitHub; `docs/scm.md` (§4 as the contract) | §4 |
-| **P1** projects core | 1 | §6.1–§6.7, §6.11–§6.14, §7 P1 rows, §8 (but §8.9–§8.10), §8.11, the gate, queue and pump, `project` events, the turn-end, run-deleted and wake call sites, refusals | §14 |
+| **P1** projects core | 1 | §6.1–§6.7, §6.11–§6.14, §7 P1 rows, §8 (but §8.9–§8.10), §8.11, the gate, queue and pump, `project` events, the turn-end, run-status, run-view, run-deleted, wake and delivery call sites (§14.2), refusals | §14 |
 | **K** scm client and credentials | 1 | §9; the `scm` slot; `scm.go` (`scmAPI` over HTTP); `/projects/scm*` routes; `project_creds`; the fake scm provider | §4, §14 |
 | **U1** web UI | 1 | §13.1–§13.2 U1 rows, §13.4; the U1 web keys of §13.6 | §7, §13 |
 | **G2** scm-github events | 2 | §5.10: webhooks, normalisation (incl. `workflow`, `job`, `check`), subscriptions with person checks, outbox, delivery, events health; G's API.md §7 | G1 |
@@ -2940,8 +3451,8 @@ leaves `plans/projects-scm/records/<WP>.md` (the template is
 | **C** coordinator | 2 | §10; §6.10 `project_attach` | P1, K |
 | **P2** forks, upgrade, PRs | 2 | §8.9, §8.10, the `pr` job and route, auto-PR, cleanup of forks; snapshot client methods | P1, K |
 | **T** team projects | 2 | §12; §6.10 `project_board`, `project_board_out`; the T routes | P1, K |
-| **V** CI view | 2 | §6.9, §7.6, the V routes and the `ci` event; §13.5 web: `model/ci.js`, `ci-dock.js`, `ci-cards.js`, the dock host in harness-board.js, the child glyph; the `ci.*` web keys | G1's checks shapes (§4, frozen here), P1, K |
-| **U2** native UI and web follow-ups | 2 | §13.3 (incl. `native/ci.js` on `model/ci.js` as §13.5 freezes it); web surfaces for C, E, P2, T (`proj.coordinator`, `proj.events`, `proj.upgrade`, `proj.team`; the board chip's `openCI`); every native key; the staged lists emptied of its keys | U1, §13.5's `model/ci.js` API |
+| **V** CI view | 2 | §6.9, §7.6, the V routes and the `ci` event; §13.5 web: `model/ci.js`, `ci-dock.js`, `ci-cards.js`, the dock host in harness-board.js, the child glyph, the board chip (`card`); §13.3/§13.5 native: `native/ci.js` and its call sites; the `ci.*` keys in both views | G1's checks shapes (§4, frozen here), P1, K |
+| **U2** native UI and web follow-ups | 2 | §13.3's U2 rows; web surfaces for C, E, P2, T (`proj.coordinator`, `proj.events`, `proj.upgrade` through `sbx`, `proj.team`); every native key but `ci.*` (V's); the staged lists emptied of its keys | U1 |
 
 ### 16.2 Files
 
@@ -2951,32 +3462,34 @@ the lead decides.
 
 | WP | New files | Edits (bounded) | Never |
 |---|---|---|---|
-| G1 | `builtin-templates/scm-github/**` (but G2's files), `docs/scm.md` | `docs/index.md` (one link), `docs/overview/11-interfaces.md` (the `scm` service), `docs/overview/16-extending.md` (a mention), `docs/partitions.md` §Providers (a paragraph) | anything in `builtin-templates/agent/` |
+| G1 | `builtin-templates/scm-github/**` (but G2's files), `docs/scm.md` | `docs/index.md` (one link), `docs/overview/11-interfaces.md` (the `scm` service), `docs/overview/16-extending.md` (a mention), `docs/partitions.md` §Providers (a paragraph) and §The builtin tiles around a partitioned agent (the opening sentence and one bullet), `workspace-template/AGENTS.md` (one clause in "Install a bundled optional tile") | anything in `builtin-templates/agent/` |
 | G2 | `G/_backend/{hook,normalize,subs,outbox,deliver}.go`, their tests, `G/_backend/testdata/*` | `G/_backend/main.go` (mounting), `G/API.md` §7, `docs/scm.md` §Events (fixes only) | the agent |
-| P1 | `B/project_{store,routes,tasks,gate,worker,steps,prompt,events,queue}.go` and tests (each ≤ 800 lines) | one-line hooks: `B/actor.go` (gate; `turnEndHooks` ×2; wake ×2 via `projectWakeHook`; `acquireLLM`; `pendingState.Project`), `B/compact.go` (`acquireLLM`), `B/harness_engine.go` (`turnEndHooks`; env), `B/engine.go` (worker start/stop; `hasWork`), `B/owner.go` (`updateHoldLocked`), `B/context.go` (prompt), `B/db.go` (`runDeletedHooks`), `B/inbox.go` (`handleMessage` hook), `B/sandbox_jobs.go` (env, one line), `B/stream.go` / `B/events.go` (`project`, `projectTask` in the view), `B/conversations.go` (`handleNeeds` case), `B/homes.go`, `B/hosted_move.go`, `B/handlers.go` (409 barred entry points), `B/resume_mode.go` (queue term), `B/partition_routes.go` (one entry), API.md §Projects and tasks, §The workspace | `B/routes.go`, `B/migrate.go`, `B/llm.go`, `projects_types.go`, `scm_types.go` (S0's; a needed change is a deviation) |
-| K | `B/scm.go`, `B/scm_routes.go`, `B/scm_creds.go`, `B/scm_gate.go`, `B/scm_fake_test.go` and tests | `B/harness_redact.go` (patterns, live set), `B/db.go` (`addMessage`/`rewriteMessage`: one line each), `B/sandbox_routes.go` (scrub triggers, one line each), `B/harness_engine.go` (`GH_CONFIG_DIR` after `credEnv`, one line), agent `xbin.json` (the `scm` slot), API.md §scm providers and credentials | P1's files |
-| U1 | `A/model/project-api.js`, `A/model/projects.js`, `A/model/project-task.js`, `A/projects.js`, `A/project-new.js`, `A/project-settings.js`, `A/project-chips.js`, `A/project-web.js`, `A/test/projects.mjs`, `A/test/projects-stub.mjs`, `hack/agent-template-projects.test.mjs` | `A/agent.js` (≤ 12 lines, §13.2), `A/index.html` (`#sideext`), `A/web-ext.js` (`side`, `page`, `crumb`), `A/model/app.js`, `A/model/router.js`, `A/web-features.js` + `A/model/features.js` (staged lists only), API.md §Projects in the UI | `A/test/backend.mjs` (661 lines: stub in its own file) |
+| P1 | `B/project_{store,routes,tasks,gate,worker,steps,prompt,events,queue}.go` and tests (each ≤ 800 lines) | one-line hooks: `B/actor.go` (gate; `turnEndHooks` ×2; wake ×2 via `projectWakeHook`; delivery via `projectDeliverHook` in `deliverBoundary`; `acquireLLM`; `pendingState.Project`), `B/compact.go` (`acquireLLM`), `B/harness_engine.go` (`turnEndHooks`; env), `B/harness_pass.go` (`turnEndHooks`, one line), `B/engine.go` (worker and `ownerLoops` start/stop; `hasWork`), `B/classes.go` (one line in `classState.classOf`, §10.2), `B/owner.go` (`updateHoldLocked`), `B/context.go` (prompt), `B/db.go` (`runDeletedHooks` in `deleteOneRun`; `runStatusHooks` in `setStatus`/`setStatusOnly`), `B/inbox.go` (`handleMessage` hook), `B/sandbox_jobs.go` (env, one line), `B/stream.go` (`runViewHooks` in `viewWith`), `B/conversations.go` (`handleNeeds` case), `B/homes.go`, `B/hosted_move.go`, `B/handlers.go` (409 barred entry points; `runViewHooks` in `handleGetRun`), `B/resume_mode.go` (queue term), `B/partition_routes.go` (one entry), API.md §Projects and tasks, §The workspace | `B/routes.go`, `B/migrate.go`, `B/llm.go`, `B/channels.go` (S0's hunk), `projects_types.go`, `projects_seams.go`, `scm_types.go` (S0's; a needed change is a deviation) |
+| K | `B/scm.go`, `B/scm_routes.go`, `B/scm_creds.go`, `B/scm_gate.go`, `B/scm_fake_test.go` and tests | `B/harness_redact.go` (patterns, live set), `B/db.go` (`addMessage`/`rewriteMessage`: one line each), `B/sandbox_routes.go` (scrub triggers, one line each), agent `xbin.json` (the `scm` slot), API.md §scm providers and credentials | P1's files, `B/harness_engine.go` and `B/sandbox_jobs.go` (P1's `projectEnv` lines carry `scmProjectEnv`, §8.5) |
+| U1 | `A/model/project-api.js`, `A/model/projects.js`, `A/model/project-task.js`, `A/projects.js`, `A/project-new.js`, `A/project-settings.js`, `A/project-chips.js`, `A/project-web.js`, `A/test/projects.mjs`, `A/test/projects-stub.mjs`, `hack/agent-template-projects.test.mjs` | `A/agent.js` (≤ 12 lines, §13.2), `A/index.html` (`#sideext`), `A/model/app.js`, `A/model/router.js`, `A/web-features.js` + `A/model/features.js` (staged lists only), API.md §Projects in the UI | `A/test/backend.mjs` (661 lines: stub in its own file), `A/web-ext.js` (S0's) |
 | G2 | (above) | | |
-| E | `B/scm_{events,handoff,router,poll,subs}.go` and tests | `B/handoff.go` (the topic const), `B/resume_mode.go` (its own hunk), `B/main.go` (one line, if needed), `docs/agent-inbox.md`, API.md §scm events and polling | P1's files, `B/channels.go` |
-| C | `B/projects_coord_{tools,deliver,resolve,push,attach}.go` and tests | `B/tools.go` (specs and dispatch), `B/tooldesc_test.go` (eight entries), `B/needs_push.go`, `B/conversations.go` (the `project` field), `B/channels.go` (attach check), API.md §The coordinator | `B/actor.go` (P1 placed `projectWakeHook`) |
+| E | `B/scm_{events,handoff,router,poll,subs}.go` and tests | `B/handoff.go` (the topic const), `B/resume_mode.go` (its own hunk), `docs/agent-inbox.md`, API.md §scm events and polling | P1's files, `B/channels.go` |
+| C | `B/projects_coord_{tools,deliver,resolve,push,attach}.go` and tests | `B/tools.go` (specs and dispatch), `B/tooldesc_test.go` (eight entries), `B/needs_push.go`, `B/conversations.go` (the `project` field), `B/channels.go` (attach check), API.md §The coordinator | `B/actor.go` (P1 placed `projectWakeHook` and `projectDeliverHook`) |
 | P2 | `B/project_{sandbox,upgrade,pr}.go`, `B/sandbox_snapshots.go` and tests | `B/sandbox_client.go` (snapshot methods), API.md §Big tasks, upgrades and pull requests | P1's files beyond registering |
 | T | `B/project_team*.go` and tests | `B/partition_routes.go` (entries only), API.md §Team projects | |
-| V | `B/ci_{store,watch,detect,routes,events}.go` and tests, `A/model/ci.js`, `A/ci-dock.js`, `A/ci-cards.js`, `hack/agent-template-ci.test.mjs`, `A/test/ci.mjs`, `A/test/ci-stub.mjs` | `A/harness-board.js` (≤ 30 lines: the dock host), `A/harness-child.js` (1 line), `A/harness-web.js` (2 imports), `A/web-ext.js` (`dock`), `A/model/app.js` (2 lines), `A/web-features.js` + `A/model/features.js` (staged lists only), API.md §CI in the conversation | `A/agent.js` |
-| U2 | `A/native/project-all.js`, `A/native/projects.js`, `A/native/project-task.js`, `A/native/ci.js`, `hack/agent-template-native-projects.test.mjs`, `hack/agent-template-native-ci.test.mjs` | `A/native.js` (1 import), `A/native/ext.js` (`drawer`), `A/native/convs.js` (1 line), `A/native-features.js`, `A/web-features.js` + `A/model/features.js` (staged lists only), `A/projects.js`, `A/project-new.js` (its sections), API.md §Projects in the UI (native) | `A/model/ci.js` (V's; a need is a deviation) |
+| V | `B/ci_{store,watch,detect,routes,events}.go` and tests, `A/model/ci.js`, `A/ci-dock.js`, `A/ci-cards.js`, `A/native/ci.js`, `hack/agent-template-ci.test.mjs`, `hack/agent-template-native-ci.test.mjs`, `A/test/ci.mjs`, `A/test/ci-stub.mjs` | `A/harness-board.js` (≤ 30 lines: the dock host), `A/harness-child.js` (1 line: `ext.childStatus(r)`), `A/harness-web.js` (2 imports), `A/native/harness-board.js` (≤ 6 lines: the `ext.dock(v)` sections and the toolbar badge), `A/native/harness-child.js` (1 line: `ext.childStatus(r)`), `A/native/harness-all.js` (1 import, a CI slot), `A/model/app.js` (2 lines), `A/web-features.js` + `A/native-features.js` (its slot) + `A/model/features.js` (its staged groups only), API.md §CI in the conversation | `A/agent.js`, `A/web-ext.js` and `A/native/ext.js` (S0's), U1's and U2's files (the board calls `ext.card`) |
+| U2 | `A/native/project-all.js`, `A/native/projects.js`, `A/native/project-task.js`, `hack/agent-template-native-projects.test.mjs` | `A/native.js` (1 import), `A/native/convs.js` (1 line), `A/sandboxes.js` (2 lines: `ext.sbx`), `A/native-features.js` + `A/web-features.js` (its slot) + `A/model/features.js` (its staged groups only), `A/projects.js`, `A/project-new.js` (its sections), API.md §Projects in the UI (native) | `A/model/ci.js`, `A/native/ci.js` (V's), `A/web-ext.js` and `A/native/ext.js` (S0's) |
 
 ### 16.3 Merge contention
 
 | File | Who | How it merges |
 |---|---|---|
-| `B/routes.go`, `B/migrate.go`, `B/llm.go`, the two type files | S0 only | nobody else edits them (registration and hooks instead) |
-| `B/actor.go`, `B/harness_engine.go`, `B/engine.go`, `B/owner.go`, `B/compact.go`, `B/context.go`, `B/inbox.go`, `B/stream.go`, `B/events.go` | P1 (K: one env line in harness_engine.go) | one-line hooks; K's line is in another function |
-| `B/db.go` | P1 (`deleteOneRun`), K (`addMessage`, `rewriteMessage`) | separate functions |
+| `B/routes.go`, `B/migrate.go`, `B/llm.go`, `B/projects_types.go`, `B/projects_seams.go`, `B/scm_types.go`, `A/web-ext.js`, `A/native/ext.js` | S0 only | nobody else edits them (registration, hooks and seams instead) |
+| `B/actor.go`, `B/harness_engine.go`, `B/harness_pass.go`, `B/engine.go`, `B/owner.go`, `B/compact.go`, `B/context.go`, `B/inbox.go`, `B/stream.go`, `B/classes.go` | P1 only | one-line hooks |
+| `B/db.go` | S0 (`openDB`'s `addFeatureSchemas` call, `DB.features` and its copy in `Tx`), then P1 (`deleteOneRun`, `setStatus`, `setStatusOnly`) and K (`addMessage`, `rewriteMessage`) | separate functions |
+| `B/channels.go` | S0 (`adapterRoutes`), then C (the attach check in `channelDeliver`) | separate functions, wave apart |
+| `B/handlers.go` | S0 (`handlePutConfig`), then P1 (barred entry points, `handleGetRun`) | separate functions, wave apart |
 | `B/resume_mode.go` | P1, then E | wave apart |
 | `B/partition_routes.go` | P1, then T | entries only, wave apart |
 | `B/conversations.go` | P1 (`handleNeeds` case), then C (field) | wave apart |
 | agent `API.md` | each WP its own `###` subsection | S0's skeleton keeps them apart |
-| `A/model/features.js`, `A/web-features.js` | U1, then V and U2 in parallel | staged lists grouped per WP (§13.6) |
-| `A/web-ext.js` | U1, then V | wave apart |
+| `A/model/features.js`, `A/web-features.js`, `A/native-features.js` | U1, then V and U2 in parallel | per-WP staged groups and slot comments (§13.6) |
+| `A/native/harness-all.js`, `A/harness-web.js` | V | its own CI slot |
 | `A/model/app.js` | U1, then V | wave apart |
 | `A/projects.js`, `A/project-new.js` | U1, then U2 | wave apart |
 | `docs/changelog.md`, `plans/DECISIONS.md` | the integrator only | from the records |
@@ -2999,6 +3512,8 @@ make js-check native-check
 PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright node builtin-templates/agent/test/<its test>.mjs
 # last, once:
 make check
+# the lead at gate 1, on projects-scm after merging wave 1:
+TILE_TEST_FLAGS="-count=1 -run TestSeededTokenNeverStoredTask" hack/tile-check.sh agent
 ```
 
 ### 16.5 Rules
@@ -3014,8 +3529,11 @@ make check
    deviation the lead resolves.
 4. APIs are additive; stored data keeps working (docs/compat.md):
    idempotent migrations with a migrate-twice and an old-database test.
-5. New code in new files, thin call sites; Go files ≤ 800 lines, JS ≤ 900
-   (`hack/size-budget.txt`); `agent.js` only as §13.2 allows.
+5. New code in new files, thin call sites; new Go files ≤ 800 lines (the
+   repo's convention — `internal/sizebudget` checks Go only under `cmd/`,
+   `internal/` and `sdk/`, so a template's Go is held to it by review), JS
+   ≤ 900 (`hack/size-budget.txt`, enforced for builtin templates' JS and
+   HTML); `agent.js` only as §13.2 allows.
 6. Feature keys in both views or staged (§13.6).
 7. Never edit `docs/changelog.md` or `plans/DECISIONS.md`; write their text
    in your record.
@@ -3028,6 +3546,20 @@ make check
     redacted and framed wherever a model or a page sees it.
 11. Run targeted checks while iterating, the full set (§16.4) at the end;
     say honestly what didn't run (§15.4).
+
+### 16.6 Landing gate
+
+Before `projects-scm` lands on master (the integrator, once):
+
+- no "Described when it lands." is left in API.md §Projects (`grep -n
+  'Described when it lands' builtin-templates/agent/API.md` prints
+  nothing);
+- `stagedWeb`, `stagedNative` and `STAGED` are gone from
+  `model/features.js`, with the slot comments and group lines (§13.6), and
+  `hack/agent-template-features.test.mjs` passes;
+- a slice that slipped (V10's channel attach, a spike's part) has its
+  sentences removed from API.md (§The coordinator's "attaching a chat to
+  it") and its feature keys deleted, not left staged.
 
 ## 17. Docs, changelog and decision drafts
 
@@ -3043,7 +3575,9 @@ make check
 | `docs/agent-inbox.md` | E | "scm events": the route, the body, the caller check, `for`, the partition hand-off |
 | `builtin-templates/scm-github/API.md`, `AGENTS.md`, `CLAUDE.md` | G1, G2 | §5.14 |
 | `builtin-templates/agent/API.md` "## Projects" | S0 skeleton; each WP its subsection (§7.5) | |
-| `builtin-templates/agent/AGENTS.md` | P1 | a line on projects' files (`project_*.go`, the seams file) |
+| file headers of `B/project_*.go` | P1 | each says what it holds, as projects_types.go and projects_seams.go do (the agent template has no AGENTS.md) |
+| `workspace-template/AGENTS.md` "Install a bundled optional tile" | G1 | a clause: the `scm-github` template (`bx template new scm-github`) offers the `scm` service — repos, credentials, pull requests, CI — docs/scm.md |
+| `docs/partitions.md` §The builtin tiles around a partitioned agent | G1 | the opening sentence gains the exception — scm-github is partitioned (each person's sign-in in their partition, the App at global) — and a bullet linking §Providers |
 | `docs/changelog.md`, `plans/DECISIONS.md` | **the integrator** | from §17.2–§17.3 and the records |
 
 ### 17.2 Changelog draft (the integrator adapts it to what landed)
@@ -3063,14 +3597,18 @@ make check
 > conversation** — a chip and a section of the coding agents' dock with
 > live job progress, logs, annotations and links, for project tasks and for
 > any coding session's pushed branches. Web and the native view.
-> Additive: an older agent ignores the new config field and tables.
+> Additive: an older agent leaves the new tables alone; rolled back, it
+> lists no project conversations among its chats (a conversation made into
+> a project included) and may drop a run's project field, which the next
+> upgrade derives again (API.md §Projects and tasks).
 
 ### 17.3 Decision draft (D-number: the next free at merge)
 
 > **D‹next› — Projects in the agent template and the scm contract
 > (‹date›).** builtin-templates/scm-github; docs/scm.md; the agent's
 > `_backend/project_*.go`, `scm*.go`, `projects_coord_*.go`,
-> `project_team*.go`, `ci_*.go`, `projects_types.go`, `scm_types.go`;
+> `project_team*.go`, `ci_*.go`, `projects_types.go`, `projects_seams.go`,
+> `scm_types.go`;
 > API.md §Projects.
 > - **The owner's rulings (2026-10-02).** A separate provider with a
 >   repo-hosting contract (credentials required, the rest optional); tile
@@ -3079,11 +3617,11 @@ make check
 >   projects in a person's partition with their own sign-in, only in a
 >   private sandbox of theirs; team projects: a definition and board at
 >   global, each task in its creator's partition (coding agents stay barred
->   at global, D158); worktrees in one sandbox, big tasks fork it;
+>   at global, D172); worktrees in one sandbox, big tasks fork it;
 >   screenshots in PRs deferred (GitHub has no public upload API); CI
 >   visible and inspectable in the coding UI (D147's chip and dock), down
->   to steps and logs; "run as root" not in the sandbox contract (ACP has
->   no such field); the whole scope.
+>   to steps and logs; "run as root" left to the sandbox track's
+>   decision; the whole scope.
 > - **Why a contract and a provider:** the provider knows the host and
 >   the credentials, the consumer knows who, why and which sandbox; a
 >   person's sign-in lives in their partition, the App's keys at global;
@@ -3094,6 +3632,13 @@ make check
 >   value everywhere output is kept; a person's only in their own private
 >   sandbox homed in their partition and never one a hosted conversation
 >   used.
+> - **Authority over the bot:** where a home's identity is the bot (global,
+>   unpartitioned), naming a repo takes a manager or the scm bot rule; a
+>   partitioned global holds team definitions only; reruns are a person's
+>   own, never the bot. A team's seed holds no credential and a sandbox
+>   cloned from it takes only the bot; a membership runs the definition's
+>   setup and policy only as its member accepted them; a project task's
+>   class never has internal reach.
 > - **Not chosen:** a run column for tasks (origin `project` instead);
 >   project tools as a class toolset (the stored-classes rollback; gated on
 >   `Config.Project`); a team coordinator at global; a merge route;
@@ -3109,19 +3654,41 @@ make check
 Decisions taken while writing this spec, one line each with the reason
 (vetoable at the freeze like §2.3):
 
-- **"Run as root" is not added to the sandbox-manager contract.** ACP's
-  `terminal/create` has no user or privilege field (`TermCreateParams`,
-  sdk/acp/types.go:366): coding agents run their commands as the layout
-  user. The separate sandbox track (branch `sbx/dev-root`) handles sudo in
-  VM sandboxes; if ACP gains such a field, mirror it as an exec/tty option
+- **"Run as root" is not added to the sandbox-manager contract.** Upstream
+  ACP (schema v1.23.0, protocol 1, which sdk/acp/types.go:5–8 names) has
+  no user or privilege field: `CreateTerminalRequest` is `sessionId`,
+  `command`, `args`, `env`, `cwd`, `outputByteLimit` and `_meta`
+  (extension metadata, not a privilege channel; xbin's `TermCreateParams`,
+  sdk/acp/types.go:366, is its subset), and AgTT advertises no client
+  terminals (`harnessCaps`, B/harness_engine.go:176–180) — adapters run
+  commands themselves as the sandbox's user (docs/sandbox-manager.md
+  §Inside a sandbox). The ruling is the sandbox track's (branch
+  `sbx/dev-root`, its decision); if ACP gains such a field, mirror it
   then.
 - **Registration points instead of edits to `routes.go`/`migrate.go`**
-  (`routeTables`, `schemaAdds`, wired by S0): ten WPs appending to one long
-  line would conflict on every merge.
+  (`routeTables`, `adapterRouteTables`, `schemaAdds`, wired by S0): ten WPs
+  appending to one long line would conflict on every merge; an
+  `/adapter/*` route needs `adapterGuard` (a bound provider isn't admin),
+  so it has its own list.
 - **Hook lists, not single hooks, where several WPs listen**
-  (`turnEndHooks`, `runDeletedHooks`, `projectRefsHooks`,
-  `projectEventHooks`, `taskChangedHooks`, `scmEventHooks`): V, E, C and T
-  each need the same moments.
+  (`turnEndHooks`, `runStatusHooks`, `runViewHooks`, `runDeletedHooks`,
+  `projectRefsHooks`, `projectEventHooks`, `taskChangedHooks`,
+  `scmEventHooks`): V, E, C and T each need the same moments.
+- **P1 places every call site in the engine's hot files** (actor.go,
+  harness_engine.go, harness_pass.go, db.go, stream.go): `turnEndHooks`
+  fire for every run — a subagent's and a coding agent's pushes count —
+  and each entry filters; moves to `waiting_input` that end no turn reach
+  `runStatusHooks`; K's credentials reach execs through P1's `projectEnv`
+  and C's events through `projectDeliverHook`, so K and C edit none of
+  those files.
+- **Native CI is V's** (`native/ci.js`), not U2's: U2 and V share wave 2
+  and neither can import or test against the other's files; `dock`,
+  `card` and `childStatus` on both views (S0) keep every CI surface in V's
+  own modules, and the board calls `ext.card(task)` instead of importing
+  `openCI`.
+- **"Make this a project…" on the web is a ▣ popover action** (`sbx` in
+  web-ext.js, S0; U2 places the one call in sandboxes.js): the upgrade is
+  about the conversation's sandbox, and the top bar has no menu.
 - **Feature keys registered by S0, staged for both views** (§13.6): U2 and
   V work in parallel and would otherwise implement keys the other branch
   adds.
@@ -3165,6 +3732,20 @@ Decisions taken while writing this spec, one line each with the reason
 - **The protection check is a warning by default** (V6) and per repo
   (`project_repos.protected`), read from the provider's `GET /scm/repo`
   `protected`.
+- **A project reads only its own repos, at every home** (§7.1, §10.3): the
+  bot rule guards naming a repo, so every later read — the issue picker,
+  batches, the coordinator's scm tools — is held to the project's repos
+  rather than re-checking the rule; the same in a person's partition, so
+  a coordinator's reach is the same everywhere.
+- **A project run's class loses internal reach in `classOf` itself**
+  (§10.2): the stored lane can't hold the line for a lane-`private` class,
+  and a check at turn start alone would miss an edit mid-turn.
+- **Hooks that read feature tables are off until the feature schemas are
+  in** (`DB.features`, §14): `migrate()` writes run statuses on a legacy
+  database before any project table exists, and team never has them.
+- **The credential gate can't see a sandbox's clone ancestry** (§9.2): the
+  manager doesn't report it, so `seed-clone` covers the clones the project
+  made; a seed cloned by hand is the person's own act.
 
 ## 19. Deviations
 

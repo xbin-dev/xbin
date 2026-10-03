@@ -146,7 +146,7 @@ func routes(mux *http.ServeMux) {
 	fetchRoutes(mux)
 	table := append(append(append(append(append(append(routeTable(), sandboxRoutes()...), liveRoutes()...), probeRoutes()...), harnessRoutes()...),
 		harnessRelayRoutes()...), append(harnessAPIRoutes(), signinRoutes()...)...)
-	for _, more := range routeTables { // each feature's own table, registered from its init() (projects_types.go)
+	for _, more := range routeTables { // each feature's own table, registered from its init() (projects_seams.go)
 		table = append(table, more()...)
 	}
 	for _, rt := range table {

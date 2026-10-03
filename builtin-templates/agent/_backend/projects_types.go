@@ -8,24 +8,25 @@
 // and polling (scm_*.go), big tasks and upgrades, team projects
 // (project_team*.go) and the CI view (ci_*.go).
 //
-// Types and constants only, plus the registration points and hooks one
-// part calls and another fills (below, "Seams"): each defaults to doing
+// Types and constants only; the registration points and hooks one part
+// calls and another fills are projects_seams.go: each defaults to doing
 // nothing, so every part compiles and runs before the one that fills it is
 // in.
 //
 // Stored data is additive (docs/compat.md): a task is a run with origin
 // "project" and origin_id its project's id, and Config.Project says which
-// task or coordinator it is. An older binary ignores the field and the
-// tables; its chat list already leaves such runs out (conversations.go
-// chatOrigins).
+// task or coordinator it is. An older binary keeps the tables and the
+// origin (its chat list leaves such runs out, conversations.go
+// chatOrigins) but may drop Config.Project when it rewrites a run's config;
+// project_tasks.run_id and the coordinator's session key are what is
+// authoritative, and Config.Project is derived again from them when it is
+// missing.
 package main
 
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strconv"
-	"time"
 )
 
 // originProject is runs.origin for a project's runs: its tasks and its
@@ -63,12 +64,26 @@ func coordSessionKey(pid int64, user string) string {
 // may see it, and the task's own stream), and a conversation's CI.
 const (
 	evProject = "project" // {id, change, n?}
-	evCI      = "ci"      // {root, watch, summary, state, final?}; coalesced per root
+	evCI      = "ci"      // {root, watch, summary, state, outcome}; coalesced per root
 )
 
 // pendKindProject is pendingState.Kind for a task run parked by the
 // workspace gate (pendingState gains Project *ProjectPark).
 const pendKindProject = "project"
+
+// refusalClassInternal: a project's tasks never run in a class with
+// internal reach — every task reads scm content (CI logs, reviews, issues),
+// and the coordinator that steers them is in the web lane (409).
+const refusalClassInternal = "class-internal"
+
+// scmBotRule is the agent's scm bot rule (the setting scm_bot_rule in a bot
+// home's database, as JSON; managers only): who besides the agent's
+// managers may name which repos for the bot, where a home's identity is
+// the bot (scmBotAllowed). A person's partition never reads it.
+type scmBotRule struct {
+	Users []string `json:"users"` // xbin people
+	Repos []string `json:"repos"` // owner/name globs ("acme/*")
+}
 
 // --- projects -----------------------------------------------------------------------
 
@@ -108,9 +123,19 @@ type Project struct {
 	ForkSnapMs  int64           `json:"forkSnapMs,omitempty"`
 	State       string          `json:"state"`
 	Version     int64           `json:"version"` // bumped on every PATCH; PATCH carries it
-	CreatedBy   string          `json:"createdBy"`
-	CreatedMs   int64           `json:"createdMs"`
-	UpdatedMs   int64           `json:"updatedMs"`
+	// A membership's own: FromSeed — its sandbox was cloned from the team's
+	// seed (never a person's credential there); DefHash — the definition's
+	// security-relevant part as the member accepted it (setup scripts,
+	// instructions, checks, taskClass, as, reviews, autoPR…); DefPending —
+	// the hash of a changed definition awaiting acceptance (the column
+	// def_pending keeps its JSON, which GET /memberships/{pid}/pending shows
+	// the member beside what they accepted; "" none).
+	FromSeed   bool   `json:"fromSeed,omitempty"`
+	DefHash    string `json:"defHash,omitempty"`
+	DefPending string `json:"defPending,omitempty"`
+	CreatedBy  string `json:"createdBy"`
+	CreatedMs  int64  `json:"createdMs"`
+	UpdatedMs  int64  `json:"updatedMs"`
 }
 
 // ProjectView is GET /projects/{pid}: the row with the caller's level, its
@@ -305,6 +330,7 @@ type ProjectCheckout struct {
 	State     string `json:"state"` // pending | added | setup | ready | failed | removed | kept
 	SetupExit *int   `json:"setupExit,omitempty"`
 	Error     string `json:"error,omitempty"`
+	RemoteSHA string `json:"remoteSha,omitempty"` // the task branch on the remote at the last refs check ("" none yet)
 }
 
 // IssueRef names an issue a task starts from.
@@ -447,6 +473,7 @@ type ProjectPark struct {
 // member's task, never its transcript.
 type BoardRow struct {
 	Member    string     `json:"member"` // set by global from the caller, never taken from the body
+	MemberPid string     `json:"-"`      // the caller's partition id (a person re-created under the same id starts fresh rows)
 	N         int64      `json:"n"`
 	Title     string     `json:"title"`
 	Column    string     `json:"col"`
@@ -528,6 +555,7 @@ const (
 	pjSnapshot  = "snapshot"
 	pjFork      = "fork"
 	pjPR        = "pr"
+	pjRefs      = "refs" // after a task's turn: did its branch move on the remote? (its PRs, projectRefsHooks)
 	pjPoll      = "poll"
 	pjSubscribe = "subscribe"
 	pjCleanup   = "cleanup"
@@ -573,13 +601,10 @@ type jobOutcome struct {
 	Step   string // what it is doing, shown on the task
 }
 
-// projectJobFunc runs one step of a job. It is called again after a
-// restart: it looks before it acts.
+// projectJobFunc runs one step of a job (registered in projectJobKinds,
+// projects_seams.go). It is called again after a restart: it looks before
+// it acts.
 type projectJobFunc func(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobOutcome, error)
-
-// projectJobKinds is the worker's table: each part registers its kinds from
-// init(). A job of a kind nobody registered fails "not in this build".
-var projectJobKinds = map[string]projectJobFunc{}
 
 // Credential states (project_creds.state).
 const (
@@ -601,7 +626,7 @@ type ProjectPolicy struct {
 	Engine        string        `json:"engine"`            // auto | builtin | harness
 	Harness       string        `json:"harness,omitempty"` // the default coding agent ("" = the person's last)
 	As            string        `json:"as,omitempty"`      // person | bot ("" = person in a person's partition, else bot)
-	BotForPeople  bool          `json:"botForPeople"`      // team: members may work as the bot (the provider must allow it too)
+	MembersAsBot  bool          `json:"membersAsBot"`      // team: members may work as the bot (the provider's botForPeople must allow it too)
 	MaxTasks      int           `json:"maxTasks"`          // 3 (1–16): tasks holding a slot at once
 	MaxOpenTasks  int           `json:"maxOpenTasks"`      // 20: open tasks coordinators may have made
 	MaxCreatesDay int           `json:"maxTaskCreatesPerDay"`
@@ -734,6 +759,7 @@ type CIWatchView struct {
 	FetchedMs int64      `json:"fetchedMs"`
 	Error     string     `json:"error,omitempty"`
 	Refusal   string     `json:"refusal,omitempty"` // the provider's, on the last read: signin → the dock offers a sign-in
+	Outcome   string     `json:"outcome,omitempty"` // "<sha>:<state>" of its last final outcome (success | failure): the inline card's key
 	URLs      CIURLs     `json:"urls"`
 	Checks    *scmChecks `json:"checks,omitempty"` // the snapshot, redacted
 }
@@ -744,103 +770,3 @@ type CIURLs struct {
 	Commit string `json:"commit,omitempty"`
 	Checks string `json:"checks,omitempty"`
 }
-
-// --- seams ----------------------------------------------------------------------------
-//
-// Registration points (lists each part appends to from its init(); the
-// call sites are in place) and hooks (one part fills it from init(); each
-// default does nothing, or refuses where nothing would be wrong). A list
-// runs its entries in registration order — never rely on the order.
-
-// errNotInBuild: the part that does this isn't in this build.
-var errNotInBuild = errors.New("not in this build")
-
-var (
-	// routeTables are each part's route tables: routes() mounts them like
-	// routeTable() (the same agentRole, hostedRoute, guard, partitionRoute
-	// chain), so no part edits routes.go.
-	routeTables []func() []routeDef
-	// schemaAdds are each part's tables: migrate() runs them after
-	// addFileMetaSchema. Additive and idempotent; none may rely on another's.
-	schemaAdds []func(d *DB) error
-	// turnEndHooks run inside the transaction that ends a top-level run's
-	// turn (endTurnTx, endHarnessTurnTx) or stops it (stopRun) — why is the
-	// end (endAnswered…, or "canceled"/"interrupted"), outcome the link
-	// outcome's words, result its text. Database only; anything slower goes
-	// in t.AfterCommit. (Projects: the task's state and events; CI: pushed
-	// branches.)
-	turnEndHooks []func(t *DB, run *Run, why, outcome, result string)
-	// runDeletedHooks run inside deleteOneRun's transaction for every run
-	// deleted.
-	runDeletedHooks []func(t *DB, runID int64) error
-	// projectRefsHooks run when a task's branch is pushed, its head moves or
-	// a PR opens or changes (in the transaction that recorded it): scm
-	// subscriptions and routing, CI watches.
-	projectRefsHooks []func(t *DB, p *Project, k *ProjectTask)
-	// projectEventHooks see every project event as it is written (in its
-	// transaction; use t.AfterCommit): needs and pushes.
-	projectEventHooks []func(t *DB, p *Project, ev *ProjectEvent)
-	// taskChangedHooks run when a task's row or its run's state changes
-	// (what: "created" | "state" | "ws" | "phase" | "prs" | "ci" | "deleted"):
-	// the team board's push.
-	taskChangedHooks []func(t *DB, p *Project, k *ProjectTask, what string)
-	// scmEventHooks see every scm event the home handles (deduped, in the
-	// home that owns it), before projects route it: the CI watches.
-	scmEventHooks []func(t *DB, ev *scmEvent)
-)
-
-// The scm credentials (K, scm_creds.go): write, refresh and scrub a
-// project's token in a sandbox, behind scmCredWhy.
-var (
-	// scmEnsureCreds makes sure ref holds a live credential for p (and k,
-	// when it is a task's own sandbox) with at least minLeft to run.
-	scmEnsureCreds = func(ctx context.Context, p *Project, k *ProjectTask, ref string, minLeft time.Duration) error {
-		return nil
-	}
-	// scmScrubCreds empties p's credential files in ref ("" = every sandbox
-	// p wrote them to) and revokes what the provider handed out; why is
-	// recorded (share, stop, archive, delete, repo-removed, forget, left).
-	scmScrubCreds = func(ctx context.Context, p *Project, ref, why string) error { return nil }
-	// scmProjectEnv is what a project's execs and coding agents get from
-	// the credentials (GH_CONFIG_DIR); P1 adds the task's ports.
-	scmProjectEnv = func(p *Project, home string) map[string]string { return nil }
-	// scmGitConfig is the git config a base repo (or a clone) of p gets for
-	// host — key/value pairs, in order (the credential helper lines); home
-	// is the sandbox's home.
-	scmGitConfig = func(p *Project, host, home string) [][2]string { return nil }
-	// scmRedact masks scm tokens — their shapes and every live one — in
-	// text a row, a log or a job's output keeps.
-	scmRedact = func(s string) string { return s }
-)
-
-// Projects (P1), for the parts that build on them in parallel.
-var (
-	// projectsInSandbox lists the active projects whose workspace (or a
-	// task's fork) is sandbox ref: whose credentials to scrub.
-	projectsInSandbox = func(ref string) []*Project { return nil }
-	// projectReposOf is project pid's repos.
-	projectReposOf = func(pid int64) []ProjectRepo { return nil }
-)
-
-// Big tasks, upgrades and pull requests (P2).
-var (
-	// provisionFork makes k's own sandbox from p's fork-base snapshot (or a
-	// fresh one) and answers its ref; errNotInBuild runs a big task in the
-	// project's sandbox instead.
-	provisionFork = func(ctx context.Context, p *Project, k *ProjectTask) (string, error) { return "", errNotInBuild }
-	// projectRested: k's run came to rest — auto-PR, if the policy says so.
-	projectRested = func(t *DB, p *Project, k *ProjectTask) {}
-)
-
-// The coordinator (C).
-var (
-	// projectWakeHook says whether a coordinator run has an undelivered
-	// event that should wake it (the idle-wake checks in actor.go call it).
-	projectWakeHook = func(d *DB, run *Run) bool { return false }
-	// projectCoordPrompt is a coordinator's # Project block.
-	projectCoordPrompt = func(p *Project, run *Run) string { return "" }
-)
-
-// The CI view (V): a task's CI watches' aggregate (TaskView.ci, the board
-// row's ci); nil: none.
-var taskCISummary = func(runID int64) *CISummary { return nil }

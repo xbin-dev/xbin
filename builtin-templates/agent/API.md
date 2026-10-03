@@ -3148,9 +3148,8 @@ their own space. A conversation's **CI** — for a task, or for the branches
 any coding session pushed — shows in the conversation beside its coding
 agents, down to job steps and logs.
 
-The parts below land in stages: each says what it covers, and is filled
-in, with its routes and shapes, by the change that implements it. Until
-then the routes it names answer 404.
+Each part below says what it covers; its routes and shapes are described
+here when it lands.
 
 ### Projects and tasks
 
@@ -3160,7 +3159,7 @@ visibility grants, the policy and its keys with their defaults, task
 sizes, workspace states, phases and the board's columns; the routes under
 `/projects` and `/runs/{id}/task`; the `project` stream event; why a
 task's sharing is its project's and why it stays in its project's space.
-(Implemented by its work package.)
+Described when it lands.
 
 ### The workspace
 
@@ -3168,8 +3167,7 @@ Where a project's repos and tasks live in its sandbox (base repos, one
 worktree per task and repo), the jobs that prepare them (sandbox, repo,
 fetch, prepare, setup, bind, cleanup), the workspace gate a task's turn
 waits at, the limit of tasks at work at once and its queue, the ports and
-environment a task gets, and when cleanup refuses. (Implemented by its
-work package.)
+environment a task gets, and when cleanup refuses. Described when it lands.
 
 ### scm providers and credentials
 
@@ -3178,7 +3176,7 @@ provider, which identity a project uses (a person's own sign-in, or the
 provider's bot), when a credential may be written into a sandbox, where it
 goes (files outside every repo, a git credential helper, `GH_CONFIG_DIR`),
 how it is refreshed, when it is scrubbed, and how tokens are kept out of
-every transcript, log and event. (Implemented by its work package.)
+every transcript, log and event. Described when it lands.
 
 ### Big tasks, upgrades and pull requests
 
@@ -3186,7 +3184,7 @@ A big task's own sandbox, forked from a snapshot of the project's taken
 while it is quiet (or made fresh); "Make this a project…" turning a
 conversation with a sandbox and its git repos into a project, the
 conversation its first task; opening a pull request, by hand or when a
-task comes to rest. (Implemented by its work package.)
+task comes to rest. Described when it lands.
 
 ### The coordinator
 
@@ -3195,22 +3193,22 @@ A person's coordinator for a project: its class, its tools (`task_create`,
 `scm_pr`, `scm_issues`), what it may and may not do (never answering a
 question meant for a person; no merge, approve or push), the project
 updates it receives, its limits, the pushes it causes, and attaching a
-chat to it. (Implemented by its work package.)
+chat to it. Described when it lands.
 
 ### scm events and polling
 
 How a provider's events reach the agent (`POST /adapter/scm/event`, the
 partition hand-off), how they are routed to tasks — CI failures, green
 checks, reviews and comments, merges, pushes — what each does, and the
-polling that stands in when events don't arrive. (Implemented by its work
-package.)
+polling that stands in when events don't arrive. Described when it lands.
 
 ### Team projects
 
 A team project's definition and board in the shared space, each member's
 own half in their own space with their own sandbox, tasks and
-coordinator, the optional seed sandbox, how the board stays current, and
-what happens when a member leaves. (Implemented by its work package.)
+coordinator, the optional seed sandbox, how the board stays current, how
+a member sees and accepts the team's changes to setup and policy, and what
+happens when a member leaves. Described when it lands.
 
 ### CI in the conversation
 
@@ -3220,13 +3218,13 @@ routes under `/runs/{id}/ci`, the `ci` stream event, job logs and
 annotations (untrusted text, redacted), re-running failed jobs, and how
 the conversation shows it: the CI chip beside the coding agents chip, the
 CI section of their dock, outcome cards and the board's chips.
-(Implemented by its work package.)
+Described when it lands.
 
 ### Projects in the UI
 
 The Projects page and a project's board, new projects and tasks, the
 settings, a task conversation's chips and cards, links, and the same in
-the native view. (Implemented by its work package.)
+the native view. Described when it lands.
 
 ## The frontend: one model, thin views
 

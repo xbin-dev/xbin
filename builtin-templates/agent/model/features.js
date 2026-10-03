@@ -280,7 +280,7 @@ export const FEATURES = {
   'proj.signin': 'signing in to the scm provider (its device code shown only to you), and Forget',
   'proj.coordinator': 'the project\'s coordinator: open it, write to it',
   'proj.events': 'the project\'s event feed: tasks, PRs, CI and reviews as they happen',
-  'proj.team': 'a team project: the shared board (others\' tasks without their transcripts), "Work on this" in your own space, members who left',
+  'proj.team': 'a team project: the shared board (others\' tasks without their transcripts), "Work on this" in your own space, reviewing the team\'s changes before they apply, members who left',
   'proj.delete': 'archive or delete a project, keeping or deleting its sandbox, confirmed',
   'top.task.chips': 'a task conversation\'s branch and PR chips (each a link to the platform)',
   'top.task.pr': 'Open PR from a task conversation',

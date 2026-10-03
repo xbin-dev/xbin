@@ -228,4 +228,6 @@ export const IMPLEMENTS = {
   'harness.login.remember': 'native/terminal.js — guidedTpl: the "Remember for my other sandboxes" toggle and its Name it field, else the footer saying why (model/harness-signins.js rememberOf)',
   'harness.signins': 'native/harness-signins.js — the Coding-agent sign-ins screen (from Coding agent settings, native/harness-ask.js, and the managers\' Coding agents screen): a section per coding agent, rows with Default, row actions Make default and Forget, signin-edit (Rename, Make default, Forget), signin-add (a secure field kept off props, Which key, Make it the default); unpartitioned or shared: a notice saying why',
   'harness.account': 'native/harness-ask.js — controlsTpl: the Account menu in the toolbar ("Account: using Work"), its choices (a refused or expired one left out) → app.harness.pickSignin, Saved sign-ins… (model/harness-signins.js accountOf)',
+  // Projects — every native key (the list, the board, new projects and tasks, settings, a task's chips, the coordinator, events, upgrades, team projects)
+  // CI in the conversation
 };

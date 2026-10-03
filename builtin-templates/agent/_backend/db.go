@@ -146,6 +146,10 @@ type DB struct {
 	sql *sql.DB
 	q   queryer
 	tx  *txState // non-nil for a view handed out by Tx
+	// features: the feature schemas are in (addFeatureSchemas) — never on
+	// team, nor while migrate() rewrites legacy rows, so a hook that reads a
+	// feature's tables (runStatusHooks) runs only where they exist.
+	features bool
 }
 
 type txState struct{ after []func() }
@@ -174,6 +178,9 @@ func openDB(path string) (*DB, error) {
 	if err := d.migrate(); err != nil {
 		return nil, err
 	}
+	if err := d.addFeatureSchemas(); err != nil { // each feature's own tables (projects_seams.go); never on team
+		return nil, err
+	}
 	if userMode() { // a person's partition numbers its conversations from 2^40 (partition_start.go)
 		if err := d.seedPartitionIDs(); err != nil {
 			return nil, err
@@ -193,7 +200,7 @@ func (d *DB) Tx(fn func(t *DB) error) error {
 		return err
 	}
 	st := &txState{}
-	t := &DB{sql: d.sql, q: tx, tx: st}
+	t := &DB{sql: d.sql, q: tx, tx: st, features: d.features}
 	if err := fn(t); err != nil {
 		_ = tx.Rollback()
 		return err

@@ -118,11 +118,26 @@ type scmTokenReq struct {
 	Purpose     string            `json:"purpose,omitempty"` // the consumer's key for what it is for ("proj:<uid>:<sandbox>")
 }
 
+// scmSecret is a token in memory: it prints and marshals as "[secret]" (%v,
+// %+v, %#v, json.Marshal of any row or event built from a struct holding
+// one) and unmarshals the provider's string. Reveal is the one way to the
+// value — for the credential files and an explicitly built request body.
+type scmSecret struct{ v string }
+
+func newSCMSecret(v string) scmSecret             { return scmSecret{v} }
+func (s scmSecret) Reveal() string                { return s.v }
+func (s scmSecret) Empty() bool                   { return s.v == "" }
+func (s scmSecret) String() string                { return "[secret]" }
+func (s scmSecret) GoString() string              { return `"[secret]"` }
+func (s scmSecret) MarshalJSON() ([]byte, error)  { return []byte(`"[secret]"`), nil }
+func (s *scmSecret) UnmarshalJSON(b []byte) error { return json.Unmarshal(b, &s.v) }
+func (s scmSecret) Format(f fmt.State, verb rune) { _, _ = f.Write([]byte(s.String())) }
+
 // scmToken is a credential: give it to git as username/password over https.
 type scmToken struct {
 	Host         string            `json:"host"`
 	Username     string            `json:"username"`
-	Token        string            `json:"token"`
+	Token        scmSecret         `json:"token"`
 	ExpiresAt    int64             `json:"expiresAt"`
 	RefreshAfter int64             `json:"refreshAfter"`
 	Identity     scmIdentity       `json:"identity"`
@@ -149,10 +164,11 @@ type scmAuthor struct {
 }
 
 // scmRevokeReq is POST /scm/token/revoke: one token (by value) or every
-// token handed out for a purpose.
+// token handed out for a purpose. Token never marshals: the client writes
+// the body's "token" itself (Reveal).
 type scmRevokeReq struct {
-	Token   string `json:"token,omitempty"`
-	Purpose string `json:"purpose,omitempty"`
+	Token   scmSecret `json:"-"`
+	Purpose string    `json:"purpose,omitempty"`
 }
 
 // scmSignin is a person's device-flow sign-in under way.
@@ -383,6 +399,7 @@ type scmJobLog struct {
 	ID        string `json:"id"`
 	Text      string `json:"text"`
 	Bytes     int64  `json:"bytes"`    // the whole log's length
+	From      int64  `json:"from"`     // the byte offset text starts at (a viewer pages back with until=from)
 	Complete  bool   `json:"complete"` // false while the job runs
 	Truncated bool   `json:"truncated"`
 	URL       string `json:"url,omitempty"`
@@ -488,8 +505,9 @@ const (
 // scmEvent is an event v1, as POST /adapter/scm/event carries it.
 type scmEvent struct {
 	Protocol   int                        `json:"protocol"`
-	EventID    string                     `json:"eventId"` // scm:<host>:<delivery>[:<n>]
-	For        string                     `json:"for"`     // global | user:<id>
+	EventID    string                     `json:"eventId"`          // scm:<host>:<delivery>[:<n>]
+	For        string                     `json:"for"`              // global | user:<id>
+	ForPid     string                     `json:"forPid,omitempty"` // for user:<id>: that person's partition id (a person re-created under the same id is another)
 	SCM        scmEventSource             `json:"scm"`
 	Kind       string                     `json:"kind"` // scmKind*
 	Action     string                     `json:"action"`
@@ -594,7 +612,8 @@ type scmAPI interface {
 
 	Token(ctx context.Context, req scmTokenReq) (*scmToken, error)
 	Revoke(ctx context.Context, req scmRevokeReq) error
-	Signin(ctx context.Context) (*scmSigninState, error)
+	Signin(ctx context.Context) (*scmSigninState, error)      // POST /scm/signin: starts one when needed
+	SigninState(ctx context.Context) (*scmSigninState, error) // GET /scm/signin: the state, starting nothing
 	SigninPoll(ctx context.Context, pollID string) (*scmSigninState, error)
 	Forget(ctx context.Context) error
 
@@ -607,8 +626,8 @@ type scmAPI interface {
 	PullPatch(ctx context.Context, n int, p scmPullPatch) (*scmPull, error)
 	Comments(ctx context.Context, repo string, n int, since int64, as string) (*scmPage[scmComment], error)
 
-	Checks(ctx context.Context, repo, ref, ifNoneMatch, as string) (*scmChecks, error) // nil, nil: not modified
-	JobLog(ctx context.Context, repo, job string, tailBytes int, since int64, as string) (*scmJobLog, error)
+	Checks(ctx context.Context, repo, ref, ifNoneMatch, as string) (*scmChecks, error)                              // nil, nil: not modified
+	JobLog(ctx context.Context, repo, job string, tailBytes int, since, until int64, as string) (*scmJobLog, error) // until 0: the end
 	Annotations(ctx context.Context, repo, check, cursor, as string) (*scmPage[scmAnnotation], error)
 	Rerun(ctx context.Context, req scmRerunReq) (*scmRerun, error)
 
