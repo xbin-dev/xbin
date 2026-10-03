@@ -1,6 +1,6 @@
 // shots/site-terminal.js — a terminal on a tile: Jonas Lindqvist (solutions
-// engineer) opens a shell on the onboarding tracker Lark built and looks at
-// its files and its history — Lark's commits and Priya's, in the tile's own
+// engineer) opens a shell on the onboarding tracker Merrow built and looks at
+// its files and its history — Merrow's commits and Priya's, in the tile's own
 // git. The shell runs where the tile's code lives (a sandbox under
 // --isolate), with the workspace's prompt. A take ends the tile's shells
 // and forgets its window first, so retakes start the same.
@@ -45,15 +45,17 @@ module.exports = async (cam) => {
   }
   await cam.mark('terminal', TERM);
   await site.shoot(cam, 'shell', site.isPhone(cam)
-    ? "A terminal on a phone, on the onboarding tracker: its six small source files, and who wrote its commits — Lark six, Priya two"
-    : "Jonas Lindqvist opens a terminal on the onboarding tracker: the tile's files and its git history — Lark's commits, and Priya's", { settleMs: 900 });
+    ? "A terminal on a phone, on the onboarding tracker: its six small source files, who wrote its commits — Merrow six, Priya two — and when"
+    : "Jonas Lindqvist opens a terminal on the onboarding tracker: the tile's files and its git history — Merrow's commits, and Priya's", { settleMs: 900 });
 };
 
-module.exports.description = "a terminal on a tile: the onboarding tracker's files and Lark's commits";
+module.exports.description = "a terminal on a tile: the onboarding tracker's files and Merrow's commits";
 module.exports.defaults = {
   who: 'jonas', screen: 'Onboarding',
-  commands: "ls|git log --format='%h %an: %s' -7",
-  phoneCommands: 'wc -l *.js|git shortlog -sn',
+  // the tile's own files (what its team wrote; not the workspace's manifest)
+  commands: "ls *.js *.md|git log --format='%h %an: %s' -7",
+  // ~40 columns: short lines, enough of them to fill the sheet
+  phoneCommands: "wc -l *.js|git shortlog -sn|git log --format='%h %<(7)%an %ar' -8",
   pop: { x: 380, y: 95, w: 700, h: 400 },
 };
 

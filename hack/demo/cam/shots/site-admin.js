@@ -2,7 +2,10 @@
 // admin) on its people — Larkspan's thirteen accounts, their teams, their
 // access and when they last signed in — and then viewing the workspace as
 // Priya Raman sees it: read-only, under a banner, until he exits. A view-as
-// link works once, for two minutes, in the browser that minted it.
+// link works once, for two minutes, in the browser that minted it. The
+// view-as frame is her Onboarding screen (her team's tracker): what an
+// admin may see as her — her own partitions (her agent's conversations)
+// stay hers, which a frame can't tell from broken.
 'use strict';
 const site = require('../site');
 
@@ -22,12 +25,12 @@ module.exports = async (cam) => {
   await cam.page.waitForSelector('bx-shell', { timeout: 15000 });
   await cam.waitSel('.viewas', { timeout: 15000 });
   await cam.waitFor((t) => !!t && t.screens.length > 0, null, { timeout: 15000, label: 'her screens' });
-  if (phone) await site.tile(cam, 'apps/onboarding', '.card');
-  else { await site.tile(cam, 'apps/lark', '#msg'); await site.tile(cam, 'apps/calendar', '.ev'); }
+  await site.tile(cam, 'apps/onboarding', '.card');
   await cam.mark('banner', '.viewas');
+  await cam.mark('tracker', site.CARD('apps/onboarding'), { optional: true });
   await site.shoot(cam, 'view-as', phone
     ? "Viewing as Priya Raman on a phone: her onboarding screen as she sees it, read-only, under the view-as banner"
-    : "Tomás viewing the workspace as Priya Raman sees it — her screens and apps, read-only, under a banner until he exits. Her own Lark stays hers: a person's partition isn't reachable even when an admin views as them (\"no partition\")", { settleMs: 1500 });
+    : "Tomás viewing the workspace as Priya Raman sees it: her Onboarding screen — her team's tracker, her sidebar and tabs — read-only, under a banner until he exits", { settleMs: 1500 });
   // back to his own session
   await cam.page.locator('.viewas button').first().dispatchEvent('click');
   await cam.page.waitForSelector('.viewas', { state: 'detached', timeout: 15000 }).catch(() => {});
@@ -38,8 +41,8 @@ module.exports.defaults = { who: 'tomas', screen: 'Admin', as: 'priya' };
 
 module.exports.setup = async (cam) => {
   // Priya's screens as the set has them (what the view-as shows is hers),
-  // open on Today (a phone: on Onboarding — the agent's page has no phone layout)
-  await site.signIn(cam, cam.args.as, { screen: site.isPhone(cam) ? 'Onboarding' : 'Today' });
+  // open on Onboarding
+  await site.signIn(cam, cam.args.as, { screen: 'Onboarding' });
   // a denser table than the seeded 17 px: 15 px, the console as wide and
   // tall as the canvas then is (a phone: the shell's 13 px, stacked)
   await site.signIn(cam, cam.args.who, { screen: cam.args.screen, font: site.isPhone(cam) ? 13 : 15 });

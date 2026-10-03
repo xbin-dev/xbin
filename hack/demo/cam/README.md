@@ -173,19 +173,19 @@ logged for it).
 ```sh
 # the set in the UI harness (hack/demo/README.md), isolated: partitions, VM sandboxes
 HARNESS_SEED=demo HARNESS_ISOLATE=1 PORT=9331 HARNESS_DIR=/tmp/me/h hack/ui-harness/run.sh --keep
-TZ=America/Los_Angeles $C/site-stills.sh --out .film-media/stills --ws /tmp/me/h/ws --url http://127.0.0.1:9331 [shot…]
+$C/site-stills.sh --out .film-media/stills --ws /tmp/me/h/ws --url http://127.0.0.1:9331 [shot…]
 ```
 
 | shot | who | what |
 |---|---|---|
-| `canvas` | Maya (CEO) | her Company screen: Lark, the CRM's pipeline, the ops report, the calendar |
+| `canvas` | Maya (CEO) | her Company screen: Merrow, the CRM's pipeline, the ops report, the calendar |
 | `live` | Priya, then Tomás | the onboarding tracker before and after a code change lands (a go-live timeline: `tiles/onboarding/next/`), and the diff in the tile's code window |
-| `agent` | Priya | Lark mid-task (tool calls done, the answer coming), then its answer; a phone films the chat app instead (the agent's page has no narrow layout) |
-| `terminal` | Jonas | a shell on the onboarding tile: its files and Lark's commits |
-| `sandboxes` | Lukas | the coding sandboxes: three VM sandboxes, their owners and quotas |
+| `agent` | Priya | Merrow mid-task (tool calls done, the answer coming, her next words typed), then its answer; on a phone in the agent page's narrow layout |
+| `terminal` | Jonas | a shell on the onboarding tile: its files and Merrow's commits |
+| `sandboxes` | Lukas | the coding sandboxes: three VM sandboxes, their owners and the usage against the quotas; on a phone his own, with a shell in it |
 | `network` | Tomás | the telematics tile's network, routed through the egress approver |
-| `admin` | Tomás | the admin console's people, then viewing the workspace as Priya |
-| `partitions` | Priya | her partitions page: her own instance of Lark and of expenses |
+| `admin` | Tomás | the admin console's people, then viewing the workspace as Priya (her Onboarding screen) |
+| `partitions` | Priya | her partitions page: her own instance of Merrow and of expenses (started minutes before: `site-warm`) |
 | `phone` | Priya | the shell on a phone: her expense book, the inbox, the drawer |
 
 `site.js` is what they share: signing in as a person of `company.json`,
@@ -193,15 +193,26 @@ putting their screens from `data/layouts.json` back first (a retake starts
 the same), the font a viewport gets (the person's seeded size on a desk,
 the shell's 13 px on a phone), waiting for a tile's content, and the still
 itself (the mouse parked off every scroller, a caption). Shots that change
-the set put it back: `live` restores the tracker's files, `network` binds
-the tile again, `agent` deletes its earlier take's conversation. Clicks
-inside a tile use `dispatchEvent` or `focus()`: under the shell's font
-zoom a pointer's coordinates land off target.
+the set put it back: `live` restores the tracker's files (even when it
+fails partway, and only into the film set: its branding must be the
+company's), `network` binds the tile again, `agent` deletes its earlier
+take's conversation. The set's password is random: `$DEMO_PASSWORD`, else
+`<ws>.password`. A phone-sized viewport is a touch screen (`hasTouch`: its
+pages see `hover: none`).
 
-Film in the set's time zone: the browser's clock (TZ) and the seed's
-`DEMO_TZ` must agree, or times of day ("05:30", "4:14 PM") shift. The set's
-company is American; a US zone keeps its times of day — and "today" —
-true to it.
+Marks inside a tile are in the page's viewport px too: Playwright reports a
+tile frame's elements in the frame's own px, which the shell's font zoom
+(17 px: 17/13) draws larger; `cam.box` maps them up by the zoom the frame
+element shows (`mapUp`, tested in `hack/demo-cam.test.mjs`) — so a mark's
+box, a zoom on it, and a click there all land where the element is.
+
+The browser films in the set's time zone: `site-stills.sh` sets `TZ` to
+`DEMO_TZ`, else the company's (`company.json`), the zone the set was
+seeded in (`hack/demo/clock.py`) — or times of day ("05:30", "4:14 PM")
+shift.
+
+The directory is what gets published: `stills-manifest.js` strips the
+sidecars of the set's URL and of local paths among a shot's arguments.
 
 ## framecheck
 
@@ -247,8 +258,13 @@ pure parts.
 
 - **The camera never needs secrets.** What answers in the agent shot is
   whatever model the workspace binds — on the UI harness, `hack/fakeopenai`
-  ("ok: <prompt>" to anything unscripted). Real keys (ANTHROPIC_API_KEY,
-  OPENAI_API_KEY, …) belong to the workspace's model gateway, not here.
+  ("ok: <prompt>" to anything unscripted; on the film set its script, or
+  the script's fallback). Real keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, …)
+  belong to the workspace's model gateway, not here.
+- **Test takes are not footage.** The example shots' takes against the UI
+  harness (`agent`, `terminal`, `framecheck`: the X/BIN logo, "ok: …"
+  answers, test tiles) go to a directory of their own —
+  `.film-media/cam/tests/` — never beside the masters an edit picks from.
 - **Retakes start the same.** The example shots reset what they touch:
   the terminal shot ends the tile's shells and drops its window pref; the
   agent shot deletes exactly the conversations its previous take into the

@@ -8,15 +8,17 @@
 #
 #   --url   the film set (default $URL, else http://127.0.0.1:$PORT, PORT 9400)
 #   --ws    its workspace directory (site-live edits a tile's files there;
-#           default $DEMO_WS)
+#           its password is WORKSPACE.password; default $DEMO_WS)
 #   shot…   canvas live agent terminal sandboxes network admin partitions
 #           phone (default: all, in that order; phone is phone-only)
 #
 # The set as seeded: the stills sign in as its people (company.json) and put
-# their screens back first (data/layouts.json). Run it in the set's time
-# zone (TZ, the same as DEMO_TZ when it was seeded): the browser's clock
-# reads the set's times of day. PLAYWRIGHT_DIR as for the UI harness. A
-# shot that fails is said so at the end; the others still run.
+# their screens back first (data/layouts.json). The browser runs in the
+# set's time zone (DEMO_TZ, as seeded; default the company's) and reads the
+# set's times of day in it. PLAYWRIGHT_DIR as for the UI harness. A shot
+# that fails is said so at the end; the others still run. The directory is
+# what gets published: the sidecars in it carry no URL or local path
+# (stills-manifest.js).
 set -euo pipefail
 C="$(cd "$(dirname "$0")" && pwd)"
 
@@ -27,16 +29,32 @@ while [[ $# -gt 0 ]]; do
     --ws) ws=$2; shift 2 ;;
     --url) url=$2; shift 2 ;;
     --only) only=$2; shift 2 ;;
-    -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
     -*) echo "unknown option $1" >&2; exit 2 ;;
     *) shots+=("$1"); shift ;;
   esac
 done
 [[ -n "$out" ]] || { echo "--out DIR is required" >&2; exit 2; }
 [[ -n "$ws" && -d "$ws" ]] || { echo "--ws WORKSPACE (the set's workspace directory) is required" >&2; exit 2; }
+ws=$(cd "$ws" && pwd)
 all=(canvas live agent terminal sandboxes network admin partitions phone)
 [[ ${#shots[@]} -gt 0 ]] || shots=("${all[@]}")
 mkdir -p "$out"
+
+# the set's password (random per set: hack/demo/lib.sh demo_password) and
+# its time zone, for the browser
+. "$C/../lib.sh"
+demo_password "$ws"
+export TZ="${DEMO_TZ:-$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["company"]["timeZone"])' "$C/../company.json")}"
+
+# a person's instances (partitions) started minutes ahead of the
+# partitions still, not seconds (shots/site-warm.js; no still)
+if [[ " ${shots[*]} " == *" partitions "* ]]; then
+  warm=$(mktemp -d "${TMPDIR:-/tmp}/site-warm.XXXXXX")
+  node "$C/shot.js" site-warm --mode still --size 1440x900 --dpr 1 --take warm --out "$warm" --url "$url" --set ws="$ws" ||
+    echo "(the warm-up failed: the partitions still may show instances just started)" >&2
+  rm -rf -- "$warm"
+fi
 
 failed=()
 for s in "${shots[@]}"; do

@@ -97,3 +97,32 @@ test('analyze: repeats, skips, torn frames and a lead-in are counted exactly', (
   assert.equal(clean.perfect, true);
   assert.equal(clean.unique, 4);
 });
+
+// A mark inside a tile at a persona's 17 px font: the shell zooms 17/13, and
+// a tile frame's own px are that much smaller on screen. The 03-agent-desk
+// take logged its answer at {401.7, 279.7} — Playwright's box, the frame's
+// unzoomed px with the frame's offset in them too — where the screen had it
+// at about {525, 366}. mapUp maps a frame's box up once, frame offset added
+// once, by the zoom the frame element shows.
+test('mapUp: a tile frame under the 17 px font zoom (17/13)', () => {
+  const { mapUp } = require('./demo/cam/cam.js');
+  const z = 17 / 13;
+  // a 624 px tile (its own viewport) shown 816 px wide, at (280, 170) on screen
+  const frame = { x: 280, y: 170, width: 624 * z };
+  const b = mapUp({ x: 100, y: 50, width: 200, height: 30 }, frame, 624);
+  const near = (a, e) => assert.ok(Math.abs(a - e) < 1e-6, `${a} vs ${e}`);
+  near(b.x, 280 + 100 * z); near(b.y, 170 + 50 * z); near(b.width, 200 * z); near(b.height, 30 * z);
+  // the take's answer: what Playwright reported was the true box / z (the
+  // frame's offset included); mapping the frame-internal box up from the
+  // frame element's true box gives back the screen's {525, 366}
+  const shown = { x: 525.3, y: 365.8 };
+  const frameOnScreen = { x: 312, y: 238, width: 480 * z };
+  const inner = { x: (shown.x - frameOnScreen.x) / z, y: (shown.y - frameOnScreen.y) / z, width: 10, height: 10 };
+  const back = mapUp(inner, frameOnScreen, 480);
+  near(back.x, shown.x); near(back.y, shown.y);
+  // the old reading was off by exactly the zoom
+  assert.ok(Math.abs((frameOnScreen.x / z + inner.x) * z - shown.x) < 1e-6);
+  // no zoom: a frame's px are the page's
+  const flat = mapUp({ x: 10, y: 20, width: 30, height: 40 }, { x: 5, y: 6, width: 800 }, 800);
+  assert.deepEqual(flat, { x: 15, y: 26, width: 30, height: 40 });
+});

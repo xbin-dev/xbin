@@ -4,7 +4,8 @@
 // still itself (no hover, nothing loading, a caption for the manifest).
 //
 // The workspace is the demo film set (hack/demo/README.md): its people
-// (company.json, one password), the screens each of them signs in to
+// (company.json; the set's random password, password()), the screens each
+// of them signs in to
 // (data/layouts.json, put back at the start of every take so a retake
 // starts the same) and the font size the seed gave them. On a phone (a
 // viewport under the shell's 820 px breakpoint) a person gets the shell's
@@ -16,6 +17,31 @@ const path = require('path');
 const DEMO = path.resolve(__dirname, '..');
 const company = JSON.parse(fs.readFileSync(path.join(DEMO, 'company.json'), 'utf8'));
 const layouts = JSON.parse(fs.readFileSync(path.join(DEMO, 'data/layouts.json'), 'utf8'));
+// the team's agent's tile (company.json agent)
+const AGENT = company.agent.tile;
+
+// password(cam): the set's people's password — random per set: $DEMO_PASSWORD,
+// else the file beside the set's workspace (--set ws=…: <ws>.password,
+// hack/demo/lib.sh demo_password)
+function password(cam) {
+  if (process.env.DEMO_PASSWORD) return process.env.DEMO_PASSWORD;
+  const ws = cam.args.ws || process.env.DEMO_WS || '';
+  try { return fs.readFileSync(`${ws}.password`, 'utf8').trim(); } catch {
+    throw new Error(`no password for the set: DEMO_PASSWORD, or --set ws=<the set's workspace> with ${ws || '<ws>'}.password beside it (hack/demo/up.sh makes it)`);
+  }
+}
+
+// assertSet(cam): the workspace --set ws= names is the film set (its branding
+// title is the company's) — before a shot writes into its tiles' files
+async function assertSet(cam) {
+  const b = await api(cam, 'GET', '/api/xbin/branding');
+  if (!b || b.title !== company.company.name) {
+    throw new Error(`${cam.o.url} is not the ${company.company.name} film set (its branding title is ${JSON.stringify(b && b.title)}): no shot writes there`);
+  }
+  if (!cam.args.ws || !fs.existsSync(path.join(cam.args.ws, '.xbin', 'token'))) {
+    throw new Error(`--set ws=${cam.args.ws || ''} is no workspace directory`);
+  }
+}
 
 const isPhone = (cam) => cam.o.width < 820;
 const fontFor = (cam, who) => (isPhone(cam) ? 13 : layouts.people[who]?.fontSize ?? 17);
@@ -47,7 +73,7 @@ const pref = (cam, name, body) => api(cam, 'PUT', `/api/xbin/prefs/${encodeURICo
 // their seeded screens open on `screen`, the shell loaded (on a phone, the
 // first app as tall as the phone unless fit is false)
 async function signIn(cam, who, { screen, font, fit = true } = {}) {
-  await cam.login(who, company.password);
+  await cam.login(who, password(cam));
   await pref(cam, 'settings', { fontSize: font ?? fontFor(cam, who) });
   if (layouts.people[who]) await pref(cam, 'layout', layoutPref(who, screen));
   await cam.openShell();
@@ -57,10 +83,15 @@ async function signIn(cam, who, { screen, font, fit = true } = {}) {
 
 // fitPhone(cam): on a phone the screen's apps stack full width, each as
 // tall as its tile — sized for a laptop's canvas; the first one fills the
-// phone instead (13 units at the shell's 13 px). Only the screen on show.
+// phone instead: from its top to the screen's bottom, as far as the shell
+// lets a stacked card grow (82 % of the screen's height). Only the screen on
+// show.
 async function fitPhone(cam) {
   if (!isPhone(cam)) return;
-  await cam.sh((t) => t.setGeom((ts) => ts.map((x) => ({ ...x, h: Math.max(x.h, 624) }))));
+  const first = await cam.page.locator('bx-canvas .gtile').first().boundingBox().catch(() => null);
+  const top = first ? first.y : 110;
+  const h = Math.max(260, Math.floor(Math.min(cam.o.height * 0.82, cam.o.height - top - 10)));
+  await cam.sh((t, h) => t.setGeom((ts) => ts.map((x, i) => (i === 0 ? { ...x, h } : x))), h);
   await cam.settle();
 }
 
@@ -104,4 +135,4 @@ async function shoot(cam, name, caption, { settleMs = 600, persona } = {}) {
   return cam.still(name, { caption, ...(persona ? { persona } : {}) });
 }
 
-module.exports = { company, layouts, isPhone, fontFor, screenId, CARD, layoutPref, api, pref, signIn, fitPhone, tile, openConversation, top, shoot };
+module.exports = { company, layouts, AGENT, password, assertSet, isPhone, fontFor, screenId, CARD, layoutPref, api, pref, signIn, fitPhone, tile, openConversation, top, shoot };

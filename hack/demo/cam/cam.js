@@ -56,15 +56,19 @@ class Cam {
   rand(lo, hi) { return this.r.range(lo, hi); }
 
   // ---- pages -------------------------------------------------------------
+  // ctxOpts: the capture's context options; a phone-sized viewport (under
+  // the shell's 820 px breakpoint) is a touch screen, as a phone is — its
+  // pages see (hover: none) and (pointer: coarse)
+  ctxOpts() { return { ...this.backend.ctxOpts(), ...(this.o.width < 820 ? { hasTouch: true } : {}) }; }
   // login: lib.js login() on this capture's browser and context options
   async login(user = this.o.user, pass = this.o.pass) {
-    const { page } = await this.lib.login(this.backend.browserLike(), user, pass, this.backend.ctxOpts());
+    const { page } = await this.lib.login(this.backend.browserLike(), user, pass, this.ctxOpts());
     await this.adopt(page);
     return page;
   }
   // open(url): a page without logging in (a file:// page, a public site)
   async open(url) {
-    const ctx = await this.backend.browserLike().newContext(this.backend.ctxOpts());
+    const ctx = await this.backend.browserLike().newContext(this.ctxOpts());
     const page = await ctx.newPage();
     await this.adopt(page);
     await page.goto(url);
@@ -103,7 +107,7 @@ class Cam {
     if (typeof target.x === 'number' && typeof target.width === 'number') return target;
     const loc = typeof target === 'string' ? this.locator(target) : target;
     await loc.waitFor({ state: 'visible', timeout });
-    const b = await loc.boundingBox();
+    const b = await viewportBox(loc);
     if (!b) throw new Error(`no box for ${target}`);
     return b;
   }
@@ -332,4 +336,40 @@ class Cam {
 
 const round = (b) => b && { x: Math.round(b.x * 10) / 10, y: Math.round(b.y * 10) / 10, width: Math.round(b.width * 10) / 10, height: Math.round(b.height * 10) / 10 };
 
-module.exports = { Cam };
+// mapUp(box, frame, innerWidth): a box in a frame's own CSS px, in its
+// parent document's: the frame element's box there ({x, y, width}) plus
+// the box scaled by the zoom the frame is shown at — that element's width
+// over the frame's own viewport width. A tile frame under the shell's font
+// zoom (bx-shell's CSS zoom, 17 px: 17/13) is drawn that much larger than
+// its own px say.
+function mapUp(b, frame, innerWidth) {
+  const z = innerWidth > 0 ? frame.width / innerWidth : 1;
+  return { x: frame.x + b.x * z, y: frame.y + b.y * z, width: b.width * z, height: b.height * z };
+}
+
+// viewportBox(loc): where the element is on screen, CSS px of the page's
+// viewport. In the page's own document that is Playwright's box; in a
+// tile's frame Playwright's box is in the frame's unzoomed px (frame offset
+// included), off by the shell's font zoom — so the box is mapped up frame
+// by frame instead (mapUp), adding each frame's offset once.
+async function viewportBox(loc) {
+  const h = await loc.elementHandle();
+  if (!h) return null;
+  try {
+    let frame = await h.ownerFrame();
+    if (!frame || !frame.parentFrame()) return await h.boundingBox();
+    let b = await h.evaluate((el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; });
+    while (frame && frame.parentFrame()) {
+      const fe = await frame.frameElement();
+      try {
+        const outer = await fe.evaluate((el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width }; });
+        const innerWidth = await frame.evaluate(() => window.innerWidth);
+        b = mapUp(b, outer, innerWidth);
+      } finally { await fe.dispose(); }
+      frame = frame.parentFrame();
+    }
+    return b;
+  } finally { await h.dispose(); }
+}
+
+module.exports = { Cam, mapUp };

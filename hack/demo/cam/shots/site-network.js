@@ -1,13 +1,14 @@
 // shots/site-network.js — network approvals: Operations' new telematics
 // tile asks for network, and Tomás Reyes (CTO, an admin) decides where it
 // goes — through the egress approver, where every new destination will wait
-// for a person. The take unbinds the tile's `net` (the set has it bound
-// there, hack/demo/seed.sh), films the decision with the approver picked,
-// then binds it as the set had it.
+// for a person. The take unbinds the tile's `egress` interface (the set has
+// it bound there, hack/demo/seed.sh), films the decision with the approver
+// picked, then binds it as the set had it.
 'use strict';
 const site = require('../site');
 
 const TILE = 'apps/telematics';
+const SLOT = 'egress';
 const ROW = 'bx-bindings .row';
 
 module.exports = async (cam) => {
@@ -15,7 +16,7 @@ module.exports = async (cam) => {
   const select = row.locator('select').first();
   const opts = await select.evaluate((s) => [...s.options].map((o) => ({ value: o.value, label: o.textContent.trim(), disabled: o.disabled })));
   const pick = opts.find((o) => !o.disabled && o.value === 'apps/egress-approver');
-  if (!pick) throw new Error(`no egress approver among ${TILE}'s net options: ${JSON.stringify(opts)}`);
+  if (!pick) throw new Error(`no egress approver among ${TILE}'s ${SLOT} options: ${JSON.stringify(opts)}`);
   await select.selectOption(pick.value);
   await cam.settle();
   await cam.mark('decision', row, { option: pick.label });
@@ -34,7 +35,7 @@ module.exports.defaults = { who: 'tomas', screen: 'Network' };
 module.exports.setup = async (cam) => {
   await site.signIn(cam, cam.args.who, { screen: cam.args.screen });
   // the tile's network undecided again
-  await cam.page.context().request.fetch(`${cam.o.url}/api/xbin/bindings`, { method: 'DELETE', data: { component: TILE, slot: 'net' } });
+  await cam.page.context().request.fetch(`${cam.o.url}/api/xbin/bindings`, { method: 'DELETE', data: { component: TILE, slot: SLOT } });
   await cam.openShell();
   await site.tile(cam, TILE, 'telematics-feeds');
   await site.tile(cam, 'apps/egress-approver', '#meta');

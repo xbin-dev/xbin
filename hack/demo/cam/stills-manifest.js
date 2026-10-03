@@ -21,6 +21,19 @@ function pngSize(file) {
   } finally { fs.closeSync(fd); }
 }
 
+// publishable(side): the sidecar as it may leave this box — no URL of the
+// set (a loopback address and port), no local path among the shot's
+// arguments (--set ws=…), nothing else naming this machine
+function publishable(side) {
+  const { url, ...rest } = side;
+  const args = {};
+  for (const [k, v] of Object.entries(side.args || {})) {
+    if (typeof v === 'string' && (v.startsWith('/') || /^[a-z]+:\/\//i.test(v))) continue;
+    args[k] = v;
+  }
+  return { ...rest, args };
+}
+
 function main(dir) {
   if (!dir) { console.error('usage: stills-manifest.js DIR'); process.exit(2); }
   const stills = [];
@@ -29,6 +42,9 @@ function main(dir) {
     let side;
     try { side = JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { continue; }
     if (!side || !Array.isArray(side.stills) || !side.viewport) continue;
+    // the directory is what gets published: its sidecars too
+    side = publishable(side);
+    fs.writeFileSync(path.join(dir, f), JSON.stringify(side, null, 1) + '\n');
     let prev = -Infinity;
     for (const s of side.stills) {
       const file = path.join(dir, s.file);
@@ -53,7 +69,7 @@ function main(dir) {
   const out = {
     generated: new Date().toISOString(),
     timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    note: 'Stills of the demo film set (hack/demo, Larkspan) by hack/demo/cam/site-stills.sh. Mark boxes are CSS px in the viewport; multiply by dpr for image pixels.',
+    note: 'Stills of the demo film set (hack/demo, Larkspan) by hack/demo/cam/site-stills.sh. Mark boxes are CSS px in the viewport — inside a tile too, under the persona\'s font zoom; multiply by dpr for image pixels.',
     stills,
   };
   fs.writeFileSync(path.join(dir, 'shots.json'), JSON.stringify(out, null, 1) + '\n');
