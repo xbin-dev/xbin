@@ -54,17 +54,22 @@ function boardTpl(pv) {
   </screen>`;
 }
 
-// the seed sandbox: the definition's owner sets one of their sandboxes the team can see
+// the seed sandbox: the definition's owner sets one of their sandboxes the
+// team can see (once: the backend keeps the first, shown read-only)
 function seedTpl(pv) {
   const t = projectTeam(ctx.app);
+  if (pv.kind === 'team' && pv.level === 'owner' && pv.sandboxRef) {
+    return html`<section title="Seed sandbox" footer=${t.seed(pv.id).note || 'Members\' sandboxes fork from it; it holds no sign-in.'}>
+      <row title=${pv.sandboxRef} subtitle="the seed" icon="box" mono="title"/></section>`;
+  }
   const mine = t.seedChoices(pv);
   if (!mine) return nothing;
   const sd = t.seed(pv.id);
   return html`<section title="Seed sandbox" footer=${sd.err || sd.note || 'Members\' sandboxes fork from it; it holds no sign-in. Only one shared with the team can be forked.'}>
-    <row title=${pv.sandboxRef || 'none'} subtitle="the seed now" icon="box" mono="title"/>
+    <row title="none" subtitle="the seed now" icon="box"/>
     <picker label="Seed" value=${sd.ref || ''} options=${[{ value: '', label: mine.length ? 'one of yours shared with the team…' : '(none shared with the team)' }, ...mine.map((x) => ({ value: x.ref, label: `${x.name} · ${x.state}` }))]}
       @change=${(e) => t.setSeedRef(pv.id, e.value)}/>
-    <button icon="box" ?busy=${sd.busy} ?disabled=${!sd.ref} @tap=${() => t.setSeed(pv.id)}>${pv.sandboxRef ? 'Change the seed' : 'Set the seed'}</button>
+    <button icon="box" ?busy=${sd.busy} ?disabled=${!sd.ref} @tap=${() => t.setSeed(pv.id)}>Set the seed</button>
   </section>`;
 }
 
@@ -87,14 +92,21 @@ function workTpl(pv) {
   const t = projectTeam(app);
   const w = t.work(pv.id);
   if (!w) {
-    return html`<section footer="Your own half, in your own space: your sandbox, your tasks, your sign-in.">
-      <button icon="play" role="primary" @tap=${() => t.startWork(pv.id)}>Work on this</button></section>`;
+    const former = t.formerOf(pv.id);
+    return html`<section footer=${former ? `Your half (${former.name}) is archived: it is taken up again, with the definition as it is now.` : 'Your own half, in your own space: your sandbox, your tasks, your sign-in.'}>
+      <button icon="play" role="primary" @tap=${() => t.startWork(pv.id)}>${former ? 'Work on this again' : 'Work on this'}</button></section>`;
   }
   app.sbx.ensure('', '');
   const mine = (app.sbx.listAt('').sandboxes || []).filter((x) => x.mine && x.visibility !== 'team' && !['deleting', 'archived', 'error'].includes(x.state));
   const modes = [{ value: 'auto', label: 'a new one' }, ...(mine.length ? [{ value: 'pick', label: 'one of yours' }] : [])];
-  return html`<section title=${`Work on ${pv.name}`} footer=${w.err || w.note || (w.defHash ? 'What you accept runs in your sandbox, with your sign-in.' : 'A new sandbox is forked from the team\'s seed where that works for you.')}>
+  const seeded = !!t.seedProvider(pv);
+  const managers = seeded ? [] : t.workManagers();
+  const foot = w.err || w.note || (w.defHash ? 'What you accept runs in your sandbox, with your sign-in.'
+    : seeded ? 'A new sandbox is forked from the team\'s seed where that works for you.' : managers.length ? 'A new sandbox, from the manager picked.' : 'No sandbox manager is bound in your space: pick one of your own sandboxes.');
+  return html`<section title=${`Work on ${pv.name}`} footer=${foot}>
       <picker label="Its sandbox" style="segmented" value=${w.sandbox.mode === 'pick' ? 'pick' : 'auto'} options=${modes} @change=${(e) => t.setWork(pv.id, 'mode', e.value)}/>
+      ${w.sandbox.mode !== 'pick' && managers.length ? html`<picker label="Manager" value=${w.sandbox.provider || managers[0].provider} options=${managers.map((m) => ({ value: m.provider, label: m.title || m.provider }))}
+        @change=${(e) => t.setWork(pv.id, 'provider', e.value)}/>` : nothing}
       ${w.sandbox.mode === 'pick' ? html`<picker label="Sandbox" value=${w.sandbox.ref} options=${[{ value: '', label: 'pick one…' }, ...mine.map((x) => ({ value: x.ref, label: `${x.name} · ${x.state}` }))]}
         @change=${(e) => t.setWork(pv.id, 'ref', e.value)}/>` : nothing}
       <button role="primary" ?busy=${w.busy} @tap=${async () => { const r = await t.submitWork(pv.id); if (r && r.project) openProject(r.project.id); }}>${w.defHash ? 'Accept and start' : 'Continue'}</button>

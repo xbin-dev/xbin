@@ -14,8 +14,14 @@
 //   board    {gpid: [BoardRow]} (hidden rows are left out; hides [{gpid, member, n}])
 //   defs     {gpid: {hash, definition}}: a team definition's security part
 //   pending  {pid: {hash, accepted, pending}} of a membership
+//   syncOnRead {pid: {hash, accepted, pending}}: what reading the membership's
+//            definition finds (GET …/pending re-reads it, as T's does): the
+//            first read makes it its pending part and its defPending
 //   detect   {run: answer} of GET /runs/{id}/project/detect
 //   made     the bodies POST /memberships, …/seed, …/fork-base and POST /runs/{id}/project took
+// POST /memberships answers as T's handler does: 409 until `accept` is the
+// hash; an archived membership taken up again (200); 400 with no sandbox
+// when the definition has no seed to make one from.
 // moreSeed(base) adds them to a seed; teamSeed() is partitionSeed() with a
 // team board, a definition to work on (9) and a membership with changes
 // waiting (B+20 of definition 10).
@@ -24,7 +30,7 @@ import { partitionSeed, projSeed, task } from './projects-stub.mjs';
 export function PROJ_MORE_STUB(seed) {
   const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
   const M = window.__more = {
-    events: seed.events || {}, coord: {}, texts: [], board: seed.board || {}, hides: [], defs: seed.defs || {}, pending: seed.pending || {},
+    events: seed.events || {}, coord: {}, texts: [], board: seed.board || {}, hides: [], defs: seed.defs || {}, pending: seed.pending || {}, syncOnRead: seed.syncOnRead || {},
     detect: seed.detect || {}, made: [], nextPid: 2 ** 40 + 60,
   };
   const P = () => window.__proj;
@@ -69,6 +75,10 @@ export function PROJ_MORE_STUB(seed) {
     if (!def) return json({ error: 'no such team project' }, 404);
     if (b.accept !== def.hash) return json({ error: 'read the team project\'s definition first', defHash: def.hash, definition: def.definition }, 409);
     const src = P().projects.find((p) => p.id === b.team);
+    const old = P().projects.find((p) => p.kind === 'membership' && p.teamRef === b.team && p.state === 'archived');
+    if (old) { old.state = 'active'; old.defHash = def.hash; old.defPending = ''; old.version++; return json({ project: { ...old, home: undefined } }); }
+    const sb = b.sandbox || {};
+    if (!sb.ref && !(sb.new && sb.new.provider) && !(src && src.sandboxRef)) return json({ error: 'need {sandbox: {ref} or {new: {provider}}}: your workspace for the team project' }, 400);
     const id = M.nextPid++;
     const p = { ...src, id, uid: 'mem' + id, kind: 'membership', teamRef: b.team, owner: 'alice', level: 'owner', visibility: 'private', home: '', defHash: def.hash, defPending: '', version: 1 };
     P().projects.unshift(p);
@@ -82,7 +92,16 @@ export function PROJ_MORE_STUB(seed) {
     if (p) { p.sandboxRef = b.sandbox && b.sandbox.ref; p.version++; }
     return json({ jobs: [] }, 202);
   });
-  r('GET', new RegExp(`${API}/memberships/(\\d+)/pending$`), (m) => json(M.pending[m[1]] || { hash: '', accepted: null, pending: null }));
+  r('GET', new RegExp(`${API}/memberships/(\\d+)/pending$`), (m) => {
+    const found = M.syncOnRead[m[1]];
+    if (found) { // the definition re-read: its changes wait now
+      delete M.syncOnRead[m[1]];
+      M.pending[m[1]] = found;
+      const p = P().projects.find((x) => x.id === +m[1]);
+      if (p) { p.defPending = found.hash; p.version++; }
+    }
+    return json(M.pending[m[1]] || { hash: '', accepted: null, pending: null });
+  });
   r('POST', new RegExp(`${API}/memberships/(\\d+)/accept$`), (m, o) => {
     const b = body(o);
     const pend = M.pending[m[1]];

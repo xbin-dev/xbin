@@ -3804,9 +3804,11 @@ project's definition: Board and Settings):
   now** (its owner, where big tasks fork the project's sandbox): `POST
   /projects/{pid}/fork-base {now: true}`, confirmed first — the sandbox
   stops while the snapshot is taken.
-- **Activity** — the project's events (`GET /projects/{pid}/events`, every
-  page the first time, then only those after the last one held when a
-  `project` event says something changed), newest first: tasks made and
+- **Activity** — the project's events (`GET /projects/{pid}/events`,
+  which reads oldest first: at most five pages of 200 at a time — when
+  more wait, the page says so and **Read newer** goes on — then only those
+  after the last one held when a `project` event says something changed),
+  newest first: tasks made and
   finished, workspaces, pull requests, CI, reviews and comments, merges,
   notes — each with its task (its conversation one tap away) and the
   coordinator woken for it said. Their text comes partly from the scm
@@ -3844,18 +3846,25 @@ opens only for its own member, from their own space ("open (yours)"); a
 member who left is greyed ("no longer a member"), and the owner may hide a
 row (`POST /projects/{pid}/board/{member}/{n}/hide`). Its owner sets its
 **seed sandbox** there — one of their sandboxes the team can see
-(`POST /projects/{pid}/seed {sandbox: {ref}}`); it never holds a sign-in.
+(`POST /projects/{pid}/seed {sandbox: {ref}}`); it never holds a sign-in,
+and once set it is shown read-only (the backend keeps the first).
 From your own space, **Work on this** makes your half of it in your own
-space (`POST /memberships`, with your sandbox or a new one): it is first
+space (`POST /memberships`): its sandbox one of your own private ones
+(`sandbox: {ref}`) or a new one — left to the backend when a manager
+bound in your space serves the definition's seed (it forks the seed where
+that works for you), else `{new: {provider}}` from a manager you pick. A
+half you left or were removed from (archived) offers **Work on this
+again**, which takes it up again with the definition as it is now. It is first
 sent with nothing accepted, and the 409 that answers carries the
 definition's security part — its repos' setup scripts and the policy keys
 that run code or push (instructions, checks, the class, who answers, whose
 identity, reviews, pull requests…) — which the page shows in full before
 **Accept and start** sends exactly its hash (another 409: it changed
 meanwhile, shown again). Your half (`kind: "membership"`) leads to the
-team board, and when the team has changed that security part, its page
-shows **Review the team project's changes** (`GET
-/memberships/{pid}/pending`): what you accepted and what the team has now,
+team board; each time its page opens it re-reads the definition (`GET
+/memberships/{pid}/pending`, read once per open), and when the team has
+changed that security part, the page shows **Review the team project's
+changes**: what you accepted and what the team has now,
 side by side, each changed key and setup script marked; **Accept** (`POST
 /memberships/{pid}/accept {hash}`) adopts exactly what was shown — until
 then your tasks run what you accepted before. In your own space the
@@ -3965,7 +3974,7 @@ the list; a project — the coordinator (open it, write to it), the board as
 a section per column (each task a row: number, title, state, branch, pull
 requests, the words other modules add through `ext.card(task)`; a tap
 opens its conversation, a swipe cancels it), search and Mine, the latest
-activity and all of it, New task, From issues…, Warm, Fork base now; a
+activity (once the Activity screen has read it) and all of it, New task, From issues…, Warm, Fork base now; a
 new project. `native/project-settings.js`: status and your sign-in,
 repos, the policy in foldable groups (saved at the version the edit began
 at), members, archive and delete. `native/project-task.js` on a task's

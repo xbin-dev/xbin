@@ -152,10 +152,12 @@ ok('…set at the shared space', await waitCall(t, 'POST', '/projects/9/seed$'))
 const sc = (await calls(t, 'POST', '/projects/9/seed$'))[0];
 ok('…as {sandbox: {ref}}', sc.home === 'global' && JSON.stringify(sc.body) === '{"sandbox":{"ref":"apps/coding-sandbox|seedbox"}}', JSON.stringify(sc));
 ok('…and shown', await waitText(t, '#pteam-seed', 'apps/coding-sandbox|seedbox'));
+ok('…read-only once set (the backend keeps the first seed)', await t.waitForFunction(() => !document.querySelector('#pteam-seed-ref') && !document.querySelector('#pteam-seed-set'), null, { timeout: 5000 }).then(() => true, () => false));
 
 // Work on this: the security part first, accepted by its hash
 await t.click('#pteam-work');
 await t.waitForSelector('#pteam-form');
+ok('…a seed served here: no manager to pick', !(await t.$('#pteam-sbx-mgr')));
 await t.click('#pteam-go');
 ok('Work on this: asks first', await waitCall(t, 'POST', '/memberships$'));
 const m1 = (await calls(t, 'POST', '/memberships$'))[0];
@@ -181,6 +183,48 @@ ok('…sent', JSON.stringify((await calls(r, 'POST', `/memberships/${B + 20}/acc
 ok('…and the card goes', await r.waitForFunction(() => !document.querySelector('#pteam-review'), null, { timeout: 5000 }).then(() => true, () => false));
 ok('…said', await waitText(r, '.pflash', 'Accepted'));
 ok('no page errors (review)', re.length === 0, re.join(' | '));
+
+// Work on this, a definition with no seed: a new sandbox from a manager of yours
+const { page: w, errors: we } = await open(teamSeed(), { hash: '#proj=9', init: part });
+await w.waitForSelector('#pteam-work');
+ok('no seed set: Set the seed offered', !!(await w.$('#pteam-seed-set')));
+await w.click('#pteam-work');
+await w.waitForSelector('#pteam-sbx-mgr');
+ok('no seed: a manager of yours to pick', JSON.stringify(await w.$$eval('#pteam-sbx-mgr option', (els) => els.map((e) => e.value))) === '["apps/coding-sandbox"]');
+await w.click('#pteam-go');
+await w.waitForSelector('#psec');
+await w.click('#pteam-go');
+ok('…Accept and start sends {new: {provider}}', await waitCall(w, 'POST', '/memberships$', 2));
+const wb = (await calls(w, 'POST', '/memberships$')).map((c) => c.body);
+ok('…both times', JSON.stringify(wb) === JSON.stringify([{ team: 9, accept: '', sandbox: { new: { provider: 'apps/coding-sandbox' } } }, { team: 9, accept: 'd9', sandbox: { new: { provider: 'apps/coding-sandbox' } } }]), JSON.stringify(wb));
+ok('…your half is made (no 400)', await w.waitForFunction((id) => location.hash === `#proj=${id}`, B + 60, { timeout: 5000 }).then(() => true, () => false));
+ok('no page errors (work on this, no seed)', we.length === 0, we.join(' | '));
+
+// an archived half: Work on this again
+const aseed = teamSeed();
+aseed.projects = [...aseed.projects, { ...aseed.projects[3], id: B + 30, teamRef: 9, name: 'Team site', state: 'archived', defPending: '' }];
+aseed.tasks = { ...aseed.tasks, [B + 30]: [] };
+const { page: a, errors: ae } = await open(aseed, { hash: '#proj=9', init: part });
+await a.waitForSelector('#pteam-work');
+ok('an archived half: Work on this again', (await a.textContent('#pteam-work')) === 'Work on this again' && !(await a.$('#pteam-mine')));
+await a.click('#pteam-work');
+await a.click('#pteam-go');
+await a.waitForSelector('#psec');
+await a.click('#pteam-go');
+ok('…taken up again, and opened', await a.waitForFunction((id) => location.hash === `#proj=${id}`, B + 30, { timeout: 5000 }).then(() => true, () => false));
+ok('no page errors (work on this again)', ae.length === 0, ae.join(' | '));
+
+// your half re-reads the definition as its page opens: changes found then are offered
+const sseed = teamSeed();
+const found = sseed.pending[B + 20];
+sseed.projects = sseed.projects.map((x) => (x.id === B + 20 ? { ...x, defPending: '' } : x));
+sseed.pending = { [B + 20]: { hash: '', accepted: found.accepted, pending: null } };
+sseed.syncOnRead = { [B + 20]: found };
+const { page: o, errors: oe } = await open(sseed, { hash: `#proj=${B + 20}`, init: part });
+ok('a membership\'s page opening reads its definition', await waitCall(o, 'GET', `/memberships/${B + 20}/pending$`));
+ok('…the changes found are offered', await o.waitForSelector('#pteam-review #psec', { timeout: 5000 }).then(() => true, () => false));
+ok('…read once', (await calls(o, 'GET', `/memberships/${B + 20}/pending$`)).length === 1);
+ok('no page errors (review on open)', oe.length === 0, oe.join(' | '));
 
 // a team project's definition, from your own space
 const { page: n, errors: ne } = await open(teamSeed(), { hash: '#proj', init: part });

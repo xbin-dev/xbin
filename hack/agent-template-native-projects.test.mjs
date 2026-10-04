@@ -13,9 +13,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runNative } from './xbn/node.mjs';
 import { projSeed, partitionSeed } from '../builtin-templates/agent/test/projects-stub.mjs';
-import { moreSeed, teamSeed } from '../builtin-templates/agent/test/projects-more-stub.mjs';
+import { moreSeed, teamSeed, ev } from '../builtin-templates/agent/test/projects-more-stub.mjs';
 import { feedWords, plain, httpsUrl } from '../builtin-templates/agent/model/project-feed.js';
-import { boardWords, boardColumns, securityDiff } from '../builtin-templates/agent/model/project-team.js';
+import { boardWords, boardColumns, securityDiff, projectTeam } from '../builtin-templates/agent/model/project-team.js';
 import { upgradeOffer, candidateWords } from '../builtin-templates/agent/model/project-upgrade.js';
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url).pathname;
@@ -391,4 +391,108 @@ test('team projects: the team board, Work on this after the security part, the t
   assert.match(find(rv, { t: 'code', has: 'evil.sh' }).p.text, /^you accepted: npm ci\nthe team has now: npm ci && \.\/evil\.sh$/);
   assert.deepEqual(bodies(v, 'POST', new RegExp(`/memberships/${B + 20}/accept$`)), [{ hash: 'h2' }]);
   assert.match(find(topScreen(v.snapshots.accepted), { t: 'notice', p: { tone: 'ok' } }).p.text, /^Accepted/);
+});
+
+// --- fix round 1 ------------------------------------------------------------------------------------------
+
+test('Work on this: a definition with no seed sends {new: {provider}}, the manager picked; a set seed is read-only and sends none', async () => {
+  const seed = { ...teamSeed(), partition: 'user:alice' };
+  const r = await run(seed, [
+    { tap: btn('Work on this') },
+    { wait: 20 },
+    { snapshot: 'form' },
+    { tap: btn('Continue') },
+    { wait: 40 },
+    { tap: btn('Accept and start') },
+    { wait: 80 },
+  ], 'proj=9');
+  const form = topScreen(r.snapshots.form);
+  assert.deepEqual(find(form, { t: 'picker', p: { label: 'Manager' } }).p.options.map((o) => o.value), ['apps/coding-sandbox'], 'no seed: a manager of yours');
+  assert.deepEqual(bodies(r, 'POST', /\/memberships$/), [
+    { team: 9, accept: '', sandbox: { new: { provider: 'apps/coding-sandbox' } } },
+    { team: 9, accept: 'd9', sandbox: { new: { provider: 'apps/coding-sandbox' } } }]);
+  assert.equal(lastHash(r), `proj=${B + 60}`, 'your half is made (the backend refuses one with no sandbox and no seed)');
+
+  const s2 = { ...teamSeed(), partition: 'user:alice' };
+  s2.projects = s2.projects.map((p) => (p.id === 9 ? { ...p, sandboxRef: 'apps/coding-sandbox|seedbox' } : p));
+  const v = await run(s2, [{ snapshot: 'board' }, { tap: btn('Work on this') }, { wait: 20 }, { snapshot: 'form' }, { tap: btn('Continue') }, { wait: 40 }], 'proj=9');
+  const b = topScreen(v.snapshots.board);
+  assert.equal(find(b, { t: 'picker', p: { label: 'Seed' } }), null, 'a set seed: nothing to pick');
+  assert.equal(find(b, btn('Set the seed')), null);
+  assert.equal(find(b, btn('Change the seed')), null);
+  assert.ok(find(b, { t: 'row', p: { title: 'apps/coding-sandbox|seedbox', subtitle: 'the seed' } }), 'shown read-only');
+  assert.equal(find(topScreen(v.snapshots.form), { t: 'picker', p: { label: 'Manager' } }), null, 'a seed served here: the backend forks it');
+  assert.deepEqual(bodies(v, 'POST', /\/memberships$/), [{ team: 9, accept: '' }]);
+});
+
+test('Work on this again: an archived membership is taken up again', async () => {
+  const seed = { ...teamSeed(), partition: 'user:alice' };
+  const gone = { ...seed.projects[3], id: B + 30, teamRef: 9, name: 'Team site', state: 'archived', defPending: '' };
+  seed.projects = [...seed.projects, gone];
+  seed.tasks = { ...seed.tasks, [B + 30]: [] };
+  const r = await run(seed, [
+    { snapshot: 'board' },
+    { tap: btn('Work on this again') },
+    { tap: btn('Continue') },
+    { wait: 40 },
+    { tap: btn('Accept and start') },
+    { wait: 80 },
+  ], 'proj=9');
+  const b = topScreen(r.snapshots.board);
+  assert.equal(find(b, { t: 'row', p: { title: 'Your half of it' } }), null, 'an archived half is not "yours" now');
+  assert.ok(find(b, btn('Work on this again')));
+  assert.deepEqual(bodies(r, 'POST', /\/memberships$/).map((x) => x.accept), ['', 'd9']);
+  assert.equal(lastHash(r), `proj=${B + 30}`, 'the same half, active again');
+});
+
+test('a membership\'s page re-reads its definition when it opens: the team\'s changes found then are offered', async () => {
+  const seed = { ...teamSeed(), partition: 'user:alice' };
+  const found = seed.pending[B + 20];
+  seed.projects = seed.projects.map((p) => (p.id === B + 20 ? { ...p, defPending: '' } : p));
+  seed.pending = { [B + 20]: { hash: '', accepted: found.accepted, pending: null } };
+  seed.syncOnRead = { [B + 20]: found };
+  const r = await run(seed, [{ wait: 60 }, { snapshot: 'page' }], `proj=${B + 20}`);
+  assert.equal(called(r, 'GET', new RegExp(`/memberships/${B + 20}/pending$`)).length, 1, 'read once as it opens');
+  assert.ok(find(topScreen(r.snapshots.page), { t: 'row', p: { title: 'Review the team project\'s changes' } }), 'what the read found is offered');
+
+  const quiet = { ...teamSeed(), partition: 'user:alice' };
+  quiet.projects = quiet.projects.map((p) => (p.id === B + 20 ? { ...p, defPending: '' } : p));
+  quiet.pending = {};
+  const q = await run(quiet, [{ wait: 60 }, { snapshot: 'page' }], `proj=${B + 20}`);
+  assert.equal(called(q, 'GET', new RegExp(`/memberships/${B + 20}/pending$`)).length, 1);
+  assert.equal(find(topScreen(q.snapshots.page), { t: 'row', p: { title: 'Review the team project\'s changes' } }), null, 'nothing waits: no card');
+});
+
+test('the activity: a project\'s screen reads no events; Activity reads at most five pages, then Read newer goes on', async () => {
+  const seed = moreSeed();
+  seed.events = { 7: Array.from({ length: 1200 }, (_, i) => ev(i + 1, 7, 'note', 0, { text: `event ${i + 1}` })) };
+  const r = await run(seed, [
+    { snapshot: 'board' },
+    { tap: { t: 'row', p: { title: 'All activity' } } },
+    { wait: 60 },
+    { snapshot: 'feed' },
+    { tap: { t: 'row', p: { title: 'Read newer' } } },
+    { wait: 60 },
+    { snapshot: 'newer' },
+  ], 'proj=7');
+  const reads = () => called(r, 'GET', /\/projects\/7\/events\?/).map((c) => new URL(c.url, 'http://x').searchParams.get('since'));
+  assert.deepEqual(reads(), ['0', '200', '400', '600', '800', '1000'], 'five pages, then the sixth on Read newer');
+  assert.ok(find(topScreen(r.snapshots.feed), { t: 'row', p: { title: 'Read newer' } }), 'newer ones wait: said');
+  const top = all(topScreen(r.snapshots.newer), { t: 'row' }).find((x) => /^note/.test(x.p.title));
+  assert.match(top.p.subtitle, /^event 1200/, 'the newest first once read');
+  assert.equal(find(topScreen(r.snapshots.newer), { t: 'row', p: { title: 'Read newer' } }), null);
+});
+
+test('board events for two definitions within 300 ms: each board is read again', async () => {
+  const app = { projects: { take() {}, open() {}, opened: null, list: [], find: () => null }, emit() {} };
+  const t = projectTeam(app);
+  const loads = [];
+  t.load = (pid) => { loads.push(pid); };
+  t.boards.set(9, { items: [] });
+  t.boards.set(10, { items: [] });
+  app.projects.take({ type: 'project', data: { id: 9, change: 'board' } });
+  app.projects.take({ type: 'project', data: { id: 10, change: 'board' } });
+  app.projects.take({ type: 'project', data: { id: 9, change: 'board' } });
+  await new Promise((res) => setTimeout(res, 350));
+  assert.deepEqual(loads.sort((a, b) => a - b), [9, 10]);
 });

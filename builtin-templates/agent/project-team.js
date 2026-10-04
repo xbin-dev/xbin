@@ -40,8 +40,9 @@ export function teamLinkTpl(p, pv) {
   const mine = t.membershipOf(pv.id);
   if (mine) return html`<div class="pteamlink small" id="pteam-mine">You work on this in your own space: <a class="lnk" @click=${() => p.open(mine.id)}>${mine.name} ›</a></div>`;
   if (!t.canWork(pv)) return nothing;
-  return t.work(pv.id) ? workTpl(p, pv) : html`<div class="pteamlink"><button class="btn btnsm" id="pteam-work" @click=${() => t.startWork(pv.id)}>Work on this</button>
-    <span class="muted small">your own half, in your own space: your sandbox, your tasks, your sign-in</span></div>`;
+  const former = t.formerOf(pv.id);
+  return t.work(pv.id) ? workTpl(p, pv) : html`<div class="pteamlink"><button class="btn btnsm" id="pteam-work" @click=${() => t.startWork(pv.id)}>${former ? 'Work on this again' : 'Work on this'}</button>
+    <span class="muted small">${former ? `your half (${former.name}) is archived: taken up again, with the definition as it is now` : 'your own half, in your own space: your sandbox, your tasks, your sign-in'}</span></div>`;
 }
 
 // "Work on this": your sandbox, then the definition's security part to accept
@@ -51,10 +52,15 @@ function workTpl(p, pv) {
   const app = ctx.app;
   app.sbx.ensure('', '');
   const mine = (app.sbx.listAt('').sandboxes || []).filter((s) => s.mine && s.visibility !== 'team' && !['deleting', 'archived', 'error'].includes(s.state));
+  const seeded = !!t.seedProvider(pv);
+  const managers = seeded ? [] : t.workManagers();
   return html`<div class="pform" id="pteam-form">
     <b>Work on ${pv.name} in your own space</b>
     <div class="field"><label>Its sandbox</label>
-      <label class="chk"><input type="radio" name="pteam-sbx" .checked=${w.sandbox.mode !== 'pick'} @change=${() => t.setWork(pv.id, 'mode', 'auto')}> a new one (forked from the team's seed where that works for you)</label>
+      <label class="chk"><input type="radio" name="pteam-sbx" .checked=${w.sandbox.mode !== 'pick'} @change=${() => t.setWork(pv.id, 'mode', 'auto')}> a new one${seeded ? ' (forked from the team\'s seed where that works for you)' : ''}</label>
+      ${w.sandbox.mode !== 'pick' && !seeded ? (managers.length ? html`<select id="pteam-sbx-mgr" @change=${(e) => t.setWork(pv.id, 'provider', e.target.value)}>
+        ${managers.map((m, i) => html`<option value=${m.provider} ?selected=${w.sandbox.provider ? m.provider === w.sandbox.provider : i === 0}>${m.title || m.provider}</option>`)}</select>`
+        : html`<span class="muted small" id="pteam-sbx-none">no sandbox manager is bound in your space</span>`) : nothing}
       <label class="chk"><input type="radio" name="pteam-sbx" .checked=${w.sandbox.mode === 'pick'} ?disabled=${!mine.length} @change=${() => t.setWork(pv.id, 'mode', 'pick')}>
         one of your own private sandboxes${mine.length ? '' : ' (you have none)'}</label>
       ${w.sandbox.mode === 'pick' ? html`<select id="pteam-sbx-ref" @change=${(e) => t.setWork(pv.id, 'ref', e.target.value)}>
@@ -101,17 +107,22 @@ export function reviewCardTpl(p, pv) {
   </div>`;
 }
 
-// the seed sandbox: the definition's owner sets one the team can see
+// the seed sandbox: the definition's owner sets one the team can see (once:
+// the backend keeps the first, so a set seed is shown read-only)
 function seedTpl(pv) {
   const t = team();
+  if (pv.kind === 'team' && pv.level === 'owner' && pv.sandboxRef) {
+    return html`<div class="pteamlink small" id="pteam-seed"><span>Seed sandbox: <b class="mono">${pv.sandboxRef}</b></span>
+      <span class="muted">${t.seed(pv.id).note || 'members\' sandboxes fork from it; it holds no sign-in'}</span></div>`;
+  }
   const mine = t.seedChoices(pv);
   if (!mine) return nothing;
   const sd = t.seed(pv.id);
   const ref = sd.ref || '';
-  return html`<div class="pteamlink small" id="pteam-seed"><span>Seed sandbox: <b class="mono">${pv.sandboxRef || 'none'}</b></span>
+  return html`<div class="pteamlink small" id="pteam-seed"><span>Seed sandbox: <b class="mono">none</b></span>
     <select id="pteam-seed-ref" @change=${(e) => t.setSeedRef(pv.id, e.target.value)}><option value="" ?selected=${!ref}>${mine.length ? 'one of yours shared with the team…' : '(you have no sandbox shared with the team)'}</option>
       ${mine.map((x) => html`<option value=${x.ref} ?selected=${x.ref === ref}>${x.name} · ${x.state}</option>`)}</select>
-    <button class="btn ghost btnsm" id="pteam-seed-set" ?disabled=${sd.busy || !ref} @click=${() => t.setSeed(pv.id)}>${pv.sandboxRef ? 'Change the seed' : 'Set the seed'}</button>
+    <button class="btn ghost btnsm" id="pteam-seed-set" ?disabled=${sd.busy || !ref} @click=${() => t.setSeed(pv.id)}>Set the seed</button>
     <span class="muted">members' sandboxes fork from it; it holds no sign-in</span>
     ${sd.err ? html`<span class="err">${sd.err}</span>` : sd.note ? html`<span class="muted">${sd.note}</span>` : nothing}</div>`;
 }

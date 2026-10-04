@@ -154,10 +154,9 @@ function projectTpl(s) {
   const def = pv.kind === 'membership' ? team.definitionOf(pv) : null;
   const review = team.ensureReview(pv);
   const f = projectFeed(app);
-  f.ensure(pv.id);
-  const recent = f.items(pv.id, 4);
+  const recent = f.items(pv.id, 4); // the latest activity once its screen has read it (the read walks oldest first)
   return html`<screen title=${pv.name} subtitle=${[(pv.repos || []).map((r) => r.repo).join(', '), pv.state !== 'active' ? pv.state : ''].filter(Boolean).join(' · ')}
-      style="list" search=${p.filter.q} @search=${(e) => p.setFilter({ q: e.value || '' })} refreshable @refresh=${() => { p.refresh(pv.id); f.load(pv.id); }}>
+      style="list" search=${p.filter.q} @search=${(e) => p.setFilter({ q: e.value || '' })} refreshable @refresh=${() => { p.refresh(pv.id); if (f.feed(pv.id).loaded) f.load(pv.id); }}>
     <toolbar>
       ${c.act ? html`<menu icon="plus" label="New">
         <button icon="pencil" @tap=${() => { p.newTask(); push({ kind: 'project-task-new', pid: pv.id }); }}>New task</button>
@@ -183,7 +182,7 @@ function projectTpl(s) {
     </section>`)}
     ${list.next ? html`<section><row title="More tasks" icon="expand" @tap=${() => p.tasks(pv.id, p.filter, true)}/></section>` : nothing}
     <section title="Activity" footer="Text from the scm provider is shown as it came, plain.">
-      ${recent.length ? repeat(recent, (ev) => ev.id, (ev) => eventRow(pv, ev)) : html`<empty text="nothing yet"/>`}
+      ${recent.length ? repeat(recent, (ev) => ev.id, (ev) => eventRow(pv, ev)) : nothing}
       <row title="All activity" icon="clock" nav @tap=${() => push({ kind: 'project-events', pid: pv.id })}/>
     </section>
   </screen>`;
@@ -231,6 +230,7 @@ function eventsTpl(s) {
   const items = f.items(s.pid);
   return html`<screen title="Activity" subtitle=${pv ? pv.name : ''} style="list" refreshable @refresh=${() => f.load(s.pid)}>
     ${st.err ? html`<section><notice tone="danger" text=${st.err}/></section>` : nothing}
+    ${st.more ? html`<section footer="The oldest of this project's events are shown — newer ones wait."><row title="Read newer" icon="refresh" ?disabled=${st.loading} @tap=${() => f.load(s.pid)}/></section>` : nothing}
     <section footer="Tasks, workspaces, pull requests, CI and reviews, newest first. Text from the scm provider is shown as it came, plain.">
       ${items.length ? repeat(items, (ev) => ev.id, (ev) => eventRow(pv || { id: s.pid }, ev)) : html`<empty title=${st.loading ? 'loading…' : 'Nothing has happened yet'}/>`}
     </section>

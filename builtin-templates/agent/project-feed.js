@@ -67,6 +67,8 @@ export function feedTpl(p, pv) {
           ${w.text ? html`<span class="pevt">${w.text}</span>` : nothing}</span>
       </div>`;
     })}
+    ${st.more ? html`<div class="small" id="pfeed-more"><span class="muted">The oldest of this project's events are shown — newer ones wait.</span>
+      <button class="btn ghost btnsm" ?disabled=${st.loading} @click=${() => f.load(pv.id)}>Read newer</button></div>` : nothing}
     ${st.loading && !items.length ? html`<div class="muted small">loading…</div>` : !items.length && !st.err ? html`<div class="muted small empty-line">Nothing has happened yet.</div>` : nothing}
   </div>`;
 }

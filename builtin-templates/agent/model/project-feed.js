@@ -52,12 +52,16 @@ export function feedWords(ev) {
   };
 }
 
-const PAGES = 50; // at most this many pages of 200 read at once (30 days of events)
+// At most this many pages of 200 read at once. The events route reads
+// oldest first only (since=), so a project with more than 1,000 events in
+// its window shows its oldest ones first: `more` says newer ones wait, and
+// the next read (Read newer, or a `project` event) goes on from the last.
+const PAGES = 5;
 
 class Feed {
   constructor(app) {
     this.app = app;
-    this.feeds = new Map();  // pid → {items (oldest first), last, loading, err, loaded}
+    this.feeds = new Map();  // pid → {items (oldest first), last, loading, err, loaded, more}
     this.coords = new Map(); // pid → {run, busy, err, note, text}
     this.timers = new Map(); // pid → a coalesced read's timer
     const pj = app.projects;
@@ -68,7 +72,7 @@ class Feed {
   changed() { this.app.emit('projects'); }
   feed(pid) {
     let f = this.feeds.get(+pid);
-    if (!f) { f = { items: [], last: 0, loading: false, err: '', loaded: false, seq: 0 }; this.feeds.set(+pid, f); }
+    if (!f) { f = { items: [], last: 0, loading: false, err: '', loaded: false, more: false, seq: 0 }; this.feeds.set(+pid, f); }
     return f;
   }
 
@@ -78,8 +82,9 @@ class Feed {
     return limit ? all.slice(0, limit) : all;
   }
 
-  // load reads what is newer than the last event held (everything, the
-  // first time), page after page; a read already under way is let be.
+  // load reads what is newer than the last event held, page after page
+  // (at most PAGES; `more` when newer ones still wait); a read already
+  // under way is let be.
   async load(pid) {
     pid = +pid;
     const f = this.feed(pid);
@@ -87,13 +92,16 @@ class Feed {
     f.loading = true;
     const seq = f.seq;
     try {
+      let more = false;
       for (let i = 0; i < PAGES; i++) {
         const r = await projCall(projectHome(pid), `/projects/${pid}/events${qs({ since: f.last, limit: 200 })}`);
         if (seq !== f.seq) return; // forgotten meanwhile
         const items = (r && r.items) || [];
         for (const ev of items) if (ev.id > f.last) { f.items.push(ev); f.last = ev.id; }
-        if (!r || !r.next || !items.length) break;
+        more = !!(r && r.next && items.length);
+        if (!more) break;
       }
+      f.more = more;
       if (f.items.length > 500) f.items = f.items.slice(-500);
       f.err = '';
     } catch (e) { if (seq === f.seq) f.err = e.message; }

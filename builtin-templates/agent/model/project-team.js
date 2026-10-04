@@ -8,7 +8,8 @@
 //   const t = projectTeam(app);   // one per app, made on first use
 //   t.board(gpid) → {items, loading, err}; t.load(gpid); t.rows(gpid, me)
 //   t.work(gpid) → the "Work on this" state; t.startWork(gpid), t.submitWork(gpid)
-//   t.review(pid) → the pending changes; t.loadReview(pid), t.acceptReview(pid)
+//   t.review(pid) → the pending changes; t.ensureReview(pv) (it re-reads the
+//   definition once each time the membership's page opens), t.acceptReview(pid)
 //
 // A board row's text (title, waiting, branch, CI's current step) comes
 // from each member's partition: clipped and drawn as plain text, never
@@ -88,9 +89,17 @@ class Team {
     this.works = new Map();   // gpid → "Work on this": {sandbox, defHash, definition, err, busy}
     this.reviews = new Map(); // membership pid → {hash, accepted, pending, loading, err, busy, note}
     this.seeds = new Map();   // definition pid → the seed being set: {ref, busy, err, note}
+    this.boardT = new Map();  // gpid → a coalesced board read's timer
+    this.due = new Set();     // membership pids whose page opened and whose definition isn't re-read yet
+    this.syncing = new Set(); // … being re-read now
     const pj = app.projects;
     const take = pj.take.bind(pj);
     pj.take = (ev) => { take(ev); this.take(ev); };
+    // a membership re-reads its definition when its page opens (§Team
+    // projects): each open marks it due, its first draw reads it
+    const open = pj.open.bind(pj);
+    pj.open = (pid, ...rest) => { if (pid != null) this.due.add(+pid); return open(pid, ...rest); };
+    if (pj.opened != null) this.due.add(+pj.opened);
   }
 
   changed() { this.app.emit('projects'); }
@@ -145,9 +154,11 @@ class Team {
 
   /** seedChoices(pv): a definition owner's picks for its seed — your sandboxes
    * where the definition lives that the team can see (members' sandboxes
-   * fork only from one they can see; it holds no sign-in). */
+   * fork only from one they can see; it holds no sign-in). null when there
+   * is nothing to pick: not the owner, or a seed is set already (the
+   * backend keeps the first one: the view shows it, read-only). */
   seedChoices(pv) {
-    if (!pv || pv.kind !== 'team' || pv.level !== 'owner') return null;
+    if (!pv || pv.kind !== 'team' || pv.level !== 'owner' || pv.sandboxRef) return null;
     const home = projectHome(pv.id);
     this.app.sbx.ensure('', home);
     return ((this.app.sbx.listAt(home) || {}).sandboxes || []).filter((x) => x.mine && x.visibility === 'team' && !['deleting', 'archived', 'error'].includes(x.state));
@@ -175,23 +186,58 @@ class Team {
 
   // --- your half of it ---------------------------------------------------------------------
 
-  /** membershipOf(gpid): your membership of a team definition (a project of yours, kind membership), or null. */
+  /** membershipOf(gpid): your current membership of a team definition (a project of yours, kind membership), or null. */
   membershipOf(gpid) {
-    return this.app.projects.list.find((p) => p.kind === 'membership' && +p.teamRef === +gpid && p.state !== 'deleting') || null;
+    return this.app.projects.list.find((p) => p.kind === 'membership' && +p.teamRef === +gpid && !['deleting', 'archived'].includes(p.state)) || null;
+  }
+  /** formerOf(gpid): the membership you left or were removed from (archived): Work on this takes it up again. */
+  formerOf(gpid) {
+    return this.app.projects.list.find((p) => p.kind === 'membership' && +p.teamRef === +gpid && p.state === 'archived') || null;
   }
   /** definitionOf(pv): a membership's definition, as the list has it, or null. */
   definitionOf(pv) { return pv && pv.teamRef ? this.app.projects.find(pv.teamRef) : null; }
 
-  /** canWork(pv): may "Work on this" be offered — a team definition seen from your own space, no membership yet. */
+  /** canWork(pv): may "Work on this" be offered — a team definition seen from your own space, no current membership (an archived one is taken up again). */
   canWork(pv) { return !!pv && pv.kind === 'team' && pv.state === 'active' && partitionState() === 'user' && !this.membershipOf(pv.id); }
+
+  /** workManagers(): the sandbox managers bound in your own space (a new sandbox's). */
+  workManagers() {
+    this.app.sbx.ensure('', '');
+    return ((this.app.sbx.listAt('') || {}).managers || []).filter((m) => m.ok !== false);
+  }
+  /** seedProvider(pv): the provider of the definition's seed when a manager of
+   * yours serves it — a new sandbox may then be left to the backend, which
+   * forks the seed where that works for you — else ''. */
+  seedProvider(pv) {
+    const ref = (pv && pv.sandboxRef) || '';
+    const i = ref.lastIndexOf('|');
+    const prov = i > 0 ? ref.slice(0, i) : '';
+    return prov && this.workManagers().some((m) => m.provider === prov) ? prov : '';
+  }
 
   work(gpid) { return this.works.get(+gpid) || null; }
   startWork(gpid) {
-    this.works.set(+gpid, { sandbox: { mode: 'auto', ref: '' }, defHash: '', definition: null, err: '', busy: false, note: '' });
+    this.works.set(+gpid, { sandbox: { mode: 'auto', ref: '', provider: '' }, defHash: '', definition: null, err: '', busy: false, note: '' });
     this.changed();
   }
   setWork(gpid, k, v) { const w = this.work(gpid); if (w) { w.sandbox = { ...w.sandbox, [k]: v }; this.changed(); } }
   closeWork(gpid) { this.works.delete(+gpid); this.changed(); }
+
+  // workSandbox(gpid): the body's sandbox — {ref} one of yours; nothing
+  // when the definition's seed is served here (the backend makes a new one
+  // from the seed's manager, forking the seed where that works for you);
+  // else {new: {provider}}, the manager picked (the backend refuses a
+  // membership with neither). {error} when there is no way to one.
+  workSandbox(gpid) {
+    const w = this.work(gpid);
+    if (w.sandbox.mode === 'pick') return w.sandbox.ref ? { sandbox: { ref: w.sandbox.ref } } : { error: 'Pick a sandbox, or let one be made.' };
+    if (this.seedProvider(this.app.projects.find(gpid))) return {};
+    const ms = this.workManagers();
+    const prov = ms.some((m) => m.provider === w.sandbox.provider) ? w.sandbox.provider : (ms[0] || {}).provider;
+    if (prov) return { sandbox: { new: { provider: prov } } };
+    if (this.formerOf(gpid)) return {}; // taken up again: it keeps its own sandbox
+    return { error: 'No sandbox manager is bound in your space to make one: pick one of your own sandboxes.' };
+  }
 
   // submitWork: POST /memberships in your own space. The first try sends no
   // accepted hash: the backend answers 409 with the definition's security
@@ -200,10 +246,11 @@ class Team {
   async submitWork(gpid) {
     const w = this.work(gpid);
     if (!w) return null;
-    if (w.sandbox.mode === 'pick' && !w.sandbox.ref) { w.err = 'Pick a sandbox, or let one be made.'; this.changed(); return null; }
+    const sb = this.workSandbox(gpid);
+    if (sb.error) { w.err = sb.error; this.changed(); return null; }
     w.busy = true; w.err = ''; w.note = '';
     this.changed();
-    const body = { team: +gpid, accept: w.defHash || '', ...(w.sandbox.mode === 'pick' ? { sandbox: { ref: w.sandbox.ref } } : {}) };
+    const body = { team: +gpid, accept: w.defHash || '', ...sb };
     try {
       const r = await projCall('', '/memberships', 'POST', body);
       this.works.delete(+gpid);
@@ -243,12 +290,28 @@ class Team {
     this.changed();
   }
 
-  /** ensureReview(pv): a membership's pending changes, read once per pending hash; null when none wait. */
+  /** ensureReview(pv): a membership's pending changes, read once per pending
+   * hash — and once each time its page opens, which re-reads the definition
+   * (the backend's GET …/pending does) — null when none wait. */
   ensureReview(pv) {
-    if (!pv || pv.kind !== 'membership' || !pv.defPending) return null;
-    const r = this.review(pv.id);
-    if (!r || (r.for !== pv.defPending && !r.loading && !r.busy)) this.loadReview(pv.id, pv.defPending);
-    return this.review(pv.id);
+    if (!pv || pv.kind !== 'membership') return null;
+    const pid = +pv.id;
+    if (this.due.has(pid)) { this.due.delete(pid); if (pv.state === 'active') this.syncOpen(pid, pv.defPending || ''); }
+    const r = this.review(pid);
+    if (pv.defPending && !this.syncing.has(pid) && (!r || (r.for !== pv.defPending && !r.loading && !r.busy))) this.loadReview(pid, pv.defPending);
+    const cur = this.review(pid);
+    return cur && (pv.defPending || cur.pending) ? cur : null;
+  }
+
+  // syncOpen: the definition re-read as the page opens; when what waits is
+  // not what the page had, the membership is read again (its defPending).
+  async syncOpen(pid, had) {
+    this.syncing.add(pid);
+    try {
+      await this.loadReview(pid, had);
+      const r = this.review(pid);
+      if (r && !r.err && (r.hash || '') !== had) { r.for = r.hash || ''; await this.app.projects.refresh(pid); }
+    } finally { this.syncing.delete(pid); this.changed(); }
   }
 
   /** acceptReview(pid): adopt exactly the pending part shown (its hash); a 409 reads it again. */
@@ -304,7 +367,9 @@ class Team {
     const pid = +d.id;
     if (!pid) return;
     if (d.change === 'deleted') { this.boards.delete(pid); this.reviews.delete(pid); return; }
-    if (d.change === 'board' && this.boards.has(pid)) { clearTimeout(this.boardT); this.boardT = setTimeout(() => this.load(pid), 300); }
+    if (d.change === 'board' && this.boards.has(pid) && !this.boardT.has(pid)) { // coalesced per definition
+      this.boardT.set(pid, setTimeout(() => { this.boardT.delete(pid); if (this.boards.has(pid)) this.load(pid); }, 300));
+    }
     if (d.change === 'project' && this.reviews.has(pid)) this.reviews.delete(pid); // its pending part is read again when shown
   }
 }
