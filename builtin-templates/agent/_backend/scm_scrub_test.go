@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"os"
 	"strings"
@@ -66,6 +67,56 @@ func TestScrubOnShare(t *testing.T) {
 	}
 }
 
+// A credential that can't be emptied refuses the share — and keeps refusing
+// it while the file holds the value (the row stays live; the value is
+// revoked anyway); once the write works the share goes through. A …tmp a
+// write left behind goes too.
+func TestScrubOnShareRefused(t *testing.T) {
+	fx := credFixture(t, modeGlobal)
+	fx.ensure(t)
+	tok := fx.scm.Tokens()[0].Value
+	mux := fx.h.(*http.ServeMux)
+	stale := fx.credFile("github.com.cred.tmp")
+	if err := os.WriteFile(stale, []byte("password="+tok+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	share := func() *httptest.ResponseRecorder {
+		return callAs(t, mux, asAlice, "PATCH", "/sandboxes/"+url.PathEscape(fx.ref), map[string]any{"visibility": "team"})
+	}
+	for try := 1; try <= 2; try++ {
+		fx.m.FailNext("write", 500, "unavailable", "the disk is full")
+		if w := share(); w.Code != http.StatusBadGateway || !strings.Contains(w.Body.String(), "isn't shared") {
+			t.Fatalf("try %d: %d %s", try, w.Code, w.Body)
+		}
+		if !strings.Contains(readFile(t, fx.credFile("github.com.cred")), tok) {
+			t.Fatalf("try %d: the fault didn't hold the file", try)
+		}
+		if row := credRowOf(t, fx); row.State != credLive || row.Why != scrubShare || row.Refresh != 0 {
+			t.Fatalf("try %d: row %+v", try, row)
+		}
+		if scmCredsDue(fx.ag.db, fx.p, nil) != true {
+			t.Fatalf("try %d: a revoked value in the file isn't due", try)
+		}
+		conn, id, err := sbxDialRef(fx.ref, "alice")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if box, err := conn.Get(context.Background(), id); err != nil || sandboxShared(box) {
+			t.Fatalf("try %d: shared anyway: %+v %v", try, box, err)
+		}
+	}
+	if len(fx.scm.Revoked()) == 0 {
+		t.Fatal("not revoked while the file couldn't be emptied")
+	}
+	if w := share(); w.Code != 200 {
+		t.Fatalf("the share once the write works: %d %s", w.Code, w.Body)
+	}
+	fx.scrubbed(t, scrubShare, tok)
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("the …tmp a write left: %v", err)
+	}
+}
+
 // Stopping, archiving and deleting a sandbox through the agent, and Forget,
 // each take the credential out (Forget: before the provider forgets the
 // sign-in); Forget is a person's, in their own partition.
@@ -90,6 +141,25 @@ func TestScrubOnStopDeleteForget(t *testing.T) {
 			t.Fatalf("delete: %d %s", w.Code, w.Body)
 		}
 		fx.gone(t, scrubDelete, tok)
+	})
+	t.Run("archive", func(t *testing.T) {
+		fx := credFixture(t, modeGlobal)
+		fx.ensure(t)
+		tok := fx.scm.Tokens()[0].Value
+		if w := callAs(t, fx.h.(*http.ServeMux), asAlice, "POST", "/sandboxes/"+url.PathEscape(fx.ref)+"/archive", nil); w.Code != 200 {
+			t.Fatalf("archive: %d %s", w.Code, w.Body)
+		}
+		fx.scrubbed(t, scrubArchive, tok)
+	})
+	t.Run("a project the store doesn't list there", func(t *testing.T) {
+		fx := credFixture(t, modeGlobal)
+		fx.ensure(t)
+		tok := fx.scm.Tokens()[0].Value
+		projectsInSandbox = func(string) []*Project { return nil } // the row alone says whose: revoked at every bound provider
+		if w := callAs(t, fx.h.(*http.ServeMux), asAlice, "POST", "/sandboxes/"+url.PathEscape(fx.ref)+"/stop", nil); w.Code != 200 {
+			t.Fatalf("stop: %d %s", w.Code, w.Body)
+		}
+		fx.scrubbed(t, scrubStop, tok)
 	})
 	t.Run("forget", func(t *testing.T) {
 		fx := credFixture(t, modeUser)
@@ -123,6 +193,32 @@ func TestScrubOnStopDeleteForget(t *testing.T) {
 			t.Fatalf("at global: %d %s", w.Code, w.Body)
 		}
 	})
+}
+
+// The scrub job records §14.1's word: the one its queuer put in its step,
+// else a repo's job is a repo removed, an archived or deleting project's
+// archive or delete, a task's fork delete, else the sandbox left.
+func TestScrubJobWhy(t *testing.T) {
+	active, archived, deleting := &Project{State: projActive}, &Project{State: projArchived}, &Project{State: projDeleting}
+	fork := &ProjectTask{ForkMade: true, SandboxRef: "apps/cs|f"}
+	for _, c := range []struct {
+		p    *Project
+		k    *ProjectTask
+		j    *ProjectJob
+		want string
+	}{
+		{active, nil, &ProjectJob{Step: scrubForget}, scrubForget},
+		{active, nil, &ProjectJob{Step: "running"}, scrubLeft},
+		{active, nil, &ProjectJob{Repo: "web"}, scrubRepoRemoved},
+		{archived, nil, &ProjectJob{}, scrubArchive},
+		{deleting, nil, nil, scrubDelete},
+		{active, fork, &ProjectJob{}, scrubDelete},
+		{active, nil, &ProjectJob{}, scrubLeft},
+	} {
+		if got := scmScrubWhy(c.p, c.k, c.j); got != c.want {
+			t.Errorf("%+v %+v: %q, want %q", c.p.State, c.j, got, c.want)
+		}
+	}
 }
 
 // A 409 signin keeps the device code for that person and provider only (the

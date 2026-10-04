@@ -30,6 +30,9 @@ const (
 	scrubArchive = "archive"
 	scrubDelete  = "delete"
 	scrubForget  = "forget"
+	// the projects store's (a scrub job, scmScrubWhy)
+	scrubRepoRemoved = "repo-removed"
+	scrubLeft        = "left" // the sandbox left the project
 )
 
 // scmScrub empties p's credentials in ref ("" = every sandbox p wrote
@@ -74,47 +77,71 @@ func scmScrubRow(ctx context.Context, p *Project, c scmCredRow, why string, box 
 	if werr != nil && sbxRefusal(werr) == "not-found" {
 		werr = nil
 	}
-	scmRevoke(ctx, p, c)
+	scmRevoke(ctx, p, c) // whatever the files say: the value stops working
 	scmLiveDrop(key)
-	if err := agent.db.scmSetCredState(c.PID, c.Ref, c.Host, credScrubbed, why); err != nil && werr == nil {
-		werr = err
-	}
 	if werr != nil {
+		// The files may still hold the value: the row stays live (what
+		// scmLiveIn and scmScrub select, so the share stays refused and the
+		// next scrub tries again), due at once (scmCredsDue: the revoked
+		// value is replaced at the next turn, if the gate still allows it).
+		if err := agent.db.scmCredUnemptied(c.PID, c.Ref, c.Host, why); err != nil {
+			logf("project #%d: its credential in %s: %v", c.PID, c.Ref, err)
+		}
 		return fmt.Errorf("emptying the credential in %s: %w", c.Ref, werr)
+	}
+	if err := agent.db.scmSetCredState(c.PID, c.Ref, c.Host, credScrubbed, why); err != nil {
+		return fmt.Errorf("emptying the credential in %s: %w", c.Ref, err)
 	}
 	return nil
 }
 
-// scmRevoke asks the provider to revoke what it handed out for c's purpose.
+// scmRevoke asks the provider to revoke what it handed out for c's purpose
+// — p's provider, or every bound one when p's is unknown (a purpose names
+// one project and sandbox: another provider answers not-found).
 func scmRevoke(ctx context.Context, p *Project, c scmCredRow) {
-	if c.Purpose == "" || p.SCM == "" {
+	if c.Purpose == "" {
 		return
 	}
-	api, err := scmFor(p.SCM)
-	if err == nil {
-		rctx, cancel := context.WithTimeout(ctx, 15*time.Second)
-		err = api.Revoke(rctx, scmRevokeReq{Purpose: c.Purpose})
-		cancel()
+	providers := []string{p.SCM}
+	if p.SCM == "" {
+		providers = scmBound()
 	}
-	if err != nil && !scmRefused(err, scmRefNotFound) {
-		logf("project #%d: revoking its credential for %s at %s: %v", c.PID, c.Ref, p.SCM, err)
+	for _, name := range providers {
+		api, err := scmFor(name)
+		if err == nil {
+			rctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+			err = api.Revoke(rctx, scmRevokeReq{Purpose: c.Purpose})
+			cancel()
+		}
+		if err != nil && !scmRefused(err, scmRefNotFound) {
+			logf("project #%d: revoking its credential for %s at %s: %v", c.PID, c.Ref, name, err)
+		}
 	}
 }
 
 // scmProjectFor is the project a row of ref belongs to: the projects
-// store's (projectsInSandbox), else what the row itself says (its purpose
-// carries the project's uid) — enough to empty and revoke.
+// store's (projectsInSandbox), else its row in projects (the frozen DDL),
+// else what the row itself says (its purpose carries the project's uid) —
+// enough to empty and revoke. provider: the one the caller knows ("" =
+// the project's, else every bound one, scmRevoke).
 func scmProjectFor(c scmCredRow, provider string) *Project {
 	for _, p := range projectsInSandbox(c.Ref) {
 		if p.ID == c.PID {
 			return p
 		}
 	}
-	uid := ""
-	if rest, ok := strings.CutPrefix(c.Purpose, "proj:"); ok {
-		uid, _, _ = strings.Cut(rest, ":")
+	p := &Project{ID: c.PID, SCM: provider, Owner: c.ForUser, Host: c.Host, SandboxRef: c.Ref, State: projActive}
+	var uid, scm, owner string
+	if agent != nil && agent.db != nil && agent.db.q.QueryRow(`SELECT uid, scm, owner FROM projects WHERE id=?`, c.PID).Scan(&uid, &scm, &owner) == nil {
+		p.UID, p.Owner = uid, orStr(owner, p.Owner)
+		if provider == "" {
+			p.SCM = scm
+		}
 	}
-	return &Project{ID: c.PID, UID: uid, SCM: provider, Owner: c.ForUser, SandboxRef: c.Ref, State: projActive}
+	if rest, ok := strings.CutPrefix(c.Purpose, "proj:"); ok && p.UID == "" {
+		p.UID, _, _ = strings.Cut(rest, ":")
+	}
+	return p
 }
 
 // scmLiveIn is every live row in sandbox ref.
@@ -243,22 +270,39 @@ func scmSigninOver(j *ProjectJob) error {
 }
 
 // scmScrubJob is the scrub job: p's credentials out of k's fork (every sandbox
-// of p's, for a project's own job), why from the project's state.
+// of p's, for a project's own job), why from the job (scmScrubWhy).
 func scmScrubJob(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobOutcome, error) {
-	ref, why := "", "scrub"
+	ref := ""
 	if k != nil && k.ForkMade && k.SandboxRef != "" {
 		ref = k.SandboxRef
 	}
-	switch p.State {
-	case projArchived:
-		why = scrubArchive
-	case projDeleting:
-		why = scrubDelete
-	}
-	if err := scmScrub(ctx, p, ref, why); err != nil {
+	if err := scmScrub(ctx, p, ref, scmScrubWhy(p, k, j)); err != nil {
 		return jobOutcome{}, err
 	}
 	return jobOutcome{Done: true}, nil
+}
+
+// scmScrubWhy is the word a scrub job records (§14.1's): the one its
+// queuer put in the job's step, else what the job says — a repo's job is
+// a repo removed; an archived or deleting project, archive or delete; a
+// task's fork, delete (it goes next); else the sandbox left the project.
+func scmScrubWhy(p *Project, k *ProjectTask, j *ProjectJob) string {
+	if j != nil {
+		switch j.Step {
+		case scrubShare, scrubStop, scrubArchive, scrubDelete, scrubRepoRemoved, scrubForget, scrubLeft:
+			return j.Step
+		}
+		if j.Repo != "" {
+			return scrubRepoRemoved
+		}
+	}
+	switch {
+	case p.State == projArchived:
+		return scrubArchive
+	case p.State == projDeleting, k != nil && k.ForkMade:
+		return scrubDelete
+	}
+	return scrubLeft
 }
 
 // --- the refresher --------------------------------------------------------------------

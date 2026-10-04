@@ -3225,7 +3225,8 @@ The sign-in routes are a person's own, in their own partition (409 "sign in
 to ‹provider› from your own space" elsewhere; 403 for view-as and for
 components). A provider's refusal comes back with its status and its
 `refusal` (`signin`, `not-installed`, `identity`, `setup`, `limit`, …) and
-payload, as [/docs/scm.md](/docs/scm.md) §Errors lists them.
+payload, as [/docs/scm.md](/docs/scm.md) §Errors lists them; a 5xx that
+names none (a provider down behind xbind's gateway) is `unavailable`.
 
 **When a credential may go into a sandbox.** Checked before every write and
 every refresh, against the sandbox as its manager reports it now — never a
@@ -3275,6 +3276,8 @@ for people's terminals (`. .xbin/env`): a person's own `~/.gitconfig` and
 person's some hours) and is minted again before every git step of the
 workspace when it has less than 10 minutes left; a task whose credential is
 missing or due waits (`preparing`) while a `creds` job writes a fresh one.
+A repo added to the project, or `workflows` turned on, gets a credential
+that covers it at the next write, whatever the old one's time left.
 While a task of the project is at work, each token is also re-minted at the
 provider's `refreshAfter` (or at 75 % of its life, if sooner) and both files
 rewritten; an idle project's token is left to lapse.
@@ -3293,7 +3296,10 @@ credential that can't be emptied refuses the share), stopped or archived
 through the agent, or deleted (revoked only); the project is archived or
 deleted, a repo is removed, or the sandbox leaves the project; a task's
 fork is deleted; the person forgets their sign-in; or the gate refuses the
-sandbox.
+sandbox. When the files can't be emptied (the manager refused the write),
+the token is revoked anyway but the credential stays `live`, due at once:
+every later scrub tries again, a share stays refused until one succeeds,
+and the next turn has it replaced (or blocked) first.
 
 **Kept out of what is kept.** The agent holds a token in memory only;
 `GET /projects/{pid}/status` shows its metadata (`creds: [{sandbox, host,

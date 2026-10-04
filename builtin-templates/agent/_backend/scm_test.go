@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -112,9 +113,20 @@ func TestScmRefusalDecode(t *testing.T) {
 		t.Fatalf("a bare 503: %#v", err)
 	}
 	f.SetSignedIn("octocat", 583231)
-	f.FailNext("GET /repos", &scmError{Status: 502, Message: "GitHub said 500"})
+	f.FailNext("GET /repos", &scmError{Status: 502, Refusal: scmRefUpstream, Message: "GitHub said 500"})
 	if _, err = api.Repos(ctx, scmQuery{}); !errors.As(err, &se) || se.Refusal != scmRefUpstream {
+		t.Fatalf("a 502 that says upstream: %#v", err)
+	}
+	f.FailNext("GET /repos", &scmError{Status: 502, Message: "bad gateway"})
+	if _, err = api.Repos(ctx, scmQuery{}); !errors.As(err, &se) || se.Status != 502 || se.Refusal != scmRefUnavailable {
 		t.Fatalf("a 502 without a refusal: %#v", err)
+	}
+	// a bare 502 (xbind's gateway, the provider down): unavailable, worth a retry
+	bare := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusBadGateway) }))
+	defer bare.Close()
+	gw := &scmConn{E: scmEndpoint{Provider: "apps/gw", URL: bare.URL}}
+	if _, err := gw.Repos(ctx, scmQuery{}); !errors.As(err, &se) || se.Status != 502 || se.Refusal != scmRefUnavailable {
+		t.Fatalf("a bodyless 502: %#v", err)
 	}
 	if _, err = api.Pull(ctx, "acme/web", 7, scmAsPerson); !scmRefused(err, scmRefNotFound) {
 		t.Fatalf("not-found: %v", err)

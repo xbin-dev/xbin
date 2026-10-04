@@ -53,16 +53,17 @@ func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string, mi
 		scmBlock(ctx, p, k, ref, box, why)
 		return &scmGateError{Box: sbxLabel(box), Why: why}
 	}
-	if l := scmLiveGet(key); l != nil && l.identity == as && time.Until(time.UnixMilli(l.expires)) >= minLeft && scmRowLive(p.ID, ref, l.host) {
-		return nil
+	req := scmTokenReq{Repos: repos, Access: "write", As: as, Purpose: scmPurpose(p, ref)}
+	if scmPolicyOf(p).Workflows {
+		req.Permissions = map[string]string{"workflows": "write"}
+	}
+	if l := scmLiveGet(key); l != nil && l.identity == as && l.scope == scmScopeOf(req) &&
+		time.Until(time.UnixMilli(l.expires)) >= minLeft && scmRowLive(p.ID, ref, l.host) {
+		return nil // a repo added, or workflows turned on, since: minted again
 	}
 	api, err := scmFor(p.SCM)
 	if err != nil {
 		return err
-	}
-	req := scmTokenReq{Repos: repos, Access: "write", As: as, Purpose: scmPurpose(p, ref)}
-	if scmPolicyOf(p).Workflows {
-		req.Permissions = map[string]string{"workflows": "write"}
 	}
 	tok, err := api.Token(ctx, req)
 	if err != nil {
@@ -85,7 +86,7 @@ func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string, mi
 	}
 	key = scmLiveKey(p.ID, ref, host)
 	live := &scmLive{token: tok.Token, host: host, purpose: req.Purpose, identity: as, login: tok.Identity.Login,
-		author: tok.Author, expires: tok.ExpiresAt, refresh: tok.RefreshAfter, written: nowMs()}
+		author: tok.Author, expires: tok.ExpiresAt, refresh: tok.RefreshAfter, written: nowMs(), scope: scmScopeOf(req)}
 	if as == scmAsPerson {
 		live.forUser = p.Owner
 	}
@@ -180,6 +181,12 @@ func scmEmptyFiles(ctx context.Context, conn *sbxConn, id string, box *sbxSandbo
 			return err
 		}
 	}
+	// a write whose rename never ran left its …tmp behind
+	for _, f := range []string{dir + "/" + host + ".cred.tmp", dir + "/gh/hosts.yml.tmp"} {
+		if err := conn.Remove(ctx, id, f, false); err != nil && sbxRefusal(err) != "not-found" {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -206,9 +213,13 @@ func scmRun(ctx context.Context, conn *sbxConn, id, script string, env map[strin
 // emptied and revoked, the row says blocked with why, and the task (every
 // task of p working there, for no k) fails with the gate's words.
 func scmBlock(ctx context.Context, p *Project, k *ProjectTask, ref string, box *sbxSandbox, why string) {
+	unemptied := false
 	for _, c := range agent.db.scmCredsOf(p.ID, ref) {
 		if c.State == credLive {
-			scmScrubRow(ctx, p, c, why, box)
+			if err := scmScrubRow(ctx, p, c, why, box); err != nil {
+				logf("project #%d: %v", p.ID, err)
+				unemptied = true // the row stays live: the next scrub tries again
+			}
 		}
 	}
 	host := p.Host
@@ -217,8 +228,10 @@ func scmBlock(ctx context.Context, p *Project, k *ProjectTask, ref string, box *
 			host = c.Host
 		}
 	}
-	if err := agent.db.scmSetCredState(p.ID, ref, orStr(host, "-"), credBlocked, why); err != nil {
-		logf("project #%d: marking its credential in %s blocked: %v", p.ID, ref, err)
+	if !unemptied {
+		if err := agent.db.scmSetCredState(p.ID, ref, orStr(host, "-"), credBlocked, why); err != nil {
+			logf("project #%d: marking its credential in %s blocked: %v", p.ID, ref, err)
+		}
 	}
 	label := ref
 	if box != nil {

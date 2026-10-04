@@ -78,6 +78,22 @@ type scmLive struct {
 	author                    scmAuthor
 	expires, refresh, written int64 // unix ms
 	nextTry                   int64 // the refresher looks again no sooner (unix ms)
+	// scope is what it was minted for (scmScopeOf): repos and permissions
+	// — a project whose repos or policy changed since gets a new one.
+	scope string
+}
+
+// scmScopeOf is a token request's scope, comparable: its repos (sorted)
+// and permissions.
+func scmScopeOf(req scmTokenReq) string {
+	perms := make([]string, 0, len(req.Permissions))
+	for k, v := range req.Permissions {
+		perms = append(perms, k+"="+v)
+	}
+	sort.Strings(perms)
+	repos := append([]string(nil), req.Repos...)
+	sort.Strings(repos)
+	return req.Access + "|" + strings.Join(repos, ",") + "|" + strings.Join(perms, ",")
 }
 
 var (
@@ -260,6 +276,16 @@ func (d *DB) scmSetCredState(pid int64, ref, host, state, why string) error {
 	return err
 }
 
+// scmCredUnemptied: a scrub (why) couldn't empty the row's files — they
+// may still hold the (revoked) value. The row stays live, so every scrub
+// trigger selects it again (and a share stays refused), and due at once
+// (refresh_ms 0), so the gate has it replaced or blocked before a turn.
+func (d *DB) scmCredUnemptied(pid int64, ref, host, why string) error {
+	_, err := d.q.Exec(`UPDATE project_creds SET state=?, why=?, refresh_ms=0 WHERE project_id=? AND sandbox_ref=? AND host=?`,
+		credLive, why, pid, ref, host)
+	return err
+}
+
 // credsOf is p's rows (ref "" = in every sandbox).
 func (d *DB) scmCredsOf(pid int64, ref string) []scmCredRow {
 	if ref == "" {
@@ -280,12 +306,14 @@ func scmCredStatus(d *DB, pid int64) []StatusCred {
 }
 
 // scmDue is the workspace gate's question (scmCredsDue), from the
-// database alone: does k's sandbox (p's, for no task) lack a live
+// database alone and through t only (the gate holds the one connection in
+// its transaction): does k's sandbox (p's, for no task) lack a live
 // credential, or is it due within scmMinLeft? A project without repos needs
-// none.
+// none (ensure writes nothing for it, so asking would park its turns for
+// good).
 func scmDue(t *DB, p *Project, k *ProjectTask) bool {
 	ref := scmCredRef(p, k)
-	if t == nil || ref == "" || !scmActive(p) || len(projectReposOf(p.ID)) == 0 {
+	if t == nil || ref == "" || !scmActive(p) || !scmHasRepos(t, p.ID) {
 		return false
 	}
 	rows := t.scmCredsOf(p.ID, ref)
@@ -297,6 +325,15 @@ func scmDue(t *DB, p *Project, k *ProjectTask) bool {
 		}
 	}
 	return true
+}
+
+// scmHasRepos: project_repos (the projects store's, frozen DDL) lists a
+// repo of pid a token would cover (scmRepoNames' rule), read through t. No
+// table yet: none.
+func scmHasRepos(t *DB, pid int64) bool {
+	var n int
+	err := t.q.QueryRow(`SELECT count(*) FROM project_repos WHERE project_id=? AND repo<>'' AND state<>'removing'`, pid).Scan(&n)
+	return err == nil && n > 0
 }
 
 // --- paths, env and git config --------------------------------------------------------

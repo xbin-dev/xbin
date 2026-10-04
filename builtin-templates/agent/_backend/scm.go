@@ -140,7 +140,10 @@ func (c *scmConn) Provider() string { return c.E.Provider }
 // --- errors ---------------------------------------------------------------------------
 
 // scmStatusRefusal names the refusal a status means when the body didn't say
-// (xbind's own answers: a missing grant, a stopped backend).
+// (xbind's own answers: a missing grant, a stopped backend, a gateway whose
+// provider is down). Every 5xx is unavailable — worth a retry — but 501,
+// which the contract keeps for unsupported; upstream only when a body says
+// so.
 func scmStatusRefusal(status int) string {
 	switch status {
 	case http.StatusBadRequest:
@@ -157,8 +160,6 @@ func scmStatusRefusal(status int) string {
 		return scmRefLimit
 	case http.StatusNotImplemented:
 		return scmRefUnsupported
-	case http.StatusBadGateway:
-		return scmRefUpstream
 	}
 	if status >= 500 {
 		return scmRefUnavailable

@@ -14,12 +14,17 @@ import (
 )
 
 // The projects store's tables a credential test reads (P1's, as the spec
-// freezes them): members (the person gate), tasks, checkouts and jobs (the
-// task's workspace state). Made here only for the tests; the projects
+// freezes them): repos (the gate's question), members (the person gate),
+// tasks, checkouts and jobs (the task's workspace state). Made here only for the tests; the projects
 // store makes them in a build that has it.
 const scmTestProjectTables = `
 CREATE TABLE IF NOT EXISTS project_members (project_id INTEGER NOT NULL, user TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'participant',
   added_by TEXT NOT NULL DEFAULT '', created_ms INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (project_id, user));
+CREATE TABLE IF NOT EXISTS project_repos (project_id INTEGER NOT NULL, slug TEXT NOT NULL, repo TEXT NOT NULL, url TEXT NOT NULL DEFAULT '',
+  default_branch TEXT NOT NULL DEFAULT '', base_path TEXT NOT NULL DEFAULT '', mode TEXT NOT NULL DEFAULT 'bare',
+  checkout TEXT NOT NULL DEFAULT 'worktree', setup TEXT NOT NULL DEFAULT '', state TEXT NOT NULL DEFAULT 'pending',
+  error TEXT NOT NULL DEFAULT '', fetched_ms INTEGER NOT NULL DEFAULT 0, head TEXT NOT NULL DEFAULT '',
+  protected INTEGER NOT NULL DEFAULT -1, created_ms INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (project_id, slug));
 CREATE TABLE IF NOT EXISTS project_tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, project_id INTEGER NOT NULL, n INTEGER NOT NULL,
   run_id INTEGER NOT NULL DEFAULT 0, title TEXT NOT NULL DEFAULT '', slug TEXT NOT NULL DEFAULT '', size TEXT NOT NULL DEFAULT 'small',
   branch TEXT NOT NULL DEFAULT '', issue TEXT NOT NULL DEFAULT '', repos TEXT NOT NULL DEFAULT '[]', sandbox_ref TEXT NOT NULL DEFAULT '',
@@ -96,7 +101,7 @@ func credFixture(t *testing.T, mode agentMode) *credFx {
 	if mode != modeUser {
 		fx.p.Policy = json.RawMessage(`{"as":"bot"}`)
 	}
-	fx.repos = []ProjectRepo{{Slug: "web", Repo: "acme/web", Mode: repoBare, State: "ready", BasePath: fx.p.Dir + "/.repos/web.git"}}
+	fx.setRepos(t, ProjectRepo{Slug: "web", Repo: "acme/web", Mode: repoBare, State: "ready", BasePath: fx.p.Dir + "/.repos/web.git"})
 	oldIn, oldRepos, oldLevel := projectsInSandbox, projectReposOf, projectLevelOf
 	projectsInSandbox = func(ref string) []*Project {
 		if ref == fx.p.SandboxRef {
@@ -128,6 +133,22 @@ func credFixture(t *testing.T, mode agentMode) *credFx {
 		scmSigninMu.Unlock()
 	})
 	return fx
+}
+
+// setRepos makes repos the project's: what projectReposOf answers and
+// project_repos holds.
+func (fx *credFx) setRepos(t *testing.T, repos ...ProjectRepo) {
+	t.Helper()
+	fx.repos = repos
+	if _, err := fx.ag.db.q.Exec(`DELETE FROM project_repos WHERE project_id=?`, fx.p.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range repos {
+		if _, err := fx.ag.db.q.Exec(`INSERT INTO project_repos (project_id, slug, repo, base_path, mode, state) VALUES (?,?,?,?,?,?)`,
+			fx.p.ID, r.Slug, r.Repo, r.BasePath, orStr(r.Mode, repoBare), orStr(r.State, "ready")); err != nil {
+			t.Fatal(err)
+		}
+	}
 }
 
 // hostPath is a sandbox path on the host (the fake manager's sandboxes are
@@ -268,10 +289,20 @@ func TestGitCredentialFill(t *testing.T) {
 		t.Fatalf("user.email: %q", got)
 	}
 	// applied twice, the lines don't pile up
-	fx.p.Policy = json.RawMessage(`{"workflows":true}`) // another token request
+	fx.p.Policy = json.RawMessage(`{"workflows":true}`) // another scope: a second token, written again
 	fx.ensure(t)
+	if toks := fx.scm.Tokens(); len(toks) != 2 {
+		t.Fatalf("not written again: %d tokens", len(toks))
+	}
 	if got := git(base, "", "config", "--get-all", "credential.https://github.com.helper"); strings.Count(got, "\n") != 2 {
 		t.Fatalf("helpers after a second write: %q", got)
+	}
+	if got := git(base, "", "config", "--get-all", "user.email"); strings.Count(got, "\n") != 1 {
+		t.Fatalf("user.email after a second write: %q", got)
+	}
+	out = git(base, "protocol=https\nhost=github.com\npath=acme/web.git\n\n", "credential", "fill")
+	if !strings.Contains(out, "password="+fx.scm.Tokens()[1].Value+"\n") {
+		t.Fatalf("credential fill after a second write: %q", out)
 	}
 }
 
@@ -374,15 +405,89 @@ func TestCredsDue(t *testing.T) {
 	if scmCredsDue(db, fx.p, nil) {
 		t.Fatal("live again: not due")
 	}
-	fx.repos = nil
+	fx.setRepos(t)
 	set(`DELETE FROM project_creds`)
 	if scmCredsDue(db, fx.p, nil) {
 		t.Fatal("no repos: never due")
 	}
-	fx.repos = []ProjectRepo{{Slug: "web", Repo: "acme/web"}}
+	fx.setRepos(t, ProjectRepo{Slug: "web", Repo: "acme/web", State: "removing"})
+	if scmCredsDue(db, fx.p, nil) {
+		t.Fatal("a repo being removed: never due")
+	}
+	fx.setRepos(t, ProjectRepo{Slug: "web", Repo: "acme/web"})
 	fx.p.State = projArchived
 	if scmCredsDue(db, fx.p, nil) {
 		t.Fatal("archived: never due")
+	}
+}
+
+// The gate asks inside its transaction, which holds the database's one
+// connection: scmCredsDue reads through t alone — a seam that reads the
+// database itself (the projects store's, say) would wait forever there.
+func TestCredsDueInTx(t *testing.T) {
+	fx := credFixture(t, modeUser)
+	var waited atomic.Bool
+	projectReposOf = func(pid int64) []ProjectRepo { // as the projects store reads them: off the shared connection
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		var n int
+		if err := agent.db.sql.QueryRowContext(ctx, `SELECT count(*) FROM project_repos WHERE project_id=?`, pid).Scan(&n); err != nil {
+			waited.Store(true)
+		}
+		return fx.repos
+	}
+	fx.ensure(t)
+	for _, live := range []bool{true, false} {
+		if !live {
+			if _, err := fx.ag.db.q.Exec(`DELETE FROM project_creds`); err != nil {
+				t.Fatal(err)
+			}
+		}
+		got := make(chan bool, 1)
+		go func() {
+			_ = fx.ag.db.Tx(func(tx *DB) error {
+				got <- scmCredsDue(tx, fx.p, nil)
+				return nil
+			})
+		}()
+		select {
+		case due := <-got:
+			if waited.Load() {
+				t.Fatal("scmCredsDue inside a transaction waited on the database")
+			}
+			if due == live {
+				t.Fatalf("live %v: due %v", live, due)
+			}
+		case <-time.After(10 * time.Second):
+			t.Fatal("scmCredsDue inside a transaction waits on the database")
+		}
+	}
+}
+
+// A repo added to the project (or workflows turned on) since the live token
+// was minted: the next ensure — the creds job before the new repo's —
+// mints one covering it, though the old one has time left.
+func TestCredsCoverNewRepo(t *testing.T) {
+	fx := credFixture(t, modeGlobal)
+	fx.scm.AddRepo("acme/api", true)
+	fx.ensure(t)
+	fx.setRepos(t, append(fx.repos, ProjectRepo{Slug: "api", Repo: "acme/api", State: "ready", BasePath: fx.p.Dir + "/.repos/api.git"})...)
+	fx.ensure(t)
+	toks := fx.scm.Tokens()
+	if len(toks) != 2 || strings.Join(toks[1].Repos, ",") != "acme/api,acme/web" {
+		t.Fatalf("tokens: %+v", toks)
+	}
+	if got := readFile(t, fx.credFile("github.com.cred")); !strings.Contains(got, toks[1].Value) {
+		t.Fatalf("the file: %q", got)
+	}
+	fx.ensure(t)
+	if len(fx.scm.Tokens()) != 2 {
+		t.Fatal("the same scope minted again")
+	}
+	fx.p.Policy = json.RawMessage(`{"as":"bot","workflows":true}`)
+	fx.ensure(t)
+	if toks = fx.scm.Tokens(); len(toks) != 3 || toks[2].Permissions["workflows"] != "write" {
+		t.Fatalf("workflows turned on: %+v", toks)
 	}
 }
 
