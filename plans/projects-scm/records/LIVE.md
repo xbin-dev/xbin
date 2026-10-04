@@ -25,7 +25,7 @@
   a token (`redact` keeps `ghu_…`-style prefixes only); a refreshed pair is
   written back to `person.json` only (0600, atomically).
 - **Runs:** `TestLiveAppBot`, `TestLiveReads`, `TestLiveWrites` (several
-  times while fixing), `TestLiveS4` (51 s), `TestLivePersonS2` (26 s, 19:29–19:30 UTC, after the owner's device-flow sign-in — the first two codes expired unentered), and — not run — `TestLiveForget`, which revokes the owner's grant: it needs `XBIN_GH_LIVE_FORGET=1` and runs last, when the owner says.
+  times while fixing), `TestLiveS4` (51 s), `TestLivePersonS2` (26 s, 19:29–19:30 UTC, after the owner's device-flow sign-in — the first two codes expired unentered), and last `TestLiveForget` (2026-10-04, passed), which revoked the owner's grant (`XBIN_GH_LIVE_FORGET=1`): the owner's sign-in is gone, so every person check needs a new device-flow sign-in first.
 
 ## The spikes
 
@@ -50,7 +50,22 @@
   `POST /partition/identity {PAT}` → 403 `identity`. As built.
 - **Revocation endpoints for tokens the App never issued**
   (`DELETE /applications/{cid}/token` and `/grant`, the PAT or a made-up
-  `ghu_`): **404**, never 422. For a token this App issued and already revoked (a scoped token, `TestLivePersonS2`): `DELETE /applications/{cid}/token` **404**, its check 404, the token itself 401 — so G1's fix-round-4 handling (404 gone; 422 checked) matches. The grant's revocation (`TestLiveForget`) is still owed.
+  `ghu_`): **404**, never 422. For a token this App issued and already revoked (a scoped token, `TestLivePersonS2`): `DELETE /applications/{cid}/token` **404**, its check 404, the token itself 401 — so G1's fix-round-4 handling (404 gone; 422 checked) matches.
+- **Forget** (`TestLiveForget`, 2026-10-04, passed): `DELETE /scm/signin`
+  → global's `DELETE /applications/{cid}/grant` **204**, the sign-in and
+  the identity cleared. After it: the parent token **401**, a scoped token
+  **401**, GitHub's check of the parent **404**; `DELETE
+  /applications/{cid}/grant` and `/token` again with the parent: **404**;
+  `POST /partition/revoke-grant` again: **204** (404 is gone). The grant's
+  refresh token at `POST https://github.com/login/oauth/access_token`
+  (`client_id`, `grant_type=refresh_token`, no `client_secret` — exactly
+  what the template sends; the same refresh works while the grant is live,
+  `TestLivePersonS2`): error **`incorrect_client_credentials`**, not
+  `bad_refresh_token`. The template took only `bad_refresh_token` as the
+  sign-in over, so a grant revoked elsewhere (the person revoking the App
+  in their GitHub settings) left every person token request past the
+  access token's expiry a 502 `upstream`, and Forget refused for good once
+  the access token had expired — fixed, below.
 - **Installation lookup:** an account without the App →
   409 `not-installed`.
 
@@ -112,13 +127,16 @@ Each with a non-live test that fails without it (commit `04193f22`):
 | `GET /app/hook/config` for an App whose webhook is off: 404 | 200, `url: ""` | Paste failed outright (404 `not-found`) | 404 is no webhook; a PATCH refused the same way says to tick Active | `TestPasteAppWebhookOff`, every legacy-paste test; fixture `hook-config-webhook-off`; and live: Paste without `hookUrl` → 200 |
 | a token GitHub doesn't take, on any content route: 401 | 404 | (the person's refresh-on-401 never ran in tests) | — | `TestPersonReadRefreshesOn401`; fixture `installation-token-revoke` |
 | revoking or checking a token the App never issued: 404 | 422 (revoke) | handled (404 = gone) | — | fixtures `revoke-*-not-this-apps`, `check-token-*` |
+| a revoked grant's refresh token: `incorrect_client_credentials` | `bad_refresh_token` | only `bad_refresh_token` ended the sign-in: a token request 502 `upstream`, Forget refused for good once the access token expired | on `incorrect_client_credentials` the partition asks GitHub's check of the access token through global (new relay `POST /partition/check-token`, raw status): 404 ends the sign-in (Forget clears, 204; a token request 409 `signin`); anything else stays 502 `upstream`, nothing cleared (`b9a79693`) | `TestRevokedGrantEndsSignin`; fixture `refresh-after-grant-revoked` (message only: the HTTP status wasn't recorded) |
+| revoking an already revoked token of this App again (grant or token): 404 | 204 | handled (404 = gone) | — | fixture `revoke-again-after-grant`; `check-token-after-grant` (404) |
 | mint answer has `repository_selection`, `repositories` | absent | not read | — | fixture `mint-answer` |
 | a running job's log: 302, the target 404 | 404 at once | checks the job's status first | — | fixture `job-log-running` |
 
 
 `testdata/github-live.json` keeps GitHub's answers (token-free);
 `TestFakeMatchesLiveGitHub` asks the fake each and fails 10 of its 18
-App/bot cases against the fake as it was.
+App/bot cases against the fake as it was; Forget's three cases (21 now)
+failed two against the fake before `b9a79693`.
 
 ## Still owed
 
@@ -130,7 +148,6 @@ App/bot cases against the fake as it was.
   default branch, a rate limit actually spent, an installation on an
   organization (members/access events) — the test App has none of them.
 - Webhooks and events (G2's).
-- **Forget against real GitHub** (`TestLiveForget`: `DELETE /applications/{cid}/grant`, then the grant and token revocations again with the dead token, and the refresh token after it). It ends the owner's sign-in, so it runs last, when the owner says: `XBIN_GH_LIVE=1 XBIN_GH_LIVE_FORGET=1 go test -count=1 -v -run TestLiveForget .` in `_backend`.
 
 ## Owner questions
 
@@ -145,8 +162,11 @@ App/bot cases against the fake as it was.
   because nobody knew whether it would outlive it; live, it does, with its
   own 8 h life. The epoch could go (scoped tokens would live their full
   hour-or-more, fewer re-mints), or stay as a bound on how long a token
-  lives after the person's sign-in moves on. Default: it stays, as built.
+  lives after the person's sign-in moves on. **Answered:** the owner
+  keeps the epoch (2026-10-04): the cap is the safer bound (§5.7
+  unchanged).
 - **When to run `TestLiveForget`** (it revokes the owner's grant).
+  **Answered:** run 2026-10-04, last (above).
 
 ## Commits
 
@@ -154,7 +174,10 @@ App/bot cases against the fake as it was.
 |---|---|
 | `04193f22` | scm-github: what live GitHub answered — pull writes, drafts, the bot's repo permission, Paste without a webhook |
 | `17281685` | scm-github: live checks against real GitHub, run by hand; S3 and S4 answered |
-| (this commit) | plans: projects-scm — the live checks' record, G1's spikes and §19 |
+| `9952d923` | plans: projects-scm — the live checks' record, G1's spikes and §19 |
+| `37f41479` | plans: projects-scm — S2 answered live: a scoped token survives its parent's refresh |
+| `b9a79693` | scm-github: a grant revoked elsewhere ends the sign-in on refresh |
+| (this commit) | plans: projects-scm — Forget answered live; the epoch stays |
 
 Checks before the last commit: `go test ./internal/docscheck` ok;
 `make fmt-check vet` ok; the touched tests by name (non-live) ok;
