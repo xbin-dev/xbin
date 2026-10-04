@@ -625,7 +625,7 @@ func ciChanged(t *DB, root, wid int64) {
 	data := map[string]any{"root": root, "watch": wid, "summary": sum}
 	items := []map[string]any{}
 	for _, w := range ws {
-		items = append(items, map[string]any{"id": w.ID, "state": w.State, "outcome": w.Carded, "run": w.RunID})
+		items = append(items, map[string]any{"id": w.ID, "state": w.State, "outcome": w.Carded, "run": w.RunID, "repo": w.Repo, "ref": w.Ref})
 		if w.ID == wid {
 			data["state"], data["outcome"] = w.State, w.Carded
 		}
