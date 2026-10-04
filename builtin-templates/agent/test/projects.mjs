@@ -9,8 +9,8 @@
 // the crumb back, the branch and PR chips, Open PR once the route exists,
 // the prep card with Retry, the sign-in card (polled, then the task looked
 // at again); a `project` event; #proj=<id> on load with signing in to the
-// provider from the settings, and Forget; a phone's width; and a person's
-// partition (two homes).
+// provider from the settings, and Forget; a phone's width; a person's
+// partition (two homes); and the shared space's team definitions.
 //
 //   node test/projects.mjs        (needs playwright + a chromium build)
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
@@ -81,6 +81,9 @@ ok('the board has no horizontal scroll', await noHScroll(page));
 // --- a new task ------------------------------------------------------------------------------------------------
 await page.click('#ptask-new');
 await page.waitForSelector('#ptask-form');
+const agentOpts = await page.$$eval('#ptask-form select[data-f="agent"] option', (els) => els.map((e) => [e.value, e.textContent.trim()]));
+ok('who works on it: the project\'s default said as what it does, never a "builtin" a task can\'t ask for',
+  agentOpts.length > 0 && agentOpts[0][0] === '' && /default|built-in agent/.test(agentOpts[0][1]) && !agentOpts.some(([v]) => v === 'builtin'), JSON.stringify(agentOpts));
 await page.click('#ptask-create');
 ok('a task needs what to do', await waitText(page, '#ptask-form .err', 'Say what to do'));
 await page.fill('#ptask-form textarea', 'Make the header sticky');
@@ -164,7 +167,11 @@ await page.evaluate(() => { window.__proj.projects.find((p) => p.id === 7).versi
 await page.fill('#pol-maxTasks', '6');
 await page.dispatchEvent('#pol-maxTasks', 'change');
 await page.click('#pol-save');
-ok('a stale version: said, and the project read again', await waitText(page, '#pol-err', 'Someone changed this project meanwhile'));
+ok('a stale version: said, the project read again, the edit kept', await waitText(page, '#pol-err', 'Someone changed this policy meanwhile')
+  && (await page.inputValue('#pol-maxTasks')) === '6');
+await page.click('#pol-save');
+ok('…saved again at the version read', await page.waitForSelector('#pol-saved', { timeout: 5000 }).then(() => true, () => false)
+  && (await calls(page, 'PATCH', '/projects/7$')).pop().body.policy.maxTasks === 6);
 
 // members
 ok('members: the owner and bob', (await page.textContent('#pset-members')).includes('alice') && !!(await page.$('#pset-members .pmember[data-user="bob"]')));
@@ -289,7 +296,7 @@ await q.click('#projentry');
 await q.waitForSelector(`.pcard[data-pid="${B + 7}"]`);
 const qg = await q.$$eval('.projs-page h5', (els) => els.map((e) => e.textContent));
 ok('a partition: yours and team projects', JSON.stringify(qg) === '["Your projects","Team projects"]', qg.join(' | '));
-const homes = [...new Set((await calls(q, 'GET', '/projects\\?')).map((c) => c.home))].sort();
+const homes = [...new Set((await calls(q, 'GET', '/projects(\\?|$)')).map((c) => c.home))].sort();
 ok('…read from both homes', JSON.stringify(homes) === '["","global"]', JSON.stringify(homes));
 ok('…a team one says whose', (await q.textContent('.pcard[data-pid="9"]')).includes("carol's"));
 await q.click(`.pcard[data-pid="${B + 7}"]`);
@@ -303,6 +310,21 @@ await q.click('.pcard[data-pid="9"]');
 await q.waitForSelector('.pboard');
 ok('a team project is read at the shared space', (await calls(q, 'GET', '/projects/9$')).every((c) => c.home === 'global') && (await calls(q, 'GET', '/projects/9$')).length > 0);
 ok('no page errors (partition)', qe.length === 0, qe.join(' | '));
+
+// === a partitioned agent's shared space: a team project's definition ======================================
+const { page: g, errors: ge } = await open(projSeed(), { init: () => { window.xbin.partition = 'global'; } });
+await g.click('#projentry');
+await g.waitForSelector('#proj-new');
+await g.click('#proj-new');
+await g.waitForSelector('#proj-form .pnres[data-repo="acme/web"]');
+ok('the shared space: a seed sandbox, none at first', (await g.textContent('#proj-form')).includes('Its seed sandbox') && await g.isChecked('#proj-form input[name="pn-sbx"][value="none"]'));
+ok('…shared with the team at first', (await g.inputValue('#pn-vis')) === 'team');
+await g.click('#proj-form .pnres[data-repo="acme/web"] button');
+await g.click('#pn-create');
+ok('…posted as a team definition, shared, without a seed', await waitCall(g, 'POST', '/projects$'));
+const gb = (await calls(g, 'POST', '/projects$'))[0].body;
+ok('…its body', gb.kind === 'team' && gb.share && gb.share.visibility === 'team' && Array.isArray(gb.share.members) && !('sandbox' in gb), JSON.stringify(gb));
+ok('no page errors (shared space)', ge.length === 0, ge.join(' | '));
 
 await browser.close();
 done('projects');

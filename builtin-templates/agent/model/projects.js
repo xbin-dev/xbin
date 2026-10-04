@@ -124,8 +124,44 @@ export function can(pv) {
  * a person's own in their partition (it is private), nor a membership. */
 export const sharable = (pv, state = partitionState()) => !!pv && pv.kind !== 'membership' && !(state === 'user' && pv.kind === 'personal');
 
+/**
+ * agentChoices(view, harnesses): who may answer a new task, as the New task
+ * form and the issue picker offer it — [{value, label, disabled}]. A task
+ * names a coding agent or nothing, and nothing is the project's
+ * `policy.engine`: `builtin` the built-in agent; `auto` and `harness` the
+ * policy's `harness`, else the coding agent you last started a
+ * conversation with, else the built-in agent. So the built-in agent is
+ * offered by name only where nothing means it (the policy says `builtin`,
+ * or no coding agent is available); elsewhere the first choice says what
+ * the project's default does.
+ */
+export function agentChoices(pv, harnesses = []) {
+  const pol = (pv && pv.policy) || {};
+  const hs = harnesses || [];
+  const named = pol.harness ? (hs.find((h) => h.id === pol.harness) || { name: pol.harness }).name : '';
+  const label = pol.engine === 'builtin' ? 'the built-in agent (the project\'s default)'
+    : !hs.some((h) => h.available) ? 'the built-in agent (no coding agent is available)'
+    : `the project's default: ${named || 'the coding agent you used last, else the built-in agent'}`;
+  return [{ value: '', label, disabled: false },
+    ...hs.map((h) => ({ value: h.id, label: `${h.name}${h.available ? '' : ' (not available)'}`, disabled: !h.available }))];
+}
+
 // slug: what the backend makes of a repo's name (a hint in the form; the backend decides).
 export const repoSlug = (repo) => String(repo || '').split('/').pop().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
+
+// listAll: GET /projects at a home, page after page (a page is the
+// backend's; at most 40 pages are followed).
+async function listAll(home) {
+  const items = [];
+  let cursor = '';
+  for (let i = 0; i < 40; i++) {
+    const r = await listProjects(home, cursor ? { cursor } : {});
+    items.push(...((r && r.items) || []));
+    cursor = (r && r.next) || '';
+    if (!cursor) break;
+  }
+  return items;
+}
 
 const byActivity = (a, b) => (b.updatedMs || 0) - (a.updatedMs || 0) || (b.id || 0) - (a.id || 0);
 
@@ -170,10 +206,11 @@ export class Projects {
   // --- the list -----------------------------------------------------------------------
 
   // load reads GET /projects at every home this page has ('' and, in a
-  // person's partition, the shared space's team definitions).
+  // person's partition, the shared space's team definitions), every page of
+  // it (`next`), so the needs-you count covers them all.
   async load() {
     const homes = listHomes('mine');
-    const got = await Promise.all(homes.map((h) => listProjects(h, { limit: 200 }).then((r) => ({ h, items: (r && r.items) || [] }), (e) => ({ h, e }))));
+    const got = await Promise.all(homes.map((h) => listAll(h).then((items) => ({ h, items }), (e) => ({ h, e }))));
     const items = [];
     let err = '';
     for (const g of got) {
@@ -260,17 +297,21 @@ export class Projects {
     this.changed();
   }
 
-  // tasks reads a project's tasks (the board's; filter: q, mine).
+  // tasks reads a project's tasks (the board's; filter: q, mine). Only the
+  // latest read's answer is kept: an older one (an event's read, a word
+  // typed before) that arrives after it is dropped.
   async tasks(pid, filter = this.filter, more = false) {
-    const cur = this.taskRows.get(pid) || { items: [], next: '', loading: false, err: '' };
+    const cur = this.taskRows.get(pid) || { items: [], next: '', loading: false, err: '', seq: 0 };
+    const seq = cur.seq = (cur.seq || 0) + 1;
     cur.loading = true;
     this.taskRows.set(pid, cur);
     try {
       const r = await projectApi(this.app, pid).tasks({ q: filter.q, mine: filter.mine, limit: 200, cursor: more ? cur.next : '' });
+      if (seq !== cur.seq) return cur.items;
       cur.items = more ? [...cur.items, ...((r && r.items) || [])] : (r && r.items) || [];
       cur.next = (r && r.next) || '';
       cur.err = '';
-    } catch (e) { cur.err = e.message; }
+    } catch (e) { if (seq !== cur.seq) return cur.items; cur.err = e.message; }
     cur.loading = false;
     this.changed();
     return cur.items;
@@ -318,12 +359,14 @@ export class Projects {
 
   warm(pid = this.opened) { return this.act(() => projectApi(this.app, pid).warm(), pid); }
 
-  // patch: the owner's PATCH with the version it read — a stale one (412)
-  // reads the project again and says so; nothing is overwritten.
-  async patch(pid, body) {
+  // patch: the owner's PATCH with the version the change was made at
+  // (opts.version: a draft's or an input's, taken when the editing began;
+  // else the version last read) — a stale one (412) reads the project again
+  // and says so; nothing is overwritten.
+  async patch(pid, body, opts = {}) {
     const pv = this.find(pid);
     try {
-      const r = await projectApi(this.app, pid).patch({ version: pv ? pv.version : 0, ...body });
+      const r = await projectApi(this.app, pid).patch({ version: opts.version ?? (pv ? pv.version : 0), ...body });
       if (r && r.project) this.views.set(pid, { ...r.project, home: projectHome(pid) });
       await this.load();
       return r;
@@ -357,14 +400,20 @@ export class Projects {
 
   // --- the policy (settings) ----------------------------------------------------------
 
+  // The draft keeps the version it was read at and the keys the owner
+  // changed: a save sends that version, so a change someone made meanwhile
+  // (read in by a `project` event) is never saved over. On a 412 the draft
+  // is made again from what was read, with the owner's keys set on it —
+  // both changes shown, saved by the next Save.
   editPolicy(pid = this.opened) {
     const pv = this.find(pid);
-    this.draft = { pid, policy: JSON.parse(JSON.stringify((pv && pv.policy) || {})), dirty: false, err: '', saved: false };
+    this.draft = { pid, version: pv ? pv.version : 0, policy: JSON.parse(JSON.stringify((pv && pv.policy) || {})), touched: new Map(), dirty: false, err: '', saved: false };
     this.changed();
   }
   setPolicy(path, value) {
     if (!this.draft) this.editPolicy();
     this.draft.policy = policySet(this.draft.policy, path, value);
+    this.draft.touched.set(path, value);
     this.draft.dirty = true;
     this.draft.saved = false;
     this.changed();
@@ -373,14 +422,23 @@ export class Projects {
     const d = this.draft;
     if (!d) return;
     try {
-      await this.patch(d.pid, { policy: d.policy });
-      this.draft = { ...d, dirty: false, err: '', saved: true };
-    } catch (e) { d.err = e.message; }
+      const r = await this.patch(d.pid, { policy: d.policy }, { version: d.version });
+      const pv = (r && r.project) || this.find(d.pid);
+      this.draft = { ...d, version: pv ? pv.version : d.version, touched: new Map(), dirty: false, err: '', saved: true };
+    } catch (e) {
+      if (e.status === 412 && this.draft === d) {
+        const pv = this.find(d.pid);
+        let policy = JSON.parse(JSON.stringify((pv && pv.policy) || {}));
+        for (const [path, v] of d.touched) policy = policySet(policy, path, v);
+        this.draft = { ...d, version: pv ? pv.version : d.version, policy, err: 'Someone changed this policy meanwhile: their changes are shown with yours — check it and save again.' };
+      } else d.err = e.message;
+    }
     this.changed();
   }
 
-  rename(pid, name) { return this.act(() => this.patch(pid, { name }), pid); }
-  share(pid, visibility, teamRole) { return this.act(() => this.patch(pid, { visibility, teamRole }), pid); }
+  // rename, share: version — the one the person's input began at.
+  rename(pid, name, version) { return this.act(() => this.patch(pid, { name }, { version }), pid); }
+  share(pid, visibility, teamRole, version) { return this.act(() => this.patch(pid, { visibility, teamRole }, { version }), pid); }
 
   // --- members --------------------------------------------------------------------------
 
@@ -400,14 +458,15 @@ export class Projects {
   addRepo(pid, repo, setup = '') { return this.act(() => projectApi(this.app, pid).addRepo({ repo, ...(setup ? { setup } : {}) }), pid); }
   setSetup(pid, slug, setup) { return this.act(() => projectApi(this.app, pid).patchRepo(slug, { setup }), pid); }
   setCheckout(pid, slug, checkout) { return this.act(() => projectApi(this.app, pid).patchRepo(slug, { checkout }), pid); }
-  // removeRepo: 409 busy while open tasks use it — the view asks, then force.
+  // removeRepo: 409 `busy` while open tasks use it — the view asks, then
+  // force; any other refusal is said.
   async removeRepo(pid, slug, force = false) {
     try {
       await projectApi(this.app, pid).removeRepo(slug, force);
       await this.refresh(pid);
       return { ok: true };
     } catch (e) {
-      if (e.status === 409 && !force) return { busy: e.message };
+      if (e.status === 409 && e.refusal === 'busy' && !force) return { busy: e.message };
       this.fail(e);
       return { ok: false };
     }
@@ -426,13 +485,12 @@ export class Projects {
   closeTask() { this.taskForm = null; this.changed(); }
 
   // specOf: the form as a TaskSpec — the agent a coding agent's id ('' the
-  // policy's choice, 'builtin' the built-in agent), repos only when some
-  // are left out.
+  // policy's engine: agentChoices), repos only when some are left out.
   specOf(f) {
     const spec = { text: f.text.trim() };
     if (f.title.trim()) spec.title = f.title.trim();
     if (f.size === 'big') spec.size = 'big';
-    if (f.agent && f.agent !== 'builtin') spec.agent = { provider: f.agent };
+    if (f.agent) spec.agent = { provider: f.agent };
     if (f.repos.length && f.repos.length < (f.all || []).length) spec.repos = [...f.repos];
     return spec;
   }
@@ -482,14 +540,16 @@ export class Projects {
   async searchIssues(more = false) {
     const p = this.picker;
     if (!p || this.opened == null) return;
+    const seq = p.seq = (p.seq || 0) + 1; // only the latest search's answer is kept
     p.loading = true; p.err = '';
     this.changed();
     try {
       const r = await this.issues(this.opened, { repo: p.repo, q: p.q, state: p.state, cursor: more ? p.next : '' });
+      if (seq !== p.seq) return;
       const items = ((r && r.items) || []).map((i) => ({ ...i, repo: p.repo }));
       p.items = more ? [...p.items, ...items] : items;
       p.next = (r && r.next) || '';
-    } catch (e) { p.err = e.message; }
+    } catch (e) { if (seq !== p.seq) return; p.err = e.message; }
     p.loading = false;
     this.changed();
   }
@@ -507,7 +567,7 @@ export class Projects {
   async batch(pid, issues, opts = {}) {
     const body = { issues };
     if (opts.size === 'big') body.size = 'big';
-    if (opts.agent && opts.agent !== 'builtin') body.agent = { provider: opts.agent };
+    if (opts.agent) body.agent = { provider: opts.agent };
     if (opts.text) body.text = opts.text;
     const r = await projectApi(this.app, pid).batch(body);
     await this.tasks(pid);
@@ -570,13 +630,17 @@ export class Projects {
 
   // --- the new-project form ------------------------------------------------------------------------
 
+  // At a partitioned agent's global instance the form makes a team
+  // project's definition: shared with the team at once (or with the members
+  // added next), its seed sandbox optional.
   async newProject() {
     this.opened = null;
     this.route(null);
+    const team = partitionState() === 'global';
     this.form = { name: '', scm: '', repos: [], q: '', results: [], next: '', loading: false, err: '', busy: false,
-      sandbox: { mode: 'new', ref: '', provider: '', image: '', size: '', egress: '' },
+      sandbox: { mode: team ? 'none' : 'new', ref: '', provider: '', image: '', size: '', egress: '' },
       policy: { maxTasks: 3, autoPR: 'off', engine: 'auto', harness: '', as: '' },
-      share: { visibility: 'private', teamRole: 'viewer' } };
+      share: { visibility: team ? 'team' : 'private', teamRole: 'viewer' } };
     this.changed();
     await this.providers();
     const f = this.form;
@@ -604,14 +668,18 @@ export class Projects {
   async searchRepos(more = false) {
     const f = this.form;
     if (!f || !f.scm) return;
+    const seq = f.seq = (f.seq || 0) + 1; // only the latest search's answer is kept
     f.loading = true; f.err = '';
     this.changed();
     try {
       const r = await scmApi('').repos(f.scm, f.q, more ? f.next : '');
+      if (seq !== f.seq) return;
       const items = (r && r.items) || [];
       f.results = more ? [...f.results, ...items] : items;
       f.next = (r && r.next) || '';
-    } catch (e) { f.err = e.refusal === 'signin' ? 'Sign in to the provider to see your repos.' : e.message; f.refusal = e.refusal || ''; }
+    } catch (e) {
+      if (seq !== f.seq) return;
+      f.err = e.refusal === 'signin' ? 'Sign in to the provider to see your repos.' : e.message; f.refusal = e.refusal || ''; }
     f.loading = false;
     this.changed();
   }
@@ -631,11 +699,15 @@ export class Projects {
     if (!f.name.trim()) return { error: 'Name the project.' };
     if (!f.scm) return { error: 'Pick a provider.' };
     if (!f.repos.length) return { error: 'Add a repo.' };
+    const state = partitionState();
+    const team = state === 'global'; // a partitioned agent's global instance holds team definitions only
     const sb = f.sandbox;
     let sandbox;
     if (sb.mode === 'pick') {
       if (!sb.ref) return { error: 'Pick a sandbox, or make a new one.' };
       sandbox = { ref: sb.ref };
+    } else if (sb.mode === 'none' && team) {
+      sandbox = undefined; // a team definition's seed sandbox is optional
     } else {
       if (!sb.provider) return { error: 'No sandbox manager to make a sandbox with.' };
       sandbox = { new: { provider: sb.provider, ...(sb.image ? { image: sb.image } : {}), ...(sb.size ? { size: sb.size } : {}), ...(sb.egress ? { egress: sb.egress } : {}) } };
@@ -643,10 +715,10 @@ export class Projects {
     const policy = { maxTasks: Number(f.policy.maxTasks) || 3, autoPR: f.policy.autoPR || 'off', engine: f.policy.engine || 'auto' };
     if (f.policy.harness) policy.harness = f.policy.harness;
     if (f.policy.as) policy.as = f.policy.as;
-    const body = { name: f.name.trim(), scm: f.scm, repos: f.repos.map((r) => ({ repo: r.repo, ...(r.setup.trim() ? { setup: r.setup } : {}) })), sandbox, policy };
-    const state = partitionState();
-    if (state === 'global') body.kind = 'team'; // a partitioned agent's global instance holds team definitions only
-    else if (state === 'legacy' && f.share.visibility === 'team') body.share = { visibility: 'team', teamRole: f.share.teamRole, members: [] };
+    const body = { name: f.name.trim(), scm: f.scm, repos: f.repos.map((r) => ({ repo: r.repo, ...(r.setup.trim() ? { setup: r.setup } : {}) })), ...(sandbox ? { sandbox } : {}), policy };
+    const shared = { visibility: f.share.visibility === 'team' ? 'team' : 'private', teamRole: f.share.teamRole === 'participant' ? 'participant' : 'viewer', members: [] };
+    if (team) { body.kind = 'team'; body.share = shared; } // a person there must send share; private: only the members added next
+    else if (state === 'legacy' && f.share.visibility === 'team') body.share = shared;
     return { body };
   }
 
@@ -686,27 +758,45 @@ export class Projects {
   async signin(scm) {
     let s;
     try { s = await scmApi('').startSignin(scm); } catch (e) { s = { state: 'error', err: e.message }; }
-    this.signins.set(scm, s);
+    this.signins.set(scm, s && s.signin ? { ...s, pollId: s.signin.pollId } : s);
     this.changed();
     if (s.state === 'pending' && s.signin) this.pollSignin(scm, s.signin);
     return s;
   }
 
+  // pollSignin follows one sign-in (si.pollId) until it is done, denied or
+  // expired. The state it keeps names that pollId — a `done` of an earlier
+  // sign-in never counts for this one — and an error of the poll itself is
+  // tried again, later each time (5 s doubling to a minute; after 8 in a
+  // row it stops, state 'error', and the card offers Check again).
   pollSignin(scm, si) {
     clearTimeout(this.polls.get(scm));
+    const pollId = si.pollId;
+    const cur = this.signins.get(scm);
+    if (!cur || cur.pollId !== pollId) this.signins.set(scm, { state: 'pending', signin: si, pollId });
+    let fails = 0;
+    const every = () => Math.max(1000, si.intervalMs || 5000);
     const tick = async () => {
       let s;
-      try { s = await scmApi('').pollSignin(scm, si.pollId); } catch (e) { s = { state: 'error', err: e.message }; }
-      const keep = s.state === 'pending' ? { ...s, signin: s.signin || si } : s;
+      try { s = await scmApi('').pollSignin(scm, pollId); fails = 0; } catch (e) {
+        fails++;
+        const giveUp = fails >= 8;
+        this.signins.set(scm, { state: giveUp ? 'error' : 'pending', signin: si, pollId, err: e.message });
+        this.changed();
+        if (giveUp) this.polls.delete(scm);
+        else this.polls.set(scm, setTimeout(tick, Math.min(60e3, 5000 * 2 ** (fails - 1))));
+        return;
+      }
+      const keep = s.state === 'pending' ? { ...s, signin: s.signin || si, pollId } : { ...s, pollId };
       this.signins.set(scm, keep);
       this.changed();
-      if (s.state === 'pending') this.polls.set(scm, setTimeout(tick, Math.max(1000, s.retryAfterMs || si.intervalMs || 5000)));
+      if (s.state === 'pending') this.polls.set(scm, setTimeout(tick, Math.max(1000, s.retryAfterMs || every())));
       else {
         this.polls.delete(scm);
         if (s.state === 'done') { this.providers(true); if (this.form && this.form.scm === scm) this.searchRepos(); }
       }
     };
-    this.polls.set(scm, setTimeout(tick, Math.max(1000, si.intervalMs || 5000)));
+    this.polls.set(scm, setTimeout(tick, every()));
   }
 
   // forget: DELETE /projects/scm/signin — every credential of your projects is scrubbed first.

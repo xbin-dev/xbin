@@ -17,7 +17,7 @@
 // issue bodies) is untrusted: drawn as plain text, never markdown or HTML.
 import { html, nothing, repeat } from '/vendor/lit-all.min.js';
 import { ext, ctx } from './web-ext.js';
-import { can } from './model/projects.js';
+import { can, agentChoices } from './model/projects.js';
 import { cardWords, safeUrl } from './model/project-task.js';
 import { newProjectTpl } from './project-new.js';
 import { settingsTpl } from './project-settings.js';
@@ -165,13 +165,11 @@ function taskCardTpl(t) {
 
 // --- a new task --------------------------------------------------------------------------
 
-function agentOptions(f) {
+// who may answer: the project's default (said as what it does), or a coding agent by name
+function agentOptions(f, pv) {
   const app = ctx.app;
   app.harness.ensure();
-  const hs = (app.harness.catalog.harnesses || []);
-  return html`<option value="" ?selected=${!f.agent}>the project's default</option>
-    <option value="builtin" ?selected=${f.agent === 'builtin'}>the built-in agent</option>
-    ${hs.map((h) => html`<option value=${h.id} ?selected=${f.agent === h.id} ?disabled=${!h.available}>${h.name}${h.available ? '' : ' (not available)'}</option>`)}`;
+  return agentChoices(pv, app.harness.catalog.harnesses || []).map((c) => html`<option value=${c.value} ?selected=${(f.agent || '') === c.value} ?disabled=${c.disabled}>${c.label}</option>`);
 }
 
 function taskFormTpl(p, pv) {
@@ -185,7 +183,7 @@ function taskFormTpl(p, pv) {
       <div class="field"><label>Size</label><select @change=${set('size')}>
         <option value="small" ?selected=${f.size !== 'big'}>small — a worktree in the project's sandbox</option>
         <option value="big" ?selected=${f.size === 'big'}>big — its own sandbox, forked</option></select></div>
-      <div class="field"><label>Who works on it</label><select data-f="agent" @change=${set('agent')}>${agentOptions(f)}</select></div>
+      <div class="field"><label>Who works on it</label><select data-f="agent" @change=${set('agent')}>${agentOptions(f, pv)}</select></div>
     </div>
     ${(pv.repos || []).length > 1 ? html`<div class="field"><label>Repos</label>${pv.repos.map((r) => html`<label class="chk">
       <input type="checkbox" data-repo=${r.slug} .checked=${f.repos.includes(r.slug)} @change=${togRepo(r.slug)}> ${r.repo}</label>`)}</div>` : nothing}
@@ -226,7 +224,7 @@ function pickerTpl(p, pv) {
     <div class="row2">
       <div class="field"><label>Size</label><select @change=${set('size')}>
         <option value="small" ?selected=${k.size !== 'big'}>small</option><option value="big" ?selected=${k.size === 'big'}>big</option></select></div>
-      <div class="field"><label>Who works on them</label><select @change=${set('agent')}>${agentOptions(k)}</select></div>
+      <div class="field"><label>Who works on them</label><select @change=${set('agent')}>${agentOptions(k, pv)}</select></div>
     </div>
     ${k.err ? html`<div class="err">${k.err}</div>` : nothing}
     ${k.result ? html`<div class="err">${k.result.errors.map((x) => html`<div>${x.issue && typeof x.issue === 'object' ? `${x.issue.repo}#${x.issue.number}` : x.issue}: ${x.error}</div>`)}</div>` : nothing}

@@ -5,7 +5,10 @@
 // setup script — the project's name, its sandbox (a new one, or one of your
 // own private ones) and the policy basics (tasks at once, who answers, pull
 // requests, whose identity). In an unpartitioned agent it may be shared with
-// the team at once. The state is app.projects.form (model/projects.js).
+// the team at once; at a partitioned agent's shared space it makes a team
+// project's definition — shared with the team or with the members added
+// next, its seed sandbox optional. The state is app.projects.form
+// (model/projects.js).
 //
 // signinTpl (the provider's sign-in, its device code shown to you only) is
 // shared with the settings' status.
@@ -46,6 +49,7 @@ export function newProjectTpl(p) {
   const set = (k) => (e) => p.setForm(k, e.target.value);
   const setSb = (k) => (e) => p.setFormPart('sandbox', k, e.target.value);
   const setPol = (k) => (e) => p.setFormPart('policy', k, e.target.value);
+  const team = partitionState() === 'global';
   const create = () => { p.form.sandbox = { mode: sb.mode, ref: sb.ref, provider: sb.provider, image: sb.image, size: sb.size, egress: sb.egress }; p.saveProject(); };
   return html`<div class="autos-page projs-page" id="proj-form">
     <div class="ahd"><a class="crumb" @click=${() => p.closeForm()}>Projects</a> › <b>New project</b></div>
@@ -80,16 +84,18 @@ export function newProjectTpl(p) {
 
     <div class="field"><label>Name</label><input id="pn-name" .value=${f.name} @input=${set('name')} placeholder="Web"></div>
 
-    <h5>Its sandbox</h5>
+    <h5>${team ? 'Its seed sandbox' : 'Its sandbox'}</h5>
+    ${team ? html`<div class="muted small">A team project's tasks run in each member's own space; a seed sandbox (optional) is the start their sandboxes fork from. It holds no sign-in.</div>` : nothing}
     <div class="field">
-      <label class="chk"><input type="radio" name="pn-sbx" value="new" .checked=${sb.mode !== 'pick'} @change=${() => p.setFormPart('sandbox', 'mode', 'new')}> a new sandbox</label>
+      ${team ? html`<label class="chk"><input type="radio" name="pn-sbx" value="none" .checked=${sb.mode === 'none'} @change=${() => p.setFormPart('sandbox', 'mode', 'none')}> none</label>` : nothing}
+      <label class="chk"><input type="radio" name="pn-sbx" value="new" .checked=${sb.mode !== 'pick' && !(team && sb.mode === 'none')} @change=${() => p.setFormPart('sandbox', 'mode', 'new')}> a new sandbox</label>
       <label class="chk"><input type="radio" name="pn-sbx" value="pick" .checked=${sb.mode === 'pick'} ?disabled=${!mine.length}
         @change=${() => p.setFormPart('sandbox', 'mode', 'pick')}> one of your own${mine.length ? '' : ' (you have no private sandbox)'}</label>
     </div>
-    ${sb.mode === 'pick' ? html`<div class="field"><label>Sandbox</label><select id="pn-sbx-ref" @change=${setSb('ref')}>
+    ${team && sb.mode === 'none' ? nothing : sb.mode === 'pick' ? html`<div class="field"><label>Sandbox</label><select id="pn-sbx-ref" @change=${setSb('ref')}>
         <option value="" ?selected=${!sb.ref}>pick one…</option>
         ${mine.map((s) => html`<option value=${s.ref} ?selected=${s.ref === sb.ref}>${s.name} · ${s.manager || s.provider} · ${s.state}</option>`)}</select>
-        <div class="muted small">Its credentials are yours: a project works only in a private sandbox of your own.</div></div>`
+        <div class="muted small">${team ? 'The seed holds no sign-in: members\' sandboxes fork from it.' : 'Its credentials are yours: a project works only in a private sandbox of your own.'}</div></div>`
       : sb.usable.length ? html`<div class="row2">
         <div class="field"><label>Manager</label><select id="pn-sbx-mgr" @change=${setSb('provider')}>${sb.usable.map((m) => html`<option value=${m.provider} ?selected=${m.provider === sb.provider}>${m.title || m.provider}</option>`)}</select></div>
         <div class="field"><label>Image</label><select @change=${setSb('image')}>${((sb.m && sb.m.images) || []).map((i) => html`<option value=${i.id} ?selected=${i.id === sb.image}>${i.title || i.id}</option>`)}</select></div>
@@ -115,9 +121,9 @@ export function newProjectTpl(p) {
         <option value="" ?selected=${!f.policy.as}>the default (${prov.you.default || 'person'})</option>
         ${prov.you.identities.map((i) => html`<option value=${i} ?selected=${f.policy.as === i}>${i === 'bot' ? 'the provider\'s bot' : 'you'}</option>`)}</select></div>` : nothing}
     </div>
-    ${partitionState() === 'legacy' ? html`<div class="row2">
-      <div class="field"><label>Who can see it</label><select @change=${(e) => p.setFormPart('share', 'visibility', e.target.value)}>
-        <option value="private" ?selected=${f.share.visibility !== 'team'}>only you</option>
+    ${partitionState() === 'legacy' || team ? html`<div class="row2">
+      <div class="field"><label>Who can see it</label><select id="pn-vis" @change=${(e) => p.setFormPart('share', 'visibility', e.target.value)}>
+        <option value="private" ?selected=${f.share.visibility !== 'team'}>${team ? 'only the members you add next' : 'only you'}</option>
         <option value="team" ?selected=${f.share.visibility === 'team'}>everyone who can open this agent</option></select></div>
       ${f.share.visibility === 'team' ? html`<div class="field"><label>They may</label><select @change=${(e) => p.setFormPart('share', 'teamRole', e.target.value)}>
         <option value="viewer" ?selected=${f.share.teamRole !== 'participant'}>read</option>

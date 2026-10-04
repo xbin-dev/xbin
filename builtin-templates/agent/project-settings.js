@@ -169,7 +169,7 @@ function membersTpl(p, pv, c) {
         <option value="viewer" ?selected=${newMember.role === 'viewer'}>reads</option></select>
       <button class="btn btnsm" id="pset-member-add" @click=${async () => { const u = newMember.user; newMember = { user: '', role: newMember.role }; await p.addMember(pv.id, u, newMember.role); }}>Add</button></div>
       <div class="row2"><div class="field"><label>Everyone who can open this agent</label>
-        <select id="pset-vis" @change=${(e) => p.share(pv.id, e.target.value === 'private' ? 'private' : 'team', e.target.value === 'participant' ? 'participant' : 'viewer')}>
+        <select id="pset-vis" @change=${(e) => p.share(pv.id, e.target.value === 'private' ? 'private' : 'team', e.target.value === 'participant' ? 'participant' : 'viewer', pv.version)}>
           <option value="private" ?selected=${pv.visibility !== 'team'}>doesn't see it</option>
           <option value="viewer" ?selected=${pv.visibility === 'team' && pv.teamRole !== 'participant'}>reads it</option>
           <option value="participant" ?selected=${pv.visibility === 'team' && pv.teamRole === 'participant'}>makes and steers tasks</option></select></div></div>` : nothing}
@@ -179,7 +179,7 @@ function membersTpl(p, pv, c) {
 // --- the project itself ------------------------------------------------------------------------
 
 let delSandbox = 'keep';
-let newName = null;
+let newName = null; // {pid, text, version}: the name being typed, and the version it began at
 
 function projectTpl(p, pv, c) {
   if (!c.settings) return nothing;
@@ -188,9 +188,19 @@ function projectTpl(p, pv, c) {
     if (!confirm(`Delete the project "${pv.name}"${sb}? Its task conversations are deleted, their workspaces cleaned up.`)) return;
     p.remove(pv.id, pv.sandboxMade ? delSandbox : 'keep');
   };
+  const nm = newName && newName.pid === pv.id ? newName : null;
+  // a stale version (someone renamed it meanwhile) is said; the typed name stays, at the version read now
+  const rename = async () => {
+    const cur = newName && newName.pid === pv.id ? newName : null;
+    if (!cur || !cur.text.trim() || cur.text.trim() === pv.name) { newName = null; return; }
+    const r = await p.rename(pv.id, cur.text.trim(), cur.version);
+    const now = p.find(pv.id);
+    newName = r || !now ? null : { ...cur, version: now.version };
+    ctx.paint();
+  };
   return html`<section class="pset" id="pset-project"><h5>The project</h5>
-    <div class="pbtns"><input id="pset-name" .value=${newName ?? pv.name} @input=${(e) => { newName = e.target.value; }}>
-      <button class="btn ghost btnsm" @click=${async () => { if (newName && newName.trim() !== pv.name) await p.rename(pv.id, newName.trim()); newName = null; }}>Rename</button></div>
+    <div class="pbtns"><input id="pset-name" .value=${nm ? nm.text : pv.name} @input=${(e) => { const c = newName && newName.pid === pv.id ? newName : null; newName = { pid: pv.id, text: e.target.value, version: c ? c.version : pv.version }; }}>
+      <button class="btn ghost btnsm" @click=${rename}>Rename</button></div>
     <div class="pbtns">
       ${pv.state === 'archived' ? html`<button class="btn ghost btnsm" id="pset-unarchive" @click=${() => p.archive(pv.id, false)}>Unarchive</button>`
         : html`<button class="btn ghost btnsm" id="pset-archive" title="its credentials are removed, its fetches and queue stop; everything else is kept"

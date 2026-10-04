@@ -24,9 +24,9 @@ import { homeOf } from './model/homes.js';
 
 const pj = () => ctx.app.projects;
 const polled = new Set(); // sign-in polls started, by pollId
-const refreshed = new Set(); // task runs refreshed after their person signed in
-let busy = '';            // an action under way on the open task ('pr', 'retry')
-let note = '';            // what the last action said
+const refreshed = new Set(); // `${runId}:${pollId}`: a task refreshed after that sign-in was done
+const acts = new Map();   // runId → {busy, note}: an action under way on that task ('pr', 'retry'), what it said
+const actOf = (v) => acts.get(v.run.id) || { busy: '', note: '' };
 
 ext.register({
   top: (v) => chipsTpl(v),
@@ -44,6 +44,7 @@ function chipsTpl(v) {
   const pv = v.project ? p.ensure(v.project.id) : null;
   const chips = taskChips(v, pv);
   const pr = prButton(v, p.prRouteAt(homeOf(v.run.id), v.run.id), rules.access(v).talk);
+  const { busy, note } = actOf(v);
   const stop = (e) => e.stopPropagation();
   return html`<span class="ptchips" id="ptchips">
     ${chips.map((c) => (c.url ? html`<a class="badge pchip" data-kind=${c.kind} data-tone=${c.tone} href=${c.url} target="_blank" rel="noopener noreferrer" title=${c.title} @click=${stop}>${c.text} ↗</a>`
@@ -54,12 +55,14 @@ function chipsTpl(v) {
 }
 
 async function act(v, what, opts) {
-  busy = what; note = '';
+  const id = v.run.id;
+  acts.set(id, { busy: what, note: '' });
   ctx.paint();
-  try { await pj().taskAction(v.run.id, what, opts); note = what === 'pr' ? 'the pull request is being opened…' : ''; } catch (e) {
+  let note = '';
+  try { await pj().taskAction(id, what, opts); note = what === 'pr' ? 'the pull request is being opened…' : ''; } catch (e) {
     note = e.status === 404 && what === 'pr' ? '' : e.message;
   }
-  busy = '';
+  acts.set(id, { busy: '', note, err: !!note && !(what === 'pr' && note.startsWith('the pull request')) });
   ctx.paint();
 }
 
@@ -83,13 +86,22 @@ function prepTpl(v) {
   const card = prepCard(v, ctx.app.me);
   if (!card) return null;
   const canAct = rules.access(v).talk;
-  if (card.signin && card.signin.pollId && !polled.has(card.signin.pollId) && v.project) {
-    const pv = pj().ensure(v.project.id);
-    if (pv && pv.scm) { polled.add(card.signin.pollId); pj().pollSignin(pv.scm, card.signin); }
-  }
-  const st = card.signin && v.project ? pj().signinOf((pj().find(v.project.id) || {}).scm) : null;
-  // signed in: the task's credentials and workspace are looked at again now, once
-  if (st && st.state === 'done' && !refreshed.has(v.run.id)) { refreshed.add(v.run.id); pj().taskAction(v.run.id, 'refresh').catch(() => {}); }
+  const { busy, note, err } = actOf(v);
+  const pollId = card.signin && card.signin.pollId;
+  const pv = card.signin && v.project ? pj().ensure(v.project.id) : null;
+  if (pollId && !polled.has(pollId) && pv && pv.scm) { polled.add(pollId); pj().pollSignin(pv.scm, card.signin); }
+  // this card's sign-in only: a state of another (earlier) sign-in never counts
+  const st0 = pv && pv.scm ? pj().signinOf(pv.scm) : null;
+  const st = st0 && pollId && st0.pollId === pollId ? st0 : null;
+  // signed in: the task's credentials and workspace are looked at again now, once per sign-in
+  if (st && st.state === 'done' && !refreshed.has(`${v.run.id}:${pollId}`)) { refreshed.add(`${v.run.id}:${pollId}`); pj().taskAction(v.run.id, 'refresh').catch(() => {}); }
+  const signinWords = !st ? 'Only you see this code. The task goes on once you approve it there.'
+    : st.state === 'done' ? 'Signed in — the task goes on.'
+    : st.state === 'error' ? html`<span class="err">Couldn't learn whether you signed in: ${st.err}.</span>
+      <button class="btn ghost btnsm" id="ptask-signin-again" @click=${() => pj().pollSignin(pv.scm, card.signin)}>Check again</button>`
+    : ['denied', 'expired'].includes(st.state) ? `The sign-in was ${st.state}.`
+    : st.err ? `Only you see this code. Still waiting (checking again: ${st.err}).`
+    : 'Only you see this code. The task goes on once you approve it there.';
   return html`<div class="pprep" id="pprep" data-ws=${card.ws} data-tone=${card.tone}>
     <div class="pprh">${card.tone === 'run' ? html`<span class="spin"></span>` : html`<span class="pglyph">${card.tone === 'bad' ? '✗' : '!'}</span>`}
       <b>${card.title}</b>${card.step ? html`<span class="muted"> — ${card.step}</span>` : nothing}</div>
@@ -104,9 +116,9 @@ function prepTpl(v) {
       <div>To push, this task needs your own sign-in. Open
         ${card.signin.url ? html`<a href=${card.signin.url} target="_blank" rel="noopener noreferrer" id="ptask-signin-link">${card.signin.url}</a>` : 'the sign-in page'}
         and enter <b class="mono pcode" id="ptask-signin-code">${card.signin.userCode}</b></div>
-      <div class="muted small">${st && st.state === 'done' ? 'Signed in — the task goes on.' : 'Only you see this code. The task goes on once you approve it there.'}</div>
+      <div class="muted small" id="ptask-signin-state">${signinWords}</div>
     </div>` : card.signinElsewhere ? html`<div class="muted small" id="ptask-signin-other">${card.signinElsewhere}</div>` : nothing}
-    ${note && !busy ? html`<div class="err">${note}</div>` : nothing}
+    ${note && err && !busy ? html`<div class="err">${note}</div>` : nothing}
   </div>`;
 }
 

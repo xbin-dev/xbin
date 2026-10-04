@@ -7,8 +7,11 @@
 // projects_types.go, the frozen seam); the calls' homes (model/project-api.js:
 // a project's id says where it lives); and the store (app.projects: the list
 // from both homes, needs-you, a project's page, a task's spec, the
-// version-checked PATCH, the new-project body, the "Open PR" probe, the
-// `project` event coalesced). Run by `make js-test`.
+// version-checked PATCH — a draft's own version, a 412 keeping both
+// changes — the new-project body (a team definition at global), who may
+// answer a task, every page of the list, a repo's busy refusal, only the
+// latest answer kept, a sign-in followed by its pollId, the "Open PR"
+// probe, the `project` event coalesced). Run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
@@ -251,15 +254,18 @@ function projectsBackend(partition = 'user:alice') {
   const team = { ...seed.projects[0], id: 9, name: 'Team', kind: 'team', updatedMs: 1, home: undefined };
   let version = 3;
   let taskReads = 0;
+  const stored = { name: mine.name, policy: { ...mine.policy } }; // what PATCH changed
   const calls = backend([
-    ['GET', /^\/projects\?/, (m, o) => json({ items: o.partition === 'global' ? [team] : [mine, { ...mine, id: B + 8, state: 'archived', counts: { 'needs-you': 5 } }] })],
-    ['GET', /^\/projects\/(\d+)$/, () => json({ project: { ...mine, version } })],
+    ['GET', /^\/projects(\?.*)?$/, (m, o) => json({ items: o.partition === 'global' ? [team] : [mine, { ...mine, id: B + 8, state: 'archived', counts: { 'needs-you': 5 } }] })],
+    ['GET', /^\/projects\/(\d+)$/, () => json({ project: { ...mine, ...stored, version } })],
     ['PATCH', /^\/projects\/(\d+)$/, (m, o) => {
       const b = JSON.parse(o.body);
       if (b.version !== version) return json({ error: 'stale', version }, 412);
       version++;
-      return json({ project: { ...mine, version } });
+      for (const k of ['name', 'policy']) if (k in b) stored[k] = b[k];
+      return json({ project: { ...mine, ...stored, version } });
     }],
+    ['DELETE', /^\/projects\/\d+\/repos\/(\w+)/, (m) => (m[1] === 'api' ? json({ error: 'open tasks use api', refusal: 'busy' }, 409) : json({ error: 'the project is archived' }, 409))],
     ['GET', /^\/projects\/\d+\/tasks/, () => { taskReads++; return json({ items: seed.tasks[7], next: '' }); }],
     ['POST', /^\/projects\/\d+\/tasks$/, () => json({ task: { n: 9 }, run: { id: 1 } }, 201)],
     ['POST', /^\/projects$/, (m, o) => json({ project: { id: B + 50, ...JSON.parse(o.body) }, jobs: [] }, 201)],
@@ -267,7 +273,9 @@ function projectsBackend(partition = 'user:alice') {
   ], partition);
   for (const p of [mine]) p.counts = { 'needs-you': 3, working: 1 };
   team.counts = { 'needs-you': 2 };
-  return { calls, setVersion: (v) => { version = v; }, taskReads: () => taskReads };
+  // another writer: a change saved meanwhile (a new version)
+  const other = (ch) => { Object.assign(stored, ch); version++; };
+  return { calls, stored, other, setVersion: (v) => { version = v; }, taskReads: () => taskReads };
 }
 
 test('the list from both homes; needs-you counts live projects', async () => {
@@ -301,8 +309,8 @@ test('a project\'s page: open, the board, a new task\'s spec, a stale PATCH', as
   pj.setTask('repos', ['api']);
   assert.deepEqual(pj.specOf(pj.taskForm), { text: 'Make it fast', agent: { provider: 'claude' }, repos: ['api'] });
   pj.setTask('repos', ['web', 'api']);
-  pj.setTask('agent', 'builtin');
-  assert.deepEqual(pj.specOf(pj.taskForm), { text: 'Make it fast' }, 'all repos and the built-in agent: the defaults');
+  pj.setTask('agent', '');
+  assert.deepEqual(pj.specOf(pj.taskForm), { text: 'Make it fast' }, 'all repos and the project\'s default: nothing named');
   pj.setTask('repos', []);
   assert.equal(await pj.submitTask(), null);
   assert.equal(pj.taskForm.err, 'Pick a repo to work in.');
@@ -317,6 +325,96 @@ test('a project\'s page: open, the board, a new task\'s spec, a stale PATCH', as
   assert.equal(pj.find(B + 7).version, 9, 'read again');
   const ok = await pj.patch(B + 7, { name: 'x' });
   assert.equal(ok.project.version, 10);
+});
+
+test('the policy draft keeps its version: a change made meanwhile is never saved over', async () => {
+  const b = projectsBackend();
+  const pj = M.createProjects(fakeApp());
+  await pj.open(B + 7, 'settings');
+  b.stored.policy = { ...b.stored.policy, maxTasks: 3, autoPR: 'off' };
+  await pj.refresh(B + 7);
+  pj.editPolicy(B + 7);
+  assert.equal(pj.draft.version, 3);
+  pj.setPolicy('maxTasks', 5);
+  // someone sets autoPR meanwhile, and a `project` event reads it in
+  b.other({ policy: { ...b.stored.policy, autoPR: 'ready' } });
+  await pj.refresh(B + 7);
+  assert.equal(pj.find(B + 7).version, 4);
+  await pj.savePolicy();
+  const sent = b.calls.filter((c) => c.method === 'PATCH').at(-1).body;
+  assert.equal(sent.version, 3, 'the draft\'s version, not the one read since');
+  assert.match(pj.draft.err, /changed this policy meanwhile/);
+  assert.equal(b.stored.policy.autoPR, 'ready', 'nothing saved over');
+  assert.equal(pj.draft.policy.autoPR, 'ready', 'their change shown…');
+  assert.equal(pj.draft.policy.maxTasks, 5, '…with yours');
+  assert.equal(pj.draft.version, 4);
+  await pj.savePolicy();
+  assert.equal(pj.draft.saved, true);
+  assert.deepEqual([b.stored.policy.autoPR, b.stored.policy.maxTasks], ['ready', 5], 'both changes kept');
+  // a rename typed at an older version: 412, said
+  const old = pj.find(B + 7).version;
+  b.other({ name: 'Theirs' });
+  await pj.rename(B + 7, 'Mine', old);
+  assert.match(pj.err, /changed this project meanwhile/);
+  assert.equal(b.stored.name, 'Theirs');
+  // a repo: busy re-asks; another 409 is said
+  assert.deepEqual(await pj.removeRepo(B + 7, 'api'), { busy: 'open tasks use api' });
+  assert.deepEqual(await pj.removeRepo(B + 7, 'web'), { ok: false });
+  assert.equal(pj.err, 'the project is archived');
+});
+
+test('who answers a task: the built-in agent by name only where the default means it', () => {
+  const hs = [{ id: 'claude', name: 'Claude Code', available: true }, { id: 'codex', name: 'Codex', available: false }];
+  const c = (engine, harness, list = hs) => M.agentChoices({ policy: { engine, harness } }, list);
+  assert.deepEqual(c('auto', '').map((x) => x.value), ['', 'claude', 'codex'], 'no "builtin" value: a TaskSpec can\'t ask for it');
+  assert.match(c('auto', '')[0].label, /the project's default: the coding agent you used last, else the built-in agent/);
+  assert.match(c('harness', 'claude')[0].label, /default: Claude Code$/);
+  assert.match(c('auto', 'claude')[0].label, /default: Claude Code$/, 'auto takes the policy\'s harness first');
+  assert.match(c('builtin', '')[0].label, /^the built-in agent/);
+  assert.match(c('auto', '', [{ id: 'codex', name: 'Codex', available: false }])[0].label, /^the built-in agent \(no coding agent is available\)/);
+  assert.equal(c('auto', '')[2].disabled, true);
+});
+
+test('the list: every page of every home, no limit sent', async () => {
+  const pages = { '': { items: [{ id: B + 1, counts: { 'needs-you': 1 }, state: 'active' }], next: 'p2' }, p2: { items: [{ id: B + 2, counts: { 'needs-you': 2 }, state: 'active' }] } };
+  const calls = backend([['GET', /^\/projects(\?cursor=(\w+))?$/, (m, o) => json(o.partition === 'global' ? { items: [] } : pages[m[2] || ''])]], 'user:alice');
+  const pj = M.createProjects(fakeApp());
+  await pj.load();
+  assert.deepEqual(pj.list.map((p) => p.id).sort(), [B + 1, B + 2]);
+  assert.equal(pj.needsYou(), 3);
+  assert.ok(calls.every((c) => !/limit=/.test(c.path)));
+});
+
+test('only the latest answer is kept: an older one arriving last is dropped', async () => {
+  const gates = [];
+  backend([['GET', /^\/projects\/\d+\/tasks\?(.*)$/, (m) => new Promise((res) => gates.push(() => res(json({ items: [{ n: /q=fix/.test(m[1]) ? 1 : 2, title: m[1] }] }))))]], 'user:alice');
+  const pj = M.createProjects(fakeApp());
+  const older = pj.tasks(B + 7, { q: '', mine: false });
+  const newer = pj.tasks(B + 7, { q: 'fix', mine: false });
+  await wait(5);
+  gates[1]();
+  await newer;
+  gates[0]();
+  await older;
+  assert.deepEqual(pj.taskList(B + 7).items.map((t) => t.n), [1], 'the filtered answer stays');
+  assert.equal(pj.taskList(B + 7).loading, false);
+});
+
+test('a sign-in followed by its pollId; a poll error is tried again', async () => {
+  let fail = 2, polls = 0;
+  backend([['GET', /^\/projects\/scm\/signin\/p2/, () => { polls++; return fail-- > 0 ? json({ error: 'busy upstream' }, 502) : json({ state: 'done' }); }],
+    ['GET', /^\/projects\/scm(\?.*)?$/, () => json({ providers: [] })]], 'user:alice');
+  const pj = M.createProjects(fakeApp());
+  pj.signins.set('gh', { state: 'done', pollId: 'p1' }); // an earlier sign-in
+  const realSet = globalThis.setTimeout;
+  globalThis.setTimeout = (fn) => realSet(fn, 1); // no waiting in a test
+  try {
+    pj.pollSignin('gh', { pollId: 'p2', intervalMs: 5000 });
+    assert.deepEqual([pj.signinOf('gh').state, pj.signinOf('gh').pollId], ['pending', 'p2'], 'an earlier done never counts for this one');
+    for (let i = 0; i < 100 && pj.signinOf('gh').state !== 'done'; i++) await new Promise((r) => realSet(r, 5));
+  } finally { globalThis.setTimeout = realSet; }
+  assert.equal(polls, 3, 'two errors, then the answer');
+  assert.deepEqual([pj.signinOf('gh').state, pj.signinOf('gh').pollId], ['done', 'p2']);
 });
 
 test('the new-project form: what is missing, then the body', async () => {
@@ -341,6 +439,13 @@ test('the new-project form: what is missing, then the body', async () => {
   assert.equal(pj.formBody().body.share, undefined, 'a person\'s own project is never shared');
   globalThis.xbin.partition = 'global';
   assert.equal(pj.formBody().body.kind, 'team', 'a partitioned global instance holds team definitions only');
+  assert.deepEqual(pj.formBody().body.share, { visibility: 'team', teamRole: 'participant', members: [] }, 'a team definition is sent shared');
+  pj.form.sandbox = { mode: 'none' };
+  assert.equal('sandbox' in pj.formBody().body, false, 'its seed sandbox is optional');
+  pj.form.share.visibility = 'private';
+  assert.equal(pj.formBody().body.share.visibility, 'private', 'the members added next');
+  globalThis.xbin.partition = 'user:alice';
+  assert.equal(pj.formBody().error, 'No sandbox manager to make a sandbox with.', 'a project of your own needs its sandbox');
 });
 
 test('a `project` event: coalesced, the list, the open project and an open task read again', async () => {
