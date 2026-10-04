@@ -527,6 +527,7 @@ func (d *DB) descendants(id int64) ([]int64, error) {
 // INSERT itself, so two writers can never draw the same one (the old
 // SELECT MAX then INSERT could).
 func (d *DB) addMessage(m *Message) (int64, error) {
+	m.Content = scmRedact(m.Content) // no scm credential in a row (scm_creds.go)
 	m.Created = now()
 	m.Tokens = estimateTokens(m.Content) + estimateTokens(m.ToolCalls)
 	meta := ""
@@ -575,6 +576,7 @@ func (d *DB) toolResultRow(runID int64, toolCallID string) (id int64, content st
 }
 
 func (d *DB) rewriteMessage(runID, id int64, content string) error {
+	content = scmRedact(content) // no scm credential in a row (scm_creds.go)
 	if _, err := d.q.Exec(`UPDATE messages SET content=?, tokens=? WHERE id=?`, content, estimateTokens(content), id); err != nil {
 		return err
 	}

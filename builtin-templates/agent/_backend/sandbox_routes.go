@@ -222,6 +222,9 @@ func handlePatchSandbox(w http.ResponseWriter, r *http.Request) {
 				xbin.WriteError(w, http.StatusBadGateway, sbxLabel(box)+" isn't shared: "+err.Error()+" — try again")
 				return
 			}
+			if !scmScrubForShare(w, r.Context(), sandboxRef(rs.conn.M.Provider, rs.id), sbxLabel(box)) { // nor a project's scm credential (scm_scrub.go)
+				return
+			}
 		}
 	}
 	for attempt := 0; ; attempt++ {
@@ -254,6 +257,7 @@ func handlePatchSandbox(w http.ResponseWriter, r *http.Request) {
 	invalidateSandboxCatalog()
 	if sandboxShared(box) { // shared now: no saved sign-in stays in a coding agent there (D179, harness_creds.go)
 		stopCredsIn(sandboxRef(rs.conn.M.Provider, rs.id), sbxLabel(box)+" is shared now")
+		_ = scmScrubSandbox(r.Context(), sandboxRef(rs.conn.M.Provider, rs.id), scrubShare) // shared in the moment between (scm_scrub.go)
 	}
 	rs.entry.Box, rs.access = box, sandboxAccess(callerOf(r), box)
 	xbin.WriteJSON(w, http.StatusOK, rs.item())
@@ -293,6 +297,7 @@ func handleDeleteSandbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	invalidateSandboxCatalog()
+	projectSandboxGone(ref) // what a project handed out for it is revoked (scm_scrub.go)
 	n := detachEverywhere(ref)
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "detached": n})
 }
@@ -352,6 +357,9 @@ func handleSandboxAction(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeSbxErr(w, err)
 		return
+	}
+	if action == "stop" || action == "archive" { // no project's scm credential left in it (scm_scrub.go)
+		_ = scmScrubSandbox(r.Context(), ref, action)
 	}
 	box, err := conn.Lifecycle(r.Context(), id, action, wait, body.Start)
 	if err != nil {
