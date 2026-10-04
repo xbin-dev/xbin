@@ -91,6 +91,18 @@ func TestCredGateMatrix(t *testing.T) {
 		if got := scmCredWhy(&p, scmAsBot, p.SandboxRef, gateBox(alicePID)); got != "" {
 			t.Errorf("a membership as the bot under membersAsBot: %q", got)
 		}
+		p.FromSeed = true // the seed's clone: the bot's, never a person's
+		if got := scmCredWhy(&p, scmAsBot, p.SandboxRef, gateBox(alicePID)); got != "" {
+			t.Errorf("the bot in a seed clone: %q", got)
+		}
+		if got := scmCredWhy(&p, scmAsBot, "apps/cs|fork", gateBox(alicePID)); got != "" {
+			t.Errorf("the bot in a fork: %q", got)
+		}
+		box := gateBox(alicePID)
+		box.Shared = true
+		if got := scmCredWhy(&p, scmAsBot, p.SandboxRef, box); got != whyNotHomed {
+			t.Errorf("the bot in a sandbox seen through a share: %q", got)
+		}
 		if got := scmCredWhy(&p, scmAsBot, p.SandboxRef, gateBox("u-other")); got != whyNotHomed {
 			t.Errorf("bot, not homed: %q", got)
 		}

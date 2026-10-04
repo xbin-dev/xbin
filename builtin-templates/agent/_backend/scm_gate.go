@@ -100,7 +100,7 @@ func scmWhyWords(why string) string {
 }
 
 // scmHomeRe is what a sandbox's home must look like to be spliced into the
-// credential helper's line (§git config): an absolute path of plain
+// credential helper's line (scmGitConfigOf): an absolute path of plain
 // characters.
 var scmHomeRe = regexp.MustCompile(`^/[A-Za-z0-9._/-]+$`)
 
