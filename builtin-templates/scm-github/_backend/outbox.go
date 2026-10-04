@@ -88,6 +88,7 @@ type hub struct {
 	out    map[string]*outItem
 	counts evCounts
 	health healthRec
+	saved  healthRec                // as last written
 	window map[string]*checksWindow // repo|sha → a checks.completed still held to merge
 
 	// What the tests swap: the agents binding, the POST to a consumer, the
@@ -151,6 +152,7 @@ func (h *hub) load() {
 		}
 	}
 	_ = s.state.Get("events-health", &h.health)
+	h.saved = h.health
 }
 
 // startEvents resumes the events half at start (global and legacy): the

@@ -83,7 +83,7 @@ func (s *srv) handleHook(w http.ResponseWriter, r *http.Request) {
 		h.health.Hook = s.hookState()
 		h.counts.BadSig++
 		h.health.LastSigFailAt = now.UnixMilli()
-		h.saveHealth(true)
+		h.saveHealth()
 		h.mu.Unlock()
 		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "bad signature"})
 		return
@@ -98,7 +98,7 @@ func (s *srv) handleHook(w http.ResponseWriter, r *http.Request) {
 	h.counts.Received++
 	h.health.Hook = s.hookState()
 	h.health.LastDeliveryAt = now.UnixMilli()
-	h.saveHealth(false)
+	h.saveHealth()
 	h.mu.Unlock()
 	if ghEvent == "ping" {
 		writeJSON(w, http.StatusOK, map[string]string{"result": "pong"})
@@ -556,18 +556,17 @@ type healthRec struct {
 	LastSigFailAt  int64  `json:"lastSigFailAt"`
 }
 
-// saveHealth keeps the health record — at most once a minute for a new
-// delivery's time alone. h.mu held.
-func (h *hub) saveHealth(now bool) {
-	s := h.s
-	var prev healthRec
-	_ = s.conf.Get("events", &prev)
-	if !now && prev.Hook == h.health.Hook && prev.LastSigFailAt == h.health.LastSigFailAt &&
-		h.health.LastDeliveryAt-prev.LastDeliveryAt < time.Minute.Milliseconds() {
+// saveHealth keeps the health record when it changes — a new delivery's
+// or a bad signature's time at most once a minute, so a stranger's bad
+// signatures cost a write a minute at most. h.mu held.
+func (h *hub) saveHealth() {
+	p, minute := h.saved, time.Minute.Milliseconds()
+	if p.Hook == h.health.Hook && h.health.LastSigFailAt-p.LastSigFailAt < minute && h.health.LastDeliveryAt-p.LastDeliveryAt < minute {
 		return
 	}
-	_ = s.state.Put("events-health", h.health)
-	_ = s.conf.Put("events", h.health)
+	_ = h.s.state.Put("events-health", h.health)
+	_ = h.s.conf.Put("events", h.health)
+	h.saved = h.health
 }
 
 // hookState is whether GitHub's hook points somewhere: set, unset, or ""
@@ -598,7 +597,7 @@ func evHealth(s *srv) eventsHealthInfo {
 		h.load()
 		if hook := s.hookState(); hook != h.health.Hook {
 			h.health.Hook = hook
-			h.saveHealth(true)
+			h.saveHealth()
 		}
 		rec = h.health
 		h.mu.Unlock()
