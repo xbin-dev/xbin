@@ -258,7 +258,9 @@ elsewhere 403 `identity`.
 - `DELETE /scm/signin` → **204**: "Forget" — revokes the grant upstream and
   clears the sign-in. Every person token handed out stops working. When
   the host refuses the revocation (or can't be reached) Forget answers
-  that refusal and clears nothing, so it can be tried again.
+  that refusal and clears nothing, so it can be tried again. An expired
+  access token is refreshed first, so the revocation still reaches the
+  grant.
 
 The device code (`userCode`) is shown only to the person it is for; a
 consumer never shows it to anyone else.

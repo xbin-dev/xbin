@@ -104,10 +104,15 @@ Then:
   GitHub — every token handed out for you stops working — and clears it
   here and at global. The grant goes first: if GitHub (or global) refuses
   or doesn't answer, Forget answers that (503 `unavailable`, …) and
-  clears nothing, so you can try again. A token GitHub no longer knows
-  (expired, already revoked) counts as revoked. GitHub's 422 can also mean
-  "try later", so on a 422 Forget asks GitHub about the token: while it
-  still answers, Forget is 503 `unavailable` and clears nothing.
+  clears nothing, so you can try again. An access token past its expiry
+  (8 hours) is refreshed first and the grant revoked with the new one; a
+  failed refresh is answered and clears nothing, and a refresh GitHub
+  refuses (`bad_refresh_token`, or the sign-in itself expired) leaves
+  nothing to revoke, so Forget clears. A token GitHub no longer knows
+  (already revoked) counts as revoked. GitHub's 422 can also mean "try
+  later", so on a 422 Forget asks GitHub about the token: unless GitHub
+  answers that it doesn't know it (404), Forget is 503 `unavailable` and
+  clears nothing.
 
 Deleting a person can't run Forget: their tokens live on until they
 expire (at most the epoch, §6).
