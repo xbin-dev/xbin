@@ -90,6 +90,9 @@ func (d *DB) userWake(now time.Time) userWakeAt {
 	if projAt > 0 && (wake == 0 || projAt < wake) {
 		wake = projAt
 	}
+	if scmAt := d.scmWakeAt(); scmAt > 0 && (wake == 0 || scmAt < wake) { // scm reads and subscriptions due (scm_poll.go)
+		wake = scmAt
+	}
 	if wake > 0 && wake <= now.Unix()+60 {
 		return userWakeAt{runnable: true}
 	}

@@ -226,6 +226,9 @@ func (ag *Agent) handoffMail(ctx context.Context, kind, payload string) (topic s
 	if kind == moveKind { // homes_move.go: a conversation leaving the shared space
 		return topicMove, json.RawMessage(payload), nil, nil
 	}
+	if kind == scmHandoffKind { // scm_handoff.go: an scm event, mailed as it came
+		return topicSCM, json.RawMessage(payload), nil, nil
+	}
 	if kind == "event" {
 		var e eventHandoff
 		if err := json.Unmarshal([]byte(payload), &e); err != nil {
