@@ -100,6 +100,7 @@ func (d *DB) addHandoffSchema() error {
 const (
 	topicDM       = "handoff/dm"    // global → a person: a DM from their linked chat account
 	topicEvent    = "handoff/event" // global → a person: an event for their private trigger
+	topicSCM      = "handoff/scm"   // global → a person: an scm event for their partition's projects (scm_handoff.go)
 	topicOutbox   = "outbox/add"    // a person → global: a reply for a chat
 	topicUsage    = "usage/day"     // a person → global: their daily usage totals
 	handoffMaxAge = 30 * 86400      // a handoff record's life: replies to older ones are refused

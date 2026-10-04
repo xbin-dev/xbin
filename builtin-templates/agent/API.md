@@ -3890,7 +3890,103 @@ chat to it. Described when it lands.
 How a provider's events reach the agent (`POST /adapter/scm/event`, the
 partition hand-off), how they are routed to tasks — CI failures, green
 checks, reviews and comments, merges, pushes — what each does, and the
-polling that stands in when events don't arrive. Described when it lands.
+polling that stands in when events don't arrive.
+
+**Wiring.** Events need both bindings: the agent's `scm` slot names the
+provider (`bx bind <this component> scm+=apps/scm-github`), and the
+provider's `agents` slot (service `agent-inbox`) is bound to the agent
+(`bx bind apps/scm-github agents+=<this component>`), which gives the
+provider the `channel` role on the agent's `/adapter/*` routes. Without the
+second, nothing is delivered and polling alone keeps tasks up to date.
+
+**`POST /adapter/scm/event`** takes an event v1
+([/docs/scm.md](/docs/scm.md) §Events), at most 1 MiB, from a provider
+bound in the `scm` slot — its own backend, at its global instance or
+unpartitioned; any other caller, a person's partition of the provider or a
+person through it is 403 ([/docs/agent-inbox.md](/docs/agent-inbox.md)
+§scm events has the checks). The caller is the provider, whatever the
+body's `scm.provider` says. `eventId` with `for` dedupes for 7 days (the
+copies of one event for two people, or for a person and `global`, are each
+taken). Answers: 200
+`{taken: true}` (and `duplicate: true` for a repeat); 400 a body that isn't
+an event v1 (`refusal: "protocol"` with `protocols` for another
+protocol); 404 not this instance's (`for: user:<id>` at an unpartitioned
+agent, or any delivery to a person's partition); 413 too large; 5xx — the
+provider delivers it again.
+
+**A person's events.** `for: global` is handled where it arrives (the
+shared instance — which holds team definitions only, so only the CI view's
+watches take them there — or an unpartitioned agent). At a partitioned
+agent's shared instance `for: user:<id>` is handed to that person's
+partition by partition mail (`handoff/scm`), which takes it only from the
+shared instance, only for its own person and only when the event's
+`forPid` is its partition id — a person re-created under the same id never
+gets the earlier one's events — and dedupes it again.
+
+**Subscriptions.** Once a task's branch is on the remote, or it has a PR,
+the agent keeps one subscription per task and repo at the project's
+provider, key `task:<pid>:<n>:<repo slug>`: the task's branch, its PRs, and
+the kinds `pull`, `checks`, `comment`, `review`, `push` and the progress
+kinds `workflow`, `job`, `check` (the CI view shows those). It is posted
+again when the PRs change and every 25 days while the task is open (a
+subscription lapses after 30), and deleted when the task is cleaned up or
+its conversation deleted. A project whose policy sets `autoLabel` keeps one
+issue subscription per repo (`issues:<pid>:<repo slug>`). From a person's
+partition a subscription is that person's at the provider (`for:
+user:<id>`); team definitions subscribe to nothing. A provider without
+events (no `events` cap) keeps none: polling stands in.
+
+**Routing.** An event finds its task by its pull request, then its
+branch, then its head sha (each task's, in that provider and repo);
+progress events (`workflow`, `job`, `check`) go to the CI view only. Then:
+
+| Event | When | What happens |
+|---|---|---|
+| `checks.completed` | on the task's current head (else ignored: superseded) | after `policy.ci.delaySec` (60 s) the head's checks are read (`GET /scm/checks`, through `POST /scm/poll`) and acted on as below |
+| CI failing | each failing suite on the head, once | with `policy.ci.autoFix`: a task input — `[scm: CI failed on <branch>@<sha7> — untrusted output]`, up to 3 failing jobs each with its failing step and its log's last 120 lines (ANSI stripped, redacted; only the steps while a host serves no log of a running job), ≤ `policy.ci.logBytes` in all, framed as untrusted, then `— fix it and push.` — and a quiet `ci.failed` event; at most `policy.ci.maxPerDay` (5) such inputs per task per day, past which a waking `ci.stuck` event instead (the coordinator's `ci-stuck` push). Without `autoFix`: the `ci.failed` event alone. The PR's checks say `failure` |
+| CI green | on the head, the PR open | the PR's checks say `success` — the task **awaits review** — and a waking `pr.ready` event (the `pr-ready` push) |
+| `review` (changes requested, commented), `comment` on the task's PR | after `policy.reviews.batchSec` (120 s; later ones join the same read) | the PR's timeline is read: words from an `OWNER`, `MEMBER` or `COLLABORATOR`, or a login in `policy.reviews.allow` (everyone with `forward: "all"`, nobody with `"off"`), go to the task as one input — each with its author and, inline, `path:line`, ≤ 8 KiB, framed as untrusted — with a quiet `review` event; anyone else's is a quiet `comment` event, "not forwarded". Approvals and dismissals aren't forwarded; each entry is taken once |
+| `pull.opened`, `reopened` | the PR's head is the task's branch and the task doesn't hold it open | the task's refs check runs again and records the PR |
+| `pull.merged`, `closed` | the task's PR | the PR's state; with none of the task's PRs open, its phase `merged` (one was) or `closed`, its credentials scrubbed (its own sandbox's; the project's when no other task of the project is open), its workspace cleaned up as `policy.cleanup` says, and a waking `merged` / `closed` event |
+| `pull.synchronize`, a `push` to the task's branch | | the task's head moves (the PR's checks unknown again) |
+| a `push` by anyone but the task | | a quiet note queued to the task — someone else pushed to its branch: pull before pushing — and a quiet `push` event |
+| `issue.opened`, `labeled` | a repo of a project with `autoLabel` | a quiet `issue` event (the title framed as untrusted); waking when the issue carries the `autoLabel` label |
+
+Every input to a task goes through the project's queue (source `event`,
+held while its conversation waits for a person) and the pump. The
+provider's own app (`actor.self`) and the task's own identity (the login of
+its credential) are ignored — no note, no forwarded words, no refs check —
+except for the facts they carry: a head they moved, a PR merged or closed,
+and CI's result on a commit, whoever pushed it.
+
+**Polling.** While a task has an open PR the agent also reads, per repo,
+the head's checks, the PR and its timeline, conditionally (`POST
+/scm/poll`, one call per provider and identity per pass, at most its
+`limits.pollItems` items; each route's own read where a provider has no
+`poll`). Without events for the head: every 2 minutes for its first 20
+minutes, every 10 to 2 hours, every 30 to 24 hours, then it stops — with a
+waking `note` "lost track of CI — check manually" for checks still
+pending. With healthy events (the provider's hello says so, a delivery
+for the repo in the last 30 minutes, or one for the head) only a safety
+read every 15 minutes once the head has waited 30. Never sooner than the
+provider's `events.pollMinMs`. Checks that finished stop until the head
+moves; checks nobody reports for 30 minutes (a repo without CI) stop
+quietly. A changed read is handled as the event would be. The reads run in
+the background while the agent runs, never keeping it up; an agent
+stopped with reads due — a person's partition at rest, the shared instance
+or an unpartitioned agent idle-stopped — is started again at the next
+read's (or subscription renewal's) minute, and a delivery or a tick that
+starts the agent makes the pass at once.
+
+**Once only.** An event id is taken once for each `for`; a fact both an
+event and a read describe is acted on once — a failing suite on a head,
+green CI on a head, a review entry, a merge — whichever comes first.
+
+**Rolling back.** A build without scm events leaves its tables
+(`project_refs`, `scm_poll`, `scm_seen`, `scm_subs`) alone and answers the
+provider's deliveries 404 (no such route): the provider drops them, and
+the subscriptions lapse within 30 days. The next upgrade picks the tables
+up as they are.
 
 ### Team projects
 
