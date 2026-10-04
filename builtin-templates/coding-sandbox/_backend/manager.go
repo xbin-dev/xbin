@@ -60,6 +60,9 @@ type Manager struct {
 	// how long a sandbox seen running is taken to be (0: the defaults).
 	RuntimeTTL time.Duration
 	LiveTTL    time.Duration
+	// KeepAlive is how often an open terminal or stdio socket is activity
+	// on its sandbox (keepAlive; 0: every 30 s).
+	KeepAlive time.Duration
 	// Logf logs (nil: the standard logger).
 	Logf func(format string, args ...any)
 }

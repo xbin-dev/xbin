@@ -10,6 +10,16 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-04
+
+- **coding-sandbox: an open terminal or stdio socket keeps its sandbox's
+  `lastActive` current** (the template's API.md, `autoStopMin`). While a
+  terminal or a stdio socket — a coding agent's ACP pipe — is open on a
+  sandbox, the manager now counts it as activity every 30 s, so the
+  sandbox's `lastActive` keeps up with its use and its idle stop counts
+  from when the last socket closed, however quiet the socket was (a long
+  command with no output). Nothing to change.
+
 ## 2026-10-01
 
 - **Fix: an unmounted encrypted volume's gocryptfs now ends, and a volume

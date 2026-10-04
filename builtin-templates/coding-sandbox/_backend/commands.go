@@ -9,9 +9,11 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
 	"github.com/xbin-dev/xbin/sdk/ws"
@@ -389,6 +391,7 @@ func (m *Manager) ttyAttach(w http.ResponseWriter, r *http.Request) {
 	}
 	eid := r.PathValue("eid")
 	sw := &scrubWriter{ResponseWriter: w, from: rec.Runtime, to: rec.ID}
+	defer m.keepAlive(rec)()
 	m.box(rec).RelayTTY(sw, r, eid, xbin.TTYOptions{SessionID: eid, SandboxID: rec.ID, ForUser: c.user})
 	sw.finish()
 }
@@ -416,9 +419,42 @@ func (m *Manager) ttyStart(w http.ResponseWriter, r *http.Request) {
 	cols, _ := strconv.Atoi(qs.Get("cols"))
 	uid, gid := rec.UID, rec.GID
 	sw := &scrubWriter{ResponseWriter: w, from: rec.Runtime, to: rec.ID}
+	defer m.keepAlive(rec)()
 	m.box(rec).RelayNewTTY(sw, r, xbin.TTYStart{Cwd: qs.Get("cwd"), Cmd: qs.Get("cmd"), Rows: max(rows, 0), Cols: max(cols, 0),
 		UID: &uid, GID: &gid, ForUser: c.user, SandboxID: rec.ID})
 	sw.finish()
+}
+
+// keepAlive makes an open terminal or stdio socket on rec's sandbox
+// activity on it, every m.KeepAlive (30 s) until the stop it returns: it
+// lists the sandbox's execs, which a substrate counts as activity
+// (xbind's tile-sandbox runtime does) where it may not count the open
+// socket alone — a terminal left open, a coding agent's ACP pipe quiet
+// through a long command. So the sandbox's lastActive keeps up with its
+// use, and its idle stop counts from when the last socket closed. The
+// relays block for the socket's life: `defer m.keepAlive(rec)()`.
+func (m *Manager) keepAlive(rec record) (stop func()) {
+	every := m.KeepAlive
+	if every <= 0 {
+		every = 30 * time.Second
+	}
+	ctx, cancel := context.WithCancel(m.ctx)
+	box := m.box(rec)
+	go func() {
+		t := time.NewTicker(every)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+			}
+			c, done := context.WithTimeout(ctx, 10*time.Second)
+			_, _ = box.Execs(c) // a stopped or deleted sandbox refuses: nothing to keep alive
+			done()
+		}
+	}()
+	return cancel
 }
 
 // --- stdio sockets -----------------------------------------------------------------------
@@ -456,6 +492,7 @@ func (m *Manager) stdioAttach(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sw := &scrubWriter{ResponseWriter: w, from: rec.Runtime, to: rec.ID}
+	defer m.keepAlive(rec)()
 	sb.RelayStdio(sw, r, r.PathValue("eid"), off[0], off[1])
 	sw.finish()
 }
