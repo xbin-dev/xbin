@@ -161,6 +161,15 @@ Also dated in projects-scm §19.
   has one).
 - §6.10, §16.2: both board tables in every home; no `partition_routes.go`
   entry was needed.
+- §6.10, §12.3 (fix round 1): `project_board` gains `member_ref` (the
+  sending membership's uid; an idempotent `ALTER` for a board made before
+  it); the `PUT` body carries `membership` (400 without it); a row of
+  another membership replaces the stored one and un-hides it, and
+  `deleted` hides only its own membership's row.
+- §12.2 (fix round 1): a membership's re-reads are serialized (read and
+  apply as one; accept holds the lock to its adopt); `GET /memberships`
+  waits at most 5 s for all its re-reads together, and a failed re-read
+  counts for the 30 s gate.
 
 ## Tests run / not run
 
@@ -193,10 +202,86 @@ through the route chain; a live GitHub (none here).
   `schemaAdds` gains `addTeamSchema`. V's `taskCISummary` is read inside
   T's hook (through `projTaskView`), in the task's transaction: V's
   implementation must not need its own write transaction there.
-- C's `task_list {scope: "team"}` should call `teamBoardRows` /
-  `teamBoardText` (above); if C wrote its own board read, check it frames
-  the rows as untrusted.
+- **Unwired seam (lead, gate 2):** nothing calls `teamBoardRows` /
+  `teamBoardText` on this branch — the coordinator's `task_list {scope:
+  "team"}` is C's, built in parallel, and there is no `task_list` tool on
+  the base. At the merge, wire C's team scope to them (or check that C's
+  own board read frames the rows as untrusted) and extend
+  `TestTeamCoordinatorSeesBoard` to go through the `task_list` tool;
+  until then the test exercises the helpers only.
+- The board `PUT` body now carries `membership` (fix round 1): any other
+  sender of board rows must send it, or global answers 400.
 - New migrations: two tables, `CREATE … IF NOT EXISTS` only.
+
+## Fix round 1
+
+A verifier's six findings, each checked against the code; all six real.
+
+**Fixed** (each with a test that fails with the fix taken out — checked
+on a scratch copy of the backend with the fix reverted):
+
+- *(major) A new membership's task hidden by its predecessor's row.* The
+  board key `(definition, member, n)` outlives a membership; a member who
+  deleted theirs and joined again PUT task 1 onto the old, hidden row
+  (`ON CONFLICT … DO UPDATE` never reset `hidden`), and a late `deleted`
+  from the old membership's outbox hid the new one's row. Now a row
+  belongs to the membership that sent it: the outbox body names it
+  (`membership`, its uid), global keeps it as `member_ref`; a row from
+  another membership replaces the stored one with `hidden=0`; a
+  `deleted` row hides only when `member_ref` matches; the owner's hide
+  holds for that membership's later rows. Not taken: the lighter
+  alternative (dropping outbox rows of a deleted membership) — it would
+  leave the deleted membership's tasks shown on the board forever.
+  `TestBoardRowOfNewMembership` (fails without the `CASE` — "the new
+  membership's task 1: []" — and without the `member_ref` match on
+  delete — "after the old membership's late delete: []");
+  `TestBoardOutboxRetry` also checks the body's `membership`.
+- *(major) A member demoted to viewer of a team-visible definition kept
+  their membership.* `teamSyncLocked` now treats a level below
+  participant as gone (archives, HTTP 403 in the note), as the board
+  PUT's 403 would. Kept out of `teamFetchDef`, so `POST /memberships`
+  still answers a viewer 403 (not 404). `memberRemovedPartition` gains a
+  definition whose level drops to viewer (fails without: "a sync as a
+  viewer: <nil>").
+- *(major) Plan citations in builtin-templates.* Every `projects-scm §…`
+  and `V16`/`V17` in T's Go files now cites API.md §Team projects or is
+  dropped; `git grep -nE 'projects-scm|\bV1[67]\b' -- builtin-templates`
+  finds nothing.
+- *(minor) Concurrent re-reads could land an older definition last.*
+  `teamLock` (a per-membership channel, `ctx`-aware) is held across the
+  read and the apply; `teamSync` re-checks freshness once it has it;
+  accept holds it from its re-read to its adopt. `TestTeamSyncSerialized`
+  (fails without: the second read starts while the first is held, and
+  the first's older name lands last).
+- *(minor) `GET /memberships` could block 10 s per membership.* The
+  re-reads run concurrently (8 at a time) within one `teamListWait`
+  (5 s) deadline, and a failed read marks `teamSynced`, so the 30 s gate
+  holds after an error. `TestMembershipListBounded` (fails without:
+  18 s for two memberships; and "a read that failed isn't counted").
+  API.md says both.
+
+**Not fixed here, by design:**
+
+- *(minor) The coordinator's team scope is not wired end to end.* True:
+  nothing calls `teamBoardRows`/`teamBoardText`, and the base has no
+  `task_list` tool to call them from — C builds it in parallel. Moved to
+  Merge risks as an unwired seam for the lead at gate 2 (wire C's scope
+  to the helpers, extend `TestTeamCoordinatorSeesBoard` through the
+  tool).
+
+**Checks** (`cd /work/wt/ps-t && eval "$(hack/dev-setup.sh --env)" &&
+export TMPDIR=/work/tmp-tests/t`), on `2352a536`:
+
+| Command | Result |
+|---|---|
+| `TILE_TEST_FLAGS="-count=1 -v -run TestTeamDefinitionAtGlobal\|TestMembershipCreate\|TestBoardPushOnlyFromOwnPartition\|TestBoardOutboxRetry\|TestBoardRowsResetForNewPartition\|TestBoardRowSanitized\|TestSeedHoldsNoCredential\|TestPersonCredsRefusedInSeedClone\|TestMembershipSetupNeedsAcceptance\|TestMemberRemovedArchives\|TestTeamCoordinatorSeesBoard\|TestTeamSchemaMigratesTwice\|TestTeamSchemaOldDB\|TestBoardRowOfNewMembership\|TestTeamSyncSerialized\|TestMembershipListBounded" hack/tile-check.sh agent` | ok — 16 top-level tests, 13.2 s of tests (the tile's vet before them) |
+| the same 16 tests, `go test -count=1` in a scratch go.work as tile-check builds it | ok, 13.0 s |
+| `go test -race -count=1 -run TestTeamSyncSerialized\|TestMembershipListBounded\|TestBoardOutboxRetry\|TestMemberRemovedArchives\|TestBoardRowOfNewMembership\|TestMembershipSetupNeedsAcceptance` (same scratch go.work) | ok, no race, 31.7 s |
+| the four new or extended tests with each fix reverted in the scratch copy | each FAILs as noted above |
+| `go test ./internal/docscheck`, `go test ./internal/sizebudget` | ok |
+| `make fmt-check vet` | ok |
+
+Full -race suite and make check: at the gate (lead).
 
 ## Commits
 
@@ -205,7 +290,9 @@ through the route chain; a live GitHub (none here).
 | `55bc8c68` | agent template: team projects — board, memberships, definition sync, seed |
 | `fb622150` | agent template: API.md §Team projects |
 | `f72b39e0` | agent template: team board — a PUT naming a partition from another tile or as admin is refused |
-| (this commit) | plans: projects-scm — the T record and §19 |
+| `ded6131d` | plans: projects-scm — the T record and §19 |
+| `2352a536` | agent template: team projects — fix round 1: a board row is its membership's, a viewer is archived, re-reads serialized |
+| (this commit) | plans: projects-scm — T's fix round 1 in its record and §19 |
 
 ## Owner questions
 
