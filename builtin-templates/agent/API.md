@@ -1119,11 +1119,14 @@ is text, and the image is added in one user message placed after that turn's
 GIF and WebP are shown, each ≤ 3 MiB, and only the **4 newest** images in the
 context; older ones become `[image x.png not shown — file_view to see it
 again]`. With `vision` off, nothing is inlined and `file_view` is not offered.
-`file_read` on a binary file returns a pointer to `file_view` — on a
-document (PDF, .docx, .xlsx, .pptx, CSV, with `docs` on) it returns the
-document as `doc_read` reads it, and the attachment note says so; the REPL's
-`files.read` throws, and `files.remove` refuses attachments (delete them from
-the Files tab).
+`file_read` on an image returns a pointer to `file_view`; on a document
+(PDF, .docx, .xlsx, .pptx, CSV, with `docs` on) it returns the document as
+`doc_read` reads it, and the attachment note says so; on other binary it
+returns a pointer to the REPL's byte API. Text over the 64 KiB text cap (held
+as a blob) reads as text, clipped at 64 KiB per call — page it with
+`offset`/`limit`. The REPL's `files.read` throws on binary
+(`files.readBytes` returns it), and `files.remove` refuses attachments
+(delete them from the Files tab) — files a tool wrote may be removed.
 
 Known limitation: whether a model can see is a name heuristic
 (`modelHasVision`), and the `vlm` tier's last fallback is any gateway model,
@@ -5169,6 +5172,22 @@ across calls) · `js_run` (evaluate a session file) · `js_reset`. Inside the VM
 is how the agent computes instead of guessing, and how it draws a chart for
 `render_html`: build inline SVG in `js_eval`, `files.write` it into an .html
 file, render that.
+
+**Bytes and archives** (`repl_bytes.go`, `repl_archive.go`). Every session file
+is readable whatever its size or type: `files.read(path[, 'base64'])` returns
+text — a blob-held large text file included — and `files.readBytes(path)` any
+file as a `Uint8Array`. `files.write(path, string|Uint8Array[, mime])` (alias
+`writeBytes`) writes a text row up to 64 KiB, and anything larger, or bytes, as
+a blob (≤ 16 MiB, the run's attachment quota) — the file's next version, as
+the sandbox copy path writes (`putFileData`). Pure helpers: `atob`/`btoa`,
+`base64.encode/decode`, UTF-8 `TextEncoder`/`TextDecoder`, and native
+`zip.list/read/readText/extract({to, only})/create`, `tar.list/read/readText/
+extract` (plain or gzipped) and `gzip.compress/decompress`. An archive source
+is a session path or bytes; `extract` writes session files (entry names are
+mapped to keys, `..`/absolute names refused), and one inflated entry is capped
+at 64 MiB in the VM (16 MiB extracted), so a zip bomb is an error, not an OOM.
+Blob I/O inside a statement is bounded by its time budget. A `Uint8Array`
+prints as its length and first 32 bytes.
 
 **There is no host surface.** `goja.New()` ships no `require`, `process`,
 `fetch`, `setTimeout` or `Buffer`, and the parser's default filesystem
