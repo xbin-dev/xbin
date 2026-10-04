@@ -136,7 +136,7 @@ function prepTpl(v) {
     ${card.retry && talk(v) ? html`<text tone="muted">Retry the workspace from the composer or ⋯.</text>` : nothing}
     ${card.signin ? html`<notice tone="warn" title="To push, this task needs your own sign-in" text=${words}/>
       <text style="title3" mono selectable>${card.signin.userCode}</text>
-      ${/^https:/i.test(card.signin.url) ? html`<markdown source=${`Open [${card.signin.url}](${card.signin.url}) and enter the code above.`} @link=${(e) => openUrl(e.href)}/>` : nothing}`
+      ${/^https:\/\/[^\s()<>[\]]+$/i.test(card.signin.url) ? html`<markdown source=${`Open [${card.signin.url}](${card.signin.url}) and enter the code above.`} @link=${(e) => openUrl(e.href)}/>` : nothing}`
     : card.signinElsewhere ? html`<notice tone="muted" text=${card.signinElsewhere}/>` : nothing}
     ${a.note && !a.err && !a.busy ? html`<text tone="muted">${a.note}</text>` : nothing}`;
 }

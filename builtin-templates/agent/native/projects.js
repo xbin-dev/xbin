@@ -147,6 +147,7 @@ function projectTpl(s) {
   const pv = p.find(s.pid);
   if (!pv) return html`<screen title="Project" style="list">${errTpl(p)}<section><progress label="loading…"/></section></screen>`;
   if (pv.kind === 'team') { s.kind = 'project-team'; ctx.paint(); } // a team project's definition (known once read): the team board
+  if (top() === s && p.tab !== 'board') p.tab = 'board'; // back from its settings: the board's reads only
   const c = can(pv);
   const list = p.taskList(pv.id);
   const team = projectTeam(app);
