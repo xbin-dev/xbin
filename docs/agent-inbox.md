@@ -402,6 +402,65 @@ For the adapter this means:
   nor starts with anyone else's on the same source (409), so nobody can
   quietly take every event of a tile.
 
+## scm events
+
+An **scm provider** — a tile offering the `scm` service, such as the
+`scm-github` template ([/docs/scm.md](/docs/scm.md)) — delivers the events
+of the repos an agent's projects work in through this same interface: the
+provider's `agents` slot (service `agent-inbox`) is bound to the agent
+(`bx bind apps/scm-github agents+=apps/agent`), which gives it the
+`channel` role, and the agent's own `scm` slot names the provider
+(`bx bind apps/agent scm+=apps/scm-github`). Both bindings are needed:
+the second is the agent's trust in the provider, the first its way back.
+
+### `POST /adapter/scm/event`
+
+The body is an **event v1** as [/docs/scm.md](/docs/scm.md) §Events
+describes it (`protocol` 1, `eventId`, `for`, `forPid`, `kind`, `action`,
+`repo`, `ref`, `actor`, `data`, …), at most 1 MiB.
+
+- **The caller check.** Only a provider bound in the agent's `scm` slot
+  may call it: the verified `X-XBin-From` (with its deployment) must be
+  one of them — another tile holding the `channel` role (a chat adapter)
+  gets **403**. The call must come from the provider's own backend at its
+  global instance, or from an unpartitioned provider: one acting in a
+  person's partition of the provider (`X-XBin-Partition: user:…`) or
+  carrying a person (`X-XBin-User`) is **403** too — a person's frame or
+  terminal in a provider's partition calls as the provider, and must not
+  be able to make up events for anyone's work. The caller is the
+  provider: the body's `scm.provider` is ignored.
+- **Dedupe.** `eventId` is kept 7 days; a repeat answers **200** with
+  `duplicate: true` and does nothing.
+- **`for`.** `global` is handled by the instance that took it (a
+  partitioned agent's global instance, or an unpartitioned agent).
+  `user:<id>` is a person's: see below. Unpartitioned, `user:<id>` is
+  **404** (no such subscriber here).
+- **Answers.** **200** `{taken: true}` once the event is handled or
+  handed on; **400** a body that isn't an event v1 (`refusal: "protocol"`,
+  with `protocols`, for another protocol); **413** over 1 MiB; **404** not
+  this agent's to take; **5xx** — the provider delivers it again later.
+
+What the agent then does with an event — route it to a project's task,
+tell the task CI failed, forward a review, end a merged task — is the
+agent template's API.md §scm events and polling.
+
+### A partitioned agent
+
+The provider always delivers to the agent's **global instance**. An event
+`for: user:<id>` is that person's — it comes from a subscription their
+own partition made — so the global instance hands it to their partition
+by partition mail (topic `handoff/scm`, the provider named as its source),
+in the transaction that took it, and keeps nothing of it once it is
+mailed. The mail starts the person's partition if it has run before
+([/docs/partitions.md](/docs/partitions.md) §Partition mail); one that
+never ran has no projects to route it to. There, the event is taken only
+from the global instance, only for that partition's own person, and only
+when its `forPid` is that partition's id: a person deleted and made again
+under the same id is another person, with another partition id, and never
+gets the earlier one's events (they are dropped and counted). The
+partition dedupes on `eventId` again. A person's partition never takes a
+delivery itself (**404**).
+
 ## The owner's API (on the agent)
 
 Channels appear in `GET /automations` as kind `channel`. The agent
