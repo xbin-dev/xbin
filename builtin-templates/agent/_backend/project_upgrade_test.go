@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -182,6 +183,49 @@ func TestUpgradeAdoptsTask1(t *testing.T) {
 	// once a project's, never again
 	if code, body := fx.upgrade(t, asAlice, nil); code != 409 {
 		t.Fatalf("a task made a project again: %d %s", code, body)
+	}
+}
+
+// The project's directory is never an entry already in the working
+// directory: a clone the upgrade doesn't adopt (api) or a person's own
+// folder. Named after the clone it doesn't adopt, the project's directory is
+// api-2, and nothing of the layout lands in api.
+func TestUpgradeNamedAfterOtherClone(t *testing.T) {
+	dir := t.TempDir()
+	for _, d := range []string{"a", "b", ".c", "..d"} {
+		if err := os.Mkdir(filepath.Join(dir, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := exec.Command("sh", "-c", verifyScript)
+	cmd.Env = append(os.Environ(), "N=0", "W="+dir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("the verify script: %v %s", err, out)
+	}
+	if ents := parseEnts(string(out)); len(ents) != 4 || !ents["a"] || !ents["b"] || !ents[".c"] || !ents["..d"] {
+		t.Fatalf("the working directory's entries: %v (%q)", ents, out)
+	}
+
+	fx := newUpFix(t)
+	code, body := fx.upgrade(t, asAlice, map[string]any{"name": "api"})
+	if code != 201 {
+		t.Fatalf("upgrade: %d %s", code, body)
+	}
+	var res struct {
+		Project ProjectView `json:"project"`
+	}
+	if err := json.Unmarshal([]byte(body), &res); err != nil {
+		t.Fatal(err)
+	}
+	waitJobsDone(t, fx.projFix, res.Project.ID)
+	if p, _ := fx.ag.db.getProject(res.Project.ID); p.Dir != fx.box.Workdir+"/api-2" {
+		t.Fatalf("the project's directory: %s (the clone not adopted is %s)", p.Dir, fx.api)
+	}
+	for _, d := range []string{".repos", "tasks", ".xbin"} {
+		if _, err := os.Stat(filepath.Join(fx.api, d)); err == nil {
+			t.Fatalf("the project's layout went into the clone not adopted: %s", d)
+		}
 	}
 }
 

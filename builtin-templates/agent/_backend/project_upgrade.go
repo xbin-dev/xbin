@@ -87,7 +87,7 @@ while [ "$i" -lt "$N" ]; do
 done
 if [ -n "$W" ] && [ -d "$W" ]; then
   for e in "$W"/* "$W"/.[!.]* "$W"/..?*; do
-    if [ -e "$e" ] || [ -L "$e" ]; then printf 'ENT\t%s\n' "\${e##*/}"; fi
+    if [ -e "$e" ] || [ -L "$e" ]; then printf 'ENT\t%s\n' "${e##*/}"; fi
   done | head -n 5000
 fi
 `
