@@ -77,7 +77,7 @@ function statusTpl(p, pv, c) {
 // --- repos ---------------------------------------------------------------------------------
 
 const repoEdits = new Map(); // "pid:slug" → the setup script being edited
-let newRepo = '';
+const newRepo = new Map(); // pid → the repo being typed: a project's, never carried to the next one's form
 
 function reposTpl(p, pv, c) {
   const key = (r) => `${pv.id}:${r.slug}`;
@@ -102,8 +102,8 @@ function reposTpl(p, pv, c) {
         ${c.settings && edit !== (r.setup || '') ? html`<button class="btn btnsm" data-act="setup" @click=${async () => { await p.setSetup(pv.id, r.slug, edit); repoEdits.delete(key(r)); }}>Save setup</button>` : nothing}
       </div>`;
     })}
-    ${c.settings ? html`<div class="pbtns"><input id="pset-addrepo" placeholder="owner/name" .value=${newRepo} @input=${(e) => { newRepo = e.target.value; }}>
-      <button class="btn btnsm" id="pset-addrepo-go" @click=${async () => { const r = newRepo.trim(); if (!r) return; newRepo = ''; await p.addRepo(pv.id, r); }}>Add repo</button></div>` : nothing}
+    ${c.settings ? html`<div class="pbtns"><input id="pset-addrepo" placeholder="owner/name" .value=${newRepo.get(pv.id) || ''} @input=${(e) => { newRepo.set(pv.id, e.target.value); }}>
+      <button class="btn btnsm" id="pset-addrepo-go" @click=${async () => { const r = (newRepo.get(pv.id) || '').trim(); if (!r) return; newRepo.delete(pv.id); await p.addRepo(pv.id, r); }}>Add repo</button></div>` : nothing}
   </section>`;
 }
 
@@ -151,7 +151,7 @@ function policyTpl(p, pv, c) {
 
 // --- members ---------------------------------------------------------------------------------
 
-let newMember = { user: '', role: 'participant' };
+const newMember = new Map(); // pid → {user, role} being typed: an ACL change is only ever made to the project it was typed for
 
 function membersTpl(p, pv, c) {
   if (!sharable(pv)) {
@@ -160,14 +160,18 @@ function membersTpl(p, pv, c) {
         : 'A project in your own space is yours alone — its tasks use your own sign-in. A team project is shared instead.'}</div></section>`;
   }
   const m = p.membersOf.get(pv.id);
+  const nm = newMember.get(pv.id) || { user: '', role: 'participant' };
+  const setNm = (k, v) => newMember.set(pv.id, { ...(newMember.get(pv.id) || nm), [k]: v });
   return html`<section class="pset" id="pset-members"><h5>Members</h5>
     <div class="pkv"><span>Owner</span><span>${(m && m.owner) || pv.owner}</span></div>
     ${((m && m.members) || []).map((x) => html`<div class="pkv pmember" data-user=${x.user}><span>${x.user}</span><span>${x.role === 'viewer' ? 'reads' : 'makes and steers tasks'}
       ${c.settings || x.user === ctx.app.me.user ? html`<button class="btn ghost btnsm" @click=${() => p.removeMember(pv.id, x.user)}>${x.user === ctx.app.me.user ? 'Leave' : 'Remove'}</button>` : nothing}</span></div>`)}
-    ${c.settings ? html`<div class="pbtns"><input id="pset-member" placeholder="person" .value=${newMember.user} @input=${(e) => { newMember.user = e.target.value; }}>
-      <select @change=${(e) => { newMember.role = e.target.value; }}><option value="participant" ?selected=${newMember.role === 'participant'}>makes and steers tasks</option>
-        <option value="viewer" ?selected=${newMember.role === 'viewer'}>reads</option></select>
-      <button class="btn btnsm" id="pset-member-add" @click=${async () => { const u = newMember.user; newMember = { user: '', role: newMember.role }; await p.addMember(pv.id, u, newMember.role); }}>Add</button></div>
+    ${c.settings ? html`<div class="pbtns"><input id="pset-member" placeholder="person" .value=${nm.user} @input=${(e) => setNm('user', e.target.value)}>
+      <select id="pset-member-role" @change=${(e) => setNm('role', e.target.value)}><option value="participant" ?selected=${nm.role === 'participant'}>makes and steers tasks</option>
+        <option value="viewer" ?selected=${nm.role === 'viewer'}>reads</option></select>
+      <button class="btn btnsm" id="pset-member-add" @click=${async () => {
+        const cur = newMember.get(pv.id) || nm; const u = cur.user.trim(); if (!u) return;
+        newMember.set(pv.id, { user: '', role: cur.role }); await p.addMember(pv.id, u, cur.role); }}>Add</button></div>
       <div class="row2"><div class="field"><label>Everyone who can open this agent</label>
         <select id="pset-vis" @change=${(e) => p.share(pv.id, e.target.value === 'private' ? 'private' : 'team', e.target.value === 'participant' ? 'participant' : 'viewer', pv.version)}>
           <option value="private" ?selected=${pv.visibility !== 'team'}>doesn't see it</option>

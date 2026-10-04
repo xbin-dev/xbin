@@ -212,6 +212,8 @@ export class Projects {
     this.dirty = new Set();
     this.timer = null;
     this.polls = new Map();  // scm → a sign-in poll's timer
+    this.pollGen = new Map(); // scm → the latest poll's number (stopPoll)
+    this.following = new Map(); // scm → the pollId being polled
     this.reading = new Set(); // pids being read by ensure()
     this.failedAt = new Map(); // pid → when ensure()'s read of it failed
     this.listSeq = 0;        // load()'s reads, numbered: only the latest one's answer is kept
@@ -770,8 +772,17 @@ export class Projects {
 
   signinOf(scm) { return this.signins.get(scm) || null; }
 
+  // signinState: GET /projects/scm/signin. A pending one (a parked task's,
+  // one started elsewhere) is followed; an answer that comes after a sign-in
+  // was started or forgotten meanwhile changes nothing.
   async signinState(scm) {
-    try { this.signins.set(scm, await scmApi('').signin(scm)); } catch (e) { this.signins.set(scm, { state: 'none', err: e.message }); }
+    const gen = this.pollGen.get(scm) || 0;
+    const s = await scmApi('').signin(scm).catch((e) => ({ state: 'none', err: e.message }));
+    if ((this.pollGen.get(scm) || 0) !== gen) return this.signins.get(scm);
+    if (s && s.state === 'pending' && s.signin && s.signin.pollId) {
+      if (this.following.get(scm) === s.signin.pollId) this.signins.set(scm, { ...s, pollId: s.signin.pollId });
+      else this.pollSignin(scm, s.signin);
+    } else this.signins.set(scm, s);
     this.changed();
     return this.signins.get(scm);
   }
@@ -779,12 +790,23 @@ export class Projects {
   // signin starts the device flow ({state: pending, signin: {url, userCode, pollId, intervalMs}})
   // and polls until it is done, denied or expired.
   async signin(scm) {
-    let s;
-    try { s = await scmApi('').startSignin(scm); } catch (e) { s = { state: 'error', err: e.message }; }
+    const gen = this.stopPoll(scm);
+    const s = await scmApi('').startSignin(scm).catch((e) => ({ state: 'error', err: e.message }));
+    if (this.pollGen.get(scm) !== gen) return s; // another sign-in, or Forget, meanwhile
     this.signins.set(scm, s && s.signin ? { ...s, pollId: s.signin.pollId } : s);
     this.changed();
     if (s.state === 'pending' && s.signin) this.pollSignin(scm, s.signin);
     return s;
+  }
+
+  // stopPoll ends scm's sign-in poll — its timer, and an answer still on its
+  // way (polls are numbered: an earlier one's tick neither writes nor goes
+  // on) — and returns the new number.
+  stopPoll(scm) {
+    clearTimeout(this.polls.get(scm));
+    this.polls.delete(scm); this.following.delete(scm);
+    this.pollGen.set(scm, (this.pollGen.get(scm) || 0) + 1);
+    return this.pollGen.get(scm);
   }
 
   // pollSignin follows one sign-in (si.pollId) until it is done, denied or
@@ -793,29 +815,33 @@ export class Projects {
   // tried again, later each time (5 s doubling to a minute; after 8 in a
   // row it stops, state 'error', and the card offers Check again).
   pollSignin(scm, si) {
-    clearTimeout(this.polls.get(scm));
-    const pollId = si.pollId;
+    const gen = this.stopPoll(scm);
+    const pollId = si.pollId; this.following.set(scm, pollId);
     const cur = this.signins.get(scm);
     if (!cur || cur.pollId !== pollId) this.signins.set(scm, { state: 'pending', signin: si, pollId });
     let fails = 0;
     const every = () => Math.max(1000, si.intervalMs || 5000);
+    const live = () => this.pollGen.get(scm) === gen;
+    const end = () => { this.polls.delete(scm); this.following.delete(scm); };
     const tick = async () => {
       let s;
       try { s = await scmApi('').pollSignin(scm, pollId); fails = 0; } catch (e) {
+        if (!live()) return;
         fails++;
         const giveUp = fails >= 8;
         this.signins.set(scm, { state: giveUp ? 'error' : 'pending', signin: si, pollId, err: e.message });
         this.changed();
-        if (giveUp) this.polls.delete(scm);
+        if (giveUp) end();
         else this.polls.set(scm, setTimeout(tick, Math.min(60e3, 5000 * 2 ** (fails - 1))));
         return;
       }
+      if (!live()) return;
       const keep = s.state === 'pending' ? { ...s, signin: s.signin || si, pollId } : { ...s, pollId };
       this.signins.set(scm, keep);
       this.changed();
       if (s.state === 'pending') this.polls.set(scm, setTimeout(tick, Math.max(1000, s.retryAfterMs || every())));
       else {
-        this.polls.delete(scm);
+        end();
         if (s.state === 'done') { this.providers(true); if (this.form && this.form.scm === scm) this.searchRepos(); }
       }
     };
@@ -824,8 +850,8 @@ export class Projects {
 
   // forget: DELETE /projects/scm/signin — every credential of your projects is scrubbed first.
   async forget(scm) {
-    clearTimeout(this.polls.get(scm));
-    try { await scmApi('').forget(scm); this.signins.set(scm, { state: 'none' }); this.providers(true); } catch (e) { this.fail(e); }
+    const gen = this.stopPoll(scm);
+    try { await scmApi('').forget(scm); if (this.pollGen.get(scm) === gen) this.signins.set(scm, { state: 'none' }); this.providers(true); } catch (e) { this.fail(e); }
     this.changed();
   }
 

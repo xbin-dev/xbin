@@ -3304,7 +3304,10 @@ each member signs in from their own). **Sign in to ‹provider›** starts the d
 (`POST /projects/scm/signin`) and shows its page and code — your own,
 read from your own space, to you only — polling until it is done (a
 failed poll is tried again, later each time; a task's card counts only
-its own sign-in as done);
+its own sign-in as done). A sign-in already pending when the Settings tab
+reads it (`GET /projects/scm/signin` — a parked task's, or one started
+elsewhere) is followed the same way; only the latest one is polled, and an
+answer of an earlier one, or one after Forget, changes nothing.
 **Forget** (`DELETE /projects/scm/signin`, confirmed) removes your
 projects' credentials from their sandboxes first.
 

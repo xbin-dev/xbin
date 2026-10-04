@@ -13,7 +13,8 @@
 // latest answer kept — the board's and the list's, a deleted project not
 // brought back — a team definition reading no tasks, where signing in is
 // offered, the class of new tasks without internal reach, a sign-in
-// followed by its pollId, the "Open PR" probe, the `project` event
+// followed by its pollId — a pending one read too, an earlier poll's late
+// answer dropped — the "Open PR" probe, the `project` event
 // coalesced). Run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -480,6 +481,64 @@ test('a sign-in followed by its pollId; a poll error is tried again', async () =
   } finally { globalThis.setTimeout = realSet; }
   assert.equal(polls, 3, 'two errors, then the answer');
   assert.deepEqual([pj.signinOf('gh').state, pj.signinOf('gh').pollId], ['done', 'p2']);
+});
+
+test('a pending sign-in read by GET is followed to done', async () => {
+  const si = { pollId: 'g1', userCode: 'WXYZ-0001', url: 'https://github.com/login/device', intervalMs: 5000 };
+  let polls = 0;
+  backend([['GET', /^\/projects\/scm\/signin\/g1/, () => { polls++; return json(polls < 2 ? { state: 'pending' } : { state: 'done', identity: { login: 'alice' } }); }],
+    ['GET', /^\/projects\/scm\/signin(\?.*)?$/, () => json({ state: 'pending', signin: si })],
+    ['GET', /^\/projects\/scm(\?.*)?$/, () => json({ providers: [] })]], 'user:alice');
+  const pj = M.createProjects(fakeApp());
+  const realSet = globalThis.setTimeout;
+  globalThis.setTimeout = (fn) => realSet(fn, 1);
+  try {
+    const s = await pj.signinState('gh');
+    assert.deepEqual([s.state, s.pollId, s.signin.userCode], ['pending', 'g1', 'WXYZ-0001']);
+    assert.equal(pj.polls.size, 1, 'a parked task\'s sign-in (or one started elsewhere) is polled here too');
+    await pj.signinState('gh'); // the tab read again: the same pollId is not followed twice
+    for (let i = 0; i < 100 && pj.signinOf('gh').state !== 'done'; i++) await new Promise((r) => realSet(r, 5));
+  } finally { globalThis.setTimeout = realSet; }
+  assert.deepEqual([pj.signinOf('gh').state, pj.signinOf('gh').pollId], ['done', 'g1']);
+  assert.equal(polls, 2);
+  assert.equal(pj.polls.size, 0);
+});
+
+test('a late answer of an earlier sign-in poll changes nothing', async () => {
+  const gates = [];
+  const seen = [];
+  backend([['GET', /^\/projects\/scm\/signin\/(p\w)/, (x) => { seen.push(x[1]); return x[1] === 'pA' ? new Promise((r) => gates.push(r)) : json({ state: 'pending' }); }],
+    ['POST', /^\/projects\/scm\/signin$/, () => json({ state: 'pending', signin: { pollId: 'pB', userCode: 'BBBB-2222', url: 'https://x/d' } })],
+    ['DELETE', /^\/projects\/scm\/signin/, () => json({ ok: true })],
+    ['GET', /^\/projects\/scm(\?.*)?$/, () => json({ providers: [] })]], 'user:alice');
+  const pj = M.createProjects(fakeApp());
+  const realSet = globalThis.setTimeout;
+  const timers = [];
+  globalThis.setTimeout = (fn) => { timers.push(fn); return timers.length; }; // ticks run by hand
+  const settle = () => new Promise((r) => realSet(r, 5));
+  try {
+    pj.pollSignin('gh', { pollId: 'pA', userCode: 'AAAA-1111' });
+    timers.shift()(); // pA's tick: its answer is on its way
+    await settle();
+    await pj.signin('gh'); // a new sign-in meanwhile → pB
+    gates.shift()(json({ state: 'pending', signin: { pollId: 'pA', userCode: 'AAAA-1111' } }));
+    await settle();
+    assert.deepEqual([pj.signinOf('gh').pollId, pj.signinOf('gh').signin.userCode], ['pB', 'BBBB-2222'], 'the older code is not shown');
+    assert.equal(timers.length, 1, 'pA does not go on: only pB is polled');
+    timers.shift()();
+    await settle();
+    assert.deepEqual(seen, ['pA', 'pB']);
+    // Forget while a poll's answer is on its way: it stays forgotten
+    timers.length = 0;
+    pj.pollSignin('gh', { pollId: 'pA', userCode: 'AAAA-1111' });
+    timers.shift()();
+    await settle();
+    await pj.forget('gh');
+    gates.shift()(json({ error: 'busy upstream' }, 502));
+    await settle();
+    assert.equal(pj.signinOf('gh').state, 'none', 'a stale poll\'s error does not undo Forget');
+    assert.equal(timers.length, 0, 'nor does it go on');
+  } finally { globalThis.setTimeout = realSet; }
 });
 
 test('the new-project form: what is missing, then the body', async () => {

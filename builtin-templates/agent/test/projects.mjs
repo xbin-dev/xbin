@@ -5,7 +5,7 @@
 // task has no CI, ext.card's chips; New task and From issues… (issue text
 // plain and untrusted, the refusals said); the Settings tab — status,
 // repos, the policy (unknown keys kept, a stale version read again),
-// members, archive, delete; the new-project form; a task's conversation —
+// members (what is typed stays its project's), archive, delete; the new-project form; a task's conversation —
 // the crumb back, the branch and PR chips, Open PR once the route exists,
 // the prep card with Retry, the sign-in card (polled, then the task looked
 // at again — a person's partition's); a `project` event; #proj=<id> on
@@ -188,6 +188,10 @@ await page.selectOption('#pset-vis', 'viewer');
 ok('team visibility', await waitCall(page, 'PATCH', '/projects/7$', 3));
 const vb = (await calls(page, 'PATCH', '/projects/7$')).pop().body;
 ok('…the team reads it', vb.visibility === 'team' && vb.teamRole === 'viewer', JSON.stringify(vb));
+// typed, never submitted: it stays this project's (checked on the next project's Settings below)
+await page.fill('#pset-addrepo', 'acme/leftover');
+await page.fill('#pset-member', 'mallory');
+await page.selectOption('#pset-member-role', 'viewer');
 
 // --- a task's conversation ------------------------------------------------------------------------------------------------
 await page.evaluate(() => { location.hash = '#c=101'; });
@@ -241,6 +245,9 @@ ok('…then opens it', await page.waitForFunction(() => location.hash === '#proj
 await page.waitForSelector('.pboard');
 await page.click('[data-tab="settings"]');
 await page.waitForSelector('#pset-project');
+ok('another project\'s Settings: the repo and the person typed on Web\'s are not carried over', (await page.inputValue('#pset-addrepo')) === ''
+  && (await page.inputValue('#pset-member')) === '' && (await page.inputValue('#pset-member-role')) === 'participant'
+  && !(await calls(page, 'POST', '/repos$|/members$')).some((c) => /leftover|mallory/.test(JSON.stringify(c.body))));
 // archive, then delete (its sandbox too)
 await page.click('#pset-archive');
 ok('Archive', await page.waitForFunction(() => window.__calls.some((c) => c.method === 'PATCH' && /projects\/50$/.test(c.url) && JSON.parse(c.body).state === 'archived'), null, { timeout: 5000 }).then(() => true, () => false));
