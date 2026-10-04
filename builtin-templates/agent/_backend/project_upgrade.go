@@ -487,6 +487,8 @@ func upgradeRepos(ctx context.Context, c who, api scmAPI, hello *scmHello, p *Pr
 			hosted = hosted || strings.EqualFold(h, cd.Host)
 		}
 		switch {
+		case cd.top == "":
+			return nil, nil, nil, perr(400, "repos: %s isn't a git clone", cd.Path)
 		case cd.top != cd.Path:
 			return nil, nil, nil, perr(400, "repos: %s isn't a clone's top directory (that is %s)", cd.Path, clip(cd.top, 200))
 		case cd.Repo == "" || !hosted:
