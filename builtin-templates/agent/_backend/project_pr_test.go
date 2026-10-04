@@ -139,6 +139,28 @@ func TestPRJobIdempotent(t *testing.T) {
 		t.Fatalf("a pull request with nothing to push: %d", n)
 	}
 	head := commitWork(t, co, "fix.txt", "fixed\n")
+	// every create fails as a connection would: the job is tried again up
+	// to its last attempt, then ends done with a note, never failed (a
+	// failed job fails the task's workspace); the ask stays for the next
+	p2PullFails.Store(100)
+	t.Cleanup(func() { p2PullFails.Store(0) })
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/task/pr", runID), map[string]any{"title": "Fix it"}); w.Code != 202 {
+		t.Fatalf("POST …/task/pr: %d %s", w.Code, w.Body)
+	}
+	hwait(t, "the pr job's last attempt", func() bool {
+		_, _ = fx.ag.db.q.Exec(`UPDATE project_jobs SET next_ms=0 WHERE project_id=? AND kind=? AND state='queued'`, p.ID, pjPR)
+		kickProjectWorker()
+		return len(fx.ag.db.jobsWhere(`WHERE project_id=? AND state IN ('queued','running','waiting')`, p.ID)) == 0
+	})
+	js := fx.ag.db.jobsWhere(`WHERE task_id=? AND kind=? ORDER BY id DESC LIMIT 1`, k.ID, pjPR)
+	if len(js) != 1 || js[0].State != pjDone || js[0].Attempts != projJobMaxAttempts-1 {
+		t.Fatalf("the pr job whose creates all fail: %s", jobsDump(fx.ag.db, p.ID))
+	}
+	var note int
+	_ = fx.ag.db.q.QueryRow(`SELECT count(*) FROM project_events WHERE project_id=? AND kind=? AND body LIKE '%ask again to retry%'`, p.ID, pevNote).Scan(&note)
+	if kk, _ := fx.ag.db.taskByN(p.ID, 1); kk.WS != wsReady || note != 1 || len(fx.pullReqs()) != 0 || fx.ag.db.getSetting(prKey(p.ID, 1)) == "" {
+		t.Fatalf("after the creates all failed: ws %s, %d note(s), %d asked, ask %q", kk.WS, note, len(fx.pullReqs()), fx.ag.db.getSetting(prKey(p.ID, 1)))
+	}
 	// the create fails as a connection would, after the push: the job is
 	// tried again (the push and the create repeat safely) and opens it
 	p2PullFails.Store(1)

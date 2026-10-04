@@ -319,6 +319,7 @@ func jobPR(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobO
 	title := clip(orStr(ask.Title, k.Title), 256)
 	var made []TaskPR
 	var retry error               // a create that may work if tried again (the push and the create repeat safely)
+	kept := false                 // a create still failing at the last try: the ask stays
 	pushed := map[string]string{} // slug → the head pushed
 	for i, c := range cos {
 		g, ok := got[i]
@@ -344,9 +345,19 @@ func jobPR(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobO
 			if made == nil && len(pushed) == 0 {
 				return jobOutcome{}, err
 			}
-			if prTransient(err) && retry == nil {
-				retry = fmt.Errorf("opening the pull request on %s: %w", r.Repo, err)
-				continue // what was done is recorded; the job runs again
+			if prTransient(err) {
+				if j.Attempts+1 < projJobMaxAttempts {
+					if retry == nil {
+						retry = fmt.Errorf("opening the pull request on %s: %w", r.Repo, err)
+					}
+					continue // what was done is recorded; the job runs again
+				}
+				// the last try: the job ends done with a note, never failed
+				// (a failed job fails the task's workspace); the ask stays,
+				// so the next ask or turn tries again
+				kept = true
+				notes = append(notes, fmt.Sprintf("%s: %v (tried %d times; ask again to retry)", r.Repo, err, projJobMaxAttempts))
+				continue
 			}
 			notes = append(notes, fmt.Sprintf("%s: %v", r.Repo, err))
 			continue
@@ -401,7 +412,7 @@ func jobPR(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobO
 		if len(notes) > 0 {
 			addProjectEvent(t, p.ID, k.N, pevNote, map[string]any{"text": clip("pull request: "+strings.Join(notes, "; "), 1000)}, false, "")
 		}
-		if retry == nil && t.getSetting(prKey(p.ID, k.N)) == raw { // asked again meanwhile, or tried again: the ask stays
+		if retry == nil && !kept && t.getSetting(prKey(p.ID, k.N)) == raw { // asked again meanwhile, or tried again: the ask stays
 			_, _ = t.q.Exec(`DELETE FROM settings WHERE k=?`, prKey(p.ID, k.N))
 		}
 		return nil
@@ -415,6 +426,8 @@ func jobPR(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobO
 	switch {
 	case len(made) > 0:
 		return doneJob(fmt.Sprintf("opened %d pull request(s)", len(made)))
+	case kept:
+		return doneJob("pushed the task's branch; its pull request wasn't opened")
 	case len(pushed) > 0:
 		return doneJob("pushed the task's branch")
 	}
