@@ -78,9 +78,9 @@ public struct ComposerView<Chips: View>: View {
             HStack(alignment: .bottom, spacing: 8) {
                 if composer.canAttach, let onAttach {
                     Button(action: onAttach) {
-                        Image(systemName: XbinIcons.UI.attach).font(.body.weight(.semibold)).frame(width: 22, height: 22)
+                        ComposerPlate(symbol: XbinIcons.UI.attach, fill: XbinColor.fill, ink: XbinColor.text)
                     }
-                    .xbinSecondary()
+                    .buttonStyle(.plain)
                     .disabled(composer.disabled)
                     .accessibilityLabel("Attach")
                 }
@@ -94,30 +94,32 @@ public struct ComposerView<Chips: View>: View {
                              onInput: { text = $0 }, onComposing: { composing = $0 })
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
+                    .padding(.vertical, 7)
                     .background(XbinColor.surface, in: .xbinPlate)
                     .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 1))
                     .disabled(composer.disabled)
                 if composer.busy, let onStop {
                     Button(action: onStop) {
-                        Image(systemName: XbinIcons.UI.stop).font(.body.weight(.semibold)).frame(width: 22, height: 22)
+                        ComposerPlate(symbol: XbinIcons.UI.stop, fill: XbinColor.text, ink: XbinColor.background, small: true)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .buttonBorderShape(.roundedRectangle(radius: XbinShapes.radius))
-                    .tint(XbinColor.text)
-                    .foregroundStyle(XbinColor.background)
+                    .buttonStyle(.plain)
                     .accessibilityLabel("Stop")
                 } else {
+                    // The accent while there is something to send, else the
+                    // neutral fill with the arrow muted (never a near-white
+                    // or black square, as the system's disabled button was).
+                    let sendable = composer.canSend(text) || (composing && !composer.disabled)
                     Button {
                         // Marked text is committed (and reported) first.
                         input.commitComposition()
                         let draft = text
                         if composer.canSend(draft) { onSend(draft) }
                     } label: {
-                        Image(systemName: XbinIcons.UI.send).font(.body.weight(.semibold)).frame(width: 22, height: 22)
+                        ComposerPlate(symbol: XbinIcons.UI.send, fill: sendable ? XbinColor.accent : XbinColor.fill,
+                                      ink: sendable ? XbinColor.onAccent : XbinColor.muted)
                     }
-                    .xbinPrimary()
-                    .disabled(!(composer.canSend(text) || (composing && !composer.disabled)))
+                    .buttonStyle(.plain)
+                    .disabled(!sendable)
                     .accessibilityLabel("Send")
                 }
             }
@@ -144,6 +146,25 @@ extension ComposerView where Chips == EmptyView {
                 onRemoveAttachment: (@MainActor (String) -> Void)? = nil) {
         self.init(composer: composer, text: text, onSend: onSend, onStop: onStop, onAttach: onAttach,
                   onRemoveAttachment: onRemoveAttachment) { EmptyView() }
+    }
+}
+
+/// A composer button's face: a 36 pt square plate in `fill` with the glyph
+/// in `ink`, as the reference draws `.cm-send` and `.cm-attach` (Base Two:
+/// no circles).
+private struct ComposerPlate: View {
+    let symbol: String
+    let fill: Color
+    let ink: Color
+    var small = false
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(small ? .footnote.weight(.bold) : .body.weight(.semibold))
+            .foregroundStyle(ink)
+            .frame(width: 36, height: 36)
+            .background(fill, in: .xbinPlate)
+            .contentShape(Rectangle())
     }
 }
 
