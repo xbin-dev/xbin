@@ -4218,13 +4218,165 @@ with the person's space). A deleted definition's board rows go.
 
 ### CI in the conversation
 
-What CI is watched (a task's branch and pull request, the branches a
-coding session pushed, a branch or pull request a person names), the
-routes under `/runs/{id}/ci`, the `ci` stream event, job logs and
-annotations (untrusted text, redacted), re-running failed jobs, and how
-the conversation shows it: the CI chip beside the coding agents chip, the
-CI section of their dock, outcome cards and the board's chips.
-Described when it lands.
+What the platform's CI says about what a conversation pushed — down to a
+job's steps, its log and its annotations, with links to the runs, jobs,
+checks and pull requests on the platform — shown inside the coding agents'
+UI. It is read through the conversation's home at the scm provider (in a
+person's own space as that person, elsewhere as the provider's bot; a
+project task as its project's identity): no token enters a sandbox for it.
+
+**What is watched.** A **watch** follows one branch of one repo for a
+conversation (its root; at most 10 live, the oldest pushed one ending to
+make room), with its open pull request when it has one:
+
+- **a project task's branch** (`source: "task"`) in each repo it was
+  pushed to — made when the task's branch is seen on the remote or a pull
+  request opens, and when its CI is first asked for (once: not for a done
+  or closed task, nor again after its watch ended). A task's own watch
+  can't be unwatched;
+- **what a coding session pushed** (`source: "pushed"`) — at the end of
+  every turn of a run working in a sandbox (the conversation's, or a coding
+  agent's below it) while an scm provider is bound, one command in that
+  run's sandbox reads git's own record of pushes: a remote-tracking ref
+  whose newest reflog entry says `update by push`, written since the turn
+  began (the last hour, for a run with no turn start recorded). A sandbox
+  that isn't running is left alone — a stopped one pushed nothing, and
+  is never started for this. A branch at a host a bound provider serves becomes a watch, `run`
+  the run that pushed. The command's output is never kept, and a remote
+  URL's user and password are dropped before anything is. A project's runs
+  are left to their task's watch;
+- **a branch or pull request a person names** (`source: "manual"`).
+
+Where the home's identity is the provider's **bot** (the shared instance,
+an unpartitioned agent) the bot reads only what someone authorised: naming
+a repo by hand takes a manager or the scm bot rule (§scm providers and
+credentials); a pushed branch is watched only for a repo a project of this
+home names with the conversation's owner taking part in it, or — in a
+conversation nobody else shares — one the rule lets its owner name (a
+turn's end carries no request, so a manager's own pushes need the rule or
+a project too).
+
+**Keeping it current.** Each watch subscribes to its branch's events at
+the provider (key `ci:<watch id>`: checks, pull, workflow, job, check,
+push). A job's, run's or check's progress event updates the stored
+snapshot in place; a finished suite or a pull request event reads it
+again (conditionally — an unchanged answer costs nothing); a push moves
+the watch to the new head (its snapshot starts over); a merged or closed
+pull request, or a deleted branch, makes it `gone` (it ends a day after it
+went, however much its CI still moves; ended watches are deleted after a
+week). A new head of a gone watch's branch — a push, a pushed branch found
+at a turn's end — or an open pull request of it makes it live again. A step's progress comes from
+reads only (the platform reports a job, not its steps, as it goes), so
+`current` is left out of a summary whose snapshot an event changed since
+its last read. With nothing heard for 2 minutes about a watch with
+anything not completed — a failed one too, while other jobs run — the
+agent reads it every minute for 20 minutes after its push, then every 10
+minutes until 2 hours, every 30 until a day, then not until someone looks
+— one read per watch at a time, whoever asks.
+
+**Untrusted text.** Names, titles, summaries, step names, annotation
+messages and log text are what a build printed: redacted (the scm token
+shapes, every live token, the agent's own secret shapes), clipped, their
+invisible characters removed, and drawn as plain text — never markdown or
+HTML. Links are kept only when they are `http(s)`. An id a route names (a
+job, a check, a run) must be one of the watch's stored snapshot: the
+agent never reads or acts on an id a caller made up.
+
+| Method and path | Who | Answer |
+|---|---|---|
+| `GET /runs/{id}/ci?fresh=1` | a viewer | `CIView` of the conversation's root (below). A watch never read is read; with `fresh=1` each watch with anything not completed (a failed one too, while other jobs run) whose snapshot is older than 10 s (the provider's webhooks unhealthy) or 30 s (healthy) is read first. A task with no watch yet gets its own |
+| `GET /runs/{id}/ci/jobs/{job}/log?watch=&tail=&since=&until=` | a viewer | `{text, bytes, from, complete, truncated, url}` — the job's log from byte `max(since, end − tail)` to `until` (default its end), `tail` ≤ 262144 (default 65536); a viewer pages back with `until=<from>`. ANSI codes stripped, redacted. **409** `{error, refusal: "in-progress", url}` while the job runs on a platform that serves a log only once a job ends (GitHub): `url` is its live log |
+| `GET /runs/{id}/ci/checks/{check}/annotations?watch=&cursor=` | a viewer | `{items: [{path, startLine, endLine, level: notice\|warning\|failure, title, message}], next}`, redacted |
+| `POST /runs/{id}/ci/watch` `{scm?, repo, ref?, pr?}` | a participant | **201** `CIWatchView` (**200** when that branch is already watched): a pull request's number is its head branch. 400 neither `ref` nor `pr`; 403 a repo the bot rule refuses; 409 `limit` past 10 with no pushed watch to end; the provider's refusal (`not-found`, `signin`, …) passed on. `scm` may be left out when one provider is bound |
+| `DELETE /runs/{id}/ci/watch/{wid}` | a participant | **204**; 409 for a task's own watch |
+| `POST /runs/{id}/ci/rerun` `{watch, runId, failedOnly}` | a participant, a person, in their own space | **202** `{runId, attempt}` — re-runs a workflow run of the watch's snapshot (`failedOnly`: its failed jobs and what depends on them) **as that person**, never the bot: **403** `{refusal: "identity"}` for view-as, a component, and anywhere a home has no person (the shared instance, an unpartitioned agent); 404 a run not in the snapshot; **501** `unsupported` when the provider doesn't offer `checks.rerun`. The conversation's journal notes who re-ran what |
+
+```json
+// CIView — GET /runs/{id}/ci
+{"root": 12, "live": true, "canRerun": true, "canWatch": true,
+ "summary": {"state": "pending", "jobs": {"total": 5, "done": 3, "failed": 0, "running": 1, "queued": 1},
+             "current": "test (ubuntu) › go test ./...", "startedAt": 1789990000000, "updatedAt": 1789990090000,
+             "url": "https://github.com/acme/web/actions/runs/7001"},
+ "watches": [{"id": 4, "source": "pushed", "run": 13, "scm": "apps/scm-github", "host": "github.com",
+              "repo": "acme/web", "ref": "feature", "pr": 42, "sha": "9fceb02…", "state": "pending",
+              "since": 1789990000000, "updatedMs": 1789990090000, "fetchedMs": 1789990090000,
+              "error": "", "refusal": "", "outcome": "1f2e3d4…:success",
+              "urls": {"pr": "https://github.com/acme/web/pull/42", "branch": "https://github.com/acme/web/tree/feature",
+                       "commit": "https://github.com/acme/web/commit/9fceb02…", "checks": "https://github.com/acme/web/pull/42/checks"},
+              "checks": {"sha": "…", "state": "pending", "counts": {…}, "workflowRuns": […], "checks": […], "statuses": […]}}]}
+```
+
+- `summary.state` is `failure` if any watch failed, else `pending` if any
+  is, else `success` if any passed, else `none`; `jobs` counts the jobs of
+  every run (a check reporting a job is that job) plus each other check and
+  status; `current` is the first running job's step. A `gone` watch counts
+  for nothing.
+- A watch's `state` is its snapshot's (`none`, `pending`, `success`,
+  `failure`) or `gone`; `checks` is the provider's `GET /scm/checks` answer
+  as kept ([/docs/scm.md](/docs/scm.md) §Checks), cleaned as above (at most
+  256 KiB); `error` and `refusal` are the provider's on the last read —
+  `signin` means the person must sign in to the provider (the CI section
+  offers it, then reads again).
+- `outcome` is `<sha>:<state>` of the watch's last final result: the key
+  of its outcome card, the same however often it is read.
+- `live` says the provider's webhooks are healthy; `canRerun` that the
+  caller is a person taking part, in their own space, and the provider
+  re-runs; `canWatch` that the caller takes part, a provider is bound and
+  the conversation works in a sandbox (or is a task, or watches already).
+- `urls` are built for GitHub; another host's are left out.
+
+**The run's own answers.** `GET /runs/{id}` and `GET /runs/{id}/view`
+carry `ci: {summary: <the summary> | null, canWatch}` (null: nothing
+watched), so the chip is right as soon as a conversation opens. A task's
+`TaskView.ci` (and a team board row's `ci`) is its conversation's summary;
+the task's state reads CI from it, and a change of it is a `project` event
+(`change: "task"`).
+
+**The `ci` stream event** — `{"type": "ci", "run": <root>, "root":
+<root>, "data": {"root", "watch", "summary", "state", "outcome", "watches":
+[{"id", "state", "outcome", "run", "repo", "ref"}]}}` to the conversation's
+viewers when any of its watches changes: coalesced per conversation (a
+client that falls behind gets the latest only) and not replayed — nothing
+in it is a one-shot cue: every watch's outcome rides each event and each
+read.
+
+**In the conversation (web).** The **CI chip** comes right after the
+coding agents chip in the top bar — "CI ● 3/5 jobs · 2:14" while running,
+"CI ✓", "CI ✗ test (ubuntu)", "CI —" (nothing reported yet, or nothing
+watched but you may) — and opens the right dock (the coding agents'
+dock, now with tabs **Coding agents · CI**) on its CI tab; with no
+coding agents the dock opens on CI alone. The CI section lists each watch
+(its branch and pull request ↗, state, since when, ✕), its runs (name,
+event, attempt, state, time ↗, **Re-run failed** for a person, confirmed),
+each run's jobs (a progress bar of its steps, the step under way, time ↗;
+expanded: its steps ✓ ✗ ● ○ with durations, **Log**, its annotations as
+`path:line`), the other checks and statuses (↗), and **Watch CI for…** (a
+repo, a branch or a pull request's number). While the tab is shown it is
+read again every 15 s while anything is not completed; a conversation's CI is read
+once when it opens. **The log** replaces the section (the dock widens)
+until ← Back: the last 64 KiB, **Earlier** for what came before, plain
+text with a search (next, previous), **Follow** while a job runs where the
+platform serves partial logs; for a job still running where it serves logs
+only once a job ends: its steps, "the log is ready when the job finishes",
+**Open live log ↗**. A coding agent's card shows the CI of what it pushed
+as a small glyph in its status line; a project board's task card shows
+its CI chip, which opens the task on CI. At the transcript's end an
+**outcome card** — "CI passed on ‹branch›", "CI failed on ‹branch› —
+‹job› › ‹step›" with **Open logs** — stays until ✕ (kept in the person's
+prefs, `ci-dismissed`, per watch and outcome: the next outcome is a new
+card).
+
+**Natively** the CI sections follow the coding agents on the Coding agents
+screen, whose toolbar button carries the CI badge; a job opens its own
+screen (steps, the log — Earlier, the screen's search lists the matching
+lines, Follow — or the running job's notice and **Open live log**), a
+check its annotations; a coding agent's card says its CI in words, as does
+a project board's row; outcome cards are system messages with **Open
+logs** and **Dismiss**; **Watch CI for…** is in the conversation's ⋯ menu.
+
+**Rolling back.** A build without CI leaves `ci_watch` alone, ignores the
+run answers' `ci` key and the `ci` event, and its provider subscriptions
+(`ci:<id>`) lapse after 30 days; the next upgrade uses the table as it is.
 
 ### Projects in the UI
 

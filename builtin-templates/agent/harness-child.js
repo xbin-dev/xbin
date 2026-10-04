@@ -185,7 +185,7 @@ function cardTpl(b, ui, depth, opts = {}) {
       <span class="st hkst" data-tone=${c.state.tone}>${c.state.word}</span>
       <span class="tw">${open ? '▾' : '▸'}</span>
     </div>
-    <div class="hkline"><span class="hks" data-tone=${c.state.tone}>${c.status}</span></div>
+    <div class="hkline"><span class="hks" data-tone=${c.state.tone}>${c.status}</span>${ext.childStatus(run) || nothing}</div>
     ${c.where || c.meta ? html`<div class="hkmeta">${c.where ? html`<span class="mono">${c.where}</span>` : nothing}${c.where && c.meta ? ' · ' : ''}${c.meta}</div>` : nothing}
     ${c.park ? html`<div class="hkpark">${parkTpl(app, b, run, c, who)}</div>` : nothing}
     ${note ? html`<div class="anote muted small" role="status">⚠ ${note}</div>` : nothing}

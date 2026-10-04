@@ -230,4 +230,14 @@ export const IMPLEMENTS = {
   'harness.account': 'native/harness-ask.js — controlsTpl: the Account menu in the toolbar ("Account: using Work"), its choices (a refused or expired one left out) → app.harness.pickSignin, Saved sign-ins… (model/harness-signins.js accountOf)',
   // Projects — every native key (the list, the board, new projects and tasks, settings, a task's chips, the coordinator, events, upgrades, team projects)
   // CI in the conversation
+  'ci.chip': 'native/harness-board.js — the Coding agents toolbar button carries CI\'s badge (ext.dock\'s, native/ci.js: CI ● n/m jobs, CI ✓, CI ✗ <job>, CI —), shown while any dock section answers',
+  'ci.dock': 'native/ci.js — dock: the Coding agents screen\'s CI sections after its coding agents (native/harness-board.js calls ext.dock), live while shown (app.ci.live)',
+  'ci.jobs': 'native/ci.js — watchTpl: a row per run and per job (detail steps done/total, a progress child, the current step and time); the ci-job screen\'s Steps (✓ ✗ ● ○ and durations)',
+  'ci.logs': 'native/ci.js — the ci-job screen: the log as code (copy), Earlier, the screen\'s search listing the matching lines, Follow while partial logs run; a job still running: the notice and Open live log',
+  'ci.annotations': 'native/ci.js — the ci-annotations screen: path:line rows with level, title and message (verbatim)',
+  'ci.links': 'native/ci.js — open(): https links through xbin.native.open — the branch, PR, run, job, check, status, live log',
+  'ci.rerun': 'native/ci.js — a failed run row\'s Re-run failed action, confirmed, when the view says canRerun (app.ci.rerun)',
+  'ci.watch': 'native/ci.js — menu "Watch CI for…" and the section\'s row → the ci-watch screen (Repo, Branch or PR, Watch); a watch row\'s Stop watching',
+  'ci.cards': 'native/ci.js — end: an outcome card per watch (message role system: CI passed / failed on <branch> — job › step) with Open logs and Dismiss (app.ci.cards, dismiss)',
+  'ci.board': 'native/ci.js — card: the project board row\'s CI words (U2\'s board calls ext.card); childStatus: a coding agent card\'s CI words (native/harness-child.js)',
 };

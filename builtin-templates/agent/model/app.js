@@ -46,6 +46,7 @@ import { resolveClass } from './harness.js';
 import { wireStart } from './harness-start.js';
 import { createBoard } from './harness-board.js';
 import { createProjects } from './projects.js';
+import { createCI } from './ci.js';
 
 /**
  * createApp builds the model.
@@ -370,6 +371,7 @@ export function createApp(opts = {}) {
       if (ev.type === 'run') app.sbx.fromEvent(ev);
       app.board.take(ev); // the Coding agents board (model/harness-board.js)
       app.projects.take(ev); // Projects: a `project` event (model/projects.js)
+      app.ci.take(ev); // CI in the conversation: a `ci` event (model/ci.js)
       if (ev.type === 'revoked' && ev.run === app.root) {
         app.home();
         globalThis.xbin?.notify?.('info', 'That conversation is no longer shared with you.');
@@ -436,6 +438,7 @@ export function createApp(opts = {}) {
   app.board = createBoard(app);
   // Projects: the page, a project's board and settings, the new-project form (model/projects.js)
   app.projects = createProjects(app, { route: (pid) => { if (app.page === 'projects') route(router.projHash(pid)); } });
+  app.ci = createCI(app); // CI in the conversation: watches, the chip, the dock's runs and jobs, logs (model/ci.js)
   app.session.ui.act.select = (id) => app.select(id);
   app.session.ui.me = () => app.me.user;
   app.session.ui.who = () => app.me;

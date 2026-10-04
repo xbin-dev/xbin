@@ -27,3 +27,7 @@ import './harness-child.js'; // a coding agent the agent started, as its card in
 import './harness-board.js'; // the top chip, the right dock (#hboard) of every coding agent in the tree (at home: yours at work), the pinned task's Delegated
 
 // U8 managers (the Coding agents tab: agent.js imports harness-catalog.js)
+
+// CI in the conversation (the CI chip, the dock's CI section, the child glyph, the board chip; outcome cards)
+import './ci-dock.js';
+import './ci-cards.js';
