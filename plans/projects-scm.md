@@ -3781,3 +3781,5 @@ with the record that explains it:
 - 2026-10-04 (G1) §5.8: Forget revokes the grant first; refused (anything but GitHub's "already gone" 404/422) it answers that refusal and clears nothing, so it can be retried — records/G1.md
 - 2026-10-04 (G1) §5.9: `personTtlMin` is 0 or 50 to 1440 (every allowed `minTtlSec` met); one consumer holds at most 500 live tokens; `checks.rerun` is listed only in a person's partition (403 `identity` elsewhere) — records/G1.md
 - 2026-10-04 (G1) §4.9: a job log's `until` before what a provider keeps answers empty `text` from the kept start, `truncated` — records/G1.md
+- 2026-10-04 (G1) §5.8: only GitHub's 404 to a revocation is "already gone"; on its 422 (also "the endpoint has been spammed") global asks GitHub about the token and answers 204 only when GitHub no longer knows it, else 503 `unavailable` — Forget clears nothing — records/G1.md
+- 2026-10-04 (G1) §5.10: GitHub's rate resource is read from the API root (a repo named `search` is `core`); GraphQL on a GHES is `https://<host>/api/graphql`, not under `/api/v3` — records/G1.md
