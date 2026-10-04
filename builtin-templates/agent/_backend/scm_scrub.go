@@ -263,29 +263,72 @@ func scmScrubJob(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob)
 
 // --- the refresher --------------------------------------------------------------------
 
-// scmRefreshEvery is how often the refresher looks.
-var scmRefreshEvery = 30 * time.Second
+// scmRetryIdle is how long the refresher leaves a due token whose project
+// has no task at work (or whose refresh failed) before it looks again.
+var scmRetryIdle = 2 * time.Minute
+
+// scmKick wakes the refresher: a token was handed out, its timer moves.
+var scmKick = make(chan struct{}, 1)
+
+func scmKickRefresher() {
+	select {
+	case scmKick <- struct{}{}:
+	default:
+	}
+}
+
+// scmDueAt is when l is due: the provider's refreshAfter, or 75 % of its
+// life if sooner — not before its next try.
+func scmDueAt(l *scmLive) int64 {
+	return max(min(l.refresh, l.written+(l.expires-l.written)*3/4), l.nextTry)
+}
 
 // scmRefreshLoop re-mints, before it lapses, each token this process
-// handed out (at the provider's refreshAfter, or 75 % of its life if
-// sooner) while its project has a task at work — a long coding-agent turn
-// keeps its partition up, so the push at its end still finds a live
-// credential. An idle project's credential is left to lapse; the next
-// turn's gate (scmCredsDue) has a fresh one written first.
+// handed out (scmDueAt) while its project has a task at work — a long
+// coding-agent turn keeps its partition up, so the push at its end still
+// finds a live credential. An idle project's credential is left to lapse;
+// the next turn's gate (scmCredsDue) has a fresh one written first. One
+// timer, at the next token's instant (no ticker: the backend runs on
+// events and timers at known instants).
 func scmRefreshLoop(ctx context.Context, _ *Engine) {
-	t := time.NewTicker(scmRefreshEvery)
-	defer t.Stop()
 	for {
 		scmRefreshDue(ctx)
+		var wait <-chan time.Time
+		var t *time.Timer
+		if next := scmNextDue(); next > 0 {
+			t = time.NewTimer(time.Duration(max(next-nowMs(), 0)) * time.Millisecond)
+			wait = t.C
+		}
 		select {
 		case <-ctx.Done():
+		case <-wait:
+		case <-scmKick:
+		}
+		if t != nil {
+			t.Stop()
+		}
+		if ctx.Err() != nil {
 			return
-		case <-t.C:
 		}
 	}
 }
 
-// scmRefreshDue re-mints every token that is due now.
+// scmNextDue is the earliest instant a live token is due (0: none live).
+func scmNextDue() int64 {
+	scmLiveMu.Lock()
+	defer scmLiveMu.Unlock()
+	var next int64
+	for _, l := range scmLives {
+		if at := scmDueAt(l); next == 0 || at < next {
+			next = at
+		}
+	}
+	return next
+}
+
+// scmRefreshDue re-mints every token that is due now; one that lapsed is
+// let go (still masked until it expires), and one it can't refresh now is
+// looked at again after scmRetryIdle.
 func scmRefreshDue(ctx context.Context) {
 	type due struct {
 		pid       int64
@@ -295,11 +338,17 @@ func scmRefreshDue(ctx context.Context) {
 	now := nowMs()
 	scmLiveMu.Lock()
 	for k, l := range scmLives {
-		if now >= min(l.refresh, l.written+(l.expires-l.written)*3/4) {
+		switch {
+		case l.expires <= now:
+			scmRetired[l.token.Reveal()] = l.expires
+			delete(scmLives, k)
+		case now >= scmDueAt(l):
+			l.nextTry = now + scmRetryIdle.Milliseconds()
 			pid, ref, host := splitLiveKey(k)
 			todo = append(todo, due{pid, ref, host})
 		}
 	}
+	scmRebuildLocked()
 	scmLiveMu.Unlock()
 	for _, d := range todo {
 		if ctx.Err() != nil {

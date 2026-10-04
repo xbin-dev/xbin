@@ -316,6 +316,24 @@ func TestRefreshRewritesFile(t *testing.T) {
 	if len(fx.scm.Tokens()) != 3 {
 		t.Fatal("a token at 75 % of its life wasn't refreshed")
 	}
+	// the loop: asleep until the next token's instant, woken when one is
+	// handed out, gone with its context
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { scmRefreshLoop(ctx, nil); close(done) }()
+	scmLiveMu.Lock()
+	for _, l := range scmLives {
+		l.refresh = nowMs() + 300 // due in a moment
+	}
+	scmLiveMu.Unlock()
+	scmKickRefresher()
+	waitFor(t, "the loop to refresh at the token's instant", func() bool { return len(fx.scm.Tokens()) == 4 })
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the loop outlived its context")
+	}
 }
 
 // scmCredsDue reads project_creds alone: no row, not live, another

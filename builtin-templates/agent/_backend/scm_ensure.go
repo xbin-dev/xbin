@@ -80,7 +80,7 @@ func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string, mi
 	if tok.Host != host || !scmHostRe.MatchString(host) {
 		return fmt.Errorf("%s handed out a credential for %q, not for the project's host %q", p.SCM, tok.Host, host)
 	}
-	if v := tok.Token.Reveal(); strings.ContainsAny(v, " \t\r\n\x00'\"") || strings.ContainsAny(tok.Username, "\r\n\x00") {
+	if v := tok.Token.Reveal(); strings.ContainsAny(v, " \t\r\n\x00") || strings.ContainsAny(tok.Username, "\r\n\x00") {
 		return fmt.Errorf("%s handed out a credential this agent can't write into a file", p.SCM)
 	}
 	key = scmLiveKey(p.ID, ref, host)
@@ -94,6 +94,7 @@ func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string, mi
 	}
 	scmLivePut(key, live) // before the files: scmGitConfig reads its author
 	if err := scmWriteFiles(ctx, conn, id, box, p, ref, live, tok.Username); err != nil {
+		scmLiveDrop(key) // not there: the next ensure mints again (it stays masked)
 		return fmt.Errorf("writing the credential into %s: %w", sbxLabel(box), err)
 	}
 	if err := agent.db.scmPutCred(scmCredRow{PID: p.ID, Ref: ref, Host: host, Identity: as, Login: live.login, ForUser: live.forUser,

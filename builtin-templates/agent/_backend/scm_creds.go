@@ -77,6 +77,7 @@ type scmLive struct {
 	login, forUser            string
 	author                    scmAuthor
 	expires, refresh, written int64 // unix ms
+	nextTry                   int64 // the refresher looks again no sooner (unix ms)
 }
 
 var (
@@ -161,6 +162,7 @@ func scmLivePut(key string, l *scmLive) {
 	scmLives[key] = l
 	scmRebuildLocked()
 	scmLiveMu.Unlock()
+	scmKickRefresher() // its timer moves
 }
 
 // scmLiveDrop forgets key's token (it stays masked until it expires).
