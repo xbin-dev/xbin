@@ -58,8 +58,9 @@ export const shellCss = [scrollCss, baseCss, chromeCss, css`
       font: var(--bx-font, 13px/18px system-ui, sans-serif);
     }
 
-    /* ---- top bar (product-ui 2): the wordmark or the workspace's own
-       title, then the chips; nothing coloured but focus ---- */
+    /* ---- top bar (product-ui 2): xbin's mark and wordmark or the
+       workspace's own title, then the chips; nothing coloured but the
+       mark and focus ---- */
     .top {
       display: flex; align-items: center; gap: 8px; flex: none; box-sizing: border-box;
       height: var(--bx-topbar-h, 40px); padding: 0 12px;
@@ -72,6 +73,12 @@ export const shellCss = [scrollCss, baseCss, chromeCss, css`
     }
     .logo .mark { flex: none; }
     .logo img.mark { width: 20px; height: 20px; object-fit: contain; border-radius: var(--bx-radius, 2px); }
+    /* xbin's mark and wordmark (D183): the tile 24px tall, which gives the
+       word wordmark A's least size (16px from ascender to baseline); the
+       word alone at the same size */
+    .logo svg.lockup, .logo svg.word { display: block; flex: none; width: auto; }
+    .logo svg.lockup { height: 24px; }
+    .logo svg.word { height: 17.5px; }
     .ws-title { font: var(--bx-font-title, 600 16px/22px system-ui, sans-serif); letter-spacing: 0; overflow: hidden; text-overflow: ellipsis; }
     .ws-chip {
       display: inline-flex; align-items: center; box-sizing: border-box; height: 20px; padding: 0 6px; white-space: nowrap;

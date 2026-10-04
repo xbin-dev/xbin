@@ -15,7 +15,7 @@ const testPNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfF
 
 // GET is for every signed-in principal, PUT for admins; a PUT persists,
 // answers with the full view and tells the hub; the sign-in page carries
-// the brand once set and xbin's own — the wordmark "xbin" (D184) — before
+// the brand once set and xbin's own — its mark and wordmark (D183) — before
 // and after clearing.
 func TestBrandingRoutesAndLoginPage(t *testing.T) {
 	h, s := termServer(t)
@@ -36,12 +36,12 @@ func TestBrandingRoutesAndLoginPage(t *testing.T) {
 		return w.Body.String()
 	}
 	head := func(p string) string { return p[:min(len(p), 300)] }
-	const wordmark = `<div class="logo"><span class="name">xbin</span></div>`
+	const lockup = `<div class="logo">` + brandLockup + `</div>` // the mark and wordmark, D183
 
 	if c, b := do(bob, "GET", "/branding", ""); c != 200 || !strings.Contains(b, `"hasIcon":false`) {
 		t.Fatalf("unbranded GET: %d %s", c, b)
 	}
-	if p := loginPage(); !strings.Contains(p, "<title>xbin — sign in</title>") || !strings.Contains(p, wordmark) || !strings.Contains(p, `href="data:image/svg+xml;base64,`) {
+	if p := loginPage(); !strings.Contains(p, "<title>xbin — sign in</title>") || !strings.Contains(p, lockup) || !strings.Contains(p, `<link rel="icon" href="`+defaultIconURI+`">`) {
 		t.Fatalf("unbranded sign-in page: %s", head(p))
 	}
 	if c, _ := do(bob, "PUT", "/branding", `{"title":"Acme"}`); c != 403 {
@@ -66,7 +66,7 @@ func TestBrandingRoutesAndLoginPage(t *testing.T) {
 	}
 	p := loginPage()
 	if !strings.Contains(p, "<title>Acme Ops — sign in</title>") || !strings.Contains(p, `<img class="mark" src="data:image/png;base64,`) ||
-		!strings.Contains(p, `<span class="name">Acme Ops</span>`) || !strings.Contains(p, `href="data:image/png;base64,`) || strings.Contains(p, wordmark) {
+		!strings.Contains(p, `<span class="name">Acme Ops</span>`) || !strings.Contains(p, `href="data:image/png;base64,`) || strings.Contains(p, lockup) {
 		t.Fatalf("branded sign-in page: %s", head(p))
 	}
 	// a title is escaped; bad icons are refused and leave the brand alone
@@ -84,7 +84,7 @@ func TestBrandingRoutesAndLoginPage(t *testing.T) {
 	if c, b := do(alice, "PUT", "/branding", `{"title":"","icon":""}`); c != 200 || !strings.Contains(b, `"hasIcon":false`) {
 		t.Fatalf("clear: %d %s", c, b)
 	}
-	if p := loginPage(); !strings.Contains(p, "<title>xbin — sign in</title>") || !strings.Contains(p, wordmark) {
+	if p := loginPage(); !strings.Contains(p, "<title>xbin — sign in</title>") || !strings.Contains(p, lockup) {
 		t.Fatal("cleared: xbin's own again")
 	}
 	if !auditable("PUT", "/branding") || auditable("GET", "/branding") {

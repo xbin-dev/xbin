@@ -702,6 +702,8 @@ person picks Dark in the shell's settings
 - Pre-sign-in pages are Work volume (Q11): the workspace's branding (D76)
   or the one-colour wordmark "xbin" in Bricolage Grotesque 800; no fields;
   the mark itself (M3, D183) lands with the product's other marks (§6).
+  *Landed (W8, D183):* the lockup, the tile beside wordmark A's outlines,
+  drawn inline with the word in the text colour.
 
 ### 2.8 Fonts
 
@@ -1432,7 +1434,10 @@ static scan. Line references are `promo/film-set`'s.
   wordmark A until the owner signs off A or B). The product still carries
   the old X/BIN mark, so the favicons, `logo.*`, `apple-touch-icon.png`, the
   sign-in mark and the shell's default mark change to it next. Until then
-  the wordmark is text.
+  the wordmark is text. *Done in the web and server product* (W8, recorded
+  under D183): the files in `web/` are the masters' copies, xbind's pages
+  and the shell's header draw the lockup inline, the admin console's
+  branding tab previews the favicon; the iOS app's icon is still open.
 - **The iOS app**: its colours and type (`XbinPalette` in Tokens.swift:
   amber) stay as they are, and so does the native reference renderer
   (`web/xb/render-theme.js`), which previews the app and moves with it

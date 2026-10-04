@@ -34,6 +34,7 @@ const EXEMPT = [
   { el: /^textarea\.xterm-helper-textarea/, why: 'xterm\'s input proxy, styled by the vendored xterm.css and never visible (audit A22)' },
   { el: /\.qr\b/, why: 'a QR code stays dark on light for scanners' },
   { el: /^span\.ficon\b/, prop: 'emoji', why: 'a folder\'s icon is what the person typed (the sidebar)' },
+  { el: /^(rect|path)\.m-(tile|b|x)$/, prop: 'fill', why: 'xbin\'s mark keeps its own colours in both themes (D183); its word is in the text colour' },
 ];
 
 // The canary sheet: theme.css's tokens, colour by colour, as fingerprints.

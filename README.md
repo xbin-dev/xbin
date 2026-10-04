@@ -1,28 +1,50 @@
+<img src="plans/brand/marks/mark.svg" alt="" width="64" height="64">
+
 # xbin
 
-An office for your agents. A self-hosted workspace where AI agents and people
-work in sandboxed apps, each with its own identity, grants and network policy.
-One binary. IT holds the keys.
+**The first exponential era workspace.**
 
-![the xbin shell: a canvas of apps beside a sidebar of orgs and apps](website/shots/overview-shell.png)
+xbin is a workspace where people and AI agents build the systems a company
+runs on, and where those systems run.
 
-## What you can do with it
+Describe a change to an agent, or make it yourself. Save, and it is live.
+Every app and every agent works in its own sandbox and reaches only what
+someone has granted.
 
-- **Ops:** run the nightly report on a schedule.
-- **Sales:** keep a CRM that reads the team mailbox.
-- **Finance:** publish a dashboard behind SSO and TLS.
-- **Engineering:** give an agent a sandbox with a GPU.
-- **IT:** users, orgs, roles, SSO, network policy, an encrypted vault, backups,
-  an audit log, and *view as user* to see exactly what someone sees.
-- **An agent:** rebuild an app from a prompt, inside its own room.
+![the xbin workspace: apps side by side on a canvas, beside the sidebar of apps](website/shots/overview-shell.png)
+
+## What it is
+
+- **A system is a folder.** Each app is a folder: a page, an optional
+  backend and its own history. Move the folder and the app is renamed; copy
+  it and you have a fork.
+- **Agents build the systems.** A built-in agent runs long tasks with tools
+  and subagents, on schedules and triggers, and talks through chat
+  channels. Claude Code, Codex, Gemini CLI and opencode work in the
+  workspace too, each in its own sandbox, signed in once.
+- **Closed until granted.** Outbound network is closed by default and
+  approved one destination at a time. Every approved grant is a line in a
+  plain, versioned file.
+- **A copy for each person.** An app can run one copy for each person.
+  Other people cannot read it, and admins do not open it.
+- **Ready for IT.** Single sign-on with OIDC or GitHub, organisations and
+  roles, an audit log, a read-only view as any user, sealed and encrypted
+  backups, limits for each app.
+- **Three ways in.** The workspace in the browser, `bx` in a terminal, and
+  the iOS app (in beta testing).
 
 ## Try it
 
-Free for an hour, no signup: `ssh xbin@vcpu.sh`, or open
-[vcpu.sh/xbin](https://vcpu.sh/xbin).
+Try it free for an hour, with no sign-up. All you need is an ssh client:
 
-Self-host it on any Linux box (macOS runs it in a Lima VM); the installer
-prints its plan and asks before changing anything:
+```sh
+ssh xbin@vcpu.sh
+```
+
+Or open [vcpu.sh/xbin](https://vcpu.sh/xbin) in a browser.
+
+Install it on a Linux machine (on macOS the installer sets up a Lima VM).
+The installer prints its plan and asks before it changes anything:
 
 ```sh
 curl -fsSL https://xbin.dev/install.sh | sh
@@ -30,7 +52,8 @@ curl -fsSL https://xbin.dev/install.sh | sh
 
 Site: [xbin.dev](https://xbin.dev). Docs: the top-down
 [overview tour](docs/overview/00-index.md), then the reference under
-[docs/](docs/) (also served by every workspace at `/docs/`).
+[docs/](docs/) (also served by every workspace at `/docs/`). Building a
+tile: [docs/design.md](docs/design.md) says how it should look and read.
 
 ## How it works, briefly
 

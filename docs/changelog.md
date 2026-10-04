@@ -12,6 +12,46 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-03
 
+- **docs: [design.md](/docs/design.md), how a tile should look and read**
+  (Base Two, D183, D184), for people and coding agents building tiles:
+  ten rules (tokens only; one accent, for actions; status as a glyph, a
+  word and a colour; square corners; small, steady type; dense, on a 4 px
+  grid; glyphs, not emoji; flat; no brand colour fields in a tile; motion
+  that only confirms), the components on the tokens (buttons, fields,
+  lists, tabs, tables, badges, alerts, dialogs that show the plan before
+  they ask, plates, empty states), the workspace's voice, both themes and
+  what not to do, with examples. [frontend-kit.md](/docs/frontend-kit.md)
+  §Theme stays the mechanism and links it. The workspace `AGENTS.md` (new
+  workspaces) carries the nine rules that matter most, as *Design
+  guidelines* under Theme & shell, and points there, as do the welcome
+  tile's "light & dark" note (`scaffold:apps/welcome`) and the page `bx new`
+  writes; any workspace's agents can read the page at `/docs/` or in
+  `$XBIN_DOCS`. A workspace from before this keeps its own `AGENTS.md`
+  (xbind never rewrites it), so its agents don't hear of the guide: add
+  the pointer under *Theme & shell* yourself, for example
+  `**Design guidelines.** Read /docs/design.md (on disk:
+  $XBIN_DOCS/design.md) before you build or restyle a tile's UI.`
+- **xbin's mark is the bˣ tile** (Base Two, D183): a white b with a yellow
+  x raised as its exponent, on a square cobalt tile, beside the wordmark
+  "xbin" in Bricolage Grotesque 800. `/vendor/favicon.svg` and
+  `/vendor/logo.svg` (the mark with the wordmark) keep their URLs and carry
+  the new drawings, and so do the PNGs beside them (`favicon.png`,
+  `favicon-256.png`, `favicon-32.png`, `apple-touch-icon.png`,
+  `logo.png`). The logo's proportions changed: `logo.svg` is 2.4:1 (3.7:1
+  before) and `logo.png` 1200 × 501, so a page that showed it at a fixed
+  width and height should size one side only. The tile keeps its colours in
+  both themes; `logo.svg`'s word is ink on a light system and near-white on
+  a dark one. xbind's own pages (sign-in, invite, "Continue as", request
+  access, the partition switch page, the tile navigation hop and the
+  tile-origin refusal) show the mark and the wordmark, drawn inline with
+  the word in the page's text colour, and carry the mark as their favicon
+  — unless the workspace set its own branding (D76): its title (after its
+  icon) as before, and a workspace icon set without a title now stands
+  beside the wordmark, never beside xbin's tile. The shell's header does
+  the same, in its text colour, before the workspace chip
+  (`bx builtin update scaffold:shell`), and the admin console's branding
+  tab previews the new mark (`scaffold:tiles/admin`); until then an older
+  shell keeps drawing the old mark in the accent.
 - **The workspace follows your system's light or dark setting** (Base Two:
   Concrete Day and Concrete Night, D184). Settings → Theme overrides it per
   person (System, Light, Dark), and Density offers Comfortable; terminals
@@ -33,11 +73,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   invite, "Continue as", request access, the partition switch page, the
   tile navigation hop and the tile-origin refusal — through the
   `xbin_theme` hint cookie the shell keeps (a UI hint, never a credential);
-  their default mark is the wordmark "xbin". Corners are 2 px; the fonts are
-  Instrument Sans, JetBrains Mono and Bricolage Grotesque, served from
-  `/vendor/fonts/`; code faces and terminals draw no ligatures, and a new
-  workspace's seeded zsh prompt draws its path in the terminal's bright
-  black (a fixed 256-colour grey before, which no theme follows). Status
+  their default logo is xbin's mark and wordmark (above). Corners are 2 px;
+  the fonts are Instrument Sans, JetBrains Mono and Bricolage Grotesque,
+  served from `/vendor/fonts/`; code faces and terminals draw no
+  ligatures, and a new workspace's seeded zsh prompt draws its path in the
+  terminal's bright black (a fixed 256-colour grey before, which no theme
+  follows). Status
   shows as a glyph of its own shape with its word (`ok`, `info`, `warning`,
   `error`), never a coloured or breathing dot alone; emoji used as icons
   became drawn glyphs, and view-model strings lost their emoji (a test that

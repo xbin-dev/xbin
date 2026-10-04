@@ -12,6 +12,17 @@ more than the file: B is 3.49:1 against A's 2.54:1, so the wordmark's sizes on e
 page and in the share card change with it (`website/README.md` → "Assets" has B's, from
 `lockup-b.svg`'s unit), and the site's guard fails until they do.
 
+The product uses copies too (W8, D183): `web/favicon.svg` (= `favicon.svg`) and
+`web/logo.svg` (= `lockup-a.svg`), served at `/vendor/`; PNGs rendered from the masters
+(`web/favicon-32.png` from `favicon-32.svg`, `web/favicon.png` and `favicon-256.png`
+from `mark.svg`, `web/logo.png` from `lockup-a.svg`; `web/apple-touch-icon.png` is the
+site's); and lockup A drawn inline, its word in the page's text colour, on xbind's own
+pages (`internal/server/brandmark.go`) and in the shell's header
+(`workspace-template/shell/shell-brand.js`). `TestProductMarksAreTheMasters`,
+`TestBrandMarkIsTheMasters` and `hack/shell-brand.test.mjs` hold them to these files,
+so a swap to B changes them in the same commit (`docs/maintenance.md` → "Embedded
+assets" has the recipe).
+
 ## Files
 
 | File | What it is |

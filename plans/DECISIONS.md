@@ -10688,13 +10688,53 @@ Deviations and refinements made while implementing; all deliberate:
     so a swap changes the wordmark's sizes on every page and the share card
     with the file, `website/README.md` → "Assets"); the product theme,
     Concrete Day and Concrete Night (D184), and the product shots and film
-    that wait for it; the iOS app icon and the product's other touchpoints
-    (W8); the curve's projection and the two figures the register does not
-    give; whether the section's copy ("Seventy years of software. Then the
-    curve bent.", the marker "First large language models"), written for a
-    seventy-year chart, should change to fit the measured one; the brand
-    terminal's window (captured at 800 × 500 CSS px, not the spec's 1600 ×
-    1000, so its type reads on the page); the repository README's pitch.
+    that wait for it; the iOS app icon (W8's iOS half: the web and server
+    half landed, below); the curve's projection and the two figures the
+    register does not give; whether the section's copy ("Seventy years of
+    software. Then the curve bent.", the marker "First large language
+    models"), written for a seventy-year chart, should change to fit the
+    measured one; the brand terminal's window (captured at 800 × 500 CSS
+    px, not the spec's 1600 × 1000, so its type reads on the page). The
+    repository README's pitch, open here first, landed with W8's web half.
+  - **W8 in the web and server product, and the guide for tile builders
+    (branch `brand/web`, 2026-10-04).** Asked by the owner on D184's review
+    ("make sure tile agent Agent.md is updated with new guidelines and
+    points to docs"; "for logo we have the new one").
+    - *The mark ships as the masters' copies.* `/vendor/favicon.svg` and
+      `/vendor/logo.svg` keep their URLs (compat rule 3) and are
+      `favicon.svg` and `lockup-a.svg` byte for byte
+      (`TestProductMarksAreTheMasters`); the PNGs beside them are rendered
+      from the masters with `rsvg-convert` (the 32 px one from the hinted
+      drawing), `apple-touch-icon.png` is the site's.
+    - *Inline where the word must follow the person.* xbind's own pages
+      (sign-in, invite, "Continue as", request access, the partition
+      switch, the hop, the refusal) and the shell's header draw lockup A
+      inline: the tile in its own colours, the word in `currentColor`. An
+      `<img>` of `logo.svg` was rejected: two of those pages load no image
+      (CSP), and the file's word follows the system's colour scheme, not
+      the person's theme cookie or setting. The copies' paths and the
+      word's placement are tested against `logo.svg`
+      (`TestBrandMarkIsTheMasters`, `hack/shell-brand.test.mjs`); the
+      theme canary exempts the tile's three shapes by class. Sizes: the
+      tile 24 px in the 40 px top bar (wordmark A's least size, 16 px from
+      ascender to baseline, sets it), 32 px on the sign-in plate, 24 px on
+      a notice. Workspace branding (D76) still wins; an icon set without a
+      title now stands beside the word alone, never beside xbin's tile.
+    - *docs/design.md*, the product half of this brand for tile builders
+      (people and agents): the calm/labelled/honest tests, ten rules, the
+      components on the tokens, the voice, both themes, do and don't. One
+      rule is new: no brand colour fields in a tile (a tile shares the
+      screen; the product allows one field on it). The workspace
+      `AGENTS.md` carries nine of the rules as *Design guidelines* and
+      points at design.md and frontend-kit.md §Theme; the welcome note and
+      `bx new`'s page point there too.
+    - *Copy:* the README opens with the kicker, the definition and the
+      pillars as facts (the pitch above, closed); `docs/index.md` with the
+      definition; the shell's empty states in plain sentences. The
+      installer's banner carried no tagline and is unchanged (its S-11
+      shot is recorded byte for byte).
+    - Still open in W8: the iOS app (its icon, `XbinPalette`, and the
+      reference renderer that previews it).
 
 - **D184 — Base Two in the workspace: Concrete Day and Concrete Night; a
   document opts in, the person's choice rides the D4 injection, frames

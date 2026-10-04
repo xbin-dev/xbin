@@ -4,11 +4,36 @@ import (
 	"bytes"
 	"fmt"
 	"io/fs"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 	"testing"
 )
+
+// The product's copies of xbin's mark are the brand's masters (D183), as
+// the site's are (make website-guard): /vendor/favicon.svg is the hinted
+// favicon and /vendor/logo.svg the lockup with wordmark A, byte for byte.
+// The PNGs beside them (favicon.png, favicon-256.png, favicon-32.png,
+// apple-touch-icon.png, logo.png) are rendered from the same masters
+// (docs/maintenance.md, "Embedded assets"); a drawing of the mark inlined
+// elsewhere is checked against logo.svg's paths where it lives.
+func TestProductMarksAreTheMasters(t *testing.T) {
+	for web, master := range map[string]string{"favicon.svg": "favicon.svg", "logo.svg": "lockup-a.svg"} {
+		got, err := fs.ReadFile(WebFS(), web)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want, err := os.ReadFile(filepath.Join("plans", "brand", "marks", master))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, want) {
+			t.Errorf("web/%s is not plans/brand/marks/%s: copy the master, never redraw it (D183)", web, master)
+		}
+	}
+}
 
 // The embedded trees ship inside every xbind byte-for-byte and are copied
 // into workspaces (`xbind init`, `bx tile import`, template instantiation),

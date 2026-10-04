@@ -2,7 +2,8 @@ package scaffold
 
 // indexTpl opts the new tile in to the person's appearance
 // (data-bx-theme="auto": light or dark, D184) and styles it from theme.css's
-// tokens only, so it starts out right in both themes.
+// tokens only, so it starts out right in both themes; its first CSS line
+// points the builder (or their agent) at the design guide (D183).
 const indexTpl = `<!doctype html>
 <html lang="en" data-bx-theme="auto">
 <head>
@@ -10,6 +11,7 @@ const indexTpl = `<!doctype html>
   <title>%[1]s</title>
   <link rel="stylesheet" href="/vendor/theme.css">
   <style>
+    /* theme.css tokens only, in both themes; how a tile looks and reads is /docs/design.md */
     body { padding: var(--bx-pad); }
     h3 { margin: 0 0 8px; font: var(--bx-font-title); }
   </style>

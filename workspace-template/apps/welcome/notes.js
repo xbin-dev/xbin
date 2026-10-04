@@ -199,7 +199,10 @@ bx ls                   # what exists in this workspace</pre>
       paints (a canvas, a chart) reads a token with <code>token()</code> from
       <code>/vendor/bx-theme.js</code> and repaints in
       <code>onAppearance()</code>. A page that doesn't opt in stays dark,
-      whatever the person picked.</p>`,
+      whatever the person picked.</p>
+      <p>How a tile should look with them (calm panels, the accent for
+      actions only, square corners, plain words, the plan before the ask):
+      <a href="/docs/design.md" target="_blank">docs/design.md</a>.</p>`,
     docs: 'frontend-kit.md',
   },
   {

@@ -130,7 +130,7 @@ export class BxSide extends LitElement {
       return (!anyFolder && !anyTile) ? html`<div class="empty">no matches for “${q}”</div>` : nothing;
     }
     return (sections.length === 0 && (this._s.side?.folders ?? []).length === 0)
-      ? html`<div class="empty">no components yet<br>· mkdir one ·</div>` : nothing;
+      ? html`<div class="empty">No tiles yet.<br>A tile is a folder with an index.html.</div>` : nothing;
   }
 
   // ---- gestures ----

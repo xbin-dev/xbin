@@ -108,7 +108,9 @@ Night** (dark) and **Concrete Day** (light). Every colour, font, corner and
 shadow is a custom property in `/vendor/theme.css`; everything else uses
 `var(--bx-…)`. A person picks one in the shell's settings — *Theme*: System,
 Light or Dark, and *Density*: Compact or Comfortable — and System follows
-the device's light or dark setting.
+the device's light or dark setting. This section is the mechanism; how a
+tile should look with it (the rules, the components, the words) is
+[design.md](/docs/design.md).
 
 ### Opting in
 
@@ -178,8 +180,9 @@ Rules of use:
   for identifiers, paths, status, row actions or decoration.
 - **Status** is an icon, a word and its colour, never the colour alone; the
   `-bg` tints are for alert and badge backgrounds. A brand field colour
-  never signals status: it appears only as a part tab, the elevated banner
-  or one block in a first-run or empty state.
+  never signals status, and it belongs to the workspace's own chrome only:
+  the part tabs on system windows, the elevated banner and the first-run
+  screen. A tile uses none ([design.md](/docs/design.md) rule 9).
 - **Corners** are `var(--bx-radius)` or 0: no pills, no circles (a status
   dot is an 8px square, an avatar a square).
 - **Type** is 13px or larger (`var(--bx-font)`, `--bx-font-ui`, `-body`,
