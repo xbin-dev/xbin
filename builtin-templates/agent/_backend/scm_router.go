@@ -138,7 +138,8 @@ func scmTaskRepos(t *DB, p *Project, k *ProjectTask) []ProjectRepo {
 	return out
 }
 
-// scmRouteTask is §11.3's table for one task.
+// scmRouteTask is the routing table (API.md §scm events and polling,
+// "Routing") for one task.
 func scmRouteTask(t *DB, p *Project, k *ProjectTask, repo string, ev *scmEvent) {
 	own := scmOwnLogin(t, p, k)
 	self := ev.Actor.Self || (own != "" && strings.EqualFold(ev.Actor.Login, own))

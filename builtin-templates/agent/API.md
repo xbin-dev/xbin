@@ -3829,9 +3829,9 @@ or an unpartitioned agent idle-stopped — is started again at the next
 read's (or subscription renewal's) minute, and a delivery or a tick that
 starts the agent makes the pass at once.
 
-**Once only.** An event id is taken once for each `for`; a fact both an event and a
-read describe is acted on once — a failing suite on a head, green CI on a
-head, a review entry, a merge — whichever comes first.
+**Once only.** An event id is taken once for each `for`; a fact both an
+event and a read describe is acted on once — a failing suite on a head,
+green CI on a head, a review entry, a merge — whichever comes first.
 
 **Rolling back.** A build without scm events leaves its tables
 (`project_refs`, `scm_poll`, `scm_seen`, `scm_subs`) alone and answers the

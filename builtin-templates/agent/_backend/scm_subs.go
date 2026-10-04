@@ -38,8 +38,9 @@ import (
 func init() {
 	projectRefsHooks = append(projectRefsHooks, scmRefsChanged)
 	taskChangedHooks = append(taskChangedHooks, scmTaskChanged)
-	// the worker's kinds of §14.2: the loop does this work (it never holds
-	// the engine), so a queued one only wakes it
+	// the project worker's poll and subscribe kinds (projects_types.go):
+	// the loop does this work (it never holds the engine), so a queued one
+	// only wakes it
 	projectJobKinds[pjPoll] = scmKickJob
 	projectJobKinds[pjSubscribe] = scmKickJob
 }

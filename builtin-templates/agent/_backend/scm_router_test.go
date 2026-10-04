@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -227,6 +228,64 @@ func TestCIFailureInputCapped(t *testing.T) {
 	if scmFixesToday(fx.task(1)) != 0 {
 		t.Fatal("yesterday's fixes count today")
 	}
+
+	// the input: at most 3 failing jobs, each its log's last 120 lines (or
+	// its share of policy.ci.logBytes, cut from the front), a job still
+	// running named with its steps only — the framed text within logBytes
+	t.Run("logs budget", func(t *testing.T) {
+		fx := newEvFx(t, modeLegacy, `{"ci":{"autoFix":true,"maxPerDay":5,"delaySec":0,"logBytes":4096}}`)
+		fx.addTask(1, evBranch, evSHA, TaskPR{Number: 42, HeadSHA: evSHA})
+		job := func(id, name string) scmJob {
+			return scmJob{ID: id, Name: name, Status: "completed", Conclusion: "failure", Check: id,
+				Steps: []scmStep{{N: 3, Name: "run " + name, Status: "completed", Conclusion: "failure"}}}
+		}
+		names := map[string]string{"j1": "lint", "j2": "unit", "j3": "e2e", "j4": "deploy"}
+		var jobs []scmJob
+		var checks []scmCheck
+		for _, id := range []string{"j1", "j2", "j3", "j4"} {
+			jobs = append(jobs, job(id, names[id]))
+			checks = append(checks, scmCheck{ID: id, Name: names[id], Status: "completed", Conclusion: "failure", Suite: "77", Job: id})
+		}
+		fx.scm.SetChecks("acme/web", evSHA, &scmChecks{SHA: evSHA, State: "failure", Counts: scmCounts{Total: 4, Failure: 4},
+			WorkflowRuns: []scmWorkflowRun{{ID: "70", Name: "ci", Status: "completed", Conclusion: "failure", Attempt: 1, HeadSHA: evSHA, Jobs: jobs}},
+			Checks:       checks, Statuses: []scmStatus{}})
+		var short, long, other strings.Builder
+		for i := 1; i <= 400; i++ {
+			fmt.Fprintf(&short, "b%03d\n", i)
+			fmt.Fprintf(&long, "c%03d %s\n", i, strings.Repeat("x", 95))
+			fmt.Fprintf(&other, "d%03d %s\n", i, strings.Repeat("y", 95))
+		}
+		fx.scm.SetJobLog("j1", "", true) // still running: 409 in-progress
+		fx.scm.SetJobLog("j2", short.String(), false)
+		fx.scm.SetJobLog("j3", long.String(), false)
+		fx.scm.SetJobLog("j4", other.String(), false)
+		fx.mustTake(fx.ev(scmKindChecks, "completed", func(e *scmEvent) { e.Conclusion = "failure" }))
+		fx.pass()
+		in := fx.inputs()
+		if len(in) != 1 {
+			t.Fatalf("inputs %+v", in)
+		}
+		text := in[0].Text
+		start := strings.Index(text, "[untrusted — from")
+		end := strings.Index(text, "\n[end of untrusted text]")
+		if start < 0 || end < start {
+			t.Fatalf("not framed: %q", text)
+		}
+		body := text[strings.Index(text[start:], "\n")+start+1 : end]
+		for _, want := range []string{`job "lint" failed at step 3`, "can be read once the job has ended", `job "unit"`, "b400", "b281", `job "e2e"`, "…", "c400"} {
+			if !strings.Contains(body, want) {
+				t.Errorf("the input lacks %q", want)
+			}
+		}
+		for _, not := range []string{`job "deploy"`, "d400", "b280", "c001"} {
+			if strings.Contains(body, not) {
+				t.Errorf("the input has %q", not)
+			}
+		}
+		if len(body) > 4096 {
+			t.Errorf("the framed text is %d bytes, over policy.ci.logBytes", len(body))
+		}
+	})
 
 	t.Run("autoFix off", func(t *testing.T) {
 		fx := newEvFx(t, modeLegacy, `{"ci":{"autoFix":false,"maxPerDay":5,"delaySec":0,"logBytes":8192}}`)

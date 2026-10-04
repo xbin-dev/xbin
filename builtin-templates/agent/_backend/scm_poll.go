@@ -661,8 +661,8 @@ func scmApplyPull(d *DB, r *scmPollRow, pl *scmPull) (final bool) {
 	return final
 }
 
-// scmSemKey is a semantic dedupe key (§11.4): the same fact from an event
-// and a poll is acted on once.
+// scmSemKey is a semantic dedupe key (API.md §scm events and polling,
+// "Once only"): the same fact from an event and a poll is acted on once.
 func scmSemKey(pid, n int64, kind, ref, sub, state string) string {
 	return fmt.Sprintf("sem:%d:%d:%s:%s:%s:%s", pid, n, kind, strings.ToLower(ref), sub, state)
 }
