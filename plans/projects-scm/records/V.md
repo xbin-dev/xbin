@@ -148,7 +148,8 @@
   named and the `createCI` import.
 - projects-scm §16.2: `harness-web.js` gains the two imports under a "CI"
   slot comment (after U8's comment, so after U7's slot).
-- projects-scm §16.2: `native/harness-child.js` gains three lines, not one:
+- projects-scm §16.2: `native/harness-child.js` gains two lines and changes
+  two (+4/−2), not one line:
   its card memo returns a cached card unless the child's run changed, so it
   keys CI's words too (native/ci.js hands back one template per words) —
   else a CI result arriving after the child's last change would never show.
@@ -183,6 +184,23 @@
   and all (their snapshots were that conversation's CI), not just ended.
 - projects-scm §7.6 (silent): with no turn start recorded (an old run)
   pushes of the last hour count.
+- projects-scm §7.6 (silent; fix round 1): a turn end looks only in a
+  sandbox that is `running` (asked of its manager first) — a stopped one
+  pushed nothing that turn, and an exec would start it.
+- projects-scm §7.6, §7.1 (fix round 1): at a bot home a pushed branch is
+  watched by the rule or a project only — a manager's own pushes need the
+  rule too (a turn end carries no request, so the owner's access level
+  isn't known; fail-closed).
+- projects-scm §7.6 (fix round 1): "anything not completed" is read from
+  the snapshot, not the state — a failed watch whose other jobs still run
+  is still re-read (fresh=1, the refresher, the dock's live read).
+- projects-scm §7.6 (silent; fix round 1): a gone watch is live again on a
+  new head of its branch (a push, a pushed detection) or an open pull
+  request; its "a day later" counts from when it went (its CI moving
+  meanwhile doesn't push it back).
+- projects-scm §7.6 (fix round 1): "lazily by `GET /runs/{id}/ci`" makes a
+  task's watches only for a task that never had one and isn't done or
+  closed; a gone task watch repeating an ended one isn't made again.
 - projects-scm §7.3: `urls` are built for a GitHub provider (hello's
   `scm.kind`) only; another host's are left out.
 - projects-scm §13.5: the failed chip names the first failing job, else
@@ -231,7 +249,7 @@ rerun has been seen; the UI harness.
 - **`A/model/features.js`**: V emptied the CI groups of both staged lists
   (comment lines kept); U2 empties its own groups beside them.
 - **`A/native/harness-board.js`** (V's ≤ 6 lines: the toolbar button and
-  the `ext.dock` sections) and **`A/native/harness-child.js`** (3 lines) —
+  the `ext.dock` sections) and **`A/native/harness-child.js`** (+4/−2) —
   U2 edits neither per §16.2.
 - **`A/model/app.js`**: three lines after U1's (wave apart).
 - **T**: board rows' `ci` comes from `taskCISummary` (memory; fine inside
@@ -251,6 +269,42 @@ rerun has been seen; the UI harness.
 | `f33cbd97` | agent template: API.md §CI in the conversation |
 | `b51e5c90` | agent template: a CI watch posts its subscription again when its head moves |
 | (this) | plans: projects-scm — the V record and §19 |
+
+## Fix round 1
+
+A skeptical verifier's eight findings, each checked against the code;
+seven fixed with a test that fails without the fix (each new test was run
+against the round's starting code and failed there), one (the rerun
+test's coverage) a test-only gap closed.
+
+| # | Finding | Verdict | What changed |
+|---|---|---|---|
+| 1 | major: a `gone` watch stays gone (a branch GitHub deleted at the merge, then pushed again, showed "CI —") | real | `moveTo` (a new head) resets `gone` to `none` — callers that know it went set it after (a merged task's refs); `ciUpsert` also clears `gone` for an incoming open pull request; a push event that makes the branch again at the same head clears it. A gone watch's `updated_ms` stays when it went (`touch`), so reads and progress events no longer push its end back; a repeated close event doesn't either. Test `TestCIGoneWatchComesBack`. |
+| 2 | major: the first failed job froze the rest of CI (fresh=1, the refresher and the dock's live read went by state) | real | `ciOpen(w)` — no snapshot, nothing reported yet (`none`), or any run, job, check or status not completed — decides `ciStale` and the refresher's selection (every live non-gone row, filtered by it). `model/ci.js` `pending()` is true for a watch whose snapshot has anything not completed (`openChecks`), or a summary with running + queued > 0. Tests `TestCIFailedStillRunningReread` (fresh=1 and `ciPass` both read a failed watch with a running job; neither reads it once everything completed) and the node live test (a failed watch stays live). `TestCIFreshCoalesced`'s finished watch now has a completed snapshot, not just the word. |
+| 3 | major: every turn end exec'd in the sandbox, starting one that idled to a stop | real | `ciDetect` asks the manager first (`GET` the sandbox) and runs nothing unless it is `running`. Test `TestPushedBranchStoppedSandbox` (no command, still stopped, no watch). Deviation below. |
+| 4 | minor: at a bot home a manager's own pushes need the rule | real, kept | A turn end carries no request, and a person's access level comes only from the platform's request headers (`callerOf`), so the agent can't tell a manager there. Kept fail-closed and recorded (Deviations, §19, API.md, the code's comment). |
+| 5 | minor: deviations without a §19 line; the harness-child line count | real | §19 lines added for the last-hour default and the failed chip's naming (and for this round's behaviours); the count corrected to +4/−2 in the record and §19. The Playwright SKIP note is about how this machine ran a test, not a behaviour — left in the record only. |
+| 6 | minor: rerun's 403 `identity` not pinned at the global instance, nor per caller | partly wrong | Added the `modeGlobal` case (403 `identity`, the provider never asked, `canRerun` false) and pinned each caller: the tile itself reaches the handler and gets 403 `identity`; an element without a grant 404 (it doesn't see the conversation). The finding's "view-as is a viewer and reaches the handler" is wrong: view-as is at most a viewer (D64), hidden from a private conversation (404), and rerun's route needs a participant, so the route's gate answers 403 before the handler — pinned as 403 on a team conversation. |
+| 7 | minor: a rolled-back transaction leaves its summary in memory | real | `DB.Tx` has no rollback hook (and `db.go` isn't V's). An in-transaction write is marked tentative (`ciCacheInTx`), its `AfterCommit` clears the mark; `ciSettle` — the refresher's every pass and `GET /runs/{id}/ci` — reads a still-marked root from the table again (waiting for its transaction, which holds the one connection) and swaps it in only if nothing newer was written. Test `TestCISummaryRolledBack`. |
+| 8 | minor: every visit to a finished task re-made, re-subscribed and re-read its watch | real | `ciTaskLazy` makes a task's watches only if it never had one, and never for a done or closed task; `ciTaskRefs` doesn't make a gone watch again that would repeat an ended one (same branch and head, none live) — the refs job makes one again when the branch moves. Test `TestCITaskLazyOnce`. |
+
+Docs: API.md §CI in the conversation says each change (the last hour
+default, a stopped sandbox left alone, the bot rule for a manager's
+pushes, gone's clock and its revival, "anything not completed" for the
+reads, the lazy watch made once).
+
+Checks run this round:
+
+| Command | Result |
+|---|---|
+| `TILE_TEST_FLAGS="-count=1 -v -run TestCIWatchSchema\|TestPushedBranchDetection\|TestPushedBranchDetectionChild\|TestPushedBranchStoppedSandbox\|TestCIAggregate\|TestCIProgressEventsPatchSnapshot\|TestCIGoneWatchComesBack\|TestCIFreshCoalesced\|TestCIFailedStillRunningReread\|TestCILogRedactedAndStripped\|TestCILogInProgress\|TestCIAnnotationsRedacted\|TestCIRerunPersonOnly\|TestCIWatchBotRule\|TestCIIdsFromSnapshot\|TestCIWatchLimits\|TestCIBackgroundRefresh\|TestCIOutcomeCardedOnce\|TestTaskCISummary\|TestCISummaryRolledBack\|TestCITaskLazyOnce\|TestCIParsePushes\|TestTurnEndHooksEverySite\|TestRefsJobFiresHooks\|TestProjectSeamsRegistration" hack/tile-check.sh agent` | ok — 25 tests pass (`-v` lists each), `✓ agent` |
+| `go test -race -count=1 -run 'TestCI\|TestPushedBranch\|TestTaskCISummary'` (the agent backend in a scratch module with the tile's go.mod, as tile-check builds it) | one failure: `TestCIGoneWatchComesBack`'s last step raced a read the earlier steps scheduled (the fake still answered the old head, so the read moved the watch — the code right, the fixture wrong); the fake now answers each step's head. Then `-race -count=10 -run 'TestCIGoneWatchComesBack\|TestCISummaryRolledBack\|TestCITaskLazyOnce\|TestCIFailedStillRunningReread\|TestPushedBranchStoppedSandbox'`: ok (172 s); `-count=2 -run 'TestCI\|TestPushedBranch\|TestTaskCISummary'`: ok |
+| the six new or changed Go tests against the round's starting code (its five V files restored, stubs for the two new helpers) | each fails (the rerun test, a coverage gap, passes) |
+| `node --test hack/agent-template-ci.test.mjs hack/agent-template-native-ci.test.mjs hack/agent-template-model.test.mjs hack/agent-template-features.test.mjs` | 30 pass |
+| `go test ./internal/docscheck` | ok |
+| `make fmt-check vet` | ok (and `gofmt -l` on the backend: nothing) |
+
+Full `-race` suite and `make check`: at the gate (lead).
 
 ## Owner questions
 
