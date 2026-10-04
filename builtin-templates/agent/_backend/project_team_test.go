@@ -186,6 +186,27 @@ func TestBoardPushOnlyFromOwnPartition(t *testing.T) {
 	if w.Code != 403 {
 		t.Fatalf("a row without the partition's id: %d %s", w.Code, w.Body)
 	}
+	// another tile's call in bob's partition, and an admin-role call naming
+	// his partition, are not his partition calling its global instance
+	for _, h := range []map[string]string{
+		{"X-XBin-From": "apps/other", "X-XBin-Role": "writer"},
+		{"X-XBin-From": "apps/agent", "X-XBin-Role": "admin"},
+	} {
+		b, _ := json.Marshal(row)
+		r := httptest.NewRequest("PUT", put, bytes.NewReader(b))
+		for k, v := range map[string]string{"X-XBin-User": "bob", "X-XBin-User-Level": "read", "X-XBin-Partition": "user:bob",
+			"X-XBin-Partition-Id": bobPID} {
+			r.Header.Set(k, v)
+		}
+		for k, v := range h {
+			r.Header.Set(k, v)
+		}
+		rec := httptest.NewRecorder()
+		fx.mux.ServeHTTP(rec, r)
+		if rec.Code == 200 {
+			t.Fatalf("a row from %v: %d %s", h, rec.Code, rec.Body)
+		}
+	}
 	if w := fromOwnPartition(t, fx.mux, "bob", bobPID, "read", "PUT", put, row); w.Code != 200 {
 		t.Fatalf("bob's row from his partition: %d %s", w.Code, w.Body)
 	}
