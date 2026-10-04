@@ -86,7 +86,7 @@ ext.register({
 });
 
 // liveFor: the conversation's CI read once when it opens; re-read every 15 s
-// while its Coding agents screen (or a job of it) is shown and anything is pending
+// while its Coding agents screen (or a job of it) is shown and anything is not completed
 function liveFor(v) {
   const app = ctx.app;
   const root = rootOf(v);

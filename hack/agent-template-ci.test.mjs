@@ -5,7 +5,7 @@
 // dismissal (kept, one per outcome), the store — one read in flight per
 // conversation, the run view's summary before a read, a `ci` event's
 // summary and outcomes (a coalesced one losing nothing), the dock's live
-// re-read only while anything is pending, a running job's log, the routes'
+// re-read only while anything is not completed (a failed watch too), a running job's log, the routes'
 // homes. Run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -185,10 +185,15 @@ test('the store: one read in flight, the run view before it, events, the child g
   assert.equal(ci.view(9), null);
 });
 
-test('live: fresh at once, then every 15 s only while anything is pending; one conversation at a time', async () => {
+test('live: fresh at once, then every 15 s only while anything is not completed (a failed watch too); one conversation at a time', async () => {
   const reads = [];
   let state = 'pending';
-  backend([['GET', /^\/runs\/(\d+)\/ci(\?fresh=1)?$/, (m) => { reads.push(m[0]); return json({ ...F.ciView(+m[1]), watches: [{ ...F.ciView(+m[1]).watches[0], state }] }); }]]);
+  const done = { workflowRuns: [], checks: [{ id: '1', name: 'ok', status: 'completed', conclusion: 'success' }], statuses: [] };
+  backend([['GET', /^\/runs\/(\d+)\/ci(\?fresh=1)?$/, (m) => {
+    reads.push(m[0]);
+    const w = F.ciView(+m[1]).watches[0];
+    return json({ ...F.ciView(+m[1]), watches: [{ ...w, state, checks: state === 'success' ? done : w.checks }] });
+  }]]);
   const timers = [];
   const ci = C.createCI(fakeApp(), { prefs: memPrefs(), setInterval: (f, ms) => { timers.push({ f, ms, on: true }); return timers.length - 1; },
     clearInterval: (h) => { timers[h].on = false; } });
@@ -201,12 +206,19 @@ test('live: fresh at once, then every 15 s only while anything is pending; one c
   timers[0].f();
   await wait(5);
   assert.equal(reads.length, 2);
+  // failed, while a job still runs and one is queued: still read
+  state = 'failure';
+  timers[0].f();
+  await wait(5);
+  timers[0].f();
+  await wait(5);
+  assert.equal(reads.length, 4, 'a failed watch with jobs not completed is still live');
   state = 'success';
   timers[0].f();
   await wait(5);
   timers[0].f();
   await wait(5);
-  assert.equal(reads.length, 3, 'nothing pending: no more reads');
+  assert.equal(reads.length, 5, 'nothing pending: no more reads');
   ci.live(10, true);
   assert.equal(timers[0].on, false, 'another conversation: the first stops');
   ci.live(10, false);

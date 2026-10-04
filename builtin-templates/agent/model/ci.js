@@ -11,7 +11,7 @@
 // before anything is read), and the `ci` stream event (the summary, each
 // watch's state and outcome — coalesced per conversation, so the next one
 // or the next read repeats whatever one dropped). While the dock shows a
-// conversation with anything pending it is read again every 15 s (live).
+// conversation with anything not completed it is read again every 15 s (live).
 //
 // Everything a build printed — names, titles, summaries, log text,
 // annotation messages — is untrusted text: the views draw it as plain text,
@@ -21,7 +21,7 @@
 import { projCall, qs } from './project-api.js';
 import { homeOf } from './homes.js';
 
-export const LIVE_MS = 15000; // the dock's re-read while anything is pending
+export const LIVE_MS = 15000; // the dock's re-read while anything is not completed
 export const LOG_TAIL = 65536;
 const DISMISSED = '/api/xbin/prefs/ci-dismissed'; // the person's prefs: the outcome cards closed (<watch>:<outcome>)
 const DISMISSED_MAX = 300;
@@ -43,6 +43,16 @@ export function toneOf(status, conclusion = '') {
     return 'idle';
   }
   return 'idle';
+}
+
+/** openChecks(c): a snapshot with a run, job, check or status not completed. */
+export function openChecks(c) {
+  if (!c) return false;
+  for (const r of c.workflowRuns || []) {
+    if (r.status !== 'completed') return true;
+    for (const j of r.jobs || []) if (j.status !== 'completed') return true;
+  }
+  return (c.checks || []).some((k) => k.status !== 'completed') || (c.statuses || []).some((x) => x.state === 'pending');
 }
 
 // a step's or job's glyph by tone (✓ ✗ ● ○)
@@ -186,7 +196,7 @@ const xbinPrefs = {
  *   view(root) chip(root) rows(root) child(root, runId) cards(root) dismiss(key)
  *   log(root, watch, job, {tail, since, until}) annotations(root, watch, check)
  *   watch(root, body) unwatch(root, wid) rerun(root, body)
- *   live(root, on)            the dock shows root: fresh=1 every 15 s while anything is pending
+ *   live(root, on)            the dock shows root: fresh=1 every 15 s while anything is not completed
  * opts: now(), setInterval, clearInterval, prefs ({load(), save(keys)}: the
  * dismissed cards, default the person's xbind prefs), debounce (ms)
  */
@@ -218,11 +228,15 @@ export function createCI(app, opts = {}) {
     const v = app.session && app.session.views && app.session.views.get(root);
     return (v && v.ci) || null;
   };
+  // pending: anything a read could still tell — decided from what CI has
+  // not completed, not the state alone (one failed job turns a watch to
+  // failure while the others still run).
   const pending = (root) => {
     const v = views.get(root);
-    if (v) return (v.watches || []).some((w) => w.state === 'pending' || (w.state === 'none' && !w.error));
+    if (v) return (v.watches || []).some((w) => w.state !== 'gone' && (w.state === 'pending' || (w.state === 'none' && !w.error) || openChecks(w.checks)));
     const s = (heard.get(root) || {}).summary || (runView(root) || {}).summary;
-    return !!(s && (s.state === 'pending' || s.state === 'none'));
+    const j = (s && s.jobs) || {};
+    return !!(s && (s.state === 'pending' || s.state === 'none' || (j.running || 0) + (j.queued || 0) > 0));
   };
 
   const ci = {
@@ -354,7 +368,7 @@ export function createCI(app, opts = {}) {
     },
 
     // live: the dock shows root — read it now (fresh), then every LIVE_MS
-    // while anything is pending; off: stop.
+    // while anything is not completed; off: stop.
     live(root, on) {
       if (!on) {
         if (liveRoot === root || root == null) { if (liveT != null) stop(liveT); liveT = null; liveRoot = null; }
