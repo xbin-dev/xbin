@@ -1,4 +1,5 @@
 import SwiftUI
+import XbinRenderer
 import UIKit
 import XbinCore
 import XbinTerm
@@ -41,7 +42,7 @@ struct TerminalScreen: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            Color.black.ignoresSafeArea()
+            Color(uiColor: UIColor(terminalHex: XbinPalette.Terminal.background)).ignoresSafeArea()
             if let c = controller {
                 TerminalArea(controller: c)
                     .ignoresSafeArea(.container, edges: fullScreen ? .all : [])
@@ -67,7 +68,7 @@ struct TerminalScreen: View {
             if tab == nil || panelActive {
                 ToolbarItemGroup(placement: .primaryAction) {
                     if let c = controller, c.lagging, let rtt = c.rtt {
-                        Text(verbatim: "\(Int(rtt)) ms").font(.caption.monospacedDigit()).foregroundStyle(.orange)
+                        LagLabel(ms: Int(rtt))
                     }
                     Menu {
                         Button("Find", systemImage: "magnifyingglass") { controller?.openFind() }
@@ -198,7 +199,8 @@ struct Banner: View {
             }
         }
         .padding(.horizontal, 14).padding(.vertical, 8)
-        .background(.regularMaterial, in: Capsule())
+        .background(XbinColor.surface, in: .xbinPlate)
+        .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.borderStrong, lineWidth: 1))
         .padding(.top, 8)
     }
 }
@@ -247,7 +249,7 @@ struct TermSessionsSheet: View {
                                     await workspace.refreshSessions()
                                 }
                             }
-                            Button("Rename") { newName = s.name; renaming = s }.tint(.blue)
+                            Button("Rename") { newName = s.name; renaming = s }.tint(XbinColor.accent)
                         }
                     }
                     Button("New session", systemImage: "plus") {
@@ -292,6 +294,7 @@ struct TermSessionsSheet: View {
                     }
                 }
             }
+            .concreteBackground()
             .navigationTitle("Terminal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
@@ -331,5 +334,20 @@ struct TermSessionsSheet: View {
             } message: { Text("Installed packages and files outside the tile are wiped; the tile's own files stay.") }
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+/// The round trip while the link lags: the measured time in the warn
+/// colour, on one line (a bar item has little room).
+private struct LagLabel: View {
+    let ms: Int
+
+    var body: some View {
+        Text(verbatim: String(ms) + " ms")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(XbinColor.warn)
+            .lineLimit(1)
+            .fixedSize()
+            .accessibilityLabel(Text("Round trip \(ms) milliseconds"))
     }
 }

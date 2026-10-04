@@ -1,4 +1,5 @@
 import UIKit
+import XbinRenderer
 import XbinTerm
 
 /// How the terminal's key rows look (plans/native.md §12): the terminal's
@@ -19,9 +20,14 @@ enum KeyRow {
     static let keyHeight: CGFloat = 36
     static let margin: CGFloat = 5
     static var height: CGFloat { keyHeight + 2 * margin }
-    static let barColor = UIColor(white: 0.08, alpha: 1)
-    static let keyColor = UIColor(white: 0.28, alpha: 1)
-    static let labelColor = UIColor.white
+    /// Concrete Night's terminal chrome in both appearances (the terminal
+    /// is dark either way, D185): the bar, the keys on it, their labels.
+    static let barColor = UIColor(xbinHex: XbinPalette.Terminal.bar)
+    static let keyColor = UIColor(xbinHex: XbinPalette.Terminal.key)
+    static let labelColor = UIColor(xbinHex: XbinPalette.Terminal.foreground)
+    /// A sticky modifier in force: the terminal's accent (its cursor).
+    static let stickyColor = UIColor(xbinHex: XbinPalette.Terminal.cursor)
+    static let stickyInk = UIColor(xbinHex: XbinPalette.Terminal.cursorInk)
     /// Word caps ("esc", "ctrl", a slot's "sudo") shrink to fit down to this.
     static let minimumFont: CGFloat = 9
 
@@ -31,11 +37,14 @@ enum KeyRow {
         cfg.title = title
         cfg.baseBackgroundColor = keyColor
         cfg.baseForegroundColor = labelColor
+        // Base Two's keys are plates: square corners.
+        cfg.cornerStyle = .fixed
+        cfg.background.cornerRadius = XbinShapes.radius
         cfg.contentInsets = NSDirectionalEdgeInsets(top: 4, leading: 2, bottom: 4, trailing: 2)
         cfg.titleLineBreakMode = .byClipping
         cfg.titleTextAttributesTransformer = UIConfigurationTextAttributesTransformer { a in
             var a = a
-            a.font = UIFont.monospacedSystemFont(ofSize: size, weight: .medium)
+            a.font = KeyRow.font(size)
             return a
         }
         return cfg
@@ -45,9 +54,15 @@ enum KeyRow {
     static func sticky(_ state: StickyModifiers.State, _ cfg: inout UIButton.Configuration) {
         switch state {
         case .off: cfg.baseBackgroundColor = keyColor; cfg.baseForegroundColor = labelColor
-        case .once: cfg.baseBackgroundColor = UIColor.systemOrange.withAlphaComponent(0.45); cfg.baseForegroundColor = labelColor
-        case .locked: cfg.baseBackgroundColor = .systemOrange; cfg.baseForegroundColor = .black
+        case .once: cfg.baseBackgroundColor = stickyColor.withAlphaComponent(0.45); cfg.baseForegroundColor = labelColor
+        case .locked: cfg.baseBackgroundColor = stickyColor; cfg.baseForegroundColor = stickyInk
         }
+    }
+
+    /// A cap's face: the terminal's, JetBrains Mono (the system's
+    /// monospace where it isn't registered).
+    nonisolated static func font(_ size: CGFloat) -> UIFont {
+        XbinFont.uiFont(XbinFaces.mono, size: size, fallbackWeight: .medium, monospaced: true)
     }
 
     /// The preferred size of a cap: glyphs (arrows, `|`) 14 pt, words 13.
@@ -60,7 +75,7 @@ enum KeyRow {
         let room = width - 6 // the content insets and a hair
         guard room > 0 else { return minimumFont }
         while size > minimumFont {
-            let w = (title as NSString).size(withAttributes: [.font: UIFont.monospacedSystemFont(ofSize: size, weight: .medium)]).width
+            let w = (title as NSString).size(withAttributes: [.font: font(size)]).width
             if w <= room { break }
             size -= 0.5
         }

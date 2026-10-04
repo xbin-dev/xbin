@@ -60,7 +60,6 @@ extension View {
     public func onDrag(_ data: @escaping () -> NSItemProvider) -> some View { _V(self) }
     public func searchable(text: Binding<String>, placement: SearchFieldPlacement = .automatic, prompt: LocalizedStringKey) -> some View { _V(self) }
     public func presentationDetents(_ detents: Set<PresentationDetent>, selection: Binding<PresentationDetent>) -> some View { _V(self) }
-    public func scrollContentBackground(_ visibility: Visibility) -> some View { _V(self) }
     public func handlesExternalEvents(preferring: Set<String>, allowing: Set<String>) -> some View { _V(self) }
     public func interactiveDismissDisabled(_ disabled: Bool = true) -> some View { _V(self) }
     public func fileImporter(isPresented: Binding<Bool>, allowedContentTypes: [UTType], allowsMultipleSelection: Bool,
@@ -143,7 +142,19 @@ public struct Path: Shape {
     public mutating func addLine(to point: CGPoint) {}
     public mutating func addArc(center: CGPoint, radius: CGFloat, startAngle: Angle, endAngle: Angle, clockwise: Bool) {}
     public mutating func addEllipse(in rect: CGRect) {}
+    public mutating func addCurve(to end: CGPoint, control1: CGPoint, control2: CGPoint) {}
+    public mutating func addQuadCurve(to end: CGPoint, control: CGPoint) {}
     public mutating func closeSubpath() {}
+}
+// The brand mark (Shell/BrandMark.swift): an even-odd fill, a fixed aspect.
+extension Shape {
+    public func fill<S: ShapeStyle>(_ content: S, style: FillStyle) -> some View { _V(self) }
+}
+public enum ContentMode: Sendable { case fit, fill }
+extension View {
+    public func aspectRatio(_ aspectRatio: CGFloat? = nil, contentMode: ContentMode) -> some View { _V(self) }
+    // A window's appearance (Shell/RootView.swift, D185).
+    public func preferredColorScheme(_ colorScheme: ColorScheme?) -> some View { _V(self) }
 }
 
 // The panels, Home and the screens (Shell/PanelStack.swift, Shell/Screens).

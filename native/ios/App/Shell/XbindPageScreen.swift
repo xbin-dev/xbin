@@ -1,4 +1,5 @@
 import SwiftUI
+import XbinRenderer
 import UIKit
 import WebKit
 import XbinCore
@@ -39,7 +40,7 @@ struct XbindPageScreen: View {
                         } description: {
                             Text(verbatim: err)
                         } actions: {
-                            Button("Try again") { c.reload() }.buttonStyle(.borderedProminent)
+                            Button("Try again") { c.reload() }.xbinPrimary()
                         }
                         .background(.background)
                     }
@@ -58,7 +59,7 @@ struct XbindPageScreen: View {
                 } description: {
                     Text("It didn't say whether it has a partitions page.")
                 } actions: {
-                    Button("Try again") { Task { await check() } }.buttonStyle(.borderedProminent)
+                    Button("Try again") { Task { await check() } }.xbinPrimary()
                 }
             case nil:
                 ProgressView().controlSize(.large).padding(.top, 80)

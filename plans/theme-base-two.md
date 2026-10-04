@@ -1437,17 +1437,16 @@ static scan. Line references are `promo/film-set`'s.
   the wordmark is text. *Done in the web and server product* (W8, recorded
   under D183): the files in `web/` are the masters' copies, xbind's pages
   and the shell's header draw the lockup inline, the admin console's
-  branding tab previews the favicon; the iOS app's icon is still open.
-- **The iOS app**: its colours and type (`XbinPalette` in Tokens.swift:
-  amber) stay as they are, and so does the native reference renderer
-  (`web/xb/render-theme.js`), which previews the app and moves with it
-  (review round: it had moved to Base Two alone). Its web views get the
-  person's override through the injected meta while its native chrome
-  follows the phone. The app can
-  relay `xbin:appearance` itself (its document-start script already relays
-  messages), if the owner wants app pages to follow the phone instead.
-  The native renderer keeps the app's shapes (iOS idioms, product-ui §10)
-  until the app adopts Base Two corners.
+  branding tab previews the favicon. The iOS app's mark and icon landed
+  with the rest of the app in D185 (below).
+- **The iOS app**: done in D185 (brand/ios). `XbinPalette` is Concrete
+  Day and Night, the native reference renderer (`web/xb/render-theme.js`)
+  moved with it (ThemeParityTests holds the two equal), large titles are
+  Bricolage Grotesque 800 and terminals JetBrains Mono, the app's own
+  cards, badges and buttons have 2 px corners (iOS's bars, sheets and list
+  sections keep theirs), and a window follows the person's `theme` in the
+  workspace it shows, as its web views already did through the injected
+  meta. The mark and the app icon are M3.
 - **Comfortable density** ships as tokens and the setting; how far each
   surface uses `--bx-row`/`--bx-pad` beyond the shell and admin tables is
   the packages' judgement.

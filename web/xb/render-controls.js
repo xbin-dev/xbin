@@ -181,14 +181,14 @@ export const CONTROLS_CSS = css`
   .btn .spin { color: currentColor; }
   .b-label { overflow: hidden; text-overflow: ellipsis; }
   /* free: prominent, full width */
-  .b-free { width: 100%; min-height: 50px; padding: 0 20px; border-radius: 12px; font: var(--xb-font-headline);
+  .b-free { width: 100%; min-height: 50px; padding: 0 20px; border-radius: var(--xb-radius); font: var(--xb-font-headline);
     background: color-mix(in srgb, var(--xb-accent) 16%, transparent); color: var(--xb-accent-text); }
   .b-free.r-primary { background: var(--xb-accent); color: var(--xb-on-accent); }
   .b-free.r-destructive { background: color-mix(in srgb, var(--xb-danger) 14%, transparent); color: var(--xb-danger); }
   .b-free.r-plain { background: none; min-height: 44px; }
   .b-free:not(:disabled):active { filter: brightness(0.92); }
   xb-stack.h > xb-button, xb-stack.h > xb-menu { flex: 0 1 auto; }
-  xb-stack.h .b-free { width: auto; min-height: 36px; padding: 0 14px; border-radius: 18px; font: var(--xb-font-subheadline); font-weight: 600; }
+  xb-stack.h .b-free { width: auto; min-height: 36px; padding: 0 14px; border-radius: var(--xb-radius); font: var(--xb-font-subheadline); font-weight: 600; }
   /* group: a cell */
   .b-group { width: 100%; justify-content: flex-start; min-height: 44px; padding: 11px 16px; color: var(--xb-accent-text); text-align: left; }
   .b-group.r-primary { font-weight: 600; }
@@ -212,7 +212,7 @@ export const CONTROLS_CSS = css`
   .b-menu.r-destructive { color: var(--xb-danger); }
   .b-menu:active { background: var(--xb-fill); }
   /* dock chips (composer) */
-  .b-dock, .b-chips { height: 30px; padding: 0 12px; border-radius: 15px; font: var(--xb-font-footnote); font-weight: 600; background: var(--xb-surface2); color: var(--xb-text); }
+  .b-dock, .b-chips { height: 30px; padding: 0 12px; border-radius: var(--xb-radius); font: var(--xb-font-footnote); font-weight: 600; background: var(--xb-surface2); color: var(--xb-text); }
 
   xb-toggle { display: flex; align-items: center; gap: 12px; }
   xb-toggle.cell { padding-top: 7px; padding-bottom: 7px; }
@@ -236,7 +236,7 @@ export const CONTROLS_CSS = css`
   .f-input:disabled { color: var(--xb-muted); }
   .k-secure .f-input:not(:placeholder-shown) { letter-spacing: 1.5px; }
   xb-field.free .f-label { padding: 0 4px 4px; }
-  xb-field.free .f-box { background: var(--xb-surface); border-radius: 10px; padding: 11px 12px; box-shadow: inset 0 0 0 0.5px var(--xb-separator); }
+  xb-field.free .f-box { background: var(--xb-surface); border-radius: var(--xb-radius); padding: 11px 12px; box-shadow: inset 0 0 0 0.5px var(--xb-separator); }
   xb-field.invalid .f-box { box-shadow: inset 0 0 0 1px var(--xb-danger); }
   xb-field.cell.invalid .f-box { box-shadow: none; }
   .f-hint, .f-error { font: var(--xb-font-footnote); color: var(--xb-muted); margin-top: 4px; }
@@ -251,7 +251,7 @@ export const CONTROLS_CSS = css`
   .pk-val > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .pk-ud { width: 15px; height: 15px; flex: none; }
   .pk-native { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; font-size: 16px; }
-  .pk-menu.in-free { background: var(--xb-surface); border-radius: 10px; padding: 11px 12px; }
+  .pk-menu.in-free { background: var(--xb-surface); border-radius: var(--xb-radius); padding: 11px 12px; }
   .pk-menu.in-toolbar { padding: 0 8px; height: 36px; }
   .pk-menu.in-toolbar .pk-val { color: var(--xb-accent-text); font-weight: 600; max-width: 170px; }
   .pk-label { font: inherit; }

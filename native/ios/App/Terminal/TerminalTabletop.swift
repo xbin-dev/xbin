@@ -1,4 +1,5 @@
 import SwiftUI
+import XbinRenderer
 import UIKit
 import XbinTerm
 
@@ -94,7 +95,7 @@ struct TabletopKeyPanel: View {
             }
             if !keyboardShown {
                 Button("Keyboard", systemImage: "keyboard") { controller.showKeyboard() }
-                    .buttonStyle(.bordered)
+                    .xbinSecondary()
             }
         }
         .padding(.horizontal, 10)
@@ -103,15 +104,17 @@ struct TabletopKeyPanel: View {
         .clipped()
     }
 
+    /// A key as the key row draws its caps: square, in the terminal's
+    /// face (KeyRow, D185).
     private func keyButton(_ key: AccessoryKey) -> some View {
         Button { controller.accessory(key) } label: {
             Text(verbatim: AccessorySlot.capLabel(key))
-                .font(.system(size: 15, weight: .medium, design: .monospaced))
+                .font(.custom(XbinFaces.mono, fixedSize: 15))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
                 .frame(maxWidth: .infinity, minHeight: 34)
         }
-        .buttonStyle(.bordered)
+        .xbinSecondary()
         .tint(keyTint(key))
         .accessibilityLabel(AccessorySlot.describe(key))
     }
@@ -121,7 +124,7 @@ struct TabletopKeyPanel: View {
         guard case .modifier(let m) = key else { return nil }
         switch controller.keyboard.sticky.state(m) {
         case .off: return nil
-        case .once, .locked: return .orange
+        case .once, .locked: return Color(xbinHex: XbinPalette.Terminal.cursor)
         }
     }
 }

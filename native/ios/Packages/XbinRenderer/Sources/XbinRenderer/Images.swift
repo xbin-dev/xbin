@@ -135,7 +135,7 @@ struct FileThumbnail: View {
     /// aspect ratio (a panorama is cropped to 2:1); a grey box before.
     @ViewBuilder
     private var thumb: some View {
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
+        let shape = RoundedRectangle.xbinPlate
         if let loaded {
             let size = Self.fit(loaded.image.size, maxHeight: maxHeight)
             Image(uiImage: loaded.image)
@@ -178,7 +178,7 @@ struct FileChip: View {
             .truncationMode(.middle)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(XbinColor.fill, in: Capsule())
+            .background(XbinColor.fill, in: RoundedRectangle.xbinPlate)
     }
 }
 #endif

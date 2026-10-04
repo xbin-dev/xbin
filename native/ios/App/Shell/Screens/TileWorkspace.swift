@@ -3,6 +3,7 @@ import SwiftUI
 import UIKit
 import XbinAgent
 import XbinCore
+import XbinRenderer
 import XbinTerm
 
 /// The tools of a tile's sessions screen (D132). In the app "tools" means
@@ -398,11 +399,11 @@ private struct TileWorkspaceBody: View {
                 switch model.pane {
                 case .launcher:
                     SessionLauncherView(model: model)
-                        .background(Color(uiColor: .systemGroupedBackground))
+                        .background(XbinColor.background)
                         .zIndex(2)
                 case .tool(let t):
                     toolView(t)
-                        .background(Color(uiColor: .systemGroupedBackground))
+                        .background(XbinColor.background)
                         .zIndex(2)
                 case .tab:
                     EmptyView()
@@ -489,7 +490,7 @@ private struct SessionStrip: View {
                         if model.prs.openCount > 0 {
                             Text(verbatim: "\(model.prs.openCount)").font(.caption2.bold().monospacedDigit())
                                 .padding(.horizontal, 4).padding(.vertical, 1)
-                                .background(Color.xbinAmber, in: Capsule()).foregroundStyle(.black)
+                                .background(XbinColor.accent, in: .xbinPlate).foregroundStyle(XbinColor.onAccent)
                                 .offset(x: 4, y: -4)
                         }
                     }
@@ -506,7 +507,8 @@ private struct SessionStrip: View {
             .accessibilityIdentifier("sessions-plus")
             .padding(.trailing, 10)
         }
-        .background(Color(uiColor: .secondarySystemBackground))
+        .background(XbinColor.surface)
+        .overlay(alignment: .bottom) { Rectangle().fill(XbinColor.border).frame(height: 1) }
         .simultaneousGesture(DragGesture(minimumDistance: 30).onEnded { v in
             let dx = v.translation.width
             guard abs(dx) > 80, abs(v.translation.height) < 40 else { return }
@@ -517,8 +519,8 @@ private struct SessionStrip: View {
     private func stripButton(_ symbol: String, on: Bool) -> some View {
         Image(systemName: symbol).font(.subheadline.weight(.semibold))
             .frame(width: 34, height: 30)
-            .background(on ? Color.xbinAmber.opacity(0.28) : Color.secondary.opacity(0.12), in: Capsule())
-            .foregroundStyle(on ? Color.primary : Color.secondary)
+            .background(on ? XbinColor.selection : XbinColor.fill, in: .xbinPlate)
+            .foregroundStyle(on ? XbinColor.text : XbinColor.muted)
     }
 
     private func chip(_ t: SessionTab) -> some View {
@@ -527,15 +529,20 @@ private struct SessionStrip: View {
         return Button {
             model.select(t.key)
         } label: {
+            // A tab says what it is with its part tab (green a terminal,
+            // magenta an agent session, product-ui 3); the one in front sits
+            // on the selection colour with the accent's rule under it.
             HStack(spacing: 5) {
-                Image(systemName: t.kind == .shell ? "apple.terminal" : "sparkles").font(.caption.weight(.semibold))
+                Image(systemName: XbinGlyphs.symbol(t.kind == .shell ? "terminal" : "agent")).font(.caption.weight(.semibold))
                 Text(verbatim: label).font(.subheadline.weight(front ? .semibold : .regular)).lineLimit(1)
-                if t.vm { Text("VM").font(.caption2.bold()).foregroundStyle(.secondary) }
+                if t.vm { Text("VM").font(.caption2.bold()).foregroundStyle(XbinColor.muted) }
             }
-            .padding(.horizontal, 11).padding(.vertical, 6)
-            .background(front ? Color.xbinAmber.opacity(0.28) : Color.secondary.opacity(0.12), in: Capsule())
-            .overlay(Capsule().strokeBorder(front ? Color.xbinAmber : Color.clear, lineWidth: 1))
-            .foregroundStyle(t.ended ? Color.secondary : Color.primary)
+            .padding(.horizontal, 11).padding(.top, 8).padding(.bottom, 6)
+            .background(front ? XbinColor.selection : XbinColor.fill, in: .xbinPlate)
+            .xbinPartTab(t.kind == .shell ? .terminal : .agent)
+            .overlay(alignment: .bottom) { if front { Rectangle().fill(XbinColor.accent).frame(height: 2) } }
+            .clipShape(.xbinPlate)
+            .foregroundStyle(t.ended ? XbinColor.muted : XbinColor.text)
             .opacity(t.ended ? 0.6 : 1)
         }
         .buttonStyle(.plain)
@@ -558,7 +565,7 @@ private struct SessionStrip: View {
             if tool == .prs, model.prs.openCount > 0 {
                 Text(verbatim: "\(model.prs.openCount)").font(.caption.bold().monospacedDigit())
                     .padding(.horizontal, 5).padding(.vertical, 1)
-                    .background(Color.xbinAmber, in: Capsule()).foregroundStyle(.black)
+                    .background(XbinColor.accent, in: .xbinPlate).foregroundStyle(XbinColor.onAccent)
                     .accessibilityLabel(Text("\(model.prs.openCount) open"))
             }
             Button {
@@ -570,8 +577,9 @@ private struct SessionStrip: View {
             .accessibilityLabel("Close \(tool.chip)")
         }
         .padding(.horizontal, 11).padding(.vertical, 6)
-        .background(Color.xbinAmber.opacity(0.28), in: Capsule())
-        .overlay(Capsule().strokeBorder(Color.xbinAmber, lineWidth: 1))
+        .background(XbinColor.selection, in: .xbinPlate)
+        .overlay(alignment: .bottom) { Rectangle().fill(XbinColor.accent).frame(height: 2) }
+        .clipShape(.xbinPlate)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tool-tab")
     }
@@ -601,26 +609,29 @@ private struct SessionLauncherView: View {
                         }
                     }
                     .padding(12)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .xbinCard()
                 }
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)], spacing: 10) {
                     ForEach(l.boxes) { box in
                         Button {
                             if box.kind == .shell { model.startShell() } else { Task { await model.startAgent(provider: box.provider) } }
                         } label: {
+                            // A box is a card with its part tab: green the
+                            // terminal, magenta an agent (product-ui 3, 10).
                             VStack(alignment: .leading, spacing: 4) {
-                                Image(systemName: box.kind == .shell ? "apple.terminal" : "sparkles")
-                                    .font(.title3).foregroundStyle(Color.xbinAmber)
+                                Image(systemName: XbinGlyphs.symbol(box.kind == .shell ? "terminal" : "agent"))
+                                    .font(.title3).foregroundStyle(XbinColor.text)
                                 Text(verbatim: box.title)
-                                    .font(box.kind == .shell ? .headline.monospaced() : .headline)
-                                    .foregroundStyle(.primary).lineLimit(1)
-                                Text(verbatim: box.subtitle).font(.caption).foregroundStyle(.secondary)
+                                    .font(box.kind == .shell ? XbinFont.mono(.headline).weight(.semibold) : .headline)
+                                    .foregroundStyle(XbinColor.text).lineLimit(1)
+                                Text(verbatim: box.subtitle).font(.caption).foregroundStyle(XbinColor.muted)
                                     .lineLimit(2).multilineTextAlignment(.leading)
                             }
                             .frame(maxWidth: .infinity, minHeight: 84, alignment: .topLeading)
                             .padding(12)
-                            .background(Color(uiColor: .secondarySystemGroupedBackground),
-                                        in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .padding(.top, 3)
+                            .xbinCard()
+                            .xbinPartTab(box.kind == .shell ? .terminal : .agent)
                         }
                         .buttonStyle(.plain)
                         .disabled(model.starting)
@@ -634,14 +645,14 @@ private struct SessionLauncherView: View {
                     Text(verbatim: note).font(.caption).foregroundStyle(.secondary)
                 }
                 if let p = model.problem {
-                    Label { Text(verbatim: p) } icon: { Image(systemName: "exclamationmark.triangle") }
-                        .font(.footnote).foregroundStyle(.red)
+                    Label { Text(verbatim: p) } icon: { Image(systemName: XbinGlyphs.symbol("error")) }
+                        .font(.footnote).foregroundStyle(XbinColor.danger)
                 }
                 if !model.running.isEmpty {
                     section("Running here") {
                         ForEach(model.running) { e in
                             Button { model.reopen(e) } label: {
-                                row(title: e.title, subtitle: e.statusText, symbol: e.kind == .shell ? "apple.terminal" : "sparkles")
+                                row(title: e.title, subtitle: e.statusText, symbol: XbinGlyphs.symbol(e.kind == .shell ? "terminal" : "agent"))
                             }
                             .buttonStyle(.plain)
                         }
@@ -654,7 +665,8 @@ private struct SessionLauncherView: View {
                                 row(title: r.title, subtitle: r.subtitle, symbol: "clock.arrow.circlepath")
                                 if r.resumable {
                                     Button("Resume") { Task { await model.startAgent(provider: r.provider, resume: r.id) } }
-                                        .buttonStyle(.bordered).tint(Color.xbinAmber).controlSize(.small)
+                                        .buttonStyle(.bordered).tint(XbinColor.accent).controlSize(.small)
+                                        .buttonBorderShape(.roundedRectangle(radius: XbinShapes.radius))
                                         .disabled(model.starting)
                                 } else {
                                     Text("read-only").font(.caption).foregroundStyle(.secondary)
@@ -677,7 +689,7 @@ private struct SessionLauncherView: View {
             VStack(alignment: .leading, spacing: 8) { content() }
                 .padding(12)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .xbinCard()
         }
     }
 

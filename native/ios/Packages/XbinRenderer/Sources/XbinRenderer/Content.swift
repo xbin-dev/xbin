@@ -74,7 +74,7 @@ struct NoticeView: View {
         } else {
             content
                 .padding(12)
-                .background(fill, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .background(fill, in: RoundedRectangle.xbinPlate)
         }
     }
 }
@@ -190,7 +190,7 @@ public struct CodeBlock: View {
                 }
             }
         }
-        .background(XbinColor.fill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(XbinColor.fill, in: RoundedRectangle.xbinPlate)
     }
 }
 
@@ -266,7 +266,7 @@ private struct ImageBox: View {
     let height: CGFloat?
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+        let shape = RoundedRectangle.xbinPlate
         if let image {
             if fill {
                 Color.clear
@@ -310,18 +310,18 @@ struct TerminalNodeView: View {
                     Text(verbatim: request.title ?? "terminal")
                 }
                 .font(.caption)
-                .foregroundStyle(Color.white.opacity(0.7))
+                .foregroundStyle(Color(xbinHex: XbinPalette.Terminal.barText))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 Text(verbatim: "# \(request.src.isEmpty ? "pty" : request.src)\n$ ▍")
                     .font(XbinFont.code)
-                    .foregroundStyle(Color.white.opacity(0.85))
+                    .foregroundStyle(Color(xbinHex: XbinPalette.Terminal.foreground))
                     .padding(.horizontal, 12)
                     .padding(.bottom, 12)
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, minHeight: 160, alignment: .topLeading)
-            .background(Color(white: 0.1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(Color(xbinHex: XbinPalette.Terminal.background), in: RoundedRectangle.xbinPlate)
             .accessibilityElement(children: .combine)
         }
     }
@@ -340,7 +340,7 @@ struct CanvasNodeView: View {
         if let make = cx?.services.canvas {
             make(request).frame(height: CGFloat(height))
         } else {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
+            RoundedRectangle.xbinPlate
                 .strokeBorder(XbinColor.border, style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
                 .frame(maxWidth: .infinity)
                 .frame(height: CGFloat(height))

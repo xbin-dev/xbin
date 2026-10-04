@@ -21,6 +21,13 @@ public struct TerminalOptions {
     public var cols = 80, rows = 25
 }
 public struct CharData { public var width: Int8 { 1 } }
+/// SwiftTerm's colour (16-bit components), as installColors takes it.
+public final class Color: Hashable {
+    public let red: UInt16, green: UInt16, blue: UInt16
+    public init(red: UInt16, green: UInt16, blue: UInt16) { self.red = red; self.green = green; self.blue = blue }
+    public static func == (a: Color, b: Color) -> Bool { a.red == b.red && a.green == b.green && a.blue == b.blue }
+    public func hash(into h: inout Hasher) { h.combine(red); h.combine(green); h.combine(blue) }
+}
 public final class BufferLine {
     public internal(set) var isWrapped = false
     public var count: Int { 0 }
@@ -85,6 +92,15 @@ public protocol TerminalViewDelegate: AnyObject {
     public func clearSearch() {}
     public func clearSelection() {}
     public var hasActiveSelection: Bool { false }
+    // The look (App/Terminal/TerminalLook.swift).
+    public func setFonts(normal: UIFont, bold: UIFont, italic: UIFont, boldItalic: UIFont) {}
+    public var nativeForegroundColor: UIColor = .white
+    public var nativeBackgroundColor: UIColor = .black
+    public var caretColor: UIColor = .white
+    public var caretTextColor: UIColor?
+    public var selectedTextBackgroundColor: UIColor = .white
+    public var useBrightColors = true
+    public func installColors(_ colors: [Color]) {}
     public func setSelectionRange(start: Position, end: Position) {}
     public func scrollTo(row: Int, notifyAccessibility: Bool = true) {}
     public func scrollUp(lines: Int) {}

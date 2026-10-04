@@ -56,6 +56,8 @@ public struct QuestionView: View {
                         .foregroundStyle(XbinColor.onTint)
                 }
                 .controlSize(.large)
+                // Square, as the reference's `.b-opt` (D185).
+                .buttonBorderShape(.roundedRectangle(radius: XbinShapes.radius))
             }
         }
         .padding(14)
@@ -114,7 +116,7 @@ private struct QuestionFieldRow: View {
                 TextField(text: text, prompt: nil) { Text(verbatim: field.title) }
                     .keyboardType(integer ? .numberPad : .decimalPad)
                     .padding(10)
-                    .background(XbinColor.fill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(XbinColor.fill, in: RoundedRectangle.xbinPlate)
                 description
             }
         case .text(let format):
@@ -124,7 +126,7 @@ private struct QuestionFieldRow: View {
                     .keyboardType(format == "email" ? .emailAddress : format == "uri" ? .URL : .default)
                     .textInputAutocapitalization(format == nil ? .sentences : .never)
                     .padding(10)
-                    .background(XbinColor.fill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .background(XbinColor.fill, in: RoundedRectangle.xbinPlate)
                 description
             }
         }

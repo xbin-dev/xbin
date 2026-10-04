@@ -369,18 +369,21 @@ struct AgentScreen: View {
                     Label("\(login.provider) needs you to sign in", systemImage: "person.badge.key")
                         .font(.subheadline)
                     Spacer()
-                    Button("Sign in") { signingIn = true }.buttonStyle(.borderedProminent)
+                    Button("Sign in") { signingIn = true }.xbinPrimary()
                 }
                 .padding(10)
-                .background(.orange.opacity(0.15))
+                .background(XbinColor.warnBackground)
             }
+            // Agent output sits on the panel, a person's turns on the inset
+            // panel (product-ui 8).
             AgentTranscriptList(model: m)
+                .background(XbinColor.surface)
             if let p = m.streamProblem {
-                Label { Text(verbatim: p) } icon: { Image(systemName: "exclamationmark.triangle") }
-                    .font(.footnote).foregroundStyle(.orange).padding(.horizontal)
+                Label { Text(verbatim: p) } icon: { Image(systemName: XbinGlyphs.symbol("warning")) }
+                    .font(.footnote).foregroundStyle(XbinColor.warn).padding(.horizontal)
             }
             if let e = m.error {
-                Text(verbatim: e).font(.footnote).foregroundStyle(.red).padding(.horizontal).onTapGesture { m.error = nil }
+                Text(verbatim: e).font(.footnote).foregroundStyle(XbinColor.danger).padding(.horizontal).onTapGesture { m.error = nil }
             }
             composer(m)
         }
@@ -460,7 +463,7 @@ struct AgentScreen: View {
                     Label(m.attachments.count == 1 ? "Send the file" : "Send \(m.attachments.count) files",
                           systemImage: "arrow.up.circle.fill")
                 }
-                .buttonStyle(.borderedProminent)
+                .xbinPrimary()
                 .controlSize(.small)
             }
         } else {
@@ -643,7 +646,7 @@ struct AgentLauncher: View {
                     Button {
                         Task { await model.create(provider: p.id) }
                     } label: {
-                        Label { Text(verbatim: p.name) } icon: { Image(systemName: "sparkles") }
+                        Label { Text(verbatim: p.name) } icon: { Image(systemName: XbinGlyphs.symbol("agent")) }
                     }
                     .disabled(model.starting || model.cwd == nil)
                 }
@@ -663,7 +666,7 @@ struct AgentLauncher: View {
                     }
                 }
             }
-            if let e = model.error { Section { Text(verbatim: e).foregroundStyle(.red) } }
+            if let e = model.error { Section { Text(verbatim: e).foregroundStyle(XbinColor.danger) } }
         }
         .overlay { if model.starting { ProgressView() } }
     }

@@ -24,7 +24,7 @@ const DESCRIBE = {
   spacer: 'flexible space in a stack',
   divider: 'a separator line',
   icon: 'a named icon (Icons below)',
-  badge: 'a small capsule label',
+  badge: 'a small square label on its tone\'s tint',
   chart: 'a line, bar, area or spark chart',
   button: 'a button; `confirm` asks first, `copy` copies without a round trip',
   toggle: 'an on/off switch',

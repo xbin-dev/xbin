@@ -7,8 +7,8 @@ import XbinRendererModel
 struct ChatCard: ViewModifier {
     func body(content: Content) -> some View {
         content
-            .background(XbinColor.surface, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(XbinColor.border, lineWidth: 0.5))
+            .background(XbinColor.surface, in: RoundedRectangle.xbinPlate)
+            .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 0.5))
     }
 }
 
@@ -154,7 +154,7 @@ public struct ApprovalView: View {
                     TextField("Feedback (optional)", text: $feedback, axis: .vertical)
                         .lineLimit(2...5)
                         .padding(10)
-                        .background(XbinColor.fill, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .background(XbinColor.fill, in: RoundedRectangle.xbinPlate)
                 }
                 VStack(spacing: 8) {
                     ForEach(Array(approval.options.enumerated()), id: \.offset) { i, option in
@@ -180,9 +180,11 @@ public struct ApprovalView: View {
         .controlSize(.large)
         if emphasis == .prominent {
             button.buttonStyle(.borderedProminent).tint(XbinColor.tint).foregroundStyle(XbinColor.onTint)
+                .buttonBorderShape(.roundedRectangle(radius: XbinShapes.radius))
         } else {
             // A reject is red (the reference's r-destructive), not the tint.
             button.buttonStyle(.bordered).modifier(DangerTint(on: emphasis == .destructive))
+                .buttonBorderShape(.roundedRectangle(radius: XbinShapes.radius))
         }
     }
 }
@@ -298,19 +300,22 @@ public struct DiffView: View {
         .accessibilityElement(children: .combine)
     }
 
+    /// A file's status letter as the reference colours it (render-chat.js
+    /// st-A/st-D/st-M): added ok, deleted danger, modified the accent, the
+    /// rest muted.
     static func letterColor(_ l: String) -> Color {
         switch l {
         case "A": return XbinColor.toneText(.ok)
         case "D": return XbinColor.toneText(.danger)
-        case "R": return Color(uiColor: .systemBlue)
-        default: return XbinColor.toneText(.warn)
+        case "M": return XbinColor.accent
+        default: return XbinColor.muted
         }
     }
 
     static func foreground(_ k: ChatDiff.Line.Kind) -> Color {
         switch k {
         case .file: return XbinColor.muted
-        case .hunk: return Color(uiColor: .systemBlue)
+        case .hunk: return XbinColor.muted // the reference's dl-hunk
         case .added: return XbinColor.toneText(.ok)
         case .removed: return XbinColor.toneText(.danger)
         case .context: return XbinColor.text

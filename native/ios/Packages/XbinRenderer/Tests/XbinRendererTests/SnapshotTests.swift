@@ -22,6 +22,9 @@
 // UIKit only (the Apple CI runs this on a simulator); elsewhere the file is
 // empty.
 #if canImport(UIKit)
+#if canImport(CoreText)
+import CoreText
+#endif
 import Foundation
 import SwiftUI
 import Testing
@@ -44,6 +47,20 @@ import XbinRendererModel
         return nil
     }
 
+    /// The app's bundled faces (App/Resources/Fonts, D185: Bricolage
+    /// Grotesque for large titles, JetBrains Mono for mono), registered for
+    /// this process from the source tree beside the fixtures, so the PNGs
+    /// show the type the app draws (neither the package nor the host app
+    /// bundles them).
+    static func registerFaces(_ set: FixtureSet) {
+        let fonts = set.root.deletingLastPathComponent().appendingPathComponent("ios/App/Resources/Fonts")
+        let urls = XbinFaces.files.map { fonts.appendingPathComponent($0) }
+            .filter { FileManager.default.fileExists(atPath: $0.path) }
+        #if canImport(CoreText)
+        if !urls.isEmpty { CTFontManagerRegisterFontURLs(urls as CFArray, .process, true, nil) }
+        #endif
+    }
+
     @Test func everyFixture() throws {
         let set = try #require(XbinFixtures.locate(from: #filePath), "native/fixtures not found")
         let names = try set.names()
@@ -58,6 +75,7 @@ import XbinRendererModel
         // system zone re-read.
         setenv("TZ", "UTC", 1)
         tzset()
+        Self.registerFaces(set)
         NSTimeZone.resetSystemTimeZone()
         NSTimeZone.default = TimeZone(identifier: "UTC") ?? .gmt
         let variants: [(ColorScheme, String, DynamicTypeSize, String)] = out == nil

@@ -60,7 +60,7 @@ enum AgentChat {
         case .move: return "folder"
         case .search: return "search"
         case .execute: return "terminal"
-        case .think: return "sparkles"
+        case .think: return "chat" // the nearest to the web's thought glyph; never sparkles (brand §9)
         case .fetch: return "globe"
         case .switchMode: return "branch"
         case .other, .unknown: return "wrench"

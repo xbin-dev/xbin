@@ -72,9 +72,11 @@ private struct ScreenBody: View {
         case .list:
             List { ForEach(layout.body) { NodeView(node: $0) } }
                 .listStyle(.insetGrouped)
+                .concreteBackground()
                 .environment(\.xbinPlacement, .list)
         case .form:
             Form { ForEach(layout.body) { NodeView(node: $0) } }
+                .concreteBackground()
                 .environment(\.xbinPlacement, .list)
         case .scroll:
             if let list = layout.soleList {

@@ -745,14 +745,23 @@ answer lives. `native/tools/store-check.py` (in `ci-local-check.sh`) keeps
 the files in agreement with the code.
 
 **The icon** is `App/Resources/AppIcon.icon`, an Icon Composer document (the
-iOS 26+ format: Liquid Glass, with the dark, clear and tinted looks derived
-by the system). It holds two layers drawn from `web/favicon.svg` at 13×,
-offset 96, on the 1024 canvas: `plate.svg`, the amber chamfered plate with
-its rivets, and `x.svg`, the charcoal X in a group of its own, raised above
-the plate with a shadow. The background is an automatic gradient of the
-shell's steel `#2a2f37`. Edit the SVGs, or open the document in Icon Composer
-(`/Applications/Xcode.app/Contents/Applications/Icon Composer.app`). Preview
-every look on the Mac without a build:
+iOS 26+ format: Liquid Glass, with the clear and tinted looks derived by the
+system). It is the mark, M3 (D183, D185; the masters are
+`plans/brand/marks/`, `icon-1024.svg` the full-bleed drawing): a solid
+cobalt `#1F3DFF` fill, square art the system masks, and two flat layers on
+the 1024 canvas, `b.svg` (the white b, even-odd) and `x.svg` (the yellow x
+`#FFD000`, in a group of its own above it), with no specular highlight and
+no translucency (the brand's mark never glows). The Dark look is the
+Default's, because the tile never changes between themes
+(`plans/brand/marks/README.md`): the fill is given for the dark appearance
+too (`fill-specializations`, cobalt in both). With a fill for the default
+appearance alone, iOS derived its own Dark, a near-black tile with a cobalt
+b and the yellow x loose on it, which the mark's rules forbid (D185's
+review). Clear and Tinted are the system's monochrome. BrandMastersTests
+holds the layers and the fills to the masters. Edit the SVGs from the
+masters, or open the document in Icon Composer
+(`/Applications/Xcode.app/Contents/Applications/Icon Composer.app`).
+Preview every look on the Mac without a build:
 
 ```sh
 T="/Applications/Xcode.app/Contents/Applications/Icon Composer.app/Contents/Executables/ictool"
@@ -764,6 +773,17 @@ done
 
 The build compiles it into `Assets.car` (`ASSETCATALOG_COMPILER_APPICON_NAME:
 AppIcon` in project.yml), with the marketing icon App Store Connect wants.
+
+**The faces** (D185) are `App/Resources/Fonts/`: Bricolage Grotesque 800
+(large titles, the first-run stair) and JetBrains Mono regular and bold
+(terminals, code), with their OFL texts, listed in `App-Info.plist`'s
+`UIAppFonts`. They are the workspace's own (`web/vendor/fonts`, pinned by
+`hack/vendor.sh`), converted by `native/ios/scripts/app-fonts.sh`
+(woff2_decompress and fontTools; the same bytes every run): rerun it when
+vendor.sh moves a font. XbinRendererModel's `XbinFaces` names them; a face
+that isn't registered falls back to the system's. The snapshot tests (both
+runs) register them from the source tree beside the fixtures, so their PNGs
+show the app's type.
 
 **Privacy.** The app's code collects nothing for the developer. It talks to
 the workspaces its user adds, which are their servers, and fetches the kill
@@ -942,7 +962,7 @@ in on a fresh start can forget what it added: `E2E.forgetFreshWorkspaces`
 test's native widget).
 `XbinOnboardingTests` launch the app as a fresh install (Debug builds'
 `-XbinFreshStart YES`: no workspace, the saved list untouched): the
-Welcome's levels and the help, Run your own xbin, address → methods →
+Welcome's levels and the help, Install xbin, address → methods →
 password, joining with an invite the test makes (spent on the server
 afterwards), an unreachable address ("Can't connect"), a code the
 workspace never minted ("Code refused"), "Sign in again" replacing its

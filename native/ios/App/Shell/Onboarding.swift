@@ -1,11 +1,12 @@
 import SwiftUI
 import UIKit
 import XbinCore
+import XbinRenderer
 
 // Adding a workspace (plans/native.md §5; native/spec/device-login.md): the
 // Welcome with its levels — Log in (a QR code from a signed-in browser, or
 // the workspace's address, then the sign-in methods it offers), Join with an
-// invite, Run your own xbin, What is xbin? — and the same stack in the
+// invite, Install xbin, What is xbin? — and the same stack in the
 // add-workspace sheet, which starts at Log in. Every path ends with this
 // device enrolled (a key in its Secure Enclave): there is no token login.
 // The pages are in SignInPages.swift; the camera and the SSO sheet, which
@@ -21,7 +22,7 @@ enum OnboardingStep: Hashable {
     case invite
     case inviteAccept(server: ServerOrigin, token: String, info: InviteInfo)
     case inviteInBrowser(server: ServerOrigin, token: String)
-    case runYourOwn
+    case install
     case about(page: Int)
     case help(page: Int)
 }
@@ -250,14 +251,16 @@ struct OnboardingStack<Root: View>: View {
     var body: some View {
         NavigationStack(path: $flow.path) {
             root()
-                .navigationDestination(for: OnboardingStep.self) { step in OnboardingPage(flow: flow, step: step) }
+                .concreteBackground()
+                .navigationDestination(for: OnboardingStep.self) { step in OnboardingPage(flow: flow, step: step).concreteBackground() }
         }
         .disabled(flow.busy != nil)
         .overlay {
             if let busy = flow.busy {
                 ProgressView(busy)
                     .padding(20)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+                    .background(XbinColor.surface, in: .xbinPlate)
+                    .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.borderStrong, lineWidth: 1))
             }
         }
         .onChange(of: flow.path) { _, _ in flow.problem = nil }
@@ -288,7 +291,7 @@ struct OnboardingPage: View {
         case .invite: InvitePage(flow: flow)
         case .inviteAccept(let s, let t, let info): InviteAcceptPage(flow: flow, server: s, token: t, info: info)
         case .inviteInBrowser(let s, let t): InviteInBrowserPage(flow: flow, server: s, token: t)
-        case .runYourOwn: RunYourOwnPage(flow: flow)
+        case .install: InstallPage(flow: flow)
         case .about(let n): AboutPage(flow: flow, page: n)
         case .help(let n): HelpPage(flow: flow, page: n)
         }
@@ -297,40 +300,85 @@ struct OnboardingPage: View {
 
 // MARK: - The first level
 
-/// The Welcome's first level: the mark and four ways in.
+/// The Welcome's first level (D185): the lockup, the first run's stair —
+/// the one place it appears in the product (product-ui 10) — over the
+/// definition, then four ways in.
 struct WelcomeLevel: View {
     let flow: OnboardingFlow
+
+    /// The definition, verbatim (plans/brand.md 1).
+    static let definition = "xbin is a workspace where people and AI agents build the systems a company runs on, and where those systems run."
 
     var body: some View {
         // Centred on the screen; it scrolls when large text makes it taller.
         GeometryReader { geo in
             ScrollView {
-                VStack(spacing: 28) {
-                    VStack(spacing: 14) {
-                        XbinMark().frame(width: 96, height: 96)
-                            .shadow(color: .black.opacity(0.18), radius: 10, y: 4)
-                        Text(verbatim: "xbin").font(.largeTitle.bold())
-                        Text("An office for your agents.").font(.title3).foregroundStyle(.secondary)
-                            .multilineTextAlignment(.center)
+                VStack(alignment: .leading, spacing: 28) {
+                    XbinLockup(height: 36)
+                    VStack(alignment: .leading, spacing: 16) {
+                        WelcomeStair()
+                        Text(verbatim: Self.definition)
+                            .font(.title3)
+                            .foregroundStyle(XbinColor.muted)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-                    VStack(spacing: 12) {
-                        WelcomeButton(title: "Log in", symbol: "person.crop.circle", prominent: true) { flow.push(.login) }
+                    VStack(spacing: 10) {
+                        WelcomeButton(title: "Log in", symbol: "person.crop.square", prominent: true) { flow.push(.login) }
                         WelcomeButton(title: "Join with an invite", symbol: "envelope.open") { flow.push(.invite) }
-                        WelcomeButton(title: "Run your own xbin", symbol: "server.rack") { flow.push(.runYourOwn) }
-                        WelcomeButton(title: "What is xbin?", symbol: "questionmark.circle") { flow.push(.about(page: 1)) }
+                        WelcomeButton(title: "Install xbin", symbol: "arrow.down.square") { flow.push(.install) }
+                        WelcomeButton(title: "What is xbin?", symbol: "info.square") { flow.push(.about(page: 1)) }
                     }
-                    .frame(maxWidth: 380)
                 }
+                .frame(maxWidth: 420, alignment: .leading)
                 .padding(.horizontal, 24)
                 .padding(.vertical, 32)
                 .frame(maxWidth: .infinity, minHeight: geo.size.height)
             }
         }
+        .background(XbinColor.background)
         .toolbar(.hidden, for: .navigationBar)
     }
 }
 
-/// A full-width button of the first level.
+/// The stair (plans/brand.md 5.4): "Your apps on your phone." set as type
+/// that grows line by line, each line on its field in the doubling order —
+/// yellow, green, magenta — bleeding to the screen's leading edge. On a
+/// phone the width sets the steps (×1, ×1.5, then a doubling: ×3). One
+/// heading for VoiceOver; it shrinks, never wraps, when large text would
+/// overflow a line.
+struct WelcomeStair: View {
+    @ScaledMetric(relativeTo: .largeTitle) private var unit: CGFloat = 26
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            step("Your apps", size: unit, field: XbinPalette.Field.yellow, ink: XbinPalette.Field.yellowInk)
+            step("on your", size: unit * 1.5, field: XbinPalette.Field.green, ink: XbinPalette.Field.greenInk)
+            step("phone.", size: unit * 3, field: XbinPalette.Field.magenta, ink: XbinPalette.Field.magentaInk)
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(Text(verbatim: "Your apps on your phone."))
+        .accessibilityAddTraits(.isHeader)
+    }
+
+    private func step(_ text: String, size: CGFloat, field: UInt32, ink: UInt32) -> some View {
+        Text(verbatim: text)
+            .font(XbinFont.display(.largeTitle, size: size))
+            .tracking(-0.03 * size)
+            .lineLimit(1)
+            .minimumScaleFactor(0.4)
+            .foregroundStyle(Color(xbinHex: ink))
+            .padding(.vertical, size * 0.06)
+            .padding(.trailing, size * 0.3)
+            // The field bleeds to the leading edge past the page margin.
+            .padding(.leading, 24)
+            .background(Color(xbinHex: field))
+            .padding(.leading, -24)
+    }
+}
+
+/// A full-width button of the first level: Base Two's controls — square
+/// corners, the accent fill for the one primary action, the panel with the
+/// strong edge for the rest.
 struct WelcomeButton: View {
     let title: String
     let symbol: String
@@ -339,86 +387,28 @@ struct WelcomeButton: View {
 
     var body: some View {
         if prominent {
-            Button(action: action) { label }.buttonStyle(.borderedProminent).foregroundStyle(.black)
+            Button(action: action) { label }
+                .xbinPrimary()
         } else {
-            // The tint's pale fill, the words in the text colour (amber on
-            // pale amber reads poorly).
-            Button(action: action) { label }.buttonStyle(.bordered).foregroundStyle(.primary)
+            Button(action: action) { label }
+                .buttonStyle(.plain)
+                .foregroundStyle(XbinColor.text)
+                .background(XbinColor.surface, in: .xbinPlate)
+                .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.borderStrong, lineWidth: 1))
         }
     }
 
     private var label: some View {
         Label(title, systemImage: symbol)
             .font(.headline)
-            .frame(maxWidth: .infinity, minHeight: 34)
+            .frame(maxWidth: .infinity, minHeight: 44)
+            .contentShape(Rectangle())
     }
 }
 
-/// The xbin mark (web/favicon.svg, the app icon's layers): the amber plate
-/// with its chamfered corners and rivets, the charcoal X.
-struct XbinMark: View {
-    var body: some View {
-        ZStack {
-            MarkPlate().fill(Color.xbinAmber)
-            MarkX().fill(Color(red: 0x23 / 255, green: 0x27 / 255, blue: 0x2E / 255))
-            MarkRivets().fill(Color(red: 0x23 / 255, green: 0x27 / 255, blue: 0x2E / 255).opacity(0.4))
-        }
-        .accessibilityHidden(true)
-    }
-}
+// MARK: - Install xbin
 
-/// The icon's geometry: plate.svg / x.svg, whose plate spans 148…876 of a
-/// 1024 canvas — scaled so the plate fills the rect.
-private func markPoint(_ x: CGFloat, _ y: CGFloat, _ r: CGRect) -> CGPoint {
-    CGPoint(x: r.minX + (x - 148) / 728 * r.width, y: r.minY + (y - 148) / 728 * r.height)
-}
-
-struct MarkPlate: Shape {
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        let k = r.width / 728
-        p.move(to: markPoint(330, 148, r))
-        p.addLine(to: markPoint(824, 148, r))
-        p.addArc(center: markPoint(824, 200, r), radius: 52 * k, startAngle: .degrees(-90), endAngle: .degrees(0), clockwise: false)
-        p.addLine(to: markPoint(876, 694, r))
-        p.addLine(to: markPoint(694, 876, r))
-        p.addLine(to: markPoint(200, 876, r))
-        p.addArc(center: markPoint(200, 824, r), radius: 52 * k, startAngle: .degrees(90), endAngle: .degrees(180), clockwise: false)
-        p.addLine(to: markPoint(148, 330, r))
-        p.closeSubpath()
-        return p
-    }
-}
-
-struct MarkX: Shape {
-    func path(in r: CGRect) -> Path {
-        let pts: [(CGFloat, CGFloat)] = [(327.63, 410.37), (410.37, 327.63), (512, 429.27), (613.63, 327.63), (696.37, 410.37),
-                                         (594.73, 512), (696.37, 613.63), (613.63, 696.37), (512, 594.73), (410.37, 696.37),
-                                         (327.63, 613.63), (429.27, 512)]
-        var p = Path()
-        for (i, (x, y)) in pts.enumerated() {
-            if i == 0 { p.move(to: markPoint(x, y, r)) } else { p.addLine(to: markPoint(x, y, r)) }
-        }
-        p.closeSubpath()
-        return p
-    }
-}
-
-struct MarkRivets: Shape {
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        let d = 60 / 728 * r.width
-        for (x, y) in [(CGFloat(785), CGFloat(239)), (239, 785)] {
-            let c = markPoint(x, y, r)
-            p.addEllipse(in: CGRect(x: c.x - d / 2, y: c.y - d / 2, width: d, height: d))
-        }
-        return p
-    }
-}
-
-// MARK: - Run your own xbin
-
-struct RunYourOwnPage: View {
+struct InstallPage: View {
     let flow: OnboardingFlow
     @Environment(\.openURL) private var openURL
     @State private var copied = false
@@ -428,12 +418,11 @@ struct RunYourOwnPage: View {
     var body: some View {
         Form {
             Section {
-                Text("xbin is one program. Run it on a Linux machine you control: a server, a VPS or a spare computer. "
-                    + "It serves your workspace to browsers and to this app.")
+                Text("xbin is one program. It serves the workspace to browsers and to this app.")
             }
             Section {
                 Text(verbatim: Self.install)
-                    .font(.system(.callout, design: .monospaced))
+                    .font(XbinFont.mono(.callout))
                     .lineLimit(1)
                     .minimumScaleFactor(0.6)
                     .textSelection(.enabled)
@@ -457,7 +446,7 @@ struct RunYourOwnPage: View {
                 Text("Once it runs, sign in to it in a browser, then come back and log in.")
             }
         }
-        .navigationTitle("Run your own xbin")
+        .navigationTitle("Install xbin")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
@@ -472,10 +461,10 @@ struct AboutPage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Image(systemName: symbol).font(.system(size: 44)).foregroundStyle(Color.xbinAmber)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                Image(systemName: symbol).font(.system(size: 40)).foregroundStyle(XbinColor.text)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.top, 24)
-                Text(title).font(.title.bold())
+                Text(title).font(XbinFont.display(.title)).tracking(-0.4)
                 ForEach(Array(paragraphs.enumerated()), id: \.offset) { _, p in
                     Text(p).font(.body)
                 }
@@ -491,12 +480,12 @@ struct AboutPage: View {
                     Button { flow.push(.about(page: page + 1)) } label: {
                         Text("Next").font(.headline).frame(maxWidth: .infinity, minHeight: 34)
                     }
-                    .buttonStyle(.borderedProminent).foregroundStyle(.black)
+                    .xbinPrimary()
                 } else {
                     Button { flow.showLogin() } label: {
                         Text("Log in").font(.headline).frame(maxWidth: .infinity, minHeight: 34)
                     }
-                    .buttonStyle(.borderedProminent).foregroundStyle(.black)
+                    .xbinPrimary()
                 }
             }
             .padding(.horizontal, 24)
@@ -511,15 +500,18 @@ struct AboutPage: View {
     private var symbol: String {
         switch page {
         case 1: return "square.grid.2x2"
-        case 2: return "terminal"
-        default: return "lock.shield"
+        case 2: return XbinGlyphs.symbol("agent")
+        default: return "lock"
         }
     }
 
+    // The voice (plans/brand.md 3): the statement, then a plain sentence;
+    // agents are software that builds and changes apps; nothing says where
+    // xbin runs.
     private var title: String {
         switch page {
-        case 1: return "An office for your agents"
-        case 2: return "Agents at work"
+        case 1: return "The systems a company runs on"
+        case 2: return "Agents build, people approve"
         default: return "Yours, and private"
         }
     }
@@ -527,19 +519,17 @@ struct AboutPage: View {
     private var paragraphs: [String] {
         switch page {
         case 1:
-            return ["xbin is a workspace of apps that you, your team and your agents build and use together.",
-                    "Each app runs in its own sandbox, with an identity, grants and network policy.",
+            return [WelcomeLevel.definition,
+                    "Each app is a folder with its own sandbox, identity, grants and network rules.",
                     "You use it in a browser on a computer, and on your phone with this app."]
         case 2:
-            return ["Point an agent at an app, and it edits, tests and commits the change. The app is live right away.",
-                    "Agents work in terminals and sessions inside the workspace.",
-                    "This app shows what needs you, and you answer from wherever you are."]
+            return ["Point an agent at an app and it changes the code, tests it and saves it. The app is live once it saves.",
+                    "Agents run in terminals and sessions inside the workspace, and ask for a grant before they reach anything new.",
+                    "This app shows what needs you, and you answer from where you are."]
         default:
-            return ["xbin runs on a machine that you or your organisation control. Your workspace, its apps and "
-                    + "files stay there.",
-                    "This app connects only to the workspaces you add. It collects nothing: no analytics, no tracking. "
-                    + "Every few hours it reads a static file from xbin.dev that can switch off native views; the "
-                    + "request carries no identifier.",
+            return ["Your workspace keeps its apps and files. This app connects only to the workspaces you add.",
+                    "It collects nothing: no analytics, no tracking. Every few hours it reads a static file from xbin.dev "
+                    + "that can switch off native views; the request carries no identifier.",
                     "One exception, and only if you turn it on: push notifications pass through a relay the xbin "
                     + "project runs. It keeps this device's push token and random handles, never names, addresses "
                     + "or what the notifications say."]
@@ -556,7 +546,7 @@ struct HelpPage: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text(title).font(.title2.bold()).padding(.top, 16)
+                Text(title).font(XbinFont.display(.title2)).tracking(-0.3).padding(.top, 16)
                 Text(text)
                 if let image {
                     HelpImage(name: image, caption: caption)
@@ -567,12 +557,12 @@ struct HelpPage: View {
                     Button { flow.push(.help(page: page + 1)) } label: {
                         Text("Next").font(.headline).frame(maxWidth: .infinity, minHeight: 34)
                     }
-                    .buttonStyle(.borderedProminent).foregroundStyle(.black)
+                    .xbinPrimary()
                 } else {
                     Button { flow.showLogin() } label: {
                         Text("Back to Log in").font(.headline).frame(maxWidth: .infinity, minHeight: 34)
                     }
-                    .buttonStyle(.borderedProminent).foregroundStyle(.black)
+                    .xbinPrimary()
                 }
             }
             .padding(.horizontal, 20)
@@ -631,8 +621,8 @@ struct HelpImage: View {
             Image(uiImage: ui)
                 .resizable()
                 .scaledToFit()
-                .clipShape(RoundedRectangle(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.quaternary, lineWidth: 1))
+                .clipShape(.xbinPlate)
+                .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 1))
                 .frame(maxWidth: .infinity)
                 .accessibilityLabel(caption)
         }

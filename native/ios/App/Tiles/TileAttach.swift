@@ -466,7 +466,7 @@ struct AttachStatusView: View {
                     .font(.footnote)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(.thinMaterial, in: Capsule())
+                    .background(XbinColor.surface, in: .xbinPlate).overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 1))
             }
             if let s = flow.status {
                 HStack(spacing: 8) {
@@ -476,7 +476,7 @@ struct AttachStatusView: View {
                         .lineLimit(1)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(.thinMaterial, in: Capsule())
+                .background(XbinColor.surface, in: .xbinPlate).overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 1))
                 .accessibilityElement(children: .combine)
             } else if flow.picker.loading {
                 HStack(spacing: 8) {
@@ -484,7 +484,7 @@ struct AttachStatusView: View {
                     Text("Reading…").font(.footnote)
                 }
                 .padding(.horizontal, 12).padding(.vertical, 6)
-                .background(.thinMaterial, in: Capsule())
+                .background(XbinColor.surface, in: .xbinPlate).overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 1))
             }
         }
         .padding(.bottom, 72)

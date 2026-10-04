@@ -15,7 +15,7 @@ final class XbinOnboardingTests: XCTestCase {
                       "XBIN_E2E_URL / _USER / _PASSWORD unset: no xbind to test against (native/AGENTS.md → Mac mini)")
     }
 
-    static let welcomeButtons = ["Log in", "Join with an invite", "Run your own xbin", "What is xbin?"]
+    static let welcomeButtons = ["Log in", "Join with an invite", "Install xbin", "What is xbin?"]
 
     /// The test added workspaces in a fresh start: tearDown forgets them.
     private var forgetsFreshWorkspaces = false
@@ -36,7 +36,7 @@ final class XbinOnboardingTests: XCTestCase {
         }
         e.shot("onboarding-01-welcome")
         e.app.buttons["What is xbin?"].tap()
-        for (i, title) in ["An office for your agents", "Agents at work", "Yours, and private"].enumerated() {
+        for (i, title) in ["The systems a company runs on", "Agents build, people approve", "Yours, and private"].enumerated() {
             XCTAssertTrue(e.element(title).waitForExistence(timeout: 10), "What is xbin? page \(i + 1)")
             e.shot("onboarding-02-about-\(i + 1)")
             if i < 2 { e.app.buttons["Next"].tap() }
@@ -71,18 +71,18 @@ final class XbinOnboardingTests: XCTestCase {
         XCTAssertTrue(e.app.buttons["Enter workspace address"].waitForExistence(timeout: 10), "back on Log in")
     }
 
-    /// Run your own xbin: the install one-liner, copied.
+    /// Install xbin: the install one-liner, copied.
     @MainActor
-    func test03RunYourOwn() throws {
+    func test03Install() throws {
         let e = try E2E(self)
         e.launchFresh()
-        XCTAssertTrue(e.app.buttons["Run your own xbin"].waitForExistence(timeout: 30))
-        e.app.buttons["Run your own xbin"].tap()
+        XCTAssertTrue(e.app.buttons["Install xbin"].waitForExistence(timeout: 30))
+        e.app.buttons["Install xbin"].tap()
         XCTAssertTrue(e.element("curl -fsSL https://xbin.dev/install.sh | sh").waitForExistence(timeout: 10), "the install command")
         e.app.buttons["Copy the command"].tap()
         XCTAssertTrue(e.app.buttons["Copied"].waitForExistence(timeout: 5), "the copy button says it copied")
         XCTAssertTrue(e.app.buttons["Open xbin.dev"].exists)
-        e.shot("onboarding-05-run-your-own")
+        e.shot("onboarding-05-install")
     }
 
     /// Log in → the address → the sign-in methods the workspace offers
@@ -279,13 +279,13 @@ final class XbinOnboardingTests: XCTestCase {
             XCTAssertTrue(e.element("Username", in: e.app.textFields).waitForExistence(timeout: 30))
             shot(e, "methods")
 
-            // Run your own xbin.
+            // Install xbin.
             e = try E2E(self)
             e.launchFresh(appearance: mode)
-            XCTAssertTrue(e.app.buttons["Run your own xbin"].waitForExistence(timeout: 30))
-            e.app.buttons["Run your own xbin"].tap()
+            XCTAssertTrue(e.app.buttons["Install xbin"].waitForExistence(timeout: 30))
+            e.app.buttons["Install xbin"].tap()
             XCTAssertTrue(e.app.buttons["Copy the command"].waitForExistence(timeout: 10))
-            shot(e, "run-your-own")
+            shot(e, "install")
 
             // Join with an invite, up to the password (the invite stays unspent).
             let (_, link) = try await e.server.invite(name: "Gallery Invitee")

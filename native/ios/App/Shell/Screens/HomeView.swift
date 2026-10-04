@@ -1,7 +1,7 @@
 import SwiftUI
 import UIKit
 import XbinCore
-import XbinRendererModel
+import XbinRenderer
 import XbinTerm
 
 /// Home, a workspace's first panel (plans/native.md §4, D125, D128): the
@@ -51,7 +51,7 @@ struct HomeView: View {
                     HStack { Spacer(); ProgressView(); Spacer() }
                 }
                 if let e = workspace.lastError, workspace.signInProblem == nil {
-                    Section { Label { Text(verbatim: e) } icon: { Image(systemName: "exclamationmark.triangle") }.foregroundStyle(.red) }
+                    Section { Label { Text(verbatim: e) } icon: { Image(systemName: XbinGlyphs.symbol("error")) }.foregroundStyle(XbinColor.danger) }
                 }
                 Section {
                     NavigationLink {
@@ -160,7 +160,7 @@ struct ScreenRow: View {
         Button { nav.openScreen(screen.id) } label: {
             HStack(spacing: 8) {
                 Label { Text(verbatim: screen.name).lineLimit(1) } icon: {
-                    Image(systemName: "square.grid.2x2").foregroundStyle(Color.xbinAmber)
+                    Image(systemName: "square.grid.2x2").foregroundStyle(XbinColor.muted)
                 }
                 Spacer(minLength: 4)
                 let n = workspace.cards(for: screen).count
@@ -188,8 +188,8 @@ private struct NeedsYouRow: View {
                 Spacer(minLength: 4)
                 Text(verbatim: "\(n)").font(.callout.monospacedDigit().weight(n > 0 ? .bold : .regular))
                     .padding(.horizontal, n > 0 ? 7 : 0).padding(.vertical, 1)
-                    .background(n > 0 ? Color.xbinAmber : Color.clear, in: Capsule())
-                    .foregroundStyle(n > 0 ? Color.black : Color.secondary)
+                    .background(n > 0 ? XbinColor.accent : Color.clear, in: .xbinPlate)
+                    .foregroundStyle(n > 0 ? XbinColor.onAccent : XbinColor.muted)
             }
         }
         .tint(.primary)
@@ -312,10 +312,12 @@ struct TileRow: View {
             HStack(spacing: 8) {
                 Group {
                     if let symbol = meta?.symbol {
-                        Image(systemName: symbol).foregroundStyle(Color.accentColor)
+                        Image(systemName: symbol).foregroundStyle(XbinColor.muted)
                     } else {
-                        // The web sidebar's runtime dot (shell-kit.js RUNTIME_COLOR).
-                        Circle().fill(Self.runtimeColor(tile.runtime)).frame(width: 8, height: 8)
+                        // The web's live square (shell-kit.js liveSquare,
+                        // D184): filled in the accent while the tile is on,
+                        // hollow while it is switched off.
+                        LiveSquare(on: Self.isOn(tile))
                     }
                 }
                 .frame(width: 22)
@@ -330,8 +332,9 @@ struct TileRow: View {
                 if let status { StatusDot(status: status) }
                 if let badge = meta?.badge { TileBadge(text: badge) }
                 if native {
-                    Text("native").font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Color.xbinAmber.opacity(0.25), in: Capsule())
+                    Text("native").font(.caption2.bold()).foregroundStyle(XbinColor.muted)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 1))
                 }
                 // Partitioned tiles (D181): paused while a mode switch waits
                 // for a manager; the marker last, as the web sidebar has it
@@ -350,19 +353,30 @@ struct TileRow: View {
         .contextMenu { TileMenu(workspace: workspace, tile: tile, pick: pick) }
     }
 
-    static func runtimeColor(_ runtime: String) -> Color {
-        switch runtime {
-        case "go": return Color.xbinAmber
-        case "node": return Color(red: 0x4C / 255, green: 0xAF / 255, blue: 0x50 / 255)
-        case "python": return Color(red: 0xF2 / 255, green: 0xA7 / 255, blue: 0x1B / 255)
-        default: return Color(red: 0x86 / 255, green: 0x8F / 255, blue: 0x9A / 255)
-        }
+    /// A tile is on unless the workspace switched it off (its /components
+    /// state: shell-kit.js liveState's 'off').
+    static func isOn(_ tile: TileInfo) -> Bool { tile.state.isEmpty || tile.state == "enabled" }
+}
+
+/// The live square (product-ui 3, the web's liveSquare): 8 pt, filled in
+/// the accent while the tile is on, hollow (the strong edge) while it is
+/// off. The runtime its colour used to say is the web's tooltip; here the
+/// row's words carry the tile.
+struct LiveSquare: View {
+    let on: Bool
+
+    var body: some View {
+        Rectangle()
+            .fill(on ? XbinColor.accent : Color.clear)
+            .overlay { if !on { Rectangle().strokeBorder(XbinColor.borderStrong, lineWidth: 1.5) } }
+            .frame(width: 8, height: 8)
+            .accessibilityLabel(Text(on ? "on" : "switched off"))
     }
 }
 
-/// What runs on a tile (D128): `>_ 2` for its terminals, ✦ 1 for its
-/// agents — amber when one waits for you. On rows, and in a corner of a
-/// screen's card (outside a widget's own tree).
+/// What runs on a tile (D128): `>_ 2` for its terminals, the agents' glyph
+/// and 1 for its agents — on the accent when one waits for you. On rows,
+/// and in a corner of a screen's card (outside a widget's own tree).
 struct SessionsBadge: View {
     let sessions: TileSessions
 
@@ -374,14 +388,14 @@ struct SessionsBadge: View {
             }
             if sessions.agents > 0 {
                 HStack(spacing: 2) {
-                    Image(systemName: waiting ? "exclamationmark.bubble.fill" : "sparkles").font(.caption2.weight(.semibold))
+                    Image(systemName: waiting ? "exclamationmark.bubble.fill" : XbinGlyphs.symbol("agent")).font(.caption2.weight(.semibold))
                     Text(verbatim: "\(sessions.agents)").font(.caption2.monospacedDigit().bold())
                 }
             }
         }
         .padding(.horizontal, 6).padding(.vertical, 2)
-        .background(waiting ? Color.xbinAmber : Color.secondary.opacity(0.18), in: Capsule())
-        .foregroundStyle(waiting ? Color.black : Color.secondary)
+        .background(waiting ? XbinColor.accent : XbinColor.fill, in: .xbinPlate)
+        .foregroundStyle(waiting ? XbinColor.onAccent : XbinColor.muted)
         .fixedSize()
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(Text(verbatim: sessions.spoken))
@@ -411,7 +425,7 @@ struct TileMenu: View {
                     } label: {
                         Text(verbatim: s.title)
                         Text(verbatim: s.statusText)
-                        Image(systemName: s.kind == .shell ? "apple.terminal" : s.needsYou ? "exclamationmark.bubble" : "sparkles")
+                        Image(systemName: s.kind == .shell ? "apple.terminal" : s.needsYou ? "exclamationmark.bubble" : XbinGlyphs.symbol("agent"))
                     }
                 }
             }
@@ -446,22 +460,24 @@ struct TileMenu: View {
     }
 }
 
-/// A tile's reported status (`xbin.status`) as a dot: blue info, orange
-/// warn, red error, green a message with ok.
+/// A tile's reported status (`xbin.status`): the level's glyph in its
+/// colour — a shape of its own, never a dot alone (the web shell's
+/// statusIcon, D184) — named by its word for VoiceOver.
 struct StatusDot: View {
     let status: TileStatuses.Status
 
     var body: some View {
-        Circle().fill(color).frame(width: 9, height: 9)
-            .accessibilityLabel(Text(verbatim: status.message.isEmpty ? status.level : "\(status.level): \(status.message)"))
+        let s = XbinGlyphs.status(status.level)
+        Image(systemName: s.symbol).font(.caption.weight(.semibold)).foregroundStyle(color)
+            .accessibilityLabel(Text(verbatim: status.message.isEmpty ? s.word : "\(s.word): \(status.message)"))
     }
 
     private var color: Color {
         switch status.level {
-        case "error": return .red
-        case "warn": return .orange
-        case "ok": return .green
-        default: return .blue
+        case "error": return XbinColor.danger
+        case "warn": return XbinColor.warn
+        case "ok": return XbinColor.ok
+        default: return XbinColor.info
         }
     }
 }
@@ -469,7 +485,7 @@ struct StatusDot: View {
 /// Compact lists (D128): single-line rows about 36 pt tall.
 extension View {
     func compactList() -> some View {
-        listStyle(.sidebar).environment(\.defaultMinListRowHeight, 34)
+        listStyle(.sidebar).environment(\.defaultMinListRowHeight, 34).concreteBackground()
     }
 
     func compactRow() -> some View {

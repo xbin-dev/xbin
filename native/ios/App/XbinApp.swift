@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import UserNotifications
 import XbinCore
+import XbinRenderer
 
 @main
 struct XbinApp: App {
@@ -14,10 +15,11 @@ struct XbinApp: App {
     /// opens another on a workspace or a tile (iPad, Stage Manager, Mac).
     var body: some Scene {
         WindowGroup(for: WindowTarget.self) { $target in
+            // The accent (cobalt, periwinkle in dark: Base Two, D185); each
+            // window's appearance is RootView's (the person's theme).
             RootView(target: $target)
                 .environment(model)
-                .tint(Color.xbinAmber)
-                .preferredColorScheme(Self.debugColorScheme)
+                .tint(XbinColor.accent)
         }
         .onChange(of: scenePhase) { _, phase in
             switch phase {
@@ -36,27 +38,12 @@ struct XbinApp: App {
     }
 }
 
-extension XbinApp {
-    /// Debug builds' `-XbinAppearance light|dark`: the UI tests take their
-    /// screenshots in both (a simulator's own appearance is set from outside).
-    static var debugColorScheme: ColorScheme? {
-        #if DEBUG
-        switch UserDefaults.standard.string(forKey: "XbinAppearance") {
-        case "dark": return .dark
-        case "light": return .light
-        default: return nil
-        }
-        #else
-        return nil
-        #endif
-    }
-}
-
 /// APNs registration and notification taps.
 final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(_ application: UIApplication,
                      didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         UNUserNotificationCenter.current().delegate = self
+        BaseTwoChrome.apply()
         #if DEBUG
         // The UI tests (-XbinUITesting): UIKit's animations off, so the app
         // is idle between steps — XCUITest waited 60 s for them after every
@@ -121,7 +108,19 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     }
 }
 
-extension Color {
-    /// xbin amber (`#f5a623`, plans/native.md §10.1: the tint).
-    static let xbinAmber = Color(red: 0xF5 / 255, green: 0xA6 / 255, blue: 0x23 / 255)
+/// What SwiftUI can't style from a view (D185): navigation bars' large
+/// titles in Bricolage Grotesque 800, scaled with Dynamic Type (the inline
+/// titles, bar items and body stay the system font).
+enum BaseTwoChrome {
+    @MainActor static func apply() {
+        update()
+        NotificationCenter.default.addObserver(forName: UIContentSizeCategory.didChangeNotification, object: nil,
+                                               queue: .main) { _ in MainActor.assumeIsolated { update() } }
+    }
+
+    @MainActor private static func update() {
+        let base = XbinFont.uiFont(XbinFaces.display, size: 34, fallbackWeight: .heavy)
+        let large = UIFontMetrics(forTextStyle: .largeTitle).scaledFont(for: base, maximumPointSize: 64)
+        UINavigationBar.appearance().largeTitleTextAttributes = [.font: large]
+    }
 }

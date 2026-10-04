@@ -16,6 +16,7 @@ public struct Text: Equatable, Sendable {
     public func italic() -> Text { self }
     public func monospaced(_ isActive: Bool = true) -> Text { self }
     public func monospacedDigit() -> Text { self }
+    public func tracking(_ tracking: CGFloat) -> Text { self }
     public func foregroundStyle<S: ShapeStyle>(_ style: S) -> Text { self }
     public enum TruncationMode: Sendable { case head, middle, tail }
     public struct LineStyle: Sendable, Hashable { public static let single = LineStyle() }
@@ -29,6 +30,8 @@ public struct Font: Sendable, Hashable {
     public struct Weight: Sendable, Hashable { public static let regular = Weight(), medium = Weight(), semibold = Weight(), bold = Weight() }
     public static func system(_ style: TextStyle, design: Design? = nil, weight: Weight? = nil) -> Font { Font() }
     public static func system(size: CGFloat, weight: Weight? = nil, design: Design? = nil) -> Font { Font() }
+    public static func custom(_ name: String, size: CGFloat, relativeTo textStyle: TextStyle) -> Font { Font() }
+    public static func custom(_ name: String, fixedSize: CGFloat) -> Font { Font() }
     public func bold() -> Font { self }
     public func italic() -> Font { self }
     public func monospaced() -> Font { self }

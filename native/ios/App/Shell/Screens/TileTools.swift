@@ -2,7 +2,7 @@ import Observation
 import SwiftUI
 import XbinAgent
 import XbinCore
-import XbinRendererModel
+import XbinRenderer
 
 // The sessions screen's Code, Logs and PRs tools (D132, B3/B4), read
 // through the workspace session as the web terminal window's code, logs
@@ -97,7 +97,7 @@ struct CodeToolView: View {
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
             if let p = model.problem {
-                Label { Text(verbatim: p) } icon: { Image(systemName: "exclamationmark.triangle") }.foregroundStyle(.red)
+                Label { Text(verbatim: p) } icon: { Image(systemName: XbinGlyphs.symbol("error")) }.foregroundStyle(XbinColor.danger)
             }
             if tab == 0 { files } else { history }
         }
@@ -129,7 +129,7 @@ struct CodeToolView: View {
                     HStack(spacing: 6) {
                         Image(systemName: open.contains(sub.path) ? "chevron.down" : "chevron.right").font(.caption2.weight(.bold))
                             .foregroundStyle(.secondary).frame(width: 12)
-                        Image(systemName: "folder").foregroundStyle(Color.xbinAmber)
+                        Image(systemName: "folder").foregroundStyle(XbinColor.muted)
                         Text(verbatim: sub.name).font(.callout.monospaced())
                         Spacer(minLength: 4)
                         Text(verbatim: "\(sub.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
@@ -164,8 +164,8 @@ struct CodeToolView: View {
                 let top = max(1, days.max() ?? 1)
                 HStack(alignment: .bottom, spacing: 2) {
                     ForEach(Array(days.enumerated()), id: \.offset) { _, n in
-                        RoundedRectangle(cornerRadius: 1.5)
-                            .fill(n > 0 ? Color.xbinAmber : Color.secondary.opacity(0.2))
+                        Rectangle()
+                            .fill(n > 0 ? XbinColor.accent : XbinColor.border)
                             .frame(height: max(3, 36 * CGFloat(n) / CGFloat(top)))
                     }
                 }
@@ -187,8 +187,8 @@ struct CodeToolView: View {
                             Text(verbatim: c.author)
                             Text(verbatim: Date(timeIntervalSince1970: TimeInterval(c.date)).formatted(.relative(presentation: .named)))
                             Spacer(minLength: 4)
-                            Text(verbatim: "+\(c.added)").foregroundStyle(Color.green)
-                            Text(verbatim: "−\(c.removed)").foregroundStyle(.red)
+                            Text(verbatim: "+\(c.added)").foregroundStyle(XbinColor.ok)
+                            Text(verbatim: "−\(c.removed)").foregroundStyle(XbinColor.danger)
                         }
                         .font(.caption).foregroundStyle(.secondary)
                     }
@@ -306,9 +306,9 @@ struct DiffLinesView: View {
 
     private func color(_ k: ChatDiff.Line.Kind) -> Color {
         switch k {
-        case .added: return .green
-        case .removed: return .red
-        case .hunk: return .blue
+        case .added: return XbinColor.ok
+        case .removed: return XbinColor.danger
+        case .hunk: return XbinColor.muted
         case .file: return .secondary
         case .context: return .primary
         }
@@ -316,8 +316,8 @@ struct DiffLinesView: View {
 
     private func background(_ k: ChatDiff.Line.Kind) -> Color {
         switch k {
-        case .added: return Color.green.opacity(0.08)
-        case .removed: return Color.red.opacity(0.08)
+        case .added: return XbinColor.okBackground
+        case .removed: return XbinColor.dangerBackground
         default: return .clear
         }
     }
@@ -432,7 +432,7 @@ struct LogsToolView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Circle().fill(model.live ? Color.green : Color.secondary).frame(width: 8, height: 8)
+                Circle().fill(model.live ? XbinColor.ok : XbinColor.muted).frame(width: 8, height: 8)
                     .accessibilityLabel(Text(model.live ? "Live" : "Not connected"))
                 Text(verbatim: model.deployment.isEmpty ? model.tile : "\(model.tile)+\(model.deployment)")
                     .font(.footnote.monospaced()).lineLimit(1)
@@ -450,10 +450,10 @@ struct LogsToolView: View {
                 .accessibilityValue(Text(following ? "on" : "off"))
             }
             .padding(.horizontal, 12).padding(.vertical, 6)
-            .background(Color(uiColor: .secondarySystemGroupedBackground))
+            .background(XbinColor.surface)
             if let p = model.problem {
                 Label { Text(verbatim: p) } icon: { Image(systemName: "exclamationmark.triangle") }
-                    .font(.footnote).foregroundStyle(.red).padding(8)
+                    .font(.footnote).foregroundStyle(XbinColor.danger).padding(8)
             }
             ScrollViewReader { proxy in
                 ScrollView([.vertical, .horizontal]) {
@@ -558,7 +558,7 @@ struct ProposalsToolView: View {
             .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets(top: 4, leading: 0, bottom: 4, trailing: 0))
             if let p = model.problem {
-                Label { Text(verbatim: p) } icon: { Image(systemName: "exclamationmark.triangle") }.foregroundStyle(.red)
+                Label { Text(verbatim: p) } icon: { Image(systemName: XbinGlyphs.symbol("error")) }.foregroundStyle(XbinColor.danger)
             }
             if model.absent {
                 Text("This workspace's xbind has no change proposals.").foregroundStyle(.secondary)
@@ -602,17 +602,19 @@ struct IdentifiedInt: Identifiable { let id: Int }
 private struct StateTag: View {
     let state: String
     var body: some View {
+        // Base Two's badge: square, a 1 pt edge, the state's word in its
+        // colour (a proposal's state is not a status: open in the accent).
         Text(verbatim: state).font(.caption2.bold())
             .padding(.horizontal, 6).padding(.vertical, 1)
-            .background(color.opacity(0.18), in: Capsule())
+            .overlay(RoundedRectangle.xbinPlate.strokeBorder(color, lineWidth: 1))
             .foregroundStyle(color)
     }
     private var color: Color {
         switch state {
-        case "open": return Color.xbinAmber
-        case "merged": return .green
-        case "rejected": return .red
-        default: return .secondary
+        case "open": return XbinColor.accent
+        case "merged": return XbinColor.ok
+        case "rejected": return XbinColor.danger
+        default: return XbinColor.muted
         }
     }
 }
@@ -650,8 +652,8 @@ private struct ProposalSheet: View {
                                 Text(verbatim: "opened \(DeployView.ago(p.created, now: Date()))")
                                 if !p.base.isEmpty { Text(verbatim: "base \(p.base.prefix(8))").monospaced() }
                                 if let s = stats {
-                                    Text(verbatim: "+\(s.added)").foregroundStyle(Color.green)
-                                    Text(verbatim: "−\(s.removed)").foregroundStyle(.red)
+                                    Text(verbatim: "+\(s.added)").foregroundStyle(XbinColor.ok)
+                                    Text(verbatim: "−\(s.removed)").foregroundStyle(XbinColor.danger)
                                     Text(verbatim: "· \(s.files) file\(s.files == 1 ? "" : "s")")
                                 }
                             }
@@ -691,12 +693,13 @@ private struct ProposalSheet: View {
                         }
                     }
                     if let problem {
-                        Section { Label { Text(verbatim: problem) } icon: { Image(systemName: "exclamationmark.triangle") }.foregroundStyle(.red) }
+                        Section { Label { Text(verbatim: problem) } icon: { Image(systemName: XbinGlyphs.symbol("error")) }.foregroundStyle(XbinColor.danger) }
                     }
                 } else {
                     HStack { Spacer(); ProgressView(); Spacer() }
                 }
             }
+            .concreteBackground()
             // The acts stay at hand under the series, as the web's bar does.
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if let p = pr, p.isOpen { actions(p) }
@@ -735,7 +738,8 @@ private struct ProposalSheet: View {
                 TextField("Comment for the author…", text: $comment, axis: .vertical)
                     .lineLimit(1...4)
                     .padding(8)
-                    .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    .background(XbinColor.surface, in: .xbinPlate)
+                    .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.borderStrong, lineWidth: 1))
                 Button("Comment") {
                     Task { await send(ProposalRoute.comment, ProposalRoute.commentBody(target: model.tile, n: p.number, body: comment.trimmingCharacters(in: .whitespacesAndNewlines))) }
                 }
@@ -743,9 +747,11 @@ private struct ProposalSheet: View {
             }
             HStack(spacing: 10) {
                 Button { decisionNote = comment; deciding = "merged" } label: { Label("Mark merged", systemImage: "checkmark") }
-                    .buttonStyle(.bordered).tint(.green)
+                    .xbinSecondary().tint(XbinColor.ok)
+                // In the danger colour, as the web's Reject: the app's tint
+                // (the accent) is the one primary action's.
                 Button(role: .destructive) { decisionNote = comment; deciding = "rejected" } label: { Label("Reject", systemImage: "xmark") }
-                    .buttonStyle(.bordered)
+                    .xbinSecondary().tint(XbinColor.danger)
                 Spacer(minLength: 0)
             }
             .disabled(busy)

@@ -1,4 +1,5 @@
 import SwiftUI
+import XbinRenderer
 import UIKit
 import XbinCore
 
@@ -50,8 +51,11 @@ struct PanelStack<Content: View>: View {
             ZStack {
                 ForEach(Array(nav.entries.enumerated()), id: \.element.id) { i, e in
                     let shown = shown(i, top: top)
+                    // The canvas behind a panel; its NavigationStack's pages
+                    // paint their own (PanelBar, compactList), as a pushed
+                    // page wouldn't inherit a painted background.
                     content(e.panel)
-                        .background(Color(uiColor: .systemBackground))
+                        .background(XbinColor.background)
                         .overlay { Color.black.opacity(dim(i, top: top, width: w)).allowsHitTesting(false) }
                         .offset(x: offset(i, top: top, width: w))
                         // Only what can be seen is drawn — and reachable: a panel

@@ -11,6 +11,10 @@ public struct UIConfigurationTextAttributesTransformer {
     public init(_ transform: @escaping @Sendable (Attrs) -> Attrs) {}
 }
 public enum NSLineBreakMode: Int, Sendable { case byWordWrapping, byCharWrapping, byClipping, byTruncatingHead, byTruncatingTail, byTruncatingMiddle }
+public struct UIBackgroundConfiguration {
+    public init() {}
+    public var cornerRadius: CGFloat = 0
+}
 @MainActor open class UIButton: UIControl {
     public struct Configuration {
         public static func gray() -> Configuration { Configuration() }
@@ -21,6 +25,9 @@ public enum NSLineBreakMode: Int, Sendable { case byWordWrapping, byCharWrapping
         public var titleLineBreakMode: NSLineBreakMode = .byTruncatingTail
         public var baseBackgroundColor: UIColor?
         public var baseForegroundColor: UIColor?
+        public enum CornerStyle: Sendable { case fixed, dynamic, small, medium, large, capsule }
+        public var cornerStyle: CornerStyle = .dynamic
+        public var background = UIBackgroundConfiguration()
     }
     public convenience init(configuration: Configuration, primaryAction: UIAction? = nil) { self.init(frame: .zero) }
     public var configuration: Configuration?

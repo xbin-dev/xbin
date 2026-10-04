@@ -1,11 +1,11 @@
 import SwiftUI
 import XbinCore
-import XbinRendererModel
+import XbinRenderer
 
 /// The card every tile gets on a phone screen when it draws no widget of
 /// its own (D125): its icon, title, badge and status — the dot and, when
 /// there's room, what it said — and how it runs (native, or its runtime).
-/// The screen grid gives it its frame and rounded background; the card
+/// The screen grid gives it its frame and its Base Two card; the card
 /// (TileCard) puts what runs there in its corner. Compact since D128: the
 /// widget inset, a 28-point icon.
 struct StandardCard: View {
@@ -36,11 +36,14 @@ struct StandardCard: View {
     }
 
     private func icon(_ symbol: String?) -> some View {
+        // A tile owns its look: its glyph in ink on the inset panel, no
+        // field colour (product-ui 3: user apps get no colour).
         Image(systemName: symbol ?? "square.dashed")
             .font(.system(size: 14, weight: .semibold))
-            .foregroundStyle(Color.xbinAmber)
+            .foregroundStyle(XbinColor.muted)
             .frame(width: 28, height: 28)
-            .background(Color.xbinAmber.opacity(0.16), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+            .background(XbinColor.surface2, in: .xbinPlate)
+            .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 1))
             .accessibilityHidden(true)
     }
 
@@ -58,8 +61,9 @@ struct StandardCard: View {
         if tile.isPaused {
             PausedBadge()
         } else if workspace.surfaceKind(for: tile) == .native {
-            Text("native").font(.caption2.bold()).padding(.horizontal, 6).padding(.vertical, 2)
-                .background(Color.xbinAmber.opacity(0.25), in: Capsule())
+            Text("native").font(.caption2.bold()).foregroundStyle(XbinColor.muted)
+                .padding(.horizontal, 6).padding(.vertical, 2)
+                .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 1))
         } else if !tile.runtime.isEmpty, tile.runtime != "static" {
             Text(verbatim: tile.runtime).font(.caption2.monospaced()).foregroundStyle(.tertiary)
         }

@@ -164,7 +164,7 @@ private struct MarkdownTableView: View {
             }
             .padding(12)
         }
-        .background(XbinColor.fill.opacity(0.5), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(XbinColor.fill.opacity(0.5), in: RoundedRectangle.xbinPlate)
     }
 
     private func cell(_ inlines: [MarkdownInline], bold: Bool) -> Text {

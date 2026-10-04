@@ -1,6 +1,7 @@
 import CoreImage
 import CoreImage.CIFilterBuiltins
 import SwiftUI
+import XbinRenderer
 import UIKit
 import XbinCore
 
@@ -41,7 +42,7 @@ struct AddDeviceView: View {
                         SecureField("Password", text: $password).textContentType(.password)
                             .onSubmit { Task { await mint(password: password) } }
                         Button("Continue") { Task { await mint(password: password) } }.disabled(password.isEmpty)
-                        if let error { Text(verbatim: error).foregroundStyle(.red).font(.footnote) }
+                        if let error { Text(verbatim: error).foregroundStyle(XbinColor.danger).font(.footnote) }
                     } header: { Text("Confirm it's you") } footer: {
                         Text("Adding a device needs your password when you signed in a while ago.")
                     }
@@ -50,11 +51,12 @@ struct AddDeviceView: View {
                 case .failed(let why):
                     Section {
                         Label { Text(verbatim: why) } icon: { Image(systemName: "exclamationmark.triangle") }
-                            .foregroundStyle(.red)
+                            .foregroundStyle(XbinColor.danger)
                         Button("Try again") { Task { await mint(password: nil) } }
                     }
                 }
             }
+            .concreteBackground()
             .navigationTitle("Add a device")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
@@ -74,7 +76,7 @@ struct AddDeviceView: View {
             VStack(spacing: 14) {
                 if expired {
                     ContentUnavailableView("The code expired", systemImage: "clock.badge.xmark")
-                    Button("Make a new code") { Task { await mint(password: nil) } }.buttonStyle(.borderedProminent)
+                    Button("Make a new code") { Task { await mint(password: nil) } }.xbinPrimary()
                 } else {
                     QRCodeImage(text: link)
                         .frame(width: 240, height: 240)
@@ -138,7 +140,7 @@ struct QRCodeImage: View {
                     .resizable()
                     .scaledToFit()
                     .padding(12)
-                    .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
+                    .background(Color.white, in: .xbinPlate) // a QR code reads dark on white, in either theme
             } else {
                 Image(systemName: "qrcode").font(.largeTitle).foregroundStyle(.secondary)
             }

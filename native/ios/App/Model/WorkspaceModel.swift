@@ -30,6 +30,10 @@ final class WorkspaceModel: Identifiable {
     var mobile = MobileScreens()
     /// What tiles report about themselves (the cards' status dots).
     var statuses = TileStatuses()
+    /// The person's light/dark choice in this workspace (the shell's
+    /// Settings → Theme, D185): the windows showing it follow it, or the
+    /// phone's appearance when it is `.system`.
+    var appearance = AppearancePref.system
     /// Which of xbind's own pages this workspace serves (D181), as far as
     /// its feature list said; absent = not asked yet.
     private(set) var pages: [XbindPage: XbindPageAvailability] = [:]
@@ -145,11 +149,15 @@ final class WorkspaceModel: Identifiable {
             async let scr = auth.json(APIRequest("GET", "/api/xbin/screens"))
             async let mob = auth.send(APIRequest("GET", MobileScreens.path))
             async let report = auth.json(APIRequest("GET", TileStatuses.path))
+            async let theme = auth.send(APIRequest("GET", AppearancePref.path))
             catalog = Catalog(json: try await comps)
             shared = SharedScreens(json: try? await scr)
             layout = PersonalLayout(json: await loadLayout())
             if let r = try? await mob { mobile = MobileScreens(json: r.status == 200 ? try? r.json() : nil) }
             if let r = try? await report { statuses = TileStatuses(json: r) }
+            if let r = try? await theme, r.status == 200 || r.status == 404 {
+                appearance = AppearancePref(json: r.status == 200 ? try? r.json() : nil)
+            }
             rebuildHome()
             await refreshBranding()
             await refreshSessions()
@@ -172,6 +180,12 @@ final class WorkspaceModel: Identifiable {
             layout = PersonalLayout(json: await loadLayout())
         }
         rebuildHome()
+    }
+
+    /// Re-reads the person's theme (a `prefs` event said it changed).
+    func reloadAppearance() async {
+        guard let r = try? await auth.send(APIRequest("GET", AppearancePref.path)), r.status == 200 || r.status == 404 else { return }
+        appearance = AppearancePref(json: r.status == 200 ? try? r.json() : nil)
     }
 
     func rebuildHome() {
@@ -290,6 +304,12 @@ final class WorkspaceModel: Identifiable {
             case .tileStatus(let tile, let level, let message, let transient):
                 self?.statuses.apply(tile: tile, level: level, message: message, transient: transient)
             case .prefs(let component, let key, let writer):
+                // The person chose another theme (the web shell's settings):
+                // the windows showing this workspace follow.
+                if AppearancePref.concerns(component: component, key: key) {
+                    Task { await self?.reloadAppearance() }
+                    return
+                }
                 // Another client (the web shell, another phone) changed the
                 // layout or the phone arrangement: Home and the screens follow.
                 guard LayoutPref.concernsHome(component: component, key: key, writer: writer, me: AppSettings.installID) else { return }

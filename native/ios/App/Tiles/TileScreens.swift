@@ -1,4 +1,5 @@
 import SwiftUI
+import XbinRenderer
 import UIKit
 import WebKit
 import XbinCore
@@ -76,7 +77,7 @@ struct WebTileScreen: View {
                     } description: {
                         Text(verbatim: err)
                     } actions: {
-                        Button("Try again") { c.reload() }.buttonStyle(.borderedProminent)
+                        Button("Try again") { c.reload() }.xbinPrimary()
                     }
                     .background(.background)
                 }
@@ -85,7 +86,7 @@ struct WebTileScreen: View {
                 Text(verbatim: banner)
                     .font(.footnote)
                     .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(.thinMaterial, in: Capsule())
+                    .background(XbinColor.surface, in: .xbinPlate).overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 1))
                     .padding(.top, 8)
                     .transition(.opacity)
             }
@@ -205,7 +206,7 @@ struct TileDialogSheet: View {
             Form {
                 if !spec.message.isEmpty { Section { Text(verbatim: spec.message) } }
                 if !spec.error.isEmpty {
-                    Section { Label { Text(verbatim: spec.error) } icon: { Image(systemName: "exclamationmark.triangle") }.foregroundStyle(.red) }
+                    Section { Label { Text(verbatim: spec.error) } icon: { Image(systemName: XbinGlyphs.symbol("error")) }.foregroundStyle(XbinColor.danger) }
                 }
                 if !spec.fields.isEmpty {
                     Section {
@@ -224,6 +225,7 @@ struct TileDialogSheet: View {
                     Text(verbatim: "Asked by \(from)").font(.caption.monospaced())
                 }
             }
+            .concreteBackground()
             .navigationTitle(Text(verbatim: spec.title))
             .navigationBarTitleDisplayMode(.inline)
             .onAppear { if values.isEmpty { values = spec.initialValues } }
