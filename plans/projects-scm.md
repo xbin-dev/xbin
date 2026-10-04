@@ -3760,4 +3760,13 @@ with the record that explains it:
 - YYYY-MM-DD (<WP>) §x.y: what changed and why — records/<WP>.md
 ```
 
-(none yet)
+- 2026-10-04 (P1) §16.2: three more new files (`project_rows.go`, `project_settings.go`, `project_steps_task.go`) keep each Go file under 800 lines — records/P1.md
+- 2026-10-04 (P1) §16.2: the 409 on a project run's own sharing is in `conversations.go` (`handlePatchRun`) and `share.go` (`handleAddMember`), where those handlers are; `/copy` needs none (its source is in the shared space, which holds no project run) — records/P1.md
+- 2026-10-04 (P1) §6.11: a task whose turn ended without a pull request is `needs-you` (waiting for you); a cancelled one is column `done`, state `cancelled` — records/P1.md
+- 2026-10-04 (P1) §8.3, §8.6: the gate ends its own park once the workspace is ready (the run rests, the pass goes on) and `bind` queues no `inboxWake` (one could be left over to start a turn later): it pokes the run; a turn in flight or a resting run with no input is never parked; a workspace change pokes the task's run — records/P1.md
+- 2026-10-04 (P1) §8.3: a coding agent's first prompt gets the brief at `bind` (its start row, client id `proj-start:<pid>:<n>`, rewritten); a `{new}` sandbox's request waits in the setting `proj_sbx_new:<pid>`; a refs check an scm event asks for reads the PRs even with one open — records/P1.md
+- 2026-10-04 (P1) §8.1: `engine: auto`'s "last coding agent" is that of the person's latest coding-agent conversation — records/P1.md
+- 2026-10-04 (P1) §8.5: `projectEnv(run, home)` takes the sandbox's home from its call sites — records/P1.md
+- 2026-10-04 (P1) §8.4: a job fails 3 h after it was queued, a sign-in wait after 20 min; §10.5: `userWake` counts a `wake=1` event only for a coordinator that exists — records/P1.md
+- 2026-10-04 (P1) §9.6: `projectsInSandbox` answers every project of the sandbox, archived and deleting ones too — records/P1.md
+- 2026-10-04 (P1) §6.14: a deleted project's tasks are cleaned up only when its sandbox stays; its subscriptions end through `runDeletedHooks` (no project-deleted seam) — records/P1.md

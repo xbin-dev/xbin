@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -106,7 +107,16 @@ func TestHoldParkInput(t *testing.T) {
 	}
 	time.Sleep(50 * time.Millisecond)
 	if ins := fx.ag.db.queuedInputs(p.ID, 1); len(ins) != 1 {
-		t.Fatalf("the held input left the queue while its run waits for a person: %+v", ins)
+		r, _ := fx.ag.db.getRun(r1)
+		var b strings.Builder
+		for _, row := range fx.ag.db.inboxRows(`WHERE run_id=? ORDER BY id`, r1) {
+			fmt.Fprintf(&b, "\n  inbox %d %s %q delivered=%d", row.ID, row.Kind, clip(row.Body.Text, 60), row.DeliveredAt)
+		}
+		steps, _ := fx.ag.db.steps(r1)
+		for _, st := range steps {
+			fmt.Fprintf(&b, "\n  step %s %s", st.Kind, clip(st.Detail, 100))
+		}
+		t.Fatalf("the held input left the queue while its run waits for a person: %+v; run %s %q%s", ins, r.Status, r.Pending, b.String())
 	}
 	// a dedupe key queues once
 	_ = fx.ag.db.Tx(func(t2 *DB) error {

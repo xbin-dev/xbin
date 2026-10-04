@@ -105,7 +105,8 @@ func startClientID(pid, n int64) string { return fmt.Sprintf("proj-start:%d:%d",
 
 // jobBind binds the task's conversation to its checkout — the sandbox
 // binding, and a coding agent's sandbox and cwd — once its setups are done
-// (setupBlocking); the workspace is ready, and the parked turn goes on.
+// (setupBlocking); the workspace is ready, and the parked turn goes on (the
+// run is poked: its gate ends the park).
 func jobBind(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobOutcome, error) {
 	if k == nil || k.RunID == 0 {
 		return doneJob("the task is gone")
@@ -153,11 +154,10 @@ func jobBind(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 				row.Body.Text = harnessBrief(t, p, orTask(cur, k), row.Body.Text)
 				t.setInboxBody(row.ID, row.Body)
 			}
-		} else if parsePending(run.Pending).Kind == pendKindProject {
-			if _, _, err := t.enqueue(run.ID, inboxWake, inboxBody{Source: "project"}, ""); err != nil {
-				return err
-			}
 		}
+		// no wake row: the gate ends its own park once the workspace is
+		// ready (the poke below; a takeover pokes a parked run anyway) — a
+		// wake left over would start a turn nobody asked for later
 		setWS(t, p, k, wsReady, "")
 		addProjectEvent(t, p.ID, k.N, pevWorkspace, map[string]any{"text": "its workspace is ready on " + k.Branch}, false, "")
 		poke = true

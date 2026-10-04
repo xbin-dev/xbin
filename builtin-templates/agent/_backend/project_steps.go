@@ -543,16 +543,6 @@ func taskRepos(p *Project, k *ProjectTask) ([]ProjectRepo, error) {
 // taskRef is the sandbox a task works in: its fork, else the project's.
 func taskRef(p *Project, k *ProjectTask) string { return orStr(k.SandboxRef, p.SandboxRef) }
 
-// failTask fails a task's workspace (ws failed, an event that wakes the
-// coordinator) — what a job that can't go on says.
-func failTask(p *Project, k *ProjectTask, msg string) {
-	_ = projAg().db.Tx(func(t *DB) error {
-		setWS(t, p, k, wsFailed, clip(msg, 2000))
-		addProjectEvent(t, p.ID, k.N, pevWorkspace, map[string]any{"text": "its workspace failed: " + clip(msg, 500)}, true, "")
-		return nil
-	})
-}
-
 // jobPrepare makes a task's checkouts once the project's sandbox and the
 // task's repos are ready: a fork first for a big task (provisionFork; this
 // build without forks works in the project's sandbox), fresh credentials, a

@@ -90,10 +90,6 @@ func (d *DB) queuedInputs(pid, n int64) []taskInput {
 	return out
 }
 
-// projectPumpAsync is the pump, run after the caller's commit (hooks call
-// it from t.AfterCommit).
-func projectPumpAsync(pid int64) { projectPump(pid) }
-
 // projectPump moves queued inputs of project pid into their runs' inboxes,
 // oldest first, while slots last. Runs after a turn ends, whenever a task
 // run's status changes, after a create, a queue insert and a policy change.

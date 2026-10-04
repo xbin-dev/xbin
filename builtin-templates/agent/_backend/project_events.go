@@ -331,7 +331,7 @@ func projectTurnEnd(t *DB, run *Run, why, outcome, result string) {
 	}
 	onTaskChange(t, p, k, "state")
 	pid := p.ID
-	t.AfterCommit(func() { projectPumpAsync(pid) })
+	t.AfterCommit(func() { projectPump(pid) })
 }
 
 // turnWords says how a task's turn ended, for the event feed.
@@ -384,7 +384,7 @@ func projectStatusChanged(t *DB, runID int64, status string) {
 	}
 	onTaskChange(t, p, k, "state")
 	pid := p.ID
-	t.AfterCommit(func() { projectPumpAsync(pid) })
+	t.AfterCommit(func() { projectPump(pid) })
 }
 
 // projectRunDeleted (runDeletedHooks): a task's conversation is deleted —
