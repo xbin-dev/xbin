@@ -103,29 +103,82 @@ func (s *srv) refresh(ctx context.Context, stale string) (secretString, *personR
 	if acc.Token != stale { // refreshed meanwhile
 		return newSecret(acc.Token), rec, nil
 	}
+	tok, err := s.tradeRefresh(ctx, rec, ref)
+	if errors.Is(err, errBadRefresh) {
+		s.clearUser()
+		return secretString{}, nil, s.signinRefusal(ctx)
+	}
+	if err != nil {
+		return secretString{}, nil, err
+	}
+	return tok, s.personRecord(), nil
+}
+
+// errBadRefresh: GitHub no longer takes the refresh token (bad_refresh_token)
+// — the sign-in is over. Never answered as is: each caller decides.
+var errBadRefresh = errors.New("GitHub no longer takes the sign-in's refresh token")
+
+// tradeRefresh is the refresh itself, refreshMu held: the new pair kept.
+func (s *srv) tradeRefresh(ctx context.Context, rec *personRec, ref vaultTok) (secretString, error) {
 	pub := s.public()
 	_, _, web := s.hosts()
 	form := url.Values{"client_id": {pub.ClientID}, "grant_type": {"refresh_token"}, "refresh_token": {ref.Token}}
 	var out oauthTokenResp
 	if err := s.oauthPost(ctx, web+"/login/oauth/access_token", form, &out); err != nil {
-		return secretString{}, nil, err
+		return secretString{}, err
 	}
 	switch out.Error {
 	case "":
 	case "bad_refresh_token":
-		s.clearUser()
-		return secretString{}, nil, s.signinRefusal(ctx)
+		return secretString{}, errBadRefresh
 	default:
-		return secretString{}, nil, refuse(refUpstream, "GitHub didn't refresh the sign-in: %s", clip(out.Error, 80))
+		return secretString{}, refuse(refUpstream, "GitHub didn't refresh the sign-in: %s", clip(out.Error, 80))
 	}
-	now := s.now()
-	if err := s.storeUser(out, rec.Login, rec.ID, now); err != nil {
-		return secretString{}, nil, err
+	if err := s.storeUser(out, rec.Login, rec.ID, s.now()); err != nil {
+		return secretString{}, err
 	}
 	// Scoped tokens of the old epoch may die with their parent: none is
 	// handed out again, but each stays recorded so a revoke still reaches it.
 	s.bot.retire(func(k cacheKey) bool { return k.kind == asPerson })
-	return newSecret(out.AccessToken.Reveal()), s.personRecord(), nil
+	return newSecret(out.AccessToken.Reveal()), nil
+}
+
+// forgetSlack: Forget refreshes an access token this close to its expiry
+// first, so GitHub still knows the token the grant is revoked with.
+const forgetSlack = time.Minute
+
+// forgetToken answers the access token Forget revokes the grant with: the
+// vault's, refreshed first once it has expired — GitHub no longer knows an
+// expired token, so revoking with it would leave the grant (and its live
+// refresh token) authorised. Empty: nothing is left to revoke it with (no
+// sign-in, the refresh token expired or refused). Any other refresh failure
+// is answered, nothing cleared.
+func (s *srv) forgetToken(ctx context.Context) (string, error) {
+	s.refreshMu.Lock()
+	defer s.refreshMu.Unlock()
+	var acc, ref vaultTok
+	if vaultJSON(s.vault, vaultUserAccess, &acc) != nil || acc.Token == "" {
+		return "", nil
+	}
+	_ = vaultJSON(s.vault, vaultUserRefresh, &ref)
+	now := s.now()
+	rec := s.personRecord()
+	if acc.ExpiresAt == 0 || now.Before(time.UnixMilli(acc.ExpiresAt).Add(-forgetSlack)) || ref.Token == "" || rec == nil {
+		// Live, or nothing to refresh it with: revoked as it is (a token
+		// GitHub no longer knows counts as revoked).
+		return acc.Token, nil
+	}
+	if ref.ExpiresAt != 0 && now.UnixMilli() >= ref.ExpiresAt {
+		return "", nil
+	}
+	tok, err := s.tradeRefresh(ctx, rec, ref)
+	if errors.Is(err, errBadRefresh) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return tok.Reveal(), nil
 }
 
 // oauthTokenResp is /login/oauth/access_token's answer (GitHub answers 200

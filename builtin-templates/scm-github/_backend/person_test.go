@@ -240,6 +240,14 @@ func TestForgetRevokesGrant(t *testing.T) {
 	if e.gh.count("POST /applications/"+e.gh.clientID+"/token") == checks {
 		t.Fatal("a 422 didn't ask GitHub whether the token is alive")
 	}
+	// The check's own 422 (the same "spammed") isn't "GitHub no longer
+	// knows it": only its 404 is.
+	e.gh.fail("DELETE /applications/", 1, 422, nil, `{"message":"Validation Failed"}`)
+	e.gh.fail("POST /applications/", 1, 422, nil, `{"message":"Validation Failed"}`)
+	refusal(t, e.call(u, pageC("alice"), "DELETE", "/scm/signin", nil), 503, "unavailable")
+	if a2, _, _ := s.userTokens(); a2.Token != acc.Token || s.personRecord() == nil || e.global.ident("alice") == nil || e.userTok(acc.Token).revoked {
+		t.Fatal("a 422 from both the revoke and the check cleared the sign-in")
+	}
 	ok(t, e.call(u, pageC("alice"), "DELETE", "/scm/signin", nil), 204)
 	if !e.userTok(acc.Token).revoked || !e.userTok(m["token"].(string)).revoked {
 		t.Fatal("tokens still work at GitHub")
@@ -264,6 +272,71 @@ func TestForgetRevokesGrant(t *testing.T) {
 	ok(t, e.call(u, pageC("alice"), "DELETE", "/scm/signin", nil), 204)
 	if s.personRecord() != nil || e.global.ident("alice") != nil {
 		t.Fatal("a token GitHub no longer knows kept the sign-in")
+	}
+}
+
+// Forget after the access token expired (8 h) with the sign-in itself (the
+// refresh token, ~6 months) alive: the pair is refreshed first and the
+// grant revoked with the new token — not "already gone".
+func TestForgetRefreshesExpiredToken(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	s := e.signIn("alice", "octocat")
+	u := s.routes()
+	m := personToken(t, e, u, map[string]any{"repo": "acme/web", "access": "read"})
+	liveRefresh := func() int {
+		e.gh.mu.Lock()
+		defer e.gh.mu.Unlock()
+		n := 0
+		for _, l := range e.gh.refresh {
+			if l == "octocat" {
+				n++
+			}
+		}
+		return n
+	}
+	e.clock.advance(9 * time.Hour)
+	// A refresh GitHub fails (not bad_refresh_token) is answered, and
+	// nothing is cleared.
+	e.gh.fail("POST /login/oauth/access_token", 1, 503, nil, `boom`)
+	if r := e.call(u, pageC("alice"), "DELETE", "/scm/signin", nil); r.Code < 400 {
+		t.Fatalf("a failed refresh: %d", r.Code)
+	}
+	if s.personRecord() == nil || e.global.ident("alice") == nil || liveRefresh() == 0 {
+		t.Fatal("a failed refresh cleared the sign-in")
+	}
+	ok(t, e.call(u, pageC("alice"), "DELETE", "/scm/signin", nil), 204)
+	if n := liveRefresh(); n != 0 {
+		t.Fatalf("the grant is still authorised at GitHub: %d live refresh tokens", n)
+	}
+	e.gh.mu.Lock()
+	for tok, x := range e.gh.userTokens {
+		if x.login == "octocat" && !x.revoked && e.clock.now().Before(x.exp) {
+			e.gh.mu.Unlock()
+			t.Fatalf("token %s… still works at GitHub", tok[:8])
+		}
+	}
+	e.gh.mu.Unlock()
+	if !e.userTok(m["token"].(string)).revoked {
+		t.Fatal("the scoped token wasn't revoked with the grant")
+	}
+	if s.personRecord() != nil || e.global.ident("alice") != nil {
+		t.Fatal("the identity is still kept")
+	}
+	// bad_refresh_token: nothing is left to revoke with — Forget clears.
+	s = e.signIn("alice", "octocat")
+	u = s.routes()
+	e.clock.advance(9 * time.Hour)
+	e.gh.mu.Lock()
+	for rt, l := range e.gh.refresh {
+		if l == "octocat" {
+			delete(e.gh.refresh, rt)
+		}
+	}
+	e.gh.mu.Unlock()
+	ok(t, e.call(u, pageC("alice"), "DELETE", "/scm/signin", nil), 204)
+	if s.personRecord() != nil || e.global.ident("alice") != nil {
+		t.Fatal("a sign-in GitHub no longer refreshes was kept")
 	}
 }
 

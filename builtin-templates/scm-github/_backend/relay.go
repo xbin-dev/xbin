@@ -249,13 +249,19 @@ func (s *srv) relayRevoke(w http.ResponseWriter, r *http.Request, c who, what st
 		// Revoked, or a token GitHub no longer knows.
 	case rr.Status == http.StatusUnprocessableEntity:
 		// GitHub's 422 is "validation failed, or the endpoint has been
-		// spammed": the token may still be alive. Gone only when GitHub
-		// no longer knows it; the caller keeps it (Forget keeps the
-		// sign-in, the only way left to revoke the grant) and retries.
-		if _, _, err := s.checkUserToken(r.Context(), body.AccessToken); !isRefusal(err, refIdentity) {
+		// spammed": the token may still be alive. Gone only when GitHub's
+		// check answers 404 for it — the check's own 422 (the same
+		// "spammed") or any other answer is unknown, so the caller keeps
+		// it (Forget keeps the sign-in, the only way left to revoke the
+		// grant) and retries.
+		rc, err := s.gh.do(r.Context(), auth, http.MethodPost, s.apiBase()+"/applications/"+pathEsc(cid)+"/token", map[string]string{"access_token": body.AccessToken.Reveal()})
+		if err != nil || rc == nil || rc.Status != http.StatusNotFound {
 			e := refuse(refUnavailable, "GitHub didn't revoke it (422) and it still answers: try again in a minute")
-			if err != nil {
+			switch {
+			case err != nil:
 				e = refuse(refUnavailable, "GitHub didn't revoke it (422), and checking it failed: %s", clip(err.Error(), 200))
+			case rc != nil && rc.Status >= 300:
+				e = refuse(refUnavailable, "GitHub didn't revoke it (422), and checking it answered %d: try again in a minute", rc.Status)
 			}
 			e.RetryAfterMs = 60_000
 			fail(w, e)

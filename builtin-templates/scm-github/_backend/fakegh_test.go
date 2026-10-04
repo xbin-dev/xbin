@@ -483,7 +483,7 @@ func (f *fakeGH) routes(mux *http.ServeMux) {
 		f.mu.Lock()
 		u := f.userTokens[b["access_token"]]
 		f.mu.Unlock()
-		if u == nil || u.revoked {
+		if u == nil || u.revoked || !f.now().Before(u.exp) {
 			f.msg(w, r, 404, "Not Found")
 			return
 		}
@@ -532,6 +532,10 @@ func (f *fakeGH) routes(mux *http.ServeMux) {
 			u := f.userTokens[b["access_token"]]
 			if u == nil {
 				w.WriteHeader(422)
+				return
+			}
+			if !f.now().Before(u.exp) { // GitHub no longer knows an expired token
+				w.WriteHeader(404)
 				return
 			}
 			u.revoked = true
