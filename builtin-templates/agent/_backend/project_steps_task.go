@@ -193,6 +193,10 @@ while [ "$i" -lt "$N" ]; do
 done
 `
 
+// refsReadPulls marks a refs job an scm event asked for (projectRefsCheck):
+// it reads the branch's pull requests even when prs holds an open one.
+const refsReadPulls = "read-pulls"
+
 // jobRefs (after each of a task's turns, and when an scm event says a PR
 // opened): the task's branch on the remote and its open pull requests,
 // recorded; when either changed, projectRefsHooks run (subscriptions, CI
@@ -249,7 +253,7 @@ func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 		for _, pr := range prs {
 			open = open || (strings.EqualFold(pr.Repo, r.Repo) && pr.State == "open")
 		}
-		if sha == "" || (moved[c.Repo] == "" && open) || apiErr != nil {
+		if sha == "" || (moved[c.Repo] == "" && open && j.ClientID != refsReadPulls) || apiErr != nil {
 			continue
 		}
 		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)

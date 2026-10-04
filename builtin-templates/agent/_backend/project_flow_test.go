@@ -77,3 +77,278 @@ func TestWorktreeFlow(t *testing.T) {
 		t.Fatalf("GET /runs/{id}/task: %d %s", w.Code, w.Body)
 	}
 }
+
+// readyTask is a project with task 1 prepared and its first turn over.
+func readyTask(t *testing.T, fx *projFix, more map[string]any) (ProjectView, *ProjectTask, int64) {
+	t.Helper()
+	p := fx.newProject(t, asAlice, more)
+	_, runID := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "do it"})
+	k := fx.waitWS(t, p.ID, 1, wsReady)
+	waitFor(t, "the first turn", func() bool {
+		r, _ := fx.ag.db.getRun(runID)
+		return resting(r.Status) && len(fakeOf(fx.ag).callsFor(runID)) == 1
+	})
+	waitFor(t, "the worker going quiet", func() bool {
+		return len(fx.ag.db.jobsWhere(`WHERE project_id=? AND state IN ('queued','running','waiting')`, p.ID)) == 0
+	})
+	return p, k, runID
+}
+
+// waitJobsDone waits until project pid has no live job.
+func waitJobsDone(t *testing.T, fx *projFix, pid int64) {
+	t.Helper()
+	hwait(t, "the project's jobs", func() bool {
+		return len(fx.ag.db.jobsWhere(`WHERE project_id=? AND state IN ('queued','running','waiting')`, pid)) == 0
+	})
+}
+
+// Preparing a task again changes nothing: the checkout and the work in it
+// stay, the branch is the same.
+func TestPrepareIdempotent(t *testing.T) {
+	fx := newProjFix(t)
+	p, k, _ := readyTask(t, fx, nil)
+	co := filepath.Join(k.Dir, "web")
+	if err := os.WriteFile(filepath.Join(co, "work.txt"), []byte("mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	head := gitRun(t, co, "rev-parse", "HEAD")
+	if _, err := fx.ag.db.queueJob(p.ID, k.ID, "", pjPrepare, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	waitJobsDone(t, fx, p.ID)
+	k2, _ := fx.ag.db.taskByN(p.ID, 1)
+	if k2.WS != wsReady || k2.Branch != k.Branch {
+		t.Fatalf("after preparing again: ws %s branch %s", k2.WS, k2.Branch)
+	}
+	if b, err := os.ReadFile(filepath.Join(co, "work.txt")); err != nil || string(b) != "mine" {
+		t.Fatalf("the work in the checkout: %v %q", err, b)
+	}
+	if got := gitRun(t, co, "rev-parse", "HEAD"); got != head {
+		t.Fatalf("HEAD moved: %s → %s", head, got)
+	}
+	if js := fx.ag.db.jobsWhere(`WHERE project_id=? AND state='failed'`, p.ID); len(js) != 0 {
+		t.Fatalf("failed jobs: %s", jobsDump(fx.ag.db, p.ID))
+	}
+}
+
+// A job a predecessor engine claimed is queued again at takeover and run
+// by the successor; the predecessor can no longer write.
+func TestTakeoverResumesJobs(t *testing.T) {
+	fx := newProjFix(t)
+	p, _, _ := readyTask(t, fx, nil)
+	a := fx.ag.eng
+	a.mu.Lock()
+	old := a.epoch
+	a.mu.Unlock()
+	// a fetch a's worker had claimed when it went away
+	res, err := fx.ag.db.q.Exec(`INSERT INTO project_jobs (project_id, task_id, repo_slug, kind, state, epoch, created_ms, updated_ms)
+		VALUES (?, 0, 'web', 'fetch', 'running', ?, ?, ?)`, p.ID, old, nowMs(), nowMs())
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, _ := res.LastInsertId()
+	b := successor(t, fx.ag)
+	hwait(t, "the successor to run the job", func() bool {
+		j, err := fx.ag.db.getJob(id)
+		return err == nil && j.State == pjDone
+	})
+	j, _ := fx.ag.db.getJob(id)
+	b.mu.Lock()
+	cur := b.epoch
+	b.mu.Unlock()
+	if j.Epoch != cur || cur == old {
+		t.Fatalf("the job's epoch %d, the successor's %d (the predecessor's %d)", j.Epoch, cur, old)
+	}
+	if err := a.fenced(func(*DB) error { return nil }); err != errFenced {
+		t.Fatalf("the predecessor still writes: %v", err)
+	}
+}
+
+// commitIn makes a commit in a checkout.
+func commitIn(t *testing.T, dir, file, text string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, file), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, dir, "add", file)
+	gitRun(t, dir, "commit", "-q", "-m", "change "+file)
+}
+
+// Cleanup refuses a checkout with uncommitted or unpushed work; once it is
+// pushed, the worktree and the branch go and the conversation stays.
+func TestCleanupRefusesUnpushed(t *testing.T) {
+	fx := newProjFix(t)
+	p, k, runID := readyTask(t, fx, nil)
+	co := filepath.Join(k.Dir, "web")
+	cleanup := func(body map[string]any) (int, string) {
+		w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/task/cleanup", runID), body)
+		return w.Code, w.Body.String()
+	}
+	if err := os.WriteFile(filepath.Join(co, "wip.txt"), []byte("wip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := cleanup(nil); code != 409 || !strings.Contains(body, `"refusal":"dirty"`) || !strings.Contains(body, `"dirty":1`) {
+		t.Fatalf("uncommitted work: %d %s", code, body)
+	}
+	gitRun(t, co, "add", "wip.txt")
+	gitRun(t, co, "commit", "-q", "-m", "wip")
+	if code, body := cleanup(nil); code != 409 || !strings.Contains(body, `"unpushed":1`) {
+		t.Fatalf("unpushed work: %d %s", code, body)
+	}
+	gitRun(t, co, "push", "-q")
+	if code, body := cleanup(nil); code != 202 {
+		t.Fatalf("pushed: %d %s", code, body)
+	}
+	fx.waitWS(t, p.ID, 1, wsCleaned)
+	if _, err := os.Stat(co); !os.IsNotExist(err) {
+		t.Fatalf("the worktree is still there: %v", err)
+	}
+	if _, err := os.Stat(k.Dir); !os.IsNotExist(err) {
+		t.Fatalf("the task directory is still there: %v", err)
+	}
+	base := filepath.Join(fx.box.Workdir, "web", ".repos", "web.git")
+	if out := gitRun(t, base, "branch", "--list", k.Branch); out != "" {
+		t.Fatalf("the branch is still in the base: %q", out)
+	}
+	if _, err := fx.ag.db.getRun(runID); err != nil {
+		t.Fatal("the conversation went with the workspace")
+	}
+	// the worker's own cleanup refuses as the route does: ws blocked
+	p2 := fx.newProject(t, asAlice, map[string]any{"name": "Two"})
+	_, run2 := fx.newTask(t, asAlice, p2.ID, map[string]any{"text": "two"})
+	k2 := fx.waitWS(t, p2.ID, 1, wsReady)
+	commitIn(t, filepath.Join(k2.Dir, "web"), "x.txt", "x")
+	_ = run2
+	if _, err := fx.ag.db.queueJob(p2.ID, k2.ID, "", pjCleanup, "", 0); err != nil {
+		t.Fatal(err)
+	}
+	k2 = fx.waitWS(t, p2.ID, 1, wsBlocked)
+	if !strings.Contains(k2.Error, `"unpushed":1`) {
+		t.Fatalf("blocked with: %s", k2.Error)
+	}
+}
+
+// Only the conversation's owner forces a cleanup over unpushed work.
+func TestCleanupForceOwnerOnly(t *testing.T) {
+	fx := newProjFix(t)
+	p, k, runID := readyTask(t, fx, map[string]any{"share": map[string]any{"members": []map[string]any{{"user": "carol", "role": "participant"}}}})
+	co := filepath.Join(k.Dir, "web")
+	commitIn(t, co, "mine.txt", "unpushed")
+	if w := callAs(t, fx.mux, asCarol, "POST", fmt.Sprintf("/runs/%d/task/cleanup", runID), map[string]any{"force": true}); w.Code != 403 {
+		t.Fatalf("a participant forcing: %d %s", w.Code, w.Body)
+	}
+	if w := callAs(t, fx.mux, asCarol, "POST", fmt.Sprintf("/runs/%d/task/close", runID), map[string]any{}); w.Code != 200 {
+		t.Fatalf("a participant closes the task: %d %s", w.Code, w.Body)
+	}
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/task/cleanup", runID), map[string]any{"force": true}); w.Code != 202 {
+		t.Fatalf("the owner forcing: %d %s", w.Code, w.Body)
+	}
+	fx.waitWS(t, p.ID, 1, wsCleaned)
+	if _, err := os.Stat(co); !os.IsNotExist(err) {
+		t.Fatalf("the forced cleanup left the worktree: %v", err)
+	}
+}
+
+// Deleting a task's conversation marks the task deleted and cleans its
+// workspace up.
+func TestDeleteRunMarksTask(t *testing.T) {
+	fx := newProjFix(t)
+	p, k, runID := readyTask(t, fx, nil)
+	if w := callAs(t, fx.mux, asAlice, "DELETE", fmt.Sprintf("/runs/%d", runID), nil); w.Code != 200 {
+		t.Fatalf("delete: %d %s", w.Code, w.Body)
+	}
+	k2 := fx.waitWS(t, p.ID, 1, wsCleaned)
+	if k2.RunID != 0 || k2.Phase != phaseDeleted {
+		t.Fatalf("the task: run %d phase %s", k2.RunID, k2.Phase)
+	}
+	if _, err := os.Stat(filepath.Join(k.Dir, "web")); !os.IsNotExist(err) {
+		t.Fatalf("the worktree stayed: %v", err)
+	}
+	var tv TaskView
+	w := callAs(t, fx.mux, asAlice, "GET", fmt.Sprintf("/projects/%d/tasks/1", p.ID), nil)
+	if json.Unmarshal(w.Body.Bytes(), &tv) != nil || tv.State != taskDeleted || tv.Column != colDone {
+		t.Fatalf("the deleted task's view: %s", w.Body)
+	}
+}
+
+// What a task pushes itself is noticed: its branch on the remote, then a
+// moved head, each run projectRefsHooks once; a PR opened in a later turn
+// without a push, and one opened outside any turn (projectRefsCheck), are
+// recorded in prs.
+func TestRefsJobFiresHooks(t *testing.T) {
+	fx := newProjFix(t)
+	refs := &hookLog{}
+	old := projectRefsHooks
+	projectRefsHooks = append(append([]func(*DB, *Project, *ProjectTask){}, old...), func(_ *DB, _ *Project, k *ProjectTask) {
+		refs.add(fmt.Sprintf("%d %s", k.N, k.Phase))
+	})
+	t.Cleanup(func() { projectRefsHooks = old })
+	p, k, runID := readyTask(t, fx, nil)
+	co := filepath.Join(k.Dir, "web")
+	turn := func(text string) {
+		t.Helper()
+		n := len(fakeOf(fx.ag).callsFor(runID))
+		send(t, fx.ag, runID, text)
+		waitFor(t, "the turn", func() bool {
+			r, _ := fx.ag.db.getRun(runID)
+			return resting(r.Status) && len(fakeOf(fx.ag).callsFor(runID)) > n
+		})
+		waitJobsDone(t, fx, p.ID)
+	}
+	if n := len(refs.all()); n != 0 {
+		t.Fatalf("hooks before any push: %v", refs.all())
+	}
+	commitIn(t, co, "a.txt", "a")
+	gitRun(t, co, "push", "-q")
+	turn("pushed")
+	if got := refs.all(); len(got) != 1 {
+		t.Fatalf("the first push: hooks %v", got)
+	}
+	cos := fx.ag.db.checkouts(k.ID)
+	if len(cos) != 1 || cos[0].RemoteSHA != gitRun(t, co, "rev-parse", "HEAD") {
+		t.Fatalf("the remote sha: %+v", cos)
+	}
+	turn("nothing new")
+	if got := refs.all(); len(got) != 1 {
+		t.Fatalf("a turn without a push: hooks %v", got)
+	}
+	commitIn(t, co, "b.txt", "b")
+	gitRun(t, co, "push", "-q")
+	turn("pushed again")
+	if got := refs.all(); len(got) != 2 {
+		t.Fatalf("the moved head: hooks %v", got)
+	}
+	// gh pr create in a later turn: no push, a PR now open
+	fx.scm.addPull("acme/web", scmPull{Number: 42, URL: "https://github.com/acme/web/pull/42", State: "open",
+		Head: scmRef{Ref: k.Branch, SHA: gitRun(t, co, "rev-parse", "HEAD")}})
+	turn("opened a PR")
+	if got := refs.all(); len(got) != 3 || got[2] != "1 pr" {
+		t.Fatalf("the PR: hooks %v", got)
+	}
+	k2, _ := fx.ag.db.taskByN(p.ID, 1)
+	if prs := k2.taskPRs(); len(prs) != 1 || prs[0].Number != 42 || prs[0].State != "open" || k2.Phase != phasePR {
+		t.Fatalf("prs %s phase %s", k2.PRs, k2.Phase)
+	}
+	// another PR for the branch (against another base), opened outside any
+	// turn: the scm event asks for the refs check, which reads the PRs
+	fx.scm.addPull("acme/web", scmPull{Number: 43, URL: "https://github.com/acme/web/pull/43", State: "open",
+		Head: scmRef{Ref: k.Branch, SHA: gitRun(t, co, "rev-parse", "HEAD")}})
+	_ = fx.ag.db.Tx(func(t2 *DB) error { projectRefsCheck(t2, p.ID, 1); return nil })
+	waitJobsDone(t, fx, p.ID)
+	k3, _ := fx.ag.db.taskByN(p.ID, 1)
+	if prs := k3.taskPRs(); len(prs) != 2 || prs[1].Number != 43 {
+		t.Fatalf("the PR opened outside a turn: %s", k3.PRs)
+	}
+	if got := refs.all(); len(got) != 4 {
+		t.Fatalf("hooks after it: %v", got)
+	}
+	opened := 0
+	for _, e := range fx.ag.db.projectEvents(p.ID, 0, 200) {
+		if e.Kind == pevPROpened {
+			opened++
+		}
+	}
+	if opened != 2 {
+		t.Fatalf("pr.opened events: %d", opened)
+	}
+}

@@ -372,6 +372,13 @@ func (w *projWorker) finish(p *Project, k *ProjectTask, j *ProjectJob, out jobOu
 		step = "failed"
 	}
 	_ = w.e.fenced(func(t *DB) error {
+		if state == pjDone && j.Kind == pjRefs && j.ClientID != refsReadPulls {
+			// an scm event asked for the pull requests while this one ran: once more
+			var cid string
+			if t.q.QueryRow(`SELECT client_id FROM project_jobs WHERE id=?`, j.ID).Scan(&cid) == nil && cid == refsReadPulls {
+				state, next, j.ClientID = pjQueued, now, cid
+			}
+		}
 		res, err := t.q.Exec(`UPDATE project_jobs SET state=?, step=?, attempts=?, next_ms=?, exec_ref=?, exec_id=?, client_id=?,
 			out=?, error=?, updated_ms=? WHERE id=? AND epoch=?`, state, step, j.Attempts, next, j.ExecRef, j.ExecID, j.ClientID,
 			clip(projRedact(j.Out), 8<<10), errText, now, j.ID, j.Epoch)

@@ -33,7 +33,10 @@ func init() {
 	}
 	projectRefsCheck = func(t *DB, pid, n int64) {
 		if k, err := t.taskByN(pid, n); err == nil && k.RunID != 0 {
-			_, _ = t.queueJob(pid, k.ID, "", pjRefs, "", 0)
+			if j, err := t.queueJob(pid, k.ID, "", pjRefs, "", 0); err == nil {
+				// a PR event: its pull requests are read whatever prs holds
+				_, _ = t.q.Exec(`UPDATE project_jobs SET client_id=? WHERE id=?`, refsReadPulls, j.ID)
+			}
 		}
 	}
 }
