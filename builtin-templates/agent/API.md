@@ -3227,9 +3227,9 @@ Automations; its badge counts the tasks that need you across your active
 projects) or the address `#proj`; one project is `#proj=<id>`. Its id says
 where it lives (`model/homes.js`): in a person's partition their own
 projects are in their partition and a team project's definition in the
-shared space, and the page lists both — yours, then team projects,
-archived ones last — each with its repos, the slots at work and its counts
-per column. A backend without Projects (`GET /projects` 404) shows no
+shared space, and the page lists both (every page of `GET /projects`
+at each) — yours, then team projects, archived ones last — each with its
+repos, the slots at work and its counts per column. A backend without Projects (`GET /projects` 404) shows no
 entry.
 
 **A project's page** has two tabs:
@@ -3240,8 +3240,11 @@ entry.
   their checks only while the task has no CI summary — then the CI chip
   says it) and the chips other modules add (`ext.card(task)`: CI's). A
   card opens its task's conversation. **New task** (participants): what to
-  do, a title, small or big, who works on it (the project's default, the
-  built-in agent, or a coding agent of the catalog), which repos —
+  do, a title, small or big, who works on it — the project's default,
+  said as what it does (its policy's coding agent, else the one you used
+  last, else the built-in agent; the built-in agent when the policy says
+  so or no coding agent is available), or a coding agent of the catalog
+  by name — which repos —
   `POST /projects/{pid}/tasks`. **From issues…**: a repo's issues (open or
   closed, words), up to 20 picked, a task each —
   `POST /projects/{pid}/tasks/batch`; a refused issue is said. Issue text
@@ -3257,9 +3260,11 @@ entry.
   remove one (confirmed; again, with `force`, when open tasks use it), each
   one's setup script and checkout. **Policy**: every key, grouped (tasks;
   branches and pull requests; CI and reviews; workspace, ports and setup;
-  big tasks; cleanup; the coordinator), saved with the version read — a
-  stale one (412) reads the project again and says so; keys this build
-  doesn't know are kept as stored. **Members** and what team visibility
+  big tasks; cleanup; the coordinator), saved with the version the edit
+  began at — when someone saved a change meanwhile (412) the project is
+  read again, their change shown with yours, and the next Save saves
+  both; keys this build doesn't know are kept as stored. A rename and the
+  team visibility are sent with the version they began at too. **Members** and what team visibility
   grants, where sharing is possible (an unpartitioned agent's projects;
   never a person's own project in their partition, which is theirs alone).
   **The project**: rename, archive (its credentials leave the sandbox) or
@@ -3275,13 +3280,18 @@ default; or one of your own private sandboxes) and the policy basics
 (tasks at once, who answers tasks, pull requests opened by hand or as a
 draft or ready when a task rests, whose identity it works as when the
 provider offers both). In an unpartitioned agent it may be shared with
-everyone who can open the agent at once. Then `POST /projects` and its
-page.
+everyone who can open the agent at once. At a partitioned agent's shared
+space the form makes a team project's definition (`kind: "team"`), sent
+shared — with everyone who can open the agent, or only the members added
+next — its seed sandbox optional (none at first). Then `POST /projects`
+and its page.
 
 **Signing in to the provider** (a person's partition, where projects use
 your own sign-in): **Sign in to ‹provider›** starts the device flow
 (`POST /projects/scm/signin`) and shows its page and code — your own,
-read from your own space, to you only — polling until it is done;
+read from your own space, to you only — polling until it is done (a
+failed poll is tried again, later each time; a task's card counts only
+its own sign-in as done);
 **Forget** (`DELETE /projects/scm/signin`, confirmed) removes your
 projects' credentials from their sandboxes first.
 
