@@ -70,9 +70,13 @@ const forget = () => confirm('Forget your GitHub sign-in here? Every token hande
   && act(() => call('/scm/signin', { method: 'DELETE' }), 'Forgotten.');
 
 function signinTpl() {
-  if (!mine) {
+  if (!mine && part === '') {
     return html`<h4>Your GitHub sign-in</h4><p class="muted small">This copy isn't partitioned, so it keeps no one's
       GitHub sign-in: tiles get the App's bot only.</p>`;
+  }
+  if (!mine) {
+    return html`<h4>Your GitHub sign-in</h4><p class="muted small">This is the shared instance: GitHub sign-ins live in
+      each person's own partition. Open this tile without <code>?xbin-partition=global</code> to sign in.</p>`;
   }
   const s = st.signin || { state: 'none' };
   const configured = st.page?.configured;

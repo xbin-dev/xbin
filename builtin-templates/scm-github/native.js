@@ -48,7 +48,9 @@ const forget = () => act(async () => { await call('/scm/signin', { method: 'DELE
 
 function signinSection() {
   if (!mine) {
-    return html`<section title="Your GitHub sign-in"><notice tone="muted" text="This copy isn't partitioned: tiles get the App's bot only."/></section>`;
+    const text = part === '' ? "This copy isn't partitioned: tiles get the App's bot only."
+      : "This is the shared instance: sign-ins live in each person's own partition of this tile.";
+    return html`<section title="Your GitHub sign-in"><notice tone="muted" text=${text}/></section>`;
   }
   const s = signin || { state: 'none' };
   if (s.state === 'done') {
