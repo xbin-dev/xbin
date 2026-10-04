@@ -201,7 +201,7 @@ board route is built in parallel (its parsing follows §12.3's shape).
 |---|---|
 | `f05861e0` | agent template: the project coordinator — resolver, tools, updates, pushes |
 | `7293610d` | agent template: the coordinator's tests, and API.md §The coordinator |
-| (this commit) | plans: projects-scm — the C record and §19 |
+| `3ef70258` | plans: projects-scm — the C record and §19 |
 
 ## Owner questions
 
