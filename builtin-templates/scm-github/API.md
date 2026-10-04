@@ -227,11 +227,21 @@ count a 304 against its rate limit) stays the fallback.
   name: <context>, conclusion, url}`; a suite's runs are read from GitHub
   (its webhook doesn't carry them) before the first attempt — if that
   fails it goes without them.
-- `ref.branch` is a branch of this repo: a pull request or workflow run
-  from a **fork** has none (`data.pull.head.repo` names the fork), so a
-  subscription to a same-named branch here never matches it. A commit
-  status names every branch whose head the commit is; a subscription
-  matching one of them gets the event with `ref.branch` set to it.
+- `ref.branch` is a branch of this repo, never a **fork's**: a fork's pull
+  request runs CI here under the fork's branch name, so a subscription to
+  a same-named branch here must never match it. A pull request says whose
+  its head is (`data.pull.head.repo` names a fork), and so does a workflow
+  run. A check suite, a check run and a job don't: their branch is kept
+  only when shown to be this repo's — a pull request they list has its
+  head here on that branch, the job's run's head is this repo (its
+  `workflow_run`, else GitHub's run), or the branch's head here is the
+  commit (asked of GitHub, remembered ten minutes; "not" a minute). A
+  fork's, or one GitHub didn't answer for, has no `ref.branch` (it still
+  matches by pull request). A commit status names every branch whose head
+  the commit is; a subscription matching one of them gets the event with
+  `ref.branch` — and `topic` and `summary` — set to it. A merged
+  `checks.completed` takes the pull request (its `topic` and `url`) from
+  whichever half names one.
 - `actor.self` is the App's own bot (`<slug>[bot]`). `actor.association`
   is the commenter's or reviewer's; GitHub's first-timers and mannequins
   are `NONE`, and events that carry none (pushes, CI) say `NONE`.
@@ -260,8 +270,11 @@ count a 304 against its rate limit) stays the fallback.
   404 `not-found`). An unpartitioned copy keeps no one's sign-in: a
   person's consumer is 403 `identity` there.
 - A repeat of a `key` replaces that subscription (200, the same id); one
-  lapses 30 days after its last POST. At most 2000 per consumer and `for`
-  (20 000 in all; past it 429 `limit`).
+  lapses 30 days after its last POST. Caps (past one, 429 `limit`; §12):
+  2000 per consumer and `for`; a person's 4000 across consumers, and
+  people's 16 000 together, so tiles' always have room (20 000 in all).
+- A consumer lists and deletes only the subscriptions it made — a
+  person's other consumers' are not its own.
 - Matching: the repo; `kinds` (`kind` or `kind.action`; none means every
   kind but `workflow`, `job` and `check`); and, when the subscription names
   `branches`, `prs` or `issues: true`, one of those (a branch by exact
@@ -279,6 +292,9 @@ made the subscription. Before a person's item goes:
 - for a **private** repo, their read access is checked again — cached an
   hour, dropped by the access events above. Lost: the item is dropped and
   every subscription of theirs on that repo deleted.
+
+A delivery pass that has taken a held `checks.completed` is never merged
+into: the commit's other half arriving then is its own event.
 
 200 is delivered; 404 is dropped and counted; anything else — or a
 consumer that isn't bound (any more) — is retried 10 s, doubling to an
@@ -299,7 +315,9 @@ queued, delivered, not found, expired, access lost — at `GET /api/events`.
 `GET /scm/events?since=&repo=&limit=&cursor=` (a tile's at global; a
 person's relayed): the events delivered or still due to that consumer and
 `for` in the last seven days, oldest first, `since` in unix ms of when
-they were queued.
+they were queued. A person's private-repo events are checked as a delivery
+is: their access lost, that repo's are left out (and dropped, with their
+subscriptions there); GitHub not answering is 503 `unavailable`.
 
 ## 8. CI
 
@@ -400,9 +418,12 @@ reusable tokens and 2000 cached GitHub answers; 8000 live tokens recorded,
 consumer); past either, a new one is 429 `limit` until some expire or are
 revoked. A commit's statuses: the first 100 contexts. Events: webhook
 bodies of 8 MiB; deliveries remembered seven days, 10 000 per
-installation; 2000 subscriptions per consumer and `for`, 20 000 in all;
-10 000 outbox items (delivered ones go first; past it new events are
-dropped and counted); events kept seven days, retried for one.
+installation; 2000 subscriptions per consumer and `for`, 4000 per person
+across consumers, 16 000 people's together, 20 000 in all; 10 000 outbox
+items (delivered ones go first), 5000 of them one consumer's pending ones
+(past either, its new events are dropped and counted); events kept seven
+days, retried for one; a webhook waits at most 5 s on GitHub to show a CI
+event's branch is this repo's.
 
 ## 13. Spikes and what they decided
 
