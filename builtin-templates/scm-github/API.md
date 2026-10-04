@@ -207,6 +207,13 @@ passed through untrusted.
   words only: a search qualifier in it (`repo:`, `org:`, `is:`, …), `OR`,
   `AND`, `NOT`, quotes and parentheses are dropped, and a hit from any
   other repo than `repo` is left out.
+- `GET /scm/repo`'s `protected` is GitHub's branch flag (any protection),
+  except for a person who is an admin of the repo: classic protection lets
+  admins bypass it unless it enforces admins, which only the Administration
+  permission can read (the App has none), so their answer is absent. The
+  bot never bypasses classic protection. Rulesets' bypass lists aren't
+  read: a ruleset naming the App or a role as a bypass actor still reads
+  `true`.
 - `GET /scm/repos` as the bot is the global instance's: a person's
   partition lists the person's own repos (`as: bot` there is 403
   `identity`; name a repo instead).
@@ -216,7 +223,7 @@ passed through untrusted.
 
 | Route | Who |
 |---|---|
-| `/scm/*` | the `consumer` role (a binding) or `admin`: a tile at global or legacy; a person's consumer in that person's partition; the person's own page for `/scm/hello` and `/scm/signin*` |
+| `/scm/*` | the `consumer` role (a binding) or `admin`: a tile at global or legacy; a person's consumer in that person's partition (not viewed as them: view-as is no one); the person's own page for `/scm/hello` and `/scm/signin*` |
 | `GET /api/page` | the page: a person in their partition, a person at global (through their partition), a manager |
 | `GET`/`POST /setup/app`, `POST /setup/manifest`, `POST /setup/manifest/code`, `POST /setup/check`, `GET /setup/installations`, `GET`/`PUT /api/policy`, `POST /api/revoke-all` | **managers**, at global or legacy: the owner token; the tile itself; a person whose level on the tile is write or terminal and who isn't viewing as someone. Not in a person's partition (404) |
 | `GET /setup/github` | ingress (GitHub's redirect: the flow's state proves it), or a manager loading it at top level |
@@ -239,7 +246,8 @@ never interpreted.
 
 ## 12. Limits
 
-100 repos per token, one owner; `minTtlSec` 900 to 3000; pages of at most
+100 repos per token, one owner; `minTtlSec` 900 to 3000 (hello's
+`limits.minTtlSec` and `limits.maxTtlSec`); pages of at most
 100 (annotations 50); 50 items a poll; repo lists of at most 1000, kept 5
 minutes; logs: the last 8 MiB, a tail of at most 1 MiB a call; 2000
 reusable tokens and 2000 cached GitHub answers; 8000 live tokens recorded

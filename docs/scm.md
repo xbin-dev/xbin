@@ -167,7 +167,7 @@ this contract adds six. A consumer treats an unknown refusal by its status.
   },
   "app": {"slug": "acme-xbin", "installUrl": "https://github.com/apps/acme-xbin/installations/new", "configured": true},
   "events": {"webhooks": "active", "healthy": true, "lastDeliveryAt": 1789990000000, "pollMinMs": 120000},
-  "limits": {"reposPerToken": 100, "minTtlSec": 900, "pageMax": 100, "pollItems": 50},
+  "limits": {"reposPerToken": 100, "minTtlSec": 900, "maxTtlSec": 3000, "pageMax": 100, "pollItems": 50},
   "notes": []
 }
 ```
@@ -199,8 +199,10 @@ this contract adds six. A consumer treats an unknown refusal by its status.
 `repo` (one) or `repos` (at most `limits.reposPerToken`, one owner);
 `access` `read` or `write`; `permissions` may only narrow the preset (or add
 `workflows: write` where the provider's policy allows it); `minTtlSec`
-(default and minimum `limits.minTtlSec`); `purpose` is the consumer's own
-key — tokens are cached and revoked by it.
+(default and minimum `limits.minTtlSec`; a provider refuses one its host's
+tokens can't meet with 400 `invalid`, and says its ceiling as
+`limits.maxTtlSec`); `purpose` is the consumer's own key — tokens are
+cached and revoked by it.
 
 **200**:
 
@@ -234,7 +236,9 @@ key — tokens are cached and revoked by it.
 `{token}` (one this consumer was given; matched by hash) or `{purpose}`
 (every live token of this consumer for it). **204**; 404 `not-found` when
 nothing matches. Revocation is best effort upstream; the provider forgets
-the token either way.
+the token either way. A token stays revocable until it expires: a provider
+may stop handing one out again (its policy changed, its sign-in
+refreshed) but never stops answering a revoke for it.
 
 ### Sign-in: `POST|GET|DELETE /scm/signin`, `GET /scm/signin/{pollId}`
 
@@ -257,21 +261,6 @@ elsewhere 403 `identity`.
 The device code (`userCode`) is shown only to the person it is for; a
 consumer never shows it to anyone else.
 
-### Handing a token to a sandbox (consumer rules)
-
-- Put it in an exec's environment, or in a 0600 file outside any repo,
-  rewritten before `refreshAfter`. Never a refresh token (a consumer never
-  has one).
-- A person's token only in a private sandbox homed in that person's
-  partition — never one a non-secure (hosted) conversation used, nor one
-  made from a sandbox other people could write to (a clone of a shared
-  sandbox).
-- A bot token only in a sandbox whose every user may act through the bot
-  for those repos (§Identities' last rule).
-- A clone or fork gets its own `purpose`; the source's is revoked when the
-  source goes.
-- Redact token values everywhere output is kept.
-
 ## Reads
 
 `as` is accepted on every read (query); the identity's view of the host
@@ -286,7 +275,7 @@ decides what is visible.
   `q` matching `owner/name`. Cached by the provider at most 5 min.
 - `GET /scm/repo?repo=&as=` → one, plus `protected` (`true`/`false`;
   absent when the identity can't tell): whether the default branch has
-  protection.
+  protection the identity can't bypass.
 
 ### Pull requests
 
@@ -407,7 +396,9 @@ untrusted.
 
 - `GET /scm/issues?repo=&state=&labels=&since=&q=&as=&limit=&cursor=` →
   `{items: [{number, title, body, state, labels, author, url, updatedAt}], next}`;
-  pull requests are left out.
+  pull requests are left out. `q` is words to match, never the host's
+  search syntax: a provider answers only issues of `repo`, whatever `q`
+  says.
 - `GET /scm/issues/{n}?repo=&comments=1&as=` → the issue, with `comments`
   (oldest first) when asked.
 
@@ -535,6 +526,21 @@ limits).
 - People who use the consumer need read access on the provider tile (and,
   when the workspace's `partitionConsent` is on, their consent for the
   edge — [partitions.md](partitions.md) §Calls between partitioned tiles).
+
+## Handing a token to a sandbox (consumer rules)
+
+- Put it in an exec's environment, or in a 0600 file outside any repo,
+  rewritten before `refreshAfter`. Never a refresh token (a consumer never
+  has one).
+- A person's token only in a private sandbox homed in that person's
+  partition — never one a non-secure (hosted) conversation used, nor one
+  made from a sandbox other people could write to (a clone of a shared
+  sandbox).
+- A bot token only in a sandbox whose every user may act through the bot
+  for those repos (§Identities' last rule).
+- A clone or fork gets its own `purpose`; the source's is revoked when the
+  source goes.
+- Redact token values everywhere output is kept.
 
 ## Building a provider
 
