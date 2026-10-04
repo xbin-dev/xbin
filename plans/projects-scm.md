@@ -3760,4 +3760,11 @@ with the record that explains it:
 - YYYY-MM-DD (<WP>) §x.y: what changed and why — records/<WP>.md
 ```
 
-(none yet)
+- 2026-10-04 (K) §16.2: K's new files also include `B/scm_ensure.go`, `B/scm_scrub.go` and `B/scm_fake_routes_test.go` (and per-area test files) — the 800-line rule — records/K.md
+- 2026-10-04 (K) §9.5: the refresh is one `ownerLoops` entry (`scmRefreshLoop`, one timer at the earliest token's instant) re-minting each due token, not a timer per token, and only while a task of the project is at work (an idle project's token lapses; the gate's `scmCredsDue` has the next turn's written first) — records/K.md
+- 2026-10-04 (K) §9.2, §9.5: K writes `project_tasks.ws` itself (`signin` on a 409 signin, `failed` on a gate refusal, then back to what it was — remembered in memory, else `ready` when a `bind` job finished and no preparing job is live, else `preparing`) through `projectTaskChanged`, and queues an `inboxWake` for a run the gate parked once a credential is written — records/K.md
+- 2026-10-04 (K) §9.4: a key repeated in `scmGitConfig` is applied `--unset-all` + `--add` at its first occurrence and `--add` after (`--replace-all` would fold the empty reset helper and the project's into one) — records/K.md
+- 2026-10-04 (K) §9.3: `hosts.yml`'s `oauth_token` and `user` are single-quoted YAML scalars — records/K.md
+- 2026-10-04 (K) §9.1: one token per (project, sandbox, host) for all of the project's repos there; repos spanning owners on one host get the provider's 400 `invalid` as the creds job's error (the spec is silent) — records/K.md
+- 2026-10-04 (K) §9.6: a share through the agent is refused (502) when a credential there can't be emptied, as `readyForShare` refuses; the scrub also runs after the PATCH (the `stopCredsIn` sibling) — records/K.md
+- 2026-10-04 (K) §7.2: `GET /projects/scm/bot` in a person's partition answers that partition's (never read) rule to a manager; only `PUT` is 409 there — records/K.md
