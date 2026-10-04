@@ -180,8 +180,9 @@ Rules of use:
   for identifiers, paths, status, row actions or decoration.
 - **Status** is an icon, a word and its colour, never the colour alone; the
   `-bg` tints are for alert and badge backgrounds. A brand field colour
-  never signals status: it appears only as a part tab, the elevated banner
-  or one block in a first-run or empty state.
+  never signals status, and it belongs to the workspace's own chrome only:
+  the part tabs on system windows, the elevated banner and the first-run
+  screen. A tile uses none ([design.md](/docs/design.md) rule 9).
 - **Corners** are `var(--bx-radius)` or 0: no pills, no circles (a status
   dot is an 8px square, an avatar a square).
 - **Type** is 13px or larger (`var(--bx-font)`, `--bx-font-ui`, `-body`,
