@@ -260,10 +260,11 @@ style.textContent = `
   .projs-page .ptt { font-weight: 600; font-size: 12.5px; overflow-wrap: anywhere; }
   .projs-page .ptm, .projs-page .ptc { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 3px; font-size: 11px; }
   .projs-page .ptb { font-size: 10.5px; color: var(--bx-muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .ptst[data-tone="run"], .pchip[data-tone="run"] { color: var(--bx-accent); }
-  .ptst[data-tone="ok"], .pchip[data-tone="ok"] { color: var(--bx-green); }
-  .ptst[data-tone="bad"], .pchip[data-tone="bad"] { color: var(--bx-red); }
-  .ptst[data-tone="warn"], .pchip[data-tone="warn"] { color: var(--bx-yellow, #d9a441); }
+  .badge.pchip { color: var(--bx-muted); }
+  .ptst[data-tone="run"], .badge.pchip[data-tone="run"] { color: var(--bx-accent); }
+  .ptst[data-tone="ok"], .badge.pchip[data-tone="ok"] { color: var(--bx-green); }
+  .ptst[data-tone="bad"], .badge.pchip[data-tone="bad"] { color: var(--bx-red); }
+  .ptst[data-tone="warn"], .badge.pchip[data-tone="warn"] { color: var(--bx-yellow, #d9a441); }
   .ptst[data-tone="idle"] { color: var(--bx-muted); }
   a.badge.pchip { text-decoration: none; text-transform: none; letter-spacing: 0; }
   .projs-page .pissues { max-height: 320px; overflow: auto; margin: 6px 0; border: 1px solid var(--bx-border); border-radius: 6px; padding: 4px; }

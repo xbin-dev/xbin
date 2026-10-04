@@ -306,9 +306,6 @@ export const FEATURES = {
 const STAGED = 'not built yet: Projects and CI in the conversation land in stages, this one with a later one';
 const stagedWeb = [
   // projects: the page, the board, new projects and tasks, settings, a task's chips
-  'proj.entry', 'proj.list', 'proj.new', 'proj.board', 'proj.task.new', 'proj.task.issues', 'proj.task.size', 'proj.task.agent',
-  'proj.repos', 'proj.policy', 'proj.members', 'proj.status', 'proj.signin', 'proj.delete',
-  'top.task.chips', 'top.task.pr', 'chat.task.prep', 'link.project',
   // projects: the coordinator, events, upgrades, team projects
   'proj.coordinator', 'proj.events', 'proj.upgrade', 'proj.team',
   // CI

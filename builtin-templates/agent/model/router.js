@@ -16,7 +16,9 @@ export function parse(hash) {
     conv: c ? +c[1] : null,
     join: h.includes('join=') ? h : '',
     auto: a ? { kind: a[1], id: a[2] } : null,
-    proj: p ? { id: p[1] ? +p[1] : null } : null,
+    // the Projects page — only when the address names it (null-ish otherwise:
+    // an address of the other kinds reads as it always did)
+    ...(p ? { proj: { id: p[1] ? +p[1] : null } } : {}),
   };
 }
 
