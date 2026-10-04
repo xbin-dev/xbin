@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -126,6 +127,27 @@ func projectAccessUnpartitioned(t *testing.T) {
 		t.Fatalf("carol's tasks: %d", len(ks))
 	}
 	fx.waitWS(t, p.ID, ks[0].N, wsReady)
+	// bound with alice's authority, which every tool call re-checks: alice
+	// takes part in carol's task (the project's owner acts on every task)
+	cfg, err := fx.ag.db.runConfig(ks[0].RunID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.ag.sandboxUse(context.Background(), ks[0].RunID, cfg, ""); err != nil {
+		t.Fatalf("carol's task uses the project's sandbox: %v", err)
+	}
+	ownerActs := func(when string) {
+		t.Helper()
+		for _, rq := range []struct {
+			method, path string
+			body         any
+		}{{"GET", "/runs/%d", nil}, {"GET", "/runs/%d/task", nil}, {"POST", "/runs/%d/message", map[string]string{"text": "hi"}}} {
+			if w := callAs(t, fx.mux, asAlice, rq.method, fmt.Sprintf(rq.path, ks[0].RunID), rq.body); w.Code != 200 {
+				t.Errorf("%s: alice, the project's owner, %s %s of carol's task: %d %s", when, rq.method, rq.path, w.Code, w.Body)
+			}
+		}
+	}
+	ownerActs("carol a member")
 	// removed, carol keeps her task's conversation (hers) but acts on the
 	// project's tasks no more
 	if w := callAs(t, fx.mux, asCarol, "POST", fmt.Sprintf("/runs/%d/task/refresh", ks[0].RunID), map[string]any{}); w.Code != 202 {
@@ -138,6 +160,10 @@ func projectAccessUnpartitioned(t *testing.T) {
 		if w := callAs(t, fx.mux, asCarol, "POST", fmt.Sprintf("/runs/%d/task/%s", ks[0].RunID, act), map[string]any{"force": true}); w.Code != 403 {
 			t.Errorf("carol, removed, %s her task: %d %s", act, w.Code, w.Body)
 		}
+	}
+	ownerActs("carol removed") // the members written again keep the owner
+	if _, err := fx.ag.sandboxUse(context.Background(), ks[0].RunID, cfg, ""); err != nil {
+		t.Errorf("carol's task, carol removed: %v", err)
 	}
 	// a model pick is checked as a conversation's is
 	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/tasks", p.ID), map[string]any{"text": "x", "model": "bad\x01model"}); w.Code != 400 {
@@ -368,4 +394,38 @@ func projectHostingBarredAtGlobal(t *testing.T) {
 	if !strings.Contains(rec.Body.String(), "task of project Web") {
 		t.Fatalf("hosting a project's conversation: %s", rec.Body)
 	}
+}
+
+// A shared project has its sandbox to itself, and no project joins a
+// sandbox a shared one holds: whoever runs commands there through one
+// project's tasks would read what another project keeps there (its
+// credentials). At create, at sharing (visibility, members), and not
+// counting a project being deleted.
+func TestSharedProjectSandboxAlone(t *testing.T) {
+	fx := newProjFix(t)
+	a := fx.newProject(t, asAlice, nil)
+	refused := func(w *httptest.ResponseRecorder, what string) {
+		t.Helper()
+		if w.Code != 409 || !strings.Contains(w.Body.String(), `"refusal":"sandbox-shared"`) {
+			t.Fatalf("%s: %d %s", what, w.Code, w.Body)
+		}
+	}
+	share := map[string]any{"share": map[string]any{"members": []map[string]any{{"user": "carol", "role": roleParticipant}}}}
+	refused(callAs(t, fx.mux, asAlice, "POST", "/projects", fx.projBody(share)), "a shared project in a sandbox another holds")
+	b := fx.newProject(t, asAlice, map[string]any{"name": "Api"}) // two of alice's own: fine
+	cur, _ := fx.ag.db.getProject(a.ID)
+	refused(callAs(t, fx.mux, asAlice, "PATCH", fmt.Sprintf("/projects/%d", a.ID), map[string]any{"version": cur.Version, "visibility": visTeam}),
+		"sharing a project with the team beside another")
+	refused(callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/members", a.ID), map[string]any{"user": "carol"}), "a member beside another")
+	if now, _ := fx.ag.db.getProject(a.ID); now.Visibility != visPrivate || now.Version != cur.Version || len(fx.ag.db.projectMembers(a.ID)) != 0 {
+		t.Fatalf("a refused change stayed: %+v %v", now, fx.ag.db.projectMembers(a.ID))
+	}
+	// b going away leaves the sandbox to a
+	if w := callAs(t, fx.mux, asAlice, "DELETE", fmt.Sprintf("/projects/%d?sandbox=keep", b.ID), nil); w.Code != 202 {
+		t.Fatalf("deleting b: %d %s", w.Code, w.Body)
+	}
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/members", a.ID), map[string]any{"user": "carol"}); w.Code != 200 {
+		t.Fatalf("a member, a alone in its sandbox: %d %s", w.Code, w.Body)
+	}
+	refused(callAs(t, fx.mux, asAlice, "POST", "/projects", fx.projBody(map[string]any{"name": "Docs"})), "a project beside a shared one")
 }

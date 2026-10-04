@@ -114,9 +114,11 @@ func (e *Engine) projectGate(run *Run, rows []*InboxRow) bool {
 // delivers them once the project is active again), a wake row is dropped,
 // and the run rests — nothing of it keeps the engine (hasWork) or a
 // person's partition (userWake) up. A message with files stays in the
-// inbox (the queue holds text only).
+// inbox (the queue holds text only; gateHeld leaves it out of both, and
+// making the project active again pokes the run).
 func (e *Engine) shelveTask(run *Run, p *Project, k *ProjectTask) {
 	err := e.fenced(func(t *DB) error {
+		moved := false
 		// newest first, each ahead of the whole queue: they were delivered
 		// before anything still in it, and keep their own order
 		for _, row := range t.inboxRows(`WHERE run_id=? AND delivered_at=0 AND kind IN (?, ?, ?) ORDER BY id DESC`, run.ID, inboxUser, inboxHPrompt, inboxWake) {
@@ -125,8 +127,9 @@ func (e *Engine) shelveTask(run *Run, p *Project, k *ProjectTask) {
 				continue
 			}
 			if len(row.Body.Files) > 0 {
-				continue
+				continue // (gateHeld: no work while the project isn't active)
 			}
+			moved = true
 			kind, src := "input", orStr(row.Body.Source, srcHuman)
 			if row.ClientID == startClientID(p.ID, k.N) {
 				kind = "start"
@@ -144,6 +147,9 @@ func (e *Engine) shelveTask(run *Run, p *Project, k *ProjectTask) {
 				return err
 			}
 		}
+		if !moved && run.Status == statusIdle && run.Pending == "" {
+			return nil // shelved already (a pass over a message with files it kept)
+		}
 		if err := t.setStatus(run.ID, statusIdle, 0, "", ""); err != nil {
 			return err
 		}
@@ -157,17 +163,33 @@ func (e *Engine) shelveTask(run *Run, p *Project, k *ProjectTask) {
 	}
 }
 
-// gateHeldSQL (hasWork, userWake; inbox alias i): not a row of a task run
+// gateHeld (hasWork, userWake; inbox alias i): not a row of a task run
 // the gate parked waiting for a person — a sign-in, a failed workspace, a
-// refused cleanup. Its input waits for that person's act (which brings the
-// process up by itself, and whose job the worker's terms count), so it is
-// no work that keeps the engine or wakes a person's partition.
+// refused cleanup — nor of one it shelved for an archived project (a
+// message with files stays in its inbox, shelveTask). Its input waits for
+// that person's act, or for the project to be active again (which pokes
+// its tasks), each of which brings the process up by itself and whose job
+// the worker's terms count; it is no work that keeps the engine or wakes a
+// person's partition. The second term reads the feature tables, which a
+// database without them (the team's) lacks.
+func (d *DB) gateHeld() string {
+	if !d.features {
+		return gateHeldSQL
+	}
+	return gateHeldSQL + ` AND ` + shelvedSQL
+}
+
 const gateHeldSQL = `i.run_id NOT IN (SELECT id FROM runs WHERE status='waiting_input' AND origin='project'
 	AND json_extract(CASE WHEN json_valid(pending) THEN pending ELSE '{}' END, '$.kind')='project')`
 
-// shelveTasks (archiving project pid): every task run is poked — the gate
-// of one parked for its workspace, or with input waiting for it, shelves it.
-func (ag *Agent) shelveTasks(pid int64) {
+const shelvedSQL = `i.run_id NOT IN (SELECT k.run_id FROM project_tasks k JOIN projects p ON p.id=k.project_id
+	WHERE p.state<>'active' AND k.ws<>'ready' AND k.run_id<>0)`
+
+// pokeTasks (archiving project pid, or making it active again): every
+// task run is poked — archived, the gate of one parked for its workspace,
+// or with input waiting for it, shelves it; active again, what a shelved
+// run kept in its inbox (a message with files) is taken up.
+func (ag *Agent) pokeTasks(pid int64) {
 	e := projEng()
 	if e == nil {
 		return

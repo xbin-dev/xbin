@@ -629,30 +629,111 @@ func (d *DB) projectLevel(w who, pid int64) level {
 // copyACLToTasks writes the project's sharing onto every task conversation
 // it has (API.md §Projects and tasks; the precedent of triggers_admin.go): the run
 // owner stays the task's creator; visibility, team role and members are the
-// project's. Coordinators stay private. The caller flushes and re-publishes
-// (afterACLChange).
+// project's (writeTaskMembers). Coordinators stay private. The caller
+// flushes and re-publishes (afterACLChange).
 func (d *DB) copyACLToTasks(pid int64) ([]int64, error) {
 	p, err := d.getProject(pid)
 	if err != nil {
 		return nil, err
 	}
-	runs := scanIDs(d.q.Query(`SELECT run_id FROM project_tasks WHERE project_id=? AND run_id<>0`, pid))
+	type task struct {
+		run     int64
+		creator string
+	}
+	var tasks []task
+	rows, err := d.q.Query(`SELECT run_id, created_by FROM project_tasks WHERE project_id=? AND run_id<>0`, pid)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var k task
+		if rows.Scan(&k.run, &k.creator) == nil {
+			tasks = append(tasks, k)
+		}
+	}
+	rows.Close()
 	members := d.projectMembers(pid)
-	for _, id := range runs {
-		if _, err := d.q.Exec(`UPDATE runs SET visibility=?, team_role=? WHERE id=?`, p.Visibility, p.TeamRole, id); err != nil {
+	runs := make([]int64, 0, len(tasks))
+	for _, k := range tasks {
+		if _, err := d.q.Exec(`UPDATE runs SET visibility=?, team_role=? WHERE id=?`, p.Visibility, p.TeamRole, k.run); err != nil {
 			return nil, err
 		}
-		if _, err := d.q.Exec(`DELETE FROM run_members WHERE run_id=?`, id); err != nil {
+		if _, err := d.q.Exec(`DELETE FROM run_members WHERE run_id=?`, k.run); err != nil {
 			return nil, err
 		}
-		for _, m := range members {
-			if _, err := d.q.Exec(`INSERT OR REPLACE INTO run_members (run_id, user, role, created) VALUES (?, ?, ?, ?)`,
-				id, m.User, m.Role, now()); err != nil {
-				return nil, err
+		if err := d.writeTaskMembers(k.run, p, members, k.creator); err != nil {
+			return nil, err
+		}
+		runs = append(runs, k.run)
+	}
+	return runs, nil
+}
+
+// writeTaskMembers gives task conversation runID the project's members and
+// — when someone else created the task — the project's owner as a
+// participant: the owner may do on every task what a participant may
+// (API.md §Projects and tasks), and the task's sandbox is bound with the
+// owner's authority (jobBind), which every tool call re-checks as a
+// participant of the conversation (sandboxUse). The owner is never a
+// member row of the project, so nothing else puts them there.
+func (d *DB) writeTaskMembers(runID int64, p *Project, members []projectMember, creator string) error {
+	for _, m := range members {
+		if _, err := d.q.Exec(`INSERT OR REPLACE INTO run_members (run_id, user, role, created) VALUES (?, ?, ?, ?)`,
+			runID, m.User, m.Role, now()); err != nil {
+			return err
+		}
+	}
+	if p.Owner == "" || p.Owner == creator || strings.HasPrefix(p.Owner, "el:") {
+		return nil // the owner's own task, or one of a component's project (no person to add)
+	}
+	_, err := d.q.Exec(`INSERT OR REPLACE INTO run_members (run_id, user, role, created) VALUES (?, ?, ?, ?)`,
+		runID, p.Owner, roleParticipant, now())
+	return err
+}
+
+// sandboxShareClash is the refusal when project pid may not keep its
+// sandbox as its sharing now stands (nil when it may): a shared project —
+// team-visible, or with members — has its sandbox to itself, and no
+// project joins a sandbox a shared one holds. Whoever a project's task
+// conversations let run commands in its sandbox reads all it holds,
+// credentials another project there was given included; the credential
+// gate judges a sandbox by its own users, not by who reaches it through a
+// project. A project being deleted no longer counts. (409 sandbox-shared;
+// in the caller's transaction, after the change, so it rolls back.)
+func (d *DB) sandboxShareClash(pid int64, ref string) error {
+	if ref == "" {
+		return nil
+	}
+	shared := func(id int64) bool {
+		var n int
+		_ = d.q.QueryRow(`SELECT (visibility='team') + (SELECT count(*) FROM project_members WHERE project_id=projects.id)
+			FROM projects WHERE id=?`, id).Scan(&n)
+		return n > 0
+	}
+	others := scanIDs(d.q.Query(`SELECT id FROM projects WHERE sandbox_ref=? AND id<>? AND state<>? ORDER BY id`, ref, pid, projDeleting))
+	if len(others) == 0 {
+		return nil
+	}
+	name := func(id int64) string {
+		var n string
+		_ = d.q.QueryRow(`SELECT name FROM projects WHERE id=?`, id).Scan(&n)
+		return n
+	}
+	why := ""
+	if shared(pid) {
+		why = fmt.Sprintf("the project's sandbox also holds the project %s: a shared project needs a sandbox of its own (its people could read what the other project keeps there)", name(others[0]))
+	} else {
+		for _, id := range others {
+			if shared(id) {
+				why = fmt.Sprintf("the sandbox holds the shared project %s, which needs it to itself (its people could read what this project keeps there)", name(id))
+				break
 			}
 		}
 	}
-	return runs, nil
+	if why == "" {
+		return nil
+	}
+	return &projErr{code: 409, refusal: refusalSandboxShared, msg: why}
 }
 
 // afterACLChange flushes the caches a project's sharing change touched and

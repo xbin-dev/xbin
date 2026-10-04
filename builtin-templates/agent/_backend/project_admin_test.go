@@ -91,6 +91,12 @@ func TestProjectArchive(t *testing.T) {
 	_, r1 := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "one"})
 	waitStatus(t, fx.ag.db, r1, statusSleep)
 	fx.newTask(t, asAlice, p.ID, map[string]any{"text": "two"})
+	// a message with files waits in the parked run's inbox (the queue
+	// holds text only, so shelving leaves it there)
+	filesRow, _, err := fx.ag.db.enqueue(r1, inboxUser, inboxBody{Text: "see this", Files: []string{"shot.png"}, Source: srcHuman, Sender: "alice"}, "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	cur, _ := fx.ag.db.getProject(p.ID)
 	w := callAs(t, fx.mux, asAlice, "PATCH", fmt.Sprintf("/projects/%d", p.ID), map[string]any{"version": cur.Version, "state": "archived"})
 	if w.Code != 200 {
@@ -114,6 +120,14 @@ func TestProjectArchive(t *testing.T) {
 		runnable, _ := fx.ag.db.projectsWake(time.Now())
 		return !fx.ag.db.projectsWork() && !runnable && !fx.ag.db.hasWork()
 	})
+	if w := fx.ag.db.userWake(time.Now()); w.runnable {
+		t.Fatal("an archived project's shelved task wakes the partition")
+	}
+	var undelivered int
+	_ = fx.ag.db.q.QueryRow(`SELECT count(*) FROM inbox WHERE id=? AND delivered_at=0`, filesRow).Scan(&undelivered)
+	if undelivered != 1 {
+		t.Fatal("the message with files left the inbox")
+	}
 	projectPump(p.ID)
 	if startDelivered(fx, p.ID, 1) || startDelivered(fx, p.ID, 2) {
 		t.Fatal("an archived project's pump started a task")

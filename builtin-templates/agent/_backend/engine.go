@@ -487,7 +487,7 @@ func (d *DB) hasWork() bool {
 	var n int
 	_ = d.q.QueryRow(`SELECT
 		(SELECT count(*) FROM runs WHERE status IN ('running','queued','blocked','awaiting','sleeping'))
-		+ (SELECT count(*) FROM inbox i WHERE i.delivered_at=0 AND ` + gateHeldSQL + `) -- a task parked for a person (project_gate.go)
+		+ (SELECT count(*) FROM inbox i WHERE i.delivered_at=0 AND ` + d.gateHeld() + `) -- a task parked for a person (project_gate.go)
 		+ ` + harnessWorkSQL).Scan(&n)
 	return n > 0 || d.projectsWork() // the project worker's jobs (project_worker.go)
 }

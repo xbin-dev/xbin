@@ -155,7 +155,7 @@ func TestSigninParksTask(t *testing.T) {
 	// person's sign-in ends the park (hasWork, userWake count the job)
 	var all, work int
 	_ = fx.ag.db.q.QueryRow(`SELECT count(*) FROM inbox i WHERE i.run_id=? AND i.delivered_at=0`, runID).Scan(&all)
-	_ = fx.ag.db.q.QueryRow(`SELECT count(*) FROM inbox i WHERE i.run_id=? AND i.delivered_at=0 AND `+gateHeldSQL, runID).Scan(&work)
+	_ = fx.ag.db.q.QueryRow(`SELECT count(*) FROM inbox i WHERE i.run_id=? AND i.delivered_at=0 AND `+fx.ag.db.gateHeld(), runID).Scan(&work)
 	if all == 0 || work != 0 {
 		t.Fatalf("the parked start: %d in the inbox, %d counted as work", all, work)
 	}

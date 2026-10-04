@@ -32,13 +32,15 @@ func perr(code int, format string, args ...any) *projErr {
 	return &projErr{code: code, msg: fmt.Sprintf(format, args...)}
 }
 
-// refusalBarred, refusalLimit, refusalBusy, refusalDirty: the agent's own
-// refusals on project routes (API.md §Projects and tasks).
+// refusalBarred, refusalLimit, refusalBusy, refusalDirty,
+// refusalSandboxShared: the agent's own refusals on project routes (API.md §Projects and tasks).
 const (
 	refusalBarred = "barred"
 	refusalLimit  = "limit"
 	refusalBusy   = "busy"
 	refusalDirty  = "dirty"
+
+	refusalSandboxShared = "sandbox-shared"
 )
 
 // --- making a task ------------------------------------------------------------------------
@@ -266,11 +268,8 @@ func (ag *Agent) createTask(ctx context.Context, w who, p *Project, s TaskSpec) 
 			return err
 		}
 		k.RunID = runID
-		for _, m := range t.projectMembers(p.ID) {
-			if _, err := t.q.Exec(`INSERT OR REPLACE INTO run_members (run_id, user, role, created) VALUES (?, ?, ?, ?)`,
-				runID, m.User, m.Role, now()); err != nil {
-				return err
-			}
+		if err := t.writeTaskMembers(runID, p, t.projectMembers(p.ID), w.tag()); err != nil {
+			return err
 		}
 		issueJSON := ""
 		if s.Issue != nil {

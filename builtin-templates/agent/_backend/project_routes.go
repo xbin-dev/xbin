@@ -364,6 +364,9 @@ func handleNewProject(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
+		if err := t.sandboxShareClash(p.ID, p.SandboxRef); err != nil {
+			return err
+		}
 		for i := range repos {
 			repos[i].ProjectID = p.ID
 			repos[i].Slug = t.repoSlug(p.ID, repos[i].Repo, repos[i].Slug)
@@ -561,6 +564,9 @@ func handlePatchProject(w http.ResponseWriter, r *http.Request) {
 			return &projErr{code: 412, msg: "the project changed since you read it: read it again"}
 		}
 		if sharing {
+			if err := t.sandboxShareClash(p.ID, p.SandboxRef); err != nil {
+				return err
+			}
 			if runs, err = t.copyACLToTasks(p.ID); err != nil {
 				return err
 			}
@@ -586,7 +592,10 @@ func handlePatchProject(w http.ResponseWriter, r *http.Request) {
 	}
 	if archive {
 		go scrubProject(p.ID, "", "archive")
-		projAg().shelveTasks(p.ID)
+		projAg().pokeTasks(p.ID)
+	}
+	if unarchive {
+		projAg().pokeTasks(p.ID)
 	}
 	go projectPump(p.ID)
 	np, _ := projAg().db.getProject(p.ID)

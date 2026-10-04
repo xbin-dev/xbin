@@ -3193,8 +3193,9 @@ created (they own them) but no longer acts on its tasks: `POST
 A **task's conversation** is a run with `origin` `project` and `originId`
 the project's id: its owner is the person who created the task, its
 visibility, team role and members are the project's — written onto every
-task when they change — so the people of a project are the people of its
-tasks. Such a conversation never appears in the conversation list (it is
+task when they change — and the project's owner takes part in every task
+(a participant member of each task someone else created), so the people of
+a project are the people of its tasks. Such a conversation never appears in the conversation list (it is
 listed under its project), never moves to another space, and is refused
 (409, `refusal: "barred"`, "this conversation is a task of project ‹name›:
 its sharing is the project's, and it stays in its project's space") by its
@@ -3249,6 +3250,15 @@ team definition (`kind: "team"`, 409 otherwise) and a person must say who
 shares it (`share`, 409 otherwise); `kind: "team"` anywhere else is 409.
 `POST /projects/{pid}/members` and a `visibility`/`teamRole` other than
 private's are 409 in a person's own space.
+
+**A shared project has its sandbox to itself.** Everyone who may talk in a
+project's tasks runs commands in its sandbox, and so may read anything kept
+there — another project's credentials included. So a project that is shared
+(team-visible, or with members) is the only project in its sandbox, and no
+project joins a sandbox a shared one is in: `POST /projects` with such a
+`sandbox.ref`, a `visibility`/`teamRole` change and `POST
+/projects/{pid}/members` answer 409 `refusal: "sandbox-shared"` (a project
+being deleted no longer counts).
 
 **A new task** (`TaskSpec`):
 
@@ -3327,7 +3337,8 @@ and the slots in use:
 `state` is `active`, `archived` (its credentials scrubbed, nothing starts,
 nothing is fetched; everything kept — its workspace jobs wait, untouched,
 until it is active again, and a task whose turn waited for its workspace
-rests, its input back at the head of the queue) or `deleting` (only reads answer). A
+rests, its input back at the head of the queue, a message with files left
+in its inbox until then) or `deleting` (only reads answer). A
 repo's `state`: `pending`, `cloning`, `ready`, `failed` (`error` says why);
 `protected` is null while unknown. Deleting a project scrubs its
 credentials, cleans its tasks' workspaces up (unless its sandbox goes too),
@@ -3466,7 +3477,7 @@ no harm.
 | `fetch` | fetches a base (2 min): every `fetchEveryMin` while a task works or someone has the project's status open — never waking a stopped space for it — and before a task is prepared when its last is older than 2 min |
 | `prepare` | a task's checkouts, in one command: an existing local branch, else the remote's (tracking it), else a new one from the default branch; then `.task-env`, its setup jobs and `bind` |
 | `setup` | a repo's setup script, in the background, in the checkout, with the task's environment and `REPO`, `REPO_DIR`; its output's last 8 KiB kept, redacted |
-| `bind` | binds the task's conversation to its checkout (as the project's owner, whose sandbox it is — a participant's task works there without being the sandbox's member — under every binding rule: §Coding sandboxes), a coding agent's sandbox and directory too: the workspace is `ready` |
+| `bind` | binds the task's conversation to its checkout (as the project's owner, whose sandbox it is and who takes part in every task — a participant's task works there without being the sandbox's member — under every binding rule: §Coding sandboxes), a coding agent's sandbox and directory too: the workspace is `ready` |
 | `refs` | after each of a task's turns: whether its branch moved on the remote (what the task pushed itself) and which pull requests are open for it — recorded in the task, and told to the parts that follow a task's branch (events, CI) |
 | `cleanup` | a task's worktrees and branch (a clone: its directory), then its task directory; a project's deletion |
 
