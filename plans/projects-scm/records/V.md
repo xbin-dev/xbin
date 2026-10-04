@@ -306,6 +306,12 @@ Checks run this round:
 
 Full `-race` suite and `make check`: at the gate (lead).
 
+Commits: `bc40fd83` (agent template: CI watches — gone comes back, a
+failure doesn't freeze CI, stopped sandboxes left alone), `3d715371`
+(model/ci.js — the dock's live read follows CI until everything
+completed), `8212c6d9` (API.md §CI — what fix round 1 changed),
+`85ae6b3d` and this one (plans: the record and §19).
+
 ## Owner questions
 
 None.
