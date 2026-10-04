@@ -109,6 +109,14 @@ func TestCIProgressEventsPatchSnapshot(t *testing.T) {
 		t.Fatalf("after the push: %s %s", x.SHA, x.State)
 	}
 	ciWait(t, "the pushed head read", func() bool { return fx.ag.db.ciWatchByID(w.ID).FetchedMs > 0 })
+	ciWait(t, "its subscription posted again (it lapses 30 days after)", func() bool {
+		for _, s := range fx.scm.Subscriptions() {
+			if s.Key == w.SubKey {
+				return true
+			}
+		}
+		return false
+	})
 	// another repo's events: nothing
 	before := fx.ag.db.ciWatchByID(w.ID)
 	fx.deliverCI(t, scmEvent{Repo: "acme/other", Kind: scmKindPush, Ref: scmEventRef{Branch: "feature"}, Data: ciData(scmKindPush, map[string]any{"after": ciSHA1})})

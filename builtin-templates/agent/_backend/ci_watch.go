@@ -136,6 +136,20 @@ func ciStarted(t *DB, id int64) {
 	})
 }
 
+// ciRenewLater posts watch id's subscription again after the commit (its
+// head moved): a subscription lapses 30 days after it was posted, and a
+// branch still pushed to keeps its own alive this way.
+func ciRenewLater(t *DB, id int64) {
+	d := ciBase(t)
+	t.AfterCommit(func() {
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+			ciSetUp(ctx, d, id)
+		}()
+	})
+}
+
 // ciReadLater reads watch id after the commit, off the caller's path.
 func ciReadLater(t *DB, id int64) {
 	d := ciBase(t)
@@ -301,6 +315,7 @@ func ciReadNow(ctx context.Context, d *DB, id int64) error {
 				if cur.SHA != "" {
 					cur.moveTo(sha)
 					cur.FetchedMs = now
+					ciRenewLater(t, cur.ID)
 				}
 				cur.SHA = sha
 			}

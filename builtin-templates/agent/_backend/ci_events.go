@@ -232,4 +232,5 @@ func ciPushEvent(t *DB, w *ciWatch, ev *scmEvent) {
 		ciChanged(t, w.RootRun, w.ID)
 	}
 	ciReadLater(t, w.ID)
+	ciRenewLater(t, w.ID)
 }

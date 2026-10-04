@@ -165,6 +165,7 @@ func TestCIRerunPersonOnly(t *testing.T) {
 	root := fx.conv(t, "alice", true)
 	failed := ciChecks(ciSHA1)
 	failed.WorkflowRuns[0].Status, failed.WorkflowRuns[0].Conclusion = "completed", "failure"
+	fx.scm.SetChecks("acme/web", "feature", failed) // what a read after the rerun finds
 	w := fx.watchRow(t, root, "feature", ciSHA1, failed)
 	body := map[string]any{"watch": w.ID, "runId": "7001", "failedOnly": true}
 	var v CIView
