@@ -305,10 +305,12 @@ func handleProjectStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	pol := policyOf(p.Policy)
 	st.Slots = ProjectSlots{Used: agent.db.slotsUsed(p.ID), Max: pol.MaxTasks}
-	if pol.Engine == "builtin" {
-		if lim := parseConfig(agent.db.getSetting("config")).maxActiveRuns(); lim > 0 && pol.MaxTasks > lim {
+	if pol.Engine != "harness" {
+		// a built-in task takes a subagent's place at the model-call gate:
+		// every slot but the last a top-level conversation may take
+		if sub := max(gateLimit(parseConfig(agent.db.getSetting("config")))-1, 1); pol.MaxTasks > sub {
 			st.Warnings = append(st.Warnings, ProjectWarning{Kind: "slots", Text: fmt.Sprintf(
-				"policy.maxTasks (%d) is more than the agent's model calls at once (%d): built-in tasks wait for each other", pol.MaxTasks, lim)})
+				"policy.maxTasks (%d) is more than the model calls built-in tasks may make at once here (%d): they wait for each other", pol.MaxTasks, sub)})
 		}
 	}
 	xbin.WriteJSON(w, 200, st)

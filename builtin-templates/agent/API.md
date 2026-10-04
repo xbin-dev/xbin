@@ -3153,21 +3153,371 @@ here when it lands.
 
 ### Projects and tasks
 
-The project and task model: a project's kinds (personal, team, a team
-member's own half), homes and ids, owner, members and what team
-visibility grants, the policy and its keys with their defaults, task
-sizes, workspace states, phases and the board's columns; the routes under
-`/projects` and `/runs/{id}/task`; the `project` stream event; why a
-task's sharing is its project's and why it stays in its project's space.
-Described when it lands.
+**The model.** A project is a coding sandbox (its **workspace**), the git
+repos it works on, a **policy**, and its **tasks** — each task its own
+conversation, with a git worktree of every repo it works in, a branch of its
+own, a range of ports and the repos' setup run for it. The project names the
+**scm provider** its repos live at (`scm`: a tile bound to the agent's `scm`
+slot, §scm providers and credentials) and the host (`github.com`).
+
+| Kind | Where | What |
+|---|---|---|
+| `personal` | a person's own space (their partition), or an unpartitioned agent | the project and its tasks; in a person's space private — nobody else's, no members; unpartitioned, shared as a conversation is (members, team visibility) |
+| `team` | a partitioned agent's shared space (its global instance) — the only kind it holds | a team's definition — repos, policy, members, an optional seed sandbox — and its board; it has **no tasks** (§Team projects) |
+| `membership` | a member's own space | that member's half of a team project (`teamRef` its definition): their own sandbox, tasks and coordinator |
+
+A project's id says its home as a conversation's does: in a person's
+partition projects number from 2^40 (`model/homes.js` `homeOf(id)`).
+
+**Its identity at the provider.** What a project reads, and the token its
+tasks push with, are as `policy.as` says, else as the person in a person's
+own space (`person`), else as the provider's bot (`bot`: the shared space,
+an unpartitioned agent). Where the home's identity is the bot, **naming a
+repo for it** — a project's repos, a repo added — takes one of the agent's
+managers, or the **scm bot rule** a manager sets (who may name which repos,
+§scm providers and credentials): 403 "naming ‹repo› for the bot takes a
+manager, or the agent's scm bot rule" otherwise. Every later read through
+the project — the issue picker, a batch of tasks from issues, a task's
+issue — is held to **the project's own repos** (400 otherwise), at every
+home.
+
+**Who may do what** — a caller's level on the project, as on a
+conversation (§Who sees what): the **owner** (`owner`; never a member row)
+changes settings, repos and members, deletes, archives, and forces a
+cleanup; a **participant** (a member, or anyone when `visibility` is `team`
+and `teamRole` `participant`) creates tasks, messages and acts on them,
+warms the workspace; a **viewer** reads. A project you may not see is a 404.
+A **task's conversation** is a run with `origin` `project` and `originId`
+the project's id: its owner is the person who created the task, its
+visibility, team role and members are the project's — written onto every
+task when they change — so the people of a project are the people of its
+tasks. Such a conversation never appears in the conversation list (it is
+listed under its project), never moves to another space, and is refused
+(409, `refusal: "barred"`, "this conversation is a task of project ‹name›:
+its sharing is the project's, and it stays in its project's space") by its
+own sharing (`PATCH /runs/{id}` `visibility`/`teamRole`, `POST
+/runs/{id}/members`), publishing, a copy into another space and hosting.
+`GET /runs/{id}/export` stays. Its config carries `project: {id, role:
+"task" | "coordinator", n}`.
+
+**Routes.** A project is `{pid}` in a path (never `{id}`). Need: *Any* any
+caller (the list filters), *Start* who may start runs, *V/P/O* viewer,
+participant, owner of the project — or, on `/runs/{id}/…`, of the
+conversation.
+
+| Method and path | Need | Body | Answer |
+|---|---|---|---|
+| `GET /projects?state=&kind=&cursor=` | Any | — | `{items: [ProjectView], next}` — those you may see, latest activity first (`state` default: all but `deleting`) |
+| `POST /projects` | Start | `{name, scm, repos: [{repo, slug?, setup?}], sandbox: {ref} \| {new: {provider, image?, size?, egress?}}, policy?, share?: {visibility, teamRole, members: [{user, role}]}, kind?: "team"}` | **201** `{project, jobs}` |
+| `GET /projects/{pid}` | V | — | `{project: ProjectView}` |
+| `PATCH /projects/{pid}` | O | `{version, name?, policy?, visibility?, teamRole?, state?: "active" \| "archived"}` | `{project}`; **412** `{error, version}` when `version` isn't the current one |
+| `DELETE /projects/{pid}?sandbox=keep\|delete` | O | — | **202** `{state: "deleting"}` |
+| `GET /projects/{pid}/members` | V | — | `{owner, members: [{user, role}]}` |
+| `POST /projects/{pid}/members` | O | `{user, role}` | `{owner, members}` |
+| `DELETE /projects/{pid}/members/{user}` | V (yourself) / O | — | 204 |
+| `POST /projects/{pid}/repos` | O | `{repo, slug?, setup?}` | **201** `{repo, jobs}` |
+| `PATCH /projects/{pid}/repos/{slug}` | O | `{setup?, checkout?: "worktree" \| "clone"}` | `{repo}` |
+| `DELETE /projects/{pid}/repos/{slug}?force=1` | O | — | **202**; 409 `busy` `{error, tasks}` while open tasks work in it |
+| `GET /projects/{pid}/status` | V | — | `ProjectStatus` |
+| `POST /projects/{pid}/warm` | P | — | **202** `{jobs}`: start the sandbox, fetch the repos, renew credentials |
+| `GET /projects/{pid}/issues?repo=&q=&state=&labels=&cursor=` | V | — | the provider's page of issues of one of the project's repos (bodies clipped to 2 KiB; untrusted text) |
+| `GET /projects/{pid}/tasks?col=&phase=&q=&mine=1&cursor=&limit=` | V | — | `{items: [TaskView], next}` |
+| `POST /projects/{pid}/tasks` | P | `TaskSpec` | **201** `{task: TaskView, run}` |
+| `POST /projects/{pid}/tasks/batch` | P | `{issues: [{repo, number}] (≤ 20), size?, agent?, text?}` | **201** `{tasks, errors: [{issue, error}]}` |
+| `GET /projects/{pid}/tasks/{n}` | V | — | `TaskView` (with `park`) |
+| `POST /projects/{pid}/tasks/{n}/cancel` | P | `{reason?}` | `TaskView` — stopped, its queued input dropped; its conversation, worktrees and branch stay |
+| `GET /projects/{pid}/events?since=&limit=` | V | — | `{items: [ProjectEvent], next}` |
+| `GET /runs/{id}/task` | V | — | `TaskView` with `park`; 404 when the conversation is no task |
+| `POST /runs/{id}/task/refresh` | P | — | **202**: fresh credentials, a fetch, its branch and pull requests read again |
+| `POST /runs/{id}/task/retry` | P | — | **202**: its failed workspace jobs (and the project's) queued again |
+| `POST /runs/{id}/task/close` | P | `{cleanup?, closePRs?}` | `TaskView`, phase `closed`; `closePRs` closes its open pull requests at the provider |
+| `POST /runs/{id}/task/cleanup` | O | `{force?}` | **202**; 409 `dirty` `{error, repos: [{slug, dirty, unpushed}]}` without `force` |
+
+`POST /projects` checks everything before it makes anything: the provider is
+bound; each repo is `owner/name`, the bot rule allows it (where the home's
+identity is the bot) and the provider can see it as the project (400 with
+the provider's refusal otherwise — its other refusals, such as `signin`,
+pass through with their status and payload); a `sandbox.ref` is one you may
+use (in your own space, homed there) that offers commands and files; the
+policy's task class is one you may use and has no internal reach. Then it
+answers at once with the first job queued. In a person's own space `share`
+is refused (409) and `kind: "team"` too; in the shared space a project is a
+team definition (`kind: "team"`, 409 otherwise) and a person must say who
+shares it (`share`, 409 otherwise); `kind: "team"` anywhere else is 409.
+`POST /projects/{pid}/members` and a `visibility`/`teamRole` other than
+private's are 409 in a person's own space.
+
+**A new task** (`TaskSpec`):
+
+```jsonc
+{"text": "Fix the login page's redirect",   // the brief (≤ 64 KiB); its first prompt ends with it
+ "title": "…",                              // default: the issue's title, else the brief's first line (≤ 80)
+ "size": "small",                           // small | big (its own sandbox, §Big tasks…)
+ "issue": {"repo": "acme/web", "number": 12}, // one of the project's repos; its text goes in, framed as untrusted
+ "repos": ["web"],                          // repo slugs; default every repo (an issue's: its repo)
+ "agent": {"provider": "claude-code", "mode": "…"}, // a coding agent answers it; default policy.engine
+ "class": "coding",                         // default policy.taskClass
+ "model": "…"}                              // the built-in agent's model pick
+```
+
+Its number `n` is the project's next; its branch `‹branchPrefix›/‹n›-‹slug›`
+(the slug from the title: `[a-z0-9-]`, ≤ 32; `-2`, `-3`… when a branch of
+that name is on the remote already); its conversation is made at once,
+holding no message — its **start** waits in the project's queue (§The
+workspace). Refused: 409 `class-internal` for a class with internal reach
+(every task reads the provider's text — issues, reviews, CI logs — and never
+runs with internal reach), 403 for a class you may not use, without the
+`sandbox` toolset or not allowing the project's sandbox manager; 409
+`barred` for a coding agent named where none may run (the shared space),
+whose class doesn't allow it or whose sandbox image lacks it (policy's
+choice instead falls back to the built-in agent); 429 `limit` for a
+coordinator past `maxOpenTasks` open tasks it made, or
+`maxTaskCreatesPerDay` in 24 hours; 409 for a team definition (no tasks)
+or a project that isn't active.
+
+**`policy`** — every key optional; `GET` shows every key with its default
+filled in (and keeps keys a newer build stored); `PATCH` merges objects key
+by key, and `null` takes a key back to its default.
+
+| Key | Default | What |
+|---|---|---|
+| `instructions` | — | for every task, after each repo's own AGENTS.md / CLAUDE.md (≤ 32 KiB) |
+| `checks` | `[]` | commands a task runs before it pushes (≤ 20) |
+| `prConventions` | — | how its pull requests are written |
+| `taskClass` | `coding` | the class tasks run in (never one with internal reach) |
+| `engine` | `auto` | `builtin`, `harness` (`harness`'s coding agent), or `auto`: `harness` if set, else the coding agent the task's creator last started a conversation with, else the built-in agent |
+| `harness` | — | the coding agent `engine` picks |
+| `as` | — | `person` or `bot`: the identity at the provider (above) |
+| `membersAsBot` | `false` | a team's members may work as the bot (§Team projects) |
+| `maxTasks` | `3` | tasks at work at once (1–16, §The workspace) |
+| `maxOpenTasks`, `maxTaskCreatesPerDay` | `20`, `50` | a coordinator's limits |
+| `branchPrefix` | `xbin/‹uid›` | where task branches live (a ref path) |
+| `autoPR` | `off` | `draft` or `ready`: open a pull request when a task comes to rest |
+| `checkout` | `worktree` | a new repo's checkouts: a worktree of the base, or a `clone` borrowing its objects |
+| `setupTimeoutSec`, `setupBlocking` | `600`, `true` | a repo's setup: its limit, and whether the task waits for it (a failed one never stops the task) |
+| `ports` | `{base: 20000, span: 10, slots: 100}` | task `n` listens on `base + ((n−1) mod slots) × span`, `span` ports |
+| `fetchEveryMin` | `10` | the repos' fetch while someone works in or looks at the project |
+| `protection` | `warn` | a repo whose default branch has no protection: a warning, or `refuse` it |
+| `workflows` | `false` | tokens may change `.github/workflows` |
+| `ci` | `{autoFix: true, maxPerDay: 5, delaySec: 60, logBytes: 8192}` | what a failing check does (§scm events and polling) |
+| `reviews` | `{forward: "trusted", allow: [], batchSec: 120}` | which review comments reach the task |
+| `autoLabel` | — | an issue with this label wakes the coordinator |
+| `bigTasks` | `{mode: "fork", keepFork: false}` | a big task's sandbox |
+| `cleanup` | `{onMerge: true, onClose: true}` | when a task's workspace is cleaned up |
+| `coordinator` | `{web: false, model: ""}` | the coordinator's web tools and model |
+
+**`ProjectView`** — the row, your `level`, its `repos`, the board's `counts`
+and the slots in use:
+
+```jsonc
+{"id": 1099511627777, "uid": "k3x9qa", "name": "Web", "slug": "web", "kind": "personal",
+ "owner": "alice", "visibility": "private", "teamRole": "viewer", "level": "owner",
+ "scm": "apps/scm-github", "host": "github.com", "sandboxRef": "apps/coding-sandbox|sb-7f3a", "sandboxMade": true,
+ "dir": "/work/web", "policy": {…}, "state": "active", "version": 3,
+ "repos": [{"slug": "web", "repo": "acme/web", "url": "https://github.com/acme/web.git", "defaultBranch": "main",
+            "mode": "bare", "checkout": "worktree", "setup": "npm ci", "state": "ready", "fetchedMs": …,
+            "head": "9fceb02…", "protected": true}],
+ "counts": {"queued": 1, "working": 2, "needs-you": 0, "pr": 1, "done": 7},
+ "slots": {"used": 2, "max": 3}, "createdBy": "alice", "createdMs": …, "updatedMs": …}
+```
+
+`state` is `active`, `archived` (its credentials scrubbed, nothing starts,
+nothing is fetched; everything kept) or `deleting` (only reads answer). A
+repo's `state`: `pending`, `cloning`, `ready`, `failed` (`error` says why);
+`protected` is null while unknown. Deleting a project scrubs its
+credentials, cleans its tasks' workspaces up (unless its sandbox goes too),
+deletes its tasks' and coordinators' conversations, deletes its sandbox
+when the project made it and `sandbox=delete` asked, then its rows.
+
+**`TaskView`** — a task as every route shows it:
+
+```jsonc
+{"project": 1099511627777, "n": 3, "run": 1099511627790, "title": "Fix login", "size": "small",
+ "branch": "xbin/k3x9qa/3-fix-login", "issue": {"repo": "acme/web", "number": 12, "title": "…", "url": "…"},
+ "repos": ["web"], "ws": "ready", "phase": "pr",
+ "column": "pr", "state": "ci", "waitingFor": "ci",
+ "runStatus": "idle", "engine": "harness", "harness": "claude-code",
+ "sandboxRef": "apps/coding-sandbox|sb-7f3a", "fork": false, "dir": "/work/web/tasks/3-fix-login",
+ "ports": {"base": 20020, "span": 10},
+ "checkouts": [{"repo": "web", "path": "/work/web/tasks/3-fix-login/web", "mode": "worktree", "state": "ready",
+                "setupExit": 0, "remoteSha": "…"}],
+ "prs": [{"repo": "acme/web", "number": 42, "url": "…", "state": "open", "draft": false, "headSha": "…", "checks": "pending"}],
+ "ci": {…},                 // its CI at a glance, when watched (§CI in the conversation)
+ "turnBy": "coordinator",   // who asked for its latest turn: human | coordinator | event
+ "step": "running web's setup", "error": "", "last": "…its latest answer, clipped…",
+ "createdBy": "alice", "createdMs": …, "updatedMs": …}
+```
+
+**Its states.** `ws`, the workspace: `pending` → `queued` (waiting for the
+project's sandbox or a repo) → `preparing` → (`signin` →) `ready`, or
+`failed`; later `cleaning` → `cleaned`, or `blocked` (cleanup refused).
+`phase`: `open` → `pr` (a pull request is open) → `merged` | `closed` |
+`done`; `deleted` once its conversation is. The board's **`column`** and
+the task's **`state`** follow from those and its conversation's status:
+
+| `column` | `state` (`waitingFor`) | When |
+|---|---|---|
+| `queued` | `queued` (`slot` while its start waits in the queue), `preparing` | its workspace isn't ready |
+| `working` | `working` | its conversation runs, waits on its subagents or its own work |
+| `needs-you` | `needs-you` (`you`), `signin` (`signin`), `failed` (`you`), `blocked` (`you`) | it asks a person something (an approval, a question, a sign-in), its workspace failed or its cleanup was refused, its turn failed — or its turn ended and its answer waits for you (no pull request yet) |
+| `pr` | `ci` (`ci`), `ci-failed` (`you`), `awaiting-review` (`review`) | a pull request is open and its turn is over |
+| `done` | `merged`, `closed`, `done`, `cancelled`, `deleted` | — |
+
+**`park`** (in `GET /runs/{id}/task`, `GET /projects/{pid}/tasks/{n}` and
+the run view's `projectTask`): the workspace's park of its conversation —
+`{project, n, ws, step?, detail?, signin?}` — while it holds the turn
+(§The workspace). `signin` (`{url, userCode, expiresAt}`, the provider's
+device flow) is there **only for the person who must sign in**, in their
+own answers: never in another viewer's, never in a stream event.
+
+**The run's answers.** `GET /runs/{id}` and `GET /runs/{id}/view` of a
+project's conversation carry **`project`** `{id, name, n, role}` (`role`:
+`task` or `coordinator`; a subagent's too) and, on a task, **`projectTask`**:
+its `TaskView` with `park`. (`task` stays the pinned task.)
+
+**Status** (`GET /projects/{pid}/status`):
+
+```jsonc
+{"sandbox": {"ref": "…", "name": "web", "state": "running", "workdir": "/work", "shared": false},
+ "repos": [{"slug": "web", "state": "ready", "fetchedMs": …, "head": "…", "protected": false, "error": ""}],
+ "creds": [{"sandbox": "…", "host": "github.com", "identity": "person", "login": "alice", "state": "live", "expiresMs": …}],
+ "jobs": [ProjectJob…],                 // live ones and the last 20 finished
+ "slots": {"used": 2, "max": 3},
+ "warnings": [{"kind": "unprotected", "repo": "acme/web", "text": "…"}]}
+```
+
+Credentials show their metadata only — never a token. A `slots` warning
+says when `maxTasks` is more than the model calls built-in tasks may make
+at once (a built-in task takes a subagent's place at the model-call gate:
+never the last one a person's top-level conversation may take).
+
+**Events.** A project's feed (`GET /projects/{pid}/events`, kept 30 days):
+`{id, project, n, kind, body: {text, …}, wake, coordUser, delivered,
+msgId, created}` — `n` 0 is about the project. Kinds: `task.created`,
+`task.state` (a turn ended: answered, failed, waiting for a person),
+`task.human` (a person wrote to the task), `task.cancel`, `workspace`,
+`pr.opened`, `pr.ready`, `ci.failed`, `ci.stuck`, `review`, `comment`,
+`merged`, `closed`, `push`, `issue`, `note`. `wake` asks the coordinator of
+`coordUser` (the task's creator; the owner for the project's own) to take a
+turn for it. Text from the provider inside a body is untrusted and
+redacted.
+
+**The `project` stream event** — `{"type": "project", "data": {"id",
+"change": "project" | "task" | "repo" | "job" | "event" | "board" |
+"deleted", "n"?}}` — reaches the list streams (`GET /stream` with no run)
+of those who may see the project, and, for `task`, the task's own
+conversation's stream. It says what to read again; it is never replayed
+and is coalesced per project, change and task (250 ms).
+
+**Rolling back to a build without Projects** leaves nothing to clean up by
+hand. The older build never reads the project tables. It keeps a task's and
+a coordinator's conversation out of its conversation list (reachable by
+link, search and Needs) and in its space; it may drop a run's `project`
+field when it rewrites the run's config (a model pick, a sandbox bind),
+which this build derives again — from the task's row, or the coordinator's
+`session_key` `proj:‹pid›:coord:‹user›` — the first time it reads the run
+(so a coordinator still wakes and a task is still held at its workspace).
+A task the older build finds parked at its workspace (`sleeping` or
+`waiting_input` with `pendingState.kind` `project`) runs at the next wake in
+whatever workspace there is, without fresh credentials (a push fails;
+nothing leaks); Needs shows such a park as waiting, with its words.
+Starts and messages waiting in the project's queue wait until this build
+is back; credential files in sandboxes expire on their own (an hour for
+the bot's, hours for a person's).
 
 ### The workspace
 
-Where a project's repos and tasks live in its sandbox (base repos, one
-worktree per task and repo), the jobs that prepare them (sandbox, repo,
-fetch, prepare, setup, bind, cleanup), the workspace gate a task's turn
-waits at, the limit of tasks at work at once and its queue, the ports and
-environment a task gets, and when cleanup refuses. Described when it lands.
+**Layout.** `W` is the sandbox's `workdir` and `H` its `home`, as its
+manager says (never assumed); a project lives in `P = W/‹project slug›`.
+
+| Path | What |
+|---|---|
+| `P/.repos/‹repo slug›.git` | a repo's bare **base**: cloned once, fetched; every task's checkout shares its objects and refs |
+| `P/tasks/‹n›-‹task slug›/‹repo slug›` | a task's checkout of one repo, on its branch |
+| `P/tasks/‹n›-‹task slug›/.task-env` | `BRANCH=`, `TASK_PORT_BASE=`, `TASK_PORT_SPAN=`, `PORT=`, `GH_CONFIG_DIR=` — `. .task-env` in a terminal |
+| `P/.xbin/setup-‹repo slug›.sh` | a repo's setup script (written 0755) |
+| `P/.xbin/env` | `GH_CONFIG_DIR=…` for people's terminals |
+| `H/.config/xbin-scm/‹project uid›/` | credentials (§scm providers and credentials): never under `W`, never in a checkout |
+
+A task works in its checkout — or, working in several repos, its task
+directory — so each repo's AGENTS.md / CLAUDE.md is at its root. The base's
+remote fetches the default branch and the project's branch prefix
+(`+refs/heads/‹branchPrefix›/*`), `push.default current` and
+`push.autoSetupRemote` make a plain `git push` push the task's branch, and
+`core.logAllRefUpdates` keeps the reflog of what was pushed. A repo with
+`checkout: clone` gets a clone of its own instead (its objects borrowed
+from the base, which then never runs `gc` on its own).
+
+**Jobs.** A **worker** in the process that drives conversations prepares
+workspaces; the project's `jobs` (`ProjectJob`: `{id, project, task, repo,
+kind, state, step, attempts, nextMs, out, error, by, created, updated}`)
+are what it does. Each job looks before it acts, so running one again does
+no harm.
+
+| Kind | Does |
+|---|---|
+| `sandbox` | finds the sandbox (`{ref}`: labelled `xbin.agent/project: ‹uid›`, for display — a label proves nothing) or creates it (`{new}`: private — a team's seed the team's — with the label and the space it belongs to, `clientId` `agent:proj:‹pid›:sbx:‹try›`), starts it, lays out `P` and queues the repos |
+| `repo` | clones a base in the background (30 min): the default branch from the provider, else the remote's `HEAD`; with `policy.protection` `refuse`, an unprotected default branch fails it |
+| `fetch` | fetches a base (2 min): every `fetchEveryMin` while a task works or someone has the project's status open — never waking a stopped space for it — and before a task is prepared when its last is older than 2 min |
+| `prepare` | a task's checkouts, in one command: an existing local branch, else the remote's (tracking it), else a new one from the default branch; then `.task-env`, its setup jobs and `bind` |
+| `setup` | a repo's setup script, in the background, in the checkout, with the task's environment and `REPO`, `REPO_DIR`; its output's last 8 KiB kept, redacted |
+| `bind` | binds the task's conversation to its checkout (as the task's creator, under every binding rule: §Coding sandboxes), a coding agent's sandbox and directory too: the workspace is `ready` |
+| `refs` | after each of a task's turns: whether its branch moved on the remote (what the task pushed itself) and which pull requests are open for it — recorded in the task, and told to the parts that follow a task's branch (events, CI) |
+| `cleanup` | a task's worktrees and branch (a clone: its directory), then its task directory; a project's deletion |
+
+A failed step is tried again after 10 s, doubling to 10 min, up to five
+tries; then the job fails — the task's workspace with it (`ws` `failed`, a
+`workspace` event) — and `retry` queues it again. One git step at a time
+runs in a sandbox; git's own lock refusals are waited out (never removed).
+A job one process was running when it handed over is taken up again by the
+next, which finds the same command in the sandbox by its `clientId`. A job
+of a kind this build doesn't know fails "not in this build".
+
+**The workspace gate.** A task's turn waits until its workspace is ready.
+Its conversation is parked — `sleeping` while it is being prepared (or its
+credential renewed), `waiting_input` when a person must act (a sign-in, a
+failed workspace, a refused cleanup; Needs reason `project`) — with
+`pendingState` `{kind: "project", project: {project, n, ws, step, detail}}`
+and its messages left in its inbox; once the workspace is ready the turn
+goes on with them. A cancel or an interrupt always passes, and a turn
+already under way is never stopped by it. A coordinator is never gated.
+
+**At most `maxTasks` at work.** A task holds one of its project's slots
+while its conversation runs, waits on its subagents or its own work, is
+parked at the gate, or waits for a person (an idle coding agent holds
+none). A task's **start**, and every message the coordinator or a provider's
+event sends a task, wait in the project's **queue** and are delivered
+oldest first while a slot is free (a message to a task already at work goes
+at once: it reads it at its next step); one sent for a person to answer
+first waits while its task waits for a person — the coordinator never
+answers in a person's place. A person's own message to a task (`POST
+/runs/{id}/message`) goes straight to it. Nothing starts while the agent is
+halted or the project isn't active. The coordinator's messages reach the
+task framed `[message from the project coordinator]`.
+
+**What a task is told.** A built-in task's system prompt has a `# Project`
+section after its sandbox's — the project, the task, its branch ("push it,
+never the default branch; never merge"), its checkouts and where it
+starts, "each repo's AGENTS.md / CLAUDE.md governs — read it first", the
+project's instructions, checks and pull request conventions, its ports,
+and a failed setup's outcome — built from the project's state alone, so it
+is the same from one turn to the next. A coding agent's first prompt starts
+with the same words and ends with the task's text. Text from outside — an
+issue's, a setup's output — is clipped (8 KiB), redacted and framed
+`[untrusted — from ‹where›: …]`.
+
+**Environment.** Every command of a task — its bash jobs, its coding
+agent, its setup — gets `TASK_DIR`, `BRANCH`, `TASK_PORT_BASE`,
+`TASK_PORT_SPAN`, `PORT` (the first of its ports) and `GH_CONFIG_DIR`
+(§scm providers and credentials).
+
+**Cleanup** — on close with `cleanup`, by the policy on a merge or a close,
+when its conversation is deleted, and by `POST /runs/{id}/task/cleanup` —
+first makes sure nothing would be lost: each checkout has no uncommitted
+change and no commit its upstream (else the default branch on the remote)
+lacks; a merged pull request counts as pushed. Otherwise it is refused —
+409 `dirty` from the route, `ws` `blocked` from the worker — unless
+`force`, which only the conversation's owner sends. The conversation stays.
 
 ### scm providers and credentials
 
