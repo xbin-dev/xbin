@@ -268,7 +268,7 @@ type upgradeBody struct {
 		Path string `json:"path"`
 		Repo string `json:"repo"`
 	} `json:"repos"`
-	Branch      string          `json:"branch"` // keep | new
+	Branch      string          `json:"branch"` // new (default) | keep
 	SwitchHTTPS []string        `json:"switchHttps"`
 	Policy      json.RawMessage `json:"policy"`
 }
@@ -301,7 +301,7 @@ func handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Name = strings.TrimSpace(body.Name)
-	branch := orStr(body.Branch, "keep")
+	branch := orStr(body.Branch, "new")
 	switch {
 	case body.Name == "" || len([]rune(body.Name)) > 80:
 		xbin.WriteError(w, 400, "need {name} (at most 80 characters)")
