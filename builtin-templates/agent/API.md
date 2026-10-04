@@ -3188,8 +3188,13 @@ cleanup; a **participant** (a member, or anyone when `visibility` is `team`
 and `teamRole` `participant`) creates tasks, messages and acts on them,
 warms the workspace; a **viewer** reads. A project you may not see is a 404.
 Someone removed from a project keeps the conversations of the tasks they
-created (they own them) but no longer acts on its tasks: `POST
-/runs/{id}/task/…` answers 403 below participant of the project.
+created (they own them) but no longer acts on its tasks: on a project's
+conversation a person's level is held to their level on the project, so
+below a participant of it — removed, made a viewer, or the project no
+longer team-visible — they read a task they created and nothing more
+(talking to it, answering, interrupting, deleting it and `POST
+/runs/{id}/task/…` answer 403): talking to a task runs it in the project's
+sandbox.
 A **task's conversation** is a run with `origin` `project` and `originId`
 the project's id: its owner is the person who created the task, its
 visibility, team role and members are the project's — written onto every
@@ -3261,7 +3266,8 @@ one else's conversation (a team definition, which has no tasks, may be).
 **A shared project has its sandbox to itself.** Everyone who may talk in a
 project's tasks runs commands in its sandbox, and so may read anything kept
 there — another project's credentials included. So a project that is shared
-(team-visible, or with members) is the only project in its sandbox, and no
+(team-visible, with members, or with a task conversation someone other than
+its owner made, which they read still) is the only project in its sandbox, and no
 project joins a sandbox a shared one is in: `POST /projects` with such a
 `sandbox.ref`, a `visibility`/`teamRole` change and `POST
 /projects/{pid}/members` answer 409 `refusal: "sandbox-shared"` (a project
@@ -3529,7 +3535,8 @@ project's instructions, checks and pull request conventions, its ports,
 and a failed setup's outcome — built from the project's state alone, so it
 is the same from one turn to the next. A coding agent's first prompt starts
 with the same words and ends with the task's text. Text from outside — an
-issue's, a setup's output — is clipped (8 KiB), redacted and framed
+issue's, a setup's output — loses its invisible characters, then is
+redacted, clipped (8 KiB) and framed
 `[untrusted — from ‹where›: …]` … `[end of untrusted text]`; the frame's
 own markers inside the text lose their bracket, so it can't close early.
 

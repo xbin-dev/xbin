@@ -135,22 +135,25 @@ func runDeleted(t *DB, id int64) error {
 // harness redactor knows, and the scm tokens (shapes and live ones).
 func projRedact(s string) string { return scmRedact(redactText(s)) }
 
-// untrusted frames scm text for a model: clipped (8 KiB), redacted, said to
-// be data from host. The text's invisible format characters (zero-width
-// spaces and joiners, soft hyphens, direction marks) go — a model reads
-// past them, so they would hide a marker inside a word — and then the
-// frame's own markers inside the text are defused (their bracket, plain or
-// full-width, made a parenthesis), so the text can't close the frame early
-// and pass what follows off as the agent's own words.
+// untrusted frames scm text for a model: redacted, clipped (8 KiB), said to
+// be data from host. First the text's invisible characters go (zero-width
+// spaces and joiners, soft hyphens, direction marks, variation selectors,
+// the combining grapheme joiner) — a model reads past them, so they would
+// hide a marker inside a word, or split a secret the redactor then misses —
+// and last the frame's own markers inside the text are defused (their
+// bracket, plain or full-width, made a parenthesis), so the text can't
+// close the frame early and pass what follows off as the agent's own words.
 func untrusted(host, what, s string) string {
-	s = invisibles.ReplaceAllString(clip(projRedact(s), 8<<10), "")
+	s = clip(projRedact(invisibles.ReplaceAllString(s, "")), 8<<10)
 	return fmt.Sprintf("[untrusted — from %s: %s]\n%s\n[end of untrusted text]", orStr(host, "the scm provider"), what,
 		frameMarkers.ReplaceAllString(s, "($1"))
 }
 
-// invisibles are the Unicode format characters (Cf), which render as
-// nothing.
-var invisibles = regexp.MustCompile(`\p{Cf}+`)
+// invisibles are the default-ignorable characters Go's regexp can name,
+// which render as nothing: the format characters (Cf), the combining
+// grapheme joiner, the Hangul fillers, the Khmer inherent vowels, the
+// Mongolian free variation selectors and the variation selectors.
+var invisibles = regexp.MustCompile(`[\p{Cf}\x{034F}\x{115F}\x{1160}\x{17B4}\x{17B5}\x{180B}-\x{180F}\x{3164}\x{FE00}-\x{FE0F}\x{FFA0}\x{E0100}-\x{E01EF}]+`)
 
 // frameMarkers finds untrusted's markers: any case, any spacing (Unicode
 // spaces too), and a full-width bracket as well as a plain one.

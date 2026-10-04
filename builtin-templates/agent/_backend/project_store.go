@@ -712,7 +712,8 @@ func (d *DB) shareClash(pid int64, ref string) error {
 
 // sandboxShareClash is the refusal when project pid may not keep its
 // sandbox as its sharing now stands (nil when it may): a shared project —
-// team-visible, or with members — has its sandbox to itself, and no
+// team-visible, with members, or with a task conversation someone other
+// than its owner made — has its sandbox to itself, and no
 // project joins a sandbox a shared one holds. Whoever a project's task
 // conversations let run commands in its sandbox reads all it holds,
 // credentials another project there was given included; the credential
@@ -723,9 +724,10 @@ func (d *DB) sandboxShareClash(pid int64, ref string) error {
 	if ref == "" {
 		return nil
 	}
-	shared := func(id int64) bool {
+	shared := func(id int64) bool { // a task someone else made keeps it shared: its creator reads it still (projectRunCap)
 		var n int
 		_ = d.q.QueryRow(`SELECT (visibility='team') + (SELECT count(*) FROM project_members WHERE project_id=projects.id)
+			+ (SELECT count(*) FROM project_tasks k WHERE k.project_id=projects.id AND k.run_id<>0 AND k.created_by<>projects.owner)
 			FROM projects WHERE id=?`, id).Scan(&n)
 		return n > 0
 	}

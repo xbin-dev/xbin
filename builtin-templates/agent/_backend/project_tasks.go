@@ -661,3 +661,17 @@ func projectRunBarred(w http.ResponseWriter, root int64) bool {
 		"this conversation is a task of %s: its sharing is the project's, and it stays in its project's space", name)})
 	return true
 }
+
+// projectRunCap is l, a person's level on a run of project pid (rootACL.level),
+// held to their level on the project: below a participant of it — removed,
+// made a viewer, or the project no longer shared with them — they read its
+// runs at most, a task they created (whose conversation they own) included.
+// Talking to a task runs it in the project's workspace, bound with the
+// project owner's authority, where whatever that sandbox holds is in reach.
+func projectRunCap(pid int64, w who, l level) level {
+	ag := projAg()
+	if ag == nil || ag.db.projectLevel(w, pid) < lvParticipant {
+		return min(l, lvViewer)
+	}
+	return l
+}

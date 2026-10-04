@@ -192,18 +192,39 @@ func projectAccessUnpartitioned(t *testing.T) {
 		t.Errorf("bob, in no project, reads carol's task: %d", got)
 	}
 	// removed, carol keeps her task's conversation (hers) but acts on the
-	// project's tasks no more
+	// project's tasks no more; made a viewer, she reads them only: talking
+	// to her task would run it in alice's sandbox with alice's say
 	if w := callAs(t, fx.mux, asCarol, "POST", fmt.Sprintf("/runs/%d/task/refresh", ks[0].RunID), map[string]any{}); w.Code != 202 {
 		t.Fatalf("carol refreshes her task: %d %s", w.Code, w.Body)
 	}
+	if w := callAs(t, fx.mux, asCarol, "POST", fmt.Sprintf("/runs/%d/message", ks[0].RunID), map[string]string{"text": "go on"}); w.Code != 200 {
+		t.Fatalf("carol talks to her task: %d %s", w.Code, w.Body)
+	}
+	readsOnly := func(when string) {
+		t.Helper()
+		if w := callAs(t, fx.mux, asCarol, "GET", fmt.Sprintf("/runs/%d", ks[0].RunID), nil); w.Code != 200 {
+			t.Errorf("%s: carol reads her task: %d %s", when, w.Code, w.Body)
+		}
+		for _, rq := range []struct{ method, path string }{{"POST", "/runs/%d/message"}, {"POST", "/runs/%d/answer"},
+			{"POST", "/runs/%d/interrupt"}, {"PUT", "/runs/%d/memory"}, {"DELETE", "/runs/%d"}} {
+			if w := callAs(t, fx.mux, asCarol, rq.method, fmt.Sprintf(rq.path, ks[0].RunID), map[string]string{"text": "rm -rf"}); w.Code != 403 {
+				t.Errorf("%s: carol %s %s of her task: %d %s", when, rq.method, rq.path, w.Code, w.Body)
+			}
+		}
+		for _, act := range []string{"refresh", "retry", "close", "cleanup"} {
+			if w := callAs(t, fx.mux, asCarol, "POST", fmt.Sprintf("/runs/%d/task/%s", ks[0].RunID, act), map[string]any{"force": true}); w.Code != 403 {
+				t.Errorf("%s: carol %s her task: %d %s", when, act, w.Code, w.Body)
+			}
+		}
+	}
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/members", p.ID), map[string]any{"user": "carol", "role": roleViewer}); w.Code != 200 {
+		t.Fatalf("carol made a viewer: %d %s", w.Code, w.Body)
+	}
+	readsOnly("carol a viewer")
 	if w := callAs(t, fx.mux, asAlice, "DELETE", fmt.Sprintf("/projects/%d/members/carol", p.ID), nil); w.Code != 204 {
 		t.Fatalf("carol removed: %d %s", w.Code, w.Body)
 	}
-	for _, act := range []string{"refresh", "retry", "close", "cleanup"} {
-		if w := callAs(t, fx.mux, asCarol, "POST", fmt.Sprintf("/runs/%d/task/%s", ks[0].RunID, act), map[string]any{"force": true}); w.Code != 403 {
-			t.Errorf("carol, removed, %s her task: %d %s", act, w.Code, w.Body)
-		}
-	}
+	readsOnly("carol removed")
 	ownerActs("carol removed") // the members written again keep the owner
 	if _, err := fx.ag.sandboxUse(context.Background(), ks[0].RunID, cfg, ""); err != nil {
 		t.Errorf("carol's task, carol removed: %v", err)
@@ -490,4 +511,21 @@ func TestSharedProjectSandboxAlone(t *testing.T) {
 		t.Fatalf("a member, a alone in its sandbox: %d %s", w.Code, w.Body)
 	}
 	refused(callAs(t, fx.mux, asAlice, "POST", "/projects", fx.projBody(map[string]any{"name": "Docs"})), "a project beside a shared one")
+	// unshared while carol's task stays, a stays alone: carol reads her
+	// task's conversation still, and what runs in a's sandbox shows there
+	if w := callAs(t, fx.mux, asCarol, "POST", fmt.Sprintf("/projects/%d/tasks", a.ID), map[string]any{"text": "x"}); w.Code != 201 {
+		t.Fatalf("carol's task: %d %s", w.Code, w.Body)
+	}
+	if w := callAs(t, fx.mux, asAlice, "DELETE", fmt.Sprintf("/projects/%d/members/carol", a.ID), nil); w.Code != 204 {
+		t.Fatalf("carol removed: %d %s", w.Code, w.Body)
+	}
+	refused(callAs(t, fx.mux, asAlice, "POST", "/projects", fx.projBody(map[string]any{"name": "Docs"})), "a project beside one with carol's task")
+	// her task's conversation gone, a may have company again
+	k, _ := fx.ag.db.taskByN(a.ID, 1)
+	if err := fx.ag.db.deleteRun(k.RunID); err != nil {
+		t.Fatal(err)
+	}
+	if w := callAs(t, fx.mux, asAlice, "POST", "/projects", fx.projBody(map[string]any{"name": "Docs"})); w.Code != 201 {
+		t.Fatalf("a project beside a, unshared: %d %s", w.Code, w.Body)
+	}
 }
