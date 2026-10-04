@@ -3251,7 +3251,10 @@ entry.
   is the issue tracker's — anyone may have written it — so it is drawn as
   plain text, clipped, marked as untrusted; never markdown or HTML.
   **Warm** starts the sandbox, fetches and refreshes the credentials. A
-  search box and "mine" narrow the board.
+  search box and "mine" narrow the board. A team project's definition
+  (`kind: "team"`, at the shared space) has no tasks of its own — they run
+  in each member's own space — so its board is a line saying so, with no
+  task actions and no read of tasks.
 - **Settings** — everyone who sees the project reads it; its owner changes
   it. **Status**: the sandbox, each repo (fetched, head, whether its base
   branch is protected), each credential's metadata (whose, its state, until
@@ -3260,7 +3263,9 @@ entry.
   remove one (confirmed; again, with `force`, when open tasks use it), each
   one's setup script and checkout. **Policy**: every key, grouped (tasks;
   branches and pull requests; CI and reviews; workspace, ports and setup;
-  big tasks; cleanup; the coordinator), saved with the version the edit
+  big tasks; cleanup; the coordinator — its class of new tasks lists only
+  classes without internal reach, as a task may not have it), saved with
+  the version the edit
   began at — when someone saved a change meanwhile (412) the project is
   read again, their change shown with yours, and the next Save saves
   both; keys this build doesn't know are kept as stored. A rename and the
@@ -3269,7 +3274,8 @@ entry.
   never a person's own project in their partition, which is theirs alone).
   **The project**: rename, archive (its credentials leave the sandbox) or
   unarchive, delete — confirmed, keeping its sandbox or, when the project
-  made it, deleting it too.
+  made it, deleting it too (that choice is the project's own: it keeps no
+  hold on the next project's tab).
 
 **A new project** (the page's **New project**): the scm provider
 (`GET /projects/scm` — each bound one as this home sees it, what it says
@@ -3287,7 +3293,11 @@ next — its seed sandbox optional (none at first). Then `POST /projects`
 and its page.
 
 **Signing in to the provider** (a person's partition, where projects use
-your own sign-in): **Sign in to ‹provider›** starts the device flow
+your own sign-in): offered only there, and only when the provider lets you
+work as yourself (its `you.identities` has `person`) — the sign-in routes
+answer 409 anywhere else, so an unpartitioned agent or the shared space
+says its projects work as the provider's bot (at the shared space, that
+each member signs in from their own). **Sign in to ‹provider›** starts the device flow
 (`POST /projects/scm/signin`) and shows its page and code — your own,
 read from your own space, to you only — polling until it is done (a
 failed poll is tried again, later each time; a task's card counts only
