@@ -745,16 +745,22 @@ answer lives. `native/tools/store-check.py` (in `ci-local-check.sh`) keeps
 the files in agreement with the code.
 
 **The icon** is `App/Resources/AppIcon.icon`, an Icon Composer document (the
-iOS 26+ format: Liquid Glass, with the dark, clear and tinted looks derived
-by the system). It is the mark, M3 (D183, D185; the masters are
+iOS 26+ format: Liquid Glass, with the clear and tinted looks derived by the
+system). It is the mark, M3 (D183, D185; the masters are
 `plans/brand/marks/`, `icon-1024.svg` the full-bleed drawing): a solid
 cobalt `#1F3DFF` fill, square art the system masks, and two flat layers on
 the 1024 canvas, `b.svg` (the white b, even-odd) and `x.svg` (the yellow x
 `#FFD000`, in a group of its own above it), with no specular highlight and
-no translucency (the brand's mark never glows). The derived Dark look sets a
-cobalt b and the yellow x on near-black; Clear and Tinted are the system's
-monochrome. Edit the SVGs from the masters, or open the document in Icon
-Composer (`/Applications/Xcode.app/Contents/Applications/Icon Composer.app`).
+no translucency (the brand's mark never glows). The Dark look is the
+Default's, because the tile never changes between themes
+(`plans/brand/marks/README.md`): the fill is given for the dark appearance
+too (`fill-specializations`, cobalt in both). With a fill for the default
+appearance alone, iOS derived its own Dark, a near-black tile with a cobalt
+b and the yellow x loose on it, which the mark's rules forbid (D185's
+review). Clear and Tinted are the system's monochrome. BrandMastersTests
+holds the layers and the fills to the masters. Edit the SVGs from the
+masters, or open the document in Icon Composer
+(`/Applications/Xcode.app/Contents/Applications/Icon Composer.app`).
 Preview every look on the Mac without a build:
 
 ```sh
