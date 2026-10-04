@@ -56,6 +56,8 @@ public struct QuestionView: View {
                         .foregroundStyle(XbinColor.onTint)
                 }
                 .controlSize(.large)
+                // Square, as the reference's `.b-opt` (D185).
+                .buttonBorderShape(.roundedRectangle(radius: XbinShapes.radius))
             }
         }
         .padding(14)

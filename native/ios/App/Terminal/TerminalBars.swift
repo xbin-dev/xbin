@@ -103,12 +103,12 @@ struct TerminalSelectionBar: View {
                 nudge(.down, "chevron.down", "Move down")
                 nudge(.right, "chevron.right", "Move right")
                 Button { controller.swapSelectionEnds() } label: { Image(systemName: "arrow.left.arrow.right") }
-                    .buttonStyle(.bordered)
+                    .xbinSecondary()
                     .disabled(controller.selection.isEmpty)
                     .accessibilityLabel("Move the other end")
                 Spacer(minLength: 4)
                 Button("All") { controller.selectAllText() }
-                    .buttonStyle(.bordered)
+                    .xbinSecondary()
                 Button("Copy") { controller.copySelection() }
                     .xbinPrimary()
                     .disabled(controller.selection.isEmpty)
@@ -128,7 +128,7 @@ struct TerminalSelectionBar: View {
 
     private func nudge(_ n: TermNudge, _ symbol: String, _ label: String) -> some View {
         Button { controller.nudgeSelection(n) } label: { Image(systemName: symbol) }
-            .buttonStyle(.bordered)
+            .xbinSecondary()
             .disabled(controller.selection.isEmpty)
             .accessibilityLabel(label)
     }

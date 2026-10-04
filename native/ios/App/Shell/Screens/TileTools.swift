@@ -746,9 +746,11 @@ private struct ProposalSheet: View {
             }
             HStack(spacing: 10) {
                 Button { decisionNote = comment; deciding = "merged" } label: { Label("Mark merged", systemImage: "checkmark") }
-                    .buttonStyle(.bordered).tint(XbinColor.ok)
+                    .xbinSecondary().tint(XbinColor.ok)
+                // In the danger colour, as the web's Reject: the app's tint
+                // (the accent) is the one primary action's.
                 Button(role: .destructive) { decisionNote = comment; deciding = "rejected" } label: { Label("Reject", systemImage: "xmark") }
-                    .buttonStyle(.bordered)
+                    .xbinSecondary().tint(XbinColor.danger)
                 Spacer(minLength: 0)
             }
             .disabled(busy)
