@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -22,8 +23,9 @@ type ghIssue struct {
 	Labels            []struct {
 		Name string `json:"name"`
 	} `json:"labels"`
-	UpdatedAt   string    `json:"updated_at"`
-	PullRequest *struct{} `json:"pull_request"`
+	UpdatedAt     string    `json:"updated_at"`
+	PullRequest   *struct{} `json:"pull_request"`
+	RepositoryURL string    `json:"repository_url"` // search answers only
 }
 
 func (s *srv) issueOf(g ghIssue) issueInfo {
@@ -61,9 +63,10 @@ func (s *srv) listIssues(ctx context.Context, c who, q url.Values) (*page[issueI
 		return nil, err
 	}
 	var u string
-	words := strings.TrimSpace(q.Get("q"))
+	words := searchWords(q.Get("q"))
 	if words != "" {
-		// GitHub's search: its own rate limit, its own answer shape.
+		// GitHub's search: its own rate limit, its own answer shape. The
+		// consumer's words are text only (searchWords); the repo is ours.
 		sq := "repo:" + repo + " is:issue " + words
 		if state != "all" {
 			sq += " state:" + state
@@ -107,6 +110,9 @@ func (s *srv) listIssues(ctx context.Context, c who, q url.Values) (*page[issueI
 			if g.PullRequest != nil {
 				continue
 			}
+			if words != "" && !strings.EqualFold(g.RepositoryURL, s.repoBase(repo)) {
+				continue // a search answers only for the repo asked about, whatever got through
+			}
 			out.Items = append(out.Items, s.issueOf(g))
 		}
 		if nextLink(rr.Header) != "" {
@@ -116,6 +122,34 @@ func (s *srv) listIssues(ctx context.Context, c who, q url.Values) (*page[issueI
 	})
 	return out, err
 }
+
+// searchWords keeps q's words as text: a token shaped like a search
+// qualifier (repo:, org:, is:, -label:, …), a boolean operator or a
+// parenthesis would widen or bend the query past the repo the policy
+// allowed, so it is dropped; quotes go too. What remains is clipped.
+func searchWords(q string) string {
+	var out []string
+	for _, w := range strings.Fields(q) {
+		w = strings.Map(func(r rune) rune {
+			switch r {
+			case '"', '(', ')':
+				return -1
+			}
+			return r
+		}, w)
+		if w == "" || qualifierRe.MatchString(w) {
+			continue
+		}
+		switch strings.ToUpper(w) {
+		case "OR", "AND", "NOT":
+			continue
+		}
+		out = append(out, w)
+	}
+	return clip(strings.Join(out, " "), 256)
+}
+
+var qualifierRe = regexp.MustCompile(`^-?[A-Za-z_-]+:`)
 
 func (s *srv) handleIssue(w http.ResponseWriter, r *http.Request, c who) {
 	n, err := pullNumber(r)

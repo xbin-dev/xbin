@@ -460,3 +460,39 @@ func TestPollChangedOnly(t *testing.T) {
 		t.Fatalf("retryAfterMs %d", res.RetryAfterMs)
 	}
 }
+
+// An issue search stays in the repo asked about: qualifiers in q are
+// dropped (they'd OR in repos the policy refuses), and a hit from another
+// repo is filtered out whatever GitHub answers.
+func TestIssueSearchStaysInRepo(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	p := basePolicy()
+	p.BotRepos = []string{"acme/web"}
+	e.setPolicy(p)
+	e.gh.mu.Lock()
+	e.gh.ci.issues["acme/web"] = []*fIssue{{Number: 5, Title: "Crash on login", State: "open", User: "hubot", At: e.clock.now()}}
+	e.gh.ci.issues["acme/api"] = []*fIssue{{Number: 9, Title: "Crash in secret billing", Body: "the secret", State: "open", User: "hubot", At: e.clock.now()}}
+	e.gh.mu.Unlock()
+	refusal(t, e.call(e.gH, agentC, "GET", "/scm/issues?repo=acme/api", nil), 403, "not-allowed")
+	only5 := func(path string) {
+		t.Helper()
+		var is page[issueInfo]
+		decode(t, e.call(e.gH, agentC, "GET", path, nil), &is)
+		if len(is.Items) != 1 || is.Items[0].Number != 5 {
+			t.Fatalf("%s: %+v", path, is.Items)
+		}
+	}
+	for _, q := range []string{"repo:acme/api", "repo:acme/api+crash", "org:acme+crash", "crash+OR+repo:acme/api", "%22repo:acme/api%22+crash", "-repo:acme/web+crash", "(repo:acme/api)+crash"} {
+		only5("/scm/issues?repo=acme/web&q=" + q)
+	}
+	e.gh.mu.Lock()
+	for _, q := range e.gh.ci.searches {
+		if strings.Count(q, "repo:") != 1 || strings.Contains(q, "org:") || strings.Contains(q, " OR ") {
+			t.Errorf("a qualifier reached GitHub: %q", q)
+		}
+	}
+	e.gh.ci.searchAll = true // a GitHub answering past the repo named
+	e.gh.mu.Unlock()
+	only5("/scm/issues?repo=acme/web&q=crash")
+}

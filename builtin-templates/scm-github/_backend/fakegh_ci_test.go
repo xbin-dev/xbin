@@ -60,6 +60,8 @@ type fakeCI struct {
 	jobByID    map[string]map[string]any   // job id → job
 	checkSuite map[string]map[string]any   // unused: fixtures may add
 	extra      map[string]func(http.ResponseWriter, *http.Request)
+	searchAll  bool     // search answers every readable repo, whatever q names
+	searches   []string // the q of every search
 }
 
 func newFakeCI() *fakeCI {
@@ -250,7 +252,8 @@ func (f *fakeGH) ciRoutes(mux *http.ServeMux) {
 	})
 	issueJSON := func(repo string, i *fIssue) map[string]any {
 		v := map[string]any{"number": i.Number, "title": i.Title, "body": i.Body, "state": i.State, "html_url": f.srv.URL + "/" + repo + "/issues/" + strconv.Itoa(i.Number),
-			"user": map[string]any{"login": i.User, "type": "User"}, "author_association": "NONE", "updated_at": i.At.Format(time.RFC3339)}
+			"repository_url": f.srv.URL + "/repos/" + repo,
+			"user":           map[string]any{"login": i.User, "type": "User"}, "author_association": "NONE", "updated_at": i.At.Format(time.RFC3339)}
 		var ls []any
 		for _, l := range i.Labels {
 			ls = append(ls, map[string]any{"name": l})
@@ -293,22 +296,61 @@ func (f *fakeGH) ciRoutes(mux *http.ServeMux) {
 		}
 		f.reply(w, r, 200, v)
 	}))
+	// GitHub's issue search, as GitHub reads q: repo:/org: qualifiers are
+	// ORed, is:/state:/label: narrow, the rest are words every hit has in
+	// its title or body. Only repos the token can read answer.
 	mux.HandleFunc("GET /search/issues", func(w http.ResponseWriter, r *http.Request) {
+		var repos, orgs, words []string
+		var isIssue bool
+		state := ""
 		q := r.URL.Query().Get("q")
 		f.mu.Lock()
-		var out []any
-		for repo, is := range f.ci.issues {
-			if !strings.Contains(q, "repo:"+repo+" ") {
-				continue
-			}
-			for _, i := range is {
-				words := strings.Fields(q)
-				if !i.PR && strings.Contains(strings.ToLower(i.Title), strings.ToLower(words[len(words)-1])) || !i.PR && strings.Contains(q, "state:") && strings.Contains(strings.ToLower(i.Title), strings.ToLower(words[len(words)-2])) {
-					out = append(out, issueJSON(repo, i))
-				}
+		f.ci.searches = append(f.ci.searches, q)
+		searchAll := f.ci.searchAll
+		f.mu.Unlock()
+		for _, t := range strings.Fields(q) {
+			k, v, ok := strings.Cut(t, ":")
+			switch {
+			case ok && k == "repo":
+				repos = append(repos, v)
+			case ok && k == "org":
+				orgs = append(orgs, v)
+			case ok && k == "is":
+				isIssue = isIssue || v == "issue"
+			case ok && k == "state":
+				state = v
+			case ok:
+			default:
+				words = append(words, strings.ToLower(t))
 			}
 		}
+		f.mu.Lock()
+		all := map[string][]*fIssue{}
+		for repo, is := range f.ci.issues {
+			all[repo] = is
+		}
 		f.mu.Unlock()
+		var out []any
+		for repo, is := range all {
+			owner, _, _ := strings.Cut(repo, "/")
+			if !searchAll && !contains(repos, repo) && !contains(orgs, owner) || f.access(r, repo, "issues") == "" {
+				continue
+			}
+		next:
+			for _, i := range is {
+				if isIssue && i.PR || state != "" && i.State != state {
+					continue
+				}
+				for _, wd := range words {
+					if !strings.Contains(strings.ToLower(i.Title+" "+i.Body), wd) {
+						continue next
+					}
+				}
+				f.mu.Lock()
+				out = append(out, issueJSON(repo, i))
+				f.mu.Unlock()
+			}
+		}
 		f.paged(w, r, "items", out)
 	})
 	list := func(m func() map[string][]map[string]any) func(w http.ResponseWriter, r *http.Request, repo string) {
