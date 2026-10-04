@@ -401,8 +401,8 @@ func scmPullEnded(t *DB, p *Project, k *ProjectTask, repo string, n int, merged 
 	found := false
 	for i := range prs {
 		if strings.EqualFold(prs[i].Repo, repo) && prs[i].Number == n {
-			if prs[i].State == state {
-				return // known already (a poll and an event, or a repeat)
+			if prs[i].State == state || prs[i].State == "merged" {
+				return // known already (a poll and an event, a repeat; a merged PR stays merged)
 			}
 			prs[i].State = state
 			found = true

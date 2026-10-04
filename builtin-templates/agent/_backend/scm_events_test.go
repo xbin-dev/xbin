@@ -52,7 +52,6 @@ type evFx struct {
 	scm  *fakeSCM
 	api  *evSCM
 	p    *Project
-	now  int64
 	seq  int
 	hook atomic.Int32 // scmEventHooks calls
 }
@@ -69,10 +68,10 @@ func newEvFx(t *testing.T, mode agentMode, policy string) *evFx {
 	off := scmLoopOff.Load()
 	scmLoopOff.Store(true)
 	t.Cleanup(func() { scmLoopOff.Store(off) })
-	fx := &evFx{t: t, now: time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC).UnixMilli()}
-	oldClock := scmClock
-	scmClock = func() int64 { return fx.now }
-	t.Cleanup(func() { scmClock = oldClock })
+	fx := &evFx{t: t}
+	oldClock := scmClockAt.Load()
+	scmClockAt.Store(time.Date(2026, 10, 4, 12, 0, 0, 0, time.UTC).UnixMilli())
+	t.Cleanup(func() { scmClockAt.Store(oldClock) })
 	oldHooks := scmEventHooks
 	scmEventHooks = append(append([]func(*DB, *scmEvent){}, oldHooks...), func(*DB, *scmEvent) { fx.hook.Add(1) })
 	t.Cleanup(func() { scmEventHooks = oldHooks })
@@ -99,11 +98,9 @@ func newEvFx(t *testing.T, mode agentMode, policy string) *evFx {
 	if mode == modeUser {
 		fx.scm.SetSignedIn("octocat", 583231)
 	}
-	client, err := scmFor("apps/scm-github")
-	if err != nil {
-		t.Fatal(err)
-	}
-	fx.api = &evSCM{scmAPI: client}
+	// K's client to this fixture's fake (not scmFor: an enclosing test's
+	// fixture may have swapped it)
+	fx.api = &evSCM{scmAPI: &scmConn{E: scmEndpoint{Provider: "apps/scm-github", URL: fx.scm.srv.URL}}}
 	oldFor := scmFor
 	scmFor = func(name string) (scmAPI, error) {
 		if name == "apps/scm-github" {
@@ -187,7 +184,7 @@ func (fx *evFx) ev(kind, action string, mod ...func(*scmEvent)) scmEvent {
 	fx.seq++
 	e := scmEvent{Protocol: 1, EventID: fmt.Sprintf("scm:github.com:d%d", fx.seq), For: "global", Kind: kind, Action: action,
 		Repo: "acme/web", Ref: scmEventRef{Branch: evBranch, SHA: evSHA, PR: 42},
-		Actor: scmActor{Login: "octo-dev", Association: "MEMBER"}, At: fx.now}
+		Actor: scmActor{Login: "octo-dev", Association: "MEMBER"}, At: fx.now()}
 	for _, m := range mod {
 		m(&e)
 	}
@@ -208,7 +205,12 @@ func (fx *evFx) mustTake(e scmEvent) {
 
 func (fx *evFx) pass() { scmPass(context.Background(), fx.ag.db) }
 
-func (fx *evFx) advance(d time.Duration) { fx.now += d.Milliseconds() }
+func (fx *evFx) advance(d time.Duration) { scmClockAt.Add(d.Milliseconds()) }
+
+// now is the fixture's time (scmClock); setNow moves it.
+func (fx *evFx) now() int64 { return scmClockAt.Load() }
+
+func (fx *evFx) setNow(ms int64) { scmClockAt.Store(ms) }
 
 func (fx *evFx) inputs() []taskInput { return fx.ag.db.queuedInputs(fx.p.ID, 0) }
 

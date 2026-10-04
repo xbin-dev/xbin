@@ -31,6 +31,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
@@ -113,8 +114,17 @@ func scmAdapterRoutes() map[string]http.HandlerFunc {
 	return map[string]http.HandlerFunc{"POST /adapter/scm/event": handleSCMEvent}
 }
 
-// scmClock is now in unix ms (a var: the polling tests move it).
-var scmClock = nowMs
+// scmClockAt, when set, is the time scmClock says (the polling tests move
+// it; an atomic, since a loop of an earlier test's engine may still read it).
+var scmClockAt atomic.Int64
+
+// scmClock is now in unix ms.
+func scmClock() int64 {
+	if at := scmClockAt.Load(); at != 0 {
+		return at
+	}
+	return nowMs()
+}
 
 // --- the caller --------------------------------------------------------------------
 
