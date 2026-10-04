@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -95,4 +96,53 @@ func splitAmp(s string) []string {
 		}
 	}
 	return out
+}
+
+// A task's CI asked for makes its watches once: a visit to a task whose
+// watch went and ended (its pull request merged a day ago) makes none again
+// and posts no subscription; a done or closed task never had one made.
+func TestCITaskLazyOnce(t *testing.T) {
+	fx := newCIFix(t)
+	fx.scm.SetChecks("acme/web", "xbin/k3x9/1-fix-login", ciChecks(ciSHA1))
+	_, k := fx.ciTask(t, ciSHA1, []TaskPR{{Repo: "acme/web", Number: 42, State: "merged", HeadSHA: ciSHA1}})
+	ciGET(t, fx.mux, asAlice, fmt.Sprintf("/runs/%d/ci", k.RunID), nil)
+	ws := fx.live(k.RunID)
+	if len(ws) != 1 || ws[0].State != ciGone {
+		t.Fatalf("the merged task's watch: %s", ciDump(ws))
+	}
+	ciWait(t, "its setup", func() bool { return len(fx.scm.Requests("POST /subscriptions")) == 1 })
+	if _, err := fx.ag.db.q.Exec(`UPDATE ci_watch SET updated_ms=? WHERE id=?`, time.Now().Add(-25*time.Hour).UnixMilli(), ws[0].ID); err != nil {
+		t.Fatal(err)
+	}
+	ciPass(t.Context(), fx.ag.db) // a day after it went: ended
+	if n := len(fx.live(k.RunID)); n != 0 {
+		t.Fatalf("%d live after a day", n)
+	}
+	subs, reads := len(fx.scm.Requests("POST /subscriptions")), len(fx.scm.Requests("GET /checks"))
+	for i := 0; i < 3; i++ {
+		ciGET(t, fx.mux, asAlice, fmt.Sprintf("/runs/%d/ci", k.RunID), nil)
+	}
+	// the refs job again, nothing moved: no new gone watch either
+	p, _ := fx.ag.db.getProject(k.ProjectID)
+	if err := fx.ag.db.Tx(func(t *DB) error { ciTaskRefs(t, p, k); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if ws := fx.ag.db.ciWatchesWhere(`WHERE root_run=?`, k.RunID); len(ws) != 1 {
+		t.Fatalf("a finished task's visits made watches: %s", ciDump(ws))
+	}
+	if len(fx.scm.Requests("POST /subscriptions")) != subs || len(fx.scm.Requests("GET /checks")) != reads {
+		t.Fatal("a finished task's visit subscribed or read")
+	}
+	// a done task with no watch: none made
+	if _, err := fx.ag.db.q.Exec(`DELETE FROM ci_watch WHERE root_run=?`, k.RunID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.ag.db.q.Exec(`UPDATE project_tasks SET phase=? WHERE id=?`, phaseDone, k.ID); err != nil {
+		t.Fatal(err)
+	}
+	ciGET(t, fx.mux, asAlice, fmt.Sprintf("/runs/%d/ci", k.RunID), nil)
+	if ws := fx.ag.db.ciWatchesWhere(`WHERE root_run=?`, k.RunID); len(ws) != 0 {
+		t.Fatalf("a done task's visit: %s", ciDump(ws))
+	}
 }

@@ -151,6 +151,7 @@ func handleCI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ciTaskLazy(d, root)
+	ciSettle(d) // a summary a rolled-back transaction left in memory
 	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 	defer cancel()
 	ciFreshen(ctx, d, root, r.URL.Query().Get("fresh") == "1")

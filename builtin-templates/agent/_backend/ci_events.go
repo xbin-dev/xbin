@@ -11,8 +11,9 @@
 //   - checks.completed: the watch is read (conditional on its etag).
 //   - pull: merged or closed → gone (the watch ends a day later); otherwise
 //     its number is kept and the watch read.
-//   - push: the branch's new head starts the snapshot over (and is read); a
-//     deleted branch → gone.
+//   - push: the branch's new head starts the snapshot over (and is read),
+//     and a gone watch is live again (the branch is there); a deleted
+//     branch → gone.
 //
 // Events are never acted on for anything else here; the text they carry is
 // cleaned as a read's is (ci_store.go).
@@ -149,7 +150,7 @@ func ciProgress(t *DB, w *ciWatch, ev *scmEvent) {
 		w.SHA = head
 	}
 	w.setChecks(c)
-	w.UpdatedMs = nowMs()
+	w.touch(nowMs())
 	if t.ciSave(w) == nil {
 		ciChanged(t, w.RootRun, w.ID)
 	}
@@ -173,6 +174,9 @@ func ciPull(t *DB, w *ciWatch, ev *scmEvent) {
 	case ev.Action == "merged" || ev.Action == "closed" || x.Pull.State == "merged" || x.Pull.State == "closed":
 		if w.PR != 0 && n != 0 && n != w.PR {
 			return // another pull request of the branch closed; this one stays
+		}
+		if w.State == ciGone && (w.PR != 0 || n == 0) {
+			return // gone already: it keeps when it went
 		}
 		w.State, w.PR = ciGone, orInt(w.PR, n)
 		w.UpdatedMs = nowMs()
@@ -224,9 +228,16 @@ func ciPushEvent(t *DB, w *ciWatch, ev *scmEvent) {
 		return
 	}
 	if after == w.SHA {
+		if w.State == ciGone { // the branch made again at the same head: there, not gone
+			w.State, w.UpdatedMs = ciNone, nowMs()
+			if t.ciSave(w) == nil {
+				ciChanged(t, w.RootRun, w.ID)
+			}
+			ciReadLater(t, w.ID)
+		}
 		return
 	}
-	w.moveTo(after)
+	w.moveTo(after) // not gone: the branch has a new head
 	w.UpdatedMs = nowMs()
 	if t.ciSave(w) == nil {
 		ciChanged(t, w.RootRun, w.ID)

@@ -147,3 +147,82 @@ func TestCIProgressEventsPatchSnapshot(t *testing.T) {
 		t.Fatalf("gone watches a day old: %s", ciDump(ws))
 	}
 }
+
+// A gone watch whose branch comes back is live again: its pull request
+// closed (GitHub deleted the branch at the merge), then a push to the same
+// branch — a new head — and a pushed detection of yet another head. A gone
+// watch keeps when it went while its CI still moves (it ends a day after
+// that), and a push making the branch again at the same head revives it.
+func TestCIGoneWatchComesBack(t *testing.T) {
+	fx := newCIFix(t)
+	root := fx.conv(t, "alice", true)
+	fx.scm.SetChecks("acme/web", "feature", ciChecks(ciSHA1))
+	w := fx.watchRow(t, root, "feature", ciSHA1, nil)
+	fx.read(t, w.ID)
+	fx.deliverCI(t, scmEvent{Kind: scmKindPull, Action: "closed", Ref: scmEventRef{Branch: "feature", PR: 9},
+		Data: ciData(scmKindPull, map[string]any{"number": 9, "state": "merged", "head": map[string]string{"ref": "feature"}})})
+	gone := fx.ag.db.ciWatchByID(w.ID)
+	if gone.State != ciGone {
+		t.Fatalf("after the merge: %s", gone.State)
+	}
+	// its CI still moves: the watch keeps when it went
+	went := time.Now().Add(-time.Hour).UnixMilli()
+	_, _ = fx.ag.db.q.Exec(`UPDATE ci_watch SET updated_ms=? WHERE id=?`, went, w.ID)
+	fx.deliverCI(t, scmEvent{Kind: scmKindCheck, Action: "completed", Ref: scmEventRef{SHA: ciSHA1},
+		Data: ciData(scmKindCheck, scmCheck{ID: "88001", Name: "test (ubuntu)", Status: "completed", Conclusion: "success"})})
+	fx.deliverCI(t, scmEvent{Kind: scmKindPull, Action: "closed", Ref: scmEventRef{Branch: "feature", PR: 9},
+		Data: ciData(scmKindPull, map[string]any{"number": 9, "state": "closed", "head": map[string]string{"ref": "feature"}})})
+	if x := fx.ag.db.ciWatchByID(w.ID); x.State != ciGone || x.UpdatedMs != went {
+		t.Fatalf("a gone watch's CI moved its clock: %s %d (went %d)", x.State, x.UpdatedMs, went)
+	}
+	// pushed again: a new head, the branch is there
+	fx.scm.SetChecks("acme/web", "feature", ciChecks(ciSHA2))
+	fx.deliverCI(t, scmEvent{Kind: scmKindPush, Action: "pushed", Ref: scmEventRef{Branch: "feature", SHA: ciSHA2},
+		Data: ciData(scmKindPush, map[string]any{"before": strings.Repeat("0", 40), "after": ciSHA2})})
+	if x := fx.ag.db.ciWatchByID(w.ID); x.State == ciGone || x.SHA != ciSHA2 {
+		t.Fatalf("after the push: %s %s", x.State, x.SHA)
+	}
+	ciWait(t, "the new head read", func() bool { return fx.ag.db.ciWatchByID(w.ID).State == ciFailure })
+	if s := ciSummaryOf(fx.live(root)); s == nil || s.State != ciFailure || s.Jobs.Total == 0 {
+		t.Fatalf("the watch isn't counted again: %+v", s)
+	}
+	// gone again, then a turn end's detection of another head: live
+	fx.deliverCI(t, scmEvent{Kind: scmKindPull, Action: "closed", Ref: scmEventRef{Branch: "feature", PR: 10},
+		Data: ciData(scmKindPull, map[string]any{"number": 10, "state": "closed", "head": map[string]string{"ref": "feature"}})})
+	third := strings.Repeat("c", 40)
+	fx.scm.SetChecks("acme/web", "feature", ciChecks(third)) // the branch's head from here on, as any read finds it
+	if err := fx.ag.db.Tx(func(t *DB) error {
+		_, _, err := ciUpsert(t, &ciWatch{RootRun: root, RunID: root, Source: ciPushed, SCM: "apps/scm-github", Host: "github.com", Repo: "acme/web", Ref: "feature", SHA: third})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if ws := fx.live(root); len(ws) != 1 || ws[0].State != ciNone || ws[0].SHA != third {
+		t.Fatalf("after a pushed detection: %s", ciDump(ws))
+	}
+	if s := ciSummaryOf(fx.live(root)); s == nil {
+		t.Fatal("no summary")
+	}
+	// gone by a deleted branch, made again at the same head: live
+	fx.deliverCI(t, scmEvent{Kind: scmKindPush, Action: "deleted", Ref: scmEventRef{Branch: "feature"},
+		Data: ciData(scmKindPush, map[string]any{"before": third, "after": strings.Repeat("0", 40), "deleted": true})})
+	if x := fx.ag.db.ciWatchByID(w.ID); x.State != ciGone {
+		t.Fatalf("deleted: %s", x.State)
+	}
+	fx.deliverCI(t, scmEvent{Kind: scmKindPush, Action: "pushed", Ref: scmEventRef{Branch: "feature", SHA: third},
+		Data: ciData(scmKindPush, map[string]any{"before": strings.Repeat("0", 40), "after": third})})
+	if x := fx.ag.db.ciWatchByID(w.ID); x.State == ciGone {
+		t.Fatal("made again at the same head: still gone")
+	}
+	// a task's merged pull request at a new head keeps it gone
+	fx.scm.SetChecks("acme/web", "feature", ciChecks(ciSHA1))
+	if err := fx.ag.db.Tx(func(t *DB) error {
+		_, _, err := ciUpsert(t, &ciWatch{RootRun: root, RunID: root, Source: ciTask, SCM: "apps/scm-github", Repo: "acme/web", Ref: "feature", SHA: ciSHA1, PR: 11, State: ciGone})
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if x := fx.ag.db.ciWatchByID(w.ID); x.State != ciGone || x.SHA != ciSHA1 {
+		t.Fatalf("a merged task's new head: %s %s", x.State, x.SHA)
+	}
+}

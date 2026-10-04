@@ -258,3 +258,32 @@ func TestCIParsePushes(t *testing.T) {
 		t.Fatalf("parsed:\n%s\nwant\n%s", b, want)
 	}
 }
+
+// A turn end never starts a sandbox that idled to a stop (an exec would):
+// a sandbox that isn't running pushed nothing this turn.
+func TestPushedBranchStoppedSandbox(t *testing.T) {
+	fx := newCIFix(t)
+	fx.ciClone(t)
+	root := fx.conv(t, "alice", true)
+	if _, err := fx.ag.db.q.Exec(`UPDATE runs SET turn_started=? WHERE id=?`, time.Now().Add(-time.Minute).Unix(), root); err != nil {
+		t.Fatal(err)
+	}
+	conn, id, err := sbxDialRef(sandboxRef("apps/cs", fx.box.ID), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.Lifecycle(context.Background(), id, "stop", 5, false); err != nil {
+		t.Fatal(err)
+	}
+	before := fx.sbxRuns()
+	ciDetect(context.Background(), fx.ag.db, root, root, "alice", sandboxRef("apps/cs", fx.box.ID), fx.box.Workdir, "alice", time.Now().Add(-time.Minute).Unix())
+	if fx.sbxRuns() != before {
+		t.Fatal("ran a command in a stopped sandbox")
+	}
+	if b, _ := fx.m.Box(fx.box.ID); b.State != "stopped" {
+		t.Fatalf("the sandbox is %s", b.State)
+	}
+	if ws := fx.live(root); len(ws) != 0 {
+		t.Fatalf("watched: %s", ciDump(ws))
+	}
+}

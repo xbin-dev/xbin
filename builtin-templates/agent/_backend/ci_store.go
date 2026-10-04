@@ -223,13 +223,54 @@ func (w *ciWatch) card() {
 	}
 }
 
-// moveTo starts the watch over on a new head: no snapshot, nothing known.
+// moveTo starts the watch over on a new head: no snapshot, nothing known —
+// and not gone (a new head means the branch is there again; a caller that
+// knows it went sets gone afterwards, as a merged task's refs do).
 func (w *ciWatch) moveTo(sha string) {
 	w.SHA, w.Snapshot, w.ETag, w.Error, w.Refusal, w.FetchedMs = sha, "", "", "", "", 0
-	if w.State != ciGone {
-		w.State = ciNone
-	}
+	w.State = ciNone
 	w.Since = nowMs()
+}
+
+// touch marks the watch changed now — unless it is gone, whose updated_ms
+// stays when it went (it ends a day after that, however much its CI still
+// moves meanwhile).
+func (w *ciWatch) touch(now int64) {
+	if w.State != ciGone {
+		w.UpdatedMs = now
+	}
+}
+
+// ciOpen: a read could tell more about w's CI — nothing read yet, nothing
+// reported yet (CI often starts a few seconds after a push), or any run,
+// job, check or status not completed. Decided from the snapshot, not the
+// state: a failed job turns the watch to failure while others still run.
+func ciOpen(w *ciWatch) bool {
+	c := w.checks()
+	if c == nil || w.State == ciNone {
+		return true
+	}
+	for _, r := range c.WorkflowRuns {
+		if r.Status != "completed" {
+			return true
+		}
+		for _, j := range r.Jobs {
+			if j.Status != "completed" {
+				return true
+			}
+		}
+	}
+	for _, k := range c.Checks {
+		if k.Status != "completed" {
+			return true
+		}
+	}
+	for _, st := range c.Statuses {
+		if st.State == "pending" {
+			return true
+		}
+	}
+	return false
 }
 
 // ciText is untrusted text as a page or a row keeps it: its invisible
@@ -600,6 +641,54 @@ func ciCache(d *DB, root int64, s *CISummary) {
 	ciSums.Store(ciKey{d.sql, root}, s)
 }
 
+// ciTentative holds, per (database, root), the token of a summary written
+// inside a transaction not yet known to have committed (its AfterCommit
+// clears it). A rolled-back transaction leaves its token — and memory
+// holding a summary the table doesn't have — until ciSettle reads that root
+// again.
+var ciTentative sync.Map // ciKey → *int (a token: compared by pointer)
+
+// ciCacheInTx writes root's summary from inside transaction t (the board's
+// TaskView in t reads it) and marks it tentative until t commits.
+func ciCacheInTx(t *DB, root int64, s *CISummary) {
+	k, tok := ciKey{t.sql, root}, new(int)
+	ciCache(t, root, s) // first: a settle that sees tok loads this summary or a newer one
+	ciTentative.Store(k, tok)
+	t.AfterCommit(func() { ciTentative.CompareAndDelete(k, tok) })
+}
+
+// ciSettle reads again, from the table, the summary of every root of d
+// whose last in-transaction write never committed (or hasn't yet: the read
+// waits for that transaction, which holds the connection). Outside any
+// transaction only (the refresher's pass, GET /runs/{id}/ci). A summary
+// written meanwhile by a newer transaction is left as it is.
+func ciSettle(d *DB) {
+	if d.tx != nil {
+		return
+	}
+	ciTentative.Range(func(key, tok any) bool {
+		k := key.(ciKey)
+		if k.db != d.sql {
+			return true
+		}
+		before, had := ciSums.Load(k)
+		sum := ciSummaryOf(d.ciLive(k.root)) // committed rows only
+		if cur, ok := ciTentative.Load(k); !ok || cur != tok {
+			return true // committed meanwhile, or written again: that one stands
+		}
+		switch {
+		case sum == nil && had:
+			ciSums.CompareAndDelete(k, before)
+		case sum != nil && had:
+			ciSums.CompareAndSwap(k, before, sum)
+		case sum != nil:
+			ciSums.LoadOrStore(k, sum)
+		}
+		ciTentative.CompareAndDelete(k, tok)
+		return true
+	})
+}
+
 // ciPrime reads every conversation's summary when the database opens.
 func ciPrime(d *DB) {
 	roots := map[int64][]*ciWatch{}
@@ -621,7 +710,7 @@ func ciChanged(t *DB, root, wid int64) {
 	ws := t.ciLive(root)
 	sum := ciSummaryOf(ws)
 	old := ciCached(t, root)
-	ciCache(t, root, sum) // now: the board's TaskView in this transaction reads it
+	ciCacheInTx(t, root, sum) // now: the board's TaskView in this transaction reads it
 	data := map[string]any{"root": root, "watch": wid, "summary": sum}
 	items := []map[string]any{}
 	for _, w := range ws {

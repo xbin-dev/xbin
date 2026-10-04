@@ -75,13 +75,64 @@ func TestCIFreshCoalesced(t *testing.T) {
 	if count() != 2 {
 		t.Fatalf("read when nothing asked for it: %d", count())
 	}
-	if _, err := fx.ag.db.q.Exec(`UPDATE ci_watch SET state='success' WHERE id=?`, w.ID); err != nil {
-		t.Fatal(err)
+	x := fx.ag.db.ciWatchByID(w.ID)
+	x.setChecks(&scmChecks{SHA: ciSHA1, Checks: []scmCheck{{ID: "1", Name: "ok", Status: "completed", Conclusion: "success"}}, Statuses: []scmStatus{}})
+	if err := fx.ag.db.ciSave(x); err != nil || x.State != ciSuccess {
+		t.Fatal(err, x.State)
 	}
 	fx.ago(t, w.ID, time.Hour)
 	ciGET(t, fx.mux, asAlice, fmt.Sprintf("/runs/%d/ci?fresh=1", root), nil) // done: nothing to learn
 	if count() != 2 {
 		t.Fatalf("a finished watch read again: %d", count())
+	}
+}
+
+// A failed watch whose other jobs still run is read again — by fresh=1 and
+// by the refresher — until everything completed: the first failure (a
+// matrix leg, codecov) doesn't freeze the rest of its CI.
+func TestCIFailedStillRunningReread(t *testing.T) {
+	fx := newCIFix(t)
+	old := ciClock.Load()
+	ciClock.Store(&ciTimes{Tick: time.Hour, EventHold: old.EventHold, Cadence: old.Cadence, GoneFor: old.GoneFor, KeptFor: old.KeptFor})
+	t.Cleanup(func() { ciClock.Store(old) })
+	root := fx.conv(t, "alice", true)
+	fx.scm.SetChecks("acme/web", "feature", ciChecks(ciSHA1)) // codecov failed; test running, build queued
+	w := fx.watchRow(t, root, "feature", ciSHA1, ciChecks(ciSHA1))
+	if x := fx.ag.db.ciWatchByID(w.ID); x.State != ciFailure || !ciOpen(x) {
+		t.Fatalf("the fixture: %s open %v", x.State, ciOpen(x))
+	}
+	count := func() int { return len(fx.scm.Requests("GET /checks")) }
+	fx.ago(t, w.ID, time.Minute)
+	ciGET(t, fx.mux, asAlice, fmt.Sprintf("/runs/%d/ci?fresh=1", root), nil)
+	if count() != 1 {
+		t.Fatalf("fresh=1 on a failed watch with jobs running: %d reads", count())
+	}
+	fx.ago(t, w.ID, 2*time.Minute) // pushed a moment ago: the refresher's 60 s came
+	if _, err := fx.ag.db.q.Exec(`UPDATE ci_watch SET since=? WHERE id=?`, nowMs(), w.ID); err != nil {
+		t.Fatal(err)
+	}
+	ciPass(t.Context(), fx.ag.db)
+	if count() != 2 {
+		t.Fatalf("the refresher on a failed watch with jobs running: %d reads", count()-1)
+	}
+	// all completed (failed): nothing more to learn
+	done := ciChecks(ciSHA1)
+	done.WorkflowRuns[0].Status, done.WorkflowRuns[0].Conclusion = "completed", "failure"
+	for i := range done.WorkflowRuns[0].Jobs {
+		done.WorkflowRuns[0].Jobs[i].Status, done.WorkflowRuns[0].Jobs[i].Conclusion = "completed", "success"
+	}
+	done.Checks[1].Status, done.Checks[1].Conclusion = "completed", "success"
+	fx.scm.SetChecks("acme/web", "feature", done)
+	fx.ago(t, w.ID, time.Hour)
+	ciGET(t, fx.mux, asAlice, fmt.Sprintf("/runs/%d/ci?fresh=1", root), nil)
+	if count() != 3 {
+		t.Fatalf("the last read: %d", count())
+	}
+	fx.ago(t, w.ID, 2*time.Minute)
+	ciGET(t, fx.mux, asAlice, fmt.Sprintf("/runs/%d/ci?fresh=1", root), nil)
+	ciPass(t.Context(), fx.ag.db)
+	if count() != 3 {
+		t.Fatalf("a finished failed watch read again: %d", count())
 	}
 }
 
@@ -173,11 +224,26 @@ func TestCIRerunPersonOnly(t *testing.T) {
 	if !v.CanRerun || !v.CanWatch {
 		t.Fatalf("alice in her own partition: canRerun %v canWatch %v", v.CanRerun, v.CanWatch)
 	}
-	for name, c := range map[string]caller{"view-as": asViewAs, "system": asSystem, "element": asElement} {
-		r := callAs(t, fx.mux, c, "POST", fmt.Sprintf("/runs/%d/ci/rerun", root), body)
-		if r.Code != 403 && r.Code != 404 {
-			t.Errorf("%s re-runs: %d %s", name, r.Code, r.Body)
-		}
+	// the tile itself reaches the handler: 403 identity (never the bot)
+	if r := callAs(t, fx.mux, asSystem, "POST", fmt.Sprintf("/runs/%d/ci/rerun", root), body); r.Code != 403 || !strings.Contains(r.Body.String(), `"refusal":"identity"`) {
+		t.Errorf("the tile re-runs: %d %s", r.Code, r.Body)
+	}
+	// an element without a grant doesn't see the conversation at all
+	if r := callAs(t, fx.mux, asElement, "POST", fmt.Sprintf("/runs/%d/ci/rerun", root), body); r.Code != 404 {
+		t.Errorf("an element re-runs: %d %s", r.Code, r.Body)
+	}
+	// view-as: a private conversation is hidden (404); a team one is only
+	// viewed (≤ viewer, D64), and re-running takes a participant: 403
+	if r := callAs(t, fx.mux, asViewAs, "POST", fmt.Sprintf("/runs/%d/ci/rerun", root), body); r.Code != 404 {
+		t.Errorf("view-as, private: %d %s", r.Code, r.Body)
+	}
+	team := runAs(t, fx.ag, runStamp{Owner: "alice", Visibility: visTeam, TeamRole: roleParticipant, Origin: "chat"}, false)
+	tw := fx.watchRow(t, team, "feature", ciSHA1, failed)
+	if r := callAs(t, fx.mux, asViewAs, "POST", fmt.Sprintf("/runs/%d/ci/rerun", team), map[string]any{"watch": tw.ID, "runId": "7001", "failedOnly": true}); r.Code != 403 {
+		t.Errorf("view-as, team: %d %s", r.Code, r.Body)
+	}
+	if n := len(fx.scm.Requests("POST /checks/rerun")); n != 0 {
+		t.Fatalf("the provider was asked %d times by callers refused", n)
 	}
 	r := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/ci/rerun", root), body)
 	if r.Code != 202 || !strings.Contains(r.Body.String(), `"attempt":2`) {
@@ -218,6 +284,23 @@ func TestCIRerunPersonOnly(t *testing.T) {
 	ciGET(t, fx2.mux, asAlice, fmt.Sprintf("/runs/%d/ci", root2), &v)
 	if v.CanRerun {
 		t.Fatal("canRerun at an unpartitioned agent")
+	}
+
+	// the global instance: a bot home too — 403 identity, the provider never asked
+	setMode(t, modeGlobal, "")
+	fx3 := newCIFix(t)
+	root3 := fx3.conv(t, "alice", true)
+	w3 := fx3.watchRow(t, root3, "feature", ciSHA1, failed)
+	r = callAs(t, fx3.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/ci/rerun", root3), map[string]any{"watch": w3.ID, "runId": "7001", "failedOnly": true})
+	if r.Code != 403 || !strings.Contains(r.Body.String(), `"refusal":"identity"`) {
+		t.Fatalf("at the global instance: %d %s", r.Code, r.Body)
+	}
+	if len(fx3.scm.Requests("POST /checks/rerun")) != 0 {
+		t.Fatal("the bot was asked to re-run at the global instance")
+	}
+	ciGET(t, fx3.mux, asAlice, fmt.Sprintf("/runs/%d/ci", root3), &v)
+	if v.CanRerun {
+		t.Fatal("canRerun at the global instance")
 	}
 }
 

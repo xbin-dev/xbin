@@ -5,7 +5,8 @@
 // time, shared by everyone who asks meanwhile), a task's watches (from its
 // refs, and lazily when its CI is asked for), ending (unwatched, the
 // conversation deleted, a day after its branch went), and the background
-// refresher — an ownerLoops entry that re-reads a pending watch nobody's
+// refresher — an ownerLoops entry that re-reads a watch with anything not
+// completed (a failed one too, while other jobs run) that nobody's
 // events moved: every minute for 20 minutes after its push, then at the
 // polling cadence (10 minutes until 2 hours, 30 until a day), then not until
 // someone looks. Reads are made as the home's identity at the provider: the
@@ -60,7 +61,7 @@ func ciUpsert(t *DB, w *ciWatch) (*ciWatch, bool, error) {
 		if x.SCM != w.SCM || !strings.EqualFold(x.Repo, w.Repo) || x.Ref != w.Ref {
 			continue
 		}
-		changed := false
+		changed, wasGone := false, x.State == ciGone
 		if w.Source == ciTask && x.Source != ciTask {
 			x.Source, x.ProjectID, x.N, changed = ciTask, w.ProjectID, w.N, true
 		}
@@ -74,14 +75,19 @@ func ciUpsert(t *DB, w *ciWatch) (*ciWatch, bool, error) {
 			x.Host, changed = w.Host, true
 		}
 		if w.SHA != "" && x.SHA != w.SHA {
-			x.moveTo(w.SHA)
+			x.moveTo(w.SHA) // a new head: the branch is there (not gone)
 			changed = true
 		}
-		if w.State == ciGone && x.State != ciGone {
+		switch {
+		case w.State == ciGone && x.State != ciGone:
 			x.State, changed = ciGone, true
+		case w.State != ciGone && x.State == ciGone && w.PR > 0:
+			x.State, changed = ciNone, true // an open pull request of the branch: not gone
+		}
+		if changed && !(wasGone && x.State == ciGone) {
+			x.UpdatedMs = nowMs() // a gone watch keeps when it went
 		}
 		if changed {
-			x.UpdatedMs = nowMs()
 			if err := t.ciSave(x); err != nil {
 				return nil, false, err
 			}
@@ -321,10 +327,10 @@ func ciReadNow(ctx context.Context, d *DB, id int64) error {
 			}
 			cur.setChecks(res)
 			cur.ETag = clip(res.ETag, 200)
-			cur.UpdatedMs = now
+			cur.touch(now)
 		}
 		if res == nil && err == nil && cur.UpdatedMs < now && cur.FetchedMs > cur.UpdatedMs {
-			cur.UpdatedMs = now // nothing changed: its snapshot is as fresh as this read
+			cur.touch(now) // nothing changed: its snapshot is as fresh as this read
 		}
 		if err := t.ciSave(cur); err != nil {
 			return err
@@ -347,8 +353,9 @@ func ciHealthy(ctx context.Context, scm string) bool {
 }
 
 // ciStale: a read would tell more — the watch has anything not completed
-// (or nothing yet) and its snapshot is older than after (10 s with
-// webhooks unhealthy, 30 s healthy).
+// (or nothing yet: ciOpen, whatever its state — a failed job doesn't stop
+// the others) and its snapshot is older than after (10 s with webhooks
+// unhealthy, 30 s healthy).
 func ciStale(w *ciWatch, after time.Duration) bool {
 	if w.EndedMs != 0 || w.State == ciGone {
 		return false
@@ -356,7 +363,7 @@ func ciStale(w *ciWatch, after time.Duration) bool {
 	if w.FetchedMs == 0 {
 		return true
 	}
-	if w.State != ciPending && w.State != ciNone {
+	if !ciOpen(w) {
 		return false
 	}
 	return time.Since(time.UnixMilli(w.FetchedMs)) >= after
@@ -437,6 +444,9 @@ func ciTaskRefs(t *DB, p *Project, k *ProjectTask) {
 		}
 		if gone {
 			w.State = ciGone
+			if ciEndedGone(t, w) {
+				continue // its CI was watched to the end already: not again
+			}
 		}
 		x, created, err := ciUpsert(t, w)
 		if err != nil {
@@ -451,20 +461,31 @@ func ciTaskRefs(t *DB, p *Project, k *ProjectTask) {
 	}
 }
 
-// ciTaskLazy: GET /runs/{id}/ci on a task with no watch yet makes them
-// from what its last refs check recorded.
+// ciEndedGone: w (gone, not yet made) would only repeat a task watch of
+// the same conversation, repo, branch and head that went and ended — none
+// of the same branch live.
+func ciEndedGone(t *DB, w *ciWatch) bool {
+	var live, ended int
+	_ = t.q.QueryRow(`SELECT coalesce(sum(ended_ms=0), 0), coalesce(sum(ended_ms>0 AND sha=? AND source=?), 0)
+		FROM ci_watch WHERE root_run=? AND scm=? AND lower(repo)=lower(?) AND ref=?`, w.SHA, ciTask, w.RootRun, w.SCM, w.Repo, w.Ref).Scan(&live, &ended)
+	return live == 0 && ended > 0
+}
+
+// ciTaskLazy: GET /runs/{id}/ci on a task that never had a watch makes
+// them from what its last refs check recorded. A closed or done task, or
+// one whose watches ended (gone a day), is left as it is: its refs job
+// makes a watch again when its branch moves — a visit never re-subscribes.
 func ciTaskLazy(d *DB, root int64) {
 	run, err := d.getRun(root)
 	if err != nil || run.Origin != originProject {
 		return
 	}
-	for _, w := range d.ciLive(root) {
-		if w.Source == ciTask {
-			return
-		}
+	var n int
+	if d.q.QueryRow(`SELECT count(*) FROM ci_watch WHERE root_run=? AND source=?`, root, ciTask).Scan(&n) != nil || n > 0 {
+		return
 	}
 	p, k := d.projectOfRun(run)
-	if p == nil || k == nil {
+	if p == nil || k == nil || k.Phase == phaseClosed || k.Phase == phaseDone {
 		return
 	}
 	_ = d.Tx(func(t *DB) error {
@@ -484,7 +505,7 @@ func ciRunDeleted(t *DB, id int64) error {
 	if _, err := t.q.Exec(`DELETE FROM ci_watch WHERE root_run=?`, id); err != nil {
 		return err
 	}
-	ciCache(t, id, nil)
+	ciCacheInTx(t, id, nil)
 	for _, w := range ws {
 		if w.EndedMs == 0 {
 			scm, key := w.SCM, w.SubKey
@@ -537,18 +558,24 @@ func ciLoop(ctx context.Context, e *Engine) {
 	}
 }
 
-// ciPass is one look: gone watches a day old end, ended rows a week old
-// go, and each pending watch nobody's events moved lately and whose turn
-// at the cadence came is read.
+// ciPass is one look: summaries a rolled-back transaction left are read
+// again, gone watches a day old end, ended rows a week old go, and each
+// watch with anything not completed (ciOpen — a failed one too, while
+// other jobs run) that nobody's events moved lately and whose turn at the
+// cadence came is read.
 func ciPass(ctx context.Context, d *DB) {
+	ciSettle(d)
 	now, clk := time.Now(), ciClock.Load()
 	for _, w := range d.ciWatchesWhere(`WHERE ended_ms=0 AND state=? AND updated_ms<?`, ciGone, now.Add(-clk.GoneFor).UnixMilli()) {
 		_ = d.Tx(func(t *DB) error { return ciEnd(t, w) })
 	}
 	_, _ = d.q.Exec(`DELETE FROM ci_watch WHERE ended_ms>0 AND ended_ms<?`, now.Add(-clk.KeptFor).UnixMilli())
-	for _, w := range d.ciWatchesWhere(`WHERE ended_ms=0 AND state IN (?, ?) ORDER BY id`, ciPending, ciNone) {
+	for _, w := range d.ciWatchesWhere(`WHERE ended_ms=0 AND state<>? ORDER BY id`, ciGone) {
 		if ctx.Err() != nil {
 			return
+		}
+		if !ciOpen(w) {
+			continue // everything completed: nothing a read would tell
 		}
 		if at, ok := ciEvented.Load(ciKey{d.sql, w.ID}); ok && now.Sub(time.UnixMilli(at.(int64))) < clk.EventHold {
 			continue

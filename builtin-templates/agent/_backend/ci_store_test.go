@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -239,5 +240,57 @@ func TestCIOutcomeCardedOnce(t *testing.T) {
 	ciGET(t, fx.mux, asAlice, fmt.Sprintf("/runs/%d/ci", root), &v)
 	if len(v.Watches) != 1 || v.Watches[0].Outcome != ciSHA1+":success" {
 		t.Fatalf("GET says: %+v", v.Watches)
+	}
+}
+
+// A summary written inside a transaction that then rolls back (E's intake
+// failing after scmEventHooks ran, say) doesn't stay in memory: the
+// refresher's next pass reads that conversation again — and leaves alone a
+// summary a later transaction committed.
+func TestCISummaryRolledBack(t *testing.T) {
+	fx := newCIFix(t)
+	root := fx.conv(t, "alice", true)
+	w := fx.watchRow(t, root, "feature", ciSHA1, ciChecks(ciSHA1))
+	if err := fx.ag.db.Tx(func(t *DB) error { ciChanged(t, root, w.ID); return nil }); err != nil {
+		t.Fatal(err)
+	}
+	if s := ciCached(fx.ag.db, root); s == nil || s.State != ciFailure {
+		t.Fatalf("the summary: %+v", s)
+	}
+	boom := errors.New("the intake failed")
+	err := fx.ag.db.Tx(func(t *DB) error {
+		x := t.ciWatchByID(w.ID)
+		x.State = ciGone
+		if err := t.ciSave(x); err != nil {
+			return err
+		}
+		ciChanged(t, root, x.ID)
+		if s := ciCached(t, root); s == nil || s.State != ciNone {
+			return fmt.Errorf("inside the transaction: %+v", s)
+		}
+		return boom
+	})
+	if !errors.Is(err, boom) {
+		t.Fatal(err)
+	}
+	ciPass(t.Context(), fx.ag.db)
+	if s := ciCached(fx.ag.db, root); s == nil || s.State != ciFailure {
+		t.Fatalf("after the rollback: %+v", s)
+	}
+	// committed: kept as written
+	if err := fx.ag.db.Tx(func(t *DB) error {
+		x := t.ciWatchByID(w.ID)
+		x.State = ciGone
+		if err := t.ciSave(x); err != nil {
+			return err
+		}
+		ciChanged(t, root, x.ID)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	ciSettle(fx.ag.db)
+	if s := ciCached(fx.ag.db, root); s == nil || s.State != ciNone {
+		t.Fatalf("after a commit: %+v", s)
 	}
 }

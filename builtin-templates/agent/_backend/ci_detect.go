@@ -104,12 +104,18 @@ func ciTurnEnd(t *DB, run *Run, why, outcome, result string) {
 	})
 }
 
-// ciDetect runs the command in the run's sandbox and watches each pushed
-// branch a bound provider serves (and, at a bot home, that the owner may
-// have the bot read).
+// ciDetect runs the command in the run's sandbox — only while it is
+// running: never one that idled to a stop (an exec would start it) — and
+// watches each pushed branch a bound provider serves (and, at a bot home,
+// that the owner may have the bot read).
 func ciDetect(ctx context.Context, d *DB, runID, root int64, owner, ref, cwd, by string, since int64) {
 	conn, id, err := sbxDialRef(ref, sbxUserOf(binderWho(by)))
 	if err != nil {
+		return
+	}
+	// A sandbox that isn't running pushed nothing this turn, and an exec
+	// would start it (a stopped sandbox starts on one): left as it is.
+	if box, err := conn.Get(ctx, id); err != nil || box == nil || box.State != "running" {
 		return
 	}
 	res, err := conn.Run(ctx, id, sbxRunReq{Argv: []string{"sh", "-c", ciPushScript}, Cwd: cwd,
@@ -225,7 +231,9 @@ func ciProviderFor(ctx context.Context, host string) string {
 // ciMayWatchPushed: root's owner may have this home read repo at provider
 // scm. In a person's partition their own identity decides (always). At a
 // bot home: a project of this home naming the repo in which the owner takes
-// part — or, in a conversation nobody else shares, the scm bot rule.
+// part — or, in a conversation nobody else shares, the scm bot rule. A turn
+// end carries no request, so whether the owner manages the agent isn't
+// known here: a manager's own pushes need the rule (or a project) too.
 func ciMayWatchPushed(d *DB, root int64, owner, scm, repo string) bool {
 	if userMode() {
 		return true
