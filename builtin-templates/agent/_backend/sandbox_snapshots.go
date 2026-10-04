@@ -49,6 +49,10 @@ var forkBaseWait = 30 * time.Minute
 // project was worked in since).
 var forkBaseMaxAge = 24 * time.Hour
 
+// forkBaseBackoff: the loop asks for no fork base this soon after the
+// last snapshot job of the project ended (failed, not taken, or taken).
+var forkBaseBackoff = time.Hour
+
 // forkBaseFirst and forkBaseEvery are the owner loop's first look after a
 // takeover, and its period (ns; tests shorten them).
 var forkBaseFirst, forkBaseEvery atomic.Int64
@@ -158,40 +162,38 @@ func jobSnapshot(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob)
 	if !reposReady(d, p.ID) {
 		return doneJob("not taken: the project's repos aren't ready yet")
 	}
+	// From the quiet check to the manager's answer nothing else goes into
+	// the sandbox: no git step starts there (the worker's lock for it) and
+	// no credential is written there (its credential lock, which every
+	// write takes) — the scrub below stays true for the snapshot. A copy
+	// still pending holds the sandbox at its manager (it answers state),
+	// so nothing is written meanwhile either.
+	releaseGit, ok := holdGitSteps(p.SandboxRef)
+	if !ok {
+		return snapBusy(j, "a workspace job runs in it")
+	}
+	defer releaseGit()
+	defer scmHoldSandbox(p.SandboxRef)()
 	if j.ClientID != forkBaseNow {
-		why := d.sandboxBusyWhy(p.SandboxRef)
-		if why == "" { // what the agent doesn't track — a person's terminal — its manager knows
-			execs, err := conn.ExecList(ctx, id)
-			if err != nil {
-				return jobOutcome{}, err
-			}
-			for _, x := range execs {
-				if x.State == "running" {
-					why = "a command runs in it (" + clip(orStr(x.Label, "a terminal"), 80) + ")"
-					break
-				}
-			}
-		}
-		if why != "" {
-			if j.By != "" && nowMs()-j.Created < forkBaseWait.Milliseconds() {
-				return waitJob(30000, "waiting for the sandbox to be quiet: "+why)
-			}
-			return doneJob("not taken: " + why)
+		if why, err := quietWhy(ctx, d, conn, id, p.SandboxRef); err != nil {
+			return jobOutcome{}, err
+		} else if why != "" {
+			return snapBusy(j, why)
 		}
 	}
 	// no live token goes into the snapshot (nor into a fork made of it):
-	// every project's credential there is scrubbed first, and written
-	// again by the workspace gate when a task next needs it
-	for _, q := range projectsInSandbox(p.SandboxRef) {
-		if err := scmScrubCreds(ctx, q, p.SandboxRef, scrubStop); err != nil {
-			return jobOutcome{}, fmt.Errorf("emptying the credentials before the snapshot: %w", err)
-		}
+	// every credential there, of any project, is scrubbed first, and
+	// written again by the workspace gate when a task next needs it
+	if err := scmScrubSandbox(ctx, p.SandboxRef, scrubStop); err != nil {
+		return jobOutcome{}, fmt.Errorf("emptying the credentials before the snapshot: %w", err)
 	}
-	cid := fmt.Sprintf("agent:proj:%d:snap:%s", p.ID, time.Now().UTC().Format("20060102"))
-	if j.ClientID == forkBaseNow {
-		cid += fmt.Sprintf(":%d", j.ID) // asked for now: a new one, not today's again
+	if live := scmLiveIn(p.SandboxRef); len(live) > 0 {
+		return jobOutcome{}, fmt.Errorf("emptying the credentials before the snapshot: %d still there", len(live))
 	}
-	snap, err := conn.Snapshot(ctx, id, clip("fork base of "+p.Name, 64), cid)
+	// one snapshot per job: a retry of the job asks the same (its
+	// clientId, its name the project's directory, which never changes)
+	cid := fmt.Sprintf("agent:proj:%d:snap:%d:%d", p.ID, j.ID, j.Created)
+	snap, err := conn.Snapshot(ctx, id, clip("fork base of "+p.Slug, 64), cid)
 	if err != nil {
 		if r := sbxRefusal(err); r == "unsupported" || r == "invalid" || r == "exists" {
 			return jobOutcome{}, jobFail("taking the snapshot: %v", err)
@@ -203,6 +205,59 @@ func jobSnapshot(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob)
 		return waitJob(5000, "taking the snapshot")
 	}
 	return recordForkBase(ctx, conn, id, p, snap)
+}
+
+// snapBusy is a snapshot job's answer to a sandbox that isn't quiet: a
+// person's ask waits (up to forkBaseWait), the loop's own gives up.
+func snapBusy(j *ProjectJob, why string) (jobOutcome, error) {
+	if j.By != "" && nowMs()-j.Created < forkBaseWait.Milliseconds() {
+		return waitJob(30000, "waiting for the sandbox to be quiet: "+why)
+	}
+	return doneJob("not taken: " + why)
+}
+
+// quietWhy says what keeps sandbox ref (id at conn) from being quiet ("":
+// nothing): what the agent knows (sandboxBusyWhy), then what only its
+// manager knows — a person's terminal, a command started by hand.
+func quietWhy(ctx context.Context, d *DB, conn *sbxConn, id, ref string) (string, error) {
+	if why := d.sandboxBusyWhy(ref); why != "" {
+		return why, nil
+	}
+	execs, err := conn.ExecList(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	for _, x := range execs {
+		if x.State == "running" {
+			return "a command runs in it (" + clip(orStr(x.Label, "a terminal"), 80) + ")", nil
+		}
+	}
+	return "", nil
+}
+
+// holdGitSteps takes the project worker's lock on sandbox ref — the one a
+// git step (repo, fetch, prepare, cleanup, refs) holds while it runs there
+// — so that none starts there until the release; false: one runs now.
+// Without a worker (not the engine owner): nothing to hold.
+func holdGitSteps(ref string) (func(), bool) {
+	projWorkers.Lock()
+	w := projWorkers.m[projEng()]
+	projWorkers.Unlock()
+	if w == nil {
+		return func() {}, true
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.locked[ref] {
+		return nil, false
+	}
+	w.locked[ref] = true
+	return func() {
+		w.mu.Lock()
+		delete(w.locked, ref)
+		w.mu.Unlock()
+		kickProjectWorker() // the steps it held back
+	}, true
 }
 
 // recordForkBase makes snap p's fork base and deletes the one before it.
@@ -254,12 +309,26 @@ func handleForkBase(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var job *ProjectJob
+	by := callerOf(r).tag()
 	err := projAg().db.Tx(func(t *DB) error {
 		var err error
-		if job, err = t.queueJob(p.ID, 0, "", pjSnapshot, callerOf(r).tag(), 0); err != nil {
+		if job, err = t.queueJob(p.ID, 0, "", pjSnapshot, by, 0); err != nil {
 			return err
 		}
-		if body.Now {
+		switch {
+		case job.State == pjRunning && (job.By == "" || (body.Now && job.ClientID != forkBaseNow)):
+			// the loop's own (which waits for nobody), or one not taken now,
+			// is at work: what it does was decided — ask again once it ends
+			return &projErr{code: 409, refusal: refusalBusy, msg: "a snapshot job of this project is at work: ask again once it ends"}
+		case job.State == pjRunning:
+		case job.By == "":
+			// the loop's job, not started yet: it becomes this person's ask
+			// (it waits for quiet, from now)
+			job.By, job.Created, job.NextMs = by, nowMs(), 0
+			_, err = t.q.Exec(`UPDATE project_jobs SET by_user=?, created_ms=?, next_ms=0 WHERE id=? AND state<>'running'`, job.By, job.Created, job.ID)
+			t.AfterCommit(kickProjectWorker)
+		}
+		if err == nil && body.Now && job.State != pjRunning {
 			_, err = t.q.Exec(`UPDATE project_jobs SET client_id=? WHERE id=? AND state<>'running'`, forkBaseNow, job.ID)
 			job.ClientID = forkBaseNow
 		}
@@ -298,8 +367,8 @@ func forkBaseLoop(ctx context.Context, e *Engine) {
 // forkBaseSweep queues the snapshot of each active project whose big tasks
 // fork (policy bigTasks.mode fork) and that has none yet — once its repos
 // are ready — or one older than forkBaseMaxAge with a task changed since;
-// only while its sandbox is quiet, and not again within an hour of one
-// that failed.
+// only while its sandbox is quiet, and not again within forkBaseBackoff of
+// the last one's end (whatever it said).
 func forkBaseSweep(ctx context.Context) {
 	d := projAg().db
 	ps, err := d.projectsWhere(`WHERE state='active' AND kind<>'team' AND sandbox_ref<>'' AND dir<>''`)
@@ -320,9 +389,12 @@ func forkBaseSweep(ctx context.Context) {
 				continue
 			}
 		}
-		var recent int
+		// one at a time, and none within an hour of the last one's end —
+		// failed, or done without a snapshot (the sandbox wasn't quiet: an
+		// idle coding agent's adapter, a person's terminal may run for hours)
+		recent := 1
 		_ = d.q.QueryRow(`SELECT count(*) FROM project_jobs WHERE project_id=? AND kind=? AND (state IN ('queued','running','waiting')
-			OR (state='failed' AND updated_ms>?))`, p.ID, pjSnapshot, nowMs()-3600*1000).Scan(&recent)
+			OR (state IN ('done','failed') AND updated_ms>?))`, p.ID, pjSnapshot, nowMs()-forkBaseBackoff.Milliseconds()).Scan(&recent)
 		if recent > 0 || d.sandboxBusyWhy(p.SandboxRef) != "" || !managerSnapCaps(ctx, p.SandboxRef) {
 			continue
 		}

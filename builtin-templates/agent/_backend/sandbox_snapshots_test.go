@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -60,8 +61,16 @@ func TestSnapshotOnlyWhenQuiet(t *testing.T) {
 			if js := d.jobsWhere(`WHERE project_id=? AND kind=? AND state='done'`, p.ID, pjSnapshot); len(js) != 1 || !strings.Contains(js[0].Step, "not taken") {
 				t.Fatalf("the worker's snapshot job while busy: %s", jobsDump(d, p.ID))
 			}
-			if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/fork-base", p.ID), map[string]any{}); w.Code != 202 {
-				t.Fatalf("POST fork-base: %d %s", w.Code, w.Body)
+			// a person's ask while the loop's own job is queued makes it
+			// theirs: it waits for quiet, from now
+			loop, err := d.queueJob(p.ID, 0, "", pjSnapshot, "", time.Hour)
+			if err != nil {
+				t.Fatal(err)
+			}
+			w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/fork-base", p.ID), map[string]any{})
+			var got struct{ Job ProjectJob }
+			if w.Code != 202 || json.Unmarshal(w.Body.Bytes(), &got) != nil || got.Job.ID != loop.ID || got.Job.By != "alice" {
+				t.Fatalf("POST fork-base over the loop's job %d: %d %s", loop.ID, w.Code, w.Body)
 			}
 			hwait(t, "the person's snapshot to wait for quiet", func() bool {
 				js := d.jobsWhere(`WHERE project_id=? AND kind=? AND state='waiting'`, p.ID, pjSnapshot)
@@ -104,8 +113,8 @@ func TestSnapshotOnlyWhenQuiet(t *testing.T) {
 		t.Fatalf("no fork base once quiet: snap %q, %d snapshot calls; %s", cur.ForkSnap, snaps(), jobsDump(d, p.ID))
 	}
 	call := fx.managerCalls("POST", "/sbx/sandboxes/"+boxID+"/snapshots")[0]
-	if want := fmt.Sprintf(`"clientId":"agent:proj:%d:snap:%s"`, p.ID, time.Now().UTC().Format("20060102")); !strings.Contains(call.Body, want) {
-		t.Fatalf("the snapshot's clientId: %s", call.Body)
+	if want := fmt.Sprintf(`"clientId":"agent:proj:%d:snap:`, p.ID); !strings.Contains(call.Body, want) || !strings.Contains(call.Body, `"name":"fork base of `+p.Slug+`"`) {
+		t.Fatalf("the snapshot's clientId and name (one per job, not the project's name, which may change): %s", call.Body)
 	}
 	var state, why string
 	if err := d.q.QueryRow(`SELECT state, why FROM project_creds WHERE project_id=? AND sandbox_ref=?`, p.ID, ref).Scan(&state, &why); err != nil ||
@@ -118,6 +127,28 @@ func TestSnapshotOnlyWhenQuiet(t *testing.T) {
 	if js := d.jobsWhere(`WHERE project_id=? AND kind=? AND state IN ('queued','running','waiting')`, p.ID, pjSnapshot); len(js) != 0 {
 		t.Fatalf("a fresh fork base asked for again: %s", jobsDump(d, p.ID))
 	}
+
+	// old and worked in since, under a terminal the agent doesn't know of:
+	// the loop asks once; its job isn't taken; the loop doesn't ask again
+	// within the hour (an idle coding agent's adapter may run for hours)
+	day := time.Now().Add(-48 * time.Hour).UnixMilli()
+	_, _ = d.q.Exec(`UPDATE projects SET fork_snap_ms=? WHERE id=?`, day, p.ID)
+	_, _ = d.q.Exec(`UPDATE project_jobs SET updated_ms=? WHERE project_id=? AND kind=?`, day, p.ID, pjSnapshot)
+	_, _ = d.q.Exec(`UPDATE project_tasks SET updated_ms=? WHERE project_id=?`, nowMs(), p.ID)
+	ex, err = conn.ExecStart(ctx, boxID, sbxExecReq{Cmd: "sleep 30", Label: "an adapter"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := len(d.jobsWhere(`WHERE project_id=? AND kind=?`, p.ID, pjSnapshot))
+	for range 3 {
+		forkBaseSweep(ctx)
+		waitJobsDone(t, fx.projFix, p.ID)
+	}
+	if js := d.jobsWhere(`WHERE project_id=? AND kind=?`, p.ID, pjSnapshot); len(js) != before+1 || !strings.Contains(js[len(js)-1].Step, "not taken") {
+		t.Fatalf("the loop under a terminal: %d jobs, was %d: %s", len(js), before, jobsDump(d, p.ID))
+	}
+	_ = conn.ExecDelete(ctx, boxID, ex.ID)
+	_, _ = d.q.Exec(`UPDATE projects SET fork_snap_ms=? WHERE id=?`, nowMs(), p.ID)
 
 	// now: taken while a task works, a new one, the old one deleted
 	_, _ = d.q.Exec(`UPDATE runs SET status='running' WHERE id=?`, runID)
@@ -142,5 +173,60 @@ func TestSnapshotOnlyWhenQuiet(t *testing.T) {
 	forgetHellos()
 	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/fork-base", p.ID), map[string]any{}); w.Code != 409 || !strings.Contains(w.Body.String(), "unsupported") {
 		t.Fatalf("a fork base where the manager can't: %d %s", w.Code, w.Body)
+	}
+}
+
+// No credential reaches the sandbox between the scrub before a snapshot
+// and the snapshot itself: a credential written meanwhile (a task's next
+// git step, the workspace gate, a warm-up) waits until the manager has
+// answered — so no snapshot, and no fork made of one, holds a live token.
+func TestSnapshotHoldsCredentialsOut(t *testing.T) {
+	fx := newP2Fix(t)
+	pv, k, _ := readyTask(t, fx.projFix, nil)
+	d := fx.ag.db
+	p, err := d.getProject(pv.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(scmLiveIn(p.SandboxRef)) == 0 {
+		t.Fatalf("a ready task's sandbox holds no credential to scrub")
+	}
+	var sawLive []scmCredRow
+	ensured := make(chan error, 1)
+	fx.keep.mu.Lock()
+	fx.keep.onSnap = func() {
+		// the snapshot's create is at the manager: a credential is asked
+		// for now, and given every chance to land before the manager answers
+		go func() { ensured <- scmEnsureCreds(context.Background(), p, k, p.SandboxRef, 10*time.Minute) }()
+		deadline := time.Now().Add(1500 * time.Millisecond)
+		for time.Now().Before(deadline) && len(sawLive) == 0 {
+			sawLive = scmLiveIn(p.SandboxRef)
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
+	fx.keep.mu.Unlock()
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/fork-base", p.ID), map[string]any{"now": true}); w.Code != 202 {
+		t.Fatalf("POST fork-base: %d %s", w.Code, w.Body)
+	}
+	waitJobsDone(t, fx.projFix, p.ID)
+	fx.keep.mu.Lock()
+	fx.keep.onSnap = nil
+	fx.keep.mu.Unlock()
+	if cur, _ := d.getProject(p.ID); cur.ForkSnap == "" {
+		t.Fatalf("no fork base: %s", jobsDump(d, p.ID))
+	}
+	if len(sawLive) > 0 {
+		t.Fatalf("a credential was live in the sandbox while its snapshot was taken: %+v", sawLive)
+	}
+	select {
+	case err := <-ensured:
+		if err != nil {
+			t.Fatalf("the credential asked for meanwhile: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatalf("the credential asked for meanwhile never came")
+	}
+	if len(scmLiveIn(p.SandboxRef)) == 0 {
+		t.Fatalf("the credential asked for meanwhile wasn't written after the snapshot")
 	}
 }

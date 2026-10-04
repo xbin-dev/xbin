@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -20,7 +22,15 @@ import (
 // refs job reads back.
 type p2SCM struct{ *p1SCM }
 
+// p2PullFails: the next this many pull-request creates fail as a
+// connection would (not a refusal).
+var p2PullFails atomic.Int32
+
 func (f p2SCM) PullCreate(ctx context.Context, req scmPullReq) (*scmPull, error) {
+	if p2PullFails.Add(-1) >= 0 {
+		return nil, errors.New("connection reset by peer")
+	}
+	p2PullFails.Store(0)
 	return f.creds.PullCreate(ctx, req)
 }
 func (f p2SCM) Pulls(ctx context.Context, q scmQuery) (*scmPage[scmPull], error) {
@@ -46,6 +56,9 @@ type keepPaths struct {
 	primary string            // the fixture's sandbox id (a fresh fork's source)
 	alias   map[string]string // fork id → source id
 	root    string            // the manager's directory of sandboxes (resolved)
+	// onSnap, when set, runs as a snapshot's create arrives, before the
+	// manager takes it (what else reaches the sandbox meanwhile)
+	onSnap func()
 }
 
 func (k *keepPaths) dir(id string) string { return filepath.Join(k.root, id) }
@@ -67,6 +80,12 @@ func (k *keepPaths) forkOf(p string) string {
 
 func (k *keepPaths) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
+	k.mu.Lock()
+	onSnap := k.onSnap
+	k.mu.Unlock()
+	if onSnap != nil && r.Method == "POST" && strings.HasSuffix(r.URL.Path, "/snapshots") {
+		onSnap()
+	}
 	if fork := k.forkOf(r.URL.Path); fork != "" {
 		k.mu.Lock()
 		src, dst := k.dir(k.alias[fork])+"/", k.dir(fork)+"/"
