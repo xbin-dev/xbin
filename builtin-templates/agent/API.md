@@ -3749,7 +3749,9 @@ its own**, made by its `prepare` job before its checkouts:
   credential in the sandbox is emptied (and revoked) before the snapshot
   is taken, and none is written there, nor does a git step start there,
   until the manager has answered — so no snapshot holds a live token; the
-  workspace gate writes a fresh one when a task next needs it. Each
+  workspace gate writes a fresh one when a task next needs it. Even one
+  asked for `now` waits for a git step running in the sandbox, or due to
+  start there (a person's ask waits, the agent's own gives up). Each
   snapshot job asks for one snapshot (`clientId`
   `agent:proj:‹pid›:snap:‹job›:‹queued at›`, named `fork base of ‹project
   slug›`), so a retry asks the same. One the agent asks for itself is not
@@ -3805,7 +3807,9 @@ events, CI) are told. A checkout on another branch is left alone (a `note`
 says so). Asking again while the job runs runs it once more after. A
 pull request's create that fails as a connection would (or the provider
 answers `limit`, `unavailable` or `upstream`) after the push is tried
-again: the job records what it did and runs again, with backoff.
+again: the job records what it did and runs again, with backoff. At its
+last try it ends with a `note` instead (the task's workspace untouched,
+never failed), and the ask stays for the next ask or turn.
 
 **Auto-PR.** With `policy.autoPR` `draft` or `ready`, a task whose turn
 ended well (it rests `idle` or `done` — not cancelled, not failed), whose
