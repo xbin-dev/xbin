@@ -71,6 +71,13 @@ type env struct {
 	gH     http.Handler
 	users  map[string]*srv
 	pids   map[string]string // a person's partition id (a test may change it)
+	seen   []seenResp        // every answer the tests got (TestNoSecretsInResponsesOrLogs)
+}
+
+type seenResp struct {
+	method, path string
+	code         int
+	body         string
 }
 
 func newEnv(t *testing.T) *env {
@@ -158,6 +165,7 @@ func (e *env) call(h http.Handler, c caller, method, path string, body any) *htt
 	c.set(r)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)
+	e.seen = append(e.seen, seenResp{method, path, w.Code, w.Body.String()})
 	return w
 }
 

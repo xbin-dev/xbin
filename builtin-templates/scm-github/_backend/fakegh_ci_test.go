@@ -82,7 +82,7 @@ func (f *fakeGH) pullJSON(repo string, p *fPull) map[string]any {
 		"mergeable_state": map[bool]string{true: "clean", false: "unknown"}[p.Mergeable != nil],
 		"head":            map[string]any{"ref": p.Head, "sha": p.HeadSHA, "repo": map[string]any{"full_name": repo}, "label": owner + ":" + p.Head},
 		"base":            map[string]any{"ref": p.Base, "sha": strings.Repeat("a", 40)},
-		"user":            map[string]any{"login": p.User, "type": "User"}, "author_association": "MEMBER", "labels": []any{},
+		"user":            map[string]any{"login": p.User, "type": map[bool]string{true: "Bot", false: "User"}[strings.HasSuffix(p.User, "[bot]")]}, "author_association": "MEMBER", "labels": []any{},
 		"updated_at": "2026-10-03T10:00:00Z"}
 }
 
@@ -393,6 +393,13 @@ func (f *fakeGH) ciRoutes(mux *http.ServeMux) {
 		f.mu.Unlock()
 		if j == nil || j["status"] != "completed" || !has {
 			f.msg(w, r, 404, "Not Found")
+			return
+		}
+		f.mu.Lock()
+		target, ext := strings.CutPrefix(f.ci.logs[r.PathValue("id")], "REDIRECT:")
+		f.mu.Unlock()
+		if ext {
+			http.Redirect(w, r, target+"?sig=SECRETSIG", http.StatusFound)
 			return
 		}
 		http.Redirect(w, r, f.srv.URL+"/_blob/logs/"+r.PathValue("id")+"?sig=SECRETSIG", http.StatusFound)

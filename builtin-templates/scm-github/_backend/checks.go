@@ -179,7 +179,6 @@ func (s *srv) combined(ctx context.Context, a ghAuth, repo, sha string) (*checks
 	var mu sync.Mutex
 	var firstErr error
 	get := func(u string, out any, optional bool) {
-		defer wg.Done()
 		sem <- struct{}{}
 		defer func() { <-sem }()
 		_, err := s.gh.call(ctx, a, http.MethodGet, u, nil, out)
@@ -206,10 +205,21 @@ func (s *srv) combined(ctx context.Context, a ghAuth, repo, sha string) (*checks
 	var runs struct {
 		WorkflowRuns []ghRun `json:"workflow_runs"`
 	}
-	wg.Add(3)
-	go get(base+"/commits/"+sha+"/check-runs?per_page=100", &checks, false)
-	go get(base+"/commits/"+sha+"/status", &status, false)
-	go get(base+"/actions/runs?head_sha="+sha+"&per_page=20", &runs, true)
+	for _, c := range []struct {
+		u        string
+		out      any
+		optional bool
+	}{
+		{base + "/commits/" + sha + "/check-runs?per_page=100", &checks, false},
+		{base + "/commits/" + sha + "/status", &status, false},
+		{base + "/actions/runs?head_sha=" + sha + "&per_page=20", &runs, true},
+	} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			get(c.u, c.out, c.optional)
+		}()
+	}
 	wg.Wait()
 	if firstErr != nil {
 		return nil, firstErr
@@ -221,6 +231,7 @@ func (s *srv) combined(ctx context.Context, a ghAuth, repo, sha string) (*checks
 	for i, run := range runs.WorkflowRuns {
 		wg.Add(1)
 		go func(i int, id int64) {
+			defer wg.Done()
 			var js struct {
 				Jobs []ghJob `json:"jobs"`
 			}
