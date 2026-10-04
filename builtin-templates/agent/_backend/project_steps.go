@@ -147,11 +147,11 @@ func doneJob(step string) (jobOutcome, error) { return jobOutcome{Done: true, St
 // (the provider's device code lasts about as long) before it fails.
 var signinWait = 20 * time.Minute
 
-// ensureCreds is the credential's part before a git step: the project's
+// stepCreds is the credential's part before a git step: the project's
 // token in ref, live for 10 more minutes (scmEnsureCreds; nothing before
 // that part is in). A team definition's sandbox (a seed) never holds one.
 // A sign-in pending: the task waits on it (signin true).
-func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string) (signin bool, err error) {
+func stepCreds(ctx context.Context, p *Project, k *ProjectTask, ref string) (signin bool, err error) {
 	if p.Kind == projTeam {
 		return false, nil
 	}
@@ -345,7 +345,7 @@ func jobRepo(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) (jo
 	if err != nil {
 		return jobOutcome{}, err
 	}
-	if signin, err := ensureCreds(ctx, p, nil, p.SandboxRef); signin {
+	if signin, err := stepCreds(ctx, p, nil, p.SandboxRef); signin {
 		return waitJob(10000, "waiting for a sign-in")
 	} else if err != nil {
 		return jobOutcome{}, err
@@ -454,7 +454,7 @@ func jobFetch(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) (j
 	if err != nil {
 		return jobOutcome{}, err
 	}
-	if signin, err := ensureCreds(ctx, p, nil, p.SandboxRef); signin {
+	if signin, err := stepCreds(ctx, p, nil, p.SandboxRef); signin {
 		return waitJob(10000, "waiting for a sign-in")
 	} else if err != nil {
 		return jobOutcome{}, err
@@ -601,7 +601,7 @@ func jobPrepare(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 	if err != nil {
 		return jobOutcome{}, err
 	}
-	if signin, err := ensureCreds(ctx, p, k, ref); signin {
+	if signin, err := stepCreds(ctx, p, k, ref); signin {
 		if nowMs()-j.Created > signinWait.Milliseconds() {
 			return jobOutcome{}, jobFail("the sign-in to %s wasn't finished: sign in, then Retry", orStr(p.Host, "the scm provider"))
 		}
