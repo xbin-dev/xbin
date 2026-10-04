@@ -108,10 +108,17 @@ func TestUpgradeDetect(t *testing.T) {
 // checkout (main), on a new branch, its origin switched to the provider's
 // https URL (the token gone); the sandbox labelled, a credential written
 // for the clone; listed as the project's task; and its next turn is a
-// task's.
+// task's. Named after its clone, the project's directory is a new one
+// beside it — never the clone, which would hold the project's layout and
+// its later tasks' worktrees. A second upgrade under way is refused.
 func TestUpgradeAdoptsTask1(t *testing.T) {
 	fx := newUpFix(t)
-	code, body := fx.upgrade(t, asAlice, map[string]any{"switchHttps": []string{fx.web}})
+	upgrading.Store(fx.run, true)
+	if code, body := fx.upgrade(t, asAlice, nil); code != 409 || !strings.Contains(body, `"refusal":"busy"`) {
+		t.Fatalf("an upgrade while one is under way: %d %s", code, body)
+	}
+	upgrading.Delete(fx.run)
+	code, body := fx.upgrade(t, asAlice, map[string]any{"name": "web", "switchHttps": []string{fx.web}})
 	if code != 201 {
 		t.Fatalf("upgrade: %d %s", code, body)
 	}
@@ -124,7 +131,7 @@ func TestUpgradeAdoptsTask1(t *testing.T) {
 	}
 	p, tv := out.Project, out.Task
 	want := "xbin/" + p.UID + "/1-t"
-	if p.Name != "Site" || p.Owner != "alice" || tv.N != 1 || tv.Run != fx.run || tv.WS != wsReady || tv.Branch != want ||
+	if p.Name != "web" || p.Owner != "alice" || tv.N != 1 || tv.Run != fx.run || tv.WS != wsReady || tv.Branch != want ||
 		len(tv.Checkouts) != 1 || tv.Checkouts[0].Mode != coMain || tv.Checkouts[0].Path != fx.web {
 		t.Fatalf("the project and its task 1: %s", body)
 	}
@@ -146,6 +153,14 @@ func TestUpgradeAdoptsTask1(t *testing.T) {
 		t.Fatalf("the clone's work was touched: %q", b)
 	}
 	waitJobsDone(t, fx.projFix, p.ID)
+	if pp, _ := fx.ag.db.getProject(p.ID); pp.Dir != fx.box.Workdir+"/web-2" || pathsClash(pp.Dir, fx.web) || pathsClash(pp.Dir, fx.api) {
+		t.Fatalf("the project's directory: %s (the clones %s, %s)", pp.Dir, fx.web, fx.api)
+	}
+	for _, d := range []string{".repos", "tasks", ".xbin"} {
+		if _, err := os.Stat(filepath.Join(fx.web, d)); err == nil {
+			t.Fatalf("the project's layout went into the clone: %s", d)
+		}
+	}
 	if b, ok := fx.m.Box(fx.box.ID); !ok || b.Labels[projectLabel] != p.UID {
 		t.Fatalf("the sandbox's label: %+v", b.Labels)
 	}
@@ -225,10 +240,16 @@ func TestUpgradeRefusals(t *testing.T) {
 		{"someone else", nil, asBob, nil, 404, ""},
 		{"an origin that isn't the repo", nil, asAlice, map[string]any{"repos": []map[string]any{{"path": fx.web, "repo": "acme/api"}}}, 400, ""},
 		{"a path that isn't a clone's top", nil, asAlice, map[string]any{"repos": []map[string]any{{"path": fx.box.Workdir, "repo": "acme/web"}}}, 400, ""},
+		{"an upgrade under way", func() { upgrading.Store(fx.run, true) }, asAlice, nil, 409, refusalBusy},
+		{"a clone holding the working directory", func() {
+			gitRun(t, fx.box.Workdir, "init", "-q", "-b", "main")
+			gitRun(t, fx.box.Workdir, "remote", "add", "origin", "https://github.com/acme/web.git")
+		}, asAlice, map[string]any{"repos": []map[string]any{{"path": fx.box.Workdir, "repo": "acme/web"}}}, 409, ""},
 	}
 	oldBot := scmBotAllowed
 	for _, tc := range cases {
 		scmBotAllowed = oldBot
+		upgrading.Delete(fx.run)
 		restore()
 		gitRun(t, fx.web, "checkout", "-q", "feature")
 		fx.ag.acl.flush(fx.run)
@@ -254,6 +275,8 @@ func TestUpgradeRefusals(t *testing.T) {
 		}
 	}
 	scmBotAllowed = oldBot
+	upgrading.Delete(fx.run)
+	_ = os.RemoveAll(filepath.Join(fx.box.Workdir, ".git"))
 	restore()
 	gitRun(t, fx.web, "checkout", "-q", "feature")
 	code, body := fx.upgrade(t, asAlice, map[string]any{"branch": "keep"})

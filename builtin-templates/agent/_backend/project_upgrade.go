@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
@@ -75,14 +76,37 @@ else
 fi
 `
 
-// verifyScript describes each clone T_i (N of them) a request names.
+// verifyScript describes each clone T_i (N of them) a request names, and
+// prints the name of each entry in the sandbox's working directory W (an
+// ENT line: what the project's directory must not be).
 const verifyScript = describeFn + `i=0
 while [ "$i" -lt "$N" ]; do
   eval "T=\${T_$i}"
   describe "$T"
   i=$((i+1))
 done
+if [ -n "$W" ] && [ -d "$W" ]; then
+  for e in "$W"/* "$W"/.[!.]* "$W"/..?*; do
+    if [ -e "$e" ] || [ -L "$e" ]; then printf 'ENT\t%s\n' "\${e##*/}"; fi
+  done | head -n 5000
+fi
 `
+
+// parseEnts reads the ENT lines: the names taken in the working directory.
+func parseEnts(out string) map[string]bool {
+	ents := map[string]bool{}
+	for _, l := range strings.Split(out, "\n") {
+		if name, ok := strings.CutPrefix(l, "ENT\t"); ok && name != "" {
+			ents[name] = true
+		}
+	}
+	return ents
+}
+
+// pathsClash: directory a is b, holds it or lies inside it.
+func pathsClash(a, b string) bool {
+	return a == b || strings.HasPrefix(b, a+"/") || strings.HasPrefix(a, b+"/")
+}
 
 // parseCands reads the CAND lines (at most 20).
 func parseCands(out string) []detectCand {
@@ -176,26 +200,31 @@ func upgradeTarget(r *http.Request) (*Run, Config, string, string, error) {
 	return run, cfg, ref, cwd, nil
 }
 
-// detectIn runs script in sandbox ref (for w) and answers what it found,
-// and the sandbox.
-func detectIn(ctx context.Context, w who, ref, script string, env map[string]string) ([]detectCand, *sbxSandbox, error) {
+// detectIn runs script in sandbox ref (for w; W in its env the sandbox's
+// working directory) and answers what it found, the sandbox and what the
+// script printed.
+func detectIn(ctx context.Context, w who, ref, script string, env map[string]string) ([]detectCand, *sbxSandbox, string, error) {
 	conn, id, err := sbxDialRef(ref, sbxUserOf(w))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	box, err := conn.Get(ctx, id)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	if !sandboxAccess(w, box).Use {
-		return nil, nil, perr(403, "you may not use this sandbox (%s)", box.Name)
+		return nil, nil, "", perr(403, "you may not use this sandbox (%s)", box.Name)
 	}
 	s := &wsbx{conn: conn, id: id, ref: ref, box: box}
-	out, err := s.must(ctx, "looking for git repos", script, env, "", 60*time.Second)
-	if err != nil {
-		return nil, nil, err
+	all := map[string]string{"W": box.Workdir}
+	for k, v := range env {
+		all[k] = v
 	}
-	return parseCands(out), box, nil
+	out, err := s.must(ctx, "looking for git repos", script, all, "", 60*time.Second)
+	if err != nil {
+		return nil, nil, "", err
+	}
+	return parseCands(out), box, out, nil
 }
 
 // scmForHost is the bound scm provider that hosts host ("": none).
@@ -246,7 +275,7 @@ func handleProjectDetect(w http.ResponseWriter, r *http.Request) {
 		}
 		cwd = box.Workdir
 	}
-	cands, _, err := detectIn(ctx, callerOf(r), ref, detectScript, map[string]string{"CWD": cwd})
+	cands, _, _, err := detectIn(ctx, callerOf(r), ref, detectScript, map[string]string{"CWD": cwd})
 	if err != nil {
 		writeProjErr(w, err)
 		return
@@ -296,6 +325,13 @@ func handleUpgrade(w http.ResponseWriter, r *http.Request) {
 		writeProjErr(w, err)
 		return
 	}
+	// one upgrade of a conversation at a time (a double submit): the
+	// second would change the clones' branch under the first
+	if _, busy := upgrading.LoadOrStore(run.ID, true); busy {
+		writeProjErr(w, &projErr{code: 409, refusal: refusalBusy, msg: "this conversation is being made a project already"})
+		return
+	}
+	defer upgrading.Delete(run.ID)
 	var body upgradeBody
 	if !decodeBody(w, r, &body) {
 		return
@@ -374,10 +410,18 @@ func handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 	p := &Project{Name: body.Name, Kind: projPersonal, Owner: c.tag(), Visibility: visPrivate, TeamRole: roleViewer, SCM: api.Provider(),
 		SandboxRef: ref, Policy: body.Policy, State: projActive, CreatedBy: c.tag()}
-	repos, cands, box, err := upgradeRepos(ctx, c, api, hello, p, ref, body)
+	repos, cands, box, ents, err := upgradeRepos(ctx, c, api, hello, p, ref, body)
 	if err != nil {
 		writeProjErr(w, err)
 		return
+	}
+	for _, cd := range cands {
+		if cd.Path == box.Workdir || strings.HasPrefix(box.Workdir, cd.Path+"/") {
+			// every project directory would be inside the clone
+			xbin.WriteError(w, 409, fmt.Sprintf("%s holds the sandbox's working directory (%s), where the project's directory goes: "+
+				"a project's tasks would work inside that clone — move the clone under the working directory first", cd.Path, box.Workdir))
+			return
+		}
 	}
 	p.Host = cands[0].Host
 	keepBranch := ""
@@ -399,7 +443,22 @@ func handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	}
 	// the project and its repos first: the new branch's name needs its uid
 	err = projAg().db.Tx(func(t *DB) error {
-		p.Slug = t.projectSlug(p.Name)
+		// its directory is a new one, never a clone's (a project named after
+		// its clone), one holding a clone or inside one: P1 lays out .repos,
+		// tasks and .xbin there, and a fork empties P/tasks
+		p.Slug = freeSlug(orStr(slugOf(p.Name, 40), "project"), 40, func(s string) bool {
+			if ents[s] {
+				return true
+			}
+			for _, cd := range cands {
+				if pathsClash(box.Workdir+"/"+s, cd.Path) {
+					return true
+				}
+			}
+			var n int
+			_ = t.q.QueryRow(`SELECT count(*) FROM projects WHERE slug=? AND state<>'deleting'`, s).Scan(&n)
+			return n > 0
+		})
 		p.Dir = box.Workdir + "/" + p.Slug
 		if err := t.insertProject(p); err != nil {
 			return err
@@ -424,12 +483,14 @@ func handleUpgrade(w http.ResponseWriter, r *http.Request) {
 	slug := orStr(slugOf(title, 32), "task")
 	br := orStr(keepBranch, p.branchPrefix(pol)+"/1-"+slug)
 	if err := upgradeGit(ctx, c, ref, cands, repos, body.SwitchHTTPS, branch == "new", br); err != nil {
+		upgradeGitUndo(ctx, c, ref, cands, branch == "new", br)
 		dropUpgraded(p.ID)
 		writeProjErr(w, err)
 		return
 	}
 	k, runs, err := adoptTask(p, run, repos, cands, title, slug, br, c)
 	if err != nil {
+		upgradeGitUndo(ctx, c, ref, cands, branch == "new", br)
 		dropUpgraded(p.ID)
 		writeProjErr(w, err)
 		return
@@ -456,27 +517,27 @@ func runShared(run *Run) string {
 // toplevel, its origin at the provider's host and naming the repo) and at
 // the provider (the bot rule, that it sees the repo) — and answers the
 // rows (mode adopted, their base the clone), what the sandbox said of each,
-// and the sandbox.
-func upgradeRepos(ctx context.Context, c who, api scmAPI, hello *scmHello, p *Project, ref string, body upgradeBody) ([]ProjectRepo, []detectCand, *sbxSandbox, error) {
+// the sandbox, and the names taken in its working directory.
+func upgradeRepos(ctx context.Context, c who, api scmAPI, hello *scmHello, p *Project, ref string, body upgradeBody) ([]ProjectRepo, []detectCand, *sbxSandbox, map[string]bool, error) {
 	env := map[string]string{"N": strconv.Itoa(len(body.Repos))}
 	seen := map[string]bool{}
 	for i, rq := range body.Repos {
 		pth := path.Clean(strings.TrimSpace(rq.Path))
 		if !strings.HasPrefix(rq.Path, "/") || pth != strings.TrimRight(strings.TrimSpace(rq.Path), "/") || pth == "/" {
-			return nil, nil, nil, perr(400, "repos: path %q: an absolute, clean path in the sandbox", rq.Path)
+			return nil, nil, nil, nil, perr(400, "repos: path %q: an absolute, clean path in the sandbox", rq.Path)
 		}
 		if seen[pth] {
-			return nil, nil, nil, perr(400, "repos: %s twice", pth)
+			return nil, nil, nil, nil, perr(400, "repos: %s twice", pth)
 		}
 		seen[pth] = true
 		env[fmt.Sprintf("T_%d", i)] = pth
 	}
-	cands, box, err := detectIn(ctx, c, ref, verifyScript, env)
+	cands, box, out, err := detectIn(ctx, c, ref, verifyScript, env)
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	if len(cands) != len(body.Repos) {
-		return nil, nil, nil, perr(400, "repos: not every path is a git clone in the sandbox")
+		return nil, nil, nil, nil, perr(400, "repos: not every path is a git clone in the sandbox")
 	}
 	var repos []ProjectRepo
 	for i, rq := range body.Repos {
@@ -488,25 +549,25 @@ func upgradeRepos(ctx context.Context, c who, api scmAPI, hello *scmHello, p *Pr
 		}
 		switch {
 		case cd.top == "":
-			return nil, nil, nil, perr(400, "repos: %s isn't a git clone", cd.Path)
+			return nil, nil, nil, nil, perr(400, "repos: %s isn't a git clone", cd.Path)
 		case cd.top != cd.Path:
-			return nil, nil, nil, perr(400, "repos: %s isn't a clone's top directory (that is %s)", cd.Path, clip(cd.top, 200))
+			return nil, nil, nil, nil, perr(400, "repos: %s isn't a clone's top directory (that is %s)", cd.Path, clip(cd.top, 200))
 		case cd.Repo == "" || !hosted:
-			return nil, nil, nil, perr(400, "repos: %s's origin (%s) isn't a repo at %s", cd.Path, orStr(cd.Remote, "none"), strings.Join(hello.Hosts, ", "))
+			return nil, nil, nil, nil, perr(400, "repos: %s's origin (%s) isn't a repo at %s", cd.Path, orStr(cd.Remote, "none"), strings.Join(hello.Hosts, ", "))
 		case want != "" && !strings.EqualFold(want, cd.Repo):
-			return nil, nil, nil, perr(400, "repos: %s's origin is %s, not %s", cd.Path, cd.Repo, want)
+			return nil, nil, nil, nil, perr(400, "repos: %s's origin is %s, not %s", cd.Path, cd.Repo, want)
 		}
 		if p.Host != "" && !strings.EqualFold(p.Host, cd.Host) {
-			return nil, nil, nil, perr(400, "repos: a project's repos are on one host (%s and %s)", p.Host, cd.Host)
+			return nil, nil, nil, nil, perr(400, "repos: a project's repos are on one host (%s and %s)", p.Host, cd.Host)
 		}
 		p.Host = cd.Host
 		row, err := resolveRepo(ctx, c, api, p, newRepoReq{Repo: cd.Repo})
 		if err != nil {
-			return nil, nil, nil, err
+			return nil, nil, nil, nil, err
 		}
 		for _, have := range repos {
 			if strings.EqualFold(have.Repo, row.Repo) {
-				return nil, nil, nil, perr(400, "repos: %s twice", row.Repo)
+				return nil, nil, nil, nil, perr(400, "repos: %s twice", row.Repo)
 			}
 		}
 		// the clone itself is the base: never removed, its checkout task 1's;
@@ -518,7 +579,45 @@ func upgradeRepos(ctx context.Context, c who, api scmAPI, hello *scmHello, p *Pr
 		}
 		repos = append(repos, *row)
 	}
-	return repos, cands, box, nil
+	return repos, cands, box, parseEnts(out), nil
+}
+
+// upgrading holds the conversations an upgrade is under way for (run id).
+var upgrading sync.Map
+
+// upgradeUndoScript takes back the new branch BR of each clone T_i still
+// on it: back to where the clone was (git's previous HEAD), the branch
+// deleted (-d: it holds no commit of its own yet). The origin switched to
+// https stays: the same repo, and a credential the old one carried was
+// never kept.
+const upgradeUndoScript = `i=0
+while [ "$i" -lt "$N" ]; do
+  eval "T=\${T_$i}"
+  if [ "$(git -C "$T" branch --show-current 2>/dev/null)" = "$BR" ]; then
+    git -C "$T" checkout -q - && git -C "$T" branch -q -d "$BR" || echo "left $T on $BR" >&2
+  fi
+  i=$((i+1))
+done
+`
+
+// upgradeGitUndo takes back what upgradeGit did to the branches of an
+// upgrade that then failed (newBranch: it made one) — best effort.
+func upgradeGitUndo(ctx context.Context, c who, ref string, cands []detectCand, newBranch bool, br string) {
+	if !newBranch {
+		return
+	}
+	conn, id, err := sbxDialRef(ref, sbxUserOf(c))
+	if err == nil {
+		env := map[string]string{"N": strconv.Itoa(len(cands)), "BR": br}
+		for i, cd := range cands {
+			env[fmt.Sprintf("T_%d", i)] = cd.Path
+		}
+		s := &wsbx{conn: conn, id: id, ref: ref}
+		_, err = s.must(context.WithoutCancel(ctx), "taking the new branch back", upgradeUndoScript, env, "", 60*time.Second)
+	}
+	if err != nil {
+		logf("a failed upgrade in %s: taking its new branch %s back: %v", ref, br, err)
+	}
 }
 
 // upgradeGit makes the clones the project's (upgradeGitScript).
