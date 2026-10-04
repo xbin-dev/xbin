@@ -12,7 +12,8 @@
 // load; signing in to the provider offered only in a person's partition
 // (from the settings, then Forget), never at an unpartitioned agent or the
 // shared space; a phone's width; a person's partition (two homes, a team
-// definition's page with no tasks); and the shared space's team definitions.
+// definition's page with no tasks); and the shared space's team definitions
+// (no seed at first; a seed of yours only when shared with the team).
 //
 //   node test/projects.mjs        (needs playwright + a chromium build)
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
@@ -318,7 +319,10 @@ ok('…and Forget', await waitCall(p5, 'DELETE', '/projects/scm/signin\\?scm=app
 ok('no page errors (signing in)', e5.length === 0, e5.join(' | '));
 
 // === a partitioned agent's shared space: a team project's definition ======================================
-const { page: g, errors: ge } = await open(projSeed(), { init: () => { window.xbin.partition = 'global'; } });
+const box = (name, visibility, mine = true) => ({ ref: `apps/coding-sandbox|sb-${name}`, provider: 'apps/coding-sandbox', manager: 'Coding sandboxes', id: `sb-${name}`, name,
+  state: 'running', egress: 'internet', visibility, image: { id: 'base' }, owner: { user: mine ? 'alice' : 'bob' }, mine, canUse: true, workdir: '/work' });
+const { page: g, errors: ge } = await open(projSeed({ sandboxes: [box('mine-private', 'private'), box('mine-team', 'team'), box('bobs-team', 'team', false)] }),
+  { init: () => { window.xbin.partition = 'global'; } });
 await g.click('#projentry');
 await g.waitForSelector('#proj-new');
 await g.click('#proj-new');
@@ -331,6 +335,22 @@ await g.click('#pn-create');
 ok('…posted as a team definition, shared, without a seed', await waitCall(g, 'POST', '/projects$'));
 const gb = (await calls(g, 'POST', '/projects$'))[0].body;
 ok('…its body', gb.kind === 'team' && gb.share && gb.share.visibility === 'team' && Array.isArray(gb.share.members) && !('sandbox' in gb), JSON.stringify(gb));
+// a seed of your own: only one you have shared with the team (members fork from it only when they can see it)
+await g.click('#top .crumb');
+await g.waitForSelector('#proj-new');
+await g.click('#proj-new');
+await g.waitForSelector('#proj-form .pnres[data-repo="acme/web"]');
+await g.check('#proj-form input[name="pn-sbx"][value="pick"]');
+await g.waitForSelector('#pn-sbx-ref');
+const seeds = await g.$$eval('#pn-sbx-ref option', (els) => els.map((e) => e.value).filter(Boolean));
+ok('a seed of yours: only your sandbox shared with the team is offered', JSON.stringify(seeds) === '["apps/coding-sandbox|sb-mine-team"]', JSON.stringify(seeds));
+if (seeds.includes('apps/coding-sandbox|sb-mine-team')) await g.selectOption('#pn-sbx-ref', 'apps/coding-sandbox|sb-mine-team');
+await g.fill('#pn-name', 'Seeded');
+await g.click('#proj-form .pnres[data-repo="acme/web"] button');
+await g.click('#pn-create');
+ok('…posted as the seed, by its ref', await waitCall(g, 'POST', '/projects$', 2));
+const gs = ((await calls(g, 'POST', '/projects$'))[1] || {}).body || {};
+ok('…its body', gs.kind === 'team' && JSON.stringify(gs.sandbox) === '{"ref":"apps/coding-sandbox|sb-mine-team"}', JSON.stringify(gs));
 ok('no page errors (shared space)', ge.length === 0, ge.join(' | '));
 
 await browser.close();

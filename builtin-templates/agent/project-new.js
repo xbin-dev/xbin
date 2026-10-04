@@ -3,7 +3,8 @@
 // your own partition, when it lets you work as yourself and you haven't), the repos — a picker of what
 // you can reach through it (GET /projects/scm/repos), each with an optional
 // setup script — the project's name, its sandbox (a new one, or one of your
-// own private ones) and the policy basics (tasks at once, who answers, pull
+// own private ones; for a team's seed, one of yours shared with the team)
+// and the policy basics (tasks at once, who answers, pull
 // requests, whose identity). In an unpartitioned agent it may be shared with
 // the team at once; at a partitioned agent's shared space it makes a team
 // project's definition — shared with the team or with the members added
@@ -43,13 +44,17 @@ export function newProjectTpl(p) {
   app.sbx.ensure('', '');
   const list = app.sbx.listAt('');
   const sb = sandboxOf(f, list.managers);
-  const mine = (list.sandboxes || []).filter((s) => s.mine && s.visibility !== 'team' && !['deleting', 'archived', 'error'].includes(s.state));
+  const team = partitionState() === 'global';
+  // yours to pick: a private one for a project (its credentials are yours);
+  // a team-visible one for a team's seed — members' sandboxes fork from it
+  // only when they can see it (API.md §Projects in the UI), and an existing sandbox
+  // keeps its own visibility
+  const mine = (list.sandboxes || []).filter((s) => s.mine && (s.visibility === 'team') === team && !['deleting', 'archived', 'error'].includes(s.state));
   const provs = (p.scm && p.scm.providers) || [];
   const prov = p.provider(f.scm);
   const set = (k) => (e) => p.setForm(k, e.target.value);
   const setSb = (k) => (e) => p.setFormPart('sandbox', k, e.target.value);
   const setPol = (k) => (e) => p.setFormPart('policy', k, e.target.value);
-  const team = partitionState() === 'global';
   const create = () => { p.form.sandbox = { mode: sb.mode, ref: sb.ref, provider: sb.provider, image: sb.image, size: sb.size, egress: sb.egress }; p.saveProject(); };
   return html`<div class="autos-page projs-page" id="proj-form">
     <div class="ahd"><a class="crumb" @click=${() => p.closeForm()}>Projects</a> › <b>New project</b></div>
@@ -90,12 +95,12 @@ export function newProjectTpl(p) {
       ${team ? html`<label class="chk"><input type="radio" name="pn-sbx" value="none" .checked=${sb.mode === 'none'} @change=${() => p.setFormPart('sandbox', 'mode', 'none')}> none</label>` : nothing}
       <label class="chk"><input type="radio" name="pn-sbx" value="new" .checked=${sb.mode !== 'pick' && !(team && sb.mode === 'none')} @change=${() => p.setFormPart('sandbox', 'mode', 'new')}> a new sandbox</label>
       <label class="chk"><input type="radio" name="pn-sbx" value="pick" .checked=${sb.mode === 'pick'} ?disabled=${!mine.length}
-        @change=${() => p.setFormPart('sandbox', 'mode', 'pick')}> one of your own${mine.length ? '' : ' (you have no private sandbox)'}</label>
+        @change=${() => p.setFormPart('sandbox', 'mode', 'pick')}> one of your own${mine.length ? '' : team ? ' (you have no sandbox shared with the team)' : ' (you have no private sandbox)'}</label>
     </div>
     ${team && sb.mode === 'none' ? nothing : sb.mode === 'pick' ? html`<div class="field"><label>Sandbox</label><select id="pn-sbx-ref" @change=${setSb('ref')}>
         <option value="" ?selected=${!sb.ref}>pick one…</option>
         ${mine.map((s) => html`<option value=${s.ref} ?selected=${s.ref === sb.ref}>${s.name} · ${s.manager || s.provider} · ${s.state}</option>`)}</select>
-        <div class="muted small">${team ? 'The seed holds no sign-in: members\' sandboxes fork from it.' : 'Its credentials are yours: a project works only in a private sandbox of your own.'}</div></div>`
+        <div class="muted small">${team ? 'Shared with the team, so members\' sandboxes can fork from it; it holds no sign-in. A private sandbox of yours must be shared with the team first.' : 'Its credentials are yours: a project works only in a private sandbox of your own.'}</div></div>`
       : sb.usable.length ? html`<div class="row2">
         <div class="field"><label>Manager</label><select id="pn-sbx-mgr" @change=${setSb('provider')}>${sb.usable.map((m) => html`<option value=${m.provider} ?selected=${m.provider === sb.provider}>${m.title || m.provider}</option>`)}</select></div>
         <div class="field"><label>Image</label><select @change=${setSb('image')}>${((sb.m && sb.m.images) || []).map((i) => html`<option value=${i.id} ?selected=${i.id === sb.image}>${i.title || i.id}</option>`)}</select></div>

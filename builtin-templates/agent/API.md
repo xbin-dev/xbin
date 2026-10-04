@@ -3289,8 +3289,11 @@ provider offers both). In an unpartitioned agent it may be shared with
 everyone who can open the agent at once. At a partitioned agent's shared
 space the form makes a team project's definition (`kind: "team"`), sent
 shared — with everyone who can open the agent, or only the members added
-next — its seed sandbox optional (none at first). Then `POST /projects`
-and its page.
+next — its seed sandbox optional (none at first). A seed picked from your
+own sandboxes is one you have shared with the team: an existing sandbox
+keeps its own visibility, and members' sandboxes fork from the seed only
+when they can see it, so the form offers only those (a private one of
+yours must be shared first). Then `POST /projects` and its page.
 
 **Signing in to the provider** (a person's partition, where projects use
 your own sign-in): offered only there, and only when the provider lets you
