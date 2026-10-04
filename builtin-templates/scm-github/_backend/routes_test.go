@@ -24,7 +24,7 @@ func TestHelloShape(t *testing.T) {
 		h.Limits != (limitsInfo{100, 900, 3000, 100, 50}) || h.Events.PollMinMs != 120000 || h.Events.Webhooks != "unknown" {
 		t.Fatalf("hello: %+v", h)
 	}
-	if got := strings.Join(h.Caps, ","); got != "credentials,repos,pulls,issues,checks,poll,partitions" {
+	if got := strings.Join(h.Caps, ","); got != "credentials,repos,pulls,issues,checks,events,poll,partitions" {
 		t.Fatalf("caps: %s", got)
 	}
 	// The body carries its etag and the header the same.
@@ -59,12 +59,15 @@ func TestHelloShape(t *testing.T) {
 	ok(t, e.call(e.user("alice").routes(), pageC("alice"), "GET", "/scm/hello", nil), 200)
 }
 
-// A capability hello doesn't list answers 501 unsupported.
+// A capability hello doesn't list answers 501 unsupported; the events
+// routes, once 501 here, are served since the events capability is listed.
 func TestUnlistedCapUnsupported(t *testing.T) {
 	e := newEnv(t)
 	e.setup()
 	for _, rt := range [][2]string{{"POST", "/scm/subscriptions"}, {"GET", "/scm/subscriptions"}, {"DELETE", "/scm/subscriptions/s1"}, {"GET", "/scm/events"}} {
-		refusal(t, e.call(e.gH, agentC, rt[0], rt[1], map[string]any{"repo": "acme/web"}), 501, "unsupported")
+		if r := e.call(e.gH, agentC, rt[0], rt[1], map[string]any{"repo": "acme/web"}); r.Code == 501 {
+			t.Fatalf("%s %s: %d %s", rt[0], rt[1], r.Code, r.Body)
+		}
 	}
 	refusal(t, e.call(e.gH, nobodyC, "GET", "/scm/events", nil), 403, "not-allowed")
 }

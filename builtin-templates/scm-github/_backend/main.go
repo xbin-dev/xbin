@@ -126,6 +126,7 @@ func main() {
 		return xbin.Client().Do(req)
 	}
 	s.start()
+	s.startEvents(true) // hook.go, outbox.go: the outbox's delivery and cron, a catch-up
 	xbin.Serve(s.routes())
 }
 
