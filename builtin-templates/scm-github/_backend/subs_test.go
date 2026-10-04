@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -69,12 +70,44 @@ func TestSubscriptionPersonChecks(t *testing.T) {
 	}
 	ee.signIn("bob", "hubot")
 	refusal(t, ee.call(ee.user("bob").routes(), personC("bob"), "DELETE", "/scm/subscriptions/"+v.ID, nil), 404, "not-found")
+	// Another consumer in her partition neither lists nor deletes it (its
+	// own, made through her frame above, it does).
+	other := caller{from: "apps/other-agent", role: "consumer", partition: "user:alice", pid: "pid-alice"}
+	decode(t, ee.call(alice, other, "GET", "/scm/subscriptions", nil), &list)
+	if len(list.Items) != 1 || list.Items[0].ID == v.ID {
+		t.Fatalf("%+v", list)
+	}
+	refusal(t, ee.call(alice, other, "DELETE", "/scm/subscriptions/"+v.ID, nil), 404, "not-found")
 	refusal(t, ee.call(ee.gH, agentC, "DELETE", "/scm/subscriptions/"+v.ID, nil), 404, "not-found")
 	ok(t, ee.call(alice, personC("alice"), "DELETE", "/scm/subscriptions/"+v.ID, nil), 204)
 	decode(t, ee.call(alice, personC("alice"), "GET", "/scm/subscriptions", nil), &list)
 	if len(list.Items) != 0 {
 		t.Fatalf("%+v", list)
 	}
+}
+
+// People's subscriptions are capped per person across consumers and in
+// all, below the total, so tiles' still fit.
+func TestSubscriptionCaps(t *testing.T) {
+	defer func(a, b int) { subsPerPerson, subsPeople = a, b }(subsPerPerson, subsPeople)
+	subsPerPerson, subsPeople = 3, 4
+	ee := newEvEnv(t)
+	ee.signIn("alice", "octocat")
+	ee.gh.mu.Lock()
+	ee.gh.collab["acme/web|hubot"] = "read"
+	ee.gh.mu.Unlock()
+	ee.signIn("bob", "hubot")
+	post := func(user, consumer, key string) *httptest.ResponseRecorder {
+		return ee.call(ee.gH, relayC(user, "write"), "POST", "/partition/subscriptions", map[string]any{"consumer": consumer, "sub": map[string]any{"repo": "acme/web", "key": key}})
+	}
+	ok(t, post("alice", "apps/agent", "k1"), 201)
+	ok(t, post("alice", "apps/agent", "k2"), 201)
+	ok(t, post("alice", "apps/other-agent", "k3"), 201)
+	refusal(t, post("alice", "apps/other-agent", "k4"), 429, "limit")
+	ok(t, post("alice", "apps/agent", "k1"), 200) // a key's replacement always fits
+	ok(t, post("bob", "apps/agent", "k1"), 201)
+	refusal(t, post("bob", "apps/agent", "k2"), 429, "limit")
+	ee.subscribe(agentC, map[string]any{"repo": "acme/web", "key": "tile"})
 }
 
 func TestSubscriptionTile(t *testing.T) {

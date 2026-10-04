@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"testing"
@@ -16,13 +17,18 @@ func TestWebhookHMAC(t *testing.T) {
 	}
 	ok(t, ee.sendHook(ee.gH, ingress, "ping", "p-1", old, []byte(`{"zen":"Keep it logically awesome."}`)), 200)
 	ok(t, ee.sendHook(ee.gH, ingress, "push", "d-1", old, body), 202)
-	// A wrong secret, no signature, a signature of another body.
+	// A wrong secret, no signature, a signature of another body, another
+	// algorithm's prefix, a truncated or non-hex digest.
 	ok(t, ee.sendHook(ee.gH, ingress, "push", "d-2", "not-the-secret", body), 401)
 	ok(t, ee.sendHook(ee.gH, ingress, "push", "d-3", "", body), 401)
-	r := ee.sendHook(ee.gH, ingress, "push", "d-4", old, body)
-	ok(t, r, 202)
-	if ee.global.ev().counts.BadSig != 2 {
-		t.Fatalf("bad signatures counted: %+v", ee.global.ev().counts)
+	other := fixtureWith(t, "push", map[string]any{"forced": false})
+	good := sign(old, body)
+	for i, sig := range []string{sign(old, other), "sha1=" + strings.TrimPrefix(good, "sha256="), good[:len(good)-2], good[:len(good)-1] + "z", "sha256="} {
+		ok(t, ee.sendHookSig(ee.gH, ingress, "push", fmt.Sprintf("d-3%d", i), sig, body), 401)
+	}
+	ok(t, ee.sendHookSig(ee.gH, ingress, "push", "d-4", strings.ToUpper(good[:7])+good[7:], body), 202) // GitHub's prefix, any case
+	if n := ee.global.ev().counts.BadSig; n != 7 {
+		t.Fatalf("bad signatures counted: %d", n)
 	}
 	// Rotated: the new secret, and for a day the previous one.
 	ok(t, ee.call(ee.gH, ownerC, "POST", "/setup/app", map[string]any{"appId": ee.gh.appID, "clientId": ee.gh.clientID,
@@ -180,7 +186,8 @@ func TestChecksMergeWithin5s(t *testing.T) {
 	}
 	ev := got[0]
 	runs, _ := get(ev, "data.checks.runs").([]any)
-	if ev["conclusion"] != "failure" || get(ev, "data.checks.suite") != "77" || len(runs) != 1 || get(ev, "ref.pr") != float64(42) {
+	if ev["conclusion"] != "failure" || get(ev, "data.checks.suite") != "77" || len(runs) != 1 || get(ev, "ref.pr") != float64(42) ||
+		!hasSuffix(ev["topic"], "/acme/web/pull/42/checks.completed") || !hasSuffix(ev["url"], "/acme/web/pull/42/checks") {
 		t.Fatalf("%v", ev)
 	}
 	// Past the window, another one is its own event.
@@ -190,6 +197,68 @@ func TestChecksMergeWithin5s(t *testing.T) {
 	ee.deliver()
 	if got := ee.agent.take(); len(got) != 1 || got[0]["conclusion"] != "success" || got[0]["eventId"] == ev["eventId"] {
 		t.Fatalf("%v", got)
+	}
+	// The status first, then the suite: the merged event is the pull
+	// request's — its topic and url too, not the status's branch and commit.
+	sha2 := strings.Repeat("e", 40)
+	ok(t, ee.hook("status", fixtureWith(t, "status", map[string]any{"sha": sha2, "branches": []any{map[string]any{"name": fxBranch, "commit": map[string]any{"sha": sha2}}}})), 202)
+	ee.clock.advance(time.Second)
+	ok(t, ee.hook("check_suite", fixtureWith(t, "check_suite", map[string]any{"check_suite.head_sha": sha2, "check_suite.conclusion": "success"})), 202)
+	ee.clock.advance(5 * time.Second)
+	ee.deliver()
+	got = ee.agent.take()
+	if len(got) != 1 || !hasSuffix(got[0]["topic"], "/acme/web/pull/42/checks.completed") || get(got[0], "ref.pr") != float64(42) ||
+		!hasSuffix(got[0]["url"], "/acme/web/pull/42/checks") || got[0]["conclusion"] != "failure" {
+		t.Fatalf("%v", got)
+	}
+}
+
+// A status naming several branches reaches a subscription on the second
+// as that branch's: its ref.branch, topic and summary say the one matched.
+func TestChecksStatusBranchMatched(t *testing.T) {
+	ee := newEvEnv(t)
+	ee.subscribe(agentC, map[string]any{"repo": "acme/web", "branches": []string{fxBranch}})
+	both := []any{map[string]any{"name": "main", "commit": map[string]any{"sha": fxSHA}}, map[string]any{"name": fxBranch, "commit": map[string]any{"sha": fxSHA}}}
+	ok(t, ee.hook("status", fixtureWith(t, "status", map[string]any{"branches": both})), 202)
+	ee.clock.advance(6 * time.Second)
+	ee.deliver()
+	got := ee.agent.take()
+	if len(got) != 1 || get(got[0], "ref.branch") != fxBranch || !hasSuffix(got[0]["topic"], "/acme/web/branch/"+fxBranch+"/checks.completed") ||
+		!strings.Contains(got[0]["summary"].(string), " on "+fxBranch+" ") {
+		t.Fatalf("%v", got)
+	}
+}
+
+// A held checks.completed a delivery pass has already taken is never
+// merged into: the second half is its own event, not lost.
+func TestChecksMergeInFlight(t *testing.T) {
+	ee := newEvEnv(t)
+	ee.subscribe(agentC, map[string]any{"repo": "acme/web"})
+	ok(t, ee.hook("check_suite", fixtureWith(t, "check_suite", map[string]any{"check_suite.conclusion": "success"})), 202)
+	// Exactly five seconds on, the item is due — and the merge window is
+	// at its edge: a delivery pass takes the item and is posting it…
+	ee.clock.advance(5 * time.Second)
+	h := ee.global.ev()
+	posting, release := make(chan struct{}), make(chan struct{})
+	post := h.post
+	h.post = func(ctx context.Context, u string, body []byte) (int, error) {
+		close(posting)
+		<-release
+		return post(ctx, u, body)
+	}
+	done := make(chan struct{})
+	go func() { ee.deliver(); close(done) }()
+	<-posting
+	// …when the commit's failing status arrives.
+	ok(t, ee.hook("status", fixture(t, "status")), 202)
+	close(release)
+	<-done
+	h.post = post
+	ee.clock.advance(6 * time.Second)
+	ee.deliver()
+	got := ee.agent.take()
+	if len(got) != 2 || got[0]["conclusion"] != "success" || got[1]["conclusion"] != "failure" {
+		t.Fatalf("%d events: %v", len(got), got)
 	}
 }
 
@@ -238,4 +307,10 @@ func TestHookCatchUp(t *testing.T) {
 	if err != nil || n != 1 || ee.gh.count("POST /app/hook/deliveries/1/attempts") != 1 || ee.gh.count("POST /app/hook/deliveries/4/attempts") != 0 {
 		t.Fatalf("%d %v", n, err)
 	}
+}
+
+// hasSuffix says whether a decoded field is a string ending in suffix.
+func hasSuffix(v any, suffix string) bool {
+	s, ok := v.(string)
+	return ok && strings.HasSuffix(s, suffix)
 }

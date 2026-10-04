@@ -26,6 +26,14 @@ const (
 	accessCacheFor = time.Hour
 )
 
+// People's subscriptions are capped apart from tiles' (vars: the tests
+// lower them): each person's across consumers, and everyone's together —
+// below subsMax, so people never take the room tiles' (for: global) need.
+var (
+	subsPerPerson = 4000
+	subsPeople    = 16000
+)
+
 // subscription is state "sub/<id>". The first fields are the contract's
 // answer; the rest is kept, never answered.
 type subscription struct {
@@ -213,8 +221,14 @@ func (h *hub) storeSub(base *subscription, q subReq, now time.Time) (*subscripti
 	defer h.mu.Unlock()
 	h.load()
 	var old *subscription
-	n := 0
+	n, person, people := 0, 0, 0
 	for _, sub := range h.subs {
+		if sub.Person != "" {
+			people++
+			if sub.Person == base.Person {
+				person++
+			}
+		}
 		if sub.Consumer != base.Consumer || sub.For != base.For || sub.PID != base.PID {
 			continue
 		}
@@ -223,10 +237,20 @@ func (h *hub) storeSub(base *subscription, q subReq, now time.Time) (*subscripti
 			old = sub
 		}
 	}
-	if old == nil && (n >= subsPerHolder || len(h.subs) >= subsMax) {
-		e := refuse(refLimit, "too many subscriptions (at most %d per consumer): delete some", subsPerHolder)
-		e.RetryAfterMs = 60_000
-		return nil, false, e
+	if old == nil {
+		var e *scmErr
+		switch {
+		case n >= subsPerHolder || len(h.subs) >= subsMax:
+			e = refuse(refLimit, "too many subscriptions (at most %d per consumer): delete some", subsPerHolder)
+		case base.Person != "" && person >= subsPerPerson:
+			e = refuse(refLimit, "too many subscriptions (at most %d per person, across consumers): delete some", subsPerPerson)
+		case base.Person != "" && people >= subsPeople:
+			e = refuse(refLimit, "too many people's subscriptions here (at most %d in all): try later", subsPeople)
+		}
+		if e != nil {
+			e.RetryAfterMs = 60_000
+			return nil, false, e
+		}
 	}
 	sub := *base
 	sub.ID, sub.Created = "s_"+randomID(12), now.UnixMilli()
@@ -280,7 +304,8 @@ func (s *srv) handleSubDelete(w http.ResponseWriter, r *http.Request, c who) {
 	id := r.PathValue("id")
 	switch {
 	case s.mode == modeUser:
-		if err := s.relay(r.Context(), http.MethodDelete, "/partition/subscriptions/"+url.PathEscape(id), nil, nil); err != nil {
+		path := "/partition/subscriptions/" + url.PathEscape(id) + "?consumer=" + url.QueryEscape(c.c.From)
+		if err := s.relay(r.Context(), http.MethodDelete, path, nil, nil); err != nil {
 			fail(w, err)
 			return
 		}
@@ -365,9 +390,15 @@ func (s *srv) handleRelaySubList(w http.ResponseWriter, r *http.Request, c who) 
 	writeGET(w, r, s.listSubs(r.URL.Query().Get("consumer"), "user:"+c.person, c.pid))
 }
 
+// handleRelaySubDelete deletes one of the person's subscriptions that the
+// consumer named made (as a list shows only those): one consumer never
+// deletes another's.
 func (s *srv) handleRelaySubDelete(w http.ResponseWriter, r *http.Request, c who) {
 	s.relayStart(c)
-	s.deleteSub(w, r.PathValue("id"), func(sub *subscription) bool { return sub.Person == c.person && sub.PID == c.pid })
+	consumer := r.URL.Query().Get("consumer")
+	s.deleteSub(w, r.PathValue("id"), func(sub *subscription) bool {
+		return sub.Person == c.person && sub.PID == c.pid && sub.Consumer == consumer
+	})
 }
 
 // wipeEvents forgets everything kept for a person at global (their

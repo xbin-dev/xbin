@@ -148,7 +148,9 @@ func (s *srv) handleHook(w http.ResponseWriter, r *http.Request) {
 		if a, _ := s.app(); a != nil && a.Slug != "" {
 			nc.botLogin = a.Slug + "[bot]"
 		}
-		if n, err = s.enqueue(normalize(ghEvent, &hk, nc), now.UnixMilli()); err != nil {
+		evs := normalize(ghEvent, &hk, nc)
+		s.proveBranches(r.Context(), evs)
+		if n, err = s.enqueue(evs); err != nil {
 			fail(w, err) // not marked seen: a redelivery is taken
 			return
 		}
@@ -308,6 +310,7 @@ func (e *event) render(g *group) json.RawMessage {
 	sort.Strings(out.Subs)
 	if byBranch != "" && !containsFold(groupBranches(g), out.Ref.Branch) {
 		out.Ref.Branch = byBranch
+		out.Topic, out.Summary = topicOf(out.SCM.Host, &out), summaryOf(&out)
 	}
 	b, _ := json.Marshal(&out)
 	return b
@@ -322,31 +325,33 @@ func groupBranches(g *group) []string {
 }
 
 // enqueue writes one outbox item per (event, consumer, for); a
-// checks.completed waits five seconds for its commit's other half.
-func (s *srv) enqueue(evs []*event, now int64) (int, error) {
+// checks.completed waits five seconds for its commit's other half. The
+// time is read here, under the lock the delivery pass takes too.
+func (s *srv) enqueue(evs []*event) (int, error) {
 	h := s.ev()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.load()
+	now := s.now().UnixMilli()
 	pol := s.policy()
 	n := 0
+	var pend map[string]int
 	for _, e := range evs {
 		groups := h.match(e, pol, now)
 		if len(groups) == 0 {
 			continue
 		}
+		if pend == nil {
+			pend = h.pendingPer()
+		}
 		if e.Kind == kindChecks {
-			if m, err := h.mergeChecks(e, groups, now); err != nil || m >= 0 {
+			if m, err := h.mergeChecks(e, groups, now, pend); err != nil || m >= 0 {
 				n += max(m, 0)
 				if err != nil {
 					return n, err
 				}
 				continue
 			}
-		}
-		if !h.room(len(groups)) {
-			h.counts.Overflow += int64(len(groups))
-			continue
 		}
 		keys := make([]string, 0, len(groups))
 		for k := range groups {
@@ -355,23 +360,49 @@ func (s *srv) enqueue(evs []*event, now int64) (int, error) {
 		sort.Strings(keys)
 		var w *checksWindow
 		if e.Kind == kindChecks && e.Ref.SHA != "" {
-			w = &checksWindow{at: now, ev: e, groups: groups, items: map[string]string{}}
+			w = &checksWindow{at: now, ev: e, groups: map[string]*group{}, items: map[string]string{}}
 		}
 		for _, k := range keys {
+			if !h.admit(groups[k], pend) {
+				continue
+			}
 			it, err := h.newItem(e, groups[k], now, w != nil)
 			if err != nil {
 				return n, err
 			}
 			n++
 			if w != nil {
-				w.items[k] = it.ID
+				w.groups[k], w.items[k] = groups[k], it.ID
 			}
 		}
-		if w != nil {
+		if w != nil && len(w.items) > 0 {
 			h.window[strings.ToLower(e.Repo)+"|"+e.Ref.SHA] = w
 		}
 	}
 	return n, nil
+}
+
+// pendingPer is each consumer's pending items. h.mu held.
+func (h *hub) pendingPer() map[string]int {
+	pend := map[string]int{}
+	for _, it := range h.out {
+		if it.State == "pending" {
+			pend[it.Consumer]++
+		}
+	}
+	return pend
+}
+
+// admit says whether one more item for g fits: the outbox's room, and the
+// consumer's own share of it (a consumer failing for a day fills its share,
+// never the others'); one that doesn't is counted as overflow. h.mu held.
+func (h *hub) admit(g *group, pend map[string]int) bool {
+	if pend[g.consumer] >= outboxPerConsumer || !h.room(1) {
+		h.counts.Overflow++
+		return false
+	}
+	pend[g.consumer]++
+	return true
 }
 
 // newItem queues an event for a group. h.mu held.
@@ -393,15 +424,16 @@ func (h *hub) newItem(e *event, g *group, now int64, hold bool) (*outItem, error
 
 // mergeChecks folds a checks.completed into one of the same commit still
 // held (a status and a suite within five seconds): the worse conclusion,
-// both halves' runs. -1: nothing to fold into. h.mu held.
-func (h *hub) mergeChecks(e *event, groups map[string]*group, now int64) (int, error) {
+// both halves' runs. -1: nothing to fold into — the window closed, or a
+// delivery pass already took one of its items. h.mu held.
+func (h *hub) mergeChecks(e *event, groups map[string]*group, now int64, pend map[string]int) (int, error) {
 	key := strings.ToLower(e.Repo) + "|" + e.Ref.SHA
 	w := h.window[key]
-	if w == nil || now-w.at > checksMerge.Milliseconds() {
+	if w == nil || now-w.at >= checksMerge.Milliseconds() {
 		return -1, nil
 	}
 	for _, id := range w.items {
-		if it := h.out[id]; it == nil || it.State != "pending" || it.Attempts > 0 {
+		if it := h.out[id]; it == nil || it.State != "pending" || it.Attempts > 0 || h.sending[id] {
 			return -1, nil
 		}
 	}
@@ -421,10 +453,13 @@ func (h *hub) mergeChecks(e *event, groups map[string]*group, now int64) (int, e
 			m.branches = append(m.branches, b)
 		}
 	}
-	if m.Ref.PR == 0 {
-		m.Ref.PR = e.Ref.PR
+	if m.Ref.PR == 0 && e.Ref.PR > 0 {
+		m.Ref.PR, m.URL = e.Ref.PR, e.URL // the pull request's checks page
 	}
-	m.Summary = summaryOf(m)
+	if m.Ref.Branch == "" {
+		m.Ref.Branch = e.Ref.Branch
+	}
+	m.Topic, m.Summary = topicOf(m.SCM.Host, m), summaryOf(m)
 	n := 0
 	for k, g := range groups {
 		if old := w.groups[k]; old != nil {
@@ -433,6 +468,9 @@ func (h *hub) mergeChecks(e *event, groups map[string]*group, now int64) (int, e
 					old.subs = append(old.subs, sub)
 				}
 			}
+			continue
+		}
+		if !h.admit(g, pend) {
 			continue
 		}
 		w.groups[k] = g

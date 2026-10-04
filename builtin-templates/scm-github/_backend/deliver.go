@@ -40,15 +40,25 @@ func (h *hub) deliverDue(ctx context.Context) {
 	h.load()
 	h.prune(now)
 	per := map[string][]outItem{}
+	var taken []string
 	for _, it := range h.out {
 		if it.State == "pending" && it.NextAt <= now {
 			per[it.Consumer] = append(per[it.Consumer], *it)
+			h.sending[it.ID] = true // from here, a checks merge makes a new item instead
+			taken = append(taken, it.ID)
 		}
 	}
 	h.mu.Unlock()
 	if len(per) == 0 {
 		return
 	}
+	defer func() {
+		h.mu.Lock()
+		for _, id := range taken {
+			delete(h.sending, id)
+		}
+		h.mu.Unlock()
+	}()
 	sem := make(chan struct{}, 4)
 	var wg sync.WaitGroup
 	for _, its := range per {

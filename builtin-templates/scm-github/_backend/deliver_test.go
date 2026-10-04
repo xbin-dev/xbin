@@ -260,3 +260,75 @@ func TestDeliveryRechecksAccess(t *testing.T) {
 		}
 	}
 }
+
+// GET /scm/events for a person re-checks a private repo's access as a
+// delivery does: lost, its items aren't listed, the pending ones dropped
+// and their subscriptions there deleted.
+func TestEventsRechecksAccess(t *testing.T) {
+	ee := newEvEnv(t)
+	ee.signIn("alice", "octocat")
+	alice := ee.user("alice").routes()
+	ok(t, ee.call(alice, personC("alice"), "POST", "/scm/subscriptions", map[string]any{"repo": "acme/web", "key": "task:1"}), 201)
+	ee.agent.answer(500, 500, 500, 500)
+	ok(t, ee.hook("push", fixture(t, "push")), 202)
+	ok(t, ee.hook("push", fixtureWith(t, "push", map[string]any{"repository.private": false})), 202)
+	ee.deliver() // the consumer is failing: both stay pending
+	list := func() []json.RawMessage {
+		var p page[json.RawMessage]
+		r := ee.call(alice, personC("alice"), "GET", "/scm/events", nil)
+		ok(t, r, 200)
+		decode(t, r, &p)
+		return p.Items
+	}
+	if n := len(list()); n != 2 {
+		t.Fatalf("%d listed", n)
+	}
+	ee.gh.mu.Lock()
+	ee.gh.collab["acme/web|octocat"] = "none"
+	ee.gh.mu.Unlock()
+	ee.clock.advance(61 * time.Minute) // past the access cache
+	items := list()
+	h := ee.global.ev()
+	if len(items) != 1 || !strings.Contains(string(items[0]), `"private":false`) || len(h.subs) != 0 || h.counts.AccessLost != 1 || len(h.out) != 1 {
+		t.Fatalf("%d listed, %d subs, %+v, %d items", len(items), len(h.subs), h.counts, len(h.out))
+	}
+	// GitHub not answering refuses the listing rather than show it.
+	ee.gh.mu.Lock()
+	ee.gh.collab["acme/web|octocat"] = "read"
+	ee.gh.mu.Unlock()
+	ok(t, ee.call(alice, personC("alice"), "POST", "/scm/subscriptions", map[string]any{"repo": "acme/web", "key": "task:1"}), 201)
+	ee.agent.answer(500)
+	ok(t, ee.hook("push", fixture(t, "push")), 202)
+	ee.deliver()
+	ee.clock.advance(61 * time.Minute)
+	ee.gh.fail("/collaborators/octocat/permission", 10, 502, nil, `{}`)
+	refusal(t, ee.call(alice, personC("alice"), "GET", "/scm/events", nil), 503, "unavailable")
+}
+
+// One consumer failing for a day fills its own share of the outbox, never
+// another consumer's room.
+func TestOutboxPerConsumerCap(t *testing.T) {
+	defer func(n int) { outboxPerConsumer = n }(outboxPerConsumer)
+	outboxPerConsumer = 3
+	ee := newEvEnv(t)
+	ee.subscribe(agentC, map[string]any{"repo": "acme/web"})
+	ee.subscribe(agent2C, map[string]any{"repo": "acme/web"})
+	ee.agent.answer(500, 500, 500, 500, 500, 500)
+	for i := 0; i < 5; i++ {
+		ok(t, ee.hook("push", fixture(t, "push")), 202)
+		ee.deliver()
+	}
+	h := ee.global.ev()
+	pend := 0
+	for _, it := range h.out {
+		if it.State == "pending" {
+			pend++
+			if it.Consumer != "apps/agent" {
+				t.Fatalf("%+v", it)
+			}
+		}
+	}
+	if got := ee.other.take(); pend != 3 || len(got) != 5 || h.counts.Overflow != 2 {
+		t.Fatalf("pending %d, the other consumer got %d, %+v", pend, len(got), h.counts)
+	}
+}

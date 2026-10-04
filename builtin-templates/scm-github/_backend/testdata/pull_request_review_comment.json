@@ -12,8 +12,8 @@
     "commit_id": "9fceb02d0ae598e95dc970b74767f19372d61af8",
     "original_commit_id": "9fceb02d0ae598e95dc970b74767f19372d61af8",
     "user": {
-      "login": "hubot",
-      "id": 999,
+      "login": "octocat",
+      "id": 583231,
       "type": "User"
     },
     "body": "This drops the fragment. \u0007bell",
@@ -136,8 +136,8 @@
     "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uMTAw"
   },
   "sender": {
-    "login": "hubot",
-    "id": 999,
+    "login": "octocat",
+    "id": 583231,
     "type": "User"
   }
 }

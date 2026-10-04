@@ -17,6 +17,7 @@ import (
 // --- GitHub's webhook body (the parts read) ----------------------------------------
 
 type ghHookRepo struct {
+	ID       int64  `json:"id"`
 	FullName string `json:"full_name"`
 	Private  bool   `json:"private"`
 	HTMLURL  string `json:"html_url"`
@@ -44,9 +45,23 @@ type ghHookPull struct {
 	} `json:"base"`
 }
 
+// ghPullRef is a pull request as a CI event lists it: its head and base
+// name their repo by id only.
 type ghPullRef struct {
-	Number int `json:"number"`
+	Number int       `json:"number"`
+	Head   ghPullEnd `json:"head"`
+	Base   ghPullEnd `json:"base"`
 }
+
+type ghPullEnd struct {
+	Ref  string `json:"ref"`
+	Repo *struct {
+		ID int64 `json:"id"`
+	} `json:"repo"`
+}
+
+// in says whether this end is in the repo with this id.
+func (p ghPullEnd) in(repoID int64) bool { return p.Repo != nil && repoID != 0 && p.Repo.ID == repoID }
 
 type ghHook struct {
 	Action       string `json:"action"`

@@ -37,6 +37,10 @@ const (
 	eventsMaxAge = int64(keepEvents / time.Millisecond)
 )
 
+// outboxPerConsumer is one consumer's share of the outbox's pending items
+// (a var: the tests lower it).
+var outboxPerConsumer = outboxMax / 2
+
 // outItem is state "outbox/<id>": one event for one consumer and for.
 type outItem struct {
 	ID       string          `json:"id"` // <queued ms, 13 digits><random>: sorts by time
@@ -83,13 +87,15 @@ type hub struct {
 	s  *srv
 	mu sync.Mutex
 
-	loaded bool
-	subs   map[string]*subscription
-	out    map[string]*outItem
-	counts evCounts
-	health healthRec
-	saved  healthRec                // as last written
-	window map[string]*checksWindow // repo|sha → a checks.completed still held to merge
+	loaded  bool
+	subs    map[string]*subscription
+	out     map[string]*outItem
+	counts  evCounts
+	health  healthRec
+	saved   healthRec                // as last written
+	window  map[string]*checksWindow // repo|sha → a checks.completed still held to merge
+	sending map[string]bool          // items a delivery pass has taken (a merge leaves them be)
+	proofs  map[string]proofRec      // forks.go's answers: a run's head repo, a branch's head
 
 	// What the tests swap: the agents binding, the POST to a consumer, the
 	// cron registration. bg runs the delivery loop in the background.
@@ -123,7 +129,7 @@ func (s *srv) ev() *hub {
 		return h.(*hub)
 	}
 	h := &hub{s: s, subs: map[string]*subscription{}, out: map[string]*outItem{}, window: map[string]*checksWindow{},
-		agents: defaultAgents, post: defaultPost, cron: defaultCron, wake: make(chan struct{}, 1), seenAdds: map[string]int{}, inflight: map[string]bool{}}
+		sending: map[string]bool{}, proofs: map[string]proofRec{}, agents: defaultAgents, post: defaultPost, cron: defaultCron, wake: make(chan struct{}, 1), seenAdds: map[string]int{}, inflight: map[string]bool{}}
 	got, _ := hubs.LoadOrStore(s, h)
 	return got.(*hub)
 }
@@ -409,22 +415,78 @@ func (s *srv) handleEvents(w http.ResponseWriter, r *http.Request, c who) {
 		}
 		writeGET(w, r, out)
 	case c.cls == clsTile:
-		s.answerEvents(w, r, c.c.From, "global", "")
+		s.answerEvents(w, r, c.c.From, "global", "", nil)
 	default:
 		fail(w, personAtUnpartitioned())
 	}
 }
 
 // handleRelayEvents is GET /scm/events for a person's partition (relay):
-// the person's own events for the consumer it names.
+// the person's own events for the consumer it names — a private repo's
+// only while they can still read it, checked as a delivery checks.
 func (s *srv) handleRelayEvents(w http.ResponseWriter, r *http.Request, c who) {
 	s.relayStart(c)
-	s.answerEvents(w, r, r.URL.Query().Get("consumer"), "user:"+c.person, c.pid)
+	consumer, forWhom := r.URL.Query().Get("consumer"), "user:"+c.person
+	hidden, err := s.unreadable(r.Context(), consumer, forWhom, c.person, c.pid)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	s.answerEvents(w, r, consumer, forWhom, c.pid, hidden)
+}
+
+// unreadable is the private repos of a person's items they can no longer
+// read (lowercased): signed out or under another partition id, or GitHub's
+// permission (cached an hour) none or the repo unseen — then, as a
+// delivery would, their pending items there are dropped and their
+// subscriptions there deleted. A permission GitHub didn't answer refuses
+// the listing (503) rather than show what may no longer be theirs.
+func (s *srv) unreadable(ctx context.Context, consumer, forWhom, person, pid string) (map[string]bool, error) {
+	h := s.ev()
+	h.mu.Lock()
+	h.load()
+	repos := map[string]string{}
+	for _, it := range h.out {
+		if it.Private && it.Consumer == consumer && it.For == forWhom && it.PID == pid {
+			repos[strings.ToLower(it.Repo)] = it.Repo
+		}
+	}
+	h.mu.Unlock()
+	hidden := map[string]bool{}
+	if len(repos) == 0 {
+		return hidden, nil
+	}
+	id := s.ident(person)
+	for k, repo := range repos {
+		if id == nil || id.PID != pid {
+			hidden[k] = true
+			continue
+		}
+		perm, err := s.personRead(ctx, id.Login, repo, false)
+		switch {
+		case isRefusal(err, refNotFound) || isRefusal(err, refNotInstalled) || (err == nil && perm == "none"):
+			hidden[k] = true
+			h.mu.Lock()
+			h.counts.AccessLost++
+			h.dropPersonSubs(person, repo)
+			for iid, x := range h.out {
+				if x.Person == person && x.State == "pending" && x.Private && strings.EqualFold(x.Repo, repo) {
+					h.dropItem(iid)
+				}
+			}
+			h.mu.Unlock()
+		case err != nil:
+			e := refuse(refUnavailable, "GitHub didn't say whether %s can still read %s", id.Login, repo)
+			e.RetryAfterMs = 30_000
+			return nil, e
+		}
+	}
+	return hidden, nil
 }
 
 // answerEvents lists one consumer's events for one for: oldest first,
-// from since (unix ms), a repo's only when asked.
-func (s *srv) answerEvents(w http.ResponseWriter, r *http.Request, consumer, forWhom, pid string) {
+// from since (unix ms), a repo's only when asked, none of a hidden repo.
+func (s *srv) answerEvents(w http.ResponseWriter, r *http.Request, consumer, forWhom, pid string, hidden map[string]bool) {
 	q := r.URL.Query()
 	limit, err := strconv.Atoi(or(q.Get("limit"), strconv.Itoa(pageDefault)))
 	if err != nil || limit < 1 || limit > pageMax {
@@ -449,7 +511,7 @@ func (s *srv) answerEvents(w http.ResponseWriter, r *http.Request, consumer, for
 	var its []*outItem
 	for _, it := range h.out {
 		if it.Consumer != consumer || it.For != forWhom || (pid != "" && it.PID != pid) || now-it.QueuedAt > eventsMaxAge ||
-			it.QueuedAt < since || it.ID <= after || (repo != "" && !strings.EqualFold(repo, it.Repo)) {
+			it.QueuedAt < since || it.ID <= after || (repo != "" && !strings.EqualFold(repo, it.Repo)) || (it.Private && hidden[strings.ToLower(it.Repo)]) {
 			continue
 		}
 		its = append(its, it)

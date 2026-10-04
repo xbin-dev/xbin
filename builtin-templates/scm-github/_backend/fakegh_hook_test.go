@@ -147,12 +147,22 @@ func sign(secret string, body []byte) string {
 // sendHook delivers body as GitHub would, signed with secret, to h.
 func (e *env) sendHook(h http.Handler, c caller, ghEvent, delivery, secret string, body []byte) *httptest.ResponseRecorder {
 	e.t.Helper()
+	sig := ""
+	if secret != "" {
+		sig = sign(secret, body)
+	}
+	return e.sendHookSig(h, c, ghEvent, delivery, sig, body)
+}
+
+// sendHookSig delivers body with X-Hub-Signature-256 as given.
+func (e *env) sendHookSig(h http.Handler, c caller, ghEvent, delivery, sig string, body []byte) *httptest.ResponseRecorder {
+	e.t.Helper()
 	r := httptest.NewRequest("POST", "/hook/github", bytes.NewReader(body))
 	c.set(r)
 	r.Header.Set("X-GitHub-Event", ghEvent)
 	r.Header.Set("X-GitHub-Delivery", delivery)
-	if secret != "" {
-		r.Header.Set("X-Hub-Signature-256", sign(secret, body))
+	if sig != "" {
+		r.Header.Set("X-Hub-Signature-256", sig)
 	}
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, r)

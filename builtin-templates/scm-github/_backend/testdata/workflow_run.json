@@ -22,11 +22,21 @@
         "number": 42,
         "head": {
           "ref": "xbin/k3x9/3-fix-login",
-          "sha": "9fceb02d0ae598e95dc970b74767f19372d61af8"
+          "sha": "9fceb02d0ae598e95dc970b74767f19372d61af8",
+          "repo": {
+            "id": 1296269,
+            "url": "https://api.github.com/repos/acme/web",
+            "name": "web"
+          }
         },
         "base": {
           "ref": "main",
-          "sha": "6113728f27ae82c7b1a177c8d03f9e96e0adf246"
+          "sha": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+          "repo": {
+            "id": 1296269,
+            "url": "https://api.github.com/repos/acme/web",
+            "name": "web"
+          }
         }
       }
     ],

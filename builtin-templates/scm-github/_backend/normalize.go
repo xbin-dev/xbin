@@ -75,6 +75,14 @@ type event struct {
 	// branches is every branch the event concerns (a commit status names
 	// each branch whose head the commit is), for matching only.
 	branches []string
+	// unproven is a CI event's head branch while nothing in the body says
+	// the run's head is this repo's and not a fork's (proveBranches settles
+	// it: kept once proven, else dropped); runID is a workflow run's or a
+	// job's run, runHead a workflow run's head repo (a job's run is looked
+	// up by it).
+	unproven string
+	runID    int64
+	runHead  string
 }
 
 type eventSource struct {
@@ -272,7 +280,8 @@ func normalize(ghEvent string, h *ghHook, nc normCtx) []*event {
 			break
 		}
 		e := b(kindChecks, "completed")
-		e.Ref = eventRef{Branch: cleanBranch(cs.HeadBranch), SHA: cleanSHA(cs.HeadSHA), PR: firstPR(cs.PullRequests)}
+		e.Ref = eventRef{SHA: cleanSHA(cs.HeadSHA), PR: firstPR(cs.PullRequests, h.Repository.ID)}
+		ciBranch(e, cs.HeadBranch, cs.PullRequests, h.Repository.ID)
 		e.Conclusion, e.At = cleanWord(cs.Conclusion), timeOr(cs.UpdatedAt, nc.now)
 		e.URL = nc.checksURL(e)
 		e.Data[kindChecks] = checksData{Suite: idStr(cs.ID), HeadSHA: e.Ref.SHA, Runs: []checksRun{}}
@@ -289,9 +298,9 @@ func normalize(ghEvent string, h *ghHook, nc normCtx) []*event {
 			action = "in_progress"
 		}
 		e := b(kindCheck, action)
-		e.Ref = eventRef{SHA: cleanSHA(cr.HeadSHA), PR: firstPR(cr.PullRequests)}
+		e.Ref = eventRef{SHA: cleanSHA(cr.HeadSHA), PR: firstPR(cr.PullRequests, h.Repository.ID)}
 		if cr.CheckSuite != nil {
-			e.Ref.Branch = cleanBranch(cr.CheckSuite.HeadBranch)
+			ciBranch(e, cr.CheckSuite.HeadBranch, cr.PullRequests, h.Repository.ID)
 			c.Suite = idStr(cr.CheckSuite.ID)
 		}
 		e.Conclusion, e.URL = c.Conclusion, c.URL
@@ -307,9 +316,13 @@ func normalize(ghEvent string, h *ghHook, nc normCtx) []*event {
 		}
 		e := b(kindWorkflow, h.Action)
 		w := workflowOf(&wr.ghRun)
-		e.Ref = eventRef{SHA: w.HeadSHA, PR: firstPR(wr.PullRequests)}
-		if wr.HeadRepository == nil || strings.EqualFold(wr.HeadRepository.FullName, e.Repo) {
-			e.Ref.Branch = w.HeadBranch // a fork's branch isn't this repo's
+		e.Ref = eventRef{SHA: w.HeadSHA, PR: firstPR(wr.PullRequests, h.Repository.ID)}
+		e.runID = wr.ID
+		if wr.HeadRepository != nil && validRepo(wr.HeadRepository.FullName) {
+			e.runHead = wr.HeadRepository.FullName
+		}
+		if strings.EqualFold(e.runHead, e.Repo) {
+			e.Ref.Branch = w.HeadBranch // a fork's branch isn't this repo's (nor one GitHub didn't say whose it is)
 		}
 		e.Conclusion, e.URL, e.At = w.Conclusion, w.URL, timeOr(wr.UpdatedAt, nc.now)
 		e.Data[kindWorkflow] = w
@@ -320,7 +333,8 @@ func normalize(ghEvent string, h *ghHook, nc normCtx) []*event {
 		}
 		e := b(kindJob, h.Action)
 		j := jobOf(&wj.ghJob)
-		e.Ref = eventRef{Branch: cleanBranch(wj.HeadBranch), SHA: cleanSHA(wj.HeadSHA)}
+		e.Ref = eventRef{SHA: cleanSHA(wj.HeadSHA)}
+		e.unproven, e.runID = cleanBranch(wj.HeadBranch), wj.RunID // a job doesn't say whose head its run's is
 		e.Conclusion, e.URL = j.Conclusion, j.URL
 		e.At = max(j.CompletedAt, j.StartedAt, 0)
 		if e.At == 0 {
@@ -569,11 +583,33 @@ func hasAction(kind, action string) bool {
 	return false
 }
 
-func firstPR(p []ghPullRef) int {
-	if len(p) > 0 && p[0].Number > 0 {
-		return p[0].Number
+// firstPR is the first pull request a CI event lists into this repo
+// (GitHub may list another repo's that shares the head).
+func firstPR(p []ghPullRef, repoID int64) int {
+	for _, x := range p {
+		if x.Number > 0 && x.Base.in(repoID) {
+			return x.Number
+		}
 	}
 	return 0
+}
+
+// ciBranch is a check suite's or a check run's head branch: this repo's
+// when a pull request it lists has its head here on that branch, else
+// unproven — a fork's run names the fork's branch, and GitHub lists no
+// pull request for it — until proveBranches looks.
+func ciBranch(e *event, head string, prs []ghPullRef, repoID int64) {
+	br := cleanBranch(head)
+	if br == "" {
+		return
+	}
+	for _, x := range prs {
+		if x.Head.in(repoID) && x.Head.Ref == br {
+			e.Ref.Branch = br
+			return
+		}
+	}
+	e.unproven = br
 }
 
 func timeOr(s string, def int64) int64 {

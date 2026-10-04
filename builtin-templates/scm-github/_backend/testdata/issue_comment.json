@@ -29,8 +29,8 @@
     "id": 492700400,
     "node_id": "MDEyOklzc3VlQ29tbWVudDQ5MjcwMDQwMA==",
     "user": {
-      "login": "hubot",
-      "id": 999,
+      "login": "octocat",
+      "id": 583231,
       "type": "User"
     },
     "created_at": "2026-10-03T12:40:00Z",
@@ -62,8 +62,8 @@
     "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uMTAw"
   },
   "sender": {
-    "login": "hubot",
-    "id": 999,
+    "login": "octocat",
+    "id": 583231,
     "type": "User"
   }
 }

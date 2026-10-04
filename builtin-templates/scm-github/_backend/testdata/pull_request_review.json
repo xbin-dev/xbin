@@ -4,8 +4,8 @@
     "id": 80,
     "node_id": "MDE3OlB1bGxSZXF1ZXN0UmV2aWV3ODA=",
     "user": {
-      "login": "hubot",
-      "id": 999,
+      "login": "octocat",
+      "id": 583231,
       "type": "User"
     },
     "body": "Please handle the empty next= too.",
@@ -126,8 +126,8 @@
     "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uMTAw"
   },
   "sender": {
-    "login": "hubot",
-    "id": 999,
+    "login": "octocat",
+    "id": 583231,
     "type": "User"
   }
 }

@@ -78,9 +78,9 @@ func TestNormalizePullSynchronize(t *testing.T) {
 		t.Fatalf("%+v", e.Ref)
 	}
 	// A fork's head branch isn't this repo's: no ref.branch, the fork named.
-	fork := map[string]any{"full_name": "hubot/web", "private": false, "owner": map[string]any{"login": "hubot"}}
+	fork := map[string]any{"full_name": "octocat/web", "private": false, "owner": map[string]any{"login": "octocat"}}
 	e = norm(t, "pull_request", fixtureWith(t, "pull_request_synchronize", map[string]any{"pull_request.head.repo": fork}), 1)[0]
-	if e.Ref.Branch != "" || e.Ref.PR != 42 || e.Data[kindPull].(pullData).Head.Repo != "hubot/web" || e.Topic != "scm/github.com/acme/web/pull/42/pull.synchronize" {
+	if e.Ref.Branch != "" || e.Ref.PR != 42 || e.Data[kindPull].(pullData).Head.Repo != "octocat/web" || e.Topic != "scm/github.com/acme/web/pull/42/pull.synchronize" {
 		t.Fatalf("fork: %+v", e)
 	}
 }
@@ -89,7 +89,7 @@ func TestNormalizeReview(t *testing.T) {
 	e := one(t, "pull_request_review", "pull_request_review", kindReview, "submitted")
 	d := e.Data[kindReview].(reviewData)
 	if d.ID != "80" || d.State != "changes_requested" || d.Body != "Please handle the empty next= too." || e.Ref.PR != 42 || e.Ref.SHA != fxSHA ||
-		e.Actor.Login != "hubot" || e.Actor.Association != "COLLABORATOR" || !strings.Contains(e.Summary, "changes_requested") {
+		e.Actor.Login != "octocat" || e.Actor.Association != "COLLABORATOR" || !strings.Contains(e.Summary, "changes_requested") {
 		t.Fatalf("%+v %+v", e, d)
 	}
 	norm(t, "pull_request_review", fixtureWith(t, "pull_request_review", map[string]any{"action": "edited"}), 0)
@@ -205,13 +205,49 @@ func TestNormalizeWorkflowJobSteps(t *testing.T) {
 	e = one(t, "workflow_job", "workflow_job_in_progress", kindJob, "in_progress")
 	j = e.Data[kindJob].(jobData)
 	if j.Job.Runner != "GitHub Actions 7" || len(j.Job.Steps) != 3 || j.Job.Steps[2] != (step{N: 4, Name: "go test ./...", Status: "in_progress",
-		StartedAt: ghTime("2026-10-03T12:07:30Z")}) || j.Job.Steps[0].Conclusion != "success" || e.Ref != (eventRef{Branch: fxBranch, SHA: fxSHA}) {
-		t.Fatalf("%+v", j)
+		StartedAt: ghTime("2026-10-03T12:07:30Z")}) || j.Job.Steps[0].Conclusion != "success" || e.Ref != (eventRef{SHA: fxSHA}) ||
+		e.unproven != fxBranch || e.runID != 7001 {
+		t.Fatalf("%+v %+v", j, e)
 	}
 	e = one(t, "workflow_job", "workflow_job_completed", kindJob, "completed")
 	j = e.Data[kindJob].(jobData)
 	if j.Job.Conclusion != "failure" || e.Conclusion != "failure" || len(j.Job.Steps) != 4 || j.Job.Steps[2].Conclusion != "failure" || j.Job.CompletedAt == 0 {
 		t.Fatalf("%+v", j)
+	}
+}
+
+// A fork's pull request runs CI here under the fork's branch name: no CI
+// kind names it as ref.branch from the body alone. A check suite or run
+// keeps its branch when a pull request it lists has its head here; a job's
+// (and an unlisted suite's) waits for proveBranches; a workflow run says
+// whose head it is.
+func TestNormalizeForkCI(t *testing.T) {
+	fork := map[string]any{"id": 4242, "full_name": "octocat/web", "owner": map[string]any{"login": "octocat"}}
+	e := norm(t, "workflow_run", fixtureWith(t, "workflow_run", map[string]any{"workflow_run.head_repository": fork, "workflow_run.pull_requests": []any{}}), 1)[0]
+	if e.Ref != (eventRef{SHA: fxSHA}) || e.unproven != "" || e.runHead != "octocat/web" || e.runID != 7001 || strings.Contains(e.Topic, "/branch/") {
+		t.Fatalf("fork's run: %+v %q", e.Ref, e.Topic)
+	}
+	e = norm(t, "workflow_run", fixtureWith(t, "workflow_run", map[string]any{"workflow_run.head_repository": nil}), 1)[0]
+	if e.Ref.Branch != "" || e.runHead != "" {
+		t.Fatalf("a run that doesn't say whose: %+v", e.Ref)
+	}
+	for _, c := range []struct{ ghEvent, prs string }{{"check_suite", "check_suite.pull_requests"}, {"check_run", "check_run.pull_requests"}} {
+		e = norm(t, c.ghEvent, fixtureWith(t, c.ghEvent, map[string]any{c.prs: []any{}}), 1)[0]
+		if e.Ref != (eventRef{SHA: fxSHA}) || e.unproven != fxBranch || strings.Contains(e.Topic, "/branch/") || strings.Contains(e.Summary, fxBranch) {
+			t.Fatalf("%s without a pull request: %+v %q %q", c.ghEvent, e.Ref, e.Topic, e.Summary)
+		}
+		// A pull request listed into another repo (its base elsewhere, its
+		// head a fork's) is neither the event's pull request nor a proof.
+		other := map[string]any{"number": 7, "head": map[string]any{"ref": fxBranch, "repo": map[string]any{"id": 4242}},
+			"base": map[string]any{"ref": "main", "repo": map[string]any{"id": 4242}}}
+		e = norm(t, c.ghEvent, fixtureWith(t, c.ghEvent, map[string]any{c.prs: []any{other}}), 1)[0]
+		if e.Ref != (eventRef{SHA: fxSHA}) || e.unproven != fxBranch {
+			t.Fatalf("%s listing another repo's pull request: %+v", c.ghEvent, e.Ref)
+		}
+	}
+	e = norm(t, "workflow_job", fixture(t, "workflow_job_completed"), 1)[0]
+	if e.Ref.Branch != "" || e.unproven != fxBranch || strings.Contains(e.Topic, "/branch/") {
+		t.Fatalf("a job: %+v", e.Ref)
 	}
 }
 
