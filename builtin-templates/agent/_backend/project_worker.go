@@ -381,6 +381,11 @@ func (w *projWorker) finish(p *Project, k *ProjectTask, j *ProjectJob, out jobOu
 		if state == pjFailed {
 			jobFailed(t, p, k, j, errText)
 		}
+		if state == pjDone || state == pjFailed {
+			// what waits on this one looks again now (prepare on the sandbox
+			// and the repos, bind on the setups)
+			_, _ = t.q.Exec(`UPDATE project_jobs SET next_ms=0 WHERE project_id=? AND state='waiting' AND kind IN (?, ?)`, p.ID, pjPrepare, pjBind)
+		}
 		emitProject(t, p.ID, "job", 0)
 		return nil
 	})

@@ -277,6 +277,9 @@ func setWS(t *DB, p *Project, k *ProjectTask, ws, errText string) {
 	k.WS, k.Error = ws, errText
 	_ = t.setTask(k.ID, map[string]any{"ws": ws, "error": errText})
 	onTaskChange(t, p, k, "ws")
+	if run := k.RunID; run != 0 && agent != nil && agent.eng != nil {
+		t.AfterCommit(func() { agent.eng.Poke(run) }) // the gate looks again: a park follows its workspace
+	}
 }
 
 // --- Projects' own hook entries --------------------------------------------------------------
