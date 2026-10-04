@@ -188,8 +188,8 @@ func scmRouteTask(t *DB, p *Project, k *ProjectTask, repo string, ev *scmEvent) 
 			scmSetDraft(t, p, k, repo, num, ev.Action == "draft")
 		}
 	case scmKindPush:
-		if ev.Ref.Branch != k.Branch || ev.Ref.SHA == "" {
-			return
+		if ev.Ref.Branch != k.Branch || strings.Trim(ev.Ref.SHA, "0") == "" {
+			return // another branch, or the branch deleted (no head to move to)
 		}
 		scmSetHead(t, p, k, repo, 0, ev.Ref.SHA)
 		if self {

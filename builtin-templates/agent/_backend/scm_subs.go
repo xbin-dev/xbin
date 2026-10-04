@@ -266,7 +266,8 @@ func scmSubsPass(ctx context.Context, d *DB) {
 			return
 		}
 		if s.State != subDrop && !scmSubWanted(d, s) {
-			s.State = subDrop
+			_, _ = d.q.Exec(`UPDATE scm_subs SET state=?, tries=0 WHERE key=? AND state=?`, subDrop, s.Key, s.State)
+			s.State, s.Tries = subDrop, 0
 		}
 		api, err := scmFor(s.SCM)
 		if s.State == subDrop {

@@ -159,10 +159,11 @@ func TestRoutingTable(t *testing.T) {
 		if k.taskPRs()[0].HeadSHA != evSHA2 || fx.pollRow(1, scmPollChecks).Item.Ref != evSHA2 || len(fx.events(pevPush)) != 1 {
 			t.Fatalf("the head: PR %+v, row %+v", k.taskPRs(), fx.pollRow(1, scmPollChecks).Item)
 		}
-		// a push to another branch is no task's
+		// a push to another branch is no task's; the branch deleted moves nothing
 		fx.mustTake(fx.ev(scmKindPush, "pushed", func(e *scmEvent) { e.Ref = scmEventRef{Branch: "main", SHA: evSHA3} }))
-		if len(fx.inputs()) != 1 {
-			t.Fatalf("a push to main reached the task: %+v", fx.inputs())
+		fx.mustTake(fx.ev(scmKindPush, "pushed", func(e *scmEvent) { e.Ref = scmEventRef{Branch: evBranch, SHA: strings.Repeat("0", 40)} }))
+		if len(fx.inputs()) != 1 || fx.task(1).taskPRs()[0].HeadSHA != evSHA2 {
+			t.Fatalf("a push to main or a deletion reached the task: %+v, head %s", fx.inputs(), fx.task(1).taskPRs()[0].HeadSHA)
 		}
 	})
 	t.Run("issues", func(t *testing.T) {
