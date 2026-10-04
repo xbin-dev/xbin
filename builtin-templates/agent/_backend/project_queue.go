@@ -168,7 +168,11 @@ func deliverTaskInput(t *DB, p *Project, k *ProjectTask, run *Run, in taskInput)
 	if run.Engine == engineHarness {
 		kind = inboxHPrompt
 	}
-	if _, _, err := t.enqueue(run.ID, kind, body, ""); err != nil {
+	cid := ""
+	if in.Kind == "start" {
+		cid = startClientID(p.ID, k.N) // a coding agent's start gets its brief once the workspace is ready (jobBind)
+	}
+	if _, _, err := t.enqueue(run.ID, kind, body, cid); err != nil {
 		return err
 	}
 	if _, err := t.q.Exec(`DELETE FROM project_queue WHERE id=?`, in.ID); err != nil {

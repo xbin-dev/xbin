@@ -385,6 +385,9 @@ func (w *projWorker) finish(p *Project, k *ProjectTask, j *ProjectJob, out jobOu
 		if err != nil || rowsAffected(res) != 1 {
 			return err
 		}
+		if j.Kind == pjCleanup && j.Task == 0 { // a project's deletion: its own row goes with the rest
+			_, _ = t.q.Exec(`DELETE FROM project_jobs WHERE id=? AND NOT EXISTS (SELECT 1 FROM projects WHERE id=?)`, j.ID, p.ID)
+		}
 		if state == pjFailed {
 			jobFailed(t, p, k, j, errText)
 		}

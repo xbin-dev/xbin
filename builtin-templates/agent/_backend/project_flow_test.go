@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/xbin-dev/xbin/sdk/acp/acptest"
 )
 
 // The workspace for real: a project over a sandbox of the fake manager (a
@@ -350,5 +352,41 @@ func TestRefsJobFiresHooks(t *testing.T) {
 	}
 	if opened != 2 {
 		t.Fatalf("pr.opened events: %d", opened)
+	}
+}
+
+// A task a coding agent answers: its first prompt starts with the brief,
+// it works in the checkout, and its commands see the task's environment.
+func TestHarnessTask(t *testing.T) {
+	fx := newProjFix(t)
+	fx.m.Caps = []string{"exec", "files", "tar"}
+	argv := acptest.Command()
+	fx.m.Harnesses = []fsbHarness{{ID: "fake", Title: "Fake agent (tests)", Argv: argv, Login: argv[0] + " acptest login"}}
+	forgetHarnessProbes()
+	t.Cleanup(func() { settleHarnesses(fx.ag.eng) })
+	p := fx.newProject(t, asAlice, nil)
+	tv, runID := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "fix the header", "agent": map[string]any{"provider": "fake"}})
+	if run, _ := fx.ag.db.getRun(runID); run.Engine != engineHarness {
+		t.Fatalf("the task's engine: %q", run.Engine)
+	}
+	k := fx.waitWS(t, p.ID, 1, wsReady)
+	hwait(t, "the coding agent's first turn", func() bool {
+		return turnOver(fx.ag, runID)() && strings.Contains(fullText(fx.ag.db, runID), "fix the header")
+	})
+	text := fullText(fx.ag.db, runID)
+	if i, j := strings.Index(text, "# Project"), strings.Index(text, "fix the header"); i < 0 || j < i {
+		t.Fatalf("the first prompt doesn't start with the brief: %s", clip(text, 600))
+	}
+	co := filepath.Join(k.Dir, "web")
+	if hs, _ := fx.ag.db.harnessSession(runID); hs == nil || hs.Cwd != co {
+		t.Fatalf("the coding agent's cwd: %+v", hs)
+	}
+	for name, want := range map[string]string{"BRANCH": tv.Branch, "PORT": "20000", "TASK_DIR": k.Dir} {
+		if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/message", runID), map[string]any{"text": "printenv " + name}); w.Code != 200 {
+			t.Fatal(w.Body)
+		}
+		hwait(t, "printenv "+name, func() bool {
+			return turnOver(fx.ag, runID)() && strings.Contains(fullText(fx.ag.db, runID), "printenv: "+want)
+		})
 	}
 }
