@@ -3560,7 +3560,164 @@ provider, which identity a project uses (a person's own sign-in, or the
 provider's bot), when a credential may be written into a sandbox, where it
 goes (files outside every repo, a git credential helper, `GH_CONFIG_DIR`),
 how it is refreshed, when it is scrubbed, and how tokens are kept out of
-every transcript, log and event. Described when it lands.
+every transcript, log and event.
+
+**The slot.** The manifest's `scm` interface slot (`http`, service `scm`,
+multi): `bx bind <this component> scm+=apps/scm-github`, or the binding
+panel. A provider implements the scm contract, protocol 1
+([/docs/scm.md](/docs/scm.md)) — the builtin `scm-github` template, or
+another host's; the binding is the grant. A project names one bound
+provider (its `scm`, the provider's tile path; `apps/x#inst` for an
+instance). The agent says `hello` to each (cached 60 s, 10 s after a
+failure) and lists, with the reason, one that speaks another protocol or
+doesn't offer `credentials`. Unbound, there are no credentials to push
+with.
+
+**Who the provider sees.** The agent sends no identity of its own: xbind
+says who is calling. From a person's partition the provider sees that
+person (a partitioned provider answers from its own partition for them —
+their sign-in, their tokens); from the shared instance or an
+unpartitioned agent it sees the agent, which may use only the provider's
+**bot**. A project's identity (`policy.as`) defaults to `person` in a
+person's partition and `bot` elsewhere; a membership works as the bot only
+when its `policy.as` says `bot` and the team's `membersAsBot` allows it.
+The agent never asks as a person outside a person's partition.
+
+**The scm bot rule.** Where a home's identity is the bot (the shared
+instance, an unpartitioned agent), the binding gives the agent the bot's
+whole view of the host, and the agent decides which of its people may use
+it. Naming a repo for the bot — creating a project, adding a repo, making
+a conversation a project, watching CI — takes one of the agent's managers
+(every component holding a grant to the agent is one), or a person the
+rule names with a repo pattern that matches (`owner/name` globs, matched
+without case: `acme/*`). Reads and tokens afterwards follow from the
+project, whose sharing decides who acts in it. A person's partition never
+reads the rule: there the person's own sign-in decides.
+
+| Method and path | Who | Answer |
+|---|---|---|
+| `GET /projects/scm` | anyone | `{providers: [{scm, title, kind, hosts, caps, identities, you, app, events, notes, error?, refusal?}]}` — every bound provider's hello as this home sees it (`you` says what this caller may be there) |
+| `GET /projects/scm/repos?scm=&q=&cursor=` | anyone | `{items: [{host, owner, name, cloneUrl, defaultBranch, private, permission, archived, url}], next}` — through the provider as this home; at a bot home only what the caller may name. `scm` may be left out when one provider is bound |
+| `GET /projects/scm/bot` | a manager | `{users: [ids], repos: [globs]}` (empty by default) |
+| `PUT /projects/scm/bot` | a manager | the same body; up to 200 of each; 409 in a person's partition |
+| `GET /projects/scm/signin?scm=` | the person | `{state: "none"\|"pending"\|"done", identity?, signin?}` — reads, starts nothing |
+| `POST /projects/scm/signin` `{scm}` | the person | starts (or continues) a sign-in: `{state: "pending", signin: {url, userCode, expiresAt, pollId, intervalMs}}`, or `{state: "done", identity}` |
+| `GET /projects/scm/signin/{pollId}?scm=` | the person | `{state: "pending"\|"done"\|"denied"\|"expired"\|"error", identity?, error?, retryAfterMs}` |
+| `DELETE /projects/scm/signin?scm=` | the person | **204** — Forget: every credential of the person's projects from that provider is emptied and revoked first, then the provider revokes the grant and forgets the sign-in |
+
+The sign-in routes are a person's own, in their own partition (409 "sign in
+to ‹provider› from your own space" elsewhere; 403 for view-as and for
+components). A provider's refusal comes back with its status and its
+`refusal` (`signin`, `not-installed`, `identity`, `setup`, `limit`, …) and
+payload, as [/docs/scm.md](/docs/scm.md) §Errors lists them — but a
+`signin`'s device code goes only to the person who must sign in (the
+partition's own, not viewed as): anyone else gets the refusal without it.
+A 5xx that names none (a provider down behind xbind's gateway) is
+`unavailable`.
+
+**When a credential may go into a sandbox.** Checked before every write and
+every refresh, against the sandbox as its manager reports it now — never a
+label, which anyone who may edit the sandbox could set:
+
+- **A person's token** only for their own personal project or membership,
+  private with no members, in a sandbox that is private, theirs, homed in
+  their partition, that no non-secure (hosted) conversation ever used —
+  nor, for a task's fork, the sandbox it was forked from — and that wasn't
+  cloned from a team's seed sandbox (which every member can write to).
+- **The bot's token** only in a sandbox homed in this partition (a
+  person's) or at this agent's own identity (no partition, not seen
+  through a share), with no shares, never used by a hosted conversation,
+  where everyone who can use it — its owner, its members, the team when it
+  is team-visible — takes part in the project (participant or owner; a
+  team-visible sandbox needs a team-visible project whose team role is
+  participant).
+- **Never** in a team project's seed sandbox.
+- **The other way round:** a non-secure (hosted) conversation doesn't
+  work in a sandbox that holds a project's credential (its sandbox tools
+  refuse it, saying why — create another sandbox for it): its members
+  could have the agent read the files or push with them. The credential
+  stays where it is; once it is scrubbed (the sandbox stopped through the
+  agent, say), the conversation may work there, and from then on no
+  credential goes into that sandbox.
+
+A refusal marks the credential `blocked` with why, empties and revokes
+anything written there before, and fails the task: "credentials can't go
+into ‹sandbox›: ‹why›". It is tried again the next time the task's
+workspace is retried.
+
+**Where it goes.** Two files under the sandbox's home — never under its
+workdir, never in a repo or a worktree — in directories only its user can
+read (0700), the files 0600, written beside and then renamed into place:
+
+| Path (under `$HOME/.config/xbin-scm/<project uid>/`) | Content |
+|---|---|
+| `<host>.cred` | `username=x-access-token` and `password=<token>` lines (git's credential format) |
+| `gh/hosts.yml` | `<host>:` with `oauth_token`, `user` and `git_protocol: https`, for `gh` |
+
+Each of the project's base repos (worktrees share it) and each clone-mode
+checkout gets, in its own git config: an empty
+`credential.https://<host>.helper` (so a helper from the sandbox's global
+or system config doesn't answer for the project), then a helper that
+prints the `.cred` file, `useHttpPath false`, and `user.name` and
+`user.email` from the token's author. Every exec of a task — its setup, its
+jobs, its bash, its coding agent — gets `GH_CONFIG_DIR` pointing at the
+project's own `gh` directory, and `<project dir>/.xbin/env` says the same
+for people's terminals (`. .xbin/env`): a person's own `~/.gitconfig` and
+`gh` login are left alone. The home must be a plain absolute path
+(letters, digits, `.`, `_`, `-`, `/`), or no credential goes there.
+
+**Refresh.** A credential is short-lived (an installation token an hour, a
+person's some hours) and is minted again before every git step of the
+workspace when it has less than 10 minutes left; a task whose credential is
+missing or due waits (`preparing`) while a `creds` job writes a fresh one.
+A repo added to the project, or `workflows` turned on, gets a credential
+that covers it at the next write, whatever the old one's time left.
+While a task of the project is at work, each token is also re-minted at the
+provider's `refreshAfter` (or at 75 % of its life, if sooner) and both files
+rewritten; an idle project's token is left to lapse.
+
+**Signing in.** When the provider answers that the person isn't signed in,
+it has started a sign-in: the task waits (`signin`), its card shows the
+device code — to that person only, never in a stream event or anyone else's
+view — and the `creds` job asks the provider at its interval, for at most
+15 minutes, then writes the credential and lets the task go on.
+
+**Scrubbing.** Both files are emptied (zero bytes, still 0600), the token
+is revoked at the provider (best effort — the provider forgets it either
+way) and the credential's state becomes `scrubbed` with why, when: the
+sandbox is shared through the agent (before the share goes out — a
+credential that can't be emptied refuses the share), stopped or archived
+through the agent, or deleted (revoked only); the project is archived or
+deleted, a repo is removed, or the sandbox leaves the project; a task's
+fork is deleted; the person forgets their sign-in; or the gate refuses the
+sandbox. When the files can't be emptied (the manager refused the write),
+the token is revoked anyway but the credential stays `live`, due at once:
+every later scrub tries again, a share stays refused until one succeeds,
+and the next turn has it replaced (or blocked) first. A share, stop or
+archive through the agent and a credential's write take turns: one being
+minted while the sandbox is shared is checked again once minted and, the
+sandbox now shared, revoked and never written. A write that fails partway
+(a file, the rename) is scrubbed at once — both files emptied, what was
+written beside them removed, the token revoked — unless an older live
+credential there covers the files (a refresh: the older token keeps
+working, and the next scrub takes both out); one that can't be emptied
+stays `live`, as above.
+
+**Kept out of what is kept.** The agent holds a token in memory only;
+`GET /projects/{pid}/status` shows its metadata (`creds: [{sandbox, host,
+identity, login, state: "live"|"scrubbed"|"blocked", expiresMs, why}]`),
+never the value. Every message the agent stores — every tool result, the
+coding agents' output, their log — has GitHub's token shapes (`ghp_`,
+`gho_`, `ghu_`, `ghs_`, `ghr_` and `github_pat_` tokens, up to the next
+space, quote or `@`) and every value handed out masked, same length, with
+`[redacted]`; a replaced token stays masked until it expires. After a
+restart the shapes still apply; a value of no known shape is masked again
+once it is minted again.
+
+**Rolling back.** A build without Projects leaves `project_creds` alone
+and keeps `scm_bot_rule` as an unknown setting; credential files already in
+sandboxes stay until their tokens expire (at most a few hours), as the
+older build neither refreshes nor empties them.
 
 ### Big tasks, upgrades and pull requests
 

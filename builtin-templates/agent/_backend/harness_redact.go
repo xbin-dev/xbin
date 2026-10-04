@@ -7,7 +7,11 @@
 // before the client reads it — the exact secret of the generation, and any
 // string shaped like an Anthropic token (sk-ant-…) — and so are the
 // adapter's stderr as GET /harness/log serves it, its log lines here, and a
-// refusal's words kept with a saved sign-in.
+// refusal's words kept with a saved sign-in. Every redactor also masks the
+// scm credentials a project hands its sandbox (scm_creds.go): their shapes
+// (GitHub's gh*_ and github_pat_ tokens) and each value this process
+// handed out, exactly — scmRedact is redactText, which every row a tool
+// result becomes passes through (db.go addMessage, rewriteMessage).
 //
 // The redaction keeps the stream's length (the same number of bytes, '*'s
 // after a "[redacted]" mark), so the offsets the engine stores (read_off)
@@ -29,6 +33,15 @@ import (
 // tokenShape is an Anthropic credential's shape: sk-ant-oat01-…,
 // sk-ant-api03-…, sk-ant-admin01-… (a setup-token, an API key).
 var tokenShape = regexp.MustCompile(`sk-ant-[a-z]{2,8}\d{2}-[A-Za-z0-9_-]{16,}`)
+
+// scmShapes are the scm credentials' shapes (scm_creds.go): GitHub's
+// ghp_/gho_/ghu_/ghs_/ghr_ tokens and fine-grained github_pat_ ones — up to
+// the next space, quote or @, assuming no charset (an installation token is
+// some 520 characters of a format GitHub doesn't document).
+var scmShapes = []*regexp.Regexp{
+	regexp.MustCompile(`gh[pousr]_[^\s"'@]{30,}`),
+	regexp.MustCompile(`github_pat_[^\s"'@]{22,}`),
+}
 
 const redactMark = "[redacted]"
 
@@ -54,24 +67,36 @@ func newRedactor(secrets ...string) *redactor {
 	return r
 }
 
-// apply masks b in place (same length) and answers it.
+// apply masks b in place (same length) and answers it: the redactor's own
+// secrets, every live scm credential (scmLiveSecrets) and the shapes.
 func (r *redactor) apply(b []byte) []byte {
 	if r != nil {
-		for _, s := range r.exact {
-			for i := 0; ; {
-				j := bytes.Index(b[i:], s)
-				if j < 0 {
-					break
-				}
-				copy(b[i+j:], mask(len(s)))
-				i += j + len(s)
-			}
-		}
+		maskExact(b, r.exact)
 	}
+	maskExact(b, scmLiveSecrets())
 	for _, m := range tokenShape.FindAllIndex(b, -1) {
 		copy(b[m[0]:m[1]], mask(m[1]-m[0]))
 	}
+	for _, re := range scmShapes {
+		for _, m := range re.FindAllIndex(b, -1) {
+			copy(b[m[0]:m[1]], mask(m[1]-m[0]))
+		}
+	}
 	return b
+}
+
+// maskExact masks each of secrets wherever it occurs in b.
+func maskExact(b []byte, secrets [][]byte) {
+	for _, s := range secrets {
+		for i := 0; ; {
+			j := bytes.Index(b[i:], s)
+			if j < 0 {
+				break
+			}
+			copy(b[i+j:], mask(len(s)))
+			i += j + len(s)
+		}
+	}
 }
 
 // text is s redacted.
