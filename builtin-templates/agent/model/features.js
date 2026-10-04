@@ -307,7 +307,6 @@ const STAGED = 'not built yet: Projects and CI in the conversation land in stage
 const stagedWeb = [
   // projects: the page, the board, new projects and tasks, settings, a task's chips
   // projects: the coordinator, events, upgrades, team projects
-  'proj.coordinator', 'proj.events', 'proj.upgrade', 'proj.team',
   // CI
   'ci.chip', 'ci.dock', 'ci.jobs', 'ci.logs', 'ci.annotations', 'ci.links', 'ci.rerun', 'ci.watch', 'ci.cards', 'ci.board',
 ];

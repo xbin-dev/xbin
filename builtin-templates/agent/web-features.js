@@ -253,5 +253,9 @@ export const IMPLEMENTS = {
   'chat.task.prep': 'project-chips.js — prepTpl through ext.end: #pprep, .pstep, #pprep-retry, #ptask-signin (model/project-task.js prepCard)',
   'link.project': 'agent.js — followHash (model/router.js #proj, #proj=<id>); project-chips.js — #projcrumb through ext.crumb, #ptasksec through ext.task',
   // Projects — the coordinator, events, upgrades, team projects
+  'proj.coordinator': 'project-feed.js — coordCardTpl above the board in projects.js (#pcoord: #pcoord-open opens it, #pcoord-text and #pcoord-send write to it; model/project-feed.js openCoordinator, messageCoordinator)',
+  'proj.events': 'project-feed.js — feedTpl, the Activity tab ([data-tab="events"] in projects.js): #pfeed .pev rows, newest first, plain text, https links only (model/project-feed.js feedWords; read since the last event held on a project event)',
+  'proj.upgrade': 'project-new.js — the ext.sbx action #sbx-upgrade at the end of the sandbox popover (sandboxes.js #sbxpop) and the dialog #pupg: the sandbox\'s repos, https, name, branch, #pupg-make (model/project-upgrade.js upgradeOffer, candidateWords, submit)',
+  'proj.team': 'project-team.js — teamBoardTpl (.pteamboard .tbrow: plain rows, open (yours), stale, Hide), teamLinkTpl (#pteam-work, #pteam-form with the security part #psec, #pteam-go), reviewCardTpl (#pteam-review side by side, #pteam-review-accept); project-new.js #pn-kind (a team definition from your own space) — model/project-team.js',
   // CI in the conversation
 };
