@@ -3756,7 +3756,9 @@ bound in the `scm` slot — its own backend, at its global instance or
 unpartitioned; any other caller, a person's partition of the provider or a
 person through it is 403 ([/docs/agent-inbox.md](/docs/agent-inbox.md)
 §scm events has the checks). The caller is the provider, whatever the
-body's `scm.provider` says. `eventId` dedupes for 7 days. Answers: 200
+body's `scm.provider` says. `eventId` with `for` dedupes for 7 days (the
+copies of one event for two people, or for a person and `global`, are each
+taken). Answers: 200
 `{taken: true}` (and `duplicate: true` for a repeat); 400 a body that isn't
 an event v1 (`refusal: "protocol"` with `protocols` for another
 protocol); 404 not this instance's (`for: user:<id>` at an unpartitioned

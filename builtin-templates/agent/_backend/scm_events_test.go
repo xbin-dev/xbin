@@ -373,6 +373,42 @@ func TestScmEventDedupe(t *testing.T) {
 	}
 }
 
+// One event reaches each `for` once with the same eventId: at a
+// partitioned agent's global instance the copies for alice, bob and global
+// are three deliveries (two hand-offs, one taken there), and only a repeat
+// to the same `for` is a duplicate.
+func TestScmEventDedupePerFor(t *testing.T) {
+	gfx := newEvFx(t, modeGlobal, "")
+	mail := stubMail(t)
+	e := gfx.ev(scmKindPush, "pushed", func(e *scmEvent) { e.Ref.SHA = evSHA2 })
+	copies := []scmEvent{e, e, e}
+	copies[0].For, copies[0].ForPid = "user:alice", alicePID
+	copies[1].For, copies[1].ForPid = "user:bob", "u-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	copies[2].For = "global"
+	for _, c := range copies {
+		if w := gfx.deliver(c); w.Code != 200 || strings.Contains(w.Body.String(), "duplicate") {
+			t.Fatalf("the copy for %s: %d %s", c.For, w.Code, w.Body)
+		}
+	}
+	sent := mail.wait(t, 2)
+	to := map[string]bool{}
+	for _, m := range sent {
+		to[m.to] = true
+	}
+	if !to["user:alice"] || !to["user:bob"] || gfx.hook.Load() != 1 {
+		t.Fatalf("handed to %v; hooks at global %d", to, gfx.hook.Load())
+	}
+	for _, c := range copies {
+		if w := gfx.deliver(c); w.Code != 200 || !strings.Contains(w.Body.String(), `"duplicate":true`) {
+			t.Fatalf("the repeat for %s: %d %s", c.For, w.Code, w.Body)
+		}
+	}
+	waitMailIdle(t)
+	if mail.count() != 2 || gfx.hook.Load() != 1 {
+		t.Fatalf("after the repeats: %d mails, %d hooks", mail.count(), gfx.hook.Load())
+	}
+}
+
 // At a partitioned agent's global instance an event for a person is mailed
 // to their partition (handoff/scm, the provider its source) and nothing of
 // it stays; there it is taken once, only from global.

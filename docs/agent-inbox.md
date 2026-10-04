@@ -429,8 +429,12 @@ describes it (`protocol` 1, `eventId`, `for`, `forPid`, `kind`, `action`,
   terminal in a provider's partition calls as the provider, and must not
   be able to make up events for anyone's work. The caller is the
   provider: the body's `scm.provider` is ignored.
-- **Dedupe.** `eventId` is kept 7 days; a repeat answers **200** with
-  `duplicate: true` and does nothing.
+- **Dedupe.** `eventId` is kept 7 days with the event's `for`; a repeat
+  to the same `for` answers **200** with `duplicate: true` and does
+  nothing. One event reaches each `for` once
+  ([/docs/scm.md](/docs/scm.md) §Delivery), with the same `eventId`: the
+  copies for two people, or for a person and `global`, are separate
+  deliveries, never duplicates of each other.
 - **`for`.** `global` is handled by the instance that took it (a
   partitioned agent's global instance, or an unpartitioned agent).
   `user:<id>` is a person's: see below. Unpartitioned, `user:<id>` is

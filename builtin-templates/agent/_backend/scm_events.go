@@ -6,8 +6,9 @@
 // it. The caller must be one of the providers bound in the agent's `scm`
 // slot — the caller's own path is the provider, whatever the body says.
 //
-//   - Transport dedupe: the eventId in scm_seen (7 days); a repeat answers
-//     200 and does nothing.
+//   - Transport dedupe: the event's `for` and eventId in scm_seen (7 days) —
+//     one event reaches a consumer once per `for`, so the same eventId for
+//     two people is two deliveries; a repeat answers 200 and does nothing.
 //   - `for: global` is handled here (the global instance, an unpartitioned
 //     agent); `for: user:<id>` at a partitioned agent's global instance is
 //     handed to that person's partition by partition mail `handoff/scm`
@@ -216,7 +217,12 @@ func handleSCMEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	dup := false
 	err := ag.db.Tx(func(t *DB) error {
-		if !scmSeenOnce(t, ev.EventID) {
+		// keyed per recipient: the provider delivers one event once per
+		// `for` with the same eventId (a shared repo's subscribers each get
+		// it), so only a repeat to the same `for` is a duplicate here; a
+		// person's partition dedupes on the eventId alone (it sees only its
+		// own `for`)
+		if !scmSeenOnce(t, scmTransportKey(&ev)) {
 			dup = true
 			return nil
 		}
@@ -259,6 +265,10 @@ func scmProgress(kind string) bool {
 }
 
 // --- scm_seen ------------------------------------------------------------------------
+
+// scmTransportKey is the scm_seen key of a delivery where it arrives: its
+// `for` and its eventId.
+func scmTransportKey(ev *scmEvent) string { return ev.For + "|" + ev.EventID }
 
 // scmSeenOnce records key (an eventId or a semantic key) and says whether
 // it is new: false — seen within scmSeenTTL — means do nothing.
