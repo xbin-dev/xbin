@@ -3766,14 +3766,17 @@ make room), with its open pull request when it has one:
 
 - **a project task's branch** (`source: "task"`) in each repo it was
   pushed to — made when the task's branch is seen on the remote or a pull
-  request opens, and when its CI is first asked for. A task's own watch
+  request opens, and when its CI is first asked for (once: not for a done
+  or closed task, nor again after its watch ended). A task's own watch
   can't be unwatched;
 - **what a coding session pushed** (`source: "pushed"`) — at the end of
   every turn of a run working in a sandbox (the conversation's, or a coding
   agent's below it) while an scm provider is bound, one command in that
   run's sandbox reads git's own record of pushes: a remote-tracking ref
   whose newest reflog entry says `update by push`, written since the turn
-  began. A branch at a host a bound provider serves becomes a watch, `run`
+  began (the last hour, for a run with no turn start recorded). A sandbox
+  that isn't running is left alone — a stopped one pushed nothing, and
+  is never started for this. A branch at a host a bound provider serves becomes a watch, `run`
   the run that pushed. The command's output is never kept, and a remote
   URL's user and password are dropped before anything is. A project's runs
   are left to their task's watch;
@@ -3784,7 +3787,9 @@ an unpartitioned agent) the bot reads only what someone authorised: naming
 a repo by hand takes a manager or the scm bot rule (§scm providers and
 credentials); a pushed branch is watched only for a repo a project of this
 home names with the conversation's owner taking part in it, or — in a
-conversation nobody else shares — one the rule lets its owner name.
+conversation nobody else shares — one the rule lets its owner name (a
+turn's end carries no request, so a manager's own pushes need the rule or
+a project too).
 
 **Keeping it current.** Each watch subscribes to its branch's events at
 the provider (key `ci:<watch id>`: checks, pull, workflow, job, check,
@@ -3792,11 +3797,14 @@ push). A job's, run's or check's progress event updates the stored
 snapshot in place; a finished suite or a pull request event reads it
 again (conditionally — an unchanged answer costs nothing); a push moves
 the watch to the new head (its snapshot starts over); a merged or closed
-pull request, or a deleted branch, makes it `gone` (it ends a day later;
-ended watches are deleted after a week). A step's progress comes from
+pull request, or a deleted branch, makes it `gone` (it ends a day after it
+went, however much its CI still moves; ended watches are deleted after a
+week). A new head of a gone watch's branch — a push, a pushed branch found
+at a turn's end — or an open pull request of it makes it live again. A step's progress comes from
 reads only (the platform reports a job, not its steps, as it goes), so
 `current` is left out of a summary whose snapshot an event changed since
-its last read. With nothing heard about a pending watch for 2 minutes, the
+its last read. With nothing heard for 2 minutes about a watch with
+anything not completed — a failed one too, while other jobs run — the
 agent reads it every minute for 20 minutes after its push, then every 10
 minutes until 2 hours, every 30 until a day, then not until someone looks
 — one read per watch at a time, whoever asks.
@@ -3811,7 +3819,7 @@ agent never reads or acts on an id a caller made up.
 
 | Method and path | Who | Answer |
 |---|---|---|
-| `GET /runs/{id}/ci?fresh=1` | a viewer | `CIView` of the conversation's root (below). A watch never read is read; with `fresh=1` each watch with anything pending whose snapshot is older than 10 s (the provider's webhooks unhealthy) or 30 s (healthy) is read first. A task with no watch yet gets its own |
+| `GET /runs/{id}/ci?fresh=1` | a viewer | `CIView` of the conversation's root (below). A watch never read is read; with `fresh=1` each watch with anything not completed (a failed one too, while other jobs run) whose snapshot is older than 10 s (the provider's webhooks unhealthy) or 30 s (healthy) is read first. A task with no watch yet gets its own |
 | `GET /runs/{id}/ci/jobs/{job}/log?watch=&tail=&since=&until=` | a viewer | `{text, bytes, from, complete, truncated, url}` — the job's log from byte `max(since, end − tail)` to `until` (default its end), `tail` ≤ 262144 (default 65536); a viewer pages back with `until=<from>`. ANSI codes stripped, redacted. **409** `{error, refusal: "in-progress", url}` while the job runs on a platform that serves a log only once a job ends (GitHub): `url` is its live log |
 | `GET /runs/{id}/ci/checks/{check}/annotations?watch=&cursor=` | a viewer | `{items: [{path, startLine, endLine, level: notice\|warning\|failure, title, message}], next}`, redacted |
 | `POST /runs/{id}/ci/watch` `{scm?, repo, ref?, pr?}` | a participant | **201** `CIWatchView` (**200** when that branch is already watched): a pull request's number is its head branch. 400 neither `ref` nor `pr`; 403 a repo the bot rule refuses; 409 `limit` past 10 with no pushed watch to end; the provider's refusal (`not-found`, `signin`, …) passed on. `scm` may be left out when one provider is bound |
@@ -3879,7 +3887,7 @@ each run's jobs (a progress bar of its steps, the step under way, time ↗;
 expanded: its steps ✓ ✗ ● ○ with durations, **Log**, its annotations as
 `path:line`), the other checks and statuses (↗), and **Watch CI for…** (a
 repo, a branch or a pull request's number). While the tab is shown it is
-read again every 15 s if anything is pending; a conversation's CI is read
+read again every 15 s while anything is not completed; a conversation's CI is read
 once when it opens. **The log** replaces the section (the dock widens)
 until ← Back: the last 64 KiB, **Earlier** for what came before, plain
 text with a search (next, previous), **Follow** while a job runs where the
