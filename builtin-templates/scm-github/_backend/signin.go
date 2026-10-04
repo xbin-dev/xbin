@@ -168,7 +168,10 @@ func (s *srv) resumeSignin() {
 	s.signin.mu.Unlock()
 }
 
-// pollOnce asks GitHub once whether the person has entered the code.
+// pollOnce asks GitHub once whether the person has entered the code —
+// when it is due, and only one caller per interval: the background poller
+// and GET /scm/signin/{pollId} both come here, and whichever claims the
+// interval first (NextAt moved on under the lock) is the one that asks.
 func (s *srv) pollOnce(ctx context.Context, pollID string) {
 	f := s.signin
 	f.mu.Lock()
@@ -177,13 +180,19 @@ func (s *srv) pollOnce(ctx context.Context, pollID string) {
 		f.mu.Unlock()
 		return
 	}
-	cp := *p
-	f.mu.Unlock()
 	now := s.now()
-	if now.UnixMilli() >= cp.ExpiresAt {
+	if now.UnixMilli() >= p.ExpiresAt {
+		f.mu.Unlock()
 		s.endSignin(pollID, endedSignin{state: "expired"})
 		return
 	}
+	if now.UnixMilli() < p.NextAt {
+		f.mu.Unlock()
+		return // not due, or another caller is asking this interval
+	}
+	p.NextAt = now.Add(time.Duration(p.IntervalMs) * time.Millisecond).UnixMilli()
+	cp := *p
+	f.mu.Unlock()
 	pub := s.public()
 	_, _, web := s.hosts()
 	var out oauthTokenResp
@@ -279,6 +288,9 @@ func (s *srv) endSignin(pollID string, e endedSignin) {
 		if e.at.Sub(old.at) > 10*time.Minute {
 			delete(f.ended, id)
 		}
+	}
+	if old, ok := f.ended[pollID]; ok && old.state == "done" {
+		return // a sign-in that succeeded stays done, whatever a late answer says
 	}
 	f.ended[pollID] = e
 	if f.cur != nil && f.cur.PollID == pollID {

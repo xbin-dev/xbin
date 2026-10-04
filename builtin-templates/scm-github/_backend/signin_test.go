@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -190,5 +192,35 @@ func TestTokenWithoutSigninStartsFlow(t *testing.T) {
 	x2 := refusal(t, e.call(u, personC("alice"), "GET", "/scm/pulls?repo=acme/web", nil), 409, "signin")
 	if x2.Signin.PollID != x.Signin.PollID {
 		t.Fatal("a second flow")
+	}
+}
+
+// The background poller and a page's poll both arrive at NextAt: one of
+// them asks GitHub. A late failure never turns a done sign-in into one.
+func TestSigninPollOncePerInterval(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	s := e.user("alice")
+	u := s.routes()
+	var st signinState
+	decode(t, e.call(u, pageC("alice"), "POST", "/scm/signin", nil), &st)
+	poll := st.Signin.PollID
+	e.clock.advance(5 * time.Second)
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			s.pollOnce(context.Background(), poll)
+		}()
+	}
+	wg.Wait()
+	if n := e.devicePolls(); n != 1 {
+		t.Fatalf("%d polls in one interval", n)
+	}
+	s.endSignin("p_x", endedSignin{state: "done", ident: &identity{Kind: asPerson, Login: "octocat"}})
+	s.endSignin("p_x", endedSignin{state: "error", err: "expired_token"})
+	if got := s.signin.ended["p_x"]; got.state != "done" {
+		t.Fatalf("a done sign-in became %q", got.state)
 	}
 }
