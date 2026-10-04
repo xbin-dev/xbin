@@ -3768,3 +3768,12 @@ with the record that explains it:
 - 2026-10-04 (K) §9.1: one token per (project, sandbox, host) for all of the project's repos there; repos spanning owners on one host get the provider's 400 `invalid` as the creds job's error (the spec is silent) — records/K.md
 - 2026-10-04 (K) §9.6: a share through the agent is refused (502) when a credential there can't be emptied, as `readyForShare` refuses; the scrub also runs after the PATCH (the `stopCredsIn` sibling) — records/K.md
 - 2026-10-04 (K) §7.2: `GET /projects/scm/bot` in a person's partition answers that partition's (never read) rule to a manager; only `PUT` is 409 there — records/K.md
+- 2026-10-04 (K) §7.2: the sign-in routes (`/projects/scm/signin*`) answer 403 to view-as callers and to components (a person's own, `needUser`) — records/K.md
+- 2026-10-04 (K) §9.2: a bot sandbox owned by no person (the agent made it as itself) counts only its members and the team — records/K.md
+- 2026-10-04 (K) §16.2: the share trigger in `handlePatchSandbox` is a three-line `if` (gofmt; it refuses the share) plus one line after the PATCH, not one line — records/K.md
+- 2026-10-04 (K) §9.7: message rows now also mask `sk-ant-…` keys (`scmRedact` is `redactText`, which applies `tokenShape` too) — records/K.md
+- 2026-10-04 (K) §9.5: `scmCredsDue` also counts `project_repos` through the gate's `t` (frozen DDL; no table = none) — a project without repos is never due, and the gate's transaction never waits on `projectReposOf` — records/K.md
+- 2026-10-04 (K) §9.6: a scrub that can't empty the files revokes but leaves the row `live` (why set, `refresh_ms` 0), so every later trigger retries and a share stays refused; a scrub also removes a left-over `…tmp` — records/K.md
+- 2026-10-04 (K) §9.1: a live token is reused only while its scope (repos, access, permissions) is the project's; a repo added or `workflows` turned on mints again — records/K.md
+- 2026-10-04 (K) §9.1: every 5xx whose body names no refusal is `unavailable` (502 included), but 501 stays `unsupported` (the contract's) — records/K.md
+- 2026-10-04 (K) §14.1: the `scrub` job's why is the job's `step` when it holds one of §14.1's words, else inferred (repo-removed, archive, delete, left) — records/K.md

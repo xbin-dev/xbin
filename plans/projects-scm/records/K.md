@@ -13,8 +13,9 @@
   `scmAPI` method over HTTP (§4.7–§4.11), hellos cached 60 s / 10 s after a
   failure, a provider of another protocol or without `credentials`
   refused, refusals decoded into `*scmError` with the HTTP status and the
-  payload (a 5xx without a body → `unavailable`, a bare status → its
-  contract refusal, `Retry-After` kept), 304 → `Checks` answers nil, nil,
+  payload (a 5xx whose body names no refusal → `unavailable`, 502
+  included, 501 → `unsupported`; another bare status → its contract
+  refusal; `Retry-After` kept), 304 → `Checks` answers nil, nil,
   the ETag header filling an answer's `etag`; `Revoke` reveals a token only
   into its own body (§9.1, §14.3).
 - **The gate and the bot rule** — `B/scm_gate.go`: `scmProjectAs` (policy,
@@ -40,7 +41,9 @@
     `gh/hosts.yml` as `…tmp` files (0600, mkdirs) renamed by one `Run` that
     also makes the directories 0700 and applies the git config to every
     base repo and clone-mode checkout there; `P/.xbin/env` with
-    `GH_CONFIG_DIR`; the row `live` (§9.3, §9.4).
+    `GH_CONFIG_DIR`; the row `live` (§9.3, §9.4). A live token is
+    reused only while its scope (sorted repos, access, permissions) is
+    the request's: a repo added or `workflows` turned on mints again.
   - `scmGitConfig` (the helper reset, the helper, `useHttpPath false`,
     the token's author) and `scmProjectEnv` (`GH_CONFIG_DIR`) (§8.5, §9.4).
   - A 409 `signin`: the device code kept in memory per (person, provider)
@@ -48,20 +51,33 @@
     `SigninPoll` at the provider's interval (`jobOutcome{WaitMs}`), at
     most 15 minutes, then writes the credential, clears the code, puts the
     task back and wakes its parked run (§8.6, §9.5, §9.8).
-  - `scmCredsDue` from `project_creds` alone: no live row for the task's
-    sandbox, another identity, or refresh/expiry within 10 min; never for
-    a project without repos or not active (§8.6, §9.5).
+  - `scmCredsDue` from `project_creds`, through the gate's handle `t`
+    only: no live row for the task's sandbox, another identity, or
+    refresh/expiry within 10 min; never for a project not active or
+    without a repo (`project_repos` counted through `t`, by the frozen
+    DDL; no table, no repo) (§8.6, §9.5; see Deviations).
   - The refresher: an `ownerLoops` entry re-minting each token at the
     provider's `refreshAfter` or 75 % of its life, while a task of the
     project is at work (§9.5; see Deviations).
   - Scrubbing = `scmScrubCreds`: both files emptied (0600, zero bytes),
     the purpose revoked, the token dropped (kept masked until it
-    expires), `scrubbed` with why. Triggers placed: a share through the
+    expires), `scrubbed` with why. Files that can't be emptied (the
+    manager refused a write): revoked anyway, but the row stays `live`
+    with why and `refresh_ms` 0 — selected by every later scrub (a share
+    stays refused), due for the gate — and the gate's refusal doesn't
+    mark it `blocked` either. A `…tmp` a failed rename left is removed.
+    A row whose project `projectsInSandbox` doesn't list there takes its
+    uid, provider and owner from `projects` (frozen DDL), else its
+    purpose, and is revoked at every bound provider when the provider is
+    unknown. Triggers placed: a share through the
     agent (before the PATCH, refusing it when a file can't be emptied;
     and after it, the `stopCredsIn` sibling), stop and archive (before the
     lifecycle call), delete (`projectSandboxGone`: revoke only), Forget
     (before the provider forgets), the gate's refusal; the `scrub` job
-    kind for P1's and P2's triggers (§9.6).
+    kind for P1's and P2's triggers, its why §14.1's word (`scmScrubWhy`:
+    the job's `step` when the queuer put one of the words there, else a
+    repo's job `repo-removed`, an archived or deleting project `archive`
+    or `delete`, a task's fork `delete`, else `left`) (§9.6).
   - `creds` and `scrub` registered in `projectJobKinds` (§8.3).
 - **Redaction** — `B/harness_redact.go`: `gh[pousr]_[^\s"'@]{30,}` and
   `github_pat_[^\s"'@]{22,}` beside `tokenShape`, and every live (and
@@ -96,8 +112,13 @@
 - `scmCredStatus(d *DB, pid) []StatusCred` — `ProjectStatus.creds` for
   P1's `GET /projects/{pid}/status` (not a §14 seam; a helper P1 may call).
 - `projectSandboxGone(ref)` — called by `handleDeleteSandbox`.
-- **What K reads of P1's tables** (the frozen DDL of §6.2, §6.4–§6.6):
-  `project_members` (count, for the person gate; unreadable = refused),
+- **The `scrub` job's why:** P1 and P2 may put the word in the job's
+  `step` when they queue it (`share`, `stop`, `archive`, `delete`,
+  `repo-removed`, `forget`, `left`); otherwise K infers it (above).
+- **What K reads of P1's tables** (the frozen DDL of §6.2–§6.6):
+  `projects` (`uid`, `scm`, `owner` of a row's project the store didn't
+  list in its sandbox), `project_repos` (a count, through the gate's
+  `t`: whether `scmCredsDue` may say due), `project_members` (count, for the person gate; unreadable = refused),
   `project_tasks` (`ws`, `error`, `n`, `run_id`, `sandbox_ref`),
   `project_checkouts` (clone-mode paths), `project_jobs` (whether `bind`
   finished). **What K writes there:** `project_tasks.ws`/`error`/
@@ -213,6 +234,36 @@ Also dated in projects-scm §19.
 - §9.2 (silent): a bot sandbox whose owner is no person (the agent made it
   as itself) counts only its members and the team; the person gate's "no
   members" reads `project_members` and refuses when it can't.
+- §9.5: `scmCredsDue` reads `project_creds` and, through the gate's `t`,
+  a count of `project_repos` (frozen DDL; no table = no repos): a project
+  without repos is never due. "From `project_creds` alone" would make it
+  due for good (ensure writes nothing for it, so the gate would park its
+  turns behind a `creds` job forever), and asking `projectReposOf`
+  instead reads the database off the gate's transaction — with the one
+  connection, it waits forever (fix round 1).
+- §9.6 (silent): a scrub whose files can't be emptied (the manager
+  refused the write) revokes anyway but leaves the row `live` with why and
+  `refresh_ms` 0, not `scrubbed`: every later trigger selects it again,
+  so a refused share stays refused until a scrub really empties the
+  file, and the gate has the revoked value replaced or blocked before the
+  next turn; the gate's own refusal leaves such a row live too. A scrub
+  also removes the `…tmp` a failed rename left (fix round 1).
+- §9.1: a live token is reused only while its scope — sorted repos,
+  access, permissions — is what the project asks now; a repo added or
+  `workflows` turned on mints again at the next ensure (§8.3's `creds`
+  before `repo`), whatever the old one's time left (fix round 1).
+- §9.1: "a 5xx without a body → `unavailable`" applied to every 5xx whose
+  body names no refusal (502 from xbind's gateway included), but 501,
+  which the contract (scm_types.go) keeps for `unsupported`; `upstream`
+  only when a body says it (fix round 1).
+- §14.1 (silent): the `scrub` job takes its why from the job's `step`
+  when its queuer put one of §14.1's words there, else infers it (a
+  repo's job `repo-removed`; archived/deleting `archive`/`delete`; a
+  task's fork `delete`; else `left`) — the job has no field for it.
+- §9.7: `addMessage`/`rewriteMessage` apply `redactText`, so message rows
+  now also mask the shapes `tokenShape` already masked in the coding
+  agents' output (`sk-ant-…` keys) — kept: §9.7 names `redactText` as
+  `scmRedact`, and a key in a stored message is a leak either way.
 
 ## Tests run / not run
 
@@ -224,6 +275,11 @@ Also dated in projects-scm §19.
 | `TILE_TEST_FLAGS="-race -count=1 -timeout 45m" hack/tile-check.sh agent` (at `16610255`) | vet ok; every test passes (1864 s) but `TestTaskSurvivesThreeCompactions` ("timed out waiting for run #1 to be idle"), which fails the same way under `-race` on the base commit `7d310f72` run alone (its 5 s wait is too short for the race detector) and passes without `-race` — not K's |
 | `TILE_TEST_FLAGS="-count=1 -v -run TestScm\|TestCred\|TestRefresh\|TestScrub\|TestRedact\|TestSeeded\|TestPending\|TestSignin\|TestGitCredential\|TestSCMCreds\|TestNoTickers" hack/tile-check.sh agent` | ok — `-v` lists TestScmHelloCache, TestScmRefusalDecode, TestScmClientRoutes, TestScmProvidersRoute, TestCredGateMatrix, TestCredGateBlocks, TestCredsDue, TestScmBotRule, TestCredFilesMode0600, TestGitCredentialFill, TestRefreshRewritesFile, TestSCMCredsSchemaMigratesTwice, TestScrubOnShare, TestScrubOnStopDeleteForget, TestRedactPatternsAndLive, TestSeededTokenNeverStored, TestPendingSigninKept, TestSigninStateStartsNothing, TestNoTickers and the harness's existing credential tests, all PASS; the same set also passes under `-race` |
 | `make check` | the guards pass (fmt-check, vet, js-check, shellcheck, large-files, …); `make test` fails in `internal/boot`, `internal/runner` (backends "exited before [they] listened") and `internal/tilesbx` (`TestAdmissionCaps`, `TestResourceReconcile`: the memory admission against this 7 GiB host). K changes nothing under `internal/`, `cmd/` or `sdk/`. With `TMPDIR` on the tmpfs instead of `/work/tmp-tests/k`, `internal/boot` and `internal/runner` pass; `internal/tilesbx` still fails on host memory — an environment failure, not K's |
+| **Fix round 1** (at `b4eb6b87`): `go test ./internal/docscheck`; `make fmt-check vet` | ok |
+| `TILE_TEST_FLAGS="-count=1 -v -run TestScm\|TestCred\|TestScrub\|TestGitCredential\|TestRefresh\|TestPending\|TestSignin\|TestRedact\|TestSeeded\|TestSCMCreds\|TestNoTickers" hack/tile-check.sh agent` | ok — the new TestScrubOnShareRefused, TestCredsDueInTx, TestCredsCoverNewRepo, TestScrubJobWhy, `TestScrubOnStopDeleteForget/archive` and `/a_project_the_store_doesn't_list_there` PASS with the rest |
+| the same new tests against the previous commit's `scm.go`, `scm_creds.go`, `scm_ensure.go`, `scm_scrub.go` (by hand, not committed) | each fails: the share retry's row `scrubbed`, `scmCredsDue` "waited on the database" in a transaction, one token for two repos, no revoke for an unlisted project, the scrub job's why, a 502 decoded `upstream`, TestGitCredentialFill "not written again" |
+| `TILE_TEST_FLAGS="-race -count=1 -timeout 50m" hack/tile-check.sh agent` | vet ok; every test passes (1744 s) but `TestTaskSurvivesThreeCompactions` ("timed out waiting for run #1 to be idle"), the same pre-existing `-race` failure as above; it passes alone without `-race` |
+| `make check` | the guards pass (fmt-check, vet, js-check, shellcheck, large-files); `make test` fails in `internal/boot`, `internal/runner` ("the backend exited before it listened"), `internal/tilesbx` (`TestAdmissionCaps`, `TestResourceReconcile` on host memory; `TestStdioNewestWins`, an i/o timeout under load) — K changes nothing under `internal/`, `cmd/` or `sdk/` (`git diff 7d310f72 --stat -- internal cmd sdk` is empty) |
 | `TestSeededTokenNeverStored` with `scmRedact` made the identity (by hand, not committed) | fails, naming `messages`, `messages_fts`, `messages_fts_content` — the test sees a leak |
 
 Not run: the gate-1 test `TestSeededTokenNeverStoredTask` (the lead's,
@@ -262,6 +318,12 @@ and the UI harness are owed by the program (projects-scm §15.4).
 - API.md links `/docs/scm.md`, which G1 writes: dangling on this branch
   alone.
 
+- **Commit `343a3403`'s subject** ends "(work in progress)", against
+  §16.5's explanatory subjects; the history is left as the verifier saw
+  it — reword it when the integration branch takes K (suggested:
+  "agent template: the scm client, the credential gate, minting, files
+  and scrubs").
+
 ## Commits
 
 | Commit | Subject |
@@ -270,7 +332,9 @@ and the UI harness are owed by the program (projects-scm §15.4).
 | `5781a36f` | agent template: scm credential tests — the gate matrix, the bot rule, scrubs, sign-in, the seeded token |
 | `82ab8717` | agent template: API.md §scm providers and credentials |
 | `16610255` | agent template: the scm refresher sleeps until the next token's instant |
-| (this commit) | plans: projects-scm — K's record and deviations |
+| `5ed9f899` | plans: projects-scm — K's record and deviations |
+| `b4eb6b87` | agent template: scm credential fixes — an unemptied scrub stays live, scope re-mints, the gate's question in its transaction |
+| (this commit) | plans: projects-scm — K's record after fix round 1 |
 
 ## Owner questions
 

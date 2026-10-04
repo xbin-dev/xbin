@@ -4,7 +4,8 @@
 // Scrubbing empties both files (0600, zero bytes), revokes the purpose at
 // the provider (best effort: the provider forgets it either way), drops
 // the token from memory (still masked until it expires) and marks the row
-// scrubbed with why. The triggers are one line each where the moment is:
+// scrubbed with why — or, when the files couldn't be emptied, leaves it
+// live and due (scmCredUnemptied), so the next trigger tries again. The triggers are one line each where the moment is:
 // a sandbox shared, stopped, archived or deleted through the agent
 // (sandbox_routes.go), Forget (scm_routes.go), the projects store's own
 // (archive, delete, a repo removed, the sandbox leaving), a fork deleted —
