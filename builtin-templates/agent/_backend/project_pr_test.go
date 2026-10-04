@@ -114,7 +114,8 @@ func TestAutoPROnRest(t *testing.T) {
 	}
 }
 
-// The pr job, asked for by hand, twice: one push, one pull request — the
+// The pr job, asked for by hand, twice (its first create failing as a
+// connection would: tried again): one push, one pull request — the
 // second run finds it open and only pushes; a repeat of the provider's
 // create (its clientId) answers the same one. A task whose branch is its
 // repo's default branch is never pushed. The route: participants, a ready
@@ -138,6 +139,23 @@ func TestPRJobIdempotent(t *testing.T) {
 		t.Fatalf("a pull request with nothing to push: %d", n)
 	}
 	head := commitWork(t, co, "fix.txt", "fixed\n")
+	// the create fails as a connection would, after the push: the job is
+	// tried again (the push and the create repeat safely) and opens it
+	p2PullFails.Store(1)
+	t.Cleanup(func() { p2PullFails.Store(0) })
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/task/pr", runID), map[string]any{"title": "Fix it", "body": "Please look", "draft": false}); w.Code != 202 {
+		t.Fatalf("POST …/task/pr: %d %s", w.Code, w.Body)
+	}
+	hwait(t, "the pr job to be tried again", func() bool {
+		js := fx.ag.db.jobsWhere(`WHERE project_id=? AND kind=? AND state='queued' AND attempts>=1`, p.ID, pjPR)
+		return len(js) == 1 && strings.Contains(js[0].Error, "connection reset")
+	})
+	_, _ = fx.ag.db.q.Exec(`UPDATE project_jobs SET next_ms=0 WHERE project_id=? AND kind=? AND state='queued'`, p.ID, pjPR)
+	kickProjectWorker()
+	waitJobsDone(t, fx.projFix, p.ID)
+	if reqs := fx.pullReqs(); len(reqs) != 1 || reqs[0].Title != "Fix it" {
+		t.Fatalf("the pull request after a failed create: %+v (jobs %s)", reqs, jobsDump(fx.ag.db, p.ID))
+	}
 	for i := range 2 {
 		w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/task/pr", runID), map[string]any{"title": "Fix it", "body": "Please look", "draft": false})
 		if w.Code != 202 || !strings.Contains(w.Body.String(), `"kind":"pr"`) {

@@ -13,6 +13,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -184,6 +185,21 @@ while [ "$i" -lt "$N" ]; do
 done
 `
 
+// prTransient: a pull request's create failed in a way a later try may
+// not — the provider or its host unreachable, busy or rate-limited — not
+// a refusal of the request itself.
+func prTransient(err error) bool {
+	var se *scmError
+	if !errors.As(err, &se) {
+		return true
+	}
+	switch se.Refusal {
+	case scmRefLimit, scmRefUnavailable, scmRefUpstream:
+		return true
+	}
+	return false
+}
+
 // prBody is a pull request's body when none was given: which task it is
 // for, and the issue it closes when it is in that repo. Nothing of the
 // conversation goes out.
@@ -208,6 +224,14 @@ func jobPR(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobO
 	}
 	if k.WS != wsReady {
 		return doneJob("no workspace to push from")
+	}
+	if j.ClientID == prAgain {
+		// this run reads the newest ask: an ask from here on marks it again
+		// (rerunMarks), so it runs once more after this one
+		j.ClientID = ""
+		if _, err := d.q.Exec(`UPDATE project_jobs SET client_id='' WHERE id=? AND client_id=?`, j.ID, prAgain); err != nil {
+			return jobOutcome{}, err
+		}
 	}
 	ask, raw := prAskOf(d, p.ID, k.N)
 	repos, err := taskRepos(p, k)
@@ -294,6 +318,7 @@ func jobPR(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobO
 	}
 	title := clip(orStr(ask.Title, k.Title), 256)
 	var made []TaskPR
+	var retry error               // a create that may work if tried again (the push and the create repeat safely)
 	pushed := map[string]string{} // slug → the head pushed
 	for i, c := range cos {
 		g, ok := got[i]
@@ -318,6 +343,10 @@ func jobPR(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobO
 			}
 			if made == nil && len(pushed) == 0 {
 				return jobOutcome{}, err
+			}
+			if prTransient(err) && retry == nil {
+				retry = fmt.Errorf("opening the pull request on %s: %w", r.Repo, err)
+				continue // what was done is recorded; the job runs again
 			}
 			notes = append(notes, fmt.Sprintf("%s: %v", r.Repo, err))
 			continue
@@ -372,13 +401,16 @@ func jobPR(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobO
 		if len(notes) > 0 {
 			addProjectEvent(t, p.ID, k.N, pevNote, map[string]any{"text": clip("pull request: "+strings.Join(notes, "; "), 1000)}, false, "")
 		}
-		if t.getSetting(prKey(p.ID, k.N)) == raw { // asked again meanwhile: that ask stays for the next run
+		if retry == nil && t.getSetting(prKey(p.ID, k.N)) == raw { // asked again meanwhile, or tried again: the ask stays
 			_, _ = t.q.Exec(`DELETE FROM settings WHERE k=?`, prKey(p.ID, k.N))
 		}
 		return nil
 	})
 	if err != nil {
 		return jobOutcome{}, err
+	}
+	if retry != nil {
+		return jobOutcome{}, retry
 	}
 	switch {
 	case len(made) > 0:
