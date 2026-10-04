@@ -1,3 +1,6 @@
+#if canImport(UIKit)
+import UIKit
+#endif
 import XCTest
 
 /// The app's own surfaces in light and dark, for looking at after a change
@@ -90,11 +93,19 @@ final class XbinThemeGalleryTests: XCTestCase {
                 try await e.server.sessions(cwd: "apps/welcome").contains { $0.kind != "agent" }
             }
             e.app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-            // The ANSI colours (normal, then bright) and a title to wait on.
-            e.app.typeText("clear; for c in 1 2 3 4 5 6; do printf '\\033[3%dm normal%d \\033[9%dm bright%d\\033[0m\\n' $c $c $c $c; done;"
+            // The ANSI colours (normal, then bright), a run of full blocks
+            // in bright black (SGR 90, the prompts' paths) and a title to
+            // wait on.
+            e.app.typeText("clear; for c in 0 1 2 3 4 5 6; do printf '\\033[3%dm normal%d \\033[9%dm bright%d\\033[0m\\n' $c $c $c $c; done;"
+                + " printf '\\033[90m'; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do printf '\\342\\226\\210'; done; printf '\\033[0m\\n';"
                 + " printf '\\033[1mbold\\033[0m plain\\n'; printf '\\033]0;gallery-%d\\007' $((40+2))\n")
             XCTAssertTrue(e.element("gallery-42").waitForExistence(timeout: 30), "the shell's output")
             shot(e, "terminal")
+            // Bright black is palette 8, not black: SwiftTerm with
+            // useBrightColors off drew every index above 7 as index − 8
+            // (D185's review), and the blocks vanished into the background.
+            let bright = Self.pixels(near: Self.brightBlack, in: XCUIScreen.main.screenshot())
+            XCTAssertTrue(bright > 2000, "SGR 90 is drawn in the palette's bright black #5C5F70 (\(bright) pixels of it on screen)")
             let plus = e.app.buttons.matching(identifier: "sessions-plus").firstMatch
             XCTAssertTrue(plus.waitForExistence(timeout: 10), "the strip's +")
             plus.tap()
@@ -115,5 +126,33 @@ final class XbinThemeGalleryTests: XCTestCase {
             try await e.server.resetDeployments("apps/wide")
             e.app.terminate()
         }
+    }
+
+    /// The terminal's bright black (XbinPalette.Terminal.ansi[8], Concrete
+    /// Night's): the UI tests don't link the renderer's model.
+    static let brightBlack: UInt32 = 0x5C5F70
+
+    /// How many of `shot`'s pixels are within `tolerance` of the sRGB colour
+    /// `hex` in every channel.
+    @MainActor
+    static func pixels(near hex: UInt32, in shot: XCUIScreenshot, tolerance: Int = 6) -> Int {
+        guard let image = shot.image.cgImage, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return 0 }
+        let (w, h) = (image.width, image.height)
+        var bytes = [UInt8](repeating: 0, count: w * h * 4)
+        let drawn = bytes.withUnsafeMutableBytes { buf -> Bool in
+            guard let ctx = CGContext(data: buf.baseAddress, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4,
+                                      space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+            ctx.draw(image, in: CGRect(x: 0, y: 0, width: CGFloat(w), height: CGFloat(h)))
+            return true
+        }
+        guard drawn else { return 0 }
+        let want = [Int((hex >> 16) & 0xFF), Int((hex >> 8) & 0xFF), Int(hex & 0xFF)]
+        var n = 0
+        for i in stride(from: 0, to: bytes.count, by: 4)
+        where abs(Int(bytes[i]) - want[0]) <= tolerance && abs(Int(bytes[i + 1]) - want[1]) <= tolerance
+            && abs(Int(bytes[i + 2]) - want[2]) <= tolerance {
+            n += 1
+        }
+        return n
     }
 }

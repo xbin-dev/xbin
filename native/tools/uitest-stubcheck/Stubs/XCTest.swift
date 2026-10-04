@@ -75,6 +75,35 @@ public struct CGVector: Sendable {
 @MainActor
 open class XCUIScreenshot {
     open var pngRepresentation: Data { Data() }
+    open var image: UIImage { UIImage() }
+}
+
+// MARK: UIKit and CoreGraphics (what a test reads a screenshot's pixels with)
+
+open class UIImage: @unchecked Sendable {
+    public init() {}
+    open var cgImage: CGImage? { nil }
+}
+
+open class CGImage: @unchecked Sendable {
+    open var width: Int { 0 }
+    open var height: Int { 0 }
+}
+
+open class CGColorSpace: @unchecked Sendable {
+    /// A CFString on Apple platforms.
+    public static let sRGB = "kCGColorSpaceSRGB"
+    public init?(name: String) {}
+}
+
+public enum CGImageAlphaInfo: UInt32, Sendable {
+    case none = 0, premultipliedLast = 1, premultipliedFirst = 2, last = 3, first = 4, noneSkipLast = 5, noneSkipFirst = 6
+}
+
+open class CGContext {
+    public init?(data: UnsafeMutableRawPointer?, width: Int, height: Int, bitsPerComponent: Int, bytesPerRow: Int,
+                 space: CGColorSpace, bitmapInfo: UInt32) {}
+    open func draw(_ image: CGImage, in rect: CGRect) {}
 }
 
 @MainActor
