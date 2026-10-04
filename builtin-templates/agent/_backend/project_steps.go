@@ -143,6 +143,10 @@ func waitJob(ms int64, step string) (jobOutcome, error) {
 
 func doneJob(step string) (jobOutcome, error) { return jobOutcome{Done: true, Step: step}, nil }
 
+// signinWait is how long a task's workspace waits for its person's sign-in
+// (the provider's device code lasts about as long) before it fails.
+var signinWait = 20 * time.Minute
+
 // ensureCreds is the credential's part before a git step: the project's
 // token in ref, live for 10 more minutes (scmEnsureCreds; nothing before
 // that part is in). A team definition's sandbox (a seed) never holds one.
@@ -335,9 +339,7 @@ func jobRepo(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) (jo
 	}
 	pol := policyOf(p.Policy)
 	if pol.Protection == "refuse" && r.Protected != nil && !*r.Protected {
-		msg := fmt.Sprintf("%s's default branch has no protection, and the project's policy refuses such a repo (protection: refuse)", r.Repo)
-		agent.db.setRepoState(p.ID, r.Slug, "failed", msg)
-		return jobOutcome{}, jobFail("%s", msg)
+		return jobOutcome{}, jobFail("%s's default branch has no protection, and the project's policy refuses such a repo (protection: refuse)", r.Repo)
 	}
 	s, err := openWsbx(ctx, p, p.SandboxRef)
 	if err != nil {
@@ -378,9 +380,7 @@ func jobRepo(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) (jo
 	j.Out = clip(projRedact(tail), 8<<10)
 	j.ExecID = ""
 	if code != 0 {
-		msg := fmt.Sprintf("cloning %s failed (exit %d): %s", r.Repo, code, lastLines(j.Out, 6))
-		agent.db.setRepoState(p.ID, r.Slug, "failed", msg)
-		return jobOutcome{}, errors.New(msg)
+		return jobOutcome{}, fmt.Errorf("cloning %s failed (exit %d): %s", r.Repo, code, lastLines(j.Out, 6))
 	}
 	def, head := parseRepoOut(tail)
 	_ = agent.db.Tx(func(t *DB) error {
@@ -612,6 +612,9 @@ func jobPrepare(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 		return jobOutcome{}, err
 	}
 	if signin, err := ensureCreds(ctx, p, k, ref); signin {
+		if nowMs()-j.Created > signinWait.Milliseconds() {
+			return jobOutcome{}, jobFail("the sign-in to %s wasn't finished: sign in, then Retry", orStr(p.Host, "the scm provider"))
+		}
 		_ = agent.db.Tx(func(t *DB) error { setWS(t, p, k, wsSignin, ""); return nil })
 		if projectJobKinds[pjCreds] != nil {
 			_, _ = agent.db.queueJob(p.ID, k.ID, "", pjCreds, j.By, 0)

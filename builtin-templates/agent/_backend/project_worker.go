@@ -393,8 +393,13 @@ func (w *projWorker) finish(p *Project, k *ProjectTask, j *ProjectJob, out jobOu
 		}
 		if state == pjDone || state == pjFailed {
 			// what waits on this one looks again now (prepare on the sandbox
-			// and the repos, bind on the setups)
+			// and the repos, bind on the setups), and so does the task's
+			// parked turn (a renewed credential, say)
 			_, _ = t.q.Exec(`UPDATE project_jobs SET next_ms=0 WHERE project_id=? AND state='waiting' AND kind IN (?, ?)`, p.ID, pjPrepare, pjBind)
+			if k != nil && k.RunID != 0 && w.e != nil {
+				run, e := k.RunID, w.e
+				t.AfterCommit(func() { e.Poke(run) })
+			}
 		}
 		emitProject(t, p.ID, "job", 0)
 		return nil
@@ -416,6 +421,10 @@ func jobFailed(t *DB, p *Project, k *ProjectTask, j *ProjectJob, errText string)
 		setWS(t, p, k, wsFailed, errText)
 		addProjectEvent(t, p.ID, k.N, pevWorkspace, map[string]any{"text": "its workspace failed: " + clip(errText, 400)}, true, "")
 		return
+	}
+	if j.Kind == pjRepo { // the tasks waiting on it fail at their next look
+		_, _ = t.q.Exec(`UPDATE project_repos SET state='failed', error=? WHERE project_id=? AND slug=?`, errText, p.ID, j.Repo)
+		emitProject(t, p.ID, "repo", 0)
 	}
 	if j.Kind == pjSandbox || j.Kind == pjRepo {
 		addProjectEvent(t, p.ID, 0, pevWorkspace, map[string]any{"text": fmt.Sprintf("the project's %s job failed: %s", j.Kind, clip(errText, 400))}, true, "")
