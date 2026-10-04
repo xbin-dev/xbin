@@ -3730,7 +3730,7 @@ task comes to rest.
 | Method and path | Need | Body | Answer |
 |---|---|---|---|
 | `POST /runs/{id}/task/pr` | P (and a participant of the project) | `{draft?, title?, body?}` | **202** `{job}`; the pull requests arrive in `TaskView.prs`. 409 when the project isn't active, the task is over or its workspace isn't `ready`. Only `POST` is mounted: a `GET` answers 405 (how a client learns the route is there) |
-| `POST /projects/{pid}/fork-base` | O | `{now?: true}` | **202** `{job}`: a fork base taken when the sandbox is next quiet (a person's ask waits up to 30 min for that), or with `now` at once — it may stop the sandbox: ask first. 409 `refusal: "unsupported"` when its manager takes no snapshots or clones |
+| `POST /projects/{pid}/fork-base` | O | `{now?: true}` | **202** `{job}`: a fork base taken when the sandbox is next quiet (a person's ask waits up to 30 min for that, from the ask — one the agent queued itself and hasn't started becomes the person's), or with `now` at once — it may stop the sandbox: ask first. 409 `refusal: "unsupported"` when its manager takes no snapshots or clones; 409 `refusal: "busy"` while the agent's own snapshot job, or one not taken `now`, is at work (ask again once it ends) |
 | `GET /runs/{id}/project/detect` | O | — | `{sandbox, cwd, candidates: [{path, remote, host, repo, scm, defaultBranch, branch, dirty, ssh, hasCredentials}]}` |
 | `POST /runs/{id}/project` | O | `{name, scm, repos: [{path, repo?}], branch?: "keep" \| "new", switchHttps?: [path], policy?}` | **201** `{project: ProjectView, task: TaskView}` — the conversation is task 1 |
 
@@ -3747,9 +3747,15 @@ its own**, made by its `prepare` job before its checkouts:
   running in it and no command its manager runs there (a person's
   terminal), because a snapshot may stop the sandbox. Every project's
   credential in the sandbox is emptied (and revoked) before the snapshot
-  is taken, so no snapshot holds a live token; the workspace gate writes
-  a fresh one when a task next needs it. The newer fork base replaces the
-  older (which is deleted). Needs the manager's `snapshots` and `clone`.
+  is taken, and none is written there, nor does a git step start there,
+  until the manager has answered — so no snapshot holds a live token; the
+  workspace gate writes a fresh one when a task next needs it. Each
+  snapshot job asks for one snapshot (`clientId`
+  `agent:proj:‹pid›:snap:‹job›:‹queued at›`, named `fork base of ‹project
+  slug›`), so a retry asks the same. One the agent asks for itself is not
+  asked again within the hour after the last one ended, taken or not. The
+  newer fork base replaces the older (which is deleted). Needs the
+  manager's `snapshots` and `clone`.
 - The task's sandbox is a **clone** of the fork base (`clientId`
   `agent:proj:‹pid›:fork:‹n›`, named `‹project slug›-‹n›`), labelled with
   the project (`xbin.agent/project`), the task (`xbin.agent/task`) and the
@@ -3773,8 +3779,12 @@ its own**, made by its `prepare` job before its checkouts:
   workspace with words saying so.
 - **Cleanup** of a big task (§The workspace) is followed by its `fork`
   job: the fork's credential is scrubbed, then the fork deleted — unless
-  `bigTasks.keepFork`. A fork outlives neither its project: the forks of
-  a deleted project are deleted soon after (unless they were to be kept).
+  `bigTasks.keepFork`, which keeps the sandbox but scrubs its credential
+  all the same (no task works there any more). A fork its task never
+  worked in — `prepare` made it, then failed — goes the same way once the
+  task is cleaned up or ends (closed, done, merged, its conversation
+  deleted). A fork outlives neither its project: the forks of a deleted
+  project are deleted soon after (unless they were to be kept).
 
 **Pull requests.** The `pr` job, for each of the task's checkouts **on the
 task's branch** with commits the repo's default branch (as last fetched)
@@ -3792,7 +3802,10 @@ else one line saying which task of which project it is for — and `Closes
 recorded in the task's `prs` (`phase` `pr`, a `pr.opened` event each, a
 `note` for each push), and the parts that follow a task's branch (scm
 events, CI) are told. A checkout on another branch is left alone (a `note`
-says so). Asking again while the job runs runs it once more after.
+says so). Asking again while the job runs runs it once more after. A
+pull request's create that fails as a connection would (or the provider
+answers `limit`, `unavailable` or `upstream`) after the push is tried
+again: the job records what it did and runs again, with backoff.
 
 **Auto-PR.** With `policy.autoPR` `draft` or `ready`, a task whose turn
 ended well (it rests `idle` or `done` — not cancelled, not failed), whose
@@ -3836,10 +3849,18 @@ tasks).
   URL (what a remote's own credential is replaced with: the project's
   credential helper serves https); an ssh origin is otherwise left alone.
   Each clone gets `push.autoSetupRemote` and `core.logAllRefUpdates`. Then
-  a credential is written for the task. Refused, too: a shared
-  conversation (its sharing would become the project's — unshare it,
-  upgrade, share the project; 409), one at work (409 `busy`), one that is
-  a project's already. A refusal leaves no project behind.
+  a credential is written for the task. The project's directory
+  (`‹workdir›/‹slug›`) is a new one: its slug, from the name, skips every
+  name already in the working directory and any path that is a clone,
+  holds one or lies inside one (a project named after its clone gets
+  `‹name›-2`). Refused, too: a shared conversation (its sharing would
+  become the project's — unshare it, upgrade, share the project; 409), one
+  at work (409 `busy`), one being made a project already (409 `busy`), one
+  that is a project's already, and a clone that holds the sandbox's
+  working directory (409: every project directory would be inside it). A
+  refusal leaves no project behind; a failure after the clones were
+  changed takes the new branch back (the clone back where it was, the
+  branch deleted) — the origin switched to https stays.
 - Cleanup never removes a `main` checkout: cleaning task 1 up keeps the
   clones and the work in them.
 
