@@ -211,7 +211,7 @@ func (s *srv) combined(ctx context.Context, a ghAuth, repo, sha string) (*checks
 		optional bool
 	}{
 		{base + "/commits/" + sha + "/check-runs?per_page=100", &checks, false},
-		{base + "/commits/" + sha + "/status", &status, false},
+		{base + "/commits/" + sha + "/status?per_page=100", &status, false},
 		{base + "/actions/runs?head_sha=" + sha + "&per_page=20", &runs, true},
 	} {
 		wg.Add(1)
@@ -420,8 +420,11 @@ func sliceLog(id string, e *logEntry, tail, since, until int64) *jobLog {
 	if until > 0 && until < end {
 		end = until
 	}
-	start := max(since, end-tail, 0)
 	keptFrom := e.total - int64(len(e.data))
+	if end < keptFrom { // until before what's kept: nothing of it is here
+		end = keptFrom
+	}
+	start := max(since, end-tail, 0)
 	if start < keptFrom {
 		start = keptFrom
 	}
@@ -557,7 +560,7 @@ func (s *srv) handleRerun(w http.ResponseWriter, r *http.Request, c who) {
 		fail(w, err)
 		return
 	}
-	if !s.rerunOffered() {
+	if s.mode == modeUser && !s.rerunOffered() { // elsewhere: no person, 403 identity below
 		fail(w, refuse(refUnsupported, "this scm-github doesn't offer reruns (the App needs actions: write — preset ci — and the policy allowRerun)"))
 		return
 	}

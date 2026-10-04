@@ -183,6 +183,27 @@ func TestJobLogKeepsTail(t *testing.T) {
 	if l.From != 1000-int64(len(e.data))+3 || l.Text != "line a\nline b\n" || !l.Truncated {
 		t.Fatalf("%+v", l)
 	}
+	keptFrom := 1000 - int64(len(e.data))
+	// until before what's kept: nothing of it is here — empty, from where
+	// the kept part starts, truncated (never a panic).
+	for _, until := range []int64{5, keptFrom - 1, keptFrom} {
+		l = sliceLog("1", e, 65536, 0, until)
+		if l.Text != "" || l.From != keptFrom || !l.Truncated || l.Bytes != 1000 {
+			t.Fatalf("until %d: %+v", until, l)
+		}
+	}
+	// since past the end (or past until): empty at the end.
+	for _, c := range [][2]int64{{2000, 0}, {999, 995}} {
+		l = sliceLog("1", e, 65536, c[0], c[1])
+		if l.Text != "" {
+			t.Fatalf("since %d until %d: %+v", c[0], c[1], l)
+		}
+	}
+	// A window inside what's kept.
+	l = sliceLog("1", e, 65536, keptFrom+3, keptFrom+10)
+	if l.Text != "line a\n" || l.From != keptFrom+3 {
+		t.Fatalf("window: %+v", l)
+	}
 }
 
 func TestAnnotations(t *testing.T) {
@@ -221,7 +242,7 @@ func TestRerunCapAndIdentity(t *testing.T) {
 	e.setup()
 	seedCI(e)
 	body := map[string]any{"repo": "acme/web", "runId": "7001", "failedOnly": true}
-	refusal(t, e.call(e.gH, agentC, "POST", "/scm/checks/rerun", body), 501, "unsupported")
+	refusal(t, e.call(e.gH, agentC, "POST", "/scm/checks/rerun", body), 403, "identity")
 	e.gh.mu.Lock()
 	e.gh.appPerms["actions"] = "write"
 	e.gh.mu.Unlock()

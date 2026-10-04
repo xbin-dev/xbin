@@ -53,7 +53,7 @@ type ghClient struct {
 	etags   map[string]*list.Element
 	order   *list.List // front = most recent
 	maxTags int
-	blocked map[string]time.Time // rate limit: identity key → when it resets
+	blocked map[string]time.Time // rate limit: identity key|resource → when it resets
 }
 
 func newGHClient(hc *http.Client, now func() time.Time) *ghClient {
@@ -66,7 +66,8 @@ const maxJSONBody = 16 << 20
 // (a 304 to a conditional GET answers the cached body with status 200).
 // The error is a refusal: the rate limit already hit, or no answer.
 func (g *ghClient) do(ctx context.Context, a ghAuth, method, url string, body any) (*ghResp, error) {
-	if until, ok := g.blockedUntil(a.key); ok {
+	res := rateResource(url)
+	if until, ok := g.blockedUntil(a.key, res); ok {
 		e := refuse(refLimit, "GitHub's rate limit for this identity is spent until %s", until.UTC().Format(time.RFC3339))
 		e.RetryAfterMs = until.Sub(g.now()).Milliseconds()
 		return nil, e
@@ -117,7 +118,7 @@ func (g *ghClient) do(ctx context.Context, a ghAuth, method, url string, body an
 		e.RetryAfterMs = 5000
 		return nil, e
 	}
-	g.trackRate(a.key, resp)
+	g.trackRate(a.key, res, resp)
 	if resp.StatusCode == http.StatusNotModified && cached != nil {
 		g.touch(tagKey)
 		h := resp.Header.Clone()
@@ -241,7 +242,27 @@ func ssoURL(h string) string {
 	return ""
 }
 
-func (g *ghClient) trackRate(key string, r *http.Response) {
+// rateResource is the rate limit a call spends: GitHub keeps search's and
+// GraphQL's apart from the core REST one (X-RateLimit-Resource), so one
+// spent doesn't block the others.
+func rateResource(u string) string {
+	p := u
+	if i := strings.Index(p, "://"); i >= 0 {
+		p = p[i+3:]
+	}
+	if i := strings.IndexByte(p, '?'); i >= 0 {
+		p = p[:i]
+	}
+	switch {
+	case strings.Contains(p, "/search/"):
+		return "search"
+	case strings.HasSuffix(p, "/graphql"):
+		return "graphql"
+	}
+	return "core"
+}
+
+func (g *ghClient) trackRate(key, res string, r *http.Response) {
 	if key == "" || r.Header.Get("X-RateLimit-Remaining") != "0" {
 		return
 	}
@@ -249,15 +270,19 @@ func (g *ghClient) trackRate(key string, r *http.Response) {
 	if err != nil {
 		return
 	}
+	if h := r.Header.Get("X-RateLimit-Resource"); h != "" {
+		res = h
+	}
 	g.mu.Lock()
-	g.blocked[key] = time.Unix(reset, 0)
+	g.blocked[key+"|"+res] = time.Unix(reset, 0)
 	g.mu.Unlock()
 }
 
-func (g *ghClient) blockedUntil(key string) (time.Time, bool) {
+func (g *ghClient) blockedUntil(key, res string) (time.Time, bool) {
 	if key == "" {
 		return time.Time{}, false
 	}
+	key += "|" + res
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	until, ok := g.blocked[key]

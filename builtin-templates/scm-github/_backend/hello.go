@@ -81,16 +81,10 @@ func (s *srv) hello(c who) helloResp {
 
 // rerunOffered: checks.rerun is offered while the App has actions: write
 // (preset ci) and the policy's allowRerun is on — and only where a person
-// can ask (a rerun is never the bot's).
+// can ask, their own partition (a rerun is never the bot's; global and an
+// unpartitioned copy refuse it 403 identity).
 func (s *srv) rerunOffered() bool {
-	if s.mode == modeUser {
-		return s.public().Rerun
-	}
-	if s.mode == modeLegacy {
-		return false
-	}
-	a, _ := s.app()
-	return a != nil && a.Permissions["actions"] == "write" && s.policy().AllowRerun
+	return s.mode == modeUser && s.public().Rerun
 }
 
 // etagOf is a weak validator of an answer's JSON.

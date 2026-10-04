@@ -33,19 +33,25 @@ func TestHelloShape(t *testing.T) {
 	if raw["etag"] == nil || raw["etag"] != r.Header().Get("ETag") {
 		t.Fatalf("etag %v / %q", raw["etag"], r.Header().Get("ETag"))
 	}
-	// checks.rerun once the App has actions: write.
+	// checks.rerun once the App has actions: write — in a person's
+	// partition only: global has no one to rerun as.
 	e.gh.mu.Lock()
 	e.gh.appPerms["actions"] = "write"
 	e.gh.mu.Unlock()
 	e.setup()
 	decode(t, e.call(e.gH, agentC, "GET", "/scm/hello", nil), &h)
+	if strings.Contains(strings.Join(h.Caps, ","), "checks.rerun") {
+		t.Fatalf("global lists rerun: %v", h.Caps)
+	}
+	ua := e.user("alice").routes()
+	decode(t, e.call(ua, personC("alice"), "GET", "/scm/hello", nil), &h)
 	if !strings.Contains(strings.Join(h.Caps, ","), "checks.rerun") {
 		t.Fatalf("no rerun cap: %v", h.Caps)
 	}
 	p := basePolicy()
 	p.AllowRerun = false
 	e.setPolicy(p)
-	decode(t, e.call(e.gH, agentC, "GET", "/scm/hello", nil), &h)
+	decode(t, e.call(ua, personC("alice"), "GET", "/scm/hello", nil), &h)
 	if strings.Contains(strings.Join(h.Caps, ","), "checks.rerun") {
 		t.Fatal("rerun cap with allowRerun off")
 	}
@@ -509,4 +515,47 @@ func TestIssueSearchStaysInRepo(t *testing.T) {
 	e.gh.ci.searchAll = true // a GitHub answering past the repo named
 	e.gh.mu.Unlock()
 	only5("/scm/issues?repo=acme/web&q=crash")
+}
+
+// GitHub's search limit is its own: spent, it blocks searches by that
+// identity, not its other calls.
+func TestRateLimitPerResource(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	ok(t, e.call(e.gH, agentC, "GET", "/scm/issues?repo=acme/web&q=crash", nil), 200)
+	reset := fmt.Sprint(e.clock.now().Add(time.Minute).Unix())
+	e.gh.fail("GET /search/issues", 1, 403, map[string]string{"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": reset, "X-RateLimit-Resource": "search"}, `{"message":"API rate limit exceeded"}`)
+	refusal(t, e.call(e.gH, agentC, "GET", "/scm/issues?repo=acme/web&q=crash", nil), 429, "limit")
+	n := e.gh.count("GET /search/issues")
+	refusal(t, e.call(e.gH, agentC, "GET", "/scm/issues?repo=acme/web&q=crash", nil), 429, "limit")
+	if e.gh.count("GET /search/issues") != n {
+		t.Fatal("searched with the search limit spent")
+	}
+	ok(t, e.call(e.gH, agentC, "GET", "/scm/repo?repo=acme/web", nil), 200)
+	ok(t, e.call(e.gH, agentC, "GET", "/scm/issues?repo=acme/web", nil), 200)
+	for u, want := range map[string]string{"https://api.github.com/search/issues?q=x": "search", "https://h/api/graphql": "graphql", "https://api.github.com/repos/a/search": "core", "https://api.github.com/repos/a/b/issues?q=/search/": "core"} {
+		if got := rateResource(u); got != want {
+			t.Fatalf("%s: %s, want %s", u, got, want)
+		}
+	}
+}
+
+// conf "public": a different App's Device Flow is unknown until checked;
+// the same App's stays.
+func TestPublicDeviceFlowFollowsApp(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	s := e.global
+	p := s.public()
+	p.DeviceFlow = "on"
+	if err := s.conf.Put("public", p); err != nil {
+		t.Fatal(err)
+	}
+	gen := p.TokenGen
+	if err := s.writePublic(0); err != nil || s.public().DeviceFlow != "on" || s.public().TokenGen != gen {
+		t.Fatalf("same App: %+v %v", s.public(), err)
+	}
+	if err := s.writePublic(pubNewApp | pubTokens); err != nil || s.public().DeviceFlow != "unknown" || s.public().TokenGen <= gen {
+		t.Fatalf("new App: %+v %v", s.public(), err)
+	}
 }
