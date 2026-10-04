@@ -3187,6 +3187,9 @@ changes settings, repos and members, deletes, archives, and forces a
 cleanup; a **participant** (a member, or anyone when `visibility` is `team`
 and `teamRole` `participant`) creates tasks, messages and acts on them,
 warms the workspace; a **viewer** reads. A project you may not see is a 404.
+Someone removed from a project keeps the conversations of the tasks they
+created (they own them) but no longer acts on its tasks: `POST
+/runs/{id}/task/…` answers 403 below participant of the project.
 A **task's conversation** is a run with `origin` `project` and `originId`
 the project's id: its owner is the person who created the task, its
 visibility, team role and members are the project's — written onto every
@@ -3225,7 +3228,7 @@ conversation.
 | `POST /projects/{pid}/tasks` | P | `TaskSpec` | **201** `{task: TaskView, run}` |
 | `POST /projects/{pid}/tasks/batch` | P | `{issues: [{repo, number}] (≤ 20), size?, agent?, text?}` | **201** `{tasks, errors: [{issue, error}]}` |
 | `GET /projects/{pid}/tasks/{n}` | V | — | `TaskView` (with `park`) |
-| `POST /projects/{pid}/tasks/{n}/cancel` | P | `{reason?}` | `TaskView` — stopped, its queued input dropped; its conversation, worktrees and branch stay |
+| `POST /projects/{pid}/tasks/{n}/cancel` | P | `{reason?}` | `TaskView` — stopped, its queued input dropped (in the queue, and what waits in its inbox untaken); its conversation, worktrees and branch stay |
 | `GET /projects/{pid}/events?since=&limit=` | V | — | `{items: [ProjectEvent], next}` |
 | `GET /runs/{id}/task` | V | — | `TaskView` with `park`; 404 when the conversation is no task |
 | `POST /runs/{id}/task/refresh` | P | — | **202**: fresh credentials, a fetch, its branch and pull requests read again |
@@ -3322,7 +3325,9 @@ and the slots in use:
 ```
 
 `state` is `active`, `archived` (its credentials scrubbed, nothing starts,
-nothing is fetched; everything kept) or `deleting` (only reads answer). A
+nothing is fetched; everything kept — its workspace jobs wait, untouched,
+until it is active again, and a task whose turn waited for its workspace
+rests, its input back at the head of the queue) or `deleting` (only reads answer). A
 repo's `state`: `pending`, `cloning`, `ready`, `failed` (`error` says why);
 `protected` is null while unknown. Deleting a project scrubs its
 credentials, cleans its tasks' workspaces up (unless its sandbox goes too),
@@ -3461,7 +3466,7 @@ no harm.
 | `fetch` | fetches a base (2 min): every `fetchEveryMin` while a task works or someone has the project's status open — never waking a stopped space for it — and before a task is prepared when its last is older than 2 min |
 | `prepare` | a task's checkouts, in one command: an existing local branch, else the remote's (tracking it), else a new one from the default branch; then `.task-env`, its setup jobs and `bind` |
 | `setup` | a repo's setup script, in the background, in the checkout, with the task's environment and `REPO`, `REPO_DIR`; its output's last 8 KiB kept, redacted |
-| `bind` | binds the task's conversation to its checkout (as the task's creator, under every binding rule: §Coding sandboxes), a coding agent's sandbox and directory too: the workspace is `ready` |
+| `bind` | binds the task's conversation to its checkout (as the project's owner, whose sandbox it is — a participant's task works there without being the sandbox's member — under every binding rule: §Coding sandboxes), a coding agent's sandbox and directory too: the workspace is `ready` |
 | `refs` | after each of a task's turns: whether its branch moved on the remote (what the task pushed itself) and which pull requests are open for it — recorded in the task, and told to the parts that follow a task's branch (events, CI) |
 | `cleanup` | a task's worktrees and branch (a clone: its directory), then its task directory; a project's deletion |
 
@@ -3479,20 +3484,23 @@ credential renewed), `waiting_input` when a person must act (a sign-in, a
 failed workspace, a refused cleanup; Needs reason `project`) — with
 `pendingState` `{kind: "project", project: {project, n, ws, step, detail}}`
 and its messages left in its inbox; once the workspace is ready the turn
-goes on with them. A cancel or an interrupt always passes, and a turn
+goes on with them. A task waiting for a person this way keeps no process
+up and wakes no stopped space for itself: the person's act does. A cancel or an interrupt always passes, and a turn
 already under way is never stopped by it. A coordinator is never gated.
 
 **At most `maxTasks` at work.** A task holds one of its project's slots
 while its conversation runs, waits on its subagents or its own work, is
-parked at the gate, or waits for a person (an idle coding agent holds
-none). A task's **start**, and every message the coordinator or a provider's
+parked at the gate, or waits for a person, and from the moment its start
+or a message is delivered to it until it takes it up (an idle coding agent
+holds none). A task's **start**, and every message the coordinator or a provider's
 event sends a task, wait in the project's **queue** and are delivered
 oldest first while a slot is free (a message to a task already at work goes
 at once: it reads it at its next step); one sent for a person to answer
 first waits while its task waits for a person — the coordinator never
 answers in a person's place. A person's own message to a task (`POST
 /runs/{id}/message`) goes straight to it. Nothing starts while the agent is
-halted or the project isn't active. The coordinator's messages reach the
+halted or the project isn't active; the queues move again once the halt
+is lifted. The coordinator's messages reach the
 task framed `[message from the project coordinator]`.
 
 **What a task is told.** A built-in task's system prompt has a `# Project`
@@ -3504,7 +3512,8 @@ and a failed setup's outcome — built from the project's state alone, so it
 is the same from one turn to the next. A coding agent's first prompt starts
 with the same words and ends with the task's text. Text from outside — an
 issue's, a setup's output — is clipped (8 KiB), redacted and framed
-`[untrusted — from ‹where›: …]`.
+`[untrusted — from ‹where›: …]` … `[end of untrusted text]`; the frame's
+own markers inside the text lose their bracket, so it can't close early.
 
 **Environment.** Every command of a task — its bash jobs, its coding
 agent, its setup — gets `TASK_DIR`, `BRANCH`, `TASK_PORT_BASE`,
