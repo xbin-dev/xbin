@@ -339,3 +339,25 @@ func TestRelayNewPartitionWipesOld(t *testing.T) {
 		t.Fatalf("new ident %+v", id)
 	}
 }
+
+// A refresh ends reuse of the old epoch's scoped tokens, not their record:
+// one still outstanding is revoked by value, at GitHub.
+func TestRevokeScopedAfterRefresh(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	s := e.signIn("alice", "octocat")
+	u := s.routes()
+	first := personToken(t, e, u, map[string]any{"repo": "acme/web", "access": "write", "purpose": "p"})
+	e.clock.advance(6*time.Hour + 50*time.Minute)
+	if next := personToken(t, e, u, map[string]any{"repo": "acme/web", "access": "write", "purpose": "p"}); next["token"] == first["token"] {
+		t.Fatal("no refresh")
+	}
+	tok := first["token"].(string)
+	if e.userTok(tok).revoked {
+		t.Fatal("the fake revoked it already: the test proves nothing")
+	}
+	ok(t, e.call(u, personC("alice"), "POST", "/scm/token/revoke", map[string]string{"token": tok}), 204)
+	if !e.userTok(tok).revoked {
+		t.Fatal("the old epoch's token wasn't revoked")
+	}
+}

@@ -147,8 +147,11 @@ aren't handed out again. People's partitions read the public half
 - **Revocation**: `POST /scm/token/revoke` by value (only the consumer it
   was given to) or by purpose; bot tokens with `DELETE /installation/token`,
   person tokens through global. Best effort upstream: a token GitHub can't
-  revoke still dies at its expiry. **Revoke all bot tokens** on the page
-  (`POST /api/revoke-all`) revokes every cached one.
+  revoke still dies at its expiry. Every token handed out is recorded until
+  it expires or is revoked: a policy change, a new App or a person's new
+  epoch ends **reuse** of the tokens before it, never the record, so a
+  revoke by value, by purpose or all still reaches them. **Revoke all bot
+  tokens** on the page (`POST /api/revoke-all`) revokes every live one.
 - **Writes as the bot** (pull requests, comments) use an installation
   token of the tile's own with only what they need, never handed out.
 - **Into sandboxes**: a consumer's job — an exec's environment or a 0600
@@ -200,7 +203,10 @@ passed through untrusted.
 - The comment timeline merges issue comments, reviews (pending ones left
   out) and review comments by time. `author.association` maps GitHub's
   first-timers and mannequins to `NONE`.
-- `GET /scm/issues?q=` uses GitHub's search (its own rate limit).
+- `GET /scm/issues?q=` uses GitHub's search (its own rate limit). `q` is
+  words only: a search qualifier in it (`repo:`, `org:`, `is:`, …), `OR`,
+  `AND`, `NOT`, quotes and parentheses are dropped, and a hit from any
+  other repo than `repo` is left out.
 - `GET /scm/repos` as the bot is the global instance's: a person's
   partition lists the person's own repos (`as: bot` there is 403
   `identity`; name a repo instead).
@@ -235,8 +241,9 @@ never interpreted.
 
 100 repos per token, one owner; `minTtlSec` 900 to 3000; pages of at most
 100 (annotations 50); 50 items a poll; repo lists of at most 1000, kept 5
-minutes; logs: the last 8 MiB, a tail of at most 1 MiB a call; 2000 cached
-bot tokens and 2000 cached GitHub answers.
+minutes; logs: the last 8 MiB, a tail of at most 1 MiB a call; 2000
+reusable tokens and 2000 cached GitHub answers; 8000 live tokens recorded
+(past that, a new one is 429 `limit` until some expire or are revoked).
 
 ## 13. Spikes and what they decided
 

@@ -1,7 +1,7 @@
 // bot.go — the App's bot tokens: installation tokens narrowed to a
-// consumer's repos and permissions, cached per consumer and purpose,
-// revoked by value, by purpose or all at once; plus the small caches the
-// routes share.
+// consumer's repos and permissions, reused per consumer and purpose,
+// recorded until they expire and revoked by value, by purpose or all at
+// once; plus the small caches the routes share.
 package main
 
 import (
@@ -36,21 +36,18 @@ type cachedToken struct {
 	resp      *tokenResp // what was answered (person tokens: identity, author)
 }
 
-// issued is what is known of a token handed out, by its hash: enough to
-// match a revoke by value to the consumer it was given to.
-type issued struct {
-	key       cacheKey
-	expiresAt time.Time
-}
-
-// tokenCache is an LRU of handed-out tokens (≤ max) and the hashes of every
-// token handed out until it expires.
+// tokenCache keeps two things apart. live is every token handed out, by
+// its hash, until it expires or is revoked: the record revocation (by
+// value, by purpose, all) walks, so nothing still alive at GitHub is ever
+// dropped from it. reuse is an LRU index (≤ max) of the tokens that may be
+// handed out again; a policy change, a new App or a person's new epoch
+// empties it (never reuse) without touching live (never forget).
 type tokenCache struct {
-	mu     sync.Mutex
-	max    int
-	m      map[cacheKey]*list.Element
-	order  *list.List
-	issued map[string]issued
+	mu    sync.Mutex
+	max   int
+	live  map[string]*cacheEntry // token hash → entry
+	reuse map[cacheKey]*list.Element
+	order *list.List // of *reuseEntry, most recent first
 }
 
 type cacheEntry struct {
@@ -58,8 +55,17 @@ type cacheEntry struct {
 	tok *cachedToken
 }
 
+type reuseEntry struct {
+	key  cacheKey
+	hash string
+}
+
+// liveCap bounds the live record: past it (every entry unexpired) a new
+// token is refused rather than an old one forgotten.
+func (c *tokenCache) liveCap() int { return 4 * c.max }
+
 func newTokenCache(max int) *tokenCache {
-	return &tokenCache{max: max, m: map[cacheKey]*list.Element{}, order: list.New(), issued: map[string]issued{}}
+	return &tokenCache{max: max, live: map[string]*cacheEntry{}, reuse: map[cacheKey]*list.Element{}, order: list.New()}
 }
 
 func tokenHash(t string) string {
@@ -67,44 +73,71 @@ func tokenHash(t string) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// get answers a cached token with at least margin left to run.
+// get answers a reusable token with at least margin left to run.
 func (c *tokenCache) get(k cacheKey, now time.Time, margin time.Duration) *cachedToken {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	el, ok := c.m[k]
+	el, ok := c.reuse[k]
 	if !ok {
 		return nil
 	}
-	t := el.Value.(*cacheEntry).tok
-	if t.expiresAt.Sub(now) < margin {
+	e, ok := c.live[el.Value.(*reuseEntry).hash]
+	if !ok || e.tok.expiresAt.Sub(now) < margin {
 		return nil
 	}
 	c.order.MoveToFront(el)
-	return t
+	return e.tok
 }
 
+// room says whether another token may be handed out: the live record has
+// room once expired entries are pruned. Asked before minting.
+func (c *tokenCache) room(now time.Time) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.live) < c.liveCap() {
+		return nil
+	}
+	c.pruneLocked(now)
+	if len(c.live) < c.liveCap() {
+		return nil
+	}
+	e := refuse(refLimit, "too many live tokens: revoke some, or wait for them to expire")
+	e.RetryAfterMs = 60_000
+	return e
+}
+
+func (c *tokenCache) pruneLocked(now time.Time) {
+	for h, e := range c.live {
+		if !e.tok.expiresAt.After(now) {
+			delete(c.live, h)
+			if el, ok := c.reuse[e.key]; ok && el.Value.(*reuseEntry).hash == h {
+				c.order.Remove(el)
+				delete(c.reuse, e.key)
+			}
+		}
+	}
+}
+
+// put records a token handed out (live) and makes it reusable under k.
+// The LRU's eviction only ends reuse: the token stays live.
 func (c *tokenCache) put(k cacheKey, t *cachedToken) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	c.issued[tokenHash(t.token.Reveal())] = issued{key: k, expiresAt: t.expiresAt}
-	if el, ok := c.m[k]; ok {
-		el.Value = &cacheEntry{k, t}
+	h := tokenHash(t.token.Reveal())
+	c.live[h] = &cacheEntry{k, t}
+	if el, ok := c.reuse[k]; ok {
+		el.Value = &reuseEntry{k, h}
 		c.order.MoveToFront(el)
 	} else {
-		c.m[k] = c.order.PushFront(&cacheEntry{k, t})
+		c.reuse[k] = c.order.PushFront(&reuseEntry{k, h})
 	}
 	for c.order.Len() > c.max {
 		last := c.order.Back()
 		c.order.Remove(last)
-		delete(c.m, last.Value.(*cacheEntry).key)
+		delete(c.reuse, last.Value.(*reuseEntry).key)
 	}
-	now := time.Now()
-	if len(c.issued) > 4*c.max {
-		for h, i := range c.issued {
-			if i.expiresAt.Before(now) {
-				delete(c.issued, h)
-			}
-		}
+	if len(c.live) > c.liveCap() {
+		c.pruneLocked(time.Now())
 	}
 }
 
@@ -113,11 +146,11 @@ func (c *tokenCache) put(k cacheKey, t *cachedToken) {
 func (c *tokenCache) byValue(consumer, token string) (cacheKey, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	i, ok := c.issued[tokenHash(token)]
-	if !ok || i.key.consumer != consumer {
+	e, ok := c.live[tokenHash(token)]
+	if !ok || e.key.consumer != consumer {
 		return cacheKey{}, false
 	}
-	return i.key, true
+	return e.key, true
 }
 
 // forgetValue drops a token by its value (revoked).
@@ -125,28 +158,29 @@ func (c *tokenCache) forgetValue(token string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	h := tokenHash(token)
-	if i, ok := c.issued[h]; ok {
-		if el, ok := c.m[i.key]; ok && el.Value.(*cacheEntry).tok.token.Reveal() == token {
+	if e, ok := c.live[h]; ok {
+		if el, ok := c.reuse[e.key]; ok && el.Value.(*reuseEntry).hash == h {
 			c.order.Remove(el)
-			delete(c.m, i.key)
+			delete(c.reuse, e.key)
 		}
-		delete(c.issued, h)
+		delete(c.live, h)
 	}
 }
 
-// take removes and answers the live tokens matching f.
+// take removes and answers the live tokens matching f (to be revoked).
 func (c *tokenCache) take(now time.Time, f func(cacheKey) bool) []*cacheEntry {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	var out []*cacheEntry
-	for k, el := range c.m {
-		if !f(k) {
+	for h, e := range c.live {
+		if !f(e.key) {
 			continue
 		}
-		e := el.Value.(*cacheEntry)
-		c.order.Remove(el)
-		delete(c.m, k)
-		delete(c.issued, tokenHash(e.tok.token.Reveal()))
+		delete(c.live, h)
+		if el, ok := c.reuse[e.key]; ok && el.Value.(*reuseEntry).hash == h {
+			c.order.Remove(el)
+			delete(c.reuse, e.key)
+		}
 		if e.tok.expiresAt.After(now) {
 			out = append(out, e)
 		}
@@ -154,12 +188,24 @@ func (c *tokenCache) take(now time.Time, f func(cacheKey) bool) []*cacheEntry {
 	return out
 }
 
-func (c *tokenCache) clear() {
+// retire ends reuse of the tokens matching f; they stay live, so a revoke
+// still reaches them.
+func (c *tokenCache) retire(f func(cacheKey) bool) {
 	c.mu.Lock()
-	c.m, c.order = map[cacheKey]*list.Element{}, list.New()
-	c.mu.Unlock()
+	defer c.mu.Unlock()
+	for k, el := range c.reuse {
+		if f(k) {
+			c.order.Remove(el)
+			delete(c.reuse, k)
+		}
+	}
 }
 
+// clear ends reuse of every token (a policy change, a new App); none is
+// forgotten.
+func (c *tokenCache) clear() { c.retire(func(cacheKey) bool { return true }) }
+
+// len answers how many tokens may be reused.
 func (c *tokenCache) len() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -209,6 +255,9 @@ func (s *srv) botTokenReuse(ctx context.Context, consumer string, req *normReq, 
 	if t := s.bot.get(key, now, tokenMargin(req.minTTL)); reuse && t != nil {
 		return s.botResp(a, t), nil
 	}
+	if err := s.bot.room(now); err != nil {
+		return nil, err
+	}
 	names := make([]string, len(req.repos))
 	for i, r := range req.repos {
 		names[i] = nameOf(r)
@@ -251,8 +300,9 @@ func (s *srv) revokeBotToken(ctx context.Context, tok secretString) {
 	_, _ = s.gh.do(ctx, bearerAuth("", tok), http.MethodDelete, s.apiBase()+"/installation/token", nil)
 }
 
-// handleRevokeAll revokes every cached bot token (a manager's "Revoke all
-// bot tokens"): consumers ask again and get fresh ones.
+// handleRevokeAll revokes every live bot token handed out — reusable or
+// not (a policy change only ends reuse) — and the tile's own (a manager's
+// "Revoke all bot tokens"): consumers ask again and get fresh ones.
 func (s *srv) handleRevokeAll(w http.ResponseWriter, r *http.Request, _ who) {
 	gone := s.bot.take(s.now(), func(k cacheKey) bool { return k.kind == asBot })
 	for _, e := range gone {

@@ -53,7 +53,9 @@ func (s *srv) wipePerson(person string) {
 	for _, f := range wipePerson {
 		f(s, person)
 	}
-	s.bot.take(s.now(), func(k cacheKey) bool { return strings.HasPrefix(k.consumer, "relay|"+person+"|") })
+	// Bot tokens relayed to the person stay recorded: they are the App's,
+	// not the person's, and "Revoke all bot tokens" must still reach them
+	// (they're never reused, and die within the hour).
 }
 
 // checkUserToken asks GitHub whose token this is: only a token this App

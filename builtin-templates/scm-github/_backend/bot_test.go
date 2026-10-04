@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -292,4 +293,67 @@ func TestAllowedAccounts(t *testing.T) {
 	u := e.signIn("alice", "octocat").routes()
 	refusal(t, e.call(u, personC("alice"), "GET", "/scm/repo?repo=acme/web", nil), 403, "not-allowed")
 	refusal(t, e.call(u, personC("alice"), "POST", "/scm/token", map[string]any{"repo": "acme/web", "access": "read"}), 403, "not-allowed")
+}
+
+// A policy change ends reuse, never the record: revoke by purpose and
+// revoke-all still reach the tokens handed out before it, at GitHub.
+func TestRevokeAfterPolicyChange(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	a, _ := getToken(t, e, agentC, map[string]any{"repo": "acme/web", "access": "read", "purpose": "p1"})
+	b, _ := getToken(t, e, agentC, map[string]any{"repo": "acme/api", "access": "read", "purpose": "p2"})
+	revoked := func(tok string) bool {
+		e.gh.mu.Lock()
+		defer e.gh.mu.Unlock()
+		return e.gh.instTokens[tok].revoked
+	}
+	e.setPolicy(basePolicy())
+	if x, _ := getToken(t, e, agentC, map[string]any{"repo": "acme/web", "access": "read", "purpose": "p1"}); x == a {
+		t.Fatal("a token handed out again after a policy change")
+	}
+	ok(t, e.call(e.gH, agentC, "POST", "/scm/token/revoke", map[string]string{"purpose": "p1"}), 204)
+	if !revoked(a) {
+		t.Fatal("revoke by purpose missed a token of before the change")
+	}
+	e.setPolicy(basePolicy())
+	r := e.call(e.gH, ownerC, "POST", "/api/revoke-all", nil)
+	ok(t, r, 200)
+	var n map[string]int
+	decode(t, r, &n)
+	if !revoked(b) || n["revoked"] != 1 {
+		t.Fatalf("revoke-all after a policy change: %v, revoked %v", n, revoked(b))
+	}
+}
+
+// The LRU bounds reuse only: an evicted token is still found by value, by
+// purpose and by revoke-all; a full record refuses rather than forgets.
+func TestTokenCacheNeverForgetsLive(t *testing.T) {
+	c := newTokenCache(2)
+	now := time.Now()
+	k := func(p string) cacheKey { return cacheKey{consumer: "c", purpose: p, kind: asBot} }
+	for i, p := range []string{"a", "b", "c"} {
+		c.put(k(p), &cachedToken{token: newSecret("t" + p), expiresAt: now.Add(time.Duration(i+1) * time.Hour)})
+	}
+	if c.len() != 2 || c.get(k("a"), now, 0) != nil {
+		t.Fatalf("reuse: len %d", c.len())
+	}
+	if _, ok := c.byValue("c", "ta"); !ok {
+		t.Fatal("an evicted token lost its record")
+	}
+	if got := c.take(now, func(k cacheKey) bool { return k.purpose == "a" }); len(got) != 1 {
+		t.Fatalf("take by purpose: %d", len(got))
+	}
+	c.clear()
+	if c.len() != 0 || len(c.take(now, func(cacheKey) bool { return true })) != 2 {
+		t.Fatal("clear forgot live tokens")
+	}
+	for i := 0; i < c.liveCap(); i++ {
+		c.put(k(strconv.Itoa(i)), &cachedToken{token: newSecret("x" + strconv.Itoa(i)), expiresAt: now.Add(time.Hour)})
+	}
+	if err := c.room(now); !isRefusal(err, refLimit) {
+		t.Fatalf("a full record: %v", err)
+	}
+	if err := c.room(now.Add(2 * time.Hour)); err != nil {
+		t.Fatalf("expired entries not pruned: %v", err)
+	}
 }

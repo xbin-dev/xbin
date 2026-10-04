@@ -64,7 +64,9 @@ func (s *srv) clearUser() {
 	_ = s.vault.Delete(vaultUserAccess)
 	_ = s.vault.Delete(vaultUserRefresh)
 	_ = s.state.Delete("person")
-	s.bot.take(s.now(), func(k cacheKey) bool { return k.kind == asPerson })
+	// Scoped tokens already handed out stay recorded (a revoke by value or
+	// purpose still reaches them through global); none is reused.
+	s.bot.retire(func(k cacheKey) bool { return k.kind == asPerson })
 	s.reposC.clear()
 }
 
@@ -121,8 +123,8 @@ func (s *srv) refresh(ctx context.Context, stale string) (secretString, *personR
 		return secretString{}, nil, err
 	}
 	// Scoped tokens of the old epoch may die with their parent: none is
-	// handed out again.
-	s.bot.take(now, func(k cacheKey) bool { return k.kind == asPerson })
+	// handed out again, but each stays recorded so a revoke still reaches it.
+	s.bot.retire(func(k cacheKey) bool { return k.kind == asPerson })
 	return newSecret(out.AccessToken.Reveal()), s.personRecord(), nil
 }
 
@@ -218,6 +220,9 @@ func (s *srv) personToken(ctx context.Context, consumer string, req *normReq) (*
 	if t := s.bot.get(key, s.now(), need); t != nil {
 		return t.resp, nil
 	}
+	if err := s.bot.room(s.now()); err != nil {
+		return nil, err
+	}
 	tok, rec, err := s.ensureUser(ctx, need)
 	if err != nil {
 		return nil, err
@@ -265,6 +270,9 @@ func (s *srv) relayBotToken(ctx context.Context, consumer string, t tokenReq, re
 	key := cacheKey{consumer: consumer, purpose: req.purpose, repos: strings.Join(req.repos, ","), perms: req.access + ":" + permsKey(req.perms), kind: asBot}
 	if c := s.bot.get(key, s.now(), tokenMargin(req.minTTL)); c != nil {
 		return c.resp, nil
+	}
+	if err := s.bot.room(s.now()); err != nil {
+		return nil, err
 	}
 	t.As = asBot
 	var resp tokenResp
