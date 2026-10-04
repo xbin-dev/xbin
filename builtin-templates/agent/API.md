@@ -3878,12 +3878,116 @@ and `proj_pr:‹pid›:‹n›` are unknown settings to it.
 
 ### The coordinator
 
-A person's coordinator for a project: its class, its tools (`task_create`,
-`task_list`, `task_status`, `task_message`, `task_result`, `task_cancel`,
-`scm_pr`, `scm_issues`), what it may and may not do (never answering a
-question meant for a person; no merge, approve or push), the project
-updates it receives, its limits, the pushes it causes, and attaching a
-chat to it. Described when it lands.
+A **coordinator** is a person's conversation that creates and steers a
+project's tasks: one per person per project, made the first time they ask
+for it (a membership's in the member's own space; a team project's
+definition has none). It is a conversation of the project (origin
+`project`, `session_key` `proj:‹pid›:coord:‹user›`, `project` `{id, role:
+"coordinator"}`), owned by the person and private — out of the
+conversation list like a task, and deleted with its project.
+
+```
+POST /projects/{pid}/coordinator   {text?}   → {run}   (participant; a person, not viewing as someone)
+GET  /projects/{pid}/needs                   → {items} (viewer)
+```
+
+`POST` answers the caller's coordinator, made on first use; `text` is
+queued to it as their message (as `POST /runs/{id}/message` would). 404
+for someone viewing as another person (as on every project route); 403 for
+a viewer, for a component that takes part (a coordinator is a person's),
+and for someone who isn't one of the agent's managers while the `web`
+class is kept for managers (its `who`, checked as `POST /ask` checks a
+class); 409 for a team project's definition or a project that isn't
+active. Events written before it was made are not delivered to it as a
+backlog: it starts from the project as it stands.
+
+**Its class.** The built-in `web` class — the web lane: it steers tasks
+that reach outside, so it never holds internal reach (409
+`class-internal` when the web class has been given internal reach, and
+its tools refuse while its class has it). `web_search` and `web_fetch` are
+denied unless `policy.coordinator.web` is on; `schedule`, `unschedule` and
+`skill_manage` always are. Its model is `policy.coordinator.model`, else
+the agent's default. It is never held at a workspace gate and takes the
+model-call gate as any conversation does. Its system prompt has a
+`# Project` section — the project, its repos, its limits and the rules
+below — built from the project's settings alone, so it stays the same from
+turn to turn.
+
+**Its tools** — offered to the coordinator itself (never its subagents),
+each call checking again that it is one, that its project is active and
+that its person still takes part:
+
+| Tool | Parameters | What it does |
+|---|---|---|
+| `task_create` | `tasks: [{title?, brief, repos?, size?}]` (1–10) or `issues: [n]` (1–10) with `repo`; `note?` (added to every brief) | creates tasks as its person (each starts when a slot is free and its workspace is ready) |
+| `task_list` | `state?` (a task state, or `open`), `q?`, `scope?` (`mine`, or `team`: a team project's board, read-only), `cursor?`, `limit?` (≤ 50) | the project's tasks, newest activity first: number, title, state, branch, pull requests |
+| `task_status` | `tasks?` (≤ 10; default every open task), `detail?` | what each is doing now: its phase, whom it waits for, its recent tool calls and latest text, its pull requests and checks |
+| `task_message` | `task`, `text` | a message to a task, through the project's queue |
+| `task_result` | `task`, `offset?`, `limit?` | a task's latest full answer, paged |
+| `task_cancel` | `tasks` (≤ 10), `reason?` | stops tasks and what they started; conversations, worktrees and branches stay |
+| `scm_pr` | `task`, or `repo` and `number` | a pull request: state, mergeability, reviews and comments, its checks in one aggregate with each failing job's failing step and the end of its log (≤ 2 KiB each, 8 KiB in all) |
+| `scm_issues` | `repo`, `numbers?` (≤ 10), `state?`, `labels?`, `q?` | issues in full with their comments, or a list |
+
+A task is named by its **number** in the project, never by a conversation
+id. `repo` — in `scm_pr`, `scm_issues` and `task_create`'s issues form — must
+be one of the project's repos (owner/name or its slug), wherever the agent
+runs: the coordinator reads through the project's identity, which may be
+the provider's bot, and never about a repo nobody named for the project. In
+approval mode `task_create`, `task_message` and `task_cancel` ask first.
+
+**What it may not do.** It acts only on its own project's tasks. It
+**never answers in a person's place**: a message to a task that waits for a
+person (an approval, a question, a coding agent's question or sign-in)
+waits in the queue until that person has answered — one already delivered
+when the task starts waiting goes back to the head of the queue, held the
+same way. It can't merge, approve, push or comment (its scm tools only
+read, and the scm contract has no merge); it changes no policy, sharing or
+sign-in, and deletes no task or project. People stay in charge: everyone
+taking part in the project opens, messages, approves and cancels any task.
+The halt stops it as it stops everything.
+
+**Limits.** At most 10 tasks per `task_create`; coordinators of a project
+may have `policy.maxOpenTasks` (20) open tasks and create
+`policy.maxTaskCreatesPerDay` (50) in 24 hours — past them `task_create`
+answers `limit` for the tasks it couldn't make.
+
+**Project updates.** The project's events for its person (`coordUser`: the
+creator of the task, the owner for the project's own) reach the
+coordinator at its next step as one message:
+
+```
+[project updates — tasks and the scm provider reporting, not a person]
+#3 task.state: answered (Opened PR #12 on acme/web)
+#4 ci.failed: test (ubuntu) failed on xbin/k3x9qa/4-fix-signup@9fceb02
+project workspace: the project's repo job failed: …
+```
+
+one line each (at most 40 lines and 8 KiB; older ones are counted, not
+shown), each event then `delivered` with the message's id (`msgId`). An
+event that asks for a wake (`wake`) — a turn the coordinator asked for
+ended, a task failed or waits for a person, a pull request's checks
+passed, CI stuck — starts an idle coordinator's turn, at most once a
+minute; the others wait for its next turn. A coordinator that can't take
+a turn now — it waits for its person, its last turn failed, its project
+isn't active, or its person no longer takes part — gets no wake: its
+undelivered events' `wake` is cleared, and they reach it with its next
+turn, whatever starts it. What tasks, issues, reviews and
+logs say reaches it clipped, redacted and framed as untrusted data, and the
+updates' and frames' markers inside such text lose their bracket.
+
+**Needs and pushes.** `GET /needs` items of a project's conversation carry
+`project` `{id, name, n}` (`n` 0 for a coordinator); `GET
+/projects/{pid}/needs` lists the project's alone. A push about a task (a
+question, an approval, a failure) is titled `‹project› · ‹task›`. The
+project's own pushes go to the person whose task it is, within the same
+per-person budget, collapsed on the device per project and kind
+(`project:‹id›:‹kind›`): `pr-ready` (a task's pull request is green),
+`task-failed` (its workspace failed, or a coding agent's turn did),
+`ci-stuck` (CI kept failing past the day's fixes) and `all-done` (every
+task of the project finished).
+
+**Attaching a chat** to a coordinator (`/project ‹name›` in a direct
+message) is not in this build.
 
 ### scm events and polling
 
