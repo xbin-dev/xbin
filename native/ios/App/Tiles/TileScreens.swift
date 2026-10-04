@@ -86,7 +86,7 @@ struct WebTileScreen: View {
                 Text(verbatim: banner)
                     .font(.footnote)
                     .padding(.horizontal, 12).padding(.vertical, 6)
-                    .background(.thinMaterial, in: Capsule())
+                    .background(XbinColor.surface, in: .xbinPlate).overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 1))
                     .padding(.top, 8)
                     .transition(.opacity)
             }

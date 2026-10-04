@@ -190,8 +190,8 @@ struct JumpPill: View {
                 .font(.footnote.weight(.semibold))
                 .padding(.horizontal, 14)
                 .padding(.vertical, 8)
-                .background(.bar, in: Capsule())
-                .overlay(Capsule().strokeBorder(XbinColor.border))
+                .background(.bar, in: .xbinPlate)
+                .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border))
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("transcript-jump")
@@ -327,8 +327,9 @@ extension MessageView where Actions == EmptyView {
     }
 }
 
-/// A model's reasoning: "Thinking…" (shimmering) while live, "Thought for
-/// Ns" after, folded unless opened.
+/// A model's reasoning: "Thinking…" while live, "Thought for Ns" after,
+/// folded unless opened. Its label and the chevron, as the reference draws
+/// it: no glyph (the sparkles it had are none of the brand's, brand §9).
 public struct ThinkingView: View {
     public let thinking: ChatThinking
     @Binding public var isOpen: Bool
@@ -344,8 +345,6 @@ public struct ThinkingView: View {
                 withAnimation(.snappy) { isOpen.toggle() }
             } label: {
                 HStack(spacing: 6) {
-                    Image(systemName: "sparkles")
-                        .symbolEffect(.variableColor.iterative, isActive: thinking.live)
                     Text(verbatim: thinking.label)
                     Image(systemName: XbinIcons.UI.chevronForward)
                         .font(.caption2.weight(.semibold))

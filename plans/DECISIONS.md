@@ -11127,3 +11127,21 @@ Deviations and refinements made while implementing; all deliberate:
       and the swap recipe list the app's copies. The app stubs lost
       `Color.xbinAmber`, docs/native.md's `badge` is square, and
       plans/native.md §10.1 holds Base Two's roles.
+    - *Beyond the review: the sparkles left.* Brand §9 says "never …
+      sparkles", and D185 said the agents' sparkles had gone, but the
+      renderers still chose three: the thinking header's glyph (iOS,
+      animated while live), the think tool's icon (the agent screen) and
+      an `accent` notice's glyph (both renderers). Thinking is its label
+      and chevron in both, without motion (the reference's shimmer went
+      too), the think tool draws the chat bubble (the web's is a thought
+      glyph) and an accent notice the info glyph. A tile that names
+      `sparkles` in its own tree still gets one: that is its content.
+    - *Beyond the review: the chat's pills.* The composer, in both
+      renderers, was a 20 pt pill with circular send and attach buttons
+      and capsule attachment chips, beside the web agent tab's square
+      field and buttons; the "jump to latest" pill and the notes the app
+      floats over a tile (a native view's fallback, an upload, a
+      terminal's) were capsules on glass. All are 2 pt plates now: the
+      field on the panel with a 1 pt edge, send the primary button, stop
+      in the text colour, the notes on the panel with an edge. The sheet
+      grabber stays iOS's.

@@ -22,7 +22,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   the amber, `largeTitle` is set in Bricolage Grotesque, `mono` (and code,
   and the terminal) in JetBrains Mono without ligatures, so `->` and `!=`
   stay two characters as on the web, and `bx preview --native` shows the
-  same look the phone draws. The
+  same look the phone draws. The renderers draw no sparkles of their own:
+  a `notice` in the `accent` tone leads with the info glyph, and
+  `thinking` reads "Thinking…" without a glyph or motion (an `icon`
+  named `sparkles` in a tile's own tree still draws one). The `composer`
+  is square too: its field, its send and attach buttons and its
+  attachment chips (a pill and circles before). The
   app follows the person's Theme setting (System, Light, Dark) in the
   workspace a window shows, as the tiles' own pages in it already did.
 

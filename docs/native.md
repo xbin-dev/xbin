@@ -504,8 +504,8 @@ The app draws these with the same components as its own agent screen.
   as a chip with its name; `queued` marks a message not yet sent. An
   `actions` child folds behind a ⋯ under the message (and its context
   menu on the web preview), however many buttons it holds.
-- **`thinking`** shimmers while `live` and folds to "Thought for Ns"
-  (`seconds`). **`toolcard`**: `state` is `writing`·`running`·`ok`·`error`·`canceled`;
+- **`thinking`** reads "Thinking…" while `live`, without a glyph or
+  motion, and folds to "Thought for Ns" (`seconds`). **`toolcard`**: `state` is `writing`·`running`·`ok`·`error`·`canceled`;
   its children (the call's code, output, a diff, a nested `transcript` for a
   subagent) show when it is open; `@open` asks for a full-screen view.
 - **`approval`**: `options` are the answers `[{id, label, kind}]` (agent

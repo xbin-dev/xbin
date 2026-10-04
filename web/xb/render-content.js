@@ -61,7 +61,7 @@ function badge(n, cx) {
     p.pulse ? html`<span class="pulse-dot"></span>` : nothing}${str(p.text)}</span></xb-badge>`;
 }
 
-const NOTICE_ICON = { info: 'info', muted: 'info', accent: 'sparkles', ok: 'ui-circle-check', warn: 'warning', danger: 'ui-alert' };
+const NOTICE_ICON = { info: 'info', muted: 'info', accent: 'info', ok: 'ui-circle-check', warn: 'warning', danger: 'ui-alert' };
 function notice(n, cx) {
   const p = P(n);
   const t = NOTICE_ICON[p.tone] ? p.tone : 'info';

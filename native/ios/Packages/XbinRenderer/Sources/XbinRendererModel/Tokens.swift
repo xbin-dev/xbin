@@ -28,7 +28,7 @@ public enum XbinNoticeTone: String, CaseIterable, Sendable {
     public var symbol: String {
         switch self {
         case .info, .muted: return "info.circle"
-        case .accent: return "sparkles"
+        case .accent: return "info.circle" // the info glyph; never sparkles (brand §9)
         case .ok: return "checkmark.circle"
         case .warn: return "exclamationmark.triangle"
         case .danger: return "exclamationmark.octagon"

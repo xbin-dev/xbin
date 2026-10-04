@@ -321,9 +321,6 @@ export const CHAT_CSS = css`
   .th-head { display: inline-flex; align-items: center; gap: 4px; font: var(--xb-font-subheadline); color: var(--xb-muted); padding: 2px 0; }
   .th-chev { width: 0.85em; height: 0.85em; stroke-width: 2.6; transition: transform 0.15s; }
   .think.open .th-chev { transform: rotate(90deg); }
-  .think.live .th-label { background: linear-gradient(90deg, var(--xb-muted) 30%, var(--xb-text) 50%, var(--xb-muted) 70%) 0 0 / 200% 100%;
-    -webkit-background-clip: text; background-clip: text; color: transparent; animation: xb-shimmer 1.6s linear infinite; }
-  @keyframes xb-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
   .th-body { margin-top: 6px; padding-left: 12px; border-left: 2px solid var(--xb-border); font: var(--xb-font-subheadline); color: var(--xb-muted); white-space: pre-wrap; overflow-wrap: anywhere; }
 
   .card { display: block; background: var(--xb-surface); border-radius: var(--xb-radius); box-shadow: 0 0 0 0.5px var(--xb-separator); min-width: 0; }
@@ -419,11 +416,11 @@ export const CHAT_CSS = css`
   xb-composer { display: flex; flex-direction: column; gap: 8px; flex: none; padding: 8px 12px 24px; background: color-mix(in srgb, var(--xb-bg) 92%, transparent);
     border-top: 0.5px solid var(--xb-separator); backdrop-filter: blur(18px); }
   .cm-row { display: flex; align-items: flex-end; gap: 8px; }
-  .cm-box { flex: 1; min-width: 0; display: flex; background: var(--xb-surface); border-radius: 20px; box-shadow: inset 0 0 0 0.5px var(--xb-border); padding: 7px 14px; }
+  .cm-box { flex: 1; min-width: 0; display: flex; background: var(--xb-surface); border-radius: var(--xb-radius); box-shadow: inset 0 0 0 1px var(--xb-border); padding: 7px 12px; }
   .cm-box textarea { flex: 1; min-width: 0; border: 0; outline: 0; background: none; resize: none; font: var(--xb-font-body); color: var(--xb-text);
     field-sizing: content; min-height: 22px; max-height: 132px; padding: 0; }
   .cm-box textarea::placeholder { color: color-mix(in srgb, var(--xb-muted) 75%, transparent); }
-  .cm-send, .cm-attach { flex: none; width: 36px; height: 36px; border-radius: 18px; display: flex; align-items: center; justify-content: center; }
+  .cm-send, .cm-attach { flex: none; width: 36px; height: 36px; border-radius: var(--xb-radius); display: flex; align-items: center; justify-content: center; }
   .cm-send { background: var(--xb-accent); color: var(--xb-on-accent); }
   .cm-send .ic { stroke-width: 2.6; }
   .cm-send:disabled { background: var(--xb-fill); color: var(--xb-muted); opacity: 1; }
@@ -433,13 +430,13 @@ export const CHAT_CSS = css`
   .cm-attach input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
   .cm-chips, .cm-atts { display: flex; gap: 6px; overflow-x: auto; }
   .cm-chips > xb-button { flex: none; }
-  .cm-att { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border-radius: 10px; background: var(--xb-surface); box-shadow: inset 0 0 0 0.5px var(--xb-border); font: var(--xb-font-footnote); flex: none; }
+  .cm-att { display: inline-flex; align-items: center; gap: 6px; padding: 4px 6px 4px 10px; border-radius: var(--xb-radius); background: var(--xb-surface); box-shadow: inset 0 0 0 0.5px var(--xb-border); font: var(--xb-font-footnote); flex: none; }
   .cm-att .ic { width: 16px; height: 16px; color: var(--xb-muted); }
   .cm-an { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .cm-ap { color: var(--xb-muted); font-variant-numeric: tabular-nums; }
   .cm-ax { display: flex; color: var(--xb-muted); padding: 2px; }
   .cm-ax .ic { width: 14px; height: 14px; }
-  .cm-slash { display: flex; flex-direction: column; background: var(--xb-surface); border-radius: 12px; box-shadow: var(--xb-shadow); overflow: hidden; }
+  .cm-slash { display: flex; flex-direction: column; background: var(--xb-surface); border-radius: var(--xb-radius); box-shadow: var(--xb-shadow); overflow: hidden; }
   .cm-cmd { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 8px 12px; text-align: left; }
   .cm-cmd + .cm-cmd { border-top: 0.5px solid var(--xb-separator); }
   .cm-name { font: var(--xb-font-subheadline); font-weight: 600; font-family: var(--xb-mono); font-variant-ligatures: none; }

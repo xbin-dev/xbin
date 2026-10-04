@@ -80,25 +80,32 @@ public struct ComposerView<Chips: View>: View {
                     Button(action: onAttach) {
                         Image(systemName: XbinIcons.UI.attach).font(.body.weight(.semibold)).frame(width: 22, height: 22)
                     }
-                    .buttonStyle(.bordered)
-                    .buttonBorderShape(.circle)
+                    .xbinSecondary()
                     .disabled(composer.disabled)
                     .accessibilityLabel("Attach")
                 }
                 // The row's width, as the TextField it replaced took: the
                 // text view alone measured at its draft's width, and the
                 // composer shrank to it ("Thank / you," beside send).
+                // Base Two's field: the panel, a 1 pt edge, 2 pt corners
+                // (it was a pill, as the send and attach buttons were
+                // circles; the web's composer is square).
                 XbinTextArea(text: text, style: Self.style(composer), lines: 1...6, handle: input,
                              onInput: { text = $0 }, onComposing: { composing = $0 })
                     .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14)
+                    .padding(.horizontal, 12)
                     .padding(.vertical, 9)
-                    .background(XbinColor.fill, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                    .background(XbinColor.surface, in: .xbinPlate)
+                    .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 1))
                     .disabled(composer.disabled)
                 if composer.busy, let onStop {
                     Button(action: onStop) {
-                        Image(systemName: XbinIcons.UI.stop).font(.title)
+                        Image(systemName: XbinIcons.UI.stop).font(.body.weight(.semibold)).frame(width: 22, height: 22)
                     }
+                    .buttonStyle(.borderedProminent)
+                    .buttonBorderShape(.roundedRectangle(radius: XbinShapes.radius))
+                    .tint(XbinColor.text)
+                    .foregroundStyle(XbinColor.background)
                     .accessibilityLabel("Stop")
                 } else {
                     Button {
@@ -107,8 +114,9 @@ public struct ComposerView<Chips: View>: View {
                         let draft = text
                         if composer.canSend(draft) { onSend(draft) }
                     } label: {
-                        Image(systemName: XbinIcons.UI.send).font(.title)
+                        Image(systemName: XbinIcons.UI.send).font(.body.weight(.semibold)).frame(width: 22, height: 22)
                     }
+                    .xbinPrimary()
                     .disabled(!(composer.canSend(text) || (composing && !composer.disabled)))
                     .accessibilityLabel("Send")
                 }
@@ -160,7 +168,7 @@ private struct AttachmentChip: View {
         .font(.caption)
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
-        .background(XbinColor.fill, in: Capsule())
+        .background(XbinColor.fill, in: .xbinPlate)
     }
 }
 #endif
