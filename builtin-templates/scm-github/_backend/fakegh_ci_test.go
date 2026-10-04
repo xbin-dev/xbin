@@ -2,7 +2,8 @@
 // pull requests (422 when one is open for the head, mergeable null until
 // computed), GraphQL draft ↔ ready, issues, comments, reviews, review
 // comments, search, check runs, commit statuses, workflow runs and their
-// jobs, job logs (a 302 to a second path; 404 while running), annotations
+// jobs, job logs (a 302 to a second path, which has no blob while the job
+// runs), annotations
 // and reruns. Tests fill f.ci under f.mu.
 package main
 
@@ -94,6 +95,12 @@ func (f *fakeGH) ciRoutes(mux *http.ServeMux) {
 	guard := func(perm, level string, h func(w http.ResponseWriter, r *http.Request, repo string)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			repo := repoOf(r)
+			if bearer(r) != "" && f.instTok(r) == nil && f.userTok(r) == nil {
+				// GitHub (live): a token it doesn't take (revoked, expired,
+				// made up) is 401 everywhere, never a 404.
+				f.msg(w, r, 401, "Bad credentials")
+				return
+			}
 			got := f.access(r, repo, perm)
 			if got == "" || (level == "write" && got != "write") {
 				if got != "" {
@@ -108,6 +115,9 @@ func (f *fakeGH) ciRoutes(mux *http.ServeMux) {
 	}
 	mux.HandleFunc("GET /repos/{o}/{r}", guard("metadata", "read", func(w http.ResponseWriter, r *http.Request, repo string) {
 		perm := map[string]string{"write": "write", "read": "read"}[f.access(r, repo, "contents")]
+		if f.instTok(r) != nil {
+			perm = "none" // GitHub (live): every permission flag false for an installation token
+		}
 		if u := f.userTok(r); u != nil && perm != "" {
 			f.mu.Lock()
 			if f.collab[repo+"|"+u.login] == "admin" {
@@ -167,6 +177,11 @@ func (f *fakeGH) ciRoutes(mux *http.ServeMux) {
 			Draft                   bool
 		}
 		json.NewDecoder(r.Body).Decode(&b)
+		if f.access(r, repo, "contents") == "" { // GitHub (live): the token must read the branches it names
+			w.WriteHeader(422)
+			io.WriteString(w, `{"message":"Validation Failed","errors":[{"resource":"PullRequest","code":"custom","message":"not all refs are readable"}]}`)
+			return
+		}
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		for _, p := range f.ci.pulls[repo] {
@@ -243,6 +258,24 @@ func (f *fakeGH) ciRoutes(mux *http.ServeMux) {
 		}
 		json.NewDecoder(r.Body).Decode(&b)
 		id, _ := b.Variables["id"].(string)
+		f.mu.Lock()
+		pulls := map[string][]*fPull{}
+		for repo, ps := range f.ci.pulls {
+			pulls[repo] = ps
+		}
+		f.mu.Unlock()
+		// GitHub (live): marking a pull request ready or turning it back
+		// into a draft wants pull_requests and contents: write of an
+		// installation token (contents read is FORBIDDEN), answered 200
+		// with an error.
+		for repo, ps := range pulls {
+			for _, p := range ps {
+				if "PR_"+strconv.Itoa(p.Number) == id && f.instTok(r) != nil && (f.access(r, repo, "contents") != "write" || f.access(r, repo, "pull_requests") != "write") {
+					json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"x": nil}, "errors": []any{map[string]any{"type": "FORBIDDEN", "message": "Resource not accessible by integration"}}})
+					return
+				}
+			}
+		}
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		f.ci.graphql = append(f.ci.graphql, b.Query)
@@ -440,8 +473,14 @@ func (f *fakeGH) ciRoutes(mux *http.ServeMux) {
 		j := f.ci.jobByID[r.PathValue("id")]
 		_, has := f.ci.logs[r.PathValue("id")]
 		f.mu.Unlock()
-		if j == nil || j["status"] != "completed" || !has {
+		if j == nil {
 			f.msg(w, r, 404, "Not Found")
+			return
+		}
+		if j["status"] != "completed" || !has {
+			// GitHub (live): a running job's log is a redirect too, to
+			// storage that has no blob yet (404) — no partial log.
+			http.Redirect(w, r, f.srv.URL+"/_blob/logs/none-"+r.PathValue("id")+"?sig=SECRETSIG", http.StatusFound)
 			return
 		}
 		f.mu.Lock()
@@ -459,8 +498,13 @@ func (f *fakeGH) ciRoutes(mux *http.ServeMux) {
 			return
 		}
 		f.mu.Lock()
-		l := f.ci.logs[r.PathValue("id")]
+		l, has := f.ci.logs[r.PathValue("id")]
 		f.mu.Unlock()
+		if !has {
+			w.WriteHeader(404)
+			io.WriteString(w, `<?xml version="1.0" encoding="utf-8"?><Error><Code>BlobNotFound</Code></Error>`)
+			return
+		}
 		w.Header().Set("Content-Type", "text/plain")
 		io.WriteString(w, l)
 	})

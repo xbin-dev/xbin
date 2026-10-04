@@ -159,7 +159,9 @@ func TestReposPagination(t *testing.T) {
 			t.Fatal("no end")
 		}
 	}
-	if len(all) != 45 || all[0].Name != "r00" || all[44].Name != "r44" || all[0].Host != "127.0.0.1" || all[0].Permission != "admin" || all[0].CloneURL == "" {
+	// GitHub answers the bot's repos with every permission flag false: the
+	// bot's permission is the App's contents permission (write here).
+	if len(all) != 45 || all[0].Name != "r00" || all[44].Name != "r44" || all[0].Host != "127.0.0.1" || all[0].Permission != "write" || all[0].CloneURL == "" {
 		t.Fatalf("%d repos: %+v", len(all), all[0])
 	}
 	var pg page[repoInfo]
@@ -189,7 +191,7 @@ func TestReposPagination(t *testing.T) {
 	e.gh.mu.Unlock()
 	var one repoInfo
 	decode(t, e.call(e.gH, agentC, "GET", "/scm/repo?repo=acme/web", nil), &one)
-	if one.Protected == nil || !*one.Protected || one.DefaultBranch != "main" {
+	if one.Protected == nil || !*one.Protected || one.DefaultBranch != "main" || one.Permission != "write" {
 		t.Fatalf("repo: %+v", one)
 	}
 	// A person who can't bypass it: protected; an admin, who may: absent.

@@ -54,7 +54,10 @@ type publicConf struct {
 	InstallURL string       `json:"installUrl"`
 	Policy     publicPolicy `json:"policy"`
 	Rerun      bool         `json:"rerun"` // checks.rerun is offered (the App has actions: write, allowRerun)
-	Configured bool         `json:"configured"`
+	// BotContents is the App's contents permission (write | read): the
+	// bot's permission on a repo, which GitHub doesn't say to the bot.
+	BotContents string `json:"botContents,omitempty"`
+	Configured  bool   `json:"configured"`
 	// TokenGen changes whenever tokens handed out may no longer be handed
 	// out again: a policy change, "Revoke all bot tokens", a new App. A
 	// partition reuses only tokens of the generation it reads here.
@@ -237,6 +240,7 @@ func (s *srv) writePublic(change int) error {
 		p.ClientID, p.Slug, p.Host, p.APIBase, p.WebBase = a.ClientID, a.Slug, a.Host, a.APIBase, a.WebBase
 		p.InstallURL, p.Configured = s.installURL(a), true
 		p.Rerun = a.Permissions["actions"] == "write" && pol.AllowRerun
+		p.BotContents = a.Permissions["contents"]
 	}
 	return s.conf.Put("public", p)
 }
@@ -337,15 +341,23 @@ func (s *srv) dropInstallation(inst int64) error {
 // instAuth is an installation token the tile uses itself (reads as the
 // bot; kind "write": the writes made as the bot), cached and never handed
 // out. Read: the read preset over every repo; write: pull requests and
-// issues only.
+// issues, with contents read — GitHub refuses to open a pull request
+// ("not all refs are readable", 422) for a token that can't read the
+// branches it names; draft: what GitHub's GraphQL wants of an installation
+// token to mark a pull request ready or turn it back into a draft —
+// pull_requests and contents: write (seen live: contents read is
+// FORBIDDEN). The draft token is used for that one mutation only.
 func (s *srv) instAuth(ctx context.Context, owner, repo, kind string) (ghAuth, error) {
 	inst, err := s.installation(ctx, owner, repo)
 	if err != nil {
 		return ghAuth{}, err
 	}
 	perms := presetRead()
-	if kind == "write" {
-		perms = map[string]string{"pull_requests": "write", "issues": "write", "metadata": "read"}
+	switch kind {
+	case "write":
+		perms = map[string]string{"pull_requests": "write", "issues": "write", "contents": "read", "metadata": "read"}
+	case "draft":
+		perms = map[string]string{"pull_requests": "write", "contents": "write", "metadata": "read"}
 	}
 	key := cacheKey{consumer: "internal", purpose: kind, inst: inst, perms: permsKey(perms)}
 	if e := s.intl.get(key, s.now(), 15*time.Minute); e != nil {

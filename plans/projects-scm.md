@@ -1047,7 +1047,11 @@ builds its JSON explicitly.
   /login/oauth/access_token {client_id, grant_type: "refresh_token",
   refresh_token}` under a process mutex; the answer replaces both tokens
   (the old ones die). `bad_refresh_token` → clear the pair, answer 409
-  `signin` (starting a new flow).
+  `signin` (starting a new flow). `incorrect_client_credentials` — what
+  GitHub answers for a revoked grant's refresh token (live, 2026-10-04;
+  a wrong client id answers it too) — the same, when relay `check-token`
+  says GitHub no longer knows the access token; otherwise 502 `upstream`,
+  nothing cleared.
 - **Forget** (`DELETE /scm/signin`): relay `revoke-grant`, then clear the
   vault and state, then relay `DELETE /partition/identity`.
 
@@ -1070,6 +1074,7 @@ else.
 | `POST /partition/scope` | `{accessToken, owner, repos, permissions, access}` | checks the token as `identity` does (its user must be `ident/<user>`); computes the permissions **itself** — the preset for `access` (§4.8), narrowed by `permissions`, `workflows: write` only under `allowWorkflows`; `owner` within `allowedAccounts`; then `POST /applications/{clientId}/token/scoped` (basic auth) with `{access_token, target: owner, repositories, permissions}`; the answer's expiry capped by `personTtlMin` | 200 `{token, expiresAt, repos, permissions}`; 422 → 400 `invalid`; a policy refusal → 403 `not-allowed` |
 | `POST /partition/revoke-token` | `{accessToken}` | `DELETE /applications/{clientId}/token` | 204 |
 | `POST /partition/revoke-grant` | `{accessToken}` | `DELETE /applications/{clientId}/grant` | 204 |
+| `POST /partition/check-token` | `{accessToken}` | `POST /applications/{clientId}/token` (basic auth), its raw status | 200 `{known}`: 404 → `false`, 2xx → `true`; any other answer is GitHub's refusal |
 | `POST /partition/bot-token` | §4.8 token body | policy `botForPeople`: `off` → 403 `identity`; `own-access` → `GET /repos/{o}/{r}/collaborators/{login}/permission` with an installation token, `login` from `ident/<user>` (none: 409 `signin`), every repo at least `write` (or `read` for `access: read`); `on` → as a tile's request; in every case global applies the whole policy itself — the preset, `allowWorkflows`, `allowedAccounts`, `botRepos` | §4.8 token answer, `identity.kind: "bot"` |
 | `POST /partition/subscriptions` | `{consumer, sub}` — `consumer` the calling tile's path as the partition saw it (`X-XBin-From`), `sub` §4.10's body | `consumer` must be the path of one of global's `agents` bindings (else 400 `invalid`) — a person naming another bound consumer only sends their own events (`for: user:<user>`, `forPid`) there; §5.10 person checks with `ident/<user>`; stored with `for: user:<user>`, the caller's `pid` and that consumer | §4.10 |
 | `DELETE /partition/subscriptions/{id}` | — | only that person's | 204 |
@@ -3926,3 +3931,9 @@ with the record that explains it:
 - 2026-10-04 (U2) §12.3: a team board row's links and an event's are drawn only when `https`, and a row opens only for its own member from their own partition (run ≥ 2^40, not stale) — records/U2.md
 - 2026-10-04 (U2) §12.2, §7.2: "Work on this" sends `sandbox: {new: {provider}}` from a manager the member picks unless a manager bound in their space serves the definition's seed (then none, and T forks it); an archived membership is offered "Work on this again"; a membership's page reads `GET /memberships/{pid}/pending` once per open (T re-reads the definition there); a set seed is shown read-only — records/U2.md
 - 2026-10-04 (U2) §13.3, §7.2: the Activity feed reads at most five pages of 200 at a time (P1's events route is oldest-first only) and says when newer ones wait; natively a project's screen shows the latest activity only once the Activity screen has read it — records/U2.md
+- 2026-10-04 (live) §5.7: the internal write token gains `contents: read` (GitHub won't open a pull request for a token that can't read its branches: 422 "not all refs are readable"), and draft ↔ ready as the bot uses a separate internal token of `pull_requests` and `contents: write` for that mutation alone (GitHub's GraphQL is FORBIDDEN with contents read) — owner question — records/LIVE.md
+- 2026-10-04 (live) §4.9, §5.4: a repo's `permission` for the bot is the App's `contents` permission (GitHub answers an installation token's repos with every flag false); conf `public` gains `botContents` — records/LIVE.md
+- 2026-10-04 (live) §5.5: Paste of an App whose webhook is off succeeds without a webhook (GitHub answers 404 to `GET /app/hook/config` then); with `hookUrl`, a PATCH GitHub refuses the same way asks to tick Active first — records/LIVE.md
+- 2026-10-04 (live) §5.11: S3 answered live (a revoked stateless `ghs_` token is 401 at once), S4 confirmed live (a running job's log redirects to storage answering 404); S1 and S2 still owed (S2: no device-flow sign-in arrived) — records/LIVE.md
+- 2026-10-04 (live) §5.11: S2 answered live — a scoped token survives its parent's refresh (its own 8 h life) and `/token/scoped` takes basic auth; the epoch (§5.7) stays until the owner decides — records/LIVE.md
+- 2026-10-04 (live) §5.8: Forget checked live — after the grant's revocation GitHub refuses its refresh token with `incorrect_client_credentials`, not `bad_refresh_token`; on it the partition asks GitHub (relay `POST /partition/check-token`) about the access token and a 404 ends the sign-in (Forget clears, 204; a token request is 409 `signin`), anything else stays 502 `upstream`, nothing cleared. The owner keeps the epoch (§5.7 unchanged) — records/LIVE.md

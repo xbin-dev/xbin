@@ -274,6 +274,40 @@ func (s *srv) relayRevoke(w http.ResponseWriter, r *http.Request, c who, what st
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleRelayCheckToken answers whether GitHub still knows a token of this
+// App's ({known}): its check (POST /applications/{client_id}/token, basic
+// auth), 404 unknown. Any other refusal is GitHub's, answered as such.
+func (s *srv) handleRelayCheckToken(w http.ResponseWriter, r *http.Request, c who) {
+	s.relayStart(c)
+	var body struct {
+		AccessToken secretString `json:"accessToken"`
+	}
+	if err := readBody(r, &body); err != nil {
+		fail(w, err)
+		return
+	}
+	if body.AccessToken.Empty() {
+		fail(w, refuse(refInvalid, "accessToken is required"))
+		return
+	}
+	auth, cid, err := s.basicAuth()
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	rc, err := s.gh.do(r.Context(), auth, http.MethodPost, s.apiBase()+"/applications/"+pathEsc(cid)+"/token", map[string]string{"access_token": body.AccessToken.Reveal()})
+	switch {
+	case err != nil:
+		fail(w, err)
+	case rc != nil && rc.Status == http.StatusNotFound:
+		writeJSON(w, http.StatusOK, map[string]bool{"known": false})
+	case rc == nil || rc.Status < 300:
+		writeJSON(w, http.StatusOK, map[string]bool{"known": true})
+	default:
+		fail(w, ghError(rc, s.now()))
+	}
+}
+
 // handleRelayBotToken hands a person's partition a bot token, under
 // botForPeople: off refuses; own-access checks the person's own access to
 // every repo (their registered login, the collaborator permission API);

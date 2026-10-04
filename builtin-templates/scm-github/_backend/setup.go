@@ -139,7 +139,9 @@ func (s *srv) handleSetupPaste(w http.ResponseWriter, r *http.Request, _ who) {
 	var hook struct {
 		URL string `json:"url"`
 	}
-	if _, err := s.gh.call(ctx, auth, http.MethodGet, apiBase+"/app/hook/config", nil, &hook); err != nil {
+	// An App whose webhook is off (no URL, or "Active" unticked) has no
+	// hook config: GitHub answers 404 (seen live), not an empty one.
+	if _, err := s.gh.call(ctx, auth, http.MethodGet, apiBase+"/app/hook/config", nil, &hook); err != nil && !isRefusal(err, refNotFound) {
 		fail(w, err)
 		return
 	}
@@ -159,6 +161,9 @@ func (s *srv) handleSetupPaste(w http.ResponseWriter, r *http.Request, _ who) {
 		}
 		if hookURL != "" {
 			if _, err := s.gh.call(ctx, auth, http.MethodPatch, apiBase+"/app/hook/config", patch, nil); err != nil {
+				if isRefusal(err, refNotFound) {
+					err = refuse(refInvalid, "the App's webhook is off, so GitHub keeps no webhook address for it: tick Active under Webhook in the App's settings, then paste again (or paste without hookUrl)")
+				}
 				fail(w, err)
 				return
 			}

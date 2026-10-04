@@ -46,7 +46,10 @@ A copy that isn't partitioned (an xbind without `--isolate`, or
      and the webhook URL (the exposure + `/hook/github`); the webhook secret
      is made for you if you leave it empty. The tile checks them by signing
      a JWT and asking GitHub for the App, then points the App's webhook at
-     the URL with the secret.
+     the URL with the secret. An App whose webhook is off pastes without a
+     URL (GitHub keeps no webhook settings for it, and events wait); to
+     paste one with a URL, tick **Active** under Webhook in the App's
+     settings first.
 6. In the App's settings on GitHub: **Enable Device Flow** (the page's
    **Check** confirms it), and leave **Expire user authorization tokens**
    on.
@@ -95,7 +98,14 @@ Then:
 
 - your partition keeps the pair (access and refresh token) in its own
   vault and refreshes it itself (a device-flow token refreshes without the
-  App's client secret);
+  App's client secret). A refresh GitHub refuses with
+  `bad_refresh_token` ends the sign-in; so does
+  `incorrect_client_credentials` — what GitHub answers once your grant is
+  revoked (Forget, or revoking the App in your GitHub settings) — when
+  GitHub's check of your access token (asked through global) says it no
+  longer knows it (404). Then a token asked for as you is 409 `signin`.
+  Any other refusal, or that check answering anything else (it still knows
+  the token, an error, no answer), is 502 `upstream` and keeps the sign-in;
 - the global instance learns your login from GitHub's own answer for a
   token only this App issued (a personal access token or another App's
   token is refused) and keeps `{login, id}` and your partition id — never
@@ -106,9 +116,10 @@ Then:
   or doesn't answer, Forget answers that (503 `unavailable`, …) and
   clears nothing, so you can try again. An access token past its expiry
   (8 hours) is refreshed first and the grant revoked with the new one; a
-  failed refresh is answered and clears nothing, and a refresh GitHub
-  refuses (`bad_refresh_token`, or the sign-in itself expired) leaves
-  nothing to revoke, so Forget clears. A token GitHub no longer knows
+  failed refresh is answered and clears nothing, and a refresh that ends
+  the sign-in (above), or a sign-in itself expired, leaves nothing to
+  revoke, so Forget clears — revoking the App in your GitHub settings
+  doesn't leave a sign-in here you can't forget. A token GitHub no longer knows
   (already revoked) counts as revoked. GitHub's 422 can also mean "try
   later", so on a 422 Forget asks GitHub about the token: unless GitHub
   answers that it doesn't know it (404), Forget is 503 `unavailable` and
@@ -150,7 +161,7 @@ move: a partition reuses only tokens of the generation it reads.
   repos, permissions) and handed out again while 15 minutes (or the
   consumer's `minTtlSec`) are left. They live an hour; `refreshAfter` is 10
   minutes before. Their length is GitHub's to choose (stateless `ghs_`
-  tokens are about 520 characters).
+  tokens run to several hundred characters).
 - **Person tokens** are scoped copies of the person's sign-in: global
   scopes them (`POST /applications/{client_id}/token/scoped` needs the
   client secret) to the asked repos and permissions it computes itself.
@@ -171,7 +182,12 @@ move: a partition reuses only tokens of the generation it reads.
   revoke by value, by purpose or all still reaches them. **Revoke all bot
   tokens** on the page (`POST /api/revoke-all`) revokes every live one.
 - **Writes as the bot** (pull requests, comments) use an installation
-  token of the tile's own with only what they need, never handed out.
+  token of the tile's own with only what they need, never handed out:
+  pull requests and issues: write, and contents: read (GitHub won't open a
+  pull request for a token that can't read its branches). Marking a pull
+  request ready for review, or turning it back into a draft, goes through
+  GitHub's GraphQL API, which wants pull requests and contents: write of
+  an installation token: a token with those, used for that alone.
 - **Into sandboxes**: a consumer's job — an exec's environment or a 0600
   file outside every repo, never a refresh token, a person's only in their
   own private sandbox ([/docs/scm.md](/docs/scm.md) §Handing a token to a
@@ -371,6 +387,9 @@ passed through untrusted.
   bot never bypasses classic protection. Rulesets' bypass lists aren't
   read: a ruleset naming the App or a role as a bypass actor still reads
   `true`.
+- A repo's `permission` for the bot is the App's own `contents`
+  permission (`write`, or `read`): GitHub answers an installation token's
+  repos with every permission flag false.
 - `GET /scm/repos` as the bot is the global instance's: a person's
   partition lists the person's own repos (`as: bot` there is 403
   `identity`; name a repo instead).
@@ -427,8 +446,9 @@ event's branch is this repo's.
 
 ## 13. Spikes and what they decided
 
-Four questions only a live GitHub App can settle; this version was built
-from GitHub's documentation and keeps the safe default for each:
+Four questions only a live GitHub App can settle. Two were checked
+against GitHub with a test App (2026-10-04); for the other two this
+version keeps the safe default:
 
 - **The manifest form from a sandboxed frame** (`Origin: null`) and the
   tile's address loaded at top level: GitHub documents only the form POST
@@ -440,7 +460,10 @@ from GitHub's documentation and keeps the safe default for each:
   request, which a request asking more than 10 minutes' margin reaches
   early (§6): to be checked live.
 - **Revoking a stateless installation token** (`DELETE
-  /installation/token`): documented as revoking the token used; treated as
-  best effort, with the hour's life as the bound.
-- **A running job's log**: GitHub has no public API for a partial log, so
-  a running job is 409 `in-progress` with its page on GitHub.
+  /installation/token`): checked — GitHub answers 204 and the token is
+  refused (401) from then on. Still best effort here (a revocation that
+  doesn't reach GitHub isn't retried); the hour's life bounds it.
+- **A running job's log**: checked — while a job runs GitHub's log
+  endpoint redirects to storage that has no log yet (404), and there is no
+  other public API for a partial log, so a running job is 409
+  `in-progress` with its page on GitHub.
