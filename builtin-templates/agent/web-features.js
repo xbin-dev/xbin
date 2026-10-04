@@ -254,4 +254,14 @@ export const IMPLEMENTS = {
   'link.project': 'agent.js — followHash (model/router.js #proj, #proj=<id>); project-chips.js — #projcrumb through ext.crumb, #ptasksec through ext.task',
   // Projects — the coordinator, events, upgrades, team projects
   // CI in the conversation
+  'ci.chip': 'ci-dock.js — #cichip through ext.top, after #hbchip: CI ● n/m jobs · time, CI ✓, CI ✗ <job>, CI — (model/ci.js chipWords, app.ci.chip); opens the dock on CI (openCI)',
+  'ci.dock': 'ci-dock.js — the CI section of the right dock through ext.dock (harness-board.js hosts it: .hbtabs Coding agents · CI, openDock): #cisec .ciwatch per watch (branch, PR, state, since, ✕), live while shown (app.ci.live)',
+  'ci.jobs': 'ci-dock.js — .cirun per workflow run (name, event, attempt, state, time), .cijob per job (.cibar progress, the current step, time; expanded: .cistep with ✓ ✗ ● ○ and durations; model/ci.js watchRows, jobProgress)',
+  'ci.logs': 'ci-dock.js — the log viewer in the dock (#cilog plain text, #ci-earlier, #ci-search with #ci-prev/#ci-next, #ci-follow while partial logs run; #cilogwait: steps and Open live log ↗), the dock wider (.wrap.ciwide)',
+  'ci.annotations': 'ci-dock.js — notesTpl: .cinote path:line, level, title, message as text (app.ci.annotations)',
+  'ci.links': 'ci-dock.js — out(): ↗ to the branch, PR, checks, runs, jobs, checks\' details and statuses, http(s) only, in a new tab',
+  'ci.rerun': 'ci-dock.js — .cirerun "Re-run failed" on a failed run when the view says canRerun (a person in their own partition), confirmed (app.ci.rerun)',
+  'ci.watch': 'ci-dock.js — #ciform "Watch CI for…" (#ci-repo, #ci-ref: a branch or a PR number) and .ciun ✕ (app.ci.watch, app.ci.unwatch)',
+  'ci.cards': 'ci-cards.js — .cicard-out through ext.end: CI passed / failed on <branch> — job › step, Open logs (openCI on that job), ✕ dismissed per <watch>:<outcome> (app.ci.cards, dismiss)',
+  'ci.board': 'ci-dock.js — .cicard through ext.card (projects.js places it on each task card: opens the task on CI) and .cichild through ext.childStatus (harness-child.js: a coding agent card\'s CI glyph)',
 };

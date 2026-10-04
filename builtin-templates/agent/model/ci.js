@@ -297,7 +297,8 @@ export function createCI(app, opts = {}) {
       const seen = new Set();
       for (const w of (v && v.watches) || []) {
         const c = cardOf(w);
-        if (c && !dismissed.has(c.key)) { out.push(c); seen.add(w.id); }
+        seen.add(w.id);
+        if (c && !dismissed.has(c.key)) out.push(c);
       }
       for (const w of (heard.get(root) || {}).watches || []) {
         if (seen.has(w.id)) continue;

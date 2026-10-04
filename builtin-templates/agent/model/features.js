@@ -309,7 +309,6 @@ const stagedWeb = [
   // projects: the coordinator, events, upgrades, team projects
   'proj.coordinator', 'proj.events', 'proj.upgrade', 'proj.team',
   // CI
-  'ci.chip', 'ci.dock', 'ci.jobs', 'ci.logs', 'ci.annotations', 'ci.links', 'ci.rerun', 'ci.watch', 'ci.cards', 'ci.board',
 ];
 const stagedNative = [
   // projects
