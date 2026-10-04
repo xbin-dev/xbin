@@ -3859,3 +3859,4 @@ with the record that explains it:
 - 2026-10-04 (live) §4.9, §5.4: a repo's `permission` for the bot is the App's `contents` permission (GitHub answers an installation token's repos with every flag false); conf `public` gains `botContents` — records/LIVE.md
 - 2026-10-04 (live) §5.5: Paste of an App whose webhook is off succeeds without a webhook (GitHub answers 404 to `GET /app/hook/config` then); with `hookUrl`, a PATCH GitHub refuses the same way asks to tick Active first — records/LIVE.md
 - 2026-10-04 (live) §5.11: S3 answered live (a revoked stateless `ghs_` token is 401 at once), S4 confirmed live (a running job's log redirects to storage answering 404); S1 and S2 still owed (S2: no device-flow sign-in arrived) — records/LIVE.md
+- 2026-10-04 (live) §5.11: S2 answered live — a scoped token survives its parent's refresh (its own 8 h life) and `/token/scoped` takes basic auth; the epoch (§5.7) stays until the owner decides — records/LIVE.md

@@ -25,14 +25,14 @@
   a token (`redact` keeps `ghu_…`-style prefixes only); a refreshed pair is
   written back to `person.json` only (0600, atomically).
 - **Runs:** `TestLiveAppBot`, `TestLiveReads`, `TestLiveWrites` (several
-  times while fixing), `TestLiveS4` (51 s), and — not run — `TestLivePersonS2` and `TestLiveForget`: `person.json` never appeared (polled 20 minutes, 18:41–19:01 UTC), so every person-token check is owed (below). Both skip without it; `TestLiveForget` also needs `XBIN_GH_LIVE_FORGET=1`, and must run last.
+  times while fixing), `TestLiveS4` (51 s), `TestLivePersonS2` (26 s, 19:29–19:30 UTC, after the owner's device-flow sign-in — the first two codes expired unentered), and — not run — `TestLiveForget`, which revokes the owner's grant: it needs `XBIN_GH_LIVE_FORGET=1` and runs last, when the owner says.
 
 ## The spikes
 
 | # | Question | Live answer (2026-10-04) |
 |---|---|---|
 | S1 | The manifest form POST from a sandboxed frame's new tab; the frame token at top level | **Still owed.** It needs the owner's browser (a frame, a new tab, GitHub's App-creation page) — nothing headless can answer it. The safe default stands: all three ways back are built, Paste stays primary. |
-| S2 | Does a scoped user token survive its parent's refresh? Does `/token/scoped` take basic auth with the client id and secret? | **Still owed.** It needs a person token from the App's device flow, and `person.json` didn't arrive within the 20 minutes polled. `TestLivePersonS2` is written to answer both halves: it scopes through the relay (global's basic auth on `/token/scoped`), checks the scoped token raw, refreshes the parent with the partition's own `refresh` (the new pair written back to `person.json`), then reads with the scoped token again. The epoch stays meanwhile. |
+| S2 | Does a scoped user token survive its parent's refresh? Does `/token/scoped` take basic auth with the client id and secret? | **Yes, and yes** (2026-10-04, `TestLivePersonS2`). A scoped token made through the relay (global's basic auth on `/token/scoped`: 200; the person's bearer token there: 404) kept working after its parent was refreshed — `GET` of the repo 200 right after and 10 s later, and GitHub's check of it 200 — while the old parent was 401 and the new one 200. Its `expires_at` is its own 8 h (not the parent's). A scoped token can't make another (401 "A scoped token cannot create another scoped token"); a read-scoped one is refused a write (403). Revoking one scoped token leaves its parent and its siblings working. So the epoch (§5.7) isn't needed for scoped tokens to survive a refresh; it stays as built until the owner decides (Owner questions). |
 | S3 | Does `DELETE /installation/token` revoke a stateless `ghs_` token? | **Yes.** A read with the token: 200; `DELETE /installation/token` with it: **204**; the same read after: **401**; the DELETE again: **401**. The template's own path (`POST /scm/token/revoke {token}`, and `POST /api/revoke-all`) left the tokens at 401 too. Revocation of bot tokens is real, not only the hour's bound. (The tokens were 390 characters: `ghs_` and a dotted, JWT-like body.) |
 | S4 | Any partial log while a job runs? | **No.** With job `slow` mid-step (dispatched with the PAT), `GET /actions/jobs/{id}/logs` answers **302** to the log storage (`*.blob.core.windows.net`), which answers **404** (BlobNotFound) — the same 15 s later; the run's log archive is **404**. The template's `GET /scm/checks/jobs/{id}/log` answers **409 `in-progress`** with the job's page. The job's check run (same id) reads `in_progress`, 0 annotations; `/scm/checks` shows the run in progress, the job's steps 1/2. `in-progress` stands. |
 
@@ -50,7 +50,7 @@
   `POST /partition/identity {PAT}` → 403 `identity`. As built.
 - **Revocation endpoints for tokens the App never issued**
   (`DELETE /applications/{cid}/token` and `/grant`, the PAT or a made-up
-  `ghu_`): **404**, never 422. For a token this App issued and already revoked — G1's fix-round-4 handling (404 gone; 422 checked) — still owed with the person checks (`TestLivePersonS2` revokes one scoped token twice; `TestLiveForget` revokes the grant twice and tries the refresh token after it). What was seen supports the 404 half: GitHub answers an unknown token 404, not 422.
+  `ghu_`): **404**, never 422. For a token this App issued and already revoked (a scoped token, `TestLivePersonS2`): `DELETE /applications/{cid}/token` **404**, its check 404, the token itself 401 — so G1's fix-round-4 handling (404 gone; 422 checked) matches. The grant's revocation (`TestLiveForget`) is still owed.
 - **Installation lookup:** an account without the App →
   409 `not-installed`.
 
@@ -97,7 +97,8 @@
 - **Pagination:** issues `per_page=1` → `Link` `rel="next"` with
   `after=<cursor>&page=2` under `/repositories/{id}/…`; the template's
   page cursor (GitHub's `page`) walks it correctly.
-- **Rerun (person only):** owed with the person checks (`TestLivePersonS2` reruns the failed jobs of a completed run on main as the person; the bot's rerun is refused locally, 403 `identity`).
+- **Rerun (person only):** as the person, failed jobs of a completed run: 202 `{runId, attempt: 2}`; the same again at once: 409 (the run is going again); as the bot: 403 `identity`, refused locally.
+- **The person's reads and writes** through the template: registration from GitHub's own answer (`POST /partition/identity`), `/scm/repos` and `/scm/repo` (`permission: admin`, `protected: false`), a pull, issues, checks, a comment (201), a person token (`POST /scm/token`, a fresh token after the parent's refresh), and its revocation by value (204; the token 401 after).
 
 ## Fake and code corrections
 
@@ -129,17 +130,7 @@ App/bot cases against the fake as it was.
   default branch, a rate limit actually spent, an installation on an
   organization (members/access events) — the test App has none of them.
 - Webhooks and events (G2's).
-- **Every person-token check:** S2 (both halves); registration
-  (`POST /partition/identity` with a real App token); scoped tokens' life,
-  expiry and narrowing; `/token/scoped` from a scoped token; a revoked
-  scoped token and its parent; a rerun as the person; a person's reads and
-  comment; Forget (`DELETE /applications/{cid}/grant`), then the grant and
-  token revocations again with the dead token, and the refresh token after
-  it. To run: the owner writes `person.json` from the App's device flow,
-  then `XBIN_GH_LIVE=1 go test -count=1 -v -run TestLivePersonS2 .` in
-  `_backend`, and last `XBIN_GH_LIVE=1 XBIN_GH_LIVE_FORGET=1 … -run
-  TestLiveForget .` (it revokes the grant: a new device flow before any
-  further person check).
+- **Forget against real GitHub** (`TestLiveForget`: `DELETE /applications/{cid}/grant`, then the grant and token revocations again with the dead token, and the refresh token after it). It ends the owner's sign-in, so it runs last, when the owner says: `XBIN_GH_LIVE=1 XBIN_GH_LIVE_FORGET=1 go test -count=1 -v -run TestLiveForget .` in `_backend`.
 
 ## Owner questions
 
@@ -149,9 +140,13 @@ App/bot cases against the fake as it was.
   with pull_requests and contents: write for that mutation alone, never
   handed out. The alternative is refusing `draft` changes as the bot
   (`as: person` only). Default: the token, as built.
-- **S2 and the other person checks need a device-flow sign-in:** when will
-  the owner write `person.json` (and accept that `TestLiveForget` ends it)?
-  Default meanwhile: the epoch stays (projects-scm §5.7).
+- **The epoch, now that S2 says scoped tokens survive a refresh.** The
+  epoch (§5.7) caps a scoped token's expiry at its parent's next refresh
+  because nobody knew whether it would outlive it; live, it does, with its
+  own 8 h life. The epoch could go (scoped tokens would live their full
+  hour-or-more, fewer re-mints), or stay as a bound on how long a token
+  lives after the person's sign-in moves on. Default: it stays, as built.
+- **When to run `TestLiveForget`** (it revokes the owner's grant).
 
 ## Commits
 
