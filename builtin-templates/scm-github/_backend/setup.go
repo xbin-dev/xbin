@@ -259,7 +259,11 @@ func (s *srv) storeApp(ctx context.Context, a *appState, pemText, clientSecret, 
 			return err
 		}
 	}
-	return s.writePublic()
+	change := pubTokens
+	if prev == nil || prev.AppID != a.AppID {
+		change |= pubNewApp
+	}
+	return s.writePublic(change)
 }
 
 // manifestState is state "mstate/<state>": one manifest flow, single use,

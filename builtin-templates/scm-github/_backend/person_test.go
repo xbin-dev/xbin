@@ -94,11 +94,25 @@ func TestEpochCapsExpiry(t *testing.T) {
 		t.Fatalf("author %v", m["author"])
 	}
 	p := basePolicy()
-	p.PersonTTLMin = 30
+	p.PersonTTLMin = 30 // under maxTtlSec: a consumer's minTtlSec could go unmet
+	refusal(t, e.call(e.gH, ownerC, "PUT", "/api/policy", p), 400, "invalid")
+	p.PersonTTLMin = 55
 	e.setPolicy(p)
-	m = personToken(t, e, u, map[string]any{"repo": "acme/web", "access": "read", "purpose": "capped"})
-	if exp := int64(m["expiresAt"].(float64)); exp != e.clock.now().Add(30*time.Minute).UnixMilli() {
+	m = personToken(t, e, u, map[string]any{"repo": "acme/web", "access": "read", "purpose": "capped", "minTtlSec": 3000})
+	if exp := int64(m["expiresAt"].(float64)); exp != e.clock.now().Add(55*time.Minute).UnixMilli() {
 		t.Fatalf("personTtlMin: %d", exp)
+	}
+	if ra := int64(m["refreshAfter"].(float64)); ra != e.clock.now().Add(45*time.Minute).UnixMilli() {
+		t.Fatalf("refreshAfter %d", ra)
+	}
+	// A value kept from before the floor is the floor.
+	p.PersonTTLMin = 20
+	if err := e.global.state.Put("policy", p); err != nil {
+		t.Fatal(err)
+	}
+	m = personToken(t, e, u, map[string]any{"repo": "acme/web", "access": "read", "purpose": "old"})
+	if exp := int64(m["expiresAt"].(float64)); exp != e.clock.now().Add(50*time.Minute).UnixMilli() {
+		t.Fatalf("personTtlMin below the floor: %d", exp)
 	}
 }
 
@@ -203,6 +217,16 @@ func TestForgetRevokesGrant(t *testing.T) {
 	u := s.routes()
 	m := personToken(t, e, u, map[string]any{"repo": "acme/web", "access": "read"})
 	acc, _, _ := s.userTokens()
+	// GitHub refuses the grant's revocation: Forget says so and keeps
+	// everything, so it can be tried again.
+	e.gh.fail("DELETE /applications/", 1, 500, nil, `{"message":"boom"}`)
+	refusal(t, e.call(u, pageC("alice"), "DELETE", "/scm/signin", nil), 503, "unavailable")
+	if a2, _, _ := s.userTokens(); a2.Token != acc.Token || s.personRecord() == nil || e.global.ident("alice") == nil {
+		t.Fatal("a failed Forget cleared the sign-in")
+	}
+	if e.userTok(acc.Token).revoked {
+		t.Fatal("the fake revoked it anyway: the test proves nothing")
+	}
 	ok(t, e.call(u, pageC("alice"), "DELETE", "/scm/signin", nil), 204)
 	if !e.userTok(acc.Token).revoked || !e.userTok(m["token"].(string)).revoked {
 		t.Fatal("tokens still work at GitHub")
@@ -359,5 +383,64 @@ func TestRevokeScopedAfterRefresh(t *testing.T) {
 	ok(t, e.call(u, personC("alice"), "POST", "/scm/token/revoke", map[string]string{"token": tok}), 204)
 	if !e.userTok(tok).revoked {
 		t.Fatal("the old epoch's token wasn't revoked")
+	}
+}
+
+// A person's partition keeps tokens for reuse; global's revoke-all and a
+// policy change reach that cache (conf "public" tokenGen), and every reuse
+// re-checks the request against the policy conf carries.
+func TestPartitionReuseFollowsGlobal(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	p := basePolicy()
+	p.BotForPeople = "on"
+	e.setPolicy(p)
+	u := e.signIn("alice", "octocat").routes()
+	bot := map[string]any{"repo": "acme/web", "access": "read", "as": "bot", "purpose": "x"}
+	a := personToken(t, e, u, bot)["token"].(string)
+	if personToken(t, e, u, bot)["token"].(string) != a {
+		t.Fatal("the partition didn't reuse its token")
+	}
+	ok(t, e.call(e.gH, ownerC, "POST", "/api/revoke-all", nil), 200)
+	e.gh.mu.Lock()
+	revoked := e.gh.instTokens[a].revoked
+	e.gh.mu.Unlock()
+	if !revoked {
+		t.Fatal("revoke-all missed the relayed token")
+	}
+	b := personToken(t, e, u, bot)["token"].(string)
+	if b == a {
+		t.Fatal("a revoked token handed out again after revoke-all")
+	}
+	// botRepos narrowed: the cached token for acme/web isn't handed out.
+	p.BotRepos = []string{"acme/api"}
+	e.setPolicy(p)
+	refusal(t, e.call(u, personC("alice"), "POST", "/scm/token", bot), 403, "not-allowed")
+	// allowedAccounts narrowed: neither a bot nor a person token, cached or not.
+	p.BotRepos = []string{"*/*"}
+	e.setPolicy(p)
+	personToken(t, e, u, bot)
+	pers := map[string]any{"repo": "acme/web", "access": "read", "purpose": "y"}
+	personToken(t, e, u, pers)
+	p.AllowedAccounts = []string{"other"}
+	e.setPolicy(p)
+	refusal(t, e.call(u, personC("alice"), "POST", "/scm/token", bot), 403, "not-allowed")
+	refusal(t, e.call(u, personC("alice"), "POST", "/scm/token", pers), 403, "not-allowed")
+	// allowWorkflows off again: a cached workflows token isn't handed out.
+	p.AllowedAccounts, p.AllowWorkflows = []string{"acme"}, true
+	e.setPolicy(p)
+	wf := map[string]any{"repo": "acme/web", "access": "write", "purpose": "w", "permissions": map[string]string{"workflows": "write"}}
+	personToken(t, e, u, wf)
+	p.AllowWorkflows = false
+	e.setPolicy(p)
+	refusal(t, e.call(u, personC("alice"), "POST", "/scm/token", wf), 403, "not-allowed")
+	// The generation alone ends reuse, even with the policy unchanged.
+	c := personToken(t, e, u, pers)["token"].(string)
+	if personToken(t, e, u, pers)["token"].(string) != c {
+		t.Fatal("no reuse within a generation")
+	}
+	e.setPolicy(p)
+	if personToken(t, e, u, pers)["token"].(string) == c {
+		t.Fatal("a person token of the old generation handed out again")
 	}
 }

@@ -21,6 +21,10 @@ type policy struct {
 	PersonTTLMin    int      `json:"personTtlMin"`    // caps a person token's life (0: the epoch decides)
 }
 
+// personTTLFloor is the shortest personTtlMin: every minTtlSec allowed
+// (up to maxTtlSec) is met.
+const personTTLFloor = maxTTLSec / 60
+
 func defaultPolicy() policy {
 	return policy{BotForPeople: "off", BotRepos: []string{"*/*"}, AllowedAccounts: []string{}, AllowRerun: true}
 }
@@ -33,6 +37,9 @@ func (s *srv) policy() policy {
 		pub := s.public()
 		p.BotForPeople, p.AllowWorkflows = pub.Policy.BotForPeople, pub.Policy.AllowWorkflows
 		p.AllowedAccounts = append([]string{}, pub.Policy.AllowedAccounts...)
+		if pub.Policy.BotRepos != nil { // absent: global's older shape (it still checks)
+			p.BotRepos = append([]string{}, pub.Policy.BotRepos...)
+		}
 		if p.BotForPeople == "" {
 			p.BotForPeople = "off"
 		}
@@ -67,8 +74,10 @@ func (p *policy) validate() error {
 			return refuse(refInvalid, "allowedAccounts are GitHub logins (%q isn't)", clip(a, 80))
 		}
 	}
-	if p.PersonTTLMin < 0 || p.PersonTTLMin > 24*60 {
-		return refuse(refInvalid, "personTtlMin is 0 (the epoch decides) to 1440 minutes")
+	// Below maxTtlSec a consumer's minTtlSec could go unmet: a token would
+	// live less than asked, never be reused, and be scoped anew each time.
+	if p.PersonTTLMin != 0 && (p.PersonTTLMin < personTTLFloor || p.PersonTTLMin > 24*60) {
+		return refuse(refInvalid, "personTtlMin is 0 (the epoch decides) or %d to 1440 minutes", personTTLFloor)
 	}
 	return nil
 }
@@ -228,7 +237,7 @@ func (s *srv) handlePolicyPut(w http.ResponseWriter, r *http.Request, _ who) {
 	}
 	s.bot.clear()
 	s.reposC.clear()
-	if err := s.writePublic(); err != nil {
+	if err := s.writePublic(pubTokens); err != nil {
 		fail(w, err)
 		return
 	}

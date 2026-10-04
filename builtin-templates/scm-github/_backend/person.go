@@ -216,11 +216,15 @@ type scopedResp struct {
 // token of it is due.
 func (s *srv) personToken(ctx context.Context, consumer string, req *normReq) (*tokenResp, error) {
 	need := tokenMargin(req.minTTL)
-	key := cacheKey{consumer: consumer, purpose: req.purpose, repos: strings.Join(req.repos, ","), perms: req.access + ":" + permsKey(req.perms), kind: asPerson}
+	gen, err := s.partitionCheck(asPerson, req)
+	if err != nil {
+		return nil, err
+	}
+	key := cacheKey{consumer: consumer, purpose: req.purpose, repos: strings.Join(req.repos, ","), perms: req.access + ":" + permsKey(req.perms), kind: asPerson, gen: gen}
 	if t := s.bot.get(key, s.now(), need); t != nil {
 		return t.resp, nil
 	}
-	if err := s.bot.room(s.now()); err != nil {
+	if err := s.bot.room(consumer, s.now()); err != nil {
 		return nil, err
 	}
 	tok, rec, err := s.ensureUser(ctx, need)
@@ -267,11 +271,15 @@ func (s *srv) personToken(ctx context.Context, consumer string, req *normReq) (*
 // relayBotToken gets a bot token for a person's partition from global,
 // which applies botForPeople and the whole policy itself.
 func (s *srv) relayBotToken(ctx context.Context, consumer string, t tokenReq, req *normReq) (*tokenResp, error) {
-	key := cacheKey{consumer: consumer, purpose: req.purpose, repos: strings.Join(req.repos, ","), perms: req.access + ":" + permsKey(req.perms), kind: asBot}
+	gen, err := s.partitionCheck(asBot, req)
+	if err != nil {
+		return nil, err
+	}
+	key := cacheKey{consumer: consumer, purpose: req.purpose, repos: strings.Join(req.repos, ","), perms: req.access + ":" + permsKey(req.perms), kind: asBot, gen: gen}
 	if c := s.bot.get(key, s.now(), tokenMargin(req.minTTL)); c != nil {
 		return c.resp, nil
 	}
-	if err := s.bot.room(s.now()); err != nil {
+	if err := s.bot.room(consumer, s.now()); err != nil {
 		return nil, err
 	}
 	t.As = asBot
@@ -281,4 +289,33 @@ func (s *srv) relayBotToken(ctx context.Context, consumer string, t tokenReq, re
 	}
 	s.bot.put(key, &cachedToken{token: resp.Token, expiresAt: time.UnixMilli(resp.ExpiresAt), perms: resp.Permissions, repos: resp.Repos, resp: &resp})
 	return &resp, nil
+}
+
+// partitionCheck runs in a person's partition before any token is reused
+// or asked for: the request against the policy as conf "public" has it
+// (global checks again whatever it relays), and the token generation —
+// one that moved (a policy change, "Revoke all bot tokens", a new App)
+// ends reuse of everything handed out under the old one. It answers the
+// generation, part of the cache key.
+func (s *srv) partitionCheck(kind string, req *normReq) (int64, error) {
+	pub := s.public()
+	s.mu.Lock()
+	moved := s.seenGen != pub.TokenGen
+	s.seenGen = pub.TokenGen
+	s.mu.Unlock()
+	if moved {
+		s.bot.clear()
+	}
+	pol := s.policy()
+	if kind == asBot {
+		if err := pol.checkBotRepos(req.repos); err != nil {
+			return 0, err
+		}
+	} else if err := pol.checkAccount(ownerOf(req.repos[0])); err != nil {
+		return 0, err
+	}
+	if _, err := narrow(req.access, req.perms, pol.AllowWorkflows); err != nil {
+		return 0, err
+	}
+	return pub.TokenGen, nil
 }

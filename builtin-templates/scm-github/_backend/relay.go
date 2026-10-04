@@ -197,7 +197,8 @@ func (s *srv) handleRelayScope(w http.ResponseWriter, r *http.Request, c who) {
 		exp = out.ExpiresAt.UnixMilli()
 	}
 	if pol.PersonTTLMin > 0 {
-		capAt := s.now().Add(time.Duration(pol.PersonTTLMin) * time.Minute).UnixMilli()
+		// A value below the floor kept from before it was checked is the floor.
+		capAt := s.now().Add(time.Duration(max(pol.PersonTTLMin, personTTLFloor)) * time.Minute).UnixMilli()
 		if exp == 0 || capAt < exp {
 			exp = capAt
 		}
@@ -239,15 +240,18 @@ func (s *srv) relayRevoke(w http.ResponseWriter, r *http.Request, c who, what st
 		return
 	}
 	rr, err := s.gh.do(r.Context(), auth, http.MethodDelete, s.apiBase()+"/applications/"+pathEsc(cid)+what, map[string]string{"access_token": body.AccessToken.Reveal()})
-	if err != nil && !isRefusal(err, refLimit) {
+	if err != nil { // no answer, or the rate limit already spent: nothing revoked
 		fail(w, err)
 		return
 	}
-	if rr != nil && rr.Status >= 500 {
+	// 404 and 422 are a token GitHub no longer knows (expired, revoked):
+	// revoked enough. Anything else (5xx, the App's own credentials
+	// refused) is the caller's to retry.
+	if rr != nil && rr.Status >= 300 && rr.Status != http.StatusNotFound && rr.Status != http.StatusUnprocessableEntity {
 		fail(w, ghError(rr, s.now()))
 		return
 	}
-	w.WriteHeader(http.StatusNoContent) // a token GitHub no longer knows is revoked enough
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleRelayBotToken hands a person's partition a bot token, under

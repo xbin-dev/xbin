@@ -350,10 +350,25 @@ func TestTokenCacheNeverForgetsLive(t *testing.T) {
 	for i := 0; i < c.liveCap(); i++ {
 		c.put(k(strconv.Itoa(i)), &cachedToken{token: newSecret("x" + strconv.Itoa(i)), expiresAt: now.Add(time.Hour)})
 	}
-	if err := c.room(now); !isRefusal(err, refLimit) {
+	if err := c.room("c", now); !isRefusal(err, refLimit) {
 		t.Fatalf("a full record: %v", err)
 	}
-	if err := c.room(now.Add(2 * time.Hour)); err != nil {
+	if err := c.room("c", now.Add(2*time.Hour)); err != nil {
 		t.Fatalf("expired entries not pruned: %v", err)
+	}
+	// One consumer's share is bounded: it is refused, the others aren't.
+	c = newTokenCache(1000)
+	for i := 0; i < liveCapPerConsumer; i++ {
+		c.put(cacheKey{consumer: "loop", purpose: strconv.Itoa(i)}, &cachedToken{token: newSecret("l" + strconv.Itoa(i)), expiresAt: now.Add(time.Hour)})
+	}
+	if err := c.room("loop", now); !isRefusal(err, refLimit) {
+		t.Fatalf("one consumer's share: %v", err)
+	}
+	if err := c.room("other", now); err != nil {
+		t.Fatalf("another consumer starved: %v", err)
+	}
+	c.take(now, func(k cacheKey) bool { return k.purpose == "7" })
+	if err := c.room("loop", now); err != nil {
+		t.Fatalf("a revoke didn't free the share: %v", err)
 	}
 }

@@ -26,6 +26,7 @@ type cacheKey struct {
 	repos    string
 	perms    string
 	kind     string // bot | person
+	gen      int64  // a person's partition: conf "public" tokenGen when handed out
 }
 
 type cachedToken struct {
@@ -46,6 +47,7 @@ type tokenCache struct {
 	mu    sync.Mutex
 	max   int
 	live  map[string]*cacheEntry // token hash → entry
+	per   map[string]int         // consumer → its live entries
 	reuse map[cacheKey]*list.Element
 	order *list.List // of *reuseEntry, most recent first
 }
@@ -61,11 +63,32 @@ type reuseEntry struct {
 }
 
 // liveCap bounds the live record: past it (every entry unexpired) a new
-// token is refused rather than an old one forgotten.
-func (c *tokenCache) liveCap() int { return 4 * c.max }
+// token is refused rather than an old one forgotten. consumerCap bounds
+// one consumer's share (a person's relayed bot tokens count as one), so a
+// consumer minting in a loop is refused without starving the others.
+func (c *tokenCache) liveCap() int     { return 4 * c.max }
+func (c *tokenCache) consumerCap() int { return min(liveCapPerConsumer, c.liveCap()) }
+
+const liveCapPerConsumer = 500
 
 func newTokenCache(max int) *tokenCache {
-	return &tokenCache{max: max, live: map[string]*cacheEntry{}, reuse: map[cacheKey]*list.Element{}, order: list.New()}
+	return &tokenCache{max: max, live: map[string]*cacheEntry{}, per: map[string]int{}, reuse: map[cacheKey]*list.Element{}, order: list.New()}
+}
+
+// addLocked and dropLocked keep live and per together.
+func (c *tokenCache) addLocked(h string, e *cacheEntry) {
+	if old, ok := c.live[h]; ok {
+		c.dropLocked(h, old)
+	}
+	c.live[h] = e
+	c.per[e.key.consumer]++
+}
+
+func (c *tokenCache) dropLocked(h string, e *cacheEntry) {
+	delete(c.live, h)
+	if c.per[e.key.consumer]--; c.per[e.key.consumer] <= 0 {
+		delete(c.per, e.key.consumer)
+	}
 }
 
 func tokenHash(t string) string {
@@ -89,16 +112,18 @@ func (c *tokenCache) get(k cacheKey, now time.Time, margin time.Duration) *cache
 	return e.tok
 }
 
-// room says whether another token may be handed out: the live record has
-// room once expired entries are pruned. Asked before minting.
-func (c *tokenCache) room(now time.Time) error {
+// room says whether another token may be handed out to consumer: the live
+// record, and the consumer's share of it, have room once expired entries
+// are pruned. Asked before minting.
+func (c *tokenCache) room(consumer string, now time.Time) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if len(c.live) < c.liveCap() {
+	fits := func() bool { return len(c.live) < c.liveCap() && c.per[consumer] < c.consumerCap() }
+	if fits() {
 		return nil
 	}
 	c.pruneLocked(now)
-	if len(c.live) < c.liveCap() {
+	if fits() {
 		return nil
 	}
 	e := refuse(refLimit, "too many live tokens: revoke some, or wait for them to expire")
@@ -109,7 +134,7 @@ func (c *tokenCache) room(now time.Time) error {
 func (c *tokenCache) pruneLocked(now time.Time) {
 	for h, e := range c.live {
 		if !e.tok.expiresAt.After(now) {
-			delete(c.live, h)
+			c.dropLocked(h, e)
 			if el, ok := c.reuse[e.key]; ok && el.Value.(*reuseEntry).hash == h {
 				c.order.Remove(el)
 				delete(c.reuse, e.key)
@@ -124,7 +149,7 @@ func (c *tokenCache) put(k cacheKey, t *cachedToken) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	h := tokenHash(t.token.Reveal())
-	c.live[h] = &cacheEntry{k, t}
+	c.addLocked(h, &cacheEntry{k, t})
 	if el, ok := c.reuse[k]; ok {
 		el.Value = &reuseEntry{k, h}
 		c.order.MoveToFront(el)
@@ -163,7 +188,7 @@ func (c *tokenCache) forgetValue(token string) {
 			c.order.Remove(el)
 			delete(c.reuse, e.key)
 		}
-		delete(c.live, h)
+		c.dropLocked(h, e)
 	}
 }
 
@@ -176,7 +201,7 @@ func (c *tokenCache) take(now time.Time, f func(cacheKey) bool) []*cacheEntry {
 		if !f(e.key) {
 			continue
 		}
-		delete(c.live, h)
+		c.dropLocked(h, e)
 		if el, ok := c.reuse[e.key]; ok && el.Value.(*reuseEntry).hash == h {
 			c.order.Remove(el)
 			delete(c.reuse, e.key)
@@ -255,7 +280,7 @@ func (s *srv) botTokenReuse(ctx context.Context, consumer string, req *normReq, 
 	if t := s.bot.get(key, now, tokenMargin(req.minTTL)); reuse && t != nil {
 		return s.botResp(a, t), nil
 	}
-	if err := s.bot.room(now); err != nil {
+	if err := s.bot.room(consumer, now); err != nil {
 		return nil, err
 	}
 	names := make([]string, len(req.repos))
@@ -310,6 +335,12 @@ func (s *srv) handleRevokeAll(w http.ResponseWriter, r *http.Request, _ who) {
 	}
 	for _, e := range s.intl.take(s.now(), func(cacheKey) bool { return true }) {
 		s.revokeBotToken(r.Context(), e.tok.token)
+	}
+	// People's partitions keep the relayed ones for reuse: a new
+	// generation ends that (they revoke nothing: global just did).
+	if err := s.writePublic(pubTokens); err != nil {
+		fail(w, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int{"revoked": len(gone)})
 }

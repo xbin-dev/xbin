@@ -66,6 +66,7 @@ type srv struct {
 	reposC  *shortCache // GET /scm/repos per identity, 5 min
 	logsC   *shortCache // completed jobs' logs, 10 min (a few: each up to 8 MiB)
 
+	seenGen   int64      // modeUser: the conf "public" tokenGen the cache was filled under (mu)
 	refreshMu sync.Mutex // a person's token refresh: one at a time
 	signin    *deviceFlow
 }
@@ -137,7 +138,7 @@ func (s *srv) start() {
 		// conf "public" in this version's shape (an upgrade may add fields
 		// people's partitions read).
 		if a, err := s.app(); err == nil && a != nil {
-			if err := s.writePublic(); err != nil {
+			if err := s.writePublic(0); err != nil {
 				log.Printf("conf public: %v", err)
 			}
 		}

@@ -200,7 +200,7 @@ function policyTpl() {
         <option value="off">off — people use their own sign-in only</option>
         <option value="own-access">own-access — the bot, for repos they can push to</option>
         <option value="on">on — the bot, for any repo it may name</option></select></label>
-      <label>Person token life cap (min, 0: the epoch)<input type="number" min="0" max="1440" .value=${String(p.personTtlMin)} @input=${set(p, 'personTtlMin')}></label>
+      <label>Person token life cap (min: 0 for the epoch, or 50–1440)<input type="number" min="0" max="1440" .value=${String(p.personTtlMin)} @input=${set(p, 'personTtlMin')}></label>
     </div>
     ${p.botForPeople !== 'off' ? html`<p class="warn small">A person may then mint a bot token for themselves directly — from their own page —
       outside any consumer's sandbox checks.</p>` : nothing}

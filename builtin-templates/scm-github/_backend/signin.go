@@ -399,8 +399,15 @@ func (s *srv) handleSigninForget(w http.ResponseWriter, r *http.Request, c who) 
 		return
 	}
 	ctx := r.Context()
+	// The grant goes first: refused (GitHub or global down, the App's
+	// secret wrong), nothing is cleared, so Forget can be tried again —
+	// the vault holds the only token that can revoke it. A token GitHub no
+	// longer knows (expired, already revoked) is gone enough.
 	if acc, _, err := s.userTokens(); err == nil && acc.Token != "" {
-		_ = s.relay(ctx, http.MethodPost, "partition/revoke-grant", map[string]string{"accessToken": acc.Token}, nil)
+		if err := s.relay(ctx, http.MethodPost, "partition/revoke-grant", map[string]string{"accessToken": acc.Token}, nil); err != nil {
+			fail(w, err)
+			return
+		}
 	}
 	s.clearUser()
 	s.signin.mu.Lock()

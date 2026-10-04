@@ -55,12 +55,19 @@ type publicConf struct {
 	Policy     publicPolicy `json:"policy"`
 	Rerun      bool         `json:"rerun"` // checks.rerun is offered (the App has actions: write, allowRerun)
 	Configured bool         `json:"configured"`
+	// TokenGen changes whenever tokens handed out may no longer be handed
+	// out again: a policy change, "Revoke all bot tokens", a new App. A
+	// partition reuses only tokens of the generation it reads here.
+	TokenGen int64 `json:"tokenGen"`
 }
 
 type publicPolicy struct {
 	BotForPeople    string   `json:"botForPeople"`
 	AllowWorkflows  bool     `json:"allowWorkflows"`
 	AllowedAccounts []string `json:"allowedAccounts"` // a partition's reads keep to them too (global enforces tokens)
+	// BotRepos lets a partition re-check a bot token it would reuse (global
+	// checks every one it relays); absent (an older global): not re-checked.
+	BotRepos []string `json:"botRepos"`
 }
 
 // appKeys are the App's secrets in memory.
@@ -202,18 +209,29 @@ func (s *srv) installURL(a *appState) string {
 	return web + "/apps/" + a.Slug + "/installations/new"
 }
 
+// What changed, for writePublic.
+const (
+	pubTokens = 1 << iota // tokens handed out mustn't be reused (TokenGen moves)
+	pubNewApp             // another App: what was checked of the old one goes
+)
+
 // writePublic rewrites conf "public" after any change to the App or the
 // policy, so people's partitions read the current state.
-func (s *srv) writePublic() error {
+func (s *srv) writePublic(change int) error {
 	a, err := s.app()
 	if err != nil {
 		return err
 	}
 	pol := s.policy()
 	prev := s.public()
-	p := publicConf{DeviceFlow: prev.DeviceFlow, Policy: publicPolicy{BotForPeople: pol.BotForPeople, AllowWorkflows: pol.AllowWorkflows, AllowedAccounts: pol.AllowedAccounts}}
-	if p.DeviceFlow == "" {
+	p := publicConf{DeviceFlow: prev.DeviceFlow, TokenGen: prev.TokenGen, Policy: publicPolicy{BotForPeople: pol.BotForPeople,
+		AllowWorkflows: pol.AllowWorkflows, AllowedAccounts: pol.AllowedAccounts, BotRepos: pol.BotRepos}}
+	if p.DeviceFlow == "" || change&pubNewApp != 0 {
 		p.DeviceFlow = "unknown"
+	}
+	if change&pubTokens != 0 {
+		// Never back to a value a partition saw: the clock, or one more.
+		p.TokenGen = max(prev.TokenGen+1, s.now().UnixMilli())
 	}
 	if a != nil {
 		p.ClientID, p.Slug, p.Host, p.APIBase, p.WebBase = a.ClientID, a.Slug, a.Host, a.APIBase, a.WebBase
