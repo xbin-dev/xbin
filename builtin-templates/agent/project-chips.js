@@ -24,6 +24,7 @@ import { homeOf } from './model/homes.js';
 
 const pj = () => ctx.app.projects;
 const polled = new Set(); // sign-in polls started, by pollId
+const refreshed = new Set(); // task runs refreshed after their person signed in
 let busy = '';            // an action under way on the open task ('pr', 'retry')
 let note = '';            // what the last action said
 
@@ -87,6 +88,8 @@ function prepTpl(v) {
     if (pv && pv.scm) { polled.add(card.signin.pollId); pj().pollSignin(pv.scm, card.signin); }
   }
   const st = card.signin && v.project ? pj().signinOf((pj().find(v.project.id) || {}).scm) : null;
+  // signed in: the task's credentials and workspace are looked at again now, once
+  if (st && st.state === 'done' && !refreshed.has(v.run.id)) { refreshed.add(v.run.id); pj().taskAction(v.run.id, 'refresh').catch(() => {}); }
   return html`<div class="pprep" id="pprep" data-ws=${card.ws} data-tone=${card.tone}>
     <div class="pprh">${card.tone === 'run' ? html`<span class="spin"></span>` : html`<span class="pglyph">${card.tone === 'bad' ? '✗' : '!'}</span>`}
       <b>${card.title}</b>${card.step ? html`<span class="muted"> — ${card.step}</span>` : nothing}</div>

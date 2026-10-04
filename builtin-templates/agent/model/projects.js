@@ -161,6 +161,7 @@ export class Projects {
     this.timer = null;
     this.polls = new Map();  // scm → a sign-in poll's timer
     this.reading = new Set(); // pids being read by ensure()
+    this.failedAt = new Map(); // pid → when ensure()'s read of it failed
   }
 
   changed() { this.app.emit('projects'); }
@@ -199,13 +200,13 @@ export class Projects {
     pid = +pid;
     if (!pid) return null;
     const have = this.find(pid);
-    if (have || this.reading.has(pid)) return have;
+    if (have || this.reading.has(pid) || Date.now() - (this.failedAt.get(pid) || 0) < 30e3) return have;
     this.reading.add(pid);
     projectApi(this.app, pid).get().then((r) => {
       this.views.set(pid, { ...(r && r.project ? r.project : r), home: projectHome(pid) });
       this.changed();
       this.app.session.changed();
-    }, () => {}).finally(() => this.reading.delete(pid));
+    }, () => { this.failedAt.set(pid, Date.now()); }).finally(() => this.reading.delete(pid)); // a refused read isn't asked again at every paint
     return null;
   }
   view(pid = this.opened) { return pid == null ? null : this.find(pid); }

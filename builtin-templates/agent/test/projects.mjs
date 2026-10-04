@@ -5,11 +5,12 @@
 // task has no CI, ext.card's chips; New task and From issues… (issue text
 // plain and untrusted, the refusals said); the Settings tab — status,
 // repos, the policy (unknown keys kept, a stale version read again),
-// members, archive, delete; the new-project form with signing in to the
-// provider; a task's conversation — the crumb back, the branch and PR
-// chips, Open PR once the route exists, the prep card with Retry, the
-// sign-in card for the person only; a `project` event; #proj=<id> on load;
-// a phone's width; and a person's partition (two homes).
+// members, archive, delete; the new-project form; a task's conversation —
+// the crumb back, the branch and PR chips, Open PR once the route exists,
+// the prep card with Retry, the sign-in card (polled, then the task looked
+// at again); a `project` event; #proj=<id> on load with signing in to the
+// provider from the settings, and Forget; a phone's width; and a person's
+// partition (two homes).
 //
 //   node test/projects.mjs        (needs playwright + a chromium build)
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
@@ -211,6 +212,7 @@ await page.evaluate(() => { location.hash = '#c=106'; });
 await page.waitForSelector('#ptask-signin');
 ok('the sign-in card: the device code and page', (await page.textContent('#ptask-signin-code')) === 'ABCD-1234'
   && (await page.getAttribute('#ptask-signin-link', 'href')) === 'https://github.com/login/device');
+ok('…polled; once signed in, the task is looked at again', await waitCall(page, 'POST', '/runs/106/task/refresh$') && await waitText(page, '#ptask-signin', 'Signed in'));
 
 // --- a new project, signing in to the provider ----------------------------------------------------------------------
 await page.click('#projentry');
@@ -219,10 +221,7 @@ await page.click('#proj-new');
 await page.waitForSelector('#proj-form .pnres[data-repo="acme/web"]');
 ok('the provider and what you can reach', (await page.inputValue('#pn-scm')) === 'apps/scm-github' && (await page.$$('#proj-form .pnres')).length === 3);
 ok('an archived repo can\'t be added', await page.isDisabled('#proj-form .pnres[data-repo="acme/attic"] button'));
-await page.click('#psignin-start');
-ok('sign-in: the device code, to you', await waitText(page, '#psignin-code', 'WDJB-MJHT'));
-ok('…and its page, a link', (await page.getAttribute('#psignin-link', 'href')) === 'https://github.com/login/device');
-ok('…polled until done', await page.waitForFunction(() => document.querySelector('.pnyou')?.textContent.includes('You are alice-gh'), null, { timeout: 8000 }).then(() => true, () => false));
+ok('the provider knows you now (signed in from the task)', await waitText(page, '.pnyou', 'You are alice-gh'));
 await page.click('#proj-form .pnres[data-repo="acme/web"] button');
 ok('adding a repo names the project after it', (await page.inputValue('#pn-name')) === 'web');
 await page.fill('#proj-form .pnrepo[data-repo="acme/web"] textarea', 'make deps');
@@ -259,6 +258,15 @@ ok('no page errors (Open PR)', e2.length === 0, e2.join(' | '));
 // #proj=7 on load
 const { page: p3, errors: e3 } = await open(projSeed(), { hash: '#proj=7' });
 ok('#proj=7 on load opens the project', await p3.waitForSelector('.pboard .ptask[data-n="1"]', { timeout: 5000 }).then(() => true, () => false));
+// signing in from the settings: the code to you, polled until done, then Forget
+await p3.click('[data-tab="settings"]');
+await p3.waitForSelector('#pset-status #psignin-start');
+await p3.click('#psignin-start');
+ok('sign-in: the device code, to you', await waitText(p3, '#psignin-code', 'WDJB-MJHT'));
+ok('…and its page, a link', (await p3.getAttribute('#psignin-link', 'href')) === 'https://github.com/login/device');
+ok('…polled until done', await waitText(p3, '#pset-status .psignin[data-state="done"]', 'Signed in to GitHub as alice-gh'));
+await p3.click('#psignin-forget');
+ok('…and Forget', await waitCall(p3, 'DELETE', '/projects/scm/signin\\?scm=apps%2Fscm-github$'));
 ok('no page errors (#proj=7)', e3.length === 0, e3.join(' | '));
 
 // a phone

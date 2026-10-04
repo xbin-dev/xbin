@@ -99,7 +99,7 @@ export function taskApi(runId) {
     // prProbe: does this backend have the "Open PR" route? A GET of a
     // POST-only route answers 405 where it is mounted and 404 where it isn't
     // — nothing is opened to find out.
-    prProbe: () => call(`${p}/pr`).then(() => true, (e) => e.status !== 404),
+    prProbe: () => call(`${p}/pr`).then(() => true, (e) => !!e.status && e.status !== 404),
   };
 }
 

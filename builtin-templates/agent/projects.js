@@ -27,7 +27,7 @@ let shownKey = '';
 
 ext.register({
   side: () => sideTpl(),
-  page: (p) => (p === 'projects' ? { top: topTpl(), body: bodyTpl() } : null),
+  page: (p) => (p === 'projects' ? { get top() { return topTpl(); }, get body() { return bodyTpl(); } } : null), // drawn when asked
   paint: (v) => toTop(v),
 });
 
