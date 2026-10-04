@@ -3200,7 +3200,10 @@ listed under its project), never moves to another space, and is refused
 (409, `refusal: "barred"`, "this conversation is a task of project ‹name›:
 its sharing is the project's, and it stays in its project's space") by its
 own sharing (`PATCH /runs/{id}` `visibility`/`teamRole`, `POST
-/runs/{id}/members`), publishing, a copy into another space and hosting.
+/runs/{id}/members`, `DELETE /runs/{id}/members/{user}` — leaving
+included: you leave the project — and `POST /runs/{id}/links`),
+publishing, a copy into another space and hosting; a join link to it (one
+made before it became a task) lets no one in (`POST /join` answers 404).
 `GET /runs/{id}/export` stays. Its config carries `project: {id, role:
 "task" | "coordinator", n}`.
 
@@ -3249,7 +3252,11 @@ is refused (409) and `kind: "team"` too; in the shared space a project is a
 team definition (`kind: "team"`, 409 otherwise) and a person must say who
 shares it (`share`, 409 otherwise); `kind: "team"` anywhere else is 409.
 `POST /projects/{pid}/members` and a `visibility`/`teamRole` other than
-private's are 409 in a person's own space.
+private's are 409 in a person's own space. **A component's project** (one
+another tile made) isn't shared: `share`, a team visibility and `POST
+/projects/{pid}/members` answer 409 "a component's project isn't shared"
+— its tasks work with the component's authority, which takes part in no
+one else's conversation (a team definition, which has no tasks, may be).
 
 **A shared project has its sandbox to itself.** Everyone who may talk in a
 project's tasks runs commands in its sandbox, and so may read anything kept

@@ -44,6 +44,38 @@ func TestProjectAccessMatrix(t *testing.T) {
 	t.Run("unpartitioned", projectAccessUnpartitioned)
 	t.Run("global", projectAccessGlobal)
 	t.Run("partition", projectAccessPartition)
+	t.Run("component", projectAccessComponent)
+}
+
+// A component's project isn't shared — not at create, by visibility or by
+// a member: its tasks are bound with the component's authority, which
+// takes part in no person's conversation, so a person's task there could
+// use no sandbox.
+func projectAccessComponent(t *testing.T) {
+	fx := newProjFix(t)
+	box := mkSandbox(t, "apps/cs", "bob", sbxCreate{Name: "teambox", Visibility: "team"})
+	body := func(share map[string]any) map[string]any {
+		return fx.projBody(map[string]any{"sandbox": map[string]any{"ref": sandboxRef("apps/cs", box.ID)}, "share": share})
+	}
+	for _, share := range []map[string]any{{"members": []map[string]any{{"user": "carol", "role": roleParticipant}}},
+		{"visibility": "team", "teamRole": "participant"}} {
+		if w := callAs(t, fx.mux, asElement, "POST", "/projects", body(share)); w.Code != 409 || !strings.Contains(w.Body.String(), "component's project") {
+			t.Errorf("a component shares its project (%v): %d %s", share, w.Code, w.Body)
+		}
+	}
+	p := fx.newProject(t, asElement, body(nil))
+	if w := callAs(t, fx.mux, asElement, "PATCH", fmt.Sprintf("/projects/%d", p.ID), map[string]any{"version": p.Version, "visibility": "team"}); w.Code != 409 {
+		t.Errorf("a component's project made team-visible: %d %s", w.Code, w.Body)
+	}
+	if w := callAs(t, fx.mux, asElement, "POST", fmt.Sprintf("/projects/%d/members", p.ID), map[string]any{"user": "carol"}); w.Code != 409 {
+		t.Errorf("a member of a component's project: %d %s", w.Code, w.Body)
+	}
+	if cur, _ := fx.ag.db.getProject(p.ID); cur.Visibility != visPrivate || len(fx.ag.db.projectMembers(p.ID)) != 0 {
+		t.Fatalf("a refused share stayed: %+v %v", cur, fx.ag.db.projectMembers(p.ID))
+	}
+	if got := callAs(t, fx.mux, asCarol, "POST", fmt.Sprintf("/projects/%d/tasks", p.ID), map[string]any{"text": "x"}).Code; got != 404 {
+		t.Errorf("carol makes a task in a component's project: %d", got)
+	}
 }
 
 func projectAccessUnpartitioned(t *testing.T) {
@@ -148,6 +180,17 @@ func projectAccessUnpartitioned(t *testing.T) {
 		}
 	}
 	ownerActs("carol a member")
+	// carol can't open her task to anyone else, nor take alice off it: its
+	// people are the project's, and it runs in alice's sandbox
+	for _, rq := range []struct{ method, path string }{{"POST", "/runs/%d/links"}, {"DELETE", "/runs/%d/members/alice"},
+		{"POST", "/runs/%d/members"}} {
+		if w := callAs(t, fx.mux, asCarol, rq.method, fmt.Sprintf(rq.path, ks[0].RunID), map[string]any{"user": "bob", "role": "participant"}); w.Code != 409 {
+			t.Errorf("carol %s %s of her task: %d %s", rq.method, rq.path, w.Code, w.Body)
+		}
+	}
+	if got := callAs(t, fx.mux, asBob, "GET", fmt.Sprintf("/runs/%d", ks[0].RunID), nil).Code; got != 404 {
+		t.Errorf("bob, in no project, reads carol's task: %d", got)
+	}
 	// removed, carol keeps her task's conversation (hers) but acts on the
 	// project's tasks no more
 	if w := callAs(t, fx.mux, asCarol, "POST", fmt.Sprintf("/runs/%d/task/refresh", ks[0].RunID), map[string]any{}); w.Code != 202 {
@@ -337,6 +380,8 @@ func projectRunBarredUnpartitioned(t *testing.T) {
 		{"PATCH", fmt.Sprintf("/runs/%d", runID), map[string]any{"visibility": "team"}},
 		{"PATCH", fmt.Sprintf("/runs/%d", runID), map[string]any{"teamRole": "participant"}},
 		{"POST", fmt.Sprintf("/runs/%d/members", runID), map[string]any{"user": "bob"}},
+		{"POST", fmt.Sprintf("/runs/%d/links", runID), map[string]any{"role": "participant"}},
+		{"DELETE", fmt.Sprintf("/runs/%d/members/carol", runID), nil},
 	} {
 		if w := callAs(t, fx.mux, asAlice, c.method, c.path, c.body); w.Code != 409 || !strings.Contains(w.Body.String(), "task of project Web") {
 			t.Errorf("%s %s: %d %s", c.method, c.path, w.Code, w.Body)
@@ -347,6 +392,23 @@ func projectRunBarredUnpartitioned(t *testing.T) {
 	}
 	if isChat(originProject) {
 		t.Error("a project's run would move home")
+	}
+	// a join link made before the conversation became a task lets no one in
+	before := runAs(t, fx.ag, runStamp{Owner: "alice", Visibility: visPrivate, TeamRole: roleViewer, Origin: "chat"}, false)
+	var link struct{ Token string }
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/links", before), map[string]any{"role": "participant"}); w.Code != 200 ||
+		json.Unmarshal(w.Body.Bytes(), &link) != nil {
+		t.Fatalf("a link on a chat: %d %s", w.Code, w.Body)
+	}
+	if _, err := fx.ag.db.q.Exec(`UPDATE runs SET origin=?, origin_id=? WHERE id=?`, originProject, p.ID, before); err != nil {
+		t.Fatal(err)
+	}
+	fx.ag.acl.flush(before)
+	if w := callAs(t, fx.mux, asBob, "POST", "/join", map[string]string{"token": link.Token}); w.Code != 404 {
+		t.Errorf("bob joins a project's task by a link: %d %s", w.Code, w.Body)
+	}
+	if got := callAs(t, fx.mux, asBob, "GET", fmt.Sprintf("/runs/%d", before), nil).Code; got != 404 {
+		t.Errorf("bob reads the task after the link: %d", got)
 	}
 	// the helper every entry point asks (the routes: the subtests)
 	rec := httptest.NewRecorder()

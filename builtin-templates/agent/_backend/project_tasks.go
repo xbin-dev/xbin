@@ -646,8 +646,8 @@ func writeProjErr(w http.ResponseWriter, err error) {
 
 // projectRunBarred answers 409 for a project's conversation (origin
 // project) on a route that would share it apart from its project or take
-// it to another home — publish, copy, hosting, a move, its own sharing or
-// members — and says whether it did. GET /runs/{id}/export stays.
+// it to another home — publish, copy, hosting, a move, its own sharing,
+// members or join links — and says whether it did. GET /runs/{id}/export stays.
 func projectRunBarred(w http.ResponseWriter, root int64) bool {
 	run, err := projAg().db.getRun(root)
 	if err != nil || run.Origin != originProject {

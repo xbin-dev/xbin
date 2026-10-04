@@ -136,21 +136,28 @@ func runDeleted(t *DB, id int64) error {
 func projRedact(s string) string { return scmRedact(redactText(s)) }
 
 // untrusted frames scm text for a model: clipped (8 KiB), redacted, said to
-// be data from host. The frame's own markers inside the text are defused
-// (their bracket, plain or full-width, made a parenthesis), so the text can't close the frame
-// early and pass what follows off as the agent's own words.
+// be data from host. The text's invisible format characters (zero-width
+// spaces and joiners, soft hyphens, direction marks) go — a model reads
+// past them, so they would hide a marker inside a word — and then the
+// frame's own markers inside the text are defused (their bracket, plain or
+// full-width, made a parenthesis), so the text can't close the frame early
+// and pass what follows off as the agent's own words.
 func untrusted(host, what, s string) string {
+	s = invisibles.ReplaceAllString(clip(projRedact(s), 8<<10), "")
 	return fmt.Sprintf("[untrusted — from %s: %s]\n%s\n[end of untrusted text]", orStr(host, "the scm provider"), what,
-		frameMarkers.ReplaceAllString(clip(projRedact(s), 8<<10), "($1"))
+		frameMarkers.ReplaceAllString(s, "($1"))
 }
 
-// frameMarkers finds untrusted's markers: any case, any spacing — Unicode
-// spaces and invisible format characters too (a model reads past them) —
-// and a full-width bracket as well as a plain one.
+// invisibles are the Unicode format characters (Cf), which render as
+// nothing.
+var invisibles = regexp.MustCompile(`\p{Cf}+`)
+
+// frameMarkers finds untrusted's markers: any case, any spacing (Unicode
+// spaces too), and a full-width bracket as well as a plain one.
 var frameMarkers = regexp.MustCompile(`(?i)[\[\x{FF3B}]((?:` + frameSp + `)*(?:end(?:` + frameSp + `)+of(?:` + frameSp + `)+)?untrusted)`)
 
 // frameSp is a run of spacing between a marker's words.
-const frameSp = `[\s\p{Z}\p{Cf}]`
+const frameSp = `[\s\p{Z}]`
 
 // --- project events ------------------------------------------------------------------
 

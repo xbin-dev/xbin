@@ -61,7 +61,7 @@ func handleAddProjectMember(w http.ResponseWriter, r *http.Request) {
 			ON CONFLICT(project_id, user) DO UPDATE SET role=excluded.role`, p.ID, body.User, body.Role, c.tag(), nowMs()); err != nil {
 			return err
 		}
-		if err := t.sandboxShareClash(p.ID, p.SandboxRef); err != nil {
+		if err := t.shareClash(p.ID, p.SandboxRef); err != nil {
 			return err
 		}
 		var err error

@@ -684,11 +684,30 @@ func (d *DB) writeTaskMembers(runID int64, p *Project, members []projectMember, 
 		}
 	}
 	if p.Owner == "" || p.Owner == creator || strings.HasPrefix(p.Owner, "el:") {
-		return nil // the owner's own task, or one of a component's project (no person to add)
+		return nil // the owner's own task; a component's project has no one else's (shareClash)
 	}
 	_, err := d.q.Exec(`INSERT OR REPLACE INTO run_members (run_id, user, role, created) VALUES (?, ?, ?, ?)`,
 		runID, p.Owner, roleParticipant, now())
 	return err
+}
+
+// shareClash is the refusal when project pid may not be shared as it now
+// stands (nil when it may): a component's project with tasks is never
+// shared — its tasks are bound with the component's authority, and a
+// component takes part in no one else's conversation, so a person's task
+// there could use no sandbox — and a shared project's sandbox is its own
+// (sandboxShareClash). (409; in the caller's transaction, after the change.)
+func (d *DB) shareClash(pid int64, ref string) error {
+	var owner, kind string
+	var shared int
+	if err := d.q.QueryRow(`SELECT owner, kind, (visibility='team') + (SELECT count(*) FROM project_members WHERE project_id=projects.id)
+		FROM projects WHERE id=?`, pid).Scan(&owner, &kind, &shared); err != nil {
+		return err
+	}
+	if shared > 0 && strings.HasPrefix(owner, "el:") && kind != projTeam {
+		return perr(409, "a component's project isn't shared: its tasks work with the component's authority, which no one else's task carries")
+	}
+	return d.sandboxShareClash(pid, ref)
 }
 
 // sandboxShareClash is the refusal when project pid may not keep its

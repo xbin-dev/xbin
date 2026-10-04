@@ -364,7 +364,7 @@ func handleNewProject(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 		}
-		if err := t.sandboxShareClash(p.ID, p.SandboxRef); err != nil {
+		if err := t.shareClash(p.ID, p.SandboxRef); err != nil {
 			return err
 		}
 		for i := range repos {
@@ -564,7 +564,7 @@ func handlePatchProject(w http.ResponseWriter, r *http.Request) {
 			return &projErr{code: 412, msg: "the project changed since you read it: read it again"}
 		}
 		if sharing {
-			if err := t.sandboxShareClash(p.ID, p.SandboxRef); err != nil {
+			if err := t.shareClash(p.ID, p.SandboxRef); err != nil {
 				return err
 			}
 			if runs, err = t.copyACLToTasks(p.ID); err != nil {
