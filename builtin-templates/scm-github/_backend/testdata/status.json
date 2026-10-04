@@ -1,0 +1,60 @@
+{
+  "id": 6805126730,
+  "sha": "9fceb02d0ae598e95dc970b74767f19372d61af8",
+  "name": "acme/web",
+  "target_url": "https://ci.example.com/acme/web/builds/12",
+  "context": "ci/jenkins",
+  "description": "Build #12 failed",
+  "state": "failure",
+  "commit": {
+    "sha": "9fceb02d0ae598e95dc970b74767f19372d61af8",
+    "html_url": "https://github.com/acme/web/commit/9fceb02d0ae598e95dc970b74767f19372d61af8"
+  },
+  "branches": [
+    {
+      "name": "main",
+      "commit": {
+        "sha": "6113728f27ae82c7b1a177c8d03f9e96e0adf246"
+      }
+    },
+    {
+      "name": "xbin/k3x9/3-fix-login",
+      "commit": {
+        "sha": "9fceb02d0ae598e95dc970b74767f19372d61af8"
+      }
+    }
+  ],
+  "created_at": "2026-10-03T12:10:00Z",
+  "updated_at": "2026-10-03T12:10:00Z",
+  "repository": {
+    "id": 1296269,
+    "node_id": "MDEwOlJlcG9zaXRvcnkxMjk2MjY5",
+    "name": "web",
+    "full_name": "acme/web",
+    "private": true,
+    "owner": {
+      "login": "acme",
+      "id": 9919,
+      "type": "Organization",
+      "site_admin": false
+    },
+    "html_url": "https://github.com/acme/web",
+    "description": "The web app",
+    "fork": false,
+    "url": "https://api.github.com/repos/acme/web",
+    "default_branch": "main",
+    "visibility": "private"
+  },
+  "installation": {
+    "id": 100,
+    "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uMTAw"
+  },
+  "sender": {
+    "login": "octocat",
+    "id": 583231,
+    "node_id": "MDQ6VXNlcjU4MzIzMQ==",
+    "type": "User",
+    "site_admin": false,
+    "html_url": "https://github.com/octocat"
+  }
+}
