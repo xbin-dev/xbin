@@ -235,9 +235,11 @@ func handleGetRun(w http.ResponseWriter, r *http.Request) {
 		files = []*ReplFile{}
 	}
 	active, limit, _ := agent.eng.gate.stats()
-	xbin.WriteJSON(w, 200, map[string]any{"run": run, "messages": legacyMessages(msgs), "steps": steps, "memory": mem,
+	v := map[string]any{"run": run, "messages": legacyMessages(msgs), "steps": steps, "memory": mem,
 		"config": cfg.forView(), "class": classView(classOf(cfg)), "files": files, "messageFiles": agent.db.messageFiles(id), "draft": agent.eng.getDraft(id),
-		"queued": agent.db.queuedView(id), "slots": map[string]int{"active": active, "limit": limit}})
+		"queued": agent.db.queuedView(id), "slots": map[string]int{"active": active, "limit": limit}}
+	runViewExtras(agent.db, callerOf(r), run, v) // runViewHooks (project_events.go): project, projectTask, ci
+	xbin.WriteJSON(w, 200, v)
 }
 
 func handleDeleteRun(w http.ResponseWriter, r *http.Request) {

@@ -94,7 +94,7 @@ type holder struct {
 // timer is armed or any coding agent is driven (its idle reclaim is ours;
 // in a person's partition only one at work: harness_partition.go).
 func (e *Engine) updateHoldLocked() {
-	want := !e.closing && (len(e.actors) > 0 || len(e.timers) > 0 || e.harnessHoldsLocked())
+	want := !e.closing && (len(e.actors) > 0 || len(e.timers) > 0 || e.harnessHoldsLocked() || e.projectsHoldLocked())
 	e.hold.set(want)
 	if !want && !e.closing {
 		e.keep.keepWakeUpSoon() // a person's partition: its way back, while it can (resume_keep.go)

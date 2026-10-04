@@ -85,7 +85,7 @@ func handleMembers(w http.ResponseWriter, r *http.Request) {
 //	POST /runs/{id}/members {user, role: viewer|participant}
 func handleAddMember(w http.ResponseWriter, r *http.Request) {
 	root, ok := shareRoot(w, r)
-	if !ok {
+	if !ok || projectRunBarred(w, root.ID) { // a project's members are its tasks' (project_tasks.go)
 		return
 	}
 	var body struct{ User, Role string }

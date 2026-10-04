@@ -294,6 +294,9 @@ func handleHostedMove(w http.ResponseWriter, r *http.Request) {
 		readoptHosted(w, tv, c, id, body.Lookup)
 		return
 	}
+	if projectRunBarred(w, id) { // a project's task stays in its project's space (project_tasks.go)
+		return
+	}
 	if h, err := tv.db.teamHostMovedFrom(id); err == nil { // a copy of it there is: a retry, or its partition's start
 		switch {
 		case h.Host != "user:"+c.user:

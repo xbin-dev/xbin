@@ -568,6 +568,7 @@ func (e *Engine) harnessCancel(ctx context.Context, run *Run, h hInbox) {
 		if run.ParentID != 0 {
 			e.settleOwnLink(t, run, linkCanceled, outcomeCanceled, reason)
 		}
+		runTurnEnd(t, run, turnCanceled, outcomeCanceled, reason) // turnEndHooks (project_events.go)
 		e.emitRun(t, run.ID)
 		return nil
 	})

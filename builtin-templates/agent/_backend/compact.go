@@ -369,7 +369,7 @@ const summarizerSystem = "You compact an AI agent's working context. Merge the p
 // as every other call).
 func (e *Engine) summarize(ctx context.Context, run *Run, cfg Config, task, prior, transcript string) string {
 	ctx = e.ag.personalCtx(ctx, run) // iface_personal.go
-	release, err := e.acquireLLM(ctx, run.Depth == 0)
+	release, err := e.acquireLLM(ctx, e.modelGateTop(run))
 	if err != nil {
 		return ""
 	}

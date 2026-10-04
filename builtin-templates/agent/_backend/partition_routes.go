@@ -101,6 +101,9 @@ var userRoutes = map[string]userRoute{
 	// here, its threads at global (automations_global.go)
 	"GET /automations/{kind}/{aid}/runs":  userBoth,
 	"POST /automations/{kind}/{aid}/read": userBoth,
+
+	// a project in a person's own space is theirs alone (project_routes.go)
+	"POST /projects/{pid}/members": userNoShare,
 }
 
 // sharesInPartition: a change that would share a conversation (or an

@@ -385,12 +385,18 @@ func (d *DB) setStatus(id int64, status string, wakeAt int64, result, pending st
 	_, err := d.q.Exec(
 		`UPDATE runs SET status=?, wake_at=?, result=?, pending=?, updated=? WHERE id=?`,
 		status, wakeAt, result, pending, now(), id)
+	if err == nil {
+		runStatusChanged(d, id, status) // runStatusHooks (project_events.go): never on team, nor before the feature tables
+	}
 	return err
 }
 
 // setStatusOnly changes the status, keeping result/pending/wake_at.
 func (d *DB) setStatusOnly(id int64, status string) error {
 	_, err := d.q.Exec(`UPDATE runs SET status=?, updated=? WHERE id=?`, status, now(), id)
+	if err == nil {
+		runStatusChanged(d, id, status) // runStatusHooks (project_events.go)
+	}
 	return err
 }
 
@@ -441,6 +447,9 @@ func (d *DB) deleteRun(id int64) error {
 
 func (d *DB) deleteOneRun(id int64) error {
 	return d.Tx(func(t *DB) error {
+		if err := runDeleted(t, id); err != nil { // runDeletedHooks (project_events.go)
+			return err
+		}
 		for _, q := range []string{
 			`DELETE FROM messages WHERE run_id=?`,
 			`DELETE FROM messages_fts WHERE run_id=?`,
