@@ -37,7 +37,7 @@ func ciOnEvent(t *DB, ev *scmEvent) {
 		return
 	}
 	for _, w := range ciMatching(t, ev) {
-		ciEvented.Store(w.ID, nowMs())
+		ciEvented.Store(ciKey{t.sql, w.ID}, nowMs())
 		switch ev.Kind {
 		case scmKindWorkflow, scmKindJob, scmKindCheck:
 			ciProgress(t, w, ev)

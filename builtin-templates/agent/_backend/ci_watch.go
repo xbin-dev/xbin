@@ -481,24 +481,30 @@ func ciRunDeleted(t *DB, id int64) error {
 
 // --- the background refresher (ownerLoops) ----------------------------------------------
 
-// The refresher's clock: how often it looks, how long an event for a
-// watch's sha keeps it from reading, and the cadence after a push.
-var (
-	ciTick      = 15 * time.Second
-	ciEventHold = 2 * time.Minute
-	ciCadence   = []struct{ Until, Every time.Duration }{
-		{20 * time.Minute, time.Minute},
-		{2 * time.Hour, 10 * time.Minute},
-		{24 * time.Hour, 30 * time.Minute},
-	}
-	ciGoneFor  = 24 * time.Hour     // a gone watch ends after this
-	ciKeptFor  = 7 * 24 * time.Hour // an ended watch's row is deleted after this
-	ciLoopHook func()               // tests: after each pass
-)
+// ciTimes is the refresher's clock: how often it looks, how long an event
+// for a watch keeps it from reading, the cadence after a push, when a gone
+// watch ends and when an ended one's row goes. Swapped whole (tests).
+type ciTimes struct {
+	Tick, EventHold  time.Duration
+	Cadence          []struct{ Until, Every time.Duration }
+	GoneFor, KeptFor time.Duration
+}
+
+var ciClock atomic.Pointer[ciTimes]
+
+func init() {
+	ciClock.Store(&ciTimes{Tick: 15 * time.Second, EventHold: 2 * time.Minute,
+		Cadence: []struct{ Until, Every time.Duration }{
+			{20 * time.Minute, time.Minute},
+			{2 * time.Hour, 10 * time.Minute},
+			{24 * time.Hour, 30 * time.Minute},
+		},
+		GoneFor: 24 * time.Hour, KeptFor: 7 * 24 * time.Hour})
+}
 
 // ciEvented is when an event last moved each watch (memory: a restart only
 // costs a read).
-var ciEvented sync.Map // watch id → unix ms
+var ciEvented sync.Map // ciKey{database, watch id} → unix ms
 
 // ciLoop is the refresher: an engine owner's loop, never holding the
 // engine up or waking it, stopped with ctx.
@@ -510,12 +516,9 @@ func ciLoop(ctx context.Context, e *Engine) {
 		select {
 		case <-ctx.Done():
 			return
-		case <-time.After(ciTick):
+		case <-time.After(ciClock.Load().Tick):
 		}
 		ciPass(ctx, e.db)
-		if ciLoopHook != nil {
-			ciLoopHook()
-		}
 	}
 }
 
@@ -523,21 +526,21 @@ func ciLoop(ctx context.Context, e *Engine) {
 // go, and each pending watch nobody's events moved lately and whose turn
 // at the cadence came is read.
 func ciPass(ctx context.Context, d *DB) {
-	now := time.Now()
-	for _, w := range d.ciWatchesWhere(`WHERE ended_ms=0 AND state=? AND updated_ms<?`, ciGone, now.Add(-ciGoneFor).UnixMilli()) {
+	now, clk := time.Now(), ciClock.Load()
+	for _, w := range d.ciWatchesWhere(`WHERE ended_ms=0 AND state=? AND updated_ms<?`, ciGone, now.Add(-clk.GoneFor).UnixMilli()) {
 		_ = d.Tx(func(t *DB) error { return ciEnd(t, w) })
 	}
-	_, _ = d.q.Exec(`DELETE FROM ci_watch WHERE ended_ms>0 AND ended_ms<?`, now.Add(-ciKeptFor).UnixMilli())
+	_, _ = d.q.Exec(`DELETE FROM ci_watch WHERE ended_ms>0 AND ended_ms<?`, now.Add(-clk.KeptFor).UnixMilli())
 	for _, w := range d.ciWatchesWhere(`WHERE ended_ms=0 AND state IN (?, ?) ORDER BY id`, ciPending, ciNone) {
 		if ctx.Err() != nil {
 			return
 		}
-		if at, ok := ciEvented.Load(w.ID); ok && now.Sub(time.UnixMilli(at.(int64))) < ciEventHold {
+		if at, ok := ciEvented.Load(ciKey{d.sql, w.ID}); ok && now.Sub(time.UnixMilli(at.(int64))) < clk.EventHold {
 			continue
 		}
 		every := time.Duration(0)
 		age := now.Sub(time.UnixMilli(w.Since))
-		for _, c := range ciCadence {
+		for _, c := range clk.Cadence {
 			if age < c.Until {
 				every = c.Every
 				break
