@@ -4,7 +4,9 @@
 //   - Unpartitioned and global: today's rule (owner.go) — any work that
 //     needs no human (running, queued, blocked, awaiting, sleeping, an
 //     undelivered inbox row; at global also a handoff waiting to be
-//     mailed) leaves the `resume` job, @every 1m.
+//     mailed) leaves the `resume` job, @every 1m; else an scm read or a
+//     subscription's renewal (scm_poll.go) leaves `resume` when it is due
+//     within the minute and the `wake` job at its minute otherwise.
 //   - A person's partition: every running partition counts against the
 //     workspace's caps, so it asks to be started only for work that moves
 //     without the person, and only as often as that work can move:
@@ -36,8 +38,13 @@ import (
 // leaveWakeUp registers what brings the backend back for d's pending work.
 func (ag *Agent) leaveWakeUp(d *DB) {
 	if !userMode() {
-		if d.hasWork() || d.handoffsWait() { // handoffsWait: the global instance's queued handoffs (handoff_send.go)
+		switch at := d.scmWakeAt(); {
+		case d.hasWork() || d.handoffsWait(): // handoffsWait: the global instance's queued handoffs (handoff_send.go)
 			ag.registerResumeJob()
+		case at > 0 && at <= scmClock()/1000+60: // an scm read or subscription due now (scm_poll.go)
+			ag.registerResumeJob()
+		case at > 0: // else at its minute: polling stands in for events that don't come
+			ag.registerWakeJob(at)
 		}
 		return
 	}

@@ -27,9 +27,11 @@
 //   - The pass runs in an ownerLoops entry (scmLoop) beside the project
 //     worker — it never holds the engine up — at the next row's time, on a
 //     kick, and at least every 10 min. A person's partition at rest comes
-//     back for the next row's time (userWake, resume_mode.go); the global
-//     instance and an unpartitioned agent poll while they run, and a
-//     delivery or a POST /tick that starts them makes the pass at once.
+//     back for the next row's time (userWake, resume_mode.go); so does the
+//     global instance or an unpartitioned agent stopped with nothing else
+//     to do (leaveWakeUp: the `wake` job at the row's minute) — an idle
+//     reap must not end polling where no event comes. A delivery or a
+//     POST /tick that starts them makes the pass at once.
 package main
 
 import (
@@ -542,6 +544,12 @@ func scmLoopPoke() {
 // scmLoop is E's ownerLoops entry: subscriptions and reads, at the next
 // one's time, on a kick, at least every 10 min.
 func scmLoop(ctx context.Context, e *Engine) {
+	if !userMode() && !scmLoopOff.Load() && e.db.features && e.ag != nil && !e.ag.noGateway {
+		// unpartitioned and at global the takeover clears only `resume`
+		// (owner.go clearWakeJobs): the `wake` an earlier exit left for a
+		// read (resume_mode.go) goes here — the first pass reads what is due
+		e.ag.cronDelete("wake")
+	}
 	var pruned time.Time
 	for {
 		next := int64(0)
@@ -594,8 +602,9 @@ func (d *DB) scmNextMs() int64 {
 	return 0
 }
 
-// scmWakeAt (userWake, a person's partition at rest) is when a read or a
-// subscription is next due, in unix seconds (0: none).
+// scmWakeAt (userWake, a person's partition at rest; leaveWakeUp,
+// unpartitioned and at global) is when a read or a subscription is next
+// due, in unix seconds (0: none).
 func (d *DB) scmWakeAt() int64 {
 	if !d.features {
 		return 0

@@ -91,7 +91,8 @@
   in an `ownerLoops` entry, `scmLoop` (at the next due time, on a kick, at
   least every 10 min; `scm_seen` pruned hourly). `userWake` gains the next
   read's (or subscription's) time — `B/resume_mode.go`, three lines after
-  P1's project term.
+  P1's project term — and `leaveWakeUp`'s unpartitioned branch leaves
+  `wake` (or `resume`) for it when nothing else needs the process.
 - **Subscriptions** — `B/scm_subs.go` (§11.2): the `projectRefsHooks`
   entry `scmRefsChanged` rewrites the task's `project_refs` (branch, each
   PR number and head, the pushed sha), wants `task:<pid>:<n>:<slug>` once
@@ -237,9 +238,13 @@
 - §11.5: `POST /tick` makes no pass of its own (`handlers.go` isn't E's):
   a running owner's loop is timed to the next due read, and the tick that
   starts a stopped process starts the loop, whose first pass is
-  immediate. At the global instance and unpartitioned, `leaveWakeUp` is
-  unchanged: due reads leave no resume job (a delivery, or the next start,
-  brings the process back).
+  immediate. At the global instance and unpartitioned, `leaveWakeUp`
+  (E's hunk) leaves, when there is no other work, the `wake` job at the
+  next read's or subscription renewal's minute (`resume` when it is due
+  within the minute), so an idle-reaped agent without events keeps
+  polling; `owner.go`'s `clearWakeJobs` (P1's) deletes `wake` only in a
+  person's partition, so `scmLoop` deletes a stale one at its start there
+  (fix round 1).
 - §11.1: the caller check also refuses a call acting in a person's
   partition of the provider or carrying a person; a body over 1 MiB is
   413; a person's partition answers every delivery 404; it drops an event

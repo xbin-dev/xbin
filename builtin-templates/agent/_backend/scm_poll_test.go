@@ -1,8 +1,11 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -207,6 +210,58 @@ func TestPollDueInUserWake(t *testing.T) {
 	_ = fx.ag.db.q.QueryRow(`SELECT next_ms FROM scm_subs WHERE state='live'`).Scan(&repost)
 	if w := fx.ag.db.userWake(time.UnixMilli(fx.now())); w.runnable || repost < fx.now()+(24*24*time.Hour).Milliseconds() || w.wake != repost/1000 {
 		t.Fatalf("with no read due: %+v (the subscription's next post at %d)", w, repost/1000)
+	}
+}
+
+// An unpartitioned agent with nothing else to do leaves the way back for its
+// next read: the `wake` job at its minute, `resume` once it is due — the
+// idle reap must not end polling where no event comes.
+func TestPollDueLeavesWakeUnpartitioned(t *testing.T) {
+	var mu sync.Mutex
+	var jobs []map[string]any
+	fakeGateway(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		if r.Method == "PUT" && r.URL.Path == "/api/xbin/cron/jobs" {
+			var j map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&j)
+			jobs = append(jobs, j)
+		}
+		w.WriteHeader(200)
+	}))
+	take := func() []map[string]any {
+		mu.Lock()
+		defer mu.Unlock()
+		out := jobs
+		jobs = nil
+		return out
+	}
+	t.Setenv("XBIN_COMPONENT", "apps/agent")
+	fx := newEvFx(t, modeLegacy, "")
+	k := fx.addTask(1, evBranch, evSHA, TaskPR{Number: 42, HeadSHA: evSHA})
+	_, _ = fx.ag.db.q.Exec(`UPDATE runs SET status='waiting_input' WHERE id=?`, k.RunID)
+	_, _ = fx.ag.db.q.Exec(`DELETE FROM project_jobs`)
+	fx.pass()
+	if fx.ag.db.hasWork() {
+		t.Fatal("the fixture has other work")
+	}
+	ag := &Agent{db: fx.ag.db}
+	due := fx.pollRow(1, scmPollChecks).Due
+	ag.leaveWakeUp(fx.ag.db)
+	if j := take(); len(j) != 1 || j[0]["name"] != "wake" || j[0]["schedule"] != wakeSchedule(due/1000) {
+		t.Fatalf("with a read due at %d: %v", due/1000, j)
+	}
+	fx.setNow(due)
+	ag.leaveWakeUp(fx.ag.db)
+	if j := take(); len(j) != 1 || j[0]["name"] != "resume" {
+		t.Fatalf("with a read due now: %v", j)
+	}
+	// nothing to read and no subscription: nothing left behind
+	_, _ = fx.ag.db.q.Exec(`UPDATE scm_poll SET due_ms=0`)
+	_, _ = fx.ag.db.q.Exec(`DELETE FROM scm_subs`)
+	ag.leaveWakeUp(fx.ag.db)
+	if j := take(); len(j) != 0 {
+		t.Fatalf("with nothing due: %v", j)
 	}
 }
 

@@ -3823,12 +3823,13 @@ read every 15 minutes once the head has waited 30. Never sooner than the
 provider's `events.pollMinMs`. Checks that finished stop until the head
 moves; checks nobody reports for 30 minutes (a repo without CI) stop
 quietly. A changed read is handled as the event would be. The reads run in
-the background while the agent runs, never keeping it up; a person's
-partition at rest is started again at the next read's minute (its resume
-job), and a delivery or a tick that starts the agent makes the pass at
-once.
+the background while the agent runs, never keeping it up; an agent
+stopped with reads due — a person's partition at rest, the shared instance
+or an unpartitioned agent idle-stopped — is started again at the next
+read's (or subscription renewal's) minute, and a delivery or a tick that
+starts the agent makes the pass at once.
 
-**Once only.** An event id is taken once; a fact both an event and a
+**Once only.** An event id is taken once for each `for`; a fact both an event and a
 read describe is acted on once — a failing suite on a head, green CI on a
 head, a review entry, a merge — whichever comes first.
 
