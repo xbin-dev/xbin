@@ -291,8 +291,9 @@ revoked. A commit's statuses: the first 100 contexts.
 
 ## 13. Spikes and what they decided
 
-Four questions only a live GitHub App can settle; this version was built
-from GitHub's documentation and keeps the safe default for each:
+Four questions only a live GitHub App can settle. Two were checked
+against GitHub with a test App (2026-10-04); for the other two this
+version keeps the safe default:
 
 - **The manifest form from a sandboxed frame** (`Origin: null`) and the
   tile's address loaded at top level: GitHub documents only the form POST
@@ -304,7 +305,10 @@ from GitHub's documentation and keeps the safe default for each:
   request, which a request asking more than 10 minutes' margin reaches
   early (§6): to be checked live.
 - **Revoking a stateless installation token** (`DELETE
-  /installation/token`): documented as revoking the token used; treated as
-  best effort, with the hour's life as the bound.
-- **A running job's log**: GitHub has no public API for a partial log, so
-  a running job is 409 `in-progress` with its page on GitHub.
+  /installation/token`): checked — GitHub answers 204 and the token is
+  refused (401) from then on. Still best effort here (a revocation that
+  doesn't reach GitHub isn't retried); the hour's life bounds it.
+- **A running job's log**: checked — while a job runs GitHub's log
+  endpoint redirects to storage that has no log yet (404), and there is no
+  other public API for a partial log, so a running job is 409
+  `in-progress` with its page on GitHub.
