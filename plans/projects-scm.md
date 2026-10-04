@@ -3760,4 +3760,16 @@ with the record that explains it:
 - YYYY-MM-DD (<WP>) §x.y: what changed and why — records/<WP>.md
 ```
 
-(none yet)
+- 2026-10-03 (G1) §5.12: new backend files beyond the table — `store.go` (kv and vault behind interfaces, so the tests run every instance in memory), `types.go` (the contract's shapes), `fakegh_ci_test.go`, `harness_test.go` and per-area tests — records/G1.md
+- 2026-10-03 (G1) §5.1: no `G/go.sum` — the module requires only the sdk, which the workspace go.work resolves (as llm-gw ships none) — records/G1.md
+- 2026-10-03 (G1) §5.4, §5.9: conf `public` also carries `policy.allowedAccounts` (a partition's own reads keep to them) and `rerun` (whether `checks.rerun` is offered, for a partition's hello); state `app` also keeps `permissions`, `events`, `hookUrl`, `botId` — records/G1.md
+- 2026-10-03 (G1) §5.7: the parent refreshes when the epoch (its expiry − 60 min) can't cover the request's margin (`max(minTtlSec, 15 min)`), or on a 401 — not at "< 65 min left", which would hand out 5-minute tokens — records/G1.md
+- 2026-10-03 (G1) §5.8: a rerun uses the person's parent token in their own partition (the App's `actions: write` ∩ the person's), not a scoped one: `/partition/scope` cuts permissions from the presets, which never hold `actions: write`, and the token is never handed out — records/G1.md
+- 2026-10-03 (G1) §4.9: a check's `suite` is GitHub's check-suite id as a string (`"77"`; the spec's `"s_77"` was a placeholder); docs/scm.md calls it opaque — records/G1.md
+- 2026-10-03 (G1) §5.6, §5.10: `/partition/subscriptions` (POST, DELETE) are left to G2 with the subscriptions they store; G1 gives G2 seams (`extraRoutes`, `extraCaps`, `eventsHealth`, `tickHooks`, `wipePerson`) and answers 501 `unsupported` on `/scm/subscriptions*` and `/scm/events` until G2 mounts them — records/G1.md
+- 2026-10-03 (G1) §5.9: `botRepos` applies to reads as the bot too, not only to bot tokens — a read is as wide as a token — records/G1.md
+- 2026-10-03 (G1) §4.9: `GET /scm/repos` with `as: bot` in a person's partition is 403 `identity` (no relay route lists the bot's repos; name a repo instead) — records/G1.md
+- 2026-10-03 (G1) §5.6: global mints a fresh bot token on every `/partition/bot-token` (kept in its cache only for Revoke all): the partition caches and revokes them itself, so global must never hand back one the partition revoked — records/G1.md
+- 2026-10-03 (G1) §5.5: the manifest's `default_events` leave out `installation` and `installation_repositories` (GitHub sends an App those unasked); without a public host the hook is inactive and `redirect_url` is the App list, whose address the manager pastes (way c); `hook.active` in setup answers means "a URL is set" (GitHub's hook config has no active flag) — records/G1.md
+- 2026-10-03 (G1) §4.8: `minTtlSec` is 900 to 3000 (installation tokens live an hour); above is 400 `invalid` — records/G1.md
+- 2026-10-03 (G1) §5.11: spikes answered from GitHub's documentation, none live (no App here): S1 — only the form POST and `state` are documented, so all three ways back (a, b, c) ship and Paste stays primary; S2 — a scoped token's fate at its parent's refresh is undocumented: the epoch stays; S3 — `DELETE /installation/token` is documented to revoke the token used, kept best effort; S4 — no public partial-log API: `in-progress` stands. Each is owed a live check — records/G1.md
