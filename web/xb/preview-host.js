@@ -66,7 +66,7 @@ function start() {
     html.dark, html.dark body { background: ${D.bg}; }
     xb-view { position: fixed; inset: 0; }
     #xbn-strip { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9; max-height: 30%; overflow: auto;
-      font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); color: var(--bx-danger, #FF7A7A);
+      font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); font-variant-ligatures: none; color: var(--bx-danger, #FF7A7A);
       background: var(--bx-danger-bg, #3A2B32); border-top: 1px solid var(--bx-danger, #FF7A7A); padding: 6px 10px; white-space: pre-wrap; }
     #xbn-strip:empty { display: none; }
     /* a widget is the app's card: Base Two's square corner, as the app draws it (D185) */

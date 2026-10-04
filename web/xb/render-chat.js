@@ -394,10 +394,10 @@ export const CHAT_CSS = css`
   .st-A { color: var(--xb-ok); background: color-mix(in srgb, var(--xb-ok) 16%, transparent); }
   .st-D { color: var(--xb-danger); background: color-mix(in srgb, var(--xb-danger) 16%, transparent); }
   .st-M { color: var(--xb-accent-text); background: color-mix(in srgb, var(--xb-accent) 18%, transparent); }
-  .df-path { flex: 1; min-width: 0; font-family: var(--xb-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+  .df-path { flex: 1; min-width: 0; font-family: var(--xb-mono); font-variant-ligatures: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
   .df-add { color: var(--xb-ok); font-variant-numeric: tabular-nums; }
   .df-del { color: var(--xb-danger); font-variant-numeric: tabular-nums; }
-  .df-patch { margin: 0; padding: 6px 0; overflow-x: auto; font-family: var(--xb-mono); font-size: calc(var(--xb-size-footnote) * 0.95); line-height: 1.5; border-top: 0.5px solid var(--xb-separator); }
+  .df-patch { margin: 0; padding: 6px 0; overflow-x: auto; font-family: var(--xb-mono); font-variant-ligatures: none; font-size: calc(var(--xb-size-footnote) * 0.95); line-height: 1.5; border-top: 0.5px solid var(--xb-separator); }
   .df-files:empty + .df-patch { border-top: 0; }
   .dl { display: block; padding: 0 12px; white-space: pre; min-width: max-content; }
   .dl-add { background: color-mix(in srgb, var(--xb-ok) 14%, transparent); }
@@ -442,7 +442,7 @@ export const CHAT_CSS = css`
   .cm-slash { display: flex; flex-direction: column; background: var(--xb-surface); border-radius: 12px; box-shadow: var(--xb-shadow); overflow: hidden; }
   .cm-cmd { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 8px 12px; text-align: left; }
   .cm-cmd + .cm-cmd { border-top: 0.5px solid var(--xb-separator); }
-  .cm-name { font: var(--xb-font-subheadline); font-weight: 600; font-family: var(--xb-mono); }
+  .cm-name { font: var(--xb-font-subheadline); font-weight: 600; font-family: var(--xb-mono); font-variant-ligatures: none; }
   .cm-hint { font-weight: 400; color: var(--xb-muted); }
   .cm-desc { font: var(--xb-font-caption); color: var(--xb-muted); }
 `;

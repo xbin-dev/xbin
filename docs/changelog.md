@@ -19,8 +19,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   in JetBrains Mono, with the new mark and app icon. A native view's roles
   keep their names (`tone`, the type roles, gaps and heights,
   [native.md](/docs/native.md) §Tokens): `accent` is the cobalt where it was
-  the amber, `largeTitle` is set in Bricolage Grotesque, `mono` in JetBrains
-  Mono, and `bx preview --native` shows the same look the phone draws. The
+  the amber, `largeTitle` is set in Bricolage Grotesque, `mono` (and code,
+  and the terminal) in JetBrains Mono without ligatures, so `->` and `!=`
+  stay two characters as on the web, and `bx preview --native` shows the
+  same look the phone draws. The
   app follows the person's Theme setting (System, Light, Dark) in the
   workspace a window shows, as the tiles' own pages in it already did.
 

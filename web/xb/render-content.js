@@ -174,10 +174,10 @@ export const CONTENT_CSS = css`
   .md-check { display: flex; color: var(--xb-muted); padding-top: 2px; }
   .md-check.on { color: var(--xb-ok); }
   .md-check .ic { width: 16px; height: 16px; }
-  .md code { font-family: var(--xb-mono); font-size: 0.86em; background: var(--xb-fill); border-radius: 5px; padding: 1px 5px; } /* theme-ok: inline code at 0.86em of the app's 17pt body (14.6px), as the app draws it */
+  .md code { font-family: var(--xb-mono); font-variant-ligatures: none; font-size: 0.86em; background: var(--xb-fill); border-radius: 5px; padding: 1px 5px; } /* theme-ok: inline code at 0.86em of the app's 17pt body (14.6px), as the app draws it */
   .md-code { margin: 0 0 10px; border-radius: var(--xb-radius); background: var(--xb-surface2); overflow: hidden; }
   .md-lang { font: var(--xb-font-caption); color: var(--xb-muted); padding: 6px 12px 0; }
-  .md-code pre { margin: 0; padding: 8px 12px 10px; overflow-x: auto; font-family: var(--xb-mono); font-size: calc(var(--xb-size-subheadline) * 0.93); line-height: 1.45; }
+  .md-code pre { margin: 0; padding: 8px 12px 10px; overflow-x: auto; font-family: var(--xb-mono); font-variant-ligatures: none; font-size: calc(var(--xb-size-subheadline) * 0.93); line-height: 1.45; }
   .md blockquote { margin: 0 0 10px; padding: 2px 0 2px 12px; border-left: 3px solid var(--xb-border); color: var(--xb-muted); }
   .md hr { border: 0; border-top: 0.5px solid var(--xb-separator); margin: 14px 0; }
   .md a { color: var(--xb-accent-text); text-decoration: none; }
@@ -236,7 +236,7 @@ export const CONTENT_CSS = css`
 
   xb-code { display: flex; align-items: center; gap: 4px; min-width: 0; }
   xb-code.box { border-radius: var(--xb-radius); background: var(--xb-surface2); }
-  xb-code pre { flex: 1 1 auto; min-width: 0; margin: 0; padding: 10px 12px; overflow-x: auto; font-family: var(--xb-mono); font-size: calc(var(--xb-size-subheadline) * 0.93); line-height: 1.45; white-space: pre; }
+  xb-code pre { flex: 1 1 auto; min-width: 0; margin: 0; padding: 10px 12px; overflow-x: auto; font-family: var(--xb-mono); font-variant-ligatures: none; font-size: calc(var(--xb-size-subheadline) * 0.93); line-height: 1.45; white-space: pre; }
   xb-code.cell { padding-right: 8px; }
   xb-code.cell pre { padding: 0; }
   xb-code.wrap pre { white-space: pre-wrap; overflow-wrap: anywhere; }
@@ -259,7 +259,7 @@ export const CONTENT_CSS = css`
   xb-terminal.cell { border-radius: 0; padding: 0; }
   .term-bar { display: flex; align-items: center; gap: 8px; padding: 8px 12px; font: var(--xb-font-caption); color: var(--xb-term-muted); background: var(--xb-term-bar); }
   .term-bar .ic { width: 16px; height: 16px; }
-  .term-body { margin: 0; padding: 10px 12px; font-family: var(--xb-mono); font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
+  .term-body { margin: 0; padding: 10px 12px; font-family: var(--xb-mono); font-variant-ligatures: none; font-size: 13px; line-height: 1.4; white-space: pre-wrap; }
   .term-cur { display: inline-block; width: 8px; height: 15px; background: var(--xb-term-cursor); vertical-align: -3px; animation: xb-blink 1s steps(2) infinite; }
 
   xb-canvas { display: block; border-radius: var(--xb-radius); overflow: hidden; background: var(--xb-surface); }

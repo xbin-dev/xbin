@@ -10,8 +10,13 @@
 #
 # iOS takes TrueType, not WOFF2: each file is decompressed, and Bricolage
 # Grotesque's latin and latin-ext halves (theme.css's unicode-range split)
-# are merged into one font (fontTools), then cleaned with pyftsubset. The
-# names stay as published (PostScript BricolageGrotesque96ptExtraBold-
+# are merged into one font (fontTools), then cleaned with pyftsubset.
+# JetBrains Mono keeps every glyph and feature but its ligatures (`calt`,
+# and `liga` should a release add one): the code face draws what was
+# typed, `->` and `!=` as two characters, as the web's "liga" 0, "calt" 0
+# does (product-ui 7, D184); SwiftTerm and SwiftUI apply a font's default
+# features, so the ligatures can't stay in the file. The names stay as
+# published (PostScript BricolageGrotesque96ptExtraBold-
 # ExtraBold, JetBrainsMono-Regular, JetBrainsMono-Bold: XbinFaces in
 # XbinRendererModel/Tokens.swift); Info.plist lists the files (UIAppFonts).
 #
@@ -46,7 +51,31 @@ EOF
 mkdir -p "$out"
 pyftsubset "$tmp/bricolage-merged.ttf" --unicodes='*' --layout-features='*' --glyph-names --notdef-outline \
   --name-IDs='*' --name-languages='*' --output-file="$out/BricolageGrotesque-ExtraBold.ttf"
-cp "$tmp/jetbrains-mono-400.ttf" "$out/JetBrainsMono-Regular.ttf"
-cp "$tmp/jetbrains-mono-700.ttf" "$out/JetBrainsMono-Bold.ttf"
+# Every layout feature the face has, less the ligatures.
+features() {
+  python3 - "$1" <<'EOF'
+import sys
+from fontTools.ttLib import TTFont
+font = TTFont(sys.argv[1])
+tags = {r.FeatureTag for t in ('GSUB', 'GPOS') if t in font for r in font[t].table.FeatureList.FeatureRecord}
+print(','.join(sorted(tags - {'calt', 'liga'})))
+EOF
+}
+for face in 400:Regular 700:Bold; do
+  in="$tmp/jetbrains-mono-${face%%:*}.ttf"
+  pyftsubset "$in" --unicodes='*' --layout-features="$(features "$in")" --glyph-names --notdef-outline \
+    --name-IDs='*' --name-languages='*' --output-file="$out/JetBrainsMono-${face#*:}.ttf"
+done
+# The ligatures are gone, and no character went with them.
+python3 - "$tmp" "$out" <<'EOF'
+import sys
+from fontTools.ttLib import TTFont
+for w, name in (('400', 'Regular'), ('700', 'Bold')):
+    src = TTFont(f'{sys.argv[1]}/jetbrains-mono-{w}.ttf')
+    dst = TTFont(f'{sys.argv[2]}/JetBrainsMono-{name}.ttf')
+    tags = {r.FeatureTag for r in dst['GSUB'].table.FeatureList.FeatureRecord}
+    assert not tags & {'calt', 'liga'}, f'{name}: {sorted(tags)}'
+    assert src.getBestCmap() == dst.getBestCmap(), f'{name}: the character map changed'
+EOF
 cp "$src/OFL-bricolage-grotesque.txt" "$src/OFL-jetbrains-mono.txt" "$out/"
 ls -l "$out"

@@ -146,13 +146,13 @@ export const TYPE_CLASSES = css`
   .t-footnote { font: var(--xb-font-footnote); }
   .t-caption { font: var(--xb-font-caption); }
   .t-caption2 { font: var(--xb-font-caption-2); letter-spacing: 0.05px; }
-  .t-mono { font: var(--xb-font-mono); }
+  .t-mono { font: var(--xb-font-mono); font-variant-ligatures: none; }
   .tone-muted { color: var(--xb-muted); }
   .tone-accent { color: var(--xb-accent-text); }
   .tone-ok { color: var(--xb-ok); }
   .tone-warn { color: var(--xb-warn); }
   .tone-danger { color: var(--xb-danger); }
-  .mono { font-family: var(--xb-mono); font-size: 0.94em; }
+  .mono { font-family: var(--xb-mono); font-size: 0.94em; font-variant-ligatures: none; }
 `;
 
 // The scheme values, for hosts that paint outside <xb-view> (the page
