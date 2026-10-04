@@ -142,6 +142,10 @@ Also dated in projects-scm §19.
   mode; the `# Project` block has no per-task state.
 - §10.5: `coordRecover` (an `ownerLoops` entry) pokes coordinators with a
   wake event at takeover; a wake also needs the person to still take part.
+- §10.5 (fix round 1): a coordinator that can't take a wake has its
+  undelivered events' `wake` cleared (`coordDropWakes`).
+- §10.2 (fix round 1): `task_create`/`task_cancel` check the fence just
+  before P1's helpers, not inside `e.fenced`.
 - §10.6: `task-failed` only for a failed workspace or a coding agent's
   failed turn; `all-done` when every task's column is done.
 - §16.2: a new file `projects_coord_scm.go`; `handleNeeds`'s body moved
@@ -174,7 +178,8 @@ draws `proj.coordinator`), so no node or browser test; the isolated and
 partitioned end-to-end tests (no rootfs here, projects-scm §15.4); a live
 GitHub (no credentials — the reads go to K's fake provider through the real
 scm client). `task_list {scope: "team"}` is not tested end to end: T's
-board route is built in parallel (its parsing follows §12.3's shape).
+board route is built in parallel (its parsing follows §12.3's shape;
+since fix round 1 `TestCoordBoard` tests it against a stubbed global).
 
 ## Merge risks
 
@@ -186,13 +191,12 @@ board route is built in parallel (its parsing follows §12.3's shape).
 - `B/needs_push.go`: one line in `needsPushes` (the title).
 - `B/tooldesc_test.go`: one block (the eight sentences).
 - API.md: §The coordinator only.
-- **For the lead (P1's file, not edited):** `projectsWake`
-  (`project_worker.go`) counts an undelivered `wake=1` event as runnable for
-  any coordinator that exists — also one waiting for its person
-  (`waiting_input`) or in `error`, which never takes a wake, so a person's
-  partition with such a coordinator never sleeps until the person acts.
-  Suggested: `AND r.status NOT IN ('waiting_input','error')` in that
-  `EXISTS`.
+- `projectsWake` (`project_worker.go`, P1's) counts an undelivered
+  `wake=1` event of any coordinator that exists. Fixed on C's side in fix
+  round 1 (`coordDropWakes`: a coordinator that can't take a wake leaves
+  no event asking for one), so P1's file needs no edit. The one-line
+  `AND r.status NOT IN ('waiting_input','error')` in that `EXISTS` stays
+  optional for the lead, belt and braces.
 - No migration; no table.
 
 ## Commits
@@ -202,6 +206,57 @@ board route is built in parallel (its parsing follows §12.3's shape).
 | `f05861e0` | agent template: the project coordinator — resolver, tools, updates, pushes |
 | `7293610d` | agent template: the coordinator's tests, and API.md §The coordinator |
 | `3ef70258` | plans: projects-scm — the C record and §19 |
+| `de9b3345` | plans: projects-scm — the C record's commit table |
+| `9bd0f373` | agent template: the coordinator — fix round 1: its class's who, wakes it can't take, fenced writes |
+
+## Fix round 1
+
+A skeptical verifier's nine findings, each checked against the code. All
+nine were real; each fix has a test that fails without it (checked by
+running the new tests with the fix files stashed: all seven new or
+extended tests failed).
+
+| # | Finding | Fixed | Test |
+|---|---|---|---|
+| blocker | The coordinator was made in the web class without `usableBy`: a web class kept for managers was still reached (with web tools under `policy.coordinator.web`) by any participant | `ensureCoordinator` refuses (403) when the web class isn't usable by the caller, as `POST /ask` refuses a class | `TestCoordinatorClassFirewall`: web class `who: managers`, alice 403 and no run made, the manager 200 |
+| major | `projectsWake` counted an undelivered wake event of a coordinator in `waiting_input` or `error` (which never takes a wake) as work, so the person's partition never slept | **On C's side, not in P1's file:** `coordDropWakes` clears the undelivered events' `wake` of a coordinator that can't take one. Three places: a `runStatusHooks` entry (`coordWakeHeld`) when a coordinator turns `waiting_input` or `error`, matched by session key as `projectsWake` matches; `coordEventWake` when an event arrives for one in those states or for a project that isn't active; and `coordWakes` for a project that isn't active or a person who no longer takes part. The last case is one the verifier didn't name, and its SQL one-liner couldn't cover it (membership is Go-side ACL). The events stay undelivered and reach the coordinator with its next turn, which its person starts (the answer to the park, a message after the error) | `TestCoordWakeHeld`: waiting (an event before and one after), error, archived, removed; each time `projectsWake` says the partition may sleep, and the sanity case (idle) says it may not |
+| minor | `coordWakes` woke a coordinator of a project that isn't active, for a turn whose every tool refuses | Checks `p.State == projActive` (with the major's fix, so the events don't keep the partition up) | `TestCoordWakeHeld` (archived) |
+| minor | API.md said 403 for view-as and components; the route answers 404 for view-as and non-member components (`projectNeed`) | Reworded: 404 for view-as, as on every project route; 403 for a viewer, a component that takes part, and a non-manager when the web class is managers-only | `TestCoordinatorRoute` (unchanged; it already asserted 404) |
+| minor | `orStr(": "+x, "")` never chose the default: "cancelled by the project coordinator: ", "It failed: ", "ctx: failure — " | Emptiness tested before concatenating, at all three sites | `TestCoordWritesFenced` (task_cancel with and without a reason, the event text), `TestDigestPushes` ("It failed."), `TestCoordLogBounds` (a status with no description) |
+| minor | A coordinator's push read "Web · Coordinator · Web" | `projectPushTitle` adds no prefix to a coordinator (`projectRefOf(root).isCoordinator()`) | `TestNeedsProjectField`: a waiting coordinator's push is "Coordinator · Web" |
+| minor | Log excerpts could be 2051 bytes each (the "…" uncounted), and the headers pushed the frame over `untrusted`'s 8 KiB, cutting the last job's log end | `coordTail` counts the "…"; the headers (and the status lines) are measured first and the logs share what is left of the frame's 8 KiB (≤ `coordLogAll`); each excerpt is the tail | `TestCoordLogBounds`: five failing jobs with 5 KB logs; each excerpt ≤ 2 KiB, the excerpts ≤ 8 KiB, the frame ≤ 8 KiB, the fourth job's `--- FAIL` line kept, no fifth log |
+| minor | Tests checking less than they seemed: the brief only `if len(q) > 0`; no coding-agent failed turn or removed member in the digest; no `srcEvent` row at a park; `coordBoard` untested | Brief and note read from the task's inbox (`startClientID`) when the queue is empty; a harness task's failed turn (`task-failed`, "It failed.") and carol a participant (gets a push) then removed (gets none); an `srcEvent` row held back with the coordinator's, in order; `TestCoordBoard` with `callGlobal` stubbed. While writing it: a board row's member, title, branch and state are now each one plain line with the markers defused (`coordPlain`), as `task_list`'s own rows are | `TestCreateLimits`, `TestDigestPushes`, `TestCoordinatorCannotAnswerPark`, `TestCoordBoard` |
+| minor | `task_create` and `task_cancel` wrote through P1's `createTask`/`cancelTask`, which open plain `ag.db.Tx`, not under `e.fenced` | `coordStillOwner` (a fenced no-op) runs just before each helper call: once another engine took over, the tool answers `errFenced` and writes nothing. The rest is a deviation: the window between the check and the helper's own transaction stays, since P1's helpers own their transactions and take no open handle | `TestCoordWritesFenced`: the epoch bumped, `task_create` and `task_cancel` answer `errFenced`; no task made or stopped |
+
+Rejected: none. Where a verifier's suggested fix wasn't taken as written:
+the major is fixed in C's files instead of in P1's `projectsWake` (the
+rules keep P1's files P1's, and the C-side fix also covers a removed
+person, which the SQL can't); the 403 also covers a person whose
+coordinator already exists (fail closed: the check is before the
+find-or-make; they still reach the conversation itself as any
+conversation made before its class was restricted, `POST
+/runs/{id}/message`, since `POST /ask`'s check is at creation).
+
+New deviations (also dated in §19):
+
+- §10.5: the `wake` flag of a coordinator's undelivered events is
+  cleared when it can't take a wake (waiting for its person, error, its
+  project not active, its person no longer taking part). The feed's
+  `wake` (`GET /projects/{pid}/events`) then reads false for them.
+- §10.2: `task_create` and `task_cancel` check the fence just before
+  P1's helpers rather than writing inside `e.fenced`.
+
+Checks run (`TMPDIR=/work/tmp-tests/c`, targeted only):
+
+| Command | Result |
+|---|---|
+| `TILE_TEST_FLAGS="-count=1 -v -run TestCoord\|TestEventDeliveryAndWakeCoalesced\|TestCreateLimits\|TestNeedsProjectField\|TestDigestPushes\|TestSeededTokenNotInTools\|TestResolverByNumberOnly\|TestToolDesc\|TestProjectDelete\|TestProjectArchive\|TestProjectReposAndStatus\|TestTurnEndHooksEverySite\|TestRunStatusHooksOnPark\|TestHostedRunReachesNoHook\|TestProjectStreamEvent" hack/tile-check.sh agent` (each `\|` a plain `|` in the shell) | ok: vet ok, 25 tests pass, 17.5 s |
+| the same pattern's new and changed tests, with the five fixed source files stashed | 7 fail as expected: `TestCoordinatorClassFirewall`, `TestCoordWakeHeld`, `TestCoordWritesFenced`, `TestCoordLogBounds`, `TestCoordBoard`, `TestNeedsProjectField`, `TestDigestPushes` |
+| `TILE_TEST_FLAGS="-race -count=1 -v -run TestCoordWakeHeld\|TestEventDeliveryAndWakeCoalesced\|TestCoordWritesFenced\|TestCoordBoard" hack/tile-check.sh agent` | ok, no race (14 s) |
+| `go test ./internal/docscheck` | ok |
+| `make fmt-check vet` | ok |
+
+Full -race suite and make check: at the gate (lead).
 
 ## Owner questions
 
