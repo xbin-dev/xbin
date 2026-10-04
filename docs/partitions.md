@@ -955,9 +955,26 @@ at global — a user partition's call to it (`user:<id>`, with `X-XBin-From`
 the tile's own path; see above). A tile that isn't partitioned calling in
 sends neither header.
 
+**A provider may be partitioned itself.** The `scm-github` template
+([scm.md](scm.md)) is: its global instance holds a GitHub App's keys —
+what every caller shares — and each person's partition holds that person's
+own GitHub sign-in, which nothing else holds. alice's partition of the
+agent reaches alice's partition of scm-github
+([below](#calls-between-partitioned-tiles)), so the person a call is for is
+the partition it arrives in, verified by xbind, never asserted; the agent's
+global instance reaches scm-github's global, which hands out the App's bot
+only. What needs the App's client secret — checking whose a person's token
+is, scoping it, revoking it — the person's partition asks its own global
+instance for (the call arrives there as the person, above), and global
+re-checks every field of it as a stranger's: the person's own frame could
+have sent it. A copy that isn't partitioned keeps no one's sign-in and
+hands out the bot only.
+
 **The builtin tiles around a partitioned agent** aren't partitioned: each
 serves one shared thing (a sandbox runtime, upstream model keys, a bot
-connection, public hook URLs, an SSH port).
+connection, public hook URLs, an SSH port) — except **scm-github**, which
+is: each person's GitHub sign-in in their partition, the App at its global
+instance.
 
 - The **coding-sandbox** manager homes a sandbox made in a person's
   partition there ([sandbox-manager.md](sandbox-manager.md) §Partitioned
@@ -974,6 +991,9 @@ connection, public hook URLs, an SSH port).
   partitioned agent).
 - **sandbox-terminal** opens a sandbox homed in a person's partition only
   once it is shared with it for that person.
+- **scm-github**, a partitioned provider (above), answers alice's
+  partition of the agent from alice's partition of scm-github, with her
+  own GitHub sign-in ([scm.md](scm.md)).
 
 Each of them sees what the partitions that use it send, so its writers are
 in those people's trust base ([below](#operating-peoples-partitions)).

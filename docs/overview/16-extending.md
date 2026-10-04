@@ -153,7 +153,10 @@ sandboxes, or a cloud's API and ssh — gives agents coding sandboxes
 ([sandbox-manager.md](../sandbox-manager.md)); the `coding-sandbox` *template*
 is the builtin one, on xbind's runtime, with a backend seam a copy extends,
 and the `sandbox-terminal` tile consumes the same contract to give people
-browser terminals and SSH onto the sandboxes shared with it.) The pattern generalizes: a WireGuard
+browser terminals and SSH onto the sandboxes shared with it. The agent
+template consumes `scm` too: the `scm-github` *template* provides it —
+repo credentials, pull requests, issues and CI from a GitHub App, each
+person's own GitHub sign-in kept in their partition ([scm.md](../scm.md)).) The pattern generalizes: a WireGuard
 tile is `provides {net, lan-ingress}`; a mail gateway is an `http` service
 with per-account `instances`; a WAF is an ingress terminator.
 
