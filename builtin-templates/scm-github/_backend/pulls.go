@@ -333,7 +333,16 @@ func (s *srv) handlePullPatch(w http.ResponseWriter, r *http.Request, c who) {
 				m = "convertPullRequestToDraft"
 			}
 			q := "mutation($id: ID!) { " + m + "(input: {pullRequestId: $id}) { pullRequest { isDraft } } }"
-			if err := s.gh.graphql(ctx, a, s.apiBase(), q, map[string]any{"id": g.NodeID}, nil); err != nil {
+			ga := a
+			if strings.HasPrefix(a.key, "inst:") {
+				// The tile's own write token can't: GitHub's GraphQL wants
+				// contents: write of an installation token for these two.
+				var err error
+				if ga, err = s.instAuth(ctx, ownerOf(p.Repo), nameOf(p.Repo), "draft"); err != nil {
+					return err
+				}
+			}
+			if err := s.gh.graphql(ctx, ga, s.apiBase(), q, map[string]any{"id": g.NodeID}, nil); err != nil {
 				return err
 			}
 			if _, err := s.gh.call(ctx, a, http.MethodGet, u, nil, &g); err != nil {

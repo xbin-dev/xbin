@@ -72,7 +72,11 @@ type ghRepo struct {
 	Permissions   map[string]bool `json:"permissions"`
 }
 
-func (s *srv) repoOf(g ghRepo) repoInfo {
+// repoOf maps GitHub's repository; bot says the identity is the App's.
+// GitHub answers an installation token's repos with every permission flag
+// false (seen live): the bot's permission is then what the App may do with
+// contents — what a bot token for the repo can be (write, or read).
+func (s *srv) repoOf(g ghRepo, bot bool) repoInfo {
 	host, _, _ := s.hosts()
 	perm := "none"
 	for _, p := range []struct{ gh, us string }{{"admin", "admin"}, {"maintain", "maintain"}, {"push", "write"}, {"triage", "triage"}, {"pull", "read"}} {
@@ -80,6 +84,9 @@ func (s *srv) repoOf(g ghRepo) repoInfo {
 			perm = p.us
 			break
 		}
+	}
+	if bot && perm == "none" {
+		perm = s.botContents()
 	}
 	return repoInfo{Host: host, Owner: g.Owner.Login, Name: g.Name, CloneURL: g.CloneURL, DefaultBranch: g.DefaultBranch,
 		Private: g.Private, Permission: perm, Archived: g.Archived, URL: g.HTMLURL}
@@ -185,7 +192,7 @@ func (s *srv) repoList(ctx context.Context, c who, as string) ([]repoInfo, error
 			if as == asBot && !pol.botRepoAllowed(g.FullName) {
 				continue
 			}
-			out = append(out, s.repoOf(g))
+			out = append(out, s.repoOf(g, as == asBot))
 		}
 	}
 	if as == asPerson {
@@ -247,6 +254,21 @@ func (s *srv) repoList(ctx context.Context, c who, as string) ([]repoInfo, error
 	return out, nil
 }
 
+// botContents is the App's contents permission (write or read): from the
+// App at global and legacy, from conf "public" in a person's partition.
+func (s *srv) botContents() string {
+	c := s.public().BotContents
+	if s.mode != modeUser {
+		if a, _ := s.app(); a != nil {
+			c = a.Permissions["contents"]
+		}
+	}
+	if c != "write" {
+		c = "read" // it answered: the bot can read it
+	}
+	return c
+}
+
 // instAuthByID is the read token of an installation known by id.
 func (s *srv) instAuthByID(ctx context.Context, inst int64) (ghAuth, error) {
 	perms := presetRead()
@@ -284,7 +306,7 @@ func (s *srv) getRepo(ctx context.Context, c who, repo, as string) (*repoInfo, e
 		if _, err := s.gh.call(ctx, a, http.MethodGet, s.repoBase(repo), nil, &g); err != nil {
 			return err
 		}
-		out = s.repoOf(g)
+		out = s.repoOf(g, !strings.HasPrefix(a.key, "user:"))
 		var b struct {
 			Protected bool `json:"protected"`
 		}

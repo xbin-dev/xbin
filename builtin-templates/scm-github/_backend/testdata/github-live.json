@@ -1,0 +1,23 @@
+{
+  "about": "Answers real GitHub (api.github.com) gave this tile's live checks (live_test.go) on 2026-10-04, with a test GitHub App on one private repo. Token-free. TestFakeMatchesLiveGitHub asks the fake GitHub each question and wants the same answer.",
+  "cases": [
+    {"name": "hook-config-webhook-off", "call": "GET /app/hook/config (App JWT; the App's webhook is off)", "status": 404},
+    {"name": "check-token-not-this-apps", "call": "POST /applications/{client_id}/token (basic auth) for a token this App never issued (a PAT, a made-up ghu_)", "status": 404},
+    {"name": "check-token-bearer-not-basic", "call": "POST /applications/{client_id}/token with a bearer token instead of basic auth", "status": 404},
+    {"name": "revoke-token-not-this-apps", "call": "DELETE /applications/{client_id}/token (basic auth) for a token this App never issued", "status": 404},
+    {"name": "revoke-grant-not-this-apps", "call": "DELETE /applications/{client_id}/grant (basic auth) for a token this App never issued", "status": 404},
+    {"name": "installation-token-revoke", "call": "DELETE /installation/token with a stateless ghs_ token, then a read with it", "status": 204, "then": 401},
+    {"name": "installation-token-revoke-again", "call": "DELETE /installation/token with a token already revoked", "status": 401},
+    {"name": "mint-answer", "call": "POST /app/installations/{id}/access_tokens with repositories and permissions", "status": 201, "keys": ["token", "expires_at", "permissions", "repository_selection", "repositories"]},
+    {"name": "repo-permissions-installation-token", "call": "GET /repos/{owner}/{repo} with an installation token", "status": 200, "flags": {"admin": false, "maintain": false, "push": false, "triage": false, "pull": false}},
+    {"name": "installation-repositories-permissions", "call": "GET /installation/repositories with an installation token (the first repo)", "status": 200, "flags": {"admin": false, "maintain": false, "push": false, "triage": false, "pull": false}},
+    {"name": "pull-create-without-contents", "call": "POST /repos/{owner}/{repo}/pulls with an installation token without contents (pull_requests, issues: write; metadata: read)", "status": 422, "message": "not all refs are readable"},
+    {"name": "pull-create-exists", "call": "POST /repos/{owner}/{repo}/pulls for a head with an open pull request", "status": 422, "message": "A pull request already exists for"},
+    {"name": "graphql-ready-contents-read", "call": "POST /graphql markPullRequestReadyForReview with an installation token of pull_requests: write, contents: read", "status": 200, "errorType": "FORBIDDEN"},
+    {"name": "graphql-ready-contents-write", "call": "POST /graphql markPullRequestReadyForReview with an installation token of pull_requests and contents: write", "status": 200},
+    {"name": "graphql-unknown-node", "call": "POST /graphql markPullRequestReadyForReview for a node id that doesn't exist", "status": 200, "errorType": "NOT_FOUND"},
+    {"name": "job-log-running", "call": "GET /repos/{owner}/{repo}/actions/jobs/{id}/logs while the job runs, then its Location", "status": 302, "then": 404},
+    {"name": "job-log-completed", "call": "GET /repos/{owner}/{repo}/actions/jobs/{id}/logs for a completed job, then its Location", "status": 302, "then": 200},
+    {"name": "conditional-get", "call": "GET /repos/{owner}/{repo}/pulls/{n} again with If-None-Match: its ETag", "status": 304}
+  ]
+}

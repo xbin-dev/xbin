@@ -353,6 +353,10 @@ func (f *fakeGH) routes(mux *http.ServeMux) {
 		f.mu.Lock()
 		u := f.hookURL
 		f.mu.Unlock()
+		if u == "" { // GitHub (live): an App whose webhook is off has no config at all
+			f.msg(w, r, 404, "Not Found")
+			return
+		}
 		f.reply(w, r, 200, map[string]any{"url": u, "content_type": "json", "secret": "********", "insecure_ssl": "0"})
 	})
 	mux.HandleFunc("PATCH /app/hook/config", func(w http.ResponseWriter, r *http.Request) {
@@ -438,8 +442,23 @@ func (f *fakeGH) routes(mux *http.ServeMux) {
 			}
 		}
 		tok := f.newInstToken(inst, b.Repositories, b.Permissions)
+		var owner string
+		for a, id := range f.installs {
+			if id == inst {
+				owner = a
+			}
+		}
+		names := b.Repositories
+		if len(names) == 0 {
+			names = f.instRepos[inst]
+		}
+		var repos []any
+		for _, n := range names {
+			repos = append(repos, f.repoJSON(owner+"/"+n, "none"))
+		}
 		w.WriteHeader(201)
-		json.NewEncoder(w).Encode(map[string]any{"token": tok, "expires_at": f.instTokens[tok].exp.Format(time.RFC3339), "permissions": b.Permissions})
+		json.NewEncoder(w).Encode(map[string]any{"token": tok, "expires_at": f.instTokens[tok].exp.Format(time.RFC3339), "permissions": b.Permissions,
+			"repository_selection": "selected", "repositories": repos})
 	})
 	mux.HandleFunc("DELETE /installation/token", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
@@ -469,7 +488,7 @@ func (f *fakeGH) routes(mux *http.ServeMux) {
 		f.mu.Unlock()
 		var repos []any
 		for _, n := range names {
-			repos = append(repos, f.repoJSON(owner+"/"+n, "admin"))
+			repos = append(repos, f.repoJSON(owner+"/"+n, "none")) // GitHub (live): every flag false for an installation token
 		}
 		f.paged(w, r, "repositories", repos)
 	})
@@ -530,8 +549,8 @@ func (f *fakeGH) routes(mux *http.ServeMux) {
 			f.mu.Lock()
 			defer f.mu.Unlock()
 			u := f.userTokens[b["access_token"]]
-			if u == nil {
-				w.WriteHeader(422)
+			if u == nil { // GitHub (live): a token this App never issued (a PAT, a made-up one) is 404
+				f.msg(w, r, 404, "Not Found")
 				return
 			}
 			if !f.now().Before(u.exp) { // GitHub no longer knows an expired token

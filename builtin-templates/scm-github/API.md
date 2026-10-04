@@ -46,7 +46,10 @@ A copy that isn't partitioned (an xbind without `--isolate`, or
      and the webhook URL (the exposure + `/hook/github`); the webhook secret
      is made for you if you leave it empty. The tile checks them by signing
      a JWT and asking GitHub for the App, then points the App's webhook at
-     the URL with the secret.
+     the URL with the secret. An App whose webhook is off pastes without a
+     URL (GitHub keeps no webhook settings for it, and events wait); to
+     paste one with a URL, tick **Active** under Webhook in the App's
+     settings first.
 6. In the App's settings on GitHub: **Enable Device Flow** (the page's
    **Check** confirms it), and leave **Expire user authorization tokens**
    on.
@@ -150,7 +153,7 @@ move: a partition reuses only tokens of the generation it reads.
   repos, permissions) and handed out again while 15 minutes (or the
   consumer's `minTtlSec`) are left. They live an hour; `refreshAfter` is 10
   minutes before. Their length is GitHub's to choose (stateless `ghs_`
-  tokens are about 520 characters).
+  tokens run to several hundred characters).
 - **Person tokens** are scoped copies of the person's sign-in: global
   scopes them (`POST /applications/{client_id}/token/scoped` needs the
   client secret) to the asked repos and permissions it computes itself.
@@ -171,7 +174,12 @@ move: a partition reuses only tokens of the generation it reads.
   revoke by value, by purpose or all still reaches them. **Revoke all bot
   tokens** on the page (`POST /api/revoke-all`) revokes every live one.
 - **Writes as the bot** (pull requests, comments) use an installation
-  token of the tile's own with only what they need, never handed out.
+  token of the tile's own with only what they need, never handed out:
+  pull requests and issues: write, and contents: read (GitHub won't open a
+  pull request for a token that can't read its branches). Marking a pull
+  request ready for review, or turning it back into a draft, goes through
+  GitHub's GraphQL API, which wants pull requests and contents: write of
+  an installation token: a token with those, used for that alone.
 - **Into sandboxes**: a consumer's job — an exec's environment or a 0600
   file outside every repo, never a refresh token, a person's only in their
   own private sandbox ([/docs/scm.md](/docs/scm.md) §Handing a token to a
@@ -237,6 +245,9 @@ passed through untrusted.
   bot never bypasses classic protection. Rulesets' bypass lists aren't
   read: a ruleset naming the App or a role as a bypass actor still reads
   `true`.
+- A repo's `permission` for the bot is the App's own `contents`
+  permission (`write`, or `read`): GitHub answers an installation token's
+  repos with every permission flag false.
 - `GET /scm/repos` as the bot is the global instance's: a person's
   partition lists the person's own repos (`as: bot` there is 403
   `identity`; name a repo instead).
