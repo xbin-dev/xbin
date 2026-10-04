@@ -119,7 +119,7 @@ func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string, mi
 	// the value in a file no row points at.
 	prior, pending := scmPendingRow(row)
 	if pending {
-		if err := agent.db.scmPutCred(row); err != nil {
+		if err := scmDB().scmPutCred(row); err != nil {
 			scmRevoke(ctx, p, row) // never written
 			return err
 		}
@@ -133,7 +133,7 @@ func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string, mi
 		return fmt.Errorf("writing the credential into %s: %w", sbxLabel(box), err)
 	}
 	row.Refresh = live.refresh
-	if err := agent.db.scmPutCred(row); err != nil {
+	if err := scmDB().scmPutCred(row); err != nil {
 		// the files hold the value and a live row (the pending one, or the
 		// older one a refresh replaces) points at them: every scrub empties
 		// them; the next ensure mints again
@@ -166,7 +166,7 @@ func scmGateNow(ctx context.Context, conn *sbxConn, id string, p *Project, k *Pr
 // no live row for its host is there yet — and the row there was (nil:
 // none).
 func scmPendingRow(row scmCredRow) (*scmCredRow, bool) {
-	for _, c := range agent.db.scmCredsOf(row.PID, row.Ref) {
+	for _, c := range scmDB().scmCredsOf(row.PID, row.Ref) {
 		if c.Host == row.Host {
 			return &c, c.State != credLive
 		}
@@ -191,9 +191,9 @@ func scmWriteFailed(ctx context.Context, p *Project, row scmCredRow, prior *scmC
 	}
 	var err error
 	if prior != nil {
-		err = agent.db.scmPutCred(*prior)
+		err = scmDB().scmPutCred(*prior)
 	} else {
-		_, err = agent.db.q.Exec(`DELETE FROM project_creds WHERE project_id=? AND sandbox_ref=? AND host=?`, row.PID, row.Ref, row.Host)
+		_, err = scmDB().q.Exec(`DELETE FROM project_creds WHERE project_id=? AND sandbox_ref=? AND host=?`, row.PID, row.Ref, row.Host)
 	}
 	if err != nil {
 		logf("project #%d: a failed write's row in %s: %v", p.ID, row.Ref, err)
@@ -208,7 +208,7 @@ func scmCredHost(ctx context.Context, p *Project, ref string, api scmAPI) string
 	if p.Host != "" {
 		return p.Host
 	}
-	for _, c := range agent.db.scmCredsOf(p.ID, ref) {
+	for _, c := range scmDB().scmCredsOf(p.ID, ref) {
 		if c.Host != "" && c.Host != "-" {
 			return c.Host
 		}
@@ -222,7 +222,7 @@ func scmCredHost(ctx context.Context, p *Project, ref string, api scmAPI) string
 // scmRowLive: project_creds still says live (another process, or a scrub,
 // hasn't changed it since this process wrote it).
 func scmRowLive(pid int64, ref, host string) bool {
-	for _, c := range agent.db.scmCredsOf(pid, ref) {
+	for _, c := range scmDB().scmCredsOf(pid, ref) {
 		if c.Host == host {
 			return c.State == credLive
 		}
@@ -327,7 +327,7 @@ func scmRun(ctx context.Context, conn *sbxConn, id, script string, env map[strin
 // task of p working there, for no k) fails with the gate's words.
 func scmBlock(ctx context.Context, p *Project, k *ProjectTask, ref string, box *sbxSandbox, why string) {
 	unemptied := false
-	for _, c := range agent.db.scmCredsOf(p.ID, ref) {
+	for _, c := range scmDB().scmCredsOf(p.ID, ref) {
 		if c.State == credLive {
 			if err := scmScrubRow(ctx, p, c, why, box); err != nil {
 				logf("project #%d: %v", p.ID, err)
@@ -337,12 +337,12 @@ func scmBlock(ctx context.Context, p *Project, k *ProjectTask, ref string, box *
 	}
 	host := p.Host
 	if host == "" {
-		for _, c := range agent.db.scmCredsOf(p.ID, ref) {
+		for _, c := range scmDB().scmCredsOf(p.ID, ref) {
 			host = c.Host
 		}
 	}
 	if !unemptied {
-		if err := agent.db.scmSetCredState(p.ID, ref, orStr(host, "-"), credBlocked, why); err != nil {
+		if err := scmDB().scmSetCredState(p.ID, ref, orStr(host, "-"), credBlocked, why); err != nil {
 			logf("project #%d: marking its credential in %s blocked: %v", p.ID, ref, err)
 		}
 	}
@@ -361,7 +361,7 @@ func scmTaskWS(p *Project, k *ProjectTask, ref, ws, errText string, from ...stri
 	if len(ns) == 0 {
 		return
 	}
-	err := agent.db.Tx(func(t *DB) error {
+	err := scmDB().Tx(func(t *DB) error {
 		for _, n := range ns {
 			res, err := t.q.Exec(`UPDATE project_tasks SET ws=?, error=?, updated_ms=? WHERE project_id=? AND n=? AND ws=?`,
 				ws, errText, nowMs(), p.ID, n.n, n.ws)
@@ -390,7 +390,8 @@ type scmTaskState struct {
 // scmTasksIn is k's state (nil: each task of p working in ref) when it is
 // one of from (any, when from is empty).
 func scmTasksIn(p *Project, k *ProjectTask, ref string, from []string) []scmTaskState {
-	if agent == nil || agent.db == nil {
+	d := scmDB()
+	if d == nil {
 		return nil
 	}
 	q := `SELECT n, ws, run_id, error FROM project_tasks WHERE project_id=? AND (sandbox_ref=? OR (sandbox_ref='' AND ?=?))`
@@ -398,7 +399,7 @@ func scmTasksIn(p *Project, k *ProjectTask, ref string, from []string) []scmTask
 	if k != nil {
 		q, args = `SELECT n, ws, run_id, error FROM project_tasks WHERE project_id=? AND n=?`, []any{p.ID, k.N}
 	}
-	rows, err := agent.db.q.Query(q, args...)
+	rows, err := d.q.Query(q, args...)
 	if err != nil {
 		return nil // no tasks table yet
 	}
@@ -448,7 +449,7 @@ func scmRestoreWS(pid, n int64) string {
 		return ws
 	}
 	var bound, live int
-	err := agent.db.q.QueryRow(`SELECT
+	err := scmDB().q.QueryRow(`SELECT
 		COALESCE(SUM(j.kind='bind' AND j.state='done'), 0),
 		COALESCE(SUM(j.kind IN ('sandbox','repo','fork','prepare','setup','bind') AND j.state IN ('queued','running','waiting')), 0)
 		FROM project_jobs j JOIN project_tasks t ON j.task_id=t.id WHERE t.project_id=? AND t.n=?`, pid, n).Scan(&bound, &live)
@@ -470,7 +471,7 @@ func scmCredsReady(p *Project, k *ProjectTask, ref string) {
 	for _, s := range scmTasksIn(p, k, ref, nil) {
 		if s.ws == wsSignin || (s.ws == wsFailed && strings.HasPrefix(s.errTxt, "credentials can't go into")) {
 			back := scmRestoreWS(p.ID, s.n)
-			err := agent.db.Tx(func(t *DB) error {
+			err := scmDB().Tx(func(t *DB) error {
 				res, err := t.q.Exec(`UPDATE project_tasks SET ws=?, error='', updated_ms=? WHERE project_id=? AND n=? AND ws=?`, back, nowMs(), p.ID, s.n, s.ws)
 				if err == nil && rowsAffected(res) > 0 {
 					scmPriorWS(p.ID, s.n, s.ws, back)
@@ -483,7 +484,7 @@ func scmCredsReady(p *Project, k *ProjectTask, ref string) {
 			}
 		}
 		if s.run != 0 {
-			if r, err := agent.db.getRun(s.run); err == nil && parsePending(r.Pending).Kind == pendKindProject {
+			if r, err := scmDB().getRun(s.run); err == nil && parsePending(r.Pending).Kind == pendKindProject {
 				scmPokeRun(s.run)
 			}
 		}

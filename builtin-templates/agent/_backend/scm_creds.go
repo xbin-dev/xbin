@@ -481,8 +481,8 @@ func scmRepoDirs(p *Project, ref string) []string {
 			out = append(out, p.Dir+"/.repos/"+r.Slug+".git")
 		}
 	}
-	if agent != nil && agent.db != nil {
-		rows, err := agent.db.q.Query(`SELECT c.path FROM project_checkouts c JOIN project_tasks t ON c.task_id=t.id
+	if d := scmDB(); d != nil {
+		rows, err := d.q.Query(`SELECT c.path FROM project_checkouts c JOIN project_tasks t ON c.task_id=t.id
 			WHERE t.project_id=? AND c.mode='clone' AND c.state NOT IN ('removed','pending') AND c.path<>''
 			AND (t.sandbox_ref=? OR (t.sandbox_ref='' AND ?=?))`, p.ID, ref, ref, p.SandboxRef)
 		if err == nil { // no tasks table yet: no clones
@@ -499,6 +499,19 @@ func scmRepoDirs(p *Project, ref string) []string {
 }
 
 // --- small helpers --------------------------------------------------------------------
+
+// scmDB is the database of the agent whose engine runs the project worker
+// (projAg, project_worker.go): the credentials' code runs on that worker's
+// jobs and its owner loop (the refresher), so it reads the agent the worker
+// does, through an atomic — not the package's agent variable, which the
+// tests swap back while an engine's job or refresher may still run (a data
+// race, and a nil agent).
+func scmDB() *DB {
+	if a := projAg(); a != nil {
+		return a.db
+	}
+	return nil
+}
 
 // scmActive: p takes credentials (an archived or deleting project doesn't).
 func scmActive(p *Project) bool { return p != nil && (p.State == "" || p.State == projActive) }

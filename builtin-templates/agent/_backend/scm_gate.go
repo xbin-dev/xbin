@@ -118,7 +118,8 @@ func scmCredWhy(p *Project, as, ref string, box *sbxSandbox) string {
 	if !scmHomeRe.MatchString(box.Home) || strings.Contains(box.Home, "/../") || strings.HasSuffix(box.Home, "/..") {
 		return whyHome
 	}
-	used := func(r string) bool { return r != "" && (agent == nil || agent.db == nil || agent.db.hostedUsed(r)) }
+	d := scmDB()
+	used := func(r string) bool { return r != "" && (d == nil || d.hostedUsed(r)) }
 	hosted := used(ref) || (p.SandboxRef != "" && p.SandboxRef != ref && used(p.SandboxRef))
 	switch as {
 	case scmAsPerson:
@@ -195,11 +196,12 @@ func scmBotUsers(p *Project, box *sbxSandbox) string {
 // projectMemberCount is how many member rows p has (project_members); a
 // table that can't be read counts as members (fail closed).
 func scmMemberCount(pid int64) int {
-	if agent == nil || agent.db == nil {
+	d := scmDB()
+	if d == nil {
 		return 1
 	}
 	var n int
-	if err := agent.db.q.QueryRow(`SELECT count(*) FROM project_members WHERE project_id=?`, pid).Scan(&n); err != nil {
+	if err := d.q.QueryRow(`SELECT count(*) FROM project_members WHERE project_id=?`, pid).Scan(&n); err != nil {
 		return 1
 	}
 	return n
@@ -313,9 +315,10 @@ func init() {
 		if w.manager() {
 			return true
 		}
-		if !scmBotHome() || w.kind != whoUser || w.viewedBy != "" || agent == nil {
+		d := scmDB()
+		if !scmBotHome() || w.kind != whoUser || w.viewedBy != "" || d == nil {
 			return false
 		}
-		return scmLoadBotRule(agent.db).allows(w.user, repo)
+		return scmLoadBotRule(d).allows(w.user, repo)
 	}
 }

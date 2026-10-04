@@ -40,11 +40,12 @@ const (
 // them to) and revokes them (scmScrubCreds). Every row is tried; the first
 // error is answered.
 func scmScrub(ctx context.Context, p *Project, ref, why string) error {
-	if p == nil || agent == nil || agent.db == nil {
+	d := scmDB()
+	if p == nil || d == nil {
 		return nil
 	}
 	var first error
-	for _, c := range agent.db.scmCredsOf(p.ID, ref) {
+	for _, c := range d.scmCredsOf(p.ID, ref) {
 		if c.State != credLive {
 			continue
 		}
@@ -84,12 +85,12 @@ func scmScrubRow(ctx context.Context, p *Project, c scmCredRow, why string, box 
 		// scmLiveIn and scmScrub select, so the share stays refused and the
 		// next scrub tries again), due at once (scmCredsDue: the revoked
 		// value is replaced at the next turn, if the gate still allows it).
-		if err := agent.db.scmCredUnemptied(c.PID, c.Ref, c.Host, why); err != nil {
+		if err := scmDB().scmCredUnemptied(c.PID, c.Ref, c.Host, why); err != nil {
 			logf("project #%d: its credential in %s: %v", c.PID, c.Ref, err)
 		}
 		return fmt.Errorf("emptying the credential in %s: %w", c.Ref, werr)
 	}
-	if err := agent.db.scmSetCredState(c.PID, c.Ref, c.Host, credScrubbed, why); err != nil {
+	if err := scmDB().scmSetCredState(c.PID, c.Ref, c.Host, credScrubbed, why); err != nil {
 		return fmt.Errorf("emptying the credential in %s: %w", c.Ref, err)
 	}
 	return nil
@@ -132,7 +133,7 @@ func scmProjectFor(c scmCredRow, provider string) *Project {
 	}
 	p := &Project{ID: c.PID, SCM: provider, Owner: c.ForUser, Host: c.Host, SandboxRef: c.Ref, State: projActive}
 	var uid, scm, owner string
-	if agent != nil && agent.db != nil && agent.db.q.QueryRow(`SELECT uid, scm, owner FROM projects WHERE id=?`, c.PID).Scan(&uid, &scm, &owner) == nil {
+	if d := scmDB(); d != nil && d.q.QueryRow(`SELECT uid, scm, owner FROM projects WHERE id=?`, c.PID).Scan(&uid, &scm, &owner) == nil {
 		p.UID, p.Owner = uid, orStr(owner, p.Owner)
 		if provider == "" {
 			p.SCM = scm
@@ -146,10 +147,11 @@ func scmProjectFor(c scmCredRow, provider string) *Project {
 
 // scmLiveIn is every live row in sandbox ref.
 func scmLiveIn(ref string) []scmCredRow {
-	if agent == nil || agent.db == nil {
+	d := scmDB()
+	if d == nil {
 		return nil
 	}
-	return scmScanCreds(agent.db.q.Query(`SELECT `+scmCredCols+` FROM project_creds WHERE sandbox_ref=? AND state='live'`, ref))
+	return scmScanCreds(d.q.Query(`SELECT `+scmCredCols+` FROM project_creds WHERE sandbox_ref=? AND state='live'`, ref))
 }
 
 // scmScrubSandbox scrubs every project's credential in ref (a share
@@ -200,7 +202,7 @@ func projectSandboxGone(ref string) {
 		p := scmProjectFor(c, "")
 		scmRevoke(ctx, p, c)
 		scmLiveDrop(scmLiveKey(c.PID, c.Ref, c.Host))
-		if err := agent.db.scmSetCredState(c.PID, c.Ref, c.Host, credScrubbed, scrubDelete); err != nil {
+		if err := scmDB().scmSetCredState(c.PID, c.Ref, c.Host, credScrubbed, scrubDelete); err != nil {
 			logf("project #%d: its credential in %s (deleted): %v", c.PID, ref, err)
 		}
 	}
@@ -209,7 +211,7 @@ func projectSandboxGone(ref string) {
 // scmForgetScrub scrubs every person credential of this partition's person
 // from provider — before the provider forgets the sign-in.
 func scmForgetScrub(ctx context.Context, provider string) error {
-	rows := scmScanCreds(agent.db.q.Query(`SELECT `+scmCredCols+` FROM project_creds WHERE state='live' AND identity='person' AND for_user=?`, runUser))
+	rows := scmScanCreds(scmDB().q.Query(`SELECT `+scmCredCols+` FROM project_creds WHERE state='live' AND identity='person' AND for_user=?`, runUser))
 	var first error
 	for _, c := range rows {
 		p := scmProjectFor(c, provider)
@@ -453,7 +455,7 @@ func splitLiveKey(k string) (int64, string, string) {
 // sleeping or waiting for a person). A store that can't say: yes.
 func scmProjectBusy(pid int64) bool {
 	var n int
-	err := agent.db.q.QueryRow(`SELECT count(*) FROM project_tasks t JOIN runs r ON r.id=t.run_id
+	err := scmDB().q.QueryRow(`SELECT count(*) FROM project_tasks t JOIN runs r ON r.id=t.run_id
 		WHERE t.project_id=? AND t.run_id<>0 AND r.status IN ('running','awaiting','sleeping','waiting_input')`, pid).Scan(&n)
 	return err != nil || n > 0
 }
