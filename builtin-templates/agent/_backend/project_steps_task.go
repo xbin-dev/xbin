@@ -166,8 +166,8 @@ func jobBind(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 	if err != nil {
 		return jobOutcome{}, err
 	}
-	if poke && projAg().eng != nil {
-		projAg().eng.Poke(k.RunID)
+	if e := projEng(); poke && e != nil {
+		e.Poke(k.RunID)
 	}
 	return doneJob("bound")
 }
@@ -538,8 +538,8 @@ func deleteProjectStep(ctx context.Context, p *Project, j *ProjectJob) (jobOutco
 	}
 	runs := scanIDs(projAg().db.q.Query(`SELECT id FROM runs WHERE parent_id=0 AND origin='project' AND origin_id=?`, p.ID))
 	for _, id := range runs {
-		if projAg().eng != nil {
-			projAg().eng.endHarnesses(ctx, id)
+		if e := projEng(); e != nil {
+			e.endHarnesses(ctx, id)
 		}
 		if err := deleteConversation(id); err != nil {
 			return jobOutcome{}, err

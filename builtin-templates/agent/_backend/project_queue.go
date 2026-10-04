@@ -141,9 +141,9 @@ func projectPump(pid int64) {
 		logf("project %d: the pump: %v", pid, err)
 		return
 	}
-	if ag.eng != nil {
+	if e := projEng(); e != nil {
 		for _, id := range poke {
-			ag.eng.Poke(id)
+			e.Poke(id)
 		}
 	}
 }
@@ -178,8 +178,8 @@ func deliverTaskInput(t *DB, p *Project, k *ProjectTask, run *Run, in taskInput)
 		k.TurnBy = in.Source
 		_ = t.setTask(k.ID, map[string]any{"turn_by": in.Source})
 	}
-	if projAg() != nil && projAg().eng != nil {
-		projAg().eng.emitInbox(t, run.ID, run.ID)
+	if e := projEng(); e != nil {
+		e.emitInbox(t, run.ID, run.ID)
 	}
 	onTaskChange(t, p, k, "state")
 	return nil

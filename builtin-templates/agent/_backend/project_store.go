@@ -662,11 +662,11 @@ func (ag *Agent) afterACLChange(pid int64, runs []int64) {
 	projACL.flush(pid)
 	for _, id := range runs {
 		ag.acl.flush(id)
-		if ag.eng != nil {
+		if e := projEng(); e != nil {
 			if a, err := ag.aclOf(id); err == nil {
-				ag.eng.hub.revalidate(id, a)
+				e.hub.revalidate(id, a)
 			}
-			ag.eng.publishRun(id)
+			e.publishRun(id)
 		}
 	}
 }

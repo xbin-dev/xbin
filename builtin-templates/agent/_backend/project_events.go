@@ -236,7 +236,8 @@ func (c *projCoalescer) post(pid int64, change string, n int64) {
 // the project's own (a deleted project's is passed in).
 func publishProject(pid int64, change string, n int64, acl *rootACL) {
 	ag := projAg()
-	if ag == nil || ag.eng == nil {
+	e := projEng()
+	if ag == nil || e == nil {
 		return
 	}
 	if acl == nil {
@@ -255,7 +256,7 @@ func publishProject(pid int64, change string, n int64, acl *rootACL) {
 	if n > 0 {
 		data["n"] = n
 	}
-	ag.eng.hub.publishTo(func(s *subscriber) bool {
+	e.hub.publishTo(func(s *subscriber) bool {
 		return (s.root == 0 && acl.level(s.w) >= lvViewer) || (run != 0 && s.root == run && change == "task")
 	}, &Event{Type: evProject, Data: data})
 }
@@ -283,8 +284,8 @@ func setWS(t *DB, p *Project, k *ProjectTask, ws, errText string) {
 	k.WS, k.Error = ws, errText
 	_ = t.setTask(k.ID, map[string]any{"ws": ws, "error": errText})
 	onTaskChange(t, p, k, "ws")
-	if run := k.RunID; run != 0 && projAg() != nil && projAg().eng != nil {
-		t.AfterCommit(func() { projAg().eng.Poke(run) }) // the gate looks again: a park follows its workspace
+	if e, run := projEng(), k.RunID; run != 0 && e != nil {
+		t.AfterCommit(func() { e.Poke(run) }) // the gate looks again: a park follows its workspace
 	}
 }
 

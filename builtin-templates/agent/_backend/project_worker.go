@@ -61,6 +61,7 @@ func (e *Engine) startProjects() {
 		return
 	}
 	projAgent.Store(e.ag)
+	projEngine.Store(e)
 	ctx, cancel := context.WithCancel(e.base)
 	w := &projWorker{e: e, ctx: ctx, cancel: cancel, kick: make(chan struct{}, 1), busy: map[int64]bool{}, locked: map[string]bool{}}
 	projWorkers.Lock()
@@ -473,4 +474,19 @@ func projAg() *Agent {
 		return a
 	}
 	return agent
+}
+
+// projEngine is that engine — what the background work pokes and publishes
+// through (never ag.eng read later: a successor's takeover replaces it).
+var projEngine atomic.Pointer[Engine]
+
+// projEng is that engine (nil before any took over).
+func projEng() *Engine {
+	if e := projEngine.Load(); e != nil {
+		return e
+	}
+	if a := projAg(); a != nil {
+		return a.eng
+	}
+	return nil
 }
