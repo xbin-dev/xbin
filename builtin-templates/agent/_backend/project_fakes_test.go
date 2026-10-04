@@ -14,10 +14,15 @@ import (
 	"time"
 )
 
-// p1SCM is an in-memory scm provider for Projects' own tests (the scm
-// client's fake, scm_fake_test.go, is its part's): repos, issues and pull
-// requests as the test sets them, swapped in through scmFor/scmBound.
+// p1SCM is the scm provider of Projects' own tests: repos, issues and pull
+// requests in memory as the test sets them (the reads Projects' logic is
+// about), swapped in through scmFor/scmBound — and its credentials (token,
+// revoke, sign-in, forget) are the scm client's own against the fake
+// provider (scm_fake_test.go), so a project's credential goes through the
+// real gate, minting, files and redaction like any other.
 type p1SCM struct {
+	prov   *fakeSCM // the provider behind the credentials (its tokens, its sign-in)
+	creds  scmAPI   // the scm client, bound to it
 	mu     sync.Mutex
 	name   string
 	hosts  []string
@@ -31,6 +36,14 @@ type p1SCM struct {
 func newP1SCM(t *testing.T) *p1SCM {
 	f := &p1SCM{name: "apps/scm-github", hosts: []string{"github.com"}, repos: map[string]*scmRepo{},
 		issues: map[string]map[int]*scmIssue{}, pulls: map[string][]scmPull{}}
+	f.prov = newFakeSCM(t, f.name)
+	bindSCM(t, f.prov)
+	scmForgetState(t)
+	creds, err := scmFor(f.name)
+	if err != nil {
+		t.Fatalf("the scm client for the fake provider: %v", err)
+	}
+	f.creds = creds
 	oldFor, oldBound := scmFor, scmBound
 	scmFor = func(provider string) (scmAPI, error) {
 		if provider != f.name {
@@ -81,14 +94,20 @@ func (f *p1SCM) Hello(context.Context) (*scmHello, error) {
 func (f *p1SCM) unsupported() error {
 	return &scmError{Status: 501, Refusal: scmRefUnsupported, Message: "not in the test's fake"}
 }
-func (f *p1SCM) Token(context.Context, scmTokenReq) (*scmToken, error) { return nil, f.unsupported() }
-func (f *p1SCM) Revoke(context.Context, scmRevokeReq) error            { return nil }
-func (f *p1SCM) Signin(context.Context) (*scmSigninState, error)       { return nil, f.unsupported() }
-func (f *p1SCM) SigninState(context.Context) (*scmSigninState, error)  { return nil, f.unsupported() }
-func (f *p1SCM) SigninPoll(context.Context, string) (*scmSigninState, error) {
-	return nil, f.unsupported()
+func (f *p1SCM) Token(ctx context.Context, req scmTokenReq) (*scmToken, error) {
+	return f.creds.Token(ctx, req)
 }
-func (f *p1SCM) Forget(context.Context) error { return nil }
+func (f *p1SCM) Revoke(ctx context.Context, req scmRevokeReq) error { return f.creds.Revoke(ctx, req) }
+func (f *p1SCM) Signin(ctx context.Context) (*scmSigninState, error) {
+	return f.creds.Signin(ctx)
+}
+func (f *p1SCM) SigninState(ctx context.Context) (*scmSigninState, error) {
+	return f.creds.SigninState(ctx)
+}
+func (f *p1SCM) SigninPoll(ctx context.Context, id string) (*scmSigninState, error) {
+	return f.creds.SigninPoll(ctx, id)
+}
+func (f *p1SCM) Forget(ctx context.Context) error { return f.creds.Forget(ctx) }
 func (f *p1SCM) Repos(context.Context, scmQuery) (*scmPage[scmRepo], error) {
 	return nil, f.unsupported()
 }

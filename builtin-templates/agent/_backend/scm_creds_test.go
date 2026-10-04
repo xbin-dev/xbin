@@ -121,8 +121,15 @@ func credFixture(t *testing.T, mode agentMode) *credFx {
 		}
 		return fx.levels[user]
 	}
+	t.Cleanup(func() { projectsInSandbox, projectReposOf, projectLevelOf = oldIn, oldRepos, oldLevel })
+	scmForgetState(t)
+	return fx
+}
+
+// scmForgetState forgets, after the test, the live tokens and sign-ins
+// this process holds (the next test's database has none of their rows).
+func scmForgetState(t *testing.T) {
 	t.Cleanup(func() {
-		projectsInSandbox, projectReposOf, projectLevelOf = oldIn, oldRepos, oldLevel
 		scmLiveMu.Lock()
 		scmLives, scmRetired = map[string]*scmLive{}, map[string]int64{}
 		scmPriors.m = map[string]string{}
@@ -132,7 +139,6 @@ func credFixture(t *testing.T, mode agentMode) *credFx {
 		scmSignins = map[string]*scmSignin{}
 		scmSigninMu.Unlock()
 	})
-	return fx
 }
 
 // setRepos makes repos the project's: what projectReposOf answers and
