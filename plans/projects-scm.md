@@ -3777,3 +3777,7 @@ with the record that explains it:
 - 2026-10-04 (K) §9.1: a live token is reused only while its scope (repos, access, permissions) is the project's; a repo added or `workflows` turned on mints again — records/K.md
 - 2026-10-04 (K) §9.1: every 5xx whose body names no refusal is `unavailable` (502 included), but 501 stays `unsupported` (the contract's) — records/K.md
 - 2026-10-04 (K) §14.1: the `scrub` job's why is the job's `step` when it holds one of §14.1's words, else inferred (repo-removed, archive, delete, left) — records/K.md
+- 2026-10-04 (K) §9.2, §9.6: a credential's write and every scrub take a per-sandbox lock — `ensureCreds` asks the gate again after minting and holds the lock through the files and the row; a share's PATCH and a stop's or archive's lifecycle call through the agent hold it too; a provider's call never holds it — records/K.md
+- 2026-10-04 (K) §16.2: `handlePatchSandbox` gains one more line (taking that lock); the stop/archive trigger is one deferred line (`scmScrubOnAction`), no longer an `if` — records/K.md
+- 2026-10-04 (K) §9.8, §7.2: a provider's `signin` refusal on a route anyone may call (`GET /projects/scm/repos`) keeps its device code for the partition's own person; anyone else gets the refusal without `signin` — records/K.md
+- 2026-10-04 (K) §9.1 (silent): a project with no host (`host` DEFAULT '') takes its credential's host, before minting, from its row there or the provider's hello when it lists one host — records/K.md

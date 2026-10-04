@@ -130,6 +130,7 @@
   `AddRepo`, `AddPull`, `AddComment`, `SetChecks`, `SetJobLog(id, text,
   running)`, `SetAnnotations`, `AddIssue`, `FailNext(route, *scmError)`
   (a zero `scmError` answers a bare 503), fields `Caps`, `Identities`,
+  `TokenHold` (called before each `POST /token` is answered),
   `Person`, `LongTokens`, `TokenTTL`, `NoCache`; reads `Tokens()`,
   `Requests(route)`, `Revoked()`, `Subscriptions()`; `Deliver(h, ev)`
   POSTs an event v1 to `/adapter/scm/event` as the provider's tile with
@@ -228,6 +229,37 @@ Also dated in projects-scm §19.
   can't be emptied, like `readyForShare`; the post-PATCH sibling and the
   stop/archive triggers don't refuse (best effort). The share trigger is a
   three-line `if` (gofmt), not one line.
+- §9.2, §9.6 (fix round 2): a credential's write and every scrub take a
+  per-sandbox lock (`scmHoldSandbox`). `ensureCreds` asks the gate under
+  it before minting, mints holding only the credential's key lock, then
+  takes the sandbox's lock again, re-reads the sandbox, asks the gate
+  again (a refusal now: the token just handed out is revoked, the row
+  blocked) and holds the lock through the files and the row. A share's
+  PATCH (`handlePatchSandbox`, from before the pre-PATCH scrub to after
+  the post-PATCH one) and a stop's or archive's lifecycle call
+  (`scmScrubOnAction`, deferred past `Lifecycle`) hold it too, so no
+  credential is written between a scrub that found nothing and the change
+  that shares, stops or archives the sandbox. The spec's "gate re-checked
+  before every write" alone left that window open. Not taken: holding the
+  sandbox's lock across the provider's `Token` (a share would wait up to
+  30 s on a provider), a "writing" row before the files (the lock covers
+  it in this process; a sandbox is changed through one agent process).
+- §16.2 (fix round 2): `handlePatchSandbox` gains one line taking that
+  lock; the stop/archive trigger becomes one deferred line,
+  `defer scmScrubOnAction(r.Context(), ref, action)()`, replacing the
+  three-line `if` the verifier flagged as unrecorded.
+- §9.8, §7.2 (fix round 2): `writeSCMErr` passes a `signin` refusal's
+  payload only to the partition's own person (`scmSigninFor`: a person,
+  not view-as, in their own partition); anyone else — view-as, an
+  element, another person on `GET /projects/scm/repos` — gets the status,
+  words and refusal without `signin`. The spec said where the code is
+  shown, not what the routes anyone may call pass through.
+- §9.1 (silent, fix round 2): a project whose `host` is '' (the frozen
+  DDL's default) takes its credential's host before minting from its row
+  in that sandbox, else from the provider's hello when it lists exactly
+  one host (`scmCredHost`); only when neither can tell is the token's
+  host taken, as before. The key lock and the reuse check then name the
+  host the row and the scrubs use.
 - §7.2: `GET /projects/scm/bot` in a person's partition answers the
   partition's own (unread) rule to a manager; only `PUT` is 409 there.
   The sign-in routes answer 403 to view-as and to components (`needUser`).
@@ -293,8 +325,10 @@ and the UI harness are owed by the program (projects-scm §15.4).
 - **Edits outside K's files:** `B/harness_redact.go` (the shapes, the live
   set, `maskExact`; the header gains a paragraph), `B/db.go` (one line
   each in `addMessage` and `rewriteMessage` — P1 edits `deleteOneRun`,
-  `setStatus`, `setStatusOnly`), `B/sandbox_routes.go` (four scrub calls in
-  `handlePatchSandbox`, `handleDeleteSandbox`, `handleSandboxAction`),
+  `setStatus`, `setStatusOnly`), `B/sandbox_routes.go` (in
+  `handlePatchSandbox` the sandbox lock's line, the pre-PATCH `if` and the
+  post-PATCH scrub; one line each in `handleDeleteSandbox` and
+  `handleSandboxAction`),
   agent `xbin.json` (the slot after `sandboxes`), API.md (its own `###`
   only), projects-scm §19 (K's lines replace "(none yet)"; other WPs'
   lines will conflict there — keep all).
@@ -334,7 +368,71 @@ and the UI harness are owed by the program (projects-scm §15.4).
 | `16610255` | agent template: the scm refresher sleeps until the next token's instant |
 | `5ed9f899` | plans: projects-scm — K's record and deviations |
 | `b4eb6b87` | agent template: scm credential fixes — an unemptied scrub stays live, scope re-mints, the gate's question in its transaction |
-| (this commit) | plans: projects-scm — K's record after fix round 1 |
+| `0009b115` | plans: projects-scm — K's record after fix round 1 |
+| (fix round 2) | agent template: scm credential writes and scrubs take turns per sandbox; a device code only to its person; a hostless project's host |
+| (fix round 2) | plans: projects-scm — K's record after fix round 2 |
+
+## Fix round 2
+
+The verifier's five findings (`last-verify-issues.json`), each checked
+against the code before fixing:
+
+- **Blocker — a share, stop or archive racing a credential's write:
+  real.** `ensureCreds` read the sandbox and ran the gate before minting,
+  then wrote the files and only then the row; the share's scrubs select
+  `live` rows, so a share during the `Token` call found nothing, answered
+  200, and the token was then written into the shared sandbox (the new
+  test reproduces it on the previous code: the write after the share
+  succeeded). Fixed with the per-sandbox lock described in Deviations
+  (§9.2, §9.6 fix round 2): the gate asked again after minting under the
+  lock held through files and row; the share's PATCH and the stop/archive
+  lifecycle call hold it; `scmScrub`, Forget and `projectSandboxGone` take
+  it per row/sandbox; `scmScrubRow` now always expects it held (the old
+  "box passed = lock held" convention is gone). New
+  `TestScrubRacesEnsure` (share, archive): the provider's `Token` blocks
+  (`fakeSCM.TokenHold`), the share/archive answers 200 without waiting
+  on it, and afterwards no file holds the token, no row or memory entry
+  is live, and for the share the row is `blocked` and the purpose
+  revoked. The archive case passes on the previous code too (the fake
+  manager, like the real one, refuses a file write into an archived
+  sandbox); it pins that the lock doesn't deadlock the lifecycle path. A
+  stop followed by a write still starts the sandbox again (the manager's
+  documented "a stopped sandbox starts on a file operation"): the write
+  comes after the stop's scrub, for a task that needs the sandbox anyway.
+- **Major — the device code reaching other callers: real.** `writeSCMErr`
+  marshalled the whole `*scmError`; `GET /projects/scm/repos` (anyone)
+  in alice's partition passed `signin.userCode` to view-as, elements and
+  other people. Fixed: `writeSCMErr(w, r, err)` drops `Signin` unless
+  `scmSigninFor(callerOf(r))`. New `TestSigninCodeOnlyToPerson` (fails on
+  the previous code: view-as got `ABCD-1234`). API.md says it.
+- **Minor — the lock key with an empty host: real.** Fixed by
+  `scmCredHost` (Deviations, §9.1 fix round 2); `scmBlock`'s scrub now
+  relies on the sandbox lock, whatever the host. New `TestCredsHostless`
+  (fails on the previous code: two tokens minted for one credential).
+- **Minor — the stop/archive trigger's three lines unrecorded: real.**
+  Now one deferred line (`scmScrubOnAction`); the lock's line in
+  `handlePatchSandbox` is recorded with it (§19, Deviations).
+- **Minor — commit `343a3403`'s subject and the "5 commits" count:
+  partly fixed.** The count was in the previous builder's summary, not in
+  this record; the branch has 7 commits before this round and 9 after it
+  (the table above). The subject stays as is: rewording it needs a
+  history rewrite of a branch others have verified, which this round
+  doesn't do; the integration branch rewords it (suggested subject under
+  Merge risks).
+
+Checks run in fix round 2 (each targeted; nothing over two minutes):
+
+| Command | Result |
+|---|---|
+| `go test -count=1 -run 'TestScrubRacesEnsure\|TestSigninCodeOnlyToPerson\|TestCredsHostless'` (the agent backend in a scratch copy shaped as `hack/tile-check.sh` builds it) | ok |
+| the same three against the previous commit's `scm_ensure.go`, `scm_scrub.go`, `scm_creds.go`, `scm_routes.go`, `sandbox_routes.go` (by hand, not committed) | `TestScrubRacesEnsure/share`, `TestSigninCodeOnlyToPerson`, `TestCredsHostless` fail as described; `/archive` passes (above) |
+| `go test -count=1 -run 'TestScm\|TestCred\|TestScrub\|TestGitCredential\|TestRefresh\|TestPending\|TestSignin\|TestRedact\|TestSeeded\|TestSCMCreds\|TestNoTickers\|TestSandbox'` | ok (12 s) |
+| every test in `sandbox*_test.go` and `harness_creds*_test.go` (68, by name) | ok (20 s) |
+| `go test -race -count=1 -run 'TestScrubRacesEnsure\|TestSigninCodeOnlyToPerson\|TestCredsHostless\|TestScrubOn\|TestCredGateBlocks'` | ok |
+| `TILE_TEST_FLAGS="-count=1 -v -run TestScrubRacesEnsure\|TestSigninCodeOnlyToPerson\|TestCredsHostless\|TestScrubOnShare\|TestScrubOnStopDeleteForget" hack/tile-check.sh agent` | ok — vet, and the five tests (with every subtest) PASS (36 s) |
+| `go test ./internal/docscheck`; `make fmt-check vet` | ok |
+
+Full -race suite and make check: at the gate (lead).
 
 ## Owner questions
 
