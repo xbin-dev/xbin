@@ -256,7 +256,9 @@ elsewhere 403 `identity`.
   asks the host at most once per interval. 404 for an unknown or
   finished-long-ago poll id.
 - `DELETE /scm/signin` → **204**: "Forget" — revokes the grant upstream and
-  clears the sign-in. Every person token handed out stops working.
+  clears the sign-in. Every person token handed out stops working. When
+  the host refuses the revocation (or can't be reached) Forget answers
+  that refusal and clears nothing, so it can be tried again.
 
 The device code (`userCode`) is shown only to the person it is for; a
 consumer never shows it to anyone else.
@@ -374,7 +376,10 @@ untrusted.
   and at most `bytes`), `tailBytes` default 65536, at most 1048576, `since`
   default 0; the start is cut forward to a line start and `from` is where
   `text` starts — a viewer pages back with `until=<from>`; `truncated` when
-  anything before `from` was left out. `complete` is false while the job
+  anything before `from` was left out. A provider that keeps only a long
+  log's end answers an `until` before what it keeps with empty `text`,
+  `from` where the kept part starts and `truncated`: paging back ends
+  there. `complete` is false while the job
   runs and the host serves partial logs. The text is as the host serves it
   (escape codes kept; a consumer strips them) and untrusted.
   **409 `in-progress`** with `url` while the job runs on a host that serves

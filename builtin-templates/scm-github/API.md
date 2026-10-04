@@ -102,7 +102,10 @@ Then:
   a token;
 - **Forget** (`DELETE /scm/signin`, or the page) revokes your grant at
   GitHub — every token handed out for you stops working — and clears it
-  here and at global.
+  here and at global. The grant goes first: if GitHub (or global) refuses
+  or doesn't answer, Forget answers that (503 `unavailable`, …) and
+  clears nothing, so you can try again. A token GitHub no longer knows
+  (expired, already revoked) counts as revoked.
 
 Deleting a person can't run Forget: their tokens live on until they
 expire (at most the epoch, §6).
@@ -121,12 +124,16 @@ and a copy that isn't partitioned hand out the bot
 | `allowWorkflows` | `false` | whether `workflows: write` may be asked for (an App with the `workflows` preset) |
 | `allowedAccounts` | the App's own account (written at setup); `[]` refuses everything | the accounts tokens, reads and events may concern; others → 403 `not-allowed`. An installation elsewhere (a public App can be installed by anyone) is listed as **foreign** with a link to remove it, and served nothing |
 | `allowRerun` | `true` | offer `checks.rerun` — only while the App has `actions: write`, so off in effect until then |
-| `personTtlMin` | `0` | caps a person token's life (0: the epoch decides) |
+| `personTtlMin` | `0` | caps a person token's life: `0` (the epoch decides) or 50 to 1440 minutes — never under the 50 minutes `maxTtlSec` promises a consumer |
 
 A policy change empties the bot token cache: tokens cut under the old one
 aren't handed out again. People's partitions read the public half
-(`botForPeople`, `allowWorkflows`, `allowedAccounts`) from the shared
-`conf`; global checks everything it relays itself.
+(`botForPeople`, `allowWorkflows`, `allowedAccounts`, `botRepos`) from the
+shared `conf`; global checks everything it relays itself. A partition
+keeps the tokens it got for reuse too, so it re-checks every request
+against that half before reusing one, and `conf` `public` carries a
+`tokenGen` that a policy change, **Revoke all bot tokens** and a new App
+move: a partition reuses only tokens of the generation it reads.
 
 ## 6. Tokens
 
@@ -143,7 +150,11 @@ aren't handed out again. People's partitions read the public half
   They expire at the **epoch's** end — the parent token's expiry less an
   hour — and the parent refreshes only when the epoch can't cover a
   request, so every token of a person rotates together, about every 7
-  hours.
+  hours. "Can't cover" counts the request's own margin (15 minutes, or its
+  `minTtlSec`): a request asking 50 minutes refreshes the parent up to 40
+  minutes before the epoch's other tokens reach their `refreshAfter` (5
+  at the default 15). Should a scoped token die with its parent (§13),
+  those die that much early.
 - **Revocation**: `POST /scm/token/revoke` by value (only the consumer it
   was given to) or by purpose; bot tokens with `DELETE /installation/token`,
   person tokens through global. Best effort upstream: a token GitHub can't
@@ -177,11 +188,14 @@ webhooks, subscriptions and delivery to the agent — is listed in hello's
   log once it ends (a running one is 409 `in-progress` with the job's page
   on GitHub, where it streams). The log is a redirect to GitHub's storage,
   followed and cut to its last 8 MiB; the tail you ask for is cut from
-  that. A completed job's log is kept a few minutes for paging back.
+  that. A completed job's log is kept a few minutes for paging back; an
+  `until` before the kept 8 MiB answers empty `text` with `from` where
+  they start and `truncated`: paging back ends there.
 - **Annotations**: a check run's, 50 at most a page, each message clipped
   to 4 KiB.
-- **Rerun**: `checks.rerun` is listed while the App has `actions: write`
-  and `allowRerun` is on; a rerun is made as the asking person, in their
+- **Rerun**: `checks.rerun` is listed in a person's partition while the
+  App has `actions: write` and `allowRerun` is on (global and an
+  unpartitioned copy never list it: a rerun there is 403 `identity`); a rerun is made as the asking person, in their
   own partition, with their own sign-in — never the bot (403 `identity`
   elsewhere).
 
@@ -193,8 +207,10 @@ passed through untrusted.
 - Every call carries `X-GitHub-Api-Version: 2022-11-28`; GitHub's ETags
   are kept (2000 answers) so repeats are conditional.
 - GitHub's rate limit is tracked per identity (the App, each installation,
-  each person): once spent, calls answer 429 `limit` with `retryAfterMs`
-  without calling GitHub. A SAML-protected organization answers 403
+  each person) and per GitHub resource (`core`, `search`, `graphql`): once
+  spent, that identity's calls of that resource answer 429 `limit` with
+  `retryAfterMs` without calling GitHub — a spent search limit leaves its
+  other calls alone. A SAML-protected organization answers 403
   `not-allowed` with `sso.url` to authorize the identity.
 - `POST /scm/pulls`: GitHub's 422 "a pull request already exists" answers
   the open one, 200 `existing: true`. `mergeable: null` (GitHub still
@@ -250,8 +266,10 @@ never interpreted.
 `limits.minTtlSec` and `limits.maxTtlSec`); pages of at most
 100 (annotations 50); 50 items a poll; repo lists of at most 1000, kept 5
 minutes; logs: the last 8 MiB, a tail of at most 1 MiB a call; 2000
-reusable tokens and 2000 cached GitHub answers; 8000 live tokens recorded
-(past that, a new one is 429 `limit` until some expire or are revoked).
+reusable tokens and 2000 cached GitHub answers; 8000 live tokens recorded,
+500 of them one consumer's (a person's relayed bot tokens count as one
+consumer); past either, a new one is 429 `limit` until some expire or are
+revoked. A commit's statuses: the first 100 contexts.
 
 ## 13. Spikes and what they decided
 
@@ -264,8 +282,9 @@ from GitHub's documentation and keeps the safe default for each:
   `/setup/github`, the tile's own address, and pasting the address GitHub
   sent you to — and pasting an existing App stays the primary path.
 - **A scoped person token after its parent refreshes**: undocumented, so
-  the epoch stays — the parent refreshes only when every token of the epoch
-  is due anyway.
+  the epoch stays — the parent refreshes only when the epoch can't cover a
+  request, which a request asking more than 10 minutes' margin reaches
+  early (§6): to be checked live.
 - **Revoking a stateless installation token** (`DELETE
   /installation/token`): documented as revoking the token used; treated as
   best effort, with the hour's life as the bound.
