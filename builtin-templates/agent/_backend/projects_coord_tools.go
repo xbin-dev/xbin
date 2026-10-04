@@ -129,13 +129,17 @@ func coordToolSpecs() []toolSpec {
 }
 
 // coordToolsFor is what runToolSpecs adds for run: the eight tools for a
-// coordinator at depth 0 (its role through projectRefOf), none otherwise.
+// coordinator at depth 0 (its role through projectRefOf, its session key
+// agreeing), none otherwise.
 func coordToolsFor(cfg Config, run *Run) []toolSpec {
 	if run == nil || run.Depth != 0 || run.ParentID != 0 || run.Origin != originProject || hostedID(run.ID) {
 		return nil
 	}
 	ag := projAg()
-	if ag == nil || !ag.db.projectRefOf(run).isCoordinator() {
+	if ag == nil || !ag.db.features {
+		return nil
+	}
+	if _, _, ok := coordOf(ag.db, run); !ok {
 		return nil
 	}
 	var out []toolSpec
@@ -546,7 +550,7 @@ func (ag *Agent) coordStatus(p *Project, args map[string]any) (string, error) {
 		}
 		if run != nil && e != nil {
 			d := strings.Replace(e.childDigest(ag.db, run.ID, a.Detail), fmt.Sprintf("#%d ", run.ID), "", 1)
-			s += "\n" + untrusted("task #"+strconv.FormatInt(n, 10), "what it is doing", d)
+			s += "\n" + untrusted("task #"+strconv.FormatInt(n, 10), "what it is doing", clip(d, inlineBudget(len(nums))))
 		} else if run == nil {
 			s += "\n  its conversation was deleted"
 		}

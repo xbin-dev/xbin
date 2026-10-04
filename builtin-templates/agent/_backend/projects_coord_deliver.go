@@ -74,40 +74,34 @@ func coordDeliver(t *DB, run *Run) (string, func(int64)) {
 	if !ok {
 		return "", nil
 	}
-	rows, err := t.q.Query(`SELECT id, n, kind, body FROM project_events WHERE project_id=? AND coord_user=? AND delivered=0
-		ORDER BY id`, pid, user)
+	var total int
+	var top int64
+	if t.q.QueryRow(`SELECT count(*), COALESCE(MAX(id), 0) FROM project_events WHERE project_id=? AND coord_user=? AND delivered=0`,
+		pid, user).Scan(&total, &top) != nil || total == 0 {
+		return "", nil
+	}
+	rows, err := t.q.Query(`SELECT n, kind, body FROM project_events WHERE project_id=? AND coord_user=? AND delivered=0 AND id<=?
+		ORDER BY id DESC LIMIT ?`, pid, user, top, coordMaxLines)
 	if err != nil {
 		return "", nil
 	}
 	type ev struct {
-		id   int64
 		n    int64
 		kind string
 		body string
 	}
-	var evs []ev
+	var shown []ev // the newest first
 	for rows.Next() {
 		var e ev
-		if rows.Scan(&e.id, &e.n, &e.kind, &e.body) == nil {
-			evs = append(evs, e)
+		if rows.Scan(&e.n, &e.kind, &e.body) == nil {
+			shown = append(shown, e)
 		}
 	}
 	rows.Close()
-	if len(evs) == 0 {
-		return "", nil
-	}
-	ids := make([]int64, 0, len(evs))
-	for _, e := range evs {
-		ids = append(ids, e.id)
-	}
-	shown := evs
-	if len(shown) > coordMaxLines {
-		shown = shown[len(shown)-coordMaxLines:]
-	}
 	lines := make([]string, 0, len(shown))
 	size := 0
-	for i := len(shown) - 1; i >= 0; i-- { // the newest first, so the budget keeps them
-		l := coordLine(shown[i].n, shown[i].kind, shown[i].body)
+	for _, e := range shown { // the newest first, so the budget keeps them
+		l := coordLine(e.n, e.kind, e.body)
 		if size+len(l) > coordTextMax {
 			break
 		}
@@ -119,15 +113,13 @@ func coordDeliver(t *DB, run *Run) (string, func(int64)) {
 	}
 	var b strings.Builder
 	b.WriteString(coordUpdatesHead + "\n")
-	if left := len(evs) - len(lines); left > 0 {
+	if left := total - len(lines); left > 0 {
 		fmt.Fprintf(&b, "(%d earlier update(s) not shown — task_list and task_status say where each task stands)\n", left)
 	}
 	b.WriteString(strings.Join(lines, "\n"))
 	mark := func(msgID int64) {
-		at := nowMs()
-		for _, id := range ids {
-			_, _ = t.q.Exec(`UPDATE project_events SET delivered=?, msg_id=? WHERE id=? AND delivered=0`, at, msgID, id)
-		}
+		_, _ = t.q.Exec(`UPDATE project_events SET delivered=?, msg_id=? WHERE project_id=? AND coord_user=? AND delivered=0 AND id<=?`,
+			nowMs(), msgID, pid, user, top)
 	}
 	return b.String(), mark
 }
