@@ -3248,6 +3248,13 @@ label, which anyone who may edit the sandbox could set:
   team-visible sandbox needs a team-visible project whose team role is
   participant).
 - **Never** in a team project's seed sandbox.
+- **The other way round:** a non-secure (hosted) conversation doesn't
+  work in a sandbox that holds a project's credential (its sandbox tools
+  refuse it, saying why — create another sandbox for it): its members
+  could have the agent read the files or push with them. The credential
+  stays where it is; once it is scrubbed (the sandbox stopped through the
+  agent, say), the conversation may work there, and from then on no
+  credential goes into that sandbox.
 
 A refusal marks the credential `blocked` with why, empties and revokes
 anything written there before, and fails the task: "credentials can't go

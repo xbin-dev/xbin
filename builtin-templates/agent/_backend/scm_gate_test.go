@@ -1,9 +1,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 )
 
 // gateBox is a sandbox as a manager would report it: alice's own, homed in
@@ -292,4 +295,69 @@ func TestScmBotRule(t *testing.T) {
 			t.Fatalf("the person's own repos: %s", got.Body)
 		}
 	})
+}
+
+// The hosted-used clause the other way round: a hosted (non-secure)
+// conversation doesn't work in a sandbox that already holds a project's
+// credential — its members could have the agent read the files or push
+// with them — and the credential stays where it is, its person's. Once it
+// is scrubbed the conversation may, and the sandbox is hosted-used from
+// then on: the gate refuses the next write. A use waits on a write in
+// progress (the sandbox's lock), so neither slips past the other.
+func TestHostedUseRefusedWhereCred(t *testing.T) {
+	fx := credFixture(t, modeUser)
+	fx.ensure(t)
+	tok := fx.scm.Tokens()[0].Value
+	cfg := defaultConfig()
+	bd := SandboxBinding{Ref: fx.ref, Name: fx.box.Name, Egress: fx.box.Egress}
+	cfg.Class, cfg.Sandbox, cfg.Attached = "coding", &bd, []SandboxBinding{bd}
+	hosted := teamIDBase + 7
+	_, err := fx.ag.sandboxUse(context.Background(), hosted, cfg, "")
+	if sbxRefusal(err) != "not-allowed" || !strings.Contains(err.Error(), "a project's credential for its code host is there") {
+		t.Fatalf("a hosted conversation in a sandbox holding her credential: %v", err)
+	}
+	if fx.ag.db.hostedUsed(fx.ref) {
+		t.Fatal("a refused use was noted as hosted-used")
+	}
+	if row := credRowOf(t, fx); row.State != credLive || !strings.Contains(readFile(t, fx.credFile("github.com.cred")), tok) {
+		t.Fatalf("her credential was disturbed: %+v", row)
+	}
+	// her own conversation works there as before
+	if _, err := fx.ag.sandboxUse(context.Background(), partitionIDBase+50, cfg, ""); err != nil && strings.Contains(err.Error(), "non-secure") {
+		t.Fatalf("her own conversation: %v", err)
+	}
+	// a live row whose files couldn't be emptied refuses the same
+	if err := fx.ag.db.scmCredUnemptied(fx.p.ID, fx.ref, "github.com", scrubShare); err != nil {
+		t.Fatal(err)
+	}
+	if why := scmHostedUse(fx.ag.db, fx.ref, "work"); why == "" {
+		t.Fatal("an unemptied credential")
+	}
+	// scrubbed: the conversation may, and the gate refuses from then on
+	if err := scmScrub(context.Background(), fx.p, fx.ref, scrubStop); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fx.ag.sandboxUse(context.Background(), hosted, cfg, ""); err != nil && strings.Contains(err.Error(), "non-secure") {
+		t.Fatalf("after the scrub: %v", err)
+	}
+	if !fx.ag.db.hostedUsed(fx.ref) {
+		t.Fatal("the use wasn't noted")
+	}
+	if err := ensureCreds(context.Background(), fx.p, nil, "", scmMinLeft); err == nil || !strings.Contains(err.Error(), "non-secure (hosted)") {
+		t.Fatalf("a write after the hosted use: %v", err)
+	}
+	// a write in progress (its lock held) holds the use back until it ends
+	other := sandboxRef("apps/cs", "another")
+	release := scmHoldSandbox(other)
+	done := make(chan string, 1)
+	go func() { done <- scmHostedUse(fx.ag.db, other, "another") }()
+	time.Sleep(150 * time.Millisecond)
+	if fx.ag.db.hostedUsed(other) {
+		release()
+		t.Fatal("the use was noted while a write held the sandbox")
+	}
+	release()
+	if why := <-done; why != "" || !fx.ag.db.hostedUsed(other) {
+		t.Fatalf("after the write: %q", why)
+	}
 }

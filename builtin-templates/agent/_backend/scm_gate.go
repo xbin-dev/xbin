@@ -205,6 +205,27 @@ func scmMemberCount(pid int64) int {
 	return n
 }
 
+// scmHostedUse is the other order of the gate's hosted-used clause
+// (sandboxUse, at every call of a hosted conversation in a person's
+// partition, before it does a thing there): a sandbox that holds a
+// project's credential is refused to the hosted conversation — its members
+// could have the agent read the files (or push with them) — and one that
+// doesn't is noted as hosted-used (noteHostedUse), so no credential goes
+// into it from then on. Under the sandbox's lock: a write either finished
+// first (its row is live: refused) or finds the note (the gate refuses).
+// A live row whose files couldn't be emptied counts; a table that can't be
+// read refuses (fail closed). "" = it may use the sandbox.
+func scmHostedUse(d *DB, ref, name string) string {
+	defer scmHoldSandbox(ref)()
+	var n int
+	if err := d.q.QueryRow(`SELECT EXISTS(SELECT 1 FROM project_creds WHERE sandbox_ref=? AND state='live')`, ref).Scan(&n); err != nil || n != 0 {
+		return fmt.Sprintf("a non-secure (hosted) conversation doesn't work in %s: a project's credential for its code host is there, "+
+			"and the conversation's members could have the agent read it — create another sandbox for this conversation", name)
+	}
+	d.noteHostedUse(ref)
+	return ""
+}
+
 // --- the bot rule ---------------------------------------------------------------------
 
 const settingSCMBotRule = "scm_bot_rule"
