@@ -11032,10 +11032,11 @@ Deviations and refinements made while implementing; all deliberate:
     and inline titles are the system font (Dynamic Type intact); navigation
     large titles, the renderer's `largeTitle` and the first-run stair are
     Bricolage Grotesque 800, terminals and `mono` JetBrains Mono (regular
-    and bold; bold is weight, `useBrightColors` off). The TTFs are made from
+    and bold, without its ligatures). The TTFs are made from
     web/vendor/fonts by native/ios/scripts/app-fonts.sh (the web's own
-    glyphs; Bricolage's latin and latin-ext halves merged), bundled with
-    their OFL texts and listed in Info.plist's UIAppFonts.
+    glyphs; Bricolage's latin and latin-ext halves merged; JetBrains Mono's
+    `calt` left out), bundled with their OFL texts and listed in
+    Info.plist's UIAppFonts.
   - **Shapes: 2 pt on what the app draws itself** — cards (screens'
     cards, the launcher's boxes, the renderer's card groups, chat cards,
     notices, code, images, terminals, a widget's card), badges, the switcher
@@ -11070,10 +11071,59 @@ Deviations and refinements made while implementing; all deliberate:
   - **The mark and the icon.** XbinMark draws M3 from the masters' path
     data (plans/brand/marks), XbinLockup sets it with wordmark A in the text
     colour, on the Welcome and on Log in. AppIcon.icon is the cobalt fill with the white b and the yellow
-    x as two flat layers (no specular, no translucency); the dark, clear and
-    tinted looks stay the system's derivations (native/AGENTS.md), checked
-    with ictool.
+    x as two flat layers (no specular, no translucency); its Dark look is
+    the Default's (the fill given for dark too), and the clear and tinted
+    looks stay the system's derivations (native/AGENTS.md), checked with
+    ictool.
   - **First run** is the one place the stair appears (product-ui 10):
     "Your apps / on your / phone." on yellow, green and magenta over the
-    definition, then the four ways in, which stay (Run your own xbin is a
-    product function). The About pages follow the voice rules.
+    definition, then the four ways in, which stay (installing xbin is a
+    product function, labelled "Install xbin" as on the site). The About
+    pages follow the voice rules.
+  - **The review round (2026-10-04)** found eleven things in the app; all
+    were fixed on brand/ios before the merge:
+    - *The terminal's bright colours.* `useBrightColors = false` doesn't
+      mean "bold is weight" in SwiftTerm 1.20: AppleTerminalView.mapColor
+      then maps every indexed colour above 7 to index − 8 in the bold face,
+      so SGR 90–97 lost their bright colours, bright black (the zsh and
+      bash prompts' path) was drawn as black on the background, and every
+      256-colour code from 8 up took the wrong entry. The line is gone and
+      SwiftTerm's default stays. **The one deviation from product-ui 7:**
+      bold text in colours 0–6 also takes the bright colour, as most
+      terminals draw it; SwiftTerm has no option for bold-as-weight alone
+      (an upstream change would be the way to drop it). The theme gallery
+      now checks the bright black on screen (pixels of `#5C5F70`).
+    - *Ligatures.* SwiftTerm and SwiftUI apply a font's default features,
+      so JetBrains Mono drew `->`, `!=` and `=>` as joined symbols in the
+      terminal and every `mono`/code text, against D184 and the web's
+      `"liga" 0, "calt" 0`. app-fonts.sh now leaves `calt` (and `liga`) out
+      of the bundled faces, which BrandMastersTests checks; the reference
+      renderer's mono rules say `font-variant-ligatures: none`.
+    - *The icon's Dark look.* With a fill for the default appearance only,
+      iOS derived a Dark of its own: a near-black tile with a cobalt b and
+      the yellow x loose on it, which the mark's rules forbid ("the tile
+      never changes between themes", "never draw the b and x loose",
+      "yellow touches only cobalt"). The fill is now given for dark too
+      (`fill-specializations`, cobalt in both); ictool renders the Dark
+      look byte for byte the Default, and Clear and Tinted as before.
+    - *Shapes and colours the first pass missed.* The proposal sheet's
+      Reject draws in the danger colour (it drew the accent, the one
+      primary action's colour); the bordered buttons left as capsules
+      (the selection bar's nudges and All, the tabletop keys and Keyboard,
+      the chat question's Skip and Submit) are square, and the tabletop
+      keys take the key row's face. The reference renderer's attachment
+      chips and thumbnails are square as the app's are; a person's chat
+      turn has a 1 pt edge in both renderers (panel-2 alone is 1.06:1 on
+      Day's panel), as the web's agent chat draws it. The New tile, Add a
+      tile, proposal, terminal sessions and tile dialog sheets sit on the
+      concrete like the other sheets.
+    - *Copy.* "Run your own xbin" named who runs xbin (D183, brand §17):
+      the button and its page are "Install xbin", as on the site, and the
+      page no longer says what kind of machine it runs on.
+    - *Drift guards and records.* XbinBrandPaths (the mark's and wordmark
+      A's path data) moved into XbinRendererModel, where BrandMastersTests
+      reads the masters and the icon's layers and fills, as
+      TestBrandMarkIsTheMasters does for the web's copies; the marks README
+      and the swap recipe list the app's copies. The app stubs lost
+      `Color.xbinAmber`, docs/native.md's `badge` is square, and
+      plans/native.md §10.1 holds Base Two's roles.
