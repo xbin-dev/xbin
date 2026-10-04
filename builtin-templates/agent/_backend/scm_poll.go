@@ -101,6 +101,7 @@ type scmPollRow struct {
 	PendingSince int64
 	Last         int64
 	Nudge        bool
+	gen          int64 // nudge as read: each nudge counts it up, so a read's update misses one made meanwhile
 	SCM, As      string
 	healthy      bool
 }
@@ -113,11 +114,10 @@ const scmPollCols = `project_id, n, repo, kind, item, etag, due_ms, step, pendin
 
 func scanPollRow(scan func(dest ...any) error) (*scmPollRow, error) {
 	r := &scmPollRow{}
-	var nudge int
-	if err := scan(&r.Project, &r.N, &r.Repo, &r.Kind, &r.raw, &r.ETag, &r.Due, &r.Step, &r.PendingSince, &r.Last, &nudge); err != nil {
+	if err := scan(&r.Project, &r.N, &r.Repo, &r.Kind, &r.raw, &r.ETag, &r.Due, &r.Step, &r.PendingSince, &r.Last, &r.gen); err != nil {
 		return nil, err
 	}
-	r.Nudge = nudge != 0
+	r.Nudge = r.gen != 0
 	_ = json.Unmarshal([]byte(r.raw), &r.Item)
 	return r, nil
 }
@@ -146,7 +146,8 @@ func scmItemJSON(it scmPollRec) string {
 func scmPutPoll(t *DB, pid, n int64, repo, kind string, it scmPollRec, etag string, due, step, since int64, nudge bool) {
 	_, _ = t.q.Exec(`INSERT INTO scm_poll (`+scmPollCols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
 		ON CONFLICT(project_id, n, repo, kind) DO UPDATE SET item=excluded.item, etag=excluded.etag, due_ms=excluded.due_ms,
-		step=excluded.step, pending_since=excluded.pending_since, nudge=excluded.nudge`,
+		step=excluded.step, pending_since=excluded.pending_since,
+		nudge=CASE WHEN excluded.nudge>0 THEN scm_poll.nudge+1 ELSE 0 END`,
 		pid, n, repo, kind, scmItemJSON(it), etag, due, step, since, b2i(nudge))
 }
 
@@ -477,7 +478,9 @@ func scmPolled(ctx context.Context, d *DB, api scmAPI, r *scmPollRow, res *scmPo
 // scmPollAfter records a read of r (etag nil: none came) and when the next
 // one is due — none once final, or once the cadence gives up (checks: with
 // a waking note). The update is skipped when the row changed meanwhile (a
-// new head, an event's read): that one stands.
+// new head, an event's read — each nudge counts the row's nudge up, so one
+// made during this read is seen even where it kept the row's time): that
+// one stands.
 func scmPollAfter(d *DB, r *scmPollRow, etag *string, state string, final bool, minMs int64) {
 	now := scmClock()
 	age := time.Duration(now-r.PendingSince) * time.Millisecond
@@ -501,8 +504,8 @@ func scmPollAfter(d *DB, r *scmPollRow, etag *string, state string, final bool, 
 	}
 	_ = d.Tx(func(t *DB) error {
 		res, err := t.q.Exec(`UPDATE scm_poll SET item=?, etag=?, due_ms=?, step=step+1, last_ms=?, nudge=0
-			WHERE project_id=? AND n=? AND repo=? AND kind=? AND item=? AND due_ms=?`,
-			scmItemJSON(r.Item), et, due, now, r.Project, r.N, r.Repo, r.Kind, r.raw, r.Due)
+			WHERE project_id=? AND n=? AND repo=? AND kind=? AND item=? AND due_ms=? AND nudge=?`,
+			scmItemJSON(r.Item), et, due, now, r.Project, r.N, r.Repo, r.Kind, r.raw, r.Due, r.gen)
 		if err != nil || rowsAffected(res) == 0 || !lost {
 			return err
 		}
@@ -517,8 +520,8 @@ func scmPollAfter(d *DB, r *scmPollRow, etag *string, state string, final bool, 
 
 // scmPollAt moves r's next read to at, reading nothing.
 func scmPollAt(d *DB, r *scmPollRow, at int64) {
-	_, _ = d.q.Exec(`UPDATE scm_poll SET due_ms=? WHERE project_id=? AND n=? AND repo=? AND kind=? AND item=? AND due_ms=?`,
-		at, r.Project, r.N, r.Repo, r.Kind, r.raw, r.Due)
+	_, _ = d.q.Exec(`UPDATE scm_poll SET due_ms=? WHERE project_id=? AND n=? AND repo=? AND kind=? AND item=? AND due_ms=? AND nudge=?`,
+		at, r.Project, r.N, r.Repo, r.Kind, r.raw, r.Due, r.gen)
 }
 
 // scmPollLater moves r's next read on by wait.

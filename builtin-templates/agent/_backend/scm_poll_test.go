@@ -213,6 +213,35 @@ func TestPollDueInUserWake(t *testing.T) {
 	}
 }
 
+// An event that asks for a read while one of the same row is in flight
+// (the row already due, so the nudge keeps its time) wins over that read's
+// result: the row stays due for the read the event asked for.
+func TestPollNudgeDuringRead(t *testing.T) {
+	fx := newEvFx(t, modeLegacy, "")
+	fx.addTask(1, evBranch, evSHA, TaskPR{Number: 42, HeadSHA: evSHA})
+	checks := func() scmEvent {
+		return fx.ev(scmKindChecks, "completed", func(e *scmEvent) { e.Conclusion = "failure" })
+	}
+	fx.mustTake(checks())
+	due := fx.pollRow(1, scmPollChecks).Due
+	fx.setNow(due + 1000)
+	inFlight := fx.pollRow(1, scmPollChecks) // the pass read this row
+	fx.mustTake(checks())                    // another suite finished meanwhile
+	if r := fx.pollRow(1, scmPollChecks); r.Due != due || !r.Nudge {
+		t.Fatalf("the second nudge: due %d (want %d, coalesced), nudge %v", r.Due, due, r.Nudge)
+	}
+	scmPollAfter(fx.ag.db, inFlight, nil, "failure", true, 0) // the read's final result
+	if r := fx.pollRow(1, scmPollChecks); r.Due != due || !r.Nudge {
+		t.Fatalf("after the stale read: due %d, nudge %v — the event's read was lost", r.Due, r.Nudge)
+	}
+	// with no nudge meanwhile the read's result stands
+	again := fx.pollRow(1, scmPollChecks)
+	scmPollAfter(fx.ag.db, again, nil, "failure", true, 0)
+	if r := fx.pollRow(1, scmPollChecks); r.Due != 0 || r.Nudge {
+		t.Fatalf("after a read with no nudge meanwhile: due %d, nudge %v", r.Due, r.Nudge)
+	}
+}
+
 // An unpartitioned agent with nothing else to do leaves the way back for its
 // next read: the `wake` job at its minute, `resume` once it is due — the
 // idle reap must not end polling where no event comes.
