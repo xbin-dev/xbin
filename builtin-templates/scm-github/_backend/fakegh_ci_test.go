@@ -107,8 +107,15 @@ func (f *fakeGH) ciRoutes(mux *http.ServeMux) {
 		}
 	}
 	mux.HandleFunc("GET /repos/{o}/{r}", guard("metadata", "read", func(w http.ResponseWriter, r *http.Request, repo string) {
-		perm := f.access(r, repo, "contents")
-		f.reply(w, r, 200, f.repoJSON(repo, map[string]string{"write": "write", "read": "read"}[perm]))
+		perm := map[string]string{"write": "write", "read": "read"}[f.access(r, repo, "contents")]
+		if u := f.userTok(r); u != nil && perm != "" {
+			f.mu.Lock()
+			if f.collab[repo+"|"+u.login] == "admin" {
+				perm = "admin"
+			}
+			f.mu.Unlock()
+		}
+		f.reply(w, r, 200, f.repoJSON(repo, perm))
 	}))
 	mux.HandleFunc("GET /repos/{o}/{r}/branches/{b}", guard("metadata", "read", func(w http.ResponseWriter, r *http.Request, repo string) {
 		f.mu.Lock()

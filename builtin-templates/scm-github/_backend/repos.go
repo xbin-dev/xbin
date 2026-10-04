@@ -288,8 +288,15 @@ func (s *srv) getRepo(ctx context.Context, c who, repo, as string) (*repoInfo, e
 		var b struct {
 			Protected bool `json:"protected"`
 		}
+		// protected is "protection the identity can't bypass" (docs/scm.md
+		// §Repos). GitHub's branch flag is any protection at all; an admin
+		// may bypass classic protection unless it enforces admins, which
+		// only the Administration permission can read — the App has none.
+		// So a person who is an admin gets no answer (can't tell); the bot
+		// and anyone else get the flag. Rulesets' bypass lists aren't read.
 		if g.DefaultBranch != "" {
-			if _, err := s.gh.call(ctx, a, http.MethodGet, s.repoBase(repo)+"/branches/"+pathEsc(g.DefaultBranch), nil, &b); err == nil {
+			if _, err := s.gh.call(ctx, a, http.MethodGet, s.repoBase(repo)+"/branches/"+pathEsc(g.DefaultBranch), nil, &b); err == nil &&
+				!(b.Protected && g.Permissions["admin"] && strings.HasPrefix(a.key, "user:")) {
 				out.Protected = &b.Protected
 			}
 		}

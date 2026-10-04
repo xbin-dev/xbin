@@ -21,7 +21,7 @@ func TestHelloShape(t *testing.T) {
 	decode(t, r, &h)
 	if h.Protocol != 1 || fmt.Sprint(h.Protocols) != "[1]" || h.SCM.Name != "scm-github" || h.SCM.Kind != "github" ||
 		h.Hosts[0] != "127.0.0.1" || !h.App.Configured || h.App.Slug != "acme-xbin" || !strings.HasSuffix(h.App.InstallURL, "/apps/acme-xbin/installations/new") ||
-		h.Limits != (limitsInfo{100, 900, 100, 50}) || h.Events.PollMinMs != 120000 || h.Events.Webhooks != "unknown" {
+		h.Limits != (limitsInfo{100, 900, 3000, 100, 50}) || h.Events.PollMinMs != 120000 || h.Events.Webhooks != "unknown" {
 		t.Fatalf("hello: %+v", h)
 	}
 	if got := strings.Join(h.Caps, ","); got != "credentials,repos,pulls,issues,checks,poll,partitions" {
@@ -182,6 +182,20 @@ func TestReposPagination(t *testing.T) {
 	decode(t, e.call(e.gH, agentC, "GET", "/scm/repo?repo=acme/web", nil), &one)
 	if one.Protected == nil || !*one.Protected || one.DefaultBranch != "main" {
 		t.Fatalf("repo: %+v", one)
+	}
+	// A person who can't bypass it: protected; an admin, who may: absent.
+	one = repoInfo{}
+	decode(t, e.call(u, personC("alice"), "GET", "/scm/repo?repo=acme/web", nil), &one)
+	if one.Protected == nil || !*one.Protected {
+		t.Fatalf("writer's repo: %+v", one)
+	}
+	e.gh.mu.Lock()
+	e.gh.collab["acme/web|octocat"] = "admin"
+	e.gh.mu.Unlock()
+	one = repoInfo{}
+	decode(t, e.call(u, personC("alice"), "GET", "/scm/repo?repo=acme/web", nil), &one)
+	if one.Protected != nil || one.Permission != "admin" {
+		t.Fatalf("admin's repo: %+v", one)
 	}
 }
 

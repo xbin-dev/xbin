@@ -33,6 +33,7 @@ const (
 const (
 	reposPerToken = 100
 	minTTLSec     = 900
+	maxTTLSec     = 3000 // GitHub's tokens live an hour: 50 min is the most one can promise
 	pageDefault   = 30
 	pageMax       = 100
 	pollItemsMax  = 50
@@ -88,6 +89,7 @@ type eventsHealthInfo struct {
 type limitsInfo struct {
 	ReposPerToken int `json:"reposPerToken"`
 	MinTTLSec     int `json:"minTtlSec"`
+	MaxTTLSec     int `json:"maxTtlSec"`
 	PageMax       int `json:"pageMax"`
 	PollItems     int `json:"pollItems"`
 }

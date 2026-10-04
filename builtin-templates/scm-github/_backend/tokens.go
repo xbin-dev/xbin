@@ -56,8 +56,8 @@ func normToken(t tokenReq) (*normReq, error) {
 	if ttl == 0 {
 		ttl = minTTLSec
 	}
-	if ttl < minTTLSec || ttl > 3000 {
-		return nil, refuse(refInvalid, "minTtlSec is %d to 3000 (GitHub's tokens live an hour)", minTTLSec)
+	if ttl < minTTLSec || ttl > maxTTLSec {
+		return nil, refuse(refInvalid, "minTtlSec is %d to %d (GitHub's tokens live an hour)", minTTLSec, maxTTLSec)
 	}
 	if len(t.Purpose) > 200 {
 		return nil, refuse(refInvalid, "purpose is at most 200 bytes")

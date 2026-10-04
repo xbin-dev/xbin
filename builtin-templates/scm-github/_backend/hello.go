@@ -33,7 +33,7 @@ func (s *srv) hello(c who) helloResp {
 		Hosts:  []string{host},
 		Caps:   []string{capCredentials, capRepos, capPulls, capIssues, capChecks},
 		Events: eventsHealth(s),
-		Limits: limitsInfo{ReposPerToken: reposPerToken, MinTTLSec: minTTLSec, PageMax: pageMax, PollItems: pollItemsMax},
+		Limits: limitsInfo{ReposPerToken: reposPerToken, MinTTLSec: minTTLSec, MaxTTLSec: maxTTLSec, PageMax: pageMax, PollItems: pollItemsMax},
 		Notes:  []string{},
 	}
 	if s.rerunOffered() {
