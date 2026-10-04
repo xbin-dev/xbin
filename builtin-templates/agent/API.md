@@ -3305,7 +3305,12 @@ every later scrub tries again, a share stays refused until one succeeds,
 and the next turn has it replaced (or blocked) first. A share, stop or
 archive through the agent and a credential's write take turns: one being
 minted while the sandbox is shared is checked again once minted and, the
-sandbox now shared, revoked and never written.
+sandbox now shared, revoked and never written. A write that fails partway
+(a file, the rename) is scrubbed at once — both files emptied, what was
+written beside them removed, the token revoked — unless an older live
+credential there covers the files (a refresh: the older token keeps
+working, and the next scrub takes both out); one that can't be emptied
+stays `live`, as above.
 
 **Kept out of what is kept.** The agent holds a token in memory only;
 `GET /projects/{pid}/status` shows its metadata (`creds: [{sandbox, host,

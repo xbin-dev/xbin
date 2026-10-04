@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -196,6 +197,151 @@ func TestScrubRacesEnsure(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A write that fails partway leaves no value no row points at. A first
+// write (or one after a scrub) is scrubbed at once — files emptied, the
+// …tmp removed, the purpose revoked, the row back to what it was (one the
+// manager refused outright: revoked) — and a share then finds nothing; a …tmp it can't remove keeps the row live, so
+// the share is refused until it can. A refresh that fails keeps the older
+// row live (its scrub covers the new …tmp; the older value still works).
+func TestCredWriteFailsPartway(t *testing.T) {
+	files := []string{"github.com.cred", "github.com.cred.tmp", "gh/hosts.yml", "gh/hosts.yml.tmp"}
+	holds := func(fx *credFx, tok string) string {
+		for _, f := range files {
+			if b, _ := os.ReadFile(fx.credFile(f)); bytes.Contains(b, []byte(tok)) {
+				return f
+			}
+		}
+		return ""
+	}
+	purpose := func(fx *credFx) string { return "proj:k3x9qa:" + fx.ref }
+	share := func(t *testing.T, fx *credFx) *httptest.ResponseRecorder {
+		return callAs(t, fx.h.(*http.ServeMux), asAlice, "PATCH", "/sandboxes/"+url.PathEscape(fx.ref), map[string]any{"visibility": "team"})
+	}
+	last := func(fx *credFx) string { ts := fx.scm.Tokens(); return ts[len(ts)-1].Value }
+
+	t.Run("rename", func(t *testing.T) {
+		fx := credFixture(t, modeGlobal)
+		fx.m.FailNext("run", 503, "unavailable", "down")
+		if err := ensureCreds(context.Background(), fx.p, nil, "", scmMinLeft); err == nil {
+			t.Fatal("the write went through")
+		}
+		tok := last(fx)
+		if rows := fx.ag.db.scmCredsOf(fx.p.ID, fx.ref); len(rows) != 0 {
+			t.Fatalf("rows after a failed first write: %+v", rows)
+		}
+		if !slices.Contains(fx.scm.Revoked(), purpose(fx)) {
+			t.Fatalf("not revoked: %v", fx.scm.Revoked())
+		}
+		if f := holds(fx, tok); f != "" {
+			t.Fatalf("%s holds the token", f)
+		}
+		if scmLiveGet(scmLiveKey(fx.p.ID, fx.ref, "github.com")) != nil || redactText(tok) == tok {
+			t.Fatal("still live, or no longer masked")
+		}
+		if w := share(t, fx); w.Code != 200 {
+			t.Fatalf("share: %d %s", w.Code, w.Body)
+		}
+	})
+
+	t.Run("refused outright", func(t *testing.T) {
+		fx := credFixture(t, modeGlobal)
+		fx.m.FailNext("write", 409, "state", "the sandbox is archived")
+		if err := ensureCreds(context.Background(), fx.p, nil, "", scmMinLeft); err == nil {
+			t.Fatal("the write went through")
+		}
+		if rows := fx.ag.db.scmCredsOf(fx.p.ID, fx.ref); len(rows) != 0 {
+			t.Fatalf("rows after a refused write: %+v", rows)
+		}
+		if !slices.Contains(fx.scm.Revoked(), purpose(fx)) {
+			t.Fatalf("not revoked: %v", fx.scm.Revoked())
+		}
+	})
+
+	t.Run("after a scrub", func(t *testing.T) {
+		fx := credFixture(t, modeGlobal)
+		fx.ensure(t)
+		if err := scmScrub(context.Background(), fx.p, fx.ref, scrubStop); err != nil {
+			t.Fatal(err)
+		}
+		fx.m.FailNext("run", 503, "unavailable", "down")
+		if err := ensureCreds(context.Background(), fx.p, nil, "", scmMinLeft); err == nil {
+			t.Fatal("the write went through")
+		}
+		if row := credRowOf(t, fx); row.State != credScrubbed || row.Why != scrubStop {
+			t.Fatalf("row after a failed write: %+v", row)
+		}
+		if f := holds(fx, last(fx)); f != "" {
+			t.Fatalf("%s holds the token", f)
+		}
+	})
+
+	t.Run("second file", func(t *testing.T) {
+		fx := credFixture(t, modeGlobal)
+		// the second file's …tmp can't be written, nor removed
+		block := fx.credFile("gh/hosts.yml.tmp")
+		if err := os.MkdirAll(filepath.Join(block, "x"), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := ensureCreds(context.Background(), fx.p, nil, "", scmMinLeft); err == nil {
+			t.Fatal("the write went through")
+		}
+		tok := last(fx)
+		if !slices.Contains(fx.scm.Revoked(), purpose(fx)) {
+			t.Fatalf("not revoked: %v", fx.scm.Revoked())
+		}
+		if f := holds(fx, tok); f != "" {
+			t.Fatalf("%s holds the token", f)
+		}
+		if row := credRowOf(t, fx); row.State != credLive || row.Refresh != 0 || !scmCredsDue(fx.ag.db, fx.p, nil) {
+			t.Fatalf("a …tmp left: the row %+v (due %v)", row, scmCredsDue(fx.ag.db, fx.p, nil))
+		}
+		if w := share(t, fx); w.Code != http.StatusBadGateway {
+			t.Fatalf("share with a …tmp left: %d %s", w.Code, w.Body)
+		}
+		if err := os.RemoveAll(block); err != nil {
+			t.Fatal(err)
+		}
+		if w := share(t, fx); w.Code != 200 {
+			t.Fatalf("share: %d %s", w.Code, w.Body)
+		}
+		if row := credRowOf(t, fx); row.State != credScrubbed || row.Why != scrubShare {
+			t.Fatalf("row after the share: %+v", row)
+		}
+	})
+
+	t.Run("refresh", func(t *testing.T) {
+		fx := credFixture(t, modeGlobal)
+		fx.scm.NoCache = true
+		fx.ensure(t)
+		old := credRowOf(t, fx)
+		l := scmLiveGet(scmLiveKey(fx.p.ID, fx.ref, "github.com"))
+		fx.m.FailNext("run", 503, "unavailable", "down")
+		if err := ensureCreds(context.Background(), fx.p, nil, "", time.Until(time.UnixMilli(l.expires))+time.Minute); err == nil {
+			t.Fatal("the refresh went through")
+		}
+		if len(fx.scm.Tokens()) != 2 {
+			t.Fatalf("tokens: %d", len(fx.scm.Tokens()))
+		}
+		if row := credRowOf(t, fx); row != old {
+			t.Fatalf("row after a failed refresh: %+v, was %+v", row, old)
+		}
+		if len(fx.scm.Revoked()) != 0 {
+			t.Fatalf("a failed refresh revoked the older value: %v", fx.scm.Revoked())
+		}
+		if w := share(t, fx); w.Code != 200 {
+			t.Fatalf("share: %d %s", w.Code, w.Body)
+		}
+		for _, tok := range fx.scm.Tokens() {
+			if f := holds(fx, tok.Value); f != "" {
+				t.Fatalf("%s holds a token after the share", f)
+			}
+		}
+		if !slices.Contains(fx.scm.Revoked(), purpose(fx)) {
+			t.Fatalf("not revoked: %v", fx.scm.Revoked())
+		}
+	})
 }
 
 // Stopping, archiving and deleting a sandbox through the agent, and Forget,

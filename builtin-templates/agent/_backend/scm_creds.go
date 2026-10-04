@@ -129,8 +129,11 @@ func scmKeyLock(key string) *sync.Mutex {
 // it), and across a share's PATCH and a stop's or archive's lifecycle call
 // through the agent — so no credential is written into a sandbox between
 // the scrub that finds nothing there and the change that shares it, stops
-// it or archives it. Never held across a provider's call; never taken
-// twice (not reentrant). Order: a credential's key lock, then this.
+// it or archives it. Never held across a provider's Token (a share would
+// wait on minting); a scrub's revocation does run under it (scmRevoke:
+// best effort, at most 15 s per credential), so a share or stop through
+// the agent waits that long at most on a slow provider. Never taken twice
+// (not reentrant). Order: a credential's key lock, then this.
 func scmHoldSandbox(ref string) func() {
 	m, _ := scmSandboxLocks.LoadOrStore(ref, &sync.Mutex{})
 	mu := m.(*sync.Mutex)

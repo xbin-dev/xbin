@@ -24,8 +24,11 @@ import (
 // before minting (no token for a sandbox it refuses), and again after,
 // held through the files and the row — a share, stop or archive through
 // the agent while the provider was minting is seen there, and its scrub
-// can't run between this write and its change. The provider's call holds
-// only the credential's own key lock.
+// can't run between this write and its change. The provider's Token holds
+// only the credential's own key lock. The row says live before the first
+// file is written (scmPendingRow), and a write that fails partway is
+// scrubbed before the lock is let go (scmWriteFailed): no value is left in
+// a file no live row points at.
 func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string, minLeft time.Duration) error {
 	if p == nil {
 		return errors.New("no project")
@@ -108,13 +111,33 @@ func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string, mi
 	if live.refresh <= 0 || live.refresh > live.expires {
 		live.refresh = live.expires - scmMinLeft.Milliseconds()
 	}
+	row := scmCredRow{PID: p.ID, Ref: ref, Host: host, Identity: as, Login: live.login, ForUser: live.forUser,
+		Purpose: live.purpose, Expires: live.expires, Written: live.written, State: credLive}
+	// A row that says live before the first file is written (refresh 0: due
+	// until the write finishes), unless one already does (a refresh): every
+	// scrub selects live rows, so a write that fails partway never leaves
+	// the value in a file no row points at.
+	prior, pending := scmPendingRow(row)
+	if pending {
+		if err := agent.db.scmPutCred(row); err != nil {
+			scmRevoke(ctx, p, row) // never written
+			return err
+		}
+	}
 	scmLivePut(key, live) // before the files: scmGitConfig reads its author
-	if err := scmWriteFiles(ctx, conn, id, box, p, ref, live, tok.Username); err != nil {
+	if touched, err := scmWriteFiles(ctx, conn, id, box, p, ref, live, tok.Username); err != nil {
 		scmLiveDrop(key) // not there: the next ensure mints again (it stays masked)
+		if pending {
+			scmWriteFailed(ctx, p, row, prior, box, touched)
+		}
 		return fmt.Errorf("writing the credential into %s: %w", sbxLabel(box), err)
 	}
-	if err := agent.db.scmPutCred(scmCredRow{PID: p.ID, Ref: ref, Host: host, Identity: as, Login: live.login, ForUser: live.forUser,
-		Purpose: live.purpose, Expires: live.expires, Refresh: live.refresh, Written: live.written, State: credLive}); err != nil {
+	row.Refresh = live.refresh
+	if err := agent.db.scmPutCred(row); err != nil {
+		// the files hold the value and a live row (the pending one, or the
+		// older one a refresh replaces) points at them: every scrub empties
+		// them; the next ensure mints again
+		scmLiveDrop(key)
 		return err
 	}
 	if as == scmAsPerson {
@@ -137,6 +160,44 @@ func scmGateNow(ctx context.Context, conn *sbxConn, id string, p *Project, k *Pr
 		return nil, &scmGateError{Box: sbxLabel(box), Why: why}
 	}
 	return box, nil
+}
+
+// scmPendingRow: whether row must be written live before its files —
+// no live row for its host is there yet — and the row there was (nil:
+// none).
+func scmPendingRow(row scmCredRow) (*scmCredRow, bool) {
+	for _, c := range agent.db.scmCredsOf(row.PID, row.Ref) {
+		if c.Host == row.Host {
+			return &c, c.State != credLive
+		}
+	}
+	return nil, true
+}
+
+// scmWriteFailed: a first write of row into box failed. Touched (a …tmp,
+// or the files after the rename, may hold the value): it is scrubbed now,
+// the ref's lock held — both files emptied, both …tmp removed, the purpose
+// revoked; files it can't empty keep the row live and due
+// (scmCredUnemptied), so a share stays refused and the next trigger tries
+// again. Not touched (the manager refused the first file outright): the
+// purpose is revoked. Then the row is what it was before (none: removed).
+func scmWriteFailed(ctx context.Context, p *Project, row scmCredRow, prior *scmCredRow, box *sbxSandbox, touched bool) {
+	if !touched {
+		scmRevoke(ctx, p, row)
+		scmLiveDrop(scmLiveKey(row.PID, row.Ref, row.Host))
+	} else if err := scmScrubRow(ctx, p, row, "", box); err != nil {
+		logf("project #%d: a failed write in %s: %v", p.ID, row.Ref, err)
+		return
+	}
+	var err error
+	if prior != nil {
+		err = agent.db.scmPutCred(*prior)
+	} else {
+		_, err = agent.db.q.Exec(`DELETE FROM project_creds WHERE project_id=? AND sandbox_ref=? AND host=?`, row.PID, row.Ref, row.Host)
+	}
+	if err != nil {
+		logf("project #%d: a failed write's row in %s: %v", p.ID, row.Ref, err)
+	}
 }
 
 // scmCredHost is the host p's credential in ref is for, before a token
@@ -184,11 +245,13 @@ func scmYAMLQ(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") +
 
 // scmWriteFiles writes l's two files into box (…tmp, then renamed, in 0700
 // directories) and the git config into each of p's repos there; and
-// P/.xbin/env for people's terminals.
-func scmWriteFiles(ctx context.Context, conn *sbxConn, id string, box *sbxSandbox, p *Project, ref string, l *scmLive, username string) error {
+// P/.xbin/env for people's terminals. Touched: a file may hold the value
+// (false only when nothing was sent, or the manager refused the first
+// file outright — it answered 4xx, so nothing of it landed).
+func scmWriteFiles(ctx context.Context, conn *sbxConn, id string, box *sbxSandbox, p *Project, ref string, l *scmLive, username string) (touched bool, err error) {
 	dir := scmCredDir(box.Home, p.UID)
 	if dir == "" {
-		return errors.New(scmWhyWords(whyHome))
+		return false, errors.New(scmWhyWords(whyHome))
 	}
 	username = orStr(username, "x-access-token")
 	v := l.token.Reveal()
@@ -196,9 +259,10 @@ func scmWriteFiles(ctx context.Context, conn *sbxConn, id string, box *sbxSandbo
 		{dir + "/" + l.host + ".cred.tmp", "username=" + username + "\npassword=" + v + "\n"},
 		{dir + "/gh/hosts.yml.tmp", l.host + ":\n    oauth_token: " + scmYAMLQ(v) + "\n    user: " + scmYAMLQ(l.login) + "\n    git_protocol: https\n"},
 	}
-	for _, f := range files {
+	for i, f := range files {
 		if _, err := conn.WriteFile(ctx, id, f.path, strings.NewReader(f.body), sbxWrite{Mode: "0600", Mkdirs: true}); err != nil {
-			return err
+			var se *sbxError
+			return i > 0 || !errors.As(err, &se) || se.Status < 400 || se.Status >= 500, err
 		}
 	}
 	env := map[string]string{"X": strings.TrimRight(box.Home, "/") + "/.config/xbin-scm", "D": dir, "F": l.host + ".cred"}
@@ -208,7 +272,7 @@ func scmWriteFiles(ctx context.Context, conn *sbxConn, id string, box *sbxSandbo
 	scmGitEnv(scmGitConfigOf(p, l.host, box.Home), env)
 	script := "set -eu\numask 077\nchmod 700 \"$X\" \"$D\" \"$D/gh\"\nmv -f \"$D/$F.tmp\" \"$D/$F\"\nmv -f \"$D/gh/hosts.yml.tmp\" \"$D/gh/hosts.yml\"\n" + scmGitScript
 	if err := scmRun(ctx, conn, id, script, env); err != nil {
-		return err
+		return true, err
 	}
 	if p.Dir != "" && scmHomeRe.MatchString(p.Dir) {
 		body := "GH_CONFIG_DIR=" + dir + "/gh\n"
@@ -216,7 +280,7 @@ func scmWriteFiles(ctx context.Context, conn *sbxConn, id string, box *sbxSandbo
 			logf("project #%d: writing .xbin/env in %s: %v", p.ID, ref, err)
 		}
 	}
-	return nil
+	return true, nil
 }
 
 // scmEmptyFiles empties p's two files for host in box (0600, zero bytes).

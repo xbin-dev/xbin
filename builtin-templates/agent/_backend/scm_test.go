@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -131,12 +132,18 @@ func TestScmRefusalDecode(t *testing.T) {
 	if _, err = api.Pull(ctx, "acme/web", 7, scmAsPerson); !scmRefused(err, scmRefNotFound) {
 		t.Fatalf("not-found: %v", err)
 	}
-	// the hello's protocol refusal
-	f.Caps = append(f.Caps, scmCapCredentials)
-	srv := f.srv.URL
-	c := &scmConn{E: scmEndpoint{Provider: "apps/odd", URL: srv + "/nope"}}
+	// a hello at a missing route
+	c := &scmConn{E: scmEndpoint{Provider: "apps/odd", URL: f.srv.URL + "/nope"}}
 	if _, err := c.Hello(ctx); !scmRefused(err, scmRefNotFound) {
 		t.Fatalf("a missing route: %v", err)
+	}
+	// a hello that speaks another protocol: refused, the protocols it speaks kept
+	other := newFakeSCM(t, "apps/scm-other")
+	other.Speaks = 2
+	c = &scmConn{E: scmEndpoint{Provider: "apps/scm-other", URL: other.srv.URL}}
+	if _, err := c.Hello(ctx); !errors.As(err, &se) || se.Refusal != scmRefProtocol || !slices.Equal(se.Protocols, []int{2}) ||
+		!strings.Contains(se.Message, "speaks scm protocol 2") {
+		t.Fatalf("another protocol: %#v", err)
 	}
 	// an unreachable provider
 	c = &scmConn{E: scmEndpoint{Provider: "apps/down", URL: "http://127.0.0.1:1"}}
@@ -236,17 +243,19 @@ func TestScmClientRoutes(t *testing.T) {
 }
 
 // GET /projects/scm lists every bound provider as this home sees it — one
-// that fails with why.
+// that fails, or speaks another protocol, with why.
 func TestScmProvidersRoute(t *testing.T) {
 	fx := credFixture(t, modeUser)
 	down := newFakeSCM(t, "apps/scm-down")
-	bindSCM(t, fx.scm, down)
+	other := newFakeSCM(t, "apps/scm-other")
+	other.Speaks = 2
+	bindSCM(t, fx.scm, down, other)
 	down.FailNext("GET /hello", &scmError{Status: 503, Refusal: scmRefSetup, Message: "not set up yet"})
 	var out struct {
 		Providers []scmProviderView `json:"providers"`
 	}
 	got := callAs(t, fx.h.(*http.ServeMux), asAlice, "GET", "/projects/scm", nil)
-	if got.Code != 200 || json.Unmarshal(got.Body.Bytes(), &out) != nil || len(out.Providers) != 2 {
+	if got.Code != 200 || json.Unmarshal(got.Body.Bytes(), &out) != nil || len(out.Providers) != 3 {
 		t.Fatalf("GET /projects/scm: %d %s", got.Code, got.Body)
 	}
 	a, b := out.Providers[0], out.Providers[1]
@@ -255,5 +264,8 @@ func TestScmProvidersRoute(t *testing.T) {
 	}
 	if b.SCM != "apps/scm-down" || b.Refusal != scmRefSetup || !strings.Contains(b.Error, "not set up") {
 		t.Fatalf("the failing one: %+v", b)
+	}
+	if o := out.Providers[2]; o.SCM != "apps/scm-other" || o.Refusal != scmRefProtocol || !strings.Contains(o.Error, "protocol 2") {
+		t.Fatalf("the one speaking another protocol: %+v", o)
 	}
 }

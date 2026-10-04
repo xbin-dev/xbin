@@ -63,6 +63,7 @@ type fakeSCM struct {
 	Identities []string // you.identities (default person, bot)
 	Hosts      []string
 	Title      string
+	Speaks     int         // the protocol its hello says it speaks (0: 1, the agent's)
 	Person     *scmAccount // signed in (nil: not)
 	LongTokens bool
 	TokenTTL   time.Duration // default 1 h
@@ -412,7 +413,8 @@ func (f *fakeSCM) hello(w http.ResponseWriter, protocol string) {
 		return
 	}
 	you := scmYou{Identities: f.Identities, Default: f.Identities[0], Person: f.Person}
-	fakeJSON(w, 200, scmHello{Protocol: 1, Protocols: []int{1}, SCM: scmProvider{Name: "scm-github", Title: f.Title, Version: "1.0.0", Kind: "github"},
+	speaks := max(f.Speaks, 1)
+	fakeJSON(w, 200, scmHello{Protocol: speaks, Protocols: []int{speaks}, SCM: scmProvider{Name: "scm-github", Title: f.Title, Version: "1.0.0", Kind: "github"},
 		Hosts: f.Hosts, Caps: f.Caps, Identities: []string{scmAsPerson, scmAsBot}, You: you,
 		App:    scmApp{Slug: "acme-xbin", InstallURL: "https://github.com/apps/acme-xbin/installations/new", Configured: true},
 		Events: scmEventsHealth{Webhooks: "active", Healthy: true, PollMinMs: 120000},
