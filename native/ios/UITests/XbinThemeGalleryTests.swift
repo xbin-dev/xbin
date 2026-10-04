@@ -94,10 +94,11 @@ final class XbinThemeGalleryTests: XCTestCase {
             }
             e.app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             // The ANSI colours (normal, then bright), a run of full blocks
-            // in bright black (SGR 90, the prompts' paths) and a title to
-            // wait on.
+            // in bright black (SGR 90, the prompts' paths), code the face
+            // must not join into ligatures, and a title to wait on.
             e.app.typeText("clear; for c in 0 1 2 3 4 5 6; do printf '\\033[3%dm normal%d \\033[9%dm bright%d\\033[0m\\n' $c $c $c $c; done;"
                 + " printf '\\033[90m'; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16; do printf '\\342\\226\\210'; done; printf '\\033[0m\\n';"
+                + " printf 'a -> b != c => d >= e\\n';"
                 + " printf '\\033[1mbold\\033[0m plain\\n'; printf '\\033]0;gallery-%d\\007' $((40+2))\n")
             XCTAssertTrue(e.element("gallery-42").waitForExistence(timeout: 30), "the shell's output")
             shot(e, "terminal")
