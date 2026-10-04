@@ -10733,8 +10733,11 @@ Deviations and refinements made while implementing; all deliberate:
       definition; the shell's empty states in plain sentences. The
       installer's banner carried no tagline and is unchanged (its S-11
       shot is recorded byte for byte).
-    - Still open in W8: the iOS app (its icon, `XbinPalette`, and the
-      reference renderer that previews it).
+    - W8's iOS half landed as D185 (brand/ios, merged with this into
+      brand/release): `XbinPalette` on Concrete Day and Night, the
+      reference renderer with it, the mark on the Welcome and Log in, and
+      the app icon. The app's copies of the mark are held to the masters
+      by BrandMastersTests, as the web's are by the tests above.
 
 - **D184 — Base Two in the workspace: Concrete Day and Concrete Night; a
   document opts in, the person's choice rides the D4 injection, frames
@@ -11047,9 +11050,10 @@ Deviations and refinements made while implementing; all deliberate:
   chrome on Concrete Day and Night, the M3 icon and mark (2026-10-04;
   brand/ios).** native/ios (XbinRendererModel/Tokens.swift, XbinRenderer/
   Theme.swift, App/Shell/BrandMark.swift, App/Terminal/TerminalLook.swift,
-  App/Resources/AppIcon.icon and Fonts/), web/xb/render-theme.js. (If
-  another branch took this number for the tile agent's guidelines, renumber
-  one of them at the merge.) The owner, on D184's review: "we should
+  App/Resources/AppIcon.icon and Fonts/), web/xb/render-theme.js. (The
+  tile agent's guidelines, brand/web's half of the same request, are
+  recorded under D183, so no number moved at the merge.) The owner, on
+  D184's review: "we should
   restyle iOS app to be consistent with the web, keeping similar design
   language. For logo we have the new one". The app still drew its amber
   XbinPalette on iOS's grouped greys, and the reference renderer had gone

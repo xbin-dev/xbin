@@ -23,6 +23,15 @@ pages (`internal/server/brandmark.go`) and in the shell's header
 so a swap to B changes them in the same commit (`docs/maintenance.md` → "Embedded
 assets" has the recipe).
 
+The iOS app has copies of its own (D185): the path data of `mark.svg`'s b and x and of
+`wordmark-a.svg`, with their viewBoxes, in `XbinBrandPaths`
+(`native/ios/Packages/XbinRenderer/Sources/XbinRendererModel/BrandPaths.swift`, which the
+app's `XbinMark`, `XbinWordmark` and `XbinLockup` draw), and the app icon's two layers,
+`native/ios/App/Resources/AppIcon.icon/Assets/b.svg` and `x.svg` (`mark.svg`'s b and x on
+its 1024 canvas, over the icon's cobalt fill). `BrandMastersTests` (the renderer
+package's model tests) holds all of them, and the mark's colours, to these masters; a
+swap to B changes `XbinBrandPaths.word` and its box in the same commit.
+
 ## Files
 
 | File | What it is |

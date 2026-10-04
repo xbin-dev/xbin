@@ -290,7 +290,10 @@ from `favicon-32.svg` (`rsvg-convert -w 32 -h 32`), `favicon.png` and
 (180, from `icon-1024.svg`). The drawings inlined where no image may load
 — xbind's own pages (`internal/server/brandmark.go`) and the shell's
 default brand (`shell/shell-brand.js`) — are checked against `logo.svg`'s
-paths by their tests. A swap of the wordmark (A for B) changes all of
+paths by their tests. The iOS app draws the mark and wordmark A from the
+masters' path data (`XbinBrandPaths` in the renderer's model) and its icon's
+layers are the master's b and x; `BrandMastersTests` checks both against
+`plans/brand/marks/` (D185). A swap of the wordmark (A for B) changes all of
 these together.
 
 ## Editing the scaffold: the dev overlay
