@@ -3760,4 +3760,7 @@ with the record that explains it:
 - YYYY-MM-DD (<WP>) §x.y: what changed and why — records/<WP>.md
 ```
 
-(none yet)
+- 2026-10-04 (U1) §13.2: agent.js gains one line beyond the bullets, `app.on('projects', …)` repainting the sidebar entry and the page (the seams' ctx has no sidebar repaint) — 3 lines net — records/U1.md
+- 2026-10-04 (U1) §13.1: `router.parse()` answers `proj` only when the address names it (absent rather than null otherwise), so the other addresses parse as before — records/U1.md
+- 2026-10-04 (U1) §13.2: "Open PR" learns that `POST /runs/{id}/task/pr` exists from a `GET` of it (405 mounted, 404 not), once per home, never by POSTing — records/U1.md
+- 2026-10-04 (U1) §13.2: the new-project dialog is a form in the Projects page, not a modal — records/U1.md
