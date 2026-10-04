@@ -314,6 +314,22 @@ Also dated in projects-scm §19.
   now also mask the shapes `tokenShape` already masked in the coding
   agents' output (`sk-ant-…` keys) — kept: §9.7 names `redactText` as
   `scmRedact`, and a key in a stored message is a leak either way.
+- §4.13, §9.6 (silent), §16.2: the gate refuses to write into a sandbox a
+  hosted conversation used, but nothing acted in the other order — a
+  credential written first stayed readable (and usable for a push) by a
+  hosted conversation that then used the sandbox. `sandboxUse` (outside
+  K's files) now calls `scmHostedUse` in place of its bare
+  `noteHostedUse`, in the same `if userMode() && hostedID(root)`: under
+  the sandbox's lock, a live row there (an unemptied one too; an
+  unreadable table counts as one) refuses the call "create another
+  sandbox for this conversation", the way `hostedHarnessRefusal` refuses
+  one where a coding agent's sign-in lives; otherwise the use is noted as
+  before. The lock makes the two orders exclusive: a write either
+  finished first (its row live: refused) or finds the note (the gate
+  refuses). Refusing rather than scrubbing (fix round 4): the person's
+  credential and the project's sandbox stay usable; scrubbing would mark
+  the project's own sandbox hosted-used for good on a hosted
+  conversation's first call (Owner questions).
 
 ## Tests run / not run
 
@@ -346,7 +362,9 @@ and the UI harness are owed by the program (projects-scm §15.4).
   `setStatus`, `setStatusOnly`), `B/sandbox_routes.go` (in
   `handlePatchSandbox` the sandbox lock's line, the pre-PATCH `if` and the
   post-PATCH scrub; one line each in `handleDeleteSandbox` and
-  `handleSandboxAction`),
+  `handleSandboxAction`), `B/sandbox_use.go` (the hosted-use line in
+  `sandboxUse` calls `scmHostedUse`, which notes the use as before or
+  refuses it, fix round 4),
   agent `xbin.json` (the slot after `sandboxes`), API.md (its own `###`
   only), projects-scm §19 (K's lines replace "(none yet)"; other WPs'
   lines will conflict there — keep all).
@@ -390,7 +408,9 @@ and the UI harness are owed by the program (projects-scm §15.4).
 | `b7762eff` | agent template: scm credential writes and scrubs take turns per sandbox; a device code only to its person; a hostless project's host |
 | `c00f1558` | plans: projects-scm — K's record after fix round 2 |
 | `7c1e3e0f` | agent template: a credential write that fails partway is scrubbed; the hello's protocol refusal tested |
-| this commit | plans: projects-scm — K's record after fix round 3 |
+| `550a409d` | plans: projects-scm — K's record after fix round 3 |
+| `6d73a3be` | agent template: a hosted conversation doesn't work in a sandbox holding a project's credential |
+| (fix round 4) | plans: projects-scm — K's record after fix round 4 |
 
 ## Fix round 2
 
@@ -517,7 +537,58 @@ Checks run in fix round 3 (each targeted; nothing over two minutes):
 
 Full -race suite and make check: at the gate (lead).
 
+## Fix round 4
+
+The verifier's one finding (`last-verify-issues.json`), checked against
+the code before fixing:
+
+- **Major — a person's credential written before a hosted conversation
+  uses the sandbox stays readable by it: real.** `sandboxUse` only called
+  `noteHostedUse` for a hosted conversation in a person's partition; the
+  gate's `hosted-used` clause is read only at a write, so a credential
+  already there stayed live (until the next ensure, or its expiry hours
+  later) while the conversation's members could have the agent `base64`
+  the file past the redactors or `git push` as its person. Fixed with
+  the verifier's option (a), recorded in Deviations (§4.13, §9.6, §16.2
+  fix round 4) and §19: `scmHostedUse` (scm_gate.go), called from
+  `sandboxUse` in place of the bare `noteHostedUse`, refuses the use
+  where a project's credential is live (unemptied rows included; a
+  database error refuses), under the sandbox's lock, and otherwise notes
+  it. The same covers the bot's credential in a person's partition (its
+  gate refuses `hosted-used` too). A fork's credential isn't readable
+  from its source, and the gate already blocks a fork whose source a
+  hosted conversation used, so only the sandbox itself is checked. New
+  `TestHostedUseRefusedWhereCred`: alice's credential written, a hosted
+  conversation's `sandboxUse` is refused `not-allowed`, the sandbox isn't
+  noted, her row and file are untouched, her own conversation still
+  works there; an unemptied row refuses too; after a scrub the hosted use
+  goes through and is noted, and the next `ensureCreds` is refused
+  `hosted-used`; a use waits on the sandbox's lock held by a write in
+  progress. On the previous `sandbox_use.go` the test fails ("a hosted
+  conversation in a sandbox holding her credential: <nil>").
+  API.md §scm providers and credentials says it, beside the gate.
+
+Checks run in fix round 4 (each targeted; nothing over two minutes):
+
+| Command | Result |
+|---|---|
+| `TILE_TEST_FLAGS="-count=1 -v -run TestHostedUseRefusedWhereCred\|TestHarnessHostedSandbox\|TestCredGateMatrix" hack/tile-check.sh agent` | ok — vet, the three tests PASS |
+| `TILE_TEST_FLAGS="-count=1 -v -run TestHostedUseRefusedWhereCred" hack/tile-check.sh agent` with the previous commit's `sandbox_use.go` (by hand, not committed) | fails: "a hosted conversation in a sandbox holding her credential: <nil>" |
+| `TILE_TEST_FLAGS="-count=1 -v -run TestScm\|TestCred\|TestScrub\|TestGitCredential\|TestRefresh\|TestPending\|TestSignin\|TestRedact\|TestSeeded\|TestSCMCreds\|TestNoTickers\|TestSandbox\|TestHosted\|TestHarnessHosted" hack/tile-check.sh agent` | ok — vet, 98 tests PASS (31 s; 65 s with the build) |
+| `go test ./internal/docscheck`; `make fmt-check vet` | ok |
+
+Full -race suite and make check: at the gate (lead).
+
 ## Owner questions
 
-None. (The decisions K took where the spec was silent are in Deviations,
+- **Refuse or scrub when a hosted conversation reaches a sandbox holding
+  a project's credential?** K refuses the hosted conversation (fail
+  closed: it never sees the sandbox while a credential is there; the
+  person's credential and the project's sandbox stay usable), mirroring
+  `hostedHarnessRefusal`. The alternative — scrub every credential there
+  and let the conversation in — would mark the project's own sandbox
+  hosted-used for good, blocking the project's credentials there until a
+  new sandbox. Say if the owner prefers the scrub.
+
+(The other decisions K took where the spec was silent are in Deviations,
 each with what was built.)
