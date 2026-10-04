@@ -11,9 +11,12 @@
 //   members   {pid: {owner, members}}; status {pid: ProjectStatus}
 //   prRoute   true: the backend has POST /runs/{id}/task/pr (a GET of it
 //             answers 405), false: it doesn't (404, plain text, as a mux)
-//   signin    the person's provider sign-in: polls left before it is done
+//   signin    the person's provider sign-in: polls left before it is done;
+//             its routes answer 409 outside a person's partition
 // projSeed() is a seed: an unpartitioned agent with one project ("Web",
-// two repos), its tasks in every column and a task conversation each.
+// two repos), its tasks in every column and a task conversation each;
+// partitionSeed() the same in alice's partition (ids from 2^40), with a
+// team project's definition (9) at the shared space.
 export function PROJ_STUB(seed) {
   const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });
   const plain404 = () => new Response('404 page not found\n', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
@@ -45,18 +48,28 @@ export function PROJ_STUB(seed) {
     const q = new URLSearchParams(m[1]).get('q') || '';
     return json({ items: P.repos.filter((x) => `${x.owner}/${x.name}`.includes(q)), next: '' });
   });
-  r('GET', new RegExp(`${API}/projects/scm/signin\\?`), () => json({ state: P.signin.state }));
-  r('POST', new RegExp(`${API}/projects/scm/signin$`), () => {
+  // the sign-in routes are a person's partition's only (409 anywhere else, as K answers)
+  const own = (o) => (((o && o.partition) || (window.xbin && window.xbin.partition) || '').startsWith('user:'));
+  const notHere = () => json({ error: 'sign in to GitHub from your own space' }, 409);
+  r('GET', new RegExp(`${API}/projects/scm/signin\\?`), (m, o) => (own(o) ? json({ state: P.signin.state }) : notHere()));
+  r('POST', new RegExp(`${API}/projects/scm/signin$`), (m, o) => {
+    if (!own(o)) return notHere();
     P.signin.state = 'pending';
     return json({ state: 'pending', signin: { url: 'https://github.com/login/device', userCode: 'WDJB-MJHT', pollId: 'poll1', intervalMs: 1000, expiresAt: Date.now() + 9e5 } });
   });
-  r('GET', new RegExp(`${API}/projects/scm/signin/poll1\\?`), () => {
+  r('GET', new RegExp(`${API}/projects/scm/signin/poll1\\?`), (m, o) => {
+    if (!own(o)) return notHere();
     if (--P.signin.polls > 0) return json({ state: 'pending' });
     P.signin.state = 'done';
     for (const pr of P.providers) pr.you = { ...(pr.you || {}), person: { login: 'alice-gh', id: 7 } };
     return json({ state: 'done', identity: { kind: 'person', login: 'alice-gh', id: 7 } });
   });
-  r('DELETE', new RegExp(`${API}/projects/scm/signin\\?`), () => { P.signin.state = 'none'; return new Response(null, { status: 204 }); });
+  r('DELETE', new RegExp(`${API}/projects/scm/signin\\?`), (m, o) => {
+    if (!own(o)) return notHere();
+    P.signin.state = 'none';
+    for (const pr of P.providers) pr.you = { ...(pr.you || {}), person: null };
+    return new Response(null, { status: 204 });
+  });
 
   // --- projects ------------------------------------------------------------------
   r('GET', new RegExp(`${API}/projects(\\?.*)?$`), (m, o) => json({ items: P.projects.filter((p) => (p.home || '') === home(o)).map(view), next: '' }));
@@ -255,4 +268,24 @@ export function projSeed(extra = {}) {
     prRoute: false,
     ...extra,
   };
+}
+
+// partitionSeed(): projSeed() in a person's partition — "Web" and its tasks'
+// conversations at ids from 2^40 (their home: the person's own), and a team
+// project's definition (9, carol's) in the shared space. The page needs
+// xbin.partition = 'user:alice'.
+export function partitionSeed(extra = {}) {
+  const B = 2 ** 40;
+  const s = projSeed();
+  const tasks = s.tasks[7].map((t) => ({ ...t, project: B + 7, run: B + t.run }));
+  const byRun = new Map(tasks.map((t) => [t.run - B, t]));
+  const runs = s.runs.map((r) => (r.origin === 'project' ? { ...r, id: B + r.id, rootId: B + r.rootId, originId: B + 7 } : r));
+  const views = Object.fromEntries(Object.entries(s.views).map(([k, v]) => {
+    const ps = v.run.pendingState;
+    const run = { ...v.run, id: B + v.run.id, rootId: B + v.run.rootId, originId: B + 7, pendingState: ps && ps.project ? { ...ps, project: { ...ps.project, project: B + 7 } } : ps };
+    return [B + +k, { ...v, run, project: { ...v.project, id: B + 7 }, projectTask: byRun.get(+k) }];
+  }));
+  const web = { ...s.projects[0], id: B + 7 };
+  const team = { ...s.projects[0], id: 9, name: 'Team site', kind: 'team', owner: 'carol', level: 'participant', home: 'global' };
+  return { ...s, runs, views, projects: [web, team], tasks: { [B + 7]: tasks }, status: { [B + 7]: s.status[7] }, members: {}, ...extra };
 }

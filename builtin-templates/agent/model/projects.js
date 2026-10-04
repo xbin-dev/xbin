@@ -24,6 +24,7 @@ import { listHomes, twoHomes } from './homes.js';
 import { partitionState } from './partition.js';
 import { projectApi, taskApi, scmApi, listProjects, createProject, projectHome } from './project-api.js';
 import { columns, columnOf } from './project-task.js';
+import { choices, find, reach } from './classes.js';
 
 // The policy's keys (ProjectPolicy, API.md §Projects and tasks), grouped as
 // the settings show them. type: text | area | lines (a list, one per line) |
@@ -124,6 +125,21 @@ export function can(pv) {
  * a person's own in their partition (it is private), nor a membership. */
 export const sharable = (pv, state = partitionState()) => !!pv && pv.kind !== 'membership' && !(state === 'user' && pv.kind === 'personal');
 
+/** canSignin(provider): may this page offer "Sign in to ‹provider›"? Only in
+ * a person's own partition (the sign-in routes answer 409 anywhere else),
+ * and only when the provider lets *you* work as yourself (`you.identities`,
+ * not what it hands out to anyone). */
+export const canSignin = (prov, state = partitionState()) => !!prov && state === 'user' && ((prov.you && prov.you.identities) || []).includes('person');
+
+/** taskClassChoices(state, cur): the policy's "Class of new tasks" — the
+ * classes you may use without internal reach (one with it is refused,
+ * `class-internal`); the stored one stays shown, said, when it has. */
+export function taskClassChoices(state, cur) {
+  const internal = (r) => !r.gone && reach(find(state, r.value)).internal;
+  return choices(state, cur).filter((r) => r.on || !internal(r))
+    .map((r) => (internal(r) ? { ...r, label: `${r.label} (has internal reach: pick another)` } : r));
+}
+
 /**
  * agentChoices(view, harnesses): who may answer a new task, as the New task
  * form and the issue picker offer it — [{value, label, disabled}]. A task
@@ -198,6 +214,8 @@ export class Projects {
     this.polls = new Map();  // scm → a sign-in poll's timer
     this.reading = new Set(); // pids being read by ensure()
     this.failedAt = new Map(); // pid → when ensure()'s read of it failed
+    this.listSeq = 0;        // load()'s reads, numbered: only the latest one's answer is kept
+    this.gone = new Set();   // pids deleted here: a list read in flight doesn't bring them back
   }
 
   changed() { this.app.emit('projects'); }
@@ -207,10 +225,13 @@ export class Projects {
 
   // load reads GET /projects at every home this page has ('' and, in a
   // person's partition, the shared space's team definitions), every page of
-  // it (`next`), so the needs-you count covers them all.
+  // it (`next`), so the needs-you count covers them all. Only the latest
+  // read's answer is kept: an older one that arrives after it is dropped.
   async load() {
+    const seq = ++this.listSeq;
     const homes = listHomes('mine');
     const got = await Promise.all(homes.map((h) => listAll(h).then((items) => ({ h, items }), (e) => ({ h, e }))));
+    if (seq !== this.listSeq) return;
     const items = [];
     let err = '';
     for (const g of got) {
@@ -220,7 +241,7 @@ export class Projects {
         continue;
       }
       if (g.h === '') this.supported = true;
-      for (const p of g.items) items.push({ ...p, home: g.h });
+      for (const p of g.items) if (!this.gone.has(p.id)) items.push({ ...p, home: g.h });
     }
     this.list = items.sort(byActivity);
     for (const p of this.list) if (!this.views.has(p.id) || (this.views.get(p.id).version || 0) <= (p.version || 0)) this.views.set(p.id, p);
@@ -293,7 +314,8 @@ export class Projects {
       if (e.status === 404 && this.opened === pid) { this.opened = null; this.route(null); this.err = 'That project is gone, or not yours to see.'; this.changed(); return; }
       this.err = e.message;
     }
-    await Promise.all([this.tasks(pid), this.tab === 'settings' ? this.loadSettings(pid) : null]);
+    const def = (this.views.get(pid) || {}).kind === 'team'; // a team project's definition has no tasks (they run in each member's space)
+    await Promise.all([def ? null : this.tasks(pid), this.tab === 'settings' ? this.loadSettings(pid) : null]);
     this.changed();
   }
 
@@ -388,6 +410,7 @@ export class Projects {
     this.err = '';
     try {
       await projectApi(this.app, pid).remove(sandbox);
+      this.gone.add(pid);
       this.list = this.list.filter((p) => p.id !== pid);
       this.views.delete(pid);
       if (this.opened === pid) { this.opened = null; this.route(null); }
@@ -820,6 +843,7 @@ export class Projects {
     const pid = +d.id;
     if (!pid) return;
     if (d.change === 'deleted') {
+      this.gone.add(pid);
       this.list = this.list.filter((p) => p.id !== pid);
       this.views.delete(pid);
       this.taskRows.delete(pid);

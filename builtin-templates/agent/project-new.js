@@ -1,6 +1,6 @@
 // project-new.js — the new-project form on the web (API.md §Projects in the
-// UI), drawn in the Projects page: the scm provider (signing in to it when
-// it offers your own identity and you haven't), the repos — a picker of what
+// UI), drawn in the Projects page: the scm provider (signing in to it, in
+// your own partition, when it lets you work as yourself and you haven't), the repos — a picker of what
 // you can reach through it (GET /projects/scm/repos), each with an optional
 // setup script — the project's name, its sandbox (a new one, or one of your
 // own private ones) and the policy basics (tasks at once, who answers, pull
@@ -16,7 +16,7 @@ import { html, nothing } from '/vendor/lit-all.min.js';
 import { ctx } from './web-ext.js';
 import { partitionState } from './model/partition.js';
 import { safeUrl } from './model/project-task.js';
-import { repoSlug } from './model/projects.js';
+import { repoSlug, canSignin } from './model/projects.js';
 import { EGRESS } from './model/sandboxes.js';
 
 // the sandbox part's effective choice: what the form says, else the first
@@ -135,15 +135,21 @@ export function newProjectTpl(p) {
   </div>`;
 }
 
-// what the provider says of you: signed in as whom, or a way to sign in
+// what the provider says of you: signed in as whom, or a way to sign in —
+// offered only where you may sign in (your own partition, the provider
+// letting you work as yourself); elsewhere projects work as its bot, and at
+// the shared space each member signs in from their own
 function providerNoteTpl(p, prov) {
   const you = prov.you || {};
-  const person = (prov.identities || []).includes('person');
+  const name = prov.title || prov.scm;
+  const offer = canSignin(prov);
+  const elsewhere = partitionState() === 'global' && (prov.identities || []).includes('person');
   return html`<div class="muted small pnyou">
-    ${you.person ? html`You are ${you.person.login} there.` : person ? html`You haven't signed in to ${prov.title || prov.scm}.` : html`Projects here work as the provider's bot.`}
+    ${you.person ? html`You are ${you.person.login} there.` : offer ? html`You haven't signed in to ${name}.`
+      : elsewhere ? html`The shared space works as the provider's bot; each member signs in to ${name} from their own space.` : html`Projects here work as the provider's bot.`}
     ${(prov.notes || []).map((n) => html`<div>${n}</div>`)}
   </div>
-  ${person && !you.person ? signinTpl(p, prov.scm, prov.title) : nothing}`;
+  ${offer && !you.person ? signinTpl(p, prov.scm, prov.title) : nothing}`;
 }
 
 /**

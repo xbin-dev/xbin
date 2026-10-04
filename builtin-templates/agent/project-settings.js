@@ -4,7 +4,8 @@
 //   status    its sandbox, repos (fetched, head, protected), credentials
 //             (whose, until when, why one is blocked — never the token),
 //             jobs and warnings; Warm; signing in to the provider (your
-//             own sign-in, its device code shown to you only) and Forget
+//             own sign-in, its device code shown to you only — offered in
+//             your own partition, as the provider lets you) and Forget
 //   repos     add (owner/name), remove (confirmed; again when open tasks
 //             use it), each one's setup script and checkout
 //   policy    every key, grouped (model/projects.js POLICY); the owner edits
@@ -18,8 +19,7 @@
 // Everyone who may see the project reads it; only its owner changes it.
 import { html, nothing } from '/vendor/lit-all.min.js';
 import { ctx } from './web-ext.js';
-import { POLICY, policyGet, fieldValue, fieldText, can, sharable } from './model/projects.js';
-import { choices } from './model/classes.js';
+import { POLICY, policyGet, fieldValue, fieldText, can, sharable, canSignin, taskClassChoices } from './model/projects.js';
 import { ago } from './model/auto.js';
 import { signinTpl } from './project-new.js';
 
@@ -29,7 +29,7 @@ export function settingsTpl(p, pv) {
   const c = can(pv);
   if (!seen.has(pv.id)) {
     seen.add(pv.id);
-    p.providers().then(() => { const pr = p.provider(pv.scm); if (pr && (pr.identities || []).includes('person')) p.signinState(pv.scm); }).catch(() => {});
+    p.providers().then(() => { if (canSignin(p.provider(pv.scm))) p.signinState(pv.scm); }).catch(() => {});
   }
   return html`<div class="psettings">
     ${statusTpl(p, pv, c)}
@@ -70,7 +70,7 @@ function statusTpl(p, pv, c) {
       ${c.act ? html`<button class="btn ghost btnsm" id="pset-warm" title="start the sandbox, fetch the repos and refresh the credentials" @click=${() => p.warm(pv.id)}>Warm</button>` : nothing}
       <button class="btn ghost btnsm" @click=${() => p.status(pv.id).catch((e) => p.fail(e))}>Refresh</button>
     </div>
-    ${prov && (prov.identities || []).includes('person') ? html`<div class="pkv"><span>Your sign-in</span><span>${signinTpl(p, pv.scm, prov.title)}</span></div>` : nothing}
+    ${canSignin(prov) ? html`<div class="pkv"><span>Your sign-in</span><span>${signinTpl(p, pv.scm, prov.title)}</span></div>` : nothing}
   </section>`;
 }
 
@@ -122,7 +122,7 @@ function fieldTpl(p, f, val, editable) {
     input = html`<input id=${id} type="number" min=${f.min ?? ''} max=${f.max ?? ''} .value=${fieldText(f, val)} ?disabled=${!editable} @change=${(e) => set(e.target.value)}>`;
   } else if (f.type === 'select' || f.type === 'class' || f.type === 'harness') {
     const opts = f.type === 'select' ? f.options
-      : f.type === 'class' ? choices(ctx.app.classes, val).map((o) => [o.value, o.label])
+      : f.type === 'class' ? taskClassChoices(ctx.app.classes, val).map((o) => [o.value, o.label])
         : [['', 'the one you used last'], ...(ctx.app.harness.catalog.harnesses || []).map((h) => [h.id, h.name])];
     const has = opts.some(([v]) => v === (val ?? ''));
     input = html`<select id=${id} ?disabled=${!editable} @change=${(e) => set(e.target.value)}>
@@ -178,15 +178,16 @@ function membersTpl(p, pv, c) {
 
 // --- the project itself ------------------------------------------------------------------------
 
-let delSandbox = 'keep';
+const delSandbox = new Map(); // pid → 'keep' | 'delete': a project's choice, never the next one's
 let newName = null; // {pid, text, version}: the name being typed, and the version it began at
 
 function projectTpl(p, pv, c) {
   if (!c.settings) return nothing;
   const del = () => {
-    const sb = pv.sandboxMade && delSandbox === 'delete' ? ' and its sandbox' : ' (its sandbox stays)';
+    const sbx = delSandbox.get(pv.id) || 'keep';
+    const sb = pv.sandboxMade && sbx === 'delete' ? ' and its sandbox' : ' (its sandbox stays)';
     if (!confirm(`Delete the project "${pv.name}"${sb}? Its task conversations are deleted, their workspaces cleaned up.`)) return;
-    p.remove(pv.id, pv.sandboxMade ? delSandbox : 'keep');
+    p.remove(pv.id, pv.sandboxMade ? sbx : 'keep');
   };
   const nm = newName && newName.pid === pv.id ? newName : null;
   // a stale version (someone renamed it meanwhile) is said; the typed name stays, at the version read now
@@ -207,9 +208,9 @@ function projectTpl(p, pv, c) {
           @click=${() => { if (confirm(`Archive "${pv.name}"? Its credentials are removed from the sandbox; nothing else goes.`)) p.archive(pv.id, true); }}>Archive</button>`}
     </div>
     <div class="pbtns">
-      ${pv.sandboxMade ? html`<select id="pset-del-sbx" @change=${(e) => { delSandbox = e.target.value; }}>
-        <option value="keep" ?selected=${delSandbox === 'keep'}>keep its sandbox</option>
-        <option value="delete" ?selected=${delSandbox === 'delete'}>delete its sandbox too</option></select>` : nothing}
+      ${pv.sandboxMade ? html`<select id="pset-del-sbx" @change=${(e) => { delSandbox.set(pv.id, e.target.value); }}>
+        <option value="keep" ?selected=${delSandbox.get(pv.id) !== 'delete'}>keep its sandbox</option>
+        <option value="delete" ?selected=${delSandbox.get(pv.id) === 'delete'}>delete its sandbox too</option></select>` : nothing}
       <button class="btn rm btnsm" id="pset-delete" @click=${del}>Delete project</button></div>
   </section>`;
 }

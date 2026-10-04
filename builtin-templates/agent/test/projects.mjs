@@ -8,13 +8,15 @@
 // members, archive, delete; the new-project form; a task's conversation —
 // the crumb back, the branch and PR chips, Open PR once the route exists,
 // the prep card with Retry, the sign-in card (polled, then the task looked
-// at again); a `project` event; #proj=<id> on load with signing in to the
-// provider from the settings, and Forget; a phone's width; a person's
-// partition (two homes); and the shared space's team definitions.
+// at again — a person's partition's); a `project` event; #proj=<id> on
+// load; signing in to the provider offered only in a person's partition
+// (from the settings, then Forget), never at an unpartitioned agent or the
+// shared space; a phone's width; a person's partition (two homes, a team
+// definition's page with no tasks); and the shared space's team definitions.
 //
 //   node test/projects.mjs        (needs playwright + a chromium build)
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
-import { PROJ_STUB, projSeed } from './projects-stub.mjs';
+import { PROJ_STUB, projSeed, partitionSeed } from './projects-stub.mjs';
 
 const { ok, done } = checker();
 const browser = await launch();
@@ -131,7 +133,9 @@ const st = await page.textContent('#pset-status');
 ok('status: sandbox, repos, credentials, jobs, a warning', st.includes('running') && st.includes('not protected') && st.includes('alice-gh') && st.includes('fetch · web')
   && st.includes('no protection'), st.replace(/\s+/g, ' ').slice(0, 300));
 ok('…never a token', !/ghs_|gho_|ghu_/.test(st));
-ok('your sign-in: offered', await page.waitForSelector('#pset-status #psignin-start', { timeout: 5000 }).then(() => true, () => false));
+await page.waitForTimeout(300);
+ok('your sign-in: not offered at an unpartitioned agent (its routes answer 409 there)', !(await page.$('#pset-status #psignin-start'))
+  && !st.includes('Your sign-in') && (await calls(page, 'GET', '/projects/scm/signin')).length === 0);
 await page.click('#pset-warm');
 ok('Warm', await waitCall(page, 'POST', '/projects/7/warm$'));
 
@@ -214,21 +218,14 @@ await page.evaluate(() => { location.hash = '#c=104'; });
 await page.waitForSelector('#pprep[data-ws="preparing"]');
 const steps = await page.$$eval('#pprep .pstep', (els) => els.map((e) => `${e.dataset.repo}:${e.dataset.tone}`));
 ok('preparing: a step per repo', JSON.stringify(steps) === '["web:ok","api:idle"]' && (await page.textContent('#pprep')).includes('cloning acme/api'), JSON.stringify(steps));
-// the sign-in card: the code, to the person who must sign in
-await page.evaluate(() => { location.hash = '#c=106'; });
-await page.waitForSelector('#ptask-signin');
-ok('the sign-in card: the device code and page', (await page.textContent('#ptask-signin-code')) === 'ABCD-1234'
-  && (await page.getAttribute('#ptask-signin-link', 'href')) === 'https://github.com/login/device');
-ok('…polled; once signed in, the task is looked at again', await waitCall(page, 'POST', '/runs/106/task/refresh$') && await waitText(page, '#ptask-signin', 'Signed in'));
-
-// --- a new project, signing in to the provider ----------------------------------------------------------------------
+// --- a new project --------------------------------------------------------------------------------------------------
 await page.click('#projentry');
 await page.waitForSelector('#proj-new');
 await page.click('#proj-new');
 await page.waitForSelector('#proj-form .pnres[data-repo="acme/web"]');
 ok('the provider and what you can reach', (await page.inputValue('#pn-scm')) === 'apps/scm-github' && (await page.$$('#proj-form .pnres')).length === 3);
 ok('an archived repo can\'t be added', await page.isDisabled('#proj-form .pnres[data-repo="acme/attic"] button'));
-ok('the provider knows you now (signed in from the task)', await waitText(page, '.pnyou', 'You are alice-gh'));
+ok('the provider: projects work as its bot, no sign-in offered', await waitText(page, '.pnyou', "work as the provider's bot") && !(await page.$('#proj-form #psignin-start')));
 await page.click('#proj-form .pnres[data-repo="acme/web"] button');
 ok('adding a repo names the project after it', (await page.inputValue('#pn-name')) === 'web');
 await page.fill('#proj-form .pnrepo[data-repo="acme/web"] textarea', 'make deps');
@@ -265,15 +262,6 @@ ok('no page errors (Open PR)', e2.length === 0, e2.join(' | '));
 // #proj=7 on load
 const { page: p3, errors: e3 } = await open(projSeed(), { hash: '#proj=7' });
 ok('#proj=7 on load opens the project', await p3.waitForSelector('.pboard .ptask[data-n="1"]', { timeout: 5000 }).then(() => true, () => false));
-// signing in from the settings: the code to you, polled until done, then Forget
-await p3.click('[data-tab="settings"]');
-await p3.waitForSelector('#pset-status #psignin-start');
-await p3.click('#psignin-start');
-ok('sign-in: the device code, to you', await waitText(p3, '#psignin-code', 'WDJB-MJHT'));
-ok('…and its page, a link', (await p3.getAttribute('#psignin-link', 'href')) === 'https://github.com/login/device');
-ok('…polled until done', await waitText(p3, '#pset-status .psignin[data-state="done"]', 'Signed in to GitHub as alice-gh'));
-await p3.click('#psignin-forget');
-ok('…and Forget', await waitCall(p3, 'DELETE', '/projects/scm/signin\\?scm=apps%2Fscm-github$'));
 ok('no page errors (#proj=7)', e3.length === 0, e3.join(' | '));
 
 // a phone
@@ -287,10 +275,7 @@ ok('no page errors', errors.length === 0, errors.join(' | '));
 
 // === a person's partition: two homes ===================================================================
 const B = 2 ** 40;
-const pseed = projSeed();
-const mine = { ...pseed.projects[0], id: B + 7 };
-pseed.projects = [mine, { ...pseed.projects[0], id: 9, name: 'Team site', kind: 'team', owner: 'carol', level: 'participant', home: 'global' }];
-pseed.tasks = { [B + 7]: pseed.tasks[7].map((t) => ({ ...t, project: B + 7, run: B + t.run })) };
+const pseed = partitionSeed();
 const { page: q, errors: qe } = await open(pseed, { init: () => { window.xbin.partition = 'user:alice'; } });
 await q.click('#projentry');
 await q.waitForSelector(`.pcard[data-pid="${B + 7}"]`);
@@ -307,9 +292,30 @@ await q.waitForSelector('#pset-members');
 ok('…and has no members: it is yours alone', (await q.textContent('#pset-members')).includes('yours alone') && (await calls(q, 'GET', '/members$')).length === 0);
 await q.click('#top .crumb');
 await q.click('.pcard[data-pid="9"]');
-await q.waitForSelector('.pboard');
-ok('a team project is read at the shared space', (await calls(q, 'GET', '/projects/9$')).every((c) => c.home === 'global') && (await calls(q, 'GET', '/projects/9$')).length > 0);
+ok('a team project\'s definition: a line saying its tasks run in each member\'s space', await waitText(q, '#pdef-note', "each member's own space"));
+ok('…read at the shared space', (await calls(q, 'GET', '/projects/9$')).every((c) => c.home === 'global') && (await calls(q, 'GET', '/projects/9$')).length > 0);
+ok('…no tasks read, no task actions', (await calls(q, 'GET', '/projects/9/tasks')).length === 0
+  && !(await q.$('#ptask-new')) && !(await q.$('#ptask-issues')) && !(await q.$('.pboard')));
+// the sign-in card of a task of yours: the code, to the person who must sign in
+await q.evaluate((id) => { location.hash = `#c=${id}`; }, B + 106);
+await q.waitForSelector('#ptask-signin');
+ok('the sign-in card: the device code and page', (await q.textContent('#ptask-signin-code')) === 'ABCD-1234'
+  && (await q.getAttribute('#ptask-signin-link', 'href')) === 'https://github.com/login/device');
+ok('…polled; once signed in, the task is looked at again', await waitCall(q, 'POST', `/runs/${B + 106}/task/refresh$`) && await waitText(q, '#ptask-signin', 'Signed in'));
 ok('no page errors (partition)', qe.length === 0, qe.join(' | '));
+
+// signing in from the settings, in your partition: the code to you, polled until done, then Forget
+const { page: p5, errors: e5 } = await open(partitionSeed(), { hash: `#proj=${B + 7}`, init: () => { window.xbin.partition = 'user:alice'; } });
+await p5.waitForSelector('.pboard .ptask');
+await p5.click('[data-tab="settings"]');
+ok('your sign-in: offered in your partition', await p5.waitForSelector('#pset-status #psignin-start', { timeout: 5000 }).then(() => true, () => false));
+await p5.click('#psignin-start');
+ok('sign-in: the device code, to you', await waitText(p5, '#psignin-code', 'WDJB-MJHT'));
+ok('…and its page, a link', (await p5.getAttribute('#psignin-link', 'href')) === 'https://github.com/login/device');
+ok('…polled until done', await waitText(p5, '#pset-status .psignin[data-state="done"]', 'Signed in to GitHub as alice-gh'));
+await p5.click('#psignin-forget');
+ok('…and Forget', await waitCall(p5, 'DELETE', '/projects/scm/signin\\?scm=apps%2Fscm-github$'));
+ok('no page errors (signing in)', e5.length === 0, e5.join(' | '));
 
 // === a partitioned agent's shared space: a team project's definition ======================================
 const { page: g, errors: ge } = await open(projSeed(), { init: () => { window.xbin.partition = 'global'; } });
@@ -319,6 +325,7 @@ await g.click('#proj-new');
 await g.waitForSelector('#proj-form .pnres[data-repo="acme/web"]');
 ok('the shared space: a seed sandbox, none at first', (await g.textContent('#proj-form')).includes('Its seed sandbox') && await g.isChecked('#proj-form input[name="pn-sbx"][value="none"]'));
 ok('…shared with the team at first', (await g.inputValue('#pn-vis')) === 'team');
+ok('…no sign-in offered: each member signs in from their own space', await waitText(g, '.pnyou', 'each member signs in') && !(await g.$('#proj-form #psignin-start')));
 await g.click('#proj-form .pnres[data-repo="acme/web"] button');
 await g.click('#pn-create');
 ok('…posted as a team definition, shared, without a seed', await waitCall(g, 'POST', '/projects$'));

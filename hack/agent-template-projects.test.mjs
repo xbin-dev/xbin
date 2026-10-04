@@ -10,8 +10,11 @@
 // version-checked PATCH — a draft's own version, a 412 keeping both
 // changes — the new-project body (a team definition at global), who may
 // answer a task, every page of the list, a repo's busy refusal, only the
-// latest answer kept, a sign-in followed by its pollId, the "Open PR"
-// probe, the `project` event coalesced). Run by `make js-test`.
+// latest answer kept — the board's and the list's, a deleted project not
+// brought back — a team definition reading no tasks, where signing in is
+// offered, the class of new tasks without internal reach, a sign-in
+// followed by its pollId, the "Open PR" probe, the `project` event
+// coalesced). Run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
@@ -398,6 +401,68 @@ test('only the latest answer is kept: an older one arriving last is dropped', as
   await older;
   assert.deepEqual(pj.taskList(B + 7).items.map((t) => t.n), [1], 'the filtered answer stays');
   assert.equal(pj.taskList(B + 7).loading, false);
+});
+
+test('the list: an older answer arriving last is dropped; a deleted project stays gone', async () => {
+  const gates = [];
+  const lists = [[{ id: 1, state: 'active', counts: { 'needs-you': 1 } }, { id: 2, state: 'active', counts: { 'needs-you': 4 } }], [{ id: 1, state: 'active', counts: { 'needs-you': 1 } }]];
+  backend([['GET', /^\/projects(\?.*)?$/, () => { const items = lists[Math.min(gates.length, 1)]; return new Promise((res) => gates.push(() => res(json({ items })))); }],
+    ['DELETE', /^\/projects\/2\?sandbox=keep$/, () => json({ state: 'deleting' }, 202)]]);
+  const pj = M.createProjects(fakeApp());
+  const older = pj.load(); // lists 1 and 2
+  await wait(5);
+  const newer = pj.load(); // lists 1 only
+  await wait(5);
+  gates[1]();
+  await newer;
+  gates[0]();
+  await older;
+  assert.deepEqual(pj.list.map((p) => p.id), [1], 'the older list never replaces the newer one');
+  assert.equal(pj.needsYou(), 1);
+  // a read in flight while a project is deleted doesn't bring it back
+  lists[1] = [{ id: 1, state: 'active' }, { id: 2, state: 'active' }];
+  const inflight = pj.load();
+  await wait(5);
+  assert.equal(await pj.remove(2), true);
+  await wait(5);
+  for (const g of gates.slice(2)) g();
+  await inflight;
+  await wait(5);
+  for (const g of gates.slice(2)) g();
+  await wait(5);
+  assert.ok(!pj.list.some((p) => p.id === 2), JSON.stringify(pj.list.map((p) => p.id)));
+});
+
+test('a team project\'s definition: its page reads no tasks', async () => {
+  const calls = backend([['GET', /^\/projects\/9$/, () => json({ project: { id: 9, kind: 'team', level: 'participant', state: 'active', version: 1 } })]], 'user:alice');
+  const pj = M.createProjects(fakeApp());
+  await pj.open(9);
+  assert.equal(pj.view(9).kind, 'team');
+  assert.deepEqual(calls.map((c) => `${c.method} ${c.path} ${c.home}`), ['GET /projects/9 global'], 'no GET of its tasks: it has none');
+});
+
+test('signing in is offered only in your own partition, as the provider lets you', () => {
+  const gh = (you, ids = ['person', 'bot']) => ({ scm: 'gh', identities: ids, you });
+  assert.equal(M.canSignin(gh({ identities: ['person', 'bot'] }), 'user'), true);
+  assert.equal(M.canSignin(gh({ identities: ['person', 'bot'] }), 'legacy'), false, 'an unpartitioned agent: the routes answer 409');
+  assert.equal(M.canSignin(gh({ identities: ['person', 'bot'] }), 'global'), false, 'the shared space: each member signs in from their own');
+  assert.equal(M.canSignin(gh({ identities: ['bot'] }), 'user'), false, 'what you may use, not what it hands out (identities)');
+  assert.equal(M.canSignin(gh(undefined), 'user'), false);
+  assert.equal(M.canSignin(null, 'user'), false);
+});
+
+test('the class of new tasks: never one with internal reach', () => {
+  const st = { classes: [
+    { id: 'internal', name: 'Internal', toolsets: ['files', 'internal'] },
+    { id: 'coding', name: 'Coding', toolsets: ['files', 'sandbox'], sandboxEgress: ['internet'] },
+    { id: 'web', name: 'Web', toolsets: ['web'] },
+    { id: 'mixed', name: 'Mixed', toolsets: ['internal', 'web'], mixed: true },
+  ] };
+  assert.deepEqual(M.taskClassChoices(st, 'coding').map((r) => r.value), ['coding', 'web'], 'internal reach is refused (class-internal): not offered');
+  const kept = M.taskClassChoices(st, 'internal');
+  assert.deepEqual(kept.map((r) => r.value), ['internal', 'coding', 'web'], 'the stored one stays shown');
+  assert.match(kept[0].label, /has internal reach: pick another/);
+  assert.deepEqual(M.taskClassChoices(st, 'gone').map((r) => r.value), ['coding', 'web', 'gone'], 'one you may not use stays as it is');
 });
 
 test('a sign-in followed by its pollId; a poll error is tried again', async () => {

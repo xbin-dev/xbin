@@ -9,7 +9,9 @@
 //          "New task" (what to do, a title, small or big, who works on it,
 //          which repos), "From issues…" (a batch picker of the project's
 //          issues, a task each), Warm; its Settings tab (project-settings.js);
-//          the new-project form (project-new.js)
+//          the new-project form (project-new.js). A team project's
+//          definition (kind team, at the shared space) has no tasks: its
+//          board is a line saying so — they run in each member's space
 //
 // A card opens its task's conversation, whose crumb (project-chips.js)
 // comes back here. The state is app.projects (model/projects.js); the words
@@ -122,6 +124,10 @@ function projectTpl(p, pv) {
 }
 
 function boardPageTpl(p, pv, c) {
+  if (pv.kind === 'team') { // a team project's definition: it has no tasks of its own
+    return html`<div class="note" id="pdef-note">This is the team project's definition. Its tasks run in each member's own space,
+      on their own board — the Settings tab keeps its repos, policy and members.</div>`;
+  }
   const list = p.taskList(pv.id);
   return html`
     <div class="pbar">
