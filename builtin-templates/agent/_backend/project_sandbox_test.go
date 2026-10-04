@@ -141,8 +141,9 @@ func TestForkFlow(t *testing.T) {
 
 // Without a fork base (here: a manager that neither snapshots nor clones)
 // a big task gets a fresh sandbox of the same image with the repos cloned
-// into it; bigTasks.keepFork keeps it after the cleanup. A deleted
-// project's fork goes when the loop next looks.
+// into it; bigTasks.keepFork keeps it after the cleanup (its credential
+// scrubbed: no task works there any more). A deleted project's fork goes
+// when the loop next looks.
 func TestForkFallbackFresh(t *testing.T) {
 	fx := newP2Fix(t)
 	fx.m.Caps = []string{"exec", "files", "tar", "stdio", "archive", "ports"}
@@ -184,6 +185,10 @@ func TestForkFallbackFresh(t *testing.T) {
 	if d.getSetting(forkKey(p.ID, tv.N)) != "" {
 		t.Fatalf("a kept fork is still in the registry")
 	}
+	var kept string
+	if err := d.q.QueryRow(`SELECT state FROM project_creds WHERE project_id=? AND sandbox_ref=?`, p.ID, k.SandboxRef).Scan(&kept); err != nil || kept != credScrubbed {
+		t.Fatalf("a kept fork keeps its credential: %q %v", kept, err)
+	}
 
 	// a second big task's fork, then the project deleted: the loop deletes it
 	_, err := d.q.Exec(`UPDATE projects SET policy=? WHERE id=?`, `{}`, p.ID)
@@ -210,5 +215,66 @@ func TestForkFallbackFresh(t *testing.T) {
 	}
 	if _, ok := fx.m.Box(forkID); !ok {
 		t.Fatalf("the kept fork went with the project")
+	}
+}
+
+// failPrepare drives task n's prepare job, which fails in the fork after
+// the fork was made and given its credential (the clone can't reach the
+// origin), through its attempts to failed.
+func (fx *p2Fix) failPrepare(t *testing.T, pid, n int64) *ProjectTask {
+	t.Helper()
+	hwait(t, "the big task's prepare to fail", func() bool {
+		_, _ = fx.ag.db.q.Exec(`UPDATE project_jobs SET next_ms=0 WHERE project_id=? AND kind=? AND state='queued'`, pid, pjPrepare)
+		kickProjectWorker()
+		k, _ := fx.ag.db.taskByN(pid, n)
+		return k != nil && k.WS == wsFailed
+	})
+	k, _ := fx.ag.db.taskByN(pid, n)
+	return k
+}
+
+// A big task whose prepare failed after its fork was made — the registry
+// holds the fork, the task's row doesn't (fork_made unset), a live
+// credential is in the fork — loses its fork when it is cleaned up, its
+// credential scrubbed first; and so does one closed without a cleanup.
+func TestForkOfFailedPrepareDeleted(t *testing.T) {
+	fx := newP2Fix(t)
+	fx.m.Caps = []string{"exec", "files", "tar", "stdio", "archive", "ports"} // fresh forks: the repos cloned in
+	forgetHellos()
+	p := fx.newProject(t, asAlice, nil)
+	fx.waitRepoReady(t, p.ID)
+	d := fx.ag.db
+	if _, err := d.q.Exec(`UPDATE project_repos SET url='file:///nowhere/web.git' WHERE project_id=?`, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	for _, how := range []string{"cleanup", "close"} {
+		tv, run := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "a big one, " + how, "size": "big"})
+		k := fx.failPrepare(t, p.ID, tv.N)
+		e := forkEntryAt(d, forkKey(p.ID, tv.N))
+		if k.ForkMade || e == nil || e.Ref == "" {
+			t.Fatalf("%s: the failed task's fork: fork_made %v, registry %+v", how, k.ForkMade, e)
+		}
+		_, forkID, _ := splitSandboxRef(e.Ref)
+		if _, ok := fx.m.Box(forkID); !ok {
+			t.Fatalf("%s: the fork isn't at its manager", how)
+		}
+		if live := scmLiveIn(e.Ref); len(live) == 0 {
+			t.Fatalf("%s: no live credential in the fork (the case this is about)", how)
+		}
+		if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/task/%s", run, how), map[string]any{}); w.Code != 202 && w.Code != 200 {
+			t.Fatalf("%s: %d %s", how, w.Code, w.Body)
+		}
+		hwait(t, how+": the fork's deletion", func() bool {
+			_, ok := fx.m.Box(forkID)
+			return !ok && d.getSetting(forkKey(p.ID, tv.N)) == ""
+		})
+		waitJobsDone(t, fx.projFix, p.ID)
+		var state string
+		if err := d.q.QueryRow(`SELECT state FROM project_creds WHERE project_id=? AND sandbox_ref=?`, p.ID, e.Ref).Scan(&state); err != nil || state != credScrubbed {
+			t.Fatalf("%s: the fork's credential row: %q %v", how, state, err)
+		}
+	}
+	if _, ok := fx.m.Box(fx.box.ID); !ok {
+		t.Fatalf("the project's own sandbox went too")
 	}
 }

@@ -8,7 +8,8 @@
 // task's (other tasks' checkouts, every credential), gives it a credential
 // of its own (the gate judging the fork and the sandbox it came from) and
 // fetches; and the fork job, which deletes it once the task's workspace is
-// cleaned up (its credentials scrubbed first) unless policy bigTasks.keepFork.
+// cleaned up, or the task ended without ever working there (its
+// credentials scrubbed first; with policy bigTasks.keepFork only those).
 //
 // Every fork the project made is in a registry (the setting
 // proj_fork:<pid>:<n>, what the create asked for and the sandbox it made),
@@ -289,10 +290,30 @@ func cloneIntoFork(ctx context.Context, s *wsbx, p *Project, k *ProjectTask, rep
 
 // --- deleting a fork --------------------------------------------------------------------
 
+// forkDue: k's fork (registry entry e) is to be deleted — the task's
+// workspace was cleaned up, or the task ended before the fork became its
+// workspace (prepare made it, then failed: the task never worked there).
+// The registry, not the task's row, says a fork was made: a prepare that
+// failed after the create leaves fork_made unset.
+func forkDue(k *ProjectTask, e *forkEntry) bool {
+	if k == nil || e == nil || e.Ref == "" {
+		return false
+	}
+	if k.WS == wsCleaned {
+		return true
+	}
+	switch k.Phase {
+	case phaseClosed, phaseDone, phaseMerged, phaseDeleted:
+		return !k.ForkMade
+	}
+	return false
+}
+
 // forkTaskChanged (taskChangedHooks): a big task's workspace was cleaned
-// up — its fork job deletes the fork.
+// up, or the task ended with a fork it never worked in — its fork job
+// deletes the fork.
 func forkTaskChanged(t *DB, p *Project, k *ProjectTask, what string) {
-	if what != "ws" || k.WS != wsCleaned || !k.ForkMade || p.Kind == projTeam {
+	if (what != "ws" && what != "phase") || p.Kind == projTeam || !forkDue(k, forkEntryAt(t, forkKey(p.ID, k.N))) {
 		return
 	}
 	if _, err := t.queueJob(p.ID, k.ID, "", pjFork, "", 0); err != nil {
@@ -300,8 +321,9 @@ func forkTaskChanged(t *DB, p *Project, k *ProjectTask, what string) {
 	}
 }
 
-// jobFork deletes k's fork once its workspace is cleaned up — its
-// credentials scrubbed first — unless policy bigTasks.keepFork.
+// jobFork deletes k's fork once it is due (forkDue) — its credentials
+// scrubbed first — or, with policy bigTasks.keepFork, scrubs its
+// credentials and forgets it (the sandbox stays, nobody's credential in it).
 func jobFork(ctx context.Context, p *Project, k *ProjectTask, _ *ProjectJob) (jobOutcome, error) {
 	if k == nil {
 		return doneJob("the task is gone")
@@ -311,14 +333,17 @@ func jobFork(ctx context.Context, p *Project, k *ProjectTask, _ *ProjectJob) (jo
 	switch {
 	case e == nil || e.Ref == "":
 		return doneJob("no fork")
-	case k.WS != wsCleaned:
+	case !forkDue(k, e):
 		return doneJob("its workspace is in use")
-	case policyOf(p.Policy).BigTasks.KeepFork:
-		dropForkEntry(d, p.ID, k.N)
-		return doneJob("kept (bigTasks.keepFork)")
+	case d.liveJob(p.ID, k.ID, "", pjPrepare) != nil:
+		return waitJob(10000, "waiting for its prepare job to end")
 	}
 	if err := scmScrubCreds(ctx, p, e.Ref, scrubDelete); err != nil {
 		return jobOutcome{}, err
+	}
+	if policyOf(p.Policy).BigTasks.KeepFork {
+		dropForkEntry(d, p.ID, k.N)
+		return doneJob("kept (bigTasks.keepFork), its credential scrubbed")
 	}
 	if err := deleteFork(ctx, e); err != nil {
 		return jobOutcome{}, err
@@ -391,7 +416,7 @@ func forkSweep(ctx context.Context) {
 			_ = putForkEntry(d, pid, n, e)
 		}
 		k, err := d.taskByN(pid, n)
-		if err == nil && k.WS == wsCleaned && k.ForkMade && p.State == projActive && d.liveJob(pid, k.ID, "", pjFork) == nil {
+		if err == nil && forkDue(k, e) && p.State == projActive && d.liveJob(pid, k.ID, "", pjFork) == nil {
 			_, _ = d.queueJob(pid, k.ID, "", pjFork, "", 0)
 		}
 	}
