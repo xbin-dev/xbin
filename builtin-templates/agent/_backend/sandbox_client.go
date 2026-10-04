@@ -463,6 +463,43 @@ func (c *sbxConn) Lifecycle(ctx context.Context, id, action string, wait int, st
 	return &out, c.call(ctx, "POST", sbxPath(id, action), q, in, &out, time.Duration(wait)*time.Second+sbxCallTimeout)
 }
 
+// --- snapshots (the snapshots capability) -------------------------------------------
+
+// sbxSnapshot is one of a sandbox's snapshots. Pending: its copy was still
+// running when the manager answered (look again with Snapshots).
+type sbxSnapshot struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Created int64  `json:"created"`
+	Bytes   int64  `json:"bytes,omitempty"`
+	Pending bool   `json:"pending,omitempty"`
+}
+
+// sbxSnapshotTimeout bounds taking one: the manager copies the sandbox's
+// state off the request, up to its waitMaxSec.
+const sbxSnapshotTimeout = 10 * time.Minute
+
+// Snapshot takes a snapshot of sandbox id (it may stop it briefly);
+// clientID makes a repeat answer the same one.
+func (c *sbxConn) Snapshot(ctx context.Context, id, name, clientID string) (*sbxSnapshot, error) {
+	var out sbxSnapshot
+	return &out, c.call(ctx, "POST", sbxPath(id, "snapshots"), nil, map[string]string{"name": name, "clientId": clientID}, &out, sbxSnapshotTimeout)
+}
+
+// Snapshots lists sandbox id's snapshots.
+func (c *sbxConn) Snapshots(ctx context.Context, id string) ([]sbxSnapshot, error) {
+	var out struct {
+		Snapshots []sbxSnapshot `json:"snapshots"`
+	}
+	err := c.call(ctx, "GET", sbxPath(id, "snapshots"), nil, nil, &out, sbxCallTimeout)
+	return out.Snapshots, err
+}
+
+// DeleteSnapshot deletes snapshot sid of sandbox id.
+func (c *sbxConn) DeleteSnapshot(ctx context.Context, id, sid string) error {
+	return c.call(ctx, "DELETE", sbxPath(id, "snapshots", sid), nil, nil, nil, sbxCallTimeout)
+}
+
 // --- commands ----------------------------------------------------------------------
 
 // sbxRunReq is POST /sbx/sandboxes/{id}/run.

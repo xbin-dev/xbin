@@ -3725,7 +3725,156 @@ A big task's own sandbox, forked from a snapshot of the project's taken
 while it is quiet (or made fresh); "Make this a project…" turning a
 conversation with a sandbox and its git repos into a project, the
 conversation its first task; opening a pull request, by hand or when a
-task comes to rest. Described when it lands.
+task comes to rest.
+
+| Method and path | Need | Body | Answer |
+|---|---|---|---|
+| `POST /runs/{id}/task/pr` | P (and a participant of the project) | `{draft?, title?, body?}` | **202** `{job}`; the pull requests arrive in `TaskView.prs`. 409 when the project isn't active, the task is over or its workspace isn't `ready`. Only `POST` is mounted: a `GET` answers 405 (how a client learns the route is there) |
+| `POST /projects/{pid}/fork-base` | O | `{now?: true}` | **202** `{job}`: a fork base taken when the sandbox is next quiet (a person's ask waits up to 30 min for that, from the ask — one the agent queued itself and hasn't started becomes the person's), or with `now` at once — it may stop the sandbox: ask first. 409 `refusal: "unsupported"` when its manager takes no snapshots or clones; 409 `refusal: "busy"` while the agent's own snapshot job, or one not taken `now`, is at work (ask again once it ends) |
+| `GET /runs/{id}/project/detect` | O | — | `{sandbox, cwd, candidates: [{path, remote, host, repo, scm, defaultBranch, branch, dirty, ssh, hasCredentials}]}` |
+| `POST /runs/{id}/project` | O | `{name, scm, repos: [{path, repo?}], branch?: "keep" \| "new", switchHttps?: [path], policy?}` | **201** `{project: ProjectView, task: TaskView}` — the conversation is task 1 |
+
+**Big tasks.** A task created with `size: "big"` works in **a sandbox of
+its own**, made by its `prepare` job before its checkouts:
+
+- **From the fork base.** A project whose policy says `bigTasks.mode`
+  `fork` (the default) keeps a **fork base**: a snapshot of its sandbox
+  (`forkSnap`, `forkSnapMs` on the project), taken by the `snapshot` job
+  after its repos are first ready and again when it is a day old and a
+  task changed since — only while the sandbox is **quiet**: no task of any
+  project at work there, no command a conversation runs there, no coding
+  agent busy in it, no conversation at work bound to it, no workspace job
+  running in it and no command its manager runs there (a person's
+  terminal), because a snapshot may stop the sandbox. Every project's
+  credential in the sandbox is emptied (and revoked) before the snapshot
+  is taken, and none is written there, nor does a git step start there,
+  until the manager has answered — so no snapshot holds a live token; the
+  workspace gate writes a fresh one when a task next needs it. Even one
+  asked for `now` waits for a git step running in the sandbox, or due to
+  start there (a person's ask waits, the agent's own gives up). Each
+  snapshot job asks for one snapshot (`clientId`
+  `agent:proj:‹pid›:snap:‹job›:‹queued at›`, named `fork base of ‹project
+  slug›`), so a retry asks the same. One the agent asks for itself is not
+  asked again within the hour after the last one ended, taken or not. The
+  newer fork base replaces the older (which is deleted). Needs the
+  manager's `snapshots` and `clone`.
+- The task's sandbox is a **clone** of the fork base (`clientId`
+  `agent:proj:‹pid›:fork:‹n›`, named `‹project slug›-‹n›`), labelled with
+  the project (`xbin.agent/project`), the task (`xbin.agent/task`) and the
+  space it belongs to, with the project sandbox's visibility and members.
+  In it, before anything else runs: every credential the snapshot carried
+  is removed (`H/.config/xbin-scm`), the other tasks' checkouts are removed
+  and git forgets them (`worktree prune`, then `repair`); then it gets a
+  **credential of its own** (the credential gate judges the fork — and the
+  sandbox it came from: one a non-secure conversation used refuses it) and
+  every base is **fetched**, so the task starts from the remote's default
+  branch as it is now. Its checkouts, setup and binding then follow as for
+  any task, in the fork; `TaskView` says `fork: true` and the fork's
+  `sandboxRef`.
+- **Fresh.** Without a fork base, with `bigTasks.mode` `fresh`, or where
+  the manager can't clone, the task's sandbox is a new one of the project
+  sandbox's image, size and egress, laid out as the project's, with every
+  repo cloned into it. A fork base the manager no longer has falls back to
+  this too (and is forgotten).
+- A fork works at the project's paths: its manager must give a clone the
+  same working directory (managers do); one that doesn't fails the task's
+  workspace with words saying so.
+- **Cleanup** of a big task (§The workspace) is followed by its `fork`
+  job: the fork's credential is scrubbed, then the fork deleted — unless
+  `bigTasks.keepFork`, which keeps the sandbox but scrubs its credential
+  all the same (no task works there any more). A fork its task never
+  worked in — `prepare` made it, then failed — goes the same way once the
+  task is cleaned up or ends (closed, done, merged, its conversation
+  deleted). A fork outlives neither its project: the forks of a deleted
+  project are deleted soon after (unless they were to be kept).
+
+**Pull requests.** The `pr` job, for each of the task's checkouts **on the
+task's branch** with commits the repo's default branch (as last fetched)
+lacks, pushes that branch — `git push origin refs/heads/‹branch›`, never
+anything else, and **never the default branch**: a task whose branch is
+its repo's default branch is refused (the job fails, saying so) — then,
+for each such repo with no open pull request in `prs`, opens one through
+the provider (`POST /scm/pulls` `{repo, head: ‹branch›, base: ‹default›,
+title, body, draft, clientId: "agent:proj:‹pid›:pr:‹n›:‹repo slug›"}`,
+as the project's identity), so asking again opens nothing twice. The
+title is the one given, else the task's; the body the one given (redacted),
+else one line saying which task of which project it is for — and `Closes
+#‹n›` for its issue in that repo; nothing of the conversation goes out.
+`draft` defaults to `policy.autoPR` being `draft`. The pull requests are
+recorded in the task's `prs` (`phase` `pr`, a `pr.opened` event each, a
+`note` for each push), and the parts that follow a task's branch (scm
+events, CI) are told. A checkout on another branch is left alone (a `note`
+says so). Asking again while the job runs runs it once more after. A
+pull request's create that fails as a connection would (or the provider
+answers `limit`, `unavailable` or `upstream`) after the push is tried
+again: the job records what it did and runs again, with backoff. At its
+last try it ends with a `note` instead (the task's workspace untouched,
+never failed), and the ask stays for the next ask or turn.
+
+**Auto-PR.** With `policy.autoPR` `draft` or `ready`, a task whose turn
+ended well (it rests `idle` or `done` — not cancelled, not failed), whose
+workspace is ready and that has a repo with no open pull request gets the
+`pr` job on its own, for those repos only (one whose pull request is open
+is the task's to push to). A person's ask waiting already wins.
+
+**"Make this a project…"** — for the owner of a conversation (a chat or an
+API conversation, not a subagent's, an automation's or a non-secure one)
+that has a sandbox bound (or whose coding agent works in one), in a
+person's own space or an unpartitioned agent; at a partitioned agent's
+shared space it answers 409 (it holds team definitions, which have no
+tasks).
+
+- `GET /runs/{id}/project/detect` runs one command in the sandbox: the
+  git clone at the conversation's working directory, else every clone up
+  to three levels below it (at most 20); for each its `remote` (origin,
+  **without its userinfo, query or fragment** — never answered, stored or
+  logged; `hasCredentials` says one was there), `host`, `repo`
+  (`owner/name`), `scm` (the bound provider whose `hosts` hold the host;
+  `""` none), `defaultBranch` (as the clone knows it), `branch` (`""`
+  detached), `dirty` (changed files) and `ssh`.
+- `POST /runs/{id}/project` checks each `{path, repo}` again in the
+  sandbox (the path is a clone's top directory; its origin is `repo` —
+  `repo` may be left out — at one of the provider's `hosts`) and at the
+  provider (it sees the repo; at a bot home the scm bot rule: 403), and
+  the classes: the conversation's class, or `policy.taskClass`, with
+  internal reach is 409 `class-internal`, as is a conversation that has
+  held internal data (a task reads text from the provider and pushes to
+  it); one the caller may not use is 403. Then it makes the project in the
+  conversation's space — the conversation's sandbox its workspace (labelled
+  by the `sandbox` job), its clones its repos (`mode` `adopted`, `basePath`
+  the clone: never removed; later tasks take worktrees of it) — and the
+  conversation **task 1**: `origin` `project`, `config.project`, its
+  checkouts the clones themselves (`mode` `main`), its workspace `ready`.
+  `branch` `new` (the default here) starts the task's branch
+  (`‹branchPrefix›/1-‹slug›`) in each clone, the work in it carried over;
+  `keep` keeps the branch the clones are on — refused (409) when it is a
+  repo's default branch, when they are on different ones or not on one.
+  `switchHttps` paths get their origin set to the provider's https clone
+  URL (what a remote's own credential is replaced with: the project's
+  credential helper serves https); an ssh origin is otherwise left alone.
+  Each clone gets `push.autoSetupRemote` and `core.logAllRefUpdates`. Then
+  a credential is written for the task. The project's directory
+  (`‹workdir›/‹slug›`) is a new one: its slug, from the name, skips every
+  name already in the working directory and any path that is a clone,
+  holds one or lies inside one (a project named after its clone gets
+  `‹name›-2`). Refused, too: a shared conversation (its sharing would
+  become the project's — unshare it, upgrade, share the project; 409), one
+  at work (409 `busy`), one being made a project already (409 `busy`), one
+  that is a project's already, and a clone that holds the sandbox's
+  working directory (409: every project directory would be inside it). A
+  refusal leaves no project behind; a failure after the clones were
+  changed takes the new branch back (the clone back where it was, the
+  branch deleted) — the origin switched to https stays.
+- Cleanup never removes a `main` checkout: cleaning task 1 up keeps the
+  clones and the work in them.
+
+**Rolling back.** A build without Projects leaves an upgraded
+conversation out of its conversation list, as it does every task — the one
+visible regression: it is reachable by its link and by search, and is task
+1 of its project again once this build is back. Forks and fork bases stay
+at their manager until this build is back (a fork base is replaced, a
+cleaned task's fork deleted, as above); the settings `proj_fork:‹pid›:‹n›`
+and `proj_pr:‹pid›:‹n›` are unknown settings to it.
 
 ### The coordinator
 
