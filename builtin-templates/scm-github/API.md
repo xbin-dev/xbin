@@ -105,7 +105,9 @@ Then:
   here and at global. The grant goes first: if GitHub (or global) refuses
   or doesn't answer, Forget answers that (503 `unavailable`, …) and
   clears nothing, so you can try again. A token GitHub no longer knows
-  (expired, already revoked) counts as revoked.
+  (expired, already revoked) counts as revoked. GitHub's 422 can also mean
+  "try later", so on a 422 Forget asks GitHub about the token: while it
+  still answers, Forget is 503 `unavailable` and clears nothing.
 
 Deleting a person can't run Forget: their tokens live on until they
 expire (at most the epoch, §6).
