@@ -3403,21 +3403,27 @@ agent WP's tests use (§15.1).
 
 ### 15.3 Commands
 
+**Nothing that takes more than 1–2 minutes belongs on a WP's iteration
+path** (the owner, 2026-10-04): a WP runs targeted checks only, and the
+full `-race` suites and `make check` run once per gate, by the lead, on
+`projects-scm` after the wave's merges. A WP never runs a tile-check
+without `-run`, a `-race` over a whole tile, or `make check`; a targeted
+run over ~2 minutes gets narrowed.
+
 - Agent WPs: `TILE_TEST_FLAGS="-count=1 -v -run TestA|TestB" hack/tile-check.sh agent`
-  while iterating — the pattern **unquoted and without spaces**:
-  tile-check.sh word-splits `TILE_TEST_FLAGS` without re-parsing quotes,
-  so `-run 'X'` matches nothing and passes having run no test (`-v` shows
-  what ran); at the end `TILE_TEST_FLAGS="-race -count=1"
-  hack/tile-check.sh agent`.
-- G1, G2: `hack/tile-check.sh scm-github`; `go test ./internal/builtins/...`
-  (the template catalog loads it; its manifest's roles match its guards).
-- JS: `node --test hack/agent-template-projects*.test.mjs
-  hack/agent-template-ci*.test.mjs hack/agent-template-features.test.mjs
-  hack/agent-template-model.test.mjs`; `make js-check native-check`;
-  browser tests `PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright node
+  — the pattern **unquoted and without spaces**: tile-check.sh
+  word-splits `TILE_TEST_FLAGS` without re-parsing quotes, so `-run 'X'`
+  matches nothing and passes having run no test (`-v` shows what ran).
+  Add `-race` to a targeted run when the change is about concurrency.
+- G1, G2: `TILE_TEST_FLAGS="-count=1 -v -run TestA|TestB"
+  hack/tile-check.sh scm-github`; `go test ./internal/builtins/...` when
+  the manifest changes (the template catalog loads it; its manifest's
+  roles match its guards).
+- JS: the one `node --test hack/agent-template-*.test.mjs` file the
+  change touches; `make js-check native-check`; the one browser test,
+  `PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright node
   builtin-templates/agent/test/<name>.mjs`.
-- Everyone: `go test ./internal/docscheck`, `make fmt-check vet`, then
-  `make check` once at the end.
+- Everyone: `go test ./internal/docscheck`, `make fmt-check vet`.
 
 ### 15.4 What can't run here
 
@@ -3500,23 +3506,31 @@ the lead decides.
 
 ### 16.4 Verification per WP
 
-Every WP runs, and pastes the results in its record:
+Every WP runs, and pastes the results in its record (§15.3's budget: no
+command over ~2 minutes; the record says "full `-race` suite and `make
+check`: at the gate" for the rest):
 
 ```sh
-cd /work/xbin
 go test ./internal/docscheck
 make fmt-check vet
-# agent WPs (P1 K E C P2 T V):
-TILE_TEST_FLAGS="-race -count=1" hack/tile-check.sh agent
+# agent WPs (P1 K E C P2 T V): §15.2's tests for the WP, by name
+TILE_TEST_FLAGS="-count=1 -v -run TestA|TestB" hack/tile-check.sh agent
 # G1, G2:
-TILE_TEST_FLAGS="-race -count=1" hack/tile-check.sh scm-github && go test ./internal/builtins/...
-# UI WPs (U1 V U2):
-node --test hack/agent-template-projects*.test.mjs hack/agent-template-ci*.test.mjs hack/agent-template-features.test.mjs hack/agent-template-model.test.mjs
+TILE_TEST_FLAGS="-count=1 -v -run TestA|TestB" hack/tile-check.sh scm-github && go test ./internal/builtins/...
+# UI WPs (U1 V U2): its own node and browser tests
+node --test hack/agent-template-<its>.test.mjs
 make js-check native-check
 PLAYWRIGHT_BROWSERS_PATH=$HOME/.cache/ms-playwright node builtin-templates/agent/test/<its test>.mjs
-# last, once:
+```
+
+The lead at each gate, on `projects-scm` after merging the wave, once:
+
+```sh
 make check
-# the lead at gate 1, on projects-scm after merging wave 1:
+TILE_TEST_FLAGS="-race -count=1" hack/tile-check.sh agent
+TILE_TEST_FLAGS="-race -count=1" hack/tile-check.sh scm-github && go test ./internal/builtins/...
+node --test hack/agent-template-projects*.test.mjs hack/agent-template-ci*.test.mjs hack/agent-template-features.test.mjs hack/agent-template-model.test.mjs
+# gate 1 only:
 TILE_TEST_FLAGS="-count=1 -run TestSeededTokenNeverStoredTask" hack/tile-check.sh agent
 ```
 
@@ -3548,8 +3562,9 @@ TILE_TEST_FLAGS="-count=1 -run TestSeededTokenNeverStoredTask" hack/tile-check.s
    docs cite served docs (`/docs/scm.md`, docs/partitions.md …).
 10. Untrusted text (issues, comments, reviews, CI output) is clipped,
     redacted and framed wherever a model or a page sees it.
-11. Run targeted checks while iterating, the full set (§16.4) at the end;
-    say honestly what didn't run (§15.4).
+11. Run targeted checks only, none over ~2 minutes (§15.3); the full
+    `-race` suites and `make check` are the lead's, at the gate (§16.4).
+    Say honestly what didn't run (§15.4).
 
 ### 16.6 Landing gate
 
