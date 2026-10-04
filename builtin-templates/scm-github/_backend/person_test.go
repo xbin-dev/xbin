@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -227,6 +228,18 @@ func TestForgetRevokesGrant(t *testing.T) {
 	if e.userTok(acc.Token).revoked {
 		t.Fatal("the fake revoked it anyway: the test proves nothing")
 	}
+	// GitHub's 422 ("validation failed, or the endpoint has been spammed")
+	// with the token still alive isn't "already gone": GitHub is asked,
+	// and the sign-in kept.
+	e.gh.fail("DELETE /applications/", 1, 422, nil, `{"message":"Validation Failed"}`)
+	checks := e.gh.count("POST /applications/" + e.gh.clientID + "/token")
+	refusal(t, e.call(u, pageC("alice"), "DELETE", "/scm/signin", nil), 503, "unavailable")
+	if a2, _, _ := s.userTokens(); a2.Token != acc.Token || s.personRecord() == nil || e.global.ident("alice") == nil || e.userTok(acc.Token).revoked {
+		t.Fatal("a 422 with the token alive cleared the sign-in")
+	}
+	if e.gh.count("POST /applications/"+e.gh.clientID+"/token") == checks {
+		t.Fatal("a 422 didn't ask GitHub whether the token is alive")
+	}
 	ok(t, e.call(u, pageC("alice"), "DELETE", "/scm/signin", nil), 204)
 	if !e.userTok(acc.Token).revoked || !e.userTok(m["token"].(string)).revoked {
 		t.Fatal("tokens still work at GitHub")
@@ -240,6 +253,18 @@ func TestForgetRevokesGrant(t *testing.T) {
 		t.Fatal("hello still names the person")
 	}
 	refusal(t, e.call(u, personC("alice"), "POST", "/scm/token", map[string]any{"repo": "acme/web", "access": "read"}), 409, "signin")
+	// A 422 for a token GitHub no longer knows (the fake's answer for one
+	// it never issued) is gone enough: Forget clears the sign-in.
+	s = e.signIn("alice", "octocat")
+	u = s.routes()
+	acc, _, _ = s.userTokens()
+	e.gh.mu.Lock()
+	delete(e.gh.userTokens, acc.Token)
+	e.gh.mu.Unlock()
+	ok(t, e.call(u, pageC("alice"), "DELETE", "/scm/signin", nil), 204)
+	if s.personRecord() != nil || e.global.ident("alice") != nil {
+		t.Fatal("a token GitHub no longer knows kept the sign-in")
+	}
 }
 
 // Global learns a person's login from GitHub's answer for a token only
@@ -442,5 +467,70 @@ func TestPartitionReuseFollowsGlobal(t *testing.T) {
 	e.setPolicy(p)
 	if personToken(t, e, u, pers)["token"].(string) == c {
 		t.Fatal("a person token of the old generation handed out again")
+	}
+}
+
+// A partition re-checks the policy conf "public" carries before reusing a
+// token, on its own: a narrowed policy refuses a cached token without a
+// relay, even with the generation unchanged (here conf is written
+// directly; global always moves the generation too).
+func TestPartitionRechecksPolicy(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	p := basePolicy()
+	p.BotForPeople, p.AllowWorkflows = "on", true
+	e.setPolicy(p)
+	s := e.signIn("alice", "octocat")
+	u := s.routes()
+	bot := map[string]any{"repo": "acme/web", "access": "read", "as": "bot", "purpose": "x"}
+	pers := map[string]any{"repo": "acme/web", "access": "read", "purpose": "y"}
+	wf := map[string]any{"repo": "acme/web", "access": "write", "purpose": "w", "permissions": map[string]string{"workflows": "write"}}
+	cached := map[string]string{}
+	for k, req := range map[string]map[string]any{"bot": bot, "pers": pers, "wf": wf} {
+		cached[k] = personToken(t, e, u, req)["token"].(string)
+	}
+	relays := 0
+	orig := s.relayCall
+	s.relayCall = func(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
+		relays++
+		return orig(ctx, method, path, body)
+	}
+	base := e.global.public()
+	narrowed := func(f func(*publicPolicy)) {
+		pub := base
+		pub.Policy.AllowedAccounts = append([]string{}, base.Policy.AllowedAccounts...)
+		pub.Policy.BotRepos = append([]string{}, base.Policy.BotRepos...)
+		f(&pub.Policy)
+		if err := e.conf.Put("public", pub); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, c := range []struct {
+		name string
+		f    func(*publicPolicy)
+		reqs []map[string]any
+	}{
+		{"botRepos", func(p *publicPolicy) { p.BotRepos = []string{"acme/api"} }, []map[string]any{bot}},
+		{"allowedAccounts", func(p *publicPolicy) { p.AllowedAccounts = []string{"other"} }, []map[string]any{bot, pers}},
+		{"allowWorkflows", func(p *publicPolicy) { p.AllowWorkflows = false }, []map[string]any{wf}},
+	} {
+		narrowed(c.f)
+		for _, req := range c.reqs {
+			refusal(t, e.call(u, personC("alice"), "POST", "/scm/token", req), 403, "not-allowed")
+		}
+		if relays != 0 {
+			t.Fatalf("%s: the partition relayed instead of refusing itself", c.name)
+		}
+	}
+	// The same generation and policy again: every cached token is reused,
+	// still without a relay (the refusals above were the partition's).
+	narrowed(func(*publicPolicy) {})
+	for k, req := range map[string]map[string]any{"bot": bot, "pers": pers, "wf": wf} {
+		if personToken(t, e, u, req)["token"].(string) != cached[k] {
+			t.Fatalf("%s: not reused", k)
+		}
+	}
+	if relays != 0 {
+		t.Fatal("reuse relayed")
 	}
 }

@@ -244,20 +244,31 @@ func ssoURL(h string) string {
 
 // rateResource is the rate limit a call spends: GitHub keeps search's and
 // GraphQL's apart from the core REST one (X-RateLimit-Resource), so one
-// spent doesn't block the others.
+// spent doesn't block the others. It reads the path from the API's root
+// (GitHub.com's, or a GHES's /api/v3 and /api/graphql), never anywhere in
+// it: a repo or owner named "search" is core.
 func rateResource(u string) string {
 	p := u
 	if i := strings.Index(p, "://"); i >= 0 {
 		p = p[i+3:]
 	}
-	if i := strings.IndexByte(p, '?'); i >= 0 {
+	if i := strings.IndexAny(p, "?#"); i >= 0 {
 		p = p[:i]
 	}
-	switch {
-	case strings.Contains(p, "/search/"):
-		return "search"
-	case strings.HasSuffix(p, "/graphql"):
+	if i := strings.IndexByte(p, '/'); i >= 0 {
+		p = p[i:] // past the host
+	} else {
+		p = "/"
+	}
+	if p == "/api/graphql" {
 		return "graphql"
+	}
+	p = strings.TrimPrefix(p, "/api/v3")
+	switch {
+	case p == "/graphql":
+		return "graphql"
+	case strings.HasPrefix(p, "/search/"):
+		return "search"
 	}
 	return "core"
 }
@@ -384,6 +395,16 @@ func getAll[T any](ctx context.Context, g *ghClient, a ghAuth, url, field string
 	return all, nil
 }
 
+// graphqlURL is GitHub's GraphQL endpoint: api.github.com/graphql, and on
+// a GitHub Enterprise Server https://<host>/api/graphql, beside (not under)
+// the REST API's /api/v3.
+func graphqlURL(apiBase string) string {
+	if b, ok := strings.CutSuffix(apiBase, "/api/v3"); ok {
+		return b + "/api/graphql"
+	}
+	return apiBase + "/graphql"
+}
+
 // graphql runs one GraphQL operation; GitHub's errors become refusals.
 func (g *ghClient) graphql(ctx context.Context, a ghAuth, apiBase, query string, vars map[string]any, out any) error {
 	var resp struct {
@@ -393,7 +414,7 @@ func (g *ghClient) graphql(ctx context.Context, a ghAuth, apiBase, query string,
 			Message string `json:"message"`
 		} `json:"errors"`
 	}
-	if _, err := g.call(ctx, a, http.MethodPost, apiBase+"/graphql", map[string]any{"query": query, "variables": vars}, &resp); err != nil {
+	if _, err := g.call(ctx, a, http.MethodPost, graphqlURL(apiBase), map[string]any{"query": query, "variables": vars}, &resp); err != nil {
 		return err
 	}
 	if len(resp.Errors) > 0 {

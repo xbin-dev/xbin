@@ -533,9 +533,17 @@ func TestRateLimitPerResource(t *testing.T) {
 	}
 	ok(t, e.call(e.gH, agentC, "GET", "/scm/repo?repo=acme/web", nil), 200)
 	ok(t, e.call(e.gH, agentC, "GET", "/scm/issues?repo=acme/web", nil), 200)
-	for u, want := range map[string]string{"https://api.github.com/search/issues?q=x": "search", "https://h/api/graphql": "graphql", "https://api.github.com/repos/a/search": "core", "https://api.github.com/repos/a/b/issues?q=/search/": "core"} {
+	for u, want := range map[string]string{"https://api.github.com/search/issues?q=x": "search", "https://h/api/graphql": "graphql", "https://api.github.com/repos/a/search": "core", "https://api.github.com/repos/a/b/issues?q=/search/": "core",
+		"https://api.github.com/repos/acme/search/pulls": "core", "https://api.github.com/repos/search/web/pulls": "core",
+		"https://ghe.example/api/v3/search/code?q=x": "search", "https://ghe.example/api/v3/repos/acme/search/pulls": "core",
+		"https://api.github.com/repos/acme/graphql": "core", "https://api.github.com/graphql": "graphql"} {
 		if got := rateResource(u); got != want {
 			t.Fatalf("%s: %s, want %s", u, got, want)
+		}
+	}
+	for base, want := range map[string]string{"https://api.github.com": "https://api.github.com/graphql", "https://ghe.example/api/v3": "https://ghe.example/api/graphql"} {
+		if got := graphqlURL(base); got != want || rateResource(got) != "graphql" {
+			t.Fatalf("%s: %s (%s), want %s", base, got, rateResource(got), want)
 		}
 	}
 }

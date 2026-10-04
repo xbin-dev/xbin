@@ -244,10 +244,24 @@ func (s *srv) relayRevoke(w http.ResponseWriter, r *http.Request, c who, what st
 		fail(w, err)
 		return
 	}
-	// 404 and 422 are a token GitHub no longer knows (expired, revoked):
-	// revoked enough. Anything else (5xx, the App's own credentials
-	// refused) is the caller's to retry.
-	if rr != nil && rr.Status >= 300 && rr.Status != http.StatusNotFound && rr.Status != http.StatusUnprocessableEntity {
+	switch {
+	case rr == nil || rr.Status < 300, rr.Status == http.StatusNotFound:
+		// Revoked, or a token GitHub no longer knows.
+	case rr.Status == http.StatusUnprocessableEntity:
+		// GitHub's 422 is "validation failed, or the endpoint has been
+		// spammed": the token may still be alive. Gone only when GitHub
+		// no longer knows it; the caller keeps it (Forget keeps the
+		// sign-in, the only way left to revoke the grant) and retries.
+		if _, _, err := s.checkUserToken(r.Context(), body.AccessToken); !isRefusal(err, refIdentity) {
+			e := refuse(refUnavailable, "GitHub didn't revoke it (422) and it still answers: try again in a minute")
+			if err != nil {
+				e = refuse(refUnavailable, "GitHub didn't revoke it (422), and checking it failed: %s", clip(err.Error(), 200))
+			}
+			e.RetryAfterMs = 60_000
+			fail(w, e)
+			return
+		}
+	default: // 5xx, the App's own credentials refused: the caller's to retry
 		fail(w, ghError(rr, s.now()))
 		return
 	}
