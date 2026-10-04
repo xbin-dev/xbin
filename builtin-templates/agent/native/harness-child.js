@@ -86,7 +86,8 @@ function cardTpl(b, depth) {
   if (open) loadTail(app.session, c.id); // once: a read that failed waits (model/session.js Failures)
   const err = open && !b.blocks ? tailError(app.session, c.id) : '';
   const m = memo.get(b);
-  if (!c.park && m && m.held === held && m.open === open && m.err === err) return m.tpl;
+  const ci = ext.childStatus(run); // CI's words for what it pushed (native/ci.js keeps one template per words): part of the memo's key
+  if (!c.park && m && m.held === held && m.open === open && m.err === err && (m.ci || [])[0] === (ci || [])[0]) return m.tpl;
   const v = app.session.current();
   const w = { owner: ownerOf(v, app.me), talk: app.rules.access(v).talk, name: c.name, access: v && v.access };
   const tail = open ? tailOf(b) : null;
@@ -94,6 +95,7 @@ function cardTpl(b, depth) {
   const tpl = html`<toolcard title=${c.title} icon=${(HARNESSES[c.provider] || {}).icon || 'agent'} family="agent" state=${STATE[c.state.key] || 'running'}
       chips=${chips} open=${open} @toggle=${reopen(b.id, c.id)} @open=${c.id ? () => openChild(c.id) : nothing}>
     <text tone=${c.state.tone === 'warn' ? 'warn' : c.state.tone === 'bad' ? 'danger' : nothing}>${c.status}</text>
+    ${ci || nothing}
     <text style="footnote" tone="muted">${[c.name, c.where, c.meta].filter(Boolean).join(' · ')}</text>
     ${c.task ? html`<text style="footnote" tone="muted" lines=${3}>${'task: ' + c.task}</text>` : nothing}
     <transcript>
@@ -104,7 +106,7 @@ function cardTpl(b, depth) {
     </transcript>
     ${c.answer ? html`<text style="caption" tone="muted">answer</text><markdown source=${c.answer}/>` : nothing}
   </toolcard>`;
-  memo.set(b, { held, open, err, tpl });
+  memo.set(b, { held, open, err, ci, tpl });
   return tpl;
 }
 

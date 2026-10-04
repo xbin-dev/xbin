@@ -14,7 +14,7 @@ ext.register({ end: () => cardsTpl() });
 function cardsTpl() {
   const app = ctx.app;
   const v = app && app.session.current();
-  if (!v) return null;
+  if (!v || (v.run.status === 'waiting_input' && (v.run.pendingState || {}).harness)) return null; // a coding agent's park is its own (web-ext.js end)
   const root = v.run.rootId || v.run.id;
   const cards = app.ci.cards(root);
   if (!cards.length) return null;

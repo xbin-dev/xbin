@@ -44,9 +44,10 @@ ext.register({
     if (!v || isHarness(v.run)) return null;
     const root = rootOf(v);
     const c = ctx.app.board.chip(root);
+    const dock = ext.dock(v) || []; // other sections of this screen (CI's): the button carries their badge
     // in a conversation only while one waits for you: a phone's bar has little room
-    if (!c || !c.needs) return null;
-    return html`<button icon="bell" @tap=${() => push({ kind: 'hboard', root })}>${needLabel(c)}</button>`;
+    if ((!c || !c.needs) && !dock.length) return null;
+    return html`<button icon=${c && c.needs ? 'bell' : 'terminal'} @tap=${() => push({ kind: 'hboard', root })}>${[c && c.needs ? needLabel(c) : 'Coding agents', ...dock.map((d) => d.badge)].filter(Boolean).join(' · ')}</button>`;
   },
   main(before) {
     const c = ctx.app.board.chip(null);
@@ -101,6 +102,7 @@ function boardScreen(s) {
         ${repeat(x.rows, (r) => r.id, (r) => rowTpl(s, r, home))}
       </section>`)
     : html`<section><empty title=${app.board.loading(s.root) ? 'loading…' : emptyWords(home, false)}/></section>`}
+    ${home ? nothing : (ext.dock(app.session.merged(s.root) || app.session.current()) || []).map((d) => d.tpl())}
   </screen>`;
 }
 

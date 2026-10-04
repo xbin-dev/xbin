@@ -30,3 +30,6 @@ import './harness-catalog.js';
 
 // D179 saved sign-ins
 import './harness-signins.js'; // Coding-agent sign-ins (a person's own): list, rename, default, paste a key or token, Forget
+
+// CI in the conversation
+import './ci.js'; // the Coding agents screen's CI sections, ci-job, ci-annotations, Watch CI for…, the child's CI words, the board's, outcome cards
