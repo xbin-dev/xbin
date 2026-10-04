@@ -1,0 +1,44 @@
+<!doctype html>
+<!-- scm-github: GitHub as an scm provider (API.md). In your own partition
+     this page is your GitHub sign-in; at the tile's global instance — where
+     the page reaches with {partition: 'global'} — managers set the GitHub
+     App up, the policy, and see installations and webhook health. scm.js
+     draws it; native.js is the xbin app's view. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>GitHub (scm)</title>
+  <link rel="stylesheet" href="/vendor/theme.css">
+  <style>
+    body { margin: 0; font: 13px/1.45 system-ui, sans-serif; color: var(--bx-text); background: var(--bx-bg, #1b1e24); }
+    main { max-width: 780px; margin: 0 auto; padding: 14px 16px 28px; }
+    h3 { margin: 0; font-size: 15px; display: flex; gap: 8px; align-items: center; }
+    h4 { margin: 20px 0 6px; font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); }
+    .muted { color: var(--bx-muted); }
+    .small { font-size: 12px; }
+    .err { color: var(--bx-red); margin: 6px 0; }
+    .ok { color: var(--bx-green); }
+    .warn { color: var(--bx-yellow, #d9a400); }
+    .chip { font-size: 10.5px; padding: 1px 7px; border-radius: 9px; border: 1px solid var(--bx-border); color: var(--bx-muted); font-weight: 500; }
+    .card { border: 1px solid var(--bx-border); border-radius: 7px; padding: 8px 10px; background: var(--bx-panel); margin: 6px 0; }
+    .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin: 4px 0; }
+    .code { font: 600 22px/1.2 var(--bx-mono, monospace); letter-spacing: .12em; padding: 6px 12px; border: 1px dashed var(--bx-accent); border-radius: 6px; }
+    code, .mono { font-family: var(--bx-mono, monospace); font-size: 12px; }
+    input, select, textarea { font: inherit; font-size: 12px; padding: 4px 8px; border: 1px solid var(--bx-border); border-radius: 5px; background: var(--bx-panel); color: var(--bx-text); box-sizing: border-box; }
+    textarea { width: 100%; min-height: 64px; font-family: var(--bx-mono, monospace); }
+    label { display: flex; flex-direction: column; gap: 2px; font-size: 10.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--bx-muted); flex: 1 1 200px; }
+    label.inline { flex-direction: row; align-items: center; gap: 6px; text-transform: none; letter-spacing: 0; font-size: 12px; font-weight: 400; color: var(--bx-text); flex: 0 0 auto; }
+    button { font: inherit; font-size: 12px; padding: 4px 12px; border-radius: 5px; border: 1px solid var(--bx-border); background: var(--bx-panel); color: var(--bx-text); cursor: pointer; }
+    button.go { background: var(--bx-accent); border-color: transparent; color: #fff; }
+    button.rm { color: var(--bx-red); }
+    a { color: var(--bx-accent); }
+    table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    td { padding: 3px 8px 3px 0; border-top: 1px solid var(--bx-border); vertical-align: top; }
+    details > summary { cursor: pointer; margin: 6px 0; }
+  </style>
+</head>
+<body class="bx">
+<main id="app"></main>
+<script type="module" src="./scm.js"></script>
+</body>
+</html>

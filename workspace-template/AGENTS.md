@@ -113,6 +113,8 @@ coding sandboxes for agents and people come from tiles implementing
 docs/sandbox-manager.md — the `coding-sandbox` template is one (`bx template
 new coding-sandbox as apps/coding-sandbox`), and the `sandbox-terminal` tile
 gives people browser terminals and SSH onto their sandboxes;
+the `scm-github` template (`bx template new scm-github`) offers the `scm`
+service — repos, credentials, pull requests, CI — docs/scm.md;
 for a chat platform, instantiate the `agent-messaging-bridge` template and
 have a coding agent add the platform);
 `bx tile import <name> [as <path>]` copies one in (or use the Tile Manager's

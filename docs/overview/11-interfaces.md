@@ -106,6 +106,8 @@ Provider (the `llm-gw` builtin):
   (`openai`, `prometheus`, `mcp` for Model Context Protocol servers, `agent-inbox` for
   chat adapters feeding an agent — [agent-inbox.md](../agent-inbox.md), `sandbox-manager`
   for tiles that run coding sandboxes for others — [sandbox-manager.md](../sandbox-manager.md),
+  `scm` for tiles that hold a code host's credentials (repos, pull requests, CI) for
+  others — [scm.md](../scm.md),
   …) so components
   stay interchangeable; invent a new one only for a genuinely new API shape. A provider
   may offer several http provides; a binding selects the provide **matching the slot's

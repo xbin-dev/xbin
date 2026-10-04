@@ -34,6 +34,10 @@ overview is the map that puts them in context.
 - [sandbox-manager.md](/docs/sandbox-manager.md) — the contract between
   sandbox managers (tiles that run coding sandboxes) and the tiles that use
   them, such as the agent template
+- [scm.md](/docs/scm.md) — the contract between scm providers (tiles that
+  hold a code host's credentials, such as the `scm-github` template) and
+  the tiles that use them: repo credentials, pull requests, issues, CI and
+  events
 - [bx.md](/docs/bx.md) — the `bx` CLI
 - [tile-deployments.md](/docs/tile-deployments.md) — pausing a tile's live
   reload, Reload now, named deployments (`/c/<tile>+<name>/`), deploying and
