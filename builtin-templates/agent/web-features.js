@@ -234,6 +234,24 @@ export const IMPLEMENTS = {
   'harness.signins': 'harness-catalog.js — #hsignins in the ⚙ Coding agents tab: .hsrow rows (Default, Make default, Rename, Forget), a paste form per coding agent (model/harness-signins.js signinGroups)',
   'harness.account': 'harness-controls.js — #hctl\'s label ends with the account; its popover\'s Account section switches it (model/harness-signins.js accountOf, app.harness.pickSignin)',
   // Projects — the page, the board, new projects and tasks, settings, a task's chips
+  'proj.entry': 'projects.js — #projentry through ext.side (agent.js paintSide → #sideext; app.projects.needsYou, model/projects.js)',
+  'proj.list': 'projects.js — listTpl through ext.page(\'projects\'): .pcard[data-pid] by section (model/projects.js sections, load from every home)',
+  'proj.new': 'project-new.js — newProjectTpl (#proj-form: #pn-scm, the repo picker .pnres, setup scripts, #pn-name, the sandbox, the policy basics, #pn-create; model/projects.js formBody)',
+  'proj.board': 'projects.js — boardPageTpl: .pboard .pcol[data-col] of .ptask cards, PR chips, ext.card (model/project-task.js columns, cardWords)',
+  'proj.task.new': 'projects.js — taskFormTpl (#ptask-new, #ptask-form, #ptask-create; model/projects.js specOf, submitTask)',
+  'proj.task.issues': 'projects.js — pickerTpl (#ptask-issues, #ppicker .pissue, .untrusted, #ppick-make; model/projects.js searchIssues, submitBatch)',
+  'proj.task.size': 'projects.js — taskFormTpl and pickerTpl: the Size select',
+  'proj.task.agent': 'projects.js — agentOptions: the built-in agent or a coding agent of app.harness\'s catalog',
+  'proj.repos': 'project-settings.js — reposTpl (#pset-repos .prepo: setup, checkout, Remove; #pset-addrepo)',
+  'proj.policy': 'project-settings.js — policyTpl (#pset-policy .pgroup per model/projects.js POLICY group, #pol-save)',
+  'proj.members': 'project-settings.js — membersTpl (#pset-members, #pset-member-add, #pset-vis; model/projects.js sharable)',
+  'proj.status': 'project-settings.js — statusTpl (#pset-status: the sandbox, #pstatus-repos, #pstatus-creds, #pstatus-jobs, warnings, #pset-warm)',
+  'proj.signin': 'project-new.js — signinTpl (#psignin-start, #psignin-code, #psignin-forget) in the form and the status; project-chips.js — prepTpl #ptask-signin',
+  'proj.delete': 'project-settings.js — projectTpl (#pset-archive, #pset-unarchive, #pset-del-sbx, #pset-delete)',
+  'top.task.chips': 'project-chips.js — chipsTpl through ext.top: #ptchips .pchip[data-kind] (model/project-task.js taskChips)',
+  'top.task.pr': 'project-chips.js — #ptask-pr through ext.top (model/project-task.js prButton; model/project-api.js prProbe)',
+  'chat.task.prep': 'project-chips.js — prepTpl through ext.end: #pprep, .pstep, #pprep-retry, #ptask-signin (model/project-task.js prepCard)',
+  'link.project': 'agent.js — followHash (model/router.js #proj, #proj=<id>); project-chips.js — #projcrumb through ext.crumb, #ptasksec through ext.task',
   // Projects — the coordinator, events, upgrades, team projects
   // CI in the conversation
 };

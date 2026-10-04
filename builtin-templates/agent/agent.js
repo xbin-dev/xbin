@@ -48,6 +48,7 @@ import { hostedChipTpl, hostedPaint } from './hosted-ui.js'; // non-secure (host
 import { makeWorkflow } from './workflow.js';
 import { ext, ctx as extCtx } from './web-ext.js';
 import './harness-web.js'; // the coding harnesses' modules (their hooks on ext)
+import './project-web.js'; // Projects' modules: the page (ext.page, ext.side), a task's chips, crumb and cards
 import { steerWords } from './model/harness-ask.js'; // a coding harness's queued chips
 // Raw-bytes endpoints (a file's bytes, an upload body) go through xbin.fetch
 // directly — the kit's api() parses JSON — so they need this backend's prefix
@@ -140,6 +141,7 @@ app.on('home', () => {
   paintSide(); paint();
 });
 app.on('page', () => { paintSide(); paint(); });
+app.on('projects', () => { paintSide(); if (app.page || app.sel != null) paint(); }); // app.projects
 session.ui.act.openFile = (path) => { selectFile(path); openSettings('files'); };
 Object.assign(session.ui.act, { openPreview: (path, ver, run) => openPreview(path, ver, false, run), openLive }); // the 🖼 / 📡 lines (a subagent's: its run)
 
@@ -157,6 +159,7 @@ const sideUI = makeSideUI({
 
 function paintSide() {
   render(sideEntryTpl(autos, app.page === 'automations', () => app.openAutomations()), $('autos'));
+  render(ext.side() || nothing, $('sideext')); // entries under Automations (projects.js: Projects)
   render(sidebarTpl(convs, sideUI), $('runs'));
   render(viewsTpl(convs, sideUI), $('views'));
   syncHalt();
@@ -185,11 +188,11 @@ function setHash(h) {
 // --- painting -------------------------------------------------------------------
 
 function topTpl(v) {
-  if (!v) return app.page === 'automations' ? html`<span class="title">Automations</span>`
+  if (!v) return app.page === 'automations' ? html`<span class="title">Automations</span>` : app.page ? ext.page(app.page)?.top || nothing
     : html`<span class="title">${HOME.title}</span><span class="muted" style="font-size:11.5px">${HOME.tagline}</span>${ext.top(null) || nothing}`;
   const r = v.run;
   const t = rules.topBar(v, convs.find(r.rootId || r.id), app.me);
-  return html`${t.crumb ? html`<a class="crumb" @click=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Automations ›</a>` : nothing}
+  return html`${t.crumb ? html`<a class="crumb" @click=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Automations ›</a>` : ext.crumb(v) || nothing}
     <span class="title" title=${r.title || ''}>${t.title}</span>
     <span class="badge clsbadge" title=${t.cls.title}>${t.cls.label}</span>
     ${hostedChipTpl(v)}
@@ -254,7 +257,7 @@ function paint() {
     win.after();
   } else {
     win.detach();
-    render(app.page === 'automations' ? autoPageTpl(autos) : homeView(), tl);
+    render(app.page === 'automations' ? autoPageTpl(autos) : (app.page && ext.page(app.page)?.body) || homeView(), tl);
   }
   // a page opens at its top
   const shown = v ? '' : `${app.page}:${autos.open ? autos.open.kind + autos.open.id : ''}:${!!(autos.form || autos.custom)}`;

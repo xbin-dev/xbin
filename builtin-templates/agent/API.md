@@ -3763,9 +3763,134 @@ Described when it lands.
 
 ### Projects in the UI
 
-The Projects page and a project's board, new projects and tasks, the
-settings, a task conversation's chips and cards, links, and the same in
-the native view. Described when it lands.
+**The Projects page** opens from the sidebar's **Projects** entry (under
+Automations; its badge counts the tasks that need you across your active
+projects) or the address `#proj`; one project is `#proj=<id>`. Its id says
+where it lives (`model/homes.js`): in a person's partition their own
+projects are in their partition and a team project's definition in the
+shared space, and the page lists both (every page of `GET /projects`
+at each) — yours, then team projects, archived ones last — each with its
+repos, the slots at work and its counts per column. A backend without Projects (`GET /projects` 404) shows no
+entry.
+
+**A project's page** has two tabs:
+
+- **Board** — a column per state (queued, working, needs you, PR, done:
+  `TaskView.column`), each task a card: `#n`, its title, its state (and
+  what it waits for), its branch, its pull requests (↗ to the platform;
+  their checks only while the task has no CI summary — then the CI chip
+  says it) and the chips other modules add (`ext.card(task)`: CI's). A
+  card opens its task's conversation. **New task** (participants): what to
+  do, a title, small or big, who works on it — the project's default,
+  said as what it does (its policy's coding agent, else the one you used
+  last, else the built-in agent; the built-in agent when the policy says
+  so or no coding agent is available), or a coding agent of the catalog
+  by name — which repos —
+  `POST /projects/{pid}/tasks`. **From issues…**: a repo's issues (open or
+  closed, words), up to 20 picked, a task each —
+  `POST /projects/{pid}/tasks/batch`; a refused issue is said. Issue text
+  is the issue tracker's — anyone may have written it — so it is drawn as
+  plain text, clipped, marked as untrusted; never markdown or HTML.
+  **Warm** starts the sandbox, fetches and refreshes the credentials. A
+  search box and "mine" narrow the board. A team project's definition
+  (`kind: "team"`, at the shared space) has no tasks of its own — they run
+  in each member's own space — so its board is a line saying so, with no
+  task actions and no read of tasks.
+- **Settings** — everyone who sees the project reads it; its owner changes
+  it. **Status**: the sandbox, each repo (fetched, head, whether its base
+  branch is protected), each credential's metadata (whose, its state, until
+  when, why it is blocked — never a token), the jobs, warnings; Warm; your
+  sign-in to the provider (below). **Repos**: add one by `owner/name`,
+  remove one (confirmed; again, with `force`, when open tasks use it), each
+  one's setup script and checkout. **Policy**: every key, grouped (tasks;
+  branches and pull requests; CI and reviews; workspace, ports and setup;
+  big tasks; cleanup; the coordinator — its class of new tasks lists only
+  classes without internal reach, as a task may not have it), saved with
+  the version the edit
+  began at — when someone saved a change meanwhile (412) the project is
+  read again, their change shown with yours, and the next Save saves
+  both; keys this build doesn't know are kept as stored. A rename and the
+  team visibility are sent with the version they began at too. **Members** and what team visibility
+  grants, where sharing is possible (an unpartitioned agent's projects;
+  never a person's own project in their partition, which is theirs alone).
+  **The project**: rename, archive (its credentials leave the sandbox) or
+  unarchive, delete — confirmed, keeping its sandbox or, when the project
+  made it, deleting it too (that choice is the project's own: it keeps no
+  hold on the next project's tab).
+
+**A new project** (the page's **New project**): the scm provider
+(`GET /projects/scm` — each bound one as this home sees it, what it says
+of you), the repos — a picker of what you can reach through it
+(`GET /projects/scm/repos`), each with an optional setup script — a name,
+its sandbox (a new one: manager, image, size, network, internet by
+default; or one of your own private sandboxes) and the policy basics
+(tasks at once, who answers tasks, pull requests opened by hand or as a
+draft or ready when a task rests, whose identity it works as when the
+provider offers both). In an unpartitioned agent it may be shared with
+everyone who can open the agent at once. At a partitioned agent's shared
+space the form makes a team project's definition (`kind: "team"`), sent
+shared — with everyone who can open the agent, or only the members added
+next — its seed sandbox optional (none at first). A seed picked from your
+own sandboxes is one you have shared with the team: an existing sandbox
+keeps its own visibility, and members' sandboxes fork from the seed only
+when they can see it, so the form offers only those (a private one of
+yours must be shared first). Then `POST /projects` and its page.
+
+**Signing in to the provider** (a person's partition, where projects use
+your own sign-in): offered only there, and only when the provider lets you
+work as yourself (its `you.identities` has `person`) — the sign-in routes
+answer 409 anywhere else, so an unpartitioned agent or the shared space
+says its projects work as the provider's bot (at the shared space, that
+each member signs in from their own). **Sign in to ‹provider›** starts the device flow
+(`POST /projects/scm/signin`) and shows its page and code — your own,
+read from your own space, to you only — polling until it is done (a
+failed poll is tried again, later each time; a task's card counts only
+its own sign-in as done). A sign-in already pending when the Settings tab
+reads it (`GET /projects/scm/signin` — a parked task's, or one started
+elsewhere) is followed the same way; only the latest one is polled, and an
+answer of an earlier one, or one after Forget, changes nothing.
+**Forget** (`DELETE /projects/scm/signin`, confirmed) removes your
+projects' credentials from their sandboxes first.
+
+**A task's conversation** (a run with origin `project`, kept out of the
+conversation list) shows its project:
+
+- before its title, **‹project› ›** — back to the project's board (`project`
+  in the run view);
+- in the top bar, its **branch** (↗ to it on the platform), each **pull
+  request** with its state (↗; its checks while the task has no CI summary)
+  and the setup outcome; **Open PR** on a task with a branch and no open
+  pull request, for people who may act on it, once the backend is known to
+  have `POST /runs/{id}/task/pr` (a `GET` of it answers 405 there, 404 where
+  it isn't — asked once, nothing opened to find out), confirmed;
+- at the end of the transcript, while its workspace is prepared, the
+  **prep card**: what is under way, a step per repo (its checkout, its
+  setup's exit), **Retry** when it failed (`POST /runs/{id}/task/retry`);
+  when it needs a sign-in, the **sign-in card** — the provider's page and
+  code, shown only to the person who must sign in (the run view carries it
+  to them alone), polled until done, then the task is looked at again
+  (`POST /runs/{id}/task/refresh`); anyone else reads whom it waits for;
+- in the unfolded pinned task, its project, number, size, repos, issue,
+  checkouts and ports.
+
+**Kept current**: the `project` stream event (`{id, change, n}`) carries no
+data of its own; the page reads the list, the open project and its board
+again, and an open task conversation its task (`GET /runs/{id}/task`) —
+events coalesced for 250 ms into one read each.
+
+**For a view** (the model; `model/` as above):
+
+| Module | What it holds |
+|---|---|
+| `model/projects.js` | `createProjects(app)` → `app.projects`: `list`, `load()`, `open(pid, tab)`, `opened`, `board(pid)`, `tasks(pid, filter)`, `take(ev)`, `create(body)`, `createTask(pid, spec)`, `batch(pid, issues)`, `patch(pid, body)`, `remove(pid, sandbox)`, `status(pid)`, `warm(pid)`, `issues(pid, q)`, `signin(scm)`, `forget(scm)`, `pending(pid)`, `accept(pid, hash)`, the forms (`newProject`, `newTask`, `openPicker`, `editPolicy`) and `POLICY` (the policy's keys, grouped); it emits `projects` |
+| `model/project-task.js` | a task's words: `columns`, `columnOf`, `cardWords`, `stateWords`, `taskChips(view, project)`, `prChip`, `setupOutcome`, `prepCard(view, me)`, `prButton(view, route)`, `crumb(view)`, `taskSection(view)` |
+| `model/project-api.js` | `projectApi(app, pid)`, `taskApi(runId)`, `scmApi(home)`, `listProjects`, `createProject` — each call at its home, a refusal kept whole (`e.status`, `e.refusal`, `e.data`) |
+| `model/router.js` | `#proj`, `#proj=<id>` (`parse().proj`, `projHash`); `app.openProjects(pid)` |
+
+On the web, `project-web.js` lists the modules: `projects.js` (the entry,
+`ext.side`; the page, `ext.page('projects')`), `project-new.js`,
+`project-settings.js` and `project-chips.js` (`ext.top`, `ext.crumb`,
+`ext.end`, `ext.task` on a project's conversation).
 
 ## The frontend: one model, thin views
 
