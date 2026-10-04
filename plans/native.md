@@ -517,32 +517,39 @@ and the diff invariants; the SwiftUI renderer observes the tree.
 
 ## 10. Theme tokens
 
-Tiles name roles; each renderer maps them. The web shell's `theme.css` is
-dark-only today; native tokens define both schemes.
+Tiles name roles; each renderer maps them. Since D185 both renderers draw
+Base Two's product tokens (D184), Concrete Day (light) and Concrete Night
+(dark): the app's `XbinPalette` (XbinRendererModel/Tokens.swift, which
+`XbinColor` turns into colours that follow the appearance) and the
+reference renderer's table (`web/xb/render-theme.js`), held equal by
+ThemeParityTests. Before D185 this table held the old dark-steel theme
+with an amber accent and iOS's system colours.
 
 ### 10.1 Colour roles
 
-| Role | Dark (web reference) | Light (web reference, new) | iOS |
-|---|---|---|---|
-| `bg` | `#1b1e24` (`--bx-bg`) | `#f6f7f9` | `systemGroupedBackground` |
-| `surface` | `#23272e` (`--bx-panel`) | `#ffffff` | `secondarySystemGroupedBackground` |
-| `surface2` | `#2b3038` (`--bx-panel-2`) | `#eef0f3` | `tertiarySystemGroupedBackground` |
-| `border` | `#363c45` | `#d5d9df` | `separator` |
-| `text` | `#d4d9e0` | `#1b1e24` | `label` |
-| `muted` | `#868f9a` | `#5f6873` | `secondaryLabel` |
-| `accent` (fills) | `#f5a623` | `#f5a623` | tint = xbin amber |
-| `accentText` (text/icons in accent) | `#f5a623` | `#a86400` (4.7:1 on white) | amber, darkened in light |
-| `onAccent` (text on an accent fill) | `#1b1e24` | `#1b1e24` (8.3:1 on amber) | dark label |
-| `ok` | `#4caf50` | `#2e7d32` | `systemGreen`; text in light mode `#2e7d32` |
-| `warn` | `#f2a71b` | `#9a6700` | `systemOrange`; text in light mode `#9a6700` |
-| `danger` | `#ef5350` | `#c62828` | `systemRed`; text in light mode `#c62828` |
+| Role | Concrete Day | Concrete Night | web/theme.css | iOS (`XbinColor`) |
+|---|---|---|---|---|
+| `bg` | `#E8E9EE` | `#0B0C12` | `--bx-bg` | `background`: the concrete behind lists, forms and cards (`concreteBackground()`) |
+| `surface` | `#FFFFFF` | `#1F2028` | `--bx-panel` | `surface`: cards, rows, bars |
+| `surface2` | `#F7F8FA` | `#262730` | `--bx-panel-2` | `surface2`; `bubble`, a person's chat turns (with a 1 pt `border` edge) |
+| `border` | `#CDD0D8` | `#33353F` | `--bx-border` | `border` (dividers, card edges); `borderStrong` `#7E8194` / `#666A7E` for a component's edge |
+| `text` | `#0B0C12` | `#E9EAF0` | `--bx-text` | `text` |
+| `muted` | `#4B4D5C` | `#A3A6B6` | `--bx-muted` | `muted` |
+| `accent` (fills) | `#1F3DFF` | `#8C9BFF` | `--bx-accent` | `accent`, the app's tint: the one primary action, selection, links |
+| `accentText` | `#1F3DFF` | `#8C9BFF` | `--bx-accent` | `accentText` (4.5:1 on the panel in both, so the accent itself) |
+| `onAccent` | `#FFFFFF` | `#0B0C12` | `--bx-accent-ink` | `onAccent` |
+| `ok` | `#436C0C` | `#A3CF5E` | `--bx-ok` | `ok`, tint `okBackground` |
+| `warn` | `#9A4A06` | `#F2994A` | `--bx-warn` | `warn`, tint `warnBackground` |
+| `danger` | `#C81E1E` | `#FF7A7A` | `--bx-danger` | `danger`, tint `dangerBackground` |
+| `info` (notices) | `#3D4A5C` | `#A9B4C6` | `--bx-info` | `info`, tint `infoBackground` |
 
-(`#f5a623` on white is ≈1.9:1 — never use `accent` for text on light
-backgrounds; that is what `accentText` is for. The same holds for the iOS
-system colours: systemGreen and systemOrange are ≈2.2:1 on white, systemRed
-3.6:1, so they colour icons, dots and fills, and text in `ok`/`warn`/`danger`
-— badges, toned `text`, field errors, diff counts — takes the reference's
-light colour in light mode, the system colour in dark mode.)
+(Base Two's status colours hold 4.5:1 as text on the panel in both themes,
+so text, icons and fills take the same colour; the `-bg` tints sit behind
+badges and notices. Status is always a glyph, a word and its colour, never
+the colour alone. The terminal is Concrete Night's terminal palette in both
+appearances, product-ui 7: `XbinPalette.Terminal`, the reference's
+`--xb-term-*`. The mark's cobalt, white and yellow and the part tabs' green,
+magenta and yellow are `XbinPalette` too, never a tile's tone.)
 
 `tone` props take `muted`, `accent`, `ok`, `warn`, `danger` (the renderer picks
 `accentText`/`onAccent` as the context needs); `notice` also takes `info`, a
@@ -552,8 +559,10 @@ neutral surface.
 
 `largeTitle`, `title`, `title2`, `title3`, `headline`, `body`, `callout`,
 `subheadline`, `footnote`, `caption`, `caption2`, `mono`. iOS: the Dynamic Type
-text styles of the same names (`mono` = `.body.monospaced()`), so every native
-tile scales with the user's text size. The Lit reference renderer uses iOS's
+text styles of the same names, so every native tile scales with the user's
+text size; since D185 `largeTitle` is Bricolage Grotesque 800 and `mono`
+JetBrains Mono at the body size (the faces the app bundles), scaling with
+their styles. The Lit reference renderer uses iOS's
 default point sizes as px (body 17) so 390-wide previews line up with iOS.
 
 ### 10.3 Spacing and shape

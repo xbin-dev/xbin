@@ -449,7 +449,7 @@ diagnostic (§Checking it) — the render goes on.
 | `markdown` | markdown; the runtime lexes `source` into `tokens` | `source`, `streaming` bool | `link` {href} | — |
 | `image` | a tile-relative or data: (≤ 256 KiB) image, loaded by the app | `src`, `alt`, `aspect` fit·fill, `height` *height*, `preview` bool | `tap` | — |
 | `icon` | a named icon (Icons below) | `name` *icon*, `tone` *tone* | — | — |
-| `badge` | a small capsule label | `text`, `tone` *tone*, `pulse` bool | — | text → `text` |
+| `badge` | a small square label on its tone's tint | `text`, `tone` *tone*, `pulse` bool | — | text → `text` |
 | `notice` | an inset banner | `tone` *noticeTone*, `title`, `text` | — | — |
 | `progress` | value 0…1, or absent for indeterminate | `value` number, `label` | — | — |
 | `chart` | a line, bar, area or spark chart | `kind` line·bar·area·spark, `series` [{name, points}], `x` time·number·category, `y` number·bytes·percent, `height` *height* | — | — |

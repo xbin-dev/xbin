@@ -39,7 +39,6 @@ enum Keychain {
 
 // XbinApp.swift
 enum AppLock { static func unlock(reason: String) async -> Bool { true } }
-extension Color { static let xbinAmber = Color(uiColor: .systemOrange) }
 
 // Push/
 @MainActor final class PushManager {
