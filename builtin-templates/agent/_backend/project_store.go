@@ -225,6 +225,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_pevents_dedupe ON project_events(project_i
 // 2^40, as its conversations do (seedProjectIDs), so a project id says its
 // home as a run id does.
 func (d *DB) addProjectSchema() error {
+	projACL.flush(0) // ids name another database's projects from now on
 	if _, err := d.q.Exec(projectSchema); err != nil {
 		return fmt.Errorf("projects schema: %w", err)
 	}
