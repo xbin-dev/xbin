@@ -47,6 +47,7 @@ struct CreateTileSheet: View {
                     Section { Label { Text(verbatim: error) } icon: { Image(systemName: XbinGlyphs.symbol("error")) }.foregroundStyle(XbinColor.danger) }
                 }
             }
+            .concreteBackground()
             .navigationTitle("New tile")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -106,6 +107,7 @@ struct AddTileSheet: View {
                     }
                 }
             }
+            .concreteBackground()
             .searchable(text: $query, prompt: "Search tiles")
             .navigationTitle("Add a tile")
             .navigationBarTitleDisplayMode(.inline)

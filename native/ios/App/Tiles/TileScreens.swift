@@ -225,6 +225,7 @@ struct TileDialogSheet: View {
                     Text(verbatim: "Asked by \(from)").font(.caption.monospaced())
                 }
             }
+            .concreteBackground()
             .navigationTitle(Text(verbatim: spec.title))
             .navigationBarTitleDisplayMode(.inline)
             .onAppear { if values.isEmpty { values = spec.initialValues } }

@@ -699,6 +699,7 @@ private struct ProposalSheet: View {
                     HStack { Spacer(); ProgressView(); Spacer() }
                 }
             }
+            .concreteBackground()
             // The acts stay at hand under the series, as the web's bar does.
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 if let p = pr, p.isOpen { actions(p) }

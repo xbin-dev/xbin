@@ -294,6 +294,7 @@ struct TermSessionsSheet: View {
                     }
                 }
             }
+            .concreteBackground()
             .navigationTitle("Terminal")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
