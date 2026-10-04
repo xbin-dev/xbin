@@ -42,6 +42,7 @@ export function drawerSheet() {
           <row title="New chat with options…" icon="pencil" @tap=${() => { ui.newChat = { text: '', title: '', system: '', class: app.classId }; close(); }}/>
           <row title="Automations" icon="clock" badge=${n ? String(n) : nothing} tone=${s.failing ? 'danger' : n ? 'accent' : nothing}
             nav @tap=${() => { app.openAutomations(); close(); }}/>
+          ${ctx.ext.drawer(close) || nothing}
         </section>
         ${results ? nothing : html`<section><picker style="segmented" value=${scope} options=${SCOPES}
           @change=${(e) => { ui.q = ''; list.view(e.value === 'shared' ? 'shared' : 'mine', e.value === 'archived'); }}/></section>`}

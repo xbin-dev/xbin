@@ -312,10 +312,6 @@ const stagedWeb = [
 ];
 const stagedNative = [
   // projects
-  'proj.entry', 'proj.list', 'proj.new', 'proj.board', 'proj.task.new', 'proj.task.issues', 'proj.task.size', 'proj.task.agent',
-  'proj.repos', 'proj.policy', 'proj.members', 'proj.status', 'proj.signin', 'proj.delete',
-  'top.task.chips', 'top.task.pr', 'chat.task.prep', 'link.project',
-  'proj.coordinator', 'proj.events', 'proj.upgrade', 'proj.team',
   // CI
   'ci.chip', 'ci.dock', 'ci.jobs', 'ci.logs', 'ci.annotations', 'ci.links', 'ci.rerun', 'ci.watch', 'ci.cards', 'ci.board',
 ];
