@@ -3764,3 +3764,6 @@ with the record that explains it:
 - 2026-10-04 (U1) §13.1: `router.parse()` answers `proj` only when the address names it (absent rather than null otherwise), so the other addresses parse as before — records/U1.md
 - 2026-10-04 (U1) §13.2: "Open PR" learns that `POST /runs/{id}/task/pr` exists from a `GET` of it (405 mounted, 404 not), once per home, never by POSTing — records/U1.md
 - 2026-10-04 (U1) §13.2: the new-project dialog is a form in the Projects page, not a modal — records/U1.md
+- 2026-10-04 (U1) §13.1: `projectApi` calls through U1's `projCall` (xbin.fetch at the project's home) instead of `homeApi(homeOf(pid))`, because the kit's `api()` drops the status, `refusal` and body the views need — records/U1.md
+- 2026-10-04 (U1) §7.2/§8.1: `TaskSpec` can't ask for the built-in agent where `policy.engine` picks a coding agent; the UI names the built-in agent only where the default is it (owner question) — records/U1.md
+- 2026-10-04 (U1) §12.1: U1's new-project form makes a team definition only on the global instance's own page (share always sent, seed optional); creating one from a person's partition is U2's `proj.team` — records/U1.md
