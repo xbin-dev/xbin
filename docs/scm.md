@@ -462,7 +462,8 @@ v1**:
 ```
 
 One event reaches a consumer once per `for`, however many of its
-subscriptions match; `subs` lists the keys of those that did.
+subscriptions match; `subs` lists the keys of those that did (a
+subscription made without a key, by its `id`).
 
 | kind | actions | `ref` | `data` |
 |---|---|---|---|
@@ -497,9 +498,9 @@ subscriptions match; `subs` lists the keys of those that did.
 - The consumer answers **200** (taken, or a duplicate), **404** (no such
   subscriber here — dropped and counted); anything else, or no answer, and
   the provider retries with backoff (10 s doubling to 1 h, for 24 h).
-- `GET /scm/events?since=&repo=&limit=` → `{items: [event…], next}`: the
-  events delivered (or due) to this caller in the last 7 days, for
-  catching up.
+- `GET /scm/events?since=&repo=&limit=&cursor=` → `{items: [event…],
+  next}`: the events delivered (or due) to this caller in the last 7
+  days, oldest first, for catching up; `since` in Unix milliseconds.
 
 ## Poll
 

@@ -17,8 +17,9 @@ contract, and it wins.
 | bot tokens; a person's tokens, refresh and epoch; the device flow; the relay to global | `_backend/bot.go`, `_backend/person.go`, `_backend/signin.go`, `_backend/relay.go` |
 | the `/scm/*` routes | `_backend/{hello,tokens,repos,pulls,checks,issues,poll}.go` |
 | the page's API; kv and the vault | `_backend/page.go`, `_backend/store.go` |
+| events: webhooks (signature, accounts, dedupe, access caches, health, catch-up); GitHub → event v1 and the checks a body's fields get; subscriptions and the relay's; the outbox and `GET /scm/events`; delivery and retries | `_backend/hook.go`; `_backend/normalize.go`, `_backend/normalize_gh.go`; `_backend/subs.go`; `_backend/outbox.go`; `_backend/deliver.go` |
 | the page; the xbin app's view | `index.html` + `scm.js`; `native.js` |
-| the fake GitHub and the tests | `_backend/fakegh*_test.go`, `_backend/harness_test.go`, `_backend/*_test.go` |
+| the fake GitHub (its webhook side: signed fixtures, fake consumers) and the tests | `_backend/fakegh*_test.go`, `_backend/harness_test.go`, `_backend/*_test.go`, `_backend/testdata/` |
 
 ## Rules
 
@@ -34,7 +35,10 @@ contract, and it wins.
 - **A person's sign-in stays in their partition.** Global may see an access
   token in transit (identity, scope, revoke) and never keeps it.
 - Text GitHub's users wrote (bodies, comments, CI output, logs) passes
-  through untrusted, clipped where the contract says.
+  through untrusted, clipped where the contract says. A webhook body is
+  attacker-controlled: every field an event takes from it goes through
+  `normalize_gh.go`'s checks, and a delivery for an account outside
+  `allowedAccounts` is dropped before anything reads it.
 - Additive only: new caps, fields and routes; the contract's shapes are
   frozen for protocol 1 (/docs/scm.md §Versions).
 - Go files stay under 800 lines; the backend needs the sdk and the standard
