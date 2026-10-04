@@ -181,6 +181,7 @@ func (ag *Agent) needsPushes(runID int64) []needsPush {
 	if title == "" {
 		title = fmt.Sprintf("Conversation %d", root.ID)
 	}
+	title = projectPushTitle(ag.db, root, title) // a project's run: "<project> · " first (projects_coord_push.go)
 	sum := sha256.Sum256([]byte(fp))
 	out := make([]needsPush, 0, len(users))
 	for _, u := range users {

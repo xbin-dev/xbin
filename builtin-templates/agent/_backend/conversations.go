@@ -472,15 +472,29 @@ func handleRead(w http.ResponseWriter, r *http.Request) {
 // and automations they own whose last run failed and that they haven't
 // looked at.
 func handleNeeds(w http.ResponseWriter, r *http.Request) {
-	c := callerOf(r)
+	items, err := needsItems(callerOf(r), "")
+	if err != nil {
+		xbin.WriteError(w, 500, err.Error())
+		return
+	}
+	xbin.WriteJSON(w, 200, map[string]any{"items": items})
+}
+
+// needsItems is GET /needs's items for c, among the conversations scope (a
+// condition on r, with its args; "" none) lets through — a project's
+// (GET /projects/{pid}/needs, projects_coord_push.go).
+func needsItems(c who, scope string, scopeArgs ...any) ([]map[string]any, error) {
 	where, args := aclWhere(c)
+	if scope != "" {
+		where += " AND " + scope
+		args = append(args, scopeArgs...)
+	}
 	runs, err := agent.db.queryRuns(`r WHERE r.parent_id=0 AND `+where+` AND (
 		EXISTS (SELECT 1 FROM runs x WHERE x.root_id=r.id AND x.status='waiting_input')
 		OR (r.origin NOT IN ('', 'chat', 'api') AND r.status='error'))
 		ORDER BY r.activity_ms DESC LIMIT 50`, args...)
 	if err != nil {
-		xbin.WriteError(w, 500, err.Error())
-		return
+		return nil, err
 	}
 	var ids []int64
 	for _, x := range runs {
@@ -519,12 +533,12 @@ func handleNeeds(w http.ResponseWriter, r *http.Request) {
 					item["harness"] = harnessNodeView(h)
 				}
 			}
-			items = append(items, item)
+			items = append(items, withNeedsProject(agent.db, item, x)) // a project's run: project {id, name, n} (projects_coord_push.go)
 		case !waiting && lv >= lvOwner && it["unread"] == true:
-			items = append(items, map[string]any{"run": it, "reason": "failed", "subRun": 0})
+			items = append(items, withNeedsProject(agent.db, map[string]any{"run": it, "reason": "failed", "subRun": 0}, x))
 		}
 	}
-	xbin.WriteJSON(w, 200, map[string]any{"items": items})
+	return items, nil
 }
 
 // treeWait is §4.3.8 for one conversation: whether it or a run below it
