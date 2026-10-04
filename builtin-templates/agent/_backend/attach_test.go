@@ -647,7 +647,7 @@ func TestBinaryFilesInTextTools(t *testing.T) {
 		t.Fatal("file_edit must refuse an attachment")
 	}
 	out, err := tool("js_eval", map[string]any{"code": "files.read('a.png')"})
-	if !strings.Contains(out+fmt.Sprint(err), "binary file (image/png)") {
+	if !strings.Contains(out+fmt.Sprint(err), "binary file (image/png,") {
 		t.Fatalf("files.read on an image should throw, got %q, %v", out, err)
 	}
 	out, err = tool("js_eval", map[string]any{"code": "JSON.stringify(files.list().filter(function (f) { return f.binary }).map(function (f) { return f.mime }))"})
