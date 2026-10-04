@@ -40,6 +40,12 @@ func insertTestProject(t *testing.T, db *DB, owner string) *Project {
 // where a home's identity is the bot, who may name a repo (the bot rule);
 // the kinds each home holds.
 func TestProjectAccessMatrix(t *testing.T) {
+	t.Run("unpartitioned", projectAccessUnpartitioned)
+	t.Run("global", projectAccessGlobal)
+	t.Run("partition", projectAccessPartition)
+}
+
+func projectAccessUnpartitioned(t *testing.T) {
 	fx := newProjFix(t)
 	// the bot rule, as it is by default: only managers name repos here
 	scmBotAllowed = func(w who, _ string) bool { return w.manager() }
@@ -117,45 +123,59 @@ func TestProjectAccessMatrix(t *testing.T) {
 
 // At a partitioned agent's global instance a project is a team definition
 // (kind team, shared); in a person's partition it is theirs alone.
-func TestProjectKindsPerHome(t *testing.T) {
-	t.Run("global", func(t *testing.T) {
-		setMode(t, modeGlobal, "")
-		fx := newProjFix(t)
-		if w := callAs(t, fx.mux, asAlice, "POST", "/projects", fx.projBody(nil)); w.Code != 409 {
-			t.Fatalf("a personal project at global: %d %s", w.Code, w.Body)
-		}
-		team := fx.projBody(map[string]any{"kind": "team", "sandbox": nil})
-		if w := callAs(t, fx.mux, asAlice, "POST", "/projects", team); w.Code != 409 {
-			t.Fatalf("a team definition no one shares: %d %s", w.Code, w.Body)
-		}
-		team["share"] = map[string]any{"visibility": "team", "teamRole": "participant"}
-		w := callAs(t, fx.mux, asAlice, "POST", "/projects", team)
-		if w.Code != 201 || !strings.Contains(w.Body.String(), `"kind":"team"`) {
-			t.Fatalf("a team definition: %d %s", w.Code, w.Body)
-		}
-		var out struct{ Project ProjectView }
-		_ = json.Unmarshal(w.Body.Bytes(), &out)
-		if w := callAs(t, fx.mux, asBob, "POST", fmt.Sprintf("/projects/%d/tasks", out.Project.ID), map[string]any{"text": "x"}); w.Code != 409 {
-			t.Fatalf("a task of a team definition: %d %s", w.Code, w.Body)
-		}
-	})
-	t.Run("partition", func(t *testing.T) {
-		setMode(t, modeUser, "alice")
-		ag, mux := accessFixture(t)
-		newP1SCM(t)
-		body := map[string]any{"name": "Web", "scm": "apps/scm-github", "repos": []any{}, "sandbox": map[string]any{"ref": "apps/cs|x"},
-			"share": map[string]any{"visibility": "team"}}
-		if w := callAs(t, mux, asAlice, "POST", "/projects", body); w.Code != 409 {
-			t.Fatalf("a shared project in a partition: %d %s", w.Code, w.Body)
-		}
-		p := insertTestProject(t, ag.db, "alice")
-		if w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/projects/%d/members", p.ID), map[string]any{"user": "bob"}); w.Code != 409 {
-			t.Fatalf("a member in a partition: %d %s", w.Code, w.Body)
-		}
-		if w := callAs(t, mux, asAlice, "PATCH", fmt.Sprintf("/projects/%d", p.ID), map[string]any{"version": 1, "visibility": "team"}); w.Code != 409 {
-			t.Fatalf("team visibility in a partition: %d %s", w.Code, w.Body)
-		}
-	})
+func projectAccessGlobal(t *testing.T) {
+	setMode(t, modeGlobal, "")
+	fx := newProjFix(t)
+	if w := callAs(t, fx.mux, asAlice, "POST", "/projects", fx.projBody(nil)); w.Code != 409 {
+		t.Fatalf("a personal project at global: %d %s", w.Code, w.Body)
+	}
+	team := fx.projBody(map[string]any{"kind": "team", "sandbox": nil})
+	if w := callAs(t, fx.mux, asAlice, "POST", "/projects", team); w.Code != 409 {
+		t.Fatalf("a team definition no one shares: %d %s", w.Code, w.Body)
+	}
+	team["share"] = map[string]any{"visibility": "team", "teamRole": "participant"}
+	w := callAs(t, fx.mux, asAlice, "POST", "/projects", team)
+	if w.Code != 201 || !strings.Contains(w.Body.String(), `"kind":"team"`) {
+		t.Fatalf("a team definition: %d %s", w.Code, w.Body)
+	}
+	var out struct{ Project ProjectView }
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	if w := callAs(t, fx.mux, asBob, "GET", fmt.Sprintf("/projects/%d", out.Project.ID), nil); w.Code != 200 {
+		t.Fatalf("a team member reads the definition: %d %s", w.Code, w.Body)
+	}
+	if w := callAs(t, fx.mux, asBob, "POST", fmt.Sprintf("/projects/%d/tasks", out.Project.ID), map[string]any{"text": "x"}); w.Code != 409 {
+		t.Fatalf("a task of a team definition: %d %s", w.Code, w.Body)
+	}
+	// the bot rule holds at global too
+	scmBotAllowed = func(w who, _ string) bool { return w.manager() }
+	if w := callAs(t, fx.mux, asAlice, "POST", "/projects", team); w.Code != 403 {
+		t.Fatalf("a non-manager naming a repo for the bot at global: %d %s", w.Code, w.Body)
+	}
+}
+
+func projectAccessPartition(t *testing.T) {
+	setMode(t, modeUser, "alice")
+	ag, mux := accessFixture(t)
+	newP1SCM(t)
+	body := map[string]any{"name": "Web", "scm": "apps/scm-github", "repos": []any{}, "sandbox": map[string]any{"ref": "apps/cs|x"},
+		"share": map[string]any{"visibility": "team"}}
+	if w := callAs(t, mux, asAlice, "POST", "/projects", body); w.Code != 409 {
+		t.Fatalf("a shared project in a partition: %d %s", w.Code, w.Body)
+	}
+	body["kind"], body["share"] = "team", nil
+	if w := callAs(t, mux, asAlice, "POST", "/projects", body); w.Code != 409 {
+		t.Fatalf("kind team in a partition: %d %s", w.Code, w.Body)
+	}
+	p := insertTestProject(t, ag.db, "alice")
+	if w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/projects/%d/members", p.ID), map[string]any{"user": "bob"}); w.Code != 409 {
+		t.Fatalf("a member in a partition: %d %s", w.Code, w.Body)
+	}
+	if w := callAs(t, mux, asAlice, "PATCH", fmt.Sprintf("/projects/%d", p.ID), map[string]any{"version": 1, "visibility": "team"}); w.Code != 409 {
+		t.Fatalf("team visibility in a partition: %d %s", w.Code, w.Body)
+	}
+	if w := callAs(t, mux, asAlice, "GET", fmt.Sprintf("/projects/%d", p.ID), nil); w.Code != 200 {
+		t.Fatalf("the person reads their project: %d %s", w.Code, w.Body)
+	}
 }
 
 // A project's tasks never run in a class with internal reach — at
@@ -251,6 +271,11 @@ func TestTaskReposOfProjectOnly(t *testing.T) {
 // space: sharing it apart, publishing it and moving it are refused; its
 // export stays.
 func TestProjectRunBarred(t *testing.T) {
+	t.Run("unpartitioned", projectRunBarredUnpartitioned)
+	t.Run("publish in a partition", projectPublishBarredInPartition)
+}
+
+func projectRunBarredUnpartitioned(t *testing.T) {
 	fx := newProjFix(t)
 	p := fx.newProject(t, asAlice, nil)
 	_, runID := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "x"})
@@ -284,7 +309,7 @@ func TestProjectRunBarred(t *testing.T) {
 	}
 }
 
-func TestProjectPublishBarredInPartition(t *testing.T) {
+func projectPublishBarredInPartition(t *testing.T) {
 	setMode(t, modeUser, "alice")
 	ag, mux := accessFixture(t)
 	p := insertTestProject(t, ag.db, "alice")
