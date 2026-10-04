@@ -232,10 +232,14 @@ public struct MessageView<Actions: View>: View {
                 meta
                 HStack {
                     Spacer(minLength: 48)
+                    // Panel-2 with a 1 pt edge, as the web's agent chat
+                    // draws a person's turn: in Day, panel-2 alone barely
+                    // differs from the transcript's panel.
                     bubble
                         .padding(.horizontal, 14)
                         .padding(.vertical, 10)
                         .background(XbinColor.bubble, in: RoundedRectangle.xbinPlate)
+                        .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 1))
                         .opacity(message.queued ? 0.6 : 1)
                 }
                 if message.queued {

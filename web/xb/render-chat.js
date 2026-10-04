@@ -292,7 +292,7 @@ export const CHAT_CSS = css`
   .m-sender { font-weight: 600; }
   .m-text { white-space: pre-wrap; overflow-wrap: anywhere; }
   .m-user { align-items: flex-end; }
-  .m-user .m-bubble { max-width: 82%; padding: 9px 14px; border-radius: var(--xb-radius);
+  .m-user .m-bubble { max-width: 82%; padding: 9px 14px; border-radius: var(--xb-radius); border: 1px solid var(--xb-border);
     background: var(--xb-bubble); }
   .m-user .m-meta { padding: 0 6px; }
   .m-assistant .m-bubble { max-width: 100%; }
@@ -303,9 +303,9 @@ export const CHAT_CSS = css`
   .m-q .ic { width: 12px; height: 12px; }
   .msg.tap .m-bubble { cursor: pointer; }
   .m-files { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
-  .m-file { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 10px; background: var(--xb-surface2); font: var(--xb-font-footnote); max-width: 100%; }
+  .m-file { display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: var(--xb-radius); background: var(--xb-surface2); font: var(--xb-font-footnote); max-width: 100%; }
   .m-file .ic { width: 16px; height: 16px; color: var(--xb-muted); }
-  .m-thumb { display: block; border-radius: 12px; overflow: hidden; background: var(--xb-surface2); max-width: 100%; }
+  .m-thumb { display: block; border-radius: var(--xb-radius); overflow: hidden; background: var(--xb-surface2); max-width: 100%; }
   .m-thumb img { display: block; max-width: min(100%, 220px); max-height: 150px; object-fit: cover; }
   .m-ph { display: flex; align-items: center; justify-content: center; width: 200px; height: 112px; color: var(--xb-muted); }
   .m-thumb img + .m-ph, .m-thumb img[data-failed] { display: none; }
