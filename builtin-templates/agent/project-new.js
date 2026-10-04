@@ -111,7 +111,7 @@ export function newProjectTpl(p) {
       <label class="chk"><input type="radio" name="pn-kind" value="mine" .checked=${!teamDef} @change=${() => p.setForm('teamDef', false)}> just you — in your own space, with your own sandbox and sign-in</label>
       <label class="chk"><input type="radio" name="pn-kind" value="team" .checked=${teamDef} @change=${() => p.setForm('teamDef', true)}> a team project — its definition in the shared space; each member works on it in their own space</label></div>` : nothing}
     ${teamDef ? html`<div class="muted small" id="pn-team-note">A team project's definition holds the repos, the policy and its members; it has no tasks and no sandbox of yours.
-      A seed sandbox members' sandboxes fork from can be set from the shared space.</div>` : html`
+      A seed sandbox members' sandboxes fork from can be set on its page.</div>` : html`
     <h5>${team ? 'Its seed sandbox' : 'Its sandbox'}</h5>
     ${team ? html`<div class="muted small">A team project's tasks run in each member's own space; a seed sandbox (optional) is the start their sandboxes fork from. It holds no sign-in.</div>` : nothing}
     <div class="field">

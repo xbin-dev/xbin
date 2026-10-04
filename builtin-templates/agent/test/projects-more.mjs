@@ -6,7 +6,7 @@
 // links, a `project` event reads only what is new); the ▣ popover's "Make
 // this a project…" (detect, the picks, https, the body, the crumb after);
 // a team definition's board (rows plain, "open (yours)" for your own,
-// a member who left greyed, Hide); Work on this (the security part shown,
+// a member who left greyed, Hide) and its seed sandbox; Work on this (the security part shown,
 // then accepted by its hash); reviewing a membership's changes (side by
 // side, marked, Accept); a team project's definition made from your own
 // space; a phone's width.
@@ -76,6 +76,11 @@ await page.evaluate((e) => { window.__more.events[7].push(e); window.__push({ ty
 ok('a project event: the new one shows first', await page.waitForFunction(() => document.querySelector('#pfeed .pev')?.dataset.kind === 'merged', null, { timeout: 5000 }).then(() => true, () => false));
 const after = (await calls(page, 'GET', '/projects/7/events')).slice(before);
 ok('…read since the last one held', after.length >= 1 && after.every((c) => /since=5/.test(c.url)), JSON.stringify(after.map((c) => c.url)));
+await page.click('[data-tab="board"]');
+await page.click('#proj-forkbase');
+ok('Fork base now (confirmed): POST …/fork-base {now: true}', await waitCall(page, 'POST', '/projects/7/fork-base$'));
+ok('…its body', JSON.stringify((await calls(page, 'POST', '/projects/7/fork-base$'))[0].body) === '{"now":true}');
+ok('…said', await waitText(page, '.pflash', 'fork base is being taken'));
 ok('no page errors (coordinator, feed)', errors.length === 0, errors.join(' | '));
 
 // === "Make this a project…" ===========================================================================
@@ -137,6 +142,16 @@ ok('Hide: POST …/board/carl/2/hide', await waitCall(t, 'POST', '/projects/9/bo
 ok('…and it goes', await t.waitForFunction(() => !document.querySelector('.tbrow[data-key="carl:2"]'), null, { timeout: 5000 }).then(() => true, () => false));
 await t.evaluate(() => { window.__more.board[9][0].state = 'needs-you'; window.__more.board[9][0].col = 'needs-you'; window.__push({ type: 'project', run: 0, root: 0, data: { id: 9, change: 'board' } }); });
 ok('a board event reads it again', await t.waitForFunction(() => document.querySelector('.tbrow[data-key="alice:1"]')?.closest('.pcol').dataset.col === 'needs-you', null, { timeout: 5000 }).then(() => true, () => false));
+
+// the seed sandbox: the definition's owner picks one of theirs the team can see
+const seedOpts = await t.$$eval('#pteam-seed-ref option', (els) => els.map((e) => e.value));
+ok('the seed: only your sandboxes shared with the team', JSON.stringify(seedOpts) === '["","apps/coding-sandbox|seedbox"]', JSON.stringify(seedOpts));
+await t.selectOption('#pteam-seed-ref', 'apps/coding-sandbox|seedbox');
+await t.click('#pteam-seed-set');
+ok('…set at the shared space', await waitCall(t, 'POST', '/projects/9/seed$'));
+const sc = (await calls(t, 'POST', '/projects/9/seed$'))[0];
+ok('…as {sandbox: {ref}}', sc.home === 'global' && JSON.stringify(sc.body) === '{"sandbox":{"ref":"apps/coding-sandbox|seedbox"}}', JSON.stringify(sc));
+ok('…and shown', await waitText(t, '#pteam-seed', 'apps/coding-sandbox|seedbox'));
 
 // Work on this: the security part first, accepted by its hash
 await t.click('#pteam-work');

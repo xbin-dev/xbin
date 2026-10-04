@@ -8,12 +8,13 @@
 //   const u = projectUpgrade(app);         one per app, made on first use
 //   u.open(runId) → the form, read from the sandbox (detect);
 //   u.toggle(runId, path), u.set(runId, k, v), u.submit(runId)
+//   forkBase(pid)                          big tasks' fork base, now (P2's route)
 //
 // A candidate's remote comes without its userinfo (the backend drops it);
 // one that held credentials, or an ssh remote, may be switched to https so
 // the project's own credential helper serves it. Emits `projects`. No lit,
 // no DOM.
-import { projCall } from './project-api.js';
+import { projCall, projectHome } from './project-api.js';
 import { homeOf } from './homes.js';
 import { bindingOf } from './sandboxes.js';
 import { hostingOf } from './hosted.js';
@@ -132,6 +133,15 @@ class Upgrade {
     } catch (e) { f.err = e.message; f.busy = false; this.changed(); return null; }
   }
 }
+
+/** forkBaseOffer(pv): may its owner take the big tasks' fork base now? A
+ * project of theirs whose big tasks fork its sandbox (policy.bigTasks.mode). */
+export const forkBaseOffer = (pv) => !!pv && pv.level === 'owner' && pv.kind !== 'team' && pv.state === 'active'
+  && ((pv.policy && pv.policy.bigTasks && pv.policy.bigTasks.mode) || 'fork') === 'fork';
+
+/** forkBase(pid): POST /projects/{pid}/fork-base {now: true} — stops the
+ * project's sandbox to snapshot it (the view confirms first); {job}. */
+export const forkBase = (pid) => projCall(projectHome(pid), `/projects/${pid}/fork-base`, 'POST', { now: true });
 
 /** projectUpgrade(app): the app's upgrade forms, made on first use. */
 export function projectUpgrade(app) {

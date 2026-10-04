@@ -87,6 +87,7 @@ class Team {
     this.boards = new Map();  // gpid → {items, next, loading, err, seq}
     this.works = new Map();   // gpid → "Work on this": {sandbox, defHash, definition, err, busy}
     this.reviews = new Map(); // membership pid → {hash, accepted, pending, loading, err, busy, note}
+    this.seeds = new Map();   // definition pid → the seed being set: {ref, busy, err, note}
     const pj = app.projects;
     const take = pj.take.bind(pj);
     pj.take = (ev) => { take(ev); this.take(ev); };
@@ -138,6 +139,38 @@ class Team {
       this.boards.set(+gpid, { ...b, items: b.items.filter((r) => !(r.member === member && +r.n === +n)), err: '' });
     } catch (e) { this.boards.set(+gpid, { ...b, err: e.message }); }
     this.changed();
+  }
+
+  // --- the seed sandbox (the definition's owner) -------------------------------------------
+
+  /** seedChoices(pv): a definition owner's picks for its seed — your sandboxes
+   * where the definition lives that the team can see (members' sandboxes
+   * fork only from one they can see; it holds no sign-in). */
+  seedChoices(pv) {
+    if (!pv || pv.kind !== 'team' || pv.level !== 'owner') return null;
+    const home = projectHome(pv.id);
+    this.app.sbx.ensure('', home);
+    return ((this.app.sbx.listAt(home) || {}).sandboxes || []).filter((x) => x.mine && x.visibility === 'team' && !['deleting', 'archived', 'error'].includes(x.state));
+  }
+  seed(pid) { return this.seeds.get(+pid) || { ref: '', busy: false, err: '', note: '' }; }
+  setSeedRef(pid, ref) { this.seeds.set(+pid, { ...this.seed(pid), ref }); this.changed(); }
+
+  // setSeed: POST /projects/{pid}/seed {sandbox: {ref}} — the seed's jobs start (no credential ever goes in).
+  async setSeed(pid) {
+    const cur = this.seed(pid);
+    if (!cur.ref) { this.seeds.set(+pid, { ...cur, err: 'Pick a sandbox shared with the team.' }); this.changed(); return null; }
+    this.seeds.set(+pid, { ...cur, busy: true, err: '', note: '' });
+    this.changed();
+    try {
+      const r = await projCall(projectHome(pid), `/projects/${pid}/seed`, 'POST', { sandbox: { ref: cur.ref } });
+      this.seeds.set(+pid, { ref: '', busy: false, err: '', note: 'The seed is being prepared — members\' new sandboxes fork from it once it is ready.' });
+      await this.app.projects.refresh(+pid);
+      return r;
+    } catch (e) {
+      this.seeds.set(+pid, { ...cur, busy: false, err: e.status === 404 && !(e.data && typeof e.data === 'object') ? 'This agent can\'t set a team project\'s seed yet.' : e.message });
+      this.changed();
+      return null;
+    }
   }
 
   // --- your half of it ---------------------------------------------------------------------

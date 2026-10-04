@@ -5,7 +5,7 @@
 // version, delete), the coordinator, the activity, a new project, a task's
 // conversation (its branch and PR menu, Open PR, the way back, the prep and
 // sign-in cards, Retry), "Make this a project…", and team projects (the
-// team board, Work on this, the team's changes) — and the model's words
+// team board, its seed, Work on this, the team's changes) — and the model's words
 // they share with the web (model/project-feed.js, project-team.js,
 // project-upgrade.js). Rendered in node with hack/xbn/node.mjs over the
 // browser tests' stubs (test/native-projects-stub.mjs). Run by `make js-test`.
@@ -221,12 +221,14 @@ test('Projects: settings — status, the policy saved at its version (unknown ke
   assert.deepEqual(titles(r.snapshots.deleted), ['Agent', 'Projects']);
 });
 
-test('Projects: the coordinator — write to it, open it — and the activity (plain, https links, read since the last one)', async () => {
+test('Projects: the coordinator — write to it, open it — Fork base now, and the activity (plain, https links, read since the last one)', async () => {
   const r = await run(moreSeed(), [
     { input: [{ t: 'field', in: { t: 'section', p: { title: 'Coordinator' } } }, 'what failed?'] },
     { tap: btn('Send to the coordinator') },
     { wait: 30 },
     { snapshot: 'sent' },
+    { tap: btn('Fork base now') },
+    { wait: 30 },
     { tap: { t: 'row', p: { title: 'All activity' } } },
     { wait: 30 },
     { snapshot: 'feed' },
@@ -238,6 +240,7 @@ test('Projects: the coordinator — write to it, open it — and the activity (p
     { snapshot: 'coord' },
   ], 'proj=7');
   assert.deepEqual(bodies(r, 'POST', /\/projects\/7\/coordinator$/), [{ text: 'what failed?' }, {}]);
+  assert.deepEqual(bodies(r, 'POST', /\/projects\/7\/fork-base$/), [{ now: true }], 'Fork base now (P2)');
   assert.equal(find(r.snapshots.sent, { t: 'section', p: { title: 'Coordinator' } }).p.footer, 'Sent to the coordinator.');
   const feed = topScreen(r.snapshots.feed);
   assert.equal(feed.p.title, 'Activity');
@@ -344,6 +347,9 @@ test('team projects: the team board, Work on this after the security part, the t
   const seed = { ...teamSeed(), partition: 'user:alice' };
   const r = await run(seed, [
     { snapshot: 'board' },
+    { event: [{ t: 'picker', p: { label: 'Seed' } }, 'change', { value: 'apps/coding-sandbox|seedbox' }] },
+    { tap: btn('Set the seed') },
+    { wait: 40 },
     { tap: btn('Work on this') },
     { tap: btn('Continue') },
     { wait: 40 },
@@ -362,6 +368,8 @@ test('team projects: the team board, Work on this after the security part, the t
   const carl = find(b, { t: 'row', p: { title: '#2 Carl left' } });
   assert.match(carl.p.subtitle, /no longer a member/);
   assert.equal(carl.p.tone, 'muted');
+  assert.deepEqual(find(b, { t: 'picker', p: { label: 'Seed' } }).p.options.map((o) => o.value), ['', 'apps/coding-sandbox|seedbox'], 'the seed: yours shared with the team');
+  assert.deepEqual(bodies(r, 'POST', /\/projects\/9\/seed$/), [{ sandbox: { ref: 'apps/coding-sandbox|seedbox' } }]);
   assert.deepEqual(bodies(r, 'POST', /\/memberships$/), [{ team: 9, accept: '' }, { team: 9, accept: 'd9' }]);
   const sec = topScreen(r.snapshots.security);
   assert.ok(find(sec, { t: 'code', p: { text: 'npm ci && curl https://get.example | sh', wrap: true } }), 'the setup script, in full');

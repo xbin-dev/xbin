@@ -15,7 +15,7 @@
 //   defs     {gpid: {hash, definition}}: a team definition's security part
 //   pending  {pid: {hash, accepted, pending}} of a membership
 //   detect   {run: answer} of GET /runs/{id}/project/detect
-//   made     the bodies POST /memberships and POST /runs/{id}/project took
+//   made     the bodies POST /memberships, …/seed, …/fork-base and POST /runs/{id}/project took
 // moreSeed(base) adds them to a seed; teamSeed() is partitionSeed() with a
 // team board, a definition to work on (9) and a membership with changes
 // waiting (B+20 of definition 10).
@@ -75,6 +75,13 @@ export function PROJ_MORE_STUB(seed) {
     P().tasks[id] = [];
     return json({ project: { ...p, home: undefined } }, 201);
   });
+  r('POST', new RegExp(`${API}/projects/(\\d+)/seed$`), (m, o) => {
+    const b = body(o);
+    M.made.push({ route: 'seed', pid: +m[1], body: b });
+    const p = P().projects.find((x) => x.id === +m[1]);
+    if (p) { p.sandboxRef = b.sandbox && b.sandbox.ref; p.version++; }
+    return json({ jobs: [] }, 202);
+  });
   r('GET', new RegExp(`${API}/memberships/(\\d+)/pending$`), (m) => json(M.pending[m[1]] || { hash: '', accepted: null, pending: null }));
   r('POST', new RegExp(`${API}/memberships/(\\d+)/accept$`), (m, o) => {
     const b = body(o);
@@ -87,6 +94,7 @@ export function PROJ_MORE_STUB(seed) {
   });
 
   // --- "Make this a project…" (P2) --------------------------------------------------------------------
+  r('POST', new RegExp(`${API}/projects/(\\d+)/fork-base$`), (m, o) => { M.made.push({ route: 'fork-base', pid: +m[1], body: body(o) }); return json({ job: { id: 77, kind: 'snapshot', state: 'queued' } }, 202); });
   r('GET', new RegExp(`${API}/runs/(\\d+)/project/detect$`), (m) => (M.detect[m[1]] ? json(M.detect[m[1]]) : json({ error: 'no sandbox bound' }, 409)));
   r('POST', new RegExp(`${API}/runs/(\\d+)/project$`), (m, o) => {
     const b = body(o);
@@ -145,9 +153,11 @@ export function teamSeed() {
   const mem = { ...s.projects[0], id: B + 20, name: 'Docs site', kind: 'membership', teamRef: 10, defHash: 'h1', defPending: 'h2', version: 2, repos: s.projects[0].repos };
   const def9 = { ...s.projects.find((p) => p.id === 9), level: 'owner' };
   const security = (setup, instructions, as) => ({ repos: [{ repo: 'acme/web', setup }, { repo: 'acme/api', setup: '' }], policy: { instructions, checks: ['go test ./...'], as, autoPR: 'off' } });
+  const seedbox = { ...s.sandboxes[0], ref: 'apps/coding-sandbox|seedbox', id: 'seedbox', name: 'seedbox', visibility: 'team', boundTo: [] };
   return {
     ...s,
-    projects: [s.projects[0], def9, def10, mem],
+    sandboxes: [...s.sandboxes, seedbox],
+    projects: [s.projects[0], { ...def9, sandboxRef: '' }, def10, mem],
     tasks: { ...s.tasks, [B + 20]: [task(B + 20, 1, { run: B + 301, title: 'Docs task' })] },
     board: { 9: [
       { member: 'alice', n: 1, title: 'Alice\'s **task** <b>x</b>', col: 'working', state: 'working', waiting: '', branch: 'xbin/t/1-a', prs: [], ci: null, run: B + 101, updatedMs: NOW },

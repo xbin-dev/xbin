@@ -19,6 +19,8 @@
 //                        marked — then Accept (until then your half runs
 //                        what you accepted)
 //   teamLinkTpl(p, pv)   between a definition and your half of it
+//   the seed sandbox     the definition's owner sets one of their sandboxes
+//                        the team can see (POST /projects/{pid}/seed)
 //
 // The state is model/project-team.js (projectTeam(app)).
 import { html, nothing, repeat } from '/vendor/lit-all.min.js';
@@ -99,13 +101,29 @@ export function reviewCardTpl(p, pv) {
   </div>`;
 }
 
-/** teamBoardTpl(p, pv): a team project's definition — Work on this, and the team board. */
+// the seed sandbox: the definition's owner sets one the team can see
+function seedTpl(pv) {
+  const t = team();
+  const mine = t.seedChoices(pv);
+  if (!mine) return nothing;
+  const sd = t.seed(pv.id);
+  const ref = sd.ref || '';
+  return html`<div class="pteamlink small" id="pteam-seed"><span>Seed sandbox: <b class="mono">${pv.sandboxRef || 'none'}</b></span>
+    <select id="pteam-seed-ref" @change=${(e) => t.setSeedRef(pv.id, e.target.value)}><option value="" ?selected=${!ref}>${mine.length ? 'one of yours shared with the team…' : '(you have no sandbox shared with the team)'}</option>
+      ${mine.map((x) => html`<option value=${x.ref} ?selected=${x.ref === ref}>${x.name} · ${x.state}</option>`)}</select>
+    <button class="btn ghost btnsm" id="pteam-seed-set" ?disabled=${sd.busy || !ref} @click=${() => t.setSeed(pv.id)}>${pv.sandboxRef ? 'Change the seed' : 'Set the seed'}</button>
+    <span class="muted">members' sandboxes fork from it; it holds no sign-in</span>
+    ${sd.err ? html`<span class="err">${sd.err}</span>` : sd.note ? html`<span class="muted">${sd.note}</span>` : nothing}</div>`;
+}
+
+/** teamBoardTpl(p, pv): a team project's definition — Work on this, its seed, and the team board. */
 export function teamBoardTpl(p, pv) {
   const t = team();
   const b = t.ensureBoard(pv.id);
   const cols = boardColumns(t.rows(pv.id));
   return html`
     ${teamLinkTpl(p, pv)}
+    ${seedTpl(pv)}
     <div class="pbar"><span class="muted small">The team board: each member's tasks, run in their own space. Only a task's own member opens its conversation.</span>
       <span style="flex:1"></span><button class="btn ghost btnsm" id="pteam-refresh" @click=${() => t.load(pv.id)}>Refresh</button></div>
     ${b.err ? html`<div class="err" id="pteam-board-err">${b.err}</div>` : nothing}

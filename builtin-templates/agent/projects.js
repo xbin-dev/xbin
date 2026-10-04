@@ -29,6 +29,7 @@ import { newProjectTpl } from './project-new.js';
 import { settingsTpl } from './project-settings.js';
 import { coordCardTpl, feedTpl } from './project-feed.js';
 import { teamBoardTpl, teamLinkTpl, reviewCardTpl } from './project-team.js';
+import { forkBaseOffer, forkBase } from './model/project-upgrade.js';
 
 const pj = () => ctx.app.projects;
 let shownKey = '';
@@ -143,6 +144,8 @@ function boardPageTpl(p, pv, c) {
       ${c.act ? html`<button class="btn btnsm" id="ptask-new" @click=${() => p.newTask()}>New task</button>
         <button class="btn ghost btnsm" id="ptask-issues" @click=${() => p.openPicker()} ?disabled=${!(pv.repos || []).length}>From issues…</button>
         <button class="btn ghost btnsm" id="proj-warm" title="start the sandbox, fetch the repos and refresh the credentials" @click=${() => p.warm(pv.id)}>Warm</button>` : nothing}
+      ${forkBaseOffer(pv) ? html`<button class="btn ghost btnsm" id="proj-forkbase" title="big tasks fork a snapshot of the project's sandbox, taken while it is quiet"
+        @click=${() => { if (confirm('Snapshot the project\'s sandbox for big tasks now? It stops while the snapshot is taken; running tasks wait.')) p.act(() => forkBase(pv.id), pv.id).then((r) => { if (r) { p.flash = 'The fork base is being taken.'; p.changed(); } }); }}>Fork base now</button>` : nothing}
       <span style="flex:1"></span>
       <input type="search" class="pq" placeholder="Find a task…" .value=${p.filter.q} @change=${(e) => p.setFilter({ q: e.target.value })}>
       <label class="chk small"><input type="checkbox" .checked=${p.filter.mine} @change=${(e) => p.setFilter({ mine: e.target.checked })}> mine</label>

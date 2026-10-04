@@ -37,6 +37,7 @@ import { projectFeed, feedWords } from '../model/project-feed.js';
 import { projectTeam } from '../model/project-team.js';
 import { partitionState } from '../model/partition.js';
 import { openUrl } from './project-task.js';
+import { forkBaseOffer, forkBase } from '../model/project-upgrade.js';
 import { signinTpl } from './project-settings.js';
 
 export const TONE = { run: 'accent', ok: 'ok', bad: 'danger', warn: 'warn', idle: 'muted' };
@@ -161,6 +162,8 @@ function projectTpl(s) {
         <button icon="pencil" @tap=${() => { p.newTask(); push({ kind: 'project-task-new', pid: pv.id }); }}>New task</button>
         <button icon="list" ?disabled=${!(pv.repos || []).length} @tap=${() => { p.openPicker(); push({ kind: 'project-issues', pid: pv.id }); }}>From issues…</button>
         <button icon="bolt" @tap=${() => p.warm(pv.id)}>Warm</button>
+        ${forkBaseOffer(pv) ? html`<button icon="box" confirm=${{ title: 'Snapshot the project\'s sandbox for big tasks now?', message: 'It stops while the snapshot is taken; running tasks wait.', label: 'Fork base now' }}
+          @tap=${() => p.act(() => forkBase(pv.id), pv.id).then((r) => { if (r) { p.flash = 'The fork base is being taken.'; p.changed(); } })}>Fork base now</button>` : nothing}
       </menu>` : nothing}
       <button icon="gear" @tap=${() => { p.showTab('settings'); push({ kind: 'project-settings', pid: pv.id }); }}>Project settings</button>
     </toolbar>
@@ -339,7 +342,7 @@ function newTpl(s) {
       ${f.next && !f.loading ? html`<row title="More" icon="expand" @tap=${() => p.searchRepos(true)}/>` : nothing}
     </section>` : nothing}
     <section><field label="Name" placeholder="Web" value=${f.name} @input=${(e) => { f.name = e.value; }}/></section>
-    ${partitionState() === 'user' ? html`<section title="Who it is for" footer=${teamDef ? 'A team project\'s definition holds the repos, the policy and its members; it has no tasks and no sandbox of yours — each member works on it in their own space. A seed sandbox can be set from the shared space.' : 'In your own space, with your own sandbox and sign-in.'}>
+    ${partitionState() === 'user' ? html`<section title="Who it is for" footer=${teamDef ? 'A team project\'s definition holds the repos, the policy and its members; it has no tasks and no sandbox of yours — each member works on it in their own space. A seed sandbox can be set on its page.' : 'In your own space, with your own sandbox and sign-in.'}>
       <picker style="segmented" value=${teamDef ? 'team' : 'mine'} options=${[{ value: 'mine', label: 'Just you' }, { value: 'team', label: 'A team project' }]}
         @change=${(e) => p.setForm('teamDef', e.value === 'team')}/></section>` : nothing}
     ${teamDef ? nothing : html`<section title=${team ? 'Its seed sandbox' : 'Its sandbox'} footer=${team ? 'Members\' sandboxes fork from a seed shared with the team; it holds no sign-in.' : 'Its credentials are yours: a project works only in a private sandbox of your own.'}>
