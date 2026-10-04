@@ -230,3 +230,90 @@ func TestSnapshotHoldsCredentialsOut(t *testing.T) {
 		t.Fatalf("the credential asked for meanwhile wasn't written after the snapshot")
 	}
 }
+
+// A fork base waits for the git steps in its sandbox, even taken now: a
+// step running there (the worker's lock on it held) keeps the snapshot
+// off — a person's ask waits — and nothing is taken. A step the worker let
+// through just before the snapshot took the lock (claimed in the database,
+// not yet marked busy) makes the snapshot give way, and the snapshot's
+// release never clears a lock such a step holds.
+func TestSnapshotWaitsForGitSteps(t *testing.T) {
+	fx := newP2Fix(t)
+	p, _, _ := readyTask(t, fx.projFix, nil)
+	d := fx.ag.db
+	ref := p.SandboxRef
+	_, boxID, _ := splitSandboxRef(ref)
+	snaps := func() int { return len(fx.managerCalls("POST", "/sbx/sandboxes/"+boxID+"/snapshots")) }
+	waitJobsDone(t, fx.projFix, p.ID)
+	projWorkers.Lock()
+	w := projWorkers.m[projEng()]
+	projWorkers.Unlock()
+	if w == nil {
+		t.Fatal("no project worker")
+	}
+	locked := func() bool {
+		w.mu.Lock()
+		defer w.mu.Unlock()
+		return w.locked[ref]
+	}
+
+	// a git step runs there: the worker's lock on the sandbox is held
+	w.mu.Lock()
+	w.locked[ref] = true
+	w.mu.Unlock()
+	if wr := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/fork-base", p.ID), map[string]any{"now": true}); wr.Code != 202 {
+		t.Fatalf("POST fork-base now: %d %s", wr.Code, wr.Body)
+	}
+	hwait(t, "the snapshot to wait for the git step", func() bool {
+		js := d.jobsWhere(`WHERE project_id=? AND kind=? AND state='waiting'`, p.ID, pjSnapshot)
+		return len(js) == 1 && strings.Contains(js[0].Step, "a workspace job runs in it")
+	})
+	if n := snaps(); n != 0 || !locked() {
+		t.Fatalf("a snapshot over a git step: %d taken, the step's lock held %v", n, locked())
+	}
+	_, _ = d.q.Exec(`DELETE FROM project_jobs WHERE project_id=? AND kind=?`, p.ID, pjSnapshot)
+	w.mu.Lock()
+	delete(w.locked, ref)
+	w.mu.Unlock()
+
+	// a fetch the worker claimed just before the snapshot took the lock:
+	// the snapshot gives way and leaves the lock to it
+	fj, err := d.queueJob(p.ID, 0, "", pjFetch, "", time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := d.q.Exec(`UPDATE project_jobs SET state='running' WHERE id=?`, fj.ID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		w.mu.Lock()
+		delete(w.busy, fj.ID)
+		delete(w.locked, ref)
+		w.mu.Unlock()
+	})
+	if release, ok := holdGitSteps(ref); ok || release != nil || locked() {
+		t.Fatalf("the snapshot's hold with a git step claimed: ok %v, lock held %v", ok, locked())
+	}
+	// the worker marks it busy with the lock: a release leaves the lock
+	w.mu.Lock()
+	w.busy[fj.ID], w.locked[ref] = true, true
+	w.mu.Unlock()
+	releaseGitSteps(w, ref)
+	if !locked() {
+		t.Fatal("the snapshot's release cleared the lock a running git step holds")
+	}
+	// the step over: the hold is the snapshot's, and its release clears it
+	w.mu.Lock()
+	delete(w.busy, fj.ID)
+	delete(w.locked, ref)
+	w.mu.Unlock()
+	_, _ = d.q.Exec(`UPDATE project_jobs SET state='done' WHERE id=?`, fj.ID)
+	release, ok := holdGitSteps(ref)
+	if !ok || !locked() {
+		t.Fatalf("the snapshot's hold on a quiet sandbox: ok %v, lock held %v", ok, locked())
+	}
+	release()
+	if locked() {
+		t.Fatal("the snapshot's release left the lock")
+	}
+}

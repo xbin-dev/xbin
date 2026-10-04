@@ -237,8 +237,16 @@ func quietWhy(ctx context.Context, d *DB, conn *sbxConn, id, ref string) (string
 
 // holdGitSteps takes the project worker's lock on sandbox ref — the one a
 // git step (repo, fetch, prepare, cleanup, refs) holds while it runs there
-// — so that none starts there until the release; false: one runs now.
-// Without a worker (not the engine owner): nothing to hold.
+// — so that none starts there until the release; false: one runs now, or
+// is about to. Without a worker (not the engine owner): nothing to hold.
+//
+// The worker's look at the lock and its claim of a step are two moves (the
+// claim in the database between them), so a step it let through just
+// before the lock was taken may still be on its way: due (queued or
+// waiting, its time come) or claimed. Such a step makes this give way, and
+// the release then never clears a lock that a step of this sandbox the
+// worker runs holds (the worker sets it with the step as running: its own
+// end clears it).
 func holdGitSteps(ref string) (func(), bool) {
 	projWorkers.Lock()
 	w := projWorkers.m[projEng()]
@@ -247,17 +255,58 @@ func holdGitSteps(ref string) (func(), bool) {
 		return func() {}, true
 	}
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	if w.locked[ref] {
+		w.mu.Unlock()
 		return nil, false
 	}
 	w.locked[ref] = true
-	return func() {
-		w.mu.Lock()
-		delete(w.locked, ref)
-		w.mu.Unlock()
+	w.mu.Unlock()
+	release := func() {
+		releaseGitSteps(w, ref)
 		kickProjectWorker() // the steps it held back
-	}, true
+	}
+	if len(gitStepsIn(projAg().db, ref, true)) > 0 {
+		release()
+		return nil, false
+	}
+	return release, true
+}
+
+// releaseGitSteps clears the lock on sandbox ref unless a git step of it
+// the worker runs holds it now (its ids read first: the worker marks a
+// step running in the database before it marks it busy, under w.mu).
+func releaseGitSteps(w *projWorker, ref string) {
+	ids := gitStepsIn(projAg().db, ref, false)
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	for _, id := range ids {
+		if w.busy[id] {
+			return
+		}
+	}
+	delete(w.locked, ref)
+}
+
+// gitStepsIn lists the git steps (the kinds the worker locks a sandbox
+// for) of sandbox ref that are running or live; due: running, or queued
+// or waiting with their time come.
+func gitStepsIn(d *DB, ref string, due bool) []int64 {
+	cond := `j.state IN ('queued','waiting','running')`
+	if due {
+		cond = `(j.state='running' OR (j.state IN ('queued','waiting') AND j.next_ms<=?))`
+	}
+	args := []any{pjRepo, pjFetch, pjPrepare, pjCleanup, pjRefs}
+	if due {
+		args = append(args, nowMs())
+	}
+	args = append(args, ref)
+	rows, err := d.q.Query(`SELECT j.id FROM project_jobs j JOIN projects p ON p.id=j.project_id
+		LEFT JOIN project_tasks k ON k.id=j.task_id
+		WHERE j.kind IN (?,?,?,?,?) AND `+cond+` AND COALESCE(NULLIF(k.sandbox_ref, ''), p.sandbox_ref)=?`, args...)
+	if err != nil {
+		return []int64{-1} // unknown: as if one were there
+	}
+	return scanIDs(rows, nil)
 }
 
 // recordForkBase makes snap p's fork base and deletes the one before it.
