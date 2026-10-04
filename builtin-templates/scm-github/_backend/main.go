@@ -133,6 +133,15 @@ func (s *srv) start() {
 	if s.mode == modeUser && s.bgPoll {
 		s.resumeSignin()
 	}
+	if s.mode != modeUser {
+		// conf "public" in this version's shape (an upgrade may add fields
+		// people's partitions read).
+		if a, err := s.app(); err == nil && a != nil {
+			if err := s.writePublic(); err != nil {
+				log.Printf("conf public: %v", err)
+			}
+		}
+	}
 }
 
 func (s *srv) routes() http.Handler {
@@ -185,6 +194,14 @@ func (s *srv) routes() http.Handler {
 	mux.HandleFunc("POST /tick", s.handleTick)
 	for _, f := range extraRoutes {
 		f(s, mux)
+	}
+	// The events capability's routes, until the events half mounts its own
+	// (method patterns, more specific than these): 501, as for any cap
+	// hello doesn't list.
+	for _, p := range []string{"/scm/subscriptions", "/scm/subscriptions/{id}", "/scm/events"} {
+		mux.HandleFunc(p, s.scmGuard(false, func(w http.ResponseWriter, _ *http.Request, _ who) {
+			fail(w, refuse(refUnsupported, "this scm-github doesn't deliver events yet: poll (POST /scm/poll)"))
+		}))
 	}
 	return mux
 }

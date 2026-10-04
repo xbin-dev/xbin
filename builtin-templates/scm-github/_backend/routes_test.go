@@ -53,6 +53,16 @@ func TestHelloShape(t *testing.T) {
 	ok(t, e.call(e.user("alice").routes(), pageC("alice"), "GET", "/scm/hello", nil), 200)
 }
 
+// A capability hello doesn't list answers 501 unsupported.
+func TestUnlistedCapUnsupported(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	for _, rt := range [][2]string{{"POST", "/scm/subscriptions"}, {"GET", "/scm/subscriptions"}, {"DELETE", "/scm/subscriptions/s1"}, {"GET", "/scm/events"}} {
+		refusal(t, e.call(e.gH, agentC, rt[0], rt[1], map[string]any{"repo": "acme/web"}), 501, "unsupported")
+	}
+	refusal(t, e.call(e.gH, nobodyC, "GET", "/scm/events", nil), 403, "not-allowed")
+}
+
 func TestHelloProtocolRefusal(t *testing.T) {
 	e := newEnv(t)
 	for _, p := range []string{"2", "0", "x"} {

@@ -284,6 +284,32 @@ func TestRelayRevalidatesPolicy(t *testing.T) {
 	ok(t, e.call(e.gH, frame, "POST", "/partition/bot-token", map[string]any{"repo": "acme/api", "access": "read"}), 200)
 }
 
+// A bot token a person's partition got through the relay and revoked there
+// is never handed out again (global mints a fresh one each time).
+func TestRelayedBotTokenRevoked(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	p := basePolicy()
+	p.BotForPeople = "on"
+	e.setPolicy(p)
+	u := e.signIn("alice", "octocat").routes()
+	req := map[string]any{"repo": "acme/web", "access": "read", "as": "bot", "purpose": "x"}
+	a := personToken(t, e, u, req)["token"].(string)
+	if b := personToken(t, e, u, req)["token"].(string); b != a {
+		t.Fatal("the partition didn't reuse its token")
+	}
+	ok(t, e.call(u, personC("alice"), "POST", "/scm/token/revoke", map[string]string{"token": a}), 204)
+	e.gh.mu.Lock()
+	revoked := e.gh.instTokens[a].revoked
+	e.gh.mu.Unlock()
+	if !revoked {
+		t.Fatal("not revoked at GitHub")
+	}
+	if c := personToken(t, e, u, req)["token"].(string); c == a {
+		t.Fatal("a revoked token handed out again")
+	}
+}
+
 // A person deleted and re-created under the same id is another person: the
 // first relay call from the new partition id wipes the old one's identity
 // and everything kept for it.

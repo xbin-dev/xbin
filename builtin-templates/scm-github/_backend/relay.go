@@ -290,7 +290,7 @@ func (s *srv) handleRelayBotToken(w http.ResponseWriter, r *http.Request, c who)
 		fail(w, e)
 		return
 	}
-	resp, err := s.botToken(ctx, "relay|"+c.person+"|"+c.pid, req)
+	resp, err := s.botTokenReuse(ctx, "relay|"+c.person+"|"+c.pid, req, false)
 	if err != nil {
 		fail(w, err)
 		return

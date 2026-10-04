@@ -176,6 +176,14 @@ func tokenMargin(minTTL int) time.Duration {
 // applies whoever asks: allowedAccounts, botRepos, the preset and
 // allowWorkflows.
 func (s *srv) botToken(ctx context.Context, consumer string, req *normReq) (*tokenResp, error) {
+	return s.botTokenReuse(ctx, consumer, req, true)
+}
+
+// botTokenReuse is botToken; reuse false mints a fresh token every time
+// (still cached, so revoke-all reaches it): a person's partition caches
+// relayed bot tokens itself and revokes them there, so global must never
+// hand one of them out again.
+func (s *srv) botTokenReuse(ctx context.Context, consumer string, req *normReq, reuse bool) (*tokenResp, error) {
 	a, err := s.mustApp()
 	if err != nil {
 		return nil, err
@@ -194,8 +202,11 @@ func (s *srv) botToken(ctx context.Context, consumer string, req *normReq) (*tok
 		return nil, err
 	}
 	key := cacheKey{consumer: consumer, purpose: req.purpose, inst: inst, repos: strings.Join(req.repos, ","), perms: permsKey(perms), kind: asBot}
+	if !reuse {
+		key.purpose += "#" + randomID(9)
+	}
 	now := s.now()
-	if t := s.bot.get(key, now, tokenMargin(req.minTTL)); t != nil {
+	if t := s.bot.get(key, now, tokenMargin(req.minTTL)); reuse && t != nil {
 		return s.botResp(a, t), nil
 	}
 	names := make([]string, len(req.repos))
