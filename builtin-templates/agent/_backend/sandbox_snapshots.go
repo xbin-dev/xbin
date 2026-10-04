@@ -159,7 +159,20 @@ func jobSnapshot(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob)
 		return doneJob("not taken: the project's repos aren't ready yet")
 	}
 	if j.ClientID != forkBaseNow {
-		if why := d.sandboxBusyWhy(p.SandboxRef); why != "" {
+		why := d.sandboxBusyWhy(p.SandboxRef)
+		if why == "" { // what the agent doesn't track — a person's terminal — its manager knows
+			execs, err := conn.ExecList(ctx, id)
+			if err != nil {
+				return jobOutcome{}, err
+			}
+			for _, x := range execs {
+				if x.State == "running" {
+					why = "a command runs in it (" + clip(orStr(x.Label, "a terminal"), 80) + ")"
+					break
+				}
+			}
+		}
+		if why != "" {
 			if j.By != "" && nowMs()-j.Created < forkBaseWait.Milliseconds() {
 				return waitJob(30000, "waiting for the sandbox to be quiet: "+why)
 			}

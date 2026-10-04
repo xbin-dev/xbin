@@ -78,6 +78,22 @@ func TestSnapshotOnlyWhenQuiet(t *testing.T) {
 	if why := d.sandboxBusyWhy(ref); why != "" {
 		t.Fatalf("quiet again: %s", why)
 	}
+	// a person's terminal the agent doesn't track: its manager says
+	conn, _ := sbxDial("apps/cs", "alice")
+	ex, err := conn.ExecStart(ctx, boxID, sbxExecReq{Cmd: "sleep 30", Label: "alice's shell"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = d.q.Exec(`UPDATE project_jobs SET next_ms=0 WHERE project_id=? AND state='waiting'`, p.ID)
+	kickProjectWorker()
+	hwait(t, "the person's snapshot to wait for the terminal", func() bool {
+		js := d.jobsWhere(`WHERE project_id=? AND kind=? AND state='waiting' AND step LIKE '%alice''s shell%'`, p.ID, pjSnapshot)
+		return len(js) == 1
+	})
+	if n := snaps(); n != 0 {
+		t.Fatalf("a snapshot under a person's terminal: %d", n)
+	}
+	_ = conn.ExecDelete(ctx, boxID, ex.ID)
 
 	// quiet: the person's waiting ask is taken, credentials emptied first
 	_, _ = d.q.Exec(`UPDATE project_jobs SET next_ms=0 WHERE project_id=? AND state='waiting'`, p.ID)

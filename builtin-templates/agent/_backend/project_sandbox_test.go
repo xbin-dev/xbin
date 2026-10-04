@@ -32,6 +32,15 @@ func TestForkFlow(t *testing.T) {
 	fx := newP2Fix(t)
 	p, k1, _ := readyTask(t, fx.projFix, nil)
 	d := fx.ag.db
+	// another project's credential in the sandbox (one the scrub before the
+	// snapshot doesn't know): no fork carries it
+	other := filepath.Join(fx.box.Home, ".config", "xbin-scm", "zz9zz9")
+	if err := os.MkdirAll(other, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(other, "github.com.cred"), []byte("protocol=https\npassword=someone-elses\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/fork-base", p.ID), map[string]any{"now": true}); w.Code != 202 {
 		t.Fatalf("POST fork-base: %d %s", w.Code, w.Body)
 	}
@@ -81,6 +90,12 @@ func TestForkFlow(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("no token minted for the fork (%s): %v", purpose, fx.tokenPurposes())
+	}
+	if _, err := os.Stat(fx.realDir(forkID, other)); !os.IsNotExist(err) {
+		t.Fatalf("another project's credential came along into the fork: %v", err)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Fatalf("the project's own sandbox lost another project's credential: %v", err)
 	}
 	credRel := "/.config/xbin-scm/" + pp.UID + "/github.com.cred"
 	mine, err1 := os.ReadFile(fx.realDir(forkID, fx.box.Home+credRel))
