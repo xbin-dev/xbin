@@ -23,16 +23,18 @@ type fakeTeamGlobal struct {
 	putStatus []int // the next PUTs' statuses (then 200)
 	board     map[int64][]BoardRow
 	gets      int
+	hold      chan struct{} // set: the next definition read answers what it read only once this closes (or its ctx ends)
+	held      chan struct{} // closed when that read is held
 }
 
 type teamPut struct {
 	path   string
-	row    BoardRow
+	row    teamOutRow
 	at     time.Time
 	status int
 }
 
-func (g *fakeTeamGlobal) call(_ context.Context, method, path string, body []byte, _ string) (gwResp, error) {
+func (g *fakeTeamGlobal) call(ctx context.Context, method, path string, body []byte, _ string) (gwResp, error) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	clean, _, _ := strings.Cut(path, "?")
@@ -55,7 +57,19 @@ func (g *fakeTeamGlobal) call(_ context.Context, method, path string, body []byt
 		if d == nil {
 			return reply(404, map[string]string{"error": "no such project"})
 		}
-		return reply(200, map[string]any{"project": d})
+		res, err := reply(200, map[string]any{"project": d})
+		if h := g.hold; h != nil {
+			g.hold = nil
+			close(g.held)
+			g.mu.Unlock()
+			select {
+			case <-h:
+			case <-ctx.Done():
+				res, err = gwResp{}, ctx.Err()
+			}
+			g.mu.Lock()
+		}
+		return res, err
 	case method == "GET" && len(parts) == 3 && parts[2] == "board":
 		if st := g.gone[id]; st != 0 {
 			return reply(st, map[string]string{"error": "no such project"})
@@ -70,7 +84,7 @@ func (g *fakeTeamGlobal) call(_ context.Context, method, path string, body []byt
 		if len(g.putStatus) > 0 {
 			st, g.putStatus = g.putStatus[0], g.putStatus[1:]
 		}
-		var row BoardRow
+		var row teamOutRow
 		_ = json.Unmarshal(body, &row)
 		g.puts = append(g.puts, teamPut{path: clean, row: row, at: time.Now(), status: st})
 		return reply(st, row)
@@ -96,6 +110,15 @@ func (g *fakeTeamGlobal) failPuts(st ...int) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	g.putStatus = append(g.putStatus, st...)
+}
+
+// holdNext holds the next definition read (see hold): answers the channel
+// that releases it and one closed once it is held.
+func (g *fakeTeamGlobal) holdNext() (release, held chan struct{}) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.hold, g.held = make(chan struct{}), make(chan struct{})
+	return g.hold, g.held
 }
 
 func (g *fakeTeamGlobal) putsTo(path string) []teamPut {
@@ -288,7 +311,7 @@ func TestBoardOutboxRetry(t *testing.T) {
 	}
 	last := fx.g.putsTo(path)
 	row := last[len(last)-1].row
-	if row.Run != runID || row.N != 1 || row.State == "" || row.Column == "" || row.Member != "" {
+	if row.Run != runID || row.N != 1 || row.State == "" || row.Column == "" || row.Member != "" || row.Membership != m.UID || m.UID == "" {
 		t.Fatalf("the row sent: %+v", row)
 	}
 	// while the global instance is down, two changes leave one row: the latest
@@ -322,7 +345,8 @@ func TestBoardOutboxRetry(t *testing.T) {
 	teamKick()
 	hwait(t, "the deleted row", func() bool {
 		ps := fx.g.putsTo(path)
-		return len(ps) > 0 && ps[len(ps)-1].row.State == taskDeleted && ps[len(ps)-1].status == 200 && outRows() == 0
+		return len(ps) > 0 && ps[len(ps)-1].row.State == taskDeleted && ps[len(ps)-1].row.Membership == m.UID &&
+			ps[len(ps)-1].status == 200 && outRows() == 0
 	})
 }
 
@@ -525,6 +549,18 @@ func memberRemovedPartition(t *testing.T) {
 	fx := newTeamFix(t)
 	fx.def(7, `{}`, "")
 	fx.def(8, `{}`, "")
+	fx.def(9, `{}`, "")
+	// a team-visible definition still answers a member demoted to viewer
+	// (200): the membership is archived all the same, at its next re-read
+	m3 := fx.join(t, 9, nil)
+	fx.g.edit(9, func(d *ProjectView) { d.Level = "viewer" })
+	if _, err := fx.ag.teamSync(context.Background(), m3.ID, true); err != errTeamGone {
+		t.Fatalf("a sync as a viewer: %v", err)
+	}
+	if p, _ := fx.ag.db.getProject(m3.ID); p.State != projArchived {
+		t.Fatalf("a viewer's membership after a sync: %s", p.State)
+	}
+	waitNoJobRunning(t, fx.projFix, m3.ID)
 	m := fx.join(t, 7, nil)
 	fx.waitRepoReady(t, m.ID)
 	hwait(t, "a live credential", func() bool {
@@ -643,4 +679,90 @@ func TestTeamCoordinatorSeesBoard(t *testing.T) {
 		}
 		waitNoJobRunning(t, fx.projFix, m.ID)
 	})
+}
+
+// A membership's re-reads run one at a time, each applied before the next
+// reads: a read that answered the older definition never lands after a
+// newer one (a page open's read slower than an accept's, say).
+func TestTeamSyncSerialized(t *testing.T) {
+	fx := newTeamFix(t)
+	fx.def(7, `{}`, "")
+	m := fx.join(t, 7, nil)
+	fx.g.edit(7, func(d *ProjectView) { d.Name = "Web team v1" })
+	release, held := fx.g.holdNext()
+	first := make(chan error, 1)
+	go func() {
+		_, err := fx.ag.teamSync(context.Background(), m.ID, true)
+		first <- err
+	}()
+	<-held // the first read has v1 and is slow to answer
+	fx.g.edit(7, func(d *ProjectView) { d.Name = "Web team v2" })
+	fx.g.mu.Lock()
+	gets := fx.g.gets
+	fx.g.mu.Unlock()
+	second := make(chan error, 1)
+	go func() {
+		_, err := fx.ag.teamSync(context.Background(), m.ID, true)
+		second <- err
+	}()
+	time.Sleep(100 * time.Millisecond)
+	fx.g.mu.Lock()
+	early := fx.g.gets != gets
+	fx.g.mu.Unlock()
+	if early {
+		t.Fatalf("a second read started while the first wasn't applied")
+	}
+	close(release)
+	if err := <-first; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-second; err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := fx.ag.db.getProject(m.ID); p.Name != "Web team v2" {
+		t.Fatalf("an older definition landed last: %q", p.Name)
+	}
+	waitJobsDone(t, fx.projFix, m.ID)
+}
+
+// GET /memberships waits for its re-reads once, all together: a global
+// instance that doesn't answer costs the page teamListWait, then it shows
+// the memberships as stored; a failed read counts as a read for 30 s.
+func TestMembershipListBounded(t *testing.T) {
+	fx := newTeamFix(t)
+	old := teamListWait
+	teamListWait = 300 * time.Millisecond
+	t.Cleanup(func() { teamListWait = old })
+	fx.def(7, `{}`, "")
+	fx.def(8, `{}`, "")
+	a, b := fx.join(t, 7, nil), fx.join(t, 8, nil)
+	teamSynced.Lock()
+	teamSynced.m = map[int64]time.Time{}
+	teamSynced.Unlock()
+	release, _ := fx.g.holdNext() // one read never answers (until its deadline)
+	defer close(release)
+	start := time.Now()
+	w := callAs(t, fx.mux, asAlice, "GET", "/memberships", nil)
+	if took := time.Since(start); took > 3*time.Second {
+		t.Fatalf("GET /memberships took %v", took)
+	}
+	if w.Code != 200 || strings.Count(w.Body.String(), `"kind":"membership"`) != 2 {
+		t.Fatalf("GET /memberships: %d %s", w.Code, w.Body)
+	}
+	fx.g.mu.Lock()
+	gets := fx.g.gets
+	fx.g.mu.Unlock()
+	if !teamSyncFresh(a.ID, time.Minute) || !teamSyncFresh(b.ID, time.Minute) {
+		t.Fatalf("a read that failed isn't counted")
+	}
+	if w := callAs(t, fx.mux, asAlice, "GET", "/memberships", nil); w.Code != 200 {
+		t.Fatalf("again: %d", w.Code)
+	}
+	fx.g.mu.Lock()
+	defer fx.g.mu.Unlock()
+	if fx.g.gets != gets {
+		t.Fatalf("read again within 30 s: %d reads, then %d", gets, fx.g.gets)
+	}
+	waitJobsDone(t, fx.projFix, a.ID)
+	waitJobsDone(t, fx.projFix, b.ID)
 }

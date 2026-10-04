@@ -3,7 +3,7 @@
 // the definition at the global instance (read through callGlobal as the
 // person; the definition's security part shown first, its hash sent back
 // as accept), its sandbox the person's own — cloned from the team's seed
-// only when it works as the bot (projects-scm §12.2, V16) — and its tasks,
+// only when it works as the bot — and its tasks,
 // coordinator and credentials a personal project's.
 //
 // The definition is read again when the membership's page opens, when a
@@ -11,10 +11,10 @@
 // before a change is accepted. Its name, its removed repos and its policy's
 // other keys follow at once; its security part — setup scripts,
 // instructions, checks, identity, reviews, auto-PR… (teamSecurityKeys) —
-// only once the member accepts exactly what they were shown (V17): until
+// only once the member accepts exactly what they were shown: until
 // then def_pending keeps it and the membership runs what it accepted. A
-// definition the member can no longer see (removed, or deleted) archives
-// the membership (projects-scm §12.5): credentials scrubbed, the pump and
+// definition the member can no longer see (removed, or deleted), or only
+// as a viewer, archives the membership: credentials scrubbed, the pump and
 // the fetches stopped, the tasks left the person's own.
 package main
 
@@ -27,6 +27,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
@@ -131,15 +132,28 @@ func handleListMemberships(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 500, err.Error())
 		return
 	}
+	// re-read concurrently, all within one deadline: a slow global
+	// instance costs the page teamListWait once, then the rows as stored
+	ctx, cancel := context.WithTimeout(r.Context(), teamListWait)
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 8)
+	for _, m := range ms {
+		if m.State != projActive {
+			continue
+		}
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(pid int64) {
+			defer func() { <-sem; wg.Done() }()
+			if _, err := projAg().teamSync(ctx, pid, false); err != nil && err != errTeamGone {
+				logf("project %d: re-reading its team project: %v", pid, err)
+			}
+		}(m.ID)
+	}
+	wg.Wait()
+	cancel()
 	items := []ProjectView{}
 	for _, m := range ms {
-		if m.State == projActive {
-			ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-			if _, err := projAg().teamSync(ctx, m.ID, false); err != nil && err != errTeamGone {
-				logf("project %d: re-reading its team project: %v", m.ID, err)
-			}
-			cancel()
-		}
 		if cur, err := d.getProject(m.ID); err == nil {
 			items = append(items, d.projectView(cur, lvOwner))
 		}
@@ -454,8 +468,14 @@ func handleMembershipAccept(w http.ResponseWriter, r *http.Request) {
 	}
 	ag := projAg()
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
-	def, err := ag.teamSync(ctx, m.ID, true)
-	cancel()
+	defer cancel()
+	unlock, err := teamLock(ctx, m.ID) // held to the adopt: no older read lands between
+	if err != nil {
+		xbin.WriteError(w, http.StatusServiceUnavailable, "the team project is being read again: try again")
+		return
+	}
+	defer unlock()
+	def, err := ag.teamSyncLocked(ctx, m.ID)
 	switch {
 	case err == errTeamGone:
 		xbin.WriteError(w, 404, "the team project is gone, or you are no longer a member of it: this membership is archived")
@@ -501,25 +521,45 @@ func handleMembershipAccept(w http.ResponseWriter, r *http.Request) {
 // --- following the definition -------------------------------------------------------------
 
 // teamSync re-reads membership pid's definition and applies it
-// (teamApplyTx; not force: at most every 30 s). A definition gone archives
-// the membership (errTeamGone). An archived membership reads, never follows.
+// (teamApplyTx; not force: at most every 30 s, a failed read counting). A
+// definition gone, or one its member now only views, archives the
+// membership (errTeamGone). An archived membership reads, never follows.
+// A membership's re-reads run one at a time (teamLock), each read applied
+// before the next starts: an older definition never lands after a newer one.
 func (ag *Agent) teamSync(ctx context.Context, pid int64, force bool) (*ProjectView, error) {
 	if !force && teamSyncFresh(pid, 30*time.Second) {
 		return nil, nil
 	}
+	unlock, err := teamLock(ctx, pid)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	if !force && teamSyncFresh(pid, 30*time.Second) { // read while this one waited
+		return nil, nil
+	}
+	return ag.teamSyncLocked(ctx, pid)
+}
+
+// teamSyncLocked is teamSync's read and apply; the caller holds teamLock.
+func (ag *Agent) teamSyncLocked(ctx context.Context, pid int64) (*ProjectView, error) {
 	m, err := ag.db.getProject(pid)
 	if err != nil || m.Kind != projMembership || m.State == projDeleting || !userMode() {
 		return nil, nil
 	}
 	def, err := teamFetchDef(ctx, m.TeamRef)
+	status := http.StatusNotFound
+	if err == nil && levelNamed(def.Level) < lvParticipant {
+		err, status = errTeamGone, http.StatusForbidden // a viewer works on nothing (as POST /memberships refuses one)
+	}
 	if err == errTeamGone {
-		ag.teamLeave(pid, http.StatusNotFound)
+		ag.teamLeave(pid, status)
 		return nil, err
 	}
+	teamSyncedNow(pid) // an attempt that failed counts too: a page opens on the stored rows
 	if err != nil {
 		return nil, err
 	}
-	teamSyncedNow(pid)
 	if m.State != projActive {
 		return def, nil
 	}
@@ -638,7 +678,7 @@ func policyCanon(raw json.RawMessage) json.RawMessage {
 	return b
 }
 
-// teamLeave archives membership pid (projects-scm §12.5): its definition is
+// teamLeave archives membership pid: its definition is
 // gone or no longer the member's — credentials scrubbed, the pump and the
 // fetches stopped (archived), its board rows to send dropped; its tasks and
 // their conversations stay the person's own.

@@ -3801,7 +3801,9 @@ cloned from a team's seed sandbox") — delete the membership (keeping
 nothing of value there) and join again into a fresh sandbox.
 
 **Following the definition.** A membership reads its definition again
-when its page opens (`GET /memberships`, `…/pending`), when a task is
+when its page opens (`GET /memberships`, `…/pending`: at most every 30
+seconds, and `GET /memberships` waits at most 5 seconds for all its
+reads, then answers what it has), when a task is
 created in it, every 10 minutes while it has open tasks, and before a
 change is accepted. Its name, the repos removed from it (new tasks stop
 using one; running ones keep their checkouts) and the policy's other keys
@@ -3821,14 +3823,19 @@ their code beside the member's token.
 | Method and path | Who | Answer |
 |---|---|---|
 | `GET /projects/{pid}/board?cursor=` | a viewer of the definition | `{items: [{member, n, title, col, state, waiting, branch, prs, ci, run, updatedMs, stale?}], next}`, newest first, hidden rows left out |
-| `PUT /projects/{pid}/board/{n}` | a participant, from their own space only | the row as kept; 403 from anywhere else (a frame at the shared instance included), 404 not a member, 400 a bad row |
+| `PUT /projects/{pid}/board/{n}` `{membership, title, col, state, waiting, branch, prs, ci, run, updatedMs}` | a participant, from their own space only | the row as kept; 403 from anywhere else (a frame at the shared instance included), 404 not a member, 400 a bad row (`membership` missing included) |
 | `POST /projects/{pid}/board/{member}/{n}/hide` | the definition's owner | **204** |
 
 Each change of a member's task (its state, workspace, phase, pull
 requests, CI) is written to an outbox in their space — the latest row
 wins — and sent with `PUT`, retried after 10 s doubling to 10 minutes while
 the shared instance doesn't take it; a deleted task's row is sent as
-`state: "deleted"` and hidden. The shared instance takes a row only from
+`state: "deleted"` and hidden. A row belongs to the membership that sent
+it (`membership`, its uid): a member who deletes their membership and
+joins again numbers tasks from 1 again, and the new membership's row
+replaces the old one's, shown again; a `deleted` row hides only its own
+membership's row, and the owner's hide holds until another membership's
+row takes its place. The shared instance takes a row only from
 the member's own space, as that member (`member` is never read from the
 body; a row from another space of the same person name — a person made
 again — clears their earlier rows), and keeps it as plain text: `title`,
@@ -3854,7 +3861,8 @@ membership.
 **A member leaving.** Removed from the definition (or the definition
 deleted), their rows on the board are `stale` (shown greyed, "no longer a
 member") and the owner may hide them. In their own space, at the next
-re-read or board push (404 or 403), the membership is archived: its
+re-read or board push (404 or 403, or a re-read that finds them only a
+viewer of the definition), the membership is archived: its
 credentials scrubbed, its queue and fetches stopped, its rows to send
 dropped; its tasks and their conversations stay the person's own (they go
 with the person's space). A deleted definition's board rows go.

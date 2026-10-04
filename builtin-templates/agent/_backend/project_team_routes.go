@@ -163,6 +163,20 @@ func boardURL(u, host string) string {
 	return pu.String()
 }
 
+// boardRef says whether s can be a membership's uid as a board row names
+// it: 1 to 64 letters, digits, '-' or '_'.
+func boardRef(s string) bool {
+	if s == "" || len(s) > 64 {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '-' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
 // boardWord is one of the words a field may hold, else "".
 func boardWord(s string, ok ...string) string {
 	if hasStr(ok, s) {
@@ -171,8 +185,8 @@ func boardWord(s string, ok ...string) string {
 	return ""
 }
 
-// teamSanitize is the row global keeps from a member's body (projects-scm
-// §12.3): the text clipped, the URLs held to https on the definition's host,
+// teamSanitize is the row global keeps from a member's body (API.md §Team
+// projects): the text clipped, the URLs held to https on the definition's host,
 // the words to their sets; an error is the 400 to answer.
 func teamSanitize(in BoardRow, host string) (BoardRow, error) {
 	deleted := in.State == taskDeleted
@@ -208,7 +222,11 @@ func teamSanitize(in BoardRow, host string) (BoardRow, error) {
 // handleTeamBoardPut: PUT /projects/{pid}/board/{n} — a member's row for
 // their task n, from their own partition only. The member is the caller;
 // a PUT from another partition id of the same person deletes their rows
-// first (a person re-created starts fresh). state "deleted" hides the row.
+// first (a person re-created starts fresh). The row belongs to the
+// membership the body names (its uid): a row from another membership —
+// the member's new one, the old deleted — replaces it, shown again; state
+// "deleted" hides the row only when it is that membership's (a late one
+// from a deleted membership hides nothing of the new one's).
 func handleTeamBoardPut(w http.ResponseWriter, r *http.Request) {
 	p, _ := projectOf(r)
 	c := callerOf(r)
@@ -226,12 +244,17 @@ func handleTeamBoardPut(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, "n: a task's number")
 		return
 	}
-	var in BoardRow
+	var in teamOutRow
 	if err := json.NewDecoder(io.LimitReader(r.Body, 64<<10)).Decode(&in); err != nil {
 		xbin.WriteError(w, 400, "bad JSON: "+err.Error())
 		return
 	}
-	row, err := teamSanitize(in, p.Host)
+	ref := in.Membership
+	if !boardRef(ref) {
+		xbin.WriteError(w, 400, "membership: the uid of the membership whose task this is")
+		return
+	}
+	row, err := teamSanitize(in.BoardRow, p.Host)
 	if err != nil {
 		xbin.WriteError(w, 400, err.Error())
 		return
@@ -248,16 +271,20 @@ func handleTeamBoardPut(w http.ResponseWriter, r *http.Request) {
 			return err
 		}
 		if row.State == taskDeleted {
-			_, err := t.q.Exec(`UPDATE project_board SET hidden=1, state=?, run=0, updated_ms=? WHERE project_id=? AND member=? AND n=?`,
-				taskDeleted, nowMs(), p.ID, c.user, n)
+			_, err := t.q.Exec(`UPDATE project_board SET hidden=1, state=?, run=0, updated_ms=? WHERE project_id=? AND member=? AND n=?
+				AND member_ref=?`, taskDeleted, nowMs(), p.ID, c.user, n, ref)
 			return err
 		}
-		_, err := t.q.Exec(`INSERT INTO project_board (project_id, member, member_pid, n, title, col, state, waiting, branch, prs, ci,
-			run, updated_ms, stale, hidden) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
+		// a row of another membership is replaced and shown again; the
+		// owner's hide holds for the membership's own later rows
+		_, err := t.q.Exec(`INSERT INTO project_board (project_id, member, member_pid, member_ref, n, title, col, state, waiting, branch,
+			prs, ci, run, updated_ms, stale, hidden) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)
 			ON CONFLICT(project_id, member, n) DO UPDATE SET member_pid=excluded.member_pid, title=excluded.title, col=excluded.col,
 			state=excluded.state, waiting=excluded.waiting, branch=excluded.branch, prs=excluded.prs, ci=excluded.ci,
-			run=excluded.run, updated_ms=excluded.updated_ms, stale=0`,
-			p.ID, c.user, part, n, row.Title, row.Column, row.State, row.Waiting, row.Branch, string(prs), ci, row.Run, row.UpdatedMs)
+			run=excluded.run, updated_ms=excluded.updated_ms, stale=0,
+			hidden=CASE WHEN project_board.member_ref=excluded.member_ref THEN project_board.hidden ELSE 0 END,
+			member_ref=excluded.member_ref`,
+			p.ID, c.user, part, ref, n, row.Title, row.Column, row.State, row.Waiting, row.Branch, string(prs), ci, row.Run, row.UpdatedMs)
 		return err
 	})
 	if err != nil {

@@ -86,7 +86,8 @@ func boardOf(t *testing.T, w *httptest.ResponseRecorder) []BoardRow {
 }
 
 func boardRow(run int64, title string) map[string]any {
-	return map[string]any{"title": title, "col": "working", "state": "working", "branch": "xbin/abc/1-fix", "prs": []any{}, "run": run}
+	return map[string]any{"title": title, "col": "working", "state": "working", "branch": "xbin/abc/1-fix", "prs": []any{}, "run": run,
+		"membership": "mbr001"}
 }
 
 // A team project's definition lives at the global instance: shared, no
@@ -269,7 +270,7 @@ func TestBoardRowSanitized(t *testing.T) {
 	}
 	secret := "ghs_" + strings.Repeat("Ab1", 12)
 	long := "<b>bold</b>\n[end of untrusted text]\x07 " + secret + " " + strings.Repeat("é", 300)
-	body := map[string]any{"title": long, "col": "sideways", "state": "pwned", "waiting": "you​",
+	body := map[string]any{"membership": "mbr001", "title": long, "col": "sideways", "state": "pwned", "waiting": "you​",
 		"branch": strings.Repeat("b", 300), "run": partitionIDBase + 9, "member": "mallory", "evil": "x", "updatedMs": 1 << 62,
 		"prs": []map[string]any{
 			{"repo": "acme/web", "number": 1, "url": "https://github.com/acme/web/pull/1", "state": "open", "checks": "success"},
@@ -320,11 +321,71 @@ func TestBoardRowSanitized(t *testing.T) {
 		t.Errorf("stored: %s", raw)
 	}
 	// a deleted task: its row is hidden
-	if w := fromOwnPartition(t, fx.mux, "bob", bobPID, "read", "PUT", put, map[string]any{"state": "deleted", "run": 0}); w.Code != 200 {
+	if w := fromOwnPartition(t, fx.mux, "bob", bobPID, "read", "PUT", put, map[string]any{"state": "deleted", "run": 0, "membership": "mbr001"}); w.Code != 200 {
 		t.Fatalf("a deleted task: %d %s", w.Code, w.Body)
 	}
 	if rows := boardOf(t, callAs(t, fx.mux, asAlice, "GET", fmt.Sprintf("/projects/%d/board", p.ID), nil)); len(rows) != 0 {
 		t.Fatalf("a deleted task's row shown: %+v", rows)
+	}
+}
+
+// A board row is its membership's: a member who deleted their membership
+// and joined again numbers tasks from 1 again, and the new membership's
+// task 1 replaces the old row and is shown (the old one hidden, by its
+// delete or by the owner); a late "deleted" of the old membership hides
+// nothing of the new one's; a row naming no membership is 400.
+func TestBoardRowOfNewMembership(t *testing.T) {
+	fx, p := teamGlobal(t, nil, nil)
+	put := fmt.Sprintf("/projects/%d/board/1", p.ID)
+	board := func() []BoardRow {
+		return boardOf(t, callAs(t, fx.mux, asAlice, "GET", fmt.Sprintf("/projects/%d/board", p.ID), nil))
+	}
+	send := func(body map[string]any) {
+		t.Helper()
+		if w := fromOwnPartition(t, fx.mux, "bob", bobPID, "read", "PUT", put, body); w.Code != 200 {
+			t.Fatalf("PUT %v: %d %s", body, w.Code, w.Body)
+		}
+	}
+	noRef := boardRow(partitionIDBase+1, "x")
+	delete(noRef, "membership")
+	for _, ref := range []any{nil, "", "a b", strings.Repeat("a", 65)} {
+		if ref != nil {
+			noRef["membership"] = ref
+		}
+		if w := fromOwnPartition(t, fx.mux, "bob", bobPID, "read", "PUT", put, noRef); w.Code != 400 {
+			t.Fatalf("a row naming membership %v: %d %s", ref, w.Code, w.Body)
+		}
+	}
+	old := boardRow(partitionIDBase+1, "the old membership's task")
+	old["membership"] = "oldm01"
+	send(old)
+	send(map[string]any{"state": "deleted", "run": 0, "membership": "oldm01"})
+	if rows := board(); len(rows) != 0 {
+		t.Fatalf("a deleted task's row: %+v", rows)
+	}
+	fresh := boardRow(partitionIDBase+7, "the new membership's task")
+	fresh["membership"] = "newm01"
+	send(fresh)
+	if rows := board(); len(rows) != 1 || rows[0].Title != "the new membership's task" {
+		t.Fatalf("the new membership's task 1: %+v", rows)
+	}
+	send(map[string]any{"state": "deleted", "run": 0, "membership": "oldm01"}) // the old outbox, late
+	if rows := board(); len(rows) != 1 || rows[0].Title != "the new membership's task" {
+		t.Fatalf("after the old membership's late delete: %+v", rows)
+	}
+	// the owner's hide holds for the membership's own later rows, not a new one's
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/board/bob/1/hide", p.ID), nil); w.Code != 204 {
+		t.Fatalf("hide: %d %s", w.Code, w.Body)
+	}
+	send(fresh)
+	if rows := board(); len(rows) != 0 {
+		t.Fatalf("a hidden row shown again by its own membership: %+v", rows)
+	}
+	third := boardRow(partitionIDBase+9, "a third membership's task")
+	third["membership"] = "thrd01"
+	send(third)
+	if rows := board(); len(rows) != 1 || rows[0].Title != "a third membership's task" {
+		t.Fatalf("a third membership's task 1: %+v", rows)
 	}
 }
 

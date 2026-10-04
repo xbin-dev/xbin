@@ -37,15 +37,19 @@ func init() {
 	ownerLoops = append(ownerLoops, teamLoop)
 }
 
-// boardSchema is T's tables (projects-scm §6.10): project_board at the
+// boardSchema is T's tables (API.md §Team projects): project_board at the
 // global instance, project_board_out in a person's partition. Both are made
 // in every home (an empty table costs nothing, and a home's mode can't be
 // told apart in a migration test); only the home that uses one writes it.
+// A row's member_ref is the uid of the membership that sent it: a task
+// number is a membership's own, so a member's new membership of the same
+// definition (the old one deleted) numbers its tasks from 1 again.
 const boardSchema = `
 CREATE TABLE IF NOT EXISTS project_board (
   project_id INTEGER NOT NULL,
   member     TEXT    NOT NULL,
   member_pid TEXT    NOT NULL DEFAULT '',
+  member_ref TEXT    NOT NULL DEFAULT '',
   n          INTEGER NOT NULL,
   title      TEXT    NOT NULL DEFAULT '',
   col        TEXT    NOT NULL DEFAULT '',
@@ -77,13 +81,15 @@ func (d *DB) addTeamSchema() error {
 	if _, err := d.q.Exec(boardSchema); err != nil {
 		return fmt.Errorf("team projects schema: %w", err)
 	}
+	// a board made before member_ref (an error: the column is there)
+	_, _ = d.q.Exec(`ALTER TABLE project_board ADD COLUMN member_ref TEXT NOT NULL DEFAULT ''`)
 	return nil
 }
 
 // --- the definition's security part -----------------------------------------------------
 
 // teamSecurityKeys are the policy keys a membership takes from its
-// definition only once its member accepted them (projects-scm §12.2, V17):
+// definition only once its member accepted them (API.md §Team projects):
 // what runs beside the member's token or decides as whom. The other keys
 // follow the definition at once.
 var teamSecurityKeys = []string{"instructions", "checks", "prConventions", "taskClass", "engine", "harness", "as",
@@ -170,9 +176,12 @@ func teamPolicyAdopt(own json.RawMessage, sec map[string]json.RawMessage) json.R
 
 // teamOutRow is a project_board_out body: the row as it is PUT, with the
 // definition's id beside it, so a row is still sent (a deleted task's)
-// after its membership's row is gone. The global instance ignores team.
+// after its membership's row is gone, and the membership's uid, which the
+// global instance keeps with the row (a deleted task hides only the row of
+// the membership it was in). The global instance ignores team.
 type teamOutRow struct {
-	Team int64 `json:"team"`
+	Team       int64  `json:"team"`
+	Membership string `json:"membership"`
 	BoardRow
 }
 
@@ -200,7 +209,7 @@ func teamTaskChanged(t *DB, p *Project, k *ProjectTask, what string) {
 	if row.PRs == nil {
 		row.PRs = []TaskPR{}
 	}
-	body, _ := json.Marshal(teamOutRow{Team: p.TeamRef, BoardRow: row})
+	body, _ := json.Marshal(teamOutRow{Team: p.TeamRef, Membership: p.UID, BoardRow: row})
 	if _, err := t.q.Exec(`INSERT INTO project_board_out (project_id, n, body, tries, next_ms) VALUES (?, ?, ?, 0, 0)
 		ON CONFLICT(project_id, n) DO UPDATE SET body=excluded.body`, p.ID, cur.N, string(body)); err != nil {
 		logf("project %d: the board row of task %d: %v", p.ID, cur.N, err)
@@ -326,7 +335,7 @@ func teamSendDue(ctx context.Context, ag *Agent) time.Duration {
 
 // teamSend PUTs one board row to the global instance: done, it goes (unless
 // a newer one was written meanwhile); 404 or 403 — no longer a member, or
-// the definition is gone — the membership is archived (projects-scm §12.5);
+// the definition is gone — the membership is archived (API.md §Team projects);
 // 400, it can never be taken, it goes; anything else is tried again after
 // teamBackoff doubling to teamBackoffMax. Answers whether the membership left.
 func teamSend(ctx context.Context, ag *Agent, o teamOut) (left bool) {
@@ -360,7 +369,7 @@ func teamSend(ctx context.Context, ag *Agent, o teamOut) (left bool) {
 }
 
 // teamSyncOpen re-reads the definition of every active membership with an
-// open task (projects-scm §12.2: every 10 min while it has open tasks).
+// open task (every 10 min while it has open tasks).
 func teamSyncOpen(ctx context.Context, ag *Agent) {
 	ids := scanIDs(ag.db.q.Query(`SELECT p.id FROM projects p WHERE p.kind=? AND p.state=? AND EXISTS
 		(SELECT 1 FROM project_tasks k WHERE k.project_id=p.id AND k.phase IN ('open','pr') AND k.run_id<>0)`,
@@ -376,7 +385,7 @@ func teamSyncOpen(ctx context.Context, ag *Agent) {
 }
 
 // teamSweep (the global instance) drops the board rows of definitions that
-// are gone or being deleted (projects-scm §12.5).
+// are gone or being deleted.
 func teamSweep(d *DB) {
 	if _, err := d.q.Exec(`DELETE FROM project_board WHERE project_id NOT IN
 		(SELECT id FROM projects WHERE kind=? AND state<>?)`, projTeam, projDeleting); err != nil {
@@ -403,4 +412,32 @@ func teamSyncedNow(pid int64) {
 	teamSynced.Lock()
 	teamSynced.m[pid] = time.Now()
 	teamSynced.Unlock()
+}
+
+// teamListWait is how long GET /memberships waits for its re-reads, all of
+// them together.
+var teamListWait = 5 * time.Second
+
+// teamLocks serialize each membership's re-reads (teamLock).
+var teamLocks = struct {
+	sync.Mutex
+	m map[int64]chan struct{}
+}{m: map[int64]chan struct{}{}}
+
+// teamLock takes membership pid's re-read lock (waiting at most until ctx
+// ends) and answers its release.
+func teamLock(ctx context.Context, pid int64) (func(), error) {
+	teamLocks.Lock()
+	ch := teamLocks.m[pid]
+	if ch == nil {
+		ch = make(chan struct{}, 1)
+		teamLocks.m[pid] = ch
+	}
+	teamLocks.Unlock()
+	select {
+	case ch <- struct{}{}:
+		return func() { <-ch }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 }
