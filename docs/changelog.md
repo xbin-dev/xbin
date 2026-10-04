@@ -26,7 +26,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   guidelines* under Theme & shell, and points there, as do the welcome
   tile's "light & dark" note (`scaffold:apps/welcome`) and the page `bx new`
   writes; any workspace's agents can read the page at `/docs/` or in
-  `$XBIN_DOCS`.
+  `$XBIN_DOCS`. A workspace from before this keeps its own `AGENTS.md`
+  (xbind never rewrites it), so its agents don't hear of the guide: add
+  the pointer under *Theme & shell* yourself, for example
+  `**Design guidelines.** Read /docs/design.md (on disk:
+  $XBIN_DOCS/design.md) before you build or restyle a tile's UI.`
 - **xbin's mark is the bˣ tile** (Base Two, D183): a white b with a yellow
   x raised as its exponent, on a square cobalt tile, beside the wordmark
   "xbin" in Bricolage Grotesque 800. `/vendor/favicon.svg` and
