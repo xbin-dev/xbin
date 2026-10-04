@@ -3749,7 +3749,115 @@ A team project's definition and board in the shared space, each member's
 own half in their own space with their own sandbox, tasks and
 coordinator, the optional seed sandbox, how the board stays current, how
 a member sees and accepts the team's changes to setup and policy, and what
-happens when a member leaves. Described when it lands.
+happens when a member leaves.
+
+**Two halves.** In a partitioned agent a team project is a **definition**
+in the shared space (`kind: "team"`, made by `POST /projects` with `kind:
+"team"` and `share` there — a person reaches it from their page with
+`?xbin-partition=global`) and a **membership** in each member's own space
+(`kind: "membership"`, `teamRef` the definition's id). The definition holds
+the name, repos, policy and people, an optional seed sandbox and the
+board; it has no tasks, no coordinator and never a credential — coding
+agents don't run in the shared space. Its routes are the ones above
+(`GET`/`PATCH`/`DELETE /projects/{pid}`, members, repos) plus the board and
+the seed below. A membership is a personal project in every respect — its
+own private sandbox, tasks (coding agents allowed), coordinator and
+credentials, the person's own sign-in by default — that takes its name,
+repos and policy from the definition.
+
+**Joining.** A participant of the definition makes their membership in
+their own space, lazily — when they pick "Work on this" or create a task
+in it:
+
+| Method and path | Who | Answer |
+|---|---|---|
+| `GET /memberships` | the person, in their own space | `{items: [ProjectView]}` — their memberships, each read again from its definition first |
+| `POST /memberships` `{team, sandbox?: {ref} \| {new: {provider, image?, size?, egress?}}, accept}` | the person | **201** `{project}`, or **200** the one they have; **409** `{error, refusal: "accept", defHash, definition, name}` until `accept` is `defHash` (below); 403 a viewer of the definition; 404 one they can't see |
+| `GET /memberships/{pid}/pending` | the member | `{hash, accepted, pending, state}` — the definition's security part as the member accepted it and as it is now (`pending` null and `hash` "" when nothing waits) |
+| `POST /memberships/{pid}/accept` `{hash}` | the member | `{project}` — what was pending runs from now on; **409** `{error, hash}` when `hash` isn't the pending part's (the definition moved on: read it again) |
+
+These answer 409 outside a person's own space and 403 to anyone but that
+person (view-as included). `POST /memberships` reads the definition at the
+shared instance as the person; the first call, without `accept`, answers
+409 with the **security part** to show them — `definition: {policy:
+{instructions, checks, prConventions, taskClass, engine, harness, as,
+membersAsBot, reviews, autoPR, autoLabel, ci, coordinator, workflows,
+protection, branchPrefix}, repos: [{repo, setup}]}` — and `defHash`, its
+SHA-256 (of exactly those bytes); sending it back as `accept` makes the
+membership. A membership taken up again after its member left (archived,
+below) takes the definition as it is now, accepted the same way.
+
+**Its sandbox.** The person's own: `{ref}` one they may use, homed in
+their space, or `{new}` (left out: a new one at the seed's manager). Only
+when the membership works as the bot — the definition's `policy.as` is
+`bot`, its `membersAsBot` is on, and the provider offers this person the
+bot — and the definition's seed has a fork-base snapshot that the person
+can see (a team-visible seed, at a manager that clones) is a `{new}`
+sandbox cloned from it (`fromSeed`). Otherwise it starts fresh and clones
+its repos itself. A person's token never goes into a sandbox cloned from
+the seed (every member can write there): if the definition, once
+accepted, no longer works as the bot, the membership's tasks fail ("it was
+cloned from a team's seed sandbox") — delete the membership (keeping
+nothing of value there) and join again into a fresh sandbox.
+
+**Following the definition.** A membership reads its definition again
+when its page opens (`GET /memberships`, `…/pending`), when a task is
+created in it, every 10 minutes while it has open tasks, and before a
+change is accepted. Its name, the repos removed from it (new tasks stop
+using one; running ones keep their checkouts) and the policy's other keys
+(`maxTasks`, ports, cleanup, …) follow at once. The **security part**
+follows only once its member accepts it: until then the membership runs
+the setup scripts, instructions, checks, identity and review rules it
+accepted (its own `policy` and repos' `setup`; a repo the definition added
+isn't used yet), its `defPending` is the new part's hash, a `note` event
+(waking the coordinator, which can tell the person but never accept) and
+the page's "Review the team project's changes" card say so, and the card
+shows `GET …/pending`'s two parts side by side. A definition's owner is
+anyone in the shared space: adopting their setup script unseen would run
+their code beside the member's token.
+
+**The board.** One row per member and task, at the shared instance:
+
+| Method and path | Who | Answer |
+|---|---|---|
+| `GET /projects/{pid}/board?cursor=` | a viewer of the definition | `{items: [{member, n, title, col, state, waiting, branch, prs, ci, run, updatedMs, stale?}], next}`, newest first, hidden rows left out |
+| `PUT /projects/{pid}/board/{n}` | a participant, from their own space only | the row as kept; 403 from anywhere else (a frame at the shared instance included), 404 not a member, 400 a bad row |
+| `POST /projects/{pid}/board/{member}/{n}/hide` | the definition's owner | **204** |
+
+Each change of a member's task (its state, workspace, phase, pull
+requests, CI) is written to an outbox in their space — the latest row
+wins — and sent with `PUT`, retried after 10 s doubling to 10 minutes while
+the shared instance doesn't take it; a deleted task's row is sent as
+`state: "deleted"` and hidden. The shared instance takes a row only from
+the member's own space, as that member (`member` is never read from the
+body; a row from another space of the same person name — a person made
+again — clears their earlier rows), and keeps it as plain text: `title`,
+`waiting`, `branch` and `ci.current` on one line, at most 200 characters,
+redacted; a pull request's or CI's `url` only when it is https on the
+definition's host (dropped otherwise); words outside their sets dropped;
+`run` must be a conversation of the member's own space (an id from 2^40)
+and is answered only to that member — others see the row, never the
+conversation. Anything else in the body is ignored. A `project` stream
+event with `change: "board"` tells the definition's viewers. A member's
+coordinator reads the board (its task list's team scope), the members'
+words framed as untrusted text.
+
+**The seed.** `POST /projects/{pid}/seed` `{sandbox: {ref} | {new}}` (the
+definition's owner) → **202** `{jobs}`: the definition's one seed sandbox
+(409 once it has one; a `{new}` one is team-visible when the definition
+is), prepared by the shared instance's worker — laid out, its repos cloned
+and fetched, its fork-base snapshot taken as any project's is (§Big tasks,
+upgrades and pull requests) — with **no credential**, ever: it
+clones only repos that need none (public ones); the others are left to each
+membership.
+
+**A member leaving.** Removed from the definition (or the definition
+deleted), their rows on the board are `stale` (shown greyed, "no longer a
+member") and the owner may hide them. In their own space, at the next
+re-read or board push (404 or 403), the membership is archived: its
+credentials scrubbed, its queue and fetches stopped, its rows to send
+dropped; its tasks and their conversations stay the person's own (they go
+with the person's space). A deleted definition's board rows go.
 
 ### CI in the conversation
 
