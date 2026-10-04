@@ -116,6 +116,9 @@ func (s *srv) classify(r *http.Request) who {
 			if s.mode == modeGlobal {
 				return w // a person's partition of a consumer reaches the person's partition, never global
 			}
+			if c.ViewedBy != "" {
+				return w // view-as is never a person here (docs/scm.md §Who is asking)
+			}
 			w.cls, w.person, w.pid = clsPersonConsumer, userPart, c.PartitionID
 		case s.mode == modeUser:
 			// Only a person's own partition of a consumer reaches theirs.

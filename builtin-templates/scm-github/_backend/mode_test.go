@@ -180,6 +180,13 @@ func TestPersonModeRefusesOtherPerson(t *testing.T) {
 	v := pageC("alice")
 	v.viewedBy = "admin"
 	refusal(t, e.call(u, v, "GET", "/scm/signin", nil), 403, "not-allowed")
+	// Nor through a consumer viewed as alice: no pending code, no repos of
+	// hers, no token of hers.
+	vc := personC("alice")
+	vc.viewedBy = "admin"
+	refusal(t, e.call(u, vc, "GET", "/scm/signin", nil), 403, "not-allowed")
+	refusal(t, e.call(u, vc, "GET", "/scm/repos", nil), 403, "not-allowed")
+	refusal(t, e.call(u, vc, "POST", "/scm/token", tok), 403, "not-allowed")
 	// Setup is global's: a person's partition has none.
 	refusal(t, e.call(u, pageC("alice"), "GET", "/setup/app", nil), 404, "not-found")
 	if r := e.call(u, ingress, "GET", "/setup/github?code=x&state=y", nil); r.Code != 404 {
