@@ -11142,6 +11142,12 @@ Deviations and refinements made while implementing; all deliberate:
       field and buttons; the "jump to latest" pill and the notes the app
       floats over a tile (a native view's fallback, an upload, a
       terminal's) were capsules on glass. All are 2 pt plates now: the
-      field on the panel with a 1 pt edge, send the primary button, stop
-      in the text colour, the notes on the panel with an edge. The sheet
-      grabber stays iOS's.
+      field on the panel with a 1 pt edge, 36 pt square buttons as the
+      reference draws them (send in the accent while there is something to
+      send, else the neutral fill with the arrow muted; stop filled in the
+      text colour; attach on the neutral fill), the notes on the panel with
+      an edge. The sheet grabber stays iOS's. (A first cut used the
+      system's prominent button for send: disabled, it drew a near-white
+      square on the light bar and a black one on the dark, so the empty
+      composer looked as if it had no send button; the merged tree's
+      gallery showed it.)
