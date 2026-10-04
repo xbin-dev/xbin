@@ -962,7 +962,7 @@ in on a fresh start can forget what it added: `E2E.forgetFreshWorkspaces`
 test's native widget).
 `XbinOnboardingTests` launch the app as a fresh install (Debug builds'
 `-XbinFreshStart YES`: no workspace, the saved list untouched): the
-Welcome's levels and the help, Run your own xbin, address → methods →
+Welcome's levels and the help, Install xbin, address → methods →
 password, joining with an invite the test makes (spent on the server
 afterwards), an unreachable address ("Can't connect"), a code the
 workspace never minted ("Code refused"), "Sign in again" replacing its

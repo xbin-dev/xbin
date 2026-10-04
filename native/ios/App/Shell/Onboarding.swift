@@ -6,7 +6,7 @@ import XbinRenderer
 // Adding a workspace (plans/native.md §5; native/spec/device-login.md): the
 // Welcome with its levels — Log in (a QR code from a signed-in browser, or
 // the workspace's address, then the sign-in methods it offers), Join with an
-// invite, Run your own xbin, What is xbin? — and the same stack in the
+// invite, Install xbin, What is xbin? — and the same stack in the
 // add-workspace sheet, which starts at Log in. Every path ends with this
 // device enrolled (a key in its Secure Enclave): there is no token login.
 // The pages are in SignInPages.swift; the camera and the SSO sheet, which
@@ -22,7 +22,7 @@ enum OnboardingStep: Hashable {
     case invite
     case inviteAccept(server: ServerOrigin, token: String, info: InviteInfo)
     case inviteInBrowser(server: ServerOrigin, token: String)
-    case runYourOwn
+    case install
     case about(page: Int)
     case help(page: Int)
 }
@@ -291,7 +291,7 @@ struct OnboardingPage: View {
         case .invite: InvitePage(flow: flow)
         case .inviteAccept(let s, let t, let info): InviteAcceptPage(flow: flow, server: s, token: t, info: info)
         case .inviteInBrowser(let s, let t): InviteInBrowserPage(flow: flow, server: s, token: t)
-        case .runYourOwn: RunYourOwnPage(flow: flow)
+        case .install: InstallPage(flow: flow)
         case .about(let n): AboutPage(flow: flow, page: n)
         case .help(let n): HelpPage(flow: flow, page: n)
         }
@@ -325,7 +325,7 @@ struct WelcomeLevel: View {
                     VStack(spacing: 10) {
                         WelcomeButton(title: "Log in", symbol: "person.crop.square", prominent: true) { flow.push(.login) }
                         WelcomeButton(title: "Join with an invite", symbol: "envelope.open") { flow.push(.invite) }
-                        WelcomeButton(title: "Run your own xbin", symbol: "server.rack") { flow.push(.runYourOwn) }
+                        WelcomeButton(title: "Install xbin", symbol: "arrow.down.square") { flow.push(.install) }
                         WelcomeButton(title: "What is xbin?", symbol: "info.square") { flow.push(.about(page: 1)) }
                     }
                 }
@@ -406,9 +406,9 @@ struct WelcomeButton: View {
     }
 }
 
-// MARK: - Run your own xbin
+// MARK: - Install xbin
 
-struct RunYourOwnPage: View {
+struct InstallPage: View {
     let flow: OnboardingFlow
     @Environment(\.openURL) private var openURL
     @State private var copied = false
@@ -418,8 +418,7 @@ struct RunYourOwnPage: View {
     var body: some View {
         Form {
             Section {
-                Text("xbin is one program. It runs on a Linux machine: a server, a virtual machine or a spare computer. "
-                    + "It serves the workspace to browsers and to this app.")
+                Text("xbin is one program. It serves the workspace to browsers and to this app.")
             }
             Section {
                 Text(verbatim: Self.install)
@@ -447,7 +446,7 @@ struct RunYourOwnPage: View {
                 Text("Once it runs, sign in to it in a browser, then come back and log in.")
             }
         }
-        .navigationTitle("Run your own xbin")
+        .navigationTitle("Install xbin")
         .navigationBarTitleDisplayMode(.inline)
     }
 }
