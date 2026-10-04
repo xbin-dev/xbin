@@ -1,0 +1,143 @@
+{
+  "action": "created",
+  "comment": {
+    "url": "https://api.github.com/repos/acme/web/pulls/comments/2001",
+    "pull_request_review_id": 80,
+    "id": 2001,
+    "node_id": "MDI0OlB1bGxSZXF1ZXN0UmV2aWV3Q29tbWVudDIwMDE=",
+    "diff_hunk": "@@ -16,33 +16,40 @@",
+    "path": "web/login.go",
+    "position": 1,
+    "original_position": 1,
+    "commit_id": "9fceb02d0ae598e95dc970b74767f19372d61af8",
+    "original_commit_id": "9fceb02d0ae598e95dc970b74767f19372d61af8",
+    "user": {
+      "login": "octocat",
+      "id": 583231,
+      "type": "User"
+    },
+    "body": "This drops the fragment. \u0007bell",
+    "created_at": "2026-10-03T12:31:00Z",
+    "updated_at": "2026-10-03T12:31:00Z",
+    "html_url": "https://github.com/acme/web/pull/42#discussion_r2001",
+    "author_association": "COLLABORATOR",
+    "line": 27,
+    "original_line": 27,
+    "side": "RIGHT"
+  },
+  "pull_request": {
+    "url": "https://api.github.com/repos/acme/web/pulls/42",
+    "id": 279147437,
+    "node_id": "MDExOlB1bGxSZXF1ZXN0Mjc5MTQ3NDM3",
+    "html_url": "https://github.com/acme/web/pull/42",
+    "number": 42,
+    "state": "open",
+    "locked": false,
+    "title": "Fix the login redirect",
+    "user": {
+      "login": "octocat",
+      "id": 583231,
+      "node_id": "MDQ6VXNlcjU4MzIzMQ==",
+      "type": "User",
+      "site_admin": false,
+      "html_url": "https://github.com/octocat"
+    },
+    "body": "The redirect after login dropped the next= parameter.\n\nFixes #7.",
+    "created_at": "2026-10-03T12:00:00Z",
+    "updated_at": "2026-10-03T12:05:00Z",
+    "closed_at": null,
+    "merged_at": null,
+    "draft": false,
+    "merged": false,
+    "head": {
+      "label": "acme:xbin/k3x9/3-fix-login",
+      "ref": "xbin/k3x9/3-fix-login",
+      "sha": "9fceb02d0ae598e95dc970b74767f19372d61af8",
+      "user": {
+        "login": "acme",
+        "type": "Organization"
+      },
+      "repo": {
+        "id": 1296269,
+        "node_id": "MDEwOlJlcG9zaXRvcnkxMjk2MjY5",
+        "name": "web",
+        "full_name": "acme/web",
+        "private": true,
+        "owner": {
+          "login": "acme",
+          "id": 9919,
+          "type": "Organization",
+          "site_admin": false
+        },
+        "html_url": "https://github.com/acme/web",
+        "description": "The web app",
+        "fork": false,
+        "url": "https://api.github.com/repos/acme/web",
+        "default_branch": "main",
+        "visibility": "private"
+      }
+    },
+    "base": {
+      "label": "acme:main",
+      "ref": "main",
+      "sha": "6113728f27ae82c7b1a177c8d03f9e96e0adf246",
+      "user": {
+        "login": "acme",
+        "type": "Organization"
+      },
+      "repo": {
+        "id": 1296269,
+        "node_id": "MDEwOlJlcG9zaXRvcnkxMjk2MjY5",
+        "name": "web",
+        "full_name": "acme/web",
+        "private": true,
+        "owner": {
+          "login": "acme",
+          "id": 9919,
+          "type": "Organization",
+          "site_admin": false
+        },
+        "html_url": "https://github.com/acme/web",
+        "description": "The web app",
+        "fork": false,
+        "url": "https://api.github.com/repos/acme/web",
+        "default_branch": "main",
+        "visibility": "private"
+      }
+    },
+    "author_association": "MEMBER",
+    "labels": [],
+    "commits": 3,
+    "additions": 12,
+    "deletions": 4,
+    "changed_files": 2
+  },
+  "repository": {
+    "id": 1296269,
+    "node_id": "MDEwOlJlcG9zaXRvcnkxMjk2MjY5",
+    "name": "web",
+    "full_name": "acme/web",
+    "private": true,
+    "owner": {
+      "login": "acme",
+      "id": 9919,
+      "type": "Organization",
+      "site_admin": false
+    },
+    "html_url": "https://github.com/acme/web",
+    "description": "The web app",
+    "fork": false,
+    "url": "https://api.github.com/repos/acme/web",
+    "default_branch": "main",
+    "visibility": "private"
+  },
+  "installation": {
+    "id": 100,
+    "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uMTAw"
+  },
+  "sender": {
+    "login": "octocat",
+    "id": 583231,
+    "type": "User"
+  }
+}

@@ -5,8 +5,8 @@
 A template (`bx template new scm-github`) whose copies provide service
 **`scm`** — the contract in [/docs/scm.md](/docs/scm.md), protocol 1 — from
 GitHub: repo credentials for sandboxes, repos, pull requests, issues, CI
-(workflow runs, jobs, steps, logs, annotations, reruns) and polling. The
-agent template binds it in its `scm` slot; any tile that requests service
+(workflow runs, jobs, steps, logs, annotations, reruns), events from
+GitHub's webhooks, and polling. The agent template binds it in its `scm` slot; any tile that requests service
 `scm` can. /docs/scm.md is the contract; this page is GitHub's side of it.
 
 It works through a **GitHub App** you create or paste once:
@@ -179,11 +179,145 @@ move: a partition reuses only tokens of the generation it reads.
 
 ## 7. Events and polling
 
-This version answers polling (`POST /scm/poll`, conditional and cheap:
-GitHub doesn't count a 304 against its rate limit) and reports
-`events.webhooks: "unknown"` in hello; the `events` capability —
-webhooks, subscriptions and delivery to the agent — is listed in hello's
-`caps` once this tile delivers them, and described here then.
+GitHub's webhooks reach the **global instance** (step 4's exposure), which
+turns them into the contract's events and delivers each to the tiles that
+subscribed — the `events` capability ([/docs/scm.md](/docs/scm.md)
+§Events). Polling (`POST /scm/poll`, conditional and cheap: GitHub doesn't
+count a 304 against its rate limit) stays the fallback.
+
+**Receipt** (`POST /hook/github`, from ingress — or a manager testing):
+
+- a body of at most 8 MiB, signed (`X-Hub-Signature-256`, checked in
+  constant time) with the webhook secret — or, for a day after the secret
+  changes, the previous one; anything else is 401 and counts against
+  `events.healthy`;
+- a delivery for an account outside the policy's `allowedAccounts` (the
+  installation's account, else the repo's owner) is dropped before
+  anything else is done with it, and counted: a public App can be
+  installed by anyone, and such an installation shows as foreign on the
+  page;
+- each `X-GitHub-Delivery` is taken once per installation (remembered
+  seven days, 10 000 per installation, so one installation's traffic never
+  pushes out another's);
+- `installation` events refresh the installation cache, and `member`,
+  `membership`, `organization` and `installation_repositories` drop the
+  cached read access they touch (below) — none of these is delivered;
+  `ping` answers 200;
+- everything else is normalised, matched to subscriptions and queued: 202
+  at once.
+
+**Normalisation** (GitHub → event v1):
+
+| GitHub event | kind.action |
+|---|---|
+| `pull_request` | `pull.opened`, `.closed`, `.merged` (closed and merged), `.reopened`, `.synchronize`, `.ready` (ready_for_review), `.draft` (converted_to_draft), `.edited`; other actions (labels, assignees, review requests) are no event |
+| `check_suite` completed, a commit `status` that is final (`success`; `failure` and `error` as `failure`) | `checks.completed` |
+| `check_run` | `check.created`, `.in_progress` (created already running), `.completed`, `.rerequested` |
+| `workflow_run` | `workflow.requested`, `.in_progress`, `.completed` |
+| `workflow_job` | `job.queued`, `.waiting`, `.in_progress`, `.completed` — `data.job.job.steps` as GitHub last reported them |
+| `issue_comment` (on a pull request or an issue), `pull_request_review_comment` (`path`, `line`) | `comment.created`, `.edited` |
+| `pull_request_review` | `review.submitted`, `.dismissed` |
+| `push` to a branch (a tag is no event) | `push.pushed` (`forced`) |
+| `issues` | `issue.opened`, `.edited`, `.closed`, `.reopened`, `.labeled` |
+
+- A check suite and a final commit status of the same commit within five
+  seconds are **one** `checks.completed`, with the worse conclusion and
+  both halves' runs: every `checks.completed` waits those five seconds
+  before its first attempt. A status's run is `{id: "status:<context>",
+  name: <context>, conclusion, url}`; a suite's runs are read from GitHub
+  (its webhook doesn't carry them) before the first attempt — if that
+  fails it goes without them.
+- `ref.branch` is a branch of this repo, never a **fork's**: a fork's pull
+  request runs CI here under the fork's branch name, so a subscription to
+  a same-named branch here must never match it. A pull request says whose
+  its head is (`data.pull.head.repo` names a fork), and so does a workflow
+  run. A check suite, a check run and a job don't: their branch is kept
+  only when shown to be this repo's — a pull request they list has its
+  head here on that branch, the job's run's head is this repo (its
+  `workflow_run`, else GitHub's run), or the branch's head here is the
+  commit (asked of GitHub, remembered ten minutes; "not" a minute). A
+  fork's, or one GitHub didn't answer for, has no `ref.branch` (it still
+  matches by pull request). A commit status names every branch whose head
+  the commit is; a subscription matching one of them gets the event with
+  `ref.branch` — and `topic` and `summary` — set to it. A merged
+  `checks.completed` takes the pull request (its `topic` and `url`) from
+  whichever half names one.
+- `actor.self` is the App's own bot (`<slug>[bot]`). `actor.association`
+  is the commenter's or reviewer's; GitHub's first-timers and mannequins
+  are `NONE`, and events that carry none (pushes, CI) say `NONE`.
+- Every field is checked — repos, logins, shas, branch names, links
+  (http(s), no credentials; anything else is left out). Text people or CI
+  wrote (titles, bodies, check output, step names) is untrusted: passed
+  through with control characters removed, token-shaped strings
+  (`ghp_…`, `ghs_…`, `github_pat_…`, a private key's header) replaced by
+  `[redacted]`, bodies clipped at 8 KiB and check output at 4 KiB.
+  `summary` names only numbers, logins, branches and shas.
+
+**Subscriptions** (`POST|GET|DELETE /scm/subscriptions`):
+
+- From a **tile** (at global, or an unpartitioned copy): `for: global`;
+  the bot must see the repo, within `allowedAccounts` and `botRepos` —
+  which also hold when an event is matched, so narrowing the policy stops
+  delivery at once.
+- From a **person's consumer** (their partition): relayed to global
+  (`/partition/subscriptions`) as `for: user:<id>`, kept with the person's
+  partition id. Not signed in here: 409 `signin` (a sign-in starts).
+  Global takes the person from xbind, never the body; the consumer the
+  body names must be one of the tiles bound in `agents`, the repo within
+  `allowedAccounts`, and the person's registered GitHub login must be able
+  to read it (GitHub's collaborator permission, asked with the App's
+  installation token; `none`: 403 `not-allowed`; a repo the App can't see:
+  404 `not-found`). An unpartitioned copy keeps no one's sign-in: a
+  person's consumer is 403 `identity` there.
+- A repeat of a `key` replaces that subscription (200, the same id); one
+  lapses 30 days after its last POST. Caps (past one, 429 `limit`; §12):
+  2000 per consumer and `for`; a person's 4000 across consumers, and
+  people's 16 000 together, so tiles' always have room (20 000 in all).
+- A consumer lists and deletes only the subscriptions it made — a
+  person's other consumers' are not its own.
+- Matching: the repo; `kinds` (`kind` or `kind.action`; none means every
+  kind but `workflow`, `job` and `check`); and, when the subscription names
+  `branches`, `prs` or `issues: true`, one of those (a branch by exact
+  name). `subs` in an event lists the matching subscriptions' keys — a
+  subscription without a key by its id.
+
+**Delivery**: one item per (event, consumer, `for`), POSTed to the
+consumer's `/adapter/scm/event` through the `agents` binding whose tile
+made the subscription. Before a person's item goes:
+
+- their identity at global must still be the one the subscription was
+  made with (Forget, or a person re-created under the same id with
+  another partition id, deletes their subscriptions and undelivered
+  events);
+- for a **private** repo, their read access is checked again — cached an
+  hour, dropped by the access events above. Lost: the item is dropped and
+  every subscription of theirs on that repo deleted.
+
+A delivery pass that has taken a held `checks.completed` is never merged
+into: the commit's other half arriving then is its own event.
+
+200 is delivered; 404 is dropped and counted; anything else — or a
+consumer that isn't bound (any more) — is retried 10 s, doubling to an
+hour, for a day, then dropped and counted. The `tick` cron (every minute)
+is registered while anything waits and removed when nothing does. At start
+the global instance asks GitHub for the deliveries it failed to make since
+the last one that arrived (GitHub keeps three days) and has them sent
+again, at most 50, never one already taken.
+
+**Health** (hello's `events`, the page; a person's partition reads
+global's): `webhooks` is `active` while the App's webhook points somewhere
+and a delivery (a `ping` counts) arrived in the last 24 hours, `inactive`
+while it points nowhere (no hooks URL yet), else `unknown`; `healthy` is
+active with no bad signature in the last hour; `pollMinMs` 120000.
+Managers see the counts — received, duplicates, foreign, bad signatures,
+queued, delivered, not found, expired, access lost — at `GET /api/events`.
+
+`GET /scm/events?since=&repo=&limit=&cursor=` (a tile's at global; a
+person's relayed): the events delivered or still due to that consumer and
+`for` in the last seven days, oldest first, `since` in unix ms of when
+they were queued. A person's private-repo events are checked as a delivery
+is: their access lost, that repo's are left out (and dropped, with their
+subscriptions there); GitHub not answering is 503 `unavailable`.
 
 ## 8. CI
 
@@ -251,6 +385,8 @@ passed through untrusted.
 | `GET`/`POST /setup/app`, `POST /setup/manifest`, `POST /setup/manifest/code`, `POST /setup/check`, `GET /setup/installations`, `GET`/`PUT /api/policy`, `POST /api/revoke-all` | **managers**, at global or legacy: the owner token; the tile itself; a person whose level on the tile is write or terminal and who isn't viewing as someone. Not in a person's partition (404) |
 | `GET /setup/github` | ingress (GitHub's redirect: the flow's state proves it), or a manager loading it at top level |
 | `/partition/*` | global only: a person's own partition (its backend, frame or terminal — all the person) |
+| `POST /hook/github` | ingress (GitHub), or a manager testing — at global or legacy; a signature always (§7). Not in a person's partition (404) |
+| `GET /api/events` | managers: the events' health and counts |
 | `POST /tick` | xbind's cron |
 
 A manifest flow's `state` is 32 random bytes, single use, an hour, bound
@@ -265,7 +401,11 @@ token only in transit — registering the identity, scoping, revoking — and
 never stores or logs it. No secret is written to kv, a log line, an error
 or an answer but the one that hands out a token. Webhook and API bodies
 GitHub's users wrote are untrusted: passed through, clipped where stated,
-never interpreted.
+never interpreted. A webhook delivery is signed with the App's webhook
+secret and taken only for an account the policy serves; every field of it
+is checked before it becomes an event (§7). The global instance delivers
+a person's events only to a tile bound in its `agents` slot, only while
+they can read the repo, and only for the partition that subscribed.
 
 ## 12. Limits
 
@@ -276,7 +416,14 @@ minutes; logs: the last 8 MiB, a tail of at most 1 MiB a call; 2000
 reusable tokens and 2000 cached GitHub answers; 8000 live tokens recorded,
 500 of them one consumer's (a person's relayed bot tokens count as one
 consumer); past either, a new one is 429 `limit` until some expire or are
-revoked. A commit's statuses: the first 100 contexts.
+revoked. A commit's statuses: the first 100 contexts. Events: webhook
+bodies of 8 MiB; deliveries remembered seven days, 10 000 per
+installation; 2000 subscriptions per consumer and `for`, 4000 per person
+across consumers, 16 000 people's together, 20 000 in all; 10 000 outbox
+items (delivered ones go first), 5000 of them one consumer's pending ones
+(past either, its new events are dropped and counted); events kept seven
+days, retried for one; a webhook waits at most 5 s on GitHub to show a CI
+event's branch is this repo's.
 
 ## 13. Spikes and what they decided
 

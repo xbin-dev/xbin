@@ -12,7 +12,8 @@
 // device flow and relay.go carries a person's partition's calls to global;
 // hello.go, tokens.go, repos.go, pulls.go, checks.go, issues.go and poll.go
 // are the /scm/* routes; page.go is the page's own API; store.go the kv
-// resources and the vault.
+// resources and the vault. The events half — hook.go, normalize*.go, forks.go,
+// subs.go, outbox.go, deliver.go — mounts itself through the seams below.
 package main
 
 import (
@@ -126,6 +127,7 @@ func main() {
 		return xbin.Client().Do(req)
 	}
 	s.start()
+	s.startEvents(true) // hook.go, outbox.go: the outbox's delivery and cron, a catch-up
 	xbin.Serve(s.routes())
 }
 
