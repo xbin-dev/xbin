@@ -14,7 +14,6 @@ import (
 // deleted, its credentials scrubbed, its rows gone — the sandbox kept, or
 // deleted when the project made it and that was asked.
 func TestProjectDelete(t *testing.T) {
-	fx := newProjFix(t)
 	scrubbed := &hookLog{}
 	old := scmScrubCreds
 	scmScrubCreds = func(_ context.Context, p *Project, ref, why string) error {
@@ -22,6 +21,7 @@ func TestProjectDelete(t *testing.T) {
 		return nil
 	}
 	t.Cleanup(func() { scmScrubCreds = old })
+	fx := newProjFix(t)
 	p, k, runID := readyTask(t, fx, nil)
 	if w := callAs(t, fx.mux, asCarol, "DELETE", fmt.Sprintf("/projects/%d", p.ID), nil); w.Code != 404 {
 		t.Fatalf("someone else deletes it: %d", w.Code)
@@ -78,7 +78,6 @@ func TestProjectDelete(t *testing.T) {
 // Archiving stops a project's pump and scrubs its credentials; the rest
 // stays, and it comes back active.
 func TestProjectArchive(t *testing.T) {
-	fx := newProjFix(t)
 	scrubbed := &hookLog{}
 	old := scmScrubCreds
 	scmScrubCreds = func(_ context.Context, p *Project, ref, why string) error {
@@ -86,6 +85,7 @@ func TestProjectArchive(t *testing.T) {
 		return nil
 	}
 	t.Cleanup(func() { scmScrubCreds = old })
+	fx := newProjFix(t)
 	p := heldProject(t, fx, 1)
 	_, r1 := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "one"})
 	waitStatus(t, fx.ag.db, r1, statusSleep)

@@ -98,7 +98,7 @@ func projectPumpAsync(pid int64) { projectPump(pid) }
 // oldest first, while slots last. Runs after a turn ends, whenever a task
 // run's status changes, after a create, a queue insert and a policy change.
 func projectPump(pid int64) {
-	ag := agent
+	ag := projAg()
 	if ag == nil || ag.db.getSetting("halt") == "1" {
 		return
 	}
@@ -182,8 +182,8 @@ func deliverTaskInput(t *DB, p *Project, k *ProjectTask, run *Run, in taskInput)
 		k.TurnBy = in.Source
 		_ = t.setTask(k.ID, map[string]any{"turn_by": in.Source})
 	}
-	if agent != nil && agent.eng != nil {
-		agent.eng.emitInbox(t, run.ID, run.ID)
+	if projAg() != nil && projAg().eng != nil {
+		projAg().eng.emitInbox(t, run.ID, run.ID)
 	}
 	onTaskChange(t, p, k, "state")
 	return nil

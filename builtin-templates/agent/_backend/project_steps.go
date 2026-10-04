@@ -169,7 +169,7 @@ func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string) (s
 // and queues the repos' jobs.
 func jobSandbox(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) (jobOutcome, error) {
 	if p.SandboxRef == "" {
-		raw := agent.db.getSetting(sbxNewKey(p.ID))
+		raw := projAg().db.getSetting(sbxNewKey(p.ID))
 		if raw == "" {
 			return jobOutcome{}, jobFail("the project has no sandbox: name one (sandbox.ref) or ask for a new one")
 		}
@@ -194,7 +194,7 @@ func jobSandbox(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) 
 			return jobOutcome{}, err
 		}
 		ref := sandboxRef(conn.M.Provider, box.ID)
-		err = agent.db.Tx(func(t *DB) error {
+		err = projAg().db.Tx(func(t *DB) error {
 			if _, err := t.q.Exec(`UPDATE projects SET sandbox_ref=?, sandbox_made=1, updated_ms=? WHERE id=?`, ref, nowMs(), p.ID); err != nil {
 				return err
 			}
@@ -241,7 +241,7 @@ func jobSandbox(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) 
 		map[string]string{"P": dir}, "", time.Minute); err != nil {
 		return jobOutcome{}, err
 	}
-	err = agent.db.Tx(func(t *DB) error {
+	err = projAg().db.Tx(func(t *DB) error {
 		if p.Dir != dir {
 			if _, err := t.q.Exec(`UPDATE projects SET dir=?, updated_ms=? WHERE id=?`, dir, nowMs(), p.ID); err != nil {
 				return err
@@ -327,7 +327,7 @@ func basePath(p *Project, r ProjectRepo) string {
 // its head; with policy.protection refuse, an unprotected default branch
 // fails it.
 func jobRepo(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) (jobOutcome, error) {
-	r, err := agent.db.projectRepo(p.ID, j.Repo)
+	r, err := projAg().db.projectRepo(p.ID, j.Repo)
 	if err != nil {
 		return jobOutcome{}, jobFail("the repo %s is no longer the project's", j.Repo)
 	}
@@ -351,7 +351,7 @@ func jobRepo(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) (jo
 		return jobOutcome{}, err
 	}
 	if j.ExecID == "" {
-		agent.db.setRepoState(p.ID, r.Slug, "cloning", "")
+		projAg().db.setRepoState(p.ID, r.Slug, "cloning", "")
 		env := map[string]string{"B": basePath(p, r), "U": r.URL, "DEF": r.DefaultBranch, "PFX": p.branchPrefix(pol)}
 		gitCfgEnv(env, p, s.box.Home)
 		for k, v := range bashEnv {
@@ -383,7 +383,7 @@ func jobRepo(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) (jo
 		return jobOutcome{}, fmt.Errorf("cloning %s failed (exit %d): %s", r.Repo, code, lastLines(j.Out, 6))
 	}
 	def, head := parseRepoOut(tail)
-	_ = agent.db.Tx(func(t *DB) error {
+	_ = projAg().db.Tx(func(t *DB) error {
 		_, err := t.q.Exec(`UPDATE project_repos SET state='ready', error='', head=?, fetched_ms=?,
 			default_branch=CASE WHEN default_branch='' THEN ? ELSE default_branch END WHERE project_id=? AND slug=?`,
 			head, nowMs(), def, p.ID, r.Slug)
@@ -440,13 +440,13 @@ func fetchRepo(ctx context.Context, s *wsbx, p *Project, r ProjectRepo) error {
 		return err
 	}
 	head := strings.TrimSpace(lastLines(out, 1))
-	_, err = agent.db.q.Exec(`UPDATE project_repos SET head=?, fetched_ms=? WHERE project_id=? AND slug=?`, head, nowMs(), p.ID, r.Slug)
+	_, err = projAg().db.q.Exec(`UPDATE project_repos SET head=?, fetched_ms=? WHERE project_id=? AND slug=?`, head, nowMs(), p.ID, r.Slug)
 	return err
 }
 
 // jobFetch fetches one of the project's repos.
 func jobFetch(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) (jobOutcome, error) {
-	r, err := agent.db.projectRepo(p.ID, j.Repo)
+	r, err := projAg().db.projectRepo(p.ID, j.Repo)
 	if err != nil || r.State != "ready" {
 		return doneJob("nothing to fetch")
 	}
@@ -462,7 +462,7 @@ func jobFetch(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) (j
 	if err := fetchRepo(ctx, s, p, r); err != nil {
 		return jobOutcome{}, err
 	}
-	emitProject(agent.db, p.ID, "repo", 0)
+	emitProject(projAg().db, p.ID, "repo", 0)
 	return doneJob("fetched " + r.Repo)
 }
 
@@ -525,7 +525,7 @@ done
 
 // taskRepos is a task's repos, in its order, and the ref it works in.
 func taskRepos(p *Project, k *ProjectTask) ([]ProjectRepo, error) {
-	all, err := agent.db.projectRepos(p.ID)
+	all, err := projAg().db.projectRepos(p.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -546,7 +546,7 @@ func taskRef(p *Project, k *ProjectTask) string { return orStr(k.SandboxRef, p.S
 // failTask fails a task's workspace (ws failed, an event that wakes the
 // coordinator) — what a job that can't go on says.
 func failTask(p *Project, k *ProjectTask, msg string) {
-	_ = agent.db.Tx(func(t *DB) error {
+	_ = projAg().db.Tx(func(t *DB) error {
 		setWS(t, p, k, wsFailed, clip(msg, 2000))
 		addProjectEvent(t, p.ID, k.N, pevWorkspace, map[string]any{"text": "its workspace failed: " + clip(msg, 500)}, true, "")
 		return nil
@@ -563,10 +563,10 @@ func jobPrepare(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 		return doneJob("the task is over")
 	}
 	if p.SandboxRef == "" || p.Dir == "" {
-		if js := agent.db.jobsWhere(`WHERE project_id=? AND task_id=0 AND kind=? ORDER BY id DESC LIMIT 1`, p.ID, pjSandbox); len(js) > 0 && js[0].State == pjFailed {
+		if js := projAg().db.jobsWhere(`WHERE project_id=? AND task_id=0 AND kind=? ORDER BY id DESC LIMIT 1`, p.ID, pjSandbox); len(js) > 0 && js[0].State == pjFailed {
 			return jobOutcome{}, jobFail("the project's sandbox failed: %s", js[0].Error)
 		}
-		_ = agent.db.Tx(func(t *DB) error { setWS(t, p, k, wsQueued, ""); return nil })
+		_ = projAg().db.Tx(func(t *DB) error { setWS(t, p, k, wsQueued, ""); return nil })
 		return waitJob(2000, "waiting for the project's sandbox")
 	}
 	repos, err := taskRepos(p, k)
@@ -582,7 +582,7 @@ func jobPrepare(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 		case "failed":
 			return jobOutcome{}, jobFail("the repo %s failed: %s", r.Repo, r.Error)
 		default:
-			_ = agent.db.Tx(func(t *DB) error {
+			_ = projAg().db.Tx(func(t *DB) error {
 				setWS(t, p, k, wsQueued, "")
 				if t.liveJob(p.ID, 0, r.Slug, pjRepo) == nil && r.Mode == repoBare {
 					_, err := t.queueJob(p.ID, 0, r.Slug, pjRepo, j.By, 0)
@@ -593,13 +593,13 @@ func jobPrepare(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 			return waitJob(2000, "waiting for "+r.Repo)
 		}
 	}
-	_ = agent.db.Tx(func(t *DB) error { setWS(t, p, k, wsPreparing, ""); return nil })
+	_ = projAg().db.Tx(func(t *DB) error { setWS(t, p, k, wsPreparing, ""); return nil })
 	if k.Size == sizeBig && !k.ForkMade {
 		ref, err := provisionFork(ctx, p, k)
 		switch {
 		case err == nil && ref != "":
 			k.SandboxRef, k.ForkMade = ref, true
-			if err := agent.db.setTask(k.ID, map[string]any{"sandbox_ref": ref, "fork_made": 1}); err != nil {
+			if err := projAg().db.setTask(k.ID, map[string]any{"sandbox_ref": ref, "fork_made": 1}); err != nil {
 				return jobOutcome{}, err
 			}
 		case err != nil && !errors.Is(err, errNotInBuild):
@@ -615,9 +615,9 @@ func jobPrepare(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 		if nowMs()-j.Created > signinWait.Milliseconds() {
 			return jobOutcome{}, jobFail("the sign-in to %s wasn't finished: sign in, then Retry", orStr(p.Host, "the scm provider"))
 		}
-		_ = agent.db.Tx(func(t *DB) error { setWS(t, p, k, wsSignin, ""); return nil })
+		_ = projAg().db.Tx(func(t *DB) error { setWS(t, p, k, wsSignin, ""); return nil })
 		if projectJobKinds[pjCreds] != nil {
-			_, _ = agent.db.queueJob(p.ID, k.ID, "", pjCreds, j.By, 0)
+			_, _ = projAg().db.queueJob(p.ID, k.ID, "", pjCreds, j.By, 0)
 		}
 		return waitJob(10000, "waiting for a sign-in")
 	} else if err != nil {
@@ -633,7 +633,7 @@ func jobPrepare(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 	dir := p.Dir + "/tasks/" + strconv.FormatInt(k.N, 10) + "-" + k.Slug
 	if k.Dir != dir {
 		k.Dir = dir
-		if err := agent.db.setTask(k.ID, map[string]any{"dir": dir}); err != nil {
+		if err := projAg().db.setTask(k.ID, map[string]any{"dir": dir}); err != nil {
 			return jobOutcome{}, err
 		}
 	}
@@ -641,7 +641,7 @@ func jobPrepare(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 	for i, r := range repos {
 		env[fmt.Sprintf("B_%d", i)] = basePath(p, r)
 	}
-	if len(agent.db.checkouts(k.ID)) == 0 {
+	if len(projAg().db.checkouts(k.ID)) == 0 {
 		base := k.Branch
 		for try := 2; ; try++ {
 			env["BR"] = k.Branch
@@ -658,7 +658,7 @@ func jobPrepare(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 			k.Branch = fmt.Sprintf("%s-%d", base, try)
 		}
 		if k.Branch != base {
-			if err := agent.db.setTask(k.ID, map[string]any{"branch": k.Branch}); err != nil {
+			if err := projAg().db.setTask(k.ID, map[string]any{"branch": k.Branch}); err != nil {
 				return jobOutcome{}, err
 			}
 		}
@@ -685,7 +685,7 @@ func jobPrepare(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 	if gh := tenv["GH_CONFIG_DIR"]; gh != "" {
 		_, _ = s.conn.WriteFile(ctx, s.id, p.Dir+"/.xbin/env", strings.NewReader("GH_CONFIG_DIR="+shellQuote(gh)+"\n"), sbxWrite{Mode: "0644", Mkdirs: true})
 	}
-	err = agent.db.Tx(func(t *DB) error {
+	err = projAg().db.Tx(func(t *DB) error {
 		have := map[string]ProjectCheckout{}
 		for _, c := range t.checkouts(k.ID) {
 			have[c.Repo] = c

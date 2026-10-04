@@ -31,7 +31,7 @@ func jobSetup(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (j
 	if k == nil || k.RunID == 0 {
 		return doneJob("the task is gone")
 	}
-	r, err := agent.db.projectRepo(p.ID, j.Repo)
+	r, err := projAg().db.projectRepo(p.ID, j.Repo)
 	if err != nil || strings.TrimSpace(r.Setup) == "" {
 		return doneJob("no setup")
 	}
@@ -58,7 +58,7 @@ func jobSetup(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (j
 			return jobOutcome{}, err
 		}
 		j.ExecRef, j.ExecID = s.ref, ex.ID
-		_ = agent.db.putCheckoutState(k.ID, r.Slug, "setup", nil, "")
+		_ = projAg().db.putCheckoutState(k.ID, r.Slug, "setup", nil, "")
 		return waitJob(1000, "running "+r.Slug+"'s setup")
 	}
 	running, code, tail, err := s.execState(ctx, j.ExecID)
@@ -73,7 +73,7 @@ func jobSetup(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (j
 	if code != 0 {
 		errText = fmt.Sprintf("the setup script exited %d", code)
 		tailText := clip(projRedact(lastLines(tail, 60)), 8<<10)
-		_ = agent.db.Tx(func(t *DB) error {
+		_ = projAg().db.Tx(func(t *DB) error {
 			cur, err := t.taskByID(k.ID)
 			if err != nil {
 				return err
@@ -85,7 +85,7 @@ func jobSetup(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (j
 			return t.setTask(k.ID, map[string]any{"setup_tail": st})
 		})
 	}
-	_ = agent.db.putCheckoutState(k.ID, r.Slug, "ready", &code, errText)
+	_ = projAg().db.putCheckoutState(k.ID, r.Slug, "ready", &code, errText)
 	return doneJob(fmt.Sprintf("%s's setup exited %d", r.Slug, code))
 }
 
@@ -110,10 +110,10 @@ func jobBind(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 	if k == nil || k.RunID == 0 {
 		return doneJob("the task is gone")
 	}
-	if policyOf(p.Policy).SetupBlocking && len(agent.db.jobsWhere(`WHERE task_id=? AND kind=? AND state IN ('queued','running','waiting')`, k.ID, pjSetup)) > 0 {
+	if policyOf(p.Policy).SetupBlocking && len(projAg().db.jobsWhere(`WHERE task_id=? AND kind=? AND state IN ('queued','running','waiting')`, k.ID, pjSetup)) > 0 {
 		return waitJob(2000, "waiting for the setup")
 	}
-	cfg, err := agent.db.runConfig(k.RunID)
+	cfg, err := projAg().db.runConfig(k.RunID)
 	if err != nil {
 		return doneJob("the task's conversation is gone")
 	}
@@ -127,7 +127,7 @@ func jobBind(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 		return jobOutcome{}, err
 	}
 	var poke bool
-	err = agent.db.Tx(func(t *DB) error {
+	err = projAg().db.Tx(func(t *DB) error {
 		if err := storeBinding(t, k.RunID, func(c *Config) error {
 			if err := attachSandbox(c, b); err != nil {
 				return err
@@ -166,8 +166,8 @@ func jobBind(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 	if err != nil {
 		return jobOutcome{}, err
 	}
-	if poke && agent.eng != nil {
-		agent.eng.Poke(k.RunID)
+	if poke && projAg().eng != nil {
+		projAg().eng.Poke(k.RunID)
 	}
 	return doneJob("bound")
 }
@@ -205,7 +205,7 @@ func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 	if k == nil || k.RunID == 0 || k.WS != wsReady {
 		return doneJob("no workspace to look at")
 	}
-	cos := agent.db.checkouts(k.ID)
+	cos := projAg().db.checkouts(k.ID)
 	repos, err := taskRepos(p, k)
 	if err != nil || len(cos) == 0 {
 		return doneJob("no checkouts")
@@ -287,7 +287,7 @@ func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 	if !changed {
 		return doneJob("nothing new")
 	}
-	err = agent.db.Tx(func(t *DB) error {
+	err = projAg().db.Tx(func(t *DB) error {
 		for slug, sha := range moved {
 			if _, err := t.q.Exec(`UPDATE project_checkouts SET remote_sha=? WHERE task_id=? AND repo_slug=?`, sha, k.ID, slug); err != nil {
 				return err
@@ -352,7 +352,7 @@ done
 // taskDirty is the checkouts of k with uncommitted or unpushed work
 // ({slug, dirty, unpushed}); a repo whose PR merged counts as pushed.
 func taskDirty(ctx context.Context, p *Project, k *ProjectTask) ([]map[string]any, error) {
-	cos := agent.db.checkouts(k.ID)
+	cos := projAg().db.checkouts(k.ID)
 	if len(cos) == 0 {
 		return nil, nil
 	}
@@ -364,7 +364,7 @@ func taskDirty(ctx context.Context, p *Project, k *ProjectTask) ([]map[string]an
 }
 
 func dirtyIn(ctx context.Context, s *wsbx, p *Project, k *ProjectTask, cos []ProjectCheckout) ([]map[string]any, error) {
-	repos, _ := agent.db.projectRepos(p.ID)
+	repos, _ := projAg().db.projectRepos(p.ID)
 	byslug := map[string]ProjectRepo{}
 	for _, r := range repos {
 		byslug[r.Slug] = r
@@ -435,7 +435,7 @@ func jobCleanup(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 	if k.WS == wsCleaned {
 		return doneJob("cleaned already")
 	}
-	cos := agent.db.checkouts(k.ID)
+	cos := projAg().db.checkouts(k.ID)
 	var live []ProjectCheckout
 	for _, c := range cos {
 		if c.State != "removed" {
@@ -443,7 +443,7 @@ func jobCleanup(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 		}
 	}
 	if len(live) == 0 {
-		_ = agent.db.Tx(func(t *DB) error {
+		_ = projAg().db.Tx(func(t *DB) error {
 			setWS(t, p, k, wsCleaned, "")
 			return t.setTask(k.ID, map[string]any{"cleaned_ms": nowMs()})
 		})
@@ -451,7 +451,7 @@ func jobCleanup(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 	}
 	s, err := openWsbx(ctx, p, taskRef(p, k))
 	if sbxRefusal(err) == "not-found" {
-		_ = agent.db.Tx(func(t *DB) error {
+		_ = projAg().db.Tx(func(t *DB) error {
 			_, _ = t.q.Exec(`UPDATE project_checkouts SET state='removed' WHERE task_id=?`, k.ID)
 			setWS(t, p, k, wsCleaned, "")
 			return t.setTask(k.ID, map[string]any{"cleaned_ms": nowMs()})
@@ -468,7 +468,7 @@ func jobCleanup(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 		}
 		if len(dirty) > 0 {
 			b, _ := json.Marshal(map[string]any{"repos": dirty})
-			_ = agent.db.Tx(func(t *DB) error {
+			_ = projAg().db.Tx(func(t *DB) error {
 				setWS(t, p, k, wsBlocked, string(b))
 				addProjectEvent(t, p.ID, k.N, pevWorkspace, map[string]any{"text": "its cleanup was refused: work that isn't pushed", "repos": dirty}, true, "")
 				return nil
@@ -476,8 +476,8 @@ func jobCleanup(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 			return doneJob("refused: work that isn't pushed")
 		}
 	}
-	_ = agent.db.Tx(func(t *DB) error { setWS(t, p, k, wsCleaning, ""); return nil })
-	repos, _ := agent.db.projectRepos(p.ID)
+	_ = projAg().db.Tx(func(t *DB) error { setWS(t, p, k, wsCleaning, ""); return nil })
+	repos, _ := projAg().db.projectRepos(p.ID)
 	byslug := map[string]ProjectRepo{}
 	for _, r := range repos {
 		byslug[r.Slug] = r
@@ -494,7 +494,7 @@ func jobCleanup(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 	if _, err := s.must(ctx, "removing the checkouts", cleanupScript, env, "", 2*time.Minute); err != nil {
 		return jobOutcome{}, err
 	}
-	_ = agent.db.Tx(func(t *DB) error {
+	_ = projAg().db.Tx(func(t *DB) error {
 		_, _ = t.q.Exec(`UPDATE project_checkouts SET state='removed' WHERE task_id=? AND mode<>?`, k.ID, coMain)
 		_, _ = t.q.Exec(`UPDATE project_checkouts SET state='kept' WHERE task_id=? AND mode=?`, k.ID, coMain)
 		setWS(t, p, k, wsCleaned, "")
@@ -516,17 +516,17 @@ func deleteProjectStep(ctx context.Context, p *Project, j *ProjectJob) (jobOutco
 		return jobOutcome{}, err
 	}
 	key := "proj_sbx_delete:" + strconv.FormatInt(p.ID, 10)
-	dropSbx := agent.db.getSetting(key) == "1" && p.SandboxMade && p.SandboxRef != ""
-	ks, _ := agent.db.tasksWhere(`WHERE project_id=?`, p.ID)
+	dropSbx := projAg().db.getSetting(key) == "1" && p.SandboxMade && p.SandboxRef != ""
+	ks, _ := projAg().db.tasksWhere(`WHERE project_id=?`, p.ID)
 	if !dropSbx {
 		waiting := false
 		for _, k := range ks {
 			switch {
-			case agent.db.liveJob(p.ID, k.ID, "", pjCleanup) != nil:
+			case projAg().db.liveJob(p.ID, k.ID, "", pjCleanup) != nil:
 				waiting = true
-			case k.WS != wsCleaned && k.WS != wsPending && k.WS != wsBlocked && len(agent.db.checkouts(k.ID)) > 0 &&
-				len(agent.db.jobsWhere(`WHERE task_id=? AND kind=? AND state='failed'`, k.ID, pjCleanup)) == 0:
-				if _, err := agent.db.queueJob(p.ID, k.ID, "", pjCleanup, j.By, 0); err != nil {
+			case k.WS != wsCleaned && k.WS != wsPending && k.WS != wsBlocked && len(projAg().db.checkouts(k.ID)) > 0 &&
+				len(projAg().db.jobsWhere(`WHERE task_id=? AND kind=? AND state='failed'`, k.ID, pjCleanup)) == 0:
+				if _, err := projAg().db.queueJob(p.ID, k.ID, "", pjCleanup, j.By, 0); err != nil {
 					return jobOutcome{}, err
 				}
 				waiting = true
@@ -536,10 +536,10 @@ func deleteProjectStep(ctx context.Context, p *Project, j *ProjectJob) (jobOutco
 			return waitJob(2000, "cleaning the tasks up")
 		}
 	}
-	runs := scanIDs(agent.db.q.Query(`SELECT id FROM runs WHERE parent_id=0 AND origin='project' AND origin_id=?`, p.ID))
+	runs := scanIDs(projAg().db.q.Query(`SELECT id FROM runs WHERE parent_id=0 AND origin='project' AND origin_id=?`, p.ID))
 	for _, id := range runs {
-		if agent.eng != nil {
-			agent.eng.endHarnesses(ctx, id)
+		if projAg().eng != nil {
+			projAg().eng.endHarnesses(ctx, id)
 		}
 		if err := deleteConversation(id); err != nil {
 			return jobOutcome{}, err
@@ -552,8 +552,8 @@ func deleteProjectStep(ctx context.Context, p *Project, j *ProjectJob) (jobOutco
 			}
 		}
 	}
-	acl, _ := agent.db.loadProjectACL(p.ID)
-	err := agent.db.Tx(func(t *DB) error {
+	acl, _ := projAg().db.loadProjectACL(p.ID)
+	err := projAg().db.Tx(func(t *DB) error {
 		for _, q := range []string{
 			`DELETE FROM project_checkouts WHERE task_id IN (SELECT id FROM project_tasks WHERE project_id=?)`,
 			`DELETE FROM project_tasks WHERE project_id=?`,

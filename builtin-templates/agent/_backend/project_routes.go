@@ -71,13 +71,13 @@ type projCtxKey struct{}
 func projectNeed(lv level, h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		pid, _ := strconv.ParseInt(r.PathValue("pid"), 10, 64)
-		p, err := agent.db.getProject(pid)
+		p, err := projAg().db.getProject(pid)
 		if err != nil {
 			xbin.WriteError(w, 404, "no such project")
 			return
 		}
 		c := callerOf(r)
-		have := agent.db.projectLevel(c, pid)
+		have := projAg().db.projectLevel(c, pid)
 		switch {
 		case have < lvViewer:
 			xbin.WriteError(w, 404, "no such project")
@@ -179,7 +179,7 @@ func handleListProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	off, _ := strconv.Atoi(q.Get("cursor"))
 	const page = 50
-	ps, err := agent.db.projectsWhere(`p WHERE `+where+` ORDER BY p.updated_ms DESC, p.id DESC LIMIT ? OFFSET ?`,
+	ps, err := projAg().db.projectsWhere(`p WHERE `+where+` ORDER BY p.updated_ms DESC, p.id DESC LIMIT ? OFFSET ?`,
 		append(args, page+1, max(off, 0))...)
 	if err != nil {
 		xbin.WriteError(w, 500, err.Error())
@@ -191,14 +191,14 @@ func handleListProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	items := []ProjectView{}
 	for _, p := range ps {
-		items = append(items, agent.db.projectView(p, agent.db.projectLevel(c, p.ID)))
+		items = append(items, projAg().db.projectView(p, projAg().db.projectLevel(c, p.ID)))
 	}
 	xbin.WriteJSON(w, 200, map[string]any{"items": items, "next": next})
 }
 
 func handleGetProject(w http.ResponseWriter, r *http.Request) {
 	p, lv := projectOf(r)
-	xbin.WriteJSON(w, 200, map[string]any{"project": agent.db.projectView(p, lv)})
+	xbin.WriteJSON(w, 200, map[string]any{"project": projAg().db.projectView(p, lv)})
 }
 
 // --- creating a project -------------------------------------------------------------------
@@ -351,7 +351,7 @@ func handleNewProject(w http.ResponseWriter, r *http.Request) {
 		repos = append(repos, *repo)
 	}
 	var jobs []*ProjectJob
-	err = agent.db.Tx(func(t *DB) error {
+	err = projAg().db.Tx(func(t *DB) error {
 		p.Slug = t.projectSlug(p.Name)
 		if err := t.insertProject(p); err != nil {
 			return err
@@ -395,8 +395,8 @@ func handleNewProject(w http.ResponseWriter, r *http.Request) {
 	if jobs == nil {
 		jobs = []*ProjectJob{}
 	}
-	p, _ = agent.db.getProject(p.ID)
-	xbin.WriteJSON(w, 201, map[string]any{"project": agent.db.projectView(p, agent.db.projectLevel(c, p.ID)), "jobs": jobs})
+	p, _ = projAg().db.getProject(p.ID)
+	xbin.WriteJSON(w, 201, map[string]any{"project": projAg().db.projectView(p, projAg().db.projectLevel(c, p.ID)), "jobs": jobs})
 }
 
 // checkProjectSandbox: w may make sandbox ref a project's workspace — it is
@@ -543,7 +543,7 @@ func handlePatchProject(w http.ResponseWriter, r *http.Request) {
 	}
 	var runs []int64
 	sharing := body.Visibility != nil || body.TeamRole != nil
-	err := agent.db.Tx(func(t *DB) error {
+	err := projAg().db.Tx(func(t *DB) error {
 		var sets []string
 		var args []any
 		for k, v := range cols {
@@ -572,20 +572,20 @@ func handlePatchProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if sharing {
-		agent.afterACLChange(p.ID, runs)
+		projAg().afterACLChange(p.ID, runs)
 	}
 	if archive {
 		go scrubProject(p.ID, "", "archive")
 	}
 	go projectPump(p.ID)
-	np, _ := agent.db.getProject(p.ID)
-	xbin.WriteJSON(w, 200, map[string]any{"project": agent.db.projectView(np, lv)})
+	np, _ := projAg().db.getProject(p.ID)
+	xbin.WriteJSON(w, 200, map[string]any{"project": projAg().db.projectView(np, lv)})
 }
 
 // scrubProject scrubs a project's credentials (ref "": every sandbox),
 // off any request's context.
 func scrubProject(pid int64, ref, why string) {
-	p, err := agent.db.getProject(pid)
+	p, err := projAg().db.getProject(pid)
 	if err != nil {
 		return
 	}
@@ -612,7 +612,7 @@ func handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteJSON(w, 202, map[string]any{"state": projDeleting})
 		return
 	}
-	err := agent.db.Tx(func(t *DB) error {
+	err := projAg().db.Tx(func(t *DB) error {
 		if _, err := t.q.Exec(`UPDATE projects SET state=?, version=version+1, updated_ms=? WHERE id=?`, projDeleting, nowMs(), p.ID); err != nil {
 			return err
 		}

@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -204,7 +205,9 @@ func emitProject(t *DB, pid int64, change string, n int64) {
 // projStreamDelay: a client re-reads what changed, so one event says it.
 var projStream = &projCoalescer{pending: map[string]bool{}}
 
-var projStreamDelay = 250 * time.Millisecond
+var projStreamDelay atomic.Int64 // ns; 250 ms (tests shorten it)
+
+func init() { projStreamDelay.Store(int64(250 * time.Millisecond)) }
 
 type projCoalescer struct {
 	mu      sync.Mutex
@@ -220,7 +223,7 @@ func (c *projCoalescer) post(pid int64, change string, n int64) {
 	}
 	c.pending[key] = true
 	c.mu.Unlock()
-	time.AfterFunc(projStreamDelay, func() {
+	time.AfterFunc(time.Duration(projStreamDelay.Load()), func() {
 		c.mu.Lock()
 		delete(c.pending, key)
 		c.mu.Unlock()
@@ -232,7 +235,7 @@ func (c *projCoalescer) post(pid int64, change string, n int64) {
 // the project and, for a task's change, its conversation's stream. acl nil:
 // the project's own (a deleted project's is passed in).
 func publishProject(pid int64, change string, n int64, acl *rootACL) {
-	ag := agent
+	ag := projAg()
 	if ag == nil || ag.eng == nil {
 		return
 	}
@@ -280,8 +283,8 @@ func setWS(t *DB, p *Project, k *ProjectTask, ws, errText string) {
 	k.WS, k.Error = ws, errText
 	_ = t.setTask(k.ID, map[string]any{"ws": ws, "error": errText})
 	onTaskChange(t, p, k, "ws")
-	if run := k.RunID; run != 0 && agent != nil && agent.eng != nil {
-		t.AfterCommit(func() { agent.eng.Poke(run) }) // the gate looks again: a park follows its workspace
+	if run := k.RunID; run != 0 && projAg() != nil && projAg().eng != nil {
+		t.AfterCommit(func() { projAg().eng.Poke(run) }) // the gate looks again: a park follows its workspace
 	}
 }
 
@@ -412,10 +415,10 @@ func projectRunDeleted(t *DB, runID int64) error {
 // a task directly (bypassing the queue) — a quiet task.human event, and the
 // turn is theirs.
 func projectHumanMessage(run *Run, c who) {
-	if run == nil || run.ParentID != 0 || run.Origin != originProject || hostedID(run.ID) || agent == nil {
+	if run == nil || run.ParentID != 0 || run.Origin != originProject || hostedID(run.ID) || projAg() == nil {
 		return
 	}
-	_ = agent.db.Tx(func(t *DB) error {
+	_ = projAg().db.Tx(func(t *DB) error {
 		k := t.taskByRun(run.ID)
 		if k == nil {
 			return nil

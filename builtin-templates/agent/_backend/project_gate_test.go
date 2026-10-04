@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -123,16 +124,17 @@ func TestTaskClassAtModelGate(t *testing.T) {
 // A sign-in the provider asks for parks the task (waiting for a person,
 // /needs reason project) until it is done; then the workspace is made.
 func TestSigninParksTask(t *testing.T) {
-	fx := newProjFix(t)
-	signin := true
+	var signin atomic.Bool
+	signin.Store(true)
 	old := scmEnsureCreds
 	scmEnsureCreds = func(_ context.Context, _ *Project, k *ProjectTask, _ string, _ time.Duration) error {
-		if k != nil && signin {
+		if k != nil && signin.Load() {
 			return &scmError{Status: 409, Refusal: scmRefSignin, Message: "sign in to GitHub"}
 		}
 		return nil
 	}
-	t.Cleanup(func() { scmEnsureCreds = old })
+	t.Cleanup(func() { scmEnsureCreds = old }) // registered first: runs after the engine stops
+	fx := newProjFix(t)
 	p := fx.newProject(t, asAlice, nil)
 	_, runID := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "go"})
 	fx.waitWS(t, p.ID, 1, wsSignin)
@@ -149,7 +151,7 @@ func TestSigninParksTask(t *testing.T) {
 	if !strings.Contains(r.Result, "sign in to github.com") {
 		t.Fatalf("the park's words: %q", r.Result)
 	}
-	signin = false
+	signin.Store(false)
 	_, _ = fx.ag.db.q.Exec(`UPDATE project_jobs SET next_ms=0 WHERE state='waiting'`)
 	kickProjectWorker()
 	fx.waitWS(t, p.ID, 1, wsReady)
@@ -159,7 +161,6 @@ func TestSigninParksTask(t *testing.T) {
 // The device code is in the view of the person who must sign in, and in no
 // one else's — nor in a stream event.
 func TestDeviceCodeOnlyToRequester(t *testing.T) {
-	fx := newProjFix(t)
 	old, oldP := scmEnsureCreds, scmPendingSignin
 	scmEnsureCreds = func(_ context.Context, _ *Project, k *ProjectTask, _ string, _ time.Duration) error {
 		if k != nil {
@@ -174,6 +175,7 @@ func TestDeviceCodeOnlyToRequester(t *testing.T) {
 		return nil
 	}
 	t.Cleanup(func() { scmEnsureCreds, scmPendingSignin = old, oldP })
+	fx := newProjFix(t)
 	p := fx.newProject(t, asAlice, map[string]any{"share": map[string]any{"members": []map[string]any{{"user": "carol", "role": "participant"}}}})
 	_, runID := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "go"})
 	waitStatus(t, fx.ag.db, runID, statusWaiting)

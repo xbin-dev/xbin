@@ -278,13 +278,13 @@ func TestDeleteRunMarksTask(t *testing.T) {
 // without a push, and one opened outside any turn (projectRefsCheck), are
 // recorded in prs.
 func TestRefsJobFiresHooks(t *testing.T) {
-	fx := newProjFix(t)
 	refs := &hookLog{}
 	old := projectRefsHooks
 	projectRefsHooks = append(append([]func(*DB, *Project, *ProjectTask){}, old...), func(_ *DB, _ *Project, k *ProjectTask) {
 		refs.add(fmt.Sprintf("%d %s", k.N, k.Phase))
 	})
-	t.Cleanup(func() { projectRefsHooks = old })
+	t.Cleanup(func() { projectRefsHooks = old }) // registered first: runs after the engine stops
+	fx := newProjFix(t)
 	p, k, runID := readyTask(t, fx, nil)
 	co := filepath.Join(k.Dir, "web")
 	turn := func(text string) {

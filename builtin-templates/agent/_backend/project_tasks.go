@@ -99,7 +99,7 @@ func taskEngine(ctx context.Context, w who, p *Project, pol ProjectPolicy, cls a
 	case pol.Engine == "harness" && pol.Harness != "":
 		req = &harnessReq{Provider: pol.Harness}
 	case pol.Engine == "auto" || pol.Engine == "harness":
-		prov := orStr(pol.Harness, agent.db.lastHarness(w))
+		prov := orStr(pol.Harness, projAg().db.lastHarness(w))
 		if prov == "" {
 			return nil, nil
 		}
@@ -646,12 +646,12 @@ func writeProjErr(w http.ResponseWriter, err error) {
 // it to another home — publish, copy, hosting, a move, its own sharing or
 // members — and says whether it did. GET /runs/{id}/export stays.
 func projectRunBarred(w http.ResponseWriter, root int64) bool {
-	run, err := agent.db.getRun(root)
+	run, err := projAg().db.getRun(root)
 	if err != nil || run.Origin != originProject {
 		return false
 	}
 	name := "its project"
-	if p, err := agent.db.getProject(run.OriginID); err == nil {
+	if p, err := projAg().db.getProject(run.OriginID); err == nil {
 		name = "project " + p.Name
 	}
 	xbin.WriteJSON(w, http.StatusConflict, map[string]any{"refusal": refusalBarred, "error": fmt.Sprintf(

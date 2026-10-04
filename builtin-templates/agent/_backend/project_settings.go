@@ -20,7 +20,7 @@ import (
 // --- members -------------------------------------------------------------------------------
 
 func membersAnswer(p *Project) map[string]any {
-	return map[string]any{"owner": p.Owner, "members": agent.db.projectMembers(p.ID)}
+	return map[string]any{"owner": p.Owner, "members": projAg().db.projectMembers(p.ID)}
 }
 
 func handleProjectMembers(w http.ResponseWriter, r *http.Request) {
@@ -51,7 +51,7 @@ func handleAddProjectMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var runs []int64
-	err := agent.db.Tx(func(t *DB) error {
+	err := projAg().db.Tx(func(t *DB) error {
 		var n int
 		_ = t.q.QueryRow(`SELECT count(*) FROM project_members WHERE project_id=?`, p.ID).Scan(&n)
 		if n >= maxShareMembers {
@@ -71,7 +71,7 @@ func handleAddProjectMember(w http.ResponseWriter, r *http.Request) {
 		writeProjErr(w, err)
 		return
 	}
-	agent.afterACLChange(p.ID, runs)
+	projAg().afterACLChange(p.ID, runs)
 	xbin.WriteJSON(w, 200, membersAnswer(p))
 }
 
@@ -86,7 +86,7 @@ func handleRemoveProjectMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var runs []int64
-	err := agent.db.Tx(func(t *DB) error {
+	err := projAg().db.Tx(func(t *DB) error {
 		if _, err := t.q.Exec(`DELETE FROM project_members WHERE project_id=? AND user=?`, p.ID, user); err != nil {
 			return err
 		}
@@ -99,7 +99,7 @@ func handleRemoveProjectMember(w http.ResponseWriter, r *http.Request) {
 		writeProjErr(w, err)
 		return
 	}
-	agent.afterACLChange(p.ID, runs)
+	projAg().afterACLChange(p.ID, runs)
 	w.WriteHeader(204)
 }
 
@@ -118,7 +118,7 @@ func handleAddRepo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var n int
-	_ = agent.db.q.QueryRow(`SELECT count(*) FROM project_repos WHERE project_id=?`, p.ID).Scan(&n)
+	_ = projAg().db.q.QueryRow(`SELECT count(*) FROM project_repos WHERE project_id=?`, p.ID).Scan(&n)
 	if n >= 20 {
 		xbin.WriteError(w, 400, "a project has at most 20 repos")
 		return
@@ -130,12 +130,12 @@ func handleAddRepo(w http.ResponseWriter, r *http.Request) {
 		writeProjErr(w, err)
 		return
 	}
-	if _, ok := agent.db.repoNamed(p.ID, repo.Repo); ok {
+	if _, ok := projAg().db.repoNamed(p.ID, repo.Repo); ok {
 		xbin.WriteError(w, 409, repo.Repo+" is one of this project's repos already")
 		return
 	}
 	var jobs []*ProjectJob
-	err = agent.db.Tx(func(t *DB) error {
+	err = projAg().db.Tx(func(t *DB) error {
 		repo.ProjectID = p.ID
 		repo.Slug = t.repoSlug(p.ID, repo.Repo, repo.Slug)
 		_, _ = t.q.Exec(`DELETE FROM project_repos WHERE project_id=? AND lower(repo)=lower(?) AND state='removing'`, p.ID, repo.Repo)
@@ -160,7 +160,7 @@ func handleAddRepo(w http.ResponseWriter, r *http.Request) {
 	if jobs == nil {
 		jobs = []*ProjectJob{}
 	}
-	got, _ := agent.db.projectRepo(p.ID, repo.Slug)
+	got, _ := projAg().db.projectRepo(p.ID, repo.Slug)
 	xbin.WriteJSON(w, 201, map[string]any{"repo": got, "jobs": jobs})
 }
 
@@ -174,7 +174,7 @@ func handlePatchRepo(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &body) {
 		return
 	}
-	if _, err := agent.db.projectRepo(p.ID, slug); err != nil {
+	if _, err := projAg().db.projectRepo(p.ID, slug); err != nil {
 		xbin.WriteError(w, 404, "no such repo in this project")
 		return
 	}
@@ -195,7 +195,7 @@ func handlePatchRepo(w http.ResponseWriter, r *http.Request) {
 		cols, args = append(cols, "checkout=?"), append(args, *body.Checkout)
 	}
 	if len(cols) > 0 {
-		err := agent.db.Tx(func(t *DB) error {
+		err := projAg().db.Tx(func(t *DB) error {
 			if _, err := t.q.Exec(`UPDATE project_repos SET `+strings.Join(cols, ", ")+` WHERE project_id=? AND slug=?`,
 				append(args, p.ID, slug)...); err != nil {
 				return err
@@ -208,7 +208,7 @@ func handlePatchRepo(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	got, _ := agent.db.projectRepo(p.ID, slug)
+	got, _ := projAg().db.projectRepo(p.ID, slug)
 	xbin.WriteJSON(w, 200, map[string]any{"repo": got})
 }
 
@@ -217,13 +217,13 @@ func handlePatchRepo(w http.ResponseWriter, r *http.Request) {
 func handleRemoveRepo(w http.ResponseWriter, r *http.Request) {
 	p, _ := projectOf(r)
 	slug := r.PathValue("slug")
-	if _, err := agent.db.projectRepo(p.ID, slug); err != nil {
+	if _, err := projAg().db.projectRepo(p.ID, slug); err != nil {
 		xbin.WriteError(w, 404, "no such repo in this project")
 		return
 	}
 	force := r.URL.Query().Get("force") == "1"
 	var busy []int64
-	ks, _ := agent.db.tasksWhere(`WHERE project_id=? AND phase IN ('open','pr') AND run_id<>0`, p.ID)
+	ks, _ := projAg().db.tasksWhere(`WHERE project_id=? AND phase IN ('open','pr') AND run_id<>0`, p.ID)
 	for _, k := range ks {
 		if hasStr(k.Repos, slug) && k.WS != wsCleaned {
 			busy = append(busy, k.N)
@@ -234,7 +234,7 @@ func handleRemoveRepo(w http.ResponseWriter, r *http.Request) {
 			extra: map[string]any{"tasks": busy}})
 		return
 	}
-	err := agent.db.Tx(func(t *DB) error {
+	err := projAg().db.Tx(func(t *DB) error {
 		if _, err := t.q.Exec(`DELETE FROM project_repos WHERE project_id=? AND slug=?`, p.ID, slug); err != nil {
 			return err
 		}
@@ -289,7 +289,7 @@ func handleProjectStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		cancel()
 	}
-	repos, _ := agent.db.projectRepos(p.ID)
+	repos, _ := projAg().db.projectRepos(p.ID)
 	for _, rp := range repos {
 		st.Repos = append(st.Repos, StatusRepo{Slug: rp.Slug, State: rp.State, FetchedMs: rp.FetchedMs, Head: rp.Head, Protected: rp.Protected, Error: rp.Error})
 		if rp.Protected != nil && !*rp.Protected {
@@ -297,18 +297,18 @@ func handleProjectStatus(w http.ResponseWriter, r *http.Request) {
 				Text: rp.Repo + "'s default branch has no protection: a token in the sandbox could push to it or merge through the API (policy.protection refuse makes this a refusal)"})
 		}
 	}
-	st.Creds = agent.db.projectCredsView(p.ID)
+	st.Creds = projAg().db.projectCredsView(p.ID)
 	st.Jobs = []ProjectJob{}
-	for _, j := range agent.db.jobsWhere(`WHERE project_id=? AND (state IN ('queued','running','waiting') OR id IN
+	for _, j := range projAg().db.jobsWhere(`WHERE project_id=? AND (state IN ('queued','running','waiting') OR id IN
 		(SELECT id FROM project_jobs WHERE project_id=? AND state IN ('done','failed') ORDER BY id DESC LIMIT 20)) ORDER BY id DESC`, p.ID, p.ID) {
 		st.Jobs = append(st.Jobs, *j)
 	}
 	pol := policyOf(p.Policy)
-	st.Slots = ProjectSlots{Used: agent.db.slotsUsed(p.ID), Max: pol.MaxTasks}
+	st.Slots = ProjectSlots{Used: projAg().db.slotsUsed(p.ID), Max: pol.MaxTasks}
 	if pol.Engine != "harness" {
 		// a built-in task takes a subagent's place at the model-call gate:
 		// every slot but the last a top-level conversation may take
-		if sub := max(gateLimit(parseConfig(agent.db.getSetting("config")))-1, 1); pol.MaxTasks > sub {
+		if sub := max(gateLimit(parseConfig(projAg().db.getSetting("config")))-1, 1); pol.MaxTasks > sub {
 			st.Warnings = append(st.Warnings, ProjectWarning{Kind: "slots", Text: fmt.Sprintf(
 				"policy.maxTasks (%d) is more than the model calls built-in tasks may make at once here (%d): they wait for each other", pol.MaxTasks, sub)})
 		}
@@ -343,7 +343,7 @@ func handleWarmProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var jobs []*ProjectJob
-	err := agent.db.Tx(func(t *DB) error {
+	err := projAg().db.Tx(func(t *DB) error {
 		if p.SandboxRef != "" || t.getSetting(sbxNewKey(p.ID)) != "" {
 			j, err := t.queueJob(p.ID, 0, "", pjSandbox, c.tag(), 0)
 			if err != nil {
@@ -388,7 +388,7 @@ func handleWarmProject(w http.ResponseWriter, r *http.Request) {
 func handleProjectIssues(w http.ResponseWriter, r *http.Request) {
 	p, _ := projectOf(r)
 	q := r.URL.Query()
-	rp, ok := agent.db.repoNamed(p.ID, q.Get("repo"))
+	rp, ok := projAg().db.repoNamed(p.ID, q.Get("repo"))
 	if !ok {
 		xbin.WriteError(w, 400, fmt.Sprintf("repo: %q isn't one of this project's repos", q.Get("repo")))
 		return
@@ -426,7 +426,7 @@ func handleProjectEvents(w http.ResponseWriter, r *http.Request) {
 	if limit <= 0 || limit > 200 {
 		limit = 100
 	}
-	items := agent.db.projectEvents(p.ID, since, limit+1)
+	items := projAg().db.projectEvents(p.ID, since, limit+1)
 	next := ""
 	if len(items) > limit {
 		items = items[:limit]
@@ -461,7 +461,7 @@ func handleListTasks(w http.ResponseWriter, r *http.Request) {
 		limit = 50
 	}
 	off, _ := strconv.Atoi(q.Get("cursor"))
-	ks, err := agent.db.tasksWhere(where+` ORDER BY updated_ms DESC, n DESC`, args...)
+	ks, err := projAg().db.tasksWhere(where+` ORDER BY updated_ms DESC, n DESC`, args...)
 	if err != nil {
 		xbin.WriteError(w, 500, err.Error())
 		return
@@ -471,7 +471,7 @@ func handleListTasks(w http.ResponseWriter, r *http.Request) {
 	skipped := 0
 	next := ""
 	for _, k := range ks {
-		v := agent.db.projTaskView(p, k)
+		v := projAg().db.projTaskView(p, k)
 		if col != "" && v.Column != col {
 			continue
 		}
@@ -497,12 +497,12 @@ func handleNewTask(w http.ResponseWriter, r *http.Request) {
 	if haltBlocks(w, r, 0) {
 		return
 	}
-	k, run, err := agent.createTask(r.Context(), callerOf(r), p, s)
+	k, run, err := projAg().createTask(r.Context(), callerOf(r), p, s)
 	if err != nil {
 		writeProjErr(w, err)
 		return
 	}
-	xbin.WriteJSON(w, 201, map[string]any{"task": agent.db.projTaskView(p, k), "run": runAnswer(run)})
+	xbin.WriteJSON(w, 201, map[string]any{"task": projAg().db.projTaskView(p, k), "run": runAnswer(run)})
 }
 
 // handleTaskBatch: tasks from issues (≤ 20), each its own task; a repo
@@ -523,7 +523,7 @@ func handleTaskBatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, is := range body.Issues {
-		if _, ok := agent.db.repoNamed(p.ID, is.Repo); !ok {
+		if _, ok := projAg().db.repoNamed(p.ID, is.Repo); !ok {
 			xbin.WriteError(w, 400, fmt.Sprintf("issues: %q isn't one of this project's repos", is.Repo))
 			return
 		}
@@ -535,12 +535,12 @@ func handleTaskBatch(w http.ResponseWriter, r *http.Request) {
 	errs := []map[string]any{}
 	for _, is := range body.Issues {
 		ir := is
-		k, _, err := agent.createTask(r.Context(), callerOf(r), p, TaskSpec{Text: body.Text, Size: body.Size, Agent: body.Agent, Issue: &ir})
+		k, _, err := projAg().createTask(r.Context(), callerOf(r), p, TaskSpec{Text: body.Text, Size: body.Size, Agent: body.Agent, Issue: &ir})
 		if err != nil {
 			errs = append(errs, map[string]any{"issue": is, "error": err.Error()})
 			continue
 		}
-		tasks = append(tasks, agent.db.projTaskView(p, k))
+		tasks = append(tasks, projAg().db.projTaskView(p, k))
 	}
 	xbin.WriteJSON(w, 201, map[string]any{"tasks": tasks, "errors": errs})
 }
@@ -549,7 +549,7 @@ func handleTaskBatch(w http.ResponseWriter, r *http.Request) {
 func taskOfPath(w http.ResponseWriter, r *http.Request) (*Project, *ProjectTask, bool) {
 	p, _ := projectOf(r)
 	n, _ := strconv.ParseInt(r.PathValue("n"), 10, 64)
-	k, err := agent.db.taskByN(p.ID, n)
+	k, err := projAg().db.taskByN(p.ID, n)
 	if err != nil {
 		xbin.WriteError(w, 404, "no such task in this project")
 		return nil, nil, false
@@ -560,7 +560,7 @@ func taskOfPath(w http.ResponseWriter, r *http.Request) (*Project, *ProjectTask,
 func handleGetTask(w http.ResponseWriter, r *http.Request) {
 	p, k, ok := taskOfPath(w, r)
 	if ok {
-		xbin.WriteJSON(w, 200, agent.db.taskAnswer(p, k, callerOf(r)))
+		xbin.WriteJSON(w, 200, projAg().db.taskAnswer(p, k, callerOf(r)))
 	}
 }
 
@@ -575,23 +575,23 @@ func handleCancelTask(w http.ResponseWriter, r *http.Request) {
 	if !decodeBody(w, r, &body) {
 		return
 	}
-	if err := agent.cancelTask(p, k, callerOf(r), clip(body.Reason, 500)); err != nil {
+	if err := projAg().cancelTask(p, k, callerOf(r), clip(body.Reason, 500)); err != nil {
 		writeProjErr(w, err)
 		return
 	}
-	k, _ = agent.db.taskByN(p.ID, k.N)
-	xbin.WriteJSON(w, 200, agent.db.projTaskView(p, k))
+	k, _ = projAg().db.taskByN(p.ID, k.N)
+	xbin.WriteJSON(w, 200, projAg().db.projTaskView(p, k))
 }
 
 // runTask is the task a /runs/{id}/task route's conversation is (404 for a
 // run that isn't one).
 func runTask(w http.ResponseWriter, r *http.Request) (*Project, *ProjectTask, bool) {
-	run, err := agent.db.getRun(pathID(r))
+	run, err := projAg().db.getRun(pathID(r))
 	if err != nil {
 		xbin.WriteError(w, 404, "no such run")
 		return nil, nil, false
 	}
-	p, k := agent.db.projectOfRun(run)
+	p, k := projAg().db.projectOfRun(run)
 	if k == nil {
 		xbin.WriteError(w, 404, "this conversation is no project's task")
 		return nil, nil, false
@@ -601,7 +601,7 @@ func runTask(w http.ResponseWriter, r *http.Request) (*Project, *ProjectTask, bo
 
 func handleRunTask(w http.ResponseWriter, r *http.Request) {
 	if p, k, ok := runTask(w, r); ok {
-		xbin.WriteJSON(w, 200, agent.db.taskAnswer(p, k, callerOf(r)))
+		xbin.WriteJSON(w, 200, projAg().db.taskAnswer(p, k, callerOf(r)))
 	}
 }
 
@@ -624,13 +624,13 @@ func handleTaskAct(act string) http.HandlerFunc {
 		var err error
 		switch act {
 		case "refresh":
-			err = agent.refreshTask(p, k, c)
+			err = projAg().refreshTask(p, k, c)
 		case "retry":
-			err = agent.retryTask(p, k, c)
+			err = projAg().retryTask(p, k, c)
 		case "close":
-			if err = agent.closeTask(r.Context(), p, k, c, o); err == nil {
-				k, _ = agent.db.taskByN(p.ID, k.N)
-				xbin.WriteJSON(w, 200, agent.db.projTaskView(p, k))
+			if err = projAg().closeTask(r.Context(), p, k, c, o); err == nil {
+				k, _ = projAg().db.taskByN(p.ID, k.N)
+				xbin.WriteJSON(w, 200, projAg().db.projTaskView(p, k))
 				return
 			}
 		}
@@ -672,7 +672,7 @@ func handleTaskCleanup(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	err := agent.db.Tx(func(t *DB) error {
+	err := projAg().db.Tx(func(t *DB) error {
 		j, err := t.queueJob(p.ID, k.ID, "", pjCleanup, callerOf(r).tag(), 0)
 		if err == nil && o.Force {
 			_, err = t.q.Exec(`UPDATE project_jobs SET client_id='force' WHERE id=?`, j.ID)

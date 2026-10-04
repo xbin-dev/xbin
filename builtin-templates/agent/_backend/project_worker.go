@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -59,6 +60,7 @@ func (e *Engine) startProjects() {
 	if closing {
 		return
 	}
+	projAgent.Store(e.ag)
 	ctx, cancel := context.WithCancel(e.base)
 	w := &projWorker{e: e, ctx: ctx, cancel: cancel, kick: make(chan struct{}, 1), busy: map[int64]bool{}, locked: map[string]bool{}}
 	projWorkers.Lock()
@@ -457,4 +459,18 @@ func (w *projWorker) sweep() {
 			}
 		}
 	}
+}
+
+// projAgent is the agent whose engine runs the project worker (set at its
+// takeover): what Projects' background work — the worker, the hooks the
+// engine calls, the pump, the stream events — acts through. (One agent per
+// process; tests make one after another.)
+var projAgent atomic.Pointer[Agent]
+
+// projAg is that agent (before any engine started: the package's).
+func projAg() *Agent {
+	if a := projAgent.Load(); a != nil {
+		return a
+	}
+	return agent
 }

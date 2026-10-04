@@ -61,8 +61,8 @@ func recordStatuses(t *testing.T) *hookLog {
 // coding agent's, and a coding agent's cancel.
 func TestTurnEndHooksEverySite(t *testing.T) {
 	t.Run("built-in", func(t *testing.T) {
+		h := recordTurnEnds(t) // before the fixture: restored after its engine stops
 		ag, _ := accessFixture(t)
-		h := recordTurnEnds(t)
 		f := fakeOf(ag)
 		conv := createConv(t, ag, alicePrivate, nil)
 		send(t, ag, conv.ID, "hello")
@@ -89,8 +89,8 @@ func TestTurnEndHooksEverySite(t *testing.T) {
 		}
 	})
 	t.Run("coding agent", func(t *testing.T) {
-		ag, mux, box := harnessFixture(t, false)
 		h := recordTurnEnds(t)
+		ag, mux, box := harnessFixture(t, false)
 		run := askHarness(t, mux, box, "echo one")
 		hwait(t, "the turn", turnOver(ag, run.ID))
 		hwait(t, "the coding agent's end hook", func() bool { return h.count(fmt.Sprintf("%d answered", run.ID)) == 1 })
@@ -118,9 +118,8 @@ func TestTurnEndHooksEverySite(t *testing.T) {
 // run's, nor the legacy rows migrate() rewrites before the feature tables.
 func TestRunStatusHooksOnPark(t *testing.T) {
 	t.Run("built-in", func(t *testing.T) {
-		ag, approve, id := approveConv(t)
-		_ = approve
 		h := recordStatuses(t)
+		ag, _, id := approveConv(t)
 		f := fakeOf(ag)
 		f.on(lastUser("go"), callTools(tc("b1", "bash", `{"command":"echo hi"}`))).once()
 		send(t, ag, id, "go")
@@ -134,8 +133,8 @@ func TestRunStatusHooksOnPark(t *testing.T) {
 		waitFor(t, "ask_user's hook", func() bool { return h.count(fmt.Sprintf("%d waiting_input", conv.ID)) == 1 })
 	})
 	t.Run("coding agent", func(t *testing.T) {
-		ag, mux, box := harnessFixture(t, false)
 		h := recordStatuses(t)
+		ag, mux, box := harnessFixture(t, false)
 		run := askHarness(t, mux, box, "ask")
 		parkOf(t, ag, run.ID, "question")
 		hwait(t, "the question's hook", func() bool { return h.count(fmt.Sprintf("%d waiting_input", run.ID)) >= 1 })
@@ -181,13 +180,13 @@ INSERT INTO runs (id, title, status, config, created, updated, root_id, owner, v
 // reaches no hook — turn end, status, view or delete — and nothing of a
 // project is written to team.
 func TestHostedRunReachesNoHook(t *testing.T) {
-	ag, _ := accessFixture(t)
 	turns, statuses := recordTurnEnds(t), recordStatuses(t)
 	views, deletes := &hookLog{}, &hookLog{}
 	oldV, oldD := runViewHooks, runDeletedHooks
 	runViewHooks = append(append([]func(*DB, who, *Run, map[string]any){}, oldV...), func(_ *DB, _ who, run *Run, _ map[string]any) { views.add(fmt.Sprint(run.ID)) })
 	runDeletedHooks = append(append([]func(*DB, int64) error{}, oldD...), func(_ *DB, id int64) error { deletes.add(fmt.Sprint(id)); return nil })
 	t.Cleanup(func() { runViewHooks, runDeletedHooks = oldV, oldD })
+	ag, _ := accessFixture(t)
 
 	team := newTestTeamDB(t)
 	hosted := &Run{ID: teamIDBase + 1, Origin: originProject, OriginID: 1}
@@ -272,12 +271,13 @@ func TestProjectStreamEvent(t *testing.T) {
 		t.Fatalf("bob got the project's events: %v", got)
 	}
 	// coalesced: a burst of the same change is one event
+	projStreamDelay.Store(int64(250 * time.Millisecond)) // as in production: the burst is well within it
 	before := len(projEvents(alice))
 	for i := 0; i < 20; i++ {
 		projStream.post(p.ID, "repo", 0)
 	}
 	waitFor(t, "the coalesced event", func() bool { return len(projEvents(alice)) > before })
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 	n := 0
 	for _, d := range projEvents(alice)[before:] {
 		if d["change"] == "repo" {

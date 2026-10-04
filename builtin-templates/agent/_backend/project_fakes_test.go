@@ -232,9 +232,9 @@ func newProjFix(t *testing.T) *projFix {
 	f.addRepo("acme/web", url, "main", nil)
 	oldBot := scmBotAllowed
 	scmBotAllowed = func(who, string) bool { return true }
-	oldDelay := projStreamDelay
-	projStreamDelay = 5 * time.Millisecond
-	t.Cleanup(func() { scmBotAllowed, projStreamDelay = oldBot, oldDelay })
+	oldDelay := projStreamDelay.Load()
+	projStreamDelay.Store(int64(5 * time.Millisecond))
+	t.Cleanup(func() { scmBotAllowed = oldBot; projStreamDelay.Store(oldDelay) })
 	return &projFix{ag: ag, mux: mux, m: m, scm: f, box: box, origin: url, odir: dir}
 }
 

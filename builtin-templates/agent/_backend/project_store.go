@@ -28,25 +28,25 @@ import (
 func init() {
 	schemaAdds = append(schemaAdds, (*DB).addProjectSchema)
 	projectsInSandbox = func(ref string) []*Project {
-		if agent == nil || ref == "" {
+		if projAg() == nil || ref == "" {
 			return nil
 		}
-		ps, _ := agent.db.projectsWhere(`WHERE state<>'deleting' AND (sandbox_ref=? OR id IN
+		ps, _ := projAg().db.projectsWhere(`WHERE (sandbox_ref=? OR id IN
 			(SELECT project_id FROM project_tasks WHERE sandbox_ref=? AND run_id<>0))`, ref, ref)
 		return ps
 	}
 	projectReposOf = func(pid int64) []ProjectRepo {
-		if agent == nil {
+		if projAg() == nil {
 			return nil
 		}
-		rs, _ := agent.db.projectRepos(pid)
+		rs, _ := projAg().db.projectRepos(pid)
 		return rs
 	}
 	projectLevelOf = func(p *Project, user string) level {
-		if agent == nil || p == nil || user == "" {
+		if projAg() == nil || p == nil || user == "" {
 			return lvNone
 		}
-		a, err := agent.db.projectACL(p.ID)
+		a, err := projAg().db.projectACL(p.ID)
 		if err != nil {
 			return lvNone
 		}

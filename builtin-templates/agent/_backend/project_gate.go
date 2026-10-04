@@ -235,17 +235,17 @@ func (ag *Agent) projectPromptFor(run *Run, cfg Config) string {
 // branch and ports, and the credentials' (scmProjectEnv: GH_CONFIG_DIR).
 // home is the sandbox's home. nil for a run that isn't a project's task.
 func projectEnv(run *Run, home string) map[string]string {
-	if agent == nil || run == nil || run.Origin != originProject || hostedID(run.ID) {
+	if projAg() == nil || run == nil || run.Origin != originProject || hostedID(run.ID) {
 		return nil
 	}
 	root := run
 	if run.ParentID != 0 {
 		var err error
-		if root, err = agent.db.getRun(rootOf(run)); err != nil {
+		if root, err = projAg().db.getRun(rootOf(run)); err != nil {
 			return nil
 		}
 	}
-	p, k := agent.db.projectOfRun(root)
+	p, k := projAg().db.projectOfRun(root)
 	if k == nil {
 		return nil
 	}
