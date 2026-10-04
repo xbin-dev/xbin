@@ -98,7 +98,14 @@ Then:
 
 - your partition keeps the pair (access and refresh token) in its own
   vault and refreshes it itself (a device-flow token refreshes without the
-  App's client secret);
+  App's client secret). A refresh GitHub refuses with
+  `bad_refresh_token` ends the sign-in; so does
+  `incorrect_client_credentials` — what GitHub answers once your grant is
+  revoked (Forget, or revoking the App in your GitHub settings) — when
+  GitHub's check of your access token (asked through global) says it no
+  longer knows it (404). Then a token asked for as you is 409 `signin`.
+  Any other refusal, or that check answering anything else (it still knows
+  the token, an error, no answer), is 502 `upstream` and keeps the sign-in;
 - the global instance learns your login from GitHub's own answer for a
   token only this App issued (a personal access token or another App's
   token is refused) and keeps `{login, id}` and your partition id — never
@@ -109,9 +116,10 @@ Then:
   or doesn't answer, Forget answers that (503 `unavailable`, …) and
   clears nothing, so you can try again. An access token past its expiry
   (8 hours) is refreshed first and the grant revoked with the new one; a
-  failed refresh is answered and clears nothing, and a refresh GitHub
-  refuses (`bad_refresh_token`, or the sign-in itself expired) leaves
-  nothing to revoke, so Forget clears. A token GitHub no longer knows
+  failed refresh is answered and clears nothing, and a refresh that ends
+  the sign-in (above), or a sign-in itself expired, leaves nothing to
+  revoke, so Forget clears — revoking the App in your GitHub settings
+  doesn't leave a sign-in here you can't forget. A token GitHub no longer knows
   (already revoked) counts as revoked. GitHub's 422 can also mean "try
   later", so on a 422 Forget asks GitHub about the token: unless GitHub
   answers that it doesn't know it (404), Forget is 503 `unavailable` and

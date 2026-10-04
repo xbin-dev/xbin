@@ -177,6 +177,7 @@ func (s *srv) routes() http.Handler {
 	mux.HandleFunc("POST /partition/scope", s.relayGuard(s.handleRelayScope))
 	mux.HandleFunc("POST /partition/revoke-token", s.relayGuard(s.handleRelayRevokeToken))
 	mux.HandleFunc("POST /partition/revoke-grant", s.relayGuard(s.handleRelayRevokeGrant))
+	mux.HandleFunc("POST /partition/check-token", s.relayGuard(s.handleRelayCheckToken))
 	mux.HandleFunc("POST /partition/bot-token", s.relayGuard(s.handleRelayBotToken))
 
 	// Setup and policy (managers, at global or legacy; setup.go, policy.go).

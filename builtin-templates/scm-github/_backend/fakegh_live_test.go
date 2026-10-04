@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
@@ -128,6 +129,33 @@ func ask(t *testing.T, name string) fakeAns {
 	case "revoke-grant-not-this-apps":
 		st, _, b := fdo(t, e, "DELETE", "/applications/"+cid+"/grant", "basic", map[string]string{"access_token": made}, nil)
 		set(st, b)
+	case "revoke-again-after-grant":
+		acc, _ := fakeUser(e)
+		fdo(t, e, "DELETE", "/applications/"+cid+"/grant", "basic", map[string]string{"access_token": acc}, nil)
+		st, _, b := fdo(t, e, "DELETE", "/applications/"+cid+"/grant", "basic", map[string]string{"access_token": acc}, nil)
+		set(st, b)
+		if st2, _, _ := fdo(t, e, "DELETE", "/applications/"+cid+"/token", "basic", map[string]string{"access_token": acc}, nil); st2 != st {
+			t.Errorf("revoking the token again: %d, the grant again: %d", st2, st)
+		}
+	case "check-token-after-grant":
+		acc, _ := fakeUser(e)
+		fdo(t, e, "DELETE", "/applications/"+cid+"/grant", "basic", map[string]string{"access_token": acc}, nil)
+		st, _, b := fdo(t, e, "POST", "/applications/"+cid+"/token", "basic", map[string]string{"access_token": acc}, nil)
+		set(st, b)
+	case "refresh-after-grant-revoked":
+		acc, ref := fakeUser(e)
+		fdo(t, e, "DELETE", "/applications/"+cid+"/grant", "basic", map[string]string{"access_token": acc}, nil)
+		req, _ := http.NewRequest("POST", e.gh.srv.URL+"/login/oauth/access_token",
+			strings.NewReader(url.Values{"client_id": {cid}, "grant_type": {"refresh_token"}, "refresh_token": {ref}}.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("Accept", "application/json")
+		resp, err := noRedirect.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		set(resp.StatusCode, b)
 	case "installation-token-revoke":
 		tok := fakeInst(e, presetRead())
 		st, _, b := fdo(t, e, "DELETE", "/installation/token", tok, nil, nil)
@@ -216,7 +244,7 @@ func TestFakeMatchesLiveGitHub(t *testing.T) {
 	for _, c := range fx.Cases {
 		t.Run(c.Name, func(t *testing.T) {
 			a := ask(t, c.Name)
-			if a.status != c.Status {
+			if c.Status != 0 && a.status != c.Status { // 0: GitHub's status wasn't recorded
 				t.Errorf("%s: GitHub answered %d, the fake %d (%s)", c.Call, c.Status, a.status, clip(string(a.body), 200))
 			}
 			if c.Then != 0 && a.then != c.Then {

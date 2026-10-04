@@ -114,8 +114,9 @@ func (s *srv) refresh(ctx context.Context, stale string) (secretString, *personR
 	return tok, s.personRecord(), nil
 }
 
-// errBadRefresh: GitHub no longer takes the refresh token (bad_refresh_token)
-// — the sign-in is over. Never answered as is: each caller decides.
+// errBadRefresh: GitHub no longer takes the refresh token (bad_refresh_token,
+// or incorrect_client_credentials for a sign-in GitHub no longer knows:
+// signinGone) — the sign-in is over. Never answered as is: each caller decides.
 var errBadRefresh = errors.New("GitHub no longer takes the sign-in's refresh token")
 
 // tradeRefresh is the refresh itself, refreshMu held: the new pair kept.
@@ -131,6 +132,11 @@ func (s *srv) tradeRefresh(ctx context.Context, rec *personRec, ref vaultTok) (s
 	case "":
 	case "bad_refresh_token":
 		return secretString{}, errBadRefresh
+	case "incorrect_client_credentials":
+		if s.signinGone(ctx) {
+			return secretString{}, errBadRefresh
+		}
+		fallthrough
 	default:
 		return secretString{}, refuse(refUpstream, "GitHub didn't refresh the sign-in: %s", clip(out.Error, 80))
 	}
@@ -141,6 +147,28 @@ func (s *srv) tradeRefresh(ctx context.Context, rec *personRec, ref vaultTok) (s
 	// handed out again, but each stays recorded so a revoke still reaches it.
 	s.bot.retire(func(k cacheKey) bool { return k.kind == asPerson })
 	return newSecret(out.AccessToken.Reveal()), nil
+}
+
+// signinGone: GitHub answers a refresh with incorrect_client_credentials,
+// not bad_refresh_token, once the sign-in's grant is revoked (Forget, or
+// the person revoking the App in their GitHub settings) — and the same for
+// a wrong client id. So global asks GitHub about the sign-in's access
+// token: a token GitHub doesn't know (404) is the sign-in over. Anything
+// else — GitHub still knows it, any other refusal, no answer — isn't
+// known: false, nothing cleared. (GitHub's check answers 404 for basic
+// auth it refuses too — live; the client id is GitHub's own, from setup.)
+func (s *srv) signinGone(ctx context.Context) bool {
+	var acc vaultTok
+	if vaultJSON(s.vault, vaultUserAccess, &acc) != nil || acc.Token == "" {
+		return false
+	}
+	var out struct {
+		Known *bool `json:"known"`
+	}
+	if err := s.relay(ctx, http.MethodPost, "partition/check-token", map[string]string{"accessToken": acc.Token}, &out); err != nil {
+		return false
+	}
+	return out.Known != nil && !*out.Known
 }
 
 // forgetSlack: Forget refreshes an access token this close to its expiry

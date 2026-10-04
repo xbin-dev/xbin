@@ -95,6 +95,7 @@ type fakeGH struct {
 	instTokens map[string]*fToken // token → …
 	userTokens map[string]*fUserTok
 	refresh    map[string]string // refresh token → login
+	deadGrant  map[string]bool   // refresh tokens of a revoked grant
 	devices    map[string]*fDevice
 	deviceOff  bool
 	longTokens bool
@@ -129,7 +130,7 @@ func newFakeGH(t *testing.T, now func() time.Time) *fakeGH {
 		installs: map[string]int64{"acme": 100}, instRepos: map[int64][]string{100: {"web", "api"}},
 		users:      map[string]int64{"octocat": 583231, "hubot": 999, "acme-xbin[bot]": 777},
 		collab:     map[string]string{"acme/web|octocat": "write", "acme/api|octocat": "read"},
-		instTokens: map[string]*fToken{}, userTokens: map[string]*fUserTok{}, refresh: map[string]string{},
+		instTokens: map[string]*fToken{}, userTokens: map[string]*fUserTok{}, refresh: map[string]string{}, deadGrant: map[string]bool{},
 		devices: map[string]*fDevice{}, manifests: map[string]bool{}, hits: map[string]int{},
 	}
 	f.keyPEM = string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(k)}))
@@ -553,7 +554,7 @@ func (f *fakeGH) routes(mux *http.ServeMux) {
 				f.msg(w, r, 404, "Not Found")
 				return
 			}
-			if !f.now().Before(u.exp) { // GitHub no longer knows an expired token
+			if u.revoked || !f.now().Before(u.exp) { // GitHub no longer knows a revoked or expired token
 				w.WriteHeader(404)
 				return
 			}
@@ -566,6 +567,7 @@ func (f *fakeGH) routes(mux *http.ServeMux) {
 				}
 				for rt, l := range f.refresh {
 					if l == u.login {
+						f.deadGrant[rt] = true
 						delete(f.refresh, rt)
 					}
 				}
@@ -628,6 +630,10 @@ func (f *fakeGH) routes(mux *http.ServeMux) {
 			}
 		case "refresh_token":
 			login, ok := f.refresh[r.Form.Get("refresh_token")]
+			if f.deadGrant[r.Form.Get("refresh_token")] {
+				e("incorrect_client_credentials") // GitHub (live), for a revoked grant's
+				return
+			}
 			if !ok {
 				e("bad_refresh_token")
 				return

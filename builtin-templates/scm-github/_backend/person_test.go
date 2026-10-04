@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -191,7 +192,7 @@ func TestRelayRefusesOthers(t *testing.T) {
 	e.setup()
 	body := map[string]string{"accessToken": "ghu_x"}
 	for _, c := range []caller{agentC, personC("alice"), ownerC, selfC, ingress, nobodyC, cronC} {
-		for _, p := range []string{"/partition/identity", "/partition/scope", "/partition/revoke-token", "/partition/revoke-grant", "/partition/bot-token"} {
+		for _, p := range []string{"/partition/identity", "/partition/scope", "/partition/revoke-token", "/partition/revoke-grant", "/partition/check-token", "/partition/bot-token"} {
 			if r := e.call(e.gH, c, "POST", p, body); r.Code != 403 {
 				t.Fatalf("%+v %s: %d", c, p, r.Code)
 			}
@@ -606,4 +607,77 @@ func TestPartitionRechecksPolicy(t *testing.T) {
 	if relays != 0 {
 		t.Fatal("reuse relayed")
 	}
+}
+
+// A grant revoked elsewhere (the person revoking the App in their GitHub
+// settings): GitHub answers its refresh token incorrect_client_credentials
+// (live), not bad_refresh_token. Once GitHub's check says it no longer
+// knows the access token, the sign-in is over — a token request asks for a
+// sign-in, Forget clears. A token GitHub still knows, or a check that
+// fails, is GitHub's refusal, nothing cleared.
+func TestRevokedGrantEndsSignin(t *testing.T) {
+	e := newEnv(t)
+	e.setup()
+	revokeElsewhere := func(s *srv) {
+		acc, _, _ := s.userTokens()
+		if st, _, _ := fdo(t, e, "DELETE", "/applications/"+e.gh.clientID+"/grant", "basic", map[string]string{"access_token": acc.Token}, nil); st != 204 {
+			t.Fatalf("revoking the grant at the fake: %d", st)
+		}
+	}
+	gone := func(s *srv, what string, atGlobal bool) {
+		t.Helper()
+		if s.personRecord() != nil || (atGlobal && e.global.ident("alice") != nil) {
+			t.Fatalf("%s: the sign-in is still kept", what)
+		}
+		if _, _, err := s.userTokens(); err == nil {
+			t.Fatalf("%s: the pair is still in the vault", what)
+		}
+	}
+	kept := func(s *srv, what string) {
+		t.Helper()
+		if s.personRecord() == nil || e.global.ident("alice") == nil {
+			t.Fatalf("%s: the sign-in was cleared", what)
+		}
+	}
+	tokenReq := func(u http.Handler) *httptest.ResponseRecorder {
+		return e.call(u, personC("alice"), "POST", "/scm/token", map[string]any{"repo": "acme/web", "access": "read"})
+	}
+	icc := `{"error":"incorrect_client_credentials"}`
+
+	// A token request once the access token has expired.
+	s := e.signIn("alice", "octocat")
+	revokeElsewhere(s)
+	e.clock.advance(9 * time.Hour)
+	if x := refusal(t, tokenReq(s.routes()), 409, "signin"); x.Signin == nil {
+		t.Fatal("no sign-in started")
+	}
+	gone(s, "token request", false) // as bad_refresh_token: the partition's pair
+
+	// Forget: nothing left to revoke with — 204, cleared.
+	s = e.signIn("alice", "octocat")
+	revokeElsewhere(s)
+	e.clock.advance(9 * time.Hour)
+	ok(t, e.call(s.routes(), pageC("alice"), "DELETE", "/scm/signin", nil), 204)
+	gone(s, "Forget", true)
+
+	// GitHub's check fails (500): unknown — refused, nothing cleared.
+	s = e.signIn("alice", "octocat")
+	revokeElsewhere(s)
+	e.clock.advance(9 * time.Hour)
+	e.gh.fail("POST /applications/", 1, 500, nil, `{"message":"boom"}`)
+	refusal(t, e.call(s.routes(), pageC("alice"), "DELETE", "/scm/signin", nil), 502, "upstream")
+	kept(s, "a failed check")
+	ok(t, e.call(s.routes(), pageC("alice"), "DELETE", "/scm/signin", nil), 204)
+
+	// incorrect_client_credentials for a token GitHub still knows: GitHub's
+	// refusal, nothing cleared — a token request and Forget alike.
+	s = e.signIn("alice", "octocat")
+	e.clock.advance(7 * time.Hour)
+	e.gh.fail("POST /login/oauth/access_token", 1, 200, nil, icc)
+	refusal(t, tokenReq(s.routes()), 502, "upstream")
+	kept(s, "token request, a token GitHub knows")
+	e.clock.advance(59*time.Minute + 30*time.Second) // within Forget's minute
+	e.gh.fail("POST /login/oauth/access_token", 1, 200, nil, icc)
+	refusal(t, e.call(s.routes(), pageC("alice"), "DELETE", "/scm/signin", nil), 502, "upstream")
+	kept(s, "Forget, a token GitHub knows")
 }
