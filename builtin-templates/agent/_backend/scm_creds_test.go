@@ -491,6 +491,29 @@ func TestCredsCoverNewRepo(t *testing.T) {
 	}
 }
 
+// A project without a host (the frozen DDL's empty default) locks and looks
+// up its credential under the host it will have — the provider's one host,
+// then the row's — so a live token is reused, not minted at every ensure.
+func TestCredsHostless(t *testing.T) {
+	fx := credFixture(t, modeGlobal)
+	fx.p.Host = ""
+	fx.scm.NoCache = true
+	fx.ensure(t)
+	fx.ensure(t)
+	if n := len(fx.scm.Tokens()); n != 1 {
+		t.Fatalf("minted %d tokens for one credential", n)
+	}
+	if row := credRowOf(t, fx); row.Host != "github.com" || row.State != credLive {
+		t.Fatalf("row: %+v", row)
+	}
+	fx.scm.Hosts = []string{"github.com", "ghe.acme.test"} // the hello can't tell: the row does
+	forgetSCMHellos()
+	fx.ensure(t)
+	if n := len(fx.scm.Tokens()); n != 1 {
+		t.Fatalf("minted %d tokens with two hosts in the hello", n)
+	}
+}
+
 // project_creds is made by openDB's feature schemas: twice changes
 // nothing, and a database from before it gains it with its rows intact.
 func TestSCMCredsSchemaMigratesTwice(t *testing.T) {

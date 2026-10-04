@@ -106,8 +106,12 @@ var (
 	// scmSecrets is what every redactor masks besides the shapes: each
 	// live and retired value (harness_redact.go reads it).
 	scmSecrets atomic.Pointer[[][]byte]
-	// scmKeyLocks serialise one credential's writes (ensure, refresh, scrub).
+	// scmKeyLocks serialise one credential's minting (ensure, refresh): one
+	// token at a time per (project, sandbox, host).
 	scmKeyLocks sync.Map
+	// scmSandboxLocks serialise what goes into one sandbox and what changes
+	// who can read it (scmHoldSandbox).
+	scmSandboxLocks sync.Map
 )
 
 func scmLiveKey(pid int64, ref, host string) string {
@@ -117,6 +121,21 @@ func scmLiveKey(pid int64, ref, host string) string {
 func scmKeyLock(key string) *sync.Mutex {
 	m, _ := scmKeyLocks.LoadOrStore(key, &sync.Mutex{})
 	return m.(*sync.Mutex)
+}
+
+// scmHoldSandbox takes sandbox ref's lock and returns its release. Held
+// across a credential's gate, its files and its row (ensureCreds), across
+// every scrub there (the caller of scmScrubRow and scmScrubSandbox holds
+// it), and across a share's PATCH and a stop's or archive's lifecycle call
+// through the agent — so no credential is written into a sandbox between
+// the scrub that finds nothing there and the change that shares it, stops
+// it or archives it. Never held across a provider's call; never taken
+// twice (not reentrant). Order: a credential's key lock, then this.
+func scmHoldSandbox(ref string) func() {
+	m, _ := scmSandboxLocks.LoadOrStore(ref, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
 }
 
 // scmLiveSecrets is every value the redactors mask exactly.

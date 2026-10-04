@@ -3225,8 +3225,11 @@ The sign-in routes are a person's own, in their own partition (409 "sign in
 to ‹provider› from your own space" elsewhere; 403 for view-as and for
 components). A provider's refusal comes back with its status and its
 `refusal` (`signin`, `not-installed`, `identity`, `setup`, `limit`, …) and
-payload, as [/docs/scm.md](/docs/scm.md) §Errors lists them; a 5xx that
-names none (a provider down behind xbind's gateway) is `unavailable`.
+payload, as [/docs/scm.md](/docs/scm.md) §Errors lists them — but a
+`signin`'s device code goes only to the person who must sign in (the
+partition's own, not viewed as): anyone else gets the refusal without it.
+A 5xx that names none (a provider down behind xbind's gateway) is
+`unavailable`.
 
 **When a credential may go into a sandbox.** Checked before every write and
 every refresh, against the sandbox as its manager reports it now — never a
@@ -3299,7 +3302,10 @@ fork is deleted; the person forgets their sign-in; or the gate refuses the
 sandbox. When the files can't be emptied (the manager refused the write),
 the token is revoked anyway but the credential stays `live`, due at once:
 every later scrub tries again, a share stays refused until one succeeds,
-and the next turn has it replaced (or blocked) first.
+and the next turn has it replaced (or blocked) first. A share, stop or
+archive through the agent and a credential's write take turns: one being
+minted while the sandbox is shared is checked again once minted and, the
+sandbox now shared, revoked and never written.
 
 **Kept out of what is kept.** The agent holds a token in memory only;
 `GET /projects/{pid}/status` shows its metadata (`creds: [{sandbox, host,

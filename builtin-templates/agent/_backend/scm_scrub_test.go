@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -114,6 +115,86 @@ func TestScrubOnShareRefused(t *testing.T) {
 	fx.scrubbed(t, scrubShare, tok)
 	if _, err := os.Stat(stale); !os.IsNotExist(err) {
 		t.Fatalf("the …tmp a write left: %v", err)
+	}
+}
+
+// A share or an archive through the agent while a credential is being
+// minted: neither waits on the provider, and the write that follows re-reads
+// the sandbox under its lock — the shared one the gate refuses (the token
+// just handed out revoked, the row blocked), the archived one the manager
+// refuses — so no token is left in the files and no row says live.
+func TestScrubRacesEnsure(t *testing.T) {
+	for _, tc := range []struct {
+		name, method, path string
+		body               any
+		want               string
+	}{
+		{"share", "PATCH", "", map[string]any{"visibility": "team"}, "may not act in the project"},
+		{"archive", "POST", "/archive", nil, "archived"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fx := credFixture(t, modeGlobal)
+			mux := fx.h.(*http.ServeMux)
+			entered, release := make(chan struct{}), make(chan struct{})
+			var once sync.Once
+			fx.scm.TokenHold = func() {
+				once.Do(func() { close(entered) })
+				<-release
+			}
+			done := make(chan error, 1)
+			go func() { done <- ensureCreds(context.Background(), fx.p, nil, "", scmMinLeft) }()
+			select {
+			case <-entered:
+			case <-time.After(20 * time.Second):
+				t.Fatal("the provider was never asked")
+			}
+			acted := make(chan *httptest.ResponseRecorder, 1)
+			go func() {
+				acted <- callAs(t, mux, asAlice, tc.method, "/sandboxes/"+url.PathEscape(fx.ref)+tc.path, tc.body)
+			}()
+			select {
+			case w := <-acted:
+				if w.Code != 200 {
+					close(release)
+					t.Fatalf("%s: %d %s", tc.name, w.Code, w.Body)
+				}
+			case <-time.After(20 * time.Second):
+				close(release)
+				t.Fatalf("the %s waited on the provider", tc.name)
+			}
+			close(release)
+			var err error
+			select {
+			case err = <-done:
+			case <-time.After(20 * time.Second):
+				t.Fatal("ensure never finished")
+			}
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("the write after the %s: %v", tc.name, err)
+			}
+			tok := fx.scm.Tokens()[0].Value
+			for _, f := range []string{"github.com.cred", "github.com.cred.tmp", "gh/hosts.yml", "gh/hosts.yml.tmp"} {
+				if b, _ := os.ReadFile(fx.credFile(f)); bytes.Contains(b, []byte(tok)) {
+					t.Fatalf("%s holds the token after the %s", f, tc.name)
+				}
+			}
+			for _, c := range fx.ag.db.scmCredsOf(fx.p.ID, fx.ref) {
+				if c.State == credLive {
+					t.Fatalf("a live row after the %s: %+v", tc.name, c)
+				}
+			}
+			if scmLiveGet(scmLiveKey(fx.p.ID, fx.ref, "github.com")) != nil {
+				t.Fatalf("still live in memory after the %s", tc.name)
+			}
+			if tc.name == "share" {
+				if row := credRowOf(t, fx); row.State != credBlocked {
+					t.Fatalf("row: %+v", row)
+				}
+				if !slices.Contains(fx.scm.Revoked(), "proj:k3x9qa:"+fx.ref) {
+					t.Fatalf("the token handed out during the share isn't revoked: %v", fx.scm.Revoked())
+				}
+			}
+		})
 	}
 }
 
@@ -331,6 +412,27 @@ func TestSigninStateStartsNothing(t *testing.T) {
 		if w := callAs(t, gfx.h.(*http.ServeMux), asAlice, m, "/projects/scm/signin", nil); w.Code != 409 {
 			t.Fatalf("%s at global: %d %s", m, w.Code, w.Body)
 		}
+	}
+}
+
+// A provider's 409 signin reached through a route anyone may call (the
+// repos list, in alice's partition) carries the device code to alice only:
+// view-as, an element and another person get the refusal without it.
+func TestSigninCodeOnlyToPerson(t *testing.T) {
+	fx := credFixture(t, modeUser)
+	mux := fx.h.(*http.ServeMux)
+	fx.scm.Person = nil
+	for name, c := range map[string]caller{"view-as": asViewAs, "an element": asElement, "another person": asMgr} {
+		w := callAs(t, mux, c, "GET", "/projects/scm/repos", nil)
+		if w.Code != 409 || !strings.Contains(w.Body.String(), `"refusal":"signin"`) {
+			t.Fatalf("%s: %d %s", name, w.Code, w.Body)
+		}
+		if strings.Contains(w.Body.String(), "ABCD-1234") || strings.Contains(w.Body.String(), "userCode") || strings.Contains(w.Body.String(), "pollId") {
+			t.Fatalf("%s got the device code: %s", name, w.Body)
+		}
+	}
+	if w := callAs(t, mux, asAlice, "GET", "/projects/scm/repos", nil); w.Code != 409 || !strings.Contains(w.Body.String(), `"userCode":"ABCD-1234"`) {
+		t.Fatalf("alice: %d %s", w.Code, w.Body)
 	}
 }
 

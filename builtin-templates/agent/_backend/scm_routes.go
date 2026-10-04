@@ -47,8 +47,10 @@ func scmRoutes() []routeDef {
 
 // writeSCMErr answers a provider's refusal as the agent's: its status, its
 // words, and for programs the refusal with its payload (signin, install,
-// identities, retryAfterMs) passed through.
-func writeSCMErr(w http.ResponseWriter, err error) {
+// identities, retryAfterMs) passed through — a signin's device code only
+// to the person who must sign in (scmSigninFor); anyone else gets the
+// refusal without it.
+func writeSCMErr(w http.ResponseWriter, r *http.Request, err error) {
 	var se *scmError
 	if !errors.As(err, &se) {
 		var sb *sbxError
@@ -63,7 +65,18 @@ func writeSCMErr(w http.ResponseWriter, err error) {
 	if st < 400 || st > 599 {
 		st = http.StatusBadGateway
 	}
+	if se.Signin != nil && !scmSigninFor(callerOf(r)) {
+		cp := *se
+		cp.Signin = nil
+		se = &cp
+	}
 	xbin.WriteJSON(w, st, se)
+}
+
+// scmSigninFor: c is the person a provider's sign-in here is for — the
+// partition's own person, in their own partition, not viewed as.
+func scmSigninFor(c who) bool {
+	return c.kind == whoUser && c.viewedBy == "" && userMode() && c.user == runUser
 }
 
 // --- providers ------------------------------------------------------------------------
@@ -132,12 +145,12 @@ func handleSCMRepos(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	api, err := scmOnly(q.Get("scm"))
 	if err != nil {
-		writeSCMErr(w, err)
+		writeSCMErr(w, r, err)
 		return
 	}
 	page, err := api.Repos(r.Context(), scmQuery{Q: q.Get("q"), Cursor: q.Get("cursor"), Limit: 100})
 	if err != nil {
-		writeSCMErr(w, err)
+		writeSCMErr(w, r, err)
 		return
 	}
 	items := []scmRepo{}
@@ -193,14 +206,13 @@ func handleSCMBotPut(w http.ResponseWriter, r *http.Request) {
 // error is written): only the partition's own person, never view-as, and
 // only in a person's partition.
 func scmSigninAPI(w http.ResponseWriter, r *http.Request, name string) (scmAPI, bool) {
-	c := callerOf(r)
-	if c.kind != whoUser || c.viewedBy != "" || (userMode() && c.user != runUser) {
+	if c := callerOf(r); c.kind != whoUser || c.viewedBy != "" || (userMode() && c.user != runUser) {
 		xbin.WriteError(w, http.StatusForbidden, "only the person signing in can do that")
 		return nil, false
 	}
 	api, err := scmOnly(name)
 	if err != nil {
-		writeSCMErr(w, err)
+		writeSCMErr(w, r, err)
 		return nil, false
 	}
 	if !userMode() {
@@ -229,7 +241,7 @@ func handleSCMSigninGet(w http.ResponseWriter, r *http.Request) {
 	}
 	st, err := api.SigninState(r.Context())
 	if err != nil {
-		writeSCMErr(w, err)
+		writeSCMErr(w, r, err)
 		return
 	}
 	scmKeepSignin(api.Provider(), st)
@@ -247,7 +259,7 @@ func handleSCMSigninPost(w http.ResponseWriter, r *http.Request) {
 	}
 	st, err := api.Signin(r.Context())
 	if err != nil {
-		writeSCMErr(w, err)
+		writeSCMErr(w, r, err)
 		return
 	}
 	scmKeepSignin(api.Provider(), st)
@@ -266,7 +278,7 @@ func handleSCMSigninPoll(w http.ResponseWriter, r *http.Request) {
 	}
 	st, err := api.SigninPoll(r.Context(), poll)
 	if err != nil {
-		writeSCMErr(w, err)
+		writeSCMErr(w, r, err)
 		return
 	}
 	scmKeepSignin(api.Provider(), st)
@@ -287,7 +299,7 @@ func handleSCMSigninDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := api.Forget(r.Context()); err != nil {
-		writeSCMErr(w, err)
+		writeSCMErr(w, r, err)
 		return
 	}
 	scmClearSignin(runUser, api.Provider())

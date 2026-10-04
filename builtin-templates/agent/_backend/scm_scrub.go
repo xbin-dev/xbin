@@ -48,7 +48,10 @@ func scmScrub(ctx context.Context, p *Project, ref, why string) error {
 		if c.State != credLive {
 			continue
 		}
-		if err := scmScrubRow(ctx, p, c, why, nil); err != nil && first == nil {
+		release := scmHoldSandbox(c.Ref)
+		err := scmScrubRow(ctx, p, c, why, nil)
+		release()
+		if err != nil && first == nil {
 			first = err
 		}
 	}
@@ -56,14 +59,10 @@ func scmScrub(ctx context.Context, p *Project, ref, why string) error {
 }
 
 // scmScrubRow scrubs one row (box: the sandbox as already read; nil = read
-// it now). A sandbox that is gone has nothing left to empty.
+// it now); the caller holds c.Ref's lock (scmHoldSandbox). A sandbox that
+// is gone has nothing left to empty.
 func scmScrubRow(ctx context.Context, p *Project, c scmCredRow, why string, box *sbxSandbox) error {
 	key := scmLiveKey(c.PID, c.Ref, c.Host)
-	if box == nil { // the gate's block holds the lock and passes the box
-		mu := scmKeyLock(key)
-		mu.Lock()
-		defer mu.Unlock()
-	}
 	var werr error
 	conn, id, err := sbxDialRef(c.Ref, scmSbxUser(p))
 	if err == nil && box == nil {
@@ -153,8 +152,9 @@ func scmLiveIn(ref string) []scmCredRow {
 	return scmScanCreds(agent.db.q.Query(`SELECT `+scmCredCols+` FROM project_creds WHERE sandbox_ref=? AND state='live'`, ref))
 }
 
-// scmScrubSandbox scrubs every project's credential in ref (a stop or an
-// archive through the agent; a share). The first error is answered.
+// scmScrubSandbox scrubs every project's credential in ref (a share
+// through the agent; scmScrubOnAction), the caller holding ref's lock. The
+// first error is answered.
 func scmScrubSandbox(ctx context.Context, ref, why string) error {
 	var first error
 	for _, c := range scmLiveIn(ref) {
@@ -166,7 +166,7 @@ func scmScrubSandbox(ctx context.Context, ref, why string) error {
 }
 
 // scmScrubForShare scrubs ref before the PATCH that shares it goes out
-// (handlePatchSandbox): false (the error written) refuses the share — a
+// (handlePatchSandbox, holding ref's lock through the PATCH): false (the error written) refuses the share — a
 // credential that couldn't be emptied must not become readable by others.
 func scmScrubForShare(w http.ResponseWriter, ctx context.Context, ref, label string) bool {
 	if err := scmScrubSandbox(ctx, ref, scrubShare); err != nil {
@@ -176,11 +176,26 @@ func scmScrubForShare(w http.ResponseWriter, ctx context.Context, ref, label str
 	return true
 }
 
+// scmScrubOnAction is the stop and archive trigger (handleSandboxAction):
+// for those two it takes ref's lock, scrubs every credential there (best
+// effort) and returns the lock's release, which the caller defers past the
+// lifecycle call — no credential is written between the scrub and the
+// stop. Any other action: nothing, and a release that does nothing.
+func scmScrubOnAction(ctx context.Context, ref, action string) func() {
+	if action != scrubStop && action != scrubArchive {
+		return func() {}
+	}
+	release := scmHoldSandbox(ref)
+	_ = scmScrubSandbox(ctx, ref, action)
+	return release
+}
+
 // projectSandboxGone: sandbox ref was deleted through the agent — nothing
 // is left to empty; what was handed out for it is revoked.
 func projectSandboxGone(ref string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+	defer scmHoldSandbox(ref)()
 	for _, c := range scmLiveIn(ref) {
 		p := scmProjectFor(c, "")
 		scmRevoke(ctx, p, c)
@@ -201,7 +216,10 @@ func scmForgetScrub(ctx context.Context, provider string) error {
 		if p.SCM != provider {
 			continue
 		}
-		if err := scmScrubRow(ctx, p, c, scrubForget, nil); err != nil && first == nil {
+		release := scmHoldSandbox(c.Ref)
+		err := scmScrubRow(ctx, p, c, scrubForget, nil)
+		release()
+		if err != nil && first == nil {
 			first = err
 		}
 	}

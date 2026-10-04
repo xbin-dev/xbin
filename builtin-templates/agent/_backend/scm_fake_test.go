@@ -67,6 +67,7 @@ type fakeSCM struct {
 	LongTokens bool
 	TokenTTL   time.Duration // default 1 h
 	NoCache    bool          // every token request mints a new one
+	TokenHold  func()        // called before each POST /token is answered (outside the fake's lock)
 	signin     *scmSignin    // under way
 	signinOut  string        // what the next poll says: pending | done | denied | expired
 	tokens     []*fakeToken
@@ -336,6 +337,12 @@ func (f *fakeSCM) who(w http.ResponseWriter, as string) (string, bool) {
 func (f *fakeSCM) serve(w http.ResponseWriter, r *http.Request) {
 	body, _ := io.ReadAll(r.Body)
 	route := strings.TrimPrefix(r.URL.Path, "/scm")
+	f.mu.Lock()
+	hold := f.TokenHold
+	f.mu.Unlock()
+	if hold != nil && r.Method == "POST" && route == "/token" {
+		hold()
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reqs = append(f.reqs, fakeSCMReq{Method: r.Method, Path: route, Query: r.URL.RawQuery, Body: string(body)})

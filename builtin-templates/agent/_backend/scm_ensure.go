@@ -18,6 +18,14 @@ import (
 // ensureCreds makes sure ref ("" = k's sandbox, else p's) holds a live
 // credential for p with at least minLeft to run (scmEnsureCreds). It calls
 // the sandbox manager and the provider: the worker's, never the engine's.
+//
+// The gate is asked twice, each time under the sandbox's lock
+// (scmHoldSandbox) against the sandbox as its manager reports it then:
+// before minting (no token for a sandbox it refuses), and again after,
+// held through the files and the row — a share, stop or archive through
+// the agent while the provider was minting is seen there, and its scrub
+// can't run between this write and its change. The provider's call holds
+// only the credential's own key lock.
 func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string, minLeft time.Duration) error {
 	if p == nil {
 		return errors.New("no project")
@@ -39,19 +47,21 @@ func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string, mi
 	if err != nil {
 		return err
 	}
-	box, err := conn.Get(ctx, id)
+	api, err := scmFor(p.SCM)
 	if err != nil {
 		return err
 	}
 	as := scmProjectAs(p)
-	host := p.Host
+	host := scmCredHost(ctx, p, ref, api)
 	key := scmLiveKey(p.ID, ref, host)
 	mu := scmKeyLock(key)
 	mu.Lock()
 	defer mu.Unlock()
-	if why := scmCredWhy(p, as, ref, box); why != "" {
-		scmBlock(ctx, p, k, ref, box, why)
-		return &scmGateError{Box: sbxLabel(box), Why: why}
+	release := scmHoldSandbox(ref)
+	_, err = scmGateNow(ctx, conn, id, p, k, ref, as)
+	release()
+	if err != nil {
+		return err
 	}
 	req := scmTokenReq{Repos: repos, Access: "write", As: as, Purpose: scmPurpose(p, ref)}
 	if scmPolicyOf(p).Workflows {
@@ -60,10 +70,6 @@ func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string, mi
 	if l := scmLiveGet(key); l != nil && l.identity == as && l.scope == scmScopeOf(req) &&
 		time.Until(time.UnixMilli(l.expires)) >= minLeft && scmRowLive(p.ID, ref, l.host) {
 		return nil // a repo added, or workflows turned on, since: minted again
-	}
-	api, err := scmFor(p.SCM)
-	if err != nil {
-		return err
 	}
 	tok, err := api.Token(ctx, req)
 	if err != nil {
@@ -83,6 +89,15 @@ func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string, mi
 	}
 	if v := tok.Token.Reveal(); strings.ContainsAny(v, " \t\r\n\x00") || strings.ContainsAny(tok.Username, "\r\n\x00") {
 		return fmt.Errorf("%s handed out a credential this agent can't write into a file", p.SCM)
+	}
+	defer scmHoldSandbox(ref)()
+	box, err := scmGateNow(ctx, conn, id, p, k, ref, as)
+	if err != nil {
+		var ge *scmGateError
+		if errors.As(err, &ge) { // refused since: what was just handed out stops working too
+			scmRevoke(ctx, p, scmCredRow{PID: p.ID, Ref: ref, Host: host, Purpose: req.Purpose})
+		}
+		return err
 	}
 	key = scmLiveKey(p.ID, ref, host)
 	live := &scmLive{token: tok.Token, host: host, purpose: req.Purpose, identity: as, login: tok.Identity.Login,
@@ -107,6 +122,40 @@ func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string, mi
 	}
 	scmCredsReady(p, k, ref)
 	return nil
+}
+
+// scmGateNow reads ref's sandbox from its manager and asks the gate (the
+// caller holds ref's lock): a refusal blocks the credential there
+// (scmBlock) and is answered as a *scmGateError.
+func scmGateNow(ctx context.Context, conn *sbxConn, id string, p *Project, k *ProjectTask, ref, as string) (*sbxSandbox, error) {
+	box, err := conn.Get(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if why := scmCredWhy(p, as, ref, box); why != "" {
+		scmBlock(ctx, p, k, ref, box, why)
+		return nil, &scmGateError{Box: sbxLabel(box), Why: why}
+	}
+	return box, nil
+}
+
+// scmCredHost is the host p's credential in ref is for, before a token
+// says so: the project's, else the one a row there already names, else
+// the provider's when its hello lists exactly one ("" when none of these
+// can tell: the token's host is taken).
+func scmCredHost(ctx context.Context, p *Project, ref string, api scmAPI) string {
+	if p.Host != "" {
+		return p.Host
+	}
+	for _, c := range agent.db.scmCredsOf(p.ID, ref) {
+		if c.Host != "" && c.Host != "-" {
+			return c.Host
+		}
+	}
+	if h, err := api.Hello(ctx); err == nil && len(h.Hosts) == 1 {
+		return h.Hosts[0]
+	}
+	return ""
 }
 
 // scmRowLive: project_creds still says live (another process, or a scrub,
@@ -209,8 +258,8 @@ func scmRun(ctx context.Context, conn *sbxConn, id, script string, env map[strin
 
 // --- refusals and the task's state ----------------------------------------------------
 
-// scmBlock is the gate refusing ref for p: whatever p wrote there is
-// emptied and revoked, the row says blocked with why, and the task (every
+// scmBlock is the gate refusing ref for p (ref's lock held): whatever p
+// wrote there is emptied and revoked, the row says blocked with why, and the task (every
 // task of p working there, for no k) fails with the gate's words.
 func scmBlock(ctx context.Context, p *Project, k *ProjectTask, ref string, box *sbxSandbox, why string) {
 	unemptied := false

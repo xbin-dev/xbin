@@ -204,6 +204,7 @@ func handlePatchSandbox(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 403, "only the sandbox's owner can change it")
 		return
 	}
+	defer scmHoldSandbox(sandboxRef(rs.conn.M.Provider, rs.id))() // no project's scm credential written while it changes (scm_scrub.go)
 	box := rs.entry.Box
 	if p.Visibility != nil || p.Members != nil || len(p.Shares) > 0 {
 		nb := *box // as the PATCH leaves it
@@ -358,9 +359,7 @@ func handleSandboxAction(w http.ResponseWriter, r *http.Request) {
 		writeSbxErr(w, err)
 		return
 	}
-	if action == "stop" || action == "archive" { // no project's scm credential left in it (scm_scrub.go)
-		_ = scmScrubSandbox(r.Context(), ref, action)
-	}
+	defer scmScrubOnAction(r.Context(), ref, action)() // stop, archive: no project's scm credential left in it (scm_scrub.go)
 	box, err := conn.Lifecycle(r.Context(), id, action, wait, body.Start)
 	if err != nil {
 		writeSbxErr(w, err)
