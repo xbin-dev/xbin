@@ -25,7 +25,7 @@ import { homeOf } from './model/homes.js';
 const pj = () => ctx.app.projects;
 const polled = new Set(); // sign-in polls started, by pollId
 const refreshed = new Set(); // `${runId}:${pollId}`: a task refreshed after that sign-in was done
-const acts = new Map();   // runId → {busy, note}: an action under way on that task ('pr', 'retry'), what it said
+const acts = new Map();   // runId → {busy, note, err}: an action under way on that task ('pr', 'retry'), what it said
 const actOf = (v) => acts.get(v.run.id) || { busy: '', note: '' };
 
 ext.register({
@@ -58,11 +58,12 @@ async function act(v, what, opts) {
   const id = v.run.id;
   acts.set(id, { busy: what, note: '' });
   ctx.paint();
-  let note = '';
+  let note = '', failed = false;
   try { await pj().taskAction(id, what, opts); note = what === 'pr' ? 'the pull request is being opened…' : ''; } catch (e) {
-    note = e.status === 404 && what === 'pr' ? '' : e.message;
+    failed = !(e.status === 404 && what === 'pr'); // the mux's 404: the route isn't here, and the button is gone
+    note = failed ? e.message : '';
   }
-  acts.set(id, { busy: '', note, err: !!note && !(what === 'pr' && note.startsWith('the pull request')) });
+  acts.set(id, { busy: '', note, err: failed });
   ctx.paint();
 }
 
