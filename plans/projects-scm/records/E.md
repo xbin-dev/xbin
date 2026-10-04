@@ -177,7 +177,12 @@
   counts as work (the process would stay up for a day of polling), jobs
   give up after 3 h, and a task's failed job fails its workspace. The
   loop never holds the engine; a person's partition at rest comes back
-  through `userWake`.
+  through `userWake`, and a global instance or an unpartitioned agent
+  stopped with nothing else to do through the `wake` job `leaveWakeUp`
+  leaves at the next read's minute.
+- The transport dedupe is per `for` where deliveries arrive (`for` and
+  `eventId`): a provider delivers one event once to each `for`, with the
+  same `eventId`; a person's partition dedupes on the `eventId` alone.
 - The caller of `/adapter/scm/event` must be the provider itself, at its
   global instance: a person's frame or terminal in the provider's
   partition calls as the provider (docs/partitions.md), and would
@@ -250,6 +255,14 @@
   413; a person's partition answers every delivery 404; it drops an event
   whose `forPid` is empty or whose own partition id is unknown.
 
+- §11.1 (fix round 1): the transport dedupe at the global instance (and
+  unpartitioned) keys `scm_seen` by `for` and `eventId` — the copies of
+  one event for two people, or for a person and `global`, each reach
+  their consumer (docs/scm.md §Delivery: once per `for`).
+- §11.5, §6.10 (fix round 1): `scm_poll.nudge` is a generation (each
+  nudge counts it up; 0 = not nudged), and the guards of a read's update
+  include it.
+
 ## Tests run / not run
 
 All Go runs below are in a scratch copy of the agent backend built as
@@ -299,6 +312,44 @@ parallel: E is built to §4's event contract against K's fake provider).
 | `16efa1b3` | agent template: scm events and polling — E's tests, an atomic clock, a merged PR stays merged |
 | `0d9ca303` | docs: scm events — agent-inbox's route and hand-off, API.md §scm events and polling |
 | `3ef20cb0` | agent template: scm events — a deleted branch moves no head; an unwanted subscription is marked before it is deleted |
+| `b5b2ed70` | agent template: scm events — the transport dedupe is per `for` |
+| `519a7fce` | agent template: scm polling — an idle-stopped unpartitioned agent comes back for its next read |
+| `be42dfa1` | agent template: scm polling — a nudge during a read isn't lost |
+| `4b4271ba` | agent template: scm events — the CI input's budget tested; comments cite the served doc |
+| `30e8d369` | agent template: scm polling — the loop's stale-wake delete reads the mode last |
+
+## Fix round 1
+
+A skeptical verifier's five findings, each checked against the code;
+all five were real and are fixed (none rejected).
+
+| Finding | Fix | Test (fails without the fix) | Commit |
+|---|---|---|---|
+| blocker: the global instance deduped on `eventId` alone, so the copies of one event for a second `for` (bob after alice, a person after `global`) were answered 200 `duplicate` and lost | `scmTransportKey` = `for` + `eventId` at the global instance / unpartitioned; a person's partition still dedupes on the `eventId`; agent-inbox.md §scm events and API.md say "once per `for`" | `TestScmEventDedupePerFor` (one `eventId` for alice, bob and global: two hand-offs, one take; a repeat of each is a duplicate) — without the fix bob's copy is a duplicate | `b5b2ed70` |
+| major: at the global instance and unpartitioned nothing brought an idle-reaped process back for a due read, so a task waiting on CI without webhooks stopped being polled | `leaveWakeUp`'s unpartitioned branch (E's hunk), when there is no other work: `resume` for a read or renewal due within the minute, else `wake` at its minute (`registerWakeJob`; a cron at a past minute would fire a year later, hence `resume`). `owner.go` `clearWakeJobs` (P1's) deletes `wake` only in a person's partition, so `scmLoop` deletes a stale one at its start there (one gateway call per start, skipped without features or a gateway) | `TestPollDueLeavesWakeUnpartitioned` (wake at the read's minute; resume when due; nothing with nothing due) — without the fix no job | `519a7fce`, `30e8d369` |
+| minor: an event nudging a row whose read is in flight (already due, so the nudge kept its time and rewrote it unchanged) was overwritten by that read's stale result — for a final checks read, the row stopped | `scm_poll.nudge` is a generation: `scmPutPoll` counts it up on a nudge (0 otherwise), the row keeps it as read, `scmPollAfter`'s and `scmPollAt`'s guards include `nudge=?`; the read's update misses and the nudged read stands (the next pass makes it). Same column, 0 = not nudged: no migration | `TestPollNudgeDuringRead` — without the fix the row ends with due 0 | `be42dfa1` |
+| minor: §11.3's CI input limits (logBytes, 3 jobs, 120 lines, 409 in-progress) untested | `TestCIFailureInputCapped/logs_budget`: four failing jobs (one running, one short-line 400-line log, two long-line), logBytes 4096 | mutations: 4 jobs, a 200-line tail, no byte cut, the in-progress wording — each fails the subtest | `4b4271ba` |
+| minor: three comments in E's files cited the plan's sections | they cite API.md §scm events and polling ("Routing", "Once only") and `projects_types.go`; the remaining `§14.1` citations under `builtin-templates/` are in K's `scm_scrub.go` and its test (not E's files: left for K/the lead) | — | `4b4271ba` |
+
+Notes: with the generation guard, a nudge during a read that ended in a
+`retryAfterMs` wait (`scmPollAt`) also makes the next pass read at once,
+ahead of the provider's wait — one extra call per such event, which the
+provider may refuse again. The stale-`wake` delete in `scmLoop` is a
+`DELETE` of a job that may not exist (the gateway answers either way).
+
+Checks run (fix round 1), Go in the scratch tile build as above:
+
+| Command | Result |
+|---|---|
+| each new test with its fix stashed | each FAILs (`TestScmEventDedupePerFor`: "the copy for user:bob: 200 {"duplicate":true,…}"; `TestPollDueLeavesWakeUnpartitioned`: no job; `TestPollNudgeDuringRead`: "due 0, nudge false") |
+| `go test -count=1 -v -run 'TestScmEvent\|TestHandoffScmToPartition\|TestRoutingTable\|TestCIFailureInputCapped\|TestSupersededShaIgnored\|TestReviewAssociationFilter\|TestReviewBatching\|TestOwnIdentityIgnored\|TestPoll\|TestSubscriptionLifecycle\|TestLinkedDMHandoff\|TestHandoffRefused\|TestHandoffsWaitWakeGlobal\|TestKeepWakeUp\|TestUserModeWake\|TestLeaveWakeUpByMode\|TestRepliesWaitWakePartition\|TestProjectSeamsRegistration\|TestAdapterRouteTables\|TestRefsJobFiresHooks\|TestWorktreeFlow\|TestProjectArchive\|TestProjectSchemaOldDB' ./backend` | ok, 33 passes (15.1 s) |
+| `go test -count=1 -v -run 'TestHostedWakeUp\|TestHostEngineLocks\|TestHandoffPerPersonBackoff\|TestHarnessPlantedAtGlobalStopped\|TestHarnessRestAfterWork\|TestHarnessIdleWakeUnderHalt\|TestHarnessReclaimUnderBrake\|TestPrivateAutomationsAtGlobal\|TestHostedContinueClaim' ./backend` (engines with a gateway that sees cron calls) | ok, 9 passes |
+| `go test -race -count=1 -v -run 'TestScmEventDedupePerFor\|TestHandoffScmToPartition\|TestPollNudgeDuringRead\|TestPollDueLeavesWakeUnpartitioned\|TestCIFailureInputCapped' ./backend` | first run: a DATA RACE in the test harness — `scmLoop`'s new guard read `userMode()` while `setMode` switched it for the next fixture; the guard now reads `noGateway` first (`30e8d369`); rerun ok, 5 passes (17.1 s), no DATA RACE |
+| `go test ./internal/docscheck` | ok |
+| `make fmt-check vet` | ok |
+| `TILE_TEST_FLAGS="-count=1 -v -run TestScmEventDedupe\|TestScmEventDedupePerFor\|TestHandoffScmToPartition\|TestScmEventCallerMustBeProvider\|TestScmEventForPidMismatchDropped\|TestRoutingTable\|TestCIFailureInputCapped\|TestPollCadence\|TestPollWebhookSemanticDedupe\|TestPollDueInUserWake\|TestPollNudgeDuringRead\|TestPollDueLeavesWakeUnpartitioned\|TestSubscriptionLifecycle\|TestLeaveWakeUpByMode\|TestScmEventsSchemaMigratesTwice\|TestScmEventsSchemaOldDB" hack/tile-check.sh agent` (after the last code commit) | vet and the 16 tests ok (`-v` lists 16 PASS) — ✓ agent |
+
+Full `-race` suite and `make check`: at the gate (lead).
 
 ## Owner questions
 
