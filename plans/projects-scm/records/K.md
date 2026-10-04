@@ -242,8 +242,26 @@ Also dated in projects-scm §19.
   that shares, stops or archives the sandbox. The spec's "gate re-checked
   before every write" alone left that window open. Not taken: holding the
   sandbox's lock across the provider's `Token` (a share would wait up to
-  30 s on a provider), a "writing" row before the files (the lock covers
-  it in this process; a sandbox is changed through one agent process).
+  30 s on a provider). A scrub's revocation does run under the lock
+  (`scmRevoke`: best effort, at most 15 s per credential), so a share or
+  stop through the agent waits that long at most on a slow provider —
+  fix round 3 corrected the fix-round-2 wording that no provider call
+  ever holds it. (Fix round 2 also turned down a row before the files;
+  fix round 3 adds one, next item.)
+- §9.1, §9.6 (fix round 3): a first write — no live row for that host in
+  the sandbox — puts its row `live` with `refresh_ms` 0 (due) before the
+  first file (`scmPendingRow`). A write that then fails partway is
+  scrubbed at once under the sandbox's lock (`scmWriteFailed`: both files
+  emptied, both `…tmp` removed, the purpose revoked) and the row put back
+  as it was (none: removed); files it can't empty keep the row `live` and
+  due, so a share stays refused. A first file the manager refused
+  outright (4xx: nothing landed) is only revoked. A refresh that fails
+  keeps the older live row: it points at the same files, and its scrub
+  takes out the new `…tmp` too (revoking the purpose revokes both values),
+  while the older token keeps working for the task at work. The row write
+  after the files failing drops the token from memory (the next ensure
+  mints again); the live row there covers the files. The spec said
+  nothing about a write that fails partway.
 - §16.2 (fix round 2): `handlePatchSandbox` gains one line taking that
   lock; the stop/archive trigger becomes one deferred line,
   `defer scmScrubOnAction(r.Context(), ref, action)()`, replacing the
@@ -369,8 +387,10 @@ and the UI harness are owed by the program (projects-scm §15.4).
 | `5ed9f899` | plans: projects-scm — K's record and deviations |
 | `b4eb6b87` | agent template: scm credential fixes — an unemptied scrub stays live, scope re-mints, the gate's question in its transaction |
 | `0009b115` | plans: projects-scm — K's record after fix round 1 |
-| (fix round 2) | agent template: scm credential writes and scrubs take turns per sandbox; a device code only to its person; a hostless project's host |
-| (fix round 2) | plans: projects-scm — K's record after fix round 2 |
+| `b7762eff` | agent template: scm credential writes and scrubs take turns per sandbox; a device code only to its person; a hostless project's host |
+| `c00f1558` | plans: projects-scm — K's record after fix round 2 |
+| `7c1e3e0f` | agent template: a credential write that fails partway is scrubbed; the hello's protocol refusal tested |
+| this commit | plans: projects-scm — K's record after fix round 3 |
 
 ## Fix round 2
 
@@ -430,6 +450,69 @@ Checks run in fix round 2 (each targeted; nothing over two minutes):
 | every test in `sandbox*_test.go` and `harness_creds*_test.go` (68, by name) | ok (20 s) |
 | `go test -race -count=1 -run 'TestScrubRacesEnsure\|TestSigninCodeOnlyToPerson\|TestCredsHostless\|TestScrubOn\|TestCredGateBlocks'` | ok |
 | `TILE_TEST_FLAGS="-count=1 -v -run TestScrubRacesEnsure\|TestSigninCodeOnlyToPerson\|TestCredsHostless\|TestScrubOnShare\|TestScrubOnStopDeleteForget" hack/tile-check.sh agent` | ok — vet, and the five tests (with every subtest) PASS (36 s) |
+| `go test ./internal/docscheck`; `make fmt-check vet` | ok |
+
+Full -race suite and make check: at the gate (lead).
+
+## Fix round 3
+
+The verifier's four findings (`last-verify-issues.json`), each checked
+against the code before fixing:
+
+- **Blocker — a write that fails partway leaves an unrevoked token with
+  no row: real.** `ensureCreds` wrote both `…tmp` files, ran the rename
+  and git-config script, and only then put the row; on a failure it only
+  dropped the token from memory. Every scrub selects `live` rows, so the
+  `…tmp` (or the renamed files) kept a working token that no scrub would
+  find, and a share then answered 200. Fixed as in Deviations (§9.1, §9.6
+  fix round 3): a pending `live` row (`refresh_ms` 0) before the first
+  file when none is live there, and `scmWriteFailed` scrubbing a failed
+  first write under the lock (or only revoking when the manager refused
+  the first file outright), then putting the row back. Fix round 2 had
+  turned down a row before the files on the grounds that the lock covers
+  it; the lock covers a race, not a failed write. New
+  `TestCredWriteFailsPartway`: `rename` (the script fails: no row,
+  revoked, no file holds the token, the share answers 200),
+  `refused outright` (a 409 on the first file: no row, revoked),
+  `after a scrub` (the row goes back to `scrubbed`/`stop`), `second file`
+  (the second `…tmp` can't be written or removed: the first `…tmp` is
+  removed, the row stays `live` and due, revoked, the share is refused
+  502 until the obstruction goes, then 200 and `scrubbed`/`share`), and
+  `refresh` (the older row is kept, nothing revoked; the share then
+  empties every file and revokes). On the previous `scm_ensure.go` the
+  first four fail (no revoke, the `…tmp` holds the token); `refresh`
+  passes there too — it pins that a failed refresh doesn't kill the token
+  a task is using. `TestScrubRacesEnsure/archive` covers the outright
+  refusal path through the manager's own 409.
+- **Minor — "a provider's call never holds the sandbox lock": real.** A
+  scrub's `scmRevoke` (15 s bound) runs under it in every scrub, the
+  gate's refusal and `projectSandboxGone`. Corrected the wording, not the
+  code: the `scmHoldSandbox` and `ensureCreds` comments, the §19 line
+  and Deviations now say a provider's `Token` never holds it and a
+  revocation does (best effort, at most 15 s per credential). Moving the
+  revocation past the lock would touch every scrub caller for a bounded
+  wait on a path that already calls the manager.
+- **Minor — the hello's protocol refusal untested: real.** The fake
+  provider gains `Speaks` (the protocol its hello names);
+  `TestScmRefusalDecode` asserts `protocol` with the provider's
+  `protocols` and words, and `TestScmProvidersRoute` lists a third
+  provider speaking protocol 2 with `refusal: protocol`. The mislabelled
+  block is now "a hello at a missing route".
+- **Minor — the Commits table's placeholders: real.** Filled in
+  (`b7762eff`, `c00f1558`); this round's two commits are named by
+  subject (a commit can't name its own hash).
+
+API.md §scm providers and credentials says what a failed write does.
+
+Checks run in fix round 3 (each targeted; nothing over two minutes):
+
+| Command | Result |
+|---|---|
+| `go test -count=1 -run TestCredWriteFailsPartway` (the agent backend in a scratch copy shaped as `hack/tile-check.sh` builds it) | ok (5 subtests) |
+| the same against the previous commit's `scm_ensure.go` | `rename`, `refused outright`, `after a scrub`, `second file` fail as described; `refresh` passes |
+| `go test -count=1 -run 'TestScm\|TestCred\|TestScrub\|TestGitCredential\|TestRefresh\|TestPending\|TestSignin\|TestRedact\|TestSeeded\|TestSCMCreds\|TestNoTickers\|TestSandbox'` | ok (13 s) |
+| `go test -race -count=1 -run 'TestCredWriteFailsPartway\|TestScmRefusalDecode\|TestScmProvidersRoute\|TestScrubRacesEnsure\|TestScrubOnShare\|TestScrubOnStopDeleteForget\|TestCredsHostless\|TestRefreshRewritesFile'` | ok (53 s) |
+| `TILE_TEST_FLAGS="-count=1 -v -run TestCredWriteFailsPartway\|TestScmRefusalDecode\|TestScmProvidersRoute\|TestScrubRacesEnsure\|TestScrubOnShare" hack/tile-check.sh agent` | ok — vet, and the six matched tests (every subtest) PASS |
 | `go test ./internal/docscheck`; `make fmt-check vet` | ok |
 
 Full -race suite and make check: at the gate (lead).
