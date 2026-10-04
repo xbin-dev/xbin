@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 )
 
 // projectGate (Engine.pass, after the inbox is read, before a coding
@@ -71,6 +72,10 @@ func (e *Engine) projectGate(run *Run, rows []*InboxRow) bool {
 	if !ours && (active(run.Status) || !input) {
 		return true // a turn in flight goes on; nothing here would start one
 	}
+	if p.State != projActive {
+		e.shelveTask(run, p, k) // archived: no workspace work goes on, so no park waits for it
+		return false
+	}
 	park := ProjectPark{Project: p.ID, N: k.N, WS: k.WS, Detail: k.Error}
 	if js := e.db.jobsWhere(`WHERE task_id=? AND state IN ('queued','running','waiting') ORDER BY id LIMIT 1`, k.ID); len(js) > 0 {
 		park.Step = orStr(js[0].Step, js[0].Kind)
@@ -102,6 +107,74 @@ func (e *Engine) projectGate(run *Run, rows []*InboxRow) bool {
 		return nil
 	})
 	return false
+}
+
+// shelveTask: task k's turn would wait for a workspace an archived project
+// doesn't prepare. Its inputs go back to the project's queue (the pump
+// delivers them once the project is active again), a wake row is dropped,
+// and the run rests — nothing of it keeps the engine (hasWork) or a
+// person's partition (userWake) up. A message with files stays in the
+// inbox (the queue holds text only).
+func (e *Engine) shelveTask(run *Run, p *Project, k *ProjectTask) {
+	err := e.fenced(func(t *DB) error {
+		// newest first, each ahead of the whole queue: they were delivered
+		// before anything still in it, and keep their own order
+		for _, row := range t.inboxRows(`WHERE run_id=? AND delivered_at=0 AND kind IN (?, ?, ?) ORDER BY id DESC`, run.ID, inboxUser, inboxHPrompt, inboxWake) {
+			if row.Kind == inboxWake {
+				_, _ = t.q.Exec(`DELETE FROM inbox WHERE id=?`, row.ID)
+				continue
+			}
+			if len(row.Body.Files) > 0 {
+				continue
+			}
+			kind, src := "input", orStr(row.Body.Source, srcHuman)
+			if row.ClientID == startClientID(p.ID, k.N) {
+				kind = "start"
+			}
+			text := row.Body.Text
+			if src == srcCoordinator {
+				text = strings.TrimPrefix(text, coordFrame)
+			}
+			if _, err := t.q.Exec(`INSERT INTO project_queue (id, project_id, n, kind, text, source, sender, created)
+				VALUES ((SELECT MIN(id) - 1 FROM project_queue), ?, ?, ?, ?, ?, ?, ?)`,
+				p.ID, k.N, kind, text, src, row.Body.Sender, nowMs()); err != nil {
+				return err
+			}
+			if _, err := t.q.Exec(`DELETE FROM inbox WHERE id=?`, row.ID); err != nil {
+				return err
+			}
+		}
+		if err := t.setStatus(run.ID, statusIdle, 0, "", ""); err != nil {
+			return err
+		}
+		e.emitStep(t, rootOf(run), t.journal(run.ID, "note", map[string]string{"text": "the project is " + p.State + ": this task's input waits in its queue"}))
+		e.emitInbox(t, run.ID, run.ID)
+		e.emitRun(t, run.ID)
+		return nil
+	})
+	if err == nil {
+		run.Status, run.Pending, run.Result, run.WakeAt = statusIdle, "", "", 0
+	}
+}
+
+// gateHeldSQL (hasWork, userWake; inbox alias i): not a row of a task run
+// the gate parked waiting for a person — a sign-in, a failed workspace, a
+// refused cleanup. Its input waits for that person's act (which brings the
+// process up by itself, and whose job the worker's terms count), so it is
+// no work that keeps the engine or wakes a person's partition.
+const gateHeldSQL = `i.run_id NOT IN (SELECT id FROM runs WHERE status='waiting_input' AND origin='project'
+	AND json_extract(CASE WHEN json_valid(pending) THEN pending ELSE '{}' END, '$.kind')='project')`
+
+// shelveTasks (archiving project pid): every task run is poked — the gate
+// of one parked for its workspace, or with input waiting for it, shelves it.
+func (ag *Agent) shelveTasks(pid int64) {
+	e := projEng()
+	if e == nil {
+		return
+	}
+	for _, id := range scanIDs(ag.db.q.Query(`SELECT run_id FROM project_tasks WHERE project_id=? AND run_id<>0`, pid)) {
+		e.Poke(id)
+	}
 }
 
 // unparkTask ends the gate's park: the run rests, its inbox still holds

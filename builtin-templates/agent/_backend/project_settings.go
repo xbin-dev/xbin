@@ -599,6 +599,22 @@ func runTask(w http.ResponseWriter, r *http.Request) (*Project, *ProjectTask, bo
 	return p, k, true
 }
 
+// actTask is runTask for the routes that act on a task (/task/refresh,
+// retry, close, cleanup): the caller must also be a participant of the
+// project — a task's creator removed from it keeps the conversation (they
+// own it), not the project's workspace.
+func actTask(w http.ResponseWriter, r *http.Request) (*Project, *ProjectTask, bool) {
+	p, k, ok := runTask(w, r)
+	if !ok {
+		return nil, nil, false
+	}
+	if lv := projAg().db.projectLevel(callerOf(r), p.ID); lv < lvParticipant {
+		xbin.WriteError(w, 403, fmt.Sprintf("acting on a task of project %s needs a participant of it", p.Name))
+		return nil, nil, false
+	}
+	return p, k, true
+}
+
 func handleRunTask(w http.ResponseWriter, r *http.Request) {
 	if p, k, ok := runTask(w, r); ok {
 		xbin.WriteJSON(w, 200, projAg().db.taskAnswer(p, k, callerOf(r)))
@@ -608,7 +624,7 @@ func handleRunTask(w http.ResponseWriter, r *http.Request) {
 // handleTaskAct: POST /runs/{id}/task/refresh | retry | close.
 func handleTaskAct(act string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		p, k, ok := runTask(w, r)
+		p, k, ok := actTask(w, r)
 		if !ok {
 			return
 		}
@@ -646,7 +662,7 @@ func handleTaskAct(act string) http.HandlerFunc {
 // dirty) while a checkout has uncommitted or unpushed work, unless force,
 // which only the conversation's owner sends (the route's need).
 func handleTaskCleanup(w http.ResponseWriter, r *http.Request) {
-	p, k, ok := runTask(w, r)
+	p, k, ok := actTask(w, r)
 	if !ok {
 		return
 	}
@@ -675,7 +691,8 @@ func handleTaskCleanup(w http.ResponseWriter, r *http.Request) {
 	err := projAg().db.Tx(func(t *DB) error {
 		j, err := t.queueJob(p.ID, k.ID, "", pjCleanup, callerOf(r).tag(), 0)
 		if err == nil && o.Force {
-			_, err = t.q.Exec(`UPDATE project_jobs SET client_id='force' WHERE id=?`, j.ID)
+			// the live row may be running: finish runs it once more, forced (rerunMarks)
+			_, err = t.q.Exec(`UPDATE project_jobs SET client_id=? WHERE id=?`, cleanupForce, j.ID)
 		}
 		return err
 	})

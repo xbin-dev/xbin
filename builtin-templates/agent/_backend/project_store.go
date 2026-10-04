@@ -54,9 +54,8 @@ func init() {
 	}
 }
 
-// projectSchema is every P1 table (projects-scm §6.1–§6.7 of the design;
-// API.md §Projects and tasks). New columns are added with addColumn below,
-// never by editing a CREATE.
+// projectSchema is every Projects table (API.md §Projects and tasks). New
+// columns are added with addColumn below, never by editing a CREATE.
 const projectSchema = `
 CREATE TABLE IF NOT EXISTS projects (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -405,7 +404,7 @@ func validRepo(repo string) bool {
 	return ok && part(o) && part(n)
 }
 
-// branchPrefix is the policy's prefix, or xbin/<uid> (projects-scm V4).
+// branchPrefix is the policy's prefix, or xbin/<uid> (API.md §The workspace).
 func (p *Project) branchPrefix(pol ProjectPolicy) string {
 	if pol.BranchPrefix != "" {
 		return pol.BranchPrefix
@@ -430,7 +429,7 @@ func validBranchPrefix(s string) bool {
 	return true
 }
 
-// portsOf is task n's ports (projects-scm §8.2).
+// portsOf is task n's ports (API.md §The workspace).
 func portsOf(pol ProjectPolicy, n int64) TaskPorts {
 	slots := max(pol.Ports.Slots, 1)
 	return TaskPorts{Base: pol.Ports.Base + int((n-1)%int64(slots))*pol.Ports.Span, Span: pol.Ports.Span}
@@ -628,7 +627,7 @@ func (d *DB) projectLevel(w who, pid int64) level {
 }
 
 // copyACLToTasks writes the project's sharing onto every task conversation
-// it has (projects-scm §6.13; the precedent of triggers_admin.go): the run
+// it has (API.md §Projects and tasks; the precedent of triggers_admin.go): the run
 // owner stays the task's creator; visibility, team role and members are the
 // project's. Coordinators stay private. The caller flushes and re-publishes
 // (afterACLChange).

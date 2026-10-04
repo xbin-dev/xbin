@@ -12,6 +12,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -135,11 +136,16 @@ func runDeleted(t *DB, id int64) error {
 func projRedact(s string) string { return scmRedact(redactText(s)) }
 
 // untrusted frames scm text for a model: clipped (8 KiB), redacted, said to
-// be data from host.
+// be data from host. The frame's own markers inside the text are defused
+// (their bracket made a parenthesis), so the text can't close the frame
+// early and pass what follows off as the agent's own words.
 func untrusted(host, what, s string) string {
 	return fmt.Sprintf("[untrusted — from %s: %s]\n%s\n[end of untrusted text]", orStr(host, "the scm provider"), what,
-		clip(projRedact(s), 8<<10))
+		frameMarkers.ReplaceAllString(clip(projRedact(s), 8<<10), "($1"))
 }
+
+// frameMarkers finds untrusted's markers (any case, any spacing).
+var frameMarkers = regexp.MustCompile(`(?i)\[(\s*(?:end\s+of\s+)?untrusted)`)
 
 // --- project events ------------------------------------------------------------------
 

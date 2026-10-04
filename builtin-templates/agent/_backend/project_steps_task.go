@@ -118,8 +118,11 @@ func jobBind(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 	if err != nil {
 		return doneJob("the task's conversation is gone")
 	}
+	// the project's sandbox is used with its owner's authority, as its
+	// repo and prepare jobs are: the owner chose it, and a participant
+	// (who may create tasks) needn't be a member of it
 	ref, cwd := taskRef(p, k), k.cwd()
-	b, err := prepareBinding(ctx, binderWho(k.CreatedBy), cfg, sandboxPick{Ref: ref, Cwd: cwd})
+	b, err := prepareBinding(ctx, binderWho(p.Owner), cfg, sandboxPick{Ref: ref, Cwd: cwd})
 	if err != nil {
 		var be *bindError
 		if errors.As(err, &be) {
@@ -424,6 +427,9 @@ done
 if [ -d "$TASK_DIR" ] && [ -z "$(find "$TASK_DIR" -mindepth 1 -maxdepth 1 -type d)" ]; then rm -rf -- "$TASK_DIR"; fi
 `
 
+// cleanupForce marks a cleanup job forced (its client id).
+const cleanupForce = "force"
+
 // jobCleanup removes a task's worktrees and branch — refused (ws blocked)
 // while a checkout has uncommitted or unpushed work, unless the job was
 // forced (by the conversation's owner). A project-level cleanup is the
@@ -461,7 +467,7 @@ func jobCleanup(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 	if err != nil {
 		return jobOutcome{}, err
 	}
-	if j.ClientID != "force" {
+	if j.ClientID != cleanupForce {
 		dirty, err := dirtyIn(ctx, s, p, k, live)
 		if err != nil {
 			return jobOutcome{}, err

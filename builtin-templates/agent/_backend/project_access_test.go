@@ -119,6 +119,30 @@ func projectAccessUnpartitioned(t *testing.T) {
 	if got := callAs(t, fx.mux, asCarol, "DELETE", fmt.Sprintf("/projects/%d/members/alice", p.ID), nil).Code; got != 403 {
 		t.Errorf("carol removes someone else: %d", got)
 	}
+	// a participant's task works in the project's sandbox, which isn't
+	// theirs (alice's, private): it is used with the project owner's say
+	ks, _ := fx.ag.db.tasksWhere(`WHERE project_id=? AND created_by='carol'`, p.ID)
+	if len(ks) != 1 {
+		t.Fatalf("carol's tasks: %d", len(ks))
+	}
+	fx.waitWS(t, p.ID, ks[0].N, wsReady)
+	// removed, carol keeps her task's conversation (hers) but acts on the
+	// project's tasks no more
+	if w := callAs(t, fx.mux, asCarol, "POST", fmt.Sprintf("/runs/%d/task/refresh", ks[0].RunID), map[string]any{}); w.Code != 202 {
+		t.Fatalf("carol refreshes her task: %d %s", w.Code, w.Body)
+	}
+	if w := callAs(t, fx.mux, asAlice, "DELETE", fmt.Sprintf("/projects/%d/members/carol", p.ID), nil); w.Code != 204 {
+		t.Fatalf("carol removed: %d %s", w.Code, w.Body)
+	}
+	for _, act := range []string{"refresh", "retry", "close", "cleanup"} {
+		if w := callAs(t, fx.mux, asCarol, "POST", fmt.Sprintf("/runs/%d/task/%s", ks[0].RunID, act), map[string]any{"force": true}); w.Code != 403 {
+			t.Errorf("carol, removed, %s her task: %d %s", act, w.Code, w.Body)
+		}
+	}
+	// a model pick is checked as a conversation's is
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/tasks", p.ID), map[string]any{"text": "x", "model": "bad\x01model"}); w.Code != 400 {
+		t.Errorf("a model with a control character: %d %s", w.Code, w.Body)
+	}
 }
 
 // At a partitioned agent's global instance a project is a team definition
@@ -273,6 +297,7 @@ func TestTaskReposOfProjectOnly(t *testing.T) {
 func TestProjectRunBarred(t *testing.T) {
 	t.Run("unpartitioned", projectRunBarredUnpartitioned)
 	t.Run("publish in a partition", projectPublishBarredInPartition)
+	t.Run("hosting at global", projectHostingBarredAtGlobal)
 }
 
 func projectRunBarredUnpartitioned(t *testing.T) {
@@ -297,7 +322,7 @@ func projectRunBarredUnpartitioned(t *testing.T) {
 	if isChat(originProject) {
 		t.Error("a project's run would move home")
 	}
-	// publish and the hosting move refuse it through the same check
+	// the helper every entry point asks (the routes: the subtests)
 	rec := httptest.NewRecorder()
 	if !projectRunBarred(rec, runID) || rec.Code != 409 {
 		t.Errorf("projectRunBarred: %d", rec.Code)
@@ -321,5 +346,26 @@ func projectPublishBarredInPartition(t *testing.T) {
 	w := callAs(t, mux, asAlice, "POST", fmt.Sprintf("/runs/%d/publish", run.ID), map[string]any{"share": map[string]any{"visibility": "team"}})
 	if w.Code != 409 || !strings.Contains(w.Body.String(), "task of project") {
 		t.Fatalf("publishing a project's run: %d %s", w.Code, w.Body)
+	}
+}
+
+// POST /hosted, a person hosting a shared conversation from their
+// partition, refuses a project's conversation through its route. (A copy
+// into a person's partition, POST /copy, reads through the export, which
+// stays; publishing is the copy out of a partition, tested above.)
+func projectHostingBarredAtGlobal(t *testing.T) {
+	ag, h := moveAgent(t)
+	withTeam(t)
+	stubMail(t)
+	var run Run
+	serveJSON(t, h, as("POST", "/ask", `{"text":"x","share":{"members":[{"user":"bob","role":"participant"}]}}`, f5("alice", "read")), 200, &run)
+	waitStatus(t, ag.db, run.ID, statusIdle)
+	p := insertTestProject(t, ag.db, "alice")
+	if _, err := ag.db.q.Exec(`UPDATE runs SET origin=?, origin_id=? WHERE id=?`, originProject, p.ID, run.ID); err != nil {
+		t.Fatal(err)
+	}
+	rec := serveJSON(t, h, as("POST", "/hosted", fmt.Sprintf(`{"conversation":%d}`, run.ID), f5("alice", "read")), 409, nil)
+	if !strings.Contains(rec.Body.String(), "task of project Web") {
+		t.Fatalf("hosting a project's conversation: %s", rec.Body)
 	}
 }

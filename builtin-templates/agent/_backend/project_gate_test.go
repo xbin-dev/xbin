@@ -151,6 +151,14 @@ func TestSigninParksTask(t *testing.T) {
 	if !strings.Contains(r.Result, "sign in to github.com") {
 		t.Fatalf("the park's words: %q", r.Result)
 	}
+	// its start waits in the inbox, yet is no work of the engine's: the
+	// person's sign-in ends the park (hasWork, userWake count the job)
+	var all, work int
+	_ = fx.ag.db.q.QueryRow(`SELECT count(*) FROM inbox i WHERE i.run_id=? AND i.delivered_at=0`, runID).Scan(&all)
+	_ = fx.ag.db.q.QueryRow(`SELECT count(*) FROM inbox i WHERE i.run_id=? AND i.delivered_at=0 AND `+gateHeldSQL, runID).Scan(&work)
+	if all == 0 || work != 0 {
+		t.Fatalf("the parked start: %d in the inbox, %d counted as work", all, work)
+	}
 	signin.Store(false)
 	_, _ = fx.ag.db.q.Exec(`UPDATE project_jobs SET next_ms=0 WHERE state='waiting'`)
 	kickProjectWorker()

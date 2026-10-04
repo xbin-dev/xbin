@@ -530,11 +530,12 @@ func handlePatchProject(w http.ResponseWriter, r *http.Request) {
 		}
 		cols["team_role"] = *body.TeamRole
 	}
-	archive := false
+	archive, unarchive := false, false
 	if body.State != nil {
 		switch *body.State {
 		case projActive, projArchived:
 			archive = *body.State == projArchived && p.State != projArchived
+			unarchive = *body.State == projActive && p.State == projArchived
 			cols["state"] = *body.State
 		default:
 			xbin.WriteError(w, 400, `state: "active" or "archived"`)
@@ -564,6 +565,15 @@ func handlePatchProject(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 		}
+		if unarchive {
+			// the jobs archiving held wait no longer: their age starts again
+			// (projJobMaxAge), and the worker takes them up now
+			if _, err := t.q.Exec(`UPDATE project_jobs SET created_ms=?, next_ms=0 WHERE project_id=? AND state IN ('queued','waiting')`,
+				nowMs(), p.ID); err != nil {
+				return err
+			}
+			t.AfterCommit(kickProjectWorker)
+		}
 		emitProject(t, p.ID, "project", 0)
 		return nil
 	})
@@ -576,6 +586,7 @@ func handlePatchProject(w http.ResponseWriter, r *http.Request) {
 	}
 	if archive {
 		go scrubProject(p.ID, "", "archive")
+		projAg().shelveTasks(p.ID)
 	}
 	go projectPump(p.ID)
 	np, _ := projAg().db.getProject(p.ID)

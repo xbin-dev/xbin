@@ -249,6 +249,37 @@ func TestCleanupForceOwnerOnly(t *testing.T) {
 	if _, err := os.Stat(co); !os.IsNotExist(err) {
 		t.Fatalf("the forced cleanup left the worktree: %v", err)
 	}
+
+	// forced while a cleanup that isn't runs: that one done (refused),
+	// the forced one runs after it — the mark isn't written over
+	_, run2 := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "two"})
+	k2 := fx.waitWS(t, p.ID, 2, wsReady)
+	commitIn(t, filepath.Join(k2.Dir, "web"), "x.txt", "x")
+	_ = fx.ag.db.putSetting("halt", "1") // the worker claims nothing meanwhile
+	j, err := fx.ag.db.queueJob(p.ID, k2.ID, "", pjCleanup, "alice", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fx.ag.eng.mu.Lock()
+	epoch := fx.ag.eng.epoch
+	fx.ag.eng.mu.Unlock()
+	_, _ = fx.ag.db.q.Exec(`UPDATE project_jobs SET state='running', epoch=? WHERE id=?`, epoch, j.ID)
+	j.Epoch = epoch
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/task/cleanup", run2), map[string]any{"force": true}); w.Code != 202 {
+		t.Fatalf("forcing: %d %s", w.Code, w.Body)
+	}
+	projWorkers.Lock()
+	wk := projWorkers.m[fx.ag.eng]
+	projWorkers.Unlock()
+	pp, _ := fx.ag.db.getProject(p.ID)
+	out, _ := doneJob("refused: work that isn't pushed")
+	wk.finish(pp, k2, j, out, nil)
+	if js := fx.ag.db.jobsWhere(`WHERE id=?`, j.ID); len(js) != 1 || js[0].State != pjQueued || js[0].ClientID != cleanupForce {
+		t.Fatalf("the forced cleanup after the running one: %s", jobsDump(fx.ag.db, p.ID))
+	}
+	_ = fx.ag.db.putSetting("halt", "")
+	kickProjectWorker()
+	fx.waitWS(t, p.ID, 2, wsCleaned)
 }
 
 // Deleting a task's conversation marks the task deleted and cleans its
@@ -388,5 +419,31 @@ func TestHarnessTask(t *testing.T) {
 		hwait(t, "printenv "+name, func() bool {
 			return turnOver(fx.ag, runID)() && strings.Contains(fullText(fx.ag.db, runID), "printenv: "+want)
 		})
+	}
+
+	// a start that waited for a slot past its workspace's readiness gets
+	// the brief too: one slot, task 1 holding it (it waits for a person)
+	cur, _ := fx.ag.db.getProject(p.ID)
+	if w := callAs(t, fx.mux, asAlice, "PATCH", fmt.Sprintf("/projects/%d", p.ID), map[string]any{"version": cur.Version,
+		"policy": map[string]any{"maxTasks": 1}}); w.Code != 200 {
+		t.Fatalf("maxTasks 1: %d %s", w.Code, w.Body)
+	}
+	if err := fx.ag.db.setStatus(runID, statusWaiting, 0, "which one?", ""); err != nil {
+		t.Fatal(err)
+	}
+	_, run2 := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "fix the footer", "agent": map[string]any{"provider": "fake"}})
+	fx.waitWS(t, p.ID, 2, wsReady)
+	if startDelivered(fx, p.ID, 2) {
+		t.Fatal("task 2 started without a slot")
+	}
+	if err := fx.ag.db.setStatus(runID, statusIdle, 0, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	hwait(t, "task 2's first turn", func() bool {
+		return turnOver(fx.ag, run2)() && strings.Contains(fullText(fx.ag.db, run2), "fix the footer")
+	})
+	text = fullText(fx.ag.db, run2)
+	if i, j := strings.Index(text, "# Project"), strings.Index(text, "fix the footer"); i < 0 || j < i {
+		t.Fatalf("a queued start's first prompt doesn't start with the brief: %s", clip(text, 600))
 	}
 }

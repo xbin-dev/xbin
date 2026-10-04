@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Deleting a project: its tasks' workspaces cleaned, their conversations
@@ -99,9 +100,22 @@ func TestProjectArchive(t *testing.T) {
 	if w := callAs(t, fx.mux, asAlice, "PATCH", fmt.Sprintf("/projects/%d", p.ID), map[string]any{"version": cur.Version, "name": "stale"}); w.Code != 412 {
 		t.Fatalf("a stale version: %d %s", w.Code, w.Body)
 	}
-	_ = fx.ag.db.setStatus(r1, statusIdle, 0, "", "")
+	// its parked task rests, its start back in the queue (first); its
+	// workspace jobs wait untouched; nothing keeps the engine or wakes a
+	// partition
+	waitStatus(t, fx.ag.db, r1, statusIdle)
+	if qs := fx.ag.db.queuedInputs(p.ID, 0); len(qs) != 2 || qs[0].N != 1 || qs[0].Kind != "start" || qs[1].N != 2 {
+		t.Fatalf("the queue after archiving: %+v", qs)
+	}
+	if js := fx.ag.db.jobsWhere(`WHERE project_id=? AND task_id<>0 AND state IN ('queued','waiting')`, p.ID); len(js) == 0 {
+		t.Fatalf("the held jobs: %s", jobsDump(fx.ag.db, p.ID))
+	}
+	waitFor(t, "no work left", func() bool {
+		runnable, _ := fx.ag.db.projectsWake(time.Now())
+		return !fx.ag.db.projectsWork() && !runnable && !fx.ag.db.hasWork()
+	})
 	projectPump(p.ID)
-	if startDelivered(fx, p.ID, 2) {
+	if startDelivered(fx, p.ID, 1) || startDelivered(fx, p.ID, 2) {
 		t.Fatal("an archived project's pump started a task")
 	}
 	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/tasks", p.ID), map[string]any{"text": "three"}); w.Code != 409 {
@@ -111,7 +125,17 @@ func TestProjectArchive(t *testing.T) {
 	if w := callAs(t, fx.mux, asAlice, "PATCH", fmt.Sprintf("/projects/%d", p.ID), map[string]any{"version": cur.Version, "state": "active"}); w.Code != 200 {
 		t.Fatalf("unarchive: %d %s", w.Code, w.Body)
 	}
-	waitFor(t, "task 2's start once active", func() bool { return startDelivered(fx, p.ID, 2) })
+	// active again: task 1 takes its slot back and its workspace goes on
+	waitFor(t, "task 1's start once active", func() bool { return startDelivered(fx, p.ID, 1) })
+	waitStatus(t, fx.ag.db, r1, statusSleep)
+	if startDelivered(fx, p.ID, 2) {
+		t.Fatal("task 2 took task 1's slot")
+	}
+	_, release := holdSetup(fx)
+	if err := os.WriteFile(release, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fx.waitWS(t, p.ID, 1, wsReady)
 }
 
 // Repos come and go: one added is cloned; one open tasks use is removed

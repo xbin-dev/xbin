@@ -3,7 +3,7 @@
 // scm event sends a task wait in project_queue; projectPump moves them,
 // oldest first, into their runs' inboxes while fewer than policy.maxTasks
 // tasks hold a slot (their run running, awaiting, sleeping or waiting for a
-// person). An input marked hold_park waits while its run waits for a person
+// person, or an input already in its inbox it hasn't taken up). An input marked hold_park waits while its run waits for a person
 // (the coordinator never answers a park). A person's own message to a task
 // bypasses the queue. Nothing moves while a manager's halt is on, or while
 // the project isn't active.
@@ -25,12 +25,28 @@ func holdsSlot(status string) bool {
 	return false
 }
 
+// slotHeldSQL: task run r holds a slot — by its status, or by an input
+// waiting in its inbox (a start the pump delivered that the run's pass
+// hasn't taken up yet: a second pump in that window must count it).
+const slotHeldSQL = `(r.status IN ('running','queued','blocked','awaiting','sleeping','waiting_input')
+	OR EXISTS (SELECT 1 FROM inbox i WHERE i.run_id=r.id AND i.delivered_at=0 AND i.kind IN ('user','hprompt')))`
+
 // slotsUsed is how many of project pid's tasks hold a slot now.
 func (d *DB) slotsUsed(pid int64) int {
 	var n int
 	_ = d.q.QueryRow(`SELECT count(*) FROM project_tasks k JOIN runs r ON r.id=k.run_id
-		WHERE k.project_id=? AND k.run_id<>0 AND r.status IN ('running','queued','blocked','awaiting','sleeping','waiting_input')`, pid).Scan(&n)
+		WHERE k.project_id=? AND k.run_id<>0 AND `+slotHeldSQL, pid).Scan(&n)
 	return n
+}
+
+// runHoldsSlot: run holds one of its project's slots (slotHeldSQL).
+func (d *DB) runHoldsSlot(run *Run) bool {
+	if holdsSlot(run.Status) {
+		return true
+	}
+	var n int
+	_ = d.q.QueryRow(`SELECT count(*) FROM runs r WHERE r.id=? AND `+slotHeldSQL, run.ID).Scan(&n)
+	return n > 0
 }
 
 // queueTaskInput puts a task's start or a message to it in the queue (in
@@ -95,7 +111,12 @@ func (d *DB) queuedInputs(pid, n int64) []taskInput {
 // run's status changes, after a create, a queue insert and a policy change.
 func projectPump(pid int64) {
 	ag := projAg()
-	if ag == nil || ag.db.getSetting("halt") == "1" {
+	if ag == nil {
+		return
+	}
+	if ag.db.getSetting("halt") == "1" {
+		pumpHeld.Store(true) // the worker pumps once the halt is off
+		kickProjectWorker()
 		return
 	}
 	var poke []int64
@@ -124,7 +145,7 @@ func projectPump(pid int64) {
 			if in.HoldPark && run.Status == statusWaiting {
 				continue // the person answers first
 			}
-			if !holdsSlot(run.Status) {
+			if !t.runHoldsSlot(run) {
 				if holders >= max {
 					continue
 				}
@@ -148,13 +169,16 @@ func projectPump(pid int64) {
 	}
 }
 
+// coordFrame opens the coordinator's words in a task's inbox.
+const coordFrame = "[message from the project coordinator]\n"
+
 // deliverTaskInput writes one queued input into its run's inbox (a coding
 // agent's: a prompt) and drops it from the queue. The coordinator's words
 // are framed as its own; an event's text comes framed by its sender.
 func deliverTaskInput(t *DB, p *Project, k *ProjectTask, run *Run, in taskInput) error {
 	text := in.Text
 	if in.Source == srcCoordinator {
-		text = "[message from the project coordinator]\n" + text
+		text = coordFrame + text
 	}
 	body := inboxBody{Text: text, Source: in.Source, Sender: in.Sender, OriginID: p.ID, Label: p.Name}
 	if in.Source == srcHuman {
@@ -166,7 +190,13 @@ func deliverTaskInput(t *DB, p *Project, k *ProjectTask, run *Run, in taskInput)
 	}
 	cid := ""
 	if in.Kind == "start" {
-		cid = startClientID(p.ID, k.N) // a coding agent's start gets its brief once the workspace is ready (jobBind)
+		// a coding agent's start gets its brief once the workspace is ready:
+		// here when it is already (a start that waited for a slot), else at
+		// bind (jobBind rewrites the row by this client id)
+		cid = startClientID(p.ID, k.N)
+		if run.Engine == engineHarness && k.WS == wsReady {
+			body.Text = harnessBrief(t, p, k, body.Text)
+		}
 	}
 	if _, _, err := t.enqueue(run.ID, kind, body, cid); err != nil {
 		return err
@@ -188,6 +218,21 @@ func deliverTaskInput(t *DB, p *Project, k *ProjectTask, run *Run, in taskInput)
 // dropQueued forgets every queued input of task n (cancel, close).
 func (d *DB) dropQueued(pid, n int64) {
 	_, _ = d.q.Exec(`DELETE FROM project_queue WHERE project_id=? AND n=?`, pid, n)
+}
+
+// dropUntaken forgets the input waiting in a task run's inbox that it
+// hasn't taken up (cancel, close: a start the gate kept, say) — left, the
+// next pass would start the turn again, and it would hold a slot.
+func (d *DB) dropUntaken(runID int64) {
+	if runID == 0 {
+		return
+	}
+	res, err := d.q.Exec(`DELETE FROM inbox WHERE run_id=? AND delivered_at=0 AND kind IN (?, ?, ?)`, runID, inboxUser, inboxHPrompt, inboxWake)
+	if err == nil && rowsAffected(res) > 0 {
+		if e := projEng(); e != nil {
+			e.emitInbox(d, runID, runID)
+		}
+	}
 }
 
 // queueWords is a short view of what waits in the queue for a task (the

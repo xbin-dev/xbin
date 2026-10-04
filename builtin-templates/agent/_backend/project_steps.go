@@ -271,7 +271,7 @@ func jobSandbox(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) 
 
 // --- repo, fetch ---------------------------------------------------------------------------------
 
-// repoScript makes or repairs a bare base repo (projects-scm §8.3's script;
+// repoScript makes or repairs a bare base repo (API.md §The workspace;
 // the credential lines come as GIT_CFG_<i>_K / _V pairs).
 const repoScript = `[ -d "$B" ] || git init -q --bare "$B"
 git -C "$B" remote get-url origin >/dev/null 2>&1 || git -C "$B" remote add origin "$U"

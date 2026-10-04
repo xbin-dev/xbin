@@ -75,7 +75,7 @@ func (d *DB) userWake(now time.Time) userWakeAt {
 	// a coding agent (harness_partition.go)
 	_ = d.q.QueryRow(`SELECT
 		(SELECT count(*) FROM runs WHERE status IN ('running','queued'))
-		+ (SELECT count(*) FROM inbox WHERE delivered_at=0)
+		+ (SELECT count(*) FROM inbox i WHERE i.delivered_at=0 AND ` + gateHeldSQL + `) -- a task parked for a person (project_gate.go)
 		+ (SELECT count(*) FROM links l JOIN runs p ON p.id = l.parent_id
 			WHERE l.state<>'running' AND l.delivered=0 AND (
 				(l.mode='fg' AND p.status IN ('running','queued','awaiting'))

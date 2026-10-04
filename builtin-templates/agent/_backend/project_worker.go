@@ -41,7 +41,12 @@ type projWorker struct {
 	locked  map[string]bool // sandboxes a git step is running in
 	pending bool            // live jobs other than fetches exist (the hold)
 	swept   time.Time
+	pumped  bool // the first pass ran the pumps (a restart's queues)
 }
+
+// pumpHeld: a pump found the halt on — the worker pumps every queue once
+// it is off (a person's message, the manager's toggle: neither pumps).
+var pumpHeld atomic.Bool
 
 var projWorkers = struct {
 	sync.Mutex
@@ -119,15 +124,25 @@ func (e *Engine) projectsHoldLocked() bool {
 	return len(w.busy) > 0 || w.pending
 }
 
+// claimableSQL: a job the worker takes up — any job of an active project;
+// of an archived (or deleting) one only its cleanup and scrub. The rest of
+// an archived project's jobs wait, untouched, until it is active again.
+const claimableSQL = `(kind IN ('cleanup','scrub') OR project_id IN (SELECT id FROM projects WHERE state='active'))`
+
+// liveJobsSQL: the jobs that are the worker's work — running, or queued
+// and waiting ones it would take up (claimableSQL); never a fetch. The
+// hold, hasWork and userWake count these and nothing else.
+const liveJobsSQL = `kind<>'fetch' AND (state='running' OR (state IN ('queued','waiting') AND ` + claimableSQL + `))`
+
 // projectsWork (hasWork): jobs other than fetches are live — the engine
 // has work no person needs to start. A fetch alone never brings a stopped
-// process back.
+// process back; nor does a job an archived project holds.
 func (d *DB) projectsWork() bool {
 	if !d.features {
 		return false
 	}
 	var n int
-	_ = d.q.QueryRow(`SELECT count(*) FROM project_jobs WHERE state IN ('queued','running','waiting') AND kind<>'fetch'`).Scan(&n)
+	_ = d.q.QueryRow(`SELECT count(*) FROM project_jobs WHERE ` + liveJobsSQL).Scan(&n)
 	return n > 0
 }
 
@@ -139,8 +154,7 @@ func (d *DB) projectsWake(now time.Time) (runnable bool, wake int64) {
 		return false, 0
 	}
 	var due, at int64
-	_ = d.q.QueryRow(`SELECT count(*), COALESCE(MIN(next_ms), 0) FROM project_jobs WHERE state IN ('queued','running','waiting')
-		AND kind<>'fetch'`).Scan(&due, &at)
+	_ = d.q.QueryRow(`SELECT count(*), COALESCE(MIN(next_ms), 0) FROM project_jobs WHERE `+liveJobsSQL).Scan(&due, &at)
 	if due > 0 && at <= now.Add(time.Minute).UnixMilli() {
 		return true, 0
 	}
@@ -199,13 +213,21 @@ func (w *projWorker) loop() {
 func (w *projWorker) pass() time.Duration {
 	next := 30 * time.Second
 	if w.e.halted() {
+		if pumpHeld.Load() {
+			return 2 * time.Second // the halt's end is seen soon
+		}
 		return next
 	}
 	d := w.e.db
-	jobs := d.jobsWhere(`WHERE state IN ('queued','waiting') AND (kind IN ('cleanup','scrub') OR project_id IN
-		(SELECT id FROM projects WHERE state='active')) ORDER BY next_ms, id LIMIT 100`)
+	if held := pumpHeld.Swap(false); held || !w.pumped {
+		// the halt is off (or the worker just started): the pumps it held
+		// back run now — nothing else would, for queues that wait already
+		w.pumped = true
+		go pumpQueued(d)
+	}
+	jobs := d.jobsWhere(`WHERE state IN ('queued','waiting') AND ` + claimableSQL + ` ORDER BY next_ms, id LIMIT 100`)
 	var live int
-	_ = d.q.QueryRow(`SELECT count(*) FROM project_jobs WHERE state IN ('queued','running','waiting') AND kind<>'fetch'`).Scan(&live)
+	_ = d.q.QueryRow(`SELECT count(*) FROM project_jobs WHERE ` + liveJobsSQL).Scan(&live)
 	w.mu.Lock()
 	changed := w.pending != (live > 0)
 	w.pending = live > 0
@@ -375,11 +397,13 @@ func (w *projWorker) finish(p *Project, k *ProjectTask, j *ProjectJob, out jobOu
 		step = "failed"
 	}
 	_ = w.e.fenced(func(t *DB) error {
-		if state == pjDone && j.Kind == pjRefs && j.ClientID != refsReadPulls {
-			// an scm event asked for the pull requests while this one ran: once more
+		if mark := rerunMarks[j.Kind]; mark != "" && (state == pjDone || state == pjFailed) && j.ClientID != mark {
+			// marked while this one ran (an scm event asking for the pull
+			// requests, an owner forcing a cleanup): once more, marked
 			var cid string
-			if t.q.QueryRow(`SELECT client_id FROM project_jobs WHERE id=?`, j.ID).Scan(&cid) == nil && cid == refsReadPulls {
-				state, next, j.ClientID = pjQueued, now, cid
+			if t.q.QueryRow(`SELECT client_id FROM project_jobs WHERE id=?`, j.ID).Scan(&cid) == nil && cid == mark {
+				state, next, j.ClientID, errText, j.ExecID = pjQueued, now, cid, "", ""
+				step = orStr(out.Step, j.Step)
 			}
 		}
 		res, err := t.q.Exec(`UPDATE project_jobs SET state=?, step=?, attempts=?, next_ms=?, exec_ref=?, exec_id=?, client_id=?,
@@ -408,6 +432,11 @@ func (w *projWorker) finish(p *Project, k *ProjectTask, j *ProjectJob, out jobOu
 		return nil
 	})
 }
+
+// rerunMarks: a job of this kind whose client id gets this mark while it
+// runs (the route marks the live row, which may be the running one) runs
+// once more, marked — finish would otherwise write the mark over.
+var rerunMarks = map[string]string{pjRefs: refsReadPulls, pjCleanup: cleanupForce}
 
 // jobFailed tells what a failed job means: a task's workspace fails; the
 // project's own (its sandbox, a repo) is an event the owner's coordinator
@@ -438,6 +467,7 @@ func jobFailed(t *DB, p *Project, k *ProjectTask, j *ProjectJob, errText string)
 // fetches of projects someone works in or looks at.
 func (w *projWorker) sweep() {
 	d := w.e.db
+	pumpQueued(d) // a pump an AfterCommit missed (a crash between the two)
 	_, _ = d.q.Exec(`DELETE FROM project_jobs WHERE state IN ('done','failed') AND updated_ms<?`, nowMs()-7*24*3600*1000)
 	_, _ = d.q.Exec(`DELETE FROM project_events WHERE created<?`, nowMs()-30*24*3600*1000)
 	ps, _ := d.projectsWhere(`WHERE state='active' AND dir<>'' AND sandbox_ref<>''`)
@@ -459,6 +489,14 @@ func (w *projWorker) sweep() {
 				_, _ = d.queueJob(p.ID, 0, r.Slug, pjFetch, "", 0)
 			}
 		}
+	}
+}
+
+// pumpQueued runs the pump of every active project with queued inputs.
+func pumpQueued(d *DB) {
+	for _, pid := range scanIDs(d.q.Query(`SELECT DISTINCT q.project_id FROM project_queue q JOIN projects p ON p.id=q.project_id
+		WHERE p.state='active'`)) {
+		projectPump(pid)
 	}
 }
 

@@ -55,13 +55,16 @@ func TestQueueFIFOAndSlots(t *testing.T) {
 	if startDelivered(fx, p.ID, 3) {
 		t.Fatal("the pump started a task while the agent is halted")
 	}
-	_ = fx.ag.db.putSetting("halt", "")
-	projectPump(p.ID)
+	// a person's message lifts the halt: the worker sees it and pumps the
+	// queue (nothing here runs the pump by hand)
+	if !fx.ag.resumeIfHalted(0) {
+		t.Fatal("the halt stayed")
+	}
 	waitFor(t, "task 3's start", func() bool { return startDelivered(fx, p.ID, 3) })
 	waitFor(t, "task 3 holding the freed slot", func() bool { return fx.ag.db.slotsUsed(p.ID) == 2 })
 }
 
-// A run waiting for a person holds its slot (V5).
+// A run waiting for a person holds its slot.
 func TestWaitingRunHoldsSlot(t *testing.T) {
 	fx := newProjFix(t)
 	p := heldProject(t, fx, 1)
@@ -77,7 +80,9 @@ func TestWaitingRunHoldsSlot(t *testing.T) {
 	if startDelivered(fx, p.ID, 2) {
 		t.Fatal("a waiting task's slot was given away")
 	}
-	// it rests: its slot is free, and the status change runs the pump
+	// it takes its input up and rests: its slot is free, and the status
+	// change runs the pump
+	_, _ = fx.ag.db.q.Exec(`UPDATE inbox SET delivered_at=? WHERE run_id=?`, now(), r1)
 	if err := fx.ag.db.setStatus(r1, statusIdle, 0, "", ""); err != nil {
 		t.Fatal(err)
 	}
@@ -142,5 +147,47 @@ func TestHoldParkInput(t *testing.T) {
 	k, _ := fx.ag.db.taskByN(p.ID, 1)
 	if k.TurnBy != srcEvent {
 		t.Fatalf("turn_by: %q", k.TurnBy)
+	}
+}
+
+// Pumps back to back never give out more than maxTasks slots: a start
+// delivered but not yet taken up by its run holds its slot.
+func TestPumpsBackToBack(t *testing.T) {
+	fx := newProjFix(t)
+	p := heldProject(t, fx, 2)
+	for i := 1; i <= 6; i++ {
+		fx.newTask(t, asAlice, p.ID, map[string]any{"text": fmt.Sprintf("task %d", i)})
+	}
+	waitFor(t, "two runs parked", func() bool { return fx.ag.db.slotsUsed(p.ID) == 2 })
+	delivered := func() int { return 6 - len(fx.ag.db.queuedInputs(p.ID, 0)) }
+	if n := delivered(); n != 2 {
+		t.Fatalf("delivered with two slots: %d", n)
+	}
+	// two more slots, written past the route (whose change would pump):
+	// three pumps at once fill them, and no more
+	if _, err := fx.ag.db.q.Exec(`UPDATE projects SET policy=json_set(policy, '$.maxTasks', 4) WHERE id=?`, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 3; i++ {
+		projectPump(p.ID)
+	}
+	if n, used := delivered(), fx.ag.db.slotsUsed(p.ID); n != 4 || used != 4 {
+		t.Fatalf("three pumps at once: %d starts delivered, %d slots used (max 4)", n, used)
+	}
+	waitFor(t, "four runs parked", func() bool {
+		n := 0
+		ks, _ := fx.ag.db.tasksWhere(`WHERE project_id=?`, p.ID)
+		for _, k := range ks {
+			if r, err := fx.ag.db.getRun(k.RunID); err == nil && r.Status == statusSleep {
+				n++
+			}
+		}
+		return n == 4
+	})
+	for i := 0; i < 3; i++ {
+		projectPump(p.ID)
+	}
+	if n := delivered(); n != 4 {
+		t.Fatalf("after the runs took their starts: %d delivered", n)
 	}
 }

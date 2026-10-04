@@ -157,6 +157,8 @@ func (ag *Agent) createTask(ctx context.Context, w who, p *Project, s TaskSpec) 
 		return nil, nil, perr(400, "size: small or big")
 	case len(s.Text) > 64<<10:
 		return nil, nil, perr(400, "text: at most 64 KiB")
+	case !validPick(s.Model):
+		return nil, nil, perr(400, "model: a model id from GET /models (up to 200 characters)")
 	}
 	pol := policyOf(p.Policy)
 	repos, err := ag.db.projectRepos(p.ID)
@@ -334,7 +336,7 @@ func projectIssue(ctx context.Context, p *Project, repo string, n int) (*scmIssu
 }
 
 // projectAs is the identity a project acts as at its provider: policy.as,
-// else the person in a person's partition, else the bot (projects-scm §9.1).
+// else the person in a person's partition, else the bot (API.md §Projects and tasks).
 func projectAs(p *Project) string {
 	if as := policyOf(p.Policy).As; as != "" {
 		return as
@@ -515,6 +517,7 @@ func (ag *Agent) cancelTask(p *Project, k *ProjectTask, by who, reason string) e
 			ag.cancelRuns(t, k.RunID, true, orStr(reason, "cancelled"))
 		}
 		t.dropQueued(p.ID, k.N)
+		t.dropUntaken(k.RunID)
 		addProjectEvent(t, p.ID, k.N, pevTaskCancel, map[string]any{"text": "cancelled" + orStr(": "+reason, ""), "by": by.tag()}, false, "")
 		onTaskChange(t, p, k, "state")
 		return nil
@@ -542,6 +545,7 @@ func (ag *Agent) closeTask(ctx context.Context, p *Project, k *ProjectTask, by w
 			ag.cancelRuns(t, k.RunID, true, orStr(o.Reason, "the task was closed"))
 		}
 		t.dropQueued(p.ID, k.N)
+		t.dropUntaken(k.RunID)
 		k.Phase = phaseClosed
 		if err := t.setTask(k.ID, map[string]any{"phase": phaseClosed}); err != nil {
 			return err
