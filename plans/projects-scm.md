@@ -3770,3 +3770,8 @@ with the record that explains it:
 - 2026-10-04 (P1) §8.4: a job fails 3 h after it was queued, a sign-in wait after 20 min; §10.5: `userWake` counts a `wake=1` event only for a coordinator that exists — records/P1.md
 - 2026-10-04 (P1) §9.6: `projectsInSandbox` answers every project of the sandbox, archived and deleting ones too — records/P1.md
 - 2026-10-04 (P1) §6.14: a deleted project's tasks are cleaned up only when its sandbox stays; its subscriptions end through `runDeletedHooks` (no project-deleted seam) — records/P1.md
+- 2026-10-04 (P1) §8.3: `bind` binds as the project's owner, not the task's creator (a participant's task failed on the owner's sandbox) — records/P1.md
+- 2026-10-04 (P1) §8.7: input delivered but not yet taken up holds its run's slot; cancel and close drop it; the worker pumps the queues once a halt is lifted — records/P1.md
+- 2026-10-04 (P1) §6.14: archiving holds the project's workspace jobs (counted as no one's work) and shelves turns waiting for the workspace back into the queue's head; unarchiving restarts the jobs' clock — records/P1.md
+- 2026-10-04 (P1) §8.6: `hasWork` and `userWake` don't count the inbox of a task the gate parked for a person (`gateHeldSQL`) — records/P1.md
+- 2026-10-04 (P1) §6.13: `/runs/{id}/task/*` also need a participant of the project; a removed member keeps their task conversations (V1) — records/P1.md
