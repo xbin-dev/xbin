@@ -4390,7 +4390,8 @@ at each) — yours, then team projects, archived ones last — each with its
 repos, the slots at work and its counts per column. A backend without Projects (`GET /projects` 404) shows no
 entry.
 
-**A project's page** has two tabs:
+**A project's page** has three tabs — Board, Activity and Settings (a team
+project's definition: Board and Settings):
 
 - **Board** — a column per state (queued, working, needs you, PR, done:
   `TaskView.column`), each task a card: `#n`, its title, its state (and
@@ -4411,8 +4412,26 @@ entry.
   **Warm** starts the sandbox, fetches and refreshes the credentials. A
   search box and "mine" narrow the board. A team project's definition
   (`kind: "team"`, at the shared space) has no tasks of its own — they run
-  in each member's own space — so its board is a line saying so, with no
-  task actions and no read of tasks.
+  in each member's own space — so its board is a line saying so and the
+  team board (below), with no task actions and no read of tasks. Above a
+  project's board, for its participants, the **coordinator card**: Open
+  (`POST /projects/{pid}/coordinator` — your coordinator, made on first
+  use; its conversation opens) and a line to write to it (the same route
+  with `{text}`); a backend without the route shows none. **Fork base
+  now** (its owner, where big tasks fork the project's sandbox): `POST
+  /projects/{pid}/fork-base {now: true}`, confirmed first — the sandbox
+  stops while the snapshot is taken.
+- **Activity** — the project's events (`GET /projects/{pid}/events`,
+  which reads oldest first: at most five pages of 200 at a time — when
+  more wait, the page says so and **Read newer** goes on — then only those
+  after the last one held when a `project` event says something changed),
+  newest first: tasks made and
+  finished, workspaces, pull requests, CI, reviews and comments, merges,
+  notes — each with its task (its conversation one tap away) and the
+  coordinator woken for it said. Their text comes partly from the scm
+  provider (anyone may have written a comment): drawn as plain text,
+  clipped, control and direction characters dropped; a link only when it
+  is `https`.
 - **Settings** — everyone who sees the project reads it; its owner changes
   it. **Status**: the sandbox, each repo (fetched, head, whether its base
   branch is protected), each credential's metadata (whose, its state, until
@@ -4434,6 +4453,53 @@ entry.
   unarchive, delete — confirmed, keeping its sandbox or, when the project
   made it, deleting it too (that choice is the project's own: it keeps no
   hold on the next project's tab).
+
+**Team projects.** A team project's definition (at the shared space)
+shows the **team board** (`GET /projects/{pid}/board`): each member's
+tasks by column — member, number, title, state and what it waits for,
+branch, pull requests, CI — as plain text, since it comes from each
+member's own space, its links only `https` ones. A row's conversation
+opens only for its own member, from their own space ("open (yours)"); a
+member who left is greyed ("no longer a member"), and the owner may hide a
+row (`POST /projects/{pid}/board/{member}/{n}/hide`). Its owner sets its
+**seed sandbox** there — one of their sandboxes the team can see
+(`POST /projects/{pid}/seed {sandbox: {ref}}`); it never holds a sign-in,
+and once set it is shown read-only (the backend keeps the first).
+From your own space, **Work on this** makes your half of it in your own
+space (`POST /memberships`): its sandbox one of your own private ones
+(`sandbox: {ref}`) or a new one — left to the backend when a manager
+bound in your space serves the definition's seed (it forks the seed where
+that works for you), else `{new: {provider}}` from a manager you pick. A
+half you left or were removed from (archived) offers **Work on this
+again**, which takes it up again with the definition as it is now. It is first
+sent with nothing accepted, and the 409 that answers carries the
+definition's security part — its repos' setup scripts and the policy keys
+that run code or push (instructions, checks, the class, who answers, whose
+identity, reviews, pull requests…) — which the page shows in full before
+**Accept and start** sends exactly its hash (another 409: it changed
+meanwhile, shown again). Your half (`kind: "membership"`) leads to the
+team board; each time its page opens it re-reads the definition (`GET
+/memberships/{pid}/pending`, read once per open), and when the team has
+changed that security part, the page shows **Review the team project's
+changes**: what you accepted and what the team has now,
+side by side, each changed key and setup script marked; **Accept** (`POST
+/memberships/{pid}/accept {hash}`) adopts exactly what was shown — until
+then your tasks run what you accepted before. In your own space the
+new-project form can also make a team project's definition ("A team
+project": `kind: "team"`, shared with the team or the members added
+next, made at the shared space, with no sandbox of yours).
+
+**Make this a project…** — at the end of the ▣ sandbox popover of a root
+conversation of yours with a sandbox, no project and no hosting (not at a
+partitioned agent's shared space, which holds team definitions only): the
+sandbox's git repos are read (`GET /runs/{id}/project/detect`; a remote's
+credentials are never shown), those a bound provider serves picked (the
+repos of one project share a provider), an ssh remote or one that held
+credentials switched to https so the project's own credentials serve it,
+a name, its branch kept or a new one — `POST /runs/{id}/project`. The
+conversation becomes the project's task 1 and is read again (its crumb
+and chips appear); a refusal (`class-internal`, the bot rule) is said in
+the dialog.
 
 **A new project** (the page's **New project**): the scm provider
 (`GET /projects/scm` — each bound one as this home sees it, what it says
@@ -4503,11 +4569,39 @@ events coalesced for 250 ms into one read each.
 | `model/project-task.js` | a task's words: `columns`, `columnOf`, `cardWords`, `stateWords`, `taskChips(view, project)`, `prChip`, `setupOutcome`, `prepCard(view, me)`, `prButton(view, route)`, `crumb(view)`, `taskSection(view)` |
 | `model/project-api.js` | `projectApi(app, pid)`, `taskApi(runId)`, `scmApi(home)`, `listProjects`, `createProject` — each call at its home, a refusal kept whole (`e.status`, `e.refusal`, `e.data`) |
 | `model/router.js` | `#proj`, `#proj=<id>` (`parse().proj`, `projHash`); `app.openProjects(pid)` |
+| `model/project-feed.js` | `projectFeed(app)`: a project's events (`load(pid)`, `items(pid)`, read since the last one on a `project` event) and your coordinator (`coord(pid)`, `openCoordinator(pid)`, `messageCoordinator(pid, text)`); `feedWords(ev)`, `plain(text)`, `httpsUrl(url)` |
+| `model/project-team.js` | `projectTeam(app)`: the team board (`load`, `rows`, `hide`), the seed (`seedChoices`, `setSeed`), Work on this (`startWork`, `submitWork`), the team's changes (`ensureReview`, `acceptReview`), a definition from your own space (`saveTeam`); `boardWords(row, me)`, `boardColumns`, `securityDiff(accepted, pending)` |
+| `model/project-upgrade.js` | `upgradeOffer(view)`, `candidateWords`, `projectUpgrade(app)` (`open(runId)`, `toggle`, `submit`), `forkBaseOffer(view)`, `forkBase(pid)` |
 
 On the web, `project-web.js` lists the modules: `projects.js` (the entry,
-`ext.side`; the page, `ext.page('projects')`), `project-new.js`,
-`project-settings.js` and `project-chips.js` (`ext.top`, `ext.crumb`,
-`ext.end`, `ext.task` on a project's conversation).
+`ext.side`; the page, `ext.page('projects')`; it draws `project-feed.js`'s
+coordinator card and Activity tab and `project-team.js`'s team board and
+cards), `project-new.js` (the form, and Make this a project… through
+`ext.sbx` in the ▣ popover), `project-settings.js` and `project-chips.js`
+(`ext.top`, `ext.crumb`, `ext.end`, `ext.task` on a project's
+conversation).
+
+**Natively** (`native/project-all.js` lists the modules) the same model
+draws with the app's primitives, as screens pushed over home: the
+drawer's **Projects** row (`ext.drawer`) with the tasks that need you;
+`app.page` `projects` (`#proj`, `#proj=<id>`, a task's way back) puts the
+list — and the open project — on the stack, and going back to a screen
+opens what it shows again, so the address follows. `native/projects.js`:
+the list; a project — the coordinator (open it, write to it), the board as
+a section per column (each task a row: number, title, state, branch, pull
+requests, the words other modules add through `ext.card(task)`; a tap
+opens its conversation, a swipe cancels it), search and Mine, the latest
+activity (once the Activity screen has read it) and all of it, New task, From issues…, Warm, Fork base now; a
+new project. `native/project-settings.js`: status and your sign-in,
+repos, the policy in foldable groups (saved at the version the edit began
+at), members, archive and delete. `native/project-task.js` on a task's
+conversation: a toolbar menu titled with its branch or pull request (each
+a link to the platform; Open PR, confirmed), "‹project› #n" in the
+subtitle, ⋯ → Project: ‹name›, the prep card with a step per repo and
+Retry the workspace, the sign-in card (its code to its person only,
+polled), the Task screen's project section; and ⋯ → Make this a
+project…. `native/project-team.js`: the team board with its seed, Work on
+this after the security part, and the team's changes to review.
 
 ## The frontend: one model, thin views
 

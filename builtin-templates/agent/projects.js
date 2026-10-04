@@ -9,9 +9,13 @@
 //          "New task" (what to do, a title, small or big, who works on it,
 //          which repos), "From issues…" (a batch picker of the project's
 //          issues, a task each), Warm; its Settings tab (project-settings.js);
-//          the new-project form (project-new.js). A team project's
-//          definition (kind team, at the shared space) has no tasks: its
-//          board is a line saying so — they run in each member's space
+//          the new-project form (project-new.js). Above the board, the
+//          coordinator card; an Activity tab, the project's event feed
+//          (project-feed.js). A team project's definition (kind team, at the
+//          shared space) has no tasks of its own: its board is the team
+//          board — each member's tasks — with "Work on this" from your own
+//          space; your half of it (kind membership) leads to it, and asks you
+//          to review the team's changes when there are some (project-team.js)
 //
 // A card opens its task's conversation, whose crumb (project-chips.js)
 // comes back here. The state is app.projects (model/projects.js); the words
@@ -23,6 +27,9 @@ import { can, agentChoices } from './model/projects.js';
 import { cardWords, safeUrl } from './model/project-task.js';
 import { newProjectTpl } from './project-new.js';
 import { settingsTpl } from './project-settings.js';
+import { coordCardTpl, feedTpl } from './project-feed.js';
+import { teamBoardTpl, teamLinkTpl, reviewCardTpl } from './project-team.js';
+import { forkBaseOffer, forkBase } from './model/project-upgrade.js';
 
 const pj = () => ctx.app.projects;
 let shownKey = '';
@@ -116,24 +123,29 @@ function projectTpl(p, pv) {
       <span style="flex:1"></span>
       <span class="ptabs" role="tablist">
         <button class="btn ghost btnsm" role="tab" data-tab="board" aria-selected=${p.tab === 'board' ? 'true' : 'false'} @click=${() => p.showTab('board')}>Board</button>
+        ${pv.kind !== 'team' ? html`<button class="btn ghost btnsm" role="tab" data-tab="events" aria-selected=${p.tab === 'events' ? 'true' : 'false'} @click=${() => p.showTab('events')}>Activity</button>` : nothing}
         <button class="btn ghost btnsm" role="tab" data-tab="settings" aria-selected=${p.tab === 'settings' ? 'true' : 'false'} @click=${() => p.showTab('settings')}>Settings</button>
       </span></div>
     ${errTpl(p)}
-    ${p.tab === 'settings' ? settingsTpl(p, pv) : boardPageTpl(p, pv, c)}
+    ${p.tab === 'settings' ? settingsTpl(p, pv) : p.tab === 'events' && pv.kind !== 'team' ? feedTpl(p, pv) : boardPageTpl(p, pv, c)}
   </div>`;
 }
 
 function boardPageTpl(p, pv, c) {
-  if (pv.kind === 'team') { // a team project's definition: it has no tasks of its own
+  if (pv.kind === 'team') { // a team project's definition: it has no tasks of its own — the team board
     return html`<div class="note" id="pdef-note">This is the team project's definition. Its tasks run in each member's own space,
-      on their own board — the Settings tab keeps its repos, policy and members.</div>`;
+      on their own board — the Settings tab keeps its repos, policy and members.</div>${teamBoardTpl(p, pv)}`;
   }
   const list = p.taskList(pv.id);
   return html`
+    ${pv.kind === 'membership' ? html`${teamLinkTpl(p, pv)}${reviewCardTpl(p, pv)}` : nothing}
+    ${coordCardTpl(p, pv)}
     <div class="pbar">
       ${c.act ? html`<button class="btn btnsm" id="ptask-new" @click=${() => p.newTask()}>New task</button>
         <button class="btn ghost btnsm" id="ptask-issues" @click=${() => p.openPicker()} ?disabled=${!(pv.repos || []).length}>From issues…</button>
         <button class="btn ghost btnsm" id="proj-warm" title="start the sandbox, fetch the repos and refresh the credentials" @click=${() => p.warm(pv.id)}>Warm</button>` : nothing}
+      ${forkBaseOffer(pv) ? html`<button class="btn ghost btnsm" id="proj-forkbase" title="big tasks fork a snapshot of the project's sandbox, taken while it is quiet"
+        @click=${() => { if (confirm('Snapshot the project\'s sandbox for big tasks now? It stops while the snapshot is taken; running tasks wait.')) p.act(() => forkBase(pv.id), pv.id).then((r) => { if (r) { p.flash = 'The fork base is being taken.'; p.changed(); } }); }}>Fork base now</button>` : nothing}
       <span style="flex:1"></span>
       <input type="search" class="pq" placeholder="Find a task…" .value=${p.filter.q} @change=${(e) => p.setFilter({ q: e.target.value })}>
       <label class="chk small"><input type="checkbox" .checked=${p.filter.mine} @change=${(e) => p.setFilter({ mine: e.target.checked })}> mine</label>

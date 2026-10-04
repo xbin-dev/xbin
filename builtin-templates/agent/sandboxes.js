@@ -16,6 +16,7 @@
 import { html, render, nothing } from '/vendor/lit-all.min.js';
 import * as S from './model/sandboxes.js';
 import { termDock } from './terminals.js';
+import { ext } from './web-ext.js';
 
 const NEW = '+new';
 const MANAGE = '+manage';
@@ -125,6 +126,7 @@ export function makeSandboxUI(app, { sel, dlg, repaint, popExtra }) {
             @click=${() => { pop.open = false; repaint(); openTerm(tt); }}>Open terminal</button>` : nothing}
           <span style="flex:1"></span>
           <button class="btn ghost btnsm" id="sbx-manage" @click=${() => { pop.open = false; open(); }}>Manage…</button>
+          ${ext.sbx(b, closePop) || nothing}
         </div>
       </div>`;
   }

@@ -11,10 +11,24 @@
 // next, its seed sandbox optional. The state is app.projects.form
 // (model/projects.js).
 //
+// In a person's own space the form can make a team project's definition
+// instead (in the shared space, shared with the team or the members added
+// next; its seed sandbox is set there): each member then works on it in
+// their own space (project-team.js).
+//
+// "Make this a project…" (the upgrade dialog, #pupg): an action of the ▣
+// sandbox popover (ext.sbx) on a conversation of yours with a sandbox and
+// no project — the sandbox's git repos are read (detect), you pick which
+// (their remotes' credentials dropped; an ssh one may switch to https),
+// name it, keep its branch or start a new one, and the conversation
+// becomes the project's first task (model/project-upgrade.js).
+//
 // signinTpl (the provider's sign-in, its device code shown to you only) is
 // shared with the settings' status.
-import { html, nothing } from '/vendor/lit-all.min.js';
-import { ctx } from './web-ext.js';
+import { html, nothing, render } from '/vendor/lit-all.min.js';
+import { ext, ctx } from './web-ext.js';
+import { projectTeam } from './model/project-team.js';
+import { upgradeOffer, projectUpgrade } from './model/project-upgrade.js';
 import { partitionState } from './model/partition.js';
 import { safeUrl } from './model/project-task.js';
 import { repoSlug, canSignin } from './model/projects.js';
@@ -45,6 +59,7 @@ export function newProjectTpl(p) {
   const list = app.sbx.listAt('');
   const sb = sandboxOf(f, list.managers);
   const team = partitionState() === 'global';
+  const teamDef = partitionState() === 'user' && !!f.teamDef; // a team project's definition, made from your own space
   // yours to pick: a private one for a project (its credentials are yours);
   // a team-visible one for a team's seed — members' sandboxes fork from it
   // only when they can see it (API.md §Projects in the UI), and an existing sandbox
@@ -55,7 +70,10 @@ export function newProjectTpl(p) {
   const set = (k) => (e) => p.setForm(k, e.target.value);
   const setSb = (k) => (e) => p.setFormPart('sandbox', k, e.target.value);
   const setPol = (k) => (e) => p.setFormPart('policy', k, e.target.value);
-  const create = () => { p.form.sandbox = { mode: sb.mode, ref: sb.ref, provider: sb.provider, image: sb.image, size: sb.size, egress: sb.egress }; p.saveProject(); };
+  const create = () => {
+    p.form.sandbox = { mode: sb.mode, ref: sb.ref, provider: sb.provider, image: sb.image, size: sb.size, egress: sb.egress };
+    if (teamDef) projectTeam(app).saveTeam(p); else p.saveProject();
+  };
   return html`<div class="autos-page projs-page" id="proj-form">
     <div class="ahd"><a class="crumb" @click=${() => p.closeForm()}>Projects</a> › <b>New project</b></div>
 
@@ -89,6 +107,11 @@ export function newProjectTpl(p) {
 
     <div class="field"><label>Name</label><input id="pn-name" .value=${f.name} @input=${set('name')} placeholder="Web"></div>
 
+    ${partitionState() === 'user' ? html`<h5>Who it is for</h5><div class="field" id="pn-kind">
+      <label class="chk"><input type="radio" name="pn-kind" value="mine" .checked=${!teamDef} @change=${() => p.setForm('teamDef', false)}> just you — in your own space, with your own sandbox and sign-in</label>
+      <label class="chk"><input type="radio" name="pn-kind" value="team" .checked=${teamDef} @change=${() => p.setForm('teamDef', true)}> a team project — its definition in the shared space; each member works on it in their own space</label></div>` : nothing}
+    ${teamDef ? html`<div class="muted small" id="pn-team-note">A team project's definition holds the repos, the policy and its members; it has no tasks and no sandbox of yours.
+      A seed sandbox members' sandboxes fork from can be set on its page.</div>` : html`
     <h5>${team ? 'Its seed sandbox' : 'Its sandbox'}</h5>
     ${team ? html`<div class="muted small">A team project's tasks run in each member's own space; a seed sandbox (optional) is the start their sandboxes fork from. It holds no sign-in.</div>` : nothing}
     <div class="field">
@@ -108,6 +131,7 @@ export function newProjectTpl(p) {
         <div class="field"><label>Network</label><select @change=${setSb('egress')}>${sb.egressOpts.map((e) => html`<option value=${e} ?selected=${e === sb.egress}>${EGRESS[e] || e}</option>`)}</select></div>
       </div>` : html`<div class="note">No sandbox manager is bound — bind one to this agent's sandboxes slot.</div>`}
 
+    `}
     <h5>How it works</h5>
     <div class="row2">
       <div class="field"><label>Tasks at work at once</label><input type="number" min="1" max="16" .value=${String(f.policy.maxTasks)} @input=${setPol('maxTasks')}></div>
@@ -126,9 +150,9 @@ export function newProjectTpl(p) {
         <option value="" ?selected=${!f.policy.as}>the default (${prov.you.default || 'person'})</option>
         ${prov.you.identities.map((i) => html`<option value=${i} ?selected=${f.policy.as === i}>${i === 'bot' ? 'the provider\'s bot' : 'you'}</option>`)}</select></div>` : nothing}
     </div>
-    ${partitionState() === 'legacy' || team ? html`<div class="row2">
+    ${partitionState() === 'legacy' || team || teamDef ? html`<div class="row2">
       <div class="field"><label>Who can see it</label><select id="pn-vis" @change=${(e) => p.setFormPart('share', 'visibility', e.target.value)}>
-        <option value="private" ?selected=${f.share.visibility !== 'team'}>${team ? 'only the members you add next' : 'only you'}</option>
+        <option value="private" ?selected=${f.share.visibility !== 'team'}>${team || teamDef ? 'only the members you add next' : 'only you'}</option>
         <option value="team" ?selected=${f.share.visibility === 'team'}>everyone who can open this agent</option></select></div>
       ${f.share.visibility === 'team' ? html`<div class="field"><label>They may</label><select @change=${(e) => p.setFormPart('share', 'teamRole', e.target.value)}>
         <option value="viewer" ?selected=${f.share.teamRole !== 'participant'}>read</option>
@@ -183,6 +207,71 @@ export function signinTpl(p, scm, title = '') {
     <button class="btn btnsm" id="psignin-start" @click=${() => p.signin(scm)}>Sign in to ${name}</button></div>`;
 }
 
+// --- "Make this a project…" ----------------------------------------------------------------------
+
+ext.register({ sbx: (b, close) => upgradeAction(close) });
+
+function upgradeAction(close) {
+  const app = ctx.app;
+  const v = app && app.session.current();
+  const o = upgradeOffer(v);
+  if (!o.shown) return null;
+  return html`<button class="btn ghost btnsm" id="sbx-upgrade" title=${o.title} @click=${() => { close(); openUpgrade(v.run.id); }}>Make this a project…</button>`;
+}
+
+let dlg = null;
+let dlgRun = null;
+function openUpgrade(runId) {
+  const app = ctx.app;
+  if (!dlg) {
+    dlg = document.createElement('dialog');
+    dlg.id = 'pupg';
+    dlg.className = 'pupg';
+    document.body.append(dlg);
+    dlg.addEventListener('close', () => { if (dlgRun != null) projectUpgrade(app).close(dlgRun); dlgRun = null; render(nothing, dlg); });
+    app.on('projects', drawUpgrade);
+  }
+  dlgRun = runId;
+  projectUpgrade(app).open(runId);
+  drawUpgrade();
+  if (!dlg.open) dlg.showModal();
+}
+function drawUpgrade() { if (dlg && dlgRun != null) render(upgradeTpl(projectUpgrade(ctx.app).form(dlgRun)), dlg); }
+
+function upgradeTpl(f) {
+  if (!f) return nothing;
+  const u = projectUpgrade(ctx.app);
+  const id = f.runId;
+  const close = () => dlg.close();
+  if (f.done) {
+    const pv = f.done.project;
+    return html`<div class="dlg-hd">Made a project</div>
+      <div class="dlg-bd" id="pupg-done">This conversation is task #${(f.done.task && f.done.task.n) || 1} of ${pv ? pv.name : 'the project'}: its branch and pull requests show in its top bar, and the project's board holds it.</div>
+      <div class="dlg-ft">${pv ? html`<button class="btn ghost" @click=${() => { close(); ctx.app.openProjects(pv.id); }}>Open the project</button>` : nothing}
+        <button class="btn" @click=${close}>Done</button></div>`;
+  }
+  const picked = f.candidates.filter((c) => f.picked.has(c.path));
+  return html`<div class="dlg-hd">Make this a project</div>
+    <div class="dlg-bd">
+      <div class="muted small">The conversation becomes the project's first task; its sandbox${f.sandbox ? html` (<b>${f.sandbox}</b>)` : nothing} becomes the project's, and the repos you pick are its repos. A project's tasks push with credentials of their own, never what a remote held.</div>
+      ${f.loading ? html`<div class="muted small">reading the sandbox's repos…</div>` : nothing}
+      ${!f.loading && !f.err && !f.candidates.length ? html`<div class="note">No git repo in ${f.cwd || 'its working directory'}.</div>` : nothing}
+      ${f.candidates.length ? html`<div class="field"><label>Repos</label>${f.candidates.map((c) => html`<div class="pupgc" data-path=${c.path}>
+          <label class="chk"><input type="checkbox" .checked=${f.picked.has(c.path)} ?disabled=${!c.usable} @change=${() => u.toggle(id, c.path)}>
+            <b class="mono">${c.title}</b></label>
+          <div class="muted small">${c.detail}${c.why ? html` — <span class="err">${c.why}</span>` : nothing}</div>
+          ${c.https && f.picked.has(c.path) ? html`<label class="chk small"><input type="checkbox" .checked=${f.https.has(c.path)} @change=${() => u.toggleHttps(id, c.path)}> switch its remote to https (the project's own credentials serve it)</label>` : nothing}
+        </div>`)}</div>` : nothing}
+      ${picked.length ? html`<div class="field"><label>Name</label><input id="pupg-name" .value=${f.name} @input=${(e) => u.set(id, 'name', e.target.value)}></div>
+        <div class="field"><label>Its branch</label><select id="pupg-branch" @change=${(e) => u.set(id, 'branch', e.target.value)}>
+          <option value="keep" ?selected=${f.branch !== 'new'}>keep the branch it is on</option>
+          <option value="new" ?selected=${f.branch === 'new'}>a new branch for the task</option></select></div>` : nothing}
+      ${f.err ? html`<div class="err" id="pupg-err">${f.err}</div>` : nothing}
+    </div>
+    <div class="dlg-ft"><button class="btn ghost" @click=${close}>Cancel</button>
+      <button class="btn" id="pupg-make" ?disabled=${f.busy || f.loading || !picked.length} @click=${() => u.submit(id)}>${f.busy ? 'Making…' : 'Make the project'}</button></div>`;
+}
+
 const style = document.createElement('style');
 style.textContent = `
   .projs-page .pnrepos { display: grid; gap: 6px; margin-bottom: 6px; }
@@ -196,5 +285,7 @@ style.textContent = `
   .psignin { margin: 6px 0; padding: 8px 10px; border: 1px solid var(--bx-border); border-radius: 6px; background: var(--bx-panel-2); font-size: 12.5px; }
   .psignin .pcode { font-size: 15px; letter-spacing: .12em; padding: 0 4px; }
   .psignin a { overflow-wrap: anywhere; }
+  dialog.pupg { width: min(560px, calc(100vw - 32px)); }
+  dialog.pupg .pupgc { padding: 4px 0; border-bottom: 1px solid var(--bx-border); min-width: 0; overflow-wrap: anywhere; }
 `;
 document.head.append(style);

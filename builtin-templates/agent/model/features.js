@@ -307,15 +307,10 @@ const STAGED = 'not built yet: Projects and CI in the conversation land in stage
 const stagedWeb = [
   // projects: the page, the board, new projects and tasks, settings, a task's chips
   // projects: the coordinator, events, upgrades, team projects
-  'proj.coordinator', 'proj.events', 'proj.upgrade', 'proj.team',
   // CI
 ];
 const stagedNative = [
   // projects
-  'proj.entry', 'proj.list', 'proj.new', 'proj.board', 'proj.task.new', 'proj.task.issues', 'proj.task.size', 'proj.task.agent',
-  'proj.repos', 'proj.policy', 'proj.members', 'proj.status', 'proj.signin', 'proj.delete',
-  'top.task.chips', 'top.task.pr', 'chat.task.prep', 'link.project',
-  'proj.coordinator', 'proj.events', 'proj.upgrade', 'proj.team',
   // CI
 ];
 const staged = (keys) => Object.fromEntries(keys.map((k) => [k, STAGED]));
