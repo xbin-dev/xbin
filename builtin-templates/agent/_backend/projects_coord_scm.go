@@ -27,6 +27,7 @@ const (
 	coordLogEach    = 2 << 10
 	coordLogAll     = 8 << 10
 	coordLogJobs    = 4
+	coordFrameMax   = 8 << 10 // what untrusted keeps of a frame
 	coordBodyMax    = 2 << 10
 	coordReviewsMax = 4 << 10
 )
@@ -234,21 +235,45 @@ func (ag *Agent) coordPRChecks(ctx context.Context, b *strings.Builder, api scmA
 	}
 	for _, st := range ch.Statuses {
 		if st.State == "failure" || st.State == "error" {
-			other = append(other, st.Context+": "+st.State+orStr(" — "+clip(st.Description, 300), ""))
+			l := st.Context + ": " + st.State
+			if d := strings.TrimSpace(st.Description); d != "" {
+				l += " — " + clip(d, 300)
+			}
+			other = append(other, l)
 		}
 	}
 	if len(fails) == 0 && len(other) == 0 {
 		return
 	}
+	// the frame (untrusted) keeps its first coordFrameMax bytes: the
+	// headers come first, and the logs share what is left (≤ coordLogAll),
+	// each its tail — where the failure is — ≤ coordLogEach
+	heads := make([]string, len(fails))
+	room := coordFrameMax
+	for i, f := range fails {
+		h := fmt.Sprintf("== %s › %s", f.run, f.job)
+		if f.step != "" {
+			h += fmt.Sprintf(" — failed at step %q", f.step)
+		}
+		heads[i] = h + " — " + f.url + "\n"
+		room -= len(heads[i])
+	}
+	for i, o := range other {
+		other[i] = "== " + o + "\n"
+		room -= len(other[i])
+	}
+	budget := min(coordLogAll, room)
 	var t strings.Builder
 	all := 0
-	for i, f := range fails {
-		fmt.Fprintf(&t, "== %s › %s", f.run, f.job)
-		if f.step != "" {
-			fmt.Fprintf(&t, " — failed at step %q", f.step)
+	add := func(line string) { // one line of log or of its absence, within the budget
+		if all+len(line)+1 <= budget {
+			t.WriteString(line + "\n")
+			all += len(line) + 1
 		}
-		t.WriteString(" — " + f.url + "\n")
-		if i >= coordLogJobs || all >= coordLogAll {
+	}
+	for i, f := range fails {
+		t.WriteString(heads[i])
+		if i >= coordLogJobs || all >= budget {
 			continue
 		}
 		lctx, cancel := context.WithTimeout(ctx, coordScmCall)
@@ -256,23 +281,16 @@ func (ag *Agent) coordPRChecks(ctx context.Context, b *strings.Builder, api scmA
 		cancel()
 		switch {
 		case scmRefused(err, scmRefInProgress):
-			t.WriteString("(its log comes when the job has ended)\n")
+			add("(its log comes when the job has ended)")
 		case err != nil:
-			t.WriteString("(its log can't be read now)\n")
+			add("(its log can't be read now)")
 		case lg != nil:
 			x := strings.TrimSpace(cleanOutput([]byte(lg.Text)))
-			if len(x) > coordLogEach {
-				x = "…" + strings.ToValidUTF8(x[len(x)-coordLogEach:], "")
-			}
-			if all+len(x) > coordLogAll {
-				x = "…" + strings.ToValidUTF8(x[len(x)-(coordLogAll-all):], "")
-			}
-			all += len(x)
-			t.WriteString(x + "\n")
+			add(coordTail(x, min(coordLogEach, budget-all-1)))
 		}
 	}
 	for _, o := range other {
-		t.WriteString("== " + o + "\n")
+		t.WriteString(o)
 	}
 	b.WriteString(untrusted(host, "the failing checks: their jobs, failing steps and the end of each log",
 		strings.TrimRight(t.String(), "\n")) + "\n")
@@ -448,4 +466,17 @@ func (ag *Agent) coordIssues(ctx context.Context, p *Project, args map[string]an
 		out += "\n(more match: narrow with labels or words)"
 	}
 	return out, nil
+}
+
+// coordTail is s's last n bytes at most, "…" (counted) where it was cut,
+// valid UTF-8; "" when n leaves no room.
+func coordTail(s string, n int) string {
+	const cut = "…"
+	switch {
+	case len(s) <= n:
+		return s
+	case n <= len(cut):
+		return ""
+	}
+	return cut + strings.ToValidUTF8(s[len(s)-(n-len(cut)):], "")
 }

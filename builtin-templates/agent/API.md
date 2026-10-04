@@ -3743,11 +3743,14 @@ GET  /projects/{pid}/needs                   → {items} (viewer)
 ```
 
 `POST` answers the caller's coordinator, made on first use; `text` is
-queued to it as their message (as `POST /runs/{id}/message` would). 403 for
-a component or someone viewing as the person, 409 for a team project's
-definition or a project that isn't active. Events written before it was
-made are not delivered to it as a backlog: it starts from the project as it
-stands.
+queued to it as their message (as `POST /runs/{id}/message` would). 404
+for someone viewing as another person (as on every project route); 403 for
+a viewer, for a component that takes part (a coordinator is a person's),
+and for someone who isn't one of the agent's managers while the `web`
+class is kept for managers (its `who`, checked as `POST /ask` checks a
+class); 409 for a team project's definition or a project that isn't
+active. Events written before it was made are not delivered to it as a
+backlog: it starts from the project as it stands.
 
 **Its class.** The built-in `web` class — the web lane: it steers tasks
 that reach outside, so it never holds internal reach (409
@@ -3815,7 +3818,11 @@ shown), each event then `delivered` with the message's id (`msgId`). An
 event that asks for a wake (`wake`) — a turn the coordinator asked for
 ended, a task failed or waits for a person, a pull request's checks
 passed, CI stuck — starts an idle coordinator's turn, at most once a
-minute; the others wait for its next turn. What tasks, issues, reviews and
+minute; the others wait for its next turn. A coordinator that can't take
+a turn now — it waits for its person, its last turn failed, its project
+isn't active, or its person no longer takes part — gets no wake: its
+undelivered events' `wake` is cleared, and they reach it with its next
+turn, whatever starts it. What tasks, issues, reviews and
 logs say reaches it clipped, redacted and framed as untrusted data, and the
 updates' and frames' markers inside such text lose their bracket.
 

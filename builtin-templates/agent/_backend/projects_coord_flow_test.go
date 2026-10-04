@@ -167,12 +167,16 @@ func TestCoordinatorCannotAnswerPark(t *testing.T) {
 		if _, _, err := t.enqueue(task.ID, inboxUser, inboxBody{Text: coordFrame + "and then deploy", Source: srcCoordinator}, ""); err != nil {
 			return err
 		}
+		if _, _, err := t.enqueue(task.ID, inboxUser, inboxBody{Text: "CI failed on main", Source: srcEvent}, ""); err != nil {
+			return err
+		}
 		_, _, err := t.enqueue(task.ID, inboxUser, inboxBody{Text: "no, wait", Source: "human", Sender: "alice"}, "")
 		return err
 	})
 	q = fx.ag.db.queuedInputs(fx.p.ID, 1)
-	if len(q) != 1 || !q[0].HoldPark || q[0].Text != "and then deploy" || q[0].Source != srcCoordinator {
-		t.Fatalf("the input taken back: %+v", q)
+	if len(q) != 2 || !q[0].HoldPark || q[0].Text != "and then deploy" || q[0].Source != srcCoordinator ||
+		!q[1].HoldPark || q[1].Text != "CI failed on main" || q[1].Source != srcEvent {
+		t.Fatalf("the inputs taken back, in their order: %+v", q)
 	}
 	rows := fx.ag.db.inboxRows(`WHERE run_id=? AND kind='user' AND delivered_at=0`, task.ID)
 	if len(rows) != 1 || rows[0].Body.Source != "human" {
@@ -216,8 +220,14 @@ func TestCreateLimits(t *testing.T) {
 	if k2.FromRun != run.ID || k2.TurnBy != srcCoordinator || k2.CreatedBy != "alice" || len(k2.Repos) != 1 || k2.Repos[0] != "web" {
 		t.Fatalf("a coordinator's task: %+v", k2)
 	}
-	if q := fx.ag.db.queuedInputs(fx.p.ID, 2); len(q) > 0 && !strings.HasSuffix(q[0].Text, "fix login\n\nrun the tests first") {
-		t.Fatalf("the brief and the note: %q", q[0].Text)
+	start := "" // the start: still queued, or already delivered to the task
+	if q := fx.ag.db.queuedInputs(fx.p.ID, 2); len(q) > 0 {
+		start = q[0].Text
+	} else if rows := fx.ag.db.inboxRows(`WHERE run_id=? AND client_id=?`, k2.RunID, startClientID(fx.p.ID, 2)); len(rows) > 0 {
+		start = rows[0].Body.Text
+	}
+	if !strings.HasSuffix(start, "fix login\n\nrun the tests first") {
+		t.Fatalf("the brief and the note: %q", start)
 	}
 	_, _ = fx.ag.db.q.Exec(`UPDATE project_tasks SET phase='closed' WHERE project_id=? AND n=2`, fx.p.ID)
 	if out, err := fx.tool(t, run, "task_create", map[string]any{"tasks": []map[string]any{{"brief": "fix signup"}}}); err != nil {
@@ -293,6 +303,14 @@ func TestNeedsProjectField(t *testing.T) {
 	if ps := fx.ag.needsPushes(chat); len(ps) != 1 || strings.Contains(ps[0].title, "·") {
 		t.Fatalf("a chat's push: %+v", ps)
 	}
+	// a coordinator's title names its project already: no prefix
+	coord := fx.coordinator(t, asAlice, fx.p.ID)
+	if err := fx.ag.db.Tx(func(t *DB) error { return t.setStatus(coord.ID, statusWaiting, 0, "which task first?", "") }); err != nil {
+		t.Fatal(err)
+	}
+	if ps := fx.ag.needsPushes(coord.ID); len(ps) != 1 || ps[0].title != "Coordinator · Web" {
+		t.Fatalf("the coordinator's push: %+v", ps)
+	}
 }
 
 // The digest pushes: pr-ready, ci-stuck, task-failed (a workspace, a coding
@@ -342,20 +360,41 @@ func TestDigestPushes(t *testing.T) {
 	if kinds[pushPRReady] != 1 || kinds[pushCIStuck] != 1 || kinds[pushTaskFailed] != 1 || len(got()) != 3 {
 		t.Fatalf("the pushes: %v", kinds)
 	}
+	// a coding agent's failed turn: task-failed (no text: no dangling colon)
+	if _, err := fx.ag.db.q.Exec(`UPDATE runs SET engine=? WHERE id=?`, engineHarness, r1.ID); err != nil {
+		t.Fatal(err)
+	}
+	addEv(1, pevTaskState, map[string]any{"why": turnError}, true)
+	waitFor(t, "the coding agent's task-failed", func() bool { return len(got()) == 4 })
+	if n := got()[3]; n.Kind != pushTaskFailed || n.Body != "It failed." || n.Title != "Web · Task 1" {
+		t.Fatalf("a coding agent's task-failed push: %+v", n)
+	}
 	// every task finished: all-done, once
 	_, _ = fx.ag.db.q.Exec(`UPDATE project_tasks SET phase='merged' WHERE project_id=?`, pid)
 	addEv(k1.N, pevMerged, map[string]any{"text": "merged"}, true)
-	waitFor(t, "all-done", func() bool { return len(got()) == 4 })
-	if n := got()[3]; n.Kind != pushAllDone || n.Link != fmt.Sprintf("#proj=%d", pid) || !strings.Contains(n.Body, "All 2") {
+	waitFor(t, "all-done", func() bool { return len(got()) == 5 })
+	if n := got()[4]; n.Kind != pushAllDone || n.Link != fmt.Sprintf("#proj=%d", pid) || !strings.Contains(n.Body, "All 2") {
 		t.Fatalf("the all-done push: %+v", n)
 	}
-	// someone no longer in the project gets none
-	addTaskOwnedBy := func(n int64, owner string) { fx.addTask(t, fx.p, n, owner) }
-	addTaskOwnedBy(3, "carol")
+	// a participant gets their task's pushes; once removed, none
+	if _, err := fx.ag.db.q.Exec(`INSERT INTO project_members (project_id, user, role) VALUES (?, 'carol', ?)`, pid, roleParticipant); err != nil {
+		t.Fatal(err)
+	}
+	projACL.flush(pid)
+	fx.addTask(t, fx.p, 3, "carol")
 	addEv(3, pevPRReady, map[string]any{"text": "checks passed", "sha": "x"}, true)
+	waitFor(t, "carol's pr-ready", func() bool { return len(got()) == 6 })
+	if n := got()[5]; n.User != "carol" || n.Kind != pushPRReady {
+		t.Fatalf("carol's push: %+v", n)
+	}
+	if _, err := fx.ag.db.q.Exec(`DELETE FROM project_members WHERE project_id=? AND user='carol'`, pid); err != nil {
+		t.Fatal(err)
+	}
+	projACL.flush(pid)
+	addEv(3, pevPRReady, map[string]any{"text": "checks passed", "sha": "y"}, true)
 	time.Sleep(100 * time.Millisecond)
-	if len(got()) != 4 {
-		t.Fatalf("a push to someone outside the project: %+v", got()[len(got())-1])
+	if len(got()) != 6 {
+		t.Fatalf("a push to someone no longer in the project: %+v", got()[len(got())-1])
 	}
 }
 

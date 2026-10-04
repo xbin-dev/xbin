@@ -55,9 +55,10 @@ func withNeedsProject(d *DB, item map[string]any, x *Run) map[string]any {
 }
 
 // projectPushTitle is a push's title for root's conversation: a project's
-// run's starts with the project's name.
+// task's starts with the project's name. A coordinator's doesn't — its
+// title ("Coordinator · <project>") names the project already.
 func projectPushTitle(d *DB, root *Run, title string) string {
-	if root == nil || root.Origin != originProject || !d.features {
+	if root == nil || root.Origin != originProject || !d.features || d.projectRefOf(root).isCoordinator() {
 		return title
 	}
 	p, err := d.getProject(root.OriginID)
@@ -110,7 +111,10 @@ func coordDigest(t *DB, p *Project, ev *ProjectEvent) {
 	case k != nil && (ev.Kind == pevTaskState && body.Why == turnError && coordHarnessRun(t, k) || ev.Kind == pevWorkspace && ev.Wake && k.WS == wsFailed):
 		// a built-in task's failed turn has its push already (the run's
 		// "failed", needs_push.go); a coding agent's and a workspace's don't
-		n.state, n.body, n.fingerprint = pushTaskFailed, "It failed"+orStr(": "+text, "."), fmt.Sprintf("%d:%d", k.N, ev.ID)
+		n.state, n.body, n.fingerprint = pushTaskFailed, "It failed.", fmt.Sprintf("%d:%d", k.N, ev.ID)
+		if text != "" {
+			n.body = "It failed: " + text
+		}
 	case k != nil && (ev.Kind == pevMerged || ev.Kind == pevClosed || ev.Kind == pevTaskCancel || ev.Kind == pevTaskState):
 		done, total, last := projectAllDone(t, p)
 		if !done {

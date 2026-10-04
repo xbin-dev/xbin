@@ -180,6 +180,9 @@ func (ag *Agent) ensureCoordinator(w who, p *Project) (run *Run, made bool, err 
 	if !ok || cls.has(tsInternal) {
 		return nil, false, &projErr{code: 409, refusal: refusalClassInternal, msg: errCoordClassInternal.Error()}
 	}
+	if !cls.usableBy(w) { // as POST /ask checks a class: a web class kept for managers is theirs
+		return nil, false, perr(403, "the coordinator's class (%s) is for the agent's managers only", orStr(cls.Name, cls.ID))
+	}
 	pol := policyOf(p.Policy)
 	cfg := parseConfig(ag.db.getSetting("config"))
 	cfg.setClass(cls, false)

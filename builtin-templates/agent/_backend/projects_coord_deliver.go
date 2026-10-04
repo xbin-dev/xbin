@@ -31,6 +31,7 @@ func init() {
 	projectCoordPrompt = coordPrompt
 	projectEventHooks = append(projectEventHooks, coordEventWake)
 	runDeletedHooks = append(runDeletedHooks, coordRunDeleted)
+	runStatusHooks = append(runStatusHooks, coordWakeHeld)
 	ownerLoops = append(ownerLoops, coordRecover)
 }
 
@@ -170,7 +171,9 @@ var coordWaker = struct {
 // coordWakes (projectWakeHook): an idle (or sleeping) coordinator has an
 // undelivered event that asks to wake it — at most one wake per
 // coordWakeEvery; within it, a timer pokes it when the minute is up. Its
-// owner must still take part in the project.
+// project must be active and its owner still take part in it: otherwise
+// every project tool would refuse, so a wake would spend a model turn on
+// nothing — its events stop asking for one (coordDropWakes).
 func coordWakes(d *DB, run *Run) bool {
 	pid, user, ok := coordOf(d, run)
 	if !ok {
@@ -181,10 +184,44 @@ func coordWakes(d *DB, run *Run) bool {
 		pid, user).Scan(&n) != nil || n == 0 {
 		return false
 	}
-	if d.projectLevel(coordWho(user), pid) < lvParticipant {
+	if p, err := d.getProject(pid); err != nil || p.State != projActive || d.projectLevel(coordWho(user), pid) < lvParticipant {
+		coordDropWakes(d, pid, user)
 		return false
 	}
 	return coordWakeAdmit(run.ID)
+}
+
+// coordDropWakes: user's coordinator of pid can't take a wake now (it waits
+// for its person, its turn failed, its project isn't active, its person no
+// longer takes part) — its undelivered events stop asking for one. They
+// stay undelivered: its next turn, whatever starts it, gets them as
+// updates. Left asking, they would count as work for the person's
+// partition (userWake, projectsWake) that nothing ever takes up, and the
+// partition would never sleep.
+func coordDropWakes(d *DB, pid int64, user string) {
+	if _, err := d.q.Exec(`UPDATE project_events SET wake=0 WHERE project_id=? AND coord_user=? AND delivered=0 AND wake=1`,
+		pid, user); err != nil {
+		logf("project %d: %s's coordinator can't take a wake; its events still ask for one: %v", pid, user, err)
+	}
+}
+
+// coordWakeCant: a coordinator in this status never takes a wake — one
+// waiting for its person goes on when they answer, one in error when they
+// write (the actor wakes neither).
+func coordWakeCant(status string) bool { return status == statusWaiting || status == statusError }
+
+// coordWakeHeld (runStatusHooks): a coordinator started waiting for its
+// person or failed — its events stop asking for a wake (coordDropWakes).
+// Matched as projectsWake matches a coordinator: by its session key.
+func coordWakeHeld(t *DB, runID int64, status string) {
+	if !coordWakeCant(status) {
+		return
+	}
+	if _, err := t.q.Exec(`UPDATE project_events SET wake=0 WHERE delivered=0 AND wake=1 AND EXISTS
+		(SELECT 1 FROM runs r WHERE r.id=? AND r.origin='project' AND r.parent_id=0
+			AND r.session_key='proj:' || project_events.project_id || ':coord:' || project_events.coord_user)`, runID); err != nil {
+		logf("coordinator run #%d is %s; its events still ask for a wake: %v", runID, status, err)
+	}
 }
 
 // coordWakeAdmit says whether coordinator id may be woken now, and arms its
@@ -223,12 +260,20 @@ func coordForget(id int64) {
 }
 
 // coordEventWake (projectEventHooks): an event that asks for a wake pokes
-// its person's coordinator, if they have one (the pass asks coordWakes).
+// its person's coordinator, if they have one (the pass asks coordWakes) —
+// unless it can't take one now (waiting for its person, failed, its
+// project not active): then the event stops asking (coordDropWakes).
 func coordEventWake(t *DB, p *Project, ev *ProjectEvent) {
 	if !ev.Wake || ev.CoordUser == "" {
 		return
 	}
 	if id := t.coordRunOf(p.ID, ev.CoordUser); id != 0 {
+		var status string
+		_ = t.q.QueryRow(`SELECT status FROM runs WHERE id=?`, id).Scan(&status)
+		if p.State != projActive || coordWakeCant(status) {
+			coordDropWakes(t, p.ID, ev.CoordUser)
+			return
+		}
 		t.AfterCommit(func() {
 			if e := projEng(); e != nil {
 				e.Poke(id)

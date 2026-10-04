@@ -260,6 +260,9 @@ func (ag *Agent) coordCreate(ctx context.Context, run *Run, p *Project, args map
 		if label == "" {
 			label = clip(coordPlain(firstLine(s.Text)), 60)
 		}
+		if err := ag.coordStillOwner(); err != nil {
+			return "", err
+		}
 		k, _, err := ag.createTask(ctx, w, p, s)
 		if err != nil {
 			failed = append(failed, fmt.Sprintf("- not created: %s — %s", label, coordErrWords(err)))
@@ -293,6 +296,18 @@ func (ag *Agent) coordCreate(ctx context.Context, run *Run, p *Project, args map
 		return "", errors.New(b.String())
 	}
 	return b.String(), nil
+}
+
+// coordStillOwner: this engine still owns the database (a fenced no-op;
+// errFenced, and the engine stops driving runs, when another took over).
+// task_create and task_cancel write through P1's createTask and cancelTask,
+// which open their own transactions: the fence is checked just before each
+// — task_message's write runs inside e.fenced itself.
+func (ag *Agent) coordStillOwner() error {
+	if e := ag.eng; e != nil {
+		return e.fenced(func(*DB) error { return nil })
+	}
+	return nil
 }
 
 // coordRepo is the project's repo named owner/name or by its slug; "" is
@@ -484,12 +499,15 @@ func (ag *Agent) coordBoard(ctx context.Context, p *Project, cursor string) (str
 		if row.Hidden {
 			continue
 		}
-		fmt.Fprintf(&b, "%s #%d %s — %s", row.Member, row.N, row.Title, orStr(coordStateWords[row.State], row.State))
-		if row.Branch != "" {
-			b.WriteString(" · " + row.Branch)
+		// another member's row: each field one plain line, the frames' and
+		// the updates' markers defused (coordPlain), as task_list's own
+		fmt.Fprintf(&b, "%s #%d %s — %s", clip(coordPlain(row.Member), 60), row.N, clip(coordPlain(row.Title), 120),
+			coordPlain(orStr(coordStateWords[row.State], row.State)))
+		if br := coordPlain(row.Branch); br != "" {
+			b.WriteString(" · " + clip(br, 120))
 		}
 		for _, pr := range row.PRs {
-			fmt.Fprintf(&b, " · PR #%d %s", pr.Number, pr.State)
+			fmt.Fprintf(&b, " · PR #%d %s", pr.Number, coordPlain(pr.State))
 		}
 		if row.Stale {
 			b.WriteString(" · no longer a member")
@@ -668,8 +686,10 @@ func (ag *Agent) coordCancel(run *Run, p *Project, args map[string]any) (string,
 	case len(a.Tasks) > coordMaxStatus:
 		return "", fmt.Errorf("at most %d tasks at once", coordMaxStatus)
 	}
-	reason := strings.TrimSpace(a.Reason)
-	reason = "cancelled by the project coordinator" + orStr(": "+clip(reason, 300), "")
+	reason := "cancelled by the project coordinator"
+	if r := strings.TrimSpace(a.Reason); r != "" {
+		reason += ": " + clip(r, 300)
+	}
 	var lines []string
 	for _, n := range a.Tasks {
 		k, _, err := ag.db.projectTaskOf(p, n)
@@ -680,6 +700,9 @@ func (ag *Agent) coordCancel(run *Run, p *Project, args map[string]any) (string,
 		case k.Phase != phaseOpen && k.Phase != phasePR:
 			lines = append(lines, fmt.Sprintf("#%d: already %s", n, k.Phase))
 			continue
+		}
+		if err := ag.coordStillOwner(); err != nil {
+			return "", err
 		}
 		if err := ag.cancelTask(p, k, coordWho(run.Owner), reason); err != nil {
 			lines = append(lines, fmt.Sprintf("#%d: %v", n, err))
