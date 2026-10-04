@@ -170,6 +170,7 @@ func (e *Engine) takeOver() {
 			e.keep.wakeKeepReady() // a person's partition keeps them from now on (resume_keep.go)
 		}()
 		go e.sweepSigninExecs(nowMs()) // sign-in execs an earlier process left (harness_guided.go)
+		e.startProjects()              // the project worker and the owner loops (project_worker.go)
 	}
 	e.recover()
 	outboxKick() // replies the previous owner wrote after our streams connected
@@ -449,6 +450,7 @@ func (e *Engine) BeginShutdown() {
 	}
 	e.mu.Unlock()
 	e.stopRestingCreds() // a person's partition: none resting with a saved sign-in outlives it (harness_engine.go)
+	e.stopProjects()     // the project worker and the owner loops (project_worker.go)
 	e.letHarnessesGo()   // the successor attaches to the rest: never killed here
 	e.cancelBase(errHandoff)
 	e.hub.closeAll()
@@ -485,9 +487,9 @@ func (d *DB) hasWork() bool {
 	var n int
 	_ = d.q.QueryRow(`SELECT
 		(SELECT count(*) FROM runs WHERE status IN ('running','queued','blocked','awaiting','sleeping'))
-		+ (SELECT count(*) FROM inbox WHERE delivered_at=0)
+		+ (SELECT count(*) FROM inbox i WHERE i.delivered_at=0 AND ` + d.gateHeld() + `) -- a task parked for a person (project_gate.go)
 		+ ` + harnessWorkSQL).Scan(&n)
-	return n > 0
+	return n > 0 || d.projectsWork() // the project worker's jobs (project_worker.go)
 }
 
 // --- the row marker old binaries respect -----------------------------------

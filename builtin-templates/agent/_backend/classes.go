@@ -401,9 +401,9 @@ func (st *classState) classOf(cfg Config) agentClass {
 		c, _ = st.find(laneClass(cfg.Toolset))
 	}
 	if cfg.Toolset == "" && cfg.Class != "" {
-		return c
+		return projectClamp(cfg, c)
 	}
-	return c.clampTo(normalizeToolset(cfg.Toolset))
+	return projectClamp(cfg, c.clampTo(normalizeToolset(cfg.Toolset))) // a project run: never internal reach (project_gate.go)
 }
 
 // fixedLane is the lane the conversation started in — what what it starts

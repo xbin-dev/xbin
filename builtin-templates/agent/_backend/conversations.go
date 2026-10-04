@@ -347,6 +347,9 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, http.StatusConflict, noShareWords)
 		return
 	}
+	if (body.Visibility != nil || body.TeamRole != nil) && projectRunBarred(w, root) { // a project's sharing is its tasks' (project_tasks.go)
+		return
+	}
 	if body.Model != nil && (lv < lvParticipant || !validPick(*body.Model)) {
 		if lv < lvParticipant {
 			xbin.WriteError(w, 403, "only someone who may talk in it can pick its model")
@@ -507,6 +510,8 @@ func handleNeeds(w http.ResponseWriter, r *http.Request) {
 				reason = "approval"
 			case "login": // a coding agent waits for a sign-in (D147 §4.3.9)
 				reason = "login"
+			case pendKindProject: // a task's workspace needs a person: a sign-in, a failure (project_gate.go)
+				reason = needsReason(ps)
 			}
 			item := map[string]any{"run": it, "reason": reason, "subRun": subID}
 			if sub, err := agent.db.getRun(subID); err == nil {

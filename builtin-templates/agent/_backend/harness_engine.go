@@ -546,6 +546,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 	if err != nil {
 		return nil, &harnessFail{err.Error()}
 	}
+	env = withProjectEnv(env, run, u.Box.Home) // a project task's ports, branch and credentials' env (project_gate.go)
 	credID := ""
 	if cred != nil {
 		credID = cred.ID
@@ -1321,6 +1322,7 @@ func (e *Engine) endHarnessTurnTx(t *DB, runID int64, why, msg string) error {
 		}
 		e.settleOwnLink(t, run, linkState, outcome, res)
 	}
+	runTurnEnd(t, run, harnessTurnWhy(why), outcome, orStr(msg, t.harnessTurnText(run.ID))) // turnEndHooks (project_events.go)
 	e.emitRun(t, run.ID)
 	if status == statusError {
 		t.AfterCommit(func() { publishEvent(run.ID, "error") })

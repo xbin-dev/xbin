@@ -75,17 +75,21 @@ func (d *DB) userWake(now time.Time) userWakeAt {
 	// a coding agent (harness_partition.go)
 	_ = d.q.QueryRow(`SELECT
 		(SELECT count(*) FROM runs WHERE status IN ('running','queued'))
-		+ (SELECT count(*) FROM inbox WHERE delivered_at=0)
+		+ (SELECT count(*) FROM inbox i WHERE i.delivered_at=0 AND ` + d.gateHeld() + `) -- a task parked for a person (project_gate.go)
 		+ (SELECT count(*) FROM links l JOIN runs p ON p.id = l.parent_id
 			WHERE l.state<>'running' AND l.delivered=0 AND (
 				(l.mode='fg' AND p.status IN ('running','queued','awaiting'))
 				OR (l.mode='bg' AND p.parent_id=0 AND p.status IN ('running','queued','sleeping','idle','done','canceled'))))
 		+ ` + harnessSendingSQL).Scan(&n)
-	if n > 0 || d.sleepsOnJobs() || d.repliesWait() || d.movesWait() { // repliesWait: handoff_user.go; movesWait: homes_move_user.go
+	projNow, projAt := d.projectsWake(now)                                        // the project worker's jobs, a coordinator's wake (project_worker.go)
+	if n > 0 || d.sleepsOnJobs() || d.repliesWait() || d.movesWait() || projNow { // repliesWait: handoff_user.go; movesWait: homes_move_user.go
 		return userWakeAt{runnable: true}
 	}
 	var wake int64
 	_ = d.q.QueryRow(`SELECT COALESCE(min(wake_at), 0) FROM runs WHERE status IN ('sleeping','awaiting') AND wake_at > 0`).Scan(&wake)
+	if projAt > 0 && (wake == 0 || projAt < wake) {
+		wake = projAt
+	}
 	if wake > 0 && wake <= now.Unix()+60 {
 		return userWakeAt{runnable: true}
 	}

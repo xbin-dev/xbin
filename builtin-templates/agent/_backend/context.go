@@ -36,8 +36,9 @@ func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]w
 	// Date only (not a full timestamp) keeps the system prefix stable within a
 	// day, so prompt caching keeps hitting.
 	fmt.Fprintf(&sys, "\n\nToday's date (UTC): %s.", time.Now().UTC().Format("2006-01-02"))
-	sys.WriteString(sandboxPrompt(cfg)) // the bound sandbox; "" when none (sandbox_tools.go)
-	sys.WriteString(notesBlock(mem))    // sorted: the same bytes every call
+	sys.WriteString(sandboxPrompt(cfg))            // the bound sandbox; "" when none (sandbox_tools.go)
+	sys.WriteString(ag.projectPromptFor(run, cfg)) // a project's task or coordinator: # Project (project_gate.go)
+	sys.WriteString(notesBlock(mem))               // sorted: the same bytes every call
 	if cfg.feature("skills") {
 		if skills := ag.db.visibleSkills(ag.scopeOf(run, cfg)); len(skills) > 0 {
 			sys.WriteString("\n\n# Skills (call skill_view to load one's full steps)\n")

@@ -49,6 +49,7 @@ type rootACL struct {
 	owner                string
 	visibility, teamRole string
 	members              map[string]string // user → viewer | participant
+	project              int64             // a project's run (origin project): its project's id (projectRunCap)
 	loaded               time.Time
 }
 
@@ -69,17 +70,19 @@ func (a *rootACL) level(w who) level {
 			}
 			return lvNone
 		}
-		if a.owner != "" && a.owner == w.user {
-			return lvOwner
-		}
-		if a.owner == "" && w.manager() {
-			return lvOwner // unowned (legacy) runs are the tile managers'
-		}
 		l := roleLevel(a.members[w.user])
 		if a.visibility == visTeam {
 			if t := roleLevel(a.teamRole); t > l {
 				l = t
 			}
+		}
+		if a.owner != "" && a.owner == w.user {
+			l = lvOwner
+		} else if a.owner == "" && w.manager() {
+			l = lvOwner // unowned (legacy) runs are the tile managers'
+		}
+		if a.project != 0 && l > lvViewer {
+			l = projectRunCap(a.project, w, l) // a project's people act on its runs (project_store.go)
 		}
 		return l
 	}
@@ -136,9 +139,14 @@ func (c *aclCache) flush(root int64) {
 
 func (d *DB) loadACL(root int64) (*rootACL, error) {
 	a := &rootACL{root: root, members: map[string]string{}, loaded: time.Now()}
-	if err := d.q.QueryRow(`SELECT owner, visibility, team_role FROM runs WHERE id=?`, root).
-		Scan(&a.owner, &a.visibility, &a.teamRole); err != nil {
+	var origin string
+	var originID int64
+	if err := d.q.QueryRow(`SELECT owner, visibility, team_role, origin, origin_id FROM runs WHERE id=?`, root).
+		Scan(&a.owner, &a.visibility, &a.teamRole, &origin, &originID); err != nil {
 		return nil, err
+	}
+	if origin == originProject {
+		a.project = originID
 	}
 	rows, err := d.q.Query(`SELECT user, role FROM run_members WHERE run_id=?`, root)
 	if err != nil {
