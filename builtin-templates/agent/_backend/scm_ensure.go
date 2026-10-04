@@ -460,8 +460,12 @@ func scmRestoreWS(pid, n int64) string {
 
 // scmCredsReady: a credential was written for k's sandbox (each task of p
 // there, for no k) — a task the credentials held (signin, or failed by the
-// gate) goes back to what it was, and a run the workspace gate parked
-// takes its turn now (the gate looks again).
+// gate) goes back to what it was, and a run the workspace gate parked is
+// poked: the gate looks again and, the workspace ready, lets the input
+// waiting in its inbox start the turn. A poke, not an inboxWake (as bind
+// does, project_steps_task.go): a wake row could be left over to start a
+// turn later, and a coding agent's pass takes a wake alone, leaving the
+// prompt beside it waiting for another poke.
 func scmCredsReady(p *Project, k *ProjectTask, ref string) {
 	for _, s := range scmTasksIn(p, k, ref, nil) {
 		if s.ws == wsSignin || (s.ws == wsFailed && strings.HasPrefix(s.errTxt, "credentials can't go into")) {
@@ -480,10 +484,15 @@ func scmCredsReady(p *Project, k *ProjectTask, ref string) {
 		}
 		if s.run != 0 {
 			if r, err := agent.db.getRun(s.run); err == nil && parsePending(r.Pending).Kind == pendKindProject {
-				if _, _, err := agent.queue(s.run, inboxWake, inboxBody{Reason: "credentials ready"}, ""); err != nil {
-					logf("run #%d: waking it (credentials ready): %v", s.run, err)
-				}
+				scmPokeRun(s.run)
 			}
 		}
+	}
+}
+
+// scmPokeRun has the engine look at run again (a test watches it).
+var scmPokeRun = func(run int64) {
+	if e := projEng(); e != nil {
+		e.Poke(run)
 	}
 }

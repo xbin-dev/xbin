@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -455,6 +456,10 @@ func TestScrubJobWhy(t *testing.T) {
 func TestPendingSigninKept(t *testing.T) {
 	fx := credFixture(t, modeUser)
 	fx.scm.Person = nil
+	var pokes atomic.Int64
+	oldPoke := scmPokeRun
+	scmPokeRun = func(run int64) { pokes.Store(run) }
+	t.Cleanup(func() { scmPokeRun = oldPoke })
 	run := fx.task(t, 1, statusSleep)
 	if err := fx.ag.db.setStatus(run, statusSleep, 0, "", `{"kind":"project"}`); err != nil {
 		t.Fatal(err)
@@ -498,10 +503,13 @@ func TestPendingSigninKept(t *testing.T) {
 	if ws != wsPreparing {
 		t.Fatalf("ws after: %s", ws)
 	}
+	if pokes.Load() != run {
+		t.Fatal("the parked run wasn't poked")
+	}
 	var wakes int
 	_ = fx.ag.db.q.QueryRow(`SELECT count(*) FROM inbox WHERE run_id=? AND kind=?`, run, inboxWake).Scan(&wakes)
-	if wakes == 0 {
-		t.Fatal("the parked run wasn't woken")
+	if wakes != 0 {
+		t.Fatal("a wake row was queued: one could be left over to start a turn later")
 	}
 	if row := credRowOf(t, fx); row.State != credLive || row.Login != "octocat" {
 		t.Fatalf("row: %+v", row)
