@@ -161,12 +161,14 @@ ok('…a seed served here: no manager to pick', !(await t.$('#pteam-sbx-mgr')));
 await t.click('#pteam-go');
 ok('Work on this: asks first', await waitCall(t, 'POST', '/memberships$'));
 const m1 = (await calls(t, 'POST', '/memberships$'))[0];
-ok('…in your own space, with nothing accepted yet', m1.home === '' && JSON.stringify(m1.body) === '{"team":9,"accept":""}', JSON.stringify(m1));
+// the seed's manager, its defaults and internet: a sandbox made without an egress has no network
+const NEWSB = '{"provider":"apps/coding-sandbox","image":"base","size":"small","egress":"internet"}';
+ok('…in your own space, with nothing accepted yet', m1.home === '' && JSON.stringify(m1.body) === `{"team":9,"accept":"","sandbox":{"new":${NEWSB}}}`, JSON.stringify(m1));
 ok('…then shows what you accept: its setup scripts', await waitText(t, '#psec', 'npm ci && curl https://get.example | sh'));
 ok('…and its policy', (await t.textContent('#psec')).includes('be careful') && (await t.textContent('#psec')).includes('go test ./...'));
 await t.click('#pteam-go');
 ok('Accept and start: the hash shown', await waitCall(t, 'POST', '/memberships$', 2));
-ok('…sent', JSON.stringify((await calls(t, 'POST', '/memberships$'))[1].body) === '{"team":9,"accept":"d9"}');
+ok('…sent', JSON.stringify((await calls(t, 'POST', '/memberships$'))[1].body) === `{"team":9,"accept":"d9","sandbox":{"new":${NEWSB}}}`);
 ok('…your half opens', await t.waitForFunction((id) => location.hash === `#proj=${id}`, B + 60, { timeout: 5000 }).then(() => true, () => false));
 ok('…it leads to the team board', await waitText(t, '#pteam-def', 'the team\'s board'));
 ok('no page errors (team board, work on this)', te.length === 0, te.join(' | '));
@@ -194,9 +196,9 @@ ok('no seed: a manager of yours to pick', JSON.stringify(await w.$$eval('#pteam-
 await w.click('#pteam-go');
 await w.waitForSelector('#psec');
 await w.click('#pteam-go');
-ok('…Accept and start sends {new: {provider}}', await waitCall(w, 'POST', '/memberships$', 2));
-const wb = (await calls(w, 'POST', '/memberships$')).map((c) => c.body);
-ok('…both times', JSON.stringify(wb) === JSON.stringify([{ team: 9, accept: '', sandbox: { new: { provider: 'apps/coding-sandbox' } } }, { team: 9, accept: 'd9', sandbox: { new: { provider: 'apps/coding-sandbox' } } }]), JSON.stringify(wb));
+ok('…Accept and start sends {new: {provider, image, size, egress: internet}}', await waitCall(w, 'POST', '/memberships$', 2));
+const wb = (await calls(w, 'POST', '/memberships$')).map((c) => JSON.stringify(c.body));
+ok('…both times', JSON.stringify(wb) === JSON.stringify([`{"team":9,"accept":"","sandbox":{"new":${NEWSB}}}`, `{"team":9,"accept":"d9","sandbox":{"new":${NEWSB}}}`]), JSON.stringify(wb));
 ok('…your half is made (no 400)', await w.waitForFunction((id) => location.hash === `#proj=${id}`, B + 60, { timeout: 5000 }).then(() => true, () => false));
 ok('no page errors (work on this, no seed)', we.length === 0, we.join(' | '));
 
@@ -208,10 +210,13 @@ const { page: a, errors: ae } = await open(aseed, { hash: '#proj=9', init: part 
 await a.waitForSelector('#pteam-work');
 ok('an archived half: Work on this again', (await a.textContent('#pteam-work')) === 'Work on this again' && !(await a.$('#pteam-mine')));
 await a.click('#pteam-work');
+await a.waitForSelector('#pteam-form');
+ok('…it keeps its own sandbox: no choice offered (the backend would ignore it)', !!(await a.$('#pteam-sbx-keep')) && !(await a.$('input[name="pteam-sbx"]')) && !(await a.$('#pteam-sbx-mgr')));
 await a.click('#pteam-go');
 await a.waitForSelector('#psec');
 await a.click('#pteam-go');
 ok('…taken up again, and opened', await a.waitForFunction((id) => location.hash === `#proj=${id}`, B + 30, { timeout: 5000 }).then(() => true, () => false));
+ok('…none sent', JSON.stringify((await calls(a, 'POST', '/memberships$')).map((c) => c.body)) === '[{"team":9,"accept":""},{"team":9,"accept":"d9"}]');
 ok('no page errors (work on this again)', ae.length === 0, ae.join(' | '));
 
 // your half re-reads the definition as its page opens: changes found then are offered

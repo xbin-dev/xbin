@@ -32,25 +32,12 @@ import { upgradeOffer, projectUpgrade } from './model/project-upgrade.js';
 import { partitionState } from './model/partition.js';
 import { safeUrl } from './model/project-task.js';
 import { repoSlug, canSignin } from './model/projects.js';
-import { EGRESS } from './model/sandboxes.js';
+import { EGRESS, projectSandbox } from './model/sandboxes.js';
 
-// the sandbox part's effective choice: what the form says, else the first
-// manager, its default image and size, internet when it offers it (a
-// project clones and fetches)
-function sandboxOf(f, managers) {
-  const sb = f.sandbox;
-  const usable = (managers || []).filter((m) => m.ok !== false);
-  const m = usable.find((x) => x.provider === sb.provider) || usable[0] || null;
-  const egress = (m && m.egress && m.egress.length ? m.egress : ['none']);
-  return {
-    ...sb,
-    provider: m ? m.provider : '',
-    image: sb.image || ((m && m.images) || []).find((i) => i.default)?.id || '',
-    size: sb.size || ((m && m.sizes) || []).find((z) => z.default)?.id || '',
-    egress: sb.egress && egress.includes(sb.egress) ? sb.egress : egress.includes('internet') ? 'internet' : egress[0],
-    m, usable, egressOpts: egress,
-  };
-}
+// the sandbox part's effective choice (model/sandboxes.js projectSandbox):
+// what the form says, else the first manager, its default image and size,
+// internet when it offers it (a project clones and fetches)
+const sandboxOf = (f, managers) => projectSandbox(f.sandbox, managers);
 
 export function newProjectTpl(p) {
   const app = ctx.app;

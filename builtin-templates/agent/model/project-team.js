@@ -22,6 +22,7 @@ import { COLUMNS, stateWords, prChip, WAITING } from './project-task.js';
 import { partitionState } from './partition.js';
 import { PARTITION_BASE } from './homes.js';
 import { plain, httpsUrl } from './project-feed.js';
+import { projectSandbox } from './sandboxes.js';
 
 const CI_TONE = { pending: 'run', queued: 'run', running: 'run', success: 'ok', failure: 'bad', error: 'bad', cancelled: 'idle', neutral: 'idle' };
 
@@ -205,6 +206,12 @@ class Team {
     this.app.sbx.ensure('', '');
     return ((this.app.sbx.listAt('') || {}).managers || []).filter((m) => m.ok !== false);
   }
+  /** workLoading(): your own space's sandbox list isn't read yet — no manager is known, so the form says loading and waits. */
+  workLoading() {
+    const s = this.app.sbx;
+    s.ensure('', '');
+    return typeof s.answered === 'function' ? !s.answered('') : !(s.listAt('') || {}).loaded;
+  }
   /** seedProvider(pv): the provider of the definition's seed when a manager of
    * yours serves it — a new sandbox may then be left to the backend, which
    * forks the seed where that works for you — else ''. */
@@ -223,19 +230,23 @@ class Team {
   setWork(gpid, k, v) { const w = this.work(gpid); if (w) { w.sandbox = { ...w.sandbox, [k]: v }; this.changed(); } }
   closeWork(gpid) { this.works.delete(+gpid); this.changed(); }
 
-  // workSandbox(gpid): the body's sandbox — {ref} one of yours; nothing
-  // when the definition's seed is served here (the backend makes a new one
-  // from the seed's manager, forking the seed where that works for you);
-  // else {new: {provider}}, the manager picked (the backend refuses a
-  // membership with neither). {error} when there is no way to one.
+  // workSandbox(gpid): the body's sandbox — nothing for an archived
+  // membership taken up again (it keeps its own sandbox: the backend reads
+  // none); {ref} one of yours; else {new: {provider, image, size, egress}}
+  // — the seed's manager when the definition's seed is served here (the
+  // backend forks the seed where that works for you), else the manager
+  // picked — with its defaults and internet when it offers it
+  // (model/sandboxes.js projectSandbox: a sandbox made without an egress has
+  // no network, and the repos are cloned in it). {error} when there is no
+  // way to one, or the managers aren't read yet.
   workSandbox(gpid) {
     const w = this.work(gpid);
+    if (this.formerOf(gpid)) return {};
     if (w.sandbox.mode === 'pick') return w.sandbox.ref ? { sandbox: { ref: w.sandbox.ref } } : { error: 'Pick a sandbox, or let one be made.' };
-    if (this.seedProvider(this.app.projects.find(gpid))) return {};
-    const ms = this.workManagers();
-    const prov = ms.some((m) => m.provider === w.sandbox.provider) ? w.sandbox.provider : (ms[0] || {}).provider;
-    if (prov) return { sandbox: { new: { provider: prov } } };
-    if (this.formerOf(gpid)) return {}; // taken up again: it keeps its own sandbox
+    if (this.workLoading()) return { error: 'Your sandbox managers are still loading — try again in a moment.' };
+    const seed = this.seedProvider(this.app.projects.find(gpid));
+    const sb = projectSandbox({ provider: seed || w.sandbox.provider }, this.workManagers());
+    if (sb.new) return { sandbox: { new: sb.new } };
     return { error: 'No sandbox manager is bound in your space to make one: pick one of your own sandboxes.' };
   }
 

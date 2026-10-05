@@ -4467,11 +4467,15 @@ row (`POST /projects/{pid}/board/{member}/{n}/hide`). Its owner sets its
 and once set it is shown read-only (the backend keeps the first).
 From your own space, **Work on this** makes your half of it in your own
 space (`POST /memberships`): its sandbox one of your own private ones
-(`sandbox: {ref}`) or a new one — left to the backend when a manager
-bound in your space serves the definition's seed (it forks the seed where
-that works for you), else `{new: {provider}}` from a manager you pick. A
-half you left or were removed from (archived) offers **Work on this
-again**, which takes it up again with the definition as it is now. It is first
+(`sandbox: {ref}`) or a new one, `{new: {provider, image, size, egress}}`
+with the manager's default image and size and internet when it offers it
+(a sandbox made without an egress has no network, and the repos are cloned
+in it) — the manager of the definition's seed when one bound in your space
+serves it (the backend forks the seed where that works for you), else one
+you pick; until your sandbox managers are read the form says it is loading
+and waits. A half you left or were removed from (archived) offers **Work on
+this again**, which takes it up again with the definition as it is now and
+keeps its own sandbox (no sandbox is offered or sent). It is first
 sent with nothing accepted, and the 409 that answers carries the
 definition's security part — its repos' setup scripts and the policy keys
 that run code or push (instructions, checks, the class, who answers, whose
@@ -4505,8 +4509,9 @@ the dialog.
 (`GET /projects/scm` — each bound one as this home sees it, what it says
 of you), the repos — a picker of what you can reach through it
 (`GET /projects/scm/repos`), each with an optional setup script — a name,
-its sandbox (a new one: manager, image, size, network, internet by
-default; or one of your own private sandboxes) and the policy basics
+its sandbox (a new one: manager, image, size, network — the manager's
+default image and size and internet by default, in both views; or one of
+your own private sandboxes) and the policy basics
 (tasks at once, who answers tasks, pull requests opened by hand or as a
 draft or ready when a task rests, whose identity it works as when the
 provider offers both). In an unpartitioned agent it may be shared with
@@ -4633,7 +4638,7 @@ the same model.
 | `harness-start.js` | starting a conversation with a coding agent: "Who answers" (`agentPicker`), the sandbox it starts in (`sandboxOptions`, `preferredSandbox`, `createPrefill`), the home's setup card (`setupOf`), a row's kind and the top bar's chip (`kindOf`, `topChip`), the new-chat dialog's part of the ask (`newChatPick`); `keepSandbox` keeps the next chat's sandbox one the coding agent picked fits (wired by `createApp`; `app.newClassId()` is the class a new ask starts in) |
 | `harness-ask.js` | a coding harness asking and driven, in words both views draw (below): a permission request as its own options (`permission`: reject first when it defaults to no, an explicit option the owner's only, the call, a diff preview, what "always" remembers; a plan approval with its plan), a question (`question`, `formFields`/`formContent`/`missingRequired`, `nativeSchema`/`nativeContent` for the native `question`; url mode), the live mode and options (`controls`), Auto / Always approve (`settingOf`), the slash menu (`slashCommands`, `slashMatches`), and the composer while a turn runs (`steerWords`; `steerTrack` notices a message steered into it) |
 | `ext.js` | seams: named hooks a view calls at fixed points of its drawing, filled by feature modules (below) |
-| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty` — or, for the native view, the tile's relay (`RELAY`, `relaySrc`): the route, a command, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list (in a person's partition, where the open conversation lives: `listAt(home)`), the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
+| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the ▣ badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty` — or, for the native view, the tile's relay (`RELAY`, `relaySrc`): the route, a command, whether it is offered and why not), sharing one with a terminal tile (`shareForm`), a project's new sandbox (`projectSandbox`: the manager's defaults, internet when offered); `app.sbx` — the list (in a person's partition, where the open conversation lives: `listAt(home)`), the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
 | `homes.js`, `home-api.js`, `moves.js` | a partitioned instance's two homes (a person's own partition, the shared space): a conversation's home by its id, calls and streams sent there; a shared conversation that moved to your own space, followed (`movedTo`) |
 | `harness-homes.js` | coding agents in a partitioned instance (§Coding agents, "In a partitioned instance (the UI)"): whether this page starts one (`harnessesHere`), whether a sandbox is your own space's (`homedWhy`), where a sign-in is offered (`signInAway`), a shared new chat's "Who answers" (`sharedNewChat`) and the sandbox it takes along (`sharedSees`), a run in the shared space that isn't driven (`barredWhy`), and that a coding agent's conversation never moves (`keepsHome`, `unshareWhy`) |
 | `harness-child.js` | a coding agent the agent started, as its card in the parent's chat (`childCard`: its state, status line, where, counters, park, what it may do; `childRun`: the link's child with the stream's newer summary; `tailOf`, `loadTail`: its last blocks, read once; `tailError`: why they couldn't be), and a row's coding agents at work below it (`kidsWords`) |

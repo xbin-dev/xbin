@@ -36,6 +36,7 @@ import { cardWords } from '../model/project-task.js';
 import { projectFeed, feedWords } from '../model/project-feed.js';
 import { projectTeam } from '../model/project-team.js';
 import { partitionState } from '../model/partition.js';
+import { projectSandbox } from '../model/sandboxes.js';
 import { openUrl } from './project-task.js';
 import { forkBaseOffer, forkBase } from '../model/project-upgrade.js';
 import { signinTpl } from './project-settings.js';
@@ -310,12 +311,15 @@ function newTpl(s) {
   const list = app.sbx.listAt('');
   const team = partitionState() === 'global';
   const teamDef = partitionState() === 'user' && !!f.teamDef;
-  const managers = (list.managers || []).filter((m) => m.ok !== false);
-  if (!f.sandbox.provider && managers[0]) f.sandbox.provider = managers[0].provider;
+  // the manager picked (else the first), its default image and size, and internet when it
+  // offers it — the web's choice (model/sandboxes.js projectSandbox): a project clones and fetches
+  const sb = projectSandbox(f.sandbox, list.managers);
+  const managers = sb.usable;
   const mine = (list.sandboxes || []).filter((x) => x.mine && (x.visibility === 'team') === team && !['deleting', 'archived', 'error'].includes(x.state));
   const provs = (p.scm && p.scm.providers) || [];
   const prov = p.provider(f.scm);
   const create = async () => {
+    if (f.sandbox.mode !== 'pick') f.sandbox = { ...f.sandbox, provider: sb.provider, image: sb.image, size: sb.size, egress: sb.egress };
     const r = teamDef ? await projectTeam(app).saveTeam(p) : await p.saveProject();
     if (r && r.project) { drop(s); const i = ui.stack.findIndex((x) => x.kind === 'projects'); if (i >= 0) ui.stack.splice(i + 1); openProject(r.project.id); }
   };
@@ -350,7 +354,7 @@ function newTpl(s) {
       <picker style="segmented" value=${f.sandbox.mode} options=${sbModes} @change=${(e) => p.setFormPart('sandbox', 'mode', e.value)}/>
       ${f.sandbox.mode === 'pick' ? html`<picker label="Sandbox" value=${f.sandbox.ref} options=${[{ value: '', label: 'pick one…' }, ...mine.map((x) => ({ value: x.ref, label: `${x.name} · ${x.state}` }))]}
         @change=${(e) => p.setFormPart('sandbox', 'ref', e.value)}/>`
-        : f.sandbox.mode === 'new' ? (managers.length ? html`<picker label="Manager" value=${f.sandbox.provider} options=${managers.map((m) => ({ value: m.provider, label: m.title || m.provider }))}
+        : f.sandbox.mode === 'new' ? (managers.length ? html`<picker label="Manager" value=${sb.provider} options=${managers.map((m) => ({ value: m.provider, label: m.title || m.provider }))}
           @change=${(e) => p.setFormPart('sandbox', 'provider', e.value)}/>` : html`<notice tone="warn" text="No sandbox manager is bound — bind one to this agent's sandboxes slot."/>`) : nothing}
     </section>`}
     <section title="How it works">

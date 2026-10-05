@@ -71,6 +71,29 @@ export function egressWords(s) {
   return next && next !== e ? `${w || '?'} → ${EGRESS[next] || next} at the next start` : w;
 }
 
+// projectSandbox(sb, managers): a project's new sandbox as both views make
+// it (the new-project form, Work on this): the manager picked, else the
+// first usable one; what the form names, else the manager's default image
+// and size; and internet when the manager offers it — a project clones and
+// fetches, and a sandbox created without an egress has no network
+// (docs/sandbox-manager.md). `new` is the body's sandbox.new; m, usable and
+// egressOpts are for a form to draw.
+export function projectSandbox(sb, managers) {
+  const usable = (managers || []).filter((m) => m.ok !== false);
+  const m = usable.find((x) => x.provider === (sb && sb.provider)) || usable[0] || null;
+  const egressOpts = m && m.egress && m.egress.length ? m.egress : ['none'];
+  const out = {
+    ...sb,
+    provider: m ? m.provider : '',
+    image: (sb && sb.image) || ((m && m.images) || []).find((i) => i.default)?.id || '',
+    size: (sb && sb.size) || ((m && m.sizes) || []).find((z) => z.default)?.id || '',
+    egress: sb && sb.egress && egressOpts.includes(sb.egress) ? sb.egress : egressOpts.includes('internet') ? 'internet' : egressOpts[0],
+    m, usable, egressOpts,
+  };
+  out.new = out.provider ? { provider: out.provider, ...(out.image ? { image: out.image } : {}), ...(out.size ? { size: out.size } : {}), egress: out.egress } : null;
+  return out;
+}
+
 // A sandbox a conversation with internal reach has worked in carries this
 // label; a class that reaches outside with no internal reach may not use it
 // (_backend taintRefusal).
