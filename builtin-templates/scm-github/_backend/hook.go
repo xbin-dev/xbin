@@ -142,6 +142,13 @@ func (s *srv) handleHook(w http.ResponseWriter, r *http.Request) {
 	switch ghEvent {
 	case "installation", "installation_repositories", "member", "membership", "organization":
 		s.accessEvent(ghEvent, &hk, now)
+		if ghEvent == "installation" && hk.Action == "new_permissions_accepted" {
+			// The App's permissions changed on GitHub: what is offered from
+			// them follows (a failure leaves them until the next Check).
+			ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+			_ = s.refreshApp(ctx)
+			cancel()
+		}
 	default:
 		nc := normCtx{provider: s.self, delivery: delivery, now: now.UnixMilli()}
 		nc.host, _, nc.web = s.hosts()

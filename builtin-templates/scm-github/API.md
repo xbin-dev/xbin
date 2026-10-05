@@ -51,7 +51,9 @@ A copy that isn't partitioned (an xbind without `--isolate`, or
      paste one with a URL, tick **Active** under Webhook in the App's
      settings first.
 6. In the App's settings on GitHub: **Enable Device Flow** (the page's
-   **Check** confirms it), and leave **Expire user authorization tokens**
+   **Check** confirms it, and re-reads the App's permissions — as an
+   installation accepting new ones does — so a permission changed on
+   GitHub after Paste, such as `actions: write`, counts), and leave **Expire user authorization tokens**
    on: with it off GitHub hands out tokens that never expire and nothing
    to rotate them with, so a sign-in is refused (its grant revoked at
    once), and a sign-in kept from before has its grant revoked when its

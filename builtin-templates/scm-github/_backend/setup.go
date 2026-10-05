@@ -8,8 +8,10 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"maps"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -204,6 +206,36 @@ func (s *srv) bases(apiBase, webBase string) (string, string, error) {
 		}
 	}
 	return strings.TrimRight(apiBase, "/"), strings.TrimRight(webBase, "/"), nil
+}
+
+// refreshApp re-reads the App's permissions and events from GitHub (GET
+// /app), kept from Paste: a manager may change them on GitHub since —
+// what the tile offers from them (checks.rerun, the bot's contents) follows.
+// POST /setup/check and an installation accepting new permissions ask.
+func (s *srv) refreshApp(ctx context.Context) error {
+	a, err := s.mustApp()
+	if err != nil {
+		return err
+	}
+	auth, err := s.appAuth()
+	if err != nil {
+		return err
+	}
+	var ga ghApp
+	if _, err := s.gh.call(ctx, auth, http.MethodGet, a.APIBase+"/app", nil, &ga); err != nil {
+		return err
+	}
+	if ga.ID != a.AppID || (maps.Equal(ga.Permissions, a.Permissions) && slices.Equal(ga.Events, a.Events)) {
+		return nil
+	}
+	a.Permissions, a.Events = ga.Permissions, ga.Events
+	if err := s.state.Put("app", a); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.appC = nil
+	s.mu.Unlock()
+	return s.writePublic(0)
 }
 
 // rotateHookSecret makes next the webhook secret, cur (when another)
@@ -536,6 +568,10 @@ func htmlPage(w http.ResponseWriter, status int, msg string) {
 func (s *srv) handleSetupCheck(w http.ResponseWriter, r *http.Request, _ who) {
 	a, err := s.mustApp()
 	if err != nil {
+		fail(w, err)
+		return
+	}
+	if err := s.refreshApp(r.Context()); err != nil {
 		fail(w, err)
 		return
 	}
