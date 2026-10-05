@@ -205,8 +205,9 @@ func (h *hub) holdRest(rest []outItem, next int64) {
 	}
 }
 
-// suiteRuns fills a checks.completed's runs from the suite's check runs
-// on its commit (GitHub's suite event doesn't carry them): the event with
+// suiteRuns fills a checks.completed's runs from the suite's own check
+// runs (GitHub's suite event doesn't carry them; the commit's list holds
+// every suite's, and a busy commit's first page may not hold this one's): the event with
 // them, or nil (it goes without).
 func (s *srv) suiteRuns(ctx context.Context, it *outItem) json.RawMessage {
 	var ev map[string]json.RawMessage
@@ -226,7 +227,7 @@ func (s *srv) suiteRuns(ctx context.Context, it *outItem) json.RawMessage {
 	var out struct {
 		CheckRuns []ghCheckRun `json:"check_runs"`
 	}
-	if _, err := s.gh.call(ctx, auth, http.MethodGet, s.repoBase(it.Repo)+"/commits/"+cd.HeadSHA+"/check-runs?per_page=100", nil, &out); err != nil {
+	if _, err := s.gh.call(ctx, auth, http.MethodGet, s.repoBase(it.Repo)+"/check-suites/"+pathEsc(suite)+"/check-runs?per_page=100", nil, &out); err != nil {
 		return nil
 	}
 	have := map[string]bool{}

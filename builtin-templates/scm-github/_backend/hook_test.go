@@ -311,6 +311,11 @@ func TestChecksSuiteRuns(t *testing.T) {
 		{"id": 88002, "name": "lint", "status": "completed", "conclusion": "success", "html_url": "https://github.com/acme/web/runs/88002", "check_suite": map[string]any{"id": 77}},
 		{"id": 99, "name": "codecov", "status": "completed", "conclusion": "success", "check_suite": map[string]any{"id": 78}},
 	}
+	// A busy commit: another suite's hundred runs come first in the
+	// commit's list — the suite's own are read from the suite.
+	for i := range 100 {
+		ee.gh.ci.checkRuns[fxSHA] = append([]map[string]any{{"id": 70000 + i, "name": "other", "status": "completed", "conclusion": "success", "check_suite": map[string]any{"id": 79}}}, ee.gh.ci.checkRuns[fxSHA]...)
+	}
 	ee.gh.mu.Unlock()
 	ok(t, ee.hook("check_suite", fixture(t, "check_suite")), 202)
 	ee.clock.advance(6 * time.Second)

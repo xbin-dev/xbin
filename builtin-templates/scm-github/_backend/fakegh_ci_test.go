@@ -9,6 +9,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -427,6 +428,23 @@ func (f *fakeGH) ciRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /repos/{o}/{r}/commits/{sha}/check-runs", guard("checks", "read", func(w http.ResponseWriter, r *http.Request, repo string) {
 		f.mu.Lock()
 		cr := f.ci.checkRuns[r.PathValue("sha")]
+		f.mu.Unlock()
+		total := len(cr)
+		if n, err := strconv.Atoi(r.URL.Query().Get("per_page")); err == nil && n < len(cr) {
+			cr = cr[:n] // the first page only (a Link header GitHub would add isn't)
+		}
+		f.reply(w, r, 200, map[string]any{"total_count": total, "check_runs": orEmpty(cr)})
+	}))
+	mux.HandleFunc("GET /repos/{o}/{r}/check-suites/{id}/check-runs", guard("checks", "read", func(w http.ResponseWriter, r *http.Request, repo string) {
+		f.mu.Lock()
+		var cr []map[string]any
+		for _, runs := range f.ci.checkRuns {
+			for _, x := range runs {
+				if cs, _ := x["check_suite"].(map[string]any); cs != nil && fmt.Sprint(cs["id"]) == r.PathValue("id") {
+					cr = append(cr, x)
+				}
+			}
+		}
 		f.mu.Unlock()
 		f.reply(w, r, 200, map[string]any{"total_count": len(cr), "check_runs": orEmpty(cr)})
 	}))
