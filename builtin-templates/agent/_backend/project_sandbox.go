@@ -59,6 +59,12 @@ type forkEntry struct {
 	User    string `json:"user,omitempty"` // whom the agent acts for at its manager (Sbx-User)
 	Keep    bool   `json:"keep,omitempty"` // policy bigTasks.keepFork, as last seen
 	Created int64  `json:"created"`
+	// where the create went and what it labelled the fork with — so a
+	// fork whose create's answer was lost (Ref "") is found again by its
+	// labels once nothing retries it (findFork)
+	Provider string `json:"provider,omitempty"`
+	UID      string `json:"uid,omitempty"`
+	N        int64  `json:"n,omitempty"`
 }
 
 func putForkEntry(d *DB, pid, n int64, e *forkEntry) error {
@@ -96,6 +102,7 @@ func provisionTaskFork(ctx context.Context, p *Project, k *ProjectTask) (string,
 		}
 	}
 	ent.Keep = pol.BigTasks.KeepFork
+	ent.Provider, ent.UID, ent.N = conn.M.Provider, p.UID, k.N
 	if err := putForkEntry(d, p.ID, k.N, ent); err != nil { // before the create: a retry asks the same
 		return "", err
 	}
@@ -395,6 +402,23 @@ func forkSweep(ctx context.Context) {
 		if err != nil && !errors.Is(err, errNoProject) {
 			continue
 		}
+		if e.Ref == "" && (err != nil || forkOrphan(d, p, n)) {
+			// a create whose answer was lost and that nothing retries now:
+			// the fork, if the manager made it, is found by its labels
+			cctx, cancel := context.WithTimeout(ctx, time.Minute)
+			ref, ferr := findFork(cctx, e)
+			cancel()
+			if ferr != nil {
+				logf("looking for the fork of %s: %v", key, ferr)
+				continue
+			}
+			if ref == "" {
+				dropForkEntry(d, pid, n) // never made
+				continue
+			}
+			e.Ref = ref
+			_ = putForkEntry(d, pid, n, e)
+		}
 		if err != nil { // the project was deleted: its credentials with it
 			if e.Ref != "" && !e.Keep {
 				cctx, cancel := context.WithTimeout(ctx, time.Minute)
@@ -420,4 +444,41 @@ func forkSweep(ctx context.Context) {
 			_, _ = d.queueJob(pid, k.ID, "", pjFork, "", 0)
 		}
 	}
+}
+
+// forkOrphan: task n of p has a fork entry nothing will complete — the
+// task is over and no prepare of it is live (one would ask the create
+// again, with the same clientId, and record its answer).
+func forkOrphan(d *DB, p *Project, n int64) bool {
+	k, err := d.taskByN(p.ID, n)
+	if err != nil {
+		return p.State != projDeleting
+	}
+	return k.Phase != phaseOpen && k.Phase != phasePR && d.liveJob(p.ID, k.ID, "", pjPrepare) == nil
+}
+
+// findFork looks for e's fork at its manager by the labels its create
+// gave it ("": none there). An entry from before these were recorded
+// can't be looked for: "", as nothing was ever found for it.
+func findFork(ctx context.Context, e *forkEntry) (string, error) {
+	if e.Provider == "" || e.UID == "" || e.N == 0 {
+		return "", nil
+	}
+	conn, err := sbxDial(e.Provider, e.User)
+	if err != nil {
+		if sbxRefusal(err) == "unbound" {
+			return "", nil
+		}
+		return "", err
+	}
+	boxes, err := conn.List(ctx)
+	if err != nil {
+		return "", err
+	}
+	for _, b := range boxes {
+		if b.Labels[projectLabel] == e.UID && b.Labels[taskLabel] == strconv.FormatInt(e.N, 10) {
+			return sandboxRef(conn.M.Provider, b.ID), nil
+		}
+	}
+	return "", nil
 }

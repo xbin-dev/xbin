@@ -361,7 +361,14 @@ var coordStateWords = map[string]string{
 // coordTaskLine is one task in a line: number, title, state, branch, PRs.
 func coordTaskLine(v TaskView) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "#%d %s — %s", v.N, clip(coordPlain(v.Title), 120), orStr(coordStateWords[v.State], v.State))
+	if v.Issue != nil {
+		// its title may be the issue's (createTask's default): text from
+		// outside, labelled so (and defused) as an scm event's title is
+		fmt.Fprintf(&b, "#%d (from the issue %s#%d; title, untrusted: %s) — %s", v.N, coordPlain(v.Issue.Repo), v.Issue.Number,
+			scmLine(coordPlain(v.Title), 120), orStr(coordStateWords[v.State], v.State))
+	} else {
+		fmt.Fprintf(&b, "#%d %s — %s", v.N, clip(coordPlain(v.Title), 120), orStr(coordStateWords[v.State], v.State))
+	}
 	if v.WaitingFor == "slot" {
 		b.WriteString(" (for a free slot)")
 	}

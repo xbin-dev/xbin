@@ -17,10 +17,17 @@ func projectPrompt(d *DB, p *Project, k *ProjectTask, sub bool) string {
 	pol := policyOf(p.Policy)
 	var b strings.Builder
 	b.WriteString("# Project\n")
+	// a task started from an issue may carry the issue's title (createTask's
+	// default): text from outside, so it is left out of this line and
+	// framed with the issue below
+	title := ""
+	if k.Issue == nil {
+		title = fmt.Sprintf(": %q", k.Title)
+	}
 	if sub {
-		fmt.Fprintf(&b, "You work for task #%d of the project %q: %q.\n", k.N, p.Name, k.Title)
+		fmt.Fprintf(&b, "You work for task #%d of the project %q%s.\n", k.N, p.Name, title)
 	} else {
-		fmt.Fprintf(&b, "This conversation is task #%d of the project %q: %q (%s).\n", k.N, p.Name, k.Title, orStr(k.Size, sizeSmall))
+		fmt.Fprintf(&b, "This conversation is task #%d of the project %q%s (%s).\n", k.N, p.Name, title, orStr(k.Size, sizeSmall))
 	}
 	fmt.Fprintf(&b, "Branch: %s — commit to it and push it (`git push`); never push the default branch, never merge: a person reviews and merges.\n", k.Branch)
 	repos, _ := d.projectRepos(p.ID)
@@ -52,7 +59,8 @@ func projectPrompt(d *DB, p *Project, k *ProjectTask, sub bool) string {
 		fmt.Fprintf(&b, "Ports: listen only on %d–%d ($PORT is %d); other tasks use the others.\n", k.PortsBase, k.PortsBase+pol.Ports.Span-1, k.PortsBase)
 	}
 	if k.Issue != nil {
-		fmt.Fprintf(&b, "It starts from the issue %s#%d.\n", k.Issue.Repo, k.Issue.Number)
+		fmt.Fprintf(&b, "It starts from the issue %s#%d. The task's title (it may be the issue's):\n%s\n", k.Issue.Repo, k.Issue.Number,
+			untrusted(p.Host, "the task's title", oneLineTitle(k.Title)))
 	}
 	if s := strings.TrimSpace(pol.Instructions); s != "" {
 		fmt.Fprintf(&b, "\nThe project's instructions:\n%s\n", s)
@@ -97,3 +105,6 @@ func setupOutcome(d *DB, k *ProjectTask) string {
 func harnessBrief(d *DB, p *Project, k *ProjectTask, text string) string {
 	return projectPrompt(d, p, k, false) + "\n\n# Your task\n" + text
 }
+
+// oneLineTitle is a title on one line.
+func oneLineTitle(s string) string { return strings.Join(strings.Fields(s), " ") }

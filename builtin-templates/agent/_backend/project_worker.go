@@ -322,6 +322,13 @@ func (w *projWorker) lockKey(j *ProjectJob) string {
 	}
 	if j.Task != 0 {
 		if k, err := w.e.db.taskByID(j.Task); err == nil {
+			if j.Kind == pjPrepare && k.Size == sizeBig && !k.ForkMade && projectJobKinds[pjFork] != nil {
+				// a big task's first prepare makes its own sandbox (forks in
+				// this build): it works in none of the project's, so it
+				// holds no one's lock but its own; once the fork is
+				// recorded it is claimed again, under the fork's ref
+				return "fork:" + forkKey(p.ID, k.N)
+			}
 			return taskRef(p, k)
 		}
 	}
@@ -431,13 +438,32 @@ func (w *projWorker) finish(p *Project, k *ProjectTask, j *ProjectJob, out jobOu
 		step = "failed"
 	}
 	_ = w.e.fenced(func(t *DB) error {
-		if mark := rerunMarks[j.Kind]; mark != "" && (state == pjDone || state == pjFailed) && j.ClientID != mark {
+		var alive int
+		if t.q.QueryRow(`SELECT EXISTS(SELECT 1 FROM projects WHERE id=?)`, p.ID).Scan(&alive) == nil && alive == 0 {
+			// the project was deleted while this ran (its deletion leaves a
+			// running row): no one would claim the row again, nor its exec
+			if _, err := t.q.Exec(`DELETE FROM project_jobs WHERE id=? AND epoch=?`, j.ID, j.Epoch); err != nil {
+				return err
+			}
+			if j.ExecID != "" && j.ExecRef != "" && state != pjDone && state != pjFailed {
+				ref, exec, user := j.ExecRef, j.ExecID, sbxUserOf(binderWho(p.Owner))
+				t.AfterCommit(func() { stopOrphanExec(ref, exec, user) })
+			}
+			return nil
+		}
+		if mark := rerunMarks[j.Kind]; mark != "" && j.ClientID != mark {
 			// marked while this one ran (an scm event asking for the pull
-			// requests, an owner forcing a cleanup): once more, marked
+			// requests, an owner forcing a cleanup): the mark is kept —
+			// for a retry or a wait too, which would otherwise write the
+			// client id read at claim over it — and an end runs once
+			// more, marked
 			var cid string
 			if t.q.QueryRow(`SELECT client_id FROM project_jobs WHERE id=?`, j.ID).Scan(&cid) == nil && cid == mark {
-				state, next, j.ClientID, errText, j.ExecID = pjQueued, now, cid, "", ""
-				step = orStr(out.Step, j.Step)
+				j.ClientID = cid
+				if state == pjDone || state == pjFailed {
+					state, next, errText, j.ExecID = pjQueued, now, "", ""
+					step = orStr(out.Step, j.Step)
+				}
 			}
 		}
 		res, err := t.q.Exec(`UPDATE project_jobs SET state=?, step=?, attempts=?, next_ms=?, exec_ref=?, exec_id=?, client_id=?,
@@ -467,6 +493,18 @@ func (w *projWorker) finish(p *Project, k *ProjectTask, j *ProjectJob, out jobOu
 	})
 }
 
+// stopOrphanExec stops a deleted project's job's exec (best effort: its
+// sandbox may be gone with the project).
+func stopOrphanExec(ref, exec, user string) {
+	conn, id, err := sbxDialRef(ref, user)
+	if err != nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_ = conn.ExecSignal(ctx, id, exec, "KILL", true)
+}
+
 // rerunMarks: a job of this kind whose client id gets this mark while it
 // runs (the route marks the live row, which may be the running one) runs
 // once more, marked — finish would otherwise write the mark over.
@@ -480,7 +518,9 @@ func jobFailed(t *DB, p *Project, k *ProjectTask, j *ProjectJob, errText string)
 		if cur, err := t.taskByID(k.ID); err == nil {
 			k = cur
 		}
-		if j.Kind == pjCleanup || j.Kind == pjRefs || k.Phase == phaseDeleted {
+		if j.Kind == pjCleanup || j.Kind == pjRefs || k.Phase == phaseDeleted || taskOver(k) {
+			// (a closed or cleaned task's step failing is no
+			// workspace failure: there is no workspace to fail)
 			addProjectEvent(t, p.ID, k.N, pevWorkspace, map[string]any{"text": fmt.Sprintf("its %s job failed: %s", j.Kind, clip(errText, 400))}, false, "")
 			return
 		}
@@ -503,6 +543,9 @@ func (w *projWorker) sweep() {
 	d := w.e.db
 	pumpQueued(d) // a pump an AfterCommit missed (a crash between the two)
 	_, _ = d.q.Exec(`DELETE FROM project_jobs WHERE state IN ('done','failed') AND updated_ms<?`, nowMs()-7*24*3600*1000)
+	// a deleted project's rows (one that ran through its deletion and got
+	// back as queued before finish knew): nobody claims them
+	_, _ = d.q.Exec(`DELETE FROM project_jobs WHERE state<>'running' AND project_id NOT IN (SELECT id FROM projects)`)
 	_, _ = d.q.Exec(`DELETE FROM project_events WHERE created<?`, nowMs()-30*24*3600*1000)
 	ps, _ := d.projectsWhere(`WHERE state='active' AND dir<>'' AND sandbox_ref<>''`)
 	for _, p := range ps {

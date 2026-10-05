@@ -134,7 +134,10 @@ func reposReady(d *DB, pid int64) bool {
 // running is looked at again.
 func jobSnapshot(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) (jobOutcome, error) {
 	d := projAg().db
-	if p.State != projActive || p.Kind == projTeam || p.SandboxRef == "" || p.Dir == "" {
+	// a team definition's is its seed's (API.md §Team projects): what a bot
+	// membership's {new} sandbox is cloned from (it holds no credential;
+	// the scrub below finds none)
+	if p.State != projActive || p.SandboxRef == "" || p.Dir == "" {
 		return doneJob("no workspace to snapshot")
 	}
 	conn, id, err := sbxDialRef(p.SandboxRef, sbxUserOf(binderWho(p.Owner)))
@@ -293,8 +296,13 @@ func releaseGitSteps(w *projWorker, ref string) {
 func gitStepsIn(d *DB, ref string, due bool) []int64 {
 	cond := `j.state IN ('queued','waiting','running')`
 	if due {
-		cond = `(j.state='running' OR (j.state IN ('queued','waiting') AND j.next_ms<=?))`
+		// due: one the worker would claim (claimableSQL — not an archived
+		// project's held step, which would hold the base off for good)
+		cond = `(j.state='running' OR (j.state IN ('queued','waiting') AND j.next_ms<=? AND (j.kind IN ('cleanup','scrub') OR p.state='active')))`
 	}
+	// a big task's first prepare works in its own new sandbox, not this
+	// one (the worker's lockKey)
+	cond += ` AND NOT (j.kind='prepare' AND COALESCE(k.size, '')='big' AND COALESCE(k.fork_made, 0)=0)`
 	args := []any{pjRepo, pjFetch, pjPrepare, pjCleanup, pjRefs}
 	if due {
 		args = append(args, nowMs())
@@ -347,8 +355,8 @@ func handleForkBase(w http.ResponseWriter, r *http.Request) {
 	case p.State != projActive:
 		xbin.WriteError(w, 409, "this project is "+p.State)
 		return
-	case p.Kind == projTeam:
-		xbin.WriteError(w, 409, "a team project's definition has no tasks to fork for")
+	case p.Kind == projTeam && p.SandboxRef == "":
+		xbin.WriteError(w, 409, "this team project has no seed sandbox yet")
 		return
 	case p.SandboxRef == "" || p.Dir == "":
 		xbin.WriteError(w, 409, "the project's sandbox isn't ready yet")
@@ -420,7 +428,7 @@ func forkBaseLoop(ctx context.Context, e *Engine) {
 // the last one's end (whatever it said).
 func forkBaseSweep(ctx context.Context) {
 	d := projAg().db
-	ps, err := d.projectsWhere(`WHERE state='active' AND kind<>'team' AND sandbox_ref<>'' AND dir<>''`)
+	ps, err := d.projectsWhere(`WHERE state='active' AND sandbox_ref<>'' AND dir<>''`)
 	if err != nil {
 		return
 	}
@@ -428,13 +436,21 @@ func forkBaseSweep(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if policyOf(p.Policy).BigTasks.Mode != "fork" || !reposReady(d, p.ID) {
+		if policyOf(p.Policy).BigTasks.Mode != "fork" {
+			if p.ForkSnap != "" {
+				dropForkBase(ctx, p) // forks turned off: its base isn't used again
+			}
+			continue
+		}
+		if !reposReady(d, p.ID) {
 			continue
 		}
 		if p.ForkSnap != "" {
 			var since int
 			_ = d.q.QueryRow(`SELECT count(*) FROM project_tasks WHERE project_id=? AND updated_ms>?`, p.ID, p.ForkSnapMs).Scan(&since)
-			if nowMs()-p.ForkSnapMs < forkBaseMaxAge.Milliseconds() || since == 0 {
+			// a team definition (a seed) has no tasks: its base is renewed
+			// by age alone
+			if nowMs()-p.ForkSnapMs < forkBaseMaxAge.Milliseconds() || (since == 0 && p.Kind != projTeam) {
 				continue
 			}
 		}
@@ -481,4 +497,18 @@ func forkEntryAt(d *DB, key string) *forkEntry {
 		return nil
 	}
 	return &e
+}
+
+// dropForkBase deletes p's fork base at its manager and forgets it (gone
+// already: forgotten too; another error: left for the next sweep).
+func dropForkBase(ctx context.Context, p *Project) {
+	conn, id, err := sbxDialRef(p.SandboxRef, sbxUserOf(binderWho(p.Owner)))
+	if err != nil {
+		return
+	}
+	if err := conn.DeleteSnapshot(ctx, id, p.ForkSnap); err != nil && sbxRefusal(err) != "not-found" {
+		logf("project %d: deleting its fork base: %v", p.ID, err)
+		return
+	}
+	_, _ = projAg().db.q.Exec(`UPDATE projects SET fork_snap='', fork_snap_ms=0 WHERE id=? AND fork_snap=?`, p.ID, p.ForkSnap)
 }

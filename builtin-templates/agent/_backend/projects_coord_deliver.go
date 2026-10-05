@@ -217,10 +217,16 @@ func coordWakeHeld(t *DB, runID int64, status string) {
 	if !coordWakeCant(status) {
 		return
 	}
-	if _, err := t.q.Exec(`UPDATE project_events SET wake=0 WHERE delivered=0 AND wake=1 AND EXISTS
-		(SELECT 1 FROM runs r WHERE r.id=? AND r.origin='project' AND r.parent_id=0
-			AND r.session_key='proj:' || project_events.project_id || ':coord:' || project_events.coord_user)`, runID); err != nil {
-		logf("coordinator run #%d is %s; its events still ask for a wake: %v", runID, status, err)
+	// a coordinator first (one row by its key — every chat's approval
+	// passes here), then its own events by their index
+	var origin, key string
+	var parent int64
+	if t.q.QueryRow(`SELECT origin, parent_id, session_key FROM runs WHERE id=?`, runID).Scan(&origin, &parent, &key) != nil ||
+		origin != originProject || parent != 0 {
+		return
+	}
+	if pid, user, ok := coordKeyOf(key); ok {
+		coordDropWakes(t, pid, user)
 	}
 }
 

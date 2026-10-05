@@ -126,8 +126,9 @@ func scmKeyLock(key string) *sync.Mutex {
 // scmHoldSandbox takes sandbox ref's lock and returns its release. Held
 // across a credential's gate, its files and its row (ensureCreds), across
 // every scrub there (the caller of scmScrubRow and scmScrubSandbox holds
-// it), and across a share's PATCH and a stop's or archive's lifecycle call
-// through the agent — so no credential is written into a sandbox between
+// it), across a hosted conversation's check and note (scmHostedUse), and
+// across a share's PATCH and a stop's or archive's lifecycle call through
+// the agent — so no credential is written into a sandbox between
 // the scrub that finds nothing there and the change that shares it, stops
 // it or archives it. Never held across a provider's Token (a share would
 // wait on minting); a scrub's revocation does run under it (scmRevoke:

@@ -54,6 +54,20 @@ type rootACL struct {
 }
 
 func (a *rootACL) level(w who) level {
+	l := a.baseLevel(w)
+	if w.kind == whoUser && w.viewedBy == "" && a.project != 0 && l > lvViewer {
+		l = projectRunCap(a.project, w, l) // a project's people act on its runs (project_store.go)
+	}
+	return l
+}
+
+// sees: w may see the run (level ≥ viewer). The project cap never takes a
+// level below viewer, so this needs no project lookup (a database read on
+// a cache miss): the event hub asks it under its lock.
+func (a *rootACL) sees(w who) bool { return a.baseLevel(w) >= lvViewer }
+
+// baseLevel is level without the project cap.
+func (a *rootACL) baseLevel(w who) level {
 	switch w.kind {
 	case whoSystem:
 		return lvSystem
@@ -80,9 +94,6 @@ func (a *rootACL) level(w who) level {
 			l = lvOwner
 		} else if a.owner == "" && w.manager() {
 			l = lvOwner // unowned (legacy) runs are the tile managers'
-		}
-		if a.project != 0 && l > lvViewer {
-			l = projectRunCap(a.project, w, l) // a project's people act on its runs (project_store.go)
 		}
 		return l
 	}

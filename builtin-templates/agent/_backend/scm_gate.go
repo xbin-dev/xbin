@@ -216,7 +216,8 @@ func scmMemberCount(pid int64) int {
 // into it from then on. Under the sandbox's lock: a write either finished
 // first (its row is live: refused) or finds the note (the gate refuses).
 // A live row whose files couldn't be emptied counts; a table that can't be
-// read refuses (fail closed). "" = it may use the sandbox.
+// read, or a note that can't be written, refuses (fail closed). "" = it may
+// use the sandbox.
 func scmHostedUse(d *DB, ref, name string) string {
 	defer scmHoldSandbox(ref)()
 	var n int
@@ -224,7 +225,10 @@ func scmHostedUse(d *DB, ref, name string) string {
 		return fmt.Sprintf("a non-secure (hosted) conversation doesn't work in %s: a project's credential for its code host is there, "+
 			"and the conversation's members could have the agent read it — create another sandbox for this conversation", name)
 	}
-	d.noteHostedUse(ref)
+	if err := d.noteHostedUse(ref); err != nil {
+		return fmt.Sprintf("a non-secure (hosted) conversation doesn't work in %s now: its use couldn't be recorded (which keeps "+
+			"credentials out of it) — try again", name)
+	}
 	return ""
 }
 

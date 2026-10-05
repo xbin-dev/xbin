@@ -470,7 +470,8 @@ func jobFetch(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) (j
 
 // prepareScript adds a task's checkout of each repo (N of them: B_i, C_i,
 // DEF_i, MODE_i, U_i) on the branch BR — a worktree of the base, or (MODE
-// clone) a clone borrowing the base's objects — and prints each one's HEAD.
+// clone) a clone borrowing the base's objects (a bare base's, or an
+// adopted working clone's .git's) — and prints each one's HEAD.
 // A checkout already there is kept as it is.
 const prepareScript = `i=0
 while [ "$i" -lt "$N" ]; do
@@ -480,7 +481,8 @@ while [ "$i" -lt "$N" ]; do
       mkdir -p "$C"
       git init -q "$C"
       mkdir -p "$C/.git/objects/info"
-      printf '%s\n' "$B/objects" > "$C/.git/objects/info/alternates"
+      O=$(cd "$B" && cd "$(git rev-parse --git-common-dir)" && pwd)/objects
+      printf '%s\n' "$O" > "$C/.git/objects/info/alternates"
       git -C "$C" fetch -q "$B" "+refs/remotes/origin/*:refs/remotes/origin/*"
       if git -C "$C" show-ref -q --verify "refs/remotes/origin/$BR"; then
         git -C "$C" checkout -q -b "$BR" "origin/$BR"
@@ -592,6 +594,8 @@ func jobPrepare(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 			if err := projAg().db.setTask(k.ID, map[string]any{"sandbox_ref": ref, "fork_made": 1}); err != nil {
 				return jobOutcome{}, err
 			}
+			// the rest is claimed again under the fork's lock (lockKey)
+			return jobOutcome{Step: "its own sandbox is made"}, nil
 		case err != nil && !errors.Is(err, errNotInBuild):
 			return jobOutcome{}, err
 		}
