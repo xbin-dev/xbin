@@ -61,6 +61,10 @@ test('a long conversation: the chat renders a window, trimmed and let go only at
   for (let i = 1; i <= 300; i++) msgs.push(msg(i, i % 2 ? 'user' : 'assistant', `m${i}`, { runId: 9 }));
   const r = await run(oneSeed({ run: { title: 'long', status: 'idle' }, messages: msgs }, { pages: { 9: { hasOlder: false } } }), [
     { snapshot: 'open' },
+    // the page settles at the bottom: a paint there lets go of what lies far
+    // above (whether one comes before the reader scrolls is the app's timing —
+    // CI's dismissed cards read, a stream event — so the test waits for it)
+    { wait: 100 },
     { event: [TRANSCRIPT, 'scrolled', { atBottom: false }] },
     { event: [TRANSCRIPT, 'more', {}] },
     { event: [TRANSCRIPT, 'more', {}] },
@@ -78,11 +82,13 @@ test('a long conversation: the chat renders a window, trimmed and let go only at
   const rows = (snap) => find(r.snapshots[snap], TRANSCRIPT).c.filter((n) => n.t === 'message').map((n) => n.p.text);
   assert.equal(rows('open').length, 40, 'it opens on the tail');
   assert.equal(rows('open').at(-1), 'm300');
-  assert.equal(rows('up').length, 160, 'scrolled up, each `more` adds a page of rows and nothing is trimmed');
+  const nums = (snap) => rows(snap).map((t) => +t.slice(1));
+  assert.deepEqual(nums('up'), Array.from({ length: 140 }, (_, i) => 161 + i),
+    'scrolled up, each `more` adds the held rows above (a page at most), then a page read again; nothing is trimmed');
   assert.equal(rows('back').length, 60, 'back at the bottom, the window is cut back');
   assert.equal(rows('back').at(-1), 'm300');
   assert.equal(find(r.snapshots.back, TRANSCRIPT).p.older, true, 'rows above the window: the loader stays');
   const older = called(r, 'GET', /\/runs\/9\/view\?limit=50&before=\d+$/);
-  assert.equal(older.length, 1, 'what lay far above was let go at the bottom: scrolling up reads it again');
-  assert.ok(+older[0].url.match(/before=(\d+)/)[1] > 150, older[0].url);
+  assert.equal(older.length, 2, 'what lay far above was let go at the bottom (once settled, once back): scrolling up reads it again each time');
+  assert.ok(older.every((c) => +c.url.match(/before=(\d+)/)[1] > 150), older.map((c) => c.url).join(' '));
 });

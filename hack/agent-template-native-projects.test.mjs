@@ -114,7 +114,7 @@ test('Make this a project…: offered on a root conversation of yours with a san
 // --- the screens -----------------------------------------------------------------------------------------
 
 test('Projects: the drawer\'s row, the list, a project\'s board with ext.card\'s words', async () => {
-  const r = await run({ ...projSeed(), cardProbe: true }, [
+  const r = await run(projSeed(), [
     { tap: btn('Conversations') },
     { wait: 20 },
     { snapshot: 'drawer' },
@@ -136,7 +136,7 @@ test('Projects: the drawer\'s row, the list, a project\'s board with ext.card\'s
   const board = topScreen(r.snapshots.board);
   assert.deepEqual(sections(board), ['Coordinator', 'Queued (1)', 'Working (1)', 'Needs you (3)', 'PR (1)', 'Done (1)', 'Activity']);
   assert.equal(find(board, { t: 'row', p: { title: '#1 Fix the login loop' } }).p.subtitle, 'awaiting review · ⎇ xbin/k3x9qa/1-task-1 · PR #42 open ✗');
-  assert.equal(find(board, { t: 'row', p: { title: '#5 Merged one' } }).p.subtitle, 'merged · ⎇ xbin/k3x9qa/5-task-5 · PR #40 merged · CI success', 'checks only while no CI summary; ext.card last');
+  assert.equal(find(board, { t: 'row', p: { title: '#5 Merged one' } }).p.subtitle, 'merged · ⎇ xbin/k3x9qa/5-task-5 · PR #40 merged · CI ✓', 'checks only while no CI summary; ext.card (native/ci.js) last');
   assert.equal(lastHash(r), 'proj=7');
   assert.ok(called(r, 'GET', /\/projects\/7\/tasks\?/).length >= 1);
 });
