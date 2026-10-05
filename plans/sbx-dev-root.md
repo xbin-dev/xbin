@@ -119,6 +119,22 @@ helpers (and `sudo` fails in it — the bug this fixes).
 - A follow-up worth weighing: file capabilities (`ping`'s `cap_net_raw`)
   are lost the same way; the list carries modes and owners only.
 
+**At land (2026-10-05, master 087b6d2d, the landing session's workstation):**
+
+- Ran:
+  - `make test`: the guest's modes and devices tests pass, except
+    `TestApplyDevModesPty`. It fails here because this session mounts
+    `/dev/pts` read-only (chmod gives EROFS, checked by hand), an
+    environment the test doesn't skip. It needs a normal host or CI.
+  - `hack/coding-sandbox-ui.test.mjs` (16/16) and the template's web
+    tests (4/4), which cover the image editor's sudo switch.
+  - `TILE_TEST_FLAGS=-race hack/tile-check.sh coding-sandbox`: passes.
+- Not run, still owed: the rootfs build, the VM end-to-end
+  (`TestCodingSandboxVM/sudo`) and the UI harness's coding-sandbox pass.
+  Docker isn't running on this host, and the session can't mount FUSE,
+  so every encrypted resource is held and the coding-sandbox backend
+  never starts.
+
 ## Questions for the owner
 
 - `/dev/fuse` and `/dev/net/tun` come with an image's `sudo` (one switch:
