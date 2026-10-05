@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { runNative } from './xbn/node.mjs';
 import { projSeed, partitionSeed } from '../builtin-templates/agent/test/projects-stub.mjs';
 import { moreSeed, teamSeed, ev } from '../builtin-templates/agent/test/projects-more-stub.mjs';
-import { feedWords, plain, httpsUrl } from '../builtin-templates/agent/model/project-feed.js';
+import { feedWords, plain, httpsUrl, projectFeed } from '../builtin-templates/agent/model/project-feed.js';
 import { boardWords, boardColumns, securityDiff, projectTeam } from '../builtin-templates/agent/model/project-team.js';
 import { upgradeOffer, candidateWords } from '../builtin-templates/agent/model/project-upgrade.js';
 
@@ -542,5 +542,25 @@ test('Work on this before your sandbox managers are read: loading, not "no manag
     read = true;
     assert.equal(t.workLoading(), false);
     assert.deepEqual(t.workSandbox(9), { sandbox: { new: { provider: 'apps/coding-sandbox', image: 'base', size: 's', egress: 'internet' } } });
+  } finally { globalThis.xbin = g; }
+});
+
+test('the coordinator: a second send while one is under way queues nothing twice', async () => {
+  const g = globalThis.xbin;
+  const posts = [];
+  let release;
+  globalThis.xbin = { self: 'apps/agent', fetch: async (url, opts = {}) => {
+    posts.push({ url, method: opts.method || 'GET' });
+    await new Promise((r) => { release = r; });
+    return new Response(JSON.stringify({ run: { id: 900 } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  } };
+  try {
+    const app = { projects: { take() {} }, emit() {} };
+    const f = projectFeed(app);
+    const first = f.messageCoordinator(7, 'what failed?');
+    assert.equal(await f.messageCoordinator(7, 'what failed?'), null, 'Enter again while it sends');
+    release();
+    assert.deepEqual(await first, { id: 900 });
+    assert.equal(posts.filter((x) => x.method === 'POST').length, 1);
   } finally { globalThis.xbin = g; }
 });

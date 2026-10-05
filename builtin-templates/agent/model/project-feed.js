@@ -167,6 +167,7 @@ class Feed {
   async messageCoordinator(pid, text) {
     const t = String(text ?? this.coord(pid).text ?? '').trim();
     const c = this.coord(pid);
+    if (c.busy) return null; // a send (or open) under way: a second Enter queues nothing twice
     if (!t) { c.err = 'Write the message first.'; this.changed(); return null; }
     const run = await this.call(pid, t, 'send');
     if (run) { c.text = ''; c.note = 'Sent to the coordinator.'; this.changed(); }
