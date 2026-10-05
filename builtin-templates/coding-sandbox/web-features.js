@@ -21,6 +21,7 @@ export const IMPLEMENTS = {
   'images.log': 'web-ops.js — imagesTab, the last build\'s output',
   'images.edit': 'web-ops.js — imageFormTpl (model/ops.js imageForm, applyImage)',
   'images.remove': 'web-ops.js — imagesTab Remove, confirmed (model/ops.js removeImage)',
+  'images.sudo': 'web-ops.js — imageFormTpl #img-sudo; imagesTab, the sudo pill and its why (model/ops.js imageRows sudoWhy); rowTpl, the isolation cell\'s sudo pill',
 
   'settings.mode': 'web-settings.js — modeTpl (model/ops.js modeInfo)',
   'settings.egress': 'web-settings.js — egressTpl (model/ops.js backendInfo classes)',

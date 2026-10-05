@@ -26,6 +26,10 @@ echo ">> building $TAG"
 "$DOCKER" build ${PLATFORM:+--platform "$PLATFORM"} -t "$TAG" "$ctx"
 
 echo ">> unpacking to $OUT"
+# Run unprivileged (as it should be), this tar keeps none of the image's
+# setuid, setgid or sticky bits nor its owners: no setuid-root program lands
+# on the host, and namespace sandboxes run with no new privileges anyway. VM
+# guests put the bits back from the image's /etc/xbin-rootfs-modes (D182).
 mkdir -p "$OUT"
 cid=$("$DOCKER" create ${PLATFORM:+--platform "$PLATFORM"} "$TAG")
 "$DOCKER" export "$cid" | tar -C "$OUT" -xf -

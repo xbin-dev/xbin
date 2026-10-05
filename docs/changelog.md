@@ -291,6 +291,38 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   sandbox's own user (`tar --no-same-owner`). It failed ("Cannot change
   ownership to uid 1001") where a tile sandbox maps a single uid, as on a
   rootless host with one uid. `bx builtin update tile:traefik` takes it.
+- **coding-sandbox: an image's `sudo`** (`builtin-templates/coding-sandbox/API.md`
+  §Images). `images[].sudo: true` lets the sandboxes' user become root
+  with `sudo` (no password) in VM sandboxes, and makes `/dev/fuse` and
+  `/dev/net/tun` usable by it at every boot (rootless podman, FUSE); the
+  image editor sets it (web and app), and `/ops/state` marks the
+  sandboxes that have it (`sudo`). A namespace sandbox can't give it: a
+  manager whose mode is `namespace` refuses such an image, and `auto`
+  without VMs makes its sandboxes without it and says so in hello's
+  `notes`. A changed `sudo` rebuilds an image with a setup script; images
+  without it keep their builds. API.md also documents `xbin-dev`, an image
+  in which a VM sandbox develops xbin itself (podman, FUSE, Node 24) — an
+  example, not a default. Nothing to change.
+- **VM sandboxes: `/etc/xbin-vm-devices` opens devices to the guest's
+  users** ([isolation.md](isolation.md) §VM sandboxes). `/dev` is a fresh
+  devtmpfs at every boot and the guest runs no udev, so `/dev/fuse` and
+  `/dev/net/tun` are root's (0600). A guest's root may now list the modes
+  it wants in `/etc/xbin-vm-devices` (`0666 /dev/fuse` a line), and the
+  guest sets them at every boot, before anything runs — character devices
+  only. Without the file nothing changes.
+- **VM sandboxes: the base image's setuid, setgid and sticky bits are back
+  in the guest** ([isolation.md](isolation.md) §VM sandboxes). In a VM,
+  `sudo`, `su`, `passwd` and `mount` were plain 0755 and `/var/tmp`
+  wasn't sticky: the unprivileged unpack of the rootfs drops those bits on
+  the host, on purpose (no setuid-root program in xbind's install
+  directory; namespace sandboxes run with no new privileges anyway). The
+  base image now lists them in `/etc/xbin-rootfs-modes`, and the VM guest
+  puts them back at every boot in an in-memory layer over the image — the
+  VM disk isn't written, and the host tree and namespace sandboxes stay as
+  they were. It takes a base built with the list (the next base update);
+  an older one boots as before. An image of your own `FROM` the base that
+  adds setuid programs runs the Dockerfile's last step again. Nothing to
+  change.
 
 ## 2026-10-02
 

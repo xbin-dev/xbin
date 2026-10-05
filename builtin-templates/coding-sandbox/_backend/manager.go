@@ -412,8 +412,18 @@ func (m *Manager) offer(ctx context.Context) (*offer, error) {
 	if len(o.images) == 0 {
 		o.images = []Image{{ID: "base", Title: "the substrate's base image", Default: true}}
 	}
-	if _, err := m.chooseMode(rt); err != nil {
+	if mode, err := m.chooseMode(rt); err != nil {
 		o.notes = append(o.notes, "no sandbox can be made now: "+errText(err))
+	} else if !sudoWorks(mode) {
+		var sudo []string
+		for _, im := range o.images {
+			if im.Sudo {
+				sudo = append(sudo, im.ID)
+			}
+		}
+		if len(sudo) > 0 {
+			o.notes = append(o.notes, fmt.Sprintf("the image(s) %s give their user sudo, which only VM sandboxes can: this manager makes %s sandboxes now, which run with no new privileges, so theirs get none", strings.Join(sudo, ", "), mode))
+		}
 	}
 	if missing := missingCaps(o.caps, "exec", "files"); len(missing) > 0 {
 		o.notes = append(o.notes, "the substrate doesn't serve "+strings.Join(missing, " or ")+" yet: sandboxes can be made, started and stopped, but nothing runs in them")

@@ -253,7 +253,12 @@ rather than the backend's own home:
 - the netns routes the egress TUN to the guest's NIC (the relay and its
   policy are unchanged; the guest owns 10.0.2.15).
 
-The backend runs as root in the guest's own kernel. Its binds appear at the
+The backend runs as root in the guest's own kernel, over the base image as
+it was built: the guest puts back the setuid, setgid and sticky bits the
+host's unprivileged unpack of the rootfs dropped (the image lists them in
+`/etc/xbin-rootfs-modes`, D182), so `sudo` works for a guest's non-root
+user that its root allows — while the host tree, and every namespace
+sandbox over it (`NO_NEW_PRIVS`), has none. Its binds appear at the
 same paths (FUSE over vsock), and its run dir is guest-local, with `XBIN_SOCKET` and
 `XBIN_GATEWAY` bridged over vsock. A kernel exploit now has to get through
 the guest kernel, Firecracker and then this sandbox. What it could reach

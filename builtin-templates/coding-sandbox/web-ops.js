@@ -74,7 +74,7 @@ function rowTpl(app, ui, r) {
       <td title=${r.image}>${r.imageId}</td>
       <td title=${r.sizeText}>${r.size}</td>
       <td>${r.egressText}</td>
-      <td>${r.isolation}</td>
+      <td>${r.isolation}${r.sudo ? html` <span class="pill" data-sudo title="its user may sudo (its image's)">sudo</span>` : nothing}</td>
       <td class="num">${r.disk}</td>
       <td class="small">${r.lastText}</td>
       <td class="acts">${r.actions.map((a) => html`<button class="small ${a.danger ? 'rm' : ''} ${open === a.id ? 'on' : ''}" data-act=${a.id}
@@ -179,6 +179,7 @@ export function imagesTab(app, ui) {
     <div id="images">${rows.map((im) => html`<div class="card image" data-image=${im.id}>
       <div class="hd"><b>${im.title}</b> <span class="mono muted">${im.id}</span>
         ${im.default ? html`<span class="pill">default</span>` : nothing}
+        ${im.sudo ? html`<span class="pill ${im.sudoWhy ? 'warn' : ''}" data-sudo title=${im.sudoWhy || O.SUDO_HELP}>${im.sudoWhy ? html`<bx-icon name="warning"></bx-icon>` : nothing}sudo</span>` : nothing}
         <span class="pill ${im.tone}" title=${im.kept}>${F.toneIcon(im.tone) ? html`<bx-icon name=${F.toneIcon(im.tone)}></bx-icon>` : nothing}${im.buildText}</span>
         ${!im.offered ? html`<span class="pill warn" title="hello leaves it out (Sandboxes shows why)"><bx-icon name="warning"></bx-icon>not offered</span>` : nothing}
         <span class="grow"></span>
@@ -188,6 +189,7 @@ export function imagesTab(app, ui) {
         <button class="small rm" data-act="remove" ?disabled=${!!ui.busy} @click=${() => remove(im.id)}>Remove</button></div>
       ${im.tools.length ? html`<div class="small"><span class="muted">tools</span> ${im.tools.join(', ')}</div>` : nothing}
       ${im.agents.length ? html`<div class="small agents"><span class="muted">coding agents</span> ${im.agents.join(', ')}</div>` : nothing}
+      ${im.sudoWhy ? html`<div class="note small sudo-why">sudo: ${im.sudoWhy}</div>` : nothing}
       ${im.built && im.built.detail ? html`<div class="err small">${im.built.detail}</div>` : nothing}
       ${im.kept ? html`<div class="note small kept">${im.kept}</div>` : nothing}
       ${im.setup ? html`<details><summary class="small">setup script${im.buildEgress ? ` (network while it builds: ${im.buildEgress})` : ''}</summary><pre>${im.setup}</pre></details>` : nothing}
@@ -206,12 +208,13 @@ function imageFormTpl(ui, form, save) {
       <label>network while it builds <select id="img-egress" @change=${(e) => set('buildEgress', e.target.value)}>
         ${[['', 'internet where bound, else none'], ['none', 'none'], ['internet', 'internet'], ['open', 'open']].map(([v, l]) =>
           html`<option value=${v} ?selected=${form.buildEgress === v}>${l}</option>`)}</select></label>
-      <label class="chk"><input type="checkbox" id="img-default" .checked=${form.default} @change=${(e) => set('default', e.target.checked)}> the default</label></div>
+      <label class="chk"><input type="checkbox" id="img-default" .checked=${form.default} @change=${(e) => set('default', e.target.checked)}> the default</label>
+      <label class="chk" title=${O.SUDO_HELP}><input type="checkbox" id="img-sudo" .checked=${form.sudo} @change=${(e) => set('sudo', e.target.checked)}> its user may sudo (VM sandboxes)</label></div>
     <label class="block">setup script — run as root in the workdir, once; empty: the substrate's base
       <textarea id="img-setup" rows="6" class="mono" placeholder="apt-get update && apt-get install -y nodejs npm" .value=${form.setup}
         @input=${(e) => set('setup', e.target.value)}></textarea></label>
     <div class="row"><button class="go" id="img-save" ?disabled=${!!ui.busy} @click=${save}>Save</button>
       <button id="img-cancel" @click=${() => { ui.forms.image = null; ui.paint(); }}>Cancel</button>
-      <span class="muted small">A changed script rebuilds the image at its next use.</span></div>
+      <span class="muted small">A changed script, or sudo, rebuilds the image at its next use.</span></div>
   </div>`;
 }

@@ -570,6 +570,7 @@ func runCS(t *testing.T, e *csEnv, mode string, slow time.Duration) {
 	})
 
 	t.Run("images", func(t *testing.T) { testCSImages(t, e, mode, slow) })
+	t.Run("sudo", func(t *testing.T) { testCSSudo(t, e, mode) })
 
 	// the idle stop: a sandbox that sits idle for a minute stops (checked
 	// once the rest has had its minute)
@@ -863,6 +864,54 @@ func testCSImages(t *testing.T, e *csEnv, mode string, slow time.Duration) {
 		c.Call("DELETE", "/sandboxes/"+sb.ID, nil, 204, nil)
 	}
 	e.images(t)
+}
+
+// testCSSudo: an image's sudo (D182). In a VM the layout's user becomes root
+// with sudo, and /dev/fuse and /dev/net/tun are everyone's at every boot (a
+// restart's too); in a namespace sandbox the image's sudo gives nothing and
+// hello says why. sudo itself needs a rootfs whose special modes the VM
+// guest puts back (/etc/xbin-rootfs-modes): on an older one that part is
+// skipped, saying so.
+func testCSSudo(t *testing.T, e *csEnv, mode string) {
+	c := e.target().As(t, csCons)
+	e.images(t, map[string]any{"id": "dev", "title": "Dev", "sudo": true})
+	defer e.images(t)
+	sb := c.Create(map[string]any{"name": "sudo", "image": "dev"})
+	ok := func(cmd string) bool {
+		r := c.Run(sb.ID, map[string]any{"cmd": cmd})
+		return r.ExitCode != nil && *r.ExitCode == 0
+	}
+	if mode != "vm" {
+		var h struct{ Notes []string }
+		c.Call("GET", "/hello", nil, 200, &h)
+		if !strings.Contains(strings.Join(h.Notes, "\n"), "dev give their user sudo") {
+			t.Errorf("hello's notes in %s mode: %q", mode, h.Notes)
+		}
+		if ok("test -e /etc/sudoers.d/dev") {
+			t.Errorf("a %s sandbox got the sudo grant", mode)
+		}
+		return
+	}
+	devices := func(when string) {
+		t.Helper()
+		if got := c.Sh(sb.ID, "stat -c %a /dev/fuse /dev/net/tun"); got != "666\n666\n" {
+			t.Errorf("the devices %s: %q", when, got)
+		}
+	}
+	devices("at the first boot")
+	if !ok("test -s /etc/xbin-rootfs-modes") {
+		t.Log("the rootfs predates /etc/xbin-rootfs-modes (D182): sudo itself isn't checked")
+	} else {
+		if got := c.Sh(sb.ID, "sudo -n id -u"); got != "0\n" {
+			t.Errorf("sudo -n id -u: %q", got)
+		}
+		if got := c.Sh(sb.ID, "stat -c %a /usr/bin/su /var/tmp"); got != "4755\n1777\n" {
+			t.Errorf("the image's special modes: %q", got)
+		}
+	}
+	c.Call("POST", "/sandboxes/"+sb.ID+"/stop?wait=60", nil, 200, nil)
+	c.Call("POST", "/sandboxes/"+sb.ID+"/start?wait=60", nil, 200, nil)
+	devices("after a restart")
 }
 
 // testCSOperators: the tile's owner and the people with write access to it

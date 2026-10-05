@@ -75,6 +75,7 @@ type opView struct {
 	DiskBytes    int64            `json:"diskBytes,omitempty"`
 	ExecsRunning int              `json:"execsRunning,omitempty"`
 	Base         xbin.SandboxBase `json:"base"`
+	Sudo         bool             `json:"sudo,omitempty"` // its user may sudo (its image's, D182)
 }
 
 // orphan is a sandbox the substrate has for this tile and the manager
@@ -140,7 +141,7 @@ func (m *Manager) opState(w http.ResponseWriter, r *http.Request) {
 	for _, rec := range recs {
 		known[rec.Runtime] = true
 		in := byName[rec.Runtime]
-		v := opView{sandboxView: m.view(rec, in, homeOf(rec), nil), Consumer: rec.Owner.Via, Runtime: rec.Runtime}
+		v := opView{sandboxView: m.view(rec, in, homeOf(rec), nil), Consumer: rec.Owner.Via, Runtime: rec.Runtime, Sudo: rec.Sudo}
 		if in != nil {
 			v.Mode, v.DiskBytes, v.ExecsRunning, v.Base = in.Mode, in.DiskBytes, in.ExecsRunning, in.Base
 		}

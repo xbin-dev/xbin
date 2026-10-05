@@ -40,8 +40,11 @@ type record struct {
 	UID        int               `json:"uid"`
 	GID        int               `json:"gid"`
 	Shell      string            `json:"shell"`
-	Created    int64             `json:"created"`
-	Version    int               `json:"version"`
+	// Sudo: its prepare gives the user sudo (its image's, in a mode where it
+	// works; a clone's source's) — fixed when it is made, like the layout.
+	Sudo    bool  `json:"sudo,omitempty"`
+	Created int64 `json:"created"`
+	Version int   `json:"version"`
 	// Overlay is a state of the manager's own that hides the substrate's:
 	// creating (an image builds, the clone or the first start runs),
 	// deleting, or error (Detail says why).

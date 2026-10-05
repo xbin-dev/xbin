@@ -14,13 +14,18 @@ import (
 )
 
 // prepare makes the workdir and home, owned by the sandbox's user, and
-// makes that user the image's account of its uid: a run as root (mkdir,
-// chown, awk), which holds on any substrate.
+// makes that user the image's account of its uid — with sudo when the
+// sandbox gives it: a run as root (mkdir, chown, awk), which holds on any
+// substrate.
 func (m *Manager) prepare(ctx context.Context, rec record) error {
 	root := 0
 	owner := strconv.Itoa(rec.UID) + ":" + strconv.Itoa(rec.GID)
+	sudo := ""
+	if rec.Sudo {
+		sudo = "sudo"
+	}
 	res, err := m.backend().Sandbox(rec.Runtime).Run(ctx, xbin.RunRequest{Argv: []string{"sh", "-c", prepareScript, "prepare",
-		rec.Workdir, rec.Home, owner, rec.User, rec.Shell}, Cwd: "/", UID: &root, GID: &root, TimeoutMs: 60000, Merge: true})
+		rec.Workdir, rec.Home, owner, rec.User, rec.Shell, sudo}, Cwd: "/", UID: &root, GID: &root, TimeoutMs: 60000, Merge: true})
 	if err != nil {
 		return err
 	}
@@ -43,10 +48,16 @@ func (m *Manager) prepare(ctx context.Context, rec record) error {
 // member lists, shadow and gshadow following. So `id -un`, the prompt and
 // getpwuid's home (OpenSSH's ~/.ssh) agree with USER and HOME. A name
 // another uid (or gid) already has is the image's and stays; so does root.
-// Running it again changes nothing. The /etc it edits is the one under the
-// directory the run starts in — the sandbox's root (Cwd "/"), so a
-// substrate standing a host directory in for a sandbox (the tests' fake)
-// never has the host's /etc edited: that directory has none.
+// With $6 "sudo" (the image's sudo, D182) the account it settled may then
+// become root: /etc/sudoers.d/<user> (0440) names it — the guest drops
+// supplementary groups, so %sudo wouldn't reach it — with NOPASSWD (its
+// password is locked), and /etc/xbin-vm-devices has the VM guest make
+// /dev/fuse and /dev/net/tun everyone's at each boot (rootless containers;
+// docs/isolation.md §VM sandboxes). Never for root, or for a name that is
+// another uid's. Running it again changes nothing. The /etc it edits is the
+// one under the directory the run starts in — the sandbox's root (Cwd "/"),
+// so a substrate standing a host directory in for a sandbox (the tests'
+// fake) never has the host's /etc edited: that directory has none.
 const prepareScript = `set -e
 for d in "$1" "$2"; do
 	mkdir -p -- "$d"
@@ -92,7 +103,14 @@ rewrite "$etc/gshadow" -F: -v OFS=: -v o="$old" -v n="$user" -v go="$gold" -v gn
 rewrite "$etc/shadow" -F: -v OFS=: -v o="$old" -v n="$user" 'o != "" && $1 == o { $1 = n } { print }'
 if [ -f "$etc/shadow" ] && ! named "$etc/shadow" "$user"; then
 	printf '%s:!:1::::::\n' "$user" >> "$etc/shadow"
-fi`
+fi
+[ "$6" = sudo ] || exit 0
+# put FILE MODE: stdin into FILE, whole or not at all (a name with a dot, which sudo skips, until the rename)
+put() { cat > "$1.xbin-new" && chmod "$2" "$1.xbin-new" && mv -f -- "$1.xbin-new" "$1"; }
+mkdir -p -- "$etc/sudoers.d"
+printf '%s ALL=(ALL:ALL) NOPASSWD: ALL\n' "$user" | put "$etc/sudoers.d/$user" 0440
+printf '# the coding sandbox: %s may sudo, and use these at each boot\n0666 /dev/fuse\n0666 /dev/net/tun\n' "$user" |
+	put "$etc/xbin-vm-devices" 0644`
 
 // ready makes rec usable for a command or a file operation: started (within
 // the quotas) and prepared. A sandbox seen running within LiveTTL is taken

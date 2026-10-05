@@ -10537,6 +10537,144 @@ Deviations and refinements made while implementing; all deliberate:
     (XbinPartitionsTests, on the e2e workspace's new `apps/parted`) and the
     look of the marker need the Apple CI / Mac mini.
 
+- **D182 — Coding sandboxes that can develop xbin: the rootfs's special
+  modes come back in VM guests, an image's `sudo`, devices opened per boot
+  (2026-10-03).** docker/rootfs.Dockerfile (the recording step, last),
+  internal/sandbox/vm/guest (modes_linux.go, devices_linux.go,
+  root_linux.go's assembleRoot), the coding-sandbox template's backend
+  (config.go `Image.Sudo`, `sudoWorks`; images.go `setupHash`;
+  lifecycle.go `prepareScript`; create.go, manager.go's notes, operator.go,
+  store.go `record.Sudo`) and its page (model/ops.js, web-ops.js,
+  native/images.js, native/ops.js, feature `images.sudo`); the record is
+  plans/sbx-dev-root.md. `sudo` failed in a coding sandbox that is a VM
+  guest (no `NO_NEW_PRIVS`, no seccomp, no `nosuid` on `/`) although the
+  base installs it: every setuid, setgid and sticky bit was gone, because
+  hack/build-rootfs.sh unpacks `docker export` with an unprivileged `tar`
+  (no `-p`), and deploy/install.sh's unpack and `chown -R` strip them
+  again. The VM image path (`mkfs.erofs --all-root`, the guest's mounts)
+  keeps whatever modes the tree has, so it was purely a build artifact.
+  - **Fixed in the guest, never on the host.** The image records its
+    special modes at build time — `find / -xdev \( -type f -o -type d \)
+    -perm /7000 -printf '%m %U %G %y %p\n'` into `/etc/xbin-rootfs-modes`,
+    names with a newline left out — and the VM guest re-applies the list
+    at every boot, before anything runs. The host-side `tar` and `chown`
+    stay as they are, on purpose: a setuid-root program in xbind's install
+    directory is a host privilege surface (and a stale one: no package
+    manager updates it), the installer runs unprivileged in user mode, and
+    namespace sandboxes run with `NO_NEW_PRIVS`
+    (internal/sandbox/init_linux.go), where the bits mean nothing. A
+    missing list is no change (an older base); a list from a newer base
+    under an older xbind is ignored. An image `FROM` the base that adds
+    setuid programs runs the step again, last (the Dockerfile says so).
+  - **Rejected: `mkfs.erofs --tar` from the export stream.** The stream
+    exists only where `docker export` runs. Everywhere else the rootfs
+    reaches xbind as an unpacked directory — the release bundle is a
+    tar.zst of one, made after the strip; install.sh unpacks it; the
+    install upgrade keeps old bases as `<rootfs>-<version>` directories
+    that `layers.ResolveBase` finds and the VM image is built from — and
+    namespace sandboxes overlay that directory anyway. Keeping a stream
+    would mean a second multi-GB artifact per base version, a new bundle
+    format and installer, and VM images buildable only where the export
+    happened. The list is a few kilobytes inside the tree, travels through
+    every copy, and needs nothing from the host. Also rejected: building
+    the image from a confined overlay with the bits re-set (a privileged
+    mkfs step for a guest-side concern), and unpacking as root (above).
+  - **How the guest re-applies it: files in a layer, directories in
+    place.** Each listed regular file whose image copy lacks its mode or
+    owner is copied, moded and owned as listed, into a tmpfs stacked over
+    the image (`lowerdir=/fixup:/lower`, parents mirrored from the image:
+    mode, owner, times). Not a `chmod` in the assembled root: that copies
+    each file up into the sandbox's upper — the VM disk, written behind
+    the person's back — and a rebase (tile sandboxes keep their upper on a
+    newer base) would then keep the old base's `sudo` over the new base's
+    plugins. With the layer, the upper is never written for a file, a
+    program the sandbox replaced itself (`apt`) stays its own, and a rebase
+    finds the newer one. Directories (`/var/tmp` sticky, setgid ones) are
+    set in the assembled root — a copy-up of metadata alone, which merges
+    and holds no stale data — and only while they still show the image's
+    unpacked mode and owner: one the sandbox changed is its own; mount
+    points (`/tmp`, `/run`) are skipped. Bounds: the list is read from the
+    image (never the upper), at most 1 MiB and 4096 entries, each with a
+    special bit, a clean absolute path and the type the image has there;
+    paths open with `openat2` RESOLVE_BENEATH | NO_SYMLINKS | NO_XDEV, so
+    a symbolic link anywhere is skipped, never followed; at most 32 MiB of
+    file data (today's base: about 1.5 MiB, an estimate from its setuid
+    programs' sizes); a copy that fails is removed (a partial file never
+    covers the image's); an overlay that won't mount over the layer boots
+    without it, logged. Copying costs that much memory and time per boot.
+  - **`sudo` is an image's, not the layout's.** One manager offers a
+    confined image and a dev one side by side and consumers pick; an
+    image is where root-time setup lives, and the grant rides in its
+    build's snapshot, so every clone has it. `setupHash` includes sudo
+    when it is set and is the script's alone otherwise: a changed `sudo`
+    rebuilds an image with a setup script, and no existing build goes
+    stale on upgrade. Plain images get it from the first start's prepare.
+    A sandbox's `sudo` is fixed when it is made (`record.Sudo`, like the
+    layout); a clone takes its source's — its root is the source's. The
+    grant is `/etc/sudoers.d/<user>`, `<user> ALL=(ALL:ALL) NOPASSWD: ALL`,
+    0440, written whole (a dotted temporary name, which sudo skips, then a
+    rename): it names the user because the guest starts commands without
+    supplementary groups (agentcore/procattr_linux.go), so `%sudo` would
+    never reach them, and NOPASSWD because the account's password is
+    locked. Never for root (a `users: root` substrate) or a name the image
+    gives another uid.
+  - **Namespace mode: refused when explicit, a note when automatic.** A
+    namespace sandbox can't give sudo (`NO_NEW_PRIVS`). `validate` refuses
+    a sudo image while the mode is `namespace`; in `auto` mode while the
+    substrate offers no VMs, hello's `notes` say the image's sandboxes get
+    none, the page says so on the image, and those sandboxes are made
+    without the grant. `sudoWorks` is "not `namespace`": another backend's
+    `cloud-vm` or `container` gets the grant, and a backend whose sandboxes
+    can't run setuid programs names its mode `namespace` (AGENTS.md).
+  - **Devices per boot, by the guest, from the sandbox's root.** `/dev` is
+    a fresh devtmpfs at every boot with no udev, so `/dev/fuse` and
+    `/dev/net/tun` are 0600 — rootless podman needs both. The guest reads
+    `/etc/xbin-vm-devices` (`<mode> /dev/<node>` a line, at most 4 KiB and
+    64 lines, permission bits only, character devices in that devtmpfs
+    only, no symbolic link or other mount on the way) and sets the modes
+    once the kernel filesystems are mounted; the template's prepare writes
+    `0666` for both when the image has sudo — what a distribution's udev
+    rules give, and nothing a sudo user couldn't do. Not a root run at the
+    manager's start: the runtime restarts a VM on its own (a snapshot stops
+    and starts it, a restore, an xbind restart's next start), so the
+    manager doesn't see every boot. Not a runtime API field: new xbind
+    surface (the spec, protocol.md, openapi, the definition's storage) for
+    what the sandbox's root can state itself — and a file in the root
+    rides along with clones, snapshots and image builds. Any VM guest's
+    root may write it; it grants nothing that root couldn't.
+  - **No "run as root" in the sandbox-manager contract.** The owner's
+    rule: add it only if ACP has it, and ACP's `terminal/create` carries
+    only sessionId, command, args, env, cwd and outputByteLimit
+    (sdk/acp/types.go). Coding agents run their own commands as the
+    layout's user, so `sudo` is what reaches them. If ACP gains a user or
+    privilege field, mirror it as an exec/tty option
+    (docs/sandbox-manager.md §Running commands) — that is the trigger to
+    revisit.
+  - **`xbin-dev` is documented, not a default** (the template's API.md
+    §Images): root for every coding agent is an operator's choice. Its
+    script installs podman, fuse3, uidmap and xbin's check tools, gives
+    the sandbox's user subordinate ids and FUSE's `user_allow_other`,
+    swaps in Node 24 (xbin's CI) and Chromium's libraries; in a sandbox of
+    it, `hack/dev-setup.sh` does the rest. No init runs in the guest, so
+    what a boot resets (an inotify sysctl) is the user's to redo; tests
+    that need systemd's delegated cgroup skip; VMs started inside run
+    emulated.
+  - **Verified here** (a VM guest without docker or VM helpers): the
+    guest's unit tests — the list's parsing and bounds, planning and
+    staging against temporary trees, symbolic links refused, the
+    Dockerfile's recording step run on a tree, and a real overlay over the
+    layer in a user and mount namespace booted three times (the modes
+    shown and nothing of the files in the upper; a newer base's program
+    found after a rebase; the sandbox's own program and directory kept);
+    the device file's parsing and refusals and a mode set on a real
+    character device (a pseudo-terminal's); the template's
+    TestPrepareScriptSudo and TestSudo (the grant, a clone's, the hash, the
+    namespace refusal and note) and its UI tests (model, native, web).
+    **Owed:** a VM boot on a rebuilt rootfs — `sudo -n id -u` as the
+    layout's user, `/dev/fuse` 0666 after a restart; test/isolated's
+    `testCSSudo` checks exactly that and needs docker or podman, the VM
+    helpers and KVM.
+
 - **D183 — Base Two brand: the system, the mark, and xbin.dev rebuilt in
   it (2026-10-03).**
   The owner's story for xbin is an era: "upgrade to exponential era

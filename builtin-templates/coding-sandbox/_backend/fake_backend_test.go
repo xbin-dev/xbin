@@ -55,6 +55,7 @@ type fakeBackend struct {
 	FileMax int64             // limits.fileMax (0 = 64 MiB)
 	Classes map[string]string // sandbox-net slot → the reach it is bound to ("" unbound); nil: internet and open bound
 	Users   string            // "any" (default) or "root"
+	Modes   []string          // the modes it offers (nil: namespace and vm)
 	Limits  xbin.SandboxLimits
 
 	mu     sync.Mutex
@@ -197,6 +198,12 @@ func (f *fakeBackend) Runtime(ctx context.Context) (*xbin.SandboxRuntime, error)
 	}
 	rt := &xbin.SandboxRuntime{Enabled: true, Isolation: true, Modes: []xbin.SandboxMode{{Mode: "namespace"}, {Mode: "vm", Accel: "fake"}},
 		Users: orStr(f.Users, "any"), Caps: f.caps(), Egress: []xbin.SandboxEgress{{Class: "none", Reach: "none"}}}
+	if f.Modes != nil {
+		rt.Modes = nil
+		for _, m := range f.Modes {
+			rt.Modes = append(rt.Modes, xbin.SandboxMode{Mode: m})
+		}
+	}
 	var slots []string
 	for s := range f.classes() {
 		slots = append(slots, s)
