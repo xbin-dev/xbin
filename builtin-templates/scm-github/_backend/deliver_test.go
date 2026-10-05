@@ -350,3 +350,41 @@ func TestOutboxPerConsumerCap(t *testing.T) {
 		t.Fatalf("pending %d, the other consumer got %d, %+v", pend, len(got), h.counts)
 	}
 }
+
+// Narrowing the policy stops what was queued before it too: a tile's item
+// outside botRepos (or any outside allowedAccounts) is neither listed nor
+// delivered, and is dropped.
+func TestPolicyNarrowingStopsQueued(t *testing.T) {
+	for _, narrow := range []func(*policy){
+		func(p *policy) { p.BotRepos = []string{"acme/api"} },
+		func(p *policy) { p.AllowedAccounts = []string{"other"} },
+	} {
+		ee := newEvEnv(t)
+		ee.subscribe(agentC, map[string]any{"repo": "acme/web"})
+		ee.agent.answer(500)
+		ok(t, ee.hook("push", fixture(t, "push")), 202)
+		ee.deliver() // the consumer is failing: pending
+		list := func() int {
+			var p page[json.RawMessage]
+			r := ee.call(ee.gH, agentC, "GET", "/scm/events", nil)
+			ok(t, r, 200)
+			decode(t, r, &p)
+			return len(p.Items)
+		}
+		if n := list(); n != 1 {
+			t.Fatalf("%d listed", n)
+		}
+		p := basePolicy()
+		narrow(&p)
+		ee.setPolicy(p)
+		if n := list(); n != 0 {
+			t.Fatalf("listed outside the narrowed policy: %d", n)
+		}
+		ee.clock.advance(time.Minute)
+		ee.deliver()
+		h := ee.global.ev()
+		if got := ee.agent.take(); len(got) != 0 || len(h.out) != 0 || h.counts.Policy != 1 {
+			t.Fatalf("delivered %d, %d left, %+v", len(got), len(h.out), h.counts)
+		}
+	}
+}

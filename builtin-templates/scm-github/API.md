@@ -277,8 +277,9 @@ count a 304 against its rate limit) stays the fallback.
 
 - From a **tile** (at global, or an unpartitioned copy): `for: global`;
   the bot must see the repo, within `allowedAccounts` and `botRepos` —
-  which also hold when an event is matched, so narrowing the policy stops
-  delivery at once.
+  which also hold when an event is matched, delivered or listed, so
+  narrowing the policy stops delivery at once (what was already queued
+  outside it is dropped, counted as `policy`).
 - From a **person's consumer** (their partition): relayed to global
   (`/partition/subscriptions`) as `for: user:<id>`, kept with the person's
   partition id. Not signed in here: 409 `signin` (a sign-in starts).

@@ -86,6 +86,9 @@ func (h *hub) deliverDue(ctx context.Context) {
 func (h *hub) attempt(ctx context.Context, it *outItem) outcome {
 	s := h.s
 	var o outcome
+	if !s.policy().itemAllowed(it) {
+		return outcome{drop: "policy"}
+	}
 	if strings.HasPrefix(it.For, "user:") {
 		id := s.ident(it.Person)
 		if id == nil || id.PID != it.PID {
@@ -163,6 +166,8 @@ func (h *hub) settle(it *outItem, o outcome) int64 {
 		switch o.drop {
 		case "404":
 			h.counts.NotFound++
+		case "policy":
+			h.counts.Policy++
 		case "access":
 			h.counts.AccessLost++
 			h.dropPersonSubs(cur.Person, cur.Repo)

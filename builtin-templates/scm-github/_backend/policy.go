@@ -87,6 +87,14 @@ func (p policy) accountAllowed(owner string) bool {
 	return slices.ContainsFunc(p.AllowedAccounts, func(a string) bool { return strings.EqualFold(a, owner) })
 }
 
+// itemAllowed: a queued event may still be delivered or listed under the
+// policy as it is now — its account allowed, and a tile's (for: global)
+// repo within botRepos — so narrowing the policy stops what was queued
+// before too.
+func (p policy) itemAllowed(it *outItem) bool {
+	return p.accountAllowed(ownerOf(it.Repo)) && (strings.HasPrefix(it.For, "user:") || p.botRepoAllowed(it.Repo))
+}
+
 // botRepoAllowed: a bot token (any caller) may name this repo.
 func (p policy) botRepoAllowed(repo string) bool {
 	for _, g := range p.BotRepos {
