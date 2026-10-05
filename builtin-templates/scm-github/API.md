@@ -52,7 +52,10 @@ A copy that isn't partitioned (an xbind without `--isolate`, or
      settings first.
 6. In the App's settings on GitHub: **Enable Device Flow** (the page's
    **Check** confirms it), and leave **Expire user authorization tokens**
-   on.
+   on: with it off GitHub hands out tokens that never expire and nothing
+   to rotate them with, so a sign-in is refused (its grant revoked at
+   once), and a sign-in kept from before has its grant revoked when its
+   8-hour epoch ends.
 7. Install the App on the accounts whose repos it serves (the page's
    install link).
 8. Wire the agent: `bx bind apps/scm-github agents+=apps/agent` (events)

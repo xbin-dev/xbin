@@ -250,6 +250,14 @@ func (s *srv) finishSignin(ctx context.Context, out oauthTokenResp) (*identity, 
 	if u.Login == "" {
 		return nil, refuse(refUpstream, "GitHub didn't say who signed in")
 	}
+	if out.RefreshToken.Empty() {
+		// "Expire user authorization tokens" is off: a token that never
+		// expires, and nothing to rotate it with — so nothing a later
+		// refresh or Forget could end. The grant is revoked at once (best
+		// effort) and the sign-in refused.
+		_ = s.relay(ctx, http.MethodPost, "partition/revoke-grant", map[string]string{"accessToken": out.AccessToken.Reveal()}, nil)
+		return nil, refuse(refSetup, "the GitHub App's Expire user authorization tokens is off: a manager turns it on in the App's settings, then you sign in again")
+	}
 	if prev := s.personRecord(); prev != nil && prev.ID != u.ID {
 		s.clearUser() // another account: nothing of the old one is handed out again
 	}

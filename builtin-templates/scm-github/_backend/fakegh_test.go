@@ -99,6 +99,7 @@ type fakeGH struct {
 	devices    map[string]*fDevice
 	deviceOff  bool
 	longTokens bool
+	noExpiry   bool            // "Expire user authorization tokens" off: no expires_in, no refresh token
 	manifests  map[string]bool // conversion codes
 
 	mintReqs []map[string]any // POST access_tokens bodies
@@ -332,6 +333,10 @@ func (f *fakeGH) newInstToken(inst int64, repos []string, perms map[string]strin
 // answers it.
 func (f *fakeGH) newUser(login string) map[string]any {
 	acc, ref := randTok("ghu_", 36), randTok("ghr_", 76)
+	if f.noExpiry { // GitHub (docs): a token that never expires, and no refresh token
+		f.userTokens[acc] = &fUserTok{login: login, exp: f.now().Add(100 * 365 * 24 * time.Hour)}
+		return map[string]any{"access_token": acc, "token_type": "bearer", "scope": ""}
+	}
 	f.userTokens[acc] = &fUserTok{login: login, exp: f.now().Add(8 * time.Hour)}
 	f.refresh[ref] = login
 	return map[string]any{"access_token": acc, "expires_in": 28800, "refresh_token": ref, "refresh_token_expires_in": 15897600, "token_type": "bearer", "scope": ""}

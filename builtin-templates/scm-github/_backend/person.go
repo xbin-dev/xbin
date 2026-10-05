@@ -103,6 +103,18 @@ func (s *srv) refresh(ctx context.Context, stale string) (secretString, *personR
 	if acc.Token != stale { // refreshed meanwhile
 		return newSecret(acc.Token), rec, nil
 	}
+	if ref.Token == "" {
+		// A pair kept without a refresh token (a sign-in from before such
+		// pairs were refused: token expiry off) can't rotate. Its access
+		// token is still live, so the grant is revoked with it before the
+		// sign-in ends — never left authorised with nothing here to end it.
+		// Refused: nothing is cleared, Forget can try again.
+		if err := s.relay(ctx, http.MethodPost, "partition/revoke-grant", map[string]string{"accessToken": acc.Token}, nil); err != nil {
+			return secretString{}, nil, err
+		}
+		s.clearUser()
+		return secretString{}, nil, s.signinRefusal(ctx)
+	}
 	tok, err := s.tradeRefresh(ctx, rec, ref)
 	if errors.Is(err, errBadRefresh) {
 		s.clearUser()
@@ -242,8 +254,9 @@ func (s *srv) storeUser(out oauthTokenResp, login string, id int64, now time.Tim
 	}
 	exp := now.Add(time.Duration(out.ExpiresIn) * time.Second).UnixMilli()
 	if out.ExpiresIn == 0 {
-		// "Expire user authorization tokens" is off: the token never
-		// expires; the epoch still rotates handed-out tokens every 8 h.
+		// GitHub said no expiry: the epoch still ends after 8 h (a pair
+		// without a refresh token is refused at sign-in, and one kept
+		// earlier is revoked at its first refresh).
 		exp = now.Add(8 * time.Hour).UnixMilli()
 	}
 	var refExp int64
