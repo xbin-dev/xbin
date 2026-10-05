@@ -3148,8 +3148,7 @@ their own space. A conversation's **CI** — for a task, or for the branches
 any coding session pushed — shows in the conversation beside its coding
 agents, down to job steps and logs.
 
-Each part below says what it covers; its routes and shapes are described
-here when it lands.
+Each part below says what it covers, with its routes and shapes.
 
 ### Projects and tasks
 
@@ -3988,9 +3987,6 @@ per-person budget, collapsed on the device per project and kind
 `task-failed` (its workspace failed, or a coding agent's turn did),
 `ci-stuck` (CI kept failing past the day's fixes) and `all-done` (every
 task of the project finished).
-
-**Attaching a chat** to a coordinator (`/project ‹name›` in a direct
-message) is not in this build.
 
 ### scm events and polling
 

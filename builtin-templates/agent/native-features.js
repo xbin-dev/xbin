@@ -261,5 +261,5 @@ export const IMPLEMENTS = {
   'ci.rerun': 'native/ci.js — a failed run row\'s Re-run failed action, confirmed, when the view says canRerun (app.ci.rerun)',
   'ci.watch': 'native/ci.js — menu "Watch CI for…" and the section\'s row → the ci-watch screen (Repo, Branch or PR, Watch); a watch row\'s Stop watching',
   'ci.cards': 'native/ci.js — end: an outcome card per watch (message role system: CI passed / failed on <branch> — job › step) with Open logs and Dismiss (app.ci.cards, dismiss)',
-  'ci.board': 'native/ci.js — card: the project board row\'s CI words (U2\'s board calls ext.card); childStatus: a coding agent card\'s CI words (native/harness-child.js)',
+  'ci.board': 'native/ci.js — card: the project board row\'s CI words (the board calls ext.card); childStatus: a coding agent card\'s CI words (native/harness-child.js)',
 };
