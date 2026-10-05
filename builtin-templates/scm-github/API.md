@@ -51,8 +51,13 @@ A copy that isn't partitioned (an xbind without `--isolate`, or
      paste one with a URL, tick **Active** under Webhook in the App's
      settings first.
 6. In the App's settings on GitHub: **Enable Device Flow** (the page's
-   **Check** confirms it), and leave **Expire user authorization tokens**
-   on.
+   **Check** confirms it, and re-reads the App's permissions — as an
+   installation accepting new ones does — so a permission changed on
+   GitHub after Paste, such as `actions: write`, counts), and leave **Expire user authorization tokens**
+   on: with it off GitHub hands out tokens that never expire and nothing
+   to rotate them with, so a sign-in is refused (its grant revoked at
+   once), and a sign-in kept from before has its grant revoked when its
+   8-hour epoch ends.
 7. Install the App on the accounts whose repos it serves (the page's
    install link).
 8. Wire the agent: `bx bind apps/scm-github agents+=apps/agent` (events)
@@ -246,8 +251,9 @@ count a 304 against its rate limit) stays the fallback.
 - `ref.branch` is a branch of this repo, never a **fork's**: a fork's pull
   request runs CI here under the fork's branch name, so a subscription to
   a same-named branch here must never match it. A pull request says whose
-  its head is (`data.pull.head.repo` names a fork), and so does a workflow
-  run. A check suite, a check run and a job don't: their branch is kept
+  its head is (`data.pull.head.repo` names a fork; when GitHub names no
+  head repo — the fork was deleted — the branch was the fork's, so it has
+  no `ref.branch`), and so does a workflow run. A check suite, a check run and a job don't: their branch is kept
   only when shown to be this repo's — a pull request they list has its
   head here on that branch, the job's run's head is this repo (its
   `workflow_run`, else GitHub's run), or the branch's head here is the
@@ -273,8 +279,9 @@ count a 304 against its rate limit) stays the fallback.
 
 - From a **tile** (at global, or an unpartitioned copy): `for: global`;
   the bot must see the repo, within `allowedAccounts` and `botRepos` —
-  which also hold when an event is matched, so narrowing the policy stops
-  delivery at once.
+  which also hold when an event is matched, delivered or listed, so
+  narrowing the policy stops delivery at once (what was already queued
+  outside it is dropped, counted as `policy`).
 - From a **person's consumer** (their partition): relayed to global
   (`/partition/subscriptions`) as `for: user:<id>`, kept with the person's
   partition id. Not signed in here: 409 `signin` (a sign-in starts).
@@ -367,7 +374,10 @@ passed through untrusted.
   each person) and per GitHub resource (`core`, `search`, `graphql`): once
   spent, that identity's calls of that resource answer 429 `limit` with
   `retryAfterMs` without calling GitHub — a spent search limit leaves its
-  other calls alone. A SAML-protected organization answers 403
+  other calls alone. A secondary limit (GitHub's 429, or a 403 with
+  `Retry-After` or naming it) blocks the same way for its `Retry-After`
+  (a minute when GitHub doesn't say), so the poll and event delivery wait
+  too, not only the call GitHub refused. A SAML-protected organization answers 403
   `not-allowed` with `sso.url` to authorize the identity.
 - `POST /scm/pulls`: GitHub's 422 "a pull request already exists" answers
   the open one, 200 `existing: true`. `mergeable: null` (GitHub still

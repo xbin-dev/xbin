@@ -83,6 +83,18 @@ func TestNormalizePullSynchronize(t *testing.T) {
 	if e.Ref.Branch != "" || e.Ref.PR != 42 || e.Data[kindPull].(pullData).Head.Repo != "octocat/web" || e.Topic != "scm/github.com/acme/web/pull/42/pull.synchronize" {
 		t.Fatalf("fork: %+v", e)
 	}
+	// A deleted fork: GitHub sends head.repo null. The branch was the
+	// fork's, so it names none; the pull request still does.
+	for _, kind := range []string{"pull_request_synchronize", "pull_request_review", "pull_request_review_comment"} {
+		ev := map[string]string{"pull_request_synchronize": "pull_request"}[kind]
+		if ev == "" {
+			ev = kind
+		}
+		e = norm(t, ev, fixtureWith(t, kind, map[string]any{"pull_request.head.repo": nil, "pull_request.head.label": "mallory:" + fxBranch}), 1)[0]
+		if e.Ref.Branch != "" || e.Ref.PR != 42 || containsFold(e.branches, fxBranch) {
+			t.Fatalf("deleted fork %s: %+v %v", kind, e.Ref, e.branches)
+		}
+	}
 }
 
 func TestNormalizeReview(t *testing.T) {

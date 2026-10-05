@@ -99,7 +99,10 @@ type fakeGH struct {
 	devices    map[string]*fDevice
 	deviceOff  bool
 	longTokens bool
-	manifests  map[string]bool // conversion codes
+	noExpiry   bool // "Expire user authorization tokens" off: no expires_in, no refresh token
+
+	onHookPatch func()          // run once PATCH /app/hook/config took a secret, before the answer
+	manifests   map[string]bool // conversion codes
 
 	mintReqs []map[string]any // POST access_tokens bodies
 	scopeReq []map[string]any // POST token/scoped bodies
@@ -332,6 +335,10 @@ func (f *fakeGH) newInstToken(inst int64, repos []string, perms map[string]strin
 // answers it.
 func (f *fakeGH) newUser(login string) map[string]any {
 	acc, ref := randTok("ghu_", 36), randTok("ghr_", 76)
+	if f.noExpiry { // GitHub (docs): a token that never expires, and no refresh token
+		f.userTokens[acc] = &fUserTok{login: login, exp: f.now().Add(100 * 365 * 24 * time.Hour)}
+		return map[string]any{"access_token": acc, "token_type": "bearer", "scope": ""}
+	}
 	f.userTokens[acc] = &fUserTok{login: login, exp: f.now().Add(8 * time.Hour)}
 	f.refresh[ref] = login
 	return map[string]any{"access_token": acc, "expires_in": 28800, "refresh_token": ref, "refresh_token_expires_in": 15897600, "token_type": "bearer", "scope": ""}
@@ -374,7 +381,11 @@ func (f *fakeGH) routes(mux *http.ServeMux) {
 		if b["secret"] != "" {
 			f.hookSecret = b["secret"]
 		}
+		onPatch := f.onHookPatch
 		f.mu.Unlock()
+		if onPatch != nil {
+			onPatch() // GitHub signs with the new secret before it answers
+		}
 		f.reply(w, r, 200, map[string]any{"url": f.hookURL, "content_type": "json"})
 	})
 	mux.HandleFunc("GET /app/hook/deliveries", func(w http.ResponseWriter, r *http.Request) { f.reply(w, r, 200, []any{}) })

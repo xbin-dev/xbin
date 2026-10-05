@@ -105,6 +105,7 @@ func TestUpstreamErrorMapping(t *testing.T) {
 		{403, map[string]string{"X-GitHub-SSO": "required; url=https://github.com/orgs/acme/sso?authorization_request=AB"}, `{"message":"Resource protected by organization SAML enforcement."}`, 403, "not-allowed"},
 		{403, nil, `{"message":"Resource not accessible by integration"}`, 403, "not-allowed"},
 		{429, map[string]string{"Retry-After": "30"}, `{"message":"secondary rate limit"}`, 429, "limit"},
+		{403, nil, `{"message":"You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}`, 429, "limit"},
 		{422, nil, `{"message":"Validation Failed"}`, 400, "invalid"},
 		{502, nil, `{"message":"Server Error"}`, 503, "unavailable"},
 		{418, nil, `{"message":"teapot"}`, 502, "upstream"},
@@ -124,8 +125,10 @@ func TestUpstreamErrorMapping(t *testing.T) {
 		case c.refusal == "upstream" && (x.Upstream == nil || x.Upstream.Status != 418):
 			t.Fatalf("upstream: %+v", x)
 		}
-		if c.header["X-RateLimit-Remaining"] == "0" {
-			// The identity's limit is spent: the next call isn't even made.
+		if c.refusal == "limit" {
+			// The identity's limit is spent — the primary one, or a
+			// secondary one GitHub asks every caller to wait out: the next
+			// call isn't even made.
 			n := e.gh.count("GET /repos/acme/web")
 			if x := get(); x.Refusal != "limit" || e.gh.count("GET /repos/acme/web") != n {
 				t.Fatal("called GitHub with the limit spent")

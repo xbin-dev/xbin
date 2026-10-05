@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -45,6 +46,36 @@ func TestWebhookHMAC(t *testing.T) {
 	// No secret at all: nothing is taken.
 	_ = ee.global.vault.Delete(vaultHookSecret)
 	refusal(t, ee.sendHook(ee.gH, ingress, "push", "d-12", old, body), 503, "setup")
+}
+
+// Paste keeps a new webhook secret before pointing GitHub at it: a
+// delivery GitHub signs with it while the PATCH is still answering is
+// taken. A PATCH GitHub refuses leaves the current secret current.
+func TestWebhookSecretKeptBeforePatch(t *testing.T) {
+	ee := newEvEnv(t)
+	body := fixture(t, "push")
+	old := ee.gh.hookSecretNow()
+	const next = "rotated-webhook-secret-0123456789"
+	var during int
+	ee.gh.onHookPatch = func() { during = ee.sendHook(ee.gH, ingress, "push", "d-1", next, body).Code }
+	paste := func(secret string) *httptest.ResponseRecorder {
+		return ee.call(ee.gH, ownerC, "POST", "/setup/app", map[string]any{"appId": ee.gh.appID, "clientId": ee.gh.clientID,
+			"clientSecret": ee.gh.clientSecret, "privateKey": ee.gh.keyPEM, "webhookSecret": secret})
+	}
+	ok(t, paste(next), 200)
+	ee.gh.onHookPatch = nil
+	if during != 202 {
+		t.Fatalf("a delivery signed with the new secret during the PATCH: %d", during)
+	}
+	ok(t, ee.sendHook(ee.gH, ingress, "push", "d-2", old, body), 202) // the previous, for a day
+	// GitHub refuses the next PATCH: it still signs with the current one.
+	ee.gh.fail("PATCH /app/hook/config", 1, 500, nil, `{"message":"boom"}`)
+	if r := paste("refused-webhook-secret-0123456789"); r.Code < 400 {
+		t.Fatalf("a refused PATCH: %d", r.Code)
+	}
+	ee.clock.advance(25 * time.Hour)
+	ok(t, ee.sendHook(ee.gH, ingress, "push", "d-3", next, body), 202)
+	ok(t, ee.sendHook(ee.gH, ingress, "push", "d-4", "refused-webhook-secret-0123456789", body), 401)
 }
 
 func TestWebhookDedupe(t *testing.T) {
@@ -235,10 +266,17 @@ func TestChecksMergeInFlight(t *testing.T) {
 	ee := newEvEnv(t)
 	ee.subscribe(agentC, map[string]any{"repo": "acme/web"})
 	ok(t, ee.hook("check_suite", fixtureWith(t, "check_suite", map[string]any{"check_suite.conclusion": "success"})), 202)
-	// Exactly five seconds on, the item is due — and the merge window is
-	// at its edge: a delivery pass takes the item and is posting it…
-	ee.clock.advance(5 * time.Second)
+	// Four seconds on, the merge window is still open; the item is made due
+	// (a held item first falls due as the window closes, so this is the
+	// only way to reach the guard), and a delivery pass takes it and is
+	// posting it…
+	ee.clock.advance(4 * time.Second)
 	h := ee.global.ev()
+	h.mu.Lock()
+	for _, it := range h.out {
+		it.NextAt = ee.clock.now().UnixMilli()
+	}
+	h.mu.Unlock()
 	posting, release := make(chan struct{}), make(chan struct{})
 	post := h.post
 	h.post = func(ctx context.Context, u string, body []byte) (int, error) {
@@ -272,6 +310,11 @@ func TestChecksSuiteRuns(t *testing.T) {
 		{"id": 88001, "name": "test (ubuntu)", "status": "completed", "conclusion": "failure", "html_url": "https://github.com/acme/web/runs/88001", "check_suite": map[string]any{"id": 77}, "app": map[string]any{"slug": "github-actions"}},
 		{"id": 88002, "name": "lint", "status": "completed", "conclusion": "success", "html_url": "https://github.com/acme/web/runs/88002", "check_suite": map[string]any{"id": 77}},
 		{"id": 99, "name": "codecov", "status": "completed", "conclusion": "success", "check_suite": map[string]any{"id": 78}},
+	}
+	// A busy commit: another suite's hundred runs come first in the
+	// commit's list — the suite's own are read from the suite.
+	for i := range 100 {
+		ee.gh.ci.checkRuns[fxSHA] = append([]map[string]any{{"id": 70000 + i, "name": "other", "status": "completed", "conclusion": "success", "check_suite": map[string]any{"id": 79}}}, ee.gh.ci.checkRuns[fxSHA]...)
 	}
 	ee.gh.mu.Unlock()
 	ok(t, ee.hook("check_suite", fixture(t, "check_suite")), 202)

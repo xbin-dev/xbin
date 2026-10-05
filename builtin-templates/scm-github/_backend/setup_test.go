@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -279,4 +280,34 @@ func (e *env) vaultOf(s *srv, name string) string {
 		return ""
 	}
 	return v.Reveal()
+}
+
+// The App's permissions are re-read from GitHub on Check and when an
+// installation accepts new ones: what is offered from them follows a
+// change made on GitHub after Paste.
+func TestAppPermissionsRefreshed(t *testing.T) {
+	ee := newEvEnv(t)
+	if ee.global.public().Rerun {
+		t.Fatal("rerun offered without actions: write")
+	}
+	ee.gh.mu.Lock()
+	ee.gh.appPerms["actions"] = "write"
+	ee.gh.mu.Unlock()
+	ok(t, ee.call(ee.gH, ownerC, "POST", "/setup/check", nil), 200)
+	if !ee.global.public().Rerun {
+		t.Fatal("Check didn't pick up actions: write")
+	}
+	var h helloResp
+	decode(t, ee.call(ee.user("alice").routes(), personC("alice"), "GET", "/scm/hello", nil), &h) // a partition reads it
+	if !slices.Contains(h.Caps, capRerun) {
+		t.Fatalf("caps %v", h.Caps)
+	}
+	ee.gh.mu.Lock()
+	delete(ee.gh.appPerms, "actions")
+	ee.gh.appPerms["contents"] = "read"
+	ee.gh.mu.Unlock()
+	ok(t, ee.hook("installation", fixtureWith(t, "installation", map[string]any{"action": "new_permissions_accepted"})), 202)
+	if p := ee.global.public(); p.Rerun || p.BotContents != "read" {
+		t.Fatalf("after new_permissions_accepted: rerun %v, contents %q", p.Rerun, p.BotContents)
+	}
 }

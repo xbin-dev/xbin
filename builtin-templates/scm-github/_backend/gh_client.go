@@ -118,7 +118,7 @@ func (g *ghClient) do(ctx context.Context, a ghAuth, method, url string, body an
 		e.RetryAfterMs = 5000
 		return nil, e
 	}
-	g.trackRate(a.key, res, resp)
+	g.trackRate(a.key, res, resp, b)
 	if resp.StatusCode == http.StatusNotModified && cached != nil {
 		g.touch(tagKey)
 		h := resp.Header.Clone()
@@ -273,19 +273,41 @@ func rateResource(u string) string {
 	return "core"
 }
 
-func (g *ghClient) trackRate(key, res string, r *http.Response) {
-	if key == "" || r.Header.Get("X-RateLimit-Remaining") != "0" {
-		return
-	}
-	reset, err := strconv.ParseInt(r.Header.Get("X-RateLimit-Reset"), 10, 64)
-	if err != nil {
+// secondaryWait is how long a secondary rate limit blocks an identity
+// when GitHub doesn't say (Retry-After): GitHub asks for at least a minute.
+const secondaryWait = time.Minute
+
+// trackRate keeps an identity's spent limit: the primary one
+// (X-RateLimit-Remaining 0, until its reset), or a secondary one (429, or
+// a 403 with Retry-After or naming it) for its Retry-After — every caller
+// of that identity waits, as GitHub asks, not only the one refused.
+func (g *ghClient) trackRate(key, res string, r *http.Response, body []byte) {
+	if key == "" {
 		return
 	}
 	if h := r.Header.Get("X-RateLimit-Resource"); h != "" {
 		res = h
 	}
+	var until time.Time
+	switch {
+	case r.Header.Get("X-RateLimit-Remaining") == "0":
+		reset, err := strconv.ParseInt(r.Header.Get("X-RateLimit-Reset"), 10, 64)
+		if err != nil {
+			return
+		}
+		until = time.Unix(reset, 0)
+	case r.StatusCode == http.StatusTooManyRequests ||
+		(r.StatusCode == http.StatusForbidden && (r.Header.Get("Retry-After") != "" || strings.Contains(strings.ToLower(string(body)), "secondary rate limit"))):
+		wait := secondaryWait
+		if s, err := strconv.Atoi(r.Header.Get("Retry-After")); err == nil && s > 0 {
+			wait = time.Duration(min(s, 3600)) * time.Second
+		}
+		until = g.now().Add(wait)
+	default:
+		return
+	}
 	g.mu.Lock()
-	g.blocked[key+"|"+res] = time.Unix(reset, 0)
+	g.blocked[key+"|"+res] = until
 	g.mu.Unlock()
 }
 

@@ -79,6 +79,7 @@ type evCounts struct {
 	Expired    int64 `json:"expired"`    // undelivered for 24 h: dropped
 	AccessLost int64 `json:"accessLost"` // a person who can no longer read a private repo: dropped
 	PersonGone int64 `json:"personGone"` // a person signed out (or re-created under the same id): dropped
+	Policy     int64 `json:"policy"`     // outside the policy as narrowed since it was queued: dropped
 	Overflow   int64 `json:"overflow"`   // the outbox was full: dropped
 }
 
@@ -467,12 +468,17 @@ func (s *srv) unreadable(ctx context.Context, consumer, forWhom, person, pid str
 		case isRefusal(err, refNotFound) || isRefusal(err, refNotInstalled) || (err == nil && perm == "none"):
 			hidden[k] = true
 			h.mu.Lock()
-			h.counts.AccessLost++
-			h.dropPersonSubs(person, repo)
+			dropped := h.dropPersonSubs(person, repo)
 			for iid, x := range h.out {
 				if x.Person == person && x.State == "pending" && x.Private && strings.EqualFold(x.Repo, repo) {
 					h.dropItem(iid)
+					dropped++
 				}
+			}
+			// Counted when something went: the delivered items stay (hidden),
+			// so a later listing finds the same loss again and counts nothing.
+			if dropped > 0 {
+				h.counts.AccessLost++
 			}
 			h.mu.Unlock()
 		case err != nil:
@@ -485,7 +491,8 @@ func (s *srv) unreadable(ctx context.Context, consumer, forWhom, person, pid str
 }
 
 // answerEvents lists one consumer's events for one for: oldest first,
-// from since (unix ms), a repo's only when asked, none of a hidden repo.
+// from since (unix ms), a repo's only when asked, none of a hidden repo
+// nor one the policy no longer allows.
 func (s *srv) answerEvents(w http.ResponseWriter, r *http.Request, consumer, forWhom, pid string, hidden map[string]bool) {
 	q := r.URL.Query()
 	limit, err := strconv.Atoi(or(q.Get("limit"), strconv.Itoa(pageDefault)))
@@ -505,12 +512,13 @@ func (s *srv) answerEvents(w http.ResponseWriter, r *http.Request, consumer, for
 		after = string(b)
 	}
 	now := s.now().UnixMilli()
+	pol := s.policy()
 	h := s.ev()
 	h.mu.Lock()
 	h.load()
 	var its []*outItem
 	for _, it := range h.out {
-		if it.Consumer != consumer || it.For != forWhom || (pid != "" && it.PID != pid) || now-it.QueuedAt > eventsMaxAge ||
+		if !pol.itemAllowed(it) || it.Consumer != consumer || it.For != forWhom || (pid != "" && it.PID != pid) || now-it.QueuedAt > eventsMaxAge ||
 			it.QueuedAt < since || it.ID <= after || (repo != "" && !strings.EqualFold(repo, it.Repo)) || (it.Private && hidden[strings.ToLower(it.Repo)]) {
 			continue
 		}
