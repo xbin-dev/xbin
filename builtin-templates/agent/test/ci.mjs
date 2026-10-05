@@ -74,7 +74,9 @@ ok('a run: name, event, state', run.includes('ci') && run.includes('push') && ru
 ok('jobs with progress bars', JSON.stringify(await page.$$eval('.cijob', (els) => els.map((e) => [e.dataset.job, e.querySelector('.cibar > span')?.style.width || ''])))
   === '[["88000","100%"],["88001","33%"],["88002",""]]');
 ok('…the running job\'s current step', (await page.textContent('.cijob[data-job="88001"] .cicur')).startsWith('go test ./...'));
-await page.click('.cijob[data-job="88001"] .cirow');
+await page.focus('.cijob[data-job="88001"] .cirow');
+await page.keyboard.press('Enter'); // a job row unfolds from the keyboard too
+ok('a job row is a button: expanded', (await page.getAttribute('.cijob[data-job="88001"] .cirow', 'aria-expanded')) === 'true');
 const steps = await page.$$eval('.cijob[data-job="88001"] .cistep', (els) => els.map((e) => [e.querySelector('.cist').textContent, e.querySelector('.ciname').textContent,
   e.querySelector('.muted').textContent]));
 ok('expanded: its steps with their marks and times', JSON.stringify(steps.map((x) => x.slice(0, 2))) === JSON.stringify([['✓', 'Set up job'], ['●', 'go test ./...'], ['○', 'upload']])

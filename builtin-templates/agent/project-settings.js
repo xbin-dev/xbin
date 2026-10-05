@@ -102,7 +102,7 @@ function reposTpl(p, pv, c) {
         ${c.settings && edit !== (r.setup || '') ? html`<button class="btn btnsm" data-act="setup" @click=${async () => { await p.setSetup(pv.id, r.slug, edit); repoEdits.delete(key(r)); }}>Save setup</button>` : nothing}
       </div>`;
     })}
-    ${c.settings ? html`<div class="pbtns"><input id="pset-addrepo" placeholder="owner/name" .value=${newRepo.get(pv.id) || ''} @input=${(e) => { newRepo.set(pv.id, e.target.value); }}>
+    ${c.settings ? html`<div class="pbtns"><input id="pset-addrepo" aria-label="A repo to add (owner/name)" placeholder="owner/name" .value=${newRepo.get(pv.id) || ''} @input=${(e) => { newRepo.set(pv.id, e.target.value); }}>
       <button class="btn btnsm" id="pset-addrepo-go" @click=${async () => { const r = (newRepo.get(pv.id) || '').trim(); if (!r) return; newRepo.delete(pv.id); await p.addRepo(pv.id, r); }}>Add repo</button></div>` : nothing}
   </section>`;
 }
@@ -166,7 +166,7 @@ function membersTpl(p, pv, c) {
     <div class="pkv"><span>Owner</span><span>${(m && m.owner) || pv.owner}</span></div>
     ${((m && m.members) || []).map((x) => html`<div class="pkv pmember" data-user=${x.user}><span>${x.user}</span><span>${x.role === 'viewer' ? 'reads' : 'makes and steers tasks'}
       ${c.settings || x.user === ctx.app.me.user ? html`<button class="btn ghost btnsm" @click=${() => { if (confirm(x.user === ctx.app.me.user ? `Leave ${pv.name}? Only its owner can add you back.` : `Remove ${x.user} from ${pv.name}? They lose their access; you can add them back.`)) p.removeMember(pv.id, x.user); }}>${x.user === ctx.app.me.user ? 'Leave' : 'Remove'}</button>` : nothing}</span></div>`)}
-    ${c.settings ? html`<div class="pbtns"><input id="pset-member" placeholder="person" .value=${nm.user} @input=${(e) => setNm('user', e.target.value)}>
+    ${c.settings ? html`<div class="pbtns"><input id="pset-member" aria-label="A person to add" placeholder="person" .value=${nm.user} @input=${(e) => setNm('user', e.target.value)}>
       <select id="pset-member-role" @change=${(e) => setNm('role', e.target.value)}><option value="participant" ?selected=${nm.role === 'participant'}>makes and steers tasks</option>
         <option value="viewer" ?selected=${nm.role === 'viewer'}>reads</option></select>
       <button class="btn btnsm" id="pset-member-add" @click=${async () => {

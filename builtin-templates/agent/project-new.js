@@ -62,7 +62,7 @@ export function newProjectTpl(p) {
     if (teamDef) projectTeam(app).saveTeam(p); else p.saveProject();
   };
   return html`<div class="autos-page projs-page" id="proj-form">
-    <div class="ahd"><a class="crumb" @click=${() => p.closeForm()}>Projects</a> › <b>New project</b></div>
+    <div class="ahd"><a class="crumb" role="button" tabindex="0" @click=${() => p.closeForm()} @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); p.closeForm(); } }}>Projects</a> › <b>New project</b></div>
 
     <h5>Where the code is</h5>
     ${p.scm && p.scm.error ? html`<div class="err">${p.scm.error}</div>` : nothing}

@@ -36,7 +36,7 @@ export function coordCardTpl(p, pv) {
       <span style="flex:1"></span>
       <button class="btn ghost btnsm" id="pcoord-open" ?disabled=${!!c.busy} @click=${open}>${c.busy === 'open' ? 'Opening…' : 'Open'}</button></div>
     <div class="pcoordrow">
-      <input id="pcoord-text" placeholder="Ask it something: make tasks for the open bugs, tell me what failed…" .value=${c.text}
+      <input id="pcoord-text" aria-label="A message to the coordinator" placeholder="Ask it something: make tasks for the open bugs, tell me what failed…" .value=${c.text}
         @input=${(e) => { c.text = e.target.value; }} @keydown=${(e) => { if (e.key === 'Enter' && !e.isComposing) send(); }}>
       <button class="btn btnsm" id="pcoord-send" ?disabled=${!!c.busy} @click=${send}>${c.busy === 'send' ? 'Sending…' : 'Send'}</button></div>
     ${c.err ? html`<div class="err" id="pcoord-err">${c.err}</div>` : c.note ? html`<div class="muted small" id="pcoord-note">${c.note}${c.run && c.run.id ? html` <a class="lnk" @click=${() => ctx.app.select(c.run.id)}>open it</a>` : nothing}</div>` : nothing}

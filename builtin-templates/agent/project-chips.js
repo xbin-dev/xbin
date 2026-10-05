@@ -77,7 +77,8 @@ function openPR(v, t) {
 function crumbTpl(v) {
   const c = crumb(v);
   if (!c || !ctx.app) return null;
-  return html`<a class="crumb" id="projcrumb" title=${c.title} @click=${() => ctx.app.openProjects(c.pid)}>${c.text}</a>`;
+  return html`<a class="crumb" id="projcrumb" role="button" tabindex="0" title=${c.title} @click=${() => ctx.app.openProjects(c.pid)}
+    @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); ctx.app.openProjects(c.pid); } }}>${c.text}</a>`;
 }
 
 // --- the prep and sign-in cards -----------------------------------------------------------------

@@ -68,8 +68,11 @@ await page.evaluate(async () => {
   const { ext } = await import('/web-ext.js');
   ext.register({ card: (t) => (t.ci ? `CI ${t.ci.state}` : null) }); // a chip of another module's (CI's, V)
 });
-await page.click('.pcard[data-pid="7"]');
+ok('a project card is a button the keyboard reaches', (await page.getAttribute('.pcard[data-pid="7"]', 'role')) === 'button' && (await page.getAttribute('.pcard[data-pid="7"]', 'tabindex')) === '0');
+await page.focus('.pcard[data-pid="7"]');
+await page.keyboard.press('Enter'); // opens it, as a click does
 await page.waitForSelector('.pboard .ptask[data-n="1"]');
+ok('…the board\'s search has a name', (await page.getAttribute('.pq', 'aria-label')) === 'Find a task');
 ok('#proj=7 is in the address', await page.evaluate(() => location.hash === '#proj=7'));
 const cols = await page.$$eval('.pboard .pcol', (els) => els.map((e) => `${e.dataset.col}:${[...e.querySelectorAll('.ptask')].map((t) => t.dataset.n).join(',')}`));
 ok('the columns, each with its tasks (newest first)', JSON.stringify(cols) === '["queued:4","working:2","needs-you:8,6,3","pr:1","done:5"]', JSON.stringify(cols));
