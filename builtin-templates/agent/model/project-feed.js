@@ -76,9 +76,11 @@ class Feed {
     return f;
   }
 
-  /** items(pid, limit): the feed, newest first. */
+  /** items(pid, limit): the feed, newest first — what is held: reading it holds nothing (only
+   * ensure, from the Activity screen, does; a held feed is read again on every `project` event). */
   items(pid, limit = 0) {
-    const all = [...this.feed(pid).items].reverse();
+    const f = this.feeds.get(+pid);
+    const all = f ? [...f.items].reverse() : [];
     return limit ? all.slice(0, limit) : all;
   }
 

@@ -157,7 +157,7 @@ function projectTpl(s) {
   const f = projectFeed(app);
   const recent = f.items(pv.id, 4); // the latest activity once its screen has read it (the read walks oldest first)
   return html`<screen title=${pv.name} subtitle=${[(pv.repos || []).map((r) => r.repo).join(', '), pv.state !== 'active' ? pv.state : ''].filter(Boolean).join(' · ')}
-      style="list" search=${p.filter.q} @search=${(e) => p.setFilter({ q: e.value || '' })} refreshable @refresh=${() => { p.refresh(pv.id); if (f.feed(pv.id).loaded) f.load(pv.id); }}>
+      style="list" search=${p.filter.q} @search=${(e) => p.setFilter({ q: e.value || '' })} refreshable @refresh=${() => { p.refresh(pv.id); if ((f.feeds.get(+pv.id) || {}).loaded) f.load(pv.id); }}>
     <toolbar>
       ${c.act ? html`<menu icon="plus" label="New">
         <button icon="pencil" @tap=${() => { p.newTask(); push({ kind: 'project-task-new', pid: pv.id }); }}>New task</button>

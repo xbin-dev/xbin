@@ -475,6 +475,9 @@ test('the activity: a project\'s screen reads no events; Activity reads at most 
   seed.events = { 7: Array.from({ length: 1200 }, (_, i) => ev(i + 1, 7, 'note', 0, { text: `event ${i + 1}` })) };
   const r = await run(seed, [
     { snapshot: 'board' },
+    { call: ['push', { type: 'project', run: 0, root: 0, data: { id: 7, change: 'event', n: 0 } }] },
+    { wait: 400 },
+    { snapshot: 'board2' },
     { tap: { t: 'row', p: { title: 'All activity' } } },
     { wait: 60 },
     { snapshot: 'feed' },
@@ -483,6 +486,7 @@ test('the activity: a project\'s screen reads no events; Activity reads at most 
     { snapshot: 'newer' },
   ], 'proj=7');
   const reads = () => called(r, 'GET', /\/projects\/7\/events\?/).map((c) => new URL(c.url, 'http://x').searchParams.get('since'));
+  assert.ok(!JSON.stringify(topScreen(r.snapshots.board2)).includes('event 1'), 'a project event while only the board is shown reads no events either');
   assert.deepEqual(reads(), ['0', '200', '400', '600', '800', '1000'], 'five pages, then the sixth on Read newer');
   assert.ok(find(topScreen(r.snapshots.feed), { t: 'row', p: { title: 'Read newer' } }), 'newer ones wait: said');
   const top = all(topScreen(r.snapshots.newer), { t: 'row' }).find((x) => /^note/.test(x.p.title));
