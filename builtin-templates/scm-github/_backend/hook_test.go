@@ -235,10 +235,17 @@ func TestChecksMergeInFlight(t *testing.T) {
 	ee := newEvEnv(t)
 	ee.subscribe(agentC, map[string]any{"repo": "acme/web"})
 	ok(t, ee.hook("check_suite", fixtureWith(t, "check_suite", map[string]any{"check_suite.conclusion": "success"})), 202)
-	// Exactly five seconds on, the item is due — and the merge window is
-	// at its edge: a delivery pass takes the item and is posting it…
-	ee.clock.advance(5 * time.Second)
+	// Four seconds on, the merge window is still open; the item is made due
+	// (a held item first falls due as the window closes, so this is the
+	// only way to reach the guard), and a delivery pass takes it and is
+	// posting it…
+	ee.clock.advance(4 * time.Second)
 	h := ee.global.ev()
+	h.mu.Lock()
+	for _, it := range h.out {
+		it.NextAt = ee.clock.now().UnixMilli()
+	}
+	h.mu.Unlock()
 	posting, release := make(chan struct{}), make(chan struct{})
 	post := h.post
 	h.post = func(ctx context.Context, u string, body []byte) (int, error) {
