@@ -246,8 +246,9 @@ count a 304 against its rate limit) stays the fallback.
 - `ref.branch` is a branch of this repo, never a **fork's**: a fork's pull
   request runs CI here under the fork's branch name, so a subscription to
   a same-named branch here must never match it. A pull request says whose
-  its head is (`data.pull.head.repo` names a fork), and so does a workflow
-  run. A check suite, a check run and a job don't: their branch is kept
+  its head is (`data.pull.head.repo` names a fork; when GitHub names no
+  head repo — the fork was deleted — the branch was the fork's, so it has
+  no `ref.branch`), and so does a workflow run. A check suite, a check run and a job don't: their branch is kept
   only when shown to be this repo's — a pull request they list has its
   head here on that branch, the job's run's head is this repo (its
   `workflow_run`, else GitHub's run), or the branch's head here is the

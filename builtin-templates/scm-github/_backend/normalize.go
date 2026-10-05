@@ -394,11 +394,13 @@ func (nc normCtx) pull(h *ghHook, b func(kind, action string) *event) {
 }
 
 // pullRef is the ref of an event about a pull request: its number, head
-// sha and — when the head is in this repo, not a fork — its branch.
+// sha and — when the head is in this repo, not a fork — its branch. A
+// head repo GitHub sends as null (the fork was deleted) names no branch:
+// the branch was the fork's, and a same-named one here mustn't match it.
 func (nc normCtx) pullRef(h *ghHook) eventRef {
 	p := h.PullRequest
 	r := eventRef{PR: max(p.Number, 0), SHA: cleanSHA(p.Head.SHA)}
-	if p.Head.Repo == nil || strings.EqualFold(p.Head.Repo.FullName, h.Repository.FullName) {
+	if p.Head.Repo != nil && strings.EqualFold(p.Head.Repo.FullName, h.Repository.FullName) {
 		r.Branch = cleanBranch(p.Head.Ref)
 	}
 	return r

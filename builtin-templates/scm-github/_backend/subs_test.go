@@ -245,3 +245,23 @@ func TestWipePersonDropsEvents(t *testing.T) {
 		t.Fatalf("%d subs after Forget", n)
 	}
 }
+
+// A pull request whose fork was deleted (head.repo null) has a head branch
+// that was the fork's: its events mustn't reach a subscription on a
+// same-named branch here, though one on its number still matches.
+func TestDeletedForkBranchNotMatched(t *testing.T) {
+	ee := newEvEnv(t)
+	ee.subscribe(agentC, map[string]any{"repo": "acme/web", "branches": []string{fxBranch}, "kinds": []string{"review", "pull"}})
+	for _, kind := range []string{"pull_request_review", "pull_request_synchronize"} {
+		ev := map[string]string{"pull_request_synchronize": "pull_request"}[kind]
+		if ev == "" {
+			ev = kind
+		}
+		body := fixtureWith(t, kind, map[string]any{"pull_request.head.repo": nil, "pull_request.head.label": "mallory:" + fxBranch})
+		ok(t, ee.hook(ev, body), 202)
+	}
+	ee.deliver()
+	if got := ee.agent.take(); len(got) != 0 {
+		t.Fatalf("a deleted fork's pull request matched this repo's branch %s: %v", fxBranch, got)
+	}
+}
