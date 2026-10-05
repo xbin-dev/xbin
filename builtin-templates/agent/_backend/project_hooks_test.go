@@ -271,20 +271,29 @@ func TestProjectStreamEvent(t *testing.T) {
 		t.Fatalf("bob got the project's events: %v", got)
 	}
 	// coalesced: a burst of the same change is one event
-	projStreamDelay.Store(int64(250 * time.Millisecond)) // as in production: the burst is well within it
-	before := len(projEvents(alice))
-	for i := 0; i < 20; i++ {
-		projStream.post(p.ID, "repo", 0)
-	}
-	waitFor(t, "the coalesced event", func() bool { return len(projEvents(alice)) > before })
-	time.Sleep(300 * time.Millisecond)
-	n := 0
-	for _, d := range projEvents(alice)[before:] {
-		if d["change"] == "repo" {
-			n++
+	delay := 250 * time.Millisecond
+	projStreamDelay.Store(int64(delay)) // as in production
+	for try := 0; ; try++ {
+		before := len(projEvents(alice))
+		start := time.Now()
+		for i := 0; i < 20; i++ {
+			projStream.post(p.ID, "repo", 0)
 		}
-	}
-	if n != 1 {
-		t.Fatalf("20 repo changes in a burst made %d events", n)
+		fit := time.Since(start) < delay/2 // a loaded host can stall the burst past the window
+		waitFor(t, "the coalesced event", func() bool { return len(projEvents(alice)) > before })
+		time.Sleep(delay + 50*time.Millisecond)
+		n := 0
+		for _, d := range projEvents(alice)[before:] {
+			if d["change"] == "repo" {
+				n++
+			}
+		}
+		if !fit && try < 4 {
+			continue
+		}
+		if n != 1 {
+			t.Fatalf("20 repo changes in a burst made %d events", n)
+		}
+		break
 	}
 }

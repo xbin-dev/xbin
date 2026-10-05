@@ -124,7 +124,7 @@ func (ag *Agent) keepWakeUp(now time.Time) {
 func (e *Engine) busy() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.closing || !e.owned || len(e.actors) > 0 || len(e.timers) > 0 || e.harnessHoldsLocked()
+	return e.closing || !e.owned || len(e.actors) > 0 || len(e.timers) > 0 || e.harnessHoldsLocked() || e.projectsHoldLocked()
 }
 
 // userWakeJobs is what a person's partition leaves to be started again, as
