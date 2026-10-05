@@ -117,8 +117,19 @@ export function modeInfo(st) {
 
 // --- images -----------------------------------------------------------------------------
 
-// SUDO_WHY: what an image's sudo can't do in a namespace sandbox.
+// SUDO_WHY: what an image's sudo can't do in a namespace sandbox;
+// SUDO_WHY_EMULATED, in an emulated VM (sudo is for VMs on KVM only, D182).
 export const SUDO_WHY = 'not in the namespace sandboxes this manager makes now: they run with no new privileges, where sudo can\'t work';
+export const SUDO_WHY_EMULATED = 'not in the emulated VMs this host runs now: sudo is for VM sandboxes on KVM only';
+
+// sudoWhy: why an image's sudo gives nothing in the sandboxes made now.
+function sudoWhy(st, mode) {
+  if (mode === 'namespace') return SUDO_WHY;
+  const vm = backendInfo(st).modes.find((x) => x.mode === 'vm');
+  if (mode === 'vm' && vm && vm.accel === 'emulate') return SUDO_WHY_EMULATED;
+  if (mode && mode !== 'vm') return `not in the ${mode} sandboxes this manager makes now: sudo is for VM sandboxes on KVM only`;
+  return '';
+}
 
 // imageRows: the configured images, each with its build (a setup script's)
 // and whether consumers are offered it now. A build that isn't ready keeps
@@ -144,7 +155,7 @@ export function imageRows(st, now = Date.now()) {
     }
     return {
       id: im.id, title: im.title || im.id, tools: im.tools || [], setup: im.setup || '', default: !!im.default,
-      sudo: !!im.sudo, sudoWhy: im.sudo && mode === 'namespace' ? SUDO_WHY : '',
+      sudo: !!im.sudo, sudoWhy: im.sudo ? sudoWhy(st, mode) : '',
       agents: (im.harnesses || []).map((h) => h.title || h.id),
       buildEgress: im.buildEgress || '', offered: offered.includes(im.id), built: b, buildText: build, kept,
       tone: b ? (b.state === 'ready' ? 'ok' : b.state === 'building' || prev ? 'warn' : 'danger') : 'muted',
@@ -161,7 +172,7 @@ export const imageForm = (im = {}) => ({
 
 // SUDO_HELP: the editor's words for an image's sudo (API.md §Images).
 export const SUDO_HELP = 'Its user may become root with sudo, no password, and use /dev/fuse and /dev/net/tun (rootless containers) — '
-  + 'in VM sandboxes only. A change rebuilds an image with a setup script; existing sandboxes keep what they have.';
+  + 'in VM sandboxes on KVM only. A change rebuilds an image with a setup script; existing sandboxes keep what they have.';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
 

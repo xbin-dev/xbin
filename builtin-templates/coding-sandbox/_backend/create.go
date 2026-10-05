@@ -137,7 +137,7 @@ func (m *Manager) create(w http.ResponseWriter, r *http.Request) {
 	start := q.Start == nil || *q.Start
 	plan := &createPlan{Start: start, AutoStopMin: m.config().AutoStopMin}
 	image, size := im.ID, sz
-	sudo := im.Sudo && sudoWorks(mode)
+	sudo := im.Sudo && sudoWorks(o.rt, mode)
 	if q.From != nil { // a clone: of a sandbox the caller may use, now or at a snapshot
 		m.mu.Lock()
 		src := m.recs[q.From.Sandbox]
@@ -162,8 +162,8 @@ func (m *Manager) create(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		plan.FromRuntime, plan.FromID, plan.FromSnap = s.Runtime, s.ID, q.From.Snapshot
-		image = s.Image                  // a clone is of its source's image, whatever the body says
-		sudo = s.Sudo && sudoWorks(mode) // …and has its root: its sudo, if it had it
+		image = s.Image                        // a clone is of its source's image, whatever the body says
+		sudo = s.Sudo && sudoWorks(o.rt, mode) // …and has its root: its sudo, if it had it
 		if q.Size == "" {
 			if x, ok := m.config().size(s.Size); ok {
 				size = x

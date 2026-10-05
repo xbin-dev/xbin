@@ -37,7 +37,7 @@ export function imageScreen(s) {
       <row title="Offered to consumers" detail=${im.offered ? 'yes' : 'no'}/>
       <row title="Tools" detail=${im.tools.join(', ') || '—'}/>
       ${im.agents.length ? html`<row title="Coding agents" detail=${im.agents.join(', ')}/>` : nothing}
-      <row title="Its user may sudo" detail=${im.sudo ? 'yes, in VM sandboxes' : 'no'} tone=${im.sudoWhy ? 'warn' : undefined}/>
+      <row title="Its user may sudo" detail=${im.sudo ? 'yes, in VM sandboxes on KVM' : 'no'} tone=${im.sudoWhy ? 'warn' : undefined}/>
       ${im.sudoWhy ? html`<notice tone="warn" text=${`sudo: ${im.sudoWhy}`}/>` : nothing}
       ${im.default ? html`<row title="The default image"/>` : nothing}
       ${im.built && im.built.detail ? html`<notice tone="danger" text=${im.built.detail}/>` : nothing}

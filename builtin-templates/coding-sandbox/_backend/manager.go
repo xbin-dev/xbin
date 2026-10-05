@@ -417,7 +417,7 @@ func (m *Manager) offer(ctx context.Context) (*offer, error) {
 	}
 	if mode, err := m.chooseMode(rt); err != nil {
 		o.notes = append(o.notes, "no sandbox can be made now: "+errText(err))
-	} else if !sudoWorks(mode) {
+	} else if !sudoWorks(rt, mode) {
 		var sudo []string
 		for _, im := range o.images {
 			if im.Sudo {
@@ -425,7 +425,7 @@ func (m *Manager) offer(ctx context.Context) (*offer, error) {
 			}
 		}
 		if len(sudo) > 0 {
-			o.notes = append(o.notes, fmt.Sprintf("the image(s) %s give their user sudo, which only VM sandboxes can: this manager makes %s sandboxes now, which run with no new privileges, so theirs get none", strings.Join(sudo, ", "), mode))
+			o.notes = append(o.notes, fmt.Sprintf("the image(s) %s give their user sudo, which only VM sandboxes on KVM can: this manager makes %s sandboxes now, so theirs get none", strings.Join(sudo, ", "), modeWords(rt, mode)))
 		}
 	}
 	if missing := missingCaps(o.caps, "exec", "files"); len(missing) > 0 {

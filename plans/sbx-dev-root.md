@@ -137,6 +137,12 @@ helpers (and `sudo` fails in it — the bug this fixes).
 
 ## Questions for the owner
 
+**Answered at land (2026-10-05, D182):** one switch (sudo brings the
+devices); sudo only for KVM-backed sandboxes (`vm` with `accel: "kvm"`),
+which replaces "every mode but namespace"; build-rootfs.sh unchanged;
+ship before the owed end-to-end run. File capabilities stay a follow-up.
+The questions as they were asked:
+
 - `/dev/fuse` and `/dev/net/tun` come with an image's `sudo` (one switch:
   "this image is for development"). A separate `devices` setting is easy
   if an operator should get one without the other.

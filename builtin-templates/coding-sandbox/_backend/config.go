@@ -62,17 +62,42 @@ type Image struct {
 	// has (hello.images[].harnesses; none: hello says nothing of them).
 	Harnesses []Harness `json:"harnesses,omitempty"`
 	// Sudo gives the layout's user root with sudo, no password, and
-	// /dev/fuse and /dev/net/tun at each boot — in a mode where that can
-	// work (sudoWorks: not a namespace). Its prepare writes the grant
+	// /dev/fuse and /dev/net/tun at each boot — only in a VM sandbox on KVM
+	// (sudoWorks). Its prepare writes the grant
 	// (lifecycle.go); a changed one rebuilds an image with a setup script
 	// (setupHash). D182.
 	Sudo bool `json:"sudo,omitempty"`
 }
 
-// sudoWorks: a sandbox of mode can give its user sudo. xbind's namespace
-// sandboxes run with no new privileges, where a setuid program gains
-// nothing; a VM is a machine of its own, root included (D89, D182).
-func sudoWorks(mode string) bool { return mode != "namespace" }
+// sudoWorks: a sandbox of mode, on the substrate rt describes, gives its
+// user sudo — only a VM on KVM (Firecracker; accel "kvm"). xbind's
+// namespace sandboxes run with no new privileges, where a setuid program
+// gains nothing; an emulated VM (QEMU, D90) or another substrate's own mode
+// gets none either: the owner's ruling at land, one switch, KVM-backed
+// sandboxes only (D182, 2026-10-05).
+func sudoWorks(rt *xbin.SandboxRuntime, mode string) bool {
+	if mode != "vm" || rt == nil {
+		return false
+	}
+	for _, x := range rt.Modes {
+		if x.Mode == mode {
+			return x.Accel == "kvm"
+		}
+	}
+	return false
+}
+
+// modeWords names mode for a note: an emulated VM says so.
+func modeWords(rt *xbin.SandboxRuntime, mode string) string {
+	if rt != nil {
+		for _, x := range rt.Modes {
+			if x.Mode == mode && x.Accel == "emulate" {
+				return "emulated VM"
+			}
+		}
+	}
+	return mode
+}
 
 // Harness is one of an image's coding agents (docs/sandbox-manager.md
 // §hello): its id — claude, codex, gemini, opencode are the ones consumers
@@ -231,8 +256,8 @@ func (c *Config) validate() error {
 			return fmt.Errorf("image %s: the setup script is over 64 KiB", im.ID)
 		case im.BuildEgress != "" && im.BuildEgress != "none" && im.BuildEgress != "internet" && im.BuildEgress != "open":
 			return fmt.Errorf("image %s: buildEgress is none, internet or open", im.ID)
-		case im.Sudo && !c.autoMode() && !sudoWorks(c.Mode):
-			return fmt.Errorf("image %s: sudo needs VM sandboxes, and this manager makes %s ones: they run with no new privileges, where sudo can't work (the mode vm or auto, or no sudo)", im.ID, c.Mode)
+		case im.Sudo && !c.autoMode() && c.Mode != "vm":
+			return fmt.Errorf("image %s: sudo needs VM sandboxes on KVM, and this manager makes %s ones, where sudo can't work (the mode vm or auto, or no sudo)", im.ID, c.Mode)
 		}
 		if err := checkHarnesses(im); err != nil {
 			return err

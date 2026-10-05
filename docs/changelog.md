@@ -300,7 +300,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   rootless host with one uid. `bx builtin update tile:traefik` takes it.
 - **coding-sandbox: an image's `sudo`** (`builtin-templates/coding-sandbox/API.md`
   §Images). `images[].sudo: true` lets the sandboxes' user become root
-  with `sudo` (no password) in VM sandboxes, and makes `/dev/fuse` and
+  with `sudo` (no password) in VM sandboxes on KVM (Firecracker; an
+  emulated VM's get none, and hello's `notes` say so), and makes `/dev/fuse` and
   `/dev/net/tun` usable by it at every boot (rootless podman, FUSE); the
   image editor sets it (web and app), and `/ops/state` marks the
   sandboxes that have it (`sudo`). A namespace sandbox can't give it: a

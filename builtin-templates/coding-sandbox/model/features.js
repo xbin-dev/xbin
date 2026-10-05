@@ -37,7 +37,7 @@ export const FEATURES = {
   'images.log': 'the last build\'s output',
   'images.edit': 'add or change an image: id, title, tools, setup script, the build\'s network, the default',
   'images.remove': 'remove an image, confirmed',
-  'images.sudo': 'whether an image gives its user sudo (VM sandboxes only, D182): set in the editor, shown on the image — and why it gives nothing while the manager makes namespace sandboxes — and on each sandbox that has it',
+  'images.sudo': 'whether an image gives its user sudo (VM sandboxes on KVM only, D182): set in the editor, shown on the image — and why it gives nothing while the manager makes namespace sandboxes — and on each sandbox that has it',
 
   // Settings
   'settings.mode': 'the isolation mode (automatic, VMs, namespaces), and what new sandboxes get with it now or why none can be made',

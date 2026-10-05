@@ -99,6 +99,10 @@ test('ops: the editors — images, sizes, quotas, shares, mounts', () => {
   assert.deepEqual(O.imageRows(withSudo, NOW).map((i) => [i.id, i.sudo, i.sudoWhy]), [['base', false, ''], ['node', true, '']]);
   const nsOnly = { ...withSudo, config: { ...withSudo.config, mode: 'auto' }, runtime: { ...SEED.ops.runtime, modes: [{ mode: 'namespace' }] } };
   assert.equal(O.imageRows(nsOnly, NOW)[1].sudoWhy, O.SUDO_WHY, 'namespace sandboxes now: the image says its sudo gives nothing');
+  const emulated = { ...nsOnly, runtime: { ...nsOnly.runtime, modes: [{ mode: 'vm', accel: 'emulate' }] } };
+  assert.equal(O.imageRows(emulated, NOW)[1].sudoWhy, O.SUDO_WHY_EMULATED, 'emulated VMs now: sudo is for KVM only');
+  const kvm = { ...nsOnly, runtime: { ...nsOnly.runtime, modes: [{ mode: 'vm', accel: 'kvm' }] } };
+  assert.equal(O.imageRows(kvm, NOW)[1].sudoWhy, '', 'VMs on KVM: the sudo works');
   assert.equal(O.sandboxRows({ ...SEED.ops, sandboxes: [{ ...SEED.ops.sandboxes[0], sudo: true }] }, NOW)[0].sudo, true);
   assert.ok(O.removeImage([images[0]], 'base').error);
   assert.match(O.applySizes([{ id: 'x', memMiB: 64, vcpus: 1, diskGiB: 1 }]).error, /128/);

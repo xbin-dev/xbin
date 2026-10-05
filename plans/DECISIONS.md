@@ -10553,6 +10553,14 @@ Deviations and refinements made while implementing; all deliberate:
   (no `-p`), and deploy/install.sh's unpack and `chown -R` strip them
   again. The VM image path (`mkfs.erofs --all-root`, the guest's mounts)
   keeps whatever modes the tree has, so it was purely a build artifact.
+  - **The owner's rulings at land (2026-10-05).** One switch: an image's
+    `sudo` brings `/dev/fuse` and `/dev/net/tun` with it, no separate
+    `devices` setting. Only for KVM-backed sandboxes: `sudoWorks` is the
+    runtime's `vm` mode with `accel: "kvm"` (Firecracker) — an emulated
+    VM (QEMU, D90) or another substrate's mode gets none, and hello's
+    notes and the image editor say why. `hack/build-rootfs.sh` stays as
+    it is (no forced `--no-same-owner`). Shipped before the owed VM
+    end-to-end run (plans/sbx-dev-root.md "Owed").
   - **Fixed in the guest, never on the host.** The image records its
     special modes at build time — `find / -xdev \( -type f -o -type d \)
     -perm /7000 -printf '%m %U %G %y %p\n'` into `/etc/xbin-rootfs-modes`,

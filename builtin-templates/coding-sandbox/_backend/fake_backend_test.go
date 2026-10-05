@@ -56,6 +56,7 @@ type fakeBackend struct {
 	Classes map[string]string // sandbox-net slot → the reach it is bound to ("" unbound); nil: internet and open bound
 	Users   string            // "any" (default) or "root"
 	Modes   []string          // the modes it offers (nil: namespace and vm)
+	Accel   string            // its vm mode's accel ("": "kvm", as Firecracker)
 	Limits  xbin.SandboxLimits
 
 	mu     sync.Mutex
@@ -196,12 +197,16 @@ func (f *fakeBackend) Runtime(ctx context.Context) (*xbin.SandboxRuntime, error)
 	if err := f.enter("runtime"); err != nil {
 		return nil, err
 	}
-	rt := &xbin.SandboxRuntime{Enabled: true, Isolation: true, Modes: []xbin.SandboxMode{{Mode: "namespace"}, {Mode: "vm", Accel: "fake"}},
+	rt := &xbin.SandboxRuntime{Enabled: true, Isolation: true, Modes: []xbin.SandboxMode{{Mode: "namespace"}, {Mode: "vm", Accel: orStr(f.Accel, "kvm")}},
 		Users: orStr(f.Users, "any"), Caps: f.caps(), Egress: []xbin.SandboxEgress{{Class: "none", Reach: "none"}}}
 	if f.Modes != nil {
 		rt.Modes = nil
 		for _, m := range f.Modes {
-			rt.Modes = append(rt.Modes, xbin.SandboxMode{Mode: m})
+			md := xbin.SandboxMode{Mode: m}
+			if m == "vm" {
+				md.Accel = orStr(f.Accel, "kvm")
+			}
+			rt.Modes = append(rt.Modes, md)
 		}
 	}
 	var slots []string

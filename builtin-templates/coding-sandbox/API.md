@@ -113,8 +113,8 @@ trusts its consumers.
   `LANG` (the runtime's, docs/protocol.md §Tile sandboxes). On a substrate
   that runs everything as root (the runtime's `users: root`), the user is
   root at `/root`. The user may become root with `sudo` only where its
-  image says so (`sudo`, §Images) — in a VM sandbox, never a namespace
-  one.
+  image says so (`sudo`, §Images) — in a VM sandbox on KVM, never a
+  namespace one or an emulated VM.
 - **`caps`** are the substrate's (`exec`, `files`, `tar`, `tty`,
   `snapshots`, `clone`, and `ports` and `stdio` where xbind serves them);
   `archive` isn't offered yet (its routes answer 501). Hello's also carry
@@ -240,7 +240,11 @@ in the VM is the VM's own: the sandbox's network, mounts and files outside
 it stay what they were. A namespace sandbox runs with no new privileges,
 where `sudo` can't work: a manager whose mode is `namespace` refuses an
 image with it, and in `auto` mode, while the substrate offers no VMs, its
-sandboxes get none and hello's `notes` say so. A changed `sudo` rebuilds
+sandboxes get none and hello's `notes` say so. Only a VM on KVM
+(Firecracker; the runtime's `vm` mode with `accel: "kvm"`) gives it: on a
+host that emulates its VMs (`accel: "emulate"`, no usable KVM) or another
+substrate's own mode, sandboxes get none, and hello's `notes` say so.
+A changed `sudo` rebuilds
 an image with a setup script, as a changed script does; a sandbox keeps
 what it was made with (a clone, its source's), and `/ops/state` marks the
 sandboxes that have it. The setup script runs as root either way: `sudo`
