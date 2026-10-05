@@ -682,7 +682,15 @@ func TestImageRebuildKeepsGoodBuild(t *testing.T) {
 	// the build says so, the good one is kept and serves
 	tm.fb.FailNext("create", &xbin.SandboxError{Status: 503, Refusal: "unavailable", Message: "no room"})
 	call(t, srv, as{from: "owner", role: "admin"}, "POST", "/ops/images/tools/build", nil, 202, nil)
-	eventually(t, 10*time.Second, "the rebuild fails", func() bool { return img().State == "error" })
+	// over means its job is gone too: the build marks the image "error"
+	// before its job leaves m.builds, and a create in between takes the
+	// build path ("its first use", not running yet) — once on a loaded CI
+	// runner (v0.3.68's tag run)
+	eventually(t, 10*time.Second, "the rebuild fails", func() bool {
+		tm.m.mu.Lock()
+		defer tm.m.mu.Unlock()
+		return tm.m.imgs["tools"].State == "error" && tm.m.builds["tools"] == nil
+	})
 	failed := img()
 	if failed.Previous == nil || failed.Previous.Runtime != v1.Runtime || failed.Previous.Snapshot != v1.Snapshot || !exists(v1.Runtime) {
 		t.Fatalf("a failed rebuild dropped the good build: %+v (previous %+v)", failed, failed.Previous)
