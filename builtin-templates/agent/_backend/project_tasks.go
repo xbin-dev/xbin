@@ -211,17 +211,11 @@ func (ag *Agent) createTask(ctx context.Context, w who, p *Project, s TaskSpec) 
 	if err != nil {
 		return nil, nil, err
 	}
-	if s.From != 0 {
-		var open, today int
-		_ = ag.db.q.QueryRow(`SELECT count(*) FROM project_tasks WHERE project_id=? AND from_run<>0 AND phase IN ('open','pr')`, p.ID).Scan(&open)
-		_ = ag.db.q.QueryRow(`SELECT count(*) FROM project_tasks WHERE project_id=? AND from_run<>0 AND created_ms>?`,
-			p.ID, nowMs()-24*3600*1000).Scan(&today)
-		switch {
-		case open >= pol.MaxOpenTasks:
-			return nil, nil, &projErr{code: 429, refusal: refusalLimit, msg: fmt.Sprintf("this project has %d open tasks a coordinator made (policy.maxOpenTasks)", open)}
-		case today >= pol.MaxCreatesDay:
-			return nil, nil, &projErr{code: 429, refusal: refusalLimit, msg: fmt.Sprintf("coordinators made %d tasks in this project in the last 24 hours (policy.maxTaskCreatesPerDay)", today)}
-		}
+	// a coordinator's limits: counted here, and again in the insert's
+	// transaction (which serializes writers), so two creates at once can't
+	// both pass
+	if err := coordLimits(ag.db, p.ID, pol, s.From); err != nil {
+		return nil, nil, err
 	}
 	title := strings.TrimSpace(s.Title)
 	if title == "" && s.Issue != nil {
@@ -239,6 +233,9 @@ func (ag *Agent) createTask(ctx context.Context, w who, p *Project, s TaskSpec) 
 	var k *ProjectTask
 	var runID int64
 	err = ag.db.Tx(func(t *DB) error {
+		if err := coordLimits(t, p.ID, pol, s.From); err != nil {
+			return err
+		}
 		var n int64
 		if err := t.q.QueryRow(`SELECT COALESCE(MAX(n), 0) + 1 FROM project_tasks WHERE project_id=?`, p.ID).Scan(&n); err != nil {
 			return err
@@ -521,6 +518,25 @@ func (ag *Agent) cancelTask(p *Project, k *ProjectTask, by who, reason string) e
 		onTaskChange(t, p, k, "state")
 		return nil
 	})
+}
+
+// coordLimits refuses a coordinator's create (from != 0) over
+// policy.maxOpenTasks or maxTaskCreatesPerDay.
+func coordLimits(d *DB, pid int64, pol ProjectPolicy, from int64) error {
+	if from == 0 {
+		return nil
+	}
+	var open, today int
+	_ = d.q.QueryRow(`SELECT count(*) FROM project_tasks WHERE project_id=? AND from_run<>0 AND phase IN ('open','pr')`, pid).Scan(&open)
+	_ = d.q.QueryRow(`SELECT count(*) FROM project_tasks WHERE project_id=? AND from_run<>0 AND created_ms>?`,
+		pid, nowMs()-24*3600*1000).Scan(&today)
+	switch {
+	case open >= pol.MaxOpenTasks:
+		return &projErr{code: 429, refusal: refusalLimit, msg: fmt.Sprintf("this project has %d open tasks a coordinator made (policy.maxOpenTasks)", open)}
+	case today >= pol.MaxCreatesDay:
+		return &projErr{code: 429, refusal: refusalLimit, msg: fmt.Sprintf("coordinators made %d tasks in this project in the last 24 hours (policy.maxTaskCreatesPerDay)", today)}
+	}
+	return nil
 }
 
 // closeTask closes a task (phase closed): stops it, drops its queue, and

@@ -31,6 +31,16 @@ func jobSetup(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (j
 	if k == nil || k.RunID == 0 {
 		return doneJob("the task is gone")
 	}
+	if taskOver(k) {
+		// closed (or cleaned) while its setup ran: the exec is stopped, so
+		// the cleanup (which waits for it) never removes a checkout under it
+		if j.ExecID != "" {
+			if s, err := openWsbx(ctx, p, orStr(j.ExecRef, taskRef(p, k))); err == nil {
+				_ = s.conn.ExecSignal(ctx, s.id, j.ExecID, "KILL", true)
+			}
+		}
+		return doneJob("the task is over")
+	}
 	r, err := projAg().db.projectRepo(p.ID, j.Repo)
 	if err != nil || strings.TrimSpace(r.Setup) == "" {
 		return doneJob("no setup")
@@ -89,14 +99,23 @@ func jobSetup(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (j
 	return doneJob(fmt.Sprintf("%s's setup exited %d", r.Slug, code))
 }
 
-// putCheckoutState sets a checkout's state (and its setup's exit).
+// putCheckoutState sets a checkout's state (and its setup's exit) — never
+// one a cleanup removed or kept.
 func (d *DB) putCheckoutState(taskID int64, repo, state string, exit *int, errText string) error {
 	if exit == nil {
-		_, err := d.q.Exec(`UPDATE project_checkouts SET state=?, error=? WHERE task_id=? AND repo_slug=?`, state, errText, taskID, repo)
+		_, err := d.q.Exec(`UPDATE project_checkouts SET state=?, error=? WHERE task_id=? AND repo_slug=?
+			AND state NOT IN ('removed','kept')`, state, errText, taskID, repo)
 		return err
 	}
-	_, err := d.q.Exec(`UPDATE project_checkouts SET state=?, setup_exit=?, error=? WHERE task_id=? AND repo_slug=?`, state, *exit, errText, taskID, repo)
+	_, err := d.q.Exec(`UPDATE project_checkouts SET state=?, setup_exit=?, error=? WHERE task_id=? AND repo_slug=?
+		AND state NOT IN ('removed','kept')`, state, *exit, errText, taskID, repo)
 	return err
+}
+
+// taskOver: task k is closed, merged, done or deleted, or its workspace is
+// being (or was) cleaned up — its setup and bind stop (prepare's guard).
+func taskOver(k *ProjectTask) bool {
+	return k.Phase != phaseOpen && k.Phase != phasePR || k.WS == wsCleaning || k.WS == wsCleaned
 }
 
 // startClientID is the client id of a task's start in its run's inbox: a
@@ -110,6 +129,9 @@ func startClientID(pid, n int64) string { return fmt.Sprintf("proj-start:%d:%d",
 func jobBind(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobOutcome, error) {
 	if k == nil || k.RunID == 0 {
 		return doneJob("the task is gone")
+	}
+	if taskOver(k) {
+		return doneJob("the task is over")
 	}
 	if policyOf(p.Policy).SetupBlocking && len(projAg().db.jobsWhere(`WHERE task_id=? AND kind=? AND state IN ('queued','running','waiting')`, k.ID, pjSetup)) > 0 {
 		return waitJob(2000, "waiting for the setup")
@@ -130,8 +152,12 @@ func jobBind(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 		}
 		return jobOutcome{}, err
 	}
-	var poke bool
+	var poke, over bool
 	err = projAg().db.Tx(func(t *DB) error {
+		if cur, err := t.taskByID(k.ID); err == nil && taskOver(cur) {
+			over = true // closed while the binding was made
+			return nil
+		}
 		if err := storeBinding(t, k.RunID, func(c *Config) error {
 			if err := attachSandbox(c, b); err != nil {
 				return err
@@ -168,6 +194,9 @@ func jobBind(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 	})
 	if err != nil {
 		return jobOutcome{}, err
+	}
+	if over {
+		return doneJob("the task is over")
 	}
 	if e := projEng(); poke && e != nil {
 		e.Poke(k.RunID)
@@ -455,6 +484,11 @@ func jobCleanup(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 		})
 		return doneJob("nothing to remove")
 	}
+	if len(projAg().db.jobsWhere(`WHERE task_id=? AND kind IN (?, ?) AND state IN ('queued','running','waiting')`, k.ID, pjSetup, pjBind)) > 0 {
+		// a setup still running in the checkout (a closed task's stops at
+		// its next look) or a bind about to record it: they go first
+		return waitJob(2000, "waiting for the task's setup to stop")
+	}
 	s, err := openWsbx(ctx, p, taskRef(p, k))
 	if sbxRefusal(err) == "not-found" {
 		_ = projAg().db.Tx(func(t *DB) error {
@@ -549,6 +583,22 @@ func deleteProjectStep(ctx context.Context, p *Project, j *ProjectJob) (jobOutco
 		}
 		if err := deleteConversation(id); err != nil {
 			return jobOutcome{}, err
+		}
+	}
+	// the execs its jobs left (a setup or a clone the route failed while
+	// it ran there): nothing looks at them again
+	for _, oj := range projAg().db.jobsWhere(`WHERE project_id=? AND state<>'running' AND exec_id<>'' AND kind IN (?, ?)`, p.ID, pjSetup, pjRepo) {
+		if oj.ExecRef != "" {
+			stopOrphanExec(oj.ExecRef, oj.ExecID, sbxUserOf(binderWho(p.Owner)))
+		}
+	}
+	if p.ForkSnap != "" && p.SandboxRef != "" {
+		// its fork base: nothing records it once the rows go (with the
+		// sandbox deleted below it would go too; gone already: fine)
+		if conn, id, err := sbxDialRef(p.SandboxRef, sbxUserOf(binderWho(p.Owner))); err == nil {
+			if err := conn.DeleteSnapshot(ctx, id, p.ForkSnap); err != nil && sbxRefusal(err) != "not-found" {
+				return jobOutcome{}, err
+			}
 		}
 	}
 	if dropSbx {

@@ -177,6 +177,16 @@ func (ag *Agent) needsPushes(runID int64) []needsPush {
 			}
 		}
 	}
+	// only who may still act on it: a project's run is capped by the
+	// project's own levels (a creator removed from it, or made a viewer,
+	// is asked nothing)
+	kept := users[:0]
+	for _, u := range users {
+		if acl.level(who{kind: whoUser, user: u}) >= lvParticipant {
+			kept = append(kept, u)
+		}
+	}
+	users = kept
 	title := clip(strings.TrimSpace(root.Title), 100)
 	if title == "" {
 		title = fmt.Sprintf("Conversation %d", root.ID)

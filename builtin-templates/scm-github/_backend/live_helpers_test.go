@@ -470,7 +470,7 @@ func (l *live) parent() secretString {
 }
 
 // liveNote collects the answers a test found, logged at its end as one
-// block (what records/LIVE.md is written from).
+// block (what the live-check record is written from).
 type liveNote struct {
 	t     *testing.T
 	lines []string

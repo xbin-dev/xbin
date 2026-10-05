@@ -303,7 +303,8 @@ func scmScrubJob(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob)
 	return jobOutcome{Done: true}, nil
 }
 
-// scmScrubWhy is the word a scrub job records (§14.1's): the one its
+// scmScrubWhy is the word a scrub job records (API.md §scm providers and
+// credentials, "Scrubbing"'s why): the one its
 // queuer put in the job's step, else what the job says — a repo's job is
 // a repo removed; an archived or deleting project, archive or delete; a
 // task's fork, delete (it goes next); else the sandbox left the project.

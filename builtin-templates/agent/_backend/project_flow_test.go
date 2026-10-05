@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -277,6 +278,23 @@ func TestCleanupForceOwnerOnly(t *testing.T) {
 	if js := fx.ag.db.jobsWhere(`WHERE id=?`, j.ID); len(js) != 1 || js[0].State != pjQueued || js[0].ClientID != cleanupForce {
 		t.Fatalf("the forced cleanup after the running one: %s", jobsDump(fx.ag.db, p.ID))
 	}
+	// marked while it ran, the running attempt ends with a retryable error
+	// (or a wait): the retry keeps the mark, it isn't written over
+	for _, end := range []struct {
+		out jobOutcome
+		err error
+	}{{jobOutcome{}, errors.New("the sandbox didn't answer")}, {jobOutcome{WaitMs: 1000}, nil}} {
+		_, _ = fx.ag.db.q.Exec(`UPDATE project_jobs SET state='running', client_id='', epoch=? WHERE id=?`, epoch, j.ID)
+		j.ClientID = ""
+		if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/task/cleanup", run2), map[string]any{"force": true}); w.Code != 202 {
+			t.Fatalf("forcing: %d %s", w.Code, w.Body)
+		}
+		wk.finish(pp, k2, j, end.out, end.err)
+		if js := fx.ag.db.jobsWhere(`WHERE id=?`, j.ID); len(js) != 1 || js[0].ClientID != cleanupForce {
+			t.Fatalf("a forced cleanup after %v / %+v: %s", end.err, end.out, jobsDump(fx.ag.db, p.ID))
+		}
+	}
+	_, _ = fx.ag.db.q.Exec(`UPDATE project_jobs SET next_ms=0 WHERE id=?`, j.ID)
 	_ = fx.ag.db.putSetting("halt", "")
 	kickProjectWorker()
 	fx.waitWS(t, p.ID, 2, wsCleaned)

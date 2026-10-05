@@ -360,4 +360,13 @@ func TestHostedUseRefusedWhereCred(t *testing.T) {
 	if why := <-done; why != "" || !fx.ag.db.hostedUsed(other) {
 		t.Fatalf("after the write: %q", why)
 	}
+	// a note that can't be written refuses the use (fail closed): no
+	// sandbox is used unnoted
+	if _, err := fx.ag.db.q.Exec(`CREATE TRIGGER no_note BEFORE INSERT ON hosted_sandboxes BEGIN SELECT RAISE(ABORT, 'disk full'); END`); err != nil {
+		t.Fatal(err)
+	}
+	third := sandboxRef("apps/cs", "third")
+	if why := scmHostedUse(fx.ag.db, third, "third"); why == "" || fx.ag.db.hostedUsed(third) {
+		t.Fatalf("a use whose note failed: %q", why)
+	}
 }

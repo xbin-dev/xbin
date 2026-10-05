@@ -3535,7 +3535,9 @@ project's instructions, checks and pull request conventions, its ports,
 and a failed setup's outcome — built from the project's state alone, so it
 is the same from one turn to the next. A coding agent's first prompt starts
 with the same words and ends with the task's text. Text from outside — an
-issue's, a setup's output — loses its invisible characters, then is
+issue's (the title of a task started from one, which may be the issue's,
+included: the task's line then names it by number only), a setup's
+output — loses its invisible characters, then is
 redacted, clipped (8 KiB) and framed
 `[untrusted — from ‹where›: …]` … `[end of untrusted text]`; the frame's
 own markers inside the text lose their bracket, so it can't close early.
@@ -3730,7 +3732,7 @@ task comes to rest.
 | Method and path | Need | Body | Answer |
 |---|---|---|---|
 | `POST /runs/{id}/task/pr` | P (and a participant of the project) | `{draft?, title?, body?}` | **202** `{job}`; the pull requests arrive in `TaskView.prs`. 409 when the project isn't active, the task is over or its workspace isn't `ready`. Only `POST` is mounted: a `GET` answers 405 (how a client learns the route is there) |
-| `POST /projects/{pid}/fork-base` | O | `{now?: true}` | **202** `{job}`: a fork base taken when the sandbox is next quiet (a person's ask waits up to 30 min for that, from the ask — one the agent queued itself and hasn't started becomes the person's), or with `now` at once — it may stop the sandbox: ask first. 409 `refusal: "unsupported"` when its manager takes no snapshots or clones; 409 `refusal: "busy"` while the agent's own snapshot job, or one not taken `now`, is at work (ask again once it ends) |
+| `POST /projects/{pid}/fork-base` | O | `{now?: true}` | **202** `{job}`: a fork base taken when the sandbox is next quiet (a person's ask waits up to 30 min for that, from the ask — one the agent queued itself and hasn't started becomes the person's), or with `now` at once — it may stop the sandbox: ask first. 409 `refusal: "unsupported"` when its manager takes no snapshots or clones; a team project's definition: its seed's (409 before it has one); 409 `refusal: "busy"` while the agent's own snapshot job, or one not taken `now`, is at work (ask again once it ends) |
 | `GET /runs/{id}/project/detect` | O | — | `{sandbox, cwd, candidates: [{path, remote, host, repo, scm, defaultBranch, branch, dirty, ssh, hasCredentials}]}` |
 | `POST /runs/{id}/project` | O | `{name, scm, repos: [{path, repo?}], branch?: "keep" \| "new", switchHttps?: [path], policy?}` | **201** `{project: ProjectView, task: TaskView}` — the conversation is task 1 |
 
@@ -3920,7 +3922,7 @@ that its person still takes part:
 | Tool | Parameters | What it does |
 |---|---|---|
 | `task_create` | `tasks: [{title?, brief, repos?, size?}]` (1–10) or `issues: [n]` (1–10) with `repo`; `note?` (added to every brief) | creates tasks as its person (each starts when a slot is free and its workspace is ready) |
-| `task_list` | `state?` (a task state, or `open`), `q?`, `scope?` (`mine`, or `team`: a team project's board, read-only), `cursor?`, `limit?` (≤ 50) | the project's tasks, newest activity first: number, title, state, branch, pull requests |
+| `task_list` | `state?` (a task state, or `open`), `q?`, `scope?` (`mine`, or `team`: a team project's board, read-only), `cursor?`, `limit?` (≤ 50) | the project's tasks, newest activity first: number, title (a task started from an issue: the issue's number, and the title labelled untrusted), state, branch, pull requests |
 | `task_status` | `tasks?` (≤ 10; default every open task), `detail?` | what each is doing now: its phase, whom it waits for, its recent tool calls and latest text, its pull requests and checks |
 | `task_message` | `task`, `text` | a message to a task, through the project's queue |
 | `task_result` | `task`, `offset?`, `limit?` | a task's latest full answer, paged |
