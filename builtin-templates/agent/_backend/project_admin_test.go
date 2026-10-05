@@ -61,6 +61,15 @@ func TestProjectDelete(t *testing.T) {
 	if !qp.SandboxMade || qp.SandboxRef == "" {
 		t.Fatalf("the made sandbox: %+v", qp)
 	}
+	// the sandbox's spec goes once it is made
+	settingGone := func(key string) bool {
+		var n int
+		_ = fx.ag.db.q.QueryRow(`SELECT count(*) FROM settings WHERE k=?`, key).Scan(&n)
+		return n == 0
+	}
+	if !settingGone(sbxNewKey(q.ID)) {
+		t.Fatalf("%s kept after the sandbox was made", sbxNewKey(q.ID))
+	}
 	_, id, _ := splitSandboxRef(qp.SandboxRef)
 	conn, _ := sbxDial("apps/cs", "alice")
 	box, err := conn.Get(context.Background(), id)
@@ -74,6 +83,16 @@ func TestProjectDelete(t *testing.T) {
 		_, err := conn.Get(context.Background(), id)
 		return sbxRefusal(err) == "not-found"
 	})
+	// the delete's own settings go with the project's rows
+	hwait(t, "the project's rows to go", func() bool {
+		_, err := fx.ag.db.getProject(q.ID)
+		return err == errNoProject
+	})
+	for _, key := range []string{fmt.Sprintf("proj_sbx_delete:%d", q.ID), sbxNewKey(q.ID)} {
+		if !settingGone(key) {
+			t.Errorf("%s kept after the delete", key)
+		}
+	}
 }
 
 // Archiving stops a project's pump and scrubs its credentials; the rest

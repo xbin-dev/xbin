@@ -574,7 +574,7 @@ func deleteProjectStep(ctx context.Context, p *Project, j *ProjectJob) (jobOutco
 				return err
 			}
 		}
-		_, _ = t.q.Exec(`DELETE FROM settings WHERE key IN (?, ?)`, key, sbxNewKey(p.ID))
+		_, _ = t.q.Exec(`DELETE FROM settings WHERE k IN (?, ?)`, key, sbxNewKey(p.ID))
 		return nil
 	})
 	if err != nil {

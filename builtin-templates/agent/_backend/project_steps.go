@@ -199,7 +199,7 @@ func jobSandbox(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) 
 				return err
 			}
 			_, _ = t.q.Exec(`UPDATE project_tasks SET sandbox_ref=? WHERE project_id=? AND sandbox_ref=''`, ref, p.ID)
-			_, _ = t.q.Exec(`DELETE FROM settings WHERE key=?`, sbxNewKey(p.ID))
+			_, _ = t.q.Exec(`DELETE FROM settings WHERE k=?`, sbxNewKey(p.ID))
 			emitProject(t, p.ID, "project", 0)
 			return nil
 		})
