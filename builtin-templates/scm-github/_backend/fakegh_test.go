@@ -99,8 +99,10 @@ type fakeGH struct {
 	devices    map[string]*fDevice
 	deviceOff  bool
 	longTokens bool
-	noExpiry   bool            // "Expire user authorization tokens" off: no expires_in, no refresh token
-	manifests  map[string]bool // conversion codes
+	noExpiry   bool // "Expire user authorization tokens" off: no expires_in, no refresh token
+
+	onHookPatch func()          // run once PATCH /app/hook/config took a secret, before the answer
+	manifests   map[string]bool // conversion codes
 
 	mintReqs []map[string]any // POST access_tokens bodies
 	scopeReq []map[string]any // POST token/scoped bodies
@@ -379,7 +381,11 @@ func (f *fakeGH) routes(mux *http.ServeMux) {
 		if b["secret"] != "" {
 			f.hookSecret = b["secret"]
 		}
+		onPatch := f.onHookPatch
 		f.mu.Unlock()
+		if onPatch != nil {
+			onPatch() // GitHub signs with the new secret before it answers
+		}
 		f.reply(w, r, 200, map[string]any{"url": f.hookURL, "content_type": "json"})
 	})
 	mux.HandleFunc("GET /app/hook/deliveries", func(w http.ResponseWriter, r *http.Request) { f.reply(w, r, 200, []any{}) })

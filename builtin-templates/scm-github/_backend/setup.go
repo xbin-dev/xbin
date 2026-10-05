@@ -160,7 +160,22 @@ func (s *srv) handleSetupPaste(w http.ResponseWriter, r *http.Request, _ who) {
 			patch["url"], hookURL = body.HookURL, body.HookURL
 		}
 		if hookURL != "" {
+			// The vault takes the new secret first (the current one kept as
+			// the previous, accepted a day): GitHub signs with it from the
+			// moment the PATCH lands, and nothing after the PATCH can leave
+			// GitHub with a secret this tile never stored. Refused, the
+			// current one is put back — GitHub still signs with it.
+			cur := s.vaultValue(vaultHookSecret)
+			if err := s.rotateHookSecret(cur, secret); err != nil {
+				fail(w, err)
+				return
+			}
 			if _, err := s.gh.call(ctx, auth, http.MethodPatch, apiBase+"/app/hook/config", patch, nil); err != nil {
+				if cur == "" {
+					_ = s.vault.Delete(vaultHookSecret)
+				} else if cur != secret.Reveal() {
+					_ = s.vault.Set(vaultHookSecret, newSecret(cur))
+				}
 				if isRefusal(err, refNotFound) {
 					err = refuse(refInvalid, "the App's webhook is off, so GitHub keeps no webhook address for it: tick Active under Webhook in the App's settings, then paste again (or paste without hookUrl)")
 				}
@@ -189,6 +204,21 @@ func (s *srv) bases(apiBase, webBase string) (string, string, error) {
 		}
 	}
 	return strings.TrimRight(apiBase, "/"), strings.TrimRight(webBase, "/"), nil
+}
+
+// rotateHookSecret makes next the webhook secret, cur (when another)
+// kept as the previous one, accepted for a day.
+func (s *srv) rotateHookSecret(cur string, next secretString) error {
+	if cur == next.Reveal() {
+		return nil
+	}
+	if cur != "" {
+		if err := s.vault.Set(vaultHookSecretP, newSecret(cur)); err != nil {
+			return err
+		}
+		_ = s.state.Put("hook-secret-rotated", s.now().UnixMilli())
+	}
+	return s.vault.Set(vaultHookSecret, next)
 }
 
 func (s *srv) sameApp(id int64) bool {
@@ -223,13 +253,10 @@ func (s *srv) storeApp(ctx context.Context, a *appState, pemText, clientSecret, 
 		return refuse(refInvalid, "%s", err.Error())
 	}
 	a.KeyFingerprint = keyFingerprint(key)
-	if old := s.vaultValue(vaultHookSecret); old != "" && old != hookSecret.Reveal() {
-		if err := s.vault.Set(vaultHookSecretP, newSecret(old)); err != nil {
-			return err
-		}
-		_ = s.state.Put("hook-secret-rotated", s.now().UnixMilli())
+	if err := s.rotateHookSecret(s.vaultValue(vaultHookSecret), hookSecret); err != nil {
+		return err
 	}
-	for name, v := range map[string]secretString{vaultAppKey: pemText, vaultAppSecret: clientSecret, vaultHookSecret: hookSecret} {
+	for name, v := range map[string]secretString{vaultAppKey: pemText, vaultAppSecret: clientSecret} {
 		if err := s.vault.Set(name, v); err != nil {
 			return err
 		}

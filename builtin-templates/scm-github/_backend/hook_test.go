@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -45,6 +46,36 @@ func TestWebhookHMAC(t *testing.T) {
 	// No secret at all: nothing is taken.
 	_ = ee.global.vault.Delete(vaultHookSecret)
 	refusal(t, ee.sendHook(ee.gH, ingress, "push", "d-12", old, body), 503, "setup")
+}
+
+// Paste keeps a new webhook secret before pointing GitHub at it: a
+// delivery GitHub signs with it while the PATCH is still answering is
+// taken. A PATCH GitHub refuses leaves the current secret current.
+func TestWebhookSecretKeptBeforePatch(t *testing.T) {
+	ee := newEvEnv(t)
+	body := fixture(t, "push")
+	old := ee.gh.hookSecretNow()
+	const next = "rotated-webhook-secret-0123456789"
+	var during int
+	ee.gh.onHookPatch = func() { during = ee.sendHook(ee.gH, ingress, "push", "d-1", next, body).Code }
+	paste := func(secret string) *httptest.ResponseRecorder {
+		return ee.call(ee.gH, ownerC, "POST", "/setup/app", map[string]any{"appId": ee.gh.appID, "clientId": ee.gh.clientID,
+			"clientSecret": ee.gh.clientSecret, "privateKey": ee.gh.keyPEM, "webhookSecret": secret})
+	}
+	ok(t, paste(next), 200)
+	ee.gh.onHookPatch = nil
+	if during != 202 {
+		t.Fatalf("a delivery signed with the new secret during the PATCH: %d", during)
+	}
+	ok(t, ee.sendHook(ee.gH, ingress, "push", "d-2", old, body), 202) // the previous, for a day
+	// GitHub refuses the next PATCH: it still signs with the current one.
+	ee.gh.fail("PATCH /app/hook/config", 1, 500, nil, `{"message":"boom"}`)
+	if r := paste("refused-webhook-secret-0123456789"); r.Code < 400 {
+		t.Fatalf("a refused PATCH: %d", r.Code)
+	}
+	ee.clock.advance(25 * time.Hour)
+	ok(t, ee.sendHook(ee.gH, ingress, "push", "d-3", next, body), 202)
+	ok(t, ee.sendHook(ee.gH, ingress, "push", "d-4", "refused-webhook-secret-0123456789", body), 401)
 }
 
 func TestWebhookDedupe(t *testing.T) {
