@@ -189,7 +189,8 @@ func (d *DB) projectsWake(now time.Time) (runnable bool, wake int64) {
 	}
 	var ev int
 	_ = d.q.QueryRow(`SELECT count(*) FROM project_events e WHERE e.wake=1 AND e.delivered=0 AND EXISTS
-		(SELECT 1 FROM runs r WHERE r.origin='project' AND r.parent_id=0 AND r.session_key='proj:' || e.project_id || ':coord:' || e.coord_user)`).Scan(&ev)
+		(SELECT 1 FROM runs r WHERE r.origin='project' AND r.parent_id=0 AND r.session_key='proj:' || e.project_id || ':coord:' || e.coord_user
+		 AND r.status NOT IN ('waiting_input','error'))`).Scan(&ev) // one that takes no wake isn't work (C's coordDropWakes clears those too)
 	if ev > 0 {
 		return true, 0
 	}

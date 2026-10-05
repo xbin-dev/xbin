@@ -75,6 +75,16 @@ func TestCoordWakeHeld(t *testing.T) {
 		t.Fatal("error: an event written after still asks for a wake")
 	}
 	sleeps("in error")
+	// projectsWake's own guard: a wake row written past C's hooks (raw)
+	// for a coordinator in error is no work either
+	id = rawEvent("alice")
+	if w, _ := wakeOf(id); w != 1 {
+		t.Fatal("the raw row lost its wake")
+	}
+	sleeps("in error, a raw wake row")
+	if _, err := fx.ag.db.q.Exec(`UPDATE project_events SET delivered=1 WHERE id=?`, id); err != nil {
+		t.Fatal(err)
+	}
 
 	// the project archived: no wake (every project tool would refuse)
 	if err := fx.ag.db.setStatusOnly(run.ID, statusIdle); err != nil {
