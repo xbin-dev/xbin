@@ -13,8 +13,8 @@
 // GH_PAT), app.pem, person.json. The repo holds main, feature/hello with
 // open pull request 1, issues 2–4 and a CI workflow (jobs pass, fail with a
 // warning and an error annotation, slow ~5 min, workflow_dispatch on).
-// Each answer a test found is logged as "ANSWER: …" (what records/LIVE.md
-// of the plan was written from); nothing logged carries a token.
+// Each answer a test found is logged as "ANSWER: …" (what the live-check record
+// was written from); nothing logged carries a token.
 package main
 
 import (
