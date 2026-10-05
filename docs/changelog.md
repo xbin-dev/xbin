@@ -10,6 +10,116 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-05
+
+- **Projects and the scm contract: a new `scm-github` template, and
+  Projects and CI in the agent template** ([scm.md](/docs/scm.md),
+  [agent-inbox.md](/docs/agent-inbox.md) §scm events,
+  [partitions.md](/docs/partitions.md) §Providers; the agent template's
+  API.md "Projects", and scm-github's API.md). A tile that holds a code
+  host's credentials now offers the new **`scm`** service (protocol 1):
+  repo credentials for sandboxes, and optionally repos, pull requests,
+  issues, CI, polling and events.
+  - **scm-github** (`bx template new scm-github`) provides it from a
+    GitHub App, which managers create from a manifest or paste on its page
+    (Paste is the primary path), with a policy: which accounts and repos
+    it serves, whether people may use the App's bot, workflows, reruns, a
+    cap on a token's life. Each person signs in with GitHub's device flow
+    from their own partition, where the sign-in stays (its refresh token
+    never leaves it); the App's keys stay at the global instance; an
+    unpartitioned copy hands out bot tokens only. Tokens are short-lived,
+    narrowed to the repos and permissions asked, and revocable by value or
+    purpose (**Revoke all bot tokens** on the page). Reads cover repos,
+    pull requests (create, draft ↔ ready, comments and reviews), issues
+    (words-only search), and CI — workflow runs, jobs, steps, annotations,
+    logs of completed jobs (a running one is 409 `in-progress` with its
+    page on GitHub) and **Re-run failed**, a person's own only. GitHub's
+    webhooks (`bx expose apps/scm-github hooks=… --host …`) become the
+    contract's events, delivered to the tiles bound in its `agents` slot
+    that subscribed, retried for a day and listed for catching up
+    (`GET /scm/events`, seven days); a person's subscriptions are made
+    from their partition and their access to a private repo is re-checked
+    before each event; a fork's branch is never reported as the repo's;
+    token shapes in passed-through text are redacted. Leave **Expire user
+    authorization tokens** on in the App's settings: with it off GitHub
+    hands out tokens nothing can rotate, so a sign-in is refused (its
+    grant revoked at once). Give it egress to GitHub — plain `internet`,
+    or a narrowed list that includes the Actions log hosts.
+  - **The agent's `scm` slot** (`bx bind apps/agent scm+=apps/scm-github`;
+    for events also `bx bind apps/scm-github agents+=apps/agent`):
+    `GET /projects/scm` lists your providers, `/projects/scm/signin` signs
+    you in from your own space and `DELETE` forgets it after taking your
+    projects' credentials out of their sandboxes; the **scm bot rule**
+    (`GET|PUT /projects/scm/bot`) says who besides the agent's managers
+    may name which repos for the bot where the agent works as the bot.
+  - **Projects**: a coding sandbox, its repos, a policy and task
+    conversations (`POST /projects`, `POST /projects/{pid}/tasks`). Each
+    task gets a git worktree per repo on its own branch, a range of ports
+    and the repos' setup scripts, answered by the built-in agent or a
+    coding agent; at most `maxTasks` work at once, the rest queue. A
+    task's sandbox gets a short-lived credential scoped to the project's
+    repos (a git credential helper and `GH_CONFIG_DIR`, outside every
+    repo) only where everyone who can use that sandbox may act as that
+    identity; it is refreshed while a task works and scrubbed on share,
+    stop, archive, delete, fork and Forget. **Big tasks** work in a fork
+    of the project's sandbox, made from a fork base taken while it is
+    quiet and emptied of every credential. **Make this a project…** turns
+    a conversation with a sandbox and git clones into a project, the
+    conversation its first task. **Open PR** (`POST /runs/{id}/task/pr`,
+    or `policy.autoPR`, off by default) pushes the task's own branch —
+    never a default branch — and opens a pull request per repo.
+  - **The coordinator** (`POST /projects/{pid}/coordinator`, made only
+    when you ask): your conversation that creates, lists, messages and
+    cancels the project's tasks and reads its pull requests and issues —
+    never internal reach, never merging, pushing or answering for you.
+    Project updates reach it framed as untrusted, at most one wake a
+    minute; a project pushes `pr-ready`, `task-failed`, `ci-stuck` and
+    `all-done`.
+  - **scm events** reach the agent at `POST /adapter/scm/event` (only from
+    a provider bound in its `scm` slot, at the provider's global instance;
+    on to a person's partition by partition mail): failing CI comes back
+    to the task as one input with the failing steps' log tails, green CI
+    marks it awaiting review, reviews from the repo's people are
+    forwarded, a merge or close ends the task. When events don't arrive
+    the agent polls.
+  - **Team projects** (a partitioned agent): a definition in the shared
+    space and each member's own membership — sandbox, tasks (coding
+    agents allowed), coordinator and sign-in — in their own; **Work on
+    this** shows the setup scripts and policy you accept first, and later
+    changes to them wait for you; the shared board shows every member's
+    tasks as plain text, each openable only by its member.
+  - **CI in the conversation**, for a project task and for the branches
+    any coding session pushed (found from git's record of pushes at each
+    turn's end): a CI chip beside the coding agents chip, a CI tab in
+    their dock with live job progress down to steps, logs (searchable,
+    followed while a job runs where the platform allows), annotations,
+    links to the platform, a person's own Re-run failed, **Watch CI
+    for…**, and a card in the transcript when CI passes or fails. New
+    routes under `/runs/{id}/ci`, a `ci` stream event, a `ci` key on a
+    run's answers.
+  - **On the web and natively**: the Projects entry with what needs you,
+    the list, a project's board, New task and From issues…, settings
+    (status — never a token —, repos and setup scripts, every policy key,
+    members, archive and delete), the activity feed, the coordinator
+    card, team boards, a task's branch and PR chips and its prep and
+    sign-in cards; links `#proj`, `#proj=<id>`. Text from the provider
+    (issues, task titles from issues, events) is drawn plain and its
+    links only when `https`; a new project's sandbox defaults to the
+    manager's image and size with `internet` egress where offered.
+  - Also: every message the agent keeps, and the coding agents' output,
+    mask GitHub token shapes and every credential the agent handed out
+    (and now Anthropic key shapes in message rows too); a hosted
+    conversation is refused a sandbox where a project's credential is
+    live; a project's conversations can't be published, copied, hosted or
+    moved (409), and a shared project has its sandbox to itself (409
+    `sandbox-shared`).
+
+  Not in this build: attaching a chat to a coordinator (`/project <name>`
+  in a direct message). Additive: an older agent leaves the new tables
+  alone; rolled back, it lists no project conversations among its chats
+  (reachable by link, search and Needs) and may drop a run's `project`
+  field, which the next upgrade derives again. Nothing to change.
+
 ## 2026-10-02
 
 - **Agent template: the subagent and fairness limits in Settings, and a

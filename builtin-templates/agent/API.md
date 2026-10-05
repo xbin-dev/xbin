@@ -3148,8 +3148,7 @@ their own space. A conversation's **CI** — for a task, or for the branches
 any coding session pushed — shows in the conversation beside its coding
 agents, down to job steps and logs.
 
-Each part below says what it covers; its routes and shapes are described
-here when it lands.
+Each part below says what it covers, with its routes and shapes.
 
 ### Projects and tasks
 
@@ -3989,9 +3988,6 @@ per-person budget, collapsed on the device per project and kind
 `ci-stuck` (CI kept failing past the day's fixes) and `all-done` (every
 task of the project finished).
 
-**Attaching a chat** to a coordinator (`/project ‹name›` in a direct
-message) is not in this build.
-
 ### scm events and polling
 
 How a provider's events reach the agent (`POST /adapter/scm/event`, the
@@ -4582,6 +4578,7 @@ events coalesced for 250 ms into one read each.
 | Module | What it holds |
 |---|---|
 | `model/projects.js` | `createProjects(app)` → `app.projects`: `list`, `load()`, `open(pid, tab)`, `opened`, `board(pid)`, `tasks(pid, filter)`, `take(ev)`, `create(body)`, `createTask(pid, spec)`, `batch(pid, issues)`, `patch(pid, body)`, `remove(pid, sandbox)`, `status(pid)`, `warm(pid)`, `issues(pid, q)`, `signin(scm)`, `forget(scm)`, `pending(pid)`, `accept(pid, hash)`, the forms (`newProject`, `newTask`, `openPicker`, `editPolicy`) and `POLICY` (the policy's keys, grouped); it emits `projects` |
+| `model/project-policy.js` | `POLICY` (the policy's keys as the settings show them), `policyGet(policy, path)`, `policySet(policy, path, value)`, `fieldValue(field, raw)`, `fieldText(field, value)` — re-exported by `model/projects.js` |
 | `model/project-task.js` | a task's words: `columns`, `columnOf`, `cardWords`, `stateWords`, `taskChips(view, project)`, `prChip`, `setupOutcome`, `prepCard(view, me)`, `prButton(view, route)`, `crumb(view)`, `taskSection(view)` |
 | `model/project-api.js` | `projectApi(app, pid)`, `taskApi(runId)`, `scmApi(home)`, `listProjects`, `createProject` — each call at its home, a refusal kept whole (`e.status`, `e.refusal`, `e.data`) |
 | `model/router.js` | `#proj`, `#proj=<id>` (`parse().proj`, `projHash`); `app.openProjects(pid)` |
