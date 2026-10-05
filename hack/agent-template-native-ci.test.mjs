@@ -82,6 +82,38 @@ test('native CI: the toolbar badge, the Coding agents screen\'s CI section, the 
   assert.equal(called(r, 'GET', /\/runs\/25\/ci\?fresh=1$/).length, 1, 'the screen shown: a fresh read (live)');
 });
 
+test('native CI: going home stops the live reads the Coding agents screen started', async () => {
+  const r = await run([
+    { wait: 50 },
+    { tap: barBtn }, { wait: 50 },
+    { wait: 16000 },
+    { snapshot: 'live' },
+    { tap: { t: 'button', p: { label: 'New chat' } } }, { wait: 50 },
+    { snapshot: 'home' },
+    { wait: 61000 },
+  ]);
+  const fresh = () => called(r, 'GET', /\/runs\/25\/ci\?fresh=1$/).length;
+  assert.ok(fresh() >= 2, `live while the screen is shown: ${fresh()}`);
+  assert.equal(find(r.snapshots.home, BOARD), null, 'at home');
+  assert.ok(fresh() <= 3, `no fresh reads in a minute at home (every 15 s, they'd be 6 or more): ${fresh()}`);
+});
+
+test('native CI: following a log stops when a read fails, as on the web', async () => {
+  const LOG = '/runs/25/ci/jobs/88001/log\\?';
+  const r = await run([
+    { call: ['route', 'GET', LOG, { text: 'step 1\n', bytes: 7, from: 0, complete: false, truncated: false, url: '' }] },
+    { wait: 50 }, { tap: barBtn }, { wait: 50 },
+    { tap: { t: 'row', p: { title: 'test (ubuntu)' }, in: BOARD } }, { wait: 50 },
+    { tap: { t: 'button', p: { label: 'Follow' } } },
+    { call: ['route', 'GET', LOG, { error: 'upstream down' }, 502] },
+    { wait: 30000 },
+    { snapshot: 'after' },
+  ]);
+  const follows = called(r, 'GET', /\/ci\/jobs\/88001\/log\?.*since=/).length;
+  assert.equal(follows, 1, `one failed read, then no more: ${follows}`);
+  assert.ok(find(topScreen(r.snapshots.after.root), { t: 'button', p: { label: 'Follow' } }), 'Follow is off again');
+});
+
 test('native CI: a running job (logs once it ends), then a finished one\'s log searched; annotations', async () => {
   const r = await run([
     { wait: 50 }, { tap: barBtn }, { wait: 50 },

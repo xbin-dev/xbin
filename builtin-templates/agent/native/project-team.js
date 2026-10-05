@@ -99,17 +99,20 @@ function workTpl(pv) {
   app.sbx.ensure('', '');
   const mine = (app.sbx.listAt('').sandboxes || []).filter((x) => x.mine && x.visibility !== 'team' && !['deleting', 'archived', 'error'].includes(x.state));
   const modes = [{ value: 'auto', label: 'a new one' }, ...(mine.length ? [{ value: 'pick', label: 'one of yours' }] : [])];
+  const former = !!t.formerOf(pv.id); // taken up again: it keeps its own sandbox, so there is nothing to choose
+  const loading = !former && t.workLoading();
   const seeded = !!t.seedProvider(pv);
-  const managers = seeded ? [] : t.workManagers();
+  const managers = seeded || former ? [] : t.workManagers();
   const foot = w.err || w.note || (w.defHash ? 'What you accept runs in your sandbox, with your sign-in.'
-    : seeded ? 'A new sandbox is forked from the team\'s seed where that works for you.' : managers.length ? 'A new sandbox, from the manager picked.' : 'No sandbox manager is bound in your space: pick one of your own sandboxes.');
+    : former ? 'Your half keeps its own sandbox.' : loading ? 'Loading your sandbox managers…'
+      : seeded ? 'A new sandbox is forked from the team\'s seed where that works for you.' : managers.length ? 'A new sandbox, from the manager picked.' : 'No sandbox manager is bound in your space: pick one of your own sandboxes.');
   return html`<section title=${`Work on ${pv.name}`} footer=${foot}>
-      <picker label="Its sandbox" style="segmented" value=${w.sandbox.mode === 'pick' ? 'pick' : 'auto'} options=${modes} @change=${(e) => t.setWork(pv.id, 'mode', e.value)}/>
+      ${former ? nothing : html`<picker label="Its sandbox" style="segmented" value=${w.sandbox.mode === 'pick' ? 'pick' : 'auto'} options=${modes} @change=${(e) => t.setWork(pv.id, 'mode', e.value)}/>`}
       ${w.sandbox.mode !== 'pick' && managers.length ? html`<picker label="Manager" value=${w.sandbox.provider || managers[0].provider} options=${managers.map((m) => ({ value: m.provider, label: m.title || m.provider }))}
         @change=${(e) => t.setWork(pv.id, 'provider', e.value)}/>` : nothing}
-      ${w.sandbox.mode === 'pick' ? html`<picker label="Sandbox" value=${w.sandbox.ref} options=${[{ value: '', label: 'pick one…' }, ...mine.map((x) => ({ value: x.ref, label: `${x.name} · ${x.state}` }))]}
+      ${w.sandbox.mode === 'pick' && !former ? html`<picker label="Sandbox" value=${w.sandbox.ref} options=${[{ value: '', label: 'pick one…' }, ...mine.map((x) => ({ value: x.ref, label: `${x.name} · ${x.state}` }))]}
         @change=${(e) => t.setWork(pv.id, 'ref', e.value)}/>` : nothing}
-      <button role="primary" ?busy=${w.busy} @tap=${async () => { const r = await t.submitWork(pv.id); if (r && r.project) openProject(r.project.id); }}>${w.defHash ? 'Accept and start' : 'Continue'}</button>
+      <button role="primary" ?busy=${w.busy} ?disabled=${loading} @tap=${async () => { const r = await t.submitWork(pv.id); if (r && r.project) openProject(r.project.id); }}>${w.defHash ? 'Accept and start' : 'Continue'}</button>
       <button role="plain" @tap=${() => t.closeWork(pv.id)}>Cancel</button>
     </section>
     ${w.defHash ? securityTpl(null, w.definition, 'What you accept') : nothing}`;

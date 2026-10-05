@@ -8,7 +8,10 @@
 // no lit, no DOM, no calls.
 //
 // Text from the scm provider (a PR's title, an issue's) is untrusted: the
-// views draw these words as plain text, never as markdown or HTML.
+// views draw these words as plain text, never as markdown or HTML — a
+// task's title and an issue's text with their control, direction and
+// zero-width characters out, clipped (model/project-feed.js plain).
+import { plain } from './project-feed.js';
 
 // The board's columns (derived by the backend, TaskView.column), in order.
 export const COLUMNS = [
@@ -77,10 +80,12 @@ export function prChip(pr, ci = null) {
   };
 }
 
-/** safeUrl: an http(s) link, else '' (a link from the provider is drawn only if it is one). */
+/** safeUrl: an https link, else '' — a link from the provider (a pull request, the branch, the
+ * issue, the sign-in page where a device code is typed) is drawn only if it is one, in both views
+ * (the native view's own checks, model/project-feed.js httpsUrl). */
 export function safeUrl(u) {
   const s = String(u || '');
-  return /^https?:\/\//i.test(s) ? s : '';
+  return /^https:\/\/[^\s]+$/i.test(s) ? s : '';
 }
 
 /** webUrl(repo): a repo's page on the platform from its clone URL (ProjectRepo.url). */
@@ -215,10 +220,21 @@ export function taskSection(v) {
 /** cardWords(task): a board card's words — {n, title, state, branch, prs, issue}. */
 export function cardWords(t) {
   return {
-    n: `#${t.n}`, title: t.title || `task ${t.n}`, state: stateWords(t), branch: t.branch || '',
+    n: `#${t.n}`, title: plain(t.title, 200) || `task ${t.n}`, state: stateWords(t), branch: t.branch || '',
     prs: (t.prs || []).map((p) => prChip(p, t.ci || null)),
     issue: t.issue ? `${t.issue.repo}#${t.issue.number}` : '',
     agent: t.engine === 'harness' ? t.harness || 'a coding agent' : '',
     size: t.size === 'big' ? 'big' : '',
+  };
+}
+
+/** issueWords(i): an issue as the From issues picker draws it, in both views — its title, labels
+ * and body are anyone's words (the backend only redacts them): plain, clipped, the body on one
+ * line; its link only when https. */
+export function issueWords(i) {
+  return {
+    key: `${i.repo}#${i.number}`, number: i.number, title: plain(i.title, 200),
+    labels: (i.labels || []).map((l) => plain(l, 50)).filter(Boolean),
+    body: plain(String(i.body || '').replace(/\s+/g, ' '), 240), url: safeUrl(i.url),
   };
 }

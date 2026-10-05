@@ -83,7 +83,8 @@ function childTpl(r) {
   if (!app || !r || !r.id) return null;
   const c = app.ci.child(r.rootId || r.id, r.id);
   if (!c) return null;
-  return html` <span class="cichild" data-tone=${c.tone} title=${c.title} @click=${(e) => { e.stopPropagation(); openCI(r.rootId || r.id); }}>${c.text}</span>`;
+  return html` <span class="cichild" role="button" tabindex="0" data-tone=${c.tone} title=${c.title} @click=${(e) => { e.stopPropagation(); openCI(r.rootId || r.id); }}
+    @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openCI(r.rootId || r.id); } }}>${c.text}</span>`;
 }
 
 function cardTpl(task) {
@@ -109,6 +110,7 @@ function paintCI(v) {
   const shown = root != null && dockTab() === 'ci';
   if (shown) app.ci.live(root, true);
   else app.ci.live(null, false);
+  if (!shown && followT) { stopFollow(); if (st.log) st.log.follow = false; } // the dock closed or on another tab: following a log stops
   if (root != null && !read.has(root) && !app.ci.view(root) && app.ci.chip(root)) { read.add(root); app.ci.load(root).catch(() => {}); }
   const wrap = document.querySelector('.wrap');
   if (wrap) wrap.classList.toggle('ciwide', shown && !!st.log);
@@ -189,7 +191,8 @@ function jobTpl(app, root, w, j) {
   const open = st.open.has(k);
   const p = j.progress;
   return html`<div class="cijob" data-job=${j.id} data-tone=${j.tone}>
-    <div class="cirow" @click=${() => toggle(k)}>
+    <div class="cirow" role="button" tabindex="0" aria-expanded=${open ? 'true' : 'false'} @click=${() => toggle(k)}
+      @keydown=${(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(k); } }}>
       <span class="tw">${open ? '▾' : '▸'}</span><span class="cist" data-tone=${j.tone}>${GLYPH[j.tone]}</span>
       <span class="ciname">${j.name}</span>
       ${p.total ? html`<span class="cibar" title=${`${p.done} of ${p.total} steps`}><span style=${`width:${p.pct}%`}></span></span>` : nothing}
@@ -257,8 +260,8 @@ function formTpl(app, root, view) {
   };
   return html`<form class="ciform" id="ciform" @submit=${submit}>
     <div class="small"><b>Watch CI for…</b></div>
-    <input id="ci-repo" placeholder="owner/repo" .value=${f.repo} @input=${(e) => { f.repo = e.target.value; }}>
-    <input id="ci-ref" placeholder="branch, or PR number" .value=${f.ref} @input=${(e) => { f.ref = e.target.value; }}>
+    <input id="ci-repo" aria-label="Repo (owner/repo)" placeholder="owner/repo" .value=${f.repo} @input=${(e) => { f.repo = e.target.value; }}>
+    <input id="ci-ref" aria-label="Branch, or PR number" placeholder="branch, or PR number" .value=${f.ref} @input=${(e) => { f.ref = e.target.value; }}>
     <button class="btn btnsm" id="ci-watch" ?disabled=${f.busy}>Watch</button>
     ${f.err ? html`<div class="err small">${f.err}</div>` : nothing}
   </form>`;
@@ -364,7 +367,7 @@ function logTpl(app, lg) {
   const body = textTpl(lg); // first: it counts the hits the bar shows
   return html`<div class="cilogv">${head}
     <div class="cilogbar">
-      <input id="ci-search" type="search" placeholder="search the log" .value=${lg.q}
+      <input id="ci-search" type="search" aria-label="Search the log" placeholder="search the log" .value=${lg.q}
         @input=${(e) => { lg.q = e.target.value; lg.hit = 0; repaint(); }}
         @keydown=${(e) => { if (e.key === 'Enter') { e.preventDefault(); jump(lg, e.shiftKey ? -1 : 1); } }}>
       <button class="btn ghost btnsm" id="ci-prev" title="previous" @click=${() => jump(lg, -1)}>↑</button>

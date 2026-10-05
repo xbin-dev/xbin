@@ -655,9 +655,8 @@ export class Projects {
 
   // --- the new-project form ------------------------------------------------------------------------
 
-  // At a partitioned agent's global instance the form makes a team
-  // project's definition: shared with the team at once (or with the members
-  // added next), its seed sandbox optional.
+  // At a partitioned agent's global instance the form makes a team project's definition: shared
+  // with the team at once (or with the members added next), its seed sandbox optional.
   async newProject() {
     this.opened = null;
     this.route(null);
@@ -772,9 +771,8 @@ export class Projects {
 
   signinOf(scm) { return this.signins.get(scm) || null; }
 
-  // signinState: GET /projects/scm/signin. A pending one (a parked task's,
-  // one started elsewhere) is followed; an answer that comes after a sign-in
-  // was started or forgotten meanwhile changes nothing.
+  // signinState: GET /projects/scm/signin. A pending one (a parked task's, one started elsewhere)
+  // is followed; an answer that comes after a sign-in was started or forgotten meanwhile changes nothing.
   async signinState(scm) {
     const gen = this.pollGen.get(scm) || 0;
     const s = await scmApi('').signin(scm).catch((e) => ({ state: 'none', err: e.message }));
@@ -788,20 +786,23 @@ export class Projects {
   }
 
   // signin starts the device flow ({state: pending, signin: {url, userCode, pollId, intervalMs}})
-  // and polls until it is done, denied or expired.
+  // and polls until it is done, denied or expired. A sign-in being followed
+  // (a parked task's) is let go only once the new one started: a failed start keeps it, its error said.
   async signin(scm) {
-    const gen = this.stopPoll(scm);
+    const gen = this.pollGen.get(scm) || 0;
     const s = await scmApi('').startSignin(scm).catch((e) => ({ state: 'error', err: e.message }));
-    if (this.pollGen.get(scm) !== gen) return s; // another sign-in, or Forget, meanwhile
+    if ((this.pollGen.get(scm) || 0) !== gen) return s; // another sign-in, or Forget, meanwhile
+    const cur = this.following.has(scm) && this.signins.get(scm);
+    if (s.state === 'error' && cur) { this.signins.set(scm, { ...cur, err: s.err }); this.changed(); return s; }
+    this.stopPoll(scm);
     this.signins.set(scm, s && s.signin ? { ...s, pollId: s.signin.pollId } : s);
     this.changed();
     if (s.state === 'pending' && s.signin) this.pollSignin(scm, s.signin);
     return s;
   }
 
-  // stopPoll ends scm's sign-in poll — its timer, and an answer still on its
-  // way (polls are numbered: an earlier one's tick neither writes nor goes
-  // on) — and returns the new number.
+  // stopPoll ends scm's sign-in poll — its timer, and an answer on its way (polls are
+  // numbered: an earlier one's tick neither writes nor goes on) — and returns the new number.
   stopPoll(scm) {
     clearTimeout(this.polls.get(scm));
     this.polls.delete(scm); this.following.delete(scm);
@@ -809,11 +810,10 @@ export class Projects {
     return this.pollGen.get(scm);
   }
 
-  // pollSignin follows one sign-in (si.pollId) until it is done, denied or
-  // expired. The state it keeps names that pollId — a `done` of an earlier
-  // sign-in never counts for this one — and an error of the poll itself is
-  // tried again, later each time (5 s doubling to a minute; after 8 in a
-  // row it stops, state 'error', and the card offers Check again).
+  // pollSignin follows one sign-in (si.pollId) until it is done, denied or expired. The state it
+  // keeps names that pollId — a `done` of an earlier sign-in never counts for this one — and an error
+  // of the poll itself is tried again, later each time (5 s doubling to a minute; after 8 in a row it
+  // stops, state 'error', and the card offers Check again).
   pollSignin(scm, si) {
     const gen = this.stopPoll(scm);
     const pollId = si.pollId; this.following.set(scm, pollId);

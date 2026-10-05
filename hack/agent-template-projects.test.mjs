@@ -110,7 +110,19 @@ test('stateWords and a card', () => {
   assert.equal(c.size, 'big');
 });
 
-test('prChip: a PR\'s checks only while the task has no CI summary; links only http(s)', () => {
+test('an issue in the picker and a task\'s title on a card: plain — direction and zero-width characters out, clipped', () => {
+  const w = W.issueWords({ repo: 'acme/web', number: 12, title: 'Fix \u202egol\u202c the\u200b login', labels: ['bug\u2066', ''], body: 'line one\n\nline\u0007 two ' + 'x'.repeat(400),
+    url: 'http://evil.example/12' });
+  assert.equal(w.key, 'acme/web#12');
+  assert.equal(w.title, 'Fix gol the login');
+  assert.deepEqual(w.labels, ['bug']);
+  assert.ok(w.body.startsWith('line one line two x') && w.body.length === 240, w.body);
+  assert.equal(w.url, '', 'https only');
+  assert.equal(W.cardWords(F.task(7, 1, { title: 'a\u202eb' })).title, 'ab');
+  assert.equal(W.cardWords(F.task(7, 1, { title: 'y'.repeat(300) })).title.length, 200);
+});
+
+test('prChip: a PR\'s checks only while the task has no CI summary; links only https', () => {
   const pr = { repo: 'acme/web', number: 42, url: 'https://github.com/acme/web/pull/42', state: 'open', draft: false, checks: 'failure' };
   assert.deepEqual(W.prChip(pr), { kind: 'pr', text: 'PR #42 open ✗', tone: 'bad', title: 'acme/web#42: open — checks failed', url: pr.url, checks: 'failure' });
   const withCI = W.prChip(pr, { state: 'failure' });
@@ -118,6 +130,9 @@ test('prChip: a PR\'s checks only while the task has no CI summary; links only h
   assert.equal(withCI.checks, '');
   assert.equal(W.prChip({ ...pr, draft: true, checks: 'none' }).text, 'PR #42 draft');
   assert.equal(W.prChip({ ...pr, url: 'javascript:alert(1)' }).url, '');
+  assert.equal(W.prChip({ ...pr, url: 'http://github.com/acme/web/pull/42' }).url, '', 'https only, as the native view draws it');
+  assert.equal(W.safeUrl('http://github.com/login/device'), '', 'a sign-in page where a code is typed: https only');
+  assert.equal(W.safeUrl('https://github.com/login/device'), 'https://github.com/login/device');
   assert.equal(W.prChip({ ...pr, state: 'merged', checks: 'success' }).tone, 'ok', 'a merged PR is green whatever its checks');
 });
 
@@ -502,6 +517,30 @@ test('a pending sign-in read by GET is followed to done', async () => {
   assert.deepEqual([pj.signinOf('gh').state, pj.signinOf('gh').pollId], ['done', 'g1']);
   assert.equal(polls, 2);
   assert.equal(pj.polls.size, 0);
+});
+
+test('a sign-in that fails to start keeps following the one before it (a parked task\'s)', async () => {
+  const seen = [];
+  backend([['GET', /^\/projects\/scm\/signin\/(p\w)/, (x) => { seen.push(x[1]); return json({ state: 'pending' }); }],
+    ['POST', /^\/projects\/scm\/signin$/, () => json({ error: 'upstream down' }, 502)],
+    ['GET', /^\/projects\/scm(\?.*)?$/, () => json({ providers: [] })]], 'user:alice');
+  const pj = M.createProjects(fakeApp());
+  const realSet = globalThis.setTimeout;
+  const timers = [];
+  globalThis.setTimeout = (fn) => { timers.push(fn); return timers.length; }; // ticks run by hand
+  const settle = () => new Promise((r) => realSet(r, 5));
+  try {
+    pj.pollSignin('gh', { pollId: 'pA', userCode: 'AAAA-1111' });
+    const s = await pj.signin('gh');
+    assert.equal(s.state, 'error');
+    const cur = pj.signinOf('gh');
+    assert.deepEqual([cur.state, cur.pollId, cur.signin.userCode], ['pending', 'pA', 'AAAA-1111'], 'still the parked task\'s sign-in');
+    assert.match(cur.err, /upstream down/, 'the failed start is said');
+    assert.equal(timers.length, 1, 'its poll goes on');
+    timers.shift()();
+    await settle();
+    assert.deepEqual(seen, ['pA']);
+  } finally { globalThis.setTimeout = realSet; }
 });
 
 test('a late answer of an earlier sign-in poll changes nothing', async () => {

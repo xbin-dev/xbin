@@ -76,9 +76,11 @@ class Feed {
     return f;
   }
 
-  /** items(pid, limit): the feed, newest first. */
+  /** items(pid, limit): the feed, newest first — what is held: reading it holds nothing (only
+   * ensure, from the Activity screen, does; a held feed is read again on every `project` event). */
   items(pid, limit = 0) {
-    const all = [...this.feed(pid).items].reverse();
+    const f = this.feeds.get(+pid);
+    const all = f ? [...f.items].reverse() : [];
     return limit ? all.slice(0, limit) : all;
   }
 
@@ -165,6 +167,7 @@ class Feed {
   async messageCoordinator(pid, text) {
     const t = String(text ?? this.coord(pid).text ?? '').trim();
     const c = this.coord(pid);
+    if (c.busy) return null; // a send (or open) under way: a second Enter queues nothing twice
     if (!t) { c.err = 'Write the message first.'; this.changed(); return null; }
     const run = await this.call(pid, t, 'send');
     if (run) { c.text = ''; c.note = 'Sent to the coordinator.'; this.changed(); }

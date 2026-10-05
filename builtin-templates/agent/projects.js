@@ -24,12 +24,16 @@
 import { html, nothing, repeat } from '/vendor/lit-all.min.js';
 import { ext, ctx } from './web-ext.js';
 import { can, agentChoices } from './model/projects.js';
-import { cardWords, safeUrl } from './model/project-task.js';
+import { cardWords, issueWords } from './model/project-task.js';
 import { newProjectTpl } from './project-new.js';
 import { settingsTpl } from './project-settings.js';
 import { coordCardTpl, feedTpl } from './project-feed.js';
 import { teamBoardTpl, teamLinkTpl, reviewCardTpl } from './project-team.js';
 import { forkBaseOffer, forkBase } from './model/project-upgrade.js';
+
+// keys(fn): Enter and Space on the element itself (not a control inside it) do what a click does —
+// a clickable card, entry or crumb, reached by Tab
+const keys = (fn) => (e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); fn(e); } };
 
 const pj = () => ctx.app.projects;
 let shownKey = '';
@@ -46,7 +50,7 @@ function sideTpl() {
   const app = ctx.app;
   if (!app || !app.projects || !app.projects.supported) return null;
   const n = app.projects.needsYou();
-  return html`<div class="autos-entry projentry ${app.page === 'projects' ? 'on' : ''}" id="projentry" @click=${() => app.openProjects()}>
+  return html`<div class="autos-entry projentry ${app.page === 'projects' ? 'on' : ''}" id="projentry" role="button" tabindex="0" @click=${() => app.openProjects()} @keydown=${keys(() => app.openProjects())}>
     <span>Projects</span>
     ${n ? html`<span class="badge unread" title="tasks that need you">${n}</span>` : nothing}
   </div>`;
@@ -67,9 +71,9 @@ function toTop(v) {
 function topTpl() {
   const p = pj();
   const pv = p.view();
-  if (p.form) return html`<a class="crumb" @click=${() => p.closeForm()}>Projects ›</a><span class="title">New project</span>`;
+  if (p.form) return html`<a class="crumb" role="button" tabindex="0" @click=${() => p.closeForm()} @keydown=${keys(() => p.closeForm())}>Projects ›</a><span class="title">New project</span>`;
   if (p.opened == null) return html`<span class="title">Projects</span><span class="muted" style="font-size:11.5px">a sandbox, its repos and task conversations</span>`;
-  return html`<a class="crumb" @click=${() => p.open(null)}>Projects ›</a><span class="title">${pv ? pv.name : '#' + p.opened}</span>
+  return html`<a class="crumb" role="button" tabindex="0" @click=${() => p.open(null)} @keydown=${keys(() => p.open(null))}>Projects ›</a><span class="title">${pv ? pv.name : '#' + p.opened}</span>
     ${pv && pv.state !== 'active' ? html`<span class="badge">${pv.state}</span>` : nothing}`;
 }
 
@@ -102,7 +106,7 @@ const COUNTS = [['needs-you', 'need you'], ['working', 'working'], ['queued', 'q
 
 function projCardTpl(p, x) {
   const counts = COUNTS.filter(([k]) => (x.counts || {})[k]).map(([k, w]) => html`<span class="pcnt" data-col=${k}>${x.counts[k]} ${w}</span>`);
-  return html`<div class="acard2 pcard" data-pid=${x.id} @click=${() => p.open(x.id)}>
+  return html`<div class="acard2 pcard" data-pid=${x.id} role="button" tabindex="0" @click=${() => p.open(x.id)} @keydown=${keys(() => p.open(x.id))}>
     <div class="ah"><span class="nm">${x.name}</span>
       ${x.kind !== 'personal' ? html`<span class="badge">${x.kind === 'team' ? 'team' : 'team · yours'}</span>` : nothing}
       ${x.state !== 'active' ? html`<span class="badge">${x.state}</span>` : nothing}
@@ -147,7 +151,7 @@ function boardPageTpl(p, pv, c) {
       ${forkBaseOffer(pv) ? html`<button class="btn ghost btnsm" id="proj-forkbase" title="big tasks fork a snapshot of the project's sandbox, taken while it is quiet"
         @click=${() => { if (confirm('Snapshot the project\'s sandbox for big tasks now? It stops while the snapshot is taken; running tasks wait.')) p.act(() => forkBase(pv.id), pv.id).then((r) => { if (r) { p.flash = 'The fork base is being taken.'; p.changed(); } }); }}>Fork base now</button>` : nothing}
       <span style="flex:1"></span>
-      <input type="search" class="pq" placeholder="Find a task…" .value=${p.filter.q} @change=${(e) => p.setFilter({ q: e.target.value })}>
+      <input type="search" class="pq" aria-label="Find a task" placeholder="Find a task…" .value=${p.filter.q} @change=${(e) => p.setFilter({ q: e.target.value })}>
       <label class="chk small"><input type="checkbox" .checked=${p.filter.mine} @change=${(e) => p.setFilter({ mine: e.target.checked })}> mine</label>
       ${pv.slots ? html`<span class="muted small" title="tasks holding a slot now, of the policy's maxTasks">${pv.slots.used}/${pv.slots.max} at work</span>` : nothing}
     </div>
@@ -195,13 +199,13 @@ function taskFormTpl(p, pv) {
   const set = (k) => (e) => p.setTask(k, e.target.value);
   const togRepo = (slug) => (e) => p.setTask('repos', e.target.checked ? [...f.repos, slug] : f.repos.filter((s) => s !== slug));
   return html`<div class="pform" id="ptask-form">
-    <div class="field"><label>What to do</label><textarea rows="3" .value=${f.text} @input=${set('text')} placeholder="Fix the login redirect loop on Safari"></textarea></div>
+    <div class="field"><label>What to do</label><textarea aria-label="What to do" rows="3" .value=${f.text} @input=${set('text')} placeholder="Fix the login redirect loop on Safari"></textarea></div>
     <div class="row2">
-      <div class="field"><label>Title</label><input .value=${f.title} @input=${set('title')} placeholder="from what to do"></div>
-      <div class="field"><label>Size</label><select @change=${set('size')}>
+      <div class="field"><label>Title</label><input aria-label="Title" .value=${f.title} @input=${set('title')} placeholder="from what to do"></div>
+      <div class="field"><label>Size</label><select aria-label="Size" @change=${set('size')}>
         <option value="small" ?selected=${f.size !== 'big'}>small — a worktree in the project's sandbox</option>
         <option value="big" ?selected=${f.size === 'big'}>big — its own sandbox, forked</option></select></div>
-      <div class="field"><label>Who works on it</label><select data-f="agent" @change=${set('agent')}>${agentOptions(f, pv)}</select></div>
+      <div class="field"><label>Who works on it</label><select aria-label="Who works on it" data-f="agent" @change=${set('agent')}>${agentOptions(f, pv)}</select></div>
     </div>
     ${(pv.repos || []).length > 1 ? html`<div class="field"><label>Repos</label>${pv.repos.map((r) => html`<label class="chk">
       <input type="checkbox" data-repo=${r.slug} .checked=${f.repos.includes(r.slug)} @change=${togRepo(r.slug)}> ${r.repo}</label>`)}</div>` : nothing}
@@ -218,31 +222,31 @@ function pickerTpl(p, pv) {
   const set = (key, reload) => (e) => { p.setPicker(key, e.target.value); if (reload) p.searchIssues(); };
   return html`<div class="pform" id="ppicker">
     <div class="row2">
-      <div class="field"><label>Repo</label><select @change=${set('repo', true)}>${(pv.repos || []).map((r) => html`<option value=${r.repo} ?selected=${k.repo === r.repo}>${r.repo}</option>`)}</select></div>
-      <div class="field"><label>Find</label><input type="search" .value=${k.q} @change=${set('q', true)} placeholder="words, or label:bug"></div>
-      <div class="field"><label>State</label><select @change=${set('state', true)}>
+      <div class="field"><label>Repo</label><select aria-label="Repo" @change=${set('repo', true)}>${(pv.repos || []).map((r) => html`<option value=${r.repo} ?selected=${k.repo === r.repo}>${r.repo}</option>`)}</select></div>
+      <div class="field"><label>Find</label><input type="search" aria-label="Find issues" .value=${k.q} @change=${set('q', true)} placeholder="words, or label:bug"></div>
+      <div class="field"><label>State</label><select aria-label="State" @change=${set('state', true)}>
         <option value="open" ?selected=${k.state === 'open'}>open</option><option value="closed" ?selected=${k.state === 'closed'}>closed</option></select></div>
     </div>
     <div class="muted small">Issue text comes from the issue tracker — anyone may have written it. Each picked issue becomes a task (at most 20 at once).</div>
     <div class="pissues">
       ${k.items.map((i) => {
-        const key = `${i.repo}#${i.number}`;
+        const w = issueWords(i);
         return html`<label class="pissue" data-issue=${i.number}>
-          <input type="checkbox" .checked=${k.picked.has(key)} ?disabled=${!k.picked.has(key) && k.picked.size >= 20} @change=${() => p.togglePick(i)}>
-          <span class="pin">#${i.number}</span>
-          <span class="pibody"><span class="pititle">${i.title}</span>
-            ${(i.labels || []).map((l) => html`<span class="badge">${l}</span>`)}
-            ${i.body ? html`<span class="pitext untrusted" title="untrusted text from the issue tracker">${String(i.body).slice(0, 240)}</span>` : nothing}</span>
-          ${safeUrl(i.url) ? html`<a href=${safeUrl(i.url)} target="_blank" rel="noopener noreferrer" title="open the issue">↗</a>` : nothing}
+          <input type="checkbox" .checked=${k.picked.has(w.key)} ?disabled=${!k.picked.has(w.key) && k.picked.size >= 20} @change=${() => p.togglePick(i)}>
+          <span class="pin">#${w.number}</span>
+          <span class="pibody"><span class="pititle">${w.title}</span>
+            ${w.labels.map((l) => html`<span class="badge">${l}</span>`)}
+            ${w.body ? html`<span class="pitext untrusted" title="untrusted text from the issue tracker">${w.body}</span>` : nothing}</span>
+          ${w.url ? html`<a href=${w.url} target="_blank" rel="noopener noreferrer" title="open the issue">↗</a>` : nothing}
         </label>`;
       })}
       ${k.loading ? html`<div class="muted small">loading…</div>` : !k.items.length ? html`<div class="muted small">No issues.</div>` : nothing}
       ${k.next && !k.loading ? html`<button class="btn ghost btnsm" @click=${() => p.searchIssues(true)}>more</button>` : nothing}
     </div>
     <div class="row2">
-      <div class="field"><label>Size</label><select @change=${set('size')}>
+      <div class="field"><label>Size</label><select aria-label="Size" @change=${set('size')}>
         <option value="small" ?selected=${k.size !== 'big'}>small</option><option value="big" ?selected=${k.size === 'big'}>big</option></select></div>
-      <div class="field"><label>Who works on them</label><select @change=${set('agent')}>${agentOptions(k, pv)}</select></div>
+      <div class="field"><label>Who works on them</label><select aria-label="Who works on them" @change=${set('agent')}>${agentOptions(k, pv)}</select></div>
     </div>
     ${k.err ? html`<div class="err">${k.err}</div>` : nothing}
     ${k.result ? html`<div class="err">${k.result.errors.map((x) => html`<div>${x.issue && typeof x.issue === 'object' ? `${x.issue.repo}#${x.issue.number}` : x.issue}: ${x.error}</div>`)}</div>` : nothing}

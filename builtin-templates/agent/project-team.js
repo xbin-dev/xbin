@@ -52,24 +52,27 @@ function workTpl(p, pv) {
   const app = ctx.app;
   app.sbx.ensure('', '');
   const mine = (app.sbx.listAt('').sandboxes || []).filter((s) => s.mine && s.visibility !== 'team' && !['deleting', 'archived', 'error'].includes(s.state));
+  const former = !!t.formerOf(pv.id); // taken up again: it keeps its own sandbox, so there is nothing to choose
+  const loading = !former && t.workLoading();
   const seeded = !!t.seedProvider(pv);
-  const managers = seeded ? [] : t.workManagers();
+  const managers = seeded || former ? [] : t.workManagers();
   return html`<div class="pform" id="pteam-form">
     <b>Work on ${pv.name} in your own space</b>
-    <div class="field"><label>Its sandbox</label>
+    ${former ? html`<div class="muted small" id="pteam-sbx-keep">Your half keeps its own sandbox.</div>` : html`<div class="field"><label>Its sandbox</label>
       <label class="chk"><input type="radio" name="pteam-sbx" .checked=${w.sandbox.mode !== 'pick'} @change=${() => t.setWork(pv.id, 'mode', 'auto')}> a new one${seeded ? ' (forked from the team\'s seed where that works for you)' : ''}</label>
       ${w.sandbox.mode !== 'pick' && !seeded ? (managers.length ? html`<select id="pteam-sbx-mgr" @change=${(e) => t.setWork(pv.id, 'provider', e.target.value)}>
         ${managers.map((m, i) => html`<option value=${m.provider} ?selected=${w.sandbox.provider ? m.provider === w.sandbox.provider : i === 0}>${m.title || m.provider}</option>`)}</select>`
+        : loading ? html`<span class="muted small" id="pteam-sbx-loading">loading…</span>`
         : html`<span class="muted small" id="pteam-sbx-none">no sandbox manager is bound in your space</span>`) : nothing}
       <label class="chk"><input type="radio" name="pteam-sbx" .checked=${w.sandbox.mode === 'pick'} ?disabled=${!mine.length} @change=${() => t.setWork(pv.id, 'mode', 'pick')}>
         one of your own private sandboxes${mine.length ? '' : ' (you have none)'}</label>
       ${w.sandbox.mode === 'pick' ? html`<select id="pteam-sbx-ref" @change=${(e) => t.setWork(pv.id, 'ref', e.target.value)}>
         <option value="" ?selected=${!w.sandbox.ref}>pick one…</option>
-        ${mine.map((s) => html`<option value=${s.ref} ?selected=${s.ref === w.sandbox.ref}>${s.name} · ${s.state}</option>`)}</select>` : nothing}</div>
+        ${mine.map((s) => html`<option value=${s.ref} ?selected=${s.ref === w.sandbox.ref}>${s.name} · ${s.state}</option>`)}</select>` : nothing}</div>`}
     ${w.defHash ? securityTpl(null, w.definition, 'What you accept — it runs in your sandbox, with your sign-in') : nothing}
     ${w.note ? html`<div class="note">${w.note}</div>` : nothing}
     ${w.err ? html`<div class="err" id="pteam-err">${w.err}</div>` : nothing}
-    <div><button class="btn btnsm" id="pteam-go" ?disabled=${w.busy} @click=${() => t.submitWork(pv.id)}>${w.busy ? 'Working…' : w.defHash ? 'Accept and start' : 'Continue'}</button>
+    <div><button class="btn btnsm" id="pteam-go" ?disabled=${w.busy || loading} @click=${() => t.submitWork(pv.id)}>${w.busy ? 'Working…' : w.defHash ? 'Accept and start' : 'Continue'}</button>
       <button class="btn ghost btnsm" @click=${() => t.closeWork(pv.id)}>Cancel</button></div>
   </div>`;
 }

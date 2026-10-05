@@ -8,7 +8,8 @@
 //                          annotations; jenkins's status passing
 //   ciView(root, opts)     a CIView with one watch of that snapshot
 //                          (opts.run: the run it was pushed from)
-//   ciSeed(root, opts)     what CI_STUB reads: {views: {root: CIView}, logs,
+//   ciSeed(root, opts)     what CI_STUB reads: {views: {root: CIView}, logs (a
+//                          log {partial: true} reads as not complete: Follow),
 //                          notes} — the log of job 88001 with colours, a
 //                          token and 300 lines, codecov's annotations
 //   ciRoutes(root, opts)   the same as native-stub.mjs's seed.routes
@@ -121,7 +122,7 @@ export function CI_STUB(seed) {
     const tail = +q.get('tail') || 65536;
     let from = Math.max(+q.get('since') || 0, end - Math.min(tail, 2048)); // a small tail: "Earlier" pages back
     if (from > 0) { const nl = text.indexOf('\n', from - 1); from = nl < 0 ? end : nl + 1; }
-    return json({ text: text.slice(from, end), bytes: text.length, from, complete: true, truncated: from > 0, url: `https://github.com/acme/web/actions/runs/7001/job/${m[2]}` });
+    return json({ text: text.slice(from, end), bytes: text.length, from, complete: !l.partial, truncated: from > 0, url: `https://github.com/acme/web/actions/runs/7001/job/${m[2]}` });
   });
   r('GET', new RegExp(`${API}/runs/(\\d+)/ci/checks/([^/?]+)/annotations\\?(.*)$`), (m) => json({ items: S.notes[m[2]] || [], next: '' }));
   r('POST', new RegExp(`${API}/runs/(\\d+)/ci/rerun$`), (m, o) => {

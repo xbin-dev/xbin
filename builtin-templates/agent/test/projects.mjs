@@ -68,8 +68,11 @@ await page.evaluate(async () => {
   const { ext } = await import('/web-ext.js');
   ext.register({ card: (t) => (t.ci ? `CI ${t.ci.state}` : null) }); // a chip of another module's (CI's, V)
 });
-await page.click('.pcard[data-pid="7"]');
+ok('a project card is a button the keyboard reaches', (await page.getAttribute('.pcard[data-pid="7"]', 'role')) === 'button' && (await page.getAttribute('.pcard[data-pid="7"]', 'tabindex')) === '0');
+await page.focus('.pcard[data-pid="7"]');
+await page.keyboard.press('Enter'); // opens it, as a click does
 await page.waitForSelector('.pboard .ptask[data-n="1"]');
+ok('…the board\'s search has a name', (await page.getAttribute('.pq', 'aria-label')) === 'Find a task');
 ok('#proj=7 is in the address', await page.evaluate(() => location.hash === '#proj=7'));
 const cols = await page.$$eval('.pboard .pcol', (els) => els.map((e) => `${e.dataset.col}:${[...e.querySelectorAll('.ptask')].map((t) => t.dataset.n).join(',')}`));
 ok('the columns, each with its tasks (newest first)', JSON.stringify(cols) === '["queued:4","working:2","needs-you:8,6,3","pr:1","done:5"]', JSON.stringify(cols));
@@ -188,6 +191,14 @@ await page.selectOption('#pset-vis', 'viewer');
 ok('team visibility', await waitCall(page, 'PATCH', '/projects/7$', 3));
 const vb = (await calls(page, 'PATCH', '/projects/7$')).pop().body;
 ok('…the team reads it', vb.visibility === 'team' && vb.teamRole === 'viewer', JSON.stringify(vb));
+{
+  const asked = [];
+  const note = (d) => asked.push(d.message());
+  page.on('dialog', note);
+  await page.click('#pset-members .pmember[data-user="carol"] button');
+  ok('Remove asks first', await waitCall(page, 'DELETE', '/projects/7/members/carol$') && asked.join() === 'Remove carol from Web? They lose their access; you can add them back.', asked.join(' | '));
+  page.off('dialog', note);
+}
 // typed, never submitted: it stays this project's (checked on the next project's Settings below)
 await page.fill('#pset-addrepo', 'acme/leftover');
 await page.fill('#pset-member', 'mallory');

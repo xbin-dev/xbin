@@ -300,32 +300,15 @@ export const FEATURES = {
   'ci.board': 'CI on a project board\'s tasks and on the cards of coding agents that pushed',
 };
 
-// STAGED: Projects and CI land in stages, each key leaving these lists in
-// the change that implements it in that view (grouped by stage, so the
-// stages' changes don't touch each other's lines).
-const STAGED = 'not built yet: Projects and CI in the conversation land in stages, this one with a later one';
-const stagedWeb = [
-  // projects: the page, the board, new projects and tasks, settings, a task's chips
-  // projects: the coordinator, events, upgrades, team projects
-  // CI
-];
-const stagedNative = [
-  // projects
-  // CI
-];
-const staged = (keys) => Object.fromEntries(keys.map((k) => [k, STAGED]));
-
 // DIFFERENCES: keys a view does not implement ON PURPOSE, with the reason.
 // Anything else missing from a view fails the features test.
 export const DIFFERENCES = {
   web: {
-    ...staged(stagedWeb),
     'needs.push': 'a web page does not receive pushes: the backend sends Needs-you to the person\'s xbin app (POST /api/xbin/notify), which opens the conversation in the native view',
     'composer.dictation': 'the browser and the OS dictate into any text box; the tile adds no control of its own',
     'composer.attach.camera': 'the browser\'s file picker offers the camera and the photo library itself',
   },
   native: {
-    ...staged(stagedNative),
     'composer.keys': 'on a phone Return is a new line and Send is the button; the app\'s composer handles a hardware keyboard and IME composition itself',
     'composer.attach.paste': 'the app\'s composer owns the pasteboard: an image pasted there is uploaded like a picked one — nothing for the tile to draw',
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',

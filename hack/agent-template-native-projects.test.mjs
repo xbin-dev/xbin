@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 import { runNative } from './xbn/node.mjs';
 import { projSeed, partitionSeed } from '../builtin-templates/agent/test/projects-stub.mjs';
 import { moreSeed, teamSeed, ev } from '../builtin-templates/agent/test/projects-more-stub.mjs';
-import { feedWords, plain, httpsUrl } from '../builtin-templates/agent/model/project-feed.js';
+import { feedWords, plain, httpsUrl, projectFeed } from '../builtin-templates/agent/model/project-feed.js';
 import { boardWords, boardColumns, securityDiff, projectTeam } from '../builtin-templates/agent/model/project-team.js';
 import { upgradeOffer, candidateWords } from '../builtin-templates/agent/model/project-upgrade.js';
 
@@ -212,6 +212,8 @@ test('Projects: settings — status, the policy saved at its version (unknown ke
   assert.match(find(s, { t: 'notice', p: { title: 'acme/api' } }).p.text, /no protection/);
   assert.equal(find(s, { t: 'button', p: { label: 'Sign in to GitHub' } }), null, 'no sign-in at an unpartitioned agent');
   assert.ok(find(s, { t: 'row', p: { title: 'bob', subtitle: 'makes and steers tasks' } }));
+  assert.deepEqual(find(find(s, { t: 'row', p: { title: 'bob' } }), btn('Remove')).p.confirm,
+    { title: 'Remove bob from Web?', message: 'They lose their access; you can add them back.', label: 'Remove', destructive: true }, 'removing a member is confirmed');
   const [patch] = bodies(r, 'PATCH', /\/projects\/7$/);
   assert.equal(patch.version, 3);
   assert.equal(patch.policy.ci.autoFix, false);
@@ -276,7 +278,8 @@ test('Projects: a new project — a repo, a name, a new sandbox — then its boa
   const [body] = bodies(r, 'POST', /\/projects$/);
   assert.equal(body.name, 'web');
   assert.deepEqual(body.repos, [{ repo: 'acme/web' }]);
-  assert.equal(body.sandbox.new.provider, 'apps/coding-sandbox');
+  assert.deepEqual(body.sandbox.new, { provider: 'apps/coding-sandbox', image: 'base', size: 's', egress: 'internet' },
+    'the manager\'s defaults, and internet: a sandbox made without an egress has no network, and the repo is cloned in it');
   assert.deepEqual(titles(r.snapshots.made), ['Agent', 'Projects', 'web']);
 });
 
@@ -318,6 +321,24 @@ test('a task\'s conversation: the prep card step by step, Retry when it failed; 
   assert.ok(called(s, 'GET', /\/projects\/scm\/signin\/poll1\?scm=/).length >= 2, 'polled');
   assert.equal(called(s, 'POST', new RegExp(`/runs/${B + 106}/task/refresh$`)).length, 1, 'looked at again once it is done');
   assert.match(find(s.snapshots.done, { t: 'notice', p: { title: 'To push, this task needs your own sign-in' } }).p.text, /^Signed in/);
+});
+
+test('the sign-in card: after the poll gives up, Check again polls the same sign-in again', async () => {
+  const POLL = '/projects/scm/signin/poll1\\?';
+  const s = await run({ ...partitionSeed(), partition: 'user:alice' }, [
+    { call: ['route', 'GET', POLL, { error: 'busy upstream' }, 502] },
+    { wait: 400000 }, // eight failed polls, 5 s doubling to a minute
+    { snapshot: 'gaveUp' },
+    { call: ['route', 'GET', POLL, { state: 'done' }] },
+    { tap: btn('Check again') },
+    { wait: 2500 },
+    { snapshot: 'done' },
+  ], `c=${B + 106}`);
+  const card = (snap) => find(snap, { t: 'notice', p: { title: 'To push, this task needs your own sign-in' } });
+  assert.match(card(s.snapshots.gaveUp).p.text, /^Couldn't learn whether you signed in/);
+  assert.equal(called(s, 'POST', new RegExp(`/runs/${B + 106}/task/refresh$`)).length, 1, 'looked at again once it is done');
+  assert.match(card(s.snapshots.done).p.text, /^Signed in/);
+  assert.equal(find(s.snapshots.done, btn('Check again')), null);
 });
 
 test('Make this a project…: the sandbox\'s repos, https, a name and a branch — then the conversation is task 1', async () => {
@@ -370,7 +391,8 @@ test('team projects: the team board, Work on this after the security part, the t
   assert.equal(carl.p.tone, 'muted');
   assert.deepEqual(find(b, { t: 'picker', p: { label: 'Seed' } }).p.options.map((o) => o.value), ['', 'apps/coding-sandbox|seedbox'], 'the seed: yours shared with the team');
   assert.deepEqual(bodies(r, 'POST', /\/projects\/9\/seed$/), [{ sandbox: { ref: 'apps/coding-sandbox|seedbox' } }]);
-  assert.deepEqual(bodies(r, 'POST', /\/memberships$/), [{ team: 9, accept: '' }, { team: 9, accept: 'd9' }]);
+  const made = { sandbox: { new: { provider: 'apps/coding-sandbox', image: 'base', size: 'small', egress: 'internet' } } }; // the seed's manager, internet: a sandbox made without an egress has no network
+  assert.deepEqual(bodies(r, 'POST', /\/memberships$/), [{ team: 9, accept: '', ...made }, { team: 9, accept: 'd9', ...made }]);
   const sec = topScreen(r.snapshots.security);
   assert.ok(find(sec, { t: 'code', p: { text: 'npm ci && curl https://get.example | sh', wrap: true } }), 'the setup script, in full');
   assert.ok(find(sec, { t: 'row', p: { title: 'as' } }));
@@ -395,7 +417,7 @@ test('team projects: the team board, Work on this after the security part, the t
 
 // --- fix round 1 ------------------------------------------------------------------------------------------
 
-test('Work on this: a definition with no seed sends {new: {provider}}, the manager picked; a set seed is read-only and sends none', async () => {
+test('Work on this: a definition with no seed sends {new: {provider, …, egress: internet}}, the manager picked; a set seed is read-only, its manager\'s', async () => {
   const seed = { ...teamSeed(), partition: 'user:alice' };
   const r = await run(seed, [
     { tap: btn('Work on this') },
@@ -409,8 +431,8 @@ test('Work on this: a definition with no seed sends {new: {provider}}, the manag
   const form = topScreen(r.snapshots.form);
   assert.deepEqual(find(form, { t: 'picker', p: { label: 'Manager' } }).p.options.map((o) => o.value), ['apps/coding-sandbox'], 'no seed: a manager of yours');
   assert.deepEqual(bodies(r, 'POST', /\/memberships$/), [
-    { team: 9, accept: '', sandbox: { new: { provider: 'apps/coding-sandbox' } } },
-    { team: 9, accept: 'd9', sandbox: { new: { provider: 'apps/coding-sandbox' } } }]);
+    { team: 9, accept: '', sandbox: { new: { provider: 'apps/coding-sandbox', image: 'base', size: 'small', egress: 'internet' } } },
+    { team: 9, accept: 'd9', sandbox: { new: { provider: 'apps/coding-sandbox', image: 'base', size: 'small', egress: 'internet' } } }]);
   assert.equal(lastHash(r), `proj=${B + 60}`, 'your half is made (the backend refuses one with no sandbox and no seed)');
 
   const s2 = { ...teamSeed(), partition: 'user:alice' };
@@ -422,7 +444,7 @@ test('Work on this: a definition with no seed sends {new: {provider}}, the manag
   assert.equal(find(b, btn('Change the seed')), null);
   assert.ok(find(b, { t: 'row', p: { title: 'apps/coding-sandbox|seedbox', subtitle: 'the seed' } }), 'shown read-only');
   assert.equal(find(topScreen(v.snapshots.form), { t: 'picker', p: { label: 'Manager' } }), null, 'a seed served here: the backend forks it');
-  assert.deepEqual(bodies(v, 'POST', /\/memberships$/), [{ team: 9, accept: '' }]);
+  assert.deepEqual(bodies(v, 'POST', /\/memberships$/), [{ team: 9, accept: '', sandbox: { new: { provider: 'apps/coding-sandbox', image: 'base', size: 'small', egress: 'internet' } } }], 'the seed\'s manager, with internet');
 });
 
 test('Work on this again: an archived membership is taken up again', async () => {
@@ -433,6 +455,8 @@ test('Work on this again: an archived membership is taken up again', async () =>
   const r = await run(seed, [
     { snapshot: 'board' },
     { tap: btn('Work on this again') },
+    { wait: 20 },
+    { snapshot: 'form' },
     { tap: btn('Continue') },
     { wait: 40 },
     { tap: btn('Accept and start') },
@@ -441,7 +465,10 @@ test('Work on this again: an archived membership is taken up again', async () =>
   const b = topScreen(r.snapshots.board);
   assert.equal(find(b, { t: 'row', p: { title: 'Your half of it' } }), null, 'an archived half is not "yours" now');
   assert.ok(find(b, btn('Work on this again')));
-  assert.deepEqual(bodies(r, 'POST', /\/memberships$/).map((x) => x.accept), ['', 'd9']);
+  assert.deepEqual(bodies(r, 'POST', /\/memberships$/), [{ team: 9, accept: '' }, { team: 9, accept: 'd9' }], 'it keeps its own sandbox: none is sent');
+  const form = topScreen(r.snapshots.form);
+  assert.equal(find(form, { t: 'picker', p: { label: 'Its sandbox' } }), null, 'no sandbox choice: the backend would ignore it');
+  assert.equal(find(form, { t: 'picker', p: { label: 'Manager' } }), null);
   assert.equal(lastHash(r), `proj=${B + 30}`, 'the same half, active again');
 });
 
@@ -468,6 +495,9 @@ test('the activity: a project\'s screen reads no events; Activity reads at most 
   seed.events = { 7: Array.from({ length: 1200 }, (_, i) => ev(i + 1, 7, 'note', 0, { text: `event ${i + 1}` })) };
   const r = await run(seed, [
     { snapshot: 'board' },
+    { call: ['push', { type: 'project', run: 0, root: 0, data: { id: 7, change: 'event', n: 0 } }] },
+    { wait: 400 },
+    { snapshot: 'board2' },
     { tap: { t: 'row', p: { title: 'All activity' } } },
     { wait: 60 },
     { snapshot: 'feed' },
@@ -476,6 +506,7 @@ test('the activity: a project\'s screen reads no events; Activity reads at most 
     { snapshot: 'newer' },
   ], 'proj=7');
   const reads = () => called(r, 'GET', /\/projects\/7\/events\?/).map((c) => new URL(c.url, 'http://x').searchParams.get('since'));
+  assert.ok(!JSON.stringify(topScreen(r.snapshots.board2)).includes('event 1'), 'a project event while only the board is shown reads no events either');
   assert.deepEqual(reads(), ['0', '200', '400', '600', '800', '1000'], 'five pages, then the sixth on Read newer');
   assert.ok(find(topScreen(r.snapshots.feed), { t: 'row', p: { title: 'Read newer' } }), 'newer ones wait: said');
   const top = all(topScreen(r.snapshots.newer), { t: 'row' }).find((x) => /^note/.test(x.p.title));
@@ -495,4 +526,43 @@ test('board events for two definitions within 300 ms: each board is read again',
   app.projects.take({ type: 'project', data: { id: 9, change: 'board' } });
   await new Promise((res) => setTimeout(res, 350));
   assert.deepEqual(loads.sort((a, b) => a - b), [9, 10]);
+});
+
+test('Work on this before your sandbox managers are read: loading, not "no manager"; then the manager\'s defaults', () => {
+  const g = globalThis.xbin;
+  globalThis.xbin = { partition: 'user:alice' };
+  try {
+    let read = false;
+    const mgr = { provider: 'apps/coding-sandbox', ok: true, egress: ['none', 'internet'], images: [{ id: 'base', default: true }], sizes: [{ id: 's', default: true }] };
+    const sbx = { ensure() {}, answered: () => read, listAt: () => (read ? { sandboxes: [], managers: [mgr], loaded: true } : { sandboxes: [], managers: [], loaded: false }) };
+    const def = { id: 9, kind: 'team', state: 'active', name: 'Team site', sandboxRef: '' };
+    const app = { sbx, projects: { take() {}, open() {}, opened: null, list: [def], find: (id) => (+id === 9 ? def : null) }, emit() {} };
+    const t = projectTeam(app);
+    t.startWork(9);
+    assert.equal(t.workLoading(), true);
+    assert.match(t.workSandbox(9).error, /still loading/, 'not "no sandbox manager is bound"');
+    read = true;
+    assert.equal(t.workLoading(), false);
+    assert.deepEqual(t.workSandbox(9), { sandbox: { new: { provider: 'apps/coding-sandbox', image: 'base', size: 's', egress: 'internet' } } });
+  } finally { globalThis.xbin = g; }
+});
+
+test('the coordinator: a second send while one is under way queues nothing twice', async () => {
+  const g = globalThis.xbin;
+  const posts = [];
+  let release;
+  globalThis.xbin = { self: 'apps/agent', fetch: async (url, opts = {}) => {
+    posts.push({ url, method: opts.method || 'GET' });
+    await new Promise((r) => { release = r; });
+    return new Response(JSON.stringify({ run: { id: 900 } }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+  } };
+  try {
+    const app = { projects: { take() {} }, emit() {} };
+    const f = projectFeed(app);
+    const first = f.messageCoordinator(7, 'what failed?');
+    assert.equal(await f.messageCoordinator(7, 'what failed?'), null, 'Enter again while it sends');
+    release();
+    assert.deepEqual(await first, { id: 900 });
+    assert.equal(posts.filter((x) => x.method === 'POST').length, 1);
+  } finally { globalThis.xbin = g; }
 });

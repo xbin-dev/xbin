@@ -173,7 +173,10 @@ function membersTpl(s, p, pv, c) {
   return html`<section title="Members">
     <row title=${(m && m.owner) || pv.owner} subtitle="owner" icon="person"/>
     ${repeat((m && m.members) || [], (x) => x.user, (x) => html`<row title=${x.user} subtitle=${x.role === 'viewer' ? 'reads' : 'makes and steers tasks'} icon="person">
-      ${c.settings || x.user === me ? html`<actions><button icon="xmark" role="destructive" @tap=${() => p.removeMember(pv.id, x.user)}>${x.user === me ? 'Leave' : 'Remove'}</button></actions>` : nothing}</row>`)}
+      ${c.settings || x.user === me ? html`<actions><button icon="xmark" role="destructive"
+        confirm=${x.user === me ? { title: `Leave ${pv.name}?`, message: 'Only its owner can add you back.', label: 'Leave', destructive: true }
+          : { title: `Remove ${x.user} from ${pv.name}?`, message: 'They lose their access; you can add them back.', label: 'Remove', destructive: true }}
+        @tap=${() => p.removeMember(pv.id, x.user)}>${x.user === me ? 'Leave' : 'Remove'}</button></actions>` : nothing}</row>`)}
     ${c.settings ? html`<field label="Add a person" placeholder="person" value=${s.member.user} @input=${(e) => { s.member.user = e.value; }}/>
       <picker label="They may" value=${s.member.role} options=${[{ value: 'participant', label: 'make and steer tasks' }, { value: 'viewer', label: 'read' }]} @change=${(e) => { s.member.role = e.value; ctx.paint(); }}/>
       <button icon="plus" @tap=${async () => { const u = s.member.user.trim(); if (!u) return; const role = s.member.role; s.member = { user: '', role }; await p.addMember(pv.id, u, role); }}>Add</button>

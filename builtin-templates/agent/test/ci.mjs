@@ -74,7 +74,9 @@ ok('a run: name, event, state', run.includes('ci') && run.includes('push') && ru
 ok('jobs with progress bars', JSON.stringify(await page.$$eval('.cijob', (els) => els.map((e) => [e.dataset.job, e.querySelector('.cibar > span')?.style.width || ''])))
   === '[["88000","100%"],["88001","33%"],["88002",""]]');
 ok('…the running job\'s current step', (await page.textContent('.cijob[data-job="88001"] .cicur')).startsWith('go test ./...'));
-await page.click('.cijob[data-job="88001"] .cirow');
+await page.focus('.cijob[data-job="88001"] .cirow');
+await page.keyboard.press('Enter'); // a job row unfolds from the keyboard too
+ok('a job row is a button: expanded', (await page.getAttribute('.cijob[data-job="88001"] .cirow', 'aria-expanded')) === 'true');
 const steps = await page.$$eval('.cijob[data-job="88001"] .cistep', (els) => els.map((e) => [e.querySelector('.cist').textContent, e.querySelector('.ciname').textContent,
   e.querySelector('.muted').textContent]));
 ok('expanded: its steps with their marks and times', JSON.stringify(steps.map((x) => x.slice(0, 2))) === JSON.stringify([['✓', 'Set up job'], ['●', 'go test ./...'], ['○', 'upload']])
@@ -187,6 +189,29 @@ ok('no errors', errors.length === 0, errors.join(' | '));
   ok('…its section: only "Watch CI for…"', (await p3.textContent('#cisec')).includes('Nothing watched yet') && (await p3.$$('.ciwatch')).length === 0);
   ok('no errors either', e2.length === 0 && e3.length === 0, [...e2, ...e3].join(' | '));
   await p3.close();
+}
+
+// === following a log stops once the dock hides it ====================================================
+{
+  const seed = ciSeedFor();
+  seed.ci.logs['88001'] = { text: 'step 1\n', running: false, partial: true };
+  const { page: p6, errors: e6 } = await open(seed);
+  await p6.waitForSelector('#cichip');
+  await p6.click('#cichip');
+  await p6.waitForSelector('#cisec');
+  await p6.click('.cijob[data-job="88001"] .cirow');
+  await p6.click('.cijob[data-job="88001"] .cilog');
+  await p6.waitForSelector('#ci-follow');
+  await p6.click('#ci-follow');
+  const logReads = () => p6.evaluate(() => window.__calls.filter((c) => /\/ci\/jobs\/88001\/log\?.*since=/.test(c.url)).length);
+  await p6.click('.hbtab[data-tab="agents"]');
+  const before = await logReads();
+  await p6.waitForTimeout(5600);
+  ok('following a log: the Coding agents tab stops it (no reads while hidden)', (await logReads()) === before, `${before} → ${await logReads()}`);
+  await p6.click('.hbtab[data-tab="ci"]');
+  ok('…and its Follow is off again', (await p6.getAttribute('#ci-follow', 'aria-pressed')) === 'false');
+  ok('following: no errors', e6.length === 0, e6.join(' | '));
+  await p6.close();
 }
 
 // === a phone: the dock over the chat ==============================================================
