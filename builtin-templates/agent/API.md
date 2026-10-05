@@ -4564,6 +4564,9 @@ conversation list) shows its project:
 - in the unfolded pinned task, its project, number, size, repos, issue,
   checkouts and ports.
 
+A link from the provider — the branch, a pull request, the issue, the
+sign-in page — is drawn only when it is `https`, in both views.
+
 **Kept current**: the `project` stream event (`{id, change, n}`) carries no
 data of its own; the page reads the list, the open project and its board
 again, and an open task conversation its task (`GET /runs/{id}/task`) —

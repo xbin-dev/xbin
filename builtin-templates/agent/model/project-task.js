@@ -77,10 +77,12 @@ export function prChip(pr, ci = null) {
   };
 }
 
-/** safeUrl: an http(s) link, else '' (a link from the provider is drawn only if it is one). */
+/** safeUrl: an https link, else '' — a link from the provider (a pull request, the branch, the
+ * issue, the sign-in page where a device code is typed) is drawn only if it is one, in both views
+ * (the native view's own checks, model/project-feed.js httpsUrl). */
 export function safeUrl(u) {
   const s = String(u || '');
-  return /^https?:\/\//i.test(s) ? s : '';
+  return /^https:\/\/[^\s]+$/i.test(s) ? s : '';
 }
 
 /** webUrl(repo): a repo's page on the platform from its clone URL (ProjectRepo.url). */

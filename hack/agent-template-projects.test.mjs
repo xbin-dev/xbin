@@ -110,7 +110,7 @@ test('stateWords and a card', () => {
   assert.equal(c.size, 'big');
 });
 
-test('prChip: a PR\'s checks only while the task has no CI summary; links only http(s)', () => {
+test('prChip: a PR\'s checks only while the task has no CI summary; links only https', () => {
   const pr = { repo: 'acme/web', number: 42, url: 'https://github.com/acme/web/pull/42', state: 'open', draft: false, checks: 'failure' };
   assert.deepEqual(W.prChip(pr), { kind: 'pr', text: 'PR #42 open ✗', tone: 'bad', title: 'acme/web#42: open — checks failed', url: pr.url, checks: 'failure' });
   const withCI = W.prChip(pr, { state: 'failure' });
@@ -118,6 +118,9 @@ test('prChip: a PR\'s checks only while the task has no CI summary; links only h
   assert.equal(withCI.checks, '');
   assert.equal(W.prChip({ ...pr, draft: true, checks: 'none' }).text, 'PR #42 draft');
   assert.equal(W.prChip({ ...pr, url: 'javascript:alert(1)' }).url, '');
+  assert.equal(W.prChip({ ...pr, url: 'http://github.com/acme/web/pull/42' }).url, '', 'https only, as the native view draws it');
+  assert.equal(W.safeUrl('http://github.com/login/device'), '', 'a sign-in page where a code is typed: https only');
+  assert.equal(W.safeUrl('https://github.com/login/device'), 'https://github.com/login/device');
   assert.equal(W.prChip({ ...pr, state: 'merged', checks: 'success' }).tone, 'ok', 'a merged PR is green whatever its checks');
 });
 
