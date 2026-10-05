@@ -40,7 +40,8 @@ func init() {
 	}
 }
 
-// ciWatchSchema is §6.9's table, as it is (additive, idempotent).
+// ciWatchSchema is the CI watches' table (API.md §CI in the conversation),
+// additive and idempotent.
 const ciWatchSchema = `
 CREATE TABLE IF NOT EXISTS ci_watch (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -305,7 +306,7 @@ func ciWord(s string) string {
 
 // ciClean is c as a watch keeps it: every text redacted and clipped, links
 // http(s) only, lists bounded, state and counts computed again from what is
-// kept (§4.9's rules), at most ciSnapMax bytes of JSON.
+// kept (/docs/scm.md §Checks' rules), at most ciSnapMax bytes of JSON.
 func ciClean(c *scmChecks) *scmChecks {
 	out := &scmChecks{SHA: ciSHA(c.SHA), Ref: ciText(c.Ref, ciNameMax), ETag: c.ETag, Checks: []scmCheck{}, Statuses: []scmStatus{}}
 	if c.WorkflowRuns != nil {
@@ -436,7 +437,7 @@ func ciShrink(c *scmChecks) {
 	}
 }
 
-// ciFailed: a conclusion (or status state) that fails CI (§4.9).
+// ciFailed: a conclusion (or status state) that fails CI (/docs/scm.md §Checks).
 func ciFailed(conclusion string) bool {
 	switch conclusion {
 	case "failure", "timed_out", "action_required", "startup_failure", "error":
@@ -446,7 +447,7 @@ func ciFailed(conclusion string) bool {
 }
 
 // ciRecount computes c's counts and state again over its checks and
-// statuses, and its jobs' and runs' progress (§4.9: pending while any
+// statuses, and its jobs' and runs' progress (/docs/scm.md §Checks: pending while any
 // check, job or status isn't completed).
 func ciRecount(c *scmChecks) {
 	var n scmCounts

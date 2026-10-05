@@ -423,7 +423,7 @@ func TestScrubOnStopDeleteForget(t *testing.T) {
 	})
 }
 
-// The scrub job records §14.1's word: the one its queuer put in its step,
+// The scrub job records its why (API.md "Scrubbing"): the one its queuer put in its step,
 // else a repo's job is a repo removed, an archived or deleting project's
 // archive or delete, a task's fork delete, else the sandbox left.
 func TestScrubJobWhy(t *testing.T) {
