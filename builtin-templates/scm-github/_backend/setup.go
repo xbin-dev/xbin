@@ -166,8 +166,12 @@ func (s *srv) handleSetupPaste(w http.ResponseWriter, r *http.Request, _ who) {
 			// the previous, accepted a day): GitHub signs with it from the
 			// moment the PATCH lands, and nothing after the PATCH can leave
 			// GitHub with a secret this tile never stored. Refused, the
-			// current one is put back — GitHub still signs with it.
-			cur := s.vaultValue(vaultHookSecret)
+			// current one is put back — GitHub still signs with it — and so
+			// are the previous one and when it was rotated (a rotation in
+			// the last day still has deliveries in flight signed with it).
+			cur, prev := s.vaultValue(vaultHookSecret), s.vaultValue(vaultHookSecretP)
+			var rotated int64
+			hadRotated := s.state.Get("hook-secret-rotated", &rotated) == nil
 			if err := s.rotateHookSecret(cur, secret); err != nil {
 				fail(w, err)
 				return
@@ -177,6 +181,16 @@ func (s *srv) handleSetupPaste(w http.ResponseWriter, r *http.Request, _ who) {
 					_ = s.vault.Delete(vaultHookSecret)
 				} else if cur != secret.Reveal() {
 					_ = s.vault.Set(vaultHookSecret, newSecret(cur))
+					if prev == "" {
+						_ = s.vault.Delete(vaultHookSecretP)
+					} else {
+						_ = s.vault.Set(vaultHookSecretP, newSecret(prev))
+					}
+					if hadRotated {
+						_ = s.state.Put("hook-secret-rotated", rotated)
+					} else {
+						_ = s.state.Delete("hook-secret-rotated")
+					}
 				}
 				if isRefusal(err, refNotFound) {
 					err = refuse(refInvalid, "the App's webhook is off, so GitHub keeps no webhook address for it: tick Active under Webhook in the App's settings, then paste again (or paste without hookUrl)")

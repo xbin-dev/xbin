@@ -50,7 +50,8 @@ func TestWebhookHMAC(t *testing.T) {
 
 // Paste keeps a new webhook secret before pointing GitHub at it: a
 // delivery GitHub signs with it while the PATCH is still answering is
-// taken. A PATCH GitHub refuses leaves the current secret current.
+// taken. A PATCH GitHub refuses leaves the current secret current, and the
+// previous one (from a rotation in the last day) accepted as before.
 func TestWebhookSecretKeptBeforePatch(t *testing.T) {
 	ee := newEvEnv(t)
 	body := fixture(t, "push")
@@ -73,6 +74,9 @@ func TestWebhookSecretKeptBeforePatch(t *testing.T) {
 	if r := paste("refused-webhook-secret-0123456789"); r.Code < 400 {
 		t.Fatalf("a refused PATCH: %d", r.Code)
 	}
+	// …and the previous one, rotated out by the first Paste, is still
+	// accepted for the rest of its day (deliveries in flight signed with it)
+	ok(t, ee.sendHook(ee.gH, ingress, "push", "d-2b", old, body), 202)
 	ee.clock.advance(25 * time.Hour)
 	ok(t, ee.sendHook(ee.gH, ingress, "push", "d-3", next, body), 202)
 	ok(t, ee.sendHook(ee.gH, ingress, "push", "d-4", "refused-webhook-secret-0123456789", body), 401)

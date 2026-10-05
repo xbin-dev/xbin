@@ -47,8 +47,13 @@ func TestSigninDeviceFlow(t *testing.T) {
 	if st.State != "pending" || st.Signin.PollID != poll {
 		t.Fatalf("GET: %+v", st)
 	}
-	// Not due yet: GitHub isn't asked.
-	decode(t, e.call(u, pageC("alice"), "GET", "/scm/signin/"+poll, nil), &st)
+	// Not due yet: GitHub isn't asked. A pending answer is a GET's too
+	// (writeGET): it carries an ETag.
+	r0 := e.call(u, pageC("alice"), "GET", "/scm/signin/"+poll, nil)
+	if r0.Header().Get("ETag") == "" {
+		t.Fatalf("a pending poll's answer has no ETag")
+	}
+	decode(t, r0, &st)
 	if st.State != "pending" || e.devicePolls() != 0 || st.RetryAfterMs <= 0 {
 		t.Fatalf("early poll: %+v, %d polls", st, e.devicePolls())
 	}

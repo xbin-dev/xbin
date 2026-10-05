@@ -388,3 +388,39 @@ func TestPolicyNarrowingStopsQueued(t *testing.T) {
 		}
 	}
 }
+
+// botRepos bounds what a bot token may name, not a person's own events:
+// narrowing it leaves a person's queued item (for: user:…) on a repo now
+// outside botRepos, but within allowedAccounts, listed and delivered.
+func TestPolicyNarrowingKeepsPersonItems(t *testing.T) {
+	ee := newEvEnv(t)
+	ee.signIn("alice", "octocat")
+	alice := ee.user("alice").routes()
+	ok(t, ee.call(alice, personC("alice"), "POST", "/scm/subscriptions", map[string]any{"repo": "acme/web", "key": "task:1"}), 201)
+	ee.agent.answer(500)
+	ok(t, ee.hook("push", fixture(t, "push")), 202)
+	ee.deliver() // the consumer is failing: pending
+	list := func() int {
+		var p page[json.RawMessage]
+		r := ee.call(alice, personC("alice"), "GET", "/scm/events", nil)
+		ok(t, r, 200)
+		decode(t, r, &p)
+		return len(p.Items)
+	}
+	if n := list(); n != 1 {
+		t.Fatalf("%d listed", n)
+	}
+	p := basePolicy()
+	p.BotRepos = []string{"acme/api"}
+	ee.setPolicy(p)
+	if n := list(); n != 1 {
+		t.Fatalf("a person's item hidden by botRepos: %d listed", n)
+	}
+	ee.agent.answer(200)
+	ee.clock.advance(time.Minute)
+	ee.deliver()
+	h := ee.global.ev()
+	if got := ee.agent.take(); len(got) != 1 || got[0]["for"] != "user:alice" || h.counts.Policy != 0 {
+		t.Fatalf("delivered %v, %+v", got, h.counts)
+	}
+}
