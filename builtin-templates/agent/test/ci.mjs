@@ -189,6 +189,29 @@ ok('no errors', errors.length === 0, errors.join(' | '));
   await p3.close();
 }
 
+// === following a log stops once the dock hides it ====================================================
+{
+  const seed = ciSeedFor();
+  seed.ci.logs['88001'] = { text: 'step 1\n', running: false, partial: true };
+  const { page: p6, errors: e6 } = await open(seed);
+  await p6.waitForSelector('#cichip');
+  await p6.click('#cichip');
+  await p6.waitForSelector('#cisec');
+  await p6.click('.cijob[data-job="88001"] .cirow');
+  await p6.click('.cijob[data-job="88001"] .cilog');
+  await p6.waitForSelector('#ci-follow');
+  await p6.click('#ci-follow');
+  const logReads = () => p6.evaluate(() => window.__calls.filter((c) => /\/ci\/jobs\/88001\/log\?.*since=/.test(c.url)).length);
+  await p6.click('.hbtab[data-tab="agents"]');
+  const before = await logReads();
+  await p6.waitForTimeout(5600);
+  ok('following a log: the Coding agents tab stops it (no reads while hidden)', (await logReads()) === before, `${before} → ${await logReads()}`);
+  await p6.click('.hbtab[data-tab="ci"]');
+  ok('…and its Follow is off again', (await p6.getAttribute('#ci-follow', 'aria-pressed')) === 'false');
+  ok('following: no errors', e6.length === 0, e6.join(' | '));
+  await p6.close();
+}
+
 // === a phone: the dock over the chat ==============================================================
 {
   const { page: p4, errors: e4 } = await open(ciSeedFor(), { width: 390 });

@@ -86,11 +86,13 @@ ext.register({
 });
 
 // liveFor: the conversation's CI read once when it opens; re-read every 15 s
-// while its Coding agents screen (or a job of it) is shown and anything is not completed
+// while its Coding agents screen (or a job of it) is shown and anything is not completed;
+// at home (no conversation) nothing is
 function liveFor(v) {
   const app = ctx.app;
   const root = rootOf(v);
-  if (!app || root == null) return;
+  if (!app) return;
+  if (root == null) { app.ci.live(null, false); return; }
   if (!read.has(root) && !app.ci.view(root) && app.ci.chip(root)) { read.add(root); app.ci.load(root).catch(() => {}); }
   const shown = (app.ci.chip(root) || app.ci.view(root)) && ui.stack.some((x) => (x.kind === 'hboard' && x.root === root) || (x.kind === 'ci-job' && x.root === root));
   if (shown) app.ci.live(root, true);
@@ -179,7 +181,8 @@ function follow(s) {
   s.followT = null;
   if (s.follow) {
     s.followT = setInterval(() => {
-      if (!ui.stack.includes(s) || !s.log || s.log.complete) { clearInterval(s.followT); s.followT = null; s.follow = false; ctx.paint(); return; }
+      // the screen gone, the log complete, or a read failed (as on the web): it stops
+      if (!ui.stack.includes(s) || !s.log || s.log.complete || s.err) { clearInterval(s.followT); s.followT = null; s.follow = false; ctx.paint(); return; }
       loadLog(s, { since: s.log.bytes });
     }, 5000);
   }

@@ -109,6 +109,7 @@ function paintCI(v) {
   const shown = root != null && dockTab() === 'ci';
   if (shown) app.ci.live(root, true);
   else app.ci.live(null, false);
+  if (!shown && followT) { stopFollow(); if (st.log) st.log.follow = false; } // the dock closed or on another tab: following a log stops
   if (root != null && !read.has(root) && !app.ci.view(root) && app.ci.chip(root)) { read.add(root); app.ci.load(root).catch(() => {}); }
   const wrap = document.querySelector('.wrap');
   if (wrap) wrap.classList.toggle('ciwide', shown && !!st.log);
