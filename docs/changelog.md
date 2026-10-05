@@ -140,6 +140,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   attachment chips (a pill and circles before). The
   app follows the person's Theme setting (System, Light, Dark) in the
   workspace a window shows, as the tiles' own pages in it already did.
+- **coding-sandbox: an open terminal or stdio socket keeps its sandbox's
+  `lastActive` current** (the template's API.md, `autoStopMin`). While a
+  terminal or a stdio socket — a coding agent's ACP pipe — is open on a
+  sandbox, the manager now counts it as activity every 30 s, so the
+  sandbox's `lastActive` keeps up with its use and its idle stop counts
+  from when the last socket closed, however quiet the socket was (a long
+  command with no output). Nothing to change.
 
 ## 2026-10-03
 

@@ -326,7 +326,7 @@ it carries (each whole) and answers the state:
 | `sizes` | `small` 2 GiB/2/20 GiB, `medium`, `large` | `{id, title, memMiB, vcpus, diskGiB, default}`; sizes over the substrate's per-sandbox caps aren't offered |
 | `quotas` | none | above |
 | `layout` | `/work`, `/home/dev`, `dev` 1000:1000, `/bin/bash` | `{workdir, home, user, uid, gid, shell}` |
-| `autoStopMin` | 0 (the substrate's) | a new sandbox's idle stop (the runtime's `idleStopMin`) |
+| `autoStopMin` | 0 (the substrate's) | a new sandbox's idle stop (the runtime's `idleStopMin`). A terminal or stdio socket open on a sandbox is activity on it every 30 s, so its `lastActive` keeps up and the idle stop counts from when the last one closed |
 | `mounts` | none | `[{res, path?, at, ro?}]`: filesystem resources this tile holds (`res:<scope>/<name>`, its own scope's or granted to it; `path` a clean sub-path) mounted at `at` in every new sandbox — never under `/proc`, `/sys`, `/dev`, `/run/xbin`, `/opt/xbin`; a reader grant is read-only whatever `ro` says. Image builds get none |
 
 ## The operators' API
@@ -474,7 +474,12 @@ runtime (docs/protocol.md §Tile sandboxes): `*xbin.Sandboxes` and
   (`Sbx-User`), so xbind's `noTerminal` applies to a terminal a consumer
   relays too — and the session frame's ids = the contract's; a
   refusal before the upgrade comes back with the runtime's name for the
-  sandbox replaced by its id. The consumer's headers never travel;
+  sandbox replaced by its id. The consumer's headers never travel.
+  While a terminal or stdio socket is open, the manager lists the
+  sandbox's execs every 30 s — activity in the runtime — so its
+  `lastActive` moves and its idle stop waits for the last socket to
+  close, however quiet the socket (a coding agent's ACP pipe through a
+  long command);
 - **ids**: exec and snapshot ids are the runtime's, as they are. One its
   grammar can't hold (`xbin.IsExecID`, `xbin.IsSnapshotID`) is `not-found`
   here and never reaches the runtime, so a consumer's id can't name
