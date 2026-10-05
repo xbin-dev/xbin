@@ -40,10 +40,9 @@
 //                        sandboxes.js; b the conversation's binding, close()
 //                        closes the popover; the conversation is
 //                        ctx.app.session.current())
-// side, page and crumb have a call site once the Projects page lands, dock
-// once the dock hosts sections, card once the board does, childStatus in
-// harness-child.js once CI shows there, sbx in sandboxes.js once a project
-// can be made from a conversation; until then nothing calls them.
+// Their call sites: side, page and crumb in agent.js (the Projects page),
+// dock in harness-board.js, card in projects.js (the board), childStatus in
+// harness-child.js, sbx in sandboxes.js.
 import { makeExt } from './model/ext.js';
 
 export const ext = makeExt({ block: 'first', end: 'all', top: 'all', paint: 'each', newChat: 'all', task: 'all',

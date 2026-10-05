@@ -36,8 +36,8 @@
 //                    agents: {key, title, badge?, tpl()} (native/harness-board.js)
 //   card(task)       words on a project board's task row (task a TaskView)
 //   childStatus(r)   words after a coding agent row's status (r the child run)
-// drawer, dock, card and childStatus have a call site once the feature that
-// draws there lands; until then nothing calls them.
+// Their call sites: drawer in native/convs.js, dock in native/harness-board.js,
+// card in native/projects.js (the board), childStatus in native/harness-child.js.
 import { makeExt } from '../model/ext.js';
 
 export const ext = makeExt({ block: 'first', end: 'all', toolbar: 'all', subtitle: 'all', menu: 'all', main: 'all', composer: 'all', newChat: 'all', screen: 'first', task: 'all',
