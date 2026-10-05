@@ -321,6 +321,24 @@ test('a task\'s conversation: the prep card step by step, Retry when it failed; 
   assert.match(find(s.snapshots.done, { t: 'notice', p: { title: 'To push, this task needs your own sign-in' } }).p.text, /^Signed in/);
 });
 
+test('the sign-in card: after the poll gives up, Check again polls the same sign-in again', async () => {
+  const POLL = '/projects/scm/signin/poll1\\?';
+  const s = await run({ ...partitionSeed(), partition: 'user:alice' }, [
+    { call: ['route', 'GET', POLL, { error: 'busy upstream' }, 502] },
+    { wait: 400000 }, // eight failed polls, 5 s doubling to a minute
+    { snapshot: 'gaveUp' },
+    { call: ['route', 'GET', POLL, { state: 'done' }] },
+    { tap: btn('Check again') },
+    { wait: 2500 },
+    { snapshot: 'done' },
+  ], `c=${B + 106}`);
+  const card = (snap) => find(snap, { t: 'notice', p: { title: 'To push, this task needs your own sign-in' } });
+  assert.match(card(s.snapshots.gaveUp).p.text, /^Couldn't learn whether you signed in/);
+  assert.equal(called(s, 'POST', new RegExp(`/runs/${B + 106}/task/refresh$`)).length, 1, 'looked at again once it is done');
+  assert.match(card(s.snapshots.done).p.text, /^Signed in/);
+  assert.equal(find(s.snapshots.done, btn('Check again')), null);
+});
+
 test('Make this a project…: the sandbox\'s repos, https, a name and a branch — then the conversation is task 1', async () => {
   const r = await run(moreSeed(), [
     { tap: btn('Make this a project…') },

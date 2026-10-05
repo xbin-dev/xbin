@@ -15,7 +15,8 @@
 //             way, a step per repo — and the sign-in card: the provider's
 //             page and code, only for the person who must sign in, polled
 //             until done, then the task is looked at again
-//   composer  Retry, when the workspace failed
+//   composer  Retry, when the workspace failed; Check again, when the
+//             sign-in's poll gave up (also in the menu)
 //   task      the Task screen's Project section
 //   screen    'project-upgrade' {run}: the sandbox's repos (those a provider
 //             serves picked; an ssh or credentialed remote switched to
@@ -84,18 +85,23 @@ ext.register({
     const c = crumb(v);
     const card = prepCard(v, ctx.app.me);
     const up = upgradeOffer(v);
+    const again = signinAgain(v);
     if (!c && !up.shown) return null;
     return html`${c ? html`<button icon="folder" @tap=${() => ctx.app.openProjects(c.pid)}>${`Project: ${(v.project && v.project.name) || c.pid}`}</button>` : nothing}
       ${card && card.retry && talk(v) ? html`<button icon="refresh" @tap=${() => act(v, 'retry')}>Retry the workspace</button>` : nothing}
+      ${again ? html`<button icon="refresh" @tap=${again}>Check the sign-in again</button>` : nothing}
       ${up.shown ? html`<button icon="plus" @tap=${() => openUpgrade(v.run.id)}>Make this a project…</button>` : nothing}`;
   },
   end: (v) => prepTpl(v),
   composer(v) {
     if (!ctx.app) return null;
     const card = prepCard(v, ctx.app.me);
-    if (!card || !card.retry || !talk(v)) return null;
+    const retry = !!card && card.retry && talk(v);
+    const again = signinAgain(v);
+    if (!retry && !again) return null;
     const busy = (acts.get(v.run.id) || {}).busy === 'retry';
-    return { tpl: () => html`<button icon="refresh" ?busy=${busy} @tap=${() => act(v, 'retry')}>Retry the workspace</button>` };
+    return { tpl: () => html`${retry ? html`<button icon="refresh" ?busy=${busy} @tap=${() => act(v, 'retry')}>Retry the workspace</button>` : nothing}
+      ${again ? html`<button icon="refresh" @tap=${again}>Check again</button>` : nothing}` };
   },
   task(s) {
     const v = ctx.app.session.merged(s.run) || ctx.app.session.current();
@@ -115,6 +121,16 @@ ext.register({
 const NTONE = { run: 'info', bad: 'danger', warn: 'warn', ok: 'ok', idle: 'muted' };
 const STONE = { run: 'accent', bad: 'danger', warn: 'warn', ok: 'ok', idle: 'muted' };
 
+// signinAgain(v): when the poll of this card's sign-in gave up (state
+// 'error', after 8 failed polls in a row), what Check again does — poll that
+// same sign-in again (the web card's #ptask-signin-again); else null.
+function signinAgain(v) {
+  const si = (prepCard(v, ctx.app.me) || {}).signin;
+  const pv = si && v.project ? pj().ensure(v.project.id) : null;
+  const st = pv && pv.scm ? pj().signinOf(pv.scm) : null;
+  return st && st.state === 'error' && st.pollId === si.pollId ? () => pj().pollSignin(pv.scm, si) : null;
+}
+
 function prepTpl(v) {
   if (!v || !ctx.app) return null;
   const card = prepCard(v, ctx.app.me);
@@ -129,12 +145,14 @@ function prepTpl(v) {
     : st.state === 'done' ? 'Signed in — the task goes on.'
     : st.state === 'error' ? `Couldn't learn whether you signed in: ${st.err}.`
     : ['denied', 'expired'].includes(st.state) ? `The sign-in was ${st.state}.`
+    : st.err ? `Only you see this code. Still waiting (checking again: ${st.err}).`
     : 'Only you see this code. The task goes on once you approve it there.';
   const a = acts.get(v.run.id) || {};
   return html`<notice tone=${NTONE[card.tone] || 'info'} title=${card.title} text=${[card.step, card.detail, card.error].filter(Boolean).join(' — ') || ' '}/>
     ${repeat(card.steps, (x) => x.repo, (x) => html`<step glyph=${x.glyph} tone=${STONE[x.tone] || 'muted'} text=${`${x.repo}: ${x.text}${x.error ? ' — ' + x.error : ''}`}/>`)}
     ${card.retry && talk(v) ? html`<text tone="muted">Retry the workspace from the composer or ⋯.</text>` : nothing}
     ${card.signin ? html`<notice tone="warn" title="To push, this task needs your own sign-in" text=${words}/>
+      ${st && st.state === 'error' ? html`<text tone="muted">Check again from the composer or ⋯.</text>` : nothing}
       <text style="title3" mono selectable>${card.signin.userCode}</text>
       ${/^https:\/\/[^\s()<>[\]]+$/i.test(card.signin.url) ? html`<markdown source=${`Open [${card.signin.url}](${card.signin.url}) and enter the code above.`} @link=${(e) => openUrl(e.href)}/>` : nothing}`
     : card.signinElsewhere ? html`<notice tone="muted" text=${card.signinElsewhere}/>` : nothing}

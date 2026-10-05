@@ -4532,8 +4532,11 @@ says its projects work as the provider's bot (at the shared space, that
 each member signs in from their own). **Sign in to ‹provider›** starts the device flow
 (`POST /projects/scm/signin`) and shows its page and code — your own,
 read from your own space, to you only — polling until it is done (a
-failed poll is tried again, later each time; a task's card counts only
-its own sign-in as done). A sign-in already pending when the Settings tab
+failed poll is tried again, later each time; after eight in a row it stops
+and a task's card offers **Check again** — on the app, in the composer and
+⋯; a task's card counts only its own sign-in as done). A sign-in that
+fails to start leaves the one being followed (a parked task's) polled, the
+error said. A sign-in already pending when the Settings tab
 reads it (`GET /projects/scm/signin` — a parked task's, or one started
 elsewhere) is followed the same way; only the latest one is polled, and an
 answer of an earlier one, or one after Forget, changes nothing.
