@@ -371,7 +371,10 @@ passed through untrusted.
   each person) and per GitHub resource (`core`, `search`, `graphql`): once
   spent, that identity's calls of that resource answer 429 `limit` with
   `retryAfterMs` without calling GitHub — a spent search limit leaves its
-  other calls alone. A SAML-protected organization answers 403
+  other calls alone. A secondary limit (GitHub's 429, or a 403 with
+  `Retry-After` or naming it) blocks the same way for its `Retry-After`
+  (a minute when GitHub doesn't say), so the poll and event delivery wait
+  too, not only the call GitHub refused. A SAML-protected organization answers 403
   `not-allowed` with `sso.url` to authorize the identity.
 - `POST /scm/pulls`: GitHub's 422 "a pull request already exists" answers
   the open one, 200 `existing: true`. `mergeable: null` (GitHub still
