@@ -65,24 +65,37 @@ func TestQueueFIFOAndSlots(t *testing.T) {
 }
 
 // A run waiting for a person holds its slot.
+//
+// Task 1 is made to wait only once the engine is done with it: its first
+// turn taken (nothing left in its inbox), no wake set and no actor on it.
+// Forged earlier — parked at the setup gate with its start still in the
+// inbox and the gate's wake armed — the engine woke it, took the start as
+// the person's answer and rested it, freeing the slot by the rules (2 in
+// 30 under -race).
 func TestWaitingRunHoldsSlot(t *testing.T) {
 	fx := newProjFix(t)
-	p := heldProject(t, fx, 1)
+	p := fx.newProject(t, asAlice, map[string]any{"policy": map[string]any{"maxTasks": 1}})
 	_, r1 := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "one"})
-	waitStatus(t, fx.ag.db, r1, statusSleep)
-	fx.newTask(t, asAlice, p.ID, map[string]any{"text": "two"})
+	waitFor(t, "task 1's first turn", func() bool {
+		r, _ := fx.ag.db.getRun(r1)
+		return r.Status == statusIdle && len(fakeOf(fx.ag).callsFor(r1)) == 1
+	})
+	waitQuiet(t, fx.ag)
 	// task 1 now waits for a person (an approval, say)
 	if err := fx.ag.db.setStatus(r1, statusWaiting, 0, "may I?", `{"kind":"approval"}`); err != nil {
 		t.Fatal(err)
 	}
+	fx.newTask(t, asAlice, p.ID, map[string]any{"text": "two"})
 	projectPump(p.ID)
 	time.Sleep(50 * time.Millisecond)
 	if startDelivered(fx, p.ID, 2) {
 		t.Fatal("a waiting task's slot was given away")
 	}
-	// it takes its input up and rests: its slot is free, and the status
+	if s := statusOf(fx.ag.db, r1); s != statusWaiting {
+		t.Fatalf("task 1 is %s, not waiting: the check above proved nothing", s)
+	}
+	// it takes its answer and rests: its slot is free, and the status
 	// change runs the pump
-	_, _ = fx.ag.db.q.Exec(`UPDATE inbox SET delivered_at=? WHERE run_id=?`, now(), r1)
 	if err := fx.ag.db.setStatus(r1, statusIdle, 0, "", ""); err != nil {
 		t.Fatal(err)
 	}
