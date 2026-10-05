@@ -11195,3 +11195,127 @@ Deviations and refinements made while implementing; all deliberate:
       square on the light bar and a black one on the dark, so the empty
       composer looked as if it had no send button; the merged tree's
       gallery showed it.)
+
+- **D186 — Projects in the agent template and the scm contract
+  (2026-10-05).** builtin-templates/scm-github; docs/scm.md; the agent's
+  `_backend/project_*.go`, `scm*.go`, `projects_coord_*.go`,
+  `project_team*.go`, `ci_*.go`, `projects_types.go`, `projects_seams.go`,
+  `scm_types.go`; its model/project*.js, projects.js, ci-dock.js,
+  native/projects.js, native/ci.js and siblings; API.md §Projects;
+  plans/projects-scm.md and its records.
+  - **The owner's rulings (2026-10-02).** A separate provider with a
+    repo-hosting contract (credentials required, the rest optional); tile
+    `scm-github`, contract and service `scm`; a builtin template,
+    partitioned (`user`, `global`), bot-only unpartitioned; personal
+    projects in a person's partition with their own sign-in, only in a
+    private sandbox of theirs; team projects: a definition and board at
+    global, each task in its creator's partition (coding agents stay
+    barred at global, D172); worktrees in one sandbox, big tasks fork it;
+    screenshots in PRs deferred (GitHub has no public upload API); CI
+    visible and inspectable in the coding UI (D147's chip and dock), down
+    to steps and logs; "run as root" left to the sandbox track's decision
+    (ACP has no such field); the whole scope. At the freeze (2026-10-03)
+    none of the vetoable defaults V1–V18 was vetoed; scm-github's `net`
+    is plain `internet` (the narrowed list documented, which must include
+    the Actions log hosts); the channel attach (V10) may slip — it did.
+    After the live checks (2026-10-04) the owner kept the **epoch**: a
+    person's scoped tokens end at their parent's expiry less an hour,
+    although S2 showed a scoped token outlives its parent's refresh — the
+    cap bounds how long a token lives after a sign-in moves on.
+  - **The owner's rulings at land (2026-10-05).** Every default built for
+    the open owner questions 1–33 in records/LAND.md is accepted as built.
+    34 (S1 live: the manifest form from a sandboxed frame's new tab) and
+    35 (webhooks against real GitHub) stay open: not run.
+  - **Why a contract and a provider:** the provider knows the host and the
+    credentials, the consumer knows who, why and which sandbox; a person's
+    sign-in lives in their partition, the App's keys at global; the agent
+    never sees an App key or a refresh token. Global holds the client
+    secret, so global scopes and revokes, recomputing permissions,
+    accounts and repos itself from a relay body the person could have
+    written; a partition refreshes itself. The identity directory comes
+    from GitHub's answer for a token only this App issued, never `GET
+    /user`. A partition's token cache follows global through conf
+    `public` (the policy's public half and a `tokenGen`). Not chosen:
+    people's tokens at global (one place to steal every sign-in), an
+    OAuth web flow (the client secret in every partition), no caching in
+    the partition (a relay and a mint per git operation).
+  - **Credentials:** short-lived, scoped to the project's repos, written
+    0600 outside every repo, kept in memory and the sandbox only
+    (`project_creds` holds who, until when and why, never the value),
+    rotated by one loop only while a task works, scrubbed on share, stop,
+    archive, delete, fork, snapshot and Forget, redacted by shape and by
+    value everywhere output is kept (same-length masks); a person's only in
+    their own private sandbox homed in their partition and never one a
+    hosted conversation used (that use is refused while a credential is
+    live). The gate reads the sandbox as its manager reports it at every
+    write. Scrub on share blocks; revocation is best effort. A GitHub App
+    whose user tokens don't expire is refused at sign-in: nothing could
+    rotate or end them. Not chosen: a vault entry per project.
+  - **Authority over the bot:** where a home's identity is the bot
+    (global, unpartitioned), naming a repo takes a manager or the scm bot
+    rule; a project reads only its own repos thereafter; a partitioned
+    global holds team definitions only; reruns are a person's own, never
+    the bot (V12). A team's seed holds no credential and a sandbox cloned
+    from it takes only the bot; a membership runs the definition's setup
+    and policy only as its member accepted them, by hash of exactly what
+    was shown; a project task's class never has internal reach, checked in
+    `classOf` itself. The bot's own writes use internal tokens never
+    handed out — including, for draft ↔ ready, one with `contents: write`
+    because GitHub's GraphQL requires it.
+  - **A project's sandbox and its people:** tasks bind with the project
+    owner's authority and the owner takes part in every task; so a shared
+    project has its sandbox to itself (409 `sandbox-shared`) — the
+    credential gate judges a sandbox by its own users and can't see
+    people who reach it through another project. A person removed from a
+    project keeps reading their tasks and nothing more. A project's runs
+    refuse publish, copy, hosting and moves (V9).
+  - **The pipeline:** one worker per engine owner with jobs in the
+    database, epoch-fenced, execs found again by `clientId`; the gate
+    parks and never consumes, ending its park itself and poking (never
+    queuing a wake that could be left over); slots count runs, from
+    delivery until taken up; archiving holds rather than fails. Big tasks'
+    forks are made inside `prepare` from a fork base taken while the
+    sandbox is quiet (agent and manager both asked), with no live token in
+    a snapshot or fork, tracked in a registry until deleted. The pr job
+    pushes one explicit refspec and never a default branch; auto-PR is off
+    by default (V7). An upgrade fails closed (internal data, shared, busy).
+  - **Events:** webhooks at global through an outbox (GitHub never
+    retries), foreign accounts dropped first, a person's subscriptions
+    only through their partition and their private-repo access re-read
+    before each event, fork branches never reported as the repo's,
+    passed-through text redacted. In the agent one path for events and
+    polls: an event schedules the read polling makes, acted on with
+    semantic keys; polling in an owner loop, not jobs; the intake takes
+    only the provider bound in `scm`, at its global instance.
+  - **The coordinator** is made only when its person asks, acts with the
+    tile level "read", holds the park on both ends so it never answers
+    for a person, and keeps a stable prompt; project events go to one
+    coordinator (the task's creator's).
+  - **CI:** one dock with sections (the D147 board hosts `ext.dock`);
+    summaries kept in memory per (database, root) to avoid a second
+    handle inside P1's transactions; pushed branches from git's reflog in
+    the pushing run's own sandbox; reads shared and conditional, the 15 s
+    re-read only while someone looks (V11); logs only for completed jobs
+    on GitHub (S4, checked live).
+  - **Not chosen:** a run column for tasks (origin `project` instead);
+    project tools as a class toolset (the stored-classes rollback; gated
+    on `Config.Project`); a team coordinator at global; a merge route;
+    polling as the primary event path; a second right dock for CI; a
+    `projects.coord_run` column (the session key); a route moving a
+    seed-cloned membership to a fresh sandbox.
+  - **Slipped:** the channel attach (`/project <name>` in a DM, V10) — it
+    needs the channel rule, the partition's `handoff/dm` consumer and the
+    coordinator's replies to the chat; a follow-up.
+  - **Defaults the owner may veto:** §2.2–§2.3 of the spec as landed, and
+    the open owner questions in records/LAND.md, each with the default
+    built.
+  - **Owed:** S1 and webhooks against live GitHub; a SAML/SSO
+    organization, GHES, a protected branch, a spent rate limit; the UI
+    harness passes for Projects; the native view on Apple CI.
+  - **Verified:** each WP's named tests (projects-scm §15.2), gate 1's
+    `TestSeededTokenNeverStoredTask` (fails without either redaction
+    layer), the event v1 literal pinned on both sides, scm-github against
+    real GitHub with a test App (`TestLive*`, run by hand; its answers in
+    `testdata/github-live.json`, `TestFakeMatchesLiveGitHub`), the agent
+    and scm-github `-race` suites, the node tests and `make check` (known
+    failures in records/LAND.md).

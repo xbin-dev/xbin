@@ -3626,9 +3626,9 @@ Before `projects-scm` lands on master (the integrator, once):
 > a project included) and may drop a run's project field, which the next
 > upgrade derives again (API.md §Projects and tasks).
 
-### 17.3 Decision draft (D-number: the next free at merge)
+### 17.3 Decision draft (landed as D186)
 
-> **D‹next› — Projects in the agent template and the scm contract
+> **D186 — Projects in the agent template and the scm contract
 > (‹date›).** builtin-templates/scm-github; docs/scm.md; the agent's
 > `_backend/project_*.go`, `scm*.go`, `projects_coord_*.go`,
 > `project_team*.go`, `ci_*.go`, `projects_types.go`, `projects_seams.go`,
