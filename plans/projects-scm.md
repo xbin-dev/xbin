@@ -3966,3 +3966,4 @@ with the record that explains it:
 - 2026-10-05 ps-review: §8.3, §8.8 a task's cleanup in an archived project ends that task's held setup and bind itself (failed, a setup's command KILLed) instead of waiting for jobs the worker won't claim until the project is active again; an active project's are still waited for
 - 2026-10-05 ps-review: §5.5 a Paste whose hook PATCH GitHub refuses puts back the previous webhook secret and its rotation time as well as the current one
 - 2026-10-05 ps-review: §13 of two overlapping sign-in starts the model follows the later (starts numbered apart from polls), the one the provider keeps pending
+- 2026-10-05 gate 2: §14 every engine now runs the project worker, which reads the halt through a person's conf reader on each pass; the reader (`confIn`) is published atomically (`confInP`, read through `confIn()`, stored whole), as tests swap it under a running engine

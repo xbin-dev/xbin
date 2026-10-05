@@ -146,9 +146,9 @@ func newTeamFix(t *testing.T) *teamFix {
 	t.Helper()
 	setMode(t, modeUser, "alice")
 	kv := newMemKV()
-	confIn = newConfReader(kv, nil)
+	confInP.Store(newConfReader(kv, nil))
 	putConf(kv, "", `{"config":`+strconvQuote(mustJSON(defaultConfig()))+`}`)
-	confIn.refresh()
+	confIn().refresh()
 	ag, mux := accessFixture(t)
 	pidMu.Lock()
 	pidSeen = alicePID

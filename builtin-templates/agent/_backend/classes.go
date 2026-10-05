@@ -364,7 +364,7 @@ func (st *classState) defaultFor(w who) agentClass {
 
 // currentClasses is the cached set (the built-ins until loadClasses ran).
 func currentClasses() *classState {
-	if confIn != nil {
+	if confIn() != nil {
 		refreshConfClasses() // a person's partition follows conf (conf.go)
 	}
 	if st := classStore.Load(); st != nil {

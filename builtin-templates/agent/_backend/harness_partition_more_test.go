@@ -219,10 +219,10 @@ func TestHarnessReclaimUnderBrake(t *testing.T) {
 	kv.mu.Lock()
 	kv.m = map[string][]byte{} // conf gone (a wipe): unread again — the brake reads as on
 	kv.mu.Unlock()
-	confIn.mu.Lock()
-	confIn.state, confIn.at = confPending, time.Time{}
-	confIn.mu.Unlock()
-	confIn.refresh()
+	confIn().mu.Lock()
+	confIn().state, confIn().at = confPending, time.Time{}
+	confIn().mu.Unlock()
+	confIn().refresh()
 	if !ag.eng.halted() {
 		t.Fatal("the fixture: the brake doesn't read as on while conf is unread")
 	}
@@ -266,8 +266,8 @@ func TestHarnessIdleWakeUnderHalt(t *testing.T) {
 	setMode(t, modeUser, "alice")
 	kv := newMemKV()
 	putConf(kv, "1", `{"config":`+strconvQuote(mustJSON(defaultConfig()))+`}`)
-	confIn = newConfReader(kv, nil)
-	confIn.refresh()
+	confInP.Store(newConfReader(kv, nil))
+	confIn().refresh()
 	d := newTestDB(t)
 	ag := &Agent{db: d}
 	sleeper, _ := d.createRun("sleeps", "", 0)

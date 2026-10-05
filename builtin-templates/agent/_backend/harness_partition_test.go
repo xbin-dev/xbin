@@ -69,12 +69,12 @@ func harnessPartitionG(t *testing.T, flags ...string) (*Agent, http.Handler, *sb
 	t.Helper()
 	setMode(t, modeUser, "alice")
 	kv := newMemKV()
-	confIn = newConfReader(kv, nil)
+	confInP.Store(newConfReader(kv, nil))
 	putConf(kv, "", `{"config":`+strconvQuote(mustJSON(defaultConfig()))+`}`)
-	confIn.refresh()
+	confIn().refresh()
 	ag, h := homeAgent(t)
-	confIn.parked = ag.db.brakeParked
-	confIn.onHaltOff = func() { ag.eng.recover() }
+	confIn().parked = ag.db.brakeParked
+	confIn().onHaltOff = func() { ag.eng.recover() }
 	if err := ag.db.addHandoffSchema(); err != nil { // the usage tables (startMode makes them)
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func TestHarnessBrakeInPartition(t *testing.T) {
 	// a turn that says nothing is reached all the same (brakeLook), no
 	// event and no poke needed
 	putConf(kv, "", cfg)
-	confIn.refresh()
+	confIn().refresh()
 	quiet(t, ag)
 	stall := askIn(t, h, box, "stall")
 	hwait(t, "stalling", func() bool { return draftText(ag.eng, stall.ID) == "stalling" })
@@ -334,9 +334,9 @@ func TestHarnessBrakeFailsClosed(t *testing.T) {
 	kv.mu.Lock()
 	kv.m = map[string][]byte{} // conf gone (a wipe): unread again
 	kv.mu.Unlock()
-	confIn.state, confIn.at = confPending, time.Time{}
-	confIn.refresh()
-	if v := confIn.view(true); v.State != confPending {
+	confIn().state, confIn().at = confPending, time.Time{}
+	confIn().refresh()
+	if v := confIn().view(true); v.State != confPending {
 		t.Fatalf("conf: %+v", v)
 	}
 	execs := func() int { return m.count("POST", "/sandboxes/"+box.ID+"/execs") }

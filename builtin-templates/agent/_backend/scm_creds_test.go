@@ -69,9 +69,9 @@ func credFixture(t *testing.T, mode agentMode) *credFx {
 	}
 	setMode(t, mode, user)
 	kv := newMemKV()
-	confIn = newConfReader(kv, nil)
+	confInP.Store(newConfReader(kv, nil))
 	putConf(kv, "", `{"config":`+strconvQuote(mustJSON(defaultConfig()))+`}`)
-	confIn.refresh()
+	confIn().refresh()
 	fx.ag, fx.h = homeAgent(t)
 	if _, err := fx.ag.db.q.Exec(scmTestProjectTables); err != nil {
 		t.Fatal(err)

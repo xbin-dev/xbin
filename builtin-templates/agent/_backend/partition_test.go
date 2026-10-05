@@ -162,7 +162,7 @@ func TestConfMirror(t *testing.T) {
 	setMode(t, modeUser, "alice")
 	shorten(t, &confTTL, 0)
 	confOut = nil
-	confIn = newConfReader(kv, nil)
+	confInP.Store(newConfReader(kv, nil))
 	p := newTestDB(t)
 	if v := parseConfig(p.getSetting("config")); v.Model != "fake/one" || len(v.MCP) != 1 || v.MCP[0].Name != "open" {
 		t.Fatalf("the partition reads config %+v", v)
@@ -198,14 +198,15 @@ func TestConfMirror(t *testing.T) {
 
 	// a manager's change at global reaches the partition (the cache is 0 here)
 	setMode(t, modeGlobal, "")
-	confIn, confOut = nil, newConfMirror(kv, g)
+	confInP.Store(nil)
+	confOut = newConfMirror(kv, g)
 	_ = g.putSetting("halt", "")
 	_ = g.deleteSkill("deploy")
 	_ = g.putSetting("classes", `{"classes":[{"id":"ops","name":"Ops","toolsets":["internal"]}],"default":"ops"}`)
 	setMode(t, modeUser, "alice")
 	shorten(t, &confTTL, 0)
-	confIn = newConfReader(kv, nil)
-	confIn.refresh()
+	confInP.Store(newConfReader(kv, nil))
+	confIn().refresh()
 	if e.halted() {
 		t.Fatal("the halt stayed on in the partition")
 	}
@@ -665,13 +666,13 @@ func TestLeaveWakeUpByMode(t *testing.T) {
 	_, _ = d.q.Exec(`UPDATE runs SET status='running', wake_at=0 WHERE id=?`, id)
 	kv := newMemKV()
 	putConf(kv, "1", `{}`)
-	confIn = newConfReader(kv, nil)
-	confIn.refresh()
+	confInP.Store(newConfReader(kv, nil))
+	confIn().refresh()
 	ag.leaveWakeUp(d)
 	if j := take(); len(j) != 0 {
 		t.Fatalf("a partition under a halt registered %v", j)
 	}
-	confIn = nil
+	confInP.Store(nil)
 	ag.clearWakeJobs()
 	mu.Lock()
 	got := strings.Join(deletes, ",")

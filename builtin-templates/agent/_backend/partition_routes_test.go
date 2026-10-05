@@ -85,7 +85,7 @@ func (s *stubGlobal) got() []string {
 func TestUserModeRoutes(t *testing.T) {
 	setMode(t, modeUser, "alice")
 	kv := newMemKV()
-	confIn = newConfReader(kv, nil)
+	confInP.Store(newConfReader(kv, nil))
 	ag, h := partAgent(t)
 	putConf(kv, "", `{}`)
 	g := stubGlobalCalls(t, func(method, path string, body []byte) (int, string) {
@@ -99,7 +99,7 @@ func TestUserModeRoutes(t *testing.T) {
 		h.ServeHTTP(rec, r)
 		return rec
 	}
-	confIn.setting("config") // cached: empty
+	confIn().setting("config") // cached: empty
 	if rec := do(as("PUT", "/config", `{"model":"fake/two"}`, alicesFrame("write"))); rec.Code != 200 {
 		t.Fatalf("PUT /config: %d %s", rec.Code, rec.Body)
 	}
@@ -204,7 +204,7 @@ func TestUserModeHalt(t *testing.T) {
 	shorten(t, &confTTL, 0)
 	kv := newMemKV()
 	putConf(kv, "1", `{}`)
-	confIn = newConfReader(kv, nil)
+	confInP.Store(newConfReader(kv, nil))
 	_, h := partAgent(t)
 	g := stubGlobalCalls(t, func(method, path string, body []byte) (int, string) {
 		if path == "/halt" {

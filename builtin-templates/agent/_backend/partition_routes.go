@@ -150,8 +150,8 @@ func forwardSetting(w http.ResponseWriter, r *http.Request) {
 	if !ok || res.Status/100 != 2 || r.Method == http.MethodGet {
 		return
 	}
-	if confIn != nil {
-		confIn.invalidate()
+	if confIn() != nil {
+		confIn().invalidate()
 	}
 	if strings.HasSuffix(r.URL.Path, "/halt") && agent != nil {
 		var on struct{ On bool }
@@ -180,8 +180,8 @@ func (ag *Agent) clearHalt() bool {
 		logf("taking the halt off at the shared instance: %v (HTTP %d %s)", err, res.Status, clip(string(res.Body), 200))
 		return false
 	}
-	if confIn != nil {
-		confIn.invalidate()
+	if confIn() != nil {
+		confIn().invalidate()
 	}
 	return true
 }
@@ -218,16 +218,16 @@ func forwardSkill(w http.ResponseWriter, r *http.Request, local http.HandlerFunc
 	case own && r.Method == http.MethodPut && b.Owner != nil && *b.Owner == "":
 		if res, ok := relay(w, r, body); ok && res.Status/100 == 2 { // published: everyone's now, at global
 			_ = agent.db.deleteSkill(name)
-			if confIn != nil {
-				confIn.invalidate()
+			if confIn() != nil {
+				confIn().invalidate()
 			}
 		}
 	case own || (b.Owner != nil && *b.Owner == runUser):
 		r.Body = io.NopCloser(bytes.NewReader(body))
 		local(w, r)
 	default:
-		if res, ok := relay(w, r, body); ok && res.Status/100 == 2 && confIn != nil {
-			confIn.invalidate()
+		if res, ok := relay(w, r, body); ok && res.Status/100 == 2 && confIn() != nil {
+			confIn().invalidate()
 		}
 	}
 }
