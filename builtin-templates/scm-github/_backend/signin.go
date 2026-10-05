@@ -388,11 +388,11 @@ func (s *srv) handleSigninPoll(w http.ResponseWriter, r *http.Request, c who) {
 	defer f.mu.Unlock()
 	if f.cur != nil && f.cur.PollID == id {
 		wait := max(f.cur.NextAt-s.now().UnixMilli(), 0)
-		writeJSON(w, http.StatusOK, signinState{State: "pending", Signin: f.cur.info(), RetryAfterMs: wait})
+		writeGET(w, r, signinState{State: "pending", Signin: f.cur.info(), RetryAfterMs: wait})
 		return
 	}
 	if e, ok := f.ended[id]; ok {
-		writeJSON(w, http.StatusOK, signinState{State: e.state, Identity: e.ident, Error: e.err})
+		writeGET(w, r, signinState{State: e.state, Identity: e.ident, Error: e.err})
 		return
 	}
 	fail(w, refuse(refNotFound, "no such sign-in (or it ended long ago)"))

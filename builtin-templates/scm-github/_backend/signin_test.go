@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -94,9 +95,22 @@ func TestSigninDeviceFlow(t *testing.T) {
 		t.Fatalf("hello: %+v", h.You)
 	}
 	// The ended poll still answers a while, then not.
-	decode(t, e.call(u, pageC("alice"), "GET", "/scm/signin/"+poll, nil), &st)
+	r = e.call(u, pageC("alice"), "GET", "/scm/signin/"+poll, nil)
+	decode(t, r, &st)
 	if st.State != "done" {
 		t.Fatalf("ended poll: %+v", st)
+	}
+	// A GET like any other (/docs/scm.md §Conventions): an ETag, the same
+	// in the body, and 304 to it.
+	var tagged struct {
+		ETag string `json:"etag"`
+	}
+	decode(t, r, &tagged)
+	if tag := r.Header().Get("ETag"); tag == "" || tag != tagged.ETag {
+		t.Fatalf("poll ETag %q, body etag %q", tag, tagged.ETag)
+	}
+	if r := e.call(u, pageC("alice"), "GET", "/scm/signin/"+poll+"?ifNoneMatch="+url.QueryEscape(tagged.ETag), nil); r.Code != 304 {
+		t.Fatalf("ifNoneMatch: %d", r.Code)
 	}
 	refusal(t, e.call(u, pageC("alice"), "GET", "/scm/signin/p_nope", nil), 404, "not-found")
 	// The device code is never in an answer, and the partition holds no
