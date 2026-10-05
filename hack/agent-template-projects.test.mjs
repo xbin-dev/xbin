@@ -504,6 +504,30 @@ test('a pending sign-in read by GET is followed to done', async () => {
   assert.equal(pj.polls.size, 0);
 });
 
+test('a sign-in that fails to start keeps following the one before it (a parked task\'s)', async () => {
+  const seen = [];
+  backend([['GET', /^\/projects\/scm\/signin\/(p\w)/, (x) => { seen.push(x[1]); return json({ state: 'pending' }); }],
+    ['POST', /^\/projects\/scm\/signin$/, () => json({ error: 'upstream down' }, 502)],
+    ['GET', /^\/projects\/scm(\?.*)?$/, () => json({ providers: [] })]], 'user:alice');
+  const pj = M.createProjects(fakeApp());
+  const realSet = globalThis.setTimeout;
+  const timers = [];
+  globalThis.setTimeout = (fn) => { timers.push(fn); return timers.length; }; // ticks run by hand
+  const settle = () => new Promise((r) => realSet(r, 5));
+  try {
+    pj.pollSignin('gh', { pollId: 'pA', userCode: 'AAAA-1111' });
+    const s = await pj.signin('gh');
+    assert.equal(s.state, 'error');
+    const cur = pj.signinOf('gh');
+    assert.deepEqual([cur.state, cur.pollId, cur.signin.userCode], ['pending', 'pA', 'AAAA-1111'], 'still the parked task\'s sign-in');
+    assert.match(cur.err, /upstream down/, 'the failed start is said');
+    assert.equal(timers.length, 1, 'its poll goes on');
+    timers.shift()();
+    await settle();
+    assert.deepEqual(seen, ['pA']);
+  } finally { globalThis.setTimeout = realSet; }
+});
+
 test('a late answer of an earlier sign-in poll changes nothing', async () => {
   const gates = [];
   const seen = [];
