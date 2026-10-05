@@ -61,6 +61,12 @@ func (e *Engine) startProjects() {
 	}
 	e.mu.Lock()
 	epoch, closing := e.epoch, e.closing
+	if !closing {
+		// Add under e.mu, before closing can be set: Shutdown's wait never
+		// races a start. One for the worker, one per owner loop.
+		e.projWG.Add(1 + len(ownerLoops))
+		e.loopMode = runMode
+	}
 	e.mu.Unlock()
 	if closing {
 		return
@@ -79,9 +85,32 @@ func (e *Engine) startProjects() {
 		_, err := t.q.Exec(`UPDATE project_jobs SET state='queued', updated_ms=? WHERE state='running' AND epoch<>?`, nowMs(), epoch)
 		return err
 	})
-	go w.loop()
+	go func() {
+		defer e.projWG.Done()
+		w.loop()
+	}()
 	for _, l := range ownerLoops {
-		go l(ctx, e)
+		go func() {
+			defer e.projWG.Done()
+			l(ctx, e)
+		}()
+	}
+}
+
+// waitProjects (Shutdown, after stopProjects): the worker, its jobs and
+// the owner loops have returned, or wait has passed. Nothing they read —
+// the seams, the process's mode — is then still in use by this engine.
+func (e *Engine) waitProjects(wait time.Duration) {
+	done := make(chan struct{})
+	go func() {
+		e.projWG.Wait()
+		close(done)
+	}()
+	t := time.NewTimer(wait)
+	defer t.Stop()
+	select {
+	case <-done:
+	case <-t.C:
 	}
 }
 
@@ -269,7 +298,11 @@ func (w *projWorker) pass() time.Duration {
 		}
 		w.mu.Unlock()
 		w.updateHold()
-		go w.run(j, key)
+		w.e.projWG.Add(1) // the worker's own count is held: never from zero
+		go func() {
+			defer w.e.projWG.Done()
+			w.run(j, key)
+		}()
 	}
 	return max(next, 50*time.Millisecond)
 }

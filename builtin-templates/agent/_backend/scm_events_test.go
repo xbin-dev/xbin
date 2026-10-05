@@ -123,6 +123,7 @@ func newEvFx(t *testing.T, mode agentMode, policy string) *evFx {
 	}
 	_, _ = fx.ag.db.q.Exec(`INSERT INTO project_creds (project_id, sandbox_ref, host, identity, login, written_ms) VALUES (?, ?, 'github.com', 'bot', ?, ?)`,
 		fx.p.ID, fx.p.SandboxRef, evBot, nowMs())
+	stopEngineFirst(t, fx.ag)
 	return fx
 }
 

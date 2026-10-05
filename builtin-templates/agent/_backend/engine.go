@@ -81,6 +81,12 @@ type Engine struct {
 	hbrake      *time.Timer // a person's partition: the look at the halt while a coding agent works (harness_partition.go)
 	hold        holder
 
+	// The project worker, its jobs and the owner loops (project_worker.go):
+	// joined (bounded) by Shutdown, so none outlives the engine; loopMode is
+	// the process's mode as the owner loops were started under.
+	projWG   sync.WaitGroup
+	loopMode agentMode
+
 	// A host's engine over team (hosted_engine.go): its own epoch key, the
 	// conversations it may drive, its own wake-up at exit. Zero on every
 	// other engine, which then behaves exactly as before.
@@ -474,6 +480,7 @@ func (e *Engine) Shutdown(wait time.Duration) {
 		}
 		t.Stop()
 	}
+	e.waitProjects(wait)
 	if owned && e.wake != nil {
 		e.wake() // a host's engine (hosted_engine.go)
 	} else if owned && e.ag != nil {

@@ -254,7 +254,17 @@ func newProjFix(t *testing.T) *projFix {
 	oldDelay := projStreamDelay.Load()
 	projStreamDelay.Store(int64(5 * time.Millisecond))
 	t.Cleanup(func() { scmBotAllowed = oldBot; projStreamDelay.Store(oldDelay) })
+	stopEngineFirst(t, ag)
 	return &projFix{ag: ag, mux: mux, m: m, scm: f, box: box, origin: url, odir: dir}
+}
+
+// stopEngineFirst stops ag's engine — its actors, project worker, jobs and
+// owner loops joined — before the cleanups registered so far put the seams
+// they read back (cleanups run last-first; newTestAgent's own stop comes
+// after them, too late). Call it once the fixture's seams are swapped.
+func stopEngineFirst(t *testing.T, ag *Agent) {
+	t.Helper()
+	t.Cleanup(func() { ag.eng.Shutdown(2 * time.Second) })
 }
 
 // newProject creates a project as c over the fixture's sandbox; the body

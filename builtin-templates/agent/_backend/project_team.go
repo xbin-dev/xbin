@@ -261,20 +261,22 @@ var (
 // global instance, drops the rows of definitions that are gone. It never
 // holds the engine (ownerLoops don't).
 func teamLoop(ctx context.Context, e *Engine) {
-	if e == nil || e.ag == nil || !partitioned() {
+	// the mode the engine started the loops under, never the process
+	// global again: a test switches it under a running engine
+	if e == nil || e.ag == nil || e.loopMode == modeLegacy {
 		return
 	}
 	var lastSync, lastSweep time.Time
 	for {
 		wait := time.Minute
-		switch {
-		case userMode():
+		switch e.loopMode {
+		case modeUser:
 			wait = min(wait, teamSendDue(ctx, e.ag))
 			if time.Since(lastSync) >= teamSyncEvery {
 				lastSync = time.Now()
 				teamSyncOpen(ctx, e.ag)
 			}
-		case globalMode():
+		case modeGlobal:
 			if time.Since(lastSweep) >= teamSweepEvery {
 				lastSweep = time.Now()
 				teamSweep(e.ag.db)

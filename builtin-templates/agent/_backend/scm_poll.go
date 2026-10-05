@@ -547,7 +547,7 @@ func scmLoopPoke() {
 // scmLoop is E's ownerLoops entry: subscriptions and reads, at the next
 // one's time, on a kick, at least every 10 min.
 func scmLoop(ctx context.Context, e *Engine) {
-	if e.ag != nil && !e.ag.noGateway && !scmLoopOff.Load() && e.db.features && !userMode() { // noGateway first: tests switch the mode under a starting engine
+	if e.ag != nil && !e.ag.noGateway && !scmLoopOff.Load() && e.db.features && e.loopMode != modeUser { // the mode the loops started under (Engine.loopMode)
 		// unpartitioned and at global the takeover clears only `resume`
 		// (owner.go clearWakeJobs): the `wake` an earlier exit left for a
 		// read (resume_mode.go) goes here — the first pass reads what is due

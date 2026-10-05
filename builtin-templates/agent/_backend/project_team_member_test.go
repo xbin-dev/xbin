@@ -174,6 +174,7 @@ func newTeamFix(t *testing.T) *teamFix {
 		teamSynced.m = map[int64]time.Time{}
 		teamSynced.Unlock()
 	})
+	stopEngineFirst(t, ag)
 	return &teamFix{projFix: &projFix{ag: ag, mux: mux, m: m, scm: f, box: box, origin: url, odir: dir}, g: g, global: global}
 }
 
