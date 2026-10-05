@@ -3349,7 +3349,8 @@ and the slots in use:
 
 `state` is `active`, `archived` (its credentials scrubbed, nothing starts,
 nothing is fetched; everything kept — its workspace jobs wait, untouched,
-until it is active again, and a task whose turn waited for its workspace
+until it is active again, but for a task's cleanup, which runs and ends
+that task's waiting setup and bind (a setup's command stopped), and a task whose turn waited for its workspace
 rests, its input back at the head of the queue, a message with files left
 in its inbox until then) or `deleting` (only reads answer). A
 repo's `state`: `pending`, `cloning`, `ready`, `failed` (`error` says why);

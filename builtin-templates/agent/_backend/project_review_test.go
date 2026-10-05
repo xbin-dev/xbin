@@ -109,6 +109,105 @@ func TestCloseStopsRunningSetup(t *testing.T) {
 	}
 }
 
+// A big task closed with cleanup while its setup runs in its fork: the
+// setup stops, the workspace ends cleaned (no bind, no failure moves it
+// off), so the fork is still due and its fork job deletes it.
+func TestCloseStopsRunningSetupBig(t *testing.T) {
+	fx := newP2Fix(t)
+	p, _, _ := readyTask(t, fx.projFix, nil)
+	d := fx.ag.db
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/fork-base", p.ID), map[string]any{"now": true}); w.Code != 202 {
+		t.Fatalf("POST fork-base: %d %s", w.Code, w.Body)
+	}
+	waitJobsDone(t, fx.projFix, p.ID)
+	// a setup that never ends on its own (nothing writes its file in the fork)
+	script, _ := holdSetup(fx.projFix)
+	if _, err := d.q.Exec(`UPDATE project_repos SET setup=? WHERE project_id=?`, script, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	tv, run2 := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "a big one", "size": "big"})
+	k, _ := d.taskByN(p.ID, tv.N)
+	waitFor(t, "the big task's setup running", func() bool {
+		for _, c := range d.checkouts(k.ID) {
+			if c.State == "setup" {
+				return true
+			}
+		}
+		return false
+	})
+	k, _ = d.taskByN(p.ID, tv.N)
+	if !k.ForkMade || k.SandboxRef == "" {
+		t.Fatalf("no fork: %+v", k)
+	}
+	_, forkID, _ := splitSandboxRef(k.SandboxRef)
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/task/close", run2), map[string]any{"cleanup": true}); w.Code != 200 {
+		t.Fatalf("close: %d %s", w.Code, w.Body)
+	}
+	fx.waitWS(t, p.ID, tv.N, wsCleaned)
+	waitJobsDone(t, fx.projFix, p.ID)
+	k, _ = d.taskByN(p.ID, tv.N)
+	if k.WS != wsCleaned {
+		t.Fatalf("ws after the close = %s (jobs %s)", k.WS, jobsDump(d, p.ID))
+	}
+	deleted := false
+	for _, c := range fx.managerCalls("DELETE", "/sbx/sandboxes/"+forkID) {
+		deleted = deleted || c.Method == "DELETE"
+	}
+	if _, ok := fx.m.Box(forkID); ok || !deleted {
+		t.Fatalf("the closed big task's fork outlived its cleanup (DELETE sent: %v): %s", deleted, jobsDump(d, p.ID))
+	}
+	if d.getSetting(forkKey(p.ID, tv.N)) != "" {
+		t.Fatalf("the fork is still in the registry")
+	}
+}
+
+// An archived project's task, its setup held (the worker claims none of an
+// archived project's jobs but its cleanup and scrub), is cleaned up by its
+// owner: the cleanup ends the held setup and bind itself (the setup's exec
+// stopped) rather than waiting for them without end.
+func TestArchivedCleanupEndsHeldSetup(t *testing.T) {
+	fx := newProjFix(t)
+	script, release := holdSetup(fx)
+	p := fx.newProject(t, asAlice, map[string]any{"repos": []map[string]any{{"repo": "acme/web", "setup": script}}})
+	_, runID := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "do the thing"})
+	k, _ := fx.ag.db.taskByN(p.ID, 1)
+	waitFor(t, "the setup running", func() bool {
+		for _, c := range fx.ag.db.checkouts(k.ID) {
+			if c.State == "setup" {
+				return true
+			}
+		}
+		return false
+	})
+	cur, _ := fx.ag.db.getProject(p.ID)
+	if w := callAs(t, fx.mux, asAlice, "PATCH", fmt.Sprintf("/projects/%d", p.ID), map[string]any{"version": cur.Version, "state": projArchived}); w.Code != 200 {
+		t.Fatalf("archive: %d %s", w.Code, w.Body)
+	}
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/task/cleanup", runID), map[string]any{"force": true}); w.Code != 202 {
+		t.Fatalf("cleanup: %d %s", w.Code, w.Body)
+	}
+	waitFor(t, "the archived project's task cleaned", func() bool {
+		k, _ = fx.ag.db.taskByN(p.ID, 1)
+		return k.WS == wsCleaned
+	})
+	for _, c := range fx.ag.db.checkouts(k.ID) {
+		if c.State != "removed" && c.State != "kept" {
+			t.Fatalf("checkout %s is %s after the cleanup", c.Repo, c.State)
+		}
+	}
+	if live := fx.ag.db.jobsWhere(`WHERE task_id=? AND state IN ('queued','running','waiting')`, k.ID); len(live) != 0 {
+		t.Fatalf("jobs still live after the cleanup: %s", jobsDump(fx.ag.db, p.ID))
+	}
+	// the setup's exec was stopped: let it go on now, and it never writes
+	if err := os.WriteFile(release, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if _, err := os.Stat(filepath.Join(k.Dir, "web")); !os.IsNotExist(err) {
+		t.Fatalf("the checkout is back (the setup kept running?): %v", err)
+	}
+}
+
 // A team definition's seed gets its fork-base snapshot as any project's
 // sandbox does (the loop's own, and the owner's ask), which a bot
 // membership's {new} sandbox is cloned from.

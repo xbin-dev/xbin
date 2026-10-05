@@ -484,7 +484,7 @@ func jobCleanup(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 		})
 		return doneJob("nothing to remove")
 	}
-	if len(projAg().db.jobsWhere(`WHERE task_id=? AND kind IN (?, ?) AND state IN ('queued','running','waiting')`, k.ID, pjSetup, pjBind)) > 0 {
+	if !endHeldSetup(ctx, p, k) {
 		// a setup still running in the checkout (a closed task's stops at
 		// its next look) or a bind about to record it: they go first
 		return waitJob(2000, "waiting for the task's setup to stop")
@@ -542,6 +542,44 @@ func jobCleanup(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 		return t.setTask(k.ID, map[string]any{"cleaned_ms": nowMs()})
 	})
 	return doneJob("cleaned up")
+}
+
+// endHeldSetup says whether task k's setup and bind jobs are out of its
+// cleanup's way. Those of an active project are waited for (a closed task's
+// stop at their next look). An archived project's aren't claimed by the
+// worker (claimableSQL) while its cleanup is, so waiting would never end:
+// a held one (queued or waiting, not mid-step) fails here instead, and the
+// exec a setup started gets a KILL before the checkout goes.
+func endHeldSetup(ctx context.Context, p *Project, k *ProjectTask) bool {
+	jobs := projAg().db.jobsWhere(`WHERE task_id=? AND kind IN (?, ?) AND state IN ('queued','running','waiting')`, k.ID, pjSetup, pjBind)
+	clear := true
+	for _, h := range jobs {
+		if p.State == projActive || h.State == pjRunning {
+			clear = false
+			continue
+		}
+		var ended bool
+		_ = projAg().db.Tx(func(t *DB) error {
+			res, err := t.q.Exec(`UPDATE project_jobs SET state=?, step='failed', next_ms=0, error=?, updated_ms=?
+				WHERE id=? AND state IN ('queued','waiting')`, pjFailed, "stopped by the task's cleanup (the project isn't active)", nowMs(), h.ID)
+			if err != nil || rowsAffected(res) != 1 {
+				return err
+			}
+			ended = true
+			emitProject(t, p.ID, "job", 0)
+			return nil
+		})
+		if !ended { // claimed meanwhile (the project unarchived): wait for it
+			clear = false
+			continue
+		}
+		if h.ExecID != "" {
+			if s, err := openWsbx(ctx, p, orStr(h.ExecRef, taskRef(p, k))); err == nil {
+				_ = s.conn.ExecSignal(ctx, s.id, h.ExecID, "KILL", true)
+			}
+		}
+	}
+	return clear
 }
 
 // deleteProjectStep takes a project being deleted down: its credentials
