@@ -55,8 +55,10 @@ export function openChecks(c) {
   return (c.checks || []).some((k) => k.status !== 'completed') || (c.statuses || []).some((x) => x.state === 'pending');
 }
 
-// a step's or job's glyph by tone (✓ ✗ ● ○)
-export const GLYPH = { ok: '✓', bad: '✗', run: '●', warn: '⊘', idle: '○' };
+// a step's, job's or run's status glyph by tone (D184): the web's bx-icons
+// names (idle: none — the web draws a hollow square) and the native app's
+export const ICON = { ok: 'ok', bad: 'error', run: 'live', warn: 'warning', idle: '' };
+export const NATIVE_ICON = { ok: 'check', bad: 'error', run: 'clock', warn: 'warning', idle: '' };
 
 /** stripAnsi(s): terminal escapes (colours, cursor moves, titles) and
  * control characters gone; a carriage return ends a line. */
@@ -90,8 +92,9 @@ export function jobProgress(job) {
   return { done, total, pct, current: job && job.status !== 'completed' && cur ? cur.name : '' };
 }
 
-/** chipWords(summary, now, failed?): the top bar's chip — "CI ● 3/5 jobs ·
- * 2:14", "CI ✓", "CI ✗ test (ubuntu)", "CI —" — {text, tone, title}; null
+/** chipWords(summary, now, failed?): the top bar's chip — "CI running 3/5
+ * jobs · 2:14", "CI passed", "CI failed: test (ubuntu)", "CI —" — {text,
+ * tone, title}, the views drawing the tone's glyph (ICON) before it; null
  * with no summary. failed: the first failing job's name, when known. */
 export function chipWords(summary, now = Date.now(), failed = '') {
   if (!summary) return null;
@@ -99,13 +102,13 @@ export function chipWords(summary, now = Date.now(), failed = '') {
   switch (summary.state) {
     case 'pending': {
       const t = summary.startedAt ? elapsed(now - summary.startedAt) : '';
-      const text = `CI ● ${j.done || 0}/${j.total || 0} jobs${t ? ' · ' + t : ''}`;
+      const text = `CI running ${j.done || 0}/${j.total || 0} jobs${t ? ' · ' + t : ''}`;
       return { text, tone: 'run', title: summary.current ? `running: ${summary.current}` : 'CI is running — open it' };
     }
     case 'success':
-      return { text: 'CI ✓', tone: 'ok', title: `CI passed${j.total ? ` (${j.total} job${j.total === 1 ? '' : 's'})` : ''} — open it` };
+      return { text: 'CI passed', tone: 'ok', title: `CI passed${j.total ? ` (${j.total} job${j.total === 1 ? '' : 's'})` : ''} — open it` };
     case 'failure':
-      return { text: failed ? `CI ✗ ${failed}` : 'CI ✗', tone: 'bad', title: `CI failed${j.failed ? `: ${j.failed} of ${j.total}` : ''} — open it` };
+      return { text: failed ? `CI failed: ${failed}` : 'CI failed', tone: 'bad', title: `CI failed${j.failed ? `: ${j.failed} of ${j.total}` : ''} — open it` };
   }
   return { text: 'CI —', tone: 'idle', title: 'nothing reported yet — open CI' };
 }
@@ -300,7 +303,7 @@ export function createCI(app, opts = {}) {
       const tone = toneOf(st);
       const words = { failure: 'CI failed', pending: 'CI running', success: 'CI passed', none: 'CI: nothing reported yet' }[st];
       const refs = ws.map((w) => w.ref).filter(Boolean);
-      return { tone, text: `CI ${GLYPH[tone] === '○' ? '—' : GLYPH[tone]}`, title: `${words}${refs.length ? ' on ' + refs.join(', ') : ''}` };
+      return { tone, text: st === 'none' ? 'CI —' : words, title: `${words}${refs.length ? ' on ' + refs.join(', ') : ''}` };
     },
 
     // cards: each watch's outcome not dismissed (from the read view, or the latest event)

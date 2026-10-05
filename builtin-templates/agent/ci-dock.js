@@ -2,8 +2,9 @@
 // conversation), inside the coding agents' UI (harness-board.js), not beside
 // it. The words and the data are app.ci's (model/ci.js).
 //
-//   top          the CI chip after the ⌨ coding agents chip: "CI ● 3/5 jobs
-//                · 2:14", "CI ✓", "CI ✗ test (ubuntu)", "CI —" (nothing
+//   top          the CI chip after the coding agents chip: "CI running 3/5
+//                jobs · 2:14", "CI passed", "CI failed: test (ubuntu)", each
+//                after its status glyph (D184), "CI —" (nothing
 //                reported yet, or nothing watched but you may) — opens the
 //                right dock on its CI tab; absent at home
 //   dock         the CI section of the right dock (#hboard): per watch its
@@ -33,12 +34,15 @@ import { html, nothing, repeat } from '/vendor/lit-all.min.js';
 import { ext, ctx } from './web-ext.js';
 import { openDock, dockTab } from './harness-board.js';
 import { signinTpl } from './project-new.js';
-import { chipWords, elapsed, GLYPH } from './model/ci.js';
+import { chipWords, elapsed, ICON } from './model/ci.js';
 
 const rootOf = (v) => (v ? v.run.rootId || v.run.id : null);
 const safe = (u) => (/^https?:\/\//i.test(String(u || '')) ? u : '');
 const out = (u, label, title) => (safe(u) ? html`<a class="cilink" href=${safe(u)} target="_blank" rel="noopener noreferrer" title=${title || 'on the platform'}>${label}</a>` : nothing);
 const repaint = () => ctx.paint();
+// a status's glyph (D184): the tone's bx-icon, a hollow square for one not started
+const glyph = (tone) => (ICON[tone] ? html`<bx-icon name=${ICON[tone]}></bx-icon>` : html`<span class="cisq"></span>`);
+const mark = (tone) => html`<span class="cist" data-tone=${tone}>${glyph(tone)}</span>`;
 
 // the section's state: what is open, the log viewer, the watch form
 const st = { root: null, open: new Set(), notes: new Map(), log: null, form: { repo: '', ref: '', err: '', busy: false }, note: '', err: '' };
@@ -51,7 +55,9 @@ ext.register({
     const root = rootOf(v);
     if (!app || root == null || (!app.ci.chip(root) && !app.ci.view(root))) return null;
     const c = app.ci.chip(root);
-    return { key: 'ci', title: 'CI', badge: c && c.tone !== 'idle' ? c.text.replace(/^CI /, '') : '', tpl: () => sectionTpl(v) };
+    // the tab's badge, short (the strip doesn't wrap): the state's word, a run's progress
+    const badge = !c || c.tone === 'idle' ? '' : c.tone === 'ok' ? 'passed' : c.tone === 'bad' ? 'failed' : c.text.replace(/^CI (running )?/, '');
+    return { key: 'ci', title: 'CI', badge, tpl: () => sectionTpl(v) };
   },
   childStatus: (r) => childTpl(r),
   card: (task) => cardTpl(task),
@@ -75,7 +81,7 @@ function chipTpl(v) {
   const on = dockTab() === 'ci';
   const go = () => openCI(root);
   return html`<span class="badge cichip" id="cichip" role="button" tabindex="0" data-tone=${c.tone} aria-pressed=${on ? 'true' : 'false'} title=${c.title}
-    @click=${go} @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } }}>${c.text}</span>`;
+    @click=${go} @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } }}>${ICON[c.tone] ? glyph(c.tone) : nothing}${c.text}</span>`;
 }
 
 function childTpl(r) {
@@ -84,7 +90,7 @@ function childTpl(r) {
   const c = app.ci.child(r.rootId || r.id, r.id);
   if (!c) return null;
   return html` <span class="cichild" role="button" tabindex="0" data-tone=${c.tone} title=${c.title} @click=${(e) => { e.stopPropagation(); openCI(r.rootId || r.id); }}
-    @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openCI(r.rootId || r.id); } }}>${c.text}</span>`;
+    @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); openCI(r.rootId || r.id); } }}>${ICON[c.tone] ? glyph(c.tone) : nothing}${c.text}</span>`;
 }
 
 function cardTpl(task) {
@@ -97,7 +103,7 @@ function cardTpl(task) {
     await ctx.app.select(task.run);
     openCI(task.run);
   };
-  return html`<button class="badge cicard" data-tone=${c.tone} title=${c.title} @click=${open}>${c.text}</button>`;
+  return html`<button class="badge cicard" data-tone=${c.tone} title=${c.title} @click=${open}>${ICON[c.tone] ? glyph(c.tone) : nothing}${c.text}</button>`;
 }
 
 // --- live, read once ----------------------------------------------------------------------
@@ -149,11 +155,11 @@ function watchTpl(app, root, view, w) {
   const since = w.since ? new Date(w.since).toLocaleString() : '';
   return html`<div class="ciwatch" data-watch=${w.watch} data-state=${w.state}>
     <div class="ciwh">
-      <span class="cist" data-tone=${w.tone}>${GLYPH[w.tone]}</span>
+      ${mark(w.tone)}
       ${safe(w.urls.branch) ? out(w.urls.branch, w.title, 'the branch on the platform') : html`<span class="mono">${w.title}</span>`}
       ${w.pr ? out(w.urls.pr, `PR #${w.pr}`, 'the pull request') || html`<span>PR #${w.pr}</span>` : nothing}
       <span class="cistate" data-tone=${w.tone}>${w.state === 'gone' ? 'branch gone' : w.state}</span>
-      ${w.source !== 'task' ? html`<button class="lnk ciun" title="stop watching" @click=${() => act(() => app.ci.unwatch(root, w.watch), 'Stopped watching.')}>✕</button>` : nothing}
+      ${w.source !== 'task' ? html`<button class="lnk ciun" title="stop watching" @click=${() => act(() => app.ci.unwatch(root, w.watch), 'Stopped watching.')}><bx-icon name="xmark" label="stop watching"></bx-icon></button>` : nothing}
     </div>
     <div class="muted small ciwsub">${w.source === 'task' ? 'the task\'s branch' : w.source === 'pushed' ? 'pushed from this conversation' : 'watched by hand'}${since ? ` · since ${since}` : ''}${w.sha ? ` · ${w.sha.slice(0, 7)}` : ''}
       ${out(w.urls.checks, '↗ checks', 'its checks on the platform')}</div>
@@ -163,7 +169,7 @@ function watchTpl(app, root, view, w) {
     ${w.runs.map((r) => runTpl(app, root, view, w, r))}
     ${w.checks.length ? html`<div class="cigroup">${w.checks.map((k) => checkTpl(app, root, w, k))}</div>` : nothing}
     ${w.statuses.length ? html`<div class="cigroup">${w.statuses.map((s) => html`<div class="cirow cistatus">
-        <span class="cist" data-tone=${s.tone}>${GLYPH[s.tone]}</span><span class="ciname">${s.context}</span>
+        ${mark(s.tone)}<span class="ciname">${s.context}</span>
         <span class="muted small cidesc">${s.description}</span>${out(s.url, '↗')}</div>`)}</div>` : nothing}
     ${!w.runs.length && !w.checks.length && !w.statuses.length && !w.error && w.refusal !== 'signin'
       ? html`<div class="muted small cimuted">${w.state === 'gone' ? 'Its branch is gone.' : 'Nothing reported on it yet.'}</div>` : nothing}
@@ -177,7 +183,7 @@ function runTpl(app, root, view, w, r) {
   };
   return html`<div class="cirun" data-run=${r.id}>
     <div class="cirow cirunh">
-      <span class="cist" data-tone=${r.tone}>${GLYPH[r.tone]}</span><b class="ciname">${r.name}</b>
+      ${mark(r.tone)}<b class="ciname">${r.name}</b>
       <span class="muted small">${r.event}${r.attempt > 1 ? ` · attempt ${r.attempt}` : ''} · ${r.state}${elapsed(r.elapsedMs) ? ` · ${elapsed(r.elapsedMs)}` : ''}</span>
       ${out(r.url, '↗', 'the run on the platform')}
       ${view.canRerun && r.failed ? html`<button class="btn ghost btnsm cirerun" @click=${rerun}>Re-run failed</button>` : nothing}
@@ -193,14 +199,14 @@ function jobTpl(app, root, w, j) {
   return html`<div class="cijob" data-job=${j.id} data-tone=${j.tone}>
     <div class="cirow" role="button" tabindex="0" aria-expanded=${open ? 'true' : 'false'} @click=${() => toggle(k)}
       @keydown=${(e) => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); toggle(k); } }}>
-      <span class="tw">${open ? '▾' : '▸'}</span><span class="cist" data-tone=${j.tone}>${GLYPH[j.tone]}</span>
+      <span class="tw"><bx-icon name=${open ? 'caret-down' : 'caret-right'}></bx-icon></span>${mark(j.tone)}
       <span class="ciname">${j.name}</span>
       ${p.total ? html`<span class="cibar" title=${`${p.done} of ${p.total} steps`}><span style=${`width:${p.pct}%`}></span></span>` : nothing}
       <span class="muted small cicur">${p.current || (j.status === 'completed' ? j.conclusion : j.status)}${elapsed(j.elapsedMs) ? ` · ${elapsed(j.elapsedMs)}` : ''}</span>
       ${out(j.url, '↗', 'the job on the platform')}
     </div>
     ${open ? html`<div class="cisteps">
-        ${j.steps.length ? j.steps.map((s) => html`<div class="cistep" data-tone=${s.tone}><span class="cist" data-tone=${s.tone}>${GLYPH[s.tone]}</span>
+        ${j.steps.length ? j.steps.map((s) => html`<div class="cistep" data-tone=${s.tone}>${mark(s.tone)}
           <span class="ciname">${s.name}</span><span class="muted small">${elapsed(s.elapsedMs)}</span></div>`) : html`<div class="muted small">no steps yet</div>`}
         <div class="ciacts">
           <button class="lnk cilog" @click=${(e) => { e.stopPropagation(); openLog(root, w.watch, j.id, j.name); }}>Log</button>
@@ -213,7 +219,7 @@ function jobTpl(app, root, w, j) {
 
 function checkTpl(app, root, w, k) {
   return html`<div class="cicheck" data-check=${k.id}>
-    <div class="cirow"><span class="cist" data-tone=${k.tone}>${GLYPH[k.tone]}</span><span class="ciname">${k.name}</span>
+    <div class="cirow">${mark(k.tone)}<span class="ciname">${k.name}</span>
       <span class="muted small cidesc">${k.title}</span>${out(k.url, '↗', 'where the check says to look')}</div>
     ${k.annotations ? html`<button class="lnk small cinotesbtn" @click=${() => toggleNotes(app, root, w.watch, k.id)}>${k.annotations} annotation${k.annotations === 1 ? '' : 's'}</button>` : nothing}
     ${notesTpl(w.watch, k.id)}
@@ -359,7 +365,7 @@ function logTpl(app, lg) {
   if (lg.inProgress) {
     return html`<div class="cilogv" id="cilogwait">${head}
       <div class="small">The job is still running: the log is ready when the job finishes.</div>
-      ${j ? html`<div class="cisteps">${j.steps.map((s) => html`<div class="cistep" data-tone=${s.tone}><span class="cist" data-tone=${s.tone}>${GLYPH[s.tone]}</span>
+      ${j ? html`<div class="cisteps">${j.steps.map((s) => html`<div class="cistep" data-tone=${s.tone}>${mark(s.tone)}
         <span class="ciname">${s.name}</span><span class="muted small">${elapsed(s.elapsedMs)}</span></div>`)}</div>` : nothing}
       ${out(lg.url || (j && j.url), 'Open live log ↗', 'watch it live on the platform')}
     </div>`;
@@ -383,44 +389,47 @@ function logTpl(app, lg) {
 // the chip's, the section's and the log's look
 const style = document.createElement('style');
 style.textContent = `
-  .badge.cichip, .badge.cicard { cursor: pointer; text-transform: none; letter-spacing: 0; font: inherit; font-size: 11.5px; }
-  .badge.cicard { background: none; padding: 0 6px; }
-  .cichip[data-tone="ok"], .cicard[data-tone="ok"], .cichild[data-tone="ok"], .cist[data-tone="ok"], .cistate[data-tone="ok"] { color: var(--bx-green); }
-  .cichip[data-tone="bad"], .cicard[data-tone="bad"], .cichild[data-tone="bad"], .cist[data-tone="bad"], .cistate[data-tone="bad"] { color: var(--bx-red); }
-  .cichip[data-tone="run"], .cicard[data-tone="run"], .cichild[data-tone="run"], .cist[data-tone="run"], .cistate[data-tone="run"] { color: var(--bx-accent); }
-  .cichip[data-tone="warn"], .cist[data-tone="warn"] { color: var(--bx-yellow, #d9a441); }
+  .badge.cichip, .badge.cicard { cursor: pointer; text-transform: none; letter-spacing: 0; font: var(--bx-font-meta); }
+  .badge.cicard { background: none; }
+  .cichip[data-tone="ok"], .cicard[data-tone="ok"], .cichild[data-tone="ok"], .cist[data-tone="ok"], .cistate[data-tone="ok"] { color: var(--bx-ok); border-color: var(--bx-ok); }
+  .cichip[data-tone="bad"], .cicard[data-tone="bad"], .cichild[data-tone="bad"], .cist[data-tone="bad"], .cistate[data-tone="bad"] { color: var(--bx-danger); border-color: var(--bx-danger); }
+  .cichip[data-tone="run"], .cicard[data-tone="run"], .cichild[data-tone="run"], .cistate[data-tone="run"] { color: var(--bx-info); border-color: var(--bx-info); }
+  .cist[data-tone="run"], .cichip[data-tone="run"] bx-icon, .cicard[data-tone="run"] bx-icon, .cichild[data-tone="run"] bx-icon { color: var(--bx-accent); }
+  .cichip[data-tone="warn"], .cicard[data-tone="warn"], .cichild[data-tone="warn"], .cist[data-tone="warn"], .cistate[data-tone="warn"] { color: var(--bx-warn); border-color: var(--bx-warn); }
   .cichip[data-tone="idle"], .cist[data-tone="idle"] { color: var(--bx-muted); }
   .badge.cichip[aria-pressed="true"] { background: var(--bx-panel-2); }
-  .cichild { font-size: 11px; margin-left: 4px; cursor: pointer; }
+  .cichild { display: inline-flex; align-items: center; gap: 4px; font: var(--bx-font-meta); margin-left: 4px; cursor: pointer; --bx-icon-size: 12px; }
+  .cist { display: inline-flex; flex: none; width: 16px; justify-content: center; align-self: center; }
+  .cisq { box-sizing: border-box; width: 8px; height: 8px; border: 1px solid currentColor; }
   .wrap.dockon.ciwide { grid-template-columns: 220px minmax(0, 1fr) minmax(340px, 50vw); }
-  .cisec { display: flex; flex-direction: column; gap: 8px; padding-top: 6px; font-size: 12.5px; }
-  .ciwatch { border: 1px solid var(--bx-border); border-radius: 6px; padding: 6px 8px; background: var(--bx-panel); min-width: 0; }
-  .ciwh, .cirow { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+  .cisec { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; }
+  .ciwatch { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 8px; background: var(--bx-panel); min-width: 0; }
+  .ciwh, .cirow { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
   .ciwh .cilink:first-of-type, .ciwh .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-  .ciwh .cistate { margin-left: auto; font-size: 11px; }
+  .ciwh .cistate { margin-left: auto; font: var(--bx-font-meta); }
   .ciwsub { margin: 2px 0 4px; overflow-wrap: anywhere; }
-  .cirun { margin-top: 6px; } .cirunh .cirerun { margin-left: auto; }
-  .cijob .cirow { cursor: pointer; padding: 2px 0 2px 6px; }
+  .cirun { margin-top: 8px; } .cirunh .cirerun { margin-left: auto; }
+  .cijob .cirow { cursor: pointer; padding: 2px 0 2px 4px; }
   .ciname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .cicur, .cidesc { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
-  .cibar { flex: none; width: 46px; height: 5px; border-radius: 3px; background: var(--bx-panel-2); overflow: hidden; align-self: center; }
-  .cibar > span { display: block; height: 100%; background: var(--bx-accent); }
-  .cijob[data-tone="bad"] .cibar > span { background: var(--bx-red); } .cijob[data-tone="ok"] .cibar > span { background: var(--bx-green); }
-  .cisteps { padding: 2px 0 4px 28px; } .cistep { display: flex; gap: 6px; align-items: baseline; font-size: 12px; }
-  .ciacts { display: flex; gap: 10px; margin-top: 3px; }
-  .cigroup { margin-top: 6px; border-top: 1px dashed var(--bx-border); padding-top: 4px; }
-  .cinotes { padding: 2px 0 4px 18px; } .cinote { font-size: 12px; margin: 3px 0; }
+  .cibar { flex: none; width: 48px; height: 4px; background: var(--bx-panel-2); overflow: hidden; align-self: center; }
+  .cibar > span { display: block; height: 100%; background: var(--bx-info); }
+  .cijob[data-tone="bad"] .cibar > span { background: var(--bx-danger); } .cijob[data-tone="ok"] .cibar > span { background: var(--bx-ok); }
+  .cisteps { padding: 2px 0 4px 28px; } .cistep { display: flex; gap: 8px; align-items: baseline; font: var(--bx-font-meta); }
+  .ciacts { display: flex; gap: 12px; margin-top: 4px; }
+  .cigroup { margin-top: 8px; border-top: 1px solid var(--bx-border); padding-top: 4px; }
+  .cinotes { padding: 2px 0 4px 16px; } .cinote { font: var(--bx-font-meta); margin: 4px 0; }
   .cinote .cimsg { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--bx-muted); }
-  .cilevel[data-level="failure"] { color: var(--bx-red); } .cilevel[data-level="warning"] { color: var(--bx-yellow, #d9a441); }
+  .cilevel[data-level="failure"] { color: var(--bx-danger); } .cilevel[data-level="warning"] { color: var(--bx-warn); }
   .ciform { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; border-top: 1px solid var(--bx-border); padding-top: 8px; }
-  .ciform .small { flex-basis: 100%; } .ciform input { flex: 1; min-width: 8em; font: inherit; font-size: 12px; }
+  .ciform .small { flex-basis: 100%; } .ciform input { flex: 1; min-width: 8em; }
   .cimuted { padding: 4px 2px; }
-  .cilogv { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; min-height: 0; height: 100%; }
-  .cilogh, .cilogbar { display: flex; align-items: center; gap: 6px; min-width: 0; }
-  .cilogh .ciname { flex: 1; } .cilogbar input { flex: 1; min-width: 6em; font: inherit; font-size: 12px; }
-  .cilog { flex: 1; margin: 0; padding: 6px 8px; overflow: auto; font-size: 11.5px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere;
-    background: var(--bx-panel-2); border: 1px solid var(--bx-border); border-radius: 6px; min-height: 12em; }
-  .cilog mark { background: color-mix(in srgb, var(--bx-yellow, #d9a441) 40%, transparent); color: inherit; }
-  .cilog mark.cur { background: var(--bx-yellow, #d9a441); }
+  .cilogv { display: flex; flex-direction: column; gap: 8px; padding-top: 8px; min-height: 0; height: 100%; }
+  .cilogh, .cilogbar { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .cilogh .ciname { flex: 1; } .cilogbar input { flex: 1; min-width: 6em; }
+  .cilog { flex: 1; margin: 0; padding: 8px; overflow: auto; font: var(--bx-font-code); white-space: pre-wrap; overflow-wrap: anywhere;
+    background: var(--bx-code-bg); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); min-height: 12em; }
+  .cilog mark { background: var(--bx-warn-bg); color: inherit; }
+  .cilog mark.cur { background: var(--bx-selection); color: var(--bx-selection-text); box-shadow: inset 0 -2px 0 var(--bx-accent); }
 `;
 document.head.append(style);

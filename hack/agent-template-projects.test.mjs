@@ -124,7 +124,9 @@ test('an issue in the picker and a task\'s title on a card: plain — direction 
 
 test('prChip: a PR\'s checks only while the task has no CI summary; links only https', () => {
   const pr = { repo: 'acme/web', number: 42, url: 'https://github.com/acme/web/pull/42', state: 'open', draft: false, checks: 'failure' };
-  assert.deepEqual(W.prChip(pr), { kind: 'pr', text: 'PR #42 open ✗', tone: 'bad', title: 'acme/web#42: open — checks failed', url: pr.url, checks: 'failure' });
+  assert.deepEqual(W.prChip(pr), { kind: 'pr', text: 'PR #42 open', tone: 'bad', title: 'acme/web#42: open — checks failed', url: pr.url, checks: 'failure',
+    checksTone: 'bad', checksText: 'checks failed' });
+  assert.equal(W.prWords(W.prChip(pr)), 'PR #42 open, checks failed', 'in words alone (the native view)');
   const withCI = W.prChip(pr, { state: 'failure' });
   assert.equal(withCI.text, 'PR #42 open');
   assert.equal(withCI.checks, '');
@@ -147,10 +149,12 @@ test('taskChips: branch (a link when the repos are known), PRs, the setup outcom
   const ch = W.taskChips(v, pv);
   assert.equal(ch[0].url, 'https://github.com/acme/web/tree/xbin/k3x9qa/1-task-1');
   assert.deepEqual(ch[0].links.map((l) => l.repo), ['acme/web'], 'only the task\'s repos');
-  assert.equal(ch[1].text, 'PR #42 open ●');
-  assert.equal(ch[2].text, 'setup ✓');
+  assert.equal(ch[1].text, 'PR #42 open');
+  assert.equal(ch[1].checksTone, 'run');
+  assert.equal(ch[0].icon, 'branch');
+  assert.equal(ch[2].text, 'setup passed');
   const bad = W.setupOutcome({ checkouts: [{ repo: 'web', setupExit: 0 }, { repo: 'api', setupExit: 2 }] });
-  assert.equal(bad.text, 'setup ✗ api');
+  assert.equal(bad.text, 'setup failed: api');
   assert.equal(bad.tone, 'bad');
   assert.equal(W.setupOutcome({ checkouts: [{ repo: 'web' }] }), null, 'no setup ran');
 });
@@ -163,7 +167,7 @@ test('prepCard: while the workspace isn\'t ready; the sign-in card for the perso
   assert.equal(c.title, 'preparing the workspace');
   assert.equal(c.tone, 'run');
   assert.equal(c.step, 'cloning');
-  assert.deepEqual(c.steps.map((s) => [s.repo, s.glyph, s.tone]), [['web', '✓', 'ok'], ['api', '●', 'run'], ['x', '✗', 'warn']]);
+  assert.deepEqual(c.steps.map((s) => [s.repo, s.tone]), [['web', 'ok'], ['api', 'run'], ['x', 'warn']]);
   assert.equal(c.steps[2].error, 'boom');
   assert.equal(c.retry, false);
   assert.equal(W.prepCard({ projectTask: F.task(7, 8, { ws: 'failed', error: 'x' }), run: {} }, 'alice').retry, true);

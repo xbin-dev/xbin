@@ -26,6 +26,8 @@
 import { html, nothing, repeat } from '/vendor/lit-all.min.js';
 import { ctx } from './web-ext.js';
 import { projectTeam, boardColumns, securityDiff } from './model/project-team.js';
+import { ICON } from './model/ci.js';
+import { chipBody } from './project-chips.js';
 
 const team = () => projectTeam(ctx.app);
 
@@ -154,11 +156,11 @@ function rowTpl(pv, w) {
     <div class="pth"><span class="ptn">${w.n}</span><span class="ptt">${w.title}</span></div>
     <div class="ptm"><span class="muted">${w.member}</span>${w.stale ? html`<span class="badge">no longer a member</span>` : nothing}
       <span class="ptst" data-tone=${w.state.tone}>${w.state.text}</span></div>
-    ${w.branch ? html`<div class="ptb mono">⎇ ${w.branch}</div>` : nothing}
+    ${w.branch ? html`<div class="ptb mono"><bx-icon name="branch"></bx-icon>${w.branch}</div>` : nothing}
     ${w.prs.length || w.ci ? html`<div class="ptc">
-      ${w.prs.map((c) => (c.url ? html`<a class="badge pchip" data-tone=${c.tone} href=${c.url} target="_blank" rel="noopener noreferrer" title=${c.title}>${c.text} ↗</a>`
-        : html`<span class="badge pchip" data-tone=${c.tone} title=${c.title}>${c.text}</span>`))}
-      ${w.ci ? html`<span class="badge pchip" data-tone=${w.ci.tone}>${w.ci.text}</span>` : nothing}</div>` : nothing}
+      ${w.prs.map((c) => (c.url ? html`<a class="badge pchip" data-tone=${c.tone} href=${c.url} target="_blank" rel="noopener noreferrer" title=${c.title}>${chipBody(c)} ↗</a>`
+        : html`<span class="badge pchip" data-tone=${c.tone} title=${c.title}>${chipBody(c)}</span>`))}
+      ${w.ci ? html`<span class="badge pchip" data-tone=${w.ci.tone}>${ICON[w.ci.tone] ? html`<bx-icon name=${ICON[w.ci.tone]}></bx-icon>` : nothing}${w.ci.text}</span>` : nothing}</div>` : nothing}
     ${w.open || w.hide ? html`<div class="ptc">
       ${w.open ? html`<button class="btn ghost btnsm tbopen" @click=${() => ctx.app.select(w.open)}>open (yours)</button>` : nothing}
       ${w.hide ? html`<button class="btn ghost btnsm tbhide" title="hide it from the board" @click=${() => { if (confirm(`Hide ${w.member}'s task ${w.n} from the board?`)) t.hide(pv.id, w.who, w.num); }}>Hide</button>` : nothing}</div>` : nothing}
@@ -173,11 +175,11 @@ style.textContent = `
   .projs-page .tbrow { cursor: default; }
   .projs-page .tbrow.stale { opacity: .55; }
   .projs-page .psec { margin: 8px 0; overflow-x: auto; }
-  .projs-page .psect { border-collapse: collapse; width: 100%; font-size: 12px; }
+  .projs-page .psect { border-collapse: collapse; width: 100%; }
   .projs-page .psect th, .projs-page .psect td { text-align: left; vertical-align: top; border-bottom: 1px solid var(--bx-border); padding: 4px 6px; }
   .projs-page .psect th { font-weight: 600; white-space: nowrap; }
-  .projs-page .psect pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 11.5px; max-height: 12em; overflow: auto; }
-  .projs-page .psect tr.chg th, .projs-page .psect tr.chg td { background: color-mix(in srgb, var(--bx-yellow, #d9a441) 12%, transparent); }
-  .projs-page .pteamreview { border-left: 3px solid var(--bx-yellow, #d9a441); }
+  .projs-page .psect pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: var(--bx-font-code); max-height: 12em; overflow: auto; }
+  .projs-page .psect tr.chg th, .projs-page .psect tr.chg td { background: var(--bx-warn-bg); }
+  .projs-page .pteamreview { border-color: var(--bx-warn); border-left: 2px solid var(--bx-warn); }
 `;
 document.head.append(style);

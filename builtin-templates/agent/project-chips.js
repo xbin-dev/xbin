@@ -20,6 +20,7 @@ import { html, nothing } from '/vendor/lit-all.min.js';
 import { ext, ctx } from './web-ext.js';
 import * as rules from './model/rules.js';
 import { taskOf, taskChips, prepCard, prButton, crumb, taskSection } from './model/project-task.js';
+import { ICON } from './model/ci.js';
 import { homeOf } from './model/homes.js';
 
 const pj = () => ctx.app.projects;
@@ -47,12 +48,19 @@ function chipsTpl(v) {
   const { busy, note } = actOf(v);
   const stop = (e) => e.stopPropagation();
   return html`<span class="ptchips" id="ptchips">
-    ${chips.map((c) => (c.url ? html`<a class="badge pchip" data-kind=${c.kind} data-tone=${c.tone} href=${c.url} target="_blank" rel="noopener noreferrer" title=${c.title} @click=${stop}>${c.text} ↗</a>`
-      : html`<span class="badge pchip" data-kind=${c.kind} data-tone=${c.tone} title=${c.title}>${c.text}</span>`))}
+    ${chips.map((c) => (c.url ? html`<a class="badge pchip" data-kind=${c.kind} data-tone=${c.tone} href=${c.url} target="_blank" rel="noopener noreferrer" title=${c.title} @click=${stop}>${chipBody(c)} ↗</a>`
+      : html`<span class="badge pchip" data-kind=${c.kind} data-tone=${c.tone} title=${c.title}>${chipBody(c)}</span>`))}
     ${pr.shown ? html`<button class="btn ghost btnsm" id="ptask-pr" ?disabled=${pr.disabled || busy === 'pr'} title=${pr.title} @click=${() => openPR(v, t)}>${busy === 'pr' ? 'Opening…' : 'Open PR'}</button>` : nothing}
     ${note ? html`<span class="muted small" id="ptask-note">${note}</span>` : nothing}
   </span>`;
 }
+
+// a chip's glyphs (D184): its own (the branch) or its outcome's before the
+// words (setup), its checks' after them (a pull request)
+const ico = (name, label) => (name ? html`<bx-icon name=${name} label=${label || nothing}></bx-icon>` : nothing);
+export const chipBody = (c) => html`${ico(c.icon || (c.kind === 'setup' ? ICON[c.tone] : ''))}${c.text}${ico(ICON[c.checksTone], c.checksText)}`;
+/** stepGlyph(tone): a prep step's status glyph — a hollow square for one not started. */
+const stepGlyph = (tone) => (ICON[tone] ? ico(ICON[tone]) : html`<span class="psq"></span>`);
 
 async function act(v, what, opts) {
   const id = v.run.id;
@@ -105,11 +113,11 @@ function prepTpl(v) {
     : st.err ? `Only you see this code. Still waiting (checking again: ${st.err}).`
     : 'Only you see this code. The task goes on once you approve it there.';
   return html`<div class="pprep" id="pprep" data-ws=${card.ws} data-tone=${card.tone}>
-    <div class="pprh">${card.tone === 'run' ? html`<span class="spin"></span>` : html`<span class="pglyph">${card.tone === 'bad' ? '✗' : '!'}</span>`}
+    <div class="pprh">${card.tone === 'run' ? html`<span class="spin"></span>` : html`<span class="pglyph">${ico(card.tone === 'bad' ? 'error' : 'warning')}</span>`}
       <b>${card.title}</b>${card.step ? html`<span class="muted"> — ${card.step}</span>` : nothing}</div>
     ${card.detail ? html`<div class="small">${card.detail}</div>` : nothing}
     ${card.steps.length ? html`<div class="psteps">${card.steps.map((s) => html`<div class="pstep" data-repo=${s.repo} data-tone=${s.tone}>
-        <span class="pglyph">${s.glyph}</span><span class="mono">${s.repo}</span><span class="muted">${s.text}</span>
+        <span class="pglyph">${stepGlyph(s.tone)}</span><span class="mono">${s.repo}</span><span class="muted">${s.text}</span>
         ${s.error ? html`<span class="err">${s.error}</span>` : nothing}</div>`)}</div>` : nothing}
     ${card.error ? html`<div class="err">${card.error}</div>` : nothing}
     ${card.retry && canAct ? html`<div><button class="btn btnsm" id="pprep-retry" ?disabled=${busy === 'retry'} @click=${() => act(v, 'retry')}>Retry</button>
@@ -143,17 +151,21 @@ style.textContent = `
   .top a.badge.pchip { text-decoration: none; text-transform: none; letter-spacing: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .top .badge.pchip { text-transform: none; letter-spacing: 0; }
   .top .badge.pchip[data-kind="branch"] { font-family: var(--bx-mono); }
-  .pprep { margin: 10px 0; padding: 10px 12px; border: 1px solid var(--bx-border); border-left: 3px solid var(--bx-accent); border-radius: 7px; background: var(--bx-panel); font-size: 12.5px; }
-  .pprep[data-tone="bad"] { border-left-color: var(--bx-red); }
-  .pprep[data-tone="warn"] { border-left-color: var(--bx-yellow, #d9a441); }
-  .pprep .pprh { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
-  .pprep .psteps { margin: 6px 0; display: grid; gap: 2px; }
-  .pprep .pstep { display: flex; gap: 6px; align-items: baseline; flex-wrap: wrap; min-width: 0; }
-  .pprep .pstep[data-tone="ok"] .pglyph { color: var(--bx-green); }
-  .pprep .pstep[data-tone="bad"] .pglyph { color: var(--bx-red); }
+  .pprep { margin: 12px 0; padding: 8px 12px; border: 1px solid var(--bx-border); border-left: 2px solid var(--bx-info); border-radius: var(--bx-radius); background: var(--bx-panel); }
+  .pprep[data-tone="bad"] { border-color: var(--bx-danger); border-left-color: var(--bx-danger); background: var(--bx-danger-bg); }
+  .pprep[data-tone="warn"] { border-color: var(--bx-warn); border-left-color: var(--bx-warn); background: var(--bx-warn-bg); }
+  .pprep .pprh { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .pprep .pprh .pglyph { display: inline-flex; }
+  .pprep[data-tone="bad"] .pprh .pglyph { color: var(--bx-danger); } .pprep[data-tone="warn"] .pprh .pglyph { color: var(--bx-warn); }
+  .pprep .psteps { margin: 8px 0; display: grid; gap: 2px; }
+  .pprep .pstep { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; min-width: 0; }
+  .pprep .pstep .pglyph { display: inline-flex; flex: none; width: 16px; justify-content: center; color: var(--bx-muted); }
+  .pprep .psq { box-sizing: border-box; width: 8px; height: 8px; border: 1px solid currentColor; }
+  .pprep .pstep[data-tone="ok"] .pglyph { color: var(--bx-ok); }
+  .pprep .pstep[data-tone="bad"] .pglyph { color: var(--bx-danger); }
   .pprep .pstep[data-tone="run"] .pglyph { color: var(--bx-accent); }
-  .pprep .pstep[data-tone="warn"] .pglyph { color: var(--bx-yellow, #d9a441); }
-  .top .taskpin .ptasksec { display: flex; flex-direction: column; gap: 2px; padding-top: 6px; border-top: 1px dashed var(--bx-border); }
-  .top .taskpin .ptasksec .lnk { cursor: pointer; color: var(--bx-accent); }
+  .pprep .pstep[data-tone="warn"] .pglyph { color: var(--bx-warn); }
+  .top .taskpin .ptasksec { display: flex; flex-direction: column; gap: 2px; padding-top: 8px; border-top: 1px solid var(--bx-border); }
+  .top .taskpin .ptasksec .lnk { cursor: pointer; color: var(--bx-link); }
 `;
 document.head.append(style);

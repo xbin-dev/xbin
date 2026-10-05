@@ -66,19 +66,24 @@ export function stateWords(t) {
 
 // A pull request's state, in words and a tone.
 const PR_TONE = { open: 'run', merged: 'ok', closed: 'idle' };
-const CHECKS = { pending: ['●', 'run', 'checks running'], success: ['✓', 'ok', 'checks passed'], failure: ['✗', 'bad', 'checks failed'] };
+const CHECKS = { pending: ['run', 'checks running'], success: ['ok', 'checks passed'], failure: ['bad', 'checks failed'] };
 
 /** prChip(pr, ci): a pull request's chip — "PR #42 open" (draft said),
  * its checks only while the task has no CI summary (V's CI chip is then
- * the one source). */
+ * the one source): checksTone, the tone whose glyph (model/ci.js ICON) the
+ * views draw after the words, and checksText its words (D184). */
 export function prChip(pr, ci = null) {
   const state = pr.draft && pr.state === 'open' ? 'draft' : pr.state || 'open';
   const c = !ci && CHECKS[pr.checks];
   return {
-    kind: 'pr', text: `PR #${pr.number} ${state}${c ? ' ' + c[0] : ''}`, tone: c && pr.state === 'open' ? c[1] : PR_TONE[pr.state] || 'idle',
-    title: `${pr.repo}#${pr.number}: ${state}${c ? ' — ' + c[2] : ''}`, url: safeUrl(pr.url), checks: c ? pr.checks : '',
+    kind: 'pr', text: `PR #${pr.number} ${state}`, tone: c && pr.state === 'open' ? c[0] : PR_TONE[pr.state] || 'idle',
+    title: `${pr.repo}#${pr.number}: ${state}${c ? ' — ' + c[1] : ''}`, url: safeUrl(pr.url), checks: c ? pr.checks : '', checksTone: c ? c[0] : '', checksText: c ? c[1] : '',
   };
 }
+
+/** prWords(chip): a pull request's chip in words alone — "PR #42 open, checks
+ * failed" — where no glyph is drawn (the native view's rows and menus). */
+export const prWords = (c) => (c.checksText ? `${c.text}, ${c.checksText}` : c.text);
 
 /** safeUrl: an https link, else '' — a link from the provider (a pull request, the branch, the
  * issue, the sign-in page where a device code is typed) is drawn only if it is one, in both views
@@ -112,7 +117,7 @@ export function taskChips(v, project = null) {
     const mine = repos.filter((r) => !t.repos || !t.repos.length || t.repos.includes(r.slug));
     const links = mine.map((r) => ({ repo: r.repo, url: webUrl(r) ? `${webUrl(r)}/tree/${t.branch.split('/').map(encodeURIComponent).join('/')}` : '' }))
       .filter((l) => l.url);
-    out.push({ kind: 'branch', text: `⎇ ${t.branch}`, tone: 'idle', title: `the task's branch${mine.length ? ' in ' + mine.map((r) => r.repo).join(', ') : ''}`,
+    out.push({ kind: 'branch', text: t.branch, icon: 'branch', tone: 'idle', title: `the task's branch${mine.length ? ' in ' + mine.map((r) => r.repo).join(', ') : ''}`,
       url: links.length ? links[0].url : '', links });
   }
   for (const pr of t.prs || []) out.push(prChip(pr, t.ci || null));
@@ -126,8 +131,8 @@ export function setupOutcome(t) {
   const ran = ((t && t.checkouts) || []).filter((c) => c.setupExit != null);
   if (!ran.length) return null;
   const bad = ran.filter((c) => c.setupExit !== 0);
-  if (!bad.length) return { text: 'setup ✓', tone: 'ok', title: `setup passed in ${ran.map((c) => c.repo).join(', ')}` };
-  return { text: `setup ✗ ${bad.map((c) => c.repo).join(', ')}`, tone: 'bad',
+  if (!bad.length) return { text: 'setup passed', tone: 'ok', title: `setup passed in ${ran.map((c) => c.repo).join(', ')}` };
+  return { text: `setup failed: ${bad.map((c) => c.repo).join(', ')}`, tone: 'bad',
     title: `setup failed (exit ${bad.map((c) => `${c.repo}: ${c.setupExit}`).join(', ')}) — the task was told; it works anyway` };
 }
 
@@ -136,17 +141,18 @@ export const WS = {
   pending: 'waiting to be prepared', queued: 'waiting for a free slot', preparing: 'preparing the workspace', signin: 'waiting for you to sign in',
   ready: 'ready', failed: 'preparing the workspace failed', cleaning: 'cleaning up', cleaned: 'cleaned up', blocked: 'cleanup refused: unpushed or uncommitted work',
 };
-// A checkout's states (ProjectCheckout.state), as a step.
+// A checkout's states (ProjectCheckout.state), as a step: its tone (the
+// views draw the tone's glyph, D184) and its words.
 const STEP = {
-  pending: ['○', 'idle', 'waiting'], added: ['●', 'run', 'worktree added'], setup: ['●', 'run', 'running setup'],
-  ready: ['✓', 'ok', 'ready'], failed: ['✗', 'bad', 'failed'], removed: ['–', 'idle', 'removed'], kept: ['–', 'idle', 'kept'],
+  pending: ['idle', 'waiting'], added: ['run', 'worktree added'], setup: ['run', 'running setup'],
+  ready: ['ok', 'ready'], failed: ['bad', 'failed'], removed: ['idle', 'removed'], kept: ['idle', 'kept'],
 };
 const PREP = new Set(['pending', 'queued', 'preparing', 'signin', 'failed', 'blocked']);
 
 /**
  * prepCard(view, me): the prep card at the end of a task conversation while
  * its workspace isn't ready (or the workspace gate parked its run) —
- * {title, tone, steps: [{repo, glyph, tone, text, error}], step, detail,
+ * {title, tone, steps: [{repo, tone, text, error}], step, detail,
  * error, retry, signin} — or null. The sign-in card's part (signin: the
  * device code and link) is there only for the person who must sign in: the
  * backend sends ProjectPark.signin to them alone, and the card shows it
@@ -160,9 +166,9 @@ export function prepCard(v, me) {
   const ws = (park && park.ws) || (t && t.ws) || '';
   if (!PREP.has(ws) && !park) return null;
   const steps = ((t && t.checkouts) || []).map((c) => {
-    const [glyph, tone, text] = STEP[c.state] || ['○', 'idle', c.state || ''];
+    const [tone, text] = STEP[c.state] || ['idle', c.state || ''];
     const exit = c.setupExit != null && c.setupExit !== 0 ? ` (setup exit ${c.setupExit})` : '';
-    return { repo: c.repo, glyph, tone: exit ? 'warn' : tone, text: text + exit, error: c.error || '' };
+    return { repo: c.repo, tone: exit ? 'warn' : tone, text: text + exit, error: c.error || '' };
   });
   const tone = ws === 'failed' ? 'bad' : ws === 'signin' || ws === 'blocked' ? 'warn' : 'run';
   const who = me && typeof me === 'object' ? me.user : me;

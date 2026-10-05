@@ -51,7 +51,7 @@ function statusTpl(p, pv, c) {
   const prov = p.provider(pv.scm);
   return html`<section class="pset" id="pset-status"><h5>Status</h5>
     ${!s ? html`<div class="muted small">loading…</div>` : html`
-      ${(s.warnings || []).map((w) => html`<div class="note pwarn" data-kind=${w.kind}>${w.repo ? html`<b class="mono">${w.repo}</b>: ` : nothing}${w.text}</div>`)}
+      ${(s.warnings || []).map((w) => html`<div class="note pwarn" data-kind=${w.kind}><bx-icon name="warning"></bx-icon> ${w.repo ? html`<b class="mono">${w.repo}</b>: ` : nothing}${w.text}</div>`)}
       <div class="pkv"><span>Sandbox</span><span>${s.sandbox && s.sandbox.ref ? html`<b>${s.sandbox.name || s.sandbox.ref}</b> · ${s.sandbox.state}
         ${s.sandbox.workdir ? html` · <span class="mono">${pv.dir || s.sandbox.workdir}</span>` : nothing}${s.sandbox.shared ? html` · <span class="err">shared — no credentials go in</span>` : nothing}` : 'none yet'}</span></div>
       <div class="pkv"><span>Slots</span><span>${s.slots ? `${s.slots.used} of ${s.slots.max} at work` : ''}</span></div>
@@ -222,17 +222,18 @@ function projectTpl(p, pv, c) {
 const style = document.createElement('style');
 style.textContent = `
   .psettings .pset { border-top: 1px solid var(--bx-border); padding: 4px 0 10px; }
-  .psettings .pkv { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; font-size: 12.5px; padding: 3px 0; align-items: baseline; }
+  .psettings .pkv { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 8px; padding: 4px 0; align-items: baseline; }
   .psettings .pkv > span:first-child { color: var(--bx-muted); }
-  .psettings .ptable { width: 100%; border-collapse: collapse; font-size: 12px; margin: 6px 0; table-layout: fixed; }
-  .psettings .ptable th { text-align: left; font-weight: 600; color: var(--bx-muted); font-size: 10.5px; }
-  .psettings .ptable td, .psettings .ptable th { padding: 3px 4px; border-bottom: 1px solid var(--bx-border); overflow-wrap: anywhere; }
+  .psettings .ptable { width: 100%; border-collapse: collapse; margin: 8px 0; table-layout: fixed; }
+  .psettings .ptable th { text-align: left; color: var(--bx-muted); font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase; }
+  .psettings .ptable td, .psettings .ptable th { padding: 4px; border-bottom: 1px solid var(--bx-border); overflow-wrap: anywhere; }
   .psettings .pbtns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
   .psettings .pbtns input { max-width: 240px; }
-  .psettings .prepo { border: 1px solid var(--bx-border); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; background: var(--bx-panel); }
+  .psettings .prepo { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 8px; margin-bottom: 8px; background: var(--bx-panel); }
   .psettings .pgroup { margin: 4px 0; }
-  .psettings .pgroup summary { cursor: pointer; font-weight: 600; font-size: 12.5px; padding: 3px 0; }
+  .psettings .pgroup summary { cursor: pointer; font-weight: 600; padding: 4px 0; }
   .psettings .pfields { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 4px 12px; padding: 4px 0 6px; }
-  .psettings .pwarn { border-left-color: var(--bx-yellow, #d9a441); }
+  .psettings .pwarn { border-color: var(--bx-warn); border-left-color: var(--bx-warn); background: var(--bx-warn-bg); }
+  .psettings .pwarn > bx-icon { color: var(--bx-warn); vertical-align: -3px; }
 `;
 document.head.append(style);

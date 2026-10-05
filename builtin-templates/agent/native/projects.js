@@ -32,7 +32,7 @@ import { html, nothing, repeat } from '/vendor/xb-native.js';
 import { ext } from './ext.js';
 import { ctx, ui, push, top, when } from './ui.js';
 import { can, agentChoices, repoSlug } from '../model/projects.js';
-import { cardWords, issueWords } from '../model/project-task.js';
+import { cardWords, issueWords, prWords } from '../model/project-task.js';
 import { projectFeed, feedWords } from '../model/project-feed.js';
 import { projectTeam } from '../model/project-team.js';
 import { partitionState } from '../model/partition.js';
@@ -189,10 +189,10 @@ function projectTpl(s) {
   </screen>`;
 }
 
-// a task's row: a tap opens its conversation (whose ⋯ comes back here)
+// a task's row: a tap opens its conversation (whose More menu comes back here)
 function taskRow(pv, t, c) {
   const w = cardWords(t);
-  const sub = [w.state.text, w.branch ? `⎇ ${w.branch}` : '', ...w.prs.map((x) => x.text), w.agent, w.size ? 'big' : '', ...(ext.card(t) || [])].filter(Boolean).join(' · ');
+  const sub = [w.state.text, w.branch ? `branch ${w.branch}` : '', ...w.prs.map(prWords), w.agent, w.size ? 'big' : '', ...(ext.card(t) || [])].filter(Boolean).join(' · ');
   const open = !['merged', 'closed', 'done', 'deleted'].includes(t.phase) && !['cancelled', 'failed'].includes(t.state);
   return html`<row title=${`${w.n} ${w.title}`} subtitle=${sub} tone=${TONE[w.state.tone] || nothing} ?disabled=${!t.run} nav @tap=${() => { if (t.run) ctx.app.select(t.run); }}>
     ${c.act && open ? html`<actions><button icon="stop" role="destructive" confirm=${{ title: `Cancel task ${w.n}?`, message: 'It stops, with everything it started; its conversation, worktree and branch stay.', label: 'Cancel task', destructive: true }}

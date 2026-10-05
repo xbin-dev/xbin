@@ -27,7 +27,8 @@
 import { html, nothing, repeat } from '/vendor/xb-native.js';
 import { ext } from './ext.js';
 import { ctx, fail, push, ui } from './ui.js';
-import { taskOf, taskChips, prepCard, prButton, crumb, taskSection } from '../model/project-task.js';
+import { taskOf, taskChips, prepCard, prButton, crumb, taskSection, prWords } from '../model/project-task.js';
+import { NATIVE_ICON } from '../model/ci.js';
 import { homeOf } from '../model/homes.js';
 import { upgradeOffer, projectUpgrade } from '../model/project-upgrade.js';
 
@@ -67,8 +68,8 @@ ext.register({
     const busy = (acts.get(v.run.id) || {}).busy;
     const label = (chips.find((c) => c.kind === 'pr') || chips[0] || { text: 'Pull request' }).text;
     return html`<menu icon="branch" label=${label}>
-      ${chips.map((c) => html`<button icon=${c.kind === 'branch' ? 'branch' : c.kind === 'pr' ? 'link' : c.tone === 'bad' ? 'warning' : 'check'}
-        ?disabled=${!/^https:/i.test(c.url || '')} @tap=${() => openUrl(c.url)}>${c.url ? `${c.text} ↗` : c.text}</button>`)}
+      ${chips.map((c) => html`<button icon=${c.kind === 'branch' ? 'branch' : c.kind === 'pr' ? NATIVE_ICON[c.checksTone] || 'link' : c.tone === 'bad' ? 'warning' : 'check'}
+        ?disabled=${!/^https:/i.test(c.url || '')} @tap=${() => openUrl(c.url)}>${c.url ? `${prWords(c)} ↗` : prWords(c)}</button>`)}
       ${pr.shown ? html`<divider/><button icon="upload" ?disabled=${pr.disabled || busy === 'pr'}
         confirm=${{ title: `Open a pull request for ${t.branch}?`, message: 'People outside xbin will see it.', label: 'Open PR' }}
         @tap=${() => act(v, 'pr', {})}>${busy === 'pr' ? 'Opening…' : 'Open PR'}</button>` : nothing}
@@ -120,6 +121,8 @@ ext.register({
 
 const NTONE = { run: 'info', bad: 'danger', warn: 'warn', ok: 'ok', idle: 'muted' };
 const STONE = { run: 'accent', bad: 'danger', warn: 'warn', ok: 'ok', idle: 'muted' };
+// theme-ok: the native step primitive takes its glyph as text the app draws (vocab step.glyph)
+const STEP_GLYPH = { ok: '✓', bad: '✗', run: '●', warn: '!', idle: '○' };
 
 // signinAgain(v): when the poll of this card's sign-in gave up (state
 // 'error', after 8 failed polls in a row), what Check again does — poll that
@@ -149,10 +152,10 @@ function prepTpl(v) {
     : 'Only you see this code. The task goes on once you approve it there.';
   const a = acts.get(v.run.id) || {};
   return html`<notice tone=${NTONE[card.tone] || 'info'} title=${card.title} text=${[card.step, card.detail, card.error].filter(Boolean).join(' — ') || ' '}/>
-    ${repeat(card.steps, (x) => x.repo, (x) => html`<step glyph=${x.glyph} tone=${STONE[x.tone] || 'muted'} text=${`${x.repo}: ${x.text}${x.error ? ' — ' + x.error : ''}`}/>`)}
-    ${card.retry && talk(v) ? html`<text tone="muted">Retry the workspace from the composer or ⋯.</text>` : nothing}
+    ${repeat(card.steps, (x) => x.repo, (x) => html`<step glyph=${STEP_GLYPH[x.tone] || STEP_GLYPH.idle} tone=${STONE[x.tone] || 'muted'} text=${`${x.repo}: ${x.text}${x.error ? ' — ' + x.error : ''}`}/>`)}
+    ${card.retry && talk(v) ? html`<text tone="muted">Retry the workspace from the composer or the More menu.</text>` : nothing}
     ${card.signin ? html`<notice tone="warn" title="To push, this task needs your own sign-in" text=${words}/>
-      ${st && st.state === 'error' ? html`<text tone="muted">Check again from the composer or ⋯.</text>` : nothing}
+      ${st && st.state === 'error' ? html`<text tone="muted">Check again from the composer or the More menu.</text>` : nothing}
       <text style="title3" mono selectable>${card.signin.userCode}</text>
       ${/^https:\/\/[^\s()<>[\]]+$/i.test(card.signin.url) ? html`<markdown source=${`Open [${card.signin.url}](${card.signin.url}) and enter the code above.`} @link=${(e) => openUrl(e.href)}/>` : nothing}`
     : card.signinElsewhere ? html`<notice tone="muted" text=${card.signinElsewhere}/>` : nothing}

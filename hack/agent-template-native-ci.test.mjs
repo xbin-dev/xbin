@@ -59,19 +59,19 @@ test('native CI: the toolbar badge, the Coding agents screen\'s CI section, the 
   ]);
   const chat = r.snapshots.chat.root;
   const bar = find(chat, barBtn);
-  assert.equal(bar.p.label, '2 coding agents need you · CI ✗ codecov/patch', 'CI\'s badge on the Coding agents button');
+  assert.equal(bar.p.label, '2 coding agents need you · CI failed: codecov/patch', 'CI\'s badge on the Coding agents button');
   assert.equal(called(r, 'GET', /\/runs\/25\/ci$/).length >= 1, true, 'read once when the conversation opens');
   const kid = find(chat, { t: 'toolcard', p: { title: 'Split the router' } });
-  assert.ok(find(kid, { t: 'text', has: 'CI ✗ — CI failed on feature' }), 'the coding agent that pushed: its CI words');
-  assert.equal(find(find(chat, { t: 'toolcard', p: { title: 'Write the changelog' } }), { t: 'text', has: 'CI ✗' }), null, 'the others: none');
+  assert.ok(find(kid, { t: 'text', has: 'CI failed — CI failed on feature' }), 'the coding agent that pushed: its CI words');
+  assert.equal(find(find(chat, { t: 'toolcard', p: { title: 'Write the changelog' } }), { t: 'text', has: 'CI failed' }), null, 'the others: none');
   const b = find(r.snapshots.board.root, BOARD);
   const titles = all(b, { t: 'section' }).map((s) => s.p.title);
   assert.deepEqual(titles.slice(-2), ['CI · acme/web · feature', ''], 'after the coding agents: CI, and Watch CI for…');
   const sec = find(b, { t: 'section', p: { title: 'CI · acme/web · feature' } });
   assert.equal(sec.p.badge, 'failure');
-  const rows = all(sec, { t: 'row' }).map((x) => [x.p.title, x.p.detail || '', x.p.tone || '']);
-  assert.deepEqual(rows, [['acme/web · feature', '', 'danger'], ['ci', '●', 'accent'], ['lint', '1/1', 'ok'], ['test (ubuntu)', '1/3', 'accent'], ['build', '○', 'muted'],
-    ['codecov/patch', '2 ⚑', 'danger'], ['ci/jenkins', '✓', 'ok']]);
+  const rows = all(sec, { t: 'row' }).map((x) => [x.p.title, x.p.detail || '', x.p.icon || '', x.p.tone || '']);
+  assert.deepEqual(rows, [['acme/web · feature', '', 'branch', 'danger'], ['ci', '', 'clock', 'accent'], ['lint', '1/1', 'check', 'ok'], ['test (ubuntu)', '1/3', 'clock', 'accent'],
+    ['build', '', '', 'muted'], ['codecov/patch', '2 annotations', 'error', 'danger'], ['ci/jenkins', '', 'check', 'ok']], 'a status: the row\'s icon and tone (D184)');
   const job = find(sec, { t: 'row', p: { title: 'test (ubuntu)' } });
   assert.equal(job.p.subtitle.startsWith('go test ./...'), true, job.p.subtitle);
   assert.equal(find(job, { t: 'progress' }).p.value, 0.33);
@@ -123,8 +123,8 @@ test('native CI: a running job (logs once it ends), then a finished one\'s log s
   ]);
   const job = topScreen(r.snapshots.job.root);
   assert.equal(job.p.title, 'test (ubuntu)');
-  assert.deepEqual(all(find(job, { t: 'section', p: { title: 'Steps' } }), { t: 'row' }).map((x) => [x.p.title, x.p.detail.split(' ')[0]]),
-    [['Set up job', '✓'], ['go test ./...', '●'], ['upload', '○']]);
+  assert.deepEqual(all(find(job, { t: 'section', p: { title: 'Steps' } }), { t: 'row' }).map((x) => [x.p.title, x.p.icon || '']),
+    [['Set up job', 'check'], ['go test ./...', 'clock'], ['upload', '']]);
   assert.ok(find(job, { t: 'notice', p: { text: 'The job is still running: the log is ready when the job finishes.' } }));
   const opened = r.messages.filter((m) => m.op === 'call' && m.what === 'open').map((m) => m.args.url);
   assert.deepEqual(opened, ['https://github.com/acme/web/actions/runs/7001/job/88001'], 'Open live log: the app opens it');
@@ -181,7 +181,7 @@ test('native CI: the project board\'s CI words (ext.card)', async () => {
   installHooks();
   const { ext } = await import(new URL('native/ext.js', TPL));
   await import(new URL('native/ci.js', TPL));
-  assert.deepEqual(ext.card({ n: 1, ci: { state: 'failure', jobs: { total: 5, failed: 1 } } }), ['CI ✗']);
-  assert.deepEqual(ext.card({ n: 2, ci: { state: 'success', jobs: { total: 2 } } }), ['CI ✓']);
+  assert.deepEqual(ext.card({ n: 1, ci: { state: 'failure', jobs: { total: 5, failed: 1 } } }), ['CI failed']);
+  assert.deepEqual(ext.card({ n: 2, ci: { state: 'success', jobs: { total: 2 } } }), ['CI passed']);
   assert.equal(ext.card({ n: 3 }), null, 'no CI: no words');
 });

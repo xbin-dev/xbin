@@ -52,11 +52,11 @@ ok('the chip comes after the coding agents chip', await page.evaluate(() => {
   const a = document.getElementById('hbchip'), b = document.getElementById('cichip');
   return !!a && !!(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
 }));
-ok('the chip says what failed', await waitText(page, '#cichip', 'CI ✗ codecov/patch'), await page.textContent('#cichip'));
+ok('the chip says what failed', await waitText(page, '#cichip', 'CI failed: codecov/patch'), await page.textContent('#cichip'));
 ok('…in the failing tone', (await page.getAttribute('#cichip', 'data-tone')) === 'bad');
 ok('the conversation\'s CI is read once on opening (not fresh)', await page.evaluate(() => window.__ci.reads.length === 1 && !window.__ci.reads[0].fresh),
   JSON.stringify(await page.evaluate(() => window.__ci.reads)));
-ok('the coding agent that pushed has a CI glyph', await page.waitForFunction(() => document.querySelector('.hkid[data-child="26"] .cichild')?.textContent === 'CI ✗',
+ok('the coding agent that pushed has a CI glyph', await page.waitForFunction(() => document.querySelector('.hkid[data-child="26"] .cichild')?.textContent.trim() === 'CI failed',
   null, { timeout: 5000 }).then(() => true, () => false));
 ok('…the others none', !(await page.$('.hkid[data-child="27"] .cichild')));
 
@@ -77,9 +77,9 @@ ok('…the running job\'s current step', (await page.textContent('.cijob[data-jo
 await page.focus('.cijob[data-job="88001"] .cirow');
 await page.keyboard.press('Enter'); // a job row unfolds from the keyboard too
 ok('a job row is a button: expanded', (await page.getAttribute('.cijob[data-job="88001"] .cirow', 'aria-expanded')) === 'true');
-const steps = await page.$$eval('.cijob[data-job="88001"] .cistep', (els) => els.map((e) => [e.querySelector('.cist').textContent, e.querySelector('.ciname').textContent,
+const steps = await page.$$eval('.cijob[data-job="88001"] .cistep', (els) => els.map((e) => [e.querySelector('.cist bx-icon')?.getAttribute('name') || '', e.querySelector('.ciname').textContent,
   e.querySelector('.muted').textContent]));
-ok('expanded: its steps with their marks and times', JSON.stringify(steps.map((x) => x.slice(0, 2))) === JSON.stringify([['✓', 'Set up job'], ['●', 'go test ./...'], ['○', 'upload']])
+ok('expanded: its steps with their marks and times', JSON.stringify(steps.map((x) => x.slice(0, 2))) === JSON.stringify([['ok', 'Set up job'], ['live', 'go test ./...'], ['', 'upload']])
   && steps[0][2] === '2s' && steps[2][2] === '', JSON.stringify(steps));
 const check = await page.textContent('.cicheck[data-check="88100"]');
 ok('another check: its name, its title as text', check.includes('codecov/patch') && check.includes('62% of diff hit'), check);
@@ -91,7 +91,7 @@ ok('…markup in a message stays text', (await page.$$eval('.cinote .cimsg', (el
   && !(await page.$('.cinote img')));
 ok('a status: jenkins passed', (await page.textContent('.cistatus')).includes('ci/jenkins'));
 ok('no Re-run on a run still going', !(await page.$('.cirerun')));
-ok('the dock\'s badge says the state', (await page.textContent('.hbtab[data-tab="ci"]')).includes('✗'));
+ok('the dock\'s badge says the state', (await page.textContent('.hbtab[data-tab="ci"]')).includes('failed'));
 
 // --- the log viewer ----------------------------------------------------------------------------------
 await page.click('.cijob[data-job="88001"] .cilog');
@@ -242,7 +242,7 @@ ok('no errors', errors.length === 0, errors.join(' | '));
     render(ext.card({ n: 1, run: 25, ci: { state: 'pending', jobs: { total: 5, done: 3 }, startedAt: Date.now() - 134000 } }), host);
     return host.textContent.trim();
   });
-  ok('a task card\'s CI chip', /^CI ● 3\/5 jobs · 2:1\d$/.test(chip), chip);
+  ok('a task card\'s CI chip', /^CI running 3\/5 jobs · 2:1\d$/.test(chip), chip);
   await p5.click('#cardhost .cicard');
   ok('…opens the task with the dock on CI', await p5.waitForSelector('#hboard .hbsec[data-sec="ci"]', { timeout: 5000 }).then(() => true, () => false)
     && await p5.evaluate(() => location.hash === '#c=25'));

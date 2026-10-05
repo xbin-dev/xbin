@@ -4341,15 +4341,16 @@ in it is a one-shot cue: every watch's outcome rides each event and each
 read.
 
 **In the conversation (web).** The **CI chip** comes right after the
-coding agents chip in the top bar — "CI ● 3/5 jobs · 2:14" while running,
-"CI ✓", "CI ✗ test (ubuntu)", "CI —" (nothing reported yet, or nothing
+coding agents chip in the top bar — "CI running 3/5 jobs · 2:14", "CI
+passed", "CI failed: test (ubuntu)", each after its status glyph, "CI —"
+(nothing reported yet, or nothing
 watched but you may) — and opens the right dock (the coding agents'
 dock, now with tabs **Coding agents · CI**) on its CI tab; with no
 coding agents the dock opens on CI alone. The CI section lists each watch
-(its branch and pull request ↗, state, since when, ✕), its runs (name,
+(its branch and pull request ↗, state, since when, stop watching), its runs (name,
 event, attempt, state, time ↗, **Re-run failed** for a person, confirmed),
 each run's jobs (a progress bar of its steps, the step under way, time ↗;
-expanded: its steps ✓ ✗ ● ○ with durations, **Log**, its annotations as
+expanded: its steps with their status glyphs and durations, **Log**, its annotations as
 `path:line`), the other checks and statuses (↗), and **Watch CI for…** (a
 repo, a branch or a pull request's number). While the tab is shown it is
 read again every 15 s while anything is not completed; a conversation's CI is read

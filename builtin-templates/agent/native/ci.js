@@ -28,10 +28,11 @@
 import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { ext } from './ext.js';
 import { ui, ctx, push, top, fail, guard, when } from './ui.js';
-import { chipWords, elapsed, GLYPH } from '../model/ci.js';
+import { chipWords, elapsed, NATIVE_ICON } from '../model/ci.js';
 import { isHttps } from '../model/terminals.js';
 
 const TONE = { ok: 'ok', bad: 'danger', warn: 'warn', run: 'accent', idle: 'muted' };
+const icon = (tone) => NATIVE_ICON[tone] || nothing; // a status's glyph (D184): the row's icon, its words the row's
 const rootOf = (v) => (v && v.run ? v.run.rootId || v.run.id : null);
 const read = new Set(); // conversations read once on opening
 const childTpls = new Map(); // a child's CI words → their template
@@ -134,7 +135,7 @@ function watchTpl(app, root, view, w) {
       </actions>
     </row>
     ${w.runs.map((r) => html`<row title=${r.name} subtitle=${[r.event, r.attempt > 1 ? `attempt ${r.attempt}` : '', r.state, elapsed(r.elapsedMs)].filter(Boolean).join(' · ')}
-        detail=${GLYPH[r.tone]} tone=${TONE[r.tone] || nothing}>
+        icon=${icon(r.tone)} tone=${TONE[r.tone] || nothing}>
         <actions>
           ${isHttps(r.url) ? html`<button icon="external" @tap=${() => open(r.url)}>Open the run</button>` : nothing}
           ${view.canRerun && r.failed ? html`<button icon="refresh" confirm=${{ title: `Re-run the failed jobs of ${r.name}?`, message: 'It runs as you, and spends CI time (it may deploy).', label: 'Re-run failed' }}
@@ -142,13 +143,13 @@ function watchTpl(app, root, view, w) {
         </actions>
       </row>
       ${r.jobs.map((j) => html`<row title=${j.name} subtitle=${[j.progress.current || (j.status === 'completed' ? j.conclusion : j.status), elapsed(j.elapsedMs)].filter(Boolean).join(' · ')}
-          detail=${j.progress.total ? `${j.progress.done}/${j.progress.total}` : GLYPH[j.tone]} tone=${TONE[j.tone] || nothing} nav
+          detail=${j.progress.total ? `${j.progress.done}/${j.progress.total}` : nothing} icon=${icon(j.tone)} tone=${TONE[j.tone] || nothing} nav
           @tap=${() => push({ kind: 'ci-job', root, watch: w.watch, job: j.id })}>
         ${j.progress.total ? html`<progress value=${j.progress.pct / 100}/>` : nothing}
       </row>`)}`)}
-    ${w.checks.map((k) => html`<row title=${k.name} subtitle=${k.title || k.conclusion || k.status} detail=${k.annotations ? `${k.annotations} ⚑` : GLYPH[k.tone]}
-        tone=${TONE[k.tone] || nothing} ?nav=${k.annotations > 0} @tap=${() => (k.annotations ? push({ kind: 'ci-annotations', root, watch: w.watch, check: k.id, title: k.name }) : open(k.url))}/>`)}
-    ${w.statuses.map((s) => html`<row title=${s.context} subtitle=${s.description || s.state} detail=${GLYPH[s.tone]} tone=${TONE[s.tone] || nothing} @tap=${() => open(s.url)}/>`)}
+    ${w.checks.map((k) => html`<row title=${k.name} subtitle=${k.title || k.conclusion || k.status} detail=${k.annotations ? `${k.annotations} annotation${k.annotations === 1 ? '' : 's'}` : nothing}
+        icon=${icon(k.tone)} tone=${TONE[k.tone] || nothing} ?nav=${k.annotations > 0} @tap=${() => (k.annotations ? push({ kind: 'ci-annotations', root, watch: w.watch, check: k.id, title: k.name }) : open(k.url))}/>`)}
+    ${w.statuses.map((s) => html`<row title=${s.context} subtitle=${s.description || s.state} icon=${icon(s.tone)} tone=${TONE[s.tone] || nothing} @tap=${() => open(s.url)}/>`)}
   </section>`;
 }
 
@@ -205,7 +206,7 @@ function jobScreen(s) {
     </toolbar>
     ${s.err ? html`<section><notice tone="danger" text=${s.err}/></section>` : nothing}
     ${j ? html`<section title="Steps" footer=${j.progress.total ? `${j.progress.done} of ${j.progress.total} done` : ''}>
-      ${j.steps.length ? j.steps.map((st) => html`<row title=${st.name} detail=${[GLYPH[st.tone], elapsed(st.elapsedMs)].filter(Boolean).join(' ')} tone=${TONE[st.tone] || nothing}/>`)
+      ${j.steps.length ? j.steps.map((st) => html`<row title=${st.name} detail=${elapsed(st.elapsedMs) || nothing} icon=${icon(st.tone)} tone=${TONE[st.tone] || nothing}/>`)
         : html`<empty title="no steps yet"/>`}
     </section>` : nothing}
     ${s.log && s.log.inProgress ? html`<section title="Log">

@@ -43,7 +43,8 @@ export function coordCardTpl(p, pv) {
   </div>`;
 }
 
-const ICON = { ok: '✓', bad: '✗', warn: '!', run: '●', idle: '·' };
+// an event's glyph by tone (D184: bx-icons names; idle: a muted square)
+const ICON = { ok: 'ok', bad: 'error', warn: 'warning', run: 'live' };
 
 /** feedTpl(p, pv): the Activity tab — the project's events, newest first. */
 export function feedTpl(p, pv) {
@@ -59,7 +60,7 @@ export function feedTpl(p, pv) {
       const w = feedWords(ev);
       const t = w.n ? tasks.get(w.n) : null;
       return html`<div class="pev" data-kind=${w.kind} data-tone=${w.tone} data-n=${w.n || ''}>
-        <span class="pevg">${ICON[w.tone] || '·'}</span>
+        <span class="pevg">${ICON[w.tone] ? html`<bx-icon name=${ICON[w.tone]}></bx-icon>` : html`<span class="pevsq"></span>`}</span>
         <span class="pevb"><span class="pevh">${w.n ? (t && t.run ? html`<a class="lnk" title=${t.title || ''} @click=${() => ctx.app.select(t.run)}>#${w.n}</a>` : html`<span>#${w.n}</span>`) : html`<span class="muted">project</span>`}
           <b>${w.label}</b>${w.by ? html`<span class="muted"> · ${w.by}</span>` : nothing}<span class="muted small"> · ${ago(w.when)}</span>
           ${w.wake ? html`<span class="badge" title="its coordinator was woken for it">coordinator</span>` : nothing}
@@ -75,16 +76,17 @@ export function feedTpl(p, pv) {
 
 const style = document.createElement('style');
 style.textContent = `
-  .projs-page .pcoord { border: 1px solid var(--bx-border); border-left: 3px solid var(--bx-accent); border-radius: 7px; padding: 8px 10px; margin: 0 0 10px; background: var(--bx-panel); }
+  .projs-page .pcoord { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 8px 12px; margin: 0 0 12px; background: var(--bx-panel); }
   .projs-page .pcoordh { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
   .projs-page .pcoordrow { display: flex; gap: 6px; margin-top: 6px; }
   .projs-page .pcoordrow input { flex: 1; min-width: 0; }
-  .projs-page .lnk { cursor: pointer; color: var(--bx-accent); }
-  .projs-page .pfeed .pev { display: flex; gap: 8px; padding: 5px 2px; border-bottom: 1px solid var(--bx-border); font-size: 12.5px; min-width: 0; }
-  .projs-page .pfeed .pevg { flex: none; width: 1em; text-align: center; color: var(--bx-muted); }
-  .projs-page .pfeed .pev[data-tone="ok"] .pevg { color: var(--bx-green); }
-  .projs-page .pfeed .pev[data-tone="bad"] .pevg { color: var(--bx-red); }
-  .projs-page .pfeed .pev[data-tone="warn"] .pevg { color: var(--bx-yellow, #d9a441); }
+  .projs-page .lnk { cursor: pointer; color: var(--bx-link); }
+  .projs-page .pfeed .pev { display: flex; gap: 8px; padding: 4px 2px; border-bottom: 1px solid var(--bx-border); min-width: 0; }
+  .projs-page .pfeed .pevg { flex: none; display: inline-flex; width: 16px; height: var(--bx-text-line, 18px); align-items: center; justify-content: center; color: var(--bx-muted); }
+  .projs-page .pfeed .pevsq { width: 4px; height: 4px; background: currentColor; }
+  .projs-page .pfeed .pev[data-tone="ok"] .pevg { color: var(--bx-ok); }
+  .projs-page .pfeed .pev[data-tone="bad"] .pevg { color: var(--bx-danger); }
+  .projs-page .pfeed .pev[data-tone="warn"] .pevg { color: var(--bx-warn); }
   .projs-page .pfeed .pev[data-tone="run"] .pevg { color: var(--bx-accent); }
   .projs-page .pfeed .pevb { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
   .projs-page .pfeed .pevh { display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline; }

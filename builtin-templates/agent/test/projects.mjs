@@ -78,10 +78,11 @@ const cols = await page.$$eval('.pboard .pcol', (els) => els.map((e) => `${e.dat
 ok('the columns, each with its tasks (newest first)', JSON.stringify(cols) === '["queued:4","working:2","needs-you:8,6,3","pr:1","done:5"]', JSON.stringify(cols));
 const t1 = await page.textContent('.ptask[data-n="1"]');
 ok('a card: #n, title, state, branch, its PR with its checks', t1.includes('#1') && t1.includes('Fix the login loop') && t1.includes('awaiting review')
-  && t1.includes('xbin/k3x9qa/1-task-1') && t1.includes('PR #42 open ✗'), t1);
+  && t1.includes('xbin/k3x9qa/1-task-1') && t1.includes('PR #42 open')
+  && (await page.getAttribute('.ptask[data-n="1"] a.pchip bx-icon', 'name')) === 'error', t1);
 ok('…the PR a link to the platform', (await page.getAttribute('.ptask[data-n="1"] a.pchip', 'href')) === 'https://github.com/acme/web/pull/42');
 const t5 = await page.textContent('.ptask[data-n="5"]');
-ok('with a CI summary, the PR chip leaves the checks to the CI chip (ext.card)', t5.includes('PR #40 merged') && !t5.includes('✓ ↗') && t5.includes('CI success'), t5);
+ok('with a CI summary, the PR chip leaves the checks to the CI chip (ext.card)', t5.includes('PR #40 merged') && !(await page.$('.ptask[data-n="5"] a.pchip bx-icon')) && t5.includes('CI success'), t5);
 ok('the board has no horizontal scroll', await noHScroll(page));
 
 // --- a new task ------------------------------------------------------------------------------------------------
@@ -209,7 +210,8 @@ await page.evaluate(() => { location.hash = '#c=101'; });
 await page.waitForSelector('#ptchips');
 ok('the crumb: back to its project', (await page.textContent('#projcrumb')) === 'Web ›');
 const chips = await page.$$eval('#ptchips .pchip', (els) => els.map((e) => `${e.dataset.kind}:${e.textContent.trim()}`));
-ok('the branch, the PR with its checks, the setup', JSON.stringify(chips) === '["branch:⎇ xbin/k3x9qa/1-task-1 ↗","pr:PR #42 open ✗ ↗","setup:setup ✓"]', JSON.stringify(chips));
+ok('the branch, the PR with its checks, the setup', JSON.stringify(chips) === '["branch:xbin/k3x9qa/1-task-1 ↗","pr:PR #42 open ↗","setup:setup passed"]'
+  && JSON.stringify(await page.$$eval('#ptchips .pchip bx-icon', (els) => els.map((e) => e.getAttribute('name')))) === '["branch","error","ok"]', JSON.stringify(chips));
 ok('…the branch a link to it', (await page.getAttribute('#ptchips a[data-kind="branch"]', 'href')) === 'https://github.com/acme/web/tree/xbin/k3x9qa/1-task-1');
 ok('Open PR: hidden on a task with an open PR', !(await page.$('#ptask-pr')));
 await page.evaluate(() => { location.hash = '#c=102'; });

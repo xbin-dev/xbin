@@ -258,9 +258,9 @@ export const IMPLEMENTS = {
   'proj.upgrade': 'project-new.js — the ext.sbx action #sbx-upgrade at the end of the sandbox popover (sandboxes.js #sbxpop) and the dialog #pupg: the sandbox\'s repos, https, name, branch, #pupg-make (model/project-upgrade.js upgradeOffer, candidateWords, submit)',
   'proj.team': 'project-team.js — teamBoardTpl (.pteamboard .tbrow: plain rows, open (yours), stale, Hide), teamLinkTpl (#pteam-work, #pteam-form with the security part #psec, #pteam-go), reviewCardTpl (#pteam-review side by side, #pteam-review-accept); project-new.js #pn-kind (a team definition from your own space) — model/project-team.js',
   // CI in the conversation
-  'ci.chip': 'ci-dock.js — #cichip through ext.top, after #hbchip: CI ● n/m jobs · time, CI ✓, CI ✗ <job>, CI — (model/ci.js chipWords, app.ci.chip); opens the dock on CI (openCI)',
+  'ci.chip': 'ci-dock.js — #cichip through ext.top, after #hbchip: CI running n/m jobs · time, CI passed, CI failed: <job>, each after its status glyph, CI — (model/ci.js chipWords, app.ci.chip); opens the dock on CI (openCI)',
   'ci.dock': 'ci-dock.js — the CI section of the right dock through ext.dock (harness-board.js hosts it: .hbtabs Coding agents · CI, openDock): #cisec .ciwatch per watch (branch, PR, state, since, ✕), live while shown (app.ci.live)',
-  'ci.jobs': 'ci-dock.js — .cirun per workflow run (name, event, attempt, state, time), .cijob per job (.cibar progress, the current step, time; expanded: .cistep with ✓ ✗ ● ○ and durations; model/ci.js watchRows, jobProgress)',
+  'ci.jobs': 'ci-dock.js — .cirun per workflow run (name, event, attempt, state, time), .cijob per job (.cibar progress, the current step, time; expanded: .cistep with its status glyph (model/ci.js ICON; a hollow square not started) and durations; model/ci.js watchRows, jobProgress)',
   'ci.logs': 'ci-dock.js — the log viewer in the dock (#cilog plain text, #ci-earlier, #ci-search with #ci-prev/#ci-next, #ci-follow while partial logs run; #cilogwait: steps and Open live log ↗), the dock wider (.wrap.ciwide)',
   'ci.annotations': 'ci-dock.js — notesTpl: .cinote path:line, level, title, message as text (app.ci.annotations)',
   'ci.links': 'ci-dock.js — out(): ↗ to the branch, PR, checks, runs, jobs, checks\' details and statuses, http(s) only, in a new tab',

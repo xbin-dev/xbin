@@ -23,6 +23,7 @@ import { ctx, push } from './ui.js';
 import { projectTeam, boardColumns, securityDiff } from '../model/project-team.js';
 import { openUrl } from './project-task.js';
 import { openProject, follow, TONE } from './projects.js';
+import { prWords } from '../model/project-task.js';
 
 ext.register({ screen: (s) => (s.kind === 'project-team' ? teamTpl(s) : null) });
 
@@ -75,7 +76,7 @@ function seedTpl(pv) {
 
 function rowTpl(pv, w) {
   const t = projectTeam(ctx.app);
-  const sub = [w.member, w.stale ? 'no longer a member' : '', w.state.text, w.branch ? `⎇ ${w.branch}` : '', ...w.prs.map((x) => x.text), w.ci ? w.ci.text : ''].filter(Boolean).join(' · ');
+  const sub = [w.member, w.stale ? 'no longer a member' : '', w.state.text, w.branch ? `branch ${w.branch}` : '', ...w.prs.map(prWords), w.ci ? w.ci.text : ''].filter(Boolean).join(' · ');
   const links = [...w.prs.filter((x) => x.url).map((x) => ({ text: `${x.text} ↗`, url: x.url })), ...(w.ci && w.ci.url ? [{ text: 'CI ↗', url: w.ci.url }] : [])];
   return html`<row title=${`${w.n} ${w.title}`} subtitle=${sub} tone=${w.stale ? 'muted' : TONE[w.state.tone] || nothing} ?nav=${!!w.open} ?disabled=${w.stale}
       @tap=${() => { if (w.open) ctx.app.select(w.open); }}>

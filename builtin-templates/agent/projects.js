@@ -30,6 +30,7 @@ import { settingsTpl } from './project-settings.js';
 import { coordCardTpl, feedTpl } from './project-feed.js';
 import { teamBoardTpl, teamLinkTpl, reviewCardTpl } from './project-team.js';
 import { forkBaseOffer, forkBase } from './model/project-upgrade.js';
+import { chipBody } from './project-chips.js';
 
 // keys(fn): Enter and Space on the element itself (not a control inside it) do what a click does —
 // a clickable card, entry or crumb, reached by Tab
@@ -72,7 +73,7 @@ function topTpl() {
   const p = pj();
   const pv = p.view();
   if (p.form) return html`<a class="crumb" role="button" tabindex="0" @click=${() => p.closeForm()} @keydown=${keys(() => p.closeForm())}>Projects ›</a><span class="title">New project</span>`;
-  if (p.opened == null) return html`<span class="title">Projects</span><span class="muted" style="font-size:11.5px">a sandbox, its repos and task conversations</span>`;
+  if (p.opened == null) return html`<span class="title">Projects</span><span class="muted small">a sandbox, its repos and task conversations</span>`;
   return html`<a class="crumb" role="button" tabindex="0" @click=${() => p.open(null)} @keydown=${keys(() => p.open(null))}>Projects ›</a><span class="title">${pv ? pv.name : '#' + p.opened}</span>
     ${pv && pv.state !== 'active' ? html`<span class="badge">${pv.state}</span>` : nothing}`;
 }
@@ -177,10 +178,10 @@ function taskCardTpl(t) {
     <div class="ptm"><span class="ptst" data-tone=${w.state.tone}>${w.state.text}</span>
       ${w.size ? html`<span class="badge">big</span>` : nothing}
       ${w.agent ? html`<span class="badge" title="a coding agent works on it">${w.agent}</span>` : nothing}</div>
-    ${w.branch ? html`<div class="ptb mono" title="its branch">⎇ ${w.branch}</div>` : nothing}
+    ${w.branch ? html`<div class="ptb mono" title="its branch"><bx-icon name="branch"></bx-icon>${w.branch}</div>` : nothing}
     ${w.prs.length || ext.has('card') ? html`<div class="ptc">
-      ${w.prs.map((c) => (c.url ? html`<a class="badge pchip" data-tone=${c.tone} href=${c.url} target="_blank" rel="noopener noreferrer" title=${c.title} @click=${stop}>${c.text} ↗</a>`
-        : html`<span class="badge pchip" data-tone=${c.tone} title=${c.title}>${c.text}</span>`))}
+      ${w.prs.map((c) => (c.url ? html`<a class="badge pchip" data-tone=${c.tone} href=${c.url} target="_blank" rel="noopener noreferrer" title=${c.title} @click=${stop}>${chipBody(c)} ↗</a>`
+        : html`<span class="badge pchip" data-tone=${c.tone} title=${c.title}>${chipBody(c)}</span>`))}
       ${ext.card(t) || nothing}</div>` : nothing}
   </div>`;
 }
@@ -260,40 +261,40 @@ const style = document.createElement('style');
 style.textContent = `
   .projs-page.wide { max-width: 1180px; }
   .projs-page .pcounts { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; }
-  .projs-page .pcnt[data-col="needs-you"] { color: var(--bx-yellow, #d9a441); font-weight: 600; }
+  .projs-page .pcnt[data-col="needs-you"] { color: var(--bx-warn); font-weight: 600; }
   .projs-page .ahd { flex-wrap: wrap; }
   .projs-page .ptabs { display: inline-flex; gap: 2px; }
   .projs-page .ptabs [aria-selected="true"] { background: var(--bx-panel-2); box-shadow: inset 0 -2px 0 var(--bx-accent); }
   .projs-page .pbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 10px; }
   .projs-page .pbar .pq { width: 180px; max-width: 100%; }
-  .projs-page .pform { border: 1px solid var(--bx-border); border-radius: 7px; padding: 10px; margin: 0 0 12px; background: var(--bx-panel); }
+  .projs-page .pform { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 12px; margin: 0 0 12px; background: var(--bx-panel); }
   .projs-page .row2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; }
   .projs-page .pboard { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; align-items: start; }
   @media (max-width: 900px) { .projs-page .pboard { grid-template-columns: minmax(0, 1fr); } }
-  .projs-page .pcol { min-width: 0; background: var(--bx-panel-2); border-radius: 7px; padding: 6px; }
-  .projs-page .pcolh { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--bx-muted); margin: 2px 2px 6px; }
-  .projs-page .pcol[data-col="needs-you"] .pcolh { color: var(--bx-yellow, #d9a441); }
-  .projs-page .ptask { border: 1px solid var(--bx-border); border-radius: 6px; padding: 6px 8px; margin-bottom: 6px; background: var(--bx-panel); cursor: pointer; min-width: 0; }
-  .projs-page .ptask:hover, .projs-page .ptask:focus { border-color: var(--bx-accent); outline: none; }
+  .projs-page .pcol { min-width: 0; background: var(--bx-panel-2); border-radius: var(--bx-radius); padding: 8px; }
+  .projs-page .pcolh { font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase; color: var(--bx-muted); margin: 2px 2px 8px; }
+  .projs-page .pcol[data-col="needs-you"] .pcolh { color: var(--bx-warn); }
+  .projs-page .ptask { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 8px; margin-bottom: 6px; background: var(--bx-panel); cursor: pointer; min-width: 0; }
+  .projs-page .ptask:hover { border-color: var(--bx-border-strong); }
   .projs-page .pth { display: flex; gap: 5px; align-items: baseline; min-width: 0; }
-  .projs-page .ptn { color: var(--bx-muted); font-size: 11px; flex: none; }
-  .projs-page .ptt { font-weight: 600; font-size: 12.5px; overflow-wrap: anywhere; }
-  .projs-page .ptm, .projs-page .ptc { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 3px; font-size: 11px; }
-  .projs-page .ptb { font-size: 10.5px; color: var(--bx-muted); margin-top: 3px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .projs-page .ptn { color: var(--bx-muted); font: var(--bx-font-meta); font-family: var(--bx-mono); flex: none; }
+  .projs-page .ptt { font-weight: 600; overflow-wrap: anywhere; }
+  .projs-page .ptm, .projs-page .ptc { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; margin-top: 4px; font: var(--bx-font-meta); }
+  .projs-page .ptb { display: flex; align-items: center; gap: 4px; font-size: var(--bx-mono-size, 12px); color: var(--bx-muted); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .badge.pchip { color: var(--bx-muted); }
-  .ptst[data-tone="run"], .badge.pchip[data-tone="run"] { color: var(--bx-accent); }
-  .ptst[data-tone="ok"], .badge.pchip[data-tone="ok"] { color: var(--bx-green); }
-  .ptst[data-tone="bad"], .badge.pchip[data-tone="bad"] { color: var(--bx-red); }
-  .ptst[data-tone="warn"], .badge.pchip[data-tone="warn"] { color: var(--bx-yellow, #d9a441); }
+  .ptst[data-tone="run"], .badge.pchip[data-tone="run"] { color: var(--bx-info); }
+  .ptst[data-tone="ok"], .badge.pchip[data-tone="ok"] { color: var(--bx-ok); }
+  .ptst[data-tone="bad"], .badge.pchip[data-tone="bad"] { color: var(--bx-danger); }
+  .ptst[data-tone="warn"], .badge.pchip[data-tone="warn"] { color: var(--bx-warn); }
   .ptst[data-tone="idle"] { color: var(--bx-muted); }
   a.badge.pchip { text-decoration: none; text-transform: none; letter-spacing: 0; }
-  .projs-page .pissues { max-height: 320px; overflow: auto; margin: 6px 0; border: 1px solid var(--bx-border); border-radius: 6px; padding: 4px; }
-  .projs-page .pissue { display: flex; gap: 6px; align-items: flex-start; padding: 4px; border-bottom: 1px solid var(--bx-border); font-size: 12px; min-width: 0; }
+  .projs-page .pissues { max-height: 320px; overflow: auto; margin: 6px 0; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 4px; }
+  .projs-page .pissue { display: flex; gap: 6px; align-items: flex-start; padding: 4px; border-bottom: 1px solid var(--bx-border); min-width: 0; }
   .projs-page .pissue .pin { color: var(--bx-muted); flex: none; }
   .projs-page .pissue .pibody { flex: 1; min-width: 0; display: flex; flex-wrap: wrap; gap: 3px 6px; }
   .projs-page .pissue .pititle { font-weight: 600; overflow-wrap: anywhere; }
-  .projs-page .untrusted { flex-basis: 100%; color: var(--bx-muted); font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere;
-    border-left: 2px dashed var(--bx-border); padding-left: 6px; max-height: 4.5em; overflow: hidden; }
+  .projs-page .untrusted { flex-basis: 100%; color: var(--bx-muted); font: var(--bx-font-meta); white-space: pre-wrap; overflow-wrap: anywhere;
+    border-left: 2px solid var(--bx-border); padding-left: 8px; max-height: 4.5em; overflow: hidden; }
   .projs-page .pflash { margin: 6px 0; }
 `;
 document.head.append(style);

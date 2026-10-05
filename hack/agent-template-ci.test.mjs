@@ -77,11 +77,11 @@ test('words: tones, elapsed, ANSI stripped, a job\'s progress', () => {
 test('the chip: running, passed, failed, nothing yet', () => {
   const now = 1789990134000;
   const run = C.chipWords({ state: 'pending', jobs: { total: 5, done: 3 }, startedAt: 1789990000000, current: 'test › go test' }, now);
-  assert.deepEqual(run, { text: 'CI ● 3/5 jobs · 2:14', tone: 'run', title: 'running: test › go test' });
-  assert.equal(C.chipWords({ state: 'success', jobs: { total: 2 } }, now).text, 'CI ✓');
+  assert.deepEqual(run, { text: 'CI running 3/5 jobs · 2:14', tone: 'run', title: 'running: test › go test' });
+  assert.equal(C.chipWords({ state: 'success', jobs: { total: 2 } }, now).text, 'CI passed');
   assert.equal(C.chipWords({ state: 'success', jobs: {} }, now).tone, 'ok');
   const bad = C.chipWords({ state: 'failure', jobs: { total: 5, failed: 1 } }, now, 'test (ubuntu)');
-  assert.equal(bad.text, 'CI ✗ test (ubuntu)');
+  assert.equal(bad.text, 'CI failed: test (ubuntu)');
   assert.equal(bad.tone, 'bad');
   assert.equal(C.chipWords({ state: 'none', jobs: {} }, now).text, 'CI —');
   assert.equal(C.chipWords(null, now), null);
@@ -99,7 +99,8 @@ test('rows: watches → runs → jobs (steps, progress, annotations), other chec
   assert.equal(r.elapsedMs, 100000);
   assert.deepEqual(r.jobs.map((j) => [j.name, j.tone, j.progress.pct]), [['lint', 'ok', 100], ['test (ubuntu)', 'run', 33], ['build', 'idle', 0]]);
   const t = r.jobs[1];
-  assert.deepEqual(t.steps.map((s) => C.GLYPH[s.tone]), ['✓', '●', '○']);
+  assert.deepEqual(t.steps.map((s) => C.ICON[s.tone]), ['ok', 'live', ''], 'the web\'s glyphs (D184); none for one not started');
+  assert.deepEqual(t.steps.map((s) => C.NATIVE_ICON[s.tone]), ['check', 'clock', '']);
   assert.equal(t.steps[0].elapsedMs, 2000);
   assert.equal(t.check, '88001');
   assert.deepEqual(w.checks.map((k) => [k.name, k.tone, k.annotations, k.url]), [['codecov/patch', 'bad', 2, 'https://app.codecov.io/gh/acme/web']]);
@@ -154,7 +155,7 @@ test('the store: one read in flight, the run view before it, events, the child g
     [7, { run: { id: 7 }, ci: { summary: null, canWatch: true } }], [8, { run: { id: 8 }, ci: { summary: null, canWatch: false } }]]);
   const app = fakeApp(views);
   const ci = C.createCI(app, { prefs: memPrefs(), now: () => 1789990134000, debounce: 0 });
-  assert.equal(ci.chip(B + 9).text, 'CI ● 1/2 jobs', 'the run view\'s summary before any read');
+  assert.equal(ci.chip(B + 9).text, 'CI running 1/2 jobs', 'the run view\'s summary before any read');
   assert.equal(ci.chip(7).text, 'CI —', 'nothing watched, but you may');
   assert.equal(ci.chip(8), null, 'neither');
   assert.equal(ci.chip(null), null, 'not at home');
@@ -165,7 +166,7 @@ test('the store: one read in flight, the run view before it, events, the child g
   await wait(5);
   assert.equal(n, 2, 'a fresh ask during a plain read reads fresh after it');
   assert.equal(calls.filter((c) => c.path.startsWith(`/runs/${B + 9}/ci`)).every((c) => c.home === ''), true, 'a person\'s own conversation: their partition');
-  assert.equal(ci.chip(B + 9).text, 'CI ✗ codecov/patch', 'failed: the first failing job or check');
+  assert.equal(ci.chip(B + 9).text, 'CI failed: codecov/patch', 'failed: the first failing job or check');
   assert.equal(ci.child(B + 9, 12).tone, 'bad');
   assert.match(ci.child(B + 9, 12).title, /^CI failed on feature/);
   assert.equal(ci.child(B + 9, 13), null, 'a coding agent that pushed nothing');
@@ -176,7 +177,7 @@ test('the store: one read in flight, the run view before it, events, the child g
   const before = n;
   ci.take({ type: 'ci', run: 9, root: 9, data: { root: 9, watch: 4, summary: { state: 'success', jobs: { total: 5 } }, state: 'success', outcome: `${F.SHA1}:success`,
     watches: [{ id: 4, state: 'success', outcome: `${F.SHA1}:success`, run: 12 }] } });
-  assert.equal(ci.chip(9).text, 'CI ✓');
+  assert.equal(ci.chip(9).text, 'CI passed');
   assert.equal(ci.view(9).watches[0].outcome, `${F.SHA1}:success`);
   await wait(10);
   assert.equal(n, before + 1, 'read again after the event');

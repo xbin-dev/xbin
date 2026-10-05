@@ -135,8 +135,8 @@ test('Projects: the drawer\'s row, the list, a project\'s board with ext.card\'s
   assert.deepEqual(titles(r.snapshots.board), ['Agent', 'Projects', 'Web']);
   const board = topScreen(r.snapshots.board);
   assert.deepEqual(sections(board), ['Coordinator', 'Queued (1)', 'Working (1)', 'Needs you (3)', 'PR (1)', 'Done (1)', 'Activity']);
-  assert.equal(find(board, { t: 'row', p: { title: '#1 Fix the login loop' } }).p.subtitle, 'awaiting review · ⎇ xbin/k3x9qa/1-task-1 · PR #42 open ✗');
-  assert.equal(find(board, { t: 'row', p: { title: '#5 Merged one' } }).p.subtitle, 'merged · ⎇ xbin/k3x9qa/5-task-5 · PR #40 merged · CI ✓', 'checks only while no CI summary; ext.card (native/ci.js) last');
+  assert.equal(find(board, { t: 'row', p: { title: '#1 Fix the login loop' } }).p.subtitle, 'awaiting review · branch xbin/k3x9qa/1-task-1 · PR #42 open, checks failed');
+  assert.equal(find(board, { t: 'row', p: { title: '#5 Merged one' } }).p.subtitle, 'merged · branch xbin/k3x9qa/5-task-5 · PR #40 merged · CI passed', 'checks only while no CI summary; ext.card (native/ci.js) last');
   assert.equal(lastHash(r), 'proj=7');
   assert.ok(called(r, 'GET', /\/projects\/7\/tasks\?/).length >= 1);
 });
@@ -295,14 +295,14 @@ test('a task\'s conversation: its branch and PR menu, the way back, Open PR once
   const chat = topScreen(r.snapshots.task);
   assert.match(chat.p.subtitle, /^Web #2 · /, '‹project› #n');
   const menu = find(chat, { t: 'menu', p: { icon: 'branch' } });
-  assert.equal(menu.p.label, '⎇ xbin/k3x9qa/2-task-2');
-  assert.deepEqual(all(menu, { t: 'button' }).map((b) => b.p.label), ['⎇ xbin/k3x9qa/2-task-2 ↗', 'setup ✓', 'Open PR']);
+  assert.equal(menu.p.label, 'xbin/k3x9qa/2-task-2');
+  assert.deepEqual(all(menu, { t: 'button' }).map((b) => b.p.label), ['xbin/k3x9qa/2-task-2 ↗', 'setup passed', 'Open PR']);
   assert.equal(called(r, 'POST', /\/runs\/102\/task\/pr$/).length, 1);
   assert.deepEqual(titles(r.snapshots.back), ['Agent', 'Projects', 'Web']);
   // no route: no Open PR; a PR's chip with its checks
   const r2 = await run(projSeed(), [{ snapshot: 'pr' }], 'c=101');
   const m2 = find(topScreen(r2.snapshots.pr), { t: 'menu', p: { icon: 'branch' } });
-  assert.equal(m2.p.label, 'PR #42 open ✗');
+  assert.equal(m2.p.label, 'PR #42 open');
   assert.ok(!all(m2, { t: 'button' }).some((b) => b.p.label === 'Open PR'));
   assert.equal(called(r2, 'GET', /\/runs\/101\/task\/pr$/).length, 1, 'asked once, by GET');
 });

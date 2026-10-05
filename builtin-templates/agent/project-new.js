@@ -74,7 +74,7 @@ export function newProjectTpl(p) {
     ${f.scm ? html`<div class="field"><label>Repos</label>
       <div class="pnrepos">${f.repos.map((r) => html`<div class="pnrepo" data-repo=${r.repo}>
           <div class="pnrh"><b class="mono">${r.repo}</b><span class="muted small">→ ${repoSlug(r.repo)}</span><span style="flex:1"></span>
-            <button class="btn ghost btnsm" title="leave it out" @click=${() => p.dropFormRepo(r.repo)}>✕</button></div>
+            <button class="btn ghost btnsm icon" title="leave it out" aria-label="leave it out" @click=${() => p.dropFormRepo(r.repo)}><bx-icon name="xmark"></bx-icon></button></div>
           <textarea rows="2" class="mono" placeholder="a setup script for each task's checkout (optional): npm ci" .value=${r.setup}
             @input=${(e) => p.setFormSetup(r.repo, e.target.value)}></textarea></div>`)}</div>
       <input type="search" id="pn-q" placeholder="Find a repo you can reach…" .value=${f.q} @input=${set('q')} @change=${() => p.searchRepos()}>
@@ -262,14 +262,14 @@ function upgradeTpl(f) {
 const style = document.createElement('style');
 style.textContent = `
   .projs-page .pnrepos { display: grid; gap: 6px; margin-bottom: 6px; }
-  .projs-page .pnrepo { border: 1px solid var(--bx-border); border-radius: 6px; padding: 6px 8px; background: var(--bx-panel); }
-  .projs-page .pnrh { display: flex; gap: 6px; align-items: center; min-width: 0; }
+  .projs-page .pnrepo { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 8px; background: var(--bx-panel); }
+  .projs-page .pnrh { display: flex; gap: 8px; align-items: center; min-width: 0; }
   .projs-page .pnrh b { overflow-wrap: anywhere; }
   .projs-page .pnresults { max-height: 240px; overflow: auto; margin-top: 4px; }
-  .projs-page .pnres { display: flex; gap: 6px; align-items: center; padding: 3px 2px; border-bottom: 1px solid var(--bx-border); min-width: 0; font-size: 12px; }
+  .projs-page .pnres { display: flex; gap: 6px; align-items: center; padding: 3px 2px; border-bottom: 1px solid var(--bx-border); min-width: 0; }
   .projs-page .pnres .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .projs-page .pnyou { margin-top: 4px; }
-  .psignin { margin: 6px 0; padding: 8px 10px; border: 1px solid var(--bx-border); border-radius: 6px; background: var(--bx-panel-2); font-size: 12.5px; }
+  .psignin { margin: 8px 0; padding: 8px 12px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-panel-2); }
   .psignin .pcode { font-size: 15px; letter-spacing: .12em; padding: 0 4px; }
   .psignin a { overflow-wrap: anywhere; }
   dialog.pupg { width: min(560px, calc(100vw - 32px)); }

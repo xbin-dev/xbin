@@ -252,9 +252,9 @@ export const IMPLEMENTS = {
   'chat.task.prep': 'native/project-task.js — end: the prep notice and a step per repo, Retry the workspace (composer and ⋯), the sign-in card (model/project-task.js prepCard)',
   'link.project': 'native.js — app.follow (model/router.js #proj, #proj=<id>) puts the page on the stack (native/projects.js sync); native/project-task.js — "‹project› #n" in the subtitle, ⋯ → Project: ‹name›, the Task screen\'s Project section',
   // CI in the conversation
-  'ci.chip': 'native/harness-board.js — the Coding agents toolbar button carries CI\'s badge (ext.dock\'s, native/ci.js: CI ● n/m jobs, CI ✓, CI ✗ <job>, CI —), shown while any dock section answers',
+  'ci.chip': 'native/harness-board.js — the Coding agents toolbar button carries CI\'s badge (ext.dock\'s, native/ci.js: CI running n/m jobs, CI passed, CI failed: <job>, CI —), shown while any dock section answers',
   'ci.dock': 'native/ci.js — dock: the Coding agents screen\'s CI sections after its coding agents (native/harness-board.js calls ext.dock), live while shown (app.ci.live)',
-  'ci.jobs': 'native/ci.js — watchTpl: a row per run and per job (detail steps done/total, a progress child, the current step and time); the ci-job screen\'s Steps (✓ ✗ ● ○ and durations)',
+  'ci.jobs': 'native/ci.js — watchTpl: a row per run and per job (detail steps done/total, a progress child, the current step and time); the ci-job screen\'s Steps (durations); each row\'s status its icon and tone (model/ci.js NATIVE_ICON)',
   'ci.logs': 'native/ci.js — the ci-job screen: the log as code (copy), Earlier, the screen\'s search listing the matching lines, Follow while partial logs run; a job still running: the notice and Open live log',
   'ci.annotations': 'native/ci.js — the ci-annotations screen: path:line rows with level, title and message (verbatim)',
   'ci.links': 'native/ci.js — open(): https links through xbin.native.open — the branch, PR, run, job, check, status, live log',
