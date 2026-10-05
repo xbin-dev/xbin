@@ -176,8 +176,8 @@ move: a partition reuses only tokens of the generation it reads.
   hours. "Can't cover" counts the request's own margin (15 minutes, or its
   `minTtlSec`): a request asking 50 minutes refreshes the parent up to 40
   minutes before the epoch's other tokens reach their `refreshAfter` (5
-  at the default 15). Should a scoped token die with its parent (§13),
-  those die that much early.
+  at the default 15). A scoped token outlives its parent's refresh
+  (checked, §13), so those keep working until their own expiry.
 - **Revocation**: `POST /scm/token/revoke` by value (only the consumer it
   was given to) or by purpose; bot tokens with `DELETE /installation/token`,
   person tokens through global. Best effort upstream: a token GitHub can't
@@ -456,19 +456,19 @@ event's branch is this repo's.
 
 ## 13. Spikes and what they decided
 
-Four questions only a live GitHub App can settle. Two were checked
-against GitHub with a test App (2026-10-04); for the other two this
-version keeps the safe default:
+Four questions only a live GitHub App can settle. Three were checked
+against GitHub with a test App (2026-10-04); for the fourth this version
+keeps the safe default:
 
 - **The manifest form from a sandboxed frame** (`Origin: null`) and the
   tile's address loaded at top level: GitHub documents only the form POST
   and its `state`. All three ways back are built — the hooks exposure's
   `/setup/github`, the tile's own address, and pasting the address GitHub
   sent you to — and pasting an existing App stays the primary path.
-- **A scoped person token after its parent refreshes**: undocumented, so
-  the epoch stays — the parent refreshes only when the epoch can't cover a
-  request, which a request asking more than 10 minutes' margin reaches
-  early (§6): to be checked live.
+- **A scoped person token after its parent refreshes**: checked — it
+  keeps working with its own expiry while the old parent is refused.
+  The epoch stays all the same (§6): it bounds how long a token lives
+  after the person's sign-in has moved on.
 - **Revoking a stateless installation token** (`DELETE
   /installation/token`): checked — GitHub answers 204 and the token is
   refused (401) from then on. Still best effort here (a revocation that
