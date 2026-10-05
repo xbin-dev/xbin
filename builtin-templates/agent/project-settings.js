@@ -165,7 +165,7 @@ function membersTpl(p, pv, c) {
   return html`<section class="pset" id="pset-members"><h5>Members</h5>
     <div class="pkv"><span>Owner</span><span>${(m && m.owner) || pv.owner}</span></div>
     ${((m && m.members) || []).map((x) => html`<div class="pkv pmember" data-user=${x.user}><span>${x.user}</span><span>${x.role === 'viewer' ? 'reads' : 'makes and steers tasks'}
-      ${c.settings || x.user === ctx.app.me.user ? html`<button class="btn ghost btnsm" @click=${() => p.removeMember(pv.id, x.user)}>${x.user === ctx.app.me.user ? 'Leave' : 'Remove'}</button>` : nothing}</span></div>`)}
+      ${c.settings || x.user === ctx.app.me.user ? html`<button class="btn ghost btnsm" @click=${() => { if (confirm(x.user === ctx.app.me.user ? `Leave ${pv.name}? Only its owner can add you back.` : `Remove ${x.user} from ${pv.name}? They lose their access; you can add them back.`)) p.removeMember(pv.id, x.user); }}>${x.user === ctx.app.me.user ? 'Leave' : 'Remove'}</button>` : nothing}</span></div>`)}
     ${c.settings ? html`<div class="pbtns"><input id="pset-member" placeholder="person" .value=${nm.user} @input=${(e) => setNm('user', e.target.value)}>
       <select id="pset-member-role" @change=${(e) => setNm('role', e.target.value)}><option value="participant" ?selected=${nm.role === 'participant'}>makes and steers tasks</option>
         <option value="viewer" ?selected=${nm.role === 'viewer'}>reads</option></select>

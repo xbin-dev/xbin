@@ -212,6 +212,8 @@ test('Projects: settings — status, the policy saved at its version (unknown ke
   assert.match(find(s, { t: 'notice', p: { title: 'acme/api' } }).p.text, /no protection/);
   assert.equal(find(s, { t: 'button', p: { label: 'Sign in to GitHub' } }), null, 'no sign-in at an unpartitioned agent');
   assert.ok(find(s, { t: 'row', p: { title: 'bob', subtitle: 'makes and steers tasks' } }));
+  assert.deepEqual(find(find(s, { t: 'row', p: { title: 'bob' } }), btn('Remove')).p.confirm,
+    { title: 'Remove bob from Web?', message: 'They lose their access; you can add them back.', label: 'Remove', destructive: true }, 'removing a member is confirmed');
   const [patch] = bodies(r, 'PATCH', /\/projects\/7$/);
   assert.equal(patch.version, 3);
   assert.equal(patch.policy.ci.autoFix, false);

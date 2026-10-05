@@ -188,6 +188,14 @@ await page.selectOption('#pset-vis', 'viewer');
 ok('team visibility', await waitCall(page, 'PATCH', '/projects/7$', 3));
 const vb = (await calls(page, 'PATCH', '/projects/7$')).pop().body;
 ok('…the team reads it', vb.visibility === 'team' && vb.teamRole === 'viewer', JSON.stringify(vb));
+{
+  const asked = [];
+  const note = (d) => asked.push(d.message());
+  page.on('dialog', note);
+  await page.click('#pset-members .pmember[data-user="carol"] button');
+  ok('Remove asks first', await waitCall(page, 'DELETE', '/projects/7/members/carol$') && asked.join() === 'Remove carol from Web? They lose their access; you can add them back.', asked.join(' | '));
+  page.off('dialog', note);
+}
 // typed, never submitted: it stays this project's (checked on the next project's Settings below)
 await page.fill('#pset-addrepo', 'acme/leftover');
 await page.fill('#pset-member', 'mallory');
