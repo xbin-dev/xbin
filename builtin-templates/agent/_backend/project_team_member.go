@@ -707,75 +707,38 @@ func (ag *Agent) teamLeave(pid int64, status int) {
 
 // --- the team board, for the member's coordinator --------------------------------------------
 
-// teamBoardRows is membership p's team board as its person sees it at the
-// global instance (GET /projects/{team}/board, up to 500 rows; `run` only
-// on their own rows): what the coordinator's task_list {scope: "team"}
-// reads. A definition gone archives the membership (errTeamGone).
-func teamBoardRows(ctx context.Context, p *Project) ([]BoardRow, error) {
+// teamBoardPage is a page of membership p's team board as its person sees
+// it at the global instance (GET /projects/{team}/board from cursor; `run`
+// only on their own rows) and the next page's cursor: what the
+// coordinator's task_list {scope: "team"} reads (coordBoard frames the rows
+// as untrusted). A definition gone archives the membership (errTeamGone).
+func teamBoardPage(ctx context.Context, p *Project, cursor string) ([]BoardRow, string, error) {
 	if p == nil || p.Kind != projMembership || p.TeamRef == 0 || !userMode() {
-		return nil, perr(409, "only a team project's membership has a team board")
+		return nil, "", perr(409, "only a team project's membership has a team board")
 	}
-	out := []BoardRow{}
-	cursor := ""
-	for len(out) < 500 {
-		path := fmt.Sprintf("/projects/%d/board", p.TeamRef)
-		if cursor != "" {
-			path += "?cursor=" + url.QueryEscape(cursor)
-		}
-		res, err := callGlobal(ctx, http.MethodGet, path, nil, "")
-		if err != nil {
-			return nil, perr(502, "the agent's shared instance didn't answer: %v", err)
-		}
-		if res.Status == http.StatusNotFound || res.Status == http.StatusForbidden {
-			if ag := projAg(); ag != nil {
-				ag.teamLeave(p.ID, res.Status)
-			}
-			return nil, errTeamGone
-		}
-		if res.Status != http.StatusOK {
-			return nil, perr(502, "reading the team board: HTTP %d", res.Status)
-		}
-		var page struct {
-			Items []BoardRow `json:"items"`
-			Next  string     `json:"next"`
-		}
-		if err := json.Unmarshal(res.Body, &page); err != nil {
-			return nil, perr(502, "the team board: %v", err)
-		}
-		out = append(out, page.Items...)
-		if page.Next == "" || len(page.Items) == 0 {
-			break
-		}
-		cursor = page.Next
+	path := fmt.Sprintf("/projects/%d/board", p.TeamRef)
+	if cursor = strings.TrimSpace(cursor); cursor != "" {
+		path += "?cursor=" + url.QueryEscape(cursor)
 	}
-	return out, nil
-}
-
-// teamBoardText is the board as a model reads it: one line per row, every
-// member's own words framed as untrusted text (other members wrote them).
-func teamBoardText(rows []BoardRow) string {
-	var b strings.Builder
-	for _, r := range rows {
-		if r.Hidden {
-			continue
-		}
-		line := fmt.Sprintf("%s #%d [%s] %s", r.Member, r.N, orStr(r.State, r.Column), r.Title)
-		if r.Branch != "" {
-			line += " — " + r.Branch
-		}
-		for _, pr := range r.PRs {
-			line += fmt.Sprintf(" — PR #%d (%s)", pr.Number, pr.State)
-		}
-		if r.Stale {
-			line += " (no longer a member)"
-		}
-		if r.Run != 0 {
-			line += " (yours: conversation " + strconv.FormatInt(r.Run, 10) + ")"
-		}
-		b.WriteString(line + "\n")
+	res, err := callGlobal(ctx, http.MethodGet, path, nil, "")
+	if err != nil {
+		return nil, "", perr(502, "the agent's shared instance didn't answer: %v", err)
 	}
-	if b.Len() == 0 {
-		return "The team board is empty."
+	if res.Status == http.StatusNotFound || res.Status == http.StatusForbidden {
+		if ag := projAg(); ag != nil {
+			ag.teamLeave(p.ID, res.Status)
+		}
+		return nil, "", errTeamGone
 	}
-	return untrusted("the team project's members", "its board, in their own words", b.String())
+	if res.Status != http.StatusOK {
+		return nil, "", perr(502, "reading the team board: HTTP %d", res.Status)
+	}
+	var page struct {
+		Items []BoardRow `json:"items"`
+		Next  string     `json:"next"`
+	}
+	if err := json.Unmarshal(res.Body, &page); err != nil {
+		return nil, "", perr(502, "the team board: %v", err)
+	}
+	return page.Items, page.Next, nil
 }

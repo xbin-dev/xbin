@@ -656,23 +656,38 @@ func TestTeamCoordinatorSeesBoard(t *testing.T) {
 			{Member: "carol", N: 2, Title: "hidden", Hidden: true},
 		}
 		fx.g.mu.Unlock()
-		p, _ := fx.ag.db.getProject(m.ID)
-		rows, err := teamBoardRows(context.Background(), p)
-		if err != nil || len(rows) != 3 {
-			t.Fatalf("the board: %+v %v", rows, err)
+		// through alice's coordinator of her membership, as the model calls it
+		w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/coordinator", m.ID), map[string]any{})
+		if w.Code != 200 {
+			t.Fatalf("POST coordinator: %d %s", w.Code, w.Body)
 		}
-		text := teamBoardText(rows)
+		var made struct{ Run Run }
+		_ = json.Unmarshal(w.Body.Bytes(), &made)
+		taskList := func() (string, error) {
+			run, err := fx.ag.db.getRun(made.Run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := fx.ag.db.runConfig(run.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return fx.ag.runTool(context.Background(), run, cfg, "task_list", map[string]any{"scope": "team"})
+		}
+		text, err := taskList()
 		switch {
-		case !strings.HasPrefix(text, "[untrusted") || strings.Count(text, "[end of untrusted text]") != 1:
-			t.Fatalf("not framed once: %s", text)
-		case !strings.Contains(text, "alice #1 [working] my task") || !strings.Contains(text, "(yours: conversation") ||
-			!strings.Contains(text, "bob #4") || !strings.Contains(text, "PR #12") || strings.Contains(text, "hidden"):
+		case err != nil:
+			t.Fatalf("task_list scope team: %v", err)
+		case strings.Count(text, "[untrusted") != 1 || strings.Count(text, "[end of untrusted text]") != 1:
+			t.Fatalf("not framed once (bob's title defused): %s", text)
+		case !strings.Contains(text, "alice #1 my task — working") || !strings.Contains(text, "bob #4") ||
+			!strings.Contains(text, "PR #12 open") || strings.Contains(text, "hidden"):
 			t.Fatalf("the board's text: %s", text)
 		}
 		fx.g.mu.Lock()
 		fx.g.gone[7] = 404
 		fx.g.mu.Unlock()
-		if _, err := teamBoardRows(context.Background(), p); err != errTeamGone {
+		if _, err := taskList(); err == nil || !strings.Contains(err.Error(), errTeamGone.Error()) {
 			t.Fatalf("a board gone: %v", err)
 		}
 		if got, _ := fx.ag.db.getProject(m.ID); got.State != projArchived {

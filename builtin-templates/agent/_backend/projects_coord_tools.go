@@ -17,7 +17,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"strconv"
 	"strings"
 )
@@ -473,29 +472,15 @@ func (ag *Agent) coordBoard(ctx context.Context, p *Project, cursor string) (str
 	if p.Kind != projMembership || p.TeamRef == 0 || !userMode() {
 		return "", errors.New("scope team is a team project's: this project has no team board")
 	}
-	path := fmt.Sprintf("/projects/%d/board", p.TeamRef)
-	if cursor != "" {
-		path += "?cursor=" + url.QueryEscape(strings.TrimSpace(cursor))
-	}
-	r, err := callGlobal(ctx, "GET", path, nil, "")
+	items, next, err := teamBoardPage(ctx, p, cursor) // T's read: a definition gone archives the membership
 	if err != nil {
-		return "", fmt.Errorf("the team board: %v", err)
+		return "", fmt.Errorf("the team board: %s", coordErrWords(err))
 	}
-	if r.Status != 200 {
-		return "", fmt.Errorf("the team board: HTTP %d", r.Status)
-	}
-	var page struct {
-		Items []BoardRow `json:"items"`
-		Next  string     `json:"next"`
-	}
-	if err := json.Unmarshal(r.Body, &page); err != nil {
-		return "", fmt.Errorf("the team board: %v", err)
-	}
-	if len(page.Items) == 0 {
+	if len(items) == 0 {
 		return "the team board is empty", nil
 	}
 	var b strings.Builder
-	for _, row := range page.Items {
+	for _, row := range items {
 		if row.Hidden {
 			continue
 		}
@@ -516,8 +501,8 @@ func (ag *Agent) coordBoard(ctx context.Context, p *Project, cursor string) (str
 	}
 	out := "The team board (every member's tasks; read-only — you act only on this project's own tasks):\n" +
 		untrusted("the team board", "its members' task rows", b.String())
-	if page.Next != "" {
-		out += fmt.Sprintf("\nmore: cursor %q", page.Next)
+	if next != "" {
+		out += fmt.Sprintf("\nmore: cursor %q", next)
 	}
 	return out, nil
 }
