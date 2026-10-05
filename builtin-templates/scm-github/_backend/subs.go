@@ -527,10 +527,12 @@ func (s *srv) dropAccess(login, account, repo string) {
 
 // dropPersonSubs deletes a person's subscriptions on a repo (they lost
 // read access to it). h.mu held.
-func (h *hub) dropPersonSubs(person, repo string) {
+func (h *hub) dropPersonSubs(person, repo string) (n int) {
 	for id, sub := range h.subs {
 		if sub.Person == person && strings.EqualFold(sub.Repo, repo) {
 			h.dropSub(id)
+			n++
 		}
 	}
+	return n
 }

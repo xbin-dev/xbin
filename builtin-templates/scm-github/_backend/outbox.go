@@ -467,12 +467,17 @@ func (s *srv) unreadable(ctx context.Context, consumer, forWhom, person, pid str
 		case isRefusal(err, refNotFound) || isRefusal(err, refNotInstalled) || (err == nil && perm == "none"):
 			hidden[k] = true
 			h.mu.Lock()
-			h.counts.AccessLost++
-			h.dropPersonSubs(person, repo)
+			dropped := h.dropPersonSubs(person, repo)
 			for iid, x := range h.out {
 				if x.Person == person && x.State == "pending" && x.Private && strings.EqualFold(x.Repo, repo) {
 					h.dropItem(iid)
+					dropped++
 				}
+			}
+			// Counted when something went: the delivered items stay (hidden),
+			// so a later listing finds the same loss again and counts nothing.
+			if dropped > 0 {
+				h.counts.AccessLost++
 			}
 			h.mu.Unlock()
 		case err != nil:

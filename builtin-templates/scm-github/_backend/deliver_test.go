@@ -262,13 +262,19 @@ func TestDeliveryRechecksAccess(t *testing.T) {
 }
 
 // GET /scm/events for a person re-checks a private repo's access as a
-// delivery does: lost, its items aren't listed, the pending ones dropped
-// and their subscriptions there deleted.
+// delivery does: lost, its items aren't listed — delivered ones included —
+// the pending ones dropped and their subscriptions there deleted, the loss
+// counted once.
 func TestEventsRechecksAccess(t *testing.T) {
 	ee := newEvEnv(t)
 	ee.signIn("alice", "octocat")
 	alice := ee.user("alice").routes()
 	ok(t, ee.call(alice, personC("alice"), "POST", "/scm/subscriptions", map[string]any{"repo": "acme/web", "key": "task:1"}), 201)
+	ok(t, ee.hook("push", fixture(t, "push")), 202)
+	ee.deliver() // delivered: it stays in the outbox, listed
+	if got := ee.agent.take(); len(got) != 1 {
+		t.Fatalf("%d delivered", len(got))
+	}
 	ee.agent.answer(500, 500, 500, 500)
 	ok(t, ee.hook("push", fixture(t, "push")), 202)
 	ok(t, ee.hook("push", fixtureWith(t, "push", map[string]any{"repository.private": false})), 202)
@@ -280,7 +286,7 @@ func TestEventsRechecksAccess(t *testing.T) {
 		decode(t, r, &p)
 		return p.Items
 	}
-	if n := len(list()); n != 2 {
+	if n := len(list()); n != 3 {
 		t.Fatalf("%d listed", n)
 	}
 	ee.gh.mu.Lock()
@@ -289,8 +295,20 @@ func TestEventsRechecksAccess(t *testing.T) {
 	ee.clock.advance(61 * time.Minute) // past the access cache
 	items := list()
 	h := ee.global.ev()
-	if len(items) != 1 || !strings.Contains(string(items[0]), `"private":false`) || len(h.subs) != 0 || h.counts.AccessLost != 1 || len(h.out) != 1 {
-		t.Fatalf("%d listed, %d subs, %+v, %d items", len(items), len(h.subs), h.counts, len(h.out))
+	delivered := 0
+	for _, it := range h.out {
+		if it.Private && it.State == "delivered" {
+			delivered++
+		}
+	}
+	// The delivered private item is still in the outbox: only the listing
+	// leaves it out.
+	if len(items) != 1 || !strings.Contains(string(items[0]), `"private":false`) || len(h.subs) != 0 || h.counts.AccessLost != 1 || len(h.out) != 2 || delivered != 1 {
+		t.Fatalf("%d listed, %d subs, %+v, %d items (%d delivered private)", len(items), len(h.subs), h.counts, len(h.out), delivered)
+	}
+	ee.clock.advance(61 * time.Minute) // the same loss, asked of GitHub again
+	if items := list(); len(items) != 1 || h.counts.AccessLost != 1 {
+		t.Fatalf("again: %d listed, %+v", len(items), h.counts)
 	}
 	// GitHub not answering refuses the listing rather than show it.
 	ee.gh.mu.Lock()
