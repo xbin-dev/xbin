@@ -668,8 +668,31 @@ func TestLiveActivityLimitedUpdateGoesLater(t *testing.T) {
 // §7.1): the app's DELETE keeps xbind's push-to-start off that device for
 // the turn — also when the app's own card never got registered — and the
 // next turn starts one as usual.
+// fireStart runs session's armed push-to-start now, as its timer would: a
+// test that must set things up before it fires arms it far off and fires
+// it itself, instead of racing a short timer on a loaded runner.
+func fireStart(t *testing.T, s *Service, session string) {
+	t.Helper()
+	s.lmu.Lock()
+	ls := s.turns[session]
+	armed := ls != nil && ls.timer != nil
+	var turn int
+	if armed {
+		ls.timer.Stop()
+		turn = ls.turn
+	}
+	s.lmu.Unlock()
+	if !armed {
+		t.Fatalf("no push-to-start armed for %s", session)
+	}
+	s.pushToStart(session, ls, turn)
+}
+
+// The dismissals land before the push-to-start fires: the test fires it
+// itself (fireStart). With a 60 ms timer, a loaded CI runner sometimes
+// took longer to register and dismiss, and the phone got a push.
 func TestLiveActivityDismissedCardStaysAway(t *testing.T) {
-	r, _ := liveRig(t, 60*time.Millisecond, nil)
+	r, _ := liveRig(t, time.Hour, nil)
 	for _, d := range []string{"phone", "ipad", "mac"} {
 		body := map[string]any{"deviceId": d, "handle": "handle-" + d, "publicKey": pubKey(t), "startHandle": "start-handle-" + d}
 		if code, out, _ := r.call(alice, "POST", "/devices/push", body); code != 200 {
@@ -691,6 +714,7 @@ func TestLiveActivityDismissedCardStaysAway(t *testing.T) {
 			t.Fatalf("dismiss on %s: %d", d, code)
 		}
 	}
+	fireStart(t, r.s, "s1")
 	got := waitLive(t, r, 1)
 	time.Sleep(100 * time.Millisecond)
 	if n := len(livePushes(r)); n != 1 || got[0].Handle != "start-handle-mac" || got[0].Activity.Event != "start" {
@@ -701,6 +725,7 @@ func TestLiveActivityDismissedCardStaysAway(t *testing.T) {
 	ev(agent.EvStatus, 1001, map[string]any{"status": "idle"})
 	ev(agent.EvMessageDelta, 2000, map[string]any{"role": "user", "text": "more"})
 	ev(agent.EvStatus, 2001, map[string]any{"status": "running"})
+	fireStart(t, r.s, "s1")
 	got = waitLive(t, r, 4)
 	var starts []string
 	for _, p := range got[1:] {
