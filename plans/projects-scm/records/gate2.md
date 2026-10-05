@@ -2,7 +2,8 @@
 
 > Status: live — on `projects-scm` after the merges of P2, E, C, T, V, G2,
 > U2 and the live checks (`wp/ps-live`), ending at `b8c74735`; the
-> integration commits follow, ending at `8db964c5`.
+> integration commits follow, ending at `8db964c5`. The final run and
+> its fixes are in records/LAND.md (Checks).
 
 ## The merges
 

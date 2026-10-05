@@ -1,8 +1,9 @@
 # LAND — projects-scm onto master
 
-> Status: live — branch `wp/ps-integrate` (from `projects-scm` at
-> `3f9e9b8e`). Ready to land once the lead's final run of the checks below
-> passes; the lead updates "Checks" with it.
+> Status: ready to merge — branch `projects-scm` at the commit adding
+> this line (on `35290d7e`); master (`4a9b5b47`) is its ancestor, so it
+> merges with no conflict. The merger runs the agent `-race` suite again
+> (Checks, below).
 
 ## Landing order
 
@@ -106,19 +107,23 @@ build without Projects"). No migration note under docs/changes/.
 
 ## Checks
 
-As recorded at gate 2 (records/gate2.md) and after ps-review; the lead
-updates this table with the final run on this branch.
+The final full run, on `5e98b0f9` (2026-10-05), then the fix it called for:
 
 | Check | Result |
 |---|---|
 | `make check` | pass but for `internal/tilesbx` (known, below) |
 | scm-github `-race` (`hack/tile-check.sh scm-github`) | pass |
-| agent `-race` (`hack/tile-check.sh agent`) | pass but for `TestTaskSurvivesThreeCompactions` (known, below) |
+| agent `-race` (`hack/tile-check.sh agent`) | pass but for `TestTaskSurvivesThreeCompactions` (known, below), `TestKeepWakeUp` and `TestProjectStreamEvent` — both fixed in `35290d7e` (below) |
 | `go test ./internal/builtins/...` | pass |
-| node (31 agent-template files) | 303 pass |
-| this branch: `node --test hack/agent-template-features.test.mjs` | 9/9 |
-| this branch: `go test ./internal/docscheck` | ok |
-| this branch: `hack/check-js.mjs`, fmt-check, large-files (pre-commit) | ok |
+| node (31 agent-template files) | 311 pass |
+| `35290d7e`: `TestKeepWakeUp`, `TestProjectStreamEvent` `-race -count=5`; `TestBusyCountsProjectJobs`, the keeper's and worker's tests `-race -count=3` | pass |
+| `35290d7e`: pre-commit (js-check, fmt-check, large-files) | ok |
+
+**Not rerun on `35290d7e`:** the full agent `-race` suite (about 50
+minutes; stopped by the owner to ship) — the merger runs it.
+`35290d7e` makes the wake keeper's `busy()` count the project worker's
+live jobs, as the hold does (it said so and didn't), and makes two tests
+robust to a loaded host.
 
 **Known failures, not this programme's:** `TestTaskSurvivesThreeCompactions`
 under `-race` (fails 3/3 before the programme, at `7d310f72`);
@@ -373,4 +378,7 @@ Not run, owner's to schedule:
 | `2116f2e1` | agent template: Projects' API.md as landed — the channel attach slipped |
 | `654def34` | scm-github: API.md says what the live check found about scoped tokens |
 | `f84016cf` | docs: the changelog's entry for Projects and the scm contract |
-| (this) | plans: projects-scm — the landing record and the decision entry |
+| `b6bc6b60` | plans: projects-scm — the landing record and the decision entry |
+| `60b520d8` | agent template: the policy table in its own module (`model/project-policy.js`) |
+| `07e3e2c7` | agent template: a person's conf reader is published atomically |
+| `35290d7e` | agent template: the wake keeper's busy check counts project jobs |
