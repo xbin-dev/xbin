@@ -206,6 +206,11 @@ func adapterRoutes(mux *http.ServeMux) {
 	} {
 		mux.Handle(pattern, adapterGuard(h))
 	}
+	for _, more := range adapterRouteTables { // each feature's own /adapter/* routes, registered from its init() (projects_seams.go)
+		for pattern, h := range more() {
+			mux.Handle(pattern, adapterGuard(h))
+		}
+	}
 	mux.Handle("POST /trigger/bus/{id}", busGuard(handleBusTrigger))
 }
 

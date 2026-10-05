@@ -1,0 +1,73 @@
+{
+  "action": "labeled",
+  "issue": {
+    "url": "https://api.github.com/repos/acme/web/issues/7",
+    "html_url": "https://github.com/acme/web/issues/7",
+    "id": 444500007,
+    "number": 7,
+    "title": "Login loses next=",
+    "user": {
+      "login": "octocat",
+      "id": 583231,
+      "node_id": "MDQ6VXNlcjU4MzIzMQ==",
+      "type": "User",
+      "site_admin": false,
+      "html_url": "https://github.com/octocat"
+    },
+    "labels": [
+      {
+        "id": 208045946,
+        "name": "bug",
+        "color": "f29513",
+        "default": true
+      },
+      {
+        "id": 2,
+        "name": "xbin",
+        "color": "ededed",
+        "default": false
+      }
+    ],
+    "state": "open",
+    "author_association": "OWNER",
+    "created_at": "2026-10-01T09:00:00Z",
+    "updated_at": "2026-10-03T09:00:00Z",
+    "body": "Steps: \u2026"
+  },
+  "label": {
+    "id": 2,
+    "name": "xbin",
+    "color": "ededed"
+  },
+  "repository": {
+    "id": 1296269,
+    "node_id": "MDEwOlJlcG9zaXRvcnkxMjk2MjY5",
+    "name": "web",
+    "full_name": "acme/web",
+    "private": true,
+    "owner": {
+      "login": "acme",
+      "id": 9919,
+      "type": "Organization",
+      "site_admin": false
+    },
+    "html_url": "https://github.com/acme/web",
+    "description": "The web app",
+    "fork": false,
+    "url": "https://api.github.com/repos/acme/web",
+    "default_branch": "main",
+    "visibility": "private"
+  },
+  "installation": {
+    "id": 100,
+    "node_id": "MDIzOkludGVncmF0aW9uSW5zdGFsbGF0aW9uMTAw"
+  },
+  "sender": {
+    "login": "octocat",
+    "id": 583231,
+    "node_id": "MDQ6VXNlcjU4MzIzMQ==",
+    "type": "User",
+    "site_admin": false,
+    "html_url": "https://github.com/octocat"
+  }
+}

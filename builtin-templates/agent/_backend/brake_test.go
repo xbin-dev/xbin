@@ -15,10 +15,11 @@ import (
 // partition (the test set the mode), over kv, and reads it once.
 func partitionConf(t *testing.T, ag *Agent, kv kvStore) {
 	t.Helper()
-	confIn = newConfReader(kv, nil)
-	confIn.parked = ag.db.brakeParked
-	confIn.onHaltOff = func() { ag.eng.recover() }
-	confIn.refresh()
+	c := newConfReader(kv, nil)
+	c.parked = ag.db.brakeParked
+	c.onHaltOff = func() { ag.eng.recover() }
+	confInP.Store(c)
+	confIn().refresh()
 }
 
 // TestBrakeInPartition: a halt the global instance mirrors into conf cancels
@@ -63,7 +64,7 @@ func TestBrakeFailsClosed(t *testing.T) {
 	kv := newMemKV() // global hasn't written conf yet
 	ag := newTestAgent(t, newTestDB(t))
 	partitionConf(t, ag, kv)
-	if v := confIn.view(true); v.State != confPending || v.get("halt") != "1" {
+	if v := confIn().view(true); v.State != confPending || v.get("halt") != "1" {
 		t.Fatalf("an unread conf: %+v", v)
 	}
 	f := fakeOf(ag)
@@ -90,23 +91,23 @@ func TestBrakeRequests(t *testing.T) {
 		h.ServeHTTP(rec, as("POST", "/ask", `{"text":"hi"}`, alicesFrame(level)))
 		return rec
 	}
-	confIn = newConfReader(newMemKV(), nil) // unread: queued
+	confInP.Store(newConfReader(newMemKV(), nil)) // unread: queued
 	if rec := do("read"); rec.Code/100 != 2 {
 		t.Fatalf("a reader's ask before conf was read: %d %s", rec.Code, rec.Body)
 	}
-	// the queued run's pass reads confIn: let it park before the test swaps it
+	// the queued run's pass reads confIn(): let it park before the test swaps it
 	waitFor(t, "the queued run's pass to end", func() bool {
 		ag.eng.mu.Lock()
 		defer ag.eng.mu.Unlock()
 		return len(ag.eng.actors) == 0
 	})
-	confIn = newConfReader(emptyKV{}, nil) // not in uses
+	confInP.Store(newConfReader(emptyKV{}, nil)) // not in uses
 	if rec := do("write"); rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "conf resource") {
 		t.Fatalf("an ask without conf: %d %s", rec.Code, rec.Body)
 	}
 	kv := newMemKV()
 	putConf(kv, "1", `{}`)
-	confIn = newConfReader(kv, nil)
+	confInP.Store(newConfReader(kv, nil))
 	stubGlobalCalls(t, func(method, path string, body []byte) (int, string) { return 502, `{"error":"down"}` })
 	if rec := do("write"); rec.Code != http.StatusServiceUnavailable || !strings.Contains(rec.Body.String(), "taking the pause off") {
 		t.Fatalf("a manager's ask when the halt can't come off: %d %s", rec.Code, rec.Body)
@@ -133,10 +134,10 @@ func TestConfNeverWaitsInTx(t *testing.T) {
 	kv := slowKV{memKV: newMemKV(), gate: make(chan struct{})}
 	putConf(kv.memKV, "", `{"config":"{\"model\":\"m\"}"}`)
 	close(kv.gate)
-	confIn = newConfReader(kv, nil)
-	confIn.refresh()
+	confInP.Store(newConfReader(kv, nil))
+	confIn().refresh()
 	kv.gate = make(chan struct{}) // conf answers slowly from now on
-	confIn.kv = kv
+	confIn().kv = kv
 	d := newTestDB(t)
 	done := make(chan string, 1)
 	go func() {

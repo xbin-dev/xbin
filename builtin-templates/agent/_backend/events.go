@@ -152,7 +152,7 @@ func (ev *Event) visibleTo(w who) bool {
 	if ev.acl == nil {
 		return w.kind == whoSystem
 	}
-	return ev.acl.level(w) >= lvViewer
+	return ev.acl.sees(w)
 }
 
 // publishTo sends an event that is nobody else's business (and not replayed)
@@ -181,7 +181,7 @@ func (h *eventHub) revalidate(root int64, acl *rootACL) {
 	h.mu.Lock()
 	var cut, drop []*subscriber
 	for s := range h.subs {
-		if acl.level(s.w) >= lvViewer {
+		if acl.sees(s.w) { // no database read under the hub's lock
 			continue
 		}
 		if s.root == root {

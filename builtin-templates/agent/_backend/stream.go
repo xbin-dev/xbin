@@ -174,6 +174,7 @@ func viewWith(w http.ResponseWriter, r *http.Request, ag *Agent, more func(v map
 			}
 			v["acl"] = map[string]any{"owner": acl.owner, "visibility": acl.visibility, "teamRole": acl.teamRole, "members": members}
 		}
+		runViewExtras(ag.db, callerOf(r), run, v) // runViewHooks (project_events.go): project, projectTask, ci
 	}
 	if more != nil {
 		more(v)

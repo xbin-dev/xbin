@@ -204,6 +204,7 @@ func handlePatchSandbox(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 403, "only the sandbox's owner can change it")
 		return
 	}
+	defer scmHoldSandbox(sandboxRef(rs.conn.M.Provider, rs.id))() // no project's scm credential written while it changes (scm_scrub.go)
 	box := rs.entry.Box
 	if p.Visibility != nil || p.Members != nil || len(p.Shares) > 0 {
 		nb := *box // as the PATCH leaves it
@@ -220,6 +221,9 @@ func handlePatchSandbox(w http.ResponseWriter, r *http.Request) {
 		if sandboxShared(&nb) {
 			if err := readyForShare(r.Context(), rs.conn, rs.id, sandboxRef(rs.conn.M.Provider, rs.id), sbxLabel(box)+" is shared now"); err != nil {
 				xbin.WriteError(w, http.StatusBadGateway, sbxLabel(box)+" isn't shared: "+err.Error()+" — try again")
+				return
+			}
+			if !scmScrubForShare(w, r.Context(), sandboxRef(rs.conn.M.Provider, rs.id), sbxLabel(box)) { // nor a project's scm credential (scm_scrub.go)
 				return
 			}
 		}
@@ -254,6 +258,7 @@ func handlePatchSandbox(w http.ResponseWriter, r *http.Request) {
 	invalidateSandboxCatalog()
 	if sandboxShared(box) { // shared now: no saved sign-in stays in a coding agent there (D179, harness_creds.go)
 		stopCredsIn(sandboxRef(rs.conn.M.Provider, rs.id), sbxLabel(box)+" is shared now")
+		_ = scmScrubSandbox(r.Context(), sandboxRef(rs.conn.M.Provider, rs.id), scrubShare) // shared in the moment between (scm_scrub.go)
 	}
 	rs.entry.Box, rs.access = box, sandboxAccess(callerOf(r), box)
 	xbin.WriteJSON(w, http.StatusOK, rs.item())
@@ -293,6 +298,7 @@ func handleDeleteSandbox(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	invalidateSandboxCatalog()
+	projectSandboxGone(ref) // what a project handed out for it is revoked (scm_scrub.go)
 	n := detachEverywhere(ref)
 	xbin.WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "detached": n})
 }
@@ -353,6 +359,7 @@ func handleSandboxAction(w http.ResponseWriter, r *http.Request) {
 		writeSbxErr(w, err)
 		return
 	}
+	defer scmScrubOnAction(r.Context(), ref, action)() // stop, archive: no project's scm credential left in it (scm_scrub.go)
 	box, err := conn.Lifecycle(r.Context(), id, action, wait, body.Start)
 	if err != nil {
 		writeSbxErr(w, err)

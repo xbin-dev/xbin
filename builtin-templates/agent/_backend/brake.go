@@ -36,24 +36,24 @@ const haltReason = "halted: a manager paused the agent"
 
 // onBrake is pass()'s halt branch for run (the pass returns after it).
 func (e *Engine) onBrake(run *Run) {
-	if !userMode() || confIn == nil {
+	if !userMode() || confIn() == nil {
 		return // today's rule: the run waits for the brake to come off
 	}
-	if v := confIn.view(true); v.State == confKnown && v.Halt == "1" && active(run.Status) && e.ag != nil {
+	if v := confIn().view(true); v.State == confKnown && v.Halt == "1" && active(run.Status) && e.ag != nil {
 		_ = e.fenced(func(t *DB) error {
 			e.ag.cancelRuns(t, run.ID, false, haltReason)
 			return nil
 		})
 		return
 	}
-	confIn.watchBrake()
+	confIn().watchBrake()
 }
 
 // brakeInTurn is the brake between two steps of a turn: unpartitioned and
 // at the global instance PUT /halt cancels a turn at once, so only a person's
 // partition looks (conf, cached for confTTL) — true: the turn ends here.
 func (e *Engine) brakeInTurn(run *Run) bool {
-	if !userMode() || confIn == nil || !e.halted() {
+	if !userMode() || confIn() == nil || !e.halted() {
 		return false
 	}
 	e.onBrake(run)
@@ -114,10 +114,10 @@ func (d *DB) brakeParked() bool {
 // (stop=false), or — conf not in uses — is refused, saying why (stop=true).
 // handled=false: conf is known, the brake is the manager's (haltBlocks).
 func confBrakeBlocks(w http.ResponseWriter) (stop, handled bool) {
-	if !userMode() || confIn == nil {
+	if !userMode() || confIn() == nil {
 		return false, false
 	}
-	switch confIn.view(true).State {
+	switch confIn().view(true).State {
 	case confPending:
 		return false, true
 	case confMissing:
@@ -132,9 +132,9 @@ func confBrakeBlocks(w http.ResponseWriter) (stop, handled bool) {
 // by a manager's hand (or for good: conf not in uses) — leave no wake-up.
 // The cached read: this runs at shutdown.
 func brakeIdle() bool {
-	if !userMode() || confIn == nil {
+	if !userMode() || confIn() == nil {
 		return false
 	}
-	v := confIn.view(false)
+	v := confIn().view(false)
 	return v.State == confMissing || v.State == confKnown && v.Halt == "1"
 }

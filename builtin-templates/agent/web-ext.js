@@ -25,7 +25,26 @@
 //                        tpl() is drawn into its fields (again on redraw()),
 //                        body() is merged into the POST /ask it sends
 //   task(v)              in the unfolded pinned task, after its requests
+//   side()               entries in the sidebar under Automations
+//   page(p)              the page app.page names when no conversation is open
+//                        (not 'automations'): {top, body} templates — the
+//                        first module that knows p answers
+//   crumb(v)             a link before the open conversation's title ("Web ›")
+//                        when no automation crumb is shown
+//   dock(v)              sections of the right dock beside Coding agents:
+//                        {key, title, badge?, tpl()} (harness-board.js hosts them)
+//   card(task)           chips on a project board's task card (task a TaskView)
+//   childStatus(r)       words after a coding agent card's status line (r the
+//                        child run)
+//   sbx(b, close)        actions at the end of the ▣ sandbox popover (#sbxpop,
+//                        sandboxes.js; b the conversation's binding, close()
+//                        closes the popover; the conversation is
+//                        ctx.app.session.current())
+// Their call sites: side, page and crumb in agent.js (the Projects page),
+// dock in harness-board.js, card in projects.js (the board), childStatus in
+// harness-child.js, sbx in sandboxes.js.
 import { makeExt } from './model/ext.js';
 
-export const ext = makeExt({ block: 'first', end: 'all', top: 'all', paint: 'each', newChat: 'all', task: 'all' });
+export const ext = makeExt({ block: 'first', end: 'all', top: 'all', paint: 'each', newChat: 'all', task: 'all',
+  side: 'all', page: 'first', crumb: 'first', dock: 'all', card: 'all', childStatus: 'all', sbx: 'all' });
 export const ctx = { app: null, paint: () => {} };

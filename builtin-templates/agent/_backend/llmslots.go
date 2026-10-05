@@ -131,6 +131,7 @@ var slots *llmSlots
 // acquireLLM takes what a model call needs: a place in this process's gate,
 // then (partitioned) a tile-wide slot. release gives back both.
 func (e *Engine) acquireLLM(ctx context.Context, top bool) (func(), error) {
+	e.syncGateLimit()
 	release, err := e.gate.acquire(ctx, top)
 	if err != nil || slots == nil {
 		return release, err
@@ -150,6 +151,7 @@ func (e *Engine) acquireLLM(ctx context.Context, top bool) (func(), error) {
 // never waiting for one — and, like acquireLLM, without the cap where the
 // slots can't be used.
 func (e *Engine) tryBackgroundLLM() func() {
+	e.syncGateLimit()
 	release := e.gate.tryBackground()
 	if release == nil || slots == nil {
 		return release
@@ -165,15 +167,22 @@ func (e *Engine) tryBackgroundLLM() func() {
 	return func() { rel(); release() }
 }
 
-// userGateCap is a person's partition's own gate: at most this many of its
-// model calls at once (global keeps the configured limit).
-const userGateCap = 2
-
-// gateLimit is this process's gate limit for cfg.
+// gateLimit is this process's gate limit for cfg: a person's partition takes
+// maxActiveRunsPerUser (default 2) of maxActiveRuns; global keeps the
+// configured limit.
 func gateLimit(cfg Config) int {
 	n := cfg.maxActiveRuns()
-	if userMode() && n > userGateCap {
-		n = userGateCap
+	if userMode() {
+		n = min(n, cfg.maxActiveRunsPerUser())
 	}
 	return n
+}
+
+// syncGateLimit follows the config in a person's partition: managers change
+// it in the global instance, whose PUT /config resizes only global's gate.
+// Read at each model call, as the tile-wide slots read theirs.
+func (e *Engine) syncGateLimit() {
+	if userMode() && e.db != nil {
+		e.gate.setLimit(gateLimit(parseConfig(e.db.getSetting("config"))))
+	}
 }

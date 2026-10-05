@@ -85,7 +85,7 @@ func handleMembers(w http.ResponseWriter, r *http.Request) {
 //	POST /runs/{id}/members {user, role: viewer|participant}
 func handleAddMember(w http.ResponseWriter, r *http.Request) {
 	root, ok := shareRoot(w, r)
-	if !ok {
+	if !ok || projectRunBarred(w, root.ID) { // a project's members are its tasks' (project_tasks.go)
 		return
 	}
 	var body struct{ User, Role string }
@@ -116,10 +116,11 @@ func handleAddMember(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleRemoveMember takes someone off a conversation — the owner removes
-// anyone; a member may remove themselves (leave).
+// anyone; a member may remove themselves (leave). Not on a project's task:
+// its people are the project's, leaving included (project_tasks.go).
 func handleRemoveMember(w http.ResponseWriter, r *http.Request) {
 	root, ok := shareRoot(w, r)
-	if !ok {
+	if !ok || projectRunBarred(w, root.ID) {
 		return
 	}
 	user := r.PathValue("user")
@@ -156,12 +157,13 @@ func (ag *Agent) membersChanged(root int64) {
 }
 
 // handleNewLink makes a join link: whoever opens it (and can open the tile)
-// joins as role. The token is in this response only.
+// joins as role. The token is in this response only. None for a project's
+// task, whose people are the project's (project_tasks.go).
 //
 //	POST /runs/{id}/links {role, expiresIn? (seconds), maxUses?}
 func handleNewLink(w http.ResponseWriter, r *http.Request) {
 	root, ok := shareRoot(w, r)
-	if !ok {
+	if !ok || projectRunBarred(w, root.ID) {
 		return
 	}
 	var body struct {
@@ -207,7 +209,9 @@ func handleRevokeLink(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleJoin redeems a join link: the caller becomes a member (never
-// lowering a role they already have). Every failure looks the same.
+// lowering a role they already have). Every failure looks the same. A link
+// to a project's task (one made before it became a task) lets no one in:
+// its people are the project's.
 //
 //	POST /join {token}
 func handleJoin(w http.ResponseWriter, r *http.Request) {
@@ -227,6 +231,10 @@ func handleJoin(w http.ResponseWriter, r *http.Request) {
 			AND (expires=0 OR expires>?) AND (max_uses=0 OR uses<max_uses)`, tokenHash(body.Token), time.Now().Unix()).
 			Scan(&id, &root, &role); err != nil {
 			return err
+		}
+		var origin string
+		if err := t.q.QueryRow(`SELECT origin FROM runs WHERE id=?`, root).Scan(&origin); err != nil || origin == originProject {
+			return errBadRequest("a project's task")
 		}
 		if res, err := t.q.Exec(`UPDATE share_links SET uses=uses+1 WHERE id=? AND (max_uses=0 OR uses<max_uses)`, id); err != nil || rowsAffected(res) != 1 {
 			return errBadRequest("used up")

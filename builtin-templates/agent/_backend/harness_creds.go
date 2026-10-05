@@ -384,10 +384,13 @@ const credHostedBox = "a non-secure (hosted) conversation has worked in %s, and 
 // noteHostedUse records that a hosted (non-secure) conversation uses sandbox
 // ref — at every use (sandboxUse), before it does anything there: the
 // sandbox never gets a saved sign-in from then on (credWhy). Never undone.
-func (d *DB) noteHostedUse(ref string) {
+// An error: not noted — the caller refuses the use (fail closed).
+func (d *DB) noteHostedUse(ref string) error {
 	if _, err := d.q.Exec(`INSERT INTO hosted_sandboxes (ref, at) VALUES (?, ?) ON CONFLICT(ref) DO NOTHING`, ref, nowMs()); err != nil {
 		logf("noting a hosted conversation's use of %s: %v", ref, err)
+		return err
 	}
+	return nil
 }
 
 // hostedUsed: a hosted conversation used sandbox ref (or the record can't be

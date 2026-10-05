@@ -354,7 +354,7 @@ func (ag *Agent) toolBash(ctx context.Context, run *Run, cfg Config, args map[st
 			return "", err
 		}
 	}
-	ex, err := use.Conn.ExecStart(ctx, use.ID, sbxExecReq{Cmd: jobShellCmd, Cwd: j.Cwd, Env: jobExecEnv(j.Command),
+	ex, err := use.Conn.ExecStart(ctx, use.ID, sbxExecReq{Cmd: jobShellCmd, Cwd: j.Cwd, Env: withProjectEnv(jobExecEnv(j.Command), run, use.Box.Home),
 		Label: jobLabel(j.Job, j.Command), ClientID: j.clientID()})
 	if err != nil {
 		cause := context.Cause(ctx)

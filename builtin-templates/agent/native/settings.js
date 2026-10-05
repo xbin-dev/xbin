@@ -51,7 +51,8 @@ function configTpl(s) {
     s.cfg = c;
     s.models = m;
     s.f = { models: { ...(c.models || {}) }, system: c.system || '', tokenBudget: String(Number(c.tokenBudget) || 0),
-      maxIters: String(Number(c.maxIters) || 0), toolTimeout: String(Number(c.toolTimeout) || 0), subagents: !!c.subagents, approve: !!c.approve };
+      maxIters: String(Number(c.maxIters) || 0), toolTimeout: String(Number(c.toolTimeout) || 0), subagents: !!c.subagents, approve: !!c.approve,
+      limits: Object.fromEntries(actions.WF_LIMITS.map(([k]) => [k, Number(c[k]) ? String(c[k]) : ''])) };
   });
   const f = s.f;
   if (!f) return html`<screen title="Config" style="form">${errTpl(s)}<section><progress label="loading…"/></section></screen>`;
@@ -59,7 +60,8 @@ function configTpl(s) {
   const save = async () => {
     s.err = ''; s.msg = '';
     const next = { ...s.cfg, models: { ...f.models }, system: f.system, tokenBudget: Number(f.tokenBudget) || 0,
-      maxIters: Number(f.maxIters) || 0, toolTimeout: Number(f.toolTimeout) || 0, subagents: f.subagents, approve: f.approve };
+      maxIters: Number(f.maxIters) || 0, toolTimeout: Number(f.toolTimeout) || 0, subagents: f.subagents, approve: f.approve,
+      ...Object.fromEntries(actions.WF_LIMITS.map(([k]) => [k, Number(f.limits[k]) || 0])) };
     try { await actions.saveConfig(next); s.cfg = next; s.msg = 'saved'; } catch (e) { s.err = e.message; }
     ctx.paint();
   };
@@ -76,6 +78,10 @@ function configTpl(s) {
       <field label="Token budget (0 = from the model)" kind="number" value=${f.tokenBudget} @input=${(e) => { f.tokenBudget = e.value; }}/>
       <field label="Max iterations per drive" kind="number" value=${f.maxIters} @input=${(e) => { f.maxIters = e.value; }}/>
       <field label="Tool timeout (s)" kind="number" value=${f.toolTimeout} @input=${(e) => { f.toolTimeout = e.value; }}/>
+    </section>
+    <section title="Subagents & fairness" footer="Empty = the default. Model-call limits apply to the whole agent at once, and a subagent never takes the last free slot; in a partitioned agent each person's calls are capped at the per-person limit.">
+      ${repeat(actions.WF_LIMITS, ([k]) => k, ([k, label, def]) => html`<field label=${`${label} (default ${def})`} kind="number" value=${f.limits[k]}
+        @input=${(e) => { f.limits[k] = e.value; }}/>`)}
     </section>
     <section title="Behaviour">
       <toggle label="Subagents (expose spawn_subagent)" value=${f.subagents} @change=${(e) => { f.subagents = e.value; ctx.paint(); }}/>

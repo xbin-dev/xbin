@@ -77,6 +77,15 @@
     // with the sandbox toolset works in one of their sandboxes; the binding
     // is the grant. Unbound = no sandboxes.
     "sandboxes": { "kind": "http", "service": "sandbox-manager", "multi": true },
+    // scm providers (API.md "scm providers and credentials"): one or more
+    // tiles that provide service "scm" (docs/scm.md) — the builtin
+    // scm-github template, or another host's. A project names one: it hands
+    // out the short-lived credentials a project's sandbox pushes with and
+    // reads its repos, pull requests and CI. From a person's partition the
+    // provider sees that person (their own sign-in); from the shared
+    // instance, the agent (its bot). The binding is the grant. Unbound = no
+    // projects that push.
+    "scm": { "kind": "http", "service": "scm", "multi": true },
     // Egress for the web lane's web_search/web_fetch tools. Unbound = zero
     // egress and the tools report themselves unavailable; the owner may
     // `bx bind <this component> net=internet` (or the admin Interfaces tab).

@@ -84,6 +84,9 @@ func TestKeepWakeUp(t *testing.T) {
 	ag.eng.mu.Lock()
 	ag.eng.timers[id] = time.NewTimer(time.Hour)
 	ag.eng.mu.Unlock()
+	ag.wakeKeep.run.Lock() // a look already past its busy check (the engine's hold releases schedule them) ends first
+	ag.wakeKeep.run.Unlock()
+	take()
 	_, _ = d.q.Exec(`UPDATE runs SET status='waiting_input', wake_at=0 WHERE id=?`, id)
 	ag.keepWakeUp(now)
 	if got := take(); got != "" {
@@ -121,5 +124,35 @@ func TestKeepWakeUp(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	if got := take(); got != "" {
 		t.Fatalf("the global instance: %s", got)
+	}
+}
+
+// busy follows the hold's rule: the project worker's live jobs keep the
+// partition up, so the keeper leaves its jobs alone meanwhile.
+func TestBusyCountsProjectJobs(t *testing.T) {
+	e := &Engine{owned: true}
+	if e.busy() {
+		t.Fatal("an idle engine is busy")
+	}
+	w := &projWorker{e: e, busy: map[int64]bool{}}
+	projWorkers.Lock()
+	projWorkers.m[e] = w
+	projWorkers.Unlock()
+	t.Cleanup(func() {
+		projWorkers.Lock()
+		delete(projWorkers.m, e)
+		projWorkers.Unlock()
+	})
+	w.mu.Lock()
+	w.pending = true
+	w.mu.Unlock()
+	if !e.busy() {
+		t.Fatal("live project jobs: not busy")
+	}
+	w.mu.Lock()
+	w.pending, w.busy[7] = false, true
+	w.mu.Unlock()
+	if !e.busy() {
+		t.Fatal("a running project job: not busy")
 	}
 }

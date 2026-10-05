@@ -13,6 +13,9 @@
 //         conversations and follows the one open)
 //   task  the unfolded pinned task's Delegated section: each coding agent
 //         below the run — its state, its task, a link to its chat
+//   host  the dock hosts other modules' sections (ext.dock(v): {key, title,
+//         badge?, tpl()}, CI's): a tab strip "Coding agents · CI" when any
+//         answers; openDock(key) opens it on one — even with no coding agents
 //
 // The rows are app.board's (model/harness-board.js): the tree, the links held
 // and the stream. A parked row whose summary has only the compact park (a
@@ -24,11 +27,14 @@ import { cardTpl } from './harness-child.js';
 import { loadTail } from './model/harness-child.js';
 import { filterWords, emptyWords, delegatedWords } from './model/harness-board.js';
 
-const st = { open: false, needs: false }; // the dock is open; only the ones that need you
+const st = { open: false, needs: false, tab: 'agents' }; // the dock is open; only the ones that need you; its tab ('agents' or a section's key)
 let dock = null;
 
 const rootOf = (v) => (v ? v.run.rootId || v.run.id : null);
-const toggle = () => { st.open = !st.open; ctx.paint(); };
+const toggle = () => { st.open = !(st.open && st.tab === 'agents'); st.tab = 'agents'; ctx.paint(); };
+/** openDock(key): the right dock open on a tab ('agents', or a section ext.dock answers); dockTab(): the one shown ('' closed). */
+export function openDock(key = 'agents') { st.open = true; st.tab = key; ctx.paint(); }
+export const dockTab = () => (st.open ? st.tab : '');
 const onKey = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } };
 
 ext.register({
@@ -44,7 +50,7 @@ function chipTpl(v) {
   if (!app) return null;
   const c = app.board.chip(rootOf(v));
   if (!c) return null;
-  return html`<span class="badge hbchip" id="hbchip" role="button" tabindex="0" data-tone=${c.tone} aria-pressed=${st.open ? 'true' : 'false'}
+  return html`<span class="badge hbchip" id="hbchip" role="button" tabindex="0" data-tone=${c.tone} aria-pressed=${st.open && st.tab === 'agents' ? 'true' : 'false'}
     title=${c.title} @click=${toggle} @keydown=${onKey}>${c.text}</span>`;
 }
 
@@ -68,6 +74,11 @@ function paintDock(v) {
 function boardTpl(v) {
   const app = ctx.app;
   const root = rootOf(v);
+  const secs = ext.dock(v) || [], sec = secs.find((x) => x.key === st.tab);
+  const tabs = secs.length ? html`<div class="hbtabs" role="tablist">${[{ key: 'agents', title: 'Coding agents' }, ...secs].map((x) => html`<button class="hbtab" role="tab"
+    data-tab=${x.key} aria-selected=${(sec ? sec.key : 'agents') === x.key ? 'true' : 'false'} @click=${() => { st.tab = x.key; ctx.paint(); }}>${x.title}${x.badge ? html` <span class="hbbadge">${x.badge}</span>` : nothing}</button>`)}</div>` : html`<b>Coding agents</b>`;
+  const close = html`<button class="btn ghost btnsm icon" data-act="close" title="close the dock" aria-label="close the dock" @click=${() => { st.open = false; ctx.paint(); }}><bx-icon name="xmark"></bx-icon></button>`;
+  if (sec) return html`<div class="hbhd">${tabs}<span class="hbsp"></span>${close}</div><div class="hbbody hbsec" data-sec=${sec.key}>${sec.tpl()}</div>`;
   const all = app.board.rows(root);
   const f = filterWords(all, st.needs);
   const rows = st.needs ? all.filter((r) => r.section === 'needs') : all;
@@ -75,10 +86,10 @@ function boardTpl(v) {
   const title = (id) => (app.convs.find(id) || {}).title || '#' + id;
   const scope = root == null ? 'yours — running or waiting for you' : `in ${title(root)}`;
   return html`<div class="hbhd">
-      <b>Coding agents</b><span class="muted hbscope" title=${scope}>${scope}</span>
+      ${tabs}<span class="muted hbscope" title=${scope}>${secs.length ? '' : scope}</span>
       ${f ? html`<button class="badge hbfilter" data-on=${f.on ? '1' : ''} aria-pressed=${f.on ? 'true' : 'false'} title=${f.title}
         @click=${() => { st.needs = !st.needs; ctx.paint(); }}>${f.text}</button>` : nothing}
-      <button class="btn ghost btnsm icon" data-act="close" title="close the board" aria-label="close the board" @click=${toggle}><bx-icon name="xmark"></bx-icon></button>
+      ${close}
     </div>
     <div class="hbbody">
       ${rows.length ? repeat(rows, (r) => r.id, (r) => html`<div class="hbrow" data-row=${r.id} data-section=${r.section}>
@@ -136,6 +147,9 @@ style.textContent = `
   .hbbody .hkid .hkact { padding-left: 10px; }
   .hbbody .hkid .hkn { display: none; } /* the monogram says who (its title the name): the title gets the room */
   .hbempty { padding: 16px 8px; color: var(--bx-muted); }
+  .hbtabs { display: flex; gap: 4px; min-width: 0; } .hbhd .hbsp { flex: 1; }
+  .hbtab { font: inherit; background: none; border: 0; border-bottom: 2px solid transparent; padding: 2px 8px; cursor: pointer; color: var(--bx-muted); white-space: nowrap; }
+  .hbtab[aria-selected="true"] { color: var(--bx-text); font-weight: 600; border-bottom-color: var(--bx-accent); } .hbtab .hbbadge { font-weight: 400; }
   .top .taskpin .taskdel { display: flex; flex-direction: column; gap: 4px; padding-top: 8px; border-top: 1px dashed var(--bx-border); }
   .taskdel .deleg { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; min-width: 0; }
   .taskdel .deleg .lnk { cursor: pointer; overflow-wrap: anywhere; }

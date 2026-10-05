@@ -235,9 +235,11 @@ func handleGetRun(w http.ResponseWriter, r *http.Request) {
 		files = []*ReplFile{}
 	}
 	active, limit, _ := agent.eng.gate.stats()
-	xbin.WriteJSON(w, 200, map[string]any{"run": run, "messages": legacyMessages(msgs), "steps": steps, "memory": mem,
+	v := map[string]any{"run": run, "messages": legacyMessages(msgs), "steps": steps, "memory": mem,
 		"config": cfg.forView(), "class": classView(classOf(cfg)), "files": files, "messageFiles": agent.db.messageFiles(id), "draft": agent.eng.getDraft(id),
-		"queued": agent.db.queuedView(id), "slots": map[string]int{"active": active, "limit": limit}})
+		"queued": agent.db.queuedView(id), "slots": map[string]int{"active": active, "limit": limit}}
+	runViewExtras(agent.db, callerOf(r), run, v) // runViewHooks (project_events.go): project, projectTask, ci
+	xbin.WriteJSON(w, 200, v)
 }
 
 func handleDeleteRun(w http.ResponseWriter, r *http.Request) {
@@ -488,7 +490,7 @@ func handlePutConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg.Sandbox, cfg.Attached, cfg.HeldInternal = nil, nil, false // a conversation's own, never a default
-	cfg.Engine, cfg.Harness = "", nil
+	cfg.Engine, cfg.Harness, cfg.Project = "", nil, nil
 	b, _ := json.Marshal(cfg)
 	if confTooBig(b) { // conf.go: a partitioned agent mirrors it into a kv value
 		xbin.WriteError(w, 400, "the config is too big for a partitioned agent's shared settings (900 KiB at most)")

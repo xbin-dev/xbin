@@ -80,7 +80,7 @@ func scanSkill(scan func(dest ...any) error) (*Skill, error) {
 
 func (d *DB) getSkill(name string) (*Skill, error) {
 	s, err := scanSkill(d.q.QueryRow(`SELECT `+skillCols+` FROM skills WHERE name=?`, name).Scan)
-	if err != nil && confIn != nil {
+	if err != nil && confIn() != nil {
 		return sharedSkill(name, d.tx == nil, err) // a person's partition: the shared ones are in conf
 	}
 	return s, err
@@ -90,10 +90,10 @@ func (d *DB) getSkill(name string) (*Skill, error) {
 // ones from conf (conf.go), else the db's.
 func (d *DB) listSkills() ([]*Skill, error) {
 	out, err := d.localSkills()
-	if err != nil || confIn == nil {
+	if err != nil || confIn() == nil {
 		return out, err
 	}
-	return withShared(out, confIn.sharedSkills(d.tx == nil)), nil
+	return withShared(out, confIn().sharedSkills(d.tx == nil)), nil
 }
 
 // localSkills is the skills in this db.

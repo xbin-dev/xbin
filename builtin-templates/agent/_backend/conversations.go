@@ -347,6 +347,9 @@ func handlePatchRun(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, http.StatusConflict, noShareWords)
 		return
 	}
+	if (body.Visibility != nil || body.TeamRole != nil) && projectRunBarred(w, root) { // a project's sharing is its tasks' (project_tasks.go)
+		return
+	}
 	if body.Model != nil && (lv < lvParticipant || !validPick(*body.Model)) {
 		if lv < lvParticipant {
 			xbin.WriteError(w, 403, "only someone who may talk in it can pick its model")
@@ -469,15 +472,29 @@ func handleRead(w http.ResponseWriter, r *http.Request) {
 // and automations they own whose last run failed and that they haven't
 // looked at.
 func handleNeeds(w http.ResponseWriter, r *http.Request) {
-	c := callerOf(r)
+	items, err := needsItems(callerOf(r), "")
+	if err != nil {
+		xbin.WriteError(w, 500, err.Error())
+		return
+	}
+	xbin.WriteJSON(w, 200, map[string]any{"items": items})
+}
+
+// needsItems is GET /needs's items for c, among the conversations scope (a
+// condition on r, with its args; "" none) lets through — a project's
+// (GET /projects/{pid}/needs, projects_coord_push.go).
+func needsItems(c who, scope string, scopeArgs ...any) ([]map[string]any, error) {
 	where, args := aclWhere(c)
+	if scope != "" {
+		where += " AND " + scope
+		args = append(args, scopeArgs...)
+	}
 	runs, err := agent.db.queryRuns(`r WHERE r.parent_id=0 AND `+where+` AND (
 		EXISTS (SELECT 1 FROM runs x WHERE x.root_id=r.id AND x.status='waiting_input')
 		OR (r.origin NOT IN ('', 'chat', 'api') AND r.status='error'))
 		ORDER BY r.activity_ms DESC LIMIT 50`, args...)
 	if err != nil {
-		xbin.WriteError(w, 500, err.Error())
-		return
+		return nil, err
 	}
 	var ids []int64
 	for _, x := range runs {
@@ -507,6 +524,8 @@ func handleNeeds(w http.ResponseWriter, r *http.Request) {
 				reason = "approval"
 			case "login": // a coding agent waits for a sign-in (D147 §4.3.9)
 				reason = "login"
+			case pendKindProject: // a task's workspace needs a person: a sign-in, a failure (project_gate.go)
+				reason = needsReason(ps)
 			}
 			item := map[string]any{"run": it, "reason": reason, "subRun": subID}
 			if sub, err := agent.db.getRun(subID); err == nil {
@@ -514,12 +533,12 @@ func handleNeeds(w http.ResponseWriter, r *http.Request) {
 					item["harness"] = harnessNodeView(h)
 				}
 			}
-			items = append(items, item)
+			items = append(items, withNeedsProject(agent.db, item, x)) // a project's run: project {id, name, n} (projects_coord_push.go)
 		case !waiting && lv >= lvOwner && it["unread"] == true:
-			items = append(items, map[string]any{"run": it, "reason": "failed", "subRun": 0})
+			items = append(items, withNeedsProject(agent.db, map[string]any{"run": it, "reason": "failed", "subRun": 0}, x))
 		}
 	}
-	xbin.WriteJSON(w, 200, map[string]any{"items": items})
+	return items, nil
 }
 
 // treeWait is §4.3.8 for one conversation: whether it or a run below it

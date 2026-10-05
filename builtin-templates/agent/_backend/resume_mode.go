@@ -4,7 +4,9 @@
 //   - Unpartitioned and global: today's rule (owner.go) — any work that
 //     needs no human (running, queued, blocked, awaiting, sleeping, an
 //     undelivered inbox row; at global also a handoff waiting to be
-//     mailed) leaves the `resume` job, @every 1m.
+//     mailed) leaves the `resume` job, @every 1m; else an scm read or a
+//     subscription's renewal (scm_poll.go) leaves `resume` when it is due
+//     within the minute and the `wake` job at its minute otherwise.
 //   - A person's partition: every running partition counts against the
 //     workspace's caps, so it asks to be started only for work that moves
 //     without the person, and only as often as that work can move:
@@ -36,8 +38,13 @@ import (
 // leaveWakeUp registers what brings the backend back for d's pending work.
 func (ag *Agent) leaveWakeUp(d *DB) {
 	if !userMode() {
-		if d.hasWork() || d.handoffsWait() { // handoffsWait: the global instance's queued handoffs (handoff_send.go)
+		switch at := d.scmWakeAt(); {
+		case d.hasWork() || d.handoffsWait(): // handoffsWait: the global instance's queued handoffs (handoff_send.go)
 			ag.registerResumeJob()
+		case at > 0 && at <= scmClock()/1000+60: // an scm read or subscription due now (scm_poll.go)
+			ag.registerResumeJob()
+		case at > 0: // else at its minute: polling stands in for events that don't come
+			ag.registerWakeJob(at)
 		}
 		return
 	}
@@ -75,17 +82,24 @@ func (d *DB) userWake(now time.Time) userWakeAt {
 	// a coding agent (harness_partition.go)
 	_ = d.q.QueryRow(`SELECT
 		(SELECT count(*) FROM runs WHERE status IN ('running','queued'))
-		+ (SELECT count(*) FROM inbox WHERE delivered_at=0)
+		+ (SELECT count(*) FROM inbox i WHERE i.delivered_at=0 AND ` + d.gateHeld() + `) -- a task parked for a person (project_gate.go)
 		+ (SELECT count(*) FROM links l JOIN runs p ON p.id = l.parent_id
 			WHERE l.state<>'running' AND l.delivered=0 AND (
 				(l.mode='fg' AND p.status IN ('running','queued','awaiting'))
 				OR (l.mode='bg' AND p.parent_id=0 AND p.status IN ('running','queued','sleeping','idle','done','canceled'))))
 		+ ` + harnessSendingSQL).Scan(&n)
-	if n > 0 || d.sleepsOnJobs() || d.repliesWait() || d.movesWait() { // repliesWait: handoff_user.go; movesWait: homes_move_user.go
+	projNow, projAt := d.projectsWake(now)                                        // the project worker's jobs, a coordinator's wake (project_worker.go)
+	if n > 0 || d.sleepsOnJobs() || d.repliesWait() || d.movesWait() || projNow { // repliesWait: handoff_user.go; movesWait: homes_move_user.go
 		return userWakeAt{runnable: true}
 	}
 	var wake int64
 	_ = d.q.QueryRow(`SELECT COALESCE(min(wake_at), 0) FROM runs WHERE status IN ('sleeping','awaiting') AND wake_at > 0`).Scan(&wake)
+	if projAt > 0 && (wake == 0 || projAt < wake) {
+		wake = projAt
+	}
+	if scmAt := d.scmWakeAt(); scmAt > 0 && (wake == 0 || scmAt < wake) { // scm reads and subscriptions due (scm_poll.go)
+		wake = scmAt
+	}
 	if wake > 0 && wake <= now.Unix()+60 {
 		return userWakeAt{runnable: true}
 	}

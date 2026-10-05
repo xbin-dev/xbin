@@ -344,6 +344,9 @@ func handlePublish(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	root := rootOf(run)
+	if projectRunBarred(w, root) { // a project's task stays in its project's space (project_tasks.go)
+		return
+	}
 	b, err := agent.exportConv(r.Context(), root, body.Files)
 	var payload []byte
 	if err == nil {

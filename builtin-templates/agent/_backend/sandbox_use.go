@@ -104,7 +104,9 @@ func (ag *Agent) sandboxUse(ctx context.Context, root int64, cfg Config, ref str
 		return nil, &sbxError{Provider: provider, Refusal: "not-allowed", Msg: why}
 	}
 	if userMode() && hostedID(root) { // before it does a thing there: no saved sign-in goes into it from now (harness_creds.go credWhy)
-		ag.db.noteHostedUse(b.Ref)
+		if why := scmHostedUse(ag.db, b.Ref, box.Name); why != "" { // nor a project's credential, and one already there refuses it (scm_gate.go)
+			return nil, &sbxError{Provider: provider, Refusal: "not-allowed", Msg: why}
+		}
 	}
 	live := box.effectiveEgress()
 	if why := sandboxClassAllows(cfg, provider, live); why != "" {

@@ -364,7 +364,7 @@ func (st *classState) defaultFor(w who) agentClass {
 
 // currentClasses is the cached set (the built-ins until loadClasses ran).
 func currentClasses() *classState {
-	if confIn != nil {
+	if confIn() != nil {
 		refreshConfClasses() // a person's partition follows conf (conf.go)
 	}
 	if st := classStore.Load(); st != nil {
@@ -401,9 +401,9 @@ func (st *classState) classOf(cfg Config) agentClass {
 		c, _ = st.find(laneClass(cfg.Toolset))
 	}
 	if cfg.Toolset == "" && cfg.Class != "" {
-		return c
+		return projectClamp(cfg, c)
 	}
-	return c.clampTo(normalizeToolset(cfg.Toolset))
+	return projectClamp(cfg, c.clampTo(normalizeToolset(cfg.Toolset))) // a project run: never internal reach (project_gate.go)
 }
 
 // fixedLane is the lane the conversation started in — what what it starts

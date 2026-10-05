@@ -325,10 +325,10 @@ func (e *Engine) updateHold() {
 // unpartitioned (harnessPass → onBrake). A turn that says nothing (a long
 // command) is looked at by brakeLook.
 func (s *hsess) brakeSoon() {
-	if !userMode() || confIn == nil {
+	if !userMode() || confIn() == nil {
 		return
 	}
-	v := confIn.view(false)
+	v := confIn().view(false)
 	on := v.State == confKnown && v.Halt == "1"
 	s.mu.Lock()
 	poke := on && !s.braked && !s.halted
@@ -349,7 +349,7 @@ var hBrakeLookMin = 250 * time.Millisecond
 // unpartitioned. It re-arms while one works and holds nothing (a turn at
 // work holds the partition already).
 func (e *Engine) brakeLook() {
-	if confIn == nil {
+	if confIn() == nil {
 		return
 	}
 	e.mu.Lock()

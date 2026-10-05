@@ -162,7 +162,7 @@ func TestConfMirror(t *testing.T) {
 	setMode(t, modeUser, "alice")
 	shorten(t, &confTTL, 0)
 	confOut = nil
-	confIn = newConfReader(kv, nil)
+	confInP.Store(newConfReader(kv, nil))
 	p := newTestDB(t)
 	if v := parseConfig(p.getSetting("config")); v.Model != "fake/one" || len(v.MCP) != 1 || v.MCP[0].Name != "open" {
 		t.Fatalf("the partition reads config %+v", v)
@@ -198,14 +198,15 @@ func TestConfMirror(t *testing.T) {
 
 	// a manager's change at global reaches the partition (the cache is 0 here)
 	setMode(t, modeGlobal, "")
-	confIn, confOut = nil, newConfMirror(kv, g)
+	confInP.Store(nil)
+	confOut = newConfMirror(kv, g)
 	_ = g.putSetting("halt", "")
 	_ = g.deleteSkill("deploy")
 	_ = g.putSetting("classes", `{"classes":[{"id":"ops","name":"Ops","toolsets":["internal"]}],"default":"ops"}`)
 	setMode(t, modeUser, "alice")
 	shorten(t, &confTTL, 0)
-	confIn = newConfReader(kv, nil)
-	confIn.refresh()
+	confInP.Store(newConfReader(kv, nil))
+	confIn().refresh()
 	if e.halted() {
 		t.Fatal("the halt stayed on in the partition")
 	}
@@ -420,13 +421,44 @@ func TestHelperHoldLLMSlot(t *testing.T) {
 	time.Sleep(time.Minute)
 }
 
+// TestPartitionGateFollowsConfig: a person's partition's gate is
+// maxActiveRunsPerUser (never above maxActiveRuns), and follows a config
+// change at its next model call — global's PUT /config resizes only its own.
+func TestPartitionGateFollowsConfig(t *testing.T) {
+	setMode(t, modeUser, "alice")
+	db := newTestDB(t)
+	e := newEngine(db, nil, nil, "")
+	for _, c := range []struct {
+		cfg  string
+		want int
+	}{
+		{`{}`, defaultMaxActiveRunsPerUser},
+		{`{"maxActiveRunsPerUser":3}`, 3},
+		{`{"maxActiveRunsPerUser":9}`, defaultMaxActiveRuns}, // never above the tile's limit
+		{`{"maxActiveRuns":8,"maxActiveRunsPerUser":6}`, 6},
+		{`{"maxActiveRuns":1,"maxActiveRunsPerUser":6}`, 1},
+	} {
+		if err := db.putSetting("config", c.cfg); err != nil {
+			t.Fatal(err)
+		}
+		rel, err := e.acquireLLM(context.Background(), false)
+		if err != nil {
+			t.Fatal(err)
+		}
+		rel()
+		if _, limit, _ := e.gate.stats(); limit != c.want {
+			t.Errorf("%s: gate %d, want %d", c.cfg, limit, c.want)
+		}
+	}
+}
+
 // TestAcquireLLMWithSlots: the engine's model calls take a gate place and a
 // tile-wide slot; a slot directory that can't hold them costs only the cap.
 func TestAcquireLLMWithSlots(t *testing.T) {
 	setMode(t, modeUser, "alice")
 	e := newEngine(newTestDB(t), nil, nil, "")
-	if e.gate.limit != userGateCap {
-		t.Fatalf("a partition's gate: %d, want %d", e.gate.limit, userGateCap)
+	if e.gate.limit != defaultMaxActiveRunsPerUser {
+		t.Fatalf("a partition's gate: %d, want %d", e.gate.limit, defaultMaxActiveRunsPerUser)
 	}
 	slots = newLLMSlots(t.TempDir(), func() int { return 1 })
 	rel, err := e.acquireLLM(context.Background(), true)
@@ -634,13 +666,13 @@ func TestLeaveWakeUpByMode(t *testing.T) {
 	_, _ = d.q.Exec(`UPDATE runs SET status='running', wake_at=0 WHERE id=?`, id)
 	kv := newMemKV()
 	putConf(kv, "1", `{}`)
-	confIn = newConfReader(kv, nil)
-	confIn.refresh()
+	confInP.Store(newConfReader(kv, nil))
+	confIn().refresh()
 	ag.leaveWakeUp(d)
 	if j := take(); len(j) != 0 {
 		t.Fatalf("a partition under a halt registered %v", j)
 	}
-	confIn = nil
+	confInP.Store(nil)
 	ag.clearWakeJobs()
 	mu.Lock()
 	got := strings.Join(deletes, ",")

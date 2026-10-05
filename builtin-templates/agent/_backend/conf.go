@@ -71,26 +71,31 @@ type confHalt struct {
 	At   int64  `json:"at"`
 }
 
-// The mode's hooks: confOut is global's mirror, confIn a person's reader.
-// Both nil in legacy mode (and in tests that don't set them).
+// The mode's hooks: confOut is global's mirror, confIn() a person's reader.
+// Both nil in legacy mode (and in tests that don't set them). The reader is
+// published atomically: every engine's project worker reads it on each pass,
+// and a reader is stored whole (its hooks set before Store).
 var (
 	confOut *confMirror
-	confIn  *confReader
+	confInP atomic.Pointer[confReader]
 )
+
+// confIn is a person's conf reader, nil outside a person's partition.
+func confIn() *confReader { return confInP.Load() }
 
 // confSetting answers a mirrored setting from conf in a person's partition;
 // inTx: the caller holds a transaction, which never waits on the network.
 func confSetting(k string, inTx bool) (string, bool) {
-	if confIn == nil || !mirroredSettings[k] {
+	if confIn() == nil || !mirroredSettings[k] {
 		return "", false
 	}
-	return confIn.view(!inTx).get(k), true
+	return confIn().view(!inTx).get(k), true
 }
 
 // confRefuses is the settings write hook: a person's partition may not write
 // a mirrored setting.
 func confRefuses(k string) error {
-	if confIn != nil && mirroredSettings[k] {
+	if confIn() != nil && mirroredSettings[k] {
 		return errSharedSetting
 	}
 	return nil
@@ -121,7 +126,7 @@ var confClassesRaw atomic.Pointer[string]
 // manager's edit reaches every person's partition within confTTL. It never
 // waits on the network (classes are looked up inside transactions).
 func refreshConfClasses() {
-	raw := confIn.view(false).Classes
+	raw := confIn().view(false).Classes
 	if prev := confClassesRaw.Load(); prev != nil && *prev == raw && classStore.Load() != nil {
 		return
 	}
@@ -153,7 +158,7 @@ func withShared(own, shared []*Skill) []*Skill {
 // sharedSkill is a shared skill by name from conf; notFound when conf has
 // none.
 func sharedSkill(name string, block bool, notFound error) (*Skill, error) {
-	for _, s := range confIn.sharedSkills(block) {
+	for _, s := range confIn().sharedSkills(block) {
 		if s.Name == name {
 			c := *s
 			return &c, nil

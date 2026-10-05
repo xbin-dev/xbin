@@ -1,0 +1,17 @@
+{
+  // apps/scm-github is a scope. Its state:
+  //   state — kv: at global the App's public settings, the policy, the
+  //           identity directory (xbin person → GitHub login) and caches; in
+  //           a person's partition their sign-in's summary. Secrets (the
+  //           App's key and client secret, people's tokens) live in the
+  //           vault, never here.
+  //   conf  — kv the global instance writes and people's partitions only
+  //           read: the App's public settings and the policy's public half.
+  //           Never a secret.
+  //   tick  — cron: the outbox's retries while events wait for delivery.
+  "resources": {
+    "state": { "type": "kv" },
+    "conf": { "type": "kv", "shared": "read" },
+    "tick": { "type": "cron" }
+  }
+}

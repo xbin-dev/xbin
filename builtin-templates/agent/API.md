@@ -536,8 +536,10 @@ What a partitioned instance does differently:
   partition shares; a dead process frees its slot. As within one instance,
   a subagent's call never takes the last slot, so a new chat waits for at
   most one call to finish however wide everyone's fan-outs are. Each
-  partition's own gate allows at most 2 of its calls at once; the global
-  instance keeps `maxActiveRuns`. The locks need one kernel: xbind never
+  partition's own gate allows at most `maxActiveRunsPerUser` (default 2,
+  never above `maxActiveRuns`) of its calls at once — at the default that
+  leaves a person's subagents one call at a time — and follows a change to
+  it at its next model call; the global instance keeps `maxActiveRuns`. The locks need one kernel: xbind never
   runs a partitioned tile's backend in a VM (`vm` and `partition` don't
   mix). A `team` directory that can't hold the lock files costs only the
   cap (calls and titles go ahead).
@@ -1013,10 +1015,12 @@ interface bound (`bx bind <this component> net=internet`); unbound, they return
   "replTimeoutMs": 5000,       // REPL budget per statement (max 60000)
   "replMemMB": 256,            // REPL heap watchdog
   // workflow limits (0 = default): delegation depth, lifetime runs per tree,
-  // spawns per turn, concurrent MODEL CALLS process-wide, and how long a
-  // foreground subagent is waited for before it moves to the background
+  // spawns per turn, concurrent MODEL CALLS process-wide, a person's own
+  // concurrent model calls in a partitioned agent (never above
+  // maxActiveRuns), and how long a foreground subagent is waited for before
+  // it moves to the background. The ⚙ Config tab edits them
   "maxDepth": 3, "maxSpawn": 32, "maxSpawnPerTurn": 8, "maxActiveRuns": 4,
-  "subagentTimeout": 900,
+  "maxActiveRunsPerUser": 2, "subagentTimeout": 900,
   // coding agents (§Coding agents): an idle one is stopped after
   // harnessIdleMin minutes (absent = 15, 0 = never), and at most maxHarness
   // run at once per conversation tree (0 = 3)
@@ -1319,7 +1323,9 @@ instant (a `yield` wake, a subagent deadline) and are one-shot.
   calls.
 - **Model calls are gated, not runs.** `maxActiveRuns` bounds concurrent model
   calls. A top-level run's call goes first, and subagents may hold at most
-  `limit − 1` slots, so a new chat never waits behind a fan-out.
+  `limit − 1` slots, so a new chat never waits behind a fan-out. In a
+  partitioned agent a person's calls also share their own gate of
+  `maxActiveRunsPerUser`.
 
 Upgrading from the pre-D81 loop: runs that were mid-drive in the old binary
 finish their lease (up to 30 s) before the new engine adopts them — once.
@@ -3128,6 +3134,1489 @@ takes about a minute more. To try an adapter of your own, advertise it on a
 coding-sandbox image (`harnesses: [{id, title, argv, login}]`, §Coding
 agents "The catalog").
 
+## Projects
+
+A **project** groups work around one coding sandbox: its git repos, a
+policy, task conversations and a coordinator. Each **task** is its own
+conversation with a git worktree per repo, a branch, a range of ports and
+the repos' setup run for it; it pushes and opens pull requests with a
+short-lived credential an **scm provider** hands out — a tile that offers
+the `scm` service (the scm contract, docs/scm.md), such as the builtin
+`scm-github` template — and the provider's CI and review events wake it.
+A **coordinator** creates and steers tasks for a person; **team projects**
+share a definition and a task board while each member's tasks run in
+their own space. A conversation's **CI** — for a task, or for the branches
+any coding session pushed — shows in the conversation beside its coding
+agents, down to job steps and logs.
+
+Each part below says what it covers, with its routes and shapes.
+
+### Projects and tasks
+
+**The model.** A project is a coding sandbox (its **workspace**), the git
+repos it works on, a **policy**, and its **tasks** — each task its own
+conversation, with a git worktree of every repo it works in, a branch of its
+own, a range of ports and the repos' setup run for it. The project names the
+**scm provider** its repos live at (`scm`: a tile bound to the agent's `scm`
+slot, §scm providers and credentials) and the host (`github.com`).
+
+| Kind | Where | What |
+|---|---|---|
+| `personal` | a person's own space (their partition), or an unpartitioned agent | the project and its tasks; in a person's space private — nobody else's, no members; unpartitioned, shared as a conversation is (members, team visibility) |
+| `team` | a partitioned agent's shared space (its global instance) — the only kind it holds | a team's definition — repos, policy, members, an optional seed sandbox — and its board; it has **no tasks** (§Team projects) |
+| `membership` | a member's own space | that member's half of a team project (`teamRef` its definition): their own sandbox, tasks and coordinator |
+
+A project's id says its home as a conversation's does: in a person's
+partition projects number from 2^40 (`model/homes.js` `homeOf(id)`).
+
+**Its identity at the provider.** What a project reads, and the token its
+tasks push with, are as `policy.as` says, else as the person in a person's
+own space (`person`), else as the provider's bot (`bot`: the shared space,
+an unpartitioned agent). Where the home's identity is the bot, **naming a
+repo for it** — a project's repos, a repo added — takes one of the agent's
+managers, or the **scm bot rule** a manager sets (who may name which repos,
+§scm providers and credentials): 403 "naming ‹repo› for the bot takes a
+manager, or the agent's scm bot rule" otherwise. Every later read through
+the project — the issue picker, a batch of tasks from issues, a task's
+issue — is held to **the project's own repos** (400 otherwise), at every
+home.
+
+**Who may do what** — a caller's level on the project, as on a
+conversation (§Who sees what): the **owner** (`owner`; never a member row)
+changes settings, repos and members, deletes, archives, and forces a
+cleanup; a **participant** (a member, or anyone when `visibility` is `team`
+and `teamRole` `participant`) creates tasks, messages and acts on them,
+warms the workspace; a **viewer** reads. A project you may not see is a 404.
+Someone removed from a project keeps the conversations of the tasks they
+created (they own them) but no longer acts on its tasks: on a project's
+conversation a person's level is held to their level on the project, so
+below a participant of it — removed, made a viewer, or the project no
+longer team-visible — they read a task they created and nothing more
+(talking to it, answering, interrupting, deleting it and `POST
+/runs/{id}/task/…` answer 403): talking to a task runs it in the project's
+sandbox.
+A **task's conversation** is a run with `origin` `project` and `originId`
+the project's id: its owner is the person who created the task, its
+visibility, team role and members are the project's — written onto every
+task when they change — and the project's owner takes part in every task
+(a participant member of each task someone else created), so the people of
+a project are the people of its tasks. Such a conversation never appears in the conversation list (it is
+listed under its project), never moves to another space, and is refused
+(409, `refusal: "barred"`, "this conversation is a task of project ‹name›:
+its sharing is the project's, and it stays in its project's space") by its
+own sharing (`PATCH /runs/{id}` `visibility`/`teamRole`, `POST
+/runs/{id}/members`, `DELETE /runs/{id}/members/{user}` — leaving
+included: you leave the project — and `POST /runs/{id}/links`),
+publishing, a copy into another space and hosting; a join link to it (one
+made before it became a task) lets no one in (`POST /join` answers 404).
+`GET /runs/{id}/export` stays. Its config carries `project: {id, role:
+"task" | "coordinator", n}`.
+
+**Routes.** A project is `{pid}` in a path (never `{id}`). Need: *Any* any
+caller (the list filters), *Start* who may start runs, *V/P/O* viewer,
+participant, owner of the project — or, on `/runs/{id}/…`, of the
+conversation.
+
+| Method and path | Need | Body | Answer |
+|---|---|---|---|
+| `GET /projects?state=&kind=&cursor=` | Any | — | `{items: [ProjectView], next}` — those you may see, latest activity first (`state` default: all but `deleting`) |
+| `POST /projects` | Start | `{name, scm, repos: [{repo, slug?, setup?}], sandbox: {ref} \| {new: {provider, image?, size?, egress?}}, policy?, share?: {visibility, teamRole, members: [{user, role}]}, kind?: "team"}` | **201** `{project, jobs}` |
+| `GET /projects/{pid}` | V | — | `{project: ProjectView}` |
+| `PATCH /projects/{pid}` | O | `{version, name?, policy?, visibility?, teamRole?, state?: "active" \| "archived"}` | `{project}`; **412** `{error, version}` when `version` isn't the current one |
+| `DELETE /projects/{pid}?sandbox=keep\|delete` | O | — | **202** `{state: "deleting"}` |
+| `GET /projects/{pid}/members` | V | — | `{owner, members: [{user, role}]}` |
+| `POST /projects/{pid}/members` | O | `{user, role}` | `{owner, members}` |
+| `DELETE /projects/{pid}/members/{user}` | V (yourself) / O | — | 204 |
+| `POST /projects/{pid}/repos` | O | `{repo, slug?, setup?}` | **201** `{repo, jobs}` |
+| `PATCH /projects/{pid}/repos/{slug}` | O | `{setup?, checkout?: "worktree" \| "clone"}` | `{repo}` |
+| `DELETE /projects/{pid}/repos/{slug}?force=1` | O | — | **202**; 409 `busy` `{error, tasks}` while open tasks work in it |
+| `GET /projects/{pid}/status` | V | — | `ProjectStatus` |
+| `POST /projects/{pid}/warm` | P | — | **202** `{jobs}`: start the sandbox, fetch the repos, renew credentials |
+| `GET /projects/{pid}/issues?repo=&q=&state=&labels=&cursor=` | V | — | the provider's page of issues of one of the project's repos (bodies clipped to 2 KiB; untrusted text) |
+| `GET /projects/{pid}/tasks?col=&phase=&q=&mine=1&cursor=&limit=` | V | — | `{items: [TaskView], next}` |
+| `POST /projects/{pid}/tasks` | P | `TaskSpec` | **201** `{task: TaskView, run}` |
+| `POST /projects/{pid}/tasks/batch` | P | `{issues: [{repo, number}] (≤ 20), size?, agent?, text?}` | **201** `{tasks, errors: [{issue, error}]}` |
+| `GET /projects/{pid}/tasks/{n}` | V | — | `TaskView` (with `park`) |
+| `POST /projects/{pid}/tasks/{n}/cancel` | P | `{reason?}` | `TaskView` — stopped, its queued input dropped (in the queue, and what waits in its inbox untaken); its conversation, worktrees and branch stay |
+| `GET /projects/{pid}/events?since=&limit=` | V | — | `{items: [ProjectEvent], next}` |
+| `GET /runs/{id}/task` | V | — | `TaskView` with `park`; 404 when the conversation is no task |
+| `POST /runs/{id}/task/refresh` | P | — | **202**: fresh credentials, a fetch, its branch and pull requests read again |
+| `POST /runs/{id}/task/retry` | P | — | **202**: its failed workspace jobs (and the project's) queued again |
+| `POST /runs/{id}/task/close` | P | `{cleanup?, closePRs?}` | `TaskView`, phase `closed`; `closePRs` closes its open pull requests at the provider |
+| `POST /runs/{id}/task/cleanup` | O | `{force?}` | **202**; 409 `dirty` `{error, repos: [{slug, dirty, unpushed}]}` without `force` |
+
+`POST /projects` checks everything before it makes anything: the provider is
+bound; each repo is `owner/name`, the bot rule allows it (where the home's
+identity is the bot) and the provider can see it as the project (400 with
+the provider's refusal otherwise — its other refusals, such as `signin`,
+pass through with their status and payload); a `sandbox.ref` is one you may
+use (in your own space, homed there) that offers commands and files; the
+policy's task class is one you may use and has no internal reach. Then it
+answers at once with the first job queued. In a person's own space `share`
+is refused (409) and `kind: "team"` too; in the shared space a project is a
+team definition (`kind: "team"`, 409 otherwise) and a person must say who
+shares it (`share`, 409 otherwise); `kind: "team"` anywhere else is 409.
+`POST /projects/{pid}/members` and a `visibility`/`teamRole` other than
+private's are 409 in a person's own space. **A component's project** (one
+another tile made) isn't shared: `share`, a team visibility and `POST
+/projects/{pid}/members` answer 409 "a component's project isn't shared"
+— its tasks work with the component's authority, which takes part in no
+one else's conversation (a team definition, which has no tasks, may be).
+
+**A shared project has its sandbox to itself.** Everyone who may talk in a
+project's tasks runs commands in its sandbox, and so may read anything kept
+there — another project's credentials included. So a project that is shared
+(team-visible, with members, or with a task conversation someone other than
+its owner made, which they read still) is the only project in its sandbox, and no
+project joins a sandbox a shared one is in: `POST /projects` with such a
+`sandbox.ref`, a `visibility`/`teamRole` change and `POST
+/projects/{pid}/members` answer 409 `refusal: "sandbox-shared"` (a project
+being deleted no longer counts).
+
+**A new task** (`TaskSpec`):
+
+```jsonc
+{"text": "Fix the login page's redirect",   // the brief (≤ 64 KiB); its first prompt ends with it
+ "title": "…",                              // default: the issue's title, else the brief's first line (≤ 80)
+ "size": "small",                           // small | big (its own sandbox, §Big tasks…)
+ "issue": {"repo": "acme/web", "number": 12}, // one of the project's repos; its text goes in, framed as untrusted
+ "repos": ["web"],                          // repo slugs; default every repo (an issue's: its repo)
+ "agent": {"provider": "claude-code", "mode": "…"}, // a coding agent answers it; default policy.engine
+ "class": "coding",                         // default policy.taskClass
+ "model": "…"}                              // the built-in agent's model pick
+```
+
+Its number `n` is the project's next; its branch `‹branchPrefix›/‹n›-‹slug›`
+(the slug from the title: `[a-z0-9-]`, ≤ 32; `-2`, `-3`… when a branch of
+that name is on the remote already); its conversation is made at once,
+holding no message — its **start** waits in the project's queue (§The
+workspace). Refused: 409 `class-internal` for a class with internal reach
+(every task reads the provider's text — issues, reviews, CI logs — and never
+runs with internal reach), 403 for a class you may not use, without the
+`sandbox` toolset or not allowing the project's sandbox manager; 409
+`barred` for a coding agent named where none may run (the shared space),
+whose class doesn't allow it or whose sandbox image lacks it (policy's
+choice instead falls back to the built-in agent); 429 `limit` for a
+coordinator past `maxOpenTasks` open tasks it made, or
+`maxTaskCreatesPerDay` in 24 hours; 409 for a team definition (no tasks)
+or a project that isn't active.
+
+**`policy`** — every key optional; `GET` shows every key with its default
+filled in (and keeps keys a newer build stored); `PATCH` merges objects key
+by key, and `null` takes a key back to its default.
+
+| Key | Default | What |
+|---|---|---|
+| `instructions` | — | for every task, after each repo's own AGENTS.md / CLAUDE.md (≤ 32 KiB) |
+| `checks` | `[]` | commands a task runs before it pushes (≤ 20) |
+| `prConventions` | — | how its pull requests are written |
+| `taskClass` | `coding` | the class tasks run in (never one with internal reach) |
+| `engine` | `auto` | `builtin`, `harness` (`harness`'s coding agent), or `auto`: `harness` if set, else the coding agent the task's creator last started a conversation with, else the built-in agent |
+| `harness` | — | the coding agent `engine` picks |
+| `as` | — | `person` or `bot`: the identity at the provider (above) |
+| `membersAsBot` | `false` | a team's members may work as the bot (§Team projects) |
+| `maxTasks` | `3` | tasks at work at once (1–16, §The workspace) |
+| `maxOpenTasks`, `maxTaskCreatesPerDay` | `20`, `50` | a coordinator's limits |
+| `branchPrefix` | `xbin/‹uid›` | where task branches live (a ref path) |
+| `autoPR` | `off` | `draft` or `ready`: open a pull request when a task comes to rest |
+| `checkout` | `worktree` | a new repo's checkouts: a worktree of the base, or a `clone` borrowing its objects |
+| `setupTimeoutSec`, `setupBlocking` | `600`, `true` | a repo's setup: its limit, and whether the task waits for it (a failed one never stops the task) |
+| `ports` | `{base: 20000, span: 10, slots: 100}` | task `n` listens on `base + ((n−1) mod slots) × span`, `span` ports |
+| `fetchEveryMin` | `10` | the repos' fetch while someone works in or looks at the project |
+| `protection` | `warn` | a repo whose default branch has no protection: a warning, or `refuse` it |
+| `workflows` | `false` | tokens may change `.github/workflows` |
+| `ci` | `{autoFix: true, maxPerDay: 5, delaySec: 60, logBytes: 8192}` | what a failing check does (§scm events and polling) |
+| `reviews` | `{forward: "trusted", allow: [], batchSec: 120}` | which review comments reach the task |
+| `autoLabel` | — | an issue with this label wakes the coordinator |
+| `bigTasks` | `{mode: "fork", keepFork: false}` | a big task's sandbox |
+| `cleanup` | `{onMerge: true, onClose: true}` | when a task's workspace is cleaned up |
+| `coordinator` | `{web: false, model: ""}` | the coordinator's web tools and model |
+
+**`ProjectView`** — the row, your `level`, its `repos`, the board's `counts`
+and the slots in use:
+
+```jsonc
+{"id": 1099511627777, "uid": "k3x9qa", "name": "Web", "slug": "web", "kind": "personal",
+ "owner": "alice", "visibility": "private", "teamRole": "viewer", "level": "owner",
+ "scm": "apps/scm-github", "host": "github.com", "sandboxRef": "apps/coding-sandbox|sb-7f3a", "sandboxMade": true,
+ "dir": "/work/web", "policy": {…}, "state": "active", "version": 3,
+ "repos": [{"slug": "web", "repo": "acme/web", "url": "https://github.com/acme/web.git", "defaultBranch": "main",
+            "mode": "bare", "checkout": "worktree", "setup": "npm ci", "state": "ready", "fetchedMs": …,
+            "head": "9fceb02…", "protected": true}],
+ "counts": {"queued": 1, "working": 2, "needs-you": 0, "pr": 1, "done": 7},
+ "slots": {"used": 2, "max": 3}, "createdBy": "alice", "createdMs": …, "updatedMs": …}
+```
+
+`state` is `active`, `archived` (its credentials scrubbed, nothing starts,
+nothing is fetched; everything kept — its workspace jobs wait, untouched,
+until it is active again, but for a task's cleanup, which runs and ends
+that task's waiting setup and bind (a setup's command stopped), and a task whose turn waited for its workspace
+rests, its input back at the head of the queue, a message with files left
+in its inbox until then) or `deleting` (only reads answer). A
+repo's `state`: `pending`, `cloning`, `ready`, `failed` (`error` says why);
+`protected` is null while unknown. Deleting a project scrubs its
+credentials, cleans its tasks' workspaces up (unless its sandbox goes too),
+deletes its tasks' and coordinators' conversations, deletes its sandbox
+when the project made it and `sandbox=delete` asked, then its rows.
+
+**`TaskView`** — a task as every route shows it:
+
+```jsonc
+{"project": 1099511627777, "n": 3, "run": 1099511627790, "title": "Fix login", "size": "small",
+ "branch": "xbin/k3x9qa/3-fix-login", "issue": {"repo": "acme/web", "number": 12, "title": "…", "url": "…"},
+ "repos": ["web"], "ws": "ready", "phase": "pr",
+ "column": "pr", "state": "ci", "waitingFor": "ci",
+ "runStatus": "idle", "engine": "harness", "harness": "claude-code",
+ "sandboxRef": "apps/coding-sandbox|sb-7f3a", "fork": false, "dir": "/work/web/tasks/3-fix-login",
+ "ports": {"base": 20020, "span": 10},
+ "checkouts": [{"repo": "web", "path": "/work/web/tasks/3-fix-login/web", "mode": "worktree", "state": "ready",
+                "setupExit": 0, "remoteSha": "…"}],
+ "prs": [{"repo": "acme/web", "number": 42, "url": "…", "state": "open", "draft": false, "headSha": "…", "checks": "pending"}],
+ "ci": {…},                 // its CI at a glance, when watched (§CI in the conversation)
+ "turnBy": "coordinator",   // who asked for its latest turn: human | coordinator | event
+ "step": "running web's setup", "error": "", "last": "…its latest answer, clipped…",
+ "createdBy": "alice", "createdMs": …, "updatedMs": …}
+```
+
+**Its states.** `ws`, the workspace: `pending` → `queued` (waiting for the
+project's sandbox or a repo) → `preparing` → (`signin` →) `ready`, or
+`failed`; later `cleaning` → `cleaned`, or `blocked` (cleanup refused).
+`phase`: `open` → `pr` (a pull request is open) → `merged` | `closed` |
+`done`; `deleted` once its conversation is. The board's **`column`** and
+the task's **`state`** follow from those and its conversation's status:
+
+| `column` | `state` (`waitingFor`) | When |
+|---|---|---|
+| `queued` | `queued` (`slot` while its start waits in the queue), `preparing` | its workspace isn't ready |
+| `working` | `working` | its conversation runs, waits on its subagents or its own work |
+| `needs-you` | `needs-you` (`you`), `signin` (`signin`), `failed` (`you`), `blocked` (`you`) | it asks a person something (an approval, a question, a sign-in), its workspace failed or its cleanup was refused, its turn failed — or its turn ended and its answer waits for you (no pull request yet) |
+| `pr` | `ci` (`ci`), `ci-failed` (`you`), `awaiting-review` (`review`) | a pull request is open and its turn is over |
+| `done` | `merged`, `closed`, `done`, `cancelled`, `deleted` | — |
+
+**`park`** (in `GET /runs/{id}/task`, `GET /projects/{pid}/tasks/{n}` and
+the run view's `projectTask`): the workspace's park of its conversation —
+`{project, n, ws, step?, detail?, signin?}` — while it holds the turn
+(§The workspace). `signin` (`{url, userCode, expiresAt}`, the provider's
+device flow) is there **only for the person who must sign in**, in their
+own answers: never in another viewer's, never in a stream event.
+
+**The run's answers.** `GET /runs/{id}` and `GET /runs/{id}/view` of a
+project's conversation carry **`project`** `{id, name, n, role}` (`role`:
+`task` or `coordinator`; a subagent's too) and, on a task, **`projectTask`**:
+its `TaskView` with `park`. (`task` stays the pinned task.)
+
+**Status** (`GET /projects/{pid}/status`):
+
+```jsonc
+{"sandbox": {"ref": "…", "name": "web", "state": "running", "workdir": "/work", "shared": false},
+ "repos": [{"slug": "web", "state": "ready", "fetchedMs": …, "head": "…", "protected": false, "error": ""}],
+ "creds": [{"sandbox": "…", "host": "github.com", "identity": "person", "login": "alice", "state": "live", "expiresMs": …}],
+ "jobs": [ProjectJob…],                 // live ones and the last 20 finished
+ "slots": {"used": 2, "max": 3},
+ "warnings": [{"kind": "unprotected", "repo": "acme/web", "text": "…"}]}
+```
+
+Credentials show their metadata only — never a token. A `slots` warning
+says when `maxTasks` is more than the model calls built-in tasks may make
+at once (a built-in task takes a subagent's place at the model-call gate:
+never the last one a person's top-level conversation may take).
+
+**Events.** A project's feed (`GET /projects/{pid}/events`, kept 30 days):
+`{id, project, n, kind, body: {text, …}, wake, coordUser, delivered,
+msgId, created}` — `n` 0 is about the project. Kinds: `task.created`,
+`task.state` (a turn ended: answered, failed, waiting for a person),
+`task.human` (a person wrote to the task), `task.cancel`, `workspace`,
+`pr.opened`, `pr.ready`, `ci.failed`, `ci.stuck`, `review`, `comment`,
+`merged`, `closed`, `push`, `issue`, `note`. `wake` asks the coordinator of
+`coordUser` (the task's creator; the owner for the project's own) to take a
+turn for it. Text from the provider inside a body is untrusted and
+redacted.
+
+**The `project` stream event** — `{"type": "project", "data": {"id",
+"change": "project" | "task" | "repo" | "job" | "event" | "board" |
+"deleted", "n"?}}` — reaches the list streams (`GET /stream` with no run)
+of those who may see the project, and, for `task`, the task's own
+conversation's stream. It says what to read again; it is never replayed
+and is coalesced per project, change and task (250 ms).
+
+**Rolling back to a build without Projects** leaves nothing to clean up by
+hand. The older build never reads the project tables. It keeps a task's and
+a coordinator's conversation out of its conversation list (reachable by
+link, search and Needs) and in its space; it may drop a run's `project`
+field when it rewrites the run's config (a model pick, a sandbox bind),
+which this build derives again — from the task's row, or the coordinator's
+`session_key` `proj:‹pid›:coord:‹user›` — the first time it reads the run
+(so a coordinator still wakes and a task is still held at its workspace).
+A task the older build finds parked at its workspace (`sleeping` or
+`waiting_input` with `pendingState.kind` `project`) runs at the next wake in
+whatever workspace there is, without fresh credentials (a push fails;
+nothing leaks); Needs shows such a park as waiting, with its words.
+Starts and messages waiting in the project's queue wait until this build
+is back; credential files in sandboxes expire on their own (an hour for
+the bot's, hours for a person's).
+
+### The workspace
+
+**Layout.** `W` is the sandbox's `workdir` and `H` its `home`, as its
+manager says (never assumed); a project lives in `P = W/‹project slug›`.
+
+| Path | What |
+|---|---|
+| `P/.repos/‹repo slug›.git` | a repo's bare **base**: cloned once, fetched; every task's checkout shares its objects and refs |
+| `P/tasks/‹n›-‹task slug›/‹repo slug›` | a task's checkout of one repo, on its branch |
+| `P/tasks/‹n›-‹task slug›/.task-env` | `BRANCH=`, `TASK_PORT_BASE=`, `TASK_PORT_SPAN=`, `PORT=`, `GH_CONFIG_DIR=` — `. .task-env` in a terminal |
+| `P/.xbin/setup-‹repo slug›.sh` | a repo's setup script (written 0755) |
+| `P/.xbin/env` | `GH_CONFIG_DIR=…` for people's terminals |
+| `H/.config/xbin-scm/‹project uid›/` | credentials (§scm providers and credentials): never under `W`, never in a checkout |
+
+A task works in its checkout — or, working in several repos, its task
+directory — so each repo's AGENTS.md / CLAUDE.md is at its root. The base's
+remote fetches the default branch and the project's branch prefix
+(`+refs/heads/‹branchPrefix›/*`), `push.default current` and
+`push.autoSetupRemote` make a plain `git push` push the task's branch, and
+`core.logAllRefUpdates` keeps the reflog of what was pushed. A repo with
+`checkout: clone` gets a clone of its own instead (its objects borrowed
+from the base, which then never runs `gc` on its own).
+
+**Jobs.** A **worker** in the process that drives conversations prepares
+workspaces; the project's `jobs` (`ProjectJob`: `{id, project, task, repo,
+kind, state, step, attempts, nextMs, out, error, by, created, updated}`)
+are what it does. Each job looks before it acts, so running one again does
+no harm.
+
+| Kind | Does |
+|---|---|
+| `sandbox` | finds the sandbox (`{ref}`: labelled `xbin.agent/project: ‹uid›`, for display — a label proves nothing) or creates it (`{new}`: private — a team's seed the team's — with the label and the space it belongs to, `clientId` `agent:proj:‹pid›:sbx:‹try›`), starts it, lays out `P` and queues the repos |
+| `repo` | clones a base in the background (30 min): the default branch from the provider, else the remote's `HEAD`; with `policy.protection` `refuse`, an unprotected default branch fails it |
+| `fetch` | fetches a base (2 min): every `fetchEveryMin` while a task works or someone has the project's status open — never waking a stopped space for it — and before a task is prepared when its last is older than 2 min |
+| `prepare` | a task's checkouts, in one command: an existing local branch, else the remote's (tracking it), else a new one from the default branch; then `.task-env`, its setup jobs and `bind` |
+| `setup` | a repo's setup script, in the background, in the checkout, with the task's environment and `REPO`, `REPO_DIR`; its output's last 8 KiB kept, redacted |
+| `bind` | binds the task's conversation to its checkout (as the project's owner, whose sandbox it is and who takes part in every task — a participant's task works there without being the sandbox's member — under every binding rule: §Coding sandboxes), a coding agent's sandbox and directory too: the workspace is `ready` |
+| `refs` | after each of a task's turns: whether its branch moved on the remote (what the task pushed itself) and which pull requests are open for it — recorded in the task, and told to the parts that follow a task's branch (events, CI) |
+| `cleanup` | a task's worktrees and branch (a clone: its directory), then its task directory; a project's deletion |
+
+A failed step is tried again after 10 s, doubling to 10 min, up to five
+tries; then the job fails — the task's workspace with it (`ws` `failed`, a
+`workspace` event) — and `retry` queues it again. One git step at a time
+runs in a sandbox; git's own lock refusals are waited out (never removed).
+A job one process was running when it handed over is taken up again by the
+next, which finds the same command in the sandbox by its `clientId`. A job
+of a kind this build doesn't know fails "not in this build".
+
+**The workspace gate.** A task's turn waits until its workspace is ready.
+Its conversation is parked — `sleeping` while it is being prepared (or its
+credential renewed), `waiting_input` when a person must act (a sign-in, a
+failed workspace, a refused cleanup; Needs reason `project`) — with
+`pendingState` `{kind: "project", project: {project, n, ws, step, detail}}`
+and its messages left in its inbox; once the workspace is ready the turn
+goes on with them. A task waiting for a person this way keeps no process
+up and wakes no stopped space for itself: the person's act does. A cancel or an interrupt always passes, and a turn
+already under way is never stopped by it. A coordinator is never gated.
+
+**At most `maxTasks` at work.** A task holds one of its project's slots
+while its conversation runs, waits on its subagents or its own work, is
+parked at the gate, or waits for a person, and from the moment its start
+or a message is delivered to it until it takes it up (an idle coding agent
+holds none). A task's **start**, and every message the coordinator or a provider's
+event sends a task, wait in the project's **queue** and are delivered
+oldest first while a slot is free (a message to a task already at work goes
+at once: it reads it at its next step); one sent for a person to answer
+first waits while its task waits for a person — the coordinator never
+answers in a person's place. A person's own message to a task (`POST
+/runs/{id}/message`) goes straight to it. Nothing starts while the agent is
+halted or the project isn't active; the queues move again once the halt
+is lifted. The coordinator's messages reach the
+task framed `[message from the project coordinator]`.
+
+**What a task is told.** A built-in task's system prompt has a `# Project`
+section after its sandbox's — the project, the task, its branch ("push it,
+never the default branch; never merge"), its checkouts and where it
+starts, "each repo's AGENTS.md / CLAUDE.md governs — read it first", the
+project's instructions, checks and pull request conventions, its ports,
+and a failed setup's outcome — built from the project's state alone, so it
+is the same from one turn to the next. A coding agent's first prompt starts
+with the same words and ends with the task's text. Text from outside — an
+issue's (the title of a task started from one, which may be the issue's,
+included: the task's line then names it by number only), a setup's
+output — loses its invisible characters, then is
+redacted, clipped (8 KiB) and framed
+`[untrusted — from ‹where›: …]` … `[end of untrusted text]`; the frame's
+own markers inside the text lose their bracket, so it can't close early.
+
+**Environment.** Every command of a task — its bash jobs, its coding
+agent, its setup — gets `TASK_DIR`, `BRANCH`, `TASK_PORT_BASE`,
+`TASK_PORT_SPAN`, `PORT` (the first of its ports) and `GH_CONFIG_DIR`
+(§scm providers and credentials).
+
+**Cleanup** — on close with `cleanup`, by the policy on a merge or a close,
+when its conversation is deleted, and by `POST /runs/{id}/task/cleanup` —
+first makes sure nothing would be lost: each checkout has no uncommitted
+change and no commit its upstream (else the default branch on the remote)
+lacks; a merged pull request counts as pushed. Otherwise it is refused —
+409 `dirty` from the route, `ws` `blocked` from the worker — unless
+`force`, which only the conversation's owner sends. The conversation stays.
+
+### scm providers and credentials
+
+The `scm` slot (bind any tile that provides service `scm`), signing in to a
+provider, which identity a project uses (a person's own sign-in, or the
+provider's bot), when a credential may be written into a sandbox, where it
+goes (files outside every repo, a git credential helper, `GH_CONFIG_DIR`),
+how it is refreshed, when it is scrubbed, and how tokens are kept out of
+every transcript, log and event.
+
+**The slot.** The manifest's `scm` interface slot (`http`, service `scm`,
+multi): `bx bind <this component> scm+=apps/scm-github`, or the binding
+panel. A provider implements the scm contract, protocol 1
+([/docs/scm.md](/docs/scm.md)) — the builtin `scm-github` template, or
+another host's; the binding is the grant. A project names one bound
+provider (its `scm`, the provider's tile path; `apps/x#inst` for an
+instance). The agent says `hello` to each (cached 60 s, 10 s after a
+failure) and lists, with the reason, one that speaks another protocol or
+doesn't offer `credentials`. Unbound, there are no credentials to push
+with.
+
+**Who the provider sees.** The agent sends no identity of its own: xbind
+says who is calling. From a person's partition the provider sees that
+person (a partitioned provider answers from its own partition for them —
+their sign-in, their tokens); from the shared instance or an
+unpartitioned agent it sees the agent, which may use only the provider's
+**bot**. A project's identity (`policy.as`) defaults to `person` in a
+person's partition and `bot` elsewhere; a membership works as the bot only
+when its `policy.as` says `bot` and the team's `membersAsBot` allows it.
+The agent never asks as a person outside a person's partition.
+
+**The scm bot rule.** Where a home's identity is the bot (the shared
+instance, an unpartitioned agent), the binding gives the agent the bot's
+whole view of the host, and the agent decides which of its people may use
+it. Naming a repo for the bot — creating a project, adding a repo, making
+a conversation a project, watching CI — takes one of the agent's managers
+(every component holding a grant to the agent is one), or a person the
+rule names with a repo pattern that matches (`owner/name` globs, matched
+without case: `acme/*`). Reads and tokens afterwards follow from the
+project, whose sharing decides who acts in it. A person's partition never
+reads the rule: there the person's own sign-in decides.
+
+| Method and path | Who | Answer |
+|---|---|---|
+| `GET /projects/scm` | anyone | `{providers: [{scm, title, kind, hosts, caps, identities, you, app, events, notes, error?, refusal?}]}` — every bound provider's hello as this home sees it (`you` says what this caller may be there) |
+| `GET /projects/scm/repos?scm=&q=&cursor=` | anyone | `{items: [{host, owner, name, cloneUrl, defaultBranch, private, permission, archived, url}], next}` — through the provider as this home; at a bot home only what the caller may name. `scm` may be left out when one provider is bound |
+| `GET /projects/scm/bot` | a manager | `{users: [ids], repos: [globs]}` (empty by default) |
+| `PUT /projects/scm/bot` | a manager | the same body; up to 200 of each; 409 in a person's partition |
+| `GET /projects/scm/signin?scm=` | the person | `{state: "none"\|"pending"\|"done", identity?, signin?}` — reads, starts nothing |
+| `POST /projects/scm/signin` `{scm}` | the person | starts (or continues) a sign-in: `{state: "pending", signin: {url, userCode, expiresAt, pollId, intervalMs}}`, or `{state: "done", identity}` |
+| `GET /projects/scm/signin/{pollId}?scm=` | the person | `{state: "pending"\|"done"\|"denied"\|"expired"\|"error", identity?, error?, retryAfterMs}` |
+| `DELETE /projects/scm/signin?scm=` | the person | **204** — Forget: every credential of the person's projects from that provider is emptied and revoked first, then the provider revokes the grant and forgets the sign-in |
+
+The sign-in routes are a person's own, in their own partition (409 "sign in
+to ‹provider› from your own space" elsewhere; 403 for view-as and for
+components). A provider's refusal comes back with its status and its
+`refusal` (`signin`, `not-installed`, `identity`, `setup`, `limit`, …) and
+payload, as [/docs/scm.md](/docs/scm.md) §Errors lists them — but a
+`signin`'s device code goes only to the person who must sign in (the
+partition's own, not viewed as): anyone else gets the refusal without it.
+A 5xx that names none (a provider down behind xbind's gateway) is
+`unavailable`.
+
+**When a credential may go into a sandbox.** Checked before every write and
+every refresh, against the sandbox as its manager reports it now — never a
+label, which anyone who may edit the sandbox could set:
+
+- **A person's token** only for their own personal project or membership,
+  private with no members, in a sandbox that is private, theirs, homed in
+  their partition, that no non-secure (hosted) conversation ever used —
+  nor, for a task's fork, the sandbox it was forked from — and that wasn't
+  cloned from a team's seed sandbox (which every member can write to).
+- **The bot's token** only in a sandbox homed in this partition (a
+  person's) or at this agent's own identity (no partition, not seen
+  through a share), with no shares, never used by a hosted conversation,
+  where everyone who can use it — its owner, its members, the team when it
+  is team-visible — takes part in the project (participant or owner; a
+  team-visible sandbox needs a team-visible project whose team role is
+  participant).
+- **Never** in a team project's seed sandbox.
+- **The other way round:** a non-secure (hosted) conversation doesn't
+  work in a sandbox that holds a project's credential (its sandbox tools
+  refuse it, saying why — create another sandbox for it): its members
+  could have the agent read the files or push with them. The credential
+  stays where it is; once it is scrubbed (the sandbox stopped through the
+  agent, say), the conversation may work there, and from then on no
+  credential goes into that sandbox.
+
+A refusal marks the credential `blocked` with why, empties and revokes
+anything written there before, and fails the task: "credentials can't go
+into ‹sandbox›: ‹why›". It is tried again the next time the task's
+workspace is retried.
+
+**Where it goes.** Two files under the sandbox's home — never under its
+workdir, never in a repo or a worktree — in directories only its user can
+read (0700), the files 0600, written beside and then renamed into place:
+
+| Path (under `$HOME/.config/xbin-scm/<project uid>/`) | Content |
+|---|---|
+| `<host>.cred` | `username=x-access-token` and `password=<token>` lines (git's credential format) |
+| `gh/hosts.yml` | `<host>:` with `oauth_token`, `user` and `git_protocol: https`, for `gh` |
+
+Each of the project's base repos (worktrees share it) and each clone-mode
+checkout gets, in its own git config: an empty
+`credential.https://<host>.helper` (so a helper from the sandbox's global
+or system config doesn't answer for the project), then a helper that
+prints the `.cred` file, `useHttpPath false`, and `user.name` and
+`user.email` from the token's author. Every exec of a task — its setup, its
+jobs, its bash, its coding agent — gets `GH_CONFIG_DIR` pointing at the
+project's own `gh` directory, and `<project dir>/.xbin/env` says the same
+for people's terminals (`. .xbin/env`): a person's own `~/.gitconfig` and
+`gh` login are left alone. The home must be a plain absolute path
+(letters, digits, `.`, `_`, `-`, `/`), or no credential goes there.
+
+**Refresh.** A credential is short-lived (an installation token an hour, a
+person's some hours) and is minted again before every git step of the
+workspace when it has less than 10 minutes left; a task whose credential is
+missing or due waits (`preparing`) while a `creds` job writes a fresh one.
+A repo added to the project, or `workflows` turned on, gets a credential
+that covers it at the next write, whatever the old one's time left.
+While a task of the project is at work, each token is also re-minted at the
+provider's `refreshAfter` (or at 75 % of its life, if sooner) and both files
+rewritten; an idle project's token is left to lapse.
+
+**Signing in.** When the provider answers that the person isn't signed in,
+it has started a sign-in: the task waits (`signin`), its card shows the
+device code — to that person only, never in a stream event or anyone else's
+view — and the `creds` job asks the provider at its interval, for at most
+15 minutes, then writes the credential and lets the task go on.
+
+**Scrubbing.** Both files are emptied (zero bytes, still 0600), the token
+is revoked at the provider (best effort — the provider forgets it either
+way) and the credential's state becomes `scrubbed` with why, when: the
+sandbox is shared through the agent (before the share goes out — a
+credential that can't be emptied refuses the share), stopped or archived
+through the agent, or deleted (revoked only); the project is archived or
+deleted, a repo is removed, or the sandbox leaves the project; a task's
+fork is deleted; the person forgets their sign-in; or the gate refuses the
+sandbox. When the files can't be emptied (the manager refused the write),
+the token is revoked anyway but the credential stays `live`, due at once:
+every later scrub tries again, a share stays refused until one succeeds,
+and the next turn has it replaced (or blocked) first. A share, stop or
+archive through the agent and a credential's write take turns: one being
+minted while the sandbox is shared is checked again once minted and, the
+sandbox now shared, revoked and never written. A write that fails partway
+(a file, the rename) is scrubbed at once — both files emptied, what was
+written beside them removed, the token revoked — unless an older live
+credential there covers the files (a refresh: the older token keeps
+working, and the next scrub takes both out); one that can't be emptied
+stays `live`, as above.
+
+**Kept out of what is kept.** The agent holds a token in memory only;
+`GET /projects/{pid}/status` shows its metadata (`creds: [{sandbox, host,
+identity, login, state: "live"|"scrubbed"|"blocked", expiresMs, why}]`),
+never the value. Every message the agent stores — every tool result, the
+coding agents' output, their log — has GitHub's token shapes (`ghp_`,
+`gho_`, `ghu_`, `ghs_`, `ghr_` and `github_pat_` tokens, up to the next
+space, quote or `@`) and every value handed out masked, same length, with
+`[redacted]`; a replaced token stays masked until it expires. After a
+restart the shapes still apply; a value of no known shape is masked again
+once it is minted again.
+
+**Rolling back.** A build without Projects leaves `project_creds` alone
+and keeps `scm_bot_rule` as an unknown setting; credential files already in
+sandboxes stay until their tokens expire (at most a few hours), as the
+older build neither refreshes nor empties them.
+
+### Big tasks, upgrades and pull requests
+
+A big task's own sandbox, forked from a snapshot of the project's taken
+while it is quiet (or made fresh); "Make this a project…" turning a
+conversation with a sandbox and its git repos into a project, the
+conversation its first task; opening a pull request, by hand or when a
+task comes to rest.
+
+| Method and path | Need | Body | Answer |
+|---|---|---|---|
+| `POST /runs/{id}/task/pr` | P (and a participant of the project) | `{draft?, title?, body?}` | **202** `{job}`; the pull requests arrive in `TaskView.prs`. 409 when the project isn't active, the task is over or its workspace isn't `ready`. Only `POST` is mounted: a `GET` answers 405 (how a client learns the route is there) |
+| `POST /projects/{pid}/fork-base` | O | `{now?: true}` | **202** `{job}`: a fork base taken when the sandbox is next quiet (a person's ask waits up to 30 min for that, from the ask — one the agent queued itself and hasn't started becomes the person's), or with `now` at once — it may stop the sandbox: ask first. 409 `refusal: "unsupported"` when its manager takes no snapshots or clones; a team project's definition: its seed's (409 before it has one); 409 `refusal: "busy"` while the agent's own snapshot job, or one not taken `now`, is at work (ask again once it ends) |
+| `GET /runs/{id}/project/detect` | O | — | `{sandbox, cwd, candidates: [{path, remote, host, repo, scm, defaultBranch, branch, dirty, ssh, hasCredentials}]}` |
+| `POST /runs/{id}/project` | O | `{name, scm, repos: [{path, repo?}], branch?: "keep" \| "new", switchHttps?: [path], policy?}` | **201** `{project: ProjectView, task: TaskView}` — the conversation is task 1 |
+
+**Big tasks.** A task created with `size: "big"` works in **a sandbox of
+its own**, made by its `prepare` job before its checkouts:
+
+- **From the fork base.** A project whose policy says `bigTasks.mode`
+  `fork` (the default) keeps a **fork base**: a snapshot of its sandbox
+  (`forkSnap`, `forkSnapMs` on the project), taken by the `snapshot` job
+  after its repos are first ready and again when it is a day old and a
+  task changed since — only while the sandbox is **quiet**: no task of any
+  project at work there, no command a conversation runs there, no coding
+  agent busy in it, no conversation at work bound to it, no workspace job
+  running in it and no command its manager runs there (a person's
+  terminal), because a snapshot may stop the sandbox. Every project's
+  credential in the sandbox is emptied (and revoked) before the snapshot
+  is taken, and none is written there, nor does a git step start there,
+  until the manager has answered — so no snapshot holds a live token; the
+  workspace gate writes a fresh one when a task next needs it. Even one
+  asked for `now` waits for a git step running in the sandbox, or due to
+  start there (a person's ask waits, the agent's own gives up). Each
+  snapshot job asks for one snapshot (`clientId`
+  `agent:proj:‹pid›:snap:‹job›:‹queued at›`, named `fork base of ‹project
+  slug›`), so a retry asks the same. One the agent asks for itself is not
+  asked again within the hour after the last one ended, taken or not. The
+  newer fork base replaces the older (which is deleted). Needs the
+  manager's `snapshots` and `clone`.
+- The task's sandbox is a **clone** of the fork base (`clientId`
+  `agent:proj:‹pid›:fork:‹n›`, named `‹project slug›-‹n›`), labelled with
+  the project (`xbin.agent/project`), the task (`xbin.agent/task`) and the
+  space it belongs to, with the project sandbox's visibility and members.
+  In it, before anything else runs: every credential the snapshot carried
+  is removed (`H/.config/xbin-scm`), the other tasks' checkouts are removed
+  and git forgets them (`worktree prune`, then `repair`); then it gets a
+  **credential of its own** (the credential gate judges the fork — and the
+  sandbox it came from: one a non-secure conversation used refuses it) and
+  every base is **fetched**, so the task starts from the remote's default
+  branch as it is now. Its checkouts, setup and binding then follow as for
+  any task, in the fork; `TaskView` says `fork: true` and the fork's
+  `sandboxRef`.
+- **Fresh.** Without a fork base, with `bigTasks.mode` `fresh`, or where
+  the manager can't clone, the task's sandbox is a new one of the project
+  sandbox's image, size and egress, laid out as the project's, with every
+  repo cloned into it. A fork base the manager no longer has falls back to
+  this too (and is forgotten).
+- A fork works at the project's paths: its manager must give a clone the
+  same working directory (managers do); one that doesn't fails the task's
+  workspace with words saying so.
+- **Cleanup** of a big task (§The workspace) is followed by its `fork`
+  job: the fork's credential is scrubbed, then the fork deleted — unless
+  `bigTasks.keepFork`, which keeps the sandbox but scrubs its credential
+  all the same (no task works there any more). A fork its task never
+  worked in — `prepare` made it, then failed — goes the same way once the
+  task is cleaned up or ends (closed, done, merged, its conversation
+  deleted). A fork outlives neither its project: the forks of a deleted
+  project are deleted soon after (unless they were to be kept).
+
+**Pull requests.** The `pr` job, for each of the task's checkouts **on the
+task's branch** with commits the repo's default branch (as last fetched)
+lacks, pushes that branch — `git push origin refs/heads/‹branch›`, never
+anything else, and **never the default branch**: a task whose branch is
+its repo's default branch is refused (the job fails, saying so) — then,
+for each such repo with no open pull request in `prs`, opens one through
+the provider (`POST /scm/pulls` `{repo, head: ‹branch›, base: ‹default›,
+title, body, draft, clientId: "agent:proj:‹pid›:pr:‹n›:‹repo slug›"}`,
+as the project's identity), so asking again opens nothing twice. The
+title is the one given, else the task's; the body the one given (redacted),
+else one line saying which task of which project it is for — and `Closes
+#‹n›` for its issue in that repo; nothing of the conversation goes out.
+`draft` defaults to `policy.autoPR` being `draft`. The pull requests are
+recorded in the task's `prs` (`phase` `pr`, a `pr.opened` event each, a
+`note` for each push), and the parts that follow a task's branch (scm
+events, CI) are told. A checkout on another branch is left alone (a `note`
+says so). Asking again while the job runs runs it once more after. A
+pull request's create that fails as a connection would (or the provider
+answers `limit`, `unavailable` or `upstream`) after the push is tried
+again: the job records what it did and runs again, with backoff. At its
+last try it ends with a `note` instead (the task's workspace untouched,
+never failed), and the ask stays for the next ask or turn.
+
+**Auto-PR.** With `policy.autoPR` `draft` or `ready`, a task whose turn
+ended well (it rests `idle` or `done` — not cancelled, not failed), whose
+workspace is ready and that has a repo with no open pull request gets the
+`pr` job on its own, for those repos only (one whose pull request is open
+is the task's to push to). A person's ask waiting already wins.
+
+**"Make this a project…"** — for the owner of a conversation (a chat or an
+API conversation, not a subagent's, an automation's or a non-secure one)
+that has a sandbox bound (or whose coding agent works in one), in a
+person's own space or an unpartitioned agent; at a partitioned agent's
+shared space it answers 409 (it holds team definitions, which have no
+tasks).
+
+- `GET /runs/{id}/project/detect` runs one command in the sandbox: the
+  git clone at the conversation's working directory, else every clone up
+  to three levels below it (at most 20); for each its `remote` (origin,
+  **without its userinfo, query or fragment** — never answered, stored or
+  logged; `hasCredentials` says one was there), `host`, `repo`
+  (`owner/name`), `scm` (the bound provider whose `hosts` hold the host;
+  `""` none), `defaultBranch` (as the clone knows it), `branch` (`""`
+  detached), `dirty` (changed files) and `ssh`.
+- `POST /runs/{id}/project` checks each `{path, repo}` again in the
+  sandbox (the path is a clone's top directory; its origin is `repo` —
+  `repo` may be left out — at one of the provider's `hosts`) and at the
+  provider (it sees the repo; at a bot home the scm bot rule: 403), and
+  the classes: the conversation's class, or `policy.taskClass`, with
+  internal reach is 409 `class-internal`, as is a conversation that has
+  held internal data (a task reads text from the provider and pushes to
+  it); one the caller may not use is 403. Then it makes the project in the
+  conversation's space — the conversation's sandbox its workspace (labelled
+  by the `sandbox` job), its clones its repos (`mode` `adopted`, `basePath`
+  the clone: never removed; later tasks take worktrees of it) — and the
+  conversation **task 1**: `origin` `project`, `config.project`, its
+  checkouts the clones themselves (`mode` `main`), its workspace `ready`.
+  `branch` `new` (the default here) starts the task's branch
+  (`‹branchPrefix›/1-‹slug›`) in each clone, the work in it carried over;
+  `keep` keeps the branch the clones are on — refused (409) when it is a
+  repo's default branch, when they are on different ones or not on one.
+  `switchHttps` paths get their origin set to the provider's https clone
+  URL (what a remote's own credential is replaced with: the project's
+  credential helper serves https); an ssh origin is otherwise left alone.
+  Each clone gets `push.autoSetupRemote` and `core.logAllRefUpdates`. Then
+  a credential is written for the task. The project's directory
+  (`‹workdir›/‹slug›`) is a new one: its slug, from the name, skips every
+  name already in the working directory and any path that is a clone,
+  holds one or lies inside one (a project named after its clone gets
+  `‹name›-2`). Refused, too: a shared conversation (its sharing would
+  become the project's — unshare it, upgrade, share the project; 409), one
+  at work (409 `busy`), one being made a project already (409 `busy`), one
+  that is a project's already, and a clone that holds the sandbox's
+  working directory (409: every project directory would be inside it). A
+  refusal leaves no project behind; a failure after the clones were
+  changed takes the new branch back (the clone back where it was, the
+  branch deleted) — the origin switched to https stays.
+- Cleanup never removes a `main` checkout: cleaning task 1 up keeps the
+  clones and the work in them.
+
+**Rolling back.** A build without Projects leaves an upgraded
+conversation out of its conversation list, as it does every task — the one
+visible regression: it is reachable by its link and by search, and is task
+1 of its project again once this build is back. Forks and fork bases stay
+at their manager until this build is back (a fork base is replaced, a
+cleaned task's fork deleted, as above); the settings `proj_fork:‹pid›:‹n›`
+and `proj_pr:‹pid›:‹n›` are unknown settings to it.
+
+### The coordinator
+
+A **coordinator** is a person's conversation that creates and steers a
+project's tasks: one per person per project, made the first time they ask
+for it (a membership's in the member's own space; a team project's
+definition has none). It is a conversation of the project (origin
+`project`, `session_key` `proj:‹pid›:coord:‹user›`, `project` `{id, role:
+"coordinator"}`), owned by the person and private — out of the
+conversation list like a task, and deleted with its project.
+
+```
+POST /projects/{pid}/coordinator   {text?}   → {run}   (participant; a person, not viewing as someone)
+GET  /projects/{pid}/needs                   → {items} (viewer)
+```
+
+`POST` answers the caller's coordinator, made on first use; `text` is
+queued to it as their message (as `POST /runs/{id}/message` would). 404
+for someone viewing as another person (as on every project route); 403 for
+a viewer, for a component that takes part (a coordinator is a person's),
+and for someone who isn't one of the agent's managers while the `web`
+class is kept for managers (its `who`, checked as `POST /ask` checks a
+class); 409 for a team project's definition or a project that isn't
+active. Events written before it was made are not delivered to it as a
+backlog: it starts from the project as it stands.
+
+**Its class.** The built-in `web` class — the web lane: it steers tasks
+that reach outside, so it never holds internal reach (409
+`class-internal` when the web class has been given internal reach, and
+its tools refuse while its class has it). `web_search` and `web_fetch` are
+denied unless `policy.coordinator.web` is on; `schedule`, `unschedule` and
+`skill_manage` always are. Its model is `policy.coordinator.model`, else
+the agent's default. It is never held at a workspace gate and takes the
+model-call gate as any conversation does. Its system prompt has a
+`# Project` section — the project, its repos, its limits and the rules
+below — built from the project's settings alone, so it stays the same from
+turn to turn.
+
+**Its tools** — offered to the coordinator itself (never its subagents),
+each call checking again that it is one, that its project is active and
+that its person still takes part:
+
+| Tool | Parameters | What it does |
+|---|---|---|
+| `task_create` | `tasks: [{title?, brief, repos?, size?}]` (1–10) or `issues: [n]` (1–10) with `repo`; `note?` (added to every brief) | creates tasks as its person (each starts when a slot is free and its workspace is ready) |
+| `task_list` | `state?` (a task state, or `open`), `q?`, `scope?` (`mine`, or `team`: a team project's board, read-only), `cursor?`, `limit?` (≤ 50) | the project's tasks, newest activity first: number, title (a task started from an issue: the issue's number, and the title labelled untrusted), state, branch, pull requests |
+| `task_status` | `tasks?` (≤ 10; default every open task), `detail?` | what each is doing now: its phase, whom it waits for, its recent tool calls and latest text, its pull requests and checks |
+| `task_message` | `task`, `text` | a message to a task, through the project's queue |
+| `task_result` | `task`, `offset?`, `limit?` | a task's latest full answer, paged |
+| `task_cancel` | `tasks` (≤ 10), `reason?` | stops tasks and what they started; conversations, worktrees and branches stay |
+| `scm_pr` | `task`, or `repo` and `number` | a pull request: state, mergeability, reviews and comments, its checks in one aggregate with each failing job's failing step and the end of its log (≤ 2 KiB each, 8 KiB in all) |
+| `scm_issues` | `repo`, `numbers?` (≤ 10), `state?`, `labels?`, `q?` | issues in full with their comments, or a list |
+
+A task is named by its **number** in the project, never by a conversation
+id. `repo` — in `scm_pr`, `scm_issues` and `task_create`'s issues form — must
+be one of the project's repos (owner/name or its slug), wherever the agent
+runs: the coordinator reads through the project's identity, which may be
+the provider's bot, and never about a repo nobody named for the project. In
+approval mode `task_create`, `task_message` and `task_cancel` ask first.
+
+**What it may not do.** It acts only on its own project's tasks. It
+**never answers in a person's place**: a message to a task that waits for a
+person (an approval, a question, a coding agent's question or sign-in)
+waits in the queue until that person has answered — one already delivered
+when the task starts waiting goes back to the head of the queue, held the
+same way. It can't merge, approve, push or comment (its scm tools only
+read, and the scm contract has no merge); it changes no policy, sharing or
+sign-in, and deletes no task or project. People stay in charge: everyone
+taking part in the project opens, messages, approves and cancels any task.
+The halt stops it as it stops everything.
+
+**Limits.** At most 10 tasks per `task_create`; coordinators of a project
+may have `policy.maxOpenTasks` (20) open tasks and create
+`policy.maxTaskCreatesPerDay` (50) in 24 hours — past them `task_create`
+answers `limit` for the tasks it couldn't make.
+
+**Project updates.** The project's events for its person (`coordUser`: the
+creator of the task, the owner for the project's own) reach the
+coordinator at its next step as one message:
+
+```
+[project updates — tasks and the scm provider reporting, not a person]
+#3 task.state: answered (Opened PR #12 on acme/web)
+#4 ci.failed: test (ubuntu) failed on xbin/k3x9qa/4-fix-signup@9fceb02
+project workspace: the project's repo job failed: …
+```
+
+one line each (at most 40 lines and 8 KiB; older ones are counted, not
+shown), each event then `delivered` with the message's id (`msgId`). An
+event that asks for a wake (`wake`) — a turn the coordinator asked for
+ended, a task failed or waits for a person, a pull request's checks
+passed, CI stuck — starts an idle coordinator's turn, at most once a
+minute; the others wait for its next turn. A coordinator that can't take
+a turn now — it waits for its person, its last turn failed, its project
+isn't active, or its person no longer takes part — gets no wake: its
+undelivered events' `wake` is cleared, and they reach it with its next
+turn, whatever starts it. What tasks, issues, reviews and
+logs say reaches it clipped, redacted and framed as untrusted data, and the
+updates' and frames' markers inside such text lose their bracket.
+
+**Needs and pushes.** `GET /needs` items of a project's conversation carry
+`project` `{id, name, n}` (`n` 0 for a coordinator); `GET
+/projects/{pid}/needs` lists the project's alone. A push about a task (a
+question, an approval, a failure) is titled `‹project› · ‹task›`. The
+project's own pushes go to the person whose task it is, within the same
+per-person budget, collapsed on the device per project and kind
+(`project:‹id›:‹kind›`): `pr-ready` (a task's pull request is green),
+`task-failed` (its workspace failed, or a coding agent's turn did),
+`ci-stuck` (CI kept failing past the day's fixes) and `all-done` (every
+task of the project finished).
+
+### scm events and polling
+
+How a provider's events reach the agent (`POST /adapter/scm/event`, the
+partition hand-off), how they are routed to tasks — CI failures, green
+checks, reviews and comments, merges, pushes — what each does, and the
+polling that stands in when events don't arrive.
+
+**Wiring.** Events need both bindings: the agent's `scm` slot names the
+provider (`bx bind <this component> scm+=apps/scm-github`), and the
+provider's `agents` slot (service `agent-inbox`) is bound to the agent
+(`bx bind apps/scm-github agents+=<this component>`), which gives the
+provider the `channel` role on the agent's `/adapter/*` routes. Without the
+second, nothing is delivered and polling alone keeps tasks up to date.
+
+**`POST /adapter/scm/event`** takes an event v1
+([/docs/scm.md](/docs/scm.md) §Events), at most 1 MiB, from a provider
+bound in the `scm` slot — its own backend, at its global instance or
+unpartitioned; any other caller, a person's partition of the provider or a
+person through it is 403 ([/docs/agent-inbox.md](/docs/agent-inbox.md)
+§scm events has the checks). The caller is the provider, whatever the
+body's `scm.provider` says. `eventId` with `for` dedupes for 7 days (the
+copies of one event for two people, or for a person and `global`, are each
+taken). Answers: 200
+`{taken: true}` (and `duplicate: true` for a repeat); 400 a body that isn't
+an event v1 (`refusal: "protocol"` with `protocols` for another
+protocol); 404 not this instance's (`for: user:<id>` at an unpartitioned
+agent, or any delivery to a person's partition); 413 too large; 5xx — the
+provider delivers it again.
+
+**A person's events.** `for: global` is handled where it arrives (the
+shared instance — which holds team definitions only, so only the CI view's
+watches take them there — or an unpartitioned agent). At a partitioned
+agent's shared instance `for: user:<id>` is handed to that person's
+partition by partition mail (`handoff/scm`), which takes it only from the
+shared instance, only for its own person and only when the event's
+`forPid` is its partition id — a person re-created under the same id never
+gets the earlier one's events — and dedupes it again.
+
+**Subscriptions.** Once a task's branch is on the remote, or it has a PR,
+the agent keeps one subscription per task and repo at the project's
+provider, key `task:<pid>:<n>:<repo slug>`: the task's branch, its PRs, and
+the kinds `pull`, `checks`, `comment`, `review`, `push` and the progress
+kinds `workflow`, `job`, `check` (the CI view shows those). It is posted
+again when the PRs change and every 25 days while the task is open (a
+subscription lapses after 30), and deleted when the task is cleaned up or
+its conversation deleted. A project whose policy sets `autoLabel` keeps one
+issue subscription per repo (`issues:<pid>:<repo slug>`). From a person's
+partition a subscription is that person's at the provider (`for:
+user:<id>`); team definitions subscribe to nothing. A provider without
+events (no `events` cap) keeps none: polling stands in.
+
+**Routing.** An event finds its task by its pull request, then its
+branch, then its head sha (each task's, in that provider and repo);
+progress events (`workflow`, `job`, `check`) go to the CI view only. Then:
+
+| Event | When | What happens |
+|---|---|---|
+| `checks.completed` | on the task's current head (else ignored: superseded) | after `policy.ci.delaySec` (60 s) the head's checks are read (`GET /scm/checks`, through `POST /scm/poll`) and acted on as below |
+| CI failing | each failing suite on the head, once | with `policy.ci.autoFix`: a task input — `[scm: CI failed on <branch>@<sha7> — untrusted output]`, up to 3 failing jobs each with its failing step and its log's last 120 lines (ANSI stripped, redacted; only the steps while a host serves no log of a running job), ≤ `policy.ci.logBytes` in all, framed as untrusted, then `— fix it and push.` — and a quiet `ci.failed` event; at most `policy.ci.maxPerDay` (5) such inputs per task per day, past which a waking `ci.stuck` event instead (the coordinator's `ci-stuck` push). Without `autoFix`: the `ci.failed` event alone. The PR's checks say `failure` |
+| CI green | on the head, the PR open | the PR's checks say `success` — the task **awaits review** — and a waking `pr.ready` event (the `pr-ready` push) |
+| `review` (changes requested, commented), `comment` on the task's PR | after `policy.reviews.batchSec` (120 s; later ones join the same read) | the PR's timeline is read: words from an `OWNER`, `MEMBER` or `COLLABORATOR`, or a login in `policy.reviews.allow` (everyone with `forward: "all"`, nobody with `"off"`), go to the task as one input — each with its author and, inline, `path:line`, ≤ 8 KiB, framed as untrusted — with a quiet `review` event; anyone else's is a quiet `comment` event, "not forwarded". Approvals and dismissals aren't forwarded; each entry is taken once |
+| `pull.opened`, `reopened` | the PR's head is the task's branch and the task doesn't hold it open | the task's refs check runs again and records the PR |
+| `pull.merged`, `closed` | the task's PR | the PR's state; with none of the task's PRs open, its phase `merged` (one was) or `closed`, its credentials scrubbed (its own sandbox's; the project's when no other task of the project is open), its workspace cleaned up as `policy.cleanup` says, and a waking `merged` / `closed` event |
+| `pull.synchronize`, a `push` to the task's branch | | the task's head moves (the PR's checks unknown again) |
+| a `push` by anyone but the task | | a quiet note queued to the task — someone else pushed to its branch: pull before pushing — and a quiet `push` event |
+| `issue.opened`, `labeled` | a repo of a project with `autoLabel` | a quiet `issue` event (the title framed as untrusted); waking when the issue carries the `autoLabel` label |
+
+Every input to a task goes through the project's queue (source `event`,
+held while its conversation waits for a person) and the pump. The
+provider's own app (`actor.self`) and the task's own identity (the login of
+its credential) are ignored — no note, no forwarded words, no refs check —
+except for the facts they carry: a head they moved, a PR merged or closed,
+and CI's result on a commit, whoever pushed it.
+
+**Polling.** While a task has an open PR the agent also reads, per repo,
+the head's checks, the PR and its timeline, conditionally (`POST
+/scm/poll`, one call per provider and identity per pass, at most its
+`limits.pollItems` items; each route's own read where a provider has no
+`poll`). Without events for the head: every 2 minutes for its first 20
+minutes, every 10 to 2 hours, every 30 to 24 hours, then it stops — with a
+waking `note` "lost track of CI — check manually" for checks still
+pending. With healthy events (the provider's hello says so, a delivery
+for the repo in the last 30 minutes, or one for the head) only a safety
+read every 15 minutes once the head has waited 30. Never sooner than the
+provider's `events.pollMinMs`. Checks that finished stop until the head
+moves; checks nobody reports for 30 minutes (a repo without CI) stop
+quietly. A changed read is handled as the event would be. The reads run in
+the background while the agent runs, never keeping it up; an agent
+stopped with reads due — a person's partition at rest, the shared instance
+or an unpartitioned agent idle-stopped — is started again at the next
+read's (or subscription renewal's) minute, and a delivery or a tick that
+starts the agent makes the pass at once.
+
+**Once only.** An event id is taken once for each `for`; a fact both an
+event and a read describe is acted on once — a failing suite on a head,
+green CI on a head, a review entry, a merge — whichever comes first.
+
+**Rolling back.** A build without scm events leaves its tables
+(`project_refs`, `scm_poll`, `scm_seen`, `scm_subs`) alone and answers the
+provider's deliveries 404 (no such route): the provider drops them, and
+the subscriptions lapse within 30 days. The next upgrade picks the tables
+up as they are.
+
+### Team projects
+
+A team project's definition and board in the shared space, each member's
+own half in their own space with their own sandbox, tasks and
+coordinator, the optional seed sandbox, how the board stays current, how
+a member sees and accepts the team's changes to setup and policy, and what
+happens when a member leaves.
+
+**Two halves.** In a partitioned agent a team project is a **definition**
+in the shared space (`kind: "team"`, made by `POST /projects` with `kind:
+"team"` and `share` there — a person reaches it from their page with
+`?xbin-partition=global`) and a **membership** in each member's own space
+(`kind: "membership"`, `teamRef` the definition's id). The definition holds
+the name, repos, policy and people, an optional seed sandbox and the
+board; it has no tasks, no coordinator and never a credential — coding
+agents don't run in the shared space. Its routes are the ones above
+(`GET`/`PATCH`/`DELETE /projects/{pid}`, members, repos) plus the board and
+the seed below. A membership is a personal project in every respect — its
+own private sandbox, tasks (coding agents allowed), coordinator and
+credentials, the person's own sign-in by default — that takes its name,
+repos and policy from the definition.
+
+**Joining.** A participant of the definition makes their membership in
+their own space, lazily — when they pick "Work on this" or create a task
+in it:
+
+| Method and path | Who | Answer |
+|---|---|---|
+| `GET /memberships` | the person, in their own space | `{items: [ProjectView]}` — their memberships, each read again from its definition first |
+| `POST /memberships` `{team, sandbox?: {ref} \| {new: {provider, image?, size?, egress?}}, accept}` | the person | **201** `{project}`, or **200** the one they have; **409** `{error, refusal: "accept", defHash, definition, name}` until `accept` is `defHash` (below); 403 a viewer of the definition; 404 one they can't see |
+| `GET /memberships/{pid}/pending` | the member | `{hash, accepted, pending, state}` — the definition's security part as the member accepted it and as it is now (`pending` null and `hash` "" when nothing waits) |
+| `POST /memberships/{pid}/accept` `{hash}` | the member | `{project}` — what was pending runs from now on; **409** `{error, hash}` when `hash` isn't the pending part's (the definition moved on: read it again) |
+
+These answer 409 outside a person's own space and 403 to anyone but that
+person (view-as included). `POST /memberships` reads the definition at the
+shared instance as the person; the first call, without `accept`, answers
+409 with the **security part** to show them — `definition: {policy:
+{instructions, checks, prConventions, taskClass, engine, harness, as,
+membersAsBot, reviews, autoPR, autoLabel, ci, coordinator, workflows,
+protection, branchPrefix}, repos: [{repo, setup}]}` — and `defHash`, its
+SHA-256 (of exactly those bytes); sending it back as `accept` makes the
+membership. A membership taken up again after its member left (archived,
+below) takes the definition as it is now, accepted the same way.
+
+**Its sandbox.** The person's own: `{ref}` one they may use, homed in
+their space, or `{new}` (left out: a new one at the seed's manager). Only
+when the membership works as the bot — the definition's `policy.as` is
+`bot`, its `membersAsBot` is on, and the provider offers this person the
+bot — and the definition's seed has a fork-base snapshot that the person
+can see (a team-visible seed, at a manager that clones) is a `{new}`
+sandbox cloned from it (`fromSeed`). Otherwise it starts fresh and clones
+its repos itself. A person's token never goes into a sandbox cloned from
+the seed (every member can write there): if the definition, once
+accepted, no longer works as the bot, the membership's tasks fail ("it was
+cloned from a team's seed sandbox") — delete the membership (keeping
+nothing of value there) and join again into a fresh sandbox.
+
+**Following the definition.** A membership reads its definition again
+when its page opens (`GET /memberships`, `…/pending`: at most every 30
+seconds, and `GET /memberships` waits at most 5 seconds for all its
+reads, then answers what it has), when a task is
+created in it, every 10 minutes while it has open tasks, and before a
+change is accepted. Its name, the repos removed from it (new tasks stop
+using one; running ones keep their checkouts) and the policy's other keys
+(`maxTasks`, ports, cleanup, …) follow at once. The **security part**
+follows only once its member accepts it: until then the membership runs
+the setup scripts, instructions, checks, identity and review rules it
+accepted (its own `policy` and repos' `setup`; a repo the definition added
+isn't used yet), its `defPending` is the new part's hash, a `note` event
+(waking the coordinator, which can tell the person but never accept) and
+the page's "Review the team project's changes" card say so, and the card
+shows `GET …/pending`'s two parts side by side. A definition's owner is
+anyone in the shared space: adopting their setup script unseen would run
+their code beside the member's token.
+
+**The board.** One row per member and task, at the shared instance:
+
+| Method and path | Who | Answer |
+|---|---|---|
+| `GET /projects/{pid}/board?cursor=` | a viewer of the definition | `{items: [{member, n, title, col, state, waiting, branch, prs, ci, run, updatedMs, stale?}], next}`, newest first, hidden rows left out |
+| `PUT /projects/{pid}/board/{n}` `{membership, title, col, state, waiting, branch, prs, ci, run, updatedMs}` | a participant, from their own space only | the row as kept; 403 from anywhere else (a frame at the shared instance included), 404 not a member, 400 a bad row (`membership` missing included) |
+| `POST /projects/{pid}/board/{member}/{n}/hide` | the definition's owner | **204** |
+
+Each change of a member's task (its state, workspace, phase, pull
+requests, CI) is written to an outbox in their space — the latest row
+wins — and sent with `PUT`, retried after 10 s doubling to 10 minutes while
+the shared instance doesn't take it; a deleted task's row is sent as
+`state: "deleted"` and hidden. A row belongs to the membership that sent
+it (`membership`, its uid): a member who deletes their membership and
+joins again numbers tasks from 1 again, and the new membership's row
+replaces the old one's, shown again; a `deleted` row hides only its own
+membership's row, and the owner's hide holds until another membership's
+row takes its place. The shared instance takes a row only from
+the member's own space, as that member (`member` is never read from the
+body; a row from another space of the same person name — a person made
+again — clears their earlier rows), and keeps it as plain text: `title`,
+`waiting`, `branch` and `ci.current` on one line, at most 200 characters,
+redacted; a pull request's or CI's `url` only when it is https on the
+definition's host (dropped otherwise); words outside their sets dropped;
+`run` must be a conversation of the member's own space (an id from 2^40)
+and is answered only to that member — others see the row, never the
+conversation. Anything else in the body is ignored. A `project` stream
+event with `change: "board"` tells the definition's viewers. A member's
+coordinator reads the board (its task list's team scope), the members'
+words framed as untrusted text.
+
+**The seed.** `POST /projects/{pid}/seed` `{sandbox: {ref} | {new}}` (the
+definition's owner) → **202** `{jobs}`: the definition's one seed sandbox
+(409 once it has one; a `{new}` one is team-visible when the definition
+is), prepared by the shared instance's worker — laid out, its repos cloned
+and fetched, its fork-base snapshot taken as any project's is (§Big tasks,
+upgrades and pull requests) — with **no credential**, ever: it
+clones only repos that need none (public ones); the others are left to each
+membership.
+
+**A member leaving.** Removed from the definition (or the definition
+deleted), their rows on the board are `stale` (shown greyed, "no longer a
+member") and the owner may hide them. In their own space, at the next
+re-read or board push (404 or 403, or a re-read that finds them only a
+viewer of the definition), the membership is archived: its
+credentials scrubbed, its queue and fetches stopped, its rows to send
+dropped; its tasks and their conversations stay the person's own (they go
+with the person's space). A deleted definition's board rows go.
+
+### CI in the conversation
+
+What the platform's CI says about what a conversation pushed — down to a
+job's steps, its log and its annotations, with links to the runs, jobs,
+checks and pull requests on the platform — shown inside the coding agents'
+UI. It is read through the conversation's home at the scm provider (in a
+person's own space as that person, elsewhere as the provider's bot; a
+project task as its project's identity): no token enters a sandbox for it.
+
+**What is watched.** A **watch** follows one branch of one repo for a
+conversation (its root; at most 10 live, the oldest pushed one ending to
+make room), with its open pull request when it has one:
+
+- **a project task's branch** (`source: "task"`) in each repo it was
+  pushed to — made when the task's branch is seen on the remote or a pull
+  request opens, and when its CI is first asked for (once: not for a done
+  or closed task, nor again after its watch ended). A task's own watch
+  can't be unwatched;
+- **what a coding session pushed** (`source: "pushed"`) — at the end of
+  every turn of a run working in a sandbox (the conversation's, or a coding
+  agent's below it) while an scm provider is bound, one command in that
+  run's sandbox reads git's own record of pushes: a remote-tracking ref
+  whose newest reflog entry says `update by push`, written since the turn
+  began (the last hour, for a run with no turn start recorded). A sandbox
+  that isn't running is left alone — a stopped one pushed nothing, and
+  is never started for this. A branch at a host a bound provider serves becomes a watch, `run`
+  the run that pushed. The command's output is never kept, and a remote
+  URL's user and password are dropped before anything is. A project's runs
+  are left to their task's watch;
+- **a branch or pull request a person names** (`source: "manual"`).
+
+Where the home's identity is the provider's **bot** (the shared instance,
+an unpartitioned agent) the bot reads only what someone authorised: naming
+a repo by hand takes a manager or the scm bot rule (§scm providers and
+credentials); a pushed branch is watched only for a repo a project of this
+home names with the conversation's owner taking part in it, or — in a
+conversation nobody else shares — one the rule lets its owner name (a
+turn's end carries no request, so a manager's own pushes need the rule or
+a project too).
+
+**Keeping it current.** Each watch subscribes to its branch's events at
+the provider (key `ci:<watch id>`: checks, pull, workflow, job, check,
+push). A job's, run's or check's progress event updates the stored
+snapshot in place; a finished suite or a pull request event reads it
+again (conditionally — an unchanged answer costs nothing); a push moves
+the watch to the new head (its snapshot starts over); a merged or closed
+pull request, or a deleted branch, makes it `gone` (it ends a day after it
+went, however much its CI still moves; ended watches are deleted after a
+week). A new head of a gone watch's branch — a push, a pushed branch found
+at a turn's end — or an open pull request of it makes it live again. A step's progress comes from
+reads only (the platform reports a job, not its steps, as it goes), so
+`current` is left out of a summary whose snapshot an event changed since
+its last read. With nothing heard for 2 minutes about a watch with
+anything not completed — a failed one too, while other jobs run — the
+agent reads it every minute for 20 minutes after its push, then every 10
+minutes until 2 hours, every 30 until a day, then not until someone looks
+— one read per watch at a time, whoever asks.
+
+**Untrusted text.** Names, titles, summaries, step names, annotation
+messages and log text are what a build printed: redacted (the scm token
+shapes, every live token, the agent's own secret shapes), clipped, their
+invisible characters removed, and drawn as plain text — never markdown or
+HTML. Links are kept only when they are `http(s)`. An id a route names (a
+job, a check, a run) must be one of the watch's stored snapshot: the
+agent never reads or acts on an id a caller made up.
+
+| Method and path | Who | Answer |
+|---|---|---|
+| `GET /runs/{id}/ci?fresh=1` | a viewer | `CIView` of the conversation's root (below). A watch never read is read; with `fresh=1` each watch with anything not completed (a failed one too, while other jobs run) whose snapshot is older than 10 s (the provider's webhooks unhealthy) or 30 s (healthy) is read first. A task with no watch yet gets its own |
+| `GET /runs/{id}/ci/jobs/{job}/log?watch=&tail=&since=&until=` | a viewer | `{text, bytes, from, complete, truncated, url}` — the job's log from byte `max(since, end − tail)` to `until` (default its end), `tail` ≤ 262144 (default 65536); a viewer pages back with `until=<from>`. ANSI codes stripped, redacted. **409** `{error, refusal: "in-progress", url}` while the job runs on a platform that serves a log only once a job ends (GitHub): `url` is its live log |
+| `GET /runs/{id}/ci/checks/{check}/annotations?watch=&cursor=` | a viewer | `{items: [{path, startLine, endLine, level: notice\|warning\|failure, title, message}], next}`, redacted |
+| `POST /runs/{id}/ci/watch` `{scm?, repo, ref?, pr?}` | a participant | **201** `CIWatchView` (**200** when that branch is already watched): a pull request's number is its head branch. 400 neither `ref` nor `pr`; 403 a repo the bot rule refuses; 409 `limit` past 10 with no pushed watch to end; the provider's refusal (`not-found`, `signin`, …) passed on. `scm` may be left out when one provider is bound |
+| `DELETE /runs/{id}/ci/watch/{wid}` | a participant | **204**; 409 for a task's own watch |
+| `POST /runs/{id}/ci/rerun` `{watch, runId, failedOnly}` | a participant, a person, in their own space | **202** `{runId, attempt}` — re-runs a workflow run of the watch's snapshot (`failedOnly`: its failed jobs and what depends on them) **as that person**, never the bot: **403** `{refusal: "identity"}` for view-as, a component, and anywhere a home has no person (the shared instance, an unpartitioned agent); 404 a run not in the snapshot; **501** `unsupported` when the provider doesn't offer `checks.rerun`. The conversation's journal notes who re-ran what |
+
+```json
+// CIView — GET /runs/{id}/ci
+{"root": 12, "live": true, "canRerun": true, "canWatch": true,
+ "summary": {"state": "pending", "jobs": {"total": 5, "done": 3, "failed": 0, "running": 1, "queued": 1},
+             "current": "test (ubuntu) › go test ./...", "startedAt": 1789990000000, "updatedAt": 1789990090000,
+             "url": "https://github.com/acme/web/actions/runs/7001"},
+ "watches": [{"id": 4, "source": "pushed", "run": 13, "scm": "apps/scm-github", "host": "github.com",
+              "repo": "acme/web", "ref": "feature", "pr": 42, "sha": "9fceb02…", "state": "pending",
+              "since": 1789990000000, "updatedMs": 1789990090000, "fetchedMs": 1789990090000,
+              "error": "", "refusal": "", "outcome": "1f2e3d4…:success",
+              "urls": {"pr": "https://github.com/acme/web/pull/42", "branch": "https://github.com/acme/web/tree/feature",
+                       "commit": "https://github.com/acme/web/commit/9fceb02…", "checks": "https://github.com/acme/web/pull/42/checks"},
+              "checks": {"sha": "…", "state": "pending", "counts": {…}, "workflowRuns": […], "checks": […], "statuses": […]}}]}
+```
+
+- `summary.state` is `failure` if any watch failed, else `pending` if any
+  is, else `success` if any passed, else `none`; `jobs` counts the jobs of
+  every run (a check reporting a job is that job) plus each other check and
+  status; `current` is the first running job's step. A `gone` watch counts
+  for nothing.
+- A watch's `state` is its snapshot's (`none`, `pending`, `success`,
+  `failure`) or `gone`; `checks` is the provider's `GET /scm/checks` answer
+  as kept ([/docs/scm.md](/docs/scm.md) §Checks), cleaned as above (at most
+  256 KiB); `error` and `refusal` are the provider's on the last read —
+  `signin` means the person must sign in to the provider (the CI section
+  offers it, then reads again).
+- `outcome` is `<sha>:<state>` of the watch's last final result: the key
+  of its outcome card, the same however often it is read.
+- `live` says the provider's webhooks are healthy; `canRerun` that the
+  caller is a person taking part, in their own space, and the provider
+  re-runs; `canWatch` that the caller takes part, a provider is bound and
+  the conversation works in a sandbox (or is a task, or watches already).
+- `urls` are built for GitHub; another host's are left out.
+
+**The run's own answers.** `GET /runs/{id}` and `GET /runs/{id}/view`
+carry `ci: {summary: <the summary> | null, canWatch}` (null: nothing
+watched), so the chip is right as soon as a conversation opens. A task's
+`TaskView.ci` (and a team board row's `ci`) is its conversation's summary;
+the task's state reads CI from it, and a change of it is a `project` event
+(`change: "task"`).
+
+**The `ci` stream event** — `{"type": "ci", "run": <root>, "root":
+<root>, "data": {"root", "watch", "summary", "state", "outcome", "watches":
+[{"id", "state", "outcome", "run", "repo", "ref"}]}}` to the conversation's
+viewers when any of its watches changes: coalesced per conversation (a
+client that falls behind gets the latest only) and not replayed — nothing
+in it is a one-shot cue: every watch's outcome rides each event and each
+read.
+
+**In the conversation (web).** The **CI chip** comes right after the
+coding agents chip in the top bar — "CI ● 3/5 jobs · 2:14" while running,
+"CI ✓", "CI ✗ test (ubuntu)", "CI —" (nothing reported yet, or nothing
+watched but you may) — and opens the right dock (the coding agents'
+dock, now with tabs **Coding agents · CI**) on its CI tab; with no
+coding agents the dock opens on CI alone. The CI section lists each watch
+(its branch and pull request ↗, state, since when, ✕), its runs (name,
+event, attempt, state, time ↗, **Re-run failed** for a person, confirmed),
+each run's jobs (a progress bar of its steps, the step under way, time ↗;
+expanded: its steps ✓ ✗ ● ○ with durations, **Log**, its annotations as
+`path:line`), the other checks and statuses (↗), and **Watch CI for…** (a
+repo, a branch or a pull request's number). While the tab is shown it is
+read again every 15 s while anything is not completed; a conversation's CI is read
+once when it opens. **The log** replaces the section (the dock widens)
+until ← Back: the last 64 KiB, **Earlier** for what came before, plain
+text with a search (next, previous), **Follow** while a job runs where the
+platform serves partial logs; for a job still running where it serves logs
+only once a job ends: its steps, "the log is ready when the job finishes",
+**Open live log ↗**. A coding agent's card shows the CI of what it pushed
+as a small glyph in its status line; a project board's task card shows
+its CI chip, which opens the task on CI. At the transcript's end an
+**outcome card** — "CI passed on ‹branch›", "CI failed on ‹branch› —
+‹job› › ‹step›" with **Open logs** — stays until ✕ (kept in the person's
+prefs, `ci-dismissed`, per watch and outcome: the next outcome is a new
+card).
+
+**Natively** the CI sections follow the coding agents on the Coding agents
+screen, whose toolbar button carries the CI badge; a job opens its own
+screen (steps, the log — Earlier, the screen's search lists the matching
+lines, Follow — or the running job's notice and **Open live log**), a
+check its annotations; a coding agent's card says its CI in words, as does
+a project board's row; outcome cards are system messages with **Open
+logs** and **Dismiss**; **Watch CI for…** is in the conversation's ⋯ menu.
+
+**Rolling back.** A build without CI leaves `ci_watch` alone, ignores the
+run answers' `ci` key and the `ci` event, and its provider subscriptions
+(`ci:<id>`) lapse after 30 days; the next upgrade uses the table as it is.
+
+### Projects in the UI
+
+**The Projects page** opens from the sidebar's **Projects** entry (under
+Automations; its badge counts the tasks that need you across your active
+projects) or the address `#proj`; one project is `#proj=<id>`. Its id says
+where it lives (`model/homes.js`): in a person's partition their own
+projects are in their partition and a team project's definition in the
+shared space, and the page lists both (every page of `GET /projects`
+at each) — yours, then team projects, archived ones last — each with its
+repos, the slots at work and its counts per column. A backend without Projects (`GET /projects` 404) shows no
+entry.
+
+**A project's page** has three tabs — Board, Activity and Settings (a team
+project's definition: Board and Settings):
+
+- **Board** — a column per state (queued, working, needs you, PR, done:
+  `TaskView.column`), each task a card: `#n`, its title, its state (and
+  what it waits for), its branch, its pull requests (↗ to the platform;
+  their checks only while the task has no CI summary — then the CI chip
+  says it) and the chips other modules add (`ext.card(task)`: CI's). A
+  card opens its task's conversation. **New task** (participants): what to
+  do, a title, small or big, who works on it — the project's default,
+  said as what it does (its policy's coding agent, else the one you used
+  last, else the built-in agent; the built-in agent when the policy says
+  so or no coding agent is available), or a coding agent of the catalog
+  by name — which repos —
+  `POST /projects/{pid}/tasks`. **From issues…**: a repo's issues (open or
+  closed, words), up to 20 picked, a task each —
+  `POST /projects/{pid}/tasks/batch`; a refused issue is said. Issue text
+  is the issue tracker's — anyone may have written it — so it is drawn as
+  plain text, its control, direction and zero-width characters dropped,
+  clipped, marked as untrusted; never markdown or HTML (a task's title on
+  the board likewise).
+  **Warm** starts the sandbox, fetches and refreshes the credentials. A
+  search box and "mine" narrow the board. A team project's definition
+  (`kind: "team"`, at the shared space) has no tasks of its own — they run
+  in each member's own space — so its board is a line saying so and the
+  team board (below), with no task actions and no read of tasks. Above a
+  project's board, for its participants, the **coordinator card**: Open
+  (`POST /projects/{pid}/coordinator` — your coordinator, made on first
+  use; its conversation opens) and a line to write to it (the same route
+  with `{text}`); a backend without the route shows none. **Fork base
+  now** (its owner, where big tasks fork the project's sandbox): `POST
+  /projects/{pid}/fork-base {now: true}`, confirmed first — the sandbox
+  stops while the snapshot is taken.
+- **Activity** — the project's events (`GET /projects/{pid}/events`,
+  which reads oldest first: at most five pages of 200 at a time — when
+  more wait, the page says so and **Read newer** goes on — then only those
+  after the last one held when a `project` event says something changed),
+  newest first: tasks made and
+  finished, workspaces, pull requests, CI, reviews and comments, merges,
+  notes — each with its task (its conversation one tap away) and the
+  coordinator woken for it said. Their text comes partly from the scm
+  provider (anyone may have written a comment): drawn as plain text,
+  clipped, control and direction characters dropped; a link only when it
+  is `https`.
+- **Settings** — everyone who sees the project reads it; its owner changes
+  it. **Status**: the sandbox, each repo (fetched, head, whether its base
+  branch is protected), each credential's metadata (whose, its state, until
+  when, why it is blocked — never a token), the jobs, warnings; Warm; your
+  sign-in to the provider (below). **Repos**: add one by `owner/name`,
+  remove one (confirmed; again, with `force`, when open tasks use it), each
+  one's setup script and checkout. **Policy**: every key, grouped (tasks;
+  branches and pull requests; CI and reviews; workspace, ports and setup;
+  big tasks; cleanup; the coordinator — its class of new tasks lists only
+  classes without internal reach, as a task may not have it), saved with
+  the version the edit
+  began at — when someone saved a change meanwhile (412) the project is
+  read again, their change shown with yours, and the next Save saves
+  both; keys this build doesn't know are kept as stored. A rename and the
+  team visibility are sent with the version they began at too. **Members** and what team visibility
+  grants, where sharing is possible (an unpartitioned agent's projects;
+  never a person's own project in their partition, which is theirs alone).
+  **The project**: rename, archive (its credentials leave the sandbox) or
+  unarchive, delete — confirmed, keeping its sandbox or, when the project
+  made it, deleting it too (that choice is the project's own: it keeps no
+  hold on the next project's tab).
+
+**Team projects.** A team project's definition (at the shared space)
+shows the **team board** (`GET /projects/{pid}/board`): each member's
+tasks by column — member, number, title, state and what it waits for,
+branch, pull requests, CI — as plain text, since it comes from each
+member's own space, its links only `https` ones. A row's conversation
+opens only for its own member, from their own space ("open (yours)"); a
+member who left is greyed ("no longer a member"), and the owner may hide a
+row (`POST /projects/{pid}/board/{member}/{n}/hide`). Its owner sets its
+**seed sandbox** there — one of their sandboxes the team can see
+(`POST /projects/{pid}/seed {sandbox: {ref}}`); it never holds a sign-in,
+and once set it is shown read-only (the backend keeps the first).
+From your own space, **Work on this** makes your half of it in your own
+space (`POST /memberships`): its sandbox one of your own private ones
+(`sandbox: {ref}`) or a new one, `{new: {provider, image, size, egress}}`
+with the manager's default image and size and internet when it offers it
+(a sandbox made without an egress has no network, and the repos are cloned
+in it) — the manager of the definition's seed when one bound in your space
+serves it (the backend forks the seed where that works for you), else one
+you pick; until your sandbox managers are read the form says it is loading
+and waits. A half you left or were removed from (archived) offers **Work on
+this again**, which takes it up again with the definition as it is now and
+keeps its own sandbox (no sandbox is offered or sent). It is first
+sent with nothing accepted, and the 409 that answers carries the
+definition's security part — its repos' setup scripts and the policy keys
+that run code or push (instructions, checks, the class, who answers, whose
+identity, reviews, pull requests…) — which the page shows in full before
+**Accept and start** sends exactly its hash (another 409: it changed
+meanwhile, shown again). Your half (`kind: "membership"`) leads to the
+team board; each time its page opens it re-reads the definition (`GET
+/memberships/{pid}/pending`, read once per open), and when the team has
+changed that security part, the page shows **Review the team project's
+changes**: what you accepted and what the team has now,
+side by side, each changed key and setup script marked; **Accept** (`POST
+/memberships/{pid}/accept {hash}`) adopts exactly what was shown — until
+then your tasks run what you accepted before. In your own space the
+new-project form can also make a team project's definition ("A team
+project": `kind: "team"`, shared with the team or the members added
+next, made at the shared space, with no sandbox of yours).
+
+**Make this a project…** — at the end of the ▣ sandbox popover of a root
+conversation of yours with a sandbox, no project and no hosting (not at a
+partitioned agent's shared space, which holds team definitions only): the
+sandbox's git repos are read (`GET /runs/{id}/project/detect`; a remote's
+credentials are never shown), those a bound provider serves picked (the
+repos of one project share a provider), an ssh remote or one that held
+credentials switched to https so the project's own credentials serve it,
+a name, its branch kept or a new one — `POST /runs/{id}/project`. The
+conversation becomes the project's task 1 and is read again (its crumb
+and chips appear); a refusal (`class-internal`, the bot rule) is said in
+the dialog.
+
+**A new project** (the page's **New project**): the scm provider
+(`GET /projects/scm` — each bound one as this home sees it, what it says
+of you), the repos — a picker of what you can reach through it
+(`GET /projects/scm/repos`), each with an optional setup script — a name,
+its sandbox (a new one: manager, image, size, network — the manager's
+default image and size and internet by default, in both views; or one of
+your own private sandboxes) and the policy basics
+(tasks at once, who answers tasks, pull requests opened by hand or as a
+draft or ready when a task rests, whose identity it works as when the
+provider offers both). In an unpartitioned agent it may be shared with
+everyone who can open the agent at once. At a partitioned agent's shared
+space the form makes a team project's definition (`kind: "team"`), sent
+shared — with everyone who can open the agent, or only the members added
+next — its seed sandbox optional (none at first). A seed picked from your
+own sandboxes is one you have shared with the team: an existing sandbox
+keeps its own visibility, and members' sandboxes fork from the seed only
+when they can see it, so the form offers only those (a private one of
+yours must be shared first). Then `POST /projects` and its page.
+
+**Signing in to the provider** (a person's partition, where projects use
+your own sign-in): offered only there, and only when the provider lets you
+work as yourself (its `you.identities` has `person`) — the sign-in routes
+answer 409 anywhere else, so an unpartitioned agent or the shared space
+says its projects work as the provider's bot (at the shared space, that
+each member signs in from their own). **Sign in to ‹provider›** starts the device flow
+(`POST /projects/scm/signin`) and shows its page and code — your own,
+read from your own space, to you only — polling until it is done (a
+failed poll is tried again, later each time; after eight in a row it stops
+and a task's card offers **Check again** — on the app, in the composer and
+⋯; a task's card counts only its own sign-in as done). A sign-in that
+fails to start leaves the one being followed (a parked task's) polled, the
+error said. A sign-in already pending when the Settings tab
+reads it (`GET /projects/scm/signin` — a parked task's, or one started
+elsewhere) is followed the same way; only the latest one is polled, and an
+answer of an earlier one, or one after Forget, changes nothing.
+**Forget** (`DELETE /projects/scm/signin`, confirmed) removes your
+projects' credentials from their sandboxes first.
+
+**A task's conversation** (a run with origin `project`, kept out of the
+conversation list) shows its project:
+
+- before its title, **‹project› ›** — back to the project's board (`project`
+  in the run view);
+- in the top bar, its **branch** (↗ to it on the platform), each **pull
+  request** with its state (↗; its checks while the task has no CI summary)
+  and the setup outcome; **Open PR** on a task with a branch and no open
+  pull request, for people who may act on it, once the backend is known to
+  have `POST /runs/{id}/task/pr` (a `GET` of it answers 405 there, 404 where
+  it isn't — asked once, nothing opened to find out), confirmed;
+- at the end of the transcript, while its workspace is prepared, the
+  **prep card**: what is under way, a step per repo (its checkout, its
+  setup's exit), **Retry** when it failed (`POST /runs/{id}/task/retry`);
+  when it needs a sign-in, the **sign-in card** — the provider's page and
+  code, shown only to the person who must sign in (the run view carries it
+  to them alone), polled until done, then the task is looked at again
+  (`POST /runs/{id}/task/refresh`); anyone else reads whom it waits for;
+- in the unfolded pinned task, its project, number, size, repos, issue,
+  checkouts and ports.
+
+A link from the provider — the branch, a pull request, the issue, the
+sign-in page — is drawn only when it is `https`, in both views.
+
+**Kept current**: the `project` stream event (`{id, change, n}`) carries no
+data of its own; the page reads the list, the open project and its board
+again, and an open task conversation its task (`GET /runs/{id}/task`) —
+events coalesced for 250 ms into one read each.
+
+**For a view** (the model; `model/` as above):
+
+| Module | What it holds |
+|---|---|
+| `model/projects.js` | `createProjects(app)` → `app.projects`: `list`, `load()`, `open(pid, tab)`, `opened`, `board(pid)`, `tasks(pid, filter)`, `take(ev)`, `create(body)`, `createTask(pid, spec)`, `batch(pid, issues)`, `patch(pid, body)`, `remove(pid, sandbox)`, `status(pid)`, `warm(pid)`, `issues(pid, q)`, `signin(scm)`, `forget(scm)`, `pending(pid)`, `accept(pid, hash)`, the forms (`newProject`, `newTask`, `openPicker`, `editPolicy`) and `POLICY` (the policy's keys, grouped); it emits `projects` |
+| `model/project-policy.js` | `POLICY` (the policy's keys as the settings show them), `policyGet(policy, path)`, `policySet(policy, path, value)`, `fieldValue(field, raw)`, `fieldText(field, value)` — re-exported by `model/projects.js` |
+| `model/project-task.js` | a task's words: `columns`, `columnOf`, `cardWords`, `stateWords`, `taskChips(view, project)`, `prChip`, `setupOutcome`, `prepCard(view, me)`, `prButton(view, route)`, `crumb(view)`, `taskSection(view)` |
+| `model/project-api.js` | `projectApi(app, pid)`, `taskApi(runId)`, `scmApi(home)`, `listProjects`, `createProject` — each call at its home, a refusal kept whole (`e.status`, `e.refusal`, `e.data`) |
+| `model/router.js` | `#proj`, `#proj=<id>` (`parse().proj`, `projHash`); `app.openProjects(pid)` |
+| `model/project-feed.js` | `projectFeed(app)`: a project's events (`load(pid)`, `items(pid)`, read since the last one on a `project` event) and your coordinator (`coord(pid)`, `openCoordinator(pid)`, `messageCoordinator(pid, text)`); `feedWords(ev)`, `plain(text)`, `httpsUrl(url)` |
+| `model/project-team.js` | `projectTeam(app)`: the team board (`load`, `rows`, `hide`), the seed (`seedChoices`, `setSeed`), Work on this (`startWork`, `submitWork`), the team's changes (`ensureReview`, `acceptReview`), a definition from your own space (`saveTeam`); `boardWords(row, me)`, `boardColumns`, `securityDiff(accepted, pending)` |
+| `model/project-upgrade.js` | `upgradeOffer(view)`, `candidateWords`, `projectUpgrade(app)` (`open(runId)`, `toggle`, `submit`), `forkBaseOffer(view)`, `forkBase(pid)` |
+
+On the web, `project-web.js` lists the modules: `projects.js` (the entry,
+`ext.side`; the page, `ext.page('projects')`; it draws `project-feed.js`'s
+coordinator card and Activity tab and `project-team.js`'s team board and
+cards), `project-new.js` (the form, and Make this a project… through
+`ext.sbx` in the ▣ popover), `project-settings.js` and `project-chips.js`
+(`ext.top`, `ext.crumb`, `ext.end`, `ext.task` on a project's
+conversation).
+
+**Natively** (`native/project-all.js` lists the modules) the same model
+draws with the app's primitives, as screens pushed over home: the
+drawer's **Projects** row (`ext.drawer`) with the tasks that need you;
+`app.page` `projects` (`#proj`, `#proj=<id>`, a task's way back) puts the
+list — and the open project — on the stack, and going back to a screen
+opens what it shows again, so the address follows. `native/projects.js`:
+the list; a project — the coordinator (open it, write to it), the board as
+a section per column (each task a row: number, title, state, branch, pull
+requests, the words other modules add through `ext.card(task)`; a tap
+opens its conversation, a swipe cancels it), search and Mine, the latest
+activity (once the Activity screen has read it) and all of it, New task, From issues…, Warm, Fork base now; a
+new project. `native/project-settings.js`: status and your sign-in,
+repos, the policy in foldable groups (saved at the version the edit began
+at), members, archive and delete. `native/project-task.js` on a task's
+conversation: a toolbar menu titled with its branch or pull request (each
+a link to the platform; Open PR, confirmed), "‹project› #n" in the
+subtitle, ⋯ → Project: ‹name›, the prep card with a step per repo and
+Retry the workspace, the sign-in card (its code to its person only,
+polled), the Task screen's project section; and ⋯ → Make this a
+project…. `native/project-team.js`: the team board with its seed, Work on
+this after the security part, and the team's changes to review.
+
 ## The frontend: one model, thin views
 
 The tile's state and behaviour live in **`model/`** — plain ES modules with no
@@ -3158,7 +4647,7 @@ the same model.
 | `harness-start.js` | starting a conversation with a coding agent: "Who answers" (`agentPicker`), the sandbox it starts in (`sandboxOptions`, `preferredSandbox`, `createPrefill`), the home's setup card (`setupOf`), a row's kind and the top bar's chip (`kindOf`, `topChip`), the new-chat dialog's part of the ask (`newChatPick`); `keepSandbox` keeps the next chat's sandbox one the coding agent picked fits (wired by `createApp`; `app.newClassId()` is the class a new ask starts in) |
 | `harness-ask.js` | a coding harness asking and driven, in words both views draw (below): a permission request as its own options (`permission`: reject first when it defaults to no, an explicit option the owner's only, the call, a diff preview, what "always" remembers; a plan approval with its plan), a question (`question`, `formFields`/`formContent`/`missingRequired`, `nativeSchema`/`nativeContent` for the native `question`; url mode), the live mode and options (`controls`), Auto / Always approve (`settingOf`), the slash menu (`slashCommands`, `slashMatches`), and the composer while a turn runs (`steerWords`; `steerTrack` notices a message steered into it) |
 | `ext.js` | seams: named hooks a view calls at fixed points of its drawing, filled by feature modules (below) |
-| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the sandbox badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty` — or, for the native view, the tile's relay (`RELAY`, `relaySrc`): the route, a command, whether it is offered and why not), sharing one with a terminal tile (`shareForm`); `app.sbx` — the list (in a person's partition, where the open conversation lives: `listAt(home)`), the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
+| `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the sandbox badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty` — or, for the native view, the tile's relay (`RELAY`, `relaySrc`): the route, a command, whether it is offered and why not), sharing one with a terminal tile (`shareForm`), a project's new sandbox (`projectSandbox`: the manager's defaults, internet when offered); `app.sbx` — the list (in a person's partition, where the open conversation lives: `listAt(home)`), the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
 | `homes.js`, `home-api.js`, `moves.js` | a partitioned instance's two homes (a person's own partition, the shared space): a conversation's home by its id, calls and streams sent there; a shared conversation that moved to your own space, followed (`movedTo`) |
 | `harness-homes.js` | coding agents in a partitioned instance (§Coding agents, "In a partitioned instance (the UI)"): whether this page starts one (`harnessesHere`), whether a sandbox is your own space's (`homedWhy`), where a sign-in is offered (`signInAway`), a shared new chat's "Who answers" (`sharedNewChat`) and the sandbox it takes along (`sharedSees`), a run in the shared space that isn't driven (`barredWhy`), and that a coding agent's conversation never moves (`keepsHome`, `unshareWhy`) |
 | `harness-child.js` | a coding agent the agent started, as its card in the parent's chat (`childCard`: its state, status line, where, counters, park, what it may do; `childRun`: the link's child with the stream's newer summary; `tailOf`, `loadTail`: its last blocks, read once; `tailError`: why they couldn't be), and a row's coding agents at work below it (`kidsWords`) |

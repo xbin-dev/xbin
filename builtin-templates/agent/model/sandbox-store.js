@@ -86,6 +86,8 @@ export function createSandboxStore(app) {
     set list(l) { at().list = l; },
     // listAt: a home's list ('': your own partition's — the old-manager banner reads it)
     listAt(home) { return at(home).list; },
+    // answered: a home's list has been read once (or its read failed) — before that it is empty
+    answered(home) { return !!at(home).loadedAt; },
     pick: null,           // the next new chat's sandbox: {ref, cwd, name} (sent while its class has the sandbox toolset)
     // error: why the list could not be read
     get error() { return at().error; },

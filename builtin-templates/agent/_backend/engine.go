@@ -81,6 +81,12 @@ type Engine struct {
 	hbrake      *time.Timer // a person's partition: the look at the halt while a coding agent works (harness_partition.go)
 	hold        holder
 
+	// The project worker, its jobs and the owner loops (project_worker.go):
+	// joined (bounded) by Shutdown, so none outlives the engine; loopMode is
+	// the process's mode as the owner loops were started under.
+	projWG   sync.WaitGroup
+	loopMode agentMode
+
 	// A host's engine over team (hosted_engine.go): its own epoch key, the
 	// conversations it may drive, its own wake-up at exit. Zero on every
 	// other engine, which then behaves exactly as before.
@@ -170,6 +176,7 @@ func (e *Engine) takeOver() {
 			e.keep.wakeKeepReady() // a person's partition keeps them from now on (resume_keep.go)
 		}()
 		go e.sweepSigninExecs(nowMs()) // sign-in execs an earlier process left (harness_guided.go)
+		e.startProjects()              // the project worker and the owner loops (project_worker.go)
 	}
 	e.recover()
 	outboxKick() // replies the previous owner wrote after our streams connected
@@ -449,6 +456,7 @@ func (e *Engine) BeginShutdown() {
 	}
 	e.mu.Unlock()
 	e.stopRestingCreds() // a person's partition: none resting with a saved sign-in outlives it (harness_engine.go)
+	e.stopProjects()     // the project worker and the owner loops (project_worker.go)
 	e.letHarnessesGo()   // the successor attaches to the rest: never killed here
 	e.cancelBase(errHandoff)
 	e.hub.closeAll()
@@ -472,6 +480,7 @@ func (e *Engine) Shutdown(wait time.Duration) {
 		}
 		t.Stop()
 	}
+	e.waitProjects(wait)
 	if owned && e.wake != nil {
 		e.wake() // a host's engine (hosted_engine.go)
 	} else if owned && e.ag != nil {
@@ -485,9 +494,9 @@ func (d *DB) hasWork() bool {
 	var n int
 	_ = d.q.QueryRow(`SELECT
 		(SELECT count(*) FROM runs WHERE status IN ('running','queued','blocked','awaiting','sleeping'))
-		+ (SELECT count(*) FROM inbox WHERE delivered_at=0)
+		+ (SELECT count(*) FROM inbox i WHERE i.delivered_at=0 AND ` + d.gateHeld() + `) -- a task parked for a person (project_gate.go)
 		+ ` + harnessWorkSQL).Scan(&n)
-	return n > 0
+	return n > 0 || d.projectsWork() // the project worker's jobs (project_worker.go)
 }
 
 // --- the row marker old binaries respect -----------------------------------

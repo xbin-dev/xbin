@@ -74,14 +74,15 @@ func startMode(db *DB) {
 		if conf != "" {
 			kv = gatewayKV{res: conf}
 		}
-		confIn = newConfReader(kv, func() { wakeGlobal(context.Background()) })
-		confIn.parked = db.brakeParked
-		confIn.onHaltOff = func() { // brake.go: the runs parked on the brake move again
+		c := newConfReader(kv, func() { wakeGlobal(context.Background()) })
+		c.parked = db.brakeParked
+		c.onHaltOff = func() { // brake.go: the runs parked on the brake move again
 			if agent != nil && agent.eng != nil {
 				agent.eng.recover()
 			}
 		}
-		confIn.refresh() // before the engine starts: its first passes know the settings
+		confInP.Store(c)
+		confIn().refresh() // before the engine starts: its first passes know the settings
 		if team != "" {
 			go func() {
 				t, err := openShared(context.Background(), team)

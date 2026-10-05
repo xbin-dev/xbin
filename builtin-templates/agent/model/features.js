@@ -22,6 +22,8 @@ export const AREAS = {
   link: 'Deep links',
   needs: 'Needs you — beyond the tile',
   harness: 'Coding agents — a conversation with Claude Code, Codex, Gemini or opencode in a coding sandbox',
+  proj: 'Projects — a sandbox, its repos and task conversations, each with a git worktree per repo',
+  ci: 'CI — what a conversation pushed, as the platform\'s CI reports it',
 };
 
 export const FEATURES = {
@@ -260,6 +262,42 @@ export const FEATURES = {
   'harness.login.remember': '"Remember for my other sandboxes" on the guided sign-in, with a name: `claude setup-token` instead, its token kept by the backend as a saved sign-in (never shown) — a person\'s own partition and a sandbox of theirs no one else uses only, else why not',
   'harness.signins': 'Coding-agent sign-ins (the Coding agents settings): your saved sign-ins per coding agent — what each is, its state (expiring in 14 days, expired, refused), the default; rename, make the default, paste a key or token, Forget; unpartitioned or in the shared space, why there are none',
   'harness.account': 'a coding agent\'s conversation names the account it uses ("using Work", or the sandbox\'s own sign-in) and switches it: the default, another saved sign-in, or the sandbox\'s own — the session resumes with it at the next message',
+
+  // Projects (API.md §Projects)
+  'proj.entry': 'the Projects entry (the sidebar; the drawer), with how many tasks need you',
+  'proj.list': 'the projects you may see — yours and team ones — with their state',
+  'proj.new': 'a new project: the scm provider, its repos (a picker of what you can reach), the sandbox (one of yours or a new one) and the policy basics',
+  'proj.upgrade': '"Make this a project…": a conversation with a sandbox and git repos becomes a project, the conversation its first task',
+  'proj.board': 'a project\'s board: its tasks by column (queued, working, needs you, PR, done), each with its number, title, state, branch, PR and CI',
+  'proj.task.new': 'a new task: what to do, and a title',
+  'proj.task.issues': 'tasks from issues: pick several of the project\'s issues, a task each (their text is shown as untrusted)',
+  'proj.task.size': 'a task\'s size: small (a worktree in the project\'s sandbox) or big (its own sandbox, forked)',
+  'proj.task.agent': 'who works on a task: the built-in agent or a coding agent',
+  'proj.repos': 'a project\'s repos: add, remove, and each one\'s setup script',
+  'proj.policy': 'a project\'s policy: every key, grouped (tasks, branches and PRs, CI and reviews, ports and setup, big tasks, cleanup, the coordinator)',
+  'proj.members': 'a project\'s members and what team visibility grants (where sharing is possible)',
+  'proj.status': 'a project\'s status: its sandbox, repos (fetched, protected), credentials (whose, until when — never the token), jobs and warnings',
+  'proj.signin': 'signing in to the scm provider (its device code shown only to you), and Forget',
+  'proj.coordinator': 'the project\'s coordinator: open it, write to it',
+  'proj.events': 'the project\'s event feed: tasks, PRs, CI and reviews as they happen',
+  'proj.team': 'a team project: the shared board (others\' tasks without their transcripts), "Work on this" in your own space, reviewing the team\'s changes before they apply, members who left',
+  'proj.delete': 'archive or delete a project, keeping or deleting its sandbox, confirmed',
+  'top.task.chips': 'a task conversation\'s branch and PR chips (each a link to the platform)',
+  'top.task.pr': 'Open PR from a task conversation',
+  'chat.task.prep': 'a task\'s workspace being prepared, step by step, with Retry when it failed; the sign-in card when it needs you to sign in',
+  'link.project': 'links to the Projects page and to a project (#proj, #proj=<id>), and a task\'s way back to its project',
+
+  // CI in the conversation (API.md §Projects "CI in the conversation")
+  'ci.chip': 'the CI chip beside the coding agents chip: running jobs and time, passed, or what failed',
+  'ci.dock': 'CI beside the coding agents board: each watched branch or PR with its state',
+  'ci.jobs': 'CI runs, their jobs with live progress (steps done, the current step, time) and each job\'s steps',
+  'ci.logs': 'a job\'s log: its end, more on asking, search, following it while it runs (where the platform allows), else a link to the live log',
+  'ci.annotations': 'a check\'s annotations as file:line with level and message',
+  'ci.links': 'links to the run, job, check, PR and branch on the platform',
+  'ci.rerun': 'Re-run failed jobs — a person only, confirmed',
+  'ci.watch': '"Watch CI for…" a branch or PR, and stop watching one',
+  'ci.cards': 'a card in the conversation when CI passes or fails, with Open logs',
+  'ci.board': 'CI on a project board\'s tasks and on the cards of coding agents that pushed',
 };
 
 // DIFFERENCES: keys a view does not implement ON PURPOSE, with the reason.

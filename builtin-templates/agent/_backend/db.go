@@ -146,6 +146,10 @@ type DB struct {
 	sql *sql.DB
 	q   queryer
 	tx  *txState // non-nil for a view handed out by Tx
+	// features: the feature schemas are in (addFeatureSchemas) — never on
+	// team, nor while migrate() rewrites legacy rows, so a hook that reads a
+	// feature's tables (runStatusHooks) runs only where they exist.
+	features bool
 }
 
 type txState struct{ after []func() }
@@ -174,6 +178,9 @@ func openDB(path string) (*DB, error) {
 	if err := d.migrate(); err != nil {
 		return nil, err
 	}
+	if err := d.addFeatureSchemas(); err != nil { // each feature's own tables (projects_seams.go); never on team
+		return nil, err
+	}
 	if userMode() { // a person's partition numbers its conversations from 2^40 (partition_start.go)
 		if err := d.seedPartitionIDs(); err != nil {
 			return nil, err
@@ -193,7 +200,7 @@ func (d *DB) Tx(fn func(t *DB) error) error {
 		return err
 	}
 	st := &txState{}
-	t := &DB{sql: d.sql, q: tx, tx: st}
+	t := &DB{sql: d.sql, q: tx, tx: st, features: d.features}
 	if err := fn(t); err != nil {
 		_ = tx.Rollback()
 		return err
@@ -378,12 +385,18 @@ func (d *DB) setStatus(id int64, status string, wakeAt int64, result, pending st
 	_, err := d.q.Exec(
 		`UPDATE runs SET status=?, wake_at=?, result=?, pending=?, updated=? WHERE id=?`,
 		status, wakeAt, result, pending, now(), id)
+	if err == nil {
+		runStatusChanged(d, id, status) // runStatusHooks (project_events.go): never on team, nor before the feature tables
+	}
 	return err
 }
 
 // setStatusOnly changes the status, keeping result/pending/wake_at.
 func (d *DB) setStatusOnly(id int64, status string) error {
 	_, err := d.q.Exec(`UPDATE runs SET status=?, updated=? WHERE id=?`, status, now(), id)
+	if err == nil {
+		runStatusChanged(d, id, status) // runStatusHooks (project_events.go)
+	}
 	return err
 }
 
@@ -434,6 +447,9 @@ func (d *DB) deleteRun(id int64) error {
 
 func (d *DB) deleteOneRun(id int64) error {
 	return d.Tx(func(t *DB) error {
+		if err := runDeleted(t, id); err != nil { // runDeletedHooks (project_events.go)
+			return err
+		}
 		for _, q := range []string{
 			`DELETE FROM messages WHERE run_id=?`,
 			`DELETE FROM messages_fts WHERE run_id=?`,
@@ -520,6 +536,7 @@ func (d *DB) descendants(id int64) ([]int64, error) {
 // INSERT itself, so two writers can never draw the same one (the old
 // SELECT MAX then INSERT could).
 func (d *DB) addMessage(m *Message) (int64, error) {
+	m.Content = scmRedact(m.Content) // no scm credential in a row (scm_creds.go)
 	m.Created = now()
 	m.Tokens = estimateTokens(m.Content) + estimateTokens(m.ToolCalls)
 	meta := ""
@@ -568,6 +585,7 @@ func (d *DB) toolResultRow(runID int64, toolCallID string) (id int64, content st
 }
 
 func (d *DB) rewriteMessage(runID, id int64, content string) error {
+	content = scmRedact(content) // no scm credential in a row (scm_creds.go)
 	if _, err := d.q.Exec(`UPDATE messages SET content=?, tokens=? WHERE id=?`, content, estimateTokens(content), id); err != nil {
 		return err
 	}

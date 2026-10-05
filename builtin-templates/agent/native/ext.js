@@ -30,6 +30,15 @@
 //   screen(s)        a pushed screen (ui.stack entry s = {kind, …}) of a kind
 //                    native/tools.js doesn't know — push({kind: 'mine', …})
 //   task(s)          sections at the end of the Task screen (s = {kind: 'task', run})
+//   drawer(close)    rows in the conversations drawer, after Automations
+//                    (close() closes the drawer first)
+//   dock(v)          sections of the Coding agents screen after the coding
+//                    agents: {key, title, badge?, tpl()} (native/harness-board.js)
+//   card(task)       words on a project board's task row (task a TaskView)
+//   childStatus(r)   words after a coding agent row's status (r the child run)
+// Their call sites: drawer in native/convs.js, dock in native/harness-board.js,
+// card in native/projects.js (the board), childStatus in native/harness-child.js.
 import { makeExt } from '../model/ext.js';
 
-export const ext = makeExt({ block: 'first', end: 'all', toolbar: 'all', subtitle: 'all', menu: 'all', main: 'all', composer: 'all', newChat: 'all', screen: 'first', task: 'all' });
+export const ext = makeExt({ block: 'first', end: 'all', toolbar: 'all', subtitle: 'all', menu: 'all', main: 'all', composer: 'all', newChat: 'all', screen: 'first', task: 'all',
+  drawer: 'all', dock: 'all', card: 'all', childStatus: 'all' });

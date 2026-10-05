@@ -48,6 +48,7 @@ import { hostedChipTpl, hostedPaint } from './hosted-ui.js'; // non-secure (host
 import { makeWorkflow } from './workflow.js';
 import { ext, ctx as extCtx } from './web-ext.js';
 import './harness-web.js'; // the coding harnesses' modules (their hooks on ext)
+import './project-web.js'; // Projects' modules: the page (ext.page, ext.side), a task's chips, crumb and cards
 import { steerWords } from './model/harness-ask.js'; // a coding harness's queued chips
 import { clsIcon } from './classes.js'; // a class's glyph (or its admin's emoji) before its name
 // The drawn glyphs (<bx-icon name>, D184). An xbind from before them serves
@@ -144,6 +145,7 @@ app.on('home', () => {
   paintSide(); paint();
 });
 app.on('page', () => { paintSide(); paint(); });
+app.on('projects', () => { paintSide(); if (app.page || app.sel != null) paint(); }); // app.projects
 session.ui.act.openFile = (path) => { selectFile(path); openSettings('files'); };
 Object.assign(session.ui.act, { openPreview: (path, ver, run) => openPreview(path, ver, false, run), openLive }); // the rendered / live lines (a subagent's: its run)
 
@@ -161,6 +163,7 @@ const sideUI = makeSideUI({
 
 function paintSide() {
   render(sideEntryTpl(autos, app.page === 'automations', () => app.openAutomations()), $('autos'));
+  render(ext.side() || nothing, $('sideext')); // entries under Automations (projects.js: Projects)
   render(sidebarTpl(convs, sideUI), $('runs'));
   render(viewsTpl(convs, sideUI), $('views'));
   syncHalt();
@@ -205,13 +208,13 @@ const moreTpl = () => html`<button class="btn ghost btnsm icon navmore" title=${
 const STATUS_ICON = { running: 'live', sleeping: 'wait', waiting_input: 'warning', done: 'ok', error: 'error', canceled: 'stop' };
 
 function topTpl(v) {
-  if (!v) return app.page === 'automations' ? html`${navTpl()}<span class="title">Automations</span>`
+  if (!v) return app.page === 'automations' ? html`${navTpl()}<span class="title">Automations</span>` : app.page ? html`${navTpl()}${ext.page(app.page)?.top || nothing}`
     : html`${navTpl()}<span class="title">${HOME.title}</span><span class="tagline">${HOME.tagline}</span>${ext.top(null) || nothing}`;
   const r = v.run;
   const t = rules.topBar(v, convs.find(r.rootId || r.id), app.me);
   // a count shows once there is something to count
   const n = (k) => (k ? ` (${k})` : '');
-  return html`${navTpl()}${t.crumb ? html`<a class="crumb" @click=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Automations ›</a>` : nothing}
+  return html`${navTpl()}${t.crumb ? html`<a class="crumb" @click=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Automations ›</a>` : ext.crumb(v) || nothing}
     <span class="title" title=${r.title || ''}>${t.title}</span>
     <span class="badge clsbadge" title=${t.cls.title}>${clsIcon(t.cls)}${t.cls.name}</span>
     ${hostedChipTpl(v)}
@@ -277,7 +280,7 @@ function paint() {
     win.after();
   } else {
     win.detach();
-    render(app.page === 'automations' ? autoPageTpl(autos) : homeView(), tl);
+    render(app.page === 'automations' ? autoPageTpl(autos) : (app.page && ext.page(app.page)?.body) || homeView(), tl);
   }
   // a page opens at its top
   const shown = v ? '' : `${app.page}:${autos.open ? autos.open.kind + autos.open.id : ''}:${!!(autos.form || autos.custom)}`;
@@ -752,6 +755,10 @@ async function tabConfig(bd) {
       <div class="field"><label>Max iters / drive</label><input id="cf-iters" type="number" value="${num(c.maxIters)}"></div>
       <div class="field"><label>Tool timeout (s)</label><input id="cf-timeout" type="number" value="${num(c.toolTimeout)}"></div>
     </div></div>
+    <div class="sec"><h4>Subagents &amp; fairness</h4><div class="grid4">
+      ${actions.WF_LIMITS.map(([k, label, def, tip]) => `<div class="field"><label title="${esc(tip)}">${esc(label)}</label>
+        <input id="cf-${k}" type="number" min="0" placeholder="${def}" value="${num(c[k]) || ''}"></div>`).join('')}
+    </div><div class="hint">Empty = the default shown. The model-call limits apply to the whole tile at once; a subagent's call never takes the last free slot, so a new chat waits for at most one call. In a partitioned agent each person's calls are capped at the per-person limit.</div></div>
     <div class="sec"><h4>Behavior</h4>
       <label class="chk"><input type="checkbox" id="cf-sub" ${c.subagents ? 'checked' : ''}> Subagents (expose <span class="mono">spawn_subagent</span>)</label>
       <label class="chk"><input type="checkbox" id="cf-appr" ${c.approve ? 'checked' : ''}> Require approval before side-effecting tools</label>
@@ -764,6 +771,7 @@ async function tabConfig(bd) {
       system: $('cf-system').value,
       tokenBudget: num($('cf-budget').value), maxIters: num($('cf-iters').value), toolTimeout: num($('cf-timeout').value),
       subagents: $('cf-sub').checked, approve: $('cf-appr').checked,
+      ...Object.fromEntries(actions.WF_LIMITS.map(([k]) => [k, num($('cf-' + k).value)])),
     };
     try {
       await actions.saveConfig(next); cfgCache = next;

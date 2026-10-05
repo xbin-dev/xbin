@@ -267,6 +267,9 @@ func handleMessage(w http.ResponseWriter, r *http.Request) {
 			logf("run #%d: telling its parent about a direct message: %v", id, nerr)
 		}
 	}
+	if err == nil && !dup {
+		projectHumanMessage(run, callerOf(r)) // a person wrote to a project's task directly (project_events.go)
+	}
 	if err == nil {
 		agent.db.bumpActivity(id)
 		if run, err := agent.db.getRun(id); err == nil {

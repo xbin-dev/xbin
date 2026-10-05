@@ -47,7 +47,8 @@ type pendingState struct {
 	Since int64 `json:"since,omitempty"`
 	// Harness, on a harness run's park (approval, question, login): the
 	// card data (harness_view.go, D147 §4.3.4).
-	Harness *hPark `json:"harness,omitempty"`
+	Harness *hPark       `json:"harness,omitempty"`
+	Project *ProjectPark `json:"project,omitempty"` // kind "project": the workspace gate's park (project_gate.go)
 }
 
 // waitEntry is one subagent_wait call the run is parked on.
@@ -122,6 +123,9 @@ func (e *Engine) pass(a *actor) {
 		}
 	}
 	rows := e.db.undelivered(run.ID)
+	if run.ParentID == 0 && run.Origin == originProject && !e.projectGate(run, rows) { // a task's workspace first (project_gate.go)
+		return
+	}
 	if run.Engine == engineHarness { // a coding agent answers it (harness_pass.go)
 		e.harnessPass(run, rows)
 		return
@@ -183,7 +187,7 @@ func (e *Engine) pass(a *actor) {
 
 	case statusSleep:
 		if run.WakeAt <= e.unix() || len(in.user) > 0 || len(in.wake) > 0 || len(in.watch) > 0 ||
-			(run.ParentID == 0 && e.db.hasNotices(run.ID)) || e.jobWake(run) {
+			(run.ParentID == 0 && e.db.hasNotices(run.ID)) || e.jobWake(run) || projectWakes(e.db, run) {
 			if e.setRunning(run, in.wake) {
 				e.turn(a, run, nil)
 			}
@@ -202,7 +206,7 @@ func (e *Engine) pass(a *actor) {
 	// Resting: idle, done, canceled, error.
 	e.consumeStale(run, in.approve)
 	wantTurn := len(in.user) > 0 || len(in.wake) > 0 || len(in.watch) > 0 ||
-		(run.Status != statusError && run.ParentID == 0 && e.db.hasNotices(run.ID))
+		(run.Status != statusError && run.ParentID == 0 && (e.db.hasNotices(run.ID) || projectWakes(e.db, run)))
 	if wantTurn {
 		if e.startTurn(run, in.wake) {
 			e.turn(a, run, nil)
@@ -341,6 +345,7 @@ func (e *Engine) stopRun(run *Run, in inboxSet, to string) {
 			}
 			e.settleOwnLink(t, run, linkCanceled, outcome, reason)
 		}
+		runStopEnd(t, run, to, reason) // turnEndHooks (project_events.go)
 		e.finishWatchRound(t, run)
 		e.emitRun(t, run.ID)
 		return nil
@@ -628,7 +633,7 @@ func (e *Engine) modelStep(ctx context.Context, ts *turnState) (LLMReply, bool) 
 	specs, own := injectSummaries(runToolSpecs(cfg, run, ts.mcp))
 	ts.own = own
 	msgs, specs, ts.back = wireNames(msgs, specs)
-	release, err := e.acquireLLM(ctx, run.Depth == 0)
+	release, err := e.acquireLLM(ctx, e.modelGateTop(run)) // a built-in task takes a subagent's place (project_gate.go)
 	if err != nil {
 		e.failTurn(ctx, ts, err.Error())
 		return LLMReply{}, false
@@ -788,6 +793,7 @@ func (e *Engine) endTurnTx(t *DB, ts *turnState, why, result string) error {
 		}
 		e.settleOwnLink(t, run, linkState, outcome, res)
 	}
+	runTurnEnd(t, run, turnWhy(why), outcome, result) // turnEndHooks (project_events.go)
 	// Nothing below a run outlives the turn that was going to consume it —
 	// except below a top-level run that errored: its subagents' results are
 	// delivered when the owner resumes it.
@@ -890,6 +896,7 @@ func (e *Engine) deliverBoundary(ts *turnState) bool {
 			delivered = append(delivered, r.ID)
 			e.emitMessage(t, ts.root, m)
 		}
+		noted = e.deliverProjectEvents(t, ts) || noted // a coordinator's project events (project_gate.go)
 		if n := e.deliverNotices(t, ts); n > 0 || len(delivered) > 0 || noted {
 			e.emitInbox(t, ts.root, run.ID)
 		}

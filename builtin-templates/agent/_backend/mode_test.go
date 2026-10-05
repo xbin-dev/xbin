@@ -12,7 +12,7 @@ import (
 func setMode(t *testing.T, m agentMode, user string) {
 	t.Helper()
 	oldMode, oldUser := runMode, runUser
-	oldIn, oldOut, oldSlots := confIn, confOut, slots
+	oldIn, oldOut, oldSlots := confIn(), confOut, slots
 	oldTeam := teamStore.Load()
 	oldClasses, oldRaw := classStore.Load(), confClassesRaw.Load()
 	runMode, runUser = m, user
@@ -22,7 +22,8 @@ func setMode(t *testing.T, m agentMode, user string) {
 	pidMu.Unlock()
 	t.Cleanup(func() {
 		runMode, runUser = oldMode, oldUser
-		confIn, confOut, slots = oldIn, oldOut, oldSlots
+		confInP.Store(oldIn)
+		confOut, slots = oldOut, oldSlots
 		teamStore.Store(oldTeam)
 		classStore.Store(oldClasses)
 		confClassesRaw.Store(oldRaw)
@@ -83,8 +84,8 @@ func TestDetectMode(t *testing.T) {
 func TestLegacyModeUnchanged(t *testing.T) {
 	setMode(t, modeLegacy, "")
 	startMode(newTestDB(t))
-	if confIn != nil || confOut != nil || slots != nil || teamStore.Load() != nil {
-		t.Fatalf("legacy mode wired partition plumbing: in=%v out=%v slots=%v team=%v", confIn, confOut, slots, teamStore.Load())
+	if confIn() != nil || confOut != nil || slots != nil || teamStore.Load() != nil {
+		t.Fatalf("legacy mode wired partition plumbing: in=%v out=%v slots=%v team=%v", confIn(), confOut, slots, teamStore.Load())
 	}
 	h := func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(299) }
 	for pattern := range userRoutes {
@@ -115,7 +116,7 @@ func TestLegacyModeUnchanged(t *testing.T) {
 	if err := confRefuses("config"); err != nil {
 		t.Errorf("legacy mode refuses a settings write: %v", err)
 	}
-	if gateLimit(Config{MaxActiveRuns: 6}) != 6 {
+	if gateLimit(Config{MaxActiveRuns: 6}) != 6 || gateLimit(Config{MaxActiveRuns: 6, MaxActiveRunsPerUser: 1}) != 6 {
 		t.Error("legacy mode caps its gate")
 	}
 }

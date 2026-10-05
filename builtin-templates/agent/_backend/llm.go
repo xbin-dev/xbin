@@ -73,6 +73,11 @@ type Config struct {
 	MaxSpawn      int `json:"maxSpawn,omitempty"`        // lifetime runs per tree
 	MaxSpawnTurn  int `json:"maxSpawnPerTurn,omitempty"` // spawns in a single turn
 	MaxActiveRuns int `json:"maxActiveRuns,omitempty"`   // concurrent MODEL CALLS, process-wide
+	// MaxActiveRunsPerUser is a person's partition's own gate (llmslots.go
+	// gateLimit): at most this many of one person's model calls at once,
+	// never above MaxActiveRuns. Like MaxActiveRuns it is read live — at
+	// each of the partition's model calls.
+	MaxActiveRunsPerUser int `json:"maxActiveRunsPerUser,omitempty"`
 	// MaxTurnSteps bounds one turn (model calls between a human message and the
 	// agent's answer); 0 ⇒ 8×MaxIters. SubagentTimeout is the default seconds a
 	// foreground subagent is waited for before it moves to the background.
@@ -133,6 +138,12 @@ type Config struct {
 	HarnessIdleMin *int `json:"harnessIdleMin,omitempty"`
 	MaxHarness     int  `json:"maxHarness,omitempty"`
 
+	// Project: the run is a project's task or its coordinator (API.md
+	// §Projects; projects_types.go) — set when the run is made, never
+	// changed, inherited by its subagents. A run of a project has origin
+	// "project"; the global defaults never hold one (PUT /config).
+	Project *ProjectRef `json:"project,omitempty"`
+
 	// noHarness: no coding agent may start in this turn's run — the global
 	// instance's, a hosted conversation's (harness_partition.go):
 	// subagent_spawn offers none. Set per turn (runToolSpecs), never stored.
@@ -188,6 +199,9 @@ const (
 	defaultMaxSpawn      = 32
 	defaultMaxSpawnTurn  = 8
 	defaultMaxActiveRuns = 4
+	// a person's partition: 2 leaves their subagents one call at a time (the
+	// gate keeps a slot for a new chat) — raise it for wider fan-outs
+	defaultMaxActiveRunsPerUser = 2
 )
 
 func clampCfg(v, def, max int) int {
@@ -204,6 +218,9 @@ func (c Config) maxDepth() int      { return clampCfg(c.MaxDepth, defaultMaxDept
 func (c Config) maxSpawn() int      { return clampCfg(c.MaxSpawn, defaultMaxSpawn, 500) }
 func (c Config) maxSpawnTurn() int  { return clampCfg(c.MaxSpawnTurn, defaultMaxSpawnTurn, 32) }
 func (c Config) maxActiveRuns() int { return clampCfg(c.MaxActiveRuns, defaultMaxActiveRuns, 32) }
+func (c Config) maxActiveRunsPerUser() int {
+	return clampCfg(c.MaxActiveRunsPerUser, defaultMaxActiveRunsPerUser, 32)
+}
 func (c Config) maxTurnSteps() int {
 	if c.MaxTurnSteps > 0 {
 		return clampCfg(c.MaxTurnSteps, 96, 500)

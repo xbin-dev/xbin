@@ -52,7 +52,7 @@ func globalAgent(t *testing.T) (*Agent, http.Handler) {
 }
 
 // homeAgent is partAgent whose passes and background titles end before the
-// test's mode is restored (a pass reads confIn, a title the mode's LLM slots).
+// test's mode is restored (a pass reads confIn(), a title the mode's LLM slots).
 func homeAgent(t *testing.T) (*Agent, http.Handler) {
 	t.Helper()
 	ag, h := partAgent(t)
@@ -61,7 +61,7 @@ func homeAgent(t *testing.T) (*Agent, http.Handler) {
 }
 
 // quiet waits until ag's engine runs no pass and no title — nothing of it
-// still reads the mode or confIn a test is about to change. A title starts
+// still reads the mode or confIn() a test is about to change. A title starts
 // inside a pass (registered before the pass ends), so no pass running and
 // then no title running means none is left to start.
 func quiet(t *testing.T, ag *Agent) {
@@ -159,7 +159,7 @@ func TestSharedAskAtGlobal(t *testing.T) {
 	t.Run("partition", func(t *testing.T) {
 		setMode(t, modeUser, "alice")
 		kv := newMemKV()
-		confIn = newConfReader(kv, nil)
+		confInP.Store(newConfReader(kv, nil))
 		putConf(kv, "", `{"config":`+strconvQuote(mustJSON(defaultConfig()))+`}`)
 		_, h := homeAgent(t)
 		serveJSON(t, h, as("POST", "/ask", `{"text":"x","share":{"visibility":"team"}}`, alicesFrame("read")), 409, nil)
@@ -332,7 +332,7 @@ func userAgent(t *testing.T) (*Agent, http.Handler) {
 	t.Helper()
 	setMode(t, modeUser, "alice")
 	kv := newMemKV()
-	confIn = newConfReader(kv, nil)
+	confInP.Store(newConfReader(kv, nil))
 	putConf(kv, "", `{"config":`+strconvQuote(mustJSON(defaultConfig()))+`}`)
 	return homeAgent(t)
 }
