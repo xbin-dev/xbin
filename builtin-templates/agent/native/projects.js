@@ -32,7 +32,7 @@ import { html, nothing, repeat } from '/vendor/xb-native.js';
 import { ext } from './ext.js';
 import { ctx, ui, push, top, when } from './ui.js';
 import { can, agentChoices, repoSlug } from '../model/projects.js';
-import { cardWords } from '../model/project-task.js';
+import { cardWords, issueWords } from '../model/project-task.js';
 import { projectFeed, feedWords } from '../model/project-feed.js';
 import { projectTeam } from '../model/project-team.js';
 import { partitionState } from '../model/partition.js';
@@ -287,11 +287,11 @@ function pickerTpl(s) {
     </section>
     <section title="Issues">
       ${repeat(k.items, (i) => `${i.repo}#${i.number}`, (i) => {
-        const key = `${i.repo}#${i.number}`;
-        const on = k.picked.has(key);
-        return html`<row title=${`#${i.number} ${i.title}`} subtitle=${[(i.labels || []).join(', '), String(i.body || '').replace(/\s+/g, ' ').slice(0, 200)].filter(Boolean).join(' · ') || nothing}
+        const w = issueWords(i);
+        const on = k.picked.has(w.key);
+        return html`<row title=${`#${w.number} ${w.title}`} subtitle=${[w.labels.join(', '), w.body].filter(Boolean).join(' · ') || nothing}
           icon=${on ? 'check' : 'minus'} ?selected=${on} ?disabled=${!on && k.picked.size >= 20} @tap=${() => p.togglePick(i)}>
-          ${/^https:/i.test(i.url || '') ? html`<actions><button icon="external" @tap=${() => openUrl(i.url)}>Open the issue</button></actions>` : nothing}
+          ${w.url ? html`<actions><button icon="external" @tap=${() => openUrl(w.url)}>Open the issue</button></actions>` : nothing}
         </row>`;
       })}
       ${k.loading ? html`<progress label="loading…"/>` : !k.items.length ? html`<empty title="No issues"/>` : nothing}

@@ -110,6 +110,18 @@ test('stateWords and a card', () => {
   assert.equal(c.size, 'big');
 });
 
+test('an issue in the picker and a task\'s title on a card: plain — direction and zero-width characters out, clipped', () => {
+  const w = W.issueWords({ repo: 'acme/web', number: 12, title: 'Fix \u202egol\u202c the\u200b login', labels: ['bug\u2066', ''], body: 'line one\n\nline\u0007 two ' + 'x'.repeat(400),
+    url: 'http://evil.example/12' });
+  assert.equal(w.key, 'acme/web#12');
+  assert.equal(w.title, 'Fix gol the login');
+  assert.deepEqual(w.labels, ['bug']);
+  assert.ok(w.body.startsWith('line one line two x') && w.body.length === 240, w.body);
+  assert.equal(w.url, '', 'https only');
+  assert.equal(W.cardWords(F.task(7, 1, { title: 'a\u202eb' })).title, 'ab');
+  assert.equal(W.cardWords(F.task(7, 1, { title: 'y'.repeat(300) })).title.length, 200);
+});
+
 test('prChip: a PR\'s checks only while the task has no CI summary; links only https', () => {
   const pr = { repo: 'acme/web', number: 42, url: 'https://github.com/acme/web/pull/42', state: 'open', draft: false, checks: 'failure' };
   assert.deepEqual(W.prChip(pr), { kind: 'pr', text: 'PR #42 open ✗', tone: 'bad', title: 'acme/web#42: open — checks failed', url: pr.url, checks: 'failure' });

@@ -4408,7 +4408,9 @@ project's definition: Board and Settings):
   closed, words), up to 20 picked, a task each —
   `POST /projects/{pid}/tasks/batch`; a refused issue is said. Issue text
   is the issue tracker's — anyone may have written it — so it is drawn as
-  plain text, clipped, marked as untrusted; never markdown or HTML.
+  plain text, its control, direction and zero-width characters dropped,
+  clipped, marked as untrusted; never markdown or HTML (a task's title on
+  the board likewise).
   **Warm** starts the sandbox, fetches and refreshes the credentials. A
   search box and "mine" narrow the board. A team project's definition
   (`kind: "team"`, at the shared space) has no tasks of its own — they run

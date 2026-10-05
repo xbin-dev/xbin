@@ -24,7 +24,7 @@
 import { html, nothing, repeat } from '/vendor/lit-all.min.js';
 import { ext, ctx } from './web-ext.js';
 import { can, agentChoices } from './model/projects.js';
-import { cardWords, safeUrl } from './model/project-task.js';
+import { cardWords, issueWords } from './model/project-task.js';
 import { newProjectTpl } from './project-new.js';
 import { settingsTpl } from './project-settings.js';
 import { coordCardTpl, feedTpl } from './project-feed.js';
@@ -226,14 +226,14 @@ function pickerTpl(p, pv) {
     <div class="muted small">Issue text comes from the issue tracker — anyone may have written it. Each picked issue becomes a task (at most 20 at once).</div>
     <div class="pissues">
       ${k.items.map((i) => {
-        const key = `${i.repo}#${i.number}`;
+        const w = issueWords(i);
         return html`<label class="pissue" data-issue=${i.number}>
-          <input type="checkbox" .checked=${k.picked.has(key)} ?disabled=${!k.picked.has(key) && k.picked.size >= 20} @change=${() => p.togglePick(i)}>
-          <span class="pin">#${i.number}</span>
-          <span class="pibody"><span class="pititle">${i.title}</span>
-            ${(i.labels || []).map((l) => html`<span class="badge">${l}</span>`)}
-            ${i.body ? html`<span class="pitext untrusted" title="untrusted text from the issue tracker">${String(i.body).slice(0, 240)}</span>` : nothing}</span>
-          ${safeUrl(i.url) ? html`<a href=${safeUrl(i.url)} target="_blank" rel="noopener noreferrer" title="open the issue">↗</a>` : nothing}
+          <input type="checkbox" .checked=${k.picked.has(w.key)} ?disabled=${!k.picked.has(w.key) && k.picked.size >= 20} @change=${() => p.togglePick(i)}>
+          <span class="pin">#${w.number}</span>
+          <span class="pibody"><span class="pititle">${w.title}</span>
+            ${w.labels.map((l) => html`<span class="badge">${l}</span>`)}
+            ${w.body ? html`<span class="pitext untrusted" title="untrusted text from the issue tracker">${w.body}</span>` : nothing}</span>
+          ${w.url ? html`<a href=${w.url} target="_blank" rel="noopener noreferrer" title="open the issue">↗</a>` : nothing}
         </label>`;
       })}
       ${k.loading ? html`<div class="muted small">loading…</div>` : !k.items.length ? html`<div class="muted small">No issues.</div>` : nothing}
