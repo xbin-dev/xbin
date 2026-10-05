@@ -213,6 +213,7 @@ export class Projects {
     this.timer = null;
     this.polls = new Map();  // scm → a sign-in poll's timer
     this.pollGen = new Map(); // scm → the latest poll's number (stopPoll)
+    this.startGen = new Map(); // scm → the latest sign-in start's number (signin)
     this.following = new Map(); // scm → the pollId being polled
     this.reading = new Set(); // pids being read by ensure()
     this.failedAt = new Map(); // pid → when ensure()'s read of it failed
@@ -788,9 +789,14 @@ export class Projects {
   // signin starts the device flow ({state: pending, signin: {url, userCode, pollId, intervalMs}})
   // and polls until it is done, denied or expired. A sign-in being followed
   // (a parked task's) is let go only once the new one started: a failed start keeps it, its error said.
+  // Starts are numbered apart from polls: of two that overlap (a double click) only the later one's
+  // answer counts — the provider keeps one pending flow, the later.
   async signin(scm) {
     const gen = this.pollGen.get(scm) || 0;
+    const start = (this.startGen.get(scm) || 0) + 1;
+    this.startGen.set(scm, start);
     const s = await scmApi('').startSignin(scm).catch((e) => ({ state: 'error', err: e.message }));
+    if (this.startGen.get(scm) !== start) return s; // a later start owns the card
     if ((this.pollGen.get(scm) || 0) !== gen) return s; // another sign-in, or Forget, meanwhile
     const cur = this.following.has(scm) && this.signins.get(scm);
     if (s.state === 'error' && cur) { this.signins.set(scm, { ...cur, err: s.err }); this.changed(); return s; }

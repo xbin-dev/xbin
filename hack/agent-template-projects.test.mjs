@@ -14,7 +14,7 @@
 // brought back — a team definition reading no tasks, where signing in is
 // offered, the class of new tasks without internal reach, a sign-in
 // followed by its pollId — a pending one read too, an earlier poll's late
-// answer dropped — the "Open PR" probe, the `project` event
+// answer dropped, the later of two overlapping starts kept — the "Open PR" probe, the `project` event
 // coalesced). Run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -541,6 +541,34 @@ test('a sign-in that fails to start keeps following the one before it (a parked 
     await settle();
     assert.deepEqual(seen, ['pA']);
   } finally { globalThis.setTimeout = realSet; }
+});
+
+test('two overlapping sign-in starts: the later one is followed, whichever answers first', async () => {
+  for (const order of [[0, 1], [1, 0]]) {
+    let n = 0; const gates = [];
+    const seen = [];
+    backend([['POST', /^\/projects\/scm\/signin$/, async () => { const id = 'p' + (++n); await new Promise((r) => gates.push(r)); return json({ state: 'pending', signin: { pollId: id, userCode: id, url: 'https://x' } }); }],
+      ['GET', /^\/projects\/scm\/signin\/(p\w)/, (x) => { seen.push(x[1]); return json({ state: 'pending' }); }],
+      ['GET', /^\/projects\/scm(\?.*)?$/, () => json({ providers: [] })]], 'user:alice');
+    const pj = M.createProjects(fakeApp());
+    const realSet = globalThis.setTimeout;
+    const timers = [];
+    globalThis.setTimeout = (fn) => { timers.push(fn); return timers.length; }; // ticks run by hand
+    const settle = () => new Promise((r) => realSet(r, 5));
+    try {
+      const starts = [pj.signin('gh'), null];
+      await settle();
+      starts[1] = pj.signin('gh'); // a double click: p2 is the provider's pending flow
+      await settle();
+      for (const i of order) { gates[i](); await starts[i]; await settle(); }
+      assert.equal(pj.signinOf('gh').pollId, 'p2', `answers in order ${order}: the later start is shown`);
+      assert.equal(pj.following.get('gh'), 'p2');
+      assert.equal(timers.length, 1, 'one poll, of p2');
+      timers.shift()();
+      await settle();
+      assert.deepEqual(seen, ['p2']);
+    } finally { globalThis.setTimeout = realSet; }
+  }
 });
 
 test('a late answer of an earlier sign-in poll changes nothing', async () => {
