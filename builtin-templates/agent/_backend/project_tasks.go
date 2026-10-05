@@ -388,9 +388,9 @@ func taskDerived(k *ProjectTask, status string, ci *CISummary, queued bool) (col
 	}
 	if k.Phase == phasePR {
 		checks := "none"
-		if ci != nil {
-			checks = ci.State
-		} else {
+		if ci != nil && ci.State != ciNone {
+			checks = ci.State // the CI watch's summary, once it knows something
+		} else { // no watch, or one with nothing read yet: the PR's checks as E last read them
 			for _, pr := range k.taskPRs() {
 				if pr.State == "open" && pr.Checks != "" {
 					checks = pr.Checks

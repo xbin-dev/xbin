@@ -64,7 +64,7 @@ func TestRoutingTable(t *testing.T) {
 			t.Fatalf("events %+v, PR checks %q, fixes %d", evs, k.taskPRs()[0].Checks, scmFixesToday(k))
 		}
 		if v := fx.ag.db.projTaskView(fx.p, k); v.State != taskCIFailed {
-			t.Fatalf("the task's state: %s", v.State)
+			t.Fatalf("the task's state: %s (ci %+v)", v.State, v.CI)
 		}
 	})
 	t.Run("checks green", func(t *testing.T) {

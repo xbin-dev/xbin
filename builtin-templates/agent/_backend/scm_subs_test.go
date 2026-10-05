@@ -9,10 +9,30 @@ import (
 	"time"
 )
 
-// subsByKey is the fake provider's subscriptions by key.
+// eSubs is the fake provider's subscriptions that are E's (a task's, a
+// project's issues) — not a CI watch's (key ci:<watch id>, its own tests:
+// TestCI*), which a task's refs make beside them (API.md §CI).
+func eSubs(fx *evFx) []scmSubscription {
+	return slices.DeleteFunc(fx.scm.Subscriptions(), func(s scmSubscription) bool { return strings.HasPrefix(s.Key, "ci:") })
+}
+
+// ePosts counts E's POST /subscriptions at the fake provider (a CI
+// watch's, posted from its own goroutine, left out).
+func ePosts(fx *evFx) int {
+	n := 0
+	for _, r := range fx.scm.Requests("POST /subscriptions") {
+		var b struct{ Key string }
+		if json.Unmarshal([]byte(r.Body), &b) == nil && !strings.HasPrefix(b.Key, "ci:") {
+			n++
+		}
+	}
+	return n
+}
+
+// subsByKey is E's subscriptions at the fake provider by key.
 func subsByKey(fx *evFx) map[string]scmSubscription {
 	out := map[string]scmSubscription{}
-	for _, s := range fx.scm.Subscriptions() {
+	for _, s := range eSubs(fx) {
 		out[s.Key] = s
 	}
 	return out
@@ -27,7 +47,7 @@ func TestSubscriptionLifecycle(t *testing.T) {
 	fx := newEvFx(t, modeLegacy, "")
 	fx.addTask(1, evBranch, "") // not pushed yet
 	fx.pass()
-	if subs := fx.scm.Subscriptions(); len(subs) != 0 {
+	if subs := eSubs(fx); len(subs) != 0 {
 		t.Fatalf("a branch not on the remote is subscribed: %+v", subs)
 	}
 	k := fx.task(1)
@@ -38,11 +58,11 @@ func TestSubscriptionLifecycle(t *testing.T) {
 	s, ok := subsByKey(fx)[key]
 	if !ok || s.Repo != "acme/web" || !slices.Equal(s.Branches, []string{evBranch}) || len(s.PRs) != 0 ||
 		!slices.Equal(s.Kinds, scmTaskKinds) || !slices.Contains(s.Kinds, scmKindWorkflow) {
-		t.Fatalf("the task's subscription: %+v (all %+v)", s, fx.scm.Subscriptions())
+		t.Fatalf("the task's subscription: %+v (all %+v)", s, eSubs(fx))
 	}
-	posts := len(fx.scm.Requests("POST /subscriptions"))
+	posts := ePosts(fx)
 	fx.pass()
-	if n := len(fx.scm.Requests("POST /subscriptions")); n != posts {
+	if n := ePosts(fx); n != posts {
 		t.Fatalf("posted again without a change: %d → %d", posts, n)
 	}
 	// a PR opens: the same key, now with the PR
@@ -50,15 +70,15 @@ func TestSubscriptionLifecycle(t *testing.T) {
 	_ = fx.ag.db.setTask(k.ID, map[string]any{"prs": string(b), "phase": phasePR})
 	fx.refs(k)
 	fx.pass()
-	subs := fx.scm.Subscriptions()
+	subs := eSubs(fx)
 	if len(subs) != 1 || subs[0].Key != key || !slices.Equal(subs[0].PRs, []int{42}) || subs[0].ID != s.ID {
 		t.Fatalf("after the PR opened: %+v", subs)
 	}
 	// 25 days on: posted again
-	posts = len(fx.scm.Requests("POST /subscriptions"))
+	posts = ePosts(fx)
 	fx.advance(25*24*time.Hour + time.Minute)
 	fx.pass()
-	if n := len(fx.scm.Requests("POST /subscriptions")); n != posts+1 {
+	if n := ePosts(fx); n != posts+1 {
 		t.Fatalf("not posted again at 25 days: %d → %d", posts, n)
 	}
 	// cleaned up: deleted there and here
@@ -74,8 +94,8 @@ func TestSubscriptionLifecycle(t *testing.T) {
 	_ = fx.ag.db.q.QueryRow(`SELECT count(*) FROM scm_subs`).Scan(&left)
 	var refs int
 	_ = fx.ag.db.q.QueryRow(`SELECT count(*) FROM project_refs WHERE project_id=?`, fx.p.ID).Scan(&refs)
-	if len(fx.scm.Subscriptions()) != 0 || left != 0 || refs != 0 || len(fx.scm.Requests("DELETE /subscriptions/"+s.ID)) != 1 {
-		t.Fatalf("after the cleanup: provider %+v, %d rows, %d refs", fx.scm.Subscriptions(), left, refs)
+	if len(eSubs(fx)) != 0 || left != 0 || refs != 0 || len(fx.scm.Requests("DELETE /subscriptions/"+s.ID)) != 1 {
+		t.Fatalf("after the cleanup: provider %+v, %d rows, %d refs", eSubs(fx), left, refs)
 	}
 
 	t.Run("a task no longer open isn't posted again", func(t *testing.T) {
@@ -85,7 +105,7 @@ func TestSubscriptionLifecycle(t *testing.T) {
 		_ = fx.ag.db.setTask(fx.task(1).ID, map[string]any{"phase": phaseClosed})
 		fx.advance(25*24*time.Hour + time.Minute)
 		fx.pass()
-		if subs := fx.scm.Subscriptions(); len(subs) != 0 {
+		if subs := eSubs(fx); len(subs) != 0 {
 			t.Fatalf("a closed task's subscription kept: %+v", subs)
 		}
 	})
@@ -95,12 +115,12 @@ func TestSubscriptionLifecycle(t *testing.T) {
 		key := fmt.Sprintf("issues:%d:web", fx.p.ID)
 		s, ok := subsByKey(fx)[key]
 		if !ok || !s.Issues || !slices.Equal(s.Kinds, []string{scmKindIssue}) || s.Repo != "acme/web" {
-			t.Fatalf("the issue subscription: %+v", fx.scm.Subscriptions())
+			t.Fatalf("the issue subscription: %+v", eSubs(fx))
 		}
 		_, _ = fx.ag.db.q.Exec(`UPDATE projects SET policy='{}' WHERE id=?`, fx.p.ID)
 		fx.pass()
 		fx.pass() // marked, then deleted
-		if subs := fx.scm.Subscriptions(); len(subs) != 0 {
+		if subs := eSubs(fx); len(subs) != 0 {
 			t.Fatalf("with autoLabel unset: %+v", subs)
 		}
 	})
@@ -110,7 +130,7 @@ func TestSubscriptionLifecycle(t *testing.T) {
 		fx.p.Kind = projTeam
 		fx.addTask(1, evBranch, evSHA, TaskPR{Number: 42, HeadSHA: evSHA})
 		fx.pass()
-		if subs := fx.scm.Subscriptions(); len(subs) != 0 {
+		if subs := eSubs(fx); len(subs) != 0 {
 			t.Fatalf("a team definition subscribed: %+v", subs)
 		}
 	})
@@ -144,8 +164,8 @@ func TestSubscriptionLifecycle(t *testing.T) {
 		fx.pass()
 		var polls int
 		_ = fx.ag.db.q.QueryRow(`SELECT count(*) FROM scm_poll`).Scan(&polls)
-		if len(fx.scm.Subscriptions()) != 0 || polls != 0 {
-			t.Fatalf("after the delete: %+v, %d poll rows", fx.scm.Subscriptions(), polls)
+		if len(eSubs(fx)) != 0 || polls != 0 {
+			t.Fatalf("after the delete: %+v, %d poll rows", eSubs(fx), polls)
 		}
 	})
 }
