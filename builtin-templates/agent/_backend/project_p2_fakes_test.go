@@ -208,7 +208,7 @@ func newP2Fix(t *testing.T) *p2Fix {
 	scmBotAllowed = func(who, string) bool { return true }
 	oldDelay := projStreamDelay.Load()
 	projStreamDelay.Store(int64(5 * time.Millisecond))
-	t.Cleanup(func() { scmFor, scmBotAllowed = oldFor, oldBot; projStreamDelay.Store(oldDelay) })
+	t.Cleanup(func() { ciBG.Wait(); scmFor, scmBotAllowed = oldFor, oldBot; projStreamDelay.Store(oldDelay) })
 	return &p2Fix{projFix: &projFix{ag: ag, mux: mux, m: m, scm: f, box: box, origin: u, odir: dir}, keep: kp, scm2: s2}
 }
 

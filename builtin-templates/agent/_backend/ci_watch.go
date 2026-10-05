@@ -133,12 +133,12 @@ func ciEnd(t *DB, w *ciWatch) error {
 func ciStarted(t *DB, id int64) {
 	d := ciBase(t)
 	t.AfterCommit(func() {
-		go func() {
+		ciGo(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			ciSetUp(ctx, d, id)
 			_ = ciRead(ctx, d, id)
-		}()
+		})
 	})
 }
 
@@ -148,11 +148,11 @@ func ciStarted(t *DB, id int64) {
 func ciRenewLater(t *DB, id int64) {
 	d := ciBase(t)
 	t.AfterCommit(func() {
-		go func() {
+		ciGo(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			ciSetUp(ctx, d, id)
-		}()
+		})
 	})
 }
 
@@ -160,12 +160,25 @@ func ciRenewLater(t *DB, id int64) {
 func ciReadLater(t *DB, id int64) {
 	d := ciBase(t)
 	t.AfterCommit(func() {
-		go func() {
+		ciGo(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			_ = ciRead(ctx, d, id)
-		}()
+		})
 	})
+}
+
+// ciBG counts the work ciGo started after a commit; tests wait on it
+// before swapping back what that work reads (scmFor and the like).
+var ciBG sync.WaitGroup
+
+// ciGo runs f off the committing caller's path, counted in ciBG.
+func ciGo(f func()) {
+	ciBG.Add(1)
+	go func() {
+		defer ciBG.Done()
+		f()
+	}()
 }
 
 // ciBase is the database t is a view of, outside any transaction: what

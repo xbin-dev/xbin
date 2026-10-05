@@ -3942,3 +3942,4 @@ with the record that explains it:
 - 2026-10-05 gate 2: §12.3 the coordinator's `task_list {scope: "team"}` reads the team board through T's `teamBoardPage` (one page from a cursor; a definition gone archives the membership) and frames it as C did; T's unpaged `teamBoardRows`/`teamBoardText` are gone
 - 2026-10-05 gate 2: §8.4 `projectsWake` counts a coordinator's undelivered wake only while that coordinator isn't `waiting_input` or `error` (beside C's `coordDropWakes`)
 - 2026-10-05 gate 2: §5.10/§11.1 the event v1 G2 delivers and E's intake compared field by field against /docs/scm.md §Delivery — no mismatch; each side now pins the docs' literal in a test
+- 2026-10-05 gate 2: §6.9 the CI watches' after-commit work (pull request look-up, subscription, reads, detection) runs through `ciGo`, counted in `ciBG`; fixtures that swap `scmFor` wait on it before swapping back (a renewal outliving its test raced with E's fixture under -race)

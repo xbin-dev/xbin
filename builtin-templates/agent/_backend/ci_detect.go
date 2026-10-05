@@ -96,11 +96,11 @@ func ciTurnEnd(t *DB, run *Run, why, outcome, result string) {
 	d := ciBase(t)
 	runID, rootID, owner := cur.ID, root.ID, root.Owner
 	t.AfterCommit(func() {
-		go func() {
+		ciGo(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 			defer cancel()
 			ciDetect(ctx, d, runID, rootID, owner, ref, cwd, by, since)
-		}()
+		})
 	})
 }
 

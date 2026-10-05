@@ -52,7 +52,7 @@ func newP1SCM(t *testing.T) *p1SCM {
 		return f, nil
 	}
 	scmBound = func() []string { return []string{f.name} }
-	t.Cleanup(func() { scmFor, scmBound = oldFor, oldBound })
+	t.Cleanup(func() { ciBG.Wait(); scmFor, scmBound = oldFor, oldBound })
 	return f
 }
 

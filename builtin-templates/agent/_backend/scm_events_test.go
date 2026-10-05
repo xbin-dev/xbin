@@ -108,7 +108,7 @@ func newEvFx(t *testing.T, mode agentMode, policy string) *evFx {
 		}
 		return oldFor(name)
 	}
-	t.Cleanup(func() { scmFor = oldFor })
+	t.Cleanup(func() { ciBG.Wait(); scmFor = oldFor })
 	_ = fx.ag.db.putSetting("halt", "1") // nothing delivered, no job run
 
 	fx.p = &Project{Name: "Web", Slug: "web", Kind: projPersonal, Owner: "alice", Visibility: visPrivate, TeamRole: roleViewer,
