@@ -31,7 +31,14 @@ async function ensureTiles(ctx, check) {
   for (const p of [TALL, VH]) {
     const r = await ctx.request.post(`${URL}/api/xbin/create`, { data: { path: p, title: p } });
     check(r.ok() || r.status() === 409, `${p} exists (${r.status()})`);
-    if (WS) fs.writeFileSync(path.join(WS, p, 'index.html'), PAGES[p]);
+    if (!WS) continue;
+    // the create answers before the tile's folder is on disk (a fresh
+    // harness workspace): wait for its scaffolded page, then replace it —
+    // never write first, or the scaffold's own page could land over ours
+    const page = path.join(WS, p, 'index.html');
+    for (let i = 0; i < 100 && !fs.existsSync(page); i++) await new Promise((res) => setTimeout(res, 100));
+    check(fs.existsSync(page), `${p}'s folder is on disk`);
+    fs.writeFileSync(page, PAGES[p]);
   }
 }
 
