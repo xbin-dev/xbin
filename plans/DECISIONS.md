@@ -11465,3 +11465,69 @@ Deviations and refinements made while implementing; all deliberate:
     `testdata/github-live.json`, `TestFakeMatchesLiveGitHub`), the agent
     and scm-github `-race` suites, the node tests and `make check` (known
     failures in records/LAND.md).
+
+- **D188 — The grant strip: dismiss, and no "N grants active"; a
+  light/dark override per device (2026-10-07).** web/bx-dismiss.js,
+  web/bx-grants.js, web/bx-bindings.js, the shell's `_loadPendingCount`;
+  web/bx-theme.js, web/theme-boot.js, web/bx-frame.js,
+  workspace-template/shell/shell-appearance.js, the root page template,
+  internal/server/appearance.go. Sections 2 and 4 of the 2026-10-07 shell
+  plan (Document mode and tabs in the top bar are D187).
+  - **The owner's answers (2026-10-07).** Dismiss is for that person on
+    all their devices, stored in the shell's prefs; nothing changes for
+    other admins or for the tile. "N grants active" goes; the admin
+    console's grants and binding tabs remain the full list. The light/dark
+    override is per device: this browser shows Light or Dark whatever the
+    person's Theme says (a dark laptop beside a light office screen).
+  - **Dismiss:** the shell pref `dismissed`, `{grants:{"from|target|role":
+    at}, bindings:{"component|slot|kind": at}}`, read and written by the
+    two elements through `/api/xbin/prefs` (the bucket `xbin.fetch`
+    reaches: the shell's in the root page), followed live through the
+    `prefs` event. Keys, not the time asked: grant requests and unbound
+    slots are recomputed from manifests and carry no time, so a request
+    that changes role or target is a new key and shows again. Dismissals
+    of what the server no longer lists are pruned when an element has
+    read both, as keepDismissed does (D163) — a request that disappears
+    and comes back (a manifest edited twice) shows again, the price of not
+    keeping keys forever. Each write is a read, change and write, so the
+    two elements' kinds don't undo each other (a last-writer race between
+    two devices dismissing at the same instant can lose one dismissal; the
+    item just shows again). "dismissed (N) · show" restores that
+    element's hidden items at once, not one by one. The organisations
+    badge counts through the same module (`pendingCount`), less the
+    dismissed; people's access requests (D36) have no dismiss. The
+    elements dismiss wherever they are used: a builder's page that embeds
+    `<bx-grants>` keeps its own dismissals in its own bucket.
+  - **"N grants active" removed** with its list and revoke; the scoped
+    ("mine") view already hid it. `<bx-bindings>`' "N interface bindings"
+    line stays (not part of the answer; the ingressMulti pass drives it).
+  - **Device override:** localStorage `xbin-theme-device` (`light` |
+    `dark`; absent = follow the person) — never synced, so not a pref.
+    Precedence device → person → system (`effectiveTheme`). In a document
+    that follows the person the theme meta holds what is painted, so
+    `<bx-frame>`'s relay and everything reading `appearance()` see the
+    device's theme without change; the person's own choice is set aside
+    on `<html data-bx-theme-person>` for the Theme row and for following
+    another device's change (`setPersonAppearance`). The hint cookie
+    equals the device's theme while it is set (`rememberTheme`), so the
+    sign-in pages follow it on that browser. Before the first paint:
+    `/vendor/theme-boot.js` in the root page template (its first use in a
+    root); a root from before gets it when shell-appearance.js loads (a
+    flash, never wrong after). Tiles: credentialless frames get no cookie
+    or storage, so `<bx-frame>` adds `?xbin-appearance=light|dark` to the
+    tile's URL and the existing appearance injection (the one sanctioned
+    transform, extended, not a new one) uses it in place of the person's
+    theme; the query survives the tile-origin redirects. Not chosen: a
+    cookie the server reads for tiles (none reaches a credentialless or
+    tile-origin frame), a synced per-device pref (needs device identity
+    the shell doesn't have), the shell rewriting tile documents.
+  - **Verified:** `TestAppearanceDeviceOverride`; hack/bx-dismiss.test.mjs
+    and the device tests in hack/theme-appearance.test.mjs; `make js-test`
+    (830 tests, 829 pass, 1 skipped), fmt-check, vet, js-check,
+    theme-check; `go test ./internal/server/... ./internal/broker/...`;
+    the UI harness's new grantDismiss (15 checks) and deviceTheme (17)
+    passes under a dark and a light system, and appearance (61),
+    themeCanary (12, 2 SKIP: no gocryptfs), layoutSync (17),
+    adminSettings (25), windows (20), menuOpen (6), tabStrip (6), viewAs
+    (11). gridScale's zoom-tip check fails here on master's code too (a
+    headless Control+= never reaches the shell); not this change.

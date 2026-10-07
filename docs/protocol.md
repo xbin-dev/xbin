@@ -72,7 +72,14 @@ bucket) for the root token and `--no-auth`; a tile's backend gets neither.
 Every injected document carries them — tile pages, deployment URLs,
 partitioned tiles, chrome, the native runtime document — and so does the
 docs viewer (`/docs/…`); a person who never chose gets the injection as
-before, byte for byte. `/vendor/theme.css` reads them in documents that opt
+before, byte for byte. A **device override** (D188) rides the document's
+URL: when its query carries `xbin-appearance=light` (or `dark`) the theme
+meta holds that value instead of the person's — `<bx-frame>` adds it to a
+tile's URL while the browser overrides the person's theme in the shell's
+settings (*This device*), so the tile's first frame matches it; the
+density stays the person's, any other value is ignored, the parameter
+survives the tile-origin redirects (origins mode), and nothing else reads
+it. `/vendor/theme.css` reads them in documents that opt
 in with `<html data-bx-theme="auto">`; frames hear later changes as
 `xbin:appearance` (§Tile ↔ shell messaging). xbind's own pages that get no
 injection read the **hint cookie** `xbin_theme=light|dark` (absent: the
@@ -84,7 +91,8 @@ server-side; request access and the partitions page copy it with
 `/vendor/theme-boot.js` — the same rule everywhere: exactly `light` or
 `dark`, else the system's. A page served on a tile's own origin (origins
 mode) never gets the cookie and follows the system. The shell keeps it
-equal to the person's choice (`/vendor/bx-theme.js`); it is a UI hint,
+equal to the person's choice (`/vendor/bx-theme.js`) — or to the device's
+theme while that browser overrides it (D188); it is a UI hint,
 never a credential, and any other value is ignored.
 Server-side, any request carrying
 the cookie with the opaque-origin fingerprint — `Sec-Fetch-Site: cross-site`
@@ -1755,7 +1763,13 @@ DELETE /prefs/<key>               remove it
                                    "system": follow the system) and
                                    `density` "comfortable" (absent:
                                    compact); any other value reads as the
-                                   default. Only chrome writes that bucket —
+                                   default. Another is the shell's
+                                   `dismissed` (D188): the grant requests
+                                   and interfaces to bind the person
+                                   dismissed, {grants:{"from|target|role":
+                                   at}, bindings:{"component|slot|kind":
+                                   at}} (docs/elements.md §bx-grants).
+                                   Only chrome writes that bucket —
                                    a tile's PUT lands in its own)
 GET    /users                     admin or xbin:users. [{id,name,role,
                                    tiles:{path:level}, termApi, termNet,
@@ -6752,7 +6766,8 @@ that opted in restyles at once, its own frames pass it on, and code that
 paints from tokens hears it through `/vendor/bx-theme.js`'s
 `onAppearance()`. It carries no credential and asks for nothing; a tile
 can post it only to frames it embeds, which changes nothing but their
-colours.
+colours. While the browser overrides the person's theme (D188) the
+message carries the device's theme — what the embedder shows.
 
 `xbin:open-deployments` (the admin console's runtime → deployments tab
 links with it) asks the shell to open `tile`'s terminal window on its
