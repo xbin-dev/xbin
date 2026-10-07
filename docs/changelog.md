@@ -69,6 +69,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   a person's tab terminal outlives its client and is attached to again by
   name, until **`DELETE /terminals/{tab}`** or 30 minutes with no client.
 
+- **Fixes from the xbin app on a simulator** (for the same app release).
+  A collapsed `split` whose detail is a `nav` (the agent template's) now
+  works on a phone: the conversation no longer closed as it opened, and
+  what is pushed sends its events (typing, a card's Open, the transcript's
+  `edge` — so jump to latest counts). An event stream (`text/event-stream`)
+  a native view or a tile page reads in the app may now carry SSE comment
+  lines (`:`) when it goes quiet: they push WebKit's held-back last chunk
+  through (a finished turn showed as working), and every SSE parser skips
+  them — a hand-written one must ignore lines that start with `:`, as the
+  format says. In the agent template, a restarted view whose saved
+  conversation or automation is gone comes back on the list (or the
+  Automations page) without an error.
+
 - **Fix: a page without a `<head>` keeps its doctype first.** xbind's
   injection (the import map, the client) used to go in front of such a
   page, so a leading `<!doctype html>` no longer came first and the
