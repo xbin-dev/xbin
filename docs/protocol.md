@@ -1927,8 +1927,8 @@ DELETE /devices/<id>              the device's user, or admin/xbin:users
 GET    /users/<id>/devices        admin/xbin:users. {devices: […]} as
                                    GET /devices (no current)
 GET    /screens                   signed-in. {default: {tiles}|null, org:
-                                   [{id,org,name,edit,tiles,rev,updatedBy,
-                                   updatedAt,canEdit}], folders: {"ws":
+                                   [{id,org,name,edit,mode?,tiles,rev,
+                                   updatedBy,updatedAt,canEdit}], folders: {"ws":
                                    {folders,rev,updatedBy,updatedAt,canEdit},
                                    "org:<id>": {…}}} — the ws default
                                    screen, your orgs' screens, and the
@@ -1937,7 +1937,8 @@ GET    /screens                   signed-in. {default: {tiles}|null, org:
                                    ws-admins: every org) (D37/D55)
 PUT    /screens/default           ws-admin. {tiles} — the seed screen new
                                    users start from
-PUT    /screens/org               {id?,org,name?,edit?,tiles?,rev?,force?}
+PUT    /screens/org               {id?,org,name?,edit?,mode?,tiles?,rev?,
+                                   force?}
                                    — create (no id; org admin) → {ok,id,
                                    rev:1,…}; a tiles update follows the
                                    screen's edit knob (admins|write|
@@ -1945,8 +1946,12 @@ PUT    /screens/org               {id?,org,name?,edit?,tiles?,rev?,force?}
                                    revision it was based on: stale → 409
                                    {error, rev, screen} unless force:true;
                                    no rev = legacy overwrite. No tiles =
-                                   meta-only (name/edit; org admin), which
-                                   never bumps the revision (D55)
+                                   meta-only (name/edit/mode; org admin),
+                                   which never bumps the revision (D55).
+                                   mode: "canvas"|"doc", how the shell
+                                   arranges the screen (D187); absent in
+                                   GET = canvas, and a PUT without it
+                                   keeps the stored one
 DELETE /screens/org               org admin. {id, org}
 PUT    /screens/folders           {scope:"ws"|"org:<id>", folders:[…], rev,
                                    force?} — replace one owner section's

@@ -292,3 +292,74 @@ func TestScreensRevisionsAndFolders(t *testing.T) {
 		t.Fatalf("legacy screen save: %d %+v", c, res)
 	}
 }
+
+// D187: an org screen's layout mode is admin-plane like its name — it never
+// bumps the revision, a member can't change it, and a PUT that leaves it out
+// (an older shell re-saving tiles) keeps the stored one.
+func TestScreensOrgMode(t *testing.T) {
+	b, st := orgFixture(t) // sales: carol admin, bob write-level
+	carol := principalFor(t, st, "carol")
+	bob := principalFor(t, st, "bob")
+	var res struct {
+		ID  string `json:"id"`
+		Rev int    `json:"rev"`
+	}
+	put := func(p auth.Principal, body string) int {
+		t.Helper()
+		w := call(t, b.apiScreensOrgPut, p, "PUT", "/screens/org", body, nil)
+		res.ID, res.Rev = "", 0
+		_ = json.Unmarshal(w.Body.Bytes(), &res)
+		return w.Code
+	}
+	mode := func() (string, int) {
+		t.Helper()
+		w := call(t, b.apiScreensGet, carol, "GET", "/screens", "", nil)
+		var v struct {
+			Org []struct {
+				Mode string `json:"mode"`
+				Rev  int    `json:"rev"`
+			} `json:"org"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil || len(v.Org) != 1 {
+			t.Fatalf("screens get: %v %s", err, w.Body.String())
+		}
+		return v.Org[0].Mode, v.Org[0].Rev
+	}
+	if c := put(carol, `{"org":"sales","name":"HQ","edit":"write","tiles":[]}`); c != 200 {
+		t.Fatalf("create: %d", c)
+	}
+	id := res.ID
+	if m, _ := mode(); m != "" {
+		t.Fatalf("a new screen is a canvas (no mode): %q", m)
+	}
+	if c := put(carol, `{"id":"`+id+`","org":"sales","mode":"doc"}`); c != 200 || res.Rev != 1 {
+		t.Fatalf("set mode: %d %+v", c, res)
+	}
+	if m, rev := mode(); m != "doc" || rev != 1 {
+		t.Fatalf("mode doc, rev unchanged: %q rev %d", m, rev)
+	}
+	// a tile save without mode (an older shell) keeps it
+	if c := put(bob, `{"id":"`+id+`","org":"sales","tiles":[{"path":"apps/email"}],"rev":1}`); c != 200 || res.Rev != 2 {
+		t.Fatalf("member tile save: %d %+v", c, res)
+	}
+	if m, _ := mode(); m != "doc" {
+		t.Fatalf("a PUT without mode keeps it: %q", m)
+	}
+	// a member can't change it; sending the stored mode along is no change
+	if c := put(bob, `{"id":"`+id+`","org":"sales","mode":"canvas"}`); c != 403 {
+		t.Fatalf("member mode change: %d", c)
+	}
+	if c := put(bob, `{"id":"`+id+`","org":"sales","mode":"doc","tiles":[],"rev":2}`); c != 200 {
+		t.Fatalf("member save carrying the same mode: %d", c)
+	}
+	if c := put(carol, `{"id":"`+id+`","org":"sales","mode":"sideways"}`); c != 400 {
+		t.Fatalf("bad mode: %d", c)
+	}
+	// canvas is stored as absent
+	if c := put(carol, `{"id":"`+id+`","org":"sales","mode":"canvas"}`); c != 200 || res.Rev != 3 {
+		t.Fatalf("back to canvas: %d %+v", c, res)
+	}
+	if m, _ := mode(); m != "" {
+		t.Fatalf("canvas reads back as no mode: %q", m)
+	}
+}
