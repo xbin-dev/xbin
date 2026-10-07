@@ -27,6 +27,13 @@
 // optional in state:
 //   deployState(path, c)  a tile's deployments state (below); absent, the
 //                         lookup shell-kit.js installs answers
+//   layoutItems   the screen's Layout lines (shell-tabs.js), a submenu of
+//                 the canvas menu (D187)
+//   docMode       the screen is in Document mode (D187): a placed tile's
+//                 menu gets its Row lines, acting through docCols(path, n),
+//                 docStep(path, dir) and docFit(path)
+
+import { COLS, docRows, where } from './doc-layout.js';
 
 // Lifecycle predicates over a /components entry (shared with the sidebar).
 export const offloaded = (c) => c?.state === 'offloaded' || c?.state === 'offloaded-full';
@@ -135,6 +142,10 @@ export function canvasMenuItems(s, a) {
     items.push({ icon: 'plus', label: 'Create a new tile…', disabled: true, hint: s.ownerHint ?? 'org-only policy — ask an org admin' });
   }
   items.push({ icon: 'grid', label: 'New screen', action: () => a.addScreen() });
+  if (s.layoutItems?.length) {
+    const cur = s.layoutItems.find((x) => x.checked);
+    items.push({ icon: 'doc', label: 'Layout', hint: cur?.label ?? '', items: s.layoutItems });
+  }
   items.push({ kind: 'sep' });
   items.push({ icon: 'restore', label: 'Bring windows on-screen', hint: 'pop-ups, floats', action: () => a.fitWindows(true) });
   return items;
@@ -157,6 +168,23 @@ export function openTileItems(s, a) {
   ];
 }
 
+// Document mode's Row submenu (D187) for a placed tile: its row's width
+// (1 · 2 · 4 columns: wider pulls the next tiles up, narrower pushes the
+// overflow down), Move up / Move down — the keyboard's way to arrange — and
+// back to fitting its content after a fixed height was set.
+function rowItems(path, s, a) {
+  const rows = docRows(s.tiles), at = where(rows, path);
+  const row = at ? rows[at.row] : null, cols = row?.cols ?? 1, ro = !s.canMutate;
+  const t = row?.tiles[at.col];
+  return { icon: 'split', label: 'Row', hint: ro ? 'view mode' : `${cols} ${cols === 1 ? 'column' : 'columns'}`, disabled: ro || !row, items: [
+    ...COLS.map((n) => ({ label: `${n} ${n === 1 ? 'column' : 'columns'}`, checked: n === cols, action: () => a.docCols(path, n) })),
+    { kind: 'sep' },
+    { icon: 'chevron-up', label: 'Move up', disabled: at?.row === 0 && row.tiles.length === 1, action: () => a.docStep(path, -1) },
+    { icon: 'chevron-down', label: 'Move down', disabled: at?.row === rows.length - 1 && row.tiles.length === 1, action: () => a.docStep(path, 1) },
+    ...(t?.doc?.h ? [{ kind: 'sep' }, { label: 'Fit height to content', hint: `${t.doc.h} px now`, action: () => a.docFit(path) }] : []),
+  ] };
+}
+
 // The tile menu (card head, sidebar row, or relayed from inside the tile):
 // the four panels, screen actions, the admin lines.
 export function tileMenuItems(path, s, a) {
@@ -177,6 +205,7 @@ export function tileMenuItems(path, s, a) {
       action: () => a.toggle(path) });
     items.push({ icon: tile?.float ? 'maximize' : 'restore', label: tile?.float ? 'Pin to the grid' : 'Unpin into a window',
       disabled: !s.canMutate, action: () => a.togglePin(path) });
+    if (s.docMode && !tile.float) items.push(rowItems(path, s, a));
   } else {
     items.push({ icon: 'plus', label: os && !os.canEdit ? 'Open on my screen' : os && !draft ? 'Open here (starts a draft)' : 'Open on this screen',
       action: () => a.openTile(path) });

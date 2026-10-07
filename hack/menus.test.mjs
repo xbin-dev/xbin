@@ -345,3 +345,28 @@ test('window deployments: the head menu', () => {
   items = deployMenu('apps/a', { deployments: pinnedSum }, depState({ view: 'reader', level: 'read' }), '', a);
   assert.deepEqual(labels(items), ['<header>', 'main']);
 });
+
+test('Document mode (D187): the canvas menu Layout submenu and a tile Row submenu', () => {
+  const layout = [{ kind: 'header', label: 'Layout' }, { label: 'Canvas', checked: false }, { label: 'Document', checked: true }];
+  const cm = canvasMenuItems(state({ layoutItems: layout }), spy().a);
+  assert.equal(byLabel(cm, 'Layout').hint, 'Document');
+  assert.equal(byLabel(cm, 'Layout').items, layout);
+  assert.equal(byLabel(canvasMenuItems(state(), spy().a), 'Layout'), undefined, 'no layout lines given: none shown');
+
+  const tiles = [{ path: 'apps/a', x: 0, y: 0 }, { path: 'apps/b', x: 0, y: 400 }];
+  assert.equal(byLabel(tileMenuItems('apps/a', state({ tiles }), spy().a), 'Row'), undefined, 'canvas mode: no Row lines');
+  const { a, calls } = spy();
+  const row = byLabel(tileMenuItems('apps/a', state({ tiles, docMode: true }), a), 'Row');
+  assert.equal(row.hint, '1 column');
+  assert.deepEqual(labels(row.items), ['1 column', '2 columns', '4 columns', '<sep>', 'Move up', 'Move down']);
+  assert.ok(byLabel(row.items, '1 column').checked);
+  assert.ok(byLabel(row.items, 'Move up').disabled, 'the first row alone cannot go up');
+  assert.ok(!byLabel(row.items, 'Move down').disabled);
+  byLabel(row.items, '2 columns').action();
+  byLabel(row.items, 'Move down').action();
+  assert.deepEqual(calls, [['docCols', 'apps/a', 2], ['docStep', 'apps/a', 1]]);
+  // a fixed height offers fitting the content again; view mode disables the lot
+  const fixed = [{ ...tiles[0], doc: { row: 0, col: 0, cols: 1, h: 300 } }, tiles[1]];
+  assert.equal(byLabel(byLabel(tileMenuItems('apps/a', state({ tiles: fixed, docMode: true }), spy().a), 'Row').items, 'Fit height to content').hint, '300 px now');
+  assert.ok(byLabel(tileMenuItems('apps/a', state({ tiles, docMode: true, canMutate: false }), spy().a), 'Row').disabled);
+});

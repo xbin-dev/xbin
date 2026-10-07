@@ -77,6 +77,9 @@ import { nextZ, frontWindow, onWindowFront, activeWindow } from './zorder.js';
 import { follow as followLayout, editing as layoutEditing } from './layout-sync.js';
 import { framedTile } from './partition-mode.js';
 import { appearanceRows, followAppearance } from './shell-appearance.js';
+import { tabStrip, revealActiveTab, addScreen, hideOrgTab, screenMode, setScreenMode, layoutItems } from './shell-tabs.js'; // the screen tabs, in the top bar (D187)
+import { TopReveal } from './shell-doc.js'; // Document mode's top bar (D187)
+import { docRows, placeNew, setCols, rowOf, step, setHeight } from './doc-layout.js';
 
 // Convert a legacy column-based tile ({col, height}) to a fixed-grid tile
 // ({x,y,w,h}); tiles already in grid form pass through. Old columns become grid
@@ -200,6 +203,7 @@ export class BxShell extends LitElement {
     this._onBlur = () => this._raiseFocusedFloat();
     this._look = appearance();
     this._front = activeWindow();
+    this._top = new TopReveal(this); // Document mode: the bar slides away while reading
     // a spawned window's frame changed its build state: its live square follows
     this.addEventListener('bx-build', () => this.requestUpdate());
   }
@@ -307,6 +311,8 @@ export class BxShell extends LitElement {
     clearTimeout(this._staleTimer);
   }
 
+  updated() { revealActiveTab(this); }
+
   firstUpdated() {
     // The grid is absolute-positioned in fixed px, so window resize never
     // reflows it — no ResizeObserver on the canvas.
@@ -391,7 +397,7 @@ export class BxShell extends LitElement {
     const os = (this._orgScreens ?? []).find((x) => x.id === id);
     if (!os) return;
     const src = this._orgDrafts?.[id]?.tiles ?? os.tiles;
-    const s = { id: uid(), name: `${os.name} (copy)`, tiles: src.map((t) => ({ ...t })) };
+    const s = { id: uid(), name: `${os.name} (copy)`, tiles: src.map((t) => ({ ...t })), ...(os.mode ? { mode: os.mode } : {}) };
     this._screens = [...this._screens, s];
     this._active = s.id;
     this._save();
@@ -931,17 +937,20 @@ export class BxShell extends LitElement {
       ownerHint: this._who?.tileCreation === 'org-only' ? 'org-only policy — ask an org admin' : 'personal tiles are off for your account — ask an admin',
       components: this._components, tiles: this._tiles, recent: this._recent ?? [], showHidden: this._showHidden,
       canMutate: this._canMutate, prs: this._prs, canAdminTile: (p) => this._canAdminTile(p),
+      docMode: screenMode(this._screen) === 'doc', layoutItems: layoutItems(this, this._screen, this._activeOrgScreen ? 'org' : 'personal'),
     };
   }
   _menuActions(at = null) {
     return {
       enterEdit: (id) => this._enterEdit(id), saveOrgDraft: (id) => this._saveOrgDraft(id),
       discardDraft: (id) => this._discardDraft(id), copyOrgScreen: (id) => this._copyOrgScreen(id),
-      newTileDialog: (n, m, o, opts) => this._newTileDialog(n, m, o, { ...opts, at }), addScreen: () => this._addScreen(),
+      newTileDialog: (n, m, o, opts) => this._newTileDialog(n, m, o, { ...opts, at }), addScreen: () => addScreen(this),
       fitWindows: (persist) => this._fitWindows(persist), openTile: (p) => this._openFromMenu(p, at),
       toggle: (p) => this._toggle(p), togglePin: (p) => this._canvas?.togglePin(p), frameOpen: (p, l) => this._frameOpen(p, l, at),
       openFullPage: (p) => window.open(`/c/${p}/`, '_blank'), lifecycle: (p, st) => this._lifecycle(p, st),
       openAdminWin: (p, sec) => this._openAdminWin(p, sec), confirm: (m) => confirm(m),
+      docCols: (p, n) => this._mutateTiles((t) => setCols(t, rowOf(t, p), n)), docStep: (p, d) => this._mutateTiles((t) => step(t, p, d)),
+      docFit: (p) => this._mutateTiles((t) => setHeight(t, p, 0)),
     };
   }
   _canvasMenuItems(at) { return canvasMenuItems(this._menuState(), this._menuActions(at)); }
@@ -1227,13 +1236,6 @@ export class BxShell extends LitElement {
   _visibleTabs() {
     return this._tabList().filter((t) => (t.kind === 'personal' ? !t.s.parked : !this._hiddenOrg?.[t.id]));
   }
-  // Hide an org tab for me only; it stays listed under its org in the sidebar.
-  _hideOrgTab(id) {
-    if (this._visibleTabs().length <= 1) return;
-    this._hiddenOrg = { ...(this._hiddenOrg ?? {}), [id]: true };
-    if (this._active === id) this._active = this._visibleTabs()[0].id;
-    this._save();
-  }
   _openOrgScreen(id) {
     if (!(this._orgScreens ?? []).some((s) => s.id === id)) return;
     const { [id]: _, ...rest } = this._hiddenOrg ?? {};
@@ -1258,17 +1260,6 @@ export class BxShell extends LitElement {
     this._side = { ...this._side, folders: this._side.folders.map((f) =>
       ({ ...f, items: f.items.filter((it) => it !== '#screen:' + id) })) };
     if (wasParked) this._screens = this._screens.map((s) => s.id === id ? { ...s, parked: false } : s);
-    this._save();
-  }
-  // Reorder tabs (personal and org alike) — the order is personal state.
-  _moveScreen(dragId, beforeId) {
-    if (dragId === beforeId) return;
-    const ids = this._tabList().map((t) => t.id);
-    if (!ids.includes(dragId)) return;
-    const rest = ids.filter((x) => x !== dragId);
-    const i = beforeId ? rest.indexOf(beforeId) : -1;
-    const at = i < 0 ? rest.length : i;
-    this._tabOrder = [...rest.slice(0, at), dragId, ...rest.slice(at)];
     this._save();
   }
 
@@ -1580,7 +1571,8 @@ export class BxShell extends LitElement {
     }
     const { x, y } = at ? spotNear(this._tiles, at) : this._freeSpot();
     this._noteRecent(path);
-    this._mutateTiles((tiles) => [...tiles, { path, x, y, w: DEF_W, h: DEF_H }]);
+    const doc = screenMode(this._screen) === 'doc'; // Document mode: a new tile is the last row (D187)
+    this._mutateTiles((tiles) => (doc ? placeNew : (t) => t)([...tiles, { path, x, y, w: DEF_W, h: DEF_H }], path));
     if (this._mobile) this._drawer = false; // tapping a tile closes the drawer
   }
 
@@ -1604,57 +1596,7 @@ export class BxShell extends LitElement {
     if (this._mobile) this._drawer = false;
   }
 
-  // ---- screens ----
-  _switchScreen(id) { this._active = id; this._save(); }
-  _addScreen() {
-    const s = { id: uid(), name: `Screen ${this._screens.length + 1}`, tiles: [] };
-    this._screens = [...this._screens, s];
-    this._active = s.id;
-    this._save();
-  }
-  async _renameScreen(id) {
-    const os = (this._orgScreens ?? []).find((x) => x.id === id);
-    if (os) { // org screens: an org-admin act, meta-only (never bumps the revision)
-      if (!this._adminOrgs?.has(os.org)) return;
-      const name = prompt('Org screen name:', os.name);
-      if (name == null || !name.trim() || name.trim() === os.name) return;
-      try {
-        const r = await fetch('/api/xbin/screens/org', {
-          method: 'PUT', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id, org: os.org, name: name.trim() }),
-        });
-        const d = await r.json().catch(() => ({}));
-        if (!r.ok) this._pushToast(os.org, { level: 'error', message: d.error ?? `rename failed (${r.status})` });
-        this._loadShared();
-      } catch { /* offline */ }
-      return;
-    }
-    const s = this._screens.find((x) => x.id === id);
-    const name = prompt('Screen name:', s?.name ?? '');
-    if (name == null || !name.trim()) return;
-    this._screens = this._screens.map((x) => x.id === id ? { ...x, name: name.trim() } : x);
-    this._save();
-  }
-  _closeScreen(id, ev) {
-    ev.stopPropagation();
-    if (this._visibleTabs().length <= 1) return; // keep at least one open tab
-    // If this screen is parked in the folder tree, closing the TAB just parks it
-    // (the layout stays, restorable from the tree) instead of deleting it.
-    if (this._isTracked(id)) {
-      this._screens = this._screens.map((s) => s.id === id ? { ...s, parked: true } : s);
-      if (this._active === id) this._active = this._visibleTabs()[0].id;
-      this._save();
-      return;
-    }
-    const s = this._screens.find((x) => x.id === id);
-    if (s.tiles.length && !confirm(`Close screen "${s.name}" and its ${s.tiles.length} tile(s)?`)) return;
-    this._screens = this._screens.filter((x) => x.id !== id);
-    if (this._active === id) {
-      const vis = this._visibleTabs();
-      this._active = (vis[0] ?? this._tabList()[0])?.id ?? '';
-    }
-    this._save();
-  }
+  // ---- screens: the tabs and their actions are shell-tabs.js ----
 
   // ---- the tile surface is <bx-canvas> (grid + floats); these are the shell's ends of it ----
   _setFloat(path, patch) {
@@ -1715,9 +1657,16 @@ export class BxShell extends LitElement {
       orgDraft: (id) => s._orgDrafts?.[id] ?? null,
       dropOrgDraft: (id) => s._dropDraft(id),
       openOrgScreen: (id) => s._openOrgScreen(id),
-      hideOrgTab: (id) => s._hideOrgTab(id),
+      hideOrgTab: (id) => hideOrgTab(s, id),
       folderCtx: (key) => s._folderCtx(key),
       fileInto: (folderId, path, ctx) => s._fileInto(folderId, path, ctx),
+      // Document mode (D187): the active screen's mode, its rows, the top bar
+      get screenMode() { return screenMode(s._screen); },
+      addScreen() { addScreen(s); return s._active; },
+      tileMenuItems: (path) => s._tileMenuItems(path),
+      setScreenMode: (id, mode) => setScreenMode(s, id ?? s._active, mode),
+      docRows: () => docRows(s._tiles).map((r) => ({ cols: r.cols, paths: r.tiles.map((t) => t.path) })),
+      get topBar() { return { on: s._top.on, hidden: s._top.hidden }; },
     };
   }
 
@@ -1751,11 +1700,12 @@ export class BxShell extends LitElement {
           — read-only: this is what they see, in every tab of this browser, until you exit</span>
         <button class="chip" title="back to your own session" @click=${() => this._exitViewAs()}>exit view</button>
       </div>` : nothing}
-      <div class="top">
+      ${this._top.edge()}
+      <div class="top ${this._top.on ? 'docmode' : ''} ${this._top.hidden ? 'away' : ''}">
         ${this._mobile ? html`<button class="ham" title="menu" aria-label="menu" aria-expanded=${this._drawer ? 'true' : 'false'}
           @click=${() => { this._drawer = !this._drawer; }}><bx-icon name="menu"></bx-icon></button>` : nothing}
         ${brandLogo(this)}
-        <span class="spacer"></span>
+        ${this._mobile ? html`<span class="spacer"></span>` : tabStrip(this)}
         <button class="chip settings ${this._settingsOpen ? 'on' : ''}" title="workspace settings (per user)" aria-haspopup="true" aria-expanded=${this._settingsOpen ? 'true' : 'false'}
                 @click=${() => { this._settingsOpen = !this._settingsOpen; if (this._settingsOpen) this._look = appearance(); }}>settings</button>
         ${this._settingsOpen ? html`
@@ -1793,39 +1743,7 @@ export class BxShell extends LitElement {
         <a class="chip" href="/logout" @click=${(e) => { e.preventDefault(); fetch('/logout', { method: 'POST' }).then(() => location.reload()); }}>sign out</a>
       </div>
 
-      <div class="tabs" role="tablist" aria-label="screens">
-        ${this._visibleTabs().map(({ kind, s }) => {
-          const many = this._visibleTabs().length > 1;
-          const tst = worstStatus(this._status, (s.tiles ?? []).map((t) => t.path));
-          const draft = kind === 'org' ? this._orgDrafts?.[s.id] : null;
-          const title = tst ? `${s.name} — a tile here needs attention (${tst})`
-            : kind === 'org'
-              ? `org screen — shared with ${s.org}${s.canEdit ? ' (edit layout to change it for everyone)' : ' (read-only for you)'}${this._adminOrgs?.has(s.org) ? ' · double-click to rename' : ' · managed by org admins'} · drag to reorder · close hides it for you`
-              : 'drag to reorder · drag into a sidebar folder to park · double-click to rename';
-          return html`
-          <div class="tab ${s.id === this._active ? 'on' : ''} ${tst ? 'st-' + tst : ''} ${kind === 'org' ? 'org' : ''}" draggable="true"
-               role="tab" aria-selected=${s.id === this._active ? 'true' : 'false'}
-               @click=${() => this._switchScreen(s.id)}
-               @dblclick=${() => this._renameScreen(s.id)}
-               @dragstart=${(e) => { e.dataTransfer.setData('application/bx-screen', s.id);
-                 if (kind === 'org') e.dataTransfer.setData('application/bx-orgscreen', s.id);
-                 e.dataTransfer.effectAllowed = 'move'; }}
-               @dragover=${(e) => { if (e.dataTransfer.types.includes('application/bx-screen')) e.preventDefault(); }}
-               @drop=${(e) => { e.preventDefault(); const d = e.dataTransfer.getData('application/bx-screen'); if (d) this._moveScreen(d, s.id); }}
-               title=${title}>
-            <span>${s.name}</span>
-            ${kind === 'org' ? html`<span class="ob">${s.org}</span>` : nothing}
-            ${kind === 'org' && !s.canEdit ? html`<bx-icon class="ro" name="lock" label="read-only for you" title="read-only for you"></bx-icon>` : nothing}
-            ${draft?.dirty ? html`<bx-icon class="dirty" name="pencil" label="unsaved draft" title="unsaved draft — Save and update for everyone"></bx-icon>` : nothing}
-            ${tst === 'warn' || tst === 'error' ? statusIcon(tst) : nothing}
-            ${many ? html`<button class="x" title=${kind === 'org' ? 'hide this org screen from my tabs (reopen it from the sidebar)' : 'close'}
-              aria-label=${kind === 'org' ? `hide ${s.name}` : `close ${s.name}`}
-              @click=${(e) => { e.stopPropagation(); kind === 'org' ? this._hideOrgTab(s.id) : this._closeScreen(s.id, e); }}><bx-icon name="xmark"></bx-icon></button>` : nothing}
-          </div>`;
-        })}
-        <div class="tab add" role="button" tabindex="0" aria-label="new screen" @click=${() => this._addScreen()}
-             @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); this._addScreen(); } }} title="new screen"><bx-icon name="plus"></bx-icon></div>
-      </div>
+      ${this._mobile ? tabStrip(this) : nothing}
       ${this._orgBar()}
 
       <div class="body ${this._mobile ? 'mobile' : ''}">
@@ -1846,7 +1764,7 @@ export class BxShell extends LitElement {
               @pointermove=${(e) => this._pressMove(e)}
               @pointerup=${() => this._pressCancel()} @pointercancel=${() => this._pressCancel()}>
           <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings><bx-part-consent .components=${this._components} .who=${this._who}></bx-part-consent></div>
-          <bx-canvas .tiles=${this._tiles} .components=${this._components} .prs=${this._prs}
+          <bx-canvas .tiles=${this._tiles} .components=${this._components} .prs=${this._prs} .mode=${screenMode(this._screen)}
             .canMutate=${this._canMutate} .personal=${!this._activeOrgScreen} .mobile=${this._mobile} .menuOpen=${!!this._menu} .scale=${this._gridScale}
             .canAdminTile=${(p) => this._canAdminTile(p)} .who=${this._who} .alerts=${this._alerts} .reload=${() => { this._load(); this._loadAlerts(); }}
             .emptyText=${this._activeOrgScreen && !this._canMutate ? 'This shared screen is empty.' : 'This screen is empty. Open a tile from the sidebar.'}
