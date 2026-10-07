@@ -110,7 +110,7 @@ final class XbinAgentNativeTests: XCTestCase {
         e.ensureWorkspace()
         e.goHome()
         e.openAgent()
-        let newChat = e.app.buttons["New chat"]
+        let newChat = e.app.buttons.matching(NSPredicate(format: "label == %@", "New chat")).firstMatch
         e.backToList(newChat)
         e.expect(newChat, 60, "the list's New chat")
         newChat.tap()
@@ -245,7 +245,7 @@ final class XbinAgentNativeTests: XCTestCase {
             row.tap()
             e.expect(e.containing("Hello from the fake model."), 30, "a conversation")
             shot(e.isPad ? "split-chat" : "chat-pushed")
-            let newChat = e.app.buttons["New chat"]
+            let newChat = e.app.buttons.matching(NSPredicate(format: "label == %@", "New chat")).firstMatch
             if !e.isPad { e.tapNavBack(listShows: row, "back to the list") }
             e.expect(newChat, 10, "New chat")
             newChat.tap()
