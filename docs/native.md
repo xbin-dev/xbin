@@ -307,6 +307,8 @@ API — each member is app UI acting on data your tile hands it.
 | `xbin.native.saveState(obj)` | keep a small JSON blob (at most 64 KiB — larger throws) that the app hands back as `state` when it recreates the runtime: the open screen, the selected tab. Never secrets |
 | `xbin.native.widgetSize` | the size class the app shows your widget at: `"small"` or `"wide"` (§Widgets; `"small"` where the app shows none) |
 | `xbin.native.on('widgetsize', fn)` | `fn(size)` runs when the app shows your widget at another size class — re-render it there; returns a function that stops listening |
+| `xbin.native.width` | the horizontal size class of the screen your view is drawn on: `"compact"` (a phone, an iPad's narrow Split View) or `"regular"` (an iPad); `null` when the app doesn't say (older apps, previews) — lay out for a phone's narrow bar with it (at most two items in a compact bar keeps its title) |
+| `xbin.native.on('width', fn)` | `fn(width)` runs when the screen changes width class (Split View, a rotation) — re-render for it; returns a function that stops listening |
 
 `xbin.native` exists only in the runtime document (the app, and the
 previews `bx` draws); your web page does not have it.

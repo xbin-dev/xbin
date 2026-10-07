@@ -69,6 +69,16 @@ import Testing
         let script = RuntimeScript.documentStart(caps: caps.withWidget(size: .wide), state: nil)
         #expect(script.contains(#""widgetSize":"wide""#) && script.contains(#""widget""#))
     }
+
+    @Test func theScreensWidthClass() throws {
+        var caps = NativeCaps(renderer: "ios", app: "1.0", prims: ["text": 1])
+        #expect(caps.json["width"] == nil && caps.width == nil)
+        caps.width = .compact
+        #expect(caps.json["width"] == "compact")
+        #expect(try NativeCaps(json: caps.json) == caps)
+        #expect(try NativeCaps(json: ["prims": [:], "width": "huge"]).width == nil)
+        #expect(RuntimeCall.width(.regular).javaScript == #"xbn.width?.("regular")"#)
+    }
 }
 
 @Suite struct TreeStoreWidgetTests {

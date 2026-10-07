@@ -274,6 +274,7 @@ async function step(s) {
   else if (own(s, 'visibility')) rt.xbn.visibility(s.visibility);
   else if (own(s, 'widgetSize')) { activity++; rt.xbn.widgetSize(s.widgetSize); }
   else if (own(s, 'navigate')) { activity++; rt.xbn.navigate(s.navigate); }
+  else if (own(s, 'width')) { activity++; rt.xbn.width(s.width); }
   else if (own(s, 'resolve')) rt.xbn.resolve(...s.resolve);
   else throw new Error(`unknown step ${JSON.stringify(s)}`);
   return settle();

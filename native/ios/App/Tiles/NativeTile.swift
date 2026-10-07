@@ -68,7 +68,10 @@ final class NativeTileRuntime: NSObject {
         widgetModel = XbinTreeModel(store: store.widget ?? TreeStore())
         hatches = TileHatches(workspace: workspace, tile: tile)
         let config = WebTileController.configuration(for: workspace, bridge: false)
-        let caps = XbinVocabulary.caps(app: AppInfo.version, renderer: "ios").withWidget(size: widgetSize)
+        var caps = XbinVocabulary.caps(app: AppInfo.version, renderer: "ios").withWidget(size: widgetSize)
+        // The screen's width class until a screen shows the tile and says
+        // (setWidth): a phone's is compact, an iPad's regular at full width.
+        caps.width = UIDevice.current.userInterfaceIdiom == .phone ? .compact : .regular
         self.caps = caps
         Self.install(RuntimeScript.startScripts(caps: caps, state: saved), in: config.userContentController)
         config.preferences.inactiveSchedulingPolicy = .none
@@ -197,6 +200,14 @@ final class NativeTileRuntime: NSObject {
         widgetSize = size
         caps.widgetSize = size
         call(.widgetSize(size))
+    }
+
+    /// The screen showing the tile is `width` wide now (a size class): the
+    /// runtime is told (`xbin.native.width`), and a reload starts with it.
+    func setWidth(_ width: WidthClass) {
+        guard width != caps.width, !stopped else { return }
+        caps.width = width
+        call(.width(width))
     }
 
     // MARK: Runtime → app
@@ -427,6 +438,14 @@ extension NativeTileRuntime: WKNavigationDelegate, WKScriptMessageHandler {
 /// ran it, kept warm after the screen goes — which parks its hidden
 /// document in the window (so WebKit keeps its timers running).
 struct NativeTileScreen: View {
+    static func width(_ c: UserInterfaceSizeClass?) -> WidthClass? {
+        switch c {
+        case .compact: return .compact
+        case .regular: return .regular
+        default: return nil
+        }
+    }
+
     let workspace: WorkspaceModel
     let tile: TileInfo
     /// A deep link's fragment (`#c=42`): the runtime starts with it, or a
@@ -435,6 +454,7 @@ struct NativeTileScreen: View {
     let fallBack: (String) -> Void
 
     @Environment(WorkspaceNav.self) private var nav
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var runtime: NativeTileRuntime?
     /// This screen's claim on the runtime (the pool pins it while held).
     @State private var claim: UUID?
@@ -479,6 +499,7 @@ struct NativeTileScreen: View {
         .onAppear {
             let pool = NativeRuntimePool.shared
             if let rt = runtime, !rt.stopped, claim != nil {
+                if let w = Self.width(sizeClass) { rt.setWidth(w) }
                 rt.setVisible(true) // back from under a window it pushed
                 return
             }
@@ -488,6 +509,7 @@ struct NativeTileScreen: View {
             handledFragment = fragment
             let rt = pool.open(workspace, tile, screen: id, fragment: link, fallBack: fallBack)
             rt.hatches.nav = nav // canvas islands push onto this window (Navigation.swift)
+            if let w = Self.width(sizeClass) { rt.setWidth(w) }
             claim = id
             runtime = rt
         }
@@ -508,6 +530,8 @@ struct NativeTileScreen: View {
                 claim = nil
             }
         }
+        // The panel's width class: the tile lays out for it (xbin.native.width).
+        .onChange(of: sizeClass) { _, c in if let w = Self.width(c) { runtime?.setWidth(w) } }
         // Another deep link to the open tile (D189).
         .onChange(of: fragment) { _, f in
             if let link = NativeHostedStack.fragment(f, handled: handledFragment) { runtime?.navigate(link) }

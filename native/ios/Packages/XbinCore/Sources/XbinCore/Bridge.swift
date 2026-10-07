@@ -384,6 +384,11 @@ public enum RuntimeCall: Sendable, Equatable {
     /// (``TileScheme/runtimeURL(workspace:tile:fragment:)``) instead. A
     /// runtime older than the call has no such function: it does nothing.
     case navigate(String)
+    /// `xbn.width(w)` — the screen the tile is drawn on changed width class
+    /// (an iPad's Split View, a rotation; the first one travels in the
+    /// caps, ``NativeCaps/width``). A runtime older than the call has no
+    /// such function: it does nothing.
+    case width(WidthClass)
 
     /// The call expression, e.g. `xbn.event("r.0.1","tap",{})`.
     public var javaScript: String {
@@ -410,6 +415,8 @@ public enum RuntimeCall: Sendable, Equatable {
             return "xbn.remount(\(JSONValue.string(target.rawValue).jsLiteral()))"
         case .navigate(let hash):
             return "xbn.navigate?.(\(JSONValue.string(TileScheme.hash(hash)).jsLiteral()))"
+        case .width(let w):
+            return "xbn.width?.(\(JSONValue.string(w.rawValue).jsLiteral()))"
         }
     }
 
@@ -443,6 +450,12 @@ public enum RuntimeScript {
     }
 }
 
+/// The horizontal size class a native view is drawn at (`xbin.native.width`).
+public enum WidthClass: String, Sendable, Equatable {
+    case compact
+    case regular
+}
+
 /// `xbin.native.caps` (plans/native.md §7.4, §11): what this app renders,
 /// injected into each runtime before `native.js` runs.
 public struct NativeCaps: Sendable, Equatable {
@@ -461,6 +474,10 @@ public struct NativeCaps: Sendable, Equatable {
     /// the app draws widgets; later changes go through
     /// ``RuntimeCall/widgetSize(_:)``.
     public var widgetSize: CardSize?
+    /// The horizontal size class of the screen the tile is drawn on
+    /// (`xbin.native.width`): a phone's `compact`, an iPad's `regular`; later
+    /// changes go through ``RuntimeCall/width(_:)``.
+    public var width: WidthClass?
 
     /// The feature that asks the runtime for the tile's widget tree
     /// (`target:"widget"` messages). Without it the runtime sends none.
@@ -496,6 +513,7 @@ public struct NativeCaps: Sendable, Equatable {
             "features": .array(features.sorted().map(JSONValue.string)),
         ]
         if let widgetSize { o["widgetSize"] = .string(widgetSize.rawValue) }
+        if let width { o["width"] = .string(width.rawValue) }
         return .object(o)
     }
 
@@ -511,6 +529,7 @@ public struct NativeCaps: Sendable, Equatable {
         prims = p
         features = (o["features"]?.arrayValue ?? []).compactMap(\.stringValue)
         widgetSize = o["widgetSize"]?.stringValue.flatMap(CardSize.init(rawValue:))
+        width = o["width"]?.stringValue.flatMap(WidthClass.init(rawValue:))
     }
 
     /// `xbin.native.supports(name[, rev])`, app side (revisions start at 1).

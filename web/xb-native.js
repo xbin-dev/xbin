@@ -112,6 +112,7 @@ export const native = {
   open: (url) => current$().native.open(url),
   saveState: (obj) => current$().native.saveState(obj),
   get widgetSize() { return current$().native.widgetSize; },
+  get width() { return current$().native.width; },
   on: (type, fn) => current$().native.on(type, fn),
 };
 
@@ -123,6 +124,7 @@ export const native = {
 //   xbn.remount(target?)             send a tree again (a fresh mount; "widget": the widget's)
 //   xbn.widgetSize('small'|'wide')   the app shows the widget at another size class
 //   xbn.navigate('#c=42')            a deep link: location.hash becomes it and hashchange fires
+//   xbn.width('compact'|'regular')   the screen changed width class (xbin.native.width)
 G.xbn = {
   event: (k, type, payload, n, target) => current$().xbn.event(k, type, payload, n, target),
   visibility: (s) => current$().xbn.visibility(s),
@@ -131,6 +133,7 @@ G.xbn = {
   remount: (target) => current$().xbn.remount(target),
   widgetSize: (size) => current$().xbn.widgetSize(size),
   navigate: (hash) => current$().xbn.navigate(hash),
+  width: (w) => current$().xbn.width(w),
 };
 
 let listening = false;

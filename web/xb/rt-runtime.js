@@ -33,6 +33,8 @@ import { MarkdownCache } from '/vendor/xb/rt-markdown.js';
 const own = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
 export const TREE_V = 1;
 const STATE_MAX = 64 << 10;
+// The horizontal size classes a screen comes in (xbin.native.width).
+const WIDTHS = ['compact', 'regular'];
 
 // Which props each primitive's events report (controlled state), from the vocabulary.
 const REPORTED = {};
@@ -47,6 +49,7 @@ export function normalizeCaps(c) {
   const out = { v: Number(c.v) || VOCAB.v, renderer: String(c.renderer ?? ''), app: c.app ?? null,
     prims: { ...c.prims }, features: Array.isArray(c.features) ? [...c.features] : [] };
   if (VOCAB.widget.sizes.includes(c.widgetSize)) out.widgetSize = c.widgetSize;
+  if (WIDTHS.includes(c.width)) out.width = c.width;
   return out;
 }
 
@@ -85,6 +88,8 @@ export function createRuntime(opts = {}) {
   const targetOf = (t) => (t === undefined || t === null || t === '' ? main : t === 'widget' && widgetOn ? wdg : null);
   let widgetSize = caps.widgetSize ?? VOCAB.widget.sizes[0];
   const sizeListeners = new Set();
+  let width = caps.width ?? null; // null: the app doesn't say (an older app, a preview)
+  const widthListeners = new Set();
   let building = null; // the target a flush is building: its diag/error messages name it
   let scheduled = false;
   const seen = new Set();
@@ -287,17 +292,34 @@ export function createRuntime(opts = {}) {
     return true;
   }
 
+  // xbn.width(w) — the screen the tile is drawn on changed width class.
+  function setWidth(w) {
+    if (!WIDTHS.includes(w) || w === width) return false;
+    width = w;
+    for (const fn of [...widthListeners]) {
+      try {
+        const r = fn(w);
+        if (r && typeof r.then === 'function') r.then(null, (e) => fail('uncaught', e, 'width listener'));
+      } catch (e) { fail('uncaught', e, 'width listener'); }
+    }
+    return true;
+  }
+
   const native = {
     caps,
     get state() { return state; },
     // the size class the app shows the widget at: "small" (one column) | "wide" (two)
     get widgetSize() { return widgetSize; },
-    // on('widgetsize', fn(size)) → an unsubscribe function
+    // the screen's horizontal size class: "compact" (a phone) | "regular"
+    // (an iPad) — null when the app doesn't say
+    get width() { return width; },
+    // on('widgetsize' | 'width', fn(value)) → an unsubscribe function
     on(type, fn) {
-      if (type !== 'widgetsize') throw new Error(`xbin.native.on: unknown event ${JSON.stringify(type)} (widgetsize)`);
+      const set = type === 'widgetsize' ? sizeListeners : type === 'width' ? widthListeners : null;
+      if (!set) throw new Error(`xbin.native.on: unknown event ${JSON.stringify(type)} (widgetsize, width)`);
       if (typeof fn !== 'function') throw new Error('xbin.native.on: the listener must be a function');
-      sizeListeners.add(fn);
-      return () => { sizeListeners.delete(fn); };
+      set.add(fn);
+      return () => { set.delete(fn); };
     },
     supports(name, rev = 1) {
       if (own(caps.prims, name)) return caps.prims[name] >= rev;
@@ -346,6 +368,7 @@ export function createRuntime(opts = {}) {
     frame: () => flush() !== null,
     remount,
     widgetSize: setWidgetSize,
+    width: setWidth,
     navigate,
   };
 

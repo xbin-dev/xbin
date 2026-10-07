@@ -118,6 +118,7 @@ of `r.1`; `r.1.0:3.1` is slot 1 of the multi-root template item `3` renders;
 | `xbn.frame()` | the renderer's frame clock: flush a pending render now (§7). Returns whether a tree message was sent. |
 | `xbn.remount(target?)` | send a whole tree again as a fresh `mount` (the app lost its copy or failed to apply a patch): the main tree, or with `"widget"` the widget tree (§13). |
 | `xbn.widgetSize(size)` | the app shows the widget at another size class, `"small"` or `"wide"` (§13); the tile hears it and re-renders. Returns whether the size changed. |
+| `xbn.width(w)` | the screen the tile is drawn on is now `"compact"` (a phone, an iPad's narrow Split View) or `"regular"` wide (a horizontal size class); the tile hears it (`xbin.native.on('width')`) and lays out for it. The first one travels in `caps.width`. A runtime from before has no such function (call it as `xbn.width?.(…)`). Returns whether the class changed. |
 | `xbn.navigate(hash)` | a deep link into the running view (D189): the document's `location.hash` becomes `hash` (`"#c=42"`; the `#` is optional, `""` clears it) and `hashchange` fires — also when it was that hash already. The first link needs no call: the app loads the runtime document with the link's fragment (`/c/<tile>/?native=1#c=42`), so the tile reads `location.hash` as it starts. A runtime from before has no such function (call it as `xbn.navigate?.(…)`). Returns whether it navigated. |
 
 The tile's handler receives `{type, value, ...payload}` (`value` is
@@ -300,6 +301,10 @@ calling it with nothing pending is cheap.
   `vocab.json` `features`): the app shows widget trees (§13). Without it the
   runtime never sends one. `widgetSize` (optional, `"small"` | `"wide"`,
   default `"small"`): the size class the widget is first shown at.
+- `width` (optional, `"compact"` | `"regular"`): the horizontal size class of
+  the screen the tile is drawn on; later changes come as `xbn.width`. Absent:
+  the app doesn't say (an older app, a preview) — `xbin.native.width` is
+  `null`.
 - Tiles test with `xbin.native.supports(name[, rev])` (a primitive with at least
   that revision, or a feature flag — `supports('widget')` included).
 
@@ -314,6 +319,8 @@ calling it with nothing pending is cheap.
 | `state` / `saveState(obj)` | the injected blob / `{op:"state"}` |
 | `widgetSize` | the widget's size class, `"small"` \| `"wide"` (§13) — `caps.widgetSize`, then `xbn.widgetSize` |
 | `on('widgetsize', fn)` | `fn(size)` after each `xbn.widgetSize` change; returns an unsubscribe function |
+| `width` | the screen's horizontal size class, `"compact"` \| `"regular"`, or `null` when the app doesn't say — `caps.width`, then `xbn.width` |
+| `on('width', fn)` | `fn(width)` after each `xbn.width` change; returns an unsubscribe function |
 
 ## 10. Props and values
 
