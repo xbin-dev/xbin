@@ -311,7 +311,9 @@ What the packages and tests must do for CI:
   strips the prefix), named `<fixture>-<light|dark>-<default|large|ax2>.png`:
   `default`, `large` (xxxLarge — what `shots.mjs` draws as large, so the two
   compare like for like) and `ax2` (accessibility2, iOS only: the overflow
-  test). `FIXTURES_DIR` is the absolute path of `native/fixtures`. When
+  test). A fixture with a `split` is also drawn as an iPad shows it,
+  1180×820 points at a regular width, as `<fixture>-<light|dark>-ipad.png`
+  (D189). `FIXTURES_DIR` is the absolute path of `native/fixtures`. When
   `SNAPSHOT_DIR` is unset (Xcode locally) tests skip writing rather than
   fail. Images a test only *attaches* to the result are exported into
   `snapshots/attachments/` as a fallback.
