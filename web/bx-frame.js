@@ -16,7 +16,10 @@
  * Attributes:
  *   src     — component path (workspace-relative)
  *   height  — fixed CSS height; omit for auto-height (the framed document
- *             reports its size via xbin-client.js)
+ *             reports its size via xbin-client.js). Reactive (D187): adding
+ *             or removing it — or a CSS height in the element's style —
+ *             switches the mode in place, without reloading the tile; a
+ *             frame turning auto takes the height its document last said
  *   no-edit — hide the edit button
  *
  * Browser-plane isolation (docs/auth.md §Who is calling): non-chrome components load in a
@@ -183,7 +186,10 @@ export class BxFrame extends LitElement {
   connectedCallback() {
     super.connectedCallback();
     mountedFrames.add(this);
-    this._autoHeight = !this.height && !this.style.height;
+    this._syncAutoHeight();
+    // the embedder sets or clears a CSS height: auto-height follows (D187)
+    this._styleMo = new MutationObserver(() => this._syncAutoHeight());
+    this._styleMo.observe(this, { attributes: true, attributeFilter: ['style'] });
     this._offEvents = onEvent((e) => this._event(e));
     window.addEventListener('message', this._onMsg);
     window.addEventListener(FRONT, this._onWinFront);
@@ -385,6 +391,7 @@ export class BxFrame extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     mountedFrames.delete(this);
+    this._styleMo?.disconnect(); this._styleMo = null;
     this._stopFollow?.();
     this._ro?.disconnect(); this._ro = null;
     this._offEvents?.();
@@ -514,6 +521,24 @@ export class BxFrame extends LitElement {
     }, 350);
   }
 
+  // Auto-height (no `height`, no CSS height) is decided again whenever
+  // either changes, not once on connect (D187): an embedder switches a tile
+  // between a fixed and a grown-to-content frame without reloading it.
+  willUpdate(changed) {
+    if (changed.has('height')) this._syncAutoHeight();
+  }
+  _syncAutoHeight() {
+    const auto = !this.height && !this.style.height;
+    if (auto === this._autoHeight) return;
+    this._autoHeight = auto;
+    if (auto) this._applyDocHeight();
+    else this.style.removeProperty('--bx-frame-height');
+  }
+  // the document's last reported height, clamped as ever (24–20000 px)
+  _applyDocHeight() {
+    if (this._docHeight > 0) this.style.setProperty('--bx-frame-height', Math.max(24, Math.min(this._docHeight, 20000)) + 'px');
+  }
+
   _message(e) {
     // Only trust messages from OUR iframe — the sender window IS the identity,
     // so a tile can't spoof another component's requests. On its own origin
@@ -526,8 +551,8 @@ export class BxFrame extends LitElement {
     if (typeof d?.type !== 'string' || !d.type.startsWith('xbin:')) return;
 
     if (d.type === 'xbin:resize') {
-      if (!this._autoHeight) return;
-      this.style.setProperty('--bx-frame-height', Math.max(24, Math.min(d.height, 20000)) + 'px');
+      this._docHeight = Number(d.height) || 0; // kept while fixed: the frame may turn auto later
+      if (this._autoHeight) this._applyDocHeight();
       return;
     }
 

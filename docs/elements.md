@@ -384,7 +384,10 @@ credential-less; the next release removes that path
 
 **Sizing.** A view is framed inside a fixed-size card on the shell's snappable
 grid (the user drags to size it, down to ~192px; content scrolls inside — it
-can't stretch the card) and can also be opened full page.
+can't stretch the card) and can also be opened full page. On a screen in
+**Document mode** (D187) the card is as wide as its row allows and **as tall
+as your document**: the frame takes the height your page reports, so let it
+grow naturally — [frontend-kit.md](/docs/frontend-kit.md) §Document mode.
 Design to be usable when **narrow** and to **reflow, never scroll
 horizontally**: relative units, flexbox/grid, `max-width:100%` on media, and
 wrap inherently wide content (tables, code, diagrams) in its own
@@ -410,6 +413,11 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
 
 - **Auto-height**: the framed document reports its size via xbin-client
   (with hysteresis, so no resize loops). Set `height` for a fixed frame.
+  The mode follows the element live (D187): setting or removing `height`
+  — or a CSS `height` in its `style` — switches between fixed and
+  auto-height in place, without reloading the tile; a frame turning auto
+  takes the height its document last reported (clamped to 24–20000 px).
+  The shell's Document mode relies on it.
 - **Edit button**: 7×7 px, top-right, 35 % opacity until hover. Opens a
   **floating terminal window** with a shell cwd'd to `src`: it appears at
   the frame's corner and keeps its position *relative to the frame* — it
