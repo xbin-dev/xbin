@@ -6,7 +6,9 @@
  * with a <select> of the providers that can satisfy it, and a one-click bind.
  * The binding is the owner's authorization (agents can't self-bind), so this is
  * where that decision is made. Renders nothing when there is nothing to wire,
- * so it can sit permanently in the root page next to <bx-grants>.
+ * so it can sit permanently in the root page next to <bx-grants>. A row's
+ * quiet Dismiss hides it for this person on all their devices (D188,
+ * /vendor/bx-dismiss.js); "dismissed (N) · show" brings them back.
  */
 import { LitElement, html, css, nothing, repeat } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
@@ -14,10 +16,12 @@ import '/vendor/bx-multiselect.js';
 import '/vendor/bx-icons.js';
 import { onEvent } from '/vendor/events-socket.js';
 import { bindPreselect, blockedTitle } from '/vendor/bx-netrules.js';
+import { bindingKey, split, prune, dismiss, restore, loadDismissed, updateDismissed, dismissedEvent } from '/vendor/bx-dismiss.js';
 
 // a link-like control that opens or closes a list: focusable, Enter and Space work
-const toggle = (label, fn) => html`<a role="button" tabindex="0" @click=${fn}
+const toggle = (label, fn, title = '') => html`<a role="button" tabindex="0" title=${title} @click=${fn}
   @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); } }}>${label}</a>`;
+const xfetch = (...a) => (window.xbin?.fetch ?? fetch)(...a);
 
 export class BxBindings extends LitElement {
   static properties = {
@@ -28,6 +32,7 @@ export class BxBindings extends LitElement {
     _errs: { state: true },
     _approvable: { state: true },
     _showAll: { state: true },
+    _dismissed: { state: true }, // the person's dismissals (bx-dismiss.js); null until read
   };
 
   static styles = [scrollCss, css`
@@ -84,6 +89,11 @@ export class BxBindings extends LitElement {
     select.mode { flex: none; width: auto; }
     .rerr { color: var(--bx-danger, #FF7A7A); padding: 0 0 4px 2px; }
     .rerr bx-icon { margin-right: 6px; }
+    /* Dismiss: a quiet row action (R1), last on the row */
+    button.quiet { background: transparent; color: var(--bx-muted, #A3A6B6); border-color: transparent; font-weight: 400; }
+    button.quiet:hover:not(:disabled) { background: transparent; border-color: var(--bx-border-strong, #666A7E); color: var(--bx-text, #E9EAF0); }
+    .restore { display: block; color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); }
+    .panel > .restore { margin-top: 8px; }
   `];
 
   constructor() {
@@ -95,12 +105,17 @@ export class BxBindings extends LitElement {
     this._errs = {};      // "comp slot" -> last server refusal (rendered inline)
     this._showAll = false;
     this._approvable = null; // comp → true: the wiring this person may change (GET /bindings)
+    this._dismissed = null;
   }
 
   connectedCallback() {
     super.connectedCallback();
-    this._off = onEvent((e) => { if (e.type === 'grants' || e.type === 'reload') this._load(); });
+    this._off = onEvent((e) => {
+      if (e.type === 'grants' || e.type === 'reload') this._load();
+      if (dismissedEvent(e)) this._loadDismissed(); // another tab or device dismissed or restored
+    });
     this._load();
+    this._loadDismissed();
   }
 
   disconnectedCallback() { super.disconnectedCallback(); this._off?.(); }
@@ -118,7 +133,31 @@ export class BxBindings extends LitElement {
       this._bindings = d.bindings ?? {};
       // the tiles whose wiring this person may change (an admin: all)
       this._approvable = d.approvable ?? null;
+      this._loaded = true;
+      this._prune();
     } catch { /* next event reloads */ }
+  }
+
+  async _loadDismissed() {
+    const d = await loadDismissed(xfetch);
+    if (d) { this._dismissed = d; this._prune(); }
+  }
+
+  // _prune drops the dismissals of slots the server no longer lists (bound,
+  // or gone from the manifest) — once both are read.
+  _prune() {
+    if (!this._dismissed || !this._loaded) return;
+    const live = this._pending.map(bindingKey);
+    if (prune(this._dismissed, 'bindings', live) === this._dismissed) return;
+    this._save((d) => prune(d, 'bindings', live));
+  }
+
+  // _save(fn): change the dismissals — at once here, then stored (a read,
+  // change and write, so <bx-grants>' own kind is never undone).
+  async _save(fn) {
+    if (this._dismissed) this._dismissed = fn(this._dismissed);
+    const d = await updateDismissed(xfetch, fn);
+    if (d) this._dismissed = d;
   }
 
   _key(p) { return `${p.component}\u0000${p.slot}`; }
@@ -208,17 +247,22 @@ export class BxBindings extends LitElement {
 
   render() {
     const active = this._active();
-    if (this._pending.length === 0 && !this._showAll) {
+    const { shown, hidden } = split(this._pending, this._dismissed, 'bindings', bindingKey);
+    // the dismissed rows: one quiet line that brings them back
+    const back = hidden.length === 0 ? nothing : html`<span class="restore" data-restore>${toggle(`dismissed (${hidden.length}) · show`,
+      () => this._save((d) => restore(d, 'bindings', hidden.map(bindingKey))),
+      'show the interfaces to bind you dismissed again')}</span>`;
+    if (shown.length === 0 && !this._showAll) {
       // the count is a way into wiring someone may change: bindings on tiles
       // they can't rewire are no line on every screen (as bx-grants)
       const n = this._approvable ? active.filter((b) => this._approvable[b.component]).length : active.length;
-      return n === 0 ? nothing
-        : toggle(`${n} interface ${n === 1 ? 'binding' : 'bindings'}`, () => { this._showAll = true; });
+      return n === 0 ? back
+        : html`${toggle(`${n} interface ${n === 1 ? 'binding' : 'bindings'}`, () => { this._showAll = true; })}${back}`;
     }
     return html`<div class="panel">
-      ${this._pending.length > 0 ? html`
+      ${shown.length > 0 ? html`
         <h4>interfaces to bind</h4>
-        ${repeat(this._pending, (p) => this._key(p), (p) => {
+        ${repeat(shown, (p) => this._key(p), (p) => {
           // keyed: a row's <select> is never reused for another slot's row,
           // so what it shows is what its bind submits
           const key = this._key(p);
@@ -259,6 +303,8 @@ export class BxBindings extends LitElement {
               ${routeEd}
               <button ?disabled=${!cur || !this._routeReady(p)}
                 @click=${() => this._bind(p)}>${p.expose ? 'publish' : 'bind'}</button>`}
+            <button class="quiet" data-dismiss title="hide this row for you, on all your devices — the slot stays unbound, and other admins still see it"
+              @click=${() => this._save((d) => dismiss(d, 'bindings', bindingKey(p)))}>Dismiss</button>
           </div>
           ${this._errs[key] ? html`<div class="rerr" role="alert"><bx-icon name="error"></bx-icon>${this._errs[key]}</div>` : nothing}`;
         })}` : nothing}
@@ -272,6 +318,7 @@ export class BxBindings extends LitElement {
             <button class="rm" @click=${() => this._unbind(b)}>unbind</button>
           </div>`)}
         ${toggle('hide', () => { this._showAll = false; })}` : (active.length > 0 ? toggle('show all bindings', () => { this._showAll = true; }) : nothing)}
+      ${back}
     </div>`;
   }
 }

@@ -843,6 +843,7 @@ PASSES.appearance = require('./passes/appearance').appearance; // D184: no flash
 PASSES.themeCanary = require('./passes/themecanary').themeCanary; // D184: every colour, font and radius on screen from a token, in both themes
 PASSES.termTheme = require('./passes/termtheme').termTheme; // D184: an open terminal follows the person's theme; a picked palette stays
 PASSES.themeCompat = require('./passes/themecompat').themeCompat; // D184: a tile from before the theme — its own palette carries, its own buttons keep their colours
+PASSES.grantDismiss = require('./passes/grantdismiss').grantDismiss; // D188: dismiss grant requests and interfaces to bind; no "N grants active"
 
 (async () => {
   const args = process.argv.slice(2);

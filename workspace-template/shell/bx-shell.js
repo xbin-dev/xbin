@@ -42,6 +42,7 @@ import { appearance } from '/vendor/bx-theme.js';
 import '/vendor/bx-frame.js';
 import '/vendor/bx-grants.js';
 import '/vendor/bx-bindings.js';
+import { pendingCount, loadDismissed, dismissedEvent } from '/vendor/bx-dismiss.js';
 import './bx-tile-admin.js';
 import './bx-part-consent.js';
 import '/vendor/bx-dialog.js';
@@ -214,7 +215,7 @@ export class BxShell extends LitElement {
       if (e.type === 'reload' || e.type === 'grants') this._load();
       if (e.type === 'branding') loadBrand().then((b) => this._setBrand(b)); // the admin changed the title/icon
       if (e.type === 'users') { this._load(); this._probeAdmin(); this._loadShared(); } // org/ownership/screens changes
-      if (e.type === 'grants' || e.type === 'users') this._loadPendingCount(); // ⚑ badge
+      if (e.type === 'grants' || e.type === 'users' || dismissedEvent(e)) this._loadPendingCount(); // ⚑ badge
       if (e.type === 'status') this._onStatusEvent(e); // tile health / notifications
       if (e.type === 'pr') this._loadPRs();            // change-proposal badges (⇄)
       if (e.type === 'prefs') followLayout(this, e, LAYOUT_PREF); // the app / another tab saved the layout
@@ -1416,26 +1417,15 @@ export class BxShell extends LitElement {
 
   // The ⚑ badge: ACTIONABLE pending items — requests this human may approve
   // (D26/D33), their own tiles' requests still waiting (direction "mine"),
-  // and unbound interface slots in their view. Refetched on grants/users
-  // events, so a new request lights the badge without a reload.
+  // and unbound interface slots in their view, less what they dismissed
+  // (D188: pendingCount). Refetched on grants/users events and dismissals,
+  // so a new request lights the badge without a reload.
   async _loadPendingCount() {
     try {
-      const [gr, br, rr] = await Promise.all([
-        fetch('/api/xbin/grants'), fetch('/api/xbin/bindings'),
-        fetch('/api/xbin/access-requests'),
-      ]);
-      const g = gr.ok ? await gr.json() : null;
-      const b = br.ok ? await br.json() : null;
-      const q = rr.ok ? await rr.json() : null;
-      let n = 0;
-      const scoped = !!g?.scope;
-      for (const p of g?.pending ?? []) {
-        if (p.blocked) continue;
-        if (!scoped || p.approvable || p.direction === 'mine') n += 1;
-      }
-      n += (b?.pending ?? []).filter((p) => p.approvable !== false).length; // slots this person may wire
-      n += (q?.requests ?? []).filter((x) => x.manage).length; // human requests you can grant (D36)
-      this._pendingN = n;
+      const j = (r) => (r.ok ? r.json() : null);
+      const [g, b, q, d] = await Promise.all([fetch('/api/xbin/grants').then(j), fetch('/api/xbin/bindings').then(j),
+        fetch('/api/xbin/access-requests').then(j), loadDismissed(window.xbin?.fetch ?? fetch)]);
+      this._pendingN = pendingCount(g, b, q, d);
     } catch { /* xbind restarting; next event refetches */ }
   }
 
