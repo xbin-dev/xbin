@@ -346,6 +346,10 @@ export const STRUCTURE_CSS = css`
   .bar.solid { background: color-mix(in srgb, var(--xb-bg) 82%, transparent); backdrop-filter: saturate(1.6) blur(18px); -webkit-backdrop-filter: saturate(1.6) blur(18px); }
   .scrolled > .bar { box-shadow: 0 0.5px 0 var(--xb-separator); }
   .bar-lead { display: flex; align-items: center; min-width: 0; }
+  /* a Back keeps its chevron: a long title (and the bar's other items) take
+     its words first, then truncate — never drawn over it (iOS gives up the
+     back title the same way) */
+  .bar-lead:has(> .back) { min-width: calc(var(--xb-icon) + 12px); }
   .bar-trail { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
   .bar-title { flex: 0 1 auto; text-align: center; min-width: 0; padding: 4px 0; transition: opacity 0.15s; }
   .bar-title.away { opacity: 0; }
