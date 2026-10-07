@@ -11623,6 +11623,15 @@ Deviations and refinements made while implementing; all deliberate:
     adminSettings (25), windows (20), menuOpen (6), tabStrip (6), viewAs
     (11). gridScale's zoom-tip check fails here on master's code too (a
     headless Control+= never reaches the shell); not this change.
+  - **Follow-up (owner, 2026-10-08).** The strip vanishes entirely unless
+    something not dismissed waits: no "N interface bindings" count and no
+    per-element "dismissed (N) · show" line — the settings menu's "Show
+    dismissed (N)" restores every kind at once. Warning banners join the
+    store as a third kind, `alerts`, keyed `<kind>|<message>` (changed words
+    show again); every banner has Dismiss (the server's route when it has
+    one, else the person's), and the banners are in the page's flow, one
+    line each, never over the top bar and tabs (they were a sticky strip at
+    z-index 3500 that covered them, wrapping long trust warnings).
 
 - **D189 — The native vocabulary's revision 2: navigation (2026-10-07).**
   web/xb/vocab.js (→ native/spec/vocab.json), web/xb/rt-build.js,

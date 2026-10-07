@@ -78,6 +78,7 @@ import { nextZ, frontWindow, onWindowFront, activeWindow } from './zorder.js';
 import { follow as followLayout, editing as layoutEditing } from './layout-sync.js';
 import { framedTile } from './partition-mode.js';
 import { appearanceRows, followAppearance } from './shell-appearance.js';
+import { alertsTpl, loadDismissals, followDismissals, dismissedRow } from './shell-alerts.js'; // banners, dismissals (D188)
 import { tabStrip, revealActiveTab, addScreen, hideOrgTab, screenMode, setScreenMode, layoutItems } from './shell-tabs.js'; // the screen tabs, in the top bar (D187)
 import { TopReveal } from './shell-doc.js'; // Document mode's top bar (D187)
 import { docRows, placeNew, setCols, rowOf, step, setHeight } from './doc-layout.js';
@@ -220,6 +221,7 @@ export class BxShell extends LitElement {
       if (e.type === 'branding') loadBrand().then((b) => this._setBrand(b)); // the admin changed the title/icon
       if (e.type === 'users') { this._load(); this._probeAdmin(); this._loadShared(); } // org/ownership/screens changes
       if (e.type === 'grants' || e.type === 'users' || dismissedEvent(e)) this._loadPendingCount(); // ⚑ badge
+      followDismissals(this, e); // dismissed banners and the menu's way back
       if (e.type === 'status') this._onStatusEvent(e); // tile health / notifications
       if (e.type === 'pr') this._loadPRs();            // change-proposal badges (⇄)
       if (e.type === 'prefs') followLayout(this, e, LAYOUT_PREF); // the app / another tab saved the layout
@@ -245,6 +247,7 @@ export class BxShell extends LitElement {
     this._loadSys();
     this._sysTimer = setInterval(() => this._loadSys(), 5000);
     this._loadAlerts();
+    loadDismissals(this);
     this._alertTimer = setInterval(() => this._loadAlerts(), 20000);
     // Ctrl/Cmd+S publishes the active org-screen draft (D55).
     this._onKey = (e) => {
@@ -1662,13 +1665,8 @@ export class BxShell extends LitElement {
   }
 
   render() {
-    const alertLevel = (l) => (l === 'crit' ? { icon: 'error', word: 'Critical' } : { icon: 'warning', word: 'Warning' });
     return html`
-      ${this._alerts.length ? html`<div class="alerts">
-        ${this._alerts.map((a) => html`<div class="alert ${a.level}" role="alert">
-          <bx-icon class="ico" name=${alertLevel(a.level).icon}></bx-icon><span class="lvl">${alertLevel(a.level).word}</span>
-          <span class="msg">${a.message}</span>${a.dismiss ? html`<button class="dismiss" @click=${() => this._loadAlerts(a.dismiss)}>dismiss</button>` : nothing}</div>`)}
-      </div>` : nothing}
+      ${alertsTpl(this)}
       ${this._setupCard ? html`<div class="alerts"><div class="alert warn" role="alert">
         <bx-icon class="ico" name="warning"></bx-icon><span class="lvl">Warning</span>
         <span class="msg"><b>Secure this workspace:</b> (1) create your admin account
@@ -1726,6 +1724,7 @@ export class BxShell extends LitElement {
                           @click=${() => this._setGridScale(1)}>reset</button>` : nothing}
               </span></div>
             <div class="gshint">per browser: the layout stays the same for everyone</div>
+            ${dismissedRow(this)}
             ${this._screenShareMenu()}
             ${accountMenu(this)}
             ${this._menuMsg ? html`<div class="menu-msg ${this._menuMsg.ok ? 'ok' : 'bad'}" role="status"><bx-icon name=${this._menuMsg.ok ? 'ok' : 'error'}></bx-icon><span>${this._menuMsg.text}</span></div>` : nothing}

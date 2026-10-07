@@ -7,14 +7,15 @@
  * A pending request is a sign plate (D184, product-ui §8): an ink header
  * bar over label and value rows, Approve as the primary button, and a quiet
  * Dismiss that hides the request for this person on all their devices
- * (/vendor/bx-dismiss.js); "dismissed (N) · show" brings them back.
+ * (/vendor/bx-dismiss.js); the shell's settings menu ("Show dismissed")
+ * brings them back. With nothing pending it renders nothing.
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
 import { onEvent } from '/vendor/events-socket.js';
 import { capInfo } from '/vendor/bx-allow.js';
 import { grantArrow } from '/vendor/bx-grant-row.js';
-import { grantKey, split, prune, dismiss, restore, loadDismissed, updateDismissed, dismissedEvent } from '/vendor/bx-dismiss.js';
+import { grantKey, split, prune, dismiss, loadDismissed, updateDismissed, dismissedEvent } from '/vendor/bx-dismiss.js';
 import '/vendor/bx-icons.js';
 
 // a link-like control: focusable, Enter and Space work
@@ -85,12 +86,10 @@ export class BxGrants extends LitElement {
     button:disabled { opacity: .5; cursor: default; }
     a { display: inline-block; color: var(--bx-muted, #A3A6B6); cursor: pointer; text-decoration: none; }
     a:hover { color: var(--bx-text, #E9EAF0); text-decoration: underline; }
-    .panel > .restore { margin-top: 8px; }
     /* Dismiss: a quiet row action (R1), after the decision */
     button.quiet { background: transparent; border-color: transparent; color: var(--bx-muted, #A3A6B6); font-weight: 400; }
     button.quiet:hover:not(:disabled) { background: transparent; border-color: var(--bx-border-strong, #666A7E); color: var(--bx-text, #E9EAF0); }
     .pacts .quiet { margin-left: auto; }
-    .restore { display: block; color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); }
     .dir {
       display: inline-flex; align-items: center; box-sizing: border-box; height: 20px; padding: 0 6px; white-space: nowrap;
       border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); color: var(--bx-muted, #A3A6B6);
@@ -195,11 +194,9 @@ export class BxGrants extends LitElement {
 
   render() {
     const { shown, hidden } = split(this._pending, this._dismissed, 'grants', grantKey);
-    // the dismissed requests: one quiet line that brings them back
-    const back = hidden.length === 0 ? nothing : html`<span class="restore" data-restore>${toggle(`dismissed (${hidden.length}) · show`,
-      () => this._save((d) => restore(d, 'grants', hidden.map(grantKey))),
-      'show the grant requests you dismissed again')}</span>`;
-    if (shown.length === 0 && !this._err) return back;
+    // Nothing waiting that this person hasn't dismissed: no strip at all
+    // (the shell's settings menu shows dismissed requests again, D188).
+    if (shown.length === 0 && !this._err) return nothing;
     const scoped = !!this._scope; // non-admin filtered view: honor approvable
     return html`<div class="panel">
       ${this._err ? html`<div class="err" role="alert"><bx-icon name="error"></bx-icon>${this._err}</div>` : nothing}
@@ -224,7 +221,6 @@ export class BxGrants extends LitElement {
                 @click=${() => this._dismiss(p)}>Dismiss</button></div>
           </div>`;
         })}` : nothing}
-      ${back}
     </div>`;
   }
 }

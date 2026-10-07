@@ -27,6 +27,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   dragging places tiles as before. **Tiles:** nothing to do — a page that
   grows while the person works in it no longer pushes its neighbours'
   content around.
+- **The shell's strip and banners stay out of the way.** The grant strip
+  (`<bx-grants>`, `<bx-bindings>`) now renders nothing unless there is a
+  request or an interface to bind you haven't dismissed — no "N interface
+  bindings" line, no "dismissed (N) · show" line
+  ([elements.md](/docs/elements.md) §`<bx-grants>`). Warning banners
+  (`/alerts`, such as a partitioned tile's trust warning) all have
+  **Dismiss** now: one the server can't acknowledge is hidden for you on
+  all your devices and shows again if its words change (your shell pref
+  `dismissed`, its new `alerts` kind). Banners sit in the page above the
+  top bar instead of over it, one line each — click one for its full
+  text. The settings menu's **Show dismissed (N)** brings back everything
+  you dismissed. Nothing to change.
 
 ## 2026-10-07
 

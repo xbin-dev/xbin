@@ -243,7 +243,9 @@ export const shellCss = [scrollCss, baseCss, chromeCss, css`
 
     /* ---- workspace health banners (/alerts) and the first-run card: the
        status tint, its icon and word, then the message ---- */
-    .alerts { position: sticky; top: 0; z-index: 3500; display: flex; flex-direction: column; flex: none; }
+    /* in the page's flow, never over the top bar or the tabs (a sticky strip
+       covered them); one line each, the full text on a click */
+    .alerts { display: flex; flex-direction: column; flex: none; }
     .alert {
       display: flex; align-items: center; gap: 8px; box-sizing: border-box; min-height: 32px; padding: 4px 12px;
       font: var(--bx-font-ui, 400 13px/18px system-ui, sans-serif); color: var(--bx-text, #E9EAF0);
@@ -254,12 +256,23 @@ export const shellCss = [scrollCss, baseCss, chromeCss, css`
     .alert .ico { flex: none; display: inline-flex; color: var(--st); }
     .alert .lvl { flex: none; font-weight: 600; color: var(--st); }
     .alert .msg { flex: 1; min-width: 0; }
+    .alert button.msg {
+      font: inherit; color: inherit; text-align: left; background: none; border: 0; padding: 0; cursor: pointer;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .alert.open button.msg { white-space: normal; }
     .alert .dismiss {
       flex: none; box-sizing: border-box; height: 24px; padding: 0 10px; cursor: pointer; font-weight: 600;
       color: var(--bx-text, #E9EAF0); background: transparent;
       border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
     }
     .alert .dismiss:hover { background: var(--bx-hover, #2A2B34); }
+    .wsmenu .restore-all {
+      display: block; width: 100%; box-sizing: border-box; margin: 4px 0; padding: 4px 8px; text-align: left; cursor: pointer;
+      font: inherit; color: var(--bx-text, #E9EAF0); background: none;
+      border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px);
+    }
+    .wsmenu .restore-all:hover { background: var(--bx-hover, #2A2B34); }
 
     /* ---- component status on the screen tabs (tiles → workspace): the
        level's glyph in its colour, the active tab underlined in it ---- */
