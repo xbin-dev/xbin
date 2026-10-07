@@ -1,7 +1,8 @@
 /**
  * bx-dismiss.js — a person's dismissed grant requests and "interfaces to
- * bind" rows (D188): the shell's decision strip (<bx-grants>,
- * <bx-bindings>) and its organisations badge leave them out. Nothing
+ * bind" rows (D188), and the shell's warning banners: the shell's decision
+ * strip (<bx-grants>, <bx-bindings>), its banners and its organisations
+ * badge leave them out. Nothing
  * changes for the request, the tile or another admin: the dismissal is the
  * person's own, kept in their prefs bucket (the shell's, from the
  * workspace's root page) under one key, so it follows them to every
@@ -9,7 +10,8 @@
  *
  *   GET|PUT /api/xbin/prefs/dismissed
  *   {"grants":   {"<from>|<target>|<role>": "<dismissed at>"},
- *    "bindings": {"<component>|<slot>|<kind>": "<dismissed at>"}}
+ *    "bindings": {"<component>|<slot>|<kind>": "<dismissed at>"},
+ *    "alerts":   {"<kind>|<message>": "<dismissed at>"}}
  *
  * A request whose key changes (another role, another target) is another
  * request and shows again. Dismissals of what the server no longer lists
@@ -22,12 +24,15 @@
  */
 
 export const PREF = 'dismissed';
-export const KINDS = Object.freeze(['grants', 'bindings']);
+export const KINDS = Object.freeze(['grants', 'bindings', 'alerts']);
 const API = `/api/xbin/prefs/${PREF}`;
 
 // The keys: what identifies a request, so a changed one shows again.
 export const grantKey = (p) => `${p?.from ?? ''}|${p?.target ?? ''}|${p?.role ?? ''}`;
 export const bindingKey = (p) => `${p?.component ?? ''}|${p?.slot ?? ''}|${p?.kind ?? ''}`;
+// A banner's key is its kind and its words: one whose message changes (more
+// people, another tile) is news and shows again.
+export const alertKey = (a) => `${a?.kind ?? ''}|${a?.message ?? ''}`;
 
 const plain = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 

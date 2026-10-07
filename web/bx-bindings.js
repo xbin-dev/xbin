@@ -8,7 +8,8 @@
  * where that decision is made. Renders nothing when there is nothing to wire,
  * so it can sit permanently in the root page next to <bx-grants>. A row's
  * quiet Dismiss hides it for this person on all their devices (D188,
- * /vendor/bx-dismiss.js); "dismissed (N) · show" brings them back.
+ * /vendor/bx-dismiss.js); the shell's settings menu ("Show dismissed")
+ * brings them back. With nothing left to bind it renders nothing.
  */
 import { LitElement, html, css, nothing, repeat } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
@@ -16,7 +17,7 @@ import '/vendor/bx-multiselect.js';
 import '/vendor/bx-icons.js';
 import { onEvent } from '/vendor/events-socket.js';
 import { bindPreselect, blockedTitle } from '/vendor/bx-netrules.js';
-import { bindingKey, split, prune, dismiss, restore, loadDismissed, updateDismissed, dismissedEvent } from '/vendor/bx-dismiss.js';
+import { bindingKey, split, prune, dismiss, loadDismissed, updateDismissed, dismissedEvent } from '/vendor/bx-dismiss.js';
 
 // a link-like control that opens or closes a list: focusable, Enter and Space work
 const toggle = (label, fn, title = '') => html`<a role="button" tabindex="0" title=${title} @click=${fn}
@@ -92,8 +93,6 @@ export class BxBindings extends LitElement {
     /* Dismiss: a quiet row action (R1), last on the row */
     button.quiet { background: transparent; color: var(--bx-muted, #A3A6B6); border-color: transparent; font-weight: 400; }
     button.quiet:hover:not(:disabled) { background: transparent; border-color: var(--bx-border-strong, #666A7E); color: var(--bx-text, #E9EAF0); }
-    .restore { display: block; color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); }
-    .panel > .restore { margin-top: 8px; }
   `];
 
   constructor() {
@@ -248,17 +247,10 @@ export class BxBindings extends LitElement {
   render() {
     const active = this._active();
     const { shown, hidden } = split(this._pending, this._dismissed, 'bindings', bindingKey);
-    // the dismissed rows: one quiet line that brings them back
-    const back = hidden.length === 0 ? nothing : html`<span class="restore" data-restore>${toggle(`dismissed (${hidden.length}) · show`,
-      () => this._save((d) => restore(d, 'bindings', hidden.map(bindingKey))),
-      'show the interfaces to bind you dismissed again')}</span>`;
-    if (shown.length === 0 && !this._showAll) {
-      // the count is a way into wiring someone may change: bindings on tiles
-      // they can't rewire are no line on every screen (as bx-grants)
-      const n = this._approvable ? active.filter((b) => this._approvable[b.component]).length : active.length;
-      return n === 0 ? back
-        : html`${toggle(`${n} interface ${n === 1 ? 'binding' : 'bindings'}`, () => { this._showAll = true; })}${back}`;
-    }
+    // Nothing to wire that this person hasn't dismissed: no strip at all —
+    // no count, no restore line (the shell's settings menu shows dismissed
+    // items again, D188). "show all bindings" lives inside the open panel.
+    if (shown.length === 0 && !this._showAll) return nothing;
     return html`<div class="panel">
       ${shown.length > 0 ? html`
         <h4>interfaces to bind</h4>
@@ -318,7 +310,6 @@ export class BxBindings extends LitElement {
             <button class="rm" @click=${() => this._unbind(b)}>unbind</button>
           </div>`)}
         ${toggle('hide', () => { this._showAll = false; })}` : (active.length > 0 ? toggle('show all bindings', () => { this._showAll = true; }) : nothing)}
-      ${back}
     </div>`;
   }
 }

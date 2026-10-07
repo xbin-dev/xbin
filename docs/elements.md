@@ -543,8 +543,11 @@ no longer shows an "N grants active" line or its list (D188).
 **Dismiss** (D188): every request and every row has a quiet **Dismiss**
 that hides it for the viewer — on all their devices, and nowhere else:
 the request stays pending, the tile is unchanged, and other admins, the
-organisations tile and the admin console still show it. A
-**dismissed (N) · show** line brings that element's dismissed items back.
+organisations tile and the admin console still show it. With nothing
+left that the viewer hasn't dismissed, the element renders nothing — no
+count, no restore line; the shell's settings menu has **Show dismissed
+(N)**, which brings back everything dismissed (requests, rows and warning
+banners).
 The dismissals are the viewer's pref `dismissed` in the bucket the page's
 `xbin.fetch` reaches (the shell's, in the workspace root page;
 [protocol.md](/docs/protocol.md) `/prefs`):
