@@ -181,6 +181,9 @@ final class NativeTileRuntime: NSObject {
     }
 
     func setVisible(_ on: Bool) {
+        #if DEBUG
+        NSLog("xbin-nav runtime %@ visible %@ (was %@)", tile.path, String(on), String(describing: visible))
+        #endif
         guard visible != on, !stopped else { return }
         visible = on
         webView.configuration.preferences.inactiveSchedulingPolicy = on ? .none : .throttle
@@ -489,6 +492,9 @@ struct NativeTileScreen: View {
             runtime = rt
         }
         .onDisappear {
+            #if DEBUG
+            NSLog("xbin-nav tile screen %@ disappears: surface %@ stacked %@", tile.path, String(describing: nav.surface), String(nav.stillStacked(window: nil)))
+            #endif
             // Covered by a page its own tree pushed onto this stack (a
             // split's detail, D189): the window still shows this tile — it
             // stays live and visible. Covered by a window this tile pushed

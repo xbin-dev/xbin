@@ -125,7 +125,10 @@ so a `native.js` that fails to load is reported to the app at once. So:
   `self`, `status`, `notify`, … — with your tile's frame token, grants and
   opaque-origin sandbox. Nothing in it runs as the signed-in user.
 - **The whole web platform**: ES modules, `fetch` with streaming bodies,
-  WebSocket, timers, `Intl`, `TextDecoderStream`.
+  WebSocket, timers, `Intl`, `TextDecoderStream`. A `text/event-stream`
+  body may carry extra SSE comment lines (`:`) when it goes quiet — the app
+  sends them so WebKit hands over the newest event; skip lines starting
+  with `:`, as SSE parsers do.
 - **Shared code.** `native.js` imports your own modules (`./model.js`,
   `./fmt.js`) — the same files `index.html` imports, resolved against the
   tile directory. A module that imports `lit` still loads (the runtime is a

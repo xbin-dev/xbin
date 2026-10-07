@@ -16,7 +16,19 @@ final class TileSchemeHandler: NSObject, WKURLSchemeHandler {
     /// Web view → the tile it shows (its frame token signs every request).
     private var tiles: [ObjectIdentifier: String] = [:]
     private var loads: [ObjectIdentifier: StreamingLoad] = [:]
-    private var stopped: Set<ObjectIdentifier> = []
+    /// The task each key stands for now. A key is an ObjectIdentifier — an
+    /// address, reused by a later task once WebKit frees a stopped one — so
+    /// a stopped load's late callbacks must not reach the task (or the load
+    /// entry) of the same key: they check its serial. Without this an
+    /// aborted fetch's cancellation, landing after the next fetch started at
+    /// the same address (the agent's stream reconnecting for a new
+    /// conversation), took that fetch's load away and every chunk of it was
+    /// dropped (2026-10-07).
+    private var serials: [ObjectIdentifier: Int] = [:]
+    private var nextSerial = 0
+    /// Event streams (text/event-stream) by key, and each one's latest
+    /// chunk: see ``nudge(_:_:_:)``.
+    private var eventStreams: [ObjectIdentifier: Int] = [:]
     /// Largest request body read from a stream (uploads).
     nonisolated static let maxBody = 64 << 20
 
@@ -29,36 +41,39 @@ final class TileSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, start urlSchemeTask: any WKURLSchemeTask) {
         let key = ObjectIdentifier(urlSchemeTask)
-        stopped.remove(key)
+        nextSerial += 1
+        let serial = nextSerial
+        serials[key] = serial
         let task = UncheckedTask(task: urlSchemeTask)
         guard let ws = workspace, let tile = tiles[ObjectIdentifier(webView)], let url = urlSchemeTask.request.url,
               let path = TileScheme.serverPath(for: url, workspace: ws.id) else {
-            fail(task, key, status: 404, message: "not a page of this workspace")
+            fail(task, key, serial, status: 404, message: "not a page of this workspace")
             return
         }
         let request = urlSchemeTask.request
         Task {
             let body = await Self.body(of: request)
-            await self.load(task, key, request: request, body: body, path: path, tile: tile, in: ws, attempt: 0)
+            await self.load(task, key, serial, request: request, body: body, path: path, tile: tile, in: ws, attempt: 0)
         }
     }
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: any WKURLSchemeTask) {
         let key = ObjectIdentifier(urlSchemeTask)
-        stopped.insert(key)
+        serials[key] = nil
+        eventStreams[key] = nil
         loads.removeValue(forKey: key)?.cancel()
     }
 
-    private func load(_ task: UncheckedTask, _ key: ObjectIdentifier, request: URLRequest, body: Data?, path: String,
+    private func load(_ task: UncheckedTask, _ key: ObjectIdentifier, _ serial: Int, request: URLRequest, body: Data?, path: String,
                       tile: String, in ws: WorkspaceModel, attempt: Int) async {
         let token: String
         do {
             token = attempt == 0 ? try await ws.frameTokens.token(for: tile) : try await ws.frameTokens.renew(tile)
         } catch {
-            fail(task, key, status: 401, message: ws.describe(error))
+            fail(task, key, serial, status: 401, message: ws.describe(error))
             return
         }
-        guard !stopped.contains(key), let url = ws.origin.url(path: path) else { return }
+        guard serials[key] == serial, let url = ws.origin.url(path: path) else { return }
         var out = URLRequest(url: url)
         out.httpMethod = request.httpMethod ?? "GET"
         out.httpBody = body
@@ -77,17 +92,18 @@ final class TileSchemeHandler: NSObject, WKURLSchemeHandler {
                 let headers = TileScheme.pageResponseHeaders(AppTransport.headers(h))
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        guard let self, !self.stopped.contains(key) else { return }
+                        guard let self, self.serials[key] == serial else { return }
                         if status == 401, retry {
                             // The frame token died with its session: renew it and ask again.
                             self.loads.removeValue(forKey: key)?.cancel()
                             Task { await ws.frameTokens.invalidate(tile, token: token) }
-                            Task { await self.load(task, key, request: request, body: body, path: path, tile: tile, in: ws, attempt: 1) }
+                            Task { await self.load(task, key, serial, request: request, body: body, path: path, tile: tile, in: ws, attempt: 1) }
                             return
                         }
                         guard let pageURL,
                               let resp = HTTPURLResponse(url: pageURL, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)
                         else { return }
+                        if TileScheme.isEventStream(headers) { self.eventStreams[key] = 0 }
                         task.task.didReceive(resp)
                     }
                 }
@@ -95,8 +111,9 @@ final class TileSchemeHandler: NSObject, WKURLSchemeHandler {
             onData: { [weak self] data in
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        guard let self, !self.stopped.contains(key), self.loads[key] != nil else { return }
+                        guard let self, self.serials[key] == serial, self.loads[key] != nil else { return }
                         task.task.didReceive(data)
+                        self.nudge(task, key, serial)
                     }
                 }
             },
@@ -104,7 +121,9 @@ final class TileSchemeHandler: NSObject, WKURLSchemeHandler {
                 let failure = error.map { ($0 as NSError).localizedDescription }
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
-                        guard let self, !self.stopped.contains(key), self.loads.removeValue(forKey: key) != nil else { return }
+                        guard let self, self.serials[key] == serial, self.loads.removeValue(forKey: key) != nil else { return }
+                        self.serials[key] = nil
+                        self.eventStreams[key] = nil
                         if let failure {
                             task.task.didFailWithError(URLError(.networkConnectionLost, userInfo: [NSLocalizedDescriptionKey: failure]))
                         } else {
@@ -116,8 +135,26 @@ final class TileSchemeHandler: NSObject, WKURLSchemeHandler {
         loads[key] = load
     }
 
-    private func fail(_ task: UncheckedTask, _ key: ObjectIdentifier, status: Int, message: String) {
-        guard !stopped.contains(key), let url = task.task.request.url else { return }
+    /// WebKit hands a scheme task's body to a page's `fetch` reader a chunk
+    /// behind: the last chunk of a burst waits until more bytes come. On an
+    /// event stream that is the newest event — the agent's finished turn
+    /// still showed as working, its title stale, for as long as the stream
+    /// stayed quiet (every few runs on a simulator, 2026-10-07). So a quiet
+    /// event stream gets an SSE comment line (`:`), which every parser skips
+    /// (the format says so) and which pushes the held chunk through.
+    private func nudge(_ task: UncheckedTask, _ key: ObjectIdentifier, _ serial: Int) {
+        guard let n = eventStreams[key] else { return }
+        eventStreams[key] = n + 1
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(150)) { [weak self] in
+            MainActor.assumeIsolated {
+                guard let self, self.serials[key] == serial, self.loads[key] != nil, self.eventStreams[key] == n + 1 else { return }
+                task.task.didReceive(Data(":\n\n".utf8))
+            }
+        }
+    }
+
+    private func fail(_ task: UncheckedTask, _ key: ObjectIdentifier, _ serial: Int, status: Int, message: String) {
+        guard serials[key] == serial, let url = task.task.request.url else { return }
         let body = Data("<!doctype html><meta name=viewport content='width=device-width'><title>\(status)</title>\(message.htmlEscaped)".utf8)
         let resp = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1",
                                    headerFields: ["Content-Type": "text/html; charset=utf-8",
@@ -125,7 +162,7 @@ final class TileSchemeHandler: NSObject, WKURLSchemeHandler {
         task.task.didReceive(resp)
         task.task.didReceive(body)
         task.task.didFinish()
-        stopped.insert(key)
+        serials[key] = nil
     }
 
     /// The request body: in memory, or read from WebKit's stream (bounded).

@@ -116,6 +116,15 @@ public enum TileScheme {
         return out
     }
 
+    /// Whether a response is an event stream (`text/event-stream`, any
+    /// parameters, any header-name case) — the tile scheme nudges a quiet one
+    /// through WebKit (TileSchemeHandler.nudge).
+    public static func isEventStream(_ headers: [String: String]) -> Bool {
+        headers.contains { k, v in
+            k.lowercased() == "content-type" && v.split(separator: ";").first?.trimmingCharacters(in: .whitespaces).lowercased() == "text/event-stream"
+        }
+    }
+
     /// Whether a redirect the server answered may be followed with the
     /// tile's frame token: only on the workspace's own origin.
     public static func allowsRedirect(to url: URL, origin: ServerOrigin) -> Bool {

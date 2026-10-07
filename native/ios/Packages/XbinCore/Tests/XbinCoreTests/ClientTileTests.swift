@@ -126,6 +126,9 @@ import Testing
         #expect(!TileScheme.allowsRedirect(to: URL(string: "https://evil.example/c/a/")!, origin: testOrigin))
         #expect(!TileScheme.allowsRedirect(to: URL(string: "http://xbin.example.com/c/a/")!, origin: testOrigin))
         #expect(TileScheme.isReplayable(method: "get") && !TileScheme.isReplayable(method: "POST"))
+        #expect(TileScheme.isEventStream(["Content-Type": "text/event-stream"]))
+        #expect(TileScheme.isEventStream(["content-type": "Text/Event-Stream; charset=utf-8"]))
+        #expect(!TileScheme.isEventStream(["Content-Type": "text/html"]) && !TileScheme.isEventStream([:]))
         #expect(FrameTokenRoute.path(component: "apps/a b") == "/api/xbin/frame-token?component=apps%2Fa%20b")
     }
 
