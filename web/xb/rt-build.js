@@ -182,6 +182,12 @@ class Builder {
         (msg) => env.diag('warn', 'bad-value', `<${tag}> ${name}: ${msg}`, where));
       if (r.bad) { env.diag('warn', schema.token ? 'bad-token' : 'bad-type', `<${tag}> ${name}: ${r.bad} — dropped`, where); return; }
       if (schema.since && capsRev != null && schema.since > capsRev) env.unsupported(`the app does not support <${tag}> ${name} (rev ${schema.since})`, where);
+      if (capsRev != null) {
+        for (const x of [].concat(r.v)) {
+          const es = typeof x === 'string' && (schema.enumSince?.[x] ?? schema.of?.enumSince?.[x]);
+          if (es && es > capsRev) env.unsupported(`the app does not support <${tag}> ${name}="${x}" (rev ${es})`, where);
+        }
+      }
       if (schema.features && typeof r.v === 'string' && schema.features[r.v] && !this.features.has(schema.features[r.v])) {
         env.unsupported(`the app does not support <${tag}> ${name}="${r.v}" (${schema.features[r.v]})`, where);
       }
@@ -196,6 +202,8 @@ class Builder {
           continue;
         }
         if (spec && !own(spec.events, a.name)) { env.diag('warn', 'unknown-event', `<${tag}> has no event ${a.name} — dropped`, where); continue; }
+        const evSince = spec?.events[a.name].since;
+        if (evSince && capsRev != null && evSince > capsRev) env.unsupported(`the app does not support <${tag}> @${a.name} (rev ${evSince})`, where);
         if (!events.includes(a.name)) events.push(a.name);
         (handlers ||= {})[a.name] = fn;
         continue;
@@ -247,6 +255,9 @@ class Builder {
         if (rule.only) {
           for (const ch of c) {
             if (!rule.only.includes(ch.t)) env.diag('warn', 'child-rule', `<${tag}> takes ${rule.only.join(', ')} — not <${ch.t}>`, where);
+            else if (rule.since?.[ch.t] && capsRev != null && rule.since[ch.t] > capsRev) {
+              env.unsupported(`the app does not support <${ch.t}> inside <${tag}> (rev ${rule.since[ch.t]})`, where);
+            }
           }
         }
         if ((rule.min != null && c.length < rule.min) || (rule.max != null && c.length > rule.max)) {

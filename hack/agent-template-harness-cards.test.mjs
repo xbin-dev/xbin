@@ -10,6 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { runNative } from './xbn/node.mjs';
+import { PHONE } from './agent-template-native-caps.mjs'; // the phone stack (rev-1 split): the tests walk its nav
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url);
 const KIT = new URL('../web/bx-kit.js', import.meta.url).href;
@@ -83,7 +84,7 @@ test('the usage badge and the plan\'s entries', () => {
 // --- the native view --------------------------------------------------------------------------
 
 async function run(steps, hash) {
-  const r = await runNative({ entry: new URL('native.js', TPL).pathname,
+  const r = await runNative({ caps: PHONE, entry: new URL('native.js', TPL).pathname,
     data: { now: Date.UTC(2026, 8, 30, 12), self: 'apps/agent', setup: new URL('test/native-stub.mjs', TPL).pathname, seed: harnessSeed() },
     steps, state: hash ? { hash } : null });
   assert.equal(r.fatal, null);
@@ -144,8 +145,9 @@ test('native: the subtitle\'s plan and context, Progress (the plan) and the harn
     { tap: { t: 'button', has: 'Progress (3/3)' } }, { snapshot: 'progress' },
     { call: ['push', { type: 'harness', run: 21, root: 21, data: next }] }, { wait: 50 }, { snapshot: 'after' },
   ], 'c=21');
-  assert.equal(all(r.snapshots.chat.root, { t: 'toolbar' })[0].c.filter((c) => c.t === 'badge').length, 0, 'no toolbar badge: a phone\'s bar keeps its ⋯');
-  const chat = all(r.snapshots.chat.root, { t: 'screen' })[0];
+  // the conversation over the list (the stack's root: D190)
+  const chat = all(r.snapshots.chat.root, { t: 'screen' })[1];
+  assert.equal(all(chat, { t: 'toolbar' })[0].c.filter((c) => c.t === 'badge').length, 0, 'no toolbar badge: a phone\'s bar keeps its ⋯');
   assert.match(chat.p.subtitle, /^CC ready · shared · plan 3\/3 · ctx 26% · /, 'first in the subtitle; the cost is on Progress');
   const scr = all(r.snapshots.progress.root, { t: 'screen', has: 'Progress' }).pop();
   assert.equal(scr.p.subtitle, 'Claude Code · 3/3');

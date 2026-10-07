@@ -93,6 +93,13 @@ import Testing
         let u = try #require(TileScheme.pageURL(workspace: "WS-1", tile: "apps/dev box", subpath: "../../editor/", fragment: "x=1"))
         #expect(u.absoluteString == "xbin-ws://ws-1/c/apps/dev%20box/editor/#x=1")
         #expect(TileScheme.runtimeURL(workspace: "ws", tile: "apps/counter")?.absoluteString == "xbin-ws://ws/c/apps/counter/?native=1")
+        // D189: a deep link's fragment reaches the runtime document
+        #expect(TileScheme.runtimeURL(workspace: "ws", tile: "apps/agent", fragment: "c=42")?.absoluteString == "xbin-ws://ws/c/apps/agent/?native=1#c=42")
+        #expect(TileScheme.runtimeURL(workspace: "ws", tile: "apps/agent", fragment: "#c=42")?.absoluteString == "xbin-ws://ws/c/apps/agent/?native=1#c=42")
+        #expect(TileScheme.runtimeURL(workspace: "ws", tile: "apps/agent", fragment: "")?.absoluteString == "xbin-ws://ws/c/apps/agent/?native=1")
+        #expect(TileScheme.hash("c=1") == "#c=1" && TileScheme.hash("#") == "" && TileScheme.hash("") == "")
+        #expect(RuntimeCall.navigate("c=42").javaScript == ##"xbn.navigate?.("#c=42")"##)
+        #expect(RuntimeCall.navigate("").functionBody == #"return xbn.navigate?.("");"#)
         #expect(TileScheme.serverPath(for: URL(string: "xbin-ws://ws/c/apps/a/x.js?v=2")!, workspace: "ws") == "/c/apps/a/x.js?v=2")
         #expect(TileScheme.serverPath(for: URL(string: "xbin-ws://ws/api/xbin/whoami")!, workspace: "WS") == "/api/xbin/whoami")
         #expect(TileScheme.serverPath(for: URL(string: "xbin-ws://other/c/a/")!, workspace: "ws") == nil)
@@ -119,6 +126,9 @@ import Testing
         #expect(!TileScheme.allowsRedirect(to: URL(string: "https://evil.example/c/a/")!, origin: testOrigin))
         #expect(!TileScheme.allowsRedirect(to: URL(string: "http://xbin.example.com/c/a/")!, origin: testOrigin))
         #expect(TileScheme.isReplayable(method: "get") && !TileScheme.isReplayable(method: "POST"))
+        #expect(TileScheme.isEventStream(["Content-Type": "text/event-stream"]))
+        #expect(TileScheme.isEventStream(["content-type": "Text/Event-Stream; charset=utf-8"]))
+        #expect(!TileScheme.isEventStream(["Content-Type": "text/html"]) && !TileScheme.isEventStream([:]))
         #expect(FrameTokenRoute.path(component: "apps/a b") == "/api/xbin/frame-token?component=apps%2Fa%20b")
     }
 
@@ -239,19 +249,41 @@ import Testing
 }
 
 @Suite struct ClientNativeTileTests {
+    /// D189: a deep link is handed to the runtime once.
+    @Test func hostedStackHandsTheLinkOnce() {
+        #expect(NativeHostedStack.fragment("t=1", handled: nil) == "t=1")
+        #expect(NativeHostedStack.fragment("t=1", handled: "t=1") == nil)
+        #expect(NativeHostedStack.fragment("t=2", handled: "t=1") == "t=2")
+        #expect(NativeHostedStack.fragment(nil, handled: nil) == nil && NativeHostedStack.fragment("", handled: nil) == nil)
+    }
+
     @Test func lifecycle() {
         let t0 = Date(timeIntervalSince1970: 100)
         var l = NativeTileLifecycle()
         l.start(at: t0)
-        #expect(l.deadline == t0.addingTimeInterval(5))
-        let early = l.check(at: t0.addingTimeInterval(4.9))
+        // the document's load has its own, longer limit (a busy device)…
+        #expect(l.deadline == t0.addingTimeInterval(30))
+        let loading = l.check(at: t0.addingTimeInterval(12))
+        #expect(!loading)
+        // …and the tile's start-up is timed from the load
+        l.loaded(at: t0.addingTimeInterval(12))
+        #expect(l.deadline == t0.addingTimeInterval(17))
+        l.loaded(at: t0.addingTimeInterval(16))                            // once: a second load event doesn't extend it
+        #expect(l.deadline == t0.addingTimeInterval(17))
+        let early = l.check(at: t0.addingTimeInterval(16.9))
         #expect(!early)
         l.mounted()
         let late = l.check(at: t0.addingTimeInterval(60))
         #expect(l.phase == .live && !late)
 
+        var hung = NativeTileLifecycle()                                   // a load that never ends still falls back
+        hung.start(at: t0)
+        let hungFired = hung.check(at: t0.addingTimeInterval(30))
+        #expect(hungFired && hung.fallback == .timeout)
+
         var slow = NativeTileLifecycle()
         slow.start(at: t0)
+        slow.loaded(at: t0)
         let fired = slow.check(at: t0.addingTimeInterval(5))
         #expect(fired && slow.fallback == .timeout)
         slow.mounted()                                                     // too late: stays on the web tile

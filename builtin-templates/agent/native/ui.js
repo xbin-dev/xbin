@@ -1,7 +1,7 @@
 // native/ui.js — what the native view keeps of its own (the model keeps the
-// rest, model/app.js): the composer's text, which sheets are open, the
-// screens pushed over the conversation (memory, files, skills, the workflow
-// tree, settings, the render preview), and the last error — plus the small
+// rest, model/app.js): the composer's text per place, which sheets are open, the
+// navigation stack over the conversation list (conversations, pages and the
+// tools pushed over them: native/nav.js), and the last error — plus the small
 // helpers every native screen uses. No lit, no DOM: native.js draws with
 // /vendor/xb-native.js, and node tests run it against a stubbed backend.
 import { homeOf } from '../model/homes.js';
@@ -10,18 +10,34 @@ import { ACP_NATIVE_ICON } from '../model/harness-heads.js';
 
 // The state that is the view's, not the model's.
 export const ui = {
-  draft: '',        // the composer's text (a controlled prop: the app reports each keystroke)
-  drawer: false,    // the conversations drawer is open
-  q: '',            // the drawer's search field
+  drafts: new Map(), // the composer's text per place (draftKey: a conversation's run id, 'new' for the new chat
+                     // screen) — a controlled prop the app reports each keystroke of; going elsewhere keeps it
+  get draft() { return draftOf(); },       // the open place's (draftKey)
+  set draft(text) { setDraft(text); },
+  q: '',            // the conversation list's search field
+  refreshing: false, // the list is being read again (pull to refresh)
   newChat: null,    // the "new chat with options" sheet: {text, title, system, class}
   rename: null,     // the rename sheet: {id, title}
   share: null,      // the share sheet: {run: {id, title}, data, link, err, user, role, linkRole, linkExp}
   sbxAsk: null,     // the Sandbox picker's confirmation sheet: {ref, name, text} (native/sandboxes.js)
-  stack: [],        // screens pushed over the conversation or home: {kind, …} (native/tools.js)
-  opening: null,    // a subagent being opened full screen (its view is loading)
+  cols: 'auto',     // the split's columns on a wide screen (native.js layout): both, or the detail alone
+  stack: [],        // the navigation stack over the conversation list: route entries {kind, …} (native/nav.js)
   win: null,        // the open conversation's window of blocks (native/chat.js): {run, fromKey, atBottom, start, n}
   err: '',          // the last failure, said at the top of the screen on top
+  note: '',         // what just went right (say(): a copy made, files copied), said like it
 };
+
+// draftKey: the place a composer writes to — the open conversation, else
+// the new chat screen ('new'; the iPad's empty detail column is it too).
+export const draftKey = () => (ctx.app && ctx.app.sel != null ? ctx.app.sel : 'new');
+export const draftOf = (key = draftKey()) => ui.drafts.get(key) || '';
+export function setDraft(text, key = draftKey()) {
+  if (text) ui.drafts.set(key, String(text));
+  else ui.drafts.delete(key);
+}
+// clearer: what a send calls once it went — the draft of the place it was
+// written in, wherever the person is by then (a new chat opens its conversation).
+export const clearer = (key = draftKey()) => () => setDraft('', key);
 
 // The model and the repaint, set once by native.js; the seams feature
 // modules draw through (native/ext.js).
@@ -33,6 +49,15 @@ export function fail(e) {
   ui.err = String((e && e.message) || e || 'something went wrong');
   clearTimeout(errT);
   errT = setTimeout(() => { ui.err = ''; ctx.paint(); }, 8000);
+  ctx.paint();
+}
+
+// say tells what just went right (a notice on the open conversation and the list).
+let noteT = null;
+export function say(text) {
+  ui.note = String(text || '');
+  clearTimeout(noteT);
+  noteT = setTimeout(() => { ui.note = ''; ctx.paint(); }, 8000);
   ctx.paint();
 }
 

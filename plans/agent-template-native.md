@@ -48,7 +48,7 @@ areas added after this plan (classes, sandboxes) are tracked there first.
 | **Automations** | page with Schedules, Watchers, Channels, Triggers; cards with unread/attention; detail with paged runs; schedule form with cadence presets; channel claim/pairing/people/sessions/undelivered/rules; trigger form, test fire, unmatched pushes | a pushed Automations screen: sections per kind, the same cards (badges), detail screens, native forms; destructive actions confirmed natively |
 | **Managers** | ⚙ Settings (Config model per tier, Features, Memory, Files, Skills, MCP), ⏻ halt all (while runs are active) | Settings screen for managers; halt as a destructive toolbar action with confirmation |
 | **Classes** (D116) | Class picker for new chats (icon, name, description; only classes you may use), the class fixed in a conversation's top bar with a warning when it can move internal data out, a class on every schedule, watcher and trigger (the trigger form refuses a class/data-class clash), channel classes, and managers' Classes settings (add, edit, delete, reset a built-in, the default) | the Class picker in the home toolbar and the new-chat sheet, the chat subtitle with ⚠, the class in the Automations forms, cards and details, channel classes, and a Classes screen under Settings (`native/classes.js`) |
-| **Sandboxes** (D115, D121) | Sandbox picker beside the model (grouped, disallowed ones disabled with the reason, ＋ New, Manage…), ▣ in the top bar (working directory, why a binding broke, Detach), the Sandboxes screen (start, stop, archive, thaw, share, delete, Use here), create, share with a sandbox-terminal tile, and Open terminal (the page dials the manager's tty as you) | the same picker, top-bar item, Sandboxes screen, create and share flows (`native/sandboxes.js`); disallowed picks carry the reason in the label and are refused. **Terminal: web only**, an intended difference until the app's `terminal` can dial a bound interface |
+| **Sandboxes** (D115, D121) | Sandbox picker beside the model (grouped, disallowed ones disabled with the reason, ＋ New, Manage…), ▣ in the top bar (working directory, why a binding broke, Detach), the Sandboxes screen (start, stop, archive, thaw, share, delete, Use here), create, share with a sandbox-terminal tile, and Open terminal (the page dials the manager's tty as you) | the same picker, top-bar item, Sandboxes screen, create and share flows (`native/sandboxes.js`); disallowed picks carry the reason in the label and are refused. Terminals through the tile's relays (D147), as tabs of one screen since D190; Ports on the ▣ screen |
 | **States** | halted (423 for non-managers), view-only, reconnecting, retry on error/canceled | the same states, same wording |
 | **Deep links** | `#c=<id>`, `#auto[=kind:id]`, `#join=<token>` | `xbin://<ws>/c/<agent>#c=…` etc. route into the same model router |
 
@@ -93,8 +93,28 @@ builtin-templates/agent/
 
 ## 3. The native view
 
+> **Superseded in part by D190 (2026-10-07):** the native view is no longer
+> one surface at a time. The conversation list is the root of a navigation
+> stack (`native/nav.js`): conversations, the new chat screen, the
+> Automations page, Projects and every tool screen are pushed, and Back
+> returns where you came from; the drawer below is gone. The model still
+> keeps one selection and follows the top entry. On iPad and the Duo the
+> same stack is drawn as a split (list | detail) where the app has the
+> rev-2 `split` (D189): the list in the primary column, the stack a `nav`
+> in the detail one (the new chat screen while nothing is open); on a phone
+> it collapses to the list with the stack pushed over it, and an app of
+> rev 1 keeps the one `nav`. The parity gaps closed with it (D190): the
+> shells are tabs of one Terminals screen (the relay keeps a tab's shell by
+> name), Ports, a person's partition forms (Share a copy, Copy to my own
+> space, hosting, Add a copy of my files, a shared new chat), jump to
+> latest on the transcript's rev-2 anchors, and steering on a coding
+> agent's card; the composer keeps a draft per conversation. Only the
+> composer's keys, paste and drop stay declared differences (the app's
+> composer owns them). The sketch below is the original shape, kept for
+> the rest of its design (blocks, composer, model wiring).
+
 `native.js` renders from the model, one surface at a time (plans/native.md
-§15 — no split views, even on the Duo or iPad):
+§15 — no split views, even on the Duo or iPad) — *the rule D190 retired*:
 
 ```js
 // builtin-templates/agent/native.js — shape, not the final code
@@ -138,7 +158,9 @@ child (tap "open" pushes the child full screen), `step` → `step`, `notice` →
 
 The conversations drawer is a `sheet` from the leading edge (the renderer
 presents it as a drawer), listing `ConvList` groups with swipe actions; picking
-a row routes and closes it.
+a row routes and closes it. *(D190: the list is the stack's root screen
+instead — the same `ConvList` groups, Needs you first, and a row pushes its
+conversation.)*
 
 ## 4. Performance — streaming at 120 Hz on 1k-message conversations
 
@@ -229,4 +251,6 @@ shows the latest screenful in < 300 ms; memory stays flat while streaming.
 3. **`POST /api/xbin/notify`** as a platform API rather than an agent-only
    route (recommended).
 4. **Drawer, not split**, for conversations on every device (per the owner's
-   one-surface rule; recommended).
+   one-surface rule; recommended). *Retired by D190 (2026-10-07): the list
+   is the root of a navigation stack on the phone, and a split on iPad and
+   the Duo (with the rev-2 `split`).*

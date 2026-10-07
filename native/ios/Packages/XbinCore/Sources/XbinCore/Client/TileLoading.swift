@@ -56,9 +56,17 @@ public enum TileScheme {
         return URL(string: s)
     }
 
-    /// The native runtime document (§7.2): `/c/<tile>/?native=1`.
-    public static func runtimeURL(workspace: String, tile: String) -> URL? {
-        pageURL(workspace: workspace, tile: tile, query: "native=1")
+    /// The native runtime document (§7.2): `/c/<tile>/?native=1`, with a deep
+    /// link's fragment (D189: the tile reads `location.hash` as it starts).
+    public static func runtimeURL(workspace: String, tile: String, fragment: String? = nil) -> URL? {
+        pageURL(workspace: workspace, tile: tile, query: "native=1", fragment: fragment.map { hash($0) }.flatMap { $0.isEmpty ? nil : String($0.dropFirst()) })
+    }
+
+    /// A fragment as `location.hash` reads it: `""` or `#…` (a leading `#`
+    /// is optional on the way in).
+    public static func hash(_ fragment: String) -> String {
+        let f = fragment.hasPrefix("#") ? String(fragment.dropFirst()) : fragment
+        return f.isEmpty ? "" : "#" + f
     }
 
     /// The server path (+ query) a scheme URL asks for, or nil when the URL
@@ -106,6 +114,15 @@ public enum TileScheme {
         var out: [String: String] = [:]
         for (k, v) in server where !drop.contains(k.lowercased()) { out[k] = v }
         return out
+    }
+
+    /// Whether a response is an event stream (`text/event-stream`, any
+    /// parameters, any header-name case) — the tile scheme nudges a quiet one
+    /// through WebKit (TileSchemeHandler.nudge).
+    public static func isEventStream(_ headers: [String: String]) -> Bool {
+        headers.contains { k, v in
+            k.lowercased() == "content-type" && v.split(separator: ";").first?.trimmingCharacters(in: .whitespaces).lowercased() == "text/event-stream"
+        }
     }
 
     /// Whether a redirect the server answered may be followed with the

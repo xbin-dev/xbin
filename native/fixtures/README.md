@@ -57,6 +57,8 @@ in some `expected.json` — or when this README's index misses a fixture.
 | `calls` | how `xbin.native.copy/share/open` resolve: `{"copy": true, …}` (default `null`) |
 | `dialog` | what `xbin.dialog()` resolves to |
 | `caps` | the app's caps (default: the full vocabulary) — to test an older app |
+| `expectUnsupported` | with an older app's `caps`: the `unsupported` messages the run must report, exactly (the app then shows the web page, tree.md §8) — without it any runtime error fails the run |
+| `hash` | the fragment the runtime document is loaded with — a deep link (`#t=t-2`) the tile reads from `location.hash` as it starts |
 | `state` | the blob the app kept (`xbin.native.state`, default `null`) |
 | `widget` | `"small"` / `"wide"`: the fixture is the tile's **widget** tree (native/spec/tree.md §13), rendered by an app that shows widgets at that size class — `expected.json` holds the widget tree, which renderers draw as a card of that size |
 | `interactions` | the script, below |
@@ -97,7 +99,9 @@ final tree is taken after the last.
   - `visibility`: `"hidden"` / `"visible"` (`document.visibilityState`);
   - `resolve`: `[callId, value]` answers an `xbin.native` call by hand;
   - `widgetSize`: `"small"` / `"wide"` — the app shows the widget at another
-    size class.
+    size class;
+  - `navigate`: `"#t=t-3"` — the app opens a deep link into the running view
+    (`xbn.navigate`: `location.hash` changes and `hashchange` fires).
 
   An event with `"target": "widget"` is on the widget tree (its `k`/`select`
   name a widget node).
@@ -174,6 +178,10 @@ the fixtures, `expected.json` and the renderers in one change
 | `tabs` | segmented `tabs` with icons and badges; only the selected tab is materialized |
 | `tabs-bar` | a tab bar (`tabs style="bar"`) at the root, a `nav` per tab, the last tab restored from `xbin.native.state` |
 | `split` | `split prefer="auto"`: a plain lazy `list` (selected row, load more, a bus-delivered mail) beside the message detail |
+| `split-collapse` | `split` rev 2: opened from a deep link (`hash`), Back (`close`) and `xbn.navigate` to another ticket, `columns`; the conversation's `anchor`, `scrollTo` and `edge` with a "1 new" button |
+| `search-toolbars` | `screen` rev 2: search `scopes`, `suggestions`, `submit`; toolbars `place`d leading (a menu with a submenu), trailing and bottom; `refreshing` held through a reload; leading and trailing `full` swipe `actions`; a list `anchor`, `scrollTo`, `edge` |
+| `sheet-stack` | `sheet` rev 2: a full-screen sheet (`detents="full"`) with a second sheet stacked over it |
+| `old-app` | an app at rev 1 (`caps`) and a tile written for rev 2: each rev-2 prop, event and nested menu is reported `unsupported` (`expectUnsupported`), so the app shows the web page |
 | `split-single` | `split prefer="single"`: a sectioned list and the opened contact |
 | `stack-layout` | `stack` vertical and horizontal, every gap, start/center/end, wrap; `spacer`, `divider` |
 | `tile-counter-go` | the shipped `examples/counter-go/native.js` (plans/native.md §18.1): a form row and a busy `+1` button through one round trip |

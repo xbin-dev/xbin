@@ -109,6 +109,7 @@ function fmtEvents(spec) {
   for (const [name, ev] of Object.entries(spec.events)) {
     let x = code(name);
     if (ev.payload && Object.keys(ev.payload).length) x += ` {${Object.keys(ev.payload).join(', ')}}`;
+    if (ev.since) x += ` (rev ${ev.since}+)`;
     out.push(x);
   }
   return out.length ? out.join(', ') : '—';
@@ -119,7 +120,7 @@ function fmtChildren(spec) {
   if (spec.text) return `text → ${code(spec.text)}`;
   if (c.none) return '—';
   let x;
-  if (c.only) x = c.only.map(code).join(', ');
+  if (c.only) x = c.only.map((p) => code(p) + (c.since?.[p] ? ` (rev ${c.since[p]}+)` : '')).join(', ');
   else x = 'any';
   if (c.min != null && c.max != null) x = c.min === c.max ? `exactly ${c.min}${c.only ? ` (${x})` : ''}` : `${c.min}–${c.max} (${x})`;
   else if (c.min != null) x = `${x}, at least ${c.min}`;
@@ -146,6 +147,7 @@ function primTable(V, group) {
       if (s.features) {
         for (const [v, f] of Object.entries(s.features)) notes.push(`- ${code(name)} ${code(`${p}="${v}"`)} needs the app feature ${code(f)}.`);
       }
+      for (const [v, r] of Object.entries(s.enumSince || {})) notes.push(`- ${code(name)} ${code(`${p}="${v}"`)} is rev ${r}+.`);
     }
   }
   return rows.join('\n') + (notes.length ? `\n\n${notes.join('\n')}` : '');

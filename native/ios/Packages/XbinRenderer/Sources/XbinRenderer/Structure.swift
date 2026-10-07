@@ -276,6 +276,7 @@ struct ListNodeView: View {
                 default: List { ListRows(node: node) }.listStyle(.insetGrouped).concreteBackground()
                 }
             }
+            .modifier(ListScrollModifier(list: node))
             .environment(\.xbinPlacement, .list)
         } else {
             VStack(alignment: .leading, spacing: 16) {

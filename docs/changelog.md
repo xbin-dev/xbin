@@ -12,6 +12,92 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-07
 
+- **Native views: vocabulary revision 2 — navigation** (D189;
+  [native.md](/docs/native.md) §Navigation, search and scrolling, §How it
+  runs). For the app release that follows this server release; until then
+  a tile that uses any of it on an older app shows its web page, so branch
+  on `xbin.native.supports(name, 2)`.
+  - **Deep links reach the native view:** a link with a fragment
+    (`xbin://<ws>/c/apps/x#t=42`) starts the view with that
+    `location.hash`, and a link while it runs fires `hashchange`.
+  - **`split` collapses on a phone** when it has `detail`: the list, with
+    the detail pushed over it while `detail` is true; Back reports
+    `close`. `columns` (auto·all·detail, `columns {value}`) controls the
+    columns on a tablet. A `split` without `detail` is unchanged.
+  - **`toolbar place`** leading·trailing·bottom; **`actions edge`**
+    leading·trailing and **`full`** swipes; a **`menu` inside a `menu`** is
+    a submenu.
+  - **`screen`:** `refreshing` keeps pull-to-refresh up until you clear it;
+    search `submit {value}`, `scopes`/`scope` (`scope {value}`) and
+    `suggestions`.
+  - **`sheet detents="full"`** (a full-screen cover) and a `sheet` inside a
+    `sheet` (stacked over it).
+  - **`list` and `transcript`:** `anchor` (open at a child and keep it in
+    place), `scrollTo` (jump when the value changes) and `edge {edge, at}`.
+  - Nothing changes for a tile that uses none of it.
+
+- **The agent template on the xbin app: the conversation list first, and
+  Back** (D190; the template's API.md "The frontend"). Its native view is
+  now a navigation stack whose root is your conversations — search, what
+  needs you, pinned, by date, Mine / Shared / Archived, a row's swipe
+  actions — with New chat and ⋯ (Automations, Projects, Coding agents,
+  Settings) in the bar. A conversation, the new chat screen, a project's
+  task, an automation's run, a Coding agents board row and a subagent are
+  pushed, and Back returns where you came from; the conversations drawer
+  is gone. Links (`#c=`, `#auto…`, `#proj…`, `#join=`) open with the list
+  under them, and a restarted view comes back to the same screens. Every
+  app version gets it (it uses only today's native vocabulary). An
+  instance that customised the native view: `ui.drawer` and
+  `ui.opening` are gone, `ui.stack` now holds conversations and pages too
+  (`native/nav.js`), the main ⋯ is the list's, and `ext.drawer` rows draw
+  at the top of the list.
+
+- **The agent template on the xbin app: iPad and Duo side by side, and the
+  web's remaining features** (D190; the template's API.md "The frontend",
+  "Terminal relays"). With an app of vocabulary rev 2, the conversation
+  list sits beside the open conversation (and what is opened over it) on
+  an iPad or a Duo, and collapses to the list with Back on a phone; an
+  older app keeps the phone stack everywhere. Also: **terminals as tabs**
+  (several shells on one Terminals screen; leaving a tab or the screen
+  keeps them running — Terminals (N) in ⋯ — and Close tab ends one),
+  **Ports** on the Sandbox screen, a person's **partition forms** (Share a
+  copy, Copy to my own space, Use my private resources, Add a copy of my
+  files, who can see a new chat), **jump to latest** ("↓ N new" while you
+  read far up; rev 2), **steering a coding agent from its card** (Send,
+  Send now, Stop, Cancel task), and the composer keeps **a draft per
+  conversation**. The agent backend's terminal relays take **`tab=<name>`**:
+  a person's tab terminal outlives its client and is attached to again by
+  name, until **`DELETE /terminals/{tab}`** or 30 minutes with no client.
+
+- **`xbin.native.width`: a native view knows its screen's width class**
+  ([native.md](/docs/native.md) §`xbin.native`). `"compact"` (a phone, an
+  iPad's narrow Split View) or `"regular"` (an iPad), `null` from an app that
+  doesn't say; `xbin.native.on('width', fn)` hears a change. A phone's bar
+  drops its title when it holds more than about two items — lay it out with
+  this. The agent template does: on a phone the conversation list's bar is
+  New chat and ⋯, a conversation's New chat and ⋯ with the model, the
+  sandbox and the seams' choices as submenus of ⋯, the new chat screen's ⋯
+  alone (`ext.toolbar(v, {fold})` for a seam's items). On an iPad the app's
+  bar names the tile and the detail the conversation, the list column is
+  280–400 pt, and a list hidden with the sidebar button stays hidden — when
+  a link opens another conversation, and after a relaunch.
+
+- **Fixes from the xbin app on a simulator** (for the same app release).
+  A collapsed `split` whose detail is a `nav` (the agent template's) now
+  works on a phone: the conversation no longer closed as it opened, and
+  what is pushed sends its events (typing, a card's Open, the transcript's
+  `edge` — so jump to latest counts). An event stream (`text/event-stream`)
+  a native view or a tile page reads in the app may now carry SSE comment
+  lines (`:`) when it goes quiet: they push WebKit's held-back last chunk
+  through (a finished turn showed as working), and every SSE parser skips
+  them — a hand-written one must ignore lines that start with `:`, as the
+  format says. A `nav` in a `split`'s detail column on an iPad pushes and
+  goes back (it showed the screen under it, covered). A short transcript
+  reports its end in view (a just-started conversation showed "↓ 1 new"). In
+  the agent template, a restarted view whose saved
+  conversation or automation is gone comes back on the list (or the
+  Automations page) without an error.
+
 - **Fix: a page without a `<head>` keeps its doctype first.** xbind's
   injection (the import map, the client) used to go in front of such a
   page, so a leading `<!doctype html>` no longer came first and the

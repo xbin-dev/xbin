@@ -34,6 +34,19 @@ export function homeOf(id, state = partitionState()) {
  * own conversation, which only a copy in the shared space can share? */
 export const publishes = (id, state = partitionState()) => twoHomes(state) && id != null && homeOf(id, state) === '';
 
+/** shareOf(vis, people): the share a form's choices make — {visibility,
+ * teamRole} for the team (vis team-viewer | team-participant) and/or
+ * {members} for the people named (user ids, comma- or space-separated; they
+ * can write); null: nobody besides you (both views' "Share a copy" and
+ * "Who can see it" forms). */
+export function shareOf(vis, people) {
+  const members = String(people || '').split(/[\s,]+/).map((u) => u.trim().toLowerCase()).filter(Boolean)
+    .map((user) => ({ user, role: 'participant' }));
+  const team = vis === 'team-viewer' || vis === 'team-participant';
+  if (!team && !members.length) return null;
+  return { ...(team ? { visibility: 'team', teamRole: vis === 'team-participant' ? 'participant' : 'viewer' } : {}), ...(members.length ? { members } : {}) };
+}
+
 /** runOfPath: the conversation a path of this backend's API names (/runs/<id>…), or null. */
 export function runOfPath(path) {
   const m = /^\/runs\/(\d+)(?=[/?#]|$)/.exec(String(path || ''));

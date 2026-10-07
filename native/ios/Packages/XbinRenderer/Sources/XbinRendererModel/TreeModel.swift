@@ -165,6 +165,7 @@ public final class XbinTreeModel {
         var bound = false
         if let report = XbinVocabulary.report(node.type, type), let v = report.value(in: payload) {
             bound = node.show(report.prop, v)
+            if bound { store.noteReported(key, report.prop, v) }
         }
         guard bound || node.listens(to: type) else { return false }
         send(store.event(key, type, payload: payload))

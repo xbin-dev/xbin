@@ -237,6 +237,84 @@ test('caps: a prop newer than the app\'s revision is unsupported', async () => {
   } finally { delete V.prims.badge.props.glow; }
 });
 
+// Vocabulary rev 2 (D189): what an app at rev 1 can't draw is unsupported —
+// props, events, enum values and newly allowed children alike; at rev 2 the
+// same tree is clean.
+test('caps: rev-2 props, events, enum values and children against a rev-1 app', () => {
+  const rev1 = fullCaps();
+  for (const k of Object.keys(rev1.prims)) rev1.prims[k] = 1;
+  const tree = html`
+    <split detail columns="all" @close=${() => {}}>
+      <screen title="A" refreshing scopes=${[{ value: 'o', label: 'Open' }]} @submit=${() => {}}>
+        <toolbar place="leading"><menu label="M"><menu label="Sub"><button>x</button></menu></menu></toolbar>
+        <list anchor="r1" @edge=${() => {}}><row title="r"><actions edge="leading" full><button>Read</button></actions></row></list>
+      </screen>
+      <screen title="B"><sheet detents=${['medium', 'full']}><text>x</text></sheet><transcript scrollTo="end"/></screen>
+    </split>`;
+  const old = mk({ caps: rev1 });
+  old.r(tree);
+  assert.deepEqual(old.errors().map((e) => e.message).sort(), [
+    'the app does not support <actions> edge (rev 2)',
+    'the app does not support <actions> full (rev 2)',
+    'the app does not support <list> @edge (rev 2)',
+    'the app does not support <list> anchor (rev 2)',
+    'the app does not support <menu> inside <menu> (rev 2)',
+    'the app does not support <screen> @submit (rev 2)',
+    'the app does not support <screen> refreshing (rev 2)',
+    'the app does not support <screen> scopes (rev 2)',
+    'the app does not support <sheet> detents="full" (rev 2)',
+    'the app does not support <split> @close (rev 2)',
+    'the app does not support <split> columns (rev 2)',
+    'the app does not support <split> detail (rev 2)',
+    'the app does not support <toolbar> place (rev 2)',
+    'the app does not support <transcript> scrollTo (rev 2)',
+  ]);
+  assert.deepEqual(old.diags(), [], 'nothing invalid: only newer than the app');
+  const now = mk();
+  now.r(tree);
+  assert.deepEqual(now.errors(), []);
+  assert.deepEqual(now.diags(), []);
+  // a rev-1 tree on a rev-1 app: still clean (additive)
+  const plain = mk({ caps: rev1 });
+  plain.r(html`<split><screen title="A"><toolbar><menu label="M"><button>x</button></menu></toolbar></screen><screen title="B"/></split>`);
+  assert.deepEqual(plain.errors(), []);
+});
+
+test('controlled rev 2: split close/columns and screen scope/submit report their props', () => {
+  const { rt, r } = mk();
+  r(html`<split detail columns="all" @close=${() => {}}><screen title="A" search="" scope="open"/><screen title="B"/></split>`);
+  rt.xbn.event('r', 'close', {});
+  rt.xbn.event('r', 'columns', { value: 'detail' });
+  rt.xbn.event('r.0', 'scope', { value: 'closed' });
+  rt.xbn.event('r.0', 'submit', { value: 'dead' });
+  const t = rt.tree.root;
+  assert.deepEqual([t.p.detail, t.p.columns, t.c[0].p.scope, t.c[0].p.search], [false, 'detail', 'closed', 'dead']);
+});
+
+test('xbn.navigate sets location.hash and fires hashchange, also for the same hash', () => {
+  const fired = [];
+  const win = { location: new URL('https://ws.test/c/apps/agent/?native=1'), dispatchEvent: (e) => { fired.push([e.type, e.oldURL, e.newURL]); return true; } };
+  const { rt } = mk({ window: win });
+  assert.equal(rt.xbn.navigate('#c=42'), true);
+  assert.equal(win.location.hash, '#c=42');
+  assert.equal(rt.xbn.navigate('c=42'), true, 'the # is optional');
+  rt.xbn.navigate('');
+  assert.equal(win.location.hash, '');
+  assert.deepEqual(fired, [
+    ['hashchange', 'https://ws.test/c/apps/agent/?native=1', 'https://ws.test/c/apps/agent/?native=1#c=42'],
+    ['hashchange', 'https://ws.test/c/apps/agent/?native=1#c=42', 'https://ws.test/c/apps/agent/?native=1#c=42'],
+    ['hashchange', 'https://ws.test/c/apps/agent/?native=1#c=42', 'https://ws.test/c/apps/agent/?native=1'],
+  ]);
+  // with history (a browser): replaceState, then one hashchange of our own
+  const states = [];
+  const win2 = { location: new URL('https://ws.test/c/x/?native=1#a'), history: { state: null, replaceState: (s, t, u) => { states.push(u); win2.location = new URL(u); } }, dispatchEvent: (e) => { fired.push(e.type); return true; } };
+  const b = mk({ window: win2 });
+  b.rt.xbn.navigate('#b');
+  assert.deepEqual(states, ['https://ws.test/c/x/?native=1#b']);
+  assert.equal(win2.location.hash, '#b');
+  assert.equal(mk().rt.xbn.navigate('#x'), false, 'no window: no deep links');
+});
+
 // ── the diff (randomized against applyOps) ──────────────────────────────────
 function rng(seed) {
   return () => { seed |= 0; seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
@@ -691,8 +769,17 @@ test('the vocabulary is well formed', () => {
   for (const [name, prim] of Object.entries(VOCAB.prims)) {
     assert.ok(Number.isInteger(prim.rev) && prim.rev >= 1, `${name}: rev`);
     for (const [pn, p] of Object.entries(prim.props)) { checkProp(`${name}.${pn}`, p); assert.ok(!p.since || p.since <= prim.rev, `${name}.${pn}: since`); }
-    for (const [en, ev] of Object.entries(prim.events)) if (ev.reports) assert.ok(prim.props[ev.reports.prop], `${name} @${en} reports a prop it has`);
+    for (const [en, ev] of Object.entries(prim.events)) {
+      if (ev.reports) assert.ok(prim.props[ev.reports.prop], `${name} @${en} reports a prop it has`);
+      assert.ok(!ev.since || ev.since <= prim.rev, `${name} @${en}: since`);
+    }
     for (const c of prim.children.only || []) assert.ok(VOCAB.prims[c], `${name}: child ${c}`);
+    for (const [c, r] of Object.entries(prim.children.since || {})) assert.ok(prim.children.only.includes(c) && r <= prim.rev, `${name}: child ${c} since`);
+    for (const [pn, p] of Object.entries(prim.props)) {
+      for (const s of [p, p.of].filter(Boolean)) {
+        for (const [v, r] of Object.entries(s.enumSince || {})) assert.ok(s.enum.includes(v) && r <= prim.rev, `${name}.${pn}=${v}: since`);
+      }
+    }
     if (prim.text) assert.ok(prim.props[prim.text], `${name}: text prop`);
   }
   assert.ok(Object.keys(VOCAB.icons).length >= 60);

@@ -11,9 +11,9 @@
 // nothing here: no element, no call.
 import { html, nothing, render } from '/vendor/lit-all.min.js';
 import * as actions from './model/actions.js';
-import { publishes, homeOf, twoHomes } from './model/homes.js';
+import { publishes, homeOf, twoHomes, shareOf } from './model/homes.js';
 
-export { publishes };
+export { publishes, shareOf };
 
 let dlg = null;
 let st = null; // {run, onChange, vis, people, files, keep, busy, err}
@@ -24,16 +24,6 @@ function dialog() {
     document.body.appendChild(dlg);
   }
   return dlg;
-}
-
-// shareOf: the share a form's choices make ({visibility, teamRole} and/or
-// {members}); null: nobody besides you.
-export function shareOf(vis, people) {
-  const members = String(people || '').split(/[\s,]+/).map((u) => u.trim().toLowerCase()).filter(Boolean)
-    .map((user) => ({ user, role: 'participant' }));
-  const team = vis === 'team-viewer' || vis === 'team-participant';
-  if (!team && !members.length) return null;
-  return { ...(team ? { visibility: 'team', teamRole: vis === 'team-participant' ? 'participant' : 'viewer' } : {}), ...(members.length ? { members } : {}) };
 }
 
 // open goes to a conversation by its address (#c=<id>: agent.js follows it).

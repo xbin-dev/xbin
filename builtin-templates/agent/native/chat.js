@@ -10,11 +10,14 @@
 // Feature modules draw into it through the seams (ctx.ext, native/ext.js):
 // a block their way, the transcript's end, the toolbar, the menu, the composer.
 import { html, repeat, nothing } from '/vendor/xb-native.js';
-import { ui, ctx, fail, guard, push, secs, clip, base, cardState, FAMILY_ICON, thumb, raw, IMAGE } from './ui.js';
+import { ui, ctx, fail, guard, push, secs, clip, base, cardState, FAMILY_ICON, thumb, raw, IMAGE, draftKey, draftOf, setDraft, clearer } from './ui.js';
 import { argsShown } from '../model/tool-heads.js';
 import { MAX_ATTACH, fmtBytes } from '../model/actions.js';
 import { sandboxPickerTpl, badgeWords, brokenTpl, sandboxMenuTpl } from './sandboxes.js';
 import { openRender, openLive } from './tools.js';
+import { openPublish } from './homes.js'; // one of a person's own conversations: shared by a copy
+import { newChat, openAutos, rev2, compact } from './nav.js';
+import { pickTpl } from './pick.js';
 import { hostedNoticeTpl, hostedComposer, hostedButtonsTpl } from './hosted.js'; // a non-secure conversation's warning and lock
 import { steerWords } from '../model/harness-ask.js'; // a coding harness's queued chips
 import { activityStill } from '../model/harness.js'; // …and its activity line
@@ -180,9 +183,9 @@ function agentTpl(b, depth) {
   </toolcard>`;
 }
 
-// openChild pushes a subagent's session full screen (the web's "open ↗").
+// openChild pushes a subagent's session full screen (the web's "open ↗"):
+// over its parent's, so back returns to it (native/nav.js).
 export function openChild(id) {
-  ui.opening = id;
   ctx.app.select(id);
 }
 
@@ -230,27 +233,24 @@ export function approvalTpl(calls, runId, lead = 'The agent wants to run', grant
 
 // --- the conversation screen ------------------------------------------------------------
 
-// chatScreens: the open conversation — a subagent's parents first (the
-// breadcrumbs: back goes up the chain), then the run itself.
-export function chatScreens() {
+// chatRouteScreen: a conversation's entry of the stack (native/nav.js
+// {kind: 'chat', run}) — the open one in full; one under it (a subagent's
+// parent, a conversation another was opened from) as last seen, read again
+// when back makes it the open one.
+export function chatRouteScreen(s) {
   const app = ctx.app;
-  const v = app.session.current();
-  if (!v) {
-    // loading: a subagent opened from its card keeps the screens under it
-    const under = ui.opening === app.sel && chatScreens.last ? chatScreens.last.filter((s) => s.key !== 'chat:' + app.sel) : [];
-    return [...under, { key: 'chat:' + app.sel, tpl: () => loadingScreen() }];
+  if (app.sel === s.run) {
+    const v = app.session.current();
+    return v ? chatScreen(v) : loadingScreen(s);
   }
-  if (ui.opening === app.sel) ui.opening = null;
-  const chain = (v.chain || []).map((c) => ({ key: 'chat:' + c.id, tpl: () => parentScreen(c), back: () => app.select(c.id) }));
-  const out = [...chain, { key: 'chat:' + v.run.id, tpl: () => chatScreen(v), back: () => { if (app.sel !== v.run.id) app.select(v.run.id); } }];
-  chatScreens.last = out;
-  return out;
+  const v = app.session.merged(s.run);
+  return v ? parentScreen({ id: s.run, title: v.run.title || s.title }) : loadingScreen(s);
 }
 
-const loadingScreen = () => html`<screen title="loading…" style="scroll"><progress label="loading…"/></screen>`;
+const loadingScreen = (s) => html`<screen title=${s.title || (ctx.app.convs.find(s.run) || {}).title || 'loading…'} style="scroll"><progress label="loading…"/></screen>`;
 
-// A parent under a subagent: the end of its transcript as last seen (back
-// re-reads it) — drawn again only when its blocks changed.
+// A conversation under the open one: the end of its transcript as last seen
+// (back re-reads it) — drawn again only when its blocks changed.
 const parentMemo = new Map(); // run id → {blocks, title, tpl}
 function parentScreen(c) {
   const blocks = ctx.app.session.blocks(c.id);
@@ -274,18 +274,32 @@ function parentScreen(c) {
 // keeps its bottom still while it follows it, so rows above go — the window
 // trimmed from the top, and the messages far above let go (Session.keep) —
 // only while the reader is at the bottom, as `scrolled` says; scrolled up,
-// the window only grows. Nothing below the window is let go here: without an
-// anchor the renderer keeps, that would move what the reader looks at.
+// the window only grows.
+//
+// Where the app's transcript has the anchors of vocabulary rev 2 (D189), the
+// reader far up lets the live end go too, as the web's window does
+// (chat.jumpLatest): while they are away from the end (its `edge`), the row
+// the window grew up from is the transcript's `anchor` — kept in place while
+// rows come and go around it — so the window is cut below it too, and the
+// messages there are let go (the live tail with them: what arrives is
+// counted). The composer's "↓ N new — jump to latest" reads the newest page
+// again and `scrollTo`s the end; reading down to the window's end grows it
+// back a page at a time. From an app of rev 1 nothing below the window goes
+// (that would move what the reader looks at) and there is no pill.
 const PAGE = 40;  // rows the window opens on, and grows by
-const TRIM = 120; // a window longer than this is cut back to KEEP rows — at the bottom only
+const TRIM = 120; // a window longer than this is cut back to KEEP rows — at the bottom from the top; away, below the anchor
 const KEEP = 60;
+
+const anchors = () => rev2('transcript');
 
 // winOf: the window of s.blocks for the open run, placed for this render.
 function winOf(s, run) {
   let w = ui.win;
-  if (!w || w.run !== run) w = ui.win = { run, fromKey: null, atBottom: true, start: 0, n: 0 };
+  if (!w || w.run !== run) w = ui.win = { run, fromKey: null, toKey: null, atBottom: true, anchor: null, jumps: 0, start: 0, end: 0, n: 0 };
   const blocks = s.blocks, n = blocks.length;
   w.start = startOf(w, blocks);
+  w.end = endOf(w, blocks);
+  if (w.end <= w.start) { w.toKey = null; w.end = n; }
   w.n = n;
   w.fromKey = n ? blocks[w.start].id : null;
   return w;
@@ -301,12 +315,21 @@ function startOf(w, blocks) {
   return start;
 }
 
+// endOf: where it ends — its last row (cut below the anchor), else the end.
+function endOf(w, blocks) {
+  if (w.toKey == null) return blocks.length;
+  const i = blocks.findIndex((b) => b.id === w.toKey);
+  return i < 0 ? blocks.length : i + 1;
+}
+
 // more: the loader at the transcript's top is on screen — a page of held
-// rows joins the window, else the next older page is read and joins it.
+// rows joins the window, else the next older page is read and joins it. The
+// row it grew up from keeps its place (rev 2: the anchor, while away).
 const more = guard(async () => {
   const w = ui.win, s = ctx.app.session;
   if (!w || w.run !== ctx.app.sel) return;
   const blocks = s.shown().blocks;
+  if (anchors() && !w.atBottom && w.fromKey != null) w.anchor = w.fromKey;
   if (w.start > 0) { w.fromKey = blocks[Math.max(0, w.start - PAGE)].id; return; }
   if (!s.shown().hasOlder) return;
   await s.loadOlder();
@@ -314,22 +337,77 @@ const more = guard(async () => {
   if (i > 0) w.fromKey = now[Math.max(0, i - PAGE)].id;
 });
 
-// scrolled: the reader left the bottom, or came back to it (the window is
-// trimmed at the next render).
+// atEnd: the reader is at the live end (true) or left it — the model counts
+// what arrives meanwhile (Session.follow); at the end no row is anchored.
+function atEnd(w, at) {
+  if (at === w.atBottom) return;
+  w.atBottom = at;
+  if (at) w.anchor = null;
+  ctx.app.session.follow(at);
+  ctx.paint();
+}
+
+// scrolled (rev 1): the reader left the bottom, or came back to it (the
+// window is trimmed at the next render).
 function scrolled(e) {
   const w = ui.win;
-  if (!w || !!e.atBottom === w.atBottom) return;
-  w.atBottom = !!e.atBottom;
-  ctx.app.session.follow(w.atBottom);
-  if (w.atBottom) ctx.paint();
+  if (w) atEnd(w, !!e.atBottom);
+}
+
+// edge (rev 2): the transcript's end came into view or left it. The end of a
+// window cut below (or of the held pages, the live tail let go) is not the
+// live end: the window grows a page down, read back when need be.
+function edge(e) {
+  const w = ui.win, s = ctx.app.session;
+  if (!w || e.edge !== 'end' || w.run !== ctx.app.sel) return;
+  const v = s.shown();
+  if (e.at && (w.end < v.blocks.length || v.hasNewer || v.detached)) return below(w, v);
+  atEnd(w, !!e.at);
+}
+
+const below = guard(async (w, v) => {
+  const n = v.blocks.length;
+  if (w.end < n) { const e = w.end + PAGE; w.toKey = e < n ? v.blocks[e - 1].id : null; return; }
+  if (v.hasNewer) await ctx.app.session.loadNewer();
+  else await ctx.app.session.latest();
+  w.toKey = null;
+});
+
+// jump: "↓ N new — jump to latest" — the newest page again when the tail was
+// let go, the window back on it, scrolled to the end and followed.
+const jump = guard(async () => {
+  const w = ui.win, s = ctx.app.session;
+  if (!w) return;
+  const v = s.shown();
+  if (v.hasNewer || v.detached) await s.latest();
+  w.fromKey = w.toKey = w.anchor = null;
+  w.jumps++;
+  atEnd(w, true);
+});
+
+// pillOf: the pill's words while the reader is away and something is below ('' else).
+function pillOf(w, v) {
+  if (!anchors() || w.atBottom || !(v.fresh || v.hasNewer || v.detached || w.end < v.blocks.length)) return '';
+  return `↓ ${v.fresh ? `${v.fresh} new — ` : ''}jump to latest`;
 }
 
 // chatDrawn (native.js, after a render): at the bottom, what lies far above
-// the window is let go (a page or more at a time).
+// the window is let go (a page or more at a time); away from it with a row
+// anchored (rev 2), a window grown long is cut below the anchor and what lies
+// below it let go — the live tail too: what arrives is counted.
 export function chatDrawn() {
   const w = ui.win, app = ctx.app;
-  if (!w || app.sel !== w.run || !w.atBottom) return;
+  if (!w || app.sel !== w.run) return;
   const blocks = app.session.shown().blocks;
+  if (!w.atBottom) {
+    if (!anchors() || w.anchor == null) return;
+    const a = blocks.findIndex((b) => b.id === w.anchor);
+    if (a < 0 || endOf(w, blocks) - a <= TRIM) return;
+    const e = Math.min(blocks.length, a + KEEP);
+    w.toKey = blocks[e - 1].id;
+    if (!app.session.keep(0, e, true)) ctx.paint();
+    return;
+  }
   const i = startOf(w, blocks); // where the render this paint asked for places it
   if (i <= KEEP) return;
   w.fromKey = blocks[i].id;
@@ -351,18 +429,23 @@ export function chatScreen(v) {
   const subtitle = [chain.length ? 'in ' + chain.join(' › ') : '', ...(ctx.ext.subtitle(v) || []), r.status, t.cls.label, t.cls.warn, badgeWords(v), t.viewOnly ? 'view only' : '',
     t.share.tone ? t.share.label : '', t.model || '', ...t.grants.map((g) => g.label)].filter(Boolean).join(' · ');
   return html`<screen title=${t.title} subtitle=${subtitle} style="scroll">
-    <toolbar>
-      <button icon="list" @tap=${() => { ui.drawer = true; ctx.paint(); }}>Conversations</button>
-      <button icon="pencil" @tap=${() => app.home()}>New chat</button>
+    ${compact() ? html`<toolbar>
+      <button icon="pencil" @tap=${newChat}>New chat</button>
+      <menu icon="ellipsis" label="More">${folded([modelPickerTpl(v, true), sandboxPickerTpl(true), ctx.ext.toolbar(v, { fold: true })])}${runMenu(v, t)}</menu>
+    </toolbar>` : html`<toolbar>
+      <button icon="pencil" @tap=${newChat}>New chat</button>
       ${modelPickerTpl(v)}
       ${sandboxPickerTpl()}
       ${ctx.ext.toolbar(v) || nothing}
       <menu icon="ellipsis" label="More">${runMenu(v, t)}</menu>
-    </toolbar>
-    <transcript follow ?older=${w.start > 0 || s.hasOlder} @more=${more} @scrolled=${scrolled}>
+    </toolbar>`}
+    <transcript follow ?older=${w.start > 0 || s.hasOlder} @more=${more}
+        anchor=${anchors() && !w.atBottom && w.anchor != null ? String(w.anchor) : nothing}
+        scrollTo=${anchors() ? `end#${w.jumps}` : nothing}
+        @scrolled=${anchors() ? nothing : scrolled} @edge=${anchors() ? edge : nothing}>
       ${hostedNoticeTpl(v)}
       ${s.olderHidden && !w.start && !s.hasOlder ? html`<notice tone="muted" text="earlier turns were compacted into the summary"/>` : nothing}
-      ${repeat(w.start ? s.blocks.slice(w.start) : s.blocks, (b) => b.id, rowTpl)}
+      ${repeat(w.start || w.end < s.blocks.length ? s.blocks.slice(w.start, w.end) : s.blocks, (b) => b.id, rowTpl)}
       ${tail || nothing}
       ${parked && ps.kind === 'approval' ? approvalTpl(ps.toolCalls, r.id, undefined, rules.grantAsk(r, app.me), ps.park) : nothing}
       ${parked && ps.kind !== 'approval' && r.result ? questionTpl(r) : nothing}
@@ -371,8 +454,9 @@ export function chatScreen(v) {
       ${app.halted ? html`<notice tone="warn" title="Halted" text="Every run of this agent is stopped until a manager resumes it."/>` : nothing}
       ${brokenTpl(v)}
       ${ui.err ? html`<notice tone="danger" text=${ui.err}/>` : nothing}
+      ${ui.note ? html`<notice tone="ok" text=${ui.note}/>` : nothing}
     </transcript>
-    ${composerTpl(v, t)}
+    ${composerTpl(v, t, pillOf(w, s))}
   </screen>`;
 }
 
@@ -385,7 +469,14 @@ function questionTpl(r) {
   const schema = { type: 'object', description: plain(r.result), required: ['answer'],
     properties: { answer: { type: 'string', title: 'Your answer' } } };
   return html`<question title="The agent is asking" schema=${schema}
-    @submit=${(e) => ctx.app.send(String((e.content || {}).answer || ''), () => { ui.draft = ''; })}/>`;
+    @submit=${(e) => ctx.app.send(String((e.content || {}).answer || ''), clearer())}/>`;
+}
+
+// folded: the bar's choices in ⋯ on a phone (native/pick.js), a divider after
+// them when there are any.
+export function folded(items) {
+  const xs = items.flat().filter((x) => x && x !== nothing);
+  return xs.length ? html`${xs}<divider/>` : nothing;
 }
 
 // runMenu: the top bar's controls (model/rules.js topBar) in the toolbar's menu.
@@ -404,8 +495,9 @@ function runMenu(v, t) {
     ${sandboxMenuTpl(v)}
     ${t.tree ? html`<button icon="branch" @tap=${() => push({ kind: 'tree', root: v.run.rootId || id })}>Workflow tree</button>` : nothing}
     ${t.sharing ? html`<button icon="people" @tap=${() => { ui.share = { run: t.shareRun }; ctx.paint(); }}>${t.own ? 'Share' : 'Shared'}</button>` : nothing}
+    ${t.publish && t.own ? html`<button icon="people" @tap=${() => openPublish(t.shareRun)}>Share a copy…</button>` : nothing}
     ${t.grants.filter((g) => g.revoke).map((g) => html`<button icon="lock" @tap=${guard(() => app.session.revokeGrant(g.run, g.cap))}>${`Revoke: ${g.label}`}</button>`)}
-    ${t.crumb ? html`<button icon="clock" @tap=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Its automation</button>` : nothing}
+    ${t.crumb ? html`<button icon="clock" @tap=${() => openAutos(t.crumb.kind, t.crumb.id)}>Its automation</button>` : nothing}
     ${ctx.ext.menu(v, t) || nothing}
     ${t.del ? html`<divider/><button icon="trash" role="destructive"
       confirm=${{ title: 'Delete this run and its history?', label: 'Delete', destructive: true }}
@@ -415,17 +507,19 @@ function runMenu(v, t) {
 // modelPickerTpl: the model (model/rules.js modelPicker) — the open
 // conversation's from its next turn, or at home the next new chat's. In the
 // toolbar: the app's composer holds buttons only.
-export function modelPickerTpl(v) {
+export function modelPickerTpl(v, fold = false) {
   const app = ctx.app;
   const p = app.rules.modelPicker(v, app.model, app.catalog);
   if (!p.shown || p.disabled) return nothing;
-  return html`<picker label="Model" style="menu" value=${p.value} options=${p.options.map(({ value, label }) => ({ value, label }))}
-    @change=${(e) => guard(() => app.pickModel(e.value))()}/>`;
+  return pickTpl({ label: 'Model', icon: 'sparkles', fold, value: p.value, options: p.options.map(({ value, label }) => ({ value, label })),
+    change: (e) => guard(() => app.pickModel(e.value))() });
 }
 
 // --- the composer ------------------------------------------------------------------------
 
-export function composerTpl(v, t) {
+// composerTpl: the composer — and, while the reader is away from the live
+// end of the open conversation, its "↓ N new — jump to latest" (pill).
+export function composerTpl(v, t, pill = '') {
   const app = ctx.app;
   const c = v ? hostedComposer(app.rules.composer(v, app.HOME), v) : app.rules.composer(v, app.HOME);
   // the seams' part (ext.composer): the last placeholder given, every slash command, their buttons
@@ -441,14 +535,16 @@ export function composerTpl(v, t) {
   }));
   const queued = v ? app.session.queued() : [];
   const qw = steerWords(v, { native: true });
-  return html`<composer value=${ui.draft} placeholder=${placeholder} ?busy=${c.busy} ?disabled=${c.disabled}
+  const dk = draftKey(); // its own draft: each conversation's, the new chat screen's (native/ui.js)
+  return html`<composer value=${draftOf(dk)} placeholder=${placeholder} ?busy=${c.busy} ?disabled=${c.disabled}
       attachments=${att} slash=${slash.length ? slash : nothing}
       upload=${talk ? app.uploadTarget() : nothing}
-      @input=${(e) => { ui.draft = e.value; }}
-      @send=${(e) => app.send(e.value, () => { ui.draft = ''; })}
+      @input=${(e) => setDraft(e.value, dk)}
+      @send=${(e) => app.send(e.value, clearer(dk))}
       @stop=${stop}
       @uploaded=${uploaded(place)}
       @remove=${(e) => app.attach.remove(+e.id)}>
+    ${pill ? html`<button role="primary" @tap=${jump}>${pill}</button>` : nothing}
     ${t && t.retry ? html`<button icon="refresh" role="primary" @tap=${guard(() => app.actions.control(v.run.id, 'resume'))}>Retry</button>` : nothing}
     ${v ? hostedButtonsTpl(v) : nothing}
     ${repeat(queued, (q) => q.id, (q) => html`<button icon="xmark"
@@ -459,8 +555,9 @@ export function composerTpl(v, t) {
 
 // Stop interrupts the run; what was still queued comes back into the composer.
 const stop = guard(async () => {
+  const k = draftKey();
   const text = await ctx.app.stop();
-  if (text) ui.draft = [text, ui.draft].filter(Boolean).join('\n\n');
+  if (text) setDraft([text, draftOf(k)].filter(Boolean).join('\n\n'), k);
 });
 
 // uploaded: the app put a picked file into the run (PUT /runs/{id}/upload),

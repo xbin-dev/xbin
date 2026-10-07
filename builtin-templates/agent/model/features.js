@@ -232,6 +232,7 @@ export const FEATURES = {
   'link.conv': 'an address opens a conversation (#c=<id>)',
   'link.auto': 'an address opens the Automations page or one automation (#auto[=kind:id])',
   'link.join': 'an invite link joins a conversation (#join=<token>)',
+  'link.back': 'going back returns where you came from: a conversation opened from the list, a project\'s board, an automation, the Coding agents board or another conversation goes back there; a restarted view comes back to the same screens (D190)',
 
   // Needs you, beyond the tile
   'needs.push': 'a question, an approval or a failed automation reaches your phone (the backend pushes it; tapping it opens the conversation)',
@@ -264,7 +265,7 @@ export const FEATURES = {
   'harness.account': 'a coding agent\'s conversation names the account it uses ("using Work", or the sandbox\'s own sign-in) and switches it: the default, another saved sign-in, or the sandbox\'s own — the session resumes with it at the next message',
 
   // Projects (API.md §Projects)
-  'proj.entry': 'the Projects entry (the sidebar; the drawer), with how many tasks need you',
+  'proj.entry': 'the Projects entry (the sidebar; the app\'s list menu), with how many tasks need you',
   'proj.list': 'the projects you may see — yours and team ones — with their state',
   'proj.new': 'a new project: the scm provider, its repos (a picker of what you can reach), the sandbox (one of yours or a new one) and the policy basics',
   'proj.upgrade': '"Make this a project…": a conversation with a sandbox and git repos becomes a project, the conversation its first task',
@@ -307,19 +308,12 @@ export const DIFFERENCES = {
     'needs.push': 'a web page does not receive pushes: the backend sends Needs-you to the person\'s xbin app (POST /api/xbin/notify), which opens the conversation in the native view',
     'composer.dictation': 'the browser and the OS dictate into any text box; the tile adds no control of its own',
     'composer.attach.camera': 'the browser\'s file picker offers the camera and the photo library itself',
+    'link.back': 'the web page draws the conversation list beside the open conversation, and its panes beside both: there is nothing to go back to — its address is replaced, not pushed, so a reload comes back to where you were',
   },
   native: {
     'composer.keys': 'on a phone Return is a new line and Send is the button; the app\'s composer handles a hardware keyboard and IME composition itself',
     'composer.attach.paste': 'the app\'s composer owns the pasteboard: an image pasted there is uploaded like a picked one — nothing for the tile to draw',
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',
-    'chat.jumpLatest': 'the native view never lets the live end go: the app\'s transcript keeps a row still only at its bottom, so letting go below the reader would move what they read — until the renderer anchors a row across a trim (D130 E3/E4), and the app scrolls to the end itself',
-    'tools.live.ports': 'the sandbox badge\'s popover is the web\'s; on the app a live preview\'s screen has its own Check (tools.live.check), which probes what the Ports section would',
-    'state.partition.publish': 'the native view shows a person\'s shared conversations and shares them, but publishing a copy of one of their own is the web\'s for now: the app\'s share sheet has no form for its choices yet',
-    'state.partition.copy': 'as state.partition.publish: the app\'s share sheet shares a shared conversation; a private copy of one is made on the web for now',
-    'state.partition.newShared': 'the app\'s new chat sheet makes a chat in the person\'s own space; a shared one is started on the web for now (or shared by a copy there)',
-    'state.partition.host': 'as state.partition.publish: letting a shared conversation use one\'s private resources needs the warning\'s form, which the app\'s share sheet hasn\'t yet — it is done on the web; a hosted one is shown, warned about and locked in the app (state.partition.hosted)',
-    'state.partition.copyIn': 'as state.partition.publish: the app\'s share sheet has no picker of one\'s own files yet — copies are added on the web',
-    'tools.terminal.tabs': 'the app\'s terminal primitive closes its socket when its screen goes and names no session to attach again, so a native terminal is one pushed screen at a time (going back ends its shell: the relay ends a terminal it started once its client goes, D147 §4.2.8); the web\'s dock keeps several running',
   },
 };
 

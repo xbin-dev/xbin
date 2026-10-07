@@ -516,7 +516,7 @@ XBIN_E2E_URL=http://127.0.0.1:9871 run "$S/ci-uitests.sh" "$dest"
 eq "ci-uitests: a URL without an account fails" "$rc" 2
 reset_env
 export FAKE_SCHEMES="Xbin XbinUITests"
-XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 XBIN_E2E_ERASE=1 FAKE_E2E_PNGS=4 \
+XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 XBIN_E2E_ERASE=1 XBIN_E2E_WARMUP=1 FAKE_E2E_PNGS=4 \
   XBIN_E2E_ONLY="XbinUITests/XbinE2ETests/test01AddWorkspace XbinUITests/XbinE2ETests/test03NativeCounter" \
   run "$S/ci-uitests.sh" "$dest"
 eq "ci-uitests: runs against an xbind" "$rc" 0
@@ -524,6 +524,7 @@ log=$(cat "$FAKE_LOG")
 has "ci-uitests: running builds signed to run locally (the Keychain)" "$log" "COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual"
 has "ci-uitests: erases the simulator when asked" "$log" "xcrun simctl erase BBBBBBBB-0000-4000-8000-000000002714"
 has "ci-uitests: …then boots it" "$log" "xcrun simctl bootstatus BBBBBBBB-0000-4000-8000-000000002714 -b"
+has "ci-uitests: …and warms it up: Settings opens once" "$log" "xcrun simctl launch BBBBBBBB-0000-4000-8000-000000002714 com.apple.Preferences"
 has "ci-uitests: test-without-building, only the named tests" "$log" \
   "xcodebuild test-without-building -project Xbin.xcodeproj -scheme XbinUITests -destination $dest -derivedDataPath $RUNNER_TEMP/xbin-derived/app -clonedSourcePackagesDirPath $RUNNER_TEMP/xbin-derived/SourcePackages -skipMacroValidation -skipPackagePluginValidation -resultBundlePath $RUNNER_TEMP/xbin-ci/uitests.xcresult -collect-test-diagnostics never -only-testing:XbinUITests/XbinE2ETests/test01AddWorkspace -only-testing:XbinUITests/XbinE2ETests/test03NativeCounter"
 has "ci-uitests: the tests get the URL, the account and E2E_DIR" "$log" \
@@ -532,15 +533,31 @@ eq "ci-uitests: screenshots in E2E_DIR" "$(find "$RUNNER_TEMP/xbin-ci/e2e" -name
 isdir "ci-uitests: the result bundle" "$RUNNER_TEMP/xbin-ci/uitests.xcresult"
 has "ci-uitests: summary counts screenshots" "$(cat "$GITHUB_STEP_SUMMARY")" "passed against http://127.0.0.1:9871 — 4 screenshots"
 hasnt "ci-uitests: the password never reaches the log" "$out" "pw-secret-123"
+# a sleep that only logs stands in for the warm-up's waits
+mkdir -p "$tmp/fakesleep"
+printf '#!/bin/sh\necho "sleep $*" >>"$FAKE_LOG"\n' >"$tmp/fakesleep/sleep"
+chmod +x "$tmp/fakesleep/sleep"
+FS="$tmp/fakesleep:$PATH"
 : >"$FAKE_LOG"
-XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 FAKE_ATTACH=1 run "$S/ci-uitests.sh" "$dest"
+PATH=$FS XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 FAKE_ATTACH=1 run "$S/ci-uitests.sh" "$dest"
 hasnt "ci-uitests: no erase unless asked" "$(cat "$FAKE_LOG")" "simctl erase"
+has "ci-uitests: …but a simulator this run boots warms up too" "$(cat "$FAKE_LOG")" "com.apple.Preferences"
 has "ci-uitests: no PNG written → exports the attachments" "$(cat "$FAKE_LOG")" \
   "xcrun xcresulttool export attachments --path $RUNNER_TEMP/xbin-ci/uitests.xcresult --output-path $RUNNER_TEMP/xbin-ci/e2e/attachments"
 : >"$FAKE_LOG"
-XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 XBIN_SIGNING=none run "$S/ci-uitests.sh" "$dest"
+PATH=$FS XBIN_E2E_WARMUP=0 XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 run "$S/ci-uitests.sh" "$dest"
+hasnt "ci-uitests: XBIN_E2E_WARMUP=0: no warm-up" "$(cat "$FAKE_LOG")" "com.apple.Preferences"
+# an iPad's warm-up is longer: 90 s unless XBIN_E2E_WARMUP says
+ipad_udid=$(python3 -c 'import json,sys; print([d["udid"] for r in json.load(open(sys.argv[1]))["devices"].values() for d in r if "iPad" in d.get("deviceTypeIdentifier","")][0])' "$td/simctl-ipad-only.json")
+: >"$FAKE_LOG"
+PATH=$FS FAKE_SIMCTL_JSON=$td/simctl-ipad-only.json XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 XBIN_E2E_ERASE=1 \
+  run "$S/ci-uitests.sh" "platform=iOS Simulator,id=$ipad_udid"
+has "ci-uitests: an iPad warms up for 90 s" "$out" "warm up simulator $ipad_udid (90s)"
+has "ci-uitests: …and waits that long" "$(cat "$FAKE_LOG")" "sleep 90"
+: >"$FAKE_LOG"
+PATH=$FS XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 XBIN_SIGNING=none run "$S/ci-uitests.sh" "$dest"
 has "ci-uitests: XBIN_SIGNING=none still wins when set" "$(cat "$FAKE_LOG")" "COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGNING_ALLOWED=NO"
-FAKE_XCODEBUILD_STATUS=0 FAKE_E2E_PNGS=1 XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 run "$S/ci-uitests.sh" "$dest"
+PATH=$FS FAKE_XCODEBUILD_STATUS=0 FAKE_E2E_PNGS=1 XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 run "$S/ci-uitests.sh" "$dest"
 eq "ci-uitests: a rerun starts with an empty E2E_DIR" "$(find "$RUNNER_TEMP/xbin-ci/e2e" -name '*.png' | wc -l | tr -d ' ')" 1
 rm -f "$repo/native/ios/project.yml"
 rm -rf "$repo/native/ios/Xbin.xcodeproj"

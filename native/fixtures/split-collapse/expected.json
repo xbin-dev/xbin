@@ -1,0 +1,25 @@
+{"v":1,"root":{"k":"r","t":"split","p":{"detail":true,"columns":"detail"},"e":["close","columns"],"c":[
+  {"k":"r.0","t":"screen","p":{"title":"Tickets","subtitle":"1 with new replies","style":"list"},"c":[
+    {"k":"r.0.0","t":"list","p":{"style":"plain"},"c":[
+      {"k":"r.0.0.0:t-1","t":"row","p":{"title":"Checkout fails on Safari 19","subtitle":"Northwind Traders","detail":"14:02","selected":false,"badge":"2","tone":"danger"},"e":["tap"]},
+      {"k":"r.0.0.0:t-2","t":"row","p":{"title":"Invoice shows the wrong VAT","subtitle":"Bellhaven Books","detail":"13:41","selected":false},"e":["tap"]},
+      {"k":"r.0.0.0:t-3","t":"row","p":{"title":"SSO login loops back to the start","subtitle":"Kestrel Labs","detail":"12:15","selected":true},"e":["tap"]},
+      {"k":"r.0.0.0:t-4","t":"row","p":{"title":"Export to CSV drops accents","subtitle":"Café Lumière","detail":"Fri","selected":false},"e":["tap"]}
+    ]}
+  ]},
+  {"k":"r.1","t":"screen","p":{"title":"SSO login loops back to the start","subtitle":"Kestrel Labs · high"},"c":[
+    {"k":"r.1.0","t":"toolbar","c":[
+      {"k":"r.1.0.0","t":"button","p":{"icon":"check","label":"Resolve"},"e":["tap"]}
+    ]},
+    {"k":"r.1.1","t":"transcript","p":{"follow":true,"anchor":"m-33","scrollTo":"end#0"},"e":["edge"],"c":[
+      {"k":"r.1.1.0:m-31","t":"message","p":{"role":"assistant","sender":"Dev Patel","text":"Since this morning our people land on the login page again after Okta.","time":"09:12"}},
+      {"k":"r.1.1.0:m-32","t":"message","p":{"role":"user","sender":"You","text":"Could you send the time of one failed attempt and the user's email?","time":"09:40"}},
+      {"k":"r.1.1.0:m-33","t":"message","p":{"role":"assistant","sender":"Dev Patel","text":"10:47 UTC, ana@kestrel.dev. It works in a private window.","time":"11:58"}},
+      {"k":"r.1.1.0:m-34","t":"message","p":{"role":"assistant","sender":"Dev Patel","text":"Clearing cookies fixes it for a few minutes, then it loops again.","time":"12:05"}},
+      {"k":"r.1.1.0:m-35","t":"message","p":{"role":"assistant","sender":"Dev Patel","text":"Is there a status page for this?","time":"12:15"}},
+      {"k":"r.1.1.0:m-36","t":"message","p":{"role":"assistant","sender":"Dev Patel","text":"Found it: our proxy strips the SameSite cookie.","time":"14:13"}}
+    ]},
+    {"k":"r.1.2","t":"button","p":{"role":"primary","icon":"expand","label":"1 new"},"e":["tap"]},
+    {"k":"r.1.3","t":"composer","p":{"placeholder":"Reply to the customer"},"e":["send"]}
+  ]}
+]}}

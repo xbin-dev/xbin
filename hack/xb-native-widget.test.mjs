@@ -94,6 +94,22 @@ test('per-target events: a key and a handler belong to one tree', () => {
   assert.deepEqual(got, ['main', 'main', 'widget']);
 });
 
+test('width: caps.width is the screen\'s width class (null when the app does not say); xbn.width changes it and tells listeners', () => {
+  assert.equal(mk(withWidget()).rt.native.width, null);
+  assert.equal(mk(withWidget({ width: 'huge' })).rt.native.width, null);
+  const { rt } = mk(withWidget({ width: 'compact' }));
+  assert.equal(rt.native.width, 'compact');
+  const heard = [];
+  const off = rt.native.on('width', (w) => heard.push(w));
+  assert.equal(rt.xbn.width('compact'), false, 'no change');
+  assert.equal(rt.xbn.width('wide'), false, 'not a width class');
+  assert.equal(rt.xbn.width('regular'), true);
+  assert.equal(rt.native.width, 'regular');
+  off();
+  rt.xbn.width('compact');
+  assert.deepEqual(heard, ['regular']);
+});
+
 test('widgetSize: caps.widgetSize is the initial size; xbn.widgetSize changes it and tells listeners', () => {
   assert.equal(mk(withWidget()).rt.native.widgetSize, 'small');
   assert.equal(mk(withWidget({ widgetSize: 'bogus' })).rt.native.widgetSize, 'small');

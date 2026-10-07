@@ -5,10 +5,29 @@ import Foundation
 // and anything fatal falls back to the web tile with a quiet banner. The
 // WebKit side is app code; the decisions are here.
 
+/// A native view drawn inside the app's own navigation stack (D189): what
+/// its screen's appear and disappear mean.
+public enum NativeHostedStack {
+    /// The deep link to hand the runtime when the tile's screen (re)appears:
+    /// the screen's `fragment` the first time, and again only when it
+    /// changed — coming back from a page the tile pushed must not re-open
+    /// the link the user has since navigated away from.
+    public static func fragment(_ fragment: String?, handled: String?) -> String? {
+        guard let fragment, !fragment.isEmpty, fragment != handled else { return nil }
+        return fragment
+    }
+}
+
 /// Loading → live, or → the web tile.
 public struct NativeTileLifecycle: Sendable, Equatable {
-    /// No tree within this long after the runtime document starts loading.
+    /// No tree within this long after the runtime document has loaded: the
+    /// tile's own start-up, which is what the fallback judges.
     public static let mountTimeout: TimeInterval = 5
+    /// The runtime document itself (the WebContent process, the request)
+    /// gets this long to load; a failed load reports at once (loadFailed).
+    /// Counting the load in mountTimeout made a busy device — a full UI test
+    /// run — fall back to the web page with nothing wrong with the tile.
+    public static let loadTimeout: TimeInterval = 30
 
     public enum Fallback: Sendable, Equatable {
         /// No `mount` in time.
@@ -47,17 +66,30 @@ public struct NativeTileLifecycle: Sendable, Equatable {
     }
 
     public private(set) var phase: Phase = .idle
+    /// The runtime document finished loading (the mount clock runs from then).
+    public private(set) var documentLoaded = false
 
     public init() {}
 
     public mutating func start(at now: Date) {
         if case .fallback = phase { return }
         phase = .loading(since: now)
+        documentLoaded = false
+    }
+
+    /// The runtime document loaded: from now the tile has mountTimeout to
+    /// send its first tree.
+    public mutating func loaded(at now: Date) {
+        guard case .loading = phase, !documentLoaded else { return }
+        documentLoaded = true
+        phase = .loading(since: now)
     }
 
     /// When the timeout fires, if the tile is still loading.
     public var deadline: Date? {
-        if case .loading(let since) = phase { return since.addingTimeInterval(Self.mountTimeout) }
+        if case .loading(let since) = phase {
+            return since.addingTimeInterval(documentLoaded ? Self.mountTimeout : Self.loadTimeout)
+        }
         return nil
     }
 

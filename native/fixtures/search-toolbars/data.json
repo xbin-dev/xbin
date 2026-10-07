@@ -1,0 +1,49 @@
+{
+  "about": "screen rev 2: search scopes, suggestions and submit; toolbars leading (a menu with a submenu), trailing and bottom; refreshing held while a reload runs; leading/trailing full-swipe row actions; a list anchor, scrollTo and edge",
+  "self": "apps/issues",
+  "routes": {
+    "GET /api/apps/issues/issues?state=open&sort=updated": {
+      "json": {
+        "total": 4,
+        "issues": [
+          {"id": "i-412", "number": 412, "title": "Worker deadlock when two invoices share a customer", "author": "ana", "updated": "14:01", "comments": 6, "unread": true},
+          {"id": "i-409", "number": 409, "title": "Retry storm after the payments API times out", "author": "ben", "updated": "13:20", "comments": 2, "unread": false},
+          {"id": "i-401", "number": 401, "title": "Nightly export misses rows created at midnight", "author": "chloe", "updated": "Mon", "comments": 0, "unread": false},
+          {"id": "i-398", "number": 398, "title": "Settings page flickers on slow networks", "author": "dev", "updated": "Sep 18", "comments": 1, "unread": true}
+        ]
+      }
+    },
+    "GET /api/apps/issues/issues?state=closed&sort=updated": {
+      "json": {
+        "total": 2,
+        "issues": [
+          {"id": "i-388", "number": 388, "title": "Deadlock in the ledger migration", "author": "ana", "updated": "Sep 12", "comments": 9, "unread": false},
+          {"id": "i-371", "number": 371, "title": "Webhook retries ignore Retry-After", "author": "ben", "updated": "Sep 3", "comments": 3, "unread": false}
+        ]
+      }
+    },
+    "GET /api/apps/issues/issues?state=open&sort=updated&q=deadlock": [
+      {
+        "json": {
+          "total": 2,
+          "issues": [
+            {"id": "i-412", "number": 412, "title": "Worker deadlock when two invoices share a customer", "author": "ana", "updated": "14:01", "comments": 6, "unread": true},
+            {"id": "i-405", "number": 405, "title": "Possible deadlock in the job scheduler's lease renewal", "author": "dev", "updated": "Tue", "comments": 3, "unread": false}
+          ]
+        }
+      },
+      {
+        "delay": 60000,
+        "json": {"total": 2, "issues": []}
+      }
+    ]
+  },
+  "interactions": [
+    {"select": "screen", "type": "scope", "payload": {"value": "closed"}, "note": "the Closed scope"},
+    {"select": "screen", "type": "scope", "payload": {"value": "open"}, "note": "back to Open"},
+    {"select": "screen", "type": "search", "payload": {"value": "dead"}, "note": "typing"},
+    {"select": "screen", "type": "submit", "payload": {"value": "deadlock"}, "note": "a recent search chosen: the query runs"},
+    {"select": "list", "type": "edge", "payload": {"edge": "end", "at": true}, "note": "scrolled to the end: Back to top appears"},
+    {"select": "screen", "type": "refresh", "note": "pulled to refresh: the reload is still running when the tree is taken"}
+  ]
+}

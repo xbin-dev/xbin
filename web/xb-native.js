@@ -30,7 +30,7 @@
  * JSON strings); otherwise a preview host that called attach(post) or set
  * globalThis.xbnHost = {post}; otherwise messages queue until attach().
  * The app talks back through globalThis.xbn = {event, visibility, resolve,
- * frame, remount, widgetSize}. createRuntime({post}) makes an independent runtime (node, tests);
+ * frame, remount, widgetSize, navigate}. createRuntime({post}) makes an independent runtime (node, tests);
  * with {global: true} it becomes the one render() and globalThis.xbn use.
  *
  * FROZEN once shipped: the exports, the vocabulary and the wire format change
@@ -71,7 +71,8 @@ function current$() {
   if (!current) {
     const inj = injected();
     install(makeRuntime({ post: transport, caps: inj?.caps, state: inj?.state,
-      document: typeof G.document === 'object' ? G.document : null }));
+      document: typeof G.document === 'object' ? G.document : null,
+      window: G.location ? G : null }));
     listenForErrors();
   }
   return current;
@@ -111,6 +112,7 @@ export const native = {
   open: (url) => current$().native.open(url),
   saveState: (obj) => current$().native.saveState(obj),
   get widgetSize() { return current$().native.widgetSize; },
+  get width() { return current$().native.width; },
   on: (type, fn) => current$().native.on(type, fn),
 };
 
@@ -121,6 +123,8 @@ export const native = {
 //   xbn.frame()                      the renderer's frame clock: flush a pending render
 //   xbn.remount(target?)             send a tree again (a fresh mount; "widget": the widget's)
 //   xbn.widgetSize('small'|'wide')   the app shows the widget at another size class
+//   xbn.navigate('#c=42')            a deep link: location.hash becomes it and hashchange fires
+//   xbn.width('compact'|'regular')   the screen changed width class (xbin.native.width)
 G.xbn = {
   event: (k, type, payload, n, target) => current$().xbn.event(k, type, payload, n, target),
   visibility: (s) => current$().xbn.visibility(s),
@@ -128,6 +132,8 @@ G.xbn = {
   frame: () => current$().xbn.frame(),
   remount: (target) => current$().xbn.remount(target),
   widgetSize: (size) => current$().xbn.widgetSize(size),
+  navigate: (hash) => current$().xbn.navigate(hash),
+  width: (w) => current$().xbn.width(w),
 };
 
 let listening = false;

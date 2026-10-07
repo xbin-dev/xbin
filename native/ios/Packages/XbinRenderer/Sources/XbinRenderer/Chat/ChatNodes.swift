@@ -18,13 +18,37 @@ struct TranscriptNodeView: View {
 
     var body: some View {
         let p = node.props
+        // Rev 2: the anchor and jump name rows by key (ScrollKeys).
+        let anchor = p.nonEmpty("anchor").flatMap { ScrollKeys.child(of: node, key: $0) }?.id
+        let jump = Self.jump(node)
+        let onEdge = Self.edgeAction(node, cx)
         TranscriptView(follow: p.bool("follow"), older: p.bool("older"), nested: placement == .toolcard,
                        idType: ObjectIdentifier.self,
                        onMore: cx?.action(node, "more"),
-                       onScrolled: cx?.action(node, "scrolled") { (atBottom: Bool) in ["atBottom": .bool(atBottom)] }) {
+                       onScrolled: cx?.action(node, "scrolled") { (atBottom: Bool) in ["atBottom": .bool(atBottom)] },
+                       anchor: anchor, jump: jump, onEdge: onEdge) {
             ForEach(node.children) { NodeView(node: $0) }
         }
         .environment(\.xbinPlacement, .chat)
+    }
+
+    /// The rev-2 `edge` event, when the tile listens.
+    static func edgeAction(_ node: XbinNode, _ cx: XbinRenderContext?) -> (@MainActor (String, Bool) -> Void)? {
+        guard node.listens(to: "edge"), let cx else { return nil }
+        return { edge, at in cx.emit(node, "edge", ["edge": .string(edge), "at": .bool(at)]) }
+    }
+
+    /// The rev-2 `scrollTo` as a transcript jump.
+    static func jump(_ node: XbinNode) -> TranscriptJump<ObjectIdentifier>? {
+        guard let raw = node.props.nonEmpty("scrollTo") else { return nil }
+        switch ScrollTarget(raw) {
+        case .start?: return TranscriptJump(token: raw, target: .start)
+        case .end?: return TranscriptJump(token: raw, target: .end)
+        case .key(let k)?:
+            guard let row = ScrollKeys.child(of: node, key: k) else { return nil }
+            return TranscriptJump(token: raw, target: .row(row.id))
+        case nil: return nil
+        }
     }
 }
 

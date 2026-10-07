@@ -62,7 +62,12 @@ const self = String(data.self ?? 'apps/tile');
 const metas = { 'xbin-component': self, 'xbin-sandbox': 'allow-scripts allow-downloads', 'xbin-native': '1', 'xbin-frame-token': 'node-runner' };
 const docListeners = new Map();
 globalThis.window = globalThis;
-globalThis.location = new URL(`https://xbin.test/c/${self}/`);
+globalThis.location = new URL(`https://xbin.test/c/${self}/${data.hash ? `#${String(data.hash).replace(/^#/, '')}` : ''}`);
+// the window's own events (hashchange): node's globalThis is no EventTarget
+const winListeners = new Map();
+globalThis.addEventListener ??= (type, fn) => { if (!winListeners.has(type)) winListeners.set(type, new Set()); winListeners.get(type).add(fn); };
+globalThis.removeEventListener ??= (type, fn) => { winListeners.get(type)?.delete(fn); };
+globalThis.dispatchEvent ??= (ev) => { for (const fn of [...(winListeners.get(ev.type) || [])]) fn(ev); return true; };
 globalThis.document = {
   visibilityState: 'visible',
   hidden: false,
@@ -169,6 +174,7 @@ const rt = xb.createRuntime({
   caps,
   state,
   document: globalThis.document,
+  window: globalThis,
   schedule: () => { activity++; }, // settle() flushes
   post(m) {
     messages.push(m);
@@ -267,6 +273,8 @@ async function step(s) {
   else if (own(s, 'bus')) { const [topic, payload] = s.bus; for (const h of [...eventHandlers]) h({ type: 'bus', topic, data: payload }); activity++; }
   else if (own(s, 'visibility')) rt.xbn.visibility(s.visibility);
   else if (own(s, 'widgetSize')) { activity++; rt.xbn.widgetSize(s.widgetSize); }
+  else if (own(s, 'navigate')) { activity++; rt.xbn.navigate(s.navigate); }
+  else if (own(s, 'width')) { activity++; rt.xbn.width(s.width); }
   else if (own(s, 'resolve')) rt.xbn.resolve(...s.resolve);
   else throw new Error(`unknown step ${JSON.stringify(s)}`);
   return settle();

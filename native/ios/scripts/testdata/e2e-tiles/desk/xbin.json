@@ -1,0 +1,4 @@
+{
+  // A static tile with a native view for the UI tests (XbinNavigationTests,
+  // D189): its native.js is a rev-2 split opened from deep links.
+}

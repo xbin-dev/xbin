@@ -16,6 +16,7 @@ import { html, repeat, nothing } from '/vendor/xb-native.js';
 import * as S from '../model/sandboxes.js';
 import { ctx, fail, guard, push, ui } from './ui.js';
 import { openSandboxTerminal } from './terminal.js';
+import { pickTpl } from './pick.js';
 
 const NEW = '+new';
 const MANAGE = '+manage';
@@ -33,7 +34,7 @@ export function openSandboxes({ create = false } = {}) {
 // cannot disable an option: one you may not use is marked, and picking it
 // says why instead of binding it; a private one into a conversation other
 // people are in is confirmed first (sandboxAskSheet).
-export function sandboxPickerTpl() {
+export function sandboxPickerTpl(fold = false) {
   const app = ctx.app;
   const p = app.sbx.picker();
   if (!p.shown || p.disabled) return nothing;
@@ -60,7 +61,7 @@ export function sandboxPickerTpl() {
     if (ask) { ui.sbxAsk = { ref: to, name: r ? r.name : S.splitRef(to).id, text: ask }; return ctx.paint(); }
     return guard(() => app.sbx.choose(to))();
   };
-  return html`<picker label="Sandbox" style="menu" value=${p.value} options=${options} @change=${change}/>`;
+  return pickTpl({ label: 'Sandbox', icon: 'box', fold, value: p.value, options, change });
 }
 
 // sandboxAskSheet: the picker's confirmation — a private sandbox into a
@@ -147,6 +148,9 @@ function boxTpl(s) {
     </section>` : nothing}
     ${tt.shown ? html`<section footer=${tt.why ? `No terminal: ${tt.why}.` : `A shell in ${b.name} at ${b.cwd || 'its workdir'}, as you.`}>
       <row title="Open terminal" icon="terminal" nav ?disabled=${!!tt.why} @tap=${tt.why ? nothing : () => openSandboxTerminal(b.ref, b.cwd)}/>
+    </section>` : nothing}
+    ${b.talk && app.sel != null ? html`<section footer="Its live previews, and what a port answers now.">
+      <row title="Ports" icon="network" nav @tap=${() => push({ kind: 'ports', run: app.sel, ref: b.ref, name: b.name })}/>
     </section>` : nothing}
     ${b.fixed ? html`<section><row title="Manage sandboxes…" icon="list" nav @tap=${() => push({ kind: 'sandboxes' })}/></section>`
     : html`<section footer="Detaching takes it off this conversation; the sandbox stays.">

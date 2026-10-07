@@ -1,11 +1,12 @@
 // native-shots.mjs — screenshots of the native view's key screens, drawn by
-// the Lit reference renderer (web/xb/render.js) at 390×844, light and dark:
+// the Lit reference renderer (web/xb/render.js) at 390×844 (--size 1024x1366:
+// an iPad's, where the list and the open place sit side by side), light and dark:
 // the web half of the native contact sheet (native/AGENTS.md). Each scene
 // runs native.js in node against backend.mjs's STUB (hack/xbn/node.mjs,
 // through native-stub.mjs), keeps the tree, and hands the trees to
 // native/tools/shots.mjs. LOOK at the pictures.
 //
-//   PLAYWRIGHT_DIR=~/lcad-wasm node test/native-shots.mjs [--out dir] [--only name] [--texts default,large] [--sheet]
+//   PLAYWRIGHT_DIR=~/lcad-wasm node test/native-shots.mjs [--out dir] [--only name] [--texts default,large] [--size WxH] [--sheet]
 //
 // Needs the xbin checkout this template lives in (hack/xbn, native/tools).
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -18,6 +19,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const TPL = join(here, '..');
 const ROOT = resolve(TPL, '..', '..');
 const { runNative } = await import(join(ROOT, 'hack/xbn/node.mjs'));
+const { FULL } = await import(join(ROOT, 'hack/agent-template-native-caps.mjs'));
 
 const argv = process.argv.slice(2);
 const opt = (name, dflt) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : dflt; };
@@ -103,7 +105,7 @@ const views = {
   },
 };
 
-// a coding conversation (D115) in a sandbox — not in the list: the drawer's shots stay as they are
+// a coding conversation (D115) in a sandbox — not in the list: the list's shots stay as they are
 const MGR = 'apps/coding-sandbox';
 const CODING = { id: 'coding', name: 'Coding', icon: '▣', toolsets: ['sandbox', 'web', 'files'], managers: 'all', sandboxEgress: ['none', 'internet'] };
 const box = (id, extra = {}) => ({ ref: `${MGR}|${id}`, provider: MGR, manager: 'Coding sandboxes', id, name: id, state: 'running', egress: 'none',
@@ -169,8 +171,20 @@ const seed = (extra = {}) => ({
 });
 
 const tap = (m) => ({ tap: m });
+// D190 B3/B4's scenes: a third element changes the seed (s → s)
+const TTY = (s) => ({ ...s, sandboxes: s.sandboxes.map((b) => ({ ...b, caps: [...(b.caps || []), 'tty'] })), sbxManagers: [{ provider: MGR, title: 'Coding sandboxes', ok: true, caps: ['exec', 'files', 'tar', 'tty'], egress: ['none', 'internet'], images: [], sizes: [], limits: {} }] });
+const PORTS = (s) => ({ ...s, routes: [...s.routes,
+  ['GET', '/runs/8/ports$', { previews: [{ sandbox: 'api', name: 'api', port: 8080, path: '/', ok: true, status: 200, contentType: 'text/html', ms: 14 },
+    { sandbox: 'api', name: 'api', port: 5173, path: '/app', ok: false, refusal: 'not-listening', error: 'connection refused' }] }]] });
+const MINE = 2 ** 40 + 9;
+const PART = (s) => ({ ...s, me: { ...ME, partition: 'user:admin' }, partition: 'user:admin',
+  runs: [{ id: MINE, title: 'My salary notes', status: 'idle', activityMs: NOW - 30000, readMs: NOW }, ...s.runs.map(({ pinnedAt, ...r }) => r)], // the stub answers both homes alike: no pin twice
+  views: { ...s.views, [MINE]: { access: 'owner', run: { id: MINE, title: 'My salary notes', status: 'idle', rootId: MINE }, messages: [msg(1, 'user', 'notes', { runId: MINE })] } } });
+const KIDS = async () => { const { kidsSeed } = await import(join(here, 'harness-fixtures.mjs')); return kidsSeed(); };
+const live = (id, text) => ({ call: ['push', { type: 'message', run: 1, root: 1, data: msg(id, 'assistant', text) }] });
 const SCENES = {
-  home: [{}, []],
+  list: [{}, []], // the root (D190)
+  home: [{}, [tap({ t: 'button', p: { label: 'New chat' } })]], // the new chat screen, pushed
   chat: [{ hash: 'c=1' }, [{ call: ['push', { type: 'thinking', run: 2, root: 1, data: { text: 'Globex lists per-agent pricing…' } }] }]],
   'chat-subagent': [{ hash: 'c=1' }, [{ event: [{ t: 'toolcard', p: { family: 'agent' } }, 'open', {}] }]],
   approval: [{ hash: 'c=3' }, []],
@@ -178,8 +192,7 @@ const SCENES = {
   failed: [{ hash: 'c=4' }, []],
   'view-only': [{ hash: 'c=5' }, []],
   menu: [{ hash: 'c=1' }, []], // the menu is an overlay; the tree is the chat
-  drawer: [{ hash: 'c=1' }, [tap({ t: 'button', p: { label: 'Conversations' } })]],
-  'new-chat': [{}, [tap({ t: 'button', p: { label: 'Conversations' } }), tap({ t: 'row', p: { title: 'New chat with options…' } })]],
+  'new-chat': [{}, [tap({ t: 'button', p: { label: 'New chat' } }), tap({ t: 'button', p: { label: 'New chat with options…' } })]],
   share: [{ hash: 'c=1' }, [tap({ t: 'button', p: { label: 'Share' } })]],
   'share-readonly': [{ hash: 'c=5' }, [tap({ t: 'button', p: { label: 'Shared' } })]],
   automations: [{ hash: 'auto' }, []],
@@ -194,13 +207,24 @@ const SCENES = {
   render: [{ hash: 'c=1' }, [tap({ t: 'button', p: { label: 'Files (2)' } }), tap({ t: 'button', p: { label: 'Render' } })]],
   tree: [{ hash: 'c=1' }, [tap({ t: 'button', p: { label: 'Workflow tree' } })]],
   settings: [{}, [tap({ t: 'button', p: { label: 'Settings' } }), tap({ t: 'row', p: { title: 'Config' } })]],
-  'sandbox-home': [{}, [{ event: [{ t: 'picker', p: { label: 'Class' } }, 'change', { value: 'coding' }] }]],
+  'sandbox-home': [{}, [tap({ t: 'button', p: { label: 'New chat' } }), { event: [{ t: 'picker', p: { label: 'Class' } }, 'change', { value: 'coding' }] }]],
   'sandbox-chat': [{ hash: 'c=8' }, [{ event: [{ t: 'toolcard', p: { title: 'Run the tests' } }, 'toggle', { open: true }] }]],
   sandbox: [{ hash: 'c=8' }, [tap({ t: 'button', p: { label: 'Sandbox: api' } })]],
   sandboxes: [{ hash: 'c=8' }, [{ event: [{ t: 'picker', p: { label: 'Sandbox' } }, 'change', { value: '+manage' }] }]],
   'sandbox-new': [{ hash: 'c=8' }, [{ event: [{ t: 'picker', p: { label: 'Sandbox' } }, 'change', { value: '+new' }] }]],
+  // D190 B3/B4: the split (an iPad's width: --size 1024x1366), the parity gaps
+  'split-chat': [{ hash: 'c=1' }, []],
+  terminals: [{ hash: 'c=8' }, [tap({ t: 'button', p: { label: 'Sandbox: api' } }), tap({ t: 'row', p: { title: 'Open terminal' } }),
+    tap({ t: 'button', p: { label: 'New shell' } })], TTY],
+  ports: [{ hash: 'c=8' }, [tap({ t: 'button', p: { label: 'Sandbox: api' } }), tap({ t: 'row', p: { title: 'Ports' } }), { wait: 50 }], PORTS],
+  'partition-publish': [{}, [tap({ t: 'button', p: { label: 'Share a copy…' } })], PART],
+  'partition-share': [{ hash: 'c=5' }, [{ wait: 50 }, tap({ t: 'button', p: { label: 'Shared' } }), { wait: 50 }], PART],
+  'jump-latest': [{ hash: 'c=1' }, [{ wait: 100 }, { event: [{ t: 'transcript', p: { follow: true } }, 'edge', { edge: 'end', at: false }] },
+    live(40, 'Acme answered: €12/seat.'), live(41, 'Globex answered: €14/seat, but 24/7 support.'), live(42, 'Comparing the two now.')]],
+  'child-card': [{ hash: 'c=25' }, [{ event: [{ t: 'toolcard', p: { title: 'Split the router' } }, 'toggle', { open: true }] }, { wait: 50 }], KIDS],
 };
 
+const PICKS = new Set(['sandbox-home', 'sandboxes', 'sandbox-new']);
 const treesDir = join(OUT, 'trees');
 mkdirSync(treesDir, { recursive: true });
 const thumbs = (n) => {
@@ -212,9 +236,13 @@ const thumbs = (n) => {
   return n;
 };
 let bad = 0;
-for (const [name, [state, steps]] of Object.entries(SCENES)) {
-  if (only && !name.includes(only)) continue;
-  const r = await runNative({ entry: join(TPL, 'native.js'), data: { now: NOW, self: 'apps/agent', setup: join(here, 'native-stub.mjs'), seed: seed() },
+for (const [name, [state, steps, change]] of Object.entries(SCENES)) {
+  if (only && !only.split(',').some((o) => name.includes(o))) continue;
+  const sd = change ? await change(seed()) : seed();
+  // the app says the screen's width class: a phone's 390 is compact (its bar folds), an iPad's regular
+  // (the scenes that drive a bar's picker draw the wide bar, where it is one)
+  const width = Number(String(opt('--size', '390x844')).split('x')[0]) < 700 && !PICKS.has(name) ? 'compact' : 'regular';
+  const r = await runNative({ caps: { ...FULL, width }, entry: join(TPL, 'native.js'), data: { now: NOW, self: 'apps/agent', setup: join(here, 'native-stub.mjs'), seed: sd },
     steps: [...steps, { wait: 300 }], state: state.hash ? state : null });
   const problems = [...r.errors.map((e) => e.message), ...r.diagnostics.filter((d) => d.level !== 'info').map((d) => d.message)];
   if (r.fatal || problems.length) { bad++; console.error(`${name}: ${r.fatal || problems.join('; ')}`); }
@@ -222,6 +250,7 @@ for (const [name, [state, steps]] of Object.entries(SCENES)) {
 }
 
 const shots = spawnSync(process.execPath, [join(ROOT, 'native/tools/shots.mjs'), '--trees', treesDir, '--out', join(OUT, 'png'),
-  '--texts', opt('--texts', 'default'), '--schemes', 'light,dark', ...(argv.includes('--sheet') ? ['--sheet'] : [])], { stdio: 'inherit' });
+  '--texts', opt('--texts', 'default'), '--schemes', 'light,dark', '--size', opt('--size', '390x844'),
+  ...(argv.includes('--sheet') ? ['--sheet'] : [])], { stdio: 'inherit' });
 if (shots.status) console.error(`shots.mjs exited ${shots.status} (a blocked external load in a render preview logs a CSP console error — expected)`);
 process.exit(bad ? 1 : 0);

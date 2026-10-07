@@ -60,7 +60,18 @@ export async function runFixture(fx) {
     return { tree: (fx.run.widget ? r?.widget : r?.tree) ?? null, problems, notes, result: r ?? null };
   }
   const allow = new Set(fx.data.allowDiagnostics || []);
-  for (const m of r.errors) problems.push(`runtime error (${m.kind}): ${m.message}${m.where ? ` (${m.where})` : ''}`);
+  // expectUnsupported: an older app's caps — the runtime must report exactly
+  // these (the app then shows the tile's web page, tree.md §8)
+  const want = fx.data.expectUnsupported ?? null;
+  const got = [];
+  for (const m of r.errors) {
+    if (want && m.kind === 'unsupported') { got.push(m.message); continue; }
+    problems.push(`runtime error (${m.kind}): ${m.message}${m.where ? ` (${m.where})` : ''}`);
+  }
+  if (want) {
+    for (const w of want) if (!got.includes(w)) problems.push(`expected unsupported "${w}" — not reported`);
+    for (const g of got) if (!want.includes(g)) problems.push(`unsupported "${g}" — not in expectUnsupported`);
+  }
   for (const d of r.diagnostics) {
     if (d.level === 'info' || allow.has(d.code)) continue;
     problems.push(`diagnostic ${d.level} ${d.code}: ${d.message}${d.where ? ` (${d.where})` : ''}`);

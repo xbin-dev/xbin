@@ -5,13 +5,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runNative } from './xbn/node.mjs';
+import { PHONE } from './agent-template-native-caps.mjs'; // the phone stack (rev-1 split): the tests walk its nav
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url).pathname;
 const NOW = Date.UTC(2026, 8, 21, 12);
 const ME = { kind: 'user', user: 'admin', level: 'terminal', manager: true, halted: false, epochMs: 0 };
 
 async function run(seed, steps = [], { state = null, data = {} } = {}) {
-  const r = await runNative({ entry: TPL + 'native.js', data: { now: NOW, self: 'apps/agent', setup: TPL + 'test/native-stub.mjs', seed, ...data }, steps, state });
+  const r = await runNative({ caps: PHONE, entry: TPL + 'native.js', data: { now: NOW, self: 'apps/agent', setup: TPL + 'test/native-stub.mjs', seed, ...data }, steps, state });
   assert.equal(r.fatal, null);
   assert.deepEqual(r.errors, [], 'no runtime errors');
   assert.deepEqual(r.diagnostics.filter((d) => d.level !== 'info'), [], 'no diagnostics');
@@ -37,7 +38,6 @@ const topScreen = (tree) => { const nav = find(tree, { t: 'nav' }); return nav.c
 test('MCP servers: a partitioned instance lists the static ones and marks one with headers as shared-only; unpartitioned, as ever', async () => {
   const mcp = [{ name: 'gh', url: 'https://mcp.example/gh', headers: { Authorization: 'Bearer secret-token' } }, { name: 'docs', url: 'https://mcp.example/docs' }];
   const steps = [
-    { tap: { t: 'button', p: { label: 'Conversations' } } },
     { tap: { t: 'button', p: { label: 'Settings' } } },
     { tap: { t: 'row', p: { title: 'MCP servers' } } },
     { snapshot: 'mcp' },

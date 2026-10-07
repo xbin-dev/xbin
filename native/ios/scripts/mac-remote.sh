@@ -45,7 +45,7 @@
 #                      <command>/ — logs, .xcresult bundles, PNGs
 #   XBIN_MAC_SSH_OPTS  extra ssh options, e.g. "-p 2222 -i ~/.ssh/mini"
 #   XBIN_SIM, XBIN_SIGNING, XBIN_XCODE, XBIN_SWIFT_CONDITIONS, XBIN_SIM_GUI=1,
-#   XBIN_E2E_ERASE, XBIN_SIM_ENSURE
+#   XBIN_E2E_ERASE, XBIN_E2E_WARMUP, XBIN_SIM_ENSURE
 #                      passed through (pick-sim.sh, ci-*.sh; GUI: show the
 #                      simulator on the Mac's screen: Simulator.app, or
 #                      DeviceHub.app from Xcode 27 on; ENSURE: a
@@ -236,7 +236,7 @@ remote() {
   while [ $# -gt 0 ] && [ "$1" != -- ]; do opts+=("$1"); shift; done
   [ $# -gt 0 ] && shift
   local v
-  for v in XBIN_SIM XBIN_SIGNING XBIN_XCODE XBIN_SWIFT_CONDITIONS XBIN_SIM_GUI XBIN_E2E_ERASE XBIN_SIM_ENSURE; do
+  for v in XBIN_SIM XBIN_SIGNING XBIN_XCODE XBIN_SWIFT_CONDITIONS XBIN_SIM_GUI XBIN_E2E_ERASE XBIN_E2E_WARMUP XBIN_SIM_ENSURE; do
     if [ -n "${!v:-}" ]; then envs="$envs $v=$(printf '%q' "${!v}")"; fi
   done
   ssh ${ssh_opts[@]+"${ssh_opts[@]}"} ${opts[@]+"${opts[@]}"} "$XBIN_MAC" \

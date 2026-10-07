@@ -88,11 +88,14 @@ ext.register({
 
 // liveFor: the conversation's CI read once when it opens; re-read every 15 s
 // while its Coding agents screen (or a job of it) is shown and anything is not completed;
-// at home (no conversation) nothing is
+// at home (no conversation: the list, a page) nothing is
+let homeWired = false;
 function liveFor(v) {
   const app = ctx.app;
   const root = rootOf(v);
   if (!app) return;
+  // back to the list draws no conversation's toolbar: the model going home stops it
+  if (!homeWired) { homeWired = true; app.on('home', () => app.ci.live(null, false)); }
   if (root == null) { app.ci.live(null, false); return; }
   if (!read.has(root) && !app.ci.view(root) && app.ci.chip(root)) { read.add(root); app.ci.load(root).catch(() => {}); }
   const shown = (app.ci.chip(root) || app.ci.view(root)) && ui.stack.some((x) => (x.kind === 'hboard' && x.root === root) || (x.kind === 'ci-job' && x.root === root));

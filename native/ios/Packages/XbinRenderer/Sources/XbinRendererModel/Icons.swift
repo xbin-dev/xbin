@@ -65,5 +65,7 @@ public enum XbinIcons {
         public static let more = "ellipsis"
         /// The compact picker's disclosure (a bar picker).
         public static let pickerChevrons = "chevron.up.chevron.down"
+        /// A search suggestion without an icon of its own.
+        public static let search = "magnifyingglass"
     }
 }

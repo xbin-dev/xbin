@@ -18,6 +18,13 @@
 // (it runs on until it exits or someone ends it, as the contract's
 // terminals do). The rule is this process's: a blue/green successor
 // doesn't know the terminals its predecessor started.
+//
+// A terminal tab (tab=<name>, the native view's Terminals screen, D190): the
+// app's terminal knows no exec id, and a tab not shown closes its socket —
+// so the relay keeps a person's tab terminals by name: a client dialling a
+// tab again attaches to its terminal while it runs (a new one when it
+// exited), and one with no client is ended only after ttyTabIdle (30 min)
+// with none, or by DELETE /terminals/{tab} (the tab's ✕).
 package main
 
 import (
@@ -26,6 +33,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -43,6 +51,7 @@ func harnessRelayRoutes() []routeDef {
 	return []routeDef{
 		{"GET /runs/{id}/harness/terminal", needParticipant, handleRunTerminal},
 		{"GET /runs/{id}/harness/log", needViewer, handleHarnessLog},
+		{"DELETE /terminals/{tab}", needUser, handleEndTab},
 	}
 }
 
@@ -282,6 +291,14 @@ func relayTTYKey(conn *sbxConn, sandbox, exec string) string {
 // manager, and ends one it started when its client has gone (the file's
 // comment says when not).
 func relayTTY(w http.ResponseWriter, r *http.Request, conn *sbxConn, id string, o xbin.ManagerTTYOptions) {
+	if tab := r.URL.Query().Get("tab"); tab != "" && o.ExecID == "" {
+		if !tabName.MatchString(tab) {
+			xbin.WriteError(w, http.StatusBadRequest, "tab: 1-64 letters, digits, _ or -")
+			return
+		}
+		relayTab(w, r, conn, id, o, tab)
+		return
+	}
 	o.Client = sbxClient()
 	started := o.ExecID == ""
 	o.OnSession = func(eid string) {
@@ -320,4 +337,140 @@ func relayTTY(w http.ResponseWriter, r *http.Request, conn *sbxConn, id string, 
 		return
 	}
 	time.AfterFunc(time.Duration(ttyEndGrace.Load()), end)
+}
+
+// --- terminal tabs ---------------------------------------------------------------------
+
+// ttyTabIdle is how long (ns) a tab's terminal runs with no client before
+// the relay ends it. 30 min; tests shorten it.
+var ttyTabIdle atomic.Int64
+
+func init() { ttyTabIdle.Store(int64(30 * time.Minute)) }
+
+var tabName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+
+// tabTTYs are the people's tab terminals, by tabKey.
+var tabTTYs = struct {
+	sync.Mutex
+	m map[string]*tabTTY
+}{m: map[string]*tabTTY{}}
+
+type tabTTY struct {
+	conn          *sbxConn
+	sandbox, exec string
+	user, tab     string
+	clients       int
+	idle          *time.Timer
+}
+
+func tabKey(user string, conn *sbxConn, sandbox, tab string) string {
+	return user + "\x00" + conn.M.Provider + "|" + sandbox + "\x00" + tab
+}
+
+// relayTab relays tab `tab` of the caller (o.User) on sandbox id: its
+// terminal again while it runs, else a new one (o as given).
+func relayTab(w http.ResponseWriter, r *http.Request, conn *sbxConn, id string, o xbin.ManagerTTYOptions, tab string) {
+	k := tabKey(o.User, conn, id, tab)
+	tabTTYs.Lock()
+	t := tabTTYs.m[k]
+	if t != nil {
+		if t.idle != nil {
+			t.idle.Stop()
+			t.idle = nil
+		}
+		t.clients++
+	}
+	tabTTYs.Unlock()
+	if t != nil {
+		// still there? (a shell that exited, a manager that lost it: a new one)
+		ctx, cancel := context.WithTimeout(r.Context(), sbxCallTimeout)
+		ex, err := conn.ExecGet(ctx, id, t.exec)
+		cancel()
+		if err == nil && ex.State == "running" {
+			o.ExecID = t.exec
+		} else {
+			tabTTYs.Lock()
+			if tabTTYs.m[k] == t {
+				delete(tabTTYs.m, k)
+			}
+			tabTTYs.Unlock()
+			t = nil
+		}
+	}
+	o.Client = sbxClient()
+	o.OnSession = func(eid string) {
+		if t != nil {
+			return
+		}
+		tabTTYs.Lock()
+		defer tabTTYs.Unlock()
+		t = &tabTTY{conn: conn, sandbox: id, exec: eid, user: o.User, tab: tab, clients: 1}
+		tabTTYs.m[k] = t
+	}
+	res := xbin.RelayManagerTTY(w, r, conn.M.URL, id, o)
+	if t == nil {
+		return
+	}
+	tabTTYs.Lock()
+	defer tabTTYs.Unlock()
+	if tabTTYs.m[k] != t {
+		return
+	}
+	if res.Exited {
+		delete(tabTTYs.m, k) // the shell ended: the tab's next dial starts another
+		return
+	}
+	if t.clients--; t.clients > 0 {
+		return
+	}
+	t.idle = time.AfterFunc(time.Duration(ttyTabIdle.Load()), func() {
+		tabTTYs.Lock()
+		gone := tabTTYs.m[k] == t && t.clients <= 0
+		if gone {
+			delete(tabTTYs.m, k)
+		}
+		tabTTYs.Unlock()
+		if gone {
+			endTab(t)
+		}
+	})
+}
+
+func endTab(t *tabTTY) {
+	ctx, cancel := context.WithTimeout(context.Background(), sbxCallTimeout)
+	defer cancel()
+	if err := t.conn.ExecDelete(ctx, t.sandbox, t.exec); err != nil {
+		if ref := sbxRefusal(err); ref != "not-found" && ref != "lost" {
+			logf("ending terminal tab %s in sandbox %s: %v", t.tab, sandboxRef(t.conn.M.Provider, t.sandbox), err)
+		}
+	}
+}
+
+// handleEndTab ends the caller's terminal of tab {tab} (in whatever sandbox:
+// the tab's ✕) — {"ended": n}.
+//
+//	DELETE /terminals/{tab}
+func handleEndTab(w http.ResponseWriter, r *http.Request) {
+	c := callerOf(r)
+	tab := r.PathValue("tab")
+	if !tabName.MatchString(tab) {
+		xbin.WriteError(w, http.StatusBadRequest, "tab: 1-64 letters, digits, _ or -")
+		return
+	}
+	var ended []*tabTTY
+	tabTTYs.Lock()
+	for k, t := range tabTTYs.m {
+		if t.user == c.user && t.tab == tab {
+			if t.idle != nil {
+				t.idle.Stop()
+			}
+			delete(tabTTYs.m, k)
+			ended = append(ended, t)
+		}
+	}
+	tabTTYs.Unlock()
+	for _, t := range ended {
+		endTab(t)
+	}
+	xbin.WriteJSON(w, http.StatusOK, map[string]int{"ended": len(ended)})
 }

@@ -9,15 +9,16 @@ import { html, repeat, nothing } from '/vendor/xb-native.js';
 import * as C from '../model/classes.js';
 import * as actions from '../model/actions.js';
 import { ctx, push, ui } from './ui.js';
+import { pickTpl } from './pick.js';
 
 // classPickerTpl: the class for your next new chats (model/classes.js classPicker).
-export function classPickerTpl() {
+export function classPickerTpl(fold = false) {
   const app = ctx.app;
   const p = C.classPicker(null, app.classes, app.classId);
   if (!p.shown || app.harness.picked()) return nothing; // a coding agent resolves its class (D147; model/app.js newClassId)
-  return html`<picker label="Class" style="menu" value=${p.value}
-    options=${p.rows.map((r) => ({ value: r.value, label: r.mixed ? `${r.name} — ${C.MIXED}` : r.name, icon: r.nativeIcon }))}
-    @change=${(e) => app.pickClass(e.value)}/>`;
+  return pickTpl({ label: 'Class', icon: 'lock', fold, value: p.value,
+    options: p.rows.map((r) => ({ value: r.value, label: r.mixed ? `${r.name} — ${C.MIXED}` : r.name, icon: r.nativeIcon })),
+    change: (e) => app.pickClass(e.value) });
 }
 
 // classSectionTpl: the new-chat sheet's class (f.class), with what it is for

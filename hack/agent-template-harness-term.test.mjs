@@ -12,6 +12,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { runNative } from './xbn/node.mjs';
+import { PHONE } from './agent-template-native-caps.mjs'; // the phone stack (rev-1 split): the tests walk its nav
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url);
 const KIT = new URL('../web/bx-kit.js', import.meta.url).href;
@@ -144,7 +145,7 @@ const TTY_MGR = { provider: SBX, title: 'Coding sandboxes', ok: true, caps: ['ex
 async function run(steps, hash, mutate = (s) => s) {
   const s = harnessSeed();
   s.sbxManagers = [TTY_MGR];
-  const r = await runNative({ entry: new URL('native.js', TPL).pathname,
+  const r = await runNative({ caps: PHONE, entry: new URL('native.js', TPL).pathname,
     data: { now: Date.UTC(2026, 8, 30, 12), self: 'apps/agent', setup: new URL('test/native-stub.mjs', TPL).pathname, seed: mutate(s) },
     steps, state: hash ? { hash } : null });
   assert.equal(r.fatal, null);
@@ -266,6 +267,14 @@ test('native: an API key is sent once and is never a prop; a device code; the co
   assert.match(find(asked, { t: 'notice', p: { tone: 'danger' } }).p.text, /confirm to sign in/);
 });
 
+// tabTerm: the shown terminal tab's terminal (native/terminal.js: the Terminals screen), its
+// relay without the tab's name (tab=…: what the relay keeps its shell by)
+function tabTerm(tree) {
+  const p = find(topScreen(tree), { t: 'terminal' }).p;
+  assert.match(p.src, /[?&]tab=t[a-z0-9]+$/, 'a tab dials its relay with its name');
+  return { src: p.src.replace(/[?&]tab=t[a-z0-9]+$/, ''), title: p.title };
+}
+
 test('native: whom to ask; a shell at the agent\'s cwd; a sandbox\'s terminal through the relay; other parks are not the sign-in\'s', async () => {
   const theirs = (s) => {
     const ref = `${SBX}|sb-b0b`;
@@ -302,7 +311,7 @@ test('native: whom to ask; a shell at the agent\'s cwd; a sandbox\'s terminal th
     { tap: { t: 'button', p: { label: 'Terminal' }, in: { t: 'menu' } } },
     { snapshot: 'shell' },
   ], 'c=21');
-  assert.deepEqual(find(topScreen(r2.snapshots.shell), { t: 'terminal' }).p, { src: 'runs/21/harness/terminal', title: 'Terminal · api-dev' });
+  assert.deepEqual(tabTerm(r2.snapshots.shell), { src: 'runs/21/harness/terminal', title: 'Terminal · api-dev' });
   const r3 = await run([
     { wait: 50 },
     { tap: { t: 'button', has: 'Sandbox: api-dev', in: { t: 'menu' } } },
@@ -311,7 +320,7 @@ test('native: whom to ask; a shell at the agent\'s cwd; a sandbox\'s terminal th
     { tap: { t: 'row', p: { title: 'Open terminal' } } },
     { snapshot: 'boxTerm' },
   ], 'c=21');
-  assert.deepEqual(find(topScreen(r3.snapshots.boxTerm), { t: 'terminal' }).p,
+  assert.deepEqual(tabTerm(r3.snapshots.boxTerm),
     { src: `sandboxes/apps/coding-sandbox%7Csb-7f3a/terminal?cwd=${encodeURIComponent('/work/api')}`, title: 'Terminal · api-dev' });
   const r4 = await run([
     { wait: 50 },
@@ -326,7 +335,7 @@ test('native: whom to ask; a shell at the agent\'s cwd; a sandbox\'s terminal th
   const rows = all(topScreen(r4.snapshots.list), { t: 'row', in: { t: 'section' } }).filter((x) => x.p.icon === 'box')
     .map((x) => [x.p.title, all(x, { t: 'button' }).some((b) => b.p.label === 'Terminal')]);
   assert.deepEqual(rows.sort(), [['api-dev', true], ['go-dev', true], ['scratch', true]], 'a row\'s Terminal where the manager has tty');
-  assert.deepEqual(find(topScreen(r4.snapshots.rowTerm), { t: 'terminal' }).p,
+  assert.deepEqual(tabTerm(r4.snapshots.rowTerm),
     { src: `sandboxes/apps/coding-sandbox%7Csb-7f3a/terminal?cwd=${encodeURIComponent('/work/api')}`, title: 'Terminal · api-dev' }, 'at the cwd this conversation has it at');
 
   // an approval park is the built-in card's (or its own module's), never the sign-in's
@@ -353,7 +362,7 @@ test('native, a partitioned agent: a shared conversation\'s coding agent — the
   assert.equal(find(chat, { t: 'button', p: { label: 'Sign in…' }, in: { t: 'menu' } }), null, '…nor in the menu');
   const comp = find(chat, { t: 'composer' }).p;
   assert.deepEqual([comp.disabled, comp.placeholder], [true, BARRED_WORDS], 'the shared space runs no coding agent: its composer is off, saying why');
-  assert.deepEqual(find(topScreen(r.snapshots.shell), { t: 'terminal' }).p, { src: 'runs/24/harness/terminal?xbin-partition=global', title: 'Terminal · api-dev' },
+  assert.deepEqual(tabTerm(r.snapshots.shell), { src: 'runs/24/harness/terminal?xbin-partition=global', title: 'Terminal · api-dev' },
     'its shell: the run\'s relay at the global instance');
   assert.ok(r.calls.filter((c) => /\/runs\/24\//.test(c.url)).length > 0);
   // the global instance's own page: none signs in there

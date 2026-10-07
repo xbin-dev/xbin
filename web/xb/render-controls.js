@@ -131,6 +131,11 @@ function menu(n, cx) {
   const place = cx.place === 'screen' ? 'free' : cx.place;
   const label = str(p.label);
   const iconOnly = place === 'toolbar' && p.icon;
+  if (place === 'menu') { // rev 2: a submenu — its items replace the popover's
+    return html`<xb-menu data-k=${n.k} class="menu in-menu">
+      <button class="btn b-menu r-default menu-btn" aria-haspopup="menu" @click=${(e) => cx.v.openMenu(n, e.currentTarget, true)}>
+        <span class="b-label">${label}</span>${icon(p.icon || 'forward')}</button></xb-menu>`;
+  }
   return html`<xb-menu data-k=${n.k} class=${cls('menu', `in-${place}`, place === 'group' && 'cell')}>
     <button class=${cls('btn', `b-${place}`, 'r-default', 'menu-btn')} aria-haspopup="menu" aria-label=${iconOnly ? label || 'More' : nothing}
       @click=${(e) => cx.v.openMenu(n, e.currentTarget)}>

@@ -13,6 +13,8 @@
  *                  with a 50 ms timer as a backstop; setTimeout 0 without rAF);
  *                  xbn.frame() flushes a pending render at once
  *   document       the document whose visibilityState xbn.visibility drives
+ *   window         the window whose location.hash xbn.navigate sets (and
+ *                  that hears its `hashchange`; default: none — no deep links)
  *   log            false: no console lines for diagnostics and errors (they
  *                  are messages either way)
  *
@@ -31,6 +33,8 @@ import { MarkdownCache } from '/vendor/xb/rt-markdown.js';
 const own = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
 export const TREE_V = 1;
 const STATE_MAX = 64 << 10;
+// The horizontal size classes a screen comes in (xbin.native.width).
+const WIDTHS = ['compact', 'regular'];
 
 // Which props each primitive's events report (controlled state), from the vocabulary.
 const REPORTED = {};
@@ -45,6 +49,7 @@ export function normalizeCaps(c) {
   const out = { v: Number(c.v) || VOCAB.v, renderer: String(c.renderer ?? ''), app: c.app ?? null,
     prims: { ...c.prims }, features: Array.isArray(c.features) ? [...c.features] : [] };
   if (VOCAB.widget.sizes.includes(c.widgetSize)) out.widgetSize = c.widgetSize;
+  if (WIDTHS.includes(c.width)) out.width = c.width;
   return out;
 }
 
@@ -60,6 +65,7 @@ export function createRuntime(opts = {}) {
   const caps = normalizeCaps(opts.caps);
   const schedule = typeof opts.schedule === 'function' ? opts.schedule : defaultSchedule;
   const doc = opts.document || null;
+  const win = opts.window || null;
   const log = opts.log !== false && typeof console !== 'undefined';
   let state = opts.state === undefined ? null : cloneJSON(opts.state);
 
@@ -82,6 +88,8 @@ export function createRuntime(opts = {}) {
   const targetOf = (t) => (t === undefined || t === null || t === '' ? main : t === 'widget' && widgetOn ? wdg : null);
   let widgetSize = caps.widgetSize ?? VOCAB.widget.sizes[0];
   const sizeListeners = new Set();
+  let width = caps.width ?? null; // null: the app doesn't say (an older app, a preview)
+  const widthListeners = new Set();
   let building = null; // the target a flush is building: its diag/error messages name it
   let scheduled = false;
   const seen = new Set();
@@ -222,6 +230,38 @@ export function createRuntime(opts = {}) {
     try { if (typeof doc.dispatchEvent === 'function' && typeof Event === 'function') doc.dispatchEvent(new Event('visibilitychange')); } catch { /* no events here */ }
   }
 
+  // xbn.navigate(hash) — the app opens a deep link into the native view (its
+  // URL's fragment, `#c=42`): location.hash becomes `hash` and `hashchange`
+  // fires, also when it is the hash already (the user asked to go there
+  // again). The first fragment needs no call: the app loads the runtime
+  // document with it, so a tile reads location.hash as it starts.
+  function navigate(hash) {
+    const loc = win?.location;
+    if (!loc) return false;
+    let h = String(hash ?? '');
+    if (h && !h.startsWith('#')) h = `#${h}`;
+    if (h === '#') h = '';
+    const oldURL = String(loc.href);
+    const newURL = oldURL.split('#')[0] + h;
+    const hist = win.history;
+    if (hist && typeof hist.replaceState === 'function') {
+      try { hist.replaceState(hist.state ?? null, '', newURL); } catch {
+        // a document that refuses the rewrite: the browser fires hashchange
+        // itself when the hash changes
+        if ((loc.hash || '') !== h) { try { loc.hash = h; } catch { return false; } return true; }
+      }
+    } else {
+      try { loc.hash = h; } catch { return false; } // no history (node): a plain URL
+    }
+    try {
+      let ev;
+      if (typeof HashChangeEvent === 'function') ev = new HashChangeEvent('hashchange', { oldURL, newURL });
+      else { ev = new Event('hashchange'); Object.defineProperties(ev, { oldURL: { value: oldURL }, newURL: { value: newURL } }); }
+      if (typeof win.dispatchEvent === 'function') win.dispatchEvent(ev);
+    } catch (e) { fail('uncaught', e, 'hashchange'); }
+    return true;
+  }
+
   function resolve(id, v, error) {
     const c = calls.get(id);
     if (!c) return false;
@@ -252,17 +292,34 @@ export function createRuntime(opts = {}) {
     return true;
   }
 
+  // xbn.width(w) — the screen the tile is drawn on changed width class.
+  function setWidth(w) {
+    if (!WIDTHS.includes(w) || w === width) return false;
+    width = w;
+    for (const fn of [...widthListeners]) {
+      try {
+        const r = fn(w);
+        if (r && typeof r.then === 'function') r.then(null, (e) => fail('uncaught', e, 'width listener'));
+      } catch (e) { fail('uncaught', e, 'width listener'); }
+    }
+    return true;
+  }
+
   const native = {
     caps,
     get state() { return state; },
     // the size class the app shows the widget at: "small" (one column) | "wide" (two)
     get widgetSize() { return widgetSize; },
-    // on('widgetsize', fn(size)) → an unsubscribe function
+    // the screen's horizontal size class: "compact" (a phone) | "regular"
+    // (an iPad) — null when the app doesn't say
+    get width() { return width; },
+    // on('widgetsize' | 'width', fn(value)) → an unsubscribe function
     on(type, fn) {
-      if (type !== 'widgetsize') throw new Error(`xbin.native.on: unknown event ${JSON.stringify(type)} (widgetsize)`);
+      const set = type === 'widgetsize' ? sizeListeners : type === 'width' ? widthListeners : null;
+      if (!set) throw new Error(`xbin.native.on: unknown event ${JSON.stringify(type)} (widgetsize, width)`);
       if (typeof fn !== 'function') throw new Error('xbin.native.on: the listener must be a function');
-      sizeListeners.add(fn);
-      return () => { sizeListeners.delete(fn); };
+      set.add(fn);
+      return () => { set.delete(fn); };
     },
     supports(name, rev = 1) {
       if (own(caps.prims, name)) return caps.prims[name] >= rev;
@@ -311,6 +368,8 @@ export function createRuntime(opts = {}) {
     frame: () => flush() !== null,
     remount,
     widgetSize: setWidgetSize,
+    width: setWidth,
+    navigate,
   };
 
   return {

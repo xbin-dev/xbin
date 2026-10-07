@@ -16,8 +16,8 @@ struct RowView: View {
 
     var body: some View {
         let p = node.props
-        let actions = node.children.first { $0.type == "actions" }
-        let buttons = actions?.children.filter { $0.type == "button" } ?? []
+        let actions = RowActions(node)
+        let buttons = actions.all
         let content = node.children.filter { $0.type != "actions" }
         let disabled = p.bool("disabled")
         let tappable = node.listens(to: "tap") && !disabled
@@ -47,7 +47,7 @@ struct RowView: View {
             }
         }
         .opacity(disabled ? 0.5 : 1)
-        .modifier(RowActionsModifier(buttons: buttons, swipe: placement == .list, cx: cx, confirm: confirm))
+        .modifier(RowActionsModifier(actions: actions, swipe: placement == .list, cx: cx, confirm: confirm))
     }
 }
 
@@ -212,23 +212,30 @@ struct WrappingText: View {
     }
 }
 
-/// A row's `actions`: trailing swipe actions (in a `List`) and a context
-/// menu (everywhere), besides the ⋯ menu. Destructive buttons sit
-/// outermost.
+/// A row's `actions`: swipe actions (in a `List`) from the trailing edge
+/// and (rev 2, `edge="leading"`) the leading one, a full swipe running the
+/// first button where `full` says so; a context menu (everywhere), besides
+/// the ⋯ menu. Destructive buttons sit outermost.
 private struct RowActionsModifier: ViewModifier {
-    let buttons: [XbinNode]
+    let actions: RowActions
     let swipe: Bool
     let cx: XbinRenderContext?
     let confirm: ConfirmHost?
 
     func body(content: Content) -> some View {
+        let buttons = actions.all
         if buttons.isEmpty {
             content
         } else if swipe {
             content
-                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                    ForEach(Array(buttons.reversed())) { b in
+                .swipeActions(edge: .trailing, allowsFullSwipe: actions.trailingFull) {
+                    ForEach(actions.trailingSwipeOrder) { b in
                         ActionButton(node: b, cx: cx, confirm: confirm, swipe: true)
+                    }
+                }
+                .swipeActions(edge: .leading, allowsFullSwipe: actions.leadingFull) {
+                    ForEach(actions.leading) { b in
+                        ActionButton(node: b, cx: cx, confirm: confirm, swipe: true, leading: true)
                     }
                 }
                 .contextMenu {
@@ -250,6 +257,9 @@ struct ActionButton: View {
     let cx: XbinRenderContext?
     let confirm: ConfirmHost?
     var swipe = false
+    /// A leading-edge swipe action: in the accent (mark read, pin), as the
+    /// system's leading actions are coloured.
+    var leading = false
 
     var body: some View {
         let p = node.props
@@ -266,7 +276,7 @@ struct ActionButton: View {
         }
         .disabled(p.bool("disabled") || p.bool("busy"))
         if swipe && !destructive {
-            button.tint(Color(uiColor: .systemGray))
+            button.tint(leading ? XbinColor.tint : Color(uiColor: .systemGray))
         } else {
             button
         }

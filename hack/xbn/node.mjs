@@ -32,6 +32,8 @@
 //            an array answers successive calls in turn (the last one repeats)
 //   calls    {copy|share|open: value} how xbin.native calls resolve (default null)
 //   dialog   what xbin.dialog() resolves to
+//   hash     the fragment the runtime document is loaded with (a deep link:
+//            location.hash as the tile starts)
 //   setup    a module path imported before the tile: its default export gets
 //            {data, touch} and may replace parts of xbin (a test's own fake
 //            backend); `call` steps call its other exports; its result() comes
@@ -42,6 +44,9 @@
 //            event; `select` is a CSS-like selector (hack/xbn/select.mjs) matching one node
 //   {bus: [topic, data]} · {visibility: "hidden"|"visible"} · {resolve: [id, value]}
 //   {widgetSize: "small"|"wide"} (the app resizes the widget)
+//   {width: "compact"|"regular"} (the screen's width class changed; the first
+//   is caps.width)
+//   {navigate: "#c=42"} (the app opens a deep link: xbn.navigate)
 //   target: "widget" on a tap/input/event/snapshot step (or as an event's own
 //   field, or the array form's 5th item) acts on the widget tree
 //   {snapshot: name} (r.snapshots[name] = the tree now) · {call: [export, …args]} (data.setup's)

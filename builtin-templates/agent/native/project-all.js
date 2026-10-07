@@ -7,7 +7,7 @@
 // One import per line, each in its own slot below (parallel branches merge
 // without touching each other's lines).
 
-// U2 the Projects screens: the drawer's row, the list, a project's board, a new task, issues, activity, a new project
+// U2 the Projects screens: the list menu's item, the list, a project's board, a new task, issues, activity, a new project
 import './projects.js';
 
 // U2 a project's settings: status and sign-in, repos, the policy, members, archive and delete

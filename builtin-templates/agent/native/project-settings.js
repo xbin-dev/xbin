@@ -202,7 +202,8 @@ function projectTpl(s, p, pv, c) {
   const sbx = s.delSandbox || 'keep';
   const del = async () => {
     const ok = await p.remove(pv.id, pv.sandboxMade ? sbx : 'keep');
-    if (ok) { const i = ui.stack.findIndex((x) => x.kind === 'projects'); ui.stack.length = i >= 0 ? i + 1 : 0; ctx.paint(); }
+    // the project's screens leave the stack (back to where it was opened from)
+    if (ok) { const i = ui.stack.findIndex((x) => (x.kind === 'project' || x.kind === 'project-team') && x.pid === pv.id); if (i >= 0) ui.stack.length = i; ctx.paint(); }
   };
   return html`<section title="The project">
     <field label="Name" value=${name ? name.text : pv.name} @input=${(e) => { s.name = { pid: pv.id, text: e.value, version: name ? name.version : pv.version }; }}/>

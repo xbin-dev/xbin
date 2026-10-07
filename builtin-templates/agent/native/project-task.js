@@ -31,6 +31,7 @@ import { taskOf, taskChips, prepCard, prButton, crumb, taskSection, prWords } fr
 import { NATIVE_ICON } from '../model/ci.js';
 import { homeOf } from '../model/homes.js';
 import { upgradeOffer, projectUpgrade } from '../model/project-upgrade.js';
+import { openProjects } from './nav.js';
 
 const pj = () => ctx.app.projects;
 const talk = (v) => ctx.app.rules.access(v).talk;
@@ -88,7 +89,7 @@ ext.register({
     const up = upgradeOffer(v);
     const again = signinAgain(v);
     if (!c && !up.shown) return null;
-    return html`${c ? html`<button icon="folder" @tap=${() => ctx.app.openProjects(c.pid)}>${`Project: ${(v.project && v.project.name) || c.pid}`}</button>` : nothing}
+    return html`${c ? html`<button icon="folder" @tap=${() => openProjects(c.pid)}>${`Project: ${(v.project && v.project.name) || c.pid}`}</button>` : nothing}
       ${card && card.retry && talk(v) ? html`<button icon="refresh" @tap=${() => act(v, 'retry')}>Retry the workspace</button>` : nothing}
       ${again ? html`<button icon="refresh" @tap=${again}>Check the sign-in again</button>` : nothing}
       ${up.shown ? html`<button icon="plus" @tap=${() => openUpgrade(v.run.id)}>Make this a project…</button>` : nothing}`;
@@ -109,7 +110,7 @@ ext.register({
     const x = taskSection(v);
     if (!x) return null;
     return html`<section title="Project" footer=${`${x.size} · repos: ${x.repos}${x.ports ? ` · ports ${x.ports}` : ''}`}>
-      <row title=${x.project} subtitle=${`task #${x.n}`} icon="folder" nav @tap=${() => ctx.app.openProjects(x.pid)}/>
+      <row title=${x.project} subtitle=${`task #${x.n}`} icon="folder" nav @tap=${() => openProjects(x.pid)}/>
       ${x.issue ? html`<row title=${x.issue} subtitle="the issue it came from" icon="link" ?disabled=${!/^https:/i.test(x.issueUrl)} @tap=${() => openUrl(x.issueUrl)}/>` : nothing}
       ${repeat(x.checkouts, (c) => c.repo, (c) => html`<row title=${c.repo} subtitle=${`${c.path} (${c.mode}, ${c.state})`} mono="subtitle" icon="branch"/>`)}
     </section>`;
@@ -181,7 +182,7 @@ function upgradeTpl(s) {
     return html`<screen title="Made a project" style="form">
       <toolbar><button role="primary" @tap=${close}>Done</button></toolbar>
       <section><notice tone="ok" text=${`This conversation is task #${(f.done.task && f.done.task.n) || 1} of ${pv ? pv.name : 'the project'}: its branch and pull requests show in its bar, and the project's board holds it.`}/>
-        ${pv ? html`<row title=${`Open ${pv.name}`} icon="folder" nav @tap=${() => { u.close(id); app.openProjects(pv.id); }}/>` : nothing}</section>
+        ${pv ? html`<row title=${`Open ${pv.name}`} icon="folder" nav @tap=${() => { close(); openProjects(pv.id); }}/>` : nothing}</section>
     </screen>`;
   }
   const picked = f.candidates.filter((c) => f.picked.has(c.path));

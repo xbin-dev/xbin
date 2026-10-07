@@ -1,6 +1,6 @@
 // native/harness-start.js — starting a conversation with a coding agent in
 // the native view (D147 §2.2 "Conversation start", §4.2.3): "Who
-// answers" at the top of the home page (the built-in agent or a coding agent of GET
+// answers" at the top of the new chat screen (the built-in agent or a coding agent of GET
 // /harnesses — a picker can't disable an option, so one that isn't
 // available is marked and picking it says why), the home's setup notice (no
 // sandbox fits: Create, prefilled; not signed in there: say so), the
@@ -58,7 +58,7 @@ ext.register({
   // subtitle: in a conversation a coding agent answers — monogram, state, 👥
   // for a shared sandbox, the plan's progress and the context in use (the
   // cost is on ⋯ → Progress). Not a toolbar badge: a phone's bar holds
-  // Conversations, New chat, Mode, Model and More, and a badge beside them
+  // New chat, Mode, Model and More (and Back), and a badge beside them
   // pushed More off it.
   subtitle: (v) => {
     const t = HS.topChip(v);

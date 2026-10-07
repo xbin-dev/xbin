@@ -5,7 +5,10 @@
 // (Large), large (xxxLarge, the size the reference renderer's "large"
 // screenshots use, so the two compare like for like) and ax2
 // (accessibility2, the overflow test) — written as
-// <name>-<light|dark>-<default|large|ax2>.png to SNAPSHOT_DIR (the
+// <name>-<light|dark>-<default|large|ax2>.png to SNAPSHOT_DIR; a fixture
+// with a `split` is also drawn as an iPad shows it (1180×820 points, a
+// regular width: two columns, D189), light and dark at the default size, as
+// <name>-<light|dark>-ipad.png (the
 // Apple CI passes TEST_RUNNER_SNAPSHOT_DIR, which xcodebuild hands the test
 // process as SNAPSHOT_DIR). Nothing is compared: the PNGs are for eyes and
 // the web-vs-iOS contact sheet. Without a snapshot directory every fixture
@@ -36,6 +39,8 @@ import XbinRendererModel
 @MainActor
 @Suite struct SnapshotTests {
     static let size = CGSize(width: 390, height: 844)
+    /// An 11-inch iPad in landscape (points): where a `split` shows both columns.
+    static let tabletSize = CGSize(width: 1180, height: 820)
     static let scale: CGFloat = 2
 
     /// Where PNGs go, or nil (render only).
@@ -85,6 +90,23 @@ import XbinRendererModel
                (.light, "light", .accessibility2, "ax2"), (.dark, "dark", .accessibility2, "ax2")]
         var written = 0
         for name in names {
+            // A split, as an iPad shows it (a regular width: two columns).
+            let root = try set.expected(name).root
+            if XbinFixtures.types(root).contains("split"), let out {
+                for (scheme, schemeTag) in [(ColorScheme.light, "light"), (.dark, "dark")] {
+                    let store = try XbinFixtures.store(name, in: set)
+                    let view = XbinTreeView(store: store, send: { _ in }, services: XbinServices(attach: { _ in [] }),
+                                            options: XbinRenderOptions(inlineSheets: true))
+                        .environment(\.locale, Locale(identifier: "en_US"))
+                        .environment(\.colorScheme, scheme)
+                        .environment(\.dynamicTypeSize, .large)
+                        .environment(\.horizontalSizeClass, .regular)
+                    if let png = Snapshot.png(of: view, size: Self.tabletSize, scale: Self.scale, scheme: scheme, type: .large) {
+                        try png.write(to: out.appendingPathComponent("\(name)-\(schemeTag)-ipad.png"))
+                        written += 1
+                    }
+                }
+            }
             for (scheme, schemeTag, type, typeTag) in variants {
                 let store = try XbinFixtures.store(name, in: set)
                 // An attach service that uploads nothing, so a composer with

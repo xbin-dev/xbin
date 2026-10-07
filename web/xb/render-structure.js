@@ -11,7 +11,7 @@
  * everything with a grabber. Helpers and the `cx` contract: xb/render-base.js.
  */
 import { css, repeat, live } from '/vendor/lit-all.min.js';
-import { html, nothing, own, P, cls, tone, icon, str } from '/vendor/xb/render-base.js';
+import { html, nothing, own, P, cls, tone, icon, str, spinner } from '/vendor/xb/render-base.js';
 
 const backTitle = (s) => { const t = str(P(s).title); return t && t.length <= 14 ? t : 'Back'; };
 
@@ -34,25 +34,49 @@ function nav(n, cx) {
   };
   return html`<xb-nav data-k=${n.k} class="nav">${repeat(screens, (s) => s.k, (s, i) => html`
     <div class="nav-page" ?hidden=${i !== depth - 1}>${cx.in('free', {
-      pushed: i > 0, offstage: i !== depth - 1, sheet: false,
+      pushed: i > 0, offstage: i !== depth - 1, sheet: false, split: i === 0 ? cx.x.split : null,
       back: i > 0 && i === depth - 1 ? { title: backTitle(screens[i - 1]), go } : null,
     }).node(s)}</div>`)}</xb-nav>`;
 }
 
+// The search field (rev 2: Enter submits; scopes under it; suggestions while
+// it has focus — choosing one sets the query and submits it).
 function searchField(n, cx) {
+  const p = P(n);
   const v = str(cx.val(n, 'search', ''));
-  return html`<div class="search">${icon('search')}<input type="search" placeholder="Search"
-    .value=${live(v)} @input=${(e) => cx.emit(n, 'search', { value: e.target.value })}></div>`;
+  const u = cx.ui(n.k);
+  const submit = (value) => { cx.emit(n, 'search', { value }); if (cx.on(n, 'submit')) cx.emit(n, 'submit', { value }); };
+  const key = (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(e.target.value); } };
+  const focus = (on) => { if (!!u.focus !== on) { u.focus = on; cx.update(); } };
+  const scopes = Array.isArray(p.scopes) ? p.scopes : [];
+  const scope = str(cx.val(n, 'scope', scopes[0]?.value ?? ''));
+  const sugg = Array.isArray(p.suggestions) ? p.suggestions : [];
+  return html`<div class="search-wrap">
+    <div class="search">${icon('search')}<input type="search" placeholder="Search"
+      .value=${live(v)} @input=${(e) => cx.emit(n, 'search', { value: e.target.value })} @keydown=${key}
+      @focus=${() => focus(true)} @blur=${() => setTimeout(() => focus(false), 150)}></div>
+    ${scopes.length ? html`<div class="seg search-scopes" role="tablist">${scopes.map((o) => html`<button role="tab"
+      aria-selected=${str(o.value) === scope} class=${cls('seg-item', str(o.value) === scope && 'on')}
+      @click=${() => { if (str(o.value) !== scope) cx.emit(n, 'scope', { value: str(o.value) }); }}><span>${str(o.label || o.value)}</span></button>`)}</div>` : nothing}
+    ${sugg.length && u.focus ? html`<div class="group search-sugg">${sugg.map((o) => html`<button class="cell sugg"
+      @mousedown=${(e) => e.preventDefault()} @click=${() => { focus(false); submit(str(o.value)); }}>
+      ${icon(o.icon || 'search')}<span>${str(o.label || o.value)}</span></button>`)}</div>` : nothing}
+  </div>`;
 }
+
+// A screen's toolbars by place (rev 2): trailing (the default), leading, bottom.
+const toolbarAt = (all, place) => all.filter((c) => c.t === 'toolbar' && (P(c).place || 'trailing') === place);
 
 function screen(n, cx) {
   const p = P(n);
   const style = p.style || 'scroll';
   const grouped = style === 'list' || style === 'form';
   const all = n.c || [];
-  const tb = all.find((c) => c.t === 'toolbar');
+  const trail = toolbarAt(all, 'trailing');
+  const lead = toolbarAt(all, 'leading');
+  const bottom = toolbarAt(all, 'bottom');
   const docked = all.filter((c) => c.t === 'composer' || (c.t === 'tabs' && P(c).style === 'bar'));
-  const body = all.filter((c) => c !== tb && !docked.includes(c));
+  const body = all.filter((c) => c.t !== 'toolbar' && !docked.includes(c));
   const chat = body.some((c) => c.t === 'transcript');
   const large = p.large === true || (p.large !== false && !cx.x.pushed && !cx.x.sheet && style !== 'scroll');
   const u = cx.ui(n.k);
@@ -64,17 +88,22 @@ function screen(n, cx) {
   const back = cx.x.back;
   const refresh = p.refreshable && cx.on(n, 'refresh');
   const title = str(p.title);
-  const inner = cx.in(grouped ? 'screen' : 'free', { pushed: false, back: null, offstage: false });
-  const showBar = !cx.x.sheet || back || title;
+  const inner = cx.in(grouped ? 'screen' : 'free', { pushed: false, back: null, offstage: false, split: null });
+  const showBar = !cx.x.sheet || back || title || lead.length;
+  const tcx = cx.in('toolbar');
+  const split = cx.x.split; // the detail of a collapsing split: its Back and sidebar buttons
   return html`<xb-screen data-k=${n.k} class=${cls('screen', `style-${style}`, u.scrolled && 'scrolled', large && 'has-large')}>
     ${showBar ? html`<div class=${cls('bar', (u.scrolled || !large) && 'solid')}>
-      <div class="bar-lead">${back ? html`<button class="back" @click=${back.go}>${icon('back')}<span>${back.title}</span></button>` : nothing}</div>
+      <div class="bar-lead">${back ? html`<button class="back" @click=${back.go}>${icon('back')}<span>${back.title}</span></button>` : nothing}
+        ${split?.back ? html`<button class="back split-back" @click=${split.back.go}>${icon('back')}<span>${split.back.title}</span></button>` : nothing}
+        ${split?.columns ? html`<button class="tb-btn split-cols" aria-label="Sidebar" @click=${split.columns}>${icon('list')}</button>` : nothing}
+        ${repeat(lead, (c) => c.k, (c) => tcx.node(c))}</div>
       <div class=${cls('bar-title', large && !u.scrolled && 'away')}>
         <div class="bt">${title}</div>${p.subtitle && !large ? html`<div class="bs">${p.subtitle}</div>` : nothing}
       </div>
       <div class="bar-trail">
-        ${refresh ? html`<button class="tb-btn" aria-label="Refresh" @click=${() => cx.emit(n, 'refresh', {})}>${icon('refresh')}</button>` : nothing}
-        ${tb ? cx.in('toolbar').node(tb) : nothing}
+        ${refresh ? html`<button class="tb-btn" aria-label="Refresh" ?disabled=${p.refreshing === true} @click=${() => cx.emit(n, 'refresh', {})}>${p.refreshing === true ? spinner() : icon('refresh')}</button>` : nothing}
+        ${repeat(trail, (c) => c.k, (c) => tcx.node(c))}
       </div>
     </div>` : nothing}
     <div class=${cls('body', grouped ? 'grouped' : 'free', chat && 'chat')} @scroll=${onScroll}>
@@ -83,6 +112,7 @@ function screen(n, cx) {
       ${repeat(body, (c) => c.k, (c) => inner.node(c))}
     </div>
     ${repeat(docked, (c) => c.k, (c) => cx.in('dock').node(c))}
+    ${bottom.length ? html`<div class="bottombar">${repeat(bottom, (c) => c.k, (c) => tcx.node(c))}</div>` : nothing}
   </xb-screen>`;
 }
 
@@ -121,6 +151,29 @@ function stack(n, cx) {
 
 // list: runs of rows share one card (inset/grouped) or a full-bleed plain
 // list; each section is its own card.
+// Rev 2 scrolling: data-anchor / data-scroll-to for the view (render.js keeps
+// the anchored child in place and performs jumps), and xb-edge sentinels that
+// report `edge {edge, at}` as the start or end comes into or out of view.
+export const scrollAttr = (v) => (typeof v === 'string' && v ? v : nothing);
+// scrollBase(n, cx): the first scrollTo a list/transcript is drawn with is
+// where it starts, not a jump (the anchor, if any, places it instead).
+export function scrollBase(n, cx) {
+  const u = cx.ui(n.k);
+  if (!own(u, 'scrolledTo')) u.scrolledTo = typeof P(n).scrollTo === 'string' ? P(n).scrollTo : '';
+}
+export function edges(n, cx) {
+  if (!cx.on(n, 'edge')) return [nothing, nothing];
+  const u = cx.ui(n.k);
+  const report = (edge) => (e) => {
+    const at = !!e.detail;
+    if ((u.edges ||= {})[edge] === at) return;
+    u.edges[edge] = at;
+    cx.emit(n, 'edge', { edge, at });
+  };
+  return [html`<xb-edge data-edge="start" @edge=${report('start')}></xb-edge>`,
+    html`<xb-edge data-edge="end" @edge=${report('end')}></xb-edge>`];
+}
+
 function list(n, cx) {
   const style = P(n).style || 'inset';
   const runs = [];
@@ -130,9 +183,11 @@ function list(n, cx) {
     else runs.push([c]);
   }
   const more = cx.on(n, 'more') ? html`<xb-more @more=${() => cx.emit(n, 'more', {})}></xb-more>` : nothing;
-  return html`<xb-list data-k=${n.k} class=${cls('list', `list-${style}`)}>${runs.map((r) => (Array.isArray(r)
+  const [edgeStart, edgeEnd] = edges(n, cx);
+  scrollBase(n, cx);
+  return html`<xb-list data-k=${n.k} class=${cls('list', `list-${style}`)} data-anchor=${scrollAttr(P(n).anchor)} data-scroll-to=${scrollAttr(P(n).scrollTo)}>${edgeStart}${runs.map((r) => (Array.isArray(r)
     ? html`<div class=${style === 'plain' ? 'plain' : 'group'}>${repeat(r, (c) => c.k, (c) => cx.in('group').node(c))}</div>`
-    : cx.in('screen').node(r)))}${more}</xb-list>`;
+    : cx.in('screen').node(r)))}${more}${edgeEnd}</xb-list>`;
 }
 
 function row(n, cx) {
@@ -161,11 +216,21 @@ function row(n, cx) {
       ${p.selected ? html`<span class="row-check">${icon('check')}</span>` : nothing}
       ${p.nav ? html`<span class="row-chev">${icon('forward')}</span>` : nothing}
       ${acts.length ? html`<button class="row-more" aria-label="Actions" aria-haspopup="menu"
-        @click=${(e) => { e.stopPropagation(); cx.v.openMenu(acts[0], e.currentTarget); }}>${icon('ellipsis')}</button>` : nothing}
+        @click=${(e) => { e.stopPropagation(); cx.v.openMenu(actionsMenu(n, acts), e.currentTarget); }}>${icon('ellipsis')}</button>` : nothing}
     </div>
     ${content.length ? html`<div class="row-content">${repeat(content, (c) => c.k, (c) => cx.in('free').node(c))}</div>` : nothing}
     ${repeat(acts, (c) => c.k, (c) => folded(c))}
   </xb-row>`;
+}
+
+// A row's actions in its ⋯ menu: one `actions` as is; several (rev 2: one per
+// swipe edge) as one menu — the leading edge's first, a divider, the trailing's.
+function actionsMenu(row, acts) {
+  if (acts.length === 1) return acts[0];
+  const order = [...acts.filter((a) => P(a).edge === 'leading'), ...acts.filter((a) => P(a).edge !== 'leading')];
+  const c = [];
+  order.forEach((a, i) => { if (i) c.push({ k: `${a.k}#sep`, t: 'divider' }); c.push(...(a.c || [])); });
+  return { k: `${row.k}#actions`, t: 'actions', c };
 }
 
 function actions(n, cx) {
@@ -218,8 +283,10 @@ function sheet(n, cx) {
   const det = Array.isArray(p.detents) ? p.detents : p.detents ? [p.detents] : ['large'];
   const all = n.c || [];
   const tb = all.find((c) => c.t === 'toolbar');
-  const body = all.filter((c) => c !== tb);
+  const nested = all.filter((c) => c.t === 'sheet'); // rev 2: presented over this one
+  const body = all.filter((c) => c !== tb && c.t !== 'sheet');
   const whole = body.length === 1 && (body[0].t === 'screen' || body[0].t === 'nav');
+  const full = det.includes('full'); // a full-screen cover: no grabber, no dismissing tap
   // a plain button in the toolbar is the sheet's cancel: it takes the close
   // button's place at the leading end (as the native sheet's cancellation
   // action does) rather than sitting beside the confirm action with an ×
@@ -229,9 +296,9 @@ function sheet(n, cx) {
   // edge=leading: a drawer over the screen from the leading edge (no detents)
   const drawer = p.edge === 'leading';
   return html`<xb-sheet data-k=${n.k} class=${cls('sheet-layer', drawer && 'drawer')} @keydown=${esc}>
-    <div class="scrim" @click=${dismiss}></div>
-    <div class=${cls('sheet', drawer ? 'edge-leading' : det[0] === 'medium' ? 'd-medium' : 'd-large')} role="dialog" aria-modal="true" aria-label=${str(p.title) || nothing}>
-      ${drawer ? nothing : html`<div class="grabber"></div>`}
+    <div class="scrim" @click=${full ? null : dismiss}></div>
+    <div class=${cls('sheet', drawer ? 'edge-leading' : full ? 'd-full' : det[0] === 'medium' ? 'd-medium' : 'd-large')} role="dialog" aria-modal="true" aria-label=${str(p.title) || nothing}>
+      ${drawer || full ? nothing : html`<div class="grabber"></div>`}
       ${whole ? nothing : html`<div class="sheet-bar">
         <div class="bar-lead">${cancel ? tcx.node(cancel) : html`<button class="sheet-x" aria-label="Close" @click=${dismiss}>${icon('xmark')}</button>`}</div>
         <div class="bar-title"><div class="bt">${str(p.title)}</div></div>
@@ -239,13 +306,26 @@ function sheet(n, cx) {
       </div>`}
       <div class=${cls('sheet-body', whole && 'whole')}>${repeat(body, (c) => c.k, (c) => cx.in('free', { sheet: true }).node(c))}</div>
     </div>
+    ${repeat(nested, (c) => c.k, (c) => cx.node(c))}
   </xb-sheet>`;
 }
 
+// split: two columns when there is room. Rev 2: with `detail` (even false) a
+// compact split collapses to a stack — the list, with the detail pushed over
+// it while `detail` is true (its Back reports `close`); `columns="detail"`
+// hides the list on a wide view (the detail's sidebar button reports
+// `columns`).
 function split(n, cx) {
-  const prefer = P(n).prefer === 'single' ? 'single' : 'auto';
-  return html`<xb-split data-k=${n.k} class=${cls('split', prefer)}>${repeat(n.c || [], (c) => c.k, (c, i) => html`
-    <div class=${i === 0 ? 'split-a' : 'split-b'}>${cx.in('free').node(c)}</div>`)}</xb-split>`;
+  const p = P(n);
+  const prefer = p.prefer === 'single' ? 'single' : 'auto';
+  const kids = n.c || [];
+  const collapse = own(p, 'detail');
+  const open = collapse && cx.val(n, 'detail', false) === true;
+  const cols = str(cx.val(n, 'columns', 'auto'));
+  const back = collapse && kids[0] ? { title: backTitle(kids[0]), go: () => cx.emit(n, 'close', {}) } : null;
+  const columns = own(p, 'columns') ? () => cx.emit(n, 'columns', { value: cols === 'detail' ? 'all' : 'detail' }) : null;
+  return html`<xb-split data-k=${n.k} class=${cls('split', prefer, collapse && 'collapse', open && 'detail-open', cols === 'detail' && 'cols-detail')}>${repeat(kids, (c) => c.k, (c, i) => html`
+    <div class=${i === 0 ? 'split-a' : 'split-b'}>${cx.in('free', i === 1 && (back || columns) ? { split: { back, columns } } : { split: null }).node(c)}</div>`)}</xb-split>`;
 }
 
 const spacer = (n) => html`<xb-spacer data-k=${n.k} class="spacer"></xb-spacer>`;
@@ -266,6 +346,10 @@ export const STRUCTURE_CSS = css`
   .bar.solid { background: color-mix(in srgb, var(--xb-bg) 82%, transparent); backdrop-filter: saturate(1.6) blur(18px); -webkit-backdrop-filter: saturate(1.6) blur(18px); }
   .scrolled > .bar { box-shadow: 0 0.5px 0 var(--xb-separator); }
   .bar-lead { display: flex; align-items: center; min-width: 0; }
+  /* a Back keeps its chevron: a long title (and the bar's other items) take
+     its words first, then truncate — never drawn over it (iOS gives up the
+     back title the same way) */
+  .bar-lead:has(> .back) { min-width: calc(var(--xb-icon) + 12px); }
   .bar-trail { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
   .bar-title { flex: 0 1 auto; text-align: center; min-width: 0; padding: 4px 0; transition: opacity 0.15s; }
   .bar-title.away { opacity: 0; }
@@ -291,6 +375,13 @@ export const STRUCTURE_CSS = css`
   .search { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px; border-radius: 10px; background: var(--xb-fill); color: var(--xb-muted); flex: none; }
   .search input { flex: 1; min-width: 0; border: 0; outline: 0; background: none; color: var(--xb-text); font: var(--xb-font-body); }
   .search .ic { width: 18px; height: 18px; }
+  .search-wrap { display: flex; flex-direction: column; gap: 8px; flex: none; }
+  .search-sugg { display: flex; flex-direction: column; }
+  .sugg { display: flex; align-items: center; gap: 12px; text-align: left; color: var(--xb-text); }
+  .sugg .ic { color: var(--xb-muted); width: 18px; height: 18px; }
+  .bottombar { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 12px 22px;
+    border-top: 0.5px solid var(--xb-separator); background: color-mix(in srgb, var(--xb-bg) 88%, transparent); }
+  .bottombar > xb-toolbar { flex: 1 1 auto; justify-content: space-around; }
 
   xb-toolbar { display: flex; align-items: center; gap: 2px; }
   xb-toolbar > xb-badge { align-self: center; margin: 0 4px; }
@@ -415,6 +506,7 @@ export const STRUCTURE_CSS = css`
     box-shadow: var(--xb-shadow); animation: xb-rise 0.25s cubic-bezier(0.2, 0.9, 0.3, 1); min-height: 0; }
   .sheet.d-large { height: calc(100% - 12px); }
   .sheet.d-medium { height: 52%; }
+  .sheet.d-full { height: 100%; border-radius: 0; padding-top: 6px; }
   .sheet-layer.drawer { flex-direction: row; justify-content: flex-start; }
   .sheet.edge-leading { height: 100%; width: min(86%, 400px); border-radius: 0 14px 14px 0; animation: xb-slide 0.25s cubic-bezier(0.2, 0.9, 0.3, 1); padding-top: 6px; }
   @keyframes xb-slide { from { transform: translateX(-40%); opacity: 0.4; } }
@@ -433,7 +525,15 @@ export const STRUCTURE_CSS = css`
   xb-split > div { flex: 1 1 50%; min-height: 0; display: flex; flex-direction: column; }
   xb-split > div > * { flex: 1 1 auto; min-height: 0; }
   xb-split > .split-a { border-bottom: 0.5px solid var(--xb-separator); }
+  /* rev 2: a compact split with a detail state is a stack (the list, or the detail over it) */
+  xb-split.collapse > div { flex: 1 1 auto; border: 0; }
+  xb-split.collapse:not(.detail-open) > .split-b, xb-split.collapse.detail-open > .split-a { display: none; }
+  .split-cols { display: none; }
   @container xbroot (min-width: 700px) {
+    xb-split.collapse.auto > .split-a, xb-split.collapse.auto > .split-b { display: flex; }
+    xb-split.auto .split-back { display: none; }
+    xb-split.auto .split-cols { display: flex; }
+    xb-split.auto.cols-detail > .split-a { display: none; }
     xb-split.auto { flex-direction: row; }
     xb-split.auto > .split-a { flex: 0 0 clamp(280px, 36%, 400px); border-bottom: 0; border-right: 0.5px solid var(--xb-separator); }
     xb-split.auto > .split-b { flex: 1 1 auto; }

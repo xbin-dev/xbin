@@ -20,6 +20,12 @@ let sheetFor = 0; // the conversation whose warning sheet is open
 
 const me = () => (ctx.app.me && ctx.app.me.user) || '';
 
+/** markStarted: a conversation whose warning the person just read elsewhere (native/homes.js: hosting it) starts unlocked. */
+export function markStarted(root) {
+  started.add(root);
+  warned.add(root);
+}
+
 /** hostedNoticeTpl: the warning at the head of a hosted conversation's transcript. */
 export function hostedNoticeTpl(v) {
   const h = hostingOf(v);

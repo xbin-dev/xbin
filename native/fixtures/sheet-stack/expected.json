@@ -1,0 +1,36 @@
+{"v":1,"root":{"k":"r","t":"fragment","c":[
+  {"k":"r.0","t":"screen","p":{"title":"Team blog","style":"list"},"c":[
+    {"k":"r.0.0","t":"toolbar","c":[
+      {"k":"r.0.0.0","t":"button","p":{"icon":"pencil","label":"New post"},"e":["tap"]}
+    ]},
+    {"k":"r.0.1","t":"section","p":{"title":"Published"},"c":[
+      {"k":"r.0.1.0:p-9","t":"row","p":{"title":"How we cut CI time in half","subtitle":"Ana Kowalska","detail":"Sep 19","nav":true},"e":["tap"]},
+      {"k":"r.0.1.0:p-8","t":"row","p":{"title":"Our on-call handbook, version 3","subtitle":"Ben Ortiz","detail":"Sep 4","nav":true},"e":["tap"]},
+      {"k":"r.0.1.0:p-7","t":"row","p":{"title":"Welcome, Chloé!","subtitle":"Dev Patel","detail":"Aug 28","nav":true},"e":["tap"]}
+    ]}
+  ]},
+  {"k":"r.1","t":"sheet","p":{"open":true,"title":"New post","detents":"full"},"e":["dismiss"],"c":[
+    {"k":"r.1.0","t":"toolbar","c":[
+      {"k":"r.1.0.0","t":"button","p":{"role":"plain","label":"Cancel"},"e":["tap"]},
+      {"k":"r.1.0.1","t":"button","p":{"role":"primary","disabled":false,"label":"Publish"},"e":["tap"]}
+    ]},
+    {"k":"r.1.1","t":"section","c":[
+      {"k":"r.1.1.0","t":"field","p":{"label":"Title","value":"Shipping the new invoices"},"e":["input"]},
+      {"k":"r.1.1.1","t":"field","p":{"label":"Post","kind":"multiline","value":"From Monday every invoice carries the customer's VAT number. The details are in"},"e":["input"]}
+    ]},
+    {"k":"r.1.2","t":"section","c":[
+      {"k":"r.1.2.0","t":"button","p":{"icon":"link","label":"Add link"},"e":["tap"]},
+      {"k":"r.1.2.1","t":"button","p":{"icon":"photo","label":"Add image"},"e":["tap"]}
+    ]},
+    {"k":"r.1.3","t":"sheet","p":{"open":true,"title":"Add link","detents":["medium"]},"e":["dismiss"],"c":[
+      {"k":"r.1.3.0","t":"toolbar","c":[
+        {"k":"r.1.3.0.0","t":"button","p":{"role":"plain","label":"Cancel"},"e":["tap"]},
+        {"k":"r.1.3.0.1","t":"button","p":{"role":"primary","disabled":false,"label":"Add"},"e":["tap"]}
+      ]},
+      {"k":"r.1.3.1","t":"section","c":[
+        {"k":"r.1.3.1.0","t":"field","p":{"label":"Text","value":"the finance FAQ"},"e":["input"]},
+        {"k":"r.1.3.1.1","t":"field","p":{"label":"Address","kind":"url","placeholder":"https://","value":"https://wiki.acme.dev/finance/vat"},"e":["input"]}
+      ]}
+    ]}
+  ]}
+]}}

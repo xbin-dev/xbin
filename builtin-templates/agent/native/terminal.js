@@ -4,10 +4,18 @@
 // through the tile's relays — the backend checks you may use the sandbox,
 // then dials its manager's tty as you:
 //
-// - a pushed Terminal screen (<terminal src>): a shell in a sandbox (a
-//   Sandboxes row's Terminal, the ▣ Sandbox screen's Open terminal:
-//   GET /sandboxes/{ref}/terminal), a shell at a coding agent's cwd (⋯ →
-//   Terminal: GET /runs/{id}/harness/terminal), or its sign-in command
+// - the Terminals screen (D190): the shells as tabs of a tab bar — the web's
+//   dock (model/terminals.js termsOf: page-level, so they stay open across
+//   conversations) — a shell in a sandbox (a Sandboxes row's Terminal, the
+//   ▣ Sandbox screen's Open terminal: GET /sandboxes/{ref}/terminal) or at
+//   a coding agent's cwd (⋯ → Terminal: GET /runs/{id}/harness/terminal),
+//   New shell beside the shown one, Close tab ending its shell. Each tab
+//   dials its relay with tab=<its name>: the app's terminal closes its
+//   socket when its tab isn't shown (or the screen goes), and the relay
+//   keeps a tab's shell for the tab to attach to again — until Close tab
+//   (DELETE /terminals/{tab}) or 30 minutes with no client (API.md). Back
+//   leaves them running: Terminals (N) in the ⋯ menus brings them back;
+// - a pushed sign-in terminal: a coding agent's sign-in command
 //   (…?login=1) with Retry in the toolbar;
 // - a coding agent's sign-in, only while its run is parked on `login` (the
 //   `end` seam's rule): a warn notice in the transcript (and the device
@@ -32,23 +40,100 @@
 // is up: its socket is a held connection (/docs/partitions.md).
 //
 // What they say is model/terminals.js (the web draws the same: terminals.js,
-// signin.js). One terminal at a time: the app's terminal closes its socket
-// when its screen goes and names no session to attach again — the web's
-// dock keeps several (model/features.js DIFFERENCES.native).
-import { html, nothing } from '/vendor/xb-native.js';
+// signin.js).
+import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { isHarness, harnessOf, findHarness } from '../model/harness.js';
-import { signIn, methodLabel, runTerminalSrc, isHttps } from '../model/terminals.js';
+import { signIn, methodLabel, runTerminalSrc, isHttps, termsOf, tabLabel, tabHead } from '../model/terminals.js';
+import { homeApi } from '../model/home-api.js';
+import { abovePlace } from './nav.js';
 import { newGuided, guidedStarted, guidedFailed, guidedFinished, guidedWords, cleanCode, nameFor, shownMethods } from '../model/harness-signins.js';
 import { access } from '../model/rules.js';
 import { ext } from './ext.js';
 import { ctx, fail, push, ui } from './ui.js';
 
-// openSandboxTerminal pushes a shell in sandbox ref at cwd (app.sbx.terminal
-// through the relay); says why when there is none.
+// --- the Terminals screen: the shells as tabs -----------------------------------------
+
+// tabName: a tab's name at the relay — random, so a restarted runtime's tab
+// never meets another's shell.
+const tabName = () => 't' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+
+// openTab: a new tab for spec (an app.sbx.terminal() answer, or a run's
+// relay) shown on the Terminals screen.
+function openTab(spec) {
+  const t = termsOf(ctx.app).open(spec);
+  if (!t) return;
+  t.tab = tabName();
+  openTerms();
+}
+
+// openTerms: the Terminals screen — back to it when it is over the place on
+// top already, else pushed.
+export function openTerms() {
+  const i = ui.stack.indexOf(abovePlace().find((x) => x.kind === 'terms'));
+  if (i >= 0) { ui.stack.length = i + 1; ctx.paint(); return; }
+  push({ kind: 'terms' });
+}
+
+// tabSrc: what a tab's terminal dials — its relay, with its name.
+const tabSrc = (t) => `${t.src}${t.src.includes('?') ? '&' : '?'}tab=${t.tab}`;
+const homeOfSrc = (src) => (/[?&]xbin-partition=global(&|$)/.test(src) ? 'global' : '');
+
+// openSandboxTerminal opens a shell in sandbox ref at cwd (app.sbx.terminal
+// through the relay) as a tab; says why when there is none.
 export function openSandboxTerminal(ref, cwd = '') {
   const t = ctx.app.sbx.terminal(ref, cwd);
   if (!t.src) return fail(t.why ? `No terminal: ${t.why}` : 'No terminal here');
-  push({ kind: 'term', src: t.src, title: `Terminal · ${t.name}`, subtitle: t.cwd || 'its workdir' });
+  openTab({ ...t, purpose: 'shell' });
+}
+
+// the tabs' names in the bar: a sandbox's second shell is "api 2"
+function labels(tabs) {
+  const n = new Map(), out = new Map();
+  for (const t of tabs) { const l = tabLabel(t); n.set(l, (n.get(l) || 0) + 1); out.set(t.key, n.get(l) > 1 ? `${l} ${n.get(l)}` : l); }
+  return out;
+}
+
+function termsTpl(s) {
+  const T = termsOf(ctx.app);
+  const cur = T.current;
+  if (!cur) {
+    return html`<screen title="Terminals" style="form"><section>
+      <empty icon="terminal" title="No terminals open" text="Open one from a conversation's Sandbox screen (Open terminal), or a coding agent's Terminal in its menu."/>
+    </section></screen>`;
+  }
+  const h = tabHead(cur);
+  const names = labels(T.tabs);
+  // New shell: another tab where the shown one is (a sandbox's shell, or the run's)
+  const another = () => {
+    if (cur.ref && !cur.run) return openSandboxTerminal(cur.ref, cur.cwd);
+    openTab({ src: cur.src, name: cur.name, cwd: cur.cwd, ref: cur.ref, run: cur.run, purpose: 'shell' });
+  };
+  // Close tab: its shell ends (the relay's DELETE /terminals/{tab}); the last one leaves the screen
+  const close = async () => {
+    const t = T.close(cur.key);
+    if (!t) return;
+    try { await homeApi(homeOfSrc(t.src), `/terminals/${t.tab}`, { method: 'DELETE' }); } catch (e) { fail(e); }
+    if (!T.tabs.length) { const i = ui.stack.indexOf(s); if (i >= 0) ui.stack.splice(i); }
+    ctx.paint();
+  };
+  return html`<screen title="Terminals" subtitle=${`${h.title} · ${h.where}`} style="scroll">
+    <toolbar>
+      <button icon="plus" @tap=${another}>New shell</button>
+      <button icon="xmark" role="destructive" confirm=${{ title: `Close ${names.get(cur.key)}?`, message: 'Its shell ends.', label: 'Close', destructive: true }}
+        @tap=${close}>Close tab</button>
+    </toolbar>
+    <tabs style="bar" selected=${String(cur.key)} @change=${(e) => T.select(+e.key)}>
+      ${repeat(T.tabs, (t) => t.key, (t) => html`<tab key=${String(t.key)} title=${names.get(t.key)} icon="terminal">
+        <terminal src=${tabSrc(t)} title=${`Terminal · ${tabHead(t).title}`}/>
+      </tab>`)}
+    </tabs>
+  </screen>`;
+}
+
+// termsItem: Terminals (N) in a ⋯ menu while tabs are open (Back left them running).
+function termsItem() {
+  const n = termsOf(ctx.app).tabs.length;
+  return n ? html`<button icon="terminal" @tap=${openTerms}>${`Terminals (${n})`}</button>` : null;
 }
 
 // what a view's run is, for a harness conversation: its sign-in card (or
@@ -64,9 +149,9 @@ function harnessOfView(v) {
   return { h, c, sb, tt };
 }
 
-// a harness run's shell at its cwd, through the run's relay
+// a harness run's shell at its cwd, through the run's relay, as a tab
 function openRunTerminal(v, x) {
-  push({ kind: 'term', src: runTerminalSrc(v.run.id), title: `Terminal · ${x.sb.name || x.tt.name}`, subtitle: x.sb.cwd || 'its workdir' });
+  openTab({ src: runTerminalSrc(v.run.id), name: x.sb.name || x.tt.name, cwd: x.sb.cwd || '', ref: x.sb.ref, run: v.run.id, purpose: 'shell' });
 }
 
 // the open-links grant opens an https: page outside the app
@@ -103,11 +188,15 @@ ext.register({
     const x = access(v).talk ? harnessOfView(v) : null;
     const term = !!(x && x.tt && x.tt.shown && !x.tt.why);
     const si = !!(x && x.c && x.c.talk); // a sign-in this page offers (not signIn's away: its notice says why)
-    if (!x || !(si || term)) return null;
+    const tabs = termsItem();
+    if (!tabs && (!x || !(si || term))) return null;
     return html`${si ? html`<button icon="key" @tap=${() => push({ kind: 'signin', run: v.run.id })}>Sign in…</button>` : nothing}
-      ${term ? html`<button icon="terminal" @tap=${() => openRunTerminal(v, x)}>Terminal</button>` : nothing}`;
+      ${term ? html`<button icon="terminal" @tap=${() => openRunTerminal(v, x)}>Terminal</button>` : nothing}
+      ${tabs || nothing}`;
   },
+  main: () => termsItem(),
   screen(s) {
+    if (s.kind === 'terms') return termsTpl(s);
     if (s.kind === 'term') return termTpl(s);
     if (s.kind === 'signin') return signInTpl(s);
     return null;

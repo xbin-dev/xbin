@@ -1,0 +1,23 @@
+{
+  "about": "sheet rev 2: a full-screen sheet (detents=full) with a second sheet stacked over it (a sheet inside a sheet)",
+  "self": "apps/blog",
+  "routes": {
+    "GET /api/apps/blog/posts": {
+      "json": {
+        "posts": [
+          {"id": "p-9", "title": "How we cut CI time in half", "author": "Ana Kowalska", "date": "Sep 19"},
+          {"id": "p-8", "title": "Our on-call handbook, version 3", "author": "Ben Ortiz", "date": "Sep 4"},
+          {"id": "p-7", "title": "Welcome, Chloé!", "author": "Dev Patel", "date": "Aug 28"}
+        ]
+      }
+    }
+  },
+  "interactions": [
+    {"select": "button[label=\"New post\"]", "type": "tap"},
+    {"select": "field[label=Title]", "type": "input", "payload": {"value": "Shipping the new invoices"}},
+    {"select": "field[label=Post]", "type": "input", "payload": {"value": "From Monday every invoice carries the customer's VAT number. The details are in"}},
+    {"select": "button[label=\"Add link\"]", "type": "tap"},
+    {"select": "field[label=Text]", "type": "input", "payload": {"value": "the finance FAQ"}},
+    {"select": "field[label=Address]", "type": "input", "payload": {"value": "https://wiki.acme.dev/finance/vat"}}
+  ]
+}

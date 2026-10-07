@@ -11,6 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { runNative } from './xbn/node.mjs';
+import { PHONE } from './agent-template-native-caps.mjs'; // the phone stack (rev-1 split): the tests walk its nav
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url);
 const KIT = new URL('../web/bx-kit.js', import.meta.url).href;
@@ -240,7 +241,7 @@ test('a list row: ? for a run waiting below it; the agents glyph and N coding ag
 // --- the native view over kidsSeed() -----------------------------------------------------------
 
 async function runSeed(steps, hash, s = kidsSeed()) {
-  const r = await runNative({ entry: new URL('native.js', TPL).pathname,
+  const r = await runNative({ caps: PHONE, entry: new URL('native.js', TPL).pathname,
     data: { now: NOW, self: 'apps/agent', setup: new URL('test/native-stub.mjs', TPL).pathname, seed: s },
     steps, state: hash ? { hash } : null });
   assert.equal(r.fatal, null);
@@ -313,9 +314,9 @@ test('native: an open card reads the child\'s newest page and draws its last 3 b
   const card = find(r.snapshots.open.root, CARD('Split the router'));
   const inner = all(card, { t: 'transcript' })[0];
   const drawn = (inner.c || []).filter((c) => c.t !== 'plan').map((c) => (c.t === 'toolcard' ? c.p.title : c.t));
-  assert.deepEqual(drawn, ['Mount users.go', 'message', 'Run go vet ./...'], 'the last 3 blocks');
+  assert.deepEqual(drawn, ['Mount users.go', 'message', 'Run go vet ./...', 'approval'], 'the last 3 blocks, then its steering (Send, Stop, Cancel task)');
   const nav = find(r.snapshots.child.root, { t: 'nav' });
-  assert.deepEqual(nav.c.map((s) => s.p.title), ['Refactor the API', 'Split the router'], '↗: the child\'s chat over its parent');
+  assert.deepEqual(nav.c.map((s) => s.p.title), ['Agent', 'Refactor the API', 'Split the router'], '↗: the child\'s chat over its parent');
 });
 
 test('native: a card whose child can\'t be read says why — read once, not at every paint; opening it again retries', async () => {
@@ -342,18 +343,19 @@ test('native: a card whose child can\'t be read says why — read once, not at e
   assert.ok(find(find(r.snapshots.retried.root, CARD('Plan the users migration')), { t: 'notice', p: { tone: 'danger' } }), 'still failing: said again');
 });
 
-test('native: a harness child\'s own chat offers Cancel task (confirmed); the drawer says ⧉ N', async () => {
+test('native: a harness child\'s own chat offers Cancel task (confirmed); the list says ⧉ N', async () => {
   const r = await runSeed([
     { snapshot: 'chat' },
     { tap: { t: 'button', p: { label: 'Cancel task' } } }, { wait: 50 },
-    { tap: { t: 'button', p: { label: 'Conversations' } } }, { wait: 50 },
+    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] }, { wait: 50 },
     { snapshot: 'drawer' },
   ], 'c=26');
   const b = find(r.snapshots.chat.root, { t: 'button', p: { label: 'Cancel task' } });
   assert.equal(b.p.confirm.label, 'Cancel task');
   assert.match(b.p.confirm.title, /^Cancel Claude Code's task \(#26\)\?/);
   assert.equal(r.calls.filter((c) => c.method === 'POST' && /\/runs\/26\/cancel$/.test(c.url)).length, 1);
-  const row = find(r.snapshots.drawer.root, { t: 'row', p: { title: 'Refactor the API' } });
+  // the conversation's own row (not what needs you, which heads the list)
+  const row = all(r.snapshots.drawer.root, { t: 'row', p: { title: 'Refactor the API' } }).find((x) => x.p.subtitle !== 'wants your approval');
   assert.equal(row.p.subtitle, '3 coding agents');
   assert.equal(row.p.badge, 'waiting for you', 'a run below it waits: ?');
   const own = await runSeed([{ snapshot: 'chat' }], 'c=21', harnessSeed());

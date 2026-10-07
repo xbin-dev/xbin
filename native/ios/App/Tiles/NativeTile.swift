@@ -49,6 +49,9 @@ final class NativeTileRuntime: NSObject {
     @ObservationIgnored private var widgetRemounts = 3
     @ObservationIgnored private var limits = SpawnLimits()
     @ObservationIgnored private var visible: Bool?
+    /// A deep link that arrived before the tile's first tree (D189): sent
+    /// with `xbn.navigate` once the runtime is up.
+    @ObservationIgnored private var pendingNavigate: String?
 
     /// How long after the tile's first mount a runtime that sent no widget
     /// counts as one without (its cards then stay standard for a day).
@@ -65,7 +68,10 @@ final class NativeTileRuntime: NSObject {
         widgetModel = XbinTreeModel(store: store.widget ?? TreeStore())
         hatches = TileHatches(workspace: workspace, tile: tile)
         let config = WebTileController.configuration(for: workspace, bridge: false)
-        let caps = XbinVocabulary.caps(app: AppInfo.version, renderer: "ios").withWidget(size: widgetSize)
+        var caps = XbinVocabulary.caps(app: AppInfo.version, renderer: "ios").withWidget(size: widgetSize)
+        // The screen's width class until a screen shows the tile and says
+        // (setWidth): a phone's is compact, an iPad's regular at full width.
+        caps.width = UIDevice.current.userInterfaceIdiom == .phone ? .compact : .regular
         self.caps = caps
         Self.install(RuntimeScript.startScripts(caps: caps, state: saved), in: config.userContentController)
         config.preferences.inactiveSchedulingPolicy = .none
@@ -91,16 +97,25 @@ final class NativeTileRuntime: NSObject {
         widgetModel.send = { [weak self] call in self?.call(call) }
     }
 
-    func start() {
-        guard let url = TileScheme.runtimeURL(workspace: workspace.id, tile: tile.path) else {
+    /// Loads the runtime document — with a deep link's `fragment`, which the
+    /// tile reads from `location.hash` as it starts (D189).
+    func start(fragment: String? = nil) {
+        guard let url = TileScheme.runtimeURL(workspace: workspace.id, tile: tile.path, fragment: fragment) else {
             fail(.loadFailed("bad tile path"))
             return
         }
         lifecycle.start(at: Date())
         webView.load(URLRequest(url: url))
+        armTimeout()
+    }
+
+    /// Falls back to the web page when the lifecycle's deadline passes —
+    /// re-armed when the document loads, which moves the deadline.
+    private func armTimeout() {
         timeout?.cancel()
+        guard let deadline = lifecycle.deadline else { return }
         timeout = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(NativeTileLifecycle.mountTimeout))
+            try? await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
             guard let self, !Task.isCancelled else { return }
             if self.lifecycle.check(at: Date()) { self.fallBack() }
         }
@@ -157,7 +172,21 @@ final class NativeTileRuntime: NSObject {
         }
     }
 
+    /// A deep link into the running view (D189): `xbn.navigate` sets the
+    /// document's hash and fires `hashchange`; before the first tree it
+    /// waits for the runtime.
+    func navigate(_ fragment: String) {
+        guard !stopped else { return }
+        #if DEBUG
+        NSLog("xbin-nav runtime %@ navigate %@ live %@", tile.path, fragment, String(lifecycle.phase == .live))
+        #endif
+        if lifecycle.phase == .live { call(.navigate(fragment)) } else { pendingNavigate = fragment }
+    }
+
     func setVisible(_ on: Bool) {
+        #if DEBUG
+        NSLog("xbin-nav runtime %@ visible %@ (was %@)", tile.path, String(on), String(describing: visible))
+        #endif
         guard visible != on, !stopped else { return }
         visible = on
         webView.configuration.preferences.inactiveSchedulingPolicy = on ? .none : .throttle
@@ -173,6 +202,14 @@ final class NativeTileRuntime: NSObject {
         call(.widgetSize(size))
     }
 
+    /// The screen showing the tile is `width` wide now (a size class): the
+    /// runtime is told (`xbin.native.width`), and a reload starts with it.
+    func setWidth(_ width: WidthClass) {
+        guard width != caps.width, !stopped else { return }
+        caps.width = width
+        call(.width(width))
+    }
+
     // MARK: Runtime → app
 
     private func handle(_ event: TreeStoreEvent) {
@@ -181,6 +218,10 @@ final class NativeTileRuntime: NSObject {
             lifecycle.mounted()
             hatches.prune(store.tree)
             probeWidget()
+            if let f = pendingNavigate {
+                pendingNavigate = nil
+                call(.navigate(f))
+            }
         case .meta:
             title = store.meta.title
             workspace.tileMeta.set(tile.path, store.meta)
@@ -359,6 +400,11 @@ extension NativeTileRuntime: WKNavigationDelegate, WKScriptMessageHandler {
         reply(id, DialogSpec.result(button: button, values: values))
     }
 
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        lifecycle.loaded(at: Date())
+        armTimeout()
+    }
+
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
         fail(.loadFailed(error.localizedDescription))
     }
@@ -392,20 +438,38 @@ extension NativeTileRuntime: WKNavigationDelegate, WKScriptMessageHandler {
 /// ran it, kept warm after the screen goes — which parks its hidden
 /// document in the window (so WebKit keeps its timers running).
 struct NativeTileScreen: View {
+    static func width(_ c: UserInterfaceSizeClass?) -> WidthClass? {
+        switch c {
+        case .compact: return .compact
+        case .regular: return .regular
+        default: return nil
+        }
+    }
+
     let workspace: WorkspaceModel
     let tile: TileInfo
+    /// A deep link's fragment (`#c=42`): the runtime starts with it, or a
+    /// running one navigates to it (D189).
+    var fragment: String?
     let fallBack: (String) -> Void
 
     @Environment(WorkspaceNav.self) private var nav
+    @Environment(\.horizontalSizeClass) private var sizeClass
     @State private var runtime: NativeTileRuntime?
     /// This screen's claim on the runtime (the pool pins it while held).
     @State private var claim: UUID?
+    /// The deep link already handed to the runtime (D189): coming back from
+    /// a page the tile pushed onto this stack doesn't open it again.
+    @State private var handledFragment: String?
 
     var body: some View {
         ZStack {
             if let rt = runtime {
                 if rt.lifecycle.phase == .live {
-                    XbinTreeView(store: rt.store, send: { rt.call($0) }, services: rt.services)
+                    // In the panel's NavigationStack: a collapsing split pushes
+                    // onto it rather than nesting a stack (D189).
+                    XbinTreeView(store: rt.store, send: { rt.call($0) }, services: rt.services,
+                                 options: XbinRenderOptions(hostNavigation: true))
                         .modifier(AttachPickers(picker: rt.hatches.attach.picker))
                         .overlay(alignment: .bottom) { AttachStatusView(flow: rt.hatches.attach) }
                 } else {
@@ -435,26 +499,43 @@ struct NativeTileScreen: View {
         .onAppear {
             let pool = NativeRuntimePool.shared
             if let rt = runtime, !rt.stopped, claim != nil {
+                if let w = Self.width(sizeClass) { rt.setWidth(w) }
                 rt.setVisible(true) // back from under a window it pushed
                 return
             }
             if let id = claim { pool.close(workspace, tile.path, screen: id) }
             let id = UUID()
-            let rt = pool.open(workspace, tile, screen: id, fallBack: fallBack)
+            let link = NativeHostedStack.fragment(fragment, handled: handledFragment)
+            handledFragment = fragment
+            let rt = pool.open(workspace, tile, screen: id, fragment: link, fallBack: fallBack)
             rt.hatches.nav = nav // canvas islands push onto this window (Navigation.swift)
+            if let w = Self.width(sizeClass) { rt.setWidth(w) }
             claim = id
             runtime = rt
         }
         .onDisappear {
-            // Covered by a window this tile pushed (an island's
-            // xbin.window): it shows again on the pop, islands and all —
-            // keep the claim. Gone: let the pool have it.
+            #if DEBUG
+            NSLog("xbin-nav tile screen %@ disappears: surface %@ stacked %@", tile.path, String(describing: nav.surface), String(nav.stillStacked(window: nil)))
+            #endif
+            // Covered by a page its own tree pushed onto this stack (a
+            // split's detail, D189): the window still shows this tile — it
+            // stays live and visible. Covered by a window this tile pushed
+            // (an island's xbin.window): it shows again on the pop, islands
+            // and all — keep the claim. Gone: let the pool have it.
+            if case .tile(let path, _, _)? = nav.surface, path == tile.path, !nav.stillStacked(window: nil) { return }
             if nav.stillStacked(window: nil) {
                 runtime?.setVisible(false)
             } else if let id = claim {
                 NativeRuntimePool.shared.close(workspace, tile.path, screen: id)
                 claim = nil
             }
+        }
+        // The panel's width class: the tile lays out for it (xbin.native.width).
+        .onChange(of: sizeClass) { _, c in if let w = Self.width(c) { runtime?.setWidth(w) } }
+        // Another deep link to the open tile (D189).
+        .onChange(of: fragment) { _, f in
+            if let link = NativeHostedStack.fragment(f, handled: handledFragment) { runtime?.navigate(link) }
+            handledFragment = f
         }
         // Live reload (§7.7): the tile's source changed — remount.
         .task(id: tile.path) { await workspace.events.onReload(of: tile.path) { runtime?.reload() } }

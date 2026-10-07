@@ -13,16 +13,21 @@
 //          it waits — and its sign-in as a notice (Sign in is in its own chat)
 //   menu   in a harness child's own chat: Cancel task (confirmed; for good)
 //
-// ↗ opens the child's chat: its composer messages it directly (the backend
-// tells the parent, whose chat shows the notice), and Stop interrupts its
-// turn — a toolcard holds no field or button, so steering lives there.
-// The words are model/harness-child.js's.
+//   steer  open, for a participant: Send / Send now (a message straight to
+//          it — the agent that started it is told — the latter interrupting
+//          its turn first), Stop (its turn) and Cancel task… (confirmed; for
+//          good), as an approval card with a message field in the card's
+//          transcript — a toolcard holds no field or button of its own; what
+//          happened is said on it (the web's Stop, Cancel and Message links)
+//
+// ↗ opens the child's chat: its composer messages it too, and Stop
+// interrupts its turn. The words are model/harness-child.js's.
 import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { ext } from './ext.js';
 import { ctx, guard } from './ui.js';
 import { blockTpl, openChild } from './chat.js';
 import { permissionTpl, questionTpl } from './harness-ask.js';
-import { isHarnessChild, childRun, childCard, tailOf, loadTail, tailError, cancelWords, isChildRun } from '../model/harness-child.js';
+import { isHarnessChild, childRun, childCard, tailOf, loadTail, tailError, cancelWords, isChildRun, stopWords, messageWords } from '../model/harness-child.js';
 import { permission, question, ownerOf } from '../model/harness-ask.js';
 import { signIn } from '../model/terminals.js';
 import { HARNESSES, findHarness, planEntries } from '../model/harness.js';
@@ -74,6 +79,75 @@ function parkTpl(b, run, c, w) {
   return c.park ? html`<notice tone="warn" title=${c.name} text=${`${c.status} — open it (↗) to answer.`}/>` : nothing;
 }
 
+// --- steering it from its card -------------------------------------------------------
+
+// boxes: each child's steering state — {v (bumped at every change: the
+// card's memo), gen (a fresh card after a send: its field empties), busy,
+// note, err, confirm (Cancel task asked)}.
+const boxes = new Map();
+const box = (id) => { let x = boxes.get(id); if (!x) boxes.set(id, x = { v: 0, gen: 0, busy: '', note: '', err: '', confirm: false }); return x; };
+const touched = (x) => { x.v++; ctx.paint(); };
+
+async function act(c, x, what, fn) {
+  x.busy = what; x.err = ''; x.note = '';
+  touched(x);
+  try { await fn(); } catch (e) { x.err = (e && e.message) || String(e); }
+  x.busy = '';
+  touched(x);
+}
+
+function choose(c, x) {
+  const H = ctx.app.harness;
+  return (e) => {
+    const send = (interrupt) => act(c, x, 'send', async () => {
+      const text = String(e.feedback || '').trim();
+      if (!text) { x.err = 'Write the message first.'; return; }
+      await H.steer(c.id, text, { interrupt });
+      x.gen++;
+      x.note = messageWords(c).sent(interrupt);
+    });
+    switch (e.id) {
+      case 'send': return send(false);
+      case 'send-now': return send(true);
+      case 'stop': return act(c, x, 'stop', async () => {
+        const r = await H.stop(c.id);
+        const back = ((r && r.returned) || []).map((q) => q.text).filter(Boolean).join('\n');
+        x.note = `Stopped ${c.name}'s turn.${back ? ` Not sent: ${back}` : ''}`;
+      });
+      case 'cancel': x.confirm = true; x.err = ''; return touched(x);
+      case 'keep': x.confirm = false; return touched(x);
+      case 'cancel-yes': return act(c, x, 'cancel', async () => {
+        x.confirm = false;
+        await H.cancel(c.id);
+        x.note = `Canceled${c.parent ? ' — the agent is told' : ''}.`;
+      });
+    }
+    return null;
+  };
+}
+
+// steerTpl: the card's controls while it may be steered (c.can) by a participant.
+function steerTpl(c, w) {
+  if (!w.talk || !c.id || !(c.can.stop || c.can.cancel || c.can.message)) return nothing;
+  const x = box(c.id);
+  const said = [x.err, x.note].filter(Boolean).join(' ');
+  if (x.confirm) {
+    return html`<approval title="Cancel task" text=${cancelWords(c)} options=${[{ id: 'cancel-yes', label: 'Cancel task', kind: 'cancel' }, { id: 'keep', label: 'Keep it', kind: 'allow_once' }]}
+      @choose=${choose(c, x)}/>`;
+  }
+  const mw = messageWords(c);
+  const options = [
+    ...(c.can.message ? [{ id: 'send', label: x.busy === 'send' ? 'Sending…' : 'Send', kind: 'allow_once' }, { id: 'send-now', label: 'Send now', kind: 'allow_always' }] : []),
+    ...(c.can.stop ? [{ id: 'stop', label: x.busy === 'stop' ? 'Stopping…' : 'Stop', kind: 'interrupt' }] : []),
+    ...(c.can.cancel ? [{ id: 'cancel', label: 'Cancel task…', kind: 'cancel' }] : []),
+  ];
+  const text = [said, c.can.message ? mw.placeholder : '', c.can.stop ? stopWords(c) : ''].filter(Boolean).join('\n');
+  // keyed by gen: a sent message leaves a fresh card (an empty field)
+  return repeat([x.gen], (g) => `steer${g}`, () => html`<approval title=${`Steer ${c.name}`} text=${text}
+    note=${c.can.message ? mw.hint.replace(/; ⌘\/Ctrl\+Enter interrupts its turn first$/, ' — Send now interrupts its turn first') : nothing}
+    ?feedback=${c.can.message} options=${options} @choose=${choose(c, x)}/>`);
+}
+
 // Built again every render (rowTpl asks the seams without its memo): a card
 // that waits for no one is kept while its block, its summary and open state are.
 const memo = new WeakMap(); // block → {held, open, tpl}
@@ -87,7 +161,8 @@ function cardTpl(b, depth) {
   const err = open && !b.blocks ? tailError(app.session, c.id) : '';
   const m = memo.get(b);
   const ci = ext.childStatus(run); // CI's words for what it pushed (native/ci.js keeps one template per words): part of the memo's key
-  if (!c.park && m && m.held === held && m.open === open && m.err === err && (m.ci || [])[0] === (ci || [])[0]) return m.tpl;
+  const sv = c.id ? box(c.id).v : 0; // its steering's state (steerTpl)
+  if (!c.park && m && m.held === held && m.open === open && m.err === err && m.sv === sv && (m.ci || [])[0] === (ci || [])[0]) return m.tpl;
   const v = app.session.current();
   const w = { owner: ownerOf(v, app.me), talk: app.rules.access(v).talk, name: c.name, access: v && v.access };
   const tail = open ? tailOf(b) : null;
@@ -103,10 +178,11 @@ function cardTpl(b, depth) {
       ${open ? (tail ? repeat(tail, (x) => x.id, (x) => blockTpl(x, depth + 1))
         : err ? html`<notice tone="danger" text=${`${err} — fold the card and open it again to retry.`}/>` : html`<progress label="loading…"/>`) : nothing}
       ${parkTpl(b, run, c, w)}
+      ${open ? steerTpl(c, w) : nothing}
     </transcript>
     ${c.answer ? html`<text style="caption" tone="muted">answer</text><markdown source=${c.answer}/>` : nothing}
   </toolcard>`;
-  memo.set(b, { held, open, err, ci, tpl });
+  memo.set(b, { held, open, err, ci, sv, tpl });
   return tpl;
 }
 

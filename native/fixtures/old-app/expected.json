@@ -1,0 +1,20 @@
+{"v":1,"root":{"k":"r","t":"split","p":{"detail":true,"columns":"auto"},"e":["close"],"c":[
+  {"k":"r.0","t":"screen","p":{"title":"Builds","subtitle":"rev 1 app","style":"list","refreshable":true,"refreshing":false},"e":["refresh"],"c":[
+    {"k":"r.0.0","t":"toolbar","p":{"place":"bottom"},"c":[
+      {"k":"r.0.0.0","t":"menu","p":{"icon":"filter","label":"Show"},"c":[
+        {"k":"r.0.0.0.0","t":"button","p":{"label":"All branches"},"e":["tap"]},
+        {"k":"r.0.0.0.1","t":"menu","p":{"label":"Branch"},"c":[
+          {"k":"r.0.0.0.1.0","t":"button","p":{"label":"main"},"e":["tap"]},
+          {"k":"r.0.0.0.1.1","t":"button","p":{"label":"release/2.4"},"e":["tap"]}
+        ]}
+      ]}
+    ]},
+    {"k":"r.0.1","t":"list","c":[
+      {"k":"r.0.1.0:b-1288","t":"row","p":{"title":"#1288 Bump the payments SDK","subtitle":"main","detail":"6m 12s","tone":"ok","selected":true},"e":["tap"]},
+      {"k":"r.0.1.0:b-1287","t":"row","p":{"title":"#1287 Fix the VAT rounding","subtitle":"release/2.4","detail":"7m 40s","tone":"danger","selected":false},"e":["tap"]}
+    ]}
+  ]},
+  {"k":"r.1","t":"screen","p":{"title":"#1288 Bump the payments SDK"},"c":[
+    {"k":"r.1.0","t":"text","p":{"text":"All 412 tests passed; the image is on staging."}}
+  ]}
+]}}

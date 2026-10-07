@@ -3,6 +3,14 @@ import SwiftUI
 import XbinCore
 import XbinRendererModel
 
+/// Navigation diagnostics in Debug builds (the UI tests read them from the
+/// simulator's log: `log show --predicate 'eventMessage CONTAINS "xbin-nav"'`).
+@inline(__always) func navTrace(_ s: @autoclosure () -> String) {
+    #if DEBUG
+    NSLog("xbin-nav %@", s())
+    #endif
+}
+
 /// `nav`: a `NavigationStack(path:)` over its screens (the first is the
 /// root). Going back hides the top screen at once and reports
 /// `pop {depth}` — the screens that remain — and the tile then drops it.
@@ -18,21 +26,25 @@ struct NavView: View {
         let path = mainBinding(
             get: { NavStack.path(keys, popped: popped) },
             set: { new in
+                navTrace("nav \(node.key) path set \(new.count) of \(keys.count) popped \(popped)")
                 guard let r = NavStack.pop(screens: keys.count, popped: popped, newPathCount: new.count) else { return }
                 popped = r.popped
                 cx?.emit(node, "pop", ["depth": .int(Int64(r.depth))])
             }
         )
         let inSheet = nav.inSheet
+        let shown = NavStack.path(keys, popped: popped)
         NavigationStack(path: path) {
             Group {
                 if let first = screens.first { NodeView(node: first) }
             }
-            .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: false, inSheet: inSheet, drawersHosted: true))
+            .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: false, inSheet: inSheet, drawersHosted: true,
+                                                 covered: !shown.isEmpty))
             .navigationDestination(for: String.self) { key in
                 if let screen = cx?.model.node(key) {
                     NodeView(node: screen)
-                        .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: true, inSheet: inSheet, drawersHosted: true))
+                        .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: true, inSheet: inSheet, drawersHosted: true,
+                                                             covered: shown.last != key))
                 }
             }
         }
@@ -43,10 +55,13 @@ struct NavView: View {
 }
 
 /// `split`: list/detail. Two columns when the width is regular and
-/// `prefer` isn't `single` (``SplitLayout``): `NavigationSplitView`, or
-/// the iPhone Duo's `ArrangementView` when built with the iOS 27.1 SDK
-/// (`XBIN_SDK_27_1`, off by default: the hosted CI has only 27.0);
-/// stacked otherwise, like the reference renderer (§15).
+/// `prefer` isn't `single` (``SplitLayout``): `NavigationSplitView` (its
+/// column visibility the rev-2 `columns`), or the iPhone Duo's
+/// `ArrangementView` when built with the iOS 27.1 SDK (`XBIN_SDK_27_1`, off
+/// by default: the hosted CI has only 27.0). Otherwise a rev-2 split (one
+/// with `detail`) collapses to a `NavigationStack` — the list, with the
+/// detail pushed over it while `detail` is true, Back reporting `close`;
+/// a rev-1 split is stacked, like the reference renderer (§15).
 struct SplitView: View {
     let node: XbinNode
     @Environment(\.horizontalSizeClass) private var width
@@ -55,17 +70,20 @@ struct SplitView: View {
     var body: some View {
         let kids = node.children
         let flags = XbinNavFlags(inNavigation: true, pushed: false, inSheet: nav.inSheet)
-        let layout = SplitLayout(children: kids.count, regularWidth: width == .regular, prefer: node.props.string("prefer"))
+        let layout = SplitLayout(node, regularWidth: width == .regular)
+        let _ = navTrace("split \(node.key) layout \(layout) width \(String(describing: width)) detail \(SplitState(node).detail)")
         if layout == .columns {
             #if XBIN_SDK_27_1
             if #available(iOS 27.1, *) {
                 DuoSplit(primary: kids[0], secondary: kids[1], flags: flags)
             } else {
-                ColumnsSplit(primary: kids[0], secondary: kids[1], flags: flags)
+                ColumnsSplit(node: node, primary: kids[0], secondary: kids[1], flags: flags)
             }
             #else
-            ColumnsSplit(primary: kids[0], secondary: kids[1], flags: flags)
+            ColumnsSplit(node: node, primary: kids[0], secondary: kids[1], flags: flags)
             #endif
+        } else if layout == .collapsed {
+            CollapsedSplit(node: node, primary: kids[0], secondary: kids[1], inSheet: nav.inSheet)
         } else {
             VStack(spacing: 0) {
                 ForEach(Array(kids.enumerated()), id: \.element.id) { i, kid in
@@ -77,21 +95,325 @@ struct SplitView: View {
     }
 }
 
-/// Two columns with `NavigationSplitView`.
+/// Two columns with `NavigationSplitView`. A split that binds `columns`
+/// (rev 2) controls the column visibility: `detail` hides the list behind
+/// the bar's sidebar button, `all` shows both; the user's toggle reports
+/// `columns {value}`.
 private struct ColumnsSplit: View {
+    let node: XbinNode
     let primary: XbinNode
     let secondary: XbinNode
     let flags: XbinNavFlags
+    @Environment(\.xbin) private var cx
+    @Environment(\.scenePhase) private var phase
+    /// Until when a change to both columns is SwiftUI's own, not the
+    /// person's: as the split appears, and as the app comes back to the
+    /// front, it shows the list again — a link opened from outside brought
+    /// back a list the person had hidden (2026-10-07).
+    @State private var settling = SettleClock()
 
     var body: some View {
-        NavigationSplitView {
-            NodeView(node: primary).environment(\.xbinNav, flags)
-        } detail: {
+        if node.binds("columns") {
+            let n = node
+            let context = cx
+            let clock = settling
+            let visibility = mainBinding(
+                get: { () -> NavigationSplitViewVisibility in
+                    switch SplitState(n).columns {
+                    case .detail: return .detailOnly
+                    // `auto` as an unbound split shows it: both columns
+                    // (a bound .automatic hid the list on an iPad).
+                    case .all, .auto: return .all
+                    }
+                },
+                set: { v in
+                    let c: SplitState.Columns = v == .detailOnly ? .detail : .all
+                    if c == .all, SplitState(n).columns == .detail, clock.settling {
+                        navTrace("split \(n.key) keeps the list hidden (SwiftUI showed it as it appeared)")
+                        return
+                    }
+                    if c != SplitState(n).columns { context?.emit(n, "columns", ["value": .string(c.rawValue)]) }
+                }
+            )
+            NavigationSplitView(columnVisibility: visibility) {
+                sidebar
+            } detail: {
+                detail
+            }
+            .navigationSplitViewStyle(.balanced)
+            .onAppear { settling.start() }
+            .onChange(of: phase) { _, p in if p == .active { settling.start() } }
+        } else {
+            NavigationSplitView {
+                sidebar
+            } detail: {
+                detail
+            }
+            .navigationSplitViewStyle(.balanced)
+        }
+    }
+
+    /// The list, 280–400 pt wide (the reference renderer's clamp).
+    private var sidebar: some View {
+        NodeView(node: primary).environment(\.xbinNav, flags)
+            .navigationSplitViewColumnWidth(min: 280, ideal: 360, max: 400)
+    }
+
+    /// The detail. A `nav` there, in the app's own stack
+    /// (``XbinRenderOptions/hostNavigation``), shows its top screen with a
+    /// Back of its own (``ColumnNav``): a NavigationStack in a split's
+    /// column inside the app's NavigationStack pushed nowhere — a pushed
+    /// screen's title went to the app's bar and the column kept showing the
+    /// one under it, covered (an iPad, 2026-10-07).
+    @ViewBuilder private var detail: some View {
+        if secondary.type == "nav", cx?.options.hostNavigation == true {
+            ColumnNav(node: secondary)
+        } else {
             NodeView(node: secondary).environment(\.xbinNav, flags)
         }
-        .navigationSplitViewStyle(.balanced)
     }
 }
+
+/// A short window after the split appears or the app comes to the front.
+@MainActor
+private final class SettleClock {
+    private var until = Date.distantPast
+    func start() { until = Date().addingTimeInterval(1.5) }
+    var settling: Bool { Date() < until }
+}
+
+/// A `nav` in a split's detail column inside the app's stack: its top
+/// screen, with a Back that reports `pop {depth}` (the screens that remain,
+/// as NavView reports it) while there is one under it.
+private struct ColumnNav: View {
+    let node: XbinNode
+    @Environment(\.xbin) private var cx
+
+    var body: some View {
+        let screens = node.children
+        if let top = screens.last {
+            let depth = screens.count
+            let under = depth > 1 ? screens[depth - 2] : nil
+            let n = node
+            let context = cx
+            NodeView(node: top)
+                .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: depth > 1, drawersHosted: false))
+                .id(top.key)
+                .toolbar {
+                    if let under {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button {
+                                context?.emit(n, "pop", ["depth": .int(Int64(depth - 1))])
+                            } label: {
+                                Label(ColumnNav.backTitle(under), systemImage: "chevron.backward")
+                                    .labelStyle(.titleAndIcon)
+                            }
+                            .accessibilityIdentifier("BackButton")
+                        }
+                    }
+                }
+        }
+    }
+
+    /// The screen under's title when short, else "Back" (the system's rule).
+    static func backTitle(_ screen: XbinNode) -> String {
+        let t = screen.props.string("title") ?? ""
+        return !t.isEmpty && t.count <= 14 ? t : "Back"
+    }
+}
+
+/// A rev-2 split on a compact width: a navigation stack whose root is the
+/// list; while `detail` is true the detail is pushed over it. Back (the
+/// button or the edge swipe) hides it at once and reports `close` (→
+/// `detail: false`). In the app's own navigation stack
+/// (``XbinRenderOptions/hostNavigation``) the list is that stack's page and
+/// the detail is pushed onto it — one stack, one bar, the system's Back.
+private struct CollapsedSplit: View {
+    let node: XbinNode
+    let primary: XbinNode
+    let secondary: XbinNode
+    let inSheet: Bool
+    @Environment(\.xbin) private var cx
+
+    var body: some View {
+        if cx?.options.hostNavigation == true && !inSheet {
+            HostedCollapsedSplit(node: node, primary: primary, secondary: secondary)
+        } else {
+            OwnStackSplit(node: node, primary: primary, secondary: secondary, inSheet: inSheet)
+        }
+    }
+}
+
+/// A collapsed split on the app's stack: the detail is a destination of it.
+private struct HostedCollapsedSplit: View {
+    let node: XbinNode
+    let primary: XbinNode
+    let secondary: XbinNode
+    @Environment(\.xbin) private var cx
+    @Environment(\.xbinImages) private var images
+    @Environment(\.xbinConfirm) private var confirm
+    @Environment(\.xbinCompact) private var compact
+
+    var body: some View {
+        let n = node
+        let context = cx
+        let shown = mainBinding(
+            get: { SplitState(n).detail },
+            set: { open in
+                navTrace("split \(n.key) hosted set \(open) shown \(SplitState(n).detail)")
+                if !open, SplitState(n).detail { context?.emit(n, "close") }
+            }
+        )
+        NodeView(node: primary)
+            .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: false, inSheet: false, drawersHosted: false,
+                                                 covered: SplitState(n).detail))
+            .navigationDestination(isPresented: shown) {
+                // A destination of the app's stack takes its environment
+                // from that stack, not from here: without the tree's own
+                // (its context, images, confirmations) the pushed detail
+                // drew but sent nothing — typing into its composer went
+                // nowhere, a card had no Open (2026-10-07). And it is read
+                // by key when drawn (LiveNode), as a destination keeps the
+                // content it was pushed with.
+                let carried = CarriedXbinEnvironment(cx: cx, images: images, confirm: confirm, compact: compact)
+                LiveNode(key: secondary.key) { detail in
+                    if detail.type == "nav" {
+                        HostedNav(node: detail, carried: carried)
+                    } else {
+                        NodeView(node: detail)
+                            .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: true, inSheet: false, drawersHosted: false))
+                    }
+                }
+                .modifier(carried)
+            }
+    }
+}
+
+/// A `nav` in the detail of a split collapsed onto the app's stack (the
+/// agent template's: the list beside a stack of a conversation and what is
+/// pushed over it, D190): its screens are destinations of that same stack,
+/// one over the other. A NavigationStack of its own there would sit inside
+/// a destination of the app's — SwiftUI pops such a destination as soon as
+/// it is pushed (the agent's conversation closed the moment it opened on an
+/// iPhone, 2026-10-07). Back from a screen of it reports `pop {depth}` (the
+/// screens that remain) as NavView does; Back from its first one is the
+/// split's `close`.
+private struct HostedNav: View {
+    let node: XbinNode
+    let carried: CarriedXbinEnvironment
+    @Environment(\.xbin) private var cx
+    /// The screens the user left, counted against the stack they left them
+    /// from: once the tile's stack is another (it dropped them, or moved
+    /// on), none are hidden. An `onChange(of:)` reset missed the tile's
+    /// drop now and then, and Back from an automation's run showed the
+    /// Automations list under the automation it came from (2026-10-07).
+    @State private var popped: (count: Int, of: [String]) = (0, [])
+
+    var body: some View {
+        let screens = node.children
+        let keys = screens.map(\.key)
+        let hidden = popped.of == keys ? popped.count : 0
+        let shown = max(1, keys.count - hidden)
+        let n = node
+        let context = cx
+        if !screens.isEmpty {
+            HostedNavLevel(screens: Array(keys.prefix(shown)), index: 0, carried: carried) { depth in
+                navTrace("nav \(n.key) hosted pop to \(depth) of \(keys.count)")
+                guard depth < shown else { return }
+                popped = (keys.count - depth, keys)
+                context?.emit(n, "pop", ["depth": .int(Int64(depth))])
+            }
+        }
+    }
+}
+
+/// One screen of a ``HostedNav``, the next one pushed over it — screens by
+/// key, read from the model when drawn (``LiveNode``).
+private struct HostedNavLevel: View {
+    let screens: [String]
+    let index: Int
+    let carried: CarriedXbinEnvironment
+    let pop: @MainActor (Int) -> Void
+
+    var body: some View {
+        let next = index + 1
+        let count = screens.count
+        let leave = pop
+        let over = mainBinding(get: { next < count }, set: { (open: Bool) in if !open, next < count { leave(next) } })
+        LiveNode(key: screens[index]) { screen in
+            NodeView(node: screen)
+                .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: true, inSheet: false, drawersHosted: false,
+                                                     covered: next < count))
+        }
+        .navigationDestination(isPresented: over) {
+            if next < count { HostedNavLevel(screens: screens, index: next, carried: carried, pop: pop).modifier(carried) }
+        }
+    }
+}
+
+/// The tree's environment, carried into a destination of the app's stack
+/// (which takes the stack's environment, not the tree's).
+private struct CarriedXbinEnvironment: ViewModifier {
+    let cx: XbinRenderContext?
+    let images: XbinImages?
+    let confirm: ConfirmHost?
+    let compact: CardSize?
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.xbin, cx)
+            .environment(\.xbinImages, images)
+            .environment(\.xbinConfirm, confirm)
+            .environment(\.xbinCompact, compact)
+    }
+}
+
+/// The node of `key` as the model has it now: read when drawn, and drawn
+/// again on each tree update (the model's revision), so content a
+/// navigation destination holds never shows a node a remount replaced.
+private struct LiveNode<Content: View>: View {
+    let key: String
+    @ViewBuilder let content: (XbinNode) -> Content
+    @Environment(\.xbin) private var cx
+
+    var body: some View {
+        let _ = cx?.model.revision
+        if let node = cx?.model.node(key) { content(node) }
+    }
+}
+
+/// A collapsed split with a navigation stack of its own.
+private struct OwnStackSplit: View {
+    let node: XbinNode
+    let primary: XbinNode
+    let secondary: XbinNode
+    let inSheet: Bool
+    @Environment(\.xbin) private var cx
+
+    var body: some View {
+        let n = node
+        let context = cx
+        let path = mainBinding(
+            get: { SplitState(n).detail ? [SplitPath.detail] : [] },
+            set: { (new: [SplitPath]) in
+                if new.isEmpty, SplitState(n).detail { context?.emit(n, "close") }
+            }
+        )
+        NavigationStack(path: path) {
+            NodeView(node: primary)
+                .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: false, inSheet: inSheet, drawersHosted: true,
+                                                     covered: SplitState(n).detail))
+                .navigationDestination(for: SplitPath.self) { _ in
+                    NodeView(node: secondary)
+                        .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: true, inSheet: inSheet, drawersHosted: true))
+                }
+        }
+        .modifier(DrawersModifier(drawers: FragmentLayout.drawers(ofScreens: [primary, secondary])))
+    }
+}
+
+/// The one destination of a collapsed split.
+private enum SplitPath: Hashable { case detail }
 
 #if XBIN_SDK_27_1
 /// Two panes on an iPhone Duo (iOS 27.1): the system's arrangement of a
@@ -218,24 +540,48 @@ struct SheetView: View {
                 }
             )
             let context = cx
-            Color.clear
-                .frame(width: 0, height: 0)
-                .sheet(isPresented: presented) {
-                    SheetContent(node: node)
-                        .presentationDetents(Set(props.detents.map { $0 == .medium ? PresentationDetent.medium : .large }))
-                        .environment(\.xbin, context)
-                        .environment(\.xbinImages, context?.images)
-                        .environment(\.xbinInTabBar, false)
-                        .modifier(ConfirmHostModifier())
-                        .tint(XbinColor.tint)
-                }
+            if props.isFull {
+                // `full` (rev 2): a full-screen cover — no swipe to dismiss.
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .fullScreenCover(isPresented: presented) {
+                        SheetContent(node: node)
+                            .environment(\.xbin, context)
+                            .environment(\.xbinImages, context?.images)
+                            .environment(\.xbinInTabBar, false)
+                            .modifier(ConfirmHostModifier())
+                            .tint(XbinColor.tint)
+                    }
+            } else {
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .sheet(isPresented: presented) {
+                        SheetContent(node: node)
+                            .presentationDetents(Set(props.detents.map { $0 == .medium ? PresentationDetent.medium : .large }))
+                            .environment(\.xbin, context)
+                            .environment(\.xbinImages, context?.images)
+                            .environment(\.xbinInTabBar, false)
+                            .modifier(ConfirmHostModifier())
+                            .tint(XbinColor.tint)
+                    }
+            }
         }
     }
 }
 
 /// What a sheet shows: its one screen/nav as is, else its children in a
-/// form with the sheet's title and toolbar.
+/// form with the sheet's title and toolbar; a sheet among its children
+/// (rev 2) presents over it.
 struct SheetContent: View {
+    let node: XbinNode
+
+    var body: some View {
+        SheetContentBody(node: node)
+            .modifier(SheetsModifier(sheets: SheetProps(node).nested))
+    }
+}
+
+private struct SheetContentBody: View {
     let node: XbinNode
     @Environment(\.xbin) private var cx
 
@@ -310,11 +656,13 @@ private struct InlineSheet: View {
 
     var body: some View {
         let props = SheetProps(node)
-        let fraction: CGFloat = props.detents.first == .medium ? 0.56 : 0.92
+        let fraction: CGFloat = props.isFull ? 1 : props.detents.first == .medium ? 0.56 : 0.92
         ZStack(alignment: .bottom) {
             Color.black.opacity(0.28).ignoresSafeArea()
             VStack(spacing: 0) {
-                Capsule().fill(XbinColor.muted.opacity(0.5)).frame(width: 36, height: 5).padding(.vertical, 6)
+                if !props.isFull {
+                    Capsule().fill(XbinColor.muted.opacity(0.5)).frame(width: 36, height: 5).padding(.vertical, 6)
+                }
                 SheetContent(node: node)
             }
             .frame(maxWidth: .infinity)

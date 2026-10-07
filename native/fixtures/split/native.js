@@ -10,6 +10,7 @@ let page = null;
 let mails = [];
 let open = null;
 let body = null;
+let columns = 'all'; // rev 2: both columns on a tablet (the sidebar button reports a change)
 
 async function load() { page = await selfApi('/mailboxes/inbox'); mails = page.mails; paint(); }
 async function more() {
@@ -48,7 +49,7 @@ xbin.bus.on(`res:${xbin.self}/bus/inbox/`, (topic, data) => {
 const paint = () => {
   if (page) xbin.native.meta({ badge: String(mails.filter((m) => m.unread).length) });
   render(!page ? nothing : html`
-  <split prefer="auto">
+  <split prefer="auto" columns=${columns} @columns=${(e) => { columns = e.value; paint(); }}>
     <screen title="Inbox" subtitle=${`${mails.filter((m) => m.unread).length} unread`}>
       <toolbar><button icon="pencil" @tap=${() => {}}>Compose</button></toolbar>
       <list style="plain" @more=${more}>

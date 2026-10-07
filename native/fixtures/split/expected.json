@@ -1,4 +1,4 @@
-{"v":1,"root":{"k":"r","t":"split","p":{"prefer":"auto"},"c":[
+{"v":1,"root":{"k":"r","t":"split","p":{"prefer":"auto","columns":"all"},"e":["columns"],"c":[
   {"k":"r.0","t":"screen","p":{"title":"Inbox","subtitle":"3 unread"},"c":[
     {"k":"r.0.0","t":"toolbar","c":[
       {"k":"r.0.0.0","t":"button","p":{"icon":"pencil","label":"Compose"},"e":["tap"]}

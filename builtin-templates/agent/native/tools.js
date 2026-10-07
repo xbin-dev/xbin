@@ -11,9 +11,9 @@ import { renderDoc } from './render-doc.js';
 import { liveLabel, probeWords } from '../model/live.js';
 import { settingsScreens } from './settings.js';
 import { sandboxScreens } from './sandboxes.js';
+import { abovePlace } from './nav.js';
 
 const isHtml = (p) => /\.html?$/i.test(p || '');
-let seq = 0;
 
 // load runs a screen's loader once (and again on refresh), saying why it failed.
 function load(s, fn) {
@@ -41,16 +41,14 @@ function refreshView() {
 }
 const stale = (kind, run) => { for (const s of ui.stack) if (s.kind === kind && s.run === run) s.loaded = false; };
 
-const SCREENS = { task: taskTpl, memory: memoryTpl, files: filesTpl, file: fileTpl, skills: skillsTpl, skill: skillTpl, tree: treeTpl, call: callTpl, render: renderTpl, live: liveTpl };
+const SCREENS = { task: taskTpl, memory: memoryTpl, files: filesTpl, file: fileTpl, skills: skillsTpl, skill: skillTpl, tree: treeTpl, call: callTpl, render: renderTpl, live: liveTpl, ports: portsTpl };
 
-// toolScreens: ui.stack as nav screens (native.js puts them over the chat or home).
-export function toolScreens() {
-  return ui.stack.map((s, i) => {
-    if (!s.id) s.id = ++seq;
-    const tpl = SCREENS[s.kind] || settingsScreens[s.kind] || sandboxScreens[s.kind];
-    // a kind this file doesn't know is a seam's (ctx.ext.screen, native/ext.js)
-    return { key: `tool:${s.id}`, entry: s, tpl: () => (tpl ? tpl(s) : ctx.ext.screen(s) || html`<screen title="?"/>`), leave: () => { ui.stack.length = Math.min(ui.stack.length, i); } };
-  });
+// toolScreen: a tool entry of the stack (native/nav.js) as its screen — over
+// the conversation, a project, the list… (native.js draws the stack).
+export function toolScreen(s) {
+  const tpl = SCREENS[s.kind] || settingsScreens[s.kind] || sandboxScreens[s.kind];
+  // a kind this file doesn't know is a seam's (ctx.ext.screen, native/ext.js)
+  return tpl ? tpl(s) : ctx.ext.screen(s) || html`<screen title="?"/>`;
 }
 
 // --- the task (D133) ------------------------------------------------------------------------
@@ -262,7 +260,7 @@ function treeTpl(s) {
     <section title="Runs">${rows.length ? repeat(rows, (n) => n.id, (n) => html`
       <row title=${'· '.repeat(Math.min(Number(n.depth) || 0, 4)) + (n.title || 'run ' + n.id)} subtitle=${clip(sub(n), 160) || nothing}
         tone=${DOT[n.status] || 'muted'} detail=${costOf(n) ? fmtN(costOf(n)) : nothing} nav
-        @tap=${() => { ui.stack.length = 0; app.select(n.id); }}>
+        @tap=${() => app.select(n.id)}>
         ${costOf(n) ? html`<progress value=${costOf(n) / maxCost}/>` : nothing}
       </row>`) : html`<empty title=${s.tree ? 'no background runs' : 'loading…'}/>`}</section>
   </screen>`;
@@ -296,7 +294,7 @@ function callTpl(s) {
 // openRender shows an HTML session file as a no-script island (render-doc.js);
 // live: it follows the run's newest render.
 export function openRender(run, path, ver, live) {
-  const cur = ui.stack.find((x) => x.kind === 'render');
+  const cur = abovePlace().find((x) => x.kind === 'render'); // the open conversation's preview, not one under it
   if (cur) Object.assign(cur, { run, path, ver: Number(ver) || 0, live: !!live, loaded: false });
   else push({ kind: 'render', run, path, ver: Number(ver) || 0, live: !!live });
   ctx.paint();
@@ -309,7 +307,7 @@ export function openRender(run, path, ver, live) {
 // sandboxed opaque-origin frame (live.js). live: it follows the run's newest
 // one.
 export function openLive(run, det, live) {
-  const cur = ui.stack.find((x) => x.kind === 'live' || x.kind === 'render');
+  const cur = abovePlace().find((x) => x.kind === 'live' || x.kind === 'render');
   const s = { kind: 'live', run, det, live: !!live, loaded: false, src: '' };
   if (cur) { for (const k of Object.keys(cur)) delete cur[k]; Object.assign(cur, s); } else push(s);
   ctx.paint();
@@ -332,6 +330,50 @@ function liveTpl(s) {
       <button icon="refresh" ?busy=${!!(s.probe && s.probe.busy)} @tap=${check}>Check</button>
       ${w ? html`<text tone=${w.tone === 'ok' ? 'ok' : 'danger'} selectable>${w.text}</text>` : nothing}
       ${w && w.hint ? html`<text style="footnote" tone="muted">${w.hint}</text>` : nothing}
+    </section>
+  </screen>`;
+}
+
+// ports: the Ports screen (the ▣ Sandbox screen's Ports; the web's Ports
+// section of the sandbox popover, ports.js) — the conversation's live
+// previews, each probed now as its binder reaches it (GET /runs/{id}/ports),
+// with Open (the live preview's screen); and a probe of any port of its
+// sandbox (GET /runs/{id}/ports/{sbx}/{port}): the status, the type, a
+// refusal and what to do (model/live.js probeWords) — never the page.
+const sbxId = (ref) => String(ref || '').slice(String(ref || '').lastIndexOf('|') + 1);
+function portsTpl(s) {
+  load(s, async () => { s.list = null; s.list = await actions.ports(s.run); });
+  const word = (p) => {
+    const w = probeWords(p);
+    return html`<text tone=${w.tone === 'ok' ? 'ok' : 'danger'} selectable>${w.text}</text>
+      ${w.hint ? html`<text style="footnote" tone="muted">${w.hint}</text>` : nothing}`;
+  };
+  const probe = async () => {
+    const port = Number(s.port);
+    if (!(port >= 1 && port <= 65535)) { s.probe = { ok: false, error: 'a port is a number from 1 to 65535' }; ctx.paint(); return; }
+    s.probe = { busy: true }; ctx.paint();
+    const sbx = sbxId(s.ref);
+    try { s.probe = await actions.probePort(s.run, sbx, port, s.path || '/'); } catch (e) { s.probe = { ok: false, error: e.message }; }
+    s.probe.target = { sandbox: sbx, name: s.name, port, path: s.probe.path || s.path || '/' };
+    ctx.paint();
+  };
+  const done = s.probe && !s.probe.busy;
+  return html`<screen title="Ports" subtitle=${s.name || nothing} style="form" refreshable @refresh=${reload(s)}>
+    ${errTpl(s)}
+    <section title="Live previews" footer="Each probed now, as whoever bound the sandbox reaches it. Open shows it again.">
+      ${!s.list ? html`<progress label="probing…"/>` : !s.list.length
+        ? html`<empty icon="globe" title="No live previews in this conversation yet" text="The agent's preview_port shows one."/>`
+        : repeat(s.list, (p) => `${p.sandbox}:${p.port}${p.path}`, (p) => html`<row title=${`${p.name || p.sandbox}:${p.port}${p.path}`} mono="title"
+            subtitle=${probeWords(p).text} tone=${probeWords(p).tone === 'ok' ? 'ok' : 'danger'} icon="globe" nav @tap=${() => openLive(s.run, p, false)}>
+            <actions><button icon="external" @tap=${() => openLive(s.run, p, false)}>Open</button></actions></row>`)}
+      ${s.list ? html`<button icon="refresh" @tap=${reload(s)}>Probe again</button>` : nothing}
+    </section>
+    <section title="Probe a port" footer=${`What a port of ${s.name || 'the sandbox'} answers now.`}>
+      <field label="Port" kind="number" placeholder="8080" value=${s.port || ''} @input=${(e) => { s.port = String(e.value || '').trim(); }}/>
+      <field label="Path" placeholder="/" value=${s.path || '/'} submit="go" @input=${(e) => { s.path = e.value; }} @submit=${probe}/>
+      <button role="primary" ?busy=${!!(s.probe && s.probe.busy)} @tap=${probe}>Probe</button>
+      ${done ? word(s.probe) : nothing}
+      ${done && s.probe.ok ? html`<button icon="globe" @tap=${() => openLive(s.run, s.probe.target, false)}>Open</button>` : nothing}
     </section>
   </screen>`;
 }

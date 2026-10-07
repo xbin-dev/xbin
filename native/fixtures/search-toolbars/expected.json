@@ -1,0 +1,41 @@
+{"v":1,"root":{"k":"r","t":"screen","p":{"title":"Issues","style":"list","search":"deadlock","refreshable":true,"refreshing":true,"scopes":[{"value":"open","label":"Open"},{"value":"closed","label":"Closed"},{"value":"all","label":"All"}],"scope":"open","suggestions":[{"value":"deadlock","label":"deadlock"},{"value":"label:billing","label":"label:billing","icon":"tag"},{"value":"author:ana","label":"author:ana","icon":"person"}]},"e":["search","submit","scope","refresh"],"c":[
+  {"k":"r.0","t":"toolbar","p":{"place":"leading"},"c":[
+    {"k":"r.0.0","t":"menu","p":{"icon":"filter","label":"Sort"},"c":[
+      {"k":"r.0.0.0","t":"button","p":{"icon":"check","label":"Recently updated"},"e":["tap"]},
+      {"k":"r.0.0.1","t":"button","p":{"label":"Newest"},"e":["tap"]},
+      {"k":"r.0.0.2","t":"divider"},
+      {"k":"r.0.0.3","t":"menu","p":{"label":"Group by","icon":"list"},"c":[
+        {"k":"r.0.0.3.0","t":"button","p":{"icon":"check","label":"No grouping"},"e":["tap"]},
+        {"k":"r.0.0.3.1","t":"button","p":{"label":"Label"},"e":["tap"]},
+        {"k":"r.0.0.3.2","t":"button","p":{"label":"Assignee"},"e":["tap"]}
+      ]}
+    ]}
+  ]},
+  {"k":"r.1","t":"toolbar","p":{"place":"trailing"},"c":[
+    {"k":"r.1.0","t":"button","p":{"icon":"plus","label":"New issue"},"e":["tap"]}
+  ]},
+  {"k":"r.2","t":"toolbar","p":{"place":"bottom"},"c":[
+    {"k":"r.2.0","t":"badge","p":{"text":"2 open issues"}},
+    {"k":"r.2.1","t":"button","p":{"icon":"collapse","label":"Back to top"},"e":["tap"]}
+  ]},
+  {"k":"r.3","t":"list","p":{"anchor":"i-405","scrollTo":"start#0"},"e":["edge"],"c":[
+    {"k":"r.3.0:i-412","t":"row","p":{"title":"Worker deadlock when two invoices share a customer","subtitle":"#412 · ana","detail":"14:01","badge":"6","tone":"accent"},"e":["tap"],"c":[
+      {"k":"r.3.0:i-412.0","t":"actions","p":{"edge":"leading","full":true},"c":[
+        {"k":"r.3.0:i-412.0.0","t":"button","p":{"icon":"eye","label":"Mark read"},"e":["tap"]}
+      ]},
+      {"k":"r.3.0:i-412.1","t":"actions","p":{"edge":"trailing","full":true},"c":[
+        {"k":"r.3.0:i-412.1.0","t":"button","p":{"icon":"archive","label":"Archive"},"e":["tap"]},
+        {"k":"r.3.0:i-412.1.1","t":"button","p":{"icon":"trash","role":"destructive","confirm":{"title":"Delete #412?","label":"Delete","destructive":true},"label":"Delete"},"e":["tap"]}
+      ]}
+    ]},
+    {"k":"r.3.0:i-405","t":"row","p":{"title":"Possible deadlock in the job scheduler's lease renewal","subtitle":"#405 · dev","detail":"Tue","badge":"3"},"e":["tap"],"c":[
+      {"k":"r.3.0:i-405.0","t":"actions","p":{"edge":"leading","full":true},"c":[
+        {"k":"r.3.0:i-405.0.0","t":"button","p":{"icon":"eye-slash","label":"Mark unread"},"e":["tap"]}
+      ]},
+      {"k":"r.3.0:i-405.1","t":"actions","p":{"edge":"trailing","full":true},"c":[
+        {"k":"r.3.0:i-405.1.0","t":"button","p":{"icon":"archive","label":"Archive"},"e":["tap"]},
+        {"k":"r.3.0:i-405.1.1","t":"button","p":{"icon":"trash","role":"destructive","confirm":{"title":"Delete #405?","label":"Delete","destructive":true},"label":"Delete"},"e":["tap"]}
+      ]}
+    ]}
+  ]}
+]}}

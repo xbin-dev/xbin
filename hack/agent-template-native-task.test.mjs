@@ -4,13 +4,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runNative } from './xbn/node.mjs';
+import { PHONE } from './agent-template-native-caps.mjs'; // the phone stack (rev-1 split): the tests walk its nav
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url).pathname;
 const NOW = Date.UTC(2026, 8, 21, 12);
 const ME = { kind: 'user', user: 'admin', level: 'terminal', manager: true, halted: false, epochMs: 0 };
 
 async function run(seed, steps = [], { state = null, data = {} } = {}) {
-  const r = await runNative({ entry: TPL + 'native.js', data: { now: NOW, self: 'apps/agent', setup: TPL + 'test/native-stub.mjs', seed, ...data }, steps, state });
+  const r = await runNative({ caps: PHONE, entry: TPL + 'native.js', data: { now: NOW, self: 'apps/agent', setup: TPL + 'test/native-stub.mjs', seed, ...data }, steps, state });
   assert.equal(r.fatal, null);
   assert.deepEqual(r.errors, [], 'no runtime errors');
   assert.deepEqual(r.diagnostics.filter((d) => d.level !== 'info'), [], 'no diagnostics');
@@ -45,7 +46,8 @@ test('the pinned task (D133): Task in the menu opens every request, read-only', 
     { tap: { t: 'button', p: { label: 'Task (+1)' }, in: { t: 'menu' } } },
     { snapshot: 'task' },
   ], { state: { hash: 'c=9' } });
-  const menu = all(r.snapshots.chat.root, { t: 'button', in: { t: 'menu', p: { icon: 'ellipsis' } } }).map((b) => b.p.label);
+  const nav = all(r.snapshots.chat.root, { t: 'nav' })[0];
+  const menu = all(nav.c[nav.c.length - 1], { t: 'button', in: { t: 'menu', p: { icon: 'ellipsis' } } }).map((b) => b.p.label);
   assert.deepEqual(menu.slice(0, 5), ['Rename…', 'Compact', 'Learn skill', 'Task (+1)', 'Memory (0)']);
   const screen = topScreen(r.snapshots.task);
   assert.equal(screen.p.title, 'Task');
