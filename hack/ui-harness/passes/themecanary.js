@@ -23,7 +23,7 @@
 // emoji, an agent class's icon) is theirs: an element marked
 // data-bx-content, and what it holds, is never counted for emoji.
 const path = require('path');
-const { URL, OUT, fs, sleep, log, login, closeCtx, openShell, usePersonalScreen, openTile, closeTile, tileFrame, fr, checker, noGocryptfs } = require('../lib');
+const { URL, OUT, fs, sleep, log, login, closeCtx, openShell, usePersonalScreen, openTile, closeTile, tileFrame, fr, sh, checker, noGocryptfs } = require('../lib');
 
 const REPO = process.env.REPO || path.join(__dirname, '..', '..', '..');
 const REPORT = !!process.env.CANARY_REPORT;
@@ -234,6 +234,10 @@ async function themeCanary(browser) {
       await record('code', page);
       await fr(page, host, (f) => f.closeTerminal()).catch(() => {});
       await closeTile(page, host);
+      // the layout save is debounced and the page navigates below: save now,
+      // or the tile stays open on the screen and its page (which takes the
+      // focus on every load) swallows the next pass's keyboard
+      await sh(page, (t) => t.flushSave());
       // the agent template's chat
       if (noGocryptfs()) {
         skip(`${scheme}: the agent chat — ${noGocryptfs()}`);
