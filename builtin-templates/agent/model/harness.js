@@ -12,7 +12,7 @@ import { homedWhy } from './harness-homes.js';
 // The harnesses the sdk's catalog knows: a name before the catalog is read,
 // a text monogram (never a vendor's logo), the native icon.
 export const HARNESSES = {
-  claude: { name: 'Claude Code', mono: 'CC', icon: 'sparkles' },
+  claude: { name: 'Claude Code', mono: 'CC', icon: 'terminal' },
   codex: { name: 'Codex', mono: 'CX', icon: 'terminal' },
   gemini: { name: 'Gemini CLI', mono: 'GM', icon: 'star' },
   opencode: { name: 'opencode', mono: 'OC', icon: 'code' },

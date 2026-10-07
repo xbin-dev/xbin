@@ -515,7 +515,7 @@ test('native: a harness conversation — its cards, a seam\'s block, end, toolba
   const cards = all(t, { t: 'toolcard' });
   assert.ok(cards.some((c) => c.p.title === 'Read client_test.go' && c.p.icon === 'file'), 'a read card');
   const task = cards.find((c) => c.p.title === 'Find every caller of Do');
-  assert.equal(task.p.icon, 'sparkles', 'think → sparkles');
+  assert.equal(task.p.icon, 'cpu', 'think → cpu');
   assert.ok(cards.some((c) => c.p.title === 'Retry the request' && c.p.family === 'edit' && JSON.stringify(c.p.chips).includes('+5 −1')));
   assert.equal(cards.some((c) => c.p.title === 'Run the flaky test 20 times'), false, 'execute is the seam\'s');
   assert.match(texts(t), /probe block: Run the flaky test 20 times/);

@@ -59,7 +59,7 @@ export function agentPicker(cat, pick, o = {}) {
     return `${seen.signedIn ? 'signed in' : 'not signed in'} on ${sbxName(s || { ref })}`;
   };
   const rows = [
-    { value: AGENT, name: `${HOME.title} (built in)`, mono: '✦', icon: 'sparkles', on: !h, disabled: false, why: '',
+    { value: AGENT, name: `${HOME.title} (built in)`, mono: '✦', icon: 'chat', on: !h, disabled: false, why: '',
       detail: 'this tile\'s agent: your classes\' tools, subagents, schedules' },
     ...hs.map((x) => {
       const cls = x.available ? resolveClass(x, o.classId || '') : '';

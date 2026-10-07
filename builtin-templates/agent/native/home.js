@@ -37,7 +37,7 @@ export function newScreen() {
     <text style="title2">${H.hi}</text>
     <text tone="muted">${H.sub}</text>
     ${mcpBound ? nothing : html`<notice tone="info" text="No MCP servers are bound yet — see More → Settings → MCP."/>`}
-    <section title="Try">${repeat(H.examples, (e) => e, (e) => html`<row title=${e} icon="sparkles"
+    <section title="Try">${repeat(H.examples, (e) => e, (e) => html`<row title=${e} icon="chat"
       @tap=${() => { ui.draft = e; ctx.paint(); }}/>`)}</section>
     ${composerTpl(null, null)}
   </screen>`;

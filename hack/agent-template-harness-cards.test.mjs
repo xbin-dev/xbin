@@ -125,7 +125,7 @@ test('native: a toolcard per ACP call — the command and output, an edit\'s dif
   assert.deepEqual(del.p.chips, [{ text: '−14' }]);
 
   const task = card(t, 'Find every caller of Do');
-  assert.equal(task.p.icon, 'sparkles');
+  assert.equal(task.p.icon, 'cpu');
   assert.deepEqual(task.p.chips, [{ text: '2 steps' }]);
   const inner = kids(task, 'transcript')[0];
   assert.deepEqual(kids(inner, 'toolcard').map((c) => c.p.title), ['Search for .Do(', 'Read sync.go'], 'its steps nest');

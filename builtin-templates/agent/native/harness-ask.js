@@ -189,7 +189,7 @@ function controlsTpl(v, h, fold = false) {
       ${s ? html`<divider/>${s.choices.filter((x) => !x.disabled).map((x) => html`<button icon=${s.value === x.value ? 'check' : nothing}
         @tap=${guard(() => (s.value === x.value ? null : app.harness.setSetting(s.provider, x.value)))}>${`${x.label} — your setting for new ones`}</button>`)}` : nothing}
     </menu>
-    ${model ? pickTpl({ label: model.name, icon: 'sparkles', fold, value: String(model.value),
+    ${model ? pickTpl({ label: model.name, icon: 'cpu', fold, value: String(model.value),
       options: model.choices.map((ch) => ({ value: String(ch.value), label: ch.name })),
       change: guard((e) => {
         const ch = model.choices.find((x) => String(x.value) === String(e.value));

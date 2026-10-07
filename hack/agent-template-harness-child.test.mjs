@@ -272,7 +272,7 @@ test('native: three cards — identity as chips, the status line, where; a park 
   const t = r.snapshots.p.root;
   const cards = all(t, { t: 'toolcard', p: { family: 'agent' } });
   assert.deepEqual(cards.map((c) => [c.p.title, c.p.icon, c.p.state, c.p.open]), [
-    ['Split the router', 'sparkles', 'running', false], ['Plan the users migration', 'terminal', 'running', true], ['Write the changelog', 'sparkles', 'running', true]]);
+    ['Split the router', 'terminal', 'running', false], ['Plan the users migration', 'terminal', 'running', true], ['Write the changelog', 'terminal', 'running', true]]);
   assert.deepEqual(cards[0].p.chips, [{ text: 'CC' }, { text: '#26' }, { text: 'working', tone: 'accent' }]);
   assert.deepEqual(cards[1].p.chips[2], { text: 'needs approval', tone: 'warn' });
   assert.ok(find(cards[0], { t: 'text', has: 'Running: Run go vet ./...' }) || JSON.stringify(cards[0]).includes('Running: Run go vet ./...'), 'the status line');

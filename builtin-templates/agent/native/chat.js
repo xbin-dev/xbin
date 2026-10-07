@@ -32,7 +32,7 @@ const isOpen = (id, dflt) => ctx.app.session.ui.isOpen(id, dflt);
 const setOpen = (id) => (e) => { ctx.app.session.open.set(id, !!e.open); ctx.paint(); };
 
 // The engine's and the automations' notices fold like the web's (↵ head).
-const NOTICE_ICON = { Scheduled: 'clock', 'Watcher check': 'eye', 'Learn a skill': 'sparkles', Triggered: 'bolt' };
+const NOTICE_ICON = { Scheduled: 'clock', 'Watcher check': 'eye', 'Learn a skill': 'doc', Triggered: 'bolt' };
 
 export function blockTpl(b, depth = 0) {
   return ctx.ext.block(b, depth) || builtInTpl(b, depth);
@@ -488,7 +488,7 @@ function runMenu(v, t) {
     ${t.retry ? html`<button icon="refresh" @tap=${control('resume')}>Retry</button>` : nothing}
     ${t.own ? html`<button icon="pencil" @tap=${() => { ui.rename = { id: t.shareRun.id, title: t.shareRun.title || '' }; ctx.paint(); }}>Rename…</button>` : nothing}
     ${t.compact ? html`<button icon="archive" @tap=${control('compact')}>Compact</button>` : nothing}
-    ${t.learn ? html`<button icon="sparkles" @tap=${control('learn')}>Learn skill</button>` : nothing}
+    ${t.learn ? html`<button icon="doc" @tap=${control('learn')}>Learn skill</button>` : nothing}
     ${t.task ? html`<button icon="pin" @tap=${() => push({ kind: 'task', run: id })}>${t.task.more ? `Task (+${t.task.more})` : 'Task'}</button>` : nothing}
     ${t.memory != null ? html`<button icon="database" @tap=${() => push({ kind: 'memory', run: id })}>${`Memory (${t.memory})`}</button>` : nothing}
     <button icon="folder" @tap=${() => push({ kind: 'files', run: id })}>${`Files (${t.files})`}</button>
@@ -511,7 +511,7 @@ export function modelPickerTpl(v, fold = false) {
   const app = ctx.app;
   const p = app.rules.modelPicker(v, app.model, app.catalog);
   if (!p.shown || p.disabled) return nothing;
-  return pickTpl({ label: 'Model', icon: 'sparkles', fold, value: p.value, options: p.options.map(({ value, label }) => ({ value, label })),
+  return pickTpl({ label: 'Model', icon: 'cpu', fold, value: p.value, options: p.options.map(({ value, label }) => ({ value, label })),
     change: (e) => guard(() => app.pickModel(e.value))() });
 }
 
