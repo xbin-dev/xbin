@@ -125,19 +125,79 @@ private struct ColumnsSplit: View {
                 }
             )
             NavigationSplitView(columnVisibility: visibility) {
-                NodeView(node: primary).environment(\.xbinNav, flags)
+                sidebar
             } detail: {
-                NodeView(node: secondary).environment(\.xbinNav, flags)
+                detail
             }
             .navigationSplitViewStyle(.balanced)
         } else {
             NavigationSplitView {
-                NodeView(node: primary).environment(\.xbinNav, flags)
+                sidebar
             } detail: {
-                NodeView(node: secondary).environment(\.xbinNav, flags)
+                detail
             }
             .navigationSplitViewStyle(.balanced)
         }
+    }
+
+    /// The list, 280–400 pt wide (the reference renderer's clamp).
+    private var sidebar: some View {
+        NodeView(node: primary).environment(\.xbinNav, flags)
+            .navigationSplitViewColumnWidth(min: 280, ideal: 360, max: 400)
+    }
+
+    /// The detail. A `nav` there, in the app's own stack
+    /// (``XbinRenderOptions/hostNavigation``), shows its top screen with a
+    /// Back of its own (``ColumnNav``): a NavigationStack in a split's
+    /// column inside the app's NavigationStack pushed nowhere — a pushed
+    /// screen's title went to the app's bar and the column kept showing the
+    /// one under it, covered (an iPad, 2026-10-07).
+    @ViewBuilder private var detail: some View {
+        if secondary.type == "nav", cx?.options.hostNavigation == true {
+            ColumnNav(node: secondary)
+        } else {
+            NodeView(node: secondary).environment(\.xbinNav, flags)
+        }
+    }
+}
+
+/// A `nav` in a split's detail column inside the app's stack: its top
+/// screen, with a Back that reports `pop {depth}` (the screens that remain,
+/// as NavView reports it) while there is one under it.
+private struct ColumnNav: View {
+    let node: XbinNode
+    @Environment(\.xbin) private var cx
+
+    var body: some View {
+        let screens = node.children
+        if let top = screens.last {
+            let depth = screens.count
+            let under = depth > 1 ? screens[depth - 2] : nil
+            let n = node
+            let context = cx
+            NodeView(node: top)
+                .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: depth > 1, drawersHosted: false))
+                .id(top.key)
+                .toolbar {
+                    if let under {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button {
+                                context?.emit(n, "pop", ["depth": .int(Int64(depth - 1))])
+                            } label: {
+                                Label(ColumnNav.backTitle(under), systemImage: "chevron.backward")
+                                    .labelStyle(.titleAndIcon)
+                            }
+                            .accessibilityIdentifier("BackButton")
+                        }
+                    }
+                }
+        }
+    }
+
+    /// The screen under's title when short, else "Back" (the system's rule).
+    static func backTitle(_ screen: XbinNode) -> String {
+        let t = screen.props.string("title") ?? ""
+        return !t.isEmpty && t.count <= 14 ? t : "Back"
     }
 }
 

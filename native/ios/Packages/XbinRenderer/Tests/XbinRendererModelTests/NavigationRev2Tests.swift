@@ -97,6 +97,8 @@ import XbinCore
         let at = ScrollEdges.at(offset: 0, viewport: 800, content: 2000)
         #expect(at.start && !at.end)
         #expect(ScrollEdges.at(offset: 1190, viewport: 800, content: 2000).end)
+        let short = ScrollEdges.at(offset: -400, viewport: 800, content: 300)
+        #expect(short.start && short.end, "content that fits shows both ends")
     }
 
     @Test func searchScopesAndSuggestions() throws {

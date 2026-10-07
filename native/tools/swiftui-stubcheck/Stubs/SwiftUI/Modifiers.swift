@@ -127,6 +127,8 @@ extension View {
     public func labelStyle<S: LabelStyle>(_ style: S) -> some View { _V(self) }
     public func labelsHidden() -> some View { _V(self) }
     public func navigationSplitViewStyle<S: NavigationSplitViewStyle>(_ style: S) -> some View { _V(self) }
+    public func navigationSplitViewColumnWidth(min: CGFloat? = nil, ideal: CGFloat, max: CGFloat? = nil) -> some View { _V(self) }
+    public func navigationSplitViewColumnWidth(_ width: CGFloat) -> some View { _V(self) }
     public func accessibilityLabel(_ label: Text) -> some View { _V(self) }
     public func accessibilityLabel(_ label: LocalizedStringKey) -> some View { _V(self) }
     @_disfavoredOverload public func accessibilityLabel<S: StringProtocol>(_ label: S) -> some View { _V(self) }

@@ -108,9 +108,13 @@ public struct ScrollEdges: Sendable, Equatable {
 
     public init() {}
 
-    /// Within `slack` points of the start and the end.
+    /// Within `slack` points of the start and the end. Content that fits
+    /// the viewport shows both ends wherever it sits (a short transcript
+    /// anchored at the bottom: its end is in view, as the reference
+    /// renderer's sentinel says).
     public static func at(offset: Double, viewport: Double, content: Double, slack: Double = 32) -> (start: Bool, end: Bool) {
-        (offset <= slack, offset + viewport >= content - slack)
+        if content <= viewport { return (true, true) }
+        return (offset <= slack, offset + viewport >= content - slack)
     }
 
     /// The changes to report, `(edge, at)`, and the new state.

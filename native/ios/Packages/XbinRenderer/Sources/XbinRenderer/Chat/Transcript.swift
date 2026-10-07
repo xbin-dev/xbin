@@ -57,6 +57,8 @@ public struct TranscriptView<ID: Hashable & Sendable, Content: View>: View {
     /// The reader is near the top or the bottom of what is loaded.
     @State private var near = Near()
     @State private var edges = ScrollEdges()
+    /// The edges as the geometry says now, reported once they hold (below).
+    @State private var edgesNow: [Bool]?
 
     struct Near: Equatable {
         var top = false
@@ -130,7 +132,17 @@ public struct TranscriptView<ID: Hashable & Sendable, Content: View>: View {
                                         content: Double(geo.contentSize.height))
                 return [at.start, at.end]
             } action: { _, at in
-                guard let onEdge, at.count == 2 else { return }
+                if onEdge != nil { edgesNow = at }
+            }
+            // reported once they held for a moment: while rows lay out and
+            // the bottom anchor catches up, the end reads as left for a frame
+            // or two — reported, the tile counted the answer arriving as
+            // news and a just-started conversation showed "↓ 1 new" at its
+            // end (2026-10-07)
+            .task(id: edgesNow) {
+                guard let onEdge, let at = edgesNow, at.count == 2 else { return }
+                try? await Task.sleep(for: .milliseconds(200))
+                guard !Task.isCancelled else { return }
                 for e in edges.update(start: at[0], end: at[1]) { onEdge(e.edge, e.at) }
             }
             .onScrollGeometryChange(for: Bool.self) { geo in
