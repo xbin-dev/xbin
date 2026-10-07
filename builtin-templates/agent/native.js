@@ -150,7 +150,7 @@ function pop(e) {
 }
 
 app.on('*', () => paint());
-app.on('error', (e) => fail(e));
+app.on('error', (e) => { if (!nav.quietly()) fail(e); }); // a restored stack's gone conversation just leaves it
 // What the model does on its own reaches the stack: a conversation opened
 // anywhere is pushed, one deleted or revoked leaves it (native/nav.js).
 nav.wire(app);

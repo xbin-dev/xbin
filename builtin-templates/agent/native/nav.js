@@ -107,6 +107,9 @@ export function abovePlace() {
 // --- the model follows the stack ---------------------------------------------------------
 
 let driving = 0; // the model's events while this layer drives it are its own echo
+let quiet = 0;   // a restored conversation is being opened: a failure to read it is not shown
+// quietly: the model's error is a restored stack's (native.js: not a notice).
+export const quietly = () => quiet > 0;
 function drive(fn) {
   driving++;
   try { return fn(); } finally { driving--; }
@@ -122,7 +125,14 @@ export function follow() {
     if (!p || p.kind === 'new') {
       if (app.sel != null || app.page != null) app.home();
     } else if (p.kind === 'chat') {
-      if (app.sel !== p.run) app.select(p.run).catch(() => {});
+      if (app.sel !== p.run) {
+        // a conversation the saved stack had, deleted or revoked since: it
+        // leaves the stack (the 'home' below), quietly — nobody asked for it
+        const restored = p.restored;
+        p.restored = false;
+        if (restored) quiet++;
+        app.select(p.run).catch(() => {}).finally(() => { if (restored) quiet--; });
+      }
     } else if (p.kind === 'auto') {
       if (app.sel != null || app.page !== 'automations') {
         const at = app.autos.open || p.at; // the automation that was open (a restarted runtime: the saved one)
@@ -249,10 +259,15 @@ export function saved() {
 export function restore(list) {
   if (!Array.isArray(list)) return false;
   setStack(list.filter((e) => e && typeof e === 'object' && (SAVE[e.kind] || e.kind === 'auto'))
-    .map((e) => ({ ...e, ...(e.kind === 'chat' ? { loaded: true } : {}) })));
+    .map((e) => ({ ...e, ...(e.kind === 'chat' ? { loaded: true, restored: true } : {}) })));
   const p = place();
-  if (p && p.kind === 'auto') drive(() => ctx.app.openAutomations(p.at && p.at.kind, p.at && p.at.id).catch(() => {}));
-  else follow();
+  if (p && p.kind === 'auto') {
+    drive(() => ctx.app.openAutomations(p.at && p.at.kind, p.at && p.at.id).then(() => {
+      // the automation it had open is gone since: the page, quietly
+      const a = ctx.app.autos;
+      if (a.open && !a.item()) { a.err = ''; return a.show(null); }
+    }).catch(() => {}));
+  } else follow();
   paint();
   return true;
 }

@@ -227,6 +227,23 @@ test('the stack comes back in a restarted runtime; a list row, a board row and a
   assert.deepEqual(st, { hash: 'c=1', nav: [{ kind: 'chat', run: 1 }] }, 'the stack is saved with the address');
 });
 
+test('a restored stack whose conversation is gone comes back as the list, with no error', async () => {
+  // the saved stack names a conversation deleted since (found on a device:
+  // the list then said "no such run")
+  const gone = () => ({ ...chatSeed(), routes: [['GET', '/runs/99/view', { error: 'no such run' }, 404]] });
+  const r = await run(gone(), [{ wait: 50 }], { state: { hash: 'c=99', nav: [{ kind: 'chat', run: 99 }] } });
+  assert.deepEqual(titles(r.tree), ['Agent'], 'the gone conversation left the stack');
+  assert.equal(find(r.tree, { t: 'notice', p: { tone: 'danger' } }), null, 'and nothing says it failed');
+  // a link to it, asked for, still says so
+  const l = await run(gone(), [{ wait: 50 }], { state: { hash: 'c=99' } });
+  assert.ok(find(l.tree, { t: 'notice', p: { tone: 'danger' } }), 'a deep link to a gone conversation says why it did not open');
+  // …and one whose automation is gone comes back on the Automations page
+  const a = await run({ ...gone(), routes: [['GET', '/automations/schedule/99/runs', { error: 'no such automation' }, 404]] }, [{ wait: 50 }],
+    { state: { hash: 'auto=schedule:99', nav: [{ kind: 'auto', at: { kind: 'schedule', id: 99 } }] } });
+  assert.deepEqual(titles(a.tree), ['Agent', 'Automations'], 'the page, without the gone automation');
+  assert.equal(find(a.tree, { t: 'notice', p: { tone: 'danger' } }), null, 'and nothing says it failed');
+});
+
 test('streaming: deltas append to the answer being written', async () => {
   const r = await run(chatSeed(), [
     { call: ['push', { type: 'text', run: 1, root: 1, data: { text: 'He' } }] },
