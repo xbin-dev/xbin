@@ -782,6 +782,14 @@ check: its browsers load the shell
 from before partitioned tiles out of git (the parent of the commit that
 added `partition-mode.js`) over the dev overlay, so it needs the repo's
 history.
+`shell-anchor.js` keeps the focused card's title bar at its height in
+the window (D191): a reactive controller on `<bx-canvas>` (a
+ResizeObserver on the canvas, `<main>` and main's children, plus every
+canvas render, moves main's `scrollTop` by the head's drift before
+paint; a bottom spacer, padding under the canvas, when the page would end
+too soon); its arithmetic (`hold`, `trim`, `scrolled`, `clamped`,
+`inView`) is pure and tested in `hack/shell-anchor.test.mjs`, the
+behaviour by the harness's `focusAnchor` pass.
 `layout-sync.js` is how an open shell follows a layout another client (the
 app, another tab) saved: `follow(shell, event, key)` on a `prefs` event —
 skip our own writes (`X-Prefs-Writer`), hold the reload while `editing()`

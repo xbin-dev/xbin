@@ -30,6 +30,7 @@ import { html, nothing, repeat } from 'lit';
 import { dragPointer } from '/vendor/bx-kit.js';
 import { docRows, moveTile, setHeight } from './doc-layout.js';
 import { screenMode } from './shell-tabs.js';
+import { heldScroll } from './shell-anchor.js';
 
 const MIN_DOC_H = 96;
 
@@ -178,6 +179,7 @@ export class TopReveal {
     this.host = host; this.on = false; this.hidden = false; this._y = 0; this._main = null;
     this._scroll = () => {
       const y = this._main?.scrollTop ?? 0;
+      if (heldScroll(this._main) === y) { this._y = y; return; } // the focused tile holding its place (D191), not reading
       if (y > this._y + 4) this._set(true);
       else if (y < this._y - 4) this._set(false);
       this._y = y;

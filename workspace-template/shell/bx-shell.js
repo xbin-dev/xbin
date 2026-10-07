@@ -1657,6 +1657,7 @@ export class BxShell extends LitElement {
       setScreenMode: (id, mode) => setScreenMode(s, id ?? s._active, mode),
       docRows: () => docRows(s._tiles).map((r) => ({ cols: r.cols, paths: r.tiles.map((t) => t.path) })),
       get topBar() { return { on: s._top.on, hidden: s._top.hidden }; },
+      get anchor() { return s._canvas?.anchorState ?? null; }, // the focused tile's hold (D191, shell-anchor.js)
     };
   }
 

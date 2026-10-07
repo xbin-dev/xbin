@@ -10,6 +10,24 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-08
+
+- **The shell: the focused tile holds its place** (D191;
+  [frontend-kit.md](/docs/frontend-kit.md) §Document mode). While a tile
+  is focused — its title bar clicked, its page clicked into, a control in
+  its title bar focused — its title bar stays at the same height in the
+  browser window when the page changes around it: in Document mode a tile
+  above or below growing or shrinking to its content, a tile opened or
+  closed, the strip above the tiles filling; on a phone the stacked cards
+  changing size. The focused tile growing or shrinking itself leaves its
+  title bar where it was too — at the end of the page the shell keeps
+  room below it, which goes as you scroll back up. Scroll the tile fully
+  out of view and it lets go until you focus it or scroll back to it. On
+  the desktop canvas a tile moved by a layout change still moves, and
+  dragging places tiles as before. **Tiles:** nothing to do — a page that
+  grows while the person works in it no longer pushes its neighbours'
+  content around.
+
 ## 2026-10-07
 
 - **Native views: vocabulary revision 2 — navigation** (D189;

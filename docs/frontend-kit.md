@@ -382,6 +382,12 @@ can't tell which it is in, so write it to work in both.
 - **Narrow still applies.** A row of four tiles is a quarter of the page
   each, and below 820px every row is one column: reflow, never scroll
   sideways.
+- **Growing is safe while the person works.** The focused tile's title
+  bar holds its place in the window (D191): a page that grows or shrinks
+  under someone's hands — a list expanding, a form showing its errors —
+  moves the tiles below it, not what the person is looking at; and when
+  another tile grows above the focused one, the page scrolls with it. You
+  don't scroll the shell yourself: nothing to call.
 
 ## Rules
 

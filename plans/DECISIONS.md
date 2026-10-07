@@ -11839,3 +11839,72 @@ Deviations and refinements made while implementing; all deliberate:
       light and dark (list, split with a chat, terminals, ports, the
       partition forms, the jump pill, a child card's steering). Not
       verified on a device or the Swift renderer.
+
+- **D191 — The focused tile holds its place (2026-10-08).**
+  workspace-template/shell/shell-anchor.js (new), bx-canvas.js,
+  shell-doc.js, bx-shell.js (testApi `anchor`); hack/shell-anchor.test.mjs,
+  hack/ui-harness/passes/focusanchor.js; docs/frontend-kit.md §Document
+  mode, maintenance.md, changelog.
+  - **The owner's words.** A tile focused in the middle of a long stack
+    must not jump when tiles above or below expand or contract; the last
+    tile at the bottom, focused, expanding or contracting itself keeps its
+    contents where they are. "The title bar of the focused tile always
+    stays at the same height relative to the browser window."
+  - **Focused** is the shell's active window (zorder.js, D184) when it is a
+    grid or Document-mode card: its title bar pressed, its frame clicked
+    into, or (new) a control in its head keyboard-focused. A click into a
+    Document-mode card's frame now makes it active too (raiseFocusedFloat
+    only knew grid cards). Floats are viewport windows and never held; a
+    terminal pop-up or a spawned window in front means nothing is held.
+  - **Mechanism.** The baseline is the head's viewport y. A ResizeObserver
+    on `<bx-canvas>`, `<main>` (the scroller) and main's other children
+    (the decision strip), plus every canvas render, re-measures the head
+    and moves `main.scrollTop` by the drift — in the observer's turn, after
+    layout and before paint, so nothing visibly jumps (the harness samples
+    the head in a later observer of the same turn: 0 px). A scroll event
+    only moves the baseline with the page (`scrolled`), never re-measures,
+    so a resize already pending when it lands is still undone; a scroll
+    position change the layout made itself — the browser clamping to a
+    shorter page — is told from the person's (`clamped`) and undone. The
+    anchor's own scrolls are ignored by the Document-mode top bar, which
+    would otherwise read them as reading (TopReveal).
+  - **The spacer.** When the page would end before the head's place (the
+    last tile shrank), padding under `<bx-canvas>` makes the room; it only
+    ever shrinks — to what lies above the viewport's bottom as the person
+    scrolls up — and goes when the page grows back (`trim`). Not chosen: a
+    min-height on the content (the canvas sets its own min-height from the
+    grid extent; padding stays out of its ResizeObserver content box).
+    **Exception:** when keeping the head would leave none of the card in
+    the window (a tall tile read near its foot shrank far), the page ends
+    where it ends and the hold restarts where the head lands — a blank
+    window held to the letter of the rule helps nobody.
+  - **Letting go.** Scrolled fully out of view by the person, the tile is
+    not held; it is again once it is focused or scrolled back into view.
+    Nothing focused, nothing held. Native scroll anchoring
+    (`overflow-anchor`) is off on main only while a hold is on: it would
+    move the page under the anchor, which would read that as the person's
+    scroll; with no hold the browser's own anchoring keeps working.
+  - **Drags are the person's placement.** While a card, a height handle or
+    a grid resize is dragged (`<bx-canvas>.dragging`) nothing is held, and
+    the baseline is taken again a frame after the drop: a dropped card
+    lands where the drop bar showed, and a grid push (D66) — only ever
+    from a drag — moves its neighbours as before. Holding a tile pushed by
+    a resize would scroll the canvas under the pointer.
+  - **The desktop canvas** places a card at its tile's x/y: a change of the
+    head's offset in the canvas is the tile moved (a layout edit, another
+    device's layout via layout-sync, a harness `setGeom`), taken as the new
+    place, not held; what is held there is the page moving around it (the
+    decision strip, a clamp, the window resized). In Document mode and on
+    a phone the cards flow, so every move is the page's and is held —
+    including the tile's own Row ▸ Move up/down, which keeps the tile under
+    the person's eyes while its neighbours swap around it. bx-scroll.js's
+    focused-scroll tint (D123) is a different notion (where the wheel
+    goes) and is not reused.
+  - **Found on the way:** a frame out of view doesn't render, so it never
+    reports a height change until it is scrolled to — exactly when the
+    focused tile below it would have jumped.
+  - **Verified:** `make js-check js-test theme-check` (js-test 881 pass,
+    0 fail), `go test ./internal/sizebudget`; the harness's `focusAnchor`
+    pass (33 checks; 15 of them fail with the anchor taken out) and
+    `windows`, `docMode`, `gridScale`, `layoutSync`, `menuOpen`, `tabStrip`
+    green.
