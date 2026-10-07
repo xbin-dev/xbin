@@ -12,6 +12,8 @@ import { makeDocument, makeWindow, metasOf } from './theme-dom.mjs';
 import {
   THEMES, DENSITIES, MESSAGE, EVENT, COOKIE, appearance, follows, setAppearance, rememberTheme,
   scheme, token, onAppearance, appearanceMessage, applyAppearanceMessage,
+  DEVICE_KEY, DEVICE_PARAM, effectiveTheme, deviceTheme, personTheme, personAppearance, syncDeviceTheme,
+  setDeviceTheme, setPersonAppearance, deviceUrl,
 } from '../web/bx-theme.js';
 
 test('the contract: names and values', () => {
@@ -185,4 +187,129 @@ test('theme-boot.js copies the hint cookie into the meta, before anything paints
   assert.deepEqual(boot(injected), { 'xbin-theme': 'dark' }, 'a meta already there wins');
   const opaque = makeDocument({ cookieThrows: true });
   assert.deepEqual(boot(opaque), {}, 'no cookies: the system');
+});
+
+// ---- a device override (D188): device → person → system ----
+
+// storage(init, {throws}): the localStorage a window has
+function storage(init = {}, { throws = false } = {}) {
+  const m = new Map(Object.entries(init));
+  const guard = () => { if (throws) throw new DOMException('storage off', 'SecurityError'); };
+  return {
+    getItem: (k) => { guard(); return m.has(k) ? m.get(k) : null; },
+    setItem: (k, v) => { guard(); m.set(k, String(v)); },
+    removeItem: (k) => { guard(); m.delete(k); },
+    map: m,
+  };
+}
+function devicePage({ theme, density, device, auto = true, throws = false } = {}) {
+  const doc = makeDocument({ theme, density, auto });
+  const win = makeWindow(doc);
+  win.localStorage = storage(device ? { [DEVICE_KEY]: device } : {}, { throws });
+  return { doc, win };
+}
+
+test('effectiveTheme(): the device, then the person, then the system', () => {
+  assert.equal(DEVICE_KEY, 'xbin-theme-device');
+  assert.equal(DEVICE_PARAM, 'xbin-appearance');
+  for (const [person, device, want] of [
+    ['system', '', 'system'], ['light', '', 'light'], ['dark', '', 'dark'],
+    ['system', 'light', 'light'], ['dark', 'light', 'light'], ['light', 'dark', 'dark'], ['system', 'dark', 'dark'],
+    ['light', 'system', 'light'], ['dark', 'purple', 'dark'], ['purple', '', 'system'], [undefined, undefined, 'system'],
+  ]) assert.equal(effectiveTheme(person, device), want, `${person} + ${device}`);
+});
+
+test('deviceTheme(): exactly light or dark from this browser; else none', () => {
+  for (const [v, want] of [['light', 'light'], ['dark', 'dark'], ['system', ''], ['Dark', ''], ['', ''], [undefined, '']]) {
+    assert.equal(deviceTheme(devicePage({ device: v }).win), want, String(v));
+  }
+  assert.equal(deviceTheme(devicePage({ device: 'dark', throws: true }).win), '', 'storage off: none');
+  assert.equal(deviceTheme(undefined), '', 'no window: none');
+  assert.equal(deviceTheme({}), '', 'no storage: none');
+});
+
+test('syncDeviceTheme(): the page shows the device; the person waits on <html>; clearing brings them back', () => {
+  const { doc, win } = devicePage({ theme: 'light', density: 'comfortable', device: 'dark' });
+  const heard = [];
+  win.addEventListener(EVENT, (e) => heard.push(e.detail.theme));
+  assert.equal(syncDeviceTheme(doc), true);
+  assert.deepEqual(metasOf(doc), { 'xbin-theme': 'dark', 'xbin-density': 'comfortable' });
+  assert.deepEqual(appearance(doc), { theme: 'dark', density: 'comfortable' }, 'what the page paints (and bx-frame relays)');
+  assert.deepEqual(personAppearance(doc), { theme: 'light', density: 'comfortable' }, "the person's own choice");
+  assert.equal(doc.documentElement.getAttribute('data-bx-theme-person'), 'light');
+  assert.match(doc.cookies.at(-1), /^xbin_theme=dark;/, 'the hint cookie is the device');
+  assert.deepEqual(heard, ['dark']);
+  assert.equal(syncDeviceTheme(doc), false, 'again: nothing changes');
+  assert.equal(personTheme(doc), 'light', '…and the device never overwrites the person');
+
+  // the person changes their theme elsewhere: the page keeps the device
+  assert.equal(setPersonAppearance({ theme: 'system' }, doc), true);
+  assert.equal(appearance(doc).theme, 'dark');
+  assert.equal(personTheme(doc), 'system');
+  assert.deepEqual(heard, ['dark'], 'no restyle, no relay');
+  // the density still applies at once
+  assert.equal(setPersonAppearance({ density: 'compact' }, doc), true);
+  assert.deepEqual(appearance(doc), { theme: 'dark', density: 'compact' });
+
+  // Follow my setting: the person's choice again
+  assert.equal(setDeviceTheme('', doc), true);
+  assert.equal(win.localStorage.map.has(DEVICE_KEY), false);
+  assert.deepEqual(appearance(doc), { theme: 'system', density: 'compact' });
+  assert.equal(doc.documentElement.hasAttribute('data-bx-theme-person'), false);
+  assert.match(doc.cookies.at(-1), /^xbin_theme=; .*Max-Age=0/, 'the cookie follows the person (system: cleared)');
+  assert.deepEqual(heard, ['dark', 'dark', 'system']);
+  // without an override setPersonAppearance is setAppearance
+  assert.equal(setPersonAppearance({ theme: 'light' }, doc), true);
+  assert.equal(appearance(doc).theme, 'light');
+});
+
+test('setDeviceTheme(): stored and applied; a page that does not follow the person is left alone', () => {
+  const { doc, win } = devicePage({ theme: 'dark' });
+  assert.equal(setDeviceTheme('light', doc), true);
+  assert.equal(win.localStorage.map.get(DEVICE_KEY), 'light');
+  assert.equal(appearance(doc).theme, 'light');
+  assert.equal(personTheme(doc), 'dark');
+  assert.equal(setDeviceTheme('dark', doc), true, 'another device pick');
+  assert.equal(appearance(doc).theme, 'dark');
+  assert.equal(personTheme(doc), 'dark', "still the person's dark, set aside once");
+  assert.equal(setDeviceTheme('purple', doc), true, 'junk clears it');
+  assert.equal(win.localStorage.map.has(DEVICE_KEY), false);
+
+  const off = devicePage({ theme: 'dark', throws: true });
+  assert.equal(setDeviceTheme('light', off.doc), false, 'storage off: not stored');
+  assert.equal(appearance(off.doc).theme, 'dark');
+
+  const old = devicePage({ theme: 'dark', device: 'light', auto: false });
+  assert.equal(syncDeviceTheme(old.doc), false, 'a root page from before D184');
+  assert.equal(appearance(old.doc).theme, 'dark');
+});
+
+test('deviceUrl(): a tile URL asks for the device theme, only under an override in a following page', () => {
+  assert.equal(deviceUrl('/c/apps/a/', devicePage({ device: 'dark' }).doc), '/c/apps/a/?xbin-appearance=dark');
+  assert.equal(deviceUrl('/c/apps/a/?frame=t', devicePage({ device: 'light' }).doc), '/c/apps/a/?frame=t&xbin-appearance=light');
+  assert.equal(deviceUrl('/c/apps/a/', devicePage({}).doc), '/c/apps/a/');
+  assert.equal(deviceUrl('/c/apps/a/', devicePage({ device: 'dark', auto: false }).doc), '/c/apps/a/');
+  assert.equal(deviceUrl('/c/apps/a/', devicePage({ device: 'dark', throws: true }).doc), '/c/apps/a/');
+});
+
+test('theme-boot.js: the device override wins over the injected meta and the cookie, before the first paint', () => {
+  const run = (doc, ls) => {
+    vm.runInNewContext(readFileSync(new URL('../web/theme-boot.js', import.meta.url), 'utf8'), { document: doc, localStorage: ls });
+    return metasOf(doc);
+  };
+  for (const [injected, device, jar, want, person] of [
+    ['light', 'dark', '', 'dark', 'light'],
+    [undefined, 'light', '', 'light', 'system'],
+    [undefined, 'dark', 'xbin_theme=light', 'dark', 'system'],
+    ['dark', 'purple', '', 'dark', null],
+    [undefined, 'system', 'xbin_theme=light', 'light', null],
+  ]) {
+    const doc = makeDocument({ theme: injected });
+    doc.jar = jar;
+    assert.deepEqual(run(doc, storage({ [DEVICE_KEY]: device })), { 'xbin-theme': want }, `${injected} / ${device} / ${jar}`);
+    assert.equal(doc.documentElement.getAttribute('data-bx-theme-person'), person, `${injected} / ${device}: the person set aside`);
+    assert.equal(personAppearance(doc).theme, person ?? want);
+  }
+  const off = makeDocument({ theme: 'light' });
+  assert.deepEqual(run(off, storage({ [DEVICE_KEY]: 'dark' }, { throws: true })), { 'xbin-theme': 'light' }, 'storage off: as before');
 });

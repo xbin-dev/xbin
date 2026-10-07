@@ -50,6 +50,37 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     Nothing to change: a saved layout, an older shell and the app read
     the same prefs as before.
 
+- **Dismiss grant requests and interfaces to bind; no "N grants active"**
+  ([elements.md](/docs/elements.md) §`<bx-grants>` and `<bx-bindings>`).
+  Every pending request in the shell's decision strip, and every
+  "interfaces to bind" row, has a quiet **Dismiss**: it hides the item for
+  you on all your devices — the request stays pending, and other admins,
+  the organisations tile and the admin console still show it. A
+  **dismissed (N) · show** line brings them back, the organisations badge
+  leaves them out, and a request that changes (another role or target)
+  shows again. They are your shell pref `dismissed`
+  (`{grants:{"from|target|role": at}, bindings:{"component|slot|kind":
+  at}}`, [protocol.md](/docs/protocol.md) `/prefs`); the logic is
+  `/vendor/bx-dismiss.js`. `<bx-grants>` no longer shows the "N grants
+  active" line and its list of active grants with revoke: the admin
+  console's *binding* → grants is the full list. Nothing to change in a
+  tile.
+- **A light/dark override per device** ([frontend-kit.md](/docs/frontend-kit.md)
+  §Theme precedence). The shell's settings gain *This device*: Follow my
+  setting · Light · Dark. Light or Dark holds in that browser only,
+  whatever your Theme says; your other devices keep your Theme. The order
+  is device → person → system. Tiles get it with no change: `<bx-frame>`
+  asks xbind for it with `?xbin-appearance=light|dark` on the tile's URL,
+  which xbind's appearance injection now honours over the person's theme
+  ([protocol.md](/docs/protocol.md) §Authentication), and later
+  changes arrive as `xbin:appearance` as before. The workspace root page
+  template runs `/vendor/theme-boot.js` before the stylesheet, so the
+  shell opens in the device's theme from its first frame; a root page from
+  before this gets it when the shell loads (an admin brings it up to date
+  with `bx builtin update scaffold:root`). `/vendor/bx-theme.js` adds
+  `deviceTheme`, `setDeviceTheme`, `syncDeviceTheme`, `personTheme`,
+  `personAppearance`, `setPersonAppearance`, `effectiveTheme`, `deviceUrl`.
+
 ## 2026-10-05
 
 - **Projects and the scm contract: a new `scm-github` template, and

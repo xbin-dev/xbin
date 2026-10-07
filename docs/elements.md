@@ -277,7 +277,10 @@ into `<head>`:
   (absent: compact). `/vendor/theme.css` reads them at first paint in a
   document that opts in with `<html data-bx-theme="auto">`
   ([frontend-kit.md](/docs/frontend-kit.md) §Theme); a document that
-  doesn't is unaffected. A person who never chose gets none
+  doesn't is unaffected. A person who never chose gets none. A document
+  whose URL carries `?xbin-appearance=light|dark` (what `<bx-frame>` adds
+  while the browser overrides the person's theme, D188) gets that theme
+  instead of theirs
 - `<script type="module" src="/vendor/xbin-client.js">` — the in-frame API
   (`xbin.self`, `xbin.fetch`, `xbin.bus`; see [sdk.md](/docs/sdk.md))
 - only at a tile deployment's URL (`/c/<tile>+<name>/`,
@@ -450,7 +453,10 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   (`<html data-bx-theme="auto">`), the frame posts `xbin:appearance` to its
   iframe on every load and every change of the person's theme or density
   ([protocol.md](/docs/protocol.md) §Tile ↔ shell messaging); in a document
-  that doesn't, it posts nothing.
+  that doesn't, it posts nothing. While this browser overrides the person's
+  theme (D188: the shell's settings, *This device*), the frame's URL also
+  asks xbind for the device's theme (`?xbin-appearance=light|dark`), so the
+  tile's first frame is right, and the relay carries the device's theme.
 - **Agent tab**: the `+ Agent` button opens an **agent session** (D74) instead
   of a shell — a coding agent (Claude Code, Codex, Gemini, OpenCode) running
   in this tile's sandbox, driven over the Agent Client Protocol. The tab
@@ -521,6 +527,39 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
 
 Frames nest. The root page is itself a component full of frames; you can
 frame the root inside the root if you enjoy that sort of thing.
+
+### `<bx-grants>` and `<bx-bindings>`
+
+The decision strip at the top of the shell (`/vendor/bx-grants.js`,
+`/vendor/bx-bindings.js`): `<bx-grants>` shows the pending grant requests
+the viewer sees (`GET /api/xbin/grants` `pending`), each with **Approve**
+(or who to ask, or why it is blocked); `<bx-bindings>` shows the
+**interfaces to bind** — unbound slots the viewer may wire — with a
+provider picker and **bind**. Each renders nothing when there is nothing to
+decide, so both sit permanently in a root page. The full list of grants and
+bindings is the admin console's (*binding* → grants, wiring): `<bx-grants>`
+no longer shows an "N grants active" line or its list (D188).
+
+**Dismiss** (D188): every request and every row has a quiet **Dismiss**
+that hides it for the viewer — on all their devices, and nowhere else:
+the request stays pending, the tile is unchanged, and other admins, the
+organisations tile and the admin console still show it. A
+**dismissed (N) · show** line brings that element's dismissed items back.
+The dismissals are the viewer's pref `dismissed` in the bucket the page's
+`xbin.fetch` reaches (the shell's, in the workspace root page;
+[protocol.md](/docs/protocol.md) `/prefs`):
+
+```json
+{"grants":   {"<from>|<target>|<role>": "<dismissed at, ISO 8601>"},
+ "bindings": {"<component>|<slot>|<kind>": "<dismissed at>"}}
+```
+
+A request whose key changes — another role, another target — is a new one
+and shows again; a dismissal of something the server no longer lists
+(approved, bound, withdrawn) is pruned. The person's other open pages
+follow through the `prefs` event, and the shell's organisations badge
+leaves dismissed items out. The keys, pruning and the badge's count are
+`/vendor/bx-dismiss.js` (no imports).
 
 ### `<bx-terminal>`
 

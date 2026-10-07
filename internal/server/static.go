@@ -491,7 +491,8 @@ func (s *Server) documentHeaders(w http.ResponseWriter, r *http.Request, compPat
 // (body: the document it goes into — a tile page, or nil for the generated
 // native runtime document): strict asset gating's head (assetHead), the
 // merged import map, the component meta, the person's appearance when they
-// chose one (appearance.go, D184), the frame-token meta (a token only for
+// chose one (appearance.go, D184; the theme a device override names in
+// the query wins, D188), the frame-token meta (a token only for
 // a human or the tile itself that may read it — mayMintFrameToken — bound
 // to the login that opened it), bound interfaces, the sandbox token list,
 // the WebSocket origin for app WebViews (appWSOriginMeta), and the

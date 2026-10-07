@@ -149,6 +149,30 @@ tile should look with it (the rules, the components, the words) is
 Then look at your tile in both themes (the system setting, or the shell's
 settings) and keep every colour on a token.
 
+### Theme precedence
+
+What a document that follows the person shows, first match wins (D188):
+
+1. **The device** — the shell's settings, *This device*: Follow my setting,
+   Light or Dark. Light or Dark holds in that browser only (its
+   `localStorage`, `xbin-theme-device`), whatever the person's Theme says:
+   a dark laptop beside a light office screen. Nothing is synced; Follow my
+   setting clears it.
+2. **The person** — *Theme*: Light or Dark, synced to all their devices
+   (the shell's prefs bucket, `theme`).
+3. **The system** — *Theme*: System (or no choice): the device's
+   `prefers-color-scheme`.
+
+Density is always the person's. A tile needs nothing for this: the device's
+theme arrives the way the person's does — in the injected
+`<meta name="xbin-theme">` of its first frame (`<bx-frame>` asks for it with
+`?xbin-appearance=light|dark` on the tile's URL,
+[protocol.md](/docs/protocol.md)) and as `xbin:appearance` when it changes.
+The workspace root page applies it before its first paint with
+`/vendor/theme-boot.js` (a root from before D188 gets it when the shell
+loads); while it is set, the `xbin_theme` hint cookie holds the device's
+theme, so xbind's sign-in pages follow it on that browser too.
+
 ### Tokens
 
 The values are in `theme.css` itself (Night is its `:root`, Day the block an
@@ -274,7 +298,10 @@ onAppearance(paint); // the person's change, the system's light/dark or contrast
 | `onAppearance(cb, win?)` | `cb(appearance)` after a change of the person's choice, the system's scheme or its contrast setting; returns an unsubscribe |
 | `setAppearance({theme, density}, doc?)` | change the document's appearance (the shell's settings do; a tile has no reason to) |
 | `appearanceMessage()`, `applyAppearanceMessage(data)` | the `xbin:appearance` relay (`<bx-frame>` and `xbin-client.js` use them) |
-| `rememberTheme(theme)`, `THEMES`, `DENSITIES`, `MESSAGE`, `EVENT`, `COOKIE` | the hint cookie, and the names |
+| `rememberTheme(theme)`, `THEMES`, `DENSITIES`, `MESSAGE`, `EVENT`, `COOKIE` | the hint cookie (the device's theme while it overrides), and the names |
+| `deviceTheme(win?)`, `setDeviceTheme(v, doc?)`, `syncDeviceTheme(doc?)` | this browser's override (D188): `'light'`, `'dark'` or `''`; set or clear it and apply; apply what is stored (the shell does, on load and on another tab's change) |
+| `personTheme(doc?)`, `personAppearance(doc?)`, `setPersonAppearance(next, doc?)` | the person's own choice under an override (set aside on `<html data-bx-theme-person>` while the page shows the device's), and changing it |
+| `effectiveTheme(person, device)`, `deviceUrl(url, doc?)`, `DEVICE_KEY`, `DEVICE_PARAM` | the precedence (§Theme precedence), and a tile URL that asks for the override |
 
 ### Icons
 
@@ -321,8 +348,11 @@ and is shown as they wrote it.
 For a page xbind serves with no document injection (its own partitions
 page): a classic script in `<head>`, before the `theme.css` link, that
 copies the `xbin_theme` hint cookie the shell keeps into
-`<meta name="xbin-theme">`, so the page opens in the person's theme. A tile
-never needs it: its documents get the injection.
+`<meta name="xbin-theme">`, so the page opens in the person's theme. The
+workspace root page runs it too (D188): when the browser has a device
+override (§Theme precedence) it replaces the injected meta with the
+device's theme, keeping the person's on `<html data-bx-theme-person>`. A
+tile never needs it: its documents get the injection.
 
 ## Document mode: how a tile grows
 

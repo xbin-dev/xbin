@@ -38,6 +38,29 @@
  * own pages that have no injection — the sign-in pages read it server-side,
  * the partitions page through /vendor/theme-boot.js. It is a UI hint, never
  * a credential; in a sandboxed document cookies throw and nothing is written.
+ *
+ * A device override (D188): this browser shows Light or Dark whatever the
+ * person's theme says — localStorage `xbin-theme-device`, set from the
+ * shell's settings menu. The order is device → person → system
+ * (effectiveTheme). In a document that follows the person, the theme meta
+ * then holds the device's theme (what the page paints, and what <bx-frame>
+ * relays to its tiles), and the person's own choice waits on <html
+ * data-bx-theme-person>; /vendor/theme-boot.js does that before the first
+ * paint, syncDeviceTheme afterwards. While it is set the hint cookie holds
+ * the device's theme too, and <bx-frame> asks for it in a tile's URL
+ * (?xbin-appearance=light|dark, docs/protocol.md), so a tile's first frame
+ * is right:
+ *
+ *   deviceTheme(win)          → 'light'|'dark'|'' (no override)
+ *   setDeviceTheme(v, doc)    — set ('light'|'dark') or clear ('') it, and apply
+ *   syncDeviceTheme(doc)      — apply what this browser has stored now
+ *   personTheme(doc), personAppearance(doc)
+ *                             — the person's choice, with or without an override
+ *   setPersonAppearance(next, doc)
+ *                             — the person changed their choice: setAppearance,
+ *                               but under an override the theme only waits
+ *   effectiveTheme(person, device) → what a document shows
+ *   deviceUrl(url, doc)       — url with the override's query parameter
  */
 
 export const THEMES = Object.freeze(['system', 'light', 'dark']);
@@ -87,8 +110,10 @@ export function setAppearance(next = {}, doc = document) {
   return true;
 }
 
-// rememberTheme keeps the hint cookie equal to the person's theme.
+// rememberTheme keeps the hint cookie equal to the person's theme — or,
+// while this browser overrides it, the device's.
 export function rememberTheme(theme, doc = document) {
+  theme = deviceTheme(doc.defaultView) || theme;
   try {
     const secure = doc.location?.protocol === 'https:' ? '; Secure' : '';
     doc.cookie = theme === 'light' || theme === 'dark'
@@ -123,4 +148,81 @@ export const appearanceMessage = (doc = document) => ({ type: MESSAGE, ...appear
 export function applyAppearanceMessage(data, doc = document) {
   if (!data || data.type !== MESSAGE) return false;
   return setAppearance({ theme: data.theme, density: data.density }, doc);
+}
+
+// ---- a device override (D188; the header above) ----
+export const DEVICE_KEY = 'xbin-theme-device';
+export const DEVICE_PARAM = 'xbin-appearance';
+const PERSON = 'data-bx-theme-person';
+const isScheme = (t) => t === 'light' || t === 'dark';
+
+// effectiveTheme(person, device): the device's light or dark, else the
+// person's choice, else the system's ('system').
+export const effectiveTheme = (person, device) => (isScheme(device) ? device : THEMES.includes(person) ? person : 'system');
+
+export function deviceTheme(win = globalThis.window) {
+  try {
+    const v = win?.localStorage?.getItem(DEVICE_KEY);
+    return isScheme(v) ? v : '';
+  } catch { return ''; /* storage off, or an opaque origin: no override */ }
+}
+
+export function personTheme(doc = document) {
+  const p = doc.documentElement?.getAttribute(PERSON);
+  return THEMES.includes(p) ? p : appearance(doc).theme;
+}
+
+export const personAppearance = (doc = document) => ({ ...appearance(doc), theme: personTheme(doc) });
+
+// syncDeviceTheme(doc): make a document that follows the person show what
+// this browser stores now — the override (the person's choice set aside on
+// <html>), or, once it is cleared, the person's choice again. True when
+// the page changed.
+export function syncDeviceTheme(doc = document) {
+  if (!follows(doc)) return false;
+  const html = doc.documentElement, d = deviceTheme(doc.defaultView);
+  let changed = false;
+  if (d) {
+    if (!html.hasAttribute(PERSON)) html.setAttribute(PERSON, appearance(doc).theme);
+    changed = setAppearance({ theme: d }, doc);
+  } else if (html.hasAttribute(PERSON)) {
+    const p = personTheme(doc);
+    html.removeAttribute(PERSON);
+    changed = setAppearance({ theme: p }, doc);
+  }
+  rememberTheme(personTheme(doc), doc);
+  return changed;
+}
+
+// setDeviceTheme(v, doc): this browser's override — 'light' or 'dark', or
+// '' to follow the person again — stored and applied. False when the
+// browser can't store it.
+export function setDeviceTheme(v, doc = document) {
+  try {
+    const ls = doc.defaultView.localStorage;
+    if (isScheme(v)) ls.setItem(DEVICE_KEY, v); else ls.removeItem(DEVICE_KEY);
+  } catch { return false; }
+  syncDeviceTheme(doc);
+  return true;
+}
+
+// setPersonAppearance(next, doc): the person's choice changed (their pick,
+// or another device's). Without an override, setAppearance; under one the
+// page keeps the device's theme and the person's waits on <html>.
+export function setPersonAppearance(next = {}, doc = document) {
+  const html = doc.documentElement;
+  if (!html?.hasAttribute(PERSON) || !deviceTheme(doc.defaultView)) return setAppearance(next, doc);
+  let changed = false;
+  if (THEMES.includes(next.theme) && next.theme !== personTheme(doc)) {
+    html.setAttribute(PERSON, next.theme);
+    changed = true;
+  }
+  return setAppearance({ density: next.density }, doc) || changed;
+}
+
+// deviceUrl(url, doc): a tile's URL, asking xbind for the device's theme
+// while there is an override and the embedding document follows the person.
+export function deviceUrl(url, doc = document) {
+  const d = follows(doc) ? deviceTheme(doc.defaultView) : '';
+  return d ? `${url}${url.includes('?') ? '&' : '?'}${DEVICE_PARAM}=${d}` : url;
 }

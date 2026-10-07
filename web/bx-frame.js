@@ -50,14 +50,16 @@
  * frame's own document follows the person's appearance (data-bx-theme),
  * the frame posts it to its iframe on every load and change
  * (xbin:appearance, docs/protocol.md), so a tile document follows its
- * embedder live.
+ * embedder live; while this browser overrides the person's theme (D188),
+ * the tile's URL asks xbind for the device's (?xbin-appearance=light|dark),
+ * so its first frame is right too.
  *
  * See /docs/elements.md.
  */
 import { LitElement, html, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
 import { keyed } from 'lit';
-import { appearanceMessage, follows, onAppearance } from '/vendor/bx-theme.js';
+import { appearanceMessage, follows, onAppearance, deviceUrl } from '/vendor/bx-theme.js';
 import '/vendor/bx-icons.js';
 import { onEvent, mountedFrames, isReloadTarget } from '/vendor/events-socket.js';
 import '/vendor/bx-terminal.js';
@@ -229,6 +231,7 @@ export class BxFrame extends LitElement {
     const page = this._page;
     const info = await infoFor(page);
     const next = await frameSource(page, info);
+    next.url = deviceUrl(next.url, this.ownerDocument); // this browser's theme override, at the first frame (D188)
     if (page !== this._page) return; // the window switched deployments meanwhile
     // A changed token set (a cap:open-links grant approved or revoked) must
     // reach a FRESH element: the attribute applies only to the next
@@ -611,7 +614,7 @@ export class BxFrame extends LitElement {
     }
   }
 
-  _url() { return `/c/${this._page}/`; }
+  _url() { return deviceUrl(`/c/${this._page}/`, this.ownerDocument); }
 
   // ---- terminal window ----
 
