@@ -103,9 +103,16 @@ final class NativeTileRuntime: NSObject {
         }
         lifecycle.start(at: Date())
         webView.load(URLRequest(url: url))
+        armTimeout()
+    }
+
+    /// Falls back to the web page when the lifecycle's deadline passes —
+    /// re-armed when the document loads, which moves the deadline.
+    private func armTimeout() {
         timeout?.cancel()
+        guard let deadline = lifecycle.deadline else { return }
         timeout = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(NativeTileLifecycle.mountTimeout))
+            try? await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
             guard let self, !Task.isCancelled else { return }
             if self.lifecycle.check(at: Date()) { self.fallBack() }
         }
@@ -377,6 +384,11 @@ extension NativeTileRuntime: WKNavigationDelegate, WKScriptMessageHandler {
         tileDialog = nil
         limits.dialogClosed(id)
         reply(id, DialogSpec.result(button: button, values: values))
+    }
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        lifecycle.loaded(at: Date())
+        armTimeout()
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {

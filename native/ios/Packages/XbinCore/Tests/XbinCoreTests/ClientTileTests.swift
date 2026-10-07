@@ -258,15 +258,29 @@ import Testing
         let t0 = Date(timeIntervalSince1970: 100)
         var l = NativeTileLifecycle()
         l.start(at: t0)
-        #expect(l.deadline == t0.addingTimeInterval(5))
-        let early = l.check(at: t0.addingTimeInterval(4.9))
+        // the document's load has its own, longer limit (a busy device)…
+        #expect(l.deadline == t0.addingTimeInterval(30))
+        let loading = l.check(at: t0.addingTimeInterval(12))
+        #expect(!loading)
+        // …and the tile's start-up is timed from the load
+        l.loaded(at: t0.addingTimeInterval(12))
+        #expect(l.deadline == t0.addingTimeInterval(17))
+        l.loaded(at: t0.addingTimeInterval(16))                            // once: a second load event doesn't extend it
+        #expect(l.deadline == t0.addingTimeInterval(17))
+        let early = l.check(at: t0.addingTimeInterval(16.9))
         #expect(!early)
         l.mounted()
         let late = l.check(at: t0.addingTimeInterval(60))
         #expect(l.phase == .live && !late)
 
+        var hung = NativeTileLifecycle()                                   // a load that never ends still falls back
+        hung.start(at: t0)
+        let hungFired = hung.check(at: t0.addingTimeInterval(30))
+        #expect(hungFired && hung.fallback == .timeout)
+
         var slow = NativeTileLifecycle()
         slow.start(at: t0)
+        slow.loaded(at: t0)
         let fired = slow.check(at: t0.addingTimeInterval(5))
         #expect(fired && slow.fallback == .timeout)
         slow.mounted()                                                     // too late: stays on the web tile
