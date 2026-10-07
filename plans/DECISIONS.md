@@ -11761,3 +11761,71 @@ Deviations and refinements made while implementing; all deliberate:
     `test/native.mjs` in Chromium (the list, New chat, push and back);
     `test/native-shots.mjs` and iPhone-size shots of the list, a pushed
     chat, a project's task, New chat and a pushed subagent, light and dark.
+  - **B3/B4, the same day: the iPad/Duo split and the four parity gaps.**
+    Every rev-2 use is gated (`nav.rev2(name)` = `supports(name, 2)`); an
+    app of rev 1 keeps the phone stack and today's behaviour.
+    - *The split* (`native.js layout()`, `supports('split', 2)`): the list is
+      the split's primary column, the stack a `nav` in its detail one;
+      `detail` is "the stack is not empty", `close` cuts it, the detail
+      nav's `pop {depth}` is the stack's depth + 1, `columns` is kept in
+      `ui.cols`. With nothing open the detail column is the new chat screen
+      (the web's home pane) — on a phone it is simply not pushed. The tile
+      never learns the width: the same tree is two columns on an iPad and
+      a collapsed stack on a phone.
+    - *Terminals as tabs.* The app's `terminal` closes its socket when it
+      leaves the tree (and `tabs` materializes only the shown tab), and it
+      reports no exec id — so the **relay** keeps a person's terminal per
+      tab name (`tab=<random name>` on both relays): a dial of the tab
+      attaches to it while it runs, it outlives its client (30 min with
+      none), and the tab's Close ends it (`DELETE /terminals/{tab}`). The
+      tabs are the web dock's model (`model/terminals.js termsOf`), one
+      Terminals screen (`tabs style=bar`, New shell, Close tab); Back
+      leaves them running and Terminals (N) in the ⋯ menus returns. Not
+      chosen: a runtime change to keep a hidden terminal's socket open
+      (the runtime is another track's), or a session id event on
+      `terminal` (same). The sign-in terminal stays its own pushed
+      screen (its flow retries and leaves).
+    - *Ports*: a screen from the ▣ Sandbox screen — the previews probed
+      (`GET /runs/{id}/ports`) with Open, and a probe of any port.
+    - *Partition forms* (`native/homes.js`): Share a copy (its row's and the
+      chat's ⋯), and in a shared conversation's share sheet Copy to my own
+      space, Use my private resources… (the warning's sheet, then
+      `POST /hosting`; its host's Take them back), Add a copy of my files…;
+      Who can see it in new chat with options. The web's wording;
+      `shareOf` moves to `model/homes.js` for both views.
+    - *Jump to latest* (`supports('transcript', 2)`): away from the end
+      (the end's `edge`), the row the window grew up from (each `more`) is
+      the transcript's `anchor`; a window longer than 120 rows below it is
+      cut to 60 and `Session.keep(…, canDetach)` lets the live tail go (new
+      messages counted: `fresh`). The pill is a composer button ("↓ N new —
+      jump to latest", the web's words): `Session.latest()` and
+      `scrollTo="end#n"`. Reading down to a cut window's end grows it a
+      page (`loadNewer` when the tail was let go). No anchor at the end, so
+      `follow` sticks there as before. An app of rev 1: no anchor, no pill,
+      nothing below the window let go (D130's rule).
+    - *Child cards* get steering: an `approval` with `feedback` in the open
+      card's transcript (Send, Send now, Stop, Cancel task… confirmed by a
+      second approval), on the child's run; the outcome is said in its
+      text. A `toolcard` may hold no button, so this reuses the card the
+      vocabulary has — a runtime follow-up could give `toolcard` an
+      `actions` child; its shield icon and "Feedback" placeholder are the
+      renderer's.
+    - *Composer drafts per place* (`ui.drafts`, keyed by run id, `'new'` for
+      the new chat screen): a send clears the draft of the place it was
+      written in. Native only — the web keeps one box (no catalog key).
+    - Rev-2 niceties on the list: Pin as a leading full swipe, Return
+      searches at once (`submit`), the refresh spinner held until the list
+      is read (`refreshing`).
+    - `DIFFERENCES.native` keeps only `composer.keys`, `.attach.paste`,
+      `.attach.drop`. The node tests play an app without the rev-2 split
+      by default (`hack/agent-template-native-caps.mjs` PHONE; the D130
+      window tests CHAT1, a rev-1 transcript); the new
+      `agent-template-native-parity.test.mjs` plays FULL and OLD.
+    - **Verified:** `node --test hack/agent-template-*.test.mjs` (326
+      pass), `make js-check js-test theme-check native-check` (js-test 866
+      pass), the backend's `TestTerminalTabs` (+ the relay tests) against
+      its go.mod.tile, `test/native.mjs` in Chromium (with an iPad-width
+      split step), and `test/native-shots.mjs` at 390×844 and 1024×1366,
+      light and dark (list, split with a chat, terminals, ports, the
+      partition forms, the jump pill, a child card's steering). Not
+      verified on a device or the Swift renderer.

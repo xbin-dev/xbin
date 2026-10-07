@@ -5,7 +5,8 @@
 // live stream, it walks what a person does: the conversation list (the
 // stack's root, D190), New chat, a conversation pushed and back, a streamed answer, an approval, typing and sending, the
 // menu's Files, back, a coding sandbox (the toolbar's picker, the subtitle, ⋯ → Sandbox,
-// Manage) — and checks that nothing errs and no diagnostic is
+// Manage), the list beside a conversation at an iPad's width (D190 B3)
+// — and checks that nothing errs and no diagnostic is
 // raised. The node tests (hack/agent-template-native.test.mjs) cover the
 // semantics screen by screen; this proves the same code in WebKit's shoes
 // (real frames, fetch streaming, DOMParser for the render preview).
@@ -102,16 +103,26 @@ await page.waitForFunction(() => window.xbnPreview);
 ok('the native view draws', (await page.evaluate(() => window.xbnPreview.ready)).ok === true);
 const view = page.locator('xb-view');
 const shown = (sel) => view.locator(sel).first().waitFor({ state: 'visible', timeout: 5000 }).then(() => true, () => false);
-// the nav is the root, or the first node of a root fragment (a sheet laid over it)
+// the screens a person can go back through: the list, then the stack — the
+// split of rev 2 (the preview host plays an app with everything, D190 B3:
+// the list its primary column, the stack the detail's nav, pushed over the
+// list while open — collapsed at a phone's width), else the one nav (the
+// root, or the first node of a root fragment: a sheet laid over it)
 await page.evaluate(() => {
-  window.navOf = () => { const r = window.xbnPreview.tree().root; return r.t === 'nav' ? r : r.c.find((c) => c.t === 'nav'); };
-  window.topTitle = () => { const nav = window.navOf(); return nav.c[nav.c.length - 1].p.title; };
+  window.stackOf = () => {
+    const r = window.xbnPreview.tree().root;
+    const kids = r.t === 'fragment' ? r.c : [r];
+    const sp = kids.find((c) => c.t === 'split');
+    if (sp) return sp.p.detail ? [sp.c[0], ...sp.c[1].c] : [sp.c[0]];
+    return kids.find((c) => c.t === 'nav').c;
+  };
+  window.topTitle = () => { const st = window.stackOf(); return st[st.length - 1].p.title; };
 });
 const topTitle = () => page.evaluate(() => window.topTitle());
 const titled = (t) => page.waitForFunction((x) => window.topTitle() === x, t).then(() => true, () => false);
 
 // the list: the root, what needs you first
-const depth = () => page.evaluate(() => window.navOf().c.length);
+const depth = () => page.evaluate(() => window.stackOf().length);
 const back = async () => { await view.locator('.back:visible').click(); };
 ok('the list is the root', await titled('Agent'), await topTitle());
 ok('the list: Needs you', await shown('xb-row:has-text("send the invoices")'));
@@ -167,7 +178,7 @@ await page.waitForTimeout(500);
 ok('nothing escaped the island', escaped.length === 0, escaped.join(' '));
 await back();
 await back();
-ok('back pops it', await page.waitForFunction(() => window.navOf().c.length === 2).then(() => true, () => false));
+ok('back pops it', await page.waitForFunction(() => window.stackOf().length === 2).then(() => true, () => false));
 await back();
 ok('…and back again: the list', await titled('Agent'), await topTitle());
 
@@ -182,16 +193,16 @@ await view.locator('xb-approval button:has-text("Approve")').click();
 ok('a refused verdict says why', await shown('xb-notice:has-text("no longer pending")'));
 
 // a coding sandbox (D115): the sandbox in the subtitle, the card's outcome, the toolbar's picker, ⋯ → Sandbox, Manage
-const subtitle = () => page.evaluate(() => window.navOf().c[window.navOf().c.length - 1].p.subtitle || '');
+const subtitle = () => page.evaluate(() => window.stackOf().at(-1).p.subtitle || '');
 await back();
 await view.locator('xb-row:visible:has-text("fix the build") .row-main').first().click();
 ok('a coding conversation opens', await titled('fix the build'));
-ok('its sandbox in the subtitle, in words', await page.waitForFunction(() => /sandbox api · \/work/.test(window.topTitle() && window.navOf().c.at(-1).p.subtitle)).then(() => true, () => false), await subtitle());
+ok('its sandbox in the subtitle, in words', await page.waitForFunction(() => /sandbox api · \/work/.test(window.topTitle() && window.stackOf().at(-1).p.subtitle)).then(() => true, () => false), await subtitle());
 ok('the bash card says what it came to', await shown('xb-toolcard:has-text("exit 1 · 14s · job 3")'));
 await view.locator('select[aria-label="Sandbox"]').selectOption({ label: 'web (stopped)' });
 ok('the picker binds from the next turn', await page.waitForFunction(() => window.__calls.some((c) => c.method === 'PATCH' && c.url.endsWith('/runs/5')
   && JSON.parse(c.body).sandbox?.ref === 'apps/coding-sandbox|web')).then(() => true, () => false));
-ok('…and the subtitle follows', await page.waitForFunction(() => /sandbox web · \/work/.test(window.navOf().c.at(-1).p.subtitle)).then(() => true, () => false), await subtitle());
+ok('…and the subtitle follows', await page.waitForFunction(() => /sandbox web · \/work/.test(window.stackOf().at(-1).p.subtitle)).then(() => true, () => false), await subtitle());
 await view.locator('xb-menu button[aria-label="More"]:visible').first().click();
 await view.locator('.pop button:has-text("Sandbox: web")').click();
 ok('⋯ → Sandbox is pushed', await titled('web'));
@@ -203,6 +214,12 @@ await view.locator('.back:visible').click();
 await view.locator('.back:visible').click();
 ok('back to the conversation', await titled('fix the build'));
 
+// an iPad's width (D190 B3): the list beside the open conversation, both shown
+await page.setViewportSize({ width: 1024, height: 1366 });
+await page.evaluate(() => { location.hash = 'c=1'; });
+ok('iPad: a link opens the conversation', await titled('plan the quarter'), await topTitle());
+ok('…beside the list', await shown('.split-a xb-row:has-text("fix the build")') && await shown('.split-b xb-toolcard:has-text("Look up open invoices")'));
+ok('…its row selected', await shown('.split-a xb-row:has-text("plan the quarter") .row-check'));
 ok('no page errors', errors.length === 0, errors.join(' | '));
 ok('no runtime errors', (await page.evaluate(() => window.xbnPreview.errors)).length === 0, JSON.stringify(await page.evaluate(() => window.xbnPreview.errors)));
 const diags = await page.evaluate(() => window.xbnPreview.diagnostics.filter((d) => d.level !== 'info'));

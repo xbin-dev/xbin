@@ -68,7 +68,7 @@ function publishTpl(f) {
   };
   return html`<sheet open title=${`Share a copy of “${f.run.title || 'conversation'}”`} detents="large" @dismiss=${close}>
     <screen title="Share a copy" subtitle=${f.run.title || nothing} style="form">
-      <toolbar><button role="plain" @tap=${close}>Cancel</button>
+      <toolbar>
         <button role="primary" ?busy=${f.busy} ?disabled=${f.busy} @tap=${go}>${f.busy ? 'Copying…' : 'Share a copy'}</button></toolbar>
       ${f.err ? html`<section><notice tone="danger" text=${f.err}/></section>` : nothing}
       <section><notice tone="info" text=${PUB_NOTE}/></section>
@@ -140,7 +140,7 @@ function hostTpl(f) {
   });
   return html`<sheet open title=${`“${f.run.title || 'conversation'}” is not private`} detents="large" @dismiss=${close}>
     <screen title="Not private" subtitle=${f.run.title || nothing} style="form">
-      <toolbar><button role="plain" @tap=${close}>Cancel</button>
+      <toolbar>
         <button role="primary" ?busy=${f.busy} ?disabled=${f.busy} @tap=${go}>${f.busy ? 'Moving it…' : 'Use my private resources'}</button></toolbar>
       ${f.err ? html`<section><notice tone="danger" text=${f.err}/></section>` : nothing}
       <section><notice tone="warn" title="Not private" text=${HOST_TEXT}/></section>
@@ -185,7 +185,7 @@ function copyInTpl(f) {
     ...(f.convs || []).map((c) => ({ value: c.id, label: c.title || 'conversation ' + c.id }))];
   return html`<sheet open title="Add a copy of my files" detents="large" @dismiss=${close}>
     <screen title="Add a copy of my files" subtitle=${f.run.title || nothing} style="form">
-      <toolbar><button role="plain" @tap=${close}>Cancel</button>
+      <toolbar>
         <button role="primary" ?busy=${f.busy} ?disabled=${f.busy} @tap=${go}>${f.busy ? 'Copying…' : 'Add the copies'}</button></toolbar>
       ${f.err ? html`<section><notice tone="danger" text=${f.err}/></section>` : nothing}
       <section title="From your conversation">
