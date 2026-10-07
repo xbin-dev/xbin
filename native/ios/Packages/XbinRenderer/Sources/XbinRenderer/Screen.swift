@@ -40,12 +40,9 @@ private struct ScreenContent: View {
             .navigationSubtitle(p.string("subtitle") ?? "")
             .navigationBarTitleDisplayMode(large ? .large : .inline)
             .toolbar {
-                ScreenToolbar(toolbar: layout.toolbar, leading: layout.leadingToolbar, bottom: layout.bottomToolbar,
-                              search: node.value("search") != nil)
+                ScreenToolbar(toolbar: layout.toolbar, leading: layout.leadingToolbar,
+                              bottom: nav.covered ? nil : layout.bottomToolbar, search: node.value("search") != nil)
             }
-            // A pushed screen with no bottom toolbar of its own shows none:
-            // the bar of the screen under it stayed up otherwise (iOS 27).
-            .modifier(BottomBarHidden(hidden: nav.pushed && layout.bottomToolbar == nil && node.value("search") == nil))
             .modifier(RefreshModifier(node: node))
             .modifier(SearchModifier(node: node))
             .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -160,15 +157,6 @@ struct ScreenToolbar: ToolbarContent {
             ForEach(groups.actions) { NodeView(node: $0).fixedSize() }
                 .environment(\.xbinPlacement, .toolbar)
         }
-    }
-}
-
-/// Hides the bottom bar (a pushed screen without one of its own).
-private struct BottomBarHidden: ViewModifier {
-    let hidden: Bool
-
-    func body(content: Content) -> some View {
-        if hidden { content.toolbar(.hidden, for: .bottomBar) } else { content }
     }
 }
 

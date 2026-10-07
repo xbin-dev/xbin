@@ -33,15 +33,18 @@ struct NavView: View {
             }
         )
         let inSheet = nav.inSheet
+        let shown = NavStack.path(keys, popped: popped)
         NavigationStack(path: path) {
             Group {
                 if let first = screens.first { NodeView(node: first) }
             }
-            .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: false, inSheet: inSheet, drawersHosted: true))
+            .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: false, inSheet: inSheet, drawersHosted: true,
+                                                 covered: !shown.isEmpty))
             .navigationDestination(for: String.self) { key in
                 if let screen = cx?.model.node(key) {
                     NodeView(node: screen)
-                        .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: true, inSheet: inSheet, drawersHosted: true))
+                        .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: true, inSheet: inSheet, drawersHosted: true,
+                                                             covered: shown.last != key))
                 }
             }
         }
@@ -111,8 +114,9 @@ private struct ColumnsSplit: View {
                 get: { () -> NavigationSplitViewVisibility in
                     switch SplitState(n).columns {
                     case .detail: return .detailOnly
-                    case .all: return .all
-                    case .auto: return .automatic
+                    // `auto` as an unbound split shows it: both columns
+                    // (a bound .automatic hid the list on an iPad).
+                    case .all, .auto: return .all
                     }
                 },
                 set: { v in
@@ -177,7 +181,8 @@ private struct HostedCollapsedSplit: View {
             }
         )
         NodeView(node: primary)
-            .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: false, inSheet: false, drawersHosted: false))
+            .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: false, inSheet: false, drawersHosted: false,
+                                                 covered: SplitState(n).detail))
             .navigationDestination(isPresented: shown) {
                 NodeView(node: secondary)
                     .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: true, inSheet: false, drawersHosted: false))
@@ -204,7 +209,8 @@ private struct OwnStackSplit: View {
         )
         NavigationStack(path: path) {
             NodeView(node: primary)
-                .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: false, inSheet: inSheet, drawersHosted: true))
+                .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: false, inSheet: inSheet, drawersHosted: true,
+                                                     covered: SplitState(n).detail))
                 .navigationDestination(for: SplitPath.self) { _ in
                     NodeView(node: secondary)
                         .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: true, inSheet: inSheet, drawersHosted: true))
