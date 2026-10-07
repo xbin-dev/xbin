@@ -197,6 +197,7 @@ open class XCUIElementQuery: XCUIElementTypeQueryProvider {
     open func containing(_ predicate: StubPredicate) -> XCUIElementQuery { self }
     open func containing(_ elementType: XCUIElement.ElementType, identifier: String?) -> XCUIElementQuery { self }
     open var firstMatch: XCUIElement { XCUIElement() }
+    open var debugDescription: String { "" }
     open var element: XCUIElement { XCUIElement() }
     open var count: Int { 0 }
     open func element(boundBy index: Int) -> XCUIElement { XCUIElement() }

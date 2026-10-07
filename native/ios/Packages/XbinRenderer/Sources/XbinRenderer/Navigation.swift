@@ -130,8 +130,50 @@ private struct ColumnsSplit: View {
 /// A rev-2 split on a compact width: a navigation stack whose root is the
 /// list; while `detail` is true the detail is pushed over it. Back (the
 /// button or the edge swipe) hides it at once and reports `close` (→
-/// `detail: false`).
+/// `detail: false`). In the app's own navigation stack
+/// (``XbinRenderOptions/hostNavigation``) the list is that stack's page and
+/// the detail is pushed onto it — one stack, one bar, the system's Back.
 private struct CollapsedSplit: View {
+    let node: XbinNode
+    let primary: XbinNode
+    let secondary: XbinNode
+    let inSheet: Bool
+    @Environment(\.xbin) private var cx
+
+    var body: some View {
+        if cx?.options.hostNavigation == true && !inSheet {
+            HostedCollapsedSplit(node: node, primary: primary, secondary: secondary)
+        } else {
+            OwnStackSplit(node: node, primary: primary, secondary: secondary, inSheet: inSheet)
+        }
+    }
+}
+
+/// A collapsed split on the app's stack: the detail is a destination of it.
+private struct HostedCollapsedSplit: View {
+    let node: XbinNode
+    let primary: XbinNode
+    let secondary: XbinNode
+    @Environment(\.xbin) private var cx
+
+    var body: some View {
+        let n = node
+        let context = cx
+        let shown = mainBinding(
+            get: { SplitState(n).detail },
+            set: { open in if !open, SplitState(n).detail { context?.emit(n, "close") } }
+        )
+        NodeView(node: primary)
+            .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: false, inSheet: false, drawersHosted: false))
+            .navigationDestination(isPresented: shown) {
+                NodeView(node: secondary)
+                    .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: true, inSheet: false, drawersHosted: false))
+            }
+    }
+}
+
+/// A collapsed split with a navigation stack of its own.
+private struct OwnStackSplit: View {
     let node: XbinNode
     let primary: XbinNode
     let secondary: XbinNode

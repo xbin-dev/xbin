@@ -29,20 +29,23 @@ final class XbinNavigationTests: XCTestCase {
         XCTAssertTrue(vat.exists, "…under its subject")
         e.shot("nav-01-deep-link")
 
-        let list = e.app.staticTexts["SSO login loops"]
+        // a list row is one button whose label combines its texts
+        let list = e.containing("SSO login loops")
         if pad {
             XCTAssertTrue(list.waitForExistence(timeout: 10), "a tablet shows the list beside the ticket")
         } else {
-            XCTAssertFalse(list.isHittable, "a phone shows the ticket over the list")
+            XCTAssertFalse(list.exists && list.isHittable, "a phone shows the ticket over the list")
             // The split's own Back (titled after the list) pops its stack —
             // not the app's panel back.
-            let back = e.app.navigationBars.buttons["Tickets"]
-            XCTAssertTrue(back.waitForExistence(timeout: 10), "the detail's Back, titled after the list")
+            print("xbin-nav bars before Back:\n\(e.app.navigationBars.debugDescription)")
+            let back = e.app.navigationBars.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Tickets", "Back")).firstMatch
+            XCTAssertTrue(back.waitForExistence(timeout: 10), "the detail's Back")
             back.tap()
+            e.shot("nav-02-after-back")
             XCTAssertTrue(list.waitForExistence(timeout: 10) && e.until(10) { list.isHittable }, "Back shows the list")
             XCTAssertFalse(number.exists, "…and the ticket is gone")
             XCTAssertTrue(e.backButton.exists, "the tile's panel is still in front")
-            e.shot("nav-02-back-to-list")
+            e.shot("nav-02-list")
         }
 
         // A link while the view runs: xbn.navigate → hashchange.

@@ -108,10 +108,16 @@ public struct XbinRenderOptions: Sendable, Equatable {
     /// are the regular size. Taps outside the widget's controls fall
     /// through to the card (which opens the tile).
     public var compact: CardSize?
+    /// The tree is drawn inside the app's own `NavigationStack` (a tile's
+    /// screen in a panel). A collapsed `split` then pushes its detail onto
+    /// that stack instead of nesting a stack of its own — nested
+    /// NavigationStacks share one bar and lose Back's state (D189).
+    public var hostNavigation: Bool
 
-    public init(inlineSheets: Bool = false, compact: CardSize? = nil) {
+    public init(inlineSheets: Bool = false, compact: CardSize? = nil, hostNavigation: Bool = false) {
         self.inlineSheets = inlineSheets
         self.compact = compact
+        self.hostNavigation = hostNavigation
     }
 }
 

@@ -425,7 +425,10 @@ struct NativeTileScreen: View {
         ZStack {
             if let rt = runtime {
                 if rt.lifecycle.phase == .live {
-                    XbinTreeView(store: rt.store, send: { rt.call($0) }, services: rt.services)
+                    // In the panel's NavigationStack: a collapsing split pushes
+                    // onto it rather than nesting a stack (D189).
+                    XbinTreeView(store: rt.store, send: { rt.call($0) }, services: rt.services,
+                                 options: XbinRenderOptions(hostNavigation: true))
                         .modifier(AttachPickers(picker: rt.hatches.attach.picker))
                         .overlay(alignment: .bottom) { AttachStatusView(flow: rt.hatches.attach) }
                 } else {

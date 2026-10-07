@@ -154,6 +154,7 @@ extension View {
     public func navigationSubtitle<S: StringProtocol>(_ subtitle: S) -> some View { _V(self) }
     public func navigationBarTitleDisplayMode(_ displayMode: NavigationBarItem.TitleDisplayMode) -> some View { _V(self) }
     public func navigationDestination<D: Hashable, C: View>(for data: D.Type, @ViewBuilder destination: @escaping (D) -> C) -> some View { _V(self) }
+    public func navigationDestination<V: View>(isPresented: Binding<Bool>, @ViewBuilder destination: () -> V) -> some View { _V(self) }
     public func toolbar<Content: ToolbarContent>(@ToolbarContentBuilder content: () -> Content) -> some View { _V(self) }
     public func refreshable(action: @escaping @Sendable () async -> Void) -> some View { _V(self) }
     public func searchable(text: Binding<String>, placement: SearchFieldPlacement = .automatic, prompt: Text? = nil) -> some View { _V(self) }
