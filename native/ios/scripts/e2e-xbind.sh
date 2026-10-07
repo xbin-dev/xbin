@@ -1,20 +1,23 @@
 #!/usr/bin/env bash
 # native/ios/scripts/e2e-xbind.sh — the xbind the UI tests (native/ios/
 # UITests) run against, on this (Linux) box: a fresh workspace with the
-# native counter (examples/counter-go, native.js included) and the scripted
-# "fake" agent, started the way the UI harness starts it (hack/ui-harness/
-# run.sh). mac-remote.sh e2e starts it, tunnels its port to the Mac and
-# hands the URL and an account's name and password to the tests, which sign
-# in through the app's Log in screens as a person does (the app has no
-# token login).
+# native counter (examples/counter-go, native.js included), the scripted
+# "fake" agent and apps/agent — the agent template answering through
+# llm-gw from hack/fakeopenai's scripted model (XbinAgentNativeTests) —
+# started the way the UI harness starts it (hack/ui-harness/run.sh).
+# mac-remote.sh e2e starts it, tunnels its port to the Mac and hands the URL
+# and an account's name and password to the tests, which sign in through
+# the app's Log in screens as a person does (the app has no token login).
 #
-#   e2e-xbind.sh start [--port P]   build bin/{xbind,bx,fakeacp}, init a fresh
-#                                   workspace (+ testdata/e2e-tiles/* as
-#                                   apps/*), start xbind on 127.0.0.1:P,
+#   e2e-xbind.sh start [--port P]   build bin/{xbind,bx,fakeacp,fakeopenai},
+#                                   init a fresh workspace (+ testdata/
+#                                   e2e-tiles/* as apps/*), start fakeopenai
+#                                   on 127.0.0.1:P+1 and xbind on 127.0.0.1:P,
 #                                   create the admin account e2e with a random
 #                                   password, delete the login --dev seeds
-#                                   (admin/admin) and wait until the counter's
-#                                   backend answers
+#                                   (admin/admin), set up apps/agent (below)
+#                                   and wait until the counter's and the
+#                                   agent's backends answer
 #   e2e-xbind.sh stop               stop it (and drop any mount it left)
 #   e2e-xbind.sh env                XBIN_E2E_URL=…, XBIN_E2E_USER=… and
 #                                   XBIN_E2E_PASSWORD=… lines
@@ -31,6 +34,16 @@
 #                       sides: http://127.0.0.1:P)
 #   XBIN_E2E_DIR        default ${TMPDIR:-/tmp}/xbin-e2e: ws/ (the workspace),
 #                       xbind.log, xbind.pid, env
+#   XBIN_E2E_AGENT      1 (default): apps/agent, a copy of the agent builtin
+#                       template (unpartitioned) whose model is fake/fake-chat
+#                       through apps/llm-gw → fakeopenai; 0 leaves it out.
+#                       Its data are encrypted resources: without gocryptfs
+#                       ($XBIN_GOCRYPTFS, bin/gocryptfs, PATH) xbind holds
+#                       it, so start leaves it out and says so
+#   XBIN_E2E_UNSHARE    1: xbind runs in a user and mount namespace of its own
+#                       (unshare -Urm) — where fusermount3's setuid can't
+#                       work (a sandbox with no_new_privs), FUSE still mounts
+#                       there, so the agent's gocryptfs volumes do
 #   XBIN_E2E_XBIND_ARGS extra xbind flags, e.g. "--isolate --rootfs …" —
 #                       without --isolate its terminals are shells as you on
 #                       this box, for whoever signs in (the e2e account's
@@ -75,6 +88,10 @@ stop() {
       kill -9 "$pid" 2>/dev/null || true
     fi
     rm -f "$dir/xbind.pid"
+  fi
+  if [ -f "$dir/fakeopenai.pid" ]; then
+    kill "$(cat "$dir/fakeopenai.pid")" 2>/dev/null || true
+    rm -f "$dir/fakeopenai.pid"
   fi
   # A killed xbind can leave FUSE mounts under the workspace; a stale one
   # makes the next start's rm -rf fail.
@@ -144,9 +161,21 @@ start)
   mkdir -p "$dir"
   dir=$(cd "$dir" && pwd) # absolute: the start below runs from the repo
   ws=$dir/ws
-  say "building bin/xbind, bin/bx, bin/fakeacp"
+  say "building bin/xbind, bin/bx, bin/fakeacp, bin/fakeopenai"
   (cd "$repo" && go build -o bin/xbind ./cmd/xbind && CGO_ENABLED=0 go build -o bin/bx ./cmd/bx &&
-    go build -o bin/fakeacp ./hack/fakeacp)
+    go build -o bin/fakeacp ./hack/fakeacp && go build -o bin/fakeopenai ./hack/fakeopenai)
+  # apps/agent needs gocryptfs (its db, files and team are encrypted
+  # resources; xbind finds it as internal/resenc Resolve does).
+  agent=${XBIN_E2E_AGENT:-1} gcf=""
+  if [ "$agent" = 1 ]; then
+    if [ -n "${XBIN_GOCRYPTFS:-}" ]; then gcf=$XBIN_GOCRYPTFS
+    elif [ -x "$repo/bin/gocryptfs" ]; then gcf=$repo/bin/gocryptfs
+    else gcf=$(command -v gocryptfs || true); fi
+    if [ -z "$gcf" ] || [ ! -x "$gcf" ]; then
+      say "no gocryptfs (XBIN_GOCRYPTFS, $repo/bin/gocryptfs, PATH): apps/agent left out — XbinAgentNativeTests will skip (make gocryptfs)"
+      agent=0
+    fi
+  fi
   rm -rf "$ws"
   "$repo/bin/xbind" init "$ws" >/dev/null
   cp -r "$repo/examples/counter-go" "$ws/apps/counter"
@@ -165,8 +194,16 @@ start)
   # … &)` list would leave a shell as its parent, holding our stdout, and
   # the pid file would name that shell).
   cd "$repo"
-  XBIN_AGENT_FAKE="$repo/bin/fakeacp" XBIN_BIN="$repo/bin" XBIN_SDK_PATH="$repo/sdk" \
-    nohup "$repo/bin/xbind" --dev --dev-overlay "$repo/workspace-template" --workspace "$ws" \
+  fake_addr=127.0.0.1:$((port + 1))
+  if [ "$agent" = 1 ]; then
+    nohup "$repo/bin/fakeopenai" -addr "$fake_addr" >"$dir/fakeopenai.log" 2>&1 </dev/null &
+    echo $! >"$dir/fakeopenai.pid"
+  fi
+  envs=(XBIN_AGENT_FAKE="$repo/bin/fakeacp" XBIN_BIN="$repo/bin" XBIN_SDK_PATH="$repo/sdk")
+  [ -n "$gcf" ] && envs+=(XBIN_GOCRYPTFS="$gcf")
+  ns=()
+  [ "${XBIN_E2E_UNSHARE:-0}" = 1 ] && ns=(unshare -Urm) # it execs xbind: $! stays xbind's pid
+  env "${envs[@]}" nohup ${ns[@]+"${ns[@]}"} "$repo/bin/xbind" --dev --dev-overlay "$repo/workspace-template" --workspace "$ws" \
     --listen "127.0.0.1:$port" --external-url "$url" ${extra[@]+"${extra[@]}"} \
     >"$dir/xbind.log" 2>&1 </dev/null &
   echo $! >"$dir/xbind.pid"
@@ -182,9 +219,36 @@ start)
   # could sign in with it. Only the e2e account's random password opens
   # this one (and the owner token, which stays here).
   api DELETE /api/xbin/users/admin >/dev/null || { say "could not delete the dev login admin/admin — stopping"; stop; exit 1; }
+  # apps/agent, as the UI harness seeds it (hack/ui-harness/seed.sh): llm-gw
+  # with host egress (fakeopenai listens on loopback) and one backend
+  # "fake"; the agent's `llm` bound to it, unpartitioned (the e2e account's
+  # conversations are the instance's own), no web egress, its model
+  # fake/fake-chat with subagents on. Its Go backend and llm-gw's build
+  # meanwhile the counter's does.
+  if [ "$agent" = 1 ]; then
+    api POST /api/xbin/builtins/import '{"name":"llm-gw"}' >/dev/null &&
+      api POST /api/xbin/bindings '{"component":"apps/llm-gw","slot":"net","provider":"host"}' >/dev/null &&
+      api PUT /api/xbin/vault/apps/llm-gw/api-token-fake '{"value":"sk-fake"}' >/dev/null &&
+      api POST /api/xbin/templates/new '{"source":"agent","path":"apps/agent","partition":false}' >/dev/null &&
+      api POST /api/xbin/bindings '{"component":"apps/agent","slot":"llm","providers":["apps/llm-gw"]}' >/dev/null &&
+      api POST /api/xbin/bindings '{"component":"apps/agent","slot":"net","provider":"none"}' >/dev/null ||
+      { say "could not set up apps/agent — stopping"; stop; exit 1; }
+  fi
   # The counter's Go backend builds on first use (a cold build can take a
   # minute or two); the UI tests should not wait for it.
   wait_for 240 "the counter's backend" api GET /api/apps/counter/count
+  if [ "$agent" = 1 ]; then
+    wait_for 240 "llm-gw's backend" api GET /api/apps/llm-gw/config
+    api PUT /api/apps/llm-gw/config/backend "{\"name\":\"fake\",\"baseURL\":\"http://$fake_addr\"}" >/dev/null ||
+      { say "could not point llm-gw at fakeopenai — stopping"; stop; exit 1; }
+    wait_for 240 "the agent's backend" api GET /api/apps/agent/config
+    api GET /api/apps/agent/config | python3 -c 'import json,sys
+c=json.load(sys.stdin); c.update(model="fake/fake-chat", subagents=True, maxActiveRuns=4)
+print(json.dumps(c))' >"$dir/agent-config.json"
+    api PUT /api/apps/agent/config "$(cat "$dir/agent-config.json")" >/dev/null ||
+      { say "could not set the agent's model — stopping"; stop; exit 1; }
+    rm -f "$dir/agent-config.json"
+  fi
   {
     echo "XBIN_E2E_URL=$url"
     echo "XBIN_E2E_USER=e2e"
@@ -253,6 +317,24 @@ smoke)
   m=$(api GET /api/apps/counter/count | python3 -c 'import json,sys; print(json.load(sys.stdin)["count"])')
   what="the counter's +1 ($n → $m)"
   check [ "$m" = $((n + 1)) ]
+  # apps/agent answers through llm-gw from fakeopenai's script ("quick" →
+  # "Quick answer."); the run is deleted after, so the tests' list starts empty
+  agent_answers() {
+    local id i
+    id=$(api POST /api/apps/agent/ask '{"text":"quick"}' | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d.get("id") or d["run"]["id"])') || return 1
+    for i in $(seq 1 60); do
+      api GET "/api/apps/agent/runs/$id" | grep -q 'Quick answer\.' && { api DELETE "/api/apps/agent/runs/$id" >/dev/null; return 0; }
+      sleep 0.5
+    done
+    api DELETE "/api/apps/agent/runs/$id" >/dev/null 2>&1
+    return 1
+  }
+  if [ -d "$ws/apps/agent" ]; then
+    what="apps/agent answers from the fake model (POST /api/apps/agent/ask)"
+    check agent_answers
+  else
+    echo "skip apps/agent — not set up (no gocryptfs, or XBIN_E2E_AGENT=0)"
+  fi
   has_fake() { api GET /api/xbin/agent/providers | grep -Eq '"id": ?"fake"'; }
   what="the fake agent is a provider"
   check has_fake

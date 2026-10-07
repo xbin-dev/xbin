@@ -953,7 +953,27 @@ its row's accessibility value carries the partitioned marker's words (and
 `apps/welcome`'s doesn't), Settings → Your partitions and the push link
 `xbin://<host:port>/xbin/partitions` each open xbind's partitions page in
 the app's web view through the web ticket's "Continue as" page, with no
-password form and no page-back onto the spent ticket. Every test launches with `-XbinUITesting
+password form and no page-back onto the spent ticket.
+`XbinNavigationTests` (D189) use `apps/desk` (a rev-2 `split`) and
+`apps/stack` (a rev-1 `nav`): a deep link into a native view, the split's
+Back on an iPhone, its sidebar button on an iPad, a second link into the
+running view. `XbinAgentNativeTests` (D190) drive the agent template's
+native view on `apps/agent` — e2e-xbind.sh makes it from the builtin
+template (unpartitioned), its model `fake/fake-chat` through `apps/llm-gw`
+from `hack/fakeopenai` (on the port after xbind's; words of the message pick
+its script: `hello`, `quick`, `delegate` — a subagent —, `long N`). Each test
+empties the e2e account's conversations and schedules and seeds its own
+through the agent's API: the list root, a conversation pushed and Back to
+the list (an iPad: both columns, the sidebar button), deep links `#c=<id>`
+cold and into the running view, New chat → the started conversation in its
+place, a subagent's card → the subagent pushed → Back, More → Automations →
+a schedule's run pushed → Back, the jump-to-latest pill, and `test06Gallery`
+(`agent-<light|dark>-NN-<screen>.png`). The agent's data are encrypted
+resources: an xbind without gocryptfs holds the tile, so e2e-xbind.sh leaves
+it out (the tests skip) unless it finds one (`XBIN_GOCRYPTFS`,
+`bin/gocryptfs`, PATH); where fusermount3's setuid can't work (a sandbox with
+no_new_privs) `XBIN_E2E_UNSHARE=1` runs xbind in a user and mount namespace
+of its own, where FUSE mounts. Every test launches with `-XbinUITesting
 YES` (Debug builds): UIKit animations are off and the terminal's cursor
 doesn't blink, so the app idles between steps — XCUITest otherwise waited
 60 s for "animations complete" after each step with a terminal on screen
@@ -998,6 +1018,11 @@ Sharing the Mac (learned 2026-09-26, several agents at once):
   `XBIN_MAC_PULL` and `XBIN_E2E_DIR` of your own (the latter defaults to
   `/tmp/xbin-e2e`, whose `stop` kills whichever xbind is recorded there).
   `XBIN_E2E_ERASE=0` keeps the simulator's app and workspace between runs.
+- **A freshly erased simulator needs a moment.** Right after `bootstatus`
+  it is still setting itself up, and the first test's first tap could hang
+  (an iPad, 2026-10-07). `ci-uitests.sh` therefore warms an erased one up:
+  it waits `XBIN_E2E_WARMUP` seconds (30; 0 skips it) and opens Settings
+  once before the tests.
 - **After a failed run, reboot the simulator** (`xcrun simctl shutdown
   <udid>; xcrun simctl boot <udid>`): the next run otherwise often dies
   with "Timed out waiting for AX loaded notification", and xcodebuild then

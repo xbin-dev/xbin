@@ -516,7 +516,7 @@ XBIN_E2E_URL=http://127.0.0.1:9871 run "$S/ci-uitests.sh" "$dest"
 eq "ci-uitests: a URL without an account fails" "$rc" 2
 reset_env
 export FAKE_SCHEMES="Xbin XbinUITests"
-XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 XBIN_E2E_ERASE=1 FAKE_E2E_PNGS=4 \
+XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 XBIN_E2E_ERASE=1 XBIN_E2E_WARMUP=1 FAKE_E2E_PNGS=4 \
   XBIN_E2E_ONLY="XbinUITests/XbinE2ETests/test01AddWorkspace XbinUITests/XbinE2ETests/test03NativeCounter" \
   run "$S/ci-uitests.sh" "$dest"
 eq "ci-uitests: runs against an xbind" "$rc" 0
@@ -524,6 +524,7 @@ log=$(cat "$FAKE_LOG")
 has "ci-uitests: running builds signed to run locally (the Keychain)" "$log" "COMPILER_INDEX_STORE_ENABLE=NO CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual"
 has "ci-uitests: erases the simulator when asked" "$log" "xcrun simctl erase BBBBBBBB-0000-4000-8000-000000002714"
 has "ci-uitests: …then boots it" "$log" "xcrun simctl bootstatus BBBBBBBB-0000-4000-8000-000000002714 -b"
+has "ci-uitests: …and warms it up: Settings opens once" "$log" "xcrun simctl launch BBBBBBBB-0000-4000-8000-000000002714 com.apple.Preferences"
 has "ci-uitests: test-without-building, only the named tests" "$log" \
   "xcodebuild test-without-building -project Xbin.xcodeproj -scheme XbinUITests -destination $dest -derivedDataPath $RUNNER_TEMP/xbin-derived/app -clonedSourcePackagesDirPath $RUNNER_TEMP/xbin-derived/SourcePackages -skipMacroValidation -skipPackagePluginValidation -resultBundlePath $RUNNER_TEMP/xbin-ci/uitests.xcresult -collect-test-diagnostics never -only-testing:XbinUITests/XbinE2ETests/test01AddWorkspace -only-testing:XbinUITests/XbinE2ETests/test03NativeCounter"
 has "ci-uitests: the tests get the URL, the account and E2E_DIR" "$log" \
@@ -535,6 +536,7 @@ hasnt "ci-uitests: the password never reaches the log" "$out" "pw-secret-123"
 : >"$FAKE_LOG"
 XBIN_E2E_URL=http://127.0.0.1:9871 XBIN_E2E_USER=e2e XBIN_E2E_PASSWORD=pw-secret-123 FAKE_ATTACH=1 run "$S/ci-uitests.sh" "$dest"
 hasnt "ci-uitests: no erase unless asked" "$(cat "$FAKE_LOG")" "simctl erase"
+hasnt "ci-uitests: …nor a warm-up" "$(cat "$FAKE_LOG")" "com.apple.Preferences"
 has "ci-uitests: no PNG written → exports the attachments" "$(cat "$FAKE_LOG")" \
   "xcrun xcresulttool export attachments --path $RUNNER_TEMP/xbin-ci/uitests.xcresult --output-path $RUNNER_TEMP/xbin-ci/e2e/attachments"
 : >"$FAKE_LOG"

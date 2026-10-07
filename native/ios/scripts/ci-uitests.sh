@@ -17,7 +17,11 @@
 #                         $XBIN_CI_OUT/e2e); each is also an attachment in
 #                         the result bundle
 #   XBIN_E2E_ERASE=1      erase the simulator first: a clean app, no saved
-#                         workspace (use a dedicated one: XBIN_SIM_ENSURE)
+#                         workspace (use a dedicated one: XBIN_SIM_ENSURE);
+#                         then, after it boots, a warm-up: it settles for
+#                         XBIN_E2E_WARMUP seconds (30; 0 skips the warm-up),
+#                         Settings opens once — a fresh iPad's first tap hung
+#                         without it
 #   XBIN_E2E_ONLY         run only these tests (-only-testing: values, space
 #                         separated, e.g. XbinUITests/XbinE2ETests/test03NativeCounter)
 #   XBIN_SIGNING          none (default when only building) or adhoc
@@ -109,6 +113,19 @@ if udid=$(ci_udid "$dest"); then
   ci_timeout 300 xcrun simctl bootstatus "$udid" -b ||
     ci_warn "simctl bootstatus $udid failed or took over 5 min; leaving the boot to xcodebuild"
   ci_endgroup
+  warm=${XBIN_E2E_WARMUP:-30}
+  if [ "${XBIN_E2E_ERASE:-0}" = 1 ] && [ "$warm" -gt 0 ]; then
+    # A freshly erased simulator is still setting itself up after
+    # bootstatus: the first test's first tap then hung (an iPad, 2026-10-07).
+    # Let it settle and open an app once (Settings) before the tests.
+    ci_group "warm up simulator $udid (${warm}s)"
+    sleep "$warm"
+    xcrun simctl launch "$udid" com.apple.Preferences >/dev/null 2>&1 || ci_warn "could not open Settings on $udid"
+    sleep $((warm / 3))
+    xcrun simctl terminate "$udid" com.apple.Preferences >/dev/null 2>&1 || true
+    sleep $((warm / 6))
+    ci_endgroup
+  fi
 fi
 
 only=()
