@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-08
 
+- **The agent template: a terminal tab opened at a directory comes back.** A
+  native Terminals tab opened from a conversation's Sandbox screen (Open
+  terminal) or a coding agent's Terminal — dialled with `cwd=` (and
+  `rows=`/`cols=`) — was refused 400 when its tab was shown again (the
+  relay passed them to an attach, which takes none). It attaches to its
+  shell again, as a tab without them did. **Instances:** take it with
+  `git merge template/main`.
 - **The shell: the focused tile holds its place** (D191;
   [frontend-kit.md](/docs/frontend-kit.md) §Document mode). While a tile
   is focused — its title bar clicked, its page clicked into, a control in

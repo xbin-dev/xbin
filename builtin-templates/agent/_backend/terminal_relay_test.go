@@ -523,6 +523,24 @@ func TestTerminalTabs(t *testing.T) {
 	if d.session == c.session {
 		t.Fatal("attached to an exited shell")
 	}
+	// a tab opened with a directory and a size (the Sandbox screen's Open
+	// terminal, a coding agent's Terminal) attaches again with them in its
+	// query too — an attach takes neither (the size comes as a resize frame);
+	// it was refused 400 (QA, 2026-10-08)
+	wd := func() *term {
+		return f.dial(t, asAlice, fmt.Sprintf("/sandboxes/%s/terminal?tab=t3&cwd=%s&rows=30&cols=100", url.PathEscape(f.ref), url.QueryEscape(f.cwd)))
+	}
+	e := wd()
+	e.send("export MARK=cwd-$((6*7))\r")
+	e.c.Close()
+	time.Sleep(400 * time.Millisecond)
+	g := wd()
+	if g.session != e.session {
+		t.Fatalf("the tab with a cwd again: %s, not %s", g.session, e.session)
+	}
+	g.send("echo \"$MARK\"\r")
+	g.until("cwd-42")
+	g.c.Close()
 	// left with no client past ttyTabIdle: ended
 	ttyTabIdle.Store(int64(200 * time.Millisecond))
 	d.c.Close()

@@ -387,7 +387,11 @@ func relayTab(w http.ResponseWriter, r *http.Request, conn *sbxConn, id string, 
 		ex, err := conn.ExecGet(ctx, id, t.exec)
 		cancel()
 		if err == nil && ex.State == "running" {
+			// an attach takes no command, directory or size (the contract's
+			// …/execs/{id}/tty: the client's resize frame sizes it) — a tab
+			// dialled with them (cwd=, rows=, cols=) was refused 400
 			o.ExecID = t.exec
+			o.Cmd, o.Cwd, o.Rows, o.Cols = "", "", 0, 0
 		} else {
 			tabTTYs.Lock()
 			if tabTTYs.m[k] == t {
