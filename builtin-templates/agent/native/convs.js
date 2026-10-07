@@ -16,7 +16,7 @@ import { mainMenu } from './home.js';
 import { classSectionTpl } from './classes.js';
 import { kindOf } from '../model/harness-start.js';
 import { kidsWords } from '../model/harness-child.js';
-import { newChat } from './nav.js';
+import { newChat, rev2 } from './nav.js';
 import { publishes } from '../model/homes.js';
 import { openPublish, newShareTpl, newShareBody } from './homes.js'; // a person's partition (two homes)
 
@@ -42,8 +42,9 @@ export function listScreen() {
   const extra = ctx.ext.drawer(() => {}); // the seams' rows (native/ext.js)
   const notices = appNotices(app);
   const needs = uniq(app.needs || []);
+  const r2 = rev2('screen'); // the refresh spinner until the list is read, Return searches at once (D189)
   return html`<screen title=${app.HOME.title} subtitle=${app.HOME.tagline} style="scroll" search=${ui.q} @search=${search}
-      refreshable @refresh=${() => { list.load().catch(() => {}); app.loadNeeds(); }}>
+      @submit=${r2 ? submit : nothing} refreshable refreshing=${r2 ? ui.refreshing : nothing} @refresh=${refresh}>
     <toolbar>
       <button icon="pencil" @tap=${newChat}>New chat</button>
       <menu icon="ellipsis" label="More">${mainMenu()}</menu>
@@ -74,6 +75,25 @@ export function listScreen() {
           ${list.next && list.loading ? html`<progress label="loading…"/>` : nothing}`}
     </list>
   </screen>`;
+}
+
+// refresh: the list and what needs you read again — with an app of rev 2
+// its spinner stays until both are back.
+async function refresh() {
+  const app = ctx.app;
+  ui.refreshing = true;
+  ctx.paint();
+  await Promise.allSettled([app.convs.load(), Promise.resolve(app.loadNeeds())]);
+  ui.refreshing = false;
+  ctx.paint();
+}
+
+// submit: Return in the search field — searched at once (rev 2).
+function submit(e) {
+  ui.q = e.value || '';
+  clearTimeout(searchT);
+  if (ui.q.includes('#join=')) return search(e);
+  ctx.app.convs.search(ui.q).catch(() => {});
 }
 
 // search: the list's ?q= (debounced); a pasted invite link joins instead.
@@ -112,8 +132,18 @@ function rowTpl(r, withMatch) {
   return html`<row title=${r.title || 'run ' + r.id} subtitle=${sub || nothing}
       badge=${g ? g[0] : nothing} tone=${g ? g[1] : r.unread ? 'accent' : nothing} ?selected=${sel}
       @tap=${() => app.select(r.id)}>
-    <actions>${repeat(rowMenu(r, { publish: true }), (i) => i.action, (i) => itemTpl(i, r))}</actions>
+    ${actionsTpl(r)}
   </row>`;
+}
+
+// actionsTpl: a row's menu as its swipe actions and context menu — with an
+// app of rev 2, Pin swipes in from the leading edge (a full swipe pins).
+function actionsTpl(r) {
+  const items = rowMenu(r, { publish: true });
+  if (!rev2('actions')) return html`<actions>${repeat(items, (i) => i.action, (i) => itemTpl(i, r))}</actions>`;
+  const lead = items.filter((i) => i.action === 'pin');
+  return html`<actions edge="leading" full>${repeat(lead, (i) => i.action, (i) => itemTpl(i, r))}</actions>
+    <actions>${repeat(items.filter((i) => !lead.includes(i)), (i) => i.action, (i) => itemTpl(i, r))}</actions>`;
 }
 
 function itemTpl(i, r) {

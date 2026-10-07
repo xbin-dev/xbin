@@ -34,11 +34,12 @@
 //   saved()/restore a restarted runtime comes back to the same stack
 //                   (xbin.native.saveState: {hash, nav})
 //
-// How it is drawn is native.js's: on a phone a `nav` of the list and the
-// stack's screens. The iPad/Duo split (D190 B3) draws the same stack — the
-// list in the primary column, the stack in the detail one — where the app
-// has the split of vocabulary rev 2 (rev2('split')); the stack model here
-// does not change for it.
+// How it is drawn is native.js's (layout()): where the app has the split
+// of vocabulary rev 2 (rev2('split')) the list is its primary column and
+// the stack a nav in its detail one — side by side on an iPad or a Duo,
+// collapsed to the list with the stack pushed over it on a phone; from an
+// app of rev 1 one `nav` of the list and the stack's screens. The stack
+// model here is the same for both.
 import { native } from '/vendor/xb-native.js';
 import { ui, ctx } from './ui.js';
 import * as router from '../model/router.js';

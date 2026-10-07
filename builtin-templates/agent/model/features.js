@@ -314,14 +314,6 @@ export const DIFFERENCES = {
     'composer.keys': 'on a phone Return is a new line and Send is the button; the app\'s composer handles a hardware keyboard and IME composition itself',
     'composer.attach.paste': 'the app\'s composer owns the pasteboard: an image pasted there is uploaded like a picked one — nothing for the tile to draw',
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',
-    'chat.jumpLatest': 'the native view never lets the live end go: the app\'s transcript keeps a row still only at its bottom, so letting go below the reader would move what they read — until the renderer anchors a row across a trim (D130 E3/E4), and the app scrolls to the end itself',
-    'tools.live.ports': 'the sandbox badge\'s popover is the web\'s; on the app a live preview\'s screen has its own Check (tools.live.check), which probes what the Ports section would',
-    'state.partition.publish': 'the native view shows a person\'s shared conversations and shares them, but publishing a copy of one of their own is the web\'s for now: the app\'s share sheet has no form for its choices yet',
-    'state.partition.copy': 'as state.partition.publish: the app\'s share sheet shares a shared conversation; a private copy of one is made on the web for now',
-    'state.partition.newShared': 'the app\'s new chat sheet makes a chat in the person\'s own space; a shared one is started on the web for now (or shared by a copy there)',
-    'state.partition.host': 'as state.partition.publish: letting a shared conversation use one\'s private resources needs the warning\'s form, which the app\'s share sheet hasn\'t yet — it is done on the web; a hosted one is shown, warned about and locked in the app (state.partition.hosted)',
-    'state.partition.copyIn': 'as state.partition.publish: the app\'s share sheet has no picker of one\'s own files yet — copies are added on the web',
-    'tools.terminal.tabs': 'the app\'s terminal primitive closes its socket when its screen goes and names no session to attach again, so a native terminal is one pushed screen at a time (going back ends its shell: the relay ends a terminal it started once its client goes, D147 §4.2.8); the web\'s dock keeps several running',
   },
 };
 

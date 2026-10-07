@@ -369,8 +369,9 @@ What a partitioned instance does differently:
     sheet the first time it is opened in an app session (the composer's
     **Read the warning…** opens it again), heads its transcript with it, and
     locks its composer the same way (the host's **Confirm**, **Continue
-    without …** are the composer's buttons); hosting and adding a copy are
-    the web's for now.
+    without …** are the composer's buttons); its share sheet offers hosting
+    (the warning's sheet first) and adding a copy as the web's dialog does
+    (`native/homes.js`, D190).
   - **Add a copy of my …** (the non-hosting way): `POST /copyin
     {conversation, files: [{run, path}]}` in your partition sends copies of
     session files of your own conversations to a shared one at the global
@@ -2944,8 +2945,9 @@ its terminals dial the manager directly, as you (verified).
 
 | Method & path | Who | Query | Answer |
 |---|---|---|---|
-| `GET /runs/{id}/harness/terminal` | a participant who may use its sandbox | `login=1`, `rows`, `cols`, `exec` | WebSocket: a terminal in the coding agent's sandbox at its cwd — its sign-in command with `login=1` (`harness.login.command`: the adapter's own when it offered one, else the sandbox manager's advertised `login`, else the catalog's (D179: the manager's wins — an older coding-sandbox's `claude /login` keeps working; Claude Code's catalog sign-in is `claude auth login`, no `CLAUDE_CODE_REMOTE`)), else the login shell |
-| `GET /sandboxes/{ref}/terminal` | a person who may use the sandbox | `cwd`, `cmd`, `rows`, `cols`, `exec` | WebSocket: `cmd` as the contract's `tty` route runs it (the login shell unless given) |
+| `GET /runs/{id}/harness/terminal` | a participant who may use its sandbox | `login=1`, `rows`, `cols`, `exec`, `tab` | WebSocket: a terminal in the coding agent's sandbox at its cwd — its sign-in command with `login=1` (`harness.login.command`: the adapter's own when it offered one, else the sandbox manager's advertised `login`, else the catalog's (D179: the manager's wins — an older coding-sandbox's `claude /login` keeps working; Claude Code's catalog sign-in is `claude auth login`, no `CLAUDE_CODE_REMOTE`)), else the login shell |
+| `GET /sandboxes/{ref}/terminal` | a person who may use the sandbox | `cwd`, `cmd`, `rows`, `cols`, `exec`, `tab` | WebSocket: `cmd` as the contract's `tty` route runs it (the login shell unless given) |
+| `DELETE /terminals/{tab}` | a person | — | `{"ended": n}`: ends your terminal of tab `{tab}` (in whichever sandbox; 0 when there is none) |
 | `GET /runs/{id}/harness/log` | a viewer who may use its sandbox | `max` (bytes, ≤ 65536: the default; more is the cap) | `text/plain`: the tail of the coding agent's stderr, its current generation |
 
 - **`exec=<id>`** (a terminal's session id, from its session frame)
@@ -2974,6 +2976,15 @@ its terminals dial the manager directly, as you (verified).
   leaves would otherwise run on for nobody. The rule is the process's that
   relayed it: across a redeploy, a terminal whose relay ran in the old
   process runs on.
+- **A terminal tab** (`tab=<name>`: 1–64 letters, digits, `_` or `-`; the
+  native view's Terminals screen, D190) is yours by that name in that
+  sandbox: a relay with `tab=` and no `exec=` attaches to the tab's
+  terminal while it runs (a new one when it exited or is gone), and a
+  tab's terminal is not ended when its client goes — the app's terminal
+  closes its socket when its tab isn't shown — but after **30 minutes**
+  with no client, or by `DELETE /terminals/{tab}` (the tab's Close). Another
+  person's tab of the same name is theirs. Like the rest, the rule is the
+  relaying process's.
 - **A relay holds the partition it reaches.** Its socket is a held
   connection, so the app's Terminal screen keeps running, for as long as
   it is up, the person's partition — or, for a shared conversation's run
@@ -3075,8 +3086,9 @@ moved; at once after a stream reset), never at every repaint — and
 its answer. **Stop** (`POST /runs/{child}/interrupt`), **Cancel** (confirmed;
 `POST /runs/{child}/cancel`) and **Message** (`POST /runs/{child}/message`;
 Enter queues or steers, ⌘/Ctrl+Enter or Send now adds `interrupt: true`)
-act on the child from its card (the app: from its own chat — its composer,
-Stop, ⋯ → Cancel task). A person's message to a coding agent the agent
+act on the child from its card (the app: an approval card in the open card
+— a message field, Send, Send now, Stop, Cancel task… confirmed by a second
+card — and from its own chat: its composer, Stop, ⋯ → Cancel task). A person's message to a coding agent the agent
 started is told to that agent (`[direct message to #<child> (<name>) from
 <who>]`, D147 §4.3.13), which its chat shows as a folded notice once it
 is delivered. A conversation row says `?` while it or a run below it waits
@@ -4676,8 +4688,12 @@ reads the pages held again (the rows stay). The web draws a window of the
 blocks (`chat-window.js`, over xbind's `/vendor/scroll-window.js`: nothing
 the reader looks at moves; the "↓ N new — jump to latest" pill); the native
 view draws the tail and grows it on `more`, trimming it — and letting go
-above — only while `scrolled` says the reader is at the bottom (the app's
-transcript keeps its bottom still). An app that uploads picked files itself
+above — only while the reader is at the bottom (the app's transcript keeps
+its bottom still); where the app's transcript has the anchors of vocabulary
+rev 2 (D189), the row the window grew from is its `anchor` while the reader
+is away from the end (its `edge`), so the window is cut below it and the live
+tail let go too, and the composer's "↓ N new — jump to latest" reads the
+newest page again and `scrollTo`s the end (D190). An app that uploads picked files itself
 asks `app.uploadTarget()` where (the open run, or at home the new ask's draft
 `app.draft`) and hands the answer to `app.attach.uploaded({…, at: app.place})`:
 such a chip stays where it was picked (`app.attach.here(place)`), and Send at
@@ -4685,21 +4701,22 @@ home sends the draft (`POST /ask {draft, files}`).
 
 | The native view | What it draws |
 |---|---|
-| `native.js` | the entry: a `nav` of the conversation list (the root) and the stack's screens — conversations (a subagent's over its parent: back goes up), the new chat screen, the Automations screens, Projects, the tools pushed over any of them — plus the sheets; `layout()` is where the iPad split goes (behind `nav.rev2('split')`) |
+| `native.js` | the entry: the conversation list (the root) and the stack's screens — conversations (a subagent's over its parent: back goes up), the new chat screen, the Automations screens, Projects, the tools pushed over any of them — plus the sheets; `layout()`: where the app has the collapsing `split` of rev 2 (`nav.rev2('split')`) the list is its primary column and the stack a `nav` in its detail one (iPad, Duo: side by side, the new chat screen while nothing is open; a phone: the list with the stack pushed over it), else one `nav` of the list and the stack |
 | `native/nav.js` | the navigation stack (D190): route entries in `ui.stack` — places (`{kind: 'chat', run}`, `new`, `auto`, `projects`, `project` {pid}) and tool screens over them; `open` (back to a place on the stack, else pushed), `cut`, `follow` (the model's single selection follows the top place), `wire` (a conversation the model opens anywhere is pushed; one deleted or revoked leaves), `link` (deep links `#c=`, `#auto`, `#proj`, `#join=` build the stack through `model/router.js`), `saved`/`restore` (a restarted runtime, `xbin.native.state.nav`) |
-| `native/chat.js` | the conversation: `fold()` blocks as the chat family (`message`, `thinking`, `toolcard` with a subagent's transcript inside, `step`, `activity`, `approval`, `question`), the composer (attachments the app uploads to `PUT /runs/{id}/upload`, or at home into the new ask's draft, `PUT /ask/upload?draft=`), the top bar as the toolbar's menu |
+| `native/chat.js` | the conversation: `fold()` blocks as the chat family (`message`, `thinking`, `toolcard` with a subagent's transcript inside, `step`, `activity`, `approval`, `question`), the window of the transcript and jump to latest (rev 2 anchors), the composer (its draft per place — each conversation's, the new chat screen's: `native/ui.js`; attachments the app uploads to `PUT /runs/{id}/upload`, or at home into the new ask's draft, `PUT /ask/upload?draft=`), the top bar as the toolbar's menu |
 | `native/convs.js`, `native/home.js`, `native/share.js` | the conversation list, the stack's root: search, Needs you, the scope, pinned, by date, a row's swipe actions and menu; New chat and the main ⋯ (Automations, Projects, Coding agents, Settings, the brake) in its bar; the new chat screen (greeting, Try, the class, model and sandbox pickers, the composer); new chat with options, rename; the share sheet |
-| `native/tools.js`, `native/settings.js` | memory, files (+ editor, share/export), skills, the workflow tree, one call in full, the render preview (a `canvas html=` island, `native/render-doc.js` — the web's CSP); settings for managers |
+| `native/homes.js` | a person's partition (two homes): the Share a copy sheet (`POST /runs/{id}/publish`), the share sheet's Copy to my own space (`POST /copy`), Use my private resources… (the warning's sheet, `POST /hosting`; its host's Take them back), Add a copy of my files… (`POST /copyin`), and Who can see it in new chat with options — the web's `homes-ui.js` and `hosted-ui.js` in sheets |
+| `native/tools.js`, `native/settings.js` | memory, files (+ editor, share/export), skills, the workflow tree, one call in full, the render preview (a `canvas html=` island, `native/render-doc.js` — the web's CSP), the live preview and Ports (the conversation's previews probed, a probe of any port); settings for managers |
 | `native/classes.js` | agent classes: the Class picker in the new chat screen's toolbar, the new-chat sheet's class, Settings → Classes (the list, one class's form), an automation's class row and picker |
-| `native/sandboxes.js` | coding sandboxes: the Sandbox picker in the chat and new chat toolbars, the sandbox in the subtitle and the broken-binding notice, the Sandbox screen (⋯ → Sandbox), the Sandboxes screen and the create form |
-| `native/terminal.js` | the Terminal screen (the app's `terminal` on the tile's relays) and a coding agent's sign-in: the notice, Sign in in the composer and ⋯, the Sign in screen |
+| `native/sandboxes.js` | coding sandboxes: the Sandbox picker in the chat and new chat toolbars, the sandbox in the subtitle and the broken-binding notice, the Sandbox screen (⋯ → Sandbox; its Ports), the Sandboxes screen and the create form |
+| `native/terminal.js` | the Terminals screen — the shells as a tabs bar (`model/terminals.js` `termsOf`, the web dock's model), each the app's `terminal` on the tile's relay with `tab=<name>` (a tab not shown keeps its shell; New shell, Close tab; Terminals (N) in the ⋯ menus) — a sign-in terminal, and a coding agent's sign-in: the notice, Sign in in the composer and ⋯, the Sign in screen |
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
 | `native/ext.js`, `native/harness-all.js` | the native view's seams, and the feature modules that hook into them (below) |
 | `native/harness-start.js` | starting with a coding agent: "Who answers" at the top of the new chat screen, its setup notice, the new-chat sheet's section, and a coding agent's chip, plan and context at the start of the conversation's subtitle |
 | `native/harness-cards.js` | a coding agent's calls as `toolcard`s (`code`, `diff`, a Task's nested `transcript`), one call in full, and the Progress screen (`plan`; the plan's progress and the context in use start the subtitle: `native/harness-start.js`) |
 | `native/harness-ask.js` | a coding harness asking and driven: its permission as an `approval` (its options; a bypass one confirmed by a second approval), a plan above it as `markdown`, a `diff` preview, its question as a `question`; the toolbar's Mode menu (its config options but the model, and your Auto / Always approve) and the Model picker; the composer's slash commands, Send now (interrupts); ⋯ → Coding agent settings (the main menu: the list's) → your setting per harness |
-| `native/harness-child.js` | a coding agent the agent started, as the spawn's `toolcard` in the parent's chat (its park inside it, answered on the child's run), and Cancel task in a harness child's own ⋯ |
+| `native/harness-child.js` | a coding agent the agent started, as the spawn's `toolcard` in the parent's chat (its park inside it, answered on the child's run; open, its steering: an `approval` with a message field — Send, Send now, Stop, Cancel task…), and Cancel task in a harness child's own ⋯ |
 | `native/harness-catalog.js` | Settings → Coding agents (the managers' catalog: `model/harness-manage.js`) |
 | `native/harness-board.js` | the Coding agents board: its screen (sections Needs you, Running, Done; a row's swipe Stop, Message, Cancel task; a parked row's approval or question), the Message screen, the toolbar button and ⋯ item, the Task screen's Delegated section |
 

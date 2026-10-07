@@ -98,7 +98,7 @@ function termsTpl(s) {
   const cur = T.current;
   if (!cur) {
     return html`<screen title="Terminals" style="form"><section>
-      <empty icon="terminal" title="No terminals open" text="Open one from a sandbox (▣ → Open terminal) or from a coding agent's ⋯ → Terminal."/>
+      <empty icon="terminal" title="No terminals open" text="Open one from a conversation's Sandbox screen (Open terminal), or a coding agent's Terminal in its menu."/>
     </section></screen>`;
   }
   const h = tabHead(cur);

@@ -52,6 +52,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (`native/nav.js`), the main ⋯ is the list's, and `ext.drawer` rows draw
   at the top of the list.
 
+- **The agent template on the xbin app: iPad and Duo side by side, and the
+  web's remaining features** (D190; the template's API.md "The frontend",
+  "Terminal relays"). With an app of vocabulary rev 2, the conversation
+  list sits beside the open conversation (and what is opened over it) on
+  an iPad or a Duo, and collapses to the list with Back on a phone; an
+  older app keeps the phone stack everywhere. Also: **terminals as tabs**
+  (several shells on one Terminals screen; leaving a tab or the screen
+  keeps them running — Terminals (N) in ⋯ — and Close tab ends one),
+  **Ports** on the Sandbox screen, a person's **partition forms** (Share a
+  copy, Copy to my own space, Use my private resources, Add a copy of my
+  files, who can see a new chat), **jump to latest** ("↓ N new" while you
+  read far up; rev 2), **steering a coding agent from its card** (Send,
+  Send now, Stop, Cancel task), and the composer keeps **a draft per
+  conversation**. The agent backend's terminal relays take **`tab=<name>`**:
+  a person's tab terminal outlives its client and is attached to again by
+  name, until **`DELETE /terminals/{tab}`** or 30 minutes with no client.
+
 - **Fix: a page without a `<head>` keeps its doctype first.** xbind's
   injection (the import map, the client) used to go in front of such a
   page, so a leading `<!doctype html>` no longer came first and the

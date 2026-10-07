@@ -6769,7 +6769,9 @@ Deviations and refinements made while implementing; all deliberate:
     rollback to v0.3.64 leaves queued `hprompt`/`hanswer` rows waking that
     build every minute (the clean-up SQL is in API.md) and a class save
     there drops every class's coding agents. The native view has one
-    terminal at a time and no buttons on child cards (the app's `toolcard`).
+    terminal at a time and no buttons on child cards (the app's `toolcard`)
+    — *retired 2026-10-07 (D190): terminals are tabs whose shells the relay
+    keeps by name (`tab=`), and an open child card holds its steering.*
     Conformance: no manager whose run passed fails on the upgrade —
     `caps/missing` takes a pre-`stdio` manager's `not-found`, and
     `tty/backend` (a consumer backend's terminal for an asserted person)

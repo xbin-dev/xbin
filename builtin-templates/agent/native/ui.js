@@ -15,6 +15,7 @@ export const ui = {
   get draft() { return draftOf(); },       // the open place's (draftKey)
   set draft(text) { setDraft(text); },
   q: '',            // the conversation list's search field
+  refreshing: false, // the list is being read again (pull to refresh)
   newChat: null,    // the "new chat with options" sheet: {text, title, system, class}
   rename: null,     // the rename sheet: {id, title}
   share: null,      // the share sheet: {run: {id, title}, data, link, err, user, role, linkRole, linkExp}
