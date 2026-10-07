@@ -7,27 +7,30 @@
 // home.js. And the main menu — the list's ⋯.
 import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { ui, ctx, guard, push } from './ui.js';
-import { composerTpl, modelPickerTpl } from './chat.js';
+import { composerTpl, modelPickerTpl, folded } from './chat.js';
 import { classPickerTpl } from './classes.js';
 import { sandboxPickerTpl } from './sandboxes.js';
 import { homeSetupTpl } from './harness-start.js';
-import { openAutos } from './nav.js';
+import { openAutos, compact } from './nav.js';
 
 export function newScreen() {
   const app = ctx.app;
   const H = app.HOME;
   const mcp = globalThis.xbin?.iface?.('mcp');
   const mcpBound = !!(mcp && (mcp.endpoints || []).length);
+  const fold = compact(); // a phone's bar: the pickers go into ⋯ (native/pick.js)
+  const options = html`<button icon="pencil" @tap=${() => { ui.newChat = { text: ui.draft || '', title: '', system: '', class: app.classId }; ctx.paint(); }}>New chat with options…</button>`;
   return html`<screen title="New chat" style="scroll">
-    <toolbar>
+    ${fold ? html`<toolbar>
+      <menu icon="ellipsis" label="More">${folded([classPickerTpl(true), app.harness.picked() ? nothing : modelPickerTpl(null, true),
+        sandboxPickerTpl(true), ctx.ext.toolbar(null, { fold: true })])}${options}</menu>
+    </toolbar>` : html`<toolbar>
       ${classPickerTpl()}
       ${app.harness.picked() ? nothing : modelPickerTpl(null)}
       ${sandboxPickerTpl()}
       ${ctx.ext.toolbar(null) || nothing}
-      <menu icon="ellipsis" label="More">
-        <button icon="pencil" @tap=${() => { ui.newChat = { text: ui.draft || '', title: '', system: '', class: app.classId }; ctx.paint(); }}>New chat with options…</button>
-      </menu>
-    </toolbar>
+      <menu icon="ellipsis" label="More">${options}</menu>
+    </toolbar>`}
     ${ui.err ? html`<notice tone="danger" text=${ui.err}/>` : nothing}
     ${app.halted ? html`<notice tone="warn" title="Halted" text="Every run of this agent is stopped. Resume it from the list's More."/>` : nothing}
     ${homeSetupTpl()}

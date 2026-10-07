@@ -16,7 +16,8 @@ import { MAX_ATTACH, fmtBytes } from '../model/actions.js';
 import { sandboxPickerTpl, badgeWords, brokenTpl, sandboxMenuTpl } from './sandboxes.js';
 import { openRender, openLive } from './tools.js';
 import { openPublish } from './homes.js'; // one of a person's own conversations: shared by a copy
-import { newChat, openAutos, rev2 } from './nav.js';
+import { newChat, openAutos, rev2, compact } from './nav.js';
+import { pickTpl } from './pick.js';
 import { hostedNoticeTpl, hostedComposer, hostedButtonsTpl } from './hosted.js'; // a non-secure conversation's warning and lock
 import { steerWords } from '../model/harness-ask.js'; // a coding harness's queued chips
 import { activityStill } from '../model/harness.js'; // …and its activity line
@@ -428,13 +429,16 @@ export function chatScreen(v) {
   const subtitle = [chain.length ? 'in ' + chain.join(' › ') : '', ...(ctx.ext.subtitle(v) || []), r.status, t.cls.label, t.cls.warn, badgeWords(v), t.viewOnly ? 'view only' : '',
     t.share.tone ? t.share.label : '', t.model || '', ...t.grants.map((g) => g.label)].filter(Boolean).join(' · ');
   return html`<screen title=${t.title} subtitle=${subtitle} style="scroll">
-    <toolbar>
+    ${compact() ? html`<toolbar>
+      <button icon="pencil" @tap=${newChat}>New chat</button>
+      <menu icon="ellipsis" label="More">${folded([modelPickerTpl(v, true), sandboxPickerTpl(true), ctx.ext.toolbar(v, { fold: true })])}${runMenu(v, t)}</menu>
+    </toolbar>` : html`<toolbar>
       <button icon="pencil" @tap=${newChat}>New chat</button>
       ${modelPickerTpl(v)}
       ${sandboxPickerTpl()}
       ${ctx.ext.toolbar(v) || nothing}
       <menu icon="ellipsis" label="More">${runMenu(v, t)}</menu>
-    </toolbar>
+    </toolbar>`}
     <transcript follow ?older=${w.start > 0 || s.hasOlder} @more=${more}
         anchor=${anchors() && !w.atBottom && w.anchor != null ? String(w.anchor) : nothing}
         scrollTo=${anchors() ? `end#${w.jumps}` : nothing}
@@ -468,6 +472,13 @@ function questionTpl(r) {
     @submit=${(e) => ctx.app.send(String((e.content || {}).answer || ''), clearer())}/>`;
 }
 
+// folded: the bar's choices in ⋯ on a phone (native/pick.js), a divider after
+// them when there are any.
+export function folded(items) {
+  const xs = items.flat().filter((x) => x && x !== nothing);
+  return xs.length ? html`${xs}<divider/>` : nothing;
+}
+
 // runMenu: the top bar's controls (model/rules.js topBar) in the toolbar's menu.
 function runMenu(v, t) {
   const app = ctx.app;
@@ -496,12 +507,12 @@ function runMenu(v, t) {
 // modelPickerTpl: the model (model/rules.js modelPicker) — the open
 // conversation's from its next turn, or at home the next new chat's. In the
 // toolbar: the app's composer holds buttons only.
-export function modelPickerTpl(v) {
+export function modelPickerTpl(v, fold = false) {
   const app = ctx.app;
   const p = app.rules.modelPicker(v, app.model, app.catalog);
   if (!p.shown || p.disabled) return nothing;
-  return html`<picker label="Model" style="menu" value=${p.value} options=${p.options.map(({ value, label }) => ({ value, label }))}
-    @change=${(e) => guard(() => app.pickModel(e.value))()}/>`;
+  return pickTpl({ label: 'Model', icon: 'sparkles', fold, value: p.value, options: p.options.map(({ value, label }) => ({ value, label })),
+    change: (e) => guard(() => app.pickModel(e.value))() });
 }
 
 // --- the composer ------------------------------------------------------------------------

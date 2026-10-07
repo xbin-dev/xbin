@@ -54,6 +54,22 @@ export function rev2(name) {
   try { return !!native.supports?.(name, 2); } catch { return false; }
 }
 
+// compact: the screen is a phone's narrow width (xbin.native.width, told by
+// an app of rev 2): a bar keeps two items — New chat and ⋯ on the list, ⋯ and
+// one action in a conversation — so its title shows; the pickers and the
+// seams' items fold into ⋯ (native/pick.js). An app that doesn't say: the bar
+// as on a wide screen.
+export function compact() {
+  try { return native.width === 'compact' && rev2('menu'); } catch { return false; }
+}
+
+// wide: a regular-width screen where the list sits beside the open place
+// (an iPad's split): the app's own bar names the tile, the detail column the
+// conversation.
+export function wide() {
+  try { return native.width === 'regular' && rev2('split'); } catch { return false; }
+}
+
 // same: two entries are the same place (a tool screen never is: each push
 // is its own).
 export function same(a, b) {

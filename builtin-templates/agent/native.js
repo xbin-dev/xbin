@@ -60,7 +60,8 @@ function route(h) {
   save();
 }
 function save() {
-  const st = { hash, nav: nav.saved() };
+  // cols: the list hidden beside the open place (an iPad's sidebar) stays so
+  const st = { hash, nav: nav.saved(), ...(ui.cols === 'detail' ? { cols: 'detail' } : {}) };
   const key = JSON.stringify(st);
   if (key === savedKey) return;
   savedKey = key;
@@ -92,9 +93,11 @@ function draw() {
   screens = [list, ...stack];
   render(html`${layout(list, stack)}
     ${newChatSheet()}${renameSheet()}${shareSheet()}${sandboxAskSheet()}${hostedWarnSheet()}${partitionSheets()}`);
-  // the tile's title and badge in the app's navigator and switcher
+  // the tile's title and badge in the app's navigator and switcher — the open
+  // conversation's on a phone; beside the split (an iPad) the tile's own, as
+  // the detail column already names the conversation (D190)
   const v = app.session.current();
-  const m = { title: v ? app.rules.topBar(v).title : app.HOME.title, badge: app.needs.length ? String(app.needs.length) : null };
+  const m = { title: v && !nav.wide() ? app.rules.topBar(v).title : app.HOME.title, badge: app.needs.length ? String(app.needs.length) : null };
   const key = JSON.stringify(m);
   if (key !== meta) { meta = key; try { native.meta(m); } catch { /* no app */ } }
   save();
@@ -196,9 +199,12 @@ app.start();
 // #proj[=<id>], #join=<token> — model/router.js) builds the stack; else the
 // stack the runtime had last; else its address (saved before the stack was).
 const st = native.state && typeof native.state === 'object' ? native.state : {};
+if (st.cols === 'detail') ui.cols = 'detail'; // the sidebar the person hid stays hidden
 const opened = globalThis.location?.hash || '';
 if (opened.length > 1) nav.link(opened).catch(fail);
 else if (!nav.restore(st.nav)) nav.link(st.hash ? '#' + st.hash : '').catch(fail);
+// the screen's width class changed (an iPad's Split View, xbin.native.width): the bars lay out again
+try { native.on('width', () => paint()); } catch { /* a runtime from before width */ }
 // a deep link while the runtime runs (the app's xbn.navigate fires hashchange)
 globalThis.addEventListener?.('hashchange', () => { nav.link(globalThis.location.hash).catch(fail); });
 

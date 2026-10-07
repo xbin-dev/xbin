@@ -69,6 +69,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   a person's tab terminal outlives its client and is attached to again by
   name, until **`DELETE /terminals/{tab}`** or 30 minutes with no client.
 
+- **`xbin.native.width`: a native view knows its screen's width class**
+  ([native.md](/docs/native.md) §`xbin.native`). `"compact"` (a phone, an
+  iPad's narrow Split View) or `"regular"` (an iPad), `null` from an app that
+  doesn't say; `xbin.native.on('width', fn)` hears a change. A phone's bar
+  drops its title when it holds more than about two items — lay it out with
+  this. The agent template does: on a phone the conversation list's bar is
+  New chat and ⋯, a conversation's New chat and ⋯ with the model, the
+  sandbox and the seams' choices as submenus of ⋯, the new chat screen's ⋯
+  alone (`ext.toolbar(v, {fold})` for a seam's items). On an iPad the app's
+  bar names the tile and the detail the conversation, the list column is
+  280–400 pt, and a list hidden with the sidebar button stays hidden — when
+  a link opens another conversation, and after a relaunch.
+
 - **Fixes from the xbin app on a simulator** (for the same app release).
   A collapsed `split` whose detail is a `nav` (the agent template's) now
   works on a phone: the conversation no longer closed as it opened, and
@@ -78,7 +91,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   lines (`:`) when it goes quiet: they push WebKit's held-back last chunk
   through (a finished turn showed as working), and every SSE parser skips
   them — a hand-written one must ignore lines that start with `:`, as the
-  format says. In the agent template, a restarted view whose saved
+  format says. A `nav` in a `split`'s detail column on an iPad pushes and
+  goes back (it showed the screen under it, covered). A short transcript
+  reports its end in view (a just-started conversation showed "↓ 1 new"). In
+  the agent template, a restarted view whose saved
   conversation or automation is gone comes back on the list (or the
   Automations page) without an error.
 

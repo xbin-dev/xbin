@@ -828,3 +828,65 @@ test('classes (D116): the picker remembers your pick, the badge warns, managers 
 });
 
 // The coding sandboxes' tests (D115) are hack/agent-template-native-sandboxes.test.mjs's.
+
+test('a phone\'s narrow bar (xbin.native.width compact): two items and the title; the pickers fold into ⋯', async () => {
+  const { FULL } = await import('./agent-template-native-caps.mjs');
+  const withModels = () => { const s = chatSeed(); s.routes = [...(s.routes || []), ['GET', '/models$', { data: [{ id: 'm1' }, { id: 'm2' }] }]]; return s; };
+  const go = async (width, steps, state = null) => {
+    const r = await runNative({ caps: { ...FULL, width }, entry: TPL + 'native.js', state,
+      data: { now: NOW, self: 'apps/agent', setup: TPL + 'test/native-stub.mjs', seed: withModels() }, steps: [{ wait: 30 }, ...steps, { wait: 30 }, { snapshot: 's' }] });
+    assert.deepEqual(r.errors, []);
+    assert.deepEqual(r.diagnostics.filter((d) => d.level !== 'info'), []);
+    metas.push(r.messages.filter((m) => m.op === 'meta').pop());
+    return r.snapshots.s;
+  };
+  const metas = [];
+  // the screens of the open place, the list first (the split's columns)
+  const screens = (t) => all(t.root, { t: 'screen' });
+  const bar = (s) => { const tb = (s.c || []).find((c) => c.t === 'toolbar'); return tb ? tb.c.map((c) => `${c.t}:${c.p.label}`) : []; };
+  const list = (await go('compact', []));
+  const root = screens(list)[0];
+  assert.equal(root.p.title, 'Agent');
+  assert.equal(root.p.subtitle, undefined, 'no subtitle beside the app\'s own buttons');
+  assert.ok(find(root, { t: 'section', p: { title: 'conversations · cron-agents' } }), 'the tagline heads the list');
+  assert.deepEqual(bar(root), ['button:New chat', 'menu:More']);
+
+  const chat = screens(await go('compact', [], { hash: 'c=1' })).find((s) => s.p.title === 'plan the quarter');
+  assert.deepEqual(bar(chat), ['button:New chat', 'menu:More'], 'a conversation: New chat and ⋯');
+  assert.equal(metas.pop().title, 'plan the quarter', 'a phone\'s switcher names the conversation');
+  const more = (chat.c.find((c) => c.t === 'toolbar').c[1]);
+  const model = all(more, { t: 'menu' }).find((m) => /^Model: /.test(m.p.label));
+  assert.ok(model, 'the model is a submenu of ⋯');
+  assert.ok(model.c.some((b) => b.p.icon === 'check'), 'the current model checked');
+  assert.notEqual(more.c[0].t, 'divider');
+  assert.equal(all(chat, { t: 'picker', in: { t: 'toolbar' } }).length, 0, 'no picker in the bar');
+
+  const home = screens(await go('compact', [{ tap: NEW_CHAT }])).find((s) => s.p.title === 'New chat');
+  assert.deepEqual(bar(home), ['menu:More'], 'the new chat screen: ⋯ alone');
+  assert.ok(all(home, { t: 'menu' }).some((m) => /^Class: /.test(m.p.label)), 'its class picker folded');
+
+  // a wide screen keeps today's bar
+  const wide = screens(await go('regular', [], { hash: 'c=1' })).find((s) => s.p.title === 'plan the quarter');
+  assert.ok(all(wide, { t: 'picker', in: { t: 'toolbar' } }).length > 0, 'pickers in the bar on a wide screen');
+  assert.equal(metas.pop().title, 'Agent', 'beside the split the app\'s bar names the tile; the detail names the conversation');
+  assert.equal(screens(await go('regular', []))[0].p.subtitle, 'conversations · cron-agents');
+});
+
+test('an iPad\'s hidden list (the split\'s columns = detail) stays hidden: saved, restored, through links', async () => {
+  const { FULL } = await import('./agent-template-native-caps.mjs');
+  const r = await runNative({ caps: { ...FULL, width: 'regular' }, entry: TPL + 'native.js', state: { hash: 'c=1', cols: 'detail' },
+    data: { now: NOW, self: 'apps/agent', setup: TPL + 'test/native-stub.mjs', seed: chatSeed() }, steps: [
+      { wait: 30 }, { snapshot: 'restored' },
+      { navigate: '#c=2' }, { wait: 30 }, { snapshot: 'linked' },
+      { event: [{ t: 'split' }, 'columns', { value: 'all' }] }, { wait: 30 }, { snapshot: 'shown' },
+      { event: [{ t: 'split' }, 'columns', { value: 'detail' }] }, { wait: 30 },
+    ] });
+  assert.deepEqual(r.errors, []);
+  const split = (t) => find(t, { t: 'split' });
+  assert.equal(split(r.snapshots.restored).p.columns, 'detail', 'a restarted view keeps the list hidden');
+  assert.equal(split(r.snapshots.linked).p.columns, 'detail', 'a link opens beside a hidden list, still hidden');
+  assert.equal(split(r.snapshots.shown).p.columns, 'all', 'the toggle brings it back');
+  const states = r.messages.filter((m) => m.op === 'state').map((m) => m.state);
+  assert.ok(states.some((s) => !s.cols), 'shown again: not saved hidden');
+  assert.equal(states.pop().cols, 'detail', 'hidden: saved so');
+});

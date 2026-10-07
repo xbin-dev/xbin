@@ -19,6 +19,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const TPL = join(here, '..');
 const ROOT = resolve(TPL, '..', '..');
 const { runNative } = await import(join(ROOT, 'hack/xbn/node.mjs'));
+const { FULL } = await import(join(ROOT, 'hack/agent-template-native-caps.mjs'));
 
 const argv = process.argv.slice(2);
 const opt = (name, dflt) => { const i = argv.indexOf(name); return i >= 0 ? argv[i + 1] : dflt; };
@@ -223,6 +224,7 @@ const SCENES = {
   'child-card': [{ hash: 'c=25' }, [{ event: [{ t: 'toolcard', p: { title: 'Split the router' } }, 'toggle', { open: true }] }, { wait: 50 }], KIDS],
 };
 
+const PICKS = new Set(['sandbox-home', 'sandboxes', 'sandbox-new']);
 const treesDir = join(OUT, 'trees');
 mkdirSync(treesDir, { recursive: true });
 const thumbs = (n) => {
@@ -237,7 +239,10 @@ let bad = 0;
 for (const [name, [state, steps, change]] of Object.entries(SCENES)) {
   if (only && !only.split(',').some((o) => name.includes(o))) continue;
   const sd = change ? await change(seed()) : seed();
-  const r = await runNative({ entry: join(TPL, 'native.js'), data: { now: NOW, self: 'apps/agent', setup: join(here, 'native-stub.mjs'), seed: sd },
+  // the app says the screen's width class: a phone's 390 is compact (its bar folds), an iPad's regular
+  // (the scenes that drive a bar's picker draw the wide bar, where it is one)
+  const width = Number(String(opt('--size', '390x844')).split('x')[0]) < 700 && !PICKS.has(name) ? 'compact' : 'regular';
+  const r = await runNative({ caps: { ...FULL, width }, entry: join(TPL, 'native.js'), data: { now: NOW, self: 'apps/agent', setup: join(here, 'native-stub.mjs'), seed: sd },
     steps: [...steps, { wait: 300 }], state: state.hash ? state : null });
   const problems = [...r.errors.map((e) => e.message), ...r.diagnostics.filter((d) => d.level !== 'info').map((d) => d.message)];
   if (r.fatal || problems.length) { bad++; console.error(`${name}: ${r.fatal || problems.join('; ')}`); }

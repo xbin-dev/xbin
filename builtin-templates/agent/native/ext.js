@@ -14,7 +14,9 @@
 //                    harness park (run.pendingState.harness) is left to these
 //                    hooks: while any answers, the built-in approval and
 //                    question are not drawn for it
-//   toolbar(v)       items in the toolbar (v the open view; null at home)
+//   toolbar(v, {fold}) items in the toolbar (v the open view; null at home);
+//                    fold: a phone's bar, the items go into its ⋯ menu — buttons,
+//                    menus and native/pick.js choices only, no pickers
 //   subtitle(v)      words for the conversation's subtitle (a string; after its
 //                    chain, before its status) — a phone's bar holds few items
 //   menu(v, t)       items in the conversation's ⋯ menu (t = rules.topBar(v))

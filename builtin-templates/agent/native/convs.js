@@ -16,7 +16,7 @@ import { mainMenu } from './home.js';
 import { classSectionTpl } from './classes.js';
 import { kindOf } from '../model/harness-start.js';
 import { kidsWords } from '../model/harness-child.js';
-import { newChat, rev2 } from './nav.js';
+import { newChat, rev2, compact } from './nav.js';
 import { publishes } from '../model/homes.js';
 import { openPublish, newShareTpl, newShareBody } from './homes.js'; // a person's partition (two homes)
 
@@ -43,7 +43,10 @@ export function listScreen() {
   const notices = appNotices(app);
   const needs = uniq(app.needs || []);
   const r2 = rev2('screen'); // the refresh spinner until the list is read, Return searches at once (D189)
-  return html`<screen title=${app.HOME.title} subtitle=${app.HOME.tagline} style="scroll" search=${ui.q} @search=${search}
+  // a phone's bar: the title alone (beside the app's own buttons the tagline
+  // pushed it out); the tagline heads the list instead
+  const narrow = compact();
+  return html`<screen title=${app.HOME.title} subtitle=${narrow ? nothing : app.HOME.tagline} style="scroll" search=${ui.q} @search=${search}
       @submit=${r2 ? submit : nothing} refreshable refreshing=${r2 ? ui.refreshing : nothing} @refresh=${refresh}>
     <toolbar>
       <button icon="pencil" @tap=${newChat}>New chat</button>
@@ -60,7 +63,7 @@ export function listScreen() {
       ${!results && needs.length ? html`<section title="Needs you">${repeat(needs, needKey, (n) => html`
         <row title=${n.run.title || 'run ' + n.run.id} subtitle=${needWords(n)} icon=${NEED_ICON[n.reason] || 'question'}
           tone=${n.reason === 'failed' ? 'danger' : 'accent'} nav @tap=${() => app.select(n.subRun || n.run.id)}/>`)}</section>` : nothing}
-      ${results ? nothing : html`<section><picker style="segmented" value=${scope} options=${SCOPES}
+      ${results ? nothing : html`<section title=${narrow ? app.HOME.tagline : nothing}><picker style="segmented" value=${scope} options=${SCOPES}
         @change=${(e) => { ui.q = ''; list.view(e.value === 'shared' ? 'shared' : 'mine', e.value === 'archived'); }}/></section>`}
       ${results
         ? (results.length ? html`<section title="Results">${rowsTpl(results, true)}</section>` : html`<empty icon="search" title="nothing found"/>`)

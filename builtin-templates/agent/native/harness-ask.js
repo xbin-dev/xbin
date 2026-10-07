@@ -33,6 +33,7 @@ import {
 import { barredWhy } from '../model/harness-homes.js';
 import { accountOf } from '../model/harness-signins.js';
 import { openSignins } from './harness-signins.js';
+import { pickTpl } from './pick.js';
 
 const confirming = new Map(); // park → the explicit option picked, until confirmed or not
 const track = steerTrack();
@@ -79,13 +80,13 @@ ext.register({
       ? html`<button icon="agent" @tap=${() => { before(); push({ kind: 'harness-settings' }); }}>Coding agent settings</button>` : null;
   },
 
-  toolbar(v) {
+  toolbar(v, { fold = false } = {}) {
     const app = ctx.app;
     if (!v) return null;
     const h = harnessOf(v);
     if (!h) return null;
     app.harness.ensure();
-    return controlsTpl(v, h);
+    return controlsTpl(v, h, fold);
   },
 
   composer(v) {
@@ -156,7 +157,7 @@ function questionTpl(r, q, w) {
 
 // --- mode, options, your setting ----------------------------------------------------------
 
-function controlsTpl(v, h) {
+function controlsTpl(v, h, fold = false) {
   const app = ctx.app;
   const entry = app.harness.find(h.provider);
   const w = who(v);
@@ -188,12 +189,12 @@ function controlsTpl(v, h) {
       ${s ? html`<divider/>${s.choices.filter((x) => !x.disabled).map((x) => html`<button icon=${s.value === x.value ? 'check' : nothing}
         @tap=${guard(() => (s.value === x.value ? null : app.harness.setSetting(s.provider, x.value)))}>${`${x.label} — your setting for new ones`}</button>`)}` : nothing}
     </menu>
-    ${model ? html`<picker label=${model.name} style="menu" value=${String(model.value)}
-      options=${model.choices.map((ch) => ({ value: String(ch.value), label: ch.name }))}
-      @change=${guard((e) => {
+    ${model ? pickTpl({ label: model.name, icon: 'sparkles', fold, value: String(model.value),
+      options: model.choices.map((ch) => ({ value: String(ch.value), label: ch.name })),
+      change: guard((e) => {
         const ch = model.choices.find((x) => String(x.value) === String(e.value));
         return ch ? set(model, ch.value) : null;
-      })}/>` : nothing}`;
+      }) }) : nothing}`;
 }
 
 function settingsScreen() {
