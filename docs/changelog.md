@@ -10,6 +10,46 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-07
+
+- **The shell: a Document display mode, and the screen tabs in the top
+  bar** (D187; [frontend-kit.md](/docs/frontend-kit.md) §Document mode,
+  [elements.md](/docs/elements.md) `<bx-frame>`,
+  [protocol.md](/docs/protocol.md) `PUT /screens/org`).
+  - **Document mode**, per screen: a screen tab's menu (right-click) and
+    the canvas menu offer **Layout: Canvas · Document**. In Document mode
+    the screen is a scrolling page of rows — one tile per row, or two or
+    four side by side — and every tile is **as tall as its document**: no
+    fixed window height, no scrolling inside the tile. Drag a card's title
+    bar beside another card to share its row, or between rows to move it;
+    the tile menu's **Row** submenu does the same from the keyboard
+    (1 · 2 · 4 columns, Move up, Move down). A tile whose page is pinned
+    to its viewport (a terminal, a chat) stays 480 px tall and gets a
+    fixed height from the handle under its card. The top bar slides away
+    while you read and comes back at the top edge or when you scroll up.
+    Below 820 px every row is one column. Switching back to Canvas shows
+    every tile exactly where it was: the canvas geometry is never touched
+    (a tile's place in the rows is a separate, optional `doc` field of its
+    layout entry).
+  - **Tiles:** let your page's height be its content's — don't pin `html`
+    / `body` to the viewport (`height: 100%`, `100vh`) unless the view is
+    an app that scrolls inside on purpose. Nothing to call: xbin-client
+    already reports your height; frontend-kit.md §Document mode.
+  - **Org screens** carry the mode for every member: `PUT /screens/org`
+    takes an optional `mode` (`canvas` | `doc`), an org admin's change like
+    the name — it never bumps the revision, and a PUT without it keeps the
+    stored one, so an older shell re-saving tiles never resets it. `GET
+    /screens` lists it on screens that have one.
+  - **`<bx-frame>` auto-height is reactive:** setting or removing `height`
+    (or a CSS height in its `style`) switches a frame between fixed and
+    auto-height in place, without reloading the tile.
+  - **The screen tabs sit in the top bar** on a wide screen, between the
+    mark and the settings chip (scrolling sideways when they don't fit),
+    which saves the 32 px row they had. Below 820 px they stay a row of
+    their own; the org bar still sits under the bar on shared screens.
+    Nothing to change: a saved layout, an older shell and the app read
+    the same prefs as before.
+
 ## 2026-10-05
 
 - **Projects and the scm contract: a new `scm-github` template, and
