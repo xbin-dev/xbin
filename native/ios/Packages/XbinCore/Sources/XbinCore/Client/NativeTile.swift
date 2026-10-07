@@ -5,6 +5,19 @@ import Foundation
 // and anything fatal falls back to the web tile with a quiet banner. The
 // WebKit side is app code; the decisions are here.
 
+/// A native view drawn inside the app's own navigation stack (D189): what
+/// its screen's appear and disappear mean.
+public enum NativeHostedStack {
+    /// The deep link to hand the runtime when the tile's screen (re)appears:
+    /// the screen's `fragment` the first time, and again only when it
+    /// changed — coming back from a page the tile pushed must not re-open
+    /// the link the user has since navigated away from.
+    public static func fragment(_ fragment: String?, handled: String?) -> String? {
+        guard let fragment, !fragment.isEmpty, fragment != handled else { return nil }
+        return fragment
+    }
+}
+
 /// Loading → live, or → the web tile.
 public struct NativeTileLifecycle: Sendable, Equatable {
     /// No tree within this long after the runtime document starts loading.

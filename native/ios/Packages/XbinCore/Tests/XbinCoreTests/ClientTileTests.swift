@@ -246,6 +246,14 @@ import Testing
 }
 
 @Suite struct ClientNativeTileTests {
+    /// D189: a deep link is handed to the runtime once.
+    @Test func hostedStackHandsTheLinkOnce() {
+        #expect(NativeHostedStack.fragment("t=1", handled: nil) == "t=1")
+        #expect(NativeHostedStack.fragment("t=1", handled: "t=1") == nil)
+        #expect(NativeHostedStack.fragment("t=2", handled: "t=1") == "t=2")
+        #expect(NativeHostedStack.fragment(nil, handled: nil) == nil && NativeHostedStack.fragment("", handled: nil) == nil)
+    }
+
     @Test func lifecycle() {
         let t0 = Date(timeIntervalSince1970: 100)
         var l = NativeTileLifecycle()

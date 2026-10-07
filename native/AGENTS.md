@@ -1014,6 +1014,12 @@ Sharing the Mac (learned 2026-09-26, several agents at once):
   crashed"`). Not your app's pid: not your bug — run again. (2026-09-27:
   Xbins with pids 4638, 7163 and 7305, none of them the run's own app,
   failed test04 and test05 this way.)
+- **A link into the running app**: `XCUIApplication.open(url)` relaunches
+  the app (a cold start with the link); `XCUIDevice.shared.system.open(url)`
+  hands it to the running app as a notification's tap does
+  (XbinNavigationTests `openInRunningApp`). The app's Debug builds log
+  navigation as `xbin-nav …` (NSLog): `xcrun simctl spawn <udid> log show
+  --last 20m --style compact --predicate 'eventMessage CONTAINS "xbin-nav"'`.
 - **`--keep` and a second run**: point the second at the kept xbind with
   `XBIN_E2E_URL`/`_USER`/`_PASSWORD` from `$XBIN_E2E_DIR/env` and hold the
   tunnel yourself. Under an ssh ControlMaster `mac-remote.sh tunnel`

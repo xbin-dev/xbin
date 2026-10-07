@@ -148,6 +148,7 @@ public protocol XCUIElementTypeQueryProvider {
 
 @MainActor
 open class XCUIElement: XCUIElementTypeQueryProvider {
+    open var debugDescription: String { "" }
     public enum ElementType: UInt, Sendable {
         case any, other, application, button, staticText, textField, secureTextField, textView, searchField, webView, cell
     }
@@ -235,4 +236,10 @@ open class XCUIDevice {
     public static var shared: XCUIDevice { XCUIDevice() }
     public enum Button: Int, Sendable { case home = 1 }
     open func press(_ button: Button) {}
+    open var system: XCUISystem { XCUISystem() }
+}
+
+@MainActor
+open class XCUISystem {
+    open func open(_ url: URL) {}
 }
