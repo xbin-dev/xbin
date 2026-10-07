@@ -169,6 +169,9 @@ private struct HostedCollapsedSplit: View {
     let primary: XbinNode
     let secondary: XbinNode
     @Environment(\.xbin) private var cx
+    @Environment(\.xbinImages) private var images
+    @Environment(\.xbinConfirm) private var confirm
+    @Environment(\.xbinCompact) private var compact
 
     var body: some View {
         let n = node
@@ -184,9 +187,115 @@ private struct HostedCollapsedSplit: View {
             .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: false, inSheet: false, drawersHosted: false,
                                                  covered: SplitState(n).detail))
             .navigationDestination(isPresented: shown) {
-                NodeView(node: secondary)
-                    .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: true, inSheet: false, drawersHosted: false))
+                // A destination of the app's stack takes its environment
+                // from that stack, not from here: without the tree's own
+                // (its context, images, confirmations) the pushed detail
+                // drew but sent nothing — typing into its composer went
+                // nowhere, a card had no Open (2026-10-07). And it is read
+                // by key when drawn (LiveNode), as a destination keeps the
+                // content it was pushed with.
+                let carried = CarriedXbinEnvironment(cx: cx, images: images, confirm: confirm, compact: compact)
+                LiveNode(key: secondary.key) { detail in
+                    if detail.type == "nav" {
+                        HostedNav(node: detail, carried: carried)
+                    } else {
+                        NodeView(node: detail)
+                            .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: true, inSheet: false, drawersHosted: false))
+                    }
+                }
+                .modifier(carried)
             }
+    }
+}
+
+/// A `nav` in the detail of a split collapsed onto the app's stack (the
+/// agent template's: the list beside a stack of a conversation and what is
+/// pushed over it, D190): its screens are destinations of that same stack,
+/// one over the other. A NavigationStack of its own there would sit inside
+/// a destination of the app's — SwiftUI pops such a destination as soon as
+/// it is pushed (the agent's conversation closed the moment it opened on an
+/// iPhone, 2026-10-07). Back from a screen of it reports `pop {depth}` (the
+/// screens that remain) as NavView does; Back from its first one is the
+/// split's `close`.
+private struct HostedNav: View {
+    let node: XbinNode
+    let carried: CarriedXbinEnvironment
+    @Environment(\.xbin) private var cx
+    @State private var popped = 0
+
+    var body: some View {
+        let screens = node.children
+        let keys = screens.map(\.key)
+        let shown = max(1, keys.count - popped)
+        let n = node
+        let context = cx
+        let total = keys.count
+        Group {
+            if !screens.isEmpty {
+                HostedNavLevel(screens: Array(keys.prefix(shown)), index: 0, carried: carried) { depth in
+                    navTrace("nav \(n.key) hosted pop to \(depth) of \(total)")
+                    guard depth < total - popped else { return }
+                    popped = total - depth
+                    context?.emit(n, "pop", ["depth": .int(Int64(depth))])
+                }
+            }
+        }
+        .onChange(of: keys) { popped = 0 }
+    }
+}
+
+/// One screen of a ``HostedNav``, the next one pushed over it — screens by
+/// key, read from the model when drawn (``LiveNode``).
+private struct HostedNavLevel: View {
+    let screens: [String]
+    let index: Int
+    let carried: CarriedXbinEnvironment
+    let pop: @MainActor (Int) -> Void
+
+    var body: some View {
+        let next = index + 1
+        let count = screens.count
+        let leave = pop
+        let over = mainBinding(get: { next < count }, set: { (open: Bool) in if !open, next < count { leave(next) } })
+        LiveNode(key: screens[index]) { screen in
+            NodeView(node: screen)
+                .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: true, inSheet: false, drawersHosted: false,
+                                                     covered: next < count))
+        }
+        .navigationDestination(isPresented: over) {
+            if next < count { HostedNavLevel(screens: screens, index: next, carried: carried, pop: pop).modifier(carried) }
+        }
+    }
+}
+
+/// The tree's environment, carried into a destination of the app's stack
+/// (which takes the stack's environment, not the tree's).
+private struct CarriedXbinEnvironment: ViewModifier {
+    let cx: XbinRenderContext?
+    let images: XbinImages?
+    let confirm: ConfirmHost?
+    let compact: CardSize?
+
+    func body(content: Content) -> some View {
+        content
+            .environment(\.xbin, cx)
+            .environment(\.xbinImages, images)
+            .environment(\.xbinConfirm, confirm)
+            .environment(\.xbinCompact, compact)
+    }
+}
+
+/// The node of `key` as the model has it now: read when drawn, and drawn
+/// again on each tree update (the model's revision), so content a
+/// navigation destination holds never shows a node a remount replaced.
+private struct LiveNode<Content: View>: View {
+    let key: String
+    @ViewBuilder let content: (XbinNode) -> Content
+    @Environment(\.xbin) private var cx
+
+    var body: some View {
+        let _ = cx?.model.revision
+        if let node = cx?.model.node(key) { content(node) }
     }
 }
 
