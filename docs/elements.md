@@ -391,6 +391,9 @@ can't stretch the card) and can also be opened full page. On a screen in
 **Document mode** (D187) the card is as wide as its row allows and **as tall
 as your document**: the frame takes the height your page reports, so let it
 grow naturally — [frontend-kit.md](/docs/frontend-kit.md) §Document mode.
+A screen may also hold headings and text between the cards (D192) — the
+shell's own, never a tile ([frontend-kit.md](/docs/frontend-kit.md)
+§Headings and text on a screen).
 Design to be usable when **narrow** and to **reflow, never scroll
 horizontally**: relative units, flexbox/grid, `max-width:100%` on media, and
 wrap inherently wide content (tables, code, diagrams) in its own

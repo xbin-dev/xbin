@@ -81,6 +81,8 @@ import { appearanceRows, followAppearance } from './shell-appearance.js';
 import { tabStrip, revealActiveTab, addScreen, hideOrgTab, screenMode, setScreenMode, layoutItems } from './shell-tabs.js'; // the screen tabs, in the top bar (D187)
 import { TopReveal } from './shell-doc.js'; // Document mode's top bar (D187)
 import { docRows, placeNew, setCols, rowOf, step, setHeight } from './doc-layout.js';
+import { gridItems, itemsOf } from './blocks.js'; // headings and text on a screen, no tile (D192)
+import { mutateItems, addBlock, blockTestApi } from './shell-blocks.js';
 
 // Convert a legacy column-based tile ({col, height}) to a fixed-grid tile
 // ({x,y,w,h}); tiles already in grid form pass through. Old columns become grid
@@ -344,6 +346,7 @@ export class BxShell extends LitElement {
         const d = await r.json();
         this._orgScreens = (d.org ?? []).map((x) => ({ ...x, tiles: gridMigrate(x.tiles ?? []) }));
         this._wsDefault = Array.isArray(d.default?.tiles) ? d.default.tiles : null;
+        this._wsDefaultBlocks = Array.isArray(d.default?.blocks) ? d.default.blocks : [];
         this._sharedFolders = d.folders ?? {};
         this._reconcileDrafts();
         // The active org screen vanished (deleted / membership lost) → first
@@ -368,7 +371,7 @@ export class BxShell extends LitElement {
   _enterEdit(id) {
     const os = (this._orgScreens ?? []).find((x) => x.id === id);
     if (!os?.canEdit || this._orgDrafts?.[id]) return;
-    this._orgDrafts = withDraft(this._orgDrafts, id, newDraft({ tiles: os.tiles.map((t) => ({ ...t })), name: os.name }, os.rev ?? 1));
+    this._orgDrafts = withDraft(this._orgDrafts, id, newDraft({ tiles: os.tiles.map((t) => ({ ...t })), blocks: os.blocks ?? [], name: os.name }, os.rev ?? 1));
   }
   _dropDraft(id) {
     this._orgDrafts = withoutDraft(this._orgDrafts, id);
@@ -384,12 +387,12 @@ export class BxShell extends LitElement {
     const d = this._orgDrafts?.[id];
     const os = (this._orgScreens ?? []).find((x) => x.id === id);
     if (!d || !os) return;
-    const res = await publish('/api/xbin/screens/org', { id, org: os.org, tiles: d.tiles, rev: d.baseRev, force });
+    const res = await publish('/api/xbin/screens/org', { id, org: os.org, tiles: d.tiles, blocks: d.blocks, rev: d.baseRev, force });
     if (res.status === 'conflict') { this._conflict = this._conflictSpec('screen', id, res.body); return; }
     if (res.status !== 'ok') { this._pushToast(os.org, { level: 'error', message: res.message }); return; }
     const body = res.body;
     this._orgScreens = this._orgScreens.map((x) => x.id === id
-      ? { ...x, tiles: d.tiles, rev: body.rev, updatedBy: body.updatedBy, updatedAt: body.updatedAt } : x);
+      ? { ...x, tiles: d.tiles, blocks: d.blocks ?? x.blocks, rev: body.rev, updatedBy: body.updatedBy, updatedAt: body.updatedAt } : x);
     this._dropDraft(id);
     this._pushToast(os.org, { level: 'ok', message: `saved — everyone in ${os.org} sees rev ${body.rev}` });
   }
@@ -397,8 +400,8 @@ export class BxShell extends LitElement {
   _copyOrgScreen(id) {
     const os = (this._orgScreens ?? []).find((x) => x.id === id);
     if (!os) return;
-    const src = this._orgDrafts?.[id]?.tiles ?? os.tiles;
-    const s = { id: uid(), name: `${os.name} (copy)`, tiles: src.map((t) => ({ ...t })), ...(os.mode ? { mode: os.mode } : {}) };
+    const d = this._orgDrafts?.[id], src = d?.tiles ?? os.tiles, blocks = d?.blocks ?? os.blocks;
+    const s = { id: uid(), name: `${os.name} (copy)`, tiles: src.map((t) => ({ ...t })), ...(os.mode ? { mode: os.mode } : {}), ...(blocks?.length ? { blocks } : {}) };
     this._screens = [...this._screens, s];
     this._active = s.id;
     this._save();
@@ -438,7 +441,7 @@ export class BxShell extends LitElement {
     for (const [id, d] of Object.entries(drafts)) {
       if ((this._orgScreens ?? []).some((s) => s.id === id)) continue;
       if (d.dirty) {
-        screens = [...screens, { id: uid(), name: `${d.name || 'org screen'} (draft copy)`, tiles: d.tiles }];
+        screens = [...screens, { id: uid(), name: `${d.name || 'org screen'} (draft copy)`, tiles: d.tiles, blocks: d.blocks }];
         this._pushToast('screens', { level: 'warn', message: `org screen "${d.name || id}" is gone — your draft was copied to your screens` });
       }
       delete drafts[id]; changed = true;
@@ -495,7 +498,7 @@ export class BxShell extends LitElement {
         // Dirty drafts come back after a reload (D55); clean ones were never saved.
         const dr = l?.drafts ?? {};
         this._orgDrafts = Object.fromEntries(Object.entries(dr.org ?? {}).map(([id, d]) =>
-          [id, { tiles: gridMigrate(d.tiles ?? []), baseRev: d.baseRev ?? 1, dirty: true, name: d.name }]));
+          [id, { tiles: gridMigrate(d.tiles ?? []), blocks: d.blocks, baseRev: d.baseRev ?? 1, dirty: true, name: d.name }]));
         this._folderDrafts = Object.fromEntries(Object.entries(dr.folders ?? {}).map(([scope, d]) =>
           [scope, { folders: Array.isArray(d.folders) ? d.folders : [], baseRev: d.baseRev ?? 0, dirty: true }]));
         if (Array.isArray(l?.screens) && l.screens.length) {
@@ -539,7 +542,7 @@ export class BxShell extends LitElement {
         w: DEF_W, h: DEF_H,
       }));
     }
-    this._screens = [{ id: uid(), name: 'Home', tiles }];
+    this._screens = [{ id: uid(), name: 'Home', tiles, ...(def.length && this._wsDefaultBlocks?.length ? { blocks: this._wsDefaultBlocks } : {}) }];
     this._active = this._screens[0].id;
     this._save();
   }
@@ -557,7 +560,7 @@ export class BxShell extends LitElement {
     // Only DIRTY drafts persist: a clean edit session isn't worth resurrecting.
     const dirty = (m, pick) => Object.fromEntries(Object.entries(m ?? {}).filter(([, d]) => d.dirty).map(([k, d]) => [k, pick(d)]));
     const drafts = {
-      org: dirty(this._orgDrafts, (d) => ({ tiles: d.tiles, baseRev: d.baseRev, name: d.name })),
+      org: dirty(this._orgDrafts, (d) => ({ tiles: d.tiles, blocks: d.blocks, baseRev: d.baseRev, name: d.name })),
       folders: dirty(this._folderDrafts, (d) => ({ folders: d.folders, baseRev: d.baseRev })),
     };
     return (window.xbin?.fetch(`/api/xbin/prefs/${LAYOUT_PREF}`, {
@@ -575,26 +578,27 @@ export class BxShell extends LitElement {
     const os = this._activeOrgScreen;
     if (!os) return undefined;
     const d = this._orgDrafts?.[os.id];
-    return d ? { ...os, tiles: d.tiles } : os;
+    return d ? { ...os, tiles: d.tiles, blocks: d.blocks ?? os.blocks } : os;
   }
   get _tiles() { return this._screen?.tiles ?? []; }
 
   // Replace the active screen's tiles via fn(copy) → new array, then persist
   // (debounced, so rapid changes like drag/resize coalesce). An ORG screen
   // (D37/D55) mutates its personal DRAFT — never the shared store, and never
-  // in view mode; publishing is the explicit save.
-  _mutateTiles(fn) {
+  // in view mode; publishing is the explicit save. key 'blocks': the
+  // screen's headings and text instead (D192, shell-blocks.js).
+  _mutateTiles(fn, key = 'tiles') {
     const os = this._activeOrgScreen;
     if (os) {
       const d = this._orgDrafts?.[os.id];
       if (!d) return; // view mode: a shared screen never changes by accident
-      this._orgDrafts = { ...this._orgDrafts, [os.id]: { ...d, tiles: fn(d.tiles.map((t) => ({ ...t }))), dirty: true } };
+      this._orgDrafts = { ...this._orgDrafts, [os.id]: { ...d, [key]: fn((this._screen[key] ?? []).map((t) => ({ ...t }))), dirty: true } };
       this._save();
       return;
     }
     if (!this._screen) return;
-    const tiles = fn(this._tiles.map((t) => ({ ...t })));
-    this._screens = this._screens.map((s) => s.id === this._active ? { ...s, tiles } : s);
+    const v = fn((this._screen[key] ?? []).map((t) => ({ ...t })));
+    this._screens = this._screens.map((s) => s.id === this._active ? { ...s, [key]: v } : s);
     this._save();
   }
 
@@ -939,6 +943,7 @@ export class BxShell extends LitElement {
       components: this._components, tiles: this._tiles, recent: this._recent ?? [], showHidden: this._showHidden,
       canMutate: this._canMutate, prs: this._prs, canAdminTile: (p) => this._canAdminTile(p),
       docMode: screenMode(this._screen) === 'doc', layoutItems: layoutItems(this, this._screen, this._activeOrgScreen ? 'org' : 'personal'),
+      docItems: itemsOf(this._tiles, this._screen?.blocks),
     };
   }
   _menuActions(at = null) {
@@ -950,8 +955,8 @@ export class BxShell extends LitElement {
       toggle: (p) => this._toggle(p), togglePin: (p) => this._canvas?.togglePin(p), frameOpen: (p, l) => this._frameOpen(p, l, at),
       openFullPage: (p) => window.open(`/c/${p}/`, '_blank'), lifecycle: (p, st) => this._lifecycle(p, st),
       openAdminWin: (p, sec) => this._openAdminWin(p, sec), confirm: (m) => confirm(m),
-      docCols: (p, n) => this._mutateTiles((t) => setCols(t, rowOf(t, p), n)), docStep: (p, d) => this._mutateTiles((t) => step(t, p, d)),
-      docFit: (p) => this._mutateTiles((t) => setHeight(t, p, 0)),
+      docCols: (p, n) => mutateItems(this, (t) => setCols(t, rowOf(t, p), n)), docStep: (p, d) => mutateItems(this, (t) => step(t, p, d)),
+      docFit: (p) => mutateItems(this, (t) => setHeight(t, p, 0)), addBlock: (kind) => addBlock(this, kind, at),
     };
   }
   _canvasMenuItems(at) { return canvasMenuItems(this._menuState(), this._menuActions(at)); }
@@ -1458,7 +1463,7 @@ export class BxShell extends LitElement {
   }
 
   async _saveWsDefault() {
-    const res = await publish('/api/xbin/screens/default', { tiles: this._tiles });
+    const res = await publish('/api/xbin/screens/default', { tiles: this._tiles, blocks: this._screen?.blocks ?? [] });
     this._menuMsg = res.status === 'ok' ? { ok: true, text: 'saved — new users seed from this screen' } : { ok: false, text: res.message };
     setTimeout(() => { this._menuMsg = null; }, 4000);
   }
@@ -1470,8 +1475,8 @@ export class BxShell extends LitElement {
     if (!org) return;
     const target = targetId ? (this._orgScreens ?? []).find((s) => s.id === targetId && s.org === org) : null;
     const body = target
-      ? { id: target.id, org, tiles: this._tiles, rev: target.rev ?? 1, force }
-      : { org, name: this._screen?.name || org, tiles: this._tiles };
+      ? { id: target.id, org, tiles: this._tiles, blocks: this._screen?.blocks ?? [], rev: target.rev ?? 1, force }
+      : { org, name: this._screen?.name || org, tiles: this._tiles, blocks: this._screen?.blocks ?? [] };
     const res = await publish('/api/xbin/screens/org', body);
     const d = res.body ?? {};
     if (res.status === 'conflict' && target) {
@@ -1530,7 +1535,7 @@ export class BxShell extends LitElement {
   // gap wide enough for a default tile that overlaps nothing, else drop into a
   // new row below everything. Cheap and deterministic; the user rearranges.
   _freeSpot() {
-    const placed = this._tiles.filter((o) => !o.float);
+    const placed = gridItems(this._screen); // grid tiles and blocks (D192)
     const taken = (x, y) => placed.some((o) => overlaps({ x, y, w: DEF_W, h: DEF_H }, o));
     const viewW = this.renderRoot?.querySelector('main')?.clientWidth || 1200;
     const cols = Math.max(1, Math.floor(viewW / (DEF_W * (this._gridScale || 1))));
@@ -1559,10 +1564,10 @@ export class BxShell extends LitElement {
       this._mutateTiles((tiles) => tiles.filter((o) => o.path !== path));
       return;
     }
-    const { x, y } = at ? spotNear(this._tiles, at) : this._freeSpot();
+    const { x, y } = at ? spotNear(gridItems(this._screen), at) : this._freeSpot();
     this._noteRecent(path);
-    const doc = screenMode(this._screen) === 'doc'; // Document mode: a new tile is the last row (D187)
-    this._mutateTiles((tiles) => (doc ? placeNew : (t) => t)([...tiles, { path, x, y, w: DEF_W, h: DEF_H }], path));
+    const t = { path, x, y, w: DEF_W, h: DEF_H }; // Document mode: a new tile is the last row (D187), its blocks counted (D192)
+    if (screenMode(this._screen) === 'doc') mutateItems(this, (items) => placeNew([...items, t], path)); else this._mutateTiles((tiles) => [...tiles, t]);
     if (this._mobile) this._drawer = false; // tapping a tile closes the drawer
   }
 
@@ -1655,8 +1660,9 @@ export class BxShell extends LitElement {
       addScreen() { addScreen(s); return s._active; },
       tileMenuItems: (path) => s._tileMenuItems(path),
       setScreenMode: (id, mode) => setScreenMode(s, id ?? s._active, mode),
-      docRows: () => docRows(s._tiles).map((r) => ({ cols: r.cols, paths: r.tiles.map((t) => t.path) })),
+      docRows: () => docRows(itemsOf(s._tiles, s._screen?.blocks)).map((r) => ({ cols: r.cols, paths: r.tiles.map((t) => t.path) })),
       get topBar() { return { on: s._top.on, hidden: s._top.hidden }; },
+      ...blockTestApi(s), // blocks(), addBlock(kind, at), editBlock(id), blockMenuItems(id) (D192)
     };
   }
 
@@ -1754,11 +1760,12 @@ export class BxShell extends LitElement {
               @pointermove=${(e) => this._pressMove(e)}
               @pointerup=${() => this._pressCancel()} @pointercancel=${() => this._pressCancel()}>
           <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings><bx-part-consent .components=${this._components} .who=${this._who}></bx-part-consent></div>
-          <bx-canvas .tiles=${this._tiles} .components=${this._components} .prs=${this._prs} .mode=${screenMode(this._screen)}
+          <bx-canvas .tiles=${this._tiles} .blocks=${this._screen?.blocks} .components=${this._components} .prs=${this._prs} .mode=${screenMode(this._screen)}
             .canMutate=${this._canMutate} .personal=${!this._activeOrgScreen} .mobile=${this._mobile} .menuOpen=${!!this._menu} .scale=${this._gridScale}
             .canAdminTile=${(p) => this._canAdminTile(p)} .who=${this._who} .alerts=${this._alerts} .reload=${() => { this._load(); this._loadAlerts(); }}
             .emptyText=${this._activeOrgScreen && !this._canMutate ? 'This shared screen is empty.' : 'This screen is empty. Open a tile from the sidebar.'}
-            @bx-tiles=${(e) => this._mutateTiles(() => e.detail)}
+            @bx-tiles=${(e) => this._mutateTiles(() => e.detail)} @bx-blocks=${(e) => this._mutateTiles(e.detail, 'blocks')}
+            @bx-block-menu=${(e) => { this._menu = { ...e.detail, sheet: this._mobile }; }}
             @bx-toggle-tile=${(e) => this._toggle(e.detail)}
             @bx-tile-menu=${(e) => this._openTileMenu(e.detail.at, e.detail.path, e.detail.anchor, { selection: e.detail.selection })}
             @bx-canvas-menu=${(e) => this._openCanvasMenu(e.detail)}

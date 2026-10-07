@@ -11839,3 +11839,94 @@ Deviations and refinements made while implementing; all deliberate:
       light and dark (list, split with a chat, terminals, ports, the
       partition forms, the jump pill, a child card's steering). Not
       verified on a device or the Swift renderer.
+
+- **D192 — Headings and text on a screen, without a tile (2026-10-08).**
+  workspace-template/shell/blocks.js (pure), shell-blocks.js (view,
+  gestures, the shell's ends), bx-canvas.js, shell-doc.js, bx-shell.js,
+  menus.js, shell-tabs.js, layout-sync.js; internal/broker/screens.go;
+  hack/blocks.test.mjs, menus.test.mjs, `TestScreensOrgBlocks`,
+  hack/ui-harness/passes/blocks.js; docs/frontend-kit.md §Headings and
+  text on a screen, elements.md, protocol.md. The owner's request: "Canvas
+  mode — allow putting Headings and Text on screens without creating tiles
+  for them."
+  - **Data: a `blocks` array beside `tiles`, never inside it.** A block is
+    `{id, kind: 'heading'|'text', text, level?, x, y, w, h, doc?}`: in the
+    `layout` pref (`screens[i].blocks`) for a personal screen, and an
+    optional opaque `blocks` on the org screen (and in its draft, which
+    persists in the pref like the tiles). Inside `tiles` was not chosen:
+    every shell before this one, and the iOS app (XbinCore Catalog's
+    `ScreenInfo.tilePaths(s["tiles"])`, MobileScreens/LayoutPref, which
+    edit the stored JSON and keep unknown keys), read `tiles` and expect
+    a `path` — a pathless entry would be a broken card or a dropped
+    tile. A separate key is invisible to them, and they re-save it
+    untouched (they spread the screen object). The ws default screen
+    (`PUT /screens/default`, opaque) carries `blocks` too, and seeds
+    them with its tiles.
+  - **Org screens.** `blocks` is content, like `tiles`: the same edit
+    knob, `rev` and 409; a save of tiles and/or blocks bumps the
+    revision (a blocks-only PUT is allowed); a PUT without `blocks` keeps
+    the stored ones — a pre-D192 shell publishing tiles never wipes them;
+    `blocks: []` clears; not an array → 400. Name/edit/mode stay
+    meta-only. Adding a block on an org screen in view mode opens the
+    draft for an editor (as opening a tile there does) and is disabled
+    for anyone else; nothing reaches others until Save and update for
+    everyone.
+  - **One grid, one push.** On the canvas a block is an item keyed
+    `block:<id>` (no tile path holds a colon) among the grid tiles:
+    `pushLayout` and `spotNear` run on tiles + blocks (blocks.js
+    `itemsOf`/`gridItems`), so a dragged tile pushes or swaps with a
+    block and a block pushes a tile; a new tile never lands on a block.
+    The drag state is the card's own (`_drag`, the ghosts, the commit);
+    the result is split back (`splitItems`): tiles as `bx-tiles`, the
+    blocks as a `bx-blocks` event whose detail is a **function over the
+    stored list** — an entry this shell doesn't draw (a kind from a later
+    shell) is kept exactly. Sizes: a heading one cell tall (an H1's 36 px
+    line fits the 40 px a cell draws), text three, both at least 2×1
+    cells (not the tiles' 4×3).
+  - **Document mode.** The rows are read from tiles + blocks as one list
+    (doc-layout.js unchanged; `mutateCanvas`/`mutateItems` split the
+    result), so a block is a row like a tile — its own row in reading
+    order by default (a 1-wide row: as wide as a single tile, which is
+    the page's reading width), joinable beside a tile, movable by its
+    grip and by the Row submenu in its menu. Every Document-mode edit
+    (drag, height, Row lines, a tile opened on a Document screen) now
+    renumbers tiles and blocks together; a tiles-only renumbering would
+    give a tile and a block the same row. Known edge: a v0.3.69 shell
+    arranging rows on a screen that has placed blocks renumbers only the
+    tiles, so a tile and a block can share a row afterwards — nothing is
+    lost, the next arrangement here fixes it.
+  - **Look (Base Two).** No card, no title bar, no frame: the page's own
+    type — H1 the hero face/size, H2 the heading token, H3 600 16/22 in
+    the display face, text in the body face with the shared Markdown
+    styles (bx-md.js `mdCssText`). While the screen can change, a dashed
+    `--bx-border-strong` outline and a tool strip (grip, ⋯) show under the
+    pointer, and the resize corner. Light and dark from the tokens
+    (`make theme-check` 0).
+  - **Editing.** Double-click or ⋯ → Edit; an input for a heading, a
+    textarea for text. Enter (heading), Ctrl/Cmd+Enter, Escape or blur
+    saves — Escape saves rather than cancels, per the plan: there is no
+    "unsaved" state to fall back to. A block saved empty is removed (a
+    new one abandoned leaves nothing behind). A layout `prefs` event from
+    another client waits while a block is being edited (layout-sync.js).
+  - **Markdown, safely.** `/vendor/bx-md.js`, the hardened renderer the
+    Agent tab already uses: raw HTML escaped, images as their alt text,
+    links to safe schemes only, `target=_blank rel="noopener
+    noreferrer"`. An org screen's text is written by one member and read
+    by all in the shell's own origin, so no other renderer was considered.
+  - **A phone** (the stacked canvas, < 820px): blocks stack between the
+    cards — a block before the first card (in the tiles' array order, as
+    the phone always stacked them) that comes after it in reading order
+    (CSS `order`, `mobileOrder`); no drag, the menu by long-press.
+  - **Not chosen:** blocks on the iOS app's screens (it reads tiles; a
+    later app can read `blocks`); per-block colours or alignment; images
+    in text (the renderer never fetches); keyboard moves on the canvas
+    (as for tiles, the drag; Document mode has the Row lines).
+  - **Verified:** hack/blocks.test.mjs (10: drawing/keeping, new spot,
+    push both ways and the split, Document rows across tiles and blocks,
+    phone order, menus, tiles-only readers), menus.test.mjs (Add lines),
+    `TestScreensOrgBlocks`, the harness `blocks` pass in Night and Day
+    (add from the canvas menu, type, Markdown with hostile HTML, edit by
+    double-click, H1 from the menu, move pushing a tile, resize, reload,
+    the phone stack, Document rows and Row ▸ Move down, delete, empty
+    discarded, an org draft published at rev+1, kept through a tiles-only
+    PUT, read-only in view mode).

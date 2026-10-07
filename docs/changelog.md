@@ -10,6 +10,23 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-08
+
+- **Headings and text on a screen, without a tile** (D192;
+  [frontend-kit.md](/docs/frontend-kit.md) §Headings and text on a screen,
+  [protocol.md](/docs/protocol.md) `PUT /screens/org`). The canvas menu and
+  a screen tab's menu gain **Add heading** and **Add text**: a heading
+  (H1–H3) or Markdown text placed on the screen's grid, moved by its grip,
+  resized by its corner, pushing tiles out of the way like a tile does,
+  and edited in place (double-click; Enter, Escape or leaving the field
+  saves); its ⋯ menu has Edit, Heading level and Delete. In Document mode
+  each is a row. A screen keeps them in a `blocks` array beside `tiles`
+  (`layout` pref; an org screen's new optional `blocks`, saved with its
+  tiles under the same revision and draft rules — a PUT without `blocks`
+  keeps the stored ones). Older shells and the xbin app show the screen's
+  tiles as before and keep the blocks when they save; nothing changes for
+  a tile.
+
 ## 2026-10-07
 
 - **Native views: vocabulary revision 2 — navigation** (D189;

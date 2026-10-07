@@ -66,14 +66,30 @@ test('lifecycle predicates', () => {
 test('canvas menu on a personal screen, one owner', () => {
   const { a, calls } = spy();
   const items = canvasMenuItems(state(), a);
-  assert.deepEqual(labels(items), ['Open tile', 'Create a new tile…', 'New screen', '<sep>', 'Bring windows on-screen']);
+  assert.deepEqual(labels(items), ['Open tile', 'Create a new tile…', 'Add heading', 'Add text', 'New screen', '<sep>', 'Bring windows on-screen']);
   const create = byLabel(items, 'Create a new tile…');
   assert.equal(create.hint, 'me (personal)');
   create.action();
+  byLabel(items, 'Add heading').action();
+  byLabel(items, 'Add text').action();
   byLabel(items, 'New screen').action();
   byLabel(items, 'Bring windows on-screen').action();
-  assert.deepEqual(calls, [['newTileDialog', '', '', 'user:me', { fixed: true }], ['addScreen'], ['fitWindows', true]]);
+  assert.deepEqual(calls, [['newTileDialog', '', '', 'user:me', { fixed: true }], ['addBlock', 'heading'], ['addBlock', 'text'], ['addScreen'], ['fitWindows', true]]);
   assert.ok(Array.isArray(byLabel(items, 'Open tile').items), 'Open tile carries a submenu');
+});
+
+test('canvas menu: Add heading / Add text (D192) — only with the action; an org screen per its draft', () => {
+  const none = canvasMenuItems(state(), { addScreen() {}, fitWindows() {}, newTileDialog() {}, openTile() {} });
+  assert.ok(!byLabel(none, 'Add heading'), 'a caller without addBlock gets no lines');
+  const { a } = spy();
+  const view = canvasMenuItems(state({ orgScreen: { id: 's1', canEdit: false } }), a);
+  assert.equal(byLabel(view, 'Add heading').disabled, true, 'a read-only org screen: disabled');
+  assert.equal(byLabel(view, 'Add text').hint, 'view mode');
+  const editor = canvasMenuItems(state({ orgScreen: { id: 's1', canEdit: true } }), a);
+  assert.equal(byLabel(editor, 'Add heading').disabled, false);
+  assert.equal(byLabel(editor, 'Add heading').hint, 'starts a draft');
+  const draft = canvasMenuItems(state({ orgScreen: { id: 's1', canEdit: true }, draft: { dirty: false } }), a);
+  assert.equal(byLabel(draft, 'Add text').hint, '');
 });
 
 test('create-tile variants by owner count', () => {

@@ -27,6 +27,11 @@
  * With `mode` 'doc' (D187) the screen is Document mode instead of the grid:
  * rows of cards, each as tall as its content (shell-doc.js docView, the
  * rows from doc-layout.js); the floats, menus and card chrome are the same.
+ *
+ * `blocks` (D192) are the screen's headings and text: drawn, dragged and
+ * edited by shell-blocks.js, on the same grid and in the same push as the
+ * cards (keyed `block:<id>`); they change through `bx-blocks` (a function
+ * over the stored list) and open their menu through `bx-block-menu`.
  */
 import { LitElement, html, nothing, repeat } from 'lit';
 import '/vendor/bx-frame.js';
@@ -40,6 +45,7 @@ import { pushLayout } from './grid-layout.js';
 import { nextZ, raiseTo, frontWindow, onWindowFront, activeWindow } from './zorder.js';
 import { canvasCss, prbCss, partCss, docCss } from './shell-css.js';
 import { docView, docFrame, docDragStart } from './shell-doc.js';
+import { blocksCss, canvasBlocks, canvasItems, commitMoves, ghostLabel, blockMenu, cardOrder } from './shell-blocks.js';
 import { partitionView, requestKey, pruneDecisions, pendingText, switchLabel, modeName, modeBody, postMode, errorText,
   switchSpec, switchResolve, staleRefusal, deletesNothing, keptText, switchedText, whoDecides, noteText,
   partitionChip } from './partition-mode.js';
@@ -47,6 +53,7 @@ import { partitionView, requestKey, pruneDecisions, pendingText, switchLabel, mo
 export class BxCanvas extends LitElement {
   static properties = {
     tiles: { attribute: false },        // the active screen's tiles [{path, x, y, w, h, float?}]
+    blocks: { attribute: false },       // its headings and text (D192, shell-blocks.js)
     components: { attribute: false },   // /components — the runtime colour dot, the deployments summary
     prs: { attribute: false },          // {path: open change proposals}
     canMutate: { attribute: false },    // layout changes allowed (personal screen, or an org draft)
@@ -68,7 +75,7 @@ export class BxCanvas extends LitElement {
     _ddrag: { state: true },            // Document mode: a card being dragged {path, move, mark} (shell-doc.js)
     _dh: { state: true },               // Document mode: a fixed height being dragged {path, h}
   };
-  static styles = [canvasCss, prbCss, partCss, docCss];
+  static styles = [canvasCss, prbCss, partCss, docCss, blocksCss];
 
   constructor() {
     super();
@@ -206,6 +213,8 @@ export class BxCanvas extends LitElement {
     if (selectedText(this.renderRoot)) return;
     const card = e.target.closest('.card');
     if (card) { this._tileMenu(e, card.dataset.path); return; }
+    const blk = e.target.closest('[data-block]');
+    if (blk && blockMenu(this, e, blk.dataset.block)) return;
     if (pathHas(e, 'button, bx-frame')) return;
     e.preventDefault();
     this._emit('bx-canvas-menu', { clientX: e.clientX, clientY: e.clientY });
@@ -238,7 +247,7 @@ export class BxCanvas extends LitElement {
     ev.preventDefault();
     const el = this._gtile(path), o = this._all().find((t) => t.path === path && !t.float);
     if (!el || !o) return;
-    const base = this._all().filter((t) => !t.float).map((t) => ({ ...t }));
+    const base = canvasItems(this); // the grid's cards and blocks (D192)
     const k = this._k, dx = ev.clientX - o.x * k, dy = ev.clientY - o.y * k;
     this._drag = { path, rect: { x: o.x, y: o.y, w: o.w, h: o.h }, moves: [], dirs: null, orig: o };
     dragPointer({
@@ -253,7 +262,7 @@ export class BxCanvas extends LitElement {
     ev.preventDefault(); ev.stopPropagation();
     const o = this._all().find((t) => t.path === path && !t.float);
     if (!o) return;
-    const base = this._all().filter((t) => !t.float).map((t) => ({ ...t }));
+    const base = canvasItems(this); // the grid's cards and blocks (D192)
     const sx = ev.clientX, sy = ev.clientY, k = this._k;
     // a resize grows from its top-left corner: it only ever pushes right/down
     this._drag = { path, rect: { x: o.x, y: o.y, w: o.w, h: o.h }, moves: [], dirs: null, orig: o, positive: true };
@@ -281,11 +290,7 @@ export class BxCanvas extends LitElement {
     if (!d) return;
     const o = d.orig, r = d.rect;
     if (!d.moves.length && o.x === r.x && o.y === r.y && o.w === r.w && o.h === r.h) return; // a click: nothing to save
-    const at = new Map([[d.path, r], ...d.moves.map((m) => [m.path, m])]);
-    this._mutate((tiles) => tiles.map((t) => {
-      const n = !t.float && at.get(t.path);
-      return n ? { ...t, x: n.x, y: n.y, w: n.w, h: n.h } : t;
-    }));
+    commitMoves(this, new Map([[d.path, r], ...d.moves.map((m) => [m.path, m])])); // cards and blocks (D192)
   }
 
   _gridCard(o) {
@@ -293,7 +298,7 @@ export class BxCanvas extends LitElement {
     const r = d ? d.rect : o, k = this._k;
     return html`
       <div class="gtile ${d ? 'dragging' : ''}" data-path=${o.path}
-           style="left:${r.x * k}px; top:${r.y * k}px; width:${(r.w - GAP) * k}px; height:${(r.h - GAP) * k}px;">
+           style="left:${r.x * k}px; top:${r.y * k}px; width:${(r.w - GAP) * k}px; height:${(r.h - GAP) * k}px; --ord:${cardOrder(this, o.path)}">
         ${this._cardTemplate(o, 'grid')}
         <div class="rz" title="drag to resize" @pointerdown=${(e) => this._gridResizeStart(e, o.path)}></div>
       </div>`;
@@ -301,7 +306,7 @@ export class BxCanvas extends LitElement {
 
   // The tiles' logical extent (+ a drag in flight), in grid units.
   _tileExtent() {
-    const rects = this._all().filter((o) => !o.float);
+    const rects = canvasItems(this);
     if (this._drag) rects.push(this._drag.rect, ...this._drag.moves);
     return {
       w: rects.reduce((m, o) => Math.max(m, o.x + o.w), 0) + GRID,
@@ -616,10 +621,11 @@ export class BxCanvas extends LitElement {
            @pointermove=${(e) => this._press.move(e)}
            @pointerup=${() => this._press.cancel()} @pointercancel=${() => this._press.cancel()}>
         ${repeat(grid, (o) => o.path, (o) => this._gridCard(o))}
-        ${(this._drag?.moves ?? []).map((m) => html`<div class="ghost" data-path=${m.path}
+        ${canvasBlocks(this)}
+        ${(this._drag?.moves ?? []).map((m) => html`<div class="ghost" data-path=${m.path} data-label=${ghostLabel(this, m.path)}
           style="left:${m.x * this._k}px; top:${m.y * this._k}px; width:${(m.w - GAP) * this._k}px; height:${(m.h - GAP) * this._k}px;"></div>`)}
       </div>`}
-      ${grid.length === 0 && floats.length === 0 ? html`<div class="empty">${this.emptyText}</div>` : nothing}
+      ${grid.length === 0 && floats.length === 0 && !this.blocks?.length ? html`<div class="empty">${this.emptyText}</div>` : nothing}
       ${repeat(floats, (o) => o.path, (o) => this._floatTemplate(o))}
       ${this._dmenu ? html`<bx-menu open .items=${this._dmenu.items} .anchor=${this._dmenu.anchor} ?sheet=${this.mobile}
           title=${this._dmenu.title} @bx-menu-close=${() => { this._dmenu = null; }}></bx-menu>` : nothing}

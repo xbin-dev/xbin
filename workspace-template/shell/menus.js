@@ -32,8 +32,13 @@
 //   docMode       the screen is in Document mode (D187): a placed tile's
 //                 menu gets its Row lines, acting through docCols(path, n),
 //                 docStep(path, dir) and docFit(path)
+//   docItems      the tiles and blocks the rows are read from (D192,
+//                 blocks.js itemsOf); absent, the tiles
+// optional in actions:
+//   addBlock(kind)  the canvas menu's Add heading / Add text (D192)
 
 import { COLS, docRows, where } from './doc-layout.js';
+import { addItems } from './blocks.js';
 
 // Lifecycle predicates over a /components entry (shared with the sidebar).
 export const offloaded = (c) => c?.state === 'offloaded' || c?.state === 'offloaded-full';
@@ -141,6 +146,7 @@ export function canvasMenuItems(s, a) {
   } else {
     items.push({ icon: 'plus', label: 'Create a new tile…', disabled: true, hint: s.ownerHint ?? 'org-only policy — ask an org admin' });
   }
+  if (a.addBlock) items.push(...addItems(s, a)); // headings and text, no tile (D192)
   items.push({ icon: 'grid', label: 'New screen', action: () => a.addScreen() });
   if (s.layoutItems?.length) {
     const cur = s.layoutItems.find((x) => x.checked);
@@ -168,12 +174,12 @@ export function openTileItems(s, a) {
   ];
 }
 
-// Document mode's Row submenu (D187) for a placed tile: its row's width
+// Document mode's Row submenu (D187) for a placed tile (or block, D192): its row's width
 // (1 · 2 · 4 columns: wider pulls the next tiles up, narrower pushes the
 // overflow down), Move up / Move down — the keyboard's way to arrange — and
 // back to fitting its content after a fixed height was set.
-function rowItems(path, s, a) {
-  const rows = docRows(s.tiles), at = where(rows, path);
+export function rowItems(path, s, a) {
+  const rows = docRows(s.docItems ?? s.tiles), at = where(rows, path);
   const row = at ? rows[at.row] : null, cols = row?.cols ?? 1, ro = !s.canMutate;
   const t = row?.tiles[at.col];
   return { icon: 'split', label: 'Row', hint: ro ? 'view mode' : `${cols} ${cols === 1 ? 'column' : 'columns'}`, disabled: ro || !row, items: [
