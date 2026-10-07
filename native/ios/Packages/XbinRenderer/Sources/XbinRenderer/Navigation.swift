@@ -221,26 +221,28 @@ private struct HostedNav: View {
     let node: XbinNode
     let carried: CarriedXbinEnvironment
     @Environment(\.xbin) private var cx
-    @State private var popped = 0
+    /// The screens the user left, counted against the stack they left them
+    /// from: once the tile's stack is another (it dropped them, or moved
+    /// on), none are hidden. An `onChange(of:)` reset missed the tile's
+    /// drop now and then, and Back from an automation's run showed the
+    /// Automations list under the automation it came from (2026-10-07).
+    @State private var popped: (count: Int, of: [String]) = (0, [])
 
     var body: some View {
         let screens = node.children
         let keys = screens.map(\.key)
-        let shown = max(1, keys.count - popped)
+        let hidden = popped.of == keys ? popped.count : 0
+        let shown = max(1, keys.count - hidden)
         let n = node
         let context = cx
-        let total = keys.count
-        Group {
-            if !screens.isEmpty {
-                HostedNavLevel(screens: Array(keys.prefix(shown)), index: 0, carried: carried) { depth in
-                    navTrace("nav \(n.key) hosted pop to \(depth) of \(total)")
-                    guard depth < total - popped else { return }
-                    popped = total - depth
-                    context?.emit(n, "pop", ["depth": .int(Int64(depth))])
-                }
+        if !screens.isEmpty {
+            HostedNavLevel(screens: Array(keys.prefix(shown)), index: 0, carried: carried) { depth in
+                navTrace("nav \(n.key) hosted pop to \(depth) of \(keys.count)")
+                guard depth < shown else { return }
+                popped = (keys.count - depth, keys)
+                context?.emit(n, "pop", ["depth": .int(Int64(depth))])
             }
         }
-        .onChange(of: keys) { popped = 0 }
     }
 }
 
