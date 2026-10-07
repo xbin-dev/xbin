@@ -68,7 +68,9 @@ both themes (Settings → Theme: Light, then Dark) before you call it done.
 6. **Dense, on a 4px grid.** Rows `var(--bx-row)` (28px, 32px for people
    who chose Comfortable), controls `var(--bx-control-h)`, panel padding
    `var(--bx-pad)`, gaps in multiples of 4. Tiles are often narrow: reflow,
-   never scroll sideways.
+   never scroll sideways. A tile may also be short or tall: on a screen in
+   Document mode it is as tall as its page (frontend-kit.md §Document
+   mode), so a view that reads as a page lets its height be its content's.
 7. **Glyphs, not emoji.** `<bx-icon name="…">` draws the workspace's 16px
    glyphs in `currentColor`. No emoji as icons; never sparkles, robots,
    brains, stars or faces. A person's own emoji (a name they typed) is

@@ -324,6 +324,35 @@ copies the `xbin_theme` hint cookie the shell keeps into
 `<meta name="xbin-theme">`, so the page opens in the person's theme. A tile
 never needs it: its documents get the injection.
 
+## Document mode: how a tile grows
+
+A person can switch a screen to **Document mode** (the screen tab's menu:
+Layout, Canvas · Document; D187): the screen becomes a scrolling page of
+rows, one tile per row or two or four side by side, and each tile is **as
+tall as its document** — no fixed window height, no scrolling inside the
+tile. On the canvas the same tile is a fixed-size window, as before; a tile
+can't tell which it is in, so write it to work in both.
+
+- **How it grows.** `xbin-client.js` (which xbind injects into every tile
+  document) reports the height of your `<html>` element to the frame
+  (`xbin:resize`), and in Document mode the frame takes it (24–20000 px).
+  Nothing to call: when your content changes height, the frame follows.
+- **Report your height naturally.** Let `html` and `body` be as tall as
+  their content. Don't pin them to the viewport — `height: 100%`,
+  `height: 100vh` or `min-height: 100vh` on `html`/`body` (or a full-height
+  flex column with an inner `overflow: auto` pane) makes your document
+  exactly as tall as the frame, so it can never grow: the tile stays at the
+  480 px it starts with and scrolls inside, like a window. The person can
+  still give such a tile a fixed height (the handle under its card).
+- **Apps that scroll inside on purpose** — a terminal, a chat with its
+  composer pinned to the bottom, a map — keep the viewport pin: they are
+  windows, and the handle is how a person sizes them on a page.
+- **Short is fine.** A tile with little to show is a short card; don't pad
+  it to a height.
+- **Narrow still applies.** A row of four tiles is a quarter of the page
+  each, and below 820px every row is one column: reflow, never scroll
+  sideways.
+
 ## Rules
 
 - **URLs are frozen.** A module served today stays at its path; a helper

@@ -86,6 +86,16 @@ export const shellCss = [scrollCss, baseCss, chromeCss, css`
       color: var(--bx-muted, #A3A6B6); border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px);
     }
     .top .spacer { flex: 1; }
+    /* Document mode (D187), wider than 820px: the bar floats over the page
+       and slides away while reading (shell-doc.js TopReveal: back at the
+       top edge, on a scroll up, with focus or a menu in it) */
+    .top.docmode {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 3200;
+      box-shadow: var(--bx-shadow-rest, 0 10px 28px rgba(0, 0, 0, 0.4));
+      transition: transform var(--bx-dur-panel, 200ms) var(--bx-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+    }
+    .top.docmode.away { transform: translateY(-100%); box-shadow: none; }
+    .topedge { position: fixed; top: 0; left: 0; right: 0; height: 8px; z-index: 3150; }
     .top a.chip, .top button.chip {
       display: inline-flex; align-items: center; gap: 6px; flex: none; box-sizing: border-box;
       height: var(--bx-control-h, 28px); padding: 0 10px; white-space: nowrap; cursor: pointer; text-decoration: none;
@@ -142,7 +152,15 @@ export const shellCss = [scrollCss, baseCss, chromeCss, css`
       font: var(--bx-font-micro, 600 11px/14px system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase;
       color: var(--bx-muted, #A3A6B6); border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
     }
-    .tab .ro { display: inline-flex; color: var(--bx-muted, #A3A6B6); }
+    .tab .ro, .tab .mode { display: inline-flex; color: var(--bx-muted, #A3A6B6); }
+    /* the strip in the top bar (D187, wider than 820px): the bar's middle,
+       scrolled sideways (the wheel too) when the tabs don't fit; the chips
+       keep their room */
+    .top .tabs {
+      flex: 1; min-width: 0; height: 100%; padding: 0; margin: 0 4px;
+      background: transparent; border-bottom: 0; scrollbar-width: none;
+    }
+    .top .tabs::-webkit-scrollbar { display: none; }
 
     /* ---- shared org screen strip (D55): a pinned row under the screen tabs —
        what the screen is and who saved it (view), or the draft's save/discard
@@ -556,6 +574,40 @@ export const canvasCss = [scrollCss, baseCss, chromeCss, css`
       }
     }
 `];
+
+// Document mode (D187, shell-doc.js): every card on one 4-column grid at
+// its row (--row), first column (--col) and span (--span: 4, 2 or 1 for a
+// 1-, 2- or 4-wide row); a 1-wide row's card centred at most 1100 px; each
+// card as tall as its frame, which grows with its document (480 px until
+// the document first says its height). Below 820px one column, in reading
+// order (--ord).
+export const docCss = css`
+    .doc { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; padding-bottom: 48px; }
+    .dcell { position: relative; display: flex; min-width: 0; grid-row: var(--row); grid-column: var(--col) / span var(--span); }
+    .dcell.one { justify-self: center; width: 100%; max-width: 1100px; }
+    .dcell.dragging { opacity: 0.5; }
+    .dcell > .card { flex: 1; }
+    .dcell .card .cbody { flex: none; overflow: visible; }
+    .dcell .card .cbody > bx-frame { position: static; --bx-frame-height: 480px; }
+    .doc.ro .card .head { cursor: default; }
+    /* the fixed-height handle: the card's bottom edge, a grip under the pointer */
+    .dh { position: absolute; left: 0; right: 0; bottom: -7px; height: 10px; z-index: 12; cursor: ns-resize; touch-action: none; }
+    .dh::after {
+      content: ''; position: absolute; left: 50%; bottom: 4px; width: 32px; height: 2px; margin-left: -16px;
+      background: var(--bx-border-strong, #666A7E); opacity: 0;
+    }
+    .dcell:hover .dh::after { opacity: 1; }
+    .dh:hover::after { background: var(--bx-text, #E9EAF0); }
+    /* where a dragged card lands: an accent bar beside a card or across the page */
+    .dmark { position: fixed; z-index: 60; pointer-events: none; background: var(--bx-accent, #8C9BFF); border-radius: var(--bx-radius, 2px); }
+    .dmark.v { width: 3px; }
+    .dmark.h { height: 3px; }
+    @media (max-width: 820px) {
+      .doc { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+      .dcell { grid-row: var(--ord); grid-column: 1 / -1; }
+      .dcell.one { max-width: none; }
+    }
+`;
 
 // Status levels: the colour token and its tint, carried as --st / --st-bg so
 // the glyph (.sti) and a tinted row inherit them — sidebar rows (bx-side),

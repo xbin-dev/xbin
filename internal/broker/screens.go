@@ -39,15 +39,19 @@ import (
 // other — the shell edits a local draft and publishes with an explicit
 // "save and update for everyone". A tile write without `rev` is still
 // accepted as a legacy overwrite (pre-D55 shell copies keep working).
-// Rename/knob changes are admin-plane and don't bump the revision, so they
-// never conflict with a member's draft. Layout JSON is the shell's own
+// Rename/knob/mode changes are admin-plane and don't bump the revision, so
+// they never conflict with a member's draft. Layout JSON is the shell's own
 // shape — opaque here beyond a size cap.
 
 type orgScreen struct {
-	ID    string          `json:"id"`
-	Org   string          `json:"org"`
-	Name  string          `json:"name"`
-	Edit  string          `json:"edit"` // admins | write | members
+	ID   string `json:"id"`
+	Org  string `json:"org"`
+	Name string `json:"name"`
+	Edit string `json:"edit"` // admins | write | members
+	// Mode is how the shell arranges the screen (D187): "doc" (Document
+	// mode, rows) or absent (the canvas). Admin-plane like Name: it never
+	// bumps Rev, and a PUT that leaves it out keeps it.
+	Mode  string          `json:"mode,omitempty"`
 	Tiles json.RawMessage `json:"tiles"`
 	// Rev counts tile saves (1-based; legacy rows load as 1). UpdatedBy/At
 	// stamp the last tile save — what the shell's "last saved by" shows.
@@ -282,14 +286,25 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 		Org   string          `json:"org"`
 		Name  string          `json:"name"`
 		Edit  string          `json:"edit"`
+		Mode  string          `json:"mode"`
 		Tiles json.RawMessage `json:"tiles"`
 		Rev   *int            `json:"rev"`
 		Force bool            `json:"force"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := server.DecodeJSON(r, &body); err != nil || body.Org == "" {
-		server.WriteError(w, http.StatusBadRequest, "need {id?, org, name?, edit?, tiles?, rev?, force?} (≤64K)")
+		server.WriteError(w, http.StatusBadRequest, "need {id?, org, name?, edit?, mode?, tiles?, rev?, force?} (≤64K)")
 		return
+	}
+	if body.Mode != "" && body.Mode != "canvas" && body.Mode != "doc" {
+		server.WriteError(w, http.StatusBadRequest, "mode must be canvas|doc")
+		return
+	}
+	// "canvas" is stored as absent: a screen without a mode is a canvas,
+	// which every shell before D187 assumes.
+	mode, setMode := body.Mode, body.Mode != ""
+	if mode == "canvas" {
+		mode = ""
 	}
 	hasTiles := rawPresent(body.Tiles)
 	p := auth.PrincipalOf(r)
@@ -344,7 +359,7 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 			body.Edit = "admins"
 		}
 		cur = orgScreen{
-			ID: util.RandomToken(8), Org: body.Org, Name: body.Name, Edit: body.Edit, Tiles: body.Tiles,
+			ID: util.RandomToken(8), Org: body.Org, Name: body.Name, Edit: body.Edit, Mode: mode, Tiles: body.Tiles,
 			Rev: 1, UpdatedBy: by, UpdatedAt: at,
 		}
 		d.Org = append(d.Org, cur)
@@ -361,9 +376,10 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 		}
 		cur = d.Org[idx]
 		metaChange := (body.Name != "" && body.Name != cur.Name) ||
-			(body.Edit != "" && body.Edit != cur.Edit)
+			(body.Edit != "" && body.Edit != cur.Edit) ||
+			(setMode && mode != cur.Mode)
 		if !hasTiles && !metaChange {
-			server.WriteError(w, http.StatusBadRequest, "nothing to change: send tiles and/or name/edit")
+			server.WriteError(w, http.StatusBadRequest, "nothing to change: send tiles and/or name/edit/mode")
 			return
 		}
 		if !admin && !m.Admin {
@@ -372,7 +388,7 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if metaChange {
-				server.WriteError(w, http.StatusForbidden, "renaming or changing who may edit needs an org admin")
+				server.WriteError(w, http.StatusForbidden, "renaming, changing who may edit or the layout mode needs an org admin")
 				return
 			}
 		}
@@ -397,6 +413,9 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 			}
 			if body.Edit != "" {
 				cur.Edit = body.Edit
+			}
+			if setMode {
+				cur.Mode = mode
 			}
 		}
 		d.Org[idx] = cur

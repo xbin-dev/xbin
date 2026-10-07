@@ -11465,3 +11465,93 @@ Deviations and refinements made while implementing; all deliberate:
     `testdata/github-live.json`, `TestFakeMatchesLiveGitHub`), the agent
     and scm-github `-race` suites, the node tests and `make check` (known
     failures in records/LAND.md).
+
+- **D187 — The shell's Document display mode, and the screen tabs in the
+  top bar (2026-10-07).** workspace-template/shell/doc-layout.js,
+  shell-doc.js, shell-tabs.js, bx-canvas.js, bx-shell.js, menus.js,
+  shell-css.js; web/bx-frame.js; internal/broker/screens.go;
+  hack/doc-layout.test.mjs, hack/ui-harness/passes/docmode.js;
+  docs/frontend-kit.md §Document mode, elements.md, protocol.md,
+  design.md. (The same plan's grant-strip dismiss and per-device
+  light/dark override are another change.)
+  - **The owner's answers (2026-10-07).** The mode is **per screen**, and a
+    shared org screen carries its mode for everyone. In Document mode the
+    top bar is **revealed on demand** — at the top edge, or when the page
+    scrolls up — and hidden otherwise.
+  - **Data, never breaking a saved layout.** A screen gains `mode: "doc"`
+    (absent = canvas): in the `layout` pref for a personal screen, and as
+    an optional `mode` on the org screen for a shared one. A tile gains an
+    optional `doc: {row, col, cols, h?}` beside its canvas geometry; the
+    canvas fields (x, y, w, h, float) are never written by Document mode,
+    so switching back shows the canvas exactly. A tile without `doc`
+    (opened on the canvas, by an older shell or the app) is a row of its
+    own after the placed rows, in reading order (y, then x); `doc` is
+    written only when someone arranges the rows, or opens a tile on a
+    Document screen (it becomes the last row). Older shells and the app
+    ignore both fields and re-save them untouched (they spread the tile
+    and screen objects).
+  - **Org screens.** `mode` is admin-plane like the name: org admins and
+    ws-admins change it, it never bumps the revision (no conflict with a
+    member's draft), and a PUT that leaves it out keeps it — an older
+    shell publishing tiles never resets it. `canvas` is stored as absent,
+    so a screen nobody switched reads exactly as before. The switch is
+    meta, outside the draft: arranging the rows is a tile edit and goes
+    through the draft as on the canvas.
+  - **Rows.** 1, 2 or 4 wide — nothing else, so every row sits on one
+    4-column CSS grid (a cell spans 4/cols columns; a 1-wide row's card
+    is centred at most 1100 px, wider rows use the full width). Cells keep
+    a stable DOM order (by path) and the grid places them, because moving
+    an iframe in the DOM reloads it: rearranging rows reloads no tile.
+    Below 820px the cells go one column in reading order (`--ord`).
+    Making a row wider pulls the following tiles up into it; narrower
+    pushes the overflow into new rows of the new width below; dropping a
+    card beside a full row's card widens it 1 → 2 → 4, and a full 4-wide
+    row pushes its last tile down. Floats stay floating windows, outside
+    the rows. The keyboard path is the tile menu's Row submenu (1 · 2 · 4
+    columns, Move up / Move down: a tile alone swaps rows, one sharing a
+    row leaves it as a row of its own) — the drag is not the only way.
+  - **Growing to content.** The doc card renders `<bx-frame>` without
+    `height` and its body unclipped; the frame takes the height the
+    document reports (xbin-client's `xbin:resize`, the html element's
+    height, 24–20000 px). bx-frame's auto-height became reactive (the
+    `height` attribute or a style height switches it in place, and a frame
+    turning auto takes the last reported height) instead of decided once
+    on connect. xbin-client is unchanged: reporting `scrollHeight` would
+    make a `min-height: 100vh` document grow without bound. A document
+    pinned to its viewport (terminal, chat) reports the frame's own
+    height, so it settles at the initial 480 px (a CSS default on the doc
+    card's frame); every doc card has a bottom handle that sets a fixed
+    `doc.h` (two clicks clear it, as does Row ▸ Fit height to content).
+    Every card gets the handle, not only the ones that can't grow:
+    telling them apart from the outside is guesswork.
+  - **The top bar in Document mode** (wider than 820px; a phone keeps its
+    bar, which holds the menu button): fixed over the page, it starts out
+    of the way and slides back on a scroll up, at the top edge (an 8px
+    strip catches the pointer — over a tile the pointer's moves go to the
+    tile's document, never the page), while focus is in it and while a
+    menu is open; a scroll down sends it away. The motion is
+    `--bx-dur-panel` (0 under reduced motion). Hidden it is
+    `transform`ed; shown it has no transform, so the settings menu's
+    viewport-fixed backdrop still covers the page.
+  - **The tabs in the top bar** (all modes, wider than 820px): between the
+    mark and the settings chip, scrolling sideways (the wheel too, with no
+    scrollbar drawn) and keeping the active tab in view only when the
+    active tab changes, so a strip scrolled by hand stays put. Below 820px
+    the strip stays its own row. The rendering and the screen actions
+    (add, rename, close, hide, reorder, the Layout lines) moved to
+    shell-tabs.js — bx-shell was at its size budget (1888/1892), now
+    ~1810. A tab's right-click menu is new: Rename…, Layout, Close/Hide.
+  - **Not chosen:** a "new screen" dialog with the layout choice (there is
+    no dialog; a new screen is a canvas and the tab menu switches it);
+    Document mode's own scroll container (main stays the scroller, so the
+    grant strip stays the page's first row); detecting tiles that can't
+    grow; moving rows by drag on a phone (it reads; the menu arranges).
+  - **Verified:** hack/doc-layout.test.mjs (rows, placement, 1/2/4
+    changes, moves within and across rows, reading order, canvas geometry
+    untouched by every edit), menus.test.mjs (Layout and Row lines),
+    `TestScreensOrgMode`, and the harness `docMode` pass in Night and Day
+    (one tile per row; a 2-wide row by dragging, a 4-wide one from the
+    menu; a tall tile with `scrollHeight == clientHeight` inside; a
+    viewport-pinned tile at 480 px, its handle and its reset; the bar on
+    scroll down/up and at the top edge; the phone stack; the canvas
+    identical after switching back).

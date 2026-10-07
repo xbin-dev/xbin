@@ -23,6 +23,10 @@
  * the front, here or anywhere on the page (zorder.js frontWindow) — wears
  * the active title bar and edge. The admin console's windows carry the
  * admin part tab.
+ *
+ * With `mode` 'doc' (D187) the screen is Document mode instead of the grid:
+ * rows of cards, each as tall as its content (shell-doc.js docView, the
+ * rows from doc-layout.js); the floats, menus and card chrome are the same.
  */
 import { LitElement, html, nothing, repeat } from 'lit';
 import '/vendor/bx-frame.js';
@@ -34,7 +38,8 @@ import { GRID, GAP, MIN_W, MIN_H, snap, LongPress, selectedText, prBadge, liveSq
 import { shownDeployment, deployMenu } from './menus.js';
 import { pushLayout } from './grid-layout.js';
 import { nextZ, raiseTo, frontWindow, onWindowFront, activeWindow } from './zorder.js';
-import { canvasCss, prbCss, partCss } from './shell-css.js';
+import { canvasCss, prbCss, partCss, docCss } from './shell-css.js';
+import { docView, docFrame, docDragStart } from './shell-doc.js';
 import { partitionView, requestKey, pruneDecisions, pendingText, switchLabel, modeName, modeBody, postMode, errorText,
   switchSpec, switchResolve, staleRefusal, deletesNothing, keptText, switchedText, whoDecides, noteText,
   partitionChip } from './partition-mode.js';
@@ -54,13 +59,16 @@ export class BxCanvas extends LitElement {
     alerts: { attribute: false },       // /alerts rows (optional): a pending tile's card says its partition-switch message
     reload: { attribute: false },       // () → the shell reloads /components and /alerts (optional; after a decision)
     who: { attribute: false },          // /whoami (optional): whose partition a partitioned tile's window shows (its chip)
+    mode: { attribute: false },         // 'canvas' (default) | 'doc': Document mode (D187, shell-doc.js)
     _drag: { state: true },             // a grid drag/resize in flight: {path, rect, moves, dirs, orig, positive}
     _dmenu: { state: true },            // a window head's ⇈ menu: {items, anchor, title}
     _part: { state: true },             // path → a pending card's decision {key, busy, err, done}
     _pdlg: { state: true },             // the Switch… typed confirmation: {path, v, dry, spec}
     _front: { state: true },            // the active window's key (zorder.js): 'tile:<path>' is one of ours
+    _ddrag: { state: true },            // Document mode: a card being dragged {path, move, mark} (shell-doc.js)
+    _dh: { state: true },               // Document mode: a fixed height being dragged {path, h}
   };
-  static styles = [canvasCss, prbCss, partCss];
+  static styles = [canvasCss, prbCss, partCss, docCss];
 
   constructor() {
     super();
@@ -181,7 +189,9 @@ export class BxCanvas extends LitElement {
     }
   }
   // The card's or window's on-screen rect (the tile admin popover opens beside it).
-  rectOf(path) { return (this._gtile(path) ?? this._floatWin(path))?.getBoundingClientRect() ?? null; }
+  rectOf(path) { return (this._gtile(path) ?? this._floatWin(path) ?? this._dcell(path))?.getBoundingClientRect() ?? null; }
+  _dcell(path) { return this.renderRoot.querySelector(`.dcell[data-path="${CSS.escape(path)}"]`); }
+  get _doc() { return this.mode === 'doc'; }
 
   // ---- context menus ----
   // A right-click on a card head opens the TILE menu, on the empty canvas
@@ -355,8 +365,10 @@ export class BxCanvas extends LitElement {
     e.currentTarget.closest('.card')?.querySelector('bx-frame')?.toggleTerminal?.();
   }
 
-  // kind: 'grid' (on the snappable grid) | 'float' (a free-floating window).
-  // Both are fixed-size: the frame fills a fixed body and scrolls inside.
+  // kind: 'grid' (on the snappable grid) | 'float' (a free-floating window)
+  // | 'doc' (a Document-mode row, D187). The first two are fixed-size: the
+  // frame fills a fixed body and scrolls inside; a doc card's frame grows
+  // with its document (or keeps the tile's fixed doc.h).
   // The head is the window's title bar: the live square, the partition
   // marker, the name (the folder's) and the path, then the badges and the
   // controls (28 × 28, 16 px glyphs, each named for a screen reader).
@@ -367,7 +379,8 @@ export class BxCanvas extends LitElement {
     // deployment's one instance is shared by the tile's writers (01 §2.8);
     // the chip says whose partition the window shows (yours/shared/global)
     const mark = shown ? null : partitionMark(c), chip = partitionChip(pv, { shown, who: this.who });
-    const frame = html`<bx-frame src=${o.path} deployment=${shown || nothing} no-edit height="100%" .popBounds=${floating ? null : this._popBounds}></bx-frame>`;
+    const frame = kind === 'doc' ? docFrame(o, shown)
+      : html`<bx-frame src=${o.path} deployment=${shown || nothing} no-edit height="100%" .popBounds=${floating ? null : this._popBounds}></bx-frame>`;
     const name = o.path.slice(o.path.lastIndexOf('/') + 1);
     const pin = floating ? 'pin back onto the grid' : 'unpin into a floating window';
     const admin = 'tile admin (lifecycle · access · runtime · vault · grants · interfaces · backup · cron)';
@@ -376,7 +389,7 @@ export class BxCanvas extends LitElement {
       <div class="card ${this._isActive(o.path) ? 'active' : ''}" data-path=${o.path} data-part=${o.path === 'tiles/admin' ? 'admin' : nothing}
            @bx-contextmenu=${(e) => { e.stopPropagation(); this._tileMenu({ clientX: e.detail.x, clientY: e.detail.y }, o.path, null, e.detail.selection || ''); }}>
         <div class="head"
-             @pointerdown=${(e) => { this._activate(o.path); this._press.start(e, () => this._tileMenu(null, o.path), this.mobile); (floating ? this._floatDragStart(e, o.path) : this._gridDragStart(e, o.path)); }}
+             @pointerdown=${(e) => { this._activate(o.path); this._press.start(e, () => this._tileMenu(null, o.path), this.mobile); (floating ? this._floatDragStart(e, o.path) : kind === 'doc' ? docDragStart(this, e, o.path) : this._gridDragStart(e, o.path)); }}
              @pointermove=${(e) => this._press.move(e)}
              @pointerup=${() => this._press.cancel()} @pointercancel=${() => this._press.cancel()} @pointerleave=${() => this._press.cancel()}>
           ${liveSquare(this._liveOf(o.path), this._runtimeOf(o.path))}
@@ -595,9 +608,9 @@ export class BxCanvas extends LitElement {
   render() {
     const grid = this._all().filter((o) => !o.float);
     const floats = this._all().filter((o) => o.float);
-    const ext = this._gridExtent();
+    const ext = this._doc ? null : this._gridExtent();
     return html`
-      <div class="canvas ${this.canMutate ? '' : 'ro'}" style="min-height:${ext.h}px; min-width:${ext.w}px; --grid-px:${GRID * this._k}px"
+      ${this._doc ? docView(this) : html`<div class="canvas ${this.canMutate ? '' : 'ro'}" style="min-height:${ext.h}px; min-width:${ext.w}px; --grid-px:${GRID * this._k}px"
            @contextmenu=${(e) => this._onContextMenu(e)}
            @pointerdown=${(e) => this._bgPress(e)}
            @pointermove=${(e) => this._press.move(e)}
@@ -605,7 +618,7 @@ export class BxCanvas extends LitElement {
         ${repeat(grid, (o) => o.path, (o) => this._gridCard(o))}
         ${(this._drag?.moves ?? []).map((m) => html`<div class="ghost" data-path=${m.path}
           style="left:${m.x * this._k}px; top:${m.y * this._k}px; width:${(m.w - GAP) * this._k}px; height:${(m.h - GAP) * this._k}px;"></div>`)}
-      </div>
+      </div>`}
       ${grid.length === 0 && floats.length === 0 ? html`<div class="empty">${this.emptyText}</div>` : nothing}
       ${repeat(floats, (o) => o.path, (o) => this._floatTemplate(o))}
       ${this._dmenu ? html`<bx-menu open .items=${this._dmenu.items} .anchor=${this._dmenu.anchor} ?sheet=${this.mobile}

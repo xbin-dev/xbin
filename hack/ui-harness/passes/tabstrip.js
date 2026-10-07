@@ -36,7 +36,11 @@ async function run(browser, check, name, ctxOpts, press) {
   await waitFor(page, (t, a) => t.frameFor(a.src).testApi().tabs.filter((x) => x.id).length >= a.n, { src: TILE, n: N }, { timeout: 60000, label: 'every tab has its session' });
   await fr(page, TILE, (f, t, n) => f.setActiveTab(n - 1), N);
   await settle(page);
-  await page.locator(`bx-frame[src="${TILE}"] .titlebar`).evaluate((el) => el.scrollIntoView({ block: 'center' }));
+  // the card to the top of the pane: its window follows it (D66), so the
+  // title bar is on screen wherever the card was placed (scrolling the
+  // viewport-fixed title bar itself into view scrolls nothing)
+  await sh(page, (t, p) => t.query(`.card[data-path="${p}"]`)?.scrollIntoView({ block: 'start' }), TILE);
+  await sleep(200);
   await settle(page);
   const s0 = await strip(page);
   check(s0.narrow && s0.over > 40 && s0.left > 0, `${name}: the strip overflows and shows the active last tab (${JSON.stringify(s0)})`);
