@@ -103,7 +103,7 @@ const views = {
   },
 };
 
-// a coding conversation (D115) in a sandbox — not in the list: the drawer's shots stay as they are
+// a coding conversation (D115) in a sandbox — not in the list: the list's shots stay as they are
 const MGR = 'apps/coding-sandbox';
 const CODING = { id: 'coding', name: 'Coding', icon: '▣', toolsets: ['sandbox', 'web', 'files'], managers: 'all', sandboxEgress: ['none', 'internet'] };
 const box = (id, extra = {}) => ({ ref: `${MGR}|${id}`, provider: MGR, manager: 'Coding sandboxes', id, name: id, state: 'running', egress: 'none',
@@ -170,7 +170,8 @@ const seed = (extra = {}) => ({
 
 const tap = (m) => ({ tap: m });
 const SCENES = {
-  home: [{}, []],
+  list: [{}, []], // the root (D190)
+  home: [{}, [tap({ t: 'button', p: { label: 'New chat' } })]], // the new chat screen, pushed
   chat: [{ hash: 'c=1' }, [{ call: ['push', { type: 'thinking', run: 2, root: 1, data: { text: 'Globex lists per-agent pricing…' } }] }]],
   'chat-subagent': [{ hash: 'c=1' }, [{ event: [{ t: 'toolcard', p: { family: 'agent' } }, 'open', {}] }]],
   approval: [{ hash: 'c=3' }, []],
@@ -178,8 +179,7 @@ const SCENES = {
   failed: [{ hash: 'c=4' }, []],
   'view-only': [{ hash: 'c=5' }, []],
   menu: [{ hash: 'c=1' }, []], // the menu is an overlay; the tree is the chat
-  drawer: [{ hash: 'c=1' }, [tap({ t: 'button', p: { label: 'Conversations' } })]],
-  'new-chat': [{}, [tap({ t: 'button', p: { label: 'Conversations' } }), tap({ t: 'row', p: { title: 'New chat with options…' } })]],
+  'new-chat': [{}, [tap({ t: 'button', p: { label: 'New chat' } }), tap({ t: 'button', p: { label: 'New chat with options…' } })]],
   share: [{ hash: 'c=1' }, [tap({ t: 'button', p: { label: 'Share' } })]],
   'share-readonly': [{ hash: 'c=5' }, [tap({ t: 'button', p: { label: 'Shared' } })]],
   automations: [{ hash: 'auto' }, []],
@@ -194,7 +194,7 @@ const SCENES = {
   render: [{ hash: 'c=1' }, [tap({ t: 'button', p: { label: 'Files (2)' } }), tap({ t: 'button', p: { label: 'Render' } })]],
   tree: [{ hash: 'c=1' }, [tap({ t: 'button', p: { label: 'Workflow tree' } })]],
   settings: [{}, [tap({ t: 'button', p: { label: 'Settings' } }), tap({ t: 'row', p: { title: 'Config' } })]],
-  'sandbox-home': [{}, [{ event: [{ t: 'picker', p: { label: 'Class' } }, 'change', { value: 'coding' }] }]],
+  'sandbox-home': [{}, [tap({ t: 'button', p: { label: 'New chat' } }), { event: [{ t: 'picker', p: { label: 'Class' } }, 'change', { value: 'coding' }] }]],
   'sandbox-chat': [{ hash: 'c=8' }, [{ event: [{ t: 'toolcard', p: { title: 'Run the tests' } }, 'toggle', { open: true }] }]],
   sandbox: [{ hash: 'c=8' }, [tap({ t: 'button', p: { label: 'Sandbox: api' } })]],
   sandboxes: [{ hash: 'c=8' }, [{ event: [{ t: 'picker', p: { label: 'Sandbox' } }, 'change', { value: '+manage' }] }]],

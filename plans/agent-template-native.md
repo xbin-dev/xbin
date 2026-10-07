@@ -93,8 +93,18 @@ builtin-templates/agent/
 
 ## 3. The native view
 
+> **Superseded in part by D190 (2026-10-07):** the native view is no longer
+> one surface at a time. The conversation list is the root of a navigation
+> stack (`native/nav.js`): conversations, the new chat screen, the
+> Automations page, Projects and every tool screen are pushed, and Back
+> returns where you came from; the drawer below is gone. The model still
+> keeps one selection and follows the top entry. On iPad and the Duo the
+> same stack is drawn as a split (list | detail) once the app has the
+> rev-2 `split` (D189) — a follow-up. The sketch below is the original
+> shape, kept for the rest of its design (blocks, composer, model wiring).
+
 `native.js` renders from the model, one surface at a time (plans/native.md
-§15 — no split views, even on the Duo or iPad):
+§15 — no split views, even on the Duo or iPad) — *the rule D190 retired*:
 
 ```js
 // builtin-templates/agent/native.js — shape, not the final code
@@ -138,7 +148,9 @@ child (tap "open" pushes the child full screen), `step` → `step`, `notice` →
 
 The conversations drawer is a `sheet` from the leading edge (the renderer
 presents it as a drawer), listing `ConvList` groups with swipe actions; picking
-a row routes and closes it.
+a row routes and closes it. *(D190: the list is the stack's root screen
+instead — the same `ConvList` groups, Needs you first, and a row pushes its
+conversation.)*
 
 ## 4. Performance — streaming at 120 Hz on 1k-message conversations
 
@@ -229,4 +241,6 @@ shows the latest screenful in < 300 ms; memory stays flat while streaming.
 3. **`POST /api/xbin/notify`** as a platform API rather than an agent-only
    route (recommended).
 4. **Drawer, not split**, for conversations on every device (per the owner's
-   one-surface rule; recommended).
+   one-surface rule; recommended). *Retired by D190 (2026-10-07): the list
+   is the root of a navigation stack on the phone, and a split on iPad and
+   the Duo (with the rev-2 `split`).*

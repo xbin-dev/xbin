@@ -12,6 +12,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-07
 
+- **The agent template on the xbin app: the conversation list first, and
+  Back** (D190; the template's API.md "The frontend"). Its native view is
+  now a navigation stack whose root is your conversations — search, what
+  needs you, pinned, by date, Mine / Shared / Archived, a row's swipe
+  actions — with New chat and ⋯ (Automations, Projects, Coding agents,
+  Settings) in the bar. A conversation, the new chat screen, a project's
+  task, an automation's run, a Coding agents board row and a subagent are
+  pushed, and Back returns where you came from; the conversations drawer
+  is gone. Links (`#c=`, `#auto…`, `#proj…`, `#join=`) open with the list
+  under them, and a restarted view comes back to the same screens. Every
+  app version gets it (it uses only today's native vocabulary). An
+  instance that customised the native view: `ui.drawer` and
+  `ui.opening` are gone, `ui.stack` now holds conversations and pages too
+  (`native/nav.js`), the main ⋯ is the list's, and `ext.drawer` rows draw
+  at the top of the list.
+
 - **Fix: a page without a `<head>` keeps its doctype first.** xbind's
   injection (the import map, the client) used to go in front of such a
   page, so a leading `<!doctype html>` no longer came first and the
