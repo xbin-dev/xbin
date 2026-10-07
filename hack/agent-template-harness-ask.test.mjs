@@ -10,6 +10,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { runNative } from './xbn/node.mjs';
+import { PHONE } from './agent-template-native-caps.mjs'; // the phone stack (rev-1 split): the tests walk its nav
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url);
 const KIT = new URL('../web/bx-kit.js', import.meta.url).href;
@@ -261,7 +262,7 @@ test('steered: a queued message that left the queue and showed up while it steer
 // --- the native view over the fixtures ---------------------------------------------------------
 
 async function runSeed(steps, hash, s = harnessSeed()) {
-  const r = await runNative({ entry: new URL('native.js', TPL).pathname,
+  const r = await runNative({ caps: PHONE, entry: new URL('native.js', TPL).pathname,
     data: { now: Date.UTC(2026, 8, 30, 12), self: 'apps/agent', setup: new URL('test/native-stub.mjs', TPL).pathname, seed: s },
     steps, state: hash ? { hash } : null });
   assert.equal(r.fatal, null);

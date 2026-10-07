@@ -36,6 +36,7 @@ import { listScreen, newChatSheet, renameSheet } from './native/convs.js';
 import { shareSheet } from './native/share.js';
 import { sandboxAskSheet } from './native/sandboxes.js';
 import { hostedWarnSheet } from './native/hosted.js';
+import { partitionSheets } from './native/homes.js';
 import { toolScreen, treeDirty, openRender, openLive } from './native/tools.js';
 import { autoScreens } from './native/auto.js';
 import * as nav from './native/nav.js';
@@ -82,9 +83,11 @@ let meta = '';
 function draw() {
   syncPreview();
   // the list, then each entry of the stack as its screen(s)
-  screens = [{ key: 'list', tpl: listScreen }, ...ui.stack.flatMap(screensOf)];
-  render(html`${layout(screens)}
-    ${newChatSheet()}${renameSheet()}${shareSheet()}${sandboxAskSheet()}${hostedWarnSheet()}`);
+  const list = { key: 'list', tpl: listScreen };
+  const stack = ui.stack.flatMap(screensOf);
+  screens = [list, ...stack];
+  render(html`${layout(list, stack)}
+    ${newChatSheet()}${renameSheet()}${shareSheet()}${sandboxAskSheet()}${hostedWarnSheet()}${partitionSheets()}`);
   // the tile's title and badge in the app's navigator and switcher
   const v = app.session.current();
   const m = { title: v ? app.rules.topBar(v).title : app.HOME.title, badge: app.needs.length ? String(app.needs.length) : null };
@@ -94,13 +97,22 @@ function draw() {
   chatDrawn();
 }
 
-// layout: how the screens are drawn — on a phone (and from an app of
-// vocabulary rev 1, anywhere) one nav: the list, then the stack. The iPad
-// and Duo split (D190 B3: the list beside the open conversation and what is
-// pushed over it) slots in here behind nav.rev2('split'); the stack and its
-// screens stay as they are.
-function layout(list) {
-  return html`<nav @pop=${pop}>${repeat(list, (s) => s.key, (s) => s.tpl())}</nav>`;
+// layout: how the screens are drawn. Where the app has the collapsing split
+// of vocabulary rev 2 (D189; nav.rev2('split')), the list is its primary
+// column and the stack a nav in its detail one (D190 B3): side by side on an
+// iPad or a Duo — the list beside the open conversation and what is pushed
+// over it, the new chat screen in the detail column while nothing is open
+// (the web's home pane) — and on a phone the split collapses to the list
+// with the stack pushed over it, as before. From an app of rev 1, anywhere:
+// one nav of the list, then the stack.
+function layout(list, stack) {
+  if (!nav.rev2('split')) return html`<nav @pop=${pop}>${repeat([list, ...stack], (s) => s.key, (s) => s.tpl())}</nav>`;
+  const detail = stack.length ? stack : [{ key: 'home', tpl: newScreen }];
+  return html`<split detail=${stack.length > 0} columns=${ui.cols} @close=${() => pop({ depth: 1 })}
+      @columns=${(e) => { ui.cols = e.value; paint(); }}>
+    ${list.tpl()}
+    <nav @pop=${(e) => pop({ depth: (Number(e.depth) || 1) + 1 })}>${repeat(detail, (s) => s.key, (s) => s.tpl())}</nav>
+  </split>`;
 }
 
 // screensOf: a stack entry's screen — the Automations page is up to three

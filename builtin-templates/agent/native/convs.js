@@ -17,6 +17,8 @@ import { classSectionTpl } from './classes.js';
 import { kindOf } from '../model/harness-start.js';
 import { kidsWords } from '../model/harness-child.js';
 import { newChat } from './nav.js';
+import { publishes } from '../model/homes.js';
+import { openPublish, newShareTpl, newShareBody } from './homes.js'; // a person's partition (two homes)
 
 const GLYPH = { ask: ['waiting for you', 'accent'], error: ['failed', 'danger'], spin: ['working', 'muted'] };
 // the Shared view — in a person's partition, the shared space's (model/partition.js, model/homes.js)
@@ -47,8 +49,9 @@ export function listScreen() {
       <menu icon="ellipsis" label="More">${mainMenu()}</menu>
     </toolbar>
     <list style="inset" @more=${list.next && !results ? () => list.more().catch(() => {}) : nothing}>
-      ${(ui.err && !ui.stack.length) || app.halted || notices.length ? html`<section>
+      ${(ui.err && !ui.stack.length) || ui.note || app.halted || notices.length ? html`<section>
         ${ui.err && !ui.stack.length ? html`<notice tone="danger" text=${ui.err}/>` : nothing}
+        ${ui.note ? html`<notice tone="ok" text=${ui.note}/>` : nothing}
         ${app.halted ? html`<notice tone="warn" title="Halted" text="Every run of this agent is stopped. Resume it from More."/>` : nothing}
         ${notices.map((n) => html`<notice tone=${n.kind === 'sandbox' ? 'warn' : 'info'} text=${n.text}/>`)}
       </section>` : nothing}
@@ -109,7 +112,7 @@ function rowTpl(r, withMatch) {
   return html`<row title=${r.title || 'run ' + r.id} subtitle=${sub || nothing}
       badge=${g ? g[0] : nothing} tone=${g ? g[1] : r.unread ? 'accent' : nothing} ?selected=${sel}
       @tap=${() => app.select(r.id)}>
-    <actions>${repeat(rowMenu(r), (i) => i.action, (i) => itemTpl(i, r))}</actions>
+    <actions>${repeat(rowMenu(r, { publish: true }), (i) => i.action, (i) => itemTpl(i, r))}</actions>
   </row>`;
 }
 
@@ -119,7 +122,10 @@ function itemTpl(i, r) {
   switch (i.action) {
     case 'rename': return html`<button icon="pencil" @tap=${() => { ui.rename = { id: r.id, title: r.title || '' }; ctx.paint(); }}>${i.label}</button>`;
     case 'pin': return html`<button icon="pin" @tap=${guard(() => app.actions.pin(app.convs, r))}>${i.label}</button>`;
-    case 'share': return html`<button icon="people" @tap=${() => { ui.share = { run: { id: r.id, title: r.title, engine: r.engine, parentId: r.parentId } }; ctx.paint(); }}>${i.label}</button>`;
+    case 'share': return html`<button icon="people" @tap=${() => {
+      if (publishes(r.id)) return openPublish({ id: r.id, title: r.title }); // one of their own: a copy shares it
+      ui.share = { run: { id: r.id, title: r.title, engine: r.engine, parentId: r.parentId } }; ctx.paint();
+    }}>${i.label}</button>`;
     case 'archive': return html`<button icon="archive" @tap=${guard(() => app.actions.archive(app.convs, r))}>${i.label}</button>`;
     case 'delete': return html`<button icon="trash" role="destructive" confirm=${{ title: `Delete "${title}" and its history?`, label: 'Delete', destructive: true }}
       @tap=${guard(async () => { await app.actions.deleteRun(r.id); app.convs.remove(r.id); if (app.root === r.id) app.home(); })}>${i.label}</button>`;
@@ -143,7 +149,9 @@ export function newChatSheet() {
   const start = guard(async () => {
     const text = f.text.trim();
     if (!text) return;
-    await app.ask(Object.assign({ text, title: f.title.trim(), system: f.system.trim(), class: f.class }, ...more.map((x) => (x.body ? x.body() : {}))));
+    const share = newShareBody(f); // null: people chosen, none named (the section says so; the sheet stays)
+    if (!share) return;
+    await app.ask(Object.assign({ text, title: f.title.trim(), system: f.system.trim(), class: f.class }, ...more.map((x) => (x.body ? x.body() : {})), share));
     ui.newChat = null;
   });
   return html`<sheet open title="New chat" @dismiss=${done}>
@@ -153,6 +161,7 @@ export function newChatSheet() {
       <section title="First message">
         <field kind="multiline" placeholder="what should it do?" value=${f.text} @input=${set('text')}/>
       </section>
+      ${newShareTpl(f)}
       ${classSectionTpl(f)}
       ${more.map((x) => (x.tpl ? x.tpl() : nothing))}
       <section title="Optional">

@@ -1,12 +1,15 @@
 // hack/agent-template-native-long.test.mjs — the agent template's native view
 // on a long conversation (D130): read in pages, drawn as a window of its
 // blocks that grows on `more` and is trimmed — and what lies far above let
-// go — only while `scrolled` says the reader is at the bottom. Rendered in
+// go — only while `scrolled` says the reader is at the bottom (an app whose
+// transcript is of rev 1; the anchors of rev 2 and "jump to latest" are
+// agent-template-native-parity.test.mjs's). Rendered in
 // node like hack/agent-template-native.test.mjs (the web tests' fake backend
 // through test/native-stub.mjs). Run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runNative } from './xbn/node.mjs';
+import { CHAT1 } from './agent-template-native-caps.mjs'; // the phone stack, a transcript of rev 1 (its `scrolled`; rev 2: agent-template-native-parity.test.mjs)
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url).pathname;
 const NOW = Date.UTC(2026, 8, 21, 12);
@@ -14,7 +17,7 @@ const now = Math.floor(NOW / 1000);
 const ME = { kind: 'user', user: 'admin', level: 'terminal', manager: true, halted: false, epochMs: 0 };
 
 async function run(seed, steps = [], { state = null } = {}) {
-  const r = await runNative({ entry: TPL + 'native.js', data: { now: NOW, self: 'apps/agent', setup: TPL + 'test/native-stub.mjs', seed }, steps, state });
+  const r = await runNative({ caps: CHAT1, entry: TPL + 'native.js', data: { now: NOW, self: 'apps/agent', setup: TPL + 'test/native-stub.mjs', seed }, steps, state });
   assert.equal(r.fatal, null);
   assert.deepEqual(r.errors, [], 'no runtime errors');
   assert.deepEqual(r.diagnostics.filter((d) => d.level !== 'info'), [], 'no diagnostics');

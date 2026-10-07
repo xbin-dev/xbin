@@ -463,3 +463,68 @@ func TestHarnessLogRoute(t *testing.T) {
 		}
 	}
 }
+
+// tab=<name>: a person's terminal tab outlives its client (a tab not shown
+// closes its socket) — dialling the tab again attaches to it, another
+// person's tab of the same name is their own, an exited shell is replaced,
+// DELETE /terminals/{tab} ends it, and one left with no client is ended
+// after ttyTabIdle.
+func TestTerminalTabs(t *testing.T) {
+	f := relayFixture(t)
+	old := ttyTabIdle.Swap(int64(time.Hour))
+	t.Cleanup(func() { ttyTabIdle.Store(old) })
+	tab := func(c caller, name string) *term {
+		return f.dial(t, c, fmt.Sprintf("/sandboxes/%s/terminal?tab=%s", url.PathEscape(f.ref), name))
+	}
+	a := tab(asAlice, "t1")
+	a.send("export MARK=tab-$((7*6))\r")
+	a.c.Close()
+	time.Sleep(400 * time.Millisecond) // past the starter's grace: a tab's terminal stays
+	if st := f.execState(t, a.session); st != "running" {
+		t.Fatalf("a tab's terminal with its client gone: %s", st)
+	}
+	b := tab(asAlice, "t1")
+	if b.session != a.session {
+		t.Fatalf("the tab again: %s, not %s", b.session, a.session)
+	}
+	b.send("echo \"$MARK\"\r")
+	b.until("tab-42")
+	c := tab(asAlice, "t2")
+	if c.session == a.session {
+		t.Fatal("another tab got the same terminal")
+	}
+	if w := upgradeAs(f.mux, asAlice, fmt.Sprintf("/sandboxes/%s/terminal?tab=no%%20good", url.PathEscape(f.ref))); w.Code != http.StatusBadRequest {
+		t.Fatalf("a bad tab name: %d", w.Code)
+	}
+	// the tab's ✕ ends it (only the caller's)
+	del := func(c caller, name string) int {
+		r := httptest.NewRequest("DELETE", "/terminals/"+name, nil)
+		r.Header = c.header()
+		w := httptest.NewRecorder()
+		f.mux.ServeHTTP(w, r)
+		var out struct{ Ended int }
+		if w.Code != http.StatusOK || json.Unmarshal(w.Body.Bytes(), &out) != nil {
+			t.Fatalf("DELETE /terminals/%s: %d %s", name, w.Code, w.Body)
+		}
+		return out.Ended
+	}
+	if n := del(asCarol, "t1"); n != 0 {
+		t.Fatalf("someone else's DELETE ended %d", n)
+	}
+	b.c.Close()
+	if n := del(asAlice, "t1"); n != 1 {
+		t.Fatalf("DELETE ended %d", n)
+	}
+	waitFor(t, "the closed tab's terminal ended", func() bool { return f.execState(t, a.session) == "gone" })
+	// a shell that exited: the tab starts another
+	c.send("exit\r")
+	c.until("")
+	d := tab(asAlice, "t2")
+	if d.session == c.session {
+		t.Fatal("attached to an exited shell")
+	}
+	// left with no client past ttyTabIdle: ended
+	ttyTabIdle.Store(int64(200 * time.Millisecond))
+	d.c.Close()
+	waitFor(t, "an idle tab's terminal ended", func() bool { return f.execState(t, d.session) == "gone" })
+}

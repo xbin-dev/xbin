@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { runNative } from './xbn/node.mjs';
+import { PHONE } from './agent-template-native-caps.mjs'; // the phone stack (rev-1 split): the tests walk its nav
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url);
 const KIT = new URL('../web/bx-kit.js', import.meta.url).href;
@@ -491,7 +492,7 @@ test('app.harness: a harness run\'s calls and their bodies', async () => {
 // --- the native view over the fixtures, every seam hooked ---------------------------------------------
 
 async function runNativeSeed(steps, hash, setup = 'test/native-ext-probe.mjs', seed = harnessSeed()) {
-  const r = await runNative({ entry: new URL('native.js', TPL).pathname,
+  const r = await runNative({ caps: PHONE, entry: new URL('native.js', TPL).pathname,
     data: { now: Date.UTC(2026, 8, 30, 12), self: 'apps/agent', setup: new URL(setup, TPL).pathname, seed },
     steps, state: hash ? { hash } : null });
   assert.equal(r.fatal, null);

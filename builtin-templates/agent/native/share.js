@@ -7,7 +7,8 @@
 import { html, repeat, nothing, native } from '/vendor/xb-native.js';
 import { ui, ctx, when } from './ui.js';
 import { share as shareRules } from '../model/rules.js';
-import { unshareWhy } from '../model/harness-homes.js';
+import { unshareWhy, keepsHome } from '../model/harness-homes.js';
+import { shareExtraTpl } from './homes.js'; // a person's partition: copy, host, copy in (two homes)
 
 const VIS = [
   { value: 'private', label: 'Only you and the people below' },
@@ -84,7 +85,8 @@ export function shareSheet() {
       </section>` : leave ? html`<section>
         <button role="destructive" confirm=${{ title: 'Leave this conversation?', label: 'Leave', destructive: true }}
           @tap=${() => act(st, async () => { await A.removeMember(st.run.id, app.me.user); ui.share = null; app.convs.remove(st.run.id); if (app.root === st.run.id) app.home(); })}>Leave this conversation</button>
-      </section>` : nothing}`}
+      </section>` : nothing}
+      ${shareExtraTpl(st, d, keepsHome(st.run))}`}
     </screen>
   </sheet>`;
 }

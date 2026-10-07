@@ -12,6 +12,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runNative } from './xbn/node.mjs';
+import { PHONE } from './agent-template-native-caps.mjs'; // the phone stack (rev-1 split): the tests walk its nav
 import { projSeed, partitionSeed } from '../builtin-templates/agent/test/projects-stub.mjs';
 import { moreSeed, teamSeed, ev } from '../builtin-templates/agent/test/projects-more-stub.mjs';
 import { feedWords, plain, httpsUrl, projectFeed } from '../builtin-templates/agent/model/project-feed.js';
@@ -23,7 +24,7 @@ const NOW = Date.UTC(2026, 8, 21, 12);
 const B = 2 ** 40;
 
 async function run(seed, steps = [], hash = '') {
-  const r = await runNative({ entry: TPL + 'native.js', data: { now: NOW, self: 'apps/agent', setup: TPL + 'test/native-projects-stub.mjs', seed },
+  const r = await runNative({ caps: PHONE, entry: TPL + 'native.js', data: { now: NOW, self: 'apps/agent', setup: TPL + 'test/native-projects-stub.mjs', seed },
     steps: [{ wait: 60 }, ...steps], state: hash ? { hash } : null });
   assert.equal(r.fatal, null);
   assert.deepEqual(r.errors, [], 'no runtime errors');

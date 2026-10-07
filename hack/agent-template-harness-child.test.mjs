@@ -11,6 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 import { runNative } from './xbn/node.mjs';
+import { PHONE } from './agent-template-native-caps.mjs'; // the phone stack (rev-1 split): the tests walk its nav
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url);
 const KIT = new URL('../web/bx-kit.js', import.meta.url).href;
@@ -240,7 +241,7 @@ test('a list row: ? for a run waiting below it; the agents glyph and N coding ag
 // --- the native view over kidsSeed() -----------------------------------------------------------
 
 async function runSeed(steps, hash, s = kidsSeed()) {
-  const r = await runNative({ entry: new URL('native.js', TPL).pathname,
+  const r = await runNative({ caps: PHONE, entry: new URL('native.js', TPL).pathname,
     data: { now: NOW, self: 'apps/agent', setup: new URL('test/native-stub.mjs', TPL).pathname, seed: s },
     steps, state: hash ? { hash } : null });
   assert.equal(r.fatal, null);
@@ -313,7 +314,7 @@ test('native: an open card reads the child\'s newest page and draws its last 3 b
   const card = find(r.snapshots.open.root, CARD('Split the router'));
   const inner = all(card, { t: 'transcript' })[0];
   const drawn = (inner.c || []).filter((c) => c.t !== 'plan').map((c) => (c.t === 'toolcard' ? c.p.title : c.t));
-  assert.deepEqual(drawn, ['Mount users.go', 'message', 'Run go vet ./...'], 'the last 3 blocks');
+  assert.deepEqual(drawn, ['Mount users.go', 'message', 'Run go vet ./...', 'approval'], 'the last 3 blocks, then its steering (Send, Stop, Cancel task)');
   const nav = find(r.snapshots.child.root, { t: 'nav' });
   assert.deepEqual(nav.c.map((s) => s.p.title), ['Agent', 'Refactor the API', 'Split the router'], '↗: the child\'s chat over its parent');
 });

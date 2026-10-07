@@ -24,7 +24,7 @@
 // model/harness-ask.js.
 import { html, nothing } from '/vendor/xb-native.js';
 import { ext } from './ext.js';
-import { ui, ctx, guard, push, clip, fail } from './ui.js';
+import { ui, ctx, guard, push, clip, fail, clearer } from './ui.js';
 import { isHarness, harnessOf, nameOf } from '../model/harness.js';
 import {
   permission, question, nativeSchema, nativeContent, patchOf, controls, settingOf, slashCommands,
@@ -222,7 +222,7 @@ function settingsScreen() {
 const sendNow = guard(async () => {
   const text = String(ui.draft || '');
   if (!text.trim()) { fail('Write the message first — Send now sends it and interrupts the turn.'); return; }
-  await ctx.app.send(text, () => { ui.draft = ''; }, { interrupt: true });
+  await ctx.app.send(text, clearer(), { interrupt: true });
 });
 
 // A coding agent's card in its parent's chat draws its child's park with

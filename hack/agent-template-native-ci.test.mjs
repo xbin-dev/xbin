@@ -11,6 +11,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runNative } from './xbn/node.mjs';
+import { PHONE } from './agent-template-native-caps.mjs'; // the phone stack (rev-1 split): the tests walk its nav
 import { installHooks } from './xbn/hooks.mjs';
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url);
@@ -26,7 +27,7 @@ function ciSeed(opts = {}) {
 }
 
 async function run(steps, seed = ciSeed()) {
-  const r = await runNative({ entry: new URL('native.js', TPL).pathname,
+  const r = await runNative({ caps: PHONE, entry: new URL('native.js', TPL).pathname,
     data: { now: NOW, self: 'apps/agent', setup: new URL('test/native-stub.mjs', TPL).pathname, seed, calls: { open: null } },
     steps, state: { hash: 'c=25' } });
   assert.equal(r.fatal, null);

@@ -148,6 +148,9 @@ function boxTpl(s) {
     ${tt.shown ? html`<section footer=${tt.why ? `No terminal: ${tt.why}.` : `A shell in ${b.name} at ${b.cwd || 'its workdir'}, as you.`}>
       <row title="Open terminal" icon="terminal" nav ?disabled=${!!tt.why} @tap=${tt.why ? nothing : () => openSandboxTerminal(b.ref, b.cwd)}/>
     </section>` : nothing}
+    ${b.talk && app.sel != null ? html`<section footer="Its live previews, and what a port answers now.">
+      <row title="Ports" icon="network" nav @tap=${() => push({ kind: 'ports', run: app.sel, ref: b.ref, name: b.name })}/>
+    </section>` : nothing}
     ${b.fixed ? html`<section><row title="Manage sandboxes…" icon="list" nav @tap=${() => push({ kind: 'sandboxes' })}/></section>`
     : html`<section footer="Detaching takes it off this conversation; the sandbox stays.">
       <button role="destructive" ?disabled=${!b.canChange} @tap=${run(() => app.sbx.detach(b.ref), true)}>Detach</button>
