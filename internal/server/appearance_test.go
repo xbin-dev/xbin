@@ -169,6 +169,62 @@ func TestAppearanceInjection(t *testing.T) {
 	}
 }
 
+// covers D188 — a device override: a document whose query names
+// xbin-appearance=light|dark carries that theme in place of the person's
+// (the density stays theirs), in a tile's document and the docs viewer
+// alike; any other value is ignored, so a person who never chose and an
+// unknown value get byte for byte today's injection.
+func TestAppearanceDeviceOverride(t *testing.T) {
+	w := newAssetWS(t, TileAssetsLegacy)
+	w.s.DocsFS = fstest.MapFS{"index.md": {Data: []byte("# docs\n")}}
+	ana := w.session("ana")
+	get := func(url string, opts ...reqOpt) string {
+		t.Helper()
+		rec := w.do(url, opts...)
+		if rec.Code != 200 {
+			t.Fatalf("%s: %d %s", url, rec.Code, rec.Body.String())
+		}
+		return rec.Body.String()
+	}
+	today := w.do("/c/apps/a/", ana)
+	for _, junk := range []string{"system", "purple", "LIGHT", "", "light%22%3E%3Cscript%3E"} {
+		if rec := w.do("/c/apps/a/?xbin-appearance="+junk, ana); !same(rec, today) {
+			t.Errorf("?xbin-appearance=%s: not today's bytes:\n%s", junk, rec.Body.String())
+		}
+	}
+	for _, c := range []struct {
+		prefs map[string]any
+		query string
+		want  map[string]string
+	}{
+		{nil, "light", map[string]string{"theme": "light"}},
+		{nil, "dark", map[string]string{"theme": "dark"}},
+		{map[string]any{"theme": "light"}, "dark", map[string]string{"theme": "dark"}},
+		{map[string]any{"theme": "dark", "density": "comfortable"}, "light", map[string]string{"theme": "light", "density": "comfortable"}},
+		{map[string]any{"theme": "dark"}, "purple", map[string]string{"theme": "dark"}},
+		{map[string]any{"theme": "light"}, "dark&xbin-appearance=light", map[string]string{"theme": "dark"}},
+	} {
+		if c.prefs == nil {
+			c.prefs = map[string]any{}
+		}
+		shellPrefs(t, w.root, "ana", c.prefs)
+		if got := appearanceIn(t, get("/c/apps/a/?xbin-appearance="+c.query, ana)); !sameMap(got, c.want) {
+			t.Errorf("bucket %v, ?xbin-appearance=%s: metas %v, want %v", c.prefs, c.query, got, c.want)
+		}
+		if got := appearanceIn(t, get("/c/apps/a/?frame=x&xbin-appearance="+c.query, w.frame("apps/a", "ana"))); !sameMap(got, c.want) {
+			t.Errorf("bucket %v, a frame token, ?xbin-appearance=%s: metas %v, want %v", c.prefs, c.query, got, c.want)
+		}
+		if got := appearanceIn(t, get("/docs/index.md?xbin-appearance="+c.query, ana, hdr("Accept", "text/html"))); !sameMap(got, c.want) {
+			t.Errorf("the docs viewer, bucket %v, ?xbin-appearance=%s: metas %v, want %v", c.prefs, c.query, got, c.want)
+		}
+	}
+	// without the query the person's choice, as before
+	shellPrefs(t, w.root, "ana", map[string]any{"theme": "light"})
+	if got := appearanceIn(t, get("/c/apps/a/", ana)); !sameMap(got, map[string]string{"theme": "light"}) {
+		t.Errorf("no query: %v, want ana's light", got)
+	}
+}
+
 // covers D184 §2.3 — while an admin views as someone (D64) a document looks
 // as that person sees it: their appearance, not the admin's; a tile's
 // backend gets none (it has no document to paint), nor does a

@@ -844,6 +844,7 @@ PASSES.themeCanary = require('./passes/themecanary').themeCanary; // D184: every
 PASSES.termTheme = require('./passes/termtheme').termTheme; // D184: an open terminal follows the person's theme; a picked palette stays
 PASSES.themeCompat = require('./passes/themecompat').themeCompat; // D184: a tile from before the theme — its own palette carries, its own buttons keep their colours
 PASSES.grantDismiss = require('./passes/grantdismiss').grantDismiss; // D188: dismiss grant requests and interfaces to bind; no "N grants active"
+PASSES.deviceTheme = require('./passes/devicetheme').deviceTheme; // D188: this browser's Light or Dark over the person's theme
 
 (async () => {
   const args = process.argv.slice(2);

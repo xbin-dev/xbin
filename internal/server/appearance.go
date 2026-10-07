@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -86,8 +87,39 @@ func (s *Server) appearanceOf(r *http.Request) appearance {
 	return bucketAppearance(prefsfile.Path(s.Reg.Root, user, prefsfile.Root))
 }
 
-// appearanceMetas is the injection's appearance lines for r.
-func (s *Server) appearanceMetas(r *http.Request) string { return s.appearanceOf(r).metas() }
+// appearanceMetas is the injection's appearance lines for r: the person's
+// choice, its theme replaced by the one the document's query names when
+// the browser loading it overrides the person's (deviceTheme, D188).
+func (s *Server) appearanceMetas(r *http.Request) string {
+	a := s.appearanceOf(r)
+	if t := deviceTheme(r); t != "" {
+		a.theme = t
+	}
+	return a.metas()
+}
+
+// DeviceThemeParam is the query parameter a document's URL carries while
+// the browser that loads it overrides the person's theme (D188: the
+// shell's settings menu, "This device"): <bx-frame> adds
+// ?xbin-appearance=light|dark to a tile's URL, so the tile's first frame
+// is already in the device's theme — a tile frame is credentialless and
+// has no cookie to say so. It wins over the person's `theme` for that
+// document only; the density stays the person's. Anything but exactly
+// light or dark is ignored, and only those two constants reach the page.
+const DeviceThemeParam = "xbin-appearance"
+
+// deviceTheme is the override r's query names: "light", "dark", or "" for
+// none.
+func deviceTheme(r *http.Request) string {
+	if r.URL == nil || !strings.Contains(r.URL.RawQuery, DeviceThemeParam) {
+		return ""
+	}
+	switch t := r.URL.Query().Get(DeviceThemeParam); t {
+	case "light", "dark":
+		return t
+	}
+	return ""
+}
 
 // The shell bucket is read on every document load, so its two keys are
 // cached per bucket file by the file's identity, size and modification

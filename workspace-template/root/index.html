@@ -4,7 +4,9 @@
   the `shell/` component in this workspace (open a terminal there to restyle
   everything live); theme tokens live in /vendor/theme.css and can be
   overridden in the <style> below. data-bx-theme="auto" makes the page
-  follow the person's theme and density (the shell's settings; D184).
+  follow the person's theme and density (the shell's settings; D184);
+  theme-boot.js, before the stylesheet, opens it in this browser's own
+  Light or Dark when the settings' "This device" picked one (D188).
 
   The <bx-frame> children below SEED the first screen the very first time a
   user opens the workspace:
@@ -21,6 +23,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>xbin workspace</title>
   <link rel="icon" type="image/svg+xml" href="/vendor/favicon.svg">
+  <script src="/vendor/theme-boot.js"></script>
   <link rel="stylesheet" href="/vendor/theme.css">
   <script type="module" src="/c/shell/bx-shell.js"></script>
   <style>
