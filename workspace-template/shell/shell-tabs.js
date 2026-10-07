@@ -5,8 +5,9 @@
  * when the tabs don't fit and keeping the active one in view; below 820px it
  * stays a row of its own under the bar (which holds the menu button and the
  * mark). Drag a tab to reorder it, or into a sidebar folder to park it;
- * double-click to rename; right-click for its menu — Rename…, the screen's
- * Layout (Canvas · Document, D187), Close. An org screen's name and layout
+ * double-click to rename; right-click for its menu — Rename…, Add heading /
+ * Add text (D192, shell-blocks.js), the screen's Layout (Canvas · Document,
+ * D187), Close. An org screen's name and layout
  * are its org admins' (meta-only PUT /screens/org, never a revision).
  * Extracted from bx-shell, which is at its size budget: bx-shell renders
  * tabStrip(this) and calls revealActiveTab(this) after each update; the
@@ -14,6 +15,8 @@
  */
 import { html, nothing } from 'lit';
 import { worstStatus, statusIcon } from './shell-kit.js';
+import { addItems } from './blocks.js';
+import { addBlock } from './shell-blocks.js';
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
@@ -94,7 +97,9 @@ export function closeScreen(s, id) {
     return;
   }
   const cur = s._screens.find((x) => x.id === id);
-  if (cur.tiles.length && !confirm(`Close screen "${cur.name}" and its ${cur.tiles.length} tile(s)?`)) return;
+  const what = [cur.tiles.length ? `${cur.tiles.length} tile(s)` : '', cur.blocks?.length ? `${cur.blocks.length} heading(s) and text` : '']
+    .filter(Boolean).join(' and '); // blocks are content too (D192)
+  if (what && !confirm(`Close screen "${cur.name}" and its ${what}?`)) return;
   s._screens = s._screens.filter((x) => x.id !== id);
   if (s._active === id) s._active = (s._visibleTabs()[0] ?? s._tabList()[0])?.id ?? '';
   s._save();
@@ -134,14 +139,18 @@ export function layoutItems(s, sc, kind) {
       action: () => setScreenMode(s, sc.id, 'doc') }];
 }
 
-// The tab's menu (right-click): Rename…, Layout, Close / Hide.
+// The tab's menu (right-click): Rename…, Add heading / Add text (onto that
+// screen, which becomes the active one), Layout, Close / Hide.
 function tabMenu(s, e, kind, sc) {
   e.preventDefault(); e.stopPropagation();
   const many = s._visibleTabs().length > 1;
+  const os = kind === 'org' ? sc : null;
+  const add = addItems({ orgScreen: os, draft: os ? s._orgDrafts?.[os.id] ?? null : null },
+    { addBlock: (k) => { s._active = sc.id; addBlock(s, k); } });
   const items = [
     { icon: 'pencil', label: 'Rename…', disabled: kind === 'org' && !orgMeta(s, sc), hint: kind === 'org' && !orgMeta(s, sc) ? 'org admins' : '',
       action: () => renameScreen(s, sc.id) },
-    { kind: 'sep' }, ...layoutItems(s, sc, kind), { kind: 'sep' },
+    ...add, { kind: 'sep' }, ...layoutItems(s, sc, kind), { kind: 'sep' },
     kind === 'org'
       ? { icon: 'eye-slash', label: 'Hide from my tabs', disabled: !many, action: () => hideOrgTab(s, sc.id) }
       : { icon: 'xmark', label: 'Close', disabled: !many, action: () => closeScreen(s, sc.id) },

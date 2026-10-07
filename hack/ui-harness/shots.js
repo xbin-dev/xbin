@@ -847,6 +847,7 @@ PASSES.themeCompat = require('./passes/themecompat').themeCompat; // D184: a til
 PASSES.grantDismiss = require('./passes/grantdismiss').grantDismiss; // D188: dismiss grant requests and interfaces to bind; no "N grants active"
 PASSES.deviceTheme = require('./passes/devicetheme').deviceTheme; // D188: this browser's Light or Dark over the person's theme
 PASSES.focusAnchor = require('./passes/focusanchor').focusAnchor; // D191: the focused tile holds its place — Document mode, the last tile, a phone's canvas
+PASSES.blocks = require('./passes/blocks').blocks; // D192: headings and text on a screen, no tile — canvas, Document mode, an org screen's draft
 
 (async () => {
   const args = process.argv.slice(2);

@@ -389,6 +389,36 @@ can't tell which it is in, so write it to work in both.
   another tile grows above the focused one, the page scrolls with it. You
   don't scroll the shell yourself: nothing to call.
 
+## Headings and text on a screen
+
+A person can put **headings** (H1–H3, one line) and **text** (Markdown)
+on a screen without making a tile for them (D192): the canvas menu or the
+screen tab's menu → Add heading / Add text. They sit on the canvas's grid
+like tiles (dragged by their grip, resized by their corner, pushing tiles
+and being pushed), are edited in place with a double-click, and in
+Document mode each is a row of its own, as wide as a single tile. They
+are the shell's, not a tile's: no frame, no tile API, nothing a tile can
+read or change. What it means for a tile: it may share the page with a
+heading that already names the section, so it needn't repeat a page title
+of its own in a Document-mode screen.
+
+Text is rendered by `/vendor/bx-md.js`: raw HTML shows as text, images
+as their alt text, links only to safe schemes and in a new tab with no
+opener. Who may change them is who may change the screen's tiles — the
+person on a personal screen; on an org screen, its `edit` level, through
+the same draft and **Save and update for everyone**.
+
+**Where they live** (for tools that read or write layouts): a screen's
+`blocks` array beside its `tiles` — never inside it —
+`[{id, kind: "heading"|"text", text, level?, x, y, w, h, doc?}]`: in the
+`layout` pref's `screens[i].blocks` for a personal screen, and the org
+screen's `blocks` ([protocol.md](/docs/protocol.md) `PUT /screens/org`)
+for a shared one. `x, y, w, h` are the canvas geometry in logical px on
+the 48 px grid, `doc` the Document-mode place (`{row, col, cols}`, the
+same numbering as the tiles'), `level` 1–3 on a heading (default 2). A
+reader that knows only `tiles` sees the screen as before; one that
+rewrites a layout keeps every field it doesn't know, `blocks` included.
+
 ## Rules
 
 - **URLs are frozen.** A module served today stays at its path; a helper

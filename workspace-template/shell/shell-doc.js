@@ -25,12 +25,18 @@
  * down); over the middle it becomes a row of its own above or below that
  * card's row; below the last row, the last row. An accent bar marks where.
  * The tile menu's Row submenu does the same from the keyboard.
+ *
+ * The screen's blocks (D192) are rows too — cells without a card, drawn by
+ * shell-blocks.js docBlock and dragged by their grip like a card by its
+ * title bar: the rows are read from the tiles and the blocks as one list.
  */
 import { html, nothing, repeat } from 'lit';
 import { dragPointer } from '/vendor/bx-kit.js';
 import { docRows, moveTile, setHeight } from './doc-layout.js';
 import { screenMode } from './shell-tabs.js';
 import { heldScroll } from './shell-anchor.js';
+import { docItems, docBlock, mutateCanvas } from './shell-blocks.js';
+import { isBlockKey } from './blocks.js';
 
 const MIN_DOC_H = 96;
 
@@ -49,11 +55,11 @@ function cells(tiles) {
 // docView(c): the page. c is the <bx-canvas>; its _cardTemplate(o, 'doc')
 // draws each card (the same window chrome as on the canvas).
 export function docView(c) {
-  const list = cells(c.tiles ?? []), dd = c._ddrag, dh = c._dh;
+  const list = cells(docItems(c)), dd = c._ddrag, dh = c._dh;
   const ro = !c.canMutate || c.mobile;
   return html`
     <div class="doc ${c.canMutate ? '' : 'ro'}" @contextmenu=${(e) => c._onContextMenu(e)}>
-      ${repeat(list, (x) => x.t.path, (x) => html`
+      ${repeat(list, (x) => x.t.path, (x) => isBlockKey(x.t.path) ? docBlock(c, x, docDragStart) : html`
         <div class="dcell ${x.cols === 1 ? 'one' : ''} ${dd?.path === x.t.path ? 'dragging' : ''}" data-path=${x.t.path}
              data-row=${x.row} data-col=${x.col} data-cols=${x.cols} data-n=${x.n} style=${x.style}>
           ${c._cardTemplate(dh?.path === x.t.path ? { ...x.t, doc: { ...x.t.doc, h: dh.h } } : x.t, 'doc')}
@@ -137,7 +143,7 @@ export function docDragStart(c, ev, path) {
     onUp: () => {
       const d = c._ddrag;
       c._ddrag = null;
-      if (d?.move) c._mutate((tiles) => moveTile(tiles, path, d.move));
+      if (d?.move) mutateCanvas(c, (items) => moveTile(items, path, d.move));
     },
   });
 }
@@ -158,10 +164,10 @@ function heightStart(c, ev, path) {
     onMove: (e) => { h = Math.max(MIN_DOC_H, Math.round(h0 + e.clientY - sy)); c._dh = { path, h }; },
     onUp: () => {
       c._dh = null;
-      if (Math.abs(h - h0) >= 2) { lastClick = { path: '', at: 0 }; c._mutate((tiles) => setHeight(tiles, path, h)); return; }
+      if (Math.abs(h - h0) >= 2) { lastClick = { path: '', at: 0 }; mutateCanvas(c, (items) => setHeight(items, path, h)); return; }
       const now = Date.now(), second = lastClick.path === path && now - lastClick.at < 450;
       lastClick = second ? { path: '', at: 0 } : { path, at: now };
-      if (second) c._mutate((tiles) => setHeight(tiles, path, 0));
+      if (second) mutateCanvas(c, (items) => setHeight(items, path, 0));
     },
   });
 }
