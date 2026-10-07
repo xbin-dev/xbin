@@ -1021,8 +1021,9 @@ Sharing the Mac (learned 2026-09-26, several agents at once):
 - **A freshly erased simulator needs a moment.** Right after `bootstatus`
   it is still setting itself up, and the first test's first tap could hang
   (an iPad, 2026-10-07). `ci-uitests.sh` therefore warms an erased one up:
-  it waits `XBIN_E2E_WARMUP` seconds (30; 0 skips it) and opens Settings
-  once before the tests.
+  it waits `XBIN_E2E_WARMUP` seconds (an iPad 90 — 30 was not enough for
+  an iPad Pro 13" —, else 30; 0 skips it) and opens Settings once before
+  the tests.
 - **After a failed run, reboot the simulator** (`xcrun simctl shutdown
   <udid>; xcrun simctl boot <udid>`): the next run otherwise often dies
   with "Timed out waiting for AX loaded notification", and xcodebuild then

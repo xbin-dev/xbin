@@ -18,10 +18,11 @@
 #                         the result bundle
 #   XBIN_E2E_ERASE=1      erase the simulator first: a clean app, no saved
 #                         workspace (use a dedicated one: XBIN_SIM_ENSURE);
-#                         then, after it boots, a warm-up: it settles for
-#                         XBIN_E2E_WARMUP seconds (30; 0 skips the warm-up),
-#                         Settings opens once — a fresh iPad's first tap hung
-#                         without it
+#                         then, after it boots (and after any boot this
+#                         run does), a warm-up: it settles for
+#                         XBIN_E2E_WARMUP seconds (an iPad 90, else 30; 0
+#                         skips the warm-up), Settings opens once — a fresh
+#                         iPad's first tap hung without it (with 30 too)
 #   XBIN_E2E_ONLY         run only these tests (-only-testing: values, space
 #                         separated, e.g. XbinUITests/XbinE2ETests/test03NativeCounter)
 #   XBIN_SIGNING          none (default when only building) or adhoc
@@ -103,7 +104,11 @@ echo "E2E_DIR=$shots"
 echo "XBIN_E2E_URL=$XBIN_E2E_URL"
 
 if udid=$(ci_udid "$dest"); then
+  # (booted already: a simulator that settled; else this run boots it)
+  fresh=1
+  xcrun simctl list devices 2>/dev/null | grep -F "$udid" | grep -q "(Booted)" && fresh=0
   if [ "${XBIN_E2E_ERASE:-0}" = 1 ]; then
+    fresh=1
     ci_group "erase simulator $udid"
     xcrun simctl shutdown "$udid" >/dev/null 2>&1 || true
     xcrun simctl erase "$udid"
@@ -113,10 +118,20 @@ if udid=$(ci_udid "$dest"); then
   ci_timeout 300 xcrun simctl bootstatus "$udid" -b ||
     ci_warn "simctl bootstatus $udid failed or took over 5 min; leaving the boot to xcodebuild"
   ci_endgroup
-  warm=${XBIN_E2E_WARMUP:-30}
-  if [ "${XBIN_E2E_ERASE:-0}" = 1 ] && [ "$warm" -gt 0 ]; then
-    # A freshly erased simulator is still setting itself up after
-    # bootstatus: the first test's first tap then hung (an iPad, 2026-10-07).
+  # an iPad's first launch after an erase takes longer to settle
+  ipad=$(xcrun simctl list -j devices 2>/dev/null | python3 -c '
+import json, sys
+u = sys.argv[1]
+for devs in json.load(sys.stdin).get("devices", {}).values():
+    for d in devs:
+        if d.get("udid") == u:
+            print("1" if "iPad" in d.get("deviceTypeIdentifier", "") else "0")
+' "$udid" 2>/dev/null || true)
+  if [ "$ipad" = 1 ]; then warm=${XBIN_E2E_WARMUP:-90}; else warm=${XBIN_E2E_WARMUP:-30}; fi
+  if [ "$fresh" = 1 ] && [ "$warm" -gt 0 ]; then
+    # A simulator just booted (erased or not) is still setting itself up
+    # after bootstatus: the first test's first tap then hung, or backboardd
+    # restarted under it and took the test runner down (an iPad, 2026-10-07).
     # Let it settle and open an app once (Settings) before the tests.
     ci_group "warm up simulator $udid (${warm}s)"
     sleep "$warm"

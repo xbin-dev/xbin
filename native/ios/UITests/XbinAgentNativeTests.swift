@@ -1,3 +1,6 @@
+#if canImport(UIKit)
+import UIKit
+#endif
 import XCTest
 
 /// The agent template's native view (D190) end to end: the e2e xbind's
@@ -47,12 +50,15 @@ final class XbinAgentNativeTests: XCTestCase {
         e.backToList(row)
         e.expect(row, 60, "the native view opens on the conversation list")
         XCTAssertTrue(e.app.buttons["New chat"].exists, "…with New chat in its bar")
+        if !e.isPad { e.expectBarTitle("Agent", "the list's title in a phone's bar") }
         e.shot("agent-01-list")
 
         row.tap()
         let answer = e.containing("Hello from the fake model.")
         e.expect(answer, 30, "the conversation opens")
         e.shot("agent-02-chat")
+        // a phone's bar keeps the conversation's title; an iPad names it once (the app's bar names the tile)
+        if e.isPad { e.expectBarTitle("E2E hello", "the conversation's title, once", count: 1) } else { e.expectBarTitle("E2E hello", "the conversation's title in a phone's bar") }
         if e.isPad {
             XCTAssertTrue(e.until(10) { row.isHittable }, "an iPad keeps the list beside the conversation")
             e.toggleSidebar(hides: row)
@@ -116,6 +122,7 @@ final class XbinAgentNativeTests: XCTestCase {
         newChat.tap()
         let hi = e.containing("What do you need?")
         e.expect(hi, 20, "the new chat screen")
+        if !e.isPad { e.expectBarTitle("New chat", "the new chat screen's title in a phone's bar") }
         e.shot("agent-06-new-chat")
         let input = e.composer("ask anything…")
         XCTAssertTrue(input.exists, "the new chat's composer")
@@ -130,6 +137,8 @@ final class XbinAgentNativeTests: XCTestCase {
         let settled = e.until(45) { !working.exists }
         print("xbin-e2e: the started conversation settled \(settled) after \(Date().timeIntervalSince(started)) s")
         XCTAssertTrue(settled, "the started conversation settles (its Working… goes)")
+        let pill = e.app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "jump to latest")).firstMatch
+        XCTAssertFalse(e.until(2) { pill.exists }, "no jump-to-latest pill at the end of a conversation just started")
         e.shot("agent-07-new-chat-started")
         // (the agent titles it from the message: "Titled quick" from the fake model)
         var title = ""
@@ -213,6 +222,44 @@ final class XbinAgentNativeTests: XCTestCase {
         XCTAssertTrue(pill.waitForNonExistence(timeout: 10), "the pill goes at the bottom")
     }
 
+    /// An iPad (or an open Duo): the list hides behind the bar's sidebar
+    /// button — the conversation goes full width —, stays hidden when a link
+    /// opens another conversation and across a relaunch (the view's saved
+    /// state), and comes back with the same button.
+    @MainActor
+    func test07SidebarStaysHidden() async throws {
+        let e = try E2E(self)
+        try await e.server.prepareAgent()
+        let first = try await e.server.ask("hello", title: "E2E hello")
+        try await e.server.waitForAnswer(first, "Hello from the fake model.")
+        let second = try await e.server.ask("quick", title: "E2E second")
+        try await e.server.waitForAnswer(second, "Quick answer.")
+        e.launch()
+        e.ensureWorkspace()
+        try XCTSkipUnless(e.isPad, "the sidebar is an iPad's (a phone's list is the stack's root)")
+        e.goHome()
+        e.app.open(URL(string: "xbin://\(e.server.authority)/c/apps/agent#c=\(first)")!)
+        e.expect(e.containing("Hello from the fake model."), 60, "the linked conversation")
+        let row = e.agentRow("E2E second")
+        XCTAssertTrue(e.until(10) { row.isHittable }, "the list beside it")
+        e.toggleSidebar(hides: row)
+        e.shot("agent-13-sidebar-hidden")
+
+        e.openInRunningApp("xbin://\(e.server.authority)/c/apps/agent#c=\(second)")
+        e.expect(e.containing("Quick answer."), 30, "a link opens another conversation")
+        XCTAssertFalse(e.until(3) { row.isHittable }, "…with the list still hidden")
+
+        e.app.terminate()
+        e.launch()
+        e.ensureWorkspace()
+        e.goHome()
+        e.openAgent()
+        e.expect(e.containing("Quick answer."), 60, "a relaunch comes back to the conversation")
+        XCTAssertFalse(e.until(3) { row.isHittable }, "…with the list still hidden")
+        e.toggleSidebar(shows: row)
+        e.shot("agent-14-sidebar-shown")
+    }
+
     /// The screens of the tests above, light and dark.
     @MainActor
     func test06Gallery() async throws {
@@ -245,6 +292,11 @@ final class XbinAgentNativeTests: XCTestCase {
             row.tap()
             e.expect(e.containing("Hello from the fake model."), 30, "a conversation")
             shot(e.isPad ? "split-chat" : "chat-pushed")
+            if e.isPad {
+                e.toggleSidebar(hides: row)
+                shot("sidebar-hidden")
+                e.toggleSidebar(shows: row)
+            }
             let newChat = e.app.buttons.matching(NSPredicate(format: "label == %@", "New chat")).firstMatch
             if !e.isPad { e.tapNavBack(listShows: row, "back to the list") }
             e.expect(newChat, 10, "New chat")
@@ -377,8 +429,23 @@ extension E2E {
         XCTFail(what, file: file, line: line)
     }
 
+    /// `title` is in the navigation bars (`count` times, when given): a
+    /// crowded bar drops its title.
+    func expectBarTitle(_ title: String, _ what: String, count: Int? = nil, file: StaticString = #filePath, line: UInt = #line) {
+        let q = app.navigationBars.staticTexts.matching(NSPredicate(format: "label == %@", title))
+        let ok = until(10) { count.map { q.count == $0 } ?? (q.count > 0) }
+        if !ok { print("xbin-e2e: bar titles \(q.count) × \(title):\n\(app.navigationBars.debugDescription)") }
+        XCTAssertTrue(ok, "\(what) (\(q.count) in the bars)", file: file, line: line)
+    }
+
     /// A tablet: the agent's split shows two columns.
-    var isPad: Bool { app.windows.firstMatch.frame.width >= 700 }
+    var isPad: Bool {
+        #if canImport(UIKit)
+        return UIDevice.current.userInterfaceIdiom == .pad // (the window's frame can read 0 right after a launch)
+        #else
+        return app.windows.firstMatch.frame.width >= 700
+        #endif
+    }
 
     /// Opens apps/agent's native view (a link: a cold start on its list).
     func openAgent() {
