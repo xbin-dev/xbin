@@ -101,7 +101,8 @@ func (m *Manager) lockKey(k string) (unlock func()) {
 
 // Resolve finds the gocryptfs binary: $XBIN_GOCRYPTFS, a copy bundled next to
 // the xbind executable (single-artifact distribution), then $PATH. "" ⇒
-// encryption is unavailable and file-backed resources stay plaintext.
+// encryption is unavailable: a component using a file-backed resource is
+// held (broker/resenc_wire.go), never served plaintext.
 func Resolve() string {
 	if p := os.Getenv("XBIN_GOCRYPTFS"); p != "" {
 		if isExecutable(p) {

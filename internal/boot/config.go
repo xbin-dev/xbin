@@ -63,7 +63,7 @@ type Config struct {
 	// configuration reference is complete)
 	SDKPath       string `env:"XBIN_SDK_PATH" readBy:"internal/deps" doc:"the xbin Go SDK checkout for the generated go.work and the sandbox bind (default: /opt/xbin/sdk, else the repo's sdk/ under --dev)"`
 	LimitDisk     string `env:"XBIN_LIMIT_DISK" readBy:"internal/broker" def:"50G" doc:"per-scope disk quota for tile state — plain bytes or a K/M/G/T suffix"`
-	Gocryptfs     string `env:"XBIN_GOCRYPTFS" readBy:"internal/resenc" doc:"the gocryptfs binary for encrypted file-backed resources (default: bundled next to xbind, then PATH; none ⇒ those resources stay plaintext)"`
+	Gocryptfs     string `env:"XBIN_GOCRYPTFS" readBy:"internal/resenc" doc:"the gocryptfs binary for encrypted file-backed resources (default: bundled next to xbind, then PATH; none ⇒ a tile that uses a filesystem, sqlite or blob resource is held until there is one — never plaintext)"`
 	FuseOverlayfs string `env:"XBIN_FUSE_OVERLAYFS" readBy:"internal/sandbox" doc:"the fuse-overlayfs binary mounting sandbox roots (default: bundled next to xbind, then PATH; none ⇒ the kernel overlay)"`
 	SandboxDebug  string `env:"XBIN_SANDBOX_DEBUG" readBy:"internal/sandbox" doc:"set to anything to make the sandbox init log its steps"`
 	BuildNet      string `env:"XBIN_BUILD_NET" readBy:"internal/runner" doc:"network of the sandboxed Go build under --isolate (D78): unset = public addresses only; host = the host's network (a GOPROXY or private modules on the LAN)"`
