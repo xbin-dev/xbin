@@ -183,6 +183,21 @@ async function docMode(browser) {
   check(key(back) === key(canvas), 'Canvas shows every tile at its old place and size');
   check(!!(await rectIn(page, '.canvas')) && !(await sh(page, (t) => t.topBar)).on, 'the canvas is back, the bar in its place');
 
+  // an org screen carries its mode for every member, and switching it is
+  // no new revision (the seed's Devs HQ; the admin may rename it)
+  const os = await sh(page, (t) => t.orgScreens.find((x) => x.name === 'Devs HQ') ?? null);
+  const srv = async (sid) => ((await (await ctx.request.get(`${URL}/api/xbin/screens`)).json()).org ?? []).find((x) => x.id === sid);
+  if (os) {
+    await sh(page, (t, sid) => t.setScreenMode(sid, 'doc'), os.id);
+    const on = await srv(os.id);
+    check(on?.mode === 'doc' && on.rev === os.rev, `an org screen keeps its mode on the server, at the same revision (${on?.mode}, rev ${os.rev} → ${on?.rev})`);
+    await sh(page, (t, sid) => t.setScreenMode(sid, 'canvas'), os.id);
+    const off = await srv(os.id);
+    check(off && !off.mode && off.rev === os.rev, `back to Canvas: no mode stored (${off?.mode ?? 'none'}, rev ${off?.rev})`);
+  } else {
+    skip('no seeded Devs HQ org screen');
+  }
+
   // tidy: the layout as it was
   await sh(page, (t) => t.flushSave());
   const put = await ctx.request.put(prefs, { data: original, headers: { 'X-Prefs-Writer': 'harness-docmode' } });
