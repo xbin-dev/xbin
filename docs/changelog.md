@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-07
 
+- **Fix: a page without a `<head>` keeps its doctype first.** xbind's
+  injection (the import map, the client) used to go in front of such a
+  page, so a leading `<!doctype html>` no longer came first and the
+  browser rendered the page in quirks mode; it now goes right after the
+  doctype. Such a page now renders in the standards mode it declared — a
+  layout that only looked right in quirks mode may shift. Pages with a
+  `<head>` are unchanged. (A quirks-mode page also reports its viewport's
+  height, so it never fitted its content in Document mode.)
+
 - **The shell: a Document display mode, and the screen tabs in the top
   bar** (D187; [frontend-kit.md](/docs/frontend-kit.md) §Document mode,
   [elements.md](/docs/elements.md) `<bx-frame>`,

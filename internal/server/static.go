@@ -429,6 +429,27 @@ func pathAllowed(cleaned string) bool {
 
 var headRe = regexp.MustCompile(`(?i)<head[^>]*>`)
 
+// doctypeRe is a document's leading doctype (after a BOM or whitespace):
+// a page with no <head> gets the injection after it, never before — in
+// front of the doctype the browser renders the page in quirks mode (a tile
+// then reports its viewport's height, D187's Document mode).
+var doctypeRe = regexp.MustCompile(`(?i)^\x{FEFF}?\s*<!doctype[^>]*>`)
+
+// placeInjection puts inject right after body's <head> tag; with no <head>,
+// after its leading doctype; with neither, first.
+func placeInjection(body []byte, inject string) []byte {
+	at := 0
+	if loc := headRe.FindIndex(body); loc != nil {
+		at = loc[1]
+	} else if loc := doctypeRe.FindIndex(body); loc != nil {
+		at = loc[1]
+	}
+	out := make([]byte, 0, len(body)+len(inject))
+	out = append(out, body[:at]...)
+	out = append(out, inject...)
+	return append(out, body[at:]...)
+}
+
 // injectHTML writes body — a document read through the plane's own opener
 // (openLegacy, openStrict) — with the D4 injection.
 func (s *Server) injectHTML(w http.ResponseWriter, r *http.Request, body []byte, comp *registry.Component, cleaned string, dirIndex bool) {
@@ -447,14 +468,7 @@ func (s *Server) injectHTML(w http.ResponseWriter, r *http.Request, body []byte,
 
 	inject := s.headInjection(r, comp, compPath, body)
 
-	var out []byte
-	if loc := headRe.FindIndex(body); loc != nil {
-		out = append(out, body[:loc[1]]...)
-		out = append(out, []byte(inject)...)
-		out = append(out, body[loc[1]:]...)
-	} else {
-		out = append([]byte(inject), body...)
-	}
+	out := placeInjection(body, inject)
 
 	s.documentHeaders(w, r, compPath, comp)
 	w.WriteHeader(http.StatusOK)
