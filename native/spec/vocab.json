@@ -231,7 +231,7 @@
    }
   },
   "screen": {
-   "rev": 1,
+   "rev": 2,
    "group": "structure",
    "doc": "one screen: a list, a form or a scroll view with a title",
    "props": {
@@ -258,6 +258,52 @@
     "search": {
      "type": "string",
      "doc": "the search query; present (even \"\") shows the search field"
+    },
+    "refreshing": {
+     "type": "bool",
+     "doc": "a refresh is under way: after `refresh` the app keeps its spinner until the tile sets this false (at most 60 s); without it the spinner ends after a moment",
+     "since": 2
+    },
+    "scopes": {
+     "type": "array",
+     "of": {
+      "type": "object",
+      "shape": {
+       "value": {
+        "type": "string"
+       },
+       "label": {
+        "type": "string"
+       }
+      }
+     },
+     "doc": "search scopes under the search field (shown while searching)",
+     "since": 2
+    },
+    "scope": {
+     "type": "string",
+     "doc": "the selected search scope (a `scopes` value)",
+     "since": 2
+    },
+    "suggestions": {
+     "type": "array",
+     "of": {
+      "type": "object",
+      "shape": {
+       "value": {
+        "type": "string"
+       },
+       "label": {
+        "type": "string"
+       },
+       "icon": {
+        "type": "string",
+        "token": "icon"
+       }
+      }
+     },
+     "doc": "search suggestions under the field while it is focused; choosing one sets the query to its value and submits it",
+     "since": 2
     }
    },
    "events": {
@@ -271,17 +317,48 @@
       "from": "value"
      }
     },
-    "appear": {}
+    "appear": {},
+    "submit": {
+     "payload": {
+      "value": "string"
+     },
+     "reports": {
+      "prop": "search",
+      "from": "value"
+     },
+     "since": 2
+    },
+    "scope": {
+     "payload": {
+      "value": "string"
+     },
+     "reports": {
+      "prop": "scope",
+      "from": "value"
+     },
+     "since": 2
+    }
    },
    "children": {
     "any": true
    }
   },
   "toolbar": {
-   "rev": 1,
+   "rev": 2,
    "group": "structure",
-   "doc": "actions in the screen/sheet bar",
-   "props": {},
+   "doc": "actions in the screen/sheet bar; a screen may have one per `place`",
+   "props": {
+    "place": {
+     "type": "string",
+     "enum": [
+      "trailing",
+      "leading",
+      "bottom"
+     ],
+     "doc": "where its items go: the bar's trailing end (the default), its leading end, or a bottom toolbar",
+     "since": 2
+    }
+   },
    "events": {},
    "children": {
     "only": [
@@ -361,7 +438,7 @@
    }
   },
   "list": {
-   "rev": 1,
+   "rev": 2,
    "group": "structure",
    "doc": "a lazy list",
    "props": {
@@ -372,10 +449,27 @@
       "inset",
       "grouped"
      ]
+    },
+    "anchor": {
+     "type": "string",
+     "doc": "the key of a child (its key=, or its wire key): the view opens at it, and it keeps its place on screen when children are inserted or trimmed around it (a transcript stops following its end meanwhile)",
+     "since": 2
+    },
+    "scrollTo": {
+     "type": "string",
+     "doc": "scroll to a child by key, or to `start`/`end`, whenever the value changes — the first value is where the view starts, not a jump (text after a # is ignored: `end#3` jumps again)",
+     "since": 2
     }
    },
    "events": {
-    "more": {}
+    "more": {},
+    "edge": {
+     "payload": {
+      "edge": "string",
+      "at": "bool"
+     },
+     "since": 2
+    }
    },
    "children": {
     "only": [
@@ -439,10 +533,25 @@
    }
   },
   "actions": {
-   "rev": 1,
+   "rev": 2,
    "group": "structure",
-   "doc": "a row's swipe actions and context menu",
-   "props": {},
+   "doc": "a row's swipe actions and context menu; a row may have one per `edge`",
+   "props": {
+    "edge": {
+     "type": "string",
+     "enum": [
+      "trailing",
+      "leading"
+     ],
+     "doc": "the edge its swipe actions come from: trailing (the default) or leading",
+     "since": 2
+    },
+    "full": {
+     "type": "bool",
+     "doc": "a full swipe runs the first button",
+     "since": 2
+    }
+   },
    "events": {},
    "children": {
     "only": [
@@ -535,9 +644,9 @@
    }
   },
   "sheet": {
-   "rev": 1,
+   "rev": 2,
    "group": "structure",
-   "doc": "a modal sheet",
+   "doc": "a modal sheet; a sheet among its children presents over it",
    "props": {
     "open": {
      "type": "bool"
@@ -552,15 +661,24 @@
      ],
      "enum": [
       "medium",
-      "large"
+      "large",
+      "full"
      ],
+     "enumSince": {
+      "full": 2
+     },
      "of": {
       "type": "string",
       "enum": [
        "medium",
-       "large"
-      ]
-     }
+       "large",
+       "full"
+      ],
+      "enumSince": {
+       "full": 2
+      }
+     },
+     "doc": "`full` covers the whole screen (no swipe to dismiss: give it a way out)"
     },
     "edge": {
      "type": "string",
@@ -584,9 +702,9 @@
    }
   },
   "split": {
-   "rev": 1,
+   "rev": 2,
    "group": "structure",
-   "doc": "list/detail: exactly two children; stacked when compact",
+   "doc": "list/detail: exactly two children; two columns when regular, a list with the detail pushed over it when compact",
    "props": {
     "prefer": {
      "type": "string",
@@ -594,9 +712,42 @@
       "auto",
       "single"
      ]
+    },
+    "detail": {
+     "type": "bool",
+     "doc": "compact width: the detail is pushed over the list (Back reports `close`); regular: both show",
+     "since": 2
+    },
+    "columns": {
+     "type": "string",
+     "enum": [
+      "auto",
+      "all",
+      "detail"
+     ],
+     "doc": "regular width: both columns (auto, all) or the detail alone (the list behind the bar's sidebar button)",
+     "since": 2
     }
    },
-   "events": {},
+   "events": {
+    "close": {
+     "reports": {
+      "prop": "detail",
+      "value": false
+     },
+     "since": 2
+    },
+    "columns": {
+     "payload": {
+      "value": "string"
+     },
+     "reports": {
+      "prop": "columns",
+      "from": "value"
+     },
+     "since": 2
+    }
+   },
    "children": {
     "any": true,
     "min": 2,
@@ -1115,9 +1266,9 @@
    }
   },
   "menu": {
-   "rev": 1,
+   "rev": 2,
    "group": "control",
-   "doc": "a pull-down; its buttons fire",
+   "doc": "a pull-down; its buttons fire, a menu inside it is a submenu",
    "props": {
     "label": {
      "type": "string"
@@ -1131,12 +1282,16 @@
    "children": {
     "only": [
      "button",
-     "divider"
-    ]
+     "divider",
+     "menu"
+    ],
+    "since": {
+     "menu": 2
+    }
    }
   },
   "transcript": {
-   "rev": 1,
+   "rev": 2,
    "group": "chat",
    "doc": "a chat transcript (stick to bottom with follow)",
    "props": {
@@ -1145,6 +1300,16 @@
     },
     "older": {
      "type": "bool"
+    },
+    "anchor": {
+     "type": "string",
+     "doc": "the key of a child (its key=, or its wire key): the view opens at it, and it keeps its place on screen when children are inserted or trimmed around it (a transcript stops following its end meanwhile)",
+     "since": 2
+    },
+    "scrollTo": {
+     "type": "string",
+     "doc": "scroll to a child by key, or to `start`/`end`, whenever the value changes — the first value is where the view starts, not a jump (text after a # is ignored: `end#3` jumps again)",
+     "since": 2
     }
    },
    "events": {
@@ -1153,6 +1318,13 @@
      "payload": {
       "atBottom": "bool"
      }
+    },
+    "edge": {
+     "payload": {
+      "edge": "string",
+      "at": "bool"
+     },
+     "since": 2
     }
    },
    "children": {

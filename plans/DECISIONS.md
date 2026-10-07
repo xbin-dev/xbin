@@ -11621,3 +11621,68 @@ Deviations and refinements made while implementing; all deliberate:
     adminSettings (25), windows (20), menuOpen (6), tabStrip (6), viewAs
     (11). gridScale's zoom-tip check fails here on master's code too (a
     headless Control+= never reaches the shell); not this change.
+
+- **D189 — The native vocabulary's revision 2: navigation (2026-10-07).**
+  web/xb/vocab.js (→ native/spec/vocab.json), web/xb/rt-build.js,
+  web/xb/rt-runtime.js + web/xb-native.js (`xbn.navigate`), the reference
+  renderer (web/xb/render-*.js), XbinRendererModel (Navigation2.swift,
+  ScreenLayout.swift, Vocabulary.swift) and the SwiftUI views, XbinCore
+  (`RuntimeCall.navigate`, `TileScheme.runtimeURL(…fragment:)`), the app
+  (NativeTile.swift, RuntimePool.swift, TileScreens.swift). Part A of the
+  "AgTT on iOS" plan; the agent template's list-first view (part B, D190)
+  builds on it.
+  - **Why.** The owner (2026-10-07): the agent template's iOS view "is
+    quite lacking, especially navigation". The gap was the app runtime:
+    deep links never reached a native view, a compact `split` stacked its
+    panes, no toolbar placement, trailing swipes only, flat menus, a
+    refresh that ended after a fixed 600 ms, search without submit or
+    scopes, no stacked or full-screen sheets, no scroll anchor.
+  - **One revision, additive.** Every addition is `since: 2` on its
+    primitive (`screen`, `toolbar`, `list`, `actions`, `sheet`, `split`,
+    `menu`, `transcript` go to rev 2). The schema gains two markers next to
+    `since`: `enumSince` (a new enum value, `detents: full`) and a child
+    rule's `since` (a `menu` inside a `menu`); listening to a rev-2 event
+    counts too. The runtime reports each as `unsupported` to a rev-1 app,
+    which shows the web page — so tiles branch on `supports(name, 2)`.
+    Not chosen: feature flags per addition (eight flags for one coherent
+    step, and `supports('split', 2)` reads better); silently ignoring
+    rev-2 events on old apps (a tile would wait for a `close` that never
+    comes). A rev-1 tree draws exactly as before on a rev-2 app: a `split`
+    without `detail` still stacks on a phone; a toolbar without `place` is
+    the trailing one; a single `actions` keeps its reversed swipe order.
+  - **The additions.** `split detail` (compact: a stack, the detail pushed
+    while true, Back → `close` reporting `detail: false`) and `columns`
+    auto·all·detail (`columns {value}`); `toolbar place`
+    trailing·leading·bottom (one toolbar per place); `actions edge`
+    trailing·leading and `full` (a full swipe runs the first button, then
+    outermost); `menu` children may be menus (submenus); `screen
+    refreshing` (the spinner waits up to 1 s for it to turn true, then
+    until false, at most 60 s; unbound: 600 ms as before), `submit
+    {value}`, `scopes`/`scope` (`scope {value}`), `suggestions` (choosing
+    one sets the query and submits); `sheet detents="full"` (a full-screen
+    cover) and a `sheet` inside a `sheet` presented over it (structural,
+    no marker: rev-1 apps already presented a nested sheet, if crudely);
+    `list`/`transcript` `anchor` (a child by its `key=` or wire key: the
+    view opens at it and keeps it in place; a following transcript stops
+    following meanwhile), `scrollTo` (a key or start/end, acted on when
+    the value changes — its first value is the start, not a jump; text
+    after `#` only makes a new value) and `edge {edge, at}`.
+  - **Not as planned.** The plan named `select`/`close` events for the
+    split; `select` was left out — opening the detail is the row's own
+    `tap` setting `detail`, and a second event for it would only duplicate
+    it. Toolbar placement is a prop of `toolbar`, not of each item: items
+    of one place group together and a button never carries a place it
+    can't use outside a bar.
+  - **Deep links.** The app loads the runtime document with the link's
+    fragment (`?native=1#c=42`), so a tile reads `location.hash` as it
+    starts; a link to a running view calls `xbn.navigate(hash)`, which
+    rewrites the hash (`history.replaceState` where it can, so the browser
+    fires nothing itself) and dispatches one `hashchange` — also for the
+    same hash. A link before the first tree waits for it. No caps flag: an
+    older app simply opens the view at its root.
+  - **Nested stacks.** A tile's own stack inside the app's panel stack
+    (`nav`, and now a collapsed `split`) owns Back while it can pop: the
+    panel's edge pan already yields to a UINavigationController under the
+    finger that has more than one view controller (PanelStack,
+    `innerStackCanPop`); checked on the simulator by XbinNavigationTests.
+  - **Verified:** see the commit messages of the native-rev2 branch.

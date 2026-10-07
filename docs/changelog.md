@@ -12,6 +12,30 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-07
 
+- **Native views: vocabulary revision 2 — navigation** (D189;
+  [native.md](/docs/native.md) §Navigation, search and scrolling, §How it
+  runs). For the app release that follows this server release; until then
+  a tile that uses any of it on an older app shows its web page, so branch
+  on `xbin.native.supports(name, 2)`.
+  - **Deep links reach the native view:** a link with a fragment
+    (`xbin://<ws>/c/apps/x#t=42`) starts the view with that
+    `location.hash`, and a link while it runs fires `hashchange`.
+  - **`split` collapses on a phone** when it has `detail`: the list, with
+    the detail pushed over it while `detail` is true; Back reports
+    `close`. `columns` (auto·all·detail, `columns {value}`) controls the
+    columns on a tablet. A `split` without `detail` is unchanged.
+  - **`toolbar place`** leading·trailing·bottom; **`actions edge`**
+    leading·trailing and **`full`** swipes; a **`menu` inside a `menu`** is
+    a submenu.
+  - **`screen`:** `refreshing` keeps pull-to-refresh up until you clear it;
+    search `submit {value}`, `scopes`/`scope` (`scope {value}`) and
+    `suggestions`.
+  - **`sheet detents="full"`** (a full-screen cover) and a `sheet` inside a
+    `sheet` (stacked over it).
+  - **`list` and `transcript`:** `anchor` (open at a child and keep it in
+    place), `scrollTo` (jump when the value changes) and `edge {edge, at}`.
+  - Nothing changes for a tile that uses none of it.
+
 - **Fix: a page without a `<head>` keeps its doctype first.** xbind's
   injection (the import map, the client) used to go in front of such a
   page, so a leading `<!doctype html>` no longer came first and the

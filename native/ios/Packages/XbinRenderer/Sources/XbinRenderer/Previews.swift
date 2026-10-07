@@ -55,10 +55,14 @@ public struct XbinFixturePreview: View {
 #Preview("markdown") { XbinFixturePreview("markdown") }
 #Preview("media") { XbinFixturePreview("media") }
 #Preview("message-files") { XbinFixturePreview("message-files") }
+#Preview("old-app") { XbinFixturePreview("old-app") }
 #Preview("notices-empty-progress") { XbinFixturePreview("notices-empty-progress") }
+#Preview("search-toolbars") { XbinFixturePreview("search-toolbars") }
 #Preview("sections-rows") { XbinFixturePreview("sections-rows") }
 #Preview("sheet-open") { XbinFixturePreview("sheet-open") }
+#Preview("sheet-stack") { XbinFixturePreview("sheet-stack") }
 #Preview("split") { XbinFixturePreview("split") }
+#Preview("split-collapse") { XbinFixturePreview("split-collapse") }
 #Preview("split-single") { XbinFixturePreview("split-single") }
 #Preview("stack-layout") { XbinFixturePreview("stack-layout") }
 #Preview("structure-nav") { XbinFixturePreview("structure-nav") }

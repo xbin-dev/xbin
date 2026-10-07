@@ -157,6 +157,8 @@ extension View {
     public func toolbar<Content: ToolbarContent>(@ToolbarContentBuilder content: () -> Content) -> some View { _V(self) }
     public func refreshable(action: @escaping @Sendable () async -> Void) -> some View { _V(self) }
     public func searchable(text: Binding<String>, placement: SearchFieldPlacement = .automatic, prompt: Text? = nil) -> some View { _V(self) }
+    public func searchSuggestions<S: View>(@ViewBuilder _ suggestions: () -> S) -> some View { _V(self) }
+    public func searchScopes<V: Hashable, S: View>(_ scope: Binding<V>, @ViewBuilder scopes: () -> S) -> some View { _V(self) }
     public func safeAreaInset<V: View>(edge: VerticalEdge, alignment: HorizontalAlignment = .center, spacing: CGFloat? = nil, @ViewBuilder content: () -> V) -> some View { _V(self) }
     public func sheet<Content: View>(isPresented: Binding<Bool>, onDismiss: (() -> Void)? = nil, @ViewBuilder content: @escaping () -> Content) -> some View { _V(self) }
     public func fullScreenCover<Content: View>(isPresented: Binding<Bool>, onDismiss: (() -> Void)? = nil, @ViewBuilder content: @escaping () -> Content) -> some View { _V(self) }
@@ -184,7 +186,7 @@ public enum VerticalEdge: Sendable { case top, bottom
     public struct Set: OptionSet, Sendable { public let rawValue: Int; public init(rawValue: Int) { self.rawValue = rawValue }; public static let all = Set(rawValue: 3) }
 }
 public enum HorizontalEdge: Sendable { case leading, trailing }
-public struct SubmitTriggers: OptionSet, Sendable { public let rawValue: Int; public init(rawValue: Int) { self.rawValue = rawValue }; public static let text = SubmitTriggers(rawValue: 1) }
+public struct SubmitTriggers: OptionSet, Sendable { public let rawValue: Int; public init(rawValue: Int) { self.rawValue = rawValue }; public static let text = SubmitTriggers(rawValue: 1); public static let search = SubmitTriggers(rawValue: 2) }
 public struct SearchFieldPlacement: Sendable { public static let automatic = SearchFieldPlacement() }
 
 // MARK: Toolbar
@@ -198,7 +200,8 @@ extension Never: ToolbarContent {}
 extension _ToolbarLeaf { public var body: Never { fatalError() } }
 public struct ToolbarItemPlacement: Sendable {
     public static let topBarTrailing = ToolbarItemPlacement(), topBarLeading = ToolbarItemPlacement(), cancellationAction = ToolbarItemPlacement(),
-        confirmationAction = ToolbarItemPlacement(), primaryAction = ToolbarItemPlacement(), principal = ToolbarItemPlacement(), automatic = ToolbarItemPlacement()
+        confirmationAction = ToolbarItemPlacement(), primaryAction = ToolbarItemPlacement(), principal = ToolbarItemPlacement(), automatic = ToolbarItemPlacement(),
+        bottomBar = ToolbarItemPlacement()
 }
 public struct ToolbarItem<ID, Content: View>: _ToolbarLeaf {}
 extension ToolbarItem where ID == () {

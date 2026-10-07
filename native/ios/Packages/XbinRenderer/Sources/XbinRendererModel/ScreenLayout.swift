@@ -2,7 +2,8 @@ import Foundation
 import XbinCore
 
 /// How a `screen` splits its children (the reference renderer's rules,
-/// web/xb/render-structure.js): its `toolbar` goes to the navigation bar; a
+/// web/xb/render-structure.js): its `toolbar`s go to the navigation bar's
+/// trailing end, its leading end or a bottom toolbar by `place` (rev 2); a
 /// `composer` and a bar-style `tabs` dock at the bottom; `sheet`s present
 /// over it — bottom sheets modally, drawers (`edge="leading"`) as an
 /// overlay; the rest is the body.
@@ -11,7 +12,12 @@ public struct ScreenLayout {
     public enum Style: String, Sendable { case list, form, scroll }
 
     public let style: Style
+    /// The trailing toolbar (`place` absent or `trailing`; the first such).
     public let toolbar: XbinNode?
+    /// `toolbar place="leading"`: items at the bar's leading end.
+    public let leadingToolbar: XbinNode?
+    /// `toolbar place="bottom"`: a bottom toolbar.
+    public let bottomToolbar: XbinNode?
     public let docked: [XbinNode]
     /// Bottom sheets (presented modally).
     public let sheets: [XbinNode]
@@ -22,13 +28,14 @@ public struct ScreenLayout {
     public init(_ screen: XbinNode) {
         style = Style(rawValue: screen.props.string("style") ?? "") ?? .scroll
         let all = screen.children
-        let tb = all.first { $0.type == "toolbar" }
-        toolbar = tb
+        toolbar = all.first { $0.type == "toolbar" && ToolbarPlace($0) == .trailing }
+        leadingToolbar = all.first { $0.type == "toolbar" && ToolbarPlace($0) == .leading }
+        bottomToolbar = all.first { $0.type == "toolbar" && ToolbarPlace($0) == .bottom }
         let dock = all.filter { $0.type == "composer" || ($0.type == "tabs" && $0.props.string("style") == "bar") }
         docked = dock
         sheets = all.filter { $0.type == "sheet" && !SheetProps.isDrawer($0) }
         drawers = all.filter(SheetProps.isDrawer)
-        body = all.filter { n in n !== tb && n.type != "sheet" && !dock.contains { $0 === n } }
+        body = all.filter { n in n.type != "toolbar" && n.type != "sheet" && !dock.contains { $0 === n } }
     }
 
     /// A list or form screen: the body is a grouped `List`/`Form`.
@@ -103,12 +110,25 @@ public struct FragmentLayout {
     }
 }
 
+/// Where a `toolbar`'s items go (rev 2 `place`): the bar's trailing end (the
+/// default, and for an unknown value), its leading end, or a bottom toolbar.
+public enum ToolbarPlace: String, Sendable, CaseIterable {
+    case trailing, leading, bottom
+
+    @MainActor
+    public init(_ toolbar: XbinNode) {
+        self = ToolbarPlace(rawValue: toolbar.props.string("place") ?? "") ?? .trailing
+    }
+}
+
 /// `sheet` props with the reference renderer's defaults: open unless
 /// `open` is false; detents from a string or a list, `large` by default;
 /// from the bottom edge unless `edge` is `leading` (a drawer: no detents).
+/// Rev 2: the `full` detent covers the screen (a full-screen cover, no
+/// swipe to dismiss); a `sheet` among its children presents over it.
 @MainActor
 public struct SheetProps {
-    public enum Detent: String, Sendable, CaseIterable { case medium, large }
+    public enum Detent: String, Sendable, CaseIterable { case medium, large, full }
     public enum Edge: String, Sendable, CaseIterable { case bottom, leading }
 
     public let isOpen: Bool
@@ -120,6 +140,8 @@ public struct SheetProps {
     public let isWhole: Bool
     public let toolbar: XbinNode?
     public let body: [XbinNode]
+    /// Sheets presented over this one (rev 2).
+    public let nested: [XbinNode]
 
     public init(_ sheet: XbinNode) {
         isOpen = sheet.value("open")?.boolValue ?? true
@@ -134,9 +156,14 @@ public struct SheetProps {
         detents = ds.isEmpty ? [.large] : ds
         let tb = sheet.children.first { $0.type == "toolbar" }
         toolbar = tb
-        body = sheet.children.filter { $0 !== tb }
+        body = sheet.children.filter { $0 !== tb && $0.type != "sheet" }
+        nested = sheet.children.filter { $0.type == "sheet" }
         isWhole = body.count == 1 && (body[0].type == "screen" || body[0].type == "nav")
     }
+
+    /// A full-screen cover (`full` among the detents): no grabber, no swipe
+    /// to dismiss — the sheet's own buttons close it.
+    public var isFull: Bool { detents.contains(.full) }
 
     /// A drawer: slides in from the leading edge over the view.
     public var isDrawer: Bool { edge == .leading }
@@ -184,11 +211,39 @@ public enum SplitLayout: Sendable, Equatable {
     /// iPhone Duo SDK, iOS 27.1).
     case columns
     /// One above the other (compact width, `prefer="single"`, or not two
-    /// children).
+    /// children) — a rev-1 split, which has no `detail` state.
     case stacked
+    /// Rev 2, a split with `detail` (even false) where it doesn't show two
+    /// columns: a navigation stack of the list, with the detail pushed over
+    /// it while `detail` is true (Back reports `close`).
+    case collapsed
 
-    public init(children: Int, regularWidth: Bool, prefer: String?) {
-        self = children >= 2 && regularWidth && prefer != "single" ? .columns : .stacked
+    public init(children: Int, regularWidth: Bool, prefer: String?, collapses: Bool = false) {
+        if children >= 2 && regularWidth && prefer != "single" { self = .columns }
+        else if children >= 2 && collapses { self = .collapsed }
+        else { self = .stacked }
+    }
+
+    /// A split node's layout at a width.
+    @MainActor
+    public init(_ split: XbinNode, regularWidth: Bool) {
+        self.init(children: split.children.count, regularWidth: regularWidth, prefer: split.props.string("prefer"),
+                  collapses: split.binds("detail"))
+    }
+}
+
+/// A rev-2 `split`'s controlled state: whether the detail is open (compact)
+/// and which columns show (regular).
+@MainActor
+public struct SplitState {
+    public enum Columns: String, Sendable, CaseIterable { case auto, all, detail }
+
+    public let detail: Bool
+    public let columns: Columns
+
+    public init(_ split: XbinNode) {
+        detail = split.value("detail")?.boolValue ?? false
+        columns = Columns(rawValue: Props.text(split.value("columns")) ?? "") ?? .auto
     }
 }
 

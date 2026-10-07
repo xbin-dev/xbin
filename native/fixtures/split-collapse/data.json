@@ -1,0 +1,55 @@
+{
+  "about": "split rev 2: a deep link (#t=) opens a ticket over the list, Back (close), xbn.navigate to another, columns, a transcript anchor, scrollTo and edge with a \"N new\" button",
+  "self": "apps/desk",
+  "hash": "#t=t-2",
+  "routes": {
+    "GET /api/apps/desk/tickets": {
+      "json": {
+        "tickets": [
+          {"id": "t-1", "subject": "Checkout fails on Safari 19", "customer": "Northwind Traders", "time": "14:02", "priority": "urgent", "unread": 2},
+          {"id": "t-2", "subject": "Invoice shows the wrong VAT", "customer": "Bellhaven Books", "time": "13:41", "priority": "normal", "unread": 1},
+          {"id": "t-3", "subject": "SSO login loops back to the start", "customer": "Kestrel Labs", "time": "12:15", "priority": "high", "unread": 3},
+          {"id": "t-4", "subject": "Export to CSV drops accents", "customer": "Café Lumière", "time": "Fri", "priority": "low", "unread": 0}
+        ]
+      }
+    },
+    "GET /api/apps/desk/tickets/t-2": {
+      "json": {
+        "subject": "Invoice shows the wrong VAT",
+        "customer": "Bellhaven Books",
+        "priority": "normal",
+        "firstUnread": "m-23",
+        "messages": [
+          {"id": "m-21", "from": "customer", "sender": "Ruth Okoro", "time": "11:02", "text": "Our September invoice charges 23% VAT; we are registered in Ireland."},
+          {"id": "m-22", "from": "agent", "sender": "You", "time": "11:30", "text": "Thanks Ruth — checking the tax profile now."},
+          {"id": "m-23", "from": "customer", "sender": "Ruth Okoro", "time": "13:41", "text": "Any news? Our accountant closes the month on Friday."}
+        ]
+      }
+    },
+    "GET /api/apps/desk/tickets/t-3": {
+      "json": {
+        "subject": "SSO login loops back to the start",
+        "customer": "Kestrel Labs",
+        "priority": "high",
+        "firstUnread": "m-33",
+        "messages": [
+          {"id": "m-31", "from": "customer", "sender": "Dev Patel", "time": "09:12", "text": "Since this morning our people land on the login page again after Okta."},
+          {"id": "m-32", "from": "agent", "sender": "You", "time": "09:40", "text": "Could you send the time of one failed attempt and the user's email?"},
+          {"id": "m-33", "from": "customer", "sender": "Dev Patel", "time": "11:58", "text": "10:47 UTC, ana@kestrel.dev. It works in a private window."},
+          {"id": "m-34", "from": "customer", "sender": "Dev Patel", "time": "12:05", "text": "Clearing cookies fixes it for a few minutes, then it loops again."},
+          {"id": "m-35", "from": "customer", "sender": "Dev Patel", "time": "12:15", "text": "Is there a status page for this?"}
+        ]
+      }
+    }
+  },
+  "interactions": [
+    {"select": "split", "type": "close", "note": "Back from the deep-linked ticket to the list"},
+    {"navigate": "#t=t-3", "note": "a push notification's link opens another ticket"},
+    {"select": "split", "type": "columns", "payload": {"value": "detail"}, "note": "the sidebar hidden on a tablet"},
+    {"select": "transcript", "type": "edge", "payload": {"edge": "end", "at": false}, "note": "the agent scrolls up to read"},
+    {
+      "bus": ["res:apps/desk/bus/tickets/t-3/reply", {"ticket": "t-3", "message": {"id": "m-36", "from": "customer", "sender": "Dev Patel", "time": "14:13", "text": "Found it: our proxy strips the SameSite cookie."}}],
+      "note": "a reply arrives while the agent reads above"
+    }
+  ]
+}

@@ -118,6 +118,7 @@ of `r.1`; `r.1.0:3.1` is slot 1 of the multi-root template item `3` renders;
 | `xbn.frame()` | the renderer's frame clock: flush a pending render now (§7). Returns whether a tree message was sent. |
 | `xbn.remount(target?)` | send a whole tree again as a fresh `mount` (the app lost its copy or failed to apply a patch): the main tree, or with `"widget"` the widget tree (§13). |
 | `xbn.widgetSize(size)` | the app shows the widget at another size class, `"small"` or `"wide"` (§13); the tile hears it and re-renders. Returns whether the size changed. |
+| `xbn.navigate(hash)` | a deep link into the running view (D189): the document's `location.hash` becomes `hash` (`"#c=42"`; the `#` is optional, `""` clears it) and `hashchange` fires — also when it was that hash already. The first link needs no call: the app loads the runtime document with the link's fragment (`/c/<tile>/?native=1#c=42`), so the tile reads `location.hash` as it starts. A runtime from before has no such function (call it as `xbn.navigate?.(…)`). Returns whether it navigated. |
 
 The tile's handler receives `{type, value, ...payload}` (`value` is
 `payload.value`, possibly `undefined`).
@@ -284,14 +285,17 @@ calling it with nothing pending is cheap.
 
 - `v`: the tree format / vocabulary major the app speaks.
 - `prims`: every primitive the app renders, with its revision (`vocab.json`
-  `prims.<name>.rev`). A prop with `since: n` needs revision ≥ `n`.
+  `prims.<name>.rev`). A prop or event with `since: n`, an enum value in a
+  prop's `enumSince` and a child in a child rule's `since` need revision ≥
+  `n` (rev 2, D189: `screen`, `toolbar`, `list`, `actions`, `sheet`,
+  `split`, `menu`, `transcript`).
 - `features`: flags for capabilities within a primitive (`vocab.json`
   `features`); an enum value that needs one says so (`chart` `kind: area` →
   `chart.area`). Without `markdown.tables` the runtime turns tables into
   `code` blocks of their source instead of failing.
 - The runtime checks every rendered node: a primitive missing from `prims`, a
-  prop newer than its revision, or a value needing a missing feature →
-  `{op:"error", kind:"unsupported"}` (§5).
+  prop, listened-to event, enum value or child newer than its revision, or a
+  value needing a missing feature → `{op:"error", kind:"unsupported"}` (§5).
 - `widget` is a **wire** feature, not a vocabulary one (it is not in
   `vocab.json` `features`): the app shows widget trees (§13). Without it the
   runtime never sends one. `widgetSize` (optional, `"small"` | `"wide"`,

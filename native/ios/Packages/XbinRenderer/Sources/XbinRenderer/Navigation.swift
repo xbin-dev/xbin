@@ -43,10 +43,13 @@ struct NavView: View {
 }
 
 /// `split`: list/detail. Two columns when the width is regular and
-/// `prefer` isn't `single` (``SplitLayout``): `NavigationSplitView`, or
-/// the iPhone Duo's `ArrangementView` when built with the iOS 27.1 SDK
-/// (`XBIN_SDK_27_1`, off by default: the hosted CI has only 27.0);
-/// stacked otherwise, like the reference renderer (§15).
+/// `prefer` isn't `single` (``SplitLayout``): `NavigationSplitView` (its
+/// column visibility the rev-2 `columns`), or the iPhone Duo's
+/// `ArrangementView` when built with the iOS 27.1 SDK (`XBIN_SDK_27_1`, off
+/// by default: the hosted CI has only 27.0). Otherwise a rev-2 split (one
+/// with `detail`) collapses to a `NavigationStack` — the list, with the
+/// detail pushed over it while `detail` is true, Back reporting `close`;
+/// a rev-1 split is stacked, like the reference renderer (§15).
 struct SplitView: View {
     let node: XbinNode
     @Environment(\.horizontalSizeClass) private var width
@@ -55,17 +58,19 @@ struct SplitView: View {
     var body: some View {
         let kids = node.children
         let flags = XbinNavFlags(inNavigation: true, pushed: false, inSheet: nav.inSheet)
-        let layout = SplitLayout(children: kids.count, regularWidth: width == .regular, prefer: node.props.string("prefer"))
+        let layout = SplitLayout(node, regularWidth: width == .regular)
         if layout == .columns {
             #if XBIN_SDK_27_1
             if #available(iOS 27.1, *) {
                 DuoSplit(primary: kids[0], secondary: kids[1], flags: flags)
             } else {
-                ColumnsSplit(primary: kids[0], secondary: kids[1], flags: flags)
+                ColumnsSplit(node: node, primary: kids[0], secondary: kids[1], flags: flags)
             }
             #else
-            ColumnsSplit(primary: kids[0], secondary: kids[1], flags: flags)
+            ColumnsSplit(node: node, primary: kids[0], secondary: kids[1], flags: flags)
             #endif
+        } else if layout == .collapsed {
+            CollapsedSplit(node: node, primary: kids[0], secondary: kids[1], inSheet: nav.inSheet)
         } else {
             VStack(spacing: 0) {
                 ForEach(Array(kids.enumerated()), id: \.element.id) { i, kid in
@@ -77,21 +82,85 @@ struct SplitView: View {
     }
 }
 
-/// Two columns with `NavigationSplitView`.
+/// Two columns with `NavigationSplitView`. A split that binds `columns`
+/// (rev 2) controls the column visibility: `detail` hides the list behind
+/// the bar's sidebar button, `all` shows both; the user's toggle reports
+/// `columns {value}`.
 private struct ColumnsSplit: View {
+    let node: XbinNode
     let primary: XbinNode
     let secondary: XbinNode
     let flags: XbinNavFlags
+    @Environment(\.xbin) private var cx
 
     var body: some View {
-        NavigationSplitView {
-            NodeView(node: primary).environment(\.xbinNav, flags)
-        } detail: {
-            NodeView(node: secondary).environment(\.xbinNav, flags)
+        if node.binds("columns") {
+            let n = node
+            let context = cx
+            let visibility = mainBinding(
+                get: { () -> NavigationSplitViewVisibility in
+                    switch SplitState(n).columns {
+                    case .detail: return .detailOnly
+                    case .all: return .all
+                    case .auto: return .automatic
+                    }
+                },
+                set: { v in
+                    let c: SplitState.Columns = v == .detailOnly ? .detail : .all
+                    if c != SplitState(n).columns { context?.emit(n, "columns", ["value": .string(c.rawValue)]) }
+                }
+            )
+            NavigationSplitView(columnVisibility: visibility) {
+                NodeView(node: primary).environment(\.xbinNav, flags)
+            } detail: {
+                NodeView(node: secondary).environment(\.xbinNav, flags)
+            }
+            .navigationSplitViewStyle(.balanced)
+        } else {
+            NavigationSplitView {
+                NodeView(node: primary).environment(\.xbinNav, flags)
+            } detail: {
+                NodeView(node: secondary).environment(\.xbinNav, flags)
+            }
+            .navigationSplitViewStyle(.balanced)
         }
-        .navigationSplitViewStyle(.balanced)
     }
 }
+
+/// A rev-2 split on a compact width: a navigation stack whose root is the
+/// list; while `detail` is true the detail is pushed over it. Back (the
+/// button or the edge swipe) hides it at once and reports `close` (→
+/// `detail: false`).
+private struct CollapsedSplit: View {
+    let node: XbinNode
+    let primary: XbinNode
+    let secondary: XbinNode
+    let inSheet: Bool
+    @Environment(\.xbin) private var cx
+
+    var body: some View {
+        let n = node
+        let context = cx
+        let path = mainBinding(
+            get: { SplitState(n).detail ? [SplitPath.detail] : [] },
+            set: { (new: [SplitPath]) in
+                if new.isEmpty, SplitState(n).detail { context?.emit(n, "close") }
+            }
+        )
+        NavigationStack(path: path) {
+            NodeView(node: primary)
+                .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: false, inSheet: inSheet, drawersHosted: true))
+                .navigationDestination(for: SplitPath.self) { _ in
+                    NodeView(node: secondary)
+                        .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: true, inSheet: inSheet, drawersHosted: true))
+                }
+        }
+        .modifier(DrawersModifier(drawers: FragmentLayout.drawers(ofScreens: [primary, secondary])))
+    }
+}
+
+/// The one destination of a collapsed split.
+private enum SplitPath: Hashable { case detail }
 
 #if XBIN_SDK_27_1
 /// Two panes on an iPhone Duo (iOS 27.1): the system's arrangement of a
@@ -218,24 +287,48 @@ struct SheetView: View {
                 }
             )
             let context = cx
-            Color.clear
-                .frame(width: 0, height: 0)
-                .sheet(isPresented: presented) {
-                    SheetContent(node: node)
-                        .presentationDetents(Set(props.detents.map { $0 == .medium ? PresentationDetent.medium : .large }))
-                        .environment(\.xbin, context)
-                        .environment(\.xbinImages, context?.images)
-                        .environment(\.xbinInTabBar, false)
-                        .modifier(ConfirmHostModifier())
-                        .tint(XbinColor.tint)
-                }
+            if props.isFull {
+                // `full` (rev 2): a full-screen cover — no swipe to dismiss.
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .fullScreenCover(isPresented: presented) {
+                        SheetContent(node: node)
+                            .environment(\.xbin, context)
+                            .environment(\.xbinImages, context?.images)
+                            .environment(\.xbinInTabBar, false)
+                            .modifier(ConfirmHostModifier())
+                            .tint(XbinColor.tint)
+                    }
+            } else {
+                Color.clear
+                    .frame(width: 0, height: 0)
+                    .sheet(isPresented: presented) {
+                        SheetContent(node: node)
+                            .presentationDetents(Set(props.detents.map { $0 == .medium ? PresentationDetent.medium : .large }))
+                            .environment(\.xbin, context)
+                            .environment(\.xbinImages, context?.images)
+                            .environment(\.xbinInTabBar, false)
+                            .modifier(ConfirmHostModifier())
+                            .tint(XbinColor.tint)
+                    }
+            }
         }
     }
 }
 
 /// What a sheet shows: its one screen/nav as is, else its children in a
-/// form with the sheet's title and toolbar.
+/// form with the sheet's title and toolbar; a sheet among its children
+/// (rev 2) presents over it.
 struct SheetContent: View {
+    let node: XbinNode
+
+    var body: some View {
+        SheetContentBody(node: node)
+            .modifier(SheetsModifier(sheets: SheetProps(node).nested))
+    }
+}
+
+private struct SheetContentBody: View {
     let node: XbinNode
     @Environment(\.xbin) private var cx
 
@@ -310,11 +403,13 @@ private struct InlineSheet: View {
 
     var body: some View {
         let props = SheetProps(node)
-        let fraction: CGFloat = props.detents.first == .medium ? 0.56 : 0.92
+        let fraction: CGFloat = props.isFull ? 1 : props.detents.first == .medium ? 0.56 : 0.92
         ZStack(alignment: .bottom) {
             Color.black.opacity(0.28).ignoresSafeArea()
             VStack(spacing: 0) {
-                Capsule().fill(XbinColor.muted.opacity(0.5)).frame(width: 36, height: 5).padding(.vertical, 6)
+                if !props.isFull {
+                    Capsule().fill(XbinColor.muted.opacity(0.5)).frame(width: 36, height: 5).padding(.vertical, 6)
+                }
                 SheetContent(node: node)
             }
             .frame(maxWidth: .infinity)

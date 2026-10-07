@@ -150,13 +150,7 @@ struct MenuNodeView: View {
         let context = cx
         let host = confirm
         Menu {
-            ForEach(node.children) { child in
-                if child.type == "divider" {
-                    Divider()
-                } else if child.type == "button" {
-                    ActionButton(node: child, cx: context, confirm: host)
-                }
-            }
+            MenuItemsView(menu: node, cx: context, confirm: host)
         } label: {
             if placement == .toolbar, let symbol {
                 Label(label.isEmpty ? "More" : label, systemImage: symbol).labelStyle(.iconOnly)
@@ -165,6 +159,36 @@ struct MenuNodeView: View {
                     Text(verbatim: label)
                 } icon: {
                     if let symbol { Image(systemName: symbol) }
+                }
+            }
+        }
+    }
+}
+
+/// A menu's items: its buttons, dividers and (rev 2) submenus — a `menu`
+/// inside a `menu` opens as a submenu. Context and confirm host are passed
+/// in: a menu is rendered outside the environment of the view that holds it.
+struct MenuItemsView: View {
+    let menu: XbinNode
+    let cx: XbinRenderContext?
+    let confirm: ConfirmHost?
+
+    var body: some View {
+        ForEach(Array(MenuItems.items(menu).enumerated()), id: \.offset) { _, item in
+            switch item {
+            case .divider:
+                Divider()
+            case .button(let b):
+                ActionButton(node: b, cx: cx, confirm: confirm)
+            case .submenu(let sub):
+                Menu {
+                    MenuItemsView(menu: sub, cx: cx, confirm: confirm)
+                } label: {
+                    if let symbol = XbinIcons.symbol(sub.props.string("icon")) {
+                        Label(sub.props.string("label") ?? "", systemImage: symbol)
+                    } else {
+                        Text(verbatim: sub.props.string("label") ?? "")
+                    }
                 }
             }
         }

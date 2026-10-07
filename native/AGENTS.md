@@ -1168,6 +1168,23 @@ tests never show it: their animations are off.
 - **Additive only** for anything a shipped app or a shipped tile depends on:
   the vocabulary, the tree format, `xb-native.js`, `xbin.native`, the bridge
   (docs/compat.md).
+- **A vocabulary change, step by step** (rev 2, D189, is the worked
+  example): in `web/xb/vocab.js` raise the primitive's `rev` and mark the
+  addition — `since` on a prop or event, `enumSince` on a new enum value,
+  the child rule's `since` for a newly allowed child; `node hack/xbn/vocab-json.mjs
+  > native/spec/vocab.json`; the runtime's checks (`rt-build.js`) and a
+  `hack/xb-native.test.mjs` case for a rev-1 app; the reference renderer and
+  a `hack/xb-render.test.mjs` case; the model in XbinRendererModel (tested
+  on Linux, `VocabularyTests` holds the revision table and the reports) and
+  the SwiftUI view (stubcheck; new SDK APIs get stubs in
+  `tools/swiftui-stubcheck/Stubs`); a fixture whose final tree exercises
+  every new prop, event, enum value and child (`make native-check` counts
+  them), plus a `#Preview`; `node hack/native-docs.mjs --write`, prose in
+  docs/native.md, a changelog entry, plans/native.md. An older app is a
+  fixture too: `caps` with the old revisions and `expectUnsupported` listing
+  exactly what it must refuse (`old-app`). Never re-mean a rev-1 prop: a
+  rev-1 tree on a newer app must look as before (a `split` without `detail`
+  still stacks).
 - **No device APIs for tile code**, ever (plans/native.md §2).
 - **Report honestly** what was verified where: "passes `swift test` on Linux",
   "compiles on CI", "snapshot looked right", "not run on a device".

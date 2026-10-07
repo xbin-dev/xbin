@@ -17,17 +17,18 @@ public enum XbinVocabulary {
 
     /// Every primitive this renderer draws → its revision (`caps.prims`).
     public static let primitives: [String: Int] = [
-        // 8.1 structure and navigation
-        "fragment": 1, "nav": 1, "screen": 1, "toolbar": 1, "section": 1, "stack": 1, "list": 1,
-        "row": 1, "actions": 1, "disclosure": 1, "tabs": 1, "tab": 1, "sheet": 1, "split": 1,
+        // 8.1 structure and navigation (rev 2, D189: screen, toolbar, list,
+        // actions, sheet, split — and menu and transcript below)
+        "fragment": 1, "nav": 1, "screen": 2, "toolbar": 2, "section": 1, "stack": 1, "list": 2,
+        "row": 1, "actions": 2, "disclosure": 1, "tabs": 1, "tab": 1, "sheet": 2, "split": 2,
         "spacer": 1, "divider": 1,
         // 8.2 content
         "text": 1, "markdown": 1, "image": 1, "icon": 1, "badge": 1, "notice": 1, "progress": 1,
         "chart": 1, "code": 1, "empty": 1,
         // 8.3 controls
-        "button": 1, "toggle": 1, "field": 1, "picker": 1, "menu": 1,
+        "button": 1, "toggle": 1, "field": 1, "picker": 1, "menu": 2,
         // 8.4 the chat family
-        "transcript": 1, "message": 1, "thinking": 1, "toolcard": 1, "approval": 1, "question": 1,
+        "transcript": 2, "message": 1, "thinking": 1, "toolcard": 1, "approval": 1, "question": 1,
         "plan": 1, "diff": 1, "activity": 1, "step": 1, "composer": 1,
         // 8.5 escape hatches
         "terminal": 1, "canvas": 1,
@@ -69,7 +70,9 @@ public enum XbinVocabulary {
 
     /// primitive → event → the prop it reports.
     public static let reports: [String: [String: Report]] = [
-        "screen": ["search": Report(prop: "search", from: "value")],
+        "screen": ["search": Report(prop: "search", from: "value"), "submit": Report(prop: "search", from: "value"),
+                   "scope": Report(prop: "scope", from: "value")],
+        "split": ["close": Report(prop: "detail", value: false), "columns": Report(prop: "columns", from: "value")],
         "section": ["toggle": Report(prop: "collapsed")],
         "disclosure": ["toggle": Report(prop: "open")],
         "tabs": ["change": Report(prop: "selected", from: "key")],

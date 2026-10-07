@@ -4,9 +4,10 @@ import XbinCore
 import XbinRendererModel
 
 /// `screen`: a `List` (style list), a `Form` (form) or a `ScrollView`
-/// (scroll, the default) with a navigation title; its `toolbar` goes to the
-/// bar, a composer (or bar tabs) docks at the bottom, sheets present over
-/// it. Outside a navigation container it brings its own `NavigationStack`.
+/// (scroll, the default) with a navigation title; its `toolbar`s go to the
+/// bar (trailing, leading) or a bottom toolbar by `place`, a composer (or
+/// bar tabs) docks at the bottom, sheets present over it. Outside a
+/// navigation container it brings its own `NavigationStack`.
 struct ScreenView: View {
     let node: XbinNode
     @Environment(\.xbinNav) private var nav
@@ -38,7 +39,7 @@ private struct ScreenContent: View {
             .navigationTitle(p.string("title") ?? "")
             .navigationSubtitle(p.string("subtitle") ?? "")
             .navigationBarTitleDisplayMode(large ? .large : .inline)
-            .toolbar { ScreenToolbar(toolbar: layout.toolbar) }
+            .toolbar { ScreenToolbar(toolbar: layout.toolbar, leading: layout.leadingToolbar, bottom: layout.bottomToolbar) }
             .modifier(RefreshModifier(node: node))
             .modifier(SearchModifier(node: node))
             .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -73,10 +74,12 @@ private struct ScreenBody: View {
             List { ForEach(layout.body) { NodeView(node: $0) } }
                 .listStyle(.insetGrouped)
                 .concreteBackground()
+                .modifier(ListScrollModifier(list: layout.body.first { $0.type == "list" }))
                 .environment(\.xbinPlacement, .list)
         case .form:
             Form { ForEach(layout.body) { NodeView(node: $0) } }
                 .concreteBackground()
+                .modifier(ListScrollModifier(list: layout.body.first { $0.type == "list" }))
                 .environment(\.xbinPlacement, .list)
         case .scroll:
             if let list = layout.soleList {
@@ -107,8 +110,27 @@ private struct ScreenBody: View {
 /// tool count and new-chat button).
 struct ScreenToolbar: ToolbarContent {
     let toolbar: XbinNode?
+    /// `place="leading"` (rev 2): at the bar's leading end, after Back.
+    var leading: XbinNode?
+    /// `place="bottom"` (rev 2): a bottom toolbar, its items spread out.
+    var bottom: XbinNode?
 
     var body: some ToolbarContent {
+        if let leading, !leading.children.isEmpty {
+            ToolbarItemGroup(placement: .topBarLeading) {
+                ForEach(leading.children) { NodeView(node: $0).fixedSize() }
+                    .environment(\.xbinPlacement, .toolbar)
+            }
+        }
+        if let bottom, !bottom.children.isEmpty {
+            ToolbarItemGroup(placement: .bottomBar) {
+                ForEach(Array(bottom.children.enumerated()), id: \.element.id) { i, item in
+                    if i > 0 { Spacer() }
+                    NodeView(node: item).fixedSize()
+                }
+                .environment(\.xbinPlacement, .toolbar)
+            }
+        }
         let groups = ToolbarGroups(toolbar)
         if !groups.status.isEmpty {
             ToolbarItemGroup(placement: .topBarTrailing) {
@@ -128,7 +150,9 @@ struct ScreenToolbar: ToolbarContent {
     }
 }
 
-/// `refreshable` + a `refresh` listener → pull to refresh.
+/// `refreshable` + a `refresh` listener → pull to refresh. Rev 2: a screen
+/// that binds `refreshing` keeps the spinner until the tile sets it false
+/// (``RefreshCompletion``); without it the spinner ends after a moment.
 private struct RefreshModifier: ViewModifier {
     let node: XbinNode
     @Environment(\.xbin) private var cx
@@ -139,9 +163,20 @@ private struct RefreshModifier: ViewModifier {
             let n = node
             content.refreshable {
                 await MainActor.run { context?.emit(n, "refresh") }
-                // The tile answers with a patch whenever it likes; keep the
-                // spinner up briefly so the gesture reads as done.
-                try? await Task.sleep(for: .milliseconds(600))
+                guard await MainActor.run(body: { n.binds("refreshing") }) else {
+                    // The tile answers with a patch whenever it likes; keep
+                    // the spinner up briefly so the gesture reads as done.
+                    try? await Task.sleep(for: RefreshCompletion.legacy)
+                    return
+                }
+                let clock = ContinuousClock()
+                let started = clock.now
+                var phase = RefreshCompletion.Phase.waitingForStart
+                while phase != .done, !Task.isCancelled {
+                    try? await Task.sleep(for: RefreshCompletion.poll)
+                    let on = await MainActor.run { n.value("refreshing")?.boolValue ?? false }
+                    phase = RefreshCompletion.next(phase, refreshing: on, elapsed: clock.now - started)
+                }
             }
         } else {
             content
@@ -150,6 +185,9 @@ private struct RefreshModifier: ViewModifier {
 }
 
 /// `search` present (even "") → a search field; `search {value}` reports it.
+/// Rev 2: the return key (or a suggestion) reports `submit {value}`; `scopes`
+/// show under the field while searching (`scope {value}`); `suggestions`
+/// list under it while it has focus.
 private struct SearchModifier: ViewModifier {
     let node: XbinNode
     @Environment(\.xbin) private var cx
@@ -160,7 +198,89 @@ private struct SearchModifier: ViewModifier {
                 get: { Props.text(node.value("search")) ?? "" },
                 set: { cx?.emit(node, "search", ["value": .string($0)]) }
             )
-            content.searchable(text: text)
+            let search = SearchProps(node)
+            let context = cx
+            let n = node
+            let submit = { (value: String) in
+                if Props.text(n.value("search")) != value { context?.emit(n, "search", ["value": .string(value)]) }
+                if n.listens(to: "submit") { context?.emit(n, "submit", ["value": .string(value)]) }
+            }
+            let scope = mainBinding(
+                get: { SearchProps(n).scope ?? "" },
+                set: { v in if v != SearchProps(n).scope { context?.emit(n, "scope", ["value": .string(v)]) } }
+            )
+            content
+                .searchable(text: text)
+                .onSubmit(of: .search) { submit(Props.text(n.value("search")) ?? "") }
+                .modifier(SearchScopesModifier(scopes: search.scopes, selection: scope))
+                .searchSuggestions {
+                    ForEach(search.suggestions) { s in
+                        Button { submit(s.value) } label: {
+                            Label(s.label, systemImage: XbinIcons.symbol(s.icon) ?? XbinIcons.UI.search)
+                        }
+                        .foregroundStyle(XbinColor.text)
+                    }
+                }
+        } else {
+            content
+        }
+    }
+}
+
+/// The search field's scopes, when there are any.
+private struct SearchScopesModifier: ViewModifier {
+    let scopes: [SearchProps.Option]
+    let selection: Binding<String>
+
+    func body(content: Content) -> some View {
+        if scopes.isEmpty {
+            content
+        } else {
+            content.searchScopes(selection) {
+                ForEach(scopes) { Text(verbatim: $0.label).tag($0.value) }
+            }
+        }
+    }
+}
+
+/// A `list`'s rev-2 scrolling when its rows are the rows of an enclosing
+/// `List` (a list or form screen, or a scroll screen whose body is the one
+/// list): it opens at `anchor`, jumps to `scrollTo` when that changes, and
+/// reports `edge` as the start or the end comes into or out of view.
+struct ListScrollModifier: ViewModifier {
+    let list: XbinNode?
+    @Environment(\.xbin) private var cx
+    @State private var edges = ScrollEdges()
+
+    func body(content: Content) -> some View {
+        if let list, list.binds("anchor") || list.binds("scrollTo") || list.listens(to: "edge") {
+            let context = cx
+            ScrollViewReader { proxy in
+                content
+                    .onAppear {
+                        if let a = list.props.nonEmpty("anchor"), let row = ScrollKeys.child(of: list, key: a) {
+                            proxy.scrollTo(row.id, anchor: .top)
+                        }
+                    }
+                    .onChange(of: list.props.string("scrollTo") ?? "") { _, to in
+                        switch ScrollTarget(to) {
+                        case .start?: if let first = list.children.first { withAnimation { proxy.scrollTo(first.id, anchor: .top) } }
+                        case .end?: if let last = list.children.last { withAnimation { proxy.scrollTo(last.id, anchor: .bottom) } }
+                        case .key(let k)?: if let row = ScrollKeys.child(of: list, key: k) { withAnimation { proxy.scrollTo(row.id) } }
+                        case nil: break
+                        }
+                    }
+                    .onScrollGeometryChange(for: [Bool].self) { geo in
+                        let at = ScrollEdges.at(offset: Double(geo.contentOffset.y), viewport: Double(geo.containerSize.height),
+                                                content: Double(geo.contentSize.height))
+                        return [at.start, at.end]
+                    } action: { _, at in
+                        guard list.listens(to: "edge"), at.count == 2 else { return }
+                        for e in edges.update(start: at[0], end: at[1]) {
+                            context?.emit(list, "edge", ["edge": .string(e.edge), "at": .bool(e.at)])
+                        }
+                    }
+            }
         } else {
             content
         }

@@ -12,21 +12,27 @@
  * keeps them equal); the Swift renderer and XbinCore read that file. The
  * wire format itself is native/spec/tree.md.
  *
- * ADDITIVE ONLY once shipped (docs/compat.md): a new prop bumps its
- * primitive's `rev` and carries `since: <rev>`; a new primitive starts at
- * rev 1; a new enum value that needs app support names a `features` flag.
- * Removing or re-meaning anything needs a new major `v`.
+ * ADDITIVE ONLY once shipped (docs/compat.md): a new prop or event bumps its
+ * primitive's `rev` and carries `since: <rev>`; a new enum value carries it
+ * in `enumSince`, a newly allowed child in its rule's `since`; a new
+ * primitive starts at rev 1; a feature an app may lack within a primitive
+ * names a `features` flag. Removing or re-meaning anything needs a new
+ * major `v`. Rev 2 (D189) is the navigation revision: deep links, a split
+ * that collapses to a stack, toolbar placement, leading/full swipes, nested
+ * menus, refresh completion, search submit/scopes/suggestions, a full-screen
+ * sheet, scroll anchors and edges.
  *
  * Schema (all plain JSON):
  *   prop:     {type: 'string'|'number'|'bool'|'json'|'array'|'object' | [types…],
  *              enum?: [...], token?: <tokens key>, of?: <prop>, shape?: {field: <prop>},
- *              since?: <rev>, features?: {<enum value>: <feature flag>},
+ *              since?: <rev>, enumSince?: {<enum value>: <rev>},
+ *              features?: {<enum value>: <feature flag>},
  *              runtime?: true (set by the runtime, never by a tile), doc?}
- *   event:    {payload?: {field: type}, reports?: {prop, from?, value?}}
+ *   event:    {payload?: {field: type}, reports?: {prop, from?, value?}, since?: <rev>}
  *             `reports`: the event carries the app-side value of a controlled
  *             prop — `from` names the payload field (default: the prop's own
  *             name), `value` is a constant instead of a payload field.
- *   children: {none: true} | {any: true} | {only: [prims], min?, max?}
+ *   children: {none: true} | {any: true} | {only: [prims], min?, max?, since?: {<prim>: <rev>}}
  *             (+ lazy: 'selected' for tabs — only the selected tab's content
  *             is materialized)
  *   text:     the prop a text-content element's content becomes
@@ -42,6 +48,9 @@ const arr = (of) => ({ type: 'array', of });
 const obj = (shape) => ({ type: 'object', shape });
 const scalar = { type: ['string', 'number', 'bool'] };
 const reports = (prop, from) => (from ? { reports: { prop, from } } : { reports: { prop } });
+// since(2, x): x is new in revision 2 of its primitive (an app with rev 1
+// gets the tile's web page instead, tree.md §8).
+const since = (rev, x) => ({ ...x, since: rev });
 const NONE = { none: true };
 const ANY = { any: true };
 const only = (...prims) => ({ only: prims });
@@ -83,6 +92,14 @@ export const TOKENS = {
 // Feature flags an app may lack even when it knows the primitive.
 export const FEATURES = ['chart.area', 'markdown.tables'];
 
+// Scrolling a long list or transcript (rev 2): which child stays put, a jump,
+// and the edges reached or left.
+const SCROLL = {
+  anchor: since(2, { ...S, doc: 'the key of a child (its key=, or its wire key): the view opens at it, and it keeps its place on screen when children are inserted or trimmed around it (a transcript stops following its end meanwhile)' }),
+  scrollTo: since(2, { ...S, doc: 'scroll to a child by key, or to `start`/`end`, whenever the value changes — the first value is where the view starts, not a jump (text after a # is ignored: `end#3` jumps again)' }),
+};
+const EDGE = { edge: since(2, { payload: { edge: 'string', at: 'bool' } }) };
+
 const P = {
   // ── 8.1 structure and navigation ──────────────────────────────────────────
   fragment: { rev: 1, group: 'structure', runtime: true,
@@ -90,28 +107,37 @@ const P = {
     props: {}, events: {}, children: ANY },
   nav: { rev: 1, group: 'structure', doc: 'a navigation stack; the first screen is the root',
     props: {}, events: { pop: { payload: { depth: 'number' } } }, children: { only: ['screen'], min: 1 } },
-  screen: { rev: 1, group: 'structure', doc: 'one screen: a list, a form or a scroll view with a title',
+  screen: { rev: 2, group: 'structure', doc: 'one screen: a list, a form or a scroll view with a title',
     props: { title: S, subtitle: S, style: en('list', 'form', 'scroll'), large: B, refreshable: B,
-      search: { ...S, doc: 'the search query; present (even "") shows the search field' } },
-    events: { refresh: {}, search: { payload: { value: 'string' }, ...reports('search', 'value') }, appear: {} },
+      search: { ...S, doc: 'the search query; present (even "") shows the search field' },
+      refreshing: since(2, { ...B, doc: 'a refresh is under way: after `refresh` the app keeps its spinner until the tile sets this false (at most 60 s); without it the spinner ends after a moment' }),
+      scopes: since(2, { ...arr(obj({ value: S, label: S })), doc: 'search scopes under the search field (shown while searching)' }),
+      scope: since(2, { ...S, doc: 'the selected search scope (a `scopes` value)' }),
+      suggestions: since(2, { ...arr(obj({ value: S, label: S, icon: tok('icon') })), doc: 'search suggestions under the field while it is focused; choosing one sets the query to its value and submits it' }) },
+    events: { refresh: {}, search: { payload: { value: 'string' }, ...reports('search', 'value') }, appear: {},
+      submit: since(2, { payload: { value: 'string' }, ...reports('search', 'value') }),
+      scope: since(2, { payload: { value: 'string' }, ...reports('scope', 'value') }) },
     children: ANY },
-  toolbar: { rev: 1, group: 'structure', doc: 'actions in the screen/sheet bar',
-    props: {}, events: {}, children: only('button', 'menu', 'picker', 'badge') },
+  toolbar: { rev: 2, group: 'structure', doc: 'actions in the screen/sheet bar; a screen may have one per `place`',
+    props: { place: since(2, { ...en('trailing', 'leading', 'bottom'), doc: 'where its items go: the bar\'s trailing end (the default), its leading end, or a bottom toolbar' }) },
+    events: {}, children: only('button', 'menu', 'picker', 'badge') },
   section: { rev: 1, group: 'structure', doc: 'a titled group of rows, controls or content',
     props: { title: S, badge: S, footer: S, collapsible: B, collapsed: B },
     events: { toggle: { payload: { collapsed: 'bool' }, ...reports('collapsed') } }, children: ANY },
   stack: { rev: 1, group: 'structure', doc: 'a vertical or horizontal stack',
     props: { axis: en('v', 'h'), gap: tok('gap'), align: en('start', 'center', 'end'), wrap: B },
     events: {}, children: ANY },
-  list: { rev: 1, group: 'structure', doc: 'a lazy list',
-    props: { style: en('plain', 'inset', 'grouped') }, events: { more: {} },
+  list: { rev: 2, group: 'structure', doc: 'a lazy list',
+    props: { style: en('plain', 'inset', 'grouped'), ...SCROLL }, events: { more: {}, ...EDGE },
     children: only('row', 'section', 'empty', 'progress', 'notice') },
   row: { rev: 1, group: 'structure', doc: 'a list row; optional swipe/context actions and content',
     props: { title: S, subtitle: S, detail: S, icon: tok('icon'), badge: S, tone: tok('tone'),
       mono: en('title', 'subtitle', 'detail', 'all'), nav: B, selected: B, disabled: B },
     events: { tap: {} }, children: ANY },
-  actions: { rev: 1, group: 'structure', doc: "a row's swipe actions and context menu",
-    props: {}, events: {}, children: only('button') },
+  actions: { rev: 2, group: 'structure', doc: "a row's swipe actions and context menu; a row may have one per `edge`",
+    props: { edge: since(2, { ...en('trailing', 'leading'), doc: 'the edge its swipe actions come from: trailing (the default) or leading' }),
+      full: since(2, { ...B, doc: 'a full swipe runs the first button' }) },
+    events: {}, children: only('button') },
   disclosure: { rev: 1, group: 'structure', doc: 'a collapsible group',
     props: { title: S, open: B }, events: { toggle: { payload: { open: 'bool' }, ...reports('open') } },
     children: ANY },
@@ -121,12 +147,20 @@ const P = {
     children: { only: ['tab'], lazy: 'selected' } },
   tab: { rev: 1, group: 'structure', doc: 'one tab of tabs; `key` is a prop here (it does not key the node)',
     props: { key: S, title: S, icon: tok('icon'), badge: S }, events: {}, children: ANY },
-  sheet: { rev: 1, group: 'structure', doc: 'a modal sheet',
-    props: { open: B, title: S, detents: { type: ['string', 'array'], enum: ['medium', 'large'], of: en('medium', 'large') },
+  sheet: { rev: 2, group: 'structure', doc: 'a modal sheet; a sheet among its children presents over it',
+    props: { open: B, title: S,
+      detents: { type: ['string', 'array'], enum: ['medium', 'large', 'full'], enumSince: { full: 2 },
+        of: { ...en('medium', 'large', 'full'), enumSince: { full: 2 } },
+        doc: '`full` covers the whole screen (no swipe to dismiss: give it a way out)' },
       edge: { ...en('bottom', 'leading'), doc: 'where it comes from: bottom (a sheet, the default) or leading (a drawer over the screen — a conversation list)' } },
     events: { dismiss: { reports: { prop: 'open', value: false } } }, children: ANY },
-  split: { rev: 1, group: 'structure', doc: 'list/detail: exactly two children; stacked when compact',
-    props: { prefer: en('auto', 'single') }, events: {}, children: { any: true, min: 2, max: 2 } },
+  split: { rev: 2, group: 'structure', doc: 'list/detail: exactly two children; two columns when regular, a list with the detail pushed over it when compact',
+    props: { prefer: en('auto', 'single'),
+      detail: since(2, { ...B, doc: 'compact width: the detail is pushed over the list (Back reports `close`); regular: both show' }),
+      columns: since(2, { ...en('auto', 'all', 'detail'), doc: 'regular width: both columns (auto, all) or the detail alone (the list behind the bar\'s sidebar button)' }) },
+    events: { close: since(2, { reports: { prop: 'detail', value: false } }),
+      columns: since(2, { payload: { value: 'string' }, ...reports('columns', 'value') }) },
+    children: { any: true, min: 2, max: 2 } },
   spacer: { rev: 1, group: 'structure', props: {}, events: {}, children: NONE },
   divider: { rev: 1, group: 'structure', props: {}, events: {}, children: NONE },
 
@@ -179,13 +213,14 @@ const P = {
     props: { label: S, value: scalar, options: arr(obj({ value: scalar, label: S, icon: tok('icon') })),
       style: en('menu', 'segmented', 'inline') },
     events: { change: { payload: { value: 'json' }, ...reports('value') } }, children: NONE },
-  menu: { rev: 1, group: 'control', doc: 'a pull-down; its buttons fire',
-    props: { label: S, icon: tok('icon') }, events: {}, children: only('button', 'divider') },
+  menu: { rev: 2, group: 'control', doc: 'a pull-down; its buttons fire, a menu inside it is a submenu',
+    props: { label: S, icon: tok('icon') }, events: {},
+    children: { only: ['button', 'divider', 'menu'], since: { menu: 2 } } },
 
   // ── 8.4 the chat family ───────────────────────────────────────────────────
-  transcript: { rev: 1, group: 'chat', doc: 'a chat transcript (stick to bottom with follow)',
-    props: { follow: B, older: B },
-    events: { more: {}, scrolled: { payload: { atBottom: 'bool' } } },
+  transcript: { rev: 2, group: 'chat', doc: 'a chat transcript (stick to bottom with follow)',
+    props: { follow: B, older: B, ...SCROLL },
+    events: { more: {}, scrolled: { payload: { atBottom: 'bool' } }, ...EDGE },
     children: only('message', 'thinking', 'toolcard', 'approval', 'question', 'plan', 'diff',
       'activity', 'step', 'notice', 'text', 'markdown', 'image', 'progress') },
   message: { rev: 1, group: 'chat',

@@ -21,7 +21,11 @@ import XbinRendererModel
 /// `fresh` new rows (or rows unloaded below) show a "↓ N new — jump to
 /// latest" pill: it scrolls to the bottom and calls `onJump` (for the host
 /// to read the tail again when it had unloaded it). `nested` (a subagent
-/// inside a tool card) doesn't scroll itself.
+/// inside a tool card) doesn't scroll itself. Rev 2 (a tile's transcript):
+/// `anchor` names the row it opens at — while one is set it stops sticking
+/// to the bottom, so rows arriving below never scroll it away; `jump`
+/// scrolls to a row or an end whenever its token changes; `onEdge` reports
+/// the start or the end coming into or out of view.
 public struct TranscriptView<ID: Hashable & Sendable, Content: View>: View {
     public var follow: Bool
     public var older: Bool
@@ -33,6 +37,12 @@ public struct TranscriptView<ID: Hashable & Sendable, Content: View>: View {
     public var onScrolled: (@MainActor (Bool) -> Void)?
     public var onVisible: (@MainActor ([ID]) -> Void)?
     public var onJump: (@MainActor () -> Void)?
+    /// Rev 2: the row the transcript opens at and keeps in place.
+    public var anchor: ID?
+    /// Rev 2: a jump — when `token` changes, scroll to `target`.
+    public var jump: TranscriptJump<ID>?
+    /// Rev 2: `(edge, at)` — "start"/"end" reached (true) or left.
+    public var onEdge: (@MainActor (String, Bool) -> Void)?
     let content: Content
 
     @State private var position: ScrollPosition
@@ -46,6 +56,7 @@ public struct TranscriptView<ID: Hashable & Sendable, Content: View>: View {
     @State private var seen: [ID] = []
     /// The reader is near the top or the bottom of what is loaded.
     @State private var near = Near()
+    @State private var edges = ScrollEdges()
 
     struct Near: Equatable {
         var top = false
@@ -57,6 +68,7 @@ public struct TranscriptView<ID: Hashable & Sendable, Content: View>: View {
                 onMore: (@MainActor () -> Void)? = nil, onNewer: (@MainActor () -> Void)? = nil,
                 onScrolled: (@MainActor (Bool) -> Void)? = nil, onVisible: (@MainActor ([ID]) -> Void)? = nil,
                 onJump: (@MainActor () -> Void)? = nil,
+                anchor: ID? = nil, jump: TranscriptJump<ID>? = nil, onEdge: (@MainActor (String, Bool) -> Void)? = nil,
                 @ViewBuilder content: () -> Content) {
         self.follow = follow
         self.older = older
@@ -68,6 +80,9 @@ public struct TranscriptView<ID: Hashable & Sendable, Content: View>: View {
         self.onScrolled = onScrolled
         self.onVisible = onVisible
         self.onJump = onJump
+        self.anchor = anchor
+        self.jump = jump
+        self.onEdge = onEdge
         self.content = content()
         // No edge: defaultScrollAnchor places it (an edge-based position
         // re-anchored the first drag by a row's worth — seen on iOS 27).
@@ -99,8 +114,25 @@ public struct TranscriptView<ID: Hashable & Sendable, Content: View>: View {
                 .padding(.vertical, 12)
             }
             .scrollPosition($position, anchor: .top)
-            .defaultScrollAnchor(follow ? .bottom : .top)
-            .defaultScrollAnchor(follow && atBottom ? .bottom : nil, for: .sizeChanges)
+            .defaultScrollAnchor(follow && anchor == nil ? .bottom : .top)
+            .defaultScrollAnchor(follow && atBottom && anchor == nil ? .bottom : nil, for: .sizeChanges)
+            .onAppear { if let anchor { position.scrollTo(id: anchor, anchor: .top) } }
+            .onChange(of: jump?.token ?? "") { _, _ in
+                switch jump?.target {
+                case .start?: withAnimation { position.scrollTo(edge: .top) }
+                case .end?: withAnimation { position.scrollTo(edge: .bottom) }
+                case .row(let id)?: withAnimation { position.scrollTo(id: id, anchor: .center) }
+                case nil: break
+                }
+            }
+            .onScrollGeometryChange(for: [Bool].self) { geo in
+                let at = ScrollEdges.at(offset: Double(geo.contentOffset.y), viewport: Double(geo.containerSize.height),
+                                        content: Double(geo.contentSize.height))
+                return [at.start, at.end]
+            } action: { _, at in
+                guard let onEdge, at.count == 2 else { return }
+                for e in edges.update(start: at[0], end: at[1]) { onEdge(e.edge, e.at) }
+            }
             .onScrollGeometryChange(for: Bool.self) { geo in
                 geo.contentOffset.y + geo.containerSize.height >= geo.contentSize.height - 32
             } action: { _, bottom in
@@ -150,6 +182,24 @@ public struct TranscriptView<ID: Hashable & Sendable, Content: View>: View {
             }
             .animation(.snappy, value: follow && !atBottom && (fresh > 0 || newer))
         }
+    }
+}
+
+/// A transcript's jump (rev 2 `scrollTo`): where to, and the value whose
+/// change triggers it.
+public struct TranscriptJump<ID: Hashable & Sendable>: Equatable {
+    public enum Target: Equatable {
+        case start
+        case end
+        case row(ID)
+    }
+
+    public var token: String
+    public var target: Target
+
+    public init(token: String, target: Target) {
+        self.token = token
+        self.target = target
     }
 }
 

@@ -193,6 +193,108 @@ test('a row\'s and a message\'s actions open as a popover and fire', { skip }, a
   await ctx.close();
 });
 
+// Vocabulary rev 2 (D189) in the reference renderer: a split that collapses
+// to a stack on a phone and shows both columns when wide, toolbars by place,
+// submenus, a row's leading and trailing actions in one menu, a full-screen
+// sheet with one stacked over it, and the scroll anchor, jump and edges.
+const fixtureTree = (name) => JSON.parse(readFileSync(join(ROOT, `native/fixtures/${name}/expected.json`), 'utf8'));
+
+test('rev 2: a split collapses to a stack, its Back and sidebar report close and columns', { skip }, async () => {
+  const { p, ctx, errors } = await page();
+  await p.goto(`${base}/vendor/xb/fixture.html`);
+  await p.waitForFunction(() => window.xbnFixture);
+  await p.evaluate((t) => window.xbnFixture.load(t), fixtureTree('split-collapse'));
+  const root = p.locator('xb-view');
+  const shown = (sel) => root.locator(sel).first().isVisible();
+  // a phone: the deep-linked ticket over the list, with Back to it
+  assert.equal(await shown('.split-a'), false);
+  assert.equal(await shown('.split-b'), true);
+  await root.locator('.split-b .split-back').click();
+  assert.equal(await shown('.split-a'), true, 'Back shows the list');
+  assert.equal(await shown('.split-b'), false);
+  // a tablet: both columns (columns="detail" hides the list until the sidebar button)
+  await p.setViewportSize({ width: 1024, height: 768 });
+  await p.evaluate((t) => window.xbnFixture.load(t), fixtureTree('split-collapse'));
+  assert.equal(await shown('.split-a'), false, 'columns=detail');
+  assert.equal(await shown('.split-b .split-back'), false, 'no Back beside the list');
+  await root.locator('.split-b .split-cols').click();
+  assert.equal(await shown('.split-a'), true, 'the sidebar comes back');
+  const evs = await p.evaluate(() => window.xbnFixture.events.map((e) => [e[1], e[2]]));
+  assert.deepEqual(evs.filter(([t]) => t !== 'edge'), [['close', {}], ['columns', { value: 'all' }]]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('rev 2: toolbars by place, a submenu, and a row\'s leading and trailing actions', { skip }, async () => {
+  const { p, ctx, errors } = await page();
+  await p.goto(`${base}/vendor/xb/fixture.html`);
+  await p.waitForFunction(() => window.xbnFixture);
+  await p.evaluate((t) => window.xbnFixture.load(t), fixtureTree('search-toolbars'));
+  const root = p.locator('xb-view');
+  assert.equal(await root.locator('.bar-lead [data-k="r.0.0"]').count(), 1, 'the leading toolbar in the bar\'s leading end');
+  assert.equal(await root.locator('.bar-trail [data-k="r.1.0"]').count(), 1);
+  assert.equal(await root.locator('.bottombar [data-k="r.2.1"]').count(), 1, 'the bottom toolbar');
+  assert.equal(await root.locator('.bar-trail .spin').count(), 1, 'refreshing: the refresh button spins');
+  await root.locator('[data-k="r.0.0"] button').click();
+  await root.locator('.pop [data-k="r.0.0.3"] button').click(); // Group by ▸
+  await root.locator('.pop [data-k="r.0.0.3.1"] button').click(); // Label
+  await root.locator('[data-k="r.3.0:i-405"] .row-more').click();
+  const items = await root.locator('.pop button').allTextContents();
+  assert.deepEqual(items.map((s) => s.trim()), ['Mark unread', 'Archive', 'Delete'], 'leading first, then trailing');
+  await root.locator('.pop [data-k="r.3.0:i-405.0.0"] button').click();
+  // search: scopes, then a suggestion (focus shows them) submits
+  await root.locator('.search-scopes button', { hasText: 'Closed' }).click();
+  await root.locator('.search input').focus();
+  await root.locator('.sugg', { hasText: 'label:billing' }).click();
+  const evs = await p.evaluate(() => window.xbnFixture.events.map((e) => [e[0], e[1], e[2]]));
+  assert.deepEqual(evs.filter(([, t]) => t !== 'edge'), [
+    ['r.0.0.3.1', 'tap', {}], ['r.3.0:i-405.0.0', 'tap', {}], ['r', 'scope', { value: 'closed' }],
+    ['r', 'search', { value: 'label:billing' }], ['r', 'submit', { value: 'label:billing' }]]);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('rev 2: a full-screen sheet with a sheet stacked over it', { skip }, async () => {
+  const { p, ctx, errors } = await page();
+  await p.goto(`${base}/vendor/xb/fixture.html`);
+  await p.waitForFunction(() => window.xbnFixture);
+  await p.evaluate((t) => window.xbnFixture.load(t), fixtureTree('sheet-stack'));
+  const root = p.locator('xb-view');
+  assert.equal(await root.locator('[data-k="r.1"] > .sheet.d-full').count(), 1);
+  assert.equal(await root.locator('[data-k="r.1"] > .sheet .grabber').count(), 0, 'a cover has no grabber');
+  const inner = root.locator('[data-k="r.1.3"] .sheet.d-medium');
+  assert.equal(await inner.isVisible(), true);
+  // the inner sheet is on top: its field takes the click
+  await inner.locator('input').first().click();
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
+test('rev 2: the scroll anchor keeps its child in place; scrollTo jumps; edges report', { skip }, async () => {
+  const { p, ctx, errors } = await page();
+  await p.goto(`${base}/vendor/xb/fixture.html`);
+  await p.waitForFunction(() => window.xbnFixture);
+  const msgs = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => ({ k: `r.0.0:m${from + i}`, t: 'message', p: { role: 'assistant', text: `message ${from + i} `.repeat(12) } }));
+  const tree = (list, extra = {}) => ({ v: 1, root: { k: 'r', t: 'screen', p: { title: 'Chat' }, c: [
+    { k: 'r.0', t: 'transcript', p: { anchor: 'm20', ...extra }, e: ['edge'], c: list }] } });
+  await p.evaluate((t) => window.xbnFixture.load(t), tree(msgs(10, 30)));
+  const opened = await p.evaluate(() => { const t = window.xbnFixture.view.shadowRoot.querySelector('xb-transcript'); return t.querySelector('[data-k="r.0.0:m20"]').getBoundingClientRect().top - t.getBoundingClientRect().top; });
+  assert.ok(opened >= 0 && opened < 40, `the transcript opens at its anchor (${opened})`);
+  const top = () => p.evaluate(() => window.xbnFixture.view.shadowRoot.querySelector('[data-k="r.0.0:m20"]').getBoundingClientRect().top);
+  await p.evaluate(() => { const t = window.xbnFixture.view.shadowRoot.querySelector('xb-transcript'); t.scrollTop = t.querySelector('[data-k="r.0.0:m20"]').offsetTop - 100; });
+  const before = await top();
+  await p.evaluate((t) => window.xbnFixture.load(t), tree(msgs(1, 30))); // older messages above
+  assert.ok(Math.abs((await top()) - before) <= 1, `the anchor stays put (${before} → ${await top()})`);
+  await p.evaluate((t) => window.xbnFixture.load(t), tree(msgs(1, 30), { scrollTo: 'end#1' }));
+  await p.waitForFunction(() => window.xbnFixture.events.some((e) => e[1] === 'edge' && e[2].edge === 'end' && e[2].at));
+  const atEnd = await p.evaluate(() => { const t = window.xbnFixture.view.shadowRoot.querySelector('xb-transcript'); return t.scrollHeight - t.scrollTop - t.clientHeight; });
+  assert.ok(atEnd < 2, 'scrollTo end');
+  await p.evaluate((t) => window.xbnFixture.load(t), tree(msgs(1, 30), { scrollTo: 'm5' }));
+  await p.waitForFunction(() => window.xbnFixture.events.some((e) => e[1] === 'edge' && e[2].edge === 'end' && !e[2].at));
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 // A message's image files are thumbnails that open full screen; other files
 // are chips (native/fixtures/message-files).
 test('message thumbnails open the image preview', { skip }, async () => {

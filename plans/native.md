@@ -405,21 +405,34 @@ Lit reference renderer (`/vendor/xb/`) exists for previews and tests only.
 | Primitive | Props | Events | Children | SwiftUI | Lit (reference) |
 |---|---|---|---|---|---|
 | `nav` | — | `pop {depth}` | `screen`+ (first = root) | `NavigationStack(path:)` | stack with back bar |
-| `screen` | `title`, `subtitle`, `style` list·form·scroll, `large`, `refreshable`, `search` | `refresh`, `search {value}`, `appear` | any; list/form: `section`s (+ one `toolbar`) | `List`/`Form`/`ScrollView` + `.navigationTitle` | header + body |
-| `toolbar` | — | — | `button`, `menu`, `picker` | `.toolbar` | header actions |
+| `screen` | `title`, `subtitle`, `style` list·form·scroll, `large`, `refreshable`, `search`; rev 2: `refreshing`, `scopes`, `scope`, `suggestions` | `refresh`, `search {value}`, `appear`; rev 2: `submit {value}`, `scope {value}` | any; list/form: `section`s (+ a `toolbar` per place) | `List`/`Form`/`ScrollView` + `.navigationTitle`, `.searchable` + `.searchScopes`/`.searchSuggestions`/`.onSubmit(of: .search)` | header + body |
+| `toolbar` | rev 2: `place` trailing·leading·bottom | — | `button`, `menu`, `picker`, `badge` | `.toolbar` (`.topBarTrailing`/`.topBarLeading`/`.bottomBar`) | header actions / bottom bar |
 | `section` | `title`, `badge`, `footer`, `collapsible`, `collapsed` | `toggle {collapsed}` | rows, controls, content | `Section` (collapsible) | `<fieldset>`-like group |
 | `stack` | `axis` v·h, `gap`, `align`, `wrap` | — | any | `VStack`/`HStack`/`FlowLayout` | flex |
-| `list` | `style` plain·inset·grouped | `more` | `row`, `section` | `List` (lazy) | list |
+| `list` | `style` plain·inset·grouped; rev 2: `anchor`, `scrollTo` | `more`; rev 2: `edge {edge, at}` | `row`, `section` | `List` (lazy), `ScrollViewReader`, `.onScrollGeometryChange` | list |
 | `row` | `title`, `subtitle`, `detail`, `icon`, `badge`, `tone`, `mono` title·subtitle·detail·all, `nav`, `selected`, `disabled` | `tap` | optional `actions`, optional content | `LabeledContent`/`NavigationLink`, `.swipeActions` + `.contextMenu` | row, inline actions |
-| `actions` | — | — | `button`s | swipe + context menu | inline buttons |
+| `actions` | rev 2: `edge` trailing·leading, `full` | — | `button`s (a row may have one per edge) | `.swipeActions(edge:allowsFullSwipe:)` + context menu | folded behind ⋯ |
 | `disclosure` | `title`, `open` | `toggle {open}` | any | `DisclosureGroup` | `<details>` |
 | `tabs` | `selected`, `style` segmented·bar | `change {key}` | `tab`s | segmented `Picker` / `TabView` | segmented bar |
 | `tab` | `key`, `title`, `icon`, `badge` | — | any | tab content | panel |
-| `sheet` | `open`, `title`, `detents` medium·large | `dismiss` | any (+`toolbar`) | `.sheet` | modal |
-| `split` | `prefer` auto·single | — | exactly 2 (primary, detail) | `ArrangementView` (iOS 27.1) / `NavigationSplitView`; stacked when compact | two columns |
+| `sheet` | `open`, `title`, `detents` medium·large (rev 2: full) | `dismiss` | any (+`toolbar`; rev 2: a `sheet` presents over it) | `.sheet` / `.fullScreenCover` | modal |
+| `split` | `prefer` auto·single; rev 2: `detail`, `columns` auto·all·detail | rev 2: `close`, `columns {value}` | exactly 2 (primary, detail) | `ArrangementView` (iOS 27.1) / `NavigationSplitView(columnVisibility:)`; compact: a `NavigationStack` with the detail pushed (rev 2), stacked (rev 1) | two columns; a stack when narrow |
 | `spacer`, `divider` | — | — | — | `Spacer`/`Divider` | — |
 
-`split` is for list/detail tiles only — never for transcripts or terminals (§15).
+`split` is for list/detail tiles only — never for terminals (§15); since
+rev 2 a chat app's conversation list beside its open chat is one (D189).
+`menu` rev 2 takes a `menu` child (a submenu); `transcript` rev 2 takes
+`anchor`, `scrollTo` and `edge` as `list` does.
+
+**Vocabulary rev 2 (D189), the navigation revision.** Additive, each item
+`since: 2` (props, events; `enumSince` for `detents="full"`; the child
+rule's `since` for a submenu), so a rev-1 app falls back to the web page and
+tiles branch on `supports(name, 2)`. Deep links reach the view: the app
+loads the runtime document with the link's fragment (`location.hash` at
+start) and calls `xbn.navigate(hash)` — `hashchange` — for a link while it
+runs (tree.md §4). The fixtures `split-collapse`, `search-toolbars`,
+`sheet-stack` and `old-app` (rev-1 caps, `expectUnsupported`) are the
+contract.
 
 ### 8.2 Content
 
@@ -711,7 +724,12 @@ publisher). An **opt-in relay run by the xbin project**:
   navigator, switcher, session lists and conversation lists are overlays or
   sheets that dismiss once something is picked. A bigger screen buys more text.
 - **Two panes only for list/detail tiles that ask** (`split`): `ArrangementView`
-  on iOS 27.1, `NavigationSplitView` otherwise, stacked when compact.
+  on iOS 27.1, `NavigationSplitView` otherwise; when compact a rev-2 split
+  (one with `detail`) is a navigation stack — the list, the detail pushed
+  over it — and a rev-1 split is stacked (D189).
+- **Nested stacks.** A tile's own stacks (`nav`, a collapsed `split`) sit in
+  the app's panel stack: while one can pop, its Back (button and edge swipe)
+  goes first and the panel stays (PanelStack's `innerStackCanPop`).
 - **Folding never loses state**: runtimes, sockets and scroll positions live
   above the view layer; `@SceneStorage` restores the surface.
 - **The fold** (iOS 27.1 SDK, reported: `GeometryProxy.reservedRegions(kind:)`

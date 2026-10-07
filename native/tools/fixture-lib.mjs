@@ -17,9 +17,9 @@ const own = (o, k) => o != null && Object.prototype.hasOwnProperty.call(o, k);
 
 // data.json keys: what the runner (hack/xbn/node.mjs) takes, plus the
 // fixture's own. Anything else is a typo and an error.
-const RUN_KEYS = ['self', 'now', 'tz', 'locale', 'iface', 'routes', 'calls', 'dialog'];
-const OWN_KEYS = ['about', 'caps', 'state', 'widget', 'interactions', 'allowDiagnostics'];
-const STEP_KEYS = ['after', 'k', 'select', 'type', 'payload', 'n', 'target', 'bus', 'visibility', 'resolve', 'widgetSize', 'note'];
+const RUN_KEYS = ['self', 'now', 'tz', 'locale', 'iface', 'routes', 'calls', 'dialog', 'hash'];
+const OWN_KEYS = ['about', 'caps', 'state', 'widget', 'interactions', 'allowDiagnostics', 'expectUnsupported'];
+const STEP_KEYS = ['after', 'k', 'select', 'type', 'payload', 'n', 'target', 'bus', 'visibility', 'resolve', 'widgetSize', 'navigate', 'note'];
 
 export function listFixtures(dir = FIXTURES) {
   if (!existsSync(dir)) return [];
@@ -58,7 +58,7 @@ export function toRun(entry, data, name = 'fixture') {
 }
 
 // toSteps(interactions) → runNative steps. An interaction:
-//   {after?: ms, k?|select?, type?, payload?, n?, target?, bus?, visibility?, resolve?, widgetSize?, note?}
+//   {after?: ms, k?|select?, type?, payload?, n?, target?, bus?, visibility?, resolve?, widgetSize?, navigate?, note?}
 // (target "widget": the event is on the widget tree; widgetSize: the app
 // resizes the widget)
 // `after` moves the virtual clock first; then at most one action: an event on
@@ -74,7 +74,7 @@ export function toSteps(list, name = 'fixture') {
     const after = Number(it.after ?? 0);
     if (!Number.isFinite(after) || after < 0) throw new Error(`${at}.after must be a non-negative number of ms`);
     if (after > 0) steps.push({ wait: after });
-    const acts = ['k', 'select', 'bus', 'visibility', 'resolve', 'widgetSize'].filter((k) => own(it, k));
+    const acts = ['k', 'select', 'bus', 'visibility', 'resolve', 'widgetSize', 'navigate'].filter((k) => own(it, k));
     if (acts.includes('k') && acts.includes('select')) throw new Error(`${at}: give k or select, not both`);
     const kinds = acts.filter((k) => k !== 'select' || !acts.includes('k'));
     if (kinds.length > 1) throw new Error(`${at}: one action per interaction (got ${kinds.join(', ')})`);
@@ -95,6 +95,9 @@ export function toSteps(list, name = 'fixture') {
       steps.push({ visibility: it.visibility });
     } else if (own(it, 'widgetSize')) {
       steps.push({ widgetSize: it.widgetSize });
+    } else if (own(it, 'navigate')) {
+      if (typeof it.navigate !== 'string') throw new Error(`${at}.navigate is a fragment ("#c=42")`);
+      steps.push({ navigate: it.navigate });
     } else if (own(it, 'resolve')) {
       if (!Array.isArray(it.resolve)) throw new Error(`${at}.resolve is [callId, value]`);
       steps.push({ resolve: it.resolve });

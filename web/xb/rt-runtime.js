@@ -13,6 +13,8 @@
  *                  with a 50 ms timer as a backstop; setTimeout 0 without rAF);
  *                  xbn.frame() flushes a pending render at once
  *   document       the document whose visibilityState xbn.visibility drives
+ *   window         the window whose location.hash xbn.navigate sets (and
+ *                  that hears its `hashchange`; default: none — no deep links)
  *   log            false: no console lines for diagnostics and errors (they
  *                  are messages either way)
  *
@@ -60,6 +62,7 @@ export function createRuntime(opts = {}) {
   const caps = normalizeCaps(opts.caps);
   const schedule = typeof opts.schedule === 'function' ? opts.schedule : defaultSchedule;
   const doc = opts.document || null;
+  const win = opts.window || null;
   const log = opts.log !== false && typeof console !== 'undefined';
   let state = opts.state === undefined ? null : cloneJSON(opts.state);
 
@@ -222,6 +225,38 @@ export function createRuntime(opts = {}) {
     try { if (typeof doc.dispatchEvent === 'function' && typeof Event === 'function') doc.dispatchEvent(new Event('visibilitychange')); } catch { /* no events here */ }
   }
 
+  // xbn.navigate(hash) — the app opens a deep link into the native view (its
+  // URL's fragment, `#c=42`): location.hash becomes `hash` and `hashchange`
+  // fires, also when it is the hash already (the user asked to go there
+  // again). The first fragment needs no call: the app loads the runtime
+  // document with it, so a tile reads location.hash as it starts.
+  function navigate(hash) {
+    const loc = win?.location;
+    if (!loc) return false;
+    let h = String(hash ?? '');
+    if (h && !h.startsWith('#')) h = `#${h}`;
+    if (h === '#') h = '';
+    const oldURL = String(loc.href);
+    const newURL = oldURL.split('#')[0] + h;
+    const hist = win.history;
+    if (hist && typeof hist.replaceState === 'function') {
+      try { hist.replaceState(hist.state ?? null, '', newURL); } catch {
+        // a document that refuses the rewrite: the browser fires hashchange
+        // itself when the hash changes
+        if ((loc.hash || '') !== h) { try { loc.hash = h; } catch { return false; } return true; }
+      }
+    } else {
+      try { loc.hash = h; } catch { return false; } // no history (node): a plain URL
+    }
+    try {
+      let ev;
+      if (typeof HashChangeEvent === 'function') ev = new HashChangeEvent('hashchange', { oldURL, newURL });
+      else { ev = new Event('hashchange'); Object.defineProperties(ev, { oldURL: { value: oldURL }, newURL: { value: newURL } }); }
+      if (typeof win.dispatchEvent === 'function') win.dispatchEvent(ev);
+    } catch (e) { fail('uncaught', e, 'hashchange'); }
+    return true;
+  }
+
   function resolve(id, v, error) {
     const c = calls.get(id);
     if (!c) return false;
@@ -311,6 +346,7 @@ export function createRuntime(opts = {}) {
     frame: () => flush() !== null,
     remount,
     widgetSize: setWidgetSize,
+    navigate,
   };
 
   return {

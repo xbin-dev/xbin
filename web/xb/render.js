@@ -48,6 +48,21 @@ for (const name of [...Object.keys(VOCAB.prims), 'unknown']) {
   if (!customElements.get(tag) && name !== 'chart') customElements.define(tag, class extends HTMLElement {});
 }
 
+// xb-edge: a list's or transcript's start/end sentinel — fires `edge` (detail:
+// in view) when it comes into or goes out of view (rev 2 `edge` events).
+if (!customElements.get('xb-edge')) {
+  customElements.define('xb-edge', class extends HTMLElement {
+    connectedCallback() {
+      this.io = new IntersectionObserver((es) => {
+        const e = es[es.length - 1];
+        if (e) this.dispatchEvent(new CustomEvent('edge', { detail: e.isIntersecting }));
+      });
+      this.io.observe(this);
+    }
+    disconnectedCallback() { this.io?.disconnect(); }
+  });
+}
+
 // xb-more: fires `more` on its host when it scrolls into view (list/transcript paging).
 if (!customElements.get('xb-more')) {
   customElements.define('xb-more', class extends HTMLElement {
@@ -236,7 +251,11 @@ export class XbView extends LitElement {
     });
   }
 
-  openMenu(n, anchor) {
+  // openMenu(n, anchor, sub): a menu's popover under its button; `sub` (a
+  // submenu, rev 2): in place of the open one, at the same spot.
+  openMenu(n, anchor, sub = false) {
+    const prev = this._overlay;
+    if (sub && prev?.kind === 'menu') { this._overlay = { ...prev, n }; this.requestUpdate(); return; }
     const r = anchor.getBoundingClientRect();
     const me = this.getBoundingClientRect();
     this._overlay = { kind: 'menu', n, at: { top: r.bottom - me.top + 6, left: r.left - me.left, right: me.right - r.right } };
@@ -284,9 +303,52 @@ export class XbView extends LitElement {
     return html`<div class="root" part="root">${body}</div>${overlays(this)}`;
   }
 
+  // Rev 2 scroll anchors: before a render, where each anchored child sits;
+  // after it, the scroller moves by however far the child moved.
+  willUpdate() {
+    this._anchors = [];
+    for (const el of this.renderRoot?.querySelectorAll?.('[data-anchor]') ?? []) {
+      const child = anchorChild(el, el.dataset.anchor);
+      const sc = scroller(el);
+      if (child && sc) this._anchors.push({ k: el.dataset.k, key: el.dataset.anchor, top: child.getBoundingClientRect().top, sc });
+    }
+  }
+
+  // Rev 2 jumps: a changed scrollTo scrolls its child (or start/end) into
+  // view; a list or transcript first drawn with an anchor opens at it.
+  _scrollJumps() {
+    for (const el of this.renderRoot.querySelectorAll('[data-anchor]')) {
+      const u = this.uiOf(el.dataset.k);
+      if (u.anchored) continue;
+      const child = anchorChild(el, el.dataset.anchor);
+      if (!child) continue;
+      u.anchored = true;
+      const sc = scroller(el);
+      if (sc) sc.scrollTop += child.getBoundingClientRect().top - sc.getBoundingClientRect().top - 8;
+    }
+    for (const a of this._anchors || []) {
+      const el = this.renderRoot.querySelector(`[data-k="${CSS.escape(a.k)}"]`);
+      const child = el && anchorChild(el, a.key);
+      if (child) a.sc.scrollTop += child.getBoundingClientRect().top - a.top;
+    }
+    for (const el of this.renderRoot.querySelectorAll('[data-scroll-to]')) {
+      const u = this.uiOf(el.dataset.k);
+      const to = el.dataset.scrollTo;
+      if (u.scrolledTo === to) continue;
+      u.scrolledTo = to;
+      const key = to.split('#')[0];
+      const sc = scroller(el);
+      if (key === 'start' || key === 'end') {
+        if (sc) sc.scrollTop = key === 'start' ? 0 : sc.scrollHeight;
+      } else anchorChild(el, key)?.scrollIntoView({ block: 'nearest' });
+    }
+  }
+
   updated() {
+    this._scrollJumps();
     // transcripts with `follow` stay at the bottom while the user is there
-    for (const el of this.renderRoot.querySelectorAll('xb-transcript.follow')) {
+    // (not while an `anchor` holds a child in place)
+    for (const el of this.renderRoot.querySelectorAll('xb-transcript.follow:not([data-anchor])')) {
       if (this.uiOf(el.dataset.k).atBottom !== false) el.scrollTop = el.scrollHeight;
     }
     const now = new Set([...this._shownNow].map((n) => n.k));
@@ -301,6 +363,24 @@ export class XbView extends LitElement {
   }
 
   cx(place = 'free') { return new Cx(this, place, {}); }
+}
+
+// anchorChild(el, key): the child of a list/transcript element named by a
+// tile's key= (a wire key ending in `:key`) or by its wire key.
+function anchorChild(el, key) {
+  for (const c of el.querySelectorAll('[data-k]')) {
+    const k = c.dataset.k;
+    if (k === key || k.endsWith(`:${key}`)) return c;
+  }
+  return null;
+}
+// scroller(el): the element that scrolls el (itself, for a transcript).
+function scroller(el) {
+  for (let x = el; x; x = x.parentElement) {
+    const o = getComputedStyle(x).overflowY;
+    if ((o === 'auto' || o === 'scroll') && x.scrollHeight > x.clientHeight) return x;
+  }
+  return null;
 }
 
 if (!customElements.get('xb-view')) customElements.define('xb-view', XbView);

@@ -213,13 +213,8 @@ extension Animation {
 }
 
 // A tile's sessions screen (D132): the tab strip scrolls to the tab in
-// front and takes a swipe beside its own scrolling.
-public struct ScrollViewProxy {
-    public func scrollTo<ID: Hashable>(_ id: ID, anchor: UnitPoint? = nil) {}
-}
-public struct ScrollViewReader<Content: View>: _Leaf {
-    public init(@ViewBuilder content: @escaping (ScrollViewProxy) -> Content) {}
-}
+// front (ScrollViewReader: in the renderer's stubs since D189) and takes a
+// swipe beside its own scrolling.
 extension View {
     public func simultaneousGesture<T: Gesture>(_ gesture: T) -> some View { _V(self) }
 }

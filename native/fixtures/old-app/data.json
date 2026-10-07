@@ -1,0 +1,23 @@
+{
+  "about": "an app at vocabulary rev 1 (caps) opens a tile written for rev 2: every rev-2 prop, event and nested menu is reported unsupported, so the app shows the web page",
+  "self": "apps/ci",
+  "caps": {"v": 1, "renderer": "swiftui", "app": "1.0 (60)", "prims": {"fragment": 1, "nav": 1, "screen": 1, "toolbar": 1, "section": 1, "stack": 1, "list": 1, "row": 1, "actions": 1, "disclosure": 1, "tabs": 1, "tab": 1, "sheet": 1, "split": 1, "spacer": 1, "divider": 1, "text": 1, "markdown": 1, "image": 1, "icon": 1, "badge": 1, "notice": 1, "progress": 1, "chart": 1, "code": 1, "empty": 1, "button": 1, "toggle": 1, "field": 1, "picker": 1, "menu": 1, "transcript": 1, "message": 1, "thinking": 1, "toolcard": 1, "approval": 1, "question": 1, "plan": 1, "diff": 1, "activity": 1, "step": 1, "composer": 1, "terminal": 1, "canvas": 1}, "features": ["chart.area", "markdown.tables"]},
+  "routes": {
+    "GET /api/apps/ci/builds": {
+      "json": {
+        "builds": [
+          {"id": "b-1288", "title": "#1288 Bump the payments SDK", "branch": "main", "took": "6m 12s", "ok": true, "summary": "All 412 tests passed; the image is on staging."},
+          {"id": "b-1287", "title": "#1287 Fix the VAT rounding", "branch": "release/2.4", "took": "7m 40s", "ok": false, "summary": "2 tests failed in invoices/vat_test.go."}
+        ]
+      }
+    }
+  },
+  "expectUnsupported": [
+    "the app does not support <split> detail (rev 2)",
+    "the app does not support <split> columns (rev 2)",
+    "the app does not support <split> @close (rev 2)",
+    "the app does not support <screen> refreshing (rev 2)",
+    "the app does not support <toolbar> place (rev 2)",
+    "the app does not support <menu> inside <menu> (rev 2)"
+  ]
+}

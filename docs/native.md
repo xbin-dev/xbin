@@ -132,6 +132,13 @@ so a `native.js` that fails to load is reported to the app at once. So:
   real document; it just never shows one). Keep the logic in plain modules
   both views import and keep both views thin — the builtin chat tile's
   `chat-core.js` and the Prometheus viewer's `prom.js` are the pattern.
+- **Deep links** (rev 2 apps). A link to the tile with a fragment —
+  `xbin://<workspace>/c/apps/desk#t=t-2`, a push notification's link — opens
+  the native view with that fragment as `location.hash` when your module
+  starts; a link that arrives while the view runs sets `location.hash` and
+  fires `hashchange` (also for the hash it already has: the user asked to
+  go there again). Read the hash at start and listen to `hashchange`, as
+  the web page would; an older app opens the view without it.
 - **Visibility.** `document.visibilityState` is `visible` while the tile is
   on screen and `hidden` when it is not (with a `visibilitychange` event):
   poll slower when hidden, as the examples do.
@@ -265,11 +272,12 @@ the value and re-render:
 <!-- generated:controlled (node hack/native-docs.mjs --write) -->
 | Primitive | Event → controlled prop |
 |---|---|
-| `screen` | `search` {value} → `search` |
+| `screen` | `search` {value}, `submit` {value} → `search`; `scope` {value} → `scope` |
 | `section` | `toggle` {collapsed} → `collapsed` |
 | `disclosure` | `toggle` {open} → `open` |
 | `tabs` | `change` {key} → `selected` |
 | `sheet` | `dismiss` → `open` = false |
+| `split` | `close` → `detail` = false; `columns` {value} → `columns` |
 | `toggle` | `change` {value} → `value` |
 | `field` | `input` {value}, `change` {value}, `submit` {value} → `value` |
 | `picker` | `change` {value} → `value` |
@@ -408,24 +416,37 @@ diagnostic (§Checking it) — the render goes on.
 | Primitive | What | Props | Events | Children |
 |---|---|---|---|---|
 | `nav` | a navigation stack; the first screen is the root | — | `pop` {depth} | `screen`, at least 1 |
-| `screen` | one screen: a list, a form or a scroll view with a title | `title`, `subtitle`, `style` list·form·scroll, `large` bool, `refreshable` bool, `search` | `refresh`, `search` {value}, `appear` | any |
-| `toolbar` | actions in the screen/sheet bar | — | — | `button`, `menu`, `picker`, `badge` |
+| `screen` (rev 2) | one screen: a list, a form or a scroll view with a title | `title`, `subtitle`, `style` list·form·scroll, `large` bool, `refreshable` bool, `search`, `refreshing` bool (rev 2+), `scopes` [{value, label}] (rev 2+), `scope` (rev 2+), `suggestions` [{value, label, icon}] (rev 2+) | `refresh`, `search` {value}, `appear`, `submit` {value} (rev 2+), `scope` {value} (rev 2+) | any |
+| `toolbar` (rev 2) | actions in the screen/sheet bar; a screen may have one per `place` | `place` trailing·leading·bottom (rev 2+) | — | `button`, `menu`, `picker`, `badge` |
 | `section` | a titled group of rows, controls or content | `title`, `badge`, `footer`, `collapsible` bool, `collapsed` bool | `toggle` {collapsed} | any |
 | `stack` | a vertical or horizontal stack | `axis` v·h, `gap` *gap*, `align` start·center·end, `wrap` bool | — | any |
-| `list` | a lazy list | `style` plain·inset·grouped | `more` | `row`, `section`, `empty`, `progress`, `notice` |
+| `list` (rev 2) | a lazy list | `style` plain·inset·grouped, `anchor` (rev 2+), `scrollTo` (rev 2+) | `more`, `edge` {edge, at} (rev 2+) | `row`, `section`, `empty`, `progress`, `notice` |
 | `row` | a list row; optional swipe/context actions and content | `title`, `subtitle`, `detail`, `icon` *icon*, `badge`, `tone` *tone*, `mono` title·subtitle·detail·all, `nav` bool, `selected` bool, `disabled` bool | `tap` | any |
-| `actions` | a row's swipe actions and context menu | — | — | `button` |
+| `actions` (rev 2) | a row's swipe actions and context menu; a row may have one per `edge` | `edge` trailing·leading (rev 2+), `full` bool (rev 2+) | — | `button` |
 | `disclosure` | a collapsible group | `title`, `open` bool | `toggle` {open} | any |
 | `tabs` | segmented tabs; only the selected tab is materialized | `selected`, `style` segmented·bar | `change` {key} | `tab`; only the selected one is built |
 | `tab` | one tab of tabs; `key` is a prop here (it does not key the node) | `key`, `title`, `icon` *icon*, `badge` | — | any |
-| `sheet` | a modal sheet | `open` bool, `title`, `detents` medium·large, or a list of them, `edge` bottom·leading | `dismiss` | any |
-| `split` | list/detail: exactly two children; stacked when compact | `prefer` auto·single | — | exactly 2 |
+| `sheet` (rev 2) | a modal sheet; a sheet among its children presents over it | `open` bool, `title`, `detents` medium·large·full, or a list of them, `edge` bottom·leading | `dismiss` | any |
+| `split` (rev 2) | list/detail: exactly two children; two columns when regular, a list with the detail pushed over it when compact | `prefer` auto·single, `detail` bool (rev 2+), `columns` auto·all·detail (rev 2+) | `close` (rev 2+), `columns` {value} (rev 2+) | exactly 2 |
 | `spacer` | flexible space in a stack | — | — | — |
 | `divider` | a separator line | — | — | — |
 
 - `fragment` is made by the runtime, never written: several top-level elements; no visual of its own (a nav with a sheet laid over it).
 - `screen` `search`: the search query; present (even "") shows the search field.
+- `screen` `refreshing`: a refresh is under way: after `refresh` the app keeps its spinner until the tile sets this false (at most 60 s); without it the spinner ends after a moment.
+- `screen` `scopes`: search scopes under the search field (shown while searching).
+- `screen` `scope`: the selected search scope (a `scopes` value).
+- `screen` `suggestions`: search suggestions under the field while it is focused; choosing one sets the query to its value and submits it.
+- `toolbar` `place`: where its items go: the bar's trailing end (the default), its leading end, or a bottom toolbar.
+- `list` `anchor`: the key of a child (its key=, or its wire key): the view opens at it, and it keeps its place on screen when children are inserted or trimmed around it (a transcript stops following its end meanwhile).
+- `list` `scrollTo`: scroll to a child by key, or to `start`/`end`, whenever the value changes — the first value is where the view starts, not a jump (text after a # is ignored: `end#3` jumps again).
+- `actions` `edge`: the edge its swipe actions come from: trailing (the default) or leading.
+- `actions` `full`: a full swipe runs the first button.
+- `sheet` `detents`: `full` covers the whole screen (no swipe to dismiss: give it a way out).
+- `sheet` `detents="full"` is rev 2+.
 - `sheet` `edge`: where it comes from: bottom (a sheet, the default) or leading (a drawer over the screen — a conversation list).
+- `split` `detail`: compact width: the detail is pushed over the list (Back reports `close`); regular: both show.
+- `split` `columns`: regular width: both columns (auto, all) or the detail alone (the list behind the bar's sidebar button).
 <!-- /generated:prims-structure -->
 
 ### Content
@@ -483,7 +504,7 @@ diagnostic (§Checking it) — the render goes on.
 | `toggle` | an on/off switch | `label`, `value` bool, `disabled` bool | `change` {value} | — |
 | `field` | a text field; app-owned while focused | `label`, `value`, `kind` text·secure·number·email·url·multiline·search·date·time, `placeholder`, `hint`, `error`, `disabled` bool, `submit` | `input` {value}, `change` {value}, `submit` {value} | — |
 | `picker` | one value out of `options` | `label`, `value` string\|number\|bool, `options` [{value, label, icon}], `style` menu·segmented·inline | `change` {value} | — |
-| `menu` | a pull-down; its buttons fire | `label`, `icon` *icon* | — | `button`, `divider` |
+| `menu` (rev 2) | a pull-down; its buttons fire, a menu inside it is a submenu | `label`, `icon` *icon* | — | `button`, `divider`, `menu` (rev 2+) |
 
 - `button` `copy`: copied natively on tap (no round trip).
 - `field` `submit`: the return-key label (go, send, done, search, next).
@@ -547,7 +568,7 @@ The app draws these with the same components as its own agent screen.
 <!-- generated:prims-chat (node hack/native-docs.mjs --write) -->
 | Primitive | What | Props | Events | Children |
 |---|---|---|---|---|
-| `transcript` | a chat transcript (stick to bottom with follow) | `follow` bool, `older` bool | `more`, `scrolled` {atBottom} | `message`, `thinking`, `toolcard`, `approval`, `question`, `plan`, `diff`, `activity`, `step`, `notice`, `text`, `markdown`, `image`, `progress` |
+| `transcript` (rev 2) | a chat transcript (stick to bottom with follow) | `follow` bool, `older` bool, `anchor` (rev 2+), `scrollTo` (rev 2+) | `more`, `scrolled` {atBottom}, `edge` {edge, at} (rev 2+) | `message`, `thinking`, `toolcard`, `approval`, `question`, `plan`, `diff`, `activity`, `step`, `notice`, `text`, `markdown`, `image`, `progress` |
 | `message` | one chat message (a user bubble, assistant text, a system line) | `role` user·assistant·system, `sender`, `text`, `markdown` bool, `streaming` bool, `time` string\|number, `files` [{name, mime, src}], `queued` bool | `tap`, `link` {href} | `actions` |
 | `thinking` | the model's reasoning, folded to "Thought for Ns" | `text`, `live` bool, `seconds` number, `open` bool | `toggle` {open} | — |
 | `toolcard` | a tool call: title, state, chips; its children show when open | `title`, `icon` *icon*, `family`, `state` writing·running·ok·error·canceled, `chips` [{text, tone}], `open` bool | `toggle` {open}, `open` | `code`, `text`, `diff`, `image`, `transcript`, `markdown`, `notice` |
@@ -559,6 +580,8 @@ The app draws these with the same components as its own agent screen.
 | `step` | a glyph and a line of text | `glyph`, `text`, `tone` *tone* | — | — |
 | `composer` | the message composer; attachments are uploaded by the app | `value`, `placeholder`, `busy` bool, `disabled` bool, `attachments` [{id, name, mime, progress}], `accept`, `upload` {method, path}, `slash` [{name, hint, description}] | `input` {value}, `send` {value}, `stop`, `uploaded` {name, response}, `remove` {id} | `button` |
 
+- `transcript` `anchor`: the key of a child (its key=, or its wire key): the view opens at it, and it keeps its place on screen when children are inserted or trimmed around it (a transcript stops following its end meanwhile).
+- `transcript` `scrollTo`: scroll to a child by key, or to `start`/`end`, whenever the value changes — the first value is where the view starts, not a jump (text after a # is ignored: `end#3` jumps again).
 - `message` `tokens` is set by the runtime, never by a tile.
 <!-- /generated:prims-chat -->
 
@@ -600,6 +623,62 @@ The app draws these with the same components as its own agent screen.
 | `canvas` | a WebView island: a tile page (src) or static no-script html | `src`, `html`, `height` *height* | — | — |
 <!-- /generated:prims-escape -->
 
+### Navigation, search and scrolling (rev 2)
+
+Revision 2 of `screen`, `toolbar`, `list`, `actions`, `sheet`, `split`,
+`menu` and `transcript` (D189) is what a list-first app needs. Each item
+below is new in rev 2: an app with rev 1 shows the tile's web page when the
+tree uses it, so branch on `xbin.native.supports('split', 2)` (and so on)
+to keep a rev-1 tree for older apps.
+
+- **A split that collapses.** Give `split` a `detail` (even `false`): on a
+  tablet both columns show; on a phone the list is the root of a stack and
+  the detail is pushed over it while `detail` is true. Back (the button,
+  the edge swipe) reports `close` and the detail is gone at once (`detail`
+  is controlled). `columns="detail"` hides the list on a tablet behind the
+  bar's sidebar button (`all` shows both, `auto` lets the app choose); the
+  user's toggle reports `columns {value}`. A `split` without `detail`
+  stacks its two panes on a phone, as in rev 1.
+
+  ```js
+  html`<split detail=${open != null} @close=${() => { open = null; paint(); }}>
+    <screen title="Tickets" style="list">…rows whose @tap sets open…</screen>
+    <screen title=${ticket.subject}>…</screen>
+  </split>`
+  ```
+- **Toolbars by place.** `toolbar place="leading"` puts its items at the
+  bar's leading end (after Back), `bottom` in a bottom toolbar, `trailing`
+  (the default) where they always were. A screen may have one of each.
+- **Swipes and submenus.** A row may have two `actions`: `edge="leading"`
+  swipes in from the leading edge, `trailing` (the default) from the
+  trailing one; `full` lets a full swipe run its first button. A `menu`
+  inside a `menu` is a submenu.
+- **Refresh that ends when you say.** A screen that binds `refreshing`
+  keeps the pull-to-refresh spinner up after `refresh` until you set it
+  `false` (at most 60 s); set it `true` in the handler and `false` when the
+  reload lands. Without it the spinner ends after a moment, as before.
+- **Search.** The return key reports `submit {value}`; `scopes`
+  (`[{value, label}]`, the selected one in `scope`, reported by `scope
+  {value}`) show under the field while searching; `suggestions`
+  (`[{value, label, icon}]`) list under it while it has focus — choosing
+  one sets the query and submits it.
+- **Sheets.** `detents="full"` covers the whole screen (no swipe to
+  dismiss: give it a Cancel). A `sheet` inside a `sheet` presents over it.
+- **Scrolling long lists and transcripts.** `anchor` names a child by its
+  `key=`: the view opens at it and keeps it in place while children are
+  inserted or trimmed around it (a `follow` transcript stops sticking to
+  its end meanwhile). `scrollTo` jumps to a child, `start` or `end` each
+  time it changes — its first value is where the view starts, not a jump;
+  anything after a `#` only makes a new value, so `end#${n}` jumps again.
+  `edge {edge, at}` reports the start or the end coming into (`at: true`)
+  or out of view — enough for a "↓ 3 new" button:
+
+  ```js
+  html`<transcript follow anchor=${firstUnread} scrollTo=${`end#${jumps}`}
+      @edge=${(e) => { if (e.edge === 'end') { atEnd = e.at; paint(); } }}>…</transcript>
+    ${!atEnd && unseen ? html`<button @tap=${() => { jumps++; paint(); }}>${`${unseen} new`}</button>` : nothing}`
+  ```
+
 ## Tokens
 
 Tiles name roles, never raw values: a `tone`, a type role, a gap, a height.
@@ -624,7 +703,7 @@ renderer.
 | `type` | `largeTitle`, `title`, `title2`, `title3`, `headline`, `body`, `callout`, `subheadline`, `footnote`, `caption`, `caption2`, `mono` | a type role (Dynamic Type text styles on iOS, so text scales with the user's setting) | `text style` |
 | `gap` | `none` 0, `xs` 4, `s` 8, `m` 12, `l` 16, `xl` 24, `xxl` 32 | the space between a stack's children | `stack gap` |
 | `height` | `xs` 48, `s` 96, `m` 160, `l` 240, `xl` 360 | the height of an image, chart or canvas | `image height`, `chart height`, `canvas height` |
-| `icon` | 72 names (Icons below) | a curated icon name; an unknown one draws a neutral placeholder | `row icon`, `tab icon`, `icon name`, `empty icon`, `button icon`, `picker options[].icon`, `menu icon`, `toolcard icon` |
+| `icon` | 72 names (Icons below) | a curated icon name; an unknown one draws a neutral placeholder | `screen suggestions[].icon`, `row icon`, `tab icon`, `icon name`, `empty icon`, `button icon`, `picker options[].icon`, `menu icon`, `toolcard icon` |
 <!-- /generated:tokens -->
 
 `tone` means: `muted` secondary, `accent` the accent (cobalt; periwinkle in dark), `ok` success,
@@ -757,10 +836,12 @@ reason in the tile's report, when:
   pages without an update).
 
 Shipped apps lag behind xbind by months. The vocabulary only grows
-([compat.md](/docs/compat.md)): a new prop raises its primitive's revision,
-a new value that needs app support gets a feature flag. To use something
-new without dropping older apps to the web page, branch on
-`xbin.native.supports(name, rev)`. Keep `index.html` working — it is what
+([compat.md](/docs/compat.md)): a new prop or event raises its primitive's
+revision (as does a new enum value or a newly allowed child, marked *rev
+2+* in the tables), a new value that needs app support may get a feature
+flag. To use something new without dropping older apps to the web page,
+branch on `xbin.native.supports(name, rev)` — `supports('split', 2)` before
+a collapsing split, say. Keep `index.html` working — it is what
 older apps, failures and every browser show — and check both.
 
 **The web page on a phone.** In the app a tile's page is the whole screen,

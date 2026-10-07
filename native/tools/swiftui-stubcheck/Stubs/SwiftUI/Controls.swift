@@ -78,6 +78,17 @@ public struct NavigationPath {}
 public struct NavigationSplitView<Sidebar: View, Content: View, Detail: View>: _Leaf {}
 extension NavigationSplitView where Content == EmptyView {
     public init(@ViewBuilder sidebar: () -> Sidebar, @ViewBuilder detail: () -> Detail) {}
+    public init(columnVisibility: Binding<NavigationSplitViewVisibility>, @ViewBuilder sidebar: () -> Sidebar, @ViewBuilder detail: () -> Detail) {}
+}
+public struct NavigationSplitViewVisibility: Equatable, Codable, Sendable {
+    public static let detailOnly = NavigationSplitViewVisibility(), doubleColumn = NavigationSplitViewVisibility(),
+        all = NavigationSplitViewVisibility(), automatic = NavigationSplitViewVisibility()
+}
+public struct ScrollViewProxy {
+    public func scrollTo<ID: Hashable>(_ id: ID, anchor: UnitPoint? = nil) {}
+}
+public struct ScrollViewReader<Content: View>: _Leaf {
+    public init(@ViewBuilder content: @escaping (ScrollViewProxy) -> Content) {}
 }
 public struct BalancedNavigationSplitViewStyle: Sendable {}
 extension BalancedNavigationSplitViewStyle { public static var balanced: BalancedNavigationSplitViewStyle { .init() } }

@@ -13,7 +13,7 @@
 import { css, live } from '/vendor/lit-all.min.js';
 import { html, nothing, own, P, cls, tone, icon, spinner, str, composing } from '/vendor/xb/render-base.js';
 import { mdBlocks, tokensOf } from '/vendor/xb/render-markdown.js';
-import { folded } from '/vendor/xb/render-structure.js';
+import { folded, edges, scrollAttr, scrollBase } from '/vendor/xb/render-structure.js';
 
 const fmtTime = (t) => {
   if (typeof t === 'number' && Number.isFinite(t)) return new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -31,9 +31,12 @@ function transcript(n, cx) {
     const at = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
     if (at !== (u.atBottom ?? true)) { u.atBottom = at; if (cx.on(n, 'scrolled')) cx.emit(n, 'scrolled', { atBottom: at }); }
   };
-  return html`<xb-transcript data-k=${n.k} class=${cls('transcript', p.follow && 'follow', nested && 'nested', cx.place === 'group' && 'cell')} @scroll=${onScroll}>
+  const [edgeStart, edgeEnd] = edges(n, cx);
+  scrollBase(n, cx);
+  return html`<xb-transcript data-k=${n.k} class=${cls('transcript', p.follow && 'follow', nested && 'nested', cx.place === 'group' && 'cell')} @scroll=${onScroll}
+    data-anchor=${scrollAttr(p.anchor)} data-scroll-to=${scrollAttr(p.scrollTo)}>
     ${p.older && cx.on(n, 'more') ? html`<xb-more class="older" @more=${() => cx.emit(n, 'more', {})}>${spinner()}</xb-more>` : nothing}
-    ${cx.kids(n, 'chat')}
+    ${edgeStart}${cx.kids(n, 'chat')}${edgeEnd}
   </xb-transcript>`;
 }
 
