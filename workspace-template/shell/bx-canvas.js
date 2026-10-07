@@ -40,6 +40,7 @@ import { pushLayout } from './grid-layout.js';
 import { nextZ, raiseTo, frontWindow, onWindowFront, activeWindow } from './zorder.js';
 import { canvasCss, prbCss, partCss, docCss } from './shell-css.js';
 import { docView, docFrame, docDragStart } from './shell-doc.js';
+import { FocusAnchor } from './shell-anchor.js';
 import { partitionView, requestKey, pruneDecisions, pendingText, switchLabel, modeName, modeBody, postMode, errorText,
   switchSpec, switchResolve, staleRefusal, deletesNothing, keptText, switchedText, whoDecides, noteText,
   partitionChip } from './partition-mode.js';
@@ -92,7 +93,11 @@ export class BxCanvas extends LitElement {
     // A frame's build state changed (bx-frame `bx-build`): its live square follows.
     this.addEventListener('bx-build', () => this.requestUpdate());
     this._front = activeWindow();
+    this._anchor = new FocusAnchor(this); // the focused card holds its place in the page (D191)
   }
+  // a card or a Document-mode height handle being dragged (the anchor lets go)
+  get dragging() { return !!(this._drag || this._ddrag || this._dh); }
+  get anchorState() { return this._anchor.state(); }
 
   // Tile deployments (optional): a window whose tile has another deployment
   // the viewer may show, whose primary is pinned, or whose last deploy onto
@@ -567,12 +572,15 @@ export class BxCanvas extends LitElement {
     setTimeout(() => {
       let el = document.activeElement;
       while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
+      // a control in a card's head took the keyboard focus: its window is the active one
+      const own = el?.getRootNode() === this.renderRoot ? el.closest('.gtile > .card, .dcell > .card') : null;
+      if (own) { this._activate(own.dataset.path); return; }
       if (el?.tagName !== 'IFRAME') return;
       const host = el.getRootNode()?.host;
       if (host?.reloading && !host.hovered) return; // a reload's focus grab, not a click
       const win = host?.closest?.('.float');
       if (win) { this._floatFront(win.dataset.path); return; }
-      const card = host?.closest?.('.gtile .card');
+      const card = host?.closest?.('.gtile .card, .dcell .card');
       if (card) this._activate(card.dataset.path);
     }, 0);
   }

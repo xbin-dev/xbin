@@ -846,6 +846,7 @@ PASSES.termTheme = require('./passes/termtheme').termTheme; // D184: an open ter
 PASSES.themeCompat = require('./passes/themecompat').themeCompat; // D184: a tile from before the theme — its own palette carries, its own buttons keep their colours
 PASSES.grantDismiss = require('./passes/grantdismiss').grantDismiss; // D188: dismiss grant requests and interfaces to bind; no "N grants active"
 PASSES.deviceTheme = require('./passes/devicetheme').deviceTheme; // D188: this browser's Light or Dark over the person's theme
+PASSES.focusAnchor = require('./passes/focusanchor').focusAnchor; // D191: the focused tile holds its place — Document mode, the last tile, a phone's canvas
 
 (async () => {
   const args = process.argv.slice(2);
