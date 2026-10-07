@@ -34,6 +34,17 @@ import XbinCore
         #expect(sent.events.map(\.type) == ["close", "columns"])
     }
 
+    /// A value the person set lives on in the store: a second model of the
+    /// same runtime (another screen) starts from it.
+    @Test func aReportedValueReachesTheNextModel() throws {
+        let store = try XbinFixtures.store("split-collapse", in: fixtureSet())
+        let m = XbinTreeModel(store: store) { _ in }
+        let split = try #require(m.root)
+        #expect(m.emit(split.key, "columns", ["value": "all"]))
+        let again = XbinTreeModel(store: store) { _ in }
+        #expect(SplitState(try #require(again.root)).columns == .all)
+    }
+
     @Test func toolbarsGoWhereTheirPlaceSays() throws {
         let (m, _) = try model("search-toolbars")
         let layout = ScreenLayout(try #require(m.root))

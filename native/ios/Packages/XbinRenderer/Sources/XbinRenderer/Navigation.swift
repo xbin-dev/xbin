@@ -105,11 +105,18 @@ private struct ColumnsSplit: View {
     let secondary: XbinNode
     let flags: XbinNavFlags
     @Environment(\.xbin) private var cx
+    @Environment(\.scenePhase) private var phase
+    /// Until when a change to both columns is SwiftUI's own, not the
+    /// person's: as the split appears, and as the app comes back to the
+    /// front, it shows the list again — a link opened from outside brought
+    /// back a list the person had hidden (2026-10-07).
+    @State private var settling = SettleClock()
 
     var body: some View {
         if node.binds("columns") {
             let n = node
             let context = cx
+            let clock = settling
             let visibility = mainBinding(
                 get: { () -> NavigationSplitViewVisibility in
                     switch SplitState(n).columns {
@@ -121,6 +128,10 @@ private struct ColumnsSplit: View {
                 },
                 set: { v in
                     let c: SplitState.Columns = v == .detailOnly ? .detail : .all
+                    if c == .all, SplitState(n).columns == .detail, clock.settling {
+                        navTrace("split \(n.key) keeps the list hidden (SwiftUI showed it as it appeared)")
+                        return
+                    }
                     if c != SplitState(n).columns { context?.emit(n, "columns", ["value": .string(c.rawValue)]) }
                 }
             )
@@ -130,6 +141,8 @@ private struct ColumnsSplit: View {
                 detail
             }
             .navigationSplitViewStyle(.balanced)
+            .onAppear { settling.start() }
+            .onChange(of: phase) { _, p in if p == .active { settling.start() } }
         } else {
             NavigationSplitView {
                 sidebar
@@ -159,6 +172,14 @@ private struct ColumnsSplit: View {
             NodeView(node: secondary).environment(\.xbinNav, flags)
         }
     }
+}
+
+/// A short window after the split appears or the app comes to the front.
+@MainActor
+private final class SettleClock {
+    private var until = Date.distantPast
+    func start() { until = Date().addingTimeInterval(1.5) }
+    var settling: Bool { Date() < until }
 }
 
 /// A `nav` in a split's detail column inside the app's stack: its top

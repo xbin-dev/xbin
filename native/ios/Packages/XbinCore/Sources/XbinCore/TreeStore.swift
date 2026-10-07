@@ -78,6 +78,19 @@ public final class TreeStore {
         .event(key: key, type: type, payload: payload, n: treeSequence, target: target)
     }
 
+    /// The person changed a controlled prop the tile binds (the renderer
+    /// shows it and the runtime's shadow takes it, tree.md §6, so no patch
+    /// follows): the store's copy follows too, quietly. A view built from
+    /// the store later — another screen of the same runtime, as a link
+    /// opened from outside makes one — then starts from what the person
+    /// set, not the value before it (an iPad's hidden list came back,
+    /// 2026-10-07).
+    public func noteReported(_ key: String, _ prop: String, _ value: JSONValue) {
+        _ = tree.withEntry(key) { e in
+            if e.props[prop] != nil { e.props[prop] = value }
+        }
+    }
+
     /// Registers `observer`; it is called after every change until the
     /// returned token is cancelled or released.
     public func observe(_ observer: @escaping (TreeStoreEvent) -> Void) -> TreeStoreObservation {
