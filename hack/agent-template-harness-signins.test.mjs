@@ -288,7 +288,7 @@ test('native: Coding-agent sign-ins — rows, Make default, Rename, Forget; Add 
     { snapshot: 'defaulted' },
     { tap: { t: 'row', p: { title: 'Old' } } }, { wait: 20 },
     { input: [{ t: 'field', p: { label: 'Name' } }, 'Older'] },
-    { tap: { t: 'button', p: { label: 'Rename' } } }, { wait: 50 },
+    { tap: { t: 'button', p: { label: 'Rename' }, in: { t: 'screen', p: { title: 'Old' } } } }, { wait: 50 },
     { snapshot: 'renamed' },
     { tap: { t: 'button', p: { label: 'Forget' }, in: { t: 'screen', p: { title: 'Older' } } } }, { wait: 50 },
     { snapshot: 'forgot' },

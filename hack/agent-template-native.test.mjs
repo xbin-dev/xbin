@@ -38,8 +38,14 @@ function all(root, m, out = [], inside = !m.in) {
 const find = (tree, m) => all(tree.root || tree, m)[0] || null;
 const texts = (tree, t, prop) => all(tree.root || tree, { t }).map((n) => (n.p || {})[prop]);
 const called = (r, method, re) => r.calls.filter((c) => c.method === method && re.test(c.url));
-// the screen on top of the nav (what the person sees)
+// the screen on top of the nav (what the person sees), and the nav's titles
+// (the stack: the conversation list is always its root)
 const topScreen = (tree) => { const nav = find(tree, { t: 'nav' }); return nav.c[nav.c.length - 1]; };
+const titles = (tree) => find(tree, { t: 'nav' }).c.map((s) => s.p.title);
+// the list's New chat (its bar's first button)
+const NEW_CHAT = { t: 'button', p: { label: 'New chat' } };
+// the buttons of the ⋯ menu on the screen on top
+const menuOf = (tree) => all(topScreen(tree), { t: 'button', in: { t: 'menu', p: { icon: 'ellipsis' } } }).map((b) => b.p.label);
 
 const call = (id, name, args) => ({ id, type: 'function', function: { name, arguments: JSON.stringify(args) } });
 const msg = (id, role, content, extra = {}) => ({ id, runId: extra.runId || 1, seq: id, role, content, created: now - 600 + id, ...extra });
@@ -89,31 +95,48 @@ const chatSeed = () => ({
   routes: [['POST', '/runs/1/interrupt$', { ok: 'true', returned: [{ text: 'first' }, { text: 'second' }] }]],
 });
 
-test('home: the greeting, example asks, what needs you, and the composer', async () => {
+test('the list is the root: what needs you first; New chat pushes the greeting, example asks, the pickers and the composer', async () => {
   const seed = { me: ME, runs: [{ id: 2, title: 'which vendor?', status: 'waiting_input' }],
     needs: [{ reason: 'question', run: { id: 2, title: 'which vendor?' } }, { reason: 'failed', run: { id: 3, title: 'nightly digest' } }] };
   const r = await run(seed, [
-    { snapshot: 'home' },
+    { snapshot: 'list' },
+    { tap: NEW_CHAT },
+    { snapshot: 'new' },
     { tap: { t: 'row', p: { title: 'What can you do in this workspace?' } } },
     { snapshot: 'picked' },
-    { tap: { t: 'row', p: { title: 'which vendor?' } } },
+    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
+    { snapshot: 'back' },
+    { tap: { t: 'row', p: { title: 'which vendor?' }, in: { t: 'section', p: { title: 'Needs you' } } } },
+    { snapshot: 'need' },
+    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
   ]);
-  const home = r.snapshots.home;
-  const scr = topScreen(home);
-  assert.equal(scr.p.title, 'Agent');
-  assert.ok(texts(home, 'text', 'text').includes('What do you need?'));
-  const needs = find(home, { t: 'section', p: { title: 'Needs you' } });
+  const list = r.snapshots.list;
+  assert.deepEqual(titles(list), ['Agent'], 'the conversation list is the root');
+  const root = topScreen(list);
+  assert.equal(root.p.search, '', 'with a search field');
+  assert.deepEqual(all(root, { t: 'button', in: { t: 'toolbar' } }).map((b) => b.p.label).slice(0, 1), ['New chat']);
+  const sections = all(root, { t: 'section' }).map((s) => (s.p || {}).title).filter(Boolean);
+  assert.equal(sections[0], 'Needs you', 'what needs you heads the list');
+  const needs = find(list, { t: 'section', p: { title: 'Needs you' } });
   assert.deepEqual(needs.c.map((c) => [c.p.title, c.p.subtitle, c.p.tone]),
     [['which vendor?', 'has a question for you', 'accent'], ['nightly digest', 'failed', 'danger']]);
-  const composer = find(home, { t: 'composer' });
+  assert.equal(find(list, { t: 'composer' }), null, 'no composer on the list: New chat has it');
+  const nw = r.snapshots.new;
+  assert.deepEqual(titles(nw), ['Agent', 'New chat'], 'New chat is pushed');
+  const scr = topScreen(nw);
+  assert.ok(texts(scr, 'text', 'text').includes('What do you need?'));
+  const composer = find(scr, { t: 'composer' });
   assert.equal(composer.p.placeholder, 'ask anything…');
-  assert.match(composer.p.upload.path, /^\/api\/apps\/agent\/ask\/upload\?draft=[\w-]{8,64}&name=\{name\}$/, 'at home the app uploads into the new ask\'s draft');
-  const cls = find(home, { t: 'picker', p: { label: 'Class' } });
+  assert.match(composer.p.upload.path, /^\/api\/apps\/agent\/ask\/upload\?draft=[\w-]{8,64}&name=\{name\}$/, 'a new chat: the app uploads into the new ask\'s draft');
+  const cls = find(scr, { t: 'picker', p: { label: 'Class' } });
   assert.equal(cls.p.value, 'internal', 'the class for new chats, in the toolbar');
   assert.deepEqual(cls.p.options.map((o) => [o.label, o.icon]), [['Internal', 'lock'], ['Web', 'globe'], ['Coding', 'terminal']]);
   assert.equal(find(r.snapshots.picked, { t: 'composer' }).p.value, 'What can you do in this workspace?', 'an example fills the composer');
+  assert.deepEqual(titles(r.snapshots.back), ['Agent'], 'back returns to the list');
   assert.equal(called(r, 'GET', /\/runs\/2\/view\?limit=50$/).length, 1, 'a need opens its conversation, read in pages');
-  assert.equal(topScreen(r.tree).p.title, 'which vendor?');
+  assert.deepEqual(titles(r.snapshots.need), ['Agent', 'which vendor?'], '…pushed over the list');
+  assert.deepEqual(titles(r.tree), ['Agent'], 'back returns to the list');
+  assert.equal(r.messages.filter((m) => m.op === 'state').pop().state.hash, '', 'the list has no address');
 });
 
 test('a conversation: the transcript from the model\'s blocks, a subagent inside its card', async () => {
@@ -152,17 +175,55 @@ test('a conversation: the transcript from the model\'s blocks, a subagent inside
   assert.equal(r.messages.filter((m) => m.op === 'meta').pop().title, 'plan the quarter');
 });
 
-test('a subagent opened full screen: its parent under it, back goes up', async () => {
+test('a deep link builds the stack: #c= is the list and the conversation; back returns to the list', async () => {
+  const r = await run(chatSeed(), [
+    { snapshot: 'open' },
+    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
+    { snapshot: 'list' },
+  ], { state: { hash: 'c=1' } });
+  assert.deepEqual(titles(r.snapshots.open), ['Agent', 'plan the quarter']);
+  assert.deepEqual(titles(r.snapshots.list), ['Agent']);
+  const hashes = r.messages.filter((m) => m.op === 'state').map((m) => m.state.hash);
+  assert.equal(hashes.pop(), '', 'the list has no address');
+  // a subagent's link: its parents under it, once its view says them
+  const r2 = await run(chatSeed(), [{ wait: 30 }, { snapshot: 'child' }, { event: [{ t: 'nav' }, 'pop', { depth: 2 }] }, { wait: 30 }], { state: { hash: 'c=2' } });
+  assert.deepEqual(titles(r2.snapshots.child), ['Agent', 'plan the quarter', 'research']);
+  assert.deepEqual(titles(r2.tree), ['Agent', 'plan the quarter'], 'back goes up the chain');
+  assert.equal(find(topScreen(r2.tree), { t: 'composer' }) != null, true, 'the parent is the open conversation again');
+});
+
+test('a subagent opened full screen: pushed over its parent, back goes up', async () => {
   const r = await run(chatSeed(), [
     { event: [{ t: 'toolcard', p: { title: 'research' } }, 'open', {}] },
     { snapshot: 'child' },
-    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
+    { event: [{ t: 'nav' }, 'pop', { depth: 2 }] },
+    { wait: 30 },
   ], { state: { hash: 'c=1' } });
   const nav = find(r.snapshots.child, { t: 'nav' });
-  assert.deepEqual(nav.c.map((s) => s.p.title), ['plan the quarter', 'research']);
-  assert.match(nav.c[1].p.subtitle, /^in plan the quarter/);
+  assert.deepEqual(titles(r.snapshots.child), ['Agent', 'plan the quarter', 'research']);
+  assert.match(nav.c[2].p.subtitle, /^in plan the quarter/);
+  assert.equal(find(nav.c[1], { t: 'composer' }), null, 'the parent under it is as last seen');
   assert.equal(topScreen(r.tree).p.title, 'plan the quarter');
-  assert.equal(find(r.tree, { t: 'nav' }).c.length, 1);
+  assert.deepEqual(titles(r.tree), ['Agent', 'plan the quarter']);
+  assert.ok(find(topScreen(r.tree), { t: 'composer' }), 'back: the parent is open again');
+  assert.equal(called(r, 'GET', /\/runs\/1\/view\?limit=50$/).length, 2, 'and read again');
+});
+
+test('the stack comes back in a restarted runtime; a list row, a board row and a run push and pop', async () => {
+  // the state a runtime saved: the list, a conversation, its files
+  const r = await run(chatSeed(), [
+    { wait: 30 },
+    { snapshot: 'restored' },
+    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
+    { wait: 30 },
+    { tap: { t: 'row', p: { title: 'plan the quarter' } } },
+    { wait: 30 },
+    { snapshot: 'pushed' },
+  ], { state: { hash: 'c=1', nav: [{ kind: 'chat', run: 1 }, { kind: 'files', run: 1 }] } });
+  assert.deepEqual(titles(r.snapshots.restored), ['Agent', 'plan the quarter', 'Files']);
+  assert.deepEqual(titles(r.snapshots.pushed), ['Agent', 'plan the quarter']);
+  const st = r.messages.filter((m) => m.op === 'state').pop().state;
+  assert.deepEqual(st, { hash: 'c=1', nav: [{ kind: 'chat', run: 1 }] }, 'the stack is saved with the address');
 });
 
 test('streaming: deltas append to the answer being written', async () => {
@@ -210,20 +271,22 @@ test('a new ask with attachments from home: the app uploads into the draft, Send
     views: { 9: { access: 'owner', run: { id: 9, rootId: 9, parentId: 0, title: 'look at this', status: 'running' } } },
     routes: [['POST', '/ask$', { id: 9, title: 'look at this', status: 'running', rootId: 9, parentId: 0 }]] };
   const r = await run(seed, [
+    { tap: NEW_CHAT },
     { snapshot: 'home' },
     { event: [{ t: 'composer' }, 'uploaded', { name: 'shot.png', response: { path: 'shot.png', mime: 'image/png', bytes: 1234, binary: true, run: 41 } }] },
     { event: [{ t: 'composer' }, 'uploaded', { name: 'huge.mov', response: { error: 'file too large (max 16 MiB)' } }] },
     { event: [{ t: 'composer' }, 'uploaded', { name: 'b.txt', response: { path: 'b.txt', mime: 'text/plain', bytes: 3, binary: false, run: 41 } }] },
     { snapshot: 'attached' },
-    { tap: { t: 'row', p: { title: 'which vendor?' } } },
+    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
+    { tap: { t: 'row', p: { title: 'which vendor?' }, in: { t: 'section', p: { title: 'Needs you' } } } },
     { snapshot: 'elsewhere' },
-    { tap: { t: 'button', p: { label: 'New chat' } } },
+    { tap: { t: 'button', p: { label: 'New chat' }, in: { t: 'screen', p: { title: 'which vendor?' } } } },
     { snapshot: 'back' },
     { event: [{ t: 'composer' }, 'remove', { id: '2' }] },
     { event: [{ t: 'composer' }, 'remove', { id: '3' }] },
     { event: [{ t: 'composer' }, 'send', { value: 'look at this' }] },
     { snapshot: 'sent' },
-    { tap: { t: 'button', p: { label: 'New chat' } } },
+    { tap: { t: 'button', p: { label: 'New chat' }, in: { t: 'screen', p: { title: 'look at this' } } } },
     { snapshot: 'again' },
   ]);
   const up = find(r.snapshots.home, { t: 'composer' }).p.upload;
@@ -239,6 +302,8 @@ test('a new ask with attachments from home: the app uploads into the draft, Send
   assert.deepEqual(JSON.parse(asks[0].body), { text: 'look at this', class: 'internal', toolset: 'private', draft: key, files: ['shot.png'] }, 'Send sends the draft with the chips still there');
   assert.equal(called(r, 'PUT', /upload/).length, 0, 'the tile uploads nothing itself: the app did');
   assert.equal(topScreen(r.snapshots.sent).p.title, 'look at this', 'the new conversation opens');
+  assert.deepEqual(titles(r.snapshots.sent), ['Agent', 'which vendor?', 'look at this'], '…in the new chat screen\'s place: back returns where it was started from');
+  assert.deepEqual(titles(r.snapshots.again), ['Agent', 'which vendor?', 'look at this', 'New chat']);
   assert.deepEqual(chips('sent'), []);
   const next = find(r.snapshots.again, { t: 'composer' });
   assert.deepEqual(next.p.attachments, [], 'the sent chips are gone');
@@ -321,9 +386,9 @@ test('a failed run offers Retry, inline and in the menu', async () => {
   assert.ok(find(t, { t: 'button', p: { label: 'Retry' }, in: { t: 'menu' } }), '…and in the menu');
   assert.deepEqual(find(t, { t: 'step' }).p, { glyph: '!', tone: 'danger', text: 'model unreachable' });
   assert.equal(called(r, 'POST', /\/runs\/9\/resume$/).length, 1);
-  const menu = all(t.root, { t: 'button', in: { t: 'menu', p: { icon: 'ellipsis' } } }).map((b) => b.p.label);
+  const menu = menuOf(t);
   assert.deepEqual(menu, ['Retry', 'Rename…', 'Compact', 'Learn skill', 'Memory (0)', 'Files (0)', 'Share', 'Delete']);
-  assert.deepEqual(find(t, { t: 'button', p: { label: 'Delete' } }).p.confirm, { title: 'Delete this run and its history?', label: 'Delete', destructive: true });
+  assert.deepEqual(find(topScreen(t), { t: 'button', p: { label: 'Delete' } }).p.confirm, { title: 'Delete this run and its history?', label: 'Delete', destructive: true });
 });
 
 test('view only: a disabled composer, no uploads, the words say so', async () => {
@@ -335,7 +400,7 @@ test('view only: a disabled composer, no uploads, the words say so', async () =>
   assert.equal(c.p.placeholder, 'view only — shared with you to read');
   assert.equal(c.p.upload, undefined);
   assert.match(topScreen(t).p.subtitle, /view only/);
-  const menu = all(t.root, { t: 'button', in: { t: 'menu', p: { icon: 'ellipsis' } } }).map((b) => b.p.label);
+  const menu = menuOf(t);
   assert.deepEqual(menu, ['Memory (0)', 'Files (0)', 'Shared']);
 });
 
@@ -366,7 +431,7 @@ test('a subagent\'s approval is given from its parent\'s card', async () => {
   assert.deepEqual(JSON.parse(called(r, 'POST', /\/runs\/2\/approve$/)[0].body), { approve: false });
 });
 
-test('the drawer: groups, row actions, search with snippets, scope, a pasted invite link', async () => {
+test('the list: groups, row actions, search with snippets, scope, a pasted invite link', async () => {
   const day = 86400000;
   const seed = { me: ME, runs: [
     { id: 1, title: 'today one', status: 'running', activityMs: NOW - 1000, readMs: 0 },
@@ -374,25 +439,25 @@ test('the drawer: groups, row actions, search with snippets, scope, a pasted inv
     { id: 3, title: 'old one', status: 'error', activityMs: NOW - 40 * day, readMs: NOW },
     { id: 4, title: 'their one', status: 'waiting_input', activityMs: NOW - day, access: 'viewer', mine: true, owner: 'bob', visibility: 'team', readMs: NOW },
   ], routes: [['POST', '/join$', { runId: 4 }]] };
+  const LIST = { t: 'screen', p: { title: 'Agent' } };
   const r = await run(seed, [
-    { tap: { t: 'button', p: { label: 'Conversations' } } },
     { snapshot: 'open' },
     { tap: { t: 'button', p: { label: 'Pin' }, in: { t: 'row', p: { title: 'today one' } } } },
     { snapshot: 'pinned' },
-    { event: [{ t: 'screen', p: { title: 'Conversations' } }, 'search', { value: 'old' }] },
+    { event: [LIST, 'search', { value: 'old' }] },
     { wait: 250 },
     { snapshot: 'searched' },
-    { event: [{ t: 'screen', p: { title: 'Conversations' } }, 'search', { value: '' }] },
+    { event: [LIST, 'search', { value: '' }] },
     { wait: 250 },
-    { event: [{ t: 'picker', in: { t: 'sheet' } }, 'change', { value: 'archived' }] },
+    { event: [{ t: 'picker', in: LIST }, 'change', { value: 'archived' }] },
     { snapshot: 'archived' },
-    { event: [{ t: 'screen', p: { title: 'Conversations' } }, 'search', { value: 'https://x/c/apps/agent/#join=TOK_1' }] },
+    { event: [LIST, 'search', { value: 'https://x/c/apps/agent/#join=TOK_1' }] },
   ]);
   const t = r.snapshots.open;
-  const sheet = find(t, { t: 'sheet' });
-  assert.equal(sheet.p.edge, 'leading', 'a drawer from the leading edge');
+  const sheet = topScreen(t);
+  assert.equal(sheet.p.title, 'Agent', 'the list is the root screen');
   const sections = all(sheet, { t: 'section' }).map((s) => (s.p || {}).title || '');
-  assert.deepEqual(sections, ['', '', 'Pinned', 'Today', 'Yesterday', 'Previous 30 days', 'Older'].filter((x) => x !== 'Previous 30 days'));
+  assert.deepEqual(sections, ['', 'Pinned', 'Today', 'Yesterday', 'Older']);
   const row = (title) => find(sheet, { t: 'row', p: { title } });
   assert.equal(row('today one').p.badge, 'working');
   assert.equal(row('old one').p.badge, 'failed');
@@ -411,7 +476,7 @@ test('the drawer: groups, row actions, search with snippets, scope, a pasted inv
   assert.ok(find(r.snapshots.archived, { t: 'empty', p: { title: 'nothing archived' } }));
   assert.deepEqual(JSON.parse(called(r, 'POST', /\/join$/)[0].body), { token: 'TOK_1' });
   assert.equal(topScreen(r.tree).p.title, 'their one', 'a pasted invite link joins and opens the conversation');
-  assert.equal(find(r.tree, { t: 'sheet' }), null, 'and closes the drawer');
+  assert.deepEqual(titles(r.tree), ['Agent', 'their one'], '…pushed over the list');
 });
 
 test('new chat with options, rename and share sheets', async () => {
@@ -421,15 +486,15 @@ test('new chat with options, rename and share sheets', async () => {
     ['POST', '/runs/1/links$', { id: 4, token: 'TOKEN_9' }],
   ] };
   const r = await run(seed, [
-    { tap: { t: 'button', p: { label: 'Conversations' } } },
-    { tap: { t: 'row', p: { title: 'New chat with options…' } } },
+    { tap: NEW_CHAT },
+    { tap: { t: 'button', p: { label: 'New chat with options…' } } },
     { input: [{ t: 'field', in: { t: 'section', p: { title: 'First message' } } }, 'summarise the week'] },
     { event: [{ t: 'picker', in: { t: 'sheet', p: { title: 'New chat' } } }, 'change', { value: 'web' }] },
     { input: [{ t: 'field', p: { label: 'Title' } }, 'weekly'] },
     { snapshot: 'form' },
     { tap: { t: 'button', p: { label: 'Start' } } },
     { snapshot: 'started' },
-    { tap: { t: 'button', p: { label: 'Conversations' } } },
+    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
     { tap: { t: 'button', p: { label: 'Share…' }, in: { t: 'row', p: { title: 'plan' } } } },
     { snapshot: 'share' },
     { tap: { t: 'button', p: { label: 'Create link' } } },
@@ -439,6 +504,8 @@ test('new chat with options, rename and share sheets', async () => {
   assert.deepEqual(JSON.parse(called(r, 'POST', /\/ask$/)[0].body), { text: 'summarise the week', title: 'weekly', system: '', class: 'web', toolset: 'web' });
   assert.match(find(r.snapshots.form, { t: 'section', p: { title: 'Class' } }).p.footer, /^Searches and reads the web/, 'the class says what it is for');
   assert.equal(find(r.snapshots.started, { t: 'sheet' }), null);
+  assert.equal(titles(r.snapshots.started).length, 2, 'the new chat takes the new chat screen\'s place');
+  assert.notEqual(titles(r.snapshots.started)[1], 'New chat');
   const share = find(r.snapshots.share, { t: 'sheet' });
   assert.equal(share.p.title, 'Share “plan”');
   assert.equal(find(share, { t: 'picker', p: { style: 'inline' } }).p.value, 'private');
@@ -530,6 +597,22 @@ test('automations: the page, one schedule with its runs, the forms (all four kin
   const web = find(ch, { t: 'picker', p: { label: 'Everyone else\'s class' } });
   assert.deepEqual([web.p.value, web.p.options.map((o) => o.value)], ['web', ['web', 'coding']], 'everyone else\'s: web-lane classes only');
   assert.equal(find(ch, { t: 'picker', p: { label: 'Trusted people\'s class' } }), null, 'no trusted class without the private lane');
+
+  // a run is pushed over its automation; back returns to it (D190)
+  const rr = await run(seed, [
+    { tap: { t: 'row', p: { title: 'a digest' }, in: { t: 'section', p: { title: 'Runs' } } } },
+    { wait: 30 },
+    { snapshot: 'run' },
+    { event: [{ t: 'nav' }, 'pop', { depth: 3 }] },
+    { wait: 30 },
+    { snapshot: 'back' },
+  ], { state: { hash: 'auto=schedule:3' } });
+  assert.deepEqual(titles(rr.snapshots.run), ['Agent', 'Automations', 'digest', 'a digest']);
+  assert.ok(find(topScreen(rr.snapshots.run), { t: 'composer' }), 'the run, open');
+  assert.deepEqual(titles(rr.snapshots.back), ['Agent', 'Automations', 'digest'], 'back: the automation, still open');
+  const hashes = rr.messages.filter((m) => m.op === 'state').map((m) => m.state.hash);
+  assert.ok(hashes.includes('c=20'), 'the run\'s address on the way');
+  assert.equal(hashes.pop(), 'auto=schedule:3', 'and the automation\'s again');
 });
 
 test('run tools: memory, files and the editor, skills, the workflow tree, settings', async () => {
@@ -551,7 +634,7 @@ test('run tools: memory, files and the editor, skills, the workflow tree, settin
   const r = await run(seed, [
     { tap: { t: 'button', p: { label: 'Memory (1)' } } },
     { snapshot: 'memory' },
-    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
+    { event: [{ t: 'nav' }, 'pop', { depth: 2 }] },
     { tap: { t: 'button', p: { label: 'Files (1)' } } },
     { snapshot: 'files' },
     { tap: { t: 'row', p: { title: 'report.html' } } },
@@ -560,12 +643,12 @@ test('run tools: memory, files and the editor, skills, the workflow tree, settin
     { snapshot: 'saved' },
     { tap: { t: 'button', p: { label: 'Render' } } },
     { snapshot: 'render' },
-    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
+    { event: [{ t: 'nav' }, 'pop', { depth: 2 }] },
     { tap: { t: 'button', p: { label: 'Workflow tree' } } },
     { snapshot: 'tree' },
+    { event: [{ t: 'nav' }, 'pop', { depth: 2 }] },
+    { snapshot: 'chat' },
     { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
-    { tap: { t: 'button', p: { label: 'Conversations' } } },
-    { tap: { t: 'row', p: { title: 'New chat' } } },
     { tap: { t: 'button', p: { label: 'Settings' } } },
     { snapshot: 'settings' },
     { tap: { t: 'row', p: { title: 'Config' } } },
@@ -594,6 +677,9 @@ test('run tools: memory, files and the editor, skills, the workflow tree, settin
   assert.deepEqual(all(tree, { t: 'row' }).map((x) => x.p.title), ['Σ 1 200↑ 500↓', 'plan the quarter', '· research']);
   assert.equal(find(tree, { t: 'row', p: { title: '· research' } }).p.subtitle, 'waiting on #3');
   assert.equal(find(tree, { t: 'button', p: { label: 'Stop' } }).p.confirm.title, 'Cancel this workflow and every run below it?');
+  assert.deepEqual(titles(r.snapshots.tree), ['Agent', 'plan the quarter', 'plan the quarter'], 'the tree over its conversation');
+  assert.deepEqual(titles(r.snapshots.chat), ['Agent', 'plan the quarter'], 'back to the conversation');
+  assert.deepEqual(titles(r.snapshots.settings), ['Agent', 'Settings'], 'settings from the list\'s menu, over the list');
   const set = topScreen(r.snapshots.settings);
   assert.deepEqual(all(set, { t: 'row' }).map((x) => x.p.title), ['Config', 'Features', 'Classes', 'Coding agents', 'Skills', 'MCP servers']);
   const cfg = topScreen(r.snapshots.config);
@@ -607,38 +693,37 @@ test('a render that arrives while you look opens the preview; one you closed sta
     { routes: [['GET', '/runs/9/file\\?path=r.html$', { path: 'r.html', content: '<p>hi</p>', version: 1 }]] });
   const r = await run(seed, [
     { snapshot: 'opened' },
-    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
+    { event: [{ t: 'nav' }, 'pop', { depth: 2 }] },
     { call: ['push', { type: 'step', run: 9, root: 9, data: { id: 6, seq: 6, kind: 'note', detail: '{"text":"n"}', created: now } }] },
     { snapshot: 'closed' },
   ], { state: { hash: 'c=9' } });
-  assert.equal(topScreen(r.snapshots.opened).p.title, 'r.html');
+  assert.deepEqual(titles(r.snapshots.opened), ['Agent', 'report', 'r.html']);
   assert.ok(find(r.snapshots.opened, { t: 'canvas' }).p.html.includes('<p>hi</p>'));
   assert.equal(topScreen(r.snapshots.closed).p.title, 'report');
 });
 
-test('deep links: #join= joins, the list pages, the drawer holds settings and the brake', async () => {
+test('deep links: #join= joins, the list pages, its menu holds settings and the brake', async () => {
   const runs = Array.from({ length: 3 }, (_, i) => ({ id: i + 1, title: 'conv ' + (i + 1), status: i ? 'idle' : 'running', activityMs: NOW - i * 1000 }));
   const conv = (r) => ({ access: 'owner', mine: true, origin: 'chat', ...r });
   const r = await run({ me: ME, runs, routes: [['POST', '/join$', { runId: 2 }],
     ['GET', '/conversations\\?scope=mine$', { pinned: [], items: runs.slice(0, 2).map(conv), next: 'c2' }],
     ['GET', '/conversations\\?scope=mine&cursor=c2$', { pinned: [], items: runs.slice(2).map(conv), next: '' }]] }, [
     { snapshot: 'joined' },
-    { tap: { t: 'button', p: { label: 'Conversations' } } },
-    { event: [{ t: 'list', in: { t: 'sheet' } }, 'more', {}] },
-    { snapshot: 'drawer' },
+    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
+    { event: [{ t: 'list' }, 'more', {}] },
+    { snapshot: 'list' },
     { tap: { t: 'button', p: { label: 'Halt every run' } } },
     { snapshot: 'halted' },
   ], { state: { hash: 'join=TOK_7' } });
   assert.deepEqual(JSON.parse(called(r, 'POST', /\/join$/)[0].body), { token: 'TOK_7' });
   assert.equal(topScreen(r.snapshots.joined).p.title, 'conv 2');
-  const drawer = find(r.snapshots.drawer, { t: 'sheet' });
-  assert.deepEqual(all(drawer, { t: 'row', has: 'conv ' }).map((x) => x.p.title), ['conv 1', 'conv 2', 'conv 3'], '"more" reads the next page');
-  const menu = all(drawer, { t: 'button', in: { t: 'menu' } }).map((b) => b.p.label);
-  assert.deepEqual(menu, ['Automations', 'Settings', 'Halt every run'], 'the brake shows while something runs');
-  assert.equal(find(drawer, { t: 'button', p: { label: 'Halt every run' } }).p.confirm.destructive, true);
+  assert.deepEqual(titles(r.snapshots.joined), ['Agent', 'conv 2'], 'the list under it');
+  const list = topScreen(r.snapshots.list);
+  assert.deepEqual(all(list, { t: 'row', has: 'conv ' }).map((x) => x.p.title), ['conv 1', 'conv 2', 'conv 3'], '"more" reads the next page');
+  assert.deepEqual(menuOf(r.snapshots.list), ['Automations', 'Projects', 'Settings', 'Halt every run'], 'the brake shows while something runs');
+  assert.equal(find(list, { t: 'button', p: { label: 'Halt every run' } }).p.confirm.destructive, true);
   assert.deepEqual(JSON.parse(called(r, 'PUT', /\/halt$/)[0].body), { on: true });
-  assert.ok(find(r.snapshots.halted, { t: 'notice', p: { title: 'Halted' } }), 'halted: the screen says so');
-  assert.equal(find(r.snapshots.halted, { t: 'sheet' }), null, 'the drawer closed first');
+  assert.ok(find(topScreen(r.snapshots.halted), { t: 'notice', p: { title: 'Halted' } }), 'halted: the list says so');
 });
 
 test('live updates lost: the chat says it is reconnecting', async () => {
@@ -804,6 +889,7 @@ test('coding sandboxes (D115): no picker without the toolset; the Sandboxes scre
     routes: [['POST', '/ask$', { id: 9, title: 'build it', status: 'running', rootId: 9, parentId: 0 }]] };
   const row = (name) => ({ t: 'row', p: { title: name }, in: { t: 'screen', p: { title: 'Sandboxes' } } });
   const r = await run(seed, [
+    { tap: NEW_CHAT },
     { snapshot: 'home' },
     { event: [{ t: 'picker', p: { label: 'Class' } }, 'change', { value: 'coding' }] },
     { wait: 50 },

@@ -521,7 +521,7 @@ test('native: a harness conversation — its cards, a seam\'s block, end, toolba
   assert.match(texts(t), /probe end: ready/);
   assert.ok(all(t, { t: 'button', has: 'probe toolbar' }).length, 'the toolbar hook');
   assert.ok(all(t, { t: 'button', has: 'probe menu #21' }).length, 'the menu hook');
-  assert.match(all(t, { t: 'screen' })[0].p.subtitle, /^probe subtitle · CC ready · shared · plan 3\/3 · ctx 26% · idle · /, 'the subtitle hooks (in the order they registered), after the chain, before the status');
+  assert.match(all(t, { t: 'screen' })[1].p.subtitle, /^probe subtitle · CC ready · shared · plan 3\/3 · ctx 26% · idle · /, 'the subtitle hooks (in the order they registered), after the chain, before the status');
   const composer = all(t, { t: 'composer' })[0];
   assert.equal(composer.p.placeholder, 'message Claude Code…', 'the last placeholder given (U4\'s, registered after the probe)');
   assert.deepEqual(composer.p.slash[0], { name: 'probe', description: 'a probe command' }, 'slash commands add up');
@@ -558,15 +558,17 @@ test('native: a harness park of a kind no module answers falls back to the built
   assert.doesNotMatch(all(plain.snapshots.p.root, { t: 'approval' })[0].p.text || '', /acp:execute/, '…nor the built-in approval');
 });
 
-test('native: the home toolbar, a pushed screen and the new-chat sheet through the seams', async () => {
+test('native: the new chat screen\'s toolbar, the list\'s menu, a pushed screen and the new-chat sheet through the seams', async () => {
   const r = await runNativeSeed([
+    { snapshot: 'list' },
+    { tap: { t: 'button', p: { label: 'New chat' } } }, { wait: 20 },
     { snapshot: 'home' },
     { call: ['probeScreen'] }, { snapshot: 'screen' },
     { call: ['newChat', 'hello'] }, { snapshot: 'sheet' },
     { tap: { t: 'button', p: { label: 'Start' } } }, { wait: 50 },
   ]);
   assert.ok(all(r.snapshots.home.root, { t: 'button', has: 'probe home toolbar' }).length);
-  assert.ok(all(r.snapshots.home.root, { t: 'menu', has: '"label":"More"' }).some((m) => JSON.stringify(m).includes('probe main')), 'the main hook: home\'s ⋯');
+  assert.ok(all(r.snapshots.list.root, { t: 'menu', has: '"label":"More"' }).some((m) => JSON.stringify(m).includes('probe main')), 'the main hook: the list\'s ⋯');
   assert.ok(all(r.snapshots.screen.root, { t: 'screen', has: 'probe screen' }).length);
   assert.ok(all(r.snapshots.sheet.root, { t: 'section', has: 'probe section' }).length);
   const ask = r.calls.find((c) => c.method === 'POST' && /\/ask$/.test(c.url));
@@ -612,7 +614,7 @@ test('native: a login park says sign in (composer, activity); a view-only reader
   assert.equal(act.p.text, 'Codex needs you to sign in');
   assert.ok(!act.p.live, 'no spinner: it waits on you');
   assert.ok(all(all(t, { t: 'composer' })[0], { t: 'button', has: '"label":"Sign in"' }).length, 'the composer\'s Sign in');
-  const more = all(t, { t: 'menu', has: '"label":"More"' })[0];
+  const more = all(t, { t: 'menu', has: '"label":"More"' }).pop(); // the conversation's (the list's is under it)
   assert.ok(all(more, { t: 'button', has: 'Sign in…' }).length);
   for (const x of ['Memory', 'Compact', 'Learn skill']) assert.equal(all(more, { t: 'button', has: x }).length, 0, `no ${x} for a coding agent`);
   const seed = harnessSeed();
@@ -620,6 +622,6 @@ test('native: a login park says sign in (composer, activity); a view-only reader
   const ro = (await runNativeSeed([{ snapshot: 'p' }], 'c=24', 'test/native-stub.mjs', seed)).snapshots.p.root;
   assert.match(all(ro, { t: 'notice', has: 'Sign in to Codex' })[0].p.text, /is waiting for a sign-in .* You may only read this conversation/);
   assert.equal(all(all(ro, { t: 'composer' })[0], { t: 'button' }).length, 0, 'no Sign in');
-  const roMore = all(ro, { t: 'menu', has: '"label":"More"' })[0];
+  const roMore = all(ro, { t: 'menu', has: '"label":"More"' }).pop();
   assert.equal(all(roMore, { t: 'button', has: 'Sign in…' }).length + all(roMore, { t: 'button', has: '"label":"Terminal"' }).length, 0, 'no Sign in…, no Terminal (the run\'s relay is a participant\'s)');
 });

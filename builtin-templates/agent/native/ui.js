@@ -1,7 +1,7 @@
 // native/ui.js — what the native view keeps of its own (the model keeps the
 // rest, model/app.js): the composer's text, which sheets are open, the
-// screens pushed over the conversation (memory, files, skills, the workflow
-// tree, settings, the render preview), and the last error — plus the small
+// navigation stack over the conversation list (conversations, pages and the
+// tools pushed over them: native/nav.js), and the last error — plus the small
 // helpers every native screen uses. No lit, no DOM: native.js draws with
 // /vendor/xb-native.js, and node tests run it against a stubbed backend.
 import { homeOf } from '../model/homes.js';
@@ -11,14 +11,12 @@ import { ACP_NATIVE_ICON } from '../model/harness-heads.js';
 // The state that is the view's, not the model's.
 export const ui = {
   draft: '',        // the composer's text (a controlled prop: the app reports each keystroke)
-  drawer: false,    // the conversations drawer is open
-  q: '',            // the drawer's search field
+  q: '',            // the conversation list's search field
   newChat: null,    // the "new chat with options" sheet: {text, title, system, class}
   rename: null,     // the rename sheet: {id, title}
   share: null,      // the share sheet: {run: {id, title}, data, link, err, user, role, linkRole, linkExp}
   sbxAsk: null,     // the Sandbox picker's confirmation sheet: {ref, name, text} (native/sandboxes.js)
-  stack: [],        // screens pushed over the conversation or home: {kind, …} (native/tools.js)
-  opening: null,    // a subagent being opened full screen (its view is loading)
+  stack: [],        // the navigation stack over the conversation list: route entries {kind, …} (native/nav.js)
   win: null,        // the open conversation's window of blocks (native/chat.js): {run, fromKey, atBottom, start, n}
   err: '',          // the last failure, said at the top of the screen on top
 };

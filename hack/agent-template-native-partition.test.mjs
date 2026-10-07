@@ -37,7 +37,6 @@ const topScreen = (tree) => { const nav = find(tree, { t: 'nav' }); return nav.c
 test('MCP servers: a partitioned instance lists the static ones and marks one with headers as shared-only; unpartitioned, as ever', async () => {
   const mcp = [{ name: 'gh', url: 'https://mcp.example/gh', headers: { Authorization: 'Bearer secret-token' } }, { name: 'docs', url: 'https://mcp.example/docs' }];
   const steps = [
-    { tap: { t: 'button', p: { label: 'Conversations' } } },
     { tap: { t: 'button', p: { label: 'Settings' } } },
     { tap: { t: 'row', p: { title: 'MCP servers' } } },
     { snapshot: 'mcp' },

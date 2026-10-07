@@ -15,6 +15,7 @@ import { argsShown } from '../model/tool-heads.js';
 import { MAX_ATTACH, fmtBytes } from '../model/actions.js';
 import { sandboxPickerTpl, badgeWords, brokenTpl, sandboxMenuTpl } from './sandboxes.js';
 import { openRender, openLive } from './tools.js';
+import { newChat, openAutos } from './nav.js';
 import { hostedNoticeTpl, hostedComposer, hostedButtonsTpl } from './hosted.js'; // a non-secure conversation's warning and lock
 import { steerWords } from '../model/harness-ask.js'; // a coding harness's queued chips
 import { activityStill } from '../model/harness.js'; // …and its activity line
@@ -180,9 +181,9 @@ function agentTpl(b, depth) {
   </toolcard>`;
 }
 
-// openChild pushes a subagent's session full screen (the web's "open ↗").
+// openChild pushes a subagent's session full screen (the web's "open ↗"):
+// over its parent's, so back returns to it (native/nav.js).
 export function openChild(id) {
-  ui.opening = id;
   ctx.app.select(id);
 }
 
@@ -230,27 +231,24 @@ export function approvalTpl(calls, runId, lead = 'The agent wants to run', grant
 
 // --- the conversation screen ------------------------------------------------------------
 
-// chatScreens: the open conversation — a subagent's parents first (the
-// breadcrumbs: back goes up the chain), then the run itself.
-export function chatScreens() {
+// chatRouteScreen: a conversation's entry of the stack (native/nav.js
+// {kind: 'chat', run}) — the open one in full; one under it (a subagent's
+// parent, a conversation another was opened from) as last seen, read again
+// when back makes it the open one.
+export function chatRouteScreen(s) {
   const app = ctx.app;
-  const v = app.session.current();
-  if (!v) {
-    // loading: a subagent opened from its card keeps the screens under it
-    const under = ui.opening === app.sel && chatScreens.last ? chatScreens.last.filter((s) => s.key !== 'chat:' + app.sel) : [];
-    return [...under, { key: 'chat:' + app.sel, tpl: () => loadingScreen() }];
+  if (app.sel === s.run) {
+    const v = app.session.current();
+    return v ? chatScreen(v) : loadingScreen(s);
   }
-  if (ui.opening === app.sel) ui.opening = null;
-  const chain = (v.chain || []).map((c) => ({ key: 'chat:' + c.id, tpl: () => parentScreen(c), back: () => app.select(c.id) }));
-  const out = [...chain, { key: 'chat:' + v.run.id, tpl: () => chatScreen(v), back: () => { if (app.sel !== v.run.id) app.select(v.run.id); } }];
-  chatScreens.last = out;
-  return out;
+  const v = app.session.merged(s.run);
+  return v ? parentScreen({ id: s.run, title: v.run.title || s.title }) : loadingScreen(s);
 }
 
-const loadingScreen = () => html`<screen title="loading…" style="scroll"><progress label="loading…"/></screen>`;
+const loadingScreen = (s) => html`<screen title=${s.title || (ctx.app.convs.find(s.run) || {}).title || 'loading…'} style="scroll"><progress label="loading…"/></screen>`;
 
-// A parent under a subagent: the end of its transcript as last seen (back
-// re-reads it) — drawn again only when its blocks changed.
+// A conversation under the open one: the end of its transcript as last seen
+// (back re-reads it) — drawn again only when its blocks changed.
 const parentMemo = new Map(); // run id → {blocks, title, tpl}
 function parentScreen(c) {
   const blocks = ctx.app.session.blocks(c.id);
@@ -352,8 +350,7 @@ export function chatScreen(v) {
     t.share.tone ? t.share.label : '', t.model || '', ...t.grants.map((g) => g.label)].filter(Boolean).join(' · ');
   return html`<screen title=${t.title} subtitle=${subtitle} style="scroll">
     <toolbar>
-      <button icon="list" @tap=${() => { ui.drawer = true; ctx.paint(); }}>Conversations</button>
-      <button icon="pencil" @tap=${() => app.home()}>New chat</button>
+      <button icon="pencil" @tap=${newChat}>New chat</button>
       ${modelPickerTpl(v)}
       ${sandboxPickerTpl()}
       ${ctx.ext.toolbar(v) || nothing}
@@ -405,7 +402,7 @@ function runMenu(v, t) {
     ${t.tree ? html`<button icon="branch" @tap=${() => push({ kind: 'tree', root: v.run.rootId || id })}>Workflow tree</button>` : nothing}
     ${t.sharing ? html`<button icon="people" @tap=${() => { ui.share = { run: t.shareRun }; ctx.paint(); }}>${t.own ? 'Share' : 'Shared'}</button>` : nothing}
     ${t.grants.filter((g) => g.revoke).map((g) => html`<button icon="lock" @tap=${guard(() => app.session.revokeGrant(g.run, g.cap))}>${`Revoke: ${g.label}`}</button>`)}
-    ${t.crumb ? html`<button icon="clock" @tap=${() => app.openAutomations(t.crumb.kind, t.crumb.id)}>Its automation</button>` : nothing}
+    ${t.crumb ? html`<button icon="clock" @tap=${() => openAutos(t.crumb.kind, t.crumb.id)}>Its automation</button>` : nothing}
     ${ctx.ext.menu(v, t) || nothing}
     ${t.del ? html`<divider/><button icon="trash" role="destructive"
       confirm=${{ title: 'Delete this run and its history?', label: 'Delete', destructive: true }}
