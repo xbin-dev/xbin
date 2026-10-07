@@ -636,7 +636,7 @@ to keep a rev-1 tree for older apps.
   the detail is pushed over it while `detail` is true. Back (the button,
   the edge swipe) reports `close` and the detail is gone at once (`detail`
   is controlled). `columns="detail"` hides the list on a tablet behind the
-  bar's sidebar button (`all` shows both, `auto` lets the app choose); the
+  bar's sidebar button (`all` and `auto`, the default, show both); the
   user's toggle reports `columns {value}`. A `split` without `detail`
   stacks its two panes on a phone, as in rev 1.
 

@@ -103,9 +103,16 @@ final class NativeTileRuntime: NSObject {
         }
         lifecycle.start(at: Date())
         webView.load(URLRequest(url: url))
+        armTimeout()
+    }
+
+    /// Falls back to the web page when the lifecycle's deadline passes —
+    /// re-armed when the document loads, which moves the deadline.
+    private func armTimeout() {
         timeout?.cancel()
+        guard let deadline = lifecycle.deadline else { return }
         timeout = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(NativeTileLifecycle.mountTimeout))
+            try? await Task.sleep(for: .seconds(max(0, deadline.timeIntervalSinceNow)))
             guard let self, !Task.isCancelled else { return }
             if self.lifecycle.check(at: Date()) { self.fallBack() }
         }
@@ -167,6 +174,9 @@ final class NativeTileRuntime: NSObject {
     /// waits for the runtime.
     func navigate(_ fragment: String) {
         guard !stopped else { return }
+        #if DEBUG
+        NSLog("xbin-nav runtime %@ navigate %@ live %@", tile.path, fragment, String(lifecycle.phase == .live))
+        #endif
         if lifecycle.phase == .live { call(.navigate(fragment)) } else { pendingNavigate = fragment }
     }
 
@@ -376,6 +386,11 @@ extension NativeTileRuntime: WKNavigationDelegate, WKScriptMessageHandler {
         reply(id, DialogSpec.result(button: button, values: values))
     }
 
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        lifecycle.loaded(at: Date())
+        armTimeout()
+    }
+
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
         fail(.loadFailed(error.localizedDescription))
     }
@@ -420,6 +435,9 @@ struct NativeTileScreen: View {
     @State private var runtime: NativeTileRuntime?
     /// This screen's claim on the runtime (the pool pins it while held).
     @State private var claim: UUID?
+    /// The deep link already handed to the runtime (D189): coming back from
+    /// a page the tile pushed onto this stack doesn't open it again.
+    @State private var handledFragment: String?
 
     var body: some View {
         ZStack {
@@ -463,15 +481,20 @@ struct NativeTileScreen: View {
             }
             if let id = claim { pool.close(workspace, tile.path, screen: id) }
             let id = UUID()
-            let rt = pool.open(workspace, tile, screen: id, fragment: fragment, fallBack: fallBack)
+            let link = NativeHostedStack.fragment(fragment, handled: handledFragment)
+            handledFragment = fragment
+            let rt = pool.open(workspace, tile, screen: id, fragment: link, fallBack: fallBack)
             rt.hatches.nav = nav // canvas islands push onto this window (Navigation.swift)
             claim = id
             runtime = rt
         }
         .onDisappear {
-            // Covered by a window this tile pushed (an island's
-            // xbin.window): it shows again on the pop, islands and all —
-            // keep the claim. Gone: let the pool have it.
+            // Covered by a page its own tree pushed onto this stack (a
+            // split's detail, D189): the window still shows this tile — it
+            // stays live and visible. Covered by a window this tile pushed
+            // (an island's xbin.window): it shows again on the pop, islands
+            // and all — keep the claim. Gone: let the pool have it.
+            if case .tile(let path, _, _)? = nav.surface, path == tile.path, !nav.stillStacked(window: nil) { return }
             if nav.stillStacked(window: nil) {
                 runtime?.setVisible(false)
             } else if let id = claim {
@@ -480,7 +503,10 @@ struct NativeTileScreen: View {
             }
         }
         // Another deep link to the open tile (D189).
-        .onChange(of: fragment) { _, f in if let f { runtime?.navigate(f) } }
+        .onChange(of: fragment) { _, f in
+            if let link = NativeHostedStack.fragment(f, handled: handledFragment) { runtime?.navigate(link) }
+            handledFragment = f
+        }
         // Live reload (§7.7): the tile's source changed — remount.
         .task(id: tile.path) { await workspace.events.onReload(of: tile.path) { runtime?.reload() } }
         .sheet(item: Binding(get: { runtime?.tileDialog }, set: { if $0 == nil, let d = runtime?.tileDialog { runtime?.resolveDialog(d.id, button: nil, values: [:]) } })) { d in

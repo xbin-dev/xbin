@@ -40,7 +40,7 @@ extension View {
     public func minimumScaleFactor(_ factor: CGFloat) -> some View { _V(self) }
     public func statusBarHidden(_ hidden: Bool = true) -> some View { _V(self) }
     public func persistentSystemOverlays(_ visibility: Visibility) -> some View { _V(self) }
-    public func toolbar(_ visibility: Visibility, for bars: ToolbarPlacement...) -> some View { _V(self) }
+    // toolbar(_:for:) and ToolbarPlacement: in the renderer's stubs since D189
     public func alert<A: View, M: View>(_ titleKey: LocalizedStringKey, isPresented: Binding<Bool>, @ViewBuilder actions: () -> A, @ViewBuilder message: () -> M) -> some View { _V(self) }
     public func alert<A: View>(_ titleKey: LocalizedStringKey, isPresented: Binding<Bool>, @ViewBuilder actions: () -> A) -> some View { _V(self) }
     public func confirmationDialog<A: View, M: View>(_ titleKey: LocalizedStringKey, isPresented: Binding<Bool>, titleVisibility: Visibility = .automatic, @ViewBuilder actions: () -> A, @ViewBuilder message: () -> M) -> some View { _V(self) }
@@ -49,7 +49,6 @@ extension View {
     public func onDisappear(perform action: (() -> Void)? = nil) -> some View { _V(self) }
     public func foregroundStyle<S1: ShapeStyle, S2: ShapeStyle>(_ primary: S1, _ secondary: S2) -> some View { _V(self) }
 }
-public struct ToolbarPlacement: Sendable { public static let navigationBar = ToolbarPlacement(), tabBar = ToolbarPlacement() }
 extension ToolbarItemGroup {}
 
 public struct GridItem: Sendable {

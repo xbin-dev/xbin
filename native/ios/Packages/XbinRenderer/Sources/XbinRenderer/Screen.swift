@@ -39,7 +39,10 @@ private struct ScreenContent: View {
             .navigationTitle(p.string("title") ?? "")
             .navigationSubtitle(p.string("subtitle") ?? "")
             .navigationBarTitleDisplayMode(large ? .large : .inline)
-            .toolbar { ScreenToolbar(toolbar: layout.toolbar, leading: layout.leadingToolbar, bottom: layout.bottomToolbar) }
+            .toolbar {
+                ScreenToolbar(toolbar: layout.toolbar, leading: layout.leadingToolbar,
+                              bottom: nav.covered ? nil : layout.bottomToolbar, search: node.value("search") != nil)
+            }
             .modifier(RefreshModifier(node: node))
             .modifier(SearchModifier(node: node))
             .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -114,6 +117,9 @@ struct ScreenToolbar: ToolbarContent {
     var leading: XbinNode?
     /// `place="bottom"` (rev 2): a bottom toolbar, its items spread out.
     var bottom: XbinNode?
+    /// The screen searches: on iOS 26+ the search field lives in the bottom
+    /// bar, so a bottom toolbar keeps a place for it (else it is pushed out).
+    var search = false
 
     var body: some ToolbarContent {
         if let leading, !leading.children.isEmpty {
@@ -129,6 +135,10 @@ struct ScreenToolbar: ToolbarContent {
                     NodeView(node: item).fixedSize()
                 }
                 .environment(\.xbinPlacement, .toolbar)
+            }
+            if search {
+                ToolbarSpacer(.fixed, placement: .bottomBar)
+                DefaultToolbarItem(kind: .search, placement: .bottomBar)
             }
         }
         let groups = ToolbarGroups(toolbar)

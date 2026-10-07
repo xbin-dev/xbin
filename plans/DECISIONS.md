@@ -11682,11 +11682,21 @@ Deviations and refinements made while implementing; all deliberate:
     fires nothing itself) and dispatches one `hashchange` — also for the
     same hash. A link before the first tree waits for it. No caps flag: an
     older app simply opens the view at its root.
-  - **Nested stacks.** A tile's own stack inside the app's panel stack
-    (`nav`, and now a collapsed `split`) owns Back while it can pop: the
-    panel's edge pan already yields to a UINavigationController under the
-    finger that has more than one view controller (PanelStack,
-    `innerStackCanPop`); checked on the simulator by XbinNavigationTests.
+  - **Nested stacks.** A tile's own stack inside the app's panel stack owns
+    Back while it can pop: the panel's edge pan yields to a
+    UINavigationController under the finger that has more than one view
+    controller (PanelStack, `innerStackCanPop`). A rev-1 `nav` keeps its own
+    NavigationStack inside the panel's, and push/Back/push/Back work on the
+    device (XbinNavigationTests test02). A collapsed `split` in the app
+    pushes its detail onto the panel's own stack
+    (`navigationDestination(isPresented:)`, `XbinRenderOptions.hostNavigation`)
+    instead: one bar, the system's Back. Two app bugs this found, both
+    fixed: the tile's screen disappearing under a page its own tree pushed
+    was taken for the tile closing (its runtime unpinned, hatches stopped),
+    and reappearing re-opened the screen's deep link — so Back from the
+    deep-linked detail came straight back to it. Now a disappear while the
+    window's surface is still this tile keeps everything live, and a
+    screen hands its fragment to the runtime once (`NativeHostedStack`).
   - **Verified:** see the commit messages of the native-rev2 branch.
 
 - **D190 — The agent's native view: list-first, a navigation stack

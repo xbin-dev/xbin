@@ -208,6 +208,9 @@ struct XbinNavFlags: Sendable, Equatable {
     var pushed = false
     var inSheet = false
     var drawersHosted = false
+    /// Another screen is pushed over this one: its bottom toolbar stays
+    /// down (iOS kept a covered screen's bottom bar up over the pushed one).
+    var covered = false
 }
 
 private struct ContextKey: EnvironmentKey {

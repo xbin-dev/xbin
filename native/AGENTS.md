@@ -311,7 +311,9 @@ What the packages and tests must do for CI:
   strips the prefix), named `<fixture>-<light|dark>-<default|large|ax2>.png`:
   `default`, `large` (xxxLarge — what `shots.mjs` draws as large, so the two
   compare like for like) and `ax2` (accessibility2, iOS only: the overflow
-  test). `FIXTURES_DIR` is the absolute path of `native/fixtures`. When
+  test). A fixture with a `split` is also drawn as an iPad shows it,
+  1180×820 points at a regular width, as `<fixture>-<light|dark>-ipad.png`
+  (D189). `FIXTURES_DIR` is the absolute path of `native/fixtures`. When
   `SNAPSHOT_DIR` is unset (Xcode locally) tests skip writing rather than
   fail. Images a test only *attaches* to the result are exported into
   `snapshots/attachments/` as a fallback.
@@ -1014,6 +1016,12 @@ Sharing the Mac (learned 2026-09-26, several agents at once):
   crashed"`). Not your app's pid: not your bug — run again. (2026-09-27:
   Xbins with pids 4638, 7163 and 7305, none of them the run's own app,
   failed test04 and test05 this way.)
+- **A link into the running app**: `XCUIApplication.open(url)` relaunches
+  the app (a cold start with the link); `XCUIDevice.shared.system.open(url)`
+  hands it to the running app as a notification's tap does
+  (XbinNavigationTests `openInRunningApp`). The app's Debug builds log
+  navigation as `xbin-nav …` (NSLog): `xcrun simctl spawn <udid> log show
+  --last 20m --style compact --predicate 'eventMessage CONTAINS "xbin-nav"'`.
 - **`--keep` and a second run**: point the second at the kept xbind with
   `XBIN_E2E_URL`/`_USER`/`_PASSWORD` from `$XBIN_E2E_DIR/env` and hold the
   tunnel yourself. Under an ssh ControlMaster `mac-remote.sh tunnel`

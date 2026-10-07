@@ -1,0 +1,4 @@
+{
+  // A static tile with a rev-1 `nav` native view for the UI tests
+  // (XbinNavigationTests): push a runbook, Back returns to the list.
+}

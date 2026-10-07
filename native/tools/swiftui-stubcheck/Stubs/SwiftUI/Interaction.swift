@@ -89,6 +89,14 @@ public struct SpacerSizing: Sendable { public static let fixed = SpacerSizing(),
 public struct ToolbarSpacer: _ToolbarLeaf {
     public init(_ sizing: SpacerSizing = .flexible, placement: ToolbarItemPlacement = .automatic) {}
 }
+public struct ToolbarDefaultItemKind: Sendable { public static let search = ToolbarDefaultItemKind(), sidebarToggle = ToolbarDefaultItemKind() }
+public struct DefaultToolbarItem: _ToolbarLeaf {
+    public init(kind: ToolbarDefaultItemKind, placement: ToolbarItemPlacement = .automatic) {}
+}
+public struct ToolbarPlacement: Sendable { public static let bottomBar = ToolbarPlacement(), navigationBar = ToolbarPlacement(), tabBar = ToolbarPlacement() }
+extension View {
+    public func toolbar(_ visibility: Visibility, for bars: ToolbarPlacement...) -> some View { _V(self) }
+}
 extension Optional: ToolbarContent where Wrapped: ToolbarContent {
     public typealias Body = Never
     @_disfavoredOverload public var body: Never { fatalError() }
