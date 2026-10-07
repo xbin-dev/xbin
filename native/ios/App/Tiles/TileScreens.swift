@@ -18,7 +18,8 @@ struct TileScreen: View {
         let info = Self.info(workspace, path)
         switch forcedWeb != nil ? TileSurface.web : workspace.surfaceKind(for: info) {
         case .native:
-            NativeTileScreen(workspace: workspace, tile: info) { reason in forcedWeb = reason }
+            // A deep link's fragment reaches the native view too (D189).
+            NativeTileScreen(workspace: workspace, tile: info, fragment: fragment) { reason in forcedWeb = reason }
         case .web:
             WebTileScreen(workspace: workspace, tile: info, subpath: subpath, fragment: fragment, banner: forcedWeb)
         }

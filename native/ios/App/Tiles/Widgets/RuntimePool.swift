@@ -63,14 +63,22 @@ final class NativeRuntimePool {
 
     /// A tile screen shows `tile`: its runtime — the live one, or a new one
     /// started now — pinned until ``close(_:_:screen:)``. `fallBack` hears
-    /// when the runtime fails (the screen shows the web page).
-    func open(_ workspace: WorkspaceModel, _ tile: TileInfo, screen: UUID,
+    /// when the runtime fails (the screen shows the web page). A deep link's
+    /// `fragment` starts a new runtime there, or takes a live one there
+    /// (`xbn.navigate`, D189).
+    func open(_ workspace: WorkspaceModel, _ tile: TileInfo, screen: UUID, fragment: String? = nil,
               fallBack: @escaping (String) -> Void) -> NativeTileRuntime {
         let key = Key(workspace: workspace.id, tile: tile.path)
         screens[key, default: [:]][screen] = fallBack
         failedAt[key] = nil
         let evicted = policy.open(key)
-        let rt = runtimes[key] ?? start(key, workspace, tile, size: widgets(workspace).lastSize(tile.path) ?? .small)
+        let rt: NativeTileRuntime
+        if let live = runtimes[key] {
+            rt = live
+            if let fragment, !fragment.isEmpty { live.navigate(fragment) }
+        } else {
+            rt = start(key, workspace, tile, size: widgets(workspace).lastSize(tile.path) ?? .small, fragment: fragment)
+        }
         finish(evicted)
         return rt
     }
@@ -130,12 +138,13 @@ final class NativeRuntimePool {
 
     // MARK: -
 
-    private func start(_ key: Key, _ workspace: WorkspaceModel, _ tile: TileInfo, size: CardSize) -> NativeTileRuntime {
+    private func start(_ key: Key, _ workspace: WorkspaceModel, _ tile: TileInfo, size: CardSize,
+                       fragment: String? = nil) -> NativeTileRuntime {
         let rt = NativeTileRuntime(workspace: workspace, tile: tile, widgetSize: size, widgets: widgets(workspace))
         rt.onFallback = { [weak self] banner in self?.failed(key, banner) }
         runtimes[key] = rt
         Self.park(rt.webView)
-        rt.start()
+        rt.start(fragment: fragment)
         return rt
     }
 

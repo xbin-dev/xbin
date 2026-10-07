@@ -49,6 +49,9 @@ final class NativeTileRuntime: NSObject {
     @ObservationIgnored private var widgetRemounts = 3
     @ObservationIgnored private var limits = SpawnLimits()
     @ObservationIgnored private var visible: Bool?
+    /// A deep link that arrived before the tile's first tree (D189): sent
+    /// with `xbn.navigate` once the runtime is up.
+    @ObservationIgnored private var pendingNavigate: String?
 
     /// How long after the tile's first mount a runtime that sent no widget
     /// counts as one without (its cards then stay standard for a day).
@@ -91,8 +94,10 @@ final class NativeTileRuntime: NSObject {
         widgetModel.send = { [weak self] call in self?.call(call) }
     }
 
-    func start() {
-        guard let url = TileScheme.runtimeURL(workspace: workspace.id, tile: tile.path) else {
+    /// Loads the runtime document — with a deep link's `fragment`, which the
+    /// tile reads from `location.hash` as it starts (D189).
+    func start(fragment: String? = nil) {
+        guard let url = TileScheme.runtimeURL(workspace: workspace.id, tile: tile.path, fragment: fragment) else {
             fail(.loadFailed("bad tile path"))
             return
         }
@@ -157,6 +162,14 @@ final class NativeTileRuntime: NSObject {
         }
     }
 
+    /// A deep link into the running view (D189): `xbn.navigate` sets the
+    /// document's hash and fires `hashchange`; before the first tree it
+    /// waits for the runtime.
+    func navigate(_ fragment: String) {
+        guard !stopped else { return }
+        if lifecycle.phase == .live { call(.navigate(fragment)) } else { pendingNavigate = fragment }
+    }
+
     func setVisible(_ on: Bool) {
         guard visible != on, !stopped else { return }
         visible = on
@@ -181,6 +194,10 @@ final class NativeTileRuntime: NSObject {
             lifecycle.mounted()
             hatches.prune(store.tree)
             probeWidget()
+            if let f = pendingNavigate {
+                pendingNavigate = nil
+                call(.navigate(f))
+            }
         case .meta:
             title = store.meta.title
             workspace.tileMeta.set(tile.path, store.meta)
@@ -394,6 +411,9 @@ extension NativeTileRuntime: WKNavigationDelegate, WKScriptMessageHandler {
 struct NativeTileScreen: View {
     let workspace: WorkspaceModel
     let tile: TileInfo
+    /// A deep link's fragment (`#c=42`): the runtime starts with it, or a
+    /// running one navigates to it (D189).
+    var fragment: String?
     let fallBack: (String) -> Void
 
     @Environment(WorkspaceNav.self) private var nav
@@ -440,7 +460,7 @@ struct NativeTileScreen: View {
             }
             if let id = claim { pool.close(workspace, tile.path, screen: id) }
             let id = UUID()
-            let rt = pool.open(workspace, tile, screen: id, fallBack: fallBack)
+            let rt = pool.open(workspace, tile, screen: id, fragment: fragment, fallBack: fallBack)
             rt.hatches.nav = nav // canvas islands push onto this window (Navigation.swift)
             claim = id
             runtime = rt
@@ -456,6 +476,8 @@ struct NativeTileScreen: View {
                 claim = nil
             }
         }
+        // Another deep link to the open tile (D189).
+        .onChange(of: fragment) { _, f in if let f { runtime?.navigate(f) } }
         // Live reload (§7.7): the tile's source changed — remount.
         .task(id: tile.path) { await workspace.events.onReload(of: tile.path) { runtime?.reload() } }
         .sheet(item: Binding(get: { runtime?.tileDialog }, set: { if $0 == nil, let d = runtime?.tileDialog { runtime?.resolveDialog(d.id, button: nil, values: [:]) } })) { d in

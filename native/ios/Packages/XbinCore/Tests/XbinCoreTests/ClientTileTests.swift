@@ -93,6 +93,13 @@ import Testing
         let u = try #require(TileScheme.pageURL(workspace: "WS-1", tile: "apps/dev box", subpath: "../../editor/", fragment: "x=1"))
         #expect(u.absoluteString == "xbin-ws://ws-1/c/apps/dev%20box/editor/#x=1")
         #expect(TileScheme.runtimeURL(workspace: "ws", tile: "apps/counter")?.absoluteString == "xbin-ws://ws/c/apps/counter/?native=1")
+        // D189: a deep link's fragment reaches the runtime document
+        #expect(TileScheme.runtimeURL(workspace: "ws", tile: "apps/agent", fragment: "c=42")?.absoluteString == "xbin-ws://ws/c/apps/agent/?native=1#c=42")
+        #expect(TileScheme.runtimeURL(workspace: "ws", tile: "apps/agent", fragment: "#c=42")?.absoluteString == "xbin-ws://ws/c/apps/agent/?native=1#c=42")
+        #expect(TileScheme.runtimeURL(workspace: "ws", tile: "apps/agent", fragment: "")?.absoluteString == "xbin-ws://ws/c/apps/agent/?native=1")
+        #expect(TileScheme.hash("c=1") == "#c=1" && TileScheme.hash("#") == "" && TileScheme.hash("") == "")
+        #expect(RuntimeCall.navigate("c=42").javaScript == ##"xbn.navigate?.("#c=42")"##)
+        #expect(RuntimeCall.navigate("").functionBody == #"return xbn.navigate?.("");"#)
         #expect(TileScheme.serverPath(for: URL(string: "xbin-ws://ws/c/apps/a/x.js?v=2")!, workspace: "ws") == "/c/apps/a/x.js?v=2")
         #expect(TileScheme.serverPath(for: URL(string: "xbin-ws://ws/api/xbin/whoami")!, workspace: "WS") == "/api/xbin/whoami")
         #expect(TileScheme.serverPath(for: URL(string: "xbin-ws://other/c/a/")!, workspace: "ws") == nil)

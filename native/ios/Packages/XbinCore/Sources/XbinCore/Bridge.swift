@@ -378,6 +378,12 @@ public enum RuntimeCall: Sendable, Equatable {
     /// `xbn.remount(target?)` — the app lost its copy of a tree (a patch it
     /// could not apply): the runtime sends it whole again as a mount.
     case remount(TreeTarget = .main)
+    /// `xbn.navigate(hash)` — a deep link into the running view (D189): the
+    /// document's `location.hash` becomes `hash` and `hashchange` fires. The
+    /// first fragment travels in the runtime document's URL
+    /// (``TileScheme/runtimeURL(workspace:tile:fragment:)``) instead. A
+    /// runtime older than the call has no such function: it does nothing.
+    case navigate(String)
 
     /// The call expression, e.g. `xbn.event("r.0.1","tap",{})`.
     public var javaScript: String {
@@ -402,6 +408,8 @@ public enum RuntimeCall: Sendable, Equatable {
         case .remount(let target):
             if target == .main { return "xbn.remount()" }
             return "xbn.remount(\(JSONValue.string(target.rawValue).jsLiteral()))"
+        case .navigate(let hash):
+            return "xbn.navigate?.(\(JSONValue.string(TileScheme.hash(hash)).jsLiteral()))"
         }
     }
 
