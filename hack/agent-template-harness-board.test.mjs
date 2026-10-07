@@ -298,6 +298,33 @@ test('native: the Task screen\'s Delegated section; at home, yours at work and N
   assert.match(find(b, ROW('Split the router')).p.subtitle, /^in Refactor the API · /, 'a child says which conversation');
 });
 
+test('native: a board row\'s chat is pushed over the board; back returns to it (D190)', async () => {
+  const titles = (snap) => find(snap.root, { t: 'nav' }).c.map((x) => x.p.title);
+  const pop = (depth) => ({ event: [{ t: 'nav' }, 'pop', { depth }] });
+  const h = await runSeed([
+    { tap: btn('Coding agents (5 waiting)') }, { wait: 50 },
+    { tap: ROW('Split the router') }, { wait: 50 },
+    { snapshot: 'child' },
+    pop(2), { wait: 50 },
+    { snapshot: 'board' },
+  ], '');
+  assert.deepEqual(titles(h.snapshots.child), ['Agent', 'Coding agents', 'Split the router'], 'from the list\'s board: over the board');
+  assert.deepEqual(titles(h.snapshots.board), ['Agent', 'Coding agents'], 'back: the board');
+  const c = await runSeed([
+    { tap: btn('Coding agents (2 waiting)') }, { wait: 50 },
+    { tap: ROW('Split the router') }, { wait: 50 },
+    { snapshot: 'child' },
+    pop(3), { wait: 50 },
+    { snapshot: 'board' },
+    pop(2), { wait: 50 },
+    { snapshot: 'chat' },
+  ], 'c=25');
+  assert.deepEqual(titles(c.snapshots.child), ['Agent', 'Refactor the API', 'Coding agents', 'Split the router'], 'a conversation\'s board: its chat, the board, the child');
+  assert.deepEqual(titles(c.snapshots.board), ['Agent', 'Refactor the API', 'Coding agents']);
+  assert.deepEqual(titles(c.snapshots.chat), ['Agent', 'Refactor the API']);
+  assert.ok(find(c.snapshots.chat.root, { t: 'composer' }), 'the parent, open again');
+});
+
 test('native: at home, a parked row whose child can\'t be read is read once — not at every paint; its park says to open it', async () => {
   const s = kidsSeed();
   s.routes = [['GET', '/runs/(26|27|28)/view', { error: 'bad gateway' }, 502]];

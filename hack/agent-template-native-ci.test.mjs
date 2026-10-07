@@ -82,20 +82,20 @@ test('native CI: the toolbar badge, the Coding agents screen\'s CI section, the 
   assert.equal(called(r, 'GET', /\/runs\/25\/ci\?fresh=1$/).length, 1, 'the screen shown: a fresh read (live)');
 });
 
-test('native CI: going home stops the live reads the Coding agents screen started', async () => {
+test('native CI: back to the list stops the live reads the Coding agents screen started', async () => {
   const r = await run([
     { wait: 50 },
     { tap: barBtn }, { wait: 50 },
     { wait: 16000 },
     { snapshot: 'live' },
-    { tap: { t: 'button', p: { label: 'New chat' } } }, { wait: 50 },
+    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] }, { wait: 50 },
     { snapshot: 'home' },
     { wait: 61000 },
   ]);
   const fresh = () => called(r, 'GET', /\/runs\/25\/ci\?fresh=1$/).length;
   assert.ok(fresh() >= 2, `live while the screen is shown: ${fresh()}`);
-  assert.equal(find(r.snapshots.home, BOARD), null, 'at home');
-  assert.ok(fresh() <= 3, `no fresh reads in a minute at home (every 15 s, they'd be 6 or more): ${fresh()}`);
+  assert.equal(find(r.snapshots.home, BOARD), null, 'on the list');
+  assert.ok(fresh() <= 3, `no fresh reads in a minute on the list (every 15 s, they'd be 6 or more): ${fresh()}`);
 });
 
 test('native CI: following a log stops when a read fails, as on the web', async () => {

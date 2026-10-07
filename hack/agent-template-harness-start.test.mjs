@@ -158,19 +158,22 @@ function all(root, m, out = [], inside = !m.in) {
 const find = (tree, m) => all(tree.root || tree, m)[0] || null;
 const asks = (r) => r.calls.filter((c) => c.method === 'POST' && /\/ask$/.test(c.url)).map((c) => JSON.parse(c.body));
 const WHO = { t: 'picker', p: { label: 'Who answers' } };
+// the screen on top of the stack (the conversation list is its root: D190)
+const topScreen = (tree) => { const nav = find(tree, { t: 'nav' }); return nav.c[nav.c.length - 1]; };
 
 test('native: "Who answers" at the top of the home page; picking a coding agent hides the class and model, narrows the sandbox; the ask', async () => {
   const r = await run([
-    { wait: 50 }, { snapshot: 'home' },
+    { wait: 50 }, { snapshot: 'list' },
+    { tap: { t: 'button', p: { label: 'New chat' } } }, { wait: 20 }, { snapshot: 'home' },
     { event: [WHO, 'change', { value: 'gemini' }] }, { snapshot: 'refused' },
     { event: [WHO, 'change', { value: 'claude' }] }, { wait: 50 }, { snapshot: 'claude' },
     { event: [{ t: 'composer' }, 'send', { value: 'fix the flaky test' }] }, { wait: 50 }, { snapshot: 'chat' },
   ]);
-  const home = r.snapshots.home;
+  const home = topScreen(r.snapshots.home);
   const who = find(home, WHO);
-  assert.ok(who && !find(home, { ...WHO, in: { t: 'toolbar' } }), 'on the home page, not in its toolbar (a phone\'s bar keeps its ⋯)');
-  assert.deepEqual(find(home, { t: 'toolbar' }).c.map((x) => x.t), ['button', 'picker', 'menu'], 'the bar: Conversations, Class, More');
-  assert.ok(find(home, { t: 'button', p: { label: 'Coding agent settings' }, in: { t: 'menu', p: { label: 'More' } } }), 'Coding agent settings (your setting) in ⋯');
+  assert.ok(who && !find(home, { ...WHO, in: { t: 'toolbar' } }), 'on the new chat screen, not in its toolbar (a phone\'s bar keeps its ⋯)');
+  assert.deepEqual(find(home, { t: 'toolbar' }).c.map((x) => x.t), ['picker', 'menu'], 'the bar: Class, More');
+  assert.ok(find(topScreen(r.snapshots.list), { t: 'button', p: { label: 'Coding agent settings' }, in: { t: 'menu', p: { label: 'More' } } }), 'Coding agent settings (your setting) in the list\'s ⋯');
   assert.equal(who.p.value, 'agent');
   assert.deepEqual(who.p.options.map((o) => o.label), ['Agent (built in)', 'CC · Claude Code', 'CX · Codex', 'GM · Gemini CLI — unavailable', 'OC · opencode — unavailable']);
   assert.ok(find(home, { t: 'picker', p: { label: 'Class' } }), 'the class picker, while the built-in agent answers');
@@ -185,25 +188,25 @@ test('native: "Who answers" at the top of the home page; picking a coding agent 
   const [ask] = asks(r);
   assert.deepEqual([ask.harness, ask.class, ask.sandbox, 'model' in ask], [{ provider: 'claude' }, 'coding', { ref: API_DEV }, false], JSON.stringify(ask));
   assert.equal(find(r.snapshots.chat, { t: 'badge', in: { t: 'toolbar' } }), null, 'no toolbar badge, so More stays on the bar');
-  assert.match(find(r.snapshots.chat, { t: 'screen' }).p.subtitle, /^CC starting · shared · /, 'what answers: first in the subtitle');
+  assert.match(topScreen(r.snapshots.chat).p.subtitle, /^CC starting · shared · /, 'what answers: first in the subtitle');
   assert.ok(r.calls.some((c) => c.method === 'PUT' && /prefs\/agent$/.test(c.url) && c.body === '"claude"'), 'remembered (prefs/agent)');
   assert.ok(r.calls.some((c) => c.method === 'PUT' && /prefs\/harness-sandbox$/.test(c.url)), '…and its sandbox (prefs/harness-sandbox)');
 });
 
-test('native: the new-chat sheet — who answers, a coding agent\'s sandbox, no class; the drawer\'s rows; a conversation\'s badge', async () => {
+test('native: the new-chat sheet — who answers, a coding agent\'s sandbox, no class; the list\'s rows; a conversation\'s badge', async () => {
   const sheet = { t: 'sheet', p: { title: 'New chat' } };
   const r = await run([
     { wait: 50 },
-    { tap: { t: 'button', p: { label: 'Conversations' } } }, { wait: 50 },
     { snapshot: 'drawer' },
-    { tap: { t: 'row', p: { title: 'New chat with options…' } } },
+    { tap: { t: 'button', p: { label: 'New chat' } } }, { wait: 20 },
+    { tap: { t: 'button', p: { label: 'New chat with options…' } } },
     { snapshot: 'sheet' },
     { event: [{ ...WHO, in: sheet }, 'change', { value: 'codex' }] },
     { event: [{ t: 'field', p: { placeholder: 'what should it do?' } }, 'input', { value: 'port the CLI' }] },
     { snapshot: 'codex' },
     { tap: { t: 'button', p: { label: 'Start' }, in: sheet } }, { wait: 50 },
   ]);
-  const rows = all(r.snapshots.drawer.root, { t: 'row', in: { t: 'sheet' } }).filter((x) => /Fix the flaky test|Port the CLI|Refactor the API/.test(x.p.title));
+  const rows = all(topScreen(r.snapshots.drawer), { t: 'row' }).filter((x) => !x.p.nav).filter((x) => /Fix the flaky test|Port the CLI|Refactor the API/.test(x.p.title));
   assert.deepEqual(rows.map((x) => [x.p.title, x.p.subtitle ?? '']).sort(), [['Fix the flaky test', 'Claude Code'], ['Port the CLI', 'Codex'], ['Refactor the API', '2 coding agents']],
     'the built-in agent\'s: no kind — its coding agents at work below it (U6)');
   const s0 = find(r.snapshots.sheet, sheet);
@@ -223,6 +226,7 @@ test('native: no sandbox fits — the setup notice, Create filled in; a harness 
   const noDev = (s) => { s.sandboxes = s.sandboxes.filter((x) => x.ref !== API_DEV); return s; };
   const r = await run([
     { wait: 50 },
+    { tap: { t: 'button', p: { label: 'New chat' } } }, { wait: 20 },
     { event: [WHO, 'change', { value: 'claude' }] }, { wait: 50 }, { snapshot: 'setup' },
     { tap: { t: 'button', p: { label: 'Create claude-dev' } } }, { wait: 20 }, { snapshot: 'form' },
   ], { mut: noDev });
@@ -233,5 +237,5 @@ test('native: no sandbox fits — the setup notice, Create filled in; a harness 
   assert.match(form, /"value":"claude-dev"/, 'the create form, its name filled in');
   assert.match(form, /"value":"internet"/, '…internet');
   const c = await run([{ wait: 50 }, { snapshot: 'chat' }], { hash: 'c=24' });
-  assert.match(find(c.snapshots.chat, { t: 'screen' }).p.subtitle, /^CX sign-in · shared · waiting_input · /);
+  assert.match(topScreen(c.snapshots.chat).p.subtitle, /^CX sign-in · shared · waiting_input · /);
 });

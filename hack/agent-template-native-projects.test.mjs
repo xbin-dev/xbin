@@ -113,20 +113,18 @@ test('Make this a project…: offered on a root conversation of yours with a san
 
 // --- the screens -----------------------------------------------------------------------------------------
 
-test('Projects: the drawer\'s row, the list, a project\'s board with ext.card\'s words', async () => {
+test('Projects: the list\'s menu, the list, a project\'s board with ext.card\'s words', async () => {
   const r = await run(projSeed(), [
-    { tap: btn('Conversations') },
     { wait: 20 },
     { snapshot: 'drawer' },
-    { tap: { t: 'row', p: { title: 'Projects' } } },
+    { tap: btn('Projects (3 need you)') },
     { wait: 60 },
     { snapshot: 'list' },
     { tap: rowIn('Web', 'Projects') },
     { wait: 60 },
     { snapshot: 'board' },
   ]);
-  const row = find(r.snapshots.drawer, { t: 'row', p: { title: 'Projects' }, in: { t: 'sheet' } });
-  assert.equal(row.p.badge, '3', 'the tasks that need you');
+  assert.ok(find(r.snapshots.drawer, { ...btn('Projects (3 need you)'), in: { t: 'menu' } }), 'in the list\'s menu, with the tasks that need you');
   assert.deepEqual(titles(r.snapshots.list), ['Agent', 'Projects']);
   assert.deepEqual(sections(topScreen(r.snapshots.list)), ['Projects', 'Archived']);
   const web = find(r.snapshots.list, rowIn('Web', 'Projects'));
@@ -139,6 +137,25 @@ test('Projects: the drawer\'s row, the list, a project\'s board with ext.card\'s
   assert.equal(find(board, { t: 'row', p: { title: '#5 Merged one' } }).p.subtitle, 'merged · branch xbin/k3x9qa/5-task-5 · PR #40 merged · CI passed', 'checks only while no CI summary; ext.card (native/ci.js) last');
   assert.equal(lastHash(r), 'proj=7');
   assert.ok(called(r, 'GET', /\/projects\/7\/tasks\?/).length >= 1);
+});
+
+test('Projects: a task opened from the board is pushed over it; back returns to the board (D190)', async () => {
+  const r = await run(projSeed(), [
+    { tap: rowIn('#1 Fix the login loop', 'Web') },
+    { wait: 60 },
+    { snapshot: 'task' },
+    { event: [{ t: 'nav' }, 'pop', { depth: 3 }] },
+    { wait: 60 },
+    { snapshot: 'board' },
+  ], 'proj=7');
+  const t = titles(r.snapshots.task);
+  assert.deepEqual(t.slice(0, 3), ['Agent', 'Projects', 'Web']);
+  assert.equal(t.length, 4, 'the task\'s conversation on top');
+  assert.ok(find(topScreen(r.snapshots.task), { t: 'composer' }), 'open');
+  assert.ok(called(r, 'GET', /\/runs\/101\/view/).length, 'its conversation read');
+  assert.deepEqual(titles(r.snapshots.board), ['Agent', 'Projects', 'Web'], 'back: the board');
+  assert.ok(find(topScreen(r.snapshots.board), { t: 'section', p: { title: 'Coordinator' } }), 'the board, drawn');
+  assert.equal(lastHash(r), 'proj=7', 'the project\'s address again');
 });
 
 test('Projects: #proj=<id> opens the list and the project; back leaves the project, then the page', async () => {
@@ -298,7 +315,7 @@ test('a task\'s conversation: its branch and PR menu, the way back, Open PR once
   assert.equal(menu.p.label, 'xbin/k3x9qa/2-task-2');
   assert.deepEqual(all(menu, { t: 'button' }).map((b) => b.p.label), ['xbin/k3x9qa/2-task-2 ↗', 'setup passed', 'Open PR']);
   assert.equal(called(r, 'POST', /\/runs\/102\/task\/pr$/).length, 1);
-  assert.deepEqual(titles(r.snapshots.back), ['Agent', 'Projects', 'Web']);
+  assert.deepEqual(titles(r.snapshots.back), ['Agent', 'Add dark mode', 'Web'], 'the project is pushed over its task: back returns to the task');
   // no route: no Open PR; a PR's chip with its checks
   const r2 = await run(projSeed(), [{ snapshot: 'pr' }], 'c=101');
   const m2 = find(topScreen(r2.snapshots.pr), { t: 'menu', p: { icon: 'branch' } });

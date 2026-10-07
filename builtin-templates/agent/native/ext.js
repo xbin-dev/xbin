@@ -18,8 +18,8 @@
 //   subtitle(v)      words for the conversation's subtitle (a string; after its
 //                    chain, before its status) — a phone's bar holds few items
 //   menu(v, t)       items in the conversation's ⋯ menu (t = rules.topBar(v))
-//   main(before)     items in the main ⋯ menu (home's toolbar, the drawer's);
-//                    before() runs first when one is tapped (the drawer closes)
+//   main(before)     items in the main ⋯ menu (the conversation list's bar);
+//                    before() runs first when one is tapped
 //   composer(v, t)   {placeholder?, slash?: [{name, hint, description}],
 //                    tpl?()} — the last placeholder given wins, the slash
 //                    commands add up, tpl() draws buttons into the composer
@@ -30,8 +30,8 @@
 //   screen(s)        a pushed screen (ui.stack entry s = {kind, …}) of a kind
 //                    native/tools.js doesn't know — push({kind: 'mine', …})
 //   task(s)          sections at the end of the Task screen (s = {kind: 'task', run})
-//   drawer(close)    rows in the conversations drawer, after Automations
-//                    (close() closes the drawer first)
+//   drawer(close)    rows at the top of the conversation list (the stack's
+//                    root since D190; the name is from its drawer days)
 //   dock(v)          sections of the Coding agents screen after the coding
 //                    agents: {key, title, badge?, tpl()} (native/harness-board.js)
 //   card(task)       words on a project board's task row (task a TaskView)

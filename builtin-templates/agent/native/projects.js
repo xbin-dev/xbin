@@ -1,9 +1,9 @@
 // native/projects.js — Projects in the native view (API.md §Projects in the
 // UI), the web's projects.js and project-new.js with the app's primitives,
-// as screens pushed over home:
+// as screens of the stack (native/nav.js):
 //
-//   drawer               the drawer's Projects row (after Automations), with
-//                        how many tasks need you
+//   main                 Projects in the list's ⋯ menu, with how many tasks
+//                        need you
 //   'projects'           the list — yours, team projects, archived — New project
 //   'project' {pid}      a project: the coordinator (open it, write to it), the
 //                        board as a section per column — a row per task: #n,
@@ -24,10 +24,12 @@
 //                        name, sandbox, the basics; a team project's
 //                        definition from your own space)
 //
-// app.page 'projects' (the drawer's row, #proj, #proj=<id>, a task's way
-// back) puts the list — and the project open — on the stack; going back
-// to home leaves the page. The state is app.projects (model/projects.js),
-// projectFeed(app) (model/project-feed.js) and projectTeam(app).
+// The list and a project are places (the menu's Projects, #proj,
+// #proj=<id>, a task's Project: ‹name›): on top, the model has the page —
+// and the project — open (nav.follow); a task's conversation is pushed over
+// its board, so back returns to it. The state is app.projects
+// (model/projects.js), projectFeed(app) (model/project-feed.js) and
+// projectTeam(app).
 import { html, nothing, repeat } from '/vendor/xb-native.js';
 import { ext } from './ext.js';
 import { ctx, ui, push, top, when } from './ui.js';
@@ -40,6 +42,7 @@ import { projectSandbox } from '../model/sandboxes.js';
 import { openUrl } from './project-task.js';
 import { forkBaseOffer, forkBase } from '../model/project-upgrade.js';
 import { signinTpl } from './project-settings.js';
+import { openProjects, projectEntry } from './nav.js';
 
 export const TONE = { run: 'accent', ok: 'ok', bad: 'danger', warn: 'warn', idle: 'muted' };
 const pj = () => ctx.app.projects;
@@ -49,31 +52,12 @@ const drop = (s) => { const i = ui.stack.indexOf(s); if (i >= 0) ui.stack.splice
 
 // --- the page on the stack ---------------------------------------------------------------------------
 
-let wired = false;
-// wire: once the app exists, app.page 'projects' puts the list on the stack
-// (after the page's own open(pid) has run: the project too).
-function wire() {
-  const app = ctx.app;
-  if (wired || !app) return;
-  wired = true;
-  app.on('page', () => Promise.resolve().then(sync));
-  sync();
-}
-function sync() {
-  const app = ctx.app;
-  if (app.page !== 'projects' || app.sel != null || ui.stack.some((s) => s.kind === 'projects')) return;
-  ui.stack.length = 0;
-  ui.stack.push({ kind: 'projects' });
-  const pid = app.projects.opened;
-  if (pid != null) ui.stack.push(screenOf(pid));
-  ctx.paint();
-}
-const screenOf = (pid) => ((pj().find(pid) || {}).kind === 'team' ? { kind: 'project-team', pid: +pid } : { kind: 'project', pid: +pid });
+// The list and a project are places of the stack (native/nav.js): the model
+// opens the page — and the project — when one comes on top (nav.follow).
 
-// openProject pushes a project's screen and opens it in the model.
+// openProject pushes a project's screen (the model opens it: nav.follow).
 export function openProject(pid) {
-  push(screenOf(pid));
-  pj().open(+pid);
+  push(projectEntry(pid));
 }
 
 // follow: when the stack goes back to a screen (another one covered it,
@@ -89,14 +73,12 @@ export function follow(s) {
 }
 
 ext.register({
-  drawer(close) {
-    wire();
+  main() {
     const p = ctx.app.projects;
     if (!p.supported) return null;
     const n = p.needsYou();
-    return html`<row title="Projects" icon="folder" badge=${n ? String(n) : nothing} tone=${n ? 'warn' : nothing} nav @tap=${() => { close(); ctx.app.openProjects(); }}/>`;
+    return html`<button icon="folder" @tap=${() => openProjects()}>${n ? `Projects (${n} need you)` : 'Projects'}</button>`;
   },
-  toolbar() { wire(); return null; }, // home's and a chat's bar: drawn at start, so the page is followed from the first paint
   screen(s) {
     switch (s.kind) {
       case 'projects': return listTpl(s);

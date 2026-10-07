@@ -11686,3 +11686,76 @@ Deviations and refinements made while implementing; all deliberate:
     finger that has more than one view controller (PanelStack,
     `innerStackCanPop`); checked on the simulator by XbinNavigationTests.
   - **Verified:** see the commit messages of the native-rev2 branch.
+
+- **D190 — The agent's native view: list-first, a navigation stack
+  (2026-10-07).** builtin-templates/agent/native.js, native/nav.js,
+  native/convs.js, native/home.js, native/chat.js, native/tools.js,
+  native/projects.js, native/project-task.js, native/harness-board.js;
+  API.md "The frontend"; plans/agent-template-native.md §3. Part B (items
+  1, 2, 5, 6) of the 2026-10-07 "AgTT on iOS" plan. **Supersedes the
+  one-surface rule** (plans/agent-template-native.md §3 and §9.4; D96's
+  "one surface at a time" and its conversations drawer).
+  - **The owner's answers (2026-10-07).** List-first on the phone: chats,
+    tasks and runs are pushed and Back returns; split on iPad and the Duo
+    (a follow-up, B3); the root is the conversations list. Parity covers
+    the four declared gaps (B4, a follow-up); composer keys, paste and
+    drop stay the app's composer's.
+  - **The stack is the native layer's, the selection the model's.**
+    `ui.stack` holds route entries `{kind, …}`: *places* — a conversation
+    `{kind: 'chat', run}`, the new chat screen `new`, the Automations page
+    `auto`, Projects `projects` / `project` {pid} — and tool screens over
+    them (memory, files, settings, the Coding agents board, the seams'
+    screens…). The list is the root, never an entry. `model/app.js` keeps
+    its one `sel`/`page` (the web view is unchanged); `nav.follow()` runs
+    before every draw and makes the model match the topmost place (home
+    when there is none, or the new chat screen). History in the model was
+    not chosen: the web has no use for it, and two views would have to
+    agree on what Back means.
+  - **How it moves.** `app.select()` from anywhere (a list row, Needs you,
+    a board row, a task row, an automation's run, a subagent's card, a
+    started chat) pushes — the `select` event; a chat started from the
+    new chat screen takes that screen's place. `open()` goes back to a
+    place already on the stack instead of pushing it twice (a task's
+    Project: ‹name› returns to its board when it came from there).
+    `app.home()` on the model's own (deleted, revoked, unreadable, moved)
+    takes the conversation off; a conversation that never opened is
+    replaced by the one it moved to. The nav's `pop` cuts the stack.
+    Events the native layer causes while it drives the model are ignored
+    (a `driving` count), so only the model's own moves reach the stack.
+  - **Subagent chains.** A subagent opened from its parent's card is
+    pushed over the parent (Back returns to it). One opened from the list
+    or a link gets its parents inserted under it once its view names
+    them (`v.chain`) — unless one of them is already on the stack. A
+    conversation under the open one is drawn as last seen (the session
+    holds one open view); Back makes it the open one and reads it again.
+  - **Deep links build the stack** (`nav.link`): `#c=42` is [list, chat
+    42], `#auto=kind:id` [list, Automations, the automation], `#proj=7`
+    [list, Projects, the project], `#join=` joins and pushes. A hashchange
+    (the app's navigate, A1) builds it afresh. **A restarted runtime**
+    comes back to the same stack: `xbin.native.saveState({hash, nav})`,
+    each entry reduced to the ids its kind needs; a kind that isn't
+    saveable ends the saved stack (a form comes back as the screen it was
+    pushed from). State from before (`{hash}` alone) still opens.
+  - **The root.** Search (a pasted invite link joins), Needs you, the
+    partition and halt notices, the Mine / Shared / Archived scope,
+    pinned, by date; row swipes and menus; New chat and ⋯ (Automations,
+    Projects, Coding agents, Settings, the brake) in its bar — Projects
+    moved from a drawer row to `ext.main`; `ext.drawer` rows still draw,
+    at the top of the list. New chat is a pushed screen: the greeting,
+    Try, Who answers, the class/model/sandbox pickers, the composer, ⋯ →
+    New chat with options….
+  - **Older apps.** Everything here is vocabulary rev 1 (`nav`, `screen`,
+    `row`, `sheet`), so every app gets it; no `supports()` branch is
+    needed yet. `nav.rev2(name)` is the gate the rev-2 parts will use
+    (D189): native.js `layout()` is where the iPad/Duo split goes, drawing
+    the same stack as list | detail. The parity catalog gains `link.back`
+    (native: the stack; web: a declared difference — its panes sit side
+    by side and its address is replaced, not pushed).
+  - **Verified:** `node --test hack/agent-template-*.test.mjs` (315 pass;
+    new: the list root, a deep link building [list, chat] and a
+    subagent's chain, push/pop for a subagent, a board row (from the list
+    and from a conversation), a project's task, an automation's run, a
+    restored stack); `make js-check js-test theme-check native-check`;
+    `test/native.mjs` in Chromium (the list, New chat, push and back);
+    `test/native-shots.mjs` and iPhone-size shots of the list, a pushed
+    chat, a project's task, New chat and a pushed subagent, light and dark.

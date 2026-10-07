@@ -15,8 +15,8 @@
 //            started it is told
 //   toolbar  a button while any needs you (not in a coding agent's own chat)
 //   menu     Coding agents (N) in a conversation's ⋯
-//   main     at home, the main ⋯ menu's Coding agents (N) — home's bar holds
-//            Conversations, the class and ⋯ only (a phone's width)
+//   main     the list's ⋯ menu: Coding agents (N) — the list's bar holds New
+//            chat and ⋯ only (a phone's width)
 //   task     the Task screen's Delegated section: each coding agent below the
 //            run, its state and task, a tap to its chat
 //
@@ -38,8 +38,8 @@ const needLabel = (c) => `${c.needs} coding agent${c.needs === 1 ? ' needs' : 's
 
 ext.register({
   toolbar(v) {
-    // not at home (its bar holds Conversations, the class and ⋯; Needs you is
-    // on the page and the board in ⋯) nor in a coding agent's own chat (its
+    // not on the new chat screen (its bar holds the pickers and ⋯; Needs you
+    // heads the list and the board is in its ⋯) nor in a coding agent's own chat (its
     // bar already holds Mode and Model; a phone's bar drops the ⋯ past that)
     if (!v || isHarness(v.run)) return null;
     const root = rootOf(v);
@@ -75,11 +75,9 @@ ext.register({
   },
 });
 
-// openRow: its chat — over its parent's in a conversation; at home, as a conversation of its own
+// openRow: its chat, pushed over the board (back returns to it — native/nav.js)
 function openRow(r) {
-  if (ctx.app.sel != null && r.id !== r.root) return openChild(r.id);
-  ui.stack.length = 0;
-  ctx.app.select(r.id);
+  openChild(r.id);
 }
 
 // act runs a row's action; what it said (or why it failed) stays on the board

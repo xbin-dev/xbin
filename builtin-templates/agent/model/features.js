@@ -232,6 +232,7 @@ export const FEATURES = {
   'link.conv': 'an address opens a conversation (#c=<id>)',
   'link.auto': 'an address opens the Automations page or one automation (#auto[=kind:id])',
   'link.join': 'an invite link joins a conversation (#join=<token>)',
+  'link.back': 'going back returns where you came from: a conversation opened from the list, a project\'s board, an automation, the Coding agents board or another conversation goes back there; a restarted view comes back to the same screens (D190)',
 
   // Needs you, beyond the tile
   'needs.push': 'a question, an approval or a failed automation reaches your phone (the backend pushes it; tapping it opens the conversation)',
@@ -264,7 +265,7 @@ export const FEATURES = {
   'harness.account': 'a coding agent\'s conversation names the account it uses ("using Work", or the sandbox\'s own sign-in) and switches it: the default, another saved sign-in, or the sandbox\'s own — the session resumes with it at the next message',
 
   // Projects (API.md §Projects)
-  'proj.entry': 'the Projects entry (the sidebar; the drawer), with how many tasks need you',
+  'proj.entry': 'the Projects entry (the sidebar; the app\'s list menu), with how many tasks need you',
   'proj.list': 'the projects you may see — yours and team ones — with their state',
   'proj.new': 'a new project: the scm provider, its repos (a picker of what you can reach), the sandbox (one of yours or a new one) and the policy basics',
   'proj.upgrade': '"Make this a project…": a conversation with a sandbox and git repos becomes a project, the conversation its first task',
@@ -307,6 +308,7 @@ export const DIFFERENCES = {
     'needs.push': 'a web page does not receive pushes: the backend sends Needs-you to the person\'s xbin app (POST /api/xbin/notify), which opens the conversation in the native view',
     'composer.dictation': 'the browser and the OS dictate into any text box; the tile adds no control of its own',
     'composer.attach.camera': 'the browser\'s file picker offers the camera and the photo library itself',
+    'link.back': 'the web page draws the conversation list beside the open conversation, and its panes beside both: there is nothing to go back to — its address is replaced, not pushed, so a reload comes back to where you were',
   },
   native: {
     'composer.keys': 'on a phone Return is a new line and Send is the button; the app\'s composer handles a hardware keyboard and IME composition itself',

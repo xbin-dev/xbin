@@ -4597,11 +4597,14 @@ cards), `project-new.js` (the form, and Make this a project… through
 conversation).
 
 **Natively** (`native/project-all.js` lists the modules) the same model
-draws with the app's primitives, as screens pushed over home: the
-drawer's **Projects** row (`ext.drawer`) with the tasks that need you;
-`app.page` `projects` (`#proj`, `#proj=<id>`, a task's way back) puts the
-list — and the open project — on the stack, and going back to a screen
-opens what it shows again, so the address follows. `native/projects.js`:
+draws with the app's primitives, as screens of the view's stack
+(`native/nav.js`, D190): **Projects** in the conversation list's ⋯
+(`ext.main`) with the tasks that need you; the list and a project are
+places of the stack (`#proj`, `#proj=<id>` build [list, Projects, the
+project]; a task's ⋯ → Project: ‹name› pushes it over the task, or goes
+back to it), the model opens what the top one shows, so the address
+follows; a task opened from the board is pushed over it and Back returns
+to the board. `native/projects.js`:
 the list; a project — the coordinator (open it, write to it), the board as
 a section per column (each task a row: number, title, state, branch, pull
 requests, the words other modules add through `ext.card(task)`; a tap
@@ -4682,19 +4685,20 @@ home sends the draft (`POST /ask {draft, files}`).
 
 | The native view | What it draws |
 |---|---|
-| `native.js` | the entry: one surface at a time — home or the open conversation (a subagent's parents under it; back goes up), the Automations screens, pushed tools — plus the conversations drawer and the sheets; deep links (`#c=`, `#auto`, `#join=`) and a restarted runtime (`xbin.native.state`) go through `model/router.js` |
+| `native.js` | the entry: a `nav` of the conversation list (the root) and the stack's screens — conversations (a subagent's over its parent: back goes up), the new chat screen, the Automations screens, Projects, the tools pushed over any of them — plus the sheets; `layout()` is where the iPad split goes (behind `nav.rev2('split')`) |
+| `native/nav.js` | the navigation stack (D190): route entries in `ui.stack` — places (`{kind: 'chat', run}`, `new`, `auto`, `projects`, `project` {pid}) and tool screens over them; `open` (back to a place on the stack, else pushed), `cut`, `follow` (the model's single selection follows the top place), `wire` (a conversation the model opens anywhere is pushed; one deleted or revoked leaves), `link` (deep links `#c=`, `#auto`, `#proj`, `#join=` build the stack through `model/router.js`), `saved`/`restore` (a restarted runtime, `xbin.native.state.nav`) |
 | `native/chat.js` | the conversation: `fold()` blocks as the chat family (`message`, `thinking`, `toolcard` with a subagent's transcript inside, `step`, `activity`, `approval`, `question`), the composer (attachments the app uploads to `PUT /runs/{id}/upload`, or at home into the new ask's draft, `PUT /ask/upload?draft=`), the top bar as the toolbar's menu |
-| `native/home.js`, `native/convs.js`, `native/share.js` | home and Needs you; the conversations drawer (a `sheet edge="leading"`), new chat with options, rename; the share sheet |
+| `native/convs.js`, `native/home.js`, `native/share.js` | the conversation list, the stack's root: search, Needs you, the scope, pinned, by date, a row's swipe actions and menu; New chat and the main ⋯ (Automations, Projects, Coding agents, Settings, the brake) in its bar; the new chat screen (greeting, Try, the class, model and sandbox pickers, the composer); new chat with options, rename; the share sheet |
 | `native/tools.js`, `native/settings.js` | memory, files (+ editor, share/export), skills, the workflow tree, one call in full, the render preview (a `canvas html=` island, `native/render-doc.js` — the web's CSP); settings for managers |
-| `native/classes.js` | agent classes: the Class picker in the home toolbar, the new-chat sheet's class, Settings → Classes (the list, one class's form), an automation's class row and picker |
-| `native/sandboxes.js` | coding sandboxes: the Sandbox picker in the chat and home toolbars, the sandbox in the subtitle and the broken-binding notice, the Sandbox screen (⋯ → Sandbox), the Sandboxes screen and the create form |
+| `native/classes.js` | agent classes: the Class picker in the new chat screen's toolbar, the new-chat sheet's class, Settings → Classes (the list, one class's form), an automation's class row and picker |
+| `native/sandboxes.js` | coding sandboxes: the Sandbox picker in the chat and new chat toolbars, the sandbox in the subtitle and the broken-binding notice, the Sandbox screen (⋯ → Sandbox), the Sandboxes screen and the create form |
 | `native/terminal.js` | the Terminal screen (the app's `terminal` on the tile's relays) and a coding agent's sign-in: the notice, Sign in in the composer and ⋯, the Sign in screen |
 | `native/auto.js`, `native/auto-channels.js`, `native/auto-triggers.js` | the Automations screens for all four kinds |
 | `native-features.js` | `IMPLEMENTS`: what the native view implements, by feature key (as `web-features.js` for the web) |
 | `native/ext.js`, `native/harness-all.js` | the native view's seams, and the feature modules that hook into them (below) |
-| `native/harness-start.js` | starting with a coding agent: "Who answers" at the top of the home page, the home's setup notice, the new-chat sheet's section, and a coding agent's chip, plan and context at the start of the conversation's subtitle |
+| `native/harness-start.js` | starting with a coding agent: "Who answers" at the top of the new chat screen, its setup notice, the new-chat sheet's section, and a coding agent's chip, plan and context at the start of the conversation's subtitle |
 | `native/harness-cards.js` | a coding agent's calls as `toolcard`s (`code`, `diff`, a Task's nested `transcript`), one call in full, and the Progress screen (`plan`; the plan's progress and the context in use start the subtitle: `native/harness-start.js`) |
-| `native/harness-ask.js` | a coding harness asking and driven: its permission as an `approval` (its options; a bypass one confirmed by a second approval), a plan above it as `markdown`, a `diff` preview, its question as a `question`; the toolbar's Mode menu (its config options but the model, and your Auto / Always approve) and the Model picker; the composer's slash commands, Send now (interrupts); ⋯ → Coding agent settings (the main menu: home's and the drawer's) → your setting per harness |
+| `native/harness-ask.js` | a coding harness asking and driven: its permission as an `approval` (its options; a bypass one confirmed by a second approval), a plan above it as `markdown`, a `diff` preview, its question as a `question`; the toolbar's Mode menu (its config options but the model, and your Auto / Always approve) and the Model picker; the composer's slash commands, Send now (interrupts); ⋯ → Coding agent settings (the main menu: the list's) → your setting per harness |
 | `native/harness-child.js` | a coding agent the agent started, as the spawn's `toolcard` in the parent's chat (its park inside it, answered on the child's run), and Cancel task in a harness child's own ⋯ |
 | `native/harness-catalog.js` | Settings → Coding agents (the managers' catalog: `model/harness-manage.js`) |
 | `native/harness-board.js` | the Coding agents board: its screen (sections Needs you, Running, Done; a row's swipe Stop, Message, Cancel task; a parked row's approval or question), the Message screen, the toolbar button and ⋯ item, the Task screen's Delegated section |
@@ -4709,7 +4713,7 @@ as before) for the native view, imported from `native/harness-all.js`. A hook an
 null when the block, run or screen isn't its: `block` replaces the built-in
 card of a transcript block, `end` adds to the end of the transcript (a
 coding harness's park is then its to draw), `top`/`toolbar`/`menu` add
-controls (`main`: the main ⋯ menu — home's and the drawer's), `subtitle`
+controls (`main`: the main ⋯ menu — the conversation list's), `subtitle`
 words for a conversation's subtitle, `composer` a placeholder, slash commands and buttons, `newChat`
 a field of the new-chat dialog and its part of the ask, `screen` a pushed
 native screen of its own kind, `task` a part of the unfolded pinned task
@@ -4794,7 +4798,7 @@ person gets — an approval card with Approve and Deny, Retry on a failed run,
 a disabled composer in a view-only conversation, senders in a shared one.
 `node test/native.mjs` runs it in a real browser the way the app does (the
 runtime, the tile's `native.js`, the reference renderer as the app) and
-walks home, the drawer, a streamed answer, sending, Files, the render
+walks the list (the root), New chat, a pushed conversation and back, a streamed answer, sending, Files, the render
 preview and an approval. `node test/native-shots.mjs` draws the key screens
 with the reference renderer at 390×844, light and dark — look at them.
 

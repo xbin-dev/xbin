@@ -11,9 +11,9 @@ import { renderDoc } from './render-doc.js';
 import { liveLabel, probeWords } from '../model/live.js';
 import { settingsScreens } from './settings.js';
 import { sandboxScreens } from './sandboxes.js';
+import { abovePlace } from './nav.js';
 
 const isHtml = (p) => /\.html?$/i.test(p || '');
-let seq = 0;
 
 // load runs a screen's loader once (and again on refresh), saying why it failed.
 function load(s, fn) {
@@ -43,14 +43,12 @@ const stale = (kind, run) => { for (const s of ui.stack) if (s.kind === kind && 
 
 const SCREENS = { task: taskTpl, memory: memoryTpl, files: filesTpl, file: fileTpl, skills: skillsTpl, skill: skillTpl, tree: treeTpl, call: callTpl, render: renderTpl, live: liveTpl };
 
-// toolScreens: ui.stack as nav screens (native.js puts them over the chat or home).
-export function toolScreens() {
-  return ui.stack.map((s, i) => {
-    if (!s.id) s.id = ++seq;
-    const tpl = SCREENS[s.kind] || settingsScreens[s.kind] || sandboxScreens[s.kind];
-    // a kind this file doesn't know is a seam's (ctx.ext.screen, native/ext.js)
-    return { key: `tool:${s.id}`, entry: s, tpl: () => (tpl ? tpl(s) : ctx.ext.screen(s) || html`<screen title="?"/>`), leave: () => { ui.stack.length = Math.min(ui.stack.length, i); } };
-  });
+// toolScreen: a tool entry of the stack (native/nav.js) as its screen — over
+// the conversation, a project, the list… (native.js draws the stack).
+export function toolScreen(s) {
+  const tpl = SCREENS[s.kind] || settingsScreens[s.kind] || sandboxScreens[s.kind];
+  // a kind this file doesn't know is a seam's (ctx.ext.screen, native/ext.js)
+  return tpl ? tpl(s) : ctx.ext.screen(s) || html`<screen title="?"/>`;
 }
 
 // --- the task (D133) ------------------------------------------------------------------------
@@ -262,7 +260,7 @@ function treeTpl(s) {
     <section title="Runs">${rows.length ? repeat(rows, (n) => n.id, (n) => html`
       <row title=${'· '.repeat(Math.min(Number(n.depth) || 0, 4)) + (n.title || 'run ' + n.id)} subtitle=${clip(sub(n), 160) || nothing}
         tone=${DOT[n.status] || 'muted'} detail=${costOf(n) ? fmtN(costOf(n)) : nothing} nav
-        @tap=${() => { ui.stack.length = 0; app.select(n.id); }}>
+        @tap=${() => app.select(n.id)}>
         ${costOf(n) ? html`<progress value=${costOf(n) / maxCost}/>` : nothing}
       </row>`) : html`<empty title=${s.tree ? 'no background runs' : 'loading…'}/>`}</section>
   </screen>`;
@@ -296,7 +294,7 @@ function callTpl(s) {
 // openRender shows an HTML session file as a no-script island (render-doc.js);
 // live: it follows the run's newest render.
 export function openRender(run, path, ver, live) {
-  const cur = ui.stack.find((x) => x.kind === 'render');
+  const cur = abovePlace().find((x) => x.kind === 'render'); // the open conversation's preview, not one under it
   if (cur) Object.assign(cur, { run, path, ver: Number(ver) || 0, live: !!live, loaded: false });
   else push({ kind: 'render', run, path, ver: Number(ver) || 0, live: !!live });
   ctx.paint();
@@ -309,7 +307,7 @@ export function openRender(run, path, ver, live) {
 // sandboxed opaque-origin frame (live.js). live: it follows the run's newest
 // one.
 export function openLive(run, det, live) {
-  const cur = ui.stack.find((x) => x.kind === 'live' || x.kind === 'render');
+  const cur = abovePlace().find((x) => x.kind === 'live' || x.kind === 'render');
   const s = { kind: 'live', run, det, live: !!live, loaded: false, src: '' };
   if (cur) { for (const k of Object.keys(cur)) delete cur[k]; Object.assign(cur, s); } else push(s);
   ctx.paint();
