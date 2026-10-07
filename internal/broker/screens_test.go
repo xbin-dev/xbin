@@ -363,3 +363,85 @@ func TestScreensOrgMode(t *testing.T) {
 		t.Fatalf("canvas reads back as no mode: %q", m)
 	}
 }
+
+// Blocks (D192): an org screen's headings and text ride with its tiles —
+// created with them, saved under the same revision rule (a blocks-only save
+// bumps rev, a stale one is a 409), kept by a PUT that leaves them out (an
+// older shell publishing tiles), refused when not an array, and editable
+// only by those who may edit the tiles.
+func TestScreensOrgBlocks(t *testing.T) {
+	b, st := orgFixture(t) // sales: carol admin, bob terminal-level, alice read
+	carol := principalFor(t, st, "carol")
+	bob := principalFor(t, st, "bob")
+	alice := principalFor(t, st, "alice")
+	var res struct {
+		ID  string `json:"id"`
+		Rev int    `json:"rev"`
+	}
+	put := func(p auth.Principal, body string) int {
+		t.Helper()
+		w := call(t, b.apiScreensOrgPut, p, "PUT", "/screens/org", body, nil)
+		res.ID, res.Rev = "", 0
+		_ = json.Unmarshal(w.Body.Bytes(), &res)
+		return w.Code
+	}
+	get := func() (blocks string, tiles string, rev int) {
+		t.Helper()
+		w := call(t, b.apiScreensGet, carol, "GET", "/screens", "", nil)
+		var v struct {
+			Org []struct {
+				Tiles  json.RawMessage `json:"tiles"`
+				Blocks json.RawMessage `json:"blocks"`
+				Rev    int             `json:"rev"`
+			} `json:"org"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil || len(v.Org) != 1 {
+			t.Fatalf("screens get: %v %s", err, w.Body.String())
+		}
+		return string(v.Org[0].Blocks), string(v.Org[0].Tiles), v.Org[0].Rev
+	}
+	h1 := `[{"id":"h1","kind":"heading","text":"Sales","level":1,"x":0,"y":0,"w":384,"h":48}]`
+	if c := put(carol, `{"org":"sales","name":"HQ","edit":"write","tiles":[],"blocks":`+h1+`}`); c != 200 {
+		t.Fatalf("create with blocks: %d", c)
+	}
+	id := res.ID
+	if bl, _, rev := get(); bl != h1 || rev != 1 {
+		t.Fatalf("created blocks: %s rev %d", bl, rev)
+	}
+	// an older shell's tile save (no blocks) keeps them, and bumps rev
+	if c := put(bob, `{"id":"`+id+`","org":"sales","tiles":[{"path":"apps/email"}],"rev":1}`); c != 200 || res.Rev != 2 {
+		t.Fatalf("tile save without blocks: %d %+v", c, res)
+	}
+	if bl, tl, _ := get(); bl != h1 || tl != `[{"path":"apps/email"}]` {
+		t.Fatalf("a PUT without blocks keeps them: %s / %s", bl, tl)
+	}
+	// a blocks-only save is content: it bumps rev and keeps the tiles
+	txt := `[{"id":"t1","kind":"text","text":"**hi**","x":0,"y":48,"w":384,"h":144}]`
+	if c := put(bob, `{"id":"`+id+`","org":"sales","blocks":`+txt+`,"rev":2}`); c != 200 || res.Rev != 3 {
+		t.Fatalf("blocks-only save: %d %+v", c, res)
+	}
+	if bl, tl, rev := get(); bl != txt || tl != `[{"path":"apps/email"}]` || rev != 3 {
+		t.Fatalf("after blocks save: %s / %s rev %d", bl, tl, rev)
+	}
+	// stale: 409, nothing written
+	if c := put(bob, `{"id":"`+id+`","org":"sales","blocks":[],"rev":2}`); c != 409 {
+		t.Fatalf("stale blocks save: %d", c)
+	}
+	// a read-level member may not; not an array is refused
+	if c := put(alice, `{"id":"`+id+`","org":"sales","blocks":[],"rev":3}`); c != 403 {
+		t.Fatalf("read member blocks save: %d", c)
+	}
+	if c := put(carol, `{"id":"`+id+`","org":"sales","blocks":{"id":"x"},"rev":3}`); c != 400 {
+		t.Fatalf("blocks not an array: %d", c)
+	}
+	// [] clears them; a meta change (rename) never touches them or the rev
+	if c := put(carol, `{"id":"`+id+`","org":"sales","tiles":[],"blocks":[],"rev":3}`); c != 200 || res.Rev != 4 {
+		t.Fatalf("clear: %d %+v", c, res)
+	}
+	if c := put(carol, `{"id":"`+id+`","org":"sales","name":"HQ 2"}`); c != 200 || res.Rev != 4 {
+		t.Fatalf("rename: %d %+v", c, res)
+	}
+	if bl, _, rev := get(); bl != `[]` || rev != 4 {
+		t.Fatalf("cleared blocks: %s rev %d", bl, rev)
+	}
+}

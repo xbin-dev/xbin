@@ -36,7 +36,7 @@ import (
 // Org screens and folder sets carry a REVISION (D55): a tile/folder save
 // names the revision it was based on and a stale one is refused with 409
 // and the current document, so two people never silently clobber each
-// other — the shell edits a local draft and publishes with an explicit
+// other — the tiles and the blocks (D192) are one content and share it — the shell edits a local draft and publishes with an explicit
 // "save and update for everyone". A tile write without `rev` is still
 // accepted as a legacy overwrite (pre-D55 shell copies keep working).
 // Rename/knob/mode changes are admin-plane and don't bump the revision, so
@@ -53,6 +53,11 @@ type orgScreen struct {
 	// bumps Rev, and a PUT that leaves it out keeps it.
 	Mode  string          `json:"mode,omitempty"`
 	Tiles json.RawMessage `json:"tiles"`
+	// Blocks are the screen's headings and text (D192): a JSON array, the
+	// shell's shape and opaque here like Tiles. Saved with the tiles under
+	// the same revision rule; a PUT that leaves it out keeps it, so a shell
+	// from before D192 publishing tiles never wipes them.
+	Blocks json.RawMessage `json:"blocks,omitempty"`
 	// Rev counts tile saves (1-based; legacy rows load as 1). UpdatedBy/At
 	// stamp the last tile save — what the shell's "last saved by" shows.
 	Rev       int    `json:"rev"`
@@ -282,19 +287,28 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		ID    string          `json:"id"`
-		Org   string          `json:"org"`
-		Name  string          `json:"name"`
-		Edit  string          `json:"edit"`
-		Mode  string          `json:"mode"`
-		Tiles json.RawMessage `json:"tiles"`
-		Rev   *int            `json:"rev"`
-		Force bool            `json:"force"`
+		ID     string          `json:"id"`
+		Org    string          `json:"org"`
+		Name   string          `json:"name"`
+		Edit   string          `json:"edit"`
+		Mode   string          `json:"mode"`
+		Tiles  json.RawMessage `json:"tiles"`
+		Blocks json.RawMessage `json:"blocks"`
+		Rev    *int            `json:"rev"`
+		Force  bool            `json:"force"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := server.DecodeJSON(r, &body); err != nil || body.Org == "" {
-		server.WriteError(w, http.StatusBadRequest, "need {id?, org, name?, edit?, mode?, tiles?, rev?, force?} (≤64K)")
+		server.WriteError(w, http.StatusBadRequest, "need {id?, org, name?, edit?, mode?, tiles?, blocks?, rev?, force?} (≤64K)")
 		return
+	}
+	hasBlocks := rawPresent(body.Blocks)
+	if hasBlocks {
+		var arr []json.RawMessage
+		if json.Unmarshal(body.Blocks, &arr) != nil {
+			server.WriteError(w, http.StatusBadRequest, "blocks must be an array")
+			return
+		}
 	}
 	if body.Mode != "" && body.Mode != "canvas" && body.Mode != "doc" {
 		server.WriteError(w, http.StatusBadRequest, "mode must be canvas|doc")
@@ -307,6 +321,8 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 		mode = ""
 	}
 	hasTiles := rawPresent(body.Tiles)
+	// content: the tiles and/or the blocks — a revisioned save either way
+	content := hasTiles || hasBlocks
 	p := auth.PrincipalOf(r)
 	admin := b.IsAdmin(p)
 	var m users.OrgMembership
@@ -362,6 +378,9 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 			ID: util.RandomToken(8), Org: body.Org, Name: body.Name, Edit: body.Edit, Mode: mode, Tiles: body.Tiles,
 			Rev: 1, UpdatedBy: by, UpdatedAt: at,
 		}
+		if hasBlocks {
+			cur.Blocks = body.Blocks
+		}
 		d.Org = append(d.Org, cur)
 	} else {
 		idx := -1
@@ -378,12 +397,12 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 		metaChange := (body.Name != "" && body.Name != cur.Name) ||
 			(body.Edit != "" && body.Edit != cur.Edit) ||
 			(setMode && mode != cur.Mode)
-		if !hasTiles && !metaChange {
-			server.WriteError(w, http.StatusBadRequest, "nothing to change: send tiles and/or name/edit/mode")
+		if !content && !metaChange {
+			server.WriteError(w, http.StatusBadRequest, "nothing to change: send tiles/blocks and/or name/edit/mode")
 			return
 		}
 		if !admin && !m.Admin {
-			if hasTiles && !screenEditable(cur, m) {
+			if content && !screenEditable(cur, m) {
 				server.WriteError(w, http.StatusForbidden, "this screen is read-only for you (edit: "+cur.Edit+")")
 				return
 			}
@@ -392,7 +411,7 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if hasTiles {
+		if content {
 			if body.Rev != nil && *body.Rev != cur.Rev && !body.Force {
 				canEdit := admin || screenEditable(cur, m)
 				server.WriteJSON(w, http.StatusConflict, map[string]any{
@@ -403,7 +422,12 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 				})
 				return
 			}
-			cur.Tiles = body.Tiles
+			if hasTiles {
+				cur.Tiles = body.Tiles
+			}
+			if hasBlocks {
+				cur.Blocks = body.Blocks
+			}
 			cur.Rev++
 			cur.UpdatedBy, cur.UpdatedAt = by, at
 		}
