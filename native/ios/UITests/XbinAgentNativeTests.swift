@@ -24,6 +24,8 @@ import XCTest
 ///   its run, pushed, and Back returns to the schedule.
 /// - test05: the jump-to-latest pill of a long conversation when news
 ///   arrives while the reader is up the transcript.
+/// - test09: a sheet's dismissal over a pushed conversation keeps it
+///   (fails on v0.3.69: the conversation closes).
 /// - test06Gallery: the screens above in light and dark,
 ///   `agent-<light|dark>-NN-<screen>.png`.
 ///
@@ -258,6 +260,39 @@ final class XbinAgentNativeTests: XCTestCase {
         XCTAssertFalse(e.until(3) { row.isHittable }, "…with the list still hidden")
         e.toggleSidebar(shows: row)
         e.shot("agent-14-sidebar-shown")
+    }
+
+    /// A sheet over a conversation pushed over the list (a phone) leaves the
+    /// conversation where it was when it goes: More → Share, swiped away,
+    /// and the conversation is still in front. KNOWN TO FAIL on v0.3.69
+    /// (QA, 2026-10-08): the tree's sheets are presented from its root —
+    /// the list, under the app stack's destination — and their dismissal
+    /// sets that destination's isPresented to false ("split … hosted set
+    /// false shown true" in the xbin-nav log), so the conversation closes.
+    @MainActor
+    func test09SheetKeepsThePushedScreen() async throws {
+        let e = try E2E(self)
+        try await e.server.prepareAgent()
+        let id = try await e.server.ask("hello", title: "E2E sheet")
+        try await e.server.waitForAnswer(id, "Hello from the fake model.")
+        e.launch()
+        e.ensureWorkspace()
+        try XCTSkipIf(e.isPad, "an iPad shows the conversation beside the list, not pushed")
+        e.goHome()
+        e.app.open(URL(string: "xbin://\(e.server.authority)/c/apps/agent#c=\(id)")!)
+        let answer = e.containing("Hello from the fake model.")
+        e.expect(answer, 60, "the conversation")
+        e.agentMenu("Share")
+        let sheet = e.containing("Who can see it")
+        e.expect(sheet, 15, "the share sheet")
+        // swiped away by its grabber area, as a person does
+        e.app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12))
+            .press(forDuration: 0.05, thenDragTo: e.app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)))
+        XCTAssertTrue(sheet.waitForNonExistence(timeout: 10), "the sheet goes")
+        _ = e.until(3) { false }
+        e.shot("agent-16-after-sheet")
+        XCTAssertTrue(answer.exists && answer.isHittable, "the conversation is still in front")
+        XCTAssertFalse(e.agentRow("E2E sheet").isHittable, "…not the list")
     }
 
     /// The screens of the tests above, light and dark.
