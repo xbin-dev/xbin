@@ -251,7 +251,6 @@ private struct HostedCollapsedSplit: View {
     let secondary: XbinNode
     @Environment(\.xbin) private var cx
     @Environment(\.xbinImages) private var images
-    @Environment(\.xbinConfirm) private var confirm
     @Environment(\.xbinCompact) private var compact
 
     var body: some View {
@@ -270,12 +269,12 @@ private struct HostedCollapsedSplit: View {
             .navigationDestination(isPresented: shown) {
                 // A destination of the app's stack takes its environment
                 // from that stack, not from here: without the tree's own
-                // (its context, images, confirmations) the pushed detail
+                // (its context, images) the pushed detail
                 // drew but sent nothing — typing into its composer went
                 // nowhere, a card had no Open (2026-10-07). And it is read
                 // by key when drawn (LiveNode), as a destination keeps the
                 // content it was pushed with.
-                let carried = CarriedXbinEnvironment(cx: cx, images: images, confirm: confirm, compact: compact)
+                let carried = CarriedXbinEnvironment(cx: cx, images: images, compact: compact)
                 LiveNode(key: secondary.key) { detail in
                     if detail.type == "nav" {
                         HostedNav(node: detail, carried: carried)
@@ -352,19 +351,23 @@ private struct HostedNavLevel: View {
 }
 
 /// The tree's environment, carried into a destination of the app's stack
-/// (which takes the stack's environment, not the tree's).
+/// (which takes the stack's environment, not the tree's) — with a
+/// confirmation host of its own: the tree's is presented from the tree's
+/// root, which a destination covers, so a button's `confirm` on a pushed
+/// screen showed nothing — Close tab, Delete, Cancel task did nothing on an
+/// iPhone — and its dialog popped up later over the list, once Back
+/// uncovered the root (2026-10-08).
 private struct CarriedXbinEnvironment: ViewModifier {
     let cx: XbinRenderContext?
     let images: XbinImages?
-    let confirm: ConfirmHost?
     let compact: CardSize?
 
     func body(content: Content) -> some View {
         content
             .environment(\.xbin, cx)
             .environment(\.xbinImages, images)
-            .environment(\.xbinConfirm, confirm)
             .environment(\.xbinCompact, compact)
+            .modifier(ConfirmHostModifier())
     }
 }
 

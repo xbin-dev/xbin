@@ -24,8 +24,9 @@ import XCTest
 ///   its run, pushed, and Back returns to the schedule.
 /// - test05: the jump-to-latest pill of a long conversation when news
 ///   arrives while the reader is up the transcript.
-/// - test09: a sheet's dismissal over a pushed conversation keeps it
-///   (fails on v0.3.69: the conversation closes).
+/// - test08: a `confirm` on a pushed screen (the conversation's Delete)
+///   asks over that screen.
+/// - test09: a sheet's dismissal over a pushed conversation keeps it.
 /// - test06Gallery: the screens above in light and dark,
 ///   `agent-<light|dark>-NN-<screen>.png`.
 ///
@@ -260,6 +261,37 @@ final class XbinAgentNativeTests: XCTestCase {
         XCTAssertFalse(e.until(3) { row.isHittable }, "…with the list still hidden")
         e.toggleSidebar(shows: row)
         e.shot("agent-14-sidebar-shown")
+    }
+
+    /// A button's `confirm` on a screen pushed over the list (a phone: the
+    /// conversation is a destination of the app's stack) asks there and
+    /// then: the conversation's More → Delete shows its dialog over the
+    /// conversation, and Cancel keeps it. The dialog used to be presented
+    /// from the covered list — nothing showed, and it popped up over the
+    /// list after Back (QA, 2026-10-08).
+    @MainActor
+    func test08ConfirmOnAPushedScreen() async throws {
+        let e = try E2E(self)
+        try await e.server.prepareAgent()
+        let id = try await e.server.ask("hello", title: "E2E confirm")
+        try await e.server.waitForAnswer(id, "Hello from the fake model.")
+        e.launch()
+        e.ensureWorkspace()
+        e.goHome()
+        e.app.open(URL(string: "xbin://\(e.server.authority)/c/apps/agent#c=\(id)")!)
+        let answer = e.containing("Hello from the fake model.")
+        e.expect(answer, 60, "the conversation")
+        e.agentMenu("Delete")
+        let ask = e.app.staticTexts["Delete this run and its history?"]
+        e.expect(ask, 10, "the Delete confirmation shows over the conversation")
+        e.shot("agent-15-confirm-pushed")
+        let cancel = e.app.buttons["Cancel"]
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "the dialog's Cancel")
+        cancel.tap()
+        XCTAssertTrue(ask.waitForNonExistence(timeout: 10), "Cancel closes it")
+        XCTAssertTrue(answer.exists, "…and the conversation stays")
+        let ids = try await e.server.conversations().map(\.id)
+        XCTAssertTrue(ids.contains(id), "nothing was deleted")
     }
 
     /// A sheet over a conversation pushed over the list (a phone) leaves the
