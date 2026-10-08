@@ -285,9 +285,17 @@ final class XbinAgentNativeTests: XCTestCase {
         let ask = e.app.staticTexts["Delete this run and its history?"]
         e.expect(ask, 10, "the Delete confirmation shows over the conversation")
         e.shot("agent-15-confirm-pushed")
+        // iOS 27 draws it on an iPhone as a popover over the bar's More,
+        // with no Cancel button: a tap outside it cancels.
         let cancel = e.app.buttons["Cancel"]
-        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "the dialog's Cancel")
-        cancel.tap()
+        let outside = e.app.buttons["PopoverDismissRegion"]
+        if cancel.waitForExistence(timeout: 3) {
+            cancel.tap()
+        } else if outside.exists {
+            outside.tap()
+        } else {
+            e.app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55)).tap()
+        }
         XCTAssertTrue(ask.waitForNonExistence(timeout: 10), "Cancel closes it")
         XCTAssertTrue(answer.exists, "…and the conversation stays")
         let ids = try await e.server.conversations().map(\.id)
