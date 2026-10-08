@@ -173,7 +173,7 @@ await page.waitForSelector('.acard');
 ok('the built-in agent\'s conversation: no harness chips', !(await has('#top .hcounts')) && !(await has('.hcard')));
 
 // --- the highlighter: /vendor/bx-code.js's diffHTML when the page can import it --------------------------
-const web = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'web');
+const web = process.env.BX_WEB || join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'web');
 // the page's import map names lit in a workspace (xbin.json importMap); here the module says it itself.
 // xbind's /vendor/ modules the highlighter imports (the kit, lit and marked stay the STUB's).
 const lit = (src) => src.replace(/from 'lit'/g, "from '/vendor/lit-all.min.js'");
