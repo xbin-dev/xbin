@@ -12,6 +12,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-08
 
+- **Fix: scm-github's "Create on GitHub…" and "Finish" stayed disabled
+  while you typed.** The page stored each field but didn't redraw, so a
+  button that depends on a field (the App's name; the address GitHub sent
+  you to) kept the state it had when the page loaded. Instances take it
+  with a template update (`bx template updates` lists the ones behind).
+
 - **The agent template: a task waiting for a sign-in stays waiting.** While
   a Projects task waited for its owner to sign in to the scm provider, its
   workspace went back to `preparing` each time the prepare step looked

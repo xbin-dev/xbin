@@ -102,7 +102,9 @@ function signinTpl() {
 }
 
 // --- the App (managers) --------------------------------------------------------
-const set = (o, k) => (e) => { o[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.value; };
+// a field's value into its form, and a redraw: buttons whose enabled state
+// depends on a field (Create on GitHub…, Finish) follow it as it is typed
+const set = (o, k) => (e) => { o[k] = e.target.type === 'checkbox' ? e.target.checked : e.target.value; paint(); };
 
 function submitManifest() {
   return act(async () => {
