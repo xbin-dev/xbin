@@ -241,7 +241,9 @@ func init() {
 
 // scmCredsJob is the creds job: a credential for k's sandbox (p's, for a
 // project's own job). A sign-in under way: the job waits, polling the
-// provider at its interval, for at most 15 minutes.
+// provider at its interval, for at most 15 minutes. It asks through
+// scmEnsureCreds, as the prepare step (stepCreds) does: one question, one
+// answer — a stand-in (a test's) answers both.
 func scmCredsJob(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobOutcome, error) {
 	if s := scmSigninOf(p.Owner, p.SCM); s != nil && s.PollID != "" && scmProjectAs(p) == scmAsPerson {
 		api, err := scmFor(p.SCM)
@@ -264,7 +266,7 @@ func scmCredsJob(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob)
 			return jobOutcome{}, fmt.Errorf("the sign-in to %s ended: %s", scmTitle(ctx, api), orStr(st.Error, st.State))
 		}
 	}
-	err := ensureCreds(ctx, p, k, "", scmMinLeft)
+	err := scmEnsureCreds(ctx, p, k, "", scmMinLeft)
 	var se *scmError
 	switch {
 	case err == nil:

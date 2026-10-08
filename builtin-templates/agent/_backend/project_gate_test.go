@@ -127,11 +127,11 @@ func TestSigninParksTask(t *testing.T) {
 	var signin atomic.Bool
 	signin.Store(true)
 	old := scmEnsureCreds
-	scmEnsureCreds = func(_ context.Context, _ *Project, k *ProjectTask, _ string, _ time.Duration) error {
+	scmEnsureCreds = func(ctx context.Context, p *Project, k *ProjectTask, ref string, left time.Duration) error {
 		if k != nil && signin.Load() {
 			return &scmError{Status: 409, Refusal: scmRefSignin, Message: "sign in to GitHub"}
 		}
-		return nil
+		return old(ctx, p, k, ref, left) // signed in: the credential is written (scmCredsDue reads it)
 	}
 	t.Cleanup(func() { scmEnsureCreds = old }) // registered first: runs after the engine stops
 	fx := newProjFix(t)
