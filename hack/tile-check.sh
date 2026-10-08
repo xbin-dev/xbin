@@ -13,11 +13,20 @@
 #   hack/tile-check.sh            # every tile (make tile-check)
 #   hack/tile-check.sh agent      # one
 #   TILE_TEST_FLAGS="-race -count=1" hack/tile-check.sh agent   # extra go test flags
+#                                 (-race without -timeout gets -timeout 30m: the
+#                                 agent template's tests take ~13 min under it,
+#                                 past go test's default 10)
 #   TILE_CHECK_JOBS=1 hack/tile-check.sh   # one at a time (default: one per CPU)
 set -euo pipefail
 repo=$(cd "$(dirname "$0")/.." && pwd)
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT
+
+test_flags=${TILE_TEST_FLAGS:-}
+case " $test_flags " in
+*" -race "* | *" -race=true "*)
+  case " $test_flags " in *" -timeout"*) ;; *) test_flags="$test_flags -timeout 30m" ;; esac ;;
+esac
 
 dirs=()
 if [ $# -gt 0 ]; then
@@ -52,7 +61,7 @@ check_one() {
     gol=$(printf '%s\n' 1.24 "${gol:-1.24}" | sort -V | tail -1)
     printf 'go %s\n\nuse .\n\nreplace github.com/xbin-dev/xbin/sdk => "%s"\n' "$gol" "$repo/sdk" > go.work
     export GOWORK="$work/go.work" GOFLAGS="${GOFLAGS:+$GOFLAGS }-mod=readonly"
-    if out=$(go vet ./... 2>&1 && go test ${TILE_TEST_FLAGS:-} ./... 2>&1); then
+    if out=$(go vet ./... 2>&1 && go test $test_flags ./... 2>&1); then
       echo "$out" | grep -v "no test files" || true
       echo "  ✓ $name"
     else
