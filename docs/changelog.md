@@ -17,6 +17,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   button that depends on a field (the App's name; the address GitHub sent
   you to) kept the state it had when the page loaded. Instances take it
   with a template update (`bx template updates` lists the ones behind).
+- **Fix: scm-github hid why an action failed.** After Finish, Check and
+  save, Create on GitHub… and the other buttons, the page reloaded its
+  state and that reload cleared the action's error, so a failure (no
+  egress to api.github.com, an expired code) looked like nothing
+  happened. The error now stays on the page.
 
 - **The agent template: a task waiting for a sign-in stays waiting.** While
   a Projects task waited for its owner to sign in to the scm provider, its

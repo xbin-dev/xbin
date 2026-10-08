@@ -40,9 +40,11 @@ async function load() {
 
 async function act(fn, note = '') {
   st.err = ''; st.note = ''; st.busy = true; paint();
-  try { await fn(); st.note = note; } catch (e) { st.err = e.message; }
+  let failed = '';
+  try { await fn(); st.note = note; } catch (e) { failed = e.message; }
   st.busy = false;
   await load();
+  if (failed) { st.err = failed; paint(); } // load() clears st.err when its reads succeed: keep the action's own error
 }
 
 // --- your sign-in ---------------------------------------------------------------
