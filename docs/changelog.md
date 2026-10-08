@@ -12,6 +12,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-08
 
+- **The agent template: a task waiting for a sign-in stays waiting.** While
+  a Projects task waited for its owner to sign in to the scm provider, its
+  workspace went back to `preparing` each time the prepare step looked
+  again (every 10 s, and whenever another job of the project ended): the
+  task's run left the park that shows the device code (`park.signin` on
+  `GET /runs/{id}/task`), moved to sleeping and came back. It stays at
+  `signin`, with its code, until the credential is there. **Instances:**
+  take it with `git merge template/main`.
 - **The iOS app: confirmations and sheets over a pushed screen stay
   there** (D189/D190). On an iPhone, where a native view's collapsed
   `split` pushes its detail onto the app's stack (the agent template's

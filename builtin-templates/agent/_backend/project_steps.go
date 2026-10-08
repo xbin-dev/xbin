@@ -585,7 +585,14 @@ func jobPrepare(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 			return waitJob(2000, "waiting for "+r.Repo)
 		}
 	}
-	_ = projAg().db.Tx(func(t *DB) error { setWS(t, p, k, wsPreparing, ""); return nil })
+	// A sign-in the task waits for holds until the credential is there
+	// (stepCreds, below): this step looks again every 10 s and whenever
+	// another job of the project ends, and each look must not move the
+	// task to preparing and back — its run would leave the park that
+	// shows the person the device code, and come back to it.
+	if k.WS != wsSignin {
+		_ = projAg().db.Tx(func(t *DB) error { setWS(t, p, k, wsPreparing, ""); return nil })
+	}
 	if k.Size == sizeBig && !k.ForkMade {
 		ref, err := provisionFork(ctx, p, k)
 		switch {
@@ -616,6 +623,9 @@ func jobPrepare(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 		return waitJob(10000, "waiting for a sign-in")
 	} else if err != nil {
 		return jobOutcome{}, err
+	}
+	if k.WS == wsSignin {
+		_ = projAg().db.Tx(func(t *DB) error { setWS(t, p, k, wsPreparing, ""); return nil })
 	}
 	for _, r := range repos {
 		if r.Mode == repoBare && nowMs()-r.FetchedMs > 2*60*1000 {

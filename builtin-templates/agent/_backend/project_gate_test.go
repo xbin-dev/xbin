@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -199,6 +200,61 @@ func TestDeviceCodeOnlyToRequester(t *testing.T) {
 	r, _ := fx.ag.db.getRun(runID)
 	if b, _ := json.Marshal(runSummary(r)); strings.Contains(string(b), "WDJB") || strings.Contains(r.Pending, "WDJB") {
 		t.Fatal("the stored park or the run event carries the code")
+	}
+}
+
+// A sign-in park holds while the prepare step looks again (every 10 s, and
+// whenever another job of the project ends): the task never goes back to
+// preparing for the look, so its run never leaves the park that shows the
+// device code.
+func TestSigninParkHoldsThroughPrepare(t *testing.T) {
+	old, oldHooks := scmEnsureCreds, taskChangedHooks
+	scmEnsureCreds = func(_ context.Context, _ *Project, k *ProjectTask, _ string, _ time.Duration) error {
+		if k != nil {
+			return &scmError{Status: 409, Refusal: scmRefSignin, Message: "sign in"}
+		}
+		return nil
+	}
+	var mu sync.Mutex
+	var moves []string
+	taskChangedHooks = append(append([]func(*DB, *Project, *ProjectTask, string){}, oldHooks...), func(_ *DB, _ *Project, k *ProjectTask, what string) {
+		if what == "ws" {
+			mu.Lock()
+			moves = append(moves, k.WS)
+			mu.Unlock()
+		}
+	})
+	t.Cleanup(func() { scmEnsureCreds, taskChangedHooks = old, oldHooks }) // registered first: runs after the engine stops
+	fx := newProjFix(t)
+	p := fx.newProject(t, asAlice, nil)
+	_, runID := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "go"})
+	waitStatus(t, fx.ag.db, runID, statusWaiting)
+	prep := func() *ProjectJob {
+		js := fx.ag.db.jobsWhere(`WHERE project_id=? AND kind=? ORDER BY id DESC LIMIT 1`, p.ID, pjPrepare)
+		if len(js) == 0 {
+			t.Fatalf("no prepare job: %s", jobsDump(fx.ag.db, p.ID))
+		}
+		return js[0]
+	}
+	before := prep().Updated
+	waitFor(t, "the clock past the park", func() bool { return nowMs() > before })
+	mu.Lock()
+	moves = nil
+	mu.Unlock()
+	// the step's next look, now
+	_, _ = fx.ag.db.q.Exec(`UPDATE project_jobs SET next_ms=0 WHERE project_id=? AND kind=? AND state='waiting'`, p.ID, pjPrepare)
+	kickProjectWorker()
+	waitFor(t, "the prepare step's next look", func() bool {
+		j := prep()
+		return j.Updated > before && j.State == pjWaiting
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	if len(moves) != 0 {
+		t.Fatalf("the task's workspace moved while it waited for the sign-in: %v", moves)
+	}
+	if r, _ := fx.ag.db.getRun(runID); r.Status != statusWaiting || parsePending(r.Pending).Project.WS != wsSignin {
+		t.Fatalf("the park: %s %s", r.Status, r.Pending)
 	}
 }
 
