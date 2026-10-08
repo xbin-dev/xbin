@@ -113,7 +113,7 @@ private struct RootView: View {
                     .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
                     .clipped()
             } else if Self.fullScreen.contains(root.type) {
-                NodeView(node: root)
+                TopLevelView(root: root)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) { NodeView(node: root) }
@@ -131,6 +131,39 @@ private struct RootView: View {
             }
         } else {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
+/// The tree's top level, full screen: one node, or a `fragment` of several —
+/// the runtime makes it a fragment only while there are several (a sheet
+/// beside the view, say). Both are drawn here as a fragment's content and
+/// sheets, so the view keeps its identity when a sheet comes or goes: drawn
+/// as the node itself, then as a fragment, everything under it was a new
+/// view — the agent's split on a phone dropped the conversation pushed over
+/// its list the moment Share opened (2026-10-08), a screen its scroll
+/// position. A `split` that is all the tree draws, in the app's stack,
+/// presents the sheets itself — from the screen in front (``SplitSheets``).
+private struct TopLevelView: View {
+    let root: XbinNode
+    @Environment(\.xbin) private var cx
+
+    var body: some View {
+        let layout = FragmentLayout(root.type == "fragment" ? root.children : [root])
+        if root.type != "fragment" && layout.content.isEmpty {
+            // A sheet on its own (a drawer draws itself in place).
+            NodeView(node: root)
+        } else if layout.content.count == 1 && layout.content[0].type == "split"
+            && cx?.options.hostNavigation == true && cx?.options.inlineSheets != true {
+            NodeView(node: layout.content[0])
+                .environment(\.xbinSplitSheets, true)
+                .modifier(DrawersModifier(drawers: layout.drawers))
+        } else if layout.content.count == 1 {
+            NodeView(node: layout.content[0])
+                .modifier(SheetsModifier(sheets: layout.sheets, drawers: layout.drawers))
+        } else {
+            VStack(spacing: 0) { ForEach(layout.content) { NodeView(node: $0) } }
+                .modifier(SheetsModifier(sheets: layout.sheets, drawers: layout.drawers))
         }
     }
 }

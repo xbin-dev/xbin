@@ -66,11 +66,23 @@ struct SplitView: View {
     let node: XbinNode
     @Environment(\.horizontalSizeClass) private var width
     @Environment(\.xbinNav) private var nav
+    @Environment(\.xbin) private var cx
+    /// This split presents the tree's top-level sheets (``SplitSheets``).
+    @Environment(\.xbinSplitSheets) private var topSheets
 
     var body: some View {
+        let layout = SplitLayout(node, regularWidth: width == .regular)
+        let onAppStack = layout == .collapsed && CollapsedSplit.onAppStack(cx, inSheet: nav.inSheet)
+        // A split collapsed onto the app's stack presents them from the
+        // screen in front; any other, over itself.
+        layouts(layout)
+            .environment(\.xbinSplitSheets, false)
+            .modifier(SplitSheets(owner: topSheets, active: !onAppStack))
+    }
+
+    @ViewBuilder private func layouts(_ layout: SplitLayout) -> some View {
         let kids = node.children
         let flags = XbinNavFlags(inNavigation: true, pushed: false, inSheet: nav.inSheet)
-        let layout = SplitLayout(node, regularWidth: width == .regular)
         let _ = navTrace("split \(node.key) layout \(layout) width \(String(describing: width)) detail \(SplitState(node).detail)")
         if layout == .columns {
             #if XBIN_SDK_27_1
@@ -83,7 +95,7 @@ struct SplitView: View {
             ColumnsSplit(node: node, primary: kids[0], secondary: kids[1], flags: flags)
             #endif
         } else if layout == .collapsed {
-            CollapsedSplit(node: node, primary: kids[0], secondary: kids[1], inSheet: nav.inSheet)
+            CollapsedSplit(node: node, primary: kids[0], secondary: kids[1], inSheet: nav.inSheet, topSheets: topSheets)
         } else {
             VStack(spacing: 0) {
                 ForEach(Array(kids.enumerated()), id: \.element.id) { i, kid in
@@ -233,11 +245,16 @@ private struct CollapsedSplit: View {
     let primary: XbinNode
     let secondary: XbinNode
     let inSheet: Bool
+    let topSheets: Bool
     @Environment(\.xbin) private var cx
 
+    static func onAppStack(_ cx: XbinRenderContext?, inSheet: Bool) -> Bool {
+        cx?.options.hostNavigation == true && !inSheet
+    }
+
     var body: some View {
-        if cx?.options.hostNavigation == true && !inSheet {
-            HostedCollapsedSplit(node: node, primary: primary, secondary: secondary)
+        if Self.onAppStack(cx, inSheet: inSheet) {
+            HostedCollapsedSplit(node: node, primary: primary, secondary: secondary, topSheets: topSheets)
         } else {
             OwnStackSplit(node: node, primary: primary, secondary: secondary, inSheet: inSheet)
         }
@@ -249,6 +266,7 @@ private struct HostedCollapsedSplit: View {
     let node: XbinNode
     let primary: XbinNode
     let secondary: XbinNode
+    let topSheets: Bool
     @Environment(\.xbin) private var cx
     @Environment(\.xbinImages) private var images
     @Environment(\.xbinCompact) private var compact
@@ -263,9 +281,11 @@ private struct HostedCollapsedSplit: View {
                 if !open, SplitState(n).detail { context?.emit(n, "close") }
             }
         )
+        let sheets = topSheets
         NodeView(node: primary)
             .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: false, inSheet: false, drawersHosted: false,
                                                  covered: SplitState(n).detail))
+            .modifier(SplitSheets(owner: sheets, active: !SplitState(n).detail))
             .navigationDestination(isPresented: shown) {
                 // A destination of the app's stack takes its environment
                 // from that stack, not from here: without the tree's own
@@ -277,10 +297,11 @@ private struct HostedCollapsedSplit: View {
                 let carried = CarriedXbinEnvironment(cx: cx, images: images, compact: compact)
                 LiveNode(key: secondary.key) { detail in
                     if detail.type == "nav" {
-                        HostedNav(node: detail, carried: carried)
+                        HostedNav(node: detail, carried: carried, topSheets: sheets)
                     } else {
                         NodeView(node: detail)
                             .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: true, inSheet: false, drawersHosted: false))
+                            .modifier(SplitSheets(owner: sheets, active: true))
                     }
                 }
                 .modifier(carried)
@@ -300,6 +321,7 @@ private struct HostedCollapsedSplit: View {
 private struct HostedNav: View {
     let node: XbinNode
     let carried: CarriedXbinEnvironment
+    let topSheets: Bool
     @Environment(\.xbin) private var cx
     /// The screens the user left, counted against the stack they left them
     /// from: once the tile's stack is another (it dropped them, or moved
@@ -316,7 +338,7 @@ private struct HostedNav: View {
         let n = node
         let context = cx
         if !screens.isEmpty {
-            HostedNavLevel(screens: Array(keys.prefix(shown)), index: 0, carried: carried) { depth in
+            HostedNavLevel(screens: Array(keys.prefix(shown)), index: 0, carried: carried, topSheets: topSheets) { depth in
                 navTrace("nav \(n.key) hosted pop to \(depth) of \(keys.count)")
                 guard depth < shown else { return }
                 popped = (keys.count - depth, keys)
@@ -332,6 +354,7 @@ private struct HostedNavLevel: View {
     let screens: [String]
     let index: Int
     let carried: CarriedXbinEnvironment
+    let topSheets: Bool
     let pop: @MainActor (Int) -> Void
 
     var body: some View {
@@ -344,8 +367,11 @@ private struct HostedNavLevel: View {
                 .environment(\.xbinNav, XbinNavFlags(inNavigation: true, pushed: true, inSheet: false, drawersHosted: false,
                                                      covered: next < count))
         }
+        .modifier(SplitSheets(owner: topSheets, active: next >= count))
         .navigationDestination(isPresented: over) {
-            if next < count { HostedNavLevel(screens: screens, index: next, carried: carried, pop: pop).modifier(carried) }
+            if next < count {
+                HostedNavLevel(screens: screens, index: next, carried: carried, topSheets: topSheets, pop: pop).modifier(carried)
+            }
         }
     }
 }
@@ -368,6 +394,36 @@ private struct CarriedXbinEnvironment: ViewModifier {
             .environment(\.xbinImages, images)
             .environment(\.xbinCompact, compact)
             .modifier(ConfirmHostModifier())
+    }
+}
+
+/// The tree's top-level sheets (``TopLevelView``: the sheets beside a
+/// `split` that is all the tree draws), presented from here while `active`
+/// and `owner` (the split presents them). A split collapsed onto the app's
+/// stack presents them from the screen in front — the list, or the top
+/// screen pushed over it — never from one it covers, as a confirmation
+/// isn't (``CarriedXbinEnvironment``). Read from the model when drawn: a
+/// destination keeps the content it was pushed with, and sheets come and go.
+private struct SplitSheets: ViewModifier {
+    let owner: Bool
+    let active: Bool
+
+    func body(content: Content) -> some View {
+        content.background {
+            if active && owner { TopLevelSheets() }
+        }
+    }
+}
+
+/// The bottom sheets of the tree's top level, as the model has it now.
+private struct TopLevelSheets: View {
+    @Environment(\.xbin) private var cx
+
+    var body: some View {
+        let _ = cx?.model.revision
+        if let root = cx?.model.root, root.type == "fragment" {
+            ForEach(FragmentLayout(root.children).sheets) { SheetView(node: $0) }
+        }
     }
 }
 

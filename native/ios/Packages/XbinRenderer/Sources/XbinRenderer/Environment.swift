@@ -245,6 +245,10 @@ private struct InHStackKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct SplitSheetsKey: EnvironmentKey {
+    static let defaultValue = false
+}
+
 extension EnvironmentValues {
     var xbin: XbinRenderContext? {
         get { self[ContextKey.self] }
@@ -293,6 +297,14 @@ extension EnvironmentValues {
     var xbinInHStack: Bool {
         get { self[InHStackKey.self] }
         set { self[InHStackKey.self] = newValue }
+    }
+
+    /// The `split` drawn here presents the tree's top-level sheets
+    /// (``TopLevelView``): in the app's stack, from the screen in front
+    /// (``SplitSheets``).
+    var xbinSplitSheets: Bool {
+        get { self[SplitSheetsKey.self] }
+        set { self[SplitSheetsKey.self] = newValue }
     }
 }
 

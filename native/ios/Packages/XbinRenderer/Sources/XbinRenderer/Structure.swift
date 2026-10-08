@@ -30,41 +30,40 @@ struct FragmentView: View {
 /// Presents bottom `sheets` over the content (or draws them inline for
 /// snapshots, ``XbinRenderOptions/inlineSheets``) and lays `drawers` over
 /// it (``DrawerLayer``, the same in both).
+///
+/// The content keeps its identity whether or not a sheet is open: the
+/// sheets come and go inside a background (an overlay), never by choosing
+/// between two ways of wrapping the content — wrapped one way with no sheet
+/// and another with one, everything under it was a new view each time a
+/// sheet opened or closed (a screen's scroll position, what was typed; a
+/// split's pushed detail, ``TopLevelView``).
 struct SheetsModifier: ViewModifier {
     let sheets: [XbinNode]
     var drawers: [XbinNode] = []
     @Environment(\.xbin) private var cx
 
     func body(content: Content) -> some View {
-        if sheets.isEmpty {
-            content.modifier(DrawersModifier(drawers: drawers))
-        } else if cx?.options.inlineSheets == true {
-            content
-                .overlay(alignment: .bottom) {
-                    ForEach(sheets) { SheetView(node: $0) }
-                }
-                .modifier(DrawersModifier(drawers: drawers))
-        } else {
-            content
-                .background {
-                    ForEach(sheets) { SheetView(node: $0) }
-                }
-                .modifier(DrawersModifier(drawers: drawers))
-        }
+        let inline = cx?.options.inlineSheets == true
+        content
+            .background {
+                if !inline { ForEach(sheets) { SheetView(node: $0) } }
+            }
+            .overlay(alignment: .bottom) {
+                if inline { ForEach(sheets) { SheetView(node: $0) } }
+            }
+            .modifier(DrawersModifier(drawers: drawers))
     }
 }
 
-/// Lays `drawers` over the content (each covers it while open).
+/// Lays `drawers` over the content (each covers it while open) — in an
+/// overlay that is there with none, so the content keeps its identity as
+/// drawers come and go (``SheetsModifier``).
 struct DrawersModifier: ViewModifier {
     let drawers: [XbinNode]
 
     func body(content: Content) -> some View {
-        if drawers.isEmpty {
-            content
-        } else {
-            content.overlay {
-                ForEach(drawers) { DrawerLayer(node: $0) }
-            }
+        content.overlay {
+            ForEach(drawers) { DrawerLayer(node: $0) }
         }
     }
 }

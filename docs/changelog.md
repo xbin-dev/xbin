@@ -12,6 +12,18 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-08
 
+- **The iOS app: confirmations and sheets over a pushed screen stay
+  there** (D189/D190). On an iPhone, where a native view's collapsed
+  `split` pushes its detail onto the app's stack (the agent template's
+  conversation and what is pushed over it), a button's `confirm` (Delete,
+  Close tab, Cancel task…) now asks over that screen — it showed nothing
+  and popped up over the list after Back. A sheet the tile adds beside the
+  split (Share, Share a copy, Add a copy of my files…) now opens over the
+  pushed screen and leaves it there — the conversation closed under it,
+  and the list was what showed when the sheet went. More generally, a
+  sheet coming or going at a tree's top level, or beside a screen, no
+  longer draws the view under it anew, so a screen keeps its scroll
+  position and what was typed. **Tiles:** nothing to do.
 - **The agent template: a terminal tab opened at a directory comes back.** A
   native Terminals tab opened from a conversation's Sandbox screen (Open
   terminal) or a coding agent's Terminal — dialled with `cwd=` (and

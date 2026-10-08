@@ -303,12 +303,13 @@ final class XbinAgentNativeTests: XCTestCase {
     }
 
     /// A sheet over a conversation pushed over the list (a phone) leaves the
-    /// conversation where it was when it goes: More → Share, swiped away,
-    /// and the conversation is still in front. KNOWN TO FAIL on v0.3.69
-    /// (QA, 2026-10-08): the tree's sheets are presented from its root —
-    /// the list, under the app stack's destination — and their dismissal
-    /// sets that destination's isPresented to false ("split … hosted set
-    /// false shown true" in the xbin-nav log), so the conversation closes.
+    /// conversation where it was: More → Share, swiped away, and the
+    /// conversation is still in front. On v0.3.69 (QA, 2026-10-08) the
+    /// conversation closed under the sheet as it opened: the runtime's top
+    /// level went from the split alone to a fragment of it and the sheet,
+    /// the renderer drew the two differently, and the split it drew anew
+    /// dropped the destination it had pushed ("split … hosted set false
+    /// shown true" in the xbin-nav log) — seen once the sheet went.
     @MainActor
     func test09SheetKeepsThePushedScreen() async throws {
         let e = try E2E(self)

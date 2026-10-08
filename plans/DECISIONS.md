@@ -11706,6 +11706,24 @@ Deviations and refinements made while implementing; all deliberate:
     deep-linked detail came straight back to it. Now a disappear while the
     window's surface is still this tile keeps everything live, and a
     screen hands its fragment to the runtime once (`NativeHostedStack`).
+  - **Presenting over the app's stack (2026-10-08, QA of v0.3.69).** A
+    destination of the app's stack covers the tree's root, so what the
+    tree presents from there must be presented from the screen in front.
+    Confirmations: each carried destination installs its own
+    `ConfirmHost` (the tree's one, at the root, showed nothing on a pushed
+    screen). Sheets: the runtime's top level is the one node while it is
+    alone and a `fragment` once a sheet joins it (rt-build.js), and the
+    renderer drew the two differently — the split was drawn anew as Share
+    opened, and the new one dropped the destination the old one pushed
+    (`close`, the conversation gone under the sheet). Now the top level is
+    drawn as a fragment's content either way (`TopLevelView`), the sheets
+    come and go inside a background instead of re-wrapping the content
+    (`SheetsModifier`, `DrawersModifier`), and a split that is all the
+    tree draws presents the top-level sheets itself: over itself, or —
+    collapsed onto the app's stack — from the list or the top pushed
+    screen (`SplitSheets`). Not chosen: ignoring the split's binding
+    writes around a sheet (the destination is really gone by then; the
+    binding only reports it). XbinAgentNativeTests test08/test09.
   - **Verified:** see the commit messages of the native-rev2 branch.
 
 - **D190 — The agent's native view: list-first, a navigation stack
