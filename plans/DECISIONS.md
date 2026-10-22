@@ -12026,3 +12026,90 @@ Deviations and refinements made while implementing; all deliberate:
     the phone stack, Document rows and Row ▸ Move down, delete, empty
     discarded, an org draft published at rev+1, kept through a tiles-only
     PUT, read-only in view mode).
+- **D193 — Screen modes: full-width Document rows, Fixed width, Tiled; a
+  screen's mode and arrangement travel with it (2026-10-22).**
+  workspace-template/shell/modes.js, doc-layout.js, shell-doc.js,
+  fixed-layout.js, grid-layout.js, tiling.js, shell-tiled.js, bx-canvas.js,
+  shell-blocks.js, blocks.js, shell-tabs.js, menus.js, bx-shell.js;
+  web/bx-icons.js (`columns`, `tiling`); internal/broker/screens.go;
+  hack/{modes,doc-layout,fixed-layout,grid-layout,tiling,blocks,menus}.test.mjs,
+  `TestScreensOrgArrange`; harness passes docMode (extended), fixedGrid,
+  tiled; docs/frontend-kit.md §Screen modes, elements.md, protocol.md. The
+  owner: "in document mode a single tile-row the tile should be full width
+  not half, add 1. fixed width mode, like original grid, but fixed 48
+  columns instead of infinite X; 2. Single tile tabs (fullscreen); Tab mode
+  should persist as part of layout (so shared tile can have a pre-set
+  display mode)". Their answers: rows full width with no cap ("maybe side
+  draggable bar to constrain"); stretch the columns only; Fixed width keeps
+  its own positions; single tile, "then tiled/bspwm like".
+  - **Modes.** A screen's `mode` is `canvas` (absent) | `fixed` | `doc` |
+    `tiled`; anything else reads as the canvas, so a shell from before
+    this shows a Fixed-width or Tiled screen as its canvas. The server
+    accepts the four (else 400); the mode stays admin-plane (D187): never
+    a revision. The Layout menu lists all four (modes.js MODE_INFO, one
+    place instead of the `'doc'` literals); a tab shows the mode's glyph.
+  - **No mode rewrites another's layout.** Each reads its own fields: the
+    canvas `x/y/w/h`, Document `doc`, Fixed width `fixed` (per tile and
+    block), Tiled `arrange.tiling`. Switching back always shows a mode as
+    it was. The cost is that a tile placed in one mode has no place in
+    another until it is drawn there; every mode places such a tile
+    deterministically (reading order, the canvas place when it fits, the
+    focused split).
+  - **`arrange`, one screen-level object beside tiles and blocks:**
+    `{docWidth?, tiling?}`. On org screens it is content, not meta (an
+    editor drags a divider or the width handle in a draft): the edit
+    knob, `rev`, 409, kept by a PUT that leaves it out (a pre-D193 shell
+    or the iOS app re-saving tiles), not an object → 400 — Blocks'
+    (D192) rule. Personal screens keep it in the layout pref. Not in
+    `tiles` (the app and older shells read every entry as a tile) and
+    not two top-level keys (one opaque field keeps the server out of the
+    shell's shapes).
+  - **Carrying it (the owner's "pre-set display mode").** Share to org
+    sends mode + arrange (on a replace, the mode only from an org admin —
+    the server's meta rule; a member's replace keeps the target's mode);
+    the ws default screen (`PUT /screens/default`) carries both and seeds
+    them; Copy to my screens and a vanished org screen's draft copy keep
+    both (the draft holds the mode for that).
+  - **Document rows.** A row holding one tile reads as 1 wide whatever
+    width it was given (doc-layout.js `row`): the tile a 2-wide row is
+    left with spans the page instead of half; a tile joining it makes
+    it 2. The 1100 px cap goes (D187's "reading width"; D192's "as wide
+    as a single tile" now means the page). The width limit is a handle on
+    the page's right edge, centred, ≥ 480 px, lifted by dragging it to the
+    edge or two clicks; a phone ignores it.
+  - **Fixed width.** The canvas grid with exactly 48 columns (2304
+    logical px) stretched to the pane: x scales (`_kx`), y doesn't
+    (`_ky` = 1), so rows stay 48 px and nothing scrolls sideways; the
+    grid-scale setting (D68) doesn't apply. `pushLayout`/`spotNear` take
+    a right bound: a push right past it goes down (after a swap was
+    tried). An item without `fixed` keeps its canvas place when it fits
+    and is free, else packs below; the first Fixed-width edit writes
+    `fixed` on every item so later canvas edits don't move them. The dot
+    field is an SVG pattern (the canvas's CSS mask would stretch).
+  - **Tiled.** A binary tree (tiling.js): leaf `{leaf: path}`, node
+    `{split: 'row'|'col', ratio 0.1–0.9, a, b}`. A new tile splits the
+    focused (else the last) tile along its longer side, 50/50, new second;
+    closing gives the space to its sibling; dividers drag (two clicks:
+    half); a title bar dropped on another tile swaps them; the tile menu
+    has Rotate split / Swap with sibling. What is drawn is always
+    `normalise(clean(stored), placed tiles)` — the stored tree comes from
+    the network, so it is bounded (64 leaves/depth) and fitted to the
+    tiles actually there; it is written only on an edit. Floats stay
+    floating; blocks are kept but not drawn (Add heading/text disabled);
+    a phone shows one tile with a switcher strip. The top bar slides away
+    as in Document mode (and, nothing scrolling, also when the pointer
+    leaves it downwards); D191's anchor is inert. A decision strip taller
+    than 40 % of the pane keeps the tiles a full pane below it.
+  - **Rejected:** a true fullscreen (Fullscreen API) per tile — the
+    owner's "single tile" is a screen mode, and the browser's fullscreen
+    hides the tabs a person switches with; a fixed-width mode with
+    48-px square cells and a centred column — the owner chose stretched
+    columns; packing Fixed width from the canvas every time — positions
+    would jump whenever the canvas changed.
+  - **Verification:** node tests (modes, doc rows, fixed placement and
+    the right bound, the tiling tree incl. garbage and exact cover, menus,
+    blocks); `TestScreensOrgArrange`; harness docMode (one-tile rows span
+    the page, the handle limits/saves/lifts, all four modes on an org
+    screen at the same rev), fixedGrid and tiled, dark and light, with
+    windows, gridScale, focusAnchor, blocks, layoutSync, tabStrip,
+    menuOpen unchanged.

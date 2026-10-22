@@ -387,10 +387,13 @@ credential-less; the next release removes that path
 
 **Sizing.** A view is framed inside a fixed-size card on the shell's snappable
 grid (the user drags to size it, down to ~192px; content scrolls inside — it
-can't stretch the card) and can also be opened full page. On a screen in
-**Document mode** (D187) the card is as wide as its row allows and **as tall
-as your document**: the frame takes the height your page reports, so let it
-grow naturally — [frontend-kit.md](/docs/frontend-kit.md) §Document mode.
+can't stretch the card) and can also be opened full page. On a **Fixed
+width** screen the card's width follows the browser window, and on a
+**Tiled** one it is a share of the screen that changes as tiles come and go
+(D193). On a screen in **Document mode** (D187) the card is as wide as its
+row allows and **as tall as your document**: the frame takes the height your
+page reports, so let it grow naturally — [frontend-kit.md](/docs/frontend-kit.md)
+§Screen modes, §Document mode.
 A screen may also hold headings and text between the cards (D192) — the
 shell's own, never a tile ([frontend-kit.md](/docs/frontend-kit.md)
 §Headings and text on a screen).

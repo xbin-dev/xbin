@@ -354,6 +354,29 @@ override (§Theme precedence) it replaces the injected meta with the
 device's theme, keeping the person's on `<html data-bx-theme-person>`. A
 tile never needs it: its documents get the injection.
 
+## Screen modes: the size your tile is given
+
+A person picks how each screen is arranged (the screen tab's menu or the
+canvas menu: Layout; D187, D193), and the screen keeps it — a screen
+shared to an org arrives in its mode for every member:
+
+- **Canvas** — tiles anywhere on a grid of 48 px cells, each window the
+  size the person dragged it to (down to about 192 × 144 px); the page
+  scrolls both ways.
+- **Fixed width** — the same grid cut to 48 columns that stretch with the
+  browser window (rows stay 48 px): a window's **width follows the
+  browser's**, its height is fixed.
+- **Document** — rows of one, two or four tiles, each as tall as its
+  document (§Document mode, below).
+- **Tiled** — one tile fills the screen; each tile opened splits a tile's
+  space in two, and the person drags the dividers. A window's width and
+  height both change as tiles come and go.
+
+A tile can't tell which mode it is in, and needn't: reflow to whatever
+size the frame is, from about 192 px wide to the whole window, and scroll
+inside when the content is taller than a fixed-height window (Canvas,
+Fixed width, Tiled). Never scroll sideways.
+
 ## Document mode: how a tile grows
 
 A person can switch a screen to **Document mode** (the screen tab's menu:

@@ -10,6 +10,33 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-22
+
+- **The shell: screen modes** (D193;
+  [frontend-kit.md](/docs/frontend-kit.md) §Screen modes). A screen's
+  Layout (the tab's or the canvas's menu) is now **Canvas · Fixed width ·
+  Document · Tiled**, and a screen keeps its mode and arrangement wherever
+  it goes: shared to an org (a preset for every member), as the
+  workspace's default screen, copied to your screens.
+  - **Document:** a row of one tile spans the page — also the tile a
+    2-wide row is left with, which drew half wide before; no 1100 px cap.
+    A handle on the page's right edge limits its width, centred (drag it
+    back out, or click it twice, for the full width again).
+  - **Fixed width:** the grid cut to 48 columns that stretch with the
+    window (rows stay 48 px), so it never scrolls sideways. It keeps its
+    own places: switching keeps what fits where it was, puts the rest
+    below, and Canvas shows the canvas exactly as it was.
+  - **Tiled:** one tile fills the screen; each tile opened splits the
+    focused tile's space in two, closing one gives its space back. Drag a
+    divider to resize, a title bar onto another tile to swap; on a phone
+    one tile at a time.
+  - **Tiles:** in Fixed width and Tiled a tile's window changes size with
+    the browser window and the other tiles — make it work at any size
+    from about 192 px wide (it already must on the canvas).
+  - **API:** `/screens/org` and `/screens/default` take `mode`
+    `canvas|fixed|doc|tiled` and an opaque `arrange` object, content
+    under the revision like `blocks` ([protocol.md](/docs/protocol.md)).
+
 ## 2026-10-08
 
 - **Fix: scm-github's "Create on GitHub…" and "Finish" stayed disabled
