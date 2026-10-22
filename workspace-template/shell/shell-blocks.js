@@ -33,8 +33,9 @@ import { MIN, blocksOf, itemsOf, gridItems, splitItems, patchBlock, newBlock, ke
   blockMenuItems, mobileOrder } from './blocks.js';
 import { placeNew, setCols, rowOf, step } from './doc-layout.js';
 import { rowItems } from './menus.js';
+import { screenMode } from './modes.js';
 
-const docMode = (sc) => sc?.mode === 'doc';
+const docMode = (sc) => screenMode(sc) === 'doc';
 const emit = (c, type, detail) => c.dispatchEvent(new CustomEvent(type, { detail, bubbles: true, composed: true }));
 const find = (c, id) => blocksOf(c.blocks).find((b) => b.id === id) ?? null;
 // a block change: the shell applies fn to the stored list

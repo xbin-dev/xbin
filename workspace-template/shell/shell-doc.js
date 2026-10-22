@@ -5,9 +5,9 @@
  *
  * <bx-canvas> renders docView(this) instead of its grid when its `mode` is
  * 'doc' (floats stay floating windows). The rows come from doc-layout.js;
- * every cell sits on one 4-column CSS grid (a 1-wide row's tile spans it,
- * centred at most 1100 px; a 2-wide row's tiles span two columns each; a
- * 4-wide row's one) and the cells keep a stable DOM order — by path — with
+ * every cell sits on one 4-column CSS grid (a 1-wide row's tile — any row
+ * holding one tile — spans it; a 2-wide row's tiles span two columns each;
+ * a 4-wide row's one) and the cells keep a stable DOM order — by path — with
  * the grid placing them, so rearranging never moves an iframe in the DOM
  * (which would reload the tile). Below 820px every row is one column, in
  * reading order.
@@ -29,11 +29,17 @@
  * The screen's blocks (D192) are rows too — cells without a card, drawn by
  * shell-blocks.js docBlock and dragged by their grip like a card by its
  * title bar: the rows are read from the tiles and the blocks as one list.
+ *
+ * The page is as wide as the pane. A handle on its right edge limits it
+ * (D193): drag it in and the column narrows, centred; out to the edge, or
+ * two clicks on it, and the limit goes. The limit is the screen's
+ * (arrange.docWidth, modes.js), so a shared screen keeps it for everyone;
+ * a phone ignores it.
  */
 import { html, nothing, repeat } from 'lit';
 import { dragPointer } from '/vendor/bx-kit.js';
 import { docRows, moveTile, setHeight } from './doc-layout.js';
-import { screenMode } from './shell-tabs.js';
+import { screenMode, docWidth, withDocWidth, DOC_MIN_W } from './modes.js';
 import { heldScroll } from './shell-anchor.js';
 import { docItems, docBlock, mutateCanvas } from './shell-blocks.js';
 import { isBlockKey } from './blocks.js';
@@ -56,9 +62,11 @@ function cells(tiles) {
 // draws each card (the same window chrome as on the canvas).
 export function docView(c) {
   const list = cells(docItems(c)), dd = c._ddrag, dh = c._dh;
-  const ro = !c.canMutate || c.mobile;
+  const ro = !c.canMutate || c.mobile, w = c.mobile ? 0 : c._dw ?? docWidth(c.arrange);
   return html`
-    <div class="doc ${c.canMutate ? '' : 'ro'}" @contextmenu=${(e) => c._onContextMenu(e)}>
+    <div class="doc ${c.canMutate ? '' : 'ro'}" style=${w ? `max-width:${w}px` : ''} @contextmenu=${(e) => c._onContextMenu(e)}>
+      ${ro ? nothing : html`<div class="dwidth" title=${w ? 'drag to change the page width · two clicks: the full width again' : 'drag in to limit the page width'}
+        @pointerdown=${(e) => widthStart(c, e)}></div>`}
       ${repeat(list, (x) => x.t.path, (x) => isBlockKey(x.t.path) ? docBlock(c, x, docDragStart) : html`
         <div class="dcell ${x.cols === 1 ? 'one' : ''} ${dd?.path === x.t.path ? 'dragging' : ''}" data-path=${x.t.path}
              data-row=${x.row} data-col=${x.col} data-cols=${x.cols} data-n=${x.n} style=${x.style}>
@@ -168,6 +176,30 @@ function heightStart(c, ev, path) {
       const now = Date.now(), second = lastClick.path === path && now - lastClick.at < 450;
       lastClick = second ? { path: '', at: 0 } : { path, at: now };
       if (second) mutateCanvas(c, (items) => setHeight(items, path, 0));
+    },
+  });
+}
+
+// ---- the page width limit (D193) ----
+// The handle follows the pointer: the column is centred, so it narrows by
+// twice the distance the handle moves. Two clicks in a row (no drag) lift
+// the limit — told apart here, as the height handle does.
+let lastWidthClick = 0;
+function widthStart(c, ev) {
+  if (ev.button !== 0) return;
+  ev.preventDefault(); ev.stopPropagation();
+  const page = c.renderRoot.querySelector('.doc');
+  const w0 = page?.getBoundingClientRect().width || 0, pane = c.getBoundingClientRect().width || w0, sx = ev.clientX;
+  let w = w0;
+  dragPointer({
+    cursor: 'ew-resize',
+    onMove: (e) => { w = Math.max(DOC_MIN_W, Math.min(pane, Math.round(w0 + 2 * (e.clientX - sx)))); c._dw = w; },
+    onUp: () => {
+      c._dw = null;
+      if (Math.abs(w - w0) >= 2) { lastWidthClick = 0; c._arrange((a) => withDocWidth(a, w, pane)); return; }
+      const now = Date.now(), second = now - lastWidthClick < 450;
+      lastWidthClick = second ? 0 : now;
+      if (second) c._arrange((a) => withDocWidth(a, 0));
     },
   });
 }

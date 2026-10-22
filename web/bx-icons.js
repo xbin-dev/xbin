@@ -40,6 +40,8 @@ const GLYPHS = {
   grip: sq(5, 3, 2) + sq(9, 3, 2) + sq(5, 7, 2) + sq(9, 7, 2) + sq(5, 11, 2) + sq(9, 11, 2),
   grid: p('M2.75 2.75h4v4h-4zM9.25 2.75h4v4h-4zM2.75 9.25h4v4h-4zM9.25 9.25h4v4h-4z'),
   split: p(`${FRAME}M7.75 2.75v10.5`),
+  columns: p(`${FRAME}M6.25 2.75v10.5M9.25 2.75v10.5`),
+  tiling: p(`${FRAME}M7.75 2.75v10.5M7.75 7.75h5.5`),
   plus: p('M7.75 2.75v10.5M2.75 7.75h10.5'),
   minus: p('M2.75 7.75h10.5'),
   check: p('M2.75 8.25l3.5 3.5 7-7'),

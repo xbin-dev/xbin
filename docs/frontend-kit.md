@@ -327,14 +327,14 @@ same:
 `agent` `archive` `arrow-left` `arrow-right` `bell` `bell-slash` `bolt`
 `box` `branch` `calendar` `call` `caret-down` `caret-right` `chart` `chat`
 `check` `chevron-down` `chevron-left` `chevron-right` `chevron-up`
-`clipboard` `clock` `code` `compact` `copy` `cpu` `database` `deploy`
+`clipboard` `clock` `code` `columns` `compact` `copy` `cpu` `database` `deploy`
 `device` `diff` `doc` `download` `ellipsis` `error` `eye` `eye-slash`
 `file` `filter` `folder` `globe` `grid` `grip` `home` `host` `info` `key`
 `link` `list` `live` `lock` `mail` `maximize` `menu` `minimize` `minus`
 `network` `ok` `org` `paperclip` `pause` `pencil` `people` `person`
 `photo` `pin` `play` `plug` `plus` `popout` `power` `question` `refresh`
 `restore` `save` `search` `send` `server` `settings` `shield` `signal`
-`split` `tag` `terminal` `thought` `trash` `unlock` `upload` `vm` `wait`
+`split` `tag` `terminal` `thought` `tiling` `trash` `unlock` `upload` `vm` `wait`
 `warning` `window` `xmark`, and the aliases `attach` `back` `building`
 `channel` `close` `collapse` `danger` `edit` `expand` `external` `forward`
 `gear` `gpu` `hourglass` `image` `laptop` `logs` `more` `package` `phone`
@@ -357,10 +357,12 @@ tile never needs it: its documents get the injection.
 ## Document mode: how a tile grows
 
 A person can switch a screen to **Document mode** (the screen tab's menu:
-Layout, Canvas · Document; D187): the screen becomes a scrolling page of
-rows, one tile per row or two or four side by side, and each tile is **as
-tall as its document** — no fixed window height, no scrolling inside the
-tile. On the canvas the same tile is a fixed-size window, as before; a tile
+Layout ▸ Document; D187): the screen becomes a scrolling page of rows, one
+tile per row (as wide as the page) or two or four side by side, and each
+tile is **as tall as its document** — no fixed window height, no scrolling
+inside the tile. The person may limit the page's width (a handle on its
+right edge, D193), so a one-tile row can be anything from about 480 px to
+the whole window. On the canvas the same tile is a fixed-size window, as before; a tile
 can't tell which it is in, so write it to work in both.
 
 - **How it grows.** `xbin-client.js` (which xbind injects into every tile
@@ -396,7 +398,7 @@ on a screen without making a tile for them (D192): the canvas menu or the
 screen tab's menu → Add heading / Add text. They sit on the canvas's grid
 like tiles (dragged by their grip, resized by their corner, pushing tiles
 and being pushed), are edited in place with a double-click, and in
-Document mode each is a row of its own, as wide as a single tile. They
+Document mode each is a row of its own, as wide as the page. They
 are the shell's, not a tile's: no frame, no tile API, nothing a tile can
 read or change. What it means for a tile: it may share the page with a
 heading that already names the section, so it needn't repeat a page title

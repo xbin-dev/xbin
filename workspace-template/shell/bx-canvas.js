@@ -28,6 +28,10 @@
  * rows of cards, each as tall as its content (shell-doc.js docView, the
  * rows from doc-layout.js); the floats, menus and card chrome are the same.
  *
+ * `arrange` (D193) is the screen-level part of the layout (modes.js): what
+ * changes it goes out as one `bx-arrange` event whose detail is a function
+ * over the stored object, as `bx-blocks` does for the blocks.
+ *
  * `blocks` (D192) are the screen's headings and text: drawn, dragged and
  * edited by shell-blocks.js, on the same grid and in the same push as the
  * cards (keyed `block:<id>`); they change through `bx-blocks` (a function
@@ -67,7 +71,8 @@ export class BxCanvas extends LitElement {
     alerts: { attribute: false },       // /alerts rows (optional): a pending tile's card says its partition-switch message
     reload: { attribute: false },       // () → the shell reloads /components and /alerts (optional; after a decision)
     who: { attribute: false },          // /whoami (optional): whose partition a partitioned tile's window shows (its chip)
-    mode: { attribute: false },         // 'canvas' (default) | 'doc': Document mode (D187, shell-doc.js)
+    mode: { attribute: false },         // modes.js: 'canvas' (default) | 'fixed' | 'doc' (Document mode, D187, shell-doc.js) | 'tiled'
+    arrange: { attribute: false },      // the screen's arrange (D193, modes.js): {docWidth?, tiling?}; changes go out as `bx-arrange`
     _drag: { state: true },             // a grid drag/resize in flight: {path, rect, moves, dirs, orig, positive}
     _dmenu: { state: true },            // a window head's ⇈ menu: {items, anchor, title}
     _part: { state: true },             // path → a pending card's decision {key, busy, err, done}
@@ -75,6 +80,7 @@ export class BxCanvas extends LitElement {
     _front: { state: true },            // the active window's key (zorder.js): 'tile:<path>' is one of ours
     _ddrag: { state: true },            // Document mode: a card being dragged {path, move, mark} (shell-doc.js)
     _dh: { state: true },               // Document mode: a fixed height being dragged {path, h}
+    _dw: { state: true },               // Document mode: the page width limit being dragged (px)
   };
   static styles = [canvasCss, prbCss, partCss, docCss, blocksCss];
 
@@ -164,6 +170,9 @@ export class BxCanvas extends LitElement {
   get _k() { return this.mobile ? 1 : (Number(this.scale) || 1); }
   // Every change goes out as the whole array; the shell owns persistence.
   _mutate(fn) { this._emit('bx-tiles', fn(this._all().map((t) => ({ ...t })))); }
+  // The screen's arrange changes as a function over the stored object (the
+  // shell applies it, to the org screen's draft where there is one).
+  _arrange(fn) { this._emit('bx-arrange', fn); }
   _setGeom(path, patch) {
     this._mutate((tiles) => tiles.map((o) => (o.path === path && !o.float ? { ...o, ...patch } : o)));
   }

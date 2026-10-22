@@ -1940,9 +1940,11 @@ DELETE /devices/<id>              the device's user, or admin/xbin:users
                                    and its push registration
 GET    /users/<id>/devices        admin/xbin:users. {devices: […]} as
                                    GET /devices (no current)
-GET    /screens                   signed-in. {default: {tiles,blocks?}|null,
+GET    /screens                   signed-in. {default: {tiles,blocks?,
+                                   mode?,arrange?}|null,
                                    org: [{id,org,name,edit,mode?,tiles,
-                                   blocks?,rev,updatedBy,updatedAt,canEdit}],
+                                   blocks?,arrange?,rev,updatedBy,
+                                   updatedAt,canEdit}],
                                    folders: {"ws":
                                    {folders,rev,updatedBy,updatedAt,canEdit},
                                    "org:<id>": {…}}} — the ws default
@@ -1950,10 +1952,12 @@ GET    /screens                   signed-in. {default: {tiles,blocks?}|null,
                                    shared sidebar folder sets you may see
                                    (ws always; each org you belong to;
                                    ws-admins: every org) (D37/D55)
-PUT    /screens/default           ws-admin. {tiles, blocks?} — the seed
-                                   screen new users start from (opaque)
+PUT    /screens/default           ws-admin. {tiles, blocks?, mode?,
+                                   arrange?} — the seed screen new users
+                                   start from (opaque; its mode and
+                                   arrange seed theirs, D193)
 PUT    /screens/org               {id?,org,name?,edit?,mode?,tiles?,
-                                   blocks?,rev?,force?}
+                                   blocks?,arrange?,rev?,force?}
                                    — create (no id; org admin) → {ok,id,
                                    rev:1,…}; a tiles update follows the
                                    screen's edit knob (admins|write|
@@ -1963,10 +1967,11 @@ PUT    /screens/org               {id?,org,name?,edit?,mode?,tiles?,
                                    no rev = legacy overwrite. No tiles =
                                    meta-only (name/edit/mode; org admin),
                                    which never bumps the revision (D55).
-                                   mode: "canvas"|"doc", how the shell
-                                   arranges the screen (D187); absent in
-                                   GET = canvas, and a PUT without it
-                                   keeps the stored one.
+                                   mode: "canvas"|"fixed"|"doc"|"tiled",
+                                   how the shell arranges the screen
+                                   (D187, D193; anything else → 400);
+                                   absent in GET = canvas, and a PUT
+                                   without it keeps the stored one.
                                    blocks: the screen's headings and text
                                    (D192) — a JSON array, the shell's
                                    shape [{id,kind,text,level?,x,y,w,h,
@@ -1977,7 +1982,14 @@ PUT    /screens/org               {id?,org,name?,edit?,mode?,tiles?,
                                    revision; a PUT without blocks keeps
                                    the stored ones (so a shell from
                                    before D192 never wipes them);
-                                   blocks:[] clears
+                                   blocks:[] clears.
+                                   arrange: the screen-level layout
+                                   (D193) — a JSON object, the shell's
+                                   shape {docWidth?, tiling?}, opaque
+                                   here (not an object → 400). Content
+                                   like blocks: the edit knob, `rev` and
+                                   409, bumps the revision, kept by a
+                                   PUT without it; arrange:{} clears
 DELETE /screens/org               org admin. {id, org}
 PUT    /screens/folders           {scope:"ws"|"org:<id>", folders:[…], rev,
                                    force?} — replace one owner section's

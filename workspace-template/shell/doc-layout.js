@@ -15,12 +15,18 @@
 // A row here is {cols, tiles: [tile]}: its tiles packed left in col order,
 // at most `cols` of them. Every edit below reads the rows, changes them and
 // writes them back as normalised `doc` fields (row = index, col = index in
-// the row) on every non-floating tile — normalise(tiles, rows).
+// the row) on every non-floating tile — normalise(tiles, rows). A row of
+// one tile reads as 1 wide (D193), so a tile joining it makes it 2.
 
 export const COLS = [1, 2, 4];
 const fitCols = (n) => (n > 2 ? 4 : n === 2 ? 2 : 1);
 const colsOf = (v) => (COLS.includes(Number(v)) ? Number(v) : 1);
 const reading = (a, b) => (a.y ?? 0) - (b.y ?? 0) || (a.x ?? 0) - (b.x ?? 0) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+
+// A row holding one tile is 1 wide whatever width it was given (D193): its
+// tile spans the page — a row left with one tile, or the last of a spill,
+// never draws half or a quarter wide beside nothing.
+const row = (cols, tiles) => ({ cols: tiles.length === 1 ? 1 : cols, tiles });
 
 // docRows(tiles) → [{cols, tiles}]: the rows in order. Tiles with `doc`
 // first, grouped by row; a group holding more tiles than its width spills
@@ -40,7 +46,7 @@ export function docRows(tiles) {
   for (const k of [...groups.keys()].sort((a, b) => a - b)) {
     const g = groups.get(k).sort((a, b) => (Number(a.doc.col) || 0) - (Number(b.doc.col) || 0) || reading(a, b));
     const cols = Math.max(...g.map((t) => colsOf(t.doc.cols)));
-    for (let i = 0; i < g.length; i += cols) rows.push({ cols, tiles: g.slice(i, i + cols) });
+    for (let i = 0; i < g.length; i += cols) rows.push(row(cols, g.slice(i, i + cols)));
   }
   const loose = placed.filter((t) => !grouped.has(t)).sort(reading);
   for (const t of loose) rows.push({ cols: 1, tiles: [t] });
@@ -104,7 +110,8 @@ export function placeNew(tiles, path) {
 //     `cols` is given, and a 4-wide row pushes its last tile into a new row
 //     below.
 // Indices are those of docRows(tiles) before the move. The row the tile
-// leaves keeps its width; a row left empty goes.
+// leaves keeps its width (one left alone reads as 1 wide); a row left empty
+// goes.
 export function moveTile(tiles, path, { row = 0, col, cols, insert = false } = {}) {
   const rows = clone(docRows(tiles));
   const from = where(rows, path);

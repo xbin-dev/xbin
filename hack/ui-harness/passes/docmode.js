@@ -1,6 +1,9 @@
 // hack/ui-harness/passes/docmode.js — Document mode (D187): a screen
 // switched to Document reads as rows (one tile each, then a 2-wide row made
-// by dragging a card beside another and a 4-wide one from the tile menu);
+// by dragging a card beside another and a 4-wide one from the tile menu); a
+// row holding one tile spans the page, even the one a 2-wide row is left
+// with, and the handle on the page's right edge limits its width, centred,
+// kept with the screen, until two clicks lift it (D193);
 // a tall tile grows to its content with no scrollbar inside it, a tile
 // pinned to its viewport settles at 480 px and takes a fixed height from
 // its handle; the top bar hides on a scroll down and comes back on a scroll
@@ -54,6 +57,14 @@ const rows = (page) => sh(page, (t) => t.docRows());
 const shape = (rs) => rs.map((r) => `${r.cols}:${r.paths.join(',')}`).join(' | ');
 const rectIn = (page, sel) => sh(page, (t, sel) => { const r = t.query(sel)?.getBoundingClientRect(); return r ? { x: r.x, y: r.y, w: r.width, h: r.height } : null; }, sel);
 const mainScroll = (page, y) => sh(page, (t, y) => { t.query('main').scrollTop = y; }, y);
+// a row of one tile spans the whole page (D193)
+const fullWidth = async (page, p) => {
+  const d = await rectIn(page, '.doc'), c = await rectIn(page, `.dcell[data-path="${p}"]`);
+  return !!(d && c && Math.abs(c.w - d.w) <= 1);
+};
+const rowAction = (page, p, label) => sh(page, (t, [p, label]) => {
+  t.tileMenuItems(p).find((x) => x.label === 'Row').items.find((x) => x.label === label).action();
+}, [p, label]);
 
 async function docMode(browser) {
   const { check, skip, done } = checker(`doc-mode-${THEME}`);
@@ -81,6 +92,7 @@ async function docMode(browser) {
   await waitSel(page);
   let rs = await rows(page);
   check(rs.length === TILES.length && rs.every((r) => r.cols === 1 && r.paths.length === 1), `one tile per row (${shape(rs)})`);
+  check(await fullWidth(page, rs[0].paths[0]), 'a row of one tile spans the whole page');
   check(await sh(page, (t) => t.screenMode) === 'doc', 'the screen says Document');
   check((await sh(page, (t) => t.topBar)).hidden, 'the top bar starts out of the way');
   check((await sh(page, (t) => t.query('.top')?.className ?? '')).includes('away'), 'the bar is drawn away');
@@ -117,6 +129,41 @@ async function docMode(browser) {
   const rects = [];
   for (const p of r4?.paths ?? []) rects.push(await rectIn(page, `.dcell[data-path="${p}"]`));
   check(rects.length === 4 && rects.every((r) => Math.abs(r.y - rects[0].y) < 1) && rects[1].x > rects[0].x + 100, `the 4-wide row is one line (${JSON.stringify(rects.map((r) => r && [Math.round(r.x), Math.round(r.y), Math.round(r.w)]))})`);
+
+  // the tile a 2-wide row is left with spans the page, not half of it (D193);
+  // Row ▸ 2 columns pulls its partner back up
+  await rowAction(page, b, 'Move down');
+  await settle(page);
+  rs = await rows(page);
+  check(rs.some((r) => r.cols === 1 && r.paths.join() === a) && await fullWidth(page, a), `the tile left alone in a 2-wide row spans the page (${shape(rs)})`);
+  await rowAction(page, a, '2 columns');
+  await settle(page);
+  rs = await rows(page);
+  check(rs.some((r) => r.cols === 2 && r.paths.join() === `${a},${b}`), `Row ▸ 2 columns makes the pair again (${shape(rs)})`);
+
+  // the page width (D193): the handle on the page's right edge narrows it,
+  // centred, by twice the distance it moves; the limit is the screen's
+  // (kept in its arrange); two clicks on the handle give the full width back
+  const pg0 = await rectIn(page, '.doc'), hd = await rectIn(page, '.doc > .dwidth');
+  check(!!hd, 'the page has a width handle on its right edge');
+  if (hd) {
+    const x = hd.x + hd.w / 2, y = Math.min(Math.max(hd.y + 10, 120), hd.y + hd.h - 10, 850);
+    await page.mouse.move(x, y); await page.mouse.down();
+    await page.mouse.move(x - 150, y, { steps: 6 }); await page.mouse.up();
+    await settle(page);
+    const pg1 = await rectIn(page, '.doc'), lim = await sh(page, (t) => t.arrange?.docWidth ?? 0);
+    check(Math.abs(pg1.w - (pg0.w - 300)) <= 3 && Math.abs(lim - pg1.w) <= 2 && Math.abs(pg1.x - pg0.x - 150) <= 3,
+      `150 px in narrows the page by 300, centred, and the screen keeps it (${Math.round(pg0.w)} → ${Math.round(pg1.w)} at +${Math.round(pg1.x - pg0.x)}; docWidth ${lim})`);
+    await sh(page, (t) => t.flushSave());
+    const saved = (await (await ctx.request.get(prefs)).json()).screens?.find((x) => x.id === id)?.arrange?.docWidth;
+    check(saved === lim, `the limit is saved with the screen (${saved})`);
+    await snap(page, `docmode-width-${THEME}`);
+    const hd1 = await rectIn(page, '.doc > .dwidth');
+    await page.mouse.click(hd1.x + hd1.w / 2, y); await page.mouse.click(hd1.x + hd1.w / 2, y);
+    await settle(page);
+    const pg2 = await rectIn(page, '.doc');
+    check(!(await sh(page, (t) => t.arrange?.docWidth)) && Math.abs(pg2.w - pg0.w) <= 1, `two clicks on the handle: the full width again (${Math.round(pg2.w)})`);
+  }
 
   // a tall tile grows: no scrollbar inside it
   await sh(page, (t, p) => t.query(`.dcell[data-path="${p}"]`).scrollIntoView({ block: 'start' }), TALL);
@@ -195,9 +242,11 @@ async function docMode(browser) {
   const os = await sh(page, (t) => t.orgScreens.find((x) => x.name === 'Devs HQ') ?? null);
   const srv = async (sid) => ((await (await ctx.request.get(`${URL}/api/xbin/screens`)).json()).org ?? []).find((x) => x.id === sid);
   if (os) {
-    await sh(page, (t, sid) => t.setScreenMode(sid, 'doc'), os.id);
-    const on = await srv(os.id);
-    check(on?.mode === 'doc' && on.rev === os.rev, `an org screen keeps its mode on the server, at the same revision (${on?.mode}, rev ${os.rev} → ${on?.rev})`);
+    for (const m of ['fixed', 'tiled', 'doc']) { // D193's modes are the screen's too
+      await sh(page, (t, [sid, m]) => t.setScreenMode(sid, m), [os.id, m]);
+      const on = await srv(os.id);
+      check(on?.mode === m && on.rev === os.rev, `an org screen keeps its mode on the server, at the same revision (${on?.mode}, rev ${os.rev} → ${on?.rev})`);
+    }
     await sh(page, (t, sid) => t.setScreenMode(sid, 'canvas'), os.id);
     const off = await srv(os.id);
     check(off && !off.mode && off.rev === os.rev, `back to Canvas: no mode stored (${off?.mode ?? 'none'}, rev ${off?.rev})`);

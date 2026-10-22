@@ -33,9 +33,8 @@ test('doc rows come first, ordered by row then col; loose tiles follow', () => {
 });
 
 test('an overfull row spills into further rows of its width; bad cols read as 1', () => {
-  const tiles = ['a', 'b', 'c'].map((p, i) => T(p, 0, 0, { doc: D(0, i, 2) }));
-  assert.equal(shape(tiles), '2:a,b | 2:c');
-  assert.equal(shape([T('a', 0, 0, { doc: { row: 0, col: 0, cols: 3 } })]), '1:a');
+  assert.equal(shape(['a', 'b', 'c', 'd', 'e'].map((p, i) => T(p, 0, 0, { doc: D(0, i, 2) }))), '2:a,b | 2:c,d | 1:e');
+  assert.equal(shape([T('a', 0, 0, { doc: { row: 0, col: 0, cols: 3 } }), T('b', 0, 0, { doc: { row: 0, col: 1, cols: 3 } })]), '1:a | 1:b');
   assert.equal(shape([T('a', 0, 100, { doc: { row: 'x' } }), T('b', 0, 0)]), '1:b | 1:a');
 });
 
@@ -64,22 +63,36 @@ test('moveTile beside a tile widens its row 1 → 2 → 4, and a full 4-wide row
   t = moveTile(t, 'd', { row: 0, col: 0 });
   assert.equal(shape(t), '4:d,a,b,c | 1:e');
   t = moveTile(t, 'e', { row: 0, col: 1 });
-  assert.equal(shape(t), '4:d,e,a,b | 4:c');
+  assert.equal(shape(t), '4:d,e,a,b | 1:c');
   sameCanvas(screen(), t);
 });
 
 test('moveTile insert makes a row of its own; the row it left keeps its width, an empty one goes', () => {
-  let t = setCols(screen(), 0, 2); // a,b
-  assert.equal(shape(t), '2:a,b | 1:c | 1:d | 1:e');
-  t = moveTile(t, 'b', { row: 2, insert: true });
-  assert.equal(shape(t), '2:a | 1:c | 1:b | 1:d | 1:e');
-  t = moveTile(t, 'e', { row: 0, insert: true, cols: 2 });
-  assert.equal(shape(t), '2:e | 2:a | 1:c | 1:b | 1:d');
+  let t = setCols(screen(), 0, 4); // a,b,c,d
+  assert.equal(shape(t), '4:a,b,c,d | 1:e');
+  t = moveTile(t, 'b', { row: 1, insert: true });
+  assert.equal(shape(t), '4:a,c,d | 1:b | 1:e');
+  t = moveTile(t, 'e', { row: 0, insert: true });
+  assert.equal(shape(t), '1:e | 4:a,c,d | 1:b');
   t = moveTile(t, 'e', { row: 99, insert: true });
-  assert.equal(shape(t), '2:a | 1:c | 1:b | 1:d | 1:e');
+  assert.equal(shape(t), '4:a,c,d | 1:b | 1:e');
   // a no-op move hands the same array back
   assert.equal(moveTile(t, 'a', { row: 0, col: 0 }), t);
   assert.equal(moveTile(t, 'nope', { row: 0 }), t);
+});
+
+test('a row holding one tile is 1 wide, whatever width it was given (D193)', () => {
+  // the tile a 2-wide row is left with spans the page, not half of it
+  let t = moveTile(setCols(screen(), 0, 2), 'b', { row: 2, insert: true });
+  assert.equal(shape(t), '1:a | 1:c | 1:b | 1:d | 1:e');
+  // stored widths an older shell wrote read the same: the last of a spill, a lone 4-wide row
+  assert.equal(shape(['a', 'b', 'c'].map((p, i) => T(p, 0, 0, { doc: D(0, i, 2) }))), '2:a,b | 1:c');
+  assert.equal(shape([T('a', 0, 0, { doc: D(0, 0, 4) })]), '1:a');
+  // a tile joining it makes it 2 wide
+  t = moveTile(t, 'c', { row: 0, col: 1 });
+  assert.equal(shape(t), '2:a,c | 1:b | 1:d | 1:e');
+  // a step out of a 2-wide row leaves its partner alone: 1 wide
+  assert.equal(shape(step(t, 'c', 1)), '1:a | 1:c | 1:b | 1:d | 1:e');
 });
 
 test('moveTile within its own row: slots are the row as drawn before the move', () => {
@@ -112,10 +125,10 @@ test('step: alone in a row swaps rows; sharing a row leaves it above or below', 
   assert.equal(step(t, 'a', -1), t, 'the first row cannot go up');
   t = setCols(screen(), 0, 2); // a,b | c | d | e
   t = step(t, 'b', 1);
-  assert.equal(shape(t), '2:a | 1:b | 1:c | 1:d | 1:e');
+  assert.equal(shape(t), '1:a | 1:b | 1:c | 1:d | 1:e');
   t = setCols(screen(), 0, 2);
   t = step(t, 'b', -1);
-  assert.equal(shape(t), '1:b | 2:a | 1:c | 1:d | 1:e');
+  assert.equal(shape(t), '1:b | 1:a | 1:c | 1:d | 1:e');
 });
 
 test('setHeight sets and clears the fixed height, nothing else', () => {
@@ -131,6 +144,6 @@ test('removeTile closes the rows up; a screen with no doc stays without', () => 
   const plain = removeTile(screen(), 'b');
   assert.ok(plain.every((x) => !x.doc));
   const t = removeTile(setCols(screen(), 0, 2), 'a');
-  assert.equal(shape(t), '2:b | 1:c | 1:d | 1:e');
+  assert.equal(shape(t), '1:b | 1:c | 1:d | 1:e');
   assert.deepEqual(t.map((x) => x.doc.row), [0, 1, 2, 3]);
 });

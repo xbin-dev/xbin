@@ -41,16 +41,19 @@ import (
 // accepted as a legacy overwrite (pre-D55 shell copies keep working).
 // Rename/knob/mode changes are admin-plane and don't bump the revision, so
 // they never conflict with a member's draft. Layout JSON is the shell's own
-// shape — opaque here beyond a size cap.
+// shape — opaque here beyond a size cap. The screen-level arrangement
+// (D193: Document mode's width, the Tiled mode's split tree) is content
+// like the tiles and the blocks, under the same revision.
 
 type orgScreen struct {
 	ID   string `json:"id"`
 	Org  string `json:"org"`
 	Name string `json:"name"`
 	Edit string `json:"edit"` // admins | write | members
-	// Mode is how the shell arranges the screen (D187): "doc" (Document
-	// mode, rows) or absent (the canvas). Admin-plane like Name: it never
-	// bumps Rev, and a PUT that leaves it out keeps it.
+	// Mode is how the shell arranges the screen (D187, D193): "fixed" (the
+	// grid cut to 48 columns), "doc" (Document mode, rows), "tiled" (one
+	// tile fills it, more split it) or absent (the canvas). Admin-plane like
+	// Name: it never bumps Rev, and a PUT that leaves it out keeps it.
 	Mode  string          `json:"mode,omitempty"`
 	Tiles json.RawMessage `json:"tiles"`
 	// Blocks are the screen's headings and text (D192): a JSON array, the
@@ -58,6 +61,10 @@ type orgScreen struct {
 	// the same revision rule; a PUT that leaves it out keeps it, so a shell
 	// from before D192 publishing tiles never wipes them.
 	Blocks json.RawMessage `json:"blocks,omitempty"`
+	// Arrange is the screen-level part of the layout (D193): a JSON object,
+	// the shell's shape ({docWidth?, tiling?}) and opaque here. Content like
+	// Blocks: saved under the revision rule, kept by a PUT that leaves it out.
+	Arrange json.RawMessage `json:"arrange,omitempty"`
 	// Rev counts tile saves (1-based; legacy rows load as 1). UpdatedBy/At
 	// stamp the last tile save — what the shell's "last saved by" shows.
 	Rev       int    `json:"rev"`
@@ -287,19 +294,20 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		ID     string          `json:"id"`
-		Org    string          `json:"org"`
-		Name   string          `json:"name"`
-		Edit   string          `json:"edit"`
-		Mode   string          `json:"mode"`
-		Tiles  json.RawMessage `json:"tiles"`
-		Blocks json.RawMessage `json:"blocks"`
-		Rev    *int            `json:"rev"`
-		Force  bool            `json:"force"`
+		ID      string          `json:"id"`
+		Org     string          `json:"org"`
+		Name    string          `json:"name"`
+		Edit    string          `json:"edit"`
+		Mode    string          `json:"mode"`
+		Tiles   json.RawMessage `json:"tiles"`
+		Blocks  json.RawMessage `json:"blocks"`
+		Arrange json.RawMessage `json:"arrange"`
+		Rev     *int            `json:"rev"`
+		Force   bool            `json:"force"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
 	if err := server.DecodeJSON(r, &body); err != nil || body.Org == "" {
-		server.WriteError(w, http.StatusBadRequest, "need {id?, org, name?, edit?, mode?, tiles?, blocks?, rev?, force?} (≤64K)")
+		server.WriteError(w, http.StatusBadRequest, "need {id?, org, name?, edit?, mode?, tiles?, blocks?, arrange?, rev?, force?} (≤64K)")
 		return
 	}
 	hasBlocks := rawPresent(body.Blocks)
@@ -310,8 +318,18 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if body.Mode != "" && body.Mode != "canvas" && body.Mode != "doc" {
-		server.WriteError(w, http.StatusBadRequest, "mode must be canvas|doc")
+	hasArrange := rawPresent(body.Arrange)
+	if hasArrange {
+		var obj map[string]json.RawMessage
+		if json.Unmarshal(body.Arrange, &obj) != nil {
+			server.WriteError(w, http.StatusBadRequest, "arrange must be an object")
+			return
+		}
+	}
+	switch body.Mode {
+	case "", "canvas", "fixed", "doc", "tiled":
+	default:
+		server.WriteError(w, http.StatusBadRequest, "mode must be canvas|fixed|doc|tiled")
 		return
 	}
 	// "canvas" is stored as absent: a screen without a mode is a canvas,
@@ -321,8 +339,8 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 		mode = ""
 	}
 	hasTiles := rawPresent(body.Tiles)
-	// content: the tiles and/or the blocks — a revisioned save either way
-	content := hasTiles || hasBlocks
+	// content: the tiles, the blocks and/or the arrangement — a revisioned save either way
+	content := hasTiles || hasBlocks || hasArrange
 	p := auth.PrincipalOf(r)
 	admin := b.IsAdmin(p)
 	var m users.OrgMembership
@@ -381,6 +399,9 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 		if hasBlocks {
 			cur.Blocks = body.Blocks
 		}
+		if hasArrange {
+			cur.Arrange = body.Arrange
+		}
 		d.Org = append(d.Org, cur)
 	} else {
 		idx := -1
@@ -398,7 +419,7 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 			(body.Edit != "" && body.Edit != cur.Edit) ||
 			(setMode && mode != cur.Mode)
 		if !content && !metaChange {
-			server.WriteError(w, http.StatusBadRequest, "nothing to change: send tiles/blocks and/or name/edit/mode")
+			server.WriteError(w, http.StatusBadRequest, "nothing to change: send tiles/blocks/arrange and/or name/edit/mode")
 			return
 		}
 		if !admin && !m.Admin {
@@ -427,6 +448,9 @@ func (b *Broker) apiScreensOrgPut(w http.ResponseWriter, r *http.Request) {
 			}
 			if hasBlocks {
 				cur.Blocks = body.Blocks
+			}
+			if hasArrange {
+				cur.Arrange = body.Arrange
 			}
 			cur.Rev++
 			cur.UpdatedBy, cur.UpdatedAt = by, at

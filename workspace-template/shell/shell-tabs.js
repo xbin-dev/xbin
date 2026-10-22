@@ -6,9 +6,10 @@
  * stays a row of its own under the bar (which holds the menu button and the
  * mark). Drag a tab to reorder it, or into a sidebar folder to park it;
  * double-click to rename; right-click for its menu — Rename…, Add heading /
- * Add text (D192, shell-blocks.js), the screen's Layout (Canvas · Document,
- * D187), Close. An org screen's name and layout
- * are its org admins' (meta-only PUT /screens/org, never a revision).
+ * Add text (D192, shell-blocks.js), the screen's Layout (Canvas · Fixed
+ * width · Document · Tiled, D187/D193, modes.js), Close. An org screen's
+ * name and mode are its org admins' (meta-only PUT /screens/org, never a
+ * revision).
  * Extracted from bx-shell, which is at its size budget: bx-shell renders
  * tabStrip(this) and calls revealActiveTab(this) after each update; the
  * state (_screens, _orgScreens, _tabOrder, _hiddenOrg, _active) stays there.
@@ -17,16 +18,15 @@ import { html, nothing } from 'lit';
 import { worstStatus, statusIcon } from './shell-kit.js';
 import { addItems } from './blocks.js';
 import { addBlock } from './shell-blocks.js';
+import { MODES, MODE_INFO, screenMode } from './modes.js';
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 
-// screenMode(screen): how a screen is arranged — 'doc' (Document mode,
-// D187) or 'canvas' (absent: every screen before it).
-export const screenMode = (s) => (s?.mode === 'doc' ? 'doc' : 'canvas');
+export { screenMode }; // modes.js: canvas | fixed | doc | tiled
 
 // May this person rename an org screen, or change its layout? Its org's
 // admins and workspace admins — the server's rule for meta changes.
-const orgMeta = (s, os) => !!(s._isAdmin || s._adminOrgs?.has(os.org));
+export const orgMeta = (s, os) => !!(s._isAdmin || s._adminOrgs?.has(os.org));
 
 const orgPut = async (s, os, patch, what) => {
   try {
@@ -63,13 +63,15 @@ export async function renameScreen(s, id) {
   s._save();
 }
 
-// setScreenMode(s, id, mode): Canvas or Document for one screen. A personal
+// setScreenMode(s, id, mode): one screen's mode (modes.js). A personal
 // screen keeps it in the layout pref (`mode`, absent for the canvas); an
 // org screen on the server, for everyone, by those who may rename it. The
-// tiles are untouched either way: Document mode reads their rows from
-// `doc`, or from reading order where there is none (doc-layout.js).
+// tiles are untouched either way: each mode reads its own fields (Document
+// its rows from `doc`, or reading order where there is none; Fixed width
+// `fixed`, or the canvas place where there is none; Tiled the screen's
+// arrange.tiling), so switching back shows the last mode as it was.
 export async function setScreenMode(s, id, mode) {
-  const m = mode === 'doc' ? 'doc' : undefined;
+  const m = MODES.includes(mode) && mode !== 'canvas' ? mode : undefined;
   const os = (s._orgScreens ?? []).find((x) => x.id === id);
   if (os) {
     if (!orgMeta(s, os) || screenMode(os) === screenMode({ mode: m })) return;
@@ -126,17 +128,14 @@ function moveScreen(s, dragId, beforeId) {
 }
 
 // layoutItems(s, screen, kind): the menu's Layout lines for one screen —
-// Canvas · Document, the current one checked; disabled on an org screen
-// for those who may not rename it.
+// Canvas · Fixed width · Document · Tiled, the current one checked;
+// disabled on an org screen for those who may not rename it.
 export function layoutItems(s, sc, kind) {
   if (!sc) return [];
   const may = kind !== 'org' || orgMeta(s, sc), cur = screenMode(sc);
   const hint = may ? '' : 'org admins';
-  return [{ kind: 'header', label: 'Layout' },
-    { icon: 'grid', label: 'Canvas', checked: cur === 'canvas', disabled: !may, hint, title: 'tiles anywhere on a grid, each its own size',
-      action: () => setScreenMode(s, sc.id, 'canvas') },
-    { icon: 'doc', label: 'Document', checked: cur === 'doc', disabled: !may, hint, title: 'a scrolling page of rows (1, 2 or 4 tiles wide); each tile grows to its content',
-      action: () => setScreenMode(s, sc.id, 'doc') }];
+  return [{ kind: 'header', label: 'Layout' }, ...MODES.map((m) => ({ ...MODE_INFO[m], checked: cur === m, disabled: !may, hint,
+    action: () => setScreenMode(s, sc.id, m) }))];
 }
 
 // The tab's menu (right-click): Rename…, Add heading / Add text (onto that
@@ -182,7 +181,7 @@ export function tabStrip(s) {
     ${tabs.map(({ kind, s: sc }) => {
       const tst = worstStatus(s._status, (sc.tiles ?? []).map((t) => t.path));
       const draft = kind === 'org' ? s._orgDrafts?.[sc.id] : null;
-      const doc = screenMode(sc) === 'doc';
+      const mode = screenMode(sc), mi = MODE_INFO[mode];
       const title = tst ? `${sc.name} — a tile here needs attention (${tst})`
         : kind === 'org'
           ? `org screen — shared with ${sc.org}${sc.canEdit ? ' (edit layout to change it for everyone)' : ' (read-only for you)'}${orgMeta(s, sc) ? ' · double-click to rename' : ' · managed by org admins'} · drag to reorder · close hides it for you · right-click for its layout`
@@ -199,7 +198,7 @@ export function tabStrip(s) {
            @dragover=${(e) => { if (e.dataTransfer.types.includes('application/bx-screen')) e.preventDefault(); }}
            @drop=${(e) => { e.preventDefault(); const d = e.dataTransfer.getData('application/bx-screen'); if (d) moveScreen(s, d, sc.id); }}
            title=${title}>
-        ${doc ? html`<bx-icon class="mode" name="doc" label="Document layout" title="Document layout"></bx-icon>` : nothing}
+        ${mode !== 'canvas' ? html`<bx-icon class="mode" name=${mi.icon} label="${mi.label} layout" title="${mi.label} layout"></bx-icon>` : nothing}
         <span>${sc.name}</span>
         ${kind === 'org' ? html`<span class="ob">${sc.org}</span>` : nothing}
         ${kind === 'org' && !sc.canEdit ? html`<bx-icon class="ro" name="lock" label="read-only for you" title="read-only for you"></bx-icon>` : nothing}

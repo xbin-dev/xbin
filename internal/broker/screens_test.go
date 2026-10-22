@@ -364,6 +364,74 @@ func TestScreensOrgMode(t *testing.T) {
 	}
 }
 
+// D193: Fixed width and Tiled are modes like Document, and the screen's
+// arrangement (Document mode's width, the Tiled split tree) is content: a
+// create carries it, an arrange-only save bumps the revision (a stale one is
+// a 409), a PUT that leaves it out keeps it, a member with edit rights may
+// save it, and it must be an object.
+func TestScreensOrgArrange(t *testing.T) {
+	b, st := orgFixture(t) // sales: carol admin, bob write-level
+	carol := principalFor(t, st, "carol")
+	bob := principalFor(t, st, "bob")
+	var res struct {
+		ID  string `json:"id"`
+		Rev int    `json:"rev"`
+	}
+	put := func(p auth.Principal, body string) int {
+		t.Helper()
+		w := call(t, b.apiScreensOrgPut, p, "PUT", "/screens/org", body, nil)
+		res.ID, res.Rev = "", 0
+		_ = json.Unmarshal(w.Body.Bytes(), &res)
+		return w.Code
+	}
+	get := func() (string, string, int) {
+		t.Helper()
+		w := call(t, b.apiScreensGet, carol, "GET", "/screens", "", nil)
+		var v struct {
+			Org []struct {
+				Mode    string          `json:"mode"`
+				Arrange json.RawMessage `json:"arrange"`
+				Rev     int             `json:"rev"`
+			} `json:"org"`
+		}
+		if err := json.Unmarshal(w.Body.Bytes(), &v); err != nil || len(v.Org) != 1 {
+			t.Fatalf("screens get: %v %s", err, w.Body.String())
+		}
+		return v.Org[0].Mode, string(v.Org[0].Arrange), v.Org[0].Rev
+	}
+	if c := put(carol, `{"org":"sales","name":"Ops","edit":"write","mode":"tiled","tiles":[],"arrange":{"tiling":{"leaf":"apps/email"}}}`); c != 200 {
+		t.Fatalf("create: %d", c)
+	}
+	id := res.ID
+	if m, a, rev := get(); m != "tiled" || a != `{"tiling":{"leaf":"apps/email"}}` || rev != 1 {
+		t.Fatalf("created with mode and arrange: %q %s rev %d", m, a, rev)
+	}
+	for _, m := range []string{"fixed", "doc", "tiled"} {
+		if c := put(carol, `{"id":"`+id+`","org":"sales","mode":"`+m+`"}`); c != 200 || res.Rev != 1 {
+			t.Fatalf("mode %s: %d %+v", m, c, res)
+		}
+	}
+	// arrange alone is a revisioned save, a member with edit rights may make it
+	if c := put(bob, `{"id":"`+id+`","org":"sales","arrange":{"docWidth":900},"rev":1}`); c != 200 || res.Rev != 2 {
+		t.Fatalf("member arrange save: %d %+v", c, res)
+	}
+	if c := put(bob, `{"id":"`+id+`","org":"sales","arrange":{"docWidth":700},"rev":1}`); c != 409 {
+		t.Fatalf("stale arrange save: %d", c)
+	}
+	// a tile save without arrange (an older shell) keeps it
+	if c := put(bob, `{"id":"`+id+`","org":"sales","tiles":[{"path":"apps/email"}],"rev":2}`); c != 200 || res.Rev != 3 {
+		t.Fatalf("tile save: %d %+v", c, res)
+	}
+	if m, a, _ := get(); m != "tiled" || a != `{"docWidth":900}` {
+		t.Fatalf("a PUT without arrange keeps it: %q %s", m, a)
+	}
+	for _, bad := range []string{`[]`, `"x"`, `3`} {
+		if c := put(carol, `{"id":"`+id+`","org":"sales","arrange":`+bad+`,"rev":3}`); c != 400 {
+			t.Fatalf("arrange %s: %d", bad, c)
+		}
+	}
+}
+
 // Blocks (D192): an org screen's headings and text ride with its tiles —
 // created with them, saved under the same revision rule (a blocks-only save
 // bumps rev, a stale one is a 409), kept by a PUT that leaves them out (an

@@ -595,9 +595,19 @@ export const canvasCss = [scrollCss, baseCss, chromeCss, css`
 // the document first says its height). Below 820px one column, in reading
 // order (--ord).
 export const docCss = css`
-    .doc { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start; padding-bottom: 48px; }
+    .doc {
+      position: relative; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: start;
+      margin: 0 auto; padding-bottom: 48px;
+    }
     .dcell { position: relative; display: flex; min-width: 0; grid-row: var(--row); grid-column: var(--col) / span var(--span); }
-    .dcell.one { justify-self: center; width: 100%; max-width: 1100px; }
+    /* the page width limit (D193): the page's right edge, a grip that stays in view while the page scrolls */
+    .dwidth { position: absolute; top: 0; bottom: 0; right: -11px; width: 10px; z-index: 12; cursor: ew-resize; touch-action: none; }
+    .dwidth::after {
+      content: ''; position: sticky; top: 45vh; display: block; width: 2px; height: 32px; margin: 0 auto;
+      background: var(--bx-border-strong, #666A7E); opacity: 0;
+    }
+    .doc:hover > .dwidth::after { opacity: 0.6; }
+    .dwidth:hover::after { opacity: 1; background: var(--bx-text, #E9EAF0); }
     .dcell.dragging { opacity: 0.5; }
     .dcell > .card { flex: 1; }
     .dcell .card .cbody { flex: none; overflow: visible; }
@@ -618,7 +628,7 @@ export const docCss = css`
     @media (max-width: 820px) {
       .doc { grid-template-columns: minmax(0, 1fr); gap: 10px; }
       .dcell { grid-row: var(--ord); grid-column: 1 / -1; }
-      .dcell.one { max-width: none; }
+      .doc { max-width: none !important; }
     }
 `;
 
