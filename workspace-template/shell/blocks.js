@@ -5,14 +5,15 @@
 //
 // A screen keeps its blocks in an array of their own beside `tiles`:
 //
-//   blocks: [{id, kind: 'heading'|'text', text, level?, x, y, w, h, doc?}]
+//   blocks: [{id, kind: 'heading'|'text', text, level?, x, y, w, h, doc?, fixed?}]
 //
 // in the `layout` pref for a personal screen, on the org screen (`blocks`,
 // PUT /screens/org) for a shared one. Never inside `tiles`: the iOS app and
 // every shell before D192 read `tiles` and expect a `path`, and they keep
 // the screen's other fields as they are when they save it. x, y, w, h are
 // the canvas geometry in logical px on the grid, like a tile's; `doc` is
-// its Document-mode place ({row, col, cols}, doc-layout.js); `level` (1–3,
+// its Document-mode place ({row, col, cols}, doc-layout.js), `fixed` its
+// Fixed-width place ({x, y, w, h}, fixed-layout.js, D193); `level` (1–3,
 // default 2) only means something on a heading; `text` is one line for a
 // heading, Markdown for a text block.
 //
@@ -65,6 +66,7 @@ export function itemsOf(tiles, blocks) {
   for (const b of blocksOf(blocks)) {
     const it = { path: keyOf(b.id), x: b.x, y: b.y, w: b.w, h: b.h, block: b.kind };
     if (b.doc && typeof b.doc === 'object') it.doc = { ...b.doc };
+    if (b.fixed && typeof b.fixed === 'object') it.fixed = { ...b.fixed };
     items.push(it);
   }
   return items;
@@ -76,7 +78,7 @@ export const gridItems = (sc) => itemsOf(sc?.tiles, sc?.blocks).filter((t) => !t
 
 // splitItems(items) → {tiles, patch, blocks}: the tiles among the items (in
 // their order), and patch(list) — the stored blocks with each one's
-// geometry and doc place taken from its item (entries without an item —
+// geometry and doc and fixed places taken from its item (entries without an item —
 // not drawn here — as they were). `blocks` says whether any block was
 // among the items.
 export function splitItems(items) {
@@ -91,6 +93,7 @@ export function splitItems(items) {
     if (!it) return b;
     const n = { ...b, x: it.x, y: it.y, w: it.w, h: it.h };
     if (it.doc) n.doc = { ...it.doc };
+    if (it.fixed) n.fixed = { ...it.fixed };
     return n;
   });
   return { tiles, patch, blocks: at.size > 0 };

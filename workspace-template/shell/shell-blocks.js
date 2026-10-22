@@ -13,7 +13,9 @@
  * Escape or leaving the field saves, and a block saved empty goes. In
  * Document mode a block is a row cell like a tile's (shell-doc.js draws it
  * with docBlock), dragged by the same grip; on a phone it stacks between
- * the tiles in reading order (mobileOrder).
+ * the tiles in reading order (mobileOrder). In Fixed width (D193) it sits at
+ * its Fixed-width place like a card (fixed-layout.js), and a change there
+ * writes `fixed` on every item.
  *
  * <bx-canvas> changes the blocks with a `bx-blocks` event whose detail is a
  * function (stored list → new list), so the shell applies it to the stored
@@ -28,10 +30,11 @@
 import { html, css, nothing, unsafeCSS, unsafeHTML } from 'lit';
 import { dragPointer } from '/vendor/bx-kit.js';
 import { md, mdCssText } from '/vendor/bx-md.js';
-import { GAP, snap } from './grid-layout.js';
+import { snap } from './grid-layout.js';
 import { MIN, blocksOf, itemsOf, gridItems, splitItems, patchBlock, newBlock, keyOf, idOf, isBlockKey, levelOf,
   blockMenuItems, mobileOrder } from './blocks.js';
 import { placeNew, setCols, rowOf, step } from './doc-layout.js';
+import { fixedLayout, materialize, placeFixed } from './fixed-layout.js';
 import { rowItems } from './menus.js';
 import { screenMode } from './modes.js';
 
@@ -43,8 +46,12 @@ const change = (c, fn) => emit(c, 'bx-blocks', fn);
 
 // ---- the canvas's ends ----
 // canvasItems(c): the grid's tiles and blocks (no floats), copies — the
-// layout a drag's push is computed from.
-export const canvasItems = (c) => gridItems({ tiles: c.tiles, blocks: c.blocks });
+// layout a drag's push is computed from; in Fixed width at their places
+// there (fixed-layout.js).
+export const canvasItems = (c) => {
+  const items = gridItems({ tiles: c.tiles, blocks: c.blocks });
+  return c._fixed ? fixedLayout(items) : items;
+};
 // docItems(c): the tiles and blocks Document mode's rows are read from.
 export const docItems = (c) => itemsOf(c.tiles, c.blocks);
 // mutateCanvas(c, fn): fn over the tiles and blocks as one list (Document
@@ -56,7 +63,10 @@ export function mutateCanvas(c, fn) {
   if (blocks) change(c, patch);
 }
 // commitMoves(c, at): a released grid drag — `at` maps item key → its rect.
+// In Fixed width the rects are places there: every item gets `fixed` (the
+// moved ones theirs, the rest where they are drawn), the canvas untouched.
 export function commitMoves(c, at) {
+  if (c._fixed) { mutateCanvas(c, (items) => materialize(items, at)); return; }
   const geom = (t, n) => ({ ...t, x: n.x, y: n.y, w: n.w, h: n.h });
   if ([...at.keys()].some((k) => !isBlockKey(k))) c._mutate((tiles) => tiles.map((t) => (!t.float && at.has(t.path) ? geom(t, at.get(t.path)) : t)));
   if ([...at.keys()].some(isBlockKey)) change(c, (list) => list.map((b) => (b && at.has(keyOf(b.id)) ? geom(b, at.get(keyOf(b.id))) : b)));
@@ -68,24 +78,26 @@ export const ghostLabel = (c, path) => {
 };
 
 // ---- gestures ----
-function dragStart(c, ev, b) {
+function dragStart(c, ev, b0) {
   if (c.mobile || !c.canMutate || ev.button !== 0) return;
   ev.preventDefault(); ev.stopPropagation();
-  const base = canvasItems(c), k = c._k, dx = ev.clientX - b.x * k, dy = ev.clientY - b.y * k;
-  c._drag = { path: keyOf(b.id), rect: { x: b.x, y: b.y, w: b.w, h: b.h }, moves: [], dirs: null, orig: b };
+  const b = c._geom(keyOf(b0.id), b0); // where it is drawn (Fixed width: its place there)
+  const base = canvasItems(c), kx = c._kx, ky = c._ky, dx = ev.clientX - b.x * kx, dy = ev.clientY - b.y * ky;
+  c._drag = { path: keyOf(b0.id), rect: { x: b.x, y: b.y, w: b.w, h: b.h }, moves: [], dirs: null, orig: b };
   dragPointer({
-    onMove: (e) => c._dragTo(base, { x: snap(Math.max(0, (e.clientX - dx) / k)), y: snap(Math.max(0, (e.clientY - dy) / k)), w: b.w, h: b.h }),
+    onMove: (e) => c._dragTo(base, c._bound({ x: snap(Math.max(0, (e.clientX - dx) / kx)), y: snap(Math.max(0, (e.clientY - dy) / ky)), w: b.w, h: b.h })),
     onUp: () => c._commitDrag(),
   });
 }
-function resizeStart(c, ev, b) {
+function resizeStart(c, ev, b0) {
   if (c.mobile || !c.canMutate || ev.button !== 0) return;
   ev.preventDefault(); ev.stopPropagation();
-  const base = canvasItems(c), k = c._k, sx = ev.clientX, sy = ev.clientY;
-  c._drag = { path: keyOf(b.id), rect: { x: b.x, y: b.y, w: b.w, h: b.h }, moves: [], dirs: null, orig: b, positive: true };
+  const b = c._geom(keyOf(b0.id), b0);
+  const base = canvasItems(c), kx = c._kx, ky = c._ky, sx = ev.clientX, sy = ev.clientY;
+  c._drag = { path: keyOf(b0.id), rect: { x: b.x, y: b.y, w: b.w, h: b.h }, moves: [], dirs: null, orig: b, positive: true };
   dragPointer({
     cursor: 'nwse-resize',
-    onMove: (e) => c._dragTo(base, { x: b.x, y: b.y, w: snap(Math.max(MIN.w, b.w + (e.clientX - sx) / k)), h: snap(Math.max(MIN.h, b.h + (e.clientY - sy) / k)) }),
+    onMove: (e) => c._dragTo(base, c._bound({ x: b.x, y: b.y, w: snap(Math.max(MIN.w, b.w + (e.clientX - sx) / kx)), h: snap(Math.max(MIN.h, b.h + (e.clientY - sy) / ky)) }, true)),
     onUp: () => c._commitDrag(),
   });
 }
@@ -182,11 +194,11 @@ const press = (c, b) => (e) => {
 // canvasBlocks(c): the blocks on the grid (inside .canvas). A block being
 // dragged draws at its live rect, like a card.
 export function canvasBlocks(c) {
-  const k = c._k, ed = c.canMutate && !c.mobile, ord = c.mobile ? mobileOrder(c.tiles, c.blocks) : new Map();
+  const ed = c.canMutate && !c.mobile, ord = c.mobile ? mobileOrder(c.tiles, c.blocks) : new Map();
   return blocksOf(c.blocks).map((b) => {
-    const key = keyOf(b.id), d = c._drag?.path === key ? c._drag : null, r = d ? d.rect : b;
+    const key = keyOf(b.id), d = c._drag?.path === key ? c._drag : null, r = d ? d.rect : c._geom(key, b);
     return html`<div class="gblock k-${b.kind} ${d ? 'dragging' : ''} ${ed ? 'ed' : ''}" data-block=${b.id} data-path=${key}
-        style="left:${r.x * k}px; top:${r.y * k}px; width:${(r.w - GAP) * k}px; height:${(r.h - GAP) * k}px; --ord:${ord.get(key) ?? 0}"
+        style="${c._box(r)} --ord:${ord.get(key) ?? 0}"
         @dblclick=${() => startEdit(c, b.id)} @pointerdown=${press(c, b)}>
       ${content(c, b)}
       ${ed ? html`${tools(c, b, (e) => dragStart(c, e, b))}
@@ -292,6 +304,7 @@ export function addBlock(s, kind, at = null) {
   const b = newBlock(kind, sc, at);
   s._mutateTiles((list) => [...list, b], 'blocks');
   if (docMode(sc)) mutateItems(s, (items) => placeNew(items, keyOf(b.id)));
+  else if (screenMode(sc) === 'fixed') mutateItems(s, (items) => placeFixed(items, keyOf(b.id), at)); // its place inside the 48 columns (D193)
   s.updateComplete.then(() => startEdit(s._canvas, b.id));
   return b.id;
 }

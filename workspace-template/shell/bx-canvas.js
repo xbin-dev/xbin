@@ -27,6 +27,12 @@
  * With `mode` 'doc' (D187) the screen is Document mode instead of the grid:
  * rows of cards, each as tall as its content (shell-doc.js docView, the
  * rows from doc-layout.js); the floats, menus and card chrome are the same.
+ * With `mode` 'fixed' (Fixed width, D193) it is the grid cut to 48 columns
+ * that stretch to the pane — the columns only, rows stay GRID px — so it
+ * never scrolls sideways: every card and block is drawn, dragged and pushed
+ * at its Fixed-width place (fixed-layout.js; x scaled by _kx, y by _ky),
+ * and a change there writes `fixed` on every item, never the canvas
+ * geometry. A phone stacks the cards, as on the canvas.
  *
  * `arrange` (D193) is the screen-level part of the layout (modes.js): what
  * changes it goes out as one `bx-arrange` event whose detail is a function
@@ -46,6 +52,8 @@ import { GRID, GAP, MIN_W, MIN_H, snap, LongPress, selectedText, prBadge, liveSq
   followDeployments, onDeployChange, wantDeployState, deployState, deployIcon, deployBadge, partitionMark, chipTag } from './shell-kit.js';
 import { shownDeployment, deployMenu } from './menus.js';
 import { pushLayout } from './grid-layout.js';
+import { FIXED_W, fixedRects } from './fixed-layout.js';
+import { itemsOf } from './blocks.js';
 import { nextZ, raiseTo, frontWindow, onWindowFront, activeWindow } from './zorder.js';
 import { canvasCss, prbCss, partCss, docCss } from './shell-css.js';
 import { docView, docFrame, docDragStart } from './shell-doc.js';
@@ -54,6 +62,15 @@ import { blocksCss, canvasBlocks, canvasItems, commitMoves, ghostLabel, blockMen
 import { partitionView, requestKey, pruneDecisions, pendingText, switchLabel, modeName, modeBody, postMode, errorText,
   switchSpec, switchResolve, staleRefusal, deletesNothing, keptText, switchedText, whoDecides, noteText,
   partitionChip } from './partition-mode.js';
+
+// Fixed width's dot field (D193): the canvas's crosshair at every gutter
+// cross, on columns `cx` px wide and rows GRID px tall. An inline SVG
+// pattern, not the canvas's CSS mask: a mask tile stretched to the column
+// would stretch the crosshair with it.
+const fixedDots = (cx) => html`<svg class="fdots" aria-hidden="true"><defs>
+  <pattern id="fdots" width=${cx} height=${GRID} patternUnits="userSpaceOnUse">
+    <path d="M${cx - 4} ${GRID - 7.5}v7M${cx - 7.5} ${GRID - 4}h7"></path></pattern></defs>
+  <rect width="100%" height="100%" fill="url(#fdots)"></rect></svg>`;
 
 export class BxCanvas extends LitElement {
   static properties = {
@@ -81,6 +98,7 @@ export class BxCanvas extends LitElement {
     _ddrag: { state: true },            // Document mode: a card being dragged {path, move, mark} (shell-doc.js)
     _dh: { state: true },               // Document mode: a fixed height being dragged {path, h}
     _dw: { state: true },               // Document mode: the page width limit being dragged (px)
+    _paneW: { state: true },            // the host's width (px): Fixed width's columns stretch to it
   };
   static styles = [canvasCss, prbCss, partCss, docCss, blocksCss];
 
@@ -107,6 +125,8 @@ export class BxCanvas extends LitElement {
     this.addEventListener('bx-build', () => this.requestUpdate());
     this._front = activeWindow();
     this._anchor = new FocusAnchor(this); // the focused card holds its place in the page (D191)
+    this._fx = null; // Fixed width: item key → its place (fixed-layout.js), refreshed every update
+    this._ro = new ResizeObserver((es) => { const w = Math.round(es[0]?.contentRect.width ?? 0); if (w && w !== this._paneW) this._paneW = w; });
   }
   // a card or a Document-mode height handle being dragged (the anchor lets go)
   get dragging() { return !!(this._drag || this._ddrag || this._dh); }
@@ -124,8 +144,9 @@ export class BxCanvas extends LitElement {
     followDeployments();
     this._offDeploy = onDeployChange(() => this.requestUpdate());
     this._offFront = onWindowFront((key) => { this._front = key; });
+    this._ro.observe(this);
   }
-  disconnectedCallback() { super.disconnectedCallback(); this._offDeploy?.(); this._offFront?.(); }
+  disconnectedCallback() { super.disconnectedCallback(); this._offDeploy?.(); this._offFront?.(); this._ro.disconnect(); }
   // The active window (zorder.js): a card or float of ours is when its key is.
   _isActive(path) { return this._front === `tile:${path}`; }
   _activate(path) { frontWindow(`tile:${path}`); }
@@ -168,6 +189,25 @@ export class BxCanvas extends LitElement {
   // scaled screen snaps to the same cells everyone else sees. Mobile stacks
   // cards and ignores geometry, so it renders at 1.
   get _k() { return this.mobile ? 1 : (Number(this.scale) || 1); }
+  // Fixed width (D193): x scales so the 48 columns span the pane, y not at
+  // all; the grid scale doesn't apply. On the canvas both are _k.
+  get _fixed() { return this.mode === 'fixed' && !this.mobile; }
+  get _kx() { return this._fixed ? Math.max(0.05, (this._paneW || this.clientWidth || 1200) / FIXED_W) : this._k; }
+  get _ky() { return this._fixed ? 1 : this._k; }
+  // An item's rect where it is drawn: its Fixed-width place, else its own.
+  _geom(key, o) { return this._fx?.get(key) ?? o; }
+  // Fixed width keeps a rect inside the 48 columns: a drag slides it back
+  // in, a resize stops at the edge.
+  _bound(r, resize = false) {
+    if (!this._fixed || r.x + r.w <= FIXED_W) return r;
+    return resize ? { ...r, w: Math.max(0, FIXED_W - r.x) } : { ...r, x: Math.max(0, FIXED_W - r.w) };
+  }
+  // The style placing a grid rect: the canvas draws a tile GAP·k narrower and
+  // shorter than its cells; Fixed width keeps the gutter GAP px either way.
+  _box(r) {
+    const kx = this._kx, ky = this._ky, gx = this._fixed ? GAP : GAP * kx;
+    return `left:${r.x * kx}px; top:${r.y * ky}px; width:${r.w * kx - gx}px; height:${(r.h - GAP) * ky}px;`;
+  }
   // Every change goes out as the whole array; the shell owns persistence.
   _mutate(fn) { this._emit('bx-tiles', fn(this._all().map((t) => ({ ...t })))); }
   // The screen's arrange changes as a function over the stored object (the
@@ -261,11 +301,11 @@ export class BxCanvas extends LitElement {
     ev.preventDefault();
     const el = this._gtile(path), o = this._all().find((t) => t.path === path && !t.float);
     if (!el || !o) return;
-    const base = canvasItems(this); // the grid's cards and blocks (D192)
-    const k = this._k, dx = ev.clientX - o.x * k, dy = ev.clientY - o.y * k;
-    this._drag = { path, rect: { x: o.x, y: o.y, w: o.w, h: o.h }, moves: [], dirs: null, orig: o };
+    const base = canvasItems(this), g = this._geom(path, o); // the grid's cards and blocks (D192), where they are drawn
+    const kx = this._kx, ky = this._ky, dx = ev.clientX - g.x * kx, dy = ev.clientY - g.y * ky;
+    this._drag = { path, rect: { x: g.x, y: g.y, w: g.w, h: g.h }, moves: [], dirs: null, orig: g };
     dragPointer({
-      onMove: (e) => this._dragTo(base, { x: snap(Math.max(0, (e.clientX - dx) / k)), y: snap(Math.max(0, (e.clientY - dy) / k)), w: o.w, h: o.h }),
+      onMove: (e) => this._dragTo(base, this._bound({ x: snap(Math.max(0, (e.clientX - dx) / kx)), y: snap(Math.max(0, (e.clientY - dy) / ky)), w: g.w, h: g.h })),
       onUp: () => this._commitDrag(),
     });
   }
@@ -276,13 +316,13 @@ export class BxCanvas extends LitElement {
     ev.preventDefault(); ev.stopPropagation();
     const o = this._all().find((t) => t.path === path && !t.float);
     if (!o) return;
-    const base = canvasItems(this); // the grid's cards and blocks (D192)
-    const sx = ev.clientX, sy = ev.clientY, k = this._k;
+    const base = canvasItems(this), g = this._geom(path, o); // the grid's cards and blocks (D192), where they are drawn
+    const sx = ev.clientX, sy = ev.clientY, kx = this._kx, ky = this._ky;
     // a resize grows from its top-left corner: it only ever pushes right/down
-    this._drag = { path, rect: { x: o.x, y: o.y, w: o.w, h: o.h }, moves: [], dirs: null, orig: o, positive: true };
+    this._drag = { path, rect: { x: g.x, y: g.y, w: g.w, h: g.h }, moves: [], dirs: null, orig: g, positive: true };
     dragPointer({
       cursor: 'nwse-resize',
-      onMove: (e) => this._dragTo(base, { x: o.x, y: o.y, w: snap(Math.max(MIN_W, o.w + (e.clientX - sx) / k)), h: snap(Math.max(MIN_H, o.h + (e.clientY - sy) / k)) }),
+      onMove: (e) => this._dragTo(base, this._bound({ x: g.x, y: g.y, w: snap(Math.max(MIN_W, g.w + (e.clientX - sx) / kx)), h: snap(Math.max(MIN_H, g.h + (e.clientY - sy) / ky)) }, true)),
       onUp: () => this._commitDrag(),
     });
   }
@@ -294,7 +334,7 @@ export class BxCanvas extends LitElement {
     if (!d) return;
     const r = d.rect;
     if (r.x === rect.x && r.y === rect.y && r.w === rect.w && r.h === rect.h) return;
-    const { moves, dirs } = pushLayout(base, d.path, rect, { dirs: d.dirs, positive: !!d.positive });
+    const { moves, dirs } = pushLayout(base, d.path, rect, { dirs: d.dirs, positive: !!d.positive, maxX: this._fixed ? FIXED_W : Infinity });
     this._drag = { ...d, rect, moves, dirs };
   }
 
@@ -309,10 +349,10 @@ export class BxCanvas extends LitElement {
 
   _gridCard(o) {
     const d = this._drag?.path === o.path ? this._drag : null;
-    const r = d ? d.rect : o, k = this._k;
+    const r = d ? d.rect : this._geom(o.path, o);
     return html`
       <div class="gtile ${d ? 'dragging' : ''}" data-path=${o.path}
-           style="left:${r.x * k}px; top:${r.y * k}px; width:${(r.w - GAP) * k}px; height:${(r.h - GAP) * k}px; --ord:${cardOrder(this, o.path)}">
+           style="${this._box(r)} --ord:${cardOrder(this, o.path)}">
         ${this._cardTemplate(o, 'grid')}
         <div class="rz" title="drag to resize" @pointerdown=${(e) => this._gridResizeStart(e, o.path)}></div>
       </div>`;
@@ -330,9 +370,10 @@ export class BxCanvas extends LitElement {
 
   // The same in pixels, floored to the visible pane so the dot field fills it
   // even on a near-empty screen. Measured from where the canvas sits in main
-  // (whatever is above it) down to main's bottom padding.
+  // (whatever is above it) down to main's bottom padding. Fixed width is
+  // exactly the pane wide.
   _tileExtentPx() {
-    const k = this._k, lg = this._tileExtent();
+    const lg = this._tileExtent();
     const main = this.closest('main');
     let vw = 0, vh = 0;
     if (main) {
@@ -340,7 +381,8 @@ export class BxCanvas extends LitElement {
       vw = main.clientWidth - 28;
       vh = main.clientHeight - top - 14;
     }
-    return { w: Math.max(vw, lg.w * k), h: Math.max(vh, lg.h * k) };
+    const w = this._fixed ? FIXED_W * this._kx : Math.max(vw, lg.w * this._k);
+    return { w, h: Math.max(vh, lg.h * this._ky) };
   }
 
   // A viewport point in the layout's logical px, clamped into `view` — the
@@ -350,12 +392,12 @@ export class BxCanvas extends LitElement {
   gridPoint(clientX, clientY) {
     const c = this.renderRoot.querySelector('.canvas'), main = this.closest('main');
     if (!c || !main) return null;
-    const k = this._k, cr = c.getBoundingClientRect(), mr = main.getBoundingClientRect();
-    const x0 = Math.max(0, (mr.left - cr.left) / k), y0 = Math.max(0, (mr.top - cr.top) / k);
-    const view = { x: x0, y: y0,
-      w: Math.max(0, (mr.left + main.clientWidth - cr.left) / k - x0), h: Math.max(0, (mr.top + main.clientHeight - cr.top) / k - y0) };
+    const kx = this._kx, ky = this._ky, cr = c.getBoundingClientRect(), mr = main.getBoundingClientRect();
+    const x0 = Math.max(0, (mr.left - cr.left) / kx), y0 = Math.max(0, (mr.top - cr.top) / ky);
+    const right = Math.min((mr.left + main.clientWidth - cr.left) / kx, this._fixed ? FIXED_W : Infinity);
+    const view = { x: x0, y: y0, w: Math.max(0, right - x0), h: Math.max(0, (mr.top + main.clientHeight - cr.top) / ky - y0) };
     const clamp = (v, lo, span) => Math.min(Math.max(v, lo), lo + span);
-    return { x: clamp((clientX - cr.left) / k, view.x, view.w), y: clamp((clientY - cr.top) / k, view.y, view.h), view };
+    return { x: clamp((clientX - cr.left) / kx, view.x, view.w), y: clamp((clientY - cr.top) / ky, view.y, view.h), view };
   }
 
   // Content bounds for the (absolute-positioned) canvas: the tiles, plus the
@@ -369,7 +411,7 @@ export class BxCanvas extends LitElement {
       for (const f of this.frames()) {
         const b = f.closest('.gtile') ? f.popBox?.() : null;
         if (b) {
-          ext.w = Math.max(ext.w, b.x + b.w - cr.left + GRID);
+          if (!this._fixed) ext.w = Math.max(ext.w, b.x + b.w - cr.left + GRID); // Fixed width never scrolls sideways
           ext.h = Math.max(ext.h, b.y + b.h - cr.top + GRID);
         }
       }
@@ -450,6 +492,7 @@ export class BxCanvas extends LitElement {
   _rowOf(path) { return (this.components ?? []).find((x) => x.path === path); }
   willUpdate(changed) {
     if (changed.has('components')) this._part = pruneDecisions(this._part, (p) => this._rowOf(p));
+    this._fx = this._fixed ? fixedRects(itemsOf(this.tiles, this.blocks)) : null;
   }
   _partOf(path, v) {
     const st = this._part[path];
@@ -632,15 +675,16 @@ export class BxCanvas extends LitElement {
     const floats = this._all().filter((o) => o.float);
     const ext = this._doc ? null : this._gridExtent();
     return html`
-      ${this._doc ? docView(this) : html`<div class="canvas ${this.canMutate ? '' : 'ro'}" style="min-height:${ext.h}px; min-width:${ext.w}px; --grid-px:${GRID * this._k}px"
+      ${this._doc ? docView(this) : html`<div class="canvas ${this.canMutate ? '' : 'ro'} ${this._fixed ? 'fixed' : ''}" style="min-height:${ext.h}px; min-width:${ext.w}px; --grid-px:${GRID * this._k}px"
            @contextmenu=${(e) => this._onContextMenu(e)}
            @pointerdown=${(e) => this._bgPress(e)}
            @pointermove=${(e) => this._press.move(e)}
            @pointerup=${() => this._press.cancel()} @pointercancel=${() => this._press.cancel()}>
+        ${this._fixed ? fixedDots(GRID * this._kx) : nothing}
         ${repeat(grid, (o) => o.path, (o) => this._gridCard(o))}
         ${canvasBlocks(this)}
         ${(this._drag?.moves ?? []).map((m) => html`<div class="ghost" data-path=${m.path} data-label=${ghostLabel(this, m.path)}
-          style="left:${m.x * this._k}px; top:${m.y * this._k}px; width:${(m.w - GAP) * this._k}px; height:${(m.h - GAP) * this._k}px;"></div>`)}
+          style=${this._box(m)}></div>`)}
       </div>`}
       ${grid.length === 0 && floats.length === 0 && !this.blocks?.length ? html`<div class="empty">${this.emptyText}</div>` : nothing}
       ${repeat(floats, (o) => o.path, (o) => this._floatTemplate(o))}

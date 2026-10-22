@@ -48,13 +48,14 @@ function place(b, p, d) {
 }
 const OPP = { r: 'l', l: 'r', d: 'u', u: 'd' };
 
-// yieldTo(b, p, d, sticky, pos): b, hit by the DRAGGED tile p that would push
-// it in d, instead steps to the far side of p — into the space the drag
-// vacated — when p covers more than half of b along the push axis (or b
-// already yielded on the previous call), and the spot just clear of p on
-// the opposite side is inside the canvas and free of every other tile.
-// Two equal neighbours swap this way (D69). Places b and returns true.
-function yieldTo(b, p, d, sticky, pos) {
+// yieldTo(b, p, d, sticky, pos, maxX): b, hit by the DRAGGED tile p that
+// would push it in d, instead steps to the far side of p — into the space
+// the drag vacated — when p covers more than half of b along the push axis
+// (or b already yielded on the previous call), and the spot just clear of p
+// on the opposite side is inside the canvas (left of maxX, when bounded)
+// and free of every other tile. Two equal neighbours swap this way (D69).
+// Places b and returns true.
+function yieldTo(b, p, d, sticky, pos, maxX) {
   const along = d === 'l' || d === 'r'
     ? Math.min(p.x + p.w, b.x + b.w) - Math.max(p.x, b.x) > b.w / 2
     : Math.min(p.y + p.h, b.y + b.h) - Math.max(p.y, b.y) > b.h / 2;
@@ -63,13 +64,14 @@ function yieldTo(b, p, d, sticky, pos) {
   if ((o === 'l' && p.x - b.w < 0) || (o === 'u' && p.y - b.h < 0)) return false;
   const c = { ...b };
   place(c, p, o);
+  if (c.x + c.w > maxX) return false;
   for (const t of pos.values()) if (t.path !== b.path && overlaps(c, t)) return false;
   b.x = c.x; b.y = c.y;
   return true;
 }
 
 /**
- * pushLayout(tiles, movingPath, rect, {dirs, positive, cap}) → {moves, dirs}
+ * pushLayout(tiles, movingPath, rect, {dirs, positive, cap, maxX}) → {moves, dirs}
  *
  * The push a tile at `rect` (the dragged/resized one) performs on the other
  * grid tiles, computed from scratch from the ORIGINAL layout — so backing
@@ -85,9 +87,12 @@ function yieldTo(b, p, d, sticky, pos) {
  * free; a resize (`positive`) never swaps. Floats and the moving tile are
  * never pushed. `moves` lists only the tiles that end up elsewhere, with
  * their size (for the ghost); `cap` bounds the pushes — pathological layouts
- * stop with some overlap left, as an unchecked drop did before.
+ * stop with some overlap left, as an unchecked drop did before. `maxX`
+ * bounds the canvas on the right (Fixed width, D193): a push right that
+ * would cross it goes down instead, as a push left off the canvas goes
+ * right; unbounded (the canvas) by default.
  */
-export function pushLayout(tiles, movingPath, rect, { dirs, positive = false, cap = 200 } = {}) {
+export function pushLayout(tiles, movingPath, rect, { dirs, positive = false, cap = 200, maxX = Infinity } = {}) {
   const orig = new Map(), pos = new Map();
   for (const t of tiles) {
     if (t.float || t.path === movingPath) continue;
@@ -105,10 +110,11 @@ export function pushLayout(tiles, movingPath, rect, { dirs, positive = false, ca
       let d = was ? was.toLowerCase() : contactDir(p, b, positive);
       if (d === 'l' && p.x - b.w < 0) d = 'r';
       if (d === 'u' && p.y - b.h < 0) d = 'd';
-      if (p.path === movingPath && !positive && yieldTo(b, p, d, was === d.toUpperCase(), pos)) {
+      if (p.path === movingPath && !positive && yieldTo(b, p, d, was === d.toUpperCase(), pos, maxX)) {
         dir.set(b.path, d.toUpperCase()); // clear by construction: no cascade
         continue;
       }
+      if (d === 'r' && ceilG(p.x + p.w) + b.w > maxX) d = 'd';
       dir.set(b.path, d);
       place(b, p, d);
       queue.push(b);
@@ -120,7 +126,7 @@ export function pushLayout(tiles, movingPath, rect, { dirs, positive = false, ca
 }
 
 /**
- * spotNear(tiles, at, w, h) → {x, y}: where a new w×h tile opened at a point
+ * spotNear(tiles, at, w, h, maxX) → {x, y}: where a new w×h tile opened at a point
  * goes (a right-click menu's "Open tile" / "Create", D80). Its top-left cell
  * is the cell under the point, pulled left/up just enough to keep the tile
  * inside `at.view` (the visible pane, when given and the tile fits) — the
@@ -128,20 +134,23 @@ export function pushLayout(tiles, movingPath, rect, { dirs, positive = false, ca
  * free spot nearest to it wins (ties go up, then left, so the tile tends to
  * still cover the point); none within 40 cells: that column, below
  * everything. Never moves a tile; floats don't count. All logical px.
+ * `maxX` bounds the canvas on the right (Fixed width, D193): x stays in
+ * [0, maxX − w].
  */
-export function spotNear(tiles, at, w = DEF_W, h = DEF_H) {
+export function spotNear(tiles, at, w = DEF_W, h = DEF_H, maxX = Infinity) {
   const placed = tiles.filter((t) => !t.float);
   let cx = floorG(at.x), cy = floorG(at.y);
   const v = at.view;
   if (v && w <= v.w) cx = Math.max(floorG(v.x), Math.min(cx, floorG(v.x + v.w - w)));
   if (v && h <= v.h) cy = Math.max(floorG(v.y), Math.min(cy, floorG(v.y + v.h - h)));
+  if (cx + w > maxX) cx = floorG(maxX - w);
   const free = (x, y) => !placed.some((t) => overlaps({ x, y, w, h }, t));
   const R = 40;
   let best = null, bd = Infinity;
   for (let dy = -R; dy <= R; dy++) {
     for (let dx = -R; dx <= R; dx++) {
       const x = cx + dx * GRID, y = cy + dy * GRID, d = dx * dx + dy * dy;
-      if (x >= 0 && y >= 0 && d < bd && free(x, y)) { best = { x, y }; bd = d; }
+      if (x >= 0 && y >= 0 && x + w <= maxX && d < bd && free(x, y)) { best = { x, y }; bd = d; }
     }
   }
   return best ?? { x: cx, y: ceilG(placed.reduce((m, t) => Math.max(m, t.y + t.h), 0)) };

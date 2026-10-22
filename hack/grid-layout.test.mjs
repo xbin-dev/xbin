@@ -183,3 +183,46 @@ test('spotNear: kept inside the visible pane, like a menu at the screen edge', (
 test('spotNear: nothing free nearby → that column, below everything', () => {
   assert.deepEqual(spotNear([T('big', 0, 0, 6000, 6000)], { x: 100, y: 100 }), { x: 96, y: 6000 });
 });
+
+// Fixed width (D193): a right bound on the canvas.
+test('bounded on the right: a push that would cross maxX goes down instead', () => {
+  const tiles = [T('a', 0, 0), T('b', 576, 0)];
+  // unbounded, as before: b goes right
+  assert.equal(at(pushLayout(tiles, 'a', R(288, 0)), 'b').x, 864);
+  // bounded at 1152: b can't fit right of a at 864, so it goes below a
+  const res = pushLayout(tiles, 'a', R(288, 0), { maxX: 1152 });
+  assert.deepEqual(at(res, 'b'), { path: 'b', x: 576, y: 384, w: 576, h: 384 });
+  assert.equal(res.dirs.get('b'), 'd');
+  assert.ok(res.moves.every((m) => m.x + m.w <= 1152));
+  // room to the right: still pushed right
+  assert.equal(at(pushLayout(tiles, 'a', R(288, 0), { maxX: 2304 }), 'b').x, 864);
+});
+
+test('bounded on the right: a resize grows down past a neighbour at the edge; a flip from the left obeys the bound', () => {
+  const res = pushLayout([T('a', 0, 0), T('b', 576, 0)], 'a', R(0, 0, 768, 384), { positive: true, maxX: 1152 });
+  assert.equal(at(res, 'b').y, 384);
+  assert.equal(at(res, 'b').x, 576);
+  // b hit from the right at the canvas's left edge would flip right — past the bound: down
+  const flip = pushLayout([T('a', 576, 0), T('b', 0, 0)], 'a', R(48, 0), { maxX: 1152 });
+  assert.ok(at(flip, 'b').x + 576 <= 1152 && at(flip, 'b').y >= 384, JSON.stringify(flip.moves));
+});
+
+test('bounded on the right: no swap onto a spot past the bound', () => {
+  // a dragged fully onto b at the right edge: they swap (b into a's old
+  // spot, inside the bound) — the bound never turns a swap into a push
+  const left = pushLayout(AB(), 'a', R(576, 0), { dirs: R_, maxX: 1152 });
+  assert.deepEqual(left.moves, [{ path: 'b', x: 0, y: 0, w: 576, h: 384 }]);
+  assert.equal(left.dirs.get('b'), 'R');
+  // a yield whose far side is past the bound doesn't happen: b is pushed instead
+  const tiles = [T('b', 576, 0), T('a', 1152, 0)], L_ = new Map([['b', 'l']]);
+  assert.deepEqual(pushLayout(tiles, 'a', R(576, 0), { dirs: L_ }).moves, [{ path: 'b', x: 1152, y: 0, w: 576, h: 384 }], 'unbounded: a swap');
+  assert.deepEqual(pushLayout(tiles, 'a', R(576, 0), { dirs: L_, maxX: 1680 }).moves, [{ path: 'b', x: 0, y: 0, w: 576, h: 384 }], 'bounded: pushed left');
+});
+
+test('spotNear bounded on the right: x stays in [0, maxX − w]', () => {
+  const p = spotNear([], { x: 2200, y: 0 }, 576, 384, 2304);
+  assert.deepEqual(p, { x: 1728, y: 0 });
+  const q = spotNear([T('a', 1728, 0)], { x: 2200, y: 0 }, 576, 384, 2304);
+  assert.ok(q.x + 576 <= 2304 && !overlaps({ ...q, w: 576, h: 384 }, T('a', 1728, 0)), JSON.stringify(q));
+  assert.deepEqual(spotNear([], { x: 2200, y: 0 }), { x: 2160, y: 0 }, 'unbounded as before');
+});

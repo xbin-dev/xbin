@@ -83,6 +83,7 @@ import { tabStrip, revealActiveTab, addScreen, hideOrgTab, screenMode, setScreen
 import { layoutFields } from './modes.js'; // a screen's mode and arrange travel with its copies (D193)
 import { TopReveal } from './shell-doc.js'; // Document mode's top bar (D187)
 import { docRows, placeNew, setCols, rowOf, step, setHeight } from './doc-layout.js';
+import { placeFixed } from './fixed-layout.js';
 import { gridItems, itemsOf } from './blocks.js'; // headings and text on a screen, no tile (D192)
 import { mutateItems, addBlock, blockTestApi } from './shell-blocks.js';
 
@@ -1575,8 +1576,10 @@ export class BxShell extends LitElement {
     }
     const { x, y } = at ? spotNear(gridItems(this._screen), at) : this._freeSpot();
     this._noteRecent(path);
-    const t = { path, x, y, w: DEF_W, h: DEF_H }; // Document mode: a new tile is the last row (D187), its blocks counted (D192)
-    if (screenMode(this._screen) === 'doc') mutateItems(this, (items) => placeNew([...items, t], path)); else this._mutateTiles((tiles) => [...tiles, t]);
+    const t = { path, x, y, w: DEF_W, h: DEF_H }, mode = screenMode(this._screen); // Document mode: a new tile is the last row (D187), its blocks counted (D192)
+    if (mode === 'doc') mutateItems(this, (items) => placeNew([...items, t], path));
+    else if (mode === 'fixed') mutateItems(this, (items) => placeFixed([...items, t], path, at)); // Fixed width: inside the 48 columns (D193)
+    else this._mutateTiles((tiles) => [...tiles, t]);
     if (this._mobile) this._drawer = false; // tapping a tile closes the drawer
   }
 

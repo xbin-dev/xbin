@@ -489,6 +489,11 @@ export const canvasCss = [scrollCss, baseCss, chromeCss, css`
       -webkit-mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='48'%20height='48'%3E%3Cpath%20d='M24%2020.5v7M20.5%2024h7'%20fill='none'%20stroke='white'%20stroke-width='1.3'%20stroke-linecap='butt'/%3E%3C/svg%3E") calc(var(--grid-px, 48px) * 20 / 48) calc(var(--grid-px, 48px) * 20 / 48) / var(--grid-px, 48px) var(--grid-px, 48px) repeat;
       mask: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='48'%20height='48'%3E%3Cpath%20d='M24%2020.5v7M20.5%2024h7'%20fill='none'%20stroke='white'%20stroke-width='1.3'%20stroke-linecap='butt'/%3E%3C/svg%3E") calc(var(--grid-px, 48px) * 20 / 48) calc(var(--grid-px, 48px) * 20 / 48) / var(--grid-px, 48px) var(--grid-px, 48px) repeat;
     }
+    /* Fixed width (D193): the same crosshairs on stretched columns, drawn by
+       an SVG pattern (bx-canvas.js fixedDots) in place of the mask */
+    .canvas.fixed::before { display: none; }
+    .fdots { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+    .fdots path { fill: none; stroke: var(--bx-canvas-dot, #1F2028); stroke-width: 1.3; }
     .gtile { position: absolute; display: flex; }
     .gtile.dragging { opacity: 0.85; z-index: 50; }
     .gtile.dragging .card { box-shadow: var(--bx-shadow-active, 0 16px 40px rgba(0, 0, 0, 0.55)); }

@@ -172,3 +172,21 @@ test('never break users: tiles-only readers see a screen with blocks exactly as 
   assert.equal(s.blocks, false);
   assert.deepEqual(s.patch(sc.blocks), sc.blocks);
 });
+
+test('Fixed width (D193): a block carries its `fixed` place through the items and back, the canvas untouched', async () => {
+  const { materialize, placeFixed } = await import('../workspace-template/shell/fixed-layout.js');
+  const blocks = [{ id: 'h1', kind: 'heading', text: 'Hi', x: 2400, y: 0, w: 384, h: 48 }];
+  const items = itemsOf([{ path: 'apps/a', x: 0, y: 0, w: 576, h: 384 }], blocks);
+  const out = materialize(items);
+  const { tiles, patch, blocks: had } = splitItems(out);
+  assert.ok(had);
+  assert.deepEqual(tiles[0].fixed, { x: 0, y: 0, w: 576, h: 384 });
+  const stored = patch(blocks);
+  assert.deepEqual(stored[0].fixed, { x: 0, y: 384, w: 384, h: 48 }, 'past column 48 on the canvas: packed below');
+  assert.deepEqual([stored[0].x, stored[0].y, stored[0].w, stored[0].h], [2400, 0, 384, 48]);
+  assert.deepEqual(itemsOf([], stored)[0].fixed, stored[0].fixed, 'read back as the item\'s place');
+  // a new block placed in Fixed width: inside the columns
+  const nb = placeFixed([...items, { path: keyOf('t'), x: 0, y: 0, w: 384, h: 144, block: 'text' }], keyOf('t'));
+  const f = nb.find((x) => x.path === keyOf('t')).fixed;
+  assert.ok(f.x + f.w <= 2304 && !overlaps(f, { x: 0, y: 0, w: 576, h: 384 }), JSON.stringify(f));
+});

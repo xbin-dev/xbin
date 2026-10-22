@@ -6,7 +6,8 @@
 // screen's on the server, admin-plane):
 //   absent  Canvas — the grid, open to the right (every screen before D187)
 //   fixed   Fixed width — the grid cut to 48 columns that stretch with the
-//           window; each tile keeps its place there in `fixed` (D193)
+//           window; each tile and block keeps its place there in `fixed`
+//           (fixed-layout.js, D193)
 //   doc     Document — rows that grow with their content (D187)
 //   tiled   Tiled — one tile fills the screen, each next one splits a tile's
 //           space in two (bspwm-like, D193)
