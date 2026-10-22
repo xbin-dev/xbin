@@ -156,13 +156,15 @@ export function blockMenuItems(b, s, a) {
 }
 
 // addItems(s, a) → the "Add heading" / "Add text" lines of the canvas and
-// tab menus. s: {orgScreen, draft} (an org screen without a draft opens one
-// for an editor, and is read-only for anyone else); a.addBlock(kind).
+// tab menus. s: {orgScreen, draft, tiled?} (an org screen without a draft
+// opens one for an editor, and is read-only for anyone else; a Tiled screen,
+// D193, draws no blocks, so the lines are off there); a.addBlock(kind).
 export function addItems(s, a) {
   const os = s.orgScreen, ro = !!os && !s.draft && !os.canEdit;
-  const hint = ro ? 'view mode' : os && !s.draft ? 'starts a draft' : '';
+  const tiled = !!(s.tiled || s.tiledItems); // a Tiled screen (D193) draws no blocks: nothing to add there
+  const hint = tiled ? 'not in Tiled' : ro ? 'view mode' : os && !s.draft ? 'starts a draft' : '';
   return [
-    { icon: 'doc', label: 'Add heading', hint, disabled: ro, action: () => a.addBlock('heading') },
-    { icon: 'list', label: 'Add text', hint, disabled: ro, action: () => a.addBlock('text') },
+    { icon: 'doc', label: 'Add heading', hint, disabled: ro || tiled, action: () => a.addBlock('heading') },
+    { icon: 'list', label: 'Add text', hint, disabled: ro || tiled, action: () => a.addBlock('text') },
   ];
 }

@@ -156,6 +156,10 @@ test('the Add lines: enabled on a personal screen and a draft, a draft for an ed
   assert.deepEqual(got, ['heading', 'text']);
   assert.equal(addItems({ orgScreen: { canEdit: true }, draft: null }, a)[0].hint, 'starts a draft');
   assert.equal(addItems({ orgScreen: { canEdit: false }, draft: null }, a)[0].disabled, true);
+  // a Tiled screen (D193) draws no blocks: the lines are off, and say why
+  for (const s of [{ orgScreen: null, draft: null, tiled: true }, { orgScreen: null, draft: null, tiledItems: () => [] }]) {
+    assert.deepEqual(addItems(s, a).map((i) => [i.disabled, i.hint]), [[true, 'not in Tiled'], [true, 'not in Tiled']]);
+  }
 });
 
 test('never break users: tiles-only readers see a screen with blocks exactly as one without', () => {

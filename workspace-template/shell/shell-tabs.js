@@ -144,7 +144,7 @@ function tabMenu(s, e, kind, sc) {
   e.preventDefault(); e.stopPropagation();
   const many = s._visibleTabs().length > 1;
   const os = kind === 'org' ? sc : null;
-  const add = addItems({ orgScreen: os, draft: os ? s._orgDrafts?.[os.id] ?? null : null },
+  const add = addItems({ orgScreen: os, draft: os ? s._orgDrafts?.[os.id] ?? null : null, tiled: screenMode(sc) === 'tiled' },
     { addBlock: (k) => { s._active = sc.id; addBlock(s, k); } });
   const items = [
     { icon: 'pencil', label: 'Rename…', disabled: kind === 'org' && !orgMeta(s, sc), hint: kind === 'org' && !orgMeta(s, sc) ? 'org admins' : '',

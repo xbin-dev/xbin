@@ -9,7 +9,8 @@
 //           window; each tile keeps its place there in `fixed` (D193)
 //   doc     Document — rows that grow with their content (D187)
 //   tiled   Tiled — one tile fills the screen, each next one splits a tile's
-//           space in two (bspwm-like, D193)
+//           space in two (bspwm-like, D193); the tree is arrange.tiling
+//           (tiling.js), the view shell-tiled.js
 // Any other value reads as the canvas, so a screen saved by a newer shell
 // still shows. Switching never rewrites the tiles: each mode reads its own
 // fields, so switching back shows that mode exactly as it was.
