@@ -26,7 +26,10 @@
  *
  * With `mode` 'doc' (D187) the screen is Document mode instead of the grid:
  * rows of cards, each as tall as its content (shell-doc.js docView, the
- * rows from doc-layout.js); the floats, menus and card chrome are the same.
+ * rows from doc-layout.js); with 'tiled' (D193) the cards fill the pane,
+ * one tile all of it and each next splitting a tile's space (shell-tiled.js
+ * tiledView, the tree from tiling.js). The floats, menus and card chrome
+ * are the same.
  * With `mode` 'fixed' (Fixed width, D193) it is the grid cut to 48 columns
  * that stretch to the pane — the columns only, rows stay GRID px — so it
  * never scrolls sideways: every card and block is drawn, dragged and pushed
@@ -57,6 +60,7 @@ import { itemsOf } from './blocks.js';
 import { nextZ, raiseTo, frontWindow, onWindowFront, activeWindow } from './zorder.js';
 import { canvasCss, prbCss, partCss, docCss } from './shell-css.js';
 import { docView, docFrame, docDragStart } from './shell-doc.js';
+import { tiledView, tiledDragStart, tiledCss } from './shell-tiled.js';
 import { FocusAnchor } from './shell-anchor.js';
 import { blocksCss, canvasBlocks, canvasItems, commitMoves, ghostLabel, blockMenu, cardOrder } from './shell-blocks.js';
 import { partitionView, requestKey, pruneDecisions, pendingText, switchLabel, modeName, modeBody, postMode, errorText,
@@ -99,8 +103,10 @@ export class BxCanvas extends LitElement {
     _dh: { state: true },               // Document mode: a fixed height being dragged {path, h}
     _dw: { state: true },               // Document mode: the page width limit being dragged (px)
     _paneW: { state: true },            // the host's width (px): Fixed width's columns stretch to it
+    _tdrag: { state: true },            // Tiled: a card dragged onto another to swap {path, over} (shell-tiled.js)
+    _tdiv: { state: true },             // Tiled: a divider being dragged {node, ratio}
   };
-  static styles = [canvasCss, prbCss, partCss, docCss, blocksCss];
+  static styles = [canvasCss, prbCss, partCss, docCss, blocksCss, tiledCss];
 
   constructor() {
     super();
@@ -129,7 +135,7 @@ export class BxCanvas extends LitElement {
     this._ro = new ResizeObserver((es) => { const w = Math.round(es[0]?.contentRect.width ?? 0); if (w && w !== this._paneW) this._paneW = w; });
   }
   // a card or a Document-mode height handle being dragged (the anchor lets go)
-  get dragging() { return !!(this._drag || this._ddrag || this._dh); }
+  get dragging() { return !!(this._drag || this._ddrag || this._dh || this._tdrag || this._tdiv); }
   get anchorState() { return this._anchor.state(); }
 
   // Tile deployments (optional): a window whose tile has another deployment
@@ -250,7 +256,8 @@ export class BxCanvas extends LitElement {
     }
   }
   // The card's or window's on-screen rect (the tile admin popover opens beside it).
-  rectOf(path) { return (this._gtile(path) ?? this._floatWin(path) ?? this._dcell(path))?.getBoundingClientRect() ?? null; }
+  rectOf(path) { return (this._gtile(path) ?? this._floatWin(path) ?? this._dcell(path) ?? this._ttile(path))?.getBoundingClientRect() ?? null; }
+  _ttile(path) { return this.renderRoot.querySelector(`.ttile[data-path="${CSS.escape(path)}"]:not(.off)`); }
   _dcell(path) { return this.renderRoot.querySelector(`.dcell[data-path="${CSS.escape(path)}"]`); }
   get _doc() { return this.mode === 'doc'; }
 
@@ -427,7 +434,8 @@ export class BxCanvas extends LitElement {
   }
 
   // kind: 'grid' (on the snappable grid) | 'float' (a free-floating window)
-  // | 'doc' (a Document-mode row, D187). The first two are fixed-size: the
+  // | 'doc' (a Document-mode row, D187) | 'tiled' (a Tiled-mode part, D193).
+  // All but 'doc' are fixed-size: the
   // frame fills a fixed body and scrolls inside; a doc card's frame grows
   // with its document (or keeps the tile's fixed doc.h).
   // The head is the window's title bar: the live square, the partition
@@ -450,7 +458,7 @@ export class BxCanvas extends LitElement {
       <div class="card ${this._isActive(o.path) ? 'active' : ''}" data-path=${o.path} data-part=${o.path === 'tiles/admin' ? 'admin' : nothing}
            @bx-contextmenu=${(e) => { e.stopPropagation(); this._tileMenu({ clientX: e.detail.x, clientY: e.detail.y }, o.path, null, e.detail.selection || ''); }}>
         <div class="head"
-             @pointerdown=${(e) => { this._activate(o.path); this._press.start(e, () => this._tileMenu(null, o.path), this.mobile); (floating ? this._floatDragStart(e, o.path) : kind === 'doc' ? docDragStart(this, e, o.path) : this._gridDragStart(e, o.path)); }}
+             @pointerdown=${(e) => { this._activate(o.path); this._press.start(e, () => this._tileMenu(null, o.path), this.mobile); (floating ? this._floatDragStart(e, o.path) : kind === 'doc' ? docDragStart(this, e, o.path) : kind === 'tiled' ? tiledDragStart(this, e, o.path) : this._gridDragStart(e, o.path)); }}
              @pointermove=${(e) => this._press.move(e)}
              @pointerup=${() => this._press.cancel()} @pointercancel=${() => this._press.cancel()} @pointerleave=${() => this._press.cancel()}>
           ${liveSquare(this._liveOf(o.path), this._runtimeOf(o.path))}
@@ -630,14 +638,14 @@ export class BxCanvas extends LitElement {
       let el = document.activeElement;
       while (el?.shadowRoot?.activeElement) el = el.shadowRoot.activeElement;
       // a control in a card's head took the keyboard focus: its window is the active one
-      const own = el?.getRootNode() === this.renderRoot ? el.closest('.gtile > .card, .dcell > .card') : null;
+      const own = el?.getRootNode() === this.renderRoot ? el.closest('.gtile > .card, .dcell > .card, .ttile > .card') : null;
       if (own) { this._activate(own.dataset.path); return; }
       if (el?.tagName !== 'IFRAME') return;
       const host = el.getRootNode()?.host;
       if (host?.reloading && !host.hovered) return; // a reload's focus grab, not a click
       const win = host?.closest?.('.float');
       if (win) { this._floatFront(win.dataset.path); return; }
-      const card = host?.closest?.('.gtile .card, .dcell .card');
+      const card = host?.closest?.('.gtile .card, .dcell .card, .ttile .card');
       if (card) this._activate(card.dataset.path);
     }, 0);
   }
@@ -673,9 +681,9 @@ export class BxCanvas extends LitElement {
   render() {
     const grid = this._all().filter((o) => !o.float);
     const floats = this._all().filter((o) => o.float);
-    const ext = this._doc ? null : this._gridExtent();
+    const ext = this._doc || this.mode === 'tiled' ? null : this._gridExtent();
     return html`
-      ${this._doc ? docView(this) : html`<div class="canvas ${this.canMutate ? '' : 'ro'} ${this._fixed ? 'fixed' : ''}" style="min-height:${ext.h}px; min-width:${ext.w}px; --grid-px:${GRID * this._k}px"
+      ${this.mode === 'tiled' ? tiledView(this) : this._doc ? docView(this) : html`<div class="canvas ${this.canMutate ? '' : 'ro'} ${this._fixed ? 'fixed' : ''}" style="min-height:${ext.h}px; min-width:${ext.w}px; --grid-px:${GRID * this._k}px"
            @contextmenu=${(e) => this._onContextMenu(e)}
            @pointerdown=${(e) => this._bgPress(e)}
            @pointermove=${(e) => this._press.move(e)}
@@ -686,7 +694,7 @@ export class BxCanvas extends LitElement {
         ${(this._drag?.moves ?? []).map((m) => html`<div class="ghost" data-path=${m.path} data-label=${ghostLabel(this, m.path)}
           style=${this._box(m)}></div>`)}
       </div>`}
-      ${grid.length === 0 && floats.length === 0 && !this.blocks?.length ? html`<div class="empty">${this.emptyText}</div>` : nothing}
+      ${grid.length === 0 && floats.length === 0 && (this.mode === 'tiled' || !this.blocks?.length) ? html`<div class="empty">${this.emptyText}</div>` : nothing}
       ${repeat(floats, (o) => o.path, (o) => this._floatTemplate(o))}
       ${this._dmenu ? html`<bx-menu open .items=${this._dmenu.items} .anchor=${this._dmenu.anchor} ?sheet=${this.mobile}
           title=${this._dmenu.title} @bx-menu-close=${() => { this._dmenu = null; }}></bx-menu>` : nothing}

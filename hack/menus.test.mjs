@@ -386,3 +386,17 @@ test('Document mode (D187): the canvas menu Layout submenu and a tile Row submen
   assert.equal(byLabel(byLabel(tileMenuItems('apps/a', state({ tiles: fixed, docMode: true }), spy().a), 'Row').items, 'Fit height to content').hint, '300 px now');
   assert.ok(byLabel(tileMenuItems('apps/a', state({ tiles, docMode: true, canMutate: false }), spy().a), 'Row').disabled);
 });
+
+test("Tiled (D193): a placed tile's menu takes the screen's Tiled lines; a float, and other screens, none", () => {
+  const tiles = [{ path: 'apps/a', x: 0, y: 0 }, { path: 'apps/f', x: 0, y: 0, float: { x: 1, y: 1, w: 300, h: 200 } }];
+  const asked = [];
+  const tiledItems = (p) => { asked.push(p); return [{ label: 'Rotate split' }, { label: 'Swap with sibling' }]; };
+  assert.ok(byLabel(tileMenuItems('apps/a', state({ tiles, tiledItems }), spy().a), 'Rotate split'));
+  assert.ok(byLabel(tileMenuItems('apps/a', state({ tiles, tiledItems }), spy().a), 'Swap with sibling'));
+  assert.equal(byLabel(tileMenuItems('apps/f', state({ tiles, tiledItems }), spy().a), 'Rotate split'), undefined, 'a float is not in the tree');
+  assert.equal(byLabel(tileMenuItems('apps/a', state({ tiles, tiledItems: null }), spy().a), 'Rotate split'), undefined);
+  assert.deepEqual(asked, ['apps/a', 'apps/a']);
+  // the canvas menu's Add lines are off: a Tiled screen draws no blocks
+  const add = byLabel(canvasMenuItems(state({ tiledItems }), spy().a), 'Add heading');
+  assert.ok(add.disabled && add.hint === 'not in Tiled');
+});

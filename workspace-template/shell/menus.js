@@ -34,6 +34,9 @@
 //                 docStep(path, dir) and docFit(path)
 //   docItems      the tiles and blocks the rows are read from (D192,
 //                 blocks.js itemsOf); absent, the tiles
+//   tiledItems    (path) → the Tiled mode's lines for a placed tile (D193,
+//                 shell-tiled.js tiledMenu: Rotate split, Swap with
+//                 sibling); null or absent off a Tiled screen
 // optional in actions:
 //   addBlock(kind)  the canvas menu's Add heading / Add text (D192)
 
@@ -212,6 +215,7 @@ export function tileMenuItems(path, s, a) {
     items.push({ icon: tile?.float ? 'maximize' : 'restore', label: tile?.float ? 'Pin to the grid' : 'Unpin into a window',
       disabled: !s.canMutate, action: () => a.togglePin(path) });
     if (s.docMode && !tile.float) items.push(rowItems(path, s, a));
+    if (s.tiledItems && !tile.float) items.push(...s.tiledItems(path));
   } else {
     items.push({ icon: 'plus', label: os && !os.canEdit ? 'Open on my screen' : os && !draft ? 'Open here (starts a draft)' : 'Open on this screen',
       action: () => a.openTile(path) });

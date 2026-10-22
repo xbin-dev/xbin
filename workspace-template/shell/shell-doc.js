@@ -209,12 +209,14 @@ function widthStart(c, ev) {
 // than 820px) the bar is fixed over the page and slides away while
 // reading. It shows when the pointer comes within 8px of the top edge,
 // when the page scrolls up, while focus is inside it and while a menu is
-// open; it goes when the page scrolls down. The shell renders the bar's
-// classes from `on` (docmode) and `hidden` (away); the motion is CSS
+// open; it goes when the page scrolls down. On a Tiled screen (D193) the
+// same, but nothing scrolls: it goes when the pointer leaves it downwards
+// (onto the tiles), unless focus or a menu holds it. The shell renders the
+// bar's classes from `on` (docmode) and `hidden` (away); the motion is CSS
 // (--bx-dur-panel; none under reduced motion).
 export class TopReveal {
   constructor(host) {
-    this.host = host; this.on = false; this.hidden = false; this._y = 0; this._main = null;
+    this.host = host; this.on = false; this.hidden = false; this._y = 0; this._main = null; this._bar = null; this.tiled = false;
     this._scroll = () => {
       const y = this._main?.scrollTop ?? 0;
       if (heldScroll(this._main) === y) { this._y = y; return; } // the focused tile holding its place (D191), not reading
@@ -222,7 +224,13 @@ export class TopReveal {
       else if (y < this._y - 4) this._set(false);
       this._y = y;
     };
-    this._move = (e) => { if (this.on && this.hidden && e.clientY <= 8) this._set(false); };
+    this._move = (e) => {
+      if (!this.on) return;
+      if (this.hidden && e.clientY <= 8) this._set(false);
+      else if (this.tiled && !this.hidden && e.clientY > this._bottom() + 16) this._set(true);
+    };
+    // leaving the bar downwards — onto a tile's page too, which takes the moves after it
+    this._leave = (e) => { if (this.on && this.tiled && !this.hidden && e.clientY >= this._bottom() - 2) this._set(true); };
     this._focus = (e) => { if (this.on && e.composedPath().some((el) => el.classList?.contains('top'))) this._set(false); };
     host.addController(this);
   }
@@ -235,7 +243,10 @@ export class TopReveal {
     this.host.renderRoot?.removeEventListener?.('focusin', this._focus);
     this._main?.removeEventListener('scroll', this._scroll);
     this._main = null;
+    this._bar?.removeEventListener('pointerleave', this._leave);
+    this._bar = null;
   }
+  _bottom() { return this._bar?.getBoundingClientRect().bottom ?? 48; }
   hostUpdated() {
     const h = this.host;
     const main = h.renderRoot?.querySelector('main') ?? null;
@@ -245,7 +256,14 @@ export class TopReveal {
       main?.addEventListener('scroll', this._scroll, { passive: true });
       this._y = main?.scrollTop ?? 0;
     }
-    const on = !h._mobile && screenMode(h._screen) === 'doc';
+    const bar = h.renderRoot?.querySelector('.top') ?? null;
+    if (bar !== this._bar) {
+      this._bar?.removeEventListener('pointerleave', this._leave);
+      this._bar = bar;
+      bar?.addEventListener('pointerleave', this._leave);
+    }
+    const mode = screenMode(h._screen), on = !h._mobile && (mode === 'doc' || mode === 'tiled');
+    this.tiled = mode === 'tiled';
     if (on !== this.on) {
       this.on = on; this.hidden = on; // entering Document mode: the bar starts out of the way
       h.requestUpdate();

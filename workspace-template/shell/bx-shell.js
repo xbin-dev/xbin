@@ -81,6 +81,7 @@ import { appearanceRows, followAppearance } from './shell-appearance.js';
 import { alertsTpl, loadDismissals, followDismissals, dismissedRow } from './shell-alerts.js'; // banners, dismissals (D188)
 import { tabStrip, revealActiveTab, addScreen, hideOrgTab, screenMode, setScreenMode, layoutItems, orgMeta } from './shell-tabs.js'; // the screen tabs, in the top bar (D187)
 import { layoutFields } from './modes.js'; // a screen's mode and arrange travel with its copies (D193)
+import { tiledToggle, tiledMenu, tiledTestApi } from './shell-tiled.js'; // the Tiled mode's tree, from the shell's ends (D193)
 import { TopReveal } from './shell-doc.js'; // Document mode's top bar (D187)
 import { docRows, placeNew, setCols, rowOf, step, setHeight } from './doc-layout.js';
 import { placeFixed } from './fixed-layout.js';
@@ -951,7 +952,7 @@ export class BxShell extends LitElement {
       components: this._components, tiles: this._tiles, recent: this._recent ?? [], showHidden: this._showHidden,
       canMutate: this._canMutate, prs: this._prs, canAdminTile: (p) => this._canAdminTile(p),
       docMode: screenMode(this._screen) === 'doc', layoutItems: layoutItems(this, this._screen, this._activeOrgScreen ? 'org' : 'personal'),
-      docItems: itemsOf(this._tiles, this._screen?.blocks),
+      docItems: itemsOf(this._tiles, this._screen?.blocks), tiledItems: tiledMenu(this),
     };
   }
   _menuActions(at = null) {
@@ -1572,6 +1573,7 @@ export class BxShell extends LitElement {
     }
     if (this._isOpen(path)) {
       this._mutateTiles((tiles) => tiles.filter((o) => o.path !== path));
+      tiledToggle(this, path, false); // Tiled (D193): its space goes to what shared it
       return;
     }
     const { x, y } = at ? spotNear(gridItems(this._screen), at) : this._freeSpot();
@@ -1580,6 +1582,7 @@ export class BxShell extends LitElement {
     if (mode === 'doc') mutateItems(this, (items) => placeNew([...items, t], path));
     else if (mode === 'fixed') mutateItems(this, (items) => placeFixed([...items, t], path, at)); // Fixed width: inside the 48 columns (D193)
     else this._mutateTiles((tiles) => [...tiles, t]);
+    tiledToggle(this, path, true); // Tiled (D193): it splits the focused tile's space
     if (this._mobile) this._drawer = false; // tapping a tile closes the drawer
   }
 
@@ -1677,6 +1680,7 @@ export class BxShell extends LitElement {
       get arrange() { return s._screen?.arrange ?? null; }, // the active screen's arrange (D193, modes.js)
       get anchor() { return s._canvas?.anchorState ?? null; }, // the focused tile's hold (D191, shell-anchor.js)
       ...blockTestApi(s), // blocks(), addBlock(kind, at), editBlock(id), blockMenuItems(id) (D192)
+      ...tiledTestApi(s), // tiling(): the Tiled screen's tree as drawn (D193)
     };
   }
 
