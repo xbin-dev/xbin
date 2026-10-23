@@ -57,12 +57,46 @@ func (f *fakeLauncher) Start(spec *sandbox.Spec, o LaunchOpts) (Proc, error) {
 		f.mod(&opts)
 	}
 	p.core = agentcore.New(opts)
+	// Core.Serve's loop, with each connection's handler counted: they run
+	// in this test process, so quiesce can wait for them (a real agent's
+	// threads end with its process).
 	go func() {
-		_ = p.core.Serve(func() (io.ReadWriteCloser, error) { return sandbox.AcceptFrom(p.agent) })
+		for {
+			conn, err := sandbox.AcceptFrom(p.agent)
+			if err != nil || !p.adopt(conn) {
+				break
+			}
+			go func() {
+				defer p.handlers.Done()
+				p.core.Handle(conn)
+			}()
+		}
 		p.die(ExitStatus{Code: 0}) // the factory's EOF: the agent syncs and exits 0
 	}()
 	f.procs = append(f.procs, p)
 	return p, nil
+}
+
+// quiesce runs at the test's end, after the runtime stopped every sandbox
+// and before the TempDir removal: it waits until each process's agent has
+// finished what it was doing. A handler still at work — a cut upload's temp
+// file created, then unlinked — would otherwise race the removal of its
+// root ("directory not empty"). die closes what the agent accepted, as a
+// dead process's descriptors close, so every handler returns.
+func (f *fakeLauncher) quiesce() {
+	f.mu.Lock()
+	procs := append([]*fakeProc(nil), f.procs...)
+	f.mu.Unlock()
+	for _, p := range procs {
+		p.die(ExitStatus{Code: -1, Signal: syscall.SIGKILL}) // a no-op once the runtime ended it
+		done := make(chan struct{})
+		go func() { p.handlers.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(10 * time.Second):
+			f.t.Errorf("sandbox %s: its agent's handlers still run 10s after it died", p.spec.Hostname)
+		}
+	}
 }
 
 // count is how many processes it started.
@@ -99,7 +133,26 @@ type fakeProc struct {
 	exit chan ExitStatus
 	dead chan struct{}
 
+	// what its agent accepted (closed when it dies, as a dead process's
+	// descriptors are) and the handlers serving them (fakeLauncher.quiesce)
+	conns    []io.Closer
+	gone     bool
+	handlers sync.WaitGroup
+
 	ignoreKills atomic.Int32 // kills that don't take
+}
+
+// adopt counts a connection its agent accepted — refused once it died.
+func (p *fakeProc) adopt(c io.ReadWriteCloser) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.gone {
+		c.Close()
+		return false
+	}
+	p.conns = append(p.conns, c)
+	p.handlers.Add(1)
+	return true
 }
 
 func (p *fakeProc) Pid() int           { return p.pid }
@@ -177,6 +230,10 @@ func (p *fakeProc) die(st ExitStatus) {
 		if p.tunPeer != nil {
 			p.tunPeer.Close()
 		}
+		p.gone = true
+		for _, c := range p.conns {
+			c.Close()
+		}
 		p.mu.Unlock()
 		close(p.dead)
 		p.exit <- st
@@ -201,6 +258,7 @@ func newFakeEnv(t *testing.T, mut ...func(*Options)) *fakeEnv {
 	t.Helper()
 	fe := &fakeEnv{l: &fakeLauncher{t: t}, sbx: sbx.New(), k: Key{Tile: "apps/mgr"}}
 	rootfs := filepath.Join(t.TempDir(), "rootfs")
+	t.Cleanup(fe.l.quiesce) // after the runtime's StopAll (registered below), before the TempDirs go
 	if err := os.MkdirAll(filepath.Join(rootfs, "etc"), 0o755); err != nil {
 		t.Fatal(err)
 	}
