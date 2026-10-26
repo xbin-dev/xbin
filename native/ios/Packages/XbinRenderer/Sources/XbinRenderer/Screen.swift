@@ -67,7 +67,10 @@ private struct ScreenBody: View {
     @Environment(\.xbinInTabBar) private var inTabBar
 
     var body: some View {
+        // A drag down the list, form or transcript takes the keyboard with
+        // it (#30): it can always be put away (and Hide keyboard is over it).
         styled.safeAreaPadding(.bottom, inTabBar ? 16 : 0)
+            .scrollDismissesKeyboard(.interactively)
     }
 
     @ViewBuilder
@@ -126,7 +129,7 @@ struct ScreenToolbar: ToolbarContent {
             ToolbarItemGroup(placement: .topBarLeading) {
                 ForEach(leading.children) { NodeView(node: $0).fixedSize() }
                     .environment(\.xbinPlacement, .toolbar)
-            }
+            }.preferVerticalBar()
         }
         if let bottom, !bottom.children.isEmpty {
             ToolbarItemGroup(placement: .bottomBar) {
@@ -146,7 +149,7 @@ struct ScreenToolbar: ToolbarContent {
             ToolbarItemGroup(placement: .topBarTrailing) {
                 ForEach(groups.status) { NodeView(node: $0).fixedSize() }
                     .environment(\.xbinPlacement, .toolbar)
-            }
+            }.preferVerticalBar()
             if !groups.actions.isEmpty {
                 ToolbarSpacer(.fixed, placement: .topBarTrailing)
             }
@@ -156,7 +159,7 @@ struct ScreenToolbar: ToolbarContent {
             // and its label truncated ("d…" for a `draft` badge).
             ForEach(groups.actions) { NodeView(node: $0).fixedSize() }
                 .environment(\.xbinPlacement, .toolbar)
-        }
+        }.preferVerticalBar()
     }
 }
 

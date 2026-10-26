@@ -20,7 +20,8 @@
  * major `v`. Rev 2 (D189) is the navigation revision: deep links, a split
  * that collapses to a stack, toolbar placement, leading/full swipes, nested
  * menus, refresh completion, search submit/scopes/suggestions, a full-screen
- * sheet, scroll anchors and edges.
+ * sheet, scroll anchors and edges; `button`'s rev 2 is `copyFormat` (Markdown
+ * copied as rich text, #34).
  *
  * Schema (all plain JSON):
  *   prop:     {type: 'string'|'number'|'bool'|'json'|'array'|'object' | [types…],
@@ -193,10 +194,11 @@ const P = {
     props: { icon: tok('icon'), title: S, text: S }, events: {}, children: NONE },
 
   // ── 8.3 controls ──────────────────────────────────────────────────────────
-  button: { rev: 1, group: 'control', text: 'label',
+  button: { rev: 2, group: 'control', text: 'label',
     props: { label: S, icon: tok('icon'), role: en('primary', 'secondary', 'destructive', 'plain'),
       disabled: B, busy: B, confirm: obj({ title: S, message: S, label: S, destructive: B }),
-      copy: { ...S, doc: 'copied natively on tap (no round trip)' } },
+      copy: { ...S, doc: 'copied natively on tap (no round trip)' },
+      copyFormat: since(2, { ...en('text', 'markdown'), doc: '`markdown`: `copy` is Markdown, put on the pasteboard as rich text (HTML: headings, lists with their numbers, tables, links) beside its plain text; `text` (the default): as it is' }) },
     events: { tap: {} }, children: NONE },
   toggle: { rev: 1, group: 'control', props: { label: S, value: B, disabled: B },
     events: { change: { payload: { value: 'bool' }, ...reports('value') } }, children: NONE },

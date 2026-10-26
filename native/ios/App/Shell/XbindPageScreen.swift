@@ -98,7 +98,7 @@ struct XbindPageScreen: View {
                     Button { controller?.reload() } label: { Image(systemName: "arrow.clockwise") }
                         .accessibilityLabel("Reload")
                 }
-            }
+            }.preferVerticalBar()
         }
         .task { if gate == nil { await check() } }
         // Kept for a forward swipe, it loads afresh (a new ticket) when back.

@@ -26,7 +26,7 @@ public enum XbinVocabulary {
         "text": 1, "markdown": 1, "image": 1, "icon": 1, "badge": 1, "notice": 1, "progress": 1,
         "chart": 1, "code": 1, "empty": 1,
         // 8.3 controls
-        "button": 1, "toggle": 1, "field": 1, "picker": 1, "menu": 2,
+        "button": 2, "toggle": 1, "field": 1, "picker": 1, "menu": 2,
         // 8.4 the chat family
         "transcript": 2, "message": 1, "thinking": 1, "toolcard": 1, "approval": 1, "question": 1,
         "plan": 1, "diff": 1, "activity": 1, "step": 1, "composer": 1,

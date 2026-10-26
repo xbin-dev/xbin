@@ -46,7 +46,9 @@ unguard() {
 # The views: guards and #Preview macros dropped (no macros here).
 (cd "$pkg/Sources/XbinRenderer" && find . -name '*.swift' ! -name Exports.swift) | while read -r f; do
   name=$(printf '%s' "$f" | sed 's|^\./||; s|/|_|g')
-  unguard "$pkg/Sources/XbinRenderer/$f" | sed -e '/^#Preview/,/^}$/d' >"$out/Sources/XbinRendererCheck/$name"
+  # selectors become stub values (no ObjC runtime here), as app-stubcheck does
+  unguard "$pkg/Sources/XbinRenderer/$f" | sed -E -e '/^#Preview/,/^}$/d' \
+    -e 's/#selector\(([^()]*(\([^()]*\))?)\)/Selector("\1")/g' >"$out/Sources/XbinRendererCheck/$name"
 done
 # The snapshot tests, as plain functions (no Testing module here).
 unguard "$pkg/Tests/XbinRendererTests/SnapshotTests.swift" | sed -e 's/^import Testing$//' -e 's/^import XbinRenderer$//' \
@@ -80,6 +82,6 @@ cd "$out" && swift build
 # …and the snapshot tests as the hosted XbinSnapshotTests compile them.
 swift build -Xswiftc -DXBIN_SNAPSHOT_HOST
 # …and the views as an iOS 27.1 SDK build would (XBIN_SDK_27_1: the iPhone
-# Duo's ArrangementView, stubbed from the design — its real names are
-# unconfirmed).
+# Duo's ArrangementView, vertical bar and trait, stubbed as the 27.1 SDK
+# declares them, D200).
 swift build -Xswiftc -DXBIN_SDK_27_1

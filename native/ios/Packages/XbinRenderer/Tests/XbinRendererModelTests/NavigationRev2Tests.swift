@@ -153,6 +153,7 @@ import XbinCore
             if p["children"]?["since"] != nil { rev2.insert(name) }
         }
         #expect(rev2 == Set(XbinVocabulary.primitives.filter { $0.value == 2 }.keys))
-        #expect(rev2 == ["screen", "toolbar", "list", "actions", "sheet", "split", "menu", "transcript"])
+        // the navigation revision (D189), and button's copyFormat (#34)
+        #expect(rev2 == ["screen", "toolbar", "list", "actions", "sheet", "split", "menu", "transcript", "button"])
     }
 }

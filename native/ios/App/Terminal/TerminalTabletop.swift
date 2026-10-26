@@ -62,9 +62,9 @@ enum TerminalFold {
         #if XBIN_SDK_27_1
         if #available(iOS 27.1, *) {
             // Only active regions are returned: the fold exists while the
-            // device is partially folded (none when flat or closed). Names from
-            // the iOS 27.1 SDK as reported (GeometryProxy.reservedRegions(kind:),
-            // ReservedRegion.frame); verify against the SDK before enabling.
+            // device is partially folded (none when flat or closed).
+            // GeometryProxy.reservedRegions(kind:) and ReservedRegion.frame as
+            // the iOS 27.1 SDK declares them (Xcode 27.1, 27A9269; D200).
             if let f = proxy.reservedRegions(kind: .division).first?.frame {
                 return TermRect(x: Double(f.minX), y: Double(f.minY), width: Double(f.width), height: Double(f.height))
             }

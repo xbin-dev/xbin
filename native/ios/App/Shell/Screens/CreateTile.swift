@@ -47,6 +47,7 @@ struct CreateTileSheet: View {
                     Section { Label { Text(verbatim: error) } icon: { Image(systemName: XbinGlyphs.symbol("error")) }.foregroundStyle(XbinColor.danger) }
                 }
             }
+            .keyboardHideButton()
             .concreteBackground()
             .navigationTitle("New tile")
             .navigationBarTitleDisplayMode(.inline)
@@ -186,6 +187,7 @@ struct BuildChooser: View {
                 }
             }
         }
+        .keyboardHideButton()
         .navigationTitle(Text(verbatim: workspace.tile(tile)?.title ?? TileInfo.humanize(tile)))
         .task {
             guard !loaded else { return }

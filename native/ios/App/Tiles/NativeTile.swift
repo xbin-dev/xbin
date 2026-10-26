@@ -494,7 +494,7 @@ struct NativeTileScreen: View {
                         workspace.open(.sessions(tile: tile.path, show: .launcher), in: nav)
                     }
                 } label: { Image(systemName: "ellipsis.circle") }
-            }
+            }.preferVerticalBar()
         }
         .onAppear {
             let pool = NativeRuntimePool.shared

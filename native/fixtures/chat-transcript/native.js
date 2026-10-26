@@ -58,7 +58,7 @@ const assistantMsg = (m) => html`
   ${m.thinking ? html`<thinking text=${m.thinking.text} seconds=${m.thinking.seconds} open=${false}/>` : nothing}
   <message role="assistant" sender=${conv.agent} markdown text=${m.text} time=${hhmm(m.at)} @link=${(e) => xbin.native.open(e.href)}>
     <actions>
-      <button icon="copy" copy=${m.text}>Copy</button>
+      <button icon="copy" copy=${m.text} copyFormat="markdown">Copy</button>
       <button icon="refresh" @tap=${() => {}}>Retry</button>
     </actions>
   </message>`;

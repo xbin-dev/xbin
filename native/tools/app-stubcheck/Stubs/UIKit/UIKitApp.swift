@@ -129,7 +129,7 @@ extension UIImage {
 }
 
 // The panels' edge swipes (Shell/PanelStack.swift).
-@MainActor open class UIEvent: NSObject {}
+// UIEvent, UIApplication.sendAction: swiftui-stubcheck's UIKit.swift (the renderer hides the keyboard too)
 public struct UIRectEdge: OptionSet, Sendable {
     public let rawValue: UInt
     public init(rawValue: UInt) { self.rawValue = rawValue }
@@ -153,9 +153,6 @@ extension UIView {
 }
 extension UINavigationController {
     public var viewControllers: [UIViewController] { [] }
-}
-extension UIApplication {
-    @discardableResult public func sendAction(_ action: Selector, to target: Any?, from sender: Any?, for event: UIEvent?) -> Bool { true }
 }
 extension UIColor {
     public static let secondarySystemBackground = UIColor(red: 0, green: 0, blue: 0, alpha: 1)

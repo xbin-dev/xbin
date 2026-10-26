@@ -41,7 +41,7 @@ const paint = () => render(!rel ? nothing : html`
     </section>
     <section title="Verify">
       <button icon="shield" disabled @tap=${() => {}}>Notarize (needs a signing key)</button>
-      <button icon="copy" copy=${`git tag -s ${rel.tag} ${rel.commit}`}>Copy tag command</button>
+      <button icon="copy" copy=${`git tag -s ${rel.tag} ${rel.commit}`} copyFormat="text">Copy tag command</button>
       <button icon="terminal" confirm=${{ title: 'Re-run the checks?', message: 'Takes about 6 minutes.', label: 'Re-run' }} @tap=${() => {}}>Re-run checks</button>
     </section>
     <section title="Assets" badge=${String(rel.assets.length)} footer="Swipe an asset to download or delete it.">

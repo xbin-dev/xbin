@@ -89,7 +89,7 @@ struct TerminalScreen: View {
                         }
                         .accessibilityLabel("Full screen")
                     }
-                }
+                }.preferVerticalBar()
             }
         }
         .overlay(alignment: .topTrailing) {

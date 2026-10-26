@@ -505,13 +505,14 @@ diagnostic (§Checking it) — the render goes on.
 <!-- generated:prims-control (node hack/native-docs.mjs --write) -->
 | Primitive | What | Props | Events | Children |
 |---|---|---|---|---|
-| `button` | a button; `confirm` asks first, `copy` copies without a round trip | `label`, `icon` *icon*, `role` primary·secondary·destructive·plain, `disabled` bool, `busy` bool, `confirm` {title, message, label, destructive}, `copy` | `tap` | text → `label` |
+| `button` (rev 2) | a button; `confirm` asks first, `copy` copies without a round trip | `label`, `icon` *icon*, `role` primary·secondary·destructive·plain, `disabled` bool, `busy` bool, `confirm` {title, message, label, destructive}, `copy`, `copyFormat` text·markdown (rev 2+) | `tap` | text → `label` |
 | `toggle` | an on/off switch | `label`, `value` bool, `disabled` bool | `change` {value} | — |
 | `field` | a text field; app-owned while focused | `label`, `value`, `kind` text·secure·number·email·url·multiline·search·date·time, `placeholder`, `hint`, `error`, `disabled` bool, `submit` | `input` {value}, `change` {value}, `submit` {value} | — |
 | `picker` | one value out of `options` | `label`, `value` string\|number\|bool, `options` [{value, label, icon}], `style` menu·segmented·inline | `change` {value} | — |
 | `menu` (rev 2) | a pull-down; its buttons fire, a menu inside it is a submenu | `label`, `icon` *icon* | — | `button`, `divider`, `menu` (rev 2+) |
 
 - `button` `copy`: copied natively on tap (no round trip).
+- `button` `copyFormat`: `markdown`: `copy` is Markdown, put on the pasteboard as rich text (HTML: headings, lists with their numbers, tables, links) beside its plain text; `text` (the default): as it is.
 - `field` `submit`: the return-key label (go, send, done, search, next).
 <!-- /generated:prims-control -->
 

@@ -46,7 +46,7 @@ function builtInTpl(b, depth) {
     case 'think': return html`<thinking text=${b.text} ?live=${b.live} seconds=${b.live ? nothing : b.ms ? secs(b.ms) : nothing}
       open=${isOpen(b.id, b.live)} @toggle=${setOpen(b.id)}/>`;
     case 'assistant': return html`<message role="assistant" markdown text=${b.text}>
-      <actions><button icon="copy" copy=${b.text}>Copy</button></actions></message>`;
+      <actions><button icon="copy" copy=${b.text} copyFormat=${rev2('button') ? 'markdown' : nothing}>Copy</button></actions></message>`;
     case 'draft': return html`<message role="assistant" markdown streaming text=${b.text}/>`;
     case 'tool': return toolTpl(b, depth);
     case 'agent': return agentTpl(b, depth);

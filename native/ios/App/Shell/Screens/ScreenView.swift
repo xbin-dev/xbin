@@ -52,7 +52,7 @@ struct ScreenView: View {
                         Button("Edit") { self.editor = ScreenEditor(screen: s, cards: workspace.cards(for: s),
                                                                      hidden: workspace.mobile.hidden(for: s.id, screenTiles: s.tiles)) }
                     }
-                }
+                }.preferVerticalBar()
             }
         }
         // Leaving the panel mid-edit (a swipe back) keeps the edit.

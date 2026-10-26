@@ -56,9 +56,10 @@ struct NavView: View {
 
 /// `split`: list/detail. Two columns when the width is regular and
 /// `prefer` isn't `single` (``SplitLayout``): `NavigationSplitView` (its
-/// column visibility the rev-2 `columns`), or the iPhone Duo's
-/// `ArrangementView` when built with the iOS 27.1 SDK (`XBIN_SDK_27_1`, off
-/// by default: the hosted CI has only 27.0). Otherwise a rev-2 split (one
+/// column visibility the rev-2 `columns`), or — on an open iPhone Duo, where
+/// the system draws its vertical bar (D200) — the Duo's `ArrangementView`,
+/// when built with the iOS 27.1 SDK (`XBIN_SDK_27_1`: ios.yml's `duo` job;
+/// an iPad keeps the columns). Otherwise a rev-2 split (one
 /// with `detail`) collapses to a `NavigationStack` — the list, with the
 /// detail pushed over it while `detail` is true, Back reporting `close`;
 /// a rev-1 split is stacked, like the reference renderer (§15).
@@ -69,6 +70,8 @@ struct SplitView: View {
     @Environment(\.xbin) private var cx
     /// This split presents the tree's top-level sheets (``SplitSheets``).
     @Environment(\.xbinSplitSheets) private var topSheets
+    /// An open Duo: the system's vertical bar is here (``VerticalBarProbe``).
+    @State private var verticalBar = false
 
     var body: some View {
         let layout = SplitLayout(node, regularWidth: width == .regular)
@@ -78,6 +81,16 @@ struct SplitView: View {
         layouts(layout)
             .environment(\.xbinSplitSheets, false)
             .modifier(SplitSheets(owner: topSheets, active: !onAppStack))
+            .background { probe }
+    }
+
+    /// Reports an open Duo into ``verticalBar`` (nothing without the 27.1 SDK).
+    @ViewBuilder private var probe: some View {
+        #if XBIN_SDK_27_1
+        if #available(iOS 27.1, *) {
+            VerticalBarProbe(present: $verticalBar).frame(width: 0, height: 0).accessibilityHidden(true)
+        }
+        #endif
     }
 
     @ViewBuilder private func layouts(_ layout: SplitLayout) -> some View {
@@ -86,7 +99,7 @@ struct SplitView: View {
         let _ = navTrace("split \(node.key) layout \(layout) width \(String(describing: width)) detail \(SplitState(node).detail)")
         if layout == .columns {
             #if XBIN_SDK_27_1
-            if #available(iOS 27.1, *) {
+            if #available(iOS 27.1, *), verticalBar {
                 DuoSplit(primary: kids[0], secondary: kids[1], flags: flags)
             } else {
                 ColumnsSplit(node: node, primary: kids[0], secondary: kids[1], flags: flags)
@@ -221,7 +234,7 @@ private struct ColumnNav: View {
                                     .labelStyle(.titleAndIcon)
                             }
                             .accessibilityIdentifier("BackButton")
-                        }
+                        }.preferVerticalBar()
                     }
                 }
         }
@@ -475,11 +488,10 @@ private struct OwnStackSplit: View {
 private enum SplitPath: Hashable { case detail }
 
 #if XBIN_SDK_27_1
-/// Two panes on an iPhone Duo (iOS 27.1): the system's arrangement of a
-/// primary and a secondary pane, which keeps them off the hinge. The names
-/// are the design's (plans/native.md §15, from secondary sources) and are
-/// to be confirmed against the 27.1 SDK before the flag is turned on
-/// (native/AGENTS.md).
+/// Two panes on an open iPhone Duo (iOS 27.1): the system's arrangement of
+/// a primary and a secondary pane, which keeps them off the hinge —
+/// `ArrangementView(primary:secondary:)` as the 27.1 SDK declares it
+/// (SwiftUICore). Used only where the system draws its vertical bar.
 @available(iOS 27.1, *)
 private struct DuoSplit: View {
     let primary: XbinNode
@@ -490,6 +502,7 @@ private struct DuoSplit: View {
         ArrangementView {
             NavigationStack { NodeView(node: primary) }
                 .environment(\.xbinNav, flags)
+        } secondary: {
             NavigationStack { NodeView(node: secondary) }
                 .environment(\.xbinNav, flags)
         }

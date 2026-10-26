@@ -16,6 +16,10 @@ public struct XbinServices {
     /// A button's `copy` and a code block's copy button (default: the
     /// general pasteboard).
     public var copy: @MainActor (String) -> Void
+    /// A button's `copy` with `copyFormat: "markdown"` (#34): the Markdown
+    /// as rich text (HTML) and its plain text (default: both on the general
+    /// pasteboard, ``XbinPasteboard/copyMarkdown(_:)``).
+    public var copyMarkdown: @MainActor (String) -> Void
     /// A tapped markdown link, after the tile's `link` event. The app opens
     /// it only when the tile has `cap:open-links` (§8.2); nil: never opened.
     public var openLink: (@MainActor (URL) -> Void)?
@@ -38,6 +42,7 @@ public struct XbinServices {
     @MainActor
     public init(
         copy: @escaping @MainActor (String) -> Void = { UIPasteboard.general.string = $0 },
+        copyMarkdown: @escaping @MainActor (String) -> Void = { XbinPasteboard.copyMarkdown($0) },
         openLink: (@MainActor (URL) -> Void)? = nil,
         imageData: (@MainActor (String) async throws -> Data)? = nil,
         terminal: (@MainActor (XbinTerminalRequest) -> AnyView)? = nil,
@@ -45,6 +50,7 @@ public struct XbinServices {
         attach: (@MainActor (XbinAttachRequest) async -> [XbinUpload])? = nil
     ) {
         self.copy = copy
+        self.copyMarkdown = copyMarkdown
         self.openLink = openLink
         self.imageData = imageData
         self.terminal = terminal
@@ -351,4 +357,16 @@ struct ConfirmHostModifier: ViewModifier {
             }
     }
 }
+/// The pasteboard's two forms of a Markdown text (#34): HTML, for the apps
+/// that keep headings, list numbers, tables and links, and its plain text.
+public enum XbinPasteboard {
+    @MainActor public static func copyMarkdown(_ source: String) {
+        let r = Markdown.pasteboard(markdown: source)
+        UIPasteboard.general.setItems([[
+            "public.html": Data(r.html.utf8), // UTType.html
+            "public.utf8-plain-text": r.plain, // UTType.utf8PlainText
+        ]])
+    }
+}
+
 #endif

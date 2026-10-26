@@ -409,7 +409,7 @@ struct AgentScreen: View {
                     }
                     Button("End session", systemImage: "stop.circle", role: .destructive) { Task { await m.end() } }
                 } label: { Image(systemName: "ellipsis.circle") }
-            }
+            }.preferVerticalBar()
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -538,7 +538,11 @@ struct AgentItemView: View {
             MessageView(message: AgentChat.message(msg, status: msg.open ? rows.status : .idle, ended: msg.open && rows.ended,
                                                    agentName: rows.agentName ?? model.provider?.name ?? "Agent",
                                                    blocks: { model.memo.blocks(id: msg.id, text: $0) }),
-                        onLink: { url in UIApplication.shared.open(url) })
+                        onLink: { url in UIApplication.shared.open(url) }) {
+                // Copy under the bubble (#34): an agent's Markdown as rich
+                // text, with its lists, tables and links; a prompt as it is.
+                if !msg.text.isEmpty { MessageCopyMenu(text: msg.text, markdown: msg.role != .user) }
+            }
         case .thought(let t):
             ThinkingView(thinking: AgentChat.thinking(t, status: t.done ? .idle : rows.status, ended: !t.done && rows.ended),
                          isOpen: isOpen)

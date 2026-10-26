@@ -56,6 +56,7 @@ struct AddDeviceView: View {
                     }
                 }
             }
+            .keyboardHideButton()
             .concreteBackground()
             .navigationTitle("Add a device")
             .navigationBarTitleDisplayMode(.inline)

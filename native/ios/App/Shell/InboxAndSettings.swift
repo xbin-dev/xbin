@@ -189,6 +189,7 @@ struct SettingsView: View {
                     LabeledContent("Version") { Text(verbatim: AppInfo.version) }
                 }
             }
+            .keyboardHideButton()
             .concreteBackground()
             .navigationTitle("Settings")
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }

@@ -29,6 +29,26 @@ export default function setup({ data, touch: t }) {
     const paged = (data.seed.pages || {})[m[1]];
     return json({ hasOlder: false, compacted: 0, linkCount: (v.links || []).length, ...v, ...(paged || {}) });
   });
+  // a person's two homes (seed.homeRows = {'': [rows], global: [rows]}, a
+  // partitioned page): each conversation list and view answers from the home
+  // the call reaches (xbin.fetch's {partition: 'global'}), as homes.mjs's do
+  if (data.seed.homeRows) {
+    const rows = data.seed.homeRows;
+    globalThis.__route('GET', /\/conversations\?(.*)$/, (m, o) => {
+      const q = new URLSearchParams(m[1]);
+      let list = rows[o?.partition || ''] || [];
+      if (q.get('scope') === 'shared') list = list.filter((r) => r.visibility === 'team' || r.members);
+      else if (q.get('scope') === 'mine') list = list.filter((r) => r.mine);
+      return json({ pinned: [], items: list, next: '' });
+    });
+    globalThis.__route('GET', /\/runs\/(\d+)\/view/, (m, o) => {
+      const home = o?.partition || '';
+      const r = (rows[home] || []).find((x) => x.id === +m[1]);
+      if (!r) return json({ error: 'no such conversation here' }, 404);
+      return json({ cursor: 'g.1', run: { pendingState: {}, ...r }, access: r.access, messages: [{ id: 1, runId: r.id, seq: 1, role: 'user', content: `hello from ${r.title}`, created: 1 }],
+        steps: [], links: [], queued: [], drafts: [], chain: [], files: [], memory: {}, config: {}, messageFiles: {}, home, hasOlder: false, compacted: 0, linkCount: 0 });
+    });
+  }
   for (const [method, re, body, status] of data.seed.routes || []) route(method, re, body, status);
   // what the worker's own stub has that STUB lacks (native, events, dialogs)
   globalThis.xbin = Object.assign(keep, {

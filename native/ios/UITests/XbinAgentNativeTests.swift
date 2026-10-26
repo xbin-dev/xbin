@@ -156,6 +156,33 @@ final class XbinAgentNativeTests: XCTestCase {
         }
     }
 
+    /// The composer's keyboard can be put away (#30): Hide keyboard over
+    /// it, the draft kept.
+    @MainActor
+    func test10HideKeyboard() async throws {
+        let e = try E2E(self)
+        try await e.server.prepareAgent()
+        e.launch()
+        e.ensureWorkspace()
+        e.goHome()
+        e.openAgent()
+        let newChat = e.app.buttons.matching(NSPredicate(format: "label == %@", "New chat")).firstMatch
+        e.backToList(newChat)
+        e.expect(newChat, 60, "the list's New chat")
+        newChat.tap()
+        let input = e.composer("ask anything…")
+        XCTAssertTrue(input.exists, "the new chat's composer")
+        input.tap()
+        input.typeText("a draft")
+        XCTAssertTrue(e.app.keyboards.firstMatch.waitForExistence(timeout: 10), "the composer brings the keyboard up")
+        let hide = e.app.buttons.matching(identifier: "keyboard-hide").firstMatch
+        XCTAssertTrue(hide.waitForExistence(timeout: 10), "Hide keyboard over the keyboard")
+        e.shot("keyboard-02-composer-hide-button")
+        hide.tap()
+        XCTAssertTrue(e.until(10) { !e.app.keyboards.firstMatch.exists }, "Hide keyboard puts it away")
+        XCTAssertTrue(e.containing("a draft").exists || (input.value as? String)?.contains("a draft") == true, "…the draft kept")
+    }
+
     @MainActor
     func test04SubagentAndAutomationRun() async throws {
         let e = try E2E(self)

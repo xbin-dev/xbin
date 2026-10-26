@@ -105,6 +105,7 @@ extension View {
     public func multilineTextAlignment(_ alignment: TextAlignment) -> some View { _V(self) }
     public func truncationMode(_ mode: Text.TruncationMode) -> some View { _V(self) }
     public func textSelection<S: TextSelectability>(_ selectability: S) -> some View { _V(self) }
+    public func scrollDismissesKeyboard(_ mode: ScrollDismissesKeyboardMode) -> some View { _V(self) }
     public func contentShape<S: Shape>(_ shape: S) -> some View { _V(self) }
     public func clipShape<S: Shape>(_ shape: S, style: FillStyle = FillStyle()) -> some View { _V(self) }
     public func clipped(antialiased: Bool = false) -> some View { _V(self) }
@@ -204,7 +205,7 @@ extension _ToolbarLeaf { public var body: Never { fatalError() } }
 public struct ToolbarItemPlacement: Sendable {
     public static let topBarTrailing = ToolbarItemPlacement(), topBarLeading = ToolbarItemPlacement(), cancellationAction = ToolbarItemPlacement(),
         confirmationAction = ToolbarItemPlacement(), primaryAction = ToolbarItemPlacement(), principal = ToolbarItemPlacement(), automatic = ToolbarItemPlacement(),
-        bottomBar = ToolbarItemPlacement()
+        bottomBar = ToolbarItemPlacement(), keyboard = ToolbarItemPlacement()
 }
 public struct ToolbarItem<ID, Content: View>: _ToolbarLeaf {}
 extension ToolbarItem where ID == () {
@@ -272,4 +273,9 @@ extension AttributeScopes {
         public let strikethroughStyle: StrikethroughStyleAttribute
         public let underlineStyle: UnderlineStyleAttribute
     }
+}
+
+public struct ScrollDismissesKeyboardMode: Sendable {
+    public static let automatic = ScrollDismissesKeyboardMode(), immediately = ScrollDismissesKeyboardMode(),
+        interactively = ScrollDismissesKeyboardMode(), never = ScrollDismissesKeyboardMode()
 }

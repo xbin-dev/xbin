@@ -95,6 +95,10 @@ simctl)
   *) exit 64 ;;
   esac
   ;;
+--sdk)
+  # xcrun --sdk iphonesimulator --show-sdk-version: FAKE_SIM_SDK, else unknown
+  [ -n "${FAKE_SIM_SDK:-}" ] || exit 1
+  echo "$FAKE_SIM_SDK" ;;
 metal)
   [ "${FAKE_STATEFUL:-0}" = 1 ] && [ -f "$FAKE_STATE/metal" ] && exit 0
   exit "${FAKE_METAL_STATUS:-0}" ;;
