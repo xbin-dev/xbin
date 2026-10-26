@@ -209,6 +209,14 @@ bx agent run [--tile p] [--provider claude|codex|gemini|opencode] [--mode m] [--
 bx agent send <id> "<text>" | permit <id> <pid> once|always|deny|<option>
                                        prompt a running one · answer a
                                        permission request (first answer wins)
+bx agent send --queue | --interrupt <id> "<text>"
+                                       send it whatever the agent is doing
+                                       (D197): into the running turn where
+                                       the agent takes messages mid-turn,
+                                       else held until the turn ends;
+                                       --interrupt stops the turn, then
+                                       sends it
+bx agent unqueue <id> [<queued id>]    take held messages back (prints them)
 bx agent attach <id> [--since n] | ls [--tile p] | stop <id>
                                        replay + follow · list yours · end one
 bx agent set <id> <option> <value>    change a setting the agent offers

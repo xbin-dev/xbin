@@ -43,6 +43,7 @@ import { toolCard, permCard, changesCard, askCard, cardsCss, mdLive } from '/ven
 import { agentCss } from '/vendor/agent-css.js';
 import { agentTestApi } from '/vendor/agent-testapi.js';
 import { slashQuery, matchCommands, commandHint } from '/vendor/agent-slash.js';
+import { queueURL, stop, queueChips, fitComposer } from '/vendor/agent-queue.js';
 import '/vendor/agent-signin.js';
 
 export class BxAgent extends LitElement {
@@ -184,6 +185,7 @@ export class BxAgent extends LitElement {
 
   updated(ch) {
     this._react(ch);
+    if (ch.has('_draft')) fitComposer(this, this.renderRoot.querySelector('.compose textarea')); // a send, a pick, a take-back: its height follows
     const sc = this._sc();
     if (!sc) return;
     this._sw.attach(sc);
@@ -391,7 +393,8 @@ export class BxAgent extends LitElement {
 
   // ---- actions ----
 
-  async _submit() {
+  // interrupt (Ctrl/⌘+Enter while a turn runs): stop it, then send (D197)
+  async _submit(interrupt = false) {
     const text = this._draft.trim();
     if (this._creating || this.restarting) return; // restarting: the frame brings the new session
     if (!this.session) {
@@ -399,13 +402,15 @@ export class BxAgent extends LitElement {
       if (!text) return; // started; the settings pickers show now, the first prompt can wait
     }
     if (!text) return;
-    if (await this._prompt(text)) this._draft = ''; // else keep the draft to retry
+    if (await this._prompt(text, interrupt)) this._draft = ''; // else keep the draft to retry
   }
 
-  async _prompt(text) {
+  // every message goes through …/queue (D197): idle, it starts a turn; while
+  // one runs the agent takes it mid-turn, or xbind holds it for the turn's end
+  async _prompt(text, interrupt = false) {
     try {
-      const r = await fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/prompt`,
-        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text }) });
+      const r = await fetch(queueURL(this),
+        { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text, interrupt }) });
       if (!r.ok) { this._error = (await r.json().catch(() => ({}))).error || `prompt failed (${r.status})`; this._authErr = this._looksAuth(this._error); return false; }
       this._error = ''; this._authErr = false; this._signedNote = ''; this._refetch();
       return true;
@@ -501,7 +506,7 @@ export class BxAgent extends LitElement {
     this._draft = '/' + c.name + ' ';
     this._slashSel = 0;
     const ta = this.renderRoot?.querySelector('.compose textarea');
-    if (ta) { ta.value = this._draft; ta.focus(); }
+    if (ta) { ta.value = this._draft; ta.focus(); } // (its height: updated(), _draft changed)
   }
 
   _options() { return this._tx.st.options || []; }
@@ -589,7 +594,7 @@ export class BxAgent extends LitElement {
       if (ev.key === 'Tab' || (ev.key === 'Enter' && !ev.shiftKey)) { ev.preventDefault(); this._pickSlash(items[sel]); return; }
       if (ev.key === 'Escape') { ev.preventDefault(); this._slashOff = true; return; }
     }
-    if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); this._submit(); } // isComposing: don't send on an IME confirm
+    if (ev.key === 'Enter' && !ev.shiftKey && !ev.isComposing) { ev.preventDefault(); this._submit(ev.ctrlKey || ev.metaKey); } // isComposing: don't send on an IME confirm
   }
 
   // ---- view model ----
@@ -640,13 +645,14 @@ export class BxAgent extends LitElement {
         ${lg ? this._signin(lg) : this._signedNote ? html`<div class="status signed"><bx-icon name="ok"></bx-icon>${this._signedNote}</div>` : nothing}
         ${!this.session ? (this.provider || this.restarting ? nothing : this._chooser()) : this._settings()}
         ${this._slashMenu()}
+        ${queueChips(this)}
         <div class="compose">
-          <textarea rows="1" ?disabled=${this.ended} placeholder=${this.ended ? 'the session has ended' : busy ? 'A turn is running…' : 'Message the agent (Enter to send, Shift+Enter for a newline)'}
-            .value=${this._draft} @input=${(e) => { this._draft = e.target.value; this._slashOff = false; this._slashSel = 0; this._autosize(e.target); }}
+          <textarea rows="1" ?disabled=${this.ended} placeholder=${this.ended ? 'the session has ended' : busy ? 'Add to the running turn (Enter) · Ctrl+Enter stops it, then sends' : 'Message the agent (Enter to send, Shift+Enter for a newline)'}
+            .value=${this._draft} @input=${(e) => { this._draft = e.target.value; this._slashOff = false; this._slashSel = 0; fitComposer(this, e.target); }}
             @keydown=${this._key}></textarea>
-          ${busy
-            ? html`<button class="cancel" @click=${this._cancel} title="interrupt the running turn">Stop</button>`
-            : html`<button @click=${this._submit} ?disabled=${this._creating || this.ended || this.restarting} title=${this.session ? 'send (Enter)' : 'start the agent — with a message it sends it too; without one you can pick the model first'}>${this.session ? 'Send' : 'Start'}</button>`}
+          ${busy ? html`<button class="cancel" @click=${() => stop(this)} title="interrupt the running turn — messages waiting for it come back here first">Stop</button>` : nothing}
+          <button @click=${() => this._submit()} ?disabled=${this._creating || this.ended || this.restarting}
+            title=${!this.session ? 'start the agent — with a message it sends it too; without one you can pick the model first' : busy ? 'add it to the running turn (Enter): the agent takes it at its next step, or it waits for the turn to end · Ctrl+Enter: stop the turn, then send it' : 'send (Enter)'}>${this.session ? 'Send' : 'Start'}</button>
         </div>
       </div>`;
   }
@@ -756,7 +762,7 @@ export class BxAgent extends LitElement {
       case 'msg':
         return b.role === 'user'
           ? html`<div class="row user"><div class="who">you</div><div class="bubble">${b.text}${b.files?.length ? html`<div class="files ${b.text ? 'below' : ''}">${b.files.map((f) =>
-              html`<span class="file" title=${`${f.mime || ''} · ${fmtN(f.size || 0)} bytes`}>${f.name}</span>`)}</div>` : nothing}</div></div>`
+              html`<span class="file" title=${`${f.mime || ''} · ${fmtN(f.size || 0)} bytes`}>${f.name}</span>`)}</div>` : nothing}${b.steered ? html`<span class="steer">taken in mid-turn</span>` : nothing}</div></div>`
           : html`<div class="row agent"><div class="who">agent</div><div class="bubble" ${mdLive(b.text, b)}></div></div>`;
       case 'thought': {
         // open while it streams (the last block of a running turn), then
@@ -792,11 +798,6 @@ export class BxAgent extends LitElement {
   }
 
   _sc() { return this.renderRoot?.querySelector('.scroll'); }
-
-  _autosize(el) {
-    el.style.height = 'auto';
-    el.style.height = Math.min(el.scrollHeight, window.innerHeight * 0.4) + 'px';
-  }
 
   // Test hook (the harness): the transcript as plain records, and the actions.
   testApi() { return agentTestApi(this); }

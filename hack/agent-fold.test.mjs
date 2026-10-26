@@ -189,9 +189,10 @@ test('a version moves only when its block (or a nested one) changed', () => {
 test('the status digest matches a scan of the log', () => {
   for (const [name, events] of logs()) {
     const st = new Fold(events).st;
-    let status = '', detail = '', mode = '', options = null, modes = null, commands = null, last = null, usage = null;
+    let status = '', detail = '', mode = '', options = null, modes = null, commands = null, last = null, usage = null, queue = [];
     for (const e of events) {
       const d = e.data || {};
+      if (e.type === 'queue') queue = d.items || [];
       if (e.type === 'status') {
         if (d.status) status = d.status;
         detail = d.detail || detail;
@@ -203,7 +204,7 @@ test('the status digest matches a scan of the log', () => {
       }
       if (e.type === 'turn.end' && d.usage) usage = d.usage;
     }
-    assert.deepEqual({ ...st }, { status, detail, currentMode: mode, options, modes, commands, last, usage }, name);
+    assert.deepEqual({ ...st }, { status, detail, currentMode: mode, options, modes, commands, last, usage, queue }, name);
   }
 });
 
@@ -283,4 +284,23 @@ test('a notice is a block of its own', () => {
   assert.deepEqual(f.blocks.map((b) => [b.kind, b.text]), [['notice', 'xbin: moved'], ['msg', 'hi']]);
   assert.equal(f.st.status, 'idle');
   assert.equal(f.st.detail, '');
+});
+
+// D197: a message the running turn took mid-turn (steered) is a bubble of
+// its own — never merged into the prompt before it — and the `queue` event
+// (the messages held for the turn's end) is status, not a row: it neither
+// adds a block nor ends a thought; the digest keeps its items.
+test('steered messages and the queue', () => {
+  const f = new Fold([
+    { seq: 1, ts: 10, type: 'message.delta', data: { role: 'user', text: 'do it' } },
+    { seq: 2, ts: 20, type: 'message.delta', data: { role: 'user', text: 'and the tests', steered: true } },
+    { seq: 3, ts: 30, type: 'thought.delta', data: { text: 'hm' } },
+    { seq: 4, ts: 40, type: 'queue', data: { items: [{ id: 'q1', text: 'later', at: 40 }] } },
+    { seq: 5, ts: 50, type: 'thought.delta', data: { text: ' ok' } },
+  ]);
+  assert.deepEqual(f.blocks.map((b) => [b.kind, b.text, !!b.steered]), [['msg', 'do it', false], ['msg', 'and the tests', true], ['thought', 'hm ok', false]]);
+  assert.equal(f.blocks[2].done, false, 'a queue event does not end the thought');
+  assert.deepEqual(f.st.queue.map((q) => q.id), ['q1']);
+  f.push({ seq: 6, ts: 60, type: 'queue', data: { items: [], sent: ['q1'] } });
+  assert.deepEqual(f.st.queue, []);
 });

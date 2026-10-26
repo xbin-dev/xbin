@@ -50,6 +50,24 @@ type Driver interface {
 	Session() (id string, loadable bool)
 }
 
+// Steerer is a Driver that can hand the running turn a message (D197):
+// sdk/acp's Steer over the adapters' _session/steering. The outcome is one
+// of the Steer* values; ErrSteeringUnsupported when the agent did not
+// advertise it. Optional — a driver without it has its messages held until
+// the turn ends (term's queue).
+type Steerer interface {
+	Steer(ctx context.Context, p Prompt) (string, error)
+}
+
+// Steer outcomes and the refusal (sdk/acp).
+const (
+	SteerInjected       = acp.SteerInjected       // taken into the running turn
+	SteerPromptRequired = acp.SteerPromptRequired // no turn runs: send it as a prompt
+	SteerStartedNewTurn = acp.SteerStartedNewTurn // the agent started a turn of its own with it
+)
+
+var ErrSteeringUnsupported = acp.ErrSteeringUnsupported
+
 // The session model's types are the ACP client's (sdk/acp): one
 // definition, shared with every tile that runs the same client.
 type (

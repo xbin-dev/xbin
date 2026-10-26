@@ -1607,7 +1607,49 @@ POST   /term/sessions/<id>/prompt creator or admin. {text, attachments?:
                                    resource when the agent takes embedded
                                    context. The log records the names,
                                    types, sizes and whether each went
-                                   inline, never the bytes
+                                   inline, never the bytes. (To send
+                                   while a turn runs, use …/queue.)
+POST   /term/sessions/<id>/queue  creator or admin (not an agent sandbox's
+                                   token). A message whatever the agent is
+                                   doing (D197): {text, attachments?,
+                                   interrupt?} → {outcome, turn?, id?}.
+                                   Idle: it starts a turn, as /prompt does
+                                   (outcome "prompted", turn). While a turn
+                                   runs it goes to that turn where the
+                                   agent takes messages mid-turn (the
+                                   adapters' _session/steering — claude,
+                                   codex — at the agent's next step;
+                                   outcome "steered"; the log's user
+                                   message.delta carries steered:true),
+                                   else it is held and sent as the next
+                                   prompt when the turn ends (outcome
+                                   "queued", id). Held messages go in
+                                   together, in order, as one prompt (text
+                                   one paragraph each, as many as one
+                                   prompt's attachment limits allow), and
+                                   once one is held later ones queue behind
+                                   it. interrupt: hold it and cancel the
+                                   running turn — it goes in once that turn
+                                   has ended. The held messages are the
+                                   session's (every client sees them: a
+                                   `queue` event after each change, the tail
+                                   page's state.queue now); a cancel keeps
+                                   them, the session's end drops them (a
+                                   notice says so). 409 while another
+                                   message for the session is being taken
+                                   (before this body is read) or 16 are
+                                   held; 413 past one prompt's attachment
+                                   limits, or past 40 MiB of held files.
+                                   Attachments as for /prompt
+DELETE /term/sessions/<id>/queue[/<qid>]
+                                   creator or admin (not an agent sandbox's
+                                   token). Take held messages back — all,
+                                   or the one <qid> → {items:[{id, text,
+                                   files?, at}]}, whole (their files are not
+                                   returned): a client puts the text back
+                                   where it was typed. 404 for a <qid> no
+                                   longer held (sent, or taken back
+                                   elsewhere)
 POST   /term/sessions/<id>/restart
                                    the creator. {net?, api?, gpu?} →
                                    {session, resumed}: the sandbox pickers
@@ -6728,13 +6770,15 @@ before the page, with `status`, `detail`, `currentMode`, `options`,
 `modes` and `commands` each from the latest status that carried it: fold
 it first, as a status event), `usage` and `turn` of the last `turn.end`
 before it, and on the tail page of a live session the `permissions` and
-`elicitations` waiting now (they are in its events too). An older xbind
+`elicitations` waiting now (they are in its events too) and `queue`, the
+messages held for the turn's end now (a `queue` event's `items`; take it
+before the page's events, whose `queue` events are newer). An older xbind
 ignores both parameters and answers the whole replay — a client tells
 them apart by `hasOlder`.
 
 | type | data |
 |---|---|
-| `message.delta` | `{role:"user"\|"agent", text, messageId?, parent?, attachments?}` — a prompt is logged as one `user` delta, so every client sees it, with `attachments:[{name, mime, size, inline?}]` when it carried files (their bytes are not logged; `inline` true when the model got it with the prompt — an image block, an embedded text — else it is a file the agent was pointed at); agent text arrives in runs (a burst of tokens is coalesced into a few events); `parent` is the subagent tool call (`tool.call` with `subagent`) the text came from |
+| `message.delta` | `{role:"user"\|"agent", text, messageId?, parent?, attachments?, steered?}` — a prompt is logged as one `user` delta, so every client sees it (`steered: true` on a message the running turn took mid-turn — POST …/queue, D197), with `attachments:[{name, mime, size, inline?}]` when it carried files (their bytes are not logged; `inline` true when the model got it with the prompt — an image block, an embedded text — else it is a file the agent was pointed at); agent text arrives in runs (a burst of tokens is coalesced into a few events); `parent` is the subagent tool call (`tool.call` with `subagent`) the text came from |
 | `thought.delta` | `{text, parent?}` — the agent's reasoning, when it shares it |
 | `plan` | `{entries:[{content, priority, status}]}` — the whole list, replacing the last |
 | `tool.call` | `{id, title, kind, status, content?, locations?, rawInput?, rawOutput?, name?, label?, parent?, subagent?, planReview?, output?, outputDelta?, exitCode?}` — kind: read \| edit \| delete \| move \| search \| execute \| think \| fetch \| switch_mode \| other; content items are `{type:"content", content:{type:"text", text}}` (often markdown — the adapters fence command output), `{type:"diff", path, oldText, newText}` or `{type:"terminal", terminalId}`. The rest is lifted from the adapter's `_meta` so a client needs no per-agent code: `name` the tool's own name (`Bash`, `ExitPlanMode`, …); `label` a human headline for the call when the harness wrote one (Claude's description of a shell command — the `title` is the command); `parent` the subagent call this one runs under; `subagent` true on a subagent (Task/Agent) call itself; `planReview` true on Codex's plan approval; `outputDelta` a chunk of a shell command's output (append), `output` its whole output (replace), `exitCode` its exit status |
@@ -6747,7 +6791,8 @@ them apart by `hasOlder`.
 | `turn.end` | `{turn, stopReason, usage?:{used, size, cost?}, error?}` — stopReason: end_turn \| max_tokens \| max_turn_requests \| refusal \| cancelled \| error |
 | `status` | `{status, detail?, modes?, currentMode?, options?, commands?, agent?, login?, usage?, title?}` — status: starting \| idle \| running \| waiting_permission \| cancelling \| error \| exited; `title` is the agent's own name for the session (ACP `session_info_update` — most adapters generate one after the first turn); it names a session that has no name yet (SessionInfo `name`, announced by a `term` `rename` event) — a name the user gave is kept; `modes` (the agent's available modes), `options` (its settings: `[{id, name, category, type, currentValue, options:[{value, name}]}]` — model, effort, …, in the agent's priority order) and `agent` (`{name, version}`) ride every `idle`; `options` also rides a status whenever a setting changes; `commands` (the agent's slash commands, `[{name, description?, hint?}]` — `hint` says what to type after the name; a command is sent as ordinary prompt text, `/name args`) rides a status when the agent advertises them and every `idle` after; `login` (`{needed:true, provider, command}`) rides every status while the agent reports it is signed out (an `_auth/status_update{kind:none}`) or a turn hit auth-required — the frontend shows a sign-in: the provider's guided one when `GET /agent/providers` gives it a `signin` (D178: a link to open and a code to paste, the CLI running in a terminal session no tab shows), else — and on request — `command` run in a shell terminal sharing the agent's home; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
 | `gap` | `{before}` — only on a `?follow=1` stream: the cursor predated the log's ring; earlier events were dropped |
-| `notice` | `{text}` — a line xbin itself says in the session, not the agent; a client shows it muted, as its own row (the Agent tab does; a client that doesn't know the type skips it). Today one: the session's start moved the tile's terminal layer to a new base image, resetting everything outside the workspace files and `$HOME` (base auto-update, D175; the event is the session's first) |
+| `queue` | `{items:[{id, text, files?, at}], sent?, dropped?, reason?}` — xbin's, not the agent's (D197): the messages held for the running turn's end after a change (`POST`/`DELETE …/queue`) — the whole list, replacing the last; `text` is a preview (200 characters), `files` the attachments' names. `sent` lists the ids that just went in as a prompt (its user `message.delta` follows); `dropped` counts held messages that went without being sent, with `reason` (the session ended; a prompt refused for good — a `notice` says so too). A client that doesn't know the type skips it |
+| `notice` | `{text}` — a line xbin itself says in the session, not the agent; a client shows it muted, as its own row (the Agent tab does; a client that doesn't know the type skips it). Today: the session's start moved the tile's terminal layer to a new base image, resetting everything outside the workspace files and `$HOME` (base auto-update, D175; the event is the session's first); held messages that were not sent (D197) |
 
 The live log is in memory; an `exited` or `error` status is final and the
 session leaves the directory (`term` event `close`). Its transcript does not

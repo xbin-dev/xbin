@@ -630,6 +630,17 @@ What the agent gets:
   OpenCode): it replays the turns in the new sandbox, then continues. An
   agent that cannot starts fresh, and the old conversation stays under
   Recent sessions (`POST /api/xbin/term/sessions/<id>/restart`).
+- **messages while it works** (D197). Send stays next to Stop while a turn
+  runs. Claude Code and Codex take the message into the running turn at
+  their next step (it shows in the transcript, marked as taken mid-turn);
+  with an agent that can't, or behind messages already waiting, it is
+  **queued** — a chip over the composer — and goes in when the turn ends,
+  the waiting ones together as one message. A chip's × takes it back into
+  the composer; **Stop** takes them all back, then stops the turn;
+  **Ctrl/⌘+Enter** stops the turn and sends the message straight after.
+  The queue is the session's: another browser, or `bx agent send --queue`,
+  sees and adds to the same one, and a session that ends drops it, saying
+  so (`POST /api/xbin/term/sessions/<id>/queue`).
 - **conservative modes by default.** Claude Code starts in `default` (ask
   before acting), Codex in `read-only`, Gemini in `default`; the bypass
   modes (`bypassPermissions`, `agent-full-access`, `yolo`) exist but must

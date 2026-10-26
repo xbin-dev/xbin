@@ -98,6 +98,9 @@ type agentState struct {
 	prompting atomic.Bool // a prompt is being taken (ReservePrompt)
 	attachDir string      // the daemon's attachments dir (isolation off), removed with the session
 	replay    replayState // a resume's replay, logged but not published one by one (agentpage.go); under mu
+	queue     []queueItem // messages held for the running turn's end (agentqueue.go, D197); under mu
+	flushing  bool        // the queue is being sent as a prompt; under mu
+	queueing  atomic.Bool // a message for the queue is being taken (ReserveQueue)
 }
 
 func (st *agentState) logf(line string) {
@@ -408,6 +411,7 @@ type delta struct {
 	MessageID   string          `json:"messageId,omitempty"`
 	Parent      string          `json:"parent,omitempty"`      // a subagent's text never merges into the main thread's
 	Attachments json.RawMessage `json:"attachments,omitempty"` // a prompt's files (names, types, sizes): never merged
+	Steered     bool            `json:"steered,omitempty"`     // a message the running turn took mid-turn (D197): never merged
 }
 
 // agentPump drains the driver's events into the log and the hub, merging
@@ -447,7 +451,7 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 				var d delta
 				_ = json.Unmarshal(e.Data, &d)
 				if pend != nil && pend.Type == e.Type && pd.Role == d.Role && pd.MessageID == d.MessageID && pd.Parent == d.Parent &&
-					len(pd.Attachments) == 0 && len(d.Attachments) == 0 {
+					len(pd.Attachments) == 0 && len(d.Attachments) == 0 && !pd.Steered && !d.Steered {
 					pd.Text += d.Text
 					continue
 				}
@@ -483,8 +487,9 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 		}
 	}
 ended:
-	s.endReplay(m)     // a replay the session never finished (agentpage.go)
-	s.publishStatus(m) // the last word before the directory's close
+	s.dropQueue(m, "the session ended") // held messages go with it, said in the log (D197)
+	s.endReplay(m)                      // a replay the session never finished (agentpage.go)
+	s.publishStatus(m)                  // the last word before the directory's close
 	s.hub.End(termwire.Exit{})
 	s.kill() // the host and the agent go with the session, whatever ended first
 	waitErr := s.cmd.Wait()
@@ -529,6 +534,7 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 		if d.Status != "" {
 			st.status = d.Status
 		}
+		flush := len(st.queue) > 0 && (d.Status == agent.StatusIdle || d.Status == agent.StatusError) // the turn ended: what is held goes in (D197)
 		if d.CurrentMode != "" {
 			st.mode = d.CurrentMode
 		}
@@ -547,6 +553,9 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 				s.name, renamed = d.Title, true
 			}
 			s.mu.Unlock()
+		}
+		if flush {
+			defer m.kickQueue(s) // after this status is logged: the queue's prompt follows it
 		}
 	}
 	s.hub.Touch()

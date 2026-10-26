@@ -29,6 +29,9 @@ func (s *Server) registerAgentAPI() {
 	s.RegisterAPI("GET /term/sessions/{id}", s.apiAgentGet)
 	s.RegisterAPI("DELETE /term/sessions/{id}", s.apiAgentDelete)
 	s.RegisterAPI("POST /term/sessions/{id}/prompt", s.apiAgentPrompt)
+	s.RegisterAPI("POST /term/sessions/{id}/queue", s.apiAgentQueue)           // a message whatever the agent is doing (D197)
+	s.RegisterAPI("DELETE /term/sessions/{id}/queue", s.apiAgentUnqueue)       // take the held messages back
+	s.RegisterAPI("DELETE /term/sessions/{id}/queue/{qid}", s.apiAgentUnqueue) // …or one
 	s.RegisterAPI("POST /term/sessions/{id}/cancel", s.apiAgentCancel)
 	s.RegisterAPI("POST /term/sessions/{id}/restart", s.apiAgentRestart)
 	s.RegisterAPI("POST /term/sessions/{id}/permissions/{pid}", s.apiAgentPermit)
@@ -196,12 +199,15 @@ func agentDriven(p auth.Principal, r *http.Request, isAgent func(tok string) boo
 // agentStatus maps the term package's errors to HTTP statuses.
 func agentStatus(err error) int {
 	switch {
-	case errors.Is(err, term.ErrNoSession), errors.Is(err, term.ErrNoPermission), errors.Is(err, term.ErrNoQuestion), errors.Is(err, term.ErrNoDiff):
+	case errors.Is(err, term.ErrNoSession), errors.Is(err, term.ErrNoPermission), errors.Is(err, term.ErrNoQuestion), errors.Is(err, term.ErrNoDiff),
+		errors.Is(err, term.ErrNoQueued):
 		return http.StatusNotFound
+	case errors.Is(err, agent.ErrAttachmentTooLarge):
+		return http.StatusRequestEntityTooLarge
 	case errors.Is(err, term.ErrForbidden):
 		return http.StatusForbidden
 	case errors.Is(err, term.ErrNotAgent), errors.Is(err, agent.ErrBusy), errors.Is(err, agent.ErrEnded), errors.Is(err, agent.ErrResumeUnsupported),
-		errors.Is(err, agent.ErrCancelled):
+		errors.Is(err, agent.ErrCancelled), errors.Is(err, term.ErrQueueFull), errors.Is(err, term.ErrQueueTaken):
 		return http.StatusConflict
 	}
 	return http.StatusBadRequest
@@ -344,17 +350,74 @@ func (s *Server) apiAgentPrompt(w http.ResponseWriter, r *http.Request) {
 	turn, err := s.Term.AgentPromptWith(r.Context(), id, p)
 	if err != nil {
 		apiErr(w, agentStatus(err), err.Error())
+		s.Term.KickQueue(id) // a refused prompt started no turn: what is held may go now (D197)
 		return
 	}
 	WriteJSON(w, http.StatusOK, map[string]any{"ok": true, "turn": turn})
+}
+
+// apiAgentQueue takes a message whatever the agent is doing (D197): {text,
+// attachments?, interrupt?} → {outcome: prompted (it started a turn, as
+// /prompt does: turn) | steered (the running turn took it, at the agent's
+// next step) | queued (held: it goes in when the turn ends; id)}.
+// interrupt holds it and cancels the running turn. 409 while another
+// message for the session is being taken or 16 are held; 413 past the
+// attachment limits (one prompt's, or the held messages' together).
+func (s *Server) apiAgentQueue(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.driveOther(w, r)
+	if !ok {
+		return
+	}
+	release, err := s.Term.ReserveQueue(id)
+	if err != nil {
+		apiErr(w, agentStatus(err), err.Error())
+		return
+	}
+	defer release()
+	var interrupt bool
+	p, code, err := decodePromptWith(http.MaxBytesReader(w, r.Body, maxPromptBody), &interrupt)
+	if err != nil {
+		apiErr(w, code, err.Error())
+		return
+	}
+	res, err := s.Term.AgentQueue(r.Context(), id, p, interrupt)
+	if err != nil {
+		apiErr(w, agentStatus(err), err.Error())
+		return
+	}
+	WriteJSON(w, http.StatusOK, res)
+}
+
+// apiAgentUnqueue takes held messages back: all of them, or {qid} →
+// {items:[{id, text, files?, at}]} — whole, so a client puts the text back
+// where it was typed (their files are not returned). 404 for a qid no
+// longer held (sent, or taken back elsewhere).
+func (s *Server) apiAgentUnqueue(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.driveOther(w, r)
+	if !ok {
+		return
+	}
+	items, err := s.Term.AgentUnqueue(id, r.PathValue("qid"))
+	if err != nil {
+		apiErr(w, agentStatus(err), err.Error())
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"items": items})
 }
 
 // decodePrompt reads a prompt body: the text, and the attachments decoded
 // (standard base64, padded or not) and normalised
 // (agent.PrepareAttachments). The int is the status of a refusal.
 func decodePrompt(body io.Reader) (agent.Prompt, int, error) {
+	return decodePromptWith(body, nil)
+}
+
+// decodePromptWith is decodePrompt that also reads a queue message's
+// interrupt flag (when interrupt is not nil).
+func decodePromptWith(body io.Reader, interrupt *bool) (agent.Prompt, int, error) {
 	var b struct {
 		Text        string `json:"text"`
+		Interrupt   bool   `json:"interrupt"`
 		Attachments []struct {
 			Name string `json:"name"`
 			Mime string `json:"mime"`
@@ -370,6 +433,9 @@ func decodePrompt(body io.Reader) (agent.Prompt, int, error) {
 	}
 	if strings.TrimSpace(b.Text) == "" && len(b.Attachments) == 0 {
 		return agent.Prompt{}, http.StatusBadRequest, errors.New("need {text}")
+	}
+	if interrupt != nil {
+		*interrupt = b.Interrupt
 	}
 	if len(b.Attachments) > agent.MaxAttachments {
 		return agent.Prompt{}, http.StatusBadRequest, fmt.Errorf("%d attachments (at most %d)", len(b.Attachments), agent.MaxAttachments)

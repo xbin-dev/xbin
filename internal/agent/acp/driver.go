@@ -22,7 +22,10 @@ func New() *Client { return sdkacp.NewWith(xbindOptions) }
 // Driver is the agent.Driver constructor for provider.Driver == "acp".
 func Driver() agent.Driver { return New() }
 
-var _ agent.Driver = (*Client)(nil)
+var (
+	_ agent.Driver  = (*Client)(nil)
+	_ agent.Steerer = (*Client)(nil) // messages mid-turn (D197)
+)
 
 // xbindOptions are sdk/acp's seams as xbind fills them: the default
 // capabilities (the host serves fs/* and terminal/*), a prompt's files

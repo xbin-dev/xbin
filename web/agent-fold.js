@@ -68,7 +68,7 @@ export class Fold {
     this.seq = typeof e.seq === 'number' ? e.seq : 0;
     if (this.seq > this.lastSeq) this.lastSeq = this.seq;
     const d = e.data || {};
-    if (e.type !== 'thought.delta' && e.type !== 'status' && e.type !== 'files.changed') this._done(this.cur, e.ts);
+    if (e.type !== 'thought.delta' && e.type !== 'status' && e.type !== 'files.changed' && e.type !== 'queue') this._done(this.cur, e.ts);
     switch (e.type) {
       case 'status':
         foldStatus(this.st, e);
@@ -86,8 +86,9 @@ export class Fold {
         } else {
           const role = d.role || 'agent';
           // a prompt's attachments (names, types, sizes) ride its one user delta
-          if (c && c.kind === 'msg' && c.role === role && c.mid === (d.messageId || '') && !c.files && !d.attachments) { c.text += d.text || ''; bump(c); }
-          else { c = this._new({ kind: 'msg', role, mid: d.messageId || '', text: d.text || '', files: d.attachments }, into); list.push(c); }
+          // a message the running turn took mid-turn (D197) is a bubble of its own
+          if (c && c.kind === 'msg' && c.role === role && c.mid === (d.messageId || '') && !c.files && !d.attachments && !c.steered && !d.steered) { c.text += d.text || ''; bump(c); }
+          else { c = this._new({ kind: 'msg', role, mid: d.messageId || '', text: d.text || '', files: d.attachments, ...(d.steered ? { steered: true } : {}) }, into); list.push(c); }
         }
         if (into) into.cur = c; else this.cur = c;
         break;
@@ -163,6 +164,9 @@ export class Fold {
         this.cur = null;
         this.blocks.push(this._new({ kind: 'gap' }));
         break;
+      case 'queue': // the held messages (D197): status, not a row
+        foldStatus(this.st, e);
+        break;
       case 'notice': // a line xbin says, not the agent (D175: the start moved the layer to a new base)
         this.blocks.push(this._new({ kind: 'notice', text: d.text || '' }));
         break;
@@ -174,13 +178,15 @@ export class Fold {
 // the status digest: status/detail/currentMode/options/modes/commands each
 // from the last status that carried it, last = the last status's data (its
 // login), usage = the last turn.end's
-export const newStatus = () => ({ status: '', detail: '', currentMode: '', options: null, modes: null, commands: null, last: null, usage: null });
+export const newStatus = () => ({ status: '', detail: '', currentMode: '', options: null, modes: null, commands: null, last: null, usage: null, queue: [] });
 
-// foldStatus(st, e): apply one event to a status digest (status and
-// turn.end move it; anything else is ignored)
+// foldStatus(st, e): apply one event to a status digest (status, turn.end
+// and queue — the messages held for the turn's end, D197 — move it;
+// anything else is ignored)
 export function foldStatus(st, e) {
   const d = e.data || {};
   if (e.type === 'turn.end') { if (d.usage) st.usage = d.usage; return st; }
+  if (e.type === 'queue') { st.queue = Array.isArray(d.items) ? d.items : []; return st; }
   if (e.type !== 'status') return st;
   if (d.status) st.status = d.status;
   if (d.detail) st.detail = d.detail;

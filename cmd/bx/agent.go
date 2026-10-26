@@ -53,7 +53,7 @@ func cmdExtra(cmd string, args []string) error {
 
 func cmdAgent(args []string) error {
 	if len(args) == 0 {
-		return errors.New("usage: bx agent run|send|permit|attach|ls|stop|set|history|resume … (docs/bx.md)")
+		return errors.New("usage: bx agent run|send|unqueue|permit|attach|ls|stop|set|history|resume … (docs/bx.md)")
 	}
 	switch args[0] {
 	case "history":
@@ -64,6 +64,8 @@ func cmdAgent(args []string) error {
 		return cmdAgentRun(args[1:])
 	case "send":
 		return cmdAgentSend(args[1:])
+	case "unqueue":
+		return cmdAgentUnqueue(args[1:])
 	case "permit":
 		return cmdAgentPermit(args[1:])
 	case "attach":
@@ -75,7 +77,7 @@ func cmdAgent(args []string) error {
 	case "set":
 		return cmdAgentSet(args[1:])
 	}
-	return fmt.Errorf("bx agent: unknown subcommand %q (run|send|permit|attach|ls|stop|set|history|resume)", args[0])
+	return fmt.Errorf("bx agent: unknown subcommand %q (run|send|unqueue|permit|attach|ls|stop|set|history|resume)", args[0])
 }
 
 // cmdAgentHistory lists the caller's past agent sessions — the transcripts
@@ -259,21 +261,6 @@ func cmdAgentRun(args []string) error {
 		return err
 	}
 	return agentFollow(info.ID, 0, true)
-}
-
-// cmdAgentSend prompts a running session and follows the turn.
-func cmdAgentSend(args []string) error {
-	if len(args) < 2 {
-		return errors.New("usage: bx agent send <session> \"<text>\"")
-	}
-	var cur struct {
-		Next uint64 `json:"next"`
-	}
-	_ = apiJSON("GET", "/api/xbin/term/sessions/"+args[0]+"/events?since=0", nil, &cur)
-	if err := agentPrompt(args[0], strings.Join(args[1:], " ")); err != nil {
-		return err
-	}
-	return agentFollow(args[0], cur.Next, true)
 }
 
 func agentPrompt(id, text string) error {

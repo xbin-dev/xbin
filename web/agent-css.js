@@ -4,7 +4,8 @@
  * name; tool calls as code-face blocks with their exit status (their own
  * styles are agent-cards.js cardsCss); no shimmer, a static "Working…"
  * label; the session's status as a square with its word; the composer's
- * controls 28px with the focus ring, Send the primary action. Split from
+ * controls 28px with the focus ring, Send the primary action; the messages
+ * waiting for the turn's end as dashed chips over the composer. Split from
  * bx-agent.js (its size budget).
  */
 import { css, unsafeCSS } from 'lit';
@@ -85,6 +86,20 @@ export const agentCss = css`
     background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0);
     border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px); padding: 4px 8px; max-height: 40vh; }
   .compose textarea::placeholder { color: var(--bx-subtle, #8E91A2); opacity: 1; }
+  /* the messages held for the turn's end (D197, agent-queue.js): dashed — not sent yet */
+  .queued { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 0 6px; }
+  .qchip {
+    display: inline-flex; align-items: center; gap: 4px; max-width: min(320px, 100%); min-width: 0;
+    padding: 2px 2px 2px 8px; border: 1px dashed var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
+    background: var(--bx-panel, #1F2028); color: var(--bx-text, #E9EAF0); font: var(--bx-font-body, 400 13px/18px system-ui, sans-serif);
+  }
+  .qchip .qt { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .qchip .qf { flex: none; color: var(--bx-muted, #A3A6B6); }
+  .qchip .qx { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; padding: 0;
+    border: 0; background: none; color: var(--bx-muted, #A3A6B6); cursor: pointer; }
+  .qchip .qx:hover, .qchip .qx:focus-visible { color: var(--bx-text, #E9EAF0); }
+  .qhint { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-micro, 600 11px/14px system-ui, sans-serif); }
+  .bubble .steer { display: block; margin-top: 4px; color: var(--bx-muted, #A3A6B6); font: var(--bx-font-micro, 600 11px/14px system-ui, sans-serif); }
   /* Send (and Start) is the primary action; Stop the destructive outline */
   .compose button { box-sizing: border-box; min-height: var(--bx-control-h, 28px); padding: 0 11px; cursor: pointer; font-weight: 600;
     border: 1px solid var(--bx-accent, #8C9BFF); background: var(--bx-accent, #8C9BFF); color: var(--bx-accent-ink, #0B0C12); border-radius: var(--bx-radius, 2px); }

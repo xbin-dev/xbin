@@ -19,7 +19,12 @@
 // panel beside the agent) and the net/API pickers; (l) switching the network
 // restarts the agent in a new sandbox and resumes its conversation; (m) a
 // prompt with attachments (POST …/prompt {attachments}) names its files in
-// the user's message and reaches the agent inline and as dropped files.
+// the user's message and reaches the agent inline and as dropped files;
+// (n) messages while a turn runs (D197): held as chips both browsers see, ×
+// and Stop take them back, the turn's end sends them, Ctrl+Enter stops the
+// turn and sends; (o) the composer grows with its text up to 40% of the tab
+// and shrinks back after a send (#31); (p) a fenced code block in a known
+// language is highlighted (#26).
 const { URL, login, closeCtx, settle, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker, showPickers, PICKERS } = require('../lib');
 
 const TILE = 'apps/crawler';
@@ -105,6 +110,81 @@ async function agentTab(browser) {
   await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.testApi().agent()?.blocks || []).some((b) => b.kind === 'turn' && b.stopReason === 'cancelled'), null, { timeout: 15000, label: 'the turn ended cancelled' });
   const cancelled = (await blocks(A.page)).filter((b) => b.kind === 'turn').pop();
   check(cancelled?.stopReason === 'cancelled', `the cancelled turn is recorded as cancelled (${cancelled?.stopReason})`);
+
+  // ---- messages while a turn runs (D197; the harness's fake takes none
+  // mid-turn, so they are held): Send stays beside Stop, held messages are
+  // chips both browsers see, × takes one back, the turn's end sends the
+  // rest; Stop takes them back first; Ctrl+Enter stops the turn, then sends ----
+  // fn(agentTestApi, arg) in the page (its source travels, as fr's does)
+  const ag = (page, fn, arg) => fr(page, TILE, (f, t, a) => new Function('g', 'a', `return (${a.src})(g, a)`)(f.agent(), a.arg), { src: fn.toString(), arg: arg ?? null });
+  const agWait = (page, pred, label, arg) => waitFor(page, (t, [src, a]) => {
+    const g = t.frameFor('apps/crawler')?.testApi().agent();
+    return !!g && new Function('g', 'a', `return (${src})(g, a)`)(g, a);
+  }, [pred.toString(), arg], { timeout: 15000, label });
+  const userSaid = (bs, text) => bs.some((b) => b.kind === 'msg' && b.role === 'user' && b.text === text);
+  await agWait(A.page, (g) => g.status === 'idle', 'idle before the queue');
+  await ag(A.page, (g) => g.send('slow two'));
+  await agWait(A.page, (g) => g.status === 'running', 'the slow turn runs');
+  check(JSON.stringify(await ag(A.page, (g) => g.buttons)) === '["Stop","Send"]', `while a turn runs Send stays beside Stop (${JSON.stringify(await ag(A.page, (g) => g.buttons))})`);
+  await ag(A.page, (g) => g.send('first follow-up'));
+  await ag(A.page, (g) => g.send('second follow-up'));
+  await agWait(A.page, (g) => g.queued.length === 2, 'two messages held');
+  await agWait(B.page, (g) => g.queued.length === 2, 'B sees the held messages');
+  check((await ag(A.page, (g) => g.draft)) === '', 'a held message leaves the composer');
+  await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-queued');
+  const held = await ag(A.page, (g) => g.queued);
+  await ag(A.page, (g, id) => g.takeBack(id), held[1].id);
+  await agWait(A.page, (g) => g.queued.length === 1, 'the chip taken back');
+  check((await ag(A.page, (g) => g.draft)) === 'second follow-up', `× puts its text back into the composer (${await ag(A.page, (g) => g.draft)})`);
+  await ag(A.page, (g) => g.setDraft(''));
+  await agWait(A.page, (g, t) => g.blocks.some((b) => b.kind === 'msg' && b.role === 'agent' && b.text === 'echo: ' + t), 'the held message went in at the turn\'s end', 'first follow-up');
+  const afterQ = await blocks(A.page);
+  check(userSaid(afterQ, 'first follow-up') && !userSaid(afterQ, 'second follow-up') && !(await ag(A.page, (g) => g.queued.length)),
+    'the turn\'s end sent what was held, nothing taken back, and the chips are gone');
+  await agWait(A.page, (g) => g.status === 'idle', 'idle after the held message');
+  // Stop: what waits comes back into the composer, then the turn ends
+  await ag(A.page, (g) => g.send('slow three'));
+  await agWait(A.page, (g) => g.status === 'running', 'the third slow turn runs');
+  await ag(A.page, (g) => g.send('keep me'));
+  await agWait(A.page, (g) => g.queued.length === 1, 'one held before Stop');
+  await ag(A.page, (g) => g.stop());
+  await agWait(A.page, (g) => g.blocks.filter((b) => b.kind === 'turn').pop()?.stopReason === 'cancelled' && g.status === 'idle', 'Stop cancelled the turn');
+  check((await ag(A.page, (g) => g.draft)) === 'keep me' && !userSaid(await blocks(A.page), 'keep me'), 'Stop took the held message back into the composer — it was not sent');
+  await ag(A.page, (g) => g.setDraft(''));
+  // Ctrl+Enter: stop the running turn, then send
+  await ag(A.page, (g) => g.send('slow four'));
+  await agWait(A.page, (g) => g.status === 'running', 'the fourth slow turn runs');
+  await ag(A.page, (g) => g.sendInterrupt('instead, this'));
+  await agWait(A.page, (g, t) => g.blocks.some((b) => b.kind === 'msg' && b.role === 'agent' && b.text === 'echo: ' + t), 'the interrupting message went in', 'instead, this');
+  const turnsI = (await blocks(A.page)).filter((b) => b.kind === 'turn');
+  check(turnsI.at(-2)?.stopReason === 'cancelled' || turnsI.at(-1)?.stopReason === 'cancelled', 'Ctrl+Enter cancelled the running turn before it sent');
+  await agWait(A.page, (g) => g.status === 'idle', 'idle after the interrupt');
+
+  // ---- the composer's height (#31): grows with its text up to 40% of the
+  // tab, never scrolls a sliver, and shrinks back once the text is sent ----
+  const box0 = await ag(A.page, (g) => g.composer);
+  await ag(A.page, (g) => g.setDraft('one\ntwo\nthree'));
+  await settle(A.page);
+  const box3 = await ag(A.page, (g) => g.composer);
+  check(box3.height > box0.height && !box3.scrolls, `three lines fit without scrolling (${box0.height} → ${box3.height} px; ${JSON.stringify(box3)})`);
+  await ag(A.page, (g) => g.setDraft(Array.from({ length: 80 }, (_, i) => `pasted line ${i + 1}`).join('\n')));
+  await settle(A.page);
+  const boxL = await ag(A.page, (g) => g.composer);
+  check(boxL.scrolls && boxL.height <= Math.ceil(boxL.hostHeight * 0.4) + 1, `a long paste stops at 40% of the tab and scrolls inside (${boxL.height} px of ${boxL.hostHeight})`);
+  await ag(A.page, (g) => g.send(Array.from({ length: 20 }, (_, i) => `line ${i + 1}`).join('\n')));
+  await settle(A.page);
+  const boxS = await ag(A.page, (g) => g.composer);
+  check(boxS.height === box0.height, `after sending, the composer is one line again (${boxS.height} px, was ${box0.height})`);
+  await agWait(A.page, (g) => g.status === 'idle', 'idle after the long message');
+
+  // ---- code in the agent's answers is coloured (#26): a closed fence in a
+  // language highlight.js knows (the fake's unit: a Go fence) ----
+  await ag(A.page, (g) => g.send('long 1'));
+  await agWait(A.page, (g) => g.status === 'idle' && g.blocks.some((b) => b.kind === 'msg' && b.role === 'agent' && /```go/.test(b.text || '')), 'the Go fence arrived');
+  const fence = A.page.locator(`bx-frame[src="${TILE}"] bx-agent pre code.hljs.language-go`).last();
+  await fence.scrollIntoViewIfNeeded().catch(() => { });
+  check(await fence.locator('.hljs-keyword').count() >= 1 && /func helper1/.test(await fence.innerText()), 'a Go fence is highlighted (keywords in their colour), its text unchanged');
+  await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-code');
 
   // ---- a prompt with attachments (the native app's composer, over the API):
   // the user's message names the files; the agent got the image inline and

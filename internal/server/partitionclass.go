@@ -543,6 +543,9 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /term/sessions/{id}":                     PartitionNeutral,
 	"DELETE /term/sessions/{id}":                  PartitionNeutral,
 	"POST /term/sessions/{id}/prompt":             PartitionScoped, // 02 §8: every POST /term/sessions*
+	"POST /term/sessions/{id}/queue":              PartitionScoped,
+	"DELETE /term/sessions/{id}/queue":            PartitionScoped, // driving, like cancel
+	"DELETE /term/sessions/{id}/queue/{qid}":      PartitionScoped,
 	"POST /term/sessions/{id}/cancel":             PartitionScoped,
 	"POST /term/sessions/{id}/permissions/{pid}":  PartitionScoped,
 	"POST /term/sessions/{id}/elicitations/{eid}": PartitionScoped,

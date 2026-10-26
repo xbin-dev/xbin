@@ -85,6 +85,7 @@ export class Transcript {
       const st = r.state || {};
       if (st.status) this._status({ seq: 0, type: 'status', data: st.status });
       if (st.usage) this.st.usage = st.usage;
+      if (Array.isArray(st.queue)) this.st.queue = st.queue; // held now (D197); the page's queue events are newer
       this.segs = [this._seg(evs, st, evs.length ? evs[0].seq : (r.next || 0) + 1)];
       for (const e of evs) this._status(e);
     }

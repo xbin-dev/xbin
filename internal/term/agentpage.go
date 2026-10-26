@@ -23,6 +23,12 @@ func (m *Manager) AgentPage(id string, before uint64, limit int) (agent.Page, er
 	if before == 0 {
 		p.State.Permissions = st.perms.List()
 		p.State.Elicitations = st.drv.PendingElicitations()
+		st.mu.Lock()
+		if len(st.queue) > 0 {
+			q, _ := json.Marshal(st.queuedLocked())
+			p.State.Queue = q
+		}
+		st.mu.Unlock()
 	}
 	return p, nil
 }

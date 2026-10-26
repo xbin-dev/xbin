@@ -60,6 +60,11 @@ type PageState struct {
 	Turn         uint64          `json:"turn"`            // the last turn number ended before the page
 	Permissions  []Pending       `json:"permissions,omitempty"`
 	Elicitations []Elicitation   `json:"elicitations,omitempty"`
+	// Queue is the messages held for the running turn's end now (the tail
+	// page of a live session; term's queue, D197): the items a `queue`
+	// event carries. A client takes it before the page's events, whose
+	// queue events (newer) override it.
+	Queue json.RawMessage `json:"queue,omitempty"`
 }
 
 // Open names what may still touch the log's cards: the tool calls and turns

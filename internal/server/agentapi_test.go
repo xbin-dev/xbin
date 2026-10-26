@@ -54,12 +54,16 @@ func TestAgentRoutesGates(t *testing.T) {
 		{"POST", "/term/sessions/nope/prompt", `{"text":"hi"}`}, {"POST", "/term/sessions/nope/cancel", ""},
 		{"POST", "/term/sessions/nope/permissions/p1", `{"decision":"allow_once"}`}, {"POST", "/term/sessions/nope/options", `{"id":"model","value":"x"}`},
 		{"POST", "/term/sessions/nope/elicitations/e1", `{"action":"accept","content":{}}`}, {"GET", "/term/sessions/nope/diff?turn=1", ""},
-		{"DELETE", "/term/sessions/nope", ""}, {"GET", "/term/sessions/nope/events?limit=10", ""}, {"GET", "/term/sessions/nope/events?before=5", ""}} {
+		{"DELETE", "/term/sessions/nope", ""}, {"GET", "/term/sessions/nope/events?limit=10", ""}, {"GET", "/term/sessions/nope/events?before=5", ""},
+		{"POST", "/term/sessions/nope/queue", `{"text":"hi"}`}, {"DELETE", "/term/sessions/nope/queue", ""}, {"DELETE", "/term/sessions/nope/queue/q1", ""}} {
 		if c, b := do(alice, r[0], r[1], r[2]); c != 404 {
 			t.Fatalf("%s %s: %d %s", r[0], r[1], c, b)
 		}
 	}
 	// the driving routes are the data plane for the audit log; create/end are not
+	if auditable("POST", "/term/sessions/a1/queue") || auditable("DELETE", "/term/sessions/a1/queue") || auditable("DELETE", "/term/sessions/a1/queue/q1") {
+		t.Fatal("queueing a message is the data plane too (D197)")
+	}
 	if auditable("POST", "/term/sessions/a1/prompt") || auditable("POST", "/term/sessions/a1/cancel") || auditable("POST", "/term/sessions/a1/permissions/p1") || auditable("POST", "/term/sessions/a1/options") || auditable("POST", "/term/sessions/a1/elicitations/e1") {
 		t.Fatal("driving an agent must not be audited per call")
 	}
@@ -232,6 +236,14 @@ func TestDecodePrompt(t *testing.T) {
 		if _, code, err := decodePrompt(strings.NewReader(c.body)); err == nil || code != c.code {
 			t.Errorf("%.60s: %d %v, want %d", c.body, code, err, c.code)
 		}
+	}
+	// a queue message's interrupt flag (D197); /prompt ignores it
+	var intr bool
+	if p, _, err := decodePromptWith(strings.NewReader(`{"text":"now","interrupt":true}`), &intr); err != nil || !intr || p.Text != "now" {
+		t.Fatalf("interrupt: %v %v", intr, err)
+	}
+	if _, _, err := decodePrompt(strings.NewReader(`{"text":"now","interrupt":true}`)); err != nil {
+		t.Fatalf("a prompt with interrupt: %v", err)
 	}
 	// the route caps the body itself: past it, 413
 	w := httptest.NewRecorder()

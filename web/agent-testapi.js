@@ -4,6 +4,7 @@
  * renders (D124) over the pages it holds (D130), and the actions.
  */
 import { headline, isPlanApproval, rawText, formFields } from '/vendor/agent-tools.js';
+import { takeBack, stop } from '/vendor/agent-queue.js';
 
 export function agentTestApi(a) {
   return {
@@ -16,6 +17,7 @@ export function agentTestApi(a) {
           children: b.children ? b.children.map((c) => ({ kind: c.kind, text: c.text, id: c.id, done: c.done })) : null } : {}),
         ...(b.kind === 'changes' ? { turn: b.turn, files: b.changes.map((c) => c.path) } : {}),
         ...(b.kind === 'msg' && b.files ? { files: b.files } : {}),
+        ...(b.kind === 'msg' && b.steered ? { steered: true } : {}),
         ...(b.kind === 'ask' ? { eid: b.eid, action: b.action, fields: formFields(b.schema).map((f) => f.key), content: b.content } : {}),
         ...(b.kind === 'perm' ? { plan: isPlanApproval(b.tool) } : {}),
         ...(b.kind === 'thought' ? { done: b.done, ms: (b.t1 || 0) - (b.t0 || 0) } : {}) }));
@@ -77,5 +79,17 @@ export function agentTestApi(a) {
     permit(pid, decision, optionId) { a._permit(pid, decision, optionId); },
     rejectPlan(pid, optionId, feedback) { if (feedback) a._planFeedback[pid] = feedback; a._rejectPlan(pid, optionId); },
     cancel() { a._cancel(); },
+    // messages while a turn runs (D197): the held ones, Ctrl+Enter, a chip's ×, Stop
+    get queued() { return (a._tx.st.queue || []).map((q) => ({ id: q.id, text: q.text })); },
+    sendInterrupt(text) { a._draft = text; return a._submit(true); },
+    takeBack(id) { return takeBack(a, id); },
+    stop() { return stop(a); },
+    get buttons() { return [...(a.renderRoot?.querySelectorAll('.compose button') || [])].map((b) => b.textContent.trim()); },
+    // the composer's box (#31): its height against its content's, and whether it scrolls
+    get composer() {
+      const ta = a.renderRoot?.querySelector('.compose textarea');
+      return ta ? { height: Math.round(ta.getBoundingClientRect().height), scrollHeight: ta.scrollHeight, clientHeight: ta.clientHeight, scrolls: ta.scrollHeight > ta.clientHeight + 1, hostHeight: Math.round(a.getBoundingClientRect().height) } : null;
+    },
+    setDraft(text) { a._draft = text; },
   };
 }
