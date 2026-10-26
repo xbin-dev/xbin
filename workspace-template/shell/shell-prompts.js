@@ -6,9 +6,10 @@
  * and a popover over the top of its window holding that tile's
  * <bx-grants>, <bx-bindings> and <bx-part-consent> (each with `tile`). Its
  * ⌃ folds it to the badge, and the badge opens it again (a new decision
- * opens it too). It never covers more than the top of the window, so the
- * tile stays usable; on a phone, and on a Document-mode card (only as
- * tall as its page), it sits in the card's flow above the tile.
+ * opens it too); a fold is kept in this browser, across reloads. It
+ * never covers more than the top of the window, so the tile stays usable;
+ * on a phone, and on a Document-mode card (only as tall as its page), it
+ * sits in the card's flow above the tile.
  * A tile that isn't on the screen shows nothing but its sidebar flag
  * (bx-side; prompts.js says which tile each decision belongs to).
  *
@@ -59,7 +60,20 @@ export async function loadAccessRequests(s) {
 export const syncPrompts = (s) => consentContext(s._components, s._who);
 
 // ---- on a tile's window (c is <bx-canvas>) ----
-const shut = (c) => (c._pqShut ??= new Map()); // path → the count it was folded at
+// path → the count it was folded at; kept in this browser, so a fold
+// outlasts a reload or a screen switch until a new decision arrives
+const FOLDED = 'xbin.prompts.folded';
+const shut = (c) => {
+  if (!c._pqShut) {
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(FOLDED) || '{}') || {}; } catch { /* storage off: this page only */ }
+    c._pqShut = new Map(Object.entries(saved).filter(([, n]) => Number.isFinite(n)));
+  }
+  return c._pqShut;
+};
+const keepShut = (m) => {
+  try { localStorage.setItem(FOLDED, JSON.stringify(Object.fromEntries([...m].slice(-200)))); } catch { /* storage off */ }
+};
 
 // promptBadge(c, o): the title bar's key badge, when the tile has something waiting.
 export function promptBadge(c, o) {
@@ -73,7 +87,9 @@ export function promptBadge(c, o) {
 }
 
 function togglePrompts(c, path, n, folded) {
-  if (folded) shut(c).delete(path); else shut(c).set(path, n);
+  const m = shut(c);
+  if (folded) m.delete(path); else { m.delete(path); m.set(path, n); } // newest last: the store keeps the latest 200
+  keepShut(m);
   c.requestUpdate();
 }
 

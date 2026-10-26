@@ -22,7 +22,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 - **Decisions open on the tile that asked** (D195). Grant requests,
   interfaces to bind and partition consent asks are no longer a strip at
   the top: the asking tile's window gets a key badge and a popover (fold
-  it with ⌃), and the sidebar flags the tile — and counts flagged tiles on
+  it with ⌃; this browser remembers the fold until a new request), and the
+  sidebar flags the tile — and counts flagged tiles on
   a closed folder. `<bx-grants>`/`<bx-bindings>` take a `tile` attribute.
 - **Fix: a dismissed grant request or interface to bind came back.**
   Dismissing a few quickly lost all but one, and another open tab could

@@ -101,6 +101,14 @@ async function tilePrompts(browser) {
     await A.page.locator(`bx-canvas .pqpop[data-prompts-for="${Y}"] .pqx`).click();
     y = await look(A.page, Y);
     check(!y.pop && y.badge === 2 && y.expanded === 'false', `⌃ folds it to the badge (${JSON.stringify({ pop: y.pop, badge: y.badge, expanded: y.expanded })})`);
+    // a fold is kept in this browser: a reload shows the badge, not the popover
+    await sh(A.page, (t) => t.flushSave());
+    await A.page.reload();
+    await openShell(A.page);
+    await sh(A.page, (t, s) => t.setScreen(s), id);
+    await settle(A.page);
+    y = await until(async () => { const v = await look(A.page, Y); return v.card && v.badge === 2 ? v : null; }, 'tp-y after a reload').catch(async () => look(A.page, Y));
+    check(!y.pop && y.badge === 2, `a fold outlasts a reload (${JSON.stringify({ pop: y.pop, badge: y.badge })})`);
     await A.page.locator(`bx-canvas .card[data-path="${Y}"] .pqb`).click();
     y = await look(A.page, Y);
     check(y.pop && y.expanded === 'true', 'the badge opens it again');

@@ -11,7 +11,7 @@
 //     /vendor/highlight.min.js, and its Copy puts the answer's markdown and
 //     its rendering (a numbered list, a table) on the clipboard.
 // Screenshots: the coloured answer, in the run's theme.
-const { URL, sleep, login, closeCtx, settle, sh, waitFor, waitSel, openShell, usePersonalScreen, openTile, closeTile, tileFrame, shot, checker, THEME, noGocryptfs } = require('../lib');
+const { URL, sleep, login, closeCtx, settle, sh, waitFor, waitSel, openShell, usePersonalScreen, openTile, foldPrompts, closeTile, tileFrame, shot, checker, THEME, noGocryptfs } = require('../lib');
 
 // the clipboard as the shell page reads it: {text, html}
 const clipboard = (page) => page.evaluate(async () => {
@@ -49,6 +49,9 @@ async function richCopy(browser) {
     const s = getSelection(); s.removeAllRanges(); s.addRange(r);
   });
   await page.bringToFront();
+  // the seed's apps/focusy has an interface to bind: its decisions popover
+  // (D195) sits over the top of the window — fold it to the title bar's badge
+  await foldPrompts(page, 'apps/focusy');
   await clearClip(page);
   const rb = await frame.locator('#rich li').first().boundingBox();
   await page.mouse.click(rb.x + 8, rb.y + rb.height / 2, { button: 'right' });
@@ -84,6 +87,7 @@ async function richCopy(browser) {
   // model (fakeopenai) in the internal class, as the agentTemplate pass sets up
   if (noGocryptfs()) { skip(`apps/agent is held: ${noGocryptfs()}`); await closeCtx(ctx, page); return done(); }
   await openTile(page, 'apps/agent');
+  await foldPrompts(page, 'apps/agent'); // its interface to bind (D195) over the class menu
   const ag = await tileFrame(page, 'apps/agent', { timeout: 30000 });
   await ag.waitForSelector('#msg', { timeout: 30000 });
   await ag.evaluate(async () => {

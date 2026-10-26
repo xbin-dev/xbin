@@ -12144,7 +12144,8 @@ Deviations and refinements made while implementing; all deliberate:
     key badge with a count in its title bar and a popover over the top of
     its window (Canvas, Fixed width, Tiled, floats); in Document mode and on
     a phone it sits in the card's flow above the tile. ⌃ folds it to the
-    badge; a new request opens it again. The top strip is gone (no fallback:
+    badge — kept in this browser (localStorage, by path and the count it was
+    folded at), so a fold outlasts a reload; a new request opens it again. The top strip is gone (no fallback:
     the owner's call) — a tile not on the screen shows its sidebar flag (a
     key on its row; a closed folder counts its flagged tiles) and the
     organisations badge, as before.

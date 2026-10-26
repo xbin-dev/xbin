@@ -101,6 +101,12 @@ async function openTile(page, p) {
   await sh(page, (t, p) => t.openTile(p), p);
   await waitSel(page, `.card[data-path="${p}"] bx-frame`, { state: 'attached' });
 }
+// foldPrompts: fold the decisions popover (D195) over a tile's window — a
+// seeded tile with an interface to bind wears one over the top of its page
+async function foldPrompts(page, p) {
+  await sh(page, (t, p) => t.query(`.pqpop[data-prompts-for="${p}"] .pqx`)?.click(), p);
+  await settle(page);
+}
 async function closeTile(page, p) {
   await sh(page, (t, p) => t.closeTile(p), p);
   await settle(page);
@@ -193,4 +199,4 @@ const PICKERS = ':is(.titlebar, .toolsrow)';
 // those tiles skip on it rather than time out.
 const noGocryptfs = () => process.env.HARNESS_NO_GOCRYPTFS || '';
 
-module.exports = { pw, URL, OUT, fs, sleep, log, THEME, themed, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, closeTile, tileFrame, gotoTab, shot, shotEl, dumpSelects, checker, showPickers, PICKERS, noGocryptfs };
+module.exports = { pw, URL, OUT, fs, sleep, log, THEME, themed, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, foldPrompts, closeTile, tileFrame, gotoTab, shot, shotEl, dumpSelects, checker, showPickers, PICKERS, noGocryptfs };
