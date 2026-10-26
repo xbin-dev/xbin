@@ -32,6 +32,14 @@ const view = (theme) => ({ ...VIEW, colorScheme: theme });
 
 async function still(page, name, theme = 'dark') {
   fs.mkdirSync(STILLS, { recursive: true });
+  // a tile's decisions popover (D195: an interface to bind, a grant request)
+  // folds to its title-bar badge: the frame shows the tiles, not the asks
+  const folded = await page.evaluate(() => {
+    const xs = document.querySelector('bx-shell')?._canvas?.renderRoot.querySelectorAll('.pqpop .pqx') ?? [];
+    xs.forEach((x) => x.click());
+    return xs.length;
+  });
+  if (folded) await settle(page);
   await page.mouse.move(1430, 890); // no hover state in the frame
   await sleep(300);
   await page.screenshot({ path: path.join(STILLS, stillFile(name, theme)) });
@@ -157,6 +165,13 @@ async function shoot(browser, theme) {
     await shown(await tile(page, 'apps/metrics'), '.srow');
     await sleep(Number(process.env.DEMO_METRICS_WAIT || 20000));
     await still(page, '07-admin-ops', theme);
+    // the same screen Tiled (D193): the two windows fill it, side by side
+    await sh(page, (t) => t.setScreenMode('s-ops', 'tiled'));
+    await settle(page);
+    await sleep(1500);
+    await still(page, '07b-admin-ops-tiled', theme);
+    await sh(page, (t) => t.setScreenMode('s-ops', 'canvas'));
+    await settle(page);
 
     // Build: the tile Merrow built, with its history (Merrow's commits) open
     await screen(page, 's-build');

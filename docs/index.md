@@ -25,7 +25,9 @@ overview is the map that puts them in context.
 
 **Reading order for builders:**
 
-1. [getting-started.md](/docs/getting-started.md) — install, login, first component
+1. [getting-started.md](/docs/getting-started.md) — run it, first component
+   ([install.md](/docs/install.md): the installer, the host requirements,
+   the first login, operating it)
 2. [elements.md](/docs/elements.md) — the component contract: directories, manifests, views, runtimes
 3. [auth.md](/docs/auth.md) — identities, roles, grants, the vault
 4. [resources.md](/docs/resources.md) — kv, blob, bus, cron, sqlite

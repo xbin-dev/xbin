@@ -733,7 +733,7 @@ depends on the tier:
 
 Tier 3 is the OS-level sandbox (`docs/isolation.md`, `docs/overview/08-sandbox.md`) and the
 production model: rootless (unprivileged user namespaces), run on a VM/host
-xbind controls (README → Running it). Backends already drop all capabilities,
+xbind controls ([install.md](/docs/install.md)). Backends already drop all capabilities,
 carry a seccomp block-list, and run under enforced cgroup v2 limits
 (memory.max/high, pids.max, cpu.weight). Still roadmap: `wasm`/wazero backends
 and per-scope **origin** isolation.

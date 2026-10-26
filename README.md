@@ -5,376 +5,138 @@
 **The first exponential era workspace.**
 
 xbin is a workspace where people and AI agents build the systems a company
-runs on, and where those systems run.
+runs on, and where those systems run. Describe a change to an agent, or make
+it yourself: save, and it is live. Every app and every agent works in its own
+sandbox and reaches only what someone has granted.
 
-Describe a change to an agent, or make it yourself. Save, and it is live.
-Every app and every agent works in its own sandbox and reaches only what
-someone has granted.
-
-![the xbin workspace: apps side by side on a canvas, beside the sidebar of apps](website/shots/overview-shell.png)
-
-## What it is
-
-- **A system is a folder.** Each app is a folder: a page, an optional
-  backend and its own history. Move the folder and the app is renamed; copy
-  it and you have a fork.
-- **Agents build the systems.** A built-in agent runs long tasks with tools
-  and subagents, on schedules and triggers, and talks through chat
-  channels. Claude Code, Codex, Gemini CLI and opencode work in the
-  workspace too, each in its own sandbox, signed in once.
-- **Closed until granted.** Outbound network is closed by default and
-  approved one destination at a time. Every approved grant is a line in a
-  plain, versioned file.
-- **A copy for each person.** An app can run one copy for each person.
-  Other people cannot read it, and admins do not open it.
-- **Ready for IT.** Single sign-on with OIDC or GitHub, organisations and
-  roles, an audit log, a read-only view as any user, sealed and encrypted
-  backups, limits for each app.
-- **Three ways in.** The workspace in the browser, `bx` in a terminal, and
-  the iOS app (in beta testing).
+![An agent's answer beside the day's calendar, on a canvas of apps](website/shots/readme-agent-and-calendar.webp)
 
 ## Try it
 
-Try it free for an hour, with no sign-up. All you need is an ssh client:
+An hour, no sign-up, just ssh:
 
 ```sh
-ssh xbin@vcpu.sh
+ssh xbin@vcpu.sh          # or open https://vcpu.sh/xbin
 ```
 
-Or open [vcpu.sh/xbin](https://vcpu.sh/xbin) in a browser.
-
-Install it on a Linux machine (on macOS the installer sets up a Lima VM).
-The installer prints its plan and asks before it changes anything:
+Install it on a Linux machine you control (on macOS the installer sets up a
+Lima VM). It prints its plan and asks before it changes anything:
 
 ```sh
 curl -fsSL https://xbin.dev/install.sh | sh
 ```
 
-Site: [xbin.dev](https://xbin.dev). Docs: the top-down
-[overview tour](docs/overview/00-index.md), then the reference under
-[docs/](docs/) (also served by every workspace at `/docs/`). Building a
-tile: [docs/design.md](docs/design.md) says how it should look and read.
+System or user mode, what it installs, the first login and running it day to
+day: [docs/install.md](docs/install.md).
 
-## How it works, briefly
+## What you get
 
-An app is a directory: an `index.html`, an optional backend (Go, Node, Python,
-shell) and its own git history. Its terminal opens in the browser, in that
-directory; save a file and the frontend reloads and the backend recompiles.
-Apps reach each other, the network or a GPU only through grants the owner
-approves. Code and live state run in separate sandboxes, and the workspace
-shell itself is an app you can edit.
+- **An app is a folder.** A page, an optional Go, Node or Python backend, and
+  its own git history. Save and the page reloads; a Go backend rebuilds and
+  swaps in blue/green. Move the folder to rename the app; copy it to fork it.
+- **Agents build them.** The built-in agent runs long tasks with tools and
+  subagents, on schedules and triggers, and talks through chat channels. It
+  reads PDFs and Office files and writes real spreadsheets, documents and
+  decks. Claude Code, Codex, Gemini CLI and opencode work in the workspace
+  too, each in its own sandbox, signed in once.
+- **A terminal on every app**, in the browser, in that app's directory, as
+  that app.
+- **Closed until granted.** Each backend and terminal runs in its own
+  rootless namespaces over an overlay rootfs, or in a Firecracker microVM.
+  Capabilities are dropped, cgroups enforce limits, and outbound network is
+  denied until approved, one destination at a time. Every approved grant is
+  a line in a plain, versioned file.
+- **Apps call apps by role.** An app declares the roles it offers, another
+  asks for one, an owner approves once; xbind checks identity on every call.
+- **A copy for each person.** An app can run one instance per person: others
+  can't read it, and admins don't open it.
+- **Batteries.** kv, blob, a live event bus, cron and sqlite per app; an
+  encrypted vault; HTTP(S)/TCP/UDP ingress with TLS from a Traefik tile.
+- **Ready for IT.** Single sign-on (OIDC or GitHub), organisations, teams and
+  policy ceilings, an audit log, a read-only view as any user, encrypted
+  backups, limits for each app.
+- **Screens your way.** A free canvas, a fixed 48-column grid, a document of
+  rows, or tiles that split the screen like a tiling window manager.
+- **Three ways in.** The browser, `bx` in a terminal, and the iOS app (in
+  beta).
 
-```
-Workspace (one host, one git repo)
-└── Scope (an app: calendar, email…)     scope.json — owns resources
-    └── Component (an element)           a directory: index.html + xbin.json + backend/
-```
-
-xbind is a single Go binary; the frontend is buildless (Lit via import maps,
-vendored, no bundler anywhere).
-
-## What's inside
-
-- **xbind** (one binary): static component serving with a single sanctioned
-  HTML transform (import map + client injection), PTY terminals over WebSocket
-  (xterm.js), a file watcher driving live reload, and a backend runner —
-  `go build` on save, blue/green socket swap, error overlays, crash-loop
-  breaking, idle reaping; node/python restart-on-change. A tile can pause
-  live reload (backends under `--isolate`), so its viewers keep a pinned
-  checkpoint while you edit, then reload now, roll back or resume (tile
-  deployments, `docs/tile-deployments.md`).
-- **RBAC between elements**: callees declare roles, callers request them, the
-  owner approves once (UI panel or `bx grant`); xbind verifies identity on
-  every call and injects `X-XBin-From`/`X-XBin-Role`. Element frontends are
-  attributed via frame tokens; backends via per-generation instance credentials
-  on a gateway socket.
-- **Users, orgs & teams**: humans get per-tile access levels (read < write <
-  terminal); orgs group them GitHub-style (positional `o/<org>/…` paths, teams
-  granting by union), and **policy ceilings** cap what an org's — or the
-  workspace's — tiles may ever be granted (net / gpu / system caps / ingress),
-  enforced at approval *and* every evaluation. Owner is admin, default-deny for
-  everyone else.
-- **Ingress — publish a tile to the outside**: a tile declares `exposes` (an
-  HTTP endpoint with a default-deny public-path allowlist, or a raw TCP/UDP
-  port) and the owner binds it to xbind's built-in listener or the
-  batteries-included **Traefik terminator tile** (automatic Let's Encrypt TLS,
-  in a sandboxed tile — no ACME in the daemon). Public traffic reaches the one
-  bound tile as an anonymous, path-confined principal. `bx expose`.
-- **Resources**: kv, blob, bus (live cross-app events into the browser), cron
-  (scheduled calls that wake idle backends), sqlite — one grant grammar
-  (`res:apps/calendar/bus`).
-- **Per-component OS isolation** (`--isolate`, rootless): each backend runs in
-  its own user + mount + pid + ipc + uts + net namespaces over an overlay of a
-  shared base rootfs; egress is **default-deny** through a transparent relay
-  that enforces `net:*` grants (TCP/UDP/ICMP); capabilities dropped + a seccomp
-  block-list; enforced cgroup v2 limits (memory/pids/CPU). Three admin-only
-  reserved grants relax one tile's profile when it needs to: `cap:net-admin`
-  (a router/firewall/VPN provider tile), `cap:containers` (a container-host
-  tile that runs rootless Podman, e.g. to spin up dev sandboxes) and `cap:open-links` (a tile whose frontend may open links in
-  new tabs out of its browser sandbox). Terminals share the base rootfs (Go/Node/Python + agent CLIs,
-  zero setup) as a **persistent per-tile dev layer** (apt installs survive) and
-  pick a per-session **network scope** — internet-only (own netns, no host
-  interfaces), host, or offline.
-- **Vault**: per-element private secrets (`bx vault`, `xbin.Secret()`),
-  encrypted at rest.
-- **bx** CLI + **Go SDK** (`github.com/xbin-dev/xbin/sdk`, zero deps).
-
-## Running it
-
-xbind runs the workspace on a Linux host and **becomes the sandbox runtime**
-for its components, building each one's namespaces, overlay rootfs, and egress
-relay itself. It's rootless (unprivileged user namespaces), but building
-sandboxes from *inside* someone else's unprivileged container is the fragile
-part (nested userns, missing devices) — so xbin runs on a **Linux VM or
-bare-metal host it controls**: the host/hypervisor is the outer boundary, the
-per-component namespaces the inner one. (An earlier single-Docker-container mode
-existed but was container-as-boundary with no per-component isolation; it's been
-dropped — see `plans/runtime.md`.)
-
-A prebuilt VM/appliance image (qcow2/OVA/ISO/cloud) is on the roadmap
-(`plans/runtime.md`); until it ships you run the binary yourself. Design detail:
-`plans/runtime.md` (where it runs) + `plans/isolation.md` (mechanics).
-
-Put xbind on a Linux host (a release binary, or `go build ./cmd/xbind`), build
-the base rootfs once (`make rootfs` — needs Docker as a build tool; the appliance
-will ship it), and run it as a service (systemd unit, or PID 1 under a tiny init):
-
-```sh
-xbind --isolate --rootfs /var/lib/xbin/rootfs \
-       --workspace /workspace --listen 127.0.0.1:8642
-```
-
-Rootless — no root needed — but the host must provide:
-
-| Requirement | Why |
+| | |
 |---|---|
-| **Unprivileged user namespaces** (`kernel.unprivileged_userns_clone=1`; Debian/Arch default-on) | build the sandbox userns; xbind logs whether isolation came up |
-| **`/etc/subuid` + `/etc/subgid`** delegating a range to xbind's user (e.g. `xbin:100000:65536`) | map a *full uid range* so `apt`, `sudo`, and non-root in-container users work — else a single-uid fallback (backends still run; apt/user-switching won't) |
-| **`newuidmap` / `newgidmap`** (the `uidmap` package) | apply that range rootlessly (setuid, or file caps `cap_setuid,cap_setgid`) |
-| **`/dev/fuse`** | mount each sandbox root with fuse-overlayfs so unprivileged directory renames work (`apt install`). xbind ships its own static one (`make` builds it from source); absent it, falls back to kernel overlay |
-| **`/dev/net/tun`** | the per-netns egress relay TUN — needed for any `net:*` grant or the terminal internet scope |
-| **KVM** (optional) | VM sandboxes — terminals and backends in a Firecracker microVM, root in their own kernel (`/dev/kvm` usable by xbind's user: the `kvm` group). Without it (most small cloud VMs) they run emulated under QEMU, much slower. `docs/isolation.md` §VM sandboxes |
-| **cgroup v2** (optional) | per-component memory/pids/CPU **limits** + accounting; under systemd, `Delegate=yes` |
-| **NVIDIA driver** (optional) | enables `gpu:*` grants — components/terminals get GPUs by binding the world-readable `/dev/nvidia*` + host driver libs (rootless, no container toolkit). `plans/gpu.md` |
+| ![An app the agent built, its history open beside it](website/shots/readme-app-history.webp) | ![A Tiled screen: the nightly ops report beside live metrics](website/shots/readme-tiled.webp) |
+| An app the agent built, with its commit history open | A Tiled screen: the ops report beside live metrics |
+| ![A person's own expenses, in an app that runs one copy per person](website/shots/readme-per-person.webp) | |
+| One copy per person: only Priya sees her book | |
 
-The base rootfs (Go/Node/Python + agent CLIs + `bx`) is bind-mounted read-only
-under every sandbox and terminal; refresh it by rebuilding the OCI image
-(`docker/rootfs.Dockerfile` → `make rootfs`).
+*(Screenshots: Larkspan, the fictional company of the demo set in
+[hack/demo](hack/demo/README.md).)*
 
-## Deployment on a VM
+## How it works
 
-To stand xbin up on a Linux VM (or bare-metal host) you control, one command —
-in either of two modes:
+```
+workspace/
+├── xbin.json               the approved grants and bindings, as plain lines
+├── apps/crm/               index.html · xbin.json (its roles, what it asks for) · backend/ · .git
+├── apps/merrow/            an agent: an app like any other
+├── tiles/admin/            the admin console, also an app
+└── shell/                  the workspace's own UI: edit it like the rest
+```
+
+**xbind** is one Go binary. It serves every app, runs the terminals, watches
+files and rebuilds, and is the sandbox runtime itself: it builds each
+component's namespaces, overlay rootfs and egress relay, rootless. The
+frontend has no build step: plain ES modules, Lit through import maps,
+vendored. Each app's page runs in a sandboxed, opaque-origin frame,
+attributed by its own frame token (or on its own origin, with
+`--tile-assets origins`). The `sdk/` Go module has zero dependencies.
+
+## Docs
+
+Every workspace serves these at `/docs/`.
+
+- [docs/install.md](docs/install.md): installing, the first login, operating
+- [docs/overview/](docs/overview/00-index.md): the system, top-down, in 17
+  short chapters
+- [docs/getting-started.md](docs/getting-started.md): your first app and
+  backend
+- [docs/elements.md](docs/elements.md), [docs/auth.md](docs/auth.md),
+  [docs/resources.md](docs/resources.md), [docs/sdk.md](docs/sdk.md): the
+  contract an app builds against
+- [docs/isolation.md](docs/isolation.md): sandboxes, VMs and egress
+- [docs/protocol.md](docs/protocol.md): every endpoint and event;
+  [docs/bx.md](docs/bx.md): the CLI
+- [docs/design.md](docs/design.md): how an app should look and read
+- [docs/changelog.md](docs/changelog.md): what changes with each release
+
+## Hacking on xbin
 
 ```sh
-# system-wide: a system service under a dedicated `xbin` user in /opt/xbin
-curl -fsSL https://xbin.dev/install.sh | sudo bash
-
-# user-only: no root anywhere — runs as YOU, in ~/.local/opt/xbin, as a
-# systemd *user* unit (with lingering so it survives logout)
-curl -fsSL https://xbin.dev/install.sh | bash -s -- --user
+hack/dev-setup.sh   # check this machine (userns, sub-uids, FUSE, KVM, …) and fix it
+make dev            # xbind from source against ./devws, isolated, admin/admin
+make test           # unit tests; make integration for end-to-end
 ```
 
-The bootstrap at `xbin.dev/install.sh` runs the latest release's
-`deploy/install.sh` (pin one with `XBIN_VERSION=vX.Y.Z`); to run master's
-copy instead, fetch
-`https://raw.githubusercontent.com/xbin-dev/xbin/master/deploy/install.sh`.
+Start with [AGENTS.md](AGENTS.md) (the practices) and
+[CLAUDE.md](CLAUDE.md) (the hard rules), then
+[ARCHITECTURE.md](ARCHITECTURE.md) and [plans/](plans/), whose
+`DECISIONS.md` gives the reason for every choice.
 
-Run it with no mode flag (and no sudo) and it explains the difference — system
-mode creates a dedicated `xbin` user for better separation — shows **both**
-numbered plans (system-mode probes run read-only), and asks: escalate to the
-system install via sudo right there, do the user install, or quit.
+## Security, honestly
 
-**On a Mac**, the same one-liner (via `https://xbin.dev/install.sh`, no sudo)
-runs [`deploy/install-macos.sh`](deploy/install-macos.sh) instead: it sets up
-a lightweight Linux VM with [Lima](https://lima-vm.dev) — you pick the VM
-size at install time (defaults: 32 GiB thin-provisioned disk, 4 GiB RAM,
-4 CPUs; `XBIN_VM_DISK`/`XBIN_VM_MEM`/`XBIN_VM_CPUS` override) — then runs
-the regular Linux installer in system mode *inside* the VM, pinned to the
-same release, and forwards the UI to `http://127.0.0.1:8642` on the Mac
-(loopback-only). Same plan-before-approve contract; it requires Homebrew
-(to install Lima) but never installs Homebrew itself. Re-run to upgrade;
-`limactl delete xbin` removes everything.
+xbin is remote code execution as a feature: treat the machine like a dev box.
+The **outer boundary** is the VM or host xbind runs on; keep it on loopback,
+behind Tailscale or a TLS proxy. Inside, `--isolate` gives each component
+real OS sandboxing (namespaces, an overlay rootfs, dropped capabilities, a
+seccomp block-list, cgroup limits, default-deny egress) under per-call
+role checks. Terminals are sandboxed too: they act *as the app* through a
+per-session token, with the workspace's secrets masked. In the browser each
+app's page is a sandboxed, opaque-origin frame with no access to the shell,
+other apps or the session cookie; the frames still share a renderer process
+unless `--tile-assets origins` gives each app its own origin. Details: [docs/auth.md](docs/auth.md),
+[docs/isolation.md](docs/isolation.md).
 
-Before touching anything, the installer prints a **numbered plan of exactly
-what this run will do** — the user it will create or reuse, the packages it
-will install, the subuid range it will delegate, the unit path, the build
-steps, the workspace dir — with steps already in place listed as skipped,
-then asks once (`--yes` skips the prompt; `--check-only` stops after the
-preflight report + plan without asking).
+## Deploying on a VM
 
-In **user mode** nothing escalates: anything that would need root — missing
-distro packages (`uidmap`, `fuse3`, podman, …), a missing `/etc/subuid`
-range for your user, an AppArmor userns restriction — is detected in
-preflight and reported with the exact one-line root command to run, and the
-installer stops before changing anything. Most distros pre-provision subids
-for normal users, so on a typical box it just works. If lingering can't be
-enabled without root it says so (the service then runs while you're logged
-in) and prints the `sudo loginctl enable-linger` line.
-
-On a box that **already runs a system-wide xbin**, a no-flag run detects it
-(read-only, no root needed) and leads with upgrading it — plain Enter at the
-chooser upgrades via sudo; user mode is offered as a *separate second
-instance* with its own workspace and its own port (the installer auto-picks
-the next free one, e.g. `127.0.0.1:8643`, and says so in the plan and the
-final summary). An explicitly requested `XBIN_LISTEN` that is already in use
-fails the plan up front instead of installing a service that can't bind.
-
-It's interactive, idempotent (re-run to upgrade), and does the whole job:
-
-- **Preflights** the kernel features rootless sandboxing needs — unprivileged
-  user namespaces, cgroup v2, `/dev/fuse`, `/dev/net/tun`, `newuidmap` (the
-  table above). Add `-s -- --check-only` to print just that report and stop.
-- **Installs deps** for your distro (apt/dnf/pacman/zypper): `uidmap`, `fuse3`,
-  `git` — and, to build, Go + podman.
-- **Builds** `xbind`, `bx`, a static `fuse-overlayfs`, and the base rootfs from
-  source. (No release binaries yet; set `XBIN_PREBUILT_BIN` + `XBIN_ROOTFS_DIR`
-  to your own to skip the build and the build-only deps.)
-- **Creates** the `xbin` system user with home `/opt/xbin` and delegates it a
-  `/etc/subuid`+`/etc/subgid` range (so `apt`/`sudo` work inside sandboxes),
-  then verifies a user namespace actually comes up for that user.
-- **Lets AppArmor's `fusermount3` mount encrypted resources** under the
-  workspace (Ubuntu's profile allows FUSE mounts only under home dirs,
-  `/mnt`, `/media`, `/tmp`): one marked block in
-  `/etc/apparmor.d/local/fusermount3`, replaced in place on every run.
-- **Turns VM sandboxes on** for a workspace that has no VM policy yet —
-  terminals, plus backends where KVM is usable — and never touches a policy
-  an admin set (`docs/overview/15-operations.md`, D110).
-- **Installs and starts** the service, waits for `/healthz`, and prints your
-  one-time login URL.
-
-What it leaves on disk (system mode — user mode uses `~/.local/opt/xbin`,
-`~/.config/systemd/user/xbin.service`, `~/.config/xbin/xbin.env`, and links
-`bx` into `~/.local/bin`):
-
-```
-/opt/xbin/bin/{xbind,bx,fuse-overlayfs,gocryptfs}   # owned by the xbin user
-/opt/xbin/rootfs/                          # unpacked base rootfs
-/opt/xbin/sdk/                             # Go SDK source (go.work + terminal builds)
-/opt/xbin/workspace/                       # your data (auto-init on first boot)
-/etc/systemd/system/xbin.service           # rendered from deploy/xbin.service
-/etc/xbin/xbin.env                        # optional vault passphrase, mode 0600
-```
-
-From there it's plain systemd — `systemctl status xbin`, `journalctl -u xbin -f`
-(the login URL is in the log: `journalctl -u xbin | grep login`). The service
-binds **loopback only** by design; see **Operating → Exposure** to reach it over
-Tailscale or a TLS proxy, and **Vault** for the auto- vs manual-unseal choice the
-installer offers. Upgrade by re-running the script — it detects an existing
-install and takes a fast path (rebuild + swap binaries/rootfs/sdk + restart;
-user, vault, and workspace untouched — but for a VM policy nobody ever set).
-Uninstall with
-`systemctl disable --now xbin && rm /etc/systemd/system/xbin.service && userdel -r xbin`.
-
-### First login → an account → lock the door
-
-The installer prints a one-time login URL (also `journalctl -u xbin | grep login`):
-`http://127.0.0.1:8642/login?token=…`. That token is the **owner/bootstrap**
-credential — the root key, not a per-user account. Move to real accounts and
-close the bootstrap door:
-
-1. **Open the token URL** — you're now the owner (full admin).
-   If you chose **manual unseal** at install time, the vault boots
-   *unconfigured*: open **admin tile → vault** and set the passphrase once
-   (creates the barrier; it cannot be recovered). After every daemon restart,
-   unseal there again — or via `bx vault unseal` ([docs/auth.md](docs/auth.md)).
-2. **Create an admin user** in the admin console (**admin tile → Users → add
-   user**, role `admin`). The `admin` role has access to **every** tile (`*`);
-   regular users get an explicit tile allow-list and no terminal by default.
-3. **Sign out, then sign back in** as that user — so your session is a real
-   account, not the owner-token cookie.
-4. **Disable token login** (**user management → sign-in → Disable token-URL
-   login**). The `…/login?token=` URL and the owner-token cookie stop
-   authenticating; from then on everyone signs in with an account
-   ([docs/auth.md](docs/auth.md)). The `bx` CLI's `Bearer` token is deliberately
-   unaffected — to revoke that too, rotate `.xbin/token` and restart.
-
-Skipping steps 2–4 is fine for a solo box behind Tailscale, where the login
-token is the only lock; do them before you invite anyone else in.
-
-Wiring it up by hand instead? The unit is [`deploy/xbin.service`](deploy/xbin.service)
-and the installer is [`deploy/install.sh`](deploy/install.sh) — both short and
-commented. The one rule: **don't add systemd namespace/filesystem hardening**
-(`PrivateUsers`, `RestrictNamespaces`, `ProtectSystem=strict`,
-`NoNewPrivileges=yes`, …). xbind builds the sandboxes itself and those directives
-break it; the boundary is the VM, kept on loopback behind Tailscale or a proxy.
-
-## Operating
-
-**Data.** Everything is the workspace directory: source, manifests, and the
-grant table are plain files you can commit; `.xbin/` (build cache, sockets,
-logs) and `data/` (resource state, vault, kv) are the runtime bits. Back up = the
-workspace dir (`tar` it, minus `.xbin/`), or `bx backup <tile>` to snapshot one
-tile (source + resource data + dev layer) to a bound **archiver tile** —
-scheduled or on demand, with offload/restore on the same path. Upgrades migrate
-the workspace schema forward untouched; roll back by pinning the previous version.
-
-**Vault.** Production never stores secrets in the clear — two ways to run the
-encryption barrier:
-
-- **Env auto-unseal** — set `XBIN_VAULT_PASSPHRASE` (a systemd
-  `EnvironmentFile`, or a secret store). Hands-off; the passphrase lives in the
-  process env.
-- **Manual unseal (stronger)** — leave it unset. xbind boots with the vault
-  **locked**: it runs and you can log in, but secret storage is refused until an
-  admin runs `bx vault unseal` (or the admin console) once. The passphrase never
-  touches env or disk; you re-unseal after each restart, like HashiCorp Vault.
-
-The barrier also encrypts **resource data** (kv/filesystem/sqlite/blob), not just
-secrets — see [docs/resources.md](docs/resources.md) and `plans/vault-data.md`.
-`--insecure-vault` (or `--no-auth`) stores everything plaintext for throwaway
-setups; a bare `--dev` instead auto-encrypts with a built-in, insecure dev key so
-`make dev` dogfoods encryption. Lose the passphrase and encrypted data is
-unrecoverable.
-
-**Exposure.** xbin runs arbitrary code by design and does no TLS itself — bind
-it to `127.0.0.1` and reach it over **Tailscale** (map the port on the tailnet)
-or a **TLS reverse proxy** (Caddy/Traefik; the session cookie flips to `Secure`
-behind `X-Forwarded-Proto: https`). Never raw-expose the port to the internet:
-the login token is the only lock.
-
-**Sysctl** (host, once, for large workspaces): raise
-`fs.inotify.max_user_watches` — see `docs/getting-started.md`; `bx doctor`
-checks the effective limit.
-
-## Hacking on xbin itself
-
-```sh
-make dev          # xbind from source against ./devws, ISOLATED — auth ON (login admin/admin),
-                  #   web/docs served from disk for live editing
-make dev-noauth   # frictionless: every request is admin
-make test         # unit tests
-make integration
-```
-
-`make dev` runs **isolated** on purpose — it should match the sandbox model.
-First run builds the base rootfs and a static fuse-overlayfs (both need Docker,
-both cached; `make rootfs` / `make fuse-overlayfs` build them on their own), and
-it needs unprivileged user namespaces. Delegate a sub-id range to your user
-(`/etc/subuid` + `/etc/subgid`) for full apt / non-root-in-container support;
-without it, dev falls back to a single-uid sandbox.
-
-Design documents: [ARCHITECTURE.md](ARCHITECTURE.md) and [plans/](plans/)
-(implementation plan, auth/multi-user design, runtime/isolation design, and the
-decision log with rationale).
-
-## Security posture, honestly
-
-xbin is remote code execution as a feature — treat the box like a dev machine.
-The **outer boundary** is the VM/host xbind runs on; keep it bound to loopback
-behind Tailscale or a TLS proxy. Inside, `--isolate` gives genuine per-component
-OS sandboxing (user/mount/pid/net namespaces + overlay rootfs, capabilities
-dropped, **default-deny `net:*` egress**, enforced cgroup limits), on top of
-real RBAC/grants at the API. Terminals are the **editing plane** — a real shell
-in a tile's dir — but still OS-sandboxed (own namespaces + a persistent dev
-layer), acting *as the tile* via a per-session token, not as you, with the
-workspace secrets (`.xbin`, `data`, other users' homes) masked and Landlock
-read-guarded; non-admin users get a further-locked-down terminal that can't see
-tiles below their access level. Publicly exposed tiles (ingress) are reached by
-an anonymous principal confined to their declared paths. Browser-side, elements
-are same-origin: frame tokens give attribution, not isolation — per-scope
-origin isolation is roadmap. Details: [docs/auth.md](docs/auth.md),
-[docs/isolation.md](docs/isolation.md), `plans/isolation.md`.
+See [docs/install.md](docs/install.md).
 
 ## License
 
