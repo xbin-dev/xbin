@@ -12113,3 +12113,190 @@ Deviations and refinements made while implementing; all deliberate:
     screen at the same rev), fixedGrid and tiled, dark and light, with
     windows, gridScale, focusAnchor, blocks, layoutSync, tabStrip,
     menuOpen unchanged.
+- **D194 — A tile's own title and icon: from its manifest, and live from
+  its page (2026-10-26; issue #6).** internal/registry (manifest `title`,
+  `icon`), /components rows, web/xbin-client.js `xbin.meta`, web/bx-frame.js
+  `xbin:meta` → `tileMeta`/`bx-meta`, /vendor/tile-meta.js (the shared
+  cleaning), the shell's title bar, sidebar, Open-tile menu, Tiled switcher
+  and admin popover; the iOS app's TileBridge and Catalog. The owner: "Allow
+  tiles to set icons and title — as well as dynamic title".
+  - **Two sources.** `xbin.json` `title` (≤ 80 characters) and `icon` (≤ 40,
+    a `bx-icons` name) are what everyone sees, composed from the running code
+    like `native`. `xbin.meta({title, icon, badge})` (badge ≤ 8) is what this
+    viewer's window shows while the page is open: per viewer, never stored,
+    cleared when the frame shows another tile — the same shape as the native
+    runtime's `xbin.native.meta`, which the app already showed.
+  - **Spoofing.** The path is always drawn beside a title: a tile can't pass
+    itself off as another tile or the shell. Control and bidi characters are
+    stripped (server and client); an icon must be a set name — never markup
+    or an SVG; `xbin:meta` is taken only from the frame's own iframe.
+  - **Rejected:** reading the tile's `document.title` automatically (every
+    existing tile's window would change its name unasked); arbitrary icons.
+- **D195 — Decisions open on the tile that asked; the sidebar flags it
+  (2026-10-26; issue #12).** workspace-template/shell (shell-prompts.js,
+  bx-canvas.js, bx-side.js, bx-shell.js), web/bx-requests.js (one fetch per
+  page), web/bx-grants.js, web/bx-bindings.js, bx-part-consent (a `tile`
+  attribute). The owner: "Binding dialogs should popup on tiles, not at the
+  top"; their answer: on the tile only, "in tile/folder list flag perm
+  requests that weren't dismissed".
+  - **Where.** Grant requests land on their `from`, interfaces to bind on
+    their `component`, consent asks on their `from`. A tile with any gets a
+    key badge with a count in its title bar and a popover over the top of
+    its window (Canvas, Fixed width, Tiled, floats); in Document mode and on
+    a phone it sits in the card's flow above the tile. ⌃ folds it to the
+    badge; a new request opens it again. The top strip is gone (no fallback:
+    the owner's call) — a tile not on the screen shows its sidebar flag (a
+    key on its row; a closed folder counts its flagged tiles) and the
+    organisations badge, as before.
+  - **Compat.** `<bx-grants>`/`<bx-bindings>` stay public standalone vendor
+    elements (a page that embeds them without `tile` gets every row, as
+    before); the dismissal keys are D188's.
+- **D196 — A window says its backend is building or starting (2026-10-26;
+  issue #22).** internal/runner (the phases), internal/server (/components
+  `backend`), web/bx-frame.js, frame-deploy.js, the shell's live square and
+  sidebar, iOS WorkspaceEvents. The owner: "Shell should indicate when
+  backends are compiling/starting".
+  - **Phases.** `build-start` stays byte-identical (with text it is the
+    environment setup step); a new `backend-starting` event says the build
+    finished and the process waits for health; `build-ok` as before.
+    Deployments get phase `starting`, a person's partition the event
+    `backend-starting`. Rejected: a phase field on `build-start` — existing
+    event types keep their shape (12-compat).
+  - **Shown.** The title bar says "Compiling…" (Go), "Preparing…"
+    (node/python), "Setting up…" (an env script) or "Starting…", the live
+    square pulses, the sidebar row shows a wait glyph; `/components` rows
+    carry `backend: {state: building|starting|failed}` so a window opened
+    mid-build knows at once. The app's cards say "Building…"/"Starting…".
+  - **Also (#11, no decision of its own): dismissals that stay dismissed.**
+    Every Dismiss was a read-change-write of the whole `dismissed` pref, so
+    two at once lost one (shown by hack/bx-dismiss.test.mjs), and every open
+    page pruned dismissals against its own possibly stale list on any prefs
+    event. `updateDismissed` is now one chain per page; pruning needs a
+    fresh successful list and two loads missing the item; a failed save
+    retries, then puts the row back with a toast.
+- **D197 — The Agent tab takes messages while a turn runs: steered in, or
+  queued for its end (2026-10-26; issue #36).** internal/term
+  (agentqueue.go), internal/agent (optional `Steerer`), internal/agent/acp,
+  internal/server (agentapi.go, openapi_agentqueue.go, the route classes),
+  cmd/bx (agentqueue.go), web/bx-agent.js + agent-queue.js, agent-fold.js.
+  The owner: "no way to send/queue messages when agent is busy … at least
+  should be able to queue messages that the agent will pick up on next llm
+  calling round (not at end of turn)".
+  - **Route.** `POST /term/sessions/{id}/queue {text, attachments?,
+    interrupt?}` → `{outcome: prompted|steered|queued, turn?, id?}`;
+    `DELETE …/queue[/{qid}]` takes held messages back. `/prompt` is
+    unchanged (409 while busy) — it reserves its slot before reading a
+    32 MiB body, so a mode field there couldn't be seen in time.
+  - **Semantics.** Idle → a turn starts. Busy, nothing held, an adapter that
+    steers (claude-agent-acp, codex-acp: `_session/steering`) → taken into
+    the running turn at its next step, shown "taken in mid-turn". Otherwise
+    held, and later messages queue behind; at the turn's end the held ones
+    go in as one prompt. `interrupt` holds then cancels. Cancel keeps the
+    queue; the session's end drops it with a `queue {dropped}` event and a
+    notice. 16 messages, 40 MiB of held files. `promptRequired` → sent as a
+    prompt (held if a turn started meanwhile); `startedNewTurn` → steered.
+  - **UI.** Send stays beside Stop; held messages are chips every browser
+    sees; × or Stop returns them to the composer; Ctrl/⌘+Enter interrupts.
+    `bx agent send --queue|--interrupt`, `bx agent unqueue`. Also #31: the
+    composer's height counts its border and shrinks after a send or a pick,
+    capped at 40 % of the tab's height, not the window's.
+- **D198 — Actionability: a coding agent's park reaches the phone and the
+  parent row at once; a judge marks a turn that stopped part-way
+  (2026-10-26; issue #27).** builtin-templates/agent/_backend
+  (harness_park.go, harness_login.go → needsMoment; the root-row cache;
+  judge.go; migration `run_verdicts`), model/rules.js, conv-list, sidebar,
+  home, native/convs.js, API.md. The owner's list: a Claude subagent asking
+  for input wasn't flagged; a Claude agent that "yielded cleanly" mid-project
+  should be marked "no clean close / not delivered, with UI dismiss";
+  "propagate in the ios app"; their answer: judge coding agents and
+  projects.
+  - **Fixes.** A coding agent's question, permission or sign-in now pushes
+    (`needsMoment` from `parkTx`/`loginTx`, as `ask_user` did); a child's park
+    or unpark republishes its root's row (`waiting`/`kids`, only on a
+    change), so the ?, the order, Needs you and the iOS list move at once.
+  - **The judge.** On a top-level harness run or a project run whose turn
+    ended answered and idle: the memory-tier model through the background
+    slot (cost on the run; skipped without a memory model or with the
+    `judge` feature off), given the last user message and the final answer
+    (2000 characters each), 60 s, one per run. `{"delivered", "reason" ≤ 15
+    words}`; not delivered = only planned, lists undone steps, will
+    continue, asks something, reports an unresolved blocker. Stored in
+    `run_verdicts` unless the run moved on; a new turn deletes it.
+  - **Shown.** A "not finished" glyph with the reason, a Needs-you item
+    ("stopped before finishing: …"), a push; "Mark as finished" (row menu,
+    Needs you, an iOS swipe) clears it — for everyone, like answering a
+    question: a per-person dismissal can't ride the broadcast row, and
+    anyone who may talk to the conversation may act on it.
+  - **Rejected:** judging subagents (their parent reads them); every turn of
+    every conversation (the owner's choice).
+- **D199 — Copy with formatting from a tile (2026-10-26; issue #34).**
+  web/xbin-client.js `xbin.copy`, web/bx-frame.js `xbin:copy`,
+  web/copy-rich.js (the allowlist), the shell's Copy (`xbin:contextmenu`
+  `html`), the agent template's transcript copy handler and Copy action; on
+  iOS `services.copyRich` and selectable markdown (D200's worker). The
+  owner: "should be possible to select/copy text as rich text … numbered
+  lists … table support".
+  - **Why through the page.** A sandboxed opaque-origin tile has no async
+    clipboard; Ctrl/⌘+C inside it works (a `copy` handler sets text/html and
+    markdown-ish text/plain), but a button or the shell's menu can't, so the
+    tile asks the embedding page (`xbin:copy {text, html}`, 256 KiB each).
+  - **The tile's HTML is untrusted.** copy-rich.js parses it with DOMParser
+    (nothing loads or runs) and rebuilds it from an allowlist: p, br,
+    strong/em (b/i become them), code, pre, ul/ol (`start`), li, tables
+    (`colspan`/`rowspan`), h1–h6, blockquote, hr, links to http(s)/mailto;
+    other elements unwrapped to their text; scripts, styles, controls,
+    images, embeds dropped; no other attribute.
+  - **Older xbinds and the app.** `xbin.copy` resolves false after 3 s and
+    the tile copies in its own frame (plain text).
+- **D201 — Office documents and PDFs for the agent template, without a
+  coding sandbox (2026-10-26; issue #35).** builtin-templates/agent/_backend
+  docs*.go (readers, writers, previews, PDF), tools.go/llm.go/attach.go/
+  files.go hooks, go.mod.tile; doc-cards.js, native/doc-card.js,
+  model/docs.js, the parity catalogs; API.md. The owner: "sheets/docs/slides
+  support. Research sota on how agents do this and implement a version, must
+  work in the internal agents with no coding sandbox", plus PDF reading,
+  "ideally any docs decoding/eval is type safe code like rust/go or running
+  in wasm"; their answer: read and write real Office files.
+  - **State of the art (Oct 2026).** Anthropic's docx/xlsx/pptx/pdf skills
+    run Python (python-docx, openpyxl, python-pptx, pdfplumber) in a code
+    sandbox; OfficeCLI exposes layered operations — read, DOM-level edits,
+    raw XML; EditPPT edits through structured tools and validates by
+    rendering. Ours is the structured DOM-level pattern in type-safe Go
+    instead of a sandbox, with previews both the model and the person check
+    (page pictures for PDFs, HTML previews for what it writes).
+  - **Tools** (the `files` toolset, behind a `docs` feature, on by default —
+    a new toolset would never reach custom classes that list theirs):
+    `doc_read(path, pages?|slides?|sheet?, range?, offset?, limit?)` →
+    Markdown ≤ 48 KiB (PDF text per page; pptx slides with tables and notes;
+    xlsx tables with column letters, formulas and computed values; docx
+    headings, lists, tables; CSV/TSV paged); `doc_view(path, page)` — a PDF
+    page as a picture (vision); `sheet_write(path, ops)` — in place via
+    excelize (set, formula, style, width/height, freeze, merge, clear,
+    filter, sheets, chart), formulas computed; `doc_write(path, markdown)` →
+    .docx; `slides_write(path, slides, theme?)` → 16:9 .pptx (title,
+    content with bullets/table/image, two columns, image, section; notes).
+    Each write keeps the earlier version and an HTML preview, shown in chat
+    (web and the app) with a download/Share. `file_read` on a document
+    answers with its Markdown — no stored sidecar.
+  - **Libraries.** excelize v2 (BSD-3); go-pdfium v1.21 in WebAssembly mode
+    (MIT) with PDFium (BSD-3/Apache-2.0) on wazero v1.12 (Apache-2.0); our
+    own docx/pptx readers and writers on archive/zip + encoding/xml. No cgo,
+    no subprocess. Rejected: Python skills (need a sandbox); unioffice (AGPL
+    or commercial); pdf.js (a JS engine, no rasteriser in Go); PDFium via
+    cgo (neither type-safe nor sandboxed); a separate tile over `xbin_call`
+    (internal lane only, needs approval); editing docx/pptx in place (v1
+    rewrites them; xlsx is edited in place).
+  - **Containment.** In-process in the tile backend's sandbox (one backend
+    per person when partitioned). OOXML: ≤ 4000 entries, 32 MiB per part,
+    96 MiB decompressed in total (counted while reading, never trusted from
+    headers), XML depth ≤ 256, ≤ 2 M elements, 90 s a call; excelize panics
+    become errors. PDFium: go-pdfium's default mounts the host's `/` — we
+    pass an empty mount config: no filesystem, no network, 384 MiB memory,
+    a 60 s deadline that kills the instance, a fresh instance per document,
+    one PDF at a time. Fuzz targets for every reader.
+  - **Cost.** The backend binary grows 37.4 → 59.0 MB (PDFium's wasm is
+    5.8 MB of it); a cold build 14.1 → 16.4 s on 4 CPUs; PDFium compiles on
+    first use (~2 s).
+  - **Not yet:** .doc/.xls/.ppt; formatting another program put in a
+    docx/pptx is lost on a rewrite; no picture view of docx/pptx for the
+    model; slide links are text.

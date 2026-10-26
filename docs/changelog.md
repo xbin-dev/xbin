@@ -10,6 +10,58 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-26
+
+- **Tiles can name themselves and set their own icon** (D194;
+  [elements.md](/docs/elements.md)). `xbin.json` takes `title` (≤ 80
+  characters) and `icon` (a name from the icon set), shown in the window's
+  title bar, the sidebar, the Open-tile menu and the Tiled switcher — always
+  beside the tile's path. A page can call `xbin.meta({title, icon, badge})`
+  for a live title and badge in this viewer's window (not stored).
+  `/components` rows carry `title`/`icon`.
+- **Decisions open on the tile that asked** (D195). Grant requests,
+  interfaces to bind and partition consent asks are no longer a strip at
+  the top: the asking tile's window gets a key badge and a popover (fold
+  it with ⌃), and the sidebar flags the tile — and counts flagged tiles on
+  a closed folder. `<bx-grants>`/`<bx-bindings>` take a `tile` attribute.
+- **Fix: a dismissed grant request or interface to bind came back.**
+  Dismissing a few quickly lost all but one, and another open tab could
+  undo a dismissal; both are fixed, and a dismissal that can't be saved
+  says so.
+- **A window says when its backend is compiling or starting** (D196):
+  "Compiling…", "Preparing…", "Setting up…", "Starting…" in its title bar,
+  in the sidebar and on the app's cards. A new `backend-starting` event and
+  a `backend` field on `/components` rows
+  ([protocol.md](/docs/protocol.md)); `build-start`/`build-ok` unchanged.
+- **The Agent tab takes messages while a turn runs** (D197). Claude Code and
+  Codex take them into the running turn at their next step; otherwise they
+  wait as chips and go in when the turn ends. ⌘/Ctrl+Enter interrupts and
+  sends. `POST /term/sessions/{id}/queue`, `bx agent send --queue` /
+  `--interrupt`, `bx agent unqueue`. The composer now shrinks after a send
+  and is capped at 40 % of the tab.
+- **Coloured code** in the Agent tab, screen text blocks and the agent
+  template's answers (highlight.js, closed fences only); headings, lists and
+  quotes in the agent's answers get theme colours.
+- **Copy with formatting** (D199). `xbin.copy({text, html})` asks the shell
+  to write both flavours (the HTML is rebuilt from an allowlist); the shell's
+  right-click Copy carries the selection's formatting; the agent template's
+  Copy and Ctrl/⌘+C keep numbered lists and tables.
+- **The agent template: needs you, more accurately** (D198). A coding
+  agent's question, permission request or sign-in now sends a push and
+  shows on the parent conversation at once; a coding-agent or project turn
+  that stopped part-way is marked "not finished" (a cheap memory-tier check,
+  the `judge` feature), with Mark as finished. **Instances:** take it with
+  `git merge template/main`.
+- **The agent template reads and writes Office documents and PDFs** (D201;
+  the template's API.md). `doc_read` (PDF, Word, Excel, PowerPoint, CSV),
+  `doc_view` (a PDF page as a picture), `sheet_write`, `doc_write`,
+  `slides_write` — real .xlsx/.docx/.pptx with a preview in chat, all in
+  the agent's own backend, no coding sandbox (the `docs` feature).
+  **Instances:** take it with `git merge template/main`.
+- **Fix: the agent template's project policy said "Someone changed this
+  policy meanwhile"** after the person's own repo or setup-script change,
+  and wouldn't save. **Instances:** take it with `git merge template/main`.
+
 ## 2026-10-22
 
 - **The shell: screen modes** (D193;
