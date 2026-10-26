@@ -12,6 +12,7 @@ import { liveLabel, probeWords } from '../model/live.js';
 import { settingsScreens } from './settings.js';
 import { sandboxScreens } from './sandboxes.js';
 import { abovePlace } from './nav.js';
+import { whoReads } from '../model/docs.js';
 
 const isHtml = (p) => /\.html?$/i.test(p || '');
 
@@ -136,7 +137,7 @@ function fileTpl(s) {
     return html`<screen title=${base(s.path)} subtitle="attachment" style="scroll">
       ${s.err ? html`<notice tone="danger" text=${s.err}/>` : nothing}
       ${img ? html`<image src=${/webp$/.test(m.mime) ? raw(s.run, s.path) : thumb(s.run, s.path, 1024)} alt=${base(s.path)} height="xl" preview/>` : nothing}
-      <text tone="muted">${`${m.mime || 'binary'} · ${fmtN(m.bytes)} B — the agent ${img ? 'sees it with file_view' : 'can list it but not read it as text'}.`}</text>
+      <text tone="muted">${`${m.mime || 'binary'} · ${fmtN(m.bytes)} B — the agent ${whoReads(s.path, m.mime, img)}.`}</text>
       <button icon="share" role="primary" @tap=${() => native.share({ file: raw(s.run, s.path) })}>Share / export</button>
     </screen>`;
   }

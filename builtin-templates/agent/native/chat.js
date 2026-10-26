@@ -15,6 +15,7 @@ import { argsShown } from '../model/tool-heads.js';
 import { MAX_ATTACH, fmtBytes } from '../model/actions.js';
 import { sandboxPickerTpl, badgeWords, brokenTpl, sandboxMenuTpl } from './sandboxes.js';
 import { openRender, openLive } from './tools.js';
+import { docCardTpl } from './doc-card.js'; // a document the agent wrote (D201)
 import { openPublish } from './homes.js'; // one of a person's own conversations: shared by a copy
 import { newChat, openAutos, rev2, compact } from './nav.js';
 import { pickTpl } from './pick.js';
@@ -207,6 +208,7 @@ function stepTpl(b) {
   const d = b.detail || {};
   const [glyph, tone, text] = STEP[b.kind] || ['•', 'muted', (x) => x.text || ''];
   const run = b.run || ctx.app.sel; // a subagent's step, shown in its parent: the file (the page) is its run's
+  if (b.kind === 'render' && d.path && d.doc) return docCardTpl(run, d);
   if (b.kind === 'render' && d.path) {
     return html`<toolcard title=${text(d)} icon="photo" family="render" state="ok" @open=${() => openRender(run, d.path, d.version, false)}/>`;
   }

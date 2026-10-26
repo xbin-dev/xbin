@@ -905,7 +905,7 @@ their parent's, and **a schedule the agent creates gets the creating run's**.
 
 | Toolset | Tools |
 |---|---|
-| `files` | the session files (`file_*`, including `file_info` and `file_diff`) and `render_html` (`file_view` with the `vision` feature) |
+| `files` | the session files (`file_*`, including `file_info` and `file_diff`) and `render_html` (`file_view` with the `vision` feature), and the document tools (`doc_read`, `sheet_write`, `doc_write`, `slides_write`; `doc_view` with `vision`) with the `docs` feature (D201) |
 | `repl` | the JavaScript sandbox (`js_eval`, `js_run`, `js_reset`) |
 | `web` | `web_search`, `web_fetch` |
 | `internal` | `xbin_call` and the bound MCP servers' tools — `mcp` narrows them |
@@ -1038,7 +1038,7 @@ interface bound (`bx bind <this component> net=internet`); unbound, they return
   "features": { "recall": true, "skills": true, "streaming": true,
                 "vision": true, "parallelTools": true, "watcher": true,
                 "files": true, "repl": true, "workflow": true, "titles": true,
-                "threads": true, "judge": true },
+                "threads": true, "judge": true, "docs": true },
   "replTimeoutMs": 5000,       // REPL budget per statement (max 60000)
   "replMemMB": 256,            // REPL heap watchdog
   // workflow limits (0 = default): delegation depth, lifetime runs per tree,
@@ -1117,7 +1117,9 @@ is text, and the image is added in one user message placed after that turn's
 GIF and WebP are shown, each ≤ 3 MiB, and only the **4 newest** images in the
 context; older ones become `[image x.png not shown — file_view to see it
 again]`. With `vision` off, nothing is inlined and `file_view` is not offered.
-`file_read` on a binary file returns a pointer to `file_view`; the REPL's
+`file_read` on a binary file returns a pointer to `file_view` — on a
+document (PDF, .docx, .xlsx, .pptx, CSV, with `docs` on) it returns the
+document as `doc_read` reads it, and the attachment note says so; the REPL's
 `files.read` throws, and `files.remove` refuses attachments (delete them from
 the Files tab).
 
@@ -1636,6 +1638,51 @@ File versions are monotonic. Clicking an older render chip shows the file's
 current content, with the header noting the difference. The tile's Files tab
 edits them too, sending back the version it loaded so a write the agent made
 in between comes back as a 409 instead of being lost.
+
+### Documents (D201)
+
+Feature key `docs` (on by default), offered with the session files in every
+class that has them — both lanes; zero egress; not `sideEffect()` tools. The
+agent reads and writes Office files with **no coding sandbox**:
+
+| Tool | What it does |
+|---|---|
+| `doc_read(path, pages?, slides?, sheet?, range?, offset?, limit?)` | a document as Markdown: a PDF's text per page (`## Page N`, a page with no text says so), a .pptx per slide (`## Slide N: title`, bullets with their level, tables, `[image: …]`, `Notes: …`), an .xlsx as tables with column letters and row numbers (the first 200 × 40 cells of each sheet, or `range`), its formulas listed with their computed results, merged cells; a .docx as headings, lists, quotes, code, tables and `[image: …]` (`offset`/`limit` lines); a CSV/TSV as a table (`offset`/`limit` rows, 200 by default; the delimiter guessed). At most 48 KiB per call — the result says how to read on |
+| `doc_view(path, page)` (with `vision`) | a PDF page drawn as a PNG (110 dpi, ≤ 1800 px), stored as `<name>.p<N>.png` and shown to the model as `file_view`'s images are |
+| `sheet_write(path, ops)` | changes an .xlsx **in place** (formatting it doesn't touch is kept) or creates it: `set` (a block of values; `=…` is a formula), `formula`, `style` (bold, italic, colour, fill, number format, alignment, wrap, border, size), `width`, `height`, `freeze`, `merge`, `clear`, `filter`, `add_sheet`, `rename_sheet`, `delete_sheet`, `chart` (col, bar, line, pie, area, scatter, doughnut, stacked). Formulas are computed (excelize's engine) and reported; the workbook is marked to recalculate on open |
+| `doc_write(path, markdown, title?)` | a .docx from Markdown: headings, paragraphs with bold/italic/code/links, nested bullet and numbered lists, quotes, code blocks, rules, pipe tables, `![caption](chart.png)` images from the session files |
+| `slides_write(path, slides, title?, theme?)` | a 16:9 .pptx: layouts `title`, `content` (bullets, with a table or an image beside them), `two`, `image`, `section`; speaker `notes`; `theme {accent, font, dark}` (Base Two by default) |
+
+A write stores the file as a session file (a new version when it exists —
+the earlier one kept, D136) and an HTML preview beside it (`<path>.html`),
+and journals a `render` step `{path, version, bytes, doc, docVersion,
+docBytes, docMime}`: the preview opens in the render pane like
+`render_html`'s, and the chat's line names the document (web: **download**;
+the app: **Share / export**). docx and pptx are written whole (to revise
+one, read it and write it again); an xlsx is edited in place.
+
+How it runs, and what bounds it:
+
+- **Office formats** — pure Go: `archive/zip` + `encoding/xml` for .docx
+  and .pptx (our own reader and writer), excelize (BSD-3) for .xlsx.
+  An archive is read with at most 4000 entries, 32 MiB per part and 96 MiB
+  in all **decompressed** (counted while reading, not taken from the zip's
+  headers), XML at most 256 deep and 2 M elements, and a 90-second deadline
+  per call; a panic inside excelize is an error.
+- **PDF** — PDFium compiled to WebAssembly (go-pdfium's webassembly mode,
+  MIT; PDFium BSD-3/Apache-2.0) run by wazero (Apache-2.0): no cgo, no
+  subprocess. The module gets **no filesystem** (an empty mount config —
+  go-pdfium's default would mount `/`), no network (WASI has none), at most
+  384 MiB of memory, and each call a 60-second deadline that closes its
+  instance. Each document gets a fresh instance; one PDF at a time.
+  Compiling the ~6 MB module happens once, on first use (about 2 s).
+- All of it runs inside the tile's backend, in its sandbox (one backend per
+  person in a partitioned instance).
+- Tests: `go test ./_backend -run TestDocs` (round trips through our writers,
+  a foreign .docx, a PDF made in the test, a zip bomb, deep XML), fuzz
+  targets `FuzzDocxRead`, `FuzzPptxRead`, `FuzzXlsxRead`, `FuzzCSVRead`,
+  `FuzzMarkdownDocx`; `DOCS_DUMP=dir go test -run TestDocsDump` writes
+  samples to open in an office suite.
 
 ### Hashes, sources and earlier versions (D136)
 

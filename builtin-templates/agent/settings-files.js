@@ -5,6 +5,7 @@
 // refreshView and the open pane (ctx.preview, read when the tab acts).
 import { esc } from '/vendor/bx-kit.js';
 import * as actions from './model/actions.js';
+import { whoReads } from './model/docs.js';
 
 const { fmtBytes } = actions;
 const num = (v) => Number(v) || 0;
@@ -39,7 +40,7 @@ export async function tabFiles(bd, ctx) {
     <div class="sec"><h4>Attachment · ${esc(cur.path)}
       <button class="btn ghost btnsm" id="fl-new">+ new</button></h4>
       ${isImg(cur) ? '<img id="fl-img" class="fprev" alt="">' : ''}
-      <div class="hint">${esc(cur.mime || 'binary')} · ${fmtBytes(num(cur.bytes))} — the agent ${isImg(cur) ? 'sees it with file_view' : 'can list it but not read it as text'}.</div>
+      <div class="hint">${esc(cur.mime || 'binary')} · ${fmtBytes(num(cur.bytes))} — the agent ${whoReads(cur.path, cur.mime, isImg(cur))}.</div>
       <div style="margin-top:6px"><button class="btn ghost" id="fl-dl">Download</button> <span class="err" id="fl-err"></span></div>
     </div>` : `
     <div class="sec"><h4>${cur ? 'Edit · ' + esc(cur.path) : 'New file'}

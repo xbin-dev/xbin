@@ -151,7 +151,7 @@ type Config struct {
 }
 
 // featureKeys are the toggleable capabilities shown in the tile's Features menu.
-var featureKeys = []string{"recall", "skills", "streaming", "vision", "parallelTools", "watcher", "files", "repl", "workflow", "titles", "threads", "judge"}
+var featureKeys = []string{"recall", "skills", "streaming", "vision", "parallelTools", "watcher", "files", "repl", "workflow", "titles", "threads", "judge", "docs"}
 
 // toolset is the capability lane, from the run's class (classes.go): "web"
 // when it reaches outside and has no internal reach, else "private". Since

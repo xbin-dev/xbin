@@ -10,7 +10,7 @@
 import { jbody } from '/vendor/bx-kit.js';
 import { homeOf, twoHomes } from './homes.js';
 import { runApi as api, homeFetch } from './home-api.js';
-import { fold, activity, busy, FoldCache } from './fold.js';
+import { fold, activity, busy, FoldCache, splitAttachments } from './fold.js';
 import { Live } from './stream.js';
 
 const cid = () => Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -447,6 +447,13 @@ export class Session {
       return;
     }
     if (counted && !this.following && v.paged) v.fresh = (v.fresh || 0) + 1;
+    // a message that arrives live carries its files linked (the engine links
+    // them as it writes the message): its chips aren't drawn as deleted
+    // until a reread; a reread still shows a later deletion
+    if (d.role === 'user' && !(v.messageFiles || {})[d.id]) {
+      const paths = splitAttachments(d.content || '').files.map((f) => f.path);
+      if (paths.length) v.messageFiles = { ...(v.messageFiles || {}), [d.id]: paths };
+    }
     if (v.messages.length && d.seq < v.messages[v.messages.length - 1].seq) {
       v.messages.push(d);
       v.messages.sort(bySeq);

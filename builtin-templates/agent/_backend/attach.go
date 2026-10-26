@@ -222,6 +222,9 @@ func attachmentNote(files []*ReplFile) string {
 			m = "text"
 		}
 		parts[i] = fmt.Sprintf("%s (%s, %s)", f.Path, m, humanBytes(f.Bytes))
+		if isDocFile(f) {
+			parts[i] += " — doc_read reads it"
+		}
 	}
 	return "\n\n[attached: " + strings.Join(parts, ", ") + "]"
 }
@@ -308,7 +311,7 @@ func (ag *Agent) toolFileView(ctx context.Context, run *Run, cfg Config, args ma
 // of its result (browserShotsLead).
 func shownImages(c toolCall, content string) []string {
 	switch c.Function.Name {
-	case "file_view":
+	case "file_view", "doc_view": // doc_view's result names the page picture it stored
 		if !strings.HasPrefix(content, fileViewOK) {
 			return nil
 		}

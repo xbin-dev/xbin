@@ -99,6 +99,7 @@ const FEATURE_DESC = {
   watcher: 'watcher cron-agents (one persistent run, discard no-change rounds)',
   threads: "thread & schedule tools: list and read this conversation's automations and threads — and, with the owner's OK, their other conversations",
   judge: "mark a coding agent's or project's turn that stopped part-way as not finished (a cheap memory-tier check)",
+  docs: 'document tools: read PDF, Word, Excel, PowerPoint and CSV files; write workbooks, Word documents and slide decks',
 };
 
 // features: each switch merges {features: {k: on}} into the current config.

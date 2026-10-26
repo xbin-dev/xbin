@@ -79,6 +79,11 @@
 //	             "[<user id>] " before it)
 //	paras N      (starts the message) an answer of N paragraphs "Paragraph k of
 //	             the answer, streamed.", word by word
+//	doc tour     the document tools (D201): doc_read paper.pdf, doc_view its
+//	             page 1, sheet_write sales.xlsx (values, a formula, a style, a
+//	             chart), slides_write deck.pptx (three slides), doc_write
+//	             report.docx → "Docs done: <doc_read's first line> · saw the
+//	             page" (the page's picture reached the model)
 //	huge context "ok: <text>", reporting a 5 000 000-token prompt: the agent's
 //	             next step compacts (D133)
 //	(else)       "ok: <text>"
@@ -408,6 +413,8 @@ func script(conv []turn, system string) plan {
 		case "sandbox_create":
 			first, _, _ := strings.Cut(strings.TrimSpace(last.Text), "\n")
 			return plan{Text: "Created: " + first}
+		case "doc_read", "doc_view", "sheet_write", "slides_write", "doc_write":
+			return docTourStep(conv, last)
 		case "subagent_spawn", "spawn_subagent":
 			if strings.Contains(last.Text, "background") {
 				return plan{Text: "Started three helpers."}
@@ -423,6 +430,8 @@ func script(conv []turn, system string) plan {
 		return plan{Thinking: []string{"Considering ", "the ", "greeting…"}, Text: "Hello from the fake model."}
 	case strings.Contains(lastUser, "show markdown"): // the richCopy pass: a list, a table, a fence (D199, #26)
 		return plan{Text: "The plan:\n\n1. **first** step\n2. second step\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```go\nfunc main() { println(\"hi\") }\n```"}
+	case strings.Contains(lastUser, "doc tour"):
+		return plan{Calls: []call{{"doc_read", map[string]any{"path": "paper.pdf", "summary": "Read the PDF"}}}}
 	case strings.Contains(lastUser, "make a file"):
 		return plan{Calls: []call{{"file_write", map[string]any{"path": "note.txt", "content": "made by the fake model", "summary": "Write the file"}}}}
 	case strings.Contains(lastUser, "use a tool"):
@@ -965,4 +974,42 @@ func serveScript(conv []turn) plan {
 		return plan{Delay: 1500 * time.Millisecond, Calls: []call{{"preview_port", map[string]any{"port": servePort, "path": "/index.html", "summary": "Show it live"}}}}
 	}
 	return plan{Text: "Showing it live."}
+}
+
+// docTourStep: the "doc tour" script's next step after one of the document
+// tools answered (D201).
+func docTourStep(conv []turn, last turn) plan {
+	switch last.Tool {
+	case "doc_read":
+		return plan{Calls: []call{{"doc_view", map[string]any{"path": "paper.pdf", "page": 1, "summary": "Look at page 1"}}}}
+	case "doc_view":
+		return plan{Calls: []call{{"sheet_write", map[string]any{"path": "sales.xlsx", "summary": "Write the sales sheet", "ops": []any{
+			map[string]any{"op": "set", "sheet": "Sales", "cell": "A1", "values": []any{[]any{"Region", "Q1", "Q2", "Total"}, []any{"EU", 120, 130, "=B2+C2"}, []any{"US", 98, 100, "=B3+C3"}}},
+			map[string]any{"op": "style", "range": "A1:D1", "bold": true, "fill": "#E8E9EE"},
+			map[string]any{"op": "chart", "cell": "F2", "type": "col", "title": "By region", "categories": "A2:A3", "series": []any{map[string]any{"name": "Q1", "values": "B2:B3"}}},
+		}}}}}
+	case "sheet_write":
+		return plan{Calls: []call{{"slides_write", map[string]any{"path": "deck.pptx", "title": "Q3", "summary": "Write the deck", "slides": []any{
+			map[string]any{"layout": "title", "title": "Q3 review", "subtitle": "From the fake model"},
+			map[string]any{"title": "Highlights", "bullets": []any{"EU **up**", []any{"driven by DE"}, "US flat"}, "notes": "Say thanks."},
+			map[string]any{"title": "By region", "table": map[string]any{"header": []any{"Region", "Total"}, "rows": []any{[]any{"EU", "250"}, []any{"US", "198"}}}},
+		}}}}}
+	case "slides_write":
+		return plan{Calls: []call{{"doc_write", map[string]any{"path": "report.docx", "summary": "Write the report",
+			"markdown": "# Q3 report\n\nSales grew **12%**.\n\n- EU up\n- US flat\n\n| Region | Total |\n|---|---|\n| EU | 250 |\n"}}}}
+	}
+	first := ""
+	for i := len(conv) - 1; i >= 0; i-- {
+		if conv[i].Tool == "doc_read" {
+			first, _, _ = strings.Cut(strings.TrimSpace(conv[i].Text), "\n")
+			break
+		}
+	}
+	saw := ""
+	for _, t := range conv {
+		if t.Role == "user" && strings.HasPrefix(t.Text, "(images you asked to see") {
+			saw = " · saw the page"
+		}
+	}
+	return plan{Text: "Docs done: " + first + saw}
 }

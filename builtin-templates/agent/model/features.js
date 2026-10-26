@@ -77,6 +77,7 @@ export const FEATURES = {
   'chat.step': 'step lines: notes, errors, sleeps, finishes, renders, cancels',
   'chat.step.finish': 'a finish line\'s result as sanitized markdown (a model often puts its answer there)',
   'chat.step.reopen': 'a render\'s and a live page\'s lines open them again once closed (a subagent\'s, from its own run)',
+  'chat.step.doc': 'a document the agent wrote (sheet_write, doc_write, slides_write — D201): its line names the workbook, document or deck and its version, opens its preview, and downloads (shares, on the app) the file itself',
   'chat.notice': 'engine notices (subagent results, messages from a parent), folded',
   'chat.notice.automation': 'what an automation delivered, labelled (Scheduled, Watcher check, …)',
   'chat.compaction': 'a banner where earlier turns were compacted, and the step saying what was summarised and how many old tool outputs were hidden (rules.compactionWords)',

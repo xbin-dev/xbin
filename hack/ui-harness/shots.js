@@ -851,6 +851,7 @@ PASSES.focusAnchor = require('./passes/focusanchor').focusAnchor; // D191: the f
 PASSES.blocks = require('./passes/blocks').blocks; // D192: headings and text on a screen, no tile — canvas, Document mode, an org screen's draft
 PASSES.richCopy = require('./passes/richcopy').richCopy; // D199/#26: copy with formatting — a right-click, xbin.copy, the agent's Copy; a coloured fence
 PASSES.tiled = require('./passes/tiled').tiled; // D193: Tiled — one tile fills the screen, splits, dividers, swaps, a phone, an org screen's draft
+PASSES.agentDocs = require('./passes/agentdocs').agentDocs; // D201: the agent reads a PDF, writes a workbook, a deck and a document — previews, downloads, no sandbox
 
 (async () => {
   const args = process.argv.slice(2);
