@@ -8,9 +8,19 @@
  * and links are limited to safe schemes and open in a new tab. Everything
  * else is HTML this renderer produced from markdown structure. A parse
  * error falls back to escaped text, so streaming half-parsed input is safe.
+ *
+ * A fenced code block in a language highlight.js knows is coloured (#26):
+ * its output is the code escaped, in class-named spans (mdCssText colours
+ * them on the --bx-syn-* tokens). Only a closed fence, at most MAX_HL —
+ * a block still streaming in stays plain until its fence closes, so a token
+ * burst never re-highlights it, and a pasted dump isn't worth the stall.
  */
 import { marked } from '/vendor/marked.esm.js';
+import hljs from '/vendor/highlight.min.js';
 import { esc } from '/vendor/bx-kit.js';
+
+const MAX_HL = 32 << 10;
+const closedFence = (raw) => /\n {0,3}(`{3,}|~{3,})[ \t]*\n*$/.test(String(raw || ''));
 
 marked.use({
   breaks: true,
@@ -22,6 +32,15 @@ marked.use({
       const inner = this.parser.parseInline(tokens);
       if (/^(javascript|data|vbscript):/i.test(h)) return inner;
       return `<a href="${esc(h)}" target="_blank" rel="noopener noreferrer"${title ? ` title="${esc(title)}"` : ''}>${inner}</a>`;
+    },
+    code({ text, lang, raw }) {
+      const lg = String(lang || '').trim().split(/\s+/)[0].toLowerCase();
+      const cls = lg && /^[\w+#.-]+$/.test(lg) ? ` class="language-${lg}"` : '';
+      let body = null;
+      if (lg && closedFence(raw) && text.length <= MAX_HL && hljs.getLanguage(lg)) {
+        try { body = hljs.highlight(text, { language: lg, ignoreIllegals: true }).value; } catch { body = null; }
+      }
+      return `<pre><code${body == null ? cls : ` class="hljs language-${lg}"`}>${body ?? esc(text)}</code></pre>\n`;
     },
   },
 });
@@ -51,7 +70,17 @@ export function mdCssText(scope) {
   ${s('blockquote')} { margin: 8px 0; padding: 0 12px; border-left: 2px solid var(--bx-border-strong, #666A7E); color: var(--bx-muted, #A3A6B6); }
   ${s('a')} { color: var(--bx-link, #8C9BFF); }
   ${s('hr')} { border: 0; border-top: 1px solid var(--bx-border, #33353F); }
-  ${s('.md-img')} { color: var(--bx-muted, #A3A6B6); font-style: italic; }`;
+  ${s('.md-img')} { color: var(--bx-muted, #A3A6B6); font-style: italic; }
+  ${s('.hljs-comment, .hljs-quote')} { color: var(--bx-syn-comment, #9598A9); font-style: italic; }
+  ${s('.hljs-keyword, .hljs-selector-tag, .hljs-section, .hljs-name, .hljs-doctag')} { color: var(--bx-syn-keyword, #FF8CC8); }
+  ${s('.hljs-string, .hljs-regexp')} { color: var(--bx-syn-string, #7BE0B0); }
+  ${s('.hljs-number, .hljs-literal, .hljs-symbol, .hljs-bullet')} { color: var(--bx-syn-number, #FFD54A); }
+  ${s('.hljs-title')} { color: var(--bx-syn-function, #96A6FF); }
+  ${s('.hljs-type, .hljs-title.class_')} { color: var(--bx-syn-type, #5CCBE3); }
+  ${s('.hljs-attr, .hljs-attribute, .hljs-property')} { color: var(--bx-syn-attr, #F5B07A); }
+  ${s('.hljs-built_in, .hljs-meta, .hljs-variable, .hljs-template-variable')} { color: var(--bx-syn-builtin, #C6A8FF); }
+  ${s('.hljs-deletion')} { color: var(--bx-syn-deletion, #FF8F8F); }
+  ${s('.hljs-addition')} { color: var(--bx-syn-addition, #7BE0B0); }`;
 }
 
 /**
