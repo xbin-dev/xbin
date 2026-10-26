@@ -64,6 +64,7 @@ func routeTable() []routeDef {
 		{"POST /runs/{id}/answer", needParticipant, handleMessage},
 		{"DELETE /runs/{id}/inbox/{iid}", needParticipant, handleRemoveQueued},
 		{"POST /runs/{id}/approve", needParticipant, handleApprove},
+		{"POST /runs/{id}/unfinished/dismiss", needParticipant, handleDismissUnfinished}, // the judge's mark (judge.go, D198)
 		{"DELETE /runs/{id}/grants/{cap}", needOwner, handleRevokeGrant},
 		{"POST /runs/{id}/interrupt", needParticipant, handleInterrupt},
 		{"POST /runs/{id}/cancel", needParticipant, handleCancel},

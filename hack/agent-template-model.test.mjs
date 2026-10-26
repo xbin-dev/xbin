@@ -520,6 +520,15 @@ test('rules: who may do what', () => {
   assert.deepEqual(rules.rowMenu({ access: 'participant', mine: false }).map((i) => i.label), ['Pin', 'Archive']);
   assert.equal(rules.rowGlyph({ status: 'waiting_input' }), 'ask');
   assert.equal(rules.rowGlyph({ status: 'sleeping' }), 'spin');
+  // the judge's "not finished" (D198): below waiting, failed and working; who may talk to it takes it down
+  const unf = { status: 'idle', unfinished: { reason: 'it only made a plan', at: 1 } };
+  assert.equal(rules.rowGlyph(unf), 'unfinished');
+  assert.equal(rules.rowGlyph({ ...unf, waiting: true }), 'ask');
+  assert.equal(rules.rowGlyph({ ...unf, status: 'running' }), 'spin');
+  assert.equal(rules.rowGlyph({ status: 'idle', unfinished: null }), '');
+  assert.equal(rules.unfinishedWords(unf), 'not finished: it only made a plan');
+  assert.deepEqual(rules.rowMenu({ ...unf, access: 'participant' }).map((i) => i.label), ['Pin', 'Archive', 'Mark as finished']);
+  assert.deepEqual(rules.rowMenu({ ...unf, access: 'viewer' }).map((i) => i.label), ['Pin', 'Archive']);
   assert.equal(rules.rowShared({ visibility: 'team', owner: 'bob' }).title, 'shared with you by bob');
 
   assert.equal(rules.halt({ manager: false }, true, []).shown, false);

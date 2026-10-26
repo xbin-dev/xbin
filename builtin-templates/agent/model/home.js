@@ -17,12 +17,19 @@ export const HOME = {
 
 // REASON: why a conversation is in "Needs you" (GET /needs items[].reason);
 // login: a coding agent in it waits for you to sign in (D147 §4.3.9).
-export const REASON = { question: 'has a question for you', approval: 'wants your approval', failed: 'failed', login: 'needs you to sign in' };
+// unfinished: its coding agent's or project's last turn stopped part-way
+// (the judge, D198) — the item's run carries the reason.
+export const REASON = { question: 'has a question for you', approval: 'wants your approval', failed: 'failed', login: 'needs you to sign in',
+  unfinished: 'stopped before finishing' };
 
 // needWords: an item's reason in words — a sign-in names the coding agent
 // when the item says which (its own `harness`, or its conversation's when
 // that is the one waiting): "needs you to sign in to Codex".
 export function needWords(n) {
+  if (n.reason === 'unfinished') {
+    const why = n.run && n.run.unfinished && n.run.unfinished.reason;
+    return why ? `${REASON.unfinished}: ${why}` : REASON.unfinished;
+  }
   if (n.reason !== 'login') return REASON[n.reason] || n.reason;
   const own = !n.subRun || n.subRun === (n.run && n.run.id);
   const h = n.harness || (own && n.run && n.run.harness) || null;

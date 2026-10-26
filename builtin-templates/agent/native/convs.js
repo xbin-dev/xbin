@@ -20,12 +20,12 @@ import { newChat, rev2, compact } from './nav.js';
 import { publishes } from '../model/homes.js';
 import { openPublish, newShareTpl, newShareBody } from './homes.js'; // a person's partition (two homes)
 
-const GLYPH = { ask: ['waiting for you', 'accent'], error: ['failed', 'danger'], spin: ['working', 'muted'] };
+const GLYPH = { ask: ['waiting for you', 'accent'], error: ['failed', 'danger'], spin: ['working', 'muted'], unfinished: ['not finished', 'warn'] };
 // the Shared view — in a person's partition, the shared space's (model/partition.js, model/homes.js)
 const SCOPES = [{ value: 'mine', label: 'Mine' }, { value: 'shared', label: 'Shared' }, { value: 'archived', label: 'Archived' }]
   .filter((s) => s.value !== 'shared' || sharing());
 const EMPTY_SHARED = 'nothing shared yet — share a conversation from its menu, and whatever others share with you shows here too';
-const NEED_ICON = { failed: 'warning', approval: 'shield', login: 'key' };
+const NEED_ICON = { failed: 'warning', approval: 'shield', login: 'key', unfinished: 'pause' };
 const needKey = (n) => `${n.reason}:${n.run.id}:${n.subRun || ''}`;
 // uniq: an item once (GET /needs may name a run's park twice: its own and its root's)
 const uniq = (list) => { const seen = new Set(); return list.filter((n) => !seen.has(needKey(n)) && seen.add(needKey(n))); };
@@ -62,7 +62,9 @@ export function listScreen() {
       ${extra ? html`<section>${extra}</section>` : nothing}
       ${!results && needs.length ? html`<section title="Needs you">${repeat(needs, needKey, (n) => html`
         <row title=${n.run.title || 'run ' + n.run.id} subtitle=${needWords(n)} icon=${NEED_ICON[n.reason] || 'question'}
-          tone=${n.reason === 'failed' ? 'danger' : 'accent'} nav @tap=${() => app.select(n.subRun || n.run.id)}/>`)}</section>` : nothing}
+          tone=${n.reason === 'failed' ? 'danger' : n.reason === 'unfinished' ? 'warn' : 'accent'} nav @tap=${() => app.select(n.subRun || n.run.id)}>
+          ${n.reason === 'unfinished' ? html`<actions><button icon="check" @tap=${guard(async () => { await app.actions.dismissUnfinished(n.run.id); app.loadNeeds(); })}>Mark as finished</button></actions>` : nothing}
+        </row>`)}</section>` : nothing}
       ${results ? nothing : html`<section title=${narrow ? app.HOME.tagline : nothing}><picker style="segmented" value=${scope} options=${SCOPES}
         @change=${(e) => { ui.q = ''; list.view(e.value === 'shared' ? 'shared' : 'mine', e.value === 'archived'); }}/></section>`}
       ${results
@@ -160,6 +162,7 @@ function itemTpl(i, r) {
       ui.share = { run: { id: r.id, title: r.title, engine: r.engine, parentId: r.parentId } }; ctx.paint();
     }}>${i.label}</button>`;
     case 'archive': return html`<button icon="archive" @tap=${guard(() => app.actions.archive(app.convs, r))}>${i.label}</button>`;
+    case 'unfinished': return html`<button icon="check" @tap=${guard(() => app.actions.dismissUnfinished(r.id))}>${i.label}</button>`;
     case 'delete': return html`<button icon="trash" role="destructive" confirm=${{ title: `Delete "${title}" and its history?`, label: 'Delete', destructive: true }}
       @tap=${guard(async () => { await app.actions.deleteRun(r.id); app.convs.remove(r.id); if (app.root === r.id) app.home(); })}>${i.label}</button>`;
     case 'leave': return html`<button icon="xmark" role="destructive" confirm=${{ title: `Leave "${title}"?`, label: 'Leave', destructive: true }}

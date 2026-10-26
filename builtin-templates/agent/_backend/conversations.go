@@ -103,6 +103,9 @@ func (ag *Agent) convItem(r *Run, w who, st userState) map[string]any {
 	it["access"] = lv.String()
 	it["pinnedAt"], it["archivedAt"], it["readMs"] = st.PinnedAt, st.ArchivedAt, st.ReadMs
 	it["unread"] = w.kind == whoUser && r.ActivityMs > max(st.ReadMs, ag.convEpoch())
+	if r.ParentID == 0 {
+		withVerdict(ag.db, r.ID, it) // the judge's "not finished" (judge.go, D198)
+	}
 	return it
 }
 
@@ -468,9 +471,10 @@ func handleRead(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleNeeds lists what is waiting for the caller: conversations they may
-// talk to where the agent (or a subagent) asks a question or an approval,
-// and automations they own whose last run failed and that they haven't
-// looked at.
+// talk to where the agent (or a subagent) asks a question or an approval, or
+// whose coding agent or project stopped part-way (judge.go, D198), and
+// automations they own whose last run failed and that they haven't looked
+// at.
 func handleNeeds(w http.ResponseWriter, r *http.Request) {
 	items, err := needsItems(callerOf(r), "")
 	if err != nil {
@@ -491,7 +495,8 @@ func needsItems(c who, scope string, scopeArgs ...any) ([]map[string]any, error)
 	}
 	runs, err := agent.db.queryRuns(`r WHERE r.parent_id=0 AND `+where+` AND (
 		EXISTS (SELECT 1 FROM runs x WHERE x.root_id=r.id AND x.status='waiting_input')
-		OR (r.origin NOT IN ('', 'chat', 'api') AND r.status='error'))
+		OR (r.origin NOT IN ('', 'chat', 'api') AND r.status='error')
+		OR (r.status='idle' AND EXISTS (SELECT 1 FROM run_verdicts v WHERE v.run_id=r.id AND v.delivered=0 AND v.dismissed_ms=0)))
 		ORDER BY r.activity_ms DESC LIMIT 50`, args...)
 	if err != nil {
 		return nil, err
@@ -534,6 +539,9 @@ func needsItems(c who, scope string, scopeArgs ...any) ([]map[string]any, error)
 				}
 			}
 			items = append(items, withNeedsProject(agent.db, item, x)) // a project's run: project {id, name, n} (projects_coord_push.go)
+		case !waiting && lv >= lvParticipant && x.Status == statusIdle && it["unfinished"] != nil:
+			// a coding agent's or project's turn that stopped part-way (judge.go, D198)
+			items = append(items, withNeedsProject(agent.db, map[string]any{"run": it, "reason": needUnfinished, "subRun": 0}, x))
 		case !waiting && lv >= lvOwner && it["unread"] == true:
 			items = append(items, withNeedsProject(agent.db, map[string]any{"run": it, "reason": "failed", "subRun": 0}, x))
 		}

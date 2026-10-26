@@ -1323,6 +1323,7 @@ func (e *Engine) endHarnessTurnTx(t *DB, runID int64, why, msg string) error {
 		e.settleOwnLink(t, run, linkState, outcome, res)
 	}
 	runTurnEnd(t, run, harnessTurnWhy(why), outcome, orStr(msg, t.harnessTurnText(run.ID))) // turnEndHooks (project_events.go)
+	e.judgeTurn(t, run, harnessTurnWhy(why))                                                // a coding agent that stopped part-way (judge.go, D198)
 	e.emitRun(t, run.ID)
 	if status == statusError {
 		t.AfterCommit(func() { publishEvent(run.ID, "error") })

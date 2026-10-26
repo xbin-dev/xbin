@@ -180,6 +180,7 @@ function homeView() {
     mcpBound: !!(mcp && (mcp.endpoints || []).length),
     pick: (e) => { $('msg').value = e; autosize(); $('msg').focus(); },
     select: (id) => selectRun(id),
+    dismissUnfinished: (id) => actions.dismissUnfinished(id).then(() => app.loadNeeds(), (e) => alert(e.message)), // D198
   });
 }
 
@@ -795,6 +796,7 @@ async function tabFeatures(bd) {
     parallelTools: "run a turn's tool calls in parallel",
     watcher: 'watcher cron-agents (one persistent run, discard no-change rounds)',
     threads: "thread & schedule tools: list and read this conversation's automations and threads — and, with the owner's OK, their other conversations",
+    judge: "mark a coding agent's or project's turn that stopped part-way as not finished (a cheap memory-tier check)",
   };
   bd.innerHTML = `<div class="sec"><h4>Features</h4>
     ${keys.map((k) => `<label class="chk"><input type="checkbox" data-f="${esc(k)}" ${st[k] ? 'checked' : ''}>

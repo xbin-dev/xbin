@@ -165,13 +165,12 @@ func (s *hsess) loginTx(t *DB, hs *harnessSession, held *heldPrompt) error {
 		return err
 	}
 	s.e.emitStep(t, s.root, t.journal(run.ID, "note", map[string]string{"text": fmt.Sprintf("%s isn't signed in — sign in, then Retry", s.prov.Name)}))
-	if run.ParentID == 0 {
-		t.bumpActivity(run.ID)
-	}
+	t.bumpActivity(run.ID) // the conversation's: a coding agent below it waiting on a person is news there too (D198)
 	s.e.emitRun(t, run.ID)
 	signed := false
 	_ = t.noteHarnessSeen(hs.Ref, s.prov.ID, nil, &signed)
-	t.AfterCommit(s.toRest) // waiting on a person: it doesn't keep a person's partition up (harness_partition.go)
+	t.AfterCommit(s.toRest)                              // waiting on a person: it doesn't keep a person's partition up (harness_partition.go)
+	t.AfterCommit(func() { s.e.ag.needsMoment(run.ID) }) // the sign-in it waits for reaches the phone (D198)
 	return nil
 }
 

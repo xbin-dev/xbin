@@ -53,6 +53,13 @@ type Engine struct {
 	// titling: conversations being named right now (title.go)
 	titleMu sync.Mutex
 	titling map[int64]bool
+
+	// treeSeen: what each root's summary last said of the runs below it
+	// (events.go withTreeWaitLive, D198)
+	treeMu   sync.Mutex
+	treeSeen map[int64]treeWait
+	// judging: turns being judged right now (judge.go, D198; under titleMu)
+	judging map[int64]bool
 	gen     string // this process: event cursors, the row marker old binaries respect
 
 	lockPath string
