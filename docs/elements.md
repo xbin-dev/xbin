@@ -735,6 +735,22 @@ inputs and editable text keep the native menu.)
   memory); coordinate through the shared backend / bus / kv. `closed` resolves
   when the window closes.
 
+- **`xbin.copy({text, html}) → Promise<boolean>`** — copy to the person's
+  clipboard (D199): `text` is the plain flavour, `html` (optional) the rich
+  one an editor pastes — lists, tables and emphasis survive. A tile frame
+  has no clipboard of its own, so the page embedding it writes it, within
+  the click that asked (call it from a click), and rebuilds your HTML from
+  an allowlist first (paragraphs, emphasis, code, lists, tables, headings,
+  quotes, http(s)/mailto links; no classes, styles or other attributes).
+  Resolves `true` when it took, `false` when it didn't — or after 3 s on a
+  page that doesn't answer (an older xbind, the app): then fall back to
+  `document.execCommand('copy')` with a `copy` listener that sets both
+  flavours, or ask the person to select and press Ctrl+C. A person's own
+  Ctrl+C in your document is the browser's copy: listen for `copy` and set
+  `text/html` and `text/plain` on `e.clipboardData` to shape it. A right-click
+  with a selection already leads the shell's tile menu with Copy, and that
+  Copy now writes the selection's HTML too.
+
 **Permissions & trust.** Spawning UI is a tile affordance, not a privileged
 capability — no grant is required — but four things bound it:
 

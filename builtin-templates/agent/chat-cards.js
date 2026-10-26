@@ -13,22 +13,27 @@
 // way (ext.block, asked first) and add what follows the transcript (ext.end;
 // a harness park is then its to draw — see sessionTpl).
 import { html, nothing, repeat, unsafeHTML, classMap, directive, Directive, noChange } from '/vendor/lit-all.min.js';
-import { md, mdInto } from './chat-md.js';
+import { md, mdInto, mdEpoch, onHighlighter } from './chat-md.js';
+import { ctx } from './web-ext.js';
+import { copyAnswer } from './chat-copy.js'; // copying with the formatting: an answer's Copy, the transcript's Ctrl+C (D199)
 import { ICON, argsShown } from './model/tool-heads.js';
 import { grantAsk, compactionWords } from './model/rules.js';
 import { activityStill } from './model/harness.js';
 
 // mdOf(b, slot, text): the HTML of a block's markdown, parsed once per block
 // object (a changed message is a new block: parsed again).
+// A memo is of one mdEpoch: once the code highlighter arrives (chat-md.js)
+// the blocks are parsed again, and a paint is asked for.
 const mdMemo = new WeakMap();
 function mdOf(b, slot, text) {
   let m = mdMemo.get(b);
-  if (!m) mdMemo.set(b, (m = {}));
+  if (!m || m.$epoch !== mdEpoch) mdMemo.set(b, (m = { $epoch: mdEpoch }));
   return m[slot] ?? (m[slot] = md(text));
 }
+onHighlighter(() => ctx.paint());
 // the one question shown at a time (the run's result while it asks)
-let askMemo = { text: null, html: '' };
-const mdAsk = (text) => (askMemo.text === text ? askMemo.html : (askMemo = { text, html: md(text) }).html);
+let askMemo = { text: null, html: '', epoch: 0 };
+const mdAsk = (text) => (askMemo.text === text && askMemo.epoch === mdEpoch ? askMemo.html : (askMemo = { text, html: md(text), epoch: mdEpoch }).html);
 
 // mdLive(text): markdown written into the element it sits on, a top-level
 // block at a time (chat-md.js mdInto) — the answer being streamed.
@@ -67,7 +72,9 @@ function blockTpl(b, ui, depth) {
     case 'user': return userTpl(b, ui);
     case 'notice': return noticeTpl(b, ui);
     case 'think': return thinkTpl(b, ui);
-    case 'assistant': return html`<div class="msg assistant" data-k=${b.id}><div class="md">${unsafeHTML(mdOf(b, 'text', b.text))}</div></div>`;
+    case 'assistant': return html`<div class="msg assistant" data-k=${b.id}><div class="md">${unsafeHTML(mdOf(b, 'text', b.text))}</div>
+      <div class="acts"><button class="act" title="copy this answer (with its formatting)" aria-label="copy this answer"
+        @click=${(e) => copyAnswer(e, b.text)}><bx-icon name="copy"></bx-icon></button></div></div>`;
     case 'draft': return html`<div class="msg assistant live" data-k=${b.id}><div class="md" ${mdLive(b.text)}></div><span class="cur"></span></div>`;
     case 'tool': return toolTpl(b, ui, depth);
     case 'agent': return agentTpl(b, ui, depth);

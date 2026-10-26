@@ -280,11 +280,11 @@ export class BxCanvas extends LitElement {
     e.preventDefault();
     this._emit('bx-canvas-menu', { clientX: e.clientX, clientY: e.clientY });
   }
-  _tileMenu(e, path, anchorEl = null, selection = '') {
+  _tileMenu(e, path, anchorEl = null, selection = '', selHtml = '') {
     e?.preventDefault?.(); e?.stopPropagation?.();
     this._emit('bx-tile-menu', {
       at: e ? { clientX: e.clientX, clientY: e.clientY } : null, path,
-      anchor: anchorEl?.getBoundingClientRect?.() ?? null, selection,
+      anchor: anchorEl?.getBoundingClientRect?.() ?? null, selection, html: selHtml, // its HTML: the Copy writes both (D199)
     });
   }
   // Long-press on the empty canvas (touch): the canvas menu.
@@ -456,7 +456,7 @@ export class BxCanvas extends LitElement {
     const menu = 'tile menu (terminal · logs · source · proposals · admin)';
     return html`
       <div class="card ${this._isActive(o.path) ? 'active' : ''}" data-path=${o.path} data-part=${o.path === 'tiles/admin' ? 'admin' : nothing}
-           @bx-contextmenu=${(e) => { e.stopPropagation(); this._tileMenu({ clientX: e.detail.x, clientY: e.detail.y }, o.path, null, e.detail.selection || ''); }}>
+           @bx-contextmenu=${(e) => { e.stopPropagation(); this._tileMenu({ clientX: e.detail.x, clientY: e.detail.y }, o.path, null, e.detail.selection || '', e.detail.html || ''); }}>
         <div class="head"
              @pointerdown=${(e) => { this._activate(o.path); this._press.start(e, () => this._tileMenu(null, o.path), this.mobile); (floating ? this._floatDragStart(e, o.path) : kind === 'doc' ? docDragStart(this, e, o.path) : kind === 'tiled' ? tiledDragStart(this, e, o.path) : this._gridDragStart(e, o.path)); }}
              @pointermove=${(e) => this._press.move(e)}

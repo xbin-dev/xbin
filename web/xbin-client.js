@@ -35,6 +35,8 @@
  *                             the shell shows warn/error as a breathing sidebar
  *                             dot + tab tint. xbin.clearStatus() to clear.
  *   xbin.notify(level,msg) — one-shot user notification (toast)
+ *   xbin.copy({text,html}) — copy to the person's clipboard, text and HTML
+ *                             (the embedder writes it; → Promise<boolean>)
  *   xbin.native            — only in the xbin app's runtime document (a tile's
  *                             native.js): caps, supports, meta, copy, share,
  *                             open, state/saveState — see /vendor/xb-native.js
@@ -352,6 +354,24 @@ if (embedded) {
 }
 const nextId = () => `${self}#${++reqSeq}.${Math.random().toString(36).slice(2, 7)}`;
 
+// xbin.copy({text, html}) → Promise<boolean> (D199): copy text — and, with
+// it, its HTML — to the person's clipboard. A sandboxed tile has no
+// clipboard of its own: the embedding page writes it (the HTML rebuilt from
+// an allowlist) and answers whether it took. Call it from a click. Outside
+// the shell, or on a page that never answers (an older xbind, the app), it
+// tries the document's own clipboard, then resolves false after 3 s — fall
+// back to selecting the text then.
+function copy({ text = '', html = '' } = {}) {
+  const local = () => (navigator.clipboard?.writeText ? navigator.clipboard.writeText(String(text)).then(() => true, () => false) : Promise.resolve(false));
+  if (!embedded || appBridge) return local();
+  return new Promise((resolve) => {
+    const id = nextId();
+    const t = setTimeout(() => { pending.delete(id); resolve(false); }, 3000);
+    pending.set(id, (ok) => { clearTimeout(t); resolve(!!ok); });
+    window.parent.postMessage({ type: 'xbin:copy', id, text: String(text), html: String(html || '') }, PARENT);
+  });
+}
+
 // xbin.dialog(spec) → Promise<{button, values}>. Shell-rendered trusted modal
 // (title/message/fields/buttons — plain data, no markup). Resolves with the
 // clicked button's value (null on dismiss) and the field values. Falls back to
@@ -405,7 +425,17 @@ if (framed) {
   const SEL_MAX = 65536; // 64 KiB: any prose selection, negligible to clone
   const native = (t) => !!(t instanceof Element && t.closest('input, textarea, select, a[href], [contenteditable]:not([contenteditable="false"])'));
   const selected = () => { const t = document.getSelection()?.toString() ?? ''; return t.trim() ? t.slice(0, SEL_MAX) : ''; };
-  const send = (x, y, selection = '') => window.parent.postMessage({ type: 'xbin:contextmenu', x, y, selection }, PARENT);
+  // the selection's HTML too (D199): the shell's Copy writes it as text/html
+  // beside the text — numbered lists, tables and emphasis survive a paste
+  const selectedHTML = () => {
+    const s = document.getSelection();
+    if (!s || !s.rangeCount || s.isCollapsed) return '';
+    const box = document.createElement('div');
+    for (let i = 0; i < s.rangeCount; i++) box.appendChild(s.getRangeAt(i).cloneContents());
+    return box.innerHTML.slice(0, 4 * SEL_MAX);
+  };
+  const send = (x, y, selection = '') => window.parent.postMessage({ type: 'xbin:contextmenu', x, y, selection,
+    html: selection ? selectedHTML() : '' }, PARENT);
   let lastType = 'mouse', sentAt = 0;
   document.addEventListener('contextmenu', (e) => {
     if (e.defaultPrevented || native(e.target)) return;
@@ -528,4 +558,4 @@ if (document.querySelector('link[rel~="stylesheet"][href*="/vendor/theme.css"]')
 // /vendor/xb-native.js adds the methods (docs/frontend-kit.md).
 const nativeApi = (window.xbin && typeof window.xbin.native === 'object' && window.xbin.native) || (meta('xbin-native') ? {} : null);
 
-window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, status, clearStatus, notify, ...(deployment ? { deployment } : {}), ...(partition ? { partition } : {}), ...(nativeApi ? { native: nativeApi } : {}) });
+window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, copy, status, clearStatus, notify, ...(deployment ? { deployment } : {}), ...(partition ? { partition } : {}), ...(nativeApi ? { native: nativeApi } : {}) });

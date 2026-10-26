@@ -80,6 +80,7 @@ import { framedTile } from './partition-mode.js';
 import { appearanceRows, followAppearance } from './shell-appearance.js';
 import { alertsTpl, loadDismissals, followDismissals, dismissedRow } from './shell-alerts.js'; // banners, dismissals (D188)
 import { tabStrip, revealActiveTab, addScreen, hideOrgTab, screenMode, setScreenMode, layoutItems, orgMeta } from './shell-tabs.js'; // the screen tabs, in the top bar (D187)
+import { writeRich } from '/vendor/copy-rich.js'; // a tile's selection copied with its HTML (D199)
 import { layoutFields } from './modes.js'; // a screen's mode and arrange travel with its copies (D193)
 import { tiledToggle, tiledMenu, tiledTestApi } from './shell-tiled.js'; // the Tiled mode's tree, from the shell's ends (D193)
 import { TopReveal } from './shell-doc.js'; // Document mode's top bar (D187)
@@ -908,7 +909,7 @@ export class BxShell extends LitElement {
       const one = opts.selection.replace(/\s+/g, ' ').trim();
       items.unshift(
         { icon: 'copy', label: 'Copy', hint: one.length > 40 ? one.slice(0, 39) + '…' : one,
-          title: one.length > 200 ? one.slice(0, 200) + '…' : one, action: () => this._copyText(opts.selection, path) },
+          title: one.length > 200 ? one.slice(0, 200) + '…' : one, action: () => this._copyText(opts.selection, path, opts.html) },
         { kind: 'sep' });
     }
     this._menu = { items, x: e?.clientX ?? 0, y: e?.clientY ?? 0,
@@ -921,8 +922,12 @@ export class BxShell extends LitElement {
   // navigator.clipboard exists only in a secure context (https / localhost);
   // an http LAN deployment falls back to execCommand('copy') on a scratch
   // textarea. Either way the person sees a "copied" toast.
-  _copyText(text, path) {
+  _copyText(text, path, html = '') {
     const done = () => this._pushToast(path, { level: 'ok', message: 'copied' }, 2500);
+    if (html) { // with its HTML (D199): copy-rich.js rebuilds it from an allowlist and writes both
+      writeRich({ text, html }).then((ok) => (ok ? done() : this._pushToast(path, { level: 'warn', message: 'copy failed — select the text and press Ctrl+C' }, 4000)));
+      return;
+    }
     const legacy = () => {
       const prev = deepActive();
       const ta = Object.assign(document.createElement('textarea'), { value: text, readOnly: true });
@@ -1781,7 +1786,7 @@ export class BxShell extends LitElement {
             @bx-tiles=${(e) => this._mutateTiles(() => e.detail)} @bx-blocks=${(e) => this._mutateTiles(e.detail, 'blocks')} @bx-arrange=${(e) => this._mutateTiles(e.detail, 'arrange')}
             @bx-block-menu=${(e) => { this._menu = { ...e.detail, sheet: this._mobile }; }}
             @bx-toggle-tile=${(e) => this._toggle(e.detail)}
-            @bx-tile-menu=${(e) => this._openTileMenu(e.detail.at, e.detail.path, e.detail.anchor, { selection: e.detail.selection })}
+            @bx-tile-menu=${(e) => this._openTileMenu(e.detail.at, e.detail.path, e.detail.anchor, { selection: e.detail.selection, html: e.detail.html })}
             @bx-canvas-menu=${(e) => this._openCanvasMenu(e.detail)}
             @bx-admin-win=${(e) => this._openAdminWin(e.detail)}></bx-canvas>
           <slot style="display:none"></slot>

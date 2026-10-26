@@ -6778,7 +6778,9 @@ tile → frame   xbin:window   {id, spec}              request a pop-out window
 tile → frame   xbin:window-close {id}                close a window it opened
 tile → frame   xbin:open-deployments {tile}          open another tile's Deployments panel
 tile → parent  xbin:scroll-focus {}                  the pointer entered this document (cosmetic)
-frame → tile   xbin:reply    {id, result}            dialog result / window closed
+tile → frame   xbin:contextmenu {x, y, selection, html} a right-click: the shell's tile menu (Copy first with a selection)
+tile → frame   xbin:copy     {id, text, html}        copy to the clipboard, text and HTML (D199)
+frame → tile   xbin:reply    {id, result}            dialog result / window closed / copy taken (true|false)
 frame → tile   xbin:appearance {theme, density}      the person's appearance changed (cosmetic)
 ```
 
@@ -6805,6 +6807,22 @@ passes on only a well-formed tile path (no `.`/`..` segment), and
 `<bx-shell>` opens it only for a tile its viewer's `/components` lists; the
 panel then runs as the viewer, so the message grants nothing. Anything else
 ignores it (the xbin app has no terminal window).
+
+`xbin:copy` (D199; `xbin.copy({text, html})`) asks the embedding page to
+write the person's clipboard — a sandboxed tile has none of its own. Text
+and HTML are each clamped to 256 KiB; the HTML is the tile's, so
+`/vendor/copy-rich.js` rebuilds it from an allowlist before it is written
+(p, br, strong, em, code, pre, lists with an ol's `start`, tables with
+`colspan`/`rowspan`, h1–h6, blockquote, hr, and links to http(s) or mailto
+only; every other element unwrapped to its text or, for scripts, styles,
+controls, images and embeds, dropped; no other attribute). The page writes
+it within the click's activation — the async clipboard, else
+`execCommand('copy')` setting both flavours — answers `xbin:reply {id,
+result: true|false}`, and fires `bx-copied {from, ok}`. A page that doesn't
+know the message never answers; `xbin.copy` resolves `false` after 3 s.
+`xbin:contextmenu` carries the selection's HTML as `html` beside its text
+(a mouse right-click only; 256 KiB): the shell's Copy writes both, rebuilt
+the same way.
 
 `xbin:scroll-focus` (D123) is sent by `/vendor/bx-scroll.js`'s tracker in a
 framed document when the pointer arrives, so the embedding document's tracker
