@@ -39,7 +39,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   wait as chips and go in when the turn ends. ⌘/Ctrl+Enter interrupts and
   sends. `POST /term/sessions/{id}/queue`, `bx agent send --queue` /
   `--interrupt`, `bx agent unqueue`. The composer now shrinks after a send
-  and is capped at 40 % of the tab.
+  and is capped at 40 % of the tab. The iOS app's Agent tab does the same
+  (Send beside Stop, held messages as chips, "taken in mid-turn" bubbles);
+  against an older xbind it waits for the turn's end, as before.
 - **Coloured code** in the Agent tab, screen text blocks and the agent
   template's answers (highlight.js, closed fences only); headings, lists and
   quotes in the agent's answers get theme colours.
