@@ -1654,15 +1654,15 @@ POST   /term/sessions/<id>/queue  creator or admin (not an agent sandbox's
                                    held; 413 past one prompt's attachment
                                    limits, or past 40 MiB of held files.
                                    Attachments as for /prompt
-DELETE /term/sessions/<id>/queue[/<qid>]
-                                   creator or admin (not an agent sandbox's
-                                   token). Take held messages back — all,
-                                   or the one <qid> → {items:[{id, text,
-                                   files?, at}]}, whole (their files are not
-                                   returned): a client puts the text back
-                                   where it was typed. 404 for a <qid> no
-                                   longer held (sent, or taken back
-                                   elsewhere)
+DELETE /term/sessions/<id>/queue  creator or admin (not an agent sandbox's
+                                   token). Take every held message back →
+                                   {items:[{id, text, files?, at}]}, whole
+                                   (their files are not returned): a client
+                                   puts the text back where it was typed
+DELETE /term/sessions/<id>/queue/<qid>
+                                   the same for the one held message <qid>;
+                                   404 when it is no longer held (sent, or
+                                   taken back elsewhere)
 POST   /term/sessions/<id>/restart
                                    the creator. {net?, api?, gpu?} →
                                    {session, resumed}: the sandbox pickers
