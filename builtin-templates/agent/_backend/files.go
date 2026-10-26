@@ -140,6 +140,18 @@ func (ag *Agent) runFileTool(ctx context.Context, run *Run, cfg Config, name str
 			return "", err
 		}
 		path := f.Path
+		docErr := ""
+		if f.Binary && isDocFile(f) && cfg.feature("docs") {
+			// a document reads as its Markdown, as doc_read gives it
+			data, err := ag.fileBytes(ctx, f)
+			if err == nil {
+				var out string
+				if out, err = readDocument(ctx, f.Path, f.Mime, data, map[string]any{}); err == nil {
+					return sliceLines(out, toInt(args["offset"]), toInt(args["limit"])), nil
+				}
+			}
+			docErr = " — and as a document it doesn't read: " + err.Error()
+		}
 		if f.Binary {
 			// Never paste binary into the transcript: it would ride every
 			// later call until compaction, and it is meaningless as text.
@@ -147,7 +159,7 @@ func (ag *Agent) runFileTool(ctx context.Context, run *Run, cfg Config, name str
 			if visionMimes[f.Mime] {
 				hint = "use file_view to look at it"
 			}
-			return fmt.Sprintf("%s is a binary attachment (%s, %s) — %s.", path, f.Mime, humanBytes(f.Bytes), hint), nil
+			return fmt.Sprintf("%s is a binary attachment (%s, %s) — %s%s.", path, f.Mime, humanBytes(f.Bytes), hint, docErr), nil
 		}
 		return sliceLines(f.Content, toInt(args["offset"]), toInt(args["limit"])), nil
 

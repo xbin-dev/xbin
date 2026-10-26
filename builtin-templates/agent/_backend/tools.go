@@ -202,6 +202,9 @@ func toolSpecs(cfg Config, depth int, mcp []toolSpec) []toolSpec {
 		if cfg.feature("vision") {
 			specs = append(specs, fileViewSpec(cfg))
 		}
+		if cfg.feature("docs") { // Office documents and PDFs (docs.go, D201)
+			specs = append(specs, docToolSpecs(cfg)...)
+		}
 	}
 	if cls.has(tsRepl) && cfg.feature("repl") {
 		specs = append(specs, replToolSpecs()...)
@@ -262,7 +265,7 @@ func toolsetOf(name string) string {
 		return tsThreads
 	case name == "skills_list" || name == "skill_view" || name == "skill_manage":
 		return tsSkills
-	case fileToolNames[name]:
+	case fileToolNames[name] || docToolNames[name]:
 		return tsFiles
 	case replToolNames[name]:
 		return tsRepl
@@ -502,6 +505,9 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 	}
 	if fileToolNames[name] {
 		return ag.runFileTool(ctx, run, cfg, name, args)
+	}
+	if docToolNames[name] {
+		return ag.runDocTool(ctx, run, cfg, name, args)
 	}
 	if replToolNames[name] {
 		return ag.runReplTool(ctx, run, cfg, name, args)

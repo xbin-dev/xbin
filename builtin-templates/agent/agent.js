@@ -147,7 +147,7 @@ app.on('home', () => {
 app.on('page', () => { paintSide(); paint(); });
 app.on('projects', () => { paintSide(); if (app.page || app.sel != null) paint(); }); // app.projects
 session.ui.act.openFile = (path) => { selectFile(path); openSettings('files'); };
-Object.assign(session.ui.act, { openPreview: (path, ver, run) => openPreview(path, ver, false, run), openLive }); // the rendered / live lines (a subagent's: its run)
+Object.assign(session.ui.act, { openPreview: (path, ver, run) => openPreview(path, ver, false, run), openLive, downloadFile: async (run, path) => xbin.download(path.split('/').pop(), await rawBlob(run || app.sel, path)) }); // the rendered / live lines (a subagent's: its run); a written document's download (D201)
 
 // --- the conversation list -------------------------------------------------
 //
@@ -795,6 +795,7 @@ async function tabFeatures(bd) {
     parallelTools: "run a turn's tool calls in parallel",
     watcher: 'watcher cron-agents (one persistent run, discard no-change rounds)',
     threads: "thread & schedule tools: list and read this conversation's automations and threads — and, with the owner's OK, their other conversations",
+    docs: 'document tools: read PDF, Word, Excel, PowerPoint and CSV files; write workbooks, Word documents and slide decks',
   };
   bd.innerHTML = `<div class="sec"><h4>Features</h4>
     ${keys.map((k) => `<label class="chk"><input type="checkbox" data-f="${esc(k)}" ${st[k] ? 'checked' : ''}>

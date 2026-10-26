@@ -54,6 +54,7 @@ export const IMPLEMENTS = {
   'chat.step': 'chat-cards.js — stepTpl',
   'chat.step.finish': 'chat-cards.js — stepTpl .step.finish .md (mdOf)',
   'chat.step.reopen': 'chat-cards.js — stepTpl .steplnk → agent.js ui.act.openPreview / openLive',
+  'chat.step.doc': 'doc-cards.js — docStepTpl (chat-cards.js stepTpl, a render naming a doc) → agent.js ui.act.openPreview / downloadFile',
   'chat.notice': 'chat-cards.js — noticeTpl',
   'chat.notice.automation': 'chat-cards.js — noticeTpl (labels: model/fold.js)',
   'chat.compaction': 'chat-cards.js — sessionTpl; the step line: stepTpl (rules.compactionWords)',

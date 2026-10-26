@@ -55,6 +55,7 @@ export const IMPLEMENTS = {
   'chat.step': 'native/chat.js — stepTpl',
   'chat.step.finish': 'native/chat.js — stepTpl: the ✓ step, then the result as markdown',
   'chat.step.reopen': 'native/chat.js — stepTpl: a render or live line is a toolcard whose open shows it (a step has no tap)',
+  'chat.step.doc': 'native/doc-card.js — docCardTpl (native/chat.js stepTpl): the toolcard opens the preview, Share / export hands the file to the app',
   'chat.notice': 'native/chat.js — noticeTpl (folded)',
   'chat.notice.automation': 'native/chat.js — noticeTpl (labels: model/fold.js)',
   'chat.compaction': 'native/chat.js — chatScreen notice; the step line: STEP.compaction (rules.compactionWords)',

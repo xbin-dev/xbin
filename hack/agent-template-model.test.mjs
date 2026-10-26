@@ -202,6 +202,11 @@ test('the app: start, a conversation, the stream, send, stop, home, addresses', 
   assert.deepEqual(shown.blocks.map((b) => b.k), ['think', 'draft']);
   assert.equal(shown.activity, 'Writing…');
   assert.equal(app.convs.find(1).status, 'running');
+  // a user message that arrives live carries its attachments linked: its chips aren't drawn as deleted
+  push({ type: 'message', run: 1, root: 1, data: { id: 901, seq: 901, role: 'user', created: 1,
+    content: 'see this\n\n[attached: a.pdf (application/pdf, 1.0 KB) — doc_read reads it]' } });
+  await until(() => app.session.current().messages.some((m) => m.id === 901));
+  assert.equal(app.session.fileState(901, { path: 'a.pdf', mime: 'application/pdf' }).linked, true, 'a live message\'s attachment is linked');
   await until(() => seen.includes('change'));
   const busy = app.session.current();
   assert.equal(rules.composer(busy, HOME).placeholder, 'steer — delivered at the agent\'s next step…');
