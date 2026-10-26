@@ -1239,6 +1239,12 @@ GET    /vaults                     admin. [{component, keys}] across all vaults.
                                    none)
 GET    /resources                  admin. declared resources [{id,scope,name,type}]
 GET    /components                 any. [{path, scope, runtime, hasIndex,
+                                   title?, icon? (what the tile calls
+                                   itself, D194: the manifest's title —
+                                   control and bidi characters out, at most
+                                   80 characters — and icon name, absent
+                                   when none; show them beside the path,
+                                   never instead of it),
                                    state? (lifecycle; absent = enabled),
                                    roles, uses, deps, manifestError,
                                    chrome? (trusted chrome — bx-frame does
@@ -1296,7 +1302,14 @@ GET    /components                 any. [{path, scope, runtime, hasIndex,
                                    so (user and global: the recorded mode,
                                    both false when the record can't be
                                    read). Both are absent for every other
-                                   tile
+                                   tile.
+                                   The entry of a tile whose primary
+                                   backend is building, starting or failed
+                                   gains backend: {state: building |
+                                   starting | failed} (D196) — what a
+                                   window opened mid-build shows before the
+                                   next event; absent while it serves or
+                                   sleeps
 GET    /components/<path>          any. {component, apiDoc: <API.md text>}
                                    (component as above, native included)
 GET    /tile-assets                any (read-filtered); ?component=<p> for one.
@@ -6524,7 +6537,8 @@ required). JSON text frames:
 
 ```jsonc
 {"type":"reload","component":"apps/thing"}          // source changed
-{"type":"build-start","component":"apps/thing"}
+{"type":"build-start","component":"apps/thing"}     // the build; with text ("setting up environment…") its environment layer's setup first
+{"type":"backend-starting","component":"apps/thing"} // D196: built (or cached), its backend spawned and waited for until healthy; build-ok or build-error follows
 {"type":"build-error","component":"apps/thing","text":"compiler output"}
 {"type":"build-ok","component":"apps/thing"}
 {"type":"grants"}                                    // grant table changed
@@ -6536,7 +6550,7 @@ required). JSON text frames:
 {"type":"partitions","component":"apps/x","partition":"user:<id>", // to that person's own sockets, likewise: their consent changed
  "data":{"op":"consent","from":"apps/z","to":"apps/x","allowed":true}} //   (POST/DELETE /partitions/consents)
 {"type":"partitions","component":"apps/x","partition":"user:<id>", // to that person's sockets and apps/x's credentials acting in their partition:
- "data":{"op":"state","partition":"user:<id>","event":"build-ok"}} //   their instance's build-start|build-ok|build-error|reload (text?: the detail)
+ "data":{"op":"state","partition":"user:<id>","event":"build-ok"}} //   their instance's build-start|backend-starting|build-ok|build-error|reload (text?: the detail)
 {"type":"partitions","component":"apps/x",                         // to apps/x's readers (and admins, and apps/x's own credentials):
  "data":{"op":"mode","tile":"apps/x","state":"pending","spec":{"user":false,"global":false},
          "request":{"spec":{"user":true,"global":true},"since":"…","declined":false}}} // its mode changed; re-read GET /partitions?tile=
@@ -6567,7 +6581,7 @@ required). JSON text frames:
 {"type":"deployments","component":"apps/thing",      // a non-primary deployment's frames reload once
  "data":{"op":"reload","deployment":"dev"}}
 {"type":"deployments","component":"apps/thing",      // a non-primary build of the work tree or restart;
- "data":{"op":"build","deployment":"dev","phase":"error","text":"compiler output"}}  // phase: start | error | ok
+ "data":{"op":"build","deployment":"dev","phase":"error","text":"compiler output"}}  // phase: start | starting (D196: built, its backend starting) | error | ok
 {"type":"deployments","component":"apps/thing",      // a seed, reset or restore moved
  "data":{"op":"data","deployment":"dev","busy":"","state":"seeded"}}
 {"type":"deployments","component":"apps/thing",      // a non-primary deployment reported its condition
@@ -6777,6 +6791,7 @@ tile → frame   xbin:dialog   {id, spec}              request a shell modal
 tile → frame   xbin:window   {id, spec}              request a pop-out window
 tile → frame   xbin:window-close {id}                close a window it opened
 tile → frame   xbin:open-deployments {tile}          open another tile's Deployments panel
+tile → frame   xbin:meta     {meta: {title?, icon?, badge?}}  the page's title, icon and badge for its window (D194)
 tile → parent  xbin:scroll-focus {}                  the pointer entered this document (cosmetic)
 frame → tile   xbin:reply    {id, result}            dialog result / window closed
 frame → tile   xbin:appearance {theme, density}      the person's appearance changed (cosmetic)
@@ -6806,6 +6821,19 @@ passes on only a well-formed tile path (no `.`/`..` segment), and
 panel then runs as the viewer, so the message grants nothing. Anything else
 ignores it (the xbin app has no terminal window).
 
+`xbin:meta` (D194, `xbin.meta()`) carries the page's whole current meta —
+a title (at most 80 characters), an icon name from `/vendor/bx-icons.js`
+(at most 40) and a badge (a count or a short word, at most 8); a field the
+page cleared is absent. `<bx-frame>` cleans it again (control and bidi
+characters out, an icon that isn't an icon name dropped), keeps it as
+`tileMeta` for as long as it shows that tile, and announces it as a
+`bx-meta` DOM event `{path, meta}`; the shell draws it in the window's
+title bar and the sidebar row, beside the tile's path — a title never
+stands in for the path, so a tile can't pass itself off as another or as
+the shell. It is per viewer and per window: nothing is stored, and the
+manifest's `title`/`icon` (`/components`) are what everyone else sees.
+The xbin app relays it too and shows it as `xbin.native.meta`'s.
+
 `xbin:scroll-focus` (D123) is sent by `/vendor/bx-scroll.js`'s tracker in a
 framed document when the pointer arrives, so the embedding document's tracker
 drops its own focused-scroll tint (browsers do not reliably tell the parent
@@ -6825,7 +6853,7 @@ windows. See docs/elements.md §Dialogs & windows and the `xbin.dialog` /
 **In the xbin app** a tile page is a top-level WebView, so `window.parent` is
 the page itself. The app registers a WebKit message handler named `xbin` and
 injects a document-start script that relays the page's own `xbin:dialog`,
-`xbin:window`, `xbin:window-close` and `xbin:contextmenu` posts (sender = the
+`xbin:window`, `xbin:window-close`, `xbin:contextmenu` and `xbin:meta` posts (sender = the
 page's own window; never a frame inside it) to the app as JSON strings;
 `xbin-client.js` treats a top-level page with that handler as embedded. The
 app answers with the same `xbin:reply {id, result}` posted to the page's

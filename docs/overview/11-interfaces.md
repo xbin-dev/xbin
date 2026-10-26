@@ -234,7 +234,7 @@ not something a running backend half-observes.
 (and every unbound exposed endpoint, flagged `expose:true`) surfaces in
 `GET /api/xbin/bindings` as `pending`, each with its candidate options: the builtins for
 its kind plus every tile whose provides match (service-filtered; instances expanded to
-`provider#id` entries). The shell's `bx-bindings` prompt and the admin tile's
+`provider#id` entries). The shell's `bx-bindings` prompt (on the asking tile's window, D195) and the admin tile's
 **interfaces** tab render exactly this list — importing a tile that requests `net` and
 `openai` immediately asks the owner two concrete questions. (The `net` picker offers
 `internet`, `host`, `none` and — on org-owned tiles — `org`, plus one `set:<name>`

@@ -45,8 +45,9 @@
  * brought to the front last on the page is the active one (the
  * `bx-window-front` event, which the shell's windows share), and a 3 px
  * part tab says what its active tab is: terminal or agent session. The
- * frame tells its build state (buildState: live | building | failed) with
- * a `bx-build` event, so an embedder's title bar can draw it. When the
+ * frame tells its build state (buildState: live | building | failed, and
+ * while building its buildPhase: compile | env | starting, D196) with a
+ * `bx-build` event, so an embedder's title bar can draw it. When the
  * frame's own document follows the person's appearance (data-bx-theme),
  * the frame posts it to its iframe on every load and change
  * (xbin:appearance, docs/protocol.md), so a tile document follows its
@@ -61,6 +62,8 @@ import { scrollCss } from '/vendor/scroll-css.js';
 import { keyed } from 'lit';
 import { appearanceMessage, follows, onAppearance, deviceUrl } from '/vendor/bx-theme.js';
 import '/vendor/bx-icons.js';
+import { mergeMeta } from '/vendor/tile-meta.js'; // a tile's xbin:meta (D194)
+import { setBuild, onBuildEvent } from '/vendor/frame-build.js'; // build phases (D196)
 import { onEvent, mountedFrames, isReloadTarget } from '/vendor/events-socket.js';
 import '/vendor/bx-terminal.js';
 import '/vendor/bx-code.js';
@@ -134,6 +137,7 @@ export class BxFrame extends LitElement {
     _gpus: { state: true },
     _buildError: { state: true },
     _building: { state: true }, // a build-start without its build-ok / build-error yet
+    _phase: { state: true },    // while building (D196): 'compile' | 'env' | 'starting'
     _popActive: { state: true }, // the pop-up is the page's active window
     _autoHeight: { state: true },
     _layout: { state: true },  // 'term' | 'code' | 'logs' | 'prs' | 'deployments' (never saved: NP-10-2) — frame-panels.js
@@ -223,6 +227,10 @@ export class BxFrame extends LitElement {
   // A change is announced as `bx-build` {state} (bubbles, composed) for the
   // embedder's title bar (the shell's live square).
   get buildState() { return this._buildError !== null ? 'failed' : this._building ? 'building' : 'live'; }
+  // buildPhase, buildSeen (D196): which part of a build, while building — compile | env | starting (frame-build.js)
+  get buildPhase() { return this._building ? this._phase || 'compile' : ''; }
+  get buildSeen() { return !!this._buildSeen; }
+  _setBuild(phase, error = null) { setBuild(this, phase, error); }
 
   // Resolve how this frame must load (sandboxed? credentialless? its own
   // tile origin?) before the iframe exists — frame-info.js.
@@ -263,9 +271,9 @@ export class BxFrame extends LitElement {
     if (changed.has('deployment') && changed.get('deployment') !== undefined) { // another deployment's page
       this._buildError = null; this._building = false; this._frameKey++; this._prepareFrame();
     }
-    if ((changed.has('_buildError') || changed.has('_building')) && this.buildState !== this._toldBuild) {
-      this._toldBuild = this.buildState;
-      this.dispatchEvent(new CustomEvent('bx-build', { bubbles: true, composed: true, detail: { state: this._toldBuild } }));
+    if ((changed.has('_buildError') || changed.has('_building') || changed.has('_phase')) && `${this.buildState}:${this.buildPhase}` !== this._toldBuild) {
+      this._toldBuild = `${this.buildState}:${this.buildPhase}`;
+      this.dispatchEvent(new CustomEvent('bx-build', { bubbles: true, composed: true, detail: { state: this.buildState, phase: this.buildPhase } }));
     }
     if (changed.has('_active') || changed.has('_termOpen') || changed.has('_layout') || changed.has('_beside') || changed.has('_paneW')) this._saveTerm();
     if (changed.has('_termOpen')) {
@@ -412,20 +420,12 @@ export class BxFrame extends LitElement {
     if (e.type === 'deployments') return onDeployEvent(this, e); // every one: a frame of <tile>+<name> hears its tile's (frame-deploy.js)
     if (e.type === 'workspace-settings') return loadEnvStatus(this); // base auto-update on/off: what the chooser says (D175)
     if (!e.component) return;
+    if (onBuildEvent(this, e)) return; // build-start, backend-starting, build-ok/error (D196, frame-build.js)
     const mine = e.component === this.src || e.component.startsWith(this.src + '/');
     if (!mine) return;
     switch (e.type) {
       case 'reload': // (the primary's: a window on another deployment hears its own in `deployments`)
         if (!this.deployment && isReloadTarget(this, e.component)) this._reload();
-        break;
-      case 'build-start':
-        if (e.component === this.src && !this.deployment) this._building = true;
-        break;
-      case 'build-error':
-        if (e.component === this.src && !this.deployment) { this._buildError = e.text || 'build failed'; this._building = false; }
-        break;
-      case 'build-ok':
-        if (e.component === this.src && !this.deployment) { this._buildError = null; this._building = false; }
         break;
       case 'grants':
         // A grant affecting this component changed — reload so a frontend
@@ -529,6 +529,7 @@ export class BxFrame extends LitElement {
   // between a fixed and a grown-to-content frame without reloading it.
   willUpdate(changed) {
     if (changed.has('height')) this._syncAutoHeight();
+    if (changed.has('src') && changed.get('src') !== undefined && this.tileMeta) this.tileMeta = null; // another tile: not its meta (D194)
   }
   _syncAutoHeight() {
     const auto = !this.height && !this.style.height;
@@ -556,6 +557,14 @@ export class BxFrame extends LitElement {
     if (d.type === 'xbin:resize') {
       this._docHeight = Number(d.height) || 0; // kept while fixed: the frame may turn auto later
       if (this._autoHeight) this._applyDocHeight();
+      return;
+    }
+
+    // xbin:meta (D194): the page's whole title/icon/badge, cleaned again (the
+    // sender is a tile), kept while this tile shows, announced as bx-meta
+    if (d.type === 'xbin:meta') {
+      this.tileMeta = mergeMeta(null, d.meta);
+      this.dispatchEvent(new CustomEvent('bx-meta', { bubbles: true, composed: true, detail: { path: this.src, meta: this.tileMeta } }));
       return;
     }
 

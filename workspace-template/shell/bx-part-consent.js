@@ -18,7 +18,13 @@
  * tile's pop-out window is placed where the tile says, above the strip).
  *
  * Properties: components (/components rows: which tiles are partitioned,
- * and which still exist), who (/whoami).
+ * and which still exist), who (/whoami), tile (only the asks that tile
+ * made, `from` — the shell puts one on each tile's window, D195).
+ *
+ * The consents view and this browser's dismissals are the page's, one
+ * read for every instance (consentContext / consentAsks / onConsents): the
+ * shell sets the context and counts each tile's asks for the sidebar's
+ * flags even when no instance is drawn.
  */
 import { LitElement, html, css, nothing, repeat } from 'lit';
 import { onEvent, onReconnect } from '/vendor/events-socket.js';
@@ -42,6 +48,53 @@ const writeDismissed = (key, v) => {
   } catch { /* storage off: this page only */ }
 };
 const DONE_MS = 15000; // how long an answer's words stay
+
+// ---- the page's consents (one read for every instance and the shell) ----
+const st = { view: null, seq: 0, read: false, started: false, who: null, components: [], key: '', dismissed: {}, subs: new Set() };
+const emit = () => { for (const f of st.subs) f(); };
+const watching = () => consentWatch(st.components, st.who) || !!st.view;
+async function loadConsents() {
+  const seq = ++st.seq;
+  const res = await consentCall((u, i) => fetch(u, i), 'GET');
+  if (seq !== st.seq) return;
+  st.view = res.ok ? res.body : null;
+  if (res.ok) {
+    const d = keepDismissed(st.dismissed, res.body);
+    if (d !== st.dismissed) { st.dismissed = d; writeDismissed(st.key, d); }
+  }
+  emit();
+}
+function startConsents() {
+  if (st.started) return;
+  st.started = true;
+  onEvent((e) => {
+    if (!consentPerson(st.who)) return; // view-as and the workspace token have no consents: never asked
+    if (consentEventOp(e)) loadConsents(); // asked, or answered elsewhere (bx, another tab)
+    else if (e?.type === 'policies' && watching()) loadConsents();
+  });
+  onReconnect(() => { if (watching()) loadConsents(); });
+  window.addEventListener('storage', (e) => { if (st.key && e.key === st.key) { st.dismissed = readDismissed(st.key); emit(); } });
+}
+// consentContext(components, who): what the page knows — the first read
+// once the viewer is a person who sees a partitioned tile; after it only
+// events read again (an xbind without the API isn't asked at every
+// /components change).
+export function consentContext(components, who) {
+  startConsents();
+  st.components = Array.isArray(components) ? components : [];
+  if (who !== st.who) {
+    st.who = who;
+    if (consentStoreKey(who) !== st.key) { st.key = consentStoreKey(who); st.dismissed = readDismissed(st.key); emit(); }
+  }
+  if (!st.read && consentWatch(st.components, st.who)) { st.read = true; loadConsents(); }
+}
+// consentAsks() → the asks still to answer (not dismissed here, their tiles still there).
+export function consentAsks() {
+  const paths = st.components.length ? new Set(st.components.map((c) => c.path)) : null;
+  return consentPrompts(st.view, { dismissed: st.dismissed, paths });
+}
+// onConsents(f): f() whenever the asks may have changed; → unsubscribe
+export function onConsents(f) { st.subs.add(f); return () => st.subs.delete(f); }
 // Allow counts only once nothing has covered the asks for ARM_MS: the
 // panel is hit-tested every COVER_MS while it asks, and at the click — a
 // tile's pop-out window (tile-placed, above the strip) could hide the
@@ -52,8 +105,7 @@ export class BxPartConsent extends LitElement {
   static properties = {
     components: { attribute: false },
     who: { attribute: false },
-    _view: { state: true },      // GET /partitions/consents' answer, null until read (or refused)
-    _dismissed: { state: true }, // this browser's dismissed asks of this person
+    tile: { type: String, reflect: true }, // only this tile's asks (D195)
     _rows: { state: true },      // key → {busy, err} of an ask being answered
     _done: { state: true },      // [{key, text}] answers still showing
     _armed: { state: true },     // nothing has covered the asks for ARM_MS: Allow is live
@@ -66,6 +118,7 @@ export class BxPartConsent extends LitElement {
     /* the partition marker's hue as the panel's 3 px rule: what the asks are about */
     .panel { background: var(--bx-panel, #1F2028); border: 1px solid var(--bx-border, #33353F);
       border-left: 3px solid var(--bx-part-c); border-radius: var(--bx-radius, 2px); padding: 8px 12px; }
+    :host([tile]) .panel { background: transparent; border: 0; border-left: 3px solid var(--bx-part-c); padding: 0 0 0 10px; }
     h4 { margin: 0 0 4px; font: var(--bx-font-micro, 600 11px/14px system-ui, sans-serif); letter-spacing: var(--bx-tracking-micro, 0.06em); text-transform: uppercase;
       color: var(--bx-muted, #A3A6B6); }
     .ask { padding: 4px 0; }
@@ -89,49 +142,29 @@ export class BxPartConsent extends LitElement {
 
   constructor() {
     super();
-    this.components = []; this.who = null;
-    this._view = null; this._dismissed = {}; this._rows = {}; this._done = [];
-    this._seq = 0; this._key = ''; this._coveredAt = 0; this._armed = false;
+    this.components = []; this.who = null; this.tile = '';
+    this._rows = {}; this._done = [];
+    this._coveredAt = 0; this._armed = false;
   }
 
   connectedCallback() {
     super.connectedCallback();
     this.hidden = true; // until there is something to answer
-    this._offEv = onEvent((e) => {
-      if (!consentPerson(this.who)) return; // view-as and the workspace token have no consents: never asked
-      if (consentEventOp(e)) this._load(); // asked, or answered elsewhere (bx, another tab)
-      else if (e?.type === 'policies' && this._watching()) this._load();
-    });
-    this._offRe = onReconnect(() => { if (this._watching()) this._load(); });
-    this._onStorage = (e) => { if (this._key && e.key === this._key) this._dismissed = readDismissed(this._key); };
-    window.addEventListener('storage', this._onStorage);
+    this._offSt = onConsents(() => this.requestUpdate());
   }
   disconnectedCallback() {
     super.disconnectedCallback();
-    this._offEv?.(); this._offRe?.();
-    window.removeEventListener('storage', this._onStorage);
+    this._offSt?.();
     for (const d of this._done) clearTimeout(d.timer);
     this._done = [];
     this._watchCover(false);
   }
-  _watching() { return consentWatch(this.components, this.who) || !!this._view; }
-  // The person's dismissals, read once /whoami says who they are (and
-  // again should it change).
   willUpdate(changed) {
-    if (changed.has('who') && consentStoreKey(this.who) !== this._key) {
-      this._key = consentStoreKey(this.who);
-      this._dismissed = readDismissed(this._key);
-    }
+    if (changed.has('components') || changed.has('who')) consentContext(this.components, this.who);
   }
-  // The first read, once the viewer is known to be a person who sees a
-  // partitioned tile; after it, only events read again (an xbind without
-  // the API isn't asked at every /components change). The host hides
-  // while there is nothing to answer, and the asks are watched for cover.
-  updated(changed) {
-    if ((changed.has('components') || changed.has('who')) && !this._read && consentWatch(this.components, this.who)) {
-      this._read = true;
-      this._load();
-    }
+  // The host hides while there is nothing to answer, and the asks are
+  // watched for cover.
+  updated() {
     const asks = this.renderRoot.querySelectorAll('.ask').length;
     this.hidden = !asks && !this._done.length;
     this._watchCover(asks > 0);
@@ -175,18 +208,6 @@ export class BxPartConsent extends LitElement {
     return armed;
   }
 
-  // Read the person's consents view; the latest answer wins.
-  async _load() {
-    const seq = ++this._seq;
-    const res = await consentCall((u, i) => fetch(u, i), 'GET');
-    if (seq !== this._seq) return;
-    this._view = res.ok ? res.body : null;
-    if (res.ok) {
-      const d = keepDismissed(this._dismissed, res.body);
-      if (d !== this._dismissed) { this._dismissed = d; writeDismissed(this._key, d); }
-    }
-  }
-
   _say(key, text, link = '') {
     const d = { key, text, link };
     d.timer = setTimeout(() => this._drop(d), DONE_MS);
@@ -210,18 +231,18 @@ export class BxPartConsent extends LitElement {
     } else {
       this._setRow(a.key, { err: errorText(res) });
     }
-    this._load();
+    loadConsents();
   }
   _decline(a) {
-    this._dismissed = { ...this._dismissed, [a.key]: a.at };
-    writeDismissed(this._key, this._dismissed);
+    st.dismissed = { ...st.dismissed, [a.key]: a.at };
+    writeDismissed(st.key, st.dismissed);
+    emit();
     this._setRow(a.key, null);
     this._say(a.key, declinedText(a.from, a.to));
   }
 
   render() {
-    const paths = Array.isArray(this.components) && this.components.length ? new Set(this.components.map((c) => c.path)) : null;
-    const asks = consentPrompts(this._view, { dismissed: this._dismissed, paths }).filter((a) => !this._done.some((d) => d.key === a.key));
+    const asks = consentAsks().filter((a) => (!this.tile || a.from === this.tile) && !this._done.some((d) => d.key === a.key));
     if (!asks.length && !this._done.length) return nothing;
     return html`<div class="panel" role="region" aria-label=${CONSENT_REGION} data-consents=${asks.length}>
       ${asks.length ? html`<h4>${CONSENT_HEAD}</h4>` : nothing}

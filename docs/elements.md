@@ -36,6 +36,15 @@ JSONC (comments and trailing commas allowed). Everything is optional.
 
 ```jsonc
 {
+  // What the shell and the xbin app call the tile (D194): a name for people
+  // (at most 80 characters shown) and an icon name from the workspace's set
+  // (frontend-kit.md §Icons; an unknown one draws nothing). Without them the
+  // tile is its path's last segment and a window glyph. They show beside the
+  // tile's path, never instead of it; a page may change them while it is
+  // open (xbin.meta, §Dialogs & windows).
+  "title": "Team mail",
+  "icon": "mail",
+
   // Backend runtime: "static" (default, no backend), go, node, python.
   // ("cgi" was removed — a manifest error now; §Runtimes & backend lifecycle.)
   "runtime": "go",
@@ -536,15 +545,27 @@ frame the root inside the root if you enjoy that sort of thing.
 
 ### `<bx-grants>` and `<bx-bindings>`
 
-The decision strip at the top of the shell (`/vendor/bx-grants.js`,
+The decisions waiting for the viewer (`/vendor/bx-grants.js`,
 `/vendor/bx-bindings.js`): `<bx-grants>` shows the pending grant requests
 the viewer sees (`GET /api/xbin/grants` `pending`), each with **Approve**
 (or who to ask, or why it is blocked); `<bx-bindings>` shows the
 **interfaces to bind** — unbound slots the viewer may wire — with a
 provider picker and **bind**. Each renders nothing when there is nothing to
-decide, so both sit permanently in a root page. The full list of grants and
+decide, so a page can hold them permanently. The full list of grants and
 bindings is the admin console's (*binding* → grants, wiring): `<bx-grants>`
 no longer shows an "N grants active" line or its list (D188).
+
+`tile="<path>"` shows only that tile's: its requests (`from`) or its slots
+(`component`). **The shell draws them on the window of the tile that
+asked** (D195), not in a strip at the top: a key badge in the window's
+title bar counts what waits, and a popover over the top of the window
+holds that tile's requests and slots (and its partition consent asks) — ⌃
+folds it to the badge, the badge opens it again, a new decision opens it
+too; on a phone, and on a Document-mode card, it sits in the card's flow
+above the tile. A tile that isn't on the screen shows nothing but its
+sidebar flag: its row carries the key, and a closed folder holding such
+tiles counts them. Every instance on a page reads the same requests and
+dismissals once (`/vendor/bx-requests.js`), so a dozen cost one fetch.
 
 **Dismiss** (D188): every request and every row has a quiet **Dismiss**
 that hides it for the viewer — on all their devices, and nowhere else:
@@ -565,9 +586,14 @@ The dismissals are the viewer's pref `dismissed` in the bucket the page's
 
 A request whose key changes — another role, another target — is a new one
 and shows again; a dismissal of something the server no longer lists
-(approved, bound, withdrawn) is pruned. The person's other open pages
-follow through the `prefs` event, and the shell's organisations badge
-leaves dismissed items out. The keys, pruning and the badge's count are
+(approved, bound, withdrawn) is pruned once two reads of the list in a
+row, about 5 s apart, don't name it (a tile gone for a moment — a
+half-written `xbin.json` — keeps its dismissals). The person's other open
+pages follow through the `prefs` event, and the shell's organisations
+badge leaves dismissed items out. Every dismissal on a page is stored
+through one chain, one at a time, so several at once never undo each
+other; one that can't be stored is tried again, then shown again with a
+message. The keys, the store, pruning and the badge's count are
 `/vendor/bx-dismiss.js` (no imports).
 
 ### `<bx-terminal>`
@@ -724,6 +750,15 @@ inputs and editable text keep the native menu.)
   button's `value` (`null` when dismissed via Escape / backdrop / Cancel) and
   the field `values`. Good for confirm / prompt / a few inputs. Falls back to
   an in-frame `<bx-dialog>` when the tile isn't inside the shell.
+- **`xbin.meta({title, icon, badge})`** (D194) — what the shell shows for
+  your tile while this page is open: a title in place of its name (e.g. the
+  open document's, "Inbox (3)"), an icon from the workspace's set, a badge
+  (a count or a short word: at most 8 characters). Only the given fields
+  change; `null` clears one. The shell shows them in the window's title bar
+  and the sidebar, always beside the tile's path; they are this viewer's,
+  for this window, and stored nowhere — the manifest's `title` and `icon`
+  are what everyone sees otherwise. Opened full page, the title becomes the
+  document's. The xbin app shows them too.
 - **`xbin.window(spec) → { id, close(), closed }`** — a floating, draggable
   window whose body is a real tile frame. By default it frames a **sub-path of
   the calling component** (`spec.path`, e.g. `"compose"` → `/c/<self>/compose/`),
@@ -808,6 +843,14 @@ error (`bx ls`, `bx doctor`, `/api/xbin/components`), and its `/api/` answers
 Lifecycle facts that matter when writing backends:
 
 - **Lazy start**: nothing runs until the first request (or first save).
+- **People see it build** (D196): while a backend is built and then while
+  it starts (spawned, not yet healthy), the shell's window for the tile
+  says so in its title bar — *Compiling…* (a Go build; *Preparing…* for
+  node and python), *Setting up…* (the `setup` script's environment
+  layer), *Starting…* — with the live square breathing, and the sidebar
+  row carries a build glyph; a window opened mid-build knows from the
+  `/components` row's `backend`. The xbin app's card says *Building…* /
+  *Starting…*. A slow start is worth keeping short: requests wait for it.
 - **Blue/green**: in-flight requests finish on the old generation. Requests
   during a rebuild wait for the new one (never connection-refused). A failed
   build keeps the old generation serving. A request routed to the old

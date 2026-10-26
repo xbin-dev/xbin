@@ -19,6 +19,11 @@
  * consent prompts' are (keepDismissed, D163). The admin console and the
  * organisations tile list everything, whatever was dismissed.
  *
+ * Every reader on a page shares one value and one save chain (dismissals(),
+ * #11): changes are stored one at a time, so two in flight never undo each
+ * other, and a dismissal is pruned only once two fresh reads of the
+ * server's list in a row no longer name its item (seen()).
+ *
  * Imports nothing: hack/bx-dismiss.test.mjs runs it under node. The fetch
  * a caller passes decides the bucket (window.xbin.fetch in the shell).
  */
@@ -134,3 +139,87 @@ export async function updateDismissed(fetchFn, fn) {
     return r.ok || (empty && r.status === 404) ? next : null;
   } catch { return null; }
 }
+
+// ---- this page's one store (#11) ----
+// Every reader of the dismissals on a page — the decision prompts, the
+// banners, the organisations badge, the sidebar's flags — shares one value,
+// and every change goes through one chain: read, change, write, one at a
+// time. Two changes in flight (Dismiss on two rows in quick succession, a
+// banner and a grant) used to each read the stored value before the other's
+// write, and the second write undid the first. A change shows at once; the
+// stored answer replaces it with the changes still queued applied on top. A
+// write that fails is tried again after each of retry's waits, then given
+// up: the change is undone here (the stored value, the rest of the queue on
+// top) and onError's callbacks hear of it — never a row hidden here and
+// stored nowhere.
+export const RETRY_MS = Object.freeze([500, 2000, 5000]);
+
+export function dismissStore(fetchFn, { retry = RETRY_MS, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) } = {}) {
+  let value = null, stored = null, chain = Promise.resolve();
+  const queued = [];                    // changes not stored yet, oldest first
+  const subs = new Set(), errs = new Set();
+  const missing = new Map();            // kind → keys the last fresh read didn't list (seen)
+  const emit = () => { for (const f of subs) f(value); };
+  const settle = (d) => {
+    stored = normDismissed(d);
+    value = normDismissed(queued.reduce((v, f) => f(v), stored));
+    emit();
+  };
+  const store = {
+    get value() { return value; },
+    // subscribe(f): f(value) now (once read) and on every change; → unsubscribe
+    subscribe(f) { subs.add(f); if (value) f(value); return () => subs.delete(f); },
+    // onError(f): f(error) when a change couldn't be stored; → unsubscribe
+    onError(f) { errs.add(f); return () => errs.delete(f); },
+    // load(): read what is stored (on start, and when a `prefs` event says
+    // another page changed it); the changes still queued stay applied.
+    async load() {
+      const d = await loadDismissed(fetchFn);
+      if (d) settle(d);
+      return value;
+    },
+    // change(fn) → the stored value after fn, or null when it couldn't be stored.
+    change(fn) {
+      queued.push(fn);
+      if (value) { value = normDismissed(fn(value)); emit(); }
+      const run = chain.then(async () => {
+        let d = null;
+        for (let i = 0; ; i++) {
+          d = await updateDismissed(fetchFn, fn);
+          if (d || i >= retry.length) break;
+          await sleep(retry[i]);
+        }
+        queued.splice(queued.indexOf(fn), 1);
+        if (d) { settle(d); return d; }
+        const cur = await loadDismissed(fetchFn); // undo it here: what is stored, the rest of the queue on top
+        if (cur || stored) settle(cur ?? stored);
+        for (const f of errs) f(new Error('your dismissal could not be saved'));
+        return null;
+      });
+      chain = run.catch(() => null);
+      return run;
+    },
+    // seen(kind, live): a fresh, successful read of what the server lists for
+    // kind (live: their keys). A dismissal whose item two such reads in a row
+    // didn't list goes (approved, bound, withdrawn); one missing from a single
+    // read stays — a tile briefly gone (a half-written xbin.json) or a list
+    // read before another page's dismissal reached this one keeps it.
+    seen(kind, live) {
+      const keep = new Set(live), was = missing.get(kind) ?? new Set();
+      const now = new Set(Object.keys(value?.[kind] ?? {}).filter((k) => !keep.has(k)));
+      missing.set(kind, now);
+      const gone = [...now].filter((k) => was.has(k));
+      if (gone.length) store.change((d) => restore(d, kind, gone));
+      return gone;
+    },
+    // waiting(kind) → how many dismissals one fresh read didn't list: the
+    // next read prunes them if it doesn't either (the reader reads again soon).
+    waiting(kind) { return missing.get(kind)?.size ?? 0; },
+  };
+  return store;
+}
+
+// dismissals(fetchFn): this page's store — made by the first caller, whose
+// fetch decides the bucket (every caller on a page passes the same one).
+let shared = null;
+export const dismissals = (fetchFn) => (shared ??= dismissStore(fetchFn));

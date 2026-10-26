@@ -275,6 +275,8 @@ final class WebTileController: NSObject {
             windowClosed(id)
         case .contextMenu:
             break // iOS long-press already shows WebKit's own menu
+        case .meta(let m):
+            workspace.tileMeta.set(tile, m) // the page's title, icon and badge (xbin.meta, D194), bounded there
         }
     }
 }

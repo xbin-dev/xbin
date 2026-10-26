@@ -16,6 +16,7 @@ var fieldKinds = map[string]string{
 	"Template": "inbound", "Exposes": "inbound", "Expose": "inbound", "Provides": "inbound", "Chrome": "inbound",
 	"Runtime": "code", "Entry": "code", "Setup": "code", "AlwaysOn": "code", "VM": "code", "Inject": "code", "Native": "code",
 	"Partition": "code", "PartitionMail": "code", "PartitionNote": "code",
+	"Title": "code", "Icon": "code",
 }
 
 // pinnedHook answers the PinnedPrimary hook from a fixed map, as the

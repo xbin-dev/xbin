@@ -37,9 +37,13 @@ async function ingressMulti(browser) {
   await page.waitForTimeout(800);
   check(JSON.stringify(await racksRoutes()) === JSON.stringify(['runtime b.racks.test']), `remove dropped just that route (${JSON.stringify(await racksRoutes())})`);
 
-  // the shell's binding list: routes spelled out
+  // <bx-bindings>' list of every binding: routes spelled out (the shell
+  // draws the element on the tiles that ask, D195; a page of its own may
+  // hold one standalone — mounted here, as such a page would)
   await page.goto(`${URL}/`);
-  const bb = page.locator('bx-bindings');
+  await page.waitForSelector('bx-shell');
+  await page.evaluate(() => customElements.whenDefined('bx-bindings').then(() => document.body.append(document.createElement('bx-bindings'))));
+  const bb = page.locator('body > bx-bindings');
   await bb.waitFor({ timeout: 15000 });
   const more = bb.locator('a', { hasText: /show all bindings|interface binding/ }).first();
   if (await more.count()) await more.click();

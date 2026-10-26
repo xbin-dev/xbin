@@ -238,7 +238,7 @@ func sockDir(tile, dep string) string {
 type deployActivity struct {
 	Op         string `json:"op"` // reload | build
 	Deployment string `json:"deployment"`
-	Phase      string `json:"phase,omitempty"` // build: start | ok | error
+	Phase      string `json:"phase,omitempty"` // build: start | starting (D196) | ok | error
 	Text       string `json:"text,omitempty"`  // build: compiler output
 }
 
@@ -257,6 +257,8 @@ func (r *Runner) emit(tile, dep, typ, text string) {
 		a.Op = "reload"
 	case "build-start", "build-ok", "build-error":
 		a.Op, a.Phase, a.Text = "build", strings.TrimPrefix(typ, "build-"), text
+	case "backend-starting": // D196: built, its backend starting
+		a.Op, a.Phase = "build", "starting"
 	default:
 		return // the runner has no other event about a deployment
 	}

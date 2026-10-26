@@ -24,7 +24,7 @@ public enum TileBridge {
       const h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.\(handlerName);
       if (!h || window.__xbinAppBridge) return;
       Object.defineProperty(window, '__xbinAppBridge', { value: true });
-      const relay = new Set(['xbin:dialog', 'xbin:window', 'xbin:window-close', 'xbin:contextmenu']);
+      const relay = new Set(['xbin:dialog', 'xbin:window', 'xbin:window-close', 'xbin:contextmenu', 'xbin:meta']);
       addEventListener('message', (e) => {
         if (e.source !== window) return;
         const d = e.data;
@@ -43,6 +43,9 @@ public enum TileBridge {
         case windowClose(id: String)
         /// A long-press on the page body (xbin-client's tile menu request).
         case contextMenu(x: Double, y: Double, selection: String)
+        /// The page's title, icon and badge (`xbin.meta`, D194): the page's
+        /// whole current meta, as `xbin.native.meta` gives a native tile's.
+        case meta(NativeMeta)
     }
 
     /// Decodes one relayed message (a JSON string, or already-parsed JSON).
@@ -68,6 +71,10 @@ public enum TileBridge {
             let sel = msg["selection"]?.stringValue ?? ""
             return .contextMenu(x: msg["x"]?.doubleValue ?? 0, y: msg["y"]?.doubleValue ?? 0,
                                 selection: String(sel.prefix(65536)))
+        case "xbin:meta":
+            var f: [String: JSONValue] = [:]
+            for k in ["title", "icon", "badge"] { if let v = msg["meta"]?[k]?.stringValue { f[k] = .string(v) } }
+            return .meta(NativeMeta(fields: f))
         default:
             return nil
         }

@@ -8,6 +8,8 @@ import Testing
         #expect(AppEvent.parse(#"{"type":"reload","component":"apps/thing"}"#) == .reload(component: "apps/thing"))
         #expect(AppEvent.parse(#"{"type":"build-start","component":"apps/thing"}"#)
             == .build(component: "apps/thing", phase: .start, text: ""))
+        #expect(AppEvent.parse(#"{"type":"backend-starting","component":"apps/thing"}"#)
+            == .build(component: "apps/thing", phase: .starting, text: ""))
         #expect(AppEvent.parse(#"{"type":"build-error","component":"apps/thing","text":"x.go:1: boom"}"#)
             == .build(component: "apps/thing", phase: .error, text: "x.go:1: boom"))
         #expect(AppEvent.parse(#"{"type":"build-ok","component":"apps/thing"}"#)

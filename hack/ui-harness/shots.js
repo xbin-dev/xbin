@@ -508,6 +508,7 @@ async function contextCopy(browser) {
   const frame = await tileFrame(page, 'apps/focusy');
   await frame.waitForSelector('p', { timeout: 10000 });
   await page.bringToFront();
+  for (const x of await page.locator('bx-canvas .pqpop[data-prompts-for="apps/focusy"] .pqx').all()) await x.click(); // fold its decisions' popover (D195)
   const menu = () => sh(page, (t) => t.menuOpen);
   check(!!frame, 'the focusy frame is up');
   const selectP = () => frame.evaluate(() => {
@@ -553,7 +554,8 @@ async function contextCopy(browser) {
 
   // (c) selected text in the shell's own chrome → native menu. Card heads and
   // sidebar rows are user-select:none (nobody can select them); the grants /
-  // bindings panels carry real selectable text, in a nested shadow root.
+  // bindings panels (focusy's popover, D195) carry real selectable text, in a nested shadow root.
+  for (const x of await page.locator('bx-canvas .card[data-path="apps/focusy"] .pqb[aria-expanded="false"]').all()) await x.click();
   const who = page.locator('bx-shell bx-grants .who, bx-shell bx-bindings .who').first();
   const whoText = ((await who.textContent().catch(() => '')) ?? '').trim();
   const shellSel = await sh(page, (t) => {
@@ -768,9 +770,9 @@ async function netPickers(browser) {
     s = await openPop(page, 'apps/pinned');
     check(s.hasSelect && s.disabled.includes('host'), `dev1: org tile has a picker with host disabled (select=${s.hasSelect} disabled=${s.disabled.join(',')})`);
     await closePop(page);
-    // the root bind prompt: only slots dev1 may wire (their own personal tile's too, D88)
-    const prompt = await sh(page, (t) => t.query('bx-bindings')?.renderRoot?.textContent ?? '');
-    check(prompt.includes('apps/dev1-notes'), 'dev1: root bind prompt offers their own personal tile');
+    // the bind prompts: only slots dev1 may wire (their own personal tile's too, D88) — on the tile (D195)
+    const prompts = await sh(page, (t) => t.prompts);
+    check((prompts['apps/dev1-notes']?.bindings ?? 0) > 0, `dev1: their own personal tile has a bind prompt (${JSON.stringify(prompts['apps/dev1-notes'] ?? null)})`);
     // and the server view says the same
     const r = await ctx.request.get(`${URL}/api/xbin/bindings`);
     const d = await r.json();
@@ -845,6 +847,7 @@ PASSES.docMode = require('./passes/docmode').docMode; // D187: Document mode —
 PASSES.fixedGrid = require('./passes/fixedgrid').fixedGrid; // D193: Fixed width — 48 stretched columns, the right edge, back to Canvas
 PASSES.termTheme = require('./passes/termtheme').termTheme; // D184: an open terminal follows the person's theme; a picked palette stays
 PASSES.themeCompat = require('./passes/themecompat').themeCompat; // D184: a tile from before the theme — its own palette carries, its own buttons keep their colours
+PASSES.buildState = require('./passes/buildstate').buildState; PASSES.tilePrompts = require('./passes/tileprompts').tilePrompts; // D196 build phases; D195 prompts on the tile
 PASSES.grantDismiss = require('./passes/grantdismiss').grantDismiss; // D188: dismiss grant requests and interfaces to bind; no "N grants active"
 PASSES.deviceTheme = require('./passes/devicetheme').deviceTheme; // D188: this browser's Light or Dark over the person's theme
 PASSES.focusAnchor = require('./passes/focusanchor').focusAnchor; // D191: the focused tile holds its place — Document mode, the last tile, a phone's canvas

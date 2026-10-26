@@ -169,6 +169,10 @@ import Testing
             == .window(id: "w1", spec: WindowSpec(path: "editor", src: "", title: "Edit")))
         #expect(TileBridge.parse(["type": "xbin:window-close", "id": "w1"]) == .windowClose(id: "w1"))
         #expect(TileBridge.parse(["type": "xbin:contextmenu", "x": 10, "y": 20.5]) == .contextMenu(x: 10, y: 20.5, selection: ""))
+        // a page's title, icon and badge (xbin.meta, D194): the three strings, nothing else
+        #expect(TileBridge.parse(["type": "xbin:meta", "meta": ["title": "Inbox (3)", "icon": "mail", "badge": "3", "x": "y"]])
+            == .meta(NativeMeta(fields: ["title": "Inbox (3)", "icon": "mail", "badge": "3"])))
+        #expect(TileBridge.parse(["type": "xbin:meta", "meta": ["title": 5]]) == .meta(NativeMeta(fields: [:])))
         #expect(TileBridge.parse(["type": "xbin:dialog", "spec": [:]]) == nil)          // no id
         #expect(TileBridge.parse(["type": "xbin:resize", "height": 10]) == nil)          // not relayed
         #expect(TileBridge.parse(["type": "xbin:reply", "id": "1"]) == nil)

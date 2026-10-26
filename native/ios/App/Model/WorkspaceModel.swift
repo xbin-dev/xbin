@@ -30,6 +30,9 @@ final class WorkspaceModel: Identifiable {
     var mobile = MobileScreens()
     /// What tiles report about themselves (the cards' status dots).
     var statuses = TileStatuses()
+    /// Tiles whose backend is being built or is starting now (D196): the
+    /// card says so until build-ok or build-error.
+    var building: [String: AppEvent.BuildPhase] = [:]
     /// The person's light/dark choice in this workspace (the shell's
     /// Settings → Theme, D185): the windows showing it follow it, or the
     /// phone's appearance when it is `.system`.
@@ -303,6 +306,8 @@ final class WorkspaceModel: Identifiable {
             switch ev {
             case .tileStatus(let tile, let level, let message, let transient):
                 self?.statuses.apply(tile: tile, level: level, message: message, transient: transient)
+            case .build(let tile, let phase, _):
+                self?.building[tile] = phase == .start || phase == .starting ? phase : nil
             case .prefs(let component, let key, let writer):
                 // The person chose another theme (the web shell's settings):
                 // the windows showing this workspace follow.

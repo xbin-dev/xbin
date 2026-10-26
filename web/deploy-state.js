@@ -480,6 +480,8 @@ export function deploymentFrame(src, e) {
   if (e?.type !== 'deployments' || !d?.deployment || src !== `${e.component}+${d.deployment}`) return null;
   if (d.op === 'reload') return { reload: true };
   if (d.op === 'build' && (d.phase === 'error' || d.phase === 'ok')) return { error: d.phase === 'ok' ? null : d.text || 'the logs tab has the output' };
+  // a build under way (D196): compiling, then its backend starting
+  if (d.op === 'build' && (d.phase === 'start' || d.phase === 'starting')) return { phase: d.phase === 'start' ? 'compile' : 'starting' };
   return null;
 }
 

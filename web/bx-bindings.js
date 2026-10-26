@@ -10,22 +10,25 @@
  * quiet Dismiss hides it for this person on all their devices (D188,
  * /vendor/bx-dismiss.js); the shell's settings menu ("Show dismissed")
  * brings them back. With nothing left to bind it renders nothing.
+ *
+ * `tile="<path>"` shows only that tile's slots: the shell puts one on each
+ * tile's window (D195) instead of a strip at the top. Every instance on a
+ * page reads the same slots and dismissals (/vendor/bx-requests.js).
  */
 import { LitElement, html, css, nothing, repeat } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
 import '/vendor/bx-multiselect.js';
 import '/vendor/bx-icons.js';
-import { onEvent } from '/vendor/events-socket.js';
 import { bindPreselect, blockedTitle } from '/vendor/bx-netrules.js';
-import { bindingKey, split, prune, dismiss, loadDismissed, updateDismissed, dismissedEvent } from '/vendor/bx-dismiss.js';
+import { bindingKey, split, dismiss } from '/vendor/bx-dismiss.js';
+import { bindingsStore, dismissalStore } from '/vendor/bx-requests.js';
 
 // a link-like control that opens or closes a list: focusable, Enter and Space work
 const toggle = (label, fn, title = '') => html`<a role="button" tabindex="0" title=${title} @click=${fn}
   @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); } }}>${label}</a>`;
-const xfetch = (...a) => (window.xbin?.fetch ?? fetch)(...a);
-
 export class BxBindings extends LitElement {
   static properties = {
+    tile: { type: String, reflect: true }, // only this tile's slots (D195)
     _pending: { state: true },
     _bindings: { state: true },
     _pick: { state: true },
@@ -42,6 +45,10 @@ export class BxBindings extends LitElement {
       font: var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif);
       color: var(--bx-text, #E9EAF0);
     }
+    /* on a tile's window the shell's popover is the card */
+    :host([tile]) .panel { background: transparent; border: 0; padding: 0; }
+    :host([tile]) h4 { display: none; }
+    :host([tile]) .row:first-of-type { border-top: 0; }
     :focus-visible { outline: var(--bx-focus-outline, 3px solid #3DD6F5); outline-offset: var(--bx-focus-offset, 2px);
       box-shadow: var(--bx-focus-halo, 0 0 0 2px #0B0C12); }
     /* a card: a border, no shadow (D184) */
@@ -109,55 +116,37 @@ export class BxBindings extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
-    this._off = onEvent((e) => {
-      if (e.type === 'grants' || e.type === 'reload') this._load();
-      if (dismissedEvent(e)) this._loadDismissed(); // another tab or device dismissed or restored
-    });
-    this._load();
-    this._loadDismissed();
+    this._offs = [
+      bindingsStore().subscribe((d) => this._got(d)),
+      dismissalStore().subscribe((d) => { this._dismissed = d; }),
+    ];
   }
 
-  disconnectedCallback() { super.disconnectedCallback(); this._off?.(); }
+  disconnectedCallback() { super.disconnectedCallback(); for (const f of this._offs ?? []) f(); }
 
-  async _load() {
-    try {
-      const r = await fetch('/api/xbin/bindings');
-      if (!r.ok) return; // not admin, or xbind restarting
-      const d = await r.json();
-      // Only slots THIS person may wire (ws admin: all; org admin: their
-      // orgs' tiles). A tile you merely own is listed by the server for
-      // information — its bind would be refused, so no row here.
-      // options: null from an older daemon for a slot nobody provides
-      this._pending = (d.pending ?? []).filter((p) => p.approvable !== false).map((p) => ({ ...p, options: p.options ?? [] }));
-      this._bindings = d.bindings ?? {};
-      // the tiles whose wiring this person may change (an admin: all)
-      this._approvable = d.approvable ?? null;
-      this._loaded = true;
-      this._prune();
-    } catch { /* next event reloads */ }
+  // _got(d): the page's read of /bindings — this instance's part of it.
+  _got(d) {
+    const mine = (p) => !this.tile || p.component === this.tile;
+    // Only slots THIS person may wire (ws admin: all; org admin: their
+    // orgs' tiles). A tile you merely own is listed by the server for
+    // information — its bind would be refused, so no row here.
+    // options: null from an older daemon for a slot nobody provides
+    this._pending = (d.pending ?? []).filter((p) => p.approvable !== false && mine(p)).map((p) => ({ ...p, options: p.options ?? [] }));
+    const all = d.bindings ?? {};
+    this._bindings = this.tile ? (all[this.tile] ? { [this.tile]: all[this.tile] } : {}) : all;
+    // the tiles whose wiring this person may change (an admin: all)
+    this._approvable = d.approvable ?? null;
   }
 
-  async _loadDismissed() {
-    const d = await loadDismissed(xfetch);
-    if (d) { this._dismissed = d; this._prune(); }
+  updated(changed) {
+    if (changed.has('tile') && bindingsStore().value) this._got(bindingsStore().value);
   }
 
-  // _prune drops the dismissals of slots the server no longer lists (bound,
-  // or gone from the manifest) — once both are read.
-  _prune() {
-    if (!this._dismissed || !this._loaded) return;
-    const live = this._pending.map(bindingKey);
-    if (prune(this._dismissed, 'bindings', live) === this._dismissed) return;
-    this._save((d) => prune(d, 'bindings', live));
-  }
-
-  // _save(fn): change the dismissals — at once here, then stored (a read,
-  // change and write, so <bx-grants>' own kind is never undone).
-  async _save(fn) {
-    if (this._dismissed) this._dismissed = fn(this._dismissed);
-    const d = await updateDismissed(xfetch, fn);
-    if (d) this._dismissed = d;
-  }
+  // _save(fn): change the dismissals — at once on every page element, then
+  // stored through the page's one save chain (bx-dismiss.js dismissals());
+  // the slots the server no longer lists are pruned there, after fresh
+  // reads (#11).
+  _save(fn) { return dismissalStore().change(fn); }
 
   _key(p) { return `${p.component}\u0000${p.slot}`; }
 
@@ -211,7 +200,7 @@ export class BxBindings extends LitElement {
     }
     const { [key]: _, ...rest } = this._errs;
     this._errs = rest;
-    this._load();
+    bindingsStore().load();
   }
 
   // unbind one binding of a slot: its provider (+ its route, for an exposed
@@ -223,7 +212,7 @@ export class BxBindings extends LitElement {
       method: 'DELETE', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    this._load();
+    bindingsStore().load();
   }
 
   // Flatten the {comp: {slot: ref | {ref, host|zone|listen} | […]}} table for

@@ -56,7 +56,10 @@ type fakeEngine struct {
 }
 
 // tape records hub events as "<type> <component>", with the text of a
-// build-error after a colon.
+// build-error after a colon. The phase between a build and its health
+// check (D196: backend-starting, and a deployment's build phase
+// "starting") is left out: the seam rows pin the lifecycle as the test plan
+// wrote it, and TestBuildPhases pins the phases.
 type tape struct {
 	ch <-chan events.Event
 }
@@ -68,6 +71,9 @@ func (tp *tape) take() []string {
 		case e, ok := <-tp.ch:
 			if !ok {
 				return append(out, "(tape evicted)")
+			}
+			if startingPhase(e) {
+				continue
 			}
 			s := e.Type + " " + e.Component
 			if e.Type == "build-error" {
@@ -354,4 +360,19 @@ func answer(sock string, err error) string {
 		return "error: " + err.Error()
 	}
 	return strings.TrimSuffix(filepath.Base(sock), ".sock")
+}
+
+// startingPhase: an event of the phase between a build and its health
+// check (D196), in any of its three shapes.
+func startingPhase(e events.Event) bool {
+	if e.Type == "backend-starting" {
+		return true
+	}
+	switch d := e.Data.(type) {
+	case deployActivity:
+		return d.Phase == "starting"
+	case map[string]any:
+		return d["event"] == "backend-starting"
+	}
+	return false
 }

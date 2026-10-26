@@ -168,8 +168,11 @@ export function openTileItems(s, a) {
   const byPath = new Map(readable.map((c) => [c.path, c]));
   const open = new Set((s.tiles ?? []).map((o) => o.path));
   const recent = (s.recent ?? []).filter((p) => byPath.has(p) && !open.has(p)).slice(0, 5);
-  const row = (p, extra = {}) => ({ label: base(p), keywords: p, hint: dir(p), mono: true, action: () => a.openTile(p), ...extra });
-  const rest = readable.filter((c) => !recent.includes(c.path)).sort((x, y) => base(x.path).localeCompare(base(y.path)));
+  // a tile is listed by what it calls itself (its manifest's title, D194), found by that or its path
+  const named = (p) => byPath.get(p)?.title || base(p);
+  const row = (p, extra = {}) => ({ label: named(p), keywords: `${p} ${byPath.get(p)?.title ?? ''}`.trim(), hint: dir(p), mono: !byPath.get(p)?.title,
+    action: () => a.openTile(p), ...extra });
+  const rest = readable.filter((c) => !recent.includes(c.path)).sort((x, y) => named(x.path).localeCompare(named(y.path)));
   return [
     { kind: 'input', placeholder: 'find a tile…', empty: 'no tile matches', hint: 'type to find a tile — recently opened ones list here' },
     ...(recent.length ? [{ kind: 'header', label: 'recent' }, ...recent.map((p) => row(p))] : []),

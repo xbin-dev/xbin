@@ -53,15 +53,8 @@ async function tiled(browser) {
   await page.waitForSelector('.tiled .ttile', { timeout: 10000, state: 'attached' });
   await settle(page);
   check(await sh(page, (t) => t.screenMode) === 'tiled', 'the screen says Tiled');
-  // the seed's admin has a tall strip of grant requests and interfaces to
-  // bind above the tiles: they keep a whole pane's height below it
-  const strip = await sh(page, (t) => { const m = t.query('main'), g = t.query('.grants'), cs = getComputedStyle(m);
-    return { g: g.getBoundingClientRect().height, full: m.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom), h: t.query('.tiled').getBoundingClientRect().height }; });
-  if (strip.g > strip.full * 0.4) check(near(strip.h, strip.full, 1), `under a tall strip the tiles keep the pane's height (${JSON.stringify(strip)})`);
-  else skip(`no tall strip above the tiles (${Math.round(strip.g)} px)`);
-  // the rest without it: the strip hidden for this page
-  await sh(page, (t) => { t.query('.grants').style.display = 'none'; });
-  await sleep(300); await settle(page);
+  // no strip of decisions above the tiles (they sit on the tile that asked, D195)
+  check(!(await sh(page, (t) => !!t.query('.grants'))), 'no decision strip above the tiles');
   const pane = await rectIn(page, '.tiled');
   const one = await tileRect(page, A);
   const scroll = await sh(page, (t) => { const m = t.query('main'); return { sh: m.scrollHeight, ch: m.clientHeight, sw: m.scrollWidth, cw: m.clientWidth }; });
@@ -147,7 +140,6 @@ async function tiled(browser) {
   const before = JSON.stringify(await tree(page));
   await openShell(page);
   await page.waitForSelector('.tiled .ttile', { timeout: 10000, state: 'attached' });
-  await sh(page, (t) => { t.query('.grants').style.display = 'none'; });
   await sleep(300); await settle(page);
   const after = JSON.stringify(await tree(page));
   check(after === before && (await sh(page, (t) => t.activeScreen)) === id, `a reload keeps the tree (${after})`);
@@ -209,7 +201,6 @@ async function tiled(browser) {
   }
 
   // tidy: the strip back, the layout as it was
-  await sh(page, (t) => { t.query('.grants').style.display = ''; });
   await sh(page, (t) => t.flushSave());
   const put = await ctx.request.put(prefs, { data: original, headers: { 'X-Prefs-Writer': 'harness-tiled' } });
   check(put.ok(), `tidy: the original layout back (${put.status()})`);

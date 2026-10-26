@@ -134,7 +134,11 @@ func (s *Server) apiStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 type componentInfo struct {
-	Path        string   `json:"path"`
+	Path string `json:"path"`
+	// Title and Icon are the manifest's, cleaned (D194): what the shell and
+	// the app call the tile beside its path. Absent when it gives none.
+	Title       string   `json:"title,omitempty"`
+	Icon        string   `json:"icon,omitempty"`
 	Scope       string   `json:"scope,omitempty"`
 	Runtime     string   `json:"runtime,omitempty"`
 	HasIndex    bool     `json:"hasIndex"`
@@ -178,6 +182,27 @@ type componentInfo struct {
 	// records one (partitionrow.go).
 	Partition    *partitionInfo `json:"partition,omitempty"`
 	PartitionErr string         `json:"partitionError,omitempty"`
+	// Backend is the primary backend's state while it isn't simply serving
+	// or asleep (D196): {state: building | starting | failed}, so a window
+	// opened mid-build says so before the next event. Absent otherwise.
+	Backend *backendInfo `json:"backend,omitempty"`
+}
+
+type backendInfo struct {
+	State string `json:"state"`
+}
+
+// backendOf is tile's backend row field (D196): only the states a window
+// shows something for.
+func (s *Server) backendOf(tile string) *backendInfo {
+	if s.BackendState == nil {
+		return nil
+	}
+	switch st := s.BackendState(tile); st {
+	case "building", "starting", "failed":
+		return &backendInfo{State: st}
+	}
+	return nil
 }
 
 func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
@@ -194,6 +219,7 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 		}
 		ci := componentInfo{
 			Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
+			Title: c.Manifest.DisplayTitle(), Icon: c.Manifest.DisplayIcon(),
 			HasIndex: c.HasIndex, Template: c.IsTemplate(),
 			Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
 			Chrome: s.trustedChrome(c.Path, c), ChromeRequested: s.chromeRequested(c),
@@ -214,6 +240,7 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 			ci.Uses = c.Manifest.Uses
 		}
 		ci.Deployments = s.primarySummary(c.Path)
+		ci.Backend = s.backendOf(c.Path)
 		partitionOf(&ci, c)
 		out = append(out, ci)
 	}
@@ -231,6 +258,7 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 	}
 	ci := componentInfo{
 		Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
+		Title: c.Manifest.DisplayTitle(), Icon: c.Manifest.DisplayIcon(),
 		HasIndex: c.HasIndex, Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
 		Chrome: s.trustedChrome(c.Path, c), ChromeRequested: s.chromeRequested(c),
 		Native: s.nativeOf(c),

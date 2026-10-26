@@ -40,11 +40,9 @@
 import { LitElement, html, nothing, repeat } from 'lit';
 import { appearance } from '/vendor/bx-theme.js';
 import '/vendor/bx-frame.js';
-import '/vendor/bx-grants.js';
-import '/vendor/bx-bindings.js';
-import { pendingCount, loadDismissed, dismissedEvent } from '/vendor/bx-dismiss.js';
 import './bx-tile-admin.js';
-import './bx-part-consent.js';
+import { followPrompts, loadAccessRequests, syncPrompts } from './shell-prompts.js'; // decisions on the tile that asked (D195)
+import { titleOf } from '/vendor/tile-meta.js'; // what a tile calls itself (D194)
 import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
 import { loadBrand, applyFavicon, brandLogo } from './shell-brand.js';
@@ -70,7 +68,7 @@ import { shellCss, statusCss, partCss } from './shell-css.js';
 import './bx-canvas.js';
 import './bx-side.js';
 import { GRID, DEF_W, DEF_H, MIN_W, MIN_H, snap, LongPress, selectedText, isScreenItem, screenIdOf, sectionOf, ownerKeyOf, worstStatus, spawnTitle,
-  STATUS, statusIcon, liveSquare } from './shell-kit.js';
+  STATUS, statusIcon, liveSquare, buildPhaseOf } from './shell-kit.js';
 import { overlaps, spotNear } from './grid-layout.js';
 import { canvasMenuItems, tileMenuItems, offloaded, hidden } from './menus.js';
 import { ago, newDraft, withDraft, withoutDraft, publish, conflictDialog } from './rev-draft.js';
@@ -78,7 +76,7 @@ import { nextZ, frontWindow, onWindowFront, activeWindow } from './zorder.js';
 import { follow as followLayout, editing as layoutEditing } from './layout-sync.js';
 import { framedTile } from './partition-mode.js';
 import { appearanceRows, followAppearance } from './shell-appearance.js';
-import { alertsTpl, loadDismissals, followDismissals, dismissedRow } from './shell-alerts.js'; // banners, dismissals (D188)
+import { alertsTpl, loadDismissals, dismissedRow } from './shell-alerts.js'; // banners, dismissals (D188)
 import { tabStrip, revealActiveTab, addScreen, hideOrgTab, screenMode, setScreenMode, layoutItems, orgMeta } from './shell-tabs.js'; // the screen tabs, in the top bar (D187)
 import { layoutFields } from './modes.js'; // a screen's mode and arrange travel with its copies (D193)
 import { tiledToggle, tiledMenu, tiledTestApi } from './shell-tiled.js'; // the Tiled mode's tree, from the shell's ends (D193)
@@ -124,6 +122,7 @@ export class BxShell extends LitElement {
     _adminOrgs: { state: true },  // orgs this human administers (⚙ on their org's tiles)
     _ownedTiles: { state: true }, // tiles this human OWNS (⚙ on their own tiles, D24)
     _pendingN: { state: true },   // ⚑ badge: actionable pending approvals/requests
+    _prompts: { state: true },    // path → the decisions waiting on that tile (D195, shell-prompts.js)
     _setupCard: { state: true },  // first-run hardening prompt (root token, no users)
     _dialogs: { state: true },    // shell-rendered dialogs a tile asked for
     _spawnWins: { state: true },  // pop-out windows a tile asked for
@@ -213,6 +212,7 @@ export class BxShell extends LitElement {
     this._top = new TopReveal(this); // Document mode: the bar slides away while reading
     // a spawned window's frame changed its build state: its live square follows
     this.addEventListener('bx-build', () => this.requestUpdate());
+    this.addEventListener('bx-meta', () => this.requestUpdate()); // a page's title for the sidebar (D194)
   }
 
   connectedCallback() {
@@ -225,8 +225,7 @@ export class BxShell extends LitElement {
       if (e.type === 'reload' || e.type === 'grants') this._load();
       if (e.type === 'branding') loadBrand().then((b) => this._setBrand(b)); // the admin changed the title/icon
       if (e.type === 'users') { this._load(); this._probeAdmin(); this._loadShared(); } // org/ownership/screens changes
-      if (e.type === 'grants' || e.type === 'users' || dismissedEvent(e)) this._loadPendingCount(); // ⚑ badge
-      followDismissals(this, e); // dismissed banners and the menu's way back
+      if (e.type === 'grants' || e.type === 'users') loadAccessRequests(this); // ⚑ badge: people's access requests (the rest follow by themselves)
       if (e.type === 'status') this._onStatusEvent(e); // tile health / notifications
       if (e.type === 'pr') this._loadPRs();            // change-proposal badges (⇄)
       if (e.type === 'prefs') followLayout(this, e, LAYOUT_PREF); // the app / another tab saved the layout
@@ -234,6 +233,9 @@ export class BxShell extends LitElement {
     });
     this._loadStatuses();
     this._loadPRs();
+    // The ⚑ badge (D188 pendingCount) and each tile's waiting decisions
+    // (D195): the page's one read of /grants, /bindings and the dismissals.
+    this._offPrompts = followPrompts(this);
     window.addEventListener('blur', this._onBlur);
     // focus moving from one tile's frame into another's never blurs this
     // window: its focusin does (the active window follows the click)
@@ -304,7 +306,7 @@ export class BxShell extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     window.removeEventListener('resize', this._onResize);
-    this._off?.();
+    this._off?.(); this._offPrompts?.();
     window.removeEventListener('bx-spawn', this._onSpawn);
     window.removeEventListener('bx-spawn-close', this._onSpawnClose);
     window.removeEventListener('bx-open-deployments', this._onOpenDeployments);
@@ -320,7 +322,7 @@ export class BxShell extends LitElement {
     clearTimeout(this._staleTimer);
   }
 
-  updated() { revealActiveTab(this); }
+  updated() { revealActiveTab(this); syncPrompts(this); }
 
   firstUpdated() {
     // The grid is absolute-positioned in fixed px, so window resize never
@@ -852,7 +854,7 @@ export class BxShell extends LitElement {
            @contextmenu=${(e) => { e.preventDefault(); this._adminPop = null; }}></div>
       <div class="admin-pop" style="left:${a.x}px; top:${a.y}px; width:${a.w}px; max-height:${a.h}px">
         <div class="ahead">
-          <span class="t" title=${`tile admin: ${a.path}`}><bx-icon name="settings"></bx-icon><b>${a.path.slice(a.path.lastIndexOf('/') + 1)}</b><span class="path">${a.path}</span></span>
+          <span class="t" title=${`tile admin: ${a.path}`}><bx-icon name="settings"></bx-icon><b>${titleOf(a.path, this._components.find((x) => x.path === a.path), null)}</b><span class="path">${a.path}</span></span>
           ${this._mobile ? html`<button class="wc close" title="close" aria-label="close" @click=${() => { this._adminPop = null; }}><bx-icon name="xmark"></bx-icon></button>` : nothing}
         </div>
         <bx-tile-admin class="apop" .path=${a.path} .section=${a.section} no-title></bx-tile-admin>
@@ -1417,21 +1419,7 @@ export class BxShell extends LitElement {
         }
       }
     } catch { /* xbind restarting */ }
-    this._loadPendingCount();
-  }
-
-  // The ⚑ badge: ACTIONABLE pending items — requests this human may approve
-  // (D26/D33), their own tiles' requests still waiting (direction "mine"),
-  // and unbound interface slots in their view, less what they dismissed
-  // (D188: pendingCount). Refetched on grants/users events and dismissals,
-  // so a new request lights the badge without a reload.
-  async _loadPendingCount() {
-    try {
-      const j = (r) => (r.ok ? r.json() : null);
-      const [g, b, q, d] = await Promise.all([fetch('/api/xbin/grants').then(j), fetch('/api/xbin/bindings').then(j),
-        fetch('/api/xbin/access-requests').then(j), loadDismissed(window.xbin?.fetch ?? fetch)]);
-      this._pendingN = pendingCount(g, b, q, d);
-    } catch { /* xbind restarting; next event refetches */ }
+    loadAccessRequests(this);
   }
 
   // _canAdminTile: the ⚙ mini-admin shows for workspace admins, for org
@@ -1524,6 +1512,8 @@ export class BxShell extends LitElement {
       who: this._who, myId: this._myId, status: this._status, prs: this._prs, showHidden: this._showHidden,
       hiddenCount: this._hiddenCount, sys: this._sys, mobile: this._mobile, menuOpen: !!this._menu,
       openPaths: new Set(this._tiles.map((o) => o.path)), orgButton: !!(this._orgish || this._adminOrgs?.size), pendingN: this._pendingN,
+      prompts: this._prompts, metaOf: (p) => this._canvas?.frameFor(p)?.tileMeta ?? null, // D195 flags; D194 a page's title
+      buildOf: (p) => buildPhaseOf(this._canvas?.frameFor(p), this._components.find((c) => c.path === p)), // D196
     };
   }
   _sideActions() {
@@ -1678,6 +1668,7 @@ export class BxShell extends LitElement {
       docRows: () => docRows(itemsOf(s._tiles, s._screen?.blocks)).map((r) => ({ cols: r.cols, paths: r.tiles.map((t) => t.path) })),
       get topBar() { return { on: s._top.on, hidden: s._top.hidden }; },
       get arrange() { return s._screen?.arrange ?? null; }, // the active screen's arrange (D193, modes.js)
+      get prompts() { return Object.fromEntries(s._prompts ?? []); }, // path → its waiting decisions (D195)
       get anchor() { return s._canvas?.anchorState ?? null; }, // the focused tile's hold (D191, shell-anchor.js)
       ...blockTestApi(s), // blocks(), addBlock(kind, at), editBlock(id), blockMenuItems(id) (D192)
       ...tiledTestApi(s), // tiling(): the Tiled screen's tree as drawn (D193)
@@ -1770,13 +1761,12 @@ export class BxShell extends LitElement {
         ${this._mobile && this._drawer ? html`<div class="drawer-backdrop"
           @click=${() => { this._drawer = false; }}></div>` : nothing}
         <main @contextmenu=${(e) => this._onContextMenu(e)}
-              @pointerdown=${(e) => { if (!e.target.closest('.card, button, input, select, a, bx-frame, bx-canvas, .grants, bx-menu')) this._pressStart(e, () => this._openCanvasMenu({ clientX: e.clientX, clientY: e.clientY })); }}
+              @pointerdown=${(e) => { if (!e.target.closest('.card, button, input, select, a, bx-frame, bx-canvas, bx-menu')) this._pressStart(e, () => this._openCanvasMenu({ clientX: e.clientX, clientY: e.clientY })); }}
               @pointermove=${(e) => this._pressMove(e)}
               @pointerup=${() => this._pressCancel()} @pointercancel=${() => this._pressCancel()}>
-          <div class="grants"><bx-grants></bx-grants><bx-bindings></bx-bindings><bx-part-consent .components=${this._components} .who=${this._who}></bx-part-consent></div>
           <bx-canvas .tiles=${this._tiles} .blocks=${this._screen?.blocks} .components=${this._components} .prs=${this._prs} .mode=${screenMode(this._screen)} .arrange=${this._screen?.arrange}
             .canMutate=${this._canMutate} .personal=${!this._activeOrgScreen} .mobile=${this._mobile} .menuOpen=${!!this._menu} .scale=${this._gridScale}
-            .canAdminTile=${(p) => this._canAdminTile(p)} .who=${this._who} .alerts=${this._alerts} .reload=${() => { this._load(); this._loadAlerts(); }}
+            .canAdminTile=${(p) => this._canAdminTile(p)} .who=${this._who} .alerts=${this._alerts} .prompts=${this._prompts} .reload=${() => { this._load(); this._loadAlerts(); }}
             .emptyText=${this._activeOrgScreen && !this._canMutate ? 'This shared screen is empty.' : 'This screen is empty. Open a tile from the sidebar.'}
             @bx-tiles=${(e) => this._mutateTiles(() => e.detail)} @bx-blocks=${(e) => this._mutateTiles(e.detail, 'blocks')} @bx-arrange=${(e) => this._mutateTiles(e.detail, 'arrange')}
             @bx-block-menu=${(e) => { this._menu = { ...e.detail, sheet: this._mobile }; }}

@@ -375,6 +375,9 @@ func (f *depFake) events(tp *tape) []string {
 			if e.Type != "deployments" && strings.Contains(e.Component, "+") {
 				f.t.Errorf("%s event with a qualified component %q (rule C2)", e.Type, e.Component)
 			}
+			if startingPhase(e) {
+				continue // the phase between a build and its health check (D196): TestBuildPhases
+			}
 			s := e.Type + " " + e.Component
 			if a, ok := e.Data.(deployActivity); ok {
 				s += " " + a.Op + " " + a.Deployment

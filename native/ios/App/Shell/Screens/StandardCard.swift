@@ -18,7 +18,7 @@ struct StandardCard: View {
         let status = workspace.statuses[tile.path]
         VStack(alignment: .leading, spacing: 4) {
             HStack(alignment: .top, spacing: 8) {
-                icon(meta?.symbol)
+                icon(TileMeta.symbol(meta, tile))
                 if size == .wide { titles }
                 Spacer(minLength: 0)
                 if let badge = meta?.badge { TileBadge(text: badge) }
@@ -26,7 +26,10 @@ struct StandardCard: View {
             }
             Spacer(minLength: 0)
             if size == .small { titles }
-            if let status, !status.message.isEmpty {
+            if let phase = workspace.building[tile.path] {
+                // its backend being built, then starting (D196)
+                Text(phase == .starting ? "Starting…" : "Building…").font(.caption).foregroundStyle(XbinColor.accent).lineLimit(1)
+            } else if let status, !status.message.isEmpty {
                 Text(verbatim: status.message).font(.caption).foregroundStyle(.secondary).lineLimit(1)
             }
             marker

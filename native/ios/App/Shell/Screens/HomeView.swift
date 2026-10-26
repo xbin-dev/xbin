@@ -311,7 +311,7 @@ struct TileRow: View {
         Button { pick(.tile(tile.path)) } label: {
             HStack(spacing: 8) {
                 Group {
-                    if let symbol = meta?.symbol {
+                    if let symbol = TileMeta.symbol(meta, tile) {
                         Image(systemName: symbol).foregroundStyle(XbinColor.muted)
                     } else {
                         // The web's live square (shell-kit.js liveSquare,

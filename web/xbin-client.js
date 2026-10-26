@@ -35,6 +35,12 @@
  *                             the shell shows warn/error as a breathing sidebar
  *                             dot + tab tint. xbin.clearStatus() to clear.
  *   xbin.notify(level,msg) — one-shot user notification (toast)
+ *   xbin.meta({title, icon, badge}) — what the shell shows for this tile
+ *                             while this page is open (D194): a title in
+ *                             place of its name (beside its path), an icon
+ *                             from the workspace's set, a badge (a count or
+ *                             a short word). Only the given fields change;
+ *                             null clears one. Per viewer, not stored
  *   xbin.native            — only in the xbin app's runtime document (a tile's
  *                             native.js): caps, supports, meta, copy, share,
  *                             open, state/saveState — see /vendor/xb-native.js
@@ -393,6 +399,22 @@ function openWindow(spec = {}) {
   };
 }
 
+// ---- xbin.meta (D194) ----
+// The page's title, icon and badge for the shell (or the xbin app) to show
+// with the tile: the page keeps its whole current meta and sends all of it
+// on every change (xbin:meta), so a frame that missed one is right after
+// the next. Opened full page (no embedder) the title is the document's.
+let metaNow = {};
+function setMeta(m) {
+  if (!m || typeof m !== 'object') return;
+  for (const k of ['title', 'icon', 'badge']) {
+    if (!(k in m)) continue;
+    if (m[k] == null || m[k] === '') delete metaNow[k]; else metaNow[k] = String(m[k]);
+  }
+  if (embedded) window.parent.postMessage({ type: 'xbin:meta', meta: { ...metaNow } }, PARENT);
+  else if ('title' in m && metaNow.title) document.title = metaNow.title;
+}
+
 // A right-click (or a touch long-press) on the tile's body opens the SHELL's
 // tile menu — the iframe would otherwise swallow it. A tile that handles
 // contextmenu itself (preventDefault) keeps its own menu; inputs, links and
@@ -528,4 +550,4 @@ if (document.querySelector('link[rel~="stylesheet"][href*="/vendor/theme.css"]')
 // /vendor/xb-native.js adds the methods (docs/frontend-kit.md).
 const nativeApi = (window.xbin && typeof window.xbin.native === 'object' && window.xbin.native) || (meta('xbin-native') ? {} : null);
 
-window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, status, clearStatus, notify, ...(deployment ? { deployment } : {}), ...(partition ? { partition } : {}), ...(nativeApi ? { native: nativeApi } : {}) });
+window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, status, clearStatus, notify, meta: setMeta, ...(deployment ? { deployment } : {}), ...(partition ? { partition } : {}), ...(nativeApi ? { native: nativeApi } : {}) });

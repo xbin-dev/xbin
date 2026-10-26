@@ -26,6 +26,7 @@ func (st *State) registerRuntimeAPI(srv *server.Server) {
 		alerts: func(tile string) any { return brk.TileAlerts(tile) },
 		net:    func(tile string) any { return brk.NetLabel(tile) }, parts: st.partitionReads()}
 	srv.RegisterAPI("GET /backends", rd.backends)
+	srv.BackendState = run.PrimaryState // and /components' backend state (D196)
 	// Full runtime visibility for the admin console: host + per-backend process,
 	// namespaces, and egress/network activity (plans/isolation.md).
 	srv.RegisterAPI("GET /runtime", func(w http.ResponseWriter, r *http.Request) {

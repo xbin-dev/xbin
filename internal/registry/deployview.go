@@ -165,6 +165,9 @@ func composeManifest(tile, inbound, code Manifest) Manifest {
 		VM:       code.VM,
 		Inject:   code.Inject,
 		Native:   code.Native,
+		// what the tile calls itself (D194): its running code's, as its native UI is
+		Title: code.Title,
+		Icon:  code.Icon,
 		// deployment-level too: the running code is what must know how to
 		// be partitioned (plans/partitions/01 §1)
 		Partition:     code.Partition,

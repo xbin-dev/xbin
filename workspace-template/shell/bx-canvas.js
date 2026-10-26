@@ -51,12 +51,15 @@ import '/vendor/bx-frame.js';
 import '/vendor/bx-menu.js';
 import '/vendor/bx-dialog.js';
 import { clampBox, dragPointer, pathHas } from '/vendor/bx-kit.js';
-import { GRID, GAP, MIN_W, MIN_H, snap, LongPress, selectedText, prBadge, liveSquare, liveState,
+import { GRID, GAP, MIN_W, MIN_H, snap, LongPress, selectedText, prBadge, liveSquare, liveState, buildPhaseOf, buildChip,
   followDeployments, onDeployChange, wantDeployState, deployState, deployIcon, deployBadge, partitionMark, chipTag } from './shell-kit.js';
 import { shownDeployment, deployMenu } from './menus.js';
 import { pushLayout } from './grid-layout.js';
 import { FIXED_W, fixedRects } from './fixed-layout.js';
 import { itemsOf } from './blocks.js';
+import { titleOf, iconOf } from '/vendor/tile-meta.js';
+import { hasIcon } from '/vendor/bx-icons.js';
+import { promptBadge, promptPop, promptsCss } from './shell-prompts.js';
 import { nextZ, raiseTo, frontWindow, onWindowFront, activeWindow } from './zorder.js';
 import { canvasCss, prbCss, partCss, docCss } from './shell-css.js';
 import { docView, docFrame, docDragStart } from './shell-doc.js';
@@ -92,6 +95,7 @@ export class BxCanvas extends LitElement {
     alerts: { attribute: false },       // /alerts rows (optional): a pending tile's card says its partition-switch message
     reload: { attribute: false },       // () → the shell reloads /components and /alerts (optional; after a decision)
     who: { attribute: false },          // /whoami (optional): whose partition a partitioned tile's window shows (its chip)
+    prompts: { attribute: false },      // path → the decisions waiting on that tile (D195, shell-prompts.js)
     mode: { attribute: false },         // modes.js: 'canvas' (default) | 'fixed' | 'doc' (Document mode, D187, shell-doc.js) | 'tiled'
     arrange: { attribute: false },      // the screen's arrange (D193, modes.js): {docWidth?, tiling?}; changes go out as `bx-arrange`
     _drag: { state: true },             // a grid drag/resize in flight: {path, rect, moves, dirs, orig, positive}
@@ -106,7 +110,7 @@ export class BxCanvas extends LitElement {
     _tdrag: { state: true },            // Tiled: a card dragged onto another to swap {path, over} (shell-tiled.js)
     _tdiv: { state: true },             // Tiled: a divider being dragged {node, ratio}
   };
-  static styles = [canvasCss, prbCss, partCss, docCss, blocksCss, tiledCss];
+  static styles = [canvasCss, prbCss, partCss, docCss, blocksCss, tiledCss, promptsCss];
 
   constructor() {
     super();
@@ -129,6 +133,8 @@ export class BxCanvas extends LitElement {
     this.addEventListener('bx-pop', () => this.requestUpdate());
     // A frame's build state changed (bx-frame `bx-build`): its live square follows.
     this.addEventListener('bx-build', () => this.requestUpdate());
+    // A tile's page set its title, icon or badge (xbin.meta, D194): its title bar follows.
+    this.addEventListener('bx-meta', () => this.requestUpdate());
     this._front = activeWindow();
     this._anchor = new FocusAnchor(this); // the focused card holds its place in the page (D191)
     this._fx = null; // Fixed width: item key → its place (fixed-layout.js), refreshed every update
@@ -157,7 +163,10 @@ export class BxCanvas extends LitElement {
   _isActive(path) { return this._front === `tile:${path}`; }
   _activate(path) { frontWindow(`tile:${path}`); }
   // The live square's state: the tile's row and its frame's build state.
-  _liveOf(path) { return liveState(this._rowOf(path), this.frameFor(path)?.buildState ?? ''); }
+  _liveOf(path) {
+    const fr = this.frameFor(path), b = fr?.buildState === 'failed' ? 'failed' : buildPhaseOf(fr, this._rowOf(path)) ? 'building' : fr?.buildState ?? '';
+    return liveState(this._rowOf(path), b);
+  }
   _deployIcon(o, shown) {
     const c = (this.components ?? []).find((x) => x.path === o.path);
     wantDeployState(o.path, c);
@@ -450,7 +459,9 @@ export class BxCanvas extends LitElement {
     const mark = shown ? null : partitionMark(c), chip = partitionChip(pv, { shown, who: this.who });
     const frame = kind === 'doc' ? docFrame(o, shown)
       : html`<bx-frame src=${o.path} deployment=${shown || nothing} no-edit height="100%" .popBounds=${floating ? null : this._popBounds}></bx-frame>`;
-    const name = o.path.slice(o.path.lastIndexOf('/') + 1);
+    // what the tile calls itself (D194): its page's meta over its manifest's
+    // title and icon, else its name — always beside its path
+    const meta = this.frameFor(o.path)?.tileMeta, name = titleOf(o.path, c, meta), icon = iconOf(c, meta, hasIcon);
     const pin = floating ? 'pin back onto the grid' : 'unpin into a floating window';
     const admin = 'tile admin (lifecycle · access · runtime · vault · grants · interfaces · backup · cron)';
     const menu = 'tile menu (terminal · logs · source · proposals · admin)';
@@ -463,7 +474,11 @@ export class BxCanvas extends LitElement {
              @pointerup=${() => this._press.cancel()} @pointercancel=${() => this._press.cancel()} @pointerleave=${() => this._press.cancel()}>
           ${liveSquare(this._liveOf(o.path), this._runtimeOf(o.path))}
           ${mark ?? nothing}
-          <span class="t" title=${o.path}><span class="nm">${name}</span><span class="path">${o.path}</span></span>
+          ${icon ? html`<bx-icon class="tico" name=${icon}></bx-icon>` : nothing}
+          <span class="t" title=${name === o.path.slice(o.path.lastIndexOf('/') + 1) ? o.path : `${name} — ${o.path}`}><span class="nm">${name}</span><span class="path">${o.path}</span></span>
+          ${meta?.badge ? html`<span class="tbadge" title=${`${o.path}: ${meta.badge}`}>${meta.badge}</span>` : nothing}
+          ${buildChip(buildPhaseOf(this.frameFor(o.path), c), c?.runtime)}
+          ${promptBadge(this, o)}
           ${shown ? html`<span class="dtag" title=${`this window shows ${o.path}'s deployment ${shown} (/c/${o.path}+${shown}/), not the primary`}>+${shown}</span>` : nothing}
           ${chipTag(chip)}
           ${prBadge(this.prs?.[o.path], () => this.frameOpen(o.path, 'prs'))}
@@ -483,7 +498,8 @@ export class BxCanvas extends LitElement {
           ${!this.mobile && this.canMutate ? html`<button class="wc close" title="close" aria-label="close ${o.path}"
                   @click=${() => this._emit('bx-toggle-tile', o.path)}><bx-icon name="xmark"></bx-icon></button>` : nothing}
         </div>
-        <div class="cbody">${frame}${this._partOverlay(o.path, c, pv, shown)}</div>
+        ${this.mobile || kind === 'doc' ? promptPop(this, o, true) : nothing}
+        <div class="cbody">${frame}${this.mobile || kind === 'doc' ? nothing : promptPop(this, o)}${this._partOverlay(o.path, c, pv, shown)}</div>
       </div>`;
   }
 

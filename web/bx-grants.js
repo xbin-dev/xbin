@@ -9,25 +9,39 @@
  * Dismiss that hides the request for this person on all their devices
  * (/vendor/bx-dismiss.js); the shell's settings menu ("Show dismissed")
  * brings them back. With nothing pending it renders nothing.
+ *
+ * `tile="<path>"` shows only the requests that tile made (`from`): the
+ * shell puts one on each tile's window (D195) instead of a strip at the
+ * top. Every instance on a page reads the same requests and dismissals
+ * (/vendor/bx-requests.js), so a dozen of them cost one fetch.
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
-import { onEvent } from '/vendor/events-socket.js';
 import { capInfo } from '/vendor/bx-allow.js';
 import { grantArrow } from '/vendor/bx-grant-row.js';
-import { grantKey, split, prune, dismiss, loadDismissed, updateDismissed, dismissedEvent } from '/vendor/bx-dismiss.js';
+import { grantKey, split, dismiss } from '/vendor/bx-dismiss.js';
+import { grantsStore, dismissalStore } from '/vendor/bx-requests.js';
 import '/vendor/bx-icons.js';
 
 // a link-like control: focusable, Enter and Space work
 const toggle = (label, fn, title = '') => html`<a role="button" tabindex="0" title=${title} @click=${fn}
   @keydown=${(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(); } }}>${label}</a>`;
-const xfetch = (...a) => (window.xbin?.fetch ?? fetch)(...a);
-
 // Reserved targets have no component to look role docs up on.
 const reservedTarget = (t) => /^(res:|cap:|gpu:|net:|xbin$|xbin:|code$|code:)/.test(t);
 
+// The callees' role descriptions, read once per page for every instance.
+const roleDocs = new Map(); // target → Promise<{role: description}>
+const docsOf = (target) => {
+  if (!roleDocs.has(target)) {
+    roleDocs.set(target, fetch(`/api/xbin/components/${target}`)
+      .then(async (r) => (r.ok ? (await r.json()).component?.roles ?? {} : {})).catch(() => ({})));
+  }
+  return roleDocs.get(target);
+};
+
 export class BxGrants extends LitElement {
   static properties = {
+    tile: { type: String, reflect: true }, // only this tile's requests (D195)
     _pending: { state: true },
     _roleDocs: { state: true },
     _dismissed: { state: true }, // the person's dismissals (bx-dismiss.js); null until read
@@ -41,6 +55,10 @@ export class BxGrants extends LitElement {
       font: var(--bx-font, 13px/18px "Instrument Sans", system-ui, sans-serif);
       color: var(--bx-text, #E9EAF0);
     }
+    /* on a tile's window the shell's popover is the card */
+    :host([tile]) .panel { background: transparent; border: 0; padding: 0; }
+    :host([tile]) h4 { display: none; }
+    :host([tile]) .plate:last-child { margin-bottom: 0; }
     :focus-visible { outline: var(--bx-focus-outline, 3px solid #3DD6F5); outline-offset: var(--bx-focus-offset, 2px);
       box-shadow: var(--bx-focus-halo, 0 0 0 2px #0B0C12); }
     /* a card: a border, no shadow (D184) */
@@ -111,35 +129,27 @@ export class BxGrants extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
-    this._off = onEvent((e) => {
-      if (e.type === 'grants' || e.type === 'reload') this._load();
-      if (dismissedEvent(e)) this._loadDismissed(); // another tab or device dismissed or restored
-    });
-    this._load();
-    this._loadDismissed();
+    this._offs = [
+      grantsStore().subscribe((d) => this._got(d)),
+      dismissalStore().subscribe((d) => { this._dismissed = d; }),
+    ];
   }
 
-  disconnectedCallback() { super.disconnectedCallback(); this._off?.(); }
+  disconnectedCallback() { super.disconnectedCallback(); for (const f of this._offs ?? []) f(); }
 
-  async _load() {
-    try {
-      const r = await fetch('/api/xbin/grants');
-      if (!r.ok) return;
-      const d = await r.json();
-      this._pending = d.pending ?? [];
-      this._scope = d.scope ?? '';
-      this._loaded = true;
-      this._prune();
-      // Pull role descriptions for pending component targets.
-      for (const p of this._pending) {
-        if (reservedTarget(p.target) || this._roleDocs[p.target] !== undefined) continue;
-        const cr = await fetch(`/api/xbin/components/${p.target}`);
-        this._roleDocs = {
-          ...this._roleDocs,
-          [p.target]: cr.ok ? (await cr.json()).component?.roles ?? {} : {},
-        };
-      }
-    } catch { /* xbind restart etc.; next event reloads */ }
+  // _got(d): the page's read of /grants — this instance's part of it, and
+  // the role descriptions of its component targets.
+  _got(d) {
+    this._pending = (d.pending ?? []).filter((p) => !this.tile || p.from === this.tile);
+    this._scope = d.scope ?? '';
+    for (const p of this._pending) {
+      if (reservedTarget(p.target) || this._roleDocs[p.target] !== undefined) continue;
+      docsOf(p.target).then((roles) => { this._roleDocs = { ...this._roleDocs, [p.target]: roles }; });
+    }
+  }
+
+  updated(changed) {
+    if (changed.has('tile') && grantsStore().value) this._got(grantsStore().value);
   }
 
   // _post surfaces failures: a 403/400 from the approval gates (D26/D33)
@@ -157,34 +167,15 @@ export class BxGrants extends LitElement {
         this._err = '';
       }
     } catch (e) { this._err = String(e.message ?? e); }
-    this._load();
+    grantsStore().load();
   }
 
   _approve(g) { return this._post('POST', { from: g.from, target: g.target, role: g.role }); }
 
-  async _loadDismissed() {
-    const d = await loadDismissed(xfetch);
-    if (d) { this._dismissed = d; this._prune(); }
-  }
-
-  // _prune drops the dismissals of requests the server no longer lists
-  // (approved, withdrawn, another role asked for) — once both are read.
-  _prune() {
-    if (!this._dismissed || !this._loaded) return;
-    const live = this._pending.map(grantKey);
-    if (prune(this._dismissed, 'grants', live) === this._dismissed) return;
-    this._save((d) => prune(d, 'grants', live));
-  }
-
-  // _save(fn): change the dismissals — at once here, then stored (a read,
-  // change and write, so <bx-bindings>' own kind is never undone).
-  async _save(fn) {
-    if (this._dismissed) this._dismissed = fn(this._dismissed);
-    const d = await updateDismissed(xfetch, fn);
-    if (d) this._dismissed = d;
-  }
-
-  _dismiss(p) { return this._save((d) => dismiss(d, 'grants', grantKey(p))); }
+  // Dismiss: at once on every page element, then stored through the page's
+  // one save chain (bx-dismiss.js dismissals()); the requests the server no
+  // longer lists are pruned there, after fresh reads (#11).
+  _dismiss(p) { return dismissalStore().change((d) => dismiss(d, 'grants', grantKey(p))); }
 
   // askWho: "org:data admins · workspace admin" from the server's hints.
   _askWho(p) {
