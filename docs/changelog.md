@@ -67,6 +67,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   [native.md](/docs/native.md)); older apps copy the markdown as before.
 - **The iOS app on an open iPhone Duo** puts the navigation bar's controls
   in the system's vertical bar down the side (D200).
+- **Docs: [install.md](/docs/install.md)** — installing, the first login and
+  running xbin day to day (moved out of the README, which is now short).
+
 - **Fix: the agent template's project policy said "Someone changed this
   policy meanwhile"** after the person's own repo or setup-script change,
   and wouldn't save. **Instances:** take it with `git merge template/main`.
