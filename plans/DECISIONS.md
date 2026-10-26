@@ -12249,6 +12249,41 @@ Deviations and refinements made while implementing; all deliberate:
     images, embeds dropped; no other attribute.
   - **Older xbinds and the app.** `xbin.copy` resolves false after 3 s and
     the tile copies in its own frame (plain text).
+- **D200 — The iPhone Duo's vertical bar (2026-10-26; issue #33).**
+  native/ios (the panel bar, the tile's toolbar and ⋯, screen actions;
+  Navigation.swift's gated Duo code), .github/workflows/ios.yml (`duo` job),
+  native/ios/scripts (ci-pick-xcode.sh, pick-sim.sh, `XBIN_XCODE` honoured
+  everywhere), native/AGENTS.md. The owner: "iPhone Duo: put top screen
+  controls to the right side bar — matches apple design language, frees up
+  vertical space"; their answer: Duo only, through the iOS 27.1 SDK.
+  - **API (checked in Xcode 27.1, 27A9269's SDK).** The workspace switcher
+    with its needs count, Home/Back, the tile's ⋯ menu and toolbar items and
+    a screen's actions are marked `axisBehavior(.verticalPreferred)`: on an
+    open Duo the system draws them as a bar down the side (it picks the
+    edge); every other device and a folded Duo are unchanged. The gated
+    `XBIN_SDK_27_1` code had never compiled: `ArrangementView` takes
+    `primary:secondary:`, `reservedRegions` as written; `ArrangementView` is
+    used only where the system draws a vertical bar, so an iPad keeps its
+    columns on a 27.1 build.
+  - **CI.** A `duo` job builds the app and runs the package tests with the
+    Xcode carrying the 27.1 SDK (`XBIN_SWIFT_CONDITIONS=XBIN_SDK_27_1`);
+    the 27.0 build is unchanged. No Duo simulator exists yet (27.1's newest
+    device types are iPhone 18 Pro/Pro Max), so the layout itself is
+    untested; the Mac mini's beta also needs its first-launch packages
+    (an admin step) before any 27.1 simulator runs. pick-sim.sh skips
+    runtimes newer than the selected Xcode (the installed 27.1 runtime made
+    27.0 fail creating a simulator: "Incompatible device").
+  - **Also on iOS (no decisions of their own).** #30: every renderer text
+    field, the composer and the app's own forms get a Hide keyboard button
+    above the keyboard, and lists, forms and transcripts dismiss it on a
+    drag. #34: the `button` vocabulary goes to rev 2 with `copyFormat:
+    "text"|"markdown"` — the app renders the markdown it draws to HTML
+    itself (escaped, http(s)/mailto links only), so no HTML crosses the
+    bridge; the template sends it only to rev-2 apps; markdown messages are
+    selectable, and the Agent tab gets Copy. #28: verified fixed on a
+    partitioned agent (a node test of the native list's two homes; the Mac's
+    list-to-chat and deep-link UI tests against an `--isolate` partitioned
+    agent, `XBIN_E2E_AGENT_PARTITION=1`).
 - **D201 — Office documents and PDFs for the agent template, without a
   coding sandbox (2026-10-26; issue #35).** builtin-templates/agent/_backend
   docs*.go (readers, writers, previews, PDF), tools.go/llm.go/attach.go/

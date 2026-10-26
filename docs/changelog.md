@@ -59,6 +59,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `slides_write` — real .xlsx/.docx/.pptx with a preview in chat, all in
   the agent's own backend, no coding sandbox (the `docs` feature).
   **Instances:** take it with `git merge template/main`.
+- **The iOS app: the keyboard can always be put away** (#30) — a Hide
+  keyboard button above it in every field and composer, and a drag down a
+  list, form or transcript. **Copy keeps formatting** (#34): a message's
+  Copy puts HTML beside plain text, markdown messages are selectable, and
+  the Agent tab gets Copy. The `button` vocabulary is rev 2 (`copyFormat`,
+  [native.md](/docs/native.md)); older apps copy the markdown as before.
+- **The iOS app on an open iPhone Duo** puts the navigation bar's controls
+  in the system's vertical bar down the side (D200).
 - **Fix: the agent template's project policy said "Someone changed this
   policy meanwhile"** after the person's own repo or setup-script change,
   and wouldn't save. **Instances:** take it with `git merge template/main`.
