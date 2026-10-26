@@ -307,7 +307,7 @@ New with Base Two: `/product.html`, `/security.html`, `/install.html`, `/ios.htm
 `/404.html`, `/favicon.svg`, `/apple-touch-icon.png`, `/css/`, `/fonts/`, `/img/`,
 `/data/software-per-year.json`, `/js/copy.js`. No longer served: the old site's `/js/` islands, `/vendor/`,
 `/shots/` and its IBM Plex fonts (`website/shots/` stays in git for the repository
-README's image).
+README's images: `readme-*.webp`, stills from the demo set, `hack/demo/stills.js`).
 
 ### app/ios.json: the iOS app's kill switch
 

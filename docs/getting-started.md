@@ -3,9 +3,9 @@
 ## Run it
 
 xbin runs as a single binary on a Linux host it controls, with `--isolate`
-turning on per-component OS sandboxing (see the repo README → Running it for
-the host requirements — unprivileged user namespaces, sub-id delegation,
-`/dev/fuse`, `/dev/net/tun`):
+turning on per-component OS sandboxing ([install.md](/docs/install.md) has
+the installer and the host requirements — unprivileged user namespaces,
+sub-id delegation, `/dev/fuse`, `/dev/net/tun`):
 
 ```sh
 xbind --isolate --rootfs /var/lib/xbin/rootfs \
