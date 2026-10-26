@@ -104,7 +104,8 @@ public struct ComposerView<Chips: View>: View {
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("Stop")
-                } else {
+                }
+                if !composer.busy || onStop == nil || composer.sendWhileBusy {
                     // The accent while there is something to send, else the
                     // neutral fill with the arrow muted (never a near-white
                     // or black square, as the system's disabled button was).

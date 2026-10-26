@@ -29,6 +29,9 @@ public struct AgentSessionState: Sendable, Hashable {
     /// Unix ms the running turn started (the prompt's user message, else the
     /// status that said running); nil between turns — a Live Activity's elapsed.
     public var turnStartedAt: Int64?
+    /// The messages held for the running turn's end (D197: `POST …/queue`
+    /// while the agent can't take them mid-turn) — the composer's chips.
+    public var queue: [QueuedMessage] = []
 
     public init() {}
 
@@ -71,6 +74,7 @@ public struct AgentSessionState: Sendable, Hashable {
         if let st = s.status { apply(StatusUpdate(json: st), ts: 0) }
         if let u = Usage(json: s.usage) { usage = u }
         if s.turn > 0 { lastTurn = s.turn }
+        if let q = s.queue { queue = q } // held now; the page's queue events are newer
     }
 
     /// What an event says about the session as a whole (the fold's part of
@@ -78,9 +82,11 @@ public struct AgentSessionState: Sendable, Hashable {
     /// one fold.
     mutating func absorb(_ e: AgentEvent) {
         switch e.type {
-        case AgentEventType.status.rawValue, AgentEventType.turnEnd.rawValue, AgentEventType.messageDelta.rawValue:
+        case AgentEventType.status.rawValue, AgentEventType.turnEnd.rawValue, AgentEventType.messageDelta.rawValue,
+             AgentEventType.queue.rawValue:
             switch e.payload {
-            case .messageDelta(let d): if d.role == .user, d.parent.isEmpty { userPrompted(ts: e.ts) }
+            case .messageDelta(let d): if d.role == .user, d.parent.isEmpty, !d.steered { userPrompted(ts: e.ts) }
+            case .queue(let q): queue = q.items
             case .turnEnd(let t): apply(t)
             case .status(let s): apply(s, ts: e.ts)
             default: break

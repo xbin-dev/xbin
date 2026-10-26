@@ -399,17 +399,20 @@ private struct Reducer: Sendable, Hashable {
 
     mutating func fold(_ e: AgentEvent, into items: inout [TranscriptItem], state: inout AgentSessionState) {
         // a top-level thought ends when anything else arrives: that is its duration
-        if e.type != "thought.delta", e.type != "status", e.type != "files.changed", isThought(items, cur) {
+        if e.type != "thought.delta", e.type != "status", e.type != "files.changed", e.type != "queue", isThought(items, cur) {
             endThought(&items, cur!, ts: e.ts)
         }
         switch e.payload {
         case .messageDelta(let d):
-            if d.role == .user, d.parent.isEmpty { state.userPrompted(ts: e.ts) }
+            // a steered message joins the running turn: its start stays
+            if d.role == .user, d.parent.isEmpty, !d.steered { state.userPrompted(ts: e.ts) }
             delta(&items, e, parent: d.parent, text: d.text) { id in
                 .message(Message(id: id, role: d.role, messageId: d.messageId, text: d.text, parent: d.parent, ts: e.ts, open: true,
-                                 files: d.attachments))
+                                 files: d.attachments, steered: d.steered))
             } merge: { it in
-                if case .message(var m) = it, m.role == d.role, m.messageId == d.messageId, m.files.isEmpty, d.attachments.isEmpty {
+                // a steered message (D197) is a bubble of its own, as on the web
+                if case .message(var m) = it, m.role == d.role, m.messageId == d.messageId, m.files.isEmpty, d.attachments.isEmpty,
+                   !m.steered, !d.steered {
                     it = Self.hole
                     m.text += d.text
                     it = .message(m)
@@ -495,6 +498,8 @@ private struct Reducer: Sendable, Hashable {
             items.append(.gap(GapMarker(id: "gap\(before)", before: before)))
         case .status(let s):
             state.apply(s, ts: e.ts)
+        case .queue(let q): // the held messages (D197): state, not a row
+            state.queue = q.items
         case .unknown:
             break
         }

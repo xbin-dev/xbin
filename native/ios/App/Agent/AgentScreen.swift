@@ -32,6 +32,10 @@ final class AgentScreenModel {
     var signInCommand: LoginNeeded?
     /// Files waiting to ride the next prompt (§13): photos, the camera, Files.
     var attachments: [PendingAttachment] = []
+    /// The workspace's xbind takes messages while a turn runs (`POST …/queue`,
+    /// D197) — until one answers 404 (older): then Send waits for the turn's
+    /// end again, as before.
+    var queueSupported = true
     let picker = AttachPicker()
 
     @ObservationIgnored private var feed: AgentSessionFeed?
@@ -225,7 +229,10 @@ final class AgentScreenModel {
         draft = ""
         attachments = []
         do {
-            if files.isEmpty {
+            if state?.isBusy == true, queueSupported {
+                // the running turn takes it, or xbind holds it for its end (D197)
+                _ = try await feed.queue(text, attachments: files.map(\.prompt))
+            } else if files.isEmpty {
                 _ = try await feed.send(text)
             } else {
                 _ = try await feed.send(text, attachments: files.map(\.prompt))
@@ -234,6 +241,13 @@ final class AgentScreenModel {
         } catch {
             draft = text
             attachments = files + attachments
+            if let e = error as? AgentAPIError, e.isNotFound, state?.isBusy == true, queueSupported {
+                // an xbind before D197: messages go between turns only
+                queueSupported = false
+                self.error = "This workspace takes a message once the turn ends — send it then"
+                Haptics.failed()
+                return
+            }
             self.error = describe(error)
             if let e = error as? AgentAPIError, e.looksLikeAuth {
                 signInCommand = state?.signIn(provider: provider, lastError: e.message)
@@ -278,6 +292,21 @@ final class AgentScreenModel {
     }
 
     func cancel() async { try? await feed?.cancel() }
+
+    /// A held message's × (D197): taken back, whole, into the composer.
+    func takeBack(_ qid: String) async {
+        guard let feed else { return }
+        do {
+            let back = try await feed.unqueue(qid).map(\.text).filter { !$0.isEmpty }
+            guard !back.isEmpty else { return }
+            let current = draft.trimmingCharacters(in: .whitespacesAndNewlines)
+            draft = ([current].filter { !$0.isEmpty } + back).joined(separator: "\n\n")
+        } catch let e as AgentAPIError where e.isNotFound {
+            error = "It went in already"
+        } catch {
+            self.error = describe(error)
+        }
+    }
 
     /// A permission card's button (never answered for the user, D77). A
     /// plan rejected with feedback keeps the agent planning.
@@ -444,7 +473,9 @@ struct AgentScreen: View {
         }
         let chips = m.attachments.map { ChatAttachment(id: $0.id, name: $0.file.name, mime: $0.file.mime) }
         let c = ChatComposer(placeholder: m.ended ? "The session ended" : "Message the agent", busy: busy,
-                             disabled: m.ended, attachments: chips, canAttach: !m.ended, slash: slash)
+                             disabled: m.ended, attachments: chips, canAttach: !m.ended, slash: slash,
+                             sendWhileBusy: m.queueSupported && !m.ended)
+        let held = m.state?.queue ?? []
         let text = Binding(get: { m.draft }, set: { m.draft = $0 })
         let onSend: @MainActor (String) -> Void = { text in
             m.draft = text
@@ -454,17 +485,23 @@ struct AgentScreen: View {
         let onAttach: @MainActor () -> Void = { Task { await m.pickAttachments() } }
         let onRemove: @MainActor (String) -> Void = { id in m.removeAttachment(id) }
         // The send button needs text; files alone go with this chip.
-        if m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, !m.attachments.isEmpty, !busy, !m.ended {
+        let sendFiles = m.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !m.attachments.isEmpty && !m.ended
+            && (!busy || m.queueSupported)
+        if sendFiles || !held.isEmpty {
             ComposerView(composer: c, text: text, onSend: onSend, onStop: onStop, onAttach: onAttach,
                          onRemoveAttachment: onRemove) {
-                Button {
-                    Task { await m.send() }
-                } label: {
-                    Label(m.attachments.count == 1 ? "Send the file" : "Send \(m.attachments.count) files",
-                          systemImage: "arrow.up.circle.fill")
+                // the messages held for the turn's end (D197): × takes one back
+                ForEach(held) { q in QueuedChip(item: q) { Task { await m.takeBack(q.id) } } }
+                if sendFiles {
+                    Button {
+                        Task { await m.send() }
+                    } label: {
+                        Label(m.attachments.count == 1 ? "Send the file" : "Send \(m.attachments.count) files",
+                              systemImage: "arrow.up.circle.fill")
+                    }
+                    .xbinPrimary()
+                    .controlSize(.small)
                 }
-                .xbinPrimary()
-                .controlSize(.small)
             }
         } else {
             ComposerView(composer: c, text: text, onSend: onSend, onStop: onStop, onAttach: onAttach,
@@ -673,5 +710,34 @@ struct AgentLauncher: View {
             if let e = model.error { Section { Text(verbatim: e).foregroundStyle(XbinColor.danger) } }
         }
         .overlay { if model.starting { ProgressView() } }
+    }
+}
+
+/// A message held for the running turn's end (D197), over the composer:
+/// what it says (a preview), and × to take it back into the composer.
+struct QueuedChip: View {
+    let item: QueuedMessage
+    let onTakeBack: @MainActor () -> Void
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Image(systemName: XbinIcons.UI.queued).font(.caption).foregroundStyle(XbinColor.muted)
+            Text(verbatim: item.text.isEmpty ? item.files.joined(separator: ", ") : item.text)
+                .font(.footnote).lineLimit(1).truncationMode(.tail).frame(maxWidth: 220, alignment: .leading)
+            Button(action: onTakeBack) {
+                Image(systemName: "xmark").font(.caption2.weight(.bold)).foregroundStyle(XbinColor.muted)
+                    .frame(width: 22, height: 22).contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Take back")
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 4)
+        .padding(.vertical, 4)
+        .background(XbinColor.surface, in: .xbinPlate)
+        .overlay(RoundedRectangle.xbinPlate.strokeBorder(XbinColor.border, lineWidth: 1))
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(Text(verbatim: "Queued: " + item.text))
+        .accessibilityIdentifier("queued-chip")
     }
 }

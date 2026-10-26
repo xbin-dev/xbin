@@ -209,13 +209,18 @@ public struct PageState: Sendable, Hashable {
     /// The permission requests (pids) and questions (eids) waiting now.
     public var permissions: [String]
     public var elicitations: [String]
+    /// The messages held for the turn's end now (D197; nil: none said —
+    /// an older xbind, or nothing held).
+    public var queue: [QueuedMessage]?
 
-    public init(status: JSONValue? = nil, usage: JSONValue? = nil, turn: Int = 0, permissions: [String] = [], elicitations: [String] = []) {
+    public init(status: JSONValue? = nil, usage: JSONValue? = nil, turn: Int = 0, permissions: [String] = [], elicitations: [String] = [],
+                queue: [QueuedMessage]? = nil) {
         self.status = status
         self.usage = usage
         self.turn = turn
         self.permissions = permissions
         self.elicitations = elicitations
+        self.queue = queue
     }
 
     public init(json: JSONValue?) {
@@ -226,6 +231,7 @@ public struct PageState: Sendable, Hashable {
         turn = json?["turn"]?.int ?? 0
         permissions = (json?["permissions"]?.array ?? []).compactMap { $0["pid"]?.string ?? $0["pid"]?.compactString }
         elicitations = (json?["elicitations"]?.array ?? []).compactMap { $0["eid"]?.string ?? $0["eid"]?.compactString }
+        queue = json?["queue"]?.array != nil ? QueuedMessage.list(json?["queue"]) : nil
     }
 }
 
@@ -288,6 +294,28 @@ public struct HistoryTranscript: JSONBacked, Sendable, Hashable {
 public struct PromptAccepted: Sendable, Hashable {
     public let turn: Int
     public init(turn: Int) { self.turn = turn }
+}
+
+/// `POST …/queue` (D197) → what became of the message: it started a turn
+/// (`prompted`, `turn`), the running turn took it (`steered`), or it is
+/// held for the turn's end (`queued`, `id`).
+public struct QueueAccepted: Sendable, Hashable {
+    public enum Outcome: String, Sendable { case prompted, steered, queued }
+    public let outcome: Outcome?
+    public let turn: Int
+    public let id: String
+
+    public init(outcome: Outcome?, turn: Int = 0, id: String = "") {
+        self.outcome = outcome
+        self.turn = turn
+        self.id = id
+    }
+
+    init(json v: JSONValue) {
+        outcome = v["outcome"]?.string.flatMap(Outcome.init(rawValue:))
+        turn = v["turn"]?.int ?? 0
+        id = v["id"]?.string ?? v["id"]?.compactString ?? ""
+    }
 }
 
 /// `POST /term/sessions/<id>/restart` → {session, resumed}.

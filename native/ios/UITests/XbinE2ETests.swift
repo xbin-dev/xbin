@@ -169,6 +169,51 @@ final class XbinE2ETests: XCTestCase {
         for s in agents { await e.server.end(s.id) }
     }
 
+    /// A message while a turn runs (D197): Send stays beside Stop, the
+    /// message is held for the turn's end (the fake agent takes none
+    /// mid-turn) and shows as a chip over the composer; its × takes it back
+    /// into the composer. An xbind before D197 (no …/queue): Send says to
+    /// wait for the turn's end, and goes.
+    @MainActor
+    func test11AgentQueue() async throws {
+        let e = try E2E(self)
+        e.launch()
+        e.ensureWorkspace()
+        e.newSession("apps/welcome", "Agent")
+        let fake = e.app.buttons["Fake agent (tests)"]
+        if fake.waitForExistence(timeout: 20) { fake.tap() }
+        let composer = e.element("Message the agent", in: e.app.textViews)
+        let field = e.element("Message the agent", in: e.app.textFields)
+        guard let which = e.first(of: [composer, field], timeout: 30) else { XCTFail("the agent's composer"); return }
+        let input = which == 0 ? composer : field
+        input.tap()
+        input.typeText("stall here")
+        e.tapAfterTyping(e.app.buttons["Send"])
+        let stop = e.app.buttons["Stop"]
+        XCTAssertTrue(stop.waitForExistence(timeout: 60), "the stalled turn runs (Stop)")
+        input.tap()
+        input.typeText("then the tests")
+        e.tapAfterTyping(e.app.buttons["Send"])
+        let chip = e.app.descendants(matching: .any).matching(identifier: "queued-chip").firstMatch
+        if chip.waitForExistence(timeout: 20) {
+            e.shot("11-agent-queued")
+            XCTAssertTrue(e.until(10) { (input.value as? String ?? "").isEmpty }, "the held message left the composer")
+            let back = chip.buttons["Take back"]
+            XCTAssertTrue(back.waitForExistence(timeout: 5), "the chip's ×")
+            back.tap()
+            XCTAssertTrue(e.until(15) { (input.value as? String ?? "").contains("then the tests") }, "× takes it back into the composer")
+            XCTAssertTrue(e.until(15) { !chip.exists }, "…and its chip goes")
+        } else {
+            // an xbind before D197: the message stays and the screen says to wait
+            XCTAssertTrue(e.containing("once the turn ends").waitForExistence(timeout: 10),
+                          "an older xbind: no chip, the screen says to send it once the turn ends")
+            XCTAssertTrue((input.value as? String ?? "").contains("then the tests"), "…and the message stays in the composer")
+        }
+        stop.tap()
+        let agents = try await e.server.sessions(cwd: "apps/welcome").filter { $0.kind == "agent" }
+        for s in agents { await e.server.end(s.id) }
+    }
+
     /// Viewports (plans/native.md §6.3): a desktop-first page wider than the
     /// screen (apps/wide, e2e-xbind.sh's fixture: no viewport meta, a
     /// 1200 px strip) is laid out at its width and fitted to the screen,
