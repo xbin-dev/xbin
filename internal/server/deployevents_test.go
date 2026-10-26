@@ -204,13 +204,18 @@ func TestEventBytesZeroState(t *testing.T) {
 
 	if haveNode {
 		call("GET", "/api/apps/evnode/ping", "")
+		// backend-starting (D196) is the one addition: a new type between
+		// a build and its health check — every older client ignores a type
+		// it doesn't know, and the old types keep their bytes (12-compat.md)
 		expect("a backend's first start",
 			`{"type":"build-start","component":"apps/evnode"}`+"\n",
+			`{"type":"backend-starting","component":"apps/evnode"}`+"\n",
 			`{"type":"build-ok","component":"apps/evnode"}`+"\n")
 		save("apps/evnode/backend/server.js")
 		expect("a backend's save and swap",
 			`{"type":"reload","component":"apps/evnode"}`+"\n",
 			`{"type":"build-start","component":"apps/evnode"}`+"\n",
+			`{"type":"backend-starting","component":"apps/evnode"}`+"\n",
 			`{"type":"build-ok","component":"apps/evnode"}`+"\n")
 	} else {
 		t.Log("SKIP (partial): no node on PATH — the running-backend sequences are not checked")

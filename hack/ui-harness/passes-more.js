@@ -1,0 +1,24 @@
+// hack/ui-harness/passes-more.js — the passes registered past shots.js's
+// size budget (hack/size-budget.txt): one line each, so parallel packs'
+// registrations merge. shots.js calls register(PASSES) after its own.
+'use strict';
+
+function register(P) {
+  P.demoStills = require('../demo/stills').demoStills; // the demo film set's stills (HARNESS_SEED=demo; hack/demo/README.md)
+  P.appearance = require('./passes/appearance').appearance; // D184: no flash, the relay, a second tab, the hint cookie, density, fonts
+  P.themeCanary = require('./passes/themecanary').themeCanary; // D184: every colour, font and radius on screen from a token, in both themes
+  P.docMode = require('./passes/docmode').docMode; // D187: Document mode — rows, growing tiles, the top bar, a phone, back to Canvas
+  P.fixedGrid = require('./passes/fixedgrid').fixedGrid; // D193: Fixed width — 48 stretched columns, the right edge, back to Canvas
+  P.termTheme = require('./passes/termtheme').termTheme; // D184: an open terminal follows the person's theme; a picked palette stays
+  P.themeCompat = require('./passes/themecompat').themeCompat; // D184: a tile from before the theme — its own palette carries, its own buttons keep their colours
+  P.buildState = require('./passes/buildstate').buildState; P.tilePrompts = require('./passes/tileprompts').tilePrompts; // D196 build phases; D195 prompts on the tile
+  P.grantDismiss = require('./passes/grantdismiss').grantDismiss; // D188: dismiss grant requests and interfaces to bind; no "N grants active"
+  P.deviceTheme = require('./passes/devicetheme').deviceTheme; // D188: this browser's Light or Dark over the person's theme
+  P.focusAnchor = require('./passes/focusanchor').focusAnchor; // D191: the focused tile holds its place — Document mode, the last tile, a phone's canvas
+  P.blocks = require('./passes/blocks').blocks; // D192: headings and text on a screen, no tile — canvas, Document mode, an org screen's draft
+  P.richCopy = require('./passes/richcopy').richCopy; // D199/#26: copy with formatting — a right-click, xbin.copy, the agent's Copy; a coloured fence
+  P.tiled = require('./passes/tiled').tiled; // D193: Tiled — one tile fills the screen, splits, dividers, swaps, a phone, an org screen's draft
+  P.agentDocs = require('./passes/agentdocs').agentDocs; // D201: the agent reads a PDF, writes a workbook, a deck and a document — previews, downloads, no sandbox
+}
+
+module.exports = { register };

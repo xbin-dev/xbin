@@ -46,6 +46,11 @@ export const chromeCss = css`
     .wc:focus-visible { outline-offset: calc(-1 * var(--bx-focus-width, 3px)); box-shadow: none; }
     .lsq { flex: none; box-sizing: border-box; width: 8px; height: 8px; background: var(--bx-accent, #8C9BFF); }
     .lsq.building, .lsq.off { background: transparent; border: 1px solid var(--bx-border-strong, #666A7E); }
+    /* a build under way (D196): the square breathes, and the title bar says which part */
+    .lsq.building { border-color: var(--bx-accent, #8C9BFF); animation: bx-build-pulse 1.2s ease-in-out infinite; }
+    @keyframes bx-build-pulse { 50% { background: var(--bx-accent, #8C9BFF); } }
+    @media (prefers-reduced-motion: reduce) { .lsq.building { animation: none; } }
+    .bchip { flex: none; color: var(--bx-accent, #8C9BFF); font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); white-space: nowrap; }
     .lsq.failed { background: transparent; border: 1px solid var(--bx-danger, #FF7A7A); }
     .lfail { flex: none; font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); font-weight: 600; color: var(--bx-danger, #FF7A7A); }
 `;
@@ -547,6 +552,13 @@ export const canvasCss = [scrollCss, baseCss, chromeCss, css`
     .card .head .t .path { min-width: 0; overflow: hidden; text-overflow: ellipsis;
       font: var(--bx-font-code, 12px/18px ui-monospace, monospace); color: var(--bx-muted, #A3A6B6); }
     .card .head .spacer { flex: 1; }
+    /* what the tile calls itself (D194): its icon before the name, its page's badge after the path */
+    .card .head .tico { flex: none; color: var(--bx-muted, #A3A6B6); }
+    .card .head .tbadge {
+      flex: none; box-sizing: border-box; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--bx-radius, 2px); text-align: center;
+      background: var(--bx-hover, #2A2B34); color: var(--bx-accent, #8C9BFF);
+      font: var(--bx-font-micro, 600 11px/18px "Instrument Sans", system-ui, sans-serif);
+    }
     /* the tile body: fixed height, content scrolls inside — never stretches the card */
     .card .cbody { flex: 1; min-height: 0; overflow: hidden; position: relative; }
     .card .cbody > bx-frame { position: absolute; inset: 0; }
@@ -782,6 +794,15 @@ export const sideCss = [scrollCss, baseCss, css`
     .qx { flex: none; display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; padding: 0; cursor: pointer;
       border: 0; border-radius: var(--bx-radius, 2px); background: none; color: var(--bx-muted, #A3A6B6); }
     .qx:hover { background: var(--bx-control-hover, #33353F); color: var(--bx-text, #E9EAF0); }
+    /* decisions waiting on a tile (D195): its key flag, and a closed folder's count of such tiles */
+    .item .pq { flex: none; color: var(--bx-accent, #8C9BFF); }
+    /* a backend being built or starting (D196) */
+    .item .bld { flex: none; color: var(--bx-accent, #8C9BFF); }
+    .pqn { flex: none; display: inline-flex; align-items: center; gap: 3px; color: var(--bx-accent, #8C9BFF);
+      font: var(--bx-font-micro, 600 11px/14px system-ui, sans-serif); }
+    /* a tile page's badge (D194, xbin.meta) */
+    .item .tbadge { flex: none; box-sizing: border-box; min-width: 18px; height: 18px; padding: 0 5px; border-radius: var(--bx-radius, 2px); text-align: center;
+      background: var(--bx-hover, #2A2B34); color: var(--bx-accent, #8C9BFF); font: var(--bx-font-micro, 600 11px/18px system-ui, sans-serif); }
     /* a screen (tab) parked in the folder tree */
     .item.hid { opacity: 0.6; }
     .hidb, .item.screen .pk, .item .ob { flex: none; display: inline-flex; align-items: center; box-sizing: border-box; height: 18px; padding: 0 4px;

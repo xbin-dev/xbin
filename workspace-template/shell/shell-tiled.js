@@ -35,6 +35,7 @@ import { html, css, nothing, repeat } from 'lit';
 import { dragPointer } from '/vendor/bx-kit.js';
 import { activeWindow } from './zorder.js';
 import { screenMode } from './modes.js';
+import { titleOf } from '/vendor/tile-meta.js';
 import { normalise, layout, insert, setRatio, swap, rotate, swapSibling, parentOf, leaves, same } from './tiling.js';
 
 const GUT = 4;       // half the gutter between two tiles
@@ -45,13 +46,14 @@ const SWITCH_H = 40; // a phone's tile switcher
 const reading = (a, b) => (a.y ?? 0) - (b.y ?? 0) || (a.x ?? 0) - (b.x ?? 0) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
 export const tiledPaths = (tiles) => (tiles ?? []).filter((o) => o?.path && !o.float).sort(reading).map((o) => o.path);
 const byPath = (a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
-const nameOf = (p) => p.slice(p.lastIndexOf('/') + 1);
+// what a tile calls itself (D194): its page's title, its manifest's, else its name
+const nameOf = (c, p) => titleOf(p, (c.components ?? []).find((x) => x.path === p), c.frameFor?.(p)?.tileMeta);
 
 // paneOf(canvas) → the tile area {x: 0, y: 0, w, h}: <main>'s content box
-// below where the canvas starts — the decision strips above it (grant
-// requests, interfaces to bind) take theirs. A strip taller than 40 % of
-// the pane would leave the tiles a sliver: then the tiles keep the whole
-// pane's height below it, and the page scrolls past the strip to them.
+// below where the canvas starts — what sits above it in <main> (an org
+// screen's bar) takes its own. Anything there taller than 40 % of the pane
+// would leave the tiles a sliver: then the tiles keep the whole pane's
+// height below it, and the page scrolls past it to them.
 export function paneOf(c) {
   const main = c?.closest?.('main');
   if (!main) return c?._tpane ?? { x: 0, y: 0, w: 1200, h: 800 };
@@ -127,7 +129,7 @@ export function tiledView(c) {
       ${ed ? dividers.map((d) => divider(c, d)) : nothing}
       ${c.mobile ? html`<div class="tswitch" role="tablist" aria-label="tiles on this screen">${order.map((p) => html`
         <button type="button" role="tab" class=${p === shown ? 'on' : ''} aria-selected=${p === shown ? 'true' : 'false'} title=${p}
-          @click=${() => c._activate(p)}>${nameOf(p)}</button>`)}</div>` : nothing}
+          @click=${() => c._activate(p)}>${nameOf(c, p)}</button>`)}</div>` : nothing}
     </div>`;
 }
 

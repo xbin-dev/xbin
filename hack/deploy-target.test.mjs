@@ -139,7 +139,9 @@ test('a frame of a deployment', () => {
   assert.deepEqual(deploymentFrame(`${T}+dev`, ev({ op: 'build', deployment: 'dev', phase: 'error' })), { error: 'the logs tab has the output' },
     'no compiler output for this viewer: the overlay points at the logs');
   assert.deepEqual(deploymentFrame(`${T}+dev`, ev({ op: 'build', deployment: 'dev', phase: 'ok' })), { error: null });
-  assert.equal(deploymentFrame(`${T}+dev`, ev({ op: 'build', deployment: 'dev', phase: 'start' })), null);
+  // a build under way says its phase (D196): compiling, then its backend starting
+  assert.deepEqual(deploymentFrame(`${T}+dev`, ev({ op: 'build', deployment: 'dev', phase: 'start' })), { phase: 'compile' });
+  assert.deepEqual(deploymentFrame(`${T}+dev`, ev({ op: 'build', deployment: 'dev', phase: 'starting' })), { phase: 'starting' });
   assert.equal(deploymentFrame(`${T}+dev`, ev({ op: 'reload', deployment: 'qa' })), null, 'another deployment');
   assert.equal(deploymentFrame(`${T}+dev`, ev({ op: 'deploy', deployment: 'dev', result: 'ok' })), null, 'a deploy reloads through op reload');
   assert.equal(deploymentFrame(T, ev({ op: 'reload', deployment: 'dev' })), null, 'the primary\'s frame');

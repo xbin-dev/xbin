@@ -21,6 +21,9 @@ import { LongPress, prBadge, isScreenItem, isOrgScreenItem, screenIdOf, scopeOf,
 import { offloaded, hidden } from './menus.js';
 import { ago } from './rev-draft.js';
 import { sideCss, statusCss, prbCss, partCss } from './shell-css.js';
+import { flaggedIn, promptWords } from './prompts.js';
+import { titleOf, iconOf, nameOf } from '/vendor/tile-meta.js';
+import { hasIcon } from '/vendor/bx-icons.js';
 
 // The tree's row icons — drawn glyphs (/vendor/bx-icons.js), never emoji or
 // font glyphs, so they look the same everywhere: a tile is an app (a
@@ -94,6 +97,11 @@ export class BxSide extends LitElement {
   }
   _ctx(key) { return this._a.folderCtx?.(key ?? 'top') ?? { key: 'top', folders: [], canEdit: false, shared: false, mutate() {} }; }
   _childFolders(parentId, ctx) { return ctx.folders.filter((f) => (f.parent ?? null) === (parentId ?? null)); }
+  // _flagged(f, ctx) → how many tiles in folder f and the folders under it have decisions waiting (D195).
+  _flagged(f, ctx, depth = 0) {
+    if (!this._s.prompts?.size || depth > 32) return 0;
+    return flaggedIn(this._s.prompts, f.items) + this._childFolders(f.id, ctx).reduce((n, c) => n + this._flagged(c, ctx, depth + 1), 0);
+  }
   _isFolderOpen(f, ctx) {
     if (this._q.trim()) return true; // force-open while filtering
     return ctx.shared ? (this._s.side?.sharedOpen?.[f.id] ?? true) : !!f.open;
@@ -284,11 +292,15 @@ export class BxSide extends LitElement {
   // One sidebar row for a component — used by folders and section roots alike.
   // ctxKey names the folder context a drop on this row acts in. A partitioned
   // tile's marker sits at the row's right end, before ⋯ (PD-53).
+  // A tile with decisions waiting on it carries a key flag (D195): opening
+  // it shows them on its window. Its label is what it calls itself (D194:
+  // its page's title, its manifest's) — its path stays in the tooltip.
   _itemTemplate(c, folderId = null, label = null, depth = 0, ctxKey = null) {
     if (!c) return nothing;
-    const st = this._statusOf(c.path);
-    const title = st ? `${c.path} — ${st.level}${st.message ? ': ' + st.message : ''}`
-      : (c.manifestError ? `${c.path} — manifest error: ${c.manifestError}` : c.path);
+    const st = this._statusOf(c.path), pq = this._s.prompts?.get(c.path), bp = this._s.buildOf?.(c.path) ?? ''; // D195, D196
+    const meta = this._s.metaOf?.(c.path), named = titleOf(c.path, c, meta), icon = iconOf(c, meta, hasIcon);
+    const title = (st ? `${c.path} — ${st.level}${st.message ? ': ' + st.message : ''}`
+      : (c.manifestError ? `${c.path} — manifest error: ${c.manifestError}` : c.path)) + (pq?.n ? ` — ${promptWords(pq)}` : '');
     return html`
       <div class="item ${this._isOpen(c.path) ? 'open' : ''} ${this._dropBefore === c.path ? 'dropinto' : ''} ${st ? 'st-' + st.level : ''} ${hidden(c) ? 'hid' : ''}"
            data-path=${c.path}
@@ -306,8 +318,11 @@ export class BxSide extends LitElement {
            @dragleave=${() => { if (this._dropBefore === c.path) this._dropBefore = null; }}
            @drop=${(e) => this._dropOnItem(e, c.path, folderId, ctxKey)}
            @click=${() => this._a.toggle?.(c.path)}>
-        <span class="tic">${APP_ICON}</span>
-        <span class="nm">${label ?? c.path.slice(c.path.lastIndexOf('/') + 1)}</span>
+        <span class="tic">${icon ? html`<bx-icon name=${icon}></bx-icon>` : APP_ICON}</span>
+        <span class="nm">${named !== nameOf(c.path) ? named : label ?? named}</span>
+        ${meta?.badge ? html`<span class="tbadge">${meta.badge}</span>` : nothing}
+        ${pq?.n ? html`<bx-icon class="pq" name="key" data-prompts=${pq.n} label=${promptWords(pq)}></bx-icon>` : nothing}
+        ${bp ? html`<bx-icon class="bld" name="wait" data-build=${bp} label=${bp === 'starting' ? 'its backend is starting' : 'its backend is being built'}></bx-icon>` : nothing}
         ${prBadge(this._s.prs?.[c.path])}
         ${st ? statusIcon(st.level) : nothing}
         ${c.manifestError ? html`<bx-icon class="err" name="warning" label="manifest error"></bx-icon>` : nothing}
@@ -348,6 +363,7 @@ export class BxSide extends LitElement {
     // unless its curator is editing (they must see what they just created).
     if (ctx.shared && !ctx.canEdit && !items.length && !children.length) return nothing;
     const fst = !open ? worstStatus(this._s.status, comps.map((c) => c.path)) : null;
+    const fpq = !open ? this._flagged(f, ctx) : 0; // its tiles' and its folders' tiles' waiting decisions (D195)
     const ro = ctx.shared && !ctx.canEdit;
     return html`
       <div class="group folder ${this._dropFolder === f.id ? 'dropping' : ''} ${fst ? 'st-' + fst : ''} ${ro ? 'ro' : ''}" draggable=${ctx.canEdit ? 'true' : 'false'}
@@ -365,6 +381,7 @@ export class BxSide extends LitElement {
         <span class="ficon">${f.icon || html`<bx-icon name="folder"></bx-icon>`}</span>
         <span class="fname">${f.name}</span> <span class="n">${items.length + children.length}</span>
         ${fst ? statusIcon(fst) : nothing}
+        ${fpq ? html`<span class="pqn" data-prompts=${fpq} title=${`${fpq} ${fpq === 1 ? 'tile has' : 'tiles have'} decisions waiting for you — open the folder`}><bx-icon name="key"></bx-icon>${fpq}</span>` : nothing}
         ${ctx.canEdit ? html`<button class="fx" title="delete folder (contents return to the section root / tabs)" aria-label=${`delete the folder ${f.name}`}
                 @click=${(e) => { e.stopPropagation(); this._a.deleteFolder?.(f, ctx); }}><bx-icon name="xmark"></bx-icon></button>` : nothing}
       </div>

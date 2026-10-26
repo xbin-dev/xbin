@@ -374,7 +374,8 @@ func TestZeroStateListings(t *testing.T) {
 	// /components: today's key set on every row; the fixture's rows exact.
 	comps := get("/api/xbin/components", owner)
 	allowed := map[string]bool{}
-	for _, k := range strings.Split("path,scope,runtime,hasIndex,template,state,roles,uses,deps,manifestError,owner,chrome,chromeRequested,sandbox,native,origin", ",") {
+	// title, icon (D194) and backend (D196) are additive keys every tile may carry
+	for _, k := range strings.Split("path,scope,runtime,hasIndex,template,state,roles,uses,deps,manifestError,owner,chrome,chromeRequested,sandbox,native,origin,title,icon,backend", ",") {
 		allowed[k] = true
 	}
 	for _, k := range strings.Split(zsKeys(t, comps), ",") {
@@ -467,9 +468,13 @@ var zsListingGoldens = []zsListing{
 		want: `[
   {
     "hasIndex": true,
-    "path": "apps/zs"
+    "path": "apps/zs",
+    "title": "Zero"
   },
   {
+    "backend": {
+      "state": "failed"
+    },
     "hasIndex": false,
     "path": "apps/zsbroken",
     "runtime": "node"
@@ -488,7 +493,8 @@ var zsListingGoldens = []zsListing{
 		want: `[
   {
     "hasIndex": true,
-    "path": "apps/zs"
+    "path": "apps/zs",
+    "title": "Zero"
   },
   {
     "hasIndex": true,

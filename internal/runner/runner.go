@@ -88,6 +88,7 @@ type state struct {
 	gen       int
 	cur       *instance
 	building  bool
+	phase     string        // while building (D196): "compile", then "starting" once spawned and waiting for health
 	buildDone chan struct{} // closed when in-flight build settles
 	lastErr   error         // sticky build/crash error until next change
 	dirty     bool          // changed since last successful build
@@ -247,6 +248,7 @@ func (r *Runner) ensureState(ctx context.Context, c *registry.Component, s *stat
 
 		s.mu.Lock()
 		s.building = false
+		s.phase = ""
 		s.lastErr = err
 		close(s.buildDone)
 		s.mu.Unlock()
@@ -326,6 +328,7 @@ func (r *Runner) runCurrent(c *registry.Component, s *state) error {
 // (resolveGenFor, inspect.go).
 func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error {
 	dep := s.dep
+	r.setPhase(s, "compile")
 	r.emitState(s, "build-start", "")
 
 	g, err := r.resolveGenFor(c, dep, code)
@@ -354,6 +357,10 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 		old = nil
 	}
 
+	// built (or the artifact was cached): the backend starts and is waited
+	// for — a phase of its own for the shell's window (D196)
+	r.setPhase(s, "starting")
+	r.emitState(s, "backend-starting", "")
 	inst, err := r.startFor(v, dep, bin, gen)
 	inst, err = r.partSpawned(s, v, inst, err) // a stop that landed meanwhile stops it (partstart.go)
 	if err != nil {

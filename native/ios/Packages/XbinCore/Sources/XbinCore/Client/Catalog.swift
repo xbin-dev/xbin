@@ -103,12 +103,17 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
     /// (partitioned tiles, D181); nil on every other row, and on every row
     /// of an xbind older than partitions.
     public var partition: TilePartition?
+    /// What the tile calls itself (D194): its manifest's `title` and `icon`
+    /// (an icon name, plans/native.md §10.4), "" / nil when it gives none.
+    public var manifestTitle: String
+    public var manifestIcon: String?
 
     public var id: String { path }
 
     public init(path: String, scope: String = "", runtime: String = "", hasIndex: Bool = true, state: String = "",
                 owner: String = "", chrome: Bool = false, sandbox: [String] = [], nativeEntry: String? = nil,
-                manifestError: String = "", template: Bool = false, partition: TilePartition? = nil) {
+                manifestError: String = "", template: Bool = false, partition: TilePartition? = nil,
+                manifestTitle: String = "", manifestIcon: String? = nil) {
         self.path = path
         self.scope = scope
         self.runtime = runtime
@@ -121,6 +126,8 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
         self.manifestError = manifestError
         self.template = template
         self.partition = partition
+        self.manifestTitle = String(manifestTitle.prefix(80))
+        self.manifestIcon = manifestIcon.flatMap { $0.isEmpty || $0.count > 40 ? nil : $0 }
     }
 
     public init?(json: JSONValue) {
@@ -135,12 +142,13 @@ public struct TileInfo: Sendable, Hashable, Identifiable {
                   owner: json["owner"]?.stringValue ?? "", chrome: json["chrome"]?.boolValue ?? false,
                   sandbox: (json["sandbox"]?.arrayValue ?? []).compactMap(\.stringValue), nativeEntry: entry,
                   manifestError: json["manifestError"]?.stringValue ?? "", template: json["template"]?.boolValue ?? false,
-                  partition: json["partition"].flatMap(TilePartition.init(json:)))
+                  partition: json["partition"].flatMap(TilePartition.init(json:)),
+                  manifestTitle: json["title"]?.stringValue ?? "", manifestIcon: json["icon"]?.stringValue)
     }
 
-    /// The last path segment, made readable: `apps/egress-approver` →
-    /// "Egress approver".
-    public var title: String { TileInfo.humanize(path) }
+    /// What to call the tile: its manifest's title (D194), else the last
+    /// path segment made readable: `apps/egress-approver` → "Egress approver".
+    public var title: String { manifestTitle.isEmpty ? TileInfo.humanize(path) : manifestTitle }
     /// Everything before the last segment ("apps"), "" at the top.
     public var parent: String {
         guard let i = path.lastIndex(of: "/") else { return "" }

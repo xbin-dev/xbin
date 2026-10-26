@@ -14,31 +14,23 @@
 // The shell keeps two fields: `_dismissed` (the stored dismissals, null
 // until read) and `_alertOpen` (the keys of banners shown in full).
 import { html, nothing } from 'lit';
-import { alertKey, split, dismiss, KINDS, loadDismissed, updateDismissed, dismissedEvent } from '/vendor/bx-dismiss.js';
-
-const fetchFn = (...a) => window.xbin.fetch(...a);
+import { alertKey, split, dismiss, KINDS } from '/vendor/bx-dismiss.js';
+import { dismissalStore } from '/vendor/bx-requests.js';
 
 const level = (l) => (l === 'crit' ? { icon: 'error', word: 'Critical' } : { icon: 'warning', word: 'Warning' });
 
-// loadDismissals(shell): read the person's dismissals (on start, and when a
-// `prefs` event says another tab or device changed them).
-export async function loadDismissals(s) {
-  const d = await loadDismissed(fetchFn);
-  if (d) { s._dismissed = d; s.requestUpdate(); }
+// loadDismissals(shell): follow the person's dismissals — the page's one
+// store (/vendor/bx-requests.js), read on start and again when another tab
+// or device changes them; every change on the page goes through its one
+// save chain (#11), the decision prompts' too.
+export function loadDismissals(s) {
+  return dismissalStore().subscribe((d) => { s._dismissed = d; s.requestUpdate(); });
 }
 
-// followDismissals(shell, event): the shell's event hook.
-export function followDismissals(s, e) {
-  if (dismissedEvent(e)) loadDismissals(s);
-}
-
-async function dismissAlert(s, a) {
+function dismissAlert(s, a) {
   if (a.dismiss) { s._loadAlerts(a.dismiss); return; } // the server's own acknowledgement
   const key = alertKey(a);
-  s._dismissed = dismiss(s._dismissed || {}, 'alerts', key); // at once, then stored
-  s.requestUpdate();
-  const saved = await updateDismissed(fetchFn, (d) => dismiss(d, 'alerts', key));
-  if (saved) { s._dismissed = saved; s.requestUpdate(); }
+  dismissalStore().change((d) => dismiss(d, 'alerts', key)); // at once, then stored
 }
 
 function toggleOpen(s, key) {
@@ -77,8 +69,5 @@ export function dismissedRow(s) {
   if (!n) return nothing;
   return html`<button type="button" class="restore-all" data-restore-all
     title="show the warnings, grant requests and interfaces to bind you dismissed again"
-    @click=${async () => {
-      const saved = await updateDismissed(fetchFn, (d) => Object.fromEntries(Object.entries(d).map(([k, v]) => [k, KINDS.includes(k) ? {} : v])));
-      if (saved) { s._dismissed = saved; s.requestUpdate(); }
-    }}>Show dismissed (${n})</button>`;
+    @click=${() => dismissalStore().change((d) => Object.fromEntries(Object.entries(d).map(([k, v]) => [k, KINDS.includes(k) ? {} : v])))}>Show dismissed (${n})</button>`;
 }

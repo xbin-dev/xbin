@@ -30,6 +30,27 @@ export function liveState(c, build) {
   if (c?.state && c.state !== 'enabled') return 'off';
   return build === 'building' || build === 'failed' ? build : 'live';
 }
+// buildPhaseOf(frame, row) → what the tile's backend is doing (D196):
+// 'compile', 'env' or 'starting', '' when nothing — its window's frame once
+// that has heard a build event, before then the /components row (a window
+// opened mid-build).
+export function buildPhaseOf(frame, row) {
+  if (frame?.buildSeen || frame?.buildPhase) return frame.buildPhase ?? '';
+  const st = row?.backend?.state;
+  return st === 'building' ? 'compile' : st === 'starting' ? 'starting' : '';
+}
+// buildChip(phase, runtime): the title bar's words for a build under way
+// (D196) — short, the whole of it in the tooltip; role status, so a screen
+// reader hears it change.
+const PHASE = {
+  compile: (rt) => (rt === 'go' ? ['Compiling…', 'compiling the Go backend'] : ['Preparing…', `preparing ${runtimeName(rt)}`]),
+  env: () => ['Setting up…', 'setting up the tile\u2019s environment layer (its setup script)'],
+  starting: (rt) => ['Starting…', `${runtimeName(rt)} is starting — the window answers once it does`],
+};
+export function buildChip(phase, runtime) {
+  const w = PHASE[phase]?.(runtime);
+  return w ? html`<span class="bchip" role="status" data-build=${phase} title=${w[1]}>${w[0]}</span>` : nothing;
+}
 export function liveSquare(state, runtime) {
   const title = `${LIVE_WORD[state] ?? 'live'} · ${runtimeName(runtime)}`;
   return html`<span class="lsq ${state}" role="img" aria-label=${title} title=${title}></span>${state === 'failed'

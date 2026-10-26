@@ -185,6 +185,8 @@ func (r *Runner) inspectStates(states []*state, named bool) []Backend {
 
 func stateName(s *state) string {
 	switch {
+	case s.building && s.phase == "starting":
+		return "starting"
 	case s.building:
 		return "building"
 	case s.cur != nil:
@@ -530,4 +532,25 @@ func isTreeID(s string) bool {
 		}
 	}
 	return true
+}
+
+// PrimaryState is tile's primary backend's state as stateName says it —
+// idle, building, starting (D196), healthy or failed — or "" when the
+// runner has never been asked to run it: what /components shows a window
+// opened mid-build.
+func (r *Runner) PrimaryState(tile string) string {
+	s := r.existingState(tile)
+	if s == nil {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return stateName(s)
+}
+
+// setPhase records the build phase of s (D196).
+func (r *Runner) setPhase(s *state, phase string) {
+	s.mu.Lock()
+	s.phase = phase
+	s.mu.Unlock()
 }

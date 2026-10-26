@@ -104,8 +104,10 @@ func TestNoPartitionGolden(t *testing.T) {
 			if g.path != "/api/xbin/components" || g.as != who {
 				continue
 			}
-			if got := zsNorm(t, zsPick(t, b, "path"), nil, nil); got != g.want {
-				t.Errorf("%s: the zero-state fixture's rows:\n%s\nwant\n%s", who, got, g.want)
+			// backend (D196) says what the runner did, which this workspace and that test's differ in
+			nb := []string{"*.backend"}
+			if got, want := zsNorm(t, zsPick(t, b, "path"), nb, nil), zsNorm(t, []byte(g.want), nb, nil); got != want {
+				t.Errorf("%s: the zero-state fixture's rows:\n%s\nwant\n%s", who, got, want)
 			}
 		}
 		b, _ = json.Marshal(np)

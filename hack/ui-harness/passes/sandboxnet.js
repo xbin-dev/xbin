@@ -16,7 +16,7 @@
 // The manager tile is created here (a rerun reuses it) and both classes end
 // bound to none, so no pending row is left for later passes.
 const path = require('path');
-const { URL, fs, sleep, login, closeCtx, settle, sh, waitFor, waitSel, gotoTab, openShell, shot, dumpSelects, checker } = require('../lib');
+const { URL, fs, sleep, login, closeCtx, settle, sh, waitFor, waitSel, gotoTab, openShell, usePersonalScreen, shot, dumpSelects, checker } = require('../lib');
 
 const TILE = 'apps/sbxmgr';
 const CLASSES = ['internet', 'lab'];
@@ -56,9 +56,12 @@ async function sandboxNet(browser) {
   // the shell's bind prompt: what an approver clicking through gets
   const { page } = A;
   await openShell(page);
-  await waitFor(page, (t, tile) => [...(t.query('bx-bindings')?.renderRoot?.querySelectorAll('.row') ?? [])]
+  await usePersonalScreen(page);
+  await sh(page, (t, tile) => t.openTile(tile), TILE); // the prompt is on the tile's window (D195)
+  const BB = `bx-bindings[tile="${TILE}"]`;
+  await waitFor(page, (t, tile) => [...(t.query(`bx-bindings[tile="${tile}"]`)?.renderRoot?.querySelectorAll('.row') ?? [])]
     .filter((r) => r.querySelector('.who')?.textContent === tile).length === 2, TILE, { label: 'bind prompt: the class rows' });
-  const prompt = await sh(page, (t, tile) => [...t.query('bx-bindings').renderRoot.querySelectorAll('.row')]
+  const prompt = await sh(page, (t, tile) => [...t.query(`bx-bindings[tile="${tile}"]`).renderRoot.querySelectorAll('.row')]
     .filter((r) => r.querySelector('.who')?.textContent === tile)
     .map((r) => ({
       slot: r.querySelector('.slot')?.textContent,
@@ -71,8 +74,8 @@ async function sandboxNet(browser) {
     check(prompt.every((r) => r.hostSets.length > 0 && r.hostSets.every((o) => o.disabled && o.title === 'a sandbox class can\'t reach the host')),
       `bind prompt: a set that says host is greyed, "a sandbox class can't reach the host" (${JSON.stringify(prompt.map((r) => r.hostSets))})`);
   }
-  await dumpSelects(page, 'sandbox-net-bind-prompt-selects', 'bx-bindings select');
-  await sh(page, (t, tile) => [...t.query('bx-bindings').renderRoot.querySelectorAll('.row')]
+  await dumpSelects(page, 'sandbox-net-bind-prompt-selects', `${BB} select`);
+  await sh(page, (t, tile) => [...t.query(`bx-bindings[tile="${tile}"]`).renderRoot.querySelectorAll('.row')]
     .find((r) => r.querySelector('.who')?.textContent === tile && r.querySelector('.slot')?.textContent === 'lab')
     ?.querySelector('button')?.click(), TILE);
   let clicked = '';

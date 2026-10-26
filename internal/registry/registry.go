@@ -57,6 +57,9 @@ type TemplateMeta struct {
 // Manifest is a component's xbin.json. All fields optional; a bare directory
 // with index.html is a valid static component.
 type Manifest struct {
+	// Title and Icon: what people see the tile called, beside its path (D194, display.go).
+	Title   string   `json:"title,omitempty"`
+	Icon    string   `json:"icon,omitempty"`
 	Runtime string   `json:"runtime,omitempty"` // static|go|node|python ("cgi" removed: ValidateRuntime)
 	Entry   string   `json:"entry,omitempty"`   // runtime-specific; defaults in runner
 	Deps    []string `json:"deps,omitempty"`    // source visibility (deps/ symlinks)

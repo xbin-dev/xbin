@@ -31,6 +31,12 @@ struct TileMeta: Codable, Equatable, Sendable {
     /// The SF Symbol of a known icon name (unknown names show nothing here).
     var symbol: String? { icon.flatMap { XbinIcons.symbols[$0] } }
 
+    /// The symbol to draw for `tile`: its page's meta, else its manifest's
+    /// icon (D194), else none.
+    static func symbol(_ meta: TileMeta?, _ tile: TileInfo) -> String? {
+        meta?.symbol ?? tile.manifestIcon.flatMap { XbinIcons.symbols[$0] }
+    }
+
     var isEmpty: Bool { title == nil && icon == nil && badge == nil }
 }
 

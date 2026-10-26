@@ -1,12 +1,12 @@
-// hack/ui-harness/passes/grantdismiss.js — covers D188: the shell's grant
-// strip — a person dismisses grant requests and "interfaces to bind" rows,
-// and there is no "N grants active" line. Two tiles of org:devs:
-// apps/gd-y asks for apps/gd-x's reader role and has an unbound net slot.
-// As the admin:
-//   1. the strip shows the request and the row, each with a quiet Dismiss,
-//      and no "grants active" line (shot: grantdismiss-strip-<theme>);
-//   2. Dismiss hides both and leaves no restore line in the strip (it
-//      vanishes when nothing else waits); the settings menu says "Show
+// hack/ui-harness/passes/grantdismiss.js — covers D188 and #11: a person
+// dismisses grant requests and "interfaces to bind" rows (since D195 on the
+// window of the tile that asked), and there is no "N grants active" line.
+// Two tiles of org:devs: apps/gd-y asks for apps/gd-x's reader role and has
+// an unbound net slot; gd-y is open on every page's screen. As the admin:
+//   1. gd-y's window shows the request and the row, each with a quiet
+//      Dismiss, and no "grants active" line (shot: grantdismiss-strip-<theme>);
+//   2. Dismiss hides both and leaves no restore line (the popover goes when
+//      nothing else waits); the settings menu says "Show
 //      dismissed (2)" (shot: grantdismiss-restore-<theme>), the organisations
 //      badge drops by two, and the shell's `dismissed` pref holds the keys
 //      (from|target|role, component|slot|kind);
@@ -19,13 +19,18 @@
 //   7. a warning banner (a served /alerts answer with no dismiss route, as
 //      the partition trust warnings are): one line above the top bar, never
 //      over it; Dismiss hides it for the person (the pref's `alerts`), the
-//      settings menu counts it, and "Show dismissed" brings it back.
-// The two tiles and the pref are removed at the end.
+//      settings menu counts it, and "Show dismissed" brings it back;
+//   8. (#11) five Dismiss clicks at once on apps/gd-z's five slots all stay
+//      stored (they used to undo each other); a second page whose list
+//      can't be read (a stale page) doesn't prune a dismissal another page
+//      just stored; and gd-z gone for a moment (a half-written xbin.json)
+//      keeps its dismissals.
+// The tiles and the pref are removed at the end.
 const path = require('path');
-const { URL, fs, login, closeCtx, openShell, usePersonalScreen, settle, shotEl, checker, sleep, THEME } = require('../lib');
+const { URL, fs, login, closeCtx, openShell, usePersonalScreen, settle, shotEl, checker, sleep, sh, THEME } = require('../lib');
 
 const WS = process.env.WS || '';
-const X = 'apps/gd-x', Y = 'apps/gd-y';
+const X = 'apps/gd-x', Y = 'apps/gd-y', Z = 'apps/gd-z';
 const manifestY = (role) => JSON.stringify({ title: 'gd y', uses: [{ target: X, role }], interfaces: { net: { kind: 'net' } } });
 const GKEY = (role) => `${Y}|${X}|${role}`, BKEY = `${Y}|net|net`;
 
@@ -39,6 +44,21 @@ async function until(fn, label, timeout = 15000) {
   }
 }
 
+// apps/gd-z: n unbound net slots (n1…nn)
+function writeZ(n) {
+  const dir = path.join(WS, Z);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'index.html'), `<!doctype html><h1>${Z}</h1>\n`);
+  const interfaces = Object.fromEntries(Array.from({ length: n }, (_, i) => [`n${i + 1}`, { kind: 'net' }]));
+  fs.writeFileSync(path.join(dir, 'xbin.json'), JSON.stringify({ interfaces }) + '\n');
+}
+
+// open a tile on the page's screen (its prompts show on its window, D195)
+const openTile = async (page, tile) => {
+  await sh(page, (t, p) => t.openTile(p), tile);
+  await settle(page);
+};
+
 function writeTiles(role) {
   for (const [t, man] of [[X, JSON.stringify({ title: 'gd x', expose: { roles: { reader: 'read gd-x', writer: 'write gd-x' } } })], [Y, manifestY(role)]]) {
     const dir = path.join(WS, t);
@@ -48,10 +68,11 @@ function writeTiles(role) {
   }
 }
 
-// what one page's strip shows of apps/gd-y
+// what one page shows of apps/gd-y: its window's prompts (D195)
 const strip = (page) => page.evaluate((y) => {
-  const sh = document.querySelector('bx-shell')?.shadowRoot;
-  const g = sh?.querySelector('bx-grants')?.shadowRoot, b = sh?.querySelector('bx-bindings')?.shadowRoot;
+  const sh = document.querySelector('bx-shell')?.shadowRoot, cv = sh?.querySelector('bx-canvas')?.shadowRoot;
+  const pop = cv?.querySelector(`.pqpop[data-prompts-for="${y}"]`);
+  const g = pop?.querySelector('bx-grants')?.shadowRoot, b = pop?.querySelector('bx-bindings')?.shadowRoot;
   const txt = (r) => r?.textContent.replace(/\s+/g, ' ') ?? '';
   return {
     grant: [...(g?.querySelectorAll('.plate') ?? [])].some((p) => p.textContent.includes(y)),
@@ -92,15 +113,16 @@ async function grantDismiss(browser) {
     await until(async () => (await (await api('GET', '/components')).json()).filter((c) => [X, Y].includes(c.path)).length === 2, 'the tiles registered');
     for (const t of [X, Y]) await api('POST', '/owner', { tile: t, to: 'org:devs' });
 
-    // 1. the strip
+    // 1. on gd-y's window
     await openShell(A.page);
     await usePersonalScreen(A.page);
+    await openTile(A.page, Y);
     let s = await until(async () => { const v = await strip(A.page); return v.grant && v.binding ? v : null; }, 'the request and the row on the strip');
     check(s.grantDismiss && s.bindingDismiss, `the request and the row each have a Dismiss (${JSON.stringify(s)})`);
     check(!s.activeLine, 'no "N grants active" line');
     const badge0 = s.badge;
     check(badge0 >= 2, `the organisations badge counts them (${badge0})`);
-    await shotEl(A.page, 'bx-shell .grants', `grantdismiss-strip-${THEME}`);
+    await shotEl(A.page, `bx-canvas .pqpop[data-prompts-for="${Y}"]`, `grantdismiss-strip-${THEME}`);
 
     // 2. dismiss both
     await A.page.locator('bx-grants .plate', { hasText: Y }).locator('[data-dismiss]').click();
@@ -108,7 +130,7 @@ async function grantDismiss(browser) {
     s = await until(async () => { const v = await strip(A.page); return !v.grant && !v.binding && v.badge === badge0 - 2 ? v : null; }, 'both hidden, the badge down by two')
       .catch(async (e) => { check(false, `${e.message}: ${JSON.stringify(await strip(A.page))}`); return strip(A.page); });
     check(!s.grant && !s.binding, 'Dismiss hides the request and the row');
-    check(!s.restoreLine, 'no restore line in the strip (it goes when nothing else waits)');
+    check(!s.restoreLine, 'no restore line (the popover goes when nothing else waits)');
     check(s.badge === badge0 - 2, `the badge drops by two (${badge0} → ${s.badge})`);
     const d = await until(async () => { const v = await stored(); return v?.grants?.[GKEY('reader')] && v?.bindings?.[BKEY] ? v : null; }, 'the pref saved').catch(() => null);
     check(!!d, `the shell's "dismissed" pref holds ${GKEY('reader')} and ${BKEY} (${JSON.stringify(await stored())})`);
@@ -125,12 +147,15 @@ async function grantDismiss(browser) {
     check(!s.grant && !s.binding, 'after a reload they stay hidden');
     A2 = await login(browser, 'admin', 'admin');
     await openShell(A2.page);
+    await openTile(A2.page, Y);
     s = await until(async () => { const v = await strip(A2.page); return v.badge === badge0 - 2 ? v : null; }, 'the strip on another device');
     check(!s.grant && !s.binding && s.badge === badge0 - 2, `another device: hidden too, the same badge (${s.badge})`);
 
     // 4. another admin
     D = await login(browser, 'dev1', 'devpass123');
     await openShell(D.page);
+    await usePersonalScreen(D.page);
+    await openTile(D.page, Y);
     s = await until(async () => { const v = await strip(D.page); return v.grant && v.binding ? v : null; }, "dev1's strip").catch(async () => strip(D.page));
     check(s.grant && s.binding, `dev1 (a devs admin) still sees both (${JSON.stringify(s)})`);
 
@@ -180,9 +205,45 @@ async function grantDismiss(browser) {
     const back = await until(async () => (await A.page.locator('bx-shell .alerts .alert').count()) === 1, 'the banner back').catch(() => false);
     check(!!back, '"Show dismissed" brings the banner back');
     await A.page.unroute('**/api/xbin/alerts');
+
+    // 8. #11: fast dismisses, a stale page, a tile briefly gone
+    writeZ(5);
+    await openTile(A.page, Z);
+    const zRows = async (page) => page.evaluate((z) => {
+      const cv = document.querySelector('bx-shell')?.shadowRoot?.querySelector('bx-canvas')?.shadowRoot;
+      return [...(cv?.querySelector(`.pqpop[data-prompts-for="${z}"] bx-bindings`)?.shadowRoot?.querySelectorAll('.row') ?? [])].length;
+    }, Z);
+    await until(async () => (await zRows(A.page)) === 5, 'gd-z\'s five slots');
+    // all five Dismiss clicks in one go: five saves in flight together
+    await A.page.evaluate((z) => {
+      const cv = document.querySelector('bx-shell').shadowRoot.querySelector('bx-canvas').shadowRoot;
+      for (const b of cv.querySelector(`.pqpop[data-prompts-for="${z}"] bx-bindings`).shadowRoot.querySelectorAll('[data-dismiss]')) b.click();
+    }, Z);
+    const five = await until(async () => { const v = await stored(); return [1, 2, 3, 4, 5].every((i) => v?.bindings?.[`${Z}|n${i}|net`]) ? v : null; }, 'five stored').catch(() => null);
+    check(!!five, `five dismisses at once: all five stored (${JSON.stringify((await stored())?.bindings)})`);
+    // a stale second page: its lists can't be read, and it hears the
+    // dismissal of a slot it never saw — it must not prune it
+    await A2.page.route('**/api/xbin/bindings', (r) => r.fulfill({ status: 503, body: 'down' }));
+    await A2.page.route('**/api/xbin/grants', (r) => r.fulfill({ status: 503, body: 'down' }));
+    writeZ(6);
+    await until(async () => (await zRows(A.page)) === 1, 'gd-z\'s new slot');
+    await A.page.locator(`bx-canvas .pqpop[data-prompts-for="${Z}"] bx-bindings [data-dismiss]`).first().click();
+    await until(async () => (await stored())?.bindings?.[`${Z}|n6|net`], 'n6 stored');
+    await sleep(3000); // the stale page hears the prefs event (and a grants event) and does what it does
+    check(!!(await stored())?.bindings?.[`${Z}|n6|net`], 'a stale page doesn\'t prune a dismissal it never saw the slot of');
+    await A2.page.unroute('**/api/xbin/bindings');
+    await A2.page.unroute('**/api/xbin/grants');
+    // gd-z gone for a moment: a half-written xbin.json, then the whole one
+    fs.writeFileSync(path.join(WS, Z, 'xbin.json'), '{"interf');
+    await sleep(1200);
+    writeZ(6);
+    await sleep(8000); // past the 5 s re-read
+    const kept = await stored();
+    check([1, 2, 3, 4, 5, 6].every((i) => kept?.bindings?.[`${Z}|n${i}|net`]), `a tile gone for a moment keeps its dismissals (${Object.keys(kept?.bindings ?? {}).filter((k) => k.startsWith(Z)).length} of 6)`);
+    check((await zRows(A.page)) === 0, 'and its rows stay hidden');
   } finally {
     await api('DELETE', '/prefs/dismissed').catch(() => {});
-    for (const t of [X, Y]) {
+    for (const t of [X, Y, Z]) {
       const dir = path.join(WS, t);
       if (WS && path.isAbsolute(WS) && dir.startsWith(path.join(WS, 'apps', 'gd-'))) fs.rmSync(dir, { recursive: true, force: true });
     }

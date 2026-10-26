@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   PREF, KINDS, grantKey, bindingKey, alertKey, normDismissed, isDismissed, dismiss, restore, prune, split,
-  pendingCount, dismissedEvent, loadDismissed, updateDismissed,
+  pendingCount, dismissedEvent, loadDismissed, updateDismissed, dismissStore, RETRY_MS,
 } from '../web/bx-dismiss.js';
 
 const req = (from, target, role, extra = {}) => ({ from, target, role, ...extra });
@@ -95,14 +95,16 @@ test('dismissedEvent(): a prefs event about the key, from any bucket', () => {
   assert.equal(dismissedEvent(null), false);
 });
 
-// a fake /api/xbin/prefs/dismissed: a stored value, every call recorded
+// a fake /api/xbin/prefs/dismissed: a stored value, every call recorded;
+// tick() lets every pending request answer (a real network interleaves them)
 function server(stored, { fail = false } = {}) {
   const calls = [];
   const res = (status, body) => ({ ok: status < 300, status, json: async () => body });
   const fetchFn = async (url, opts = {}) => {
     const method = opts.method ?? 'GET';
     calls.push({ url, method, body: opts.body });
-    if (fail) throw new TypeError('offline');
+    await new Promise((r) => setTimeout(r, 1)); // every request takes a turn of the event loop
+    if (typeof fail === 'function' ? fail(method, calls.length) : fail) throw new TypeError('offline');
     if (url !== '/api/xbin/prefs/dismissed') return res(404, {});
     if (method === 'GET') return stored === undefined ? res(404, { error: 'not found' }) : res(200, stored);
     if (method === 'PUT') { stored = JSON.parse(opts.body); return res(200, {}); }
@@ -133,4 +135,75 @@ test('updateDismissed(): read, change, write — another element\'s kind survive
   assert.equal(s.calls.at(-1).method, 'DELETE');
   assert.deepEqual(await updateDismissed(s.fetchFn, (d) => d), { grants: {}, bindings: {}, alerts: {} }, 'deleting nothing is fine');
   assert.equal(await updateDismissed(server(undefined, { fail: true }).fetchFn, (d) => d), null, 'offline: not saved');
+});
+
+test('#11: two changes in flight — bare updateDismissed loses one, the store keeps both', async () => {
+  // the bug: each click's read-change-write reads before the other's write
+  const raw = server({ grants: {}, bindings: {} });
+  await Promise.all([
+    updateDismissed(raw.fetchFn, (d) => dismiss(d, 'bindings', 'a|net|net', 't1')),
+    updateDismissed(raw.fetchFn, (d) => dismiss(d, 'bindings', 'b|net|net', 't2')),
+  ]);
+  assert.equal(Object.keys(raw.stored.bindings).length, 1, 'the race this store fixes: one dismissal lost');
+  // the store: one chain, both stored, both shown at once
+  const s = server({ grants: {}, bindings: {} });
+  const st = dismissStore(s.fetchFn);
+  await st.load();
+  const seen = [];
+  st.subscribe((v) => seen.push(Object.keys(v.bindings).sort().join(',')));
+  const p = Promise.all(['a', 'b', 'c', 'd', 'e'].map((x, i) => st.change((d) => dismiss(d, 'bindings', `${x}|net|net`, `t${i}`))));
+  assert.deepEqual(Object.keys(st.value.bindings).sort(), ['a|net|net', 'b|net|net', 'c|net|net', 'd|net|net', 'e|net|net'], 'all five hidden at once');
+  await p;
+  assert.deepEqual(Object.keys(s.stored.bindings).sort(), ['a|net|net', 'b|net|net', 'c|net|net', 'd|net|net', 'e|net|net'], 'all five stored');
+  assert.ok(seen.every((x, i) => i === 0 || x.split(',').length >= seen[i - 1].split(',').length), `never shown again on the way (${seen.join(' / ')})`);
+  // another page's change read meanwhile keeps the queued one applied
+  const q = st.change((d) => dismiss(d, 'grants', 'g|h|reader', 'tg'));
+  s.stored.alerts = { 'k|m': 'ta' }; // another device's banner dismissal, stored
+  await st.load();
+  assert.ok(st.value.grants['g|h|reader'] && st.value.alerts['k|m'], 'a load mid-queue: both');
+  await q;
+  assert.deepEqual(s.stored.grants, { 'g|h|reader': 'tg' });
+  assert.deepEqual(s.stored.alerts, { 'k|m': 'ta' }, 'the other device\'s change survived');
+});
+
+test('#11: a change that can\'t be stored is tried again, then undone here and reported', async () => {
+  const waits = [];
+  // the first PUT fails, the retry succeeds
+  let puts = 0;
+  const s1 = server({ grants: {}, bindings: {} }, { fail: (m) => m === 'PUT' && ++puts === 1 });
+  const st1 = dismissStore(s1.fetchFn, { sleep: async (ms) => { waits.push(ms); } });
+  await st1.load();
+  assert.ok(await st1.change((d) => dismiss(d, 'grants', 'a|b|r', 't')));
+  assert.deepEqual(waits, [RETRY_MS[0]]);
+  assert.deepEqual(s1.stored.grants, { 'a|b|r': 't' });
+  // every PUT fails: given up after the retries, undone here, onError told
+  const s2 = server({ grants: {}, bindings: {} }, { fail: (m) => m === 'PUT' });
+  const st2 = dismissStore(s2.fetchFn, { sleep: async () => {} });
+  await st2.load();
+  const errs = [];
+  st2.onError((e) => errs.push(e.message));
+  const p = st2.change((d) => dismiss(d, 'bindings', 'x|y|z', 't'));
+  assert.ok(st2.value.bindings['x|y|z'], 'hidden at once');
+  assert.equal(await p, null);
+  assert.equal(st2.value.bindings['x|y|z'], undefined, 'not stored: shown again');
+  assert.equal(errs.length, 1);
+  assert.equal(s2.calls.filter((c) => c.method === 'PUT').length, RETRY_MS.length + 1);
+});
+
+test('#11: seen() prunes only what two fresh reads in a row no longer list', async () => {
+  const s = server({ grants: {}, bindings: { 'a|net|net': 't1', 'b|net|net': 't2' } });
+  const st = dismissStore(s.fetchFn, { sleep: async () => {} });
+  await st.load();
+  // b missing once (a tile briefly gone): kept
+  assert.deepEqual(st.seen('bindings', ['a|net|net']), []);
+  // b back: the count starts over
+  assert.deepEqual(st.seen('bindings', ['a|net|net', 'b|net|net']), []);
+  assert.deepEqual(st.seen('bindings', ['a|net|net']), []);
+  // missing twice in a row (bound, or gone for good): pruned and stored
+  assert.deepEqual(st.seen('bindings', ['a|net|net']), ['b|net|net']);
+  await new Promise((r) => setTimeout(r, 50));
+  assert.deepEqual(s.stored.bindings, { 'a|net|net': 't1' });
+  // nothing read yet: nothing pruned
+  const st2 = dismissStore(server({ grants: { k: 't' } }).fetchFn);
+  assert.deepEqual(st2.seen('grants', []), []);
 });

@@ -623,7 +623,7 @@ func TestPartitionEventsPersonOnly(t *testing.T) {
 	w.mu.Lock()
 	ev := slices.Clone(w.events)
 	w.mu.Unlock()
-	if want := []string{"build-start user:alice", "build-ok user:alice"}; !equalStrings(ev, want) {
+	if want := []string{"build-start user:alice", "backend-starting user:alice", "build-ok user:alice"}; !equalStrings(ev, want) {
 		t.Errorf("the person's events %q, want %q", ev, want)
 	}
 	w.ensure("global")

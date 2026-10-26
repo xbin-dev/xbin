@@ -29,7 +29,8 @@ public enum AppEvent: Sendable, Equatable {
     /// A component's source changed.
     case reload(component: String)
     /// Build progress of a component with a backend (`build-start`,
-    /// `build-error` with the compiler's text, `build-ok`).
+    /// `backend-starting` once built and spawned (D196), `build-error` with
+    /// the compiler's text, `build-ok`).
     case build(component: String, phase: BuildPhase, text: String)
     /// The grant table changed (`component` when the event names one).
     case grants(component: String?)
@@ -63,7 +64,7 @@ public enum AppEvent: Sendable, Equatable {
     /// Anything else (`bus`, `pr`, future types): ignored by the app.
     case other(type: String)
 
-    public enum BuildPhase: String, Sendable { case start, error, ok }
+    public enum BuildPhase: String, Sendable { case start, starting, error, ok }
 
     /// Parses one text frame; nil for anything that isn't a JSON object
     /// with a `type`.
@@ -73,8 +74,8 @@ public enum AppEvent: Sendable, Equatable {
         switch type {
         case "reload":
             return component.isEmpty ? .other(type: type) : .reload(component: component)
-        case "build-start", "build-error", "build-ok":
-            let phase: BuildPhase = type == "build-start" ? .start : type == "build-ok" ? .ok : .error
+        case "build-start", "backend-starting", "build-error", "build-ok":
+            let phase: BuildPhase = type == "build-start" ? .start : type == "backend-starting" ? .starting : type == "build-ok" ? .ok : .error
             return .build(component: component, phase: phase, text: j["text"]?.stringValue ?? "")
         case "grants":
             return .grants(component: component.isEmpty ? nil : component)

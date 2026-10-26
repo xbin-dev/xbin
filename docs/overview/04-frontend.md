@@ -217,7 +217,9 @@ What the shell provides:
 - **The grants panel** (`<bx-grants>`) — pending `uses` requests with the
   callee's role descriptions and one-click approve; rows a policy ceiling
   blocks are greyed with the blocking row named; renders nothing when
-  there's nothing to decide.
+  there's nothing to decide. The shell puts it, with `<bx-bindings>`, on
+  the window of the tile that asked (D195): a key badge in its title bar,
+  a popover over its top, and a key flag on its sidebar row.
 - **Per-tile ⚙ admin popover** (`<bx-tile-admin>`) — lifecycle, access,
   runtime, vault, grants, interfaces, backup and cron for one tile, in a
   wide, resizable popover next to the card (a sheet on phones) with

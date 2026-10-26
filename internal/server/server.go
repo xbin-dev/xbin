@@ -49,6 +49,10 @@ type Server struct {
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.
 	ComponentAPI http.Handler
+	// BackendState answers a tile's primary backend's state for /components
+	// (D196: idle, building, starting, healthy, failed; "" when never run).
+	// nil (tests): no row carries one.
+	BackendState func(tile string) string
 
 	// Pol is what the broker decides for the server (see Policy): admin
 	// status, tile owners, bus visibility, interface meta, sandbox tokens,

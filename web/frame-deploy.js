@@ -134,7 +134,7 @@ export function deployMount(f) {
 export function onDeployEvent(f, e) {
   const d = e?.data;
   const q = deploymentFrame(f._page ?? f.src, e); // the page's deployment (a window's pick, or a <tile>+<name> src)
-  if (q) { if (q.reload) f._reload(); else f._buildError = q.error; }
+  if (q) { if (q.reload) f._reload(); else if (q.phase) f._setBuild(q.phase); else f._setBuild(null, q.error); }
   if (e.component !== f.src || !d) return;
   const r = rec(f);
   if (r.state) {
