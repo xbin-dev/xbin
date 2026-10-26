@@ -27,6 +27,9 @@ import { columns, columnOf } from './project-task.js';
 import { choices, find, reach } from './classes.js';
 import { policySet } from './project-policy.js';
 
+const clone = (v) => JSON.parse(JSON.stringify(v ?? {}));
+const samePolicy = (a, b) => JSON.stringify(a ?? {}) === JSON.stringify(b ?? {});
+
 export { POLICY, policyGet, policySet, fieldValue, fieldText } from './project-policy.js';
 
 /** can(view): what the caller may do with a project (its level): settings, act (tasks), read. */
@@ -343,14 +346,19 @@ export class Projects {
 
   // --- the policy (settings) ----------------------------------------------------------
 
-  // The draft keeps the version it was read at and the keys the owner
-  // changed: a save sends that version, so a change someone made meanwhile
-  // (read in by a `project` event) is never saved over. On a 412 the draft
-  // is made again from what was read, with the owner's keys set on it —
-  // both changes shown, saved by the next Save.
+  // The draft keeps the version it was read at, the policy as read (base)
+  // and the keys the owner changed: a save sends that version, so a change
+  // someone made to the policy meanwhile (read in by a `project` event) is
+  // never saved over. The version counts every change to the project — a
+  // repo added, a setup script saved — so a newer version whose policy is
+  // still the base is no conflict: the save goes at that version (read
+  // again on a 412). On a real one the draft is made again from what was
+  // read, with the owner's keys set on it — both changes shown, saved by
+  // the next Save.
   editPolicy(pid = this.opened) {
     const pv = this.find(pid);
-    this.draft = { pid, version: pv ? pv.version : 0, policy: JSON.parse(JSON.stringify((pv && pv.policy) || {})), touched: new Map(), dirty: false, err: '', saved: false };
+    const policy = (pv && pv.policy) || {};
+    this.draft = { pid, version: pv ? pv.version : 0, policy: clone(policy), base: clone(policy), touched: new Map(), dirty: false, err: '', saved: false };
     this.changed();
   }
   setPolicy(path, value) {
@@ -364,16 +372,30 @@ export class Projects {
   async savePolicy() {
     const d = this.draft;
     if (!d) return;
-    try {
-      const r = await this.patch(d.pid, { policy: d.policy }, { version: d.version });
+    // a newer version read in whose policy is still the base: not a conflict
+    const at = () => { const pv = this.find(d.pid); return pv && pv.version > d.version && samePolicy(pv.policy, d.base) ? pv.version : d.version; };
+    const send = async (version) => {
+      const r = await this.patch(d.pid, { policy: d.policy }, { version });
       const pv = (r && r.project) || this.find(d.pid);
-      this.draft = { ...d, version: pv ? pv.version : d.version, touched: new Map(), dirty: false, err: '', saved: true };
+      const policy = (pv && pv.policy) || d.policy;
+      this.draft = { ...d, version: pv ? pv.version : version, base: clone(policy), touched: new Map(), dirty: false, err: '', saved: true };
+    };
+    try {
+      try {
+        await send(at());
+      } catch (e) {
+        // the 412 read the project again (patch): the version moved without the policy changing → once more at it
+        const v = at();
+        if (e.status !== 412 || this.draft !== d || v === d.version) throw e;
+        await send(v);
+      }
     } catch (e) {
       if (e.status === 412 && this.draft === d) {
         const pv = this.find(d.pid);
-        let policy = JSON.parse(JSON.stringify((pv && pv.policy) || {}));
+        const base = (pv && pv.policy) || {};
+        let policy = clone(base);
         for (const [path, v] of d.touched) policy = policySet(policy, path, v);
-        this.draft = { ...d, version: pv ? pv.version : d.version, policy, err: 'Someone changed this policy meanwhile: their changes are shown with yours — check it and save again.' };
+        this.draft = { ...d, version: pv ? pv.version : d.version, policy, base: clone(base), err: 'Someone changed this policy meanwhile: their changes are shown with yours — check it and save again.' };
       } else d.err = e.message;
     }
     this.changed();

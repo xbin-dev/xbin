@@ -172,7 +172,15 @@ const pb = (await calls(page, 'PATCH', '/projects/7$'))[0].body;
 ok('…with the version read, the edits, unknown keys kept', pb.version >= 3 && pb.policy.maxTasks === 5 && pb.policy.ci.autoFix === false && pb.policy.ci.maxPerDay === 5
   && pb.policy.futureKey && pb.policy.futureKey.kept === true, JSON.stringify(pb));
 ok('…saved', await page.waitForSelector('#pol-saved', { timeout: 5000 }).then(() => true, () => false));
-await page.evaluate(() => { window.__proj.projects.find((p) => p.id === 7).version += 5; });
+// a save after the project changed elsewhere — not its policy (a repo, a setup script) — just saves (#pol-saved);
+// someone changing the policy itself is the conflict below
+await page.evaluate(() => { window.__proj.projects.find((p) => p.id === 7).version += 2; });
+await page.fill('#pol-maxTasks', '7');
+await page.dispatchEvent('#pol-maxTasks', 'change');
+await page.click('#pol-save');
+ok('a newer version with the policy unchanged: saved, no conflict', await page.waitForSelector('#pol-saved', { timeout: 5000 }).then(() => true, () => false)
+  && !(await page.$('#pol-err')) && (await calls(page, 'PATCH', '/projects/7$')).pop().body.policy.maxTasks === 7);
+await page.evaluate(() => { const p = window.__proj.projects.find((x) => x.id === 7); p.version += 5; p.policy = { ...p.policy, maxOpenTasks: 42 }; });
 await page.fill('#pol-maxTasks', '6');
 await page.dispatchEvent('#pol-maxTasks', 'change');
 await page.click('#pol-save');
