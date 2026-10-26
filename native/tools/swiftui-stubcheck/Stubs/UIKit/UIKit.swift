@@ -26,12 +26,14 @@ public final class UIColor: NSObject, @unchecked Sendable {
 }
 public final class UIImage: Sendable {
     public init?(data: Data) {}
+    public init?(systemName name: String) {}
     public func pngData() -> Data? { nil }
     public var size: CGSize { .zero }
 }
 @MainActor public final class UIPasteboard {
     public static let general = UIPasteboard()
     public var string: String?
+    public func setItems(_ items: [[String: Any]], options: [String: Any] = [:]) {}
 }
 public enum UIKeyboardType: Int, Sendable { case `default`, decimalPad, emailAddress, URL, webSearch, numberPad }
 public struct UITextContentType: Sendable, Hashable { public static let password = UITextContentType(), emailAddress = UITextContentType(), URL = UITextContentType() }
@@ -108,6 +110,8 @@ public struct UILayoutPriority: Sendable { public static let defaultLow = UILayo
     open var intrinsicContentSize: CGSize { .zero }
     public func invalidateIntrinsicContentSize() {}
     open func sizeThatFits(_ size: CGSize) -> CGSize { size }
+    public func sizeToFit() {}
+    public var traitCollection: UITraitCollection { UITraitCollection() }
     public func setContentHuggingPriority(_ priority: UILayoutPriority, for axis: NSLayoutConstraint.Axis) {}
     public func setContentCompressionResistancePriority(_ priority: UILayoutPriority, for axis: NSLayoutConstraint.Axis) {}
 }
@@ -218,6 +222,8 @@ public typealias UIActionHandler = @MainActor (UIAction) -> Void
     public var isSecureTextEntry = false
     public var markedTextRange: UITextRange? { nil }
     public func unmarkText() {}
+    private var _accessory: UIView?
+    public override var inputAccessoryView: UIView? { get { _accessory } set { _accessory = newValue } }
 }
 @MainActor open class NSTextContainer: NSObject {
     public var lineFragmentPadding: CGFloat = 5
@@ -243,6 +249,8 @@ public typealias UIActionHandler = @MainActor (UIAction) -> Void
     public var textContainer = NSTextContainer()
     public var markedTextRange: UITextRange? { nil }
     public func unmarkText() {}
+    private var _accessory: UIView?
+    public override var inputAccessoryView: UIView? { get { _accessory } set { _accessory = newValue } }
 }
 @MainActor open class UILabel: UIView {
     public var text: String?
@@ -257,6 +265,39 @@ public final class CALayer { public func render(in ctx: CGContext) {} }
 @MainActor open class UIApplication: UIResponder {
     public static let shared = UIApplication()
     public var connectedScenes: Set<UIScene> { [] }
+    @discardableResult public func sendAction(_ action: Selector, to target: Any?, from sender: Any?, for event: UIEvent?) -> Bool { true }
+}
+@MainActor open class UIEvent: NSObject {}
+
+// The keyboard's accessory bar (#30): a toolbar with Hide keyboard.
+@MainActor open class UIBarItem: NSObject {
+    public var accessibilityLabel: String?
+    public var accessibilityIdentifier: String?
+}
+@MainActor open class UIBarButtonItem: UIBarItem {
+    public enum SystemItem: Int, Sendable { case done, cancel, edit, save, add, flexibleSpace, fixedSpace }
+    public convenience init(title: String? = nil, image: UIImage? = nil, primaryAction: UIAction? = nil) { self.init() }
+    public convenience init(systemItem: SystemItem, primaryAction: UIAction? = nil) { self.init() }
+}
+@MainActor open class UIToolbar: UIView {
+    public var items: [UIBarButtonItem]?
+}
+
+// The iPhone Duo's vertical bar (iOS 27.1 SDK, XBIN_SDK_27_1 — as the SDK
+// declares it: UIVerticalBarEdge.h, UITraitCollection (VerticalBar)).
+public protocol UITraitDefinition {}
+public typealias UITrait = any UITraitDefinition.Type
+public enum UIVerticalBarEdge: Int, Sendable { case unspecified, leading, trailing }
+extension UITraitCollection {
+    public var verticalBarEdge: UIVerticalBarEdge { .unspecified }
+    public static var systemTraitsAffectingVerticalBarEdge: [UITrait] { [] }
+}
+public protocol UITraitChangeRegistration: Sendable {}
+extension UIView {
+    @discardableResult
+    public func registerForTraitChanges<Self: UIView>(_ traits: [UITrait], handler: @escaping @MainActor (Self, UITraitCollection) -> Void) -> any UITraitChangeRegistration {
+        fatalError()
+    }
 }
 @MainActor open class UIWindow: UIView {
     @available(iOS, deprecated: 26.0, message: "Use init(windowScene:) instead.")

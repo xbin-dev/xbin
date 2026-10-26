@@ -15,7 +15,8 @@ enum ButtonPress {
         guard !p.bool("disabled"), !p.bool("busy") else { return }
         let go: @MainActor () -> Void = {
             if let text = p.string("copy") {
-                cx?.services.copy(text)
+                // rev 2: Markdown goes on the pasteboard as rich text too (#34)
+                if p.string("copyFormat") == "markdown" { cx?.services.copyMarkdown(text) } else { cx?.services.copy(text) }
                 copied()
             }
             if node.listens(to: "tap") { cx?.emit(node, "tap") }

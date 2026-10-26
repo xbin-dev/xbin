@@ -124,7 +124,7 @@ struct WebTileScreen: View {
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
-            }
+            }.preferVerticalBar()
         }
         .onAppear {
             if controller == nil {
@@ -226,6 +226,7 @@ struct TileDialogSheet: View {
                     Text(verbatim: "Asked by \(from)").font(.caption.monospaced())
                 }
             }
+            .keyboardHideButton()
             .concreteBackground()
             .navigationTitle(Text(verbatim: spec.title))
             .navigationBarTitleDisplayMode(.inline)

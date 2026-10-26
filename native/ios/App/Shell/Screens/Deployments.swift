@@ -282,6 +282,7 @@ struct DeploymentsToolView: View {
                 Section { Label { Text(verbatim: p) } icon: { Image(systemName: XbinGlyphs.symbol("error")) }.foregroundStyle(XbinColor.danger) }
             }
         }
+        .keyboardHideButton()
         .listStyle(.insetGrouped)
         .overlay { if model.busy { ProgressView().controlSize(.large) } }
         .refreshable { await model.load() }

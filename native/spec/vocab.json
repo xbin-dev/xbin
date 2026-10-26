@@ -1051,7 +1051,7 @@
    }
   },
   "button": {
-   "rev": 1,
+   "rev": 2,
    "group": "control",
    "text": "label",
    "props": {
@@ -1097,6 +1097,15 @@
     "copy": {
      "type": "string",
      "doc": "copied natively on tap (no round trip)"
+    },
+    "copyFormat": {
+     "type": "string",
+     "enum": [
+      "text",
+      "markdown"
+     ],
+     "doc": "`markdown`: `copy` is Markdown, put on the pasteboard as rich text (HTML: headings, lists with their numbers, tables, links) beside its plain text; `text` (the default): as it is",
+     "since": 2
     }
    },
    "events": {

@@ -18,7 +18,7 @@
   ]},
   {"k":"r.2","t":"section","p":{"title":"Verify"},"c":[
     {"k":"r.2.0","t":"button","p":{"icon":"shield","disabled":true,"label":"Notarize (needs a signing key)"},"e":["tap"]},
-    {"k":"r.2.1","t":"button","p":{"icon":"copy","copy":"git tag -s v2.15.0 9b1f0c4","label":"Copy tag command"}},
+    {"k":"r.2.1","t":"button","p":{"icon":"copy","copy":"git tag -s v2.15.0 9b1f0c4","copyFormat":"text","label":"Copy tag command"}},
     {"k":"r.2.2","t":"button","p":{"icon":"terminal","confirm":{"title":"Re-run the checks?","message":"Takes about 6 minutes.","label":"Re-run"},"label":"Re-run checks"},"e":["tap"]}
   ]},
   {"k":"r.3","t":"section","p":{"title":"Assets","badge":"3","footer":"Swipe an asset to download or delete it."},"c":[

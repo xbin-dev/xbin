@@ -44,6 +44,7 @@ struct LoginLevel: View {
                 Text("After signing in, this device keeps a key in its Secure Enclave: later sign-ins are a Face ID prompt.")
             }
         }
+        .keyboardHideButton()
         .navigationTitle("Log in")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -74,6 +75,7 @@ struct AddressPage: View {
                 Text("The address you open the workspace at in a browser, for example https://xbin.example.com.")
             }
         }
+        .keyboardHideButton()
         .navigationTitle("Workspace address")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -134,6 +136,7 @@ struct MethodsPage: View {
                 }
             }
         }
+        .keyboardHideButton()
         .navigationTitle("Sign in")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -192,6 +195,7 @@ struct InvitePage: View {
                 Text("It looks like https://your-workspace/login?invite=…")
             }
         }
+        .keyboardHideButton()
         .navigationTitle("Join with an invite")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -238,6 +242,7 @@ struct InviteAcceptPage: View {
                 }
             }
         }
+        .keyboardHideButton()
         .navigationTitle("Join")
         .navigationBarTitleDisplayMode(.inline)
     }

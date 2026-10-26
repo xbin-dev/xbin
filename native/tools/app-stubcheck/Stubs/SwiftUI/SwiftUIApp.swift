@@ -111,9 +111,7 @@ public struct LabeledContent<Label: View, Content: View>: _Leaf {}
 extension LabeledContent where Label == Text, Content: View {
     public init(_ titleKey: LocalizedStringKey, @ViewBuilder content: () -> Content) {}
 }
-extension Button where Label == SwiftUI.Label<Text, Image> {
-    @_disfavoredOverload public init<S: StringProtocol>(_ title: S, systemImage: String, action: @escaping () -> Void) {}
-}
+// Button(_:systemImage:action:): swiftui-stubcheck's Controls.swift
 extension ForEach where Content: View {
     public func onMove(perform action: ((IndexSet, Int) -> Void)?) -> some View { _V(self) }
 }

@@ -22,6 +22,16 @@ export XBIN_CI_OUT XBIN_CI_DERIVED XBIN_CI_SPM
 
 in_actions() { [ "${GITHUB_ACTIONS:-}" = true ]; }
 
+# XBIN_XCODE pins the Xcode every script runs (DEVELOPER_DIR), not just
+# ci-toolchain.sh: in CI ci-toolchain.sh exports it to the later steps
+# through GITHUB_ENV, but `mac-remote.sh build`/`run`/`e2e` call the other
+# scripts directly, and they built with the Mac's default Xcode though
+# XBIN_XCODE said the beta (2026-10-26). A DEVELOPER_DIR already set wins.
+if [ -n "${XBIN_XCODE:-}" ] && [ -z "${DEVELOPER_DIR:-}" ] && [ -d "${XBIN_XCODE%/}/Contents/Developer" ]; then
+  DEVELOPER_DIR="${XBIN_XCODE%/}/Contents/Developer"
+  export DEVELOPER_DIR
+fi
+
 ci_group() { if in_actions; then echo "::group::$*"; else echo ">> $*"; fi; }
 ci_endgroup() { if in_actions; then echo "::endgroup::"; fi; }
 ci_notice() { if in_actions; then echo "::notice::$*"; else echo "notice: $*"; fi; }

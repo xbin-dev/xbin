@@ -231,6 +231,7 @@ snapshots:
 |---|---|---|
 | `packages` | logs the toolchain (`xcodebuild -version`, `-showsdks`, simulator device types and runtimes); `swift test` in `Packages/XbinCore`, `XbinTerm`, `XbinAgent` — each if present, all run even when one fails (XbinRenderer's model tests run in `snapshots`) | — |
 | `app` | xcodegen if missing (`ci-xcodegen.sh`) → `xcodegen generate` → `xcodebuild build -scheme Xbin` for a simulator, `CODE_SIGNING_ALLOWED=NO` → `build-for-testing -scheme XbinUITests` (compile only: there is no xbind to test against; "Mac mini" below runs them) | `xcresult-app` (`app-build.xcresult` + the full `app-build.log`, `uitests-build.*`) |
+| `duo` | the iPhone Duo code (D200) against the iOS 27.1 SDK: `ci-pick-xcode.sh 27.1` finds the Xcode that has it (the hosted `Xcode_27.1.app`, the Mac mini's `Xcode-beta.app`), `XBIN_SWIFT_CONDITIONS=XBIN_SDK_27_1`, the packages' `swift test` on that toolchain, and the app built for `generic/platform=iOS` (no simulator: a beta Xcode's simulators need its own CoreSimulator, see "Mac mini") | `xcresult-duo` |
 | `snapshots` | `xcodebuild test -scheme XbinRenderer` in `Packages/XbinRenderer` on a simulator: every fixture, light/dark × the default, xxxLarge (`large`, the reference's large text) and accessibility2 (`ax2`) Dynamic Type sizes; then the same tests hosted by an app (`ci-hosted-snapshots.sh`, below) | `snapshots` (the PNGs; the hosted ones under `hosted/`), `xcresult-snapshots` (`.xcresult` + log of both) |
 
 Artifacts upload even when a step fails; each job's summary page has a
@@ -371,11 +372,19 @@ gh run download <run-id> -n snapshots -D "$SCRATCH/ios-<run-id>/snapshots"   # j
 
 - **Check the SDK before using new APIs.** Every job logs `xcodebuild
   -showsdks` and `xcrun simctl list devicetypes` / `runtimes` (its
-  "toolchain" step). The iPhone Duo APIs (`ArrangementView`, reserved
-  regions, hinge) come with the **iOS 27.1** SDK: they sit behind `#if
-  XBIN_SDK_27_1` (off unless `XBIN_SWIFT_CONDITIONS` says so) and
-  `#available(iOS 27.1, *)`; confirm the names against the SDK the runner
-  actually has — the design cites them from secondary sources.
+  "toolchain" step). The iPhone Duo APIs come with the **iOS 27.1** SDK:
+  they sit behind `#if XBIN_SDK_27_1` (off unless `XBIN_SWIFT_CONDITIONS`
+  says so; the `duo` job and swiftui-stubcheck's third build turn it on)
+  and `#available(iOS 27.1, *)`. Confirmed against Xcode 27.1 (27A9269)'s
+  SDK on 2026-10-26 (D200): SwiftUICore's `ArrangementView(primary:secondary:)`
+  and `GeometryProxy.reservedRegions(kind:)` → `ReservedRegion.frame`;
+  SwiftUI's `ToolbarContent.axisBehavior(.verticalPreferred)` (an item
+  prefers the vertical bar an open Duo draws at its side); UIKit's
+  `UITraitCollection.verticalBarEdge` (`.unspecified` where the system
+  never draws one) and `systemTraitsAffectingVerticalBarEdge`. Read a new
+  name in the Mac's SDK (`…/iPhoneOS27.1.sdk/System/Library/Frameworks/
+  <F>.framework/Modules/<F>.swiftmodule/*.swiftinterface`, UIKit's headers)
+  before writing it, and stub it in swiftui-stubcheck with that signature.
 - **Batch.** One push should carry every fix you can make from one failure log.
 - **A clean merge proves nothing about the scripts.** native and
   native-ios2 both reserved the UI tests' simulator in `pick-sim.sh`, each
@@ -505,6 +514,19 @@ Mac tools (`ci-local-check.sh`).
   runner. The KVM is only needed when ssh is down.
 - Xcode 27.0 is selected, with Xcode 27.1 (27A9269) beside it as
   `Xcode-beta.app`. Homebrew belongs to the admin.
+- **The beta's first launch hasn't run** (2026-10-26): every xcodebuild
+  under it prints "Install Failed: Authorisation is required to install the
+  packages", and its simulators are off ("CoreSimulator is out of date.
+  Current version (1171.7.0) is older than build version (1174.9.2)") — it
+  builds for a device (`generic/platform=iOS`, what the `duo` job does),
+  not a simulator. `sudo DEVELOPER_DIR=/Applications/Xcode-beta.app/Contents/Developer
+  xcodebuild -runFirstLaunch`, as the admin, installs its CoreSimulator.
+  The iOS 27.1 simulator runtime (24A94232) is installed (dev, via
+  `xcodebuild -downloadPlatform iOS -buildVersion 27.1`); it has no Duo
+  device type (iPhone 18 Pro / Pro Max are the newest). Xcode 27.0 lists
+  that runtime but can't run a device on it ("Incompatible device"), so
+  `pick-sim.sh` skips runtimes newer than the selected Xcode's simulator
+  SDK.
 - The users so far are the admin, ci and release. **dev does not exist
   yet**, so the ssh dev loop has nowhere to run. The fork pull request
   approval is set to *all external contributors*.
@@ -1000,6 +1022,11 @@ with `E2E.tapAfterTyping` (Connect, the agent's Send; the terminal's key
 row waits in `keyRowAboveKeyboard`). Where a tap landed is in the
 simulator's log (`xcrun simctl spawn <udid> log show`): testmanagerd's
 "Synthesizing event … Touch down at x, y".
+`XBIN_E2E_AGENT_PARTITION=1` (with `XBIN_E2E_XBIND_ARGS="--isolate
+--rootfs …"`, `XBIN_FUSE_OVERLAYFS` and gocryptfs) keeps `apps/agent`
+partitioned, as a workspace runs it: the e2e account's conversations live
+in its own partition, whose model e2e-xbind.sh sets as the account
+(XbinAgentNativeTests test01/test02 passed that way, 2026-10-26, #28).
 `--keep` leaves the xbind up; `--port` moves it; an xbind the Mac reaches
 by itself: `XBIN_E2E_URL=… XBIN_E2E_USER=… XBIN_E2E_PASSWORD=…
 mac-remote.sh e2e` (no tunnel; an admin account, the tests make invites).

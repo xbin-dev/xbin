@@ -40,6 +40,11 @@ trap 'rm -rf "$tmp"' EXIT
 
 # One listing: devices, device types, runtimes (and pairs).
 xcrun simctl list -j >"$tmp/list.json"
+# The runtimes this Xcode can run: none newer than its simulator SDK. A
+# newer runtime another Xcode installed (the beta's iOS 27.1 on the Mac
+# mini, 2026-10-26) is listed as available, but a device made on it is an
+# "Incompatible device" (CoreSimulator 403) to this Xcode.
+sdk=$(xcrun --sdk iphonesimulator --show-sdk-version 2>/dev/null || true)
 
 # The picker, written out first: bash 3.2 mis-parses heredocs inside $(…).
 cat >"$tmp/pick.py" <<'PY'
@@ -49,6 +54,7 @@ with open(sys.argv[1]) as f:
     data = json.load(f)
 want = os.environ.get("XBIN_SIM", "")
 ensure = os.environ.get("XBIN_SIM_ENSURE", "")
+sdk = os.environ.get("XBIN_SIM_SDK", "")
 
 def vkey(s):
     return tuple(int(x) for x in re.findall(r"\d+", s or ""))
@@ -59,6 +65,9 @@ for r in data.get("runtimes", []):
     ios = r.get("platform") == "iOS" or ".SimRuntime.iOS-" in ident
     if ios and r.get("isAvailable", True):
         ver = r.get("version") or ident.rsplit("iOS-", 1)[-1].replace("-", ".")
+        if sdk and vkey(ver)[:2] > vkey(sdk)[:2]:
+            print("skipping %s: newer than this Xcode's simulator SDK (%s)" % (r.get("name", ver), sdk), file=sys.stderr)
+            continue
         runtimes[ident] = {"version": ver, "name": r.get("name", "iOS " + ver),
                            "types": r.get("supportedDeviceTypes") or []}
 
@@ -150,7 +159,7 @@ n, tid = max(types, key=lambda t: rank(t[0], t[1], rt["version"]))
 emit("create", n, tid, rid, "%s (%s)" % (n, rt["name"]))
 PY
 
-choice=$(XBIN_SIM="${XBIN_SIM:-}" XBIN_SIM_ENSURE="${XBIN_SIM_ENSURE:-}" python3 "$tmp/pick.py" "$tmp/list.json")
+choice=$(XBIN_SIM="${XBIN_SIM:-}" XBIN_SIM_ENSURE="${XBIN_SIM_ENSURE:-}" XBIN_SIM_SDK="$sdk" python3 "$tmp/pick.py" "$tmp/list.json")
 IFS=$'\t' read -r kind f1 f2 f3 f4 <<<"$choice"
 case $kind in
 device)

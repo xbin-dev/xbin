@@ -152,6 +152,31 @@ final class XbinOnboardingTests: XCTestCase {
         e.shot("onboarding-08-cant-connect")
     }
 
+    /// The keyboard can always be put away (#30): a form's text field brings
+    /// it up, Hide keyboard over it puts it down, and the field keeps what
+    /// was typed.
+    @MainActor
+    func test11HideKeyboard() throws {
+        let e = try E2E(self)
+        e.launchFresh()
+        XCTAssertTrue(e.app.buttons["Log in"].waitForExistence(timeout: 30))
+        e.app.buttons["Log in"].tap()
+        let enter = e.app.buttons["Enter workspace address"]
+        XCTAssertTrue(enter.waitForExistence(timeout: 10), "Log in's Enter workspace address")
+        enter.tap()
+        let field = e.element("Workspace address", in: e.app.textFields)
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "the address field")
+        field.tap()
+        field.typeText("xbin.example")
+        XCTAssertTrue(e.app.keyboards.firstMatch.waitForExistence(timeout: 10), "typing brings the keyboard up")
+        let hide = e.app.buttons.matching(identifier: "keyboard-hide").firstMatch
+        XCTAssertTrue(hide.waitForExistence(timeout: 10), "Hide keyboard over the keyboard")
+        e.shot("keyboard-01-form-hide-button")
+        hide.tap()
+        XCTAssertTrue(e.until(10) { !e.app.keyboards.firstMatch.exists }, "Hide keyboard puts it away")
+        XCTAssertEqual(field.value as? String, "xbin.example", "…and the field keeps what was typed")
+    }
+
     /// An enrollment link with a code the workspace never minted: the
     /// workspace answers (login/methods) and refuses the code — "Code refused".
     @MainActor

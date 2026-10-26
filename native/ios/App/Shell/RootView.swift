@@ -249,13 +249,13 @@ struct PanelBar: ViewModifier {
                     }
                     .accessibilityLabel("Workspaces")
                     .accessibilityValue(app.needsYouCount > 0 ? Text("\(app.needsYouCount) need you") : Text(verbatim: workspace.title))
-                }
+                }.preferVerticalBar()
                 if level == 1 {
                     ToolbarItem(placement: .topBarLeading) {
                         Button { nav.back() } label: { Image(systemName: "square.grid.2x2") }
                             .accessibilityLabel("Home")
                             .accessibilityIdentifier("panel-home")
-                    }
+                    }.preferVerticalBar()
                 } else if level == 2 {
                     ToolbarItem(placement: .topBarLeading) {
                         Button { nav.back() } label: {
@@ -266,7 +266,7 @@ struct PanelBar: ViewModifier {
                         }
                         .accessibilityLabel(Text(verbatim: backTitle))
                         .accessibilityIdentifier("panel-back")
-                    }
+                    }.preferVerticalBar()
                 }
             }
     }

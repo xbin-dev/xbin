@@ -13,6 +13,10 @@ extension Button where Label == Text {
     @_disfavoredOverload public init<S: StringProtocol>(_ title: S, role: ButtonRole?, action: @escaping () -> Void) {}
 }
 
+extension Button where Label == SwiftUI.Label<Text, Image> {
+    @_disfavoredOverload public init<S: StringProtocol>(_ title: S, systemImage: String, action: @escaping () -> Void) {}
+}
+
 public struct Toggle<Label: View>: _Leaf {
     public init(isOn: Binding<Bool>, @ViewBuilder label: () -> Label) {}
 }

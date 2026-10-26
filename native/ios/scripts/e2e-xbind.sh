@@ -40,6 +40,15 @@
 #                       Its data are encrypted resources: without gocryptfs
 #                       ($XBIN_GOCRYPTFS, bin/gocryptfs, PATH) xbind holds
 #                       it, so start leaves it out and says so
+#   XBIN_E2E_AGENT_PARTITION
+#                       1: apps/agent keeps the template's partitioned
+#                       default (docs/partitions.md: a person's conversations
+#                       in their own partition — what a workspace runs; needs
+#                       --isolate in XBIN_E2E_XBIND_ARGS), and the e2e
+#                       account's partition gets the model the global
+#                       instance does (its config is its own). 0 (default):
+#                       unpartitioned, the e2e account's conversations the
+#                       instance's own
 #   XBIN_E2E_UNSHARE    1: xbind runs in a user and mount namespace of its own
 #                       (unshare -Urm) — where fusermount3's setuid can't
 #                       work (a sandbox with no_new_privs), FUSE still mounts
@@ -167,6 +176,8 @@ start)
   # apps/agent needs gocryptfs (its db, files and team are encrypted
   # resources; xbind finds it as internal/resenc Resolve does).
   agent=${XBIN_E2E_AGENT:-1} gcf=""
+  agent_new='{"source":"agent","path":"apps/agent","partition":false}'
+  [ "${XBIN_E2E_AGENT_PARTITION:-0}" = 1 ] && agent_new='{"source":"agent","path":"apps/agent"}'
   if [ "$agent" = 1 ]; then
     if [ -n "${XBIN_GOCRYPTFS:-}" ]; then gcf=$XBIN_GOCRYPTFS
     elif [ -x "$repo/bin/gocryptfs" ]; then gcf=$repo/bin/gocryptfs
@@ -229,7 +240,7 @@ start)
     api POST /api/xbin/builtins/import '{"name":"llm-gw"}' >/dev/null &&
       api POST /api/xbin/bindings '{"component":"apps/llm-gw","slot":"net","provider":"host"}' >/dev/null &&
       api PUT /api/xbin/vault/apps/llm-gw/api-token-fake '{"value":"sk-fake"}' >/dev/null &&
-      api POST /api/xbin/templates/new '{"source":"agent","path":"apps/agent","partition":false}' >/dev/null &&
+      api POST /api/xbin/templates/new "$agent_new" >/dev/null &&
       api POST /api/xbin/bindings '{"component":"apps/agent","slot":"llm","providers":["apps/llm-gw"]}' >/dev/null &&
       api POST /api/xbin/bindings '{"component":"apps/agent","slot":"net","provider":"none"}' >/dev/null ||
       { say "could not set up apps/agent — stopping"; stop; exit 1; }
@@ -247,6 +258,20 @@ c=json.load(sys.stdin); c.update(model="fake/fake-chat", subagents=True, maxActi
 print(json.dumps(c))' >"$dir/agent-config.json"
     api PUT /api/apps/agent/config "$(cat "$dir/agent-config.json")" >/dev/null ||
       { say "could not set the agent's model — stopping"; stop; exit 1; }
+    if [ "${XBIN_E2E_AGENT_PARTITION:-0}" = 1 ]; then
+      # the e2e account's own partition (its first call starts it) reads
+      # its own config: the same model, set as the account
+      session=$(curl -fsS -X POST -H 'Content-Type: application/json' \
+        -d "{\"username\":\"e2e\",\"password\":\"$password\"}" "$url/api/xbin/login" |
+        python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])') ||
+        { say "could not sign in as e2e — stopping"; stop; exit 1; }
+      wait_for 240 "the e2e account's partition of apps/agent" \
+        curl -fsS -o /dev/null -H "Authorization: Bearer $session" "$url/api/apps/agent/config"
+      curl -fsS -X PUT -H "Authorization: Bearer $session" -H 'Content-Type: application/json' \
+        -d "$(cat "$dir/agent-config.json")" "$url/api/apps/agent/config" >/dev/null ||
+        { say "could not set the e2e partition's model — stopping"; stop; exit 1; }
+      say "apps/agent is partitioned: the e2e account's conversations live in its own partition"
+    fi
     rm -f "$dir/agent-config.json"
   fi
   {

@@ -82,3 +82,32 @@ test('share sheet: a coding agent\'s conversation in the shared space isn\'t mad
   assert.equal(find(u.snapshots.sheet, { t: 'section', p: { title: 'Who can see it' } }).p.footer, undefined, 'unpartitioned: no word of it');
   assert.equal(called(u, 'PATCH', /\/runs\/21$/).length, 1, 'unpartitioned: made private, as ever');
 });
+
+// #28: a person's partition lists the conversations of both homes — their
+// own (ids from 2^40) and the shared space's, which the web started — and a
+// shared one opens at the global instance (xbin.fetch {partition: 'global'}),
+// its messages shown; unpartitioned, the one list as ever.
+test('two homes: the list shows the web\'s shared conversations beside the person\'s own, and one opens at global', async () => {
+  const MINE = 2 ** 40 + 1;
+  const row = (id, title, extra) => ({ id, title, status: 'idle', access: 'owner', mine: true, origin: 'chat', visibility: 'private',
+    activityMs: NOW - 60000 + (id % 1000), parentId: 0, rootId: id, ...extra });
+  const homeRows = {
+    '': [row(MINE, 'my notes')],
+    global: [row(1, 'started on the web', { visibility: 'team', teamRole: 'participant', members: 0 }), row(2, 'with carol', { members: 1 })],
+  };
+  const steps = [
+    { wait: 50 },
+    { snapshot: 'list' },
+    { tap: { t: 'row', p: { title: 'started on the web' } } },
+    { wait: 50 },
+    { snapshot: 'chat' },
+  ];
+  const p = await run({ me: ME, runs: [], partition: 'user:alice', homeRows }, steps);
+  const titles = all(p.snapshots.list.root, { t: 'row' }).map((x) => x.p.title);
+  for (const t of ['my notes', 'started on the web', 'with carol']) assert.ok(titles.includes(t), `the list shows "${t}" (${JSON.stringify(titles)})`);
+  const views = called(p, 'GET', /\/runs\/1\/view/);
+  assert.ok(views.length > 0 && views.every((c) => c.home === 'global'), `the shared conversation is read at global (${JSON.stringify(views.map((c) => c.home))})`);
+  assert.ok(JSON.stringify(p.snapshots.chat).includes('hello from started on the web'), 'its messages show');
+  assert.ok(called(p, 'GET', /\/conversations\?/).some((c) => c.home === 'global') && called(p, 'GET', /\/conversations\?/).some((c) => c.home === ''),
+    'the list reads both homes');
+});

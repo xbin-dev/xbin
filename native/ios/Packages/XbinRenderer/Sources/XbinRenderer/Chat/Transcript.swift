@@ -116,6 +116,7 @@ public struct TranscriptView<ID: Hashable & Sendable, Content: View>: View {
                 .padding(.vertical, 12)
             }
             .scrollPosition($position, anchor: .top)
+            .scrollDismissesKeyboard(.interactively) // a drag down takes the composer's keyboard with it (#30)
             .defaultScrollAnchor(follow && anchor == nil ? .bottom : .top)
             .defaultScrollAnchor(follow && atBottom && anchor == nil ? .bottom : nil, for: .sizeChanges)
             .onAppear { if let anchor { position.scrollTo(id: anchor, anchor: .top) } }
@@ -340,7 +341,10 @@ public struct MessageView<Actions: View>: View {
     private var bubble: some View {
         VStack(alignment: .leading, spacing: 8) {
             if let blocks = message.markdown {
+                // Selectable as the plain text is (#34): within a block — a
+                // paragraph, a list item, a cell —, SwiftUI's selection.
                 MarkdownView(blocks: blocks, onLink: onLink)
+                    .textSelection(.enabled)
             } else if !message.text.isEmpty || message.files.isEmpty {
                 Text(verbatim: message.text)
                     .fixedSize(horizontal: false, vertical: true)

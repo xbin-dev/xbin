@@ -108,6 +108,7 @@ struct XbinTextField: UIViewRepresentable {
         v.text = text
         v.borderStyle = .none
         v.backgroundColor = .clear
+        v.inputAccessoryView = XbinKeyboard.accessory(for: v) // Hide keyboard (#30)
         let c = context.coordinator
         v.delegate = c
         v.addAction(UIAction { [weak c, weak v] _ in
@@ -199,6 +200,7 @@ struct XbinTextArea: UIViewRepresentable {
         let v = XbinTextView(frame: .zero, textContainer: nil)
         v.text = text
         v.backgroundColor = .clear
+        v.inputAccessoryView = XbinKeyboard.accessory(for: v) // Hide keyboard (#30): Return adds a line here
         v.textContainerInset = .zero
         v.textContainer.lineFragmentPadding = 0
         v.isScrollEnabled = false

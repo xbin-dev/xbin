@@ -9,7 +9,7 @@
         {"t":"paragraph","c":[{"t":"text","text":"The p95 jumped at "},{"t":"strong","c":[{"t":"text","text":"17:58"}]},{"t":"text","text":", right after "},{"t":"codespan","text":"checkout-api"},{"t":"text","text":" v2.14.0 went out. That release set "},{"t":"codespan","text":"idle_timeout: 0"},{"t":"text","text":", so every request opens a new TLS connection. See "},{"t":"link","href":"https://git.acme.dev/checkout/compare/v2.13.2...v2.14.0","c":[{"t":"text","text":"the diff"}]},{"t":"text","text":"."}]}
       ]},"e":["link"],"c":[
       {"k":"r.0.1:m2.1.0","t":"actions","c":[
-        {"k":"r.0.1:m2.1.0.0","t":"button","p":{"icon":"copy","copy":"The p95 jumped at **17:58**, right after `checkout-api` v2.14.0 went out. That release set `idle_timeout: 0`, so every request opens a new TLS connection. See [the diff](https://git.acme.dev/checkout/compare/v2.13.2...v2.14.0).","label":"Copy"}},
+        {"k":"r.0.1:m2.1.0.0","t":"button","p":{"icon":"copy","copy":"The p95 jumped at **17:58**, right after `checkout-api` v2.14.0 went out. That release set `idle_timeout: 0`, so every request opens a new TLS connection. See [the diff](https://git.acme.dev/checkout/compare/v2.13.2...v2.14.0).","copyFormat":"markdown","label":"Copy"}},
         {"k":"r.0.1:m2.1.0.1","t":"button","p":{"icon":"refresh","label":"Retry"},"e":["tap"]}
       ]}
     ]},

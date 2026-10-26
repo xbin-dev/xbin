@@ -1,5 +1,6 @@
 #if canImport(UIKit)
 import SwiftUI
+import UIKit
 import XbinCore
 import XbinRendererModel
 
@@ -191,6 +192,38 @@ struct ActionsMenu: View {
         .menuOrder(.fixed)
         .fixedSize()
         .accessibilityLabel(Text(verbatim: label))
+    }
+}
+
+/// A message's ⋯ with one line, Copy, for a transcript the app draws
+/// itself (the Agent tab): an agent's Markdown goes on the pasteboard as
+/// rich text beside its plain text (#34), a person's text as it is.
+public struct MessageCopyMenu: View {
+    let text: String
+    let markdown: Bool
+    @ScaledMetric(relativeTo: .body) private var side: CGFloat = 30
+
+    public init(text: String, markdown: Bool) {
+        self.text = text
+        self.markdown = markdown
+    }
+
+    public var body: some View {
+        Menu {
+            Button("Copy", systemImage: "doc.on.doc") {
+                if markdown { XbinPasteboard.copyMarkdown(text) } else { UIPasteboard.general.string = text }
+            }
+        } label: {
+            Image(systemName: XbinIcons.UI.more)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(XbinColor.muted)
+                .frame(minWidth: side, minHeight: side * 0.8)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.borderless)
+        .fixedSize()
+        .accessibilityLabel("Message actions")
     }
 }
 

@@ -23,6 +23,11 @@ has "pick-sim: names its choice on stderr" "$out" "iPhone 17 (iOS 27.1)"
 dest=$("$S/pick-sim.sh" 2>/dev/null)
 eq "pick-sim: stdout is only the destination" "$dest" "platform=iOS Simulator,id=BBBBBBBB-0000-4000-8000-000000002714"
 
+FAKE_SIM_SDK=26.2 run "$S/pick-sim.sh"
+eq "pick-sim: never a runtime newer than the Xcode's simulator SDK (another Xcode's 27.1 on Xcode 26.2's CoreSimulator: an Incompatible device)" \
+  "$rc:$(printf '%s\n' "$out" | tail -n 1)" "0:platform=iOS Simulator,id=AAAAAAAA-0000-4000-8000-000000002602"
+has "pick-sim: …and says which it skipped" "$out" "skipping iOS 27.1: newer than this Xcode's simulator SDK (26.2)"
+
 XBIN_SIM="iPhone 17 Pro" run "$S/pick-sim.sh"
 eq "pick-sim: XBIN_SIM picks that name on the newest runtime" "$(printf '%s\n' "$out" | tail -n 1)" \
   "platform=iOS Simulator,id=BBBBBBBB-0000-4000-8000-000000002711"
@@ -147,6 +152,22 @@ eq "ci-toolchain: XBIN_XCODE → DEVELOPER_DIR for later steps" "$(cat "$GITHUB_
   "DEVELOPER_DIR=$tmp/Xcode_27.1.app/Contents/Developer"
 XBIN_XCODE=$tmp/nope.app run "$S/ci-toolchain.sh"
 eq "ci-toolchain: a missing XBIN_XCODE fails" "$rc" 1
+eq "ci-lib: XBIN_XCODE → DEVELOPER_DIR in every script (mac-remote.sh build calls ci-build-app.sh directly)" \
+  "$(env -u DEVELOPER_DIR XBIN_XCODE="$tmp/Xcode_27.1.app" bash -c '. "$1/ci-lib.sh" && echo "$DEVELOPER_DIR"' _ "$S")" \
+  "$tmp/Xcode_27.1.app/Contents/Developer"
+eq "ci-lib: …a DEVELOPER_DIR already set wins" \
+  "$(DEVELOPER_DIR=/x XBIN_XCODE="$tmp/Xcode_27.1.app" bash -c '. "$1/ci-lib.sh" && echo "$DEVELOPER_DIR"' _ "$S")" "/x"
+
+# ---- ci-pick-xcode.sh ------------------------------------------------------
+mkdir -p "$tmp/apps/Xcode.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.0.sdk" \
+  "$tmp/apps/Xcode-beta.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.1.sdk"
+: >"$GITHUB_ENV"
+eq "ci-pick-xcode: the Xcode with the iOS 27.1 SDK" "$(XBIN_XCODE_ROOT=$tmp/apps "$S/ci-pick-xcode.sh" 27.1)" "$tmp/apps/Xcode-beta.app"
+eq "ci-pick-xcode: …handed to the later steps" "$(cat "$GITHUB_ENV")" "XBIN_XCODE=$tmp/apps/Xcode-beta.app"
+rc=0
+XBIN_XCODE_ROOT=$tmp/apps "$S/ci-pick-xcode.sh" 28.0 >/dev/null 2>&1 || rc=$?
+eq "ci-pick-xcode: no Xcode with that SDK fails" "$rc" 1
+: >"$GITHUB_ENV"
 
 # ---- ci-swift-test.sh ----------------------------------------------------
 reset_env

@@ -1,7 +1,8 @@
 // Stubs for the renderer's interaction pieces: gestures, transitions and
 // animation, geometry, UIKit representables, the iOS 26 toolbar spacer,
 // menus' styles and order, and (behind XBIN_SDK_27_1) the iPhone Duo's
-// ArrangementView as the design names it.
+// ArrangementView and toolbar axis behavior, as the iOS 27.1 SDK declares
+// them (D200).
 
 // MARK: Geometry
 
@@ -133,9 +134,24 @@ extension UIViewRepresentable where Coordinator == Void {
     public func makeCoordinator() {}
 }
 
-// MARK: iPhone Duo (iOS 27.1 SDK, XBIN_SDK_27_1) — the design's name, unconfirmed
+// MARK: iPhone Duo (iOS 27.1 SDK, XBIN_SDK_27_1) — as the 27.1 SDK declares it
+// (Xcode 27.1, 27A9269: SwiftUICore's ArrangementView, SwiftUI's
+// ToolbarItemAxisBehavior)
 
 @available(iOS 27.1, *)
-public struct ArrangementView<Content: View>: _Leaf {
-    public init(@ViewBuilder content: () -> Content) {}
+public struct ArrangementView<Primary: View, Secondary: View>: _Leaf {
+    public init(@ViewBuilder primary: () -> Primary, @ViewBuilder secondary: () -> Secondary) {}
+}
+@available(iOS 27.1, *)
+public struct ToolbarItemAxisBehavior: Hashable, Sendable {
+    public static let automatic = ToolbarItemAxisBehavior(), horizontalOnly = ToolbarItemAxisBehavior(),
+        verticalPreferred = ToolbarItemAxisBehavior()
+}
+public struct _ToolbarAxis<C>: _ToolbarLeaf {}
+@available(iOS 27.1, *)
+extension ToolbarContent {
+    public func axisBehavior(_ behavior: ToolbarItemAxisBehavior) -> some ToolbarContent { _ToolbarAxis<Self>() }
+}
+extension ToolbarContentBuilder {
+    public static func buildLimitedAvailability(_ content: any ToolbarContent) -> some ToolbarContent { _ToolbarTuple(()) }
 }
