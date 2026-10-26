@@ -429,6 +429,17 @@ public actor AgentSessionFeed {
         try await act { try await self.client.prompt(self.sessionID, text: text, attachments: attachments) }
     }
 
+    /// Sends a message while a turn runs (D197, ``AgentClient/queue(_:text:attachments:)``).
+    @discardableResult
+    public func queue(_ text: String, attachments: [PromptAttachment] = []) async throws -> QueueAccepted {
+        try await act { try await self.client.queue(self.sessionID, text: text, attachments: attachments) }
+    }
+
+    /// Takes a held message back (D197) → its text, whole.
+    public func unqueue(_ qid: String) async throws -> [QueuedMessage] {
+        try await act { try await self.client.unqueue(self.sessionID, qid: qid) }
+    }
+
     public func cancel() async throws { try await act { try await self.client.cancel(self.sessionID) } }
 
     /// Answers a permission (404: another client answered first — the

@@ -55,6 +55,8 @@ public enum AgentEventType: String, Sendable, CaseIterable {
     case turnEnd = "turn.end"
     case status
     case gap
+    /// The messages held for the running turn's end (D197): state, not a row.
+    case queue
 }
 
 public enum AgentEventPayload: Sendable, Hashable {
@@ -71,6 +73,7 @@ public enum AgentEventPayload: Sendable, Hashable {
     case turnEnd(TurnEnd)
     case status(StatusUpdate)
     case gap(before: UInt64)
+    case queue(QueueUpdate)
     /// A type this client does not know, or a known type whose data is unreadable.
     case unknown(type: String, data: JSONValue)
 
@@ -90,6 +93,7 @@ public enum AgentEventPayload: Sendable, Hashable {
         case .turnEnd: self = .turnEnd(TurnEnd(json: d))
         case .status: self = .status(StatusUpdate(json: d))
         case .gap: self = .gap(before: d["before"]?.uint64 ?? 0)
+        case .queue: self = .queue(QueueUpdate(json: d))
         case nil: self = .unknown(type: type, data: d)
         }
     }

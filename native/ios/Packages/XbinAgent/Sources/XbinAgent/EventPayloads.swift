@@ -11,14 +11,18 @@ public struct MessageDelta: Sendable, Hashable {
     public var parent: String
     /// A prompt's files (the user's delta of a prompt that carried them).
     public var attachments: [MessageAttachment]
+    /// A message the running turn took mid-turn (`POST …/queue`, D197): a
+    /// bubble of its own, never merged into the one before.
+    public var steered: Bool
 
     public init(role: MessageRole = .agent, text: String, messageId: String = "", parent: String = "",
-                attachments: [MessageAttachment] = []) {
+                attachments: [MessageAttachment] = [], steered: Bool = false) {
         self.role = role
         self.text = text
         self.messageId = messageId
         self.parent = parent
         self.attachments = attachments
+        self.steered = steered
     }
 
     init(json d: JSONValue) {
@@ -27,6 +31,57 @@ public struct MessageDelta: Sendable, Hashable {
         messageId = d["messageId"]?.string ?? ""
         parent = d["parent"]?.string ?? ""
         attachments = (d["attachments"]?.array ?? []).compactMap(MessageAttachment.init(json:))
+        steered = d["steered"]?.bool ?? false
+    }
+}
+
+/// A message held for the running turn's end (D197): `{id, text, files?,
+/// at}` — `text` a preview (200 characters), `files` the attachments' names.
+public struct QueuedMessage: Sendable, Hashable, Identifiable {
+    public var id: String
+    public var text: String
+    public var files: [String]
+    public var at: Int64
+
+    public init(id: String, text: String, files: [String] = [], at: Int64 = 0) {
+        self.id = id
+        self.text = text
+        self.files = files
+        self.at = at
+    }
+
+    init?(json d: JSONValue) {
+        guard let id = d["id"]?.string ?? d["id"]?.compactString, !id.isEmpty else { return nil }
+        self.id = id
+        text = d["text"]?.text ?? ""
+        files = (d["files"]?.array ?? []).compactMap(\.string)
+        at = d["at"]?.int64 ?? 0
+    }
+
+    static func list(_ v: JSONValue?) -> [QueuedMessage] { (v?.array ?? []).compactMap(QueuedMessage.init(json:)) }
+}
+
+/// A `queue` event (D197, xbin's, not the agent's): the held messages after
+/// a change — the whole list, replacing the last; `sent` the ids that just
+/// went in as a prompt, `dropped` how many went unsent (with `reason`).
+public struct QueueUpdate: Sendable, Hashable {
+    public var items: [QueuedMessage]
+    public var sent: [String]
+    public var dropped: Int
+    public var reason: String
+
+    public init(items: [QueuedMessage] = [], sent: [String] = [], dropped: Int = 0, reason: String = "") {
+        self.items = items
+        self.sent = sent
+        self.dropped = dropped
+        self.reason = reason
+    }
+
+    init(json d: JSONValue) {
+        items = QueuedMessage.list(d["items"])
+        sent = (d["sent"]?.array ?? []).compactMap { $0.string ?? $0.compactString }
+        dropped = d["dropped"]?.int ?? 0
+        reason = d["reason"]?.string ?? ""
     }
 }
 

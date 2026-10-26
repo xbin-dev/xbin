@@ -59,7 +59,8 @@ import Testing
                 if case .unknown = e.payload { Issue.record("\(name) seq \(e.seq): \(e.type) did not read") }
             }
         }
-        // the fake sends no plan (TranscriptTests covers it); gap is a follow stream's
-        #expect(seen == Set(AgentEventType.allCases.map(\.rawValue)).subtracting(["gap", "plan"]))
+        // the fake sends no plan (TranscriptTests covers it); gap is a follow stream's;
+        // queue (D197) postdates the captures (QueueTests covers it)
+        #expect(seen == Set(AgentEventType.allCases.map(\.rawValue)).subtracting(["gap", "plan", "queue"]))
     }
 }

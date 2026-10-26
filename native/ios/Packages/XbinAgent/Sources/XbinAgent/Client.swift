@@ -154,6 +154,30 @@ public struct AgentClient: Sendable {
         return PromptAccepted(turn: v["turn"]?.int ?? 0)
     }
 
+    /// `POST …/queue {text, attachments?}` (D197): a message whatever the
+    /// agent is doing — idle it starts a turn, while one runs the agent
+    /// takes it mid-turn or xbind holds it for the turn's end. An xbind
+    /// before D197 answers 404 (``AgentAPIError/isNotFound``): the caller
+    /// keeps to /prompt between turns. Attachments are checked as for
+    /// ``prompt(_:text:attachments:)``.
+    public func queue(_ id: String, text: String, attachments: [PromptAttachment] = []) async throws -> QueueAccepted {
+        if attachments.isEmpty {
+            return QueueAccepted(json: try await call("POST", sessionPath(id) + "/queue", body: ["text": .string(text)]))
+        }
+        if let problem = PromptAttachment.check(attachments) {
+            throw AgentAPIError(status: problem.status, message: problem.description)
+        }
+        return QueueAccepted(json: try await call("POST", sessionPath(id) + "/queue", rawBody: PromptAttachment.body(text: text, attachments)))
+    }
+
+    /// `DELETE …/queue[/<qid>]` (D197) — takes held messages back, whole
+    /// (all, or the one `qid`): their text goes back where it was typed.
+    /// 404 for a qid no longer held (sent, or taken back elsewhere).
+    public func unqueue(_ id: String, qid: String? = nil) async throws -> [QueuedMessage] {
+        let v = try await call("DELETE", sessionPath(id) + "/queue" + (qid.map { "/" + seg($0) } ?? ""))
+        return QueuedMessage.list(v["items"])
+    }
+
     /// `POST …/cancel` — the turn ends cancelled; pending requests are cancelled.
     public func cancel(_ id: String) async throws {
         _ = try await call("POST", sessionPath(id) + "/cancel")

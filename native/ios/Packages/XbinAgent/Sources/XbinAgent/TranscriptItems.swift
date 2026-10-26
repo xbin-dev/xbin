@@ -49,6 +49,8 @@ public struct Message: Sendable, Hashable, Identifiable {
     /// The files a user's prompt carried (a message with files never
     /// merges with another delta, as on the web).
     public var files: [MessageAttachment] = []
+    /// Taken into the running turn mid-turn (D197): its own bubble, marked.
+    public var steered = false
 
     /// Text still streaming in: the open run of a session that runs a turn.
     public func isStreaming(status: SessionStatus, ended: Bool = false) -> Bool { open && !ended && status.isBusy }

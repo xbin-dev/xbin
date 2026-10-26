@@ -364,9 +364,12 @@ public struct ChatComposer: Sendable, Equatable {
     /// handles uploads itself).
     public var canAttach: Bool
     public var slash: [SlashCommand]
+    /// While busy, Send stays beside Stop: the message goes to the running
+    /// turn or waits for its end (the Agent tab, D197). Off: Stop alone.
+    public var sendWhileBusy: Bool
 
     public init(placeholder: String = "Message", busy: Bool = false, disabled: Bool = false, attachments: [ChatAttachment] = [],
-                accept: String? = nil, canAttach: Bool = false, slash: [SlashCommand] = []) {
+                accept: String? = nil, canAttach: Bool = false, slash: [SlashCommand] = [], sendWhileBusy: Bool = false) {
         self.placeholder = placeholder
         self.busy = busy
         self.disabled = disabled
@@ -374,6 +377,7 @@ public struct ChatComposer: Sendable, Equatable {
         self.accept = accept
         self.canAttach = canAttach
         self.slash = slash
+        self.sendWhileBusy = sendWhileBusy
     }
 
     public init(props p: Props) {
