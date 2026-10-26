@@ -64,6 +64,9 @@ export const returnedText = (back) => (back || []).map((q) => q.text).filter(Boo
 // control drives a run: resume (Retry) | compact | learn (Learn skill).
 export const control = (runId, action) => api(`/runs/${runId}/${action}`, { method: 'POST' });
 export const deleteRun = (runId) => api(`/runs/${runId}`, { method: 'DELETE' });
+// dismissUnfinished takes the judge's "not finished" mark down, for everyone
+// (D198; the row's `unfinished` goes on the stream).
+export const dismissUnfinished = (runId) => api(`/runs/${runId}/unfinished/dismiss`, { method: 'POST' });
 
 // asks is a run's task ledger (D133): every request it was given, verbatim,
 // oldest first — read-only ([{seq, source, who, text, at, live}]).

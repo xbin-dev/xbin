@@ -205,8 +205,13 @@ export function halt(me, on, rows) {
 
 const SPINNING = new Set(['running', 'awaiting', 'sleeping', 'queued', 'blocked']);
 // rowGlyph: '?' waiting for you (the conversation, or a run below it: the
-// row's `waiting`, D147 §4.3.8), '!' failed, a spinner while it works.
-export const rowGlyph = (r) => r.status === 'waiting_input' || r.waiting ? 'ask' : r.status === 'error' ? 'error' : SPINNING.has(r.status) ? 'spin' : '';
+// row's `waiting`, D147 §4.3.8), '!' failed, a spinner while it works, and
+// 'unfinished' when its coding agent's or project's last turn stopped
+// part-way (the row's `unfinished`, the judge's mark: D198).
+export const rowGlyph = (r) => r.status === 'waiting_input' || r.waiting ? 'ask' : r.status === 'error' ? 'error'
+  : SPINNING.has(r.status) ? 'spin' : r.unfinished ? 'unfinished' : '';
+// unfinishedWords: the mark's words — "not finished: <the judge's reason>".
+export const unfinishedWords = (r) => (r && r.unfinished ? `not finished${r.unfinished.reason ? ': ' + r.unfinished.reason : ''}` : '');
 // rowShared: how a shared row is shared, as chips — from whom (someone else's),
 // with the team (to read or to write), with how many people — and whether it
 // is one you shared; null for a private one.
@@ -256,6 +261,8 @@ export function rowMenu(r, opts = {}) {
   if (own && sharing() && !publishes(r.id)) items.push({ label: 'Share…', action: 'share' });
   else if (own && opts.publish && publishes(r.id) && !keepsHome(r)) items.push({ label: 'Share a copy…', action: 'share' });
   items.push({ label: r.archivedAt ? 'Unarchive' : 'Archive', action: 'archive' });
+  // the judge's "not finished" (D198): whoever may talk to it takes it down
+  if (r.unfinished && (own || r.access === 'participant')) items.push({ label: 'Mark as finished', action: 'unfinished' });
   if (own) items.push({ label: 'Delete', action: 'delete', cls: 'rm' });
   else if (r.mine) items.push({ label: 'Leave', action: 'leave', cls: 'rm' });
   return items;

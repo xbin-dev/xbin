@@ -421,6 +421,8 @@ func script(conv []turn, system string) plan {
 		return plan{Text: "Got your steer: " + lastUser}
 	case strings.Contains(lastUser, "hello"):
 		return plan{Thinking: []string{"Considering ", "the ", "greeting…"}, Text: "Hello from the fake model."}
+	case strings.Contains(lastUser, "show markdown"): // the richCopy pass: a list, a table, a fence (D199, #26)
+		return plan{Text: "The plan:\n\n1. **first** step\n2. second step\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```go\nfunc main() { println(\"hi\") }\n```"}
 	case strings.Contains(lastUser, "make a file"):
 		return plan{Calls: []call{{"file_write", map[string]any{"path": "note.txt", "content": "made by the fake model", "summary": "Write the file"}}}}
 	case strings.Contains(lastUser, "use a tool"):

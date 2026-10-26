@@ -8,7 +8,7 @@
 // gets is model/rules.js; the row actions are model/actions.js.
 import { html, nothing, repeat } from '/vendor/lit-all.min.js';
 import { groupRows } from './model/conv-groups.js';
-import { rowGlyph, rowShared, rowMenu } from './model/rules.js';
+import { rowGlyph, unfinishedWords, rowShared, rowMenu } from './model/rules.js';
 import { sharing } from './model/partition.js'; // the Shared view (in a person's partition: the shared space's)
 import * as actions from './model/actions.js';
 import { hostedRowChip } from './hosted-ui.js'; // a non-secure conversation's warning chip
@@ -50,7 +50,8 @@ function rowTpl(r, ui, withMatch) {
   // the row's state (D184): a glyph with its word in the title, the live square while it works
   const glyph = g === 'ask' ? html`<span class="gl ask" title="waiting for you"><bx-icon name="question" label="waiting for you"></bx-icon></span>`
     : g === 'error' ? html`<span class="gl err" title="failed"><bx-icon name="error" label="failed"></bx-icon></span>`
-    : g === 'spin' ? html`<span class="spin" title="working"></span>` : nothing;
+    : g === 'spin' ? html`<span class="spin" title="working"></span>`
+    : g === 'unfinished' ? html`<span class="gl unf" title=${unfinishedWords(r)}><bx-icon name="pause" label=${unfinishedWords(r)}></bx-icon></span>` : nothing;
   const shared = rowShared(r);
   const kind = kindOf(r); // a coding agent answers it (D147): its monogram
   const kids = kidsWords(r); // coding agents at work below it (D147 §4.3.8)
@@ -123,6 +124,7 @@ export function makeSideUI(d) {
         if (action === 'rename') { renaming = r.id; d.paint(); document.querySelector('#runs .ren')?.focus(); return; }
         if (action === 'pin') await actions.pin(d.convs, r);
         if (action === 'archive') await actions.archive(d.convs, r);
+        if (action === 'unfinished') await actions.dismissUnfinished(r.id);
         if (action === 'share') d.share(r);
         if (action === 'leave' && confirm(`Leave "${r.title}"?`)) {
           await actions.leave(d.convs, r, d.me().user);

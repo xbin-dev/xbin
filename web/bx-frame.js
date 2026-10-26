@@ -64,6 +64,7 @@ import '/vendor/bx-icons.js';
 import { onEvent, mountedFrames, isReloadTarget } from '/vendor/events-socket.js';
 import '/vendor/bx-terminal.js';
 import '/vendor/bx-code.js';
+import { frameCopy, COPY_MAX } from '/vendor/copy-rich.js';
 import '/vendor/bx-logs.js';
 import '/vendor/bx-prs.js';
 import '/vendor/bx-deploy.js';
@@ -573,10 +574,12 @@ export class BxFrame extends LitElement {
           x: r.left + clampN(d.x, r.width), y: r.top + clampN(d.y, r.height),
           // Clamped again here: the sender is a tile.
           selection: typeof d.selection === 'string' ? d.selection.slice(0, 65536) : '',
+          html: typeof d.html === 'string' ? d.html.slice(0, COPY_MAX) : '', // its HTML, untrusted: Copy rebuilds it (D199)
         },
       }));
       return;
     }
+    if (d.type === 'xbin:copy') { frameCopy(this, d); return; } // xbin.copy: this page writes the clipboard (D199, copy-rich.js)
 
     // Dialog / pop-out window requests — relayed to <bx-shell> with the VERIFIED
     // component id (this.src, not anything the tile claimed). `reply` posts the

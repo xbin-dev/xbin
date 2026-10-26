@@ -154,10 +154,9 @@ func (s *hsess) parkTx(t *DB, run *Run, kind string, p *hPark, c *hcall) error {
 			}
 		}
 	}
-	if run.ParentID == 0 {
-		t.bumpActivity(run.ID)
-	}
+	t.bumpActivity(run.ID) // the conversation's: a coding agent below it waiting on a person is news there too (D198)
 	s.e.emitRun(t, run.ID)
+	t.AfterCommit(func() { s.e.ag.needsMoment(run.ID) }) // its question or permission reaches the phone (D198)
 	return nil
 }
 

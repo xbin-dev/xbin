@@ -63,6 +63,7 @@
     .run .gl { display: inline-flex; color: var(--bx-muted); flex: none; }
     .run .gl.err { color: var(--bx-danger); }
     .run .gl.ask { color: var(--bx-warn); background: none; border: 0; padding: 0; margin: 0; } /* not the .ask card */
+    .run .gl.unf { color: var(--bx-warn); } /* the judge's "not finished" (D198) */
     .bx .run .rmenu { visibility: hidden; flex: none; display: inline-flex; align-items: center; min-height: 0; border: 0; background: none;
                       color: var(--bx-muted); cursor: pointer; padding: 0 2px; }
     .bx .run .rmenu:hover { color: var(--bx-text); }
@@ -432,6 +433,14 @@
     .msg.user.other { margin-left: 0; margin-right: auto; }
     .msg.user .who { font: var(--bx-font-meta); font-weight: 600; color: var(--bx-muted); margin-bottom: 2px; }
     .md > :first-child { margin-top: 0; } .md > :last-child { margin-bottom: 0; }
+    /* an answer's Copy (chat-copy.js, D199): under the pointer, top right */
+    .msg.assistant { position: relative; }
+    .msg.assistant > .acts { position: absolute; top: -4px; right: 0; display: none; }
+    .msg.assistant:hover > .acts, .msg.assistant > .acts:focus-within { display: flex; }
+    .msg.assistant > .acts .act { display: inline-flex; padding: 4px; border: 1px solid var(--bx-border); border-radius: var(--bx-radius);
+      background: var(--bx-panel); color: var(--bx-muted); cursor: pointer; }
+    .msg.assistant > .acts .act:hover { color: var(--bx-text); }
+    .msg.assistant > .acts .act.done { color: var(--bx-ok); }
     /* a streamed answer is written a top-level block at a time (chat-md.js mdInto) */
     .md-b { display: contents; }
     .md > .md-b:first-child > :first-child { margin-top: 0; } .md > .md-b:last-child > :last-child { margin-bottom: 0; }
@@ -454,6 +463,22 @@
     .md th, .md td { border: 1px solid var(--bx-border); padding: 2px 8px; }
     .md th { text-align: left; font-weight: 600; }
     .md a { color: var(--bx-link); text-decoration: underline; }
+    /* colour for reading at a glance (#26): headings, list markers, inline code,
+       the quote's rule; fenced code in the theme's syntax tokens (chat-md.js) */
+    .md h1, .md h2, .md h3, .md h4 { color: var(--bx-syn-function); }
+    .md li::marker { color: var(--bx-accent); }
+    .md :not(pre) > code { color: var(--bx-syn-string); }
+    .md blockquote { border-left-color: var(--bx-accent); }
+    .md .hljs-comment, .md .hljs-quote { color: var(--bx-syn-comment); font-style: italic; }
+    .md .hljs-keyword, .md .hljs-selector-tag, .md .hljs-section, .md .hljs-name, .md .hljs-doctag, .md .hljs-variable.language_ { color: var(--bx-syn-keyword); }
+    .md .hljs-string, .md .hljs-regexp, .md .hljs-char.escape_ { color: var(--bx-syn-string); }
+    .md .hljs-number, .md .hljs-literal, .md .hljs-symbol, .md .hljs-bullet { color: var(--bx-syn-number); }
+    .md .hljs-title, .md .hljs-title.function_ { color: var(--bx-syn-function); }
+    .md .hljs-type, .md .hljs-title.class_ { color: var(--bx-syn-type); }
+    .md .hljs-attr, .md .hljs-attribute, .md .hljs-property, .md .hljs-selector-attr, .md .hljs-selector-class, .md .hljs-selector-id { color: var(--bx-syn-attr); }
+    .md .hljs-built_in, .md .hljs-meta, .md .hljs-template-variable, .md .hljs-variable { color: var(--bx-syn-builtin); }
+    .md .hljs-deletion { color: var(--bx-syn-deletion); background: var(--bx-diff-del-bg); }
+    .md .hljs-addition { color: var(--bx-syn-addition); background: var(--bx-diff-add-bg); }
     .md hr { border: 0; border-top: 1px solid var(--bx-border); margin: 8px 0; }
     /* the answer being written: a still block at its end, no blink */
     .cur { display: inline-block; width: 6px; height: 13px; background: var(--bx-accent); margin-left: 2px; vertical-align: text-bottom; }

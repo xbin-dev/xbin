@@ -79,6 +79,8 @@ test('Needs you: a sign-in names the coding agent when the item says which', () 
   assert.equal(REASON.login, 'needs you to sign in');
   assert.equal(needWords(s.needs[0]), 'needs you to sign in to Codex', 'its own conversation');
   assert.equal(needWords({ reason: 'login', run: { id: 25 }, subRun: 28 }), 'a coding agent needs you to sign in', 'one below: not named');
+  assert.equal(needWords({ reason: 'unfinished', run: { id: 7, unfinished: { reason: 'asks which DB' } } }), 'stopped before finishing: asks which DB', 'the judge (D198)');
+  assert.equal(needWords({ reason: 'unfinished', run: { id: 7 } }), REASON.unfinished);
   assert.equal(needWords({ reason: 'login', run: { id: 25 }, subRun: 28, harness: { name: 'Claude Code' } }), 'needs you to sign in to Claude Code');
   assert.equal(needWords(s.needs[1]), 'wants your approval');
   assert.equal(needWords({ reason: 'somethingnew', run: {} }), 'somethingnew');

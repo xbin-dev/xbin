@@ -334,11 +334,55 @@ func (e *Engine) publishRun(runID int64) {
 		if e.ag != nil {
 			ev.acl, _ = e.ag.aclOf(r.ID)
 		}
+		e.withTreeWaitLive(r.ID, data)
+		withVerdict(e.db, r.ID, data) // the judge's "not finished" (judge.go, D198)
 	}
 	if e.decorate != nil {
 		e.decorate(r, data) // the global instance's team view: a hosted conversation's hosting (hosted_global.go)
 	}
 	e.hub.publish(ev)
+	if r.ParentID != 0 {
+		e.followTreeWait(rootOf(r))
+	}
+}
+
+// A conversation row's `waiting` and `kids` (D147 §4.3.8) on the stream as
+// well as in GET /conversations (D198): a root's summary carries them —
+// `waiting` always, as a bool, and `kids` or null, so a row that stops
+// waiting stops showing it — and a run below the root that starts or stops
+// waiting republishes the root's summary, so the row's ?, its place, Needs
+// you and the native list follow at once instead of at the next reload.
+// treeSeen keeps what each root's summary last said, so a child's other
+// changes (a result, a step) publish nothing more.
+func (e *Engine) withTreeWaitLive(root int64, data map[string]any) {
+	tw := e.db.treeWaits([]int64{root})[root]
+	withTreeWait(data, tw)
+	data["waiting"] = tw.waiting
+	if _, ok := data["kids"]; !ok {
+		data["kids"] = nil
+	}
+	e.treeMu.Lock()
+	if e.treeSeen == nil {
+		e.treeSeen = map[int64]treeWait{}
+	}
+	e.treeSeen[root] = tw
+	e.treeMu.Unlock()
+}
+
+// followTreeWait republishes root's summary when what it says about the
+// runs below it changed.
+func (e *Engine) followTreeWait(root int64) {
+	tw := e.db.treeWaits([]int64{root})[root]
+	e.treeMu.Lock()
+	last, seen := e.treeSeen[root]
+	e.treeMu.Unlock()
+	if seen && last == tw {
+		return
+	}
+	if !seen && !tw.waiting && tw.kidsWaiting == 0 && tw.harness == 0 {
+		return // nothing to say that a reload wouldn't
+	}
+	e.publishRun(root)
 }
 
 func (e *Engine) emitMessage(t *DB, root int64, m *Message) {

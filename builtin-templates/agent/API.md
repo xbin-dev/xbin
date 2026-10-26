@@ -55,7 +55,8 @@ a subagent is exactly as visible as the conversation it works for.
 | `GET /conversations?q=` | — | search titles and everything said, in every conversation you may see (archived and automation runs included), up to 50; content hits carry `match {msgId, snippet}` |
 | `PATCH /runs/{id}` | `{title?, pinned?, archived?, visibility?, teamRole?, model?}` | pin and archive are yours (any viewer); title and visibility are the owner's. Making an unowned run private claims it. `model` switches the conversation's model from its next turn (anyone who may talk in it; `""` = the agent's default) |
 | `POST /runs/{id}/read` | — | mark it read up to now |
-| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval — or a coding agent waits for you to sign in (`login`, D147 §4.3.9) — and automations you own whose last run failed and you haven't looked at → `{items:[{run, reason: question\|approval\|login\|failed, subRun, harness?}]}`; `harness` is the waiting run's compact summary when a coding agent waits (as `/tree` nodes carry it) |
+| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval — or a coding agent waits for you to sign in (`login`, D147 §4.3.9) — conversations you may talk to whose coding agent's or project's last turn stopped part-way (`unfinished`, D198, §Not finished), and automations you own whose last run failed and you haven't looked at → `{items:[{run, reason: question\|approval\|login\|unfinished\|failed, subRun, harness?}]}`; `harness` is the waiting run's compact summary when a coding agent waits (as `/tree` nodes carry it) |
+| `POST /runs/{id}/unfinished/dismiss` | — | take the conversation's "not finished" mark down — for everyone, as an answered question is (anyone who may talk to it; D198) → `{ok}` |
 
 Items are run summaries plus `access`, `mine`, `members`, `pinnedAt`,
 `archivedAt`, `readMs` and `unread` (activity after you last looked) — and
@@ -63,7 +64,11 @@ Items are run summaries plus `access`, `mine`, `members`, `pinnedAt`,
 `waiting: true` when it or a run below it waits for a person
 (`waiting_input`), and `kids: {harness, waiting}` — its coding agents at
 work below the root, and its runs below the root that wait — when either
-isn't 0 (one query per page). Your
+isn't 0 (one query per page). The root's summary on the stream carries
+them too (D198): `waiting` always (a bool), `kids` or `null` — and a run below
+the root that starts or stops waiting republishes it, so a row, Needs you and
+the app follow at once. `unfinished: {reason, at}` (or `null`) is the
+judge's "not finished" (§Not finished). Your
 own message marks the conversation read for you. The stream sends `ustate`
 (`{id, pinnedAt, archivedAt, readMs}`) to your own streams only, and
 `revoked` (`{id}`) when you can no longer see a conversation.
@@ -80,6 +85,7 @@ sealed to their devices, and only when the workspace has push set up):
 | a run asks its owner for a grant (D111) | its owner alone | kind `approval`, what it asks to read |
 | a coding agent parks a permission request or a question (D147 §4.3.9) | its owner and participant members | kind `approval` ("‹name› wants to run ‹title› — approve or deny.") or `question` (its message) |
 | a coding agent waits for a sign-in | its owner and participant members | kind `login` ("‹name› needs you to sign in to it.") |
+| a coding agent's or project's turn ends cleanly but stopped part-way (the judge, §Not finished) | its owner and participant members | kind `unfinished` ("‹name› stopped before finishing: ‹reason›") |
 | an automation's run (schedule, watcher, channel, trigger) fails | its owner | kind `failed`, the error |
 
 The title is the conversation's; tapping it opens `#c=<run>` (the subagent's
@@ -105,6 +111,26 @@ slot is free and nobody waits for one, and never over a name someone gave it
 (a rename or a title from "New chat with options" is `titleSrc: user`).
 Automation runs keep their automation's name (`origin`). Feature key
 `titles` (on by default).
+
+### Not finished (D198)
+
+A coding agent's or a project's turn that ends cleanly may still have
+stopped part-way — it made a plan and yielded, answered one question and
+stopped, says what it would do next — and nothing else says it needs you.
+At the end of each answered turn of a top-level coding-agent run (engine
+`harness`) or project run (origin `project`), the `memory`-tier model reads
+the person's last message and the turn's final answer (2000 characters
+each) and answers `{"delivered": bool, "reason"}` — once, in the background,
+only when a model slot is free, its cost on the run, never without a
+configured memory model (the config's tiers or llm-gw's preference for
+summarizing). A turn judged not delivered marks the conversation: the row's
+`unfinished: {reason, at}` and glyph ("not finished"), a `/needs` item
+(`unfinished`), a push (kind `unfinished`). The mark goes when the next turn
+starts, or when someone who may talk to it takes it down
+(`POST /runs/{id}/unfinished/dismiss`, "Mark as finished" in the row's menu
+and in Needs you — for everyone). Subagents are not judged (their answer is
+their parent's to read). Feature key `judge` (on by default; off: nothing is
+asked). `judge.go`.
 
 ### Sharing
 
@@ -1012,7 +1038,7 @@ interface bound (`bx bind <this component> net=internet`); unbound, they return
   "features": { "recall": true, "skills": true, "streaming": true,
                 "vision": true, "parallelTools": true, "watcher": true,
                 "files": true, "repl": true, "workflow": true, "titles": true,
-                "threads": true },
+                "threads": true, "judge": true },
   "replTimeoutMs": 5000,       // REPL budget per statement (max 60000)
   "replMemMB": 256,            // REPL heap watchdog
   // workflow limits (0 = default): delegation depth, lifetime runs per tree,

@@ -1,7 +1,8 @@
 // needs_push.go — "Needs you" reaching a person's phone.
 //
 // The moments GET /needs lists — the agent (or a subagent) asks a question
-// or wants an approval, an automation's run failed — also go out as a push
+// or wants an approval, a coding agent's or project's turn stopped part-way
+// (judge.go, D198), an automation's run failed — also go out as a push
 // notification to the xbin app of each person who would see them there
 // (xbin.NotifyUserWith → POST /api/xbin/notify, which delivers only to people
 // who can read this tile, through the workspace's push relay, sealed to the
@@ -151,6 +152,23 @@ func (ag *Agent) needsPushes(runID int64) []needsPush {
 			}
 			fp = run.Result
 		}
+	case run.Status == statusIdle && run.ParentID == 0:
+		v := ag.db.verdictOf(run.ID) // a turn that stopped part-way (judge.go, D198)
+		if !v.shown() {
+			return nil
+		}
+		state = needUnfinished
+		name := "The agent"
+		if h := harnessSummaryOf(run); h != nil {
+			if n, _ := h["name"].(string); n != "" {
+				name = n
+			}
+		}
+		body = name + " stopped before finishing"
+		if v.Reason != "" {
+			body += ": " + clip(v.Reason, 200)
+		}
+		fp = fmt.Sprint(v.JudgedMs)
 	case run.Status == statusError && run.ParentID == 0 && automationOrigin(run.Origin):
 		state = needFailed
 		body = "The automation's run failed"
