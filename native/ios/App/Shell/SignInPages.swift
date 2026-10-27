@@ -20,6 +20,11 @@ struct LoginLevel: View {
                     .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
             }
             ProblemSection(problem: flow.problem)
+            if flow.replacing != nil {
+                Section {
+                    Text("Pair this device again to go on using the workspace here. It is replaced, not added twice.")
+                }
+            }
             Section {
                 QRScanButton { text in Task { await flow.use(link: text) } }
                 TextField("Paste the link", text: $flow.pasted)
@@ -104,7 +109,7 @@ struct MethodsPage: View {
                     Text(verbatim: server.origin).font(.footnote).foregroundStyle(.secondary)
                 }
             }
-            if !server.isEncryptedInTransit {
+            if !server.isEncryptedInTransit, !methods.tunnelRequired {
                 Section {
                     Label {
                         Text("Not encrypted: this address uses http, so your password and everything you do here can be read on the network, unless the network itself is encrypted (a VPN such as Tailscale). Use https if you can.")
@@ -124,6 +129,8 @@ struct MethodsPage: View {
                     } footer: {
                         Text("Signs in with your organisation's account, in a browser sheet.")
                     }
+                case .pairing:
+                    pairingSection
                 }
             }
             if let why = options.explanation {
@@ -139,6 +146,24 @@ struct MethodsPage: View {
         .keyboardHideButton()
         .navigationTitle("Sign in")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    /// A workspace that accepts the app only over its tunnel (D204): QR
+    /// pairing, nothing else — no password form, no SSO button.
+    private var pairingSection: some View {
+        Section {
+            Label {
+                Text(SignInOptions.pairingOnly)
+            } icon: {
+                Image(systemName: "lock.shield")
+            }
+            QRScanButton { text in Task { await flow.use(link: text) } }
+            Button("Where do I find the QR code?", systemImage: "questionmark.circle") { flow.push(.help(page: 1)) }
+        } header: {
+            Text("Pair this device")
+        } footer: {
+            Text("No camera? Copy the link under the QR code and paste it on Log in.")
+        }
     }
 
     @ViewBuilder private func passwordSection(header: String?) -> some View {
@@ -307,6 +332,10 @@ struct ProblemSection: View {
         case .account: return "person.crop.circle.badge.exclamationmark"
         case .throttled: return "hourglass"
         case .server: return "exclamationmark.icloud"
+        case .tunnelUnreachable: return "point.3.connected.trianglepath.dotted"
+        case .pairingDeclined: return "hand.raised"
+        case .pairingExpired: return "clock.badge.xmark"
+        case .tunnelRequired: return "lock.shield"
         case .other: return "exclamationmark.triangle"
         }
     }

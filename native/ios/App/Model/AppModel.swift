@@ -17,15 +17,23 @@ enum AddRequest: Equatable, Identifiable {
     case blank
     /// An `xbin://enroll` link (scanned or opened from outside).
     case enroll(server: ServerOrigin, code: String)
+    /// A pairing link through the workspace's tunnel (D204).
+    case tunnelEnroll(TunnelLink)
     /// "Sign in again" on a workspace whose device can't sign in any more:
     /// Log in, on its address; the new sign-in replaces that record.
     case signInAgain(workspace: String, server: ServerOrigin)
+    /// "Pair again" on a workspace that accepts the app only over its
+    /// tunnel (D204): Log in, to scan a pairing code; the new pairing
+    /// replaces that record.
+    case pairAgain(workspace: String)
 
     var id: String {
         switch self {
         case .blank: return "blank"
         case .enroll(let s, let c): return "\(s.origin)|\(c)"
+        case .tunnelEnroll(let l): return "tunnel|\(l.server.origin)|\(l.code)"
         case .signInAgain(let w, _): return "again|\(w)"
+        case .pairAgain(let w): return "pair|\(w)"
         }
     }
 }
@@ -77,7 +85,11 @@ final class AppModel {
         let leftovers = WorkspaceListFile.freshLeftovers()
         let list = WorkspaceListFile.load()
         unreadable = list.unreadable
-        workspaces = list.workspaces.map { WorkspaceModel(record: $0) }
+        // Tunnels (D204): a record an older app saved gets its tunnel back
+        // from the Keychain; keys of workspaces that are gone are swept (not
+        // in a Debug fresh start, whose list is empty on purpose).
+        let records = WorkspaceListFile.isFreshStart ? list.workspaces : KeychainTunnelVault.reconcile(list.workspaces)
+        workspaces = records.map { WorkspaceModel(record: $0) }
         lastSelectedID = list.selected ?? workspaces.first?.id
         if !WorkspaceListFile.isFreshStart, let d = UserDefaults.standard.data(forKey: "recents"),
            let r = try? JSONDecoder().decode([Recent].self, from: d) { recents = r }
