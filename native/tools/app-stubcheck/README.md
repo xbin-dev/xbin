@@ -12,7 +12,9 @@ covers, in Swift 6 mode:
   editor, creating a tile, switcher, inbox, settings, add-a-device, the
   onboarding stack; `Shell/Screens` included) — every file but `Model/AppTransport.swift`,
   `Model/DeviceKeys.swift` and `Shell/ScannerAndSSO.swift` (URLSession
-  delegates, the Secure Enclave, VisionKit/AuthenticationServices);
+  delegates, the Secure Enclave, VisionKit/AuthenticationServices), and
+  `Model/TunnelPairing.swift` (CryptoKit: `native/tools/app-check` compiles
+  and runs it; `Stubs/App/AppStubs.swift` mirrors its signatures);
 - `FILES` in `run.sh`: a native tile's escape hatches (`Tiles/TileAttach`,
   `TileTerminal`, `TileCanvas`, `TileHatches`; `Terminal/KeyRow`, the key
   row's bar, shared with the shell's terminal), a screen's card

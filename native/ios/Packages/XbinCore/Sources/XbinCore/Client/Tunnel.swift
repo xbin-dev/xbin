@@ -763,3 +763,34 @@ public protocol ByteStream: Sendable {
     /// Aborts both directions (a reset); pending reads end with an error.
     func cancel() async
 }
+
+// MARK: - The iroh runtime, as the rest of the app sees it
+
+/// The tunnel's ALPNs (§3).
+public enum TunnelALPN {
+    public static let pair = "xbin/pair/1"
+    public static let tunnel = "xbin/tunnel/1"
+}
+
+/// Dials a workspace's iroh endpoint (the app's IrohLib wrapper,
+/// `App/Model/TunnelEndpoint.swift`; tests fake it): an endpoint with the
+/// workspace's own iroh secret, iroh's Minimal preset with exactly the
+/// ticket's relay (and `relayToken`), no discovery or publishing; it dials
+/// `ticket` on `alpn` and refuses the connection unless the remote's id is
+/// the ticket's (§3). A new endpoint each time the app becomes active.
+public protocol TunnelDialer: Sendable {
+    func connect(irohSecret: Data, ticket: String, relayToken: String?, alpn: String) async throws -> any TunnelConnection
+}
+
+/// One iroh connection to xbind.
+public protocol TunnelConnection: Sendable {
+    /// This device's EndpointId (32 bytes): the Ed25519 public key of its
+    /// iroh secret.
+    var localId: Data { get }
+    /// xbind's EndpointId (32 bytes), as iroh authenticated it — the
+    /// ticket's.
+    var remoteId: Data { get }
+    /// A new bi-stream (each runs its own Noise handshake).
+    func openStream() async throws -> any ByteStream
+    func close() async
+}

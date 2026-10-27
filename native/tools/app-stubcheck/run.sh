@@ -6,7 +6,8 @@
 #   - every App/Model and App/Shell file (the shell: windows, the panels,
 #     Home and the screens, the events socket, the kill switch, Handoff,
 #     haptics, settings, onboarding) but the three that need Apple-only
-#     frameworks (AppTransport, DeviceKeys, ScannerAndSSO);
+#     frameworks (AppTransport, DeviceKeys, ScannerAndSSO) and
+#     TunnelPairing (CryptoKit; native/tools/app-check compiles and runs it);
 #   - FILES below: a native tile's hatches (terminal, canvas, attach; the
 #     key row's bar they share with the shell's terminal), a screen's
 #     TileCard and the Agent tab.
@@ -72,7 +73,7 @@ import XbinRendererModel/' "$1"
   } >"$out/Sources/AppCheck/$(basename "$1")"
 }
 for f in "$app"/Model/*.swift "$app"/Shell/*.swift "$app"/Shell/Screens/*.swift; do
-  case "$(basename "$f")" in AppTransport.swift|DeviceKeys.swift|ScannerAndSSO.swift) continue ;; esac
+  case "$(basename "$f")" in AppTransport.swift|DeviceKeys.swift|ScannerAndSSO.swift|TunnelPairing.swift) continue ;; esac
   copy "$f"
 done
 for f in $FILES; do copy "$app/$f"; done

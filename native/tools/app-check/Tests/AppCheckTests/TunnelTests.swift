@@ -597,3 +597,157 @@ final class Seen: @unchecked Sendable {
         try await server.value
     }
 }
+
+// MARK: - The app's pairing flow (App/Model/TunnelPairing.swift)
+
+/// An iroh connection to an in-process xbind: each stream a memory pair,
+/// whose server end `serve` runs.
+struct FakeConnection: TunnelConnection {
+    let localId: Data
+    let remoteId: Data
+    let serve: @Sendable (MemoryStream) async -> Void
+    let closed = Seen()
+    func openStream() async throws -> any ByteStream {
+        let (d, s) = MemoryStream.pair()
+        Task { await serve(s) }
+        return d
+    }
+    func close() async { closed.add("closed") }
+}
+
+struct FakeDialer: TunnelDialer {
+    let keys: TunnelKeys
+    let serve: @Sendable (MemoryStream) async -> Void
+    var fail: String?
+    let dialed = Seen()
+    func connect(irohSecret: Data, ticket: String, relayToken: String?, alpn: String) async throws -> any TunnelConnection {
+        dialed.add("\(alpn) \(relayToken ?? "-")")
+        if let fail { throw PairingFailure.unreachable(fail) }
+        return FakeConnection(localId: keys.deviceID, remoteId: keys.serverID, serve: serve)
+    }
+}
+
+/// A software device-login key store.
+actor SoftwareKeys: DeviceKeyStore {
+    private var keys: [String: SoftwareDeviceKey] = [:]
+    func createKey(workspace: String) async throws -> Data {
+        let k = SoftwareDeviceKey()
+        keys[workspace] = k
+        return k.publicKeySPKI
+    }
+    func hasKey(workspace: String) async -> Bool { keys[workspace] != nil }
+    func sign(_ message: Data, workspace: String, reason: String) async throws -> Data {
+        guard let k = keys[workspace] else { throw SignInError.keyUnavailable("no key") }
+        return try k.sign(message)
+    }
+    func deleteKey(workspace: String) async { keys[workspace] = nil }
+    var count: Int { keys.count }
+}
+
+/// xbind's device login, as the tunnel's HTTP carries it.
+struct FakeDeviceLogin: APITransport {
+    let seen = Seen()
+    func send(_ request: APIRequest, to origin: ServerOrigin) async throws -> APIResponse {
+        seen.add("\(request.method) \(request.path) \(origin.origin)")
+        let body: JSONValue
+        switch request.path {
+        case AppAuthRoute.challenge: body = ["nonce": "n0nce", "expires": 1_900_000_000]
+        case AppAuthRoute.deviceLogin:
+            body = ["token": "s.tunnel", "user": ["id": "alice", "name": "Alice", "role": "user"], "expiresIdle": 1_900_000_000]
+        default: return APIResponse(status: 404, body: Data())
+        }
+        return APIResponse(status: 200, headers: ["Content-Type": "application/json"], body: body.jsonData)
+    }
+}
+
+@Suite struct TunnelPairerTests {
+    static let enrolled: JSONValue = [
+        "type": "enrolled", "deviceId": "dev_7", "user": ["id": "alice", "name": "Alice"], "origin": "https://ext.example.com",
+        "name": "Alice's iPhone",
+        "tunnel": ["ticket": .string(PairingClientTests.ticket), "relay": ["url": "https://relay.example.com"], "required": false],
+    ]
+
+    func pairer(_ k: TunnelKeys, replies: [JSONValue], keys: SoftwareKeys, vault: MemoryTunnelVault,
+                login: FakeDeviceLogin = FakeDeviceLogin(), fail: String? = nil) -> (TunnelPairer, FakeDialer) {
+        let selector = NoiseTunnel.selector(k.link)
+        let dialer = FakeDialer(keys: k, serve: { s in
+            _ = try? await FakePairingServer(keys: k, replies: replies).run(s, selector: selector)
+        }, fail: fail)
+        let p = TunnelPairer(keys: keys, vault: vault, dialer: dialer, signInTransport: { _, _ in login },
+                             clientHeader: "app/1", platform: "ios")
+        return (p, dialer)
+    }
+
+    @Test func pairsAndSignsInOverTheTunnel() async throws {
+        let k = TunnelKeys()
+        var link = k.link
+        link.relayToken = "tok"
+        let keys = SoftwareKeys(), vault = MemoryTunnelVault(), login = FakeDeviceLogin()
+        let (p, dialer) = pairer(k, replies: [["type": "await"], Self.enrolled], keys: keys, vault: vault, login: login)
+        let codes = Seen()
+        let paired = try await p.pair(link, deviceName: "Alice's iPhone", workspaceID: "ws1") { c, _ in codes.add(c) }
+        #expect(dialer.dialed.all == ["xbin/pair/1 tok"])
+        #expect(codes.all.count == 1)
+        let r = paired.record
+        #expect(r.id == "ws1" && r.server == link.server && r.deviceId == "dev_7")
+        #expect(r.signedOrigin == "https://ext.example.com")
+        #expect(r.tunnel?.endpoint == TunnelUpgrade.hex(k.serverID) && r.tunnel?.relay == "https://relay.example.com")
+        #expect(paired.session.token == "s.tunnel" && paired.session.kind == .device)
+        // The device login went over the tunnel's transport.
+        #expect(login.seen.all.map { $0.split(separator: " ")[1] } == ["/login/device/challenge", "/login/device"])
+        let s = try #require(await vault.load(workspace: "ws1"))
+        #expect(s.serverKey == k.server.publicKey && s.ticket == PairingClientTests.ticket)
+        #expect(s.relay == TunnelRelay(url: "https://relay.example.com", token: "tok"))   // the QR's token kept
+        #expect(s.endpoint == TunnelUpgrade.hex(k.serverID))
+        #expect(await keys.hasKey(workspace: "ws1"))
+    }
+
+    /// Any failure takes every key and the Keychain item with it.
+    @Test func failuresCleanUp() async throws {
+        for (name, replies, fail) in [("declined", [["type": "await"], ["type": "rejected", "reason": "mismatch"]] as [JSONValue], nil as String?),
+                                      ("unreachable", [], "no relay")] {
+            let k = TunnelKeys()
+            let keys = SoftwareKeys(), vault = MemoryTunnelVault()
+            let (p, _) = pairer(k, replies: replies, keys: keys, vault: vault, fail: fail)
+            do {
+                _ = try await p.pair(k.link, deviceName: "x", workspaceID: "ws1") { _, _ in }
+                Issue.record("\(name): paired")
+            } catch let f as PairingFailure {
+                if name == "declined" { #expect(ConnectProblem(f, server: nil) == .pairingDeclined) }
+                if name == "unreachable" { #expect(f == .unreachable("no relay")) }
+            }
+            #expect(await keys.count == 0, "\(name)")
+            #expect(await vault.count == 0, "\(name)")
+        }
+    }
+
+    @Test func upgrade() async throws {
+        let vault = MemoryTunnelVault()
+        let rec = WorkspaceRecord(id: "w", server: try ServerOrigin(string: "https://xbin.example.com"), user: WorkspaceUser(id: "a"),
+                                  deviceId: "dev_1")
+        let serverKey = NoiseTunnel.newKeyPair().publicKey
+        let sent = Seen()
+        let out = await TunnelUpgrader(vault: vault).upgrade(rec) { req in
+            sent.add(req.path)
+            let b = try JSONValue(parsing: req.body ?? Data())
+            #expect(b["noiseKey"]?.stringValue.flatMap(Base64URL.decode)?.count == 32)
+            #expect(b["endpoint"]?.stringValue?.count == 64)
+            return APIResponse(status: 200, headers: ["Content-Type": "application/json"],
+                               body: JSONValue.object(["endpointId": "abcd", "ticket": .string(PairingClientTests.ticket),
+                                                       "serverKey": .string(Base64URL.encode(serverKey)),
+                                                       "relay": [:], "required": false]).jsonData)
+        }
+        #expect(out == .upgraded(TunnelInfo(endpoint: "abcd")))
+        #expect(sent.all == ["/api/xbin/devices/dev_1/tunnel"])
+        let s = try #require(await vault.load(workspace: "w"))
+        #expect(s.serverKey == serverKey && s.endpoint == "abcd")
+        // The device's keys are its own: the Noise public key it registered is its static's.
+        // A refusal changes nothing.
+        let v2 = MemoryTunnelVault()
+        let refused = await TunnelUpgrader(vault: v2).upgrade(rec) { _ in
+            APIResponse(status: 403, body: Data(#"{"error":"sign in again","stepUp":"signin"}"#.utf8))
+        }
+        guard case .notNow = refused else { Issue.record("upgraded on a 403"); return }
+        #expect(await v2.count == 0)
+    }
+}
