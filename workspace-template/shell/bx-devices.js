@@ -38,6 +38,12 @@ import { xbinApi as call } from '/vendor/bx-kit.js';
 import '/vendor/bx-icons.js';
 import { baseCss } from './shell-css.js';
 
+// platformWords(p): a device's platform as people write it ("ios" → "iOS"),
+// as the pairing dialog and /xbin/devices show it (pair-kit's platformName;
+// not imported: this shell may meet an xbind whose /vendor/ has no pair-kit)
+const PLATFORM_WORDS = Object.freeze({ ios: 'iOS', ipados: 'iPadOS', android: 'Android', macos: 'macOS' });
+const platformWords = (p) => PLATFORM_WORDS[String(p ?? '').toLowerCase()] ?? p;
+
 // openDevices({add}): open the panel — with add, straight on the add flow.
 export function openDevices({ add = false } = {}) {
   const open = document.querySelector('bx-devices');
@@ -328,7 +334,7 @@ export class BxDevices extends LitElement {
       <bx-icon class="ico" name="device" size="20"></bx-icon>
       <span class="who">
         <div class="name" title=${d.name}>${d.name}</div>
-        <div class="sub">${d.platform || 'device'}${d.tunnel ? html` · <span data-tunnel title="pairs over an iroh tunnel (D204)">iroh tunnel</span>` : ''} · added ${ago(d.created)} ·
+        <div class="sub">${platformWords(d.platform) || 'device'}${d.tunnel ? html` · <span data-tunnel title="pairs over an iroh tunnel (D204)">iroh tunnel</span>` : ''} · added ${ago(d.created)} ·
           ${d.lastUsed ? html`last sign-in ${ago(d.lastUsed)}${d.lastIP ? ` from ${d.lastIP}` : ''}` : 'not signed in yet'}</div>
         ${this._push ? this._pushLine(this._push.devices?.find((r) => r.deviceId === d.id)) : nothing}
       </span>
