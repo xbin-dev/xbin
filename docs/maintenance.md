@@ -890,8 +890,11 @@ Rules that keep it cheap to maintain:
 - **Passes drive the elements' `testApi()`** — `bx-shell`, `bx-frame` and
   `bx-admin` each expose stable names over their private state (open a
   tile, set a float, open the admin window, read the toasts…; the frame's
-  `layouts` is what its layout switcher offers — a pass compares against
-  it, never a count — `reloads` the reloads it completed, and `deploy` its
+  `layouts` is what its `open(layout)` takes — a pass compares against
+  it, never a count — `ide` drives its panes, tabs, tools, dock and status
+  bar (D202: `panes`, `focus`, `openTool`, `openFile`, `open(ref)`,
+  `split`, `move(ref, pane, zone)`, `setDock`, `sessionRef(i)`, `status`),
+  `reloads` the reloads it completed, and `deploy` its
   live reload controls: `state`, `chip`, `offer`, `entry`, `banner`,
   `chipItems()`, `chipAction(label)`, the tile API select's
   `target()`, `apiOptions()` and `setTarget()`, `panel()` — the Deployments
@@ -906,11 +909,15 @@ Rules that keep it cheap to maintain:
   `[data-new-set]`, `[data-save-set]`. Keep them when restructuring
   templates. Playwright selectors pierce open shadow roots, so
   `bx-frame[src="apps/x"] .pop` reaches into a frame.
-- **Terminal windows**: the title bar's pickers live on the bar or, when
-  that host's full bar does not fit the window (a GPU picker, the VM
-  toggle), in the tools row behind `⋯` — `showPickers(page, src)` opens
-  that row and `PICKERS` scopes a selector to either place; never assume
-  `.titlebar select.scope`. A pass that opens a window leaves nothing
+- **Terminal windows**: the pickers of the session in view live on the
+  window's status bar (D202), and only while it has a session; a window
+  under 640 px folds them into one chip's menu. `showPickers(page, src)`
+  opens that menu in a narrow window (an empty window has no pickers: a
+  pass that wants them starts a session first), and `PICKERS` scopes a
+  selector to the status bar; never assume `.titlebar select.scope`. A
+  session's element is in the window's stage, not in its pane: find it by
+  `data-key`, through `testApi()` (`agent(i)`, `focusTerminal()`), never
+  by its position in a pane. A pass that opens a window leaves nothing
   behind: it ends its sessions and deletes the `term:<tile>` window pref,
   or the window restores over the tile in the next pass (a right-click
   on the canvas then lands on it) — and the `termvm:<tile>` VM choice if

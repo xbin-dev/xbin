@@ -82,7 +82,7 @@ has any, ending `this terminal → dev`.
 
 In the browser the terminal window says the same (its controls draw the
 glyphs of `/vendor/bx-icons.js`, named here in backticks; D184): in the
-zero state its bar has one quiet entry, `deploy`, whose menu offers **Pause
+zero state its status bar has one quiet entry, `deploy`, whose menu offers **Pause
 live reload**. While live reload is paused the entry becomes a chip, `pin`
 and "Live reload paused · 3", counting the files changed since the
 checkpoint, next to **Reload now** (`refresh`); the chip's menu has Reload
@@ -90,8 +90,8 @@ now and a **Resume live reload on** submenu. The terminal window's launcher
 shows a banner while live reload is paused, the tile's window head in the
 shell carries `deploy` (below; nothing is drawn over the page itself), and
 every open terminal of the tile prints a grey line when live reload pauses,
-resumes or moves, or code moves or fails to. The window's `deploy` layout
-is the **Deployments panel** (below).
+resumes or moves, or code moves or fails to. The window's **Deploy** tool
+opens the **Deployments panel** (below) as a tab.
 
 Programs can ask `GET /api/xbin/deployments?tile=<tile>` (`record: false` is
 the zero state; `&deployment=<name>` selects one) or read `deployments:
@@ -286,7 +286,8 @@ primary.
 ### Your terminal's target
 
 A terminal or agent session calls one deployment, fixed for its life: its
-**target**. It is chosen in the terminal window's tile API select, which
+**target**. It is chosen in the terminal window's tile API select (on its
+status bar, for the session in view), which
 lists `target: main (primary)`, `target: dev`, …, `no API` once the
 tile has more than an unprotected `main` (a tile without deployments keeps
 today's two entries).
@@ -707,7 +708,7 @@ tile's code. It is not a trust boundary.
 - **Status is per deployment.** A non-primary deployment's `xbin.status`,
   notices and builds show in the panel and `bx deployment ls` only — never in
   the shell's sidebar, toasts or title, which speak of the primary.
-- **Logs** are per deployment: `bx logs apps/crm+dev`, the panel's logs tab,
+- **Logs** are per deployment: `bx logs apps/crm+dev`, the Deployments panel's logs tab,
   `GET /api/xbin/logs?component=<tile>&deployment=<name>`.
 - **Prefs** are per deployment beyond `main`, and so is the `prefs` event a
   write sends: only that deployment's own frames, sessions and backend hear
@@ -804,11 +805,10 @@ manage protection in three places, all of them a person's credential:
 
 ## The Deployments panel
 
-The terminal window's `deploy` layout (the button counts the deployments
-you may see: `deploy` and "2"). It opens full width; the window's `split`
-puts the terminal
-beside it, split by a divider you drag, and a narrow panel shows its side
-list and the selected row's page one at a time. A header with the live reload sentence and its buttons (and
+The terminal window's **Deploy** tool (D202) opens it as a tab, in the
+focused pane like any tab: a split or a drag puts a terminal beside it, and
+in a narrow window it shows its side list and the selected row's page one
+at a time. A header with the live reload sentence and its buttons (and
 **Undo** after a code move that paused live reload); a side list —
 **tile-wide**, one row per deployment (the primary first, `shield` when
 protected; **`Dev API`** on the deployment the active tab's API calls and

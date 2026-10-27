@@ -218,8 +218,8 @@ function view(f, ref) {
   return nothing;
 }
 
-function tabTpl(f, id, p, ref) {
-  const info = tabInfo(f, ref), on = p.active === ref;
+function tabTpl(f, id, p, ref, on = p.active === ref) {
+  const info = tabInfo(f, ref);
   const i = M.isSession(ref) ? sessionAt(f, ref) : -1;
   return html`<div class=${`ptab${on ? ' on' : ''}${info.ended ? ' ended' : ''}`} role="tab" aria-selected=${on ? 'true' : 'false'}
       tabindex=${on ? '0' : '-1'} draggable="true" title=${info.title} data-ref=${ref}
@@ -250,9 +250,14 @@ function tabKey(f, e, id, p, ref) {
 function paneTpl(f, r, n) {
   const id = r.id, p = f._ide.panes[id], focus = f._ide.focus === id, sheet = SHEET.matches;
   const a = p.active;
+  // the phone sheet shows the focused pane alone (ideBody): its strip holds
+  // every pane's tabs, each choosing its own pane, so none is out of reach
+  const tabs = sheet && n === 1 && M.leaves(f._ide.tree).length > 1
+    ? M.leaves(f._ide.tree).flatMap((pid) => f._ide.panes[pid].tabs.map((ref) => tabTpl(f, pid, f._ide.panes[pid], ref, pid === id && a === ref)))
+    : p.tabs.map((ref) => tabTpl(f, id, p, ref));
   return html`<section class=${`pane${focus ? ' focus' : ''}`} style=${box(r)} data-pane=${id} @pointerdown=${() => focusPane(f, id)}>
     <div class="ptabs" @dragover=${(e) => over(f, e, id, 'c')} @drop=${(e) => dropOn(f, e, id, 'c')}>
-      <div class="strip" role="tablist" aria-label="tabs" @wheel=${scrollStrip}>${p.tabs.map((ref) => tabTpl(f, id, p, ref))}</div>
+      <div class="strip" role="tablist" aria-label="tabs" @wheel=${scrollStrip}>${tabs}</div>
       <button class="ib" title="new session here: Bash or a coding agent" aria-label="new session"
         @click=${(e) => { focusPane(f, id); f._openLauncher(e); }}><bx-icon name="plus"></bx-icon></button>
       <span class="grow"></span>
@@ -421,6 +426,23 @@ function sideTpl(f) {
   </aside>`;
 }
 
+// revealTabs(f): after a render, each pane's strip scrolls its active tab
+// into view — only when that pane's active tab changed (or the pane is new),
+// so a strip the person scrolled by hand stays where they put it: a press on
+// a tab scrolled into view must land on it (the window re-renders on every
+// press, as it comes to the front).
+export function revealTabs(f) {
+  const shown = (f._ideRevealed ??= new Map());
+  for (const pane of f.renderRoot?.querySelectorAll('.pane[data-pane]') ?? []) {
+    const id = pane.dataset.pane, strip = pane.querySelector('.ptabs .strip'), on = strip?.querySelector('.ptab.on');
+    if (!on || shown.get(id) === on.dataset.ref) continue;
+    shown.set(id, on.dataset.ref);
+    const s = strip.getBoundingClientRect(), t = on.getBoundingClientRect();
+    if (t.left < s.left) strip.scrollLeft -= s.left - t.left;
+    else if (t.right > s.right) strip.scrollLeft += t.right - s.right;
+  }
+}
+
 const scrollStrip = (e) => {
   const s = e.currentTarget;
   if (s.scrollWidth <= s.clientWidth + 1 || Math.abs(e.deltaX) >= Math.abs(e.deltaY)) return;
@@ -433,7 +455,10 @@ export function ideBody(f) {
   const ide = f._ide;
   for (const ref of M.allTabs(ide)) { const m = modOf(ref); if (m) need(f, m); }
   if (ide.side) need(f, ide.side === 'prs' ? 'prs' : 'tree');
-  const { panes, dividers } = M.rects(ide.tree);
+  let { panes, dividers } = M.rects(ide.tree);
+  // the phone sheet has no splits: a layout split on a wider screen shows its
+  // focused pane alone, the whole width (the layout itself is kept)
+  if (SHEET.matches && panes.length > 1) { panes = [{ id: ide.focus, x: 0, y: 0, w: 1, h: 1 }]; dividers = []; }
   const placed = new Map();
   for (const r of panes) { const a = ide.panes[r.id]?.active; if (a && M.isSession(a)) placed.set(a, r); }
   const ordered = [...panes].sort((a, b) => Number(a.id.slice(1)) - Number(b.id.slice(1))); // a stable DOM order: a pane's view never moves

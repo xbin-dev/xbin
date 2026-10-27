@@ -64,7 +64,13 @@ and the pages of it the tab holds, D124/D130), `/vendor/agent-tools.js`,
 `/vendor/agent-cards.js`, `/vendor/agent-slash.js`,
 `/vendor/agent-css.js` (its styles), `/vendor/agent-testapi.js` (its test
 surface) and
-`/vendor/frame-titlebar.js` (the pop-up's title bar), `/vendor/term-predict.js`
+`/vendor/frame-titlebar.js` (the pop-up's title bar: the name, the path and
+the close), `/vendor/frame-ide.js` (the pop-up's layout as data — its panes,
+their tabs, the tools, the dock — and the window pref's `ide`, D202),
+`/vendor/frame-ide-view.js` (the pop-up as an IDE: the tool strip, the side
+panel, the panes and their tabs, the sessions' stage, the logs dock),
+`/vendor/frame-status.js` (its status bar: the session in view's pickers and
+the tile's controls), `/vendor/term-predict.js`
 (the terminal's prediction engine, D70), `/vendor/term-src.js` (where
 `<bx-terminal src>` connects and when it reconnects),
 `/vendor/term-chrome.js` (the terminal's own markup and styles, and
@@ -85,10 +91,10 @@ terminal window's Deployments panel: live reload, a tile's deployments,
 promotion with the diff first, the deploy log, data, vault, deliveries,
 edges and registrations; its host frame, the `frame` property, asks
 every question; `target` — `primary`, a deployment's name or `off` — is the
-active tab's, whose row it tags `Dev API`) with `/vendor/deploy-panel.js` (the panel's pure view
-model, beside `deploy-state.js`), `/vendor/frame-panels.js` (the terminal
-window's body: which panel shows, the terminal beside it, the divider —
-D129), `/vendor/frame-css.js` (`<bx-frame>`'s own styles),
+session in view's, whose row it tags `Dev API`) with `/vendor/deploy-panel.js` (the panel's pure view
+model, beside `deploy-state.js`), `/vendor/frame-panels.js` (before D202
+the terminal window's body; kept for what imports it, its exports now
+mapped onto the IDE), `/vendor/frame-css.js` (`<bx-frame>`'s own styles),
 `/vendor/frame-testapi.js` (`<bx-frame>`'s
 test surface for the UI harness), and the shell's own siblings under
 `shell/`. They are served, and they will keep being served, but their

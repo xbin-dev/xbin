@@ -6,12 +6,13 @@
 //      pinned, dev following the work tree), the chip, the launcher's line,
 //      the tile API select's entries and D127p's default; a session switched to
 //      dev says XBIN_DEPLOYMENT=dev, and switching restarts it;
-//   1b. the window's panes (D129): Deployments opens full width (no
-//      launcher beside it); the rows' Dev API and live reload tags, one
-//      line each, the Dev API tag following a tab switch; ⇋ puts the
-//      terminal beside the panel; the divider drags (the width saved in the
-//      window pref), takes → and resets on a double-click; a narrow pane
-//      drills down; logs keep the place beside the terminal; >_;
+//   1b. the window's panes (D202): Deployments opens as a tab filling its
+//      pane (no launcher beside it); the rows' Dev API and live reload tags,
+//      one line each; dragged to the pane's right edge the tab sits beside
+//      the terminal, and the Dev API tag follows the session in view; a
+//      narrow pane drills down; the divider drags (the layout saved in the
+//      window pref — never the Deployments tab), takes → and evens on a
+//      double-click; the logs dock opens under both;
 //   2. a save reloads the view tab (<bx-frame src="apps/deployy+dev">), not
 //      the tile's pinned frame; /c/apps/deployy+dev/ serves the work tree;
 //      infra1 (read) gets 403 there, and its view of the tile — the state,
@@ -126,11 +127,13 @@ async function openPanel(page) {
   await fr(page, TILE, (f) => f.open('deployments'));
   await waitFor(page, (t, a) => !!t.frameFor(a)?.testApi().deploy.panel()?.state, TILE, { timeout: 15000, label: 'the Deployments panel loaded' });
 }
-// panes(page): the window body's boxes (D129) — the panel (bx-deployments,
-// or whichever panel shows), the divider and the terminal host
-const panes = (page) => page.locator(`${sel} .panels`).evaluate((el) => {
+// panes(page): the window's panes area (D202) — its box, the Deployments
+// panel's, the first divider's and the terminal shown (the stage's visible
+// bx-terminal), and how many panes there are
+const panes = (page) => page.locator(`${sel} .panes`).evaluate((el) => {
   const box = (e) => { if (!e) return null; const r = e.getBoundingClientRect(); return { l: Math.round(r.left), r: Math.round(r.right), w: Math.round(r.width), shown: getComputedStyle(e).display !== 'none' && r.width > 0 }; };
-  return { body: box(el), pane: box(el.querySelector(':scope > .pane')), vsplit: box(el.querySelector(':scope > .vsplit')), host: box(el.querySelector(':scope > .term-host')), panel: el.querySelector(':scope > .pane')?.localName || '' };
+  const term = [...el.querySelectorAll('.stage > bx-terminal')].find((t) => getComputedStyle(t).display !== 'none');
+  return { body: box(el), pane: box(el.querySelector('bx-deployments')), vsplit: box(el.querySelector(':scope > .vd')), host: box(term), n: el.querySelectorAll(':scope > .pane').length };
 });
 // tagsOf(page): the Deployments panel's side-list rows as drawn — each row's
 // name and its tags, with the line boxes each tag's text takes (1: one line)
@@ -307,10 +310,10 @@ async function stepAdd(X) {
   await openPanel(P);
   const zero = await pn(P, (p) => ({ record: p.state.record, text: p.text() }));
   check(zero.record === false && zero.text.includes('Add deployment…'), `the zero-state panel offers Add deployment… (${zero.text.slice(0, 120)})`);
-  // D129: a window without sessions opens Deployments full width — no launcher beside it
+  // D202: a window without sessions opens Deployments as a tab filling its pane — no launcher beside it
   const full = await panes(P);
-  check(full.pane?.shown && Math.abs(full.pane.w - full.body.w) <= 1 && !full.host?.shown && !full.vsplit && !(await P.locator(`${sel} .launcher`).isVisible()),
-    `Deployments opens full width, no launcher beside it (${JSON.stringify(full)})`);
+  check(full.n === 1 && full.pane?.shown && Math.abs(full.pane.w - full.body.w) <= 2 && !full.host?.shown && !full.vsplit && !(await P.locator(`${sel} .launcher`).isVisible()),
+    `Deployments opens as a tab filling the window's pane, no launcher beside it (${JSON.stringify(full)})`);
   await act(P, 'add');
   await waitDialog(P, 'the Add deployment form');
   const form = await dialog(P);
@@ -330,8 +333,8 @@ async function stepAdd(X) {
     { timeout: 10000, label: 'the chip follows the add' }).catch(() => { });
   const chip = await fr(P, TILE, (f) => f.deploy.chip);
   check(chip?.text === `Live reload: ${DEV}`, `the chip reads Live reload: dev (${chip?.text})`);
-  // the launcher (the window without sessions) says what a new session calls
-  await fr(P, TILE, (f) => f.open('term'));
+  // the launcher (an empty pane: the Deployments tab closed) says what a new session calls
+  await fr(P, TILE, (f) => { f.ide.close('deploy'); f.open('term'); }); // its last tab closed shuts the window: open it again
   await settle(P);
   const launcher = (await P.locator(`${sel} .launcher`).innerText().catch(() => '')).replace(/\s+/g, ' ');
   check(launcher.includes('· target: main'), `the launcher's line reads · target: main (${launcher.slice(0, 160)})`);
@@ -357,14 +360,14 @@ async function stepAdd(X) {
   await shot(P, 'deployments-added', { fullPage: false });
 }
 
-// 1b. the window's panes and the panel's tags (D129): with a session,
-// Deployments still opens full width; its rows tag the active tab's target
-// "Dev API" and the live reload target "live reload" (after the live glyph), each on one line,
-// and the Dev API tag follows a tab switch; ⇋ puts the terminal beside the
-// panel, the divider drags (the width is saved in the window pref, the
-// layout is not), takes the arrow keys and resets on a double-click; a
-// narrow pane drills down to the side list; another panel keeps the place
-// beside the terminal; >_ shows the terminal alone.
+// 1b. the window's panes and the panel's tags (D202): with a session,
+// Deployments opens as a tab filling its pane; its rows tag the session in
+// view's target "Dev API" and the live reload target "live reload" (after
+// the live glyph), each on one line. Dragged onto its pane's right edge it
+// sits beside the terminal, and the Dev API tag follows the session in
+// view; a narrow pane drills down to the side list; the divider drags (the
+// layout is saved in the window pref, the Deployments tab never), takes the
+// arrow keys and evens on a double-click; the logs dock opens under both.
 async function stepPanes(X) {
   const { check, A } = X, P = A.page, i = X.followerTab;
   // the window follows its card: bring the card to the top, so the window
@@ -385,83 +388,78 @@ async function stepPanes(X) {
   await waitPanel(P, (p) => p.rows.length >= 2, null, 'the rows');
   await settle(P);
   const full = await panes(P);
-  check(full.pane?.shown && Math.abs(full.pane.w - full.body.w) <= 1 && !full.host?.shown && !full.vsplit,
-    `with a session too, Deployments opens full width (${JSON.stringify(full)})`);
+  check(full.n === 1 && full.pane?.shown && Math.abs(full.pane.w - full.body.w) <= 2 && !full.host?.shown && !full.vsplit,
+    `with sessions too, Deployments opens as a tab filling the pane (${JSON.stringify(full)})`);
   const tags = await tagsOf(P);
   const pills = (name) => tags.find((r) => r.name === name)?.pills || [];
   const devApi = pills('main').find((p) => p.text === 'Dev API'), lr = pills(DEV).find((p) => p.text === 'live reload');
   check(!!devApi && devApi.lines === 1 && /^Dev API: this tab's API calls and bx commands reach main, the primary/.test(devApi.title) && !pills(DEV).some((p) => p.text === 'Dev API'),
-    `the active tab calls the primary: main's row reads Dev API, on one line, with its tooltip (${JSON.stringify(tags)})`);
+    `the session in view calls the primary: main's row reads Dev API, on one line, with its tooltip (${JSON.stringify(tags)})`);
   check(!!lr && lr.lines === 1 && lr.title === `Live reload: saves reach ${TILE}+${DEV}.`, `dev's row reads live reload, on one line (${JSON.stringify(pills(DEV))})`);
   check(!tags.some((r) => r.pills.some((p) => /target of this terminal/.test(p.text))), 'no row says "target of this terminal"');
   await shotEl(P, `${sel} .pop`, 'deployments-full');
+
+  // the tab dragged onto its pane's right edge: Deployments beside the terminal
+  await fr(P, TILE, (f) => { f.ide.move('deploy', f.ide.panes[0].id, 'r'); return true; });
+  await settle(P);
+  const side = await panes(P);
+  check(side.n === 2 && side.pane?.shown && side.host?.shown && side.vsplit?.shown && side.host.r <= side.vsplit.l + 4 && side.vsplit.r <= side.pane.l + 4,
+    `Deployments sits beside the terminal, split by the divider (${JSON.stringify(side)})`);
+  const vs = P.locator(`${sel} .panes > .vd`).first();
+  check(await vs.getAttribute('role') === 'separator' && await vs.evaluate((el) => getComputedStyle(el).touchAction) === 'none', 'the divider is a separator with touch-action: none');
+  // the Dev API tag follows the session in view
   await fr(P, TILE, (f, t, idx) => { f.setActiveTab(idx); return true; }, j);
   await settle(P);
   const after = await tagsOf(P);
   check(after.find((r) => r.name === DEV)?.pills.some((p) => p.text === 'Dev API') && !after.find((r) => r.name === 'main')?.pills.some((p) => p.text === 'Dev API'),
-    `the Dev API tag follows the active tab to dev (${JSON.stringify(after.map((r) => [r.name, r.pills.map((p) => p.text)]))})`);
-
-  // ⇋: the terminal beside the panel
-  const lyt = P.locator(`${sel} ${PICKERS} .lyt`).first();
-  const toggle = lyt.locator('button.beside');
-  check(await toggle.getAttribute('title') === 'Deployments beside the terminal', `⇋ names the panel (${await toggle.getAttribute('title')})`);
-  await toggle.click();
-  await settle(P);
-  const side = await panes(P);
-  const w0 = await fr(P, TILE, (f) => f.paneW);
-  check(await fr(P, TILE, (f) => f.beside && f.layout === 'deployments') && side.pane?.shown && side.host?.shown && side.vsplit?.shown
-    && side.pane.r <= side.vsplit.l + 1 && side.vsplit.r <= side.host.l + 1 && Math.abs(side.pane.w - (side.body.w * w0) / 100) <= 2,
-    `Deployments sits beside the terminal, split at ${w0}% by the divider (${JSON.stringify(side)})`);
-  const vs = P.locator(`${sel} .vsplit`);
-  check(await vs.getAttribute('role') === 'separator' && await vs.evaluate((el) => getComputedStyle(el).touchAction) === 'none', 'the divider is a separator with touch-action: none');
-  const beside = await tagsOf(P);
-  check(beside.filter((r) => r.shown).every((r) => r.pills.every((p) => p.lines === 1)) && beside.some((r) => r.pills.some((p) => p.text === 'Dev API')),
-    `beside the terminal every tag stays on one line (${JSON.stringify(beside.map((r) => [r.name, r.pills.map((p) => `${p.text}:${p.lines}`)]))})`);
+    `the Dev API tag follows the session in view to dev (${JSON.stringify(after.map((r) => [r.name, r.pills.map((p) => p.text)]))})`);
+  // a pane this narrow: the panel drills down to its side list, every tag on one line
+  const narrow = await tagsOf(P);
+  const mainShown = await P.locator(`${sel} bx-deployments section.main`).evaluate((el) => getComputedStyle(el).display !== 'none');
+  check(side.pane.w <= 720 && !mainShown && narrow.filter((r) => r.shown).length >= 2 && narrow.every((r) => r.pills.every((p) => p.lines === 1)),
+    `a ${side.pane.w} px pane shows the side list alone, every tag on one line (${JSON.stringify(narrow.map((r) => [r.name, r.pills.map((p) => `${p.text}:${p.lines}`)]))})`);
   await shotEl(P, `${sel} .pop`, 'deployments-beside');
 
-  // drag the divider 180 px left: the width follows and is saved (the
-  // Deployments layout itself never is)
+  // drag the divider 120 px left: the panes follow and the layout is saved
+  // (the Deployments tab itself never is)
+  const r0 = await fr(P, TILE, (f) => f.ide.tree.r);
   const vb = await vs.boundingBox();
   const x0 = vb.x + vb.width / 2, y0 = vb.y + vb.height / 2;
   await P.mouse.move(x0, y0);
   await P.mouse.down();
-  for (let k = 1; k <= 6; k++) await P.mouse.move(x0 - 30 * k, y0);
+  for (let k = 1; k <= 6; k++) await P.mouse.move(x0 - 20 * k, y0);
   await P.mouse.up();
   await settle(P);
-  const w1 = await fr(P, TILE, (f) => f.paneW);
+  const r1 = await fr(P, TILE, (f) => f.ide.tree.r);
   const dragged = await panes(P);
-  const want = ((x0 - 180 - dragged.body.l) / dragged.body.w) * 100;
-  check(Math.abs(w1 - want) <= 1.5 && Math.abs(dragged.pane.w - (side.pane.w - 180)) <= 3, `dragging the divider 180 px left narrows the panel (${w0}% → ${w1}%, want ≈${want.toFixed(1)}%; ${side.pane.w} → ${dragged.pane.w} px)`);
+  const want = (x0 - 120 - dragged.body.l) / dragged.body.w;
+  check(Math.abs(r1 - want) <= 0.015 && Math.abs(dragged.pane.w - (side.pane.w + 120)) <= 4, `dragging the divider 120 px left widens Deployments (${r0} → ${r1}, want ≈${want.toFixed(3)}; ${side.pane.w} → ${dragged.pane.w} px)`);
   let pref = null;
-  for (let k = 0; k < 25 && !(pref && pref.paneW === w1); k++) { await sleep(200); pref = await prefOf(A.ctx); }
-  check(pref?.paneW === w1 && pref.layout === 'term' && !('beside' in pref), `the width is saved in the window pref, the Deployments layout is not (${JSON.stringify(pref && { layout: pref.layout, beside: pref.beside, paneW: pref.paneW })})`);
-  // narrow now: the panel drills down to its side list, the tags still on one line
-  const narrow = await tagsOf(P);
-  const mainShown = await P.locator(`${sel} bx-deployments section.main`).evaluate((el) => getComputedStyle(el).display !== 'none');
-  check(dragged.pane.w <= 720 && !mainShown && narrow.filter((r) => r.shown).length >= 2 && narrow.every((r) => r.pills.every((p) => p.lines === 1)),
-    `a ${dragged.pane.w} px pane shows the side list alone, every tag on one line (${JSON.stringify(narrow.map((r) => [r.name, r.pills.map((p) => `${p.text}:${p.lines}`)]))})`);
-  await shotEl(P, `${sel} .pop`, 'deployments-beside-narrow');
+  for (let k = 0; k < 25 && !(pref?.ide?.tree && Math.abs((pref.ide.tree.r ?? 0) - r1) < 0.001); k++) { await sleep(200); pref = await prefOf(A.ctx); }
+  check(Math.abs((pref?.ide?.tree?.r ?? 0) - r1) < 0.001 && pref.layout === 'term' && !JSON.stringify(pref.ide).includes('deploy'),
+    `the layout is saved in the window pref, the Deployments tab is not (${JSON.stringify(pref && { layout: pref.layout, ide: pref.ide })})`);
   // the keyboard and the double-click
   await vs.focus();
   await P.keyboard.press('ArrowRight');
   await settle(P);
-  const w2 = await fr(P, TILE, (f) => f.paneW);
-  check(Math.abs(w2 - (w1 + 2)) <= 0.2, `→ on the focused divider widens the panel 2 % (${w1}% → ${w2}%)`);
+  const r2 = await fr(P, TILE, (f) => f.ide.tree.r);
+  check(Math.abs(r2 - (r1 + 0.02)) <= 0.002, `→ on the focused divider moves it 2 % (${r1} → ${r2})`);
   await vs.dblclick();
   await settle(P);
-  check(await fr(P, TILE, (f) => f.paneW) === 55, `a double-click resets the divider (${await fr(P, TILE, (f) => f.paneW)}%)`);
+  check(await fr(P, TILE, (f) => f.ide.tree.r) === 0.5, `a double-click evens the divider (${await fr(P, TILE, (f) => f.ide.tree.r)})`);
 
-  // another panel keeps the place beside the terminal; >_ shows it alone
-  await lyt.locator('button[title="backend logs (read-only)"]').click();
+  // the logs dock opens under both panes
+  await fr(P, TILE, (f) => f.open('logs'));
   await settle(P);
-  const logs = await panes(P);
-  check(await fr(P, TILE, (f) => f.layout === 'logs' && f.beside) && logs.panel === 'bx-logs' && logs.host?.shown && logs.vsplit?.shown,
-    `logs take the place beside the terminal (${JSON.stringify(logs)})`);
-  await lyt.locator('button[title="terminal only"]').click();
+  const dock = await P.locator(`${sel} .dock`).evaluate((el) => { const r = el.getBoundingClientRect(); return { h: Math.round(r.height), logs: !!el.querySelector('bx-logs') }; });
+  const withDock = await panes(P);
+  check(await fr(P, TILE, (f) => f.ide.dock.open) && dock.logs && dock.h > 60 && withDock.n === 2 && withDock.pane?.shown && withDock.host?.shown,
+    `the logs dock opens under the terminal and Deployments (${JSON.stringify({ dock, withDock })})`);
+  await fr(P, TILE, (f) => { f.ide.setDock(false); f.ide.close('deploy'); return true; });
   await settle(P);
   const alone = await panes(P);
-  check(await fr(P, TILE, (f) => f.layout === 'term' && !f.beside) && !alone.pane && !alone.vsplit && alone.host?.shown && Math.abs(alone.host.w - alone.body.w) <= 1,
-    `>_ shows the terminal alone (${JSON.stringify(alone)})`);
+  check(alone.n === 1 && !alone.pane && alone.host?.shown && Math.abs(alone.host.w - alone.body.w) <= 2,
+    `Deployments closed: the terminal fills the window again (${JSON.stringify(alone)})`);
   await fr(P, TILE, (f, t, idx) => { f.closeTab(idx); return true; }, j);
   await fr(P, TILE, (f, t, idx) => { f.setActiveTab(idx); return true; }, i);
 }

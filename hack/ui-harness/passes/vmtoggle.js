@@ -1,4 +1,4 @@
-// hack/ui-harness/passes/vmtoggle.js — the terminal title bar's VM toggle
+// hack/ui-harness/passes/vmtoggle.js — the terminal window's VM toggle (its status bar, D202)
 // (plans/vm-sandbox.md). The harness xbind runs without --isolate, so the
 // toggle must show disabled with the server's reason; with GET /ws/term/env
 // routed to report a usable VM, it is enabled, asks before restarting, and
@@ -6,9 +6,9 @@
 // sandbox in the harness — which is not what this pass pins). The second
 // browser's window is RESTORED open from the first one's pref, so it also
 // pins that a restored window loads the tile state (the toggle) like one
-// opened by hand. The toggle sits on the bar or, when this host's bar
-// doesn't fit the window, in the tools row (lib.js showPickers). The
-// launcher's VM switch (only where VMs can run) and the title bar's toggle
+// opened by hand. The toggle sits on the status bar or, in a narrow
+// window, in its folded menu (lib.js showPickers). The
+// launcher's VM switch (only where VMs can run) and the status bar's toggle
 // set the tile's per-user choice for new sessions (pref termvm:<tile>):
 // shells then open with vm=1, agents create with {vm:true}, and a new
 // browser context finds the choice where it was left.

@@ -80,7 +80,7 @@ narrow it. Patterns are the workspace-wide idiom — exact path, `prefix/*`
 |---|---|
 | `read` | The tile appears in the shell's sidebar and component list; its page opens (`/c/…` static serving is read-gated); its alerts are visible; its **source is visible in terminals** — in a non-admin's terminal, every tile *below* read is mount-masked out of the workspace (sealed empty mounts, D17a), so the file tree itself matches the ACL. |
 | `write` | Edit and drive it: source edits through the editing plane, write-shaped tile actions. |
-| `terminal` | A shell **on that tile** (the terminal acts as the tile's element principal, not as the human — [09-terminals.md](09-terminals.md)), the dev-layer reset, and the **logs tab / `GET /logs`**. Logs are deliberately terminal-gated, not read-gated: backend stdout/stderr routinely carries secrets. |
+| `terminal` | A shell **on that tile** (the terminal acts as the tile's element principal, not as the human — [09-terminals.md](09-terminals.md)), the dev-layer reset, and the **logs dock / `GET /logs`**. Logs are deliberately terminal-gated, not read-gated: backend stdout/stderr routinely carries secrets. |
 
 Creating a tile auto-grants the creator `terminal` on it — "create ≈ own a
 namespace" (D16). The grant is attributed: it fires for the human even when

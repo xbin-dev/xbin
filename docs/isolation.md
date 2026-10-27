@@ -222,7 +222,7 @@ unmount a resenc submount from inside (`umount2` → `EINVAL`) nor bind the
 workspace *non*-recursively to exclude them (a non-recursive bind of a subtree
 with locked children is also `EINVAL`). Both directions are the same lock.
 
-**Live-API toggle.** A terminal's titlebar has a **tile-API / no-API** switch
+**Live-API toggle.** A terminal's status bar has a **tile-API / no-API** switch
 (alongside the network scope). With it off, the session is minted with **no
 token** — the shell can read and edit source but every call to the tile's (or
 xbin's) API is unauthorized. Use it to run untrusted code or an agent that
@@ -552,7 +552,7 @@ get a several-times slower VM — and never changes a policy an admin set,
 "off" included (D110).
 `GET /api/xbin/vm` says whether this host can run them and why not.
 
-**Terminals.** The **⧉ VM** toggle in the terminal title bar restarts the
+**Terminals.** The **⧉ VM** toggle in the terminal window's status bar restarts the
 session in a VM (`?vm=1` on `/ws/term`). The prompt is up in about 0.2 s;
 the very first VM on a workspace also builds the guest's image from the
 base rootfs, which takes seconds. Root filesystem changes (`apt install`,

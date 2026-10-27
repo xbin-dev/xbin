@@ -65,17 +65,17 @@ import { mergeMeta } from '/vendor/tile-meta.js'; // a tile's xbin:meta (D194)
 import { setBuild, onBuildEvent } from '/vendor/frame-build.js'; // build phases (D196)
 import { onEvent, mountedFrames, isReloadTarget } from '/vendor/events-socket.js';
 import '/vendor/bx-terminal.js';
-import '/vendor/bx-code.js';
+import '/vendor/bx-code.js'; // <bx-code> and <bx-prs> (below) no longer draw in the window (D202), but a page that embeds
 import { frameCopy, COPY_MAX } from '/vendor/copy-rich.js';
 import '/vendor/bx-logs.js';
-import '/vendor/bx-prs.js';
+import '/vendor/bx-prs.js'; // a <bx-frame> may use them having imported only this module: they stay defined (docs/compat.md)
 import '/vendor/bx-deploy.js';
 import { deepActive, clampBox, dragWindow, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
 import { makeStore, tabsFrom, activeIndex, uid, visibleRows } from '/vendor/term-sessions.js';
 import { titlebar, titlebarCss } from '/vendor/frame-titlebar.js';
 import { agentProviders, rememberKind, launcherItems, launcherCss, loadEnvStatus, loadTileState, restartAgent, wantVM } from '/vendor/frame-launcher.js';
 import { emptyIde } from '/vendor/frame-ide.js';
-import { ideBody, ideCss, ideSync, ideRestore, idePref, ideHasTabs, ideLayout, openLayout } from '/vendor/frame-ide-view.js';
+import { ideBody, ideCss, ideSync, ideRestore, idePref, ideHasTabs, ideLayout, openLayout, revealTabs } from '/vendor/frame-ide-view.js';
 import { statusCss } from '/vendor/frame-status.js';
 import '/vendor/bx-agent.js';
 import '/vendor/bx-dialog.js';
@@ -273,6 +273,7 @@ export class BxFrame extends LitElement {
       this.dispatchEvent(new CustomEvent('bx-build', { bubbles: true, composed: true, detail: { state: this.buildState, phase: this.buildPhase } }));
     }
     if (changed.has('_active') || changed.has('_termOpen') || changed.has('_ide')) this._saveTerm();
+    if (this._termOpen) revealTabs(this);
     if (changed.has('_termOpen')) {
       if (this._termOpen) { this._follow(); this._observePop(); this._loadWindowState(); } else { this._ro?.disconnect(); this._ro = null; }
       // the active window closed: none is, until another comes to the front

@@ -330,7 +330,7 @@ final class TileWorkspaceModel: SessionTabHost {
 
 /// A tile's sessions and tools (D132): the web terminal window's
 /// counterpart, native. A strip of tabs — the tile's shells and agents
-/// together, as frame-titlebar.js shows them — with `+` (the launcher)
+/// together, as the web window's pane tabs show them — with `+` (the launcher)
 /// and the tools menu (live reload and deployments; code, logs and PRs
 /// to come). Tabs host the terminal and agent screens and stay mounted
 /// while hidden; tap a tab or swipe the strip to switch; a tab's long

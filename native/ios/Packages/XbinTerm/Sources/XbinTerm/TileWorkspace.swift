@@ -2,7 +2,7 @@ import Foundation
 
 // A tile's sessions screen in the app (D132): the web terminal window's
 // counterpart — its tabs (the tile's shells and agents together, as
-// web/frame-titlebar.js shows them) and its launcher (web/frame-launcher.js
+// the web window's pane tabs show them) and its launcher (web/frame-launcher.js
 // `launcher`: a box for Bash and one per agent provider, the VM switch, the
 // tile's recent agent sessions with Resume). Pure: the app feeds it the
 // session directory (D73), the providers, the history and the terminal
@@ -36,7 +36,7 @@ public struct SessionTab: Equatable, Sendable, Identifiable {
         self.vm = vm; self.ended = ended; self.listed = listed
     }
 
-    /// The tab's label (frame-titlebar.js `tabLabel`): its name, else Bash
+    /// The tab's label (web/frame-status.js `sessionLabel`): its name, else Bash
     /// for a shell, the provider's name for an agent.
     public func label(providerName: (String) -> String? = { _ in nil }) -> String {
         if !name.isEmpty { return name }

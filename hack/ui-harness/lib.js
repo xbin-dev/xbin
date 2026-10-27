@@ -184,13 +184,17 @@ function checker(name) {
   return { check, skip, done };
 }
 
-// The terminal window's pickers sit on its title bar, or — when this host's
-// full bar doesn't fit the window (a GPU picker, the VM toggle: fitBar in
-// web/frame-titlebar.js) — in the tools row behind ⋯. showPickers opens that
-// row (a no-op on a full bar), so `bx-frame[src=…] select.scope` finds them
-// either way; PICKERS scopes a selector to wherever they are.
-const showPickers = (page, src) => fr(page, src, (f) => f.setTools(true));
-const PICKERS = ':is(.titlebar, .toolsrow)';
+// The terminal window's pickers (the session in view's network, tile API,
+// VM, GPU) sit on its status bar along the bottom (D202, web/frame-status.js),
+// and only while there is a session — an empty window shows the launcher
+// and no pickers (before D202 the bar drew pickers for none: a pass that
+// wants them starts a session first). A window under 640 px folds them into
+// one chip whose menu holds the same choices, so a pass that needs the
+// selects keeps the window wide (the default 680 px is). showPickers opens
+// that menu on a narrow window (a no-op on a wide one); PICKERS scopes a
+// selector to the status bar.
+const showPickers = (page, src) => fr(page, src, (f) => { if (f.narrow) f.setTools(true); });
+const PICKERS = '.status';
 
 // The seeded agent tiles keep their data in encrypted resources (gocryptfs);
 // without the binary xbind HOLDS them and every call is a 502. run.sh looks

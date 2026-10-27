@@ -62,16 +62,17 @@ export class BxCodeView extends LitElement {
     path: { type: String },
     _file: { state: true },   // {content|binary|truncated|size}
     _err: { state: true },
+    _gone: { state: true },   // the file isn't in the work tree (deleted, renamed, never there)
   };
   static styles = [scrollCss, codeCss, viewCss];
 
-  constructor() { super(); this._file = null; this._err = ''; }
+  constructor() { super(); this._file = null; this._err = ''; this._gone = false; }
   connectedCallback() {
     super.connectedCallback();
     this._off = watchCode(() => this.component, () => this._load(true));
   }
   disconnectedCallback() { this._off?.(); super.disconnectedCallback(); }
-  willUpdate(ch) { if ((ch.has('component') || ch.has('path')) && (ch.get('component') !== undefined || ch.get('path') !== undefined)) this._file = null; }
+  willUpdate(ch) { if ((ch.has('component') || ch.has('path')) && (ch.get('component') !== undefined || ch.get('path') !== undefined)) { this._file = null; this._gone = false; } }
   updated(ch) { if ((ch.has('component') || ch.has('path')) && this.component && this.path) this._load(false); }
 
   // quiet: a live refresh — no loading flicker, the scroll kept, a render only when the file changed
@@ -80,8 +81,11 @@ export class BxCodeView extends LitElement {
     if (!c || !p) return;
     const r = await codeGet(`code/file?component=${encodeURIComponent(c)}&file=${encodeURIComponent(p)}`);
     if (c !== this.component || p !== this.path) return;
+    // a file that isn't there (deleted while open, a tab restored from the
+    // pref after a rename) says so in a sentence, also on a live refresh
+    if (r.status === 404) { this._gone = true; this._err = ''; this._file = null; return; }
     if (r.err) { if (!quiet) this._err = r.err; return; }
-    this._err = '';
+    this._err = ''; this._gone = false;
     const f = r.data, was = this._file;
     if (quiet && was && was.content === f.content && was.binary === f.binary && was.truncated === f.truncated) return;
     const main = this.renderRoot.querySelector('.main');
@@ -93,6 +97,7 @@ export class BxCodeView extends LitElement {
   }
 
   _body() {
+    if (this._gone) return html`<span class="muted gone">There's no ${this.path} in this tile's files: it may have been deleted or renamed.</span>`;
     if (this._err) return html`<span class="err"><bx-icon name="error"></bx-icon>${this._err}</span>`;
     const f = this._file;
     if (!f) return html`<span class="muted">loading…</span>`;

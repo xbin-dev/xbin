@@ -124,16 +124,17 @@ and embedded panel:
   cause) never changes the tile's z-order and hands back any focus its new
   document grabbed — your caret stays in the terminal that made the edit.
 - **The edit button** (the 7×7 corner dot; the shell renders its own header
-  button instead) opens the floating per-tile work window: tabbed terminal
-  sessions plus layout modes — terminal, code browser/review, a read-only
-  backend-logs view, change proposals and deployments (each a drawn glyph,
-  D184), each full width or, with *beside*, next to the terminal at a
-  width you drag (D129). Which sessions are
+  button instead) opens the floating per-tile work window, laid out like an
+  IDE (D202): a tool strip down its left (Files, Changes, PRs, Deploy, and
+  Logs in a dock along the bottom — each a drawn glyph and one word, D184),
+  panes of tabs that split and take dragged tabs (terminal and agent
+  sessions, files, diffs, change proposals, the Deployments panel), and a
+  status bar with the settings of the session in view. Which sessions are
   yours on a tile is the server's knowledge — the **session directory**
   (`GET /api/xbin/term/sessions`, D73): every browser you sign into shows
   the same tabs, names included, and attaches to the same still-running
   PTYs; another user on the same browser sees only their own. The window's
-  state (open, active tab, geometry) is a per-user pref; the browser keeps
+  state (open, active tab, geometry, panes and tabs) is a per-user pref; the browser keeps
   no session ids. The window is clamped to
   the viewport whenever it opens, restores or the browser window shrinks,
   and the canvas menu's **Bring windows on-screen** recovers any floating

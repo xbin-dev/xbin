@@ -340,7 +340,7 @@ trace when a sandbox dies before its entrypoint).
 **Backend logs.** Every generation's stdout/stderr appends to
 `.xbin/log/<compkey>.log` with `--- gen N start …` markers. Three readers:
 `bx logs [-f]`, `GET /api/xbin/logs?component=…[&tail=…][&follow=1]` (plain
-text; follow streams), and the terminal window's read-only **logs tab**.
+text; follow streams), and the terminal window's read-only **logs dock**.
 All gate identically: admins, the tile itself, or a human with
 **terminal-level** access on that tile — read/write users don't get logs,
 because backend output can carry secrets (the gate matches "could root-shell

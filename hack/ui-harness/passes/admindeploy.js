@@ -19,7 +19,7 @@
 //      not move" box; OK unticked asks again; ticked, dev becomes the
 //      primary;
 //   6. ⇈ Deployments panel opens apps/deployy's terminal window on its
-//      Deployments layout (xbin:open-deployments).
+//      Deployments tab (xbin:open-deployments; D202).
 // Then the fixture back in the zero state (the deployments pass's reset).
 const { login, closeCtx, settle, fr, waitFor, openShell, usePersonalScreen, openTile, tileFrame, gotoTab, shot, checker } = require('../lib');
 const { resetDeploys, stateOf, post } = require('./deployments');
@@ -138,8 +138,8 @@ async function adminDeployments(browser) {
     // 6. the link to the tile's Deployments panel
     await card.locator('[data-dep-open]').click();
     try {
-      await waitFor(page, (sh, p) => sh.frameFor(p)?.testApi().layout === 'deployments', TILE, { timeout: 15000, label: `${TILE}'s window on its Deployments layout` });
-      check(true, `⇈ Deployments panel opened ${TILE}'s terminal window on its Deployments layout`);
+      await waitFor(page, (sh, p) => sh.frameFor(p)?.testApi().layout === 'deployments', TILE, { timeout: 15000, label: `${TILE}'s window on its Deployments tab` });
+      check(true, `⇈ Deployments panel opened ${TILE}'s terminal window on its Deployments tab`);
       await fr(page, TILE, (f) => f.closeTerminal());
     } catch (e) {
       check(false, String(e.message).split('\n')[0]);

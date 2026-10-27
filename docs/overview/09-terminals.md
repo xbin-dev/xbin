@@ -108,7 +108,8 @@ its tab bar from that answer and keeps no session ids of its own, so a
 second browser signed in as the same user shows the same tabs and attaches
 to the same PTYs (several sockets may attach to one session; output fans
 out), while another user on the same browser sees only their own. The
-window's state (open, active tab, geometry) is a per-user pref. Reattaching
+window's state (open, active tab, geometry, and its panes and tabs —
+D202) is a per-user pref. Reattaching
 re-checks the tile's terminal level: a creator whose level was withdrawn is
 refused (403) — the session lives on until it ends or is reaped. Sessions
 are in-memory: an xbind restart ends them, directory included.
@@ -240,7 +241,7 @@ is fixed at spawn): open a new one, or fetch by URL
 
 **A session's target.** On a tile with tile deployments, a terminal or agent
 session's API calls and `bx` reads reach one deployment, fixed for the
-session's life: its target. The title bar's tile-API select picks it — `🔌
+session's life: its target. The status bar's tile-API select picks it — `🔌
 target: main (primary)`, `🔌 target: dev`, …, `⛔ no API` — once the tile has
 more than an unprotected `main`; a tile without deployments keeps the two
 entries below. The default is the primary; a protected primary is never
@@ -278,7 +279,7 @@ is a host shell that can read every partition, and its grey line says so.)
 Two user flags gate what the token can do (D17 b/c; clamped, never rejected, so
 an ungranted user still gets a working shell):
 
-- **`termApi`** — without it, or with the titlebar **tile-API/no-API** switch
+- **`termApi`** — without it, or with the status bar's **tile-API/no-API** switch
   off (`?api=0`; on a tile with deployments, the same select's `⛔ no API`),
   the session is minted with **no token at all**: the shell
   reads and edits source but every call to the tile's (or xbin's) API is
@@ -478,10 +479,10 @@ boot's GC releases that base. A layer a restore brought back from an older
 base moves at its next start too. A rootfs with no version stamp (a dev
 one) is no base to move to: nothing moves. Terminals run no `setup`: the
 component env layer is rebuilt for a new base by itself. With the setting
-**off**, layers stay pinned as above and the window's chooser and title
+**off**, layers stay pinned as above and the window's chooser and status
 bar offer **⬆ base update**; with it on, the chooser says the next session
 moves instead (`GET /ws/term/env` → `baseAutoUpdate`; open windows re-read
-it on the `workspace-settings` event), and the title bar keeps the button
+it on the `workspace-settings` event), and the status bar keeps the button
 for a running session. The setting covers terminal layers only — a tile
 sandbox's state is its manager's to reset or rebase. On a partitioned tile
 each person's layer (`.xbin/term-part/<TileKey>/<pkey>`,
@@ -496,7 +497,7 @@ shell only).
 
 ## VM terminals (D89)
 
-The title bar's **⧉ VM** toggle (`?vm=1`) restarts a session inside a
+The status bar's **⧉ VM** toggle (`?vm=1`) restarts a session inside a
 Firecracker microVM: the shell is root in its own kernel, so docker, kernel
 knobs and ordinary `apt` work. The mount picture above holds unchanged —
 the same paths, served from outside the VM (FUSE over vsock), with the same masks,
@@ -519,7 +520,7 @@ starts: where VMs can run, its **⧉ VM sandbox** switch decides whether the
 tile's new sessions — shells and agents alike, from the launcher cards, the
 `+` menu, ↺ last, or a Resume — open in a VM. The choice is per user and per
 tile (the `termvm:<tile>` pref, so every browser sees it), and a ⧉ VM toggle
-in the title bar that went through updates it too; a tile nobody chose for
+in the status bar that went through updates it too; a tile nobody chose for
 starts outside a VM.
 
 ## Resource limits and GPUs
@@ -621,11 +622,12 @@ What the agent gets:
   before you type the first prompt; `bx agent run --model …` /
   `bx agent set` do the same from a shell. A change applies to the next
   turn. Nothing is hardcoded per provider: the list is the agent's.
-- **the same window bar as a shell.** An Agent tab has the Bash tab's title
-  bar: the layout switcher (the code browser, code beside the agent, backend
-  logs, change proposals), the network scope, tile-API and GPU pickers, and
-  the tile layer's base update / reset. Those three settings are fixed when a
-  sandbox starts, so changing one **restarts the agent** — and resumes its
+- **the same window as a shell.** An Agent tab is a tab like the Bash tab's
+  (D202): it sits in any pane, beside files, diffs and proposals the tool
+  strip opens, and while it is the session in view the status bar holds its
+  network scope, tile-API and GPU pickers and the tile layer's base update /
+  reset. Those three settings are fixed when a sandbox starts, so changing
+  one **restarts the agent** — and resumes its
   conversation where the agent can reopen its own session (Claude Code,
   OpenCode): it replays the turns in the new sandbox, then continues. An
   agent that cannot starts fresh, and the old conversation stays under
@@ -712,16 +714,16 @@ empty window and the `+` menu): open one to read the transcript, or
 turns first. An agent that cannot reopen sessions shows the transcript
 read-only and offers a fresh start on the tile instead.
 
-Start one from the terminal window's **`+`** menu, or from a shell:
+Start one from a pane's **`+`** menu in the terminal window, or from a shell:
 `bx agent run --provider opencode "list the files here"` (docs/bx.md).
 
-## The logs tab
+## The logs dock
 
-The terminal window also carries a read-only **logs** tab (the `▤` button):
-it streams the tile backend's captured stdout/stderr live in an xterm view (no
+The terminal window also carries the tile's read-only **logs**, in a dock
+along its bottom (the tool strip's **Logs**, D202): it streams the tile backend's captured stdout/stderr live in an xterm view (no
 input), backed by `GET /api/xbin/logs`. It is gated exactly like the tile's
 terminal — admin, the tile itself, or a `terminal`-level user — so it appears
 only where a shell would, since backend output can carry secrets. It shows
 the primary's log; a non-primary tile deployment's own log is the
-Deployments panel's logs tab (the `⇈` layout), `bx logs <tile>+<name>`, or
+Deployments panel's logs tab (the **Deploy** tool), `bx logs <tile>+<name>`, or
 `GET /api/xbin/logs?deployment=<name>`, whose answer names the deployment.

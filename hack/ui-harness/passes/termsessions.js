@@ -3,12 +3,14 @@
 // signed in as the same user shows the same tabs, names included, and
 // attaches to the same session; (b) another user on the first browser sees
 // none of them and never asks for them; (c) the pref-held window state and
-// the legacy browser record are adopted, not trusted.
+// the legacy browser record are adopted, not trusted. The session tabs are
+// in the window's panes (D202): `.ptab[data-ref^="s:"]`.
 const { URL, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shot, checker } = require('../lib');
 
 async function termSessions(browser) {
   const { check, done } = checker('term-sessions');
-  const tabs = (page) => page.locator('bx-frame[src="apps/crawler"] .titlebar .tab .lbl').allTextContents();
+  const TAB = '.pane .ptab[data-ref^="s:"]'; // a session's tab (D202: the panes' strips)
+  const tabs = (page) => page.locator(`bx-frame[src="apps/crawler"] ${TAB} .lbl`).allTextContents();
   const sessionId = (page) => page.locator('bx-frame[src="apps/crawler"] bx-terminal').first().getAttribute('session');
   const openCrawlerTerm = async (page) => {
     await openShell(page);
@@ -18,6 +20,9 @@ async function termSessions(browser) {
     await page.locator('.card[data-path="apps/crawler"]').evaluate((el) => el.scrollIntoView({ block: 'start' }));
     await fr(page, 'apps/crawler', (f) => f.open('term'));
     await fr(page, 'apps/crawler', (f) => { if (!f.tabs.length) f.newTerm(); }); // first open shows the launcher, not a bash CLI
+    // the window follows its card, which earlier passes may have left in the
+    // screen's right column: keep its right edge (the ✕ is there since D202) on screen
+    await fr(page, 'apps/crawler', (f) => { const p = f.pop; if (p && p.x + p.w > innerWidth - 8) f.setPop({ ...p, x: Math.max(8, innerWidth - p.w - 16) }); });
     await settle(page);
     await waitSel(page, 'bx-frame[src="apps/crawler"] bx-terminal[session]', { timeout: 20000 });
   };
@@ -29,7 +34,7 @@ async function termSessions(browser) {
     { data: { open: true, active: 0, pop: { dx: 24, dy: 44, w: 680, h: 360 } } });
   // dblclick the tab near its left edge (the label side): a one-char tab's
   // centre lands on the ✕, and the exact label box shifts with the window.
-  const renameTab = (page, i = 0) => page.locator('bx-frame[src="apps/crawler"] .titlebar .tab').nth(i).dblclick({ position: { x: 6, y: 9 } });
+  const renameTab = (page, i = 0) => page.locator(`bx-frame[src="apps/crawler"] ${TAB}`).nth(i).dblclick({ position: { x: 6, y: 9 } });
 
   // ---- A: admin opens a terminal and names the tab ----
   const A = await login(browser, 'admin', 'admin');
@@ -41,21 +46,20 @@ async function termSessions(browser) {
   await openCrawlerTerm(A.page);
   const idA = await sessionId(A.page);
   check(!!idA, `A opened a session (${idA})`);
-  // the bar degrades, never clips (fitBar, web/frame-titlebar.js): whatever
-  // this host adds to it (a GPU picker, the VM toggle), the tab and the
-  // window's ✕ sit inside the window with nothing over them — a 680 px
-  // window on a GPU host used to squeeze the tab to nothing under the +
-  // and push the ✕ out
-  const reach = await sh(A.page, (t) => {
+  // whatever this host adds to the window (a GPU picker, the VM toggle — on
+  // the status bar since D202), the session's tab and the window's ✕ sit
+  // inside the window with nothing over them, the ✕ at its top-right
+  const reach = await sh(A.page, (t, TAB) => {
     const f = t.frameFor('apps/crawler'), root = f.renderRoot, box = f.testApi().popElement().getBoundingClientRect();
     const clear = (el) => {
       const r = el?.getBoundingClientRect();
       return !!r && r.width > 0 && r.left >= box.left && r.right <= box.right
-        && root.elementFromPoint(r.left + Math.min(8, r.width / 2), r.top + r.height / 2)?.closest('.tab, .winx') === el;
+        && root.elementFromPoint(r.left + Math.min(8, r.width / 2), r.top + r.height / 2)?.closest('.ptab, .winx') === el;
     };
-    return { tab: clear(root.querySelector('.titlebar .tab')), close: clear(root.querySelector('.titlebar .winx')), narrow: f.testApi().narrow };
-  });
-  check(reach.tab && reach.close, `the tab and the window's ✕ are in the window, uncovered (${JSON.stringify(reach)})`);
+    const x = root.querySelector('.titlebar .winx')?.getBoundingClientRect();
+    return { tab: clear(root.querySelector(TAB)), close: clear(root.querySelector('.titlebar .winx')), corner: !!x && box.right - x.right < 4, narrow: f.testApi().narrow };
+  }, TAB);
+  check(reach.tab && reach.close && reach.corner, `the tab and the window's ✕ are in the window, uncovered, the ✕ at its corner (${JSON.stringify(reach)})`);
   await renameTab(A.page);
   // the rename is a bx-dialog (no native prompt any more): answer it through the frame's test surface
   await waitFor(A.page, (t) => !!t.frameFor('apps/crawler')?.testApi().dialog, null, { timeout: 5000, label: 'the rename dialog' });
@@ -86,7 +90,7 @@ async function termSessions(browser) {
   await shot(B.page, 'term-sessions-b', { fullPage: false });
   // a tab opened in B appears in A (the term event → re-list)
   await fr(B.page, 'apps/crawler', (f) => f.newTerm());
-  await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.renderRoot.querySelectorAll('.titlebar .tab').length === 2, null, { timeout: 15000, label: "B's new tab to appear in A" });
+  await waitFor(A.page, (t, TAB) => t.frameFor('apps/crawler')?.renderRoot.querySelectorAll(TAB).length === 2, TAB, { timeout: 15000, label: "B's new tab to appear in A" });
   const dirAB = await (await A.ctx.request.get(`${URL}/api/xbin/term/sessions?cwd=apps%2Fcrawler`)).json();
   check(dirAB.length === 2, `two sessions now (${dirAB.length})`);
   check((await tabs(A.page)).length === 2, `A's tab bar followed (${JSON.stringify(await tabs(A.page))})`);
@@ -134,7 +138,7 @@ async function termSessions(browser) {
   await usePersonalScreen(A.page);
   await openTile(A.page, 'apps/crawler');
   await waitFor(A.page, (t) => !!t.frameFor('apps/crawler')?.testApi().terminalOpen, null, { timeout: 15000, label: 'the legacy window state reopens the window' });
-  await waitFor(A.page, (t) => (t.frameFor('apps/crawler')?.renderRoot.querySelector('.titlebar .tab .lbl')?.textContent || '') === 'legacy name', null, { timeout: 10000, label: 'the legacy tab name to be adopted' });
+  await waitFor(A.page, (t, TAB) => (t.frameFor('apps/crawler')?.renderRoot.querySelector(`${TAB} .lbl`)?.textContent || '') === 'legacy name', TAB, { timeout: 10000, label: 'the legacy tab name to be adopted' });
   check(await A.page.evaluate(() => localStorage.getItem('bx-term:apps/crawler')) === null, 'the legacy record is gone after adoption');
   const dirD = await (await A.ctx.request.get(`${URL}/api/xbin/term/sessions?cwd=apps%2Fcrawler`)).json();
   check(dirD[0]?.name === 'legacy name', `the adopted name is on the server (${JSON.stringify(dirD.map((s) => s.name))})`);
