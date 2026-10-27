@@ -48,7 +48,7 @@
   <div class="wrap">
     <article class="prose" id="top" aria-labelledby="top-h">
       <h1 class="h1" id="top-h">Privacy</h1>
-      <p class="date">Last updated 26 September 2026</p>
+      <p class="date">Last updated 27 October 2026</p>
 
       <p class="lead">xbin is software you run yourself. Your workspace, its apps, files,
       agents and accounts live on your server. The xbin project does not run your
@@ -77,6 +77,31 @@
         <li>Every few hours it downloads <code>https://xbin.dev/app/ios.json</code>,
           a static file that can switch off native tile views if an app version has
           a problem. The request carries no identifier.</li>
+      </ul>
+
+      <h2>App tunnels</h2>
+      <p>A workspace's administrator can turn on app tunnels. The app then reaches
+      that workspace through an encrypted tunnel built on iroh, open-source
+      networking software from n0, instead of connecting to its address
+      directly.</p>
+      <ul>
+        <li>What passes through the tunnel is encrypted end to end between the app
+          and your workspace, inside iroh's own encrypted connection. Nothing in
+          between can read or change it.</li>
+        <li>When the app and the workspace can't reach each other directly, the
+          connection goes through a relay. A relay passes encrypted data and cannot
+          read it.</li>
+        <li>If the workspace uses n0's public relays, n0 sees your device's IP
+          address and connection metadata, such as when it connects and how much
+          data passes. n0 states that its relays do not record them. Otherwise the
+          relay is one the workspace's operator runs, and they decide what it
+          keeps.</li>
+        <li>The app does not publish its address or look for other devices. It only
+          connects to the workspaces you paired. iOS may ask whether xbin can use
+          your local network: that lets the tunnel connect directly when you are
+          on the same network as the workspace. Without it, the app uses the
+          relay.</li>
+        <li>The xbin project runs no tunnel relay and receives none of this.</li>
       </ul>
 
       <h2>Push notifications</h2>
