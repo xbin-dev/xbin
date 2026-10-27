@@ -14,6 +14,10 @@ go.work.sum
 # `git add -A` as well.
 dist/
 /bx
+# the iroh sidecar's cargo output, and the gzip `make build` embeds into
+# xbind (hack/build-xbin-iroh.sh; never tracked)
+sidecar/xbin-iroh/target/
+internal/apptunnel/sidecar/embedded/
 # Packed helper sets (make helpers-publish stages them outside the tree;
 # they live in the helpers bucket, never in git — hack/check-large-files.sh).
 *.tar.zst

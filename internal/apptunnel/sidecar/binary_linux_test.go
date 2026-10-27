@@ -6,8 +6,10 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"debug/elf"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -155,5 +157,30 @@ func TestExtractPath(t *testing.T) {
 	_ = os.WriteFile(noexec, []byte("x"), 0o600)
 	if _, err := (Options{Binary: noexec}).openExe(""); err == nil {
 		t.Fatal("a non-executable XBIN_IROH was accepted")
+	}
+}
+
+// Built with -tags xbin_iroh (make build), the embedded gzip is a static
+// ELF for this arch.
+func TestEmbedded(t *testing.T) {
+	if len(embedded) == 0 {
+		t.Skip("built without the sidecar (make build embeds it)")
+	}
+	bin, err := gunzip(embedded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := elf.NewFile(bytes.NewReader(bin))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]elf.Machine{"amd64": elf.EM_X86_64, "arm64": elf.EM_AARCH64}[runtime.GOARCH]
+	if f.Machine != want {
+		t.Fatalf("embedded %v, want %v", f.Machine, want)
+	}
+	for _, p := range f.Progs {
+		if p.Type == elf.PT_INTERP {
+			t.Fatal("the embedded sidecar is dynamically linked: the bare sandbox has no libc")
+		}
 	}
 }

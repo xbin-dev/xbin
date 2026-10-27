@@ -94,11 +94,14 @@ build_arch() {
 
   info "[$arch] building binaries + rootfs (${arch} == $host_arch native? $([ "$arch" = "$host_arch" ] && echo yes || echo NO — qemu cross))"
   # Force a clean per-arch build: make's file targets would otherwise reuse
-  # the previous arch's bin/gocryptfs etc.
+  # the previous arch's bin/gocryptfs etc. — and bin/xbin-iroh, the app
+  # tunnel's sidecar, which `make build` embeds in xbind (D204) from
+  # internal/apptunnel/sidecar/embedded/xbin-iroh.linux-<arch>.gz.
   rm -f "$repo/bin/xbind" "$repo/bin/bx" "$repo/bin/gocryptfs" "$repo/bin/fuse-overlayfs" \
         "$repo/bin/xbin-vmagent" "$repo/bin/firecracker" "$repo/bin/vmlinux" "$repo/bin/mkfs.erofs" \
         "$repo/bin/qemu-system-x86_64" "$repo/bin/qemu-bios-microvm.bin" "$repo/bin/qemu-pvh.bin" \
-        "$repo/bin/vhost-device-vsock"
+        "$repo/bin/vhost-device-vsock" "$repo/bin/xbin-iroh" \
+        "$repo/internal/apptunnel/sidecar/embedded/xbin-iroh.linux-$arch.gz"
 
   local env_pre=(DOCKER="$ENGINE")
   if [ "$arch" != "$host_arch" ]; then
@@ -106,6 +109,8 @@ build_arch() {
     env_pre+=(PLATFORM="linux/$arch" GOOS=linux GOARCH="$arch")
   fi
   env "${env_pre[@]}" make -C "$repo" build
+  [ -s "$repo/internal/apptunnel/sidecar/embedded/xbin-iroh.linux-$arch.gz" ] \
+    || die "[$arch] make build embedded no iroh sidecar (internal/apptunnel/sidecar/embedded/xbin-iroh.linux-$arch.gz)"
   env "${env_pre[@]}" make -C "$repo" rootfs ROOTFS="$bdir/rootfs"
   # VM sandboxes (D89) are amd64-only for now: the guest kernel config is
   # x86_64's (and QEMU, for hosts without KVM, emulates x86_64). Optional in
