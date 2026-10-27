@@ -74,6 +74,8 @@ type Supervisor struct {
 	unconfine bool // the sandbox proved unusable with isolation off
 	launching bool // a process is being started (s.proc not yet set)
 	stopped   bool
+	onState   func(State) // SetOnState's
+	told      State       // the state onState last ran for
 
 	selftestMu sync.Mutex
 }
@@ -135,6 +137,24 @@ func (p *proc) stderrTail() string {
 	return strings.Join(p.tail, "\n")
 }
 
+// SetOnState installs what runs, on a goroutine of its own (so calls may
+// arrive out of order), with the new state whenever Status's State
+// changes: the app tunnel publishes its event, so a console that showed
+// "starting" sees "running", "degraded" or "failed" without asking again.
+func (s *Supervisor) SetOnState(f func(State)) {
+	s.mu.Lock()
+	s.onState, s.told = f, s.st.State
+	s.mu.Unlock()
+}
+
+// tell runs onState when the state moved since it last did. Under s.mu.
+func (s *Supervisor) tell() {
+	if s.onState != nil && s.st.State != s.told {
+		s.told = s.st.State
+		go s.onState(s.told)
+	}
+}
+
 // broadcast wakes everyone waiting on s.changed. Under s.mu.
 func (s *Supervisor) broadcast() {
 	close(s.changed)
@@ -150,6 +170,7 @@ func (s *Supervisor) Start(ctx context.Context, cfg Config) error {
 	}
 	if !s.o.available() {
 		s.st.State = StateUnavailable
+		s.tell()
 		return ErrUnavailable
 	}
 	if err := checkConfig(cfg); err != nil {
@@ -167,6 +188,7 @@ func (s *Supervisor) Start(ctx context.Context, cfg Config) error {
 	lctx, cancel := context.WithCancel(ctx)
 	s.cancel, s.done = cancel, make(chan struct{})
 	s.st.State, s.st.Error = StateStarting, ""
+	s.tell()
 	go s.loop(lctx, s.done)
 	return nil
 }
@@ -181,12 +203,14 @@ func (s *Supervisor) loop(ctx context.Context, done chan struct{}) {
 			s.st.Restarts++
 		}
 		s.st.State = StateStarting
+		s.tell()
 		s.mu.Unlock()
 		res := s.runOnce(ctx, from)
 		from = res.nextExec
 		if ctx.Err() != nil {
 			s.mu.Lock()
 			s.st.State, s.cancel = StateDisabled, nil
+			s.tell()
 			s.mu.Unlock()
 			return
 		}
@@ -199,6 +223,7 @@ func (s *Supervisor) loop(ctx context.Context, done chan struct{}) {
 		}
 		s.mu.Lock()
 		s.st.State, s.st.Error = StateFailed, res.err.Error()
+		s.tell()
 		s.mu.Unlock()
 		s.log.Warn("iroh sidecar stopped; restarting", "err", res.err, "in", backoff)
 		if res.retryNow {
@@ -210,6 +235,7 @@ func (s *Supervisor) loop(ctx context.Context, done chan struct{}) {
 			t.Stop()
 			s.mu.Lock()
 			s.st.State, s.cancel = StateDisabled, nil
+			s.tell()
 			s.mu.Unlock()
 			return
 		case <-s.restart:
@@ -455,6 +481,7 @@ func (s *Supervisor) setRunning(mode string) {
 	} else {
 		s.st.State = StateRunning
 	}
+	s.tell()
 }
 
 func (s *Supervisor) readStderr(p *proc, r io.Reader) {
@@ -623,5 +650,6 @@ func (s *Supervisor) Stop() {
 	if s.st.State != StateUnavailable {
 		s.st.State = StateDisabled
 	}
+	s.tell()
 	s.mu.Unlock()
 }

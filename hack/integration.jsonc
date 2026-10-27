@@ -91,6 +91,20 @@
     // helpers HELPERS=iroh)
     { "name": "apptunnel-sidecar", "pkg": "./internal/apptunnel/sidecar/", "overhead": 3 },
 
+    // the app tunnel end to end (D204, test/apptunnel over test/xbindtest):
+    // an `xbind --isolate` built from this tree running the real
+    // bin/xbin-iroh in its sandbox, and phones made of devclient over
+    // `xbin-iroh client` — with relays off: pairing with the code read on
+    // both screens, IK and device login, HTTP and /ws/events over tunnel/1,
+    // the bound session refused off it, They don't, replacing a device at
+    // the limit, iroh-only's refusals, a revoke closing the tunnel; then a
+    // real iroh-relay with an access token as the custom relay (the token
+    // from the QR code; a wrong one turned away by the relay); then xbind
+    // built with the sidecar embedded, run from a memfd. Skips without
+    // .rootfs/userns or bin/xbin-iroh, the relay test without iroh-relay
+    // (XBIN_IROH_RELAY_TEST, bin/iroh-relay or PATH)
+    { "name": "apptunnel", "pkg": "./test/apptunnel/", "overhead": 8 },
+
     // VM sandboxes (D89): skip without /dev/kvm or the vm-assets; then
     // again under QEMU's emulation (skips without its assets). CI's vm job
     // gives them KVM, the assets and a guest rootfs (XBIN_ROOTFS)

@@ -5121,7 +5121,10 @@ PUT    /app-tunnel                       admin. {enabled?, relay?: {mode:
                                          enabled, and disabling clears it. 400
                                          invalid; 409 when XBIN_IROH_RELAY sets
                                          the relay. Publishes a bodiless
-                                         app-tunnel event
+                                         app-tunnel event — as does every
+                                         change of the sidecar's state
+                                         (starting → running, degraded,
+                                         failed): re-read the view
 POST   /app-tunnel/relay-tokens          admin, a custom relay. {action:
                                          generate-next | set-next | promote |
                                          drop-next | set-current | clear,
@@ -6883,6 +6886,7 @@ required). JSON text frames:
          "request":{"spec":{"user":true,"global":true},"since":"…","declined":false}}} // its mode changed; re-read GET /partitions?tile=
 {"type":"partitions","component":"apps/x",                         // to the person's own session, app or device only:
  "data":{"op":"notice","notice":{"id":"…","at":"…","kind":"partition-deleted|partition-reset|credential","tile":"apps/x","text":"…","hold":"…"}}}
+{"type":"app-tunnel"}                                // the app tunnel's settings, its sidecar's state or a pairing changed (D204): an admin console re-reads GET /app-tunnel, a pairing dialog its GET /devices/pairing/<id>
 {"type":"workspace-settings","data":{"baseAutoUpdate":false,"changed":["baseAutoUpdate"]}} // an admin changed workspace settings (D175, D180): base auto-update as it applies and the keys the write set (every socket hears it: no partitioned tiles' switch rides it — re-read GET /workspace-settings); a terminal window re-reads GET /ws/term/env
 {"type":"bus","topic":"res:<scope>/<name>/<topic>","data":…}
 {"type":"status","component":"apps/thing",           // a tile reported its condition

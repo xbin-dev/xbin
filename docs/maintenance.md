@@ -105,6 +105,22 @@ themselves.
 | `go run ./hack/testshard list [-shard 2/4] [-unit]` | the go test commands a shard runs, without running them |
 | `go run ./hack/testshard timings -profile ci <logs…>` | refresh the timing file from shard logs (`gh run view --log`); `-profile local` from a local run's logs |
 
+**The app tunnel end to end** (`test/apptunnel`, suite `apptunnel`):
+phones made of `internal/apptunnel/devclient` (`StartIrohClient` runs
+`xbin-iroh client` as the device's iroh identity, one per ALPN;
+`ParseTicket` reads the server's EndpointId and relay from the link's
+ticket) against an `xbind --isolate` running `bin/xbin-iroh`
+(`XBIN_IROH_TEST` names another): relays off for pairing, the tunnel's
+HTTP and `/ws/events`, bound sessions, They don't, replacing at the limit,
+iroh-only and revocation; a real `iroh-relay --dev` with an access token as
+the custom relay (`XBIN_IROH_RELAY_TEST`, `bin/iroh-relay` or PATH — iroh's
+GitHub releases; the test skips without one, so CI skips it today); and
+xbind built with the sidecar embedded (`go build -tags xbin_iroh -overlay`,
+nothing written to the tree) running it from a memfd. A phone's endpoint
+must be the only one with its key at a time (two processes would take each
+other's place at a relay): a pairing's client goes before the tunnel's
+starts.
+
 Every test runs exactly once: hack/testshard's tests (in `make test`)
 recompute the split under both timing profiles and fail when an
 integration test lands in no shard or two, a unit package in no unit shard
@@ -904,15 +920,32 @@ full-quota alerts are served by route interception while their raises go
 to the real `POST /limits`, and it `SKIP`s the real hit and the VM and
 sandbox kinds, said so (`test/limits` drives the real OOM and quota path).
 `apptunnel` and `pairing` cover app tunnels' UI (D204) in both themes and
-at phone width: the admin console's iroh tunneling (off, n0, a custom
-relay's token slots, refusing app connections outside the tunnel, a failed
-sidecar, the default and a person's own device limit, an xbind without the
-routes) and adding a phone (the big QR code decoded by `zbarimg`, the
-address rewrite, the confirmation code, They don't, replacing a device at
-the limit, abandoned and expired, the classic code, `/xbin/devices`). The
-harness xbind runs no iroh sidecar, so both serve the tunnel routes from a
-fake shaped like `native/spec/tunnel.md` by route interception, and
-`pairing` serves `web/devices.html` itself when xbind doesn't.
+at phone width, against the real API: `run.sh` gives the harness xbind an
+iroh sidecar (`HARNESS_IROH`: `bin/xbin-iroh` when built, else
+`bin/fakeiroh`, which it builds; `XBIN_IROH_RELAY=disabled`, so nothing
+leaves the box), and a pass's phone is `hack/ui-harness/phone.js` running
+`bin/tunnelpair` — devclient over the same binary's client mode — on the
+link the dialog shows: it prints the code it computed, hears enrolled or
+rejected, leaves on SIGTERM (ending its stream, so xbind sees it abandon at
+once) and, with `-connect`, signs in over tunnel/1 and stays connected.
+`apptunnel` turns the real tunnel on (running, sandboxed as xbind says, the
+endpoint id, the relay `XBIN_IROH_RELAY` overrides), counts a connected,
+synced phone and a classic device, runs Test, refuses app connections
+outside the tunnel through its confirm, saves the default and a person's
+own device limit; `pairing` draws the big QR code (decoded by `zbarimg`),
+rewrites the address, and has phones pair with the same code on both
+screens: They don't, Codes match, replacing a device at the limit, a phone
+leaving (abandoned), the classic code, iroh-only's `rq=1`, the panel at
+the limit with tunnels on and off, and `/xbin/devices`. Each puts the
+workspace back (tunnel off, no devices, limits default). Only what the
+real xbind can't produce on demand is served by route interception: n0's
+relay, a custom relay's token slots (`XBIN_IROH_RELAY` makes a relay PUT
+409), a failed unsandboxed sidecar, an xbind without the routes, a pairing
+that expired or that xbind forgot (404), and a 409 at the limit the device
+list didn't predict. Without `bin/tunnelpair` or a sidecar the real halves
+`SKIP`, said so. `pairing` serves `web/devices.html` itself when xbind
+doesn't. `devices` gives the admin an own limit of 3 for its two classic
+devices (the workspace default is 1, D204) and clears it after.
 
 ```
 hack/ui-harness/run.sh                    # build, fresh workspace, seed, every pass, stop
@@ -1121,7 +1154,7 @@ fails with what to set.
 
 **CI.** The test job runs `make helpers HELPERS=containerfs` before `make
 check`, `make helpers HELPERS=iroh` in the integration shards (the
-apptunnel-sidecar suite runs the real `bin/xbin-iroh`) and `make helpers
+apptunnel-sidecar and apptunnel suites run the real `bin/xbin-iroh`) and `make helpers
 HELPERS=vm` before the VM suite, each under an
 `actions/cache` of `bin/` keyed on the manifest and every build input — a
 repeat run neither downloads nor builds. A PR that changes a group's inputs

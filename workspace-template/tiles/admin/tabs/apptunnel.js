@@ -23,10 +23,14 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { base } from '../admin-css.js';
 import { WithRouter } from '../shared.js';
+import { sandboxed } from '/vendor/bx-kit.js';
 
-// at(path, init) → {status, ok, body}: an admin call whose status matters (404: no tunnels here).
+// at(path, init) → {status, ok, body}: an admin call whose status matters (404: no tunnels here),
+// with the credential the document has — bx-kit's api() rule: in the sandboxed admin tile, the
+// frame token through the in-frame client (its opaque origin holds no cookie; a bare fetch is 401)
 async function at(path, init = {}) {
-  const r = await fetch(`/api/xbin${path}`, {
+  const f = sandboxed() && window.xbin?.fetch ? window.xbin.fetch : fetch;
+  const r = await f(`/api/xbin${path}`, {
     ...init, headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
   });
   return { status: r.status, ok: r.ok, body: (await r.json().catch(() => ({}))) ?? {} };
@@ -168,11 +172,15 @@ export class BxAdminAppTunnel extends WithRouter(LitElement) {
     const url = this._url ?? r.url ?? '';
     const next = r.next ?? null;
     const dv = v.devices ?? {};
+    const env = v.env ?? ''; // XBIN_IROH_RELAY: this xbind's relay, over the choice below (a PUT of it is 409)
     return html`<h5>Relay</h5>
-      <label class="sw"><input type="radio" name="relay" value="n0" data-relay="n0" .checked=${mode === 'n0'} ?disabled=${this._busy}
+      ${env ? html`<div class="hint" data-relay-env><bx-icon name="info"></bx-icon> This xbind runs with
+        <span class="mono">XBIN_IROH_RELAY=${env}</span>${env === 'disabled' ? ' — no relay: direct connections only' : ''}; it
+        overrides the choice below until it is unset (<a href="/docs/config.md" target="_blank" rel="noopener">config</a>).</div>` : nothing}
+      <label class="sw"><input type="radio" name="relay" value="n0" data-relay="n0" .checked=${mode === 'n0'} ?disabled=${this._busy || !!env}
           @change=${() => { this._mode = 'n0'; if (r.mode !== 'n0') this._relay('n0'); }}>
         <span><b>n0's public relays</b> <span class="muted">— hobby-scale; publishes this server's endpoint to n0 DNS</span></span></label>
-      <label class="sw"><input type="radio" name="relay" value="custom" data-relay="custom" .checked=${mode === 'custom'} ?disabled=${this._busy}
+      <label class="sw"><input type="radio" name="relay" value="custom" data-relay="custom" .checked=${mode === 'custom'} ?disabled=${this._busy || !!env}
           @change=${() => { this._mode = 'custom'; }}>
         <span><b>Your own relay</b> <span class="muted">— an iroh-relay you run, with an access token
           (<a href="/docs/app-tunnel.md" target="_blank" rel="noopener">how to run one</a>)</span></span></label>
@@ -274,7 +282,7 @@ export class BxAdminAppTunnel extends WithRouter(LitElement) {
       <form class="inline" @submit=${(e) => { e.preventDefault(); this._saveLimit(e.target.lim.value); }}>
         <label>default <input name="lim" type="number" min="1" max=${l.max ?? 32} step="1" .value=${String(l.default ?? 1)} data-limit-default></label>
         <button class="act go" type="submit" ?disabled=${this._busy}>save</button>
-        <span class="muted">${plural(l.atLimit ?? 0, 'person', 'people')} at their limit${overrides.length
+        <span class="muted" data-at-limit>${plural((l.atLimit ?? []).length, 'person', 'people')} at their limit${overrides.length
           ? ` · ${plural(overrides.length, 'person', 'people')} with a limit of their own` : ''}</span>
       </form>
     </div>`;

@@ -2,6 +2,7 @@ package devclient
 
 import (
 	"encoding/base64"
+	"encoding/hex"
 	"strings"
 	"testing"
 )
@@ -45,5 +46,45 @@ func TestDeviceKeys(t *testing.T) {
 	sig, err := d.Sign("https://x.example", "d1", "nonce")
 	if err != nil || sig == "" {
 		t.Fatal(err)
+	}
+}
+
+// Tickets as xbin-iroh 0.1.0 (iroh 1.4.1) printed them: relays off (the
+// sidecar's loopback socket), and a custom relay (relay-only).
+func TestParseTicket(t *testing.T) {
+	for _, c := range []struct {
+		ticket, endpoint, relay, addr string
+	}{
+		{"endpointabmrtlxo4i4z2ewtutyz7v3vm2m3gglhyvczeh26bfgmsubttl54qaibab7qaaabr6sae",
+			"5919aeeee2399d12d3a4f19fd7756699b31967c545921f5e094cc950339afbc8", "", "127.0.0.1:37391"},
+		{"endpointacpqzm2rz2csbnrjb45xk6jjrkwlvcpqfjxhanl3yoas7z4l6pvwiaiac5uhi5dqhixs6mjsg4xdalrqfyytumzuhazdcly",
+			"9f0cb351ce8520b6290f3b7579298aacba89f02a6e70357bc3812fe78bf3eb64", "http://127.0.0.1:34821/", ""},
+	} {
+		tk, err := ParseTicket(c.ticket)
+		if err != nil {
+			t.Fatalf("%s: %v", c.ticket, err)
+		}
+		got := hex.EncodeToString(tk.Endpoint[:])
+		if got != c.endpoint || strings.Join(tk.Relays, ",") != c.relay || strings.Join(tk.Addrs, ",") != c.addr {
+			t.Errorf("%s: %s %+v", c.ticket, got, tk)
+		}
+	}
+	for _, bad := range []string{"", "nodeabc", "endpoint", "endpoint!!", "endpointaa", "endpointacpqzm2rz2csbnrjb45xk6jjrkwlvcpqfjxhanl3yoas7z4l6pvwiaiac5uhi5dq"} {
+		if _, err := ParseTicket(bad); err == nil {
+			t.Errorf("%q: parsed", bad)
+		}
+	}
+	// a link's token goes with its ticket's relay
+	k := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	l, err := ParseLink("xbin://enroll?u=https%3A%2F%2Fx.example&c=CODE&tv=1&t=endpointacpqzm2rz2csbnrjb45xk6jjrkwlvcpqfjxhanl3yoas7z4l6pvwiaiac5uhi5dqhixs6mjsg4xdalrqfyytumzuhazdcly&k=" + k + "&p=" + k + "&r=tok")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, err := RelayFor(l); err != nil || r == nil || r.Mode != "custom" || r.URL != "http://127.0.0.1:34821/" || r.Token != "tok" {
+		t.Fatalf("RelayFor: %+v %v", r, err)
+	}
+	l.RelayToken = ""
+	if r, err := RelayFor(l); r != nil || err != nil {
+		t.Fatalf("RelayFor without a token: %+v %v", r, err)
 	}
 }
