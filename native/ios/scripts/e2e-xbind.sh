@@ -102,6 +102,10 @@ stop() {
     kill "$(cat "$dir/fakeopenai.pid")" 2>/dev/null || true
     rm -f "$dir/fakeopenai.pid"
   fi
+  if [ -f "$dir/relay.pid" ]; then
+    kill "$(cat "$dir/relay.pid")" 2>/dev/null || true
+    rm -f "$dir/relay.pid"
+  fi
   # A killed xbind can leave FUSE mounts under the workspace; a stale one
   # makes the next start's rm -rf fail.
   if [ -r /proc/self/mounts ]; then
@@ -211,6 +215,23 @@ start)
     echo $! >"$dir/fakeopenai.pid"
   fi
   envs=(XBIN_AGENT_FAKE="$repo/bin/fakeacp" XBIN_BIN="$repo/bin" XBIN_SDK_PATH="$repo/sdk")
+  # The app tunnel (D204, XBIN_E2E_TUNNEL=1): the sidecar xbind runs
+  # (XBIN_IROH) and an `iroh-relay --dev` on P+2 with a shared token
+  # (XBIN_IROH_RELAY_BIN) — plain http on loopback, which mac-remote.sh
+  # carries to the Mac like xbind's port, so both ends meet on the relay.
+  relay_port=$((port + 2))
+  relay_token=""
+  if [ "${XBIN_E2E_TUNNEL:-0}" = 1 ]; then
+    [ -x "${XBIN_IROH:-}" ] || { say "XBIN_E2E_TUNNEL=1 needs XBIN_IROH (hack/build-xbin-iroh.sh bin)"; stop; exit 1; }
+    [ -x "${XBIN_IROH_RELAY_BIN:-}" ] || { say "XBIN_E2E_TUNNEL=1 needs XBIN_IROH_RELAY_BIN (an iroh-relay 1.4)"; stop; exit 1; }
+    relay_token=$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)
+    printf 'http_bind_addr = "127.0.0.1:%s"\nenable_metrics = false\naccess.shared_token = ["%s"]\n' \
+      "$relay_port" "$relay_token" >"$dir/relay.toml"
+    chmod 600 "$dir/relay.toml"
+    nohup "$XBIN_IROH_RELAY_BIN" --dev --config-path "$dir/relay.toml" >"$dir/relay.log" 2>&1 </dev/null &
+    echo $! >"$dir/relay.pid"
+    envs+=(XBIN_IROH="$XBIN_IROH")
+  fi
   [ -n "$gcf" ] && envs+=(XBIN_GOCRYPTFS="$gcf")
   ns=()
   [ "${XBIN_E2E_UNSHARE:-0}" = 1 ] && ns=(unshare -Urm) # it execs xbind: $! stays xbind's pid
@@ -245,6 +266,14 @@ start)
       api POST /api/xbin/bindings '{"component":"apps/agent","slot":"net","provider":"none"}' >/dev/null ||
       { say "could not set up apps/agent — stopping"; stop; exit 1; }
   fi
+  if [ -n "$relay_token" ]; then
+    api PUT /api/xbin/app-tunnel "{\"enabled\":true,\"relay\":{\"mode\":\"custom\",\"url\":\"http://127.0.0.1:$relay_port\"}}" >/dev/null &&
+      api POST /api/xbin/app-tunnel/relay-tokens "{\"action\":\"set-current\",\"token\":\"$relay_token\"}" >/dev/null ||
+      { say "could not turn the app tunnel on — stopping"; stop; exit 1; }
+    tunnel_running() { api GET /api/xbin/app-tunnel | grep -q '"state":"running"'; }
+    wait_for 60 "the app tunnel's sidecar" tunnel_running
+    say "app tunnel: relay http://127.0.0.1:$relay_port (log $dir/relay.log)"
+  fi
   # The counter's Go backend builds on first use (a cold build can take a
   # minute or two); the UI tests should not wait for it.
   wait_for 240 "the counter's backend" api GET /api/apps/counter/count
@@ -278,6 +307,7 @@ print(json.dumps(c))' >"$dir/agent-config.json"
     echo "XBIN_E2E_URL=$url"
     echo "XBIN_E2E_USER=e2e"
     echo "XBIN_E2E_PASSWORD=$password"
+    [ -n "$relay_token" ] && echo "XBIN_E2E_RELAY_PORT=$relay_port"
   } >"$dir/env"
   chmod 600 "$dir/env"
   say "up: $url (workspace $ws, log $dir/xbind.log); env in $dir/env"

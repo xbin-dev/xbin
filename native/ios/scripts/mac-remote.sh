@@ -45,7 +45,9 @@
 #                      <command>/ — logs, .xcresult bundles, PNGs
 #   XBIN_MAC_SSH_OPTS  extra ssh options, e.g. "-p 2222 -i ~/.ssh/mini"
 #   XBIN_SIM, XBIN_SIGNING, XBIN_XCODE, XBIN_SWIFT_CONDITIONS, XBIN_SIM_GUI=1,
-#   XBIN_E2E_ERASE, XBIN_E2E_WARMUP, XBIN_SIM_ENSURE, XBIN_E2E_TUNNEL_FORWARD
+#   XBIN_E2E_ERASE, XBIN_E2E_WARMUP, XBIN_SIM_ENSURE, XBIN_E2E_TUNNEL_FORWARD,
+#   XBIN_E2E_TUNNEL (1: e2e-xbind.sh runs the app tunnel and its relay,
+#                      whose port the ssh carries too; XbinTunnelTests run)
 #                      passed through (pick-sim.sh, ci-*.sh; GUI: show the
 #                      simulator on the Mac's screen: Simulator.app, or
 #                      DeviceHub.app from Xcode 27 on; ENSURE: a
@@ -237,7 +239,7 @@ remote() {
   [ $# -gt 0 ] && shift
   local v
   for v in XBIN_SIM XBIN_SIGNING XBIN_XCODE XBIN_SWIFT_CONDITIONS XBIN_SIM_GUI XBIN_E2E_ERASE XBIN_E2E_WARMUP XBIN_SIM_ENSURE \
-    XBIN_E2E_TUNNEL_FORWARD; do
+    XBIN_E2E_TUNNEL_FORWARD XBIN_E2E_TUNNEL; do
     if [ -n "${!v:-}" ]; then envs="$envs $v=$(printf '%q' "${!v}")"; fi
   done
   ssh ${ssh_opts[@]+"${ssh_opts[@]}"} ${opts[@]+"${opts[@]}"} "$XBIN_MAC" \
@@ -332,6 +334,10 @@ e2e)
     tunnel=(-o ExitOnForwardFailure=yes -R "127.0.0.1:$p:127.0.0.1:$p")
     ;;
   esac
+  # …and an app-tunnel run's relay (XBIN_E2E_TUNNEL=1, D204): both iroh
+  # endpoints meet on it, at the same loopback URL on both sides.
+  relay=$(sed -n 's/^XBIN_E2E_RELAY_PORT=//p' "${e2e_dir:-/nonexistent}/env" 2>/dev/null || true)
+  [ -n "$relay" ] && tunnel+=(-R "127.0.0.1:$relay:127.0.0.1:$relay")
   sync_tree
   printf '%s\n%s\n' "$user" "$password" | remote ${tunnel[@]+"${tunnel[@]}"} -- e2e --url "$url" ${only[@]+"${only[@]}"} || status=$?
   pull e2e

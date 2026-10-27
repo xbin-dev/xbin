@@ -57,12 +57,12 @@
 				<string>C617.1</string>
 			</array>
 		</dict>
-		<!-- IrohLib (app tunnels): its categories come from `nm -u` on a
-		     build that links it (plans/app-tunnel.md Phase 6) — expected
-		     SystemBootTime 35F9.1 if _mach_absolute_time appears, DiskSpace
-		     only if statfs-type symbols do. Pending that report; once it is
-		     in, list them here AND in store-check.py's IROHLIB_APIS, which
-		     fails while project.yml links IrohLib without them. -->
+		<!-- IrohLib (app tunnels): `nm -u` on iroh-ffi 1.2.0 (2026-10-27)
+		     finds fstat (Rust's std sizing the files it reads), covered by
+		     the file-timestamp entry above, and nothing of the boot-time
+		     (mach_absolute_time, systemUptime), disk-space (statfs family)
+		     or user-defaults APIs. Re-measure with every IrohLib bump; list
+		     what it needs here AND in store-check.py's IROHLIB_APIS. -->
 	</array>
 </dict>
 </plist>

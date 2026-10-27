@@ -36,11 +36,14 @@ ios = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ios")
 errs = []
 
 # The required-reason categories IrohLib's binary needs: from `nm -u` on a build
-# that links it (plans/app-tunnel.md Phase 6) — category → reasons. Pending that
-# report (expected: NSPrivacyAccessedAPICategorySystemBootTime ["35F9.1"] if
-# _mach_absolute_time appears, DiskSpace only if statfs-type symbols do); fill it
-# in together with App/Resources/PrivacyInfo.xcprivacy.
-IROHLIB_APIS = {}
+# that links it (plans/app-tunnel.md Phase 6) — category → reasons. Measured on
+# iroh-ffi 1.2.0 (2026-10-27, ios-arm64 libiroh_ffi.a and the Release app):
+# fstat (Rust's std sizing what it reads) — File timestamp, the reason the app
+# already gives; no mach_absolute_time/systemUptime (boot time), no
+# statfs/statvfs family (disk space), no UserDefaults. Its clock_gettime,
+# sysctl(byname), getifaddrs, open/opendir are not required-reason APIs.
+# Re-measure with every bump, together with App/Resources/PrivacyInfo.xcprivacy.
+IROHLIB_APIS = {"NSPrivacyAccessedAPICategoryFileTimestamp": ["C617.1"]}
 
 
 def check(cond, msg):
