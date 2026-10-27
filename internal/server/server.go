@@ -169,6 +169,7 @@ func (s *Server) Handler() http.Handler {
 	handle("GET /vendor/", http.HandlerFunc(s.handleVendor))
 	handle("GET /docs/", s.authed(http.HandlerFunc(s.handleDocs)))
 	handle("GET "+PersonPagePath, s.authed(http.HandlerFunc(s.handlePersonPage))) // the partitions page, top-level only (personpage.go)
+	handle("GET "+LimitsPagePath, s.authed(http.HandlerFunc(s.handleLimitsPage))) // the tile limits page, likewise (limitspage.go)
 
 	handle("/api/", s.authedAPI(http.HandlerFunc(s.handleAPI)))
 

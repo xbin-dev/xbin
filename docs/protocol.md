@@ -668,6 +668,16 @@ GET  /xbin/partitions            the partitions page (docs/partitions.md
                                  'self', no inline script), COOP
                                  same-origin. /vendor/partitions.html is
                                  404: the page has no other copy
+GET  /xbin/limits                 the tile limits page (D203,
+                                 docs/isolation.md; ?tile=<t> opens one
+                                 tile): xbind's own static page —
+                                 web/limits.html as shipped, no
+                                 transform — acting through /api/xbin/
+                                 limits with the signed-in person's
+                                 session; the "at all times" surface for
+                                 a workspace whose scaffold predates
+                                 limits. Headers, sign-in and /vendor/
+                                 as /xbin/partitions
 ANY  /api/<component-path>/<p>   → component backend (see below)
 ANY  /api/xbin/<p>              → xbind's own API (below)
 ANY  /api/~<ticket>/<p>         → a path ticket's prefix of one tile's API
