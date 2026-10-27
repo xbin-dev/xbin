@@ -749,7 +749,13 @@ func TestPartitionsSmoke(t *testing.T) {
 		if next.Env != "user:alice" || next.Token == "" || next.Token == cur.Token {
 			t.Errorf("alice's restarted instance: %+v (token before %s…)", next, cut(cur.Token, 8))
 		}
-		psExpect(t, "alice's earlier generation's token after the restart", d.Call(t, "GET", kv, nil, xbindtest.H("Authorization", "Bearer "+cur.Token)), nil, psWant{401, "", false})
+		// the earlier generation drains in the background — its in-flight
+		// requests finish, D8's 30 s at most — and its token is revoked as
+		// it exits, not at the swap: wait for that, never a fixed moment
+		xbindtest.Eventually(t, 45*time.Second, "alice's earlier generation's token revoked as it exits", func() (bool, string) {
+			r := d.Call(t, "GET", kv, nil, xbindtest.H("Authorization", "Bearer "+cur.Token))
+			return r.Status == 401, fmt.Sprint(r.Status, " ", r)
+		})
 		tokens["alice"], boots["alice"] = next.Token, next.Boot
 		tok := xbindtest.H("Authorization", "Bearer "+tokens["alice"])
 		if r := d.Call(t, "GET", kv, nil, tok); r.Status != 200 || string(r.Body) != "alice-secret" {
