@@ -38,6 +38,11 @@
 #                       partition — the agentTemplate pass runs against it,
 #                       and agentHomes (shared chats, two homes) needs it,
 #                       as does agentHosted (non-secure, hosted chats)
+#   HARNESS_IROH=path ./run.sh …   the app tunnel's sidecar xbind runs
+#                       (XBIN_IROH, relays off): default bin/xbin-iroh when
+#                       built (hack/build-xbin-iroh.sh bin), else bin/fakeiroh
+#                       (built here); the apptunnel and pairing passes pair
+#                       real phones through it (bin/tunnelpair)
 #   HARNESS_SEED=demo ./run.sh --keep [pass…]   seed the demo film set
 #                       (hack/demo/seed.sh: Larkspan, a fictional company's
 #                       workspace — hack/demo/README.md) instead of the test
@@ -91,6 +96,14 @@ export INGRESS_ADDR=${INGRESS_ADDR:-127.0.0.1:$((PORT + 1))}
 # the host port the sandbox-terminal tile's SSH is published on (the
 # sandboxTerminal pass logs in there with OpenSSH)
 export SBXTERM_SSH_ADDR=${SBXTERM_SSH_ADDR:-127.0.0.1:$((PORT + 2))}
+# the app tunnel's sidecar (D204): the real one when built, else the fake;
+# relays off, so nothing leaves the box. The passes' phones (bin/tunnelpair)
+# dial through the same binary's client mode.
+if [[ -z "${HARNESS_IROH:-}" ]]; then
+  HARNESS_IROH="$REPO/bin/fakeiroh"
+  [[ -x "$REPO/bin/xbin-iroh" ]] && HARNESS_IROH="$REPO/bin/xbin-iroh"
+fi
+export HARNESS_IROH
 mkdir -p "$OUT"
 mode="${1:-}"
 [[ $# -gt 0 ]] && shift
@@ -170,13 +183,15 @@ start() {
   # of the three (fake_env, above).
   (cd "$REPO" && nohup bin/fakeopenai -addr "$FAKEOPENAI_ADDR" "${fake_args[@]}" > "$HARNESS_DIR/fakeopenai.log" 2>&1 < /dev/null &)
   (cd "$REPO" && env ${fake_env[@]+"${fake_env[@]}"} XBIN_BIN="$REPO/bin" XBIN_SDK_PATH="$REPO/sdk" \
+      XBIN_IROH="$HARNESS_IROH" XBIN_IROH_RELAY=disabled \
       nohup bin/xbind --dev "${overlay_flags[@]}" --workspace "$WS" --listen "127.0.0.1:$PORT" \
       --ingress-listen "$INGRESS_ADDR" --external-url "$URL" "${asset_flags[@]}" "${iso_flags[@]}" > "$HARNESS_DIR/xbind.log" 2>&1 < /dev/null &)
   for _ in $(seq 1 60); do curl -sf -o /dev/null "$URL/login" && return 0; sleep 0.25; done
   echo "xbind did not come up; see $H/xbind.log" >&2; exit 1
 }
 build() {
-  (cd "$REPO" && go build -o bin/xbind ./cmd/xbind && CGO_ENABLED=0 go build -o bin/bx ./cmd/bx && go build -o bin/fakeacp ./hack/fakeacp && go build -o bin/fakeopenai ./hack/fakeopenai)
+  (cd "$REPO" && go build -o bin/xbind ./cmd/xbind && CGO_ENABLED=0 go build -o bin/bx ./cmd/bx && go build -o bin/fakeacp ./hack/fakeacp && go build -o bin/fakeopenai ./hack/fakeopenai \
+    && CGO_ENABLED=0 go build -o bin/fakeiroh ./hack/fakeiroh && go build -o bin/tunnelpair ./hack/tunnelpair)
   # VMs need the in-guest agent beside xbind (the demo set's coding
   # sandboxes are VMs; without it they stay empty)
   if [[ -n "$HARNESS_ISOLATE" ]]; then (cd "$REPO" && CGO_ENABLED=0 go build -o bin/xbin-vmagent ./cmd/xbin-vmagent); fi

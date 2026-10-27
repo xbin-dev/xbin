@@ -134,6 +134,10 @@ async function devices(browser) {
   // Start clean: a rerun on a kept workspace may find devices from before.
   const before = (await (await ctx.request.get(`${URL}/api/xbin/devices`)).json()).devices ?? [];
   for (const d of before) await ctx.request.delete(`${URL}/api/xbin/devices/${d.id}`);
+  // the admin holds two devices at once below: their own limit, over the
+  // workspace's default of one (D204), put back at the end
+  const lim = await ctx.request.patch(`${URL}/api/xbin/users/admin`, { data: { maxDevices: 3 } });
+  check(lim.status() === 200, `the admin's own device limit for this pass (${lim.status()})`);
 
   // ---- the shell: settings → add a device; settings → my account → devices… ----
   await openShell(page);
@@ -350,6 +354,7 @@ async function devices(browser) {
     right: Math.round(t.querySelector('button.chip.settings').getBoundingClientRect().right) }));
   check(top.over <= 0 && top.right <= 390, `the top bar with the settings chip fits the phone width (${JSON.stringify(top)})`);
   await shot(phone.page, 'devices-phone', { fullPage: false });
+  await phone.ctx.request.patch(`${URL}/api/xbin/users/admin`, { data: { maxDevices: null } });
   await closeCtx(phone.ctx, phone.page);
   done();
 }
