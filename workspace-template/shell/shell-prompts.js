@@ -25,7 +25,7 @@ import '/vendor/bx-bindings.js';
 import '/vendor/bx-icons.js';
 import { grantKey, bindingKey, isDismissed, pendingCount } from '/vendor/bx-dismiss.js';
 import { grantsStore, bindingsStore, dismissalStore } from '/vendor/bx-requests.js';
-import { consentContext, consentAsks, onConsents } from './bx-part-consent.js';
+import { consentContext, consentAsks, consentNotes, onConsents } from './bx-part-consent.js';
 import { promptsByTile, promptWords } from './prompts.js';
 
 const KEY = { grants: grantKey, bindings: bindingKey };
@@ -36,6 +36,11 @@ export function followPrompts(s) {
     const d = dismissalStore().value;
     s._prompts = promptsByTile({ grants: grantsStore().value, bindings: bindingsStore().value, consents: consentAsks() },
       (kind, p) => isDismissed(d, kind, KEY[kind](p)));
+    // an answer's words keep the tile's popover up while they show (n stays: nothing to decide)
+    for (const a of consentNotes()) {
+      const e = s._prompts.get(a.from) ?? { grants: 0, bindings: 0, consents: 0, n: 0 };
+      s._prompts.set(a.from, { ...e, notes: (e.notes || 0) + 1 });
+    }
     s._pendingN = pendingCount(grantsStore().value, bindingsStore().value, s._accessReqs ?? null, d);
   };
   const offs = [grantsStore().subscribe(update), bindingsStore().subscribe(update), dismissalStore().subscribe(update), onConsents(update),
@@ -94,20 +99,21 @@ function togglePrompts(c, path, n, folded) {
 }
 
 // promptPop(c, o, flow): the popover over the top of the window — open
-// unless folded at this count or more (a new decision opens it again). flow:
+// unless folded at this count or more (a new decision opens it again), and
+// while a just-answered consent's words show (notes). flow:
 // in the card's flow above the tile instead (a phone; a Document-mode card,
 // which is only as tall as its page).
 export function promptPop(c, o, flow = false) {
   const e = c.prompts?.get(o.path);
-  if (!e?.n || (shut(c).get(o.path) ?? -1) >= e.n) return nothing;
+  if (!e || !(e.n || e.notes) || (e.n && (shut(c).get(o.path) ?? -1) >= e.n)) return nothing;
   return html`<div class="pqpop ${flow ? 'flow' : ''}" role="region" aria-label=${`decisions waiting for ${o.path}`} data-prompts-for=${o.path}
       @pointerdown=${(ev) => ev.stopPropagation()}>
-    <div class="pqh"><bx-icon name="key"></bx-icon><span>${promptWords(e)}</span>
-      <button class="pqx" title="fold — the key badge in the title bar shows it again" aria-label="fold"
-        @click=${() => togglePrompts(c, o.path, e.n, false)}><bx-icon name="chevron-up"></bx-icon></button></div>
+    <div class="pqh"><bx-icon name="key"></bx-icon><span>${e.n ? promptWords(e) : 'your answer'}</span>
+      ${e.n ? html`<button class="pqx" title="fold — the key badge in the title bar shows it again" aria-label="fold"
+        @click=${() => togglePrompts(c, o.path, e.n, false)}><bx-icon name="chevron-up"></bx-icon></button>` : nothing}</div>
     ${e.grants ? html`<bx-grants tile=${o.path}></bx-grants>` : nothing}
     ${e.bindings ? html`<bx-bindings tile=${o.path}></bx-bindings>` : nothing}
-    ${e.consents ? html`<bx-part-consent tile=${o.path} .components=${c.components} .who=${c.who}></bx-part-consent>` : nothing}
+    ${e.consents || e.notes ? html`<bx-part-consent tile=${o.path} .components=${c.components} .who=${c.who}></bx-part-consent>` : nothing}
   </div>`;
 }
 

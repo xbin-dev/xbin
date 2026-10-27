@@ -50,7 +50,7 @@ const writeDismissed = (key, v) => {
 const DONE_MS = 15000; // how long an answer's words stay
 
 // ---- the page's consents (one read for every instance and the shell) ----
-const st = { view: null, seq: 0, read: false, started: false, who: null, components: [], key: '', dismissed: {}, subs: new Set() };
+const st = { view: null, seq: 0, read: false, started: false, who: null, components: [], key: '', dismissed: {}, notes: [], subs: new Set() };
 const emit = () => { for (const f of st.subs) f(); };
 const watching = () => consentWatch(st.components, st.who) || !!st.view;
 async function loadConsents() {
@@ -95,6 +95,21 @@ export function consentAsks() {
 }
 // onConsents(f): f() whenever the asks may have changed; → unsubscribe
 export function onConsents(f) { st.subs.add(f); return () => st.subs.delete(f); }
+// The answers' words ("Allowed… — open it", "Not allowed…") are the
+// page's, not an instance's: the decisions popover (D195) drops its
+// <bx-part-consent> the moment the tile has nothing left to answer, and the
+// words — how to take a consent back — must outlive it for DONE_MS. The
+// shell keeps the popover up while a tile has one (consentNotes).
+function sayNote(a, text, link = '') {
+  for (const x of st.notes) if (x.key === a.key) clearTimeout(x.timer);
+  const d = { key: a.key, from: a.from, text, link };
+  d.timer = setTimeout(() => dropNote(d), DONE_MS);
+  st.notes = [...st.notes.filter((x) => x.key !== a.key), d];
+  emit();
+}
+function dropNote(d) { clearTimeout(d.timer); st.notes = st.notes.filter((x) => x !== d); emit(); }
+// consentNotes() → the answers still showing [{key, from, text, link}].
+export const consentNotes = () => st.notes;
 // Allow counts only once nothing has covered the asks for ARM_MS: the
 // panel is hit-tested every COVER_MS while it asks, and at the click — a
 // tile's pop-out window (tile-placed, above the strip) could hide the
@@ -107,7 +122,6 @@ export class BxPartConsent extends LitElement {
     who: { attribute: false },
     tile: { type: String, reflect: true }, // only this tile's asks (D195)
     _rows: { state: true },      // key → {busy, err} of an ask being answered
-    _done: { state: true },      // [{key, text}] answers still showing
     _armed: { state: true },     // nothing has covered the asks for ARM_MS: Allow is live
   };
 
@@ -143,7 +157,7 @@ export class BxPartConsent extends LitElement {
   constructor() {
     super();
     this.components = []; this.who = null; this.tile = '';
-    this._rows = {}; this._done = [];
+    this._rows = {};
     this._coveredAt = 0; this._armed = false;
   }
 
@@ -155,8 +169,6 @@ export class BxPartConsent extends LitElement {
   disconnectedCallback() {
     super.disconnectedCallback();
     this._offSt?.();
-    for (const d of this._done) clearTimeout(d.timer);
-    this._done = [];
     this._watchCover(false);
   }
   willUpdate(changed) {
@@ -166,7 +178,7 @@ export class BxPartConsent extends LitElement {
   // watched for cover.
   updated() {
     const asks = this.renderRoot.querySelectorAll('.ask').length;
-    this.hidden = !asks && !this._done.length;
+    this.hidden = !asks && !this._notes().length;
     this._watchCover(asks > 0);
   }
 
@@ -208,12 +220,8 @@ export class BxPartConsent extends LitElement {
     return armed;
   }
 
-  _say(key, text, link = '') {
-    const d = { key, text, link };
-    d.timer = setTimeout(() => this._drop(d), DONE_MS);
-    this._done = [...this._done.filter((x) => x.key !== key), d];
-  }
-  _drop(d) { clearTimeout(d.timer); this._done = this._done.filter((x) => x !== d); }
+  // the answers still showing for this element's asks (its tile's, or all)
+  _notes() { return st.notes.filter((d) => !this.tile || d.from === this.tile); }
   _setRow(key, st) { this._rows = { ...this._rows, [key]: st }; }
 
   async _allow(a) {
@@ -227,7 +235,7 @@ export class BxPartConsent extends LitElement {
     const res = await consentCall((u, i) => fetch(u, i), 'POST', a);
     if (res.ok) {
       this._setRow(a.key, null);
-      this._say(a.key, allowedText(a.from, a.to), PARTITIONS_PAGE);
+      sayNote(a, allowedText(a.from, a.to), PARTITIONS_PAGE);
     } else {
       this._setRow(a.key, { err: errorText(res) });
     }
@@ -238,12 +246,13 @@ export class BxPartConsent extends LitElement {
     writeDismissed(st.key, st.dismissed);
     emit();
     this._setRow(a.key, null);
-    this._say(a.key, declinedText(a.from, a.to));
+    sayNote(a, declinedText(a.from, a.to));
   }
 
   render() {
-    const asks = consentAsks().filter((a) => (!this.tile || a.from === this.tile) && !this._done.some((d) => d.key === a.key));
-    if (!asks.length && !this._done.length) return nothing;
+    const notes = this._notes();
+    const asks = consentAsks().filter((a) => (!this.tile || a.from === this.tile) && !notes.some((d) => d.key === a.key));
+    if (!asks.length && !notes.length) return nothing;
     return html`<div class="panel" role="region" aria-label=${CONSENT_REGION} data-consents=${asks.length}>
       ${asks.length ? html`<h4>${CONSENT_HEAD}</h4>` : nothing}
       ${repeat(asks, (a) => a.key, (a) => {
@@ -258,8 +267,8 @@ export class BxPartConsent extends LitElement {
           ${st.err ? html`<p class="err"><bx-icon name="error" label="Error"></bx-icon><span>${st.err}</span></p>` : nothing}
         </div>`;
       })}
-      ${repeat(this._done, (d) => d.key, (d) => html`<div class="done" data-consent-done=${d.key} role="status">
-        <span>${d.text}${d.link ? html` <a href=${d.link} target="_blank" rel="noopener">open it</a>` : nothing}</span><button class="x" title="close" aria-label="close" @click=${() => this._drop(d)}><bx-icon name="xmark"></bx-icon></button></div>`)}
+      ${repeat(notes, (d) => d.key, (d) => html`<div class="done" data-consent-done=${d.key} role="status">
+        <span>${d.text}${d.link ? html` <a href=${d.link} target="_blank" rel="noopener">open it</a>` : nothing}</span><button class="x" title="close" aria-label="close" @click=${() => dropNote(d)}><bx-icon name="xmark"></bx-icon></button></div>`)}
     </div>`;
   }
 }

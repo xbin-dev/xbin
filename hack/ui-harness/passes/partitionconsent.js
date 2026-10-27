@@ -5,16 +5,18 @@
 // it (res:<x>/notes, reader); all three are dev1's. dev1's frame of <a> or
 // <b> reads it through xbin.fetch — dev1's own partition of it (05 §1):
 //   1. policy off: the read goes through, and the shell prompts nothing
-//      (after it read the consents; the empty strip item takes no room);
+//      (after it read the consents; no tile's window carries an ask);
 //   2. policy on: the read is refused ("dev1 hasn't let <a> use their <x>
-//      data") and dev1's shell asks — the tiles, why, Allow / Don't allow —
-//      as does a second shell of dev1's opened afterwards (the asks xbind
+//      data") and dev1's shell asks on <a>'s window — the decisions popover
+//      (D195): the tiles, why, Allow / Don't allow — and flags <a>'s
+//      sidebar row; so does a second shell of dev1's opened afterwards (the asks xbind
 //      lists); nobody else's shell shows dev1's ask: an admin's (it reads
 //      the admin's own, empty), the workspace token's and an admin's view
 //      as dev1 (neither even asks xbind);
 //   3. the policy off: the prompt goes (the policies event) and the read
 //      goes through; on again: the ask shows again;
-//   4. Don't allow: the prompt goes, the read stays refused, a reload
+//   4. Don't allow: the prompt goes, its words stay on <a>'s window for a
+//      while (the popover with them), the read stays refused, a reload
 //      doesn't bring it back;
 //   5. <b>'s read is refused and asks; while a pop-out window of <b>'s
 //      covers the question, Allow is disabled (and a click does nothing);
@@ -26,7 +28,7 @@
 // edge, and a rerun on the same xbind must see new asks). The policy goes
 // back off; dev1's consent, the grants and the tiles go at the end.
 const path = require('path');
-const { URL, fs, login, closeCtx, openShell, usePersonalScreen, openTile, closeTile, tileFrame, settle, sleep, shot, shotEl, checker } = require('../lib');
+const { URL, fs, login, closeCtx, openShell, usePersonalScreen, openTile, closeTile, tileFrame, settle, sleep, sh, shot, shotEl, checker } = require('../lib');
 
 const WS = process.env.WS || '';
 const RUN = Date.now().toString(36).slice(-5);
@@ -38,8 +40,14 @@ const CONSENTS = '/api/xbin/partitions/consents';
 const isConsents = (r) => new globalThis.URL(r.url()).pathname === CONSENTS;
 // the consents calls a page makes, from now on
 const consentCalls = (page) => { const seen = []; page.on('request', (r) => { if (isConsents(r)) seen.push(r.method()); }); return seen; };
-// the strip item's box: hidden (no box, no gap) when there is nothing to answer
-const hostShown = (page) => page.locator('bx-shell bx-part-consent').evaluate((el) => getComputedStyle(el).display !== 'none');
+// the consent panels on the tiles' windows (D195: none is drawn while a tile has nothing to answer)
+const panels = (page) => page.locator('bx-shell bx-part-consent').count();
+// the decisions popover on a tile's window, and the tile's sidebar flag
+const onWindow = (page, tile, from) => page.locator(`bx-shell .pqpop[data-prompts-for="${tile}"] bx-part-consent [data-consent="${from}→${X}"]`);
+const flag = async (page, tile) => {
+  const l = page.locator(`bx-shell bx-side .item[data-path="${tile}"] .pq`);
+  return (await l.count()) ? Number(await l.first().getAttribute('data-prompts')) : 0; // none: no wait for one to appear
+};
 
 async function until(fn, label, timeout = 15000) {
   const deadline = Date.now() + timeout;
@@ -99,7 +107,7 @@ async function partitionConsent(browser) {
     let r = await until(async () => { const x = await read(D.page, A).catch(() => null); return x?.status && x; }, `${A}'s frame reads`);
     check(r.status === 200 && r.text.includes('keys'), `policy off: dev1's ${A} reads their ${X} notes (${r.status} ${r.text})`);
     await settle(D.page);
-    check(await D.page.locator(PANEL).count() === 0 && !(await hostShown(D.page)), 'policy off: no prompt, and the strip item takes no room');
+    check(await D.page.locator(PANEL).count() === 0 && await panels(D.page) === 0, 'policy off: no prompt on any tile\'s window');
 
     // ---- 2. policy on: refused, and dev1 is asked ----
     check(await policy(true) === 200, 'the admin turns partitionConsent on');
@@ -112,9 +120,13 @@ async function partitionConsent(browser) {
       && words.includes('everyone who can change it'), `dev1's shell asks, naming both tiles and why (${words.slice(0, 200)})`);
     const bt = await q.locator('button').evaluateAll((bs) => bs.map((b) => [b.textContent.trim(), b.title]));
     check(bt.length === 2 && bt[0][0] === 'Don\'t allow' && /Nothing is stored/.test(bt[0][1]) && bt[1][0] === 'Allow', `Don't allow and Allow (${JSON.stringify(bt)})`);
-    check(await D.page.locator(PANEL).locator('h4').innerText().then((t) => /partitioned tiles ask for your data/i.test(t)), 'under its heading, in the shell\'s decision strip');
+    check(await D.page.locator(PANEL).locator('h4').innerText().then((t) => /partitioned tiles ask for your data/i.test(t)), 'under its heading');
+    check(await onWindow(D.page, A, A).count() === 1 && await D.page.locator('bx-shell .grants').count() === 0,
+      `on ${A}'s window, in its decisions popover (D195) — no strip above the screen`);
+    check(await flag(D.page, A) >= 1, `${A}'s sidebar row is flagged (${await flag(D.page, A)})`);
     await shot(D.page, 'partition-consent-prompt');
     await shotEl(D.page, PANEL, 'partition-consent-panel');
+    await sh(D.page, (t) => t.flushSave()); // the screen with <a> and <b> on it, for dev1's second shell
     P2 = await D.ctx.newPage();
     await openShell(P2);
     await P2.locator(ask(A)).waitFor({ timeout: 15000 });
@@ -124,7 +136,7 @@ async function partitionConsent(browser) {
     await openShell(AD.page);
     const ga = await read1.then((x) => x.json()).catch(() => null);
     await settle(AD.page);
-    check(ga && Array.isArray(ga.asked) && ga.asked.length === 0 && await AD.page.locator(PANEL).count() === 0 && !(await hostShown(AD.page)),
+    check(ga && Array.isArray(ga.asked) && ga.asked.length === 0 && await AD.page.locator(PANEL).count() === 0 && await panels(AD.page) === 0,
       `an admin's shell reads the admin's own consents — no ask of dev1's — and shows no prompt (${JSON.stringify(ga?.asked)})`);
     const token = fs.readFileSync(path.join(WS, '.xbin', 'token'), 'utf8').trim();
     T = await browser.newContext({ viewport: { width: 1400, height: 900 }, deviceScaleFactor: 1 });
@@ -169,8 +181,8 @@ async function partitionConsent(browser) {
     // ---- 4. Don't allow: stays refused ----
     await q.locator('button.deny').click();
     await q.waitFor({ state: 'detached', timeout: 10000 });
-    const said = await D.page.locator(`bx-part-consent [data-consent-done="${A}→${X}"]`).innerText().catch(() => '');
-    check(said.includes(`Not allowed: ${A}'s calls into your ${X} data stay refused`), `Don't allow: the prompt goes, saying so (${said})`);
+    const said = await D.page.locator(`bx-shell .pqpop[data-prompts-for="${A}"] bx-part-consent [data-consent-done="${A}→${X}"]`).innerText().catch(() => '');
+    check(said.includes(`Not allowed: ${A}'s calls into your ${X} data stay refused`), `Don't allow: the prompt goes, saying so on ${A}'s window (${said})`);
     r = await read(D.page, A);
     check(r.status === 403, `the read stays refused (${r.status})`);
     await D.page.reload();
@@ -188,8 +200,8 @@ async function partitionConsent(browser) {
     check(await D.page.locator(ask(A)).count() === 0, `only ${B}'s ask shows: ${A}'s stays declined`);
     const allow = qb.locator('button.allow');
     // Allow arms only while the whole ask is in view (bx-part-consent
-    // _obscured): above it the shell stacks the trust warnings, the grant
-    // plates and the bindings (taller since D184), so bring it into view first
+    // _obscured): it sits in the popover on <b>'s window (D195), so bring
+    // it into view first
     await qb.scrollIntoViewIfNeeded();
     await qb.locator('button.allow:not([disabled])').waitFor({ timeout: 5000 });
     // a pop-out window of B's over the question, Allow still in view: Allow is off
@@ -217,6 +229,9 @@ async function partitionConsent(browser) {
     const okText = await ok.innerText();
     check(okText.includes(`Allowed: ${B} can use your ${X} data from its next call`) && okText.includes('on your partitions page (/xbin/partitions)'),
       `Allow: the shell says so, and how to take it back (${okText})`);
+    await sleep(800);
+    check(await D.page.locator(`bx-shell .pqpop[data-prompts-for="${B}"] bx-part-consent [data-consent-done="${B}→${X}"]`).count() === 1 && await flag(D.page, B) === 0,
+      `the words stay on ${B}'s window once nothing is left to answer there, and its sidebar flag goes`);
     const okLink = await ok.locator('a').getAttribute('href').catch(() => null);
     const pageRes = okLink ? await D.ctx.request.get(new globalThis.URL(okLink, URL).href) : null;
     check(okLink === '/xbin/partitions' && pageRes?.status() === 200 && (await pageRes.text()).includes('partitions-page'),

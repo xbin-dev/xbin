@@ -155,7 +155,12 @@ async function tiled(browser) {
   const ph2 = await sh(page, (t) => [...t.query('.tiled').querySelectorAll('.ttile:not(.off)')].map((e) => e.dataset.path));
   check(other && ph2.length === 1 && ph2[0] === other, `the switcher shows another tile (${ph2})`);
   const phr = await tileRect(page, ph2[0]);
-  check(phr && phr.w > 350 && phr.h > 500, `it fills the pane under the switcher (${JSON.stringify(R(phr))})`);
+  // the pane under the switcher: from the switcher's bottom to the tiled
+  // area's (warning banners above main, D188, may take some of the height)
+  const pb = await sh(page, (t) => { const r = (e) => e && e.getBoundingClientRect(); const sw = r(t.query('.tiled .tswitch')), a = r(t.query('.tiled'));
+    return sw && a ? { top: sw.bottom, bottom: a.bottom } : null; });
+  check(phr && pb && phr.w > 350 && phr.h > 250 && phr.y - pb.top >= 0 && phr.y - pb.top <= 16 && Math.abs(phr.y + phr.h - pb.bottom) <= 16,
+    `it fills the pane under the switcher (${JSON.stringify(R(phr))} in ${JSON.stringify(pb)})`);
   await shot(page, `tiled-phone-${THEME}`, { fullPage: false });
   await page.setViewportSize({ width: 1400, height: 900 });
   await sleep(400);

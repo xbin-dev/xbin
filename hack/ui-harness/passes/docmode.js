@@ -144,10 +144,13 @@ async function docMode(browser) {
   // the page width (D193): the handle on the page's right edge narrows it,
   // centred, by twice the distance it moves; the limit is the screen's
   // (kept in its arrange); two clicks on the handle give the full width back
-  const pg0 = await rectIn(page, '.doc'), hd = await rectIn(page, '.doc > .dwidth');
+  const pg0 = await rectIn(page, '.doc'), hd = await rectIn(page, '.doc > .dwidth'), mn = await rectIn(page, 'main');
   check(!!hd, 'the page has a width handle on its right edge');
   if (hd) {
-    const x = hd.x + hd.w / 2, y = Math.min(Math.max(hd.y + 10, 120), hd.y + hd.h - 10, 850);
+    // a point on the handle inside main's visible part, clear of the top
+    // bar (fixed over main's top in Document mode): the page may be
+    // scrolled, and warning banners above main (D188) push main down
+    const x = hd.x + hd.w / 2, y = Math.min(Math.max(hd.y + 10, mn.y + 80), hd.y + hd.h - 10, mn.y + mn.h - 10);
     await page.mouse.move(x, y); await page.mouse.down();
     await page.mouse.move(x - 150, y, { steps: 6 }); await page.mouse.up();
     await settle(page);
