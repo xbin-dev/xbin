@@ -29,7 +29,7 @@ import '/vendor/bx-frame.js';
 | `/vendor/bx-netrules.js` | the network-set rule grammar (`RULE_KINDS`, `parseRule`, `fmtRule`, `ruleProblem`, `netOptions`, …) — interpreted client-side exactly as the server defines it (D54) |
 | `/vendor/bx-allow.js` | the allowance grammar (`ALLOW_KINDS`, `parseAllow`, `fmtAllow`, `allowProblem`, `describeAllow`, `capInfo`) (D57) |
 | `/vendor/bx-grant-row.js` | `grantArrow(g)` — a grant or request's `from → target` with the policy-block / capability tooltip, as rendered by the shell, the admin console and the organisations tile |
-| `/vendor/bx-code.js` | `<bx-code>` (file tree + highlighted viewer + diffs); exports `diffHTML`, `diffStats`, `hl`, `langFor` |
+| `/vendor/bx-code.js` | `<bx-code>` (file tree + highlighted viewer + diffs); exports `diffHTML`, `diffStats`, `hl`, `langFor`, `buildTree` |
 | `/vendor/events-socket.js` | `onEvent(cb)` — every `/ws/events` frame goes to `cb(e)` over the one shared socket; returns an unsubscribe. Filter on `e.type` yourself |
 | `/vendor/theme.css` | the design tokens (§Theme below: Concrete Night and Concrete Day, D184), the self-hosted fonts, opt-in `.bx` base and control styles, and the workspace's thin scrollbars (D123): on a mouse/trackpad a 6px bar whose thumb is drawn 3px and fattens under the pointer, the scroller the next wheel or key would move tinted in the focus colour (`[data-bx-scroll]`); touch keeps its native bars. Link it to take the theme; it is **never injected** into your document, and your document turns light only when it opts in (`<html data-bx-theme="auto">`). A document that links it also gets the focused-scroll tracker (below) from `xbin-client.js`; `<meta name="xbin-scroll-focus" content="off">` opts out |
 | `/vendor/bx-theme.js` | a document's appearance, for code that paints or follows the person (§Theme): `appearance()`, `setAppearance()`, `follows()`, `scheme()`, `token(name, el)`, `onAppearance(cb)`. Dependency-free |
@@ -44,7 +44,12 @@ import '/vendor/bx-frame.js';
 
 `/vendor/bx-menu.js` (the shell's context menus — action closures, not a
 tile API; tiles use `xbin.dialog` / `xbin.window`), `/vendor/bx-logs.js`,
-`/vendor/bx-prs.js` (the terminal pop-up's panels — reachable through
+`/vendor/bx-prs.js`, and the tile window's side panels and tabs (D202:
+`/vendor/code-tree.js` `<bx-code-tree>` and `<bx-code-changes>`,
+`/vendor/code-view.js` `<bx-code-view>` and `<bx-code-diff>`,
+`/vendor/pr-panels.js` `<bx-pr-list>` and `<bx-pr-view>`, which ask the
+window for a tab with `bx-open-tab {ref}`; `/vendor/code-shared.js` their
+pure rules) (the terminal pop-up's panels — reachable through
 `<bx-frame>`; `<bx-logs deployment="<name>">` shows a non-primary tile
 deployment's log, and nothing unless the server echoes it — on a
 partitioned tile `<bx-logs partition="global|user:<id>">` asks for the

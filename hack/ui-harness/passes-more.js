@@ -20,6 +20,7 @@ function register(P) {
   P.tiled = require('./passes/tiled').tiled; // D193: Tiled — one tile fills the screen, splits, dividers, swaps, a phone, an org screen's draft
   P.ideMove = require('./passes/idemove').ideMove; // D202: a session's element survives moves between panes and in the DOM; the dock's logs mount once; narrow folds
   P.agentDocs = require('./passes/agentdocs').agentDocs; // D201: the agent reads a PDF, writes a workbook, a deck and a document — previews, downloads, no sandbox
+  P.codePanels = require('./passes/codepanels').codePanels; // D202: the tile window's code and proposal panels, standalone (code-tree, code-view, pr-panels)
 }
 
 module.exports = { register };
