@@ -157,9 +157,12 @@ func hitMessage(tile, key string, k limits.Kind, h limits.Hit) string {
 		at = " " + limits.Format(k, h.Value)
 	}
 	var what string
+	detail := h.Detail
 	switch k {
 	case limits.MemMiB:
 		what = "was OOM-killed at its" + at + " memory limit"
+		// what says it: "(2 processes)", "(1 process) while the backend kept running"
+		detail = strings.TrimSpace(strings.TrimPrefix(detail, "OOM-killed"))
 	case limits.DiskGiB:
 		what = "met its" + at + " disk quota"
 	case limits.SbxMemMiB, limits.SbxVCPUs, limits.SbxDiskGiB:
@@ -167,12 +170,15 @@ func hitMessage(tile, key string, k limits.Kind, h limits.Hit) string {
 	default:
 		what = "met its" + at + " " + k.Meta().Label + " limit"
 	}
-	if h.Detail != "" {
-		what += " (" + h.Detail + ")"
+	switch {
+	case strings.HasPrefix(detail, "("):
+		what += " " + detail
+	case detail != "":
+		what += " (" + detail + ")"
 	}
 	when := " at " + clock(h.At)
 	if h.Count > 1 {
-		when = fmt.Sprintf(" (%d× since %s)", h.Count, clock(h.Since))
+		when = fmt.Sprintf(", %d× since %s", h.Count, clock(h.Since))
 	}
 	target := tile
 	if target == "" {

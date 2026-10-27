@@ -82,7 +82,7 @@ function capAlerts(diskNow) {
     disk, mem,
     alerts: [
       { level: 'warn', kind: 'oom', tile: T, dismiss: `/limits/dismiss?tile=${enc(T)}&kind=memMiB`,
-        message: `${T} was OOM-killed at its 2 GiB memory limit (OOM-killed (2 processes)) (3× since ${clock(ago(52))} UTC)${tail('memory')}`,
+        message: `${T} was OOM-killed at its 2 GiB memory limit (2 processes), 3× since ${clock(ago(52))} UTC${tail('memory')}`,
         action: { action: 'raise-limit', tile: T, kind: 'memMiB', unit: 'MiB', current: 2048, approvers: ['workspace-admin'], choices: mem } },
       { level: 'crit', kind: 'quota', tile: T, dismiss: `/limits/dismiss?tile=${enc(T)}&kind=diskGiB`,
         message: `${T} met its ${diskNow} GiB disk quota at ${clock(ago(4))} UTC${tail('disk')}`,

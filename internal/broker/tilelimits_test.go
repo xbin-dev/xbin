@@ -571,7 +571,7 @@ func TestTileLimitsHits(t *testing.T) {
 	}
 	a := alertsOf("root")
 	if len(a) != 1 || a[0].Tile != "apps/email" || a[0].Dismiss != "/limits/dismiss?tile=apps%2Femail&kind=memMiB" || a[0].Action == nil ||
-		!strings.Contains(a[0].Message, "apps/email was OOM-killed at its 2 GiB memory limit (OOM-killed (1 process)) (3× since Oct 27 14:02 UTC)") ||
+		!strings.Contains(a[0].Message, "apps/email was OOM-killed at its 2 GiB memory limit (1 process), 3× since Oct 27 14:02 UTC — raise it") ||
 		!strings.Contains(a[0].Message, "bx limits raise apps/email memory") {
 		t.Fatalf("root's oom alert: %+v", a)
 	}
