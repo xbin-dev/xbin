@@ -462,6 +462,11 @@ func TestTunnel(t *testing.T) {
 	if v := r.view(); v.Enabled || v.State != "disabled" {
 		t.Fatalf("a fresh workspace's tunnel: %+v", v)
 	}
+	// the admin console is a sandboxed tile calling with its frame token
+	// (its xbin:admin grant): it reads the settings; a tile without the
+	// grant doesn't
+	d.Must(t, "GET", "/api/xbin/app-tunnel", nil, 200, xbindtest.FrameHeader(d.FrameToken(t, "tiles/admin")))
+	d.Must(t, "GET", "/api/xbin/app-tunnel", nil, 403, xbindtest.FrameHeader(d.FrameToken(t, "apps/welcome")))
 	r.put(map[string]bool{"enabled": true})
 	v := r.waitRunning(nil)
 	if !v.Confined || v.Exec != "path" {

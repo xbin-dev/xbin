@@ -32,9 +32,13 @@ func (s *Service) Register(srv *server.Server) {
 	srv.AppTunnel = s
 }
 
+// admin passes a workspace admin: an admin's own sign-in, the owner, or a
+// tile holding the xbin:admin governance role (the broker's IsAdmin) —
+// the admin console, which is a sandboxed tile calling with its frame
+// token, is how an admin reaches these settings at all.
 func (s *Service) admin(w http.ResponseWriter, r *http.Request) bool {
 	p := auth.PrincipalOf(r)
-	if s.opt.IsAdmin == nil || !s.opt.IsAdmin(p) || p.Component != "" {
+	if s.opt.IsAdmin == nil || !s.opt.IsAdmin(p) {
 		server.WriteError(w, http.StatusForbidden, "the app tunnel's settings are a workspace admin's", docs)
 		return false
 	}

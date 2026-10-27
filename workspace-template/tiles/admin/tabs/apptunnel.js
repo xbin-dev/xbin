@@ -23,10 +23,14 @@
 import { LitElement, html, css, nothing } from 'lit';
 import { base } from '../admin-css.js';
 import { WithRouter } from '../shared.js';
+import { sandboxed } from '/vendor/bx-kit.js';
 
-// at(path, init) → {status, ok, body}: an admin call whose status matters (404: no tunnels here).
+// at(path, init) → {status, ok, body}: an admin call whose status matters (404: no tunnels here),
+// with the credential the document has — bx-kit's api() rule: in the sandboxed admin tile, the
+// frame token through the in-frame client (its opaque origin holds no cookie; a bare fetch is 401)
 async function at(path, init = {}) {
-  const r = await fetch(`/api/xbin${path}`, {
+  const f = sandboxed() && window.xbin?.fetch ? window.xbin.fetch : fetch;
+  const r = await f(`/api/xbin${path}`, {
     ...init, headers: { Accept: 'application/json', ...(init.body ? { 'Content-Type': 'application/json' } : {}) },
   });
   return { status: r.status, ok: r.ok, body: (await r.json().catch(() => ({}))) ?? {} };
