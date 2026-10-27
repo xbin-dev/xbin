@@ -36,6 +36,10 @@ type LimitSources struct {
 	// backend (a VM's size, a crash-looping tile). Called with no store
 	// lock held.
 	Apply func(tile string, k limits.Kind, restart bool)
+	// Applied is what runs now when it differs from the grant (0 = the
+	// same, or unknown): a lowered memory that waits for the next start, a
+	// VM size that waits for a restart. The row's applied/appliesAt.
+	Applied func(tile string, k limits.Kind) int64
 }
 
 // tileLimitState is the broker's limit state; the store's fields join it.

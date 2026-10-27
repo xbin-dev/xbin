@@ -53,6 +53,19 @@ func TestTileLimitsWiring(t *testing.T) {
 			t.Errorf("%s %s: %d enforced %v, want %d not enforced", c.tile, c.k, def, on, c.def)
 		}
 	}
+	// the workspace's defaults (tile ""): enforced where the runtime runs
+	if def, on := st.limitDefault("", limits.MemMiB); on != cg || def != st.Deployments.TileLimits.MemMax>>20 {
+		t.Errorf("the workspace's memMiB: %d %v", def, on)
+	}
+	if def, on := st.limitDefault("", limits.SbxMemMiB); on || def != 8192 {
+		t.Errorf("the workspace's sbxMemMiB: %d %v (no isolation)", def, on)
+	}
+	if def, on := st.limitDefault("", limits.VMMemMiB); on || def != vm.DefaultMemMiB {
+		t.Errorf("the workspace's vmMemMiB: %d %v (no VM runtime)", def, on)
+	}
+	if a := st.limitApplied("apps/zsnode", limits.MemMiB); a != 0 {
+		t.Errorf("applied with nothing running: %d", a)
+	}
 	if m := st.limitMax(limits.MemMiB); m != runner.HostMemory()>>20 || m <= 0 {
 		t.Errorf("memMiB's maximum: %d", m)
 	}

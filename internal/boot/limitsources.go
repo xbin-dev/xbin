@@ -34,6 +34,7 @@ func (st *State) limitSources() broker.LimitSources {
 		Usage:    st.limitUsage,
 		Capacity: room.get,
 		Apply:    st.applyLimit,
+		Applied:  st.limitApplied,
 	}
 }
 
@@ -41,11 +42,16 @@ func (st *State) limitSources() broker.LimitSources {
 // there: memMiB the per-tile cap (XBIN_LIMIT_MEM), on a backend that isn't
 // a VM's, with cgroup delegation; the VM kinds the VM policy's sizes, on a
 // VM backend that can run; the sandbox kinds the sandboxes policy's
-// totals for the tile, without a grant, where tile sandboxes can run.
+// totals for the tile, without a grant, where tile sandboxes can run. For
+// tile "" it is the workspace's default, enforced where the runtime runs.
 func (st *State) limitDefault(tile string, k limits.Kind) (int64, bool) {
 	c, ok := st.Reg.Component(tile)
 	backend := ok && c.HasBackend()
 	vmTile := backend && st.Cfg.Isolate && c.Manifest.VM.Enabled()
+	if tile == "" { // the workspace's: any backend of its kind
+		backend, vmTile = k == limits.MemMiB, k == limits.VMMemMiB || k == limits.VMVCPUs
+		vmTile = vmTile && st.Cfg.Isolate
+	}
 	switch k {
 	case limits.MemMiB:
 		return st.Deployments.TileLimits.MemMax >> 20, backend && !vmTile && st.Run.Cgroup.Enabled()
@@ -163,6 +169,23 @@ func (st *State) applyLimit(tile string, k limits.Kind, restart bool) {
 	case limits.MemMiB, limits.VMMemMiB, limits.VMVCPUs:
 		st.Run.ApplyLimits(tile, restart)
 	}
+}
+
+// limitApplied is what tile runs now of k when it differs from what its
+// next start gets (0: the same, or unknown): a lowered memory waiting for
+// that start, a VM's size waiting for a restart.
+func (st *State) limitApplied(tile string, k limits.Kind) int64 {
+	switch k {
+	case limits.MemMiB:
+		return st.Run.AppliedMem(tile)
+	case limits.VMMemMiB, limits.VMVCPUs:
+		mem, cpus := st.Run.AppliedVM(tile)
+		if k == limits.VMVCPUs {
+			return int64(cpus)
+		}
+		return int64(mem)
+	}
+	return 0
 }
 
 // roomCache keeps each kind's room for roomTTL: the shell's prompts and

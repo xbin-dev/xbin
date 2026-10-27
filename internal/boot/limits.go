@@ -95,6 +95,7 @@ func (st *State) stepLimitAlerts() error {
 func (st *State) stepTileLimits() error {
 	brk, dp, run := st.Broker, st.Deployments, st.Run
 	brk.SetLimitSources(st.limitSources())
+	brk.RefreshLimitAsks() // the manifests' asks, and the max clamp LimitGrant uses
 	dp.TileCeiling = func(tile string) cgroup.Limits {
 		l := dp.TileLimits
 		if g := brk.LimitGrant(tile, limits.MemMiB) << 20; l.MemMax > 0 && g > l.MemMax {

@@ -399,3 +399,52 @@ func TestGuestSizeWithGrant(t *testing.T) {
 		t.Errorf("the hook's grant: %+v", g)
 	}
 }
+
+// covers D203 — what runs now when it differs from what the next start
+// gets (the row's applied): the primary's leaf's memory.max under a raised
+// or lowered LimitsFor, none when the same, a VM's, nothing running or no
+// cgroups; a running VM's size against guestSize with the tile's grant.
+func TestAppliedDiffers(t *testing.T) {
+	h := newHostWorld(t, 0)
+	cg := newFakeCgroup(tileCaps)
+	h.r.cgOps = cg
+	if h.r.AppliedMem("apps/x") != 0 {
+		t.Error("nothing running: an applied memory")
+	}
+	next := int64(2 << 30)
+	h.r.LimitsFor = func(tile, dep string) cgroup.Limits { return cgroup.Limits{MemMax: next} }
+	s := h.r.stateOf("apps/x", "main")
+	s.mu.Lock()
+	s.cur = &instance{leaf: ckX, sock: "m.sock"}
+	s.mu.Unlock()
+	cg.join("add", ckX, fakePid, tileCaps, 0)
+	cg.usage[ckX] = cgroup.Usage{MemMax: 2 << 30}
+	if got := h.r.AppliedMem("apps/x"); got != 0 {
+		t.Errorf("the same cap: %d", got)
+	}
+	next = 1 << 30 // lowered: waits for the next start
+	if got := h.r.AppliedMem("apps/x"); got != 2048 {
+		t.Errorf("a lowered cap: applied %d, want the running 2048", got)
+	}
+	h.r.vms.res = map[string]vmRes{"m.sock": {release: func() {}, leafMiB: 704, memMiB: 512, vcpus: 1}}
+	if got := h.r.AppliedMem("apps/x"); got != 0 {
+		t.Errorf("a VM's leaf: %d", got)
+	}
+
+	h.r.VM = &vm.Manager{Root: t.TempDir()}
+	p := h.r.VM.Policy()
+	h.r.vms.res["m.sock"] = vmRes{release: func() {}, memMiB: p.MemMiB, vcpus: p.VCPUs}
+	if m, c := h.r.AppliedVM("apps/x"); m != 0 || c != 0 {
+		t.Errorf("a VM at the policy's size: %d %d", m, c)
+	}
+	h.r.VMGrant = func(string) (int, int) { return p.MemMiB * 2, p.VCPUs }
+	if m, c := h.r.AppliedVM("apps/x"); m != p.MemMiB || c != 0 {
+		t.Errorf("granted twice the memory, running the policy's: %d %d, want %d 0", m, c, p.MemMiB)
+	}
+	s.mu.Lock()
+	s.cur = nil
+	s.mu.Unlock()
+	if m, c := h.r.AppliedVM("apps/x"); m != 0 || c != 0 {
+		t.Errorf("nothing running: %d %d", m, c)
+	}
+}

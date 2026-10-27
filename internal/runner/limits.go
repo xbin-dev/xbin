@@ -225,3 +225,59 @@ func (r *Runner) TileMem(tile string) int64 {
 	}
 	return 0
 }
+
+// AppliedMem is the memory cap tile's primary runs with now, MiB, when it
+// differs from what its next start gets (LimitsFor): a lower cap waiting
+// for that start, since ApplyLimits never cuts a live leaf (D203). 0 when
+// the same, or unknown: nothing running, no cgroups, a VM, no cap. It asks
+// LimitsFor, so the tile-limits store's lock must not be held.
+func (r *Runner) AppliedMem(tile string) int64 {
+	cg, s := r.cgroups(), r.existingState(tile)
+	if cg == nil || s == nil || r.LimitsFor == nil {
+		return 0
+	}
+	s.mu.Lock()
+	inst, dep := s.cur, s.dep
+	s.mu.Unlock()
+	if inst == nil || inst.leaf == "" {
+		return 0
+	}
+	if _, isVM := r.vmLeafBytes(inst.sock); isVM {
+		return 0
+	}
+	u, ok := cg.Usage(inst.leaf)
+	if !ok || u.MemMax <= 0 || u.MemMax == r.leafLimits(tile, dep).MemMax {
+		return 0
+	}
+	return u.MemMax >> 20
+}
+
+// AppliedVM is the size tile's primary's running VM has, when it differs
+// from what its next start gets (guestSize with the tile's grant): a size
+// that waits for a restart (D203). 0 for each that is the same, or
+// unknown. It asks VMGrant: the store's lock must not be held.
+func (r *Runner) AppliedVM(tile string) (memMiB, vcpus int) {
+	s := r.existingState(tile)
+	if s == nil || r.VM == nil || r.Reg == nil {
+		return 0, 0
+	}
+	s.mu.Lock()
+	inst := s.cur
+	s.mu.Unlock()
+	c, ok := r.Reg.Component(tile)
+	if inst == nil || !ok {
+		return 0, 0
+	}
+	v, ok := r.vmInfo(inst.sock)
+	if !ok {
+		return 0, 0
+	}
+	mem, cpus := guestSize(r.VM.Policy(), c.Manifest.VM, r.vmGrant(tile))
+	if v.MemMiB != mem {
+		memMiB = v.MemMiB
+	}
+	if v.VCPUs != cpus {
+		vcpus = v.VCPUs
+	}
+	return memMiB, vcpus
+}
