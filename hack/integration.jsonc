@@ -52,6 +52,14 @@
     // the user's systemd manager makes one (they skip elsewhere)
     { "name": "cgroup", "pkg": "./internal/cgroup/", "delegated": true, "overhead": 2 },
 
+    // tile resource limits (D203) end to end: an isolated xbind in a
+    // cgroup of its own beside the test binary (the delegated scope, swap
+    // off): a backend OOM-killed at its cap, the sticky alert, a raise with
+    // restart, a live raise; a scope over its disk quota, a raise lifting the
+    // 507. Skips without .rootfs/userns, the memory half without delegation,
+    // the disk half without gocryptfs
+    { "name": "limits", "pkg": "./test/limits/", "delegated": true, "overhead": 8 },
+
     // tile sandboxes (D120) started, driven and ended through the
     // runtime's routes: over a minimal lower (kernel overlay, then
     // fuse-overlayfs when bin/ has it) and over .rootfs when present; skip

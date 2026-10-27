@@ -37,6 +37,10 @@ type Options struct {
 	// run that shares the host with others keeps to the ports it was given
 	// (hack/demo/measure).
 	Addr string
+	// Cgroup is a cgroup directory the daemon starts in (clone3's
+	// CLONE_INTO_CGROUP), every boot: a delegated cgroup of its own, where
+	// xbind makes its tiles' leaves ("" = the test's own; test/limits).
+	Cgroup string
 }
 
 // Daemon is one isolated xbind, started and stopped by the test.
@@ -129,6 +133,14 @@ func (d *Daemon) start(t testing.TB) {
 	cmd.Env = append(env, d.o.Env...)
 	cmd.Stdout, cmd.Stderr = d.log, d.log
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if d.o.Cgroup != "" {
+		f, err := os.OpenFile(d.o.Cgroup, os.O_RDONLY|syscall.O_DIRECTORY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer f.Close() // once started: the child is in it
+		cmd.SysProcAttr.UseCgroupFD, cmd.SysProcAttr.CgroupFD = true, int(f.Fd())
+	}
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
