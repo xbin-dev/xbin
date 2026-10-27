@@ -547,10 +547,11 @@ func (p *Plane) EdgePolicies(tile string) map[string]string {
 }
 
 // LimitsFor answers deployment dep of tile's cgroup caps (D127n) (07-runtime
-// §10.3): the tile's (TileLimits, today's per-component caps) unless a tile
-// manager lowered them for that deployment, never above them.
+// §10.3): the tile's (tileLimits: today's per-component caps, raised by the
+// tile's decisions, D203) unless a tile manager lowered them for that
+// deployment, never above them.
 func (p *Plane) LimitsFor(tile, dep string) cgroup.Limits {
-	l := p.TileLimits
+	l := p.tileLimits(tile)
 	rec, _ := p.record(tile)
 	if rec == nil || rec.Deployments[dep] == nil {
 		return l

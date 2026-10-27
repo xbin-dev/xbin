@@ -134,11 +134,11 @@ type Plane struct {
 	// registration files through RemoveDeploymentFile, whose prune takes it.
 	DropDeploymentFiles func(tile, dep string) error
 	DataHooks           // the broker's data namespace acts (datahooks.go)
-	// TileLimits are a tile's cgroup caps, today's per-component ones: the
-	// ceiling of every deployment's limits (D127n), in LimitsFor. Zero without
-	// cgroup delegation.
-	TileLimits cgroup.Limits
-
+	// TileLimits are a tile's cgroup caps, today's per-component ones (zero
+	// without cgroup delegation): every deployment's ceiling (D127n), in
+	// LimitsFor; TileCeiling, when set, a tile's own (limits.go, D203).
+	TileLimits  cgroup.Limits
+	TileCeiling func(tile string) cgroup.Limits
 	// OptInClosed is the ship-dark switch turned off (--tile-deployments=off):
 	// operations that create or extend deployment state are refused, those
 	// that return a tile to the zero state stay allowed, and existing records
