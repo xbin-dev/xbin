@@ -287,6 +287,22 @@ func TestSupervisorIsolatedWithoutSandbox(t *testing.T) {
 	}
 }
 
+func TestSupervisorRefusesBadConfig(t *testing.T) {
+	s := fakeSupervisor(t)
+	for _, cfg := range []Config{
+		{Relay: wire.Relay{Mode: "disabled"}},
+		{Key: testKey(1), Relay: wire.Relay{Mode: "custom"}},
+		{Key: testKey(1), Relay: wire.Relay{Mode: "carrier-pigeon"}},
+	} {
+		if err := s.Start(context.Background(), cfg); err == nil {
+			t.Errorf("Start(%+v) accepted", cfg.Relay)
+		}
+	}
+	if st := s.Status(); st.State != StateDisabled {
+		t.Fatalf("state %s after refused starts", st.State)
+	}
+}
+
 func TestSupervisorUnavailable(t *testing.T) {
 	t.Setenv("XBIN_IROH", "")
 	if len(embedded) > 0 {
@@ -297,7 +313,7 @@ func TestSupervisorUnavailable(t *testing.T) {
 	if st := s.Status(); st.State != StateUnavailable {
 		t.Fatalf("state %s", st.State)
 	}
-	if err := s.Start(context.Background(), Config{Key: testKey(1)}); !errors.Is(err, ErrUnavailable) {
+	if err := s.Start(context.Background(), Config{Key: testKey(1), Relay: wire.Relay{Mode: "n0"}}); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("Start: %v", err)
 	}
 }

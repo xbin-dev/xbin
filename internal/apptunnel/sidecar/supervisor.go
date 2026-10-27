@@ -3,6 +3,7 @@ package sidecar
 import (
 	"bufio"
 	"context"
+	"crypto/ed25519"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -71,6 +72,7 @@ type Supervisor struct {
 	changed   chan struct{}      // closed and replaced on ack, ready, exit
 	x         *exe
 	unconfine bool // the sandbox proved unusable with isolation off
+	launching bool // a process is being started (s.proc not yet set)
 	stopped   bool
 
 	selftestMu sync.Mutex
@@ -150,6 +152,9 @@ func (s *Supervisor) Start(ctx context.Context, cfg Config) error {
 		s.st.State = StateUnavailable
 		return ErrUnavailable
 	}
+	if err := checkConfig(cfg); err != nil {
+		return err
+	}
 	s.cfg = Config{Key: cfg.Key, Relay: cfg.Relay, Allow: slices.Clone(cfg.Allow), Pairing: cfg.Pairing}
 	s.allowSeq++
 	if s.cancel != nil {
@@ -217,6 +222,24 @@ func (s *Supervisor) loop(ctx context.Context, done chan struct{}) {
 	}
 }
 
+// checkConfig refuses what the sidecar would only die of, restart after
+// restart.
+func checkConfig(cfg Config) error {
+	if len(cfg.Key) != ed25519.PrivateKeySize {
+		return errors.New("app tunnel: the sidecar needs the endpoint's Ed25519 key")
+	}
+	switch cfg.Relay.Mode {
+	case "n0", "disabled":
+	case "custom":
+		if cfg.Relay.URL == "" {
+			return errors.New("app tunnel: a custom relay needs its URL")
+		}
+	default:
+		return fmt.Errorf("app tunnel: relay mode %q (n0, custom or disabled)", cfg.Relay.Mode)
+	}
+	return nil
+}
+
 // nextBackoff doubles d up to maxBackoff.
 func nextBackoff(d time.Duration) time.Duration { return min(d*2, maxBackoff) }
 
@@ -231,7 +254,9 @@ type runResult struct {
 func (s *Supervisor) runOnce(ctx context.Context, from string) runResult {
 	s.mu.Lock()
 	x := s.x
-	if x == nil || from != "" {
+	// an XBIN_IROH path is opened again for every run: a rebuilt binary
+	// takes effect at the next restart
+	if x == nil || from != "" || x.how == "path" {
 		x.close()
 		var err error
 		if x, err = s.o.openExe(from); err != nil {
@@ -242,10 +267,17 @@ func (s *Supervisor) runOnce(ctx context.Context, from string) runResult {
 		s.x = x
 	}
 	cfg, seq, unconfine := s.cfg, s.allowSeq, s.unconfine
+	// from here until s.proc is set, a SetAllow waits: this run's init
+	// may carry an older list than the one it was told
+	s.launching = true
 	s.mu.Unlock()
 
 	l, err := s.launch(x, unconfine)
 	if err != nil {
+		s.mu.Lock()
+		s.launching = false
+		s.broadcast()
+		s.mu.Unlock()
 		if !s.o.Isolated && !unconfine && l.sandboxed {
 			s.log.Warn("iroh sidecar: the sandbox won't start and isolation is off; running it unconfined", "err", err)
 			s.mu.Lock()
@@ -260,7 +292,8 @@ func (s *Supervisor) runOnce(ctx context.Context, from string) runResult {
 	}
 	p := &proc{cmd: l.cmd, stdin: l.stdin, initSeq: seq, exited: make(chan struct{}), selftest: make(chan wire.Event, 1)}
 	s.mu.Lock()
-	s.proc = p
+	s.proc, s.launching = p, false
+	s.broadcast()
 	s.st.Confined, s.st.Exec = l.sandboxed, x.how
 	s.st.EndpointID, s.st.Ticket, s.st.HomeRelay, s.st.RelayConnected, s.st.Conns = "", "", "", false, nil
 	s.mu.Unlock()
@@ -490,8 +523,8 @@ func (s *Supervisor) SetAllow(ctx context.Context, ids []string) error {
 	for {
 		s.mu.Lock()
 		cur := s.proc
-		applied := cur == nil || // nothing runs to refuse anyone; the next init carries the list
-			cur.acked >= seq || (cur.ready && cur.initSeq >= seq)
+		applied := (cur == nil && !s.launching) || // nothing runs to refuse anyone; the next init carries the list
+			(cur != nil && (cur.acked >= seq || (cur.ready && cur.initSeq >= seq)))
 		ch := s.changed
 		s.mu.Unlock()
 		if applied {

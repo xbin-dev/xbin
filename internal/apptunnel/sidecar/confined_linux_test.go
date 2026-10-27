@@ -242,7 +242,13 @@ func TestConfinedRealSidecar(t *testing.T) {
 		t.Fatalf("selftest %+v %v", ev, err)
 	}
 
+	// PID 1 of its pid namespace ignores a signal it has no handler for:
+	// the sidecar's SIGTERM handler ends it well before the SIGKILL
+	t0 := time.Now()
 	s.Stop()
+	if d := time.Since(t0); d >= termGrace {
+		t.Errorf("Stop took %v: SIGTERM didn't end the sidecar, SIGKILL did", d)
+	}
 	if st := s.Status(); st.State != StateDisabled {
 		t.Fatalf("after Stop: %s", st.State)
 	}
