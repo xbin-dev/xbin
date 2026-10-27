@@ -153,3 +153,23 @@ func sendFD(sock, fd int) error {
 	rights := unix.UnixRights(fd)
 	return unix.Sendmsg(sock, []byte{'t'}, rights, nil, 0)
 }
+
+// upLoopback sets lo UP via an ioctl on an AF_INET socket (no external tools).
+func upLoopback() {
+	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
+	if err != nil {
+		return
+	}
+	defer unix.Close(fd)
+	var ifr [40]byte
+	copy(ifr[:], "lo")
+	// SIOCGIFFLAGS then set IFF_UP|IFF_RUNNING and SIOCSIFFLAGS.
+	if _, _, e := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uintptr(unix.SIOCGIFFLAGS), uintptr(unsafe.Pointer(&ifr))); e != 0 {
+		return
+	}
+	flags := uint16(ifr[16]) | uint16(ifr[17])<<8
+	flags |= unix.IFF_UP | unix.IFF_RUNNING
+	ifr[16] = byte(flags)
+	ifr[17] = byte(flags >> 8)
+	unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uintptr(unix.SIOCSIFFLAGS), uintptr(unsafe.Pointer(&ifr)))
+}

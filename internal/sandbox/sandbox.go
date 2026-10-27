@@ -33,7 +33,7 @@ type Handle struct {
 	ctrl    *os.File     // parent end of the fd-passing socketpair (nil = no relay)
 	setup   func() error // range uid/gid mapping + release the init (nil = single-uid)
 	own     []*os.File   // Launch's own child-side files (ctrl's child end, the sync pipe's read end)
-	given   []*os.File   // the caller's child-side files (Spec.Agent, Spec.Lock)
+	given   []*os.File   // the caller's child-side files (Spec.Agent, Spec.Lock, Spec.Exe)
 }
 
 // NeedsRelay reports whether the init will hand back a TUN fd for an egress relay.
@@ -215,6 +215,23 @@ type Spec struct {
 	Agent *os.File `json:"-"`
 	Lock  *os.File `json:"-"`
 
+	// Exe, when set, is an open file of the program to run instead of a
+	// path in the root: xbind's own embedded binary, extracted to a memfd
+	// or a file of xbind's (internal/apptunnel/sidecar). Launch passes it
+	// after Lock and records its number in ExeFD; the init keeps it from
+	// everything it starts and execs /proc/self/fd/ExeFD once /proc is
+	// mounted, with Argv as given (Entry is unused). It stays the caller's
+	// until Handle.Started, like Agent.
+	Exe *os.File `json:"-"`
+
+	// Bare makes the root an empty tmpfs instead of an overlay of a rootfs
+	// (no Lower): a static program from Exe needs nothing but its binds,
+	// /proc, /dev's few nodes and /tmp. The root is remounted read-only
+	// once the binds are made, before pivot_root. With HostNet, the host's
+	// /etc/resolv.conf and /etc/hosts are bound read-only (their symlinks
+	// resolved on the host), never copied. A VM's root is bare the same way.
+	Bare bool `json:"bare,omitempty"`
+
 	// NoFollow marks a root that untrusted code writes and keeps (a tile
 	// sandbox's or a terminal's persistent upper, a backend's environment
 	// layer): every mount point the init makes in it — /proc, /tmp, /dev,
@@ -383,6 +400,8 @@ type Spec struct {
 	// none).
 	AgentFD int `json:"agentFd,omitempty"`
 	LockFD  int `json:"lockFd,omitempty"`
+	// ExeFD is Exe's number in the init (0 = run Entry).
+	ExeFD int `json:"exeFd,omitempty"`
 	// FuseOverlay, when non-empty, is the path to a fuse-overlayfs binary the
 	// init mounts the root with (supports redirect_dir/metacopy that unprivileged
 	// kernel overlayfs forbids, so `apt install` etc. work). "" = kernel overlay.

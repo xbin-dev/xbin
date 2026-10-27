@@ -52,6 +52,9 @@ func NewFactory() (*Factory, *os.File, error) { return nil, nil, ErrUnsupported 
 // Dial is unsupported off Linux.
 func (*Factory) Dial() (net.Conn, error) { return nil, ErrUnsupported }
 
+// Accept is unsupported off Linux.
+func (*Factory) Accept() (net.Conn, error) { return nil, ErrUnsupported }
+
 // Close is a no-op off Linux.
 func (*Factory) Close() error { return nil }
 
