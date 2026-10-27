@@ -23,6 +23,8 @@ function register(P) {
   P.codePanels = require('./passes/codepanels').codePanels; // D202: the tile window's code and proposal panels, standalone (code-tree, code-view, pr-panels)
   P.tileIde = require('./passes/tileide').tileIde; // D202: the tile window as an IDE — tools, panes, drags, dividers, the ✕, a reload, an older pref, the phone sheet
   P.limitsCaps = require('./passes/limitscaps').limitsCaps; // D203 end to end: a tile's limit asks and cap hits — the popover, an org's ceiling, the banner's raises, the admin tab, ⚙ → Limits, /xbin/limits
+  P.apptunnel = require('./passes/apptunnel').apptunnel; // D204: the admin console's iroh tunneling — off, n0, a custom relay's tokens, refuse outside the tunnel, failed, a person's device limit (mocked API)
+  P.pairing = require('./passes/pairing').pairing; // D204: adding a phone over the tunnel — the big QR code, the confirmation code, They don't, replacing at the limit, /xbin/devices (mocked API)
 }
 
 module.exports = { register };
