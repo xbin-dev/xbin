@@ -85,11 +85,21 @@ with it, people's partitions and the VM coding sandboxes are real (on this
 machine, run it in `unshare --user --map-root-user --mount` for FUSE, as
 `up.sh` does itself).
 
+**The repository README's pictures** are four of these stills:
+`hack/demo/readme-shots.py readme $DEMO_STILLS` writes them to
+`website/shots/readme-*.webp` (1600 × 1000 WebP, each under 1 MiB). Still 08
+shows a tile's window (the IDE, D202) beside the app the agent built.
+
 **The website's stills**: `hack/demo/cam/site-stills.sh` films the set's
 subjects (the canvas, an app changed live, the agent at work, a terminal,
 the coding sandboxes, network approvals, the admin console, a person's
-partitions, the phone) on a desk and a phone, with a `shots.json` of what
-each frame shows (`hack/demo/cam/README.md` §Website stills).
+partitions, the phone, and the working canvas: an app beside its own
+window) on a desk and a phone, with a `shots.json` of what each frame shows
+(`hack/demo/cam/README.md` §Website stills). The site's product shots S-2
+(`site-workspace`) and S-9 (`site-admin`) are taken at 1600 × 1000 at 2×
+(`shot.js site-<shot> --size 1600x1000 --dpr 2`, both themes) and made into
+the masters `website/art/shots/<ID>-<theme>.webp` by `hack/demo/readme-shots.py
+site`; `make website-images` writes their web sizes.
 
 **Sign in** as `tomas` (Tomás Reyes, CTO, a workspace admin) or `priya`
 (Priya Raman, customer success); everyone in `company.json` signs in with

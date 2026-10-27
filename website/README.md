@@ -160,13 +160,11 @@ open in the same tab and carry ↗.
     with the steps typed, the machine and the shell in its `.json`) and replayed into
     the product's own terminal emulator, xterm.js, set up as the brand terminal by
     `hack/website-terminal.mjs` (its header has the window size and why it is 800 × 500).
-  - **The product UI shots** (S-2, S-6, S-7, S-10) wait for the product's re-theme
-    (D184). Until one is captured, its section ships without it, as the film's do, and
-    a comment marks where it goes. A still from the film set stands in only where it
-    shows what the spec asks for: today that is S-9 on the security page,
-    `img/shots/S-9-interim.webp` (`.film-media/stills/07-admin-desk-view-as.png`, the
-    current product theme, one theme only, 1600 × 1000), until the Concrete Day and
-    Night captures replace it in a `<picture>`.
+  - **The product UI shots** (S-6, S-7, S-10) wait for their captures; until one is
+    captured, its section ships without it, as the film's do, and a comment marks where
+    it goes. S-2 (the working canvas) and S-9 (view-as-user) are captured from the
+    Larkspan demo set (`hack/demo/cam/shots/site-workspace.js`, `site-admin.js`, at
+    1600 × 1000 CSS px at 2×; masters by `hack/demo/readme-shots.py site`).
   - While a page is built, a shot that waits may hold its place as a concrete frame at
     its aspect in its mat (`.ph`, `.ph-phone` for a phone screen), `aria-hidden` with
     a visible `<mark data-todo="shot">S-…</mark>` and no alt (the alt goes on the
@@ -307,7 +305,8 @@ New with Base Two: `/product.html`, `/security.html`, `/install.html`, `/ios.htm
 `/404.html`, `/favicon.svg`, `/apple-touch-icon.png`, `/css/`, `/fonts/`, `/img/`,
 `/data/software-per-year.json`, `/js/copy.js`. No longer served: the old site's `/js/` islands, `/vendor/`,
 `/shots/` and its IBM Plex fonts (`website/shots/` stays in git for the repository
-README's images: `readme-*.webp`, stills from the demo set, `hack/demo/stills.js`).
+README's images: `readme-*.webp`, stills from the demo set, `hack/demo/stills.js`, made
+from its PNGs by `hack/demo/readme-shots.py readme`).
 
 ### app/ios.json: the iOS app's kill switch
 

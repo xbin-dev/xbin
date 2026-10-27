@@ -58,9 +58,10 @@
 
 <main id="content">
   <!-- site/product.md, verbatim. figure[data-shot] names the capture site/visuals.md asks for. The
-       brand-terminal shots (S-12, S-5, S-4) are captured; the product UI shots (S-2, S-6, S-7, S-10)
-       wait for the product theme (D184, website/shots.todo.md) and, like the film, are left out of
-       their sections until they exist: those sections set the copy beside its heading. -->
+       brand-terminal shots (S-12, S-5, S-4) and S-2 (the working canvas, from the Larkspan demo set)
+       are captured; the other product UI shots (S-6, S-7, S-10) wait for their captures
+       (website/shots.todo.md) and, like the film, are left out of their sections until they exist:
+       those sections set the copy beside its heading. -->
   <section class="ihero" id="top" aria-labelledby="top-h">
     <div class="wrap ihero-grid">
       <div>
@@ -114,19 +115,24 @@
   </section>
 
   <section class="sec sec-rule" id="workspace" aria-labelledby="workspace-h">
-    <!-- S-2 (workspace canvas, cobalt mat) waits for the product theme -->
     <div class="wrap split">
-      <div>
+      <div class="flow">
         <p class="label-mono">02 · The workspace</p>
         <h2 class="h2" id="workspace-h">Your systems, side by side.</h2>
-      </div>
-      <div class="flow">
         <p class="body">The workspace opens in the browser. People open, arrange and use their apps there, and each app has its own terminal.</p>
         <p class="body">The workspace is built the same way as everything in it: the shell, the admin console and the app manager are apps, and you change them like any other.</p>
         <h3 class="h4">Typing feels local, even far away.</h3>
         <div class="fig"><span class="fig-label">typing over a 300 ms round trip</span><span class="fig-num"><span class="fig-q">within one frame</span>≤&nbsp;17&nbsp;ms</span><p class="fig-claim">With a 300&nbsp;ms round trip, what you type appears within one frame (≤&nbsp;17&nbsp;ms). Measured on a 96-core workstation; the prediction runs in the browser.</p></div>
         <p class="caption">With prediction off, the same characters appear after 0.3&nbsp;s. Prediction turns on by itself once the link is slower than 100&nbsp;ms. Timed for characters typed one at a time at a prompt.</p>
       </div>
+      <figure class="shot" data-shot="S-2 workspace, working canvas, cobalt mat: an app beside its own window, with the window's files, code, terminal and logs; the Larkspan demo set (shots.todo.md); Concrete Day and Concrete Night.">
+        <div class="mat mat-shell"><span class="mat-tab">browser shell</span><picture>
+          <source media="(prefers-color-scheme: dark)" type="image/avif" srcset="/img/shots/S-2-dark-800.avif 800w, /img/shots/S-2-dark-1600.avif 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <source media="(prefers-color-scheme: dark)" type="image/webp" srcset="/img/shots/S-2-dark-800.webp 800w, /img/shots/S-2-dark-1600.webp 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <source type="image/avif" srcset="/img/shots/S-2-light-800.avif 800w, /img/shots/S-2-light-1600.avif 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <img src="/img/shots/S-2-light-800.webp" srcset="/img/shots/S-2-light-800.webp 800w, /img/shots/S-2-light-1600.webp 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px" width="800" height="500" loading="lazy" decoding="async" alt="The xbin workspace with an app beside its own window: the app’s files, its code, a terminal on it and its backend’s logs.">
+        </picture></div>
+      </figure>
     </div>
   </section>
 

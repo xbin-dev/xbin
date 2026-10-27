@@ -56,6 +56,19 @@ async function tile(page, p, timeout = 30000) {
     await sleep(100);
   }
 }
+// place(page, tile, box): put a tile's window at a box of the viewport's
+// own pixels. A person's font size zooms the shell (17 px on a 13 px base:
+// ×1.31), and the window's box is in the zoomed pixels: measure the zoom
+// from where the window lands, then set the box divided by it.
+async function place(page, p, box) {
+  await fr(page, p, (f, t, b) => f.setPop(b), box);
+  await settle(page);
+  const z = await fr(page, p, (f) => { const r = f.popElement()?.getBoundingClientRect(); return r && f.pop ? r.width / f.pop.w : 1; }) || 1;
+  if (Math.abs(z - 1) < 0.01) return;
+  const s = (v) => Math.round(v / z);
+  await fr(page, p, (f, t, b) => f.setPop(b), { x: s(box.x), y: s(box.y), w: s(box.w), h: s(box.h) });
+  await settle(page);
+}
 async function screen(page, id) {
   await sh(page, (t, id) => t.setScreen(id), id);
   await settle(page);
@@ -173,24 +186,30 @@ async function shoot(browser, theme) {
     await sh(page, (t) => t.setScreenMode('s-ops', 'canvas'));
     await settle(page);
 
-    // Build: the tile Merrow built, with its history (Merrow's commits) open
+    // Build: the tile Merrow built, in its window (the IDE, D202): the
+    // Changes list (Merrow's commits) at the side, a source file in one pane
+    // and the checklist commit's diff beside it (the tile's own code, no
+    // platform call in it)
     await screen(page, 's-build');
     await shown(await tile(page, 'apps/onboarding'), '.card');
+    const rev = await page.evaluate(async () => {
+      const d = await (await fetch('/api/xbin/git/log?component=apps/onboarding&limit=50')).json();
+      const c = (d.commits || []).find((x) => /Checklist per customer/.test(x.subject || x.message || ''));
+      return c ? (c.hash || c.rev || '') : '';
+    });
+    if (!rev) throw new Error('no "Checklist per customer" commit in apps/onboarding');
     await fr(page, 'apps/onboarding', (f) => f.open('code'));
-    await fr(page, 'apps/onboarding', (f) => f.setPop({ x: 360, y: 150, w: 720, h: 470 }));
-    const code = page.locator('bx-frame[src="apps/onboarding"] bx-code');
-    await code.locator('button:has-text("Changes")').dispatchEvent('click');
-    // (the checklist's commit: its diff is the tile's own code, no platform
-    // call in it)
-    const commit = code.locator('.commit:has-text("Checklist per customer")');
-    await commit.waitFor({ timeout: 20000 });
-    // the code window's first load, still in flight when the commit is
-    // picked this early, can put it back on the working tree (bx-code's
-    // _load: !this._diff → _loadDiff('')): pick it again until its diff shows
-    for (let i = 0; ; i++) {
-      await commit.dispatchEvent('click');
-      try { await code.locator('.diff:has-text("was due")').waitFor({ timeout: 4000 }); break; } catch (e) { if (i >= 4) throw e; }
-    }
+    await fr(page, 'apps/onboarding', (f, t, rev) => {
+      f.ide.openTool('changes');
+      f.ide.openFile('checklist.js');
+      f.ide.split('col');
+      f.ide.open('c:' + rev);
+    }, rev);
+    await place(page, 'apps/onboarding', { x: 330, y: 96, w: 1090, h: 784 });
+    const win = page.locator('bx-frame[src="apps/onboarding"]');
+    await win.locator('bx-code-view pre.code').waitFor({ timeout: 20000 });
+    await win.locator('bx-code-diff .diff:has-text("was due")').waitFor({ timeout: 20000 });
+    await win.locator('bx-code-changes .commit').first().waitFor({ timeout: 20000 });
     await sleep(800);
     await still(page, '08-admin-agent-built-app', theme);
     await fr(page, 'apps/onboarding', (f) => f.closeTerminal());

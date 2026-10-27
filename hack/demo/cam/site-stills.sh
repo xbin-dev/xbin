@@ -13,7 +13,8 @@
 #   --theme the workspace's light or dark (D184; default $DEMO_THEME, else
 #           dark): a light take is NN-shot-size-light (shots.json says which)
 #   shot…   canvas live agent terminal sandboxes network admin partitions
-#           phone (default: all, in that order; phone is phone-only)
+#           phone workspace (default: all, in that order; phone is
+#           phone-only, workspace desk-only)
 #
 # The set as seeded: the stills sign in as its people (company.json) and put
 # their screens back first (data/layouts.json). The browser runs in the
@@ -41,7 +42,7 @@ done
 [[ -n "$out" ]] || { echo "--out DIR is required" >&2; exit 2; }
 [[ -n "$ws" && -d "$ws" ]] || { echo "--ws WORKSPACE (the set's workspace directory) is required" >&2; exit 2; }
 ws=$(cd "$ws" && pwd)
-all=(canvas live agent terminal sandboxes network admin partitions phone)
+all=(canvas live agent terminal sandboxes network admin partitions phone workspace)
 [[ ${#shots[@]} -gt 0 ]] || shots=("${all[@]}")
 case "$theme" in
   dark|light) themes=("$theme") ;;
@@ -75,6 +76,7 @@ for s in "${shots[@]}"; do
     for size in desk phone; do
       [[ -n "$only" && "$size" != "$only" ]] && continue
       [[ "$s" == phone && "$size" == desk ]] && continue
+      [[ "$s" == workspace && "$size" == phone ]] && continue # a desk shot (S-2)
       if [[ "$size" == desk ]]; then geo=(--size 1440x900 --dpr 2); else geo=(--size 390x844 --dpr 3); fi
       echo "== $n $s ($size, $t)"
       if ! node "$C/shot.js" "site-$s" --mode still --theme "$t" "${geo[@]}" --take "$n-$s-$size$sfx" --out "$out" --url "$url" --set ws="$ws"; then

@@ -62,7 +62,7 @@ day: [docs/install.md](docs/install.md).
 
 | | |
 |---|---|
-| ![An app the agent built, its history open beside it](website/shots/readme-app-history.webp) | ![A Tiled screen: the nightly ops report beside live metrics](website/shots/readme-tiled.webp) |
+| ![An app the agent built, beside its window: the history at the side, a source file above the commit's diff](website/shots/readme-app-history.webp) | ![A Tiled screen: the nightly ops report beside live metrics](website/shots/readme-tiled.webp) |
 | An app the agent built, with its commit history open | A Tiled screen: the ops report beside live metrics |
 | ![A person's own expenses, in an app that runs one copy per person](website/shots/readme-per-person.webp) | |
 | One copy per person: only Priya sees her book | |

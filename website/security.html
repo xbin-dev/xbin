@@ -165,11 +165,13 @@
         <p class="body">xbin keeps an audit log.</p>
         <p class="body">View-as-user lets an admin see exactly what one person sees. The view is read-only.</p>
       </div>
-      <!-- S-9, interim: the film set's still .film-media/stills/07-admin-desk-view-as.png (sha256 3532c719…),
-           in the current product theme, as WebP at 1600 × 1000. The Concrete Day and Concrete Night
-           captures replace it as a light and a dark source in a <picture> (site/visuals.md S-9, D184). -->
-      <figure class="shot" data-shot="S-9 admin console, view-as-user, yellow mat: Mira Okafor viewing as Lena Ruiz, the workspace exactly as Lena sees it, with the view-as-user banner and the read-only state showing; Concrete Day and Concrete Night.">
-        <div class="mat mat-admin"><span class="mat-tab">admin console</span><img src="/img/shots/S-9-interim.webp" width="1600" height="1000" loading="lazy" decoding="async" alt="An admin viewing the workspace as one person, read-only, with the view-as-user banner across the top."></div>
+      <figure class="shot" data-shot="S-9 admin console, view-as-user, yellow mat: an admin viewing the workspace as one person sees it, with the view-as-user banner and the read-only state showing; the Larkspan demo set (shots.todo.md); Concrete Day and Concrete Night.">
+        <div class="mat mat-admin"><span class="mat-tab">admin console</span><picture>
+          <source media="(prefers-color-scheme: dark)" type="image/avif" srcset="/img/shots/S-9-dark-800.avif 800w, /img/shots/S-9-dark-1600.avif 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <source media="(prefers-color-scheme: dark)" type="image/webp" srcset="/img/shots/S-9-dark-800.webp 800w, /img/shots/S-9-dark-1600.webp 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <source type="image/avif" srcset="/img/shots/S-9-light-800.avif 800w, /img/shots/S-9-light-1600.avif 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px">
+          <img src="/img/shots/S-9-light-800.webp" srcset="/img/shots/S-9-light-800.webp 800w, /img/shots/S-9-light-1600.webp 1600w" sizes="(max-width: 900px) calc(100vw - 48px), 740px" width="800" height="500" loading="lazy" decoding="async" alt="An admin viewing the workspace as one person, read-only, with the view-as-user banner across the top.">
+        </picture></div>
         <figcaption>View-as-user in the admin console: what one person sees, read-only.</figcaption>
       </figure>
     </div>

@@ -3,7 +3,7 @@
 Every product image xbin.dev needs from the product UI is shot on the film set after the
 product's re-theme (W9: Concrete Day and Concrete Night, D184, `plans/brand.md` §14 and
 §15). Until a shot lands, its section ships with the interim given below where one
-exists (today only S-9's), or without the figure, as the film's sections do; nothing in
+exists, or without the figure, as the film's sections do; nothing in
 this list ships as a mock-up or as an empty frame (`make website` refuses one). The four
 brand-terminal shots do not wait for the theme and are captured (below). The spec is
 `site/visuals.md` in the brand pass (§1 rules, §6 the film, §7 the screenshots). These
@@ -81,12 +81,12 @@ The photographs (the glass hall) are done: `website/art/` holds the masters and
 | ID | Shows | Pages and sections | Mat and tab | Signed in as | Capture | Status today |
 |---|---|---|---|---|---|---|
 | F-1 | Save to live, 12 s silent loop | Home `#what`, Product `#underneath` | cobalt, "browser shell" | not named (any member) | 1600 × 1000 px, 60 fps | Placeholder posters only; the sections ship without the film |
-| S-2 | Workspace, working canvas | Product `#workspace` | cobalt, "browser shell" | not named; Mira Okafor suggested | 3200 × 2000 | Waits for the theme; the section ships without it (no film-set still shows this content) |
+| S-2 | Workspace, working canvas | Product `#workspace` | cobalt, "browser shell" | Tomás Reyes (the Larkspan demo set) | 3200 × 2000 | Captured 2026-10-27 from the Larkspan demo set (`hack/demo/cam/shots/site-workspace.js`), Concrete Day and Night |
 | S-4 | bx help | Product `#bx` | green, "bx" | none (brand terminal) | 3200 × 2000 | Captured 2026-10-03 (the first screenful, scrolled back to the command) |
 | S-5 | Grants file diff | Product `#grants`, Security `#grants` | green, "terminal" | none (brand terminal) | 3200 × 2000 | Captured 2026-10-03 (`git diff xbin.json`: approved grants and bindings live in the workspace manifest) |
 | S-6 | Agent session | Product `#agents` | magenta, "agents" | Mira Okafor | 3200 × 2000 | Waits for the theme; the section ships without it |
 | S-7 | One small app, two people | Product `#per-person` | cobalt, "browser shell" | Jonas Berg (left), Lena Ruiz (right) | 2 × 3200 × 2000, composed 6420 × 2000 | Waits for the theme; the section ships without it |
-| S-9 | Admin console, view-as-user | Security `#oversight` | yellow, "admin console" | Mira Okafor, viewing as Lena Ruiz | 3200 × 2000 | Interim shipping: the film set's still in the current product theme |
+| S-9 | Admin console, view-as-user | Security `#oversight` | yellow, "admin console" | Tomás Reyes, viewing as Priya Raman (the Larkspan demo set) | 3200 × 2000 | Captured 2026-10-27 from the Larkspan demo set (`hack/demo/cam/shots/site-admin.js`), Concrete Day and Night |
 | S-10a, b, c | iOS app, three screens | Product `#ios`, iOS hero `#top` | magenta, "iOS app" on each | not named; Mira Okafor suggested | 1179 × 2556 each | Waits for the beta build's capture; both sections ship without it |
 | S-11 | Installer plan | Install `#first` | green, "installer" | none (brand terminal, fresh Linux machine) | 3200 × 2000 | Captured 2026-10-03 on a fresh Ubuntu 24.04 VM (its end: the user-mode plan and the question) |
 | S-12 | Apps as folders | Product `#apps` | green, "terminal" | none (brand terminal) | 3200 × 2000 | Captured 2026-10-03 (`ls`, `ls apps tiles`, `tree apps/orders`: see below) |
@@ -126,6 +126,14 @@ is taken again only when its output changes (a new `bx --help`, a new installer 
 
 ### S-2 · Workspace, working canvas
 
+- **Captured** (2026-10-27): from the Larkspan demo set, not the "harbor" workspace this
+  spec names — the owner's call on 2026-10-27 (the harbor set was never built).
+  `hack/demo/cam/shots/site-workspace.js`, at 1600 × 1000 CSS px at 2× (`shot.js
+  site-workspace --size 1600x1000 --dpr 2`, both themes; masters by
+  `hack/demo/readme-shots.py site`): Tomás Reyes's Ops screen, the nightly ops report
+  beside its own window (the IDE window, D202) — the Files list, the report's page code,
+  a shell on the tile with its history, and the backend's logs, a report run he started
+  from the app among them. The spec below is what it set out to show.
 - **Screen:** the sidebar expanded, with its Apps, Agents and Terminals sections showing.
   Three windows are tiled: `orders` on the left, `handbook` at the top right, and the
   `orders` app's terminal (green part tab) at the bottom right, focused. In the terminal,
@@ -186,6 +194,10 @@ is taken again only when its output changes (a new `bx --help`, a new installer 
 
 ### S-9 · Admin console, view-as-user
 
+- **Captured** (2026-10-27): from the Larkspan demo set, not "harbor" (the owner's call,
+  2026-10-27), by `hack/demo/cam/shots/site-admin.js` at 1600 × 1000 CSS px at 2×, both
+  themes: Tomás Reyes viewing as Priya Raman — her Onboarding screen, read-only, under the
+  view-as banner. It replaces the interim still.
 - **Screen:** Mira Okafor in view-as-user mode, viewing as Lena Ruiz: the workspace
   exactly as Lena sees it, with the product's view-as-user banner and its read-only state
   showing.

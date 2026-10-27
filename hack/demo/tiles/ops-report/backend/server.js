@@ -82,6 +82,9 @@ function render(date) {
 const headline = (rep) => ({ date: rep.date, status: rep.status, routes: rep.totals.routes, stops: rep.totals.stops, onTime: rep.totals.onTime,
   apiP95ms: rep.platform.apiP95ms, incidents: rep.incidents.length, renderedAt: rep.renderedAt });
 const latest = () => { const ks = Object.keys(st.reports).sort(); return ks.length ? st.reports[ks[ks.length - 1]] : null; };
+// one line per thing the backend does: what its logs (the tile window's
+// Logs dock) show
+const log = (msg) => console.log(`ops-report: ${msg}`);
 
 async function run(date, by) {
   const rep = render(date);
@@ -89,8 +92,10 @@ async function run(date, by) {
   st.runs.unshift({ at: Date.now(), by, date });
   st.runs = st.runs.slice(0, 50);
   db.save(st);
+  log(`report ${date} rendered (by ${by}): ${rep.totals.routes} routes, ${rep.totals.stops} stops, ${rep.totals.onTime}% on time, ${rep.incidents.length} incident(s)`);
   try {
     await xbind('POST', '/api/xbin/bus/publish', { resource: `res:${SELF}/bus`, topic: 'report/published', data: { ...headline(rep), notes: rep.notes, incidents: rep.incidents } });
+    log(`report ${date} published on report/published`);
   } catch (e) { console.error('publish:', e.message); }
   return rep;
 }
@@ -99,6 +104,7 @@ async function run(date, by) {
 async function registerCron() {
   try {
     await xbind('PUT', '/api/xbin/cron/jobs', { name: 'nightly-report', resource: `res:${SELF}/cron`, schedule: '30 5 * * *', path: '/run', role: 'writer' });
+    log('nightly job registered: 05:30 every day');
   } catch (e) { console.error('cron:', e.message); }
 }
 
@@ -126,7 +132,7 @@ const tools = [
 serve([
   ['GET', '/me', (req, res) => json(res, { user: who(req).user, canRun: canWrite(who(req)) })],
   ['GET', '/reports', (req, res) => json(res, { reports: Object.keys(st.reports).sort().reverse().map((k) => headline(st.reports[k])), runs: st.runs.slice(0, 10) })],
-  ['GET', '/latest', (req, res) => { const l = latest(); return l ? json(res, l) : fail(res, 404, 'no report yet'); }],
+  ['GET', '/latest', (req, res) => { const l = latest(); if (l) log(`latest report (${l.date}) read by ${who(req).user || who(req).from}`); return l ? json(res, l) : fail(res, 404, 'no report yet'); }],
   ['GET', /^\/reports\/(\d{4}-\d{2}-\d{2})$/, (req, res, m) => (st.reports[m[1]] ? json(res, st.reports[m[1]]) : fail(res, 404, 'no report for that night'))],
   ['POST', '/run', async (req, res, m, url) => {
     const c = who(req);
@@ -157,6 +163,7 @@ serve([
     }
     st.runs = st.runs.slice(0, 50);
     db.save(st);
+    log(`imported the model: ${fx.customers?.length ?? 0} customers; rendered ${days} nights`);
     const last = latest();
     try {
       await xbind('POST', '/api/xbin/bus/publish', { resource: `res:${SELF}/bus`, topic: 'report/published', data: { ...headline(last), notes: last.notes, incidents: last.incidents } });
@@ -166,4 +173,5 @@ serve([
   ['POST', '/mcp', mcp({ name: 'larkspan-ops-report', version: '1.0.0' }, tools)],
 ]);
 
+log(`started: ${Object.keys(st.reports).length} reports kept`);
 registerCron();

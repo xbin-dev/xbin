@@ -159,7 +159,7 @@ test('what make website deploys carries no slot, waiting shot or stub', (t) => {
   const ok = check(site(t), '--dist');
   assert.equal(ok.code, 0, ok.out);
   const slot = (d) => edit(d, 'index.html', (s) => s.replace('<span class="fig-num">121M</span>', '<span class="fig-num"><mark data-todo="data">{{DATA: growth since the inflection}}</mark></span>'));
-  const shot = (d) => edit(d, 'product.html', (s) => s.replace('<!-- S-2 (workspace canvas, cobalt mat) waits for the product theme -->', '<figure class="shot"><div class="mat mat-shell"><div class="ph" aria-hidden="true"><mark data-todo="shot">S-2</mark></div></div></figure>'));
+  const shot = (d) => edit(d, 'product.html', (s) => s.replace('<!-- S-6 (agent session, magenta mat) waits for the product theme -->', '<figure class="shot"><div class="mat mat-agents"><div class="ph" aria-hidden="true"><mark data-todo="shot">S-6</mark></div></div></figure>'));
   const stub = (d) => edit(d, 'ios.html', (s) => s.replace('<main id="content">', '<main id="content" data-todo="page">'));
   // the guard (make guards) counts them and passes
   for (const open of [slot, shot, stub]) {
@@ -171,7 +171,7 @@ test('what make website deploys carries no slot, waiting shot or stub', (t) => {
   }
   // make website refuses each one
   breaks(t, slot, /index\.html: 1 \{\{DATA\}\} slot\(s\) left/, '--dist');
-  breaks(t, shot, /product\.html: 1 shot\(s\) waiting for their capture \(S-2\)/, '--dist');
+  breaks(t, shot, /product\.html: 1 shot\(s\) waiting for their capture \(S-6\)/, '--dist');
   breaks(t, stub, /ios\.html: still a stub page/, '--dist');
 });
 
