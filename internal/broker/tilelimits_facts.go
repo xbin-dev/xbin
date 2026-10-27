@@ -32,7 +32,9 @@ type limitsViewer struct {
 // its frame token — as its driver; every other tile credential as itself.
 func (b *Broker) limitsViewerOf(p auth.Principal) limitsViewer {
 	if p.Component == "" {
-		return limitsViewer{p: p, person: p.Impersonator == "" && (p.Owner || p.UserID != ""), admin: b.IsAdmin(p)}
+		person := p.Impersonator == "" && (p.Owner || p.UserID != "") &&
+			p.Via != "terminal" && p.Via != "instance" && p.Via != "frame" // a terminal's token, wherever it's bound, is never the person's session
+		return limitsViewer{p: p, person: person, admin: b.IsAdmin(p)}
 	}
 	if d, ok := b.AdminFrameDriver(p); ok {
 		admin := b.IsAdmin(d)

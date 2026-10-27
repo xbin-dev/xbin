@@ -139,6 +139,7 @@ func (fx *limitsFx) principals() map[string]auth.Principal {
 		"instance": {Component: "apps/email", Via: "instance"},
 		"terminal": {Component: "apps/email", Via: "terminal", UserID: "carol", Access: carol.Access},
 		"agent":    {Component: "apps/notes", Via: "terminal", UserID: "dave", Gen: "u.dave"},
+		"wsTerm":   {Via: "terminal", UserID: "root2", Access: pf("root2").Access, User: pf("root2").User},
 		"consoleB": {Component: "tiles/admin", Via: "frame", UserID: "bob", Gen: "s.1"},
 		"consoleA": {Component: "tiles/admin", Via: "frame", UserID: "root2", Gen: "s.1"},
 		"shellC":   {Component: "shell", Via: "frame", UserID: "carol", Gen: "s.1", Access: carol.Access},
@@ -291,6 +292,7 @@ func TestTileLimitsAuthz(t *testing.T) {
 		{"agent", "apps/notes", 3072, "", 403},
 		{"consoleB", "apps/email", 3072, "", 403},
 		{"viewAs", "apps/email", 3072, "", 403},
+		{"wsTerm", "apps/email", 3072, "", 403}, // an admin's terminal bound to no tile: still a terminal's token
 		{"dave", "apps/notes", 3072, "", 403},
 		{"carol", "apps/notes", 3072, "", 403},
 		{"root", "apps/email", 2048, "", 400},  // the default: DELETE instead
@@ -538,7 +540,7 @@ func TestTileLimitsHits(t *testing.T) {
 	}
 	a := alertsOf("root")
 	if len(a) != 1 || a[0].Tile != "apps/email" || a[0].Dismiss != "/limits/dismiss?tile=apps%2Femail&kind=memMiB" || a[0].Action == nil ||
-		!strings.Contains(a[0].Message, "apps/email was OOM-killed at its 2 GiB memory limit (OOM-killed (1 process)) (3× since 14:02 UTC)") ||
+		!strings.Contains(a[0].Message, "apps/email was OOM-killed at its 2 GiB memory limit (OOM-killed (1 process)) (3× since Oct 27 14:02 UTC)") ||
 		!strings.Contains(a[0].Message, "bx limits raise apps/email memory") {
 		t.Fatalf("root's oom alert: %+v", a)
 	}

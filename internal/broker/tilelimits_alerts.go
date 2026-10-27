@@ -188,14 +188,9 @@ func scopeArg(key string) string {
 	return "workspace"
 }
 
-// clock is a hit's time as a banner says it.
-func clock(t time.Time) string {
-	t = t.UTC()
-	if time.Since(t) < 20*time.Hour {
-		return t.Format("15:04 UTC")
-	}
-	return t.Format("Jan 2 15:04 UTC")
-}
+// clock is a hit's time as a banner says it — the same words for the same
+// hit, whenever it's read (a person's dismissal keys on them).
+func clock(t time.Time) string { return t.UTC().Format("Jan 2 15:04 UTC") }
 
 // decorateAlerts fills each alert's raise action for p's viewer: the unit,
 // the current limit, who may approve, and the +25/50/100 % choices with
