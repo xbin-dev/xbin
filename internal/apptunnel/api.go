@@ -210,9 +210,10 @@ func (s *Service) apiPut(w http.ResponseWriter, r *http.Request) {
 	s.cfg = next
 	var startErr error
 	if restart {
-		s.stopLocked()
 		if next.Enabled {
-			startErr = s.startLocked()
+			startErr = s.startLocked() // running: a second Start restarts it with the new settings
+		} else {
+			s.stopLocked()
 		}
 	}
 	s.mu.Unlock()
@@ -303,8 +304,7 @@ func (s *Service) apiTokens(w http.ResponseWriter, r *http.Request) {
 	}
 	s.cfg = next
 	if restart && next.Enabled {
-		s.stopLocked()
-		_ = s.startLocked()
+		_ = s.startLocked() // a second Start restarts the sidecar with the token
 	}
 	s.mu.Unlock()
 	s.changed()

@@ -1,6 +1,7 @@
 package boot
 
 import (
+	"log/slog"
 	"path/filepath"
 
 	"github.com/xbin-dev/xbin/internal/apptunnel"
@@ -10,9 +11,14 @@ import (
 )
 
 // irohRunner is the iroh endpoint the app tunnel runs: the sidecar
-// supervisor (internal/apptunnel/sidecar). Nil: none in this build — the
-// tunnel's settings and routes work and its state reads "unavailable".
-var irohRunner = func(*State) sidecar.Runner { return nil }
+// supervisor (internal/apptunnel/sidecar) — the binary XBIN_IROH names,
+// else the one embedded in xbind, extracted and run in its sandbox (with
+// --isolate, there or not at all, D78). A build without one reads
+// "unavailable"; the tunnel's settings and routes work either way. A
+// seam for tests.
+var irohRunner = func(st *State) sidecar.Runner {
+	return sidecar.New(sidecar.Options{RunDir: st.Run.RunDir, Workspace: st.WS, Isolated: st.Cfg.Isolate, Log: slog.Default()})
+}
 
 // setupAppTunnel starts the app tunnel (D204, internal/apptunnel): off until
 // an admin turns it on. Its routes answer either way, and serve's tunnel

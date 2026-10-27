@@ -45,9 +45,19 @@ func newFakeRunner() *fakeRunner {
 	return &fakeRunner{streams: make(chan sidecar.Stream), allow: map[string]bool{}, pipes: map[string][]net.Conn{}}
 }
 
-func (f *fakeRunner) Start(_ context.Context, cfg sidecar.Config) error {
+// Start begins a run that lasts until ctx ends (the supervisor's contract:
+// a second Start restarts with the new config; Stop is for good).
+func (f *fakeRunner) Start(ctx context.Context, cfg sidecar.Config) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if !f.running {
+		go func() {
+			<-ctx.Done()
+			f.mu.Lock()
+			f.running = false
+			f.mu.Unlock()
+		}()
+	}
 	f.cfg, f.running, f.pairing = cfg, true, cfg.Pairing
 	f.starts++
 	f.allow = map[string]bool{}
@@ -93,7 +103,7 @@ func (f *fakeRunner) Status() sidecar.Status {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.running {
-		return sidecar.Status{State: sidecar.StateStarting}
+		return sidecar.Status{State: sidecar.StateDisabled}
 	}
 	pub := f.cfg.Key.Public().(ed25519.PublicKey)
 	return sidecar.Status{State: sidecar.StateRunning, Ticket: "endpointfake" + hex.EncodeToString(pub[:4]),
@@ -150,6 +160,13 @@ type rig struct {
 
 func newRig(t *testing.T) *rig {
 	t.Helper()
+	return newRigRunner(t, nil, "")
+}
+
+// newRigRunner is newRig on a given runner (nil: the in-memory fake) and
+// XBIN_IROH_RELAY.
+func newRigRunner(t *testing.T, runner sidecar.Runner, envRelay string) *rig {
+	t.Helper()
 	a, err := auth.Load(t.TempDir(), false)
 	if err != nil {
 		t.Fatal(err)
@@ -172,8 +189,11 @@ func newRig(t *testing.T) *rig {
 		server.WriteJSON(w, http.StatusOK, map[string]any{"user": p.UserID, "via": p.Via, "device": p.DeviceID})
 	})
 	fake := newFakeRunner()
+	if runner == nil {
+		runner = fake
+	}
 	dir := t.TempDir()
-	svc, err := New(Options{Dir: dir, Users: st, Auth: a, Hub: hub, Runner: fake,
+	svc, err := New(Options{Dir: dir, Users: st, Auth: a, Hub: hub, Runner: runner, EnvRelay: envRelay,
 		IsAdmin: func(p auth.Principal) bool { return p.IsAdmin() }})
 	if err != nil {
 		t.Fatal(err)

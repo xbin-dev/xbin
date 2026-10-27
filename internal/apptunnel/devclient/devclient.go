@@ -132,7 +132,7 @@ func ParseLink(s string) (Link, error) {
 	if l.PSK, err = base64.RawURLEncoding.DecodeString(p); err != nil || len(l.PSK) != 32 {
 		return Link{}, errors.New("p: want 32 bytes, base64url")
 	}
-	if !strings.HasPrefix(t, "endpoint") {
+	if !strings.HasPrefix(t, "endpoint") && !strings.HasPrefix(t, "fakeiroh:") { // fakeiroh: tests only (hack/fakeiroh)
 		return Link{}, errors.New("t: not an EndpointTicket")
 	}
 	l.Ticket, l.RelayToken, l.Required = t, q.Get("r"), q.Get("rq") == "1"

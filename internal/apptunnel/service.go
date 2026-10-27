@@ -32,6 +32,7 @@ const (
 	ackTimeout        = 10 * time.Second
 	resyncEvery       = time.Minute
 	deliverTimeout    = 30 * time.Second
+	stopWait          = 5 * time.Second // the sidecar's SIGTERM grace and then some
 )
 
 // Options configure a Service.
@@ -51,14 +52,16 @@ type Options struct {
 
 // Service is the app tunnel.
 type Service struct {
-	opt      Options
-	runner   sidecar.Runner
-	envRelay wire.Relay
-	envSet   bool
-	ln       *connListener
-	ctx      context.Context
-	cancel   context.CancelFunc
-	window   time.Duration // the confirmation window (confirmWindow; tests shorten it)
+	opt       Options
+	runner    sidecar.Runner
+	envRelay  wire.Relay
+	envSet    bool
+	ln        *connListener
+	ctx       context.Context
+	cancel    context.CancelFunc
+	window    time.Duration // the confirmation window (confirmWindow; tests shorten it)
+	runCtx    context.Context
+	runCancel context.CancelFunc // ends the runner's current run (stopLocked)
 
 	mu        sync.Mutex
 	cfg       Config
@@ -129,16 +132,20 @@ func (s *Service) Required() bool {
 	return s.cfg.Enabled && s.cfg.TunnelOnly
 }
 
-// Close stops the tunnel and its connections (xbind shutting down).
+// Close stops the tunnel and its connections (xbind shutting down): the
+// runner for good.
 func (s *Service) Close() {
-	s.cancel()
 	s.mu.Lock()
-	s.stopLocked()
+	s.dropConnsLocked()
+	s.started = false
 	s.mu.Unlock()
+	s.runner.Stop()
+	s.cancel()
 	_ = s.ln.Close()
 }
 
-// startLocked (re)starts the sidecar with the current settings.
+// startLocked starts the sidecar with the current settings, or — running —
+// restarts it with them (a second Start).
 func (s *Service) startLocked() error {
 	if s.keys == nil {
 		k, err := loadOrCreateKeys(s.opt.Dir)
@@ -147,8 +154,11 @@ func (s *Service) startLocked() error {
 		}
 		s.keys = &k
 	}
+	if s.runCancel == nil {
+		s.runCtx, s.runCancel = context.WithCancel(s.ctx)
+	}
 	allow := s.allowLocked()
-	err := s.runner.Start(s.ctx, sidecar.Config{Key: s.keys.iroh, Relay: s.relayLocked(), Allow: allow, Pairing: s.pairingOpenLocked()})
+	err := s.runner.Start(s.runCtx, sidecar.Config{Key: s.keys.iroh, Relay: s.relayLocked(), Allow: allow, Pairing: s.pairingOpenLocked()})
 	s.started = true
 	if s.downSince.IsZero() {
 		s.downSince = s.opt.Now()
@@ -160,12 +170,28 @@ func (s *Service) startLocked() error {
 	return err
 }
 
-// stopLocked stops the sidecar and drops every tunnel connection.
+// stopLocked stops the sidecar — by ending the context its Start ran
+// under: Stop is for good, and the tunnel may be turned on again — and
+// drops every tunnel connection. It waits (a few seconds at most) for the
+// runner to say so, so a Start right after begins a new run.
 func (s *Service) stopLocked() {
-	if s.started {
-		s.runner.Stop()
+	if s.runCancel != nil {
+		s.runCancel()
+		s.runCancel = nil
+	wait:
+		for deadline := time.Now().Add(stopWait); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			switch s.runner.Status().State {
+			case sidecar.StateStarting, sidecar.StateRunning, sidecar.StateDegraded, sidecar.StateFailed:
+			default:
+				break wait
+			}
+		}
 	}
 	s.started, s.downSince = false, time.Time{}
+	s.dropConnsLocked()
+}
+
+func (s *Service) dropConnsLocked() {
 	for _, cs := range s.conns {
 		for c := range cs {
 			go c.Close()
