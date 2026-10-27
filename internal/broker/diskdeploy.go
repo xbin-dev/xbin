@@ -33,6 +33,7 @@ const (
 // scope's primary.
 type nsBucket struct {
 	limit      int64  // bytes: the lowest limit its claimants set, 0 for none (the scope's quota)
+	ceiling    int64  // bytes: its scope's quota, raised by the scope's decisions (D203); 0: the key's own (quotaOf)
 	nonPrimary bool   // its deployment isn't P(S): write-blocked first on low disk (D127q)
 	label      string // how messages name it
 	tile       string // the alert's tile: beyond main its quota key, which no component path equals; "" for a non-primary main
@@ -127,7 +128,7 @@ func diskLimitBytes(dr *deployments.DeploymentRecord) int64 {
 // its role, from P(S) (08-data §12 item 3: main counts as non-primary while
 // P(S) isn't main).
 func (b *Broker) bucketOf(id nsID, limit int64) nsBucket {
-	bk := nsBucket{limit: limit, nonPrimary: id.dep != b.scopePrimary(id.scope)}
+	bk := nsBucket{limit: limit, nonPrimary: id.dep != b.scopePrimary(id.scope), ceiling: b.disk.scopeQuota(id.scope)}
 	named := fmt.Sprintf("%s's %q data", cmp.Or(id.scope, "the workspace"), id.dep)
 	switch k, _ := scopeKeys(id.scope, id.dep); {
 	case !id.main():
@@ -142,14 +143,16 @@ func (b *Broker) bucketOf(id nsID, limit int64) nsBucket {
 
 // namespaceQuota is the quota of the namespace whose quota key is quotaKey:
 // the lowest limit its claimants set (at the last scan), never above the
-// scope's quota. Seed preflight's target limit (08-data §12 item 4).
+// scope's quota (raised by its decisions, D203). Seed preflight's target
+// limit (08-data §12 item 4).
 func (d *diskMon) namespaceQuota(quotaKey string) int64 {
 	d.mu.RLock()
-	defer d.mu.RUnlock()
-	if bk, ok := d.buckets[quotaKey]; ok && bk.limit > 0 && bk.limit < d.quota {
-		return bk.limit
+	bk, ok := d.buckets[quotaKey]
+	d.mu.RUnlock()
+	if !ok {
+		return d.quotaOf(quotaKey) // a main namespace: its scope's own
 	}
-	return d.quota
+	return d.quotaFor(quotaKey, bk)
 }
 
 // DeploymentDiskStatus is TileDiskStatus for deployment dep of tile ("" is
@@ -180,9 +183,10 @@ func (b *Broker) DeploymentDiskStatus(tile, dep string) (usage, quota int64, blo
 	return d.usage[k.Quota], quota, blocked
 }
 
-// DiskQuota is the per-scope disk quota in bytes (XBIN_LIMIT_DISK, or the
-// default): a tile's disk ceiling, which a deployment's diskGiB never
-// exceeds (D127n), for the plane's limits op (GovHooks.DiskCeiling).
+// DiskQuota is the default per-scope disk quota in bytes (XBIN_LIMIT_DISK,
+// or 50 GiB), which a scope's decisions raise (DiskQuotaFor, D203): the
+// plane's limits op's ceiling where DiskCeilingFor isn't wired
+// (GovHooks.DiskCeiling).
 func (b *Broker) DiskQuota() int64 {
 	if b.disk == nil {
 		return defaultQuotaBytes
@@ -192,14 +196,11 @@ func (b *Broker) DiskQuota() int64 {
 
 // DiskLimitCheck judges a tile manager's diskGiB for deployment dep of tile,
 // for POST /deployments/limits (11-contract §1.7, §1.14) (D127n): a positive
-// number of GiB, at most the tile's ceiling (the scope quota,
-// XBIN_LIMIT_DISK), set on the tile that roots its scope, since the (scope,
-// name) namespace is the scope's.
+// number of GiB, at most the tile's ceiling (its scope's quota: the default,
+// XBIN_LIMIT_DISK, raised by the scope's decisions, D203), set on the tile
+// that roots its scope, since the (scope, name) namespace is the scope's.
 func (b *Broker) DiskLimitCheck(tile, dep string, gib int64) error {
-	ceiling := int64(defaultQuotaBytes)
-	if b.disk != nil {
-		ceiling = b.disk.quota
-	}
+	ceiling := b.DiskQuotaFor(tile)
 	c, ok := b.Reg.Component(tile)
 	switch {
 	case !ok:

@@ -282,7 +282,7 @@ func (b *Broker) preflight(pl *seedPlan, stop bool) error {
 	}
 	limit, state := int64(defaultQuotaBytes), deployments.KindState
 	if b.disk != nil {
-		limit = b.disk.quota
+		limit = b.disk.scopeQuota(pl.id.scope) // raised by the scope's decisions (D203)
 	}
 	free, total := seedDiskFree(b.Reg.Root)
 	switch {

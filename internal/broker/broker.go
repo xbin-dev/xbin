@@ -216,6 +216,7 @@ func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, erro
 	b.bus = newBusSubs(b)
 	b.disk = newDiskMon(reg.Root, envQuota(), b.scopeDiskUsage)
 	b.disk.sbxUsage, b.disk.onLow = b.sandboxUsage, b.sandboxesLowDisk // disk pressure only (tilesbx_hooks.go)
+	b.disk.tiles = b                                                   // raised quotas, their actions and hits (diskraise.go, D203)
 	go b.disk.run()
 	b.initPartitionModes() // before the first Provision: a pending tile's mode is known
 	b.Provision()
