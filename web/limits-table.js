@@ -24,7 +24,7 @@ import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { limitsCss, choicesTpl, whysTpl, followEvents } from '/vendor/bx-limits.js';
 import {
-  KINDS, meta, fmt, decisionText, hitText, askWho, flags, appliesText, tableEntries, counts, raiseBody, limitsCall, ceilingsBody, step,
+  KINDS, meta, fmt, sizeText, decisionText, hitText, askWho, flags, appliesText, tableEntries, counts, raiseBody, limitsCall, ceilingsBody, step,
 } from '/vendor/limits-kit.js';
 
 const plainFetch = (...a) => fetch(...a);
@@ -41,12 +41,13 @@ export class BxOrgLimits extends LitElement {
     _draft: { state: true }, _busy: { state: true }, _err: { state: true }, _saved: { state: true },
   };
   static styles = [limitsCss, css`
-    .grid { display: grid; grid-template-columns: minmax(8em, max-content) minmax(5em, max-content) minmax(0, 12em); gap: 4px 12px; align-items: center; }
+    .grid { display: grid; grid-template-columns: minmax(8em, max-content) minmax(0, 12em); gap: 4px 12px; align-items: center; }
+    .grid.defs { grid-template-columns: minmax(8em, max-content) minmax(5em, max-content) minmax(0, 12em); }
     .grid .meta { white-space: nowrap; }
     .grid input { width: 100%; }
     .line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 8px; }
     .ok { color: var(--bx-ok, #A3CF5E); }
-    @media (max-width: 560px) { .grid { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .grid .meta.def { display: none; } }
+    @media (max-width: 560px) { .grid, .grid.defs { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .grid .def { display: none; } }
   `];
   constructor() { super(); this.limits = {}; this._draft = {}; this._err = ''; this._saved = false; }
   get _fetch() { return this.fetcher ?? plainFetch; }
@@ -66,20 +67,20 @@ export class BxOrgLimits extends LitElement {
   }
 
   render() {
-    const cur = this.limits ?? {}, d = this._draft, dirty = Object.keys(d).length > 0;
+    const cur = this.limits ?? {}, d = this._draft, dirty = Object.keys(d).length > 0, defs = !!this.defaults;
     if (this.readonly) {
       const set = KINDS.filter((k) => cur[k]);
       return html`<div class="meta">${set.length ? set.map((k) => `${meta(k).label} ${fmt(k, cur[k])}`).join(' · ')
         : 'no ceilings: the org’s admins can’t raise its tiles above the defaults'}</div>`;
     }
     return html`
-      <div class="grid" role="group" aria-label=${`per-tile ceilings for org ${this.org}`}>
-        <span class="k">limit</span><span class="k def">${this.defaults ? 'default' : ''}</span><span class="k">ceiling per tile</span>
+      <div class="grid ${defs ? 'defs' : ''}" role="group" aria-label=${`per-tile ceilings for org ${this.org}`}>
+        <span class="k">limit</span>${defs ? html`<span class="k def">default</span>` : nothing}<span class="k">ceiling per tile</span>
         ${KINDS.map((k) => html`
           <span>${meta(k).label}</span>
-          <span class="meta def">${this.defaults?.[k] != null ? fmt(k, this.defaults[k]) : ''}</span>
-          <input data-kind=${k} aria-label=${`${meta(k).label} ceiling`} placeholder=${cur[k] ? fmt(k, cur[k]) : 'none'}
-            .value=${k in d ? d[k] : (cur[k] ? fmt(k, cur[k]).replace(' ', '') : '')}
+          ${defs ? html`<span class="meta def">${this.defaults[k] != null ? fmt(k, this.defaults[k]) : ''}</span>` : nothing}
+          <input data-kind=${k} aria-label=${`${meta(k).label} ceiling`} placeholder="none" title=${cur[k] ? `now ${fmt(k, cur[k])}` : 'no ceiling'}
+            .value=${k in d ? d[k] : sizeText(k, cur[k])}
             @input=${(e) => { this._draft = { ...this._draft, [k]: e.target.value }; this._saved = false; }}
             @keydown=${(e) => { if (e.key === 'Enter') this._save(); }}>`)}
       </div>

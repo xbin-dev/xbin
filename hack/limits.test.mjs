@@ -9,7 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import {
-  KINDS, META, meta, fmt, parseValue, step, isCPU, isVM, choiceLabel, choiceState, primaryChoice, askWho, ago, who,
+  KINDS, META, meta, fmt, parseValue, sizeText, step, isCPU, isVM, choiceLabel, choiceState, primaryChoice, askWho, ago, who,
   decisionText, hitText, promptItems, promptCounts, kindsOf, flags, appliesText, tableEntries, counts, target, targetQuery,
   raiseBody, errorText, limitsCall, ceilingsBody, limitKey,
 } from '../web/limits-kit.js';
@@ -55,6 +55,13 @@ test('parseValue(): sizes as manifests write them, a bare number in the kind\'s 
   assert.deepEqual(parseValue('vmVCPUs', '4'), { value: 4 });
   for (const [k, s] of [['memMiB', ''], ['memMiB', 'lots'], ['memMiB', '-1G'], ['memMiB', '4i'], ['vmVCPUs', '0'], ['vmVCPUs', '2.5'], ['sbxVCPUs', '300']]) {
     assert.ok(parseValue(k, s).error, `${k} ${JSON.stringify(s)} is refused`);
+  }
+});
+
+test('sizeText(): the exact value as an approver types it, and it parses back', () => {
+  for (const [k, v, want] of [['memMiB', 4096, '4G'], ['memMiB', 1536, '1536M'], ['memMiB', 2150, '2150M'], ['diskGiB', 100, '100G'], ['vmVCPUs', 8, '8'], ['sbxMemMiB', null, '']]) {
+    assert.equal(sizeText(k, v), want, `${k} ${v}`);
+    if (v != null) assert.equal(parseValue(k, want).value, v, `${want} parses back`);
   }
 });
 
@@ -133,7 +140,7 @@ test('promptItems(): the tile\'s items this person decides or owns, less the dis
   const foo = promptItems(PENDING, { tile: 'apps/foo', now: NOW });
   assert.equal(foo.length, 2);
   assert.equal(foo[0].head, 'Limit request');
-  assert.equal(foo[0].what, 'asks 4 GiB of memory');
+  assert.equal(foo[0].what, '4 GiB (the manifest’s limits.memory)');
   assert.equal(foo[0].current, '2 GiB');
   assert.equal(foo[1].head, 'At its limit');
   assert.ok(foo[1].cap);

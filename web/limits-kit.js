@@ -79,6 +79,18 @@ export function parseValue(k, s) {
   return { value: Math.ceil((+x[1] * 2 ** shift) / per) };
 }
 
+// sizeText(kind, v) → v as an approver would type it, exactly: "4G",
+// "1536M", "100G", "8" — what an editor's field starts from (fmt rounds).
+export function sizeText(k, v) {
+  if (v == null || !Number.isFinite(Number(v))) return '';
+  v = Number(v);
+  switch (meta(k).unit) {
+    case 'MiB': return v % 1024 === 0 ? `${v / 1024}G` : `${v}M`;
+    case 'GiB': return `${v}G`;
+  }
+  return String(v);
+}
+
 // step(kind, current, pct): current raised by pct, rounded up to the kind's
 // step, at least one step up (limits.Step) — the server's choices say the
 // same; this is for a preview before they are read.
@@ -186,7 +198,7 @@ export function promptItems(answer, { tile = '', dismissed = null, now = Date.no
     out.push({
       ...p, key, cap, label: m.label,
       head: cap ? 'At its limit' : 'Limit request',
-      what: cap ? hitText(p.hit, p.kind, now) : `asks ${fmt(p.kind, p.ask)} of ${m.label}`,
+      what: cap ? hitText(p.hit, p.kind, now) : `${fmt(p.kind, p.ask)}${m.manifest ? ` (the manifest’s ${m.manifest})` : ''}`,
       current: fmt(p.kind, p.effective),
       askWho: askWho(p.approvers),
     });
