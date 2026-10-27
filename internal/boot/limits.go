@@ -94,6 +94,9 @@ func (st *State) stepLimitAlerts() error {
 // server serves the store's routes.
 func (st *State) stepTileLimits() error {
 	brk, dp, run := st.Broker, st.Deployments, st.Run
+	if st.memDefault = dp.TileLimits.MemMax; st.memDefault == 0 { // no cgroup delegation: reported, never enforced
+		st.memDefault = parseBytes("XBIN_LIMIT_MEM", st.Cfg.LimitMem, 2<<30)
+	}
 	brk.SetLimitSources(st.limitSources())
 	brk.RefreshLimitAsks() // the manifests' asks, and the max clamp LimitGrant uses
 	dp.TileCeiling = func(tile string) cgroup.Limits {

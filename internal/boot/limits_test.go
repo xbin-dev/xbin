@@ -33,7 +33,9 @@ func TestTileLimitsWiring(t *testing.T) {
 	}
 
 	cg := st.Run.Cgroup.Enabled()
-	if def, on := st.limitDefault("apps/zsnode", limits.MemMiB); on != cg || cg && def != 2048 {
+	// the default is XBIN_LIMIT_MEM's 2 GiB with or without cgroups: only
+	// whether it is enforced differs (it read 0 without them)
+	if def, on := st.limitDefault("apps/zsnode", limits.MemMiB); on != cg || def != 2048 {
 		t.Errorf("memMiB on a backend: %d %v (cgroups %v)", def, on, cg)
 	}
 	for _, c := range []struct {
@@ -41,8 +43,8 @@ func TestTileLimitsWiring(t *testing.T) {
 		k    limits.Kind
 		def  int64
 	}{
-		{"apps/zs", limits.MemMiB, st.Deployments.TileLimits.MemMax >> 20}, // static: nothing to cap
-		{"apps/zsnode", limits.VMMemMiB, vm.DefaultMemMiB},                 // no VM manager here
+		{"apps/zs", limits.MemMiB, 2048},                   // static: nothing to cap
+		{"apps/zsnode", limits.VMMemMiB, vm.DefaultMemMiB}, // no VM manager here
 		{"apps/zsnode", limits.VMVCPUs, vm.DefaultVCPUs},
 		{"apps/zsnode", limits.SbxMemMiB, 8192}, // the sandboxes policy's perTile; no isolation
 		{"apps/zsnode", limits.SbxVCPUs, 8},
@@ -54,7 +56,7 @@ func TestTileLimitsWiring(t *testing.T) {
 		}
 	}
 	// the workspace's defaults (tile ""): enforced where the runtime runs
-	if def, on := st.limitDefault("", limits.MemMiB); on != cg || def != st.Deployments.TileLimits.MemMax>>20 {
+	if def, on := st.limitDefault("", limits.MemMiB); on != cg || def != 2048 {
 		t.Errorf("the workspace's memMiB: %d %v", def, on)
 	}
 	if def, on := st.limitDefault("", limits.SbxMemMiB); on || def != 8192 {

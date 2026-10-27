@@ -87,6 +87,10 @@ type State struct {
 	// nothing is released. stepWorkspace sets it (tilesbx.DefBases), so it
 	// answers by stepIsolation.
 	sandboxBasePins func() ([]string, error)
+	// memDefault is the per-tile memory cap's default as configured
+	// (XBIN_LIMIT_MEM): the cgroup step's where xbind's cgroup is
+	// delegated, else what the tile limits report, not enforced (D203).
+	memDefault int64
 }
 
 // Step is one named stage of a boot. Steps run in list order; the order is
