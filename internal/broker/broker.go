@@ -53,6 +53,7 @@ type Broker struct {
 	updater   *builtins.Updater     // builtin update tracking (nil = none)
 	Users     *users.Store          // human users (nil = single-user/root-only)
 	disk      *diskMon              // per-scope disk quota + low-disk write-blocking + alerts
+	tl        tileLimitState        // per-tile resource limits: decisions, hits, the runtime's sources (D203; tilelimits.go)
 	tileSbx   tileSbxSlot           // the tile-sandbox runtime's hooks (tilesbx_hooks.go)
 	// Settings is the workspace settings store (D175/D180) the server's
 	// routes share — the partitioned tiles' switches (policies.go); nil:

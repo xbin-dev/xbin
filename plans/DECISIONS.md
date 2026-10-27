@@ -12420,3 +12420,70 @@ Deviations and refinements made while implementing; all deliberate:
     to its code); Deployments as a side panel (its table needs the width a
     tab has); a header per session (the status bar speaks for the session
     in view once, instead of a strip per pane).
+
+- **D203 — Tile resource limits: manifest asks, raises at the cap,
+  org ceilings (2026-10-27).** The owner: "tiles should be able to request
+  additional resources, in manifest speccing minimums IFF those are bigger
+  than defaults, that (org)admins would approve, also when tiles are eg out
+  of disk, a prompt should allow admins to raise disk cap by some % as long
+  as theres space in the workspace. Management should be possible in Admin
+  UI at all times." Until now every per-tile limit could only be lowered
+  (`XBIN_LIMIT_MEM`, the scope disk quota, the tile-sandbox book, the VM
+  policy), and an OOM kill mostly went unseen (the leaf was removed before
+  a scan read `memory.events`). Design and plan: `plans/tile-limits.md`.
+  - **Kinds:** backend memory (`memMiB`), the scope's data quota
+    (`diskGiB`), a VM backend's size (`vmMemMiB`, `vmVCPUs`) and a sandbox
+    manager's tile-sandbox totals (`sbxMemMiB`, `sbxVCPUs`, `sbxDiskGiB`).
+    Not pids (the owner's scope). Every value is an integer in the kind's
+    unit.
+  - **The manifest asks; xbind decides.** A top-level `"limits"` key
+    (`memory`, `disk`, `sandboxes{memory,vcpus,disk}`) and the existing
+    `vm` sizes, which above the VM policy become an ask instead of being
+    clamped. Not `"resources"`: that already names data declarations. An
+    ask at or below the default is ignored; a malformed one is a manifest
+    warning, never a failed manifest. `disk` counts only on the tile that
+    roots its scope (the quota is the scope's).
+  - **Two slots per kind** in `data/tile-limits.json` (xbind-owned, like
+    `partition-limits.json`): `ask`, the approval of a manifest ask, which
+    applies only while the manifest still asks and up to what it asks (it
+    goes dormant when the ask is dropped, like D118 chrome, and an ask
+    back up to it needs no new prompt); and `set`, a raise or an outright
+    value that holds whatever the manifest says. `effective = max(default,
+    min(max(set, min(ask, manifestAsk)), max))`. Lowering below the
+    default stays per deployment (D127n) — this is only ever a raise.
+  - **Approvers:** workspace admins always. Org admins, for tiles their
+    org owns, up to a **per-tile** ceiling per kind that workspace admins
+    set on the org (`PUT /api/xbin/orgs/{org}/limits`) — not an org-wide
+    budget (the owner's call). A tile's own credentials never decide; the
+    admin console decides only under an admin driver (the D163
+    `partitionActor` rule).
+  - **Raise step:** +50 % pre-selected, +25 % and +100 % offered (the
+    owner's), rounded up to 64 MiB, 1 GiB or one vCPU. A choice that
+    doesn't fit is greyed with the reason.
+  - **Fit counts only the granted extra** (the owner's call): a raise of
+    `e → v` fits when `v − e ≤ free − 10 % reserve − promised`, where
+    `promised` sums every other raised tile's `max(0, effective −
+    max(usage, default))`. The default is a fair share, not a reservation;
+    a raise is a promise. Read literally ("every tile's unused quota"),
+    the 50 GiB default would grey out every choice on a typical
+    workspace. vCPUs are shared by weight, so they only meet the maximum.
+    Fit is re-checked inside the store's lock.
+  - **At the cap:** an OOM kill (read before the leaf goes), a full quota,
+    or a sandbox refused or stopped at its tile's total is a sticky hit.
+    It shows as an alert with an `action` whose choices are decorated per
+    viewer (the shell's frame resolves to its driver), and a third prompt
+    kind beside grants and bindings. The alert stays until a decision on
+    the kind or an approver's dismissal. Its text names `/xbin/limits` and
+    `bx limits`, so a shell or admin console from an older scaffold still
+    leads somewhere.
+  - **"At all times":** the admin console's Limits tab and the ⚙'s Limits
+    section ship with the scaffold, so `/xbin/limits` is an xbind-served
+    page (the D163 `/xbin/partitions` pattern) that no scaffold update
+    gates.
+  - **Applying:** a memory raise resizes running leaves live (`memory.max`,
+    then `memory.high`). A lower value waits for the next start, so an
+    admin's edit never OOM-kills. Deployments and people's partitions get
+    the raised cap per leaf. A disk raise rescans at once, so the 507
+    lifts. Sandbox grants apply at the next admission, and a single
+    sandbox may use the whole grant. A VM's size applies at its next
+    start, with a "restart now" choice.
