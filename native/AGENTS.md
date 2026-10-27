@@ -1054,7 +1054,17 @@ afterwards), an unreachable address ("Can't connect"), a code the
 workspace never minted ("Code refused"), "Sign in again" replacing its
 workspace after the device is removed, and `test10Gallery`: every
 onboarding screen in light and dark (`-XbinAppearance`), as
-`gallery-<light|dark>-NN-<screen>.png`. The screenshots land in
+`gallery-<light|dark>-NN-<screen>.png`; `test11PairingGallery` every app
+tunnel pairing screen (D204) from Debug builds' `-XbinPairingDemo <state>`
+(`ask`, `required`, `connecting`, `sas`, `signingIn`, `declined`,
+`expired`, `unreachable`, `limit`: no server or tunnel behind them), as
+`gallery-<light|dark>-pairing-NN-<state>.png`. `XbinTunnelTests` (D204,
+skipped unless `XBIN_E2E_TUNNEL=1`; a draft until the e2e xbind runs the
+iroh sidecar and the app links IrohLib) mints a pairing link through the
+API, pastes it on Log in, reads the phone's code (`pairing-sas`),
+confirms it through `POST /api/xbin/devices/pairing/{id}/confirm`, and
+uses the workspace through the tunnel; "They don't" and a pairing-only
+workspace's sign-in page too. The screenshots land in
 `$XBIN_MAC_PULL/e2e/e2e/` (and in `uitests.xcresult`): **look at them**.
 XCUITest types with key presses: the software keyboard hides while
 `typeText` types and slides back up a moment later, so a control that rides

@@ -324,6 +324,8 @@ public struct DeviceInfo: Sendable, Equatable, Identifiable {
     public var lastIP: String?
     /// The device the asking session signed in with.
     public var current: Bool
+    /// Paired through the workspace's app tunnel (D204).
+    public var tunnel: Bool
 
     public init(json: JSONValue) {
         id = json["id"]?.stringValue ?? ""
@@ -334,11 +336,20 @@ public struct DeviceInfo: Sendable, Equatable, Identifiable {
         lastUsed = json["lastUsed"]?.intValue.map { Date(timeIntervalSince1970: Double($0)) }
         lastIP = json["lastIP"]?.stringValue
         current = json["current"]?.boolValue ?? false
+        tunnel = json["tunnel"].map { $0.boolValue ?? ($0.objectValue != nil) } ?? false
     }
 
     /// The rows of a `{"devices": […]}` response.
     public static func list(json: JSONValue) -> [DeviceInfo] {
         (json["devices"]?.arrayValue ?? []).map(DeviceInfo.init(json:))
+    }
+
+    /// `{limit, count}` beside the rows (D204: paired devices per person);
+    /// nil from an xbind without a limit.
+    public static func limit(json: JSONValue) -> (count: Int, limit: Int)? {
+        guard let l = json["limit"]?.intValue else { return nil }
+        let n = json["count"]?.intValue ?? Int64(list(json: json).count)
+        return (Int(n), Int(l))
     }
 }
 

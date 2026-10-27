@@ -71,6 +71,8 @@ struct SettingsView: View {
     @Environment(SceneModel.self) private var scene
     @Environment(\.dismiss) private var dismiss
     @State private var devices: [DeviceInfo] = []
+    /// `{count, limit}` of the devices list (D204), when the workspace has one.
+    @State private var deviceLimit: (count: Int, limit: Int)?
     @State private var pushNote: String?
     @State private var confirmRemove = false
     @State private var addingDevice = false
@@ -112,7 +114,7 @@ struct SettingsView: View {
                             HStack {
                                 VStack(alignment: .leading) {
                                     Text(verbatim: d.name + (d.current ? " (this device)" : ""))
-                                    Text(verbatim: "\(d.platform) · last used \(d.lastUsed.map { $0.formatted(.relative(presentation: .named)) } ?? "never")")
+                                    Text(verbatim: "\(d.platform)\(d.tunnel ? " · tunnel" : "") · last used \(d.lastUsed.map { $0.formatted(.relative(presentation: .named)) } ?? "never")")
                                         .font(.caption).foregroundStyle(.secondary)
                                 }
                             }
@@ -129,7 +131,12 @@ struct SettingsView: View {
                         }
                         Button("Add another device…", systemImage: "qrcode") { addingDevice = true }
                     } header: { Text("Devices") } footer: {
-                        Text("Shows a QR code the new device scans; it gets its own key and signs in with Face ID.")
+                        if let l = deviceLimit {
+                            Text(verbatim: "\(l.count) of \(l.limit) devices this workspace allows you. "
+                                + "Shows a QR code the new device scans; it gets its own key and signs in with Face ID.")
+                        } else {
+                            Text("Shows a QR code the new device scans; it gets its own key and signs in with Face ID.")
+                        }
                     }
 
                     if let gate = NativeRuntimeGate.workspace(nativeRuntime: w.whoami?.nativeRuntime, loaded: w.whoami != nil) {
@@ -227,5 +234,6 @@ struct SettingsView: View {
     private func loadDevices(_ w: WorkspaceModel) async {
         guard let j = try? await w.auth.json(APIRequest("GET", AppAuthRoute.devices)) else { return }
         devices = DeviceInfo.list(json: j)
+        deviceLimit = DeviceInfo.limit(json: j)
     }
 }

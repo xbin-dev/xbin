@@ -430,3 +430,16 @@ enum TunnelFixture {
         #expect(!APIError(json(401, ["error": "x", "tunnel": "required"])).isTunnelRequired)
     }
 }
+
+@Suite struct DeviceListTunnelTests {
+    @Test func limitAndTunnelRows() throws {
+        let j: JSONValue = ["devices": [["id": "a", "name": "iPhone", "tunnel": true], ["id": "b", "name": "iPad"]],
+                            "limit": 3, "count": 2]
+        let rows = DeviceInfo.list(json: j)
+        #expect(rows.map(\.tunnel) == [true, false])
+        let l = try #require(DeviceInfo.limit(json: j))
+        #expect(l.count == 2 && l.limit == 3)
+        #expect(DeviceInfo.limit(json: ["devices": []]) == nil)   // an xbind before limits
+        #expect(DeviceInfo(json: ["id": "c", "tunnel": ["endpoint": "ab"]]).tunnel)
+    }
+}
