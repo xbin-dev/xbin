@@ -85,7 +85,14 @@ limit removes nobody's device.
 
 A self-hosted `iroh-relay` keeps the workspace's endpoint off n0's
 discovery service and lets you control who uses the relay. It needs a
-public host name, TCP 80 and 443 and UDP 7842.
+public host name, TCP 80 and 443 and UDP 7842. Give the host name both an A
+and an AAAA record and listen on both: a phone on an IPv6-only network
+(several mobile carriers; Apple's App Review tests on one) reaches the
+workspace only through the relay, because iroh can't yet cross NAT64 to an
+IPv4-only server directly. Get the binary from iroh's GitHub releases
+(`iroh-relay-v<version>-x86_64-unknown-linux-musl`, matching the iroh
+version this xbind's `xbin-iroh version` prints) or the `n0computer/iroh-relay`
+image.
 
 ```toml
 # iroh-relay.toml — top-level keys before any [table]
