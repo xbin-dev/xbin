@@ -64,7 +64,8 @@ struct InboxView: View {
 /// Settings: this window's workspace (account, devices and adding one,
 /// push, native views, sign out, remove) and the app (lock, native views,
 /// haptics, Handoff, Live Activities, predictive echo, the terminal
-/// keyboard, the push relay).
+/// keyboard, the push relay), and About (the version, the open-source
+/// licences: Licences.swift).
 struct SettingsView: View {
     @Environment(AppModel.self) private var app
     @Environment(SceneModel.self) private var scene
@@ -186,7 +187,15 @@ struct SettingsView: View {
                             AppSettings.pushRelay = relay
                             Task { await PushManager.shared.start(); await PushManager.shared.maintainAll() }
                         }
+                }
+
+                Section("About") {
                     LabeledContent("Version") { Text(verbatim: AppInfo.version) }
+                    NavigationLink {
+                        LicencesView()
+                    } label: {
+                        Label("Open-source licences", systemImage: "doc.text")
+                    }
                 }
             }
             .keyboardHideButton()
