@@ -12487,3 +12487,66 @@ Deviations and refinements made while implementing; all deliberate:
     lifts. Sandbox grants apply at the next admission, and a single
     sandbox may use the whole grant. A VM's size applies at its next
     start, with a "restart now" choice.
+
+- **D204 — App tunnels: the xbin app over iroh, with an xbin layer inside
+  (2026-10-27).** The owner asked for iroh tunnels for the iOS app: an
+  admin switch with an optional custom relay, plus self-hosting docs with
+  relay auth; "inside iroh tunnels we still must have xbin layer of
+  encryption … authenticated between xbind and user device, with PFS"; a
+  bigger add-device QR with a confirmation code; a connected-apps limit
+  (default 1, workspace-wide, per-user overrides); and refusing non-iroh app
+  connections. Design: `plans/app-tunnel.md`. Wire contract:
+  `native/spec/tunnel.md`.
+  - **iroh runs in a sidecar.** `xbin-iroh` is Rust on iroh 1.4.x, after
+    n0's dumbpipe. It is embedded in xbind, extracted to a memfd and run in
+    a bare namespace sandbox with the host network. xbind stays pure Go with
+    `CGO_ENABLED=0`. A crash or exploit in the network-facing QUIC/TLS stack
+    can't take down xbind or read its memory. The owner weighed cgo-linking
+    the library and chose the embedded process.
+  - **The xbin layer is Noise, and it terminates in xbind.** Pairing uses
+    `Noise_IKpsk2_25519_ChaChaPoly_SHA256`, with the psk from the QR; the
+    tunnel uses `Noise_IK`. Each iroh stream gets its own handshake, and the
+    prologue binds both iroh EndpointIds. Transport messages are
+    forward-secret, with an in-band rekey. The sidecar and every relay
+    (n0's or the workspace's own) see only ciphertext; the sidecar can't
+    read or forge a session. Go uses flynn/noise; the app uses CryptoKit;
+    both are checked against vectors xbind generates.
+  - **The confirmation code is compare-and-click** (the owner's choice).
+    Both sides derive six digits from the handshake hash. The computer that
+    showed the QR shows them with "Codes match" / "They don't", and the
+    phone shows its own. A leaked or phished QR pairs nothing without the
+    owner of the minting session. Tunnel codes never redeem over plain
+    enrollment, so the step can't be skipped.
+  - **The tunnel authenticates the device; the bearer still authenticates
+    the person.** The bearer comes from device login (enclave key, Face ID).
+    Sessions opened over the tunnel, and everything derived from them, work
+    only on that device's tunnel. A device's tunnel serves only that
+    device's credentials and its own sign-in steps, because other apps can
+    reach the phone's loopback forwarder.
+  - **The phone carries everything through a loopback forwarder.** It
+    listens on 127.0.0.1 on a stable port, only while the app is in front.
+    URLSession, the tile scheme handler, the sockets and WebKit (chrome
+    pages, tile WebSockets) all use it, while the real https origin stays
+    the workspace's identity. Tunnel requests are plain http to xbind: iOS
+    26 WebKit drops Secure cookies on http loopback.
+  - **Relays.** The default is n0's public relays. A self-hosted
+    `iroh-relay` uses `access.shared_token`; the token rides in the QR,
+    since a phone must reach the relay before xbind knows it. A staged
+    "next" token rotates without re-pairing. The phone always uses iroh's
+    Minimal preset (no n0 DNS, no mDNS), so it publishes nothing.
+  - **iroh-only refuses device credentials and app sign-ins off the
+    tunnel.** The answer is 403 with `tunnel: "required"`, never 401 or
+    404, so old apps don't loop. The SSO browser leg stays allowed.
+    Browsers are not affected. Apps that predate D204 are locked out of
+    such a workspace by the admin's choice, and the admin sees how many
+    devices first. Enrolled devices upgrade to the tunnel without
+    re-pairing.
+  - **The limit counts paired devices.** The workspace default is 1, with
+    per-user overrides from 0 to 32. It applies when a device is added;
+    existing devices are grandfathered. At the limit, the confirmation names
+    a device to replace.
+  - **App Store** (audited): not a VPN (5.4), no background modes, no
+    downloaded code. IPv6-only networks work over the relay. The privacy
+    manifest, policy and purpose strings are updated, and there is a
+    licences screen. Export compliance becomes "uses non-exempt
+    encryption"; the owner answers it.
