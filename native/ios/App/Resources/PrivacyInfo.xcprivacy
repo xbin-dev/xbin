@@ -4,10 +4,20 @@
   The app's privacy manifest (native/AGENTS.md → "App Store": what we tell
   Apple and why; checked by native/tools/store-check.py).
 
-  No tracking, no analytics, no third-party SDKs. The app talks to the
-  workspaces its user adds — servers they run — and, for its remote kill
-  switch, fetches https://xbin.dev/app/ios.json (no identifiers sent).
-  Neither is data the developer collects.
+  No tracking, no analytics, no advertising, and no code that collects data
+  for the developer. The app talks to the workspaces its user adds — servers
+  they run — and, for its remote kill switch, fetches
+  https://xbin.dev/app/ios.json (no identifiers sent). Neither is data the
+  developer collects.
+
+  App tunnels (D204, native/spec/tunnel.md): the app links IrohLib (n0's
+  iroh-ffi, open source) to reach a workspace that turned tunnels on. It
+  connects only out, to that workspace, through the relay the workspace
+  names: n0's public relays or one the workspace's operator runs. The relay
+  sees the device's IP address and connection metadata, never content (Noise
+  inside QUIC). That is the user's own connection to their own server, not
+  data the developer collects, so nothing is declared below for it
+  (website/privacy.html says who sees what).
 
   Push is the exception once it ships: the app then registers its APNs
   device token with the push relay run by the xbin project (native/spec/
@@ -16,8 +26,7 @@
   names the project's relay, declare NSPrivacyCollectedDataTypeDeviceID
   (not linked, not tracking, App Functionality) here and in App Store
   Connect's App Privacy — store-check.py fails until both agree.
--->
-<plist version="1.0">
+--><plist version="1.0">
 <dict>
 	<key>NSPrivacyTracking</key>
 	<false/>
@@ -48,6 +57,12 @@
 				<string>C617.1</string>
 			</array>
 		</dict>
+		<!-- IrohLib (app tunnels): its categories come from `nm -u` on a
+		     build that links it (plans/app-tunnel.md Phase 6) — expected
+		     SystemBootTime 35F9.1 if _mach_absolute_time appears, DiskSpace
+		     only if statfs-type symbols do. Pending that report; once it is
+		     in, list them here AND in store-check.py's IROHLIB_APIS, which
+		     fails while project.yml links IrohLib without them. -->
 	</array>
 </dict>
 </plist>

@@ -6,15 +6,23 @@ its code (native/AGENTS.md → "App Store"). Runs anywhere python3 does
   1. App/Resources/PrivacyInfo.xcprivacy parses, says no tracking and no
      tracking domains, and declares a required-reason category for every
      one the app's code uses (UserDefaults in our sources; SwiftTerm's
-     stat/fstat, a file-timestamp API, while the app links SwiftTerm)
+     stat/fstat, a file-timestamp API, while the app links SwiftTerm;
+     IROHLIB_APIS while it links IrohLib — app tunnels, D204)
   2. what it declares as collected matches the push relay the app ships
      with: none while Support/App-Info.plist's XbinPushRelay is empty (push
      off, nothing leaves for a relay); with a relay, the APNs token the app
      registers there — Device ID, not linked, not tracking, App
      Functionality — which App Store Connect's App Privacy must say too
-  3. the export-compliance answer (ITSAppUsesNonExemptEncryption) is set
-  4. App/Resources/AppIcon.icon parses, every layer's image exists, and the
+  3. the export-compliance answer: ITSAppUsesNonExemptEncryption is true —
+     the app ships its own Noise layer and, through IrohLib, rustls/QUIC
+     (App Store Connect's questions are the owner's to answer)
+  4. the Local Network purpose string names the tunnel (iOS shows it before
+     the tunnel's first direct path on the LAN)
+  5. App/Resources/AppIcon.icon parses, every layer's image exists, and the
      app target names it (ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon)
+  6. the open-source licences screen's list (App/Resources/Licences/
+     OpenSourceLicences.json, native/ios/scripts/licences.sh) was made for
+     the SwiftTerm and IrohLib versions project.yml pins
 
 Exit status: non-zero on any failure.
 """
@@ -26,6 +34,13 @@ import sys
 
 ios = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "ios")
 errs = []
+
+# The required-reason categories IrohLib's binary needs: from `nm -u` on a build
+# that links it (plans/app-tunnel.md Phase 6) — category → reasons. Pending that
+# report (expected: NSPrivacyAccessedAPICategorySystemBootTime ["35F9.1"] if
+# _mach_absolute_time appears, DiskSpace only if statfs-type symbols do); fill it
+# in together with App/Resources/PrivacyInfo.xcprivacy.
+IROHLIB_APIS = {}
 
 
 def check(cond, msg):
@@ -72,8 +87,17 @@ for path in swift_files("App", "Shared", "Widgets/Shared", "Packages"):
             needed.setdefault("NSPrivacyAccessedAPICategoryUserDefaults", os.path.relpath(path, ios))
 if re.search(r"^\s*- package: SwiftTerm\s*$", project, re.M):
     needed["NSPrivacyAccessedAPICategoryFileTimestamp"] = "SwiftTerm (KittyGraphics.swift: stat, fstat)"
+links_iroh = bool(re.search(r"^\s*- package: IrohLib\s*$", project, re.M)
+                  or re.search(r"^  IrohLib:\s*$", project, re.M))
+if links_iroh:
+    for api in IROHLIB_APIS:
+        needed.setdefault(api, "IrohLib (nm -u)")
 for api, where in needed.items():
     check(api in declared, f"{manifest_rel}: {api} is used ({where}) but not declared")
+if links_iroh:
+    for api, reasons in IROHLIB_APIS.items():
+        for r in reasons:
+            check(r in declared.get(api, []), f"{manifest_rel}: {api} needs reason {r} for IrohLib")
 
 # ---- 2. collected data vs the push relay ---------------------------------
 relay = str(info.get("XbinPushRelay", "")).strip()
@@ -90,10 +114,17 @@ else:
               "DeviceID: purpose must include NSPrivacyCollectedDataTypePurposeAppFunctionality")
 
 # ---- 3. export compliance ------------------------------------------------
-check(isinstance(info.get("ITSAppUsesNonExemptEncryption"), bool),
-      "Support/App-Info.plist: ITSAppUsesNonExemptEncryption must be set (App Store Connect asks otherwise)")
+check(info.get("ITSAppUsesNonExemptEncryption") is True,
+      "Support/App-Info.plist: ITSAppUsesNonExemptEncryption must be true — the app ships its own Noise layer "
+      "(Shared/NoiseTunnel.swift) and, with IrohLib, rustls/QUIC (native/AGENTS.md → \"Export compliance\")")
 
-# ---- 4. the icon ---------------------------------------------------------
+# ---- 4. the Local Network purpose string ---------------------------------
+local = str(info.get("NSLocalNetworkUsageDescription", ""))
+check("tunnel" in local.lower(),
+      "Support/App-Info.plist: NSLocalNetworkUsageDescription must say the app connects through the workspace's "
+      "tunnel (iroh asks for the local network to find a direct path)")
+
+# ---- 5. the icon ---------------------------------------------------------
 icon = os.path.join(ios, "App/Resources/AppIcon.icon")
 try:
     with open(os.path.join(icon, "icon.json")) as f:
@@ -108,9 +139,34 @@ except (OSError, ValueError) as e:
 check(re.search(r"^\s*ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon\s*$", project, re.M),
       "project.yml: the app target needs ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon")
 
+# ---- 6. the licences list matches the pins -------------------------------
+def pin(package):
+    m = re.search(r"^  %s:\s*\n((?:    .*\n)+)" % re.escape(package), project, re.M)
+    v = m and re.search(r"^\s*exactVersion:\s*(\S+)", m.group(1), re.M)
+    return v.group(1) if v else None
+
+
+licences_rel = "App/Resources/Licences/OpenSourceLicences.json"
+try:
+    with open(os.path.join(ios, licences_rel), encoding="utf-8") as f:
+        lic = json.load(f)
+    src = lic.get("source", {})
+    check(src.get("swiftTerm") == pin("SwiftTerm"),
+          f"{licences_rel}: made for SwiftTerm {src.get('swiftTerm')}, project.yml pins {pin('SwiftTerm')} — rerun native/ios/scripts/licences.sh")
+    if links_iroh:
+        want = pin("IrohLib")
+        check(want and src.get("irohFFI") == "v" + want,
+              f"{licences_rel}: made for iroh-ffi {src.get('irohFFI')}, project.yml pins IrohLib {want} — rerun native/ios/scripts/licences.sh")
+    texts = lic.get("texts", {})
+    for g in lic.get("groups", []):
+        for e in g.get("entries", []):
+            check(e.get("texts") and all(t in texts for t in e["texts"]), f"{licences_rel}: {e.get('name')} has no licence text")
+except (OSError, ValueError) as e:
+    errs.append(f"{licences_rel}: {e}")
+
 if errs:
     for e in errs:
         print("store-check: " + e, file=sys.stderr)
     sys.exit(1)
 print(f"store-check: ok (declared: {', '.join(sorted(a.replace('NSPrivacyAccessedAPICategory', '') for a in declared))}; "
-      f"collected: {len(collected)}; relay: {relay or 'none'})")
+      f"collected: {len(collected)}; relay: {relay or 'none'}; IrohLib: {'linked' if links_iroh else 'not linked'})")
