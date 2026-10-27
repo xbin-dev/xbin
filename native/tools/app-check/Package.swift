@@ -2,7 +2,8 @@
 // app-check — the app's crypto and SwiftTerm glue, checked on Linux.
 //
 // The files under Tests/AppCheckTests and Sources/app-live that are symlinks
-// ARE the app's own sources (native/ios/Shared, native/ios/App/Terminal,
+// ARE the app's own sources (native/ios/Shared — push crypto, the app
+// tunnel's Noise layer (D204) —, native/ios/App/Terminal,
 // native/ios/App/Model/WorkspaceEvents.swift — the events socket's driver —
 // and App/Model/Navigation.swift, a window's navigation):
 // swift-crypto gives Linux CryptoKit's API and SwiftTerm's headless Terminal
@@ -10,7 +11,8 @@
 // ship is run against the spec's vectors and a real emulator — not only
 // compiled on CI.
 //
-//   cd native/tools/app-check && swift test            # offline checks
+//   cd native/tools/app-check && swift test            # offline checks (make app-check; Fixtures/: the
+//                                                       # Noise project's IK/IKpsk2 vectors, from cacophony)
 //   swift run app-live 127.0.0.1:9461 admin admin       # against a running xbind (see main.swift)
 import PackageDescription
 

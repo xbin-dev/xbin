@@ -191,7 +191,10 @@ the very files (symlinks) against swift-crypto and SwiftTerm's headless
 
 ```sh
 cd native/tools/app-check && swift test          # push vectors, device-login vector, SwiftTermScreen + predictor,
-                                                 # the terminal's selection vs SwiftTerm's own copy, TerminalPrefs
+                                                 # the terminal's selection vs SwiftTerm's own copy, TerminalPrefs,
+                                                 # the app tunnel's Noise layer (TunnelTests: the published IK/IKpsk2
+                                                 # vectors, pairing, frames, rekey, close/truncation, the splice)
+make app-check                                   # the same with 512 KiB stacks (ci.yml's native job runs it)
 swift run app-live 127.0.0.1:9461 admin admin    # the workspace client against a running xbind (--dev: admin/admin)
 PLAYWRIGHT_DIR=~/lcad-wasm node native/tools/bridge-check.mjs http://127.0.0.1:9461
                                                  # the tile bridge + xbin-client in headless Chromium
