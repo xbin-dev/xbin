@@ -114,7 +114,7 @@ export class BxLimitsTable extends LitElement {
       padding: 0 10px; cursor: pointer; user-select: none; font-weight: 400; border: 1px solid var(--bx-border-strong, #666A7E);
       border-radius: var(--bx-radius, 2px); background: var(--bx-panel, #1F2028); color: var(--bx-muted, #A3A6B6); }
     .chip:hover { background: var(--bx-hover, #2A2B34); color: var(--bx-text, #E9EAF0); }
-    .chip[aria-pressed="true"] { background: var(--bx-selection, #2F3A73); border-color: var(--bx-accent, #8C9BFF); color: var(--bx-selection-text, #E9EAF0); }
+    .chip[aria-pressed="true"] { background: var(--bx-selection, #262C5C); border-color: var(--bx-accent, #8C9BFF); color: var(--bx-selection-text, #E9EAF0); }
     .count { font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); color: var(--bx-muted, #A3A6B6); white-space: nowrap; }
     table { border-collapse: collapse; width: 100%; }
     th { text-align: left; padding: 4px 8px 4px 0; color: var(--bx-muted, #A3A6B6); border-bottom: 1px solid var(--bx-border-strong, #666A7E);
