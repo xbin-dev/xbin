@@ -16,6 +16,7 @@ import { scrollCss } from '/vendor/scroll-css.js';
 import { unsafeHTML } from 'lit';
 import hljs from '/vendor/highlight.min.js';
 import { onEvent } from '/vendor/events-socket.js';
+import { savedEvent, relTime, fmtDate, activitySummary } from '/vendor/code-shared.js';
 import '/vendor/bx-icons.js';
 
 // codeCss: how code and diffs look (D184): highlight.js's classes on the
@@ -116,8 +117,9 @@ export function diffStats(diff) {
   }
   return { add, del, files: files.size };
 }
-// Build a nested {dirs,files} tree from flat "a/b/c.js" paths.
-function buildTree(files) {
+// Build a nested {dirs,files} tree from flat "a/b/c.js" paths (the tile
+// window's Files panel draws the same tree: code-tree.js).
+export function buildTree(files) {
   const root = { dirs: {}, files: [] };
   for (const f of files) {
     const parts = f.path.split('/');
@@ -128,16 +130,6 @@ function buildTree(files) {
   return root;
 }
 
-const fmtDate = (ts) => (ts ? new Date(ts * 1000).toISOString().slice(0, 10) : '—');
-function relTime(ts) {
-  if (!ts) return '—';
-  const s = Math.floor(Date.now() / 1000) - ts;
-  if (s < 3600) return `${Math.max(1, Math.floor(s / 60))}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  if (s < 2592000) return `${Math.floor(s / 86400)}d ago`;
-  if (s < 31536000) return `${Math.floor(s / 2592000)}mo ago`;
-  return `${Math.floor(s / 31536000)}y ago`;
-}
 const card = (label, val) => html`<div class="cd"><div class="v">${val}</div><div class="l">${label}</div></div>`;
 
 export class BxCode extends LitElement {
@@ -304,16 +296,10 @@ export class BxCode extends LitElement {
   }
 
   // --- live refresh on file changes -------------------------------------
-  // A save reloads the tile (reload, build-ok) — or, while its live reload
-  // is paused or attached to another tile deployment, only the tile's
-  // `deployments` event says so: op work-tree (the changed count moved) or
-  // that deployment's op reload and op build ok. The work tree changed all
-  // the same.
+  // The work tree changed (code-shared.js savedEvent: a reload, a build, or
+  // the tile's `deployments` event while its live reload is paused).
   _ext(e) {
-    const d = e.type === 'deployments' ? e.data || {} : null;
-    const saved = e.type === 'reload' || e.type === 'build-ok' || d?.op === 'work-tree' || d?.op === 'reload' || (d?.op === 'build' && d.phase === 'ok');
-    if (!saved || !e.component) return;
-    if (!(e.component === this.src || e.component.startsWith(this.src + '/'))) return;
+    if (!savedEvent(e, this.src)) return;
     clearTimeout(this._refreshT);
     this._refreshT = setTimeout(() => this._refresh(), 250);
   }
@@ -417,34 +403,8 @@ export class BxCode extends LitElement {
       </div>`;
   }
 
-  // Derive chart buckets + summary from the activity timeline.
-  _analysis() {
-    const a = this._activity;
-    if (!a || a.repo === false) return null;
-    const local = a.local || [];
-    const up = a.upstream || null;
-    const now = Math.floor(Date.now() / 1000);
-    const WEEK = 7 * 86400, WEEKS = 52;
-    // bucket[0] = oldest (WEEKS-1 ago), bucket[WEEKS-1] = current week.
-    const bucket = (arr) => {
-      const b = new Array(WEEKS).fill(0);
-      for (const c of arr) { const wi = Math.floor((now - c.t) / WEEK); if (wi >= 0 && wi < WEEKS) b[WEEKS - 1 - wi]++; }
-      return b;
-    };
-    const authors = {};
-    for (const c of local) authors[c.a || '—'] = (authors[c.a || '—'] || 0) + 1;
-    const topAuthors = Object.entries(authors).sort((x, y) => y[1] - x[1]).slice(0, 6);
-    const first = local.reduce((m, c) => (c.t < m ? c.t : m), Infinity);
-    const last = local.reduce((m, c) => (c.t > m ? c.t : m), 0);
-    return {
-      total: local.length, last30: local.filter((c) => c.t >= now - 30 * 86400).length,
-      first: first === Infinity ? 0 : first, last, topAuthors,
-      weeksLocal: bucket(local), weeksUp: up ? bucket(up) : null, WEEK, now,
-      remote: a.remote || '', upstreamRef: a.upstreamRef || '',
-      upstreamTotal: up ? up.length : 0,
-      upstreamLast: up ? up.reduce((m, c) => (c.t > m ? c.t : m), 0) : 0,
-    };
-  }
+  // Chart buckets + summary from the activity timeline (code-shared.js).
+  _analysis() { return activitySummary(this._activity); }
 
   _chart(a) {
     const max = Math.max(1, ...a.weeksLocal, ...(a.weeksUp || [0]));

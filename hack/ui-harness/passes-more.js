@@ -19,6 +19,7 @@ function register(P) {
   P.richCopy = require('./passes/richcopy').richCopy; // D199/#26: copy with formatting — a right-click, xbin.copy, the agent's Copy; a coloured fence
   P.tiled = require('./passes/tiled').tiled; // D193: Tiled — one tile fills the screen, splits, dividers, swaps, a phone, an org screen's draft
   P.agentDocs = require('./passes/agentdocs').agentDocs; // D201: the agent reads a PDF, writes a workbook, a deck and a document — previews, downloads, no sandbox
+  P.codePanels = require('./passes/codepanels').codePanels; // D202: the tile window's code and proposal panels, standalone (code-tree, code-view, pr-panels)
 }
 
 module.exports = { register };
