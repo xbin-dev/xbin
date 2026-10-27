@@ -381,3 +381,22 @@ let aCode = String(repeating: "A", count: 26)
         #expect(try JSONValue(parsing: JSONEncoder().encode(w))["deviceOrigin"] == nil)
     }
 }
+
+/// D204: what a scanned pairing link is, and the pairing-only workspace.
+@Suite struct OnboardingTunnelTests {
+    @Test func scannedPairingLinks() throws {
+        guard case .tunnelEnroll(let t) = try SignInLink("  \(TunnelFixture.link)&rq=1  ") else {
+            Issue.record("not a tunnel link"); return
+        }
+        #expect(t.required)
+        #expect(try SignInLink(TunnelFixture.link).server == TunnelFixture.server)
+        #expect(throws: SignInLink.Invalid.self) { try SignInLink(TunnelFixture.link + "&rq=2") }
+    }
+
+    @Test func pairingOnly() throws {
+        let m = LoginMethods(password: true, sso: true, tunnel: .init(enabled: true, required: true))
+        #expect(SignInOptions(m).methods == [.pairing])
+        #expect(ConnectProblem.tunnelRequired("x").message == SignInOptions.pairingOnly)
+        #expect(SignInOptions.pairingOnly.contains("add a device"))
+    }
+}

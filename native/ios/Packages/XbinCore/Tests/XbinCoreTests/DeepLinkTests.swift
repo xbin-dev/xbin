@@ -112,3 +112,19 @@ import Testing
         #expect(list.resolve(linkWorkspace: try #require(link.workspace))?.id == "cccc-3")
     }
 }
+
+/// D204: the enrollment link with a tunnel (TunnelTests has the rest).
+@Suite struct DeepLinkTunnelTests {
+    @Test func enrollLinks() throws {
+        let classic = "xbin://enroll?u=https%3A%2F%2Fxbin.example.com&c=K3D"
+        #expect(try DeepLink(string: classic) == .enroll(server: TunnelFixture.server, code: "K3D"))
+        guard case .tunnelEnroll(let t) = try DeepLink(string: TunnelFixture.link) else {
+            Issue.record("not a tunnel link"); return
+        }
+        #expect(t.server == TunnelFixture.server)
+        #expect(try DeepLink(string: TunnelFixture.link).workspace == nil)
+        // Never from a Handoff activity.
+        #expect(HandoffLink.link(fromUserInfo: ["link": TunnelFixture.link]) == nil)
+        #expect(throws: DeepLink.Invalid.self) { try DeepLink(string: classic + "&tv=1") }
+    }
+}

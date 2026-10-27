@@ -102,3 +102,49 @@ struct DirectTransport: WorkspaceTransport {
 
     func socketConfiguration() -> URLSessionConfiguration { Self.plainSocketConfiguration() }
 }
+
+/// A workspace's transport that can move (D204): a device upgraded to its
+/// workspace's tunnel (§9) goes on through it without the workspace's
+/// session, sockets and pages being rebuilt. Everything holds this one; it
+/// forwards to the transport of the moment. Moving bumps ``generation``,
+/// so open pages reload on the new address.
+final class SwitchableTransport: WorkspaceTransport, @unchecked Sendable {
+    private let lock = NSLock()
+    private var _current: any WorkspaceTransport
+    private var base = 0
+
+    init(_ t: any WorkspaceTransport) { _current = t }
+
+    var current: any WorkspaceTransport { lock.lock(); defer { lock.unlock() }; return _current }
+
+    /// From now on through `t` (the same public origin).
+    func switchTo(_ t: any WorkspaceTransport) {
+        lock.lock()
+        base += _current.generation + 1
+        _current = t
+        lock.unlock()
+    }
+
+    var publicOrigin: ServerOrigin { current.publicOrigin }
+    var origin: ServerOrigin { current.origin }
+    var generation: Int { lock.lock(); defer { lock.unlock() }; return base + _current.generation }
+
+    func ready() async throws -> ServerOrigin { try await current.ready() }
+
+    func send(_ request: APIRequest, to origin: ServerOrigin) async throws -> APIResponse {
+        try await current.send(request, to: origin)
+    }
+
+    func stream(_ request: URLRequest, allowRedirect: @escaping @Sendable (URL) -> URL?,
+                onResponse: @escaping @Sendable (HTTPURLResponse) -> Void,
+                onData: @escaping @Sendable (Data) -> Void,
+                onDone: @escaping @Sendable ((any Error)?) -> Void) -> StreamingLoad {
+        current.stream(request, allowRedirect: allowRedirect, onResponse: onResponse, onData: onData, onDone: onDone)
+    }
+
+    func upload(_ request: URLRequest, from data: Data, delegate: (any URLSessionTaskDelegate)?) async throws -> (Data, URLResponse) {
+        try await current.upload(request, from: data, delegate: delegate)
+    }
+
+    func socketConfiguration() -> URLSessionConfiguration { current.socketConfiguration() }
+}

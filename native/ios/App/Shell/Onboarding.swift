@@ -25,6 +25,8 @@ enum OnboardingStep: Hashable {
     case install
     case about(page: Int)
     case help(page: Int)
+    /// Pairing through the workspace's tunnel (D204): Pairing.swift.
+    case pairing(TunnelLink)
 }
 
 /// One onboarding stack's state and actions: the Welcome's, or one
@@ -47,6 +49,10 @@ final class OnboardingFlow {
     var pendingEnroll: PendingEnroll?
     /// The "Add this workspace?" question is up (about ``pendingEnroll``).
     var askEnroll = false
+    /// A scanned or opened pairing link (D204), waiting for "Pair".
+    var pendingPair: TunnelLink?
+    /// The "Pair with <host>?" question is up (about ``pendingPair``).
+    var askPair = false
     /// The address page's field.
     var address = ""
     /// The Log in page's link field.
@@ -64,10 +70,16 @@ final class OnboardingFlow {
             replacing = nil
             pendingEnroll = PendingEnroll(server: s, code: c)
             askEnroll = true
+        case .tunnelEnroll(let l)?:
+            replacing = nil
+            pendingPair = l
+            askPair = true
         case .signInAgain(let w, let s)?:
             replacing = w
             address = s.origin
             path = [.address]
+        case .pairAgain(let w)?:
+            replacing = w
         case .blank?, nil:
             replacing = nil
         }
@@ -117,6 +129,9 @@ final class OnboardingFlow {
         case .enroll(let s, let c):
             pendingEnroll = PendingEnroll(server: s, code: c)
             askEnroll = true
+        case .tunnelEnroll(let l):
+            pendingPair = l
+            askPair = true
         case .invite(let s, let t): await checkInvite(server: s, token: t)
         case .address(let s):
             address = s.origin
@@ -167,6 +182,28 @@ final class OnboardingFlow {
         }
     }
 
+    // MARK: Pairing (D204)
+
+    /// "Pair" on the question: the pairing page runs it (Pairing.swift). A
+    /// build without the iroh runtime says so instead.
+    func pair(_ link: TunnelLink) {
+        problem = nil
+        guard TunnelRuntime.isAvailable || PairingDemo.current != nil else {
+            problem = TunnelRuntime.unavailable
+            return
+        }
+        path.append(.pairing(link))
+    }
+
+    /// The question's words: what pairing does, and the Local Network
+    /// prompt iOS may show next — before it appears.
+    static func pairQuestion(_ link: TunnelLink) -> String {
+        "This phone gets its own keys for \(link.server.origin) and connects through the workspace's encrypted "
+            + "tunnel. Next, compare a 6-digit code with your computer and click Codes match there.\n\n"
+            + "iOS may then ask to let xbin find devices on your local network. Allow it for a direct connection "
+            + "when you're on the same network; if you don't, the tunnel still works through its relay."
+    }
+
     // MARK: Invites
 
     func checkInvite(server s: ServerOrigin, token t: String) async {
@@ -211,7 +248,10 @@ struct WelcomeView: View {
 
     var body: some View {
         OnboardingStack(flow: flow) { WelcomeLevel(flow: flow) }
-            .onAppear { flow.scene = scene }
+            .onAppear {
+                flow.scene = scene
+                PairingDemo.stage(flow)
+            }
             .overlay(alignment: .topLeading) {
                 // (Debug fresh starts: the UI tests wait for this to go.)
                 if app.cleaningUp {
@@ -264,6 +304,17 @@ struct OnboardingStack<Root: View>: View {
             }
         }
         .onChange(of: flow.path) { _, _ in flow.problem = nil }
+        .alert(flow.pendingPair.map { "Pair with \($0.server.authority)?" } ?? "Pair this device?", isPresented: $flow.askPair) {
+            if let l = flow.pendingPair {
+                Button("Pair") {
+                    flow.pendingPair = nil
+                    flow.pair(l)
+                }
+            }
+            Button("Cancel", role: .cancel) { flow.pendingPair = nil }
+        } message: {
+            if let l = flow.pendingPair { Text(verbatim: OnboardingFlow.pairQuestion(l)) }
+        }
         .confirmationDialog("Add this workspace?", isPresented: $flow.askEnroll, titleVisibility: .visible) {
             if let p = flow.pendingEnroll {
                 Button("Add \(p.server.authority)") {
@@ -294,6 +345,7 @@ struct OnboardingPage: View {
         case .install: InstallPage(flow: flow)
         case .about(let n): AboutPage(flow: flow, page: n)
         case .help(let n): HelpPage(flow: flow, page: n)
+        case .pairing(let l): PairingPage(flow: flow, link: l)
         }
     }
 }
@@ -532,7 +584,9 @@ struct AboutPage: View {
                     + "that can switch off native views; the request carries no identifier.",
                     "One exception, and only if you turn it on: push notifications pass through a relay the xbin "
                     + "project runs. It keeps this device's push token and random handles, never names, addresses "
-                    + "or what the notifications say."]
+                    + "or what the notifications say.",
+                    "A workspace with an app tunnel is reached through a relay: n0's public relays or one its "
+                    + "operator runs. The relay passes encrypted traffic it can't read and sees only addresses."]
         }
     }
 }

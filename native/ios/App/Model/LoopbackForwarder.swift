@@ -274,16 +274,6 @@ enum ByteSplice {
     }
 }
 
-/// A connection spliced as it is to a stream that is already set up.
-struct StreamUpstream: ForwardUpstream {
-    let remote: any ByteStream
-
-    func splice(with local: any ByteStream) async {
-        await ByteSplice.run(local, remote)
-        await remote.cancel()
-    }
-}
-
 #if DEBUG
 /// Debug builds' stand-in for the tunnel (`-XbinTunnelForward YES`, the
 /// spike's step 0b): each connection is spliced as is to the workspace's

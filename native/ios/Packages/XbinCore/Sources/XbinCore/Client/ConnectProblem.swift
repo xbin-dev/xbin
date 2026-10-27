@@ -32,12 +32,24 @@ public enum ConnectProblem: Error, Sendable, Equatable, CustomStringConvertible 
     case throttled
     /// 5xx.
     case server(status: Int, message: String)
+    /// The workspace's app tunnel didn't answer (D204): its relay, or
+    /// xbind's tunnel, is down or unreachable from here.
+    case tunnelUnreachable(host: String, detail: String)
+    /// "They don't" on the computer: the codes didn't match.
+    case pairingDeclined
+    /// The pairing code, or its confirmation window, ran out.
+    case pairingExpired
+    /// The workspace accepts this app only over its tunnel: pair with a QR
+    /// code (403 `{tunnel: "required"}`). The server's words are kept for
+    /// logs.
+    case tunnelRequired(String)
     /// Anything else, as it came.
     case other(String)
 
     /// The class, for tests and for choosing an icon.
     public enum Kind: String, Sendable, Equatable {
-        case cantConnect, certificate, notXbin, codeRefused, account, throttled, server, other
+        case cantConnect, certificate, notXbin, codeRefused, account, throttled, server
+        case tunnelUnreachable, pairingDeclined, pairingExpired, tunnelRequired, other
     }
 
     public var kind: Kind {
@@ -49,6 +61,10 @@ public enum ConnectProblem: Error, Sendable, Equatable, CustomStringConvertible 
         case .account: return .account
         case .throttled: return .throttled
         case .server: return .server
+        case .tunnelUnreachable: return .tunnelUnreachable
+        case .pairingDeclined: return .pairingDeclined
+        case .pairingExpired: return .pairingExpired
+        case .tunnelRequired: return .tunnelRequired
         case .other: return .other
         }
     }
@@ -63,6 +79,10 @@ public enum ConnectProblem: Error, Sendable, Equatable, CustomStringConvertible 
         case .account: return "Can't sign in"
         case .throttled: return "Too many attempts"
         case .server: return "Server error"
+        case .tunnelUnreachable: return "Can't reach the tunnel"
+        case .pairingDeclined: return "Pairing declined"
+        case .pairingExpired: return "Pairing code expired"
+        case .tunnelRequired: return "Pair with a QR code"
         case .other: return "Something went wrong"
         }
     }
@@ -93,6 +113,19 @@ public enum ConnectProblem: Error, Sendable, Equatable, CustomStringConvertible 
         case .server(let status, let m):
             return "The workspace had a problem (HTTP \(status))\(Self.paren(m)). Try again; if it keeps "
                 + "happening, tell its operator."
+        case .tunnelUnreachable(let host, let detail):
+            return "This phone couldn't reach \(host)'s encrypted tunnel\(Self.paren(detail)). Check that the phone is "
+                + "online, then try again. If it keeps happening, the workspace's tunnel or its relay may be down: "
+                + "its admin sees the tunnel's state in the admin tile."
+        case .pairingDeclined:
+            return "The computer said the codes don't match, so this phone wasn't added. Make a new code on the "
+                + "computer (settings → add a device) and compare again. If the codes really differed, someone else "
+                + "may have tried to use your code."
+        case .pairingExpired:
+            return "The pairing ran out of time before the computer confirmed it. Make a new code on the computer "
+                + "(settings → add a device), scan it, and confirm the code there within two minutes."
+        case .tunnelRequired:
+            return SignInOptions.pairingOnly
         case .other(let m):
             return m
         }
@@ -124,6 +157,10 @@ public enum ConnectProblem: Error, Sendable, Equatable, CustomStringConvertible 
             self = .other("That isn't a workspace address: \(i.reason).")
         case let l as SignInLink.Invalid:
             self = .other(l.description)
+        case let t as TunnelLink.Invalid:
+            self = .other(t.description)
+        case let p as PairingFailure:
+            self = Self.pairing(p, host: host)
         case is JSONParseError, is DeviceLogin.Invalid:
             self = .notXbin(host: host, detail: "its answer isn't what an xbin workspace sends")
         default:
@@ -211,8 +248,28 @@ public enum ConnectProblem: Error, Sendable, Equatable, CustomStringConvertible 
         }
     }
 
+    /// A pairing that ended without a device (``PairingFailure``).
+    static func pairing(_ p: PairingFailure, host: String) -> ConnectProblem {
+        switch p {
+        case .rejected(.mismatch, _): return .pairingDeclined
+        case .rejected(.expired, _), .timedOut: return .pairingExpired
+        case .rejected(.limit, let m):
+            return .account("Can't add this device: " + (m.isEmpty ? deviceLimitText : m))
+        case .rejected(.refused, let m): return .codeRefused(detail: m)
+        case .rejected(.other(let r), let m): return .other(m.isEmpty ? "The workspace ended the pairing (\(r))." : m)
+        case .handshake(let m): return .codeRefused(detail: m)
+        case .unreachable(let m): return .tunnelUnreachable(host: host, detail: m)
+        case .protocolError(let m): return .notXbin(host: host, detail: m)
+        }
+    }
+
+    /// The device limit, when the server gave no words of its own.
+    public static let deviceLimitText = "this account has as many apps connected as the workspace allows. Remove one "
+        + "under Devices on a computer (settings → devices), or ask an admin to raise your limit."
+
     static func signIn(_ s: SignInError, host: String) -> ConnectProblem {
         switch s {
+        case .tunnelRequired(let m): return .tunnelRequired(m)
         case .throttled: return .throttled
         case .cancelled: return .other(s.description)
         case .server(let e): return api(e, host: host)
@@ -236,6 +293,7 @@ public enum ConnectProblem: Error, Sendable, Equatable, CustomStringConvertible 
 
     /// A non-2xx answer from a route the app needs.
     static func api(_ e: APIError, host: String) -> ConnectProblem {
+        if e.isTunnelRequired { return .tunnelRequired(e.message) }
         switch e.status {
         case 429: return .throttled
         case 500...599: return .server(status: e.status, message: e.message)

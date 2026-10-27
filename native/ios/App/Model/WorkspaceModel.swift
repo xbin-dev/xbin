@@ -19,6 +19,8 @@ final class WorkspaceModel: Identifiable {
     /// its tunnel's loopback forwarder. Everything for this workspace goes
     /// through it; ``origin`` stays the workspace's public identity.
     let transport: any WorkspaceTransport
+    /// The same object as `transport`: what an upgrade to the tunnel moves.
+    @ObservationIgnored private let switchable: SwitchableTransport
 
     var whoami: Whoami?
     var catalog = Catalog(tiles: [])
@@ -78,19 +80,23 @@ final class WorkspaceModel: Identifiable {
 
     init(record: WorkspaceRecord, transport: (any WorkspaceTransport)? = nil, keys: any DeviceKeyStore = EnclaveKeyStore(),
          sessions: any SessionStore = KeychainSessionStore()) {
-        // The tunnel's Keychain item is the source of truth (D204): a record
-        // an older app saved without its `tunnel` gets it back, and one whose
-        // item is gone (a restore onto another phone) goes direct.
+        // A tunnelled record goes through its tunnel (D204), with the keys of
+        // its Keychain item (KeychainTunnelVault.reconcile gave a record an
+        // older app saved its `tunnel` back); one whose item is gone (a
+        // restore onto another phone) goes direct.
         var record = record
-        let secrets = transport == nil ? TunnelKeyStore.read(record.id) : nil
-        if let secrets, record.tunnel == nil {
-            record.tunnel = secrets.info(port: nil)
-        } else if transport == nil, secrets == nil, record.tunnel != nil {
-            record.tunnel = nil
+        let secrets = transport == nil && record.tunnel != nil ? KeychainTunnelVault.read(record.id) : nil
+        if transport == nil, record.tunnel != nil, secrets == nil { record.tunnel = nil }
+        let chosen = transport ?? Self.transport(for: record, secrets: secrets)
+        // The forwarder's port, kept from now on (pages keep their origin).
+        if let t = chosen as? TunnelTransport, record.tunnel != nil, record.tunnel?.port != t.address.port {
+            record.tunnel?.port = t.address.port
         }
         id = record.id
         self.record = record
-        let transport = transport ?? Self.transport(for: record, secrets: secrets)
+        let switchable = SwitchableTransport(chosen)
+        self.switchable = switchable
+        let transport: any WorkspaceTransport = switchable
         self.transport = transport
         let auth = WorkspaceAuth(record: record, transport: transport, keys: keys, sessions: sessions,
                                  clientHeader: AppInfo.clientHeader)
@@ -110,7 +116,7 @@ final class WorkspaceModel: Identifiable {
     }
 
     /// Whether requests go through the workspace's tunnel.
-    var isTunnelled: Bool { transport is TunnelTransport }
+    var isTunnelled: Bool { switchable.current is TunnelTransport }
 
     /// The tunnel's state (`.direct` without one).
     var tunnelStatus: TunnelStatus { TunnelManager.shared.status(of: id) }
@@ -155,9 +161,16 @@ final class WorkspaceModel: Identifiable {
     }
 
     func update(record r: WorkspaceRecord) {
+        let wasTunnelled = record.tunnel != nil
         record = r
         Task { await auth.update(record: r) }
         AppModel.shared.save()
+        // Upgraded to the workspace's tunnel (D204 §9, upgradeToTunnelIfDue):
+        // every request from now on goes through it.
+        if !wasTunnelled, r.tunnel != nil, !isTunnelled, let s = KeychainTunnelVault.read(id),
+           let t = TunnelManager.shared.transport(for: r, secrets: s) {
+            switchable.switchTo(t)
+        }
     }
 
     var agents: AgentClient { AgentClient(transport: AgentSessionTransport(auth: auth, transport: transport)) }
@@ -197,6 +210,7 @@ final class WorkspaceModel: Identifiable {
             await refreshBranding()
             await refreshSessions()
             await probePartitionsPage()
+            await upgradeToTunnelIfDue()
             lastActivity = Date()
         } catch let e as SignInError {
             signInProblem = e
@@ -590,10 +604,10 @@ final class WorkspaceModel: Identifiable {
     /// in the Keychain item and the record — how a relay rotation or a new
     /// ticket reaches the device.
     func refreshTunnel() async {
-        guard var s = TunnelKeyStore.read(id), let j = try? await auth.json(APIRequest("GET", TunnelClientConfig.path)),
+        guard var s = KeychainTunnelVault.read(id), let j = try? await auth.json(APIRequest("GET", TunnelClientConfig.path)),
               let c = try? TunnelClientConfig(json: j) else { return }
         s.apply(c)
-        TunnelKeyStore.write(s, workspace: id)
+        await KeychainTunnelVault().save(s, workspace: id)
         TunnelManager.shared.secretsChanged(id, s)
         var r = record
         let info = s.info(port: r.tunnel?.port)
@@ -624,6 +638,7 @@ final class WorkspaceModel: Identifiable {
         await auth.signOut()
         await EnclaveKeyStore().deleteKey(workspace: id)
         await TunnelManager.shared.forget(id)
+        await KeychainTunnelVault().delete(workspace: id)
         if let chrome = Self.chromeStoreID(id) {
             chromeStoreCache = nil
             _ = WKWebsiteDataStore(forIdentifier: chrome) // (as below: WebKit must have seen it)

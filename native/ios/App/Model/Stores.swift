@@ -49,7 +49,7 @@ enum WorkspaceListFile {
     }
 
     /// Whether the saved list is absent or decodes: a cleanup may trust
-    /// that its workspaces are all there are (TunnelManager.collectGarbage).
+    /// that its workspaces are all there are (KeychainTunnelVault.reconcile).
     static var readCleanly: Bool {
         guard let d = try? Data(contentsOf: url) else { return !FileManager.default.fileExists(atPath: url.path) }
         return (try? WorkspaceList.decode(d)) != nil

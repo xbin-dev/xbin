@@ -246,7 +246,7 @@ final class WebTileController: NSObject {
         Task {
             // A tunnelled workspace's forwarder comes back first (D204): only
             // then is it known whether it kept its port.
-            if transport is TunnelTransport { _ = try? await transport.ready() }
+            if workspace.isTunnelled { _ = try? await transport.ready() }
             if transport.generation != loadedGeneration {
                 // The workspace's address moved: a chrome page opens afresh
                 // there (a new ticket), a tile page reloads (its own

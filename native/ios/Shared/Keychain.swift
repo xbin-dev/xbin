@@ -57,17 +57,17 @@ enum Keychain {
         SecItemDelete(base(service: service, account: account, group: group) as CFDictionary)
     }
 
-    /// The accounts that hold an item of `service` (a cleanup's census).
-    static func accounts(service: String, group: String? = nil) -> [String] {
-        var q: [String: Any] = [
+    /// Every account with an item under `service` (the tunnel keys' sweep).
+    static func accounts(service: String) -> [String] {
+        let q: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecReturnAttributes as String: true,
             kSecMatchLimit as String: kSecMatchLimitAll,
         ]
-        if let group { q[kSecAttrAccessGroup as String] = group }
         var out: CFTypeRef?
-        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let items = out as? [[String: Any]] else { return [] }
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
+              let items = out as? [[String: Any]] else { return [] }
         return items.compactMap { $0[kSecAttrAccount as String] as? String }
     }
 }

@@ -32,10 +32,17 @@ public struct WorkspaceRecord: Sendable, Hashable, Identifiable {
     public var branding: BrandingCache?
     public var addedAt: Date
     public var lastUsedAt: Date?
+    /// The workspace's app tunnel, when this device is paired to it (D204):
+    /// requests then go through it, not to ``server``, which stays the
+    /// workspace's identity (links, Handoff, what device login signs). nil
+    /// in a record from before tunnels — or one an older app saved, which
+    /// drops the field; the Keychain item (``TunnelSecrets``) restores it.
+    public var tunnel: TunnelInfo?
 
     public init(id: String = UUID().uuidString.lowercased(), server: ServerOrigin, user: WorkspaceUser,
                 deviceId: String? = nil, deviceOrigin: String? = nil, deviceName: String? = nil,
-                branding: BrandingCache? = nil, addedAt: Date = Date(), lastUsedAt: Date? = nil) {
+                branding: BrandingCache? = nil, addedAt: Date = Date(), lastUsedAt: Date? = nil,
+                tunnel: TunnelInfo? = nil) {
         self.id = id.lowercased()
         self.server = server
         self.user = user
@@ -45,7 +52,13 @@ public struct WorkspaceRecord: Sendable, Hashable, Identifiable {
         self.branding = branding
         self.addedAt = addedAt
         self.lastUsedAt = lastUsedAt
+        self.tunnel = tunnel
     }
+
+    /// Whether what this device sends the workspace is encrypted on the way:
+    /// through its tunnel always (Noise inside iroh's QUIC), else as its
+    /// address says (``ServerOrigin/isEncryptedInTransit``).
+    public var isEncryptedInTransit: Bool { tunnel != nil || server.isEncryptedInTransit }
 
     /// Whether `ref` — the `<ws>` of an `xbin://` link — names this
     /// workspace: its ``id``, or its server's `host[:port]`
@@ -166,7 +179,7 @@ public struct WorkspaceList: Sendable, Hashable {
 
 extension WorkspaceRecord: Codable {
     enum CodingKeys: String, CodingKey {
-        case id, server, user, deviceId, deviceOrigin, deviceName, branding, addedAt, lastUsedAt
+        case id, server, user, deviceId, deviceOrigin, deviceName, branding, addedAt, lastUsedAt, tunnel
     }
 
     public init(from decoder: Decoder) throws {
@@ -180,6 +193,9 @@ extension WorkspaceRecord: Codable {
         branding = try c.decodeIfPresent(BrandingCache.self, forKey: .branding)
         addedAt = try c.decodeIfPresent(Int64.self, forKey: .addedAt).map(Date.init(unixMillis:)) ?? Date(timeIntervalSince1970: 0)
         lastUsedAt = try c.decodeIfPresent(Int64.self, forKey: .lastUsedAt).map(Date.init(unixMillis:))
+        // A damaged tunnel field costs the tunnel (restored from the
+        // Keychain), never the record.
+        tunnel = (try? c.decodeIfPresent(TunnelInfo.self, forKey: .tunnel)) ?? nil
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -193,6 +209,7 @@ extension WorkspaceRecord: Codable {
         try c.encodeIfPresent(branding, forKey: .branding)
         try c.encode(addedAt.unixMillis, forKey: .addedAt)
         try c.encodeIfPresent(lastUsedAt?.unixMillis, forKey: .lastUsedAt)
+        try c.encodeIfPresent(tunnel, forKey: .tunnel)
     }
 }
 

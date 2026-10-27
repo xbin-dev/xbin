@@ -86,6 +86,8 @@ final class SceneModel: Identifiable {
         switch link {
         case .enroll(let server, let code):
             addRequest = .enroll(server: server, code: code)
+        case .tunnelEnroll(let link):
+            addRequest = .tunnelEnroll(link)
         case .sso, .ssoError:
             // The web authentication session delivers these to its caller.
             break

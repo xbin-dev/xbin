@@ -14,7 +14,9 @@ covers, in Swift 6 mode:
   D204) — every file but `Model/AppTransport.swift`, `Model/DeviceKeys.swift`,
   `Shell/ScannerAndSSO.swift`, `Model/LoopbackForwarder.swift` and
   `Model/TunnelEndpoint.swift` (URLSession delegates, the Secure Enclave,
-  VisionKit/AuthenticationServices, Network.framework, IrohLib);
+  VisionKit/AuthenticationServices, Network.framework, IrohLib), and
+  `Model/TunnelPairing.swift` (CryptoKit: `native/tools/app-check` compiles
+  and runs it; `Stubs/App/AppStubs.swift` mirrors its signatures);
 - `FILES` in `run.sh`: a native tile's escape hatches (`Tiles/TileAttach`,
   `TileTerminal`, `TileCanvas`, `TileHatches`; `Terminal/KeyRow`, the key
   row's bar, shared with the shell's terminal), a screen's card

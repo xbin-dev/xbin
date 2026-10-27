@@ -288,7 +288,12 @@ private struct SignInProblemBar: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(verbatim: problem.description).font(.footnote)
             HStack {
-                if problem.needsEnrollment || problem == .ssoRequired {
+                if case .tunnelRequired = problem {
+                    // QR pairing only (D204): Log in, to scan a pairing code;
+                    // the pairing replaces this record.
+                    Button("Pair again") { scene.addRequest = .pairAgain(workspace: workspace.id) }
+                        .xbinPrimary()
+                } else if problem.needsEnrollment || problem == .ssoRequired {
                     Button("Sign in again") {
                         scene.addRequest = .signInAgain(workspace: workspace.id, server: workspace.origin)
                     }

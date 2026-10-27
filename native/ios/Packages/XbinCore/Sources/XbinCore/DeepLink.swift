@@ -11,6 +11,7 @@ import Foundation
 /// | `xbin://<ws>/agent/<session>` | ``agent(workspace:session:)`` |
 /// | `xbin://<ws>/xbin/<page>` | ``page(workspace:page:)`` |
 /// | `xbin://enroll?u=<server>&c=<code>` | ``enroll(server:code:)`` |
+/// | `xbin://enroll?u&c&tv=1&t&k&p[&r][&rq=1]` | ``tunnelEnroll(_:)`` (``TunnelLink``) |
 /// | `xbin://sso?ticket=<ticket>` | ``sso(ticket:)`` |
 /// | `xbin://sso?error=<code>` | ``ssoError(code:)`` |
 ///
@@ -32,6 +33,10 @@ public enum DeepLink: Sendable, Hashable {
     case page(workspace: String, page: XbindPage)
     /// A device enrollment QR code from a signed-in browser (§5).
     case enroll(server: ServerOrigin, code: String)
+    /// A device pairing through the workspace's app tunnel (D204,
+    /// native/spec/tunnel.md §2): an enrollment link with the tunnel's
+    /// parameters, all of them well-formed or the link is refused.
+    case tunnelEnroll(TunnelLink)
     /// The end of an SSO sign-in (`ASWebAuthenticationSession` callback):
     /// a one-shot ticket (2 minutes), redeemed with the app's PKCE verifier
     /// (``TicketRedeemRequest``).
@@ -47,6 +52,9 @@ public enum DeepLink: Sendable, Hashable {
     /// Why a link was refused.
     public struct Invalid: Error, Equatable, Sendable, CustomStringConvertible {
         public var reason: String
+        /// A tunnel link's refusal, as the person is told it (an update, or
+        /// a damaged link).
+        public var tunnel: TunnelLink.Invalid? = nil
         public var description: String { "invalid xbin link: \(reason)" }
     }
 
@@ -54,7 +62,7 @@ public enum DeepLink: Sendable, Hashable {
     public var workspace: String? {
         switch self {
         case .workspace(let w), .tile(let w, _, _), .terminal(let w, _), .agent(let w, _), .page(let w, _): return w
-        case .enroll, .sso, .ssoError: return nil
+        case .enroll, .tunnelEnroll, .sso, .ssoError: return nil
         }
     }
 
@@ -75,6 +83,14 @@ public enum DeepLink: Sendable, Hashable {
             guard let code = query["c"], !code.isEmpty else { throw Invalid(reason: "enroll: c (the code) missing") }
             let server: ServerOrigin
             do { server = try ServerOrigin(string: u) } catch { throw Invalid(reason: "enroll: \(error)") }
+            if TunnelLink.isTunnel(query: query) {
+                do {
+                    self = .tunnelEnroll(try TunnelLink(server: server, code: code, query: query))
+                } catch let e as TunnelLink.Invalid {
+                    throw Invalid(reason: "enroll: \(e)", tunnel: e)
+                }
+                return
+            }
             self = .enroll(server: server, code: code)
             return
         case "sso":
@@ -155,6 +171,8 @@ public enum DeepLink: Sendable, Hashable {
             return "xbin://\(w)/\(page.link)"
         case .enroll(let server, let code):
             return "xbin://enroll?u=\(Self.encodeQueryValue(server.origin))&c=\(Self.encodeQueryValue(code))"
+        case .tunnelEnroll(let link):
+            return link.string
         case .sso(let t):
             return "xbin://sso?ticket=\(Self.encodeQueryValue(t))"
         case .ssoError(let code):

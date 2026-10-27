@@ -32,7 +32,7 @@
 		</dict>
 	</array>
 	<key>ITSAppUsesNonExemptEncryption</key>
-	<false/>
+	<true/>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSAppTransportSecurity</key>
@@ -45,7 +45,7 @@
 	<key>NSFaceIDUsageDescription</key>
 	<string>Face ID unlocks this device's key for your workspaces.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Reach workspaces on your local network.</string>
+	<string>Connect directly to your workspaces on your local network, including through their encrypted tunnel.</string>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NSUserActivityTypes</key>

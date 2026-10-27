@@ -240,6 +240,8 @@ jobs:
       - name: Swift (swiftly)
         run: native/ios/scripts/ci-linux-swift.sh
       - run: make swift-test
+      - name: the app's UIKit-free code (push and tunnel crypto, the terminal glue)
+        run: make app-check
       - run: make native-check
 
   native-stubcheck:

@@ -17,15 +17,23 @@ enum AddRequest: Equatable, Identifiable {
     case blank
     /// An `xbin://enroll` link (scanned or opened from outside).
     case enroll(server: ServerOrigin, code: String)
+    /// A pairing link through the workspace's tunnel (D204).
+    case tunnelEnroll(TunnelLink)
     /// "Sign in again" on a workspace whose device can't sign in any more:
     /// Log in, on its address; the new sign-in replaces that record.
     case signInAgain(workspace: String, server: ServerOrigin)
+    /// "Pair again" on a workspace that accepts the app only over its
+    /// tunnel (D204): Log in, to scan a pairing code; the new pairing
+    /// replaces that record.
+    case pairAgain(workspace: String)
 
     var id: String {
         switch self {
         case .blank: return "blank"
         case .enroll(let s, let c): return "\(s.origin)|\(c)"
+        case .tunnelEnroll(let l): return "tunnel|\(l.server.origin)|\(l.code)"
         case .signInAgain(let w, _): return "again|\(w)"
+        case .pairAgain(let w): return "pair|\(w)"
         }
     }
 }
@@ -74,16 +82,21 @@ final class AppModel {
     private struct WeakScene { weak var scene: SceneModel? }
 
     private init() {
+        // The iroh runtime (D204), before any workspace picks its transport.
+        TunnelManager.shared.installRuntime()
         let leftovers = WorkspaceListFile.freshLeftovers()
         let list = WorkspaceListFile.load()
         unreadable = list.unreadable
-        workspaces = list.workspaces.map { WorkspaceModel(record: $0) }
+        // Tunnels (D204): a record an older app saved gets its tunnel back
+        // from the Keychain; keys of workspaces that are gone are swept (not
+        // in a Debug fresh start, whose list is empty on purpose; not when
+        // the saved list couldn't be read — its workspaces may all be there;
+        // never those of records this version can't read).
+        let unread = Set(unreadable.compactMap { $0["id"]?.stringValue?.lowercased() })
+        let records = WorkspaceListFile.isFreshStart ? list.workspaces
+            : KeychainTunnelVault.reconcile(list.workspaces, sweep: WorkspaceListFile.readCleanly, keeping: unread)
+        workspaces = records.map { WorkspaceModel(record: $0) }
         lastSelectedID = list.selected ?? workspaces.first?.id
-        // Tunnel secrets of workspaces the list doesn't hold (D204): a
-        // reinstall's, a crashed pairing's. Records this version can't read
-        // keep theirs.
-        let kept = Set(workspaces.map(\.id) + unreadable.compactMap { $0["id"]?.stringValue?.lowercased() })
-        TunnelManager.collectGarbage(keeping: kept, listReadCleanly: WorkspaceListFile.readCleanly)
         if !WorkspaceListFile.isFreshStart, let d = UserDefaults.standard.data(forKey: "recents"),
            let r = try? JSONDecoder().decode([Recent].self, from: d) { recents = r }
         runtimeGate = RemoteConfig.gate()

@@ -136,3 +136,41 @@ import Testing
         #expect(AddDevice.grouped("") == "")
     }
 }
+
+/// D204: "Add another device" when the workspace runs app tunnels — the
+/// app asks for a tunnel code, keeps the pairing link whole, and is the
+/// confirming side.
+@Suite struct AddDeviceTunnelTests {
+    let origin = try! ServerOrigin(string: "https://xbin.example.com")
+
+    @Test func asksForATunnelCode() {
+        #expect(body(AddDevice.request(tunnel: true)) == ["tunnel": true])
+        #expect(body(AddDevice.request(password: "pw", tunnel: true)) == ["password": "pw", "tunnel": true])
+    }
+
+    @Test func keepsThePairingLinkWhole() {
+        let link = TunnelFixture.link + "&r=tok&rq=1"
+        let c = try! EnrollCode(json: ["code": .string(TunnelFixture.code), "url": .string(link), "origin": "https://xbin.example.com",
+                                       "expires": 1_790_000_600,
+                                       "tunnel": ["pairing": "p1", "ticket": .string(TunnelFixture.ticket), "required": true]])
+        #expect(c.pairing == "p1" && c.tunnelRequired)
+        #expect(AddDevice.link(for: c, origin: origin) == link)
+        #expect(AddDevice.outcome(json(200, ["code": .string(TunnelFixture.code), "url": .string(link),
+                                             "tunnel": ["pairing": "p1", "required": true], "expires": 1_790_000_600]),
+                                  origin: origin)
+            == .pairing(link: link, pairing: "p1", expires: Date(timeIntervalSince1970: 1_790_000_600), required: true))
+        // A tunnel link without a pairing to confirm is shown as it is.
+        #expect(AddDevice.outcome(json(200, ["code": .string(TunnelFixture.code), "url": .string(link)]), origin: origin)
+            == .code(link: link, code: TunnelFixture.code, expires: nil))
+        // A pairing whose link is damaged is never rebuilt as a classic one.
+        if case .failed(let e) = AddDevice.outcome(json(200, ["code": .string(TunnelFixture.code), "url": "xbin://enroll?u=x&c=y&tv=1",
+                                                              "tunnel": ["pairing": "p1"]]), origin: origin) {
+            #expect(e.message.contains("damaged"))
+        } else { Issue.record("a damaged pairing link was accepted") }
+    }
+
+    @Test func deviceLimit() {
+        #expect(AddDevice.outcome(json(409, ["error": "you have 1 device; this workspace allows 1 per person", "limit": 1, "count": 1]),
+                                  origin: origin) == .atLimit("you have 1 device; this workspace allows 1 per person"))
+    }
+}

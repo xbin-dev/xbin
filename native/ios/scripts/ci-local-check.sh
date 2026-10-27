@@ -237,7 +237,8 @@ for n, nat in sorted(natives.items()):
             check("ci-linux-swift.sh" in str((st.get("with") or {}).get("key", "")), "ci.yml %s job: the swiftly cache is keyed on ci-linux-swift.sh (its pins)" % n)
     if "make swift-test" in json.dumps(nat) or "make swift-stubcheck" in json.dumps(nat):
         check("native/ios/scripts/ci-linux-swift.sh" in "\n".join(runs(s) for s in nat.get("steps", [])), "ci.yml %s job: Swift (ci-linux-swift.sh) before the swift checks" % n)
-for want in ("native/ios/scripts/ci-linux-swift.sh", "make swift-test", "make swift-stubcheck", "make native-check", "native/ios/scripts/ci-local-check.sh"):
+for want in ("native/ios/scripts/ci-linux-swift.sh", "make swift-test", "make app-check", "make swift-stubcheck", "make native-check",
+             "native/ios/scripts/ci-local-check.sh"):
     check(want in nruns, "ci.yml's native jobs run %s" % want)
 bash32 = [n for n, j in natives.items() for s in j.get("steps", []) if str((s.get("env") or {}).get("CI_LOCAL_BASH32", "")) == "1"]
 check(len(bash32) >= 1, "ci.yml's native jobs run ci-local-check.sh's bash 3.2 dry tests (CI_LOCAL_BASH32)")
