@@ -350,7 +350,7 @@ final class XbinOnboardingTests: XCTestCase {
     /// pairing-only workspace's sign-in page, connecting, the code ("Confirm
     /// on your computer"), signing in, and the failures.
     @MainActor
-    func test11PairingGallery() async throws {
+    func test12PairingGallery() async throws {
         let states: [(state: String, marker: (E2E) -> XCUIElement)] = [
             ("ask", { $0.app.alerts.firstMatch }),
             ("required", { $0.containing("only accepts paired devices") }),

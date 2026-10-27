@@ -1054,7 +1054,7 @@ afterwards), an unreachable address ("Can't connect"), a code the
 workspace never minted ("Code refused"), "Sign in again" replacing its
 workspace after the device is removed, and `test10Gallery`: every
 onboarding screen in light and dark (`-XbinAppearance`), as
-`gallery-<light|dark>-NN-<screen>.png`; `test11PairingGallery` every app
+`gallery-<light|dark>-NN-<screen>.png`; `test12PairingGallery` every app
 tunnel pairing screen (D204) from Debug builds' `-XbinPairingDemo <state>`
 (`ask`, `required`, `connecting`, `sas`, `signingIn`, `declined`,
 `expired`, `unreachable`, `limit`: no server or tunnel behind them), as

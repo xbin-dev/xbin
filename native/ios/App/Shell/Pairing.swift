@@ -125,7 +125,7 @@ struct PairingPage: View {
                     Text("waiting…").foregroundStyle(.secondary)
                 }
                 if let expires {
-                    Text("The code expires \(expires, style: .relative)").font(.footnote).foregroundStyle(.secondary)
+                    Text("The code expires in \(expires, style: .relative)").font(.footnote).foregroundStyle(.secondary)
                 }
             }
             .frame(maxWidth: .infinity)
