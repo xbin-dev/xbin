@@ -109,7 +109,9 @@ type Org struct {
 	SSOGroups []GroupRule `json:"ssoGroups,omitempty"`
 	// NetSets are the attached network sets (D54; ws-admin, SetOrgNetSets).
 	NetSets []string `json:"netSets,omitempty"`
-	Created int64    `json:"created"`
+	// Limits are the per-tile resource ceilings its admins approve within (D203; ws-admin, orglimits.go).
+	Limits  OrgLimits `json:"limits,omitempty"`
+	Created int64     `json:"created"`
 }
 
 // Member returns the membership entry for a user, if any.
@@ -329,6 +331,7 @@ func (s *Store) UpsertOrg(o Org) (*Org, error) {
 		o.Policy = existing.Policy
 		o.SSOGroups = existing.SSOGroups
 		o.NetSets = existing.NetSets
+		o.Limits = existing.Limits
 	} else {
 		o.Created = time.Now().Unix()
 	}
