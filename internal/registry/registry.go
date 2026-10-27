@@ -86,10 +86,14 @@ type Manifest struct {
 	AlwaysOn bool `json:"alwaysOn,omitempty"`
 	// VM runs the backend in a VM sandbox — a Firecracker microVM, root in its
 	// own kernel (plans/vm-sandbox.md): true, or {"memory": "1G", "vcpus": 2}
-	// (clamped by the workspace's VM policy). Needs isolation, KVM and an
-	// admin who enabled VM backends; otherwise the backend fails to start
-	// with the reason (never a silent namespace fallback). vm.go.
+	// (above the workspace's VM policy, an ask an approver approves: D203).
+	// Needs isolation, KVM and an admin who enabled VM backends; otherwise the
+	// backend fails to start with the reason (never a silent namespace
+	// fallback). vm.go.
 	VM *VMOpt `json:"vm,omitempty"`
+	// Limits asks for more than the workspace's defaults: memory, the scope's
+	// disk, the tile sandboxes' total — only an ask (D203, limits.go).
+	Limits *LimitsAsk `json:"limits,omitempty"`
 	// Native names the tile's native-app UI entry (docs/elements.md §Native
 	// app UI): a tile-relative module path, or false to opt out of the
 	// native.js convention. Never a manifest error (native.go).
@@ -493,6 +497,8 @@ func (r *Registry) Rescan() error {
 				c.ManifestErr = err.Error()
 			} else if err := ValidateInterfaces(c.Manifest); err != nil {
 				c.ManifestErr = err.Error() // the same; binding refuses the slot
+			} else if err := ValidateLimits(c.Manifest); err != nil {
+				c.ManifestErr = err.Error() // informational: the values that parsed still ask
 			}
 		}
 		if _, err := os.Stat(filepath.Join(p, "index.html")); err == nil {

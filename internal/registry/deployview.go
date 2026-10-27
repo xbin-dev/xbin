@@ -151,6 +151,7 @@ func composeManifest(tile, inbound, code Manifest) Manifest {
 		Uses:       tile.Uses,
 		Interfaces: tile.Interfaces,
 		Deps:       tile.Deps,
+		Limits:     tile.Limits, // D203: an ask of the tile's, like uses
 		// the inbound surface
 		Template: inbound.Template,
 		Exposes:  inbound.Exposes,

@@ -12,7 +12,7 @@ import (
 // fields come from the work tree, the inbound surface from the primary's
 // code, deployment-level fields from the deployment's own code.
 var fieldKinds = map[string]string{
-	"Uses": "tile", "Interfaces": "tile", "Deps": "tile",
+	"Uses": "tile", "Interfaces": "tile", "Deps": "tile", "Limits": "tile",
 	"Template": "inbound", "Exposes": "inbound", "Expose": "inbound", "Provides": "inbound", "Chrome": "inbound",
 	"Runtime": "code", "Entry": "code", "Setup": "code", "AlwaysOn": "code", "VM": "code", "Inject": "code", "Native": "code",
 	"Partition": "code", "PartitionMail": "code", "PartitionNote": "code",
