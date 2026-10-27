@@ -1,7 +1,7 @@
 /**
  * <bx-devices> — "my devices" (docs/auth.md §Device login): the xbin app's
  * devices enrolled for the signed-in user. Lists them (name, platform, last
- * sign-in) with each one's push registration (GET /devices/push: what it is
+ * sign-in, whether it pairs over an iroh tunnel) with each one's push registration (GET /devices/push: what it is
  * notified about, when it was last sent one, whether the relay wants a new
  * handle, its Live Activities — whether xbind may start one for a long agent
  * turn, and the cards it follows — removable on its own), removes one (its app sessions and push
@@ -20,6 +20,17 @@
  * straight to the code) or my account → devices…; a modal over the
  * workspace that removes itself on close. The shell is chrome: these calls
  * ride the session cookie.
+ *
+ * App tunnels (D204, /docs/app-tunnel.md): the code is asked for with
+ * {tunnel: true}; when the answer carries `tunnel` (iroh tunneling is on),
+ * /vendor/bx-pair.js is imported on demand and draws the bigger QR code, the
+ * confirmation code and its Codes match / They don't, and — at the person's
+ * device limit — which device the new phone replaces; it also offers a
+ * classic code for an older app. An xbind without tunnels answers a classic
+ * code and the panel works as before (this file imports nothing new
+ * statically, so it loads on one). The person's limit (GET /devices {limit,
+ * count}) shows as "N of M devices"; at it, the add button gives way to the
+ * rows' remove — or, with tunnels on, to "replace a device…".
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
@@ -52,6 +63,15 @@ export function phoneOrigin(v) {
 }
 const enrollLink = (addr, code) => `xbin://enroll?u=${encodeURIComponent(addr)}&c=${code}`;
 
+// The pairing element (D204), imported on first use: only an xbind with app
+// tunnels answers a tunnel code, and only that xbind ships the module — null
+// when it won't load (the panel falls back to a classic code).
+let pairing = null;
+function pairModule() {
+  pairing ??= import('/vendor/bx-pair.js').then(() => true, () => { pairing = null; return false; });
+  return pairing;
+}
+
 function ago(t) {
   if (!t) return 'never';
   const s = Math.max(0, Date.now() / 1000 - t);
@@ -82,7 +102,10 @@ export class BxDevices extends LitElement {
   static properties = {
     _devices: { state: true }, // null = loading
     _push: { state: true },    // GET /devices/push {enabled, devices:[{deviceId, kinds, lastSent, needsNewHandle, pushToStart, activities}]}; null = unavailable
-    _enroll: { state: true },  // {code, url, base, origin, addr, expires, qr, known:Set, added} — url/qr carry addr
+    _enroll: { state: true },  // {code, url, base, origin, addr, expires, qr, known:Set, added} — url/qr carry addr; pair: <bx-pair> draws it (a tunnel code)
+    _pairEnd: { state: true }, // the <bx-pair> flow ended (enrolled, rejected, abandoned, expired): add is offered again
+    _lim: { state: true },     // GET /devices {limit, count} (D204) — null from an xbind without device limits
+    _tunnelOn: { state: true }, // GET /login/methods tunnel.enabled: at the limit a tunnel pairing may replace a device
     _addrErr: { state: true }, // the typed phone address isn't an http(s) origin
     _stepUp: { state: true },  // {mode: 'password'|'signin', msg, retry} — the server asked to re-prove it's you
     _confirm: { state: true }, // device id awaiting "remove?" confirmation
@@ -148,6 +171,12 @@ export class BxDevices extends LitElement {
     .hint.bad { color: var(--bx-danger, #FF7A7A); }
     .or { margin-top: 8px; }
     a { color: var(--bx-link, #8C9BFF); }
+    /* a tunnel code's QR code is bigger (D204) */
+    .box.wide { width: min(560px, calc(100vw - 32px)); }
+    bx-pair { margin-top: 12px; }
+    .foot .count { margin-right: auto; align-self: center; font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); color: var(--bx-muted, #A3A6B6); font-variant-numeric: tabular-nums; }
+    .foot .count.at { color: var(--bx-warn, #F2994A); }
+    .foot { flex-wrap: wrap; }
   `];
 
   #onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); this.close(); } };
@@ -157,9 +186,15 @@ export class BxDevices extends LitElement {
     document.addEventListener('keydown', this.#onKey, true);
     this._devices = null;
     // the list first: the add flow tells a new device from the ones known
-    this._load().then(() => { if (this.startAdd) this.addDevice(); });
+    Promise.all([this._load(), this._loadTunnel()]).then(() => { if (this.startAdd) this.addDevice(); });
   }
-  addDevice() { if (!this._enroll || this._enroll.added) this._add(); }
+  // At the limit only a tunnel pairing can add (it names the device it
+  // replaces); otherwise the panel opens on the list and its remove.
+  addDevice() {
+    if (this._enroll && !this._enroll.added && !this._pairEnd) return;
+    if (this._lim && this._lim.count >= this._lim.limit && !(this._tunnelOn && this._lim.limit > 0)) return;
+    this._add();
+  }
   disconnectedCallback() {
     super.disconnectedCallback();
     document.removeEventListener('keydown', this.#onKey, true);
@@ -170,9 +205,16 @@ export class BxDevices extends LitElement {
   async _load() {
     const push = this._loadPush();
     try {
-      this._devices = (await call('/devices'))?.devices ?? [];
+      const r = await call('/devices');
+      this._devices = r?.devices ?? [];
+      this._lim = Number.isInteger(r?.limit) ? { limit: r.limit, count: Number.isInteger(r.count) ? r.count : this._devices.length } : null;
     } catch (e) { this._err = e.message; this._devices ??= []; }
     await push;
+  }
+  // Whether iroh tunneling is on (GET /login/methods `tunnel`, D204): an
+  // xbind without it says nothing, which is off.
+  async _loadTunnel() {
+    try { this._tunnelOn = !!(await call('/login/methods'))?.tunnel?.enabled; } catch { this._tunnelOn = false; }
   }
   // Push registrations: optional — an xbind without the push plane (or a
   // sign-in that can't hold one) just shows none.
@@ -205,29 +247,40 @@ export class BxDevices extends LitElement {
 
   // Mint a code, draw it, and watch the list (every 2 s while the code is
   // live) for the device it enrolls. A 403 carrying stepUp turns into the
-  // password / sign-in-again prompt instead of an error.
-  async _add(password) {
+  // password / sign-in-again prompt instead of an error. A tunnel code
+  // (D204) is <bx-pair>'s to draw and follow; classic asks for the code an
+  // app from before tunnels scans (refused while the workspace requires the
+  // tunnel — the answer says so).
+  async _add(password, { classic = false } = {}) {
     this._err = null;
     try {
+      const body = classic ? (password ? { password } : null) : { tunnel: true, ...(password ? { password } : {}) };
       const r = await fetch('/api/xbin/devices/enroll-code', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: password ? JSON.stringify({ password }) : '',
+        body: body ? JSON.stringify(body) : '',
       });
       const e = await r.json().catch(() => ({}));
       if (r.status === 403 && e.stepUp) {
-        this._stepUp = { mode: e.stepUp, msg: e.error, retry: !!password };
+        this._stepUp = { mode: e.stepUp, msg: e.error, retry: !!password, classic };
         this._enroll = null;
         clearInterval(this._tick);
         return;
       }
+      if (r.status === 409 && Number.isInteger(e.limit)) this._lim = { limit: e.limit, count: Number.isInteger(e.count) ? e.count : this._lim?.count ?? 0 };
       if (!r.ok) throw new Error(e.error || `error ${r.status}`);
       this._stepUp = null;
+      this._pairEnd = null;
+      clearInterval(this._tick);
+      if (e.tunnel && !classic) {
+        // an xbind with tunnels ships the module; if it won't load, a classic code
+        if (await pairModule()) { this._enroll = { ...e, pair: true }; return; }
+        return this._add(password, { classic: true });
+      }
       const addr = phoneOrigin(savedAddr()) || e.origin;
       const url = addr === e.origin ? e.url : enrollLink(addr, e.code);
       this._addrErr = null;
       this._enroll = { ...e, base: e.url, addr, url, qr: await qrPath(url), known: new Set((this._devices ?? []).map((d) => d.id)), added: null };
       this._now = Date.now() / 1000;
-      clearInterval(this._tick);
       let n = 0;
       this._tick = setInterval(() => this._poll(++n), 1000);
     } catch (err) { this._err = err.message; }
@@ -275,7 +328,7 @@ export class BxDevices extends LitElement {
       <bx-icon class="ico" name="device" size="20"></bx-icon>
       <span class="who">
         <div class="name" title=${d.name}>${d.name}</div>
-        <div class="sub">${d.platform || 'device'} · added ${ago(d.created)} ·
+        <div class="sub">${d.platform || 'device'}${d.tunnel ? html` · <span data-tunnel title="pairs over an iroh tunnel (D204)">iroh tunnel</span>` : ''} · added ${ago(d.created)} ·
           ${d.lastUsed ? html`last sign-in ${ago(d.lastUsed)}${d.lastIP ? ` from ${d.lastIP}` : ''}` : 'not signed in yet'}</div>
         ${this._push ? this._pushLine(this._push.devices?.find((r) => r.deviceId === d.id)) : nothing}
       </span>
@@ -297,7 +350,7 @@ export class BxDevices extends LitElement {
     const s = this._stepUp;
     if (!s) return nothing;
     if (s.mode === 'password') {
-      return html`<form class="enroll" data-stepup="password" @submit=${(e) => { e.preventDefault(); this._add(e.target.pw.value); }}>
+      return html`<form class="enroll" data-stepup="password" @submit=${(e) => { e.preventDefault(); this._add(e.target.pw.value, { classic: s.classic }); }}>
         <div class="steps"><b>Confirm it's you.</b> A device keeps signing in after this browser signs out,
           so adding one needs your password (or a sign-in in the last ten minutes).
           <div class="link"><input name="pw" type="password" autocomplete="current-password" placeholder="your password" required>
@@ -314,6 +367,10 @@ export class BxDevices extends LitElement {
   _enrollBox() {
     const en = this._enroll;
     if (!en) return nothing;
+    if (en.pair) {
+      return html`<bx-pair .code=${en} @bx-pair-state=${(e) => this._pairState(e.detail)} @bx-pair-again=${() => this._add()}
+        @bx-pair-classic=${() => this._add(undefined, { classic: true })}></bx-pair>`;
+    }
     const left = Math.max(0, Math.round(en.expires - (this._now ?? 0)));
     if (en.added) {
       return html`<div class="enroll"><span class="ok"><bx-icon name="ok" label="OK"></bx-icon>${en.added.name} was added.</span>
@@ -343,6 +400,31 @@ export class BxDevices extends LitElement {
     </div>`;
   }
 
+  // <bx-pair> moved on: at the confirmation and once a phone is added (or
+  // replaced one), the list again; any end — add is offered again.
+  _pairState({ state }) {
+    if (state === 'enrolled' || state === 'confirm') this._load();
+    this._pairEnd = ['enrolled', 'rejected', 'abandoned', 'expired'].includes(state) ? state : null;
+  }
+
+  // The foot: "N of M devices", and add — at the limit, the rows' remove
+  // instead (or, with tunnels on, a pairing that replaces one).
+  _foot() {
+    const en = this._enroll;
+    const busy = (en && !en.added && !this._pairEnd) || this._stepUp;
+    const l = this._lim;
+    const at = l && l.count >= l.limit;
+    const words = l ? `${l.count} of ${l.limit} device${l.limit === 1 ? '' : 's'}` : '';
+    const replace = at && this._tunnelOn && l.limit > 0;
+    return html`<div class="foot">
+      ${l ? html`<span class="count ${at ? 'at' : ''}" data-limit title=${at ? 'the most devices this workspace allows you — an admin can raise it' : ''}>${words}${at
+        ? (l.limit === 0 ? ' — this account may not add app devices' : replace ? ' — a new phone replaces one' : ' — remove one to add another') : ''}</span>` : nothing}
+      ${busy || (at && !replace) ? nothing
+        : html`<button class="primary" data-add @click=${() => this._add()}>${replace ? 'replace a device…' : 'add a device'}</button>`}
+      <button @click=${() => this.close()}>close</button>
+    </div>`;
+  }
+
   // Registrations under no enrolled device (the app before it enrolled, a
   // browser, the owner token) — they end with the sign-in that made them.
   _otherPush(list) {
@@ -363,7 +445,7 @@ export class BxDevices extends LitElement {
     const list = this._devices;
     return html`
       <div class="backdrop" @click=${() => this.close()}></div>
-      <div class="box" role="dialog" aria-modal="true" aria-label="my devices">
+      <div class="box ${this._enroll?.pair ? 'wide' : ''}" role="dialog" aria-modal="true" aria-label="my devices">
         <h3>my devices <button class="x" title="close" aria-label="close" @click=${() => this.close()}><bx-icon name="xmark"></bx-icon></button></h3>
         <p class="lede">Phones and tablets signed in to this workspace with the xbin app — each with its own key, unlocked by Face ID.</p>
         ${list == null ? html`<div class="empty">loading…</div>`
@@ -373,11 +455,7 @@ export class BxDevices extends LitElement {
         ${this._stepUpBox()}
         ${this._enrollBox()}
         ${this._err ? html`<div class="err" role="alert"><bx-icon name="error" label="Error"></bx-icon><span>${this._err}</span></div>` : nothing}
-        <div class="foot">
-          ${(this._enroll && !this._enroll.added) || this._stepUp ? nothing
-            : html`<button class="primary" @click=${() => this._add()}>add a device</button>`}
-          <button @click=${() => this.close()}>close</button>
-        </div>
+        ${this._foot()}
       </div>`;
   }
 }
