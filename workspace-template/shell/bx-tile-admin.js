@@ -2,9 +2,9 @@
  * <bx-tile-admin> — the tile-scoped mini admin panel the shell pops from a
  * card's title bar (admins, the tile's USER-OWNER, and the owning org's
  * admins). One tile's slice of the admin console: access (users/orgs, D24/
- * D31), lifecycle, runtime info, vault keys, roles/grants, interface
- * bindings, backups, cron registrations and, for a tile with deployments,
- * its deployments — each a fold-out section,
+ * D31), lifecycle, runtime info, resource limits (D203), vault keys,
+ * roles/grants, interface bindings, backups, cron registrations and, for a
+ * tile with deployments, its deployments — each a fold-out section,
  * loaded lazily and degrading independently (an owner/org admin gets the
  * access + lifecycle sections; workspace-admin-only sections say so).
  *
@@ -28,11 +28,12 @@ import { capInfo } from '/vendor/bx-allow.js';
 import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
 import { followDeployments, onDeployChange, deployState, loadDeployState, deployChip, openDeployments } from './shell-kit.js';
 import { deploySummary, deployCheckpoint } from './menus.js';
+import '/vendor/bx-limits.js'; // the limits section: <bx-limits view="section"> (D203)
 
 export class BxTileAdmin extends LitElement {
   static properties = {
     path: { type: String },
-    section: { type: String },  // a section to open + scroll to (lifecycle|access|runtime|deployments|vault|grants|interfaces|backup|cron)
+    section: { type: String },  // a section to open + scroll to (lifecycle|access|runtime|limits|deployments|vault|grants|interfaces|backup|cron)
     noTitle: { type: Boolean, attribute: 'no-title' }, // the host's window chrome already names the tile
     _ov: { state: true },       // this tile's /auth-overview slice (state, roles, uses)
     _grants: { state: true },   // {grants, pending} filtered to this tile
@@ -594,6 +595,7 @@ export class BxTileAdmin extends LitElement {
       <details open data-sec="lifecycle"><summary>lifecycle</summary>${this._lifecycle()}</details>
       <details data-sec="access"><summary>access</summary>${this._accessSec()}</details>
       <details data-sec="runtime" @toggle=${(e) => e.target.open && this._loadRuntime()}><summary>runtime</summary>${this._runtime()}</details>
+      <details data-sec="limits"><summary>limits</summary><div class="sec"><bx-limits tile=${this.path} view="section"></bx-limits></div></details>
       ${ds?.record ? html`<details data-sec="deployments"><summary>deployments</summary>${this._deploySec(ds)}</details>` : nothing}
       <details data-sec="vault"><summary>vault</summary>${this._vaultSec()}</details>
       <details data-sec="grants"><summary>roles & grants</summary>${this._grantsSec()}</details>
