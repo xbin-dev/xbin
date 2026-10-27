@@ -14,7 +14,8 @@
 #
 # Local packages: XbinCore, XbinTerm, XbinAgent (Foundation only, tested on
 # Linux) and XbinRenderer (the SwiftUI renderer). SwiftTerm draws the
-# terminal. CI builds for a simulator with CODE_SIGNING_ALLOWED=NO
+# terminal; IrohLib (n0's iroh, a prebuilt Rust xcframework) carries a
+# workspace's app tunnel (D204, native/spec/tunnel.md) — the app only. CI builds for a simulator with CODE_SIGNING_ALLOWED=NO
 # (native/ios/scripts/ci-build-app.sh); nothing here needs a team to build.
 name: Xbin
 options:
@@ -49,6 +50,12 @@ packages:
     # range would let a release build pick up an unreviewed version — and
     # run its build plugin (release-build.sh skips Xcode's plugin prompt).
     exactVersion: 1.20.0
+  IrohLib:
+    url: https://github.com/n0-computer/iroh-ffi
+    # Exact, as SwiftTerm: its binary target (IrohLib.xcframework.zip, about
+    # 40 MB, checksum-pinned by its Package.swift) is reviewed per bump — the
+    # Swift API, `nm -u` for PrivacyInfo.xcprivacy, the app's size (D204).
+    exactVersion: 1.2.0
 targets:
   Xbin:
     type: application
@@ -63,6 +70,10 @@ targets:
       - package: XbinAgent
       - package: XbinRenderer
       - package: SwiftTerm
+      # The app tunnel (D204); never the extensions. iroh's netdev needs
+      # Network.framework (nw_* symbols), which IrohLib's manifest links too.
+      - package: IrohLib
+      - sdk: Network.framework
       - target: XbinNotificationService
       - target: XbinWidgets
     settings:
