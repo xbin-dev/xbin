@@ -119,7 +119,9 @@ export function visibleRows(rows) {
 
 // tabsFrom(server, local) → the tab list after a listing: the server's
 // rows in its order, each keeping the local tab's `key` (lit's repeat must
-// not remount a live terminal), what the session frame told the local tab
+// not remount a live terminal) and its `ref` (the window's layout places the
+// session by it, D202 — a restart changes the key, never the ref), what the
+// session frame told the local tab
 // (baseOutdated) and — this matters — the pickers the local tab ASKED for
 // (net/gpu/api): the server reports the effective, clamped values, and a
 // changed picker attribute restarts a live terminal (bx-terminal), so a
@@ -152,7 +154,7 @@ export function tabsFrom(server, local) {
     const kind = s.kind || 'shell';
     const was = byId.get(s.id) ?? takePending(kind);
     tabs.push({
-      key: was?.key ?? uid(), id: s.id, kind,
+      key: was?.key ?? uid(), ref: was?.ref ?? uid(), id: s.id, kind,
       provider: s.provider || was?.provider || '', status: s.status || was?.status || '',
       net: was ? (was.net ?? null) : (s.net || null), gpu: was ? (was.gpu || 'none') : (s.gpu || 'none'), api: was ? was.api !== false : s.api !== false,
       vm: s.vm ?? !!was?.vm,

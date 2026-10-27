@@ -348,6 +348,14 @@ export function targetSelect(f, restarts) {
     </select>`;
 }
 
+// targetChoices(f) → the same choices for a menu (the folded status bar,
+// D202): {options:[{value,label}], value}, or null where the select is
+// today's on/off one.
+export function targetChoices(f) {
+  const a = apiOptions(per.get(f)?.state ?? null, echo(f));
+  return a.def === 'on' ? null : a;
+}
+
 // setTarget(f, i, value): tab i's session onto another target, restarted
 // like every picker (the target is fixed for the session's life): a shell
 // through f._respawn, whose confirmation names what it will call, an agent

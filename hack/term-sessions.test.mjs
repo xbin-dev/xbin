@@ -89,6 +89,10 @@ test('tabsFrom: server order, keys kept, spawning tabs kept, closed-elsewhere dr
   assert.equal(tabs[1].baseOutdated, true, 'what the session frame told the tab survives a listing');
   assert.deepEqual([tabs[0].api, tabs[0].gpu, tabs[0].net], [true, 'all', null], 'the absorbing tab keeps what it ASKED for: the server reports the clamped values, and a changed picker would restart the terminal');
   assert.deepEqual(tabs[0].scopes, [{ id: 'internet' }]);
+  // the layout's ref (D202) is the local tab's, or a new one for a row first seen here
+  const withRef = tabsFrom(server, local.map((t) => ({ ...t, ref: `r-${t.key}` })));
+  assert.deepEqual(withRef.map((t) => t.ref), ['r-k3', 'r-k1']);
+  assert.ok(tabs.every((t) => typeof t.ref === 'string' && t.ref.length > 0), 'every listed tab has a ref');
   assert.deepEqual([tabs[1].api, tabs[1].net], [true, 'org'], 'a known tab keeps its pickers too');
   // no spawning tab: the unknown row becomes a new tab with the server's (effective) pickers; spawning tabs trail
   const t2 = tabsFrom(server, [local[0], { key: 'k4', id: null, gpu: 'none' }]);

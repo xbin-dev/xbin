@@ -66,7 +66,7 @@ function sizeOf(el) {
 }
 
 export class BxLogs extends HTMLElement {
-  #term; #fit; #ro; #ac; #host; #closed = false; #onPref; #onStorage; #offLook; #gen = 0;
+  #term; #fit; #ro; #ac; #host; #closed = false; #onPref; #onStorage; #offLook; #gen = 0; #parked = 0;
   // the partition switcher: the default's answer (X-XBin-Partition), the
   // listing it was built from (per component, and when), whether the global
   // instance's log is the viewer's to read, and its entries
@@ -76,6 +76,8 @@ export class BxLogs extends HTMLElement {
   static get observedAttributes() { return ['component', 'deployment', 'partition']; }
 
   connectedCallback() {
+    // moved, not removed (D202): back before the teardown ran — the stream carries on
+    if (this.#parked) { clearTimeout(this.#parked); this.#parked = 0; return; }
     this.style.height = this.style.height || '100%';
     if (!this.shadowRoot) {
       const root = this.attachShadow({ mode: 'open' });
@@ -116,7 +118,12 @@ export class BxLogs extends HTMLElement {
     this.#start();
   }
 
+  // the teardown waits for the task to end: moved in the DOM, the log keeps streaming (D202)
   disconnectedCallback() {
+    clearTimeout(this.#parked);
+    this.#parked = setTimeout(() => { this.#parked = 0; if (!this.isConnected) this.#teardown(); }, 0);
+  }
+  #teardown() {
     this.#closed = true;
     this.#ac?.abort();
     this.#ro?.disconnect();

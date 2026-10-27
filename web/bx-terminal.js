@@ -104,7 +104,7 @@ export class BxTerminal extends HTMLElement {
   // socket, whether this xbind acks them, the smoothed RTT, the live
   // decoration markers, the last rendered overlay, and the harness's ack hold
   #pred = new Predictor(); #seq = 0; #echoAck = false; #srtt = null; #layer = null; #overlay = []; #hold = null;
-  #pingTimer = null; #nullCell = null;
+  #pingTimer = null; #nullCell = null; #parked = 0; // the deferred teardown (disconnectedCallback)
   #note = null; // a notice held while a full-screen program owns the alternate buffer (note())
   #openedAt = 0; #failed = 0; // src mode: when this socket opened; handshakes in a row that never opened
   // #baseFont is the user's chosen terminal font size; #ambient is the workspace
@@ -127,6 +127,8 @@ export class BxTerminal extends HTMLElement {
     // clicked and re-rendered. `:host { display: block }` in the shadow CSS is
     // the standalone default and (being a shadow rule) never overrides the
     // host's inline display.
+    // moved, not removed (D202): back before the teardown ran — the session carries on as it was
+    if (this.#parked) { clearTimeout(this.#parked); this.#parked = 0; return; }
     this.style.height = this.style.height || '100%';
     // the markup and styles, xterm's stylesheet among them: term-chrome.js
     if (!this.shadowRoot) this.attachShadow({ mode: 'open' }).innerHTML = termShadowHTML();
@@ -135,7 +137,14 @@ export class BxTerminal extends HTMLElement {
     this.#start();
   }
 
+  // The teardown waits for the task to end: an element moved in the DOM (a
+  // disconnect and a connect in one go — a host re-parenting it) keeps its
+  // socket, its screen and its scrollback (D202); one removed for good ends.
   disconnectedCallback() {
+    clearTimeout(this.#parked);
+    this.#parked = setTimeout(() => { this.#parked = 0; if (!this.isConnected) this.#teardown(); }, 0);
+  }
+  #teardown() {
     this.#closed = true;
     this.#ro?.disconnect();
     this.#ws?.close();

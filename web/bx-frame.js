@@ -2,13 +2,12 @@
  * <bx-frame src="apps/calendar"> — the core xbin element: renders a
  * component's index.html in an iframe, carries the always-visible
  * 7×7 edit button, live-reloads on source changes, shows build errors as an
- * overlay, and hosts the terminal pop-up (persistent PTY sessions cwd'd to
- * the component's source directory) plus its panels — a code browser /
- * review panel (bx-code), a read-only backend log view (bx-logs), the
- * change-proposal panel (bx-prs — cross-tile "code PRs") and the
- * Deployments panel (bx-deployments) — each full width or beside the
- * terminal (frame-panels.js, D129). The tile's live reload state
- * (frame-deploy.js) shows on the window's bar and, while the tile's primary
+ * overlay, and hosts the tile window: an IDE (D202, frame-ide-view.js) —
+ * panes of tabs (shell and agent sessions, files, changes, change
+ * proposals, Deployments), a tool strip down the left (Files, Changes, PRs,
+ * Deploy, Logs), the logs dock, and the status bar with the session in
+ * view's pickers (frame-status.js). The tile's live reload state
+ * (frame-deploy.js) shows on the status bar and, while the tile's primary
  * is pinned, as a chip over the tile; a session's target deployment is its
  * tile API select's entry. With src="<tile>+<name>" the frame shows that
  * deployment, reloading on its `deployments` events.
@@ -73,9 +72,11 @@ import '/vendor/bx-prs.js';
 import '/vendor/bx-deploy.js';
 import { deepActive, clampBox, dragWindow, anchorBox, anchorOffsets, followBox } from '/vendor/bx-kit.js';
 import { makeStore, tabsFrom, activeIndex, uid, visibleRows } from '/vendor/term-sessions.js';
-import { titlebar, toolsRow, titlebarCss, fitBar, barKey } from '/vendor/frame-titlebar.js';
+import { titlebar, titlebarCss } from '/vendor/frame-titlebar.js';
 import { agentProviders, rememberKind, launcherItems, launcherCss, loadEnvStatus, loadTileState, restartAgent, wantVM } from '/vendor/frame-launcher.js';
-import { panels, panelsCss, setLayout, revealTerm, restoreLayout, layoutPref, PANE_W } from '/vendor/frame-panels.js';
+import { emptyIde } from '/vendor/frame-ide.js';
+import { ideBody, ideCss, ideSync, ideRestore, idePref, ideHasTabs, ideLayout, openLayout } from '/vendor/frame-ide-view.js';
+import { statusCss } from '/vendor/frame-status.js';
 import '/vendor/bx-agent.js';
 import '/vendor/bx-dialog.js';
 import '/vendor/bx-menu.js';
@@ -141,14 +142,11 @@ export class BxFrame extends LitElement {
     _phase: { state: true },    // while building (D196): 'compile' | 'env' | 'starting'
     _popActive: { state: true }, // the pop-up is the page's active window
     _autoHeight: { state: true },
-    _layout: { state: true },  // 'term' | 'code' | 'logs' | 'prs' | 'deployments' (never saved: NP-10-2) — frame-panels.js
-    _beside: { state: true },  // the terminal sits beside the panel
-    _paneW: { state: true },   // the panel's width % beside the terminal
+    _ide: { state: true },     // the window's panes, tabs, side panel and dock (frame-ide.js, D202)
     _frame: { state: true },   // {url, sandboxed, sandbox, credentialless, origin} | null
     _prCount: { state: true }, // open change proposals targeting this tile
     _z: { state: true },       // this window's place in the shared z-order (in the style binding: a render never drops it)
-    _narrow: { state: true },  // the pop is too narrow for the full bar: the pickers live in the tools row
-    _tools: { state: true },   // the tools row is open (narrow only)
+    _narrow: { state: true },  // the pop is under 640 px (or the phone's sheet): the status bar folds, the side panel overlays
     _dialog: { state: true },  // an open <bx-dialog>: {spec, resolve}
     _providers: { state: true }, // the agent providers, for the launcher (null until fetched)
     _history: { state: true }, // the tile's past agent sessions (frame-launcher.js: recent sessions, resume)
@@ -159,14 +157,12 @@ export class BxFrame extends LitElement {
     popBounds: { attribute: false },
   };
 
-  static styles = [scrollCss, frameBaseCss, titlebarCss, launcherCss, deployCss, panelsCss, frameCss];
+  static styles = [scrollCss, frameBaseCss, titlebarCss, launcherCss, deployCss, ideCss, statusCss, frameCss];
 
   constructor() {
     super();
     this._termOpen = false;
-    this._layout = 'term';
-    this._beside = false;
-    this._paneW = PANE_W;
+    this._ide = emptyIde();
     this._sessions = []; // [{id: string|null, net, gpu}] — id null until server assigns
     this._active = 0;
     this._gpus = []; // host GPU inventory (empty unless a GPU host)
@@ -185,7 +181,7 @@ export class BxFrame extends LitElement {
     this._winTimer = null; // the debounced per-user window-state save
     this._onVisible = () => { if (document.visibilityState === 'visible') this._relist(); };
     this._restored = false; this._hadWindow = false; this._frameKey = 0;
-    this._z = ++zTop; this._narrow = false; this._tools = false; this._dialog = null;
+    this._z = ++zTop; this._narrow = false; this._dialog = null;
     this._activeKey = null; // the active tab's key: the selection tracks identity, not position
     this._ro = null; // ResizeObserver on the pop (narrow mode, size persistence)
   }
@@ -276,19 +272,12 @@ export class BxFrame extends LitElement {
       this._toldBuild = `${this.buildState}:${this.buildPhase}`;
       this.dispatchEvent(new CustomEvent('bx-build', { bubbles: true, composed: true, detail: { state: this.buildState, phase: this.buildPhase } }));
     }
-    if (changed.has('_active') || changed.has('_termOpen') || changed.has('_layout') || changed.has('_beside') || changed.has('_paneW')) this._saveTerm();
+    if (changed.has('_active') || changed.has('_termOpen') || changed.has('_ide')) this._saveTerm();
     if (changed.has('_termOpen')) {
       if (this._termOpen) { this._follow(); this._observePop(); this._loadWindowState(); } else { this._ro?.disconnect(); this._ro = null; }
       // the active window closed: none is, until another comes to the front
       if (!this._termOpen && this._popActive) window.dispatchEvent(new CustomEvent(FRONT, { detail: { key: '' } }));
       this._popChanged();
-    }
-    const el = this._termOpen && this._popEl;
-    if (el) { // the bar's content may have changed: does the full bar still fit? (fitBar)
-      const k = barKey(this);
-      if (k !== this._barKey) { this._barKey = k; this._barNeed = 0; }
-      const n = fitBar(this, el, SHEET.matches);
-      if (n !== this._narrow) this._narrow = n;
     }
   }
 
@@ -303,17 +292,16 @@ export class BxFrame extends LitElement {
     this._loadPRCount();
   }
 
-  // A ResizeObserver on the pop: when the full title bar no longer fits
-  // (fitBar: below ~640 px, the phone sheet, or measured) it degrades — the
-  // pickers move to the tools row — and a native resize is remembered (the
-  // handle writes nothing; only a pointerdown or a drag end used to read the
-  // size back).
+  // A ResizeObserver on the pop: under 640 px (and on the phone's sheet) the
+  // window is narrow — the status bar folds its pickers, the side panel opens
+  // over the panes — and a native resize is remembered (the handle writes
+  // nothing; only a pointerdown or a drag end used to read the size back).
   _observePop() {
     const el = this._popEl;
     if (!el || this._ro || typeof ResizeObserver !== 'function') return;
     this._ro = new ResizeObserver(() => {
       const w = el.offsetWidth, h = el.offsetHeight;
-      this._narrow = fitBar(this, el, SHEET.matches);
+      this._narrow = SHEET.matches || w < 640;
       if (this._pop && !SHEET.matches && (Math.abs(this._pop.w - w) > 1 || Math.abs(this._pop.h - h) > 1)) { this._pop.w = w; this._pop.h = h; this._saveTerm(); }
     });
     this._ro.observe(el);
@@ -354,7 +342,7 @@ export class BxFrame extends LitElement {
   _flushWindow() {
     clearTimeout(this._winTimer); this._winTimer = null;
     const w = this._termOpen || this._sessions.length
-      ? { open: !!this._termOpen, active: this._active, activeId: this._sessions[this._active]?.id ?? null, pop: this._pop, ...layoutPref(this) }
+      ? { open: !!this._termOpen, active: this._active, activeId: this._sessions[this._active]?.id ?? null, pop: this._pop, ...idePref(this) }
       : null;
     if (w || this._hadWindow) sessions.saveWindow(this.src, w);
     this._hadWindow = !!w;
@@ -375,9 +363,9 @@ export class BxFrame extends LitElement {
       this._hadWindow = !!win;
       const byId = w.activeId ? this._sessions.findIndex((t) => t.id === w.activeId) : -1;
       this._setActive(byId >= 0 ? byId : (w.active | 0));
-      restoreLayout(this, w);
+      ideRestore(this, w); // the panes and tabs (frame-ide-view.js), else an older frame's layout
       if (w.pop && 'dx' in w.pop) this._pop = w.pop;
-      if (w.open && this._sessions.length) {
+      if (w.open && (this._sessions.length || ideHasTabs(this))) {
         await this.updateComplete;
         this._termOpen = true;
         this.updateComplete.then(() => this._front());
@@ -397,7 +385,7 @@ export class BxFrame extends LitElement {
     this._sessions = keepTargets(tabsFrom(rows, this._sessions), this._sessions, rows);
     this._reindex();
     loadTileState(this); // a session that ended is history now; a reset/rebuilt layer is current
-    if (!this._sessions.length && this._termOpen) this._termOpen = false;
+    if (!this._sessions.length && this._termOpen && !ideHasTabs(this)) this._termOpen = false; // a file tab keeps it open
   }
 
   disconnectedCallback() {
@@ -531,6 +519,7 @@ export class BxFrame extends LitElement {
   willUpdate(changed) {
     if (changed.has('height')) this._syncAutoHeight();
     if (changed.has('src') && changed.get('src') !== undefined && this.tileMeta) this.tileMeta = null; // another tile: not its meta (D194)
+    if (changed.has('_sessions') || changed.has('_active')) ideSync(this); // every session a tab; the one in view shown (D202)
   }
   _syncAutoHeight() {
     const auto = !this.height && !this.style.height;
@@ -635,15 +624,15 @@ export class BxFrame extends LitElement {
   // standalone embeds; the shell hides it via no-edit).
   toggleTerminal() { this._toggleTerm(); }
 
-  // open(layout) makes sure the pop-up is open and shows the given panel:
-  // 'term' | 'code' | 'split' | 'logs' | 'prs' | 'deployments' (omit to keep
-  // the current one), full width — 'split' is code beside the terminal. The
-  // shell's tile menu uses it for "terminal / logs / source / proposals /
-  // deployments".
+  // open(layout) makes sure the pop-up is open and shows what the shell's
+  // tile menu asks for: 'term' (the session in view) | 'code' or 'split'
+  // (the Files list) | 'logs' (the dock) | 'prs' (the proposals, the newest
+  // open one in a tab) | 'deployments' (its tab) — omit to keep the window
+  // as it is (frame-ide-view.js openLayout).
   open(layout) {
     if (!this._termOpen) this._toggleTerm();
     else this.fitToViewport(); // already open: make sure it can be seen
-    if (layout) setLayout(this, layout, false);
+    if (layout) openLayout(this, layout);
     this.updateComplete.then(() => this._front());
   }
 
@@ -717,11 +706,10 @@ export class BxFrame extends LitElement {
   // either starts in a VM sandbox when the tile's choice says so (wantVM).
   _startKind(kind, provider, opts = {}) {
     rememberKind(provider ? { kind, provider } : { kind });
-    const tab = { key: uid(), id: null, kind, name: '', vm: opts.vm ?? wantVM(this) };
+    const tab = { key: uid(), ref: uid(), id: null, kind, name: '', vm: opts.vm ?? wantVM(this) };
     if (kind === 'shell') { tab.net = null; tab.gpu = 'none'; if (opts.run) tab.run = opts.run; }
     else tab.provider = provider;
-    revealTerm(this); // a panel beside it stays
-    this._sessions = [...this._sessions, tab];
+    this._sessions = [...this._sessions, tab]; // a tab in the focused pane (ideSync)
     this._setActive(this._sessions.length - 1);
   }
 
@@ -739,9 +727,6 @@ export class BxFrame extends LitElement {
     if (run) this._startKind('shell', null, { run });
   }
 
-  // the terminal host shows (a past session opened or resumed: frame-launcher.js)
-  _revealTerm() { revealTerm(this); }
-
   // Rename the terminal on tab i (blank clears back to its number). Names are
   // per-component and persist like the session list.
   async _renameTerm(i) {
@@ -757,19 +742,17 @@ export class BxFrame extends LitElement {
     if (cur.id) sessions.rename(cur.id, n.trim()); // the name lives on the session (D73)
   }
 
-  // Close terminal i. ended=true means the shell already exited (no DELETE
-  // needed); otherwise this is a user close and we end the server session.
-  // Closing the last one closes the window.
-  // ref: an index (the title bar) or a key (an element's exit event).
+  // Close session tab `ref`: an index (a tab's ✕) or a key (an element's exit
+  // event); otherwise a user close, which ends the server session.
   // ended=true: the session is already gone (no DELETE); an ended tab is only
-  // dismissed. Closing the last tab closes the window.
+  // dismissed. Closing the last tab closes the window (a file tab keeps it).
   _closeTerm(ref, ended = false) {
     const i = typeof ref === 'number' ? ref : this._sessions.findIndex((t) => t.key === ref);
     const s = this._sessions[i];
     if (!s) return;
     if (!ended && !s.ended && s.id) endSession(s.id);
     const rest = this._sessions.filter((_, j) => j !== i);
-    if (!rest.length) { this._sessions = []; this._termOpen = false; return; }
+    if (!rest.length) { this._sessions = []; if (!ideHasTabs(this)) this._termOpen = false; return; }
     const wasActive = i === this._active;
     this._sessions = rest;
     if (wasActive) this._setActive(Math.min(i, rest.length - 1)); else this._reindex();
@@ -857,9 +840,9 @@ export class BxFrame extends LitElement {
       });
   }
 
-  // Switch the pop-up layout: the terminal, or a panel — full width or, with
-  // `beside` (omitted: as it is), beside the terminal (frame-panels.js).
-  _setLayout(l, beside) { setLayout(this, l, beside); }
+  // the window's layout by open()'s names, and a switch to one (frame-deploy.js uses both)
+  get _layout() { return ideLayout(this); }
+  _setLayout(l) { openLayout(this, l); }
 
   render() {
     const style = this._autoHeight ? nothing
@@ -882,11 +865,10 @@ export class BxFrame extends LitElement {
              style="left:${x}px; top:${y}px; width:${w}px; height:${h}px; z-index:${this._z}"
              @pointerdown=${this._popDown}>
           ${titlebar(this)}
-          ${this._narrow && this._tools ? toolsRow(this) : nothing}
           ${this._dialog ? html`<bx-dialog open .spec=${this._dialog.spec} @bx-dialog-resolve=${this._dialogDone}></bx-dialog>` : nothing}
           ${this._menu ? html`<bx-menu open .items=${this._menu.items} .anchor=${this._menu.anchor} ?sheet=${this._menu.sheet}
               @bx-menu-close=${() => { this._menu = null; }}></bx-menu>` : nothing}
-          ${panels(this)}
+          ${ideBody(this)}
         </div>`)(this._popBox()) : nothing}
     `;
   }

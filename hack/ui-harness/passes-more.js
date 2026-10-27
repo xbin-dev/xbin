@@ -18,6 +18,7 @@ function register(P) {
   P.blocks = require('./passes/blocks').blocks; // D192: headings and text on a screen, no tile — canvas, Document mode, an org screen's draft
   P.richCopy = require('./passes/richcopy').richCopy; // D199/#26: copy with formatting — a right-click, xbin.copy, the agent's Copy; a coloured fence
   P.tiled = require('./passes/tiled').tiled; // D193: Tiled — one tile fills the screen, splits, dividers, swaps, a phone, an org screen's draft
+  P.ideMove = require('./passes/idemove').ideMove; // D202: a session's element survives moves between panes and in the DOM; the dock's logs mount once; narrow folds
   P.agentDocs = require('./passes/agentdocs').agentDocs; // D201: the agent reads a PDF, writes a workbook, a deck and a document — previews, downloads, no sandbox
 }
 
