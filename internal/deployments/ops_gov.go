@@ -68,8 +68,11 @@ type GovHooks struct {
 	// no such edge, 400 a value it doesn't take) and EdgeChangeRestarts.
 	ValidateEdge func(tile, edge, policy string) error
 	EdgeRestarts func(tile, edge string) bool
-	// DiskCeiling is the per-scope disk quota in bytes, diskGiB's ceiling.
-	DiskCeiling func() int64
+	// DiskCeiling is the default per-scope disk quota in bytes, diskGiB's
+	// ceiling where DiskCeilingFor isn't wired; DiskCeilingFor is tile's
+	// scope's quota, raised by its decisions (D203).
+	DiskCeiling    func() int64
+	DiskCeilingFor func(tile string) int64
 	// SeedData fills req's deployment's namespace from the primary's
 	// (08-data §8), the broker's SeedDeploymentData: it judges the manager
 	// gate again with p (a person's own session, no view-as), authorize

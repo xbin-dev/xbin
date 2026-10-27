@@ -41,10 +41,37 @@ type fakeCgroup struct {
 	log    []string                // "add <leaf> mem=… pids=… weight=…", "addmem <leaf> max=… …", "remove <leaf>"
 	hits   map[string][2]int64     // leaf → memory.events max, pids.events max
 	usage  map[string]cgroup.Usage // leaf → its accounting
+	kills  map[string]int64        // leaf → memory.events oom_kill: gone with the leaf, as the kernel's
+	order  []string                // "oom <leaf>" (a read of a leaf that exists) and "remove <leaf>", in order (D203)
 }
 
 func newFakeCgroup(caps cgroup.Limits) *fakeCgroup {
-	return &fakeCgroup{caps: caps, leaves: map[string][]int{}, hits: map[string][2]int64{}, usage: map[string]cgroup.Usage{}}
+	return &fakeCgroup{caps: caps, leaves: map[string][]int{}, hits: map[string][2]int64{}, usage: map[string]cgroup.Usage{}, kills: map[string]int64{}}
+}
+
+// OOMKills is the leaf's oom_kill count while it exists, 0 once removed.
+func (f *fakeCgroup) OOMKills(name string) int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.leaves[name]; !ok {
+		return 0
+	}
+	f.order = append(f.order, "oom "+name)
+	return f.kills[name]
+}
+
+// Resize logs the caps and sets the leaf's memory.max.
+func (f *fakeCgroup) Resize(name string, l cgroup.Limits) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if _, ok := f.leaves[name]; !ok {
+		return fmt.Errorf("no leaf %s", name)
+	}
+	f.log = append(f.log, fmt.Sprintf("resize %s mem=%d", name, l.MemMax))
+	u := f.usage[name]
+	u.MemMax = l.MemMax
+	f.usage[name] = u
+	return nil
 }
 
 func (f *fakeCgroup) Enabled() bool { return true }
@@ -87,6 +114,7 @@ func (f *fakeCgroup) Remove(name string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.log = append(f.log, "remove "+name)
+	f.order = append(f.order, "remove "+name)
 	pids, ok := f.leaves[name]
 	if !ok {
 		return
@@ -94,6 +122,7 @@ func (f *fakeCgroup) Remove(name string) {
 	pids = slices.DeleteFunc(pids, func(p int) bool { return p < fakePid && !alivePid(p) })
 	if f.leaves[name] = pids; len(pids) == 0 {
 		delete(f.leaves, name)
+		delete(f.kills, name)
 	}
 }
 

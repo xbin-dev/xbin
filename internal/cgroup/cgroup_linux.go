@@ -23,6 +23,7 @@ package cgroup
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -369,6 +370,66 @@ func writeLimitsTo(write func(path, val string) error, leaf string, l Limits) {
 	if l.NoSwap {
 		set("memory.swap.max", "0")
 	}
+}
+
+// Resize re-writes a live leaf's memory caps to l's: memory.max, and
+// memory.high as writeLimitsTo has it (⅞ of the cap unless l says), and
+// nothing else (D203). A raise writes memory.max before memory.high and a
+// cut writes memory.high first, so the soft ceiling is never above the hard
+// one in between. The kernel takes either on a populated cgroup at once: a
+// raise frees a leaf that was reclaiming, a cap below memory.current
+// reclaims and then OOM-kills — callers never cut a live leaf. A zero
+// MemMax lifts the cap ("max"), the cap a leaf made without one has. nil
+// when cgroups are off; an error when the leaf doesn't exist.
+func (m *Manager) Resize(name string, l Limits) error {
+	if !m.Enabled() {
+		return nil
+	}
+	dir, nested, ok := m.path(name)
+	if !ok || strings.HasSuffix(name, "/") || !nested && checkName(name) != nil {
+		return fmt.Errorf("cgroup: bad leaf name %q", name)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if !isDir(dir) {
+		return fmt.Errorf("cgroup %s: %w", name, fs.ErrNotExist)
+	}
+	hard, soft := "max", "max"
+	if l.MemMax > 0 {
+		hard = strconv.FormatInt(l.MemMax, 10)
+		soft = strconv.FormatInt(l.MemMax-l.MemMax/8, 10)
+	}
+	switch {
+	case l.MemHigh > 0:
+		soft = strconv.FormatInt(l.MemHigh, 10)
+	case l.MemHigh < 0:
+		soft = "max"
+	}
+	first, then := "memory.max", "memory.high"
+	if lowers(strings.TrimSpace(readStr(filepath.Join(dir, "memory.max"))), l.MemMax) {
+		first, then = then, first
+	}
+	val := map[string]string{"memory.max": hard, "memory.high": soft}
+	if err := m.writeFile(filepath.Join(dir, first), val[first]); err != nil {
+		return fmt.Errorf("cgroup %s: %s: %w", name, first, err)
+	}
+	if err := m.writeFile(filepath.Join(dir, then), val[then]); err != nil {
+		return fmt.Errorf("cgroup %s: %s: %w", name, then, err)
+	}
+	return nil
+}
+
+// lowers reports whether memory.max going from cur (its file's text: "max"
+// or bytes) to memMax (0 = "max") is a cut.
+func lowers(cur string, memMax int64) bool {
+	if memMax <= 0 {
+		return false
+	}
+	if cur == "max" {
+		return true
+	}
+	n, err := strconv.ParseInt(cur, 10, 64)
+	return err == nil && memMax < n
 }
 
 // AtLimit reads a leaf's memory/pids limit-hit counters (memory.events "max"

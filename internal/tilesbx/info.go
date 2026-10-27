@@ -199,8 +199,7 @@ var builtCaps = []string{"exec", "tty", "stdio", "files", "tar", "snapshots", "c
 
 // runtime builds a tile's Runtime. Callers hold m.mu.
 func (m *Manager) runtime(k Key) Runtime {
-	p := m.policy.get()
-	lim := p.For(k.Tile)
+	lim := m.limitsFor(k.Tile) // the tile's grants included (D203)
 	on, _ := m.policy.on()
 	rt := Runtime{
 		Enabled: on, Isolation: m.isolated, Users: m.users(ModeNamespace),

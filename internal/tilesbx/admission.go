@@ -19,6 +19,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/xbin-dev/xbin/internal/limits"
 )
 
 // tileBook is what one tile's running sandboxes hold. Its own mutex.
@@ -68,6 +70,7 @@ func (m *Manager) admit(k Key, d *Def) (func(), error) {
 		return nil, &Error{Refusal: RefUnavailable, Msg: "the workspace disk is low: tile sandboxes don't start until space is freed", RetryAfter: time.Minute}
 	}
 	if capB := int64(lim.PerTile.DiskGiB) << 30; disk > capB {
+		m.atCap(k.Tile, limits.SbxDiskGiB, lim.PerTile.DiskGiB, "a sandbox's start refused: the tile's sandboxes use %s of disk", gib(disk)) // grants.go
 		return nil, refuse(RefLimit, "the tile's sandboxes use %s of disk, over its %d GiB (sandboxes policy: perTile.diskGiB): delete a sandbox or a snapshot", gib(disk), lim.PerTile.DiskGiB)
 	}
 	leafMiB := d.MemMiB
@@ -85,16 +88,28 @@ func (m *Manager) admit(k Key, d *Def) (func(), error) {
 	tb.mu.Lock()
 	pt := lim.PerTile
 	var over error // made under the book's mutex: a release may change it the moment it's let go
+	var hit func() // the cap it met, told once the book is let go (grants.go)
 	switch {
 	case tb.running+1 > pt.Running:
 		over = refuse(RefLimit, "the tile runs %d sandboxes, its limit (sandboxes policy: perTile.running): stop one first", tb.running)
 	case tb.memMiB+d.MemMiB > pt.MemMiB:
 		over = refuse(RefLimit, "the tile's running sandboxes would hold %d MiB of memory, over its %d MiB (sandboxes policy: perTile.memMiB)", tb.memMiB+d.MemMiB, pt.MemMiB)
+		held := tb.memMiB
+		hit = func() {
+			m.atCap(k.Tile, limits.SbxMemMiB, pt.MemMiB, "a %d MiB sandbox's start refused: %d MiB held", d.MemMiB, held)
+		}
 	case tb.vcpus+d.VCPUs > pt.VCPUs:
 		over = refuse(RefLimit, "the tile's running sandboxes would hold %d vCPUs, over its %d (sandboxes policy: perTile.vcpus)", tb.vcpus+d.VCPUs, pt.VCPUs)
+		held := tb.vcpus
+		hit = func() {
+			m.atCap(k.Tile, limits.SbxVCPUs, pt.VCPUs, "a %d-vCPU sandbox's start refused: %d vCPUs held", d.VCPUs, held)
+		}
 	}
 	if over != nil {
 		tb.mu.Unlock()
+		if hit != nil {
+			hit()
+		}
 		return nil, over
 	}
 	tb.running++
@@ -184,7 +199,7 @@ func (m *Manager) TotalPids() (used, capPids int64) {
 	return used, capPids
 }
 
-// booked is tile's book now (tests).
+// booked is tile's book now (TileHeld, tests).
 func (m *Manager) booked(tile string) (running, memMiB, vcpus int) {
 	tb := m.books.tile(tile)
 	tb.mu.Lock()

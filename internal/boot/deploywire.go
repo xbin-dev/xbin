@@ -35,7 +35,7 @@ func wireDeploymentData(dp *deployments.Plane, brk *broker.Broker) {
 	dp.SetGovHooks(func(h *deployments.GovHooks) {
 		h.ValidateEdge, h.EdgeRestarts = brk.ValidateEdgePolicy, brk.EdgeChangeRestarts
 		h.RoutesReassigned = brk.PrimaryReassigned
-		h.DiskCeiling = brk.DiskQuota
+		h.DiskCeiling, h.DiskCeilingFor = brk.DiskQuota, brk.DiskQuotaFor // the default; the tile's scope's, raised (D203)
 		h.SeedData = func(p auth.Principal, req deployments.SeedRequest, authorize func(string) error, stop func(string, string)) (deployments.SeedFacts, error) {
 			f, err := brk.SeedDeploymentData(p, req, authorize, stop)
 			return deployments.SeedFacts(f), err

@@ -744,24 +744,21 @@ func (p *Plane) healthy(o *op, y string, d *DeploymentRecord) error {
 
 // limitOK judges one of y's limits (D127n): diskGiB only on the tile that
 // roots its scope, whose (scope, y) namespace it measures (08-data §12); a
-// positive integer at most the tile's ceiling, which 0 leaves unbounded.
+// positive integer at most the tile's ceiling (limitCeiling: raised by the
+// tile's decisions, D203), which 0 leaves unbounded.
 func (p *Plane) limitOK(o *op, y, k string, v *int64) error {
 	if s := o.c.Scope; k == LimitDiskGiB && s != o.tile {
 		return &Error{Status: http.StatusConflict, Kind: KindPolicy, Msg: map[bool]string{false: fmt.Sprintf("the quota of %s's %q data is set on %s", s, y, s),
 			true: o.tile + " keeps its data in the workspace scope, which has no namespace per deployment: diskGiB is a scope's"}[s == ""]}
 	}
-	ceiling := map[string]int64{LimitMemMiB: p.TileLimits.MemMax >> 20, LimitPids: p.TileLimits.PidsMax}[k]
-	switch dc := p.gov().DiskCeiling; {
+	switch ceiling := p.limitCeiling(o.tile, k); {
 	case v == nil:
 		return nil
 	case *v <= 0:
 		return badRequest(k + " takes a positive integer, or null to remove the override")
-	case k == LimitDiskGiB && dc == nil:
+	case ceiling < 0:
 		return notBuilt("a deployment's disk limit", "the disk quota isn't wired")
-	case k == LimitDiskGiB:
-		ceiling = dc() >> 30
-	}
-	if ceiling > 0 && *v > ceiling {
+	case ceiling > 0 && *v > ceiling:
 		return badRequest(fmt.Sprintf("%s can't exceed the tile's ceiling (%d)", k, ceiling))
 	}
 	return nil

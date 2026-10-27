@@ -53,6 +53,20 @@ already on `limits/base`; the workers build on it.**
     never calls out;
   - `broker.Alert.Action *limits.Action` (additive JSON `action`);
   - `diskMon.kick()` — one rescan now (a raised quota lifts its 507).
+- **Phase 1 additions (the lead, W2):**
+  - `LimitSources.Applied(tile, k) int64` — what runs now when it differs
+    from the grant (0: the same, or unknown): the row's `applied` /
+    `appliesAt`. `Default("", k)` answers the workspace's default. Boot
+    calls `RefreshLimitAsks()` right after `SetLimitSources`.
+  - Lock rule (W2): `Usage`, `Capacity`, `Applied` and `Apply` reach into
+    the runtime, which asks `LimitGrant` (through `LimitsFor`, `VMGrant`,
+    tilesbx `Granted`): call them with no store lock held. `Default` and
+    `Max` are lock-free (tilesbx reads an atomic snapshot of its policy),
+    so the store may ask them under its lock, and tilesbx calls
+    `LimitGrant` under its `m.mu`.
+  - A hit's `Count` is 1 per report (one exit, one poll, one refusal);
+    `Deployment` is empty for the primary's (the tile's), set for any
+    other deployment's; a person's partition's sets `Partition` alone.
 
 ## §W. The wire (binding for W1 and W3)
 
@@ -152,7 +166,12 @@ current, approvers, choices}` — `choices`' `approvable` and the alert's
 `dismiss` decorated for the viewer (`dismiss` only for approvers). Kinds:
 `oom` (sticky, from a hit), `quota` (crit, at the quota) and the new
 `quota-near` (warn, from 90 %), `sbx-cap` (a sandbox refused/stopped at
-the tile's total), `tile-limits` (admins: the store unreadable).
+the tile's total), `tile-limits` (admins: the store unreadable), and
+`memory` (warn, passing: a backend's leaf at its memory limit without an
+OOM kill — the old `oom` warning's case that no longer claims a kill).
+The disk monitor's `quota`/`quota-near` actions name the scope's path and
+its root tile ("" when none roots it) and carry `current` in GiB; the
+workspace scope's alert has no action (no API path names it).
 
 **`GET /xbin/limits[?tile=]`** — the xbind-served page (top level only,
 like `/xbin/partitions`): `web/limits.html` + `/vendor/limits-page.js`.

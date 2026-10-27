@@ -10,6 +10,7 @@ package runner
 // deployment whose leaf it is (D127q).
 
 import (
+	"log/slog"
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/cgroup"
@@ -31,6 +32,8 @@ type cgroupOps interface {
 	TileProcs(compKey string) ([]int, bool)
 	TileUsage(compKey string) (cgroup.Usage, bool)
 	TileLeaves(compKey string) []cgroup.Leaf
+	OOMKills(name string) int64                // read before Remove: the counter goes with the leaf (oom.go)
+	Resize(name string, l cgroup.Limits) error // a live leaf's memory caps (ApplyLimits)
 }
 
 // cgroups is the runner's cgroup manager; nil without one.
@@ -70,6 +73,8 @@ func (r *Runner) joinLeaf(tile, dep, leaf, sock string, pid int) {
 	if cg == nil {
 		return
 	}
+	_, existed := cg.Usage(leaf)
+	defer func() { r.oom.joined(leaf, cg.OOMKills(leaf), !existed) }() // oom.go: its kills count from here
 	b, isVM := r.vmLeafBytes(sock)
 	switch {
 	case r.LimitsFor == nil && isVM:
@@ -115,10 +120,17 @@ type LimitHit struct {
 	// person's partition"; plans/partitions/03 §A.9).
 	Partition bool
 	Mem, Pids int64
+	// OOMKills is how many processes the OOM killer took in the leaf
+	// since the runner last looked — at an exit or at this poll, one count
+	// (oom.go), so a kill is told once; LimitMiB is the leaf's memory.max
+	// (0: none, or unread). AtLimitTile reads it, and takes it.
+	OOMKills, LimitMiB int64
 }
 
 // AtLimitTile reports tile's leaves whose limit-hit counters cgroup can
-// read, the flat leaf first; nil without cgroup accounting. A tile with
+// read, the flat leaf first, with their OOM kills since the runner last
+// looked (taken: the next call, or the leaf's exit, counts from here); nil
+// without cgroup accounting. A tile with
 // only the flat leaf answers it alone, exactly as
 // Cgroup.AtLimit(util.CompKey(tile)) does. A tile with the per-tile parent
 // answers each leaf beneath it too (and the flat one while main's old
@@ -133,8 +145,139 @@ func (r *Runner) AtLimitTile(tile string) []LimitHit {
 	for _, l := range cg.TileLeaves(util.CompKey(tile)) {
 		if mem, pids, ok := cg.AtLimit(l.Name); ok {
 			rest, nested := strings.CutPrefix(l.Name, node)
-			hits = append(hits, LimitHit{Deployment: l.Deployment, Leaf: l.Name, Partition: nested && strings.HasPrefix(rest, "p-"), Mem: mem, Pids: pids})
+			kills, limitMiB := r.oomOf(cg, tile, l.Name)
+			hits = append(hits, LimitHit{Deployment: l.Deployment, Leaf: l.Name, Partition: nested && strings.HasPrefix(rest, "p-"), Mem: mem, Pids: pids,
+				OOMKills: kills, LimitMiB: limitMiB})
 		}
 	}
 	return hits
+}
+
+// ApplyLimits makes a decision on tile's limits take effect (D203,
+// plans/tile-limits.md §5), once LimitsFor answers it: every running
+// generation's leaf that isn't a VM's — every deployment's, every person's
+// partition's — has its memory caps raised live (Resize). A lower cap than
+// a live leaf has waits for its next start: a decision never OOM-kills. A
+// state the crash watch's breaker stopped, or restart (a VM's size, which
+// applies at a start; "restart now"), restarts the tile's generations as a
+// change does (ChangedTile), and each new one joins with the new caps. A
+// generation still starting joins with the caps of the moment it joined.
+func (r *Runner) ApplyLimits(tile string, restart bool) {
+	cg := r.cgroups()
+	looped := false
+	for _, s := range append(r.allStates(tile), r.partStates(tile)...) {
+		s.mu.Lock()
+		dep, insts := s.dep, []*instance{s.cur}
+		if s.pt != nil {
+			insts = append(insts, s.pt.starting)
+		}
+		looped = looped || s.cur == nil && crashLooped(s.lastErr)
+		s.mu.Unlock()
+		for _, inst := range insts {
+			if inst != nil && cg != nil && r.LimitsFor != nil {
+				r.raiseLeaf(cg, tile, dep, inst)
+			}
+		}
+	}
+	if !looped && !restart || r.Reg == nil {
+		return
+	}
+	if c, ok := r.Reg.Component(tile); ok {
+		r.ChangedTile(c)
+	}
+}
+
+// raiseLeaf raises generation inst's leaf to deployment dep of tile's caps
+// now, when they are above what it has; never a VM's leaf (sized to its
+// guests, vmLeafBytes) and never down.
+func (r *Runner) raiseLeaf(cg cgroupOps, tile, dep string, inst *instance) {
+	if _, isVM := r.vmLeafBytes(inst.sock); isVM || inst.leaf == "" {
+		return
+	}
+	u, ok := cg.Usage(inst.leaf)
+	if !ok {
+		return
+	}
+	l := r.leafLimits(tile, dep)
+	switch want, has := l.MemMax, u.MemMax; {
+	case has < 0, want > 0 && want <= has: // unlimited now, or already at least that
+		return
+	}
+	if err := cg.Resize(inst.leaf, l); err != nil {
+		slog.Warn("tile limits: raising a running backend's memory", "component", tile, "deployment", dep, "leaf", inst.leaf, "err", err)
+	}
+}
+
+// HostMemory is the memory this host gives xbind, bytes: MemTotal, or less
+// where its own cgroup or one above it caps it (a container's limit) — the
+// most memory a tile's backend may be granted (D203).
+func HostMemory() int64 { return hostMemoryOnce() }
+
+// TileMem is tile's backend memory as the stats sampler last read it
+// (bytes; 0 when it hasn't): a tile's usage beside its memory limit
+// (D203). Asking keeps the sampler running.
+func (r *Runner) TileMem(tile string) int64 {
+	r.statsWanted()
+	r.stats.mu.Lock()
+	defer r.stats.mu.Unlock()
+	if ser := r.stats.series[tile]; len(ser) > 0 {
+		return ser[len(ser)-1].Mem
+	}
+	return 0
+}
+
+// AppliedMem is the memory cap tile's primary runs with now, MiB, when it
+// differs from what its next start gets (LimitsFor): a lower cap waiting
+// for that start, since ApplyLimits never cuts a live leaf (D203). 0 when
+// the same, or unknown: nothing running, no cgroups, a VM, no cap. It asks
+// LimitsFor, so the tile-limits store's lock must not be held.
+func (r *Runner) AppliedMem(tile string) int64 {
+	cg, s := r.cgroups(), r.existingState(tile)
+	if cg == nil || s == nil || r.LimitsFor == nil {
+		return 0
+	}
+	s.mu.Lock()
+	inst, dep := s.cur, s.dep
+	s.mu.Unlock()
+	if inst == nil || inst.leaf == "" {
+		return 0
+	}
+	if _, isVM := r.vmLeafBytes(inst.sock); isVM {
+		return 0
+	}
+	u, ok := cg.Usage(inst.leaf)
+	if !ok || u.MemMax <= 0 || u.MemMax == r.leafLimits(tile, dep).MemMax {
+		return 0
+	}
+	return u.MemMax >> 20
+}
+
+// AppliedVM is the size tile's primary's running VM has, when it differs
+// from what its next start gets (guestSize with the tile's grant): a size
+// that waits for a restart (D203). 0 for each that is the same, or
+// unknown. It asks VMGrant: the store's lock must not be held.
+func (r *Runner) AppliedVM(tile string) (memMiB, vcpus int) {
+	s := r.existingState(tile)
+	if s == nil || r.VM == nil || r.Reg == nil {
+		return 0, 0
+	}
+	s.mu.Lock()
+	inst := s.cur
+	s.mu.Unlock()
+	c, ok := r.Reg.Component(tile)
+	if inst == nil || !ok {
+		return 0, 0
+	}
+	v, ok := r.vmInfo(inst.sock)
+	if !ok {
+		return 0, 0
+	}
+	mem, cpus := guestSize(r.VM.Policy(), c.Manifest.VM, r.vmGrant(tile))
+	if v.MemMiB != mem {
+		memMiB = v.MemMiB
+	}
+	if v.VCPUs != cpus {
+		vcpus = v.VCPUs
+	}
+	return memMiB, vcpus
 }

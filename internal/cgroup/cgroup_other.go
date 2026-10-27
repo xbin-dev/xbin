@@ -70,6 +70,7 @@ func (m *Manager) ProcsTree(string) ([]int, bool)           { return nil, false 
 func (m *Manager) TileProcs(string) ([]int, bool)           { return nil, false }
 func (m *Manager) TileLeaves(string) []Leaf                 { return nil }
 func (m *Manager) Remove(string)                            {}
+func (m *Manager) Resize(string, Limits) error              { return nil }
 
 func (m *Manager) AddWith(string, int, Limits) (string, error)      { return "", nil }
 func (m *Manager) Prepare(string, Limits) (*os.File, string, error) { return nil, "", nil }

@@ -48,7 +48,7 @@ const (
 // Alert is a workspace health notice for the admin tile / shell banner.
 type Alert struct {
 	Level string `json:"level"`          // "warn" | "crit"
-	Kind  string `json:"kind"`           // "disk-low" | "quota" | "blocking" | "oom" | "pids" | "go-build-versions"
+	Kind  string `json:"kind"`           // "disk-low" | "quota" | "quota-near" | "blocking" | "oom" | "memory" | "pids" | "go-build-versions" | …
 	Tile  string `json:"tile,omitempty"` // scope/component, when tile-specific
 	// Deployment names a data namespace's deployment when the alert is
 	// about one beyond the primary's main: never System, admins only
@@ -66,7 +66,8 @@ type Alert struct {
 
 type diskMon struct {
 	root       string
-	quota      int64
+	quota      int64                   // the default per-scope quota (XBIN_LIMIT_DISK); a scope's own is quotaOf's (diskraise.go)
+	tiles      diskTiles               // what the monitor asks of the broker for D203's raises (diskraise.go); nil: none
 	scopeUsage func() map[string]int64 // scopeKey → bytes (injected: uses resource dirs)
 	extra      func() []Alert          // extra alerts (cgroup at-limit), optional
 	// sbxUsage is each tile's tile-sandbox bytes (plans/tile-sandbox-runtime.md
@@ -94,8 +95,9 @@ type diskMon struct {
 	alerts    []Alert
 	freeB     int64
 	totalB    int64
-	low       bool  // the last scan's verdict: the partition is below its reserve
-	fairShare int64 // the last scan's fair share (tile sandboxes' bytes included)
+	low       bool             // the last scan's verdict: the partition is below its reserve
+	fairShare int64            // the last scan's fair share (tile sandboxes' bytes included)
+	full      map[string]int64 // scope key → its quota, of the scopes at it at the last scan, whose hit is recorded (diskraise.go)
 	lastScan  time.Time
 }
 
@@ -221,19 +223,20 @@ func (d *diskMon) scan() {
 		fairShare = used / int64(n)
 	}
 
-	primaryBlocked := 0
+	primaryBlocked, roots, full := 0, d.scopeRoots(), map[string]int64{}
 	for _, scope := range slices.Sorted(maps.Keys(usage)) {
 		u, bk := usage[scope], bucket(scope)
-		quota := d.quota
-		if bk.limit > 0 && bk.limit < quota {
-			quota = bk.limit
-		}
+		quota := d.quotaFor(scope, bk)
+		raise := raiseAction(scope, bk, quota, roots) // a main namespace held to its scope's quota: an approver may raise it (D203)
 		var a Alert
 		switch {
 		case u >= quota:
 			blocked[scope] = fmt.Sprintf("over its %s quota", humanBytes(quota))
-			a = Alert{Level: "crit", Kind: "quota",
-				Message: fmt.Sprintf("%s is over its %s disk quota (%s) — resource writes are blocked", bk.label, humanBytes(quota), humanBytes(u))}
+			a = Alert{Level: "crit", Kind: "quota", Action: raise,
+				Message: fmt.Sprintf("%s is over its %s disk quota (%s) — resource writes are blocked%s", bk.label, humanBytes(quota), humanBytes(u), raiseWords(raise))}
+			if raise != nil {
+				full[scope] = quota
+			}
 		case lowDisk && bk.nonPrimary && u > 0:
 			blocked[scope] = "workspace disk low — non-primary deployments' data is write-blocked first"
 			a = Alert{Level: "warn", Kind: "quota",
@@ -242,17 +245,22 @@ func (d *diskMon) scan() {
 			blocked[scope] = "workspace disk low — biggest users are write-blocked"
 			a = Alert{Level: "warn", Kind: "quota",
 				Message: fmt.Sprintf("%s writes paused: workspace disk is low and %s is a top user (%s)", bk.label, bk.label, humanBytes(u))}
+		case raise != nil && float64(u) >= quotaNear*float64(quota):
+			a = Alert{Level: "warn", Kind: "quota-near", Action: raise, Message: fmt.Sprintf("%s uses %s of its %s disk quota (%d%%) — resource writes are blocked at the quota%s",
+				bk.label, humanBytes(u), humanBytes(quota), u*100/quota, raiseWords(raise))}
 		default:
 			continue
 		}
 		a.Tile, a.Deployment = bk.tile, bk.alertDep
-		switch {
+		switch _, isBlocked := blocked[scope]; {
 		case bk.nonPrimary:
 			firsts = append(firsts, a) // the alert names non-primary namespaces first (08-data §12)
 		case bk.partition: // one person's: admins' alert only, never in the count every tile shows (PD-46)
 			alerts = append(alerts, a)
-		default:
+		case isBlocked:
 			primaryBlocked++
+			alerts = append(alerts, a)
+		default: // quota-near
 			alerts = append(alerts, a)
 		}
 	}
@@ -276,7 +284,10 @@ func (d *diskMon) scan() {
 	d.blocked, d.usage, d.alerts = blocked, usage, alerts
 	d.buckets, d.stores = fx.buckets, fx.stores
 	d.freeB, d.totalB, d.low, d.fairShare, d.lastScan = free, total, lowDisk, fairShare, time.Now()
+	was := d.full
+	d.full = full
 	d.mu.Unlock()
+	d.recordFull(full, was, usage) // a scope newly at its quota is a hit (diskraise.go)
 	if lowDisk && d.onLow != nil {
 		d.onLow()
 	}
@@ -309,16 +320,18 @@ func (d *diskMon) Blocked(scopeKey string) (string, bool) {
 	return r, ok
 }
 
-// Status reports a scope's disk footprint, the quota, and whether writes are
-// currently blocked — for the per-tile status API.
+// Status reports a scope's disk footprint, its quota (raised by its
+// decisions, D203), and whether writes are currently blocked — for the
+// per-tile status API.
 func (d *diskMon) Status(scopeKey string) (usage, quota int64, blocked bool) {
 	if d == nil {
 		return 0, 0, false
 	}
+	quota = d.quotaOf(scopeKey)
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	_, blocked = d.blocked[scopeKey]
-	return d.usage[scopeKey], d.quota, blocked
+	return d.usage[scopeKey], quota, blocked
 }
 
 // Low reports the last scan's verdict: the data partition is below its

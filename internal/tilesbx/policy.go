@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 
 	"github.com/xbin-dev/xbin/internal/fsutil"
 )
@@ -291,7 +292,8 @@ type policyStore struct {
 	path   string
 	loaded bool
 	p      Policy
-	err    error // unreadable: tile sandboxes are off until a PUT replaces it
+	err    error                  // unreadable: tile sandboxes are off until a PUT replaces it
+	snap   atomic.Pointer[Policy] // p, for the readers that can't take m.mu (grants.go)
 }
 
 // get is the stored policy (zero while the file is unreadable). Callers
@@ -312,6 +314,8 @@ func (s *policyStore) get() Policy {
 		if s.err != nil {
 			slog.Error("tile sandboxes: the sandboxes policy file is unreadable; tile sandboxes are off until an admin saves the policy again", "err", s.err)
 		}
+		p := s.p
+		s.snap.Store(&p)
 	}
 	return s.p
 }
@@ -356,7 +360,16 @@ func (s *policyStore) set(p Policy) error {
 		return err
 	}
 	s.p, s.loaded, s.err = p, true, nil
+	s.snap.Store(&p)
 	return nil
+}
+
+// snapshot is the stored policy as last loaded or set, without m.mu.
+func (s *policyStore) snapshot() Policy {
+	if p := s.snap.Load(); p != nil {
+		return *p
+	}
+	return Policy{}
 }
 
 // Policy is the stored policy (zero = default).
@@ -378,5 +391,6 @@ func (m *Manager) PolicyError() string {
 	return ""
 }
 
-// limitsFor is what tile is held to now. Callers hold m.mu.
-func (m *Manager) limitsFor(tile string) Limits { return m.policy.get().For(tile) }
+// limitsFor is what tile is held to now: the policy's, raised by the
+// tile's grants (grants.go). Callers hold m.mu.
+func (m *Manager) limitsFor(tile string) Limits { return m.granted(tile, m.policy.get().For(tile)) }

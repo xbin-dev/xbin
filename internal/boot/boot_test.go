@@ -68,6 +68,10 @@ func TestStepsOrder(t *testing.T) {
 		{"vm", "tile-sandboxes"},        // and the VM manager
 		{"broker", "tile-sandboxes"},
 		{"tile-sandboxes", "server"},       // which mounts its routes
+		{"cgroup", "tile-limits"},          // the tile limits read the per-tile caps,
+		{"vm", "tile-limits"},              // the VM policy,
+		{"tile-sandboxes", "tile-limits"},  // the sandboxes policy
+		{"tile-limits", "server"},          // and are wired before the store's routes serve
 		{"workspace", "isolation"},         // the definitions pin their bases before isolation's GC
 		{"server", "go-build-versions"},    // the upgrade check's routes are mounted before it runs
 		{"always-on", "go-build-versions"}, // and the boot's own builds go first

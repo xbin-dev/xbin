@@ -68,8 +68,9 @@ type LimitSources struct {
 	// lock held.
 	Apply func(tile string, k limits.Kind, restart bool)
 	// Applied is what runs now for tile's kind k when it differs from what
-	// the store grants — a lowered memory limit waits for the backend's next
-	// start; 0 = the same, or unknown. Optional (GET /limits' "applied").
+	// the store grants (0 = the same, or unknown): a lowered memory limit
+	// waits for the backend's next start, a VM size for a restart. Optional
+	// (GET /limits' "applied"/"appliesAt").
 	Applied func(tile string, k limits.Kind) int64
 }
 

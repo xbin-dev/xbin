@@ -185,6 +185,8 @@ type Runner struct {
 	GoVersions      *GoVersions
 	DeploymentHooks                 // installed by the deployments plane; nil-safe (deploy.go)
 	PartitionHooks                  // installed by the identity and data planes; fail-closed (partitions.go)
+	LimitHooks                      // installed by the tile-limits plane; nil-safe (oom.go, D203)
+	oom             oomState        // oom.go: each leaf's oom_kill count, and its latest kill
 	inUse           inUse           // inspect.go: the trees and artifacts generations use
 	parts           partitionsState // people's partitions (partitions.go, partadmit.go)
 
@@ -421,7 +423,7 @@ func (r *Runner) buildAndStart(c *registry.Component, s *state, code Code) error
 		}
 		r.partitionExited(s, recent >= crashLimit)
 		if recent >= crashLimit { // a save never reaches pinned code (07-runtime §7)
-			s.lastErr = r.crashLoop(s, code, recent)
+			s.lastErr = r.looped(r.crashLoop(s, code, recent), c.Path, inst) // oom.go: an OOM kill says so
 			r.emitState(s, "build-error", s.lastErr.Error())
 		} else {
 			s.dirty = true       // transparent restart on next request
@@ -621,8 +623,8 @@ func (r *Runner) startDeployment(c *registry.Component, dep, bin string, gen int
 		for _, s := range inst.linkSplicers {
 			s.Close()
 		}
-		r.leaveLeaf(leaf) // its own deployment's leaf alone (limits.go)
-		cleanup()         // remove the sandbox spec temp file (init self-removes; this is a backstop)
+		r.noteExit(c, dep, inst, logf) // its OOM kills read, then its own deployment's leaf alone (oom.go)
+		cleanup()                      // remove the sandbox spec temp file (init self-removes; this is a backstop)
 		r.vmRelease(sock)
 		logf.Close()
 		r.Auth.RevokeInstance(token)

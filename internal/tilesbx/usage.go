@@ -36,6 +36,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/xbin-dev/xbin/internal/limits"
 )
 
 const (
@@ -316,6 +318,7 @@ func (m *Manager) overDiskStop(tile string) {
 		return
 	}
 	why := fmt.Sprintf("the tile's sandboxes use %s, over its %d GiB (sandboxes policy: perTile.diskGiB): stopped, state kept — delete a sandbox or a snapshot", gib(used), capGiB)
+	m.atCap(tile, limits.SbxDiskGiB, capGiB, "sandbox %s stopped: the tile's sandboxes use %s", big.def.Name, gib(used)) // grants.go
 	go func() { _ = m.Stop(big.k, big.def.Name, why) }()
 }
 
