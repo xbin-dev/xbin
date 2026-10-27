@@ -12314,7 +12314,7 @@ Deviations and refinements made while implementing; all deliberate:
     Each write keeps the earlier version and an HTML preview, shown in chat
     (web and the app) with a download/Share. `file_read` on a document
     answers with its Markdown — no stored sidecar.
-  - **Libraries.** excelize v2 (BSD-3); go-pdfium v1.21 in WebAssembly mode
+  - **Libraries.** excelize v2 (BSD-3; pinned to the 2026-09-30 commit after v2.11.0, the first that fixes GO-2026-6684/6685/6688/6689 — panics, an endless row loop, a fatal recursion and memory exhaustion on malformed workbooks, which the release's vulncheck caught; move to the next tag when one ships); go-pdfium v1.21 in WebAssembly mode
     (MIT) with PDFium (BSD-3/Apache-2.0) on wazero v1.12 (Apache-2.0); our
     own docx/pptx readers and writers on archive/zip + encoding/xml. No cgo,
     no subprocess. Rejected: Python skills (need a sandbox); unioffice (AGPL
