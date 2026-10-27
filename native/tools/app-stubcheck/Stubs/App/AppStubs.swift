@@ -100,6 +100,7 @@ struct TCPUpstream: ForwardUpstream {
     static func open(host: String, port: Int) async throws -> TCPUpstream { TCPUpstream() }
     func splice(with local: any ByteStream) async {}
 }
+func tunnelLog(_ s: @autoclosure () -> String) {}
 final class TunnelPathWatch: @unchecked Sendable {
     init(changed: @escaping @MainActor @Sendable (Bool) -> Void) {}
     func stop() {}

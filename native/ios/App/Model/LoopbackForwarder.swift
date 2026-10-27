@@ -48,7 +48,9 @@ final class LoopbackForwarder: @unchecked Sendable {
         let params = NWParameters.tcp
         params.requiredInterfaceType = .loopback
         params.allowLocalEndpointReuse = true
-        params.acceptLocalOnly = true
+        // Not `acceptLocalOnly`: it filters through NECP, which reset every
+        // connection on the simulator (SO_NECP_LISTENUUID failed). Binding
+        // 127.0.0.1 and the peer check in accept keep it loopback only.
         let p = NWEndpoint.Port(rawValue: UInt16(clamping: max(0, port))) ?? .any
         params.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: p)
         let l = try NWListener(using: params)
@@ -100,7 +102,9 @@ final class LoopbackForwarder: @unchecked Sendable {
     var isListening: Bool { lock.lock(); defer { lock.unlock() }; return listener != nil && !stopped }
 
     private func accept(_ c: NWConnection) {
+        tunnelLog("forwarder: accepted \(c.endpoint)")
         guard Self.isLoopback(c.endpoint) else {
+            tunnelLog("forwarder: refused a peer that isn't loopback: \(c.endpoint)")
             c.cancel()
             return
         }
@@ -116,15 +120,22 @@ final class LoopbackForwarder: @unchecked Sendable {
         let local = NWByteStream(c, queue: queue)
         let t = Task { [weak self] in
             defer { self?.drop(key) }
-            guard (try? await local.ready()) != nil else { return }
+            guard (try? await local.ready()) != nil else {
+                tunnelLog("forwarder: an accepted connection never became ready")
+                return
+            }
             let upstream: any ForwardUpstream
+            let started = Date()
             do {
                 upstream = try await connect()
             } catch {
+                tunnelLog("forwarder: no upstream (\(Self.describe(error))): 502")
                 await Self.answer502(local, why: Self.describe(error))
                 return
             }
+            tunnelLog("forwarder: upstream in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
             await upstream.splice(with: local)
+            tunnelLog("forwarder: connection done after \(Int(Date().timeIntervalSince(started) * 1000)) ms")
             await local.cancel()
         }
         tasks[key] = t
@@ -143,8 +154,14 @@ final class LoopbackForwarder: @unchecked Sendable {
         guard case .hostPort(let host, _) = e else { return false }
         switch host {
         case .ipv4(let a): return a.isLoopback
-        case .ipv6(let a): return a.isLoopback
-        case .name(let n, _): return n == "127.0.0.1" || n == "::1" || n == "localhost"
+        case .ipv6(let a): return a.isLoopback || a.asIPv4?.isLoopback == true
+        case .name(let n, _):
+            // The name form of an address (how an accepted peer may be
+            // reported): loopback whether it reads as v4, v6 or v4-mapped.
+            let bare = n.split(separator: "%").first.map(String.init) ?? n
+            if let a = IPv4Address(bare) { return a.isLoopback }
+            if let a = IPv6Address(bare) { return a.isLoopback || a.asIPv4?.isLoopback == true }
+            return bare == "localhost"
         @unknown default: return false
         }
     }
@@ -171,6 +188,15 @@ final class LoopbackForwarder: @unchecked Sendable {
         try? await Task.sleep(nanoseconds: 500_000_000)
         await local.cancel()
     }
+}
+
+/// Debug builds: a line in the device log (`xbin-tunnel …`, like
+/// Navigation's `xbin-nav`): `xcrun simctl spawn <udid> log show --predicate
+/// 'eventMessage CONTAINS "xbin-tunnel"'`.
+func tunnelLog(_ s: @autoclosure () -> String) {
+    #if DEBUG
+    NSLog("xbin-tunnel %@", s())
+    #endif
 }
 
 /// An NWConnection as a ByteStream: reads return what arrived (empty = the

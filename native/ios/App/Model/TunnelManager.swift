@@ -308,9 +308,11 @@ final class TunnelSession {
         var last: any Error = Problem(description: "no relay to reach the workspace through")
         for t in tokens {
             do {
+                let started = Date()
                 let c = try await withDeadline(30, "reaching the workspace's tunnel") {
                     try await dialer.connect(irohSecret: s.irohSecret, ticket: s.ticket, relayToken: t.token, alpn: TunnelALPN.tunnel)
                 }
+                tunnelLog("session \(workspace): tunnel/1 connected in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
                 guard e == epoch else {
                     await c.close()
                     throw CancellationError()
@@ -333,6 +335,7 @@ final class TunnelSession {
                 return
             } catch {
                 if error is CancellationError { throw error }
+                tunnelLog("session \(workspace): tunnel/1 failed: \(Self.describe(error))")
                 last = error
             }
         }
@@ -388,11 +391,22 @@ final class TunnelSession {
         case .iroh(let s):
             try await ready()
             guard let c = connection else { throw Problem(description: "the tunnel isn't connected") }
-            let stream = try await c.openStream()
-            let channel = try await withDeadline(15, "the tunnel's handshake", onTimeout: { await stream.cancel() }) {
-                try await NoiseTunnel.openTunnel(stream, secrets: s, serverEndpoint: c.remoteId, deviceEndpoint: c.localId)
+            let stream: any ByteStream
+            do {
+                stream = try await c.openStream()
+            } catch {
+                tunnelLog("session \(workspace): no stream: \(Self.describe(error))")
+                throw error
             }
-            return NoiseUpstream(channel: channel)
+            do {
+                let channel = try await withDeadline(15, "the tunnel's handshake", onTimeout: { await stream.cancel() }) {
+                    try await NoiseTunnel.openTunnel(stream, secrets: s, serverEndpoint: c.remoteId, deviceEndpoint: c.localId)
+                }
+                return NoiseUpstream(channel: channel)
+            } catch {
+                tunnelLog("session \(workspace): handshake failed: \(Self.describe(error))")
+                throw error
+            }
         }
     }
 
@@ -447,7 +461,7 @@ final class TunnelSession {
         manager?.setStatus(workspace, .connected(path: p.path, rtt: p.rtt))
     }
 
-    static func describe(_ error: any Error) -> String {
+    nonisolated static func describe(_ error: any Error) -> String {
         if let e = error as? LocalizedError, let d = e.errorDescription { return d }
         return String(describing: error)
     }
@@ -458,7 +472,11 @@ private struct NoiseUpstream: ForwardUpstream {
     let channel: NoiseChannel
 
     func splice(with local: any ByteStream) async {
-        try? await TunnelSplice.run(plain: local, channel: channel)
+        do {
+            try await TunnelSplice.run(plain: local, channel: channel)
+        } catch {
+            tunnelLog("splice ended: \(TunnelSession.describe(error))")
+        }
     }
 }
 
