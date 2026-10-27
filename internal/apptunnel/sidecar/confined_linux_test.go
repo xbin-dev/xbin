@@ -253,3 +253,30 @@ func TestConfinedRealSidecar(t *testing.T) {
 		t.Fatalf("after Stop: %s", st.State)
 	}
 }
+
+// n0's public relays from inside the bare sandbox: DNS through the bound
+// resolv.conf, TLS with the roots compiled in, the home relay connected,
+// and the selftest's probe through it. Network and a third party's
+// service, so only on request: XBIN_IROH_TEST_N0=1.
+func TestConfinedN0Relay(t *testing.T) {
+	if os.Getenv("XBIN_IROH_TEST_N0") == "" {
+		t.Skip("set XBIN_IROH_TEST_N0=1 to dial n0's public relays")
+	}
+	needSandbox(t)
+	bin := realSidecar(t)
+	s := New(Options{RunDir: t.TempDir(), Workspace: t.TempDir(), Binary: bin, Isolated: true})
+	defer s.Stop()
+	if err := s.Start(context.Background(), Config{Key: testKey(9), Relay: wire.Relay{Mode: "n0"}}); err != nil {
+		t.Fatal(err)
+	}
+	var st Status
+	waitFor(t, "a connected home relay", func() bool { st = s.Status(); return st.State == StateRunning && st.RelayConnected })
+	t.Logf("home relay %s, ticket %s", st.HomeRelay, st.Ticket)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	ev, err := s.SelfTest(ctx)
+	if err != nil || !ev.Reachable || ev.Path != "relay" {
+		t.Fatalf("selftest %+v %v: want reachable through the relay", ev, err)
+	}
+	t.Logf("selftest: %s, %d ms", ev.Path, ev.RTTMs)
+}
