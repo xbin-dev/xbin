@@ -52,6 +52,109 @@ already on `limits/base`; the workers build on it.**
   - `broker.Alert.Action *limits.Action` (additive JSON `action`);
   - `diskMon.kick()` — one rescan now (a raised quota lifts its 507).
 
+## §W. The wire (binding for W1 and W3)
+
+Every value is an integer in its kind's unit; times are RFC 3339. Routes
+are under `/api/xbin`. Errors are `server.WriteError`'s `{error, doc?}`.
+
+**`GET /limits`** — rows for every tile the caller may see (workspace
+admin: all with a backend, a scope root or sandboxes/VM; org admin: the
+org's; a person: tiles they own or manage; a tile's own credentials: its
+own row):
+
+```jsonc
+{
+  "tiles": [Row, …],
+  "defaults": {"memMiB": 2048, "diskGiB": 50, …},   // the workspace defaults (a tile's own may differ: sbx*)
+  "enforced": {"memMiB": true, …},                   // false: no cgroup delegation, no VM runtime, …
+  "orgCeilings": {"acme": {"memMiB": 4096, …}},      // orgs the caller admins (workspace admin: every org with one)
+  "canSetCeilings": true                             // workspace admin
+}
+```
+
+**Row:**
+
+```jsonc
+{
+  "tile": "apps/foo",
+  "scope": "apps", "scopeKey": "apps", "rootsScope": false,
+  "org": "acme",                       // the owning org, when org-owned
+  "limits": {                          // only kinds that apply to the tile (enforced, placed)
+    "memMiB": {
+      "effective": 3072, "default": 2048, "max": 65536, "enforced": true,
+      "ask": 4096,                     // the manifest's standing ask above the default (absent: none)
+      "pending": true,                 // limits.Pending
+      "set": Decision,                 // the raise/admin-set slot, when held
+      "approved": Decision,            // the manifest-ask slot, when held
+      "dormant": true,                 // the approved ask no longer applies (the manifest dropped it)
+      "usage": 1800,                   // when known
+      "applied": 2048,                 // what runs now, when it differs (a lower value waits)
+      "appliesAt": "next-start",       // when applied ≠ effective, or a VM kind
+      "hit": Hit,                      // at the cap, sticky
+      "note": "ignored: …",            // a placement note (limits.disk off the scope root, …)
+      "approvers": ["workspace-admin", "org:acme"],
+      "canDecide": true,               // the viewer may approve/raise this kind at some value
+      "canRevert": true,               // the viewer may DELETE (managers, approvers)
+      "choices": [Choice, …]           // approvers only: +25/+50/+100 from effective
+    }
+  }
+}
+```
+
+**`GET /limits?tile=apps/foo`** → `{"tile": Row, "capacity": {"memMiB":
+limits.Capacity, …}}` (capacity: approvers only). Readers and the tile's
+own credentials get the row read-only (no choices).
+
+**`GET /limits?pending=1`** — what the shell's prompts read:
+
+```jsonc
+{"pending": [{
+  "tile": "apps/foo", "kind": "memMiB", "unit": "MiB",
+  "why": "ask" | "cap",
+  "ask": 4096,          // why=ask
+  "hit": Hit,           // why=cap
+  "effective": 2048,
+  "approvable": true,   // the viewer may decide it (the ask's value / some choice)
+  "mine": false,        // the viewer owns or manages the tile (shown even when not approvable)
+  "approvers": ["workspace-admin"]
+}]}
+```
+
+**`POST /limits`** `{tile? | scope?, kind, value, source, restart?,
+force?}` → `200 {"tile": Row}`. `scope` (a scope path) for `diskGiB`
+only; `tile` for diskGiB means its scope (must root it). 400: bad kind or
+value, `value ≤ default` ("use DELETE to go back to the default"), past
+max, `source: manifest-ask` above the manifest's ask; 403: not an
+approver, above the org's ceiling, the tile's own credentials, `force` by
+a non-workspace-admin; 409: doesn't fit (the `why`), unless `force` by a
+workspace admin; 500: `data/tile-limits.json` unreadable (never
+overwritten).
+
+**`DELETE /limits?tile=&kind=`** (or `scope=`) → `200 {"tile": Row}`:
+both slots back to the default; a standing ask is pending again.
+
+**`POST /limits/dismiss?tile=&kind=`** (or `scope=`) → `204`: an
+approver clears the hit for everyone. An alert's `dismiss` names exactly
+this route (`/limits/dismiss?tile=apps%2Ffoo&kind=memMiB`).
+
+**`PUT /orgs/{org}/limits`** `{memMiB?: n|null, …}` → `200 {"limits":
+{…}}` (workspace admins; null or 0 removes a kind). `GET /orgs` carries
+each org's `limits`.
+
+**Events:** `{type: "limits", component: "apps/foo"}` on `/ws/events`
+after any decision, hit or new manifest ask (no payload; clients refetch).
+
+**Alerts** (`GET /alerts`): an alert about a cap carries `action`
+(`limits.Action`): `{action: "raise-limit", tile, scope?, kind, unit,
+current, approvers, choices}` — `choices`' `approvable` and the alert's
+`dismiss` decorated for the viewer (`dismiss` only for approvers). Kinds:
+`oom` (sticky, from a hit), `quota` (crit, at the quota) and the new
+`quota-near` (warn, from 90 %), `sbx-cap` (a sandbox refused/stopped at
+the tile's total), `tile-limits` (admins: the store unreadable).
+
+**`GET /xbin/limits[?tile=]`** — the xbind-served page (top level only,
+like `/xbin/partitions`): `web/limits.html` + `/vendor/limits-page.js`.
+
 ## Worker ownership (Phase 1)
 
 To keep the three branches mergeable, each file has one owner; a worker
@@ -62,7 +165,9 @@ that needs a change in another's file says so in its report instead.
   `internal/registry/limits.go` + the manifest field,
   `internal/users/orglimits.go` + `Org.Limits`, `orgsapi.go`'s route,
   `internal/server/openapi_limits.go`, `limitspage.go`, the `/xbin/limits`
-  route, `serve.go`'s `RefreshLimitAsks`, `cmd/bx/limits.go`.
+  route, the one `RefreshLimitAsks` line in boot's `serve.go` watchLoop,
+  `cmd/bx/limits.go`, and `docs/protocol.md` entries for its routes
+  (apicheck needs them).
 - **W2 (runtime, detection):** `internal/cgroup`, `internal/runner`,
   `internal/deployments` (ceilings), `internal/tilesbx`, `internal/vm`,
   diskmon's `scan`/`Status`/alerts (not `apiAlerts`), `internal/boot`
