@@ -81,6 +81,16 @@
     // above); skip without .rootfs/userns
     { "name": "term", "pkg": "./internal/term/", "run": "^(TestConfined|TestTermMountPoints|TestPartitionLayer)", "overhead": 3 },
 
+    // the app tunnel's iroh sidecar (D204) as xbind runs it: the
+    // supervisor launches it in its bare sandbox (the binary passed open,
+    // from a memfd too), the fake and then the real bin/xbin-iroh with
+    // relays off — xbin-iroh client dials the ticket over loopback, an
+    // allowed device's stream reaches xbind with its header, a stranger's
+    // never does, Drop cuts the device off, the selftest answers. Skips
+    // without userns; the real-sidecar test without bin/xbin-iroh (make
+    // helpers HELPERS=iroh)
+    { "name": "apptunnel-sidecar", "pkg": "./internal/apptunnel/sidecar/", "overhead": 3 },
+
     // VM sandboxes (D89): skip without /dev/kvm or the vm-assets; then
     // again under QEMU's emulation (skips without its assets). CI's vm job
     // gives them KVM, the assets and a guest rootfs (XBIN_ROOTFS)
