@@ -97,6 +97,18 @@ bx owner <tile> [--transfer user:U|org:O|workspace]   tile ownership (D24)
 bx chrome [ls] | approve <tile> | revoke <tile>
                                        trusted chrome (admin, D118): tiles whose
                                        xbin.json asks for chrome, and approvals
+bx limits [ls] [--pending] [--at-cap] [--json] | show <tile> [--json]
+                                       tiles' resource limits (D203): what each
+                                       may use, what its manifest asks, which
+                                       met a cap
+bx limits approve <tile> [<kind>…] | raise <tile> <kind> [+25%|+50%|+100%|<size>]
+          [--restart] [--force] | set <tile> <kind> <size> [--force]
+          | reset <tile> <kind> | dismiss <tile> <kind>
+                                       an approver's decisions (--scope <s> in
+                                       place of the tile: a scope's disk)
+bx org limits <org> [--set memory=8G,disk=500G,…] [--rm <kind>]
+                                       an org's per-tile ceilings (workspace
+                                       admin)
 bx policies [ls] [--json] | set partition-consent|credential-reset-confirm on|off
                                        alias of bx settings for the partitioned
                                        tiles' two switches (v0.3.66's; D180)
@@ -426,6 +438,28 @@ only once a workspace admin approves it; until then it runs sandboxed.
 approval (also a removed tile's). Admin credentials (`GET`/`PUT
 /api/xbin/chrome`). Approving a tile trusts every writer of it — its
 terminal users and their coding agents — as much as the shell.
+
+**`bx limits`** — tiles' resource limits (D203, [isolation.md §Resource
+limits](/docs/isolation.md)): a tile's manifest asks for more memory, scope
+disk or sandbox room than the defaults (`"limits"`, `vm` sizes), and an
+approver decides — a workspace admin, or an admin of the owning org up to the
+org's per-tile ceiling. `bx limits` lists the raised, pending and at-cap
+limits you can see (`--pending`, `--at-cap` narrow it); `show <tile>` prints
+each kind — effective, default, decisions, ask, usage and, for approvers, the
++25/+50/+100 % choices with whether each fits. `approve` grants the
+manifest's pending asks (all, or the kinds named); `raise` adds a percentage
+of the current limit (+50 % without one) or sets a size; `set` sets a value
+outright; `reset` goes back to the default (the tile's managers may);
+`dismiss` clears a cap hit for everyone. Kinds: `memory`, `disk` (the
+scope's quota: name the tile that roots it, or `--scope <path>`; `--scope
+workspace` for the workspace scope), `vm-memory`, `vm-vcpus`,
+`sandbox-memory`, `sandbox-vcpus`, `sandbox-disk`. `--restart` restarts
+the backend so a size that applies at its next start (a VM's) applies now;
+`--force` (a workspace admin) grants past what fits. **`bx org limits
+<org>`** prints an org's ceilings; `--set kind=size,…` and `--rm <kind>`
+change them (`PUT /api/xbin/orgs/<org>/limits`). Every command exits 6
+against an xbind without tile limits. The page `/xbin/limits` does the same
+in a browser.
 
 **`bx policies`** — an alias, kept from v0.3.66: the partitioned tiles'
 two switches are workspace settings since D180 (**`bx settings`**, below).

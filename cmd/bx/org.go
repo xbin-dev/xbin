@@ -34,6 +34,8 @@ func cmdOrg(args []string) error {
 		return fmt.Errorf("usage: bx org ls | add <id> [flags] | set <id> [flags] | member <org> … | sso-groups <org> … | rm <id> | policy [<org>] [--set '<json>']")
 	}
 	switch args[0] {
+	case "limits": // per-tile resource ceilings (D203; limits.go)
+		return dcCommand(cmdOrgLimits)(args[1:])
 	case "ls":
 		orgs, err := fetchOrgs()
 		if err != nil {
