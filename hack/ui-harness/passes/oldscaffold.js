@@ -51,7 +51,7 @@ const THEMED = 'apps/othemed'; // a new tile that opts in to the theme (D184)
 // shows its message and ignores the action (D203)
 const LIMIT = {
   level: 'warn', kind: 'oom', tile: PART, dismiss: `/limits/dismiss?tile=${encodeURIComponent(PART)}&kind=memMiB`,
-  message: `${PART} was OOM-killed at its 2 GiB memory limit (OOM-killed (1 process)) at Oct 27 13:20 UTC — raise it: the tile's ⚙ → Limits, /xbin/limits, or \`bx limits raise ${PART} memory\``,
+  message: `${PART} was OOM-killed at its 2 GiB memory limit (1 process) at Oct 27 13:20 UTC — raise it: the tile's ⚙ → Limits, /xbin/limits, or \`bx limits raise ${PART} memory\``,
   action: { action: 'raise-limit', tile: PART, kind: 'memMiB', unit: 'MiB', current: 2048, approvers: ['workspace-admin'],
     choices: [{ pct: 25, value: 2560, fits: true, approvable: true }, { pct: 50, value: 3072, fits: true, approvable: true, default: true },
       { pct: 100, value: 4096, fits: false, approvable: true, why: 'needs +2 GiB; 1 GiB free after the 10% reserve' }] },

@@ -218,9 +218,12 @@ interface — only its TUN, carrying exactly the flows policy allows.
 Where xbind's cgroup is delegated (systemd `Delegate=yes`, or a container),
 each backend joins a per-component cgroup leaf (`internal/cgroup`):
 
-- **Memory** — `memory.max` 2 GiB, with a soft `memory.high` at ⅞ of that to
-  throttle a gradual leak before the hard OOM. Over budget → the tile's own
-  process is OOM-killed, and crash-loop backoff kicks in; nothing else is hit.
+- **Memory** — `memory.max` 2 GiB by default, with a soft `memory.high` at ⅞
+  of that to throttle a gradual leak before the hard OOM. Over budget → the
+  tile's own process is OOM-killed, and crash-loop backoff kicks in; nothing
+  else is hit. The kill is read before the leaf goes and becomes a hit an
+  approver can raise from — per tile, live (D203,
+  [isolation.md](/docs/isolation.md) §Resource limits).
 - **Processes** — `pids.max` = `max(512, ncpu×8)`. A fork bomb hits its own
   ceiling. Because every namespace needs a process, this also bounds
   namespace/mount exhaustion.
