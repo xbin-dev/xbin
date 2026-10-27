@@ -2,7 +2,8 @@
  * <bx-admin-users> — the admin console's users tab: the accounts table
  * (filter + chips, org pills, per-tile access, last sign-in, the per-row
  * "more ▾" menu), the click-through editors for a user's orgs / tiles,
- * the devices… expansion (the xbin app's enrolled devices, with revoke),
+ * the devices… expansion (the xbin app's enrolled devices, with revoke, and
+ * the person's own device limit — D204),
  * pending access requests (D36), the add-user form with
  * its three sign-in modes (D22/D52) and the one-time invite box. Data
  * arrives as properties from the router's shared lists; writes go through
@@ -37,6 +38,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     _drafts: { state: true },     // click-through editor drafts (user:<id>:{orgs|tiles|personal})
     _err: { state: true },        // the last API refusal (also reported to the router's slot)
     _devices: { state: true },    // user id → their app devices (the devices… expansion)
+    _devLim: { state: true },     // user id → {limit, override} from GET /users/{id}/devices (D204; absent before)
   };
   static styles = [base, usersCss];
 
@@ -138,7 +140,29 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     try {
       const d = await api(`/users/${encodeURIComponent(id)}/devices`);
       this._devices = { ...this._devices, [id]: d?.devices ?? [] };
+      this._devLim = { ...this._devLim, [id]: Number.isInteger(d?.limit) ? { limit: d.limit, override: d.override ?? null } : null };
     } catch (e) { this._fail(e); this._devices = { ...this._devices, [id]: [] }; }
+  }
+  // A person's own device limit (D204): PATCH /users/{id} {maxDevices: n|null}
+  // — null is the workspace default again. It applies when a device is added.
+  async _setDeviceLimit(id, v) {
+    const n = v === null ? null : Number(v);
+    if (n !== null && (!Number.isInteger(n) || n < 0 || n > 32)) { this._fail('a device limit is a whole number from 0 to 32'); return; }
+    await this._orgAPI('PATCH', `/users/${encodeURIComponent(id)}`, { maxDevices: n });
+    if (!this._err) this._emit('bx-admin-notice', n === null ? `${id} has the workspace's device limit again` : `${id} may pair ${n} device${n === 1 ? '' : 's'}`);
+    await this._loadDevices(id);
+  }
+  _deviceLimitRow(u, n) {
+    const l = this._devLim?.[u.id];
+    if (!l) return nothing;
+    return html`<form class="orow" data-device-limit=${u.id} style="margin-top:4px" @submit=${(e) => { e.preventDefault(); this._setDeviceLimit(u.id, e.target.n.value); }}>
+      <span><b>device limit</b> <span class="muted">${n} of ${l.limit}${l.override == null ? ' — the workspace default' : ' — their own'}</span></span>
+      <input name="n" type="number" min="0" max="32" step="1" size="4" style="width:6em" required .value=${l.override == null ? '' : String(l.override)}
+        placeholder=${String(l.limit)} title="0–32; 0: no app devices at all">
+      <button class="act" type="submit">set</button>
+      ${l.override == null ? nothing : html`<button class="act quiet" type="button" @click=${() => this._setDeviceLimit(u.id, null)}>use the default</button>`}
+      <span class="muted hint">applies when they add a device; ones they have stay</span>
+    </form>`;
   }
   async _revokeDevice(uid, d) {
     if (!confirm(`Remove "${d.name}" from ${uid}? The xbin app on it is signed out now and has to be enrolled again.`)) return;
@@ -164,6 +188,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
           <span style="flex:1"></span>
           <button class="act quiet rm" @click=${() => this._revokeDevice(u.id, d)}>revoke</button>
         </div>`)}
+      ${list === 'loading' ? nothing : this._deviceLimitRow(u, list.length)}
       <div class="orow" style="margin-top:4px"><span style="flex:1"></span>
         <button class="act" @click=${() => this._toggleDevices(u.id)}>close</button></div>
     </div></td></tr>`;
@@ -467,8 +492,8 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
             () => Object.entries(u.tiles ?? {}).map(([target, level]) => ({ target, level })))}>tiles…</button>
           <button class="act quiet" title="the tiles they own: switches, permission and network sets (D88)"
             @click=${() => this._toggleDraft(personalKey, () => true)}>personal…</button>`}
-        ${u.deviceCount ? html`<button class="act quiet" title="the xbin app devices enrolled for this account"
-          @click=${() => this._toggleDevices(u.id)}>devices (${u.deviceCount})…</button>` : nothing}
+        ${u.deviceCount || u.deviceLimit != null ? html`<button class="act quiet" title="the xbin app devices enrolled for this account, and their device limit"
+          @click=${() => this._toggleDevices(u.id)}>${u.deviceCount ? `devices (${u.deviceCount})…` : 'devices…'}</button>` : nothing}
         ${this._pwEdit === u.id ? html`
           <form style="display:inline-flex; gap:4px" @submit=${(e) => { e.preventDefault();
               const pw = e.target.pw.value; this._pwEdit = null; this._resetPw(u.id, pw); }}>

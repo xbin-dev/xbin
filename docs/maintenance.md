@@ -903,6 +903,16 @@ scope and ask `"disk"`; a cap hit can't be produced, so its OOM and
 full-quota alerts are served by route interception while their raises go
 to the real `POST /limits`, and it `SKIP`s the real hit and the VM and
 sandbox kinds, said so (`test/limits` drives the real OOM and quota path).
+`apptunnel` and `pairing` cover app tunnels' UI (D204) in both themes and
+at phone width: the admin console's iroh tunneling (off, n0, a custom
+relay's token slots, refusing app connections outside the tunnel, a failed
+sidecar, the default and a person's own device limit, an xbind without the
+routes) and adding a phone (the big QR code decoded by `zbarimg`, the
+address rewrite, the confirmation code, They don't, replacing a device at
+the limit, abandoned and expired, the classic code, `/xbin/devices`). The
+harness xbind runs no iroh sidecar, so both serve the tunnel routes from a
+fake shaped like `native/spec/tunnel.md` by route interception, and
+`pairing` serves `web/devices.html` itself when xbind doesn't.
 
 ```
 hack/ui-harness/run.sh                    # build, fresh workspace, seed, every pass, stop

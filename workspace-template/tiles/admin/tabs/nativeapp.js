@@ -4,12 +4,14 @@
  * the xbin app draws tiles that ship a native.js with native controls; off,
  * it opens every tile as its web page (whoami says native.runtime 0 and the
  * runtime documents answer 410). Saves go through PUT /native-runtime
- * (admin); every open console and app hears the `native` event.
+ * (admin); every open console and app hears the `native` event. Below it,
+ * iroh tunneling and the device limit (D204): tabs/apptunnel.js.
  */
 import { LitElement, html, css } from 'lit';
 import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
 import { base } from '../admin-css.js';
 import { WithRouter } from '../shared.js';
+import './apptunnel.js'; // <bx-admin-apptunnel> (D204)
 
 export class BxAdminNativeApp extends WithRouter(LitElement) {
   static properties = {
@@ -67,7 +69,8 @@ export class BxAdminNativeApp extends WithRouter(LitElement) {
         ${s.enabled ? html`on — the app is told native runtime ${s.version}`
           : html`off — the app is told native runtime 0 and opens web pages; tiles open in the app switch to their web pages now`}
       </div>
-    </div>`;
+    </div>
+    <bx-admin-apptunnel></bx-admin-apptunnel>`;
   }
 }
 customElements.define('bx-admin-nativeapp', BxAdminNativeApp);
