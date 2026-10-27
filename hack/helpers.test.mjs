@@ -85,6 +85,7 @@ const builds = {
   'build-mkfs-erofs.sh': ['mkfs.erofs'],
   'build-qemu.sh': ['qemu-system-x86_64', 'qemu-bios-microvm.bin', 'qemu-pvh.bin'],
   'build-vhost-vsock.sh': ['vhost-device-vsock'],
+  'build-xbin-iroh.sh': ['xbin-iroh'],
 };
 
 let n = 0;
@@ -116,6 +117,10 @@ function fixture() {
   writeFileSync(join(hack, 'gocryptfs-patches/0001-a.patch'), 'patch a\n');
   writeFileSync(join(hack, 'gofuse-patches/0001-b.patch'), 'patch b\n');
   writeFileSync(join(hack, 'vmkernel/xbin.config'), 'CONFIG_X=y\n');
+  // the iroh group's inputs: the crate (all of it but target/)
+  mkdirSync(join(dir, 'sidecar/xbin-iroh/src'), { recursive: true });
+  writeFileSync(join(dir, 'sidecar/xbin-iroh/Cargo.toml'), '[package]\nname = "xbin-iroh"\n');
+  writeFileSync(join(dir, 'sidecar/xbin-iroh/src/main.rs'), 'fn main() {}\n');
   // this fixture's bucket: <buckets>/<name>, publicly at <publicURL>/<name>
   const bucket = `b${n}`;
   const s3 = join(buckets, bucket);
@@ -160,6 +165,23 @@ const keyOf = (fx, g) => {
   return { key, state };
 };
 
+test('key: the iroh group follows every file of its crate but target/', () => {
+  const fx = fixture();
+  const k = keyOf(fx, 'iroh').key;
+  assert.match(k, /^[0-9a-f]{12}$/);
+  assert.notEqual(k, keyOf(fx, 'containerfs').key);
+  mkdirSync(join(fx.dir, 'sidecar/xbin-iroh/target/release'), { recursive: true });
+  writeFileSync(join(fx.dir, 'sidecar/xbin-iroh/target/release/xbin-iroh'), 'built\n');
+  assert.equal(keyOf(fx, 'iroh').key, k, 'cargo output is not an input');
+  appendFileSync(join(fx.dir, 'sidecar/xbin-iroh/src/main.rs'), '// more\n');
+  const k2 = keyOf(fx, 'iroh').key;
+  assert.notEqual(k2, k);
+  writeFileSync(join(fx.dir, 'sidecar/xbin-iroh/src/new.rs'), '\n');
+  assert.notEqual(keyOf(fx, 'iroh').key, k2, 'a new source file moves it');
+  appendFileSync(join(fx.hack, 'build-xbin-iroh.sh'), '# pin\n');
+  assert.notEqual(keyOf(fx, 'iroh').key, k2);
+});
+
 test('key: 12 hex digits, stable, moved by every build input', () => {
   const fx = fixture();
   const k = keyOf(fx, 'containerfs').key;
@@ -189,7 +211,8 @@ test('unpublished key: builds from source, warns under GitHub Actions, then is u
   assert.equal(r.code, 0, r.out);
   assert.match(r.out, /::warning title=unpublished helpers::containerfs helpers .* make helpers-publish/);
   assert.match(r.out, /::warning title=unpublished helpers::vm helpers/);
-  assert.equal(fx.built().trim().split('\n').length, 6, 'every build script ran');
+  assert.match(r.out, /::warning title=unpublished helpers::iroh helpers/);
+  assert.equal(fx.built().trim().split('\n').length, 7, 'every build script ran');
   const { key } = keyOf(fx, 'containerfs');
   assert.equal(readFileSync(join(fx.bin, '.helpers-containerfs'), 'utf8').trim(), `${key} amd64 built`);
   assert.equal(readFileSync(join(fx.bin, 'qemu-pvh.bin'), 'utf8'), 'qemu-pvh.bin one\n');
@@ -197,13 +220,14 @@ test('unpublished key: builds from source, warns under GitHub Actions, then is u
   assert.equal(again.code, 0, again.out);
   assert.match(again.out, /containerfs: up to date/);
   assert.match(again.out, /::warning title=unpublished helpers::/, 'a cached build still says to publish');
-  assert.equal(fx.built().trim().split('\n').length, 6, 'nothing rebuilt');
-  // arm64: no vm group there; containerfs builds
+  assert.equal(fx.built().trim().split('\n').length, 7, 'nothing rebuilt');
+  // arm64: no vm group there; containerfs and iroh build
   const arm = fx.run('fetch-helpers.sh', ['--dest', join(fx.dir, 'bin-arm')], { PLATFORM: 'linux/arm64' });
   assert.equal(arm.code, 0, arm.out);
   assert.match(arm.out, /vm: not built for arm64/);
   assert.ok(existsSync(join(fx.dir, 'bin-arm/gocryptfs')));
   assert.ok(!existsSync(join(fx.dir, 'bin-arm/vmlinux')));
+  assert.ok(existsSync(join(fx.dir, 'bin-arm/xbin-iroh')));
 });
 
 // publish(fx): make helpers-publish into this fixture's bucket, commit.
@@ -233,8 +257,8 @@ test('published key: fetched, every file verified, installed; no build', () => {
   assert.equal(keyOf(fx, 'containerfs').state, 'published');
   assert.equal(keyOf(fx, 'vm').state, 'published');
   const lines = readFileSync(fx.manifest, 'utf8').split('\n').filter((l) => l && !l.startsWith('#'));
-  assert.equal(lines.length, 2 + 2 + 6, 'each object + each file');
-  for (const l of lines) assert.match(l, /^(containerfs|vm) [0-9a-f]{12} amd64 \S+ [0-9a-f]{64}$/);
+  assert.equal(lines.length, 3 + 2 + 6 + 1, 'each object + each file');
+  for (const l of lines) assert.match(l, /^(containerfs|vm|iroh) [0-9a-f]{12} amd64 \S+ [0-9a-f]{64}$/);
   const { key } = keyOf(fx, 'containerfs');
   assert.ok(existsSync(join(fx.s3, 'helpers/containerfs', key, 'amd64.tar.zst')));
 

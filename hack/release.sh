@@ -5,7 +5,8 @@
 #   2. make check (skip with --no-check), then make vulncheck — the
 #      vulnerability gate (hack/vulncheck): no known vulnerability the Go
 #      code this checkout builds reaches unless hack/vulncheck-allow.txt says why.
-#      Never skipped; it needs network, as the rest of a release does
+#      Then cargo deny over the iroh sidecar's crates (advisories, licences).
+#      Never skipped; they need network, as the rest of a release does
 #   3. annotated tag (or verify an existing one points at HEAD), push the
 #      branch and the tag
 #   4. build + publish from a DETACHED WORKTREE of the tag —
@@ -74,6 +75,11 @@ fi
 # before the tag: a release found vulnerable is never tagged or pushed
 info "make vulncheck"
 run make -s vulncheck
+# the iroh sidecar xbind embeds (D204) is Rust, which govulncheck can't see:
+# RustSec advisories and its dependencies' licences (no copyleft), with
+# cargo deny in the sidecar's builder image (sidecar/xbin-iroh/deny.toml)
+info "cargo deny (the iroh sidecar)"
+run ./hack/build-xbin-iroh.sh --deny
 
 # --- 3. tag + push ----------------------------------------------------------
 if [ "$NEWTAG" = 1 ]; then

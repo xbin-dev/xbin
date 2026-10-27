@@ -40,7 +40,7 @@ installed. `eval "$(hack/dev-setup.sh --env)"` gives your shell the same.
 CI (`.github/workflows/ci.yml`) runs what `make check` and `make
 integration` run, split over parallel GitHub-hosted jobs (below,
 "Integration shards"): the guards (`make guards`), the unit tests in two
-shards, `make tile-check`, the integration tests in four shards, the VM
+shards, `make tile-check`, `make sidecar-check`, the integration tests in four shards, the VM
 suite in a `vm` job with KVM, the split's own guard (`shards`), and the
 native client's Linux half in three jobs: `make swift-test` and `make
 swift-stubcheck` (the app's SwiftUI/UIKit code against SDK stubs) under
@@ -70,7 +70,12 @@ Not in `check`: `make swift-test` runs the native client's Swift packages
 (`native/ios/Packages/*`, Foundation only) on any machine with a swift
 toolchain, Linux included — ci.yml's `native` job installs one to run them,
 and the Apple CI (`.github/workflows/ios.yml`) runs them on macOS; `make
-tile-check` needs the network (CI runs it); `make website-check` runs the site's
+tile-check` needs the network (CI runs it); `make sidecar-check` runs the app
+tunnel's iroh sidecar's own checks (`sidecar/xbin-iroh`: `cargo fmt --check`,
+clippy with `-D warnings`, `cargo test` — the header and control lines
+against the wire vectors Go writes, the fd pass, the hook, a loopback round
+trip) in its pinned builder image (docker; `XBIN_IROH_LOCAL=1` uses this
+machine's cargo), and CI runs it as a job of its own; `make website-check` runs the site's
 guard and then every page of xbin.dev in Chromium (`hack/website-check.mjs`,
 Playwright from `PLAYWRIGHT_DIR`; six widths in light, dark and reduced motion:
 console errors, requests that leave the local server, horizontal overflow, layout
@@ -244,6 +249,19 @@ pinned in `hack/helpers.sha256`) and the rootfs's tools (gopls, dlv).
 `--no-check` doesn't skip the gate. It needs network (the vulnerability
 database, each module's dependencies), so it is not part of `make check`.
 `make vulncheck VULNCHECK=<target…>` checks some targets only.
+
+**The sidecar's gate.** xbind embeds the app tunnel's iroh sidecar
+(`sidecar/xbin-iroh`, Rust, D204), which govulncheck can't see. Right after
+`make vulncheck`, the release runs `hack/build-xbin-iroh.sh --deny`:
+`cargo deny check advisories licenses` (cargo-deny pinned in the script, in
+the sidecar's builder image) against `sidecar/xbin-iroh/deny.toml`. A RustSec
+vulnerability anywhere in its graph fails it; an *unmaintained* notice fails
+only on a crate the sidecar depends on directly (one deep in iroh's graph is
+iroh's to replace). Licences: the permissive list in `deny.toml` only — no
+copyleft (GPL, LGPL, AGPL, MPL, EUPL…), and a licence the list doesn't name
+fails until someone reads it and decides. Fix a finding by bumping the crate
+(`cargo update -p <crate>`; `iroh` is pinned `=1.x.y` in `Cargo.toml`), and
+the release builds the new `Cargo.lock` (`--locked`).
 
 ## Embedded assets
 
@@ -1035,10 +1053,13 @@ integration tests on a small exported ubuntu image twice: on KVM, then with
 ## Prebuilt helpers (`make helpers`, D126)
 
 xbind runs native helpers it doesn't compile: the **containerfs** group
-(patched static `gocryptfs`, static `fuse-overlayfs`) and the **vm** group
+(patched static `gocryptfs`, static `fuse-overlayfs`), the **vm** group
 (the guest `vmlinux`, static `mkfs.erofs`, the TCG-only
 `qemu-system-x86_64` with `qemu-bios-microvm.bin` + `qemu-pvh.bin`,
-`vhost-device-vsock`; amd64 only). Every one is built from source by its
+`vhost-device-vsock`; amd64 only) and the **iroh** group (`xbin-iroh`, the
+app tunnel's sidecar, D204: static musl, amd64 and arm64, both
+cross-compiled natively by cargo-zigbuild in a digest-pinned image —
+`hack/build-xbin-iroh.sh`, `PLATFORM` picks the arch). Every one is built from source by its
 `hack/build-*.sh` (docker, pinned, above) — that stays the source of
 truth. The prebuilt sets are a verified cache of those builds, so CI and
 developers don't compile a kernel and QEMU on every cold cache.
@@ -1046,9 +1067,10 @@ developers don't compile a kernel and QEMU on every cold cache.
 - **Key.** Each group's key (`hack/helpers-lib.sh`) is the first 12 hex of
   a sha256 over its build scripts (their pinned versions and checksums live
   inside them), its patches (`hack/gocryptfs-patches/`,
-  `hack/gofuse-patches/`) or `hack/vmkernel/xbin.config`, and its file
-  list. Any input change is a new key. `hack/fetch-helpers.sh --status`
-  prints the keys.
+  `hack/gofuse-patches/`) or `hack/vmkernel/xbin.config` — for iroh, every
+  file under `sidecar/xbin-iroh` but cargo's `target/` (the Makefile's
+  `IROH_INPUTS` are the same) — and its file list. Any input change is a new
+  key. `hack/fetch-helpers.sh --status` prints the keys.
 - **Manifest.** `hack/helpers.sha256` (committed) pins every published
   set: `<group> <key> <arch> <file> <sha256>`, where `<file>` is
   `<arch>.tar.zst` (the bucket object) or a file inside it. Only
@@ -1088,7 +1110,9 @@ vm-assets` targets still work too). A published key with no URL configured
 fails with what to set.
 
 **CI.** The test job runs `make helpers HELPERS=containerfs` before `make
-check` and `make helpers HELPERS=vm` before the VM suite, under one
+check`, `make helpers HELPERS=iroh` in the integration shards (the
+apptunnel-sidecar suite runs the real `bin/xbin-iroh`) and `make helpers
+HELPERS=vm` before the VM suite, each under an
 `actions/cache` of `bin/` keyed on the manifest and every build input — a
 repeat run neither downloads nor builds. A PR that changes a group's inputs
 builds that group from source and carries a `::warning` annotation to
@@ -1110,6 +1134,20 @@ credentials, never in CI:
    overwritten (builds aren't byte-reproducible; a committed manifest may pin
    it): its entries are taken from it instead.
 3. Commit `hack/helpers.sha256`.
+
+**The iroh group** publishes the same way, per arch: `make helpers-publish
+HELPERS=iroh` (or `hack/publish-helpers.sh --stage-only DIR iroh`, then
+`hack/helpers-static.sh DIR` for the website) builds `xbin-iroh` for amd64
+and, with `PLATFORM=linux/arm64`, arm64 — no emulation, the builder
+cross-compiles — and pins both. Publish after every change under
+`sidecar/xbin-iroh` (its key moves with any file there, the wire vectors
+included): until then CI's integration shards build it from source (a
+minute or two, plus the builder image). `make build` doesn't need a
+published set: `bin/xbin-iroh` is a file target, built with docker when
+missing or older than its inputs, then gzipped into the gitignored
+`internal/apptunnel/sidecar/embedded/xbin-iroh.linux-<GOARCH>.gz` that
+`-tags xbin_iroh` embeds; `make dev*` pass `XBIN_IROH=bin/xbin-iroh` when
+it's there (they `go run` xbind without the embed).
 
 `hack/publish-helpers.sh --stage-only DIR` builds and packs into a
 bucket-shaped `DIR` without uploading; `--staged DIR` uploads that later.
@@ -1134,8 +1172,9 @@ add it there. `make fmt` rewrites in place.
 ## Build output that must not be committed
 
 `bin/`, `dist/` (release bundles), the root `bx`, `website/dist/`, packed
-helper sets (`*.tar.zst`), and `*/backend/backend` / `*/_backend/_backend`
-build leftovers are ignored; `make large-files` (in `check` and the
+helper sets (`*.tar.zst`), the iroh sidecar's `sidecar/xbin-iroh/target/`
+and the gzip xbind embeds (`internal/apptunnel/sidecar/embedded/`), and
+`*/backend/backend` / `*/_backend/_backend` build leftovers are ignored; `make large-files` (in `check` and the
 pre-commit hook) fails on anything over 1 MiB or any native binary that gets
 into the index anyway.
 `git status` after a build should be clean; if it is not, the fix goes in

@@ -68,8 +68,14 @@ code is rendered at error correction level M, at least 288 px wide.
   - preset N0 when the relay is n0's; otherwise Minimal with the custom relay
     and its token.
   - It accepts `tunnel/1` only from EndpointIds on xbind's allowlist (paired
-    devices), and `pair/1` only while a pairing is open.
-  - Uni-streams and datagrams are refused.
+    devices), and `pair/1` only while a pairing is open; anything else is
+    closed with error code 403 right after the handshake. It also lists its
+    own probe ALPN, `xbin/selftest/1`, which it admits from itself alone.
+  - Uni-streams and datagrams are refused; at most 128 bi-streams are open
+    at once per connection.
+  - A stream reaches xbind once its first bytes arrive (QUIC announces a
+    stream with its first frame): the device writes first, as Noise's
+    initiator does.
 - **Streams:** one bi-stream per logical connection (on the device, one per
   TCP connection the loopback forwarder accepts). Every stream runs its own
   Noise handshake (§4).

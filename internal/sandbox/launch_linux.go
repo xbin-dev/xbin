@@ -61,8 +61,8 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 	// before we serialize it.
 	ids := detectIDRanges(s.HostUID, s.HostGID)
 	s.FuseOverlay = fuseOverlayfsPath()
-	if s.VM != nil {
-		s.FuseOverlay = "" // a VM sandbox's root is a bare tmpfs, no overlay
+	if s.VM != nil || s.Bare {
+		s.FuseOverlay = "" // a bare tmpfs root (a VM sandbox's too), no overlay
 	}
 	s.Debug = s.Debug || os.Getenv("XBIN_SANDBOX_DEBUG") != ""
 	if s.VM != nil && s.Debug {
@@ -70,8 +70,8 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 	}
 
 	// ExtraFiles land at fd 3, 4, … in the init, in append order: ctrl,
-	// sync, agent, lock. Launch closes only what it made itself (h.own) on
-	// failure; the caller's Agent and Lock stay the caller's.
+	// sync, agent, lock, exe. Launch closes only what it made itself (h.own)
+	// on failure; the caller's Agent, Lock and Exe stay the caller's.
 	var extra []*os.File
 	nextFD := 3
 	fail := func(err error) (*exec.Cmd, *Handle, error) {
@@ -111,12 +111,13 @@ func Launch(s *Spec) (*exec.Cmd, *Handle, error) {
 		syncW = w
 	}
 
-	// The agent's connection factory and the state lock (tile sandboxes).
-	s.AgentFD, s.LockFD = 0, 0
+	// The agent's connection factory and the state lock (tile sandboxes),
+	// and a program passed open (Spec.Exe).
+	s.AgentFD, s.LockFD, s.ExeFD = 0, 0, 0
 	for _, g := range []struct {
 		f  *os.File
 		fd *int
-	}{{s.Agent, &s.AgentFD}, {s.Lock, &s.LockFD}} {
+	}{{s.Agent, &s.AgentFD}, {s.Lock, &s.LockFD}, {s.Exe, &s.ExeFD}} {
 		if g.f != nil {
 			extra = append(extra, g.f)
 			h.given = append(h.given, g.f)

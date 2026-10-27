@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: guards dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website website-guard website-check website-og website-chart website-images check js-check native-check swift-test swift-stubcheck theme-check tile-check shellcheck pins pins-offline hooks release vulncheck
+.PHONY: guards dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website website-guard website-check website-og website-chart website-images check js-check native-check swift-test swift-stubcheck theme-check tile-check shellcheck pins pins-offline hooks release vulncheck sidecar-check xbin-iroh
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -17,6 +17,7 @@ VMKERNEL ?= $(CURDIR)/bin/vmlinux
 MKFS_EROFS ?= $(CURDIR)/bin/mkfs.erofs
 QEMU ?= $(CURDIR)/bin/qemu-system-x86_64
 VHOST_VSOCK ?= $(CURDIR)/bin/vhost-device-vsock
+XBIN_IROH ?= $(CURDIR)/bin/xbin-iroh
 
 # This machine's test environment, written by hack/dev-setup.sh (gitignored):
 # the helpers, the rootfs, the previous release's xbind, Playwright, CI's
@@ -68,6 +69,31 @@ $(GOCRYPTFS): hack/build-gocryptfs.sh $(wildcard hack/gocryptfs-patches/*.patch)
 	./hack/build-gocryptfs.sh $(CURDIR)/bin
 gocryptfs: $(GOCRYPTFS)
 
+# The app tunnel's iroh sidecar (D204, sidecar/xbin-iroh): a static, stripped
+# musl binary built by cargo-zigbuild in a digest-pinned image (docker), for
+# PLATFORM's arch (cross-compiled natively) or the host's. `make build`
+# embeds it in xbind; `make dev*` hands it over as XBIN_IROH when it's here.
+# Its inputs are every file of the crate but cargo's target/ — the iroh
+# helper group's key (hack/helpers-lib.sh) hashes the same.
+IROH_INPUTS := hack/build-xbin-iroh.sh $(shell find sidecar/xbin-iroh -path sidecar/xbin-iroh/target -prune -o -type f -print 2>/dev/null)
+$(XBIN_IROH): $(IROH_INPUTS)
+	./hack/build-xbin-iroh.sh $(CURDIR)/bin
+xbin-iroh: $(XBIN_IROH)
+# where `make build` puts the gzip xbind embeds (gitignored): GOARCH's, so a
+# cross build (deploy/publish-release.sh) embeds the matching binary
+IROH_EMBED = internal/apptunnel/sidecar/embedded/xbin-iroh.linux-$(shell go env GOARCH).gz
+# XBIN_IROH=… for the dev targets when there is a sidecar to run (they `go
+# run` xbind without the embed)
+DEV_IROH = $(if $(wildcard $(XBIN_IROH)),XBIN_IROH=$(XBIN_IROH))
+
+# The sidecar's own checks: cargo fmt --check, clippy -D warnings and cargo
+# test (the wire vectors Go writes, control parsing, the fd pass, the hook,
+# a loopback round trip), in the same pinned image; XBIN_IROH_LOCAL=1 uses
+# this machine's cargo instead. Not in `check` (docker, a couple of minutes
+# cold); CI runs it as a job of its own.
+sidecar-check:
+	@./hack/build-xbin-iroh.sh --test
+
 # VM sandboxes (plans/vm-sandbox.md, D89): the pinned Firecracker release, the
 # guest kernel (6.18 LTS on Firecracker's CI config + hack/vmkernel/xbin.config)
 # and a static mkfs.erofs (the guest's rootfs image); for hosts without KVM, a
@@ -89,9 +115,10 @@ $(VHOST_VSOCK): hack/build-vhost-vsock.sh
 vm-assets: $(FIRECRACKER) $(VMKERNEL) $(MKFS_EROFS) $(QEMU) $(VHOST_VSOCK)
 	CGO_ENABLED=0 go build -o bin/xbin-vmagent ./cmd/xbin-vmagent
 
-# Prebuilt helpers (docs/maintenance.md → "Prebuilt helpers"): the two
-# groups above — containerfs (gocryptfs, fuse-overlayfs) and vm (vmlinux,
-# mkfs.erofs, QEMU + its blobs, vhost-device-vsock) — keyed by a hash of
+# Prebuilt helpers (docs/maintenance.md → "Prebuilt helpers"): the three
+# groups above — containerfs (gocryptfs, fuse-overlayfs), vm (vmlinux,
+# mkfs.erofs, QEMU + its blobs, vhost-device-vsock) and iroh (xbin-iroh) —
+# keyed by a hash of
 # their build inputs. `make helpers` downloads the set hack/helpers.sha256
 # pins for the current key and verifies every file (a mismatch is fatal),
 # or builds from source with the same scripts when the key isn't published
@@ -106,13 +133,15 @@ helpers-build:
 helpers-publish:
 	@./hack/publish-helpers.sh $(HELPERS)
 
-# Everything `make integration` uses, ready: the helpers, the pinned
-# Firecracker, xbind/bx/xbin-vmagent from this tree, and .rootfs when it is
-# missing (never rebuilt here when present: `make rootfs` does that).
+# Everything `make integration` uses, ready: the helpers (xbin-iroh among
+# them), the pinned Firecracker, xbind/bx/xbin-vmagent and the fake iroh
+# sidecar (hack/fakeiroh) from this tree, and .rootfs when it is missing
+# (never rebuilt here when present: `make rootfs` does that).
 integration-deps: helpers $(FIRECRACKER)
 	CGO_ENABLED=0 go build -ldflags "-X main.version=$(VERSION)" -o bin/xbind ./cmd/xbind
 	CGO_ENABLED=0 go build -o bin/bx ./cmd/bx
 	CGO_ENABLED=0 go build -o bin/xbin-vmagent ./cmd/xbin-vmagent
+	CGO_ENABLED=0 go build -o bin/fakeiroh ./hack/fakeiroh
 	@if [ ! -e "$(ROOTFS)/etc/os-release" ]; then \
 	  echo ">> $(ROOTFS) missing — building the base rootfs (docker; several GB and a while, once)"; \
 	  $(MAKE) rootfs; \
@@ -128,13 +157,13 @@ integration-deps: helpers $(FIRECRACKER)
 dev: rootfs $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 	@mkdir -p devws
 	CGO_ENABLED=0 go build -o bin/bx ./cmd/bx   # so terminals have bx on PATH in dev; static: it is also the agent host bound into sandboxes (D74)
-	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --dev-overlay $(CURDIR)/workspace-template --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
+	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) $(DEV_IROH) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --dev-overlay $(CURDIR)/workspace-template --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
 
 # Frictionless mode: no auth, every request is admin (still isolated).
 dev-noauth: rootfs $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 	@mkdir -p devws
 	CGO_ENABLED=0 go build -o bin/bx ./cmd/bx
-	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --dev-overlay $(CURDIR)/workspace-template --no-auth --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
+	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) $(DEV_IROH) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --dev-overlay $(CURDIR)/workspace-template --no-auth --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
 
 # A bare `make dev` encrypts tile data at rest by default (a built-in dev key;
 # plans/vault-data.md) — filesystem/sqlite/blob become gocryptfs mounts and kv
@@ -145,13 +174,15 @@ dev-noauth: rootfs $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 dev-plaintext: rootfs $(FUSE_OVERLAYFS) $(GOCRYPTFS)
 	@mkdir -p devws
 	CGO_ENABLED=0 go build -o bin/bx ./cmd/bx
-	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --dev-overlay $(CURDIR)/workspace-template --insecure-vault --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
+	XBIN_FUSE_OVERLAYFS=$(FUSE_OVERLAYFS) XBIN_GOCRYPTFS=$(GOCRYPTFS) $(DEV_IROH) XBIN_SDK_PATH=$(CURDIR)/sdk go run ./cmd/xbind --dev --dev-overlay $(CURDIR)/workspace-template --insecure-vault --isolate --rootfs $(ROOTFS) --workspace ./devws --listen 127.0.0.1:8642
 
 dev-reset:
 	rm -rf devws
 
-build: $(FUSE_OVERLAYFS) $(GOCRYPTFS)
-	CGO_ENABLED=0 go build -ldflags "-X main.version=$(VERSION)" -o bin/xbind ./cmd/xbind
+build: $(FUSE_OVERLAYFS) $(GOCRYPTFS) $(XBIN_IROH)
+	@mkdir -p $(dir $(IROH_EMBED))
+	gzip -9 -n -c $(XBIN_IROH) > $(IROH_EMBED)
+	CGO_ENABLED=0 go build -tags xbin_iroh -ldflags "-X main.version=$(VERSION)" -o bin/xbind ./cmd/xbind
 	CGO_ENABLED=0 go build -o bin/bx ./cmd/bx
 	CGO_ENABLED=0 go build -o bin/xbin-vmagent ./cmd/xbin-vmagent
 

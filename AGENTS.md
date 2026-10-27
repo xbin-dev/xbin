@@ -51,6 +51,9 @@ make check          # the definition of done: the guards (fmt-check vet
                     # `make guards`) and test — CI runs the same split over
                     # parallel jobs, with integration's shards
 make hooks          # once per clone: fmt-check + js-check run pre-commit
+make sidecar-check  # the app tunnel's iroh sidecar (Rust, sidecar/xbin-iroh,
+                    # D204): cargo fmt, clippy, test in its pinned builder
+                    # image (docker); `make build` embeds the binary in xbind
 make vulncheck      # the release's vulnerability gate (network): govulncheck
                     # over the Go a release builds from this checkout —
                     # xbind's programs (linux/amd64 and arm64), the relay,

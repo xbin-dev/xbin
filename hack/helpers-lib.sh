@@ -18,7 +18,7 @@
 
 HELPERS_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 HELPERS_MANIFEST="$HELPERS_ROOT/hack/helpers.sha256"
-HELPERS_GROUPS="containerfs vm"
+HELPERS_GROUPS="containerfs vm iroh"
 # Part of every key: bump when the tarball layout or the key scheme changes.
 HELPERS_FORMAT=1
 # Where `make helpers` downloads from: the helpers bucket's public read URL
@@ -38,6 +38,7 @@ helpers_files() {
   case "$1" in
     containerfs) echo "gocryptfs fuse-overlayfs" ;;
     vm) echo "vmlinux mkfs.erofs qemu-system-x86_64 qemu-bios-microvm.bin qemu-pvh.bin vhost-device-vsock" ;;
+    iroh) echo "xbin-iroh" ;;
     *) return 1 ;;
   esac
 }
@@ -47,6 +48,7 @@ helpers_scripts() {
   case "$1" in
     containerfs) echo "build-gocryptfs.sh build-fuse-overlayfs.sh" ;;
     vm) echo "build-vmkernel.sh build-mkfs-erofs.sh build-qemu.sh build-vhost-vsock.sh" ;;
+    iroh) echo "build-xbin-iroh.sh" ;;
   esac
 }
 
@@ -56,6 +58,7 @@ helpers_arches() {
   case "$1" in
     containerfs) echo "amd64 arm64" ;;
     vm) echo "amd64" ;;
+    iroh) echo "amd64 arm64" ;; # cross-compiled natively (cargo-zigbuild)
   esac
 }
 
@@ -65,6 +68,7 @@ helpers_overrides() {
   case "$1" in
     containerfs) echo "GOCRYPTFS_VERSION GOFUSE_VERSION FUSE_OVERLAYFS_VERSION" ;;
     vm) echo "KERNEL_VERSION KERNEL_SHA256 FC_TAG FC_CONFIG_SHA256 EROFS_UTILS_VERSION QEMU_VERSION QEMU_SHA256 VHOST_VSOCK_VERSION NATIVE" ;;
+    iroh) echo "XBIN_IROH_BUILDER" ;;
   esac
 }
 
@@ -78,6 +82,8 @@ helpers_inputs() {
         [ -e "$f" ] && echo "${f#"$HELPERS_ROOT"/}"
       done ;;
     vm) echo hack/vmkernel/xbin.config ;;
+    # the crate: every file but cargo's target/ (the Makefile's IROH_INPUTS)
+    iroh) (cd "$HELPERS_ROOT" && find sidecar/xbin-iroh -path sidecar/xbin-iroh/target -prune -o -type f -print) ;;
   esac
 }
 

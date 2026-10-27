@@ -34,8 +34,8 @@ const (
 // vmRoot makes newroot a bare tmpfs: the shim and Firecracker are static and
 // need no userland, and a VMM escape finds no shell or tools.
 func vmRoot(newroot string) error {
-	if err := unix.Mount("tmpfs", newroot, "tmpfs", unix.MS_NOSUID|unix.MS_NODEV, "mode=0755"); err != nil {
-		return must(err, "vm root tmpfs")
+	if err := bareRoot(newroot); err != nil {
+		return err
 	}
 	return os.MkdirAll(filepath.Join(newroot, VMDir, "run"), 0o700)
 }

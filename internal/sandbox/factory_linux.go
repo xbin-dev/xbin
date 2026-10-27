@@ -33,8 +33,24 @@ func NewFactory() (xbind *Factory, child *os.File, err error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("factory socketpair: %w", err)
 	}
+	// xbind's end non-blocking: os.NewFile then registers it with the
+	// poller, so Close interrupts an Accept blocked on it (Dial never
+	// blocks either way). The child's end stays blocking, as it inherits it.
+	if err := unix.SetNonblock(fds[0], true); err != nil {
+		unix.Close(fds[0])
+		unix.Close(fds[1])
+		return nil, nil, fmt.Errorf("factory socketpair: %w", err)
+	}
 	return &Factory{f: os.NewFile(uintptr(fds[0]), "sbx-factory")}, os.NewFile(uintptr(fds[1]), "sbx-factory-child"), nil
 }
+
+// Accept is Dial's reverse, for a sandboxed program that hands xbind its
+// connections rather than taking xbind's: the iroh sidecar sends each
+// stream it accepts as one end of a fresh socketpair over its factory end
+// (internal/apptunnel/sidecar, plans/app-tunnel.md §1). It waits for the
+// next one; io.EOF means the child's end is closed everywhere — the
+// sandbox is gone — and Close makes a blocked Accept return an error.
+func (f *Factory) Accept() (net.Conn, error) { return AcceptFrom(f.f) }
 
 // Dial makes one connection to the agent: a fresh stream socketpair, one end
 // sent over the factory, the other returned. The send never blocks

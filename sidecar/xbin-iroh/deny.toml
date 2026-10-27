@@ -1,0 +1,35 @@
+# cargo deny for xbin-iroh (make release runs it: hack/build-xbin-iroh.sh
+# --deny). Advisories: any RustSec vulnerability in the graph fails the
+# release. Licences: permissive only — xbind embeds this binary, so no
+# copyleft (GPL, LGPL, AGPL, MPL, EUPL, …) may enter; a crate under any
+# licence not listed here fails until someone reads it and decides.
+
+[graph]
+targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]
+all-features = false
+
+[advisories]
+yanked = "deny"
+# An unmaintained notice deep in iroh's graph (paste, via netwatch's
+# netlink crates: RUSTSEC-2024-0436) is iroh's to replace; one on a crate
+# this sidecar depends on directly still fails.
+unmaintained = "workspace"
+ignore = []
+
+[licenses]
+allow = [
+  "MIT",
+  "MIT-0",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "BSL-1.0",
+  "CC0-1.0",
+  "CDLA-Permissive-2.0",
+  "ISC",
+  "Unicode-3.0",
+  "Unlicense",
+  "Zlib",
+]
+confidence-threshold = 0.9
