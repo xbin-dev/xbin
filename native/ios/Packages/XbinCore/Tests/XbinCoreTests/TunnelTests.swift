@@ -350,6 +350,17 @@ enum TunnelFixture {
         #expect(PairingStatus(json: ["state": "abandoned"]).state == .abandoned)
         #expect(PairingStatus(json: ["state": "confirm", "atLimit": true]).atLimit)
         #expect(PairingStatus(json: ["state": "confirm", "limit": ["max": 1, "count": 1]]).atLimit)
+        // S1's final shapes (D204): the states, the code as "012345", "012 345"
+        // or a number, expires in unix seconds, limit and count as numbers.
+        let s1 = PairingStatus(json: ["state": "confirm", "sas": 12345, "device": ["name": "Phone", "platform": "ios"],
+                                      "expires": 1_790_000_000, "atLimit": true, "limit": 1, "count": 1])
+        #expect(s1.sas == "012 345" && s1.atLimit && s1.expires == Date(timeIntervalSince1970: 1_790_000_000))
+        #expect(PairingStatus(json: ["state": "confirm", "sas": "012 345"]).sas == "012 345")
+        #expect(PairingStatus(json: ["state": "minted"]).state == .waiting)
+        #expect(PairingStatus(json: ["state": "enrolled", "deviceId": "dev_2"]).state == .done)
+        #expect(PairingStatus(json: ["state": "rejected", "reason": "mismatch"]).state == .rejected)
+        #expect(PairingStatus(json: ["state": "expired"]).state.isFinal)
+        #expect(!PairingStatus(json: ["state": "confirm", "limit": 3, "count": 1]).atLimit)
         #expect(PairingStatus.poll("p/1").path == "/api/xbin/devices/pairing/p%2F1")
         let c = PairingStatus.confirm("p1", match: true, replace: "dev_old")
         #expect(c.method == "POST" && c.path == "/api/xbin/devices/pairing/p1/confirm")

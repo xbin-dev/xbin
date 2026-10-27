@@ -52,11 +52,13 @@ final class LoopbackForwarder: @unchecked Sendable {
         let p = NWEndpoint.Port(rawValue: UInt16(clamping: max(0, port))) ?? .any
         params.requiredLocalEndpoint = .hostPort(host: .ipv4(.loopback), port: p)
         let l = try NWListener(using: params)
-        lock.lock()
-        stopped = false
-        listener?.cancel()
-        listener = l
-        lock.unlock()
+        let old = lock.withLock { () -> NWListener? in
+            stopped = false
+            let o = listener
+            listener = l
+            return o
+        }
+        old?.cancel()
         l.newConnectionHandler = { [weak self] c in self?.accept(c) }
         let started = Once<Int>()
         l.stateUpdateHandler = { [weak l] state in
@@ -201,9 +203,7 @@ final class NWByteStream: ByteStream, @unchecked Sendable {
     }
 
     func read(max: Int) async throws -> Data {
-        lock.lock()
-        if ended { lock.unlock(); return Data() }
-        lock.unlock()
+        if lock.withLock({ ended }) { return Data() }
         return try await withCheckedThrowingContinuation { (k: CheckedContinuation<Data, any Error>) in
             connection.receive(minimumIncompleteLength: 1, maximumLength: Swift.max(1, max)) { [weak self] data, _, complete, error in
                 if let data, !data.isEmpty {
