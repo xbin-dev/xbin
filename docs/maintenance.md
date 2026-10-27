@@ -634,7 +634,11 @@ policy, sets, defaults, requests, sessions), the global `.err` /
 `.notice` slots — about 300 lines. Every tab is its own element under
 `tabs/<name>.js` (`runtime` for components + the code drill-in + live
 stats + resources, `sandboxes` for every sandbox, the host's isolation and
-VM health and the VM policy, `deployments` for every tile's deployment
+VM health and the VM policy, `limits` for every tile's resource limits
+(D203: a thin wrapper around `<bx-limits-table>` from
+`/vendor/limits-table.js`, which the `/xbin/limits` page and the shell's ⚙
+share; an org's ceilings are `<bx-org-limits>` on its `orgs` page),
+`deployments` for every tile's deployment
 record and a tile manager's protect / reassign / deliveries / alwaysOn — its
 words and confirmations imported from `/vendor/deploy-state.js` and
 `/vendor/deploy-panel.js`, never copied — `map`, `netsets`, `permsets`, `vault`, `cron`,

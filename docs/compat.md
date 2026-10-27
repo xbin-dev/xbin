@@ -256,6 +256,39 @@ header, env variable, token, backup archive or file differs.
   ([tile-deployments.md](/docs/tile-deployments.md), *A tile's life,
   backups and downgrades*).
 
+## Tile resource limits (D203)
+
+A tile that asks for nothing and is never raised runs exactly as before: the
+same caps (`XBIN_LIMIT_MEM`, `XBIN_LIMIT_DISK`, the sandbox and VM
+policies), which are now the *defaults*.
+
+- **The manifest only asks.** A top-level `"limits"` key, and `vm` sizes
+  above the workspace's VM policy, are requests an approver decides;
+  nothing changes until one does. A `vm` size above the policy used to be
+  clamped silently, and still is until approved. The key's parse never
+  fails a manifest: a value xbind can't read is a warning (rule 7). A
+  third-party manifest that already had a top-level `"limits"` key is now
+  read as an ask — at worst a prompt an approver dismisses.
+- **xbind-owned state, no migration.** Decisions and hits live in
+  `data/tile-limits.json` (absent until the first one) and an org's
+  ceilings in `data/users.json`'s `org.limits`; no boot rewrites anything
+  (rules 1, 9). `bx limits` and `bx org limits` are new commands (rule 6).
+- **Additive wire.** New routes (`/api/xbin/limits…`,
+  `PUT /orgs/<org>/limits`, `/xbin/limits`), a new event type (`limits`),
+  new alert kinds (`quota-near`, `sbx-cap`, `tile-limits`), and a new
+  optional `action` on an alert; `oom` alerts are now sticky until a
+  decision or a dismissal (rule 2).
+- **Old shells and admin consoles** (rule 4) don't render the prompts, the
+  raise buttons, the ⚙ section or the Limits tab until `bx builtin
+  update`. They show an at-cap alert's message, which names
+  `/xbin/limits` — an xbind-served page that needs no scaffold — and
+  `bx limits`. Their Dismiss posts the alert's `dismiss` route with the
+  shell's own token, which xbind resolves to the person driving it. The
+  shipped iOS app ignores the new event type.
+- **Downgrading** an xbind drops every tile back to the defaults (the older
+  one ignores `data/tile-limits.json`), and its next write of `users.json`
+  drops the orgs' ceilings.
+
 ## What this does *not* promise
 
 - Undocumented internals: `.xbin/` contents, the on-disk shape of
