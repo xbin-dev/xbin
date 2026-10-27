@@ -165,6 +165,7 @@ final class WorkspaceModel: Identifiable {
             await refreshBranding()
             await refreshSessions()
             await probePartitionsPage()
+            await upgradeToTunnelIfDue()
             lastActivity = Date()
         } catch let e as SignInError {
             signInProblem = e
@@ -553,6 +554,7 @@ final class WorkspaceModel: Identifiable {
         }
         await auth.signOut()
         await EnclaveKeyStore().deleteKey(workspace: id)
+        await KeychainTunnelVault().delete(workspace: id)
         if let chrome = Self.chromeStoreID(id) {
             chromeStoreCache = nil
             _ = WKWebsiteDataStore(forIdentifier: chrome) // (as below: WebKit must have seen it)

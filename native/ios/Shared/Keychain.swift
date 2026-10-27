@@ -56,6 +56,20 @@ enum Keychain {
     static func delete(service: String, account: String, group: String? = nil) {
         SecItemDelete(base(service: service, account: account, group: group) as CFDictionary)
     }
+
+    /// Every account with an item under `service` (the tunnel keys' sweep).
+    static func accounts(service: String) -> [String] {
+        let q: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+        ]
+        var out: CFTypeRef?
+        guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess,
+              let items = out as? [[String: Any]] else { return [] }
+        return items.compactMap { $0[kSecAttrAccount as String] as? String }
+    }
 }
 
 /// What the Notification Service Extension needs to open a push, shared

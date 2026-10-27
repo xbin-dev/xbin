@@ -344,6 +344,43 @@ final class XbinOnboardingTests: XCTestCase {
         }
     }
 
+    /// D204: every pairing screen, light and dark, drawn by Debug builds'
+    /// `-XbinPairingDemo <state>` with no tunnel or server behind it (the
+    /// real pairing is XbinTunnelTests'): the "Pair with …?" question, a
+    /// pairing-only workspace's sign-in page, connecting, the code ("Confirm
+    /// on your computer"), signing in, and the failures.
+    @MainActor
+    func test12PairingGallery() async throws {
+        let states: [(state: String, marker: (E2E) -> XCUIElement)] = [
+            ("ask", { $0.app.alerts.firstMatch }),
+            ("required", { $0.containing("only accepts paired devices") }),
+            ("connecting", { $0.element("Connecting to the workspace…") }),
+            ("sas", { $0.app.staticTexts.matching(identifier: "pairing-sas").firstMatch }),
+            ("signingIn", { $0.element("Paired. Signing in…") }),
+            ("declined", { $0.containing("Pairing declined") }),
+            ("expired", { $0.containing("Pairing code expired") }),
+            ("unreachable", { $0.containing("Can't reach the tunnel") }),
+            ("limit", { $0.containing("as many apps connected") }),
+        ]
+        for mode in ["light", "dark"] {
+            for (n, s) in states.enumerated() {
+                let e = try E2E(self)
+                e.app.launchArguments += ["-XbinPairingDemo", s.state]
+                e.launchFresh(appearance: mode)
+                XCTAssertTrue(s.marker(e).waitForExistence(timeout: 30), "\(s.state) (\(mode))")
+                if s.state == "sas" {
+                    XCTAssertEqual(e.app.staticTexts.matching(identifier: "pairing-sas").firstMatch.value as? String, "012 345")
+                    XCTAssertTrue(e.element("Confirm on your computer:").exists)
+                }
+                if s.state == "required" {
+                    XCTAssertFalse(e.element("Username", in: e.app.textFields).exists, "no password form")
+                    XCTAssertTrue(e.app.buttons["Scan QR code"].exists, "QR pairing")
+                }
+                e.shot(String(format: "gallery-%@-pairing-%02d-%@", mode, n + 1, s.state))
+            }
+        }
+    }
+
     /// On Log in: paste an enrollment link with a code the workspace never
     /// minted, and answer "Add".
     @MainActor

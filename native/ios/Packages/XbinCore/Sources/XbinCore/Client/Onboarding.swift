@@ -32,13 +32,29 @@ public struct LoginMethods: Sendable, Hashable {
     public var ssoLabel: String
     /// Invite links can be redeemed in the app.
     public var invites: Bool
+    /// App tunnels (D204): nil from an xbind that predates them.
+    public var tunnel: TunnelMethods?
     /// The workspace predates the route (``legacy``).
     public var isLegacy: Bool
+
+    /// `"tunnel":{"enabled","required"}` (native/spec/tunnel.md §8).
+    public struct TunnelMethods: Sendable, Hashable {
+        /// The workspace runs app tunnels: new devices pair by QR code.
+        public var enabled: Bool
+        /// It refuses app sign-ins outside the tunnel: QR pairing only.
+        public var required: Bool
+
+        public init(enabled: Bool, required: Bool) {
+            self.enabled = enabled
+            self.required = required
+        }
+    }
 
     public static let defaultSSOLabel = "Sign in with SSO"
 
     public init(api: Int = 1, title: String = "", auth: Bool = true, password: Bool, passwordAdminOnly: Bool = false,
-                sso: Bool, ssoLabel: String = LoginMethods.defaultSSOLabel, invites: Bool = true, isLegacy: Bool = false) {
+                sso: Bool, ssoLabel: String = LoginMethods.defaultSSOLabel, invites: Bool = true,
+                tunnel: TunnelMethods? = nil, isLegacy: Bool = false) {
         self.api = api
         self.title = title
         self.auth = auth
@@ -47,8 +63,12 @@ public struct LoginMethods: Sendable, Hashable {
         self.sso = sso
         self.ssoLabel = ssoLabel
         self.invites = invites
+        self.tunnel = tunnel
         self.isLegacy = isLegacy
     }
+
+    /// Only a tunnel-paired device signs in to this workspace.
+    public var tunnelRequired: Bool { tunnel?.required ?? false }
 
     /// An xbind older than the route: password and SSO both offered.
     public static let legacy = LoginMethods(api: 0, password: true, sso: true, invites: false, isLegacy: true)
@@ -65,6 +85,12 @@ public struct LoginMethods: Sendable, Hashable {
         let label = json["sso"]?["label"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         ssoLabel = label.isEmpty ? Self.defaultSSOLabel : label
         invites = json["invites"]?.boolValue ?? false
+        if let t = json["tunnel"], t.objectValue != nil {
+            let enabled = t["enabled"]?.boolValue ?? false
+            tunnel = TunnelMethods(enabled: enabled, required: enabled && (t["required"]?.boolValue ?? false))
+        } else {
+            tunnel = nil
+        }
         isLegacy = false
     }
 }
@@ -72,12 +98,22 @@ public struct LoginMethods: Sendable, Hashable {
 /// What the sign-in screen shows for a workspace's ``LoginMethods``, in
 /// order: the password form and/or the SSO button. SSO-only mode puts SSO
 /// first and the form under "Workspace admin"; no accounts at all (or no
-/// sign-in) leaves nothing to show but an explanation.
+/// sign-in) leaves nothing to show but an explanation. A workspace that
+/// refuses app connections outside its tunnel (D204) shows only QR pairing:
+/// its password and SSO sign-ins are refused off the tunnel anyway.
 public struct SignInOptions: Sendable, Equatable {
     public enum Method: Sendable, Equatable {
         case password(header: String?)
         case sso(label: String)
+        /// Scan a pairing code from a computer (settings → add a device).
+        case pairing
     }
+
+    /// The pairing-only page's words.
+    public static let pairingOnly = "This workspace only accepts paired devices over its encrypted tunnel. On a "
+        + "computer where you're signed in, open the workspace: settings → add a device shows a QR code. Scan it "
+        + "here."
+
 
     public var methods: [Method]
     /// Why there is nothing to sign in with (nil when ``methods`` isn't empty).
@@ -89,6 +125,11 @@ public struct SignInOptions: Sendable, Equatable {
         if !m.auth {
             methods = []
             explanation = Enrollment.Failure.noAccounts.description
+            return
+        }
+        if m.tunnelRequired {
+            methods = [.pairing]
+            explanation = nil
             return
         }
         var out: [Method] = []
@@ -151,6 +192,8 @@ public struct InviteInfo: Sendable, Hashable {
 /// (`https://<workspace>/login?invite=…`), or just a workspace's address.
 public enum SignInLink: Sendable, Hashable {
     case enroll(server: ServerOrigin, code: String)
+    /// A pairing link through the workspace's tunnel (D204).
+    case tunnelEnroll(TunnelLink)
     case invite(server: ServerOrigin, token: String)
     case address(ServerOrigin)
 
@@ -166,10 +209,18 @@ public enum SignInLink: Sendable, Hashable {
         let t = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !t.isEmpty else { throw Invalid(reason: "Paste the link first.") }
         if t.lowercased().hasPrefix(DeepLink.scheme + ":") {
-            guard let l = try? DeepLink(string: t), case .enroll(let s, let c) = l else {
-                throw Invalid(reason: "That's an xbin link, but not one that adds a device (xbin://enroll…).")
+            let notEnroll = Invalid(reason: "That's an xbin link, but not one that adds a device (xbin://enroll…).")
+            let l: DeepLink
+            do { l = try DeepLink(string: t) } catch let e as DeepLink.Invalid {
+                // A tunnel link that's too new or damaged says so.
+                if let tunnel = e.tunnel { throw Invalid(reason: tunnel.description) }
+                throw notEnroll
             }
-            self = .enroll(server: s, code: c)
+            switch l {
+            case .enroll(let s, let c): self = .enroll(server: s, code: c)
+            case .tunnelEnroll(let link): self = .tunnelEnroll(link)
+            default: throw notEnroll
+            }
             return
         }
         if let c = URLComponents(string: t), let scheme = c.scheme?.lowercased(), scheme == "http" || scheme == "https",
@@ -198,6 +249,7 @@ public enum SignInLink: Sendable, Hashable {
     public var server: ServerOrigin {
         switch self {
         case .enroll(let s, _), .invite(let s, _), .address(let s): return s
+        case .tunnelEnroll(let l): return l.server
         }
     }
 }

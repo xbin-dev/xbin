@@ -30,7 +30,7 @@ const HELPERS_MANIFEST = resolve(process.env.HELPERS_MANIFEST || join(ROOT, 'hac
 // privacyText). Change a digest only together with a deliberate change to the file;
 // `--privacy-digest website/privacy.html` prints the new one.
 const INSTALL_SH_SHA256 = 'ce2c21c4545d3df1d1160a4538462253d61a57326f3cb9f818dd57ad007c5b89';
-const PRIVACY_TEXT_SHA256 = 'f5e163864917f86d538e155115a48b28493c6c880c77381e6315d7eddc3cd51a';
+const PRIVACY_TEXT_SHA256 = '10accd0fdb0decef1dca4edf7285a1caaf474aa80b8dbc409f744cdec76cf3c0';
 
 // Per page: HTML and its CSS, its JS, the fonts its CSS declares (all of them, as if
 // every face loaded), and its eager images (every <img> without loading="lazy" counts

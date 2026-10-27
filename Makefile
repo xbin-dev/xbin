@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: guards dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website website-guard website-check website-og website-chart website-images check js-check native-check swift-test swift-stubcheck theme-check tile-check shellcheck pins pins-offline hooks release vulncheck sidecar-check xbin-iroh
+.PHONY: guards dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website website-guard website-check website-og website-chart website-images check js-check native-check swift-test swift-stubcheck app-check theme-check tile-check shellcheck pins pins-offline hooks release vulncheck sidecar-check xbin-iroh
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -260,6 +260,16 @@ swift-test:
 	@command -v swift >/dev/null || { echo 'swift-test: no swift on PATH (native/AGENTS.md §3) — skipped'; exit 0; }; \
 	rc=0; for p in $(SWIFT_PACKAGES); do echo ">> swift test: $$p"; \
 	  (cd native/ios/Packages/$$p && swift build --build-tests && ulimit -s 512 && swift test --skip-build) || rc=1; done; exit $$rc
+
+# The app's UIKit-free sources on Linux (native/tools/app-check, the files
+# symlinked from native/ios): push crypto against native/spec/push-vectors
+# .json, the app tunnel's Noise layer against the published Noise vectors
+# and native/spec/tunnel-vectors.json, the terminal's SwiftTerm glue, the
+# events socket, navigation. Needs network for swift-crypto and SwiftTerm on
+# its first run. Same 512 KiB stacks as swift-test; ci.yml's native job.
+app-check:
+	@command -v swift >/dev/null || { echo 'app-check: no swift on PATH (native/AGENTS.md §3b) — skipped'; exit 0; }; \
+	cd native/tools/app-check && swift build --build-tests && ulimit -s 512 && swift test --skip-build
 
 # The app's SwiftUI/UIKit code type-checked on Linux against SDK stubs
 # (native/tools/*-stubcheck, a README in each): the renderer, the terminal

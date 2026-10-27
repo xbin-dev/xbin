@@ -91,6 +91,10 @@ public enum SignInError: Error, Sendable, Equatable, CustomStringConvertible {
     case cancelled
     /// 429 — too many failed attempts from this address.
     case throttled
+    /// 403 `{tunnel: "required"}` (D204): the workspace accepts this app
+    /// only over its encrypted tunnel, and this device isn't paired to it —
+    /// pair again with a QR code.
+    case tunnelRequired(String)
     /// Any other answer.
     case server(APIError)
 
@@ -104,6 +108,9 @@ public enum SignInError: Error, Sendable, Equatable, CustomStringConvertible {
         case .keyUnavailable(let m): return "The device key can't be used: \(m)"
         case .cancelled: return "Sign-in cancelled."
         case .throttled: return "Too many attempts — wait a little and try again."
+        case .tunnelRequired:
+            return "This workspace now accepts the app only over its encrypted tunnel. Pair this device again "
+                + "with a QR code from a computer (settings → add a device)."
         case .server(let e): return e.description
         }
     }
@@ -111,7 +118,7 @@ public enum SignInError: Error, Sendable, Equatable, CustomStringConvertible {
     /// The device's enrollment is over: the UI offers "add again".
     public var needsEnrollment: Bool {
         switch self {
-        case .notEnrolled, .deviceRemoved, .rejected, .keyUnavailable: return true
+        case .notEnrolled, .deviceRemoved, .rejected, .keyUnavailable, .tunnelRequired: return true
         default: return false
         }
     }
@@ -194,7 +201,7 @@ public actor WorkspaceAuth {
             used = try await session(replacing: used?.token)
             signedHere = true
         }
-        let first = try await transport.send(stamped(request, used), to: origin)
+        let first = try Self.refusingOffTunnel(await transport.send(stamped(request, used), to: origin))
         // A 401 on a session signed in for this very request won't heal by
         // signing in again.
         guard first.status == 401, !signedHere else { return first }
@@ -203,7 +210,14 @@ public actor WorkspaceAuth {
             return first
         }
         let fresh = try await session(replacing: used?.token)
-        return try await transport.send(stamped(request, fresh), to: origin)
+        return try Self.refusingOffTunnel(await transport.send(stamped(request, fresh), to: origin))
+    }
+
+    /// 403 `{tunnel: "required"}` ends every request alike: the workspace
+    /// wants this device paired to its tunnel (D204, tunnel.md §8).
+    static func refusingOffTunnel(_ r: APIResponse) throws -> APIResponse {
+        if r.status == 403, APIError(r).isTunnelRequired { throw SignInError.tunnelRequired(APIError(r).message) }
+        return r
     }
 
     /// `send`, then a non-2xx answer becomes an ``APIError``.
@@ -258,6 +272,7 @@ public actor WorkspaceAuth {
         case 200: break
         case 404: throw SignInError.deviceRemoved
         case 429: throw SignInError.throttled
+        case 403 where APIError(ch).isTunnelRequired: throw SignInError.tunnelRequired(APIError(ch).message)
         default: throw SignInError.server(APIError(ch))
         }
         let challenge = try DeviceChallenge(json: ch.json())
@@ -280,6 +295,7 @@ public actor WorkspaceAuth {
         case 401: throw SignInError.rejected(APIError(r).message)
         case 403:
             let e = APIError(r)
+            if e.isTunnelRequired { throw SignInError.tunnelRequired(e.message) }
             if e.reauth == "sso" { throw SignInError.ssoRequired }
             throw SignInError.disabled(e.message)
         case 429: throw SignInError.throttled
@@ -400,10 +416,11 @@ public struct Enrollment: Sendable {
     }
 
     /// Signs in once with a just-enrolled record (an in-memory store: the
-    /// caller persists what it keeps).
-    private func firstSignIn(_ record: WorkspaceRecord) async throws -> SessionCredential {
-        let auth = WorkspaceAuth(record: record, transport: transport, keys: keys, sessions: MemorySessionStore(),
-                                 clientHeader: clientHeader)
+    /// caller persists what it keeps) — over `transport` when given: a
+    /// device paired through the tunnel signs in through it (D204).
+    public func firstSignIn(_ record: WorkspaceRecord, over transport: (any APITransport)? = nil) async throws -> SessionCredential {
+        let auth = WorkspaceAuth(record: record, transport: transport ?? self.transport, keys: keys,
+                                 sessions: MemorySessionStore(), clientHeader: clientHeader)
         return try await auth.signIn()
     }
 

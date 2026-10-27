@@ -94,3 +94,37 @@ import Testing
         #expect(Date(unixMillis: 1_790_000_000_123).unixMillis == 1_790_000_000_123)
     }
 }
+
+/// D204: a record's tunnel. An older record (or one an older app saved)
+/// decodes without one; a damaged one costs the tunnel, never the record.
+@Suite struct WorkspaceRecordTunnelTests {
+    @Test func roundTripsAndToleratesOldRecords() throws {
+        var r = WorkspaceRecord(id: "w1", server: try ServerOrigin(string: "https://xbin.example.com"), user: WorkspaceUser(id: "a"),
+                                deviceId: "d", addedAt: Date(unixMillis: 1_780_000_000_000))
+        r.tunnel = TunnelInfo(endpoint: "ab01", relay: "https://relay.example.com", required: true, port: 49_200)
+        let data = try WorkspaceList(workspaces: [r]).encoded()
+        let j = try JSONValue(parsing: data)
+        #expect(j["workspaces"]?.arrayValue?.first?["tunnel"]
+            == ["endpoint": "ab01", "relay": "https://relay.example.com", "required": true, "port": 49_200])
+        #expect(try WorkspaceList.decode(data).workspaces == [r])
+        // n0's relays, no port yet: only what's there is written.
+        r.tunnel = TunnelInfo(endpoint: "ab01")
+        let n0 = try JSONValue(parsing: WorkspaceList(workspaces: [r]).encoded())
+        #expect(n0["workspaces"]?.arrayValue?.first?["tunnel"] == ["endpoint": "ab01", "required": false])
+        // A record from before tunnels.
+        let old = #"{"v":1,"workspaces":[{"id":"w1","server":"https://xbin.example.com","user":{"id":"a"},"addedAt":1}]}"#
+        let decoded = try WorkspaceList.decode(Data(old.utf8))
+        #expect(decoded.workspaces.count == 1 && decoded.workspaces[0].tunnel == nil && decoded.unreadable.isEmpty)
+        // A damaged tunnel field.
+        let damaged = #"{"v":1,"workspaces":[{"id":"w1","server":"https://xbin.example.com","user":{"id":"a"},"tunnel":{"relay":7}}]}"#
+        let d2 = try WorkspaceList.decode(Data(damaged.utf8))
+        #expect(d2.workspaces.count == 1 && d2.workspaces[0].tunnel == nil)
+    }
+
+    @Test func encryptedInTransit() throws {
+        var r = WorkspaceRecord(id: "w", server: try ServerOrigin(string: "http://10.0.0.5:8080"), user: WorkspaceUser(id: "a"))
+        #expect(!r.isEncryptedInTransit)
+        r.tunnel = TunnelInfo(endpoint: "ab")
+        #expect(r.isEncryptedInTransit)
+    }
+}

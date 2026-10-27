@@ -152,7 +152,7 @@ public enum HandoffLink {
         guard let s = info?[linkKey] as? String, let l = try? DeepLink(string: s) else { return nil }
         switch l {
         case .tile, .agent, .terminal, .workspace, .page: return l
-        case .enroll, .sso, .ssoError: return nil // never from an activity
+        case .enroll, .tunnelEnroll, .sso, .ssoError: return nil // never from an activity
         }
     }
 }
@@ -160,17 +160,26 @@ public enum HandoffLink {
 /// "Add another device": minting the code the new device scans.
 public enum AddDevice {
     /// `POST /api/xbin/devices/enroll-code` (`{password}` after a
-    /// `password` step-up).
-    public static func request(password: String? = nil) -> APIRequest {
-        var body: JSONValue = [:]
-        if let password { body = ["password": .string(password)] }
-        return .json("POST", AppAuthRoute.enrollCode, body)
+    /// `password` step-up). `tunnel`: ask for a tunnel pairing code (D204);
+    /// a workspace without app tunnels answers with a classic code, and an
+    /// older xbind ignores the field.
+    public static func request(password: String? = nil, tunnel: Bool = false) -> APIRequest {
+        var body: [String: JSONValue] = [:]
+        if let password { body["password"] = .string(password) }
+        if tunnel { body["tunnel"] = .bool(true) }
+        return .json("POST", AppAuthRoute.enrollCode, .object(body))
     }
 
     public enum Outcome: Sendable, Equatable {
         /// Show it: the `xbin://enroll` link for the QR code, the code for
         /// typing, when it expires.
         case code(link: String, code: String, expires: Date?)
+        /// A tunnel pairing (D204): show the pairing link's QR code (it
+        /// can't be typed), then confirm the code the new device shows —
+        /// this app is "the computer" (``PairingStatus``).
+        case pairing(link: String, pairing: String, expires: Date?, required: Bool)
+        /// 409: the person is at their device limit (the server's words).
+        case atLimit(String)
         /// Sign in again with this device's key (a fresh device login is a
         /// step-up), then ask again.
         case signInAgain
@@ -186,18 +195,32 @@ public enum AddDevice {
             let e = APIError(r)
             if r.status == 403, let s = e.stepUp { return s == "password" ? .needsPassword : .signInAgain }
             if r.status == 403 { return .refused(e.message) }
+            if r.status == 409 { return .atLimit(e.message) }
             return .failed(e)
         }
         guard let j = try? r.json(), let c = try? EnrollCode(json: j) else {
             return .failed(APIError(status: 500, message: "the server's answer had no enrollment code"))
         }
+        if let p = c.pairing {
+            // A tunnel code redeems only through its pairing link: never
+            // rebuild a classic one from it.
+            guard case .tunnelEnroll? = try? DeepLink(string: c.url) else {
+                return .failed(APIError(status: 500, message: "the workspace's pairing link is damaged"))
+            }
+            return .pairing(link: c.url, pairing: p, expires: c.expires, required: c.tunnelRequired)
+        }
         return .code(link: link(for: c, origin: origin), code: c.code, expires: c.expires)
     }
 
-    /// The server's link when it is a well-formed `xbin://enroll` one, else
-    /// one built from the code and the workspace's origin.
+    /// The server's link when it is a well-formed `xbin://enroll` one — a
+    /// tunnel pairing link included, kept whole (its `t/k/p/r/rq` are what
+    /// the new device pairs with) — else one built from the code and the
+    /// workspace's origin.
     public static func link(for c: EnrollCode, origin: ServerOrigin) -> String {
-        if let l = try? DeepLink(string: c.url), case .enroll = l { return c.url }
+        switch try? DeepLink(string: c.url) {
+        case .enroll?, .tunnelEnroll?: return c.url
+        default: break
+        }
         let server = (try? ServerOrigin(string: c.origin)) ?? origin
         return DeepLink.enroll(server: server, code: c.code).string
     }

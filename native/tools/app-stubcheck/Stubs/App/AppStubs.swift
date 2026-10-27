@@ -1,7 +1,8 @@
 // Stand-ins for the app types the checked files use from files this tool
 // does not compile (run.sh says which): the rest of Tiles/, Terminal/,
-// Push/, Shared/, and the three Model/Shell files that need Apple-only
-// frameworks (AppTransport, DeviceKeys, ScannerAndSSO). Signatures as
+// Push/, Shared/, the three Model/Shell files that need Apple-only
+// frameworks (AppTransport, DeviceKeys, ScannerAndSSO) and
+// Model/TunnelPairing.swift (CryptoKit; app-check runs it on Linux). Signatures as
 // the real declarations have them; bodies are placeholders.
 import Observation
 import SwiftUI
@@ -32,9 +33,49 @@ struct EnclaveKeyStore: DeviceKeyStore {
     func deleteKey(workspace: String) async {}
 }
 enum Keychain {
-    static func read(service: String, account: String) -> Data? { nil }
-    static func write(_ d: Data, service: String, account: String) {}
-    static func delete(service: String, account: String) {}
+    enum Accessibility { case whenUnlockedThisDevice, afterFirstUnlockThisDevice }
+    static func read(service: String, account: String, group: String? = nil) -> Data? { nil }
+    @discardableResult
+    static func write(_ d: Data, service: String, account: String, group: String? = nil,
+                      accessibility: Accessibility = .whenUnlockedThisDevice) -> Bool { true }
+    static func delete(service: String, account: String, group: String? = nil) {}
+    static func accounts(service: String) -> [String] { [] }
+}
+
+// Model/TunnelPairing.swift (CryptoKit; compiled and run by native/tools/app-check)
+protocol TunnelVault: Sendable {
+    func load(workspace: String) async -> TunnelSecrets?
+    func save(_ secrets: TunnelSecrets, workspace: String) async
+    func delete(workspace: String) async
+}
+struct PairedWorkspace: Sendable {
+    let record: WorkspaceRecord
+    let session: SessionCredential
+}
+typealias TunnelSignInTransport = @Sendable (WorkspaceRecord, TunnelSecrets) async throws -> any APITransport
+struct TunnelPairer: Sendable {
+    let keys: any DeviceKeyStore
+    let vault: any TunnelVault
+    let dialer: any TunnelDialer
+    let signInTransport: TunnelSignInTransport
+    let clientHeader: String
+    let platform: String
+    var timeout: TimeInterval = 7 * 60
+    func pair(_ link: TunnelLink, deviceName: String, workspaceID id: String = UUID().uuidString.lowercased(),
+              onCode: @escaping @Sendable (_ code: String, _ expires: Date?) async -> Void,
+              onSigningIn: @escaping @Sendable () async -> Void = {},
+              onConnected: @escaping @Sendable () async -> Void = {}) async throws -> PairedWorkspace {
+        throw PairingFailure.timedOut
+    }
+}
+struct TunnelUpgrader: Sendable {
+    let vault: any TunnelVault
+    enum Outcome: Sendable, Equatable {
+        case upgraded(TunnelInfo)
+        case notNow(String)
+    }
+    func upgrade(_ record: WorkspaceRecord,
+                 send: @Sendable (APIRequest) async throws -> APIResponse) async -> Outcome { .notNow("") }
 }
 
 // XbinApp.swift

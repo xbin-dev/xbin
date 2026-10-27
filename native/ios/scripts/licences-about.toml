@@ -1,0 +1,26 @@
+# cargo-about's config for the app's licences screen (native/ios/scripts/licences.sh):
+# what IrohLib (iroh-ffi) compiles into the app for iOS — normal dependencies only,
+# for the targets the app is built for. A licence not listed here fails the run, so
+# a dependency under a new licence is a reviewed change, not a silent one.
+accepted = [
+    "MIT",
+    "MIT-0",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "Unicode-DFS-2016",
+    "CC0-1.0",
+    "BSL-1.0",
+    "0BSD",
+    "CDLA-Permissive-2.0",
+    "MPL-2.0",
+]
+targets = ["aarch64-apple-ios", "aarch64-apple-ios-sim", "x86_64-apple-ios"]
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+# Crates whose packaging hides their licence text; cargo-about knows where it is.
+workarounds = ["ring", "rustls", "chrono", "wasmtime", "bitvec", "cocoa", "gtk", "prost", "tonic", "tract", "sentry"]
