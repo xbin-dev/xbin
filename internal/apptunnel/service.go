@@ -98,6 +98,12 @@ func New(opt Options) (*Service, error) {
 	if s.runner == nil {
 		s.runner = Unavailable()
 	}
+	// the sidecar's state changes (starting → running, degraded, failed)
+	// publish the app-tunnel event too: a console that turned the tunnel on
+	// sees it come up without asking again
+	if n, ok := s.runner.(interface{ SetOnState(func(sidecar.State)) }); ok {
+		n.SetOnState(func(sidecar.State) { s.changed() })
+	}
 	s.ctx, s.cancel = context.WithCancel(context.Background())
 	if opt.Auth != nil {
 		opt.Auth.SetTunnelPolicy(s.Required)

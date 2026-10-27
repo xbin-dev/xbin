@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -232,6 +233,34 @@ func TestNextBackoff(t *testing.T) {
 			t.Fatalf("backoff %v, want 1 s doubling to 60 s", seq)
 		}
 	}
+}
+
+// SetOnState hears every state change — starting, running, and disabled
+// when ctx ends — so the app tunnel's console updates without asking.
+func TestSupervisorOnState(t *testing.T) {
+	s := fakeSupervisor(t)
+	var mu sync.Mutex
+	seen := map[State]bool{}
+	s.SetOnState(func(st State) { mu.Lock(); seen[st] = true; mu.Unlock() })
+	saw := func(want ...State) func() bool {
+		return func() bool {
+			mu.Lock()
+			defer mu.Unlock()
+			for _, w := range want {
+				if !seen[w] {
+					return false
+				}
+			}
+			return true
+		}
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	if err := s.Start(ctx, Config{Key: testKey(1), Relay: wire.Relay{Mode: "disabled"}}); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "starting and running heard", saw(StateStarting, StateRunning))
+	cancel()
+	waitFor(t, "disabled heard once ctx ended", saw(StateDisabled))
 }
 
 // A second Start restarts the process with the new config.
