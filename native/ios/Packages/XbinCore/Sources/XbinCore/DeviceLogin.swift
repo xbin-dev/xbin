@@ -162,6 +162,13 @@ public struct DeviceEnrollment: Sendable, Equatable {
     /// The name as stored.
     public var name: String
 
+    public init(deviceId: String, user: String, origin: String, name: String) {
+        self.deviceId = deviceId
+        self.user = user
+        self.origin = origin
+        self.name = name
+    }
+
     public init(json: JSONValue) throws {
         guard let id = json["deviceId"]?.stringValue, !id.isEmpty else {
             throw DeviceLogin.Invalid(reason: "enrollment response without a deviceId")
@@ -177,13 +184,21 @@ public struct DeviceEnrollment: Sendable, Equatable {
 }
 
 /// `POST /api/xbin/devices/enroll-code` → `{code, url, origin, expires}`:
-/// a code the app mints for itself after an in-app sign-in.
+/// a code the app mints for itself after an in-app sign-in. Asked with
+/// `{tunnel: true}` of a workspace with app tunnels on (D204), the code is a
+/// tunnel code: `url` is the pairing link (native/spec/tunnel.md §2) and
+/// `tunnel {pairing, ticket, serverKey, required}` names the pairing the
+/// minting session confirms.
 public struct EnrollCode: Sendable, Equatable {
     public var code: String
     /// The `xbin://enroll?u=…&c=…` link.
     public var url: String
     public var origin: String
     public var expires: Date?
+    /// The pending pairing's id (``PairingStatus``) when this is a tunnel code.
+    public var pairing: String?
+    /// The workspace refuses app connections outside the tunnel.
+    public var tunnelRequired: Bool
 
     public init(json: JSONValue) throws {
         guard let c = json["code"]?.stringValue, !c.isEmpty else { throw DeviceLogin.Invalid(reason: "no enrollment code") }
@@ -191,6 +206,8 @@ public struct EnrollCode: Sendable, Equatable {
         url = json["url"]?.stringValue ?? ""
         origin = json["origin"]?.stringValue ?? ""
         expires = json["expires"]?.intValue.map { Date(timeIntervalSince1970: Double($0)) }
+        pairing = json["tunnel"]?["pairing"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        tunnelRequired = json["tunnel"]?["required"]?.boolValue ?? false
     }
 }
 

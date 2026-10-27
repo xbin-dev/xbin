@@ -85,15 +85,25 @@ public struct APIError: Error, Sendable, Equatable, CustomStringConvertible {
     public var stepUp: String?
     /// `sso` on `POST /login/device` in an SSO-only workspace.
     public var reauth: String?
+    /// D204 (native/spec/tunnel.md §7, §8): `required` — the workspace
+    /// refuses this off its app tunnel (pair with a QR code); `device` — a
+    /// tunnel serves only its own device; `bound` — a tunnel session used
+    /// off its tunnel.
+    public var tunnel: String?
     public var body: JSONValue?
 
-    public init(status: Int, message: String, stepUp: String? = nil, reauth: String? = nil, body: JSONValue? = nil) {
+    public init(status: Int, message: String, stepUp: String? = nil, reauth: String? = nil, tunnel: String? = nil,
+                body: JSONValue? = nil) {
         self.status = status
         self.message = message
         self.stepUp = stepUp
         self.reauth = reauth
+        self.tunnel = tunnel
         self.body = body
     }
+
+    /// 403 `{tunnel: "required"}`: only a tunnel-paired device gets in.
+    public var isTunnelRequired: Bool { status == 403 && tunnel == "required" }
 
     /// Reads xbind's error body (JSON `{error}` or plain text).
     public init(_ response: APIResponse) {
@@ -105,7 +115,7 @@ public struct APIError: Error, Sendable, Equatable, CustomStringConvertible {
         }
         if msg.isEmpty { msg = APIError.statusText(response.status) }
         self.init(status: response.status, message: msg, stepUp: json?["stepUp"]?.stringValue,
-                  reauth: json?["reauth"]?.stringValue, body: json)
+                  reauth: json?["reauth"]?.stringValue, tunnel: json?["tunnel"]?.stringValue, body: json)
     }
 
     public var description: String { "\(status): \(message)" }
