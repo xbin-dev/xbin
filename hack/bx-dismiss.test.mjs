@@ -15,7 +15,7 @@ const slot = (component, s, kind, extra = {}) => ({ component, slot: s, kind, ..
 
 test('the keys: a request by from|target|role, a slot by component|slot|kind', () => {
   assert.equal(PREF, 'dismissed');
-  assert.deepEqual([...KINDS], ['grants', 'bindings', 'alerts']);
+  assert.deepEqual([...KINDS], ['grants', 'bindings', 'alerts', 'limits']);
   // a banner is keyed by its kind and its words: changed words show again
   assert.equal(alertKey({ kind: 'partition-trust', message: 'm' }), 'partition-trust|m');
   assert.notEqual(alertKey({ kind: 'k', message: 'one person' }), alertKey({ kind: 'k', message: 'two people' }));
@@ -29,25 +29,25 @@ test('the keys: a request by from|target|role, a slot by component|slot|kind', (
 });
 
 test('normDismissed(): anything stored reads as the two maps of strings', () => {
-  const empty = { grants: {}, bindings: {}, alerts: {} };
+  const empty = { grants: {}, bindings: {}, alerts: {}, limits: {} };
   for (const v of [null, undefined, 5, 'x', [], { grants: [] }, { grants: 'x', bindings: null }]) {
     assert.deepEqual(normDismissed(v), empty, JSON.stringify(v));
   }
-  assert.deepEqual(normDismissed({ grants: { a: 't1', b: 5, '': 't' }, bindings: { c: 't2' } }), { grants: { a: 't1' }, bindings: { c: 't2' }, alerts: {} });
-  assert.deepEqual(normDismissed({ grants: {}, later: { x: 1 } }), { grants: {}, bindings: {}, alerts: {}, later: { x: 1 } }, 'a later kind is kept');
+  assert.deepEqual(normDismissed({ grants: { a: 't1', b: 5, '': 't' }, bindings: { c: 't2' } }), { grants: { a: 't1' }, bindings: { c: 't2' }, alerts: {}, limits: {} });
+  assert.deepEqual(normDismissed({ grants: {}, later: { x: 1 } }), { grants: {}, bindings: {}, alerts: {}, limits: {}, later: { x: 1 } }, 'a later kind is kept');
 });
 
 test('dismiss(), isDismissed(), restore(): never mutate, only the named kind', () => {
   const d0 = normDismissed(null);
   const d1 = dismiss(d0, 'grants', 'a|b|reader', 't1');
-  assert.deepEqual(d0, { grants: {}, bindings: {}, alerts: {} }, 'the old value is untouched');
+  assert.deepEqual(d0, { grants: {}, bindings: {}, alerts: {}, limits: {} }, 'the old value is untouched');
   assert.equal(isDismissed(d1, 'grants', 'a|b|reader'), true);
   assert.equal(isDismissed(d1, 'bindings', 'a|b|reader'), false);
   assert.equal(isDismissed(d1, 'grants', 'toString'), false, 'own keys only');
   assert.equal(isDismissed(null, 'grants', 'x'), false);
   const d2 = dismiss(dismiss(d1, 'grants', 'c|d|writer', 't2'), 'bindings', 's|net|net', 't3');
-  assert.deepEqual(restore(d2, 'grants', ['a|b|reader']), { grants: { 'c|d|writer': 't2' }, bindings: { 's|net|net': 't3' }, alerts: {} });
-  assert.deepEqual(restore(d2, 'grants'), { grants: {}, bindings: { 's|net|net': 't3' }, alerts: {} }, 'all of a kind');
+  assert.deepEqual(restore(d2, 'grants', ['a|b|reader']), { grants: { 'c|d|writer': 't2' }, bindings: { 's|net|net': 't3' }, alerts: {}, limits: {} });
+  assert.deepEqual(restore(d2, 'grants'), { grants: {}, bindings: { 's|net|net': 't3' }, alerts: {}, limits: {} }, 'all of a kind');
   assert.match(dismiss(d0, 'grants', 'k').grants.k, /^\d{4}-\d\d-\d\dT/, 'at: now, by default');
 });
 
@@ -115,8 +115,8 @@ function server(stored, { fail = false } = {}) {
 }
 
 test('loadDismissed(): absent is nothing dismissed; a failure is null (show all, prune nothing)', async () => {
-  assert.deepEqual(await loadDismissed(server(undefined).fetchFn), { grants: {}, bindings: {}, alerts: {} });
-  assert.deepEqual(await loadDismissed(server({ grants: { k: 't' } }).fetchFn), { grants: { k: 't' }, bindings: {}, alerts: {} });
+  assert.deepEqual(await loadDismissed(server(undefined).fetchFn), { grants: {}, bindings: {}, alerts: {}, limits: {} });
+  assert.deepEqual(await loadDismissed(server({ grants: { k: 't' } }).fetchFn), { grants: { k: 't' }, bindings: {}, alerts: {}, limits: {} });
   assert.equal(await loadDismissed(server(undefined, { fail: true }).fetchFn), null);
   assert.equal(await loadDismissed(async () => ({ ok: false, status: 502, json: async () => ({}) })), null);
 });
@@ -125,15 +125,15 @@ test('updateDismissed(): read, change, write — another element\'s kind survive
   const s = server({ grants: {}, bindings: { 's|mcp|http': 't0' } });
   // bx-grants dismisses while it still holds an old copy without the binding
   const next = await updateDismissed(s.fetchFn, (d) => dismiss(d, 'grants', 'a|b|reader', 't1'));
-  assert.deepEqual(next, { grants: { 'a|b|reader': 't1' }, bindings: { 's|mcp|http': 't0' }, alerts: {} });
+  assert.deepEqual(next, { grants: { 'a|b|reader': 't1' }, bindings: { 's|mcp|http': 't0' }, alerts: {}, limits: {} });
   assert.deepEqual(s.stored, next);
   assert.deepEqual(s.calls.map((c) => c.method), ['GET', 'PUT']);
   // restoring everything leaves no key behind
   const none = await updateDismissed(s.fetchFn, (d) => restore(restore(d, 'grants'), 'bindings'));
-  assert.deepEqual(none, { grants: {}, bindings: {}, alerts: {} });
+  assert.deepEqual(none, { grants: {}, bindings: {}, alerts: {}, limits: {} });
   assert.equal(s.stored, undefined);
   assert.equal(s.calls.at(-1).method, 'DELETE');
-  assert.deepEqual(await updateDismissed(s.fetchFn, (d) => d), { grants: {}, bindings: {}, alerts: {} }, 'deleting nothing is fine');
+  assert.deepEqual(await updateDismissed(s.fetchFn, (d) => d), { grants: {}, bindings: {}, alerts: {}, limits: {} }, 'deleting nothing is fine');
   assert.equal(await updateDismissed(server(undefined, { fail: true }).fetchFn, (d) => d), null, 'offline: not saved');
 });
 

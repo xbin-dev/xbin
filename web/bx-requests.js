@@ -1,12 +1,14 @@
 /**
  * bx-requests.js — this page's one read of the decisions waiting for the
- * signed-in person (D195): the grant requests (GET /api/xbin/grants) and
- * the interfaces to bind (GET /api/xbin/bindings). Every element that shows
+ * signed-in person (D195): the grant requests (GET /api/xbin/grants), the
+ * interfaces to bind (GET /api/xbin/bindings) and the tiles' limit asks and
+ * cap hits (GET /api/xbin/limits?pending=1, D203). Every element that shows
  * them — the shell's prompt on each tile, the sidebar's flags, the
- * organisations badge, a page's own <bx-grants> / <bx-bindings> — reads them
- * from here instead of fetching its own copy. They are read again on a
- * `grants` or `reload` event and whenever the event socket reconnects (a page
- * that slept, or lost xbind for a while, missed events).
+ * organisations badge, a page's own <bx-grants> / <bx-bindings> /
+ * <bx-limits> — reads them from here instead of fetching its own copy. They
+ * are read again on their events (`grants` or `reload`; `limits`, `reload`
+ * or `users` for the limits) and whenever the event socket reconnects (a
+ * page that slept, or lost xbind for a while, missed events).
  *
  * Each fresh, successful read tells the person's dismissals what the server
  * still lists (bx-dismiss.js seen(): a dismissal goes only when two such
@@ -17,13 +19,15 @@
  *
  *   grantsStore()   → {value, subscribe(f), load()}   value: the /grants answer
  *   bindingsStore() → {value, subscribe(f), load()}   value: the /bindings answer
+ *   limitsStore()   → {value, subscribe(f), load()}   value: the /limits?pending=1 answer
+ *                     (null while unread, or from an xbind without the route)
  *   dismissalStore() → bx-dismiss.js dismissals(), loaded and followed
  *
  * The reads are the person's own (plain fetch: the session cookie), as the
  * elements' were.
  */
 import { onEvent, onReconnect } from '/vendor/events-socket.js';
-import { dismissals, dismissedEvent, grantKey, bindingKey } from '/vendor/bx-dismiss.js';
+import { dismissals, dismissedEvent, grantKey, bindingKey, limitKey } from '/vendor/bx-dismiss.js';
 
 const xfetch = (...a) => (window.xbin?.fetch ?? fetch)(...a);
 
@@ -40,10 +44,11 @@ export function dismissalStore() {
   return st;
 }
 
-// listStore(url, kind, keyOf): one endpoint's answer, read on the first
-// subscription and on its events; overlapping reads collapse into one more.
+// listStore(url, kind, keyOf, events): one endpoint's answer, read on the
+// first subscription and on the event types it follows; overlapping reads
+// collapse into one more.
 const RECHECK_MS = 5000;
-function listStore(url, kind, keyOf) {
+function listStore(url, kind, keyOf, events = ['grants', 'reload']) {
   let value = null, busy = false, again = false, started = false, recheck = 0;
   const subs = new Set();
   const store = {
@@ -53,7 +58,7 @@ function listStore(url, kind, keyOf) {
       if (value) f(value);
       if (!started) {
         started = true;
-        onEvent((e) => { if (e.type === 'grants' || e.type === 'reload') store.load(); });
+        onEvent((e) => { if (events.includes(e.type)) store.load(); });
         onReconnect(() => store.load());
         store.load();
       }
@@ -84,6 +89,9 @@ function listStore(url, kind, keyOf) {
   return store;
 }
 
-let grants = null, bindings = null;
+let grants = null, bindings = null, limits = null;
 export const grantsStore = () => (grants ??= listStore('/api/xbin/grants', 'grants', grantKey));
 export const bindingsStore = () => (bindings ??= listStore('/api/xbin/bindings', 'bindings', bindingKey));
+// a decision, a hit or a new manifest ask publishes `limits`; a membership
+// change (`users`) changes who may approve
+export const limitsStore = () => (limits ??= listStore('/api/xbin/limits?pending=1', 'limits', limitKey, ['limits', 'reload', 'users']));
