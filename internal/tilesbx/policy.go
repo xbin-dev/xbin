@@ -378,5 +378,6 @@ func (m *Manager) PolicyError() string {
 	return ""
 }
 
-// limitsFor is what tile is held to now. Callers hold m.mu.
-func (m *Manager) limitsFor(tile string) Limits { return m.policy.get().For(tile) }
+// limitsFor is what tile is held to now: the policy's, raised by the
+// tile's grants (grants.go). Callers hold m.mu.
+func (m *Manager) limitsFor(tile string) Limits { return m.granted(tile, m.policy.get().For(tile)) }

@@ -33,6 +33,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/confine"
 	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/layers"
+	"github.com/xbin-dev/xbin/internal/limits"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sandbox/relay"
 	"github.com/xbin-dev/xbin/internal/sbx"
@@ -152,6 +153,15 @@ type Deps struct {
 	// Sbx is the sandbox registry: a row per running sandbox, and what
 	// failed (D112).
 	Sbx *sbx.Registry
+	// Granted is what the tile-limits decisions raise tile's sandbox
+	// totals to (memMiB, vcpus, diskGiB; 0: nothing): a layer over the
+	// policy and its overrides, which it never changes (grants.go, D203).
+	// It may take the store's lock under m.mu, never the reverse.
+	Granted func(tile string) (memMiB, vcpus, diskGiB int)
+	// AtCap is told of a tile meeting one of its sandbox totals — a start
+	// refused at it, a sandbox stopped over it, one OOM-killed — with the
+	// total (in k's unit) and why; never with m.mu held (grants.go).
+	AtCap func(tile string, k limits.Kind, value int64, detail string)
 }
 
 // Options configure a Manager.
@@ -213,6 +223,9 @@ type Manager struct {
 	copies   copyCtl
 	copyTree func(ctx context.Context, src, dst string) error
 	exchange func(a, b string) error
+	// oomKills is the parent's OOMKills of a run's leaf (nil: m.cg's; a
+	// test stands in): teardown reads it before the leaf goes.
+	oomKills func(leaf string) int64
 
 	mu     sync.Mutex // defs, live and the policy file
 	defs   *defStore

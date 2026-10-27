@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/limits"
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/sandbox/agentcore"
 	"github.com/xbin-dev/xbin/internal/sandbox/relay"
@@ -184,7 +185,7 @@ func (m *Manager) teardown(r *run) {
 			if err := m.cg.Kill(r.leaf); err != nil {
 				slog.Warn("tile sandbox: emptying its cgroup", "tile", r.k.Tile, "sandbox", r.def.Name, "err", err)
 			}
-			oom = m.cg.OOMKills(r.leaf)
+			oom = m.leafOOMKills(r.leaf)
 			m.cg.Remove(r.leaf)
 		}
 		r.release()
@@ -210,6 +211,12 @@ func (m *Manager) teardown(r *run) {
 			if ready { // a start that fails records its own failure
 				m.failed(r.k, r.def, sbx.Exit, errors.New(detail))
 			}
+		}
+		if oom > 0 && !asked { // the OOM killer took it: a hit at the tile's sandbox memory (grants.go, D203)
+			m.mu.Lock()
+			total := m.limitsFor(r.k.Tile).PerTile.MemMiB
+			m.mu.Unlock()
+			m.atCap(r.k.Tile, limits.SbxMemMiB, total, "sandbox %s (%d MiB) was OOM-killed (%d processes)", r.def.Name, r.def.MemMiB, oom)
 		}
 		m.measureSoon(r.k, r.def) // §6.3: measured at each stop (queued before it reads stopped)
 		m.mu.Lock()
