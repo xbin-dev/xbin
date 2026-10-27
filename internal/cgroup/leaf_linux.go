@@ -145,13 +145,19 @@ func writeParentLimits(dir string, l Limits) error {
 
 // OOMKills is how many processes the OOM killer took in a leaf, its subtree
 // included (memory.events oom_kill) — whichever cgroup's limit was hit, the
-// leaf's or its parent's. Read it before Remove. 0 when cgroups are off or
-// the leaf doesn't exist.
+// leaf's or its parent's. Read it before Remove: the counter goes with the
+// leaf. A name is a flat leaf or a nested one, as every reader takes it
+// (path): a deployment's backend leaf, a person's partition's (D203). 0
+// when cgroups are off or the leaf doesn't exist.
 func (m *Manager) OOMKills(name string) int64 {
-	if !m.Enabled() || checkName(name) != nil {
+	if !m.Enabled() {
 		return 0
 	}
-	return eventCount(filepath.Join(m.leaf(name), "memory.events"), "oom_kill")
+	dir, nested, ok := m.path(name)
+	if !ok || !nested && checkName(name) != nil {
+		return 0
+	}
+	return eventCount(filepath.Join(dir, "memory.events"), "oom_kill")
 }
 
 // Pids is how many processes this Manager's own cgroup holds, its leaves
