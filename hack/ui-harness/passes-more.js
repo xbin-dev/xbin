@@ -22,7 +22,7 @@ function register(P) {
   P.agentDocs = require('./passes/agentdocs').agentDocs; // D201: the agent reads a PDF, writes a workbook, a deck and a document — previews, downloads, no sandbox
   P.codePanels = require('./passes/codepanels').codePanels; // D202: the tile window's code and proposal panels, standalone (code-tree, code-view, pr-panels)
   P.tileIde = require('./passes/tileide').tileIde; // D202: the tile window as an IDE — tools, panes, drags, dividers, the ✕, a reload, an older pref, the phone sheet
-  P.limitsCaps = require('./passes/limitscaps').limitsCaps; // D203: a tile's limit asks and cap hits — the popover, the banner's raises, the settings section, the admin tab and org ceilings, /xbin/limits
+  P.limitsCaps = require('./passes/limitscaps').limitsCaps; // D203 end to end: a tile's limit asks and cap hits — the popover, an org's ceiling, the banner's raises, the admin tab, ⚙ → Limits, /xbin/limits
 }
 
 module.exports = { register };

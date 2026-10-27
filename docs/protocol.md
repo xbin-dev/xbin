@@ -2524,18 +2524,24 @@ GET    /limits                    any caller; what it lists depends on who
                                    usage?, applied?, appliesAt?, hit?,
                                    note?, approvers, canDecide?,
                                    canRevert?, choices? [{pct, value,
-                                   fits, why?, approvable, default?}]}}} —
-                                   the kinds that apply, and those the
-                                   manifest asks where they can't (note
-                                   says why). ?tile=<t> → {tile: Row,
-                                   capacity?} (choices and capacity:
+                                   fits, why?, approvable, default?}],
+                                   askBlocked?}}} — the kinds that apply,
+                                   and those the manifest asks where they
+                                   can't (note says why); askBlocked: why
+                                   a viewer who decides the kind can't
+                                   approve its pending ask (an org admin
+                                   above the org's ceiling). ?tile=<t> →
+                                   {tile: Row, capacity?} (choices and capacity:
                                    approvers only; readers and the tile's
                                    own credentials read the row, 403
                                    otherwise). ?pending=1 → {pending:
                                    [{tile, scope?, kind, unit, why: ask|
                                    cap, ask?, hit?, effective, approvable,
-                                   mine, approvers}]}: what the caller may
-                                   approve or manages. The shell's frame
+                                   mine, approvers, blocked?}]}: what the
+                                   caller may approve or manages; blocked:
+                                   why an admin of the owning org can't
+                                   approve it (the org's ceiling, or none
+                                   for the kind). The shell's frame
                                    reads as the person driving it
 POST   /limits                    a person (own session, app or device,
                                    the root token, the shell's frame, the

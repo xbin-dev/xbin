@@ -281,8 +281,9 @@ export const shellCss = [scrollCss, baseCss, chromeCss, css`
     .alert .achoice:disabled { opacity: 0.5; cursor: default; }
     .alert .aask { flex: none; color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); }
     .alert.open.act { flex-wrap: wrap; }
-    .alert .awhys { flex-basis: 100%; padding-left: 28px; color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); }
-    @media (max-width: 820px) { .alert.act { flex-wrap: wrap; } .alert.act .achoices { order: 1; flex-basis: 100%; padding-left: 28px; } .alert.act .awhys { order: 2; } }
+    .alert .awhys { flex-basis: 100%; box-sizing: border-box; padding-left: 28px; color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); }
+    /* (border-box: a full line's indent stays inside the banner, and a narrow phone wraps the choices) */
+    @media (max-width: 820px) { .alert.act { flex-wrap: wrap; } .alert.act .achoices { order: 1; flex-basis: 100%; box-sizing: border-box; flex-wrap: wrap; padding-left: 28px; } .alert.act .awhys { order: 2; } }
     .wsmenu .restore-all {
       display: block; width: 100%; box-sizing: border-box; margin: 4px 0; padding: 4px 8px; text-align: left; cursor: pointer;
       font: inherit; color: var(--bx-text, #E9EAF0); background: none;

@@ -9,7 +9,9 @@
  *                  whose tile is theirs. A choice that doesn't fit, or that
  *                  this person may not approve, is greyed with the reason in
  *                  its title and in a line under the buttons; a person who
- *                  approves nothing reads who to ask. Reads the page's one
+ *                  approves nothing reads who to ask — an admin of the
+ *                  owning org stopped by its ceiling (`blocked`) sees the
+ *                  ask's Approve greyed with that reason. Reads the page's one
  *                  copy of GET /limits?pending=1 and the dismissals
  *                  (/vendor/bx-requests.js); a hit's choices come from the
  *                  tile's row (GET /limits?tile=). Dismiss is the person's
@@ -331,7 +333,9 @@ export class BxLimits extends LitElement {
     const l = this._row?.tile === p.tile ? this._row?.limits?.[p.kind] : null;
     const busy = this._busy === p.key;
     let acts;
-    if (!p.approvable) {
+    if (!p.approvable && !p.cap && p.blocked) { // an org admin above the org's ceiling: the ask, greyed with why
+      acts = html`<button class="primary" data-approve disabled title=${p.blocked}>Approve ${fmt(p.kind, p.ask)}</button>`;
+    } else if (!p.approvable) {
       acts = html`<span class="ask" title=${`who can decide: ${(p.approvers ?? []).join(', ') || 'workspace-admin'}`}>ask ${p.askWho}</span>`;
     } else if (!p.cap) {
       acts = html`<button class="primary" data-approve ?disabled=${busy} @click=${() => this._approve(p)}>Approve ${fmt(p.kind, p.ask)}</button>`;
@@ -350,6 +354,7 @@ export class BxLimits extends LitElement {
       <div class="pacts">${acts}
         <button class="quiet end" data-dismiss ?disabled=${busy} title=${dismissTitle} @click=${() => this._dismiss(p)}>Dismiss</button></div>
       ${p.cap && p.approvable && l ? whysTpl(choicesOf(p.kind, l), p.kind) : nothing}
+      ${!p.approvable && p.blocked ? html`<ul class="whys" data-whys><li>${p.blocked}</li></ul>` : nothing}
     </div>`;
   }
 
@@ -389,9 +394,10 @@ export class BxLimits extends LitElement {
         title=${l.dormant ? 'the manifest no longer asks: kept, and it applies again if the manifest asks up to it' : ''}>${decisionText(l.approved, k)}</div>
         ${l.dormant ? html`<div class="meta">dormant — the manifest no longer asks</div>` : nothing}` : nothing}
       ${l.ask ? html`<div class="kd">the manifest asks ${fmt(k, l.ask)}${l.pending ? ' — waiting for approval' : ''}
-        ${l.pending && l.canDecide ? html`<button class="small primary" data-approve ?disabled=${busy}
+        ${l.pending && l.canDecide ? html`<button class="small primary" data-approve ?disabled=${busy || !!l.askBlocked} title=${l.askBlocked || ''}
           @click=${() => this._post(raiseBody({ tile: this.tile }, k, l.ask, 'manifest-ask'), k)}>Approve ${fmt(k, l.ask)}</button>` : nothing}
-        ${l.pending && !l.canDecide ? html`<span class="ask"> — ask ${askWho(l.approvers)}</span>` : nothing}</div>` : nothing}
+        ${l.pending && !l.canDecide ? html`<span class="ask"> — ask ${askWho(l.approvers)}</span>` : nothing}</div>
+        ${l.pending && l.askBlocked ? html`<div class="meta" data-blocked>${l.askBlocked}</div>` : nothing}` : nothing}
       ${l.hit ? html`<div class="hit" data-hit>
         <div>at its limit: ${hitText(l.hit, k)}</div>
         ${l.canDecide ? html`${choicesTpl(choicesOf(k, l), k, (c) => this._raise({ tile: this.tile }, k, c, k), { busy })}

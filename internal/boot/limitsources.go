@@ -39,8 +39,9 @@ func (st *State) limitSources() broker.LimitSources {
 }
 
 // limitDefault is kind k's default for tile and whether it is enforced
-// there: memMiB the per-tile cap (XBIN_LIMIT_MEM), on a backend that isn't
-// a VM's, with cgroup delegation; the VM kinds the VM policy's sizes, on a
+// there: memMiB the per-tile cap (XBIN_LIMIT_MEM, as configured even where
+// nothing enforces it), on a backend that isn't a VM's, with cgroup
+// delegation; the VM kinds the VM policy's sizes, on a
 // VM backend that can run; the sandbox kinds the sandboxes policy's
 // totals for the tile, without a grant, where tile sandboxes can run. For
 // tile "" it is the workspace's default, enforced where the runtime runs.
@@ -54,7 +55,7 @@ func (st *State) limitDefault(tile string, k limits.Kind) (int64, bool) {
 	}
 	switch k {
 	case limits.MemMiB:
-		return st.Deployments.TileLimits.MemMax >> 20, backend && !vmTile && st.Run.Cgroup.Enabled()
+		return max(st.Deployments.TileLimits.MemMax, st.memDefault) >> 20, backend && !vmTile && st.Run.Cgroup.Enabled()
 	case limits.VMMemMiB, limits.VMVCPUs:
 		p := st.VM.Policy() // nil-safe: the defaults
 		on := vmTile && st.VM != nil && p.Backends

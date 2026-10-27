@@ -232,9 +232,10 @@ export class BxLimitsTable extends LitElement {
           ${fl.cap ? html`<span class="badge warn">at its limit</span>` : nothing}
           ${applies ? html`<span class="badge" title=${applies}>next start</span>` : nothing}
           ${l.enforced === false ? html`<span class="badge">not enforced</span>` : nothing}
-          ${l.note ? html`<div class="meta">${l.note}</div>` : nothing}</td>
+          ${l.note ? html`<div class="meta">${l.note}</div>` : nothing}
+          ${fl.pending && l.askBlocked ? html`<div class="meta" data-blocked>${l.askBlocked}</div>` : nothing}</td>
         <td class="acts">
-          ${fl.pending && l.canDecide ? html`<button class="small primary" data-approve ?disabled=${busy}
+          ${fl.pending && l.canDecide ? html`<button class="small primary" data-approve ?disabled=${busy || !!l.askBlocked} title=${l.askBlocked || ''}
             @click=${() => this._call('POST', '/limits', raiseBody(x, k, l.ask, 'manifest-ask'), key)}>Approve ${fmt(k, l.ask)}</button>` : nothing}
           ${l.canDecide ? html`<button class="small" data-edit ?disabled=${busy} @click=${() => { this._edit = key; this._revert = null; }}>set…</button>` : nothing}
           ${l.canRevert && (l.set || l.approved) ? html`<button class="small quiet" data-revert ?disabled=${busy}

@@ -42,6 +42,9 @@ type limitKind struct {
 	CanDecide bool             `json:"canDecide,omitempty"`
 	CanRevert bool             `json:"canRevert,omitempty"`
 	Choices   []limits.Choice  `json:"choices,omitempty"`
+	// AskBlocked is why the viewer, who decides the kind (canDecide), can't
+	// approve the pending ask: an org admin above the org's ceiling.
+	AskBlocked string `json:"askBlocked,omitempty"`
 }
 
 // pendingItem is one thing waiting for an approver: a manifest's ask, or a
@@ -58,6 +61,7 @@ type pendingItem struct {
 	Approvable bool        `json:"approvable"`
 	Mine       bool        `json:"mine"`
 	Approvers  []string    `json:"approvers"`
+	Blocked    string      `json:"blocked,omitempty"` // why the viewer, an admin of the owning org, can't approve it (the org's ceiling)
 }
 
 // shown reports whether kind k belongs in tile's row: it applies, the
@@ -119,6 +123,11 @@ func (b *Broker) rowOf(v limitsViewer, tf tileFacts, f *limits.File, caps map[li
 			lk.CanRevert = b.mayRevert(v, tf.tile)
 			if ci, ok := caps[k]; ok && lk.CanDecide {
 				lk.Choices = b.choicesFor(v, tf.tile, k, lk.Effective, ci.at(f, key))
+			}
+			if lk.Pending && lk.CanDecide {
+				if ok, why := b.mayApprove(v, tf.tile, k, kf.wanted()); !ok {
+					lk.AskBlocked = why
+				}
 			}
 		}
 		row.Limits[k] = lk
@@ -185,23 +194,29 @@ func (b *Broker) pendingFor(v limitsViewer, f *limits.File) []pendingItem {
 			eff := kf.effective(e)
 			if kf.pending(tf, e) {
 				want := kf.wanted()
-				ok, _ := b.mayApprove(v, c.Path, k, want)
+				ok, why := b.mayApprove(v, c.Path, k, want)
 				if ok || mine {
-					out = append(out, b.pendingItem(tf, k, "ask", eff, ok, mine, want))
-					out[len(out)-1].Ask = kf.ask
+					it := b.pendingItem(tf, k, "ask", eff, ok, mine, want)
+					it.Ask, it.Blocked = kf.ask, b.blockedWhy(v, c.Path, ok, why)
+					out = append(out, it)
 				}
 			}
 			if hit {
-				ok := false
-				for _, ch := range limits.Choices(k, eff, limits.Capacity{Kind: k}) {
-					if a, _ := b.mayApprove(v, c.Path, k, ch.Value); a {
+				ok, why := false, ""
+				for i, ch := range limits.Choices(k, eff, limits.Capacity{Kind: k}) {
+					a, w := b.mayApprove(v, c.Path, k, ch.Value)
+					if i == 0 {
+						why = w // the smallest raise's reason
+					}
+					if a {
 						ok = true
 						break
 					}
 				}
 				if ok || mine {
-					out = append(out, b.pendingItem(tf, k, "cap", eff, ok, mine, limits.Step(k, eff, limits.Pcts[0])))
-					out[len(out)-1].Hit = &h
+					it := b.pendingItem(tf, k, "cap", eff, ok, mine, limits.Step(k, eff, limits.Pcts[0]))
+					it.Hit, it.Blocked = &h, b.blockedWhy(v, c.Path, ok, why)
+					out = append(out, it)
 				}
 			}
 		}
@@ -217,6 +232,20 @@ func (b *Broker) pendingItem(tf tileFacts, k limits.Kind, why string, eff int64,
 		it.Scope = tf.scope
 	}
 	return it
+}
+
+// blockedWhy is why — when it says more than "ask a workspace admin" — v
+// can't approve an item of tile: v admins the owning org, and the org's
+// ceiling (or its lack of one) stops it. "" when v approves it, or isn't
+// one of the tile's approvers at all.
+func (b *Broker) blockedWhy(v limitsViewer, tile string, ok bool, why string) string {
+	if ok {
+		return ""
+	}
+	if _, orgAdmin := b.orgOf(v, tile); !orgAdmin {
+		return ""
+	}
+	return why
 }
 
 // limitKeyOf is the store key of c's kind k, "" when c can't hold it (disk
