@@ -78,9 +78,19 @@ final class WorkspaceModel: Identifiable {
 
     init(record: WorkspaceRecord, transport: (any WorkspaceTransport)? = nil, keys: any DeviceKeyStore = EnclaveKeyStore(),
          sessions: any SessionStore = KeychainSessionStore()) {
+        // The tunnel's Keychain item is the source of truth (D204): a record
+        // an older app saved without its `tunnel` gets it back, and one whose
+        // item is gone (a restore onto another phone) goes direct.
+        var record = record
+        let secrets = transport == nil ? TunnelKeyStore.read(record.id) : nil
+        if let secrets, record.tunnel == nil {
+            record.tunnel = secrets.info(port: nil)
+        } else if transport == nil, secrets == nil, record.tunnel != nil {
+            record.tunnel = nil
+        }
         id = record.id
         self.record = record
-        let transport = transport ?? Self.transport(for: record)
+        let transport = transport ?? Self.transport(for: record, secrets: secrets)
         self.transport = transport
         let auth = WorkspaceAuth(record: record, transport: transport, keys: keys, sessions: sessions,
                                  clientHeader: AppInfo.clientHeader)
@@ -93,10 +103,17 @@ final class WorkspaceModel: Identifiable {
         }
     }
 
-    /// The transport a record gets when none is given.
-    static func transport(for record: WorkspaceRecord) -> any WorkspaceTransport {
-        DirectTransport(origin: record.server)
+    /// The transport a record gets when none is given: its tunnel when it
+    /// has one (D204), else its server.
+    static func transport(for record: WorkspaceRecord, secrets: TunnelSecrets?) -> any WorkspaceTransport {
+        TunnelManager.shared.transport(for: record, secrets: secrets) ?? DirectTransport(origin: record.server)
     }
+
+    /// Whether requests go through the workspace's tunnel.
+    var isTunnelled: Bool { transport is TunnelTransport }
+
+    /// The tunnel's state (`.direct` without one).
+    var tunnelStatus: TunnelStatus { TunnelManager.shared.status(of: id) }
 
     var title: String { record.displayTitle }
     /// The workspace's public origin: its identity — what Settings, the
@@ -566,6 +583,36 @@ final class WorkspaceModel: Identifiable {
         return String(describing: error)
     }
 
+    // MARK: The tunnel (D204)
+
+    /// After each connect: the ticket, relay and token as the workspace has
+    /// them now (`GET /api/xbin/app-tunnel/client`, over the tunnel), kept
+    /// in the Keychain item and the record — how a relay rotation or a new
+    /// ticket reaches the device.
+    func refreshTunnel() async {
+        guard var s = TunnelKeyStore.read(id), let j = try? await auth.json(APIRequest("GET", TunnelClientConfig.path)),
+              let c = try? TunnelClientConfig(json: j) else { return }
+        s.apply(c)
+        TunnelKeyStore.write(s, workspace: id)
+        TunnelManager.shared.secretsChanged(id, s)
+        var r = record
+        let info = s.info(port: r.tunnel?.port)
+        if r.tunnel != info {
+            r.tunnel = info
+            update(record: r)
+        }
+    }
+
+    /// The forwarder listens on `port`: the record keeps it, so pages keep
+    /// their origin across launches.
+    func tunnelPortChanged(_ port: Int) {
+        guard var t = record.tunnel, t.port != port else { return }
+        t.port = port
+        var r = record
+        r.tunnel = t
+        update(record: r)
+    }
+
     // MARK: Teardown
 
     /// Forgets everything local about this workspace (the server keeps the
@@ -576,6 +623,7 @@ final class WorkspaceModel: Identifiable {
         }
         await auth.signOut()
         await EnclaveKeyStore().deleteKey(workspace: id)
+        await TunnelManager.shared.forget(id)
         if let chrome = Self.chromeStoreID(id) {
             chromeStoreCache = nil
             _ = WKWebsiteDataStore(forIdentifier: chrome) // (as below: WebKit must have seen it)

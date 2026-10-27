@@ -79,6 +79,11 @@ final class AppModel {
         unreadable = list.unreadable
         workspaces = list.workspaces.map { WorkspaceModel(record: $0) }
         lastSelectedID = list.selected ?? workspaces.first?.id
+        // Tunnel secrets of workspaces the list doesn't hold (D204): a
+        // reinstall's, a crashed pairing's. Records this version can't read
+        // keep theirs.
+        let kept = Set(workspaces.map(\.id) + unreadable.compactMap { $0["id"]?.stringValue?.lowercased() })
+        TunnelManager.collectGarbage(keeping: kept, listReadCleanly: WorkspaceListFile.readCleanly)
         if !WorkspaceListFile.isFreshStart, let d = UserDefaults.standard.data(forKey: "recents"),
            let r = try? JSONDecoder().decode([Recent].self, from: d) { recents = r }
         runtimeGate = RemoteConfig.gate()
@@ -306,8 +311,10 @@ final class AppModel {
     /// registrations right, reopen the events sockets.
     func becameActive() async {
         isActive = true
-        updateSockets()
         let shown = Set(liveScenes.compactMap(\.selectedID))
+        // The tunnels of the workspaces on screen come up first (D204).
+        TunnelManager.shared.becameActive(prewarm: shown)
+        updateSockets()
         for w in workspaces where shown.contains(w.id) { await w.refresh() }
         for w in workspaces where !shown.contains(w.id) { await w.refreshSessions() }
         await PushManager.shared.maintainAll()
@@ -334,6 +341,8 @@ final class AppModel {
         isActive = false
         foregroundMark.enteredBackground()
         updateSockets()
+        // No tunnel lives in the background (D204, iroh #4289).
+        TunnelManager.shared.enteredBackground()
     }
 
     /// Settings changed the user's native-views switch.

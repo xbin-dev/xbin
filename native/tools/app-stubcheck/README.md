@@ -10,9 +10,11 @@ covers, in Swift 6 mode:
   the kill switch, Handoff, haptics) and **Shell** (`App/Shell`: the root
   view, the panels and their edge swipes, Home, the screens and their
   editor, creating a tile, switcher, inbox, settings, add-a-device, the
-  onboarding stack; `Shell/Screens` included) — every file but `Model/AppTransport.swift`,
-  `Model/DeviceKeys.swift` and `Shell/ScannerAndSSO.swift` (URLSession
-  delegates, the Secure Enclave, VisionKit/AuthenticationServices);
+  onboarding stack; `Shell/Screens` included; the app tunnel's runtime,
+  D204) — every file but `Model/AppTransport.swift`, `Model/DeviceKeys.swift`,
+  `Shell/ScannerAndSSO.swift`, `Model/LoopbackForwarder.swift` and
+  `Model/TunnelEndpoint.swift` (URLSession delegates, the Secure Enclave,
+  VisionKit/AuthenticationServices, Network.framework, IrohLib);
 - `FILES` in `run.sh`: a native tile's escape hatches (`Tiles/TileAttach`,
   `TileTerminal`, `TileCanvas`, `TileHatches`; `Terminal/KeyRow`, the key
   row's bar, shared with the shell's terminal), a screen's card

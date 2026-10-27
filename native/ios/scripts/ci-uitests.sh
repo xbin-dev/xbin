@@ -23,6 +23,8 @@
 #                         XBIN_E2E_WARMUP seconds (an iPad 90, else 30; 0
 #                         skips the warm-up), Settings opens once — a fresh
 #                         iPad's first tap hung without it (with 30 too)
+#   XBIN_E2E_TUNNEL_FORWARD=1  the app reaches the xbind through its Debug
+#                         loopback forwarder, as through an app tunnel (D204)
 #   XBIN_E2E_ONLY         run only these tests (-only-testing: values, space
 #                         separated, e.g. XbinUITests/XbinE2ETests/test03NativeCounter)
 #   XBIN_SIGNING          none (default when only building) or adhoc
@@ -96,7 +98,10 @@ TEST_RUNNER_E2E_DIR=${TEST_RUNNER_E2E_DIR:-$XBIN_CI_OUT/e2e}
 TEST_RUNNER_XBIN_E2E_URL=$XBIN_E2E_URL
 TEST_RUNNER_XBIN_E2E_USER=$XBIN_E2E_USER
 TEST_RUNNER_XBIN_E2E_PASSWORD=$XBIN_E2E_PASSWORD
-export TEST_RUNNER_E2E_DIR TEST_RUNNER_XBIN_E2E_URL TEST_RUNNER_XBIN_E2E_USER TEST_RUNNER_XBIN_E2E_PASSWORD
+# 1: the app reaches the xbind through its Debug loopback forwarder (D204)
+TEST_RUNNER_XBIN_E2E_TUNNEL_FORWARD=${XBIN_E2E_TUNNEL_FORWARD:-}
+export TEST_RUNNER_E2E_DIR TEST_RUNNER_XBIN_E2E_URL TEST_RUNNER_XBIN_E2E_USER TEST_RUNNER_XBIN_E2E_PASSWORD \
+  TEST_RUNNER_XBIN_E2E_TUNNEL_FORWARD
 shots=$TEST_RUNNER_E2E_DIR
 rm -rf "$shots"
 mkdir -p "$shots"

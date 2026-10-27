@@ -30,6 +30,16 @@ extension UIWindowScene {
 extension UIApplication {
     public func open(_ url: URL, options: [String: Any] = [:], completionHandler: (@MainActor @Sendable (Bool) -> Void)? = nil) {}
     public var supportsMultipleScenes: Bool { true }
+    public func beginBackgroundTask(withName taskName: String?,
+                                    expirationHandler handler: (@MainActor @Sendable () -> Void)? = nil) -> UIBackgroundTaskIdentifier {
+        .invalid
+    }
+    public func endBackgroundTask(_ identifier: UIBackgroundTaskIdentifier) {}
+}
+public struct UIBackgroundTaskIdentifier: RawRepresentable, Hashable, Sendable {
+    public var rawValue: Int
+    public init(rawValue: Int) { self.rawValue = rawValue }
+    public static let invalid = UIBackgroundTaskIdentifier(rawValue: 0)
 }
 extension UIView {
     public func insertSubview(_ view: UIView, at index: Int) {}

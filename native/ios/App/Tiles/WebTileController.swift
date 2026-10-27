@@ -240,15 +240,22 @@ final class WebTileController: NSObject {
     func didEnterBackground() { backgroundedAt = Date() }
 
     func willEnterForeground() {
-        if workspace.transport.generation != loadedGeneration {
-            // The workspace's address moved (a tunnel's new port, D204): a
-            // chrome page opens afresh there (a new ticket), a tile page
-            // reloads (its own WebSockets were told the old address).
-            if chrome { load() } else { reload() }
-        } else if let t = backgroundedAt, Date().timeIntervalSince(t) > 14 * 60 {
-            reload()
-        }
+        let since = backgroundedAt
         backgroundedAt = nil
+        let transport = workspace.transport
+        Task {
+            // A tunnelled workspace's forwarder comes back first (D204): only
+            // then is it known whether it kept its port.
+            if transport is TunnelTransport { _ = try? await transport.ready() }
+            if transport.generation != loadedGeneration {
+                // The workspace's address moved: a chrome page opens afresh
+                // there (a new ticket), a tile page reloads (its own
+                // WebSockets were told the old address).
+                if chrome { load() } else { reload() }
+            } else if let t = since, Date().timeIntervalSince(t) > 14 * 60 {
+                reload()
+            }
+        }
     }
 
     /// Where a top-level navigation to `url` may go on this workspace

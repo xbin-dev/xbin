@@ -40,8 +40,48 @@ struct EnclaveKeyStore: DeviceKeyStore {
 }
 enum Keychain {
     static func read(service: String, account: String) -> Data? { nil }
-    static func write(_ d: Data, service: String, account: String) {}
+    @discardableResult static func write(_ d: Data, service: String, account: String) -> Bool { true }
     static func delete(service: String, account: String) {}
+    static func accounts(service: String) -> [String] { [] }
+}
+
+// Model/LoopbackForwarder.swift (Network.framework), Model/TunnelEndpoint.swift (IrohLib) — D204
+protocol ForwardUpstream: Sendable {
+    func splice(with local: any ByteStream) async
+}
+final class LoopbackForwarder: @unchecked Sendable {
+    typealias Connect = @Sendable () async throws -> any ForwardUpstream
+    init(connect: @escaping Connect) {}
+    func start(port: Int) async throws -> Int { port }
+    func stop() {}
+    var isListening: Bool { false }
+}
+struct StreamUpstream: ForwardUpstream {
+    let remote: any ByteStream
+    func splice(with local: any ByteStream) async {}
+}
+struct TCPUpstream: ForwardUpstream {
+    static func open(host: String, port: Int) async throws -> TCPUpstream { TCPUpstream() }
+    func splice(with local: any ByteStream) async {}
+}
+final class TunnelPathWatch: @unchecked Sendable {
+    init(changed: @escaping @MainActor @Sendable (Bool) -> Void) {}
+    func stop() {}
+}
+actor TunnelEndpoint {
+    static let tunnelALPN = Data("xbin/tunnel/1".utf8)
+    nonisolated let deviceID = Data()
+    static func relay(of ticket: String, fallback: String?) throws -> String { "" }
+    static func bind(secret: Data, relayURL: String, relayToken: String?) async throws -> TunnelEndpoint { TunnelEndpoint() }
+    @discardableResult
+    func connect(ticket: String, alpn: Data = TunnelEndpoint.tunnelALPN, expect: String? = nil) async throws -> Data { Data() }
+    func openBi() async throws -> any ByteStream { throw URLError(.badURL) }
+    func openDedicated(ticket: String, alpn: Data, hello: Data) async throws -> any ByteStream { throw URLError(.badURL) }
+    static func newSecret() -> Data { Data() }
+    func closed() async -> String? { nil }
+    func path() -> (path: TunnelStatus.Path, rtt: Double?)? { nil }
+    func close() async {}
+    static func hex(_ d: Data) -> String { "" }
 }
 
 // XbinApp.swift

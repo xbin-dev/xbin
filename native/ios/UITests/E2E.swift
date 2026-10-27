@@ -206,9 +206,15 @@ final class E2E {
 
     /// Every test runs with -XbinUITesting (Debug builds): the terminal's
     /// cursor doesn't blink, so the app idles and XCUITest's steps don't
-    /// each wait 60 s for animations to end.
+    /// each wait 60 s for animations to end. With XBIN_E2E_TUNNEL_FORWARD=1
+    /// (mac-remote.sh passes it) the app reaches the xbind through its
+    /// loopback forwarder, as through an app tunnel (Debug's
+    /// -XbinTunnelForward, D204): the whole suite then runs that way.
     func launch() {
         app.launchArguments += ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-XbinUITesting", "YES"]
+        if ProcessInfo.processInfo.environment["XBIN_E2E_TUNNEL_FORWARD"] == "1" {
+            app.launchArguments += ["-XbinTunnelForward", "YES"]
+        }
         app.launch()
     }
 

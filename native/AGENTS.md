@@ -1027,6 +1027,15 @@ simulator's log (`xcrun simctl spawn <udid> log show`): testmanagerd's
 partitioned, as a workspace runs it: the e2e account's conversations live
 in its own partition, whose model e2e-xbind.sh sets as the account
 (XbinAgentNativeTests test01/test02 passed that way, 2026-10-26, #28).
+`XBIN_E2E_TUNNEL_FORWARD=1 mac-remote.sh e2e …` runs the tests with the
+app reaching the xbind through its app-tunnel loopback forwarder (D204;
+Debug's `-XbinTunnelForward YES`: each workspace on a plain-http address
+gets a `TunnelTransport` whose forwarder on `127.0.0.1:<port>` splices to
+that address over TCP — no iroh, no xbin layer), so the whole suite checks
+the transport refactor, the forwarder and WebKit on a second loopback
+origin. `-XbinTunnelDumbpipe <ticket>` (Debug) dials a dumbpipe-compatible
+iroh listener instead, with the tunnel's own endpoint (Minimal, the
+ticket's relay only).
 `--keep` leaves the xbind up; `--port` moves it; an xbind the Mac reaches
 by itself: `XBIN_E2E_URL=… XBIN_E2E_USER=… XBIN_E2E_PASSWORD=…
 mac-remote.sh e2e` (no tunnel; an admin account, the tests make invites).

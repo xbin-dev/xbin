@@ -48,6 +48,13 @@ enum WorkspaceListFile {
         return old.workspaces
     }
 
+    /// Whether the saved list is absent or decodes: a cleanup may trust
+    /// that its workspaces are all there are (TunnelManager.collectGarbage).
+    static var readCleanly: Bool {
+        guard let d = try? Data(contentsOf: url) else { return !FileManager.default.fileExists(atPath: url.path) }
+        return (try? WorkspaceList.decode(d)) != nil
+    }
+
     static func load() -> WorkspaceList {
         if isFreshStart {
             try? FileManager.default.removeItem(at: url)

@@ -88,6 +88,13 @@ struct SettingsView: View {
                     Section {
                         LabeledContent("Signed in as") { Text(verbatim: w.userLabel) }
                         LabeledContent("Server") { Text(verbatim: w.origin.origin).font(.callout.monospaced()) }
+                        // How requests travel: the app tunnel, or the address (D204).
+                        NavigationLink {
+                            ConnectionView(workspace: w)
+                        } label: {
+                            LabeledContent("Connection") { Text(verbatim: w.tunnelStatus.summary(server: w.origin)) }
+                        }
+                        .accessibilityIdentifier("settings-connection")
                         LabeledContent("Sign-in") { Text(w.canResign ? "This device (Face ID)" : "Token (not renewed)") }
                         // xbind's partitions page (I13, D181): only where the
                         // workspace serves it and you see a partitioned tile.
