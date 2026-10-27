@@ -425,8 +425,13 @@ func TestDiskQuotaRaise(t *testing.T) {
 		t.Errorf("the message names no way to raise it: %q", q.Message)
 	}
 
-	// the store's half (W1): the raise, and the kick that lifts the 507
-	raise(t, d, tile, "diskGiB", 1, false)
+	// the raise the alert offers (+100 % of 1 GiB: the 8 MiB default reads
+	// 1 GiB, rounded up as every disk value is), and the kick that lifts
+	// the 507
+	if q.Action.Current != 1 {
+		t.Errorf("the action's current: %d GiB, want 1 (8 MiB rounded up)", q.Action.Current)
+	}
+	raise(t, d, tile, "diskGiB", 2, false)
 	xbindtest.Eventually(t, 10*time.Second, "writes after the raise", func() (bool, string) {
 		n++
 		r := d.Call(t, http.MethodPut, fmt.Sprintf("/api/%s/fill?mb=1&name=b%d", tile, n), nil)

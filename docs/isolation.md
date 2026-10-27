@@ -748,9 +748,12 @@ The workspace is shared, so one clumsy or runaway tile must not be able to take
 it down. Under `--isolate` (and wherever xbind's cgroup is delegated) each tile
 backend is capped so it degrades *itself*, not the box:
 
-- **Memory** — `memory.max` 2 GiB (a soft `memory.high` 1/8 under it throttles a
-  gradual leak before the hard OOM). Over-budget → the tile's own process is
-  OOM-killed and crash-loop backoff kicks in; nothing else is touched.
+- **Memory** — `memory.max` 2 GiB by default (a soft `memory.high` 1/8 under
+  it throttles a gradual leak before the hard OOM). Over-budget → the tile's
+  own process is OOM-killed and crash-loop backoff kicks in; nothing else is
+  touched. The kill is recorded: the backend log says `OOM-killed at
+  memory.max …`, a crash loop's error says so, and an alert asks the
+  approvers to raise the cap (*Asking for more*, below).
 - **Processes** — `pids.max` `max(512, ncpu×8)`: a fork bomb hits its own
   ceiling. This is also the practical cap on **namespace/mount exhaustion** —
   every user/mount/pid namespace needs a process, so `pids.max` bounds how many
@@ -765,13 +768,15 @@ backend is capped so it degrades *itself*, not the box:
   tile node has one flat leaf's CPU weight, so deployments never enlarge a
   tile's share of the machine; inside it the primary's node weighs 100 and
   every other deployment's 50; each deployment's backend leaf carries its own
-  memory and pids caps (the tile's, unless a tile manager lowered them) and
+  memory and pids caps (the tile's — raised, if a raise was approved —
+  unless a tile manager lowered them) and
   no cap is shared above the leaves. `main` moves at its next generation; its
   old one drains in the flat leaf. Empty per-tile subtrees a crashed xbind
   left are removed at boot. The resources tab's tile totals include every
   deployment, and a limit alert names the deployment whose leaf hit its cap.
-- **Disk** — each scope's resource storage is capped at **50 GiB**; over it, its
-  API resource writes (kv/blob) get `507`. When the data partition drops below
+- **Disk** — each scope's resource storage is capped at **50 GiB** by
+  default; over it, its API resource writes (kv/blob) get `507`, with an
+  alert from 90 %. When the data partition drops below
   **10 % free**, the biggest users are write-blocked too, to hold the reserve.
   Directly-mounted resources (sqlite/filesystem) can't be write-blocked at the
   API — they count toward the quota and raise an alert, but stopping them is the
@@ -787,7 +792,47 @@ backend is capped so it degrades *itself*, not the box:
   extractions are refused (`507`) and running deployments keep serving.
 - **Terminals** — 32 per user (64 global), so one person can't exhaust the pool.
 
-Limits are tunable via `XBIN_LIMIT_MEM` / `XBIN_LIMIT_DISK`.
+`XBIN_LIMIT_MEM` / `XBIN_LIMIT_DISK` set the defaults.
+
+### Asking for more (D203)
+
+A tile that needs more than the defaults asks in its manifest — `"limits":
+{"memory", "disk", "sandboxes": {"memory", "vcpus", "disk"}}`, and a VM
+backend's `"vm"` sizes above the VM policy ([elements.md](/docs/elements.md))
+— and a human decides: a workspace admin, or an admin of the org that owns
+the tile up to the org's per-tile ceiling ([auth.md](/docs/auth.md)
+§Ownership). Until then the default applies. A tile that meets a cap (an
+OOM kill, a full quota, a sandbox refused or stopped at its tile's total)
+gets an alert that offers to raise it by +25 %, +50 % (pre-selected) or
++100 %. The prompt shows on the tile's window, the shell's banner, its ⚙ →
+Limits, the admin console's runtime → limits tab, the `/xbin/limits` page
+(served by xbind, so it works with any scaffold) and `bx limits`. The hit
+stays until a decision on that kind or an approver dismisses it.
+
+- **What fits.** A raise from *e* to *v* fits when *v − e* is at most the
+  free room — `MemAvailable` (within xbind's own cgroup), or the data
+  partition's free space — less a 10 % reserve and less what other tiles
+  were granted above their default and don't use. A tile at its default
+  promises nothing: the default is a fair share, not a reservation. A
+  choice that doesn't fit is greyed with that arithmetic; a workspace admin
+  may override it. vCPUs only meet the host's count: they are shared by
+  weight. Every decision is re-checked under the store's lock.
+- **When it applies.** A memory raise resizes the running backend's leaf
+  at once (`memory.max`, then `memory.high`); a crash-looping tile
+  restarts. A lower value — a revert — waits for the backend's next start,
+  so an edit never OOM-kills it. Every deployment and every person's
+  partition gets the raised cap, each its own (never one shared cap). A
+  disk raise lifts the `507` within seconds (the disk monitor rescans). A
+  sandbox grant raises the manager's total and one sandbox's maximum at the
+  next start of a sandbox. A VM's size applies at its next start; the
+  approver may restart it at once.
+- **Not detected (yet).** An OOM inside a VM guest is the guest kernel's
+  and invisible to xbind. A backend leaf has no `memory.swap.max`, so on a
+  host with swap a backend over its cap swaps rather than being killed (as
+  before).
+- **Where it lives.** Decisions and hits are in `data/tile-limits.json`
+  (xbind-owned, never the tile's; unreadable, every tile has its defaults
+  and admins get an alert); an org's ceilings in `data/users.json`.
 
 **Backend hardening.** A tile backend needs no privilege, so it runs with **all
 capabilities dropped** and a **seccomp block-list** of system-damaging syscalls
@@ -797,7 +842,7 @@ are different — they keep capabilities (for `apt`, nested namespaces) and rely
 the narrower mount/read guards above.
 
 **Alerts.** At-limit and blocking events (a tile over disk quota, low workspace
-disk, a tile hitting its memory/pids cap) surface as `GET /api/xbin/alerts` and
+disk, a tile OOM-killed or at its pids cap) surface as `GET /api/xbin/alerts` and
 show as a banner in the **workspace shell** (system-wide notices to everyone)
 and the **admin console** (all of them). So an operator sees a degrading
 workspace immediately, not after it breaks.

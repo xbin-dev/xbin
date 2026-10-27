@@ -1437,8 +1437,14 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    sticky: OOM-killed at its memory
                                    limit), sbx-cap (tile sandboxes at
                                    their total), quota (a scope at its
-                                   disk quota), tile-limits (crit, admins:
-                                   data/tile-limits.json can't be read)
+                                   disk quota), quota-near (warn, from 90 %
+                                   of it, with the action), tile-limits
+                                   (crit, admins: data/tile-limits.json
+                                   can't be read). Kind memory (warn,
+                                   passing): a backend under memory
+                                   pressure at its cap that wasn't killed
+                                   — before D203 it was oom; pids (warn,
+                                   passing): at its pids cap
 GET    /whoami                    any. caller identity + permissions; for
                                    users also orgs:[{id,name,level,create,
                                    admin,suspended?,via?,viaGroups?}]
@@ -6013,7 +6019,15 @@ naming the cap. So is a tile whose sandboxes' bytes on disk, snapshots
 included, pass `perTile.diskGiB`; those bytes never count against the
 tile's resource-write quota. The booking is atomic: ten starts at once
 under `running: 4` run exactly four. A lowered cap applies at the next
-start (a running sandbox shows `restartNeeded` for its sizes).
+start (a running sandbox shows `restartNeeded` for its sizes). A manager
+whose manifest asks for more (`"limits": {"sandboxes": {…}}`, D203) and was
+granted it has its `perTile.memMiB`, `vcpus` and `diskGiB` raised to the
+grant, and `perSandbox.maxMemMiB`, `maxVCPUs` and `maxDiskGiB` with them
+(one sandbox may use the whole grant) — a layer of its own above the
+policy and its overrides, which it never rewrites; it applies from the next
+start. A start refused at one of those totals, a sandbox stopped past
+`perTile.diskGiB`, or one OOM-killed, is a hit an approver may raise
+(isolation.md §Resource limits).
 
 **Waiting.** Lifecycle calls take `?wait=<seconds>` (up to
 `limits.waitMaxSec`; more is clamped; absent is `waitMaxSec`): the call

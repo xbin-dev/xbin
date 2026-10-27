@@ -34,6 +34,18 @@ type limitsFx struct {
 	free    int64            // MemAvailable, MiB
 }
 
+// reopen stands in for a fresh xbind over the file now on disk: the store
+// reads it again at its next use. (The disk monitor's first scan asks
+// LimitGrant as the broker starts, so it may already have read data/
+// without the file.)
+func (fx *limitsFx) reopen() {
+	s := &fx.b.tl
+	s.mu.Lock()
+	s.read, s.bad = false, nil
+	s.cur.Store(nil)
+	s.mu.Unlock()
+}
+
 func limitsFixture(t *testing.T) *limitsFx {
 	t.Helper()
 	b, st := orgFixture(t)
@@ -206,6 +218,7 @@ func TestTileLimitsStore(t *testing.T) {
 	if err := os.WriteFile(file2, bad, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	fx2.reopen()
 	if g := fx2.b.LimitGrant("apps/email", limits.MemMiB); g != 0 {
 		t.Errorf("an unreadable file grants %d", g)
 	}

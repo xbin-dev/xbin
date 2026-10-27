@@ -12,6 +12,37 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-27
 
+- **Tiles can ask for more memory, disk and sandbox/VM room; admins raise
+  a cap when a tile meets it** (D203; [isolation.md](/docs/isolation.md)
+  §Resource limits, [elements.md](/docs/elements.md),
+  [auth.md](/docs/auth.md) §Ownership, [bx.md](/docs/bx.md)). A manifest's
+  new `"limits"` key — `memory`, `disk` (on the tile that roots its
+  scope), `sandboxes: {memory, vcpus, disk}` — and `vm` sizes above the VM
+  policy are requests: nothing changes until a workspace admin, or an
+  admin of the owning org up to the per-tile ceiling a workspace admin
+  set for the org (`PUT /api/xbin/orgs/<org>/limits`), approves them. A
+  backend OOM-killed at its cap now says so (its log, its crash-loop
+  error) and leaves an alert that stays until someone decides; a full
+  disk quota alerts from 90 %; both offer +25 %, +50 % or +100 %, greyed
+  with the reason when the workspace hasn't the room (free space less a
+  10 % reserve and what other tiles were granted but don't use). A memory
+  raise resizes the running backend at once; a disk raise lifts the `507`
+  within seconds. Decide on the tile's window, the shell's banner, the
+  tile's ⚙ → Limits, the admin console's runtime → limits tab, the new
+  `/xbin/limits` page, or `bx limits` (`ls`, `show`, `approve`, `raise`,
+  `set`, `reset`, `dismiss`; `bx org limits` for ceilings). New:
+  `/api/xbin/limits` routes, the `limits` event, alert kinds `quota-near`,
+  `sbx-cap`, `tile-limits` and `memory` (memory pressure without a kill,
+  which was `oom`), an alert's optional `action`
+  ([protocol.md](/docs/protocol.md)). Not breaking: `XBIN_LIMIT_MEM` and
+  `XBIN_LIMIT_DISK` are now the defaults; a `vm` size above the policy is
+  still clamped until approved, now with a prompt; a tile's own top-level
+  `"limits"` key, if it had one, is now read as an ask, and a malformed
+  value is a manifest warning, never an error. Older shells and admin
+  consoles show the alert's text, which names `/xbin/limits` and
+  `bx limits`, until `bx builtin update`
+  ([compat.md](/docs/compat.md) §Tile resource limits).
+
 - **The tile window is an IDE** (D202; [elements.md](/docs/elements.md),
   [terminals](/docs/overview/09-terminals.md)). Down its left, a tool
   strip: **Files**, **Changes** and **PRs** open their list beside the

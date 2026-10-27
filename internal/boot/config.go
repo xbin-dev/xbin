@@ -54,7 +54,7 @@ type Config struct {
 
 	// env-only, consumed by boot
 	VaultPassphrase string `env:"XBIN_VAULT_PASSPHRASE" secret:"true" doc:"vault passphrase: auto-init/unseal the encryption barrier at boot (docs/auth.md §vault). Unset in production means the daemon starts SEALED (or LOCKED before first setup) until an admin unseals"`
-	LimitMem        string `env:"XBIN_LIMIT_MEM" def:"2G" doc:"per-component cgroup v2 memory cap — plain bytes or a K/M/G/T suffix; active only when xbind's cgroup is delegated (systemd Delegate=yes / a container)"`
+	LimitMem        string `env:"XBIN_LIMIT_MEM" def:"2G" doc:"each tile backend's default cgroup v2 memory cap — plain bytes or a K/M/G/T suffix; active only when xbind's cgroup is delegated (systemd Delegate=yes / a container); an approver may raise it per tile (docs/isolation.md §Resource limits)"`
 	Bin             string `env:"XBIN_BIN" doc:"directory holding the bx CLI, put on terminals' PATH (without --isolate: an isolated terminal's PATH is the rootfs's, whose bx it runs); default: next to the xbind binary, the repo's bin/ under --dev, then whatever is already on xbind's PATH"`
 	PushRelay       string `env:"XBIN_PUSH_RELAY" doc:"the push relay for the xbin app's notifications (relay/README.md), e.g. https://relay.example. With XBIN_PUSH_RELAY_KEY: push is on and configured here (the admin route is read-only); alone: the relay an admin's opt-in (PUT /api/xbin/push/config) uses when it names none. Unset: an admin opts in from the API"`
 	PushRelayKey    string `env:"XBIN_PUSH_RELAY_KEY" secret:"true" doc:"this workspace's key at XBIN_PUSH_RELAY (what the relay's POST /v1/workspaces answered). A different key is a different relay workspace: the apps' handles that delivered under the old one read needsNewHandle until the apps renew them. The relay deletes a key never used within 30 days and one unused for 180; xbind checks the key at start and daily (a use), and GET /api/xbin/push/config reports keyError when the relay forgot it — then mint a new key and set it here"`
@@ -62,7 +62,7 @@ type Config struct {
 	// env-only, read by the package that uses it (listed here so the
 	// configuration reference is complete)
 	SDKPath       string `env:"XBIN_SDK_PATH" readBy:"internal/deps" doc:"the xbin Go SDK checkout for the generated go.work and the sandbox bind (default: /opt/xbin/sdk, else the repo's sdk/ under --dev)"`
-	LimitDisk     string `env:"XBIN_LIMIT_DISK" readBy:"internal/broker" def:"50G" doc:"per-scope disk quota for tile state — plain bytes or a K/M/G/T suffix"`
+	LimitDisk     string `env:"XBIN_LIMIT_DISK" readBy:"internal/broker" def:"50G" doc:"each scope's default disk quota for tile state — plain bytes or a K/M/G/T suffix; an approver may raise it per scope (docs/isolation.md §Resource limits)"`
 	Gocryptfs     string `env:"XBIN_GOCRYPTFS" readBy:"internal/resenc" doc:"the gocryptfs binary for encrypted file-backed resources (default: bundled next to xbind, then PATH; none ⇒ a tile that uses a filesystem, sqlite or blob resource is held until there is one — never plaintext)"`
 	FuseOverlayfs string `env:"XBIN_FUSE_OVERLAYFS" readBy:"internal/sandbox" doc:"the fuse-overlayfs binary mounting sandbox roots (default: bundled next to xbind, then PATH; none ⇒ the kernel overlay)"`
 	SandboxDebug  string `env:"XBIN_SANDBOX_DEBUG" readBy:"internal/sandbox" doc:"set to anything to make the sandbox init log its steps"`

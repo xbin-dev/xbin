@@ -78,7 +78,8 @@ func (d *diskMon) scopeRoots() map[string]scopeRoot {
 }
 
 // raiseAction is what an alert about the namespace key, held to quota,
-// offers: raising its scope's quota — only for a scope's main namespace
+// offers (Current in GiB rounded up, as the store's default is: an 8 MiB
+// quota reads 1 GiB, and a raise goes past it): raising its scope's quota — only for a scope's main namespace
 // while it is its primary's and the scope's quota is what holds it (a
 // claimant's lower limit isn't the scope's to raise; a deployment's or a
 // person's partition's namespace gets none). nil otherwise, and for the
@@ -89,7 +90,7 @@ func raiseAction(key string, bk nsBucket, quota int64, roots map[string]scopeRoo
 		return nil
 	}
 	return &limits.Action{Action: limits.ActionRaise, Tile: sr.tile, Scope: sr.scope, Kind: limits.DiskGiB,
-		Unit: limits.DiskGiB.Meta().Unit, Current: quota >> 30}
+		Unit: limits.DiskGiB.Meta().Unit, Current: limits.FromBytes(limits.DiskGiB, quota)}
 }
 
 // raiseWords ends an alert's message with the ways to raise its quota, for
@@ -115,7 +116,7 @@ func (d *diskMon) recordFull(full, was map[string]int64, usage map[string]int64)
 		if _, before := was[key]; before {
 			continue
 		}
-		d.tiles.diskHit(key, limits.Hit{At: now, Since: now, Count: 1, Value: quota >> 30,
+		d.tiles.diskHit(key, limits.Hit{At: now, Since: now, Count: 1, Value: limits.FromBytes(limits.DiskGiB, quota),
 			Detail: fmt.Sprintf("the data quota is full (%s of %s): resource writes are refused", humanBytes(usage[key]), humanBytes(quota))})
 	}
 }

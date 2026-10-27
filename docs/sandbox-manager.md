@@ -741,6 +741,13 @@ the cause is gone:
   now holds only as a reader, stops the sandbox; so does sealing the vault,
   for every sandbox with a resource mounted (its start answers 503 until
   the vault is unsealed). A narrowed `sandbox-net` class does the same.
+- **More room.** The sandboxes policy's `perTile` totals are the
+  workspace's default for every manager. A manager that needs more asks
+  in its manifest — `"limits": {"sandboxes": {"memory": "16G", "vcpus":
+  8, "disk": "200G"}}` — and a workspace admin (or an admin of the org
+  owning it, within the org's ceiling) approves it; a start refused at a
+  total or a sandbox stopped at one offers them a raise. A grant raises
+  the per-sandbox maximums with it (D203; protocol.md §Admission).
 - **Disk.** Each sandbox's bytes are measured (`diskBytes`, after each
   stop and every few minutes while it runs). Past the tile's
   `perTile.diskGiB`, its largest running namespace sandbox is stopped and
