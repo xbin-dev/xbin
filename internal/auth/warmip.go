@@ -4,6 +4,7 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"strings"
 	"time"
 )
 
@@ -47,7 +48,7 @@ func (a *Auth) noteAuthed(r *http.Request) {
 // with a RemoteAddr like "@", and warming that would be meaningless noise —
 // the /c/ gate only ever looks up TCP clients' addresses.
 func (a *Auth) warmLocked(ip string, now time.Time) {
-	if _, err := netip.ParseAddr(ip); err != nil {
+	if _, err := netip.ParseAddr(ip); err != nil && !tunnelKey(ip) {
 		return
 	}
 	if len(a.warm) >= 4096 { // paranoia bound — prune before growing past it
@@ -79,6 +80,13 @@ func (a *Auth) RecentlyAuthed(ip string) bool {
 		return false
 	}
 	return true
+}
+
+// tunnelKey: an app tunnel's per-device client key (Transport.ClientKey) —
+// warm per device, never as one shared "tunnel" address.
+func tunnelKey(k string) bool {
+	dev, ok := strings.CutPrefix(k, "tunnel/")
+	return ok && dev != "" && !strings.ContainsAny(dev, "/: ")
 }
 
 // sweepWarmLocked drops stale warm-IP entries (caller holds a.mu).

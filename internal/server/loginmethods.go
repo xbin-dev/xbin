@@ -38,6 +38,14 @@ type loginMethods struct {
 	Password pwMethod  `json:"password"`
 	SSO      ssoMethod `json:"sso"`
 	Invites  bool      `json:"invites"`
+	// Tunnel is the app tunnel (D204): on, and whether the app's traffic
+	// is refused off it. Absent on an xbind without one.
+	Tunnel *tunnelMethod `json:"tunnel,omitempty"`
+}
+
+type tunnelMethod struct {
+	Enabled  bool `json:"enabled"`
+	Required bool `json:"required"`
 }
 
 type pwMethod struct {
@@ -74,6 +82,10 @@ func (s *Server) apiLoginMethods(w http.ResponseWriter, r *http.Request) {
 			m.SSO = ssoMethod{Enabled: true, Label: SSOButtonLabel(s.ssoConfig())}
 		}
 		m.Invites = hasUsers
+	}
+	if s.AppTunnel != nil {
+		on, req := s.appTunnelState()
+		m.Tunnel = &tunnelMethod{Enabled: on, Required: req}
 	}
 	w.Header().Set("Cache-Control", "no-store")
 	WriteJSON(w, http.StatusOK, m)

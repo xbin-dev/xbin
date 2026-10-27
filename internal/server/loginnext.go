@@ -15,7 +15,7 @@ import (
 
 // loginNextPaths are the pages whose signed-out redirect carries their path
 // (authed: loginURLFor). Everything else goes to plain /login, as before.
-var loginNextPaths = map[string]bool{PersonPagePath: true, LimitsPagePath: true}
+var loginNextPaths = map[string]bool{PersonPagePath: true, LimitsPagePath: true, DevicesPagePath: true}
 
 // loginURLFor is where authed sends a signed-out browser navigation to r.
 func loginURLFor(r *http.Request) string {

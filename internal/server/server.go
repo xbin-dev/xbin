@@ -34,6 +34,8 @@ type Server struct {
 	Auth *auth.Auth
 	Hub  *events.Hub
 	Term *term.Manager
+	// AppTunnel is the xbin app's iroh tunnel (tunnelgate.go, D204); nil: none.
+	AppTunnel AppTunnel
 
 	WebFS      fs.FS    // core elements + vendored deps, served at /vendor/
 	vendorSums sync.Map // WebFS path → its content hash (vendor.go: the ETag, a font's version)
@@ -168,8 +170,9 @@ func (s *Server) Handler() http.Handler {
 	// theme.css as bare subresources, which carry no credentials by design.
 	handle("GET /vendor/", http.HandlerFunc(s.handleVendor))
 	handle("GET /docs/", s.authed(http.HandlerFunc(s.handleDocs)))
-	handle("GET "+PersonPagePath, s.authed(http.HandlerFunc(s.handlePersonPage))) // the partitions page, top-level only (personpage.go)
-	handle("GET "+LimitsPagePath, s.authed(http.HandlerFunc(s.handleLimitsPage))) // the tile limits page, likewise (limitspage.go)
+	handle("GET "+PersonPagePath, s.authed(http.HandlerFunc(s.handlePersonPage)))   // the partitions page, top-level only (personpage.go)
+	handle("GET "+LimitsPagePath, s.authed(http.HandlerFunc(s.handleLimitsPage)))   // the tile limits page, likewise (limitspage.go)
+	handle("GET "+DevicesPagePath, s.authed(http.HandlerFunc(s.handleDevicesPage))) // the devices page (devicespage.go, D204)
 
 	handle("/api/", s.authedAPI(http.HandlerFunc(s.handleAPI)))
 
@@ -181,7 +184,7 @@ func (s *Server) Handler() http.Handler {
 
 	s.registerCoreAPI()
 	s.registerBrandingAPI()
-	return logRequests(s.tileOrigins(nullOriginCORS(mux)))
+	return logRequests(s.tunnelGate(s.tileOrigins(nullOriginCORS(mux)))) // tunnelgate.go: the app tunnel (D204)
 }
 
 // nullOriginCORS lets sandboxed tile frames talk to their APIs at all. A
@@ -233,8 +236,12 @@ func (s *Server) authed(next http.Handler) http.Handler {
 		if auth.TileContext(r) {
 			r = auth.WithoutCookie(r)
 		}
-		p, ok := s.Auth.FromRequest(r)
+		p, ok, why := s.Auth.Authenticate(r)
 		if !ok {
+			if why != auth.RefuseNone { // the app tunnel's transport gate (tunnelgate.go)
+				writeTunnelRefusal(w, why)
+				return
+			}
 			if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") {
 				http.Redirect(w, r, loginURLFor(r), http.StatusFound) // a deep-link page carries ?next= (loginnext.go)
 				return

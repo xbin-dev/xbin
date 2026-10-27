@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/apptunnel"
 	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/deps"
@@ -53,6 +54,21 @@ func (st *State) serve(ctx context.Context) error {
 			slog.Error("gateway serve", "err", err)
 		}
 	}()
+
+	// The app tunnel (D204): its connections come from the iroh sidecar,
+	// each a paired device's after its Noise handshake, and are served by
+	// the SAME handler — never a second Handler() call (it would reset the
+	// login throttle) — with every request marked as its device's.
+	var tunSrv *http.Server
+	if st.AppTunnel != nil {
+		tunSrv = &http.Server{Handler: handler, ConnContext: apptunnel.ConnContext,
+			IdleTimeout: 120 * time.Second, ReadHeaderTimeout: 30 * time.Second}
+		go func() {
+			if err := tunSrv.Serve(st.AppTunnel.Listener()); err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
+				slog.Error("app tunnel serve", "err", err)
+			}
+		}()
+	}
 
 	// Boot reconcile: stand up stream listeners + forward doors for existing
 	// bindings before traffic arrives.
@@ -151,6 +167,10 @@ func (st *State) serve(ctx context.Context) error {
 	_ = gwSrv.Close()
 	if iSrv != nil {
 		_ = iSrv.Close()
+	}
+	if tunSrv != nil {
+		_ = tunSrv.Close()
+		st.AppTunnel.Close() // the sidecar stops, before the broker
 	}
 	brk.Close() // the KV database's file lock, the cron scheduler, the disk monitor, the resources' decrypted views
 	// Open tiles keep their login binding across the restart (auth/framegens.go).

@@ -72,7 +72,10 @@ func TestDevicesStoreOwned(t *testing.T) {
 	if _, ok, _ := st2.RemoveDevice(d.ID); ok {
 		t.Fatal("removed twice")
 	}
-	// The cap.
+	// The cap: no limit goes past it.
+	if err := st2.SetDeviceLimit(MaxDevicesPerUser); err != nil {
+		t.Fatal(err)
+	}
 	for i := 0; i < MaxDevicesPerUser; i++ {
 		if _, err := st2.AddDevice("neo", Device{PublicKey: "k", Origin: "o"}); err != nil {
 			t.Fatal(err)

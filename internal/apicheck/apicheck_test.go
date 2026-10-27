@@ -26,6 +26,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xbin-dev/xbin/internal/apptunnel"
 	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
@@ -141,6 +142,12 @@ func mount(t *testing.T) *server.Server {
 	b.Users = st
 	srv := &server.Server{Reg: reg, Hub: hub}
 	b.Register(srv)
+	tun, err := apptunnel.New(apptunnel.Options{Dir: t.TempDir(), Users: st}) // the app tunnel (D204; boot/apptunnel.go)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(tun.Close)
+	tun.Register(srv)
 	srv.Handler() // mounts the core routes and registerCoreAPI
 	return srv
 }

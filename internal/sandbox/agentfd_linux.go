@@ -21,13 +21,14 @@ import (
 
 // initFDs runs first in the init's final stage — after a range-mode re-exec,
 // which must keep every fd — and before it starts anything: the agent's
-// factory and the relay's control socket become close-on-exec, so
-// fuse-overlayfs never inherits them (the entry gets the factory back in
-// handAgentFD); the lock stays inheritable, since fuse-overlayfs holding it
+// factory, the relay's control socket and Spec.Exe become close-on-exec,
+// so fuse-overlayfs never inherits them (the entry gets the factory back in
+// handAgentFD; the init execs Exe through /proc/self/fd, which a static
+// program needs no open fd for once running); the lock stays inheritable, since fuse-overlayfs holding it
 // is the point. A number the spec names that isn't open fails the start.
 // Then the hostname.
 func initFDs(s *Spec) error {
-	for _, fd := range []int{s.CtrlFD, s.AgentFD, s.LockFD} {
+	for _, fd := range []int{s.CtrlFD, s.AgentFD, s.LockFD, s.ExeFD} {
 		if fd <= 0 {
 			continue
 		}
@@ -35,7 +36,7 @@ func initFDs(s *Spec) error {
 			return must(err, "inherited fd "+strconv.Itoa(fd))
 		}
 	}
-	for _, fd := range []int{s.CtrlFD, s.AgentFD} {
+	for _, fd := range []int{s.CtrlFD, s.AgentFD, s.ExeFD} {
 		if fd > 0 {
 			unix.CloseOnExec(fd)
 		}

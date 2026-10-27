@@ -40,6 +40,9 @@ jobs:
           # the builtin tiles' and templates' backends against their own
           # go.mod.tile (network: their deps)
           - { name: tile-check, run: make tile-check, cache: tile }
+          # the app tunnel's iroh sidecar (sidecar/xbin-iroh, D204): cargo
+          # fmt, clippy and test in its pinned builder image (docker)
+          - { name: sidecar-check, run: make sidecar-check, cache: sidecar }
           - { name: integration 1/4, run: make integration SHARD=1/4, cache: integration, helpers: true, integration: true }
           - { name: integration 2/4, run: make integration SHARD=2/4, cache: integration, helpers: true, integration: true }
           - { name: integration 3/4, run: make integration SHARD=3/4, cache: integration, helpers: true, integration: true }
@@ -100,6 +103,18 @@ jobs:
           key: helpers-containerfs-${{ runner.arch }}-${{ hashFiles('hack/helpers.sha256', 'hack/helpers-lib.sh', 'hack/fetch-helpers.sh', 'hack/build-gocryptfs.sh', 'hack/gocryptfs-patches/*.patch', 'hack/gofuse-patches/*.patch', 'hack/build-fuse-overlayfs.sh') }}
       - if: matrix.helpers
         run: make helpers HELPERS=containerfs
+      # The app tunnel's iroh sidecar for its integration suite
+      # (apptunnel-sidecar): the prebuilt iroh set when the manifest pins
+      # its key, else a docker build of sidecar/xbin-iroh (a minute or two).
+      - if: matrix.integration
+        uses: actions/cache@v6
+        with:
+          path: |
+            bin/.helpers-iroh
+            bin/xbin-iroh
+          key: helpers-iroh-${{ runner.arch }}-${{ hashFiles('hack/helpers.sha256', 'hack/helpers-lib.sh', 'hack/fetch-helpers.sh', 'hack/build-xbin-iroh.sh', 'sidecar/xbin-iroh/**') }}
+      - if: matrix.integration
+        run: make helpers HELPERS=iroh
       # The downgrade tests (test/downgrade_test.go) run the previous
       # release's xbind on a workspace this tree left tile-deployment state
       # in. Pinned to the last release before tile deployments, the older

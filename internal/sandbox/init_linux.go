@@ -13,7 +13,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -105,14 +104,21 @@ func runInit(specPath string) error {
 	// A VM sandbox has no rootfs of its own: a bare tmpfs (init_vm_linux.go).
 	// fusePID is a watched fuse-overlayfs's (FuseWatch), for the agent.
 	var fusePID int
-	if s.VM != nil {
+	switch {
+	case s.VM != nil:
 		if err := vmRoot(newroot); err != nil {
 			return err
 		}
-	} else if fusePID, err = mountRoot(&s, base, newroot); err != nil {
-		return err
+	case s.Bare:
+		if err := bareRoot(newroot); err != nil {
+			return err
+		}
+	default:
+		if fusePID, err = mountRoot(&s, base, newroot); err != nil {
+			return err
+		}
 	}
-	dbg(s.Debug, "root mounted at %s (vm=%v)", newroot, s.VM != nil)
+	dbg(s.Debug, "root mounted at %s (vm=%v bare=%v)", newroot, s.VM != nil, s.Bare)
 
 	// Fresh /proc (needs the new pid ns) and a private /tmp, /dev/shm — mounted
 	// BEFORE the binds so that binds whose paths fall under /tmp (the run dir /
@@ -210,12 +216,9 @@ func runInit(specPath string) error {
 		}
 		dbg(s.Debug, "egress TUN handed to parent")
 	}
-	// Sharing the host network (terminals): give the sandbox the host's DNS +
-	// hosts so name resolution / internet works (the rootfs's own resolv.conf is
-	// typically empty). We're still on the host root here (pre-pivot).
-	if s.HostNet {
-		copyHostFile(newroot, "/etc/resolv.conf")
-		copyHostFile(newroot, "/etc/hosts")
+	// Sharing the host network (terminals): the host's DNS + hosts (pre-pivot).
+	if err := hostNetFiles(newroot, &s); err != nil {
+		return err
 	}
 
 	if s.VM != nil {
@@ -232,6 +235,9 @@ func runInit(specPath string) error {
 		}
 	} else if err := os.MkdirAll(oldroot, 0o700); err != nil {
 		return must(err, "mkdir .oldroot")
+	}
+	if err := sealBareRoot(newroot, &s); err != nil {
+		return err
 	}
 	// fuse-overlayfs serving the root gets a root of its own first, so it
 	// never resolves a path through the mount it serves (fuseroot_linux.go).
@@ -368,12 +374,13 @@ func runInit(specPath string) error {
 		_ = unix.Chdir("/")
 	}
 	argv := entryArgv(&s, fusePID)
-	dbg(s.Debug, "guards on, exec %s (cwd=%s)", s.Entry, cwd)
+	entry := execPath(&s)
+	dbg(s.Debug, "guards on, exec %s (cwd=%s)", entry, cwd)
 	if err := handAgentFD(&s); err != nil {
 		return err
 	}
-	if err := unix.Exec(s.Entry, argv, s.Env); err != nil {
-		return must(err, "exec "+s.Entry)
+	if err := unix.Exec(entry, argv, s.Env); err != nil {
+		return must(err, "exec "+entry)
 	}
 	return nil // unreachable
 }
@@ -761,36 +768,4 @@ func mountAt(newroot, rel, source, fstype string, flags uintptr, data string) er
 		return must(err, "mount "+fstype+" at "+rel)
 	}
 	return nil
-}
-
-// copyHostFile copies a host config file (following symlinks, e.g. a
-// systemd-resolved stub) into newroot at the same path — used to seed DNS for
-// host-network sandboxes. The write never follows a symlink in newroot
-// (writeInRoot): the root may be a persistent upper the sandbox wrote.
-func copyHostFile(newroot, p string) {
-	data, err := os.ReadFile(p) // reads through symlinks; we're pre-pivot on host root
-	if err != nil {
-		return
-	}
-	_ = writeInRoot(newroot, p, data)
-}
-
-// upLoopback sets lo UP via an ioctl on an AF_INET socket (no external tools).
-func upLoopback() {
-	fd, err := unix.Socket(unix.AF_INET, unix.SOCK_DGRAM, 0)
-	if err != nil {
-		return
-	}
-	defer unix.Close(fd)
-	var ifr [40]byte
-	copy(ifr[:], "lo")
-	// SIOCGIFFLAGS then set IFF_UP|IFF_RUNNING and SIOCSIFFLAGS.
-	if _, _, e := unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uintptr(unix.SIOCGIFFLAGS), uintptr(unsafe.Pointer(&ifr))); e != 0 {
-		return
-	}
-	flags := uint16(ifr[16]) | uint16(ifr[17])<<8
-	flags |= unix.IFF_UP | unix.IFF_RUNNING
-	ifr[16] = byte(flags)
-	ifr[17] = byte(flags >> 8)
-	unix.Syscall(unix.SYS_IOCTL, uintptr(fd), uintptr(unix.SIOCSIFFLAGS), uintptr(unsafe.Pointer(&ifr)))
 }

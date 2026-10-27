@@ -60,6 +60,9 @@ overview is the map that puts them in context.
   development): one backend instance per person, the mode a tile records
   and how it switches, shared resources, global and personal binds, and what
   providers key on
+- [app-tunnel.md](/docs/app-tunnel.md) — the xbin app over an iroh tunnel
+  (D204): turning it on, pairing with the confirmation code, refusing the
+  app outside it, device limits, running your own relay, the threat model
 - [config.md](/docs/config.md) — every `xbind` flag and `XBIN_*` variable,
   generated from the daemon's configuration
 - [changelog.md](/docs/changelog.md) — builder-visible changes per xbind

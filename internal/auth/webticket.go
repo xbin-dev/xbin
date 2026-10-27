@@ -218,6 +218,12 @@ func (a *Auth) webParentLocked(t WebTicket, now time.Time) (string, bool) {
 // wins). notAfter (zero: none) caps it below the device session's own cap.
 // Returns the cookie value.
 func (a *Auth) OpenWebSession(t WebTicket, ip string, notAfter time.Time) (string, error) {
+	return a.OpenWebSessionOn(t, ip, notAfter, false)
+}
+
+// OpenWebSessionOn is OpenWebSession on a transport: tunnel — redeemed over
+// the device's app tunnel — binds the browser session to it (transport.go).
+func (a *Auth) OpenWebSessionOn(t WebTicket, ip string, notAfter time.Time, tunnel bool) (string, error) {
 	now := time.Now()
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -232,7 +238,7 @@ func (a *Auth) OpenWebSession(t WebTicket, ip string, notAfter time.Time) (strin
 	}
 	a.sweepSessionsLocked(now)
 	id := a.addSessionLocked(&session{userID: t.UserID, created: parent.created, lastActive: now, ip: ip, lastIP: ip,
-		deviceID: t.DeviceID, notAfter: capAt, opener: pid})
+		deviceID: t.DeviceID, notAfter: capAt, opener: pid, tunnel: tunnel})
 	a.warmLocked(ip, now)
 	return id, nil
 }

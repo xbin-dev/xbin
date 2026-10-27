@@ -41,6 +41,9 @@ type session struct {
 	// opener is the device session a browser session was handed over from
 	// (a web ticket, webticket.go): signing the app out ends it too.
 	opener string
+	// tunnel: opened over its device's app tunnel, and so bound to it — it
+	// and every credential derived from it work only there (transport.go).
+	tunnel bool
 	// Impersonation (impersonate.go): who is looking, and how to hand the
 	// browser back to them when they stop — their own session id, or the
 	// owner token when they came in on the bootstrap cookie.
@@ -141,12 +144,18 @@ func (a *Auth) NewBearerSession(userID, deviceID, ip string) BearerSession {
 // NewBearerSessionUntil is NewBearerSession capped at notAfter (zero: no cap
 // below the usual lifetimes) — a device login under SSO-only mode.
 func (a *Auth) NewBearerSessionUntil(userID, deviceID, ip string, notAfter time.Time) BearerSession {
-	now := time.Now()
+	return a.NewBearerSessionOpts(userID, BearerOpts{DeviceID: deviceID, IP: ip, NotAfter: notAfter})
+}
+
+// NewBearerSessionOpts creates an app session with every option
+// (transport.go's BearerOpts: a tunnel-bound device login).
+func (a *Auth) NewBearerSessionOpts(userID string, o BearerOpts) BearerSession {
+	now, ip, notAfter := time.Now(), o.IP, o.NotAfter
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.sweepSessionsLocked(now)
 	id := a.addSessionLocked(&session{userID: userID, created: now, lastActive: now, ip: ip, lastIP: ip,
-		bearer: true, deviceID: deviceID, notAfter: notAfter})
+		bearer: true, deviceID: o.DeviceID, notAfter: notAfter, tunnel: o.Tunnel})
 	a.warmLocked(ip, now)
 	bs := BearerSession{Token: id, ExpiresIdle: now.Add(a.sessionIdleTTL), ExpiresMax: now.Add(a.sessionAbsTTL)}
 	if !notAfter.IsZero() && notAfter.Before(bs.ExpiresMax) {

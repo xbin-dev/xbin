@@ -374,6 +374,9 @@ func (s *Server) tileOriginPrincipal(w http.ResponseWriter, r *http.Request, id 
 	if !s.Auth.UserCanReadTile(p.UserID, tile) || !s.originLevelHolds(p.UserID, tile, p.Deployment) {
 		return p, "", false, http.StatusForbidden // RBAC changed since the credential was minted
 	}
+	if s.Auth.RequestRefusal(r, p.Gen, p.UserID) != auth.RefuseNone { // the app tunnel's transport gate (D204)
+		return p, "", false, http.StatusForbidden
+	}
 	return p, tile, viaCookie, 0
 }
 

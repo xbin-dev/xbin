@@ -43,6 +43,7 @@ func (u *User) UnmarshalJSON(b []byte) error {
 		SSOSyncError  string          `json:"ssoSyncError"`
 		Devices       []Device        `json:"devices"`
 		UID           string          `json:"uid"`
+		MaxDevices    *int            `json:"maxDevices"`
 	}
 	if err := json.Unmarshal(b, &raw); err != nil {
 		return err
@@ -61,6 +62,7 @@ func (u *User) UnmarshalJSON(b []byte) error {
 		InviteExpires: raw.InviteExpires, Created: raw.Created,
 		RoleVia: raw.RoleVia, LastLogin: raw.LastLogin, LastLoginVia: raw.LastLoginVia, LastSSO: raw.LastSSO,
 		SSOGroups: raw.SSOGroups, SSOSyncError: raw.SSOSyncError, Devices: raw.Devices, UID: raw.UID,
+		MaxDevices: raw.MaxDevices,
 	}
 	return nil
 }

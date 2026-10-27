@@ -112,7 +112,14 @@ type appUser struct {
 }
 
 func (s *Server) writeAppSession(w http.ResponseWriter, u *users.User, deviceID, ip string, notAfter time.Time) {
-	bs := s.Auth.NewBearerSessionUntil(u.ID, deviceID, ip, notAfter)
+	s.writeAppSessionOpts(w, u, auth.BearerOpts{DeviceID: deviceID, IP: ip, NotAfter: notAfter})
+}
+
+// writeAppSessionOpts is writeAppSession with every option (a device
+// login over its app tunnel opens a tunnel-bound session, D204).
+func (s *Server) writeAppSessionOpts(w http.ResponseWriter, u *users.User, o auth.BearerOpts) {
+	deviceID := o.DeviceID
+	bs := s.Auth.NewBearerSessionOpts(u.ID, o)
 	w.Header().Set("Cache-Control", "no-store")
 	WriteJSON(w, http.StatusOK, appSession{
 		Token: bs.Token, TokenType: "Bearer", DeviceID: deviceID,
@@ -161,6 +168,9 @@ func (s *Server) EnrollOrigin(r *http.Request) string {
 			return o
 		}
 	}
+	if o := s.tunnelOrigin(r); o != "" { // never the app's loopback forwarder (D204)
+		return o
+	}
 	scheme := "http"
 	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
 		scheme = "https"
@@ -183,10 +193,23 @@ func (s *Server) apiEnrollCode(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusForbidden, "devices belong to user accounts — sign in with yours (the bootstrap token has none, and tiles can't enroll devices)", "/docs/auth.md")
 		return
 	}
-	if !s.enrollStepUp(w, r, p) {
+	var body struct {
+		Password string
+		Tunnel   bool
+	}
+	if raw, _ := io.ReadAll(io.LimitReader(r.Body, maxAppLoginBody)); len(bytes.TrimSpace(raw)) > 0 {
+		_ = json.Unmarshal(raw, &body)
+	}
+	on, required := s.appTunnelState()
+	tunnel := body.Tunnel && on
+	if !s.enrollLimits(w, r, p, tunnel, required) || !s.enrollStepUp(w, r, p, body.Password) {
 		return
 	}
 	origin := s.EnrollOrigin(r)
+	if tunnel {
+		s.writeTunnelMint(w, p, origin)
+		return
+	}
 	code, exp, err := s.Auth.MintEnrollCode(p.User.ID, origin)
 	if err != nil {
 		WriteError(w, http.StatusServiceUnavailable, err.Error(), "/docs/auth.md")
@@ -204,14 +227,11 @@ func (s *Server) apiEnrollCode(w http.ResponseWriter, r *http.Request) {
 // {"password"}; "signin" — sign in again (an SSO account, or password
 // sign-in disabled for it) and retry within the window. Wrong passwords
 // count against the login throttle.
-func (s *Server) enrollStepUp(w http.ResponseWriter, r *http.Request, p auth.Principal) bool {
+func (s *Server) enrollStepUp(w http.ResponseWriter, r *http.Request, p auth.Principal, password string) bool {
 	if at, ok := s.Auth.LoginTime(p); ok && time.Since(at) <= auth.EnrollFreshLogin {
 		return true
 	}
-	var body struct{ Password string }
-	if raw, _ := io.ReadAll(io.LimitReader(r.Body, maxAppLoginBody)); len(bytes.TrimSpace(raw)) > 0 {
-		_ = json.Unmarshal(raw, &body)
-	}
+	body := struct{ Password string }{password}
 	pwOK := p.User.PassHash != "" && (!s.Auth.Users.PasswordLoginDisabled() || p.User.IsAdmin())
 	mode := "signin"
 	if pwOK {
@@ -289,7 +309,7 @@ func (s *Server) handleDeviceChallenge(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		DeviceID string `json:"deviceId"`
 	}
-	if !decodeAppBody(w, r, &body) {
+	if !decodeAppBody(w, r, &body) || !tunnelDevice(w, r, body.DeviceID) {
 		return
 	}
 	if s.Auth.Users == nil {
@@ -317,7 +337,7 @@ func (s *Server) handleDeviceLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct{ DeviceID, Nonce, Signature string }
-	if !decodeAppBody(w, r, &body) {
+	if !decodeAppBody(w, r, &body) || !tunnelDevice(w, r, body.DeviceID) {
 		return
 	}
 	if !s.Auth.ConsumeDeviceChallenge(body.DeviceID, body.Nonce) {
@@ -352,7 +372,7 @@ func (s *Server) handleDeviceLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.touchLogin(u.ID, "device")
 	slog.Info("audit", "who", "user:"+u.ID, "method", "POST", "path", "/login/device", "status", 200, "device", d.ID, "ip", ip)
-	s.writeAppSession(w, u, d.ID, ip, notAfter)
+	s.writeAppSessionOpts(w, u, auth.BearerOpts{DeviceID: d.ID, IP: ip, NotAfter: notAfter, Tunnel: auth.TransportOf(r).Tunnel})
 }
 
 // deviceSSOBound: where the IdP is the account's only way in, it stays the

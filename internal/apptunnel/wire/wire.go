@@ -118,8 +118,10 @@ type Init struct {
 }
 
 // Command is every later stdin line: T is "allow" (Allow replaces the whole
-// list; Seq is acknowledged), "pairing" (Open), "close" (Endpoint: drop its
-// connections — the device was revoked), "status", "selftest".
+// list; Seq is acknowledged; a tunnel/1 connection whose endpoint left the
+// list is closed), "pairing" (Open), "close" (Endpoint: drop its
+// connections — the device was revoked), "status", "selftest". Lines sent
+// before ready are read once the endpoint is bound, in order.
 type Command struct {
 	T        string   `json:"t"`
 	Seq      uint64   `json:"seq,omitempty"`
@@ -131,13 +133,21 @@ type Command struct {
 // ---- control: sidecar → xbind (stdout, one JSON object per line) ----
 
 // Event is one stdout line. T is:
-//   - "ready": EndpointID, Ticket (relay-only EndpointTicket), HomeRelay, Version
+//   - "ready": EndpointID, Ticket (relay-only EndpointTicket), HomeRelay, Version.
+//     It comes again, with the new ticket, when n0's preset moves the home
+//     relay. With relays disabled (tests) the ticket carries the endpoint's
+//     loopback sockets instead.
 //   - "ack": Seq (an allow list is in force)
-//   - "status": HomeRelay, RelayConnected, Conns
-//   - "conn": Endpoint, Conn, Open (a connection opened or closed), Path
-//   - "reject": Endpoint, ALPN (refused by the after-handshake hook; rate-limited)
-//   - "selftest": Reachable, Path, RTTMs, Error
-//   - "error": Msg, Fatal
+//   - "status": HomeRelay, RelayConnected, Conns — on "status", and whenever
+//     the home relay or its connection changes
+//   - "conn": Endpoint, Conn, Open (a connection opened or closed), Path, ALPN
+//   - "reject": Endpoint, ALPN (refused by the after-handshake hook;
+//     rate-limited: one per endpoint and ALPN a minute, 20 a minute in all)
+//   - "selftest": Reachable, Path, RTTMs, Error (a throwaway endpoint dialed
+//     this one through its home relay only, on the sidecar's own
+//     "xbin/selftest/1", which it admits from that probe alone and never
+//     hands to xbind)
+//   - "error": Msg, Fatal (fatal: the sidecar exits)
 type Event struct {
 	T              string     `json:"t"`
 	EndpointID     string     `json:"endpointId,omitempty"`

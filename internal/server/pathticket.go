@@ -73,6 +73,10 @@ func (s *Server) servePathTicket(w http.ResponseWriter, r *http.Request, originI
 		WriteError(w, http.StatusUnauthorized, "this link has expired or its sign-in ended: reload the page that showed it", "/docs/auth.md")
 		return
 	}
+	if why := s.Auth.RequestRefusal(r, p.Gen, p.UserID); why != auth.RefuseNone { // the app tunnel (D204)
+		writeTunnelRefusal(w, why)
+		return
+	}
 	if originID != "" && !s.originIsTile(originID, p.Component) {
 		WriteError(w, http.StatusForbidden, "a tile origin serves only its own tile's links", "/docs/auth.md")
 		return

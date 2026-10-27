@@ -228,3 +228,76 @@ func TestAcceptFromNonBlocking(t *testing.T) {
 		t.Fatal("a non-blocking AcceptFrom missed the EOF")
 	}
 }
+
+// sendConn is the sidecar's side of Accept: one end of a fresh stream
+// socketpair sent over the factory's child end, the other kept.
+func sendConn(t *testing.T, child *os.File) net.Conn {
+	t.Helper()
+	fds, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := unix.Sendmsg(int(child.Fd()), []byte{'c'}, unix.UnixRights(fds[1]), nil, 0); err != nil {
+		t.Fatal(err)
+	}
+	unix.Close(fds[1])
+	c, err := fileConn(fds[0], "sidecar-end")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return c
+}
+
+// Accept is Dial reversed: the sandboxed program sends, xbind receives
+// working connections; the program's end closing is io.EOF.
+func TestFactoryAccept(t *testing.T) {
+	f, child, err := NewFactory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	mine := sendConn(t, child)
+	defer mine.Close()
+	got, err := f.Accept()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer got.Close()
+	_ = got.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, err := io.WriteString(mine, "header"); err != nil {
+		t.Fatal(err)
+	}
+	buf := make([]byte, 6)
+	if _, err := io.ReadFull(got, buf); err != nil || string(buf) != "header" {
+		t.Fatalf("read %q %v", buf, err)
+	}
+	child.Close()
+	if _, err := f.Accept(); !errors.Is(err, io.EOF) {
+		t.Fatalf("Accept after the child end closed: %v, want io.EOF", err)
+	}
+}
+
+// Close unblocks an Accept that is waiting (Stop of a sidecar whose
+// process outlives it for a moment).
+func TestFactoryAcceptUnblockedByClose(t *testing.T) {
+	f, child, err := NewFactory()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer child.Close()
+	done := make(chan error, 1)
+	go func() {
+		_, err := f.Accept()
+		done <- err
+	}()
+	time.Sleep(50 * time.Millisecond)
+	f.Close()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Fatal("Accept on a closed factory returned a connection")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not unblock Accept")
+	}
+}
