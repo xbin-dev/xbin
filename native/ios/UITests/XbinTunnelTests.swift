@@ -73,14 +73,61 @@ final class XbinTunnelTests: XCTestCase {
         await e.eventually("the counter moved on the server", timeout: 20) { (try? await e.server.counter()) == before + 1 }
         e.goHome()
 
-        // Settings: the connection says tunnel.
-        e.app.buttons["Workspaces"].tap()
-        let settings = e.app.buttons["Settings"]
-        if settings.waitForExistence(timeout: 10) {
-            settings.tap()
-            XCTAssertTrue(e.containing("Tunnel ·").waitForExistence(timeout: 20), "Settings' connection row")
-            e.shot("tunnel-04-settings")
+        // A terminal: /ws/term's WebSocket through the forwarder.
+        e.newSession("apps/welcome", "Terminal")
+        await e.eventually("a shell session on apps/welcome", timeout: 30) {
+            try await e.server.sessions(cwd: "apps/welcome").contains { $0.kind != "agent" }
         }
+        e.app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        e.app.typeText("printf '\\033]0;xbin-tunnel-%d\\007' $((40+2))\n")
+        XCTAssertTrue(e.element("xbin-tunnel-42").waitForExistence(timeout: 30), "the shell's output, through the tunnel")
+        e.shot("tunnel-04-terminal")
+        for s in try await e.server.sessions(cwd: "apps/welcome") where s.kind != "agent" {
+            await e.server.end(s.id)
+        }
+        e.goHome()
+
+        // A chrome tile: the web ticket's "Continue as" on the forwarder's
+        // loopback origin, and the cookie session it opens there.
+        e.openTile("tiles/organisations")
+        let web = e.app.webViews.firstMatch
+        let proceed = web.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Continue as")).firstMatch
+        let signedIn = web.staticTexts["my organisations"]
+        if let seen = e.first(of: [proceed, signedIn], timeout: 30) {
+            if seen == 0 {
+                e.shot("tunnel-05-continue")
+                proceed.tap()
+            }
+            XCTAssertTrue(signedIn.waitForExistence(timeout: 30), "tiles/organisations, signed in, through the tunnel")
+            e.shot("tunnel-05-chrome")
+        } else {
+            e.shot("tunnel-05-chrome-nothing")
+            XCTFail("the web ticket's page or the tile, through the tunnel")
+        }
+        e.goHome()
+
+        // Settings: the connection row says tunnel; its screen tells the path.
+        // (Home keeps its last search, which lists results instead of the
+        // Settings row: clear it.)
+        let search = e.app.searchFields["Search tiles"]
+        if search.waitForExistence(timeout: 5), let now = search.value as? String, !now.isEmpty, now != "Search tiles" {
+            search.tap()
+            search.typeText(String(repeating: "\u{8}", count: now.count))
+        }
+        let settings = e.app.buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 30), "Home's Settings")
+        settings.tap()
+        XCTAssertTrue(e.containing("Tunnel ·").waitForExistence(timeout: 20), "Settings' connection row")
+        e.shot("tunnel-06-settings")
+        let row = e.app.buttons.matching(identifier: "settings-connection").firstMatch
+        if row.waitForExistence(timeout: 5) {
+            row.tap()
+            XCTAssertTrue(e.containing("Noise").waitForExistence(timeout: 10), "the Connection screen")
+            e.shot("tunnel-07-connection")
+            e.app.navigationBars.buttons.firstMatch.tap()
+        }
+        let done = e.app.buttons["Done"]
+        if done.waitForExistence(timeout: 5) { done.tap() }
 
         // The background drops the endpoint (iroh #4289); the front makes
         // a new one and the workspace answers again.
@@ -88,8 +135,12 @@ final class XbinTunnelTests: XCTestCase {
         try await Task.sleep(nanoseconds: 3_000_000_000)
         e.app.activate()
         e.goHome()
-        e.openTile("apps/welcome")
-        e.shot("tunnel-05-after-background")
+        let again = try await e.server.counter()
+        e.openTile("apps/counter")
+        XCTAssertTrue(plus.waitForExistence(timeout: 30))
+        plus.tap()
+        await e.eventually("the counter moved again after the background", timeout: 30) { (try? await e.server.counter()) == again + 1 }
+        e.shot("tunnel-08-after-background")
     }
 
     /// "They don't" on the computer: the phone says the pairing was
