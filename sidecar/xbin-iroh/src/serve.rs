@@ -141,15 +141,24 @@ pub struct Server {
     serial: AtomicU64,
 }
 
+/// The path a connection's data takes: the selected one, else its first
+/// open path. iroh selects one path per remote EndpointId, not per
+/// connection: while an older connection from the same id lingers (a
+/// phone's previous endpoint, gone without closing it, until it idles
+/// out), the live one's paths are open but none is "selected".
 fn path_of(conn: &Connection) -> (String, i64) {
     let paths = conn.paths();
-    for p in paths.iter() {
-        if p.is_selected() {
+    let pick = paths
+        .iter()
+        .find(|p| p.is_selected())
+        .or_else(|| paths.iter().next());
+    match pick {
+        Some(p) => {
             let kind = if p.is_relay() { "relay" } else { "direct" };
-            return (kind.into(), p.rtt().as_millis() as i64);
+            (kind.into(), p.rtt().as_millis() as i64)
         }
+        None => (String::new(), 0),
     }
-    (String::new(), 0)
 }
 
 impl Server {
