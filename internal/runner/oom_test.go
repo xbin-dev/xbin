@@ -203,6 +203,19 @@ func TestOOMSharedLeafDelta(t *testing.T) {
 	if _, ok := r.oom.recent(vmLeaf, r.now()); ok {
 		t.Error("a VM's kill was marked for the breaker")
 	}
+
+	// a running VM generation's leaf: the poll takes its kills, tells none
+	r.states = map[string]*state{stateKey("apps/x", "vm"): {comp: "apps/x", dep: "vm", cur: vmInst}}
+	r.joinLeaf("apps/x", "vm", vmLeaf, vmInst.sock, fakePid+6)
+	setKills(vmLeaf, 3)
+	for _, h := range r.AtLimitTile("apps/x") {
+		if h.Leaf == vmLeaf && h.OOMKills != 0 {
+			t.Errorf("a VM leaf's poll: %+v", h)
+		}
+	}
+	if _, ok := r.oom.recent(vmLeaf, r.now()); ok {
+		t.Error("a VM leaf's polled kill was marked")
+	}
 }
 
 // covers D203 — the real exit path (startDeployment's wait goroutine) on

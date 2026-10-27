@@ -145,7 +145,7 @@ func (r *Runner) AtLimitTile(tile string) []LimitHit {
 	for _, l := range cg.TileLeaves(util.CompKey(tile)) {
 		if mem, pids, ok := cg.AtLimit(l.Name); ok {
 			rest, nested := strings.CutPrefix(l.Name, node)
-			kills, limitMiB := r.oomOf(cg, l.Name)
+			kills, limitMiB := r.oomOf(cg, tile, l.Name)
 			hits = append(hits, LimitHit{Deployment: l.Deployment, Leaf: l.Name, Partition: nested && strings.HasPrefix(rest, "p-"), Mem: mem, Pids: pids,
 				OOMKills: kills, LimitMiB: limitMiB})
 		}

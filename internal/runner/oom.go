@@ -203,14 +203,33 @@ func crashLooped(err error) bool {
 	return errors.As(err, &le)
 }
 
-// oomOf is a live leaf's OOM kills since the runner last looked: the
-// alerts' poll (AtLimitTile). A leaf the runner never saw joined counts
-// from what it has now. A kill marks the leaf for the crash watch.
-func (r *Runner) oomOf(cg cgroupOps, leaf string) (kills, limitMiB int64) {
+// oomOf is a live leaf of tile's OOM kills since the runner last looked:
+// the alerts' poll (AtLimitTile). A leaf the runner never saw joined
+// counts from what it has now. A kill marks the leaf for the crash watch;
+// a VM generation's leaf's are taken and told as none, as at its exit.
+func (r *Runner) oomOf(cg cgroupOps, tile, leaf string) (kills, limitMiB int64) {
 	u, _ := cg.Usage(leaf)
 	limitMiB = max(u.MemMax, 0) >> 20
-	if kills = r.oom.delta(leaf, cg.OOMKills(leaf), false); kills > 0 {
+	if kills = r.oom.delta(leaf, cg.OOMKills(leaf), false); kills > 0 && r.vmLeaf(tile, leaf) {
+		kills = 0
+	}
+	if kills > 0 {
 		r.oom.mark(leaf, r.now(), limitMiB)
 	}
 	return kills, limitMiB
+}
+
+// vmLeaf reports whether a running generation of tile in leaf is a VM's.
+func (r *Runner) vmLeaf(tile, leaf string) bool {
+	for _, s := range append(r.allStates(tile), r.partStates(tile)...) {
+		s.mu.Lock()
+		inst := s.cur
+		s.mu.Unlock()
+		if inst != nil && inst.leaf == leaf {
+			if _, isVM := r.vmLeafBytes(inst.sock); isVM {
+				return true
+			}
+		}
+	}
+	return false
 }
