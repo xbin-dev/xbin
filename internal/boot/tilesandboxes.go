@@ -89,6 +89,8 @@ func (st *State) tileSandboxDeps() tilesbx.Deps {
 	if st.VM != nil { // never a nil *vm.Manager in the interface
 		d.VM = st.VM
 	}
+	// D203: a tile's sandbox grants and its hits at their caps (limits.go)
+	d.Granted, d.AtCap = sandboxGrants(brk)
 	return d
 }
 

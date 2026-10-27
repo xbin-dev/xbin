@@ -48,7 +48,7 @@ const (
 // Alert is a workspace health notice for the admin tile / shell banner.
 type Alert struct {
 	Level string `json:"level"`          // "warn" | "crit"
-	Kind  string `json:"kind"`           // "disk-low" | "quota" | "blocking" | "oom" | "pids" | "go-build-versions"
+	Kind  string `json:"kind"`           // "disk-low" | "quota" | "quota-near" | "blocking" | "oom" | "memory" | "pids" | "go-build-versions" | …
 	Tile  string `json:"tile,omitempty"` // scope/component, when tile-specific
 	// Deployment names a data namespace's deployment when the alert is
 	// about one beyond the primary's main: never System, admins only

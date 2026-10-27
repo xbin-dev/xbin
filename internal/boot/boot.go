@@ -133,6 +133,7 @@ var Steps = []Step{
 	{"isolation", (*State).stepIsolation},
 	{"vm", (*State).stepVM},
 	{"tile-sandboxes", (*State).stepTileSandboxes},
+	{"tile-limits", (*State).stepTileLimits},
 	{"server", (*State).stepServer},
 	{"watch", (*State).stepWatch},
 	{"always-on", (*State).stepAlwaysOn},
