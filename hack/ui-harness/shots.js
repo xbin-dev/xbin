@@ -10,7 +10,7 @@
 // member access (dot underscore) in this directory fails `make js-check`.
 const {
   URL, fs, sleep, log, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen,
-  openTile, closeTile, tileFrame, gotoTab, shot, dumpSelects, checker, pw, showPickers, themed,
+  openTile, foldPrompts, closeTile, tileFrame, gotoTab, shot, dumpSelects, checker, pw, showPickers, themed,
 } = require('./lib');
 // Passes past this file's size budget live in passes/*.js (one module per feature).
 const { users } = require('./passes/users');
@@ -115,7 +115,8 @@ async function admin(browser) {
   await sh(page, (t) => t.closeAdminWindow());
 
   await crawler.locator('button.term').click();
-  await showPickers(page, 'apps/crawler'); // on the bar, or in its tools row when this host's bar doesn't fit
+  await fr(page, 'apps/crawler', (f) => { if (!f.tabs.length) f.newTerm(); }); // an empty window has no pickers (D202)
+  await showPickers(page, 'apps/crawler'); // on the status bar (folded in a narrow window)
   await waitSel(page, 'bx-frame[src="apps/crawler"] select.scope', { timeout: 20000 }); // spawn + session frame
   await shot(page, 'term-admin-crawler', { fullPage: false });
   await dumpSelects(page, 'term-admin-crawler-selects', 'bx-frame select.scope');
@@ -344,6 +345,7 @@ async function orgAdmin(browser, user, pass, tiles) {
     const card = page.locator(`.card[data-path="${t}"]`);
     if (!(await card.count())) { log(user, 'no card for', t); continue; }
     await card.locator('button.term').click();
+    await fr(page, t, (f) => { if (!f.tabs.length) f.newTerm(); }); // an empty window has no pickers (D202)
     await showPickers(page, t);
     await waitSel(page, `bx-frame[src="${t}"] select.scope`, { timeout: 20000 });
     const slug = t.replace(/\W+/g, '-');
@@ -453,6 +455,7 @@ async function openLinks(browser) {
   await usePersonalScreen(page);
   await openTile(page, 'apps/linky');
   await tileFrame(page, 'apps/linky');
+  await foldPrompts(page, 'apps/linky'); // its pending cap:open-links grant's popover (D195) sits over the link
   const attr = () => fr(page, 'apps/linky', (f) => ({ sandbox: f?.iframe.getAttribute('sandbox') ?? '', credentialless: !!f?.iframe.hasAttribute('credentialless') }));
   const csp = async () => (await ctx.request.get(`${URL}/c/apps/linky/`)).headers()['content-security-policy'] ?? '';
 

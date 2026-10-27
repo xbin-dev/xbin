@@ -1180,7 +1180,7 @@ GET    /logs?component=<p>         admin, the tile itself, or a user with
                                    first bytes to sniff them). The HTTP twin of `bx logs [-f]`
                                    (which streams it in an isolated terminal,
                                    where .xbin is masked); the terminal
-                                   window's read-only logs tab. A failed
+                                   window's read-only logs dock. A failed
                                    deploy of a checkpoint appends
                                    "--- deploy of c:<id> failed <time> ---"
                                    and the compiler output.
@@ -6862,7 +6862,7 @@ message carries the device's theme — what the embedder shows.
 
 `xbin:open-deployments` (the admin console's runtime → deployments tab
 links with it) asks the shell to open `tile`'s terminal window on its
-Deployments layout, as the tile menu's "Deployments…" does. `<bx-frame>`
+Deployments panel (a tab, D202), as the tile menu's "Deployments…" does. `<bx-frame>`
 passes on only a well-formed tile path (no `.`/`..` segment), and
 `<bx-shell>` opens it only for a tile its viewer's `/components` lists; the
 panel then runs as the viewer, so the message grants nothing. Anything else

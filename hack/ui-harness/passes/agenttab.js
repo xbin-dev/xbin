@@ -25,7 +25,7 @@
 // turn and sends; (o) the composer grows with its text up to 40% of the tab
 // and shrinks back after a send (#31); (p) a fenced code block in a known
 // language is highlighted (#26).
-const { URL, login, closeCtx, settle, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker, showPickers, PICKERS } = require('../lib');
+const { URL, login, closeCtx, settle, sh, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, shotEl, checker, showPickers, PICKERS } = require('../lib');
 
 const TILE = 'apps/crawler';
 // Tall: the seeded pending-access and interfaces-to-bind bars push the canvas
@@ -319,36 +319,33 @@ async function agentTab(browser) {
   check(/answered by/.test(await settledAsk.innerText()) && /SQLite/.test(await settledAsk.innerText()), 'the question settles showing the answers');
   await waitFor(A.page, (t) => t.frameFor('apps/crawler')?.testApi().agent()?.status === 'idle', null, { timeout: 15000, label: 'idle after the question' });
 
-  // ---- an agent tab has the layout switcher (code / logs / PRs beside it) ----
+  // ---- an agent tab is a tab of the IDE window (D202): the tools, a file beside it ----
   const bar = A.page.locator(`bx-frame[src="${TILE}"] ${PICKERS}`);
-  const host = A.page.locator(`bx-frame[src="${TILE}"] .term-host`);
-  // one switcher button per layout the frame offers (testApi().layouts), not a magic number
-  const layouts = (await fr(A.page, TILE, (f) => f.layouts)) || [];
-  const lytButtons = await bar.locator('.lyt button').count();
-  check(['term', 'code', 'split'].every((l) => layouts.includes(l)) && lytButtons === layouts.length && await bar.locator('select.scope').count() >= 2,
-    `the agent tab has the shell's bar: the layout switcher (${lytButtons} buttons for ${layouts.join(', ')}) and the net/API pickers`);
-  await bar.locator('.lyt button[title="code browser + review"]').click();
-  await waitSel(A.page, `bx-frame[src="${TILE}"] bx-code`, { timeout: 10000 });
-  check(await fr(A.page, TILE, (f) => f.layout) === 'code' && await host.evaluate((el) => el.style.display) === 'none', 'the code layout shows the code panel instead of the agent');
-  // ⇋ (D129): the toggle that puts the agent beside the panel shown
-  const beside = bar.locator('.lyt button.beside');
-  check(await beside.getAttribute('title') === 'Code beside the agent' && await beside.getAttribute('aria-pressed') === 'false',
-    `⇋ names the panel it puts beside the agent (${await beside.getAttribute('title')})`);
-  await beside.click();
-  await A.page.waitForTimeout(200);
-  const vsplit = A.page.locator(`bx-frame[src="${TILE}"] .vsplit`);
-  check(await host.evaluate((el) => el.style.display) === 'flex' && await A.page.locator(`bx-frame[src="${TILE}"] bx-code`).count() === 1
-    && await fr(A.page, TILE, (f) => f.layout === 'code' && f.beside) && await beside.getAttribute('aria-pressed') === 'true', 'split: code and agent side by side');
-  const sides = await A.page.locator(`bx-frame[src="${TILE}"] .panels`).evaluate((el) => [...el.children].filter((c) => getComputedStyle(c).display !== 'none')
-    .map((c) => { const r = c.getBoundingClientRect(); return [c.localName + (c.className ? '.' + String(c.className).split(' ')[0] : ''), Math.round(r.left), Math.round(r.right)]; }));
-  check(sides.length === 3 && sides[0][0] === 'bx-code.pane' && sides[1][0] === 'div.vsplit' && sides[2][0] === 'div.term-host' && sides[0][2] <= sides[1][1] + 1 && sides[1][2] <= sides[2][1] + 1,
-    `the code panel, the divider and the agent sit side by side (${JSON.stringify(sides)})`);
-  check(await vsplit.getAttribute('role') === 'separator' && await vsplit.getAttribute('tabindex') === '0', 'the divider is a focusable separator');
+  const agentEl = A.page.locator(`bx-frame[src="${TILE}"] bx-agent`).first();
+  const tools = await A.page.locator(`bx-frame[src="${TILE}"] .tools button.tool .tl`).allTextContents();
+  check(['Files', 'Changes', 'PRs', 'Logs'].every((t) => tools.includes(t)) && await bar.locator('select.scope').count() >= 2,
+    `the agent's window has the tool strip (${tools.join(', ')}) and the status bar its net/API pickers`);
+  await A.page.locator(`bx-frame[src="${TILE}"] .tools button.tool`, { hasText: 'Files' }).click();
+  await waitSel(A.page, `bx-frame[src="${TILE}"] .side bx-code-tree`, { timeout: 10000 });
+  check(await fr(A.page, TILE, (f) => f.layout) === 'code' && await agentEl.isVisible(), 'Files opens the file list beside the agent, which stays in view');
+  // a file opens in the agent's pane; dragged to its right edge it sits beside the agent
+  await fr(A.page, TILE, (f) => f.ide.openFile('index.html'));
+  await waitSel(A.page, `bx-frame[src="${TILE}"] bx-code-view`, { timeout: 10000 });
+  check(!(await agentEl.isVisible()), 'the file is a tab in the agent\'s pane: the agent is behind it');
+  await fr(A.page, TILE, (f) => { const p = f.ide.panes[0]; f.ide.move('f:index.html', p.id, 'r'); });
+  await A.page.waitForTimeout(250);
+  const sides = await sh(A.page, (t, src) => {
+    const root = t.frameFor(src).renderRoot, box = (sel) => { const r = root.querySelector(sel)?.getBoundingClientRect(); return r && r.width ? [Math.round(r.left), Math.round(r.right)] : null; };
+    return { agent: box('bx-agent'), file: box('bx-code-view'), panes: t.frameFor(src).testApi().ide.panes.length };
+  }, TILE);
+  check(sides.panes === 2 && sides.agent && sides.file && sides.agent[1] <= sides.file[0] + 2, `the agent and the file side by side (${JSON.stringify(sides)})`);
+  const vd = A.page.locator(`bx-frame[src="${TILE}"] .vd`).first();
+  check(await vd.getAttribute('role') === 'separator' && await vd.getAttribute('tabindex') === '0', 'the divider between them is a focusable separator');
+  check(await bar.locator('.who .lbl').textContent() !== '' && await bar.locator('select.scope').count() >= 2, 'the status bar still speaks for the agent');
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-split');
-  await bar.locator('.lyt button[title="agent only"]').click();
+  await fr(A.page, TILE, (f) => { f.ide.close('f:index.html'); f.ide.openTool('files'); });
   await A.page.waitForTimeout(200);
-  check(await vsplit.count() === 0 && await host.evaluate((el) => el.style.display) === 'flex' && !(await fr(A.page, TILE, (f) => f.beside)),
-    'agent only: no panel, no divider');
+  check(await fr(A.page, TILE, (f) => f.ide.panes.length === 1 && !f.ide.side) && await agentEl.isVisible(), 'the file closed: one pane, the agent alone again');
 
   // ---- a reload replays the whole transcript from the cursor ----
   const before = (await blocks(A.page)).length;

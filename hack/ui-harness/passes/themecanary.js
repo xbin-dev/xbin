@@ -228,11 +228,13 @@ async function themeCanary(browser) {
       await sleep(800);
       await record('terminal', page);
       await fr(page, host, (f) => { for (let i = f.tabs.length - 1; i >= 0; i--) f.closeTab(i); f.closeTerminal(); }).catch(() => {});
-      await fr(page, host, (f) => f.open('code')).catch(() => {});
-      await page.locator(`bx-frame[src="${host}"] bx-code`).first().waitFor({ timeout: 15000 }).catch(() => {});
+      // the code window (D202): the Files list and a file's tab, highlighted
+      await fr(page, host, (f) => { f.open('code'); f.ide.openFile('index.html'); }).catch(() => {});
+      await page.locator(`bx-frame[src="${host}"] bx-code-tree`).first().waitFor({ timeout: 15000 }).catch(() => {});
+      await page.locator(`bx-frame[src="${host}"] bx-code-view pre.code`).first().waitFor({ timeout: 15000 }).catch(() => {});
       await sleep(800);
       await record('code', page);
-      await fr(page, host, (f) => f.closeTerminal()).catch(() => {});
+      await fr(page, host, (f) => { f.ide.close('f:index.html'); if (f.ide.side) f.ide.openTool(f.ide.side); f.closeTerminal(); }).catch(() => {});
       await closeTile(page, host);
       // the layout save is debounced and the page navigates below: save now,
       // or the tile stays open on the screen and its page (which takes the

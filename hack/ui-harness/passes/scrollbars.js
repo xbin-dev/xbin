@@ -12,7 +12,7 @@
 //
 // Headless Chromium hides every scrollbar (--hide-scrollbars), so this pass
 // runs its own browser that draws them.
-const { pw, URL, login, closeCtx, settle, fr, waitFor, openShell, usePersonalScreen, openTile, tileFrame, shot, shotEl, checker, sleep } = require('../lib');
+const { pw, URL, login, closeCtx, settle, fr, waitFor, openShell, usePersonalScreen, openTile, foldPrompts, tileFrame, shot, shotEl, checker, sleep } = require('../lib');
 
 const TILE = 'apps/crawler';
 
@@ -107,6 +107,8 @@ async function run(browser, check, skip) {
 
   // ---- (c) onto the tile's iframe: the shell lets go, the tile's tracker marks ----
   await page.locator(`.card[data-path="${TILE}"]`).evaluate((el) => el.scrollIntoView({ block: 'start' }));
+  await foldPrompts(page, TILE); // its pending grants' popover (D195) lies over the top of the tile's page
+  await fr(page, TILE, (f) => f.closeTerminal()); // and a window an earlier pass left open, over the card
   await tf.evaluate(plant, [20, 20]);
   const ib = await tf.locator('#bxs-inner').boundingBox();
   if (!ib) skip('the tile frame has no room for the fixture');

@@ -213,4 +213,4 @@ async function codePanels(browser) {
   done();
 }
 
-module.exports = { codePanels };
+module.exports = { codePanels, MBOX };

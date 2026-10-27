@@ -11,6 +11,7 @@ const { URL, login, closeCtx, settle, fr, waitSel, waitFor, openShell, openTile,
 const TILE = 'apps/crawler';
 const sel = `bx-frame[src="${TILE}"]`;
 const termSel = `${sel} bx-terminal`;
+const FILE = 'backend/server.js'; // a file the seeded tile has
 // the window's other tabs, side panel and dock shut
 const tidy = (f) => {
   for (const p of f.ide.panes) for (const t of p.tabs) if (!t.startsWith('s:')) f.ide.close(t);
@@ -22,6 +23,11 @@ async function ideMove(browser) {
   const { check, done } = checker('ide-move');
   const { ctx, page } = await login(browser, 'admin', 'admin');
   for (const s of await (await ctx.request.get(`${URL}/api/xbin/term/sessions?cwd=${encodeURIComponent(TILE)}`)).json()) await ctx.request.delete(`${URL}/ws/term?session=${encodeURIComponent(s.id)}`);
+  // the window pref as the pass found it, put back at the end: the box this
+  // pass gives the window would otherwise cover the card's head for the
+  // passes after it (the window reopens where it was left)
+  const PREF = `${URL}/api/xbin/prefs/${encodeURIComponent(`term:${TILE.replaceAll('/', ':')}`)}`;
+  const pref0 = await ctx.request.get(PREF).then((r) => (r.ok() ? r.json() : null)).catch(() => null);
   await openShell(page);
   await openTile(page, TILE);
   await fr(page, TILE, tidy); // what an earlier run left in the window pref
@@ -44,10 +50,12 @@ async function ideMove(browser) {
 
   // a file in the focused pane, split off to the right; the session dropped on that pane's bottom edge
   // (its own pane, emptied, goes)
-  await fr(page, TILE, (f) => { f.ide.openFile('main.go'); f.ide.split('row'); });
+  await fr(page, TILE, (f, t, file) => { f.ide.openFile(file); f.ide.split('row'); }, FILE);
   await settle(page);
+  const shown = await page.locator(`${sel} bx-code-view`).first().evaluate(async (el) => { await el.updateComplete; for (let i = 0; i < 50 && !el.shadowRoot.querySelector('.code, .gone, .err'); i++) await new Promise((r) => setTimeout(r, 100)); return el.shadowRoot.querySelector('.code, .gone, .err')?.className || ''; });
+  check(/\bcode\b/.test(shown), `the file opens, its code shown (${shown})`);
   const ref = await fr(page, TILE, (f) => f.ide.sessionRef(0));
-  await fr(page, TILE, (f, t, ref) => f.ide.move(ref, f.ide.panes.find((p) => p.tabs.includes('f:main.go')).id, 'b'), ref);
+  await fr(page, TILE, (f, t, a) => f.ide.move(a.ref, f.ide.panes.find((p) => p.tabs.includes(`f:${a.file}`)).id, 'b'), { ref, file: FILE });
   await settle(page);
   const panes = await fr(page, TILE, (f) => f.ide.panes);
   check(panes.length === 2 && panes.some((p) => p.tabs.length === 1 && p.tabs[0] === ref && p.active === ref), `the session has a pane of its own (${JSON.stringify(panes.map((p) => p.tabs))})`);
@@ -85,14 +93,14 @@ async function ideMove(browser) {
 
   // a tab dragged by the mouse onto another pane's middle moves there
   const box = (q) => page.locator(q).first().evaluate((el) => { const r = el.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
-  const tab = await box(`${sel} .ptab[data-ref="f:main.go"]`), into = await box(`${sel} bx-terminal`);
+  const tab = await box(`${sel} .ptab[data-ref="f:${FILE}"]`), into = await box(`${sel} bx-terminal`);
   await page.mouse.move(tab.x + tab.w / 2, tab.y + tab.h / 2);
   await page.mouse.down();
   for (let i = 1; i <= 8; i++) { await page.mouse.move(tab.x + ((into.x + into.w / 3) - tab.x) * i / 8, tab.y + ((into.y + into.h / 3) - tab.y) * i / 8); await page.waitForTimeout(30); }
   await page.mouse.up();
   await settle(page);
   const after = await fr(page, TILE, (f) => f.ide.panes.map((p) => p.tabs));
-  check(after.length === 1 && after[0].includes('f:main.go') && after[0].includes(ref), `dragged onto the session's pane, the file tab moved there (${JSON.stringify(after)})`);
+  check(after.length === 1 && after[0].includes(`f:${FILE}`) && after[0].includes(ref), `dragged onto the session's pane, the file tab moved there (${JSON.stringify(after)})`);
   // a divider: dragged, then a double-click halves it
   await fr(page, TILE, (f) => f.ide.split('row'));
   await settle(page);
@@ -118,6 +126,8 @@ async function ideMove(browser) {
   await fr(page, TILE, tidy);
   await fr(page, TILE, (f) => { while (f?.tabs.length) f.closeTab(0); f.closeTerminal(); });
   await settle(page);
+  await page.waitForTimeout(600); // the window's own save of its closing goes first
+  await (pref0 && typeof pref0 === 'object' ? ctx.request.put(PREF, { data: pref0 }) : ctx.request.delete(PREF));
   await closeCtx(ctx, page);
   done();
 }

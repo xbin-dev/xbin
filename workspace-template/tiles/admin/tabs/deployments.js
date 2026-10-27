@@ -160,7 +160,7 @@ export class BxAdminDeployments extends WithFilter(WithRouter(LitElement)) {
   }
 
   _openPanel(tile) {
-    // The shell opens the tile's terminal window on its Deployments layout
+    // The shell opens the tile's terminal window on its Deployments panel (a tab, D202)
     // (bx-frame relays it; a tile the viewer doesn't list is ignored).
     try { window.parent.postMessage({ type: 'xbin:open-deployments', tile }, '*'); } catch { /* not framed */ }
   }

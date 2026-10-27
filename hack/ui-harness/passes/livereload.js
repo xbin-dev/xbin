@@ -188,7 +188,7 @@ async function flow(check, A, R, tile) {
   check(d.reloads === before.a && (!R || (await dep(R.page, tile)).reloads === before.r), `${tile}: no frame reloaded on the save (reloads ${d.reloads})`);
   check(await pageText(P, tile) === old, `${tile}: the frame still shows the pinned page`);
   check(d.chip?.text === `Live reload paused · ${d.changed}` && d.offer, `${tile}: the chip counts it and the offer shows (${d.chip?.text})`);
-  if (!d.narrow) check(/Reload now · \d+/.test(await P.locator(`${sel(tile)} .titlebar button.offer`).innerText().catch(() => '')), `${tile}: the bar's Reload now offer`);
+  if (!d.narrow) check(/Reload now · \d+/.test(await P.locator(`${sel(tile)} .status button.offer`).innerText().catch(() => '')), `${tile}: the status bar's Reload now offer`);
   await fr(P, tile, (f) => { for (let i = f.tabs.length - 1; i >= 0; i--) f.closeTab(i); });
   await sessionsGone(A.ctx, tile);
   await fr(P, tile, (f) => f.open('term'));
@@ -202,7 +202,7 @@ async function flow(check, A, R, tile) {
   await showPickers(P, tile);
   d = await dep(P, tile);
   if (d.narrow) await fr(P, tile, (f) => f.deploy.chipAction(f.deploy.chipItems().find((x) => /^Reload now/.test(x.label || '')).label));
-  else await press(P.locator(`${sel(tile)} .titlebar button.offer`));
+  else await press(P.locator(`${sel(tile)} .status button.offer`));
   await waitDialog(P, tile, 'the Reload now confirmation');
   const rd = await dialog(P, tile);
   check(rd?.title === 'Reload main now?' && /^Code: ships the work tree to main once/.test(rd?.message || ''), `${tile}: Reload now asks first (${JSON.stringify(rd).slice(0, 200)})`);
@@ -249,6 +249,7 @@ async function run(browser, { check, skip }, M, A, ctxs) {
 
   // ---- 0. the zero state ----
   await openWindow(A.page, TILE);
+  await newShell(A.page, TILE); // the status bar draws a session's pickers: an empty window has none (D202)
   let d = await dep(A.page, TILE);
   const opts = (await A.page.locator(`${sel(TILE)} ${PICKERS} select.scope`).evaluateAll((ss) => ss.map((s) => [...s.options].map((o) => [o.value, o.textContent.trim()]))))
     .map((o) => o.map(([v, t]) => [v, words(t)]));

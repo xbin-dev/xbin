@@ -1,11 +1,11 @@
-// hack/ui-harness/passes/tabstrip.js — the terminal window's tab strip
-// scrolls when its tabs don't fit (the degraded bar, frame-titlebar.js
-// fitBar), and a tab the user scrolled into view can be clicked or tapped.
-// fitBar keeps the ACTIVE tab in view; it used to do so after every render,
-// and a press anywhere in the window re-renders it (the window comes to the
-// front) — the strip jumped back between pointerdown and pointerup, so the
-// click never reached the tab (on a phone the tap landed on another tab's
-// ✕ and ended that session).
+// hack/ui-harness/passes/tabstrip.js — a pane's tab strip in the terminal
+// window (D202) scrolls when its tabs don't fit, and a tab the user scrolled
+// into view can be clicked or tapped. The window keeps each pane's ACTIVE
+// tab in view (frame-ide-view.js revealTabs) — only when it changes: before
+// D202 the bar did so after every render, and a press anywhere in the
+// window re-renders it (the window comes to the front) — the strip jumped
+// back between pointerdown and pointerup, so the click never reached the
+// tab (on a phone the tap landed on another tab's ✕ and ended that session).
 const { URL, sleep, login, closeCtx, settle, sh, fr, waitFor, openShell, usePersonalScreen, openTile, checker } = require('../lib');
 
 const TILE = 'apps/crawler';
@@ -13,7 +13,7 @@ const N = 9;
 
 async function strip(page) {
   return sh(page, (t, src) => {
-    const f = t.frameFor(src), s = f.renderRoot.querySelector('.titlebar .tabs');
+    const f = t.frameFor(src), s = f.renderRoot.querySelector('.pane.focus .ptabs .strip');
     return { left: s.scrollLeft, over: s.scrollWidth - s.clientWidth, active: f.testApi().activeTab, narrow: f.testApi().narrow };
   }, TILE);
 }
@@ -37,18 +37,18 @@ async function run(browser, check, name, ctxOpts, press) {
   await fr(page, TILE, (f, t, n) => f.setActiveTab(n - 1), N);
   await settle(page);
   // the card to the top of the pane: its window follows it (D66), so the
-  // title bar is on screen wherever the card was placed (scrolling the
-  // viewport-fixed title bar itself into view scrolls nothing)
+  // tab strip is on screen wherever the card was placed (scrolling the
+  // viewport-fixed window itself into view scrolls nothing)
   await sh(page, (t, p) => t.query(`.card[data-path="${p}"]`)?.scrollIntoView({ block: 'start' }), TILE);
   await sleep(200);
   await settle(page);
   const s0 = await strip(page);
   check(s0.narrow && s0.over > 40 && s0.left > 0, `${name}: the strip overflows and shows the active last tab (${JSON.stringify(s0)})`);
   // the user scrolls back to the start
-  await sh(page, (t, src) => { t.frameFor(src).renderRoot.querySelector('.titlebar .tabs').scrollLeft = 0; }, TILE);
+  await sh(page, (t, src) => { t.frameFor(src).renderRoot.querySelector('.pane.focus .ptabs .strip').scrollLeft = 0; }, TILE);
   await sleep(100);
   const ids = await fr(page, TILE, (f) => f.tabs.map((x) => x.id));
-  const box = await page.locator(`bx-frame[src="${TILE}"] .titlebar .tab .lbl`).first().boundingBox();
+  const box = await page.locator(`bx-frame[src="${TILE}"] .pane.focus .ptab[data-ref^="s:"] .lbl`).first().boundingBox();
   await press(page, box.x + Math.min(8, box.width / 2), box.y + box.height / 2);
   await sleep(300);
   const s1 = await strip(page);

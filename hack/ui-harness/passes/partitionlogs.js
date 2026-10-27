@@ -46,9 +46,9 @@ function writeLog(rel, text) {
   fs.writeFileSync(f, text);
 }
 
-// the panel's facts: bx-logs' test surface in tile's terminal window
+// the panel's facts: bx-logs' test surface in the tile window's logs dock (D202)
 const logs = (page, tile) => sh(page, (t, src) => {
-  const a = t.frameFor(src)?.renderRoot?.querySelector('bx-logs')?.testApi?.();
+  const a = t.frameFor(src)?.renderRoot?.querySelector('.dock bx-logs')?.testApi?.();
   return a ? { choices: a.choices.map((c) => c.value), labels: a.choices.map((c) => c.label), partition: a.partition, def: a.defaultPartition, switcher: a.switcher, badge: a.badge, text: a.text() } : null;
 }, tile);
 
@@ -83,7 +83,7 @@ async function openLogs(page, tile) {
   await openShell(page);
   await usePersonalScreen(page);
   await openTile(page, tile);
-  await fr(page, tile, (f) => { f.open('logs'); return true; });
+  await fr(page, tile, (f) => { f.open('logs'); return true; }); // the logs dock (D202)
   await settle(page);
 }
 
@@ -120,7 +120,7 @@ async function partitionLogs(browser) {
       `the admin's panel: their own partition's log, and global's and dev1's to pick (${JSON.stringify({ ...v, text: undefined })})`);
     check(!v.text.includes('GLOBAL-INSTANCE-LINE') && !v.text.includes('DEV1-PARTITION-LINE'), 'only their own log shows');
     await winShot(A.page, 'partition-logs-own');
-    const sel = A.page.locator(`bx-frame[src="${T}"] bx-logs select.part`);
+    const sel = A.page.locator(`bx-frame[src="${T}"] .dock bx-logs select.part`);
     await sel.selectOption('global');
     v = await until(async () => { const x = await logs(A.page, T); return x?.text.includes('GLOBAL-INSTANCE-LINE') && x; }, "global's log");
     check(v.partition === 'global' && !v.text.includes('ADMIN-PARTITION-LINE'), `global picked: the global instance's log alone (${v.partition})`);
@@ -154,7 +154,7 @@ async function partitionLogs(browser) {
     await openLogs(I.page, T);
     v = await until(async () => { const x = await logs(I.page, T); return x?.choices.includes('user:dev1') && x; }, "infra1's panel offers dev1's shared log");
     check(v.labels.includes("dev1's log (shared with you)"), `the manager's panel: dev1's shared log (${JSON.stringify({ ...v, text: undefined })})`);
-    await I.page.locator(`bx-frame[src="${T}"] bx-logs select.part`).selectOption('user:dev1');
+    await I.page.locator(`bx-frame[src="${T}"] .dock bx-logs select.part`).selectOption('user:dev1');
     v = await until(async () => { const x = await logs(I.page, T); return x?.text.includes('DEV1-PARTITION-LINE') && x; }, "dev1's log in the manager's panel");
     check(v.partition === 'user:dev1' && !v.text.includes('ADMIN-PARTITION-LINE'), `the manager reads dev1's shared log (${v.partition})`);
     await winShot(I.page, 'partition-logs-manager');

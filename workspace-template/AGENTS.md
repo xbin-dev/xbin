@@ -740,7 +740,8 @@ your words and your diff. Check for feedback with `bx code prs --from` at
 session start and tell your user what came back.
 
 **Receive (PRs open against YOUR tile):** check `bx code prs` at session
-start; the terminal window also shows them in its **⇄ tab**, and the shell
+start; the terminal window also lists them under its **PRs** tool (each
+opens as a tab), and the shell
 badges tiles with open proposals.
 
 ```sh
@@ -842,7 +843,7 @@ component** (`.xbin/term/<component>/`): `apt install`, dotfiles, and toolchains
 you set up in it survive across terminal sessions (your workspace files and
 `$HOME` persist independently). It does **not** auto-inherit a component's
 `setup` layer — install what you need for interactive work in the terminal
-itself. "Reset sandbox" (⟲ in the terminal window) wipes it back to clean.
+itself. "Reset sandbox" (⟲ on the terminal window's status bar) wipes it back to clean.
 When xbin ships a newer base image (a newer Go, say), the next session that
 opens the layer moves it to the new base and starts clean — a grey first
 line says so — while the workspace's **base auto-update** is on, the

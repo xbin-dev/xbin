@@ -33,7 +33,7 @@ export async function codeGet(path) {
   try {
     const r = await fetch(`/api/xbin/${path}`);
     if (r.status === 403) return { err: 'no code access for this tile (needs admin or a code: grant)' };
-    if (!r.ok) return { err: `error ${r.status}` };
+    if (!r.ok) return { err: `error ${r.status}`, status: r.status };
     return { data: await r.json() };
   } catch (e) { return { err: String(e.message ?? e) }; }
 }

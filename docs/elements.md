@@ -472,8 +472,8 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   theme (D188: the shell's settings, *This device*), the frame's URL also
   asks xbind for the device's theme (`?xbin-appearance=light|dark`), so the
   tile's first frame is right, and the relay carries the device's theme.
-- **Agent tab**: the `+ Agent` button opens an **agent session** (D74) instead
-  of a shell — a coding agent (Claude Code, Codex, Gemini, OpenCode) running
+- **Agent tab**: a pane's `+` (or the launcher) can open an **agent session**
+  (D74) instead of a shell — a coding agent (Claude Code, Codex, Gemini, OpenCode) running
   in this tile's sandbox, driven over the Agent Client Protocol. The tab
   shows the transcript, tool cards, the plan, and a permission card any
   attached client can answer (first answer wins); the same session is
@@ -481,28 +481,44 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   (docs/overview/09-terminals.md §Agent sessions). A tab whose session
   ended keeps its transcript, greyed, until you dismiss it. A long transcript
   shows its recent part; scrolling up loads earlier entries in place (D124).
-- **Panels** (D129): the layout switcher shows the terminal alone
-  (`terminal`) or a panel — code (`code`), backend logs (`list`), change
-  proposals (`diff`), the Deployments panel (`deploy`) — full width;
-  `split` (the last button, a toggle) puts the terminal beside whichever
-  panel shows, split by a divider you drag (or move with ←/→ once focused;
-  a double-click resets it). The width is one per window and kept in your
-  window pref; the panel keeps its place beside the terminal while you
-  switch panels, and `terminal` puts the terminal back alone. A window without sessions shows the launcher only where the
-  terminal would be. `open(layout)` shows the panel full width; `'split'`
-  still means code beside the terminal.
-- **The bar degrades, never clips**: when the window is narrow (below
-  ~640 px, or the phone sheet) or the full bar measures wider than the
-  window (it varies by host and tab: a GPU picker, the VM toggle, long tab
-  names), the path and the network picker's label shorten first, then the
-  layout switcher and the pickers move into a tools row behind `ellipsis`.
-  Tabs keep a legible width; a tab strip that still overflows scrolls (the
-  wheel scrolls it sideways) and keeps the active tab in view, so every
-  tab and the window's close (`xmark`) stay reachable. The pickers ask before
-  restarting a live session, since the network scope, GPU and API token
-  are fixed at spawn. A window restored open (a reload, another browser)
-  loads the same pickers, VM toggle and base-update state as one opened by
-  hand.
+- **The window is an IDE** (D202): down its left a tool strip — each tool
+  a glyph and one word: **Files** (`folder`), **Changes** (`diff`),
+  **PRs** (`branch`, with the open count), **Deploy** (`deploy`, on an
+  xbind with tile deployments) and, at the bottom, **Logs** (`list`). The
+  rest is **panes**, each with its own tab strip: sessions (shells and
+  coding agents), files, changes, change proposals and the Deployments
+  page are all tabs. Files, Changes and PRs open their list in a side panel
+  (the tool again closes it); a file, a not-yet-committed change, a commit
+  or a proposal opens as a tab in the **focused pane** — the one last
+  clicked or typed in — or shows where it already is. Deploy opens the
+  Deployments panel as a tab. **Logs** opens a dock along the bottom with
+  the backend's output. Each pane's `+` starts a session there (Bash or a
+  coding agent); split right / split down divide a pane (its active tab
+  moves to the new one), and a tab dragged onto another pane's middle moves
+  there, onto its right or bottom edge splits it. Dividers drag (or move
+  with the arrow keys once focused; a double-click evens them). An empty
+  pane shows the launcher. A session never reloads when it moves: a shell
+  keeps its scrollback, an agent its place. The layout is kept in your
+  window pref (`ide`, beside the fields older frames read); `open(layout)`
+  keeps its values — `term` the session in view, `code` (and `split`) the
+  Files list, `logs` the dock, `prs` the proposals and the newest open one,
+  `deployments` the Deployments tab.
+- **The title bar and the status bar**: the 28 px title bar holds the live
+  square, the tile's name and path, and the window's close (`xmark`) in a
+  column of its own at the right — it never moves, however narrow the
+  window or whatever it shows. The **status bar** along the bottom belongs
+  to the session in view (the session tab last chosen or focused): its
+  network scope, tile API (or target deployment), VM and GPU pickers, then
+  the tile's live reload controls, a base update when the terminal layer is
+  on an older base, and the reset. The pickers ask before restarting a live
+  session, since the network scope, GPU and API token are fixed at spawn; an
+  ended or past session shows only the tile's controls, and no session
+  none. A window under 640 px (and the phone sheet) shows the tools as
+  glyphs alone, opens the side panel over the panes, and folds the
+  session's pickers into one chip whose menu holds the same choices; on the
+  phone sheet the panes don't split. A window restored open (a reload,
+  another browser) loads the same pickers, VM toggle and base-update state
+  as one opened by hand.
 - **Live reload**: the most specific mounted frame for a changed path
   reloads — editing `apps/cal/widgets/month` reloads that frame, not the
   whole `apps/cal` frame, when both are mounted. Frames of a pinned
@@ -515,11 +531,11 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
 - **Build errors** render as an overlay with compiler output; cleared by the
   next successful build. A failed deploy of a checkpoint paints none: the
   tile keeps serving its previous code.
-- **Live reload controls**: the terminal window's bar shows the tile's live
-  reload state. In the zero state that is one entry, `deploy`, whose menu
+- **Live reload controls**: the terminal window's status bar shows the
+  tile's live reload state. In the zero state that is one entry, `deploy`, whose menu
   offers Pause live reload; while live reload is paused, a chip (`pin` and
-  "Live reload paused · 3", the files changed since; `pin` and "3" on the
-  narrow bar) and a Reload now offer (`refresh`, "Reload now · 3"), the
+  "Live reload paused · 3", the files changed since; `pin` and "3" in a
+  narrow window) and a Reload now offer (`refresh`, "Reload now · 3"), the
   chip's menu holding Reload now and a Resume live reload on submenu.
   Every operation confirms from a dry run of the exact request.
   The launcher shows a banner while live reload is paused (nothing is drawn
@@ -531,8 +547,8 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   follow it — resume or attach live reload on the deployment assigned that
   branch, keep the deployment on it this time, or add a deployment for it
   ([tile-deployments.md](/docs/tile-deployments.md) §Assigned branches).
-  The layout switcher's `deploy` opens the
-  **Deployments panel** (its rows tag the active tab's target `Dev API`
+  The **Deploy** tool opens the
+  **Deployments panel** as a tab (its rows tag the session in view's target `Dev API`
   and the live reload target `live reload`, with the `live` glyph), and
   once a tile has more than an unprotected `main` the tile API select picks
   the session's target deployment ("target: dev"; switching restarts the

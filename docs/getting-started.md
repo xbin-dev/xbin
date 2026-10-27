@@ -47,16 +47,19 @@ stays inside the canvas, so scrolling always reaches it. (Frames
 embedded outside the shell keep the small 7×7 corner square for the same
 thing.)
 
-The pop-up's title bar also has a **layout switch** — drawn glyphs, each
-named in its tooltip: terminal · code · logs · proposals, and *beside*
-(the split glyph), which puts the terminal beside whichever panel shows,
-split by a divider you drag. The **code panel** is a buildless VS-Code-ish browser: a
-collapsible file tree + syntax-highlighted viewer, and a **Changes** tab that
-shows the working-tree diff (what you're about to commit) and any commit's diff
-for review — right beside the terminal with *beside*. It's read-only; editing
-is the terminal's job.
+The window is laid out like an IDE (D202). Down its left is a **tool strip**
+— each tool a glyph and one word: **Files** (the tile's file tree), **Changes**
+(what isn't committed yet, then the history), **PRs** (change proposals from
+other tiles' agents), **Deploy** (the tile's deployments) and **Logs** (the
+backend's output, in a dock along the bottom). Everything else is **panes of
+tabs**: your terminal is a tab, and so is a file, a diff, a proposal or the
+Deployments panel — a file opens, syntax-highlighted and read-only (editing is
+the terminal's job), in the pane you last clicked. Split a pane right or down,
+or drag a tab onto another pane (its edge splits it), to see a diff beside the
+shell that made it. Along the bottom, the **status bar** holds the settings of
+the session in view.
 
-Beside the `+` that opens a new terminal tab is **`+🤖`**, which opens an
+A pane's **`+`** opens a new terminal tab there — or an
 **agent session**: a coding agent (Claude Code, Codex, Gemini or OpenCode)
 running in this same tile sandbox, with a transcript, tool cards and a
 permission prompt you answer inline. It uses the tile's vault keys when set,
@@ -184,7 +187,7 @@ in-container user all work: xbind mounts each sandbox with its own
 it's ever missing, xbind falls back to kernel overlayfs — then `apt update` still
 works but a full install fails with `Invalid cross-device link`.
 
-The title bar has a **network scope** menu. By default a terminal has its own
+The status bar has a **network scope** menu. By default a terminal has its own
 network namespace with **internet-only** egress — the host's interfaces aren't
 visible (`ip addr` shows just `lo` and `bx0`), but the public internet and
 xbind (`$XBIN_URL`, so `bx`/`curl`) work. `ping` works too (real reachability);

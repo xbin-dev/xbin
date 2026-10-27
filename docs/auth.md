@@ -1613,7 +1613,7 @@ behave exactly as before.
   (`.xbin/token`) for host-side `bx`/automation — and under `--isolate` a
   terminal can't read it, because `.xbin/`, `data/`, and other users' `homes/`
   are masked out of the workspace mount (docs/isolation.md §terminal). A
-  terminal's titlebar can also set **no-API** mode: the session gets no token at
+  terminal's status bar can also set **no-API** mode: the session gets no token at
   all, so the shell sees code but every API call is unauthorized.
 - **Disabling token login.** Once you've created an admin *user*, an admin can
   turn off the bootstrap token's *browser* login from the admin console's

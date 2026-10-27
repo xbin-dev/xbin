@@ -37,7 +37,7 @@ async function termSets(browser) {
     // pane already open, and a click would close it. First open shows the
     // launcher, not a shell (D75) — start one.
     await fr(page, 'apps/crawler', (f) => { f.open(); if (!f.tabs.length) f.newTerm(); });
-    await showPickers(page, 'apps/crawler'); // on the bar, or in its tools row when this host's bar doesn't fit
+    await showPickers(page, 'apps/crawler'); // on the status bar, or in its folded menu in a narrow window
     // the picker renders the classic three until the session frame lands (org appears then)
     await page.locator('bx-frame[src="apps/crawler"] select.scope option[value="org"]').first().waitFor({ state: 'attached', timeout: 20000 });
     let s = await pickerState(page);

@@ -132,7 +132,7 @@ model itself.
 | `.xbin/token` | the owner token (0600; rotatable at runtime) |
 | `.xbin/secret` | HMAC key for frame tokens |
 | `.xbin/run` → | **symlink to a tmpfs run dir** holding `gateway.sock` and each backend's per-generation listen socket |
-| `.xbin/log/<comp~key>.log` | backend stdout/stderr (`bx logs`, the terminal logs tab) |
+| `.xbin/log/<comp~key>.log` | backend stdout/stderr (`bx logs`, the terminal window's logs dock) |
 | `.xbin/build/<comp~key>/bin` | Go build outputs |
 | `.xbin/cache/` | shared build caches (`go-build`) |
 | `.xbin/env/<comp~key>/<hash>/` | built `setup` environment layers, keyed by script+rootfs hash |

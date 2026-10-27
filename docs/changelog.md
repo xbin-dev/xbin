@@ -10,6 +10,30 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-27
+
+- **The tile window is an IDE** (D202; [elements.md](/docs/elements.md),
+  [terminals](/docs/overview/09-terminals.md)). Down its left, a tool
+  strip: **Files**, **Changes** and **PRs** open their list beside the
+  panes, **Deploy** opens the Deployments panel as a tab, **Logs** opens a
+  dock along the bottom. The rest is panes, each with its own tabs —
+  sessions (Bash, coding agents), files, a file's uncommitted change, a
+  commit, a change proposal, Deployments — and its own `+`, split right and
+  split down; drag a tab to another pane, or onto a pane's right or bottom
+  edge to split it; drag a divider (or focus it and use the arrow keys).
+  A session keeps its scrollback through every move. The network, tile
+  API, VM and GPU pickers, the base update and the live reload chip moved
+  to a **status bar** along the bottom, for the session in view (one chip
+  in a narrow window); the title bar keeps the name, the path and the ✕,
+  which now always sits in the top-right corner. On a phone the window
+  shows one pane. Nothing breaks: `open(layout)` takes the same values,
+  the window pref keeps its fields (and adds `ide`), and
+  `/vendor/frame-titlebar.js` and `/vendor/frame-panels.js` keep their
+  exports. The lists and views are elements of their own —
+  `<bx-code-tree>`, `<bx-code-changes>`, `<bx-code-view>`,
+  `<bx-code-diff>`, `<bx-pr-list>`, `<bx-pr-view>` ([frontend
+  kit](/docs/frontend-kit.md)); `<bx-code>` and `<bx-prs>` stay.
+
 ## 2026-10-26
 
 - **Tiles can name themselves and set their own icon** (D194;

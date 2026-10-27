@@ -12336,3 +12336,87 @@ Deviations and refinements made while implementing; all deliberate:
   - **Not yet:** .doc/.xls/.ppt; formatting another program put in a
     docx/pptx is lost on a rewrite; no picture view of docx/pptx for the
     model; slide links are text.
+
+- **D202 — The tile window as an IDE (2026-10-27).** The owner found the
+  terminal window (sessions, Logs, Files, PRs, Deployments, the D129 split)
+  "all really janky" and approved a mockup of an IDE model with its
+  defaults ("Design looks great, and the defaults make most sense").
+  - **The window.** A slim title bar (the live square, the name, the path)
+    whose last grid column is the ✕'s own; a tool strip down the left
+    (Files, Changes, PRs with a count, Deploy; Logs at the bottom — a glyph
+    and one word, the glyph alone under 640 px); panes filling the rest, a
+    binary split tree, each pane its own tab strip with `+`, split right,
+    split down and close; the logs dock along the bottom; a status bar
+    under it all. Tabs are sessions (`s:`), files (`f:`), the uncommitted
+    change of a file (`w:`), a commit (`c:`), a change proposal (`pr:`) and
+    Deployments (`deploy`). A tab from a list opens in the focused pane
+    (the one last clicked or typed in); one already open shows where it
+    is. Tabs drag: onto a pane's middle to move, onto its right or bottom
+    edge to split. Dividers drag, take the arrow keys (2 %, 10 % with
+    Shift) and even on a double-click. An empty pane shows the launcher.
+    The phone sheet shows the focused pane alone, every pane's tabs in its
+    strip, and no splits (the layout itself is kept for a wider screen).
+  - **Code (W1, ide/core).** `web/frame-ide.js` is the pure layout model
+    and pref mapping (node tests: `hack/frame-ide.test.mjs`);
+    `web/frame-ide-view.js` draws it; `web/frame-status.js` is the status
+    bar; `frame-titlebar.js` is slimmed and `frame-panels.js` a shim, their
+    exports kept (compat rule 3). Sessions carry a stable `ref` that
+    survives an agent restart's new key. The test surface keeps every old
+    name's meaning (`layout`, `layouts`, `beside`, `paneW`, `setTools`, …)
+    and adds `ide`.
+  - **Panels (W2, ide/panels).** `<bx-code>` and `<bx-prs>` split into
+    elements of their own: `code-tree.js` (`<bx-code-tree>`,
+    `<bx-code-changes>`: the files with their M/A/D/R status; the
+    uncommitted files, the history, the activity folded),
+    `code-view.js` (`<bx-code-view>`, `<bx-code-diff>`, followed live),
+    `pr-panels.js` (`<bx-pr-list>` with `bx-pr-count`, `<bx-pr-view>`:
+    Comment, Merged and Reject ask for their note through the window's
+    dialog — `.ask` — or a line of their own, never `prompt()`), and
+    `code-shared.js` (the rules they share, `hack/code-panels.test.mjs`).
+    A list asks the window for a tab with `bx-open-tab {ref}`. `<bx-code>`
+    and `<bx-prs>` stay served (the admin console and embedders use them).
+  - **The ✕ bug's root cause.** The degraded title bar (old
+    `frame-titlebar.js` 72–77) drew no `.spacer`, so `.winx` followed the
+    tab strip; a bar near its limit tipped into that mode whenever its
+    `barKey` changed — an ACP tab ending, the base-update button
+    appearing, the deploy chip. Fixed by construction: the ✕ has its own
+    grid column (the `tileIde` pass measures it at 520, 700 and 1100 px,
+    with no session and after an agent ended).
+  - **Why the session stage.** `<bx-terminal>` and `<bx-logs>` died when
+    moved in the DOM: `disconnectedCallback` closed them and a reconnect
+    never restarted them. So a session's element is never re-parented: all
+    of them live in one layer over the panes, keyed by session in an order
+    that never changes, each absolutely placed over the body of the pane
+    whose active tab it is (hidden otherwise); a move, a split or a divider
+    drag only changes its box — a shell keeps its scrollback, an agent its
+    scroll. The logs dock mounts `<bx-logs>` once and hides it. As defence
+    in depth, both elements now defer their teardown to the end of the
+    task, so a real DOM move (a disconnect and a connect in one task)
+    keeps the socket (the `ideMove` pass).
+  - **The status bar.** The session in view's pickers moved there from the
+    title bar (network, tile API or deployment target, VM, GPU, the base
+    update, the live reload chip and Reload now), folded into one chip in a
+    narrow window. Nothing draws without a session: before D202 the bar
+    drew pickers for none.
+  - **Pref compatibility.** The window pref `term:<tile>` keeps writing
+    the fields older frames read — `open`, `active`, `activeId`, `pop`, and
+    `layout`/`beside`/`paneW` derived from the layout (Files beside as
+    `code`, PRs as `prs`, the dock as `logs`) — and adds `ide: {v: 1, tree,
+    panes, focus, side, dock}` with sessions by server id. Neither the
+    Deployments tab nor history or pending session tabs are saved. Without
+    `ide`, the legacy fields map: `split` or `code` opens Files, `prs` the
+    PRs list, `logs` the dock. Sessions gone on restore drop out; new ones
+    join the focused pane. `open(layout)` keeps every value the shell's
+    tile menu passes: `term` the session in view, `code`/`split` Files,
+    `logs` the dock, `prs` the PRs list and the newest open proposal,
+    `deployments` the Deployments tab. Closing the last tab closes the
+    window; file tabs alone keep it open.
+  - **A file that isn't there** (deleted, renamed, a tab restored after a
+    rename) says so in a sentence instead of "error 404".
+  - **Rejected** (the mockup's other knobs, kept there for reference):
+    sessions in a bottom dock (the sessions are the work; they get the
+    panes); logs as a tab (they are read beside a session, not instead of
+    one); PRs as one tab (a list beside the panes opens each proposal next
+    to its code); Deployments as a side panel (its table needs the width a
+    tab has); a header per session (the status bar speaks for the session
+    in view once, instead of a strip per pane).
