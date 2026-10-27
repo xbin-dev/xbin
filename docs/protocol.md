@@ -23,6 +23,23 @@ discovery (`GET /api/xbin/login/methods`) — requires a principal
 | Frame token | `X-XBin-Frame-Token` header, or `?frame=` on any URL (WS, document loads, tag-driven requests like `<a download>` — anything that can't set headers; xbind consumes it and never forwards it to backends) | element frontend — **standalone** (no cookie needed; sandboxed tile frames hold nothing else) |
 | App session | `Authorization: Bearer <token>` from `POST /login/device`, `POST /api/xbin/login` or `POST /login/ticket` (the native app's own code only — never tile code) | the signed-in **user**: the same human principal and lifetimes as their browser session (docs/auth.md §Device login) |
 
+**The app tunnel** (D204, [app-tunnel.md](/docs/app-tunnel.md)). The xbin
+app may reach xbind through an iroh tunnel: each connection is a paired
+device's, after a Noise handshake inside iroh's own encryption, and carries
+plain HTTP/1.1 on the app's loopback `Host` — never `Secure` or `__Host-`
+cookies, `xbin-ws-origin` is `ws://<Host>`, `X-Forwarded-*` is dropped, and
+the client address (throttle, session records) is the device. One device per
+tunnel: device D's tunnel serves requests with D's credentials (its
+sessions, the web sessions it opened, what they minted), D's own sign-in
+(`/login/device…` for D, web-ticket redemption), `GET
+/api/xbin/login/methods` and `/vendor/`; anything else answers `403
+{error, tunnel: "device", docs}`, and so do the app's other sign-ins over
+it. A session opened over a tunnel is bound to it: off it, it and
+everything derived from it answer `401 {error, tunnel: "bound", docs}`.
+While the workspace requires the tunnel, the app's credentials and sign-ins
+off it answer `403 {error, tunnel: "required", docs: "/docs/app-tunnel.md"}`
+— never 401 or 404; browsers and the SSO browser leg are not affected.
+
 **Frame tokens are bound to the login that minted them.** A token carries
 its credential generation — the browser or app session behind the
 `/c/` document load or `/api/xbin/frame-token` call (on a tile origin, the
@@ -678,6 +695,18 @@ GET  /xbin/limits                 the tile limits page (D203,
                                  a workspace whose scaffold predates
                                  limits. Headers, sign-in and /vendor/
                                  as /xbin/partitions
+GET  /xbin/devices                the devices page (D204,
+                                 docs/app-tunnel.md): xbind's own static
+                                 page — web/devices.html as shipped, no
+                                 transform — listing your app devices and
+                                 pairing one over the app tunnel (its QR
+                                 code and confirmation code), acting
+                                 through /api/xbin/devices… with the
+                                 signed-in person's session; the surface
+                                 an older shell, or a workspace that
+                                 requires the tunnel, pairs through.
+                                 Headers, sign-in and /vendor/ as
+                                 /xbin/partitions
 ANY  /api/<component-path>/<p>   → component backend (see below)
 ANY  /api/xbin/<p>              → xbind's own API (below)
 ANY  /api/~<ticket>/<p>         → a path ticket's prefix of one tile's API
@@ -1939,7 +1968,11 @@ GET    /login/methods             none — public, not throttled. The
                                    SSO button shows (configured and
                                    --external-url set), label its text.
                                    invites: invite links can be redeemed
-                                   (below). Cache-Control: no-store; api
+                                   (below). tunnel: {enabled, required} —
+                                   the app tunnel is on, and the app's
+                                   traffic is refused off it (D204; absent
+                                   on an older xbind). Cache-Control:
+                                   no-store; api
                                    versions the shape (fields only added)
 POST   /invite/check              none — the invite is the credential.
                                    {invite} (the token of an invite link
@@ -1966,7 +1999,25 @@ POST   /invite/redeem             none — the invite is the credential.
                                    check never redeems it),
                                    not spent; 429 throttled
 POST   /devices/enroll-code       a signed-in user (browser or app
-                                   session), [{password}]. → {code, url:
+                                   session), [{password, tunnel}].
+                                   tunnel:true with the app tunnel on
+                                   (D204) → {code, origin, expires, url:
+                                   "xbin://enroll?u&c&tv=1&t&k&p[&r]
+                                   [&rq=1]" (native/spec/tunnel.md §2),
+                                   tunnel: {pairing, required, ticket,
+                                   serverKey}}: a tunnel code, which
+                                   never redeems over POST
+                                   /devices/enroll — follow it with GET
+                                   /devices/pairing/<pairing>; 503 when
+                                   the tunnel isn't running. With the
+                                   tunnel off, tunnel is ignored. 409
+                                   {error, limit, count} at the person's
+                                   device limit — for a tunnel code only
+                                   at a limit of 0 (its confirmation
+                                   names a device to replace); 409 while
+                                   the workspace requires the tunnel and
+                                   tunnel isn't asked (the error names
+                                   <origin>/xbin/devices). Otherwise → {code, url:
                                    "xbin://enroll?u=<origin>&c=<code>",
                                    origin, expires}: a one-time code
                                    (5 min) enrolling ONE device for the
@@ -1990,7 +2041,10 @@ POST   /devices/enroll            none — the code is the credential.
                                    bad/spent/expired code (throttled), 400
                                    bad key, 409 at the person's device
                                    limit (GET /devices/limits; the error
-                                   says how many they have and allows)
+                                   says how many they have and allows).
+                                   A tunnel code answers 401 (it pairs
+                                   over the app tunnel only, and isn't
+                                   spent)
 POST   /web-ticket                the app's device-key session (via
                                    device) only — not a browser, the
                                    app's password/SSO session, a tile, a
@@ -2045,6 +2099,44 @@ GET    /devices/limits            admin/xbin:users. {default, max: 32,
 PUT    /devices/limits            admin/xbin:users. {default: 1–32} → the
                                    GET view. Enforced when a device is
                                    added: devices already paired stay
+GET    /devices/pairing/<id>      the login that minted the tunnel code
+                                   (the same person and the same
+                                   session; 404 for anyone else). {state:
+                                   minted | handshaken | confirm |
+                                   enrolled | rejected | abandoned |
+                                   expired, sas? (six digits, while in
+                                   confirm: show it grouped, "012 345"),
+                                   device? {name, platform}, expires
+                                   (unix: the code's, then the 2-minute
+                                   confirmation window's), reason?
+                                   (mismatch | expired | limit |
+                                   refused), error?, deviceId?,
+                                   replaced?}. A finished pairing answers
+                                   for 10 minutes, then 404
+POST   /devices/pairing/<id>/confirm
+                                   the same login. {match: bool,
+                                   replace?: <device id>} — "Codes
+                                   match" enrolls the device (replace: one
+                                   of yours it replaces, in the same
+                                   step), "They don't" burns the code; →
+                                   {state, deviceId?, replaced?,
+                                   reason?}. 409 {error, limit, count} at
+                                   the limit without replace (the pairing
+                                   keeps waiting); 409 {error, state}
+                                   when it no longer waits (abandoned:
+                                   the phone left first — no device is
+                                   made)
+POST   /devices/<id>/tunnel       the device's own session, signed in
+                                   within 10 minutes, over a direct
+                                   connection. {noiseKey (base64url, 32
+                                   bytes), endpoint (64 hex)} → as GET
+                                   /app-tunnel/client: an enrolled device
+                                   joins the tunnel without pairing again
+                                   (native/spec/tunnel.md §9). 403 over
+                                   the tunnel, while the workspace
+                                   requires it, or for any other
+                                   session; 409 tunnel off or the key
+                                   another device's
 GET    /screens                   signed-in. {default: {tiles,blocks?,
                                    mode?,arrange?}|null,
                                    org: [{id,org,name,edit,mode?,tiles,
@@ -5000,6 +5092,54 @@ DELETE /push/devices/<user>              admin. Revoke all of a user's
                                          registrations → {removed} | 404
 DELETE /push/devices/<user>/<deviceId>   admin. Revoke one (a lost phone) →
                                          {removed} | 404
+
+GET    /app-tunnel                       admin. The app tunnel (D204,
+                                         docs/app-tunnel.md): {enabled,
+                                         tunnelOnly, relay: {mode: n0|custom,
+                                         url?, tokenHint?, next?: {url?,
+                                         tokenHint?}}, env? (XBIN_IROH_RELAY when
+                                         it sets the relay), state: disabled |
+                                         unavailable | starting | running |
+                                         degraded | failed, confined, exec?,
+                                         restarts, error?, endpointId?,
+                                         homeRelay?, relayConnected, version?,
+                                         devices: {total, tunnelPaired, classic,
+                                         connected, synced}, conns: [{endpoint,
+                                         conn, path, rttMs}]} — tokens only as
+                                         hints (…ab12)
+PUT    /app-tunnel                       admin. {enabled?, relay?: {mode:
+                                         n0|custom, url?}, tunnelOnly?} → the
+                                         view; turning tunnelOnly on adds
+                                         lockedOut (the devices not paired with
+                                         the tunnel it locks out). A custom
+                                         relay is https:// (http only on
+                                         loopback); changing it or enabled
+                                         restarts the sidecar; tunnelOnly needs
+                                         enabled, and disabling clears it. 400
+                                         invalid; 409 when XBIN_IROH_RELAY sets
+                                         the relay. Publishes a bodiless
+                                         app-tunnel event
+POST   /app-tunnel/relay-tokens          admin, a custom relay. {action:
+                                         generate-next | set-next | promote |
+                                         drop-next | set-current | clear,
+                                         token?, url?} → the view; generate-next
+                                         adds token, the new token, shown this
+                                         once. next is what devices learn ahead
+                                         (GET /app-tunnel/client); promote makes
+                                         it current and restarts the sidecar.
+                                         Tokens: 16–256 printable characters, no
+                                         whitespace. 409 for n0's relays
+POST   /app-tunnel/test                  admin. {} → {reachable, path?, rttMs?,
+                                         error?}: a throwaway endpoint dials
+                                         this one through the relay
+GET    /app-tunnel/client                a device's own session, over its
+                                         tunnel. {endpointId, ticket, serverKey,
+                                         relay: {url?, token?, next?: {url?,
+                                         token?}}, required} — the device stores
+                                         it after every connect and tries next
+                                         when the current relay refuses it
+                                         (native/spec/tunnel.md §7). 403
+                                         anywhere else
 
 GET    /cron/jobs                        own jobs (admin: all). {jobs}
                                          A tile credential lists its own

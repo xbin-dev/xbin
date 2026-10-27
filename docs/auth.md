@@ -1181,6 +1181,13 @@ account — the bootstrap owner token has none.
   and check the name. (A link followed from a web page — this workspace's
   included — is refused outright.) Failed attempts count against the login
   throttle, and each browser sign-in is in the audit log.
+- **Over the app tunnel** (D204, [app-tunnel.md](/docs/app-tunnel.md)). With
+  the workspace's iroh tunnel on, the QR code also carries how to reach the
+  tunnel, and pairing ends with a six-digit code shown on both the phone and
+  the computer that showed the QR: confirm only if they match. Over the
+  tunnel the app signs in with its device key as always; a session opened
+  there works only there. A workspace can refuse the app anywhere else
+  (iroh-only).
 - **How many devices** (D204). A person may have **one** app device paired
   unless the workspace says otherwise: admins set the workspace default
   (1–32; admin console, `bx app limit <n>`, `PUT /api/xbin/devices/limits`)

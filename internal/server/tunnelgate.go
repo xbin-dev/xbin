@@ -3,8 +3,10 @@ package server
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // The app tunnel's edge (D204, native/spec/tunnel.md §7–§8, docs/app-tunnel.md).
@@ -174,4 +176,69 @@ func (s *Server) tunnelOrigin(r *http.Request) string {
 		return d.Origin
 	}
 	return ""
+}
+
+// AppTunnel is the app tunnel as the server sees it (internal/apptunnel,
+// D204): its switches, and pairing — the enroll-code route's tunnel
+// branch. Nil: an xbind without it (tests).
+type AppTunnel interface {
+	Enabled() bool
+	Required() bool
+	// MintPairing opens a pairing for p's own login: the code, the link the
+	// QR shows (u, c, tv, t, k, p[, r][, rq]) and the pairing's id.
+	MintPairing(p auth.Principal, origin string) (*TunnelMint, error)
+}
+
+// TunnelMint is a pairing link's parts (the enroll-code answer).
+type TunnelMint struct {
+	Pairing, Code, URL string
+	Expires            time.Time
+	Required           bool
+	Ticket, ServerKey  string
+}
+
+// appTunnelState is (enabled, required); both false without a tunnel.
+func (s *Server) appTunnelState() (bool, bool) {
+	if s.AppTunnel == nil {
+		return false, false
+	}
+	return s.AppTunnel.Enabled(), s.AppTunnel.Required()
+}
+
+// enrollLimits is POST /devices/enroll-code's early refusals (D204):
+// while the workspace requires the tunnel, only tunnel codes (409 naming
+// /xbin/devices — an older shell can't pair over the tunnel); at the
+// person's device limit a classic code (409 {error, limit, count}) — a
+// tunnel code still mints there, its confirmation names a device to
+// replace — and any code at a limit of 0.
+func (s *Server) enrollLimits(w http.ResponseWriter, r *http.Request, p auth.Principal, tunnel, required bool) bool {
+	if required && !tunnel {
+		WriteError(w, http.StatusConflict, "this workspace pairs the xbin app only through its iroh tunnel — add the device from "+
+			s.EnrollOrigin(r)+DevicesPagePath, tunnelDocs)
+		return false
+	}
+	lim, n := s.Auth.Users.UserDeviceLimit(p.User.ID), len(s.Auth.Users.Devices(p.User.ID))
+	if n >= lim && (!tunnel || lim == 0) {
+		w.Header().Set("Cache-Control", "no-store")
+		WriteJSON(w, http.StatusConflict, map[string]any{"error": (&users.DeviceLimitError{Count: n, Limit: lim}).Error(),
+			"limit": lim, "count": n, "docs": "/docs/auth.md"})
+		return false
+	}
+	return true
+}
+
+// writeTunnelMint answers a tunnel enroll code: the classic fields (code,
+// origin, expires) with url the tunnel link, and tunnel {pairing,
+// required, ticket, serverKey} — GET /devices/pairing/{pairing} follows it.
+func (s *Server) writeTunnelMint(w http.ResponseWriter, p auth.Principal, origin string) {
+	m, err := s.AppTunnel.MintPairing(p, origin)
+	if err != nil {
+		WriteError(w, http.StatusServiceUnavailable, err.Error(), tunnelDocs)
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	WriteJSON(w, http.StatusOK, map[string]any{
+		"code": m.Code, "origin": origin, "expires": m.Expires.Unix(), "url": m.URL,
+		"tunnel": map[string]any{"pairing": m.Pairing, "required": m.Required, "ticket": m.Ticket, "serverKey": m.ServerKey},
+	})
 }

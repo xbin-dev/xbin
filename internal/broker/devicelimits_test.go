@@ -2,6 +2,7 @@ package broker
 
 import (
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/xbin-dev/xbin/internal/users"
@@ -22,12 +23,20 @@ func TestDeviceLimitAPI(t *testing.T) {
 	if code != http.StatusOK || out["limit"] != 1.0 || out["count"] != 1.0 {
 		t.Fatalf("GET /devices: %d %v", code, out)
 	}
-	// a second enrollment: the code mints, the enroll answers 409 with the words
+	// a second device: the code isn't even minted (409 with the words and the numbers)
+	code, out = ann.do(h, "POST", "/api/xbin/devices/enroll-code", "")
+	if code != http.StatusConflict || out["error"] != "you have 1 device; this workspace allows 1 per person — remove one first (an admin can raise your limit)" ||
+		out["limit"] != 1.0 || out["count"] != 1.0 {
+		t.Fatalf("at the limit: %d %v", code, out)
+	}
+	// a code minted before the limit was lowered: the enroll answers 409 the same way
+	b.Users.SetDeviceLimit(2)
 	_, out = ann.do(h, "POST", "/api/xbin/devices/enroll-code", "")
+	b.Users.SetDeviceLimit(1)
 	_, pub := newTestKey(t)
 	code, out = caller{}.do(h, "POST", "/api/xbin/devices/enroll", `{"code":"`+out["code"].(string)+`","name":"tablet","publicKey":"`+pub+`"}`)
-	if code != http.StatusConflict || out["error"] != "you have 1 device; this workspace allows 1 per person — remove one first (an admin can raise your limit)" {
-		t.Fatalf("at the limit: %d %v", code, out)
+	if code != http.StatusConflict || !strings.HasPrefix(out["error"].(string), "you have 1 device;") {
+		t.Fatalf("enroll at the limit: %d %v", code, out)
 	}
 	// only xbin:users reads and sets limits
 	if code, _ := ann.do(h, "GET", "/api/xbin/devices/limits", ""); code != http.StatusForbidden {

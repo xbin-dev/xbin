@@ -638,6 +638,7 @@ func TestWebTicketSSOBound(t *testing.T) {
 // time, so the handoff can't turn an old device session into a fresh login.
 func TestEnrollStepUpDeviceLogin(t *testing.T) {
 	h, s := impServer(t)
+	s.Auth.Users.SetDeviceLimit(5) // a second device: past the default limit of 1 (D204)
 	devID, dev := webDevice(t, s, "bob")
 	enrollCode := func(bearer, cookie, body string) (int, map[string]any) {
 		r := withCookie("POST", "/api/xbin/devices/enroll-code", body, cookie)

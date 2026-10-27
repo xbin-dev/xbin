@@ -193,10 +193,23 @@ func (s *Server) apiEnrollCode(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusForbidden, "devices belong to user accounts — sign in with yours (the bootstrap token has none, and tiles can't enroll devices)", "/docs/auth.md")
 		return
 	}
-	if !s.enrollStepUp(w, r, p) {
+	var body struct {
+		Password string
+		Tunnel   bool
+	}
+	if raw, _ := io.ReadAll(io.LimitReader(r.Body, maxAppLoginBody)); len(bytes.TrimSpace(raw)) > 0 {
+		_ = json.Unmarshal(raw, &body)
+	}
+	on, required := s.appTunnelState()
+	tunnel := body.Tunnel && on
+	if !s.enrollLimits(w, r, p, tunnel, required) || !s.enrollStepUp(w, r, p, body.Password) {
 		return
 	}
 	origin := s.EnrollOrigin(r)
+	if tunnel {
+		s.writeTunnelMint(w, p, origin)
+		return
+	}
 	code, exp, err := s.Auth.MintEnrollCode(p.User.ID, origin)
 	if err != nil {
 		WriteError(w, http.StatusServiceUnavailable, err.Error(), "/docs/auth.md")
@@ -214,14 +227,11 @@ func (s *Server) apiEnrollCode(w http.ResponseWriter, r *http.Request) {
 // {"password"}; "signin" — sign in again (an SSO account, or password
 // sign-in disabled for it) and retry within the window. Wrong passwords
 // count against the login throttle.
-func (s *Server) enrollStepUp(w http.ResponseWriter, r *http.Request, p auth.Principal) bool {
+func (s *Server) enrollStepUp(w http.ResponseWriter, r *http.Request, p auth.Principal, password string) bool {
 	if at, ok := s.Auth.LoginTime(p); ok && time.Since(at) <= auth.EnrollFreshLogin {
 		return true
 	}
-	var body struct{ Password string }
-	if raw, _ := io.ReadAll(io.LimitReader(r.Body, maxAppLoginBody)); len(bytes.TrimSpace(raw)) > 0 {
-		_ = json.Unmarshal(raw, &body)
-	}
+	body := struct{ Password string }{password}
 	pwOK := p.User.PassHash != "" && (!s.Auth.Users.PasswordLoginDisabled() || p.User.IsAdmin())
 	mode := "signin"
 	if pwOK {

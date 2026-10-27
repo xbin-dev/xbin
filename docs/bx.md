@@ -66,6 +66,19 @@ bx app limit [<n>]                     app devices one person may pair (admin):
                                        show the workspace default, the people
                                        at it and the overrides, or set it (1–32;
                                        enforced when a device is added)
+bx app tunnel [status] | on | off | test
+                                       the xbin app's iroh tunnel (admin, D204;
+                                       docs/app-tunnel.md): its state, relay,
+                                       devices; test dials it through the relay
+bx app tunnel relay n0|<https-url>     n0's public relays, or a self-hosted
+                                       iroh-relay (restarts the tunnel)
+bx app tunnel token generate-next | set-next <t> | promote | drop-next | set-current <t> | clear
+                                       a custom relay's access token: stage the
+                                       next one (generate-next prints it once),
+                                       promote it when devices synced
+bx app tunnel only on|off              refuse the app's traffic outside the
+                                       tunnel (iroh-only); says how many devices
+                                       it locks out
 bx defaults [set …]                    provisioning defaults (admin): what every
                                        NEW account starts with — --tiles p=level,
                                        --org o[:level[:create]]

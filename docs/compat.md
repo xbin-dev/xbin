@@ -180,6 +180,28 @@ between them only grows:
   tests; its internals and its pictures change freely (its URLs stay served,
   rule 3).
 
+## The app tunnel and device limits (D204)
+
+- **Additive.** Nothing changes for an app or a shell until an admin turns
+  the tunnel on: no `data/app-tunnel/` exists before that, and the routes,
+  fields (`tunnel` in `/login/methods`, `enroll-code` and device views;
+  `limit`, `count`, `maxDevices`, `deviceLimit`) and the page
+  `/xbin/devices` only add.
+- **Old apps** keep working over the web address until an admin turns on
+  iroh-only — by design; they are then refused with `403 {tunnel:
+  "required"}`, never 401 or 404. A tunnel QR code doesn't enroll an old
+  app (its code answers 401 over `POST /devices/enroll`); while iroh-only
+  is off the dialog offers a classic code.
+- **Old shells** keep their classic add-device flow; under iroh-only their
+  enroll-code is refused with an error naming `/xbin/devices`.
+- **The device limit** reads 1 where `users.json` has none (no migration):
+  devices already paired stay, but a second one is refused until an admin
+  raises the limit (changelog, 2026-10-27).
+- **Downgrade.** An older xbind drops the devices' `tunnelKey`/`endpoint`
+  and `maxDevices`/`deviceLimit` on its first `users.json` write — tunnel
+  pairings are lost and those devices pair again — and ignores
+  `data/app-tunnel/` and frame-gens' `t`.
+
 ## Tile deployments and paused live reload
 
 Pausing a tile's live reload and giving it tile deployments

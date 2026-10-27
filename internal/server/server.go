@@ -34,6 +34,8 @@ type Server struct {
 	Auth *auth.Auth
 	Hub  *events.Hub
 	Term *term.Manager
+	// AppTunnel is the xbin app's iroh tunnel (tunnelgate.go, D204); nil: none.
+	AppTunnel AppTunnel
 
 	WebFS      fs.FS    // core elements + vendored deps, served at /vendor/
 	vendorSums sync.Map // WebFS path → its content hash (vendor.go: the ETag, a font's version)
@@ -168,8 +170,9 @@ func (s *Server) Handler() http.Handler {
 	// theme.css as bare subresources, which carry no credentials by design.
 	handle("GET /vendor/", http.HandlerFunc(s.handleVendor))
 	handle("GET /docs/", s.authed(http.HandlerFunc(s.handleDocs)))
-	handle("GET "+PersonPagePath, s.authed(http.HandlerFunc(s.handlePersonPage))) // the partitions page, top-level only (personpage.go)
-	handle("GET "+LimitsPagePath, s.authed(http.HandlerFunc(s.handleLimitsPage))) // the tile limits page, likewise (limitspage.go)
+	handle("GET "+PersonPagePath, s.authed(http.HandlerFunc(s.handlePersonPage)))   // the partitions page, top-level only (personpage.go)
+	handle("GET "+LimitsPagePath, s.authed(http.HandlerFunc(s.handleLimitsPage)))   // the tile limits page, likewise (limitspage.go)
+	handle("GET "+DevicesPagePath, s.authed(http.HandlerFunc(s.handleDevicesPage))) // the devices page (devicespage.go, D204)
 
 	handle("/api/", s.authedAPI(http.HandlerFunc(s.handleAPI)))
 

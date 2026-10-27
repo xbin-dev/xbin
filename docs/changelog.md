@@ -12,6 +12,21 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-27
 
+- **The xbin app over an iroh tunnel** (D204; [app-tunnel.md](/docs/app-tunnel.md),
+  [protocol.md](/docs/protocol.md), [bx.md](/docs/bx.md)). Admins turn on
+  **Iroh tunneling** (admin console → workspace → app, `bx app tunnel on`,
+  `PUT /api/xbin/app-tunnel`): phones then reach the workspace through
+  n0's public relays or a self-hosted `iroh-relay`, with an xbin Noise layer
+  inside iroh's encryption. Adding a device shows a larger QR code and a
+  six-digit code to compare on both screens (`POST /devices/enroll-code
+  {"tunnel":true}`, `GET /devices/pairing/<id>`, `POST
+  /devices/pairing/<id>/confirm`; the page `/xbin/devices` for older
+  shells). **Refuse app connections outside the iroh tunnel** (`bx app
+  tunnel only on`) refuses the app's sessions and sign-ins elsewhere with
+  `403 {"tunnel":"required"}`; browsers are not affected. `GET
+  /login/methods` gains `tunnel {enabled, required}`; new env
+  `XBIN_IROH_RELAY`, `XBIN_IROH`. Off by default: nothing changes until an
+  admin turns it on.
 - **App devices per person are limited — one by default** (D204;
   [auth.md](/docs/auth.md) §Device login, [bx.md](/docs/bx.md)). Adding a
   device past the limit answers `409` "you have N devices; this workspace

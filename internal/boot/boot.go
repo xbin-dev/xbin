@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin"
+	"github.com/xbin-dev/xbin/internal/apptunnel"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/branding"
 	"github.com/xbin-dev/xbin/internal/broker"
@@ -56,8 +57,10 @@ type State struct {
 	Sbx     *sbx.Registry    // every live sandbox and what the sandbox layer failed at (D112)
 	TileSbx *tilesbx.Manager // the tile-sandbox runtime (tilesandboxes.go, D120)
 	Push    *push.Service    // the push plane (push.go)
-	held    *push.Holder     // non-primary notifications, kept as would-notify (push.go)
-	Started time.Time
+	// AppTunnel is the xbin app's iroh tunnel (apptunnel.go, D204)
+	AppTunnel *apptunnel.Service
+	held      *push.Holder // non-primary notifications, kept as would-notify (push.go)
+	Started   time.Time
 	// Deployments is the deployments plane: its methods are the registry's,
 	// runner's, broker's and terminal manager's deployment hooks (D119c).
 	Deployments *deployments.Plane
@@ -702,6 +705,9 @@ func (st *State) stepServer() error {
 	st.registerTileSandboxAPI(srv)
 	st.registerGoVersionsAPI(srv) // the D166 upgrade check's routes and admin alert
 	if err := st.setupPush(srv); err != nil {
+		return err
+	}
+	if err := st.setupAppTunnel(srv); err != nil { // after push and the D166 alert: it chains their hooks
 		return err
 	}
 	st.Server = srv
