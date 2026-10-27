@@ -653,6 +653,15 @@ Lifecycle facts you must design around:
   30 s drain — clients must reconnect.
 - 3 fast crashes ⇒ marked failed until you save a change (until the next
   deploy or restart, for a pinned tile deployment). `bx logs` first.
+- Limits: the backend gets the workspace's default memory (2 GiB unless
+  the admin changed it) and its scope the default data quota (50 GiB).
+  Over memory, it is OOM-killed (the log says so) and the workspace's
+  approvers are asked to raise it; at the quota, kv/blob writes get `507`.
+  If the tile needs more, ask in xbin.json — `"limits": {"memory": "4G",
+  "disk": "100G"}` (disk on the scope's root tile; `"sandboxes"` for a
+  sandbox manager; a VM backend's size is `"vm"`) — and tell the person:
+  an admin approves it, nothing changes until then. `bx limits show
+  <tile>` reads where it stands. Profile and fix a leak before asking.
 - Handle SIGTERM (the SDKs/skeletons do).
 
 ## Status & notifications — tell the workspace how you're doing

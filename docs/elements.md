@@ -76,11 +76,34 @@ JSONC (comments and trailing commas allowed). Everything is optional.
 
   // Run the backend in a VM sandbox — a Firecracker microVM, root in its own
   // kernel (optional, default false; docs/isolation.md §VM sandboxes): true,
-  // or {"memory": "1G", "vcpus": 2}, capped by the workspace's VM policy.
+  // or {"memory": "1G", "vcpus": 2}. Up to the workspace's VM policy the
+  // sizes apply as written; above it they are a request an approver
+  // approves, like "limits" below — until then the policy's size applies.
   // Needs --isolate, an admin who enabled VM backends, and KVM (without it,
   // the VM is emulated: the same, but several times slower); otherwise the
   // backend fails with the reason (never a silent fallback). Not with "setup".
   "vm": false,
+
+  // More than the workspace's default resources (optional; D203,
+  // docs/isolation.md §Resource limits): the backend's memory (a VM
+  // backend's is "vm".memory, above), the data
+  // disk quota of the scope this tile roots (ignored on a tile that doesn't
+  // root its scope — the quota is the scope's), and a sandbox manager's
+  // tile sandboxes, all together (read only with a cap:sandboxes grant). A
+  // request only: a workspace admin approves it, or an admin of the org
+  // that owns the tile, up to the per-tile ceiling a workspace admin set
+  // for that org. Until then the default applies; an approval holds while
+  // the manifest still asks, and only up to what it asks. A value at or
+  // below the default asks nothing. Sizes are strings with a binary unit
+  // ("512M", "4G", "1.5T"); vCPUs a whole number. A value xbind can't read,
+  // a bare number, an unknown key ("pids") or a size under the minimum
+  // (128M memory, 1G disk) is a manifest warning and ignored — the tile
+  // keeps running.
+  "limits": {
+    "memory": "4G",
+    "disk": "100G",
+    "sandboxes": { "memory": "16G", "vcpus": 8, "disk": "200G" }
+  },
 
   // A partitioned tile (optional): ["user"] asks for one backend per person
   // who uses the tile, ["user", "global"] for one more, background instance

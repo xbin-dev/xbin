@@ -1435,6 +1435,21 @@ disable your own runaway tile at 2am) and reads the org's **policy rows**
 (`GET /orgs/<org>/policy` — the ceilings your approvals can trip on; writes
 stay ws-admin).
 
+**Resource ceilings (D203).** A tile that asks for more memory, disk or
+sandbox/VM room than the workspace default (the manifest's `limits` and
+`vm` keys, elements.md), or meets its cap, is decided by a human: a
+workspace admin, always; or an admin of the org that owns the tile, up to
+the org's **per-tile ceiling** for that kind — `PUT /orgs/<org>/limits`
+(workspace admins only; `GET /orgs` shows it to org admins). A kind with no
+ceiling leaves org admins nothing to approve above the default. A value
+must also fit the workspace (isolation.md §Resource limits); only a
+workspace admin may override that (`force`). The owner set above — and the
+tile's managers — may revert a raise, since narrowing is always safe. The
+tile's own credentials (its frame, backend, terminals, agents) never
+decide, and the admin console decides only under an admin driver. Every
+decision is recorded with its approver in `data/tile-limits.json` and the
+audit log.
+
 **Permission sets (D28).** Named, reusable `{allow, policy, termApi,
 termNet}` bundles attached to orgs *by reference* (`sets: […]`, multiple per
 org): effective allowance = union(sets)∪extras; set ceiling rows join the
