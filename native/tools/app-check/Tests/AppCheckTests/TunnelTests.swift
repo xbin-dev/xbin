@@ -751,3 +751,166 @@ struct FakeDeviceLogin: APITransport {
         #expect(await v2.count == 0)
     }
 }
+
+// MARK: - xbind's vectors (native/spec/tunnel-vectors.json, §10)
+
+/// Byte for byte against what xbind's Go (flynn/noise) generates: keys and
+/// EndpointIds, the prologue, the selector and psk, both handshake
+/// messages and their frames, h, the code, and every transport frame each
+/// way (rekeys and closes included) — then every invalid case fails where
+/// it says. Skipped until the file exists in this tree.
+@Suite struct TunnelSpecVectorTests {
+    static var file: URL { repo.appendingPathComponent("native/spec/tunnel-vectors.json") }
+
+    func load() throws -> JSONValue? {
+        guard FileManager.default.fileExists(atPath: Self.file.path) else { return nil }
+        return try JSONValue(parsing: Data(contentsOf: Self.file))
+    }
+
+    struct Vector {
+        let j: JSONValue
+        func h(_ k: String) -> Data { hexData(j[k]?.stringValue) }
+        var purpose: NoiseTunnel.Purpose { j["alpn"]?.stringValue == TunnelALPN.pair ? .pair : .tunnel }
+        var psk: Data? { j["psk"]?.stringValue.map(hex) }
+        var link: TunnelLink {
+            TunnelLink(server: try! ServerOrigin(string: "https://xbin.example.com"), code: j["code"]?.stringValue ?? "",
+                       ticket: "endpointaaaa", serverKey: h("serverStaticPublic"), psk: psk ?? Data(count: 32))
+        }
+
+        func initiator(psk: Data? = nil, prologue: Data? = nil, serverKey: Data? = nil) throws -> NoiseHandshake {
+            try NoiseHandshake(initiator: true, pattern: purpose.pattern, prologue: prologue ?? h("prologue"),
+                               staticKey: h("deviceStaticPrivate"), remoteStatic: serverKey ?? h("serverStaticPublic"),
+                               psk: psk ?? self.psk, ephemeral: h("deviceEphemeralPrivate"))
+        }
+
+        func responder(prologue: Data? = nil) throws -> NoiseHandshake {
+            try NoiseHandshake(initiator: false, pattern: purpose.pattern, prologue: prologue ?? h("prologue"),
+                               staticKey: h("serverStaticPrivate"), psk: psk, ephemeral: h("serverEphemeralPrivate"))
+        }
+    }
+
+    @Test func vectors() async throws {
+        guard let v = try load() else { return }
+        #expect(v["version"]?.intValue == 1)
+        let vectors = try #require(v["vectors"]?.arrayValue)
+        #expect(Set(vectors.compactMap { $0["alpn"]?.stringValue }) == [TunnelALPN.pair, TunnelALPN.tunnel])
+        for j in vectors {
+            let x = Vector(j: j), name = j["name"]?.stringValue ?? "?"
+            #expect(NoiseTunnel.Pattern.ik.protocolName == j["protocol"]?.stringValue || x.purpose == .pair, "\(name)")
+            #expect(x.purpose.pattern.protocolName == j["protocol"]?.stringValue, "\(name) protocol")
+            // Keys: X25519 publics, EndpointIds = the iroh secrets' Ed25519 publics, the link's k.
+            #expect(try NoiseTunnel.publicKey(of: x.h("deviceStaticPrivate")) == x.h("deviceStaticPublic"))
+            #expect(try NoiseTunnel.publicKey(of: x.h("serverStaticPrivate")) == x.h("serverStaticPublic"))
+            #expect(try NoiseTunnel.publicKey(of: x.h("deviceEphemeralPrivate")) == x.h("deviceEphemeralPublic"))
+            #expect(TunnelDeviceKeys(irohSecret: x.h("deviceIrohSecret"), noiseStatic: x.h("deviceStaticPrivate")).endpointId
+                == x.h("deviceEndpointId"), "\(name) device EndpointId")
+            #expect(TunnelDeviceKeys(irohSecret: x.h("serverIrohSecret"), noiseStatic: Data(count: 32)).endpointId
+                == x.h("serverEndpointId"), "\(name) server EndpointId")
+            #expect(j["serverKey"]?.stringValue.flatMap(TunnelLink.key32) == x.h("serverStaticPublic"))
+            #expect(NoiseTunnel.prologue(x.purpose, server: x.h("serverEndpointId"), device: x.h("deviceEndpointId")) == x.h("prologue"),
+                    "\(name) prologue")
+            if x.purpose == .pair {
+                #expect(NoiseTunnel.selector(x.link) == x.h("selector"), "selector")
+                #expect(x.h("message1Payload") == x.h("selector"))
+                #expect(j["pskLink"]?.stringValue.flatMap(TunnelLink.key32) == x.psk)
+            } else {
+                #expect(x.h("message1Payload").isEmpty)
+            }
+            // The handshake, both roles.
+            var i = try x.initiator(), r = try x.responder()
+            let m1 = try i.writeMessage(x.h("message1Payload"))
+            #expect(m1 == x.h("message1"), "\(name) message 1")
+            #expect(try NoiseFrame.framed(m1) == x.h("message1Frame"))
+            #expect(try r.readMessage(m1) == x.h("message1Payload"))
+            #expect(r.remoteStatic == x.h("deviceStaticPublic"))
+            let m2 = try r.writeMessage()
+            #expect(m2 == x.h("message2"), "\(name) message 2")
+            #expect(try NoiseFrame.framed(m2) == x.h("message2Frame"))
+            #expect(try i.readMessage(m2).isEmpty)
+            #expect(i.handshakeHash == x.h("handshakeHash"), "\(name) h")
+            #expect(r.handshakeHash == x.h("handshakeHash"))
+            // The code.
+            #expect(NoiseTunnel.sasOKM(handshakeHash: i.handshakeHash) == x.h("sasOkm"), "\(name) sasOkm")
+            #expect(TunnelSAS.number(x.h("sasOkm")).map(Int64.init) == j["sas"]?.intValue)
+            #expect(NoiseTunnel.sas(handshakeHash: i.handshakeHash) == j["sasDisplay"]?.stringValue)
+            // Transport, each way: the sender's frames, then a receiver over them.
+            var (dSend, dRecv) = try i.split()
+            var (sSend, sRecv) = try r.split()
+            try checkDirection(j["deviceToServer"], send: &dSend, name: "\(name) device→server")
+            try checkDirection(j["serverToDevice"], send: &sSend, name: "\(name) server→device")
+            try await receive(j["deviceToServer"], cipher: sRecv, name: name)
+            try await receive(j["serverToDevice"], cipher: dRecv, name: name)
+            _ = (dRecv, sRecv)
+        }
+    }
+
+    /// The sender's frames: encrypt(type ‖ body), framed; REKEY right after a rekey frame.
+    func checkDirection(_ frames: JSONValue?, send: inout NoiseCipherState, name: String) throws {
+        for (n, f) in (frames?.arrayValue ?? []).enumerated() {
+            let type = UInt8(f["type"]?.intValue ?? 99)
+            let frame = try NoiseFrame.framed(send.encrypt(ad: Data(), Data([type]) + hexData(f["body"]?.stringValue)))
+            #expect(frame == hexData(f["frame"]?.stringValue), "\(name) frame \(n)")
+            if type == NoiseFrame.rekey { send.rekey() }
+        }
+    }
+
+    /// The receiver: data bodies in order, the rekey followed, the close an orderly end.
+    func receive(_ frames: JSONValue?, cipher: NoiseCipherState, name: String) async throws {
+        let all = frames?.arrayValue ?? []
+        let (a, b) = MemoryStream.pair(chunk: 13)
+        for f in all { try await a.write(hexData(f["frame"]?.stringValue)) }
+        try await a.finish()
+        let rx = NoiseReceiver(frames: NoiseFrameReader(b), cipher: cipher)
+        for f in all where f["type"]?.intValue == 0 {
+            #expect(try await rx.receive() == hexData(f["body"]?.stringValue), "\(name) data")
+        }
+        if all.last?["type"]?.intValue == 2 { #expect(try await rx.receive() == Data(), "\(name) close") }
+    }
+
+    @Test func invalidCases() async throws {
+        guard let v = try load() else { return }
+        let bases = Dictionary((v["vectors"]?.arrayValue ?? []).map { ($0["name"]?.stringValue ?? "", $0) }, uniquingKeysWith: { a, _ in a })
+        let invalid = try #require(v["invalid"]?.arrayValue)
+        #expect(invalid.count >= 5)
+        for c in invalid {
+            let name = c["name"]?.stringValue ?? "?"
+            let base = try #require(bases[c["base"]?.stringValue ?? ""], "\(name): base")
+            let x = Vector(j: base)
+            let field = { (k: String) -> Data? in c[k]?.stringValue.map(hex) }
+            switch (c["side"]?.stringValue, c["step"]?.stringValue) {
+            case ("device"?, "writeMessage1"?):
+                var i = try x.initiator(serverKey: field("serverStaticPublic"))
+                #expect(throws: (any Error).self, "\(name)") { try i.writeMessage(x.h("message1Payload")) }
+            case ("device"?, "readMessage2"?):
+                var i = try x.initiator(psk: field("psk"))
+                let m1 = try i.writeMessage(x.h("message1Payload"))
+                #expect(m1 == x.h("message1"), "\(name): message 1 doesn't depend on the psk")
+                #expect(throws: (any Error).self, "\(name)") { try i.readMessage(field("message2") ?? x.h("message2")) }
+            case ("server"?, "readMessage1"?):
+                var r = try x.responder(prologue: field("prologue"))
+                #expect(throws: (any Error).self, "\(name)") { try r.readMessage(field("message1") ?? x.h("message1")) }
+            case ("server"?, "transport"?):
+                var i = try x.initiator(), r = try x.responder()
+                _ = try r.readMessage(i.writeMessage(x.h("message1Payload")))
+                _ = try i.readMessage(r.writeMessage())
+                let (_, sRecv) = try r.split()
+                let (a, b) = MemoryStream.pair(chunk: 11)
+                try await a.write(field("stream") ?? Data())
+                try await a.finish()
+                let rx = NoiseReceiver(frames: NoiseFrameReader(b), cipher: sRecv)
+                var failed = false
+                for _ in 0..<16 {
+                    do {
+                        if try await rx.receive().isEmpty { break }
+                    } catch {
+                        failed = true
+                        break
+                    }
+                }
+                #expect(failed, "\(name): the stream must fail, never end in order")
+            default:
+                Issue.record("\(name): unknown case \(c["side"]?.stringValue ?? "?")/\(c["step"]?.stringValue ?? "?")")
+            }
+        }
+    }
+}
