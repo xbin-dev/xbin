@@ -1,5 +1,7 @@
 # Tile resource limits (D203): design and implementation plan
 
+> Status: live — being built (D203); the owner's decisions below are settled.
+
 Built on master 5f78b902 (v0.3.73). The design pass checked every claim
 against the code; §0 has the corrections. **§P (Phase 0) below is what is
 already on `limits/base`; the workers build on it.**
