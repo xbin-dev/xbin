@@ -27,8 +27,13 @@ const helperEnv = "XBIN_CGROUP_TEST_HELPER"
 
 // TestMain doubles as the helpers: "fork" forks at once and prints where
 // the fork and it ran (/proc/self/cgroup, each); "hog" takes memory until
-// something kills it.
+// something kills it; "hog-wait" reads a line first (a backend joins its
+// leaf after it starts: AddLimited).
 func TestMain(m *testing.M) {
+	if os.Getenv(helperEnv) == "hog-wait" {
+		_, _ = fmt.Scanln()
+		os.Setenv(helperEnv, "hog")
+	}
 	switch os.Getenv(helperEnv) {
 	case "fork":
 		child, err := exec.Command("cat", "/proc/self/cgroup").Output()
@@ -225,4 +230,79 @@ func TestParentOnCgroupfs(t *testing.T) {
 	}
 	p.Remove("sbx-hog")
 	p.Remove("sbx-fork")
+}
+
+// covers D203 — a backend's nested leaf on the real cgroupfs: Resize raises
+// memory.max (and the ⅞ memory.high) on a populated leaf at once, and cuts
+// it high-first; a hog the leaf's 32 MiB cap stops is OOM-killed, and
+// OOMKills reads the kill by the nested name before Remove — none after,
+// the counter going with the leaf.
+func TestBackendLeafOnCgroupfs(t *testing.T) {
+	m := New()
+	if !m.Enabled() {
+		t.Skip("no delegated cgroup (run the test binary under systemd-run --user --scope -p Delegate=yes)")
+	}
+	key := fmt.Sprintf("apps~limits-test%d", os.Getpid())
+	t.Cleanup(func() { m.Remove(DeploymentLeaf(key, "main")); m.Remove(DeploymentLeaf(key, "dev")) })
+	read := func(leaf, file string) string {
+		dir, _, _ := m.path(leaf)
+		return strings.TrimSpace(readStr(filepath.Join(dir, file)))
+	}
+
+	// Resize on a populated leaf
+	sleeper := exec.Command("sleep", "60")
+	if err := sleeper.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sleeper.Process.Kill(); _ = sleeper.Wait() })
+	live := DeploymentLeaf(key, "main")
+	m.AddLimited(live, sleeper.Process.Pid, Limits{MemMax: 64 << 20, PidsMax: 64, NodeWeight: PrimaryWeight})
+	if got := read(live, "memory.max"); got != "67108864" {
+		t.Fatalf("the leaf's memory.max: %q", got)
+	}
+	if err := m.Resize(live, Limits{MemMax: 128 << 20}); err != nil {
+		t.Fatal(err)
+	}
+	if mx, hi := read(live, "memory.max"), read(live, "memory.high"); mx != "134217728" || hi != "117440512" {
+		t.Errorf("raised on a populated leaf: memory.max %s, memory.high %s", mx, hi)
+	}
+	if err := m.Resize(live, Limits{MemMax: 96 << 20}); err != nil {
+		t.Fatal(err)
+	}
+	if mx, hi := read(live, "memory.max"), read(live, "memory.high"); mx != "100663296" || hi != "88080384" {
+		t.Errorf("cut: memory.max %s, memory.high %s", mx, hi)
+	}
+	if read(live, "pids.max") != "64" {
+		t.Error("Resize touched pids.max")
+	}
+
+	// a hog in a 32 MiB leaf
+	hog := exec.Command(os.Args[0], "-test.run=^$")
+	hog.Env = append(os.Environ(), helperEnv+"=hog-wait")
+	in, _ := hog.StdinPipe()
+	var out strings.Builder
+	hog.Stdout, hog.Stderr = &out, &out
+	if err := hog.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = hog.Process.Kill() })
+	leaf := DeploymentLeaf(key, "dev")
+	// no soft ceiling: memory.high's reclaim would throttle the hog for tens
+	// of seconds before the cap's kill (a backend's leaf keeps its ⅞)
+	m.AddLimited(leaf, hog.Process.Pid, Limits{MemMax: 32 << 20, MemHigh: -1, PidsMax: 64, NoSwap: true})
+	if _, err := in.Write([]byte("go\n")); err != nil {
+		t.Fatal(err)
+	}
+	err := hog.Wait()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || !ee.Sys().(syscall.WaitStatus).Signaled() || ee.Sys().(syscall.WaitStatus).Signal() != syscall.SIGKILL {
+		t.Fatalf("the hog in a 32 MiB leaf ended with %v: %s", err, out.String())
+	}
+	if n := m.OOMKills(leaf); n < 1 {
+		t.Errorf("OOMKills before Remove = %d (memory.events: %s)", n, read(leaf, "memory.events"))
+	}
+	m.Remove(leaf)
+	if n := m.OOMKills(leaf); n != 0 {
+		t.Errorf("OOMKills after Remove = %d: the counter outlived its leaf", n)
+	}
 }
