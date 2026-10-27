@@ -50,9 +50,20 @@ var out = json.NewEncoder(os.Stdout)
 
 func say(v map[string]any) { _ = out.Encode(v) }
 
+// clients are the iroh client processes started: ended before any exit,
+// or they would outlive this phone.
+var clients []*devclient.IrohClient
+
+func exit(code int) {
+	for _, c := range clients {
+		c.Close()
+	}
+	os.Exit(code)
+}
+
 func fail(err error) {
 	say(map[string]any{"t": "error", "error": err.Error()})
-	os.Exit(1)
+	exit(1)
 }
 
 func main() {
@@ -95,6 +106,7 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	clients = append(clients, pc)
 	// Signalled while pairing, the phone leaves: it ends its stream (a
 	// half-close of the forwarder connection, which the iroh client turns
 	// into the stream's FIN) and waits for xbind to hang up — killing the
@@ -131,13 +143,13 @@ func main() {
 	select {
 	case <-left:
 		say(map[string]any{"t": "left", "error": fmt.Sprint(err)})
-		os.Exit(1)
+		exit(1)
 	default:
 	}
 	switch {
 	case errors.As(err, &rej):
 		say(map[string]any{"t": "rejected", "reason": rej.Reason, "error": rej.Err})
-		os.Exit(1)
+		exit(1)
 	case err != nil:
 		fail(err)
 	}
@@ -161,6 +173,7 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
+	clients = append(clients, tc)
 	defer tc.Close()
 	tun := dev.Tunnel(devclient.ClientDialer(nil, tc), server, l.ServerKey)
 	lctx, lcancel := context.WithTimeout(ctx, time.Minute)
