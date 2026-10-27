@@ -1181,6 +1181,15 @@ account — the bootstrap owner token has none.
   and check the name. (A link followed from a web page — this workspace's
   included — is refused outright.) Failed attempts count against the login
   throttle, and each browser sign-in is in the audit log.
+- **How many devices** (D204). A person may have **one** app device paired
+  unless the workspace says otherwise: admins set the workspace default
+  (1–32; admin console, `bx app limit <n>`, `PUT /api/xbin/devices/limits`)
+  and a per-person override (0–32, the Users tab's devices…, `bx user set
+  <id> --max-devices n|default`, `PATCH /api/xbin/users/<id>
+  {maxDevices}`). It is checked when a device is added: at the limit the
+  enrollment is refused with "you have N devices; this workspace allows M
+  per person — remove one first (an admin can raise your limit)". Lowering
+  it removes nobody's device — devices already paired stay until removed.
 - **Managing devices.** The same *devices* panel lists your devices (name,
   platform, last sign-in and its IP) with **remove**, and under each one its
   **push registration** (what it is notified about, when it was last sent
@@ -1237,7 +1246,8 @@ Routes: `GET /api/xbin/login/methods`, `POST /api/xbin/invite/check`,
 `POST /login/device`, `POST /api/xbin/login`,
 `GET /login/sso?app=1`, `POST /login/ticket`, `POST /api/xbin/web-ticket`,
 `GET /login?ticket=`, `POST /login/web-ticket`, `GET|DELETE /api/xbin/devices`,
-`GET /api/xbin/users/<id>/devices` ([protocol.md](/docs/protocol.md)). The
+`GET /api/xbin/users/<id>/devices`, `GET|PUT /api/xbin/devices/limits`
+([protocol.md](/docs/protocol.md)). The
 exact signed message and a test vector for client implementers:
 `native/spec/device-login.md` in the source tree.
 

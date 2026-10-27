@@ -1864,6 +1864,8 @@ GET    /users                     admin or xbin:users. [{id,name,role,
                                    netRules, allow} — D88),
                                    disabled?, invitePending?,
                                    deviceCount? (enrolled app devices),
+                                   deviceLimit (their effective limit),
+                                   maxDevices? (their override, D204),
                                    email?, roleVia?, lastLogin?,
                                    lastLoginVia?, lastSSO?, ssoGroups?,
                                    ssoSyncError?}] — levels
@@ -1986,7 +1988,9 @@ POST   /devices/enroll            none — the code is the credential.
                                    DER of an EC P-256 key, base64url)} →
                                    {deviceId, user, origin, name}. 401
                                    bad/spent/expired code (throttled), 400
-                                   bad key, 409 past 32 devices per user
+                                   bad key, 409 at the person's device
+                                   limit (GET /devices/limits; the error
+                                   says how many they have and allows)
 POST   /web-ticket                the app's device-key session (via
                                    device) only — not a browser, the
                                    app's password/SSO session, a tile, a
@@ -2014,16 +2018,33 @@ POST   /web-ticket                the app's device-key session (via
                                    per device (429 + Retry-After); audited
 GET    /devices                   a signed-in user. {devices: [{id, name,
                                    platform, origin, created, lastUsed,
-                                   lastIP, current}]} — own app devices;
-                                   current marks the device behind the
-                                   calling app session
+                                   lastIP, current, tunnel?}], limit,
+                                   count} — own app devices; current marks
+                                   the device behind the calling app
+                                   session, tunnel one paired with the app
+                                   tunnel (D204); limit: how many they may
+                                   have, count: how many they have (past
+                                   the limit only when it was lowered)
 DELETE /devices/<id>              the device's user, or admin/xbin:users
                                    → {ok, user, dropped}: removes the key
                                    and ends every session it opened (and
                                    the frame and asset tokens they minted)
                                    and its push registration
 GET    /users/<id>/devices        admin/xbin:users. {devices: […]} as
-                                   GET /devices (no current)
+                                   GET /devices (no current), limit (their
+                                   effective one), override? (maxDevices)
+GET    /devices/limits            admin/xbin:users. {default, max: 32,
+                                   atLimit: [row], overrides: [row]} — row
+                                   {user, name?, override?, limit, count}:
+                                   how many app devices one person may
+                                   have paired (D204). default: the
+                                   workspace's (1 unless set); atLimit:
+                                   people at or past theirs; overrides:
+                                   people with their own (PATCH
+                                   /users/<id> {maxDevices})
+PUT    /devices/limits            admin/xbin:users. {default: 1–32} → the
+                                   GET view. Enforced when a device is
+                                   added: devices already paired stay
 GET    /screens                   signed-in. {default: {tiles,blocks?,
                                    mode?,arrange?}|null,
                                    org: [{id,org,name,edit,mode?,tiles,
@@ -2115,7 +2136,10 @@ PATCH  /users/<id>                admin/xbin:users. update — present fields
                                    noPersonalTiles, noTerminal (switching
                                    it on ends the user's live terminal and
                                    agent sessions), sets, netSets (a change
-                                   restarts their net tiles). A password or
+                                   restarts their net tiles). maxDevices:
+                                   n (0–32) overrides the workspace device
+                                   limit for them, null clears it (D204).
+                                   A password or
                                    SSO email set for someone else who holds
                                    partitions is audited and they are told;
                                    with credentialResetConfirm on it is held

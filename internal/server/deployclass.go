@@ -258,6 +258,8 @@ var routeClasses = map[string]RouteClass{
 	"DELETE /users/{id}":                PrimaryOnly,
 	"DELETE /users/{id}/sessions":       PrimaryOnly,
 	"GET /users/{id}/devices":           PrimaryOnly,
+	"GET /devices/limits":               PrimaryOnly,
+	"PUT /devices/limits":               PrimaryOnly,
 	"GET /sessions":                     PrimaryOnly,
 	"GET /users-directory":              PrimaryOnly,
 	"GET /auth-settings":                PrimaryOnly,

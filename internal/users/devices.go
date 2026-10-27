@@ -32,9 +32,16 @@ type Device struct {
 	Created  int64  `json:"created"`
 	LastUsed int64  `json:"lastUsed,omitempty"` // unix: last successful device login
 	LastIP   string `json:"lastIP,omitempty"`   // client IP of that login
+	// TunnelKey / Endpoint pair the device with the app tunnel (D204,
+	// native/spec/tunnel.md): its Noise static public key (base64url; unique
+	// across the store) and its iroh EndpointId (hex; one phone may hold
+	// two accounts on one server, so it may repeat). Empty: a classic device.
+	TunnelKey string `json:"tunnelKey,omitempty"`
+	Endpoint  string `json:"endpoint,omitempty"`
 }
 
-// MaxDevicesPerUser bounds a user row (enrollment refuses past it).
+// MaxDevicesPerUser bounds a user row and every device limit
+// (devicelimit.go).
 const MaxDevicesPerUser = 32
 
 // Device field limits (enrollment input from the app).
@@ -68,10 +75,20 @@ func newDeviceID() (string, error) {
 
 // AddDevice enrolls a device on user id: assigns its id and creation time,
 // normalises name/platform, and persists. The caller has validated the key
-// and resolved the origin. A disabled or unknown user is refused.
+// and resolved the origin. A disabled or unknown user is refused, and so is
+// a user at their device limit (*DeviceLimitError).
 func (s *Store) AddDevice(id string, d Device) (Device, error) {
+	nd, _, err := s.AddDeviceReplacing(id, d, "")
+	return nd, err
+}
+
+// AddDeviceReplacing is AddDevice that first removes the user's device
+// replace ("" = none) in the same step — re-pairing at the limit. The
+// limit counts the devices left after the removal; the removed device is
+// returned so the caller can end its sessions.
+func (s *Store) AddDeviceReplacing(id string, d Device, replace string) (Device, *Device, error) {
 	if d.PublicKey == "" || d.Origin == "" {
-		return Device{}, fmt.Errorf("device needs a public key and an origin")
+		return Device{}, nil, fmt.Errorf("device needs a public key and an origin")
 	}
 	d.Name = cleanDeviceText(d.Name, maxDeviceName)
 	d.Platform = strings.ToLower(cleanDeviceText(d.Platform, maxDevicePlatform))
@@ -80,25 +97,44 @@ func (s *Store) AddDevice(id string, d Device) (Device, error) {
 	}
 	did, err := newDeviceID()
 	if err != nil {
-		return Device{}, err
+		return Device{}, nil, err
 	}
 	d.ID, d.Created, d.LastUsed, d.LastIP = did, timeNow(), 0, ""
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	u := s.byID[normalizeID(id)]
 	if u == nil || u.Disabled {
-		return Device{}, fmt.Errorf("no such user %q, or the account is disabled", id)
+		return Device{}, nil, fmt.Errorf("no such user %q, or the account is disabled", id)
 	}
-	if len(u.Devices) >= MaxDevicesPerUser {
-		return Device{}, fmt.Errorf("too many devices (max %d) — remove one first", MaxDevicesPerUser)
+	kept := u.Devices
+	var removed *Device
+	if replace != "" {
+		kept = nil
+		for _, dv := range u.Devices {
+			if dv.ID == replace {
+				r := dv
+				removed = &r
+			} else {
+				kept = append(kept, dv)
+			}
+		}
+		if removed == nil {
+			return Device{}, nil, fmt.Errorf("no device %q to replace", replace)
+		}
+	}
+	if lim := s.userLimitLocked(u); len(kept) >= lim {
+		return Device{}, nil, &DeviceLimitError{Count: len(kept), Limit: lim}
+	}
+	if s.tunnelKeyTakenLocked(d.TunnelKey, replace) {
+		return Device{}, nil, ErrTunnelKeyTaken
 	}
 	nu := *u
-	nu.Devices = append(append([]Device(nil), u.Devices...), d)
+	nu.Devices = append(append([]Device(nil), kept...), d)
 	s.byID[nu.ID] = &nu
 	if err := s.persistLocked(); err != nil {
-		return Device{}, err
+		return Device{}, nil, err
 	}
-	return d, nil
+	return d, removed, nil
 }
 
 // FindDevice resolves a device id to its owning user id and the device.

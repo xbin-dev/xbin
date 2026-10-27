@@ -37,6 +37,11 @@ func deviceStack(t *testing.T) (http.Handler, *server.Server, *Broker) {
 			t.Fatal(err)
 		}
 	}
+	// These tests enroll several devices per person; the limit itself
+	// (default 1, D204) is TestDeviceLimitAPI's.
+	if err := b.Users.SetDeviceLimit(users.MaxDevicesPerUser); err != nil {
+		t.Fatal(err)
+	}
 	srv := &server.Server{Reg: b.Reg, Hub: b.Hub, Auth: a}
 	b.Register(srv)
 	return srv.Handler(), srv, b

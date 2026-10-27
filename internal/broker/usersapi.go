@@ -78,7 +78,7 @@ func (b *Broker) apiUsersList(w http.ResponseWriter, r *http.Request) {
 		full, _ := st.Get(u.ID)
 		row := userListRow{User: u, InvitePending: full != nil && full.InvitePending()}
 		if full != nil {
-			row.DeviceCount = len(full.Devices)
+			row.DeviceCount, row.DeviceLimit = len(full.Devices), st.UserDeviceLimit(u.ID)
 		}
 		if !u.IsAdmin() {
 			pl := st.Personal(u.ID)
@@ -123,7 +123,8 @@ type userBody struct {
 		Create bool   `json:"create"`
 		Admin  bool   `json:"admin"`
 	} `json:"orgs"`
-	personalBody // noPersonalTiles, noTerminal, sets, netSets (D88)
+	personalBody    // noPersonalTiles, noTerminal, sets, netSets (D88)
+	deviceLimitBody // maxDevices (D204, usersapi_devices.go)
 }
 
 func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
@@ -173,7 +174,7 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if err := body.personalBody.check(st); err != nil {
+	if err := body.checkAll(st); err != nil {
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -213,7 +214,7 @@ func (b *Broker) apiUsersCreate(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	if u, err = b.applyPersonal(nil, st, u, body.personalBody, true); err != nil {
+	if u, err = b.applyUserExtras(nil, st, u, &body, true); err != nil {
 		server.WriteJSON(w, http.StatusBadRequest, map[string]string{"error": err.Error(), "user": u.ID})
 		return
 	}
@@ -420,7 +421,7 @@ func (b *Broker) apiUsersUpdate(srv *server.Server, w http.ResponseWriter, r *ht
 		}
 		nu.Disabled = *body.Disabled
 	}
-	if err := body.personalBody.check(st); err != nil {
+	if err := body.checkAll(st); err != nil {
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -428,7 +429,7 @@ func (b *Broker) apiUsersUpdate(srv *server.Server, w http.ResponseWriter, r *ht
 	u, err := st.Upsert(nu, body.Password)
 	if err == nil {
 		credDone()
-		u, err = b.applyPersonal(srv, st, u, body.personalBody, false)
+		u, err = b.applyUserExtras(srv, st, u, &body, false)
 	}
 	if err != nil {
 		server.WriteError(w, http.StatusBadRequest, err.Error())

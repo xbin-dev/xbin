@@ -17,6 +17,8 @@ func (b *Broker) registerDevices(srv *server.Server) {
 	srv.RegisterAPI("GET /devices", b.apiDevicesMine)
 	srv.RegisterAPI("DELETE /devices/{id}", func(w http.ResponseWriter, r *http.Request) { b.apiDeviceRevoke(srv, w, r) })
 	srv.RegisterAPI("GET /users/{id}/devices", b.apiUserDevices)
+	srv.RegisterAPI("GET /devices/limits", b.apiDeviceLimits)    // usersapi_devices.go (D204)
+	srv.RegisterAPI("PUT /devices/limits", b.apiDeviceLimitsSet) // …
 }
 
 // deviceView is a device as the APIs show it.
@@ -29,13 +31,14 @@ type deviceView struct {
 	LastUsed int64  `json:"lastUsed,omitempty"`
 	LastIP   string `json:"lastIP,omitempty"`
 	Current  bool   `json:"current,omitempty"` // the device behind the calling session
+	Tunnel   bool   `json:"tunnel,omitempty"`  // paired with the app tunnel (D204)
 }
 
 func deviceViews(ds []users.Device, current string) []deviceView {
 	out := make([]deviceView, 0, len(ds))
 	for _, d := range ds {
 		out = append(out, deviceView{ID: d.ID, Name: d.Name, Platform: d.Platform, Origin: d.Origin,
-			Created: d.Created, LastUsed: d.LastUsed, LastIP: d.LastIP, Current: current != "" && d.ID == current})
+			Created: d.Created, LastUsed: d.LastUsed, LastIP: d.LastIP, Current: current != "" && d.ID == current, Tunnel: d.TunnelKey != ""})
 	}
 	return out
 }
@@ -52,7 +55,8 @@ func (b *Broker) apiDevicesMine(w http.ResponseWriter, r *http.Request) {
 	if st == nil {
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"devices": deviceViews(st.Devices(p.User.ID), p.DeviceID)})
+	ds := st.Devices(p.User.ID)
+	server.WriteJSON(w, http.StatusOK, map[string]any{"devices": deviceViews(ds, p.DeviceID), "limit": st.UserDeviceLimit(p.User.ID), "count": len(ds)})
 }
 
 // apiUserDevices — GET /users/{id}/devices: admin / xbin:users.
@@ -69,7 +73,8 @@ func (b *Broker) apiUserDevices(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusNotFound, "no such user")
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, map[string]any{"devices": deviceViews(st.Devices(u.ID), "")})
+	server.WriteJSON(w, http.StatusOK, map[string]any{"devices": deviceViews(st.Devices(u.ID), ""),
+		"limit": st.UserDeviceLimit(u.ID), "override": u.MaxDevices})
 }
 
 // apiDeviceRevoke — DELETE /devices/{id}: the device's own user, or admin /

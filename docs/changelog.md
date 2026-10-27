@@ -12,6 +12,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-27
 
+- **App devices per person are limited — one by default** (D204;
+  [auth.md](/docs/auth.md) §Device login, [bx.md](/docs/bx.md)). Adding a
+  device past the limit answers `409` "you have N devices; this workspace
+  allows M per person — remove one first (an admin can raise your limit)".
+  Admins set the workspace default (1–32: `bx app limit <n>`,
+  `GET|PUT /api/xbin/devices/limits`) and per-person overrides (0–32:
+  `bx user set <id> --max-devices n|default`, `PATCH /api/xbin/users/<id>
+  {maxDevices}`). Devices already paired stay (it is enforced only when a
+  device is added) — but **after this upgrade someone who has a phone
+  can't add a second device until an admin raises the limit**: run
+  `bx app limit 3` (or whatever suits) if your people use several.
+  `GET /devices` gains `limit`, `count` and a per-device `tunnel`;
+  `GET /users/<id>/devices` gains `limit` and `override`; `/users` rows
+  gain `deviceLimit` and `maxDevices`.
 - **Tiles can ask for more memory, disk and sandbox/VM room; admins raise
   a cap when a tile meets it** (D203; [isolation.md](/docs/isolation.md)
   §Resource limits, [elements.md](/docs/elements.md),

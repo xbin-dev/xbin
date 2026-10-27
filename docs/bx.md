@@ -59,6 +59,13 @@ bx user ls | add <id> [flags] | set <id> [flags] | invite <id> | signout <id> [-
                                        / --personal-tiles, --no-terminal /
                                        --allow-terminal, --sets / --net-sets
                                        s,+s,-s (sets for the tiles they own)
+                                       --max-devices n|default: app devices
+                                       they may pair, over the workspace's
+                                       (bx app limit; D204)
+bx app limit [<n>]                     app devices one person may pair (admin):
+                                       show the workspace default, the people
+                                       at it and the overrides, or set it (1–32;
+                                       enforced when a device is added)
 bx defaults [set …]                    provisioning defaults (admin): what every
                                        NEW account starts with — --tiles p=level,
                                        --org o[:level[:create]]

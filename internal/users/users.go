@@ -132,6 +132,9 @@ type User struct {
 	// UID is this person's incarnation (uid.go; partitioned tiles, PD-43):
 	// store-owned, minted at their first partition, never on the wire.
 	UID string `json:"uid,omitempty"`
+	// MaxDevices overrides the workspace device limit for this person
+	// (devicelimit.go, D204): 0–32, nil = the default. Store-owned.
+	MaxDevices *int `json:"maxDevices,omitempty"`
 }
 
 // IsAdmin reports the admin role.
@@ -269,6 +272,8 @@ type Store struct {
 	// chrome: the tiles a workspace admin approved as trusted chrome (D118,
 	// chrome.go) — a manifest's `chrome: true` alone never unsandboxes one.
 	chrome map[string]bool
+	// deviceLimit: app devices per person (devicelimit.go); 0 = the default.
+	deviceLimit int
 }
 
 // Open loads (or starts empty) the user store under dataDir.
@@ -309,6 +314,7 @@ func Open(dataDir string) (*Store, error) {
 		PasswordLoginOff   bool                      `json:"passwordLoginDisabled"`
 		NativeRuntimeOff   bool                      `json:"nativeRuntimeDisabled"`
 		ChromeTiles        []string                  `json:"chromeTiles"`
+		DeviceLimit        int                       `json:"deviceLimit"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return nil, fmt.Errorf("users.json: %w", err)
@@ -336,6 +342,7 @@ func Open(dataDir string) (*Store, error) {
 	s.passwordLoginDisabled = doc.PasswordLoginOff && s.sso.Enabled()
 	s.nativeRuntimeOff = doc.NativeRuntimeOff
 	s.chrome = chromeSet(doc.ChromeTiles)
+	s.deviceLimit = doc.DeviceLimit
 	if s.owners == nil {
 		s.owners = map[string]string{}
 	}
@@ -550,8 +557,9 @@ func (s *Store) Upsert(u User, password string) (*User, error) {
 		// a manual role change is manual provenance.
 		u.LastLogin, u.LastLoginVia, u.LastSSO = existing.LastLogin, existing.LastLoginVia, existing.LastSSO
 		u.SSOGroups, u.SSOSyncError = existing.SSOGroups, existing.SSOSyncError
-		u.Devices = existing.Devices // store-owned too (devices.go)
-		u.UID = existing.UID         // and the incarnation (uid.go)
+		u.Devices = existing.Devices       // store-owned too (devices.go)
+		u.UID = existing.UID               // and the incarnation (uid.go)
+		u.MaxDevices = existing.MaxDevices // and the device limit (devicelimit.go)
 		u.RoleVia = ""
 		if u.Role == existing.Role {
 			u.RoleVia = existing.RoleVia
@@ -688,6 +696,9 @@ func (s *Store) persistLocked() error {
 	}
 	if len(s.chrome) > 0 {
 		doc["chromeTiles"] = s.chromeTilesLocked()
+	}
+	if s.deviceLimit > 0 {
+		doc["deviceLimit"] = s.deviceLimit
 	}
 	if len(s.orgs) > 0 {
 		orgs := make([]*Org, 0, len(s.orgs))

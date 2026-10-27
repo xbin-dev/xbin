@@ -102,6 +102,7 @@ type userListRow struct {
 	InvitePending bool            `json:"invitePending,omitempty"`
 	Personal      *users.Personal `json:"personal,omitempty"`
 	DeviceCount   int             `json:"deviceCount,omitempty"` // enrolled app devices (devicesapi.go)
+	DeviceLimit   int             `json:"deviceLimit"`           // their effective device limit (D204)
 }
 
 // firstNonEmpty is a, unless it is blank, then b (the users API's display

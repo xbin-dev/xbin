@@ -392,6 +392,8 @@ var partitionClasses = map[string]PartitionClass{
 	"DELETE /users/{id}":                GlobalOnlyRefused,
 	"DELETE /users/{id}/sessions":       GlobalOnlyRefused,
 	"GET /users/{id}/devices":           GlobalOnlyRefused,
+	"GET /devices/limits":               GlobalOnlyRefused,
+	"PUT /devices/limits":               GlobalOnlyRefused,
 	"GET /sessions":                     GlobalOnlyRefused,
 	"GET /users-directory":              GlobalOnlyRefused,
 	"GET /auth-settings":                GlobalOnlyRefused,

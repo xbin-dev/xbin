@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -21,6 +22,7 @@ import (
 //	                 [--term-api|--no-term-api] [--term-net|--no-term-net] [--password]
 //	  add|set also:  [--no-personal-tiles|--personal-tiles] [--no-terminal|--allow-terminal]
 //	                 [--sets +s,-s] [--net-sets +n,-n]   the personal plane (D88)
+//	                 [--max-devices n|default]   app devices they may pair (D204)
 //	bx user signout <id> [--devices]   end every session, terminal and frame token
 //	                 ("sign out everywhere"); --devices also removes their app devices
 //	bx user rm  <id>
@@ -187,6 +189,19 @@ func cmdUser(args []string) error {
 				// invite — the bound --email signs in through the IdP.
 				wantPw = false
 				body["sso"] = true
+			case "--max-devices":
+				// App devices this person may pair (D204): n, or default.
+				v, err := nextArg(args, &i)
+				if err != nil {
+					return err
+				}
+				if v == "default" {
+					body["maxDevices"] = nil
+				} else if n, err := strconv.Atoi(v); err == nil {
+					body["maxDevices"] = n
+				} else {
+					return fmt.Errorf("--max-devices: want a number (0–32) or default")
+				}
 			case "--disable":
 				body["disabled"] = true
 			case "--enable":
