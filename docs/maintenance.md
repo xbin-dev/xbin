@@ -873,9 +873,18 @@ tree's scaffold over the workspace's copies (`--dev-overlay`);
 `HARNESS_NO_OVERLAY=1` serves the workspace's own, which `oldScaffold` needs:
 it swaps `shell/` and `tiles/admin/` for the last release's
 (`HARNESS_OLD_SCAFFOLD`, a git tag), checks them against partitioned and
-pending tiles, and puts the workspace's back byte for byte. Under the overlay
+pending tiles, and puts the workspace's back byte for byte; it also serves
+a tile limits alert (D203) and checks the old shell and admin console show
+its words, `/xbin/limits` in them. Under the overlay
 — the default run — it `SKIP`s, said so, so only a run with the switch covers
 it (give a `--shots` run against that instance the switch too).
+`limitsCaps` drives the tile limits (D203) end to end against the real API
+in both themes: the harness xbind enforces only the data disk quota (no
+cgroup delegation, VM runtime or tile sandboxes), so its tiles root their
+scope and ask `"disk"`; a cap hit can't be produced, so its OOM and
+full-quota alerts are served by route interception while their raises go
+to the real `POST /limits`, and it `SKIP`s the real hit and the VM and
+sandbox kinds, said so (`test/limits` drives the real OOM and quota path).
 
 ```
 hack/ui-harness/run.sh                    # build, fresh workspace, seed, every pass, stop
