@@ -570,8 +570,9 @@ pub async fn run(fd: RawFd) -> i32 {
     let (events, rx) = Events::new();
     let writer = tokio::spawn(write_events(rx, tokio::io::stdout()));
     let code = run_inner(fd, events).await;
-    // the writer ends once every Events clone is gone
-    let _ = tokio::time::timeout(Duration::from_secs(2), writer).await;
+    // the last lines (a fatal error) out; the writer itself never ends while
+    // the endpoint's hook holds a sender
+    let _ = tokio::time::timeout(Duration::from_millis(300), writer).await;
     code
 }
 
@@ -624,7 +625,7 @@ async fn run_inner(fd: RawFd, events: Events) -> i32 {
         }
     }
     announce.abort();
-    let _ = tokio::time::timeout(Duration::from_secs(2), server.ep.close()).await;
+    let _ = tokio::time::timeout(Duration::from_secs(1), server.ep.close()).await;
     0
 }
 

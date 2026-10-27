@@ -67,7 +67,7 @@ fn main() {
             match fd {
                 Some(fd) => {
                     logging();
-                    runtime().block_on(serve::run(fd))
+                    run(serve::run(fd))
                 }
                 None => {
                     eprintln!("{USAGE}");
@@ -78,7 +78,7 @@ fn main() {
         Some("client") => match client::parse_args(&args[1..]) {
             Ok(a) => {
                 logging();
-                runtime().block_on(client::run(a))
+                run(client::run(a))
             }
             Err(e) => {
                 eprintln!("{e}");
@@ -93,10 +93,15 @@ fn main() {
     std::process::exit(code);
 }
 
-fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_multi_thread()
+/// Runs main's future and exits with its code. The runtime is never
+/// dropped: its blocking stdin reader would hold the exit until xbind
+/// closed the pipe.
+fn run(f: impl std::future::Future<Output = i32>) -> i32 {
+    let rt = tokio::runtime::Builder::new_multi_thread()
         .worker_threads(2)
         .enable_all()
         .build()
-        .expect("tokio runtime")
+        .expect("tokio runtime");
+    let code = rt.block_on(f);
+    std::process::exit(code)
 }
