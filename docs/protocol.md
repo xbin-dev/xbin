@@ -2111,8 +2111,11 @@ GET    /devices/pairing/<id>      the login that minted the tunnel code
                                    confirmation window's), reason?
                                    (mismatch | expired | limit |
                                    refused), error?, deviceId?,
-                                   replaced?}. A finished pairing answers
-                                   for 10 minutes, then 404
+                                   replaced?, and while in confirm
+                                   atLimit, limit, count (whether "Codes
+                                   match" needs a device to replace)}. A
+                                   finished pairing answers for 10
+                                   minutes, then 404
 POST   /devices/pairing/<id>/confirm
                                    the same login. {match: bool,
                                    replace?: <device id>} — "Codes

@@ -49,7 +49,7 @@ func TestEndToEnd(t *testing.T) {
 	}
 	res := r.startPair(d, link)
 	pv := r.waitState("bob", id, "confirm")
-	if pv["device"].(map[string]any)["name"] != "Bob's iPhone" || len(pv["sas"].(string)) != 6 {
+	if pv["device"].(map[string]any)["name"] != "Bob's iPhone" || len(pv["sas"].(string)) != 6 || pv["atLimit"] != false || pv["limit"] != 1.0 {
 		t.Fatalf("pairing view %v", pv)
 	}
 	// only the minting session reads or confirms it
@@ -289,7 +289,9 @@ func TestPairingReplaceAtLimit(t *testing.T) {
 	d, _ := devclient.New("new phone")
 	link, id := r.mint("bob") // a tunnel code mints at the limit
 	res := r.startPair(d, link)
-	r.waitState("bob", id, "confirm")
+	if pv := r.waitState("bob", id, "confirm"); pv["atLimit"] != true || pv["limit"] != 1.0 || pv["count"] != 1.0 {
+		t.Fatalf("the view at the limit: %v", pv)
+	}
 	if code, out := r.do("POST", "/api/xbin/devices/pairing/"+id+"/confirm", `{"match":true}`, r.as("bob")); code != http.StatusConflict || out["limit"] != 1.0 {
 		t.Fatalf("confirm at the limit: %d %v", code, out)
 	}

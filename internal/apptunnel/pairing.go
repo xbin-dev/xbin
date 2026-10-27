@@ -396,6 +396,12 @@ type PairingView struct {
 	Error    string       `json:"error,omitempty"`
 	DeviceID string       `json:"deviceId,omitempty"`
 	Replaced string       `json:"replaced,omitempty"`
+	// While in confirm: whether "Codes match" would need a device to
+	// replace (atLimit), and the person's limit and device count — so the
+	// replace choice can show before anyone clicks.
+	AtLimit *bool `json:"atLimit,omitempty"`
+	Limit   *int  `json:"limit,omitempty"`
+	Count   *int  `json:"count,omitempty"`
 }
 
 // DeviceHello is who the phone says it is.
@@ -409,6 +415,11 @@ func (s *Service) viewLocked(pr *pairing) PairingView {
 		DeviceID: pr.deviceID, Replaced: pr.replaced}
 	if pr.state == stConfirm {
 		v.SAS = pr.sas
+		if s.opt.Users != nil {
+			lim, n := s.opt.Users.UserDeviceLimit(pr.userID), len(s.opt.Users.Devices(pr.userID))
+			at := n >= lim
+			v.AtLimit, v.Limit, v.Count = &at, &lim, &n
+		}
 	}
 	if pr.name != "" || pr.platform != "" {
 		v.Device = &DeviceHello{Name: pr.name, Platform: pr.platform}
