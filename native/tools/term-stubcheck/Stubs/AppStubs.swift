@@ -5,11 +5,19 @@ import SwiftUI
 import XbinCore
 import XbinTerm
 
+// Model/WorkspaceTransport.swift (what the terminal uses of it).
+protocol WorkspaceTransport: Sendable {
+    var origin: ServerOrigin { get }
+    func ready() async throws -> ServerOrigin
+}
+
 @MainActor @Observable
 final class WorkspaceModel {
     let auth: WorkspaceAuth
     var sessions: [TermDirectoryEntry] = []
     var origin: ServerOrigin { fatalError() }
+    var transport: any WorkspaceTransport { fatalError() }
+    var transportOrigin: ServerOrigin { transport.origin }
     init() { fatalError() }
     func refreshSessions() async {}
     func describe(_ error: any Error) -> String { "" }
@@ -22,7 +30,7 @@ enum AppSettings {
 
 @MainActor
 final class WebSocketTransport: TermTransport {
-    init(origin: ServerOrigin, path: String, token: String, events: @escaping @MainActor (TermTransportEvent) -> Void) {}
+    init(transport: any WorkspaceTransport, path: String, token: String, events: @escaping @MainActor (TermTransportEvent) -> Void) {}
     func start() {}
     func send(_ m: TermWireMessage) {}
     func close() {}

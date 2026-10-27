@@ -134,6 +134,19 @@ public enum TileScheme {
         return s == origin.scheme && h == origin.host.lowercased() && port == own
     }
 
+    /// Where a redirect is followed (D204), or nil when it isn't: on
+    /// `origin` — where the workspace's requests go — as it is; on the
+    /// workspace's public origin `publicOrigin` (a tunnelled workspace's
+    /// xbind may answer with its `--external-url`), its path and query
+    /// moved onto `origin`. Nothing else, so a frame token or a bearer
+    /// never follows a redirect off the workspace. Where both are the same
+    /// (a direct connection) this is ``allowsRedirect(to:origin:)``.
+    public static func redirect(to url: URL, origin: ServerOrigin, publicOrigin: ServerOrigin) -> URL? {
+        if allowsRedirect(to: url, origin: origin) { return url }
+        guard publicOrigin != origin, allowsRedirect(to: url, origin: publicOrigin) else { return nil }
+        return WebTicket.moved(url.absoluteString, to: origin)
+    }
+
     /// Methods whose request can be sent a second time after a frame token
     /// renewal (the body is in memory; nothing changed server-side).
     public static func isReplayable(method: String) -> Bool {

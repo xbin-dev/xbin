@@ -322,9 +322,10 @@ struct CameraPicker: UIViewControllerRepresentable {
 
 /// Uploads a picked file to the tile's own backend with the tile's frame
 /// token (never the user's session), reporting progress; a 401 renews the
-/// token once (the body is in memory, nothing happened server-side).
+/// token once (the body is in memory, nothing happened server-side). It
+/// goes through the workspace's transport (its server, or its tunnel, D204).
 struct TileUploader {
-    let origin: ServerOrigin
+    let transport: any WorkspaceTransport
     let tile: String
     let frameTokens: FrameTokenCache
 
@@ -339,6 +340,12 @@ struct TileUploader {
             } catch {
                 return TileUpload.failure("upload failed: no frame token (\(error.localizedDescription))")
             }
+            let origin: ServerOrigin
+            do {
+                origin = try await transport.ready()
+            } catch {
+                return TileUpload.failure("upload failed: \(error.localizedDescription)")
+            }
             guard let url = origin.url(path: path) else { return TileUpload.failure("upload failed: bad path") }
             var req = URLRequest(url: url)
             req.httpMethod = method
@@ -349,7 +356,7 @@ struct TileUploader {
             req.setValue("application/json, */*;q=0.5", forHTTPHeaderField: "Accept")
             do {
                 let delegate = UploadProgress(report: progress)
-                let (body, resp) = try await AppTransport.shared.session.upload(for: req, from: file.data, delegate: delegate)
+                let (body, resp) = try await transport.upload(req, from: file.data, delegate: delegate)
                 guard let h = resp as? HTTPURLResponse else { return TileUpload.failure("upload failed: no answer") }
                 if h.statusCode == 401, attempt == 0 {
                     await frameTokens.invalidate(tile, token: token)
@@ -429,7 +436,7 @@ final class TileAttachFlow {
         } else if let n = picker.notice {
             say(n)
         }
-        let uploader = TileUploader(origin: workspace.origin, tile: tile, frameTokens: workspace.frameTokens)
+        let uploader = TileUploader(transport: workspace.transport, tile: tile, frameTokens: workspace.frameTokens)
         var out: [XbinUpload] = []
         for (i, step) in steps.enumerated() {
             switch step {

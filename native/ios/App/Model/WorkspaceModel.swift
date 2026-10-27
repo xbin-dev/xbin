@@ -15,7 +15,10 @@ final class WorkspaceModel: Identifiable {
     private(set) var record: WorkspaceRecord
     let auth: WorkspaceAuth
     let frameTokens: FrameTokenCache
-    let transport: AppTransport
+    /// How this workspace's requests reach its xbind (D204): its server, or
+    /// its tunnel's loopback forwarder. Everything for this workspace goes
+    /// through it; ``origin`` stays the workspace's public identity.
+    let transport: any WorkspaceTransport
 
     var whoami: Whoami?
     var catalog = Catalog(tiles: [])
@@ -73,10 +76,11 @@ final class WorkspaceModel: Identifiable {
     @ObservationIgnored private var relist: Task<Void, Never>?
     @ObservationIgnored private var recatalog: Task<Void, Never>?
 
-    init(record: WorkspaceRecord, transport: AppTransport = .shared, keys: any DeviceKeyStore = EnclaveKeyStore(),
+    init(record: WorkspaceRecord, transport: (any WorkspaceTransport)? = nil, keys: any DeviceKeyStore = EnclaveKeyStore(),
          sessions: any SessionStore = KeychainSessionStore()) {
         id = record.id
         self.record = record
+        let transport = transport ?? Self.transport(for: record)
         self.transport = transport
         let auth = WorkspaceAuth(record: record, transport: transport, keys: keys, sessions: sessions,
                                  clientHeader: AppInfo.clientHeader)
@@ -89,8 +93,19 @@ final class WorkspaceModel: Identifiable {
         }
     }
 
+    /// The transport a record gets when none is given.
+    static func transport(for record: WorkspaceRecord) -> any WorkspaceTransport {
+        DirectTransport(origin: record.server)
+    }
+
     var title: String { record.displayTitle }
+    /// The workspace's public origin: its identity — what Settings, the
+    /// switcher, Handoff and "Sign in again" show and what links name. Not
+    /// necessarily where requests go (``transportOrigin``).
     var origin: ServerOrigin { record.server }
+    /// Where this workspace's requests go now (D204): ``origin`` on a direct
+    /// connection, the tunnel's `http://127.0.0.1:<port>` otherwise.
+    var transportOrigin: ServerOrigin { transport.origin }
     var userLabel: String { record.user.name ?? record.user.id }
     var canResign: Bool { record.deviceId != nil }
 
@@ -295,8 +310,10 @@ final class WorkspaceModel: Identifiable {
 
     private func makeEvents() -> WorkspaceEvents {
         let client = AppInfo.clientHeader
-        let e = WorkspaceEvents(auth: auth, makeSocket: { url, bearer, signal in
-            URLSessionEventSocket(url: url, bearer: bearer, clientHeader: client, signal: signal)
+        let transport = self.transport
+        let e = WorkspaceEvents(auth: auth, endpoint: { try await transport.ready() }, makeSocket: { url, bearer, signal in
+            URLSessionEventSocket(url: url, bearer: bearer, clientHeader: client, configuration: transport.socketConfiguration(),
+                                  signal: signal)
         })
         e.userID = { [weak self] in self?.whoami?.userID ?? self?.record.user.id ?? "" }
         e.onTerm = { [weak self] t in self?.apply(t) }
@@ -501,7 +518,10 @@ final class WorkspaceModel: Identifiable {
     func pageDestination(_ page: XbindPage) async -> XbindPageTicket.Outcome {
         do {
             let r = try await auth.send(WebTicket.request(next: page.path))
-            return XbindPageTicket.outcome(r, origin: origin, signedOrigin: record.signedOrigin, page: page)
+            // The view opens it where requests go (a tunnel's forwarder, D204):
+            // a ticket xbind built on the signed origin moves there.
+            let at = try await transport.ready()
+            return XbindPageTicket.outcome(r, origin: at, signedOrigin: record.signedOrigin, page: page)
         } catch {
             return .failed(describe(error))
         }
@@ -533,7 +553,10 @@ final class WorkspaceModel: Identifiable {
     /// can't have one (WebHandoff.swift).
     func chromeURL(path: String) async -> URL? {
         let r = try? await auth.send(WebTicket.request(next: path))
-        return WebTicket.destination(r, origin: origin, signedOrigin: record.signedOrigin, next: path)?.url
+        // Where the view goes is where requests go (a tunnel's forwarder,
+        // D204); a ticket on the signed origin moves there (WebTicket).
+        let at = (try? await transport.ready()) ?? transportOrigin
+        return WebTicket.destination(r, origin: at, signedOrigin: record.signedOrigin, next: path)?.url
     }
 
     func describe(_ error: any Error) -> String {

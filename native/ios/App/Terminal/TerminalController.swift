@@ -143,10 +143,10 @@ final class TerminalController: NSObject {
         }
         let opts = options ?? TermNewSession(cwd: cwd)
         let target: TermTarget = id.map { .reattach(id: $0) } ?? .new(opts)
-        let origin = workspace.origin
+        let transport = workspace.transport
         let s = TermSession(target: target, fresh: opts, initialInput: id == nil ? initialInput : nil, emulator: self,
                             clock: TermSystemClock()) { [weak self] path, events in
-            WebSocketTransport(origin: origin, path: path, token: self?.token ?? "", events: events)
+            WebSocketTransport(transport: transport, path: path, token: self?.token ?? "", events: events)
         }
         s.delegate = self
         s.predictMode = PredictMode(rawValue: AppSettings.predictMode) ?? .auto

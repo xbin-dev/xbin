@@ -51,7 +51,8 @@ final class AppTransport: NSObject, APITransport, URLSessionTaskDelegate, @unche
 
     /// Streams one request: the response head, then body chunks as they
     /// arrive (tile pages through the scheme handler; SSE and NDJSON).
-    func stream(_ request: URLRequest, allowRedirect: @escaping @Sendable (URL) -> Bool,
+    /// `allowRedirect` gives the URL a redirect goes to, or nil for none.
+    func stream(_ request: URLRequest, allowRedirect: @escaping @Sendable (URL) -> URL?,
                 onResponse: @escaping @Sendable (HTTPURLResponse) -> Void,
                 onData: @escaping @Sendable (Data) -> Void,
                 onDone: @escaping @Sendable ((any Error)?) -> Void) -> StreamingLoad {
@@ -67,14 +68,14 @@ final class AppTransport: NSObject, APITransport, URLSessionTaskDelegate, @unche
 /// One streaming request's delegate (a per-task delegate).
 final class StreamingLoad: NSObject, URLSessionDataDelegate, @unchecked Sendable {
     fileprivate(set) weak var task: URLSessionDataTask?
-    private let allowRedirect: @Sendable (URL) -> Bool
+    private let allowRedirect: @Sendable (URL) -> URL?
     private let onResponse: @Sendable (HTTPURLResponse) -> Void
     private let onData: @Sendable (Data) -> Void
     private let onDone: @Sendable ((any Error)?) -> Void
     private let lock = NSLock()
     private var finished = false
 
-    init(allowRedirect: @escaping @Sendable (URL) -> Bool, onResponse: @escaping @Sendable (HTTPURLResponse) -> Void,
+    init(allowRedirect: @escaping @Sendable (URL) -> URL?, onResponse: @escaping @Sendable (HTTPURLResponse) -> Void,
          onData: @escaping @Sendable (Data) -> Void, onDone: @escaping @Sendable ((any Error)?) -> Void) {
         self.allowRedirect = allowRedirect
         self.onResponse = onResponse
@@ -91,8 +92,13 @@ final class StreamingLoad: NSObject, URLSessionDataDelegate, @unchecked Sendable
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
                     newRequest request: URLRequest) async -> URLRequest? {
-        guard let u = request.url, allowRedirect(u) else { return nil }
-        return request
+        guard let u = request.url, let to = allowRedirect(u) else { return nil }
+        if to == u { return request }
+        // Moved onto the address the workspace's requests go to (a tunnel's
+        // forwarder, D204): the same request there.
+        var moved = request
+        moved.url = to
+        return moved
     }
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse) async
@@ -115,10 +121,11 @@ final class StreamingLoad: NSObject, URLSessionDataDelegate, @unchecked Sendable
 }
 
 /// XbinAgent's transport over the workspace session: the bearer attached,
-/// a 401 re-signed once (WorkspaceAuth), NDJSON streamed.
+/// a 401 re-signed once (WorkspaceAuth), NDJSON streamed — through the
+/// workspace's own transport (direct, or its tunnel, D204).
 struct AgentSessionTransport: AgentTransport {
     let auth: WorkspaceAuth
-    let transport: AppTransport
+    let transport: any WorkspaceTransport
 
     func send(_ request: HTTPRequest) async throws -> HTTPResponse {
         let r = try await auth.send(APIRequest(request.method, request.target, headers: request.headers, body: request.body))
@@ -138,7 +145,7 @@ struct AgentSessionTransport: AgentTransport {
     /// Opens the stream: returns once the head arrived (2xx), or throws the
     /// server's error (AgentAPIError) before any chunk.
     private func open(_ request: HTTPRequest, token: String) async throws -> AsyncThrowingStream<Data, any Error> {
-        let origin = await auth.origin
+        let origin = try await transport.ready()
         var r = APIRequest(request.method, request.target, headers: request.headers, body: request.body)
         r.setHeader("Authorization", "Bearer \(token)")
         r.setHeader("X-XBin-Client", AppInfo.clientHeader)
@@ -155,7 +162,7 @@ struct AgentSessionTransport: AgentTransport {
                     head.resume(throwing: CancellationError())
                     return
                 }
-                let load = transport.stream(urlRequest, allowRedirect: { _ in false }, onResponse: { h in
+                let load = transport.stream(urlRequest, allowRedirect: { _ in nil }, onResponse: { h in
                     if (200..<300).contains(h.statusCode) {
                         state.resumeHead { $0.resume(returning: stream) }
                     } else {

@@ -18,10 +18,17 @@ final class AppTransport: APITransport, @unchecked Sendable {
     static let shared = AppTransport()
     private(set) var session: URLSession! = URLSession(configuration: .ephemeral)
     func send(_ r: APIRequest, to origin: ServerOrigin) async throws -> APIResponse { APIResponse(status: 200) }
+    func stream(_ request: URLRequest, allowRedirect: @escaping @Sendable (URL) -> URL?,
+                onResponse: @escaping @Sendable (HTTPURLResponse) -> Void,
+                onData: @escaping @Sendable (Data) -> Void,
+                onDone: @escaping @Sendable ((any Error)?) -> Void) -> StreamingLoad { StreamingLoad() }
+}
+final class StreamingLoad: @unchecked Sendable {
+    func cancel() {}
 }
 struct AgentSessionTransport: AgentTransport {
     let auth: WorkspaceAuth
-    let transport: AppTransport
+    let transport: any WorkspaceTransport
     func send(_ request: HTTPRequest) async throws -> HTTPResponse { HTTPResponse(status: 200) }
     func stream(_ request: HTTPRequest) async throws -> AsyncThrowingStream<Data, any Error> { throw URLError(.badURL) }
 }

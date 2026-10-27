@@ -49,6 +49,9 @@ typealias EventSocketFactory = @MainActor (_ url: URL, _ bearer: String,
 @MainActor
 final class WorkspaceEvents {
     private let auth: WorkspaceAuth
+    /// Where the socket goes: the workspace transport's origin once it is
+    /// ready (a tunnel's forwarder, D204), else the session's server.
+    private let endpoint: @MainActor () async throws -> ServerOrigin
     private let makeSocket: EventSocketFactory
     private let sleep: @Sendable (Double) async -> Void
     private let jitter: () -> Double
@@ -91,10 +94,14 @@ final class WorkspaceEvents {
     private struct TileSub { let tile: String; let cont: AsyncStream<Void>.Continuation }
     private var prSubs: [UUID: TileSub] = [:]
 
-    init(auth: WorkspaceAuth, makeSocket: @escaping EventSocketFactory,
+    /// `endpoint` (default: the session's server, ``WorkspaceAuth/origin``)
+    /// answers where each connection attempt goes; when it throws (a tunnel
+    /// that can't come up) the attempt counts as unreachable and is retried.
+    init(auth: WorkspaceAuth, endpoint: (@MainActor () async throws -> ServerOrigin)? = nil, makeSocket: @escaping EventSocketFactory,
          sleep: @escaping @Sendable (Double) async -> Void = { try? await Task.sleep(nanoseconds: UInt64($0 * 1e9)) },
          jitter: @escaping () -> Double = { Double.random(in: 0.8...1.2) }) {
         self.auth = auth
+        self.endpoint = endpoint ?? { await auth.origin }
         self.makeSocket = makeSocket
         self.sleep = sleep
         self.jitter = jitter
@@ -244,7 +251,14 @@ final class WorkspaceEvents {
         // The current session — signing in only if there is none (the
         // workspace's own refresh usually got one first).
         let cred = try? await auth.session(replacing: nil)
-        let origin = await auth.origin
+        let origin: ServerOrigin
+        do {
+            origin = try await endpoint()
+        } catch {
+            guard gen == generation, !Task.isCancelled else { return }
+            perform(policy.closed(.unreachable, jitter: jitter()))
+            return
+        }
         guard gen == generation, !Task.isCancelled else { return }
         guard let cred, let url = EventsRoute.url(on: origin) else {
             perform(policy.reauthFailed())
@@ -343,16 +357,24 @@ final class URLSessionEventSocket: EventSocket {
     private var finished = false
     private let signal: @MainActor (EventSocketSignal) -> Void
 
-    init(url: URL, bearer: String, clientHeader: String, signal: @escaping @MainActor (EventSocketSignal) -> Void) {
+    /// `configuration`: the workspace transport's socket configuration
+    /// (nil: an ephemeral one with no cookies and no cache, the same).
+    init(url: URL, bearer: String, clientHeader: String, configuration: URLSessionConfiguration? = nil,
+         signal: @escaping @MainActor (EventSocketSignal) -> Void) {
         self.signal = signal
         var req = URLRequest(url: url)
         req.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization")
         req.setValue(clientHeader, forHTTPHeaderField: "X-XBin-Client")
         req.timeoutInterval = 20
-        let config = URLSessionConfiguration.ephemeral
-        config.httpCookieStorage = nil
-        config.httpShouldSetCookies = false
-        config.urlCache = nil
+        let config: URLSessionConfiguration
+        if let configuration {
+            config = configuration
+        } else {
+            config = URLSessionConfiguration.ephemeral
+            config.httpCookieStorage = nil
+            config.httpShouldSetCookies = false
+            config.urlCache = nil
+        }
         let delegate = EventSocketDelegate()
         let s = URLSession(configuration: config, delegate: delegate, delegateQueue: .main)
         let t = s.webSocketTask(with: req)

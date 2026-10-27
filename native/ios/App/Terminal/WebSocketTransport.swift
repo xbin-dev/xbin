@@ -3,14 +3,17 @@ import XbinCore
 import XbinTerm
 
 /// One `/ws/term` socket for XbinTerm's TermSession: URLSessionWebSocketTask
-/// with the workspace session as a bearer (the app's own code, §2). It
-/// reports the upgrade's HTTP status when it's refused (401/403/404/409/400
-/// mean different things to the session), `.unreachable` for network
-/// errors and `.dropped` when an open socket closes — always on the main
-/// actor, never from inside `start`/`send`/`close`.
+/// with the workspace session as a bearer (the app's own code, §2), through
+/// the workspace's transport (its server, or its tunnel's forwarder once
+/// that is ready, D204). It reports the upgrade's HTTP status when it's
+/// refused (401/403/404/409/400 mean different things to the session),
+/// `.unreachable` for network errors and `.dropped` when an open socket
+/// closes — always on the main actor, never from inside
+/// `start`/`send`/`close`.
 @MainActor
 final class WebSocketTransport: TermTransport {
-    private let url: URL?
+    private let transport: any WorkspaceTransport
+    private let path: String
     private let token: String
     private let events: @MainActor (TermTransportEvent) -> Void
     private var session: URLSession?
@@ -18,24 +21,36 @@ final class WebSocketTransport: TermTransport {
     private var opened = false
     private var finished = false
 
-    init(origin: ServerOrigin, path: String, token: String, events: @escaping @MainActor (TermTransportEvent) -> Void) {
-        url = URL(string: origin.webSocketOrigin + path)
+    init(transport: any WorkspaceTransport, path: String, token: String, events: @escaping @MainActor (TermTransportEvent) -> Void) {
+        self.transport = transport
+        self.path = path
         self.token = token
         self.events = events
     }
 
     func start() {
-        guard let url else {
-            DispatchQueue.main.async { MainActor.assumeIsolated { self.finish(.failed) } }
+        let transport = self.transport
+        Task { @MainActor [weak self] in
+            do {
+                let origin = try await transport.ready()
+                self?.open(origin)
+            } catch {
+                self?.finish(.unreachable(error.localizedDescription))
+            }
+        }
+    }
+
+    private func open(_ origin: ServerOrigin) {
+        guard !finished else { return }
+        guard let url = URL(string: origin.webSocketOrigin + path) else {
+            finish(.failed)
             return
         }
         var req = URLRequest(url: url)
         req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         req.setValue(AppInfo.clientHeader, forHTTPHeaderField: "X-XBin-Client")
         req.timeoutInterval = 20
-        let config = URLSessionConfiguration.ephemeral
-        config.httpCookieStorage = nil
-        config.httpShouldSetCookies = false
+        let config = transport.socketConfiguration()
         let delegate = SocketDelegate(owner: self)
         let s = URLSession(configuration: config, delegate: delegate, delegateQueue: .main)
         session = s

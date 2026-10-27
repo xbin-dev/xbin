@@ -38,29 +38,30 @@ final class TileSocketTransport: TermTransport {
 
     func start() {
         let tokens = workspace.frameTokens
+        let transport = workspace.transport
         let tile = self.tile
         Task { @MainActor [weak self] in
             do {
                 let token = try await tokens.token(for: tile)
-                self?.open(token: token)
+                // Where the workspace's requests go (its tunnel, once up: D204).
+                let origin = try await transport.ready()
+                self?.open(token: token, origin: origin)
             } catch {
                 self?.finish(.unreachable(error.localizedDescription))
             }
         }
     }
 
-    private func open(token: String) {
+    private func open(token: String, origin: ServerOrigin) {
         guard !finished else { return }
-        guard let url = TileResource.socketURL(origin: workspace.origin, path: path, frameToken: token) else {
+        guard let url = TileResource.socketURL(origin: origin, path: path, frameToken: token) else {
             finish(.failed)
             return
         }
         var req = URLRequest(url: url)
         req.setValue(AppInfo.clientHeader, forHTTPHeaderField: TileScheme.clientHeader)
         req.timeoutInterval = 20
-        let config = URLSessionConfiguration.ephemeral
-        config.httpCookieStorage = nil
-        config.httpShouldSetCookies = false
+        let config = workspace.transport.socketConfiguration()
         let s = URLSession(configuration: config, delegate: TileSocketDelegate(owner: self), delegateQueue: .main)
         session = s
         let t = s.webSocketTask(with: req)

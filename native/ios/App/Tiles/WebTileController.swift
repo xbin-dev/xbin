@@ -52,6 +52,10 @@ final class WebTileController: NSObject {
     @ObservationIgnored private var limits = SpawnLimits()
     @ObservationIgnored private var observations: [NSKeyValueObservation] = []
     @ObservationIgnored private var backgroundedAt: Date?
+    /// The workspace transport's generation this page was loaded at: when
+    /// its address changed meanwhile (a tunnel lost its port, D204), the
+    /// page reloads on the new one.
+    @ObservationIgnored private var loadedGeneration = 0
     @ObservationIgnored private var downloads: [ObjectIdentifier: URL] = [:]
     @ObservationIgnored private let initialURL: URL?
     /// The navigation of the window this page is in — where its
@@ -172,6 +176,7 @@ final class WebTileController: NSObject {
 
     func load() {
         loadError = nil
+        loadedGeneration = workspace.transport.generation
         if let page {
             Task {
                 switch await workspace.pageDestination(page) {
@@ -235,8 +240,23 @@ final class WebTileController: NSObject {
     func didEnterBackground() { backgroundedAt = Date() }
 
     func willEnterForeground() {
-        if let t = backgroundedAt, Date().timeIntervalSince(t) > 14 * 60 { reload() }
+        if workspace.transport.generation != loadedGeneration {
+            // The workspace's address moved (a tunnel's new port, D204): a
+            // chrome page opens afresh there (a new ticket), a tile page
+            // reloads (its own WebSockets were told the old address).
+            if chrome { load() } else { reload() }
+        } else if let t = backgroundedAt, Date().timeIntervalSince(t) > 14 * 60 {
+            reload()
+        }
         backgroundedAt = nil
+    }
+
+    /// Where a top-level navigation to `url` may go on this workspace
+    /// (D204): `url` itself on the address its requests go to, a URL on its
+    /// public origin moved there, nil for anything else. On a direct
+    /// connection that is `url` on the workspace's own origin.
+    private func ownURL(_ url: URL) -> URL? {
+        TileScheme.redirect(to: url, origin: workspace.transportOrigin, publicOrigin: workspace.origin)
     }
 
     // MARK: Bridge replies
@@ -325,11 +345,17 @@ extension WebTileController: WKNavigationDelegate, WKUIDelegate {
         // One of xbind's pages linking the workspace itself ("← workspace",
         // `/`): the app's own Home, not the web shell in this view.
         if page != nil, navigationAction.navigationType == .linkActivated,
-           TileScheme.allowsRedirect(to: url, origin: workspace.origin), url.path.isEmpty || url.path == "/" {
+           ownURL(url) != nil, url.path.isEmpty || url.path == "/" {
             nav?.goHome()
             return .cancel
         }
-        if chrome, TileScheme.allowsRedirect(to: url, origin: workspace.origin) { return .allow }
+        if chrome, let to = ownURL(url) {
+            if to == url { return .allow }
+            // The workspace's public address, on a workspace reached through
+            // its tunnel (D204): the same page on the tunnel's address.
+            if navigationAction.targetFrame?.isMainFrame != false { webView.load(URLRequest(url: to)) }
+            return .cancel
+        }
         if url.scheme?.lowercased() == TileScheme.scheme {
             return !chrome && url.host?.lowercased() == workspace.id ? .allow : .cancel
         }
@@ -362,8 +388,8 @@ extension WebTileController: WKNavigationDelegate, WKUIDelegate {
     /// work" docs link) in place, in this view — not in Safari.
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
-        if page != nil, let url = navigationAction.request.url, TileScheme.allowsRedirect(to: url, origin: workspace.origin) {
-            webView.load(URLRequest(url: url))
+        if page != nil, let url = navigationAction.request.url, let to = ownURL(url) {
+            webView.load(URLRequest(url: to))
             return nil
         }
         if canOpenLinks, let url = navigationAction.request.url, ["http", "https"].contains(url.scheme ?? "") {

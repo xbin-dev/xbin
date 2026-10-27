@@ -4,7 +4,8 @@ import XbinCore
 
 /// The per-workspace `xbin-ws` scheme handler (plans/native.md §6.1): every
 /// request a tile page or runtime document makes — the document, its assets,
-/// `fetch`/XHR to `/api/…`, `/vendor/…` — goes to the real server with *that
+/// `fetch`/XHR to `/api/…`, `/vendor/…` — goes to the workspace's xbind
+/// (through its transport: the server, or its tunnel, D204) with *that
 /// tile's* frame token (never the user's session, §2 invariant 1). Bodies
 /// stream through as they arrive (SSE over fetch works); responses pass
 /// through unchanged but for cookies, CSP sandbox included, so each page
@@ -73,7 +74,15 @@ final class TileSchemeHandler: NSObject, WKURLSchemeHandler {
             fail(task, key, serial, status: 401, message: ws.describe(error))
             return
         }
-        guard serials[key] == serial, let url = ws.origin.url(path: path) else { return }
+        // Where the workspace's requests go (a tunnel comes up first, D204).
+        let at: ServerOrigin
+        do {
+            at = try await ws.transport.ready()
+        } catch {
+            fail(task, key, serial, status: 502, message: ws.describe(error))
+            return
+        }
+        guard serials[key] == serial, let url = at.url(path: path) else { return }
         var out = URLRequest(url: url)
         out.httpMethod = request.httpMethod ?? "GET"
         out.httpBody = body
@@ -83,10 +92,10 @@ final class TileSchemeHandler: NSObject, WKURLSchemeHandler {
             out.setValue(v, forHTTPHeaderField: k)
         }
         let method = out.httpMethod ?? "GET"
-        let origin = ws.origin
+        let publicOrigin = ws.origin
         let retry = attempt == 0 && TileScheme.isReplayable(method: method)
         let pageURL = request.url
-        let load = AppTransport.shared.stream(out, allowRedirect: { TileScheme.allowsRedirect(to: $0, origin: origin) },
+        let load = ws.transport.stream(out, allowRedirect: { TileScheme.redirect(to: $0, origin: at, publicOrigin: publicOrigin) },
             onResponse: { [weak self] h in
                 let status = h.statusCode
                 let headers = TileScheme.pageResponseHeaders(AppTransport.headers(h))

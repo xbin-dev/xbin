@@ -125,6 +125,19 @@ import Testing
         #expect(TileScheme.allowsRedirect(to: URL(string: "https://xbin.example.com:443/c/a/")!, origin: testOrigin))
         #expect(!TileScheme.allowsRedirect(to: URL(string: "https://evil.example/c/a/")!, origin: testOrigin))
         #expect(!TileScheme.allowsRedirect(to: URL(string: "http://xbin.example.com/c/a/")!, origin: testOrigin))
+        // A direct connection: the same rule, the URL as it is.
+        let same = URL(string: "https://xbin.example.com/c/a/?x=1")!
+        #expect(TileScheme.redirect(to: same, origin: testOrigin, publicOrigin: testOrigin) == same)
+        #expect(TileScheme.redirect(to: URL(string: "https://evil.example/c/a/")!, origin: testOrigin, publicOrigin: testOrigin) == nil)
+        // A tunnel (D204): the loopback forwarder's own address as it is, the
+        // public origin moved onto it, anything else refused.
+        let loop = try! ServerOrigin(string: "http://127.0.0.1:41234")
+        let onLoop = URL(string: "http://127.0.0.1:41234/login?next=%2Fc%2Fa%2F")!
+        #expect(TileScheme.redirect(to: onLoop, origin: loop, publicOrigin: testOrigin) == onLoop)
+        #expect(TileScheme.redirect(to: URL(string: "https://xbin.example.com/c/a/sub?q=1#f")!, origin: loop,
+                                    publicOrigin: testOrigin)?.absoluteString == "http://127.0.0.1:41234/c/a/sub?q=1#f")
+        #expect(TileScheme.redirect(to: URL(string: "http://127.0.0.1:41235/c/a/")!, origin: loop, publicOrigin: testOrigin) == nil)
+        #expect(TileScheme.redirect(to: URL(string: "https://evil.example/c/a/")!, origin: loop, publicOrigin: testOrigin) == nil)
         #expect(TileScheme.isReplayable(method: "get") && !TileScheme.isReplayable(method: "POST"))
         #expect(TileScheme.isEventStream(["Content-Type": "text/event-stream"]))
         #expect(TileScheme.isEventStream(["content-type": "Text/Event-Stream; charset=utf-8"]))
