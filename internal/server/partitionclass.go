@@ -467,6 +467,14 @@ var partitionClasses = map[string]PartitionClass{
 	"DELETE /push/devices/{user}":            GlobalOnlyRefused,
 	"DELETE /push/devices/{user}/{deviceId}": GlobalOnlyRefused,
 
+	// ---- tile limits (D203): a person's decisions, never tile code (the
+	// handlers refuse it); a tile reads its own row ----
+	"POST /limits":           GlobalOnlyRefused,
+	"DELETE /limits":         GlobalOnlyRefused,
+	"POST /limits/dismiss":   GlobalOnlyRefused,
+	"PUT /orgs/{org}/limits": GlobalOnlyRefused,
+	"GET /limits":            PartitionNeutral,
+
 	// ---- partitions' governance acts (02 §8): their handlers judge the
 	// person and refuse the target tile's own credentials. A mode decision
 	// is a tile manager's (or the admin tile's frame driven by one), never

@@ -394,6 +394,7 @@ func (b *Broker) apiAlerts(w http.ResponseWriter, r *http.Request) {
 	}
 	out = append(out, b.partitionAlerts(p, admin)...)      // switch requests: admins and the tile's readers (partitionswitch.go)
 	out = append(out, b.partitionTrustAlerts(p, admin)...) // who can change a partitioned tile's code (partitiontrust.go)
+	out = append(out, b.limitHitAlerts(p, out)...)         // tiles at a cap, sticky, live (D203; tilelimits_alerts.go)
 	if admin {
 		if a, bad := b.settingsAlert(); bad { // a workspace setting that can't be read (D180; policies.go)
 			out = append(out, a)
@@ -404,6 +405,7 @@ func (b *Broker) apiAlerts(w http.ResponseWriter, r *http.Request) {
 			out = append(out, b.AdminAlerts()...) // the Go build versions alert (D166)
 		}
 	}
+	out = b.decorateAlerts(p, out) // raise actions: choices and approvers for whoever drives p (tilelimits_alerts.go)
 	server.WriteJSON(w, http.StatusOK, map[string]any{"alerts": out})
 }
 

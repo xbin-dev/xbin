@@ -157,6 +157,35 @@ the tile's total), `tile-limits` (admins: the store unreadable).
 **`GET /xbin/limits[?tile=]`** — the xbind-served page (top level only,
 like `/xbin/partitions`): `web/limits.html` + `/vendor/limits-page.js`.
 
+**W1's additions and clarifications (additive; the shapes above hold):**
+
+- **Who acts:** every write takes a person: their own session, app or
+  device, the root token, the admin console's frame under an *admin*
+  driver, or a trusted chrome frame (the shell) as the person driving it
+  — the shell posts an alert's `dismiss` with `xbin.fetch`. Reads resolve
+  the same way; view-as reads as the person viewed and decides nothing.
+- **`scope`** takes the scope's path or its data key; `workspace` is the
+  workspace scope (no root tile: workspace admins only).
+- **Row kinds** also carry `covered: true` (the manifest asks no more than
+  the default, §1). A kind the manifest asks where it can't apply is
+  listed with `enforced: false` and a `note`, nothing to decide.
+- **Choices:** `approvable` is the viewer's right to that value, `fits`
+  the workspace's room; a UI greys a choice when either is false (`why`
+  says the fit reason, else the approval reason).
+- **Pending items** for `diskGiB` carry `scope` (the tile roots it).
+- **Restart now:** `POST /limits` with `restart: true` at the value that
+  already holds (also the default) records nothing and restarts the
+  backend (`Apply(tile, kind, true)`); an approver of that value or a
+  manager of the tile.
+- **`LimitSources.Applied`** (optional, new): what runs now when it
+  differs from the grant (a lowered memory limit waiting for the next
+  start) → the row's `applied` + `appliesAt: "next-start"`. `Default`
+  is also asked with tile `""` for the workspace defaults.
+- **Hits:** `Hit.Count` in `RecordLimitHit` is how many events the report
+  carries (0 = 1); a repeat keeps `Since`, and its `Detail`/`Value` when
+  the repeat has none. A disk hit's alert is left out while the disk
+  monitor's own alert offers to raise the same scope.
+
 ## Worker ownership (Phase 1)
 
 To keep the three branches mergeable, each file has one owner; a worker

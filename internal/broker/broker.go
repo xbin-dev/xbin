@@ -193,8 +193,9 @@ func (b *Broker) Close() {
 	if b.kv != nil {
 		b.kv.close() // kv.db and every namespace's file (deploydata.go)
 	}
-	b.flushLedgers() // counts not yet saved (partitionledger.go)
-	b.closeMail()    // partition mail's doorbells and sweep (partitionmail_bell.go)
+	b.flushLedgers()   // counts not yet saved (partitionledger.go)
+	b.flushLimitHits() // hits not yet saved (tilelimits.go)
+	b.closeMail()      // partition mail's doorbells and sweep (partitionmail_bell.go)
 }
 
 func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, error) {
@@ -332,6 +333,7 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerScreens(srv)
 	b.registerPolicies(srv)
 	b.registerPartitionLimits(srv)
+	b.registerTileLimits(srv) // GET/POST/DELETE /limits, POST /limits/dismiss (D203; tilelimits_api.go)
 	b.obs = &obs.Plane{Root: b.Reg.Root, Hub: b.Hub, IsAdmin: b.IsAdmin,
 		HasComponent: func(p string) bool { _, ok := b.Reg.Component(p); return ok },
 		Primary:      b.primaryOf, Addressed: b.addressed, PartitionID: b.partitionID, PartitionLog: b.PartitionLog}

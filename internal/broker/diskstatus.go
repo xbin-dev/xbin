@@ -38,5 +38,5 @@ func (b *Broker) TileAlerts(component string) []Alert {
 			out = append(out, a)
 		}
 	}
-	return out
+	return append(out, b.tileHitAlerts(component)...) // the tile at a cap (D203; tilelimits_alerts.go)
 }

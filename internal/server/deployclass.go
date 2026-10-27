@@ -324,6 +324,10 @@ var routeClasses = map[string]RouteClass{
 	"PUT /branding":                          PrimaryOnly,
 	"PUT /workspace-policies":                PrimaryOnly,
 	"POST /partitions/limits":                PrimaryOnly, // admins and tile managers judged in the handler; never tile code (06 §6)
+	"POST /limits":                           PrimaryOnly, // tile limits (D203): a person's decision; never tile code
+	"DELETE /limits":                         PrimaryOnly,
+	"POST /limits/dismiss":                   PrimaryOnly,
+	"PUT /orgs/{org}/limits":                 PrimaryOnly,
 	"PUT /workspace-settings":                PrimaryOnly,
 	"GET /push/config":                       PrimaryOnly,
 	"PUT /push/config":                       PrimaryOnly,
@@ -340,6 +344,7 @@ var routeClasses = map[string]RouteClass{
 	"GET /tile-assets":          Neutral,
 	"GET /openapi.json":         Neutral,
 	"GET /alerts":               Neutral,
+	"GET /limits":               Neutral, // a tile credential reads its own row (D203)
 	"GET /vm":                   Neutral,
 	"GET /term-net":             Neutral,
 	"GET /native-runtime":       Neutral,

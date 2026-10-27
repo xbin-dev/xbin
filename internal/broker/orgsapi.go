@@ -33,6 +33,7 @@ func (b *Broker) registerOrgs(srv *server.Server) {
 	srv.RegisterAPI("PUT /orgs/{org}/members/{user}", b.apiOrgMemberPut)
 	srv.RegisterAPI("DELETE /orgs/{org}/members/{user}", b.apiOrgMemberDelete)
 	srv.RegisterAPI("PUT /orgs/{org}/sso-groups", b.apiOrgSSOGroupsPut)
+	srv.RegisterAPI("PUT /orgs/{org}/limits", b.apiOrgLimitsPut) // per-tile resource ceilings (D203; tilelimits_api.go)
 	srv.RegisterAPI("GET /net-sets", b.apiNetSetsList)
 	srv.RegisterAPI("PUT /net-sets/{name}", b.apiNetSetPut)
 	srv.RegisterAPI("DELETE /net-sets/{name}", b.apiNetSetDelete)

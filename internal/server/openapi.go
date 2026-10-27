@@ -627,7 +627,7 @@ func endpoints() []ep {
 			jsonBody("job", oapi{"name": str(""), "resource": str("res:<scope>/<name>"), "schedule": str("@every 1m | 5-field cron"), "path": str("/tick"), "role": str("optional"), "component": str("owner-only")}, "name", "resource", "schedule", "path"), "ok"},
 		{"DELETE", "/cron/jobs/{name}", "Resources", "Delete a cron job", "authenticated", "Element: own jobs; admin: any (via ?component=).", []oapi{pathParam("name", "job name"), queryParam("component", "owner-only: whose job", false), deploymentQuery("admin: that deployment's")}, nil, "ok"},
 	}, joinEndpoints(sandboxEndpoints(), partitionEndpoints(), partitionModeEndpoints(), partitionConsentEndpoints(),
-		personalBindEndpoints(), partitionOpsEndpoints(), partitionMailEndpoints(), partitionBackupEndpoints(), agentQueueEndpoints())...)
+		personalBindEndpoints(), partitionOpsEndpoints(), partitionMailEndpoints(), partitionBackupEndpoints(), agentQueueEndpoints(), limitsEndpoints())...)
 }
 
 // OpenAPI builds the OpenAPI 3.1 document.

@@ -1425,7 +1425,20 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    person consent records in
                                    data/partitions/consents this xbind
                                    can't read (each named; POST /partitions/
-                                   consents)
+                                   consents). An alert about a cap carries
+                                   action (D203): {action: raise-limit,
+                                   tile, scope?, kind, unit, current,
+                                   approvers, choices: [{pct, value, fits,
+                                   why?, approvable, default?}]} — choices'
+                                   approvable decorated for the viewer
+                                   (the shell's frame: the person driving
+                                   it), dismiss (POST /limits/dismiss…)
+                                   for approvers only. Kinds oom (warn,
+                                   sticky: OOM-killed at its memory
+                                   limit), sbx-cap (tile sandboxes at
+                                   their total), quota (a scope at its
+                                   disk quota), tile-limits (crit, admins:
+                                   data/tile-limits.json can't be read)
 GET    /whoami                    any. caller identity + permissions; for
                                    users also orgs:[{id,name,level,create,
                                    admin,suspended?,via?,viaGroups?}]
@@ -2253,6 +2266,14 @@ PUT    /orgs/<org>/sso-groups     admin/xbin:users (ws-admin — rules grant
                                    each member's next SSO sign-in
                                    (docs/auth.md §Group sync, D53) → the
                                    org view
+PUT    /orgs/<org>/limits         admin/xbin:users. the org's per-tile
+                                   resource ceilings (D203): {memMiB?:
+                                   n|null, diskGiB?, vmMemMiB?, vmVCPUs?,
+                                   sbxMemMiB?, sbxVCPUs?, sbxDiskGiB?} —
+                                   the most its admins may approve for one
+                                   tile it owns (null or 0 removes a kind;
+                                   unnamed kinds keep theirs) → {limits}.
+                                   GET /orgs carries each org's limits
 DELETE /orgs/<org>                admin/xbin:users; refused while the org
                                    still OWNS tiles (transfer first)
 GET    /permission-sets           admin/xbin:users. {sets:{name:{allow,
@@ -2477,6 +2498,72 @@ POST   /partitions/limits         admin (the admin console: when the
                                    can't read: the defaults apply and POST
                                    answers 500); applies at the next start;
                                    audited (docs/partitions.md)
+GET    /limits                    any caller; what it lists depends on who
+                                   asks. Tile resource limits (D203,
+                                   docs/isolation.md): every value an
+                                   integer in its kind's unit — kinds
+                                   memMiB, diskGiB (the scope's quota, on
+                                   the tile that roots it), vmMemMiB,
+                                   vmVCPUs, sbxMemMiB, sbxVCPUs, sbxDiskGiB.
+                                   → {tiles: [Row], defaults, enforced,
+                                   orgCeilings, canSetCeilings}: rows for
+                                   every tile to a workspace admin, an org
+                                   admin's org's, a person's own or managed
+                                   tiles, a tile credential's own. Row:
+                                   {tile, scope, scopeKey, rootsScope,
+                                   org?, limits: {<kind>: {effective,
+                                   default, max, enforced, ask?, covered?,
+                                   pending?, set?, approved? (decisions
+                                   {value, by, at, source}), dormant?,
+                                   usage?, applied?, appliesAt?, hit?,
+                                   note?, approvers, canDecide?,
+                                   canRevert?, choices? [{pct, value,
+                                   fits, why?, approvable, default?}]}}} —
+                                   the kinds that apply, and those the
+                                   manifest asks where they can't (note
+                                   says why). ?tile=<t> → {tile: Row,
+                                   capacity?} (choices and capacity:
+                                   approvers only; readers and the tile's
+                                   own credentials read the row, 403
+                                   otherwise). ?pending=1 → {pending:
+                                   [{tile, scope?, kind, unit, why: ask|
+                                   cap, ask?, hit?, effective, approvable,
+                                   mine, approvers}]}: what the caller may
+                                   approve or manages. The shell's frame
+                                   reads as the person driving it
+POST   /limits                    a person (own session, app or device,
+                                   the root token, the shell's frame, the
+                                   admin console driven by a workspace
+                                   admin): a workspace admin, or an admin
+                                   of the owning org up to the org's
+                                   ceiling; never tile code. {tile? |
+                                   scope? (diskGiB: path, data key, or
+                                   workspace), kind, value, source:
+                                   manifest-ask|raise|admin-set, restart?,
+                                   force?} → {tile: Row}. manifest-ask
+                                   approves the manifest's ask (applies
+                                   while it asks, up to what it asks);
+                                   raise/admin-set hold regardless. 400:
+                                   bad kind/value, value ≤ the default
+                                   (DELETE instead), past the maximum, a
+                                   manifest-ask above the ask; 403: not
+                                   an approver, above the org's ceiling,
+                                   force by a non-workspace-admin; 409:
+                                   doesn't fit the workspace (why), unless
+                                   force by a workspace admin; 500:
+                                   data/tile-limits.json can't be read
+                                   (never overwritten). Clears the kind's
+                                   hit; publishes `limits`; audited
+DELETE /limits?tile=&kind=        the tile's managers (user-owner, the
+                                   owning org's admins) or a workspace
+                                   admin, as a person (or scope= for a
+                                   scope's disk). Both decisions go back
+                                   to the default; a standing manifest ask
+                                   pends again → {tile: Row}
+POST   /limits/dismiss?tile=&kind= an approver of the kind, as a person
+                                   (or scope=): clears the sticky at-cap
+                                   hit for everyone → 204. An alert's
+                                   dismiss names it
 GET    /workspace-settings        authenticated; the partitioned tiles'
                                    keys only for a person (session, device,
                                    or a terminal or agent session they
@@ -6597,6 +6684,7 @@ required). JSON text frames:
 {"type":"branding"}                                  // the workspace title/icon changed (D76): re-read GET /branding
 {"type":"native"}                                    // the native-runtime switch changed (D101): re-read whoami (native.runtime)
 {"type":"policies"}                                  // a partitioned tiles' switch changed (PD-55; kept for clients before D180, beside workspace-settings): re-read GET /workspace-policies
+{"type":"limits","component":"apps/x"}               // a tile's limits changed — a decision, a cap hit, a new manifest ask (D203): re-read GET /limits (and /alerts)
 {"type":"partitions","component":"apps/x","partition":"user:<id>", // to that person's own sockets (never apps/x's frames,
  "data":{"op":"consent-needed","from":"apps/z","to":"apps/x"}}     //   terminals or instance): apps/z's call into their apps/x data was refused (partitionConsent on; once a day)
 {"type":"partitions","component":"apps/x","partition":"user:<id>", // to that person's own sockets, likewise: their consent changed
