@@ -211,7 +211,7 @@ func (r *Runner) watchGen(c *registry.Component, s *state, dep string, inst *ins
 			}
 		}
 		if recent >= crashLimit {
-			s.lastErr = crashLoopError(c.Path, dep, inst.served(), recent)
+			s.lastErr = r.looped(crashLoopError(c.Path, dep, inst.served(), recent), c.Path, inst) // oom.go
 			r.emit(c.Path, dep, "build-error", s.lastErr.Error())
 		} else {
 			s.dirty = true           // transparent restart on the next request

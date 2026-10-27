@@ -97,7 +97,7 @@ func (r *Runner) vmApply(c *registry.Component, spec *sandbox.Spec, dir, sock, g
 	if c.Manifest.Setup != "" {
 		return errors.New(`"vm" can't be combined with "setup" yet — install the dependencies at start inside the VM (it is root), or drop "vm"`)
 	}
-	mem, cpus := guestSize(p, c.Manifest.VM)
+	mem, cpus := guestSize(p, c.Manifest.VM, r.vmGrant(c.Path))
 	release, err := r.vmReserve(c, p, mem)
 	if err != nil {
 		return err
@@ -121,10 +121,12 @@ func (r *Runner) vmApply(c *registry.Component, spec *sandbox.Spec, dir, sock, g
 	return nil
 }
 
-// guestSize is a guest's memory and vCPUs: the policy's, lowered by the
-// manifest's "vm" sizes, never raised.
-func guestSize(p vm.Policy, o *registry.VMOpt) (mem, cpus int) {
-	mem, cpus = p.MemMiB, p.VCPUs
+// guestSize is a guest's memory and vCPUs: the policy's, or what the tile
+// was granted above it (g, D203), lowered by the manifest's "vm" sizes,
+// never raised by them — a size above the ceiling is an ask an approver
+// decides (plans/tile-limits.md §1).
+func guestSize(p vm.Policy, o *registry.VMOpt, g vmGrant) (mem, cpus int) {
+	mem, cpus = max(p.MemMiB, g.memMiB), max(p.VCPUs, g.vcpus)
 	if o == nil {
 		return mem, cpus
 	}
@@ -162,8 +164,19 @@ func (r *Runner) primaryGuestMiB(tile string, p vm.Policy) int {
 	if !ok || !r.wantsVM(c) {
 		return 0
 	}
-	mem, _ := guestSize(p, c.Manifest.VM)
+	mem, _ := guestSize(p, c.Manifest.VM, r.vmGrant(tile))
 	return mem
+}
+
+// vmGrant is what decisions raise tile's VM backend to (VMGrant).
+type vmGrant struct{ memMiB, vcpus int }
+
+func (r *Runner) vmGrant(tile string) vmGrant {
+	if f := r.VMGrant; f != nil {
+		m, c := f(tile)
+		return vmGrant{memMiB: m, vcpus: c}
+	}
+	return vmGrant{}
 }
 
 // stopNonPrimaryGuests is the primary-first callback of tile's primary's
