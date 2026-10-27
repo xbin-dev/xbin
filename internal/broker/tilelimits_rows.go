@@ -5,7 +5,6 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/limits"
 	"github.com/xbin-dev/xbin/internal/registry"
-	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // The shapes GET /limits answers (plans/tile-limits.md §W, docs/protocol.md
@@ -229,5 +228,5 @@ func limitKeyOf(c *registry.Component, k limits.Kind) string {
 	if c.Scope == "" || c.Scope != c.Path {
 		return ""
 	}
-	return util.ScopeKey(c.Scope)
+	return limitScopeKey(c.Scope)
 }

@@ -8,7 +8,6 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/limits"
-	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Hits as alerts, and alerts' raise actions decorated per viewer (D203,
@@ -53,7 +52,7 @@ func (b *Broker) limitHitAlerts(p auth.Principal, others []Alert) []Alert {
 	offered := map[string]bool{}
 	for _, a := range others {
 		if a.Action != nil && a.Action.Kind == limits.DiskGiB {
-			offered[util.ScopeKey(a.Action.Scope)] = true
+			offered[limitScopeKey(a.Action.Scope)] = true
 		}
 	}
 	for _, k := range limits.Kinds {
@@ -100,7 +99,7 @@ func (b *Broker) tileHitAlerts(tile string) []Alert {
 			if c, ok := b.Reg.Component(tile); !ok || c.Scope != tile {
 				continue
 			}
-			key = util.ScopeKey(tile)
+			key = limitScopeKey(tile)
 		}
 		if h, ok := hitIn(f, key, k); ok && h.Deployment == "" {
 			out = append(out, Alert{Level: "warn", Kind: hitAlertKind(k), Tile: tile, Message: hitMessage(tile, key, k, h)})
@@ -223,7 +222,7 @@ func (b *Broker) decorateAlerts(p auth.Principal, alerts []Alert) []Alert {
 		key, tile := act.Tile, act.Tile
 		var kf kindFacts
 		if k == limits.DiskGiB {
-			key = util.ScopeKey(act.Scope)
+			key = limitScopeKey(act.Scope)
 			if tile == "" {
 				tile = b.scopeRootOfKey(key)
 			}
@@ -231,6 +230,11 @@ func (b *Broker) decorateAlerts(p auth.Principal, alerts []Alert) []Alert {
 		} else if c, ok := b.rootComponent(tile); ok {
 			kf = b.tileFacts(c).kinds[k]
 		} else {
+			continue
+		}
+		if !kf.applies() { // not enforced here (yet): nothing to choose from
+			a.Action = &act
+			alerts[i] = a
 			continue
 		}
 		ci, ok := caps[k]

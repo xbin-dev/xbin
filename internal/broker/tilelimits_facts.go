@@ -7,7 +7,6 @@ import (
 	"github.com/xbin-dev/xbin/internal/limits"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
-	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Who is asking (D203, docs/auth.md §Ownership): the tile limits' viewers
@@ -243,7 +242,7 @@ func (tf tileFacts) keyOf(k limits.Kind) string {
 // tileFacts gathers c's facts. It calls out (the runtime's sources): never
 // under the store's lock.
 func (b *Broker) tileFacts(c *registry.Component) tileFacts {
-	tf := tileFacts{tile: c.Path, scope: c.Scope, scopeKey: util.ScopeKey(c.Scope), rootsScope: c.Scope != "" && c.Scope == c.Path,
+	tf := tileFacts{tile: c.Path, scope: c.Scope, scopeKey: limitScopeKey(c.Scope), rootsScope: c.Scope != "" && c.Scope == c.Path,
 		offloaded: registry.IsOffloaded(b.Reg.LifecycleState(c.Path)), kinds: map[limits.Kind]kindFacts{}}
 	if b.Users != nil {
 		tf.org, _ = b.Users.OwnerOrg(c.Path)

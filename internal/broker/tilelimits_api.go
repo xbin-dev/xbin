@@ -11,7 +11,6 @@ import (
 	"github.com/xbin-dev/xbin/internal/limits"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/users"
-	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // The tile limits routes (D203, docs/protocol.md §Tile limits):
@@ -66,7 +65,7 @@ func (b *Broker) limitTarget(w http.ResponseWriter, v limitsViewer, tile, scope 
 		if !ok {
 			return fail(http.StatusNotFound, "no such scope: "+scope)
 		}
-		t.scope, t.key = path, util.ScopeKey(path)
+		t.scope, t.key = path, limitScopeKey(path)
 		if root := b.scopeRootOfKey(t.key); root != "" {
 			tile = root
 		} else {
@@ -100,7 +99,7 @@ func (b *Broker) limitTarget(w http.ResponseWriter, v limitsViewer, tile, scope 
 // the workspace scope (path "").
 func (b *Broker) scopeNamed(s string) (string, bool) {
 	for p := range b.Reg.Scopes() {
-		if p == s || util.ScopeKey(p) == s {
+		if p == s || limitScopeKey(p) == s {
 			return p, true
 		}
 	}

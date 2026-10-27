@@ -18,6 +18,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/fsutil"
 	"github.com/xbin-dev/xbin/internal/limits"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Tile resource limits (D203, docs/isolation.md §Resource limits): a tile's
@@ -435,6 +436,14 @@ func (b *Broker) manifestAskOf(key string, k limits.Kind) int64 {
 		return 0
 	}
 	return c.Manifest.LimitAsk(k)
+}
+
+// limitScopeKey is scope's data key in main: what the disk monitor measures
+// and the store keeps the scope's disk decisions under ("workspace" for the
+// workspace scope).
+func limitScopeKey(scope string) string {
+	k, _ := scopeKeys(scope, util.MainDeployment) // main's never fails
+	return k.Quota
 }
 
 // scopeRootOfKey is the tile that roots the scope with data key key ("" for

@@ -821,3 +821,37 @@ func TestTileLimitsRestartNow(t *testing.T) {
 		t.Errorf("restart now recorded something, or didn't restart: %v\n%s\n%s", fx.applied, before, after)
 	}
 }
+
+// covers D203 — before the runtime wires its sources (or on a workspace
+// that enforces nothing), every kind but disk is unknown: not enforced, no
+// row kinds, no prompts, POST refused with the reason, and nothing panics —
+// LimitGrant, RecordLimitHit and /alerts included.
+func TestTileLimitsNoSources(t *testing.T) {
+	b, st := orgFixture(t)
+	t.Cleanup(b.Close)
+	root := auth.Principal{Owner: true, Via: "bearer"}
+	if err := os.WriteFile(filepath.Join(b.Reg.Root, "apps", "email", "xbin.json"), []byte(`{"runtime":"go","limits":{"memory":"4G"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	if g := b.LimitGrant("apps/email", limits.MemMiB); g != 0 {
+		t.Errorf("LimitGrant: %d", g)
+	}
+	b.RecordLimitHit("apps/email", limits.MemMiB, limits.Hit{Value: 2048})
+	b.RefreshLimitAsks()
+	for _, u := range []string{"/limits", "/limits?tile=apps/email", "/limits?pending=1"} {
+		if w := call(t, b.apiLimitsGet, root, "GET", u, "", nil); w.Code != 200 {
+			t.Errorf("GET %s: %d %s", u, w.Code, w.Body.String())
+		}
+	}
+	w := call(t, b.apiLimitsPost, root, "POST", "/limits", `{"tile":"apps/email","kind":"memMiB","value":4096,"source":"raise"}`, nil)
+	if w.Code != 400 || !strings.Contains(w.Body.String(), "aren't enforced") {
+		t.Errorf("POST without sources: %d %s", w.Code, w.Body.String())
+	}
+	if w := call(t, b.apiAlerts, principalFor(t, st, "carol"), "GET", "/alerts", "", nil); w.Code != 200 || !strings.Contains(w.Body.String(), `"kind":"oom"`) ||
+		strings.Contains(w.Body.String(), `"choices"`) {
+		t.Errorf("/alerts: %d %s", w.Code, w.Body.String())
+	}
+}
