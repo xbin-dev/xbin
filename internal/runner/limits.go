@@ -207,3 +207,21 @@ func (r *Runner) raiseLeaf(cg cgroupOps, tile, dep string, inst *instance) {
 		slog.Warn("tile limits: raising a running backend's memory", "component", tile, "deployment", dep, "leaf", inst.leaf, "err", err)
 	}
 }
+
+// HostMemory is the memory this host gives xbind, bytes: MemTotal, or less
+// where its own cgroup or one above it caps it (a container's limit) — the
+// most memory a tile's backend may be granted (D203).
+func HostMemory() int64 { return hostMemoryOnce() }
+
+// TileMem is tile's backend memory as the stats sampler last read it
+// (bytes; 0 when it hasn't): a tile's usage beside its memory limit
+// (D203). Asking keeps the sampler running.
+func (r *Runner) TileMem(tile string) int64 {
+	r.statsWanted()
+	r.stats.mu.Lock()
+	defer r.stats.mu.Unlock()
+	if ser := r.stats.series[tile]; len(ser) > 0 {
+		return ser[len(ser)-1].Mem
+	}
+	return 0
+}

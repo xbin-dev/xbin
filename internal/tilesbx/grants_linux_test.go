@@ -62,6 +62,9 @@ func grantDeps(grants *grantTable, tape *capTape) func(*Options) {
 func TestGrantedRaisesLimits(t *testing.T) {
 	grants := &grantTable{m: map[string][3]int{}}
 	fe := newFakeEnv(t, grantDeps(grants, &capTape{}))
+	if pt := fe.m.PolicyPerTile("apps/mgr"); pt.MemMiB != 8192 {
+		t.Errorf("PolicyPerTile before a policy: %+v", pt)
+	}
 	fe.putPolicy(`{"overrides":{"apps/mgr":{"perTile":{"max":16,"running":16,"memMiB":3072}}}}`, http.StatusOK)
 	lim := func(tile string) Limits {
 		fe.m.mu.Lock()
@@ -79,6 +82,12 @@ func TestGrantedRaisesLimits(t *testing.T) {
 	}
 	if o := fe.m.Policy().Overrides["apps/mgr"]; o == nil || o.PerTile.MemMiB != 3072 {
 		t.Errorf("the grant reached the policy: %+v", o)
+	}
+	if pt := fe.m.PolicyPerTile("apps/mgr"); pt.MemMiB != 3072 || pt.VCPUs != 8 || pt.DiskGiB != 100 {
+		t.Errorf("PolicyPerTile, the store's default: %+v, want the policy's without the grant", pt)
+	}
+	if mem, cpus, disk := fe.m.GrantMax(); mem <= 0 || cpus != 256 || disk != 65536 {
+		t.Errorf("GrantMax: %d %d %d", mem, cpus, disk)
 	}
 	if l := lim("apps/other"); l.PerTile.MemMiB != 8192 || l.PerTile.VCPUs != 8 {
 		t.Errorf("another tile: %+v", l)
@@ -104,6 +113,9 @@ func TestGrantedRaisesLimits(t *testing.T) {
 	}
 	if ran, _ := fe.startAll(names); len(ran) != 3 {
 		t.Fatalf("under 3 GiB: ran %v", ran)
+	}
+	if mem, cpus, _ := fe.m.TileHeld("apps/mgr"); mem != 3072 || cpus != 6 {
+		t.Errorf("TileHeld: %d MiB %d vCPUs, want the three sandboxes' 3072 and 6", mem, cpus)
 	}
 	grants.set("apps/mgr", [3]int{4096, 0, 0})
 	if _, refused := fe.startAll(names); len(refused) != 0 {

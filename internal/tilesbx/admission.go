@@ -199,7 +199,7 @@ func (m *Manager) TotalPids() (used, capPids int64) {
 	return used, capPids
 }
 
-// booked is tile's book now (tests).
+// booked is tile's book now (TileHeld, tests).
 func (m *Manager) booked(tile string) (running, memMiB, vcpus int) {
 	tb := m.books.tile(tile)
 	tb.mu.Lock()

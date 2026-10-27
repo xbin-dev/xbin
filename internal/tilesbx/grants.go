@@ -49,3 +49,31 @@ func (m *Manager) leafOOMKills(leaf string) int64 {
 	}
 	return m.cg.OOMKills(leaf)
 }
+
+// PolicyPerTile is tile's sandbox totals by the policy and its overrides
+// alone — no grant — read without the runtime's lock: the limits store's
+// defaults, which it may ask under its own lock (D203).
+func (m *Manager) PolicyPerTile(tile string) PerTile { return m.policy.snapshot().For(tile).PerTile }
+
+// GrantMax is the most a grant may raise a tile's totals to: every tile
+// sandbox's memory together (total.memMiB, or ¾ of the host's), and the
+// policy's bounds on one sandbox's vCPUs and disk (a grant raises one
+// sandbox's maximum too). Without the runtime's lock.
+func (m *Manager) GrantMax() (memMiB, vcpus, diskGiB int) {
+	memMiB = m.policy.snapshot().Effective().Total.MemMiB
+	if memMiB <= 0 {
+		memMiB = int(hostMemBytes() / 4 * 3 >> 20)
+	}
+	return memMiB, 256, 65536
+}
+
+// TileHeld is what tile's running sandboxes hold — memory and vCPUs, as
+// the admission booked them — and its sandboxes' disk, snapshots included,
+// as last measured (bytes).
+func (m *Manager) TileHeld(tile string) (memMiB, vcpus int, diskBytes int64) {
+	m.mu.Lock()
+	diskBytes = m.tileDiskBytesLocked(tile)
+	m.mu.Unlock()
+	_, memMiB, vcpus = m.booked(tile)
+	return memMiB, vcpus, diskBytes
+}
