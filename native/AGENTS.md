@@ -46,14 +46,15 @@ native/
     Shared/                 compiled into the app AND the notification extension (push crypto, Keychain)
     NotificationService/    the Notification Service Extension (decrypts pushes)
     Widgets/                the widget extension: the agent turn's Live Activity (Shared/: also in the app)
-    Support/                Info.plists and entitlements
+    Support/                Info.plists and entitlements; review-notes.md (the App Review Notes draft)
     SnapshotHost/           the empty app the hosted snapshot tests run in (CI only, see §4)
     UITests/                XbinUITests: the app end to end on a simulator against a real xbind
     scripts/                CI: pick-sim.sh, ci-*.sh (what ios.yml runs), ci-local-check.sh and the
                             dry tests; the Mac: mac-setup.sh, mac-remote.sh, mac-cleanup.sh,
                             release-build.sh (the release user's signed build; unused yet),
                             e2e-xbind.sh (the UI tests' xbind, on this box), footage.sh (screen
-                            recordings for the promo video and the website)
+                            recordings for the promo video and the website), licences.sh (the
+                            open-source licences list)
   tools/                    fixture runner (fixture.mjs), shots.mjs + gallery/ (reference screenshots),
                             swiftui-stubcheck/, term-stubcheck/ (App/Terminal against stubs),
                             uitest-stubcheck/ (the UI tests vs XCUITest stubs),
@@ -811,7 +812,14 @@ show the app's type.
 
 **Privacy.** The app's code collects nothing for the developer. It talks to
 the workspaces its user adds, which are their servers, and fetches the kill
-switch (`https://xbin.dev/app/ios.json`) with no identifier. Push is the
+switch (`https://xbin.dev/app/ios.json`) with no identifier. App tunnels
+(D204) don't change that: the app links IrohLib (n0's iroh-ffi) and reaches a
+tunnelled workspace through the relay the workspace names — n0's public
+relays or its operator's own — which sees the device's IP address and
+connection metadata, never content (Noise inside QUIC). That is the user's
+connection to their own server, so nothing is declared as collected;
+`website/privacy.html` says who sees what (n0 states its relays don't record
+it). The phone uses iroh's Minimal preset and publishes nothing. Push is the
 exception once a relay ships: the app then registers its APNs token with the
 relay the xbin project runs (spec/push.md). Three places say this and must
 agree:
@@ -820,14 +828,19 @@ agree:
 |---|---|---|
 | `App/Resources/PrivacyInfo.xcprivacy` → collected data | none | `NSPrivacyCollectedDataTypeDeviceID`, linked false, tracking false, purpose App Functionality |
 | App Store Connect → App Privacy | "Data Not Collected" | Identifiers → Device ID: App Functionality, not linked to identity, not used for tracking |
-| https://xbin.dev/privacy.html (`website/privacy.html`) | already describes the relay as opt-in | unchanged |
+| https://xbin.dev/privacy.html (`website/privacy.html`) | already describes the relay as opt-in, and app tunnels' relays | unchanged |
 
 The manifest also declares the required-reason APIs the binary uses (`nm -u`
 on a build: `NSUserDefaults`, `stat`, `fstat`). They are UserDefaults
 `CA92.1` for the app's own settings, and file timestamp `C617.1` for SwiftTerm's
 kitty-graphics `stat`/`fstat` of files in the app's temporary directory.
 Neither extension uses one, so neither has a manifest; store-check.py fails
-when the app's sources use UserDefaults without the declaration. The privacy
+when the app's sources use UserDefaults without the declaration. IrohLib
+adds its own: they come from `nm -u` on a build that links it (expected
+SystemBootTime `35F9.1` if `_mach_absolute_time` appears, DiskSpace only
+for statfs-type symbols) and go into the manifest and store-check.py's
+`IROHLIB_APIS`, which it enforces while project.yml links IrohLib —
+**pending**: the table is empty until that report is in. The privacy
 policy URL for App Store Connect is `https://xbin.dev/privacy.html` (deploy
 with the website: `make website`). Its sentence that the relay does not
 store IP addresses holds only if the relay's deployment (its reverse proxy
@@ -843,13 +856,39 @@ http on a private network or VPN. The app warns when an http address may
 travel unencrypted." The sign-in page's note is
 `ServerOrigin.isEncryptedInTransit` (https, loopback, Tailscale).
 
-**Export compliance.** `ITSAppUsesNonExemptEncryption` is `false`: the app's
-encryption is TLS through URLSession and Apple's CryptoKit and Secure Enclave
-(push sealing, device keys). That is encryption within Apple's operating
-system, which the exemption covers. No own cipher code is compiled for iOS
-(`Shared/PushCrypto.swift` uses swift-crypto only on Linux, for the tests).
-It is the account holder's declaration: revisit it if the app ever ships its
-own cryptography.
+**Local Network.** iroh looks for a direct path on the LAN, and iOS asks
+before the first one: `NSLocalNetworkUsageDescription` is "Connect directly
+to your workspaces on your local network, including through their encrypted
+tunnel." (store-check.py requires it to name the tunnel), and the pairing
+page explains the prompt before it appears. Denied, the tunnel uses the
+relay. No Bonjour services, no multicast entitlement.
+
+**Export compliance.** `ITSAppUsesNonExemptEncryption` is `true` (D204;
+store-check.py holds it there). Besides TLS through URLSession and CryptoKit,
+the app now ships encryption of its own: the Noise layer of app tunnels
+(`Shared/NoiseTunnel.swift`, ChaChaPoly/X25519/SHA-256 through CryptoKit) and,
+in IrohLib, rustls and QUIC — standard algorithms, none proprietary. The
+owner answers App Store Connect's questions as the account holder: "standard
+encryption algorithms in addition to Apple's", mass market (EAR 5A992.c /
+5D992.c, License Exception ENC §740.17(b)(1), with the yearly
+self-classification report to BIS and NSA by 1 February — or the
+publicly-available-source route if counsel agrees), the France question to
+match where the app is sold, then `ITSEncryptionExportComplianceCode` once
+Apple accepts the documentation (plans/app-tunnel.md Appendix B §9.1). Have
+counsel confirm.
+
+**Open-source licences.** Settings → About → Open-source licences
+(`App/Shell/Licences.swift`) shows `App/Resources/Licences/
+OpenSourceLicences.json`: SwiftTerm, the faces' OFL, and IrohLib with every
+Rust crate it builds in for iOS. `native/ios/scripts/licences.sh` makes it
+(cargo-about 0.6.x over iroh-ffi's `Cargo.lock` for the iOS targets, the
+licences we accept in `licences-about.toml`; a cargo of 1.85 or newer, since
+iroh-ffi is edition 2024): rerun it whenever project.yml moves the SwiftTerm
+or IrohLib pin — store-check.py fails until the list matches the pins.
+
+**App Review Notes** for a submission are drafted in
+`Support/review-notes.md`: not a VPN, plain http, the Local Network prompt,
+how to test pairing (with a demo workspace's details filled in at submission).
 
 ### The help screenshots
 
