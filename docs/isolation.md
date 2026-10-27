@@ -801,7 +801,8 @@ A tile that needs more than the defaults asks in its manifest — `"limits":
 backend's `"vm"` sizes above the VM policy ([elements.md](/docs/elements.md))
 — and a human decides: a workspace admin, or an admin of the org that owns
 the tile up to the org's per-tile ceiling ([auth.md](/docs/auth.md)
-§Ownership). Until then the default applies. A tile that meets a cap (an
+§Ownership). Until then the default applies; an org admin sees an ask
+above the org's ceiling greyed, with the ceiling named. A tile that meets a cap (an
 OOM kill, a full quota, a sandbox refused or stopped at its tile's total)
 gets an alert that offers to raise it by +25 %, +50 % (pre-selected) or
 +100 %. The prompt shows on the tile's window, the shell's banner, its ⚙ →

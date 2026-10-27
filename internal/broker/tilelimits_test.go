@@ -417,12 +417,30 @@ func TestTileLimitsPending(t *testing.T) {
 	if find(root, "apps/email", limits.DiskGiB) != nil {
 		t.Errorf("a disk ask off the scope root prompts: %v", root)
 	}
-	if it := find(pending("carol"), "apps/email", limits.MemMiB); it == nil || it["approvable"] != false || it["mine"] != true {
-		t.Errorf("the org admin without a ceiling: shown as hers, not approvable: %v", it)
+	if it := find(pending("carol"), "apps/email", limits.MemMiB); it == nil || it["approvable"] != false || it["mine"] != true ||
+		!strings.Contains(fmt.Sprint(it["blocked"]), "org sales has no ceiling for memory") {
+		t.Errorf("the org admin without a ceiling: shown as hers, not approvable, and why: %v", it)
+	}
+	// a ceiling under the ask: carol decides memory (set…, a raise up to it),
+	// not the ask — the pending item and the row say why
+	fx.ceiling("sales", map[limits.Kind]int64{limits.MemMiB: 3072})
+	if it := find(pending("carol"), "apps/email", limits.MemMiB); it == nil || it["approvable"] != false ||
+		!strings.Contains(fmt.Sprint(it["blocked"]), "above org sales's ceiling of 3 GiB") {
+		t.Errorf("the org admin under a ceiling below the ask: %v", it)
+	}
+	if code, out := fx.do(ps["carol"], "GET", "/limits?tile=apps/email", ""); code != 200 ||
+		kindOf(out, limits.MemMiB)["canDecide"] != true || !strings.Contains(fmt.Sprint(kindOf(out, limits.MemMiB)["askBlocked"]), "above org sales's ceiling of 3 GiB") {
+		t.Errorf("carol's row: she decides memory, not the ask, and it says why: %d %v", code, kindOf(out, limits.MemMiB))
 	}
 	fx.ceiling("sales", map[limits.Kind]int64{limits.MemMiB: 4096})
-	if it := find(pending("carol"), "apps/email", limits.MemMiB); it == nil || it["approvable"] != true {
+	if it := find(pending("carol"), "apps/email", limits.MemMiB); it == nil || it["approvable"] != true || it["blocked"] != nil {
 		t.Errorf("the org admin within the ceiling: %v", it)
+	}
+	if _, out := fx.do(ps["carol"], "GET", "/limits?tile=apps/email", ""); kindOf(out, limits.MemMiB)["askBlocked"] != nil {
+		t.Errorf("within the ceiling the ask isn't blocked: %v", kindOf(out, limits.MemMiB))
+	}
+	if it := find(root, "apps/email", limits.MemMiB); it["blocked"] != nil {
+		t.Errorf("a workspace admin is never blocked: %v", it)
 	}
 	if len(pending("bob")) != 0 || len(pending("instance")) != 0 {
 		t.Errorf("a member, the tile itself: nothing waits for them")
