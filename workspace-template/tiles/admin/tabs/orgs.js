@@ -4,7 +4,8 @@
  * org's page laid out as titled panels — members with role presets and
  * single-row membership writes (D53), IdP-group rules, delegation sets plus
  * the org's extra allowances, network sets (D54), owned tiles, its policy
- * ceiling, deletion — with the workspace-wide knobs under the list: default
+ * ceiling, its tiles' resource ceilings (D203), deletion — with the
+ * workspace-wide knobs under the list: default
  * visibility (D27), new-account defaults + tile creation (D52), the
  * workspace policy ceiling (D20). Orgs are flat member lists with org-wide
  * roles on org-OWNED tiles; the ws-admin delegates approval via
@@ -18,6 +19,7 @@ import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
 import { ruleLabel } from '/vendor/bx-netrules.js';
 import { parseAllow, fmtAllow, allowProblem, describeAllow } from '/vendor/bx-allow.js';
 import '/vendor/bx-multiselect.js';
+import '/vendor/limits-table.js'; // <bx-org-limits>: the org's per-tile resource ceilings (D203)
 import { base, orgsCss } from '../admin-css.js';
 import { targetDatalist, serviceDatalist, groupsDatalist, allowRows, WithDrafts, WithRouter, PRESETS, presetOf } from '../shared.js';
 
@@ -345,6 +347,10 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
         : html`<div class="empty">none — tiles members create with Create land here, and transfers bring others in</div>`)}
 
       ${this._panel('policy ceiling', 'applies to the org\'s owned tiles on top of the workspace policy (D20)', this._policyEditor(o.id, o.policy))}
+
+      ${this._panel('resource ceilings', 'the most the org\'s admins may approve for each of its tiles — memory, disk, VM and sandbox sizes (D203); empty: no raise above the default', html`
+        <bx-org-limits org=${o.id} .limits=${o.limits ?? {}} .fetcher=${(u, i) => window.xbin.fetch(u, i)}
+          @org-limits-saved=${() => this._emit('bx-admin-refresh')}></bx-org-limits>`)}
 
       ${this._panel('danger zone', '', html`<div class="kv">
         <button class="act rm" @click=${() => this._deleteOrg(o)}>delete org…</button>
