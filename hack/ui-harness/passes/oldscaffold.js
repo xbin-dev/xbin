@@ -12,6 +12,10 @@
 //     a partitionNote) is pending: the old shell's /alerts banner names it
 //     (level and message, all an old shell reads), and its frame shows
 //     xbind's in-frame switch page with the tile's note;
+//   - a tile limits alert (D203: an OOM at a tile's memory cap, with the
+//     raise `action` an old shell knows nothing of; served — the harness
+//     can't produce a hit) shows in the old shell's banner and the old
+//     admin console's alert bar by its words, which name /xbin/limits;
 //   - the old admin console opens and lists both tiles;
 //   - the theme (D184): with the admin's light theme on a light system the
 //     old root, shell and admin console, which never opted in, stay Night;
@@ -43,6 +47,15 @@ const PART = 'apps/opart', PEND = 'apps/opend';
 const NOTE = 'Each person keeps their own notes here.';
 const DIRS = ['root', 'shell', 'tiles/admin'];
 const THEMED = 'apps/othemed'; // a new tile that opts in to the theme (D184)
+// a cap hit's alert as xbind words it (broker hitMessage): an old shell
+// shows its message and ignores the action (D203)
+const LIMIT = {
+  level: 'warn', kind: 'oom', tile: PART, dismiss: `/limits/dismiss?tile=${encodeURIComponent(PART)}&kind=memMiB`,
+  message: `${PART} was OOM-killed at its 2 GiB memory limit (OOM-killed (1 process)) at Oct 27 13:20 UTC — raise it: the tile's ⚙ → Limits, /xbin/limits, or \`bx limits raise ${PART} memory\``,
+  action: { action: 'raise-limit', tile: PART, kind: 'memMiB', unit: 'MiB', current: 2048, approvers: ['workspace-admin'],
+    choices: [{ pct: 25, value: 2560, fits: true, approvable: true }, { pct: 50, value: 3072, fits: true, approvable: true, default: true },
+      { pct: 100, value: 4096, fits: false, approvable: true, why: 'needs +2 GiB; 1 GiB free after the 10% reserve' }] },
+};
 
 async function until(fn, label, timeout = 15000) {
   const deadline = Date.now() + timeout;
@@ -151,6 +164,11 @@ async function oldScaffold(browser) {
     sc.swap();
     S = await login(browser, 'admin', 'admin', { colorScheme: 'light' });
     S.page.on('pageerror', (e) => errors.push(`shell: ${e.message}`));
+    await S.page.route('**/api/xbin/alerts', async (route) => {
+      const resp = await route.fetch();
+      const j = await resp.json().catch(() => ({}));
+      await route.fulfill({ response: resp, json: { ...j, alerts: [...(j.alerts ?? []), LIMIT] } });
+    });
     await openShell(S.page);
     const src = await S.page.evaluate(async () => (await (await fetch('/c/shell/bx-shell.js', { cache: 'no-store' })).text()).includes('bx-part-consent'));
     // HARNESS_NO_OVERLAY=1 against an xbind that overlays anyway (a --shots
@@ -162,6 +180,10 @@ async function oldScaffold(browser) {
     await until(async () => (await alerts.allInnerTexts()).some((x) => x.includes(PEND)), 'the /alerts banner names the pending tile', 20000);
     const banner = (await alerts.allInnerTexts()).find((x) => x.includes(PEND)) || '';
     check(/partition mode switch/.test(banner) && banner.includes(PEND), `the old shell's /alerts banner names ${PEND}'s switch request (${banner.slice(0, 200)})`);
+    const limit = (await alerts.allInnerTexts()).find((x) => x.includes('OOM-killed')) || '';
+    check(limit.includes(PART) && limit.includes('/xbin/limits') && limit.includes(`bx limits raise ${PART} memory`),
+      `the old shell's banner shows a tile limits alert's words, /xbin/limits in them (${limit.slice(0, 240)})`);
+    check(await S.page.locator('bx-shell .alerts .achoice, bx-shell .alerts .achoices').count() === 0, '…and nothing of its action (an old shell has no raise buttons)');
     await shot(S.page, 'old-scaffold-shell');
     const scheme = (f) => f.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bx-scheme').trim() || 'none');
     const rootScheme = await scheme(S.page.mainFrame());
@@ -199,6 +221,8 @@ async function oldScaffold(browser) {
     for (const t of [PART, PEND]) {
       check(await S.page.locator(`text=${t}`).count() > 0, `the old admin console renders and lists ${t}`);
     }
+    const bar = await S.page.locator('.al', { hasText: 'OOM-killed' }).allInnerTexts();
+    check(bar.length === 1 && bar[0].includes('/xbin/limits'), `the old admin console's alert bar shows the limits alert's words (${(bar[0] ?? '').slice(0, 200)})`);
     await shot(S.page, 'old-scaffold-admin');
     check(errors.length === 0, `no page error in the old shell or admin console (${errors.join(' | ')})`);
   } finally {
