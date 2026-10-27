@@ -56,6 +56,7 @@ type genRecord struct {
 	Created  int64  `json:"c"`
 	Active   int64  `json:"a"`
 	NotAfter int64  `json:"n,omitempty"`
+	Tunnel   bool   `json:"t,omitempty"` // bound to its device's app tunnel (transport.go)
 }
 
 // loadGens reads the persisted generations (from Load), turning every
@@ -87,7 +88,7 @@ func (a *Auth) loadGens(path string) {
 			continue
 		}
 		s := &session{userID: r.User, deviceID: r.Device, impersonator: r.Imp, bearer: r.Bearer, gen: h,
-			created: time.Unix(r.Created, 0), lastActive: time.Unix(r.Active, 0)}
+			created: time.Unix(r.Created, 0), lastActive: time.Unix(r.Active, 0), tunnel: r.Tunnel}
 		if r.NotAfter != 0 {
 			s.notAfter = time.Unix(r.NotAfter, 0)
 		}
@@ -119,7 +120,7 @@ func (a *Auth) saveGens() {
 			return
 		}
 		r := genRecord{User: s.userID, Device: s.deviceID, Imp: s.impersonator, Bearer: s.bearer,
-			Created: s.created.Unix(), Active: s.lastActive.Unix()}
+			Created: s.created.Unix(), Active: s.lastActive.Unix(), Tunnel: s.tunnel}
 		if !s.notAfter.IsZero() {
 			r.NotAfter = s.notAfter.Unix()
 		}

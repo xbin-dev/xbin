@@ -257,7 +257,7 @@ func (s *Server) handleWebTicketConfirm(w http.ResponseWriter, r *http.Request) 
 		http.Redirect(w, r, t.Next, http.StatusSeeOther)
 		return
 	}
-	sid, err := s.Auth.OpenWebSession(t, ip, notAfter)
+	sid, err := s.Auth.OpenWebSessionOn(t, ip, notAfter, auth.TransportOf(r).Tunnel) // bound to the tunnel it was redeemed on
 	if err != nil {
 		webTicketRefuse(w, t, ip, err.Error())
 		return
@@ -280,6 +280,9 @@ func (s *Server) webTicketCheck(r *http.Request, t auth.WebTicket) (u *users.Use
 	}
 	if uid, _, found := s.Auth.Users.FindDevice(t.DeviceID); !found || uid != t.UserID {
 		return nil, notAfter, false, "the device that opened this link was removed"
+	}
+	if tt := auth.TransportOf(r); tt.Tunnel && tt.DeviceID != t.DeviceID { // one device per tunnel (D204)
+		return nil, notAfter, false, "this link belongs to another device"
 	}
 	notAfter, ok := s.deviceSSOBound(u)
 	if !ok {

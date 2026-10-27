@@ -112,7 +112,14 @@ type appUser struct {
 }
 
 func (s *Server) writeAppSession(w http.ResponseWriter, u *users.User, deviceID, ip string, notAfter time.Time) {
-	bs := s.Auth.NewBearerSessionUntil(u.ID, deviceID, ip, notAfter)
+	s.writeAppSessionOpts(w, u, auth.BearerOpts{DeviceID: deviceID, IP: ip, NotAfter: notAfter})
+}
+
+// writeAppSessionOpts is writeAppSession with every option (a device
+// login over its app tunnel opens a tunnel-bound session, D204).
+func (s *Server) writeAppSessionOpts(w http.ResponseWriter, u *users.User, o auth.BearerOpts) {
+	deviceID := o.DeviceID
+	bs := s.Auth.NewBearerSessionOpts(u.ID, o)
 	w.Header().Set("Cache-Control", "no-store")
 	WriteJSON(w, http.StatusOK, appSession{
 		Token: bs.Token, TokenType: "Bearer", DeviceID: deviceID,
@@ -160,6 +167,9 @@ func (s *Server) EnrollOrigin(r *http.Request) string {
 		if o, err := auth.NormalizeOrigin(s.ExternalURL); err == nil {
 			return o
 		}
+	}
+	if o := s.tunnelOrigin(r); o != "" { // never the app's loopback forwarder (D204)
+		return o
 	}
 	scheme := "http"
 	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
@@ -289,7 +299,7 @@ func (s *Server) handleDeviceChallenge(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		DeviceID string `json:"deviceId"`
 	}
-	if !decodeAppBody(w, r, &body) {
+	if !decodeAppBody(w, r, &body) || !tunnelDevice(w, r, body.DeviceID) {
 		return
 	}
 	if s.Auth.Users == nil {
@@ -317,7 +327,7 @@ func (s *Server) handleDeviceLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct{ DeviceID, Nonce, Signature string }
-	if !decodeAppBody(w, r, &body) {
+	if !decodeAppBody(w, r, &body) || !tunnelDevice(w, r, body.DeviceID) {
 		return
 	}
 	if !s.Auth.ConsumeDeviceChallenge(body.DeviceID, body.Nonce) {
@@ -352,7 +362,7 @@ func (s *Server) handleDeviceLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	s.touchLogin(u.ID, "device")
 	slog.Info("audit", "who", "user:"+u.ID, "method", "POST", "path", "/login/device", "status", 200, "device", d.ID, "ip", ip)
-	s.writeAppSession(w, u, d.ID, ip, notAfter)
+	s.writeAppSessionOpts(w, u, auth.BearerOpts{DeviceID: d.ID, IP: ip, NotAfter: notAfter, Tunnel: auth.TransportOf(r).Tunnel})
 }
 
 // deviceSSOBound: where the IdP is the account's only way in, it stays the

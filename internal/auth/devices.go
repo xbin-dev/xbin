@@ -58,6 +58,10 @@ type enrollCode struct {
 	userID  string
 	origin  string
 	expires time.Time
+	// tunnel: a pairing code of the app tunnel (D204). It never redeems
+	// over POST /devices/enroll — only the pairing, after the person
+	// confirmed the code on both screens, spends it (ConsumeTunnelCode).
+	tunnel bool
 }
 
 type deviceChallenge struct {
@@ -183,8 +187,25 @@ func (a *Auth) MintEnrollCode(userID, origin string) (code string, expires time.
 	return code, expires, nil
 }
 
+// MintEnrollCodeTunnel mints an app-tunnel pairing code: like
+// MintEnrollCode, voided the same ways, but it never redeems over
+// RedeemEnrollCode — the pairing spends it (ConsumeTunnelCode).
+func (a *Auth) MintEnrollCodeTunnel(userID, origin string) (code string, expires time.Time, err error) {
+	code, expires, err = a.MintEnrollCode(userID, origin)
+	if err == nil {
+		a.mu.Lock()
+		if c := a.dev.codes[secretKey(code)]; c != nil {
+			c.tunnel = true
+		}
+		a.mu.Unlock()
+	}
+	return code, expires, err
+}
+
 // RedeemEnrollCode consumes a code (single use, even when the caller then
-// fails) and returns the user and origin it was minted for.
+// fails) and returns the user and origin it was minted for. A tunnel code
+// is refused and left pending: redeeming it here would skip the pairing's
+// confirmation, and refusing must not let a leaked link burn the pairing.
 func (a *Auth) RedeemEnrollCode(code string) (userID, origin string, ok bool) {
 	code = normalizeCode(code)
 	if code == "" {
@@ -194,12 +215,32 @@ func (a *Auth) RedeemEnrollCode(code string) (userID, origin string, ok bool) {
 	now := time.Now()
 	a.mu.Lock()
 	c := a.dev.codes[k]
+	if c != nil && c.tunnel {
+		a.mu.Unlock()
+		return "", "", false
+	}
 	delete(a.dev.codes, k)
 	a.mu.Unlock()
 	if c == nil || now.After(c.expires) {
 		return "", "", false
 	}
 	return c.userID, c.origin, true
+}
+
+// ConsumeTunnelCode spends a pending tunnel code of userID (the pairing's
+// confirmation, or "They don't"): false when it is unknown, spent, expired,
+// another user's or not a tunnel code — sign-out-everywhere voids it.
+func (a *Auth) ConsumeTunnelCode(code, userID string) bool {
+	k := secretKey(normalizeCode(code))
+	now := time.Now()
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	c := a.dev.codes[k]
+	if c == nil || !c.tunnel || c.userID != userID {
+		return false
+	}
+	delete(a.dev.codes, k)
+	return !now.After(c.expires)
 }
 
 // NewDeviceChallenge issues a single-use login nonce bound to deviceID. A

@@ -64,6 +64,9 @@ var errDuplicateCookie = errors.New("duplicate credential cookie")
 // proxy), or addresses localhost / *.localhost — a secure context in
 // browsers, where Secure and __Host- cookies are accepted (dev).
 func SecureRequest(r *http.Request) bool {
+	if TransportOf(r).Tunnel { // plain http on the app's loopback forwarder (D204): no Secure, no __Host-
+		return false
+	}
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		return true
 	}

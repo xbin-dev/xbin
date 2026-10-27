@@ -181,7 +181,7 @@ func (s *Server) Handler() http.Handler {
 
 	s.registerCoreAPI()
 	s.registerBrandingAPI()
-	return logRequests(s.tileOrigins(nullOriginCORS(mux)))
+	return logRequests(s.tunnelGate(s.tileOrigins(nullOriginCORS(mux)))) // tunnelgate.go: the app tunnel (D204)
 }
 
 // nullOriginCORS lets sandboxed tile frames talk to their APIs at all. A
@@ -233,8 +233,12 @@ func (s *Server) authed(next http.Handler) http.Handler {
 		if auth.TileContext(r) {
 			r = auth.WithoutCookie(r)
 		}
-		p, ok := s.Auth.FromRequest(r)
+		p, ok, why := s.Auth.Authenticate(r)
 		if !ok {
+			if why != auth.RefuseNone { // the app tunnel's transport gate (tunnelgate.go)
+				writeTunnelRefusal(w, why)
+				return
+			}
 			if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") {
 				http.Redirect(w, r, loginURLFor(r), http.StatusFound) // a deep-link page carries ?next= (loginnext.go)
 				return

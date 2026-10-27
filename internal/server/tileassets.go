@@ -287,6 +287,10 @@ func (s *Server) serveAssetToken(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "asset token invalid or expired — reload the tile (docs/elements.md#asset-urls)", http.StatusUnauthorized)
 		return
 	}
+	if why := s.Auth.RequestRefusal(r, g.Gen, g.UserID); why != auth.RefuseNone { // the app tunnel (D204)
+		writeTunnelRefusal(w, why)
+		return
+	}
 	_, cleaned, err := util.SafeJoin(s.Reg.Root, rel)
 	if err != nil || !pathAllowed(cleaned) {
 		http.Error(w, "bad path", http.StatusBadRequest)

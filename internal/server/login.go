@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/xbin-dev/xbin/internal/auth"
 )
 
 // loginThrottle blunts password brute-force: after a few failures from an IP,
@@ -78,6 +80,9 @@ func (t *loginThrottle) ok(ip string) {
 // peer), which also keeps attacker-chosen strings out of the throttle and
 // warm-IP keyspaces.
 func (s *Server) ClientIP(r *http.Request) string {
+	if t := auth.TransportOf(r); t.Tunnel { // one key per device, never a shared "tunnel" (D204)
+		return t.ClientKey()
+	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		host = r.RemoteAddr

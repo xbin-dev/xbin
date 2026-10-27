@@ -250,7 +250,8 @@ type Auth struct {
 	noAuth    bool
 	saveMu    sync.Mutex // serializes framegens.go writes
 
-	covered func(tile string, part util.Partition, uid string) bool // a user partition's coverage (partition.go); guarded by mu
+	covered        func(tile string, part util.Partition, uid string) bool // a user partition's coverage (partition.go); guarded by mu
+	tunnelRequired func() bool                                             // the app tunnel's iroh-only switch (transport.go); guarded by mu
 
 	// clientIP resolves a request's client IP (trusted-proxy aware);
 	// installed by the server via SetClientIP. Nil → RemoteAddr.
@@ -469,11 +470,10 @@ func (a *Auth) accessSnapshot(uid string) *users.Access {
 //  4. Owner cookie alone → owner (non-element pages: xbind UI, direct nav).
 //  5. Frame token ALONE → the element frontend (plans/auth.md §6: sandboxed
 //     tile frames have no ambient cookie; the token is their only credential).
+//
+// The app tunnel's transport gate then applies (transport.go, Authenticate).
 func (a *Auth) FromRequest(r *http.Request) (Principal, bool) {
-	p, ok := a.fromRequest(r)
-	if ok {
-		a.noteAuthed(r) // any real auth warms the source IP for the /c/ gate
-	}
+	p, ok, _ := a.Authenticate(r)
 	return p, ok
 }
 
