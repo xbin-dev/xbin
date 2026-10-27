@@ -229,6 +229,7 @@ export class BxShell extends LitElement {
       if (e.type === 'grants' || e.type === 'users') loadAccessRequests(this); // ⚑ badge: people's access requests (the rest follow by themselves)
       if (e.type === 'status') this._onStatusEvent(e); // tile health / notifications
       if (e.type === 'pr') this._loadPRs();            // change-proposal badges (⇄)
+      if (e.type === 'limits') this._loadAlerts();      // a limit decided or a cap met (D203): the banners' raises (the prompts follow by themselves)
       if (e.type === 'prefs') followLayout(this, e, LAYOUT_PREF); // the app / another tab saved the layout
       if (e.type === 'prefs') followAppearance(this, e); // another tab or device changed the theme or density
     });

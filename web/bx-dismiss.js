@@ -11,7 +11,8 @@
  *   GET|PUT /api/xbin/prefs/dismissed
  *   {"grants":   {"<from>|<target>|<role>": "<dismissed at>"},
  *    "bindings": {"<component>|<slot>|<kind>": "<dismissed at>"},
- *    "alerts":   {"<kind>|<message>": "<dismissed at>"}}
+ *    "alerts":   {"<kind>|<message>": "<dismissed at>"},
+ *    "limits":   {"<tile>|<kind>|<ask>" or "<tile>|<kind>|cap:<since>": "<dismissed at>"}}
  *
  * A request whose key changes (another role, another target) is another
  * request and shows again. Dismissals of what the server no longer lists
@@ -29,7 +30,10 @@
  */
 
 export const PREF = 'dismissed';
-export const KINDS = Object.freeze(['grants', 'bindings', 'alerts']);
+// limits (D203): a tile's pending limit ask or its at-cap hit. An older
+// shell imports this file too: it reads only the kinds it knows, and the
+// restore-all and count over KINDS take the new one in.
+export const KINDS = Object.freeze(['grants', 'bindings', 'alerts', 'limits']);
 const API = `/api/xbin/prefs/${PREF}`;
 
 // The keys: what identifies a request, so a changed one shows again.
@@ -38,6 +42,12 @@ export const bindingKey = (p) => `${p?.component ?? ''}|${p?.slot ?? ''}|${p?.ki
 // A banner's key is its kind and its words: one whose message changes (more
 // people, another tile) is news and shows again.
 export const alertKey = (a) => `${a?.kind ?? ''}|${a?.message ?? ''}`;
+// A limit prompt (GET /limits?pending=1, D203) is its tile, its kind and
+// what it asks: a manifest's ask by its value (a bigger ask shows again), a
+// cap hit by when it began (`since`; `at` for a hit without one) — a new hit
+// after a raise or an approver's dismissal is news.
+const hitStart = (h) => (typeof h?.since === 'string' && h.since && !h.since.startsWith('0001-') ? h.since : h?.at ?? '');
+export const limitKey = (p) => `${p?.tile ?? p?.scope ?? ''}|${p?.kind ?? ''}|${p?.why === 'cap' ? `cap:${hitStart(p.hit)}` : (p?.ask ?? '')}`;
 
 const plain = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
@@ -93,13 +103,15 @@ export function split(items, d, kind, keyOf) {
   return { shown, hidden };
 }
 
-// pendingCount(grants, bindings, requests, d) → the organisations badge:
-// the actionable pending items — grant requests this person may approve
-// (D26/D33) or their own tiles' still waiting (direction "mine"), unbound
-// slots they may wire, people's access requests they can grant (D36) —
-// less what they dismissed. The arguments are GET /grants, /bindings and
-// /access-requests (null when one failed).
-export function pendingCount(g, b, q, d) {
+// pendingCount(grants, bindings, requests, d, limits?) → the organisations
+// badge: the actionable pending items — grant requests this person may
+// approve (D26/D33) or their own tiles' still waiting (direction "mine"),
+// unbound slots they may wire, people's access requests they can grant
+// (D36), limit asks and cap hits they may decide or whose tile is theirs
+// (D203) — less what they dismissed. The arguments are GET /grants,
+// /bindings, /access-requests and /limits?pending=1 (null when one failed;
+// an older shell passes four).
+export function pendingCount(g, b, q, d, l) {
   let n = 0;
   const scoped = !!g?.scope;
   for (const p of g?.pending ?? []) {
@@ -108,6 +120,7 @@ export function pendingCount(g, b, q, d) {
   }
   n += (b?.pending ?? []).filter((p) => p.approvable !== false && !isDismissed(d, 'bindings', bindingKey(p))).length;
   n += (q?.requests ?? []).filter((x) => x.manage).length;
+  n += (l?.pending ?? []).filter((p) => (p.approvable || p.mine) && !isDismissed(d, 'limits', limitKey(p))).length;
   return n;
 }
 

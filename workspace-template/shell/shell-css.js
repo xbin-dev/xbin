@@ -272,6 +272,17 @@ export const shellCss = [scrollCss, baseCss, chromeCss, css`
       border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px);
     }
     .alert .dismiss:hover { background: var(--bx-hover, #2A2B34); }
+    /* a cap's raises (D203): +25 / +50 / +100 %, the primary in the accent; on a phone on their own line */
+    .alert .achoices { flex: none; display: inline-flex; gap: 6px; }
+    .alert .achoice { height: 24px; padding: 0 8px; cursor: pointer; font-weight: 600; white-space: nowrap; color: var(--bx-text, #E9EAF0);
+      background: transparent; border: 1px solid var(--bx-border-strong, #666A7E); border-radius: var(--bx-radius, 2px); }
+    .alert .achoice:hover:not(:disabled) { background: var(--bx-hover, #2A2B34); }
+    .alert .achoice.primary { color: var(--bx-accent-ink, #0B0C12); background: var(--bx-accent, #8C9BFF); border-color: var(--bx-accent, #8C9BFF); }
+    .alert .achoice:disabled { opacity: 0.5; cursor: default; }
+    .alert .aask { flex: none; color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); }
+    .alert.open.act { flex-wrap: wrap; }
+    .alert .awhys { flex-basis: 100%; padding-left: 28px; color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); }
+    @media (max-width: 820px) { .alert.act { flex-wrap: wrap; } .alert.act .achoices { order: 1; flex-basis: 100%; padding-left: 28px; } .alert.act .awhys { order: 2; } }
     .wsmenu .restore-all {
       display: block; width: 100%; box-sizing: border-box; margin: 4px 0; padding: 4px 8px; text-align: left; cursor: pointer;
       font: inherit; color: var(--bx-text, #E9EAF0); background: none;

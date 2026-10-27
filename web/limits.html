@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en" data-bx-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tile limits — xbin</title>
+<link rel="icon" type="image/svg+xml" href="/vendor/favicon.svg">
+<!-- the person's theme (D184): this page gets no document injection, so
+     theme-boot.js copies the xbin_theme hint cookie into the meta theme.css
+     reads — a classic script, before the stylesheet, for the first paint -->
+<script src="/vendor/theme-boot.js"></script>
+<link rel="stylesheet" href="/vendor/theme.css">
+<!-- xbind's tile limits page (/xbin/limits[?tile=]; D203, docs/isolation.md
+     §Resource limits): served exactly as it is here — no HTML transform —
+     and only top-level. No inline script: its CSP allows 'self' alone. -->
+<script type="module" src="/vendor/limits-page.js"></script>
+</head>
+<body class="bx" style="background: var(--bx-bg, #0B0C12)">
+<bx-limits-page></bx-limits-page>
+<noscript>The limits page needs JavaScript. Without it: <code>bx limits</code> (docs/bx.md).</noscript>
+</body>
+</html>

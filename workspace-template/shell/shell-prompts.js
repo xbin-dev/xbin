@@ -1,10 +1,11 @@
 /**
  * shell-prompts.js — the decisions waiting for the person, on the window of
- * the tile that asked (D195): grant requests, interfaces to bind and
- * partition consent asks. They used to fill a strip above every screen;
- * now a tile with something waiting carries a key badge in its title bar
- * and a popover over the top of its window holding that tile's
- * <bx-grants>, <bx-bindings> and <bx-part-consent> (each with `tile`). Its
+ * the tile that asked (D195): grant requests, interfaces to bind,
+ * partition consent asks, and limit asks and cap hits (D203). They used to
+ * fill a strip above every screen; now a tile with something waiting
+ * carries a key badge in its title bar and a popover over the top of its
+ * window holding that tile's <bx-grants>, <bx-bindings>, <bx-part-consent>
+ * and <bx-limits view="prompt"> (each with `tile`). Its
  * ⌃ folds it to the badge, and the badge opens it again (a new decision
  * opens it too); a fold is kept in this browser, across reloads. It
  * never covers more than the top of the window, so the tile stays usable;
@@ -14,7 +15,8 @@
  * (bx-side; prompts.js says which tile each decision belongs to).
  *
  * The shell's end (followPrompts) reads the page's one copy of the
- * requests and dismissals (/vendor/bx-requests.js) and the consent asks
+ * requests, the limits' pending items and the dismissals
+ * (/vendor/bx-requests.js) and the consent asks
  * (bx-part-consent.js), keeps `_prompts` (path → counts) for the canvas and
  * the sidebar and `_pendingN` for the organisations badge, and says so
  * when a dismissal couldn't be saved (#11).
@@ -22,28 +24,30 @@
 import { html, css, nothing } from 'lit';
 import '/vendor/bx-grants.js';
 import '/vendor/bx-bindings.js';
+import '/vendor/bx-limits.js';
 import '/vendor/bx-icons.js';
-import { grantKey, bindingKey, isDismissed, pendingCount } from '/vendor/bx-dismiss.js';
-import { grantsStore, bindingsStore, dismissalStore } from '/vendor/bx-requests.js';
+import { grantKey, bindingKey, limitKey, isDismissed, pendingCount } from '/vendor/bx-dismiss.js';
+import { grantsStore, bindingsStore, limitsStore, dismissalStore } from '/vendor/bx-requests.js';
 import { consentContext, consentAsks, consentNotes, onConsents } from './bx-part-consent.js';
 import { promptsByTile, promptWords } from './prompts.js';
 
-const KEY = { grants: grantKey, bindings: bindingKey };
+const KEY = { grants: grantKey, bindings: bindingKey, limits: limitKey };
 
 // ---- the shell's end (s is <bx-shell>) ----
 export function followPrompts(s) {
   const update = () => {
     const d = dismissalStore().value;
-    s._prompts = promptsByTile({ grants: grantsStore().value, bindings: bindingsStore().value, consents: consentAsks() },
+    s._prompts = promptsByTile({ grants: grantsStore().value, bindings: bindingsStore().value, consents: consentAsks(), limits: limitsStore().value },
       (kind, p) => isDismissed(d, kind, KEY[kind](p)));
     // an answer's words keep the tile's popover up while they show (n stays: nothing to decide)
     for (const a of consentNotes()) {
       const e = s._prompts.get(a.from) ?? { grants: 0, bindings: 0, consents: 0, n: 0 };
       s._prompts.set(a.from, { ...e, notes: (e.notes || 0) + 1 });
     }
-    s._pendingN = pendingCount(grantsStore().value, bindingsStore().value, s._accessReqs ?? null, d);
+    s._pendingN = pendingCount(grantsStore().value, bindingsStore().value, s._accessReqs ?? null, d, limitsStore().value);
   };
-  const offs = [grantsStore().subscribe(update), bindingsStore().subscribe(update), dismissalStore().subscribe(update), onConsents(update),
+  const offs = [grantsStore().subscribe(update), bindingsStore().subscribe(update), limitsStore().subscribe(update),
+    dismissalStore().subscribe(update), onConsents(update),
     dismissalStore().onError(() => s._pushToast('dismissed', { level: 'error',
       message: 'Couldn’t save your dismissal, so it shows again — try again (it is kept on your devices once saved).' }))];
   s._promptsUpdate = update;
@@ -114,6 +118,7 @@ export function promptPop(c, o, flow = false) {
     ${e.grants ? html`<bx-grants tile=${o.path}></bx-grants>` : nothing}
     ${e.bindings ? html`<bx-bindings tile=${o.path}></bx-bindings>` : nothing}
     ${e.consents || e.notes ? html`<bx-part-consent tile=${o.path} .components=${c.components} .who=${c.who}></bx-part-consent>` : nothing}
+    ${e.limits ? html`<bx-limits tile=${o.path} view="prompt"></bx-limits>` : nothing}
   </div>`;
 }
 

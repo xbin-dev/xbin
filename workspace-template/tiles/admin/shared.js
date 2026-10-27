@@ -292,12 +292,16 @@ export function agoCoarse(unixSec) {
 // alertBar(alerts, done): the router's row per workspace alert (GET
 // /alerts). One that can be dismissed (the Go build versions alert, D166)
 // carries dismiss, the route a POST to which does it; done(err?) follows.
+// One about a cap (D203: its `action` offers a raise) links the limits tab
+// at its tile ("raise…": #limits/<tile>).
 export function alertBar(alerts, done) {
   if (!alerts?.length) return nothing;
   const dismiss = (a) => api(a.dismiss, { method: 'POST' }).then(() => done(), (e) => done(e));
+  const raise = (ev, t) => { ev.preventDefault(); ev.target.dispatchEvent(new CustomEvent('bx-admin-tab', { detail: `limits/${t}`, bubbles: true, composed: true })); };
   return html`<div class="alertbar">
     ${alerts.map((a) => html`<div class="al ${a.level}">
       <bx-icon name=${a.level === 'crit' ? 'error' : 'warning'}></bx-icon><span>${a.message}</span>
-      ${a.dismiss ? html`<button class="act quiet al-x" @click=${() => dismiss(a)}>dismiss</button>` : nothing}</div>`)}
+      ${a.action?.tile ? html`<a class="link al-x" data-raise href=${`#limits/${a.action.tile}`} @click=${(ev) => raise(ev, a.action.tile)}>raise…</a>` : nothing}
+      ${a.dismiss ? html`<button class="act quiet ${a.action?.tile ? '' : 'al-x'}" @click=${() => dismiss(a)}>dismiss</button>` : nothing}</div>`)}
   </div>`;
 }
