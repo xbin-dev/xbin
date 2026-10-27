@@ -136,7 +136,7 @@ as six digits, zero-padded and grouped: `012 345`.
 ## 6. Pairing messages (`pair/1` data, one JSON object per data message)
 
 1. **Device → xbind**, the first data message:
-   `{"v":1,"name":"<device name>","platform":"ios","publicKey":"<base64 SPKI DER of the device-login P-256 key>"}`.
+   `{"v":1,"name":"<device name>","platform":"ios","publicKey":"<base64url SPKI DER of the device-login P-256 key, as in device-login.md>"}`.
    The device's Noise key is the handshake's remote static key and its
    EndpointId is iroh's `remoteId`. Neither travels in the payload.
 2. **xbind → device:** `{"type":"await","expires":"<RFC 3339>"}`. The

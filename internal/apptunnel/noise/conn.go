@@ -96,20 +96,68 @@ func (c *Conn) Read(p []byte) (int, error) {
 		if c.rerr != nil {
 			return 0, c.rerr
 		}
-		if err := c.readFrameLocked(); err != nil {
-			if isTimeout(err) {
-				return 0, err
-			}
-			c.rerr = err
-			if err != io.EOF {
-				_ = c.c.Close()
-			}
+		if _, err := c.nextFrameLocked(); err != nil {
 			return 0, err
 		}
 	}
 	n := copy(p, c.rbuf)
 	c.rbuf = c.rbuf[n:]
 	return n, nil
+}
+
+// ReadMessage returns the next data frame's body whole: pair/1 carries one
+// JSON object per data message. Don't mix it with partial Reads.
+func (c *Conn) ReadMessage() ([]byte, error) {
+	c.rmu.Lock()
+	defer c.rmu.Unlock()
+	for len(c.rbuf) == 0 {
+		if c.rerr != nil {
+			return nil, c.rerr
+		}
+		data, err := c.nextFrameLocked()
+		if err != nil {
+			return nil, err
+		}
+		if data {
+			break
+		}
+	}
+	b := append([]byte(nil), c.rbuf...)
+	c.rbuf = nil
+	return b, nil
+}
+
+// WriteMessage sends b as exactly one data frame.
+func (c *Conn) WriteMessage(b []byte) error {
+	if len(b) > MaxBody {
+		return fmt.Errorf("noise: a %d-byte message doesn't fit one frame", len(b))
+	}
+	c.wmu.Lock()
+	defer c.wmu.Unlock()
+	if c.wclosed {
+		return ErrWriteClosed
+	}
+	if c.werr != nil {
+		return c.werr
+	}
+	if err := c.sendLocked(TypeData, b); err != nil {
+		c.werr = err
+		return err
+	}
+	return nil
+}
+
+// nextFrameLocked reads one frame; an error other than a deadline is sticky
+// (and closes the stream unless it was the peer's close).
+func (c *Conn) nextFrameLocked() (data bool, err error) {
+	data, err = c.readFrameLocked()
+	if err != nil && !isTimeout(err) {
+		c.rerr = err
+		if err != io.EOF {
+			_ = c.c.Close()
+		}
+	}
+	return data, err
 }
 
 func isTimeout(err error) bool {
@@ -138,37 +186,38 @@ func (c *Conn) fillLocked() error {
 	}
 }
 
-// readFrameLocked reads and handles one frame.
-func (c *Conn) readFrameLocked() error {
+// readFrameLocked reads and handles one frame; data reports a data frame.
+func (c *Conn) readFrameLocked() (data bool, err error) {
 	if err := c.fillLocked(); err != nil {
-		return truncated(err)
+		return false, truncated(err)
 	}
 	ct := c.frame[2:c.fill]
 	c.fill = 0
 	if len(ct) < tagLen+1 {
-		return fmt.Errorf("%w: %d bytes", ErrFrame, len(ct))
+		return false, fmt.Errorf("%w: %d bytes", ErrFrame, len(ct))
 	}
 	pt, err := c.s.recv.Decrypt(ct[:0], nil, ct)
 	if err != nil {
-		return fmt.Errorf("%w: %v", ErrFrame, err)
+		return false, fmt.Errorf("%w: %v", ErrFrame, err)
 	}
 	switch typ, body := pt[0], pt[1:]; typ {
 	case TypeData:
 		c.rbuf = body
+		return true, nil
 	case TypeRekey:
 		if len(body) != 0 {
-			return fmt.Errorf("%w: rekey with a body", ErrFrame)
+			return false, fmt.Errorf("%w: rekey with a body", ErrFrame)
 		}
 		c.s.recv.Rekey()
+		return false, nil
 	case TypeClose:
 		if len(body) != 0 {
-			return fmt.Errorf("%w: close with a body", ErrFrame)
+			return false, fmt.Errorf("%w: close with a body", ErrFrame)
 		}
-		return io.EOF
+		return false, io.EOF
 	default:
-		return fmt.Errorf("%w: type %#x", ErrFrame, typ)
+		return false, fmt.Errorf("%w: type %#x", ErrFrame, typ)
 	}
-	return nil
 }
 
 func truncated(err error) error {
