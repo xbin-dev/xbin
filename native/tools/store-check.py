@@ -13,9 +13,10 @@ its code (native/AGENTS.md → "App Store"). Runs anywhere python3 does
      off, nothing leaves for a relay); with a relay, the APNs token the app
      registers there — Device ID, not linked, not tracking, App
      Functionality — which App Store Connect's App Privacy must say too
-  3. the export-compliance answer: ITSAppUsesNonExemptEncryption is true —
-     the app ships its own Noise layer and, through IrohLib, rustls/QUIC
-     (App Store Connect's questions are the owner's to answer)
+  3. the export-compliance answer: ITSAppUsesNonExemptEncryption is false —
+     the owner answered App Store Connect's questions for the app tunnel's
+     encryption (standard algorithms; no documents needed) and App Store
+     Connect said to declare it here (native/AGENTS.md → "Export compliance")
   4. the Local Network purpose string names the tunnel (iOS shows it before
      the tunnel's first direct path on the LAN)
   5. App/Resources/AppIcon.icon parses, every layer's image exists, and the
@@ -117,9 +118,10 @@ else:
               "DeviceID: purpose must include NSPrivacyCollectedDataTypePurposeAppFunctionality")
 
 # ---- 3. export compliance ------------------------------------------------
-check(info.get("ITSAppUsesNonExemptEncryption") is True,
-      "Support/App-Info.plist: ITSAppUsesNonExemptEncryption must be true — the app ships its own Noise layer "
-      "(Shared/NoiseTunnel.swift) and, with IrohLib, rustls/QUIC (native/AGENTS.md → \"Export compliance\")")
+check(info.get("ITSAppUsesNonExemptEncryption") is False,
+      "Support/App-Info.plist: ITSAppUsesNonExemptEncryption must be false — App Store Connect's verdict on the "
+      "owner's answers (standard algorithms, no documents needed); change it only with a new answer there "
+      "(native/AGENTS.md → \"Export compliance\")")
 
 # ---- 4. the Local Network purpose string ---------------------------------
 local = str(info.get("NSLocalNetworkUsageDescription", ""))

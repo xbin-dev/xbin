@@ -52,8 +52,9 @@ workspace's relay instead and keeps working.
 **Encryption.** Inside the tunnel the app runs the Noise protocol
 (X25519, ChaChaPoly, SHA-256 through CryptoKit) end to end with the
 workspace, over iroh's QUIC/TLS (rustls), from the open-source IrohLib.
-These are standard algorithms; the export compliance answer is "uses
-non-exempt encryption" (`ITSAppUsesNonExemptEncryption` = YES).
+These are standard algorithms (IETF/NIST), none proprietary; App Store
+Connect's export compliance questions were answered for them, and it found no
+documents needed (`ITSAppUsesNonExemptEncryption` = NO, as it advised).
 
 **Plain http.** xbin is a client for self-hosted workspaces; users enter
 their own server's address, which may be plain http on a private network or

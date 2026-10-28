@@ -866,19 +866,20 @@ tunnel." (store-check.py requires it to name the tunnel), and the pairing
 page explains the prompt before it appears. Denied, the tunnel uses the
 relay. No Bonjour services, no multicast entitlement.
 
-**Export compliance.** `ITSAppUsesNonExemptEncryption` is `true` (D204;
-store-check.py holds it there). Besides TLS through URLSession and CryptoKit,
-the app now ships encryption of its own: the Noise layer of app tunnels
-(`Shared/NoiseTunnel.swift`, ChaChaPoly/X25519/SHA-256 through CryptoKit) and,
-in IrohLib, rustls and QUIC — standard algorithms, none proprietary. The
-owner answers App Store Connect's questions as the account holder: "standard
-encryption algorithms in addition to Apple's", mass market (EAR 5A992.c /
-5D992.c, License Exception ENC §740.17(b)(1), with the yearly
-self-classification report to BIS and NSA by 1 February — or the
-publicly-available-source route if counsel agrees), the France question to
-match where the app is sold, then `ITSEncryptionExportComplianceCode` once
-Apple accepts the documentation (plans/app-tunnel.md Appendix B §9.1). Have
-counsel confirm.
+**Export compliance.** `ITSAppUsesNonExemptEncryption` is `false`
+(store-check.py holds it there). Besides TLS through URLSession and CryptoKit,
+the app ships encryption of its own since D204: the Noise layer of app
+tunnels (`Shared/NoiseTunnel.swift`, ChaChaPoly/X25519/SHA-256 through
+CryptoKit) and, in IrohLib, rustls and QUIC — standard algorithms (IETF/NIST),
+none proprietary. The owner answered App Store Connect's encryption questions
+for it on 2026-10-28 as the account holder ("standard encryption algorithms
+instead of, or in addition to, Apple's"; the France question to match where
+the app is sold), and App Store Connect concluded that no documents are
+needed and that the build may declare it in Info.plist, which this key does —
+so builds upload without a compliance code and without per-build questions.
+`true` without an `ITSEncryptionExportComplianceCode` is refused at upload
+("Invalid Export Compliance Code"). A change to the app's encryption, or to
+where it is sold, means answering the questions again first.
 
 **Open-source licences.** Settings → About → Open-source licences
 (`App/Shell/Licences.swift`) shows `App/Resources/Licences/

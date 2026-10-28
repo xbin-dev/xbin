@@ -12548,5 +12548,8 @@ Deviations and refinements made while implementing; all deliberate:
   - **App Store** (audited): not a VPN (5.4), no background modes, no
     downloaded code. IPv6-only networks work over the relay. The privacy
     manifest, policy and purpose strings are updated, and there is a
-    licences screen. Export compliance becomes "uses non-exempt
-    encryption"; the owner answers it.
+    licences screen. Export compliance: the owner answered App Store
+    Connect's questions (standard algorithms, none proprietary); it found
+    no documents needed and advised declaring that in Info.plist, so
+    `ITSAppUsesNonExemptEncryption` stays `false` (2026-10-28). `true`
+    without a compliance code is refused at upload.
