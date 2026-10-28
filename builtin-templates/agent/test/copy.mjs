@@ -10,12 +10,15 @@
 // and Needs you lists it.
 //
 //   node test/copy.mjs        (needs playwright + a chromium build)
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
 
 const { ok, done } = checker();
-const HLJS = fileURLToPath(new URL('../../../web/vendor/highlight.min.js', import.meta.url));
+// xbind's web: BX_WEB (as native.mjs), else the xbin checkout around the template
+const WEB = process.env.BX_WEB || fileURLToPath(new URL('../../../web', import.meta.url));
+const HLJS = [join(WEB, 'vendor', 'highlight.min.js'), join(WEB, 'highlight.min.js')].find((x) => existsSync(x)) || join(WEB, 'vendor', 'highlight.min.js');
 const ANSWER = [
   'Here is the plan:', '', '1. **first** step', '2. second step', '', '| a | b |', '|---|---|', '| 1 | 2 |', '',
   '```js', 'const x = "<b>" + 1; // the sum', '```',
