@@ -1096,9 +1096,7 @@ Debug's `-XbinTunnelForward YES`: each workspace on a plain-http address
 gets a `TunnelTransport` whose forwarder on `127.0.0.1:<port>` splices to
 that address over TCP — no iroh, no xbin layer), so the whole suite checks
 the transport refactor, the forwarder and WebKit on a second loopback
-origin. `-XbinTunnelDumbpipe <ticket>` (Debug) dials a dumbpipe-compatible
-iroh listener instead, with the tunnel's own endpoint (Minimal, the
-ticket's relay only).
+origin.
 `--keep` leaves the xbind up; `--port` moves it; an xbind the Mac reaches
 by itself: `XBIN_E2E_URL=… XBIN_E2E_USER=… XBIN_E2E_PASSWORD=…
 mac-remote.sh e2e` (no tunnel; an admin account, the tests make invites).
