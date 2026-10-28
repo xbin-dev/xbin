@@ -167,7 +167,10 @@ final class XbinTunnelTests: XCTestCase {
         // a check fails here: the suites after this one sign in directly.
         continueAfterFailure = true
         let e = try E2E(self)
-        _ = try await e.server.send("PUT", "/api/xbin/app-tunnel", json: ["tunnelOnly": true])
+        // As the admin console does it — a browser's session: while the
+        // workspace requires the tunnel it refuses the app's credentials off
+        // it (the checks' own password bearer included), never a browser's.
+        _ = try await e.server.browserSend("PUT", "/api/xbin/app-tunnel", json: ["tunnelOnly": true])
         e.launchFresh()
         if e.app.buttons["Log in"].waitForExistence(timeout: 30) {
             e.app.buttons["Log in"].tap()
@@ -178,7 +181,7 @@ final class XbinTunnelTests: XCTestCase {
         } else {
             XCTFail("no Welcome")
         }
-        _ = try await e.server.send("PUT", "/api/xbin/app-tunnel", json: ["tunnelOnly": false])
+        _ = try await e.server.browserSend("PUT", "/api/xbin/app-tunnel", json: ["tunnelOnly": false])
     }
 
     static func grouped(_ s: String) -> String {
@@ -189,6 +192,34 @@ final class XbinTunnelTests: XCTestCase {
 }
 
 extension E2EServer {
+    /// `method path` with a browser's cookie session (`POST /login`, the
+    /// web shell's sign-in), in a URLSession of its own.
+    func browserSend(_ method: String, _ path: String, json: [String: Any]) async throws -> Data {
+        let s = URLSession(configuration: .ephemeral)
+        defer { s.invalidateAndCancel() }
+        var login = URLRequest(url: URL(string: address + "/login")!)
+        login.httpMethod = "POST"
+        login.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        let form = ["username": user, "password": password].map { k, v in
+            "\(k)=\(v.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? v)"
+        }.joined(separator: "&")
+        login.httpBody = Data(form.utf8)
+        login.timeoutInterval = 15
+        _ = try await s.data(for: login)
+        var r = URLRequest(url: URL(string: address + path)!)
+        r.httpMethod = method
+        r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        r.setValue(address, forHTTPHeaderField: "Origin")
+        r.httpBody = try JSONSerialization.data(withJSONObject: json)
+        r.timeoutInterval = 15
+        let (data, response) = try await s.data(for: r)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(status) else {
+            throw Failure(description: "\(method) \(path) (browser) → \(status): \(String(decoding: data.prefix(200), as: UTF8.self))")
+        }
+        return data
+    }
+
     struct Minted: Sendable {
         let link: String
         let pairing: String
