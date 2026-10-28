@@ -92,6 +92,25 @@ func (s *Service) MintPairing(p auth.Principal, origin string) (*server.TunnelMi
 	if p.UserID == "" || p.Component != "" || !validSessionGen(p.Gen) {
 		return nil, errors.New("pairing a device needs your own sign-in")
 	}
+	m, err := s.mintPairing(p, origin)
+	if err != nil {
+		return nil, err
+	}
+	// Answer once the sidecar admits pair/1: a pasted link (or a fast
+	// phone) dials the moment it has the code. Outside the lock; a sidecar
+	// slow to acknowledge still gets the code — a scanning person is slower.
+	ctx, cancel := context.WithTimeout(context.Background(), pairSyncWait)
+	defer cancel()
+	if err := s.runner.Sync(ctx); err != nil {
+		slog.Warn("app tunnel: the sidecar didn't confirm pairing was open", "err", err)
+	}
+	return m, nil
+}
+
+// pairSyncWait bounds MintPairing's wait for the sidecar's acknowledgement.
+const pairSyncWait = 10 * time.Second
+
+func (s *Service) mintPairing(p auth.Principal, origin string) (*server.TunnelMint, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.cfg.Enabled || s.keys == nil {

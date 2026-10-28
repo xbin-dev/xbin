@@ -119,7 +119,8 @@ type Init struct {
 
 // Command is every later stdin line: T is "allow" (Allow replaces the whole
 // list; Seq is acknowledged; a tunnel/1 connection whose endpoint left the
-// list is closed), "pairing" (Open), "close" (Endpoint: drop its
+// list is closed), "pairing" (Open; a non-zero Seq is acknowledged too:
+// allow and pairing share xbind's one sequence), "close" (Endpoint: drop its
 // connections — the device was revoked), "status", "selftest". Lines sent
 // before ready are read once the endpoint is bound, in order.
 type Command struct {

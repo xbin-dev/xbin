@@ -21,6 +21,7 @@ type unavailable struct{}
 func (unavailable) Start(context.Context, sidecar.Config) error { return errNoSidecar }
 func (unavailable) SetAllow(context.Context, []string) error    { return errNoSidecar }
 func (unavailable) SetPairing(bool)                             {}
+func (unavailable) Sync(context.Context) error                  { return nil }
 func (unavailable) Drop(string)                                 {}
 func (unavailable) SelfTest(context.Context) (wire.Event, error) {
 	return wire.Event{}, errNoSidecar

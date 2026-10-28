@@ -63,7 +63,7 @@ type Supervisor struct {
 
 	mu        sync.Mutex
 	cfg       Config
-	allowSeq  uint64 // the version of cfg.Allow
+	allowSeq  uint64 // the version of cfg.Allow and cfg.Pairing: one sequence the sidecar acknowledges
 	st        Status
 	cancel    context.CancelFunc // the loop's; nil when none runs
 	done      chan struct{}      // closed when the loop returns
@@ -436,9 +436,9 @@ func (s *Supervisor) onEvent(p *proc, ev wire.Event, mode string) {
 			// the list and pairing as they are now: they may have moved
 			// since the init was written
 			allow, seq, pairing := slices.Clone(s.cfg.Allow), s.allowSeq, s.cfg.Pairing
-			go func() {
-				_ = p.send(wire.Command{T: "allow", Seq: seq, Allow: allow})
+			go func() { // pairing first: the allow list's ack then covers both
 				_ = p.send(wire.Command{T: "pairing", Open: pairing})
+				_ = p.send(wire.Command{T: "allow", Seq: seq, Allow: allow})
 			}()
 			s.broadcast()
 		}
@@ -547,6 +547,20 @@ func (s *Supervisor) SetAllow(ctx context.Context, ids []string) error {
 		}
 		_ = p.send(wire.Command{T: "allow", Seq: seq, Allow: allow})
 	}
+	return s.wait(ctx, seq)
+}
+
+// Sync implements Runner.
+func (s *Supervisor) Sync(ctx context.Context) error {
+	s.mu.Lock()
+	seq := s.allowSeq
+	s.mu.Unlock()
+	return s.wait(ctx, seq)
+}
+
+// wait returns once the sidecar has acknowledged seq — or its ready carried
+// it, or nothing runs to refuse anyone — or ctx ends.
+func (s *Supervisor) wait(ctx context.Context, seq uint64) error {
 	for {
 		s.mu.Lock()
 		cur := s.proc
@@ -569,10 +583,11 @@ func (s *Supervisor) SetAllow(ctx context.Context, ids []string) error {
 func (s *Supervisor) SetPairing(open bool) {
 	s.mu.Lock()
 	s.cfg.Pairing = open
-	p := s.proc
+	s.allowSeq++
+	seq, p := s.allowSeq, s.proc
 	s.mu.Unlock()
 	if p != nil {
-		_ = p.send(wire.Command{T: "pairing", Open: open})
+		_ = p.send(wire.Command{T: "pairing", Open: open, Seq: seq})
 	}
 }
 

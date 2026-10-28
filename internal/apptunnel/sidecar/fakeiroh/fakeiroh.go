@@ -207,6 +207,12 @@ func (s *server) command(c wire.Command) {
 		s.mu.Lock()
 		s.pairing = c.Open
 		s.mu.Unlock()
+		if c.Seq != 0 { // acknowledged like an allow list (wire.Command)
+			go func() {
+				time.Sleep(s.ackDelay)
+				s.emit(wire.Event{T: "ack", Seq: c.Seq})
+			}()
+		}
 	case "close":
 		s.mu.Lock()
 		for _, l := range s.conns {

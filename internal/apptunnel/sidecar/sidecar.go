@@ -69,8 +69,13 @@ type Runner interface {
 	// acknowledged it (or ctx ended): a device told "enrolled" must not be
 	// refused on its first connect.
 	SetAllow(ctx context.Context, ids []string) error
-	// SetPairing opens or closes xbin/pair/1.
+	// SetPairing opens or closes xbin/pair/1. It returns at once (callers
+	// hold their own locks); Sync waits for it.
 	SetPairing(open bool)
+	// Sync returns once every allow list and pairing state told so far is
+	// in force in the running sidecar (or nothing runs, or ctx ended): a
+	// mint answers only then, so a phone that dials at once is admitted.
+	Sync(ctx context.Context) error
 	// Drop closes every connection of an endpoint (a revoked device).
 	Drop(endpoint string)
 	// SelfTest dials the endpoint through its relay from a throwaway one.

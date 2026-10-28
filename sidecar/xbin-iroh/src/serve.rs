@@ -557,7 +557,20 @@ impl Server {
                     })
                     .await;
             }
-            "pairing" => self.gate.policy.write().unwrap().pairing = c.open,
+            "pairing" => {
+                self.gate.policy.write().unwrap().pairing = c.open;
+                // a sequenced pairing command is acknowledged like an
+                // allow list: xbind answers a mint only once pair/1 is
+                // admitted (a pasted link dials at once)
+                if c.seq != 0 {
+                    self.events
+                        .emit(Event {
+                            seq: c.seq,
+                            ..Event::new("ack")
+                        })
+                        .await;
+                }
+            }
             "close" => self.close_endpoint(&c.endpoint),
             "status" => self.events.emit(self.status()).await,
             "selftest" => {
@@ -775,8 +788,15 @@ mod tests {
             ("reject", "xbin/tunnel/1")
         );
         // pairing closed: refused too; opened: admitted with the pair code
-        srv.command(control::parse_command(r#"{"t":"pairing","open":true}"#).unwrap())
+        srv.command(control::parse_command(r#"{"t":"pairing","open":true,"seq":4}"#).unwrap())
             .await;
+        loop {
+            let ev = rx.recv().await.unwrap();
+            if ev.t == "ack" {
+                assert_eq!(ev.seq, 4, "a sequenced pairing command is acknowledged");
+                break;
+            }
+        }
         let pc = stranger
             .connect(addr.clone(), ALPN_PAIR_NAME)
             .await

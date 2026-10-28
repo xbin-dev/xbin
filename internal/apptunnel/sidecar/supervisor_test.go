@@ -147,17 +147,22 @@ func TestSupervisorServesStreams(t *testing.T) {
 		c2.Close()
 		t.Fatal("pair/1 got through while pairing is closed")
 	}
+	// once Sync returns the sidecar admits pair/1: one dial, at once, no
+	// polling (a pasted link dials the moment the mint answers)
 	s.SetPairing(true)
-	waitFor(t, "pairing to open", func() bool {
-		c2, _, err := fakeiroh.Dial(st.Ticket, wire.ALPNPairName, endpointOf(stranger))
-		if err != nil {
-			return false
-		}
-		defer c2.Close()
-		p := nextStream(t, s)
-		p.Conn.Close()
-		return p.Header.ALPN == wire.ALPNPair
-	})
+	if err := s.Sync(ctx); err != nil {
+		t.Fatalf("Sync after opening pairing: %v", err)
+	}
+	c2, _, err := fakeiroh.Dial(st.Ticket, wire.ALPNPairName, endpointOf(stranger))
+	if err != nil {
+		t.Fatalf("pair/1 refused right after Sync: %v", err)
+	}
+	p := nextStream(t, s)
+	p.Conn.Close()
+	c2.Close()
+	if p.Header.ALPN != wire.ALPNPair {
+		t.Fatalf("the pair stream arrived as alpn %d", p.Header.ALPN)
+	}
 
 	// Drop closes the device's connection
 	s.Drop(endpointOf(dev))
@@ -199,6 +204,42 @@ func TestSupervisorSetAllowWaitsForAck(t *testing.T) {
 	defer cancel()
 	if err := s.SetAllow(ctx, nil); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("SetAllow with a short ctx: %v", err)
+	}
+}
+
+// Opening pairing is acknowledged too: Sync waits for the sidecar, and a
+// phone that dials the moment the mint answers is admitted — on a sidecar
+// slow to read its commands as much as on a quick one.
+func TestSupervisorSyncWaitsForPairing(t *testing.T) {
+	s := fakeSupervisor(t, "FAKEIROH_ACK_DELAY=300ms")
+	if err := s.Start(context.Background(), Config{Key: testKey(1), Relay: wire.Relay{Mode: "disabled"}}); err != nil {
+		t.Fatal(err)
+	}
+	waitState(t, s, StateRunning)
+	if err := s.Sync(context.Background()); err != nil { // the init's state
+		t.Fatal(err)
+	}
+	t0 := time.Now()
+	s.SetPairing(true) // returns at once: callers hold their locks
+	if d := time.Since(t0); d > 100*time.Millisecond {
+		t.Fatalf("SetPairing blocked for %v", d)
+	}
+	if err := s.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(t0); d < 250*time.Millisecond {
+		t.Fatalf("Sync returned after %v, before the pairing ack", d)
+	}
+	c, _, err := fakeiroh.Dial(s.Status().Ticket, wire.ALPNPairName, endpointOf(testKey(3)))
+	if err != nil {
+		t.Fatalf("pair/1 refused right after Sync: %v", err)
+	}
+	c.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+	s.SetPairing(false)
+	if err := s.Sync(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("Sync with a short ctx: %v", err)
 	}
 }
 

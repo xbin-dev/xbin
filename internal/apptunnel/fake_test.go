@@ -80,7 +80,8 @@ func (f *fakeRunner) SetAllow(_ context.Context, ids []string) error {
 	return nil
 }
 
-func (f *fakeRunner) SetPairing(open bool) { f.mu.Lock(); f.pairing = open; f.mu.Unlock() }
+func (f *fakeRunner) SetPairing(open bool)       { f.mu.Lock(); f.pairing = open; f.mu.Unlock() }
+func (f *fakeRunner) Sync(context.Context) error { return nil }
 
 func (f *fakeRunner) Drop(ep string) {
 	f.mu.Lock()
