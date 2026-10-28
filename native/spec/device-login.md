@@ -98,6 +98,20 @@ workspace; the origin returned here is the one to sign (§4), whatever URL the
 user typed or the link's `u` said — and keep talking to the address the
 request went to.
 
+**Over an app tunnel** (D204). When the workspace has iroh tunneling on,
+the code the shell mints is a *tunnel* code and the link carries more
+parameters (`tv`, `t`, `k`, `p`, `r`, `rq`): the app pairs over the tunnel
+with a confirmation code instead of redeeming the code here, and a tunnel
+code never redeems over `POST /devices/enroll`. Everything after pairing —
+device login (§3, §4), the session (§6) — is unchanged, only carried by the
+tunnel. The wire contract is [tunnel.md](tunnel.md).
+
+**How many devices** (D204). A person may have one app device by default
+(the workspace sets the default, an admin a per-person override; existing
+devices are kept). Over the limit, minting a classic code or redeeming one
+answers **409** `{error, limit, count}`; a tunnel pairing at the limit names
+a device to replace instead.
+
 ## 3. Sign-in
 
 ```
