@@ -246,6 +246,11 @@ start)
   password=$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 24)
   api POST /api/xbin/users "{\"id\":\"e2e\",\"name\":\"E2E Tester\",\"role\":\"admin\",\"password\":\"$password\"}" >/dev/null ||
     { say "could not create the e2e account — stopping"; stop; exit 1; }
+  # The tests enroll (and replace) devices of this one account all along:
+  # its own limit (the cap, 32), over the workspace's default of one per
+  # person (D204).
+  api PATCH /api/xbin/users/e2e '{"maxDevices":32}' >/dev/null ||
+    { say "could not raise the e2e account's device limit — stopping"; stop; exit 1; }
   # --dev seeds admin/admin into a workspace with no users: anything that
   # reaches the port (the tunnel's end on the Mac is every local user's)
   # could sign in with it. Only the e2e account's random password opens
