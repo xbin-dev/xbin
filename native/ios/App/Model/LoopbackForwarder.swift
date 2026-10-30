@@ -30,6 +30,7 @@ final class LoopbackForwarder: @unchecked Sendable {
     typealias Connect = @Sendable () async throws -> any ForwardUpstream
 
     private let connect: Connect
+    private let onFailure: @Sendable (String) -> Void
     private let queue = DispatchQueue(label: "dev.xbin.tunnel.forwarder")
     private let lock = NSLock()
     private var listener: NWListener?
@@ -37,8 +38,12 @@ final class LoopbackForwarder: @unchecked Sendable {
     private var tasks: [ObjectIdentifier: Task<Void, Never>] = [:]
     private var stopped = false
 
-    init(connect: @escaping Connect) {
+    /// `onFailure` hears why, when the listener fails after it was up (iOS
+    /// reclaims a suspended app's listening socket, TN2277): the forwarder
+    /// then no longer counts as listening (D211).
+    init(connect: @escaping Connect, onFailure: @escaping @Sendable (String) -> Void = { _ in }) {
         self.connect = connect
+        self.onFailure = onFailure
     }
 
     /// Binds `127.0.0.1:port` (0: a port the system picks) and returns the
@@ -63,15 +68,15 @@ final class LoopbackForwarder: @unchecked Sendable {
         old?.cancel()
         l.newConnectionHandler = { [weak self] c in self?.accept(c) }
         let started = Once<Int>()
-        l.stateUpdateHandler = { [weak l] state in
+        l.stateUpdateHandler = { [weak self, weak l] state in
             switch state {
             case .ready:
                 started.resume(.success(Int(l?.port?.rawValue ?? 0)))
             case .failed(let e), .waiting(let e):
-                started.resume(.failure(e))
+                if !started.resume(.failure(e)) { self?.died(l, "\(e)") }
                 l?.cancel()
             case .cancelled:
-                started.resume(.failure(CancellationError()))
+                if !started.resume(.failure(CancellationError())) { self?.died(l, "cancelled") }
             default:
                 break
             }
@@ -101,8 +106,34 @@ final class LoopbackForwarder: @unchecked Sendable {
 
     var isListening: Bool { lock.lock(); defer { lock.unlock() }; return listener != nil && !stopped }
 
+    /// The listener `l` failed or went after it was up — not by ``stop()``,
+    /// which lets go of it first: no longer listening; the owner hears why.
+    private func died(_ l: NWListener?, _ why: String) {
+        lock.lock()
+        let mine = l != nil && listener === l && !stopped
+        if mine { listener = nil }
+        lock.unlock()
+        if mine { onFailure(why) }
+    }
+
+    #if DEBUG
+    /// The UI tests (`-XbinTunnelEmulateSuspend`, D211): what iOS does on a
+    /// device to the sockets of an app it suspended (TN2277) — the
+    /// listening socket and every accepted connection die under it. The
+    /// simulator never does this.
+    func emulateReclaim() {
+        lock.lock()
+        let l = listener
+        let cs = Array(connections.values)
+        lock.unlock()
+        tunnelLog("forwarder: emulating iOS reclaiming a suspended app's sockets")
+        l?.cancel()
+        for c in cs { c.cancel() }
+    }
+    #endif
+
     private func accept(_ c: NWConnection) {
-        tunnelLog("forwarder: accepted \(c.endpoint)")
+        tunnelTrace("forwarder: accepted \(c.endpoint)")
         guard Self.isLoopback(c.endpoint) else {
             tunnelLog("forwarder: refused a peer that isn't loopback: \(c.endpoint)")
             c.cancel()
@@ -121,7 +152,7 @@ final class LoopbackForwarder: @unchecked Sendable {
         let t = Task { [weak self] in
             defer { self?.drop(key) }
             guard (try? await local.ready()) != nil else {
-                tunnelLog("forwarder: an accepted connection never became ready")
+                tunnelTrace("forwarder: an accepted connection never became ready")
                 return
             }
             let upstream: any ForwardUpstream
@@ -129,13 +160,13 @@ final class LoopbackForwarder: @unchecked Sendable {
             do {
                 upstream = try await connect()
             } catch {
-                tunnelLog("forwarder: no upstream (\(Self.describe(error))): 502")
+                tunnelLog("forwarder: no way through after \(Int(Date().timeIntervalSince(started) * 1000)) ms, answered 502: \(Self.describe(error))")
                 await Self.answer502(local, why: Self.describe(error))
                 return
             }
-            tunnelLog("forwarder: upstream in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
+            tunnelTrace("forwarder: upstream in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
             await upstream.splice(with: local)
-            tunnelLog("forwarder: connection done after \(Int(Date().timeIntervalSince(started) * 1000)) ms")
+            tunnelTrace("forwarder: connection done after \(Int(Date().timeIntervalSince(started) * 1000)) ms")
             await local.cancel()
         }
         tasks[key] = t
@@ -178,25 +209,17 @@ final class LoopbackForwarder: @unchecked Sendable {
         let body = """
         <!doctype html><meta name=viewport content='width=device-width'><title>Not connected</title>\
         <body style='font:16px -apple-system,sans-serif;padding:24px'><h3>The workspace's tunnel isn't connected</h3>\
-        <p>\(why.htmlEscaped)</p><p>Pull to refresh, or open Settings → Connection.</p>
+        <p>\(why.htmlEscaped)</p><p>The page reloads once the tunnel is back. Pull to refresh, or open Settings → Connection.</p>
         """
         let data = Data(body.utf8)
-        var head = "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/html; charset=utf-8\r\n"
+        // The page is the forwarder's, not xbind's (D211).
+        var head = "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/html; charset=utf-8\r\nX-Xbin-Tunnel: down\r\n"
         head += "Content-Length: \(data.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
         try? await local.write(Data(head.utf8) + data)
         try? await local.finish()
         try? await Task.sleep(nanoseconds: 500_000_000)
         await local.cancel()
     }
-}
-
-/// Debug builds: a line in the device log (`xbin-tunnel …`, like
-/// Navigation's `xbin-nav`): `xcrun simctl spawn <udid> log show --predicate
-/// 'eventMessage CONTAINS "xbin-tunnel"'`.
-func tunnelLog(_ s: @autoclosure () -> String) {
-    #if DEBUG
-    NSLog("xbin-tunnel %@", s())
-    #endif
 }
 
 /// An NWConnection as a ByteStream: reads return what arrived (empty = the

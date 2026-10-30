@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import XbinCore
 
 /// Settings → Connection (D204): how this workspace's requests travel — its
@@ -6,6 +7,9 @@ import XbinCore
 /// encryption, both ends' ids, Reconnect) or its address.
 struct ConnectionView: View {
     let workspace: WorkspaceModel
+    /// The tunnel's recent events (TunnelLog, D211), newest last.
+    @State private var events: [String] = []
+    @State private var copied = false
 
     var body: some View {
         let status = workspace.tunnelStatus
@@ -52,6 +56,7 @@ struct ConnectionView: View {
                     Button("Reconnect", systemImage: "arrow.clockwise") { TunnelManager.shared.reconnect(workspace.id) }
                         .accessibilityIdentifier("connection-reconnect")
                 }
+                diagnostics
             }
         }
         .concreteBackground()
@@ -61,8 +66,34 @@ struct ConnectionView: View {
             // or falls back to the relay: read them while the screen shows.
             while !Task.isCancelled, workspace.isTunnelled {
                 await TunnelManager.shared.refreshPath(workspace.id)
+                events = TunnelLog.shared.lines(workspace: workspace.id)
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
+        }
+    }
+
+    /// What the tunnel did lately (D211): the newest events here, all of
+    /// them a tap away, and the lot — with the app's version and the
+    /// tunnel's state, no keys or tokens — copied for a bug report.
+    @ViewBuilder private var diagnostics: some View {
+        Section {
+            ForEach(Array(events.suffix(8).enumerated()), id: \.offset) { _, line in
+                Text(verbatim: line).font(.caption2.monospaced()).foregroundStyle(.secondary).textSelection(.enabled)
+            }
+            if events.count > 8 {
+                NavigationLink {
+                    TunnelEventsView(workspace: workspace)
+                } label: {
+                    Text("All \(events.count) events")
+                }
+            }
+            Button(copied ? "Copied" : "Copy diagnostics", systemImage: copied ? "checkmark" : "doc.on.doc") {
+                UIPasteboard.general.string = TunnelManager.shared.diagnostics(for: workspace)
+                copied = true
+            }
+            .accessibilityIdentifier("connection-copy-diagnostics")
+        } header: { Text("Diagnostics") } footer: {
+            Text("What the tunnel did lately: connects, drops, retries, the app going to the background and back. The copy holds no keys or tokens — paste it into a bug report.")
         }
     }
 
@@ -87,5 +118,26 @@ struct ConnectionView: View {
     static func short(_ hex: String) -> String {
         guard hex.count > 16 else { return hex }
         return "\(hex.prefix(8))…\(hex.suffix(8))"
+    }
+}
+
+/// Every event the tunnel's diagnostics hold for a workspace, newest first.
+struct TunnelEventsView: View {
+    let workspace: WorkspaceModel
+    @State private var lines: [String] = []
+
+    var body: some View {
+        List {
+            ForEach(Array(lines.reversed().enumerated()), id: \.offset) { _, line in
+                Text(verbatim: line).font(.caption.monospaced()).textSelection(.enabled)
+            }
+        }
+        .navigationTitle("Tunnel events")
+        .task {
+            while !Task.isCancelled {
+                lines = TunnelLog.shared.lines(workspace: workspace.id)
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
+            }
+        }
     }
 }

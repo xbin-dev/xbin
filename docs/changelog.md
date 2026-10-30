@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-30
 
+- **Fix: the xbin app lost its iroh tunnel after the phone was locked**
+  (D211, issue #42; [app-tunnel.md](/docs/app-tunnel.md)). Coming back to
+  the app now always brings up a fresh tunnel, checks it with a request
+  before using it, and the screen that was open carries on in place — no
+  relaunch. Settings → Connection lists what the tunnel did and has **Copy
+  diagnostics** (no keys or tokens) for a bug report. **Tiles:** a tile
+  page's `xbin.bus` socket now reconnects at once on the browser's
+  `online` event (the app sends one when its tunnel is back) instead of at
+  the end of its backoff.
 - **Fix: people without admin saw no code in a tile's window** (D206,
   issue #50; [auth.md](/docs/auth.md), [protocol.md](/docs/protocol.md)).
   `/api/xbin/code/*` and `/api/xbin/git/{log,diff,activity}` now answer a

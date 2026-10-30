@@ -12615,3 +12615,79 @@ Deviations and refinements made while implementing; all deliberate:
   with read on the tile passes too — docs/auth.md's read level is "read
   its source". An element is never let in through the person it acts
   for: its own grant decides, as before.
+- **D211 — App tunnels come back after the app was away, in place, and say
+  what they did (2026-10-30; issue #42).** native/ios/App/Model/
+  TunnelManager.swift, TunnelSession.swift (split out of it),
+  LoopbackForwarder.swift, TunnelTransport.swift,
+  AppTransport.swift (`stream(after:)`), WorkspaceModel/WorkspaceEvents
+  (`tunnelCameUp`, `nudge`), Tiles/WebTileController.swift,
+  Shell/ConnectionView.swift; Shared/NoiseTunnel.swift (`probe`); XbinCore
+  Client/TunnelLog.swift, Tunnel.swift (`TunnelProbe`), Events.swift
+  (`EventSocketPolicy.nudge`); web/xbin-client.js (`online`);
+  UITests/XbinTunnelTests `test04ResumeInPlace`. The owner, on a phone
+  with the TestFlight build: work in a tile's agent, lock the screen for
+  minutes (or seconds), unlock — disconnected until the app is restarted.
+  - **The cause.** The background tore every tunnel down, as designed —
+    and the open screen's follow loops (the agent session's stream, a
+    native runtime's fetch retries) asked for the tunnel again within the
+    background task's grace period. `ready()` didn't look at the app's
+    state, so a fresh forwarder and iroh connection came up in the
+    background (the simulator's log: "tunnel/1 connected" one second after
+    Home). iOS then suspended the app; on a device it reclaims a suspended
+    app's listening socket (TN2277) and breaks iroh's UDP socket (iroh
+    #4289). Back in front, the session still read as up — the forwarder's
+    listener failure was never noticed (`isListening` stayed true), the
+    connection had no reason to report a close — so nothing came up again:
+    every request failed ("Could not connect to the server") until a
+    relaunch. A late `suspend()` (sessions closed one after another, each
+    awaiting its endpoint's close) could also stop a session resumed
+    meanwhile, and set its status after a fresh connect.
+  - **Nothing comes up in the background.** A request in the background
+    waits in `ready()` for the front (so open screens pick up where they
+    were the moment the app is back, no backoff to wait out), unless it is
+    a notification's work (`TunnelManager.inBackground`, the Mute action),
+    whose tunnel goes again when that is done.
+  - **The front always makes a fresh, proven tunnel.** Back from the
+    background, whatever came up there goes. A connection counts as up
+    only once a probe through it — a `tunnel/1` stream, its IK handshake,
+    `GET /api/xbin/login/methods` (open to the paired device over its
+    tunnel, spec §7) — got xbind's answer within 8 s; else it is dropped
+    and retried with the backoff. A stream or handshake that fails (10 s)
+    on a connection marks it dead and the request gets one more try on a
+    new one. A forwarder whose listener fails reports it and is replaced.
+    Suspends are synchronous (the closes run in parallel, touching no
+    session), so a late one can't stop a resumed session. `stream` and
+    `upload` call `ready()` themselves. A dial that outlives its deadline
+    closes what it made. A network change restarts a connect that hangs
+    (not the path watch's first report, which only says how things are);
+    an attempt takes its epoch when it is made, not when its task first
+    runs — a restart in between had two attempts run at once, two
+    connections and a moved port (seen in the first fixed run's log).
+  - **Open screens recover in place.** A verified tunnel nudges the
+    workspace's events socket (connect now, unparked: a re-sign the dead
+    tunnel failed had parked it), and posts `xbinTunnelUp`: a web tile
+    whose load failed (the forwarder's 502 page, marked `X-Xbin-Tunnel:
+    down`, or any gateway error) reloads; other pages get an `online`
+    event, on which xbin-client reconnects its events socket at once (a
+    browser's `online` does the same). Pages aren't reloaded wholesale:
+    their state (a half-typed form) would go, and their sockets reconnect
+    themselves. The agent tab's follow loop needed nothing more: its
+    waiting `ready()` returns as the tunnel is back.
+  - **Diagnostics in every build.** `TunnelLog`, a ring of 500 entries in
+    memory: the app's background/front (and how long it was away),
+    bring-ups, connects with their duration and failures, probes, closes,
+    retries, the forwarder's port and its 502s, failed streams. Scrubbed
+    on the way in (any run of more than 20 key-like characters is cut to
+    6 and "…"; ids are shown as 8 characters), never written to disk.
+    Settings → Connection → Diagnostics shows the newest and all of them,
+    and **Copy diagnostics** copies them with the app's version and the
+    tunnel's state, for a bug report. NSLog stays Debug-only;
+    per-connection lines stay out of the ring.
+  - **Tests.** The simulator never reclaims sockets, so the baseline
+    passed there; Debug's `-XbinTunnelEmulateSuspend` kills what lived
+    through the background on return, as a device does, and with it
+    `test04ResumeInPlace` (a minute in the background, then the counter's
+    +1 and an agent session's answer on the same screen, and the
+    diagnostics) failed before the fix as the owner saw it. XbinCore and
+    app-check test the log, the probe, the policy's nudge and the events
+    driver. On a device: unverified until the next TestFlight build.

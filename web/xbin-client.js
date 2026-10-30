@@ -250,6 +250,12 @@ function ensureEvents() {
   };
   ws.onopen = () => { wsBackoff = 500; };
 }
+// The network is back (the browser says so; the xbin app says so when its
+// tunnel comes back, D211): a closed socket reconnects now rather than at
+// the end of its backoff (a pending retry then finds it open).
+window.addEventListener?.('online', () => {
+  if (!ws && eventHandlers.size > 0) { wsBackoff = 500; ensureEvents(); }
+});
 
 const bus = {
   /** Subscribe to bus topics. prefix matches Event.topic ("res:scope/name/topic"). */

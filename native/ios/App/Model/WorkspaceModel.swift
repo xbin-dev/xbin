@@ -599,6 +599,17 @@ final class WorkspaceModel: Identifiable {
 
     // MARK: The tunnel (D204)
 
+    /// The tunnel came up and answered (after a background, a drop, a
+    /// network change — D211): what is open recovers in place. The events
+    /// socket connects now (not at the end of its backoff), open pages hear
+    /// it (WebTileController: a page that failed reloads, the others get
+    /// `online`), and the tunnel's config is read again.
+    func tunnelCameUp() {
+        events.nudge()
+        NotificationCenter.default.post(name: .xbinTunnelUp, object: id)
+        Task { await refreshTunnel() }
+    }
+
     /// After each connect: the ticket, relay and token as the workspace has
     /// them now (`GET /api/xbin/app-tunnel/client`, over the tunnel), kept
     /// in the Keychain item and the record — how a relay rotation or a new

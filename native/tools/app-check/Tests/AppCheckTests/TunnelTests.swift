@@ -475,6 +475,63 @@ final class Clock: @unchecked Sendable {
     }
 }
 
+/// The probe a new connection answers before the app uses it (D211): the
+/// IK handshake, `GET /api/xbin/login/methods` with the forwarder's Host,
+/// xbind's status — read to xbind's close, then ours.
+@Suite struct TunnelProbeChannelTests {
+    @Test func readsXbindsStatus() async throws {
+        let k = TunnelKeys()
+        let (irohDevice, irohServer) = MemoryStream.pair(chunk: 5)
+        let secrets = TunnelSecrets(irohSecret: Data(repeating: 1, count: 32), noiseStatic: k.device.privateKey,
+                                    serverKey: k.server.publicKey, ticket: "endpoint" + String(repeating: "a", count: 60))
+        let server = Task {
+            let (srv, _) = try await NoiseTunnel.respond(irohServer, pattern: .ik, prologue: k.prologue(.tunnel),
+                                                         staticKey: k.server.privateKey)
+            var request = Data()
+            while !request.suffix(4).elementsEqual(Data("\r\n\r\n".utf8)) { request += try await srv.receiver.receive() }
+            try await srv.sender.send(Data("HTTP/1.1 403 Forbidden\r\nContent-Type: application/json\r\n\r\n{\"tunnel\":\"device\"}".utf8))
+            try await srv.sender.close()
+            #expect(try await srv.receiver.receive().isEmpty)    // the device closes its side after the answer
+            return String(decoding: request, as: UTF8.self)
+        }
+        let status = try await NoiseTunnel.probe(irohDevice, secrets: secrets, serverEndpoint: k.serverID,
+                                                 deviceEndpoint: k.deviceID, host: "127.0.0.1:61234")
+        #expect(status == 403)   // any answer of xbind's proves the tunnel
+        #expect(try await server.value == String(decoding: TunnelProbe.request(host: "127.0.0.1:61234"), as: UTF8.self))
+    }
+
+    @Test func refusesAnAnswerThatIsntHTTP() async throws {
+        let k = TunnelKeys()
+        let (d, s) = MemoryStream.pair()
+        async let server: Void = {
+            let (srv, _) = try await NoiseTunnel.respond(s, pattern: .ik, prologue: k.prologue(.tunnel), staticKey: k.server.privateKey)
+            _ = try await srv.receiver.receive()
+            try await srv.sender.send(Data("SSH-2.0-nope\r\n".utf8))
+            try await srv.sender.close()
+        }()
+        let device = try await NoiseTunnel.initiate(d, pattern: .ik, prologue: k.prologue(.tunnel), staticKey: k.device.privateKey,
+                                                    serverKey: k.server.publicKey)
+        await #expect(throws: NoiseTunnelError.self) { _ = try await NoiseTunnel.probe(device, host: "127.0.0.1:1") }
+        try await server
+    }
+
+    /// The stream ending without xbind's close is truncation, not an answer.
+    @Test func truncationFails() async throws {
+        let k = TunnelKeys()
+        let (d, s) = MemoryStream.pair()
+        async let server: Void = {
+            let (srv, _) = try await NoiseTunnel.respond(s, pattern: .ik, prologue: k.prologue(.tunnel), staticKey: k.server.privateKey)
+            _ = try await srv.receiver.receive()
+            try await srv.sender.send(Data("HTTP/1.1 200 OK\r\n".utf8))
+            try await s.finish()
+        }()
+        let device = try await NoiseTunnel.initiate(d, pattern: .ik, prologue: k.prologue(.tunnel), staticKey: k.device.privateKey,
+                                                    serverKey: k.server.publicKey)
+        await #expect(throws: NoiseTunnelError.truncated) { _ = try await NoiseTunnel.probe(device, host: "127.0.0.1:1") }
+        try await server
+    }
+}
+
 // MARK: - Pairing
 
 /// xbind's side of `pair/1`, scripted.

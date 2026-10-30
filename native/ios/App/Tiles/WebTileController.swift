@@ -56,6 +56,9 @@ final class WebTileController: NSObject {
     /// its address changed meanwhile (a tunnel lost its port, D204), the
     /// page reloads on the new one.
     @ObservationIgnored private var loadedGeneration = 0
+    /// The page's last load failed or showed a server error (the tunnel's
+    /// 502 page among them): it reloads when the tunnel is back (D211).
+    @ObservationIgnored private var failedLoad = false
     @ObservationIgnored private var downloads: [ObjectIdentifier: URL] = [:]
     @ObservationIgnored private let initialURL: URL?
     /// The navigation of the window this page is in — where its
@@ -124,6 +127,7 @@ final class WebTileController: NSObject {
             webView.scrollView.refreshControl = refresh
         }
         if !chrome { workspace.schemeHandler.register(webView, tile: tile) }
+        NotificationCenter.default.addObserver(self, selector: #selector(tunnelCameUp(_:)), name: .xbinTunnelUp, object: nil)
         observations = [
             webView.observe(\.estimatedProgress) { [weak self] wv, _ in
                 MainActor.assumeIsolated { self?.progress = wv.estimatedProgress }
@@ -258,6 +262,21 @@ final class WebTileController: NSObject {
         }
     }
 
+    /// The workspace's tunnel came up and answered (D211): a page whose load
+    /// failed meanwhile (the forwarder's 502, a connection refused) loads
+    /// again; any other page hears `online` — its sockets went with the old
+    /// tunnel, and a page that listens (xbin-client's events) reconnects now
+    /// rather than at the end of its backoff.
+    @objc private func tunnelCameUp(_ n: Notification) {
+        guard (n.object as? String) == workspace.id, !closed else { return }
+        if failedLoad || loadError != nil {
+            tunnelLog("a page that failed loads again (\(chromePath ?? (tile.isEmpty ? "page" : tile)))", workspace: workspace.id)
+            reload()
+        } else {
+            webView.evaluateJavaScript("window.dispatchEvent(new Event('online'))", in: nil, in: .page) { _ in }
+        }
+    }
+
     /// Where a top-level navigation to `url` may go on this workspace
     /// (D204): `url` itself on the address its requests go to, a URL on its
     /// public origin moved there, nil for anything else. On a direct
@@ -332,12 +351,18 @@ extension WebTileController: WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: any Error) {
         isLoading = false
-        if (error as NSError).code != NSURLErrorCancelled { loadError = error.localizedDescription }
+        if (error as NSError).code != NSURLErrorCancelled {
+            loadError = error.localizedDescription
+            failedLoad = true
+        }
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: any Error) {
         isLoading = false
-        if (error as NSError).code != NSURLErrorCancelled { loadError = error.localizedDescription }
+        if (error as NSError).code != NSURLErrorCancelled {
+            loadError = error.localizedDescription
+            failedLoad = true
+        }
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
@@ -375,6 +400,11 @@ extension WebTileController: WKNavigationDelegate, WKUIDelegate {
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
+        if navigationResponse.isForMainFrame, let h = navigationResponse.response as? HTTPURLResponse {
+            // A gateway error (the tunnel's own 502 page, an unreachable
+            // backend): loaded again when the tunnel comes back (D211).
+            failedLoad = [502, 503, 504].contains(h.statusCode)
+        }
         if let h = navigationResponse.response as? HTTPURLResponse,
            (h.value(forHTTPHeaderField: "Content-Disposition") ?? "").lowercased().hasPrefix("attachment") {
             return .download

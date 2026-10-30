@@ -92,7 +92,11 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
             guard let w = AppModel.shared.workspace(app) else { return }
             if action == "mute", link.hasPrefix("c/") {
                 let tile = PushPayload(ws: "", kind: "tile", title: "", link: link).deepLink(appWorkspace: w.id)
-                if case .tile(_, let path, _) = tile { Task { await PushManager.shared.mute(tile: path, in: w) } }
+                // The action doesn't open the app: its request may bring the
+                // workspace's tunnel up in the background (D211).
+                if case .tile(_, let path, _) = tile {
+                    Task { await TunnelManager.shared.inBackground { await PushManager.shared.mute(tile: path, in: w) } }
+                }
                 return
             }
             let payload = PushPayload(ws: "", kind: "", title: "", link: link)
