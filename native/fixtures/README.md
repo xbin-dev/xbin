@@ -181,6 +181,7 @@ the fixtures, `expected.json` and the renderers in one change
 | `split-collapse` | `split` rev 2: opened from a deep link (`hash`), Back (`close`) and `xbn.navigate` to another ticket, `columns`; the conversation's `anchor`, `scrollTo` and `edge` with a "1 new" button |
 | `search-toolbars` | `screen` rev 2: search `scopes`, `suggestions`, `submit`; toolbars `place`d leading (a menu with a submenu), trailing and bottom; `refreshing` held through a reload; leading and trailing `full` swipe `actions`; a list `anchor`, `scrollTo`, `edge` |
 | `sheet-stack` | `sheet` rev 2: a full-screen sheet (`detents="full"`) with a second sheet stacked over it |
+| `doc-reader` | `split` rev 3 and `canvas` rev 2 (D208): a report beside its conversation (`halves`, the report pushed on a phone), filling its screen (`fill`), − / + in a bottom toolbar setting its `zoom`, a tapped link (`link`) sharing the file it names |
 | `old-app` | an app at rev 1 (`caps`) and a tile written for rev 2: each rev-2 prop, event and nested menu is reported `unsupported` (`expectUnsupported`), so the app shows the web page |
 | `split-single` | `split prefer="single"`: a sectioned list and the opened contact |
 | `stack-layout` | `stack` vertical and horizontal, every gap, start/center/end, wrap; `spacer`, `divider` |

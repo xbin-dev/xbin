@@ -300,7 +300,7 @@ final class NativeTileRuntime: NSObject {
         if let text { items.append(text) }
         if let url { items.append(url) }
         if let file, let r = try? await tileFile(file), r.isSuccess {
-            let dest = FileManager.default.temporaryDirectory.appendingPathComponent((file as NSString).lastPathComponent)
+            let dest = FileManager.default.temporaryDirectory.appendingPathComponent(TileResource.shareName(file))
             if (try? r.body.write(to: dest)) != nil { items.append(dest) }
         }
         if items.isEmpty {

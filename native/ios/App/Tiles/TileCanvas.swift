@@ -11,7 +11,8 @@ import XbinCore
 // every request, the tile bridge (§6.2) for its dialogs, the same
 // navigation rules — in a fixed-height island. `html` is static markup:
 // JavaScript off, a CSP that loads nothing but inline styles and `data:`
-// images, no base URL, every navigation refused, a non-persistent store.
+// images, an address nothing serves, every navigation refused (a tapped
+// link reported to the tile, rev 2), a non-persistent store.
 
 /// A `canvas src=` island: a WebTileController on one of the tile's pages.
 struct CanvasIsland: View {
@@ -58,9 +59,16 @@ struct CanvasIsland: View {
     }
 }
 
-/// A `canvas html=` island: static, no scripts, no network.
+/// A `canvas html=` island: static, no scripts, no network. Rev 2 (D208):
+/// `zoom` is the page zoom (it reflows, as Safari's does; pinch zoom
+/// magnifies on top of it), and a tapped link — which never navigates —
+/// reaches the tile as `link {href}` when it listens (`onLink`). The page
+/// sits at an address nothing serves (``CanvasDocument/base``), so a
+/// relative href resolves at all and comes back relative.
 struct StaticCanvas: UIViewRepresentable {
     let html: String
+    var zoom: Double = 1
+    var onLink: (@MainActor @Sendable (String) -> Void)?
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
@@ -79,11 +87,15 @@ struct StaticCanvas: UIViewRepresentable {
         wv.scrollView.backgroundColor = .clear
         wv.allowsLinkPreview = false
         wv.allowsBackForwardNavigationGestures = false
+        context.coordinator.onLink = onLink
+        wv.pageZoom = CGFloat(zoom)
         context.coordinator.load(html, in: wv)
         return wv
     }
 
     func updateUIView(_ wv: WKWebView, context: Context) {
+        context.coordinator.onLink = onLink
+        if wv.pageZoom != CGFloat(zoom) { wv.pageZoom = CGFloat(zoom) }
         if context.coordinator.shown != html { context.coordinator.load(html, in: wv) }
     }
 
@@ -93,25 +105,35 @@ struct StaticCanvas: UIViewRepresentable {
     }
 
     /// Admits only the document it loads itself; every other navigation —
-    /// a link, a meta refresh, a form, an iframe — is refused.
+    /// a link, a meta refresh, a form, an iframe — is refused, a tapped
+    /// link handed to the tile when it listens (``CanvasDocument/Navigation``).
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
         private(set) var shown: String?
         private var admitting = 0
+        var onLink: (@MainActor @Sendable (String) -> Void)?
 
         func load(_ html: String, in wv: WKWebView) {
             shown = html
             admitting += 1
-            wv.loadHTMLString(CanvasDocument.wrap(html), baseURL: nil)
+            wv.loadHTMLString(CanvasDocument.wrap(html), baseURL: CanvasDocument.baseURL)
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
             let url = navigationAction.request.url?.absoluteString ?? ""
-            if admitting > 0, navigationAction.targetFrame?.isMainFrame == true, url == "about:blank" {
+            let decision = CanvasDocument.Navigation.decide(
+                url: url, admitting: admitting > 0, mainFrame: navigationAction.targetFrame?.isMainFrame == true,
+                linkActivated: navigationAction.navigationType == .linkActivated, listens: onLink != nil)
+            switch decision {
+            case .allow:
                 admitting -= 1
                 return .allow
+            case .link(let href):
+                onLink?(href)
+                return .cancel
+            case .cancel:
+                return .cancel
             }
-            return .cancel
         }
     }
 }

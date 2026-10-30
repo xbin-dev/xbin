@@ -29,3 +29,24 @@ test('the same page around the markup', () => {
   assert.ok(metas(wrap).includes('color-scheme=light dark'));
   for (const s of [wrap, web]) assert.match(s, /html,body\{margin:0;padding:0;background:transparent;/);
 });
+
+test('the same address for an island, and the same zoom range (rev 2, D208)', () => {
+  const app = wrap.match(/static let base = "([^"]+)"/)?.[1];
+  const web = lit.match(/export const CANVAS_BASE = '([^']+)'/)?.[1];
+  assert.ok(app, 'CanvasDocument.base not found');
+  assert.equal(web, app);
+  assert.match(wrap, /min\(3, max\(0\.5, value\)\)/);
+  assert.match(lit, /Math\.min\(3, Math\.max\(0\.5, z\)\)/);
+});
+
+test('a link comes back relative to the island, as the app reports it (CanvasDocument.href)', () => {
+  // the reference's helpers, sliced out (the module imports /vendor/, a browser's)
+  const src = lit.slice(lit.indexOf('export const CANVAS_BASE'), lit.indexOf('export const canvasDocument')).replace(/^export /gm, '');
+  const { canvasHref, canvasZoom } = new Function(`${src}; return { canvasHref, canvasZoom };`)();
+  assert.equal(canvasHref('out/report.pdf'), 'out/report.pdf');
+  assert.equal(canvasHref('./out/../report.pdf'), 'report.pdf', 'resolved as a browser resolves it');
+  assert.equal(canvasHref('my report.pdf'), 'my%20report.pdf');
+  assert.equal(canvasHref('#top'), '#top');
+  assert.equal(canvasHref('https://example.com/a'), 'https://example.com/a');
+  assert.deepEqual([canvasZoom(undefined), canvasZoom(0), canvasZoom(0.1), canvasZoom(1.25), canvasZoom(9)], [1, 1, 0.5, 1.25, 3]);
+});

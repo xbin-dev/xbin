@@ -208,4 +208,38 @@ import Testing
         #expect(CanvasDocument.csp.contains("default-src 'none'") && !CanvasDocument.csp.contains("script-src"))
         #expect(CanvasDocument.csp.contains("img-src data:") && CanvasDocument.csp.contains("style-src 'unsafe-inline'"))
     }
+
+    /// A shared tile file is named after the file, not the reference (D208).
+    @Test func shareName() {
+        #expect(TileResource.shareName("api/agent/runs/5/dl/out/q3-figures.xlsx") == "q3-figures.xlsx")
+        #expect(TileResource.shareName("api/agent/runs/5/dl/q3%20summary.pdf?xbin-partition=global") == "q3 summary.pdf")
+        #expect(TileResource.shareName("api/agent/runs/5/raw?path=out%2Freport.pdf&xbin-partition=global") == "report.pdf")
+        #expect(TileResource.shareName("/api/apps/reports/files/q3%20summary.pdf") == "q3 summary.pdf")
+        #expect(TileResource.shareName("files/x.png") == "x.png")
+        #expect(TileResource.shareName("raw?path=") == "file")
+        #expect(TileResource.shareName("") == "file")
+        #expect(TileResource.shareName("dl/a%2F..%2F..%2Fetc") == "etc", "never a path")
+    }
+
+    /// Rev 2 (D208): a tapped link never navigates; the tile gets its href,
+    /// relative to the island's address when under it.
+    @Test func canvasNavigation() {
+        let b = CanvasDocument.base
+        typealias N = CanvasDocument.Navigation
+        // its own document, once, in its own frame
+        #expect(N.decide(url: b, admitting: true, mainFrame: true, linkActivated: false, listens: false) == .allow)
+        #expect(N.decide(url: b, admitting: false, mainFrame: true, linkActivated: false, listens: true) == .cancel)
+        #expect(N.decide(url: b, admitting: true, mainFrame: false, linkActivated: false, listens: true) == .cancel)
+        // links: reported when the tile listens, refused either way
+        #expect(N.decide(url: b + "out/report.pdf", admitting: false, mainFrame: false, linkActivated: true, listens: true) == .link("out/report.pdf"))
+        #expect(N.decide(url: b + "a%20b.docx", admitting: false, mainFrame: true, linkActivated: true, listens: true) == .link("a%20b.docx"))
+        #expect(N.decide(url: b + "#top", admitting: false, mainFrame: true, linkActivated: true, listens: true) == .link("#top"))
+        #expect(N.decide(url: "https://example.com/x", admitting: false, mainFrame: false, linkActivated: true, listens: true) == .link("https://example.com/x"))
+        #expect(N.decide(url: b + "out/report.pdf", admitting: false, mainFrame: false, linkActivated: true, listens: false) == .cancel)
+        // a meta refresh or a form is never a link
+        #expect(N.decide(url: "https://evil.example/x", admitting: false, mainFrame: true, linkActivated: false, listens: true) == .cancel)
+        // zoom: 0.5 to 3, 1 when absent
+        #expect(CanvasDocument.zoom(nil) == 1 && CanvasDocument.zoom(.nan) == 1 && CanvasDocument.zoom(0) == 1)
+        #expect(CanvasDocument.zoom(0.1) == 0.5 && CanvasDocument.zoom(1.25) == 1.25 && CanvasDocument.zoom(9) == 3)
+    }
 }

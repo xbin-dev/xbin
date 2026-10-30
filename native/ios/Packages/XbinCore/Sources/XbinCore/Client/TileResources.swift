@@ -58,6 +58,25 @@ public enum TileResource {
     /// A picked file's name as the tile sees it (`{name}`, `uploaded
     /// {name}`): the last path element, control characters replaced, at
     /// most 200 bytes (the extension kept); `fallback` when nothing is left.
+    /// The name a file shared from a tile (`xbin.native.share({file})`)
+    /// gets in the share sheet: the last path segment of `ref`, decoded,
+    /// without the query — or, for a `?path=` reference (the agent's
+    /// `runs/{id}/raw?path=…`), that path's. The app named it after the
+    /// raw reference before (D208): a report's PDF went to Mail as
+    /// `raw?path=out%2Freport.pdf`.
+    public static func shareName(_ ref: String) -> String {
+        let parts = ref.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        var name = String(parts.first ?? "")
+        if parts.count > 1 {
+            for pair in parts[1].split(separator: "&") {
+                let kv = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                if kv.count == 2, kv[0] == "path" { name = String(kv[1]).replacingOccurrences(of: "+", with: " ") }
+            }
+        }
+        if let i = name.lastIndex(of: "/") { name = String(name[name.index(after: i)...]) }
+        return fileName(name.removingPercentEncoding ?? name, fallback: "file")
+    }
+
     public static func fileName(_ raw: String, fallback: String) -> String {
         var s = raw
         if let i = s.lastIndex(where: { $0 == "/" || $0 == "\\" }) { s = String(s[s.index(after: i)...]) }
@@ -385,11 +404,58 @@ public enum TileUpload {
 // MARK: - canvas html
 
 /// A `canvas html=` island: static markup, no scripts, no network. The app
-/// loads it with JavaScript off, no base URL and every navigation refused;
-/// this is the document, with a CSP that allows only inline styles and
-/// `data:` images.
+/// loads it with JavaScript off, at an address of its own that nothing
+/// answers (``base``), and every navigation refused; this is the document,
+/// with a CSP that allows only inline styles and `data:` images.
 public enum CanvasDocument {
     public static let csp = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'"
+
+    /// The island's address (rev 2, D208): a link's href is resolved
+    /// against it, so a relative one (`out/report.pdf`) is a link at all —
+    /// with no address, WebKit can't resolve it and the tap did nothing —
+    /// and the tile gets it back relative (``href(_:)``). A scheme of our
+    /// own that no handler serves: the CSP refuses loads before they'd try.
+    /// The reference renderer resolves the same way (`CANVAS_BASE`).
+    public static let base = "xbin-canvas://island/"
+    public static var baseURL: URL? { URL(string: base) }
+
+    /// The href a `link` event carries for the URL a tap navigated to: one
+    /// under ``base`` relative to it, any other as it is.
+    public static func href(_ url: String) -> String {
+        url.hasPrefix(base) ? String(url.dropFirst(base.count)) : url
+    }
+
+    /// The page zoom a `zoom` prop asks for: 0.5 to 3, 1 when absent or
+    /// not a number.
+    public static func zoom(_ value: Double?) -> Double {
+        guard let value, value.isFinite, value > 0 else { return 1 }
+        return min(3, max(0.5, value))
+    }
+
+    /// What an island does with a navigation (``StaticCanvas``'s
+    /// navigation delegate): the document it loads itself (the island's
+    /// address, in its main frame) is admitted; a tapped link is refused and
+    /// reported to the tile when it listens (`link`, rev 2); anything else —
+    /// a meta refresh, a form, an iframe, a link no one listens to — is
+    /// refused.
+    public enum Navigation: Equatable, Sendable {
+        case allow
+        case cancel
+        case link(String)
+
+        /// - Parameters:
+        ///   - url: the navigation's URL.
+        ///   - admitting: the island is loading its own document.
+        ///   - mainFrame: the navigation targets the island's own frame
+        ///     (false: a new window, or a subframe).
+        ///   - linkActivated: a tap on a link.
+        ///   - listens: the tile listens to `link`.
+        public static func decide(url: String, admitting: Bool, mainFrame: Bool, linkActivated: Bool, listens: Bool) -> Navigation {
+            if admitting, mainFrame, url == base || url == "about:blank" { return .allow }
+            if linkActivated, listens, !url.isEmpty { return .link(CanvasDocument.href(url)) }
+            return .cancel
+        }
+    }
 
     public static func wrap(_ html: String) -> String {
         """

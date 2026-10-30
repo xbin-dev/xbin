@@ -17,9 +17,11 @@ public struct WKAudiovisualMediaTypes: OptionSet, Sendable { public let rawValue
     public var suppressesIncrementalRendering = false
 }
 @MainActor public final class WKFrameInfo { public var isMainFrame: Bool { true } }
+public enum WKNavigationType: Int, Sendable { case linkActivated, formSubmitted, backForward, reload, formResubmitted, other = -1 }
 @MainActor public final class WKNavigationAction {
     public var request: URLRequest { URLRequest(url: URL(string: "about:blank")!) }
     public var targetFrame: WKFrameInfo? { nil }
+    public var navigationType: WKNavigationType { .other }
 }
 public enum WKNavigationActionPolicy: Sendable { case cancel, allow, download }
 @MainActor public protocol WKNavigationDelegate: AnyObject {
@@ -32,6 +34,7 @@ public enum WKNavigationActionPolicy: Sendable { case cancel, allow, download }
     public var scrollView: UIScrollView { UIScrollView() }
     public var allowsLinkPreview = true
     public var allowsBackForwardNavigationGestures = false
+    public var pageZoom: CGFloat = 1
     public var url: URL? { nil }
     @discardableResult public func loadHTMLString(_ s: String, baseURL: URL?) -> Int { 0 }
     public func stopLoading() {}

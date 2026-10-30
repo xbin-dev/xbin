@@ -78,6 +78,9 @@ function screen(n, cx) {
   const docked = all.filter((c) => c.t === 'composer' || (c.t === 'tabs' && P(c).style === 'bar'));
   const body = all.filter((c) => c.t !== 'toolbar' && !docked.includes(c));
   const chat = body.some((c) => c.t === 'transcript');
+  // a canvas that fills (rev 2): the screen doesn't scroll around it — the
+  // island's own page does (a document reader)
+  const fills = !grouped && !chat && body.some((c) => c.t === 'canvas' && P(c).fill === true);
   const large = p.large === true || (p.large !== false && !cx.x.pushed && !cx.x.sheet && style !== 'scroll');
   const u = cx.ui(n.k);
   if (!cx.x.offstage) cx.v.shown(n, cx);
@@ -106,7 +109,7 @@ function screen(n, cx) {
         ${repeat(trail, (c) => c.k, (c) => tcx.node(c))}
       </div>
     </div>` : nothing}
-    <div class=${cls('body', grouped ? 'grouped' : 'free', chat && 'chat')} @scroll=${onScroll}>
+    <div class=${cls('body', grouped ? 'grouped' : 'free', chat && 'chat', fills && 'fills')} @scroll=${onScroll}>
       ${large ? html`<div class="lt-block"><h1 class="lt">${title}</h1>${p.subtitle ? html`<div class="ls">${p.subtitle}</div>` : nothing}</div>` : nothing}
       ${own(p, 'search') ? searchField(n, cx) : nothing}
       ${repeat(body, (c) => c.k, (c) => inner.node(c))}
@@ -314,7 +317,7 @@ function sheet(n, cx) {
 // compact split collapses to a stack — the list, with the detail pushed over
 // it while `detail` is true (its Back reports `close`); `columns="detail"`
 // hides the list on a wide view (the detail's sidebar button reports
-// `columns`).
+// `columns`). Rev 3: `halves` shares a wide view equally between the two.
 function split(n, cx) {
   const p = P(n);
   const prefer = p.prefer === 'single' ? 'single' : 'auto';
@@ -324,7 +327,7 @@ function split(n, cx) {
   const cols = str(cx.val(n, 'columns', 'auto'));
   const back = collapse && kids[0] ? { title: backTitle(kids[0]), go: () => cx.emit(n, 'close', {}) } : null;
   const columns = own(p, 'columns') ? () => cx.emit(n, 'columns', { value: cols === 'detail' ? 'all' : 'detail' }) : null;
-  return html`<xb-split data-k=${n.k} class=${cls('split', prefer, collapse && 'collapse', open && 'detail-open', cols === 'detail' && 'cols-detail')}>${repeat(kids, (c) => c.k, (c, i) => html`
+  return html`<xb-split data-k=${n.k} class=${cls('split', prefer, collapse && 'collapse', open && 'detail-open', cols === 'detail' && 'cols-detail', p.halves === true && 'halves')}>${repeat(kids, (c) => c.k, (c, i) => html`
     <div class=${i === 0 ? 'split-a' : 'split-b'}>${cx.in('free', i === 1 && (back || columns) ? { split: { back, columns } } : { split: null }).node(c)}</div>`)}</xb-split>`;
 }
 
@@ -369,6 +372,8 @@ export const STRUCTURE_CSS = css`
   .has-large > .body.grouped, .has-large > .body.free { padding-top: 44px; }
   .body.chat { overflow: hidden; padding: 44px 0 0; gap: 0; }
   .body.chat > xb-transcript { flex: 1 1 auto; min-height: 0; }
+  .body.fills { overflow: hidden; padding-bottom: 0; }
+  .body.fills > xb-canvas.fill { flex: 1 1 auto; min-height: 0; margin: 0 calc(-1 * var(--xb-margin)); border-radius: 0; }
   .lt-block { padding: 2px 4px 0; margin-bottom: -6px; }
   .lt { margin: 0; font: var(--xb-font-large-title); letter-spacing: -0.02em; overflow-wrap: anywhere; }
   .ls { font: var(--xb-font-subheadline); color: var(--xb-muted); margin-top: 2px; }
@@ -537,6 +542,8 @@ export const STRUCTURE_CSS = css`
     xb-split.auto { flex-direction: row; }
     xb-split.auto > .split-a { flex: 0 0 clamp(280px, 36%, 400px); border-bottom: 0; border-right: 0.5px solid var(--xb-separator); }
     xb-split.auto > .split-b { flex: 1 1 auto; }
+    xb-split.auto.halves > .split-a { flex: 1 1 50%; }
+    xb-split.auto.halves > .split-b { flex: 1 1 50%; }
   }
 
   xb-spacer { display: block; flex: 1 1 auto; min-width: 8px; min-height: 8px; }

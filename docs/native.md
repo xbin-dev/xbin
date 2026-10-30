@@ -432,7 +432,7 @@ diagnostic (§Checking it) — the render goes on.
 | `tabs` | segmented tabs; only the selected tab is materialized | `selected`, `style` segmented·bar | `change` {key} | `tab`; only the selected one is built |
 | `tab` | one tab of tabs; `key` is a prop here (it does not key the node) | `key`, `title`, `icon` *icon*, `badge` | — | any |
 | `sheet` (rev 2) | a modal sheet; a sheet among its children presents over it | `open` bool, `title`, `detents` medium·large·full, or a list of them, `edge` bottom·leading | `dismiss` | any |
-| `split` (rev 2) | list/detail: exactly two children; two columns when regular, a list with the detail pushed over it when compact | `prefer` auto·single, `detail` bool (rev 2+), `columns` auto·all·detail (rev 2+) | `close` (rev 2+), `columns` {value} (rev 2+) | exactly 2 |
+| `split` (rev 3) | list/detail: exactly two children; two columns when regular, a list with the detail pushed over it when compact | `prefer` auto·single, `halves` bool (rev 3+), `detail` bool (rev 2+), `columns` auto·all·detail (rev 2+) | `close` (rev 2+), `columns` {value} (rev 2+) | exactly 2 |
 | `spacer` | flexible space in a stack | — | — | — |
 | `divider` | a separator line | — | — | — |
 
@@ -450,6 +450,7 @@ diagnostic (§Checking it) — the render goes on.
 - `sheet` `detents`: `full` covers the whole screen (no swipe to dismiss: give it a way out).
 - `sheet` `detents="full"` is rev 2+.
 - `sheet` `edge`: where it comes from: bottom (a sheet, the default) or leading (a drawer over the screen — a conversation list).
+- `split` `halves`: regular width: the two columns share the width equally (a document beside its conversation) instead of a list column beside the detail — on an open iPhone Duo one each side of the hinge; compact: as without.
 - `split` `detail`: compact width: the detail is pushed over the list (Back reports `close`); regular: both show.
 - `split` `columns`: regular width: both columns (auto, all) or the detail alone (the list behind the bar's sidebar button).
 <!-- /generated:prims-structure -->
@@ -626,7 +627,10 @@ The app draws these with the same components as its own agent screen.
 | Primitive | What | Props | Events | Children |
 |---|---|---|---|---|
 | `terminal` | a terminal on the tile's own pty WebSocket (tile-relative) | `src`, `title` | — | — |
-| `canvas` | a WebView island: a tile page (src) or static no-script html | `src`, `html`, `height` *height* | — | — |
+| `canvas` (rev 2) | a WebView island: a tile page (src) or static no-script html | `src`, `html`, `height` *height*, `fill` bool (rev 2+), `zoom` number (rev 2+) | `link` {href} (rev 2+) | — |
+
+- `canvas` `fill`: the island takes the rest of the screen (a document reader): its own page scrolls and pinch-zooms, and a `scroll` screen holding it no longer scrolls around it; `height` is ignored.
+- `canvas` `zoom`: the page's zoom, 1 = 100 % (0.5 to 3): its text and layout scale and reflow as a browser's zoom does; pinch zoom magnifies on top of it.
 <!-- /generated:prims-escape -->
 
 ### Navigation, search and scrolling (rev 2)

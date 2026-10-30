@@ -96,6 +96,23 @@ private struct ScreenBody: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .background(XbinColor.background)
                     .environment(\.xbinPlacement, .free)
+            } else if let island = layout.fillCanvas {
+                // A canvas that fills (rev 2, D208): no scroll view around
+                // it — the rest of the body above it, the island edge to
+                // edge below, its own page scrolling and zooming.
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(layout.body) { n in
+                        if n === island {
+                            NodeView(node: n).frame(maxHeight: .infinity)
+                        } else {
+                            NodeView(node: n).padding(.horizontal, 16)
+                        }
+                    }
+                }
+                .padding(.top, layout.body.first === island ? 0 : 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .background(XbinColor.background)
+                .environment(\.xbinPlacement, .free)
             } else {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) { ForEach(layout.body) { NodeView(node: $0) } }

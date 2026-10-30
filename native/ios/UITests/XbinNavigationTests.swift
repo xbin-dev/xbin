@@ -87,6 +87,52 @@ final class XbinNavigationTests: XCTestCase {
         XCTAssertTrue(id.waitForExistence(timeout: 20), "pushed again")
         e.tapNavBack(listShows: row, "popped again")
     }
+
+    /// D208 (apps/report): a report beside its conversation — on an iPad
+    /// the two half each (`split halves`), on an iPhone the report pushed
+    /// over the conversation, filling the screen (`canvas fill`). − / + set
+    /// its zoom; a tapped link never navigates: the tile gets its href,
+    /// relative to the page, and opens the share sheet for the file.
+    @MainActor
+    func test03ReportBesideItsConversation() throws {
+        let e = try E2E(self)
+        e.launch()
+        e.ensureWorkspace()
+        e.goHome()
+        e.app.open(URL(string: "xbin://\(e.server.authority)/c/apps/report")!)
+        let page = e.app.webViews.firstMatch
+        XCTAssertTrue(page.waitForExistence(timeout: 60), "the report's island")
+        XCTAssertTrue(page.staticTexts["Q3 revenue"].waitForExistence(timeout: 20), "the report drawn")
+        let window = e.app.windows.firstMatch.frame
+        let pad = window.width >= 700
+        let convo = e.containing("the US was flat")
+        if pad {
+            XCTAssertTrue(convo.waitForExistence(timeout: 10) && e.until(10) { convo.isHittable }, "the conversation beside the report")
+            let ratio = page.frame.width / window.width
+            XCTAssertTrue(ratio > 0.4 && ratio < 0.6, "halves: the report takes half the width (\(page.frame.width) of \(window.width))")
+            e.shot("doc-01-halves")
+        } else {
+            XCTAssertFalse(convo.exists && convo.isHittable, "a phone shows the report over the conversation")
+            XCTAssertTrue(page.frame.height > window.height * 0.6, "the report fills the screen (\(page.frame.height) of \(window.height))")
+            e.shot("doc-01-reader")
+        }
+        let zoomIn = e.app.buttons["Zoom in"]
+        XCTAssertTrue(zoomIn.waitForExistence(timeout: 10), "− / + in the bottom bar")
+        zoomIn.tap()
+        zoomIn.tap()
+        XCTAssertTrue(e.app.buttons["125%"].waitForExistence(timeout: 10), "zoomed to 125 %")
+        e.shot(pad ? "doc-02-halves-zoomed" : "doc-02-reader-zoomed")
+        let link = page.links["The figures"]
+        XCTAssertTrue(link.waitForExistence(timeout: 10), "the report's link")
+        link.tap()
+        XCTAssertTrue(e.containing("Tapped files/q3.csv").waitForExistence(timeout: 15), "the tile got the link, relative to the page")
+        XCTAssertTrue(page.staticTexts["Q3 revenue"].exists, "…and the island did not navigate")
+        // the share sheet for the file the link names
+        let share = e.app.otherElements["ActivityListView"]
+        let copy = e.app.buttons.matching(NSPredicate(format: "label IN %@", ["Copy", "Save to Files"])).firstMatch
+        XCTAssertTrue(e.until(20) { share.exists || copy.exists }, "the share sheet for files/q3.csv")
+        e.shot("doc-03-share")
+    }
 }
 
 extension E2E {

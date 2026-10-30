@@ -77,6 +77,30 @@ public struct XbinCanvasRequest: Sendable, Hashable {
     public let html: String?
     /// Points (the `height` token; 160 by default).
     public let height: Double
+    /// Rev 2 (D208): the island takes the rest of its screen — the renderer
+    /// gives it the room; its page scrolls and pinch-zooms itself.
+    public var fill: Bool = false
+    /// Rev 2: the page zoom (`WKWebView.pageZoom`), 0.5 to 3.
+    public var zoom: Double = 1
+    /// Rev 2: a tapped link in `html`, as ``CanvasDocument/href(_:)`` has it
+    /// — handed to the tile as `link {href}`; nil when the tile doesn't
+    /// listen. A link never navigates either way.
+    public var onLink: (@MainActor @Sendable (String) -> Void)?
+
+    public static func == (a: XbinCanvasRequest, b: XbinCanvasRequest) -> Bool {
+        a.key == b.key && a.src == b.src && a.html == b.html && a.height == b.height && a.fill == b.fill
+            && a.zoom == b.zoom && (a.onLink == nil) == (b.onLink == nil)
+    }
+
+    public func hash(into h: inout Hasher) {
+        h.combine(key)
+        h.combine(src)
+        h.combine(html)
+        h.combine(height)
+        h.combine(fill)
+        h.combine(zoom)
+        h.combine(onLink == nil)
+    }
 }
 
 /// The composer asked to attach files.

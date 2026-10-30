@@ -702,7 +702,7 @@
    }
   },
   "split": {
-   "rev": 2,
+   "rev": 3,
    "group": "structure",
    "doc": "list/detail: exactly two children; two columns when regular, a list with the detail pushed over it when compact",
    "props": {
@@ -712,6 +712,11 @@
       "auto",
       "single"
      ]
+    },
+    "halves": {
+     "type": "bool",
+     "doc": "regular width: the two columns share the width equally (a document beside its conversation) instead of a list column beside the detail — on an open iPhone Duo one each side of the hinge; compact: as without",
+     "since": 3
     },
     "detail": {
      "type": "bool",
@@ -1832,7 +1837,7 @@
    }
   },
   "canvas": {
-   "rev": 1,
+   "rev": 2,
    "group": "escape",
    "doc": "a WebView island: a tile page (src) or static no-script html",
    "props": {
@@ -1845,9 +1850,27 @@
     "height": {
      "type": "string",
      "token": "height"
+    },
+    "fill": {
+     "type": "bool",
+     "doc": "the island takes the rest of the screen (a document reader): its own page scrolls and pinch-zooms, and a `scroll` screen holding it no longer scrolls around it; `height` is ignored",
+     "since": 2
+    },
+    "zoom": {
+     "type": "number",
+     "doc": "the page's zoom, 1 = 100 % (0.5 to 3): its text and layout scale and reflow as a browser's zoom does; pinch zoom magnifies on top of it",
+     "since": 2
     }
    },
-   "events": {},
+   "events": {
+    "link": {
+     "payload": {
+      "href": "string"
+     },
+     "doc": "a link in `html` was tapped (it never navigates): `href` as the page resolves it — a URL with a scheme as is, else relative to the page (`out/report.pdf`, `#top`)",
+     "since": 2
+    }
+   },
    "children": {
     "none": true
    }

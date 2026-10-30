@@ -1,0 +1,21 @@
+{"v":1,"root":{"k":"r","t":"split","p":{"halves":true,"detail":true},"e":["close"],"c":[
+  {"k":"r.0","t":"screen","p":{"title":"Q3 revenue review","subtitle":"gpt-5"},"c":[
+    {"k":"r.0.0","t":"transcript","p":{"follow":true},"c":[
+      {"k":"r.0.0.0:m1","t":"message","p":{"role":"user","sender":"Ana","text":"Summarise Q3 revenue by region and attach the figures.","time":"13:58"}},
+      {"k":"r.0.0.0:m2","t":"message","p":{"role":"assistant","sender":"Agent","text":"Done — the report is on the right. EU grew 12 %, the US was flat; the figures are in q3-figures.xlsx and the board summary in q3 summary.pdf.","time":"14:01"}}
+    ]},
+    {"k":"r.0.1","t":"composer","p":{"placeholder":"Ask about the report"}}
+  ]},
+  {"k":"r.1","t":"screen","p":{"title":"q3-report.html","subtitle":"v3 · 2 linked files","style":"scroll"},"c":[
+    {"k":"r.1.0","t":"toolbar","c":[
+      {"k":"r.1.0.0","t":"button","p":{"icon":"xmark","label":"Close"},"e":["tap"]}
+    ]},
+    {"k":"r.1.1","t":"toolbar","p":{"place":"bottom"},"c":[
+      {"k":"r.1.1.0","t":"button","p":{"icon":"minus","disabled":false,"label":"Smaller"},"e":["tap"]},
+      {"k":"r.1.1.1","t":"button","p":{"label":"125%"},"e":["tap"]},
+      {"k":"r.1.1.2","t":"button","p":{"icon":"plus","disabled":false,"label":"Larger"},"e":["tap"]}
+    ]},
+    {"k":"r.1.2","t":"notice","p":{"tone":"info","text":"Sharing q3-figures.xlsx…"}},
+    {"k":"r.1.3","t":"canvas","p":{"html":"<!doctype html><html><head><style>body{margin:16px;font:15px/1.5 system-ui;color:#111;background:#fff}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;padding:6px;text-align:left}</style></head><body><h1>Q3 revenue</h1><p>EU grew 12 % on Q2; the US was flat.</p><table><tr><th>Region</th><th>Q2</th><th>Q3</th></tr><tr><td>EU</td><td>223</td><td>250</td></tr><tr><td>US</td><td>198</td><td>198</td></tr></table><h2>Attached</h2><ul><li><a href=\"out/q3-figures.xlsx\">The figures</a></li><li><a href=\"q3%20summary.pdf\">The board summary</a></li></ul></body></html>","fill":true,"zoom":1.25},"e":["link"]}
+  ]}
+]}}

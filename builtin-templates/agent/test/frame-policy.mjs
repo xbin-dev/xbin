@@ -25,7 +25,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 let chromium;
 try {
-  ({ chromium } = await import('/usr/local/node/lib/node_modules/playwright/index.mjs'));
+  ({ chromium } = await import(process.env.PLAYWRIGHT_DIR
+    ? join(process.env.PLAYWRIGHT_DIR, 'node_modules/playwright/index.mjs')
+    : '/usr/local/node/lib/node_modules/playwright/index.mjs'));
 } catch {
   try { ({ chromium } = await import('playwright')); } catch {
     console.log('SKIP: playwright not installed (npm i -g playwright && playwright install chromium)');
@@ -108,6 +110,24 @@ const txt = await page.evaluate((h) => textual(h), HOSTILE);
 ok('native (textual): our CSP is first', txt.html.startsWith('<!doctype html><html><head><meta http-equiv="Content-Security-Policy"'), txt.html.slice(0, 200));
 ok('native (textual): meta refresh neutralised', !/http-equiv="refresh"/i.test(txt.html));
 ok('native (textual): blocked resources counted', txt.blocked >= 3, `blocked=${txt.blocked}`);
+ok('native (textual): off-page href stripped', !txt.html.includes('evil.example/y'));
+
+// D208 (#46, #49): the run's own files a render step links keep their href —
+// the app never follows one: canvas rev 2 hands the tap to the view, which
+// shares the file — and every other off-page href is still removed; an app
+// before canvas rev 2 zooms by CSS.
+const LINKED = HOSTILE.replace('<a href="#section">', '<a href="out/q3.pdf">the figures</a> <a href="#section">');
+const linkOpts = { links: [{ href: 'out/q3.pdf', path: 'out/q3.pdf' }], zoom: 1.5 };
+for (const [how, nl] of [
+  ['DOMParser', await page.evaluate(([h, o]) => renderDoc(h, o), [LINKED, linkOpts])],
+  ['textual', await page.evaluate((h) => textual(h, 1.5, new Set(['out/q3.pdf'])), LINKED)],
+]) {
+  ok(`native (${how}): a linked run file keeps its href`, nl.html.includes('href="out/q3.pdf"'), nl.html.slice(0, 300));
+  ok(`native (${how}): every other off-page href is still stripped`, !nl.html.includes('evil.example/y'));
+  ok(`native (${how}): the in-page anchor kept`, nl.html.includes('href="#section"'));
+  ok(`native (${how}): an older app's zoom is CSS`, nl.html.includes('html{zoom:1.5}'));
+  ok(`native (${how}): our CSP is still first`, /^<!doctype html><html><head><meta http-equiv="Content-Security-Policy"/i.test(nl.html));
+}
 
 // --- the produced document ----------------------------------------------
 ok('meta refresh stripped', !/http-equiv="refresh"/i.test(res.html));

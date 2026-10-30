@@ -156,8 +156,9 @@ export const FEATURES = {
   'tools.render.blocked': 'says how many external resources it blocked, and when it shows a newer version',
   'tools.render.maximize': 'maximize the preview',
   'tools.render.source': 'open the rendered file in Files',
-  'tools.render.zoom': 'zoom the preview out and in (−, +; the % goes back to 100) without reloading it, kept per person and tile (prefs/preview-zoom, model/preview-zoom.js)',
-  'tools.render.links': 'a report\'s links to its files download them — exactly the links its render step names (links [{href, path}], D207; a sandbox report\'s linked files are copied in beside it); every other link stays inert',
+  'tools.render.zoom': 'zoom the preview out and in (−, +; the % goes back to 100) keeping the reader\'s place, kept per person and tile (prefs/preview-zoom, model/preview-zoom.js; the app pinch-zooms too)',
+  'tools.render.links': 'a report\'s links to its files download them (the app: the share sheet, D208) — exactly the links its render step names (links [{href, path}], D207; a sandbox report\'s linked files are copied in beside it); every other link stays inert',
+  'tools.render.beside': 'the preview beside its conversation on a wide screen, the conversation live (the app: half each on an iPad or an open Duo, D208; a full-screen reader on a phone)',
   'tools.live': 'a live preview (preview_port, D135): a page a server in the conversation\'s sandbox serves, its scripts running in an isolated frame (opaque origin: no cookies, no storage, no reach into the workspace), for the run\'s participants; labelled "live from the sandbox"',
   'tools.live.follow': 'a new live step opens the preview, as a render does',
   'tools.live.reload': 'reload the live page (a fresh link)',
@@ -319,10 +320,6 @@ export const DIFFERENCES = {
     'composer.keys': 'on a phone Return is a new line and Send is the button; the app\'s composer handles a hardware keyboard and IME composition itself',
     'composer.attach.paste': 'the app\'s composer owns the pasteboard: an image pasted there is uploaded like a picked one — nothing for the tile to draw',
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',
-    // D207 (#49, #46): the web's first; the app's render screen (native/tools.js renderTpl,
-    // native/render-doc.js) gains them in its own change — which then drops these two lines
-    'tools.render.zoom': 'not on the app yet: its render screen\'s zoom lands with the iOS render-screen change that follows D207',
-    'tools.render.links': 'not on the app yet: its render screen (native/render-doc.js) keeps every link inert until the iOS render-screen change that follows D207',
   },
 };
 
