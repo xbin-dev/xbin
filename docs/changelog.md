@@ -12,6 +12,12 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-30
 
+- **Fix: people without admin saw no code in a tile's window** (D206,
+  issue #50; [auth.md](/docs/auth.md), [protocol.md](/docs/protocol.md)).
+  `/api/xbin/code/*` and `/api/xbin/git/{log,diff,activity}` now answer a
+  person who has read on the tile — what their terminal and the `/c/` plane
+  already gave them — so the window's Files and Changes, and the app's Code
+  tools, work for every reader. Elements still need a `code[:<tile>]` grant.
 - **The shell: Tiled drops, and new screens start Tiled** (D205;
   [frontend-kit.md](/docs/frontend-kit.md) §Screen modes). On a Tiled
   screen, drag a tile's title bar onto another tile: its centre still swaps

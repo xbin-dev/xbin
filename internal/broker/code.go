@@ -19,11 +19,12 @@ import (
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
-// Component code & git endpoints for the Admin console: browse a component's
-// files and its git history/diffs. Admin-gated, OR readable by a component
-// granted "code:<target>" (requireCodeRead) — like the rest of
-// the console) — this exposes source and history across the whole workspace,
-// which is owner-level. History comes from each component's OWN git repo
+// Component code & git endpoints for the Admin console and every person's
+// tile window (D202): browse a component's files and its git history/diffs.
+// Readable by an admin (any component), a person with read on the tile —
+// what their terminal already shows them, and what the /c/ plane serves
+// them — the component itself, or an element granted "code:<target>"
+// (requireCodeRead). History comes from each component's OWN git repo
 // (EnsureComponentRepos; the workspace is also a repo, decision D2) — the
 // per-component repos are what make clone/import/templates/backups diffable.
 
@@ -145,19 +146,25 @@ func (b *Broker) codeGrantAllows(from, target string) bool {
 }
 
 // requireCodeRead gates the read-only source endpoints: admin sees any
-// component, an element sees its own source, or another component's when
-// granted the "code:<component>" capability (plans/auth.md). This is the
-// runtime equivalent of what a workspace terminal already sees read-only.
+// component; a person sees a tile they may read (docs/auth.md: read is
+// "read its source"; the tile window's Files and Changes, issue #50 — this
+// once asked only admins and elements, so a non-admin got nothing though
+// their terminal and agent work in that code); an element sees its own
+// source, or another component's when granted the "code:<component>"
+// capability (plans/auth.md).
 func (b *Broker) requireCodeRead(w http.ResponseWriter, r *http.Request, comp string) bool {
 	p := auth.PrincipalOf(r)
 	if b.IsAdmin(p) || (p.Component != "" && p.Component == comp) {
+		return true
+	}
+	if p.Component == "" && p.CanReadTile(comp) { // a person: the same rule as the tile's frame and /c/ plane
 		return true
 	}
 	if b.codeReadAllowed(p, comp) { // a non-primary principal's code edges through its edge policy
 		return true
 	}
 	server.WriteJSON(w, http.StatusForbidden, map[string]string{
-		"error": "reading a component's source needs admin, or a `code:" + comp + "` grant (one component) / `code` grant (all) — declare uses {target: \"code:" + comp + "\", role: \"reader\"}",
+		"error": "reading a component's source needs read on the tile (a person), admin, or — for another element — a `code:" + comp + "` grant (one component) / `code` grant (all): declare uses {target: \"code:" + comp + "\", role: \"reader\"}",
 		"docs":  "/docs/auth.md",
 	})
 	return false

@@ -351,7 +351,9 @@ once; xbind enforces at every call.
   `{target:"code", role:"reader"}` for **every** component (tooling — linters,
   stats, search — that must scan the whole workspace without re-granting per
   component). Owner-approved like any grant; a component always reads its own
-  source, and admin reads any. Powerful — it exposes everything in the
+  source, admin reads any, and a person reads the source of any tile they
+  have read on (the tile window's Files and Changes; their terminal shows
+  them the same). Powerful — it exposes everything in the
   target's tree except `.git` internals / `node_modules` / `data`; `code`
   (all) even more so. Grant deliberately.
 - **`cap:net-admin`** — a **net-provider** tile (a router/firewall/VPN that

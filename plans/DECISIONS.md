@@ -12601,3 +12601,17 @@ Deviations and refinements made while implementing; all deliberate:
     shapes `insert` and `swap` already could, so older shells and the iOS
     app read the result. The harness's `addScreen()` follows the new
     default; passes written for the canvas ask for it.
+- **D206 — A person reads the source of a tile they may read (2026-10-30;
+  issue #50).** internal/broker/code.go `requireCodeRead`;
+  code_access_test.go `TestCodeReadPerson`; web/code-tree.js, bx-code.js
+  (the 403 text); docs/auth.md, protocol.md, openapi.go. The owner:
+  "Non-admin users can't see tile code in Tile Agent window". The code and
+  git routes were written for the admin console and let in only admins,
+  the tile itself and elements with a `code[:<tile>]` grant; D202 reused
+  them for everyone's tile window, so a person with terminal on a tile
+  (the level the Agent needs) got 403 for the code their agent edits,
+  while the same window's PRs (`canReadPRs`), the `/c/` plane and the
+  terminal all served them. Now a person (no element on the principal)
+  with read on the tile passes too — docs/auth.md's read level is "read
+  its source". An element is never let in through the person it acts
+  for: its own grant decides, as before.

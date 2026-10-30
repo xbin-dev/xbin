@@ -3003,19 +3003,19 @@ GET    /templates/{repo}/{rest...}  authenticated. Read-only dumb-HTTP git serve
                                    message says so (an empty commit when nothing
                                    else changed; trailer Xbin-Template-Block).
 
-GET    /code/tree                  admin OR code[:<component>]. ?component=<path> → {component, files:
+GET    /code/tree                  read on the tile, admin OR code[:<component>]. ?component=<path> → {component, files:
                                    [{path,size}]} — a component's files.
-GET    /code/file                  admin OR code[:<component>]. ?component=<path>&file=<rel> →
+GET    /code/file                  read on the tile, admin OR code[:<component>]. ?component=<path>&file=<rel> →
                                    {path, content|binary|truncated}.
-GET    /git/log                    admin OR code[:<component>]. ?component=<path>&limit=N → {repo,
+GET    /git/log                    read on the tile, admin OR code[:<component>]. ?component=<path>&limit=N → {repo,
                                    commits:[{hash,short,author,date,subject,
                                    add,del,files}], remote}. From the component's
                                    OWN repo (each component is its own git repo);
                                    add/del/files = that commit's churn; remote =
                                    origin.
-GET    /git/diff                   admin OR code[:<component>]. ?component=<path>&rev=<hash> → {repo,
+GET    /git/diff                   read on the tile, admin OR code[:<component>]. ?component=<path>&rev=<hash> → {repo,
                                    diff}. rev empty = uncommitted changes vs HEAD.
-GET    /git/activity               admin OR code[:<component>]. ?component=<path> → {repo,
+GET    /git/activity               read on the tile, admin OR code[:<component>]. ?component=<path> → {repo,
                                    remote, upstreamRef, local:[{t,a}],
                                    upstream:[{t,a}]|null}. Author-date (t, unix)
                                    + author (a) timeline of the component's

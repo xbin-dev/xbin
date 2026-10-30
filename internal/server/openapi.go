@@ -78,9 +78,10 @@ xbind strips inbound ` + "`X-XBin-*`" + ` identity headers and re-injects verifi
 - **xbin:writer** — workspace-management grant (create components, import tiles).
 - **xbin:users** — user-management grant.
 - **self or admin** — the element itself, or admin (e.g. its own vault).
-- **admin or code[:<component>]** — admin, the component itself, or a caller
-  granted read-only source access: ` + "`code:<component>`" + ` (that one
-  component) or ` + "`code`" + ` (every component — tooling/scanners).
+- **admin or code[:<component>]** — admin, a person with read on the tile,
+  the component itself, or an element granted read-only source access:
+  ` + "`code:<component>`" + ` (that one component) or ` + "`code`" + ` (every
+  component — tooling/scanners).
 - **reader / writer (resource grant)** — a role grant on the named ` + "`res:…`" + `
   resource (docs/resources.md).
 - **` + capDeployRead + `** — a tile's deployment state; readers see only facts about the primary.

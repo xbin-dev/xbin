@@ -16,7 +16,7 @@
  * `bx-open-tab` bubbles and is composed. Both refresh live when the tile's
  * work tree changes (code-shared.js savedEvent, the rule <bx-code> follows),
  * and read the grant-gated /api/xbin/code/* and /git/* endpoints with a raw
- * fetch: the signed-in user (admin or a code:<tile> grant), as <bx-code>.
+ * fetch: the signed-in user (read on the tile, or admin), as <bx-code>.
  * Rows are buttons; ↑/↓ move between them.
  */
 import { LitElement, html, css, nothing } from 'lit';
@@ -32,7 +32,7 @@ import '/vendor/bx-icons.js';
 export async function codeGet(path) {
   try {
     const r = await fetch(`/api/xbin/${path}`);
-    if (r.status === 403) return { err: 'no code access for this tile (needs admin or a code: grant)' };
+    if (r.status === 403) return { err: 'no code access for this tile (needs read on it)' };
     if (!r.ok) return { err: `error ${r.status}`, status: r.status };
     return { data: await r.json() };
   } catch (e) { return { err: String(e.message ?? e) }; }

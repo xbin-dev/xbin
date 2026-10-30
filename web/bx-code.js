@@ -9,7 +9,7 @@
  * live reload paused or not.
  * Backed by the grant-gated /api/xbin/code/* + /git/* endpoints
  * (docs/protocol.md); uses a raw fetch so the caller is the signed-in user
- * (admin or a code:<tile> grant), matching the admin console's code viewer.
+ * (read on the tile, or admin), matching the admin console's code viewer.
  */
 import { LitElement, html, css, nothing } from 'lit';
 import { scrollCss } from '/vendor/scroll-css.js';
@@ -259,7 +259,7 @@ export class BxCode extends LitElement {
   async _api(path) {
     try {
       const r = await fetch(`/api/xbin/${path}`);
-      if (r.status === 403) { this._err = 'no code access for this tile (needs admin or a code: grant)'; return null; }
+      if (r.status === 403) { this._err = 'no code access for this tile (needs read on it)'; return null; }
       if (!r.ok) { this._err = `error ${r.status}`; return null; }
       this._err = '';
       return await r.json();
