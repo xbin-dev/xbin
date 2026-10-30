@@ -169,6 +169,7 @@ open class XCUIElement: XCUIElementTypeQueryProvider {
     open func press(forDuration duration: TimeInterval) {}
     open func typeText(_ text: String) {}
     open func swipeUp() {}
+    open func swipeUp(velocity: XCUIGestureVelocity) {}
     open func swipeDown() {}
     open func pinch(withScale scale: CGFloat, velocity: CGFloat) {}
     open func coordinate(withNormalizedOffset normalizedOffset: CGVector) -> XCUICoordinate { XCUICoordinate() }

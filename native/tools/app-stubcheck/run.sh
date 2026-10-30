@@ -11,7 +11,7 @@
 #     and TunnelPairing (CryptoKit; native/tools/app-check compiles and runs it);
 #   - FILES below: a native tile's hatches (terminal, canvas, attach; the
 #     key row's bar they share with the shell's terminal), a screen's
-#     TileCard and the Agent tab.
+#     TileCard and the Agent tab (its review screens, D210, included).
 #
 # The stubs are layered: swiftui-stubcheck's (the renderer's SwiftUI and
 # UIKit), term-stubcheck's (the terminal's UIKit and SwiftUI, SwiftTerm's
@@ -35,7 +35,7 @@ out=${1:-${TMPDIR:-/tmp}/xbin-app-stubcheck}
 app=$repo/native/ios/App
 term=$repo/native/tools/term-stubcheck/Stubs
 FILES="Tiles/TileAttach.swift Tiles/TileTerminal.swift Tiles/TileCanvas.swift Tiles/TileHatches.swift
-Tiles/Widgets/TileCard.swift Terminal/KeyRow.swift Terminal/TerminalLook.swift Terminal/SessionTab.swift Agent/AgentAttachments.swift Agent/AgentChat.swift Agent/AgentScreen.swift"
+Tiles/Widgets/TileCard.swift Terminal/KeyRow.swift Terminal/TerminalLook.swift Terminal/SessionTab.swift Agent/AgentAttachments.swift Agent/AgentChat.swift Agent/AgentScreen.swift Agent/AgentReview.swift"
 
 # The renderer's stubs and checkable sources.
 "$repo/native/tools/swiftui-stubcheck/run.sh" --sources-only "$out/renderer"

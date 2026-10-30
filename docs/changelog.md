@@ -12,6 +12,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-30
 
+- **The Agent tab reviews a turn's changes a file at a time** (D210, issue
+  #45; [09-terminals.md](/docs/overview/09-terminals.md) §Agent sessions).
+  A turn that rewrote thousands of lines no longer renders as one huge diff.
+  *This turn changed N files +a −d* (and a shell call's own files) is
+  folded; open, it lists the files; a file's row opens that file's diff
+  alone, its first 400 lines then *Show all N lines*. A file past the
+  event's inline patch (64 KiB a call, 192 KiB a turn) loads on demand from
+  the existing `GET /api/xbin/term/sessions/<id>/diff?turn=|toolCallId=&path=`
+  while the session runs. In the phone app the card is folded too and a
+  file opens a review screen: numbered lines, wrap or scroll sideways,
+  previous and next file, the file list behind Back. The `files.changed`
+  event is unchanged. `diffHTML` in `/vendor/bx-code.js` takes an optional
+  second argument, the language of lines before any `diff --git` header.
 - **Fix: people without admin saw no code in a tile's window** (D206,
   issue #50; [auth.md](/docs/auth.md), [protocol.md](/docs/protocol.md)).
   `/api/xbin/code/*` and `/api/xbin/git/{log,diff,activity}` now answer a
