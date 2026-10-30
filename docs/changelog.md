@@ -10,6 +10,20 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-30
+
+- **The shell: Tiled drops, and new screens start Tiled** (D205;
+  [frontend-kit.md](/docs/frontend-kit.md) §Screen modes). On a Tiled
+  screen, drag a tile's title bar onto another tile: its centre still swaps
+  the two; near one of its edges the tile takes that half of the other's
+  space, and the space it left goes to what shared it. Along the screen's
+  edge it takes that half of the screen. While dragging, the shell shows
+  where the tile lands and where the other one goes; Escape cancels. A new
+  screen (the tab strip's +, New screen) now starts **Tiled**; screens you
+  already have keep their layout. **Tiles:** a tile on a new screen gets a
+  share of the window rather than a fixed-size card — it already must work
+  at any size from about 192 px wide.
+
 ## 2026-10-27
 
 - **The xbin app over an iroh tunnel** (D204; [app-tunnel.md](/docs/app-tunnel.md),

@@ -3,7 +3,10 @@
 // top bar out of the way); a second tile splits it along the longer side, a
 // third splits the focused tile; dragging a divider shares the space anew
 // and is kept with the screen; a card dragged by its title bar onto another
-// swaps them; the tile menu's Rotate split turns a split; closing a tile
+// swaps them at its centre, takes half of its space at an edge (D205: the
+// preview shows where it lands and where the other goes), takes half of the
+// screen at the screen's edge, and Escape cancels; a new screen starts
+// Tiled; the tile menu's Rotate split turns a split; closing a tile
 // gives its space to its sibling; a reload keeps the tree; a phone shows one
 // tile with a switcher; switching back to Canvas shows every tile where it
 // was. An org screen in Tiled shows no dividers in view mode, and a draft's
@@ -45,6 +48,7 @@ async function tiled(browser) {
   await usePersonalScreen(page);
   const id = await sh(page, (t) => t.addScreen());
   await settle(page);
+  check(await sh(page, (t) => t.screenMode) === 'tiled', 'a new screen starts Tiled');
   await sh(page, (t, p) => t.openTile(p), A);
   await waitFor(page, (t) => t.openTiles.length === 1, null, { label: 'a tile open' });
 
@@ -115,6 +119,53 @@ async function tiled(browser) {
   }
   tr = await tree(page);
   check(leafPath(tr, C) === 'a' && leafPath(tr, A) === 'bb', `dragging A's title bar onto C swaps them (C ${leafPath(tr, C)}, A ${leafPath(tr, A)})`);
+
+  // D205 — C | (B / A). A onto the right edge of C: A takes C's right half,
+  // B the space A left; the preview is the outcome, before the drop
+  const headOf = (p) => rectIn(page, `.ttile[data-path="${p}"] .card .head`);
+  const dragTo = async (p, x, y, during) => { const h = await headOf(p); return h ? drag(page, h.x + 40, h.y + h.h / 2, x - (h.x + 40), y - (h.y + h.h / 2), during) : null; };
+  const ghosts = () => sh(page, (t) => [...(t.query('.tiled')?.querySelectorAll('.tghost') ?? [])].map((g) => {
+    const r = g.getBoundingClientRect(); return { cls: g.classList.contains('other') ? 'other' : 'land', text: g.textContent.trim(), r: [r.x, r.y, r.width, r.height] };
+  }));
+  const at = (r, u, v) => [r.x + u * r.w, r.y + v * r.h];
+  const sameBox = (g, r, d = 3) => !!g && !!r && near(g[0], r.x, d) && near(g[1], r.y, d) && near(g[2], r.w, d) && near(g[3], r.h, d);
+  let rc0 = await tileRect(page, C);
+  const half = await dragTo(A, ...at(rc0, 0.92, 0.5), async () => {
+    const g = await ghosts(); await shot(page, `tiled-drop-half-${THEME}`, { fullPage: false }); return g;
+  });
+  tr = await tree(page);
+  const [ra3, rc3] = [await tileRect(page, A), await tileRect(page, C)];
+  check(leafPath(tr, C) === 'aa' && leafPath(tr, A) === 'ab' && leafPath(tr, B) === 'b' && tr.a.split === 'row',
+    `A dropped on C's right edge takes C's right half, B takes A's space (C ${leafPath(tr, C)}, A ${leafPath(tr, A)}, B ${leafPath(tr, B)})`);
+  const land = half?.find((g) => g.cls === 'land'), oth = half?.find((g) => g.cls === 'other');
+  check(half?.length === 2 && /lands here$/.test(land?.text) && /squeezes here$/.test(oth?.text),
+    `while dragging: where A lands and where C squeezes, no zones (${JSON.stringify(half?.map((g) => g.text))})`);
+  check(sameBox(land?.r, ra3) && sameBox(oth?.r, rc3), `the preview was the outcome (A ${JSON.stringify(land?.r.map(Math.round))} → ${JSON.stringify(R(ra3))}; C ${JSON.stringify(oth?.r.map(Math.round))} → ${JSON.stringify(R(rc3))})`);
+
+  // B to the screen's bottom edge: B takes the bottom half of the screen
+  const edge = await dragTo(B, pane.x + pane.w / 2, pane.y + pane.h - 8, ghosts);
+  tr = await tree(page);
+  const rb3 = await tileRect(page, B);
+  check(tr?.split === 'col' && tr.b?.leaf === B && near(rb3.y + rb3.h, pane.y + pane.h) && near(rb3.w, pane.w) && near(rb3.h, pane.h / 2, 6),
+    `B dropped on the screen's bottom edge takes the bottom half (${JSON.stringify(R(rb3))})`);
+  check(edge?.length === 1 && /bottom half of the screen$/.test(edge[0].text) && sameBox(edge[0].r, rb3),
+    `while dragging: only where B lands (${JSON.stringify(edge?.map((g) => g.text))})`);
+
+  // Escape mid-drag: nothing moves, nothing left drawn
+  const t0 = JSON.stringify(tr), ra4 = await tileRect(page, A);
+  const esc = await dragTo(C, ...at(ra4, 0.5, 0.5), async () => {
+    const g = (await ghosts()).length; await page.keyboard.press('Escape'); await sleep(150); return { g, after: (await ghosts()).length };
+  });
+  check(esc?.g === 2 && esc.after === 0 && JSON.stringify(await tree(page)) === t0, `Escape cancels a drag (${JSON.stringify(esc)})`);
+
+  // back to C | (B / A) for what follows: C to the left edge, A onto B's bottom (they share a split: B keeps its size)
+  await dragTo(C, pane.x + 6, pane.y + pane.h / 2);
+  const back = await dragTo(A, ...at(await tileRect(page, B), 0.5, 0.85), ghosts);
+  tr = await tree(page);
+  check(leafPath(tr, C) === 'a' && leafPath(tr, B) === 'ba' && leafPath(tr, A) === 'bb' && tr.split === 'row',
+    `C to the left edge, A onto B's bottom: C | (B / A) again (${JSON.stringify(tr)})`);
+  check(/moves here$/.test(back?.find((g) => g.cls === 'other')?.text ?? ''),
+    `a tile dropped on its sibling: the sibling just moves (${JSON.stringify(back?.map((g) => g.text))})`);
 
   // the tile menu: Rotate split turns A's split (B above A → B beside A)
   const lines = await sh(page, (t, p) => t.tileMenuItems(p).filter((x) => ['Rotate split', 'Swap with sibling'].includes(x.label)).map((x) => [x.label, !!x.disabled]), A);

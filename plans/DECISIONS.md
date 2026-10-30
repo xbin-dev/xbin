@@ -12553,3 +12553,51 @@ Deviations and refinements made while implementing; all deliberate:
     no documents needed and advised declaring that in Info.plist, so
     `ITSAppUsesNonExemptEncryption` stays `false` (2026-10-28). `true`
     without a compliance code is refused at upload.
+- **D205 — Tiled: a tile dropped on half of another, or of the screen; new
+  screens start Tiled (2026-10-30; issue #48).**
+  workspace-template/shell/tiling.js (`zoneOf`, `place`, `placeRoot`,
+  `drop`, `SWAP_ZONE`), shell-tiled.js (the drag, its preview, the edge
+  bands), shell-tabs.js (`addScreen`), bx-shell.js (the harness's
+  `addScreen(mode)`); hack/tiling.test.mjs; harness pass tiled (extended),
+  with docMode, fixedGrid, blocks, focusAnchor, richCopy and tilePrompts
+  asking for a Canvas screen; docs/frontend-kit.md §Screen modes,
+  elements.md. The owner: "hard binary split doesn't feel amazing … When a
+  tile is dragged over another tile, Left/Right trapezoids put the tile into
+  there as 50/50 split left/right; Similar for Top/Bottom; Center swaps tiles
+  with whatever is already there; If there is new empty space its taken by
+  collapsing binary partition. Before committing to that, check with smaller
+  artifact", and "make tiled = default mode for new tabs". A prototype
+  (artifact "Tiled Drop Zones", vanilla JS on the same tree) settled the
+  open choices with the owner.
+  - **Zones.** Over another tile, a centre box 45 % of its width and
+    height swaps the two (the owner picked the middle of 30/45/60 %). The
+    tile's diagonals cut the rest into four trapezoids: dropping on one
+    moves the tile into that half of the other's space, half each.
+  - **The tile is taken out first.** The space it leaves goes to what
+    shared it, as when it is closed (`remove`), and only then is the
+    target split. Dropped on its own sibling, the two share their space
+    again on the chosen sides, half each. No empty space is ever left.
+  - **The screen's edges.** A 26 px band along each edge of the screen
+    (and just past it) moves the tile into that half of the whole screen,
+    with the rest of the tree, as it was without the tile, in the other
+    half (the owner picked "Split the screen" over no edge zones). The
+    edge wins over the tile beneath it.
+  - **The preview is the outcome, not the zones.** The owner's pick: no
+    trapezoids are drawn. While dragging, an accent fill shows where the
+    tile lands ("Mail lands here", or "… left half of the screen") and a
+    dashed outline where the tile under it goes: "squeezes here" when it
+    gives up half its space, "grows to here" when the space the dragged
+    tile leaves makes it larger, "moves here" for a swap or the same
+    size. Both come from laying out the tree the drop would make, so a
+    drop onto a sibling previews truthfully. The dragged tile's name
+    rides at the pointer. Escape cancels.
+  - **New screens start Tiled.** "New screen" (the tab strip's +, the
+    canvas menu) makes a `mode: "tiled"` screen. Screens that already
+    exist keep their mode, and the first Home screen of a new person is
+    still built from the workspace default (its mode, else the canvas).
+    The iOS app's "New screen" still makes a canvas screen; changing it
+    needs an app release.
+  - **Compatibility.** The tree format is unchanged; a drop only produces
+    shapes `insert` and `swap` already could, so older shells and the iOS
+    app read the result. The harness's `addScreen()` follows the new
+    default; passes written for the canvas ask for it.

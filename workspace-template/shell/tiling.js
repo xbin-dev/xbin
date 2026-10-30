@@ -142,6 +142,56 @@ export function remove(t, path) {
   return walk(t);
 }
 
+// ---- a tile dropped on another, or on an edge of the screen (D205) ----
+// A side as the split it makes and whether the tile is its first part.
+const SIDES = { left: ['row', true], right: ['row', false], top: ['col', true], bottom: ['col', false] };
+export const SWAP_ZONE = 0.45; // the centre box's share of a tile's width and height
+const depth = (t) => (!t || isLeaf(t) ? 0 : 1 + Math.max(depth(t.a), depth(t.b)));
+const halves = (side, me, other) => ({ split: SIDES[side][0], ratio: 0.5, a: SIDES[side][1] ? me : other, b: SIDES[side][1] ? other : me });
+
+// zoneOf(rect, x, y, k) → where a point over a tile drops it: 'swap' in the
+// centre box (k of the tile's width and height), else 'left', 'right',
+// 'top' or 'bottom' — the tile's diagonals cut the rest into four
+// trapezoids, one along each edge.
+export function zoneOf(r, x, y, k = SWAP_ZONE) {
+  const u = (x - r.x) / r.w, v = (y - r.y) / r.h;
+  if (Math.abs(u - 0.5) <= k / 2 && Math.abs(v - 0.5) <= k / 2) return 'swap';
+  if (u < v && u < 1 - v) return 'left';
+  if (u > v && u > 1 - v) return 'right';
+  return v < 0.5 ? 'top' : 'bottom';
+}
+
+// place(tree, path, target, side) → the tile moved into one half of the
+// target's space, on `side`, half each. It is taken out first, so the
+// space it leaves goes to what shared it (remove()), the target's included
+// — a tile dropped on the one beside it takes half of the space the two
+// shared. Nothing changes for a tile onto itself, a tile or target not in
+// the tree, or a split past MAX_DEPTH.
+export function place(t, path, target, side) {
+  if (!SIDES[side] || !path || path === target || pathOf(t, path) == null) return t;
+  const rest = remove(t, path), np = pathOf(rest, target);
+  if (np == null || np.length >= MAX_DEPTH) return t;
+  return replaceAt(rest, np, (leaf) => halves(side, { leaf: path }, leaf));
+}
+
+// placeRoot(tree, path, side) → the tile moved into one half of the whole
+// screen, the other tiles in the other half as they were without it.
+export function placeRoot(t, path, side) {
+  if (!SIDES[side] || !path || pathOf(t, path) == null) return t;
+  const rest = remove(t, path);
+  if (!rest || depth(rest) >= MAX_DEPTH) return t;
+  return halves(side, { leaf: path }, rest);
+}
+
+// drop(tree, path, d) → the tree after the tile is dropped at d =
+// {screen: true, zone: side} — half of the screen — or {target, zone} —
+// 'swap' with the target, or half of the target's space; null d: as it is.
+export function drop(t, path, d) {
+  if (!d) return t;
+  if (d.screen) return placeRoot(t, path, d.zone);
+  return d.zone === 'swap' ? swap(t, path, d.target) : place(t, path, d.target, d.zone);
+}
+
 // setRatio(tree, nodePath, r) → the node's ratio set, clamped to 0.1–0.9.
 export function setRatio(t, np, r) {
   const n = nodeAt(t, np);

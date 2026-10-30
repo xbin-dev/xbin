@@ -107,7 +107,7 @@ export class BxCanvas extends LitElement {
     _dh: { state: true },               // Document mode: a fixed height being dragged {path, h}
     _dw: { state: true },               // Document mode: the page width limit being dragged (px)
     _paneW: { state: true },            // the host's width (px): Fixed width's columns stretch to it
-    _tdrag: { state: true },            // Tiled: a card dragged onto another to swap {path, over} (shell-tiled.js)
+    _tdrag: { state: true },            // Tiled: a card dragged by its title bar {path, drop, x, y} (shell-tiled.js, D205)
     _tdiv: { state: true },             // Tiled: a divider being dragged {node, ratio}
   };
   static styles = [canvasCss, prbCss, partCss, docCss, blocksCss, tiledCss, promptsCss];

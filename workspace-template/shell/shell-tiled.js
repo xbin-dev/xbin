@@ -18,8 +18,14 @@
  *
  *   - a divider between two parts: drag it to share the space anew; two
  *     clicks in a row on it give each half again;
- *   - a card's title bar dragged onto another tile: the two trade places
- *     (an accent edge marks the one it lands on);
+ *   - a card's title bar dragged onto another tile (D205): its centre —
+ *     the two trade places; one of the four trapezoids along its edges —
+ *     the tile takes that half of the other's space (tiling.js place();
+ *     the space it left goes to what shared it). Dragged to a band along
+ *     the screen's edge, it takes that half of the screen. While dragging,
+ *     only the outcome is drawn: where the tile lands, and where the tile
+ *     under it goes (squeezed into the other half, grown when the two
+ *     shared a split, or moved by a swap);
  *   - the tile menu's Rotate split (side by side ⇄ one above the other)
  *     and Swap with sibling (tiledMenu);
  *   - opening a tile splits the focused tile's space — the active window
@@ -36,10 +42,11 @@ import { dragPointer } from '/vendor/bx-kit.js';
 import { activeWindow } from './zorder.js';
 import { screenMode } from './modes.js';
 import { titleOf } from '/vendor/tile-meta.js';
-import { normalise, layout, insert, setRatio, swap, rotate, swapSibling, parentOf, leaves, same } from './tiling.js';
+import { normalise, layout, insert, setRatio, rotate, swapSibling, parentOf, leaves, same, zoneOf, drop } from './tiling.js';
 
 const GUT = 4;       // half the gutter between two tiles
 const SWITCH_H = 40; // a phone's tile switcher
+const EDGE = 26;     // the band along the screen's edge a tile is dropped on to take that half of the screen (D205)
 
 // The order tiles go into a tree that lacks them: the canvas's reading
 // order (y, then x), as Document mode reads its rows.
@@ -90,6 +97,20 @@ function commit(c, fn) {
   c._arrange((a) => ({ ...a, tiling: fn(treeOf(c.tiles, a, pane)) }));
 }
 
+// boxesOf(tree, pane) → Map(path → {x, y, w, h}): each tile's window in
+// the pane, whole pixels. The gutters: the tree is laid out on a rect one
+// half-gutter bigger all round (outer) and each tile inset by it, so the
+// outer edges meet the pane's.
+const outer = (pane) => ({ x: -GUT, y: -GUT, w: pane.w + 2 * GUT, h: pane.h + 2 * GUT });
+function boxesOf(tree, pane) {
+  const out = new Map();
+  for (const [p, r] of layout(tree, outer(pane)).rects) {
+    const x = Math.round(r.x + GUT), y = Math.round(r.y + GUT);
+    out.set(p, { x, y, w: Math.round(r.x + r.w - GUT) - x, h: Math.round(r.y + r.h - GUT) - y });
+  }
+  return out;
+}
+
 // tiledView(c): the tiles. c is the <bx-canvas>; its _cardTemplate(o,
 // 'tiled') draws each card (the same window chrome as on the grid).
 export function tiledView(c) {
@@ -100,33 +121,26 @@ export function tiledView(c) {
   if (!placed.length) return nothing;
   let tree = treeOf(placed, c.arrange, pane);
   if (c._tdiv) tree = setRatio(tree, c._tdiv.node, c._tdiv.ratio);
-  const order = leaves(tree), td = c._tdrag, ed = c.canMutate && !c.mobile;
+  const order = leaves(tree), td = c._tdrag, ed = c.canMutate && !c.mobile, target = td?.drop && !td.drop.screen ? td.drop.target : null;
   // the phone: one tile, the switcher above it
   const front = c._front?.startsWith('tile:') ? c._front.slice(5) : '';
   const shown = c.mobile ? (order.includes(front) ? front : order[0]) : null;
   const top = c.mobile ? SWITCH_H : 0;
-  // the gutters: laid out on a rect one half-gutter bigger all round, each
-  // tile then inset by it — the outer edges meet the pane's
-  const { rects, dividers } = c.mobile ? { rects: new Map(), dividers: [] }
-    : layout(tree, { x: -GUT, y: -GUT, w: pane.w + 2 * GUT, h: pane.h + 2 * GUT });
-  const box = (p) => {
-    if (c.mobile) return p === shown ? { x: 0, y: top, w: pane.w, h: pane.h - top } : null;
-    const r = rects.get(p);
-    if (!r) return null;
-    const x = Math.round(r.x + GUT), y = Math.round(r.y + GUT);
-    return { x, y, w: Math.round(r.x + r.w - GUT) - x, h: Math.round(r.y + r.h - GUT) - y };
-  };
+  const boxes = c.mobile ? new Map() : boxesOf(tree, pane);
+  const dividers = c.mobile ? [] : layout(tree, outer(pane)).dividers;
+  const box = (p) => (c.mobile ? (p === shown ? { x: 0, y: top, w: pane.w, h: pane.h - top } : null) : boxes.get(p) ?? null);
   return html`
     <div class="tiled ${c.canMutate ? '' : 'ro'} ${c.mobile ? 'phone' : ''}" style="height:${pane.h}px"
          @contextmenu=${(e) => c._onContextMenu(e)}>
       ${repeat([...placed].sort(byPath), (o) => o.path, (o) => {
         const b = box(o.path);
-        return html`<div class="ttile ${b ? '' : 'off'} ${td?.path === o.path ? 'dragging' : ''} ${td?.over === o.path ? 'drop' : ''}"
+        return html`<div class="ttile ${b ? '' : 'off'} ${td?.path === o.path ? 'dragging' : ''} ${target === o.path ? 'drop' : ''}"
             data-path=${o.path} style=${b ? `left:${b.x}px; top:${b.y}px; width:${b.w}px; height:${b.h}px` : ''}>
           ${c._cardTemplate(o, 'tiled')}
         </div>`;
       })}
       ${ed ? dividers.map((d) => divider(c, d)) : nothing}
+      ${td && !c.mobile ? landing(c, tree, pane, td) : nothing}
       ${c.mobile ? html`<div class="tswitch" role="tablist" aria-label="tiles on this screen">${order.map((p) => html`
         <button type="button" role="tab" class=${p === shown ? 'on' : ''} aria-selected=${p === shown ? 'true' : 'false'} title=${p}
           @click=${() => c._activate(p)}>${nameOf(c, p)}</button>`)}</div>` : nothing}
@@ -169,33 +183,73 @@ function divStart(c, ev, d) {
   });
 }
 
-// ---- a card dragged by its title bar onto another tile: they swap ----
-function overTile(c, x, y, path) {
-  for (const el of c.renderRoot.querySelectorAll('.ttile[data-path]:not(.off)')) {
-    if (el.dataset.path === path) continue;
-    const r = el.getBoundingClientRect();
-    if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return el.dataset.path;
+// ---- a card dragged by its title bar onto another tile, or an edge ----
+// dropAt(c, x, y, path) → where a drop at the viewport point (x, y) puts
+// the tile: {screen: true, zone} in the band along an edge of the screen
+// (on it or just past it), {target, zone} over another tile (tiling.js
+// zoneOf: 'swap' or a side), else null — over the tile itself, or a
+// screen of one tile.
+function dropAt(c, x, y, path) {
+  const host = c.renderRoot.querySelector('.tiled')?.getBoundingClientRect(), pane = c._tpane;
+  if (!host || !pane) return null;
+  const tree = treeOf(c.tiles, c.arrange, pane);
+  if (leaves(tree).length < 2) return null;
+  const px = x - host.left, py = y - host.top;
+  if (px >= -EDGE && py >= -EDGE && px <= pane.w + EDGE && py <= pane.h + EDGE) {
+    const z = px < EDGE ? 'left' : px > pane.w - EDGE ? 'right' : py < EDGE ? 'top' : py > pane.h - EDGE ? 'bottom' : null;
+    if (z) return { screen: true, zone: z };
+  }
+  for (const [p, r] of boxesOf(tree, pane)) {
+    if (p !== path && px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return { target: p, zone: zoneOf(r, px, py) };
   }
   return null;
 }
+const sameDrop = (a, b) => a === b || (!!a && !!b && a.screen === b.screen && a.target === b.target && a.zone === b.zone);
+
 export function tiledDragStart(c, ev, path) {
   if (c.mobile || !c.canMutate) return; // phones pick a tile; a shared screen in view mode stays as it is
   if (ev.button !== 0 || ev.target.closest('button, select, a')) return;
   ev.preventDefault();
   const sx = ev.clientX, sy = ev.clientY;
-  let live = false;
-  dragPointer({
+  let live = false, cancelled = false;
+  const esc = (k) => { if (k.key === 'Escape') { k.preventDefault(); k.stopPropagation(); cancelled = true; end(); } }; // Escape: nothing moves
+  const end = dragPointer({
     onMove: (e) => {
       if (!live && Math.hypot(e.clientX - sx, e.clientY - sy) < 6) return; // a click, not a drag
-      live = true;
-      c._tdrag = { path, over: overTile(c, e.clientX, e.clientY, path) };
+      if (!live) { live = true; window.addEventListener('keydown', esc, true); }
+      const d = dropAt(c, e.clientX, e.clientY, path);
+      // a new outcome redraws; the pointer's chip just follows
+      if (!c._tdrag || !sameDrop(c._tdrag.drop, d)) c._tdrag = { path, drop: d, x: e.clientX, y: e.clientY };
+      const chip = c.renderRoot.querySelector('.tchip');
+      if (chip) { chip.style.left = `${e.clientX}px`; chip.style.top = `${e.clientY}px`; }
     },
     onUp: () => {
-      const d = c._tdrag;
+      window.removeEventListener('keydown', esc, true);
+      const d = c._tdrag?.drop;
       c._tdrag = null;
-      if (d?.over) commit(c, (t) => swap(t, path, d.over));
+      if (d && !cancelled) commit(c, (t) => drop(t, path, d));
     },
   });
+}
+
+// landing(c, tree, pane, td): what a drop would do, drawn from the tree it
+// would make — where the dragged tile lands, filled; where the tile under
+// it goes, dashed: squeezed into the other half, grown when the two shared
+// a split (the space the dragged tile leaves goes to it first), moved by a
+// swap. A screen-edge drop draws only the landing spot. And a chip with
+// the tile's name at the pointer.
+const area = (r) => r.w * r.h;
+function landing(c, tree, pane, td) {
+  const d = td.drop, me = nameOf(c, td.path);
+  const chip = html`<div class="tchip" style="left:${td.x}px; top:${td.y}px">${me}</div>`;
+  const after = d ? boxesOf(drop(tree, td.path, d), pane) : null, at = after?.get(td.path);
+  if (!at) return chip;
+  const ghost = (cls, b, text) => html`<div class="tghost ${cls}" style="left:${b.x}px; top:${b.y}px; width:${b.w}px; height:${b.h}px"><span>${text}</span></div>`;
+  if (d.screen) return [ghost('land', at, `${me} · ${d.zone} half of the screen`), chip];
+  const was = boxesOf(tree, pane).get(d.target), now = after.get(d.target);
+  const verb = d.zone === 'swap' || !was || !now ? 'moves here'
+    : area(now) > area(was) * 1.02 ? 'grows to here' : area(now) < area(was) * 0.98 ? 'squeezes here' : 'moves here';
+  return [ghost('land', at, `${me} lands here`), now ? ghost('other', now, `${nameOf(c, d.target)} ${verb}`) : nothing, chip];
 }
 
 // ---- the shell's ends (s is <bx-shell>) ----
@@ -239,8 +293,10 @@ export function tiledMenu(s) {
 }
 
 // Base Two (D184): the windows sit flat as on the grid; a divider is the
-// gutter between them, a grip under the pointer; the swap target wears an
-// accent edge.
+// gutter between them, a grip under the pointer. A drag (D205): the tile
+// under the pointer wears an accent edge, the landing spot an accent fill,
+// where that tile goes a dashed edge, the dragged tile's name an accent
+// chip at the pointer.
 export const tiledCss = css`
     .tiled { position: relative; overflow: hidden; }
     .ttile { position: absolute; display: flex; }
@@ -248,6 +304,23 @@ export const tiledCss = css`
     .ttile.dragging { opacity: 0.6; }
     .ttile.drop > .card { outline: 2px solid var(--bx-accent, #8C9BFF); outline-offset: -2px; }
     .tiled.ro .card .head, .tiled.phone .card .head { cursor: default; }
+    .tghost {
+      position: absolute; z-index: 14; pointer-events: none; display: flex; justify-content: center; align-items: flex-start;
+      padding-top: 40px; box-sizing: border-box; overflow: hidden; border-radius: var(--bx-radius, 2px);
+      border: 2px solid var(--bx-accent, #8C9BFF); background: color-mix(in srgb, var(--bx-accent, #8C9BFF) 24%, transparent);
+      font: var(--bx-font-body, 400 14px/20px "Instrument Sans", system-ui, sans-serif); font-weight: 600; color: var(--bx-text, #E9EAF0);
+    }
+    .tghost.other { border-style: dashed; background: color-mix(in srgb, var(--bx-panel, #1F2028) 55%, transparent); }
+    .tghost span {
+      max-width: calc(100% - 16px); padding: 2px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      background: var(--bx-panel, #1F2028); border-radius: var(--bx-radius, 2px);
+    }
+    .tchip {
+      position: fixed; z-index: 15; pointer-events: none; transform: translate(12px, 14px); max-width: 240px;
+      padding: 3px 10px; border-radius: var(--bx-radius, 2px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font: var(--bx-font-body, 400 14px/20px "Instrument Sans", system-ui, sans-serif); font-weight: 600;
+      background: var(--bx-accent, #8C9BFF); color: var(--bx-accent-ink, #0B0C12);
+    }
     .tdiv { position: absolute; z-index: 12; touch-action: none; }
     .tdiv.row { cursor: ew-resize; }
     .tdiv.col { cursor: ns-resize; }

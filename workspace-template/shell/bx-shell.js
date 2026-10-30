@@ -1668,7 +1668,7 @@ export class BxShell extends LitElement {
       fileInto: (folderId, path, ctx) => s._fileInto(folderId, path, ctx),
       // Document mode (D187): the active screen's mode, its rows, the top bar
       get screenMode() { return screenMode(s._screen); },
-      addScreen() { addScreen(s); return s._active; },
+      addScreen(mode) { addScreen(s, mode); return s._active; }, // Tiled unless a mode is given (D205)
       tileMenuItems: (path) => s._tileMenuItems(path),
       setScreenMode: (id, mode) => setScreenMode(s, id ?? s._active, mode),
       docRows: () => docRows(itemsOf(s._tiles, s._screen?.blocks)).map((r) => ({ cols: r.cols, paths: r.tiles.map((t) => t.path) })),

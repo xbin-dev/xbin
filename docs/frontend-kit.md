@@ -380,8 +380,9 @@ shared to an org arrives in its mode for every member:
 - **Document** — rows of one, two or four tiles, each as tall as its
   document (§Document mode, below).
 - **Tiled** — one tile fills the screen; each tile opened splits a tile's
-  space in two, and the person drags the dividers. A window's width and
-  height both change as tiles come and go.
+  space in two, and the person drags the dividers or drops a tile on half
+  of another (or of the screen). A window's width and height both change
+  as tiles come and go. A new screen starts Tiled (D205).
 
 A tile can't tell which mode it is in, and needn't: reflow to whatever
 size the frame is, from about 192 px wide to the whole window, and scroll

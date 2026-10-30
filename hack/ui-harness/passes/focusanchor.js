@@ -77,7 +77,7 @@ async function focusAnchor(browser) {
   if (!WS) { skip('no $WS: the fixture tiles keep their scaffold pages'); await ctx.close(); done(); return; }
   await openShell(page);
   await usePersonalScreen(page);
-  const id = await sh(page, (t) => t.addScreen());
+  const id = await sh(page, (t) => t.addScreen('canvas'));
   await settle(page);
   for (const p of TILES) await sh(page, (t, p) => t.openTile(p), p);
   await waitFor(page, (t, n) => t.openTiles.length === n, TILES.length, { label: 'tiles open' });

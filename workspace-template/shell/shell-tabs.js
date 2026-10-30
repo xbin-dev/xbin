@@ -40,8 +40,11 @@ const orgPut = async (s, os, patch, what) => {
   s._loadShared();
 };
 
-export function addScreen(s) {
-  const n = { id: uid(), name: `Screen ${s._screens.length + 1}`, tiles: [] };
+// addScreen(s, mode): a new screen, Tiled unless asked otherwise (D205; the
+// harness asks for a canvas where a pass needs one). Screens already made
+// keep whatever mode they have.
+export function addScreen(s, mode = 'tiled') {
+  const n = { id: uid(), name: `Screen ${s._screens.length + 1}`, tiles: [], ...(MODES.includes(mode) && mode !== 'canvas' ? { mode } : {}) };
   s._screens = [...s._screens, n];
   s._active = n.id;
   s._save();

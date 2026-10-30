@@ -30,7 +30,7 @@ async function richCopy(browser) {
   await ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: URL });
   await openShell(page);
   await usePersonalScreen(page);
-  await sh(page, (t) => t.addScreen()); // a screen of its own: tiles land at the top left, whatever an earlier run left
+  await sh(page, (t) => t.addScreen('canvas')); // a screen of its own: tiles land at the top left, whatever an earlier run left
   await settle(page);
 
   // (a) a right-click Copy carries the selection's HTML, sanitized

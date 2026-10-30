@@ -78,7 +78,7 @@ async function docMode(browser) {
 
   // the tabs fold into the top bar on a wide screen
   check(!!(await rectIn(page, '.top .tabs')), 'the screen tabs sit in the top bar');
-  const id = await sh(page, (t) => t.addScreen());
+  const id = await sh(page, (t) => t.addScreen('canvas'));
   await settle(page);
   for (const p of TILES) await sh(page, (t, p) => t.openTile(p), p);
   await waitFor(page, (t, n) => t.openTiles.length === n, TILES.length, { label: 'tiles open' });

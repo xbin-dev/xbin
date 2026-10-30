@@ -63,7 +63,7 @@ async function fixedGrid(browser) {
   const original = await (await ctx.request.get(prefs)).json();
   await openShell(page);
   await usePersonalScreen(page);
-  const id = await sh(page, (t) => t.addScreen());
+  const id = await sh(page, (t) => t.addScreen('canvas'));
   await settle(page);
   for (const p of TILES) await sh(page, (t, p) => t.openTile(p), p);
   await waitFor(page, (t, n) => t.openTiles.length === n, TILES.length, { label: 'tiles open' });

@@ -80,7 +80,7 @@ async function tilePrompts(browser) {
     await until(async () => (await (await api('GET', '/components')).json()).filter((c) => [X, Y].includes(c.path)).length === 2, 'the tiles registered');
     await openShell(A.page);
     await usePersonalScreen(A.page);
-    const id = await sh(A.page, (t) => t.addScreen());
+    const id = await sh(A.page, (t) => t.addScreen('canvas'));
     await settle(A.page);
     for (const t of [X, Y]) await sh(A.page, (t, p) => t.openTile(p), t);
 

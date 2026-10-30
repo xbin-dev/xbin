@@ -422,7 +422,7 @@ grid (the user drags to size it, down to ~192px; content scrolls inside — it
 can't stretch the card) and can also be opened full page. On a **Fixed
 width** screen the card's width follows the browser window, and on a
 **Tiled** one it is a share of the screen that changes as tiles come and go
-(D193). On a screen in **Document mode** (D187) the card is as wide as its
+(D193; a new screen starts Tiled, D205). On a screen in **Document mode** (D187) the card is as wide as its
 row allows and **as tall as your document**: the frame takes the height your
 page reports, so let it grow naturally — [frontend-kit.md](/docs/frontend-kit.md)
 §Screen modes, §Document mode.
