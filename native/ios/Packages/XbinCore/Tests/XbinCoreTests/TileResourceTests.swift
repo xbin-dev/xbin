@@ -219,6 +219,11 @@ import Testing
         #expect(TileResource.shareName("raw?path=") == "file")
         #expect(TileResource.shareName("") == "file")
         #expect(TileResource.shareName("dl/a%2F..%2F..%2Fetc") == "etc", "never a path")
+        // the response's Content-Disposition first (a zip is named only there)
+        #expect(TileResource.dispositionName(#"attachment; filename="run-9-files.zip""#) == "run-9-files.zip")
+        #expect(TileResource.dispositionName("attachment; filename=\"a.pdf\"; filename*=UTF-8''q3%20r%C3%A9sum%C3%A9.pdf") == "q3 résumé.pdf")
+        #expect(TileResource.dispositionName(#"attachment; filename="../../etc/passwd""#) == "passwd", "never a path")
+        #expect(TileResource.dispositionName("attachment") == nil && TileResource.dispositionName(nil) == nil)
     }
 
     /// Rev 2 (D208): a tapped link never navigates; the tile gets its href,
@@ -238,6 +243,10 @@ import Testing
         #expect(N.decide(url: b + "out/report.pdf", admitting: false, mainFrame: false, linkActivated: true, listens: false) == .cancel)
         // a meta refresh or a form is never a link
         #expect(N.decide(url: "https://evil.example/x", admitting: false, mainFrame: true, linkActivated: false, listens: true) == .cancel)
+        // a zoom is a CSS zoom in the island's head (it reflows), as the reference's canvasDocument
+        #expect(CanvasDocument.wrap("<p>x</p>", zoom: 1.25).contains("<style>html{zoom:1.25}</style></head>"))
+        #expect(CanvasDocument.wrap("<p>x</p>", zoom: 2).contains("<style>html{zoom:2}</style></head>"))
+        #expect(!CanvasDocument.wrap("<p>x</p>").contains("zoom") && !CanvasDocument.wrap("<p>x</p>", zoom: .nan).contains("zoom"))
         // zoom: 0.5 to 3, 1 when absent
         #expect(CanvasDocument.zoom(nil) == 1 && CanvasDocument.zoom(.nan) == 1 && CanvasDocument.zoom(0) == 1)
         #expect(CanvasDocument.zoom(0.1) == 0.5 && CanvasDocument.zoom(1.25) == 1.25 && CanvasDocument.zoom(9) == 3)

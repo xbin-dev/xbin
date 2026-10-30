@@ -12711,8 +12711,11 @@ Deviations and refinements made while implementing; all deliberate:
   - **`canvas` rev 2.** `fill` (the island takes the rest of its screen; a
     `scroll` screen holding one lays its other children above it at their
     own height and doesn't scroll — the page scrolls and pinch-zooms
-    itself), `zoom` (0.5–3, `WKWebView.pageZoom`: a reflowing browser zoom
-    in place, so the reader keeps their place; pinch magnifies on top) and
+    itself), `zoom` (0.5–3: a CSS zoom on the island's page, which reflows
+    it — `WKWebView.pageZoom` was tried first and, on an iPhone, scaled the
+    page without reflowing it, a 125 % table running off the screen's edge;
+    the zoom reloads the island, and the app puts the reader back at the
+    same fraction of the page; pinch magnifies on top) and
     `link {href}` on an `html` island. JavaScript stays off and the CSP is
     unchanged; a tapped link still never navigates — the navigation
     delegate refuses it and, when the tile listens, reports it. A height

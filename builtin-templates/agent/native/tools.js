@@ -431,7 +431,8 @@ function portsTpl(s) {
 //
 // An app with canvas rev 2 shows the report as a reader: the island fills the
 // screen (on a phone, the whole of it under the bar), its own page scrolls
-// and pinch-zooms, − / + in a bottom toolbar set the page zoom in place, and a
+// and pinch-zooms, − / + in a bottom toolbar set the page zoom (the app keeps
+// the reader's place), and a
 // tapped link to one of the run's files (renderLinks) opens the share sheet
 // for it — the PDF or the workbook to act on. Before rev 2: the island at its
 // largest height, − / + re-render the page scaled by CSS, and the linked
@@ -479,7 +480,7 @@ function renderLinks(s) {
 const shareLinked = (s, l) => act(s, () => native.share({ file: dl(s.run, l.path) }))();
 
 function renderTpl(s, opts = {}) {
-  const reader = can('canvas', 2);     // fill, zoom in place, @link
+  const reader = can('canvas', 2);     // fill, zoom, @link
   const bottom = can('toolbar', 2);    // − / + in a bottom toolbar
   const links = renderLinks(s);
   const zoom = s.zoom || 1;

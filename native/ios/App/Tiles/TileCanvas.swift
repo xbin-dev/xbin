@@ -60,11 +60,13 @@ struct CanvasIsland: View {
 }
 
 /// A `canvas html=` island: static, no scripts, no network. Rev 2 (D208):
-/// `zoom` is the page zoom (it reflows, as Safari's does; pinch zoom
-/// magnifies on top of it), and a tapped link — which never navigates —
-/// reaches the tile as `link {href}` when it listens (`onLink`). The page
-/// sits at an address nothing serves (``CanvasDocument/base``), so a
-/// relative href resolves at all and comes back relative.
+/// `zoom` is a CSS zoom on the page (``CanvasDocument/wrap(_:zoom:)``: it
+/// reflows; `pageZoom` didn't on an iPhone), the reader kept at the same
+/// place in the page across the reload it takes; pinch zoom magnifies on
+/// top. A tapped link — which never navigates — reaches the tile as `link
+/// {href}` when it listens (`onLink`). The page sits at an address nothing
+/// serves (``CanvasDocument/base``), so a relative href resolves at all and
+/// comes back relative.
 struct StaticCanvas: UIViewRepresentable {
     let html: String
     var zoom: Double = 1
@@ -88,15 +90,22 @@ struct StaticCanvas: UIViewRepresentable {
         wv.allowsLinkPreview = false
         wv.allowsBackForwardNavigationGestures = false
         context.coordinator.onLink = onLink
-        wv.pageZoom = CGFloat(zoom)
-        context.coordinator.load(html, in: wv)
+        context.coordinator.load(html, zoom: zoom, in: wv)
         return wv
     }
 
     func updateUIView(_ wv: WKWebView, context: Context) {
-        context.coordinator.onLink = onLink
-        if wv.pageZoom != CGFloat(zoom) { wv.pageZoom = CGFloat(zoom) }
-        if context.coordinator.shown != html { context.coordinator.load(html, in: wv) }
+        let c = context.coordinator
+        c.onLink = onLink
+        if c.shown != html {
+            c.load(html, zoom: zoom, in: wv)
+        } else if c.zoom != zoom {
+            // the same page at another zoom: back where the reader was
+            let sv = wv.scrollView
+            let height = sv.contentSize.height
+            c.restore = height > 0 ? Double((sv.contentOffset.y + sv.adjustedContentInset.top) / height) : nil
+            c.load(html, zoom: zoom, in: wv)
+        }
     }
 
     static func dismantleUIView(_ wv: WKWebView, coordinator: Coordinator) {
@@ -110,13 +119,27 @@ struct StaticCanvas: UIViewRepresentable {
     @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
         private(set) var shown: String?
+        private(set) var zoom: Double = 1
         private var admitting = 0
         var onLink: (@MainActor @Sendable (String) -> Void)?
+        /// Where the reader was (a fraction of the page's height) before a
+        /// zoom reloaded it.
+        var restore: Double?
 
-        func load(_ html: String, in wv: WKWebView) {
+        func load(_ html: String, zoom: Double, in wv: WKWebView) {
             shown = html
+            self.zoom = zoom
             admitting += 1
-            wv.loadHTMLString(CanvasDocument.wrap(html), baseURL: CanvasDocument.baseURL)
+            wv.loadHTMLString(CanvasDocument.wrap(html, zoom: zoom), baseURL: CanvasDocument.baseURL)
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard let f = restore else { return }
+            restore = nil
+            let sv = webView.scrollView
+            let top = -sv.adjustedContentInset.top
+            let maxY = max(top, sv.contentSize.height - sv.bounds.height + sv.adjustedContentInset.bottom)
+            sv.setContentOffset(CGPoint(x: sv.contentOffset.x, y: min(maxY, max(top, CGFloat(f) * sv.contentSize.height + top))), animated: false)
         }
 
         func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {

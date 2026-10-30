@@ -248,9 +248,10 @@ final class XbinAgentNativeTests: XCTestCase {
         // a render under a minute old opens by itself; else its card opens it
         if !page.waitForExistence(timeout: 20) {
             e.expect(answer, 30, "the conversation")
-            let card = e.containing("rendered report.html")
-            e.expect(card, 20, "the render's card")
-            card.tap()
+            e.expect(e.containing("rendered report.html"), 20, "the render's card")
+            let open = e.app.buttons["Open"].firstMatch
+            e.expect(open, 10, "the card's Open")
+            open.tap()
         }
         e.expect(page, 30, "the report")
         XCTAssertTrue(page.staticTexts["Q3 revenue"].waitForExistence(timeout: 20), "the report drawn")

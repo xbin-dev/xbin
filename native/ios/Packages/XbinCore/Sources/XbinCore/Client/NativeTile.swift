@@ -124,7 +124,9 @@ public enum NativeCallAction: Sendable, Equatable {
     /// Put text on the clipboard; resolve `true`.
     case copy(String)
     /// The share sheet; resolve `true` shared / `false` dismissed. `file` is
-    /// a tile-relative path the app downloads with the frame token.
+    /// a path of the tile's — relative, or its own `/c/<self>/…` or
+    /// `/api/<self>/…` — the app downloads with the frame token
+    /// (``TileResource/assetPath(_:tile:known:)`` decides whose it is).
     case share(text: String?, url: URL?, file: String?)
     /// Open an https URL in Safari; resolve `true`.
     case open(URL)
@@ -156,12 +158,19 @@ public enum NativeCallAction: Sendable, Equatable {
         return u
     }
 
-    /// A tile-relative file path: no scheme, no `..`, not absolute.
+    /// A file of the tile's to share: a path, relative to the tile or
+    /// absolute — no scheme, no host (`//`), no `..` in the path. Whether
+    /// an absolute one is the tile's own (`/c/<self>/…`, `/api/<self>/…`)
+    /// is ``TileResource/assetPath(_:tile:known:)``'s to say when the app
+    /// fetches it, as for an image `src`. Absolute paths were refused here
+    /// before (D208) — and every Share / export of the agent template
+    /// passes its API's (`/api/<self>/runs/…`), so the app refused them all
+    /// ("share: nothing to share").
     static func tileRelativeFile(_ s: String) -> String? {
         let t = s.trimmingCharacters(in: .whitespaces)
-        guard !t.isEmpty, !t.hasPrefix("/"), !t.contains("://"), !t.hasPrefix("data:") else { return nil }
-        let parts = t.split(separator: "/")
-        guard !parts.contains("..") else { return nil }
+        guard !t.isEmpty, !t.hasPrefix("//"), !t.contains("://"), !t.hasPrefix("data:") else { return nil }
+        let path = t.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false).first ?? ""
+        guard !path.split(separator: "/").contains(where: { $0 == ".." || $0.lowercased() == "%2e%2e" }) else { return nil }
         return t
     }
 }

@@ -232,6 +232,8 @@ public typealias UIActionHandler = @MainActor (UIAction) -> Void
     public var isScrollEnabled = true
     public var contentOffset: CGPoint = .zero
     public var contentSize: CGSize = .zero
+    public var adjustedContentInset: UIEdgeInsets { UIEdgeInsets() }
+    public func setContentOffset(_ contentOffset: CGPoint, animated: Bool) {}
 }
 @MainActor open class UITextView: UIScrollView, UITextInput {
     public init(frame: CGRect, textContainer: NSTextContainer?) { super.init(frame: frame) }

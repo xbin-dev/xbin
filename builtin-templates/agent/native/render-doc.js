@@ -20,7 +20,7 @@
 // the tap to the view (`@link`), which shares the file — and every other
 // off-page href is removed, as the web's frameDoc does. zoom (#49): for an
 // app without canvas rev 2's `zoom`, the page is scaled by CSS instead
-// (it reloads; rev 2 zooms in place).
+// (the island reloads at the top; rev 2's app keeps the reader's place).
 
 export const FRAME_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; " +
                          "font-src data:; form-action 'none'; base-uri 'none'";
@@ -38,7 +38,7 @@ const EXTERNAL = (u) => u && !/^(data:|#)/i.test(u);
 // links: the hrefs that stay ([{href}]); zoom: a CSS zoom (1: none).
 export function renderDoc(src, { links = [], zoom = 1 } = {}) {
   const P = globalThis.DOMParser;
-  const keep = new Set((links || []).map((l) => l && l.href).filter((h) => typeof h === 'string' && h));
+  const keep = new Set((links || []).map((l) => l && typeof l.href === 'string' && l.href.trim()).filter(Boolean));
   const z = Number(zoom) > 0 && Number(zoom) !== 1 ? Math.min(3, Math.max(0.5, Number(zoom))) : 1;
   return typeof P === 'function' ? parsed(new P(), src, keep, z) : textual(src, z, keep);
 }
@@ -52,10 +52,15 @@ function parsed(parser, src, keep = new Set(), z = 1) {
     if (/^\s*refresh\s*$/i.test(m.getAttribute('http-equiv') || '')) { m.remove(); blocked++; }
   });
   doc.querySelectorAll('[target]').forEach((e) => e.removeAttribute('target'));
-  doc.querySelectorAll('a[href]').forEach((a) => {
+  // <a> and an image map's <area>: in-page and the step's links keep their
+  // href (as written: the app resolves it); a click's beacon (ping) goes,
+  // and so does an SVG link — as the web's frameDoc (D207)
+  doc.querySelectorAll('a[href], area[href]').forEach((a) => {
     const h = a.getAttribute('href') || '';
-    if (!h.startsWith('#') && !keep.has(h)) a.removeAttribute('href');
+    a.removeAttribute('ping');
+    if (!h.startsWith('#') && !keep.has(h.trim())) a.removeAttribute('href');
   });
+  doc.querySelectorAll('a').forEach((a) => a.removeAttributeNS('http://www.w3.org/1999/xlink', 'href'));
   doc.querySelectorAll('img[src], source[src], link[href], use[href], iframe[src], object[data]').forEach((el) => {
     if (EXTERNAL(el.getAttribute('src') || el.getAttribute('href') || el.getAttribute('data') || '')) blocked++;
   });
@@ -82,10 +87,13 @@ function textual(src, z = 1, keep = new Set()) {
   // a meta refresh navigates the island: make its http-equiv say nothing
   s = s.replace(/(<meta\b[^>]*?http-equiv\s*=\s*["']?)\s*refresh\b/gi, (all, head) => { blocked++; return head + 'x-refresh-removed'; });
   for (const m of s.matchAll(/<(?:img|source|link|use|iframe|object)\b[^>]*?\s(?:src|href|data)\s*=\s*["']?([^"'\s>]+)/gi)) if (EXTERNAL(m[1])) blocked++;
-  // a link keeps its href only when it is in-page or one of the run's files
-  s = s.replace(/(<a\b[^>]*?\s)href(\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))/gi, (all, head, rest, dq, sq, bare) => {
+  // a link (an image map's area too) keeps its href only when it is in-page
+  // or one of the run's files; pings and SVG links go
+  const ATTR = String.raw`\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'>]+)`;
+  s = s.replace(new RegExp(String.raw`(<(?:a|area)\b[^>]*?)\s(?:ping|xlink:href)` + ATTR, 'gi'), '$1');
+  s = s.replace(/(<(?:a|area)\b[^>]*?\s)href(\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))/gi, (all, head, rest, dq, sq, bare) => {
     const h = dq ?? sq ?? bare ?? '';
-    return h.startsWith('#') || keep.has(h) ? all : head;
+    return h.startsWith('#') || keep.has(h.trim()) ? all : head;
   });
   const head = `<meta http-equiv="Content-Security-Policy" content="${FRAME_CSP}"><meta charset="utf-8">` +
     `<meta name="viewport" content="width=device-width,initial-scale=1"><base target="_blank"><style>${FRAME_CSS}${zoomCss(z)}</style>`;

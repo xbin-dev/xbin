@@ -301,7 +301,7 @@ API — each member is app UI acting on data your tile hands it.
 | `xbin.native.supports(name[, rev])` | `true` when the app has primitive `name` at revision `rev` (default 1) or newer, or has the feature flag `name` |
 | `xbin.native.meta({title, icon, badge})` | the title, icon and badge the app shows for the tile in its navigator and switcher; only the given fields change, `null` clears one. `icon` is an icon name (§Icons; an unknown one shows nothing there), `badge` a count or a short word (the first 8 characters show). The app remembers the last one it saw, so the badge shows before the tile is opened again |
 | `xbin.native.copy(text)` | the app copies `text` to the clipboard → a promise of `true` when copied |
-| `xbin.native.share({text, url, file})` | the share sheet; `file` is a tile-relative path the app downloads with your frame token → a promise of `true` when shared, `false` when dismissed |
+| `xbin.native.share({text, url, file})` | the share sheet; `file` is a path of your tile — relative, or your own `/c/<self>/…` or `/api/<self>/…`, as for an image — that the app downloads with your frame token and shares under the name its `Content-Disposition` gives, else its last path segment (an app before D208 took only a relative path, and named the file after the reference) → a promise of `true` when shared, `false` when dismissed |
 | `xbin.native.open(url)` | opens an `https:` URL outside the app — anything else rejects at once, and the app refuses unless the tile holds `cap:open-links` (ND11) |
 | `xbin.native.state` | the JSON blob you last saved (`null` at first) |
 | `xbin.native.saveState(obj)` | keep a small JSON blob (at most 64 KiB — larger throws) that the app hands back as `state` when it recreates the runtime: the open screen, the selected tab. Never secrets |
@@ -705,8 +705,8 @@ shows your web page when the tree uses them.
   the page scrolls and pinch-zooms itself. Give the screen a bottom
   `toolbar` for page controls.
 - **`zoom`.** The page's zoom, 1 = 100 %, from 0.5 to 3: its text and layout
-  scale and reflow as a browser's zoom does, in place (the page is not
-  reloaded, so the reader keeps their place). Pinch zoom magnifies on top
+  scale and reflow as a browser's zoom does, and the reader stays at their
+  place in the page. Pinch zoom magnifies on top
   of it. Wire − and + buttons to it; for an app before rev 2, scaling the
   markup (`html{zoom:1.25}` in its style) does the same with a reload.
 - **`@link {href}`** on an `html` island. A tapped link still never

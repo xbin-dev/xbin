@@ -34,7 +34,6 @@ public enum WKNavigationActionPolicy: Sendable { case cancel, allow, download }
     public var scrollView: UIScrollView { UIScrollView() }
     public var allowsLinkPreview = true
     public var allowsBackForwardNavigationGestures = false
-    public var pageZoom: CGFloat = 1
     public var url: URL? { nil }
     @discardableResult public func loadHTMLString(_ s: String, baseURL: URL?) -> Int { 0 }
     public func stopLoading() {}

@@ -37,6 +37,9 @@ test('the same address for an island, and the same zoom range (rev 2, D208)', ()
   assert.equal(web, app);
   assert.match(wrap, /min\(3, max\(0\.5, value\)\)/);
   assert.match(lit, /Math\.min\(3, Math\.max\(0\.5, z\)\)/);
+  // the zoom is the same CSS zoom in the head, after the base style
+  assert.match(wrap, /<style>html\{zoom:\\\(cssNumber\(z\)\)\}<\/style>/);
+  assert.match(lit, /<style>html\{zoom:\$\{canvasZoom\(zoom\)\}\}<\/style>/);
 });
 
 test('a link comes back relative to the island, as the app reports it (CanvasDocument.href)', () => {

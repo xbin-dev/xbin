@@ -55,9 +55,6 @@ public enum TileResource {
         return ["PUT", "POST", "PATCH"].contains(u) ? u : nil
     }
 
-    /// A picked file's name as the tile sees it (`{name}`, `uploaded
-    /// {name}`): the last path element, control characters replaced, at
-    /// most 200 bytes (the extension kept); `fallback` when nothing is left.
     /// The name a file shared from a tile (`xbin.native.share({file})`)
     /// gets in the share sheet: the last path segment of `ref`, decoded,
     /// without the query — or, for a `?path=` reference (the agent's
@@ -77,6 +74,38 @@ public enum TileResource {
         return fileName(name.removingPercentEncoding ?? name, fallback: "file")
     }
 
+    /// The file name a response's `Content-Disposition` gives (`filename*=`
+    /// UTF-8 first, else `filename=`), made safe by ``fileName(_:fallback:)``;
+    /// nil when it names none. A shared file takes it before
+    /// ``shareName(_:)``: a zip's route (`runs/{id}/zip?path=…&name=`) names
+    /// the archive only there (D208).
+    public static func dispositionName(_ header: String?) -> String? {
+        guard let header, !header.isEmpty else { return nil }
+        var plain: String?
+        var extended: String?
+        for part in header.split(separator: ";").map({ $0.trimmingCharacters(in: .whitespaces) }) {
+            let kv = part.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard kv.count == 2 else { continue }
+            let key = kv[0].trimmingCharacters(in: .whitespaces).lowercased()
+            var value = kv[1].trimmingCharacters(in: .whitespaces)
+            if key == "filename*" {
+                // RFC 5987: charset'lang'percent-encoded
+                let pieces = value.split(separator: "'", maxSplits: 2, omittingEmptySubsequences: false)
+                if pieces.count == 3, pieces[0].lowercased() == "utf-8" { extended = String(pieces[2]).removingPercentEncoding }
+            } else if key == "filename" {
+                if value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") {
+                    value = String(value.dropFirst().dropLast()).replacingOccurrences(of: "\\\"", with: "\"")
+                }
+                plain = value
+            }
+        }
+        guard let name = extended ?? plain, !name.isEmpty else { return nil }
+        return fileName(name, fallback: "file")
+    }
+
+    /// A picked file's name as the tile sees it (`{name}`, `uploaded
+    /// {name}`): the last path element, control characters replaced, at
+    /// most 200 bytes (the extension kept); `fallback` when nothing is left.
     public static func fileName(_ raw: String, fallback: String) -> String {
         var s = raw
         if let i = s.lastIndex(where: { $0 == "/" || $0 == "\\" }) { s = String(s[s.index(after: i)...]) }
@@ -457,15 +486,26 @@ public enum CanvasDocument {
         }
     }
 
-    public static func wrap(_ html: String) -> String {
-        """
+    /// The island's document around `html`; `zoom` (rev 2, ``zoom(_:)``) a
+    /// CSS zoom on the page, which reflows it — WKWebView's `pageZoom`
+    /// scales an iPhone's page without reflowing it (a 125 % table ran off
+    /// the screen's edge, D208).
+    public static func wrap(_ html: String, zoom: Double = 1) -> String {
+        let z = Self.zoom(zoom)
+        let zoomStyle = z == 1 ? "" : "<style>html{zoom:\(cssNumber(z))}</style>"
+        return """
         <!doctype html><html><head><meta charset="utf-8">\
         <meta http-equiv="Content-Security-Policy" content="\(csp)">\
         <meta name="viewport" content="width=device-width,initial-scale=1">\
         <meta name="color-scheme" content="light dark">\
         <meta name="referrer" content="no-referrer">\
         <style>html,body{margin:0;padding:0;background:transparent;font:-apple-system-body;-webkit-text-size-adjust:100%}</style>\
-        </head><body>\(html)</body></html>
+        \(zoomStyle)</head><body>\(html)</body></html>
         """
+    }
+
+    /// A number as CSS writes it: `1.25`, `2` (no trailing `.0`).
+    static func cssNumber(_ v: Double) -> String {
+        v == v.rounded() ? String(Int(v)) : String(format: "%g", v)
     }
 }

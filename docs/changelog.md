@@ -16,16 +16,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   rev 3** (D208; [native.md](/docs/native.md) §A document to read). A
   `canvas` takes `fill` (the island takes the rest of the screen; its page
   scrolls and pinch-zooms itself, the screen no longer scrolls around it),
-  `zoom` (the page zoom, 0.5–3, in place) and `@link {href}` on an `html`
+  `zoom` (the page zoom, 0.5–3, reflowing; the reader keeps their place) and `@link {href}` on an `html`
   island (a tapped link still never navigates; your code gets its href,
   relative to the page). A `split` takes `halves`: on a regular width the
   two columns share it equally — a document beside its conversation (an
   open iPhone Duo puts one each side of the hinge); compact, it collapses
   as before. Apps that predate them show your web page when the tree uses
   them: branch on `xbin.native.supports('canvas', 2)` / `('split', 3)`.
-  `bx preview --native` draws them. A file shared with
-  `xbin.native.share({file})` now reaches the share sheet under its own
-  name (the last path segment, or a `?path=`'s), not the reference's.
+  `bx preview --native` draws them.
+- **Fix (app): `xbin.native.share({file})` with your own absolute path**
+  (D208; [native.md](/docs/native.md) §`xbin.native`). The app refused
+  every `file` starting with `/` — `/api/<self>/…`, `/c/<self>/…` — as
+  "share: nothing to share", so a backend's file never reached the share
+  sheet (the agent template's Share / export did nothing). It now takes
+  your own paths as an image `src` does, and names the file by the
+  response's `Content-Disposition` filename, else the last path segment (or
+  a `?path=`'s) — no longer `raw?path=…`. Apps before this release still
+  refuse absolute paths.
 - **Agent template in the app: the report preview is a reader** (D208,
   issues #41, #49, #46). On a phone the preview fills the screen and zooms
   (pinch, or − / + in its bottom bar); on an iPad or an open Duo it opens
