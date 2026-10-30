@@ -794,3 +794,33 @@ public protocol TunnelConnection: Sendable {
     func openStream() async throws -> any ByteStream
     func close() async
 }
+
+// MARK: - Probing a tunnel (D211)
+
+/// The quick request that proves a tunnel works end to end before it is
+/// called up (D211): through a fresh `tunnel/1` stream, after its IK
+/// handshake, `GET /api/xbin/login/methods` — which a paired device may ask
+/// over its tunnel without credentials (§7) — answered by xbind itself.
+/// Any status xbind gives counts; no answer within the deadline means the
+/// connection is dead (say, an iroh socket broken by a suspend, iroh #4289).
+public enum TunnelProbe {
+    public static let path = "/api/xbin/login/methods"
+    /// How long the probe may take, the stream and the handshake included.
+    public static let deadline: Double = 8
+
+    /// The request's bytes, `Host` the loopback forwarder's (§7).
+    public static func request(host: String) -> Data {
+        Data("GET \(path) HTTP/1.1\r\nHost: \(host)\r\nAccept: application/json\r\nConnection: close\r\n\r\n".utf8)
+    }
+
+    /// The status of a response whose head starts `head` (`HTTP/1.x NNN`),
+    /// or nil while the status line isn't complete or isn't HTTP.
+    public static func status(_ head: Data) -> Int? {
+        guard let end = head.firstRange(of: Data("\r\n".utf8)) else { return nil }
+        let line = String(decoding: head[head.startIndex..<end.lowerBound], as: UTF8.self)
+        let parts = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+        guard parts.count >= 2, parts[0].hasPrefix("HTTP/1."), parts[1].count == 3, let n = Int(parts[1]),
+              (100...599).contains(n) else { return nil }
+        return n
+    }
+}

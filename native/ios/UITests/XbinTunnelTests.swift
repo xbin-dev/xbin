@@ -184,6 +184,124 @@ final class XbinTunnelTests: XCTestCase {
         _ = try await e.server.browserSend("PUT", "/api/xbin/app-tunnel", json: ["tunnelOnly": false])
     }
 
+    /// Pairs a fresh app and confirms on "the computer": Home of the
+    /// tunnelled workspace.
+    @MainActor
+    private func pairAndConfirm(_ e: E2E) async throws {
+        e.launchFresh()
+        let (id, _) = try await pairUntilCode(e)
+        _ = try await e.server.pairingStatus(id, until: "confirm")
+        _ = try await e.server.send("POST", "/api/xbin/devices/pairing/\(id)/confirm", json: ["match": true])
+        e.dismissSystemAlerts()
+        XCTAssertTrue(e.app.buttons["Workspaces"].waitForExistence(timeout: 60), "the paired workspace opens")
+    }
+
+    /// Home for `seconds`, long enough that iOS suspends the app (the
+    /// owner's lock screen, #42), then back to the front — no navigation.
+    @MainActor
+    private func background(_ e: E2E, seconds: UInt64) async throws {
+        XCUIDevice.shared.press(.home)
+        try await Task.sleep(nanoseconds: seconds * 1_000_000_000)
+        e.app.activate()
+    }
+
+    /// #42 (D211): the screen that was open when the app went to the
+    /// background — suspended for a minute, as behind a locked screen —
+    /// works again in place, without navigating: the native counter's +1
+    /// reaches the server and its row shows the answer, and an agent
+    /// session's composer gets the fake agent's answer (the prompt over
+    /// REST, the answer over the session's stream and /ws/events).
+    @MainActor
+    func test04ResumeInPlace() async throws {
+        let e = try E2E(self)
+        // What iOS does on a device to a suspended app's sockets (TN2277),
+        // which the simulator doesn't: whatever listened through the
+        // background comes back dead (Debug's -XbinTunnelEmulateSuspend).
+        e.app.launchArguments += ["-XbinTunnelEmulateSuspend", "YES"]
+        try await pairAndConfirm(e)
+        let wait = UInt64(ProcessInfo.processInfo.environment["XBIN_E2E_SUSPEND"].flatMap(UInt64.init) ?? 70)
+
+        // The native counter, through the tunnel.
+        e.openTile("apps/counter")
+        let plus = e.app.buttons["+1"]
+        XCTAssertTrue(plus.waitForExistence(timeout: 30))
+        let before = try await e.server.counter()
+        plus.tap()
+        await e.eventually("the counter moved", timeout: 20) { (try? await e.server.counter()) == before + 1 }
+
+        try await background(e, seconds: wait)
+        e.shot("tunnel-resume-01-counter-back")
+        XCTAssertTrue(plus.waitForExistence(timeout: 10), "the counter's screen is still the one in front")
+        let start = Date()
+        let base = try await e.server.counter()
+        // A person taps again when a tap did nothing: within 15 s one +1
+        // gets through, and the row shows what the server counted.
+        var moved = false
+        while !moved, Date().timeIntervalSince(start) < 15 {
+            if plus.isHittable { plus.tap() }
+            let end = Date().addingTimeInterval(3)
+            while !moved, Date() < end {
+                moved = ((try? await e.server.counter()) ?? base) > base
+                if !moved { try await Task.sleep(nanoseconds: 300_000_000) }
+            }
+        }
+        e.shot("tunnel-resume-02-counter-tapped")
+        XCTAssertTrue(moved, "a +1 after the background reached the server within 15 s")
+        if moved {
+            let now = try await e.server.counter()
+            XCTAssertTrue(e.containing("\(now)").waitForExistence(timeout: 10), "the counter's row shows \(now)")
+        }
+        e.goHome()
+
+        // An agent session (the fake agent) on apps/welcome.
+        e.newSession("apps/welcome", "Agent")
+        let fake = e.app.buttons["Fake agent (tests)"]
+        if fake.waitForExistence(timeout: 20) { fake.tap() }
+        let composer = e.element("Message the agent", in: e.app.textViews)
+        let field = e.element("Message the agent", in: e.app.textFields)
+        guard let which = e.first(of: [composer, field], timeout: 30) else {
+            e.shot("tunnel-resume-03-no-composer")
+            XCTFail("the agent's composer")
+            return
+        }
+        let input = which == 0 ? composer : field
+        func ask(_ text: String, within seconds: TimeInterval) -> Bool {
+            input.tap()
+            input.typeText(text)
+            e.tapAfterTyping(e.app.buttons["Send"])
+            return e.containing("echo: \(text)").waitForExistence(timeout: seconds)
+        }
+        XCTAssertTrue(ask("before the lock", within: 60), "the fake agent answers before the background")
+
+        try await background(e, seconds: wait)
+        e.shot("tunnel-resume-04-agent-back")
+        let answered = ask("after the lock", within: 20)
+        e.shot("tunnel-resume-05-agent-answer")
+        XCTAssertTrue(answered, "the agent session answers in place after the background")
+        for s in try await e.server.sessions(cwd: "apps/welcome") where s.kind == "agent" { await e.server.end(s.id) }
+
+        // Settings → Connection → Diagnostics: what the tunnel did, and the
+        // button that copies it for a bug report.
+        e.goHome()
+        let search = e.app.searchFields["Search tiles"]
+        if search.waitForExistence(timeout: 5), let now = search.value as? String, !now.isEmpty, now != "Search tiles" {
+            search.tap()
+            search.typeText(String(repeating: "\u{8}", count: now.count))
+        }
+        let settings = e.app.buttons["Settings"]
+        XCTAssertTrue(settings.waitForExistence(timeout: 30), "Home's Settings")
+        settings.tap()
+        let row = e.app.buttons.matching(identifier: "settings-connection").firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 20), "Settings' connection row")
+        row.tap()
+        XCTAssertTrue(e.containing("Noise").waitForExistence(timeout: 10), "the Connection screen")
+        e.app.swipeUp()
+        let copy = e.app.buttons.matching(identifier: "connection-copy-diagnostics").firstMatch
+        XCTAssertTrue(copy.waitForExistence(timeout: 10), "Copy diagnostics")
+        XCTAssertTrue(e.containing("tunnel up").waitForExistence(timeout: 10), "the diagnostics list the tunnel coming up")
+        e.shot("tunnel-resume-06-diagnostics")
+    }
+
     static func grouped(_ s: String) -> String {
         let d = s.filter(\.isNumber)
         guard d.count == 6 else { return s }

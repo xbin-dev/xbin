@@ -16,6 +16,19 @@ import XbinCore
 // each connect the workspace refreshes its ticket, relay and token from
 // `GET /api/xbin/app-tunnel/client` (WorkspaceModel.refreshTunnel).
 //
+// Coming back to the front (D211, #42) always ends with a fresh tunnel that
+// has answered: nothing comes up while the app is in the background (a
+// request then waits for the front — the follow loops of open screens
+// retried in the background grace period and brought a tunnel up there,
+// whose listener and UDP socket iOS then broke, and which the front reused
+// for good); whatever did come up there (a notification's action,
+// ``TunnelManager/inBackground(_:)``) goes when the app is back; a tunnel is
+// "up" only once a probe through it (TunnelProbe) got xbind's answer; a
+// stream or handshake that fails on a connection marks it dead and the
+// request is tried again on a new one; a forwarder whose listener fails is
+// replaced. What happens is kept in TunnelLog, in every build (Settings →
+// Connection → Diagnostics).
+//
 // Foundation and the app's own types only: app-stubcheck compiles this
 // file, with Stubs/App/AppStubs.swift standing in for the Apple-only
 // LoopbackForwarder and IrohTunnelDialer, and for NoiseTunnel (CryptoKit).
@@ -34,6 +47,46 @@ enum TunnelDebug {
         return false
         #endif
     }
+
+    /// Debug builds: `-XbinTunnelEmulateSuspend YES` — coming back from the
+    /// background, every forwarder that lived through it has its sockets
+    /// killed, as iOS does on a device to a suspended app's (TN2277; the
+    /// simulator doesn't). The UI tests' resume test runs with it (D211).
+    static var emulateSuspend: Bool {
+        #if DEBUG
+        return UserDefaults.standard.bool(forKey: "XbinTunnelEmulateSuspend")
+        #else
+        return false
+        #endif
+    }
+}
+
+/// A line in the tunnels' diagnostics (D211): kept in ``TunnelLog`` in
+/// every build — Settings → Connection shows it, "Copy diagnostics" hands it
+/// over — and, in Debug builds, in the device log (`xbin-tunnel …`: `xcrun
+/// simctl spawn <udid> log show --predicate 'eventMessage CONTAINS
+/// "xbin-tunnel"'`). Never a key, ticket, psk or token (TunnelLog scrubs
+/// what looks like one anyway).
+func tunnelLog(_ s: String, workspace: String? = nil) {
+    TunnelLog.shared.add(s, workspace: workspace)
+    #if DEBUG
+    NSLog("xbin-tunnel %@", workspace.map { "[\(TunnelLog.shortWorkspace($0))] \(s)" } ?? s)
+    #endif
+}
+
+/// A per-connection detail (each request's accept, splice and end): the
+/// device log in Debug builds only — the diagnostics keep what matters.
+func tunnelTrace(_ s: @autoclosure () -> String) {
+    #if DEBUG
+    NSLog("xbin-tunnel %@", s())
+    #endif
+}
+
+extension Notification.Name {
+    /// A workspace's tunnel came up and answered (D211); `object` is the
+    /// workspace's id. Open pages that failed reload, the others hear
+    /// `online`.
+    static let xbinTunnelUp = Notification.Name("dev.xbin.tunnel.up")
 }
 
 /// What a connection can say beyond XbinCore's TunnelConnection (IrohLib's
@@ -57,6 +110,12 @@ final class TunnelManager {
     @ObservationIgnored private var sessions: [String: TunnelSession] = [:]
     @ObservationIgnored private(set) var isActive = true
     @ObservationIgnored private var pathWatch: TunnelPathWatch?
+    /// The path watch's last report (nil: none yet since it started).
+    @ObservationIgnored private var pathOK: Bool?
+    /// Work running for a notification while the app is in the background
+    /// (``inBackground(_:)``): tunnels may come up for it.
+    @ObservationIgnored private var backgroundUses = 0
+    @ObservationIgnored private var backgroundSince: Date?
 
     /// Sets XbinCore's seams for pairing and the device upgrade
     /// (``TunnelRuntime``): IrohLib's dialer, and HTTP through a paired
@@ -92,7 +151,7 @@ final class TunnelManager {
             return s
         }
         let s = TunnelSession(workspace: record.id, port: record.tunnel?.port ?? TunnelAddress.freshPort(), mode: mode,
-                              manager: self)
+                              manager: self, active: isActive)
         sessions[record.id] = s
         if statuses[record.id] == nil { statuses[record.id] = .connecting }
         if pathWatch == nil, isActive { pathWatch = TunnelPathWatch { [weak self] ok in self?.pathChanged(ok) } }
@@ -128,56 +187,123 @@ final class TunnelManager {
 
     // MARK: Lifecycle
 
+    /// Whether a tunnel may come up while the app is in the background: only
+    /// for work a notification asked for (``inBackground(_:)``).
+    var allowsBackgroundUse: Bool { backgroundUses > 0 }
+
+    /// Work the app does for a notification while it may be in the
+    /// background (an action that doesn't open the app): its requests may
+    /// bring tunnels up, which go again once it is done. Outside it, a
+    /// request in the background waits for the front.
+    func inBackground(_ work: @MainActor () async -> Void) async {
+        backgroundUses += 1
+        await work()
+        backgroundUses -= 1
+        if backgroundUses == 0, !isActive { suspendAll(reason: "the background work is done") }
+    }
+
     /// Foreground: sessions may run again; the ones on screen start now.
+    /// Back from the background, a tunnel that came up there goes first:
+    /// iOS breaks a suspended app's listening socket and iroh's UDP socket
+    /// (iroh #4289), and nothing in either says so.
     func becameActive(prewarm shown: Set<String>) {
+        let wasActive = isActive
+        #if DEBUG
+        if TunnelDebug.emulateSuspend, !wasActive { for s in sessions.values { s.emulateReclaim() } }
+        #endif
         isActive = true
+        if !wasActive {
+            let away = backgroundSince.map { Int(Date().timeIntervalSince($0).rounded()) }
+            backgroundSince = nil
+            tunnelLog("app: in front again" + (away.map { " after \($0) s in the background" } ?? ""))
+        }
         if pathWatch == nil, !sessions.isEmpty {
             pathWatch = TunnelPathWatch { [weak self] ok in self?.pathChanged(ok) }
         }
-        for (id, s) in sessions { s.setActive(prewarm: shown.contains(id)) }
+        for (id, s) in sessions { s.activate(fresh: !wasActive, prewarm: shown.contains(id)) }
     }
 
     /// Background: every listener, connection and endpoint goes, inside a
     /// background task so the closes reach the network. A pairing's session
     /// that never became a workspace (its item is gone) goes for good.
     func enteredBackground() {
+        if isActive { tunnelLog("app: background") }
         isActive = false
+        backgroundSince = backgroundSince ?? Date()
         pathWatch?.stop()
         pathWatch = nil
+        pathOK = nil
+        var closing: [any TunnelConnection] = []
         for (id, s) in sessions where s.isIroh && KeychainTunnelVault.read(id) == nil && AppModel.shared.workspace(id) == nil {
             sessions[id] = nil
             statuses[id] = nil
-            Task { await s.suspend() }
+            if let c = s.end(reason: "the pairing was left") { closing.append(c) }
         }
-        let all = Array(sessions.values)
-        guard !all.isEmpty else { return }
+        close(closing)
+        suspendAll(reason: "the app went to the background")
+    }
+
+    /// Every session stops — synchronously, so a close that finishes only
+    /// after the app is back can't touch what came up since (D211).
+    private func suspendAll(reason: String) {
+        close(sessions.values.compactMap { $0.suspend(reason: reason) })
+    }
+
+    /// Closes connections in parallel, in a background task.
+    private func close(_ connections: [any TunnelConnection]) {
+        guard !connections.isEmpty else { return }
         let task = BackgroundTask.begin("xbin tunnels")
         Task {
-            for s in all { await s.suspend() }
+            await withTaskGroup(of: Void.self) { g in
+                for c in connections { g.addTask { await c.close() } }
+            }
             task.end()
         }
     }
 
+    /// A path update. A new watch's first one only says how things are (a
+    /// restart then would race the bring-up the foreground began); later
+    /// ones are changes, and a satisfied one restarts a connect that hangs.
     private func pathChanged(_ ok: Bool) {
-        guard ok, isActive else { return }
+        guard isActive else { return }
+        let last = pathOK
+        pathOK = ok
+        if ok != last, last != nil || !ok { tunnelLog("network: \(ok ? "a path again" : "no path")") }
+        guard ok, last != nil else { return }
         for s in sessions.values { s.networkChanged() }
     }
 
     /// Settings → Connection → Reconnect.
-    func reconnect(_ id: String) { sessions[id]?.reconnectNow() }
+    func reconnect(_ id: String) { sessions[id]?.reconnectNow(reason: "Reconnect was tapped") }
 
     /// The Connection screen's path and RTT, read now.
-    func refreshPath(_ id: String) async { await sessions[id]?.refreshPath() }
+    func refreshPath(_ id: String) async { _ = await sessions[id]?.refreshPath() }
 
     /// The workspace is gone: its tunnel stops (its Keychain item goes with
     /// the workspace's other keys, WorkspaceModel.forget).
     func forget(_ id: String) async {
-        if let s = sessions.removeValue(forKey: id) { await s.suspend() }
+        if let s = sessions.removeValue(forKey: id), let c = s.end(reason: "the workspace was removed") { await c.close() }
         statuses[id] = nil
     }
 
     /// New secrets from the workspace (a refresh): the next connect uses them.
     func secretsChanged(_ id: String, _ s: TunnelSecrets) { sessions[id]?.update(s) }
+
+    /// What "Copy diagnostics" hands over for workspace `id`: the app, the
+    /// tunnel's state now, then the log.
+    func diagnostics(for w: WorkspaceModel) -> String {
+        var header = [
+            "xbin \(AppInfo.version) (\(AppInfo.build)) — \(AppInfo.platform) — tunnel diagnostics \(TunnelLog.timestamp(Date()))",
+            "workspace \(TunnelLog.shortWorkspace(w.id)) at \(w.origin.origin)",
+            "status: \(status(of: w.id).summary(server: w.origin))",
+            "forwarder: \(w.transportOrigin.authority)\(isActive ? "" : " (the app is in the background)")",
+        ]
+        if let ids = endpointIDs(of: w.id) {
+            header.append("endpoints: device \(TunnelLog.shortID(ids.device)), workspace \(TunnelLog.shortID(ids.server))")
+        }
+        if let s = sessions[w.id] { header.append(s.stateLine) }
+        return TunnelLog.shared.report(header: header, workspace: w.id)
+    }
 
     // MARK: From the sessions
 
@@ -186,297 +312,14 @@ final class TunnelManager {
         return try await s.upstream()
     }
 
-    fileprivate func portChanged(_ id: String, _ port: Int) {
+    func portChanged(_ id: String, _ port: Int) {
         AppModel.shared.workspace(id)?.tunnelPortChanged(port)
     }
 
-    fileprivate func connected(_ id: String) {
-        Task { await AppModel.shared.workspace(id)?.refreshTunnel() }
-    }
-}
-
-/// One tunnelled workspace's live tunnel.
-@MainActor
-final class TunnelSession {
-    enum Mode {
-        /// The real thing: iroh to the workspace's sidecar, Noise inside.
-        case iroh(TunnelSecrets)
-        /// Debug builds' forwarder (TunnelDebug): TCP to the server itself.
-        case plainTCP(host: String, port: Int)
-    }
-
-    struct Problem: Error, CustomStringConvertible, Equatable {
-        var description: String
-    }
-
-    let workspace: String
-    let address: TunnelAddress
-    private var mode: Mode
-    private weak var manager: TunnelManager?
-    private var forwarder: LoopbackForwarder?
-    private var connection: (any TunnelConnection)?
-    private var starting: Task<Void, any Error>?
-    private var watcher: Task<Void, Never>?
-    private var retry: Task<Void, Never>?
-    private var policy = TunnelReconnectPolicy()
-    private var active = true
-    /// Bumped by every teardown: work begun before it lets go of what it made.
-    private var epoch = 0
-
-    init(workspace: String, port: Int, mode: Mode, manager: TunnelManager) {
-        self.workspace = workspace
-        address = TunnelAddress(port: port)
-        self.mode = mode
-        self.manager = manager
-    }
-
-    var isIroh: Bool {
-        if case .iroh = mode { return true }
-        return false
-    }
-
-    private var isUp: Bool { forwarder?.isListening == true && (!isIroh || connection != nil) }
-
-    var endpointIDs: (device: String, server: String)? {
-        guard let c = connection else { return nil }
-        return (TunnelUpgrade.hex(c.localId), TunnelUpgrade.hex(c.remoteId))
-    }
-
-    /// Up, or brought up (one attempt at a time; every caller waits on it).
-    func ready() async throws {
-        if isUp { return }
-        if let t = starting { return try await t.value }
-        let t = Task { @MainActor in try await self.bringUp() }
-        starting = t
-        defer { if starting == t { starting = nil } }
-        try await t.value
-    }
-
-    private func bringUp() async throws {
-        let e = epoch
-        if forwarder?.isListening != true { try await listen(epoch: e) }
-        guard e == epoch else { throw CancellationError() }
-        guard case .iroh(let secrets) = mode else {
-            manager?.setStatus(workspace, .connected(path: .direct, rtt: nil))
-            return
-        }
-        if connection != nil { return }
-        manager?.setStatus(workspace, .connecting)
-        do {
-            try await connect(secrets, epoch: e)
-            policy.succeeded()
-        } catch {
-            guard e == epoch else { throw error }
-            manager?.setStatus(workspace, .failed(Self.describe(error)))
-            scheduleRetry()
-            throw error
-        }
-    }
-
-    /// The forwarder on the kept port, or — taken — on a new one, which the
-    /// record keeps from now on (open pages reload there: `generation`).
-    private func listen(epoch e: Int) async throws {
-        let ws = workspace
-        let f = LoopbackForwarder(connect: { [weak manager] in
-            guard let manager else { throw Problem(description: "the app is shutting down") }
-            return try await manager.upstream(ws)
-        })
-        let want = address.port
-        let got: Int
-        do {
-            got = try await f.start(port: want)
-        } catch {
-            got = try await f.start(port: 0)
-        }
-        guard e == epoch else {
-            f.stop()
-            throw CancellationError()
-        }
-        forwarder?.stop()
-        forwarder = f
-        address.moved(to: got)
-        manager?.portChanged(workspace, got)
-    }
-
-    /// A fresh endpoint and connection (`tunnel/1`): the relay's token, then
-    /// — when that one is refused — the `next` one of a rotation (§7).
-    private func connect(_ s: TunnelSecrets, epoch e: Int) async throws {
-        drop()
-        guard let dialer = TunnelRuntime.dialer else { throw Problem(description: "this build can't open tunnels") }
-        var tokens: [(token: String?, isNext: Bool)] = [(s.relay.token, false)]
-        if let n = s.next, n.token != s.relay.token { tokens.append((n.token, true)) }
-        var last: any Error = Problem(description: "no relay to reach the workspace through")
-        for t in tokens {
-            do {
-                let started = Date()
-                let c = try await withDeadline(30, "reaching the workspace's tunnel") {
-                    try await dialer.connect(irohSecret: s.irohSecret, ticket: s.ticket, relayToken: t.token, alpn: TunnelALPN.tunnel)
-                }
-                tunnelLog("session \(workspace): tunnel/1 connected in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
-                guard e == epoch else {
-                    await c.close()
-                    throw CancellationError()
-                }
-                if !s.endpoint.isEmpty, TunnelUpgrade.hex(c.remoteId) != s.endpoint.lowercased() {
-                    await c.close()
-                    throw Problem(description: "the tunnel answered as another server than this workspace's")
-                }
-                connection = c
-                if t.isNext, case .iroh(var cur) = mode, let n = cur.next {
-                    // The rotation's relay token works: it is the token now.
-                    cur.relay = n
-                    cur.next = nil
-                    mode = .iroh(cur)
-                    await KeychainTunnelVault().save(cur, workspace: workspace)
-                }
-                watch(c, epoch: e)
-                await refreshPath()
-                manager?.connected(workspace)
-                return
-            } catch {
-                if error is CancellationError { throw error }
-                tunnelLog("session \(workspace): tunnel/1 failed: \(Self.describe(error))")
-                last = error
-            }
-        }
-        throw last
-    }
-
-    /// Notices the connection closing while in front: reconnects.
-    private func watch(_ c: any TunnelConnection, epoch e: Int) {
-        watcher?.cancel()
-        guard let d = c as? any TunnelConnectionDetails else { return }
-        let gen = e
-        watcher = Task { [weak self] in
-            let why = await d.closed()
-            guard let self, !Task.isCancelled, gen == self.epoch, self.connection != nil else { return }
-            self.connection = nil
-            await c.close()
-            self.manager?.setStatus(self.workspace, .failed(why.isEmpty ? "the connection closed" : why))
-            guard self.active else { return }
-            self.scheduleRetry()
-        }
-    }
-
-    private func scheduleRetry() {
-        guard active, retry == nil, let delay = policy.failed() else { return }
-        retry = Task { [weak self] in
-            try? await Task.sleep(nanoseconds: UInt64(delay * 1e9))
-            guard let self, !Task.isCancelled else { return }
-            self.retry = nil
-            try? await self.ready()
-        }
-    }
-
-    /// Lets go of the connection (the forwarder stays).
-    private func drop() {
-        watcher?.cancel()
-        watcher = nil
-        if let c = connection {
-            connection = nil
-            Task { await c.close() }
-        }
-    }
-
-    /// One accepted connection's upstream: a new iroh stream through its own
-    /// IK handshake (spec §3, §4) — or, Debug, TCP to the server itself.
-    func upstream() async throws -> any ForwardUpstream {
-        switch mode {
-        case .plainTCP(let host, let port):
-            #if DEBUG
-            return try await TCPUpstream.open(host: host, port: port)
-            #else
-            throw Problem(description: "no tunnel in this build (\(host):\(port))")
-            #endif
-        case .iroh(let s):
-            try await ready()
-            guard let c = connection else { throw Problem(description: "the tunnel isn't connected") }
-            let stream: any ByteStream
-            do {
-                stream = try await c.openStream()
-            } catch {
-                tunnelLog("session \(workspace): no stream: \(Self.describe(error))")
-                throw error
-            }
-            do {
-                let channel = try await withDeadline(15, "the tunnel's handshake", onTimeout: { await stream.cancel() }) {
-                    try await NoiseTunnel.openTunnel(stream, secrets: s, serverEndpoint: c.remoteId, deviceEndpoint: c.localId)
-                }
-                return NoiseUpstream(channel: channel)
-            } catch {
-                tunnelLog("session \(workspace): handshake failed: \(Self.describe(error))")
-                throw error
-            }
-        }
-    }
-
-    func update(_ s: TunnelSecrets) {
-        if case .iroh = mode { mode = .iroh(s) }
-    }
-
-    // MARK: Lifecycle
-
-    func setActive(prewarm: Bool) {
-        active = true
-        policy.setActive(true)
-        if prewarm { Task { try? await self.ready() } }
-    }
-
-    /// The background, or the workspace going: everything closes.
-    func suspend() async {
-        epoch += 1
-        active = false
-        policy.setActive(false)
-        retry?.cancel()
-        retry = nil
-        starting = nil
-        watcher?.cancel()
-        watcher = nil
-        forwarder?.stop()
-        forwarder = nil
-        let c = connection
-        connection = nil
-        await c?.close()
-        manager?.setStatus(workspace, .connecting)
-    }
-
-    func networkChanged() {
-        guard active, !isUp, starting == nil else { return }
-        retry?.cancel()
-        retry = nil
-        policy.succeeded()
-        Task { try? await self.ready() }
-    }
-
-    func reconnectNow() {
-        retry?.cancel()
-        retry = nil
-        policy.succeeded()
-        drop()
-        Task { try? await self.ready() }
-    }
-
-    func refreshPath() async {
-        guard let d = connection as? any TunnelConnectionDetails, let p = await d.path() else { return }
-        manager?.setStatus(workspace, .connected(path: p.path, rtt: p.rtt))
-    }
-
-    nonisolated static func describe(_ error: any Error) -> String {
-        if let e = error as? LocalizedError, let d = e.errorDescription { return d }
-        return String(describing: error)
-    }
-}
-
-/// A forwarded connection through the xbin layer (TunnelSplice).
-private struct NoiseUpstream: ForwardUpstream {
-    let channel: NoiseChannel
-
-    func splice(with local: any ByteStream) async {
-        do {
-            try await TunnelSplice.run(plain: local, channel: channel)
-        } catch {
-            tunnelLog("splice ended: \(TunnelSession.describe(error))")
-        }
+    /// Up and answering: the workspace refreshes its tunnel's config, and
+    /// its open pages and sockets recover in place.
+    func cameUp(_ id: String) {
+        AppModel.shared.workspace(id)?.tunnelCameUp()
     }
 }
 

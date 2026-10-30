@@ -53,6 +53,15 @@ its tunnel keys at its next sign-in). An older app scanning a tunnel QR code
 is told the code is invalid: while iroh-only is off, the dialog offers a
 classic code for it.
 
+The app keeps the tunnel only while it is on screen: in the background it
+closes it, and coming back it opens a fresh one and checks it with a quick
+request before anything uses it; the open screen carries on where it was.
+**Settings → Connection** on the phone shows the tunnel's path, relay and
+round trip, a **Reconnect** button, and **Diagnostics** — what the tunnel
+did lately (connects, drops, retries, the app going away and back). **Copy
+diagnostics** copies that with the app's version, for a bug report: it holds
+no keys, tickets or tokens, and ids are cut short.
+
 ## Refusing the app outside the tunnel (iroh-only)
 
 **Refuse app connections outside the iroh tunnel** (needs the tunnel on;

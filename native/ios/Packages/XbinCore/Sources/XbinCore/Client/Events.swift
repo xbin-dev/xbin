@@ -305,6 +305,15 @@ public struct EventSocketPolicy: Sendable, Equatable {
         return .connect
     }
 
+    /// The way to the workspace is back (its app tunnel came up again,
+    /// D211): a socket that is wanted but closed — waiting out a backoff,
+    /// or parked after a re-sign that failed (a dead tunnel fails it too) —
+    /// connects now, its backoff reset. An open or opening one is left be.
+    public mutating func nudge() -> Action {
+        guard wanted, !connected, !connecting else { return .none }
+        return unpark()
+    }
+
     /// The socket opened. Returns true when events may have been missed
     /// since an earlier socket (re-list the sessions, catch feeds up).
     public mutating func opened() -> Bool {

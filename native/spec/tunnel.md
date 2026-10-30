@@ -64,6 +64,11 @@ code is rendered at error correction level M, at least 288 px wide.
     `remoteId` equals the ticket's EndpointId.
   - A new endpoint is made each time the app becomes active (iroh #4289),
     and none is kept in the background.
+  - Before it uses a new connection, the app probes it (D211): a
+    `tunnel/1` stream, its handshake, and `GET /api/xbin/login/methods`
+    (allowed on the tunnel without credentials, §7) with `Connection:
+    close`. Any status from xbind proves the connection; none within 8 s
+    and the app drops it and dials again.
 - **Server endpoint:**
   - preset N0 when the relay is n0's; otherwise Minimal with the custom relay
     and its token.

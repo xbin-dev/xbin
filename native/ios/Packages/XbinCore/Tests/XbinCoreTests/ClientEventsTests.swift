@@ -302,6 +302,33 @@ import Testing
             #expect(p.setWanted(true) == .connect)
         }
     }
+
+    /// D211: the workspace's tunnel came back — a socket waiting out its
+    /// backoff, or parked by a re-sign the dead tunnel failed, connects at
+    /// once with its backoff reset; an open, opening or unwanted one is
+    /// left be.
+    @Test func nudgeConnectsAClosedSocketNow() {
+        var p = EventSocketPolicy()
+        #expect(p.nudge() == .none)                  // not wanted
+        _ = p.setWanted(true)
+        #expect(p.nudge() == .none)                  // already connecting
+        for _ in 0..<5 { _ = p.closed(.unreachable); _ = p.retryDue() }
+        #expect(p.closed(.unreachable) == .retry(after: 15))
+        #expect(p.nudge() == .connect)               // now, not in 15 s
+        #expect(p.backoff == EventSocketPolicy.initialBackoff)
+        #expect(p.nudge() == .none)                  // connecting
+        _ = p.opened()
+        #expect(p.nudge() == .none)                  // open
+        // A re-sign that failed (no way to the workspace) parks it; the
+        // tunnel coming back tries again.
+        var q = EventSocketPolicy()
+        _ = q.setWanted(true)
+        #expect(q.reauthFailed() == .none && q.parked)
+        #expect(q.nudge() == .connect)
+        #expect(!q.parked && q.connecting)
+        _ = q.setWanted(false)
+        #expect(q.nudge() == .none)                  // the background: nothing
+    }
 }
 
 // MARK: - Event tapes

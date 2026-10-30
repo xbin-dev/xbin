@@ -78,3 +78,33 @@ test('a malformed xbin-ws-origin is ignored', async () => {
     assert.deepEqual(opened, ['wss://ws.example/api/apps/x/s?frame=T'], bad);
   }
 });
+
+// D211: the network is back (a browser's `online`; the xbin app sends one
+// when its tunnel comes back): a closed events socket reconnects now, not at
+// the end of its backoff; an open one is left alone.
+test('online reconnects a closed events socket at once', async () => {
+  const listeners = {};
+  globalThis.addEventListener = (type, fn) => { listeners[type] = fn; };
+  const timers = [];
+  const realTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = (fn, ms) => { timers.push(ms); return 0; };   // a retry that never comes by itself
+  try {
+    const { xbin, opened } = await load({ href: 'https://ws.example/c/apps/x/', metas: base });
+    const sockets = [];
+    const Base = globalThis.WebSocket;
+    globalThis.WebSocket = class extends Base { constructor(url) { super(url); sockets.push(this); } };
+    xbin.events.on(() => {});
+    assert.equal(sockets.length, 1);
+    sockets[0].onclose();
+    assert.deepEqual(timers, [1000]);              // the backoff's retry, pending
+    listeners.online();
+    assert.equal(sockets.length, 2);               // now
+    sockets[1].onopen?.();
+    listeners.online();
+    assert.equal(sockets.length, 2);               // open: left alone
+    assert.deepEqual(opened, ['wss://ws.example/ws/events?frame=T', 'wss://ws.example/ws/events?frame=T']);
+  } finally {
+    globalThis.setTimeout = realTimeout;
+    delete globalThis.addEventListener;
+  }
+});

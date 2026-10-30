@@ -656,6 +656,41 @@ extension NoiseTunnel {
         try await initiate(stream, pattern: .ik, prologue: prologue(.tunnel, server: serverEndpoint, device: deviceEndpoint),
                            staticKey: secrets.noiseStatic, serverKey: secrets.serverKey)
     }
+
+    /// The probe that proves a new connection before the app uses it
+    /// (D211, XbinCore's TunnelProbe): a `tunnel/1` stream's handshake, then
+    /// `GET /api/xbin/login/methods` with `Host: host`; xbind's status.
+    static func probe(_ stream: any ByteStream, secrets: TunnelSecrets, serverEndpoint: Data, deviceEndpoint: Data,
+                      host: String) async throws -> Int {
+        let channel = try await openTunnel(stream, secrets: secrets, serverEndpoint: serverEndpoint, deviceEndpoint: deviceEndpoint)
+        return try await probe(channel, host: host)
+    }
+
+    /// The probe's request on an open channel, then the answer up to its
+    /// end (the request asks xbind to close), then our side's close; its
+    /// status. The stream is done with either way.
+    static func probe(_ channel: NoiseChannel, host: String) async throws -> Int {
+        do {
+            try await channel.sender.send(TunnelProbe.request(host: host))
+            var head = Data()
+            var total = 0
+            var ended = false
+            while total <= 64 << 10 {
+                let d = try await channel.receiver.receive()
+                if d.isEmpty { ended = true; break }
+                if head.count < 4096 { head += d }
+                total += d.count
+            }
+            if ended { try? await channel.sender.close() } else { await channel.stream.cancel() }
+            guard let status = TunnelProbe.status(head) else {
+                throw NoiseTunnelError.malformed("the probe's answer isn't HTTP")
+            }
+            return status
+        } catch {
+            await channel.stream.cancel()
+            throw error
+        }
+    }
 }
 
 // MARK: - The splice (a loopback TCP connection ⇄ a tunnel stream)

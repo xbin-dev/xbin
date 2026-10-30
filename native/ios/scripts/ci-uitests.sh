@@ -163,6 +163,14 @@ ci_xcodebuild "$XBIN_CI_OUT/uitests.log" test-without-building "${common[@]}" \
   -resultBundlePath "$XBIN_CI_OUT/uitests.xcresult" -collect-test-diagnostics "$diag" \
   ${only[@]+"${only[@]}"} || status=$?
 
+# The app tunnel's runs: the app's own tunnel lines (Debug builds' NSLog,
+# `xbin-tunnel …`), so what the tunnel did is in the results (D211).
+if [ -n "${udid:-}" ] && { [ "${XBIN_E2E_TUNNEL:-0}" = 1 ] || [ "${XBIN_E2E_TUNNEL_FORWARD:-0}" = 1 ]; }; then
+  xcrun simctl spawn "$udid" log show --style compact --last 30m \
+    --predicate 'eventMessage CONTAINS "xbin-tunnel"' >"$XBIN_CI_OUT/tunnel.log" 2>&1 ||
+    ci_warn "could not read the simulator's tunnel log"
+fi
+
 pngs=$(find "$shots" -type f -name '*.png' | wc -l | tr -d ' ')
 if [ "$pngs" -eq 0 ] && [ -d "$XBIN_CI_OUT/uitests.xcresult" ]; then
   ci_group "export result-bundle attachments"

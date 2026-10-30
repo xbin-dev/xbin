@@ -141,6 +141,28 @@ struct NoKeys: DeviceKeyStore {
         events.setWanted(false)
     }
 
+    /// D211: the workspace's tunnel came back — a socket waiting out a long
+    /// backoff connects now; an open one is left alone.
+    @Test func nudgeConnectsWithoutWaitingOutTheBackoff() async {
+        let (_, _, auth, _) = await makeEvents()
+        let sockets = ScriptedSockets()
+        // A retry that would never come by itself.
+        let events = WorkspaceEvents(auth: auth, makeSocket: sockets.factory,
+                                     sleep: { _ in try? await Task.sleep(nanoseconds: 3_600_000_000_000) }, jitter: { 1 })
+        events.setWanted(true)
+        await until("first socket") { sockets.opened.count == 1 }
+        sockets.opened[0].signal(.closed(.unreachable))
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        #expect(sockets.opened.count == 1)          // waiting out the backoff
+        events.nudge()
+        await until("second socket") { sockets.opened.count == 2 }
+        sockets.opened[1].signal(.opened)
+        events.nudge()                              // open: nothing
+        try? await Task.sleep(nanoseconds: 20_000_000)
+        #expect(sockets.opened.count == 2 && !sockets.opened[1].closed)
+        events.setWanted(false)
+    }
+
     @Test func noSessionParks() async {
         let (events, sockets, auth, _) = await makeEvents()
         await auth.adopt(nil)

@@ -1073,7 +1073,16 @@ uses the workspace through the tunnel — a web tile (the scheme handler),
 the native counter, a terminal (`/ws/term`), a chrome tile's "Continue
 as" on the forwarder's `127.0.0.1` origin, Settings → Connection, a
 background round trip; "They don't" and a pairing-only workspace's
-sign-in page too. Run them with the real sidecar and a relay: `XBIN_E2E_TUNNEL=1
+sign-in page too. `test04ResumeInPlace` (D211, #42) leaves the native
+counter and then an agent session in front, goes Home for 70 s (or
+`XBIN_E2E_SUSPEND` seconds in the runner's environment) and, back without navigating,
+needs a +1 and the agent's answer on the same screen within 15–20 s, then
+Settings → Connection's diagnostics. The simulator never reclaims a
+suspended app's sockets as a device does (TN2277, iroh #4289), so the test
+launches with Debug's `-XbinTunnelEmulateSuspend YES`: coming back, every
+forwarder that lived through the background has its listener and
+connections killed. A tunnel run's results hold `tunnel.log`, the app's
+`xbin-tunnel` lines (ci-uitests.sh reads them off the simulator). Run them with the real sidecar and a relay: `XBIN_E2E_TUNNEL=1
 XBIN_IROH=<xbin-iroh> XBIN_IROH_RELAY_BIN=<iroh-relay 1.4> mac-remote.sh e2e
 --only XbinUITests/XbinTunnelTests` — e2e-xbind.sh starts `iroh-relay --dev`
 on P+2 with a shared token, turns the tunnel on with that custom relay,
@@ -1082,7 +1091,10 @@ endpoints meet on `http://127.0.0.1:P+2` (UDP never crosses the ssh).
 The sidecar builds with `hack/build-xbin-iroh.sh bin` or `cargo build
 --release` in `sidecar/xbin-iroh`; `cargo install --path <iroh-relay
 1.4.1 crate> --features server` gives the relay. `XBIN_IROH_LOG=debug`
-makes the sidecar talkative; the app's Debug builds log `xbin-tunnel …`. The screenshots land in
+makes the sidecar talkative; the app's Debug builds log `xbin-tunnel …`,
+and every build keeps the tunnel's events in memory (`TunnelLog`: Settings
+→ Connection → Diagnostics, **Copy diagnostics** — what to ask a device's
+owner for). The screenshots land in
 `$XBIN_MAC_PULL/e2e/e2e/` (and in `uitests.xcresult`): **look at them**.
 XCUITest types with key presses: the software keyboard hides while
 `typeText` types and slides back up a moment later, so a control that rides

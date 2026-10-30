@@ -212,6 +212,10 @@ final class WorkspaceEvents {
     /// True while a foreground window shows this workspace.
     func setWanted(_ on: Bool) { perform(policy.setWanted(on)) }
 
+    /// The way to the workspace is back (its tunnel came up, D211): a
+    /// wanted socket that is closed connects now.
+    func nudge() { perform(policy.nudge()) }
+
     private func perform(_ action: EventSocketPolicy.Action) {
         switch action {
         case .none:

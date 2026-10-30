@@ -57,10 +57,28 @@ final class AppTransport: NSObject, APITransport, URLSessionTaskDelegate, @unche
                 onData: @escaping @Sendable (Data) -> Void,
                 onDone: @escaping @Sendable ((any Error)?) -> Void) -> StreamingLoad {
         let load = StreamingLoad(allowRedirect: allowRedirect, onResponse: onResponse, onData: onData, onDone: onDone)
-        let task = session.dataTask(with: request)
-        task.delegate = load
-        load.task = task
-        task.resume()
+        load.start(request, on: session)
+        return load
+    }
+
+    /// ``stream(_:allowRedirect:onResponse:onData:onDone:)`` once `prepare`
+    /// has run and said what to send (a tunnel coming up first, D211): the
+    /// load exists at once and can be cancelled while it waits; a `prepare`
+    /// that throws ends it with that error.
+    func stream(after prepare: @escaping @Sendable () async throws -> URLRequest,
+                allowRedirect: @escaping @Sendable (URL) -> URL?,
+                onResponse: @escaping @Sendable (HTTPURLResponse) -> Void,
+                onData: @escaping @Sendable (Data) -> Void,
+                onDone: @escaping @Sendable ((any Error)?) -> Void) -> StreamingLoad {
+        let load = StreamingLoad(allowRedirect: allowRedirect, onResponse: onResponse, onData: onData, onDone: onDone)
+        let session = self.session!
+        Task {
+            do {
+                load.start(try await prepare(), on: session)
+            } catch {
+                load.fail(error)
+            }
+        }
         return load
     }
 }
@@ -83,9 +101,34 @@ final class StreamingLoad: NSObject, URLSessionDataDelegate, @unchecked Sendable
         self.onDone = onDone
     }
 
+    /// Starts the request on `session` — unless the load was cancelled (or
+    /// failed) first.
+    func start(_ request: URLRequest, on session: URLSession) {
+        lock.lock()
+        guard !finished else { lock.unlock(); return }
+        let t = session.dataTask(with: request)
+        t.delegate = self
+        task = t
+        lock.unlock()
+        t.resume()
+    }
+
+    /// Ends the load with `error` before it started (its request couldn't
+    /// be made).
+    func fail(_ error: any Error) {
+        lock.lock()
+        let was = finished
+        finished = true
+        lock.unlock()
+        if !was { onDone(error) }
+    }
+
     func cancel() {
-        lock.lock(); finished = true; lock.unlock()
-        task?.cancel()
+        lock.lock()
+        finished = true
+        let t = task
+        lock.unlock()
+        t?.cancel()
     }
 
     private var isFinished: Bool { lock.lock(); defer { lock.unlock() }; return finished }

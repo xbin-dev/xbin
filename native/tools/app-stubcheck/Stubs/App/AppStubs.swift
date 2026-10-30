@@ -23,6 +23,11 @@ final class AppTransport: APITransport, @unchecked Sendable {
                 onResponse: @escaping @Sendable (HTTPURLResponse) -> Void,
                 onData: @escaping @Sendable (Data) -> Void,
                 onDone: @escaping @Sendable ((any Error)?) -> Void) -> StreamingLoad { StreamingLoad() }
+    func stream(after prepare: @escaping @Sendable () async throws -> URLRequest,
+                allowRedirect: @escaping @Sendable (URL) -> URL?,
+                onResponse: @escaping @Sendable (HTTPURLResponse) -> Void,
+                onData: @escaping @Sendable (Data) -> Void,
+                onDone: @escaping @Sendable ((any Error)?) -> Void) -> StreamingLoad { StreamingLoad() }
 }
 final class StreamingLoad: @unchecked Sendable {
     func cancel() {}
@@ -91,16 +96,16 @@ protocol ForwardUpstream: Sendable {
 }
 final class LoopbackForwarder: @unchecked Sendable {
     typealias Connect = @Sendable () async throws -> any ForwardUpstream
-    init(connect: @escaping Connect) {}
+    init(connect: @escaping Connect, onFailure: @escaping @Sendable (String) -> Void = { _ in }) {}
     func start(port: Int) async throws -> Int { port }
     func stop() {}
     var isListening: Bool { false }
+    func emulateReclaim() {}
 }
 struct TCPUpstream: ForwardUpstream {
     static func open(host: String, port: Int) async throws -> TCPUpstream { TCPUpstream() }
     func splice(with local: any ByteStream) async {}
 }
-func tunnelLog(_ s: @autoclosure () -> String) {}
 final class TunnelPathWatch: @unchecked Sendable {
     init(changed: @escaping @MainActor @Sendable (Bool) -> Void) {}
     func stop() {}
@@ -116,6 +121,8 @@ struct NoiseChannel: Sendable {}
 enum NoiseTunnel {
     static func openTunnel(_ stream: any ByteStream, secrets: TunnelSecrets, serverEndpoint: Data,
                            deviceEndpoint: Data) async throws -> NoiseChannel { NoiseChannel() }
+    static func probe(_ stream: any ByteStream, secrets: TunnelSecrets, serverEndpoint: Data, deviceEndpoint: Data,
+                      host: String) async throws -> Int { 200 }
 }
 enum TunnelSplice {
     static func run(plain: any ByteStream, channel: NoiseChannel) async throws {}

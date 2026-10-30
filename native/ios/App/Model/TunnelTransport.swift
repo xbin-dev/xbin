@@ -75,15 +75,35 @@ struct TunnelTransport: WorkspaceTransport {
         return try await shared.send(request, to: ready())
     }
 
+    /// Once the tunnel is up (D211: a caller that didn't ask ``ready()``
+    /// first, or asked before a background, still goes through a live one),
+    /// on the forwarder's address of the moment.
     func stream(_ request: URLRequest, allowRedirect: @escaping @Sendable (URL) -> URL?,
                 onResponse: @escaping @Sendable (HTTPURLResponse) -> Void,
                 onData: @escaping @Sendable (Data) -> Void,
                 onDone: @escaping @Sendable ((any Error)?) -> Void) -> StreamingLoad {
-        shared.stream(request, allowRedirect: allowRedirect, onResponse: onResponse, onData: onData, onDone: onDone)
+        let start = self.start, address = self.address
+        return shared.stream(after: {
+            try await start()
+            return Self.moved(request, to: address.port)
+        }, allowRedirect: allowRedirect, onResponse: onResponse, onData: onData, onDone: onDone)
     }
 
     func upload(_ request: URLRequest, from data: Data, delegate: (any URLSessionTaskDelegate)?) async throws -> (Data, URLResponse) {
-        try await shared.session.upload(for: request, from: data, delegate: delegate)
+        try await start()
+        return try await shared.session.upload(for: Self.moved(request, to: address.port), from: data, delegate: delegate)
+    }
+
+    /// `request` addressed to the forwarder's port of the moment, when it
+    /// was addressed to the forwarder on another (it moved meanwhile).
+    static func moved(_ request: URLRequest, to port: Int) -> URLRequest {
+        guard let u = request.url, u.scheme == "http", u.host == "127.0.0.1", u.port != port,
+              var c = URLComponents(url: u, resolvingAgainstBaseURL: false) else { return request }
+        c.port = port
+        guard let to = c.url else { return request }
+        var r = request
+        r.url = to
+        return r
     }
 
     func socketConfiguration() -> URLSessionConfiguration {
