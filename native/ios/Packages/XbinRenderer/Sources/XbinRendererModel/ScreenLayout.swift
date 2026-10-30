@@ -52,6 +52,15 @@ public struct ScreenLayout {
         return body[0]
     }
 
+    /// A scroll screen's `canvas` that fills (canvas rev 2, D208): the
+    /// screen no longer scrolls — its other children sit above the island
+    /// at their own height, and the island takes the rest (its own page
+    /// scrolls and zooms: a document reader). Not on a chat screen.
+    public var fillCanvas: XbinNode? {
+        guard style == .scroll, !isChat else { return nil }
+        return body.first { $0.type == "canvas" && CanvasProps($0).fill }
+    }
+
     /// Whether the title shows large: `large` when given; else large on a
     /// stack's root list/form screen, inline when pushed, in a sheet, or on a
     /// scroll screen.
@@ -218,6 +227,26 @@ public enum SplitLayout: Sendable, Equatable {
     /// it while `detail` is true (Back reports `close`).
     case collapsed
 
+    /// Rev 3 (D208): a split whose two columns share a regular width
+    /// equally (`halves`) — a document beside its conversation. Compact, it
+    /// collapses or stacks as any other.
+    @MainActor
+    public static func halves(_ split: XbinNode) -> Bool { split.props.bool("halves") }
+
+    /// The width of a halves split's leading column in a split `width`
+    /// points wide: half of it, as long as the other keeps ``halvesDetailMin``
+    /// — else the rest, never under the list column's 280. An iPad in
+    /// portrait (834 pt) laid a half-width sidebar OVER the detail instead
+    /// of beside it (`NavigationSplitView` tiles only while the detail keeps
+    /// its own minimum; 360 | 474 tiled, 417 | 417 didn't), so there the
+    /// conversation gets 354 and the document 480.
+    public static func halfWidth(_ width: Double) -> Double {
+        max(280, min((width / 2).rounded(.down), width - halvesDetailMin))
+    }
+
+    /// What the second column of a halves split keeps at least.
+    public static let halvesDetailMin = 480.0
+
     public init(children: Int, regularWidth: Bool, prefer: String?, collapses: Bool = false) {
         if children >= 2 && regularWidth && prefer != "single" { self = .columns }
         else if children >= 2 && collapses { self = .collapsed }
@@ -286,5 +315,22 @@ public struct TabsState {
 
     public static func title(_ tab: XbinNode) -> String {
         tab.props.nonEmpty("title") ?? tab.props.string("key") ?? ""
+    }
+}
+
+/// A `canvas`'s props (rev 2, D208: `fill`, `zoom`): its height in points
+/// (the `height` token, 160 by default; ignored when it fills), whether it
+/// takes the rest of its screen, and the page zoom (0.5 to 3, 1 by default).
+@MainActor
+public struct CanvasProps {
+    public let fill: Bool
+    public let zoom: Double
+    public let height: Double
+
+    public init(_ canvas: XbinNode) {
+        let p = canvas.props
+        fill = p.bool("fill")
+        zoom = CanvasDocument.zoom(p.number("zoom"))
+        height = XbinHeight(p.string("height"))?.points ?? 160
     }
 }

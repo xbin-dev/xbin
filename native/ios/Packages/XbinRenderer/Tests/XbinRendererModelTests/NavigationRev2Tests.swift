@@ -143,17 +143,61 @@ import XbinCore
 
     /// Every rev-2 prop, event, enum value and child is named by the
     /// vocabulary with `since: 2` (`enumSince`, the child rule's `since`) on a
-    /// primitive at rev 2 — the table this renderer reports in caps.
+    /// primitive at rev 2 or later — the table this renderer reports in caps;
+    /// rev 3 likewise.
     @Test func revisionTwoIsWhatTheRendererClaims() throws {
         let prims = try #require(try vocabJSON()["prims"]?.objectValue)
         var rev2: Set<String> = []
+        var rev3: Set<String> = []
         for (name, p) in prims {
             for (_, s) in p["props"]?.objectValue ?? [:] where s["since"]?.intValue == 2 || s["enumSince"] != nil { rev2.insert(name) }
             for (_, s) in p["events"]?.objectValue ?? [:] where s["since"]?.intValue == 2 { rev2.insert(name) }
             if p["children"]?["since"] != nil { rev2.insert(name) }
+            for (_, s) in p["props"]?.objectValue ?? [:] where s["since"]?.intValue == 3 { rev3.insert(name) }
+            for (_, s) in p["events"]?.objectValue ?? [:] where s["since"]?.intValue == 3 { rev3.insert(name) }
         }
-        #expect(rev2 == Set(XbinVocabulary.primitives.filter { $0.value == 2 }.keys))
-        // the navigation revision (D189), and button's copyFormat (#34)
-        #expect(rev2 == ["screen", "toolbar", "list", "actions", "sheet", "split", "menu", "transcript", "button"])
+        #expect(rev2 == Set(XbinVocabulary.primitives.filter { $0.value >= 2 }.keys))
+        #expect(rev3 == Set(XbinVocabulary.primitives.filter { $0.value >= 3 }.keys))
+        // the navigation revision (D189), button's copyFormat (#34), the
+        // document reader's canvas (D208)
+        #expect(rev2 == ["screen", "toolbar", "list", "actions", "sheet", "split", "menu", "transcript", "button", "canvas"])
+        // split's halves (D208)
+        #expect(rev3 == ["split"])
+    }
+
+    /// D208: a report beside its conversation — a halves split, columns on
+    /// a regular width and collapsed on a phone; the report's canvas fills
+    /// its scroll screen at the zoom the tile set, and a tapped link reaches
+    /// the tile.
+    @Test func aDocumentBesideItsConversation() throws {
+        let (m, sent) = try model("doc-reader")
+        let split = try #require(m.root)
+        #expect(SplitLayout.halves(split))
+        #expect(SplitLayout(split, regularWidth: true) == .columns)
+        #expect(SplitLayout(split, regularWidth: false) == .collapsed)
+        #expect(SplitLayout.halfWidth(1180) == 590 && SplitLayout.halfWidth(1032) == 516, "half, where both fit")
+        #expect(SplitLayout.halfWidth(834) == 354, "an iPad in portrait: the document keeps 480")
+        #expect(SplitLayout.halfWidth(500) == 280)
+        let doc = split.children[1]
+        let layout = ScreenLayout(doc)
+        let island = try #require(layout.fillCanvas)
+        #expect(island.type == "canvas")
+        let props = CanvasProps(island)
+        #expect(props.fill && props.zoom == 1.25)
+        #expect(layout.bottomToolbar != nil && layout.toolbar != nil)
+        // the conversation half is a chat: no canvas fills there
+        #expect(ScreenLayout(split.children[0]).fillCanvas == nil)
+        #expect(m.emit(island.key, "link", ["href": "q3%20summary.pdf"]))
+        #expect(sent.events.map(\.type) == ["link"])
+        // a canvas that doesn't fill keeps its height token
+        let (hatches, _) = try model("escape-hatches")
+        let fixed = try #require(hatches.root.flatMap { first("canvas", in: $0) })
+        #expect(!CanvasProps(fixed).fill && CanvasProps(fixed).zoom == 1 && CanvasProps(fixed).height == 48)
+    }
+
+    private func first(_ type: String, in n: XbinNode) -> XbinNode? {
+        if n.type == type { return n }
+        for c in n.children { if let f = first(type, in: c) { return f } }
+        return nil
     }
 }

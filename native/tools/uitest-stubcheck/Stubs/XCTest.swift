@@ -136,6 +136,7 @@ public protocol XCUIElementTypeQueryProvider {
     var textViews: XCUIElementQuery { get }
     var searchFields: XCUIElementQuery { get }
     var webViews: XCUIElementQuery { get }
+    var links: XCUIElementQuery { get }
     var navigationBars: XCUIElementQuery { get }
     var alerts: XCUIElementQuery { get }
     var cells: XCUIElementQuery { get }
@@ -181,6 +182,7 @@ open class XCUIElement: XCUIElementTypeQueryProvider {
     open var textViews: XCUIElementQuery { XCUIElementQuery() }
     open var searchFields: XCUIElementQuery { XCUIElementQuery() }
     open var webViews: XCUIElementQuery { XCUIElementQuery() }
+    open var links: XCUIElementQuery { XCUIElementQuery() }
     open var navigationBars: XCUIElementQuery { XCUIElementQuery() }
     open var alerts: XCUIElementQuery { XCUIElementQuery() }
     open var cells: XCUIElementQuery { XCUIElementQuery() }
@@ -210,6 +212,7 @@ open class XCUIElementQuery: XCUIElementTypeQueryProvider {
     open var textViews: XCUIElementQuery { self }
     open var searchFields: XCUIElementQuery { self }
     open var webViews: XCUIElementQuery { self }
+    open var links: XCUIElementQuery { self }
     open var navigationBars: XCUIElementQuery { self }
     open var alerts: XCUIElementQuery { self }
     open var cells: XCUIElementQuery { self }

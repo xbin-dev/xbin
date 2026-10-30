@@ -13,6 +13,8 @@ import { settingsScreens } from './settings.js';
 import { sandboxScreens } from './sandboxes.js';
 import { abovePlace, rev2 } from './nav.js';
 import { whoReads } from '../model/docs.js';
+import { ZOOMS, stepZoom, zoomLabel, loadZoom, saveZoom } from '../model/preview-zoom.js';
+import { linksOf } from '../model/report-links.js';
 
 const isHtml = (p) => /\.html?$/i.test(p || '');
 
@@ -45,11 +47,13 @@ const stale = (kind, run) => { for (const s of ui.stack) if (s.kind === kind && 
 const SCREENS = { task: taskTpl, memory: memoryTpl, files: filesTpl, file: fileTpl, skills: skillsTpl, skill: skillTpl, tree: treeTpl, call: callTpl, render: renderTpl, live: liveTpl, ports: portsTpl };
 
 // toolScreen: a tool entry of the stack (native/nav.js) as its screen — over
-// the conversation, a project, the list… (native.js draws the stack).
-export function toolScreen(s) {
+// the conversation, a project, the list… (native.js draws the stack). opts:
+// how it is shown — {close} when it sits beside its conversation (the render
+// preview in halves, D208) rather than pushed.
+export function toolScreen(s, opts = {}) {
   const tpl = SCREENS[s.kind] || settingsScreens[s.kind] || sandboxScreens[s.kind];
   // a kind this file doesn't know is a seam's (ctx.ext.screen, native/ext.js)
-  return tpl ? tpl(s) : ctx.ext.screen(s) || html`<screen title="?"/>`;
+  return tpl ? tpl(s, opts) : ctx.ext.screen(s) || html`<screen title="?"/>`;
 }
 
 // --- the task (D133) ------------------------------------------------------------------------
@@ -335,11 +339,15 @@ function callTpl(s) {
 // --- the render preview ------------------------------------------------------------------------
 
 // openRender shows an HTML session file as a no-script island (render-doc.js);
-// live: it follows the run's newest render.
-export function openRender(run, path, ver, live) {
+// live: it follows the run's newest render. links: the files the report links
+// to, as its render step names them ([{href, path}], #46) — else the newest
+// render of that file in the open conversation says (renderLinks). A preview
+// already open is reused.
+export function openRender(run, path, ver, live, links) {
   const cur = abovePlace().find((x) => x.kind === 'render'); // the open conversation's preview, not one under it
-  if (cur) Object.assign(cur, { run, path, ver: Number(ver) || 0, live: !!live, loaded: false });
-  else push({ kind: 'render', run, path, ver: Number(ver) || 0, live: !!live });
+  const at = { run, path, ver: Number(ver) || 0, live: !!live, links: Array.isArray(links) ? links : null };
+  if (cur) Object.assign(cur, at, { loaded: false });
+  else push({ kind: 'render', ...at });
   ctx.paint();
 }
 
@@ -421,20 +429,105 @@ function portsTpl(s) {
   </screen>`;
 }
 
-function renderTpl(s) {
+// --- the render preview's screen (D208) ------------------------------------------------------
+//
+// An app with canvas rev 2 shows the report as a reader: the island fills the
+// screen (on a phone, the whole of it under the bar), its own page scrolls
+// and pinch-zooms, − / + in a bottom toolbar set the page zoom (the app keeps
+// the reader's place), and a
+// tapped link to one of the run's files (renderLinks) opens the share sheet
+// for it — the PDF or the workbook to act on. Before rev 2: the island at its
+// largest height, − / + re-render the page scaled by CSS, and the linked
+// files are rows under it, each sharing its file. On a wide screen with split
+// rev 3 the reader sits beside its conversation (native.js layout()), with a
+// Close of its own (opts.close).
+
+// The zoom is the web's (model/preview-zoom.js, D207): its steps, and kept
+// per person and tile (prefs/preview-zoom) — read once, saved on a change.
+const zoomAt = { z: 1, read: false };
+function readZoom() {
+  if (zoomAt.read) return;
+  zoomAt.read = true;
+  loadZoom().then((z) => { if (z !== zoomAt.z) { zoomAt.z = z; ctx.paint(); } });
+}
+const can = (name, rev) => { try { return !!native.supports?.(name, rev); } catch { return false; } };
+
+// The address the app gives a static island: a tapped link's href comes back
+// relative to it (docs/native.md, canvas `link`), resolved as a browser does —
+// so a report's "./out/a.pdf" is reported as "out/a.pdf".
+const ISLAND = 'xbin-canvas://island/';
+const resolved = (h) => {
+  try { const u = new URL(String(h), ISLAND).href; return u.startsWith(ISLAND) ? u.slice(ISLAND.length) : u; } catch { return String(h); }
+};
+
+// renderLinks: the run's files the report links to — its render step's
+// (detail.links), else those of the newest render of the same file in the
+// open conversation (a Render from Files).
+function renderLinks(s) {
+  let ls = s.links;
+  if (!Array.isArray(ls)) {
+    ls = [];
+    const v = ctx.app.session.current();
+    const steps = v && v.run.id === s.run ? v.steps || [] : [];
+    for (let i = steps.length - 1; i >= 0; i--) {
+      if (steps[i].kind !== 'render') continue;
+      let d = steps[i].detail;
+      try { if (typeof d === 'string') d = JSON.parse(d); } catch { continue; }
+      if (d && d.path === s.path) { ls = linksOf(d); break; }
+    }
+  }
+  const seen = new Set();
+  return ls.filter((l) => l && typeof l.href === 'string' && l.href && typeof l.path === 'string' && l.path
+    && !seen.has(l.href) && seen.add(l.href));
+}
+
+// shareLinked: the share sheet for a linked file (its own name: GET /dl/).
+const shareLinked = (s, l) => act(s, () => native.share({ file: dl(s.run, l.path) }))();
+
+function renderTpl(s, opts = {}) {
+  const reader = can('canvas', 2);     // fill, zoom, @link
+  const bottom = can('toolbar', 2);    // − / + in a bottom toolbar
+  const links = renderLinks(s);
+  readZoom();
+  const zoom = zoomAt.z;
   load(s, async () => {
     const f = await actions.file(s.run, s.path);
-    const d = renderDoc(f.content);
-    s.doc = d.html; s.blocked = d.blocked; s.version = f.version;
+    s.src = f.content; s.version = f.version; s.drawn = null;
   });
+  // the document: rendered once per source, links and (before rev 2) zoom
+  const sig = JSON.stringify([s.version, links.map((l) => l.href), reader ? 1 : zoom]);
+  if (s.src != null && s.drawn !== sig) {
+    const d = renderDoc(s.src, { links, zoom: reader ? 1 : zoom });
+    s.doc = d.html; s.blocked = d.blocked; s.drawn = sig;
+  }
   const staleV = s.ver && s.version && s.version !== s.ver;
   const warns = [];
   if (s.blocked) warns.push(`${s.blocked} external resource${s.blocked > 1 ? 's' : ''} blocked`);
   if (staleV) warns.push(`showing v${s.version} (the render was v${s.ver})`);
+  const setZoom = (z) => { zoomAt.z = z; saveZoom(z); ctx.paint(); };
+  const zoomBtns = html`<button icon="minus" ?disabled=${zoom <= ZOOMS[0]} @tap=${() => setZoom(stepZoom(zoom, -1))}>Zoom out</button>
+    <button ?disabled=${zoom === 1} @tap=${() => setZoom(1)}>${zoomLabel(zoom)}</button>
+    <button icon="plus" ?disabled=${zoom >= ZOOMS[ZOOMS.length - 1]} @tap=${() => setZoom(stepZoom(zoom, 1))}>Zoom in</button>`;
+  const onLink = (e) => {
+    const l = links.find((x) => x.href === e.href || resolved(x.href) === resolved(e.href));
+    if (l) shareLinked(s, l);
+  };
   return html`<screen title=${base(s.path)} subtitle=${s.version ? 'v' + s.version : nothing} style="scroll">
-    <toolbar><button icon="doc" @tap=${() => push({ kind: 'file', run: s.run, path: s.path })}>Source</button></toolbar>
+    ${opts.close ? html`<toolbar place="leading"><button icon="xmark" @tap=${opts.close}>Close</button></toolbar>` : nothing}
+    <toolbar>
+      ${reader && links.length ? html`<menu icon="paperclip" label="Linked files">${repeat(links, (l) => l.href, (l) => html`
+        <button icon="share" @tap=${() => shareLinked(s, l)}>${base(l.path)}</button>`)}</menu>` : nothing}
+      <button icon="doc" @tap=${() => push({ kind: 'file', run: s.run, path: s.path })}>Source</button>
+      ${bottom ? nothing : zoomBtns}
+    </toolbar>
+    ${bottom ? html`<toolbar place="bottom">${zoomBtns}</toolbar>` : nothing}
     ${s.err ? html`<notice tone="danger" text=${s.err}/>` : nothing}
     ${warns.length ? html`<notice tone="warn" text=${warns.join(' · ')}/>` : nothing}
-    ${s.doc != null ? html`<canvas html=${s.doc} height="xl"/>` : html`<progress label="loading…"/>`}
+    ${s.doc == null ? html`<progress label="loading…"/>`
+      : reader ? html`<canvas html=${s.doc} fill zoom=${zoom} @link=${onLink}/>`
+      : html`<canvas html=${s.doc} height="xl"/>`}
+    ${!reader && s.doc != null && links.length ? html`<section title="Files linked from this report" footer="Tap one to share or save it.">
+      ${repeat(links, (l) => l.href, (l) => html`<row title=${base(l.path)} subtitle=${l.path !== base(l.path) ? l.path : nothing} icon="share" mono="subtitle"
+        @tap=${() => shareLinked(s, l)}/>`)}</section>` : nothing}
   </screen>`;
 }

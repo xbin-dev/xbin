@@ -133,6 +133,7 @@ export const IMPLEMENTS = {
   'tools.render.source': 'agent.js — #prev-src',
   'tools.render.zoom': 'preview-frame.js — makeZoom (index.html #prev-zoom: #prev-zout, #prev-zreset, #prev-zin)',
   'tools.render.links': 'agent.js — frameDoc, paintPreview (model/report-links.js frameLinks: a path ticket for runs/{id}/dl; index.html #prevframe sandbox="allow-downloads"; preview-frame.js watchFrame)',
+  'tools.render.beside': 'agent.js — the render pane beside the conversation (paintPreview)',
   'tools.live': 'live.js — liveURL, liveFrame (sandbox="allow-scripts allow-forms"); agent.js — openLive',
   'tools.live.follow': 'agent.js — syncPreview',
   'tools.live.reload': 'agent.js — #prev-reload',

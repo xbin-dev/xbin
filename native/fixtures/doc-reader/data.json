@@ -1,0 +1,33 @@
+{
+  "about": "split rev 3 halves: a report beside its conversation; canvas rev 2: the report fills its screen, − / + set its zoom, a tapped link shares the file it names",
+  "self": "apps/reports",
+  "routes": {
+    "GET /api/apps/reports/conversation": {
+      "json": {
+        "title": "Q3 revenue review",
+        "model": "gpt-5",
+        "messages": [
+          {"id": "m1", "role": "user", "sender": "Ana", "time": "13:58", "text": "Summarise Q3 revenue by region and attach the figures."},
+          {"id": "m2", "role": "assistant", "sender": "Agent", "time": "14:01", "text": "Done — the report is on the right. EU grew 12 %, the US was flat; the figures are in q3-figures.xlsx and the board summary in q3 summary.pdf."}
+        ]
+      }
+    },
+    "GET /api/apps/reports/report": {
+      "json": {
+        "name": "q3-report.html",
+        "version": 3,
+        "html": "<!doctype html><html><head><style>body{margin:16px;font:15px/1.5 system-ui;color:#111;background:#fff}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;padding:6px;text-align:left}</style></head><body><h1>Q3 revenue</h1><p>EU grew 12 % on Q2; the US was flat.</p><table><tr><th>Region</th><th>Q2</th><th>Q3</th></tr><tr><td>EU</td><td>223</td><td>250</td></tr><tr><td>US</td><td>198</td><td>198</td></tr></table><h2>Attached</h2><ul><li><a href=\"out/q3-figures.xlsx\">The figures</a></li><li><a href=\"q3%20summary.pdf\">The board summary</a></li></ul></body></html>",
+        "files": [
+          {"href": "out/q3-figures.xlsx", "path": "out/q3-figures.xlsx", "name": "q3-figures.xlsx"},
+          {"href": "q3%20summary.pdf", "path": "q3 summary.pdf", "name": "q3 summary.pdf"}
+        ]
+      }
+    }
+  },
+  "calls": {"share": true},
+  "interactions": [
+    {"select": "button[label=Larger]", "type": "tap", "note": "+ once: 110 %"},
+    {"select": "button[label=Larger]", "type": "tap", "note": "+ again: 125 %"},
+    {"select": "canvas", "type": "link", "payload": {"href": "out/q3-figures.xlsx"}, "note": "the figures' link tapped: the share sheet for the file"}
+  ]
+}

@@ -301,7 +301,7 @@ API — each member is app UI acting on data your tile hands it.
 | `xbin.native.supports(name[, rev])` | `true` when the app has primitive `name` at revision `rev` (default 1) or newer, or has the feature flag `name` |
 | `xbin.native.meta({title, icon, badge})` | the title, icon and badge the app shows for the tile in its navigator and switcher; only the given fields change, `null` clears one. `icon` is an icon name (§Icons; an unknown one shows nothing there), `badge` a count or a short word (the first 8 characters show). The app remembers the last one it saw, so the badge shows before the tile is opened again |
 | `xbin.native.copy(text)` | the app copies `text` to the clipboard → a promise of `true` when copied |
-| `xbin.native.share({text, url, file})` | the share sheet; `file` is a tile-relative path the app downloads with your frame token → a promise of `true` when shared, `false` when dismissed |
+| `xbin.native.share({text, url, file})` | the share sheet; `file` is a path of your tile — relative, or your own `/c/<self>/…` or `/api/<self>/…`, as for an image — that the app downloads with your frame token and shares under the name its `Content-Disposition` gives, else its last path segment (an app before D208 took only a relative path, and named the file after the reference) → a promise of `true` when shared, `false` when dismissed |
 | `xbin.native.open(url)` | opens an `https:` URL outside the app — anything else rejects at once, and the app refuses unless the tile holds `cap:open-links` (ND11) |
 | `xbin.native.state` | the JSON blob you last saved (`null` at first) |
 | `xbin.native.saveState(obj)` | keep a small JSON blob (at most 64 KiB — larger throws) that the app hands back as `state` when it recreates the runtime: the open screen, the selected tab. Never secrets |
@@ -415,7 +415,9 @@ diagnostic (§Checking it) — the render goes on.
   bar included, above a dimmed backdrop, and `@dismiss` fires when the
   user taps or swipes the backdrop away; `detents` don't apply.
 - **`split`** is list/detail — exactly two children, side by side on wide
-  screens and stacked when compact. Never for transcripts or terminals.
+  screens and stacked when compact. Never for transcripts or terminals —
+  except `halves` (rev 3): a document beside the conversation it belongs
+  to (§A document to read).
 
 <!-- generated:prims-structure (node hack/native-docs.mjs --write) -->
 | Primitive | What | Props | Events | Children |
@@ -432,7 +434,7 @@ diagnostic (§Checking it) — the render goes on.
 | `tabs` | segmented tabs; only the selected tab is materialized | `selected`, `style` segmented·bar | `change` {key} | `tab`; only the selected one is built |
 | `tab` | one tab of tabs; `key` is a prop here (it does not key the node) | `key`, `title`, `icon` *icon*, `badge` | — | any |
 | `sheet` (rev 2) | a modal sheet; a sheet among its children presents over it | `open` bool, `title`, `detents` medium·large·full, or a list of them, `edge` bottom·leading | `dismiss` | any |
-| `split` (rev 2) | list/detail: exactly two children; two columns when regular, a list with the detail pushed over it when compact | `prefer` auto·single, `detail` bool (rev 2+), `columns` auto·all·detail (rev 2+) | `close` (rev 2+), `columns` {value} (rev 2+) | exactly 2 |
+| `split` (rev 3) | list/detail: exactly two children; two columns when regular, a list with the detail pushed over it when compact | `prefer` auto·single, `halves` bool (rev 3+), `detail` bool (rev 2+), `columns` auto·all·detail (rev 2+) | `close` (rev 2+), `columns` {value} (rev 2+) | exactly 2 |
 | `spacer` | flexible space in a stack | — | — | — |
 | `divider` | a separator line | — | — | — |
 
@@ -450,6 +452,7 @@ diagnostic (§Checking it) — the render goes on.
 - `sheet` `detents`: `full` covers the whole screen (no swipe to dismiss: give it a way out).
 - `sheet` `detents="full"` is rev 2+.
 - `sheet` `edge`: where it comes from: bottom (a sheet, the default) or leading (a drawer over the screen — a conversation list).
+- `split` `halves`: regular width: the two columns share the width equally (a document beside its conversation) instead of a list column beside the detail — the second keeps at least 480 pt, so on a narrower regular width (an iPad in portrait) it gets more; on an open iPhone Duo one each side of the hinge; compact: as without.
 - `split` `detail`: compact width: the detail is pushed over the list (Back reports `close`); regular: both show.
 - `split` `columns`: regular width: both columns (auto, all) or the detail alone (the list behind the bar's sidebar button).
 <!-- /generated:prims-structure -->
@@ -619,14 +622,17 @@ The app draws these with the same components as its own agent screen.
   default colours (`color-scheme: light dark`), so give anything that
   needs a background its own (`bx preview --native` draws it the same
   way); `height` sizes it. It is the one drawing escape:
-  use it for the one chart the vocabulary cannot express, not for the whole
-  UI.
+  use it for the one chart the vocabulary cannot express, or a document to
+  read (below), not for the whole UI.
 
 <!-- generated:prims-escape (node hack/native-docs.mjs --write) -->
 | Primitive | What | Props | Events | Children |
 |---|---|---|---|---|
 | `terminal` | a terminal on the tile's own pty WebSocket (tile-relative) | `src`, `title` | — | — |
-| `canvas` | a WebView island: a tile page (src) or static no-script html | `src`, `html`, `height` *height* | — | — |
+| `canvas` (rev 2) | a WebView island: a tile page (src) or static no-script html | `src`, `html`, `height` *height*, `fill` bool (rev 2+), `zoom` number (rev 2+) | `link` {href} (rev 2+) | — |
+
+- `canvas` `fill`: the island takes the rest of the screen (a document reader): its own page scrolls and pinch-zooms, and a `scroll` screen holding it no longer scrolls around it; `height` is ignored.
+- `canvas` `zoom`: the page's zoom, 1 = 100 % (0.5 to 3): its text and layout scale and reflow as a browser's zoom does; pinch zoom magnifies on top of it.
 <!-- /generated:prims-escape -->
 
 ### Navigation, search and scrolling (rev 2)
@@ -684,6 +690,57 @@ to keep a rev-1 tree for older apps.
       @edge=${(e) => { if (e.edge === 'end') { atEnd = e.at; paint(); } }}>…</transcript>
     ${!atEnd && unseen ? html`<button @tap=${() => { jumps++; paint(); }}>${`${unseen} new`}</button>` : nothing}`
   ```
+
+### A document to read (canvas rev 2, split rev 3)
+
+Revision 2 of `canvas` and revision 3 of `split` (D208) make a document — a
+report, an HTML page your tile made — something to read on a phone and to
+keep beside its conversation on a tablet. Branch on
+`xbin.native.supports('canvas', 2)` and `supports('split', 3)`: an older app
+shows your web page when the tree uses them.
+
+- **`fill`.** The island takes the rest of the screen instead of a `height`:
+  a `scroll` screen holding it no longer scrolls — its other children (a
+  notice, say) sit above the island, which runs to the screen's edges — and
+  the page scrolls and pinch-zooms itself. Give the screen a bottom
+  `toolbar` for page controls.
+- **`zoom`.** The page's zoom, 1 = 100 %, from 0.5 to 3: its text and layout
+  scale and reflow as a browser's zoom does, and the reader stays at their
+  place in the page. Pinch zoom magnifies on top
+  of it. Wire − and + buttons to it; for an app before rev 2, scaling the
+  markup (`html{zoom:1.25}` in its style) does the same with a reload.
+- **`@link {href}`** on an `html` island. A tapped link still never
+  navigates; with a listener your code gets its `href` — a URL with a scheme
+  as it is, anything else relative to the page and resolved as a browser
+  resolves it (`./out/../a.pdf` → `a.pdf`, `my report.pdf` →
+  `my%20report.pdf`, `#top`). Do something your own with it: share one of
+  your files (`xbin.native.share({file})`), open a screen. Remove the hrefs
+  you don't handle from the markup — a link the user taps that does nothing
+  is a dead end.
+- **`split halves`.** On a regular width the two columns share it equally —
+  a document beside the conversation it belongs to, which stays live in the
+  other half — instead of a list column beside the detail (the second keeps
+  at least 480 points: on an iPad in portrait it gets a little more); on an open
+  iPhone Duo one column each side of the hinge. The bar's sidebar button
+  hides the first column, as for a list (`columns`). Compact, it collapses
+  like any rev-2 split: the document pushed over the conversation, Back
+  reporting `close`. Keep `halves` for a document and its conversation:
+  everywhere else a transcript keeps the screen to itself.
+
+```js
+const reader = xbin.native.supports('canvas', 2);
+html`<split halves detail=${open} @close=${() => { open = false; paint(); }}>
+  <screen title="Q3 review">…the transcript and the composer…</screen>
+  <screen title="q3-report.html" style="scroll">
+    <toolbar place="bottom">
+      <button icon="minus" @tap=${() => setZoom(zoom / 1.25)}>Zoom out</button>
+      <button icon="plus" @tap=${() => setZoom(zoom * 1.25)}>Zoom in</button>
+    </toolbar>
+    ${reader ? html`<canvas html=${doc} fill zoom=${zoom} @link=${(e) => shareFile(e.href)}/>`
+             : html`<canvas html=${doc} height="xl"/>`}
+  </screen>
+</split>`
+```
 
 ## Tokens
 

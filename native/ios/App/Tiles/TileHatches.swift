@@ -49,7 +49,7 @@ final class TileHatches {
 
     /// `canvas`: static no-script html, or a page of the tile in an island.
     func canvas(_ r: XbinCanvasRequest) -> AnyView {
-        if let html = r.html { return AnyView(StaticCanvas(html: html)) }
+        if let html = r.html { return AnyView(StaticCanvas(html: html, zoom: r.zoom, onLink: r.onLink)) }
         guard let src = r.src, let path = TileResource.pagePath(src, tile: tile.path, known: known),
               let url = TileResource.schemeURL(workspace: workspace.id, path: path) else {
             return AnyView(CanvasRefused(src: r.src ?? ""))

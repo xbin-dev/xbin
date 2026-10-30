@@ -225,6 +225,34 @@ test('rev 2: a split collapses to a stack, its Back and sidebar report close and
   await ctx.close();
 });
 
+test('D208: halves share a wide view; a canvas fills its screen, zooms, and hands a tapped link to the tile', { skip }, async () => {
+  const { p, ctx, errors } = await page();
+  await p.setViewportSize({ width: 1024, height: 768 });
+  await p.goto(`${base}/vendor/xb/fixture.html`);
+  await p.waitForFunction(() => window.xbnFixture);
+  await p.evaluate((t) => window.xbnFixture.load(t), fixtureTree('doc-reader'));
+  const root = p.locator('xb-view');
+  const a = await root.locator('.split-a').boundingBox();
+  const b = await root.locator('.split-b').boundingBox();
+  assert.ok(Math.abs(a.width - b.width) <= 2, `halves: ${a.width} vs ${b.width}`);
+  // the island takes the rest of its screen; the screen does not scroll around it
+  const island = await root.locator('xb-canvas.fill').boundingBox();
+  assert.ok(island.height > 500, `fills: ${island.height}`);
+  const frame = root.locator('xb-canvas.fill iframe');
+  assert.match(await frame.getAttribute('srcdoc'), /<style>html\{zoom:1\.25\}<\/style>/, 'the page zoom');
+  assert.equal(await frame.getAttribute('sandbox'), 'allow-same-origin', 'listened to: same-origin, still no scripts');
+  await p.frameLocator('xb-view >> xb-canvas.fill iframe').locator('a', { hasText: 'The board summary' }).click();
+  await p.waitForFunction(() => window.xbnFixture.events.some((e) => e[1] === 'link'));
+  const evs = await p.evaluate(() => window.xbnFixture.events.filter((e) => e[1] === 'link').map((e) => e[2]));
+  assert.deepEqual(evs, [{ href: 'q3%20summary.pdf' }], 'relative to the island, as the app reports it');
+  // a phone: the report over the conversation, Back to it
+  await p.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await root.locator('.split-a').first().isVisible(), false);
+  assert.equal(await root.locator('.split-b').first().isVisible(), true);
+  assert.deepEqual(errors, []);
+  await ctx.close();
+});
+
 test('rev 2: toolbars by place, a submenu, and a row\'s leading and trailing actions', { skip }, async () => {
   const { p, ctx, errors } = await page();
   await p.goto(`${base}/vendor/xb/fixture.html`);

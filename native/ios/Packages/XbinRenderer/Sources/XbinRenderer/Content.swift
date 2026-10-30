@@ -328,28 +328,39 @@ struct TerminalNodeView: View {
 }
 
 /// `canvas`: the app's WebView island (``XbinServices/canvas``); a
-/// placeholder without one.
+/// placeholder without one. Rev 2 (D208): `fill` takes the height it is
+/// given (``ScreenLayout/fillCanvas`` gives it the rest of the screen),
+/// `zoom` and a tapped link (`link {href}`) go to the app's island.
 struct CanvasNodeView: View {
     let node: XbinNode
     @Environment(\.xbin) private var cx
 
     var body: some View {
         let p = node.props
-        let height = XbinHeight(p.string("height"))?.points ?? 160
-        let request = XbinCanvasRequest(key: node.key, src: p.nonEmpty("src"), html: p.string("html"), height: height)
-        if let make = cx?.services.canvas {
-            make(request).frame(height: CGFloat(height))
-        } else {
-            RoundedRectangle.xbinPlate
-                .strokeBorder(XbinColor.border, style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
-                .frame(maxWidth: .infinity)
-                .frame(height: CGFloat(height))
-                .overlay {
-                    Label(request.src ?? "canvas", systemImage: XbinIcons.UI.canvas)
-                        .font(.footnote)
-                        .foregroundStyle(XbinColor.muted)
-                }
+        let props = CanvasProps(node)
+        var request = XbinCanvasRequest(key: node.key, src: p.nonEmpty("src"), html: p.string("html"), height: props.height)
+        request.fill = props.fill
+        request.zoom = props.zoom
+        if node.listens(to: "link") {
+            let n = node
+            let context = cx
+            request.onLink = { href in context?.emit(n, "link", ["href": .string(href)]) }
         }
+        let height: CGFloat? = props.fill ? nil : CGFloat(props.height)
+        return Group {
+            if let make = cx?.services.canvas {
+                make(request)
+            } else {
+                RoundedRectangle.xbinPlate
+                    .strokeBorder(XbinColor.border, style: StrokeStyle(lineWidth: 1, dash: [5, 4]))
+                    .overlay {
+                        Label(request.src ?? "canvas", systemImage: XbinIcons.UI.canvas)
+                            .font(.footnote)
+                            .foregroundStyle(XbinColor.muted)
+                    }
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: height, maxHeight: props.fill ? .infinity : height)
     }
 }
 #endif

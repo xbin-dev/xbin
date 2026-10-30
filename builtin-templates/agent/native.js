@@ -17,7 +17,9 @@
 //     partition forms (native/homes.js)
 //
 // On an iPad or a Duo (an app with the rev-2 split) the list and the stack
-// sit side by side (layout()); a phone, and any app of rev 1, has the one stack.
+// sit side by side (layout()) — a render preview and its conversation half
+// each instead (split rev 3, D208); a phone, and any app of rev 1, has the
+// one stack.
 //
 // The stack is this view's own (native/nav.js: route entries in ui.stack,
 // saved for a restarted runtime); the model keeps one selection, as for the
@@ -112,14 +114,44 @@ function draw() {
 // (the web's home pane) — and on a phone the split collapses to the list
 // with the stack pushed over it, as before. From an app of rev 1, anywhere:
 // one nav of the list, then the stack.
+//
+// A render preview on top of a conversation on a wide screen, from an app
+// with split rev 3 (D208, #41): the preview and its conversation share the
+// screen, half each (`halves`; an open Duo puts one each side of the hinge) —
+// the conversation, live, where the list was, the report beside it with a
+// Close; the list and what was pushed between them come back when it closes.
+// The bar's sidebar button hides the conversation for a wider report. On a
+// phone the preview stays pushed over the conversation, a full-screen reader.
 function layout(list, stack) {
   if (!nav.rev2('split')) return html`<nav @pop=${pop}>${repeat([list, ...stack], (s) => s.key, (s) => s.tpl())}</nav>`;
+  const h = halves(stack);
+  if (h) {
+    return html`<split halves detail=${true} columns=${ui.docCols || 'all'} @close=${h.close}
+        @columns=${(e) => { ui.docCols = e.value; paint(); }}>
+      ${h.chat.tpl()}
+      ${toolScreen(h.doc.entry, { close: h.close })}
+    </split>`;
+  }
+  ui.docCols = '';
   const detail = stack.length ? stack : [{ key: 'home', tpl: newScreen }];
   return html`<split detail=${stack.length > 0} columns=${ui.cols} @close=${() => pop({ depth: 1 })}
       @columns=${(e) => { ui.cols = e.value; paint(); }}>
     ${list.tpl()}
     <nav @pop=${(e) => pop({ depth: (Number(e.depth) || 1) + 1 })}>${repeat(detail, (s) => s.key, (s) => s.tpl())}</nav>
   </split>`;
+}
+
+// halves: the render preview on top and the conversation under it, when they
+// share a wide screen (layout()); close takes the preview off as Back does —
+// closed, it stays closed.
+function halves(stack) {
+  try { if (native.width !== 'regular' || !native.supports?.('split', 3)) return null; } catch { return null; }
+  const doc = stack[stack.length - 1];
+  if (!doc || !doc.entry || doc.entry.kind !== 'render') return null;
+  let chat = null;
+  for (let i = stack.length - 2; i >= 0 && !chat; i--) if (stack[i].entry && stack[i].entry.kind === 'chat') chat = stack[i];
+  if (!chat) return null;
+  return { chat, doc, close: () => { prevDismissed = prevSeen; doc.leave(); paint(); } };
 }
 
 // screensOf: a stack entry's screen — the Automations page is up to three
@@ -188,7 +220,7 @@ function syncPreview() {
   if (over.length && over[over.length - 1] !== r) return;         // don't yank an open screen away
   if (r && !r.live) return;                                       // the person pinned an older one
   if (last.kind === 'live') return openLive(v.run.id, det, true); // preview_port (D135)
-  openRender(v.run.id, det.path, det.version, true);
+  openRender(v.run.id, det.path, det.version, true, det.links);
 }
 
 // --- start --------------------------------------------------------------------------------

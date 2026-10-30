@@ -25,7 +25,9 @@ const here = dirname(fileURLToPath(import.meta.url));
 
 let chromium;
 try {
-  ({ chromium } = await import('/usr/local/node/lib/node_modules/playwright/index.mjs'));
+  ({ chromium } = await import(process.env.PLAYWRIGHT_DIR
+    ? join(process.env.PLAYWRIGHT_DIR, 'node_modules/playwright/index.mjs')
+    : '/usr/local/node/lib/node_modules/playwright/index.mjs'));
 } catch {
   try { ({ chromium } = await import('playwright')); } catch {
     console.log('SKIP: playwright not installed (npm i -g playwright && playwright install chromium)');
@@ -108,6 +110,32 @@ const txt = await page.evaluate((h) => textual(h), HOSTILE);
 ok('native (textual): our CSP is first', txt.html.startsWith('<!doctype html><html><head><meta http-equiv="Content-Security-Policy"'), txt.html.slice(0, 200));
 ok('native (textual): meta refresh neutralised', !/http-equiv="refresh"/i.test(txt.html));
 ok('native (textual): blocked resources counted', txt.blocked >= 3, `blocked=${txt.blocked}`);
+ok('native (textual): off-page href stripped', !txt.html.includes('evil.example/y'));
+
+// D208 (#46, #49): the app's preview keeps the hrefs the render step links
+// as written (the app never follows one: canvas rev 2 hands the tap to the
+// view, which shares the file) and strips the rest as frameDoc does — other
+// off-page links, an image map's areas, SVG links, pings; an app before
+// canvas rev 2 zooms by CSS.
+const NLINKED = HOSTILE.replace('<a href="#section">', `<a href=" out/q3.pdf " ping="https://evil.example/ping">the figures</a>
+  <map name="m"><area href="https://evil.example/area" shape="rect" coords="0,0,9,9"></map>
+  <svg width="20" height="20"><a xlink:href="https://evil.example/svg"><rect width="20" height="20"/></a></svg>
+  <a href="#section">`);
+const linkOpts = { links: [{ href: 'out/q3.pdf', path: 'out/q3.pdf' }], zoom: 1.5 };
+for (const [how, nl] of [
+  ['DOMParser', await page.evaluate(([h, o]) => renderDoc(h, o), [NLINKED, linkOpts])],
+  ['textual', await page.evaluate((h) => textual(h, 1.5, new Set(['out/q3.pdf'])), NLINKED)],
+]) {
+  ok(`native (${how}): a linked run file keeps its href, as written`, nl.html.includes('href=" out/q3.pdf "'), nl.html.slice(0, 300));
+  ok(`native (${how}): every other off-page href is still stripped`, !nl.html.includes('evil.example/y'));
+  ok(`native (${how}): an image map's area, an SVG link and a ping are stripped`,
+    !/evil\.example\/(area|svg|ping)/.test(nl.html), nl.html.slice(nl.html.indexOf('the figures') - 120, nl.html.indexOf('the figures') + 400));
+  ok(`native (${how}): the in-page anchor kept`, nl.html.includes('href="#section"'));
+  ok(`native (${how}): an older app's zoom is CSS`, nl.html.includes('html{zoom:1.5}'));
+  ok(`native (${how}): our CSP is still first`, /^<!doctype html><html><head><meta http-equiv="Content-Security-Policy"/i.test(nl.html));
+}
+const nlNone = await page.evaluate((h) => renderDoc(h).html, NLINKED);
+ok('native: without the step\'s links nothing off-page is kept', !nlNone.includes('q3.pdf "') && !/<a[^>]*href="[^"#]/.test(nlNone) && !/<area[^>]*href=/.test(nlNone), nlNone.slice(0, 200));
 
 // --- the produced document ----------------------------------------------
 ok('meta refresh stripped', !/http-equiv="refresh"/i.test(res.html));

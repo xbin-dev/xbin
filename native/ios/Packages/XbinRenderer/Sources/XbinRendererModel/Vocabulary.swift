@@ -18,9 +18,10 @@ public enum XbinVocabulary {
     /// Every primitive this renderer draws → its revision (`caps.prims`).
     public static let primitives: [String: Int] = [
         // 8.1 structure and navigation (rev 2, D189: screen, toolbar, list,
-        // actions, sheet, split — and menu and transcript below)
+        // actions, sheet, split — and menu and transcript below; split rev 3,
+        // D208: halves)
         "fragment": 1, "nav": 1, "screen": 2, "toolbar": 2, "section": 1, "stack": 1, "list": 2,
-        "row": 1, "actions": 2, "disclosure": 1, "tabs": 1, "tab": 1, "sheet": 2, "split": 2,
+        "row": 1, "actions": 2, "disclosure": 1, "tabs": 1, "tab": 1, "sheet": 2, "split": 3,
         "spacer": 1, "divider": 1,
         // 8.2 content
         "text": 1, "markdown": 1, "image": 1, "icon": 1, "badge": 1, "notice": 1, "progress": 1,
@@ -30,8 +31,8 @@ public enum XbinVocabulary {
         // 8.4 the chat family
         "transcript": 2, "message": 1, "thinking": 1, "toolcard": 1, "approval": 1, "question": 1,
         "plan": 1, "diff": 1, "activity": 1, "step": 1, "composer": 1,
-        // 8.5 escape hatches
-        "terminal": 1, "canvas": 1,
+        // 8.5 escape hatches (canvas rev 2, D208: fill, zoom, link)
+        "terminal": 1, "canvas": 2,
     ]
 
     /// Feature flags within primitives (`chart.area`, `markdown.tables`).

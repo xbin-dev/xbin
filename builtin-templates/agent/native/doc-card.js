@@ -12,6 +12,6 @@ export function docCardTpl(run, d) {
   const ext = String(d.doc || '').split('.').pop().toLowerCase();
   const [glyph, word] = KIND[ext] || ['file', 'File'];
   return html`<toolcard title=${`${word} ${base(d.doc)} v${d.docVersion || ''}`} icon=${glyph} family="render" state="ok"
-      @open=${() => openRender(run, d.path, d.version, false)}/>
+      @open=${() => openRender(run, d.path, d.version, false, d.links)}/>
     <button icon="share" @tap=${() => native.share({ file: raw(run, d.doc) })}>${`Share / export ${base(d.doc)}`}</button>`;
 }

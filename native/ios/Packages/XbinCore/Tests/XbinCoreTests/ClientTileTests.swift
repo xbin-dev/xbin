@@ -325,6 +325,18 @@ import Testing
         #expect(NativeCallAction.decide(call("share", ["text": "t", "url": "http://insecure", "file": "out/r.pdf"]), canOpenLinks: false)
             == .share(text: "t", url: nil, file: "out/r.pdf"))
         if case .refuse = NativeCallAction.decide(call("share", ["file": "../other/secret"]), canOpenLinks: false) {} else { Issue.record("traversal") }
+        // an absolute path of the tile's own API (the agent template's Share / export; D208):
+        // shared — whose it is, TileResource.assetPath decides when the file is fetched
+        #expect(NativeCallAction.decide(call("share", ["file": "/api/apps/agent/runs/9/raw?path=out%2Fr.pdf"]), canOpenLinks: false)
+            == .share(text: nil, url: nil, file: "/api/apps/agent/runs/9/raw?path=out%2Fr.pdf"))
+        #expect(NativeCallAction.decide(call("share", ["file": "/api/apps/agent/runs/9/zip?path=a/../b&name=x.zip"]), canOpenLinks: false)
+            == .share(text: nil, url: nil, file: "/api/apps/agent/runs/9/zip?path=a/../b&name=x.zip"), "a query is not the path")
+        for bad in ["//evil.example/x", "https://evil.example/x", "/api/apps/agent/../other/x", "/api/apps/agent/%2E%2E/x", "data:text/plain,x"] {
+            if case .refuse = NativeCallAction.decide(call("share", ["file": .string(bad)]), canOpenLinks: false) {} else { Issue.record("share \(bad)") }
+        }
+        #expect(TileResource.assetPath("/api/apps/agent/runs/9/dl/out/r.pdf", tile: "apps/agent") == "/api/apps/agent/runs/9/dl/out/r.pdf",
+                "the tile's own API: fetched")
+        #expect(TileResource.assetPath("/api/apps/other/runs/9/dl/r.pdf", tile: "apps/agent") == nil, "another tile's: refused")
         if case .refuse = NativeCallAction.decide(call("camera", [:]), canOpenLinks: true) {} else { Issue.record("device API") }
         #expect(NativeStateBlob.accept(["a": 1]) != nil)
         #expect(NativeStateBlob.accept(.string(String(repeating: "x", count: 70_000))) == nil)

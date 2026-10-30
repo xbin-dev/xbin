@@ -21,7 +21,8 @@
  * that collapses to a stack, toolbar placement, leading/full swipes, nested
  * menus, refresh completion, search submit/scopes/suggestions, a full-screen
  * sheet, scroll anchors and edges; `button`'s rev 2 is `copyFormat` (Markdown
- * copied as rich text, #34).
+ * copied as rich text, #34). `canvas` rev 2 (D208) is the document reader:
+ * `fill`, `zoom` and `link`; `split` rev 3 (D208) is `halves`.
  *
  * Schema (all plain JSON):
  *   prop:     {type: 'string'|'number'|'bool'|'json'|'array'|'object' | [types…],
@@ -155,8 +156,9 @@ const P = {
         doc: '`full` covers the whole screen (no swipe to dismiss: give it a way out)' },
       edge: { ...en('bottom', 'leading'), doc: 'where it comes from: bottom (a sheet, the default) or leading (a drawer over the screen — a conversation list)' } },
     events: { dismiss: { reports: { prop: 'open', value: false } } }, children: ANY },
-  split: { rev: 2, group: 'structure', doc: 'list/detail: exactly two children; two columns when regular, a list with the detail pushed over it when compact',
+  split: { rev: 3, group: 'structure', doc: 'list/detail: exactly two children; two columns when regular, a list with the detail pushed over it when compact',
     props: { prefer: en('auto', 'single'),
+      halves: since(3, { ...B, doc: 'regular width: the two columns share the width equally (a document beside its conversation) instead of a list column beside the detail — the second keeps at least 480 pt, so on a narrower regular width (an iPad in portrait) it gets more; on an open iPhone Duo one each side of the hinge; compact: as without' }),
       detail: since(2, { ...B, doc: 'compact width: the detail is pushed over the list (Back reports `close`); regular: both show' }),
       columns: since(2, { ...en('auto', 'all', 'detail'), doc: 'regular width: both columns (auto, all) or the detail alone (the list behind the bar\'s sidebar button)' }) },
     events: { close: since(2, { reports: { prop: 'detail', value: false } }),
@@ -263,8 +265,12 @@ const P = {
   // ── 8.5 escape hatches ────────────────────────────────────────────────────
   terminal: { rev: 1, group: 'escape', doc: "a terminal on the tile's own pty WebSocket (tile-relative)",
     props: { src: S, title: S }, events: {}, children: NONE },
-  canvas: { rev: 1, group: 'escape', doc: 'a WebView island: a tile page (src) or static no-script html',
-    props: { src: S, html: S, height: tok('height') }, events: {}, children: NONE },
+  canvas: { rev: 2, group: 'escape', doc: 'a WebView island: a tile page (src) or static no-script html',
+    props: { src: S, html: S, height: tok('height'),
+      fill: since(2, { ...B, doc: 'the island takes the rest of the screen (a document reader): its own page scrolls and pinch-zooms, and a `scroll` screen holding it no longer scrolls around it; `height` is ignored' }),
+      zoom: since(2, { ...N, doc: 'the page\'s zoom, 1 = 100 % (0.5 to 3): its text and layout scale and reflow as a browser\'s zoom does; pinch zoom magnifies on top of it' }) },
+    events: { link: since(2, { payload: { href: 'string' }, doc: 'a link in `html` was tapped (it never navigates): `href` as the page resolves it — a URL with a scheme as is, else relative to the page (`out/report.pdf`, `#top`)' }) },
+    children: NONE },
 };
 
 // Widgets (tree.md §13): a second, small tree a tile renders with widget()

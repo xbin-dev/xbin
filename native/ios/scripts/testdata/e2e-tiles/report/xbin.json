@@ -1,0 +1,5 @@
+{
+  // A static tile with a native view for the UI tests (XbinNavigationTests,
+  // D208): a report beside its conversation (split rev 3 halves) that fills
+  // its screen, zooms and shares a linked file (canvas rev 2).
+}

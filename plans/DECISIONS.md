@@ -12886,3 +12886,117 @@ Deviations and refinements made while implementing; all deliberate:
     diagnostics) failed before the fix as the owner saw it. XbinCore and
     app-check test the log, the probe, the policy's nudge and the events
     driver. On a device: unverified until the next TestFlight build.
+- **D208 — A document to read: the agent template's report on iOS full
+  screen, zoomable, beside its conversation, its linked files shared
+  (2026-10-30; issues #41, #49, #46 — the app's half).** web/xb/vocab.js
+  (`canvas` rev 2, `split` rev 3), web/xb/render-content.js and
+  render-structure.js (the reference), native/ios (XbinCore
+  `CanvasDocument.base/href/zoom/Navigation`, `TileResource.shareName`;
+  XbinRendererModel `CanvasProps`, `ScreenLayout.fillCanvas`,
+  `SplitLayout.halves`; the renderer's canvas, screen and split views; the
+  app's `StaticCanvas`), builtin-templates/agent (native/tools.js
+  renderTpl, native/render-doc.js, native.js layout()/halves(), the parity
+  catalogs), native/fixtures/doc-reader, e2e tile apps/report and
+  XbinNavigationTests test03, docs/native.md, plans/native.md §15. The
+  owner: "AgTT html doc preview is janky on iOS: No full screen, no side by
+  side/halves on Duo, no chat render in second half"; "add ability to zoom
+  in/out the preview"; "AgTT html reports should be able to link to sandbox
+  files". Another change does the web and the backend (the render step's
+  `links: [{href, path}]`, `GET /runs/{id}/dl/<path…>`).
+  - **Why it was janky.** The preview was a `canvas html` inside a `scroll`
+    screen at the largest height token (xl, 360 pt): a small box in a page
+    that scrolled around a page that scrolled itself, and no height could
+    say "the rest of the screen". On an iPad it was pushed in the detail
+    column over the conversation.
+  - **`canvas` rev 2.** `fill` (the island takes the rest of its screen; a
+    `scroll` screen holding one lays its other children above it at their
+    own height and doesn't scroll — the page scrolls and pinch-zooms
+    itself), `zoom` (0.5–3: a CSS zoom on the island's page, which reflows
+    it — `WKWebView.pageZoom` was tried first and, on an iPhone, scaled the
+    page without reflowing it, a 125 % table running off the screen's edge;
+    the zoom reloads the island, and the app puts the reader back at the
+    same fraction of the page; pinch magnifies on top) and
+    `link {href}` on an `html` island. JavaScript stays off and the CSP is
+    unchanged; a tapped link still never navigates — the navigation
+    delegate refuses it and, when the tile listens, reports it. A height
+    token `fill` was rejected: tokens are shared by image and chart and
+    can't carry a revision. **Links' hrefs:** with no address
+    (`loadHTMLString(baseURL: nil)`) WebKit can't resolve a relative href
+    against `about:blank`, so the tap did nothing; the island now loads at
+    `xbin-canvas://island/` (a scheme nothing serves — the CSP refuses every
+    load before one would try) and reports an href under it relative to it,
+    resolved as a browser does (`./a/../b.pdf` → `b.pdf`, spaces
+    percent-encoded). An app-injected script in its own content world
+    could have read the attribute as written, but "JS off" stays literal.
+    The reference renderer resolves the same way (`canvasHref`,
+    canvas-parity.test.mjs holds the base and the zoom range equal).
+  - **`split` rev 3: `halves`.** On a regular width the two columns share
+    it equally: the `NavigationSplitView` sidebar column measured to half
+    the split (a GeometryReader around it) instead of 280–400 pt — but
+    never leaving the detail under 480 pt: on an 834-pt iPad in portrait a
+    half-width sidebar was laid OVER a dimmed detail (the split tiles only
+    while the detail keeps its minimum; the list's 360 | 474 tiles), so
+    there it is 354 | 480 (seen on the simulator); on an
+    open Duo the same `ArrangementView` D200 uses for every split, which
+    keeps one pane each side of the hinge (compile-checked only: still no
+    Duo simulator). Compact, it collapses like any rev-2 split.
+    **plans/native.md §15's "transcripts never share the screen" gets one
+    exception** — the owner asked for the chat in the second half: a
+    document beside the conversation it belongs to. Everything else keeps
+    the rule; docs/native.md says `split` is never for transcripts except
+    `halves`.
+  - **The template.** The render screen is a reader where the app has
+    canvas rev 2: the island fills the screen, − / 100 % / + in a bottom
+    toolbar set `zoom` (steps 50–300 %), a Linked files menu in the bar. On
+    a regular width with split rev 3, a render on top of a conversation
+    switches the layout: the conversation (live: transcript, composer) in
+    the leading half where the list was, the report in the trailing half
+    with a Close (leading toolbar); the list and whatever was pushed
+    between the two come back on Close (or a compact Back), which, like
+    Back, keeps a followed render closed. The sidebar button hides the
+    conversation for a wider report. Chat leading and report trailing, as
+    the web's render pane sits; the conversation in the sidebar column
+    keeps the semantics right when the width collapses (the report pushed
+    over the conversation). Phones stay list-first with the report pushed.
+  - **Linked files (#46).** native/render-doc.js keeps the hrefs the render
+    step's `links` name (as the report wrote them) and strips every other
+    off-page one, as the web's frameDoc does (the textual fallback too
+    now); the frame-policy test holds both in Chromium. A tap → `link` →
+    the matching entry (compared as resolved) → `native.share({file})` of
+    `GET /runs/{id}/dl/<path…>`, whose last segment is the file's name.
+    Links come from the step that opened the preview, else from the newest
+    render of that file in the conversation (a Render from Files).
+  - **Older apps** never see what they lack (the runtime would show the web
+    page): canvas rev 1 gets the island at xl with − / + re-rendering it
+    with `html{zoom}` (a reload) and a "Files linked from this report" list
+    of share rows under it; split rev 2 keeps the report pushed in the
+    detail column; toolbar rev 1 gets − / + beside Source.
+  - **`xbin.native.share({file})` never shared a backend's file (found
+    by D207's review, verified here).** `NativeCallAction` took only
+    relative paths and refused anything starting with `/`, and every
+    `file` the agent template passes is its API's (`/api/<self>/runs/…`:
+    Share / export, D207's per-row Share and Share as zip, this report's
+    links) — so the app answered "share: nothing to share". It now passes
+    absolute paths on (no scheme, no host, no `..` in the path);
+    `TileResource.assetPath` still decides, when the file is fetched, that
+    it is the tile's own (`/c/<self>/…`, `/api/<self>/…`), as for an image.
+    Apps already shipped keep refusing them: nothing a template can do
+    about that (a relative path can't reach the API). **The file's name:**
+    the app named it after the reference's last component
+    (`raw?path=out%2Freport.pdf`, `zip?path=…`); it now takes the
+    response's `Content-Disposition` filename (`filename*` first — the dl
+    and zip routes set it), else the last segment or a `?path=`'s, decoded.
+  - **Built on D207** (rebased onto it): the − / + walk
+    model/preview-zoom.js's steps and keep the zoom per person and tile in
+    prefs/preview-zoom, as the web does; links come through
+    model/report-links.js `linksOf` (a step without `links` has none) and
+    are shared through D207's `GET /runs/{id}/dl/…`; render-doc.js mirrors
+    frameDoc's stricter stripping (an image map's areas, SVG links, pings;
+    hrefs trimmed), frame-policy.mjs holding both in Chromium.
+  - **An unbound halves split shows both columns.** On an iPad in portrait
+    an unbound `NavigationSplitView` opened on the detail alone — the
+    conversation behind the sidebar button (the e2e tile's first iPad run);
+    an unbound halves split now starts with `.all`.
+  - **Parity.** `tools.render.zoom` and `tools.render.links` (D207's keys)
+    come off DIFFERENCES.native; `tools.render.beside` is new (the web's
+    render pane already sits beside the conversation).

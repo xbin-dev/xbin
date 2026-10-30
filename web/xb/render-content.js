@@ -125,10 +125,25 @@ function terminal(n, cx) {
 // light/dark default colours — without it the island was an opaque white
 // box in dark mode, and a preview loaded images the app refuses. `src` is
 // a page of the tile's own (a relative URL — anything with a scheme or a
-// host is not drawn), sandboxed like one.
+// host is not drawn), sandboxed like one. Rev 2 (D208): `fill` takes the
+// rest of the screen, `zoom` scales the page (CSS zoom: it reflows, as the
+// app's page zoom does), and `@link` gets a tapped link's href, which never
+// navigates — the frame is then same-origin (still no scripts) so the view
+// can catch the click, and the href is resolved as the app resolves it
+// (canvasHref).
 const RELATIVE = (s) => s !== '' && !/^[a-z][a-z0-9+.-]*:/i.test(s) && !s.startsWith('//') && !s.startsWith('\\');
 const CANVAS_CSP = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'";
-export const canvasDocument = (body) => '<!doctype html><html><head><meta charset="utf-8">'
+// The address the app gives a static island (CanvasDocument.base): a link's
+// href is resolved against it, and comes back relative to it.
+export const CANVAS_BASE = 'xbin-canvas://island/';
+export function canvasHref(href) {
+  let u;
+  try { u = new URL(String(href ?? ''), CANVAS_BASE).href; } catch { return String(href ?? ''); }
+  return u.startsWith(CANVAS_BASE) ? u.slice(CANVAS_BASE.length) : u;
+}
+// zoom: 0.5 to 3, 1 when absent or not a number (CanvasDocument.zoom)
+export const canvasZoom = (z) => (typeof z === 'number' && Number.isFinite(z) && z > 0 ? Math.min(3, Math.max(0.5, z)) : 1);
+export const canvasDocument = (body, zoom) => '<!doctype html><html><head><meta charset="utf-8">'
   + `<meta http-equiv="Content-Security-Policy" content="${CANVAS_CSP}">`
   + '<meta name="viewport" content="width=device-width,initial-scale=1">'
   + '<meta name="color-scheme" content="light dark">'
@@ -137,13 +152,30 @@ export const canvasDocument = (body) => '<!doctype html><html><head><meta charse
   // theme-ok: the island is the app's own WebView page (CanvasDocument.wrap, canvas-parity.test.mjs): the system body font (product-ui §10)
   + '<style>html,body{margin:0;padding:0;background:transparent;font:17px/1.29 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;'
   + 'font:-apple-system-body;-webkit-text-size-adjust:100%}</style>'
+  + (canvasZoom(zoom) !== 1 ? `<style>html{zoom:${canvasZoom(zoom)}}</style>` : '')
   + `</head><body>${body}</body></html>`;
+// A static island's links: caught in the frame (same-origin, no scripts) and
+// handed to the tile; nothing navigates.
+const catchLinks = (n, cx) => (e) => {
+  const doc = e.currentTarget.contentDocument;
+  if (!doc) return;
+  doc.addEventListener('click', (ev) => {
+    const a = ev.target?.closest?.('a[href]');
+    if (!a) return;
+    ev.preventDefault();
+    cx.emit(n, 'link', { href: canvasHref(a.getAttribute('href')) });
+  });
+};
 function canvas(n, cx) {
   const p = P(n);
-  const h = HEIGHTS.has(p.height) ? `var(--xb-h-${p.height})` : 'var(--xb-h-m)';
+  const fill = p.fill === true;
+  const h = fill ? 'auto' : HEIGHTS.has(p.height) ? `var(--xb-h-${p.height})` : 'var(--xb-h-m)';
   const src = str(p.src);
-  return html`<xb-canvas data-k=${n.k} class=${cls('canvas', cell(cx))} style=${`height:${h}`}>${p.html != null
-    ? html`<iframe sandbox="" srcdoc=${canvasDocument(str(p.html))} title="canvas"></iframe>`
+  const links = p.html != null && cx.on(n, 'link');
+  return html`<xb-canvas data-k=${n.k} class=${cls('canvas', fill && 'fill', cell(cx))} style=${`height:${h}`}>${p.html != null
+    ? links
+      ? html`<iframe sandbox="allow-same-origin" srcdoc=${canvasDocument(str(p.html), p.zoom)} title="canvas" @load=${catchLinks(n, cx)}></iframe>`
+      : html`<iframe sandbox="" srcdoc=${canvasDocument(str(p.html), p.zoom)} title="canvas"></iframe>`
     : RELATIVE(src) ? html`<iframe sandbox="allow-scripts allow-forms" src=${src} title="canvas"></iframe>` : nothing}</xb-canvas>`;
 }
 

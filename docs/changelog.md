@@ -33,6 +33,38 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   new `ext.listTop(list)` seam, and `ext.side` stays for entries under
   Automations.
 
+- **Native vocabulary: a document to read — `canvas` rev 2 and `split`
+  rev 3** (D208; [native.md](/docs/native.md) §A document to read). A
+  `canvas` takes `fill` (the island takes the rest of the screen; its page
+  scrolls and pinch-zooms itself, the screen no longer scrolls around it),
+  `zoom` (the page zoom, 0.5–3: it reflows, and the reader keeps their
+  place) and `@link {href}` on an `html` island (a tapped link still never
+  navigates; your code gets its href, relative to the page). A `split`
+  takes `halves`: on a regular width the two columns share it equally — a
+  document beside its conversation (the second keeps at least 480 points;
+  an open iPhone Duo puts one each side of the hinge); compact, it collapses
+  as before. Apps that predate them show your web page when the tree uses
+  them: branch on `xbin.native.supports('canvas', 2)` / `('split', 3)`.
+  `bx preview --native` draws them.
+- **Fix (app): `xbin.native.share({file})` with your own absolute path**
+  (D208; [native.md](/docs/native.md) §`xbin.native`). The app refused
+  every `file` starting with `/` — `/api/<self>/…`, `/c/<self>/…` — as
+  "share: nothing to share", so a backend's file never reached the share
+  sheet (the agent template's Share / export did nothing). It now takes
+  your own paths as an image `src` does, and names the file by the
+  response's `Content-Disposition` filename, else the last path segment (or
+  a `?path=`'s) — no longer `raw?path=…`. Apps before this release still
+  refuse absolute paths.
+- **Agent template in the app: the report preview is a reader** (D208,
+  issues #41, #49, #46). On a phone the preview fills the screen and zooms
+  (pinch, or − / + in its bottom bar, kept per person like the web's
+  zoom); on an iPad or an open Duo it opens
+  beside its conversation, half each, the conversation live, with a Close
+  (the list comes back when it closes). A report's links to the run's own
+  files (its render step's `links`, D207) open the share sheet for the
+  file; every other link stays inert. Older apps keep the preview pushed,
+  zoom by re-rendering it, and list the linked files under it (sharing
+  from those apps waits for the share fix above).
 - **The agent template: reports link their files, the preview zooms, Files
   downloads and deletes in bulk** (D207, issues #46, #47, #49; the
   template's API.md §Session files + render). A report's links to files

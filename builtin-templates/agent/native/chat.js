@@ -210,7 +210,7 @@ function stepTpl(b) {
   const run = b.run || ctx.app.sel; // a subagent's step, shown in its parent: the file (the page) is its run's
   if (b.kind === 'render' && d.path && d.doc) return docCardTpl(run, d);
   if (b.kind === 'render' && d.path) {
-    return html`<toolcard title=${text(d)} icon="photo" family="render" state="ok" @open=${() => openRender(run, d.path, d.version, false)}/>`;
+    return html`<toolcard title=${text(d)} icon="photo" family="render" state="ok" @open=${() => openRender(run, d.path, d.version, false, d.links)}/>`;
   }
   if (b.kind === 'live' && d.sandbox) {
     return html`<toolcard title=${text(d)} icon="globe" family="live" state="ok" @open=${() => openLive(run, d, false)}/>`;

@@ -208,4 +208,48 @@ import Testing
         #expect(CanvasDocument.csp.contains("default-src 'none'") && !CanvasDocument.csp.contains("script-src"))
         #expect(CanvasDocument.csp.contains("img-src data:") && CanvasDocument.csp.contains("style-src 'unsafe-inline'"))
     }
+
+    /// A shared tile file is named after the file, not the reference (D208).
+    @Test func shareName() {
+        #expect(TileResource.shareName("api/agent/runs/5/dl/out/q3-figures.xlsx") == "q3-figures.xlsx")
+        #expect(TileResource.shareName("api/agent/runs/5/dl/q3%20summary.pdf?xbin-partition=global") == "q3 summary.pdf")
+        #expect(TileResource.shareName("api/agent/runs/5/raw?path=out%2Freport.pdf&xbin-partition=global") == "report.pdf")
+        #expect(TileResource.shareName("/api/apps/reports/files/q3%20summary.pdf") == "q3 summary.pdf")
+        #expect(TileResource.shareName("files/x.png") == "x.png")
+        #expect(TileResource.shareName("raw?path=") == "file")
+        #expect(TileResource.shareName("") == "file")
+        #expect(TileResource.shareName("dl/a%2F..%2F..%2Fetc") == "etc", "never a path")
+        // the response's Content-Disposition first (a zip is named only there)
+        #expect(TileResource.dispositionName(#"attachment; filename="run-9-files.zip""#) == "run-9-files.zip")
+        #expect(TileResource.dispositionName("attachment; filename=\"a.pdf\"; filename*=UTF-8''q3%20r%C3%A9sum%C3%A9.pdf") == "q3 résumé.pdf")
+        #expect(TileResource.dispositionName(#"attachment; filename="../../etc/passwd""#) == "passwd", "never a path")
+        #expect(TileResource.dispositionName("attachment; filename*=utf-8''r%C3%A9sum%C3%A9.pdf") == "résumé.pdf", "as Go's mime.FormatMediaType writes it")
+        #expect(TileResource.dispositionName("attachment") == nil && TileResource.dispositionName(nil) == nil)
+    }
+
+    /// Rev 2 (D208): a tapped link never navigates; the tile gets its href,
+    /// relative to the island's address when under it.
+    @Test func canvasNavigation() {
+        let b = CanvasDocument.base
+        typealias N = CanvasDocument.Navigation
+        // its own document, once, in its own frame
+        #expect(N.decide(url: b, admitting: true, mainFrame: true, linkActivated: false, listens: false) == .allow)
+        #expect(N.decide(url: b, admitting: false, mainFrame: true, linkActivated: false, listens: true) == .cancel)
+        #expect(N.decide(url: b, admitting: true, mainFrame: false, linkActivated: false, listens: true) == .cancel)
+        // links: reported when the tile listens, refused either way
+        #expect(N.decide(url: b + "out/report.pdf", admitting: false, mainFrame: false, linkActivated: true, listens: true) == .link("out/report.pdf"))
+        #expect(N.decide(url: b + "a%20b.docx", admitting: false, mainFrame: true, linkActivated: true, listens: true) == .link("a%20b.docx"))
+        #expect(N.decide(url: b + "#top", admitting: false, mainFrame: true, linkActivated: true, listens: true) == .link("#top"))
+        #expect(N.decide(url: "https://example.com/x", admitting: false, mainFrame: false, linkActivated: true, listens: true) == .link("https://example.com/x"))
+        #expect(N.decide(url: b + "out/report.pdf", admitting: false, mainFrame: false, linkActivated: true, listens: false) == .cancel)
+        // a meta refresh or a form is never a link
+        #expect(N.decide(url: "https://evil.example/x", admitting: false, mainFrame: true, linkActivated: false, listens: true) == .cancel)
+        // a zoom is a CSS zoom in the island's head (it reflows), as the reference's canvasDocument
+        #expect(CanvasDocument.wrap("<p>x</p>", zoom: 1.25).contains("<style>html{zoom:1.25}</style></head>"))
+        #expect(CanvasDocument.wrap("<p>x</p>", zoom: 2).contains("<style>html{zoom:2}</style></head>"))
+        #expect(!CanvasDocument.wrap("<p>x</p>").contains("zoom") && !CanvasDocument.wrap("<p>x</p>", zoom: .nan).contains("zoom"))
+        // zoom: 0.5 to 3, 1 when absent
+        #expect(CanvasDocument.zoom(nil) == 1 && CanvasDocument.zoom(.nan) == 1 && CanvasDocument.zoom(0) == 1)
+        #expect(CanvasDocument.zoom(0.1) == 0.5 && CanvasDocument.zoom(1.25) == 1.25 && CanvasDocument.zoom(9) == 3)
+    }
 }

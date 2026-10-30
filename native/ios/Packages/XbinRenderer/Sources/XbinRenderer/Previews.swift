@@ -47,6 +47,7 @@ public struct XbinFixturePreview: View {
 #Preview("chat-tools") { XbinFixturePreview("chat-tools") }
 #Preview("chat-transcript") { XbinFixturePreview("chat-transcript") }
 #Preview("controls") { XbinFixturePreview("controls") }
+#Preview("doc-reader") { XbinFixturePreview("doc-reader") }
 #Preview("drawer") { XbinFixturePreview("drawer") }
 #Preview("escape-hatches") { XbinFixturePreview("escape-hatches") }
 #Preview("folded-actions") { XbinFixturePreview("folded-actions") }

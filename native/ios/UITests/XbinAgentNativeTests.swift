@@ -228,6 +228,76 @@ final class XbinAgentNativeTests: XCTestCase {
         e.tapNavBack(listShows: run, "Back from the run returns to the schedule")
     }
 
+    /// D208 (#41, #49): a report the agent rendered (`html report`: the
+    /// fake model writes report.html and renders it) is a reader — on an
+    /// iPhone pushed over the conversation and filling the screen, on an
+    /// iPad beside the conversation, half each, with a Close that brings the
+    /// list back. − / + zoom it in place.
+    @MainActor
+    func test11ReportReader() async throws {
+        let e = try E2E(self)
+        try await e.server.prepareAgent()
+        let id = try await e.server.ask("html report", title: "E2E report")
+        try await e.server.waitForAnswer(id, "Report rendered.")
+        e.launch()
+        e.ensureWorkspace()
+        e.goHome()
+        e.app.open(URL(string: "xbin://\(e.server.authority)/c/apps/agent#c=\(id)")!)
+        let answer = e.containing("Report rendered.")
+        let page = e.app.webViews.firstMatch
+        // a render under a minute old opens by itself; else its card opens it
+        if !page.waitForExistence(timeout: 20) {
+            e.expect(answer, 30, "the conversation")
+            e.expect(e.containing("rendered report.html"), 20, "the render's card")
+            let open = e.app.buttons.matching(NSPredicate(format: "label == %@", "Open")).firstMatch
+            e.expect(open, 10, "the card's Open")
+            open.tap()
+        }
+        e.expect(page, 30, "the report")
+        XCTAssertTrue(page.staticTexts["Q3 revenue"].waitForExistence(timeout: 20), "the report drawn")
+        let window = e.app.windows.firstMatch.frame
+        e.shot(e.isPad ? "agent-17-report-halves" : "agent-17-report-reader")
+        if e.isPad {
+            XCTAssertTrue(e.until(10) { answer.exists && answer.isHittable }, "the conversation beside the report")
+            let ratio = page.frame.width / window.width
+            XCTAssertTrue(ratio > 0.35 && ratio < 0.6, "half each (\(page.frame.width) of \(window.width))")
+        } else {
+            XCTAssertTrue(page.frame.height > window.height * 0.6, "the report fills the screen (\(page.frame.height) of \(window.height))")
+        }
+        let zoomIn = e.app.buttons["Zoom in"]
+        e.expect(zoomIn, 10, "− / + in the bottom bar")
+        zoomIn.tap()
+        zoomIn.tap()
+        e.expect(e.app.buttons["125%"], 10, "zoomed to 125 %")
+        e.shot(e.isPad ? "agent-18-report-halves-zoomed" : "agent-18-report-reader-zoomed")
+        // a link to one of the run's files (its render step's links, D207):
+        // the share sheet for the file, under its own name
+        let link = page.links["The figures"]
+        e.expect(link, 10, "the report's link to figures.csv")
+        link.tap()
+        let sheet = e.app.otherElements["ActivityListView"]
+        let copy = e.app.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Copy", "Save to Files")).firstMatch
+        XCTAssertTrue(e.until(20) { sheet.exists || copy.exists }, "the share sheet for figures.csv")
+        // named after the file (an iPad's sheet drops the extension: "figures")
+        let named = e.app.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH %@", "figures")).firstMatch
+        XCTAssertTrue(named.exists, "…named after the file")
+        e.shot(e.isPad ? "agent-19-report-share-pad" : "agent-19-report-share")
+        let close = e.app.buttons.matching(NSPredicate(format: "label == %@ OR identifier == %@", "Close", "header.closeButton")).firstMatch
+        if close.exists { close.tap() } else { e.app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap() }
+        XCTAssertTrue(e.until(10) { !(sheet.exists || copy.exists) }, "the share sheet closes")
+        if e.isPad {
+            let close = e.app.buttons["Close"]
+            e.expect(close, 10, "the report's Close")
+            close.tap()
+            let row = e.agentRow("E2E report")
+            XCTAssertTrue(e.until(15) { row.exists && row.isHittable }, "Close brings the list back beside the conversation")
+            XCTAssertFalse(page.exists, "…and the report is gone")
+            e.shot("agent-20-report-closed")
+        } else {
+            e.tapNavBack(listShows: answer, "Back from the report returns to the conversation")
+        }
+    }
+
     @MainActor
     func test05JumpToLatest() async throws {
         let e = try E2E(self)

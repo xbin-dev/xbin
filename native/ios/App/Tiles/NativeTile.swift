@@ -300,7 +300,10 @@ final class NativeTileRuntime: NSObject {
         if let text { items.append(text) }
         if let url { items.append(url) }
         if let file, let r = try? await tileFile(file), r.isSuccess {
-            let dest = FileManager.default.temporaryDirectory.appendingPathComponent((file as NSString).lastPathComponent)
+            // its own name: the response's Content-Disposition (a zip is named
+            // only there), else the reference's last segment (D208)
+            let name = TileResource.dispositionName(r.header("Content-Disposition")) ?? TileResource.shareName(file)
+            let dest = FileManager.default.temporaryDirectory.appendingPathComponent(name)
             if (try? r.body.write(to: dest)) != nil { items.append(dest) }
         }
         if items.isEmpty {

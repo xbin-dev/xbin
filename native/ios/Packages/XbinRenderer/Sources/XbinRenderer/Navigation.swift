@@ -59,7 +59,9 @@ struct NavView: View {
 /// column visibility the rev-2 `columns`), or — on an open iPhone Duo, where
 /// the system draws its vertical bar (D200) — the Duo's `ArrangementView`,
 /// when built with the iOS 27.1 SDK (`XBIN_SDK_27_1`: ios.yml's `duo` job;
-/// an iPad keeps the columns). Otherwise a rev-2 split (one
+/// an iPad keeps the columns). A rev-3 split with `halves` (D208) gives
+/// each column half the width: the sidebar measured to half the split, or
+/// the Duo's two panes. Otherwise a rev-2 split (one
 /// with `detail`) collapses to a `NavigationStack` — the list, with the
 /// detail pushed over it while `detail` is true, Back reporting `close`;
 /// a rev-1 split is stacked, like the reference renderer (§15).
@@ -93,6 +95,19 @@ struct SplitView: View {
         #endif
     }
 
+    /// Two columns: a list beside the detail, or (`halves`, rev 3, D208)
+    /// half the split's measured width each.
+    @ViewBuilder private func columns(_ kids: [XbinNode], flags: XbinNavFlags) -> some View {
+        if SplitLayout.halves(node) {
+            GeometryReader { geo in
+                ColumnsSplit(node: node, primary: kids[0], secondary: kids[1], flags: flags,
+                             half: CGFloat(SplitLayout.halfWidth(Double(geo.size.width))))
+            }
+        } else {
+            ColumnsSplit(node: node, primary: kids[0], secondary: kids[1], flags: flags)
+        }
+    }
+
     @ViewBuilder private func layouts(_ layout: SplitLayout) -> some View {
         let kids = node.children
         let flags = XbinNavFlags(inNavigation: true, pushed: false, inSheet: nav.inSheet)
@@ -100,12 +115,14 @@ struct SplitView: View {
         if layout == .columns {
             #if XBIN_SDK_27_1
             if #available(iOS 27.1, *), verticalBar {
+                // halves (rev 3) too: the arrangement puts one pane each
+                // side of the hinge
                 DuoSplit(primary: kids[0], secondary: kids[1], flags: flags)
             } else {
-                ColumnsSplit(node: node, primary: kids[0], secondary: kids[1], flags: flags)
+                columns(kids, flags: flags)
             }
             #else
-            ColumnsSplit(node: node, primary: kids[0], secondary: kids[1], flags: flags)
+            columns(kids, flags: flags)
             #endif
         } else if layout == .collapsed {
             CollapsedSplit(node: node, primary: kids[0], secondary: kids[1], inSheet: nav.inSheet, topSheets: topSheets)
@@ -131,6 +148,9 @@ private struct ColumnsSplit: View {
     let flags: XbinNavFlags
     @Environment(\.xbin) private var cx
     @Environment(\.scenePhase) private var phase
+    /// A halves split's leading column width (rev 3, ``SplitView``); nil:
+    /// a list column.
+    var half: CGFloat? = nil
     /// Until when a change to both columns is SwiftUI's own, not the
     /// person's: as the split appears, and as the app comes back to the
     /// front, it shows the list again — a link opened from outside brought
@@ -168,6 +188,16 @@ private struct ColumnsSplit: View {
             .navigationSplitViewStyle(.balanced)
             .onAppear { settling.start() }
             .onChange(of: phase) { _, p in if p == .active { settling.start() } }
+        } else if half != nil {
+            // halves (rev 3) that don't bind `columns`: both halves show —
+            // unbound, an iPad in portrait opened on the detail alone, the
+            // conversation behind the sidebar button (2026-10-30)
+            NavigationSplitView(columnVisibility: $halvesShown) {
+                sidebar
+            } detail: {
+                detail
+            }
+            .navigationSplitViewStyle(.balanced)
         } else {
             NavigationSplitView {
                 sidebar
@@ -178,10 +208,20 @@ private struct ColumnsSplit: View {
         }
     }
 
-    /// The list, 280–400 pt wide (the reference renderer's clamp).
-    private var sidebar: some View {
-        NodeView(node: primary).environment(\.xbinNav, flags)
-            .navigationSplitViewColumnWidth(min: 280, ideal: 360, max: 400)
+    /// An unbound halves split's column visibility: both, until the person
+    /// hides one.
+    @State private var halvesShown: NavigationSplitViewVisibility = .all
+
+    /// The list, 280–400 pt wide (the reference renderer's clamp); half the
+    /// split for `halves` (rev 3).
+    @ViewBuilder private var sidebar: some View {
+        if let half {
+            NodeView(node: primary).environment(\.xbinNav, flags)
+                .navigationSplitViewColumnWidth(half)
+        } else {
+            NodeView(node: primary).environment(\.xbinNav, flags)
+                .navigationSplitViewColumnWidth(min: 280, ideal: 360, max: 400)
+        }
     }
 
     /// The detail. A `nav` there, in the app's own stack

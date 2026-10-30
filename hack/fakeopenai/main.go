@@ -66,6 +66,9 @@
 //	             bash writing rep/index.html — a report over 64 KB (4000
 //	             rows), then render_html "./rep/index.html"; the answer then
 //	             takes 6 s → "Report shown." (the pane opens during the turn)
+//	html report  (no sandbox) file_write figures.csv and report.html — a
+//	             report of 40 rows linking to the figures — then render_html
+//	             "report.html" → "Report rendered." (D208's UI test)
 //	new sandbox  sandbox_create {name "scratch"} — the owner is asked to allow
 //	             it → "Created: <its first line>"
 //	restart me   the FIRST request of that turn hangs 30 s (the harness restarts
@@ -360,6 +363,9 @@ func script(conv []turn, system string) plan {
 	}
 	if strings.Contains(lastUser, "report links") {
 		return reportLinksScript(conv)
+	}
+	if strings.Contains(lastUser, "html report") {
+		return htmlReportScript(conv)
 	}
 	if last.Role == "tool" {
 		switch last.Tool {
@@ -944,6 +950,40 @@ const livePage = `<!doctype html><html><head><title>live</title></head><body>
 // binary session file, it must still render (up to 2 MB).
 const reportCmd = `mkdir -p rep && { printf '<!doctype html><html><body><h1 id="t">big report</h1>\n'; ` +
 	`i=1; while [ $i -le 4000 ]; do printf '<p>row %d of the big report</p>\n' $i; i=$((i+1)); done; printf '</body></html>\n'; } > rep/index.html && wc -c < rep/index.html`
+
+// htmlReport is "html report"'s page: a heading, a table long enough to
+// scroll, and a link to a file of the run (figures.csv).
+var htmlReport = func() string {
+	var b strings.Builder
+	b.WriteString(`<!doctype html><html><head><title>Q3 revenue</title><style>body{font:16px/1.5 system-ui;margin:16px}` +
+		`table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;padding:6px;text-align:left}</style></head><body>` +
+		`<h1>Q3 revenue</h1><p>EU grew 12 % on Q2; the US was flat. <a href="figures.csv">The figures</a> are attached.</p>` +
+		`<table><tr><th>Week</th><th>EU</th><th>US</th></tr>`)
+	for i := 1; i <= 40; i++ {
+		fmt.Fprintf(&b, "<tr><td>Week %d</td><td>%d</td><td>%d</td></tr>", i, 200+i*3%60, 180+i*7%60)
+	}
+	b.WriteString(`</table><p><a href="figures.csv">Download the figures</a></p></body></html>`)
+	return b.String()
+}()
+
+func htmlReportScript(conv []turn) plan {
+	did := map[string]bool{}
+	for i := len(conv) - 1; i >= 0 && conv[i].Role != "user"; i-- {
+		if conv[i].Role == "tool" {
+			did[conv[i].Tool] = true
+		}
+	}
+	switch {
+	case !did["file_write"]:
+		return plan{Calls: []call{
+			{"file_write", map[string]any{"path": "figures.csv", "content": "region,q2,q3\nEU,223,250\nUS,198,198\n", "summary": "Write the figures"}},
+			{"file_write", map[string]any{"path": "report.html", "content": htmlReport, "summary": "Write the report"}},
+		}}
+	case !did["render_html"]:
+		return plan{Calls: []call{{"render_html", map[string]any{"path": "report.html", "summary": "Show the report"}}}}
+	}
+	return plan{Text: "Report rendered."}
+}
 
 func reportScript(conv []turn) plan {
 	did := map[string]bool{}

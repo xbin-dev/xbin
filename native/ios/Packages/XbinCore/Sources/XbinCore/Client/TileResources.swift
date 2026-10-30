@@ -55,6 +55,54 @@ public enum TileResource {
         return ["PUT", "POST", "PATCH"].contains(u) ? u : nil
     }
 
+    /// The name a file shared from a tile (`xbin.native.share({file})`)
+    /// gets in the share sheet: the last path segment of `ref`, decoded,
+    /// without the query — or, for a `?path=` reference (the agent's
+    /// `runs/{id}/raw?path=…`), that path's. The app named it after the
+    /// raw reference before (D208): a report's PDF went to Mail as
+    /// `raw?path=out%2Freport.pdf`.
+    public static func shareName(_ ref: String) -> String {
+        let parts = ref.split(separator: "?", maxSplits: 1, omittingEmptySubsequences: false)
+        var name = String(parts.first ?? "")
+        if parts.count > 1 {
+            for pair in parts[1].split(separator: "&") {
+                let kv = pair.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+                if kv.count == 2, kv[0] == "path" { name = String(kv[1]).replacingOccurrences(of: "+", with: " ") }
+            }
+        }
+        if let i = name.lastIndex(of: "/") { name = String(name[name.index(after: i)...]) }
+        return fileName(name.removingPercentEncoding ?? name, fallback: "file")
+    }
+
+    /// The file name a response's `Content-Disposition` gives (`filename*=`
+    /// UTF-8 first, else `filename=`), made safe by ``fileName(_:fallback:)``;
+    /// nil when it names none. A shared file takes it before
+    /// ``shareName(_:)``: a zip's route (`runs/{id}/zip?path=…&name=`) names
+    /// the archive only there (D208).
+    public static func dispositionName(_ header: String?) -> String? {
+        guard let header, !header.isEmpty else { return nil }
+        var plain: String?
+        var extended: String?
+        for part in header.split(separator: ";").map({ $0.trimmingCharacters(in: .whitespaces) }) {
+            let kv = part.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+            guard kv.count == 2 else { continue }
+            let key = kv[0].trimmingCharacters(in: .whitespaces).lowercased()
+            var value = kv[1].trimmingCharacters(in: .whitespaces)
+            if key == "filename*" {
+                // RFC 5987: charset'lang'percent-encoded
+                let pieces = value.split(separator: "'", maxSplits: 2, omittingEmptySubsequences: false)
+                if pieces.count == 3, pieces[0].lowercased() == "utf-8" { extended = String(pieces[2]).removingPercentEncoding }
+            } else if key == "filename" {
+                if value.count >= 2, value.hasPrefix("\""), value.hasSuffix("\"") {
+                    value = String(value.dropFirst().dropLast()).replacingOccurrences(of: "\\\"", with: "\"")
+                }
+                plain = value
+            }
+        }
+        guard let name = extended ?? plain, !name.isEmpty else { return nil }
+        return fileName(name, fallback: "file")
+    }
+
     /// A picked file's name as the tile sees it (`{name}`, `uploaded
     /// {name}`): the last path element, control characters replaced, at
     /// most 200 bytes (the extension kept); `fallback` when nothing is left.
@@ -385,21 +433,79 @@ public enum TileUpload {
 // MARK: - canvas html
 
 /// A `canvas html=` island: static markup, no scripts, no network. The app
-/// loads it with JavaScript off, no base URL and every navigation refused;
-/// this is the document, with a CSP that allows only inline styles and
-/// `data:` images.
+/// loads it with JavaScript off, at an address of its own that nothing
+/// answers (``base``), and every navigation refused; this is the document,
+/// with a CSP that allows only inline styles and `data:` images.
 public enum CanvasDocument {
     public static let csp = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; font-src data:; form-action 'none'; base-uri 'none'"
 
-    public static func wrap(_ html: String) -> String {
-        """
+    /// The island's address (rev 2, D208): a link's href is resolved
+    /// against it, so a relative one (`out/report.pdf`) is a link at all —
+    /// with no address, WebKit can't resolve it and the tap did nothing —
+    /// and the tile gets it back relative (``href(_:)``). A scheme of our
+    /// own that no handler serves: the CSP refuses loads before they'd try.
+    /// The reference renderer resolves the same way (`CANVAS_BASE`).
+    public static let base = "xbin-canvas://island/"
+    public static var baseURL: URL? { URL(string: base) }
+
+    /// The href a `link` event carries for the URL a tap navigated to: one
+    /// under ``base`` relative to it, any other as it is.
+    public static func href(_ url: String) -> String {
+        url.hasPrefix(base) ? String(url.dropFirst(base.count)) : url
+    }
+
+    /// The page zoom a `zoom` prop asks for: 0.5 to 3, 1 when absent or
+    /// not a number.
+    public static func zoom(_ value: Double?) -> Double {
+        guard let value, value.isFinite, value > 0 else { return 1 }
+        return min(3, max(0.5, value))
+    }
+
+    /// What an island does with a navigation (``StaticCanvas``'s
+    /// navigation delegate): the document it loads itself (the island's
+    /// address, in its main frame) is admitted; a tapped link is refused and
+    /// reported to the tile when it listens (`link`, rev 2); anything else —
+    /// a meta refresh, a form, an iframe, a link no one listens to — is
+    /// refused.
+    public enum Navigation: Equatable, Sendable {
+        case allow
+        case cancel
+        case link(String)
+
+        /// - Parameters:
+        ///   - url: the navigation's URL.
+        ///   - admitting: the island is loading its own document.
+        ///   - mainFrame: the navigation targets the island's own frame
+        ///     (false: a new window, or a subframe).
+        ///   - linkActivated: a tap on a link.
+        ///   - listens: the tile listens to `link`.
+        public static func decide(url: String, admitting: Bool, mainFrame: Bool, linkActivated: Bool, listens: Bool) -> Navigation {
+            if admitting, mainFrame, url == base || url == "about:blank" { return .allow }
+            if linkActivated, listens, !url.isEmpty { return .link(CanvasDocument.href(url)) }
+            return .cancel
+        }
+    }
+
+    /// The island's document around `html`; `zoom` (rev 2, ``zoom(_:)``) a
+    /// CSS zoom on the page, which reflows it — WKWebView's `pageZoom`
+    /// scales an iPhone's page without reflowing it (a 125 % table ran off
+    /// the screen's edge, D208).
+    public static func wrap(_ html: String, zoom: Double = 1) -> String {
+        let z = Self.zoom(zoom)
+        let zoomStyle = z == 1 ? "" : "<style>html{zoom:\(cssNumber(z))}</style>"
+        return """
         <!doctype html><html><head><meta charset="utf-8">\
         <meta http-equiv="Content-Security-Policy" content="\(csp)">\
         <meta name="viewport" content="width=device-width,initial-scale=1">\
         <meta name="color-scheme" content="light dark">\
         <meta name="referrer" content="no-referrer">\
         <style>html,body{margin:0;padding:0;background:transparent;font:-apple-system-body;-webkit-text-size-adjust:100%}</style>\
-        </head><body>\(html)</body></html>
+        \(zoomStyle)</head><body>\(html)</body></html>
         """
+    }
+
+    /// A number as CSS writes it: `1.25`, `2` (no trailing `.0`).
+    static func cssNumber(_ v: Double) -> String {
+        v == v.rounded() ? String(Int(v)) : String(format: "%g", v)
     }
 }
