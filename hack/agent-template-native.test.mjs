@@ -928,6 +928,8 @@ test('D208: on a phone the preview is a reader — it fills the screen, − / + 
   assert.equal(z.p.zoom, 1.25, 'two steps up');
   assert.equal(z.p.html, c.p.html, 'zoomed in place: the page is not reloaded');
   assert.ok(find(r.snapshots.zoomed, { t: 'button', p: { label: '125%' } }), 'the percentage shows (and resets it)');
+  const kept = (r.extra?.calls || []).filter((c) => c.method === 'PUT' && /\/api\/xbin\/prefs\/preview-zoom$/.test(c.url));
+  assert.deepEqual(kept.map((c) => JSON.parse(c.body)), [1.1, 1.25], 'kept per person and tile, as the web keeps it (prefs/preview-zoom)');
   assert.deepEqual(shares(r), ['/api/apps/agent/runs/9/dl/brief.pdf', '/api/apps/agent/runs/9/dl/out/q3.xlsx'],
     'a tapped link (as the app resolves it) and the Linked files menu share the file under its own name; another link does nothing');
 });

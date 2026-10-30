@@ -106,15 +106,15 @@ final class XbinNavigationTests: XCTestCase {
         let window = e.app.windows.firstMatch.frame
         let pad = window.width >= 700
         let convo = e.containing("Summarise Q3 revenue by region") // the conversation's alone (the report says "the US was flat" too)
+        e.shot(pad ? "doc-01-halves" : "doc-01-reader")
         if pad {
-            XCTAssertTrue(convo.waitForExistence(timeout: 10) && e.until(10) { convo.isHittable }, "the conversation beside the report")
+            if !(convo.waitForExistence(timeout: 10) && e.until(10) { convo.isHittable }) { print("xbin-doc halves:\n\(e.app.debugDescription)") }
+            XCTAssertTrue(convo.exists && convo.isHittable, "the conversation beside the report")
             let ratio = page.frame.width / window.width
             XCTAssertTrue(ratio > 0.4 && ratio < 0.6, "halves: the report takes half the width (\(page.frame.width) of \(window.width))")
-            e.shot("doc-01-halves")
         } else {
             XCTAssertFalse(convo.exists && convo.isHittable, "a phone shows the report over the conversation")
             XCTAssertTrue(page.frame.height > window.height * 0.6, "the report fills the screen (\(page.frame.height) of \(window.height))")
-            e.shot("doc-01-reader")
         }
         let zoomIn = e.app.buttons["Zoom in"]
         XCTAssertTrue(zoomIn.waitForExistence(timeout: 10), "− / + in the bottom bar")

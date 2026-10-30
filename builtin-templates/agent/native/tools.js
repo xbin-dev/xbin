@@ -13,6 +13,8 @@ import { settingsScreens } from './settings.js';
 import { sandboxScreens } from './sandboxes.js';
 import { abovePlace, rev2 } from './nav.js';
 import { whoReads } from '../model/docs.js';
+import { ZOOMS, stepZoom, zoomLabel, loadZoom, saveZoom } from '../model/preview-zoom.js';
+import { linksOf } from '../model/report-links.js';
 
 const isHtml = (p) => /\.html?$/i.test(p || '');
 
@@ -340,7 +342,7 @@ function callTpl(s) {
 // live: it follows the run's newest render. links: the files the report links
 // to, as its render step names them ([{href, path}], #46) — else the newest
 // render of that file in the open conversation says (renderLinks). A preview
-// already open keeps its zoom.
+// already open is reused.
 export function openRender(run, path, ver, live, links) {
   const cur = abovePlace().find((x) => x.kind === 'render'); // the open conversation's preview, not one under it
   const at = { run, path, ver: Number(ver) || 0, live: !!live, links: Array.isArray(links) ? links : null };
@@ -440,11 +442,14 @@ function portsTpl(s) {
 // rev 3 the reader sits beside its conversation (native.js layout()), with a
 // Close of its own (opts.close).
 
-const ZOOMS = [0.5, 0.67, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3];
-const zoomStep = (z, dir) => {
-  const i = ZOOMS.findIndex((x) => x >= z - 1e-6);
-  return ZOOMS[Math.max(0, Math.min(ZOOMS.length - 1, (i < 0 ? ZOOMS.length - 1 : i) + dir))];
-};
+// The zoom is the web's (model/preview-zoom.js, D207): its steps, and kept
+// per person and tile (prefs/preview-zoom) — read once, saved on a change.
+const zoomAt = { z: 1, read: false };
+function readZoom() {
+  if (zoomAt.read) return;
+  zoomAt.read = true;
+  loadZoom().then((z) => { if (z !== zoomAt.z) { zoomAt.z = z; ctx.paint(); } });
+}
 const can = (name, rev) => { try { return !!native.supports?.(name, rev); } catch { return false; } };
 
 // The address the app gives a static island: a tapped link's href comes back
@@ -468,7 +473,7 @@ function renderLinks(s) {
       if (steps[i].kind !== 'render') continue;
       let d = steps[i].detail;
       try { if (typeof d === 'string') d = JSON.parse(d); } catch { continue; }
-      if (d && d.path === s.path) { ls = Array.isArray(d.links) ? d.links : []; break; }
+      if (d && d.path === s.path) { ls = linksOf(d); break; }
     }
   }
   const seen = new Set();
@@ -483,7 +488,8 @@ function renderTpl(s, opts = {}) {
   const reader = can('canvas', 2);     // fill, zoom, @link
   const bottom = can('toolbar', 2);    // − / + in a bottom toolbar
   const links = renderLinks(s);
-  const zoom = s.zoom || 1;
+  readZoom();
+  const zoom = zoomAt.z;
   load(s, async () => {
     const f = await actions.file(s.run, s.path);
     s.src = f.content; s.version = f.version; s.drawn = null;
@@ -498,10 +504,10 @@ function renderTpl(s, opts = {}) {
   const warns = [];
   if (s.blocked) warns.push(`${s.blocked} external resource${s.blocked > 1 ? 's' : ''} blocked`);
   if (staleV) warns.push(`showing v${s.version} (the render was v${s.ver})`);
-  const setZoom = (z) => { s.zoom = z; ctx.paint(); };
-  const zoomBtns = html`<button icon="minus" ?disabled=${zoom <= ZOOMS[0]} @tap=${() => setZoom(zoomStep(zoom, -1))}>Zoom out</button>
-    <button ?disabled=${zoom === 1} @tap=${() => setZoom(1)}>${`${Math.round(zoom * 100)}%`}</button>
-    <button icon="plus" ?disabled=${zoom >= ZOOMS[ZOOMS.length - 1]} @tap=${() => setZoom(zoomStep(zoom, 1))}>Zoom in</button>`;
+  const setZoom = (z) => { zoomAt.z = z; saveZoom(z); ctx.paint(); };
+  const zoomBtns = html`<button icon="minus" ?disabled=${zoom <= ZOOMS[0]} @tap=${() => setZoom(stepZoom(zoom, -1))}>Zoom out</button>
+    <button ?disabled=${zoom === 1} @tap=${() => setZoom(1)}>${zoomLabel(zoom)}</button>
+    <button icon="plus" ?disabled=${zoom >= ZOOMS[ZOOMS.length - 1]} @tap=${() => setZoom(stepZoom(zoom, 1))}>Zoom in</button>`;
   const onLink = (e) => {
     const l = links.find((x) => x.href === e.href || resolved(x.href) === resolved(e.href));
     if (l) shareLinked(s, l);

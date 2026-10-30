@@ -148,7 +148,7 @@ private struct ColumnsSplit: View {
     let flags: XbinNavFlags
     @Environment(\.xbin) private var cx
     @Environment(\.scenePhase) private var phase
-    /// A halves split's leading column width (rev 3, ``HalvesSplit``); nil:
+    /// A halves split's leading column width (rev 3, ``SplitView``); nil:
     /// a list column.
     var half: CGFloat? = nil
     /// Until when a change to both columns is SwiftUI's own, not the
@@ -188,6 +188,16 @@ private struct ColumnsSplit: View {
             .navigationSplitViewStyle(.balanced)
             .onAppear { settling.start() }
             .onChange(of: phase) { _, p in if p == .active { settling.start() } }
+        } else if half != nil {
+            // halves (rev 3) that don't bind `columns`: both halves show —
+            // unbound, an iPad in portrait opened on the detail alone, the
+            // conversation behind the sidebar button (2026-10-30)
+            NavigationSplitView(columnVisibility: $halvesShown) {
+                sidebar
+            } detail: {
+                detail
+            }
+            .navigationSplitViewStyle(.balanced)
         } else {
             NavigationSplitView {
                 sidebar
@@ -197,6 +207,10 @@ private struct ColumnsSplit: View {
             .navigationSplitViewStyle(.balanced)
         }
     }
+
+    /// An unbound halves split's column visibility: both, until the person
+    /// hides one.
+    @State private var halvesShown: NavigationSplitViewVisibility = .all
 
     /// The list, 280–400 pt wide (the reference renderer's clamp); half the
     /// split for `halves` (rev 3).
