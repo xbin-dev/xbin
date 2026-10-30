@@ -129,7 +129,7 @@ final class XbinNavigationTests: XCTestCase {
         XCTAssertTrue(page.staticTexts["Q3 revenue"].exists, "…and the island did not navigate")
         // the share sheet for the file the link names
         let share = e.app.otherElements["ActivityListView"]
-        let copy = e.app.buttons.matching(NSPredicate(format: "label IN %@", ["Copy", "Save to Files"])).firstMatch
+        let copy = e.app.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Copy", "Save to Files")).firstMatch
         XCTAssertTrue(e.until(20) { share.exists || copy.exists }, "the share sheet for files/q3.csv")
         e.shot("doc-03-share")
     }
