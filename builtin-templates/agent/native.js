@@ -17,7 +17,9 @@
 //     partition forms (native/homes.js)
 //
 // On an iPad or a Duo (an app with the rev-2 split) the list and the stack
-// sit side by side (layout()); a phone, and any app of rev 1, has the one stack.
+// sit side by side (layout()) — a render preview and its conversation half
+// each instead (split rev 3, D208); a phone, and any app of rev 1, has the
+// one stack.
 //
 // The stack is this view's own (native/nav.js: route entries in ui.stack,
 // saved for a restarted runtime); the model keeps one selection, as for the

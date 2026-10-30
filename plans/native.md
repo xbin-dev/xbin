@@ -720,13 +720,19 @@ publisher). An **opt-in relay run by the xbin project**:
   shipping with iOS 27.1): folded = compact; unfolded = regular × regular;
   book and tabletop postures while partially open. iPad: regular, Stage Manager.
 - **One surface, full screen, for text.** The terminal, the ACP agent and chat
-  transcripts (including the agent template) never share the screen. The
+  transcripts (including the agent template) never share the screen — with
+  one exception (D208, the owner's #41): a document beside the conversation
+  it belongs to (the agent template's report preview), half each on a
+  regular width, the conversation live. The
   navigator, switcher, session lists and conversation lists are overlays or
   sheets that dismiss once something is picked. A bigger screen buys more text.
 - **Two panes only for list/detail tiles that ask** (`split`): `ArrangementView`
   on iOS 27.1, `NavigationSplitView` otherwise; when compact a rev-2 split
   (one with `detail`) is a navigation stack — the list, the detail pushed
-  over it — and a rev-1 split is stacked (D189).
+  over it — and a rev-1 split is stacked (D189). A rev-3 split with `halves`
+  shares a regular width equally (D208: the sidebar column measured to half
+  the split; on an open Duo the arrangement's two panes, one each side of
+  the hinge).
 - **Nested stacks.** A tile's own stacks (`nav`, a collapsed `split`) sit in
   the app's panel stack: while one can pop, its Back (button and edge swipe)
   goes first and the panel stays (PanelStack's `innerStackCanPop`).

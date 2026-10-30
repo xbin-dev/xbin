@@ -59,7 +59,9 @@ struct NavView: View {
 /// column visibility the rev-2 `columns`), or — on an open iPhone Duo, where
 /// the system draws its vertical bar (D200) — the Duo's `ArrangementView`,
 /// when built with the iOS 27.1 SDK (`XBIN_SDK_27_1`: ios.yml's `duo` job;
-/// an iPad keeps the columns). Otherwise a rev-2 split (one
+/// an iPad keeps the columns). A rev-3 split with `halves` (D208) gives
+/// each column half the width: the sidebar measured to half the split, or
+/// the Duo's two panes. Otherwise a rev-2 split (one
 /// with `detail`) collapses to a `NavigationStack` — the list, with the
 /// detail pushed over it while `detail` is true, Back reporting `close`;
 /// a rev-1 split is stacked, like the reference renderer (§15).

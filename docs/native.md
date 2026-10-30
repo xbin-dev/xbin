@@ -415,7 +415,9 @@ diagnostic (§Checking it) — the render goes on.
   bar included, above a dimmed backdrop, and `@dismiss` fires when the
   user taps or swipes the backdrop away; `detents` don't apply.
 - **`split`** is list/detail — exactly two children, side by side on wide
-  screens and stacked when compact. Never for transcripts or terminals.
+  screens and stacked when compact. Never for transcripts or terminals —
+  except `halves` (rev 3): a document beside the conversation it belongs
+  to (§A document to read).
 
 <!-- generated:prims-structure (node hack/native-docs.mjs --write) -->
 | Primitive | What | Props | Events | Children |
@@ -620,8 +622,8 @@ The app draws these with the same components as its own agent screen.
   default colours (`color-scheme: light dark`), so give anything that
   needs a background its own (`bx preview --native` draws it the same
   way); `height` sizes it. It is the one drawing escape:
-  use it for the one chart the vocabulary cannot express, not for the whole
-  UI.
+  use it for the one chart the vocabulary cannot express, or a document to
+  read (below), not for the whole UI.
 
 <!-- generated:prims-escape (node hack/native-docs.mjs --write) -->
 | Primitive | What | Props | Events | Children |
@@ -688,6 +690,56 @@ to keep a rev-1 tree for older apps.
       @edge=${(e) => { if (e.edge === 'end') { atEnd = e.at; paint(); } }}>…</transcript>
     ${!atEnd && unseen ? html`<button @tap=${() => { jumps++; paint(); }}>${`${unseen} new`}</button>` : nothing}`
   ```
+
+### A document to read (canvas rev 2, split rev 3)
+
+Revision 2 of `canvas` and revision 3 of `split` (D208) make a document — a
+report, an HTML page your tile made — something to read on a phone and to
+keep beside its conversation on a tablet. Branch on
+`xbin.native.supports('canvas', 2)` and `supports('split', 3)`: an older app
+shows your web page when the tree uses them.
+
+- **`fill`.** The island takes the rest of the screen instead of a `height`:
+  a `scroll` screen holding it no longer scrolls — its other children (a
+  notice, say) sit above the island, which runs to the screen's edges — and
+  the page scrolls and pinch-zooms itself. Give the screen a bottom
+  `toolbar` for page controls.
+- **`zoom`.** The page's zoom, 1 = 100 %, from 0.5 to 3: its text and layout
+  scale and reflow as a browser's zoom does, in place (the page is not
+  reloaded, so the reader keeps their place). Pinch zoom magnifies on top
+  of it. Wire − and + buttons to it; for an app before rev 2, scaling the
+  markup (`html{zoom:1.25}` in its style) does the same with a reload.
+- **`@link {href}`** on an `html` island. A tapped link still never
+  navigates; with a listener your code gets its `href` — a URL with a scheme
+  as it is, anything else relative to the page and resolved as a browser
+  resolves it (`./out/../a.pdf` → `a.pdf`, `my report.pdf` →
+  `my%20report.pdf`, `#top`). Do something your own with it: share one of
+  your files (`xbin.native.share({file})`), open a screen. Remove the hrefs
+  you don't handle from the markup — a link the user taps that does nothing
+  is a dead end.
+- **`split halves`.** On a regular width the two columns share it equally —
+  a document beside the conversation it belongs to, which stays live in the
+  other half — instead of a list column beside the detail; on an open
+  iPhone Duo one column each side of the hinge. The bar's sidebar button
+  hides the first column, as for a list (`columns`). Compact, it collapses
+  like any rev-2 split: the document pushed over the conversation, Back
+  reporting `close`. Keep `halves` for a document and its conversation:
+  everywhere else a transcript keeps the screen to itself.
+
+```js
+const reader = xbin.native.supports('canvas', 2);
+html`<split halves detail=${open} @close=${() => { open = false; paint(); }}>
+  <screen title="Q3 review">…the transcript and the composer…</screen>
+  <screen title="q3-report.html" style="scroll">
+    <toolbar place="bottom">
+      <button icon="minus" @tap=${() => setZoom(zoom / 1.25)}>Zoom out</button>
+      <button icon="plus" @tap=${() => setZoom(zoom * 1.25)}>Zoom in</button>
+    </toolbar>
+    ${reader ? html`<canvas html=${doc} fill zoom=${zoom} @link=${(e) => shareFile(e.href)}/>`
+             : html`<canvas html=${doc} height="xl"/>`}
+  </screen>
+</split>`
+```
 
 ## Tokens
 
