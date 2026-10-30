@@ -110,13 +110,18 @@ final class XbinAgentReviewTests: XCTestCase {
         // Done: the transcript; the shell call's own card reviews the same way
         e.app.buttons["Done"].tap()
         XCTAssertTrue(card.waitForExistence(timeout: 10), "back in the transcript")
-        let call = e.app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND value == %@", "mkdir", "collapsed")).firstMatch
-        if call.waitForExistence(timeout: 5) {
-            call.tap()
-            let rows = e.app.buttons.matching(identifier: "review-file:\(Self.gen)/f01.txt")
-            XCTAssertTrue(e.until(10) { rows.count >= 2 }, "the call's files, beside the turn's")
-            e.shot("review-09-call")
-        }
+        // (its headline: "Create review-gen && for i in …")
+        let call = e.app.buttons.matching(NSPredicate(format: "label CONTAINS %@ AND value == %@", "Create review-gen", "collapsed")).firstMatch
+        XCTAssertTrue(call.waitForExistence(timeout: 10), "the shell call's card, folded")
+        call.tap()
+        let rows = e.app.buttons.matching(identifier: "review-file:\(Self.gen)/f12.txt")
+        XCTAssertTrue(e.until(10) { rows.count >= 1 && rows.element(boundBy: 0).isHittable }, "the call's files")
+        e.shot("review-09-call")
+        rows.element(boundBy: 0).tap() // the call's (above the turn's): past its 64 KiB, by toolCallId
+        XCTAssertTrue(e.until(20) { position.exists && position.label == "12 of 31" }, "the call's review, at the file (\(position.label))")
+        XCTAssertTrue(e.containing("line 1 of file 12").waitForExistence(timeout: 30), "its lines")
+        e.shot("review-10-call-file")
+        e.app.buttons["Done"].tap()
 
         try await e.server.prompt(id, "run: rm -rf \(Self.gen) .git; echo gone")
         _ = try await e.server.waitForText(id, "run: gone", timeout: 60)
