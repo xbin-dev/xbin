@@ -682,10 +682,17 @@ diffs; a tool's raw JSON input is one click away, never the headline. **What
 changed on disk** is shown from snapshots, not from what the agent says: when
 a shell call finishes, its card lists the files it changed with the real
 patch (a `sed -i` or a python script editing `main.go` shows as that diff),
-and each turn ends with *This turn changed N files*. The patch in an event
-is capped (64 KiB per call, 192 KiB per turn); a client wanting all of it —
-a full-screen diff viewer — asks `GET /api/xbin/term/sessions/<id>/diff`
-with the call or turn (and optionally one file) while the session lives.
+and each turn ends with *This turn changed N files +a −d*, folded. A change
+set is reviewed **a file at a time** (D210): open, the card lists the files
+(status, path, +/−); a file's row opens that file's diff alone — its first
+400 lines, then *Show all N lines* — so a turn that rewrote thousands of
+lines never renders as one huge diff. The phone app opens a file in a
+review screen (numbered lines, wrap or scroll sideways, previous and next
+file). The patch in an event is capped (64 KiB per call, 192 KiB per
+turn): a file past the cap loads on demand from
+`GET /api/xbin/term/sessions/<id>/diff?turn=|toolCallId=&path=<file>` while
+the session lives; afterwards (a past session, its history) the card shows
+what the event holds of it, marked cut.
 The snapshots live in a
 private git directory next to the tile (on tiles that are git repos) — your
 repo, index and history are never touched. A **subagent** (Claude's Task)

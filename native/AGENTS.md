@@ -1047,6 +1047,12 @@ in on a fresh start can forget what it added: `E2E.forgetFreshWorkspaces`
 (a Debug fresh start forgets the previous one's workspaces as Remove does
 — test09's two same-server workspaces, left behind, stalled the next
 test's native widget).
+`XbinAgentReviewTests` (D210) make apps/welcome a git repo (snapshot
+diffs need one), have the fake agent's `run:` write 31 files and 12 000
+lines, and review the turn on the Agent screen: the card folded, its first
+files, a file's diff, next/previous, the list behind Back, the last file
+(past the event's patch) from the full-diff route, "Show all", wrap; the
+swipes through the diff are timed (`xbin-e2e: swipe …`).
 `XbinOnboardingTests` launch the app as a fresh install (Debug builds'
 `-XbinFreshStart YES`: no workspace, the saved list untouched): the
 Welcome's levels and the help, Install xbin, address → methods →

@@ -12759,3 +12759,54 @@ Deviations and refinements made while implementing; all deliberate:
     `NativeCallAction.tileRelativeFile` refuses an absolute
     `/api/<self>/…` file, which is what every `native.share({file})` of
     the template passes (Share / export too) — an app-side fix.
+- **D210 — A turn's changes reviewed a file at a time (2026-10-30; issue
+  #45).** web/agent-diffs.js (`FileDiffs`, `diffBody`, `inlinePart`),
+  agent-cards.js (`filesBlock`, `fileRow`, `capped`), bx-agent.js
+  (`_fileDiff`, `_openSlot`, `_touch`), bx-code.js (`diffHTML`'s
+  `startLang`); hack/agent-diffs.test.mjs; harness pass agentReview (and
+  agentTab's diff check); XbinAgent Review.swift (`ChangeSet`,
+  `FileReview`, `PatchParts`, `ReviewLoader`, `AgentClient.diff`) +
+  ReviewTests; App/Agent/AgentReview.swift, AgentScreen.swift; UITests
+  XbinAgentReviewTests; docs/overview/09-terminals.md. The owner: "iOS Tile
+  Agent turn code change preview is laggy — Often turns change 1000s of
+  loc, by default open preview lags when that happens. Should be default
+  hidden, and for mobile it should be a more suitable code review UX, not
+  just massive diff (actually for the web a bit better ux would be good as
+  well)". The app drew a turn's `files.changed` always expanded — every
+  line of up to 192 KiB of patch as a Text in one non-lazy transcript row,
+  re-split on every render; the web's card was folded but opening it ran
+  the whole patch through the highlighter into one `<pre>`.
+  - **File list first, a diff per file.** Folded, a change set is its
+    counts ("This turn changed N files +a −d"); open, its files (status,
+    path, +/−); a file opens its own diff and nothing else. The iOS card
+    respects its open state like a tool card (it ignored it) and lists
+    the first 12 files, then "All N files".
+  - **Where a file's diff comes from, in this order:** its part of the
+    event's own patch when the patch holds all of it (no request); else
+    the existing `GET …/diff?turn=|toolCallId=&path=` (until now unused by
+    any client) while the session runs; else what the patch holds of it,
+    marked cut, or a note that the session no longer has it (a past
+    session, history, a viewer the route refuses). Loaded once per file
+    and kept (the 64 most recent on the web, 32 parsed on iOS).
+  - **The web expands rows in place** rather than opening a D202 tab: the
+    diff is of the agent's snapshot trees, which `<bx-code-diff>` (the
+    tile's git work tree against HEAD) can't show; the Agent tab also
+    stands where there is no IDE window to open a tab in (a history view,
+    a phone sheet); and the reader keeps their place in the transcript.
+    The diff flows in the transcript (no scroller inside the scroller),
+    long lines wrapped, git's header lines dropped (the row names the
+    file; the language still highlights through `diffHTML`'s new optional
+    `startLang`), the open row's header sticky. An edit tool's own diff
+    gets the same 400-line cap.
+  - **iOS reviews in a sheet.** A file opens a NavigationStack at its diff
+    with the change set's file list behind Back: numbered lines (the new
+    side's; the old side's for a removed line) in a lazy list, wrapped or
+    scrolling sideways (the choice kept), the first 400 lines then "Show
+    all N lines", previous and next file and "k of N" at the bottom, Copy
+    path. Parsing is XbinAgent's (`FileReview.parse`, counters, not the
+    quadratic `GitPatch` hunk check), off the main actor in an actor.
+    Tool cards and the full-screen tool sheet list their files the same
+    way. `DiffView` (the renderer's `diff` primitive) is untouched.
+  - **No server change.** The `files.changed` event keeps its shape and
+    its inline patch, so shipped apps and older shells render as before;
+    the route was already there.

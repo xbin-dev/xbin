@@ -38,6 +38,7 @@ export function agentTestApi(a) {
         seqs: tx.segs.length ? [tx.segs[0].first, tx.segs[tx.segs.length - 1].events.at(-1)?.seq ?? 0] : null };
     },
     get fetches() { return a._fetches.slice(); }, // the queries of the events route, in order
+    get diffLoads() { return a._diffs.loads.slice(); }, // the full-diff route's URLs a file's row asked (D210)
     get pill() { return a.renderRoot?.querySelector('.pill')?.textContent.trim() || null; },
     jumpLatest() { return a._jumpLatest(); },
     // a late event (D130): take event `seq` out of its loaded page, as if it

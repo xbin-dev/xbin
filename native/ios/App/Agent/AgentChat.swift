@@ -84,23 +84,7 @@ enum AgentChat {
         !t.output.isEmpty || !t.diffs.isEmpty || !t.children.isEmpty || !t.texts().isEmpty || t.files != nil
     }
 
-    static func diff(_ t: ToolCall) -> ChatDiff? {
-        if let f = t.files { return diff(f) }
-        let d = t.diffs
-        guard !d.isEmpty else { return nil }
-        let files = d.map { x -> ChatDiff.File in
-            let lines = x.lines
-            let added = lines.filter { $0.kind == .added }.count
-            let removed = lines.filter { $0.kind == .removed }.count
-            return ChatDiff.File(path: x.path, status: x.oldText == nil ? "added" : "modified", added: added, removed: removed)
-        }
-        return ChatDiff(files: files, patch: d.map(\.unified).joined(separator: "\n"))
-    }
-
-    static func diff(_ f: FilesChanged) -> ChatDiff {
-        ChatDiff(files: f.changes.map { ChatDiff.File(path: $0.path, status: $0.status.rawValue, added: $0.add, removed: $0.del) },
-                 patch: f.patch?.text)
-    }
+    // A change set's files and diffs: ChangeSet (XbinAgent Review.swift) and AgentReview.swift (D210).
 
     static func approval(_ p: PermissionCard) -> ChatApproval {
         let r = p.request

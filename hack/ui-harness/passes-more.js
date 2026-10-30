@@ -25,6 +25,7 @@ function register(P) {
   P.limitsCaps = require('./passes/limitscaps').limitsCaps; // D203 end to end: a tile's limit asks and cap hits — the popover, an org's ceiling, the banner's raises, the admin tab, ⚙ → Limits, /xbin/limits
   P.apptunnel = require('./passes/apptunnel').apptunnel; // D204: the admin console's iroh tunneling — off, n0, a custom relay's tokens, refuse outside the tunnel, failed, a person's device limit (mocked API)
   P.pairing = require('./passes/pairing').pairing; // D204: adding a phone over the tunnel — the big QR code, the confirmation code, They don't, replacing at the limit, /xbin/devices (mocked API)
+  P.agentReview = require('./passes/agentreview').agentReview; // D210: a turn's changes a file at a time — folded, the list, inline or the full-diff route, 400 lines then Show all
 }
 
 module.exports = { register };

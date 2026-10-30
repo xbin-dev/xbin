@@ -79,12 +79,13 @@ export function hl(code, lang) {
   } catch { /* fall through */ }
   return escHTML(code);
 }
-// Render a unified diff to highlighted HTML (per-file language, +/- coloring).
+// Render a unified diff to highlighted HTML (per-file language, +/- coloring;
+// startLang: the language of lines before any header).
 // Exported: bx-prs renders proposal series through the same pipeline.
-export function diffHTML(diff) {
+export function diffHTML(diff, startLang = '') {
   if (!diff) return '<span class="muted">no changes</span>';
   const hdr = /^(--- |\+\+\+ )(a\/|b\/|\/dev\/null)/;
-  let lang = '';
+  let lang = startLang; // a file's part without its headers (D210) names its language here
   const out = [];
   for (const raw of diff.split('\n')) {
     if (raw.startsWith('diff --git')) {

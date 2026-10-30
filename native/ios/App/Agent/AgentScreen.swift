@@ -29,6 +29,8 @@ final class AgentScreenModel {
     /// Open cards nested in a subagent's (a row's own is `AgentRow.isOpen`).
     var openNested: Set<String> = []
     var detail: ToolCall?
+    /// The change set under review (D210): a sheet over the transcript.
+    var review: ReviewRequest?
     var signInCommand: LoginNeeded?
     /// Files waiting to ride the next prompt (§13): photos, the camera, Files.
     var attachments: [PendingAttachment] = []
@@ -41,6 +43,8 @@ final class AgentScreenModel {
     @ObservationIgnored private var feed: AgentSessionFeed?
     @ObservationIgnored private var tasks: [Task<Void, Never>] = []
     @ObservationIgnored let memo = MarkdownMemo()
+    /// The files' diffs the review opened, parsed once (D210).
+    @ObservationIgnored let reviews: ReviewLoader
     /// The navigation of the window this screen is in (never the focused
     /// window's: the user may be in another window when a session starts).
     @ObservationIgnored private weak var nav: WorkspaceNav?
@@ -50,9 +54,18 @@ final class AgentScreenModel {
         self.nav = nav
         self.cwd = cwd
         self.sessionID = sessionID
+        reviews = ReviewLoader(client: workspace.agents)
     }
 
     var client: AgentClient { workspace.agents }
+
+    /// Where a review's diffs come from: the full-diff route while the session runs.
+    var reviewSource: ReviewSource { ReviewSource(loader: reviews, session: sessionID, live: !rows.ended) }
+
+    /// Opens the review of a change set, at a file (nil: its list).
+    func openReview(_ set: ChangeSet, at index: Int?) {
+        review = ReviewRequest(set: set, index: index)
+    }
     var provider: AgentProvider? { providers.first { $0.id == providerID } }
     var state: AgentSessionState? { rows.loaded ? rows.state : nil }
     var ended: Bool { rows.ended }
@@ -407,6 +420,7 @@ struct AgentScreen: View {
             // panel (product-ui 8).
             AgentTranscriptList(model: m)
                 .background(XbinColor.surface)
+                .sheet(item: Binding(get: { m.review }, set: { m.review = $0 })) { r in ChangeReviewSheet(request: r, source: m.reviewSource) }
             if let p = m.streamProblem {
                 Label { Text(verbatim: p) } icon: { Image(systemName: XbinGlyphs.symbol("warning")) }
                     .font(.footnote).foregroundStyle(XbinColor.warn).padding(.horizontal)
@@ -448,7 +462,7 @@ struct AgentScreen: View {
                 }.padding(8)
             }
         }
-        .sheet(item: Binding(get: { m.detail }, set: { m.detail = $0 })) { tool in ToolDetailSheet(tool: tool) }
+        .sheet(item: Binding(get: { m.detail }, set: { m.detail = $0 })) { tool in ToolDetailSheet(tool: tool, source: m.reviewSource) }
         .fullScreenCover(isPresented: $signingIn) {
             if let c = m.cwd, let login = m.signInCommand {
                 NavigationStack {
@@ -599,7 +613,9 @@ struct AgentItemView: View {
                 Task { await model.answer(q, content: content) }
             }, onSkip: { Task { await model.answer(q, content: nil) } })
         case .changes(let c):
-            DiffView(diff: AgentChat.diff(c.files))
+            // folded to its counts, open to its files; a file's diff opens in the review (D210)
+            let set = ChangeSet(turn: c)
+            ChangesCard(set: set, title: "This turn changed", isOpen: isOpen) { model.openReview(set, at: $0) }
         case .turnEnd(let d):
             StepView(step: AgentChat.divider(d))
         case .gap(let g):
@@ -616,7 +632,9 @@ struct ToolContentView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if let d = AgentChat.diff(tool) { DiffView(diff: d) }
+            if let set = ChangeSet(tool: tool) {
+                ChangedFilesList(set: set) { model.openReview(set, at: $0) }
+            }
             if !tool.output.isEmpty {
                 let v = tool.outputView(maxCharacters: 4000, maxLines: 30)
                 Text(verbatim: v.tail.plain)
@@ -640,19 +658,23 @@ struct ToolContentView: View {
     }
 }
 
-/// A tool call full screen: the whole output, every diff.
+/// A tool call full screen: the whole output, every changed file (a file's
+/// diff pushed, D210).
 struct ToolDetailSheet: View {
     let tool: ToolCall
+    let source: ReviewSource
+    @State private var path: [Int] = []
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
+        let set = ChangeSet(tool: tool)
+        NavigationStack(path: $path) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
                     if !tool.command.isEmpty {
                         Text(verbatim: tool.command).font(.callout.monospaced()).textSelection(.enabled)
                     }
-                    if let d = AgentChat.diff(tool) { DiffView(diff: d) }
+                    if let set { ChangedFilesList(set: set, limit: 200) { i in path = [i ?? 0] } } // every file (xbind reports 200 at most)
                     if !tool.output.isEmpty {
                         Text(verbatim: tool.outputView(maxCharacters: 400_000).full.plain)
                             .font(.caption.monospaced())
@@ -668,6 +690,9 @@ struct ToolDetailSheet: View {
             .navigationTitle(Text(verbatim: tool.headline))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .navigationDestination(for: Int.self) { i in
+                if let set { FileReviewScreen(set: set, source: source, index: i, onDone: { dismiss() }) }
+            }
         }
     }
 }

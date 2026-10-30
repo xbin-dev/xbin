@@ -259,9 +259,10 @@ async function agentTab(browser) {
   const wroteCard = A.page.locator(`${agentSel} details.tool.exec`).last();
   await wroteCard.locator(':scope > summary').click();
   await wroteCard.locator('details.files > summary').click();
-  // a folded card's body (and a files block's patch) renders once opened (D124): wait for it
+  // a folded card's body renders once opened (D124), a file's diff once its row is (D210): wait for it
+  await wroteCard.locator('details.frow > summary').first().click();
   await wroteCard.locator('pre.diff .d').first().waitFor({ timeout: 5000 }).catch(() => {});
-  check(await wroteCard.locator('pre.diff .d').count() >= 1, 'the card shows the patch (+ lines)');
+  check(await wroteCard.locator('pre.diff .d').count() >= 1, 'the card shows the file\'s diff (+ lines)');
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-shell-write');
 
   // ---- a subagent: what it does nests under its Task card ----

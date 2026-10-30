@@ -41,6 +41,7 @@ import { Transcript, PAGE_LIMIT } from '/vendor/agent-pages.js';
 import { ScrollWindow } from '/vendor/scroll-window.js';
 import { toolCard, permCard, changesCard, askCard, cardsCss, mdLive } from '/vendor/agent-cards.js';
 import { agentCss } from '/vendor/agent-css.js';
+import { FileDiffs } from '/vendor/agent-diffs.js';
 import { agentTestApi } from '/vendor/agent-testapi.js';
 import { slashQuery, matchCommands, commandHint } from '/vendor/agent-slash.js';
 import { queueURL, stop, queueChips, fitComposer } from '/vendor/agent-queue.js';
@@ -86,6 +87,8 @@ export class BxAgent extends LitElement {
     this._busy = null; // a page load in flight
     this._fetches = []; // the queries this element made (the harness counts them)
     this._opened = new Set(); // '<key>:<slot>' of lazy <details> bodies the user opened
+    // the files' diffs the reader opened (D210); a load lands on the block as now folded (a page may have refolded meanwhile)
+    this._diffs = new FileDiffs({ onLoad: (b) => this._touch(this._blocks().find((x) => x.key === b.key) || b) });
     this._providers = null;
     this._provider = '';
     this._mode = '';
@@ -751,10 +754,22 @@ export class BxAgent extends LitElement {
   _toggled(e, b, slot, dflt) {
     const k = b.key + ':' + slot;
     if (!e.target.open || e.target.open === !!dflt || this._opened.has(k)) return; // closing, or lit applying the default
-    this._opened.add(k);
-    for (let x = b; x; x = x.up) x.ui = (x.ui || 0) + 1;
+    this._openSlot(b, slot);
+  }
+  // open a lazy body (or a "Show all") of b's, keeping the reader's view
+  _openSlot(b, slot) {
+    this._opened.add(b.key + ':' + slot);
     this._sw.keepView = true; // the reader opened it: keep their view, don't chase the bottom
+    this._touch(b);
+  }
+  // b's row (and its parents') render again: its lazy bodies changed
+  _touch(b) {
+    for (let x = b; x; x = x.up) x.ui = (x.ui || 0) + 1;
     this.requestUpdate();
+  }
+  // one file's diff of a change set (agent-diffs.js): the event's own patch, else the route while the session runs
+  _fileDiff(owner, f, c, sel) {
+    return this._diffs.get({ session: this.session, live: !!this.session && !this.history && !this.ended }, owner, f, c, sel);
   }
 
   _block(b) {
