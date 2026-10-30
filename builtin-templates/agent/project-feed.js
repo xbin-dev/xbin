@@ -111,7 +111,7 @@ style.textContent = `
   .projs-page .pcst[data-tone="warn"] { color: var(--bx-warn); }
   .projs-page .pcst[data-tone="bad"] { color: var(--bx-danger); }
   .projs-page .pcprev { display: flex; flex-direction: column-reverse; max-height: 320px; overflow: auto; margin-top: 8px; padding: 0 8px;
-    border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-bg, var(--bx-panel-2)); }
+    border: 1px solid var(--bx-border); border-radius: var(--bx-radius); background: var(--bx-bg); }
   .projs-page .pcprev.empty { padding: 8px; }
   .projs-page .pcprev .msg { margin: 6px 0; }
   .projs-page .pcmore { padding-top: 6px; }
