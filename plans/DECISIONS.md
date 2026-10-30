@@ -12732,7 +12732,11 @@ Deviations and refinements made while implementing; all deliberate:
     canvas-parity.test.mjs holds the base and the zoom range equal).
   - **`split` rev 3: `halves`.** On a regular width the two columns share
     it equally: the `NavigationSplitView` sidebar column measured to half
-    the split (a GeometryReader around it) instead of 280–400 pt; on an
+    the split (a GeometryReader around it) instead of 280–400 pt — but
+    never leaving the detail under 480 pt: on an 834-pt iPad in portrait a
+    half-width sidebar was laid OVER a dimmed detail (the split tiles only
+    while the detail keeps its minimum; the list's 360 | 474 tiles), so
+    there it is 354 | 480 (seen on the simulator); on an
     open Duo the same `ArrangementView` D200 uses for every split, which
     keeps one pane each side of the hinge (compile-checked only: still no
     Duo simulator). Compact, it collapses like any rev-2 split.

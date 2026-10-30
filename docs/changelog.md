@@ -18,9 +18,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   scrolls and pinch-zooms itself, the screen no longer scrolls around it),
   `zoom` (the page zoom, 0.5–3: it reflows, and the reader keeps their
   place) and `@link {href}` on an `html` island (a tapped link still never
-  navigates; your code gets its href, relative to the page). A `split` takes `halves`: on a regular width the
-  two columns share it equally — a document beside its conversation (an
-  open iPhone Duo puts one each side of the hinge); compact, it collapses
+  navigates; your code gets its href, relative to the page). A `split`
+  takes `halves`: on a regular width the two columns share it equally — a
+  document beside its conversation (the second keeps at least 480 points;
+  an open iPhone Duo puts one each side of the hinge); compact, it collapses
   as before. Apps that predate them show your web page when the tree uses
   them: branch on `xbin.native.supports('canvas', 2)` / `('split', 3)`.
   `bx preview --native` draws them.

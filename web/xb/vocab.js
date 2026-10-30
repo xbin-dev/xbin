@@ -158,7 +158,7 @@ const P = {
     events: { dismiss: { reports: { prop: 'open', value: false } } }, children: ANY },
   split: { rev: 3, group: 'structure', doc: 'list/detail: exactly two children; two columns when regular, a list with the detail pushed over it when compact',
     props: { prefer: en('auto', 'single'),
-      halves: since(3, { ...B, doc: 'regular width: the two columns share the width equally (a document beside its conversation) instead of a list column beside the detail — on an open iPhone Duo one each side of the hinge; compact: as without' }),
+      halves: since(3, { ...B, doc: 'regular width: the two columns share the width equally (a document beside its conversation) instead of a list column beside the detail — the second keeps at least 480 pt, so on a narrower regular width (an iPad in portrait) it gets more; on an open iPhone Duo one each side of the hinge; compact: as without' }),
       detail: since(2, { ...B, doc: 'compact width: the detail is pushed over the list (Back reports `close`); regular: both show' }),
       columns: since(2, { ...en('auto', 'all', 'detail'), doc: 'regular width: both columns (auto, all) or the detail alone (the list behind the bar\'s sidebar button)' }) },
     events: { close: since(2, { reports: { prop: 'detail', value: false } }),

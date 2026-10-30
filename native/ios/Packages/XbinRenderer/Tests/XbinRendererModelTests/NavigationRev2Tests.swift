@@ -175,7 +175,9 @@ import XbinCore
         #expect(SplitLayout.halves(split))
         #expect(SplitLayout(split, regularWidth: true) == .columns)
         #expect(SplitLayout(split, regularWidth: false) == .collapsed)
-        #expect(SplitLayout.halfWidth(1180) == 590 && SplitLayout.halfWidth(500) == 280)
+        #expect(SplitLayout.halfWidth(1180) == 590 && SplitLayout.halfWidth(1032) == 516, "half, where both fit")
+        #expect(SplitLayout.halfWidth(834) == 354, "an iPad in portrait: the document keeps 480")
+        #expect(SplitLayout.halfWidth(500) == 280)
         let doc = split.children[1]
         let layout = ScreenLayout(doc)
         let island = try #require(layout.fillCanvas)

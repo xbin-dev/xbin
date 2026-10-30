@@ -715,7 +715,7 @@
     },
     "halves": {
      "type": "bool",
-     "doc": "regular width: the two columns share the width equally (a document beside its conversation) instead of a list column beside the detail — on an open iPhone Duo one each side of the hinge; compact: as without",
+     "doc": "regular width: the two columns share the width equally (a document beside its conversation) instead of a list column beside the detail — the second keeps at least 480 pt, so on a narrower regular width (an iPad in portrait) it gets more; on an open iPhone Duo one each side of the hinge; compact: as without",
      "since": 3
     },
     "detail": {

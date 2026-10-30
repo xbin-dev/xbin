@@ -452,7 +452,7 @@ diagnostic (§Checking it) — the render goes on.
 - `sheet` `detents`: `full` covers the whole screen (no swipe to dismiss: give it a way out).
 - `sheet` `detents="full"` is rev 2+.
 - `sheet` `edge`: where it comes from: bottom (a sheet, the default) or leading (a drawer over the screen — a conversation list).
-- `split` `halves`: regular width: the two columns share the width equally (a document beside its conversation) instead of a list column beside the detail — on an open iPhone Duo one each side of the hinge; compact: as without.
+- `split` `halves`: regular width: the two columns share the width equally (a document beside its conversation) instead of a list column beside the detail — the second keeps at least 480 pt, so on a narrower regular width (an iPad in portrait) it gets more; on an open iPhone Duo one each side of the hinge; compact: as without.
 - `split` `detail`: compact width: the detail is pushed over the list (Back reports `close`); regular: both show.
 - `split` `columns`: regular width: both columns (auto, all) or the detail alone (the list behind the bar's sidebar button).
 <!-- /generated:prims-structure -->
@@ -719,7 +719,8 @@ shows your web page when the tree uses them.
   is a dead end.
 - **`split halves`.** On a regular width the two columns share it equally —
   a document beside the conversation it belongs to, which stays live in the
-  other half — instead of a list column beside the detail; on an open
+  other half — instead of a list column beside the detail (the second keeps
+  at least 480 points: on an iPad in portrait it gets a little more); on an open
   iPhone Duo one column each side of the hinge. The bar's sidebar button
   hides the first column, as for a list (`columns`). Compact, it collapses
   like any rev-2 split: the document pushed over the conversation, Back

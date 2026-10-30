@@ -542,8 +542,9 @@ export const STRUCTURE_CSS = css`
     xb-split.auto { flex-direction: row; }
     xb-split.auto > .split-a { flex: 0 0 clamp(280px, 36%, 400px); border-bottom: 0; border-right: 0.5px solid var(--xb-separator); }
     xb-split.auto > .split-b { flex: 1 1 auto; }
-    xb-split.auto.halves > .split-a { flex: 1 1 50%; }
-    xb-split.auto.halves > .split-b { flex: 1 1 50%; }
+    /* halves: half each while the second keeps 480px (SplitLayout.halfWidth) */
+    xb-split.auto.halves > .split-a { flex: 0 0 max(280px, min(50%, calc(100% - 480px))); }
+    xb-split.auto.halves > .split-b { flex: 1 1 auto; }
   }
 
   xb-spacer { display: block; flex: 1 1 auto; min-width: 8px; min-height: 8px; }

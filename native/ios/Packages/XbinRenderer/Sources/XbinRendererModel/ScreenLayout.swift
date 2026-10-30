@@ -234,8 +234,18 @@ public enum SplitLayout: Sendable, Equatable {
     public static func halves(_ split: XbinNode) -> Bool { split.props.bool("halves") }
 
     /// The width of a halves split's leading column in a split `width`
-    /// points wide: half of it, never under the list column's 280.
-    public static func halfWidth(_ width: Double) -> Double { max(280, (width / 2).rounded(.down)) }
+    /// points wide: half of it, as long as the other keeps ``halvesDetailMin``
+    /// — else the rest, never under the list column's 280. An iPad in
+    /// portrait (834 pt) laid a half-width sidebar OVER the detail instead
+    /// of beside it (`NavigationSplitView` tiles only while the detail keeps
+    /// its own minimum; 360 | 474 tiled, 417 | 417 didn't), so there the
+    /// conversation gets 354 and the document 480.
+    public static func halfWidth(_ width: Double) -> Double {
+        max(280, min((width / 2).rounded(.down), width - halvesDetailMin))
+    }
+
+    /// What the second column of a halves split keeps at least.
+    public static let halvesDetailMin = 480.0
 
     public init(children: Int, regularWidth: Bool, prefer: String?, collapses: Bool = false) {
         if children >= 2 && regularWidth && prefer != "single" { self = .columns }
