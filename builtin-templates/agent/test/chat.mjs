@@ -188,6 +188,20 @@ const fileGets = () => page.evaluate(() => window.__calls.filter((c) => c.url.in
 await page.click('.step.render .steplnk');
 await page.waitForFunction(() => !document.getElementById('preview').hidden);
 ok('the 🖼 line brings the report back', (await page.textContent('#prev-path')) === 'r.html' && (await fileGets()) >= 1);
+// the zoom (#49, D207): the frame scales from outside — no reload — and the zoom is kept per person
+const srcdocBefore = await page.$eval('#prevframe', (f) => f.srcdoc);
+const getsBefore = await fileGets();
+await page.click('#prev-zin');
+await page.click('#prev-zin');
+ok('zoom: + steps up, said in %', (await page.textContent('#prev-zreset')) === '125%'
+  && (await page.$eval('#prevframe', (f) => f.style.transform)) === 'scale(1.25)' && (await page.$eval('#prevframe', (f) => f.style.width)) === '80%');
+await page.waitForFunction(() => window.__prefs['preview-zoom'] === 1.25);
+ok('zoom: …without reloading the report', (await page.$eval('#prevframe', (f) => f.srcdoc)) === srcdocBefore && (await fileGets()) === getsBefore);
+await page.click('#prev-zreset');
+ok('zoom: the % goes back to 100', (await page.textContent('#prev-zreset')) === '100%' && (await page.$eval('#prevframe', (f) => f.style.transform)) === '');
+await page.click('#prev-zout');
+ok('zoom: − steps down', (await page.textContent('#prev-zreset')) === '90%' && (await page.$eval('#prevframe', (f) => f.style.transform)) === 'scale(0.9)');
+await page.click('#prev-zreset');
 await page.click('#prev-close');
 await page.evaluate(() => window.__route('POST', /\/api\/xbin\/path-tickets$/, () => window.__json({ url: '/api/~t1/', expires: Date.now() + 1e6 })));
 await push(stepEv(903, 'live', { sandbox: 'sb-1', name: 'web', port: 8000, path: '/' }));
@@ -201,6 +215,20 @@ ok('…closed, the strip goes with it', !(await page.$('#live-strip')) && !(awai
 await page.click('.step.live .steplnk');
 await page.waitForSelector('#livefr', { state: 'attached' });
 ok('the 📡 line shows it live again', (await page.textContent('#prev-path')).includes('web:8000/'));
+ok('live: no zoom — it scales the static report only', await page.isHidden('#prev-zoom'));
+await page.click('#prev-close');
+// a report's links to its files (#46, D207): exactly the step's, each a download below a path ticket
+await page.evaluate(() => {
+  window.__route('GET', /\/runs\/1\/file\?path=out%2Freport\.html$/, () => window.__json({ path: 'out/report.html', version: 1,
+    content: '<p><a href="data.csv">the data</a> <a href="other.csv">not the step\'s</a> <a href="https://evil.example/x">web</a></p>' }));
+});
+await push(stepEv(905, 'render', { path: 'out/report.html', version: 1, bytes: 90, links: [{ href: 'data.csv', path: 'out/data.csv' }] }));
+await page.waitForFunction(() => document.getElementById('prev-path').textContent === 'out/report.html' && document.getElementById('prevframe').srcdoc.includes('the data'));
+const linked = await page.$eval('#prevframe', (f) => f.srcdoc);
+ok('links: the step\'s link is a download below the ticket', linked.includes('href="http://tile.test/api/~t1/out/data.csv" download="" target="_self"'), linked);
+ok('links: every other link is inert', !linked.includes('other.csv"') && !linked.includes('evil.example'), linked);
+ok('links: the ticket is for the run\'s downloads alone', await page.evaluate(() => window.__calls.some((c) => c.method === 'POST' && c.url.endsWith('/path-tickets') && JSON.parse(c.body).path === 'runs/1/dl')));
+ok('links: the frame\'s sandbox allows downloads and nothing else', (await page.getAttribute('#prevframe', 'sandbox')) === 'allow-downloads');
 await page.click('#prev-close');
 
 // A subagent whose view can't be read (the backend restarting): its card reads

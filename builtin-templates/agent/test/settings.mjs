@@ -1,7 +1,8 @@
 // settings.mjs — the ⚙ panel's tabs (managers): Config (model tiers, the
 // system prompt, limits; Save sends the whole config back), Features (a
 // switch merges into the config), Memory (set, add, delete a run's blocks),
-// Files (edit and save a text file with its version), Skills (list, edit,
+// Files (edit and save a text file with its version; every row downloads,
+// picked ones download as one zip or delete with one confirmation — D207), Skills (list, edit,
 // save, delete), Classes (D116: edit a built-in, add one, a mixed one asks
 // first, the default, delete) and MCP — the calls model/actions.js makes for
 // both views.
@@ -27,7 +28,7 @@ await ctx.addInitScript(() => {
     config: { models: { general: 'm-big' }, system: 'be brief', tokenBudget: 1000, maxIters: 5, toolTimeout: 30, subagents: true,
       approve: false, features: { recall: true }, mcp: [{ name: 'x' }] },
     memory: { goal: 'ship it' },
-    files: { 'notes.md': { content: 'hello', version: 3 } },
+    files: { 'notes.md': { content: 'hello', version: 3 }, 'out/r.html': { content: '<p id="r">the report</p>', version: 1 }, 'data.csv': { content: 'a,b', version: 1 } },
     skills: [{ name: 'triage', description: 'sort the inbox', content: 'step 1', updated: 1700000000 }],
   };
   const j = window.__json;
@@ -47,6 +48,11 @@ await ctx.addInitScript(() => {
     S.files[b.path] = { content: b.content, version: (cur ? cur.version : 0) + 1 };
     return j({ path: b.path, version: S.files[b.path].version, bytes: b.content.length });
   });
+  window.__route('DELETE', /\/runs\/1\/file\?path=(.*)$/, (m) => { delete S.files[decodeURIComponent(m[1])]; return j({ ok: 'true' }); });
+  window.__route('GET', /\/runs\/1\/raw\?path=(.*)$/, (m) => new Response(S.files[decodeURIComponent(m[1])].content));
+  window.__route('GET', /\/runs\/1\/zip(\?.*)?$/, () => new Response('PK', { headers: { 'Content-Type': 'application/zip' } }));
+  window.__downloads = [];
+  window.xbin.download = (name) => { window.__downloads.push(name); };
   window.__route('GET', /\/skills$/, () => j(S.skills));
   window.__route('PUT', /\/skills$/, (m, o) => {
     const b = JSON.parse(o.body);
@@ -123,6 +129,42 @@ await redrawn(() => page.click('#fl-save'));
 ok('files: saved', (await S()).files['notes.md'].content === 'hello world');
 const put = (await page.evaluate(() => window.__calls.filter((c) => c.method === 'PUT' && /\/runs\/1\/file$/.test(c.url)).map((c) => JSON.parse(c.body))))[0];
 ok('files: Save sends the version it loaded', put && put.version === 3 && put.path === 'notes.md', JSON.stringify(put));
+
+// Files (D207): every row downloads, text too; picked ones — or all — as one zip; one Delete for the picked
+const pick = (p) => page.click(`[data-fp][aria-label="Select ${p}"]`);
+await page.click('[data-fdl][aria-label="Download data.csv"]');
+await page.waitForFunction(() => window.__downloads.length === 1);
+ok('files: a text file downloads from its row', (await page.evaluate(() => window.__downloads[0])) === 'data.csv'
+  && await page.evaluate(() => window.__calls.some((c) => c.url.endsWith('/runs/1/raw?path=data.csv'))));
+ok('files: nothing picked, no bulk action', await page.$eval('#fl-zip', (b) => b.disabled) && await page.$eval('#fl-bdel', (b) => b.disabled));
+await pick('data.csv');
+await pick('out/r.html');
+ok('files: two picked, said', (await page.textContent('#fl-n')) === '2 of 3 selected' && await page.$eval('#fl-all', (c) => c.indeterminate && !c.checked));
+await page.click('#fl-zip');
+await page.waitForFunction(() => window.__downloads.length === 2);
+const zips = () => page.evaluate(() => window.__calls.filter((c) => /\/runs\/1\/zip/.test(c.url)).map((c) => c.url.replace(/^.*\/runs\/1/, '')));
+ok('files: the picked ones download as one zip', (await page.evaluate(() => window.__downloads[1])) === 'run-1-files.zip'
+  && (await zips())[0] === '/zip?path=data.csv&path=out%2Fr.html', JSON.stringify(await zips()));
+await page.click('#fl-all');
+await page.click('#fl-zip');
+await page.waitForFunction(() => window.__downloads.length === 3);
+ok('files: all of them is the backend\'s every file (a short URL)', (await zips())[1] === '/zip' && (await page.textContent('#fl-n')) === '3 of 3 selected', JSON.stringify(await zips()));
+await page.click('#fl-all');
+ok('files: select all again picks none', (await page.textContent('#fl-n')).startsWith('select files'));
+// a picked file open in the preview closes with it
+await page.click('[data-fr]');
+await page.waitForFunction(() => !document.getElementById('preview').hidden && document.getElementById('prev-path').textContent === 'out/r.html');
+await page.click('#gear');
+await tab('files', '[data-fp]');
+await pick('data.csv');
+await pick('out/r.html');
+await page.evaluate(() => { window.__confirms = []; });
+await redrawn(() => page.click('#fl-bdel'));
+const conf = await page.evaluate(() => window.__confirms);
+ok('files: one confirmation names them', conf.length === 1 && conf[0].startsWith('Delete 2 files?') && conf[0].includes('out/r.html'), JSON.stringify(conf));
+ok('files: both deleted, the rest stays', JSON.stringify(Object.keys((await S()).files)) === '["notes.md"]', JSON.stringify(Object.keys((await S()).files)));
+ok('files: the deleted report\'s preview closed', await page.isHidden('#preview'));
+ok('files: the list lost them, nothing picked', (await page.$$('[data-fp]')).length === 1 && (await page.textContent('#fl-n')).startsWith('select files'));
 
 // Skills: list, new, save, delete
 await tab('skills', '#sk-save');

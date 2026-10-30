@@ -12688,3 +12688,74 @@ Deviations and refinements made while implementing; all deliberate:
     new chat, and it does not say so. Proposed: its placeholder on the
     Projects page becomes "New chat — not this project's coordinator…", or
     the composer hides there. Left for the owner to pick.
+- **D207 — The agent template: a report's file links, the preview's zoom,
+  bulk file downloads (2026-10-30; issues #46, #47, #49).**
+  builtin-templates/agent/_backend files_links.go (`reportLinks`,
+  `linkRef`, `htmlHrefs`), files_http.go (`/dl/`, `/zip`), files.go
+  `renderHTML`, docs.go `showDoc`, docs_preview.go; agent.js `frameDoc`,
+  preview-frame.js, settings-files.js, model/report-links.js,
+  model/preview-zoom.js, native/tools.js `filesTpl`; test/frame-policy.mjs;
+  the template's API.md. The owner: "AgTT html reports should be able to
+  link to sandbox files … the report writing tool should explain to the
+  writing agent how to link to those files such that downloads will work"
+  ("this needs to work within the report preview iframe somehow"); "AgTT
+  file list - add download button + multi select -> bulk download, bulk
+  delete"; "AgTT html report/doc view: add ability to zoom in/out the
+  preview".
+  - **Links are the step's, not the page's.** The backend reads the
+    report's `<a>`/`<area>` hrefs (x/net/html's tokenizer — what the
+    browser's DOM gives, entities decoded), resolves each where the report
+    is, and journals `links: [{href, path}]`: the href as written, the
+    session file it is. The frame keeps exactly those (matched on the
+    trimmed href) and strips every other href — the model can't widen the
+    set by writing links, only by naming files that exist in the session.
+    The alternative — the frontend matching hrefs against the file list —
+    can't see a sandbox report's files, which are named differently once
+    copied (copyName keeps two `…/index.html` apart), hence the map.
+  - **Sandbox reports carry their files.** A report shown from the sandbox
+    (or a session copy of one from the bound sandbox) links the files
+    beside it there: they are copied in with it (fetchSandboxFile — the
+    etag/hash dedupe, so a re-render copies only what changed), ≤ 32
+    files and 60 s per render, the store's caps as ever; what isn't is
+    said in the result and the step's `skipped`. A session report's bare
+    link it lacks is looked for in the sandbox's working directory, as a
+    session-file miss is (D136).
+  - **The frame stays sandboxed: `allow-downloads`, nothing else.** A kept
+    link is rewritten to `GET /runs/{id}/dl/<path>` below a path ticket
+    (D135) for `runs/{id}/dl` — the route path-shaped so one ticket
+    covers the run's files and nothing else of the tile — with
+    `target=_self` (a `_blank` would need allow-popups) and `download`;
+    the answer is `Content-Disposition: attachment`, so a click downloads
+    in place and loads nothing (verified in Chromium,
+    test/frame-policy.mjs). Rejected: the frame token in the URL
+    (`xbin.url` — the whole tile's credential in a document the model
+    wrote); blob URLs made by the page (every linked file fetched up
+    front, up to 64 × 16 MiB); allow-popups.
+    Stripping also covers `<area href>`, SVG `xlink:href` and a kept
+    link's `ping`. A link answering with a page (an expired ticket)
+    navigates the frame; the page sees the frame's unexpected `load` and
+    paints the report again with a new ticket. Not reached: a shared
+    conversation at the global instance from a person's partition (a
+    ticket is its own partition's, plans/partitions/05 §6) — its links
+    stay inert and the header says to use Files.
+  - **Zoom from outside the frame.** The frame is laid out at 1/z of the
+    pane and scaled by z (CSS transform): the report reflows as under a
+    browser's zoom, the srcdoc is never reassigned (no reload, no lost
+    scroll), the sandbox untouched. Kept per person and tile in the prefs
+    API — a tile frame has no localStorage (touching it throws).
+  - **Downloads.** `/zip` streams `zip.NewWriter(w)`, one file's bytes in
+    memory at a time (blobs read past the cache), every path checked
+    before the first byte, a later read failure aborting the response
+    (`http.ErrAbortHandler`) rather than ending a short archive that looks
+    whole; no `path` zips every file (select-all stays a short URL). Bulk
+    delete is the existing `DELETE …/file` per path from the client — no
+    new route, any backend of the blue/green overlap answers it.
+  - **The app.** Files gets Share per row (`/dl/`, the file's own name)
+    and Select (rows `selected`, rev 1) with Share as zip and Delete in a
+    `toolbar place="bottom"` on rev 2, a section above the list on rev 1.
+    The render screen's zoom and links (`tools.render.zoom`,
+    `tools.render.links`) are DIFFERENCES.native until the iOS render
+    screen change that follows. Seen while there: the app's
+    `NativeCallAction.tileRelativeFile` refuses an absolute
+    `/api/<self>/…` file, which is what every `native.share({file})` of
+    the template passes (Share / export too) — an app-side fix.

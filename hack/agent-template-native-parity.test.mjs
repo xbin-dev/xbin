@@ -427,3 +427,57 @@ test('partitions: New chat with options asks who can see it; people chosen and n
   const u = await run({ ...twoSeed() }, steps);
   assert.equal(find(u.snapshots.sheet, { t: 'picker', p: { label: 'Who can see it' } }), null);
 });
+
+// --- session files: Share, Select, a zip, one Delete (D207, #47) ------------------------------------
+
+test('files: a row shares its file by name; Select picks some or all to share as one zip or delete with one confirmation — a bottom toolbar on rev 2, a section on rev 1', async () => {
+  const FILES = [{ path: 'a.csv', bytes: 4, version: 1 }, { path: 'out/r.html', mime: 'text/html', bytes: 20, version: 2 },
+    { path: 'shot.png', mime: 'image/png', binary: true, bytes: 9, version: 1 }];
+  for (const caps of [PHONE, OLD]) {
+    const seed = twoSeed();
+    seed.routes = [['GET', '/runs/1/files$', FILES], ['DELETE', '/runs/1/file\\?path=', { ok: 'true' }],
+      ['GET', '/runs/1/file\\?path=out%2Fr\\.html$', { path: 'out/r.html', content: '<p>r</p>', version: 2 }]];
+    const shares = (r) => r.messages.filter((m) => m.op === 'call' && m.what === 'share').map((m) => m.args.file);
+    const r = await run(seed, [
+      { wait: 20 },
+      { snapshot: 'files' },
+      { tap: { t: 'button', p: { label: 'Share' }, in: { t: 'row', p: { title: 'out/r.html' } } } },
+      { tap: { t: 'button', p: { label: 'Render' }, in: { t: 'row', p: { title: 'out/r.html' } } } }, { wait: 20 },
+      { snapshot: 'render' },
+      { event: [{ t: 'nav' }, 'pop', { depth: 3 }] },
+      { tap: { t: 'button', p: { label: 'Select' } } },
+      { snapshot: 'none' },
+      { tap: { t: 'row', p: { title: 'a.csv' } } },
+      { tap: { t: 'row', p: { title: 'out/r.html' } } },
+      { snapshot: 'two' },
+      { tap: { t: 'button', p: { label: 'Share as zip' } } },
+      { tap: { t: 'button', p: { label: 'Select all' } } },
+      { tap: { t: 'button', p: { label: 'Share as zip' } } },
+      { tap: { t: 'button', p: { label: 'Select none' } } },
+      { tap: { t: 'row', p: { title: 'a.csv' } } },
+      { tap: { t: 'row', p: { title: 'out/r.html' } } },
+      { tap: { t: 'button', p: { label: 'Delete' }, in: { t: 'screen', p: { title: '2 selected' } } } }, { wait: 20 },
+      { snapshot: 'deleted' },
+    ], { caps, state: { hash: 'c=1', nav: [{ kind: 'chat', run: 1 }, { kind: 'files', run: 1 }] } });
+    const tag = caps === OLD ? 'rev 1' : 'rev 2';
+    const files = topScreen(r.snapshots.files);
+    assert.equal(files.p.title, 'Files', tag);
+    assert.ok(find(files, { t: 'button', p: { label: 'Share' }, in: { t: 'row', p: { title: 'a.csv' } } }), `${tag}: every row shares, text too`);
+    assert.deepEqual(shares(r), ['/api/apps/agent/runs/1/dl/out/r.html', '/api/apps/agent/runs/1/zip?path=a.csv&path=out%2Fr.html&name=run-1-files.zip',
+      '/api/apps/agent/runs/1/zip?name=run-1-files.zip'], `${tag}: a row's file by its name, the picked ones as one zip, every file as the backend's all`);
+    assert.deepEqual(titles(r.snapshots.render).slice(-2), ['Files', 'r.html'], `${tag}: Render over the list`);
+    const none = topScreen(r.snapshots.none);
+    assert.equal(none.p.title, 'Select files', tag);
+    assert.equal(find(none, { t: 'button', p: { label: 'Share as zip' } }).p.disabled, true, `${tag}: nothing picked, nothing to share`);
+    assert.equal(find(none, { t: 'button', p: { label: 'Share' }, in: { t: 'row' } }), null, `${tag}: picking, a row's actions step aside`);
+    const two = topScreen(r.snapshots.two);
+    assert.equal(two.p.title, '2 selected', tag);
+    assert.deepEqual(all(two, { t: 'row' }).map((x) => !!x.p.selected), [true, true, false], tag);
+    const bar = find(two, { t: 'toolbar', p: { place: 'bottom' } });
+    if (caps === OLD) assert.equal(bar, null, 'rev 1: no bottom toolbar — the actions sit above the list');
+    else assert.deepEqual(all(bar, { t: 'button' }).map((b) => b.p.label), ['Share as zip', 'Delete'], 'rev 2: the bulk actions in the bottom toolbar');
+    assert.deepEqual(find(two, { t: 'button', p: { label: 'Delete' } }).p.confirm, { title: 'Delete 2 files?', label: 'Delete', destructive: true }, `${tag}: one confirmation for all`);
+    assert.deepEqual(called(r, 'DELETE', /\/runs\/1\/file\?/).map((c) => decodeURIComponent(c.url.split('path=')[1])), ['a.csv', 'out/r.html'], `${tag}: each picked file deleted`);
+    assert.equal(topScreen(r.snapshots.deleted).p.title, 'Files', `${tag}: back to the list once deleted`);
+  }
+});

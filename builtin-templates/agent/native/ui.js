@@ -5,6 +5,7 @@
 // helpers every native screen uses. No lit, no DOM: native.js draws with
 // /vendor/xb-native.js, and node tests run it against a stubbed backend.
 import { homeOf } from '../model/homes.js';
+import { dlPath, zipPath, zipName } from '../model/report-links.js';
 import { ext } from './ext.js';
 import { ACP_NATIVE_ICON } from '../model/harness-heads.js';
 
@@ -116,4 +117,8 @@ export function cardState(st) {
 const at = (runId) => (homeOf(runId) === 'global' ? '&xbin-partition=global' : '');
 export const thumb = (runId, path, w = 480) => `${ctx.app.base}/runs/${runId}/thumb?path=${encodeURIComponent(path)}&w=${w}${at(runId)}`;
 export const raw = (runId, path) => `${ctx.app.base}/runs/${runId}/raw?path=${encodeURIComponent(path)}${at(runId)}`;
+// dl: one file as a download, named by its own name (GET /runs/{id}/dl/<path>);
+// zip: several as one archive (GET /runs/{id}/zip; paths empty: all) — D207.
+export const dl = (runId, path) => `${ctx.app.base}${dlPath(runId, path)}${at(runId).replace('&', '?')}`;
+export const zip = (runId, paths) => `${ctx.app.base}${zipPath(runId, paths, zipName(runId))}${at(runId)}`;
 export const IMAGE = /^image\/(png|jpeg|gif|webp)$/;

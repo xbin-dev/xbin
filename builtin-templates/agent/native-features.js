@@ -119,6 +119,8 @@ export const IMPLEMENTS = {
   'tools.files': 'native/tools.js — filesTpl',
   'tools.files.editor': 'native/tools.js — fileTpl',
   'tools.files.attachments': 'native/tools.js — fileTpl (image, Share / export)',
+  'tools.files.download': 'native/tools.js — filesTpl: a row\'s Share (native/ui.js dl)',
+  'tools.files.select': 'native/tools.js — filesTpl: Select, Select all, Share as zip and Delete (a bottom toolbar on an app of rev 2, a section above the list on rev 1; native/ui.js zip), closeRenders',
   'tools.skills': 'native/tools.js — skillsTpl, skillTpl',
   'tools.tree': 'native/tools.js — treeTpl',
   'tools.board': 'native/harness-board.js — the hboard screen: sections Needs you, Running, Done of rows (swipe: Stop, Message → the hmsg screen, Cancel task), a parked row holding its approval or question (native/harness-child.js parkTpl) (app.board.rows)',

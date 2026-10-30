@@ -223,7 +223,7 @@ function stepTpl(b, ui) {
     case 'state_changed': g = 'info'; txt = `state changed${d.summary ? ': ' + d.summary : ''}`; break;
     case 'cancel': g = 'stop'; txt = `cancelled${d.reason ? ': ' + d.reason : ''}`; break;
     case 'ask': g = 'question'; txt = `asked: ${d.question || ''}`; break;
-    case 'render': if (d.doc) return docStepTpl(b, act); g = 'photo'; txt = html`<button class="lnk steplnk" title="show it in the preview pane" @click=${() => act.openPreview?.(d.path, d.version, b.run)}>rendered ${d.path || ''} v${d.version || ''}</button>`; break;
+    case 'render': if (d.doc) return docStepTpl(b, act); g = 'photo'; txt = html`<button class="lnk steplnk" title="show it in the preview pane" @click=${() => act.openPreview?.(d.path, d.version, b.run, d.links)}>rendered ${d.path || ''} v${d.version || ''}</button>`; break;
     case 'live': g = 'signal'; txt = html`<button class="lnk steplnk" title="show it live in the preview pane" @click=${() => act.openLive?.(d, b.run)}>showing ${d.name || d.sandbox || 'the sandbox'}:${d.port || ''}${d.path || '/'} live</button>`; break;
     default: txt = d.text || '';
   }

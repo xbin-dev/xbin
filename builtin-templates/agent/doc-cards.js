@@ -23,6 +23,6 @@ export function docStepTpl(b, act) {
   const k = docKind(d.doc);
   const base = String(d.doc).split('/').pop();
   return html`<div class="step render doc" data-k=${b.id}><span class="g">${icon(k.glyph)}</span>
-    <button class="lnk steplnk" title="show its preview" @click=${() => act.openPreview?.(d.path, d.version, b.run)}>${k.word} ${d.doc} v${d.docVersion || ''}</button>
+    <button class="lnk steplnk" title="show its preview" @click=${() => act.openPreview?.(d.path, d.version, b.run, d.links)}>${k.word} ${d.doc} v${d.docVersion || ''}</button>
     · <button class="lnk steplnk" title=${`download ${base}`} @click=${() => act.downloadFile?.(b.run, d.doc)}>download</button></div>`;
 }
