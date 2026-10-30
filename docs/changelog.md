@@ -12,6 +12,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-30
 
+- **The agent template: reports link their files, the preview zooms, Files
+  downloads and deletes in bulk** (D207, issues #46, #47, #49; the
+  template's API.md §Session files + render). A report's links to files
+  (`<a href="results.csv">`, relative to the report, or `session:<key>`)
+  are downloads in the preview; `render_html` copies a sandbox report's
+  linked files into the session files beside it and records them in its
+  `render` step as `links: [{href, path}]` (`doc_write`/`slides_write`
+  previews too). Every other link stays inert; the preview frame's sandbox
+  gains `allow-downloads`, its only token. New routes `GET
+  /runs/{id}/dl/<path>` (one file as an attachment — what the links reach,
+  below an xbind path ticket) and `GET /runs/{id}/zip?path=…` (several,
+  streamed). The web preview zooms (−, %, +; kept per person in
+  `prefs/preview-zoom`). Files: a Download on every row, checkboxes and
+  select-all to download a zip or delete with one confirmation; the app's
+  Files gets Share per row and Select (Share as zip, Delete). **Instances:**
+  take it with `git merge template/main`.
 - **Fix: people without admin saw no code in a tile's window** (D206,
   issue #50; [auth.md](/docs/auth.md), [protocol.md](/docs/protocol.md)).
   `/api/xbin/code/*` and `/api/xbin/git/{log,diff,activity}` now answer a

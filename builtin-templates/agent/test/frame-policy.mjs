@@ -2,13 +2,16 @@
 // by render_html cannot phone home, script, or touch the tile.
 //
 // This exists because the claim it checks is not self-evident and is easy to
-// regress: sandbox="" stops scripts, forms and navigation but does NOT stop
-// subresource LOADS, and the xbin platform CSP on /c/ documents carries no
+// regress: the frame's sandbox (allow-downloads, its one token — D207) stops
+// scripts, forms, popups and top navigation but does NOT stop subresource
+// LOADS, and the xbin platform CSP on /c/ documents carries no
 // img-src / connect-src at all. The only thing standing between a model's
 // <img src="https://…/?leak=…"> and a real outbound request is the meta CSP
 // that frameDoc() prepends. A unit test asserting "the string contains
 // default-src 'none'" would prove nothing; this drives an actual Chromium and
-// watches the network.
+// watches the network. It also holds the one way out on purpose (D207): a
+// report's links to its own files — the ones its render step names — are
+// downloads, and every other link stays inert.
 //
 //   node test/frame-policy.mjs          (needs playwright + a chromium build)
 //
@@ -41,6 +44,9 @@ if (start < 0 || end < 0 || end <= start) {
   process.exit(1);
 }
 const frameDocSrc = agentSrc.slice(start, end);
+// The frame as index.html declares it: its sandbox tokens are the policy.
+const indexSrc = readFileSync(join(here, '..', 'index.html'), 'utf8');
+const SANDBOX = (/<iframe id="prevframe"[^>]*\ssandbox="([^"]*)"/.exec(indexSrc) || [])[1];
 // The native view's render preview (native/render-doc.js) must hold the same
 // line: the same CSP, and the same results in the same browser — through
 // DOMParser as the runtime document has it, and through the textual
@@ -74,7 +80,10 @@ await page.goto('about:blank');
 await page.addScriptTag({ content: frameDocSrc });
 await page.addScriptTag({ content: nativeSrc });
 
-// Every exfiltration channel that survives sandbox="" on its own, plus the
+ok('index.html: the preview frame\'s sandbox is allow-downloads alone', SANDBOX === 'allow-downloads', String(SANDBOX));
+ok('index.html: never scripts, popups or the same origin', !/allow-(scripts|popups|same-origin|top-navigation|forms|modals)/.test(SANDBOX || 'x'));
+
+// Every exfiltration channel that survives the sandbox on its own, plus the
 // ordinary content a real report would contain.
 const HOSTILE = `<!doctype html><html><head>
   <title>report</title>
@@ -115,10 +124,11 @@ ok('blocked resources counted for the human', res.blocked >= 3, `blocked=${res.b
 
 // --- live behaviour in a frame configured exactly like index.html --------
 const beforeTitle = await page.title();
+await page.evaluate((s) => { window.__SANDBOX = s; }, SANDBOX);
 for (const doc of [res.html, txt.html]) { // the web's, and the native fallback's
   await page.evaluate((html) => {
     const f = document.createElement('iframe');
-    f.setAttribute('sandbox', '');
+    f.setAttribute('sandbox', window.__SANDBOX);
     f.setAttribute('referrerpolicy', 'no-referrer');
     f.style.cssText = 'width:600px;height:400px';
     f.srcdoc = html;              // PROPERTY assignment, as paintPreview does
@@ -142,6 +152,64 @@ for (const frame of frames) {
   ok('frame is an opaque origin', seen.origin === 'null', seen.origin);
   ok('no image actually loaded', seen.imgWidths.every((w) => w === 0), JSON.stringify(seen.imgWidths));
 }
+
+// --- a report's links to its files (D207) ---------------------------------
+// links: href → download URL, from the render step's links. Only those stay;
+// each downloads in place (target _self, sandbox allow-downloads) — a click
+// on one fetches the file as an attachment and the report stays shown.
+const DL = 'https://xbin.test/api/~T/data/report%20data.csv';
+const LINKED = `<!doctype html><html><body><h1>with files</h1>
+  <a id="ok" href=" data.csv " target="_blank" ping="https://evil.example/ping">the data</a>
+  <a id="other" href="other.csv">not linked by the step</a>
+  <a id="web" href="https://evil.example/z">web</a>
+  <map name="m"><area id="area" href="https://evil.example/area" shape="rect" coords="0,0,9,9"></map>
+  <svg width="20" height="20"><a id="svga" xlink:href="https://evil.example/svg"><rect width="20" height="20"/></a></svg>
+</body></html>`;
+const lr = await page.evaluate(([h, u]) => frameDoc(h, new Map([['data.csv', u]])), [LINKED, DL]);
+const lres = await page.evaluate((h) => {
+  const d = new DOMParser().parseFromString(h, 'text/html');
+  const at = (id) => { const e = d.getElementById(id); return Object.fromEntries([...e.attributes].map((a) => [a.name, a.value])); };
+  return { ok: at('ok'), other: at('other'), web: at('web'), area: at('area'), svga: at('svga') };
+}, lr.html);
+ok('links: the step\'s link becomes its download', lres.ok.href === DL && lres.ok.download === '' && lres.ok.target === '_self', JSON.stringify(lres.ok));
+ok('links: its ping is gone', !('ping' in lres.ok), JSON.stringify(lres.ok));
+ok('links: a link the step doesn\'t name stays inert', !('href' in lres.other) && !('href' in lres.web), JSON.stringify([lres.other, lres.web]));
+ok('links: an image map\'s area is stripped too', !('href' in lres.area), JSON.stringify(lres.area));
+ok('links: an SVG link is stripped too', !('xlink:href' in lres.svga) && !('href' in lres.svga), JSON.stringify(lres.svga));
+const unlinked = await page.evaluate((h) => frameDoc(h).html, LINKED);
+ok('links: without the step\'s links nothing is kept', !unlinked.includes('xbin.test') && !/href="(data|other)\.csv/.test(unlinked));
+
+const served = [];
+await ctx.route('https://xbin.test/**', (route) => {
+  served.push(route.request().url());
+  return route.fulfill({ status: 200, contentType: 'text/csv', body: 'a,b\n1,2\n',
+    headers: { 'Content-Disposition': 'attachment; filename="report data.csv"', 'X-Content-Type-Options': 'nosniff' } });
+});
+await page.evaluate((html) => {
+  document.body.textContent = '';
+  const f = document.createElement('iframe');
+  f.setAttribute('sandbox', window.__SANDBOX);
+  f.setAttribute('referrerpolicy', 'no-referrer');
+  f.id = 'linked';
+  window.__loads = 0;
+  f.addEventListener('load', () => { window.__loads++; });
+  f.srcdoc = html;
+  document.body.appendChild(f);
+}, lr.html);
+await page.waitForFunction(() => window.__loads === 1);
+const lf = page.frames().find((f) => f.parentFrame() === page.mainFrame());
+const dl = page.waitForEvent('download', { timeout: 5000 }).catch(() => null);
+await lf.click('#ok');
+const got = await dl;
+ok('links: a click downloads the file', !!got && got.suggestedFilename() === 'report data.csv', got ? got.suggestedFilename() : 'no download');
+ok('links: …fetched from the step\'s URL', served.length === 1 && served[0] === DL, JSON.stringify(served));
+await page.waitForTimeout(300);
+ok('links: …and the report stays (a download loads nothing in the frame)', (await page.evaluate(() => window.__loads)) === 1
+  && (await lf.evaluate(() => document.querySelector('h1')?.textContent)) === 'with files');
+await lf.click('#other');
+await lf.click('#web');
+await page.waitForTimeout(500);
+ok('links: inert links fetch nothing', served.length === 1 && !escaped.length, JSON.stringify([served, escaped]));
 
 await browser.close();
 console.log(failures ? `\n${failures} FAILURE(S)` : '\nall frame-policy checks passed');

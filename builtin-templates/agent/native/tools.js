@@ -6,12 +6,12 @@
 // screen is an entry of ui.stack ({kind, …}); what it loaded lives on the entry.
 import { html, repeat, nothing, native } from '/vendor/xb-native.js';
 import * as actions from '../model/actions.js';
-import { ui, ctx, push, fmtN, clip, base, when, thumb, raw, IMAGE } from './ui.js';
+import { ui, ctx, push, fmtN, clip, base, when, thumb, raw, dl, zip, IMAGE } from './ui.js';
 import { renderDoc } from './render-doc.js';
 import { liveLabel, probeWords } from '../model/live.js';
 import { settingsScreens } from './settings.js';
 import { sandboxScreens } from './sandboxes.js';
-import { abovePlace } from './nav.js';
+import { abovePlace, rev2 } from './nav.js';
 import { whoReads } from '../model/docs.js';
 
 const isHtml = (p) => /\.html?$/i.test(p || '');
@@ -98,28 +98,70 @@ function memoryTpl(s) {
 
 // --- files ---------------------------------------------------------------------------------
 
+// filesTpl: the run's session files — each opens, renders (HTML) and shares
+// from its row; Select picks several (all at once too) to share as one zip
+// or delete with one confirmation (D207). The bulk actions sit in a bottom
+// toolbar on an app of rev 2, above the list on one of rev 1.
 function filesTpl(s) {
-  load(s, async () => { s.files = await actions.files(s.run); });
+  load(s, async () => {
+    s.files = await actions.files(s.run);
+    if (s.picked) for (const p of [...s.picked]) if (!s.files.some((f) => f.path === p)) s.picked.delete(p); // gone since
+  });
   const files = s.files || [];
-  return html`<screen title="Files" subtitle=${`run ${s.run}`} style="list" refreshable @refresh=${reload(s)}>
-    <toolbar><button icon="plus" @tap=${() => push({ kind: 'file', run: s.run, path: null })}>New file</button></toolbar>
+  const pick = s.picked || null; // a Set of paths while selecting
+  const n = pick ? pick.size : 0;
+  const every = n > 0 && n === files.length;
+  const chosen = () => files.map((f) => f.path).filter((p) => pick.has(p));
+  const toggle = (p) => () => { if (pick.has(p)) pick.delete(p); else pick.add(p); ctx.paint(); };
+  const bulk = pick ? [
+    html`<button icon="share" ?disabled=${!n} @tap=${act(s, () => native.share({ file: zip(s.run, every ? [] : chosen()) }))}>Share as zip</button>`,
+    html`<button icon="trash" role="destructive" ?disabled=${!n} confirm=${{ title: `Delete ${n} file${n === 1 ? '' : 's'}?`, label: 'Delete', destructive: true }}
+      @tap=${act(s, async () => {
+        const r = await actions.deleteFiles(s.run, chosen());
+        closeRenders(s.run, r.deleted);
+        s.picked = null; s.loaded = false; refreshView();
+        if (r.failed.length) throw new Error(`${r.failed.length} not deleted: ${r.failed.map((f) => `${f.path} (${f.error})`).join(', ')}`);
+      })}>Delete</button>`,
+  ] : [];
+  const bottom = rev2('toolbar');
+  return html`<screen title=${pick ? (n ? `${n} selected` : 'Select files') : 'Files'} subtitle=${`run ${s.run}`} style="list" refreshable @refresh=${reload(s)}>
+    <toolbar>${pick ? html`
+      <button @tap=${() => { s.picked = new Set(every ? [] : files.map((f) => f.path)); ctx.paint(); }}>${every ? 'Select none' : 'Select all'}</button>
+      <button role="primary" @tap=${() => { s.picked = null; ctx.paint(); }}>Done</button>` : html`
+      <button icon="plus" @tap=${() => push({ kind: 'file', run: s.run, path: null })}>New file</button>
+      ${files.length ? html`<button icon="check" @tap=${() => { s.picked = new Set(); ctx.paint(); }}>Select</button>` : nothing}`}</toolbar>
+    ${pick && bottom ? html`<toolbar place="bottom">${bulk}</toolbar>` : nothing}
     ${errTpl(s)}
+    ${pick && !bottom ? html`<section footer="Tap files to pick them.">${bulk}</section>` : nothing}
     <section title="Session files" footer="Text lives in this run's database; attachments in the tile's blob store. Deleting the run deletes both.">
-      ${!s.files ? html`<progress label="loading…"/>` : files.length ? repeat(files, (f) => f.path, (f) => html`
-        <row title=${f.path} mono="title" icon=${f.binary ? (IMAGE.test(f.mime || '') ? 'photo' : 'file') : isHtml(f.path) ? 'code' : 'doc'}
+      ${!s.files ? html`<progress label="loading…"/>` : files.length ? repeat(files, (f) => f.path, (f) => pick ? html`
+        <row title=${f.path} mono="title" icon=${pick.has(f.path) ? 'check' : fileIcon(f)} ?selected=${pick.has(f.path)}
+          subtitle=${`${f.binary ? f.mime : f.mime || 'text'} · ${fmtN(f.bytes)} B · v${f.version || 0}`} @tap=${toggle(f.path)}/>` : html`
+        <row title=${f.path} mono="title" icon=${fileIcon(f)}
           subtitle=${`${f.binary ? f.mime : f.mime || 'text'} · ${fmtN(f.bytes)} B · v${f.version || 0}`} nav
           @tap=${() => push({ kind: 'file', run: s.run, path: f.path })}>
           <actions>
             ${isHtml(f.path) ? html`<button icon="eye" @tap=${() => openRender(s.run, f.path, f.version, false)}>Render</button>` : nothing}
+            <button icon="share" @tap=${act(s, () => native.share({ file: dl(s.run, f.path) }))}>Share</button>
             <button icon="trash" role="destructive" confirm=${{ title: `Delete "${f.path}"?`, label: 'Delete', destructive: true }}
               @tap=${act(s, async () => {
                 await actions.deleteFile(s.run, f.path);
+                closeRenders(s.run, [f.path]);
                 s.loaded = false; refreshView();
               })}>Delete</button>
           </actions>
         </row>`) : html`<empty title="no files yet" text="the agent writes these with its file tools; attach your own from the composer"/>`}
     </section>
   </screen>`;
+}
+
+const fileIcon = (f) => (f.binary ? (IMAGE.test(f.mime || '') ? 'photo' : 'file') : isHtml(f.path) ? 'code' : 'doc');
+
+// closeRenders: a deleted file's render preview (and the file's own screen)
+// come off the stack — the web closes its pane the same way.
+function closeRenders(run, paths) {
+  const gone = (x) => (x.kind === 'render' || x.kind === 'file') && x.run === run && paths.includes(x.path);
+  for (let i = ui.stack.length - 1; i >= 0; i--) if (gone(ui.stack[i])) ui.stack.splice(i, 1);
 }
 
 function fileTpl(s) {

@@ -93,7 +93,8 @@ func docToolSpecs(cfg Config) []toolSpec {
 		{Type: "function", Function: funcDef{
 			Name: "doc_write",
 			Description: "Write a Word document (.docx) from Markdown — # headings, paragraphs, **bold**, *italic*, `code`, [links](https://…), - and 1. lists (nested by indenting), > quotes, ``` code blocks, --- rules, pipe tables, and ![caption](chart.png) images from the session files. " +
-				"Overwrites the file (its earlier version is kept). A preview opens for the human. To revise a document, doc_read it, edit the Markdown, and write it again.",
+				"Overwrites the file (its earlier version is kept). A preview opens for the human. To revise a document, doc_read it, edit the Markdown, and write it again. " +
+				"A link to a session file — [the data](data.csv), relative to the document, or session:<key> — is a download in the preview (the .docx itself keeps only web links).",
 			Parameters: obj([]string{"path", "markdown"}, map[string]any{
 				"path":     strProp("the .docx session file to write"),
 				"markdown": strProp("the whole document"),
@@ -104,7 +105,8 @@ func docToolSpecs(cfg Config) []toolSpec {
 			Name: "slides_write",
 			Description: "Write a PowerPoint deck (.pptx), 16:9, from slides. Layouts: title {title, subtitle} · content {title, bullets, and optionally a table {header, rows} or an image beside them} · two {title, left, right} (two bullet columns) · image {title, image, caption} · section {title, subtitle}. " +
 				"bullets are strings with **bold**/*italic*; an array right after a bullet is its sub-bullets. image names a session PNG/JPEG. notes are speaker notes. theme {accent:'#RRGGBB', font, dark}. " +
-				"Keep slides short: a title and 3–6 bullets. Overwrites the file (its earlier version is kept); a preview opens for the human. To revise a deck, doc_read it and write it again.",
+				"Keep slides short: a title and 3–6 bullets. Overwrites the file (its earlier version is kept); a preview opens for the human. To revise a deck, doc_read it and write it again. " +
+				"A [link](data.csv) to a session file is a download in the preview (the .pptx keeps only web links).",
 			Parameters: obj([]string{"path", "slides"}, map[string]any{
 				"path":   strProp("the .pptx session file to write"),
 				"title":  strProp("the deck's title (its properties)"),
@@ -495,14 +497,17 @@ func (ag *Agent) showDoc(ctx context.Context, run *Run, tool, key, mime string, 
 	if err != nil {
 		return f, what + "; the preview couldn't be stored: " + err.Error(), nil
 	}
-	st := ag.db.journal(run.ID, "render", map[string]any{
+	// its links to session files (relative to the document, or session:) are
+	// downloads in the preview, as a report's are (files_links.go, D207)
+	links, skipped, _ := ag.reportLinks(ctx, run, Config{}, pf, preview, "", tool, false)
+	st := ag.db.journal(run.ID, "render", renderDetail(map[string]any{
 		"path": pf.Path, "version": pf.Version, "bytes": pf.Bytes,
 		"doc": f.Path, "docVersion": f.Version, "docBytes": f.Bytes, "docMime": mime,
-	})
+	}, links, skipped))
 	if ag.eng != nil {
 		ag.eng.emitStep(ag.db, rootOf(run), st)
 	}
-	return f, what + fmt.Sprintf(" — its preview (%s) is shown to the human, with a download of the file", pf.Path), nil
+	return f, what + fmt.Sprintf(" — its preview (%s) is shown to the human, with a download of the file", pf.Path) + linkWords(links, skipped, nil), nil
 }
 
 func (ag *Agent) toolSheetWrite(ctx context.Context, run *Run, cfg Config, args map[string]any) (string, error) {

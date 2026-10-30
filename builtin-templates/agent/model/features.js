@@ -144,6 +144,8 @@ export const FEATURES = {
   'tools.files': 'a run\'s session files: list, delete',
   'tools.files.editor': 'edit a text file (the version you loaded is sent back: a conflicting write is a visible 409)',
   'tools.files.attachments': 'an attachment: image preview, download',
+  'tools.files.download': 'download any session file, text or attachment, from its row (the app: Share — the file by its own name, GET /runs/{id}/dl/…)',
+  'tools.files.select': 'pick several session files, or all of them, to download as one zip (the app: Share as zip — GET /runs/{id}/zip) or delete with one confirmation; a deleted file\'s open preview closes (D207)',
   'tools.skills': 'the skill library: list, edit, add, delete',
   'tools.tree': 'the workflow tree: nodes by parent, their state and what blocks them',
   'tools.board': 'the Coding agents board (D147 §8 U7): every coding agent in the conversation\'s tree (GET /runs/{root}/tree, kept current by the stream) — at home every one of yours that runs or needs you — in the order they started, never re-sorted as they change; each with its state, what it does now, where it works and its counters, its permission, question or sign-in answered in place (on its own run), Stop, Message (the agent is told) and Cancel task; only those that need you (the web: a filter; the app: sections Needs you, Running, Done)',
@@ -154,6 +156,8 @@ export const FEATURES = {
   'tools.render.blocked': 'says how many external resources it blocked, and when it shows a newer version',
   'tools.render.maximize': 'maximize the preview',
   'tools.render.source': 'open the rendered file in Files',
+  'tools.render.zoom': 'zoom the preview out and in (−, +; the % goes back to 100) without reloading it, kept per person and tile (prefs/preview-zoom, model/preview-zoom.js)',
+  'tools.render.links': 'a report\'s links to its files download them — exactly the links its render step names (links [{href, path}], D207; a sandbox report\'s linked files are copied in beside it); every other link stays inert',
   'tools.live': 'a live preview (preview_port, D135): a page a server in the conversation\'s sandbox serves, its scripts running in an isolated frame (opaque origin: no cookies, no storage, no reach into the workspace), for the run\'s participants; labelled "live from the sandbox"',
   'tools.live.follow': 'a new live step opens the preview, as a render does',
   'tools.live.reload': 'reload the live page (a fresh link)',
@@ -315,6 +319,10 @@ export const DIFFERENCES = {
     'composer.keys': 'on a phone Return is a new line and Send is the button; the app\'s composer handles a hardware keyboard and IME composition itself',
     'composer.attach.paste': 'the app\'s composer owns the pasteboard: an image pasted there is uploaded like a picked one — nothing for the tile to draw',
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',
+    // D207 (#49, #46): the web's first; the app's render screen (native/tools.js renderTpl,
+    // native/render-doc.js) gains them in its own change — which then drops these two lines
+    'tools.render.zoom': 'not on the app yet: its render screen\'s zoom lands with the iOS render-screen change that follows D207',
+    'tools.render.links': 'not on the app yet: its render screen (native/render-doc.js) keeps every link inert until the iOS render-screen change that follows D207',
   },
 };
 

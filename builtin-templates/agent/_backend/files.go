@@ -27,10 +27,15 @@ func fileToolSpecs(cfg Config) []toolSpec {
 	// the paths a reading tool takes (files_paths.go)
 	anyPath := "a session file key ('report.html', or session:report.html; session:report.html@2 is an earlier version)"
 	showPath := "file key of the HTML file to show, e.g. 'report.html'"
+	// a report's file links become downloads in the preview (files_links.go, D207)
+	linksHint := `To hand the human files that go with the report (a PDF, a .docx, a CSV to act on), link them from it — <a href="results.csv">results</a>, ` +
+		"a path relative to the report, or session:<key> for any session file: the preview turns exactly those links into downloads; every other link is inert."
 	if sandboxToolsOn(cfg) {
 		anyPath += ", or a sandbox path — absolute ('/work/out.txt'), ./relative to its working directory, or ~/…"
 		showPath += ", or a sandbox path ('/work/report.html', './report.html') — copied into the session files first, in place"
 		readWhat = "Read a session file, or — given a sandbox path (/…, ./…) — a file in the coding sandbox, as its read does."
+		linksHint += " A report shown from the sandbox links the files beside it there (relative, as they'd open from its folder, or by absolute path): " +
+			"they are copied into the session files with it, under names of their own, and the links still work."
 	}
 	if cfg.feature("repl") {
 		replHint = " They are the durable half of the sandbox: put reusable functions here instead of re-pasting them, then js_run the file."
@@ -91,7 +96,8 @@ func fileToolSpecs(cfg Config) []toolSpec {
 			Description: "Shows the human a STATIC snapshot of an HTML file — not a browser: scripts never run and external loads are blocked, so it cannot verify JavaScript; use browser_check for that, or preview_port for a live page. " +
 				"The file is a session .html file, shown in the tile's preview pane: inline your CSS, and draw charts as inline SVG" + svgHint + " rather than using a chart library (no external images, stylesheets or fonts load). " +
 				"Use this whenever a table, report, diagram or comparison would read better than prose. " +
-				fmt.Sprintf("Up to %d MB of HTML; each render opens the pane at once, and the human can reopen it from the chat.", maxRenderBytes>>20),
+				fmt.Sprintf("Up to %d MB of HTML; each render opens the pane at once, and the human can reopen it from the chat. ", maxRenderBytes>>20) +
+				linksHint,
 			Parameters: obj([]string{"path"}, map[string]any{
 				"path": strProp(showPath),
 			}),
@@ -284,18 +290,45 @@ func (ag *Agent) renderHTML(ctx context.Context, run *Run, cfg Config, args map[
 	if f.Binary && !renderable(f) {
 		return "", fmt.Errorf("%s is stored as a binary file (%s, %s) — render_html shows text HTML up to %s", f.Path, f.Mime, humanBytes(f.Bytes), humanBytes(maxRenderBytes))
 	}
-	st := ag.db.journal(run.ID, "render", map[string]any{
+	// the files it links (files_links.go, D207): resolved where the report
+	// is — beside its sandbox file when it is a copy of the bound sandbox's
+	sbx := sandboxToolsOn(cfg)
+	from := ""
+	if s := f.Source; sbx && s != nil && s.Kind == "sandbox" && cfg.Sandbox != nil && s.Sandbox == cfg.Sandbox.Ref {
+		from = s.Path
+	}
+	src := f.Content
+	if f.Binary {
+		if data, err := ag.readBlob(ctx, f.Blob); err == nil {
+			src = string(data)
+		}
+	}
+	links, skipped, copied := ag.reportLinks(ctx, run, cfg, f, src, from, "render_html", sbx)
+	st := ag.db.journal(run.ID, "render", renderDetail(map[string]any{
 		"path": f.Path, "version": f.Version, "bytes": f.Bytes,
-	})
+	}, links, skipped))
 	if ag.eng != nil { // streamed at once: the pane opens while the turn goes on
 		ag.eng.emitStep(ag.db, rootOf(run), st)
 	}
 	out := fmt.Sprintf("rendered %s (%s, v%d) — shown to the human in the tile's preview pane as a static snapshot: "+
 		"no scripts ran and every external load (script, image, stylesheet, font) was blocked, so this says nothing about whether its JavaScript works — "+
 		"browser_check runs it in a real browser, preview_port shows a live page.",
-		f.Path, humanBytes(f.Bytes), f.Version)
+		f.Path, humanBytes(f.Bytes), f.Version) + linkWords(links, skipped, copied)
 	if note != "" {
 		out = note + "\n" + out
 	}
 	return out, nil
+}
+
+// renderDetail is a render step's detail with the report's file links
+// (D207): links [{href, path}] and skipped [{href, why}], each only when
+// there are any.
+func renderDetail(det map[string]any, links []reportLink, skipped []linkSkip) map[string]any {
+	if len(links) > 0 {
+		det["links"] = links
+	}
+	if len(skipped) > 0 {
+		det["skipped"] = skipped
+	}
+	return det
 }

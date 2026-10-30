@@ -42,6 +42,8 @@ import { liveURL, liveFrame, liveLabel } from './live.js';
 import { mountLive, unmountLive } from './live-status.js';
 import { makePorts } from './ports.js';
 import { tabFiles, selectFile } from './settings-files.js';
+import { makeZoom, watchFrame } from './preview-frame.js'; // the preview's zoom, and its file links' watch (D207)
+import { stepLinks, frameLinks, dropTicket } from './model/report-links.js';
 import { mountPartitionUI, mountStaticMcp } from './partition-ui.js';
 import { mountNewShare } from './homes-ui.js'; // a person's partition: who can see a new chat (two homes)
 import { hostedChipTpl, hostedPaint } from './hosted-ui.js'; // non-secure (hosted) conversations: the chip, the warning, the lock
@@ -147,7 +149,7 @@ app.on('home', () => {
 app.on('page', () => { paintSide(); paint(); });
 app.on('projects', () => { paintSide(); if (app.page || app.sel != null) paint(); }); // app.projects
 session.ui.act.openFile = (path) => { selectFile(path); openSettings('files'); };
-Object.assign(session.ui.act, { openPreview: (path, ver, run) => openPreview(path, ver, false, run), openLive, downloadFile: async (run, path) => xbin.download(path.split('/').pop(), await rawBlob(run || app.sel, path)) }); // the rendered / live lines (a subagent's: its run); a written document's download (D201)
+Object.assign(session.ui.act, { openPreview: (path, ver, run, links) => openPreview(path, ver, false, run, links), openLive, downloadFile: async (run, path) => xbin.download(path.split('/').pop(), await rawBlob(run || app.sel, path)) }); // the rendered / live lines (a subagent's: its run); a written document's download (D201)
 
 // --- the conversation list -------------------------------------------------
 //
@@ -343,8 +345,9 @@ function syncHalt() {
 
 // --- render pane --------------------------------------------------------
 
-// The policy the rendered document runs under. sandbox="" on the iframe stops
-// scripts, forms and navigation, but it does NOT stop subresource LOADS: a bare
+// The policy the rendered document runs under. The iframe's sandbox (only
+// allow-downloads, D207) stops scripts, forms, popups and top navigation,
+// but it does NOT stop subresource LOADS: a bare
 // <img src="https://…/?leak=…"> would still fire a real request from the user's
 // browser, which in a private-lane run is exfiltration. Nothing in the platform
 // CSP prevents that (there is no img-src on /c/ documents), so this policy is
@@ -368,22 +371,30 @@ const FRAME_CSS = 'html{background:#fff;color:#111;color-scheme:light}' +
 // and mismatched tags come back well-formed and correctly escaped, so there is
 // no regex guessing at tag syntax (a naive /<meta[^>]+refresh/ misses
 // `<meta/http-equiv=refresh …>`, which parses perfectly well).
-function frameDoc(src) {
+function frameDoc(src, links) {
   const doc = new DOMParser().parseFromString(String(src ?? ''), 'text/html');
   let blocked = 0;
 
-  // A meta refresh navigates the FRAME, which sandbox="" permits (only top
+  // A meta refresh navigates the FRAME, which its sandbox permits (only top
   // navigation is blocked) and which no CSP directive covers since navigate-to
   // was dropped from the spec. It is a plain outbound GET — strip it.
   doc.querySelectorAll('meta[http-equiv]').forEach((m) => {
     if (/^\s*refresh\s*$/i.test(m.getAttribute('http-equiv') || '')) { m.remove(); blocked++; }
   });
   // A click on an off-page link is the same GET, one interaction later. Keep
-  // in-page anchors (#toc) — fragment navigation inside about:srcdoc is fine.
+  // in-page anchors (#toc) — fragment navigation inside about:srcdoc is fine —
+  // and the report's links to its files, which links (href → its download
+  // URL, from the render step's links: D207) names and nothing else does:
+  // those download (Content-Disposition: attachment, sandbox allow-downloads),
+  // in this frame, so they never open or navigate anything.
   doc.querySelectorAll('[target]').forEach((e) => e.removeAttribute('target'));
-  doc.querySelectorAll('a[href]').forEach((a) => {
-    if (!(a.getAttribute('href') || '').startsWith('#')) a.removeAttribute('href');
+  doc.querySelectorAll('a[href], area[href]').forEach((a) => {
+    const h = a.getAttribute('href') || '', to = links && links.get(h.trim());
+    a.removeAttribute('ping'); // a click's beacon
+    if (to) { a.setAttribute('href', to); a.setAttribute('download', ''); a.setAttribute('target', '_self'); a.setAttribute('rel', 'noreferrer'); }
+    else if (!h.startsWith('#')) a.removeAttribute('href');
   });
+  doc.querySelectorAll('a').forEach((a) => a.removeAttributeNS('http://www.w3.org/1999/xlink', 'href')); // an SVG link
   // Count what the policy will refuse. In a private-lane run an unexpected
   // remote image is a signal worth showing the human, not just silence.
   doc.querySelectorAll('img[src], source[src], link[href], use[href], iframe[src], object[data]')
@@ -411,7 +422,7 @@ function frameDoc(src) {
   return { html: '<!doctype html>' + doc.documentElement.outerHTML, blocked };
 }
 
-let preview = null;     // {runId, path, ver, live}
+let preview = null;     // {runId, path, ver, live, links?}
 let prevSig = '';       // (run, path, version) currently loaded IN the frame
 let prevSeen = null;    // newest render step seq observed for this run
 let prevDismissed = 0;  // render step seq the user closed on
@@ -430,7 +441,7 @@ function dropLive() {
   unmountLive();
   $('livefr')?.remove();
   $('prevframe').hidden = false;
-  $('prev-src').hidden = false;
+  $('prev-src').hidden = $('prev-zoom').hidden = false;
   $('prev-reload').hidden = true;
   $('prev-icon').setAttribute('name', 'photo');
 }
@@ -443,7 +454,7 @@ async function openLive(det, run) {
   dropLive();
   $('preview').hidden = false;
   $('prevframe').hidden = true;
-  $('prev-src').hidden = true;
+  $('prev-src').hidden = $('prev-zoom').hidden = true;
   $('prev-reload').hidden = false;
   $('prev-icon').setAttribute('name', 'signal');
   $('prev-path').textContent = $('prev-path').title = liveLabel(det);
@@ -464,10 +475,10 @@ async function openLive(det, run) {
   mountLive($('preview'), f, src); // the status strip: what the page's URL answers, and Check
 }
 
-async function openPreview(path, ver, live, run) {
+async function openPreview(path, ver, live, run, links) {
   if (app.sel == null || !path) return;
   dropLive();
-  preview = { runId: app.sel, run: run || app.sel, path, ver: num(ver), live: !!live };
+  preview = { runId: app.sel, run: run || app.sel, path, ver: num(ver), live: !!live, links };
   $('preview').hidden = false;
   $('prev-path').textContent = path;
   $('prev-path').title = path;
@@ -486,17 +497,18 @@ async function paintPreview() {
   if (!p || p.kind === 'live') return;
   const sig = `${p.run}\u0000${p.path}\u0000${p.ver}`;
   if (sig === prevSig) return;
-  let f;
+  let f, fl; // the file, and its links' download URLs (D207: the step's, else the newest render's of it)
   try {
-    f = await actions.file(p.run, p.path);
+    [f, fl] = await Promise.all([actions.file(p.run, p.path), frameLinks(p.run, p.links || stepLinks(session.merged(p.run)?.steps, p.path))]);
   } catch (e) {
     $('prev-warn').hidden = false;
     $('prev-warn-t').textContent = e.message || e;
     return;
   }
   if (!preview || preview.path !== p.path || preview.run !== p.run) return; // stale
-  const { html, blocked } = frameDoc(f.content);
+  const { html, blocked } = frameDoc(f.content, fl.map);
   prevSig = sig;
+  frameWatch.expect();
   // PROPERTY assignment, never interpolation into an srcdoc="…" attribute: the
   // DOM takes the raw string, so there is no attribute escaping to get wrong
   // and the model's bytes never touch an innerHTML path. This is the single
@@ -508,6 +520,7 @@ async function paintPreview() {
   const warns = [];
   if (blocked) warns.push(`${blocked} external resource${blocked > 1 ? 's' : ''} blocked`);
   if (stale) warns.push(`showing v${f.version} (chip was v${p.ver})`);
+  if (fl.note || p.away) warns.push(p.away ? 'that file didn\'t download — try again' : fl.note);
   $('prev-warn').hidden = !warns.length;
   $('prev-warn-t').textContent = warns.join(' · ');
 }
@@ -533,8 +546,15 @@ function syncPreview(d) {
   if (document.visibilityState !== 'visible') return;
   if (preview && !preview.live) return;            // the user pinned an older chip
   if (last.kind === 'live') return openLive(det);  // preview_port (live.js, D135)
-  openPreview(det.path, num(det.version), true);
+  openPreview(det.path, num(det.version), true, undefined, det.links);
 }
+// A file link that answered with a page (an expired ticket, a file deleted
+// since) took the frame away from the report: show it again, with a fresh link.
+const frameWatch = watchFrame($('prevframe'), () => {
+  if (!preview || preview.kind === 'live' || !prevSig) return;
+  dropTicket(preview.run); preview.away = true; prevSig = ''; paintPreview();
+});
+makeZoom($); // the header's − % + (#49)
 
 const rawBlob = (run, path) => actions.rawFile(base, run, path);
 

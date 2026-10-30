@@ -398,7 +398,10 @@
     .preview .badge { color: var(--bx-muted); }
     .preview .pwarn { display: inline-flex; align-items: center; gap: 4px; color: var(--bx-warn); white-space: nowrap; overflow: hidden;
                       text-overflow: ellipsis; }
-    .preview .pbody { flex: 1; min-height: 0; position: relative; }
+    .preview .pbody { flex: 1; min-height: 0; position: relative; overflow: hidden; }
+    .preview .pzoom { display: inline-flex; align-items: center; gap: 0; }
+    .preview .pzoom #prev-zreset { min-width: 4.2em; font-variant-numeric: tabular-nums; }
+    .preview .pzoom[hidden] { display: none; }
     /* The frame is the only thing allowed to overflow: arbitrary model HTML
        scrolls inside its own viewport, so the tile never scrolls sideways.
        The white background and color-scheme are forced because arbitrary HTML
@@ -578,6 +581,12 @@
     .kv { display: grid; grid-template-columns: 150px 1fr auto; gap: 8px; align-items: center; margin-bottom: 4px; }
     .kv .mono { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .tblwrap { overflow-x: auto; }
+    /* the Files tab's bulk bar and pick column (settings-files.js, D207) */
+    .fbulk { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 6px; }
+    .fbulk .muted { font: var(--bx-font-meta); }
+    table.tbl .fpick { width: 1px; padding-right: 6px; }
+    table.tbl .fpick input { margin: 2px 0 0; }
+    table.tbl td .btn.icon { vertical-align: middle; }
     table.tbl { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
     table.tbl th { text-align: left; font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase;
                    color: var(--bx-muted); padding: 4px 8px 4px 0; border-bottom: 2px solid var(--bx-text); }
@@ -696,10 +705,16 @@
            overlay like .settings — that would cover the composer, and the whole
            loop is "look at the render, ask for a change, look again".
            The <iframe> is static markup, created once at page load; JS only
-           ever assigns its .srcdoc property. sandbox="" is the entire isolation
-           story for untrusted model HTML: no scripts, no forms, no navigation,
-           opaque origin. frameDoc() adds a meta CSP on top, because sandbox=""
-           still permits subresource LOADS (a remote <img> would beacon). -->
+           ever assigns its .srcdoc property (and scales it from outside: the
+           zoom, preview-frame.js). Its sandbox is the entire isolation story
+           for untrusted model HTML: no scripts, no forms, no popups, no top
+           navigation, opaque origin — allow-downloads is its one token, so the
+           report's links to its own files download (D207: frameDoc keeps only
+           the links the render step names, each a download of GET
+           /runs/{id}/dl/… that answers as an attachment). NEVER allow-scripts,
+           allow-popups or allow-same-origin. frameDoc() adds a meta CSP on top,
+           because the sandbox still permits subresource LOADS (a remote <img>
+           would beacon). -->
       <div class="preview" id="preview" hidden>
         <div class="phd">
           <bx-icon id="prev-icon" name="photo"></bx-icon>
@@ -708,12 +723,17 @@
           <span class="pwarn" id="prev-warn" hidden><bx-icon name="warning"></bx-icon><span id="prev-warn-t"></span></span>
           <span style="flex:1"></span>
           <button class="btn ghost btnsm" id="prev-reload" title="Reload the live page" hidden><bx-icon name="refresh"></bx-icon>Reload</button>
+          <span class="pzoom" id="prev-zoom" role="group" aria-label="Zoom">
+            <button class="btn ghost btnsm icon" id="prev-zout" title="Zoom out" aria-label="Zoom out"><bx-icon name="minus"></bx-icon></button>
+            <button class="btn ghost btnsm" id="prev-zreset" title="The report at its own size">100%</button>
+            <button class="btn ghost btnsm icon" id="prev-zin" title="Zoom in" aria-label="Zoom in"><bx-icon name="plus"></bx-icon></button>
+          </span>
           <button class="btn ghost btnsm" id="prev-src" title="Open this file in the Files tab">Source</button>
           <button class="btn ghost btnsm icon" id="prev-max" title="Maximize / restore" aria-label="Maximize or restore"><bx-icon name="maximize"></bx-icon></button>
           <button class="btn ghost btnsm icon" id="prev-close" title="Close (Esc)" aria-label="Close"><bx-icon name="xmark"></bx-icon></button>
         </div>
         <div class="pbody">
-          <iframe id="prevframe" class="prevframe" sandbox="" referrerpolicy="no-referrer"
+          <iframe id="prevframe" class="prevframe" sandbox="allow-downloads" referrerpolicy="no-referrer"
                   title="rendered output — static, no scripts"></iframe>
         </div>
       </div>

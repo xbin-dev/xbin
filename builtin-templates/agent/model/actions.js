@@ -13,6 +13,7 @@
 import { jbody, sandboxed } from '/vendor/bx-kit.js';
 import { at, homeOf, runOfPath, twoHomes } from './homes.js';
 import { runApi as api, homeApi, homeFetch } from './home-api.js';
+import { zipPath } from './report-links.js';
 
 // refusing: the kit's selfApi() with the refusal kept — e.status, and a
 // sandbox manager's e.refusal (API.md "Coding sandboxes") beside e.message.
@@ -289,6 +290,28 @@ export async function rawFile(base, runId, path) {
   const r = await homeFetch(`${base}/runs/${runId}/raw?path=${encodeURIComponent(path)}`);
   if (!r.ok) throw new Error(`HTTP ${r.status}`);
   return r.blob();
+}
+
+// zipFiles is several session files as one zip Blob (GET /runs/{id}/zip,
+// D207; paths empty: every file of the run).
+export async function zipFiles(base, runId, paths) {
+  const r = await homeFetch(base + zipPath(runId, paths));
+  if (!r.ok) {
+    let msg = `HTTP ${r.status}`;
+    try { msg = (await r.json()).error || msg; } catch { /* not JSON */ }
+    throw new Error(msg);
+  }
+  return r.blob();
+}
+
+// deleteFiles deletes several session files, one DELETE each (any backend
+// answers those): {deleted: [path], failed: [{path, error}]}.
+export async function deleteFiles(runId, paths) {
+  const out = { deleted: [], failed: [] };
+  for (const p of paths) {
+    try { await deleteFile(runId, p); out.deleted.push(p); } catch (e) { out.failed.push({ path: p, error: e.message || String(e) }); }
+  }
+  return out;
 }
 
 // --- the skill library ---------------------------------------------------------------------

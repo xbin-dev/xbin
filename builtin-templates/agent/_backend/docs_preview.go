@@ -154,7 +154,9 @@ func inlineHTML(s string, imgs *previewImages) string {
 		if r.Bold {
 			t = "<strong>" + t + "</strong>"
 		}
-		if r.Link != "" && safeLink(r.Link) {
+		// a link to a session file stays in the preview, which offers it as a
+		// download (D207); the document itself carries web links only
+		if r.Link != "" && (safeLink(r.Link) || sessionLinkHref(r.Link)) {
 			t = `<a href="` + html.EscapeString(r.Link) + `">` + t + `</a>`
 		}
 		b.WriteString(t)

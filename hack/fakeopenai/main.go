@@ -84,6 +84,9 @@
 //	             chart), slides_write deck.pptx (three slides), doc_write
 //	             report.docx → "Docs done: <doc_read's first line> · saw the
 //	             page" (the page's picture reached the model)
+//	report links file_write out/data.csv and out/report.html (a report linking
+//	             data.csv, a missing file and a web page), then render_html
+//	             it (D207: the step's links) → "Report shown with its files."
 //	huge context "ok: <text>", reporting a 5 000 000-token prompt: the agent's
 //	             next step compacts (D133)
 //	(else)       "ok: <text>"
@@ -354,6 +357,9 @@ func script(conv []turn, system string) plan {
 	}
 	if strings.Contains(lastUser, "sandbox report") {
 		return reportScript(conv)
+	}
+	if strings.Contains(lastUser, "report links") {
+		return reportLinksScript(conv)
 	}
 	if last.Role == "tool" {
 		switch last.Tool {
@@ -953,6 +959,29 @@ func reportScript(conv []turn) plan {
 		return plan{Calls: []call{{"render_html", map[string]any{"path": "./rep/index.html", "summary": "Show the report"}}}}
 	}
 	return plan{Delay: 6 * time.Second, Text: "Report shown."}
+}
+
+// reportLinksScript is "report links" (D207): the files first (the tool
+// calls of one step run side by side), then the render that links them.
+func reportLinksScript(conv []turn) plan {
+	did := map[string]bool{}
+	for i := len(conv) - 1; i >= 0 && conv[i].Role != "user"; i-- {
+		if conv[i].Role == "tool" {
+			did[conv[i].Tool] = true
+		}
+	}
+	switch {
+	case !did["file_write"]:
+		return plan{Calls: []call{
+			{"file_write", map[string]any{"path": "out/data.csv", "content": "region,q1\nEU,120\nUS,98\n", "summary": "Write the data"}},
+			{"file_write", map[string]any{"path": "out/report.html", "summary": "Write the report", "content": `<h1>Q1 by region</h1>` +
+				`<table><tr><th>Region</th><th>Q1</th></tr><tr><td>EU</td><td>120</td></tr><tr><td>US</td><td>98</td></tr></table>` +
+				`<p>The numbers: <a href="data.csv">data.csv</a> · <a href="missing.pdf">the appendix</a> · <a href="https://example.com/">the web</a></p>`}},
+		}}
+	case !did["render_html"]:
+		return plan{Calls: []call{{"render_html", map[string]any{"path": "out/report.html", "summary": "Show the report"}}}}
+	}
+	return plan{Text: "Report shown with its files."}
 }
 
 // serveScript is "sandbox serve": write the page and start its server, then

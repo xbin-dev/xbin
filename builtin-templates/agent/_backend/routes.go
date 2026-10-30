@@ -85,6 +85,10 @@ func routeTable() []routeDef {
 		// a sandboxed opaque origin; no custom headers pass the gateway's CORS).
 		{"PUT /runs/{id}/upload", needParticipant, handleUpload},
 		{"GET /runs/{id}/raw", needViewer, handleRaw},
+		// Downloads (D207, files_http.go): one file as an attachment — path-
+		// shaped, for a report's file links below a path ticket — and a zip.
+		{"GET /runs/{id}/dl/{path...}", needViewer, handleDownload},
+		{"GET /runs/{id}/zip", needViewer, handleZip},
 		{"GET /runs/{id}/thumb", needViewer, handleThumb},
 		{"GET /config", needManager, handleGetConfig},
 		{"PUT /config", needManager, handlePutConfig},

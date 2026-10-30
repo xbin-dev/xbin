@@ -719,6 +719,8 @@ background tab doesn't keep a partition running.
 | `DELETE /runs/{id}/file?path=` | — | delete a file (and its blob, for an attachment) |
 | `PUT /runs/{id}/upload?name=` | raw bytes, the file's own `Content-Type` | attach a file: `{path, mime, bytes, binary}`. Never overwrites — a taken name gets `-2`, `-3`…. **413** over 16 MiB, **502** when the blob store fails |
 | `GET /runs/{id}/raw?path=` | — | a file's bytes with its type and `nosniff` (the tile's preview and download) |
+| `GET /runs/{id}/dl/<path…>` | — | a file as a download (D207): its bytes and type with `Content-Disposition: attachment; filename=<its base name>`, `nosniff`, `Cache-Control: no-store`. Path-shaped, so an xbind path ticket for `runs/{id}/dl` covers every file of the run — the preview's file links (**Session files + render**). **400** a bad key, **404** no such file |
+| `GET /runs/{id}/zip?path=…&path=…&name=` | — | several files as one zip (D207), each under its key, streamed — one file in memory at a time. No `path`: every file of the run. `name` names the archive (`.zip` added; default `run-<id>-files.zip`). Every path is checked before the first byte: **400** a bad one or more than 64, **404** a missing one (or a run with no files); a file that fails to read later aborts the response, never a short archive that looks whole |
 | `GET /runs/{id}/thumb?path=&w=&h=&fmt=` | — | a sized copy of an image file (PNG, JPEG, GIF's first frame) — see **Thumbnails** |
 
 Content and metadata are separate routes on purpose: a run's detail and view
@@ -1607,11 +1609,13 @@ run's private rows — no egress, no other component — so they are offered in
 never fires for them. Caps: 64 KiB per text file, 64 files and 512 KiB of text
 per run; attachments have their own.
 
-`render_html` journals a `render` step (`{path, version, bytes}`) and
-streams it at once, so the pane opens while the turn goes on; the tile
-shows that file in a `sandbox=""` iframe with a prepended meta CSP
-(`default-src 'none'; style-src 'unsafe-inline'; img-src data:`). **Scripts
-never run and nothing external loads** — so charts must be inline SVG. Its
+`render_html` journals a `render` step (`{path, version, bytes, links?,
+skipped?}`) and streams it at once, so the pane opens while the turn goes
+on; the tile shows that file in an iframe whose sandbox is
+`allow-downloads` alone (never scripts, popups or the same origin) with a
+prepended meta CSP (`default-src 'none'; style-src 'unsafe-inline'; img-src
+data:`). **Scripts never run and nothing external loads** — so charts must
+be inline SVG. Its
 description and result say so first (D134): a static snapshot, not a
 browser, that verifies no JavaScript. Verify
 with `node test/frame-policy.mjs`. It shows HTML up to **2 MiB**: a file
@@ -1634,10 +1638,61 @@ lit from the xbin checkout the template lives in (in an instance:
 Playwright with a Chromium build and skips without it. The backend: `go vet
 ./_backend && go test ./_backend` with a `go.mod` copied from `go.mod.tile`.
 
+**Files a report links to (D207).** A report often comes with files to act
+on — the PDFs it summarizes, a .docx it drafted, the CSV behind a chart. Its
+links to them become downloads in the preview; every other link stays
+inert (stripped). `render_html` reads the report's `<a href>` and `<area
+href>`: a path relative to the report (`data/results.csv`, `./x.pdf`,
+`../shared/y.docx`; a query or fragment ignored), `session:<key>` (any
+session file), and — with a sandbox bound — an absolute path or
+`sandbox:<path>` (a sandbox file). A link resolves where the report is: a
+report shown from the sandbox (or a session copy of one from the bound
+sandbox) links the files beside it **there**, and those are copied into the
+session files with it — under names of their own (as the report's copy is,
+so the href and the session file can differ), a repeated render updating
+the same copies; a session report links session files, and a relative one
+it lacks is looked for in the sandbox's working directory. At most 32
+distinct files per render and 60 s of copying; the usual caps hold (16 MiB
+a file, 64 files a run). The step records them:
+
+```json
+{"path": "report.html", "version": 3, "bytes": 18234,
+ "links": [{"href": "data/results.csv", "path": "results.csv"},
+           {"href": "session:notes.md", "path": "notes.md"}],
+ "skipped": [{"href": "nope.pdf", "why": "/work/out/nope.pdf doesn't exist in the sandbox"}]}
+```
+
+`href` is the attribute as written (entities decoded), `path` the session
+file it is; only files that exist in the session after copying are listed
+(`links` and `skipped` appear only when there are any — an older step has
+neither: no link downloads). The tool's result names the files and what
+was not offered, and its description tells the agent how to link. The web
+keeps exactly the step's links (matched on the trimmed href), each
+rewritten to `GET /runs/{id}/dl/<path>` below an xbind path ticket for
+`runs/{id}/dl` (`POST /api/xbin/path-tickets`; docs/auth.md §Path tickets)
+with `download` and `target=_self`: a click downloads in place and the
+report stays. Every other `href` — and an SVG `xlink:href` and a link's
+`ping` — is removed. A shared conversation at the global instance, opened
+from a person's partition, has no ticket there (a ticket is its own
+partition's): its links stay inert and the header says to download them
+from Files. A link answering with a page rather than a file (an expired
+ticket, a file deleted since) shows the report again with a new ticket.
+The document previews (below) carry links the same way.
+
+**Zoom (D207).** The preview header's −, % and + scale the report from the
+outside — the frame laid out at 1/z of the pane and scaled by z, its srcdoc
+not reassigned, so nothing reloads and its sandbox is untouched — in steps
+from 50 % to 300 %; the % goes back to 100. The zoom is kept per person and
+tile in the prefs API (`/api/xbin/prefs/preview-zoom`, a number).
+
 File versions are monotonic. Clicking an older render chip shows the file's
 current content, with the header noting the difference. The tile's Files tab
 edits them too, sending back the version it loaded so a write the agent made
-in between comes back as a 409 instead of being lost.
+in between comes back as a 409 instead of being lost. Every file downloads
+from its row (the app: Share, through `/dl/`), and picked files — or all of
+them — download as one zip (`/zip`; the app: Share as zip) or delete with one
+confirmation (one `DELETE …/file` each); a deleted file's open preview
+closes (D207).
 
 ### Documents (D201)
 
@@ -1656,9 +1711,12 @@ agent reads and writes Office files with **no coding sandbox**:
 A write stores the file as a session file (a new version when it exists —
 the earlier one kept, D136) and an HTML preview beside it (`<path>.html`),
 and journals a `render` step `{path, version, bytes, doc, docVersion,
-docBytes, docMime}`: the preview opens in the render pane like
-`render_html`'s, and the chat's line names the document (web: **download**;
-the app: **Share / export**). docx and pptx are written whole (to revise
+docBytes, docMime, links?, skipped?}`: the preview opens in the render pane
+like `render_html`'s, and the chat's line names the document (web:
+**download**; the app: **Share / export**). A Markdown link to a session
+file (`[the data](data.csv)`, relative to the document, or `session:<key>`)
+stays a link in the preview, recorded in `links` and downloaded from it
+like a report's (D207); the .docx/.pptx itself keeps web links only. docx and pptx are written whole (to revise
 one, read it and write it again); an xlsx is edited in place.
 
 How it runs, and what bounds it:

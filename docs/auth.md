@@ -129,7 +129,8 @@ gating*).
 
 **Path tickets** (D135) are a tile page's credential for a document it
 frames from its own backend in an opaque-origin sandbox — the agent
-template's live preview of a server in a coding sandbox — whose relative
+template's live preview of a server in a coding sandbox, and the file
+downloads a report's links make in its static preview (D207) — whose relative
 loads carry neither the frame token nor a cookie. The page mints one with
 its frame token (`POST /api/xbin/path-tickets {path}`) for a **prefix of its
 own tile's API**, and `/api/~<ticket>/<p>` reaches `/api/<tile>/<prefix>/<p>`
