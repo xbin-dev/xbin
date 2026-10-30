@@ -278,7 +278,9 @@ final class XbinAgentNativeTests: XCTestCase {
         let sheet = e.app.otherElements["ActivityListView"]
         let copy = e.app.buttons.matching(NSPredicate(format: "label == %@ OR label == %@", "Copy", "Save to Files")).firstMatch
         XCTAssertTrue(e.until(20) { sheet.exists || copy.exists }, "the share sheet for figures.csv")
-        XCTAssertTrue(e.containing("figures.csv").exists, "…named after the file")
+        // named after the file (an iPad's sheet drops the extension: "figures")
+        let named = e.app.staticTexts.matching(NSPredicate(format: "label == %@ OR label == %@", "figures.csv", "figures")).firstMatch
+        XCTAssertTrue(named.exists, "…named after the file")
         e.shot(e.isPad ? "agent-19-report-share-pad" : "agent-19-report-share")
         let close = e.app.buttons.matching(NSPredicate(format: "label == %@ OR identifier == %@", "Close", "header.closeButton")).firstMatch
         if close.exists { close.tap() } else { e.app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)).tap() }
