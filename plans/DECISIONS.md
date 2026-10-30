@@ -12767,11 +12767,32 @@ Deviations and refinements made while implementing; all deliberate:
     with `html{zoom}` (a reload) and a "Files linked from this report" list
     of share rows under it; split rev 2 keeps the report pushed in the
     detail column; toolbar rev 1 gets − / + beside Source.
-  - **The share sheet's file name.** The app named a shared tile file after
-    the reference's last path component — `raw?path=out%2Freport.pdf` for
-    the template's Share / export. `TileResource.shareName` takes the last
-    segment (or a `?path=`'s), decoded, without the query.
-  - **Parity.** `tools.render.zoom`, `tools.render.links` (both listed as
-    web differences until the web change lands — the features test calls
-    them stale then) and `tools.render.beside` (the web's render pane
-    already sits beside the conversation).
+  - **`xbin.native.share({file})` never shared a backend's file (found
+    by D207's review, verified here).** `NativeCallAction` took only
+    relative paths and refused anything starting with `/`, and every
+    `file` the agent template passes is its API's (`/api/<self>/runs/…`:
+    Share / export, D207's per-row Share and Share as zip, this report's
+    links) — so the app answered "share: nothing to share". It now passes
+    absolute paths on (no scheme, no host, no `..` in the path);
+    `TileResource.assetPath` still decides, when the file is fetched, that
+    it is the tile's own (`/c/<self>/…`, `/api/<self>/…`), as for an image.
+    Apps already shipped keep refusing them: nothing a template can do
+    about that (a relative path can't reach the API). **The file's name:**
+    the app named it after the reference's last component
+    (`raw?path=out%2Freport.pdf`, `zip?path=…`); it now takes the
+    response's `Content-Disposition` filename (`filename*` first — the dl
+    and zip routes set it), else the last segment or a `?path=`'s, decoded.
+  - **Built on D207** (rebased onto it): the − / + walk
+    model/preview-zoom.js's steps and keep the zoom per person and tile in
+    prefs/preview-zoom, as the web does; links come through
+    model/report-links.js `linksOf` (a step without `links` has none) and
+    are shared through D207's `GET /runs/{id}/dl/…`; render-doc.js mirrors
+    frameDoc's stricter stripping (an image map's areas, SVG links, pings;
+    hrefs trimmed), frame-policy.mjs holding both in Chromium.
+  - **An unbound halves split shows both columns.** On an iPad in portrait
+    an unbound `NavigationSplitView` opened on the detail alone — the
+    conversation behind the sidebar button (the e2e tile's first iPad run);
+    an unbound halves split now starts with `.all`.
+  - **Parity.** `tools.render.zoom` and `tools.render.links` (D207's keys)
+    come off DIFFERENCES.native; `tools.render.beside` is new (the web's
+    render pane already sits beside the conversation).

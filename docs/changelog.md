@@ -16,9 +16,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   rev 3** (D208; [native.md](/docs/native.md) §A document to read). A
   `canvas` takes `fill` (the island takes the rest of the screen; its page
   scrolls and pinch-zooms itself, the screen no longer scrolls around it),
-  `zoom` (the page zoom, 0.5–3, reflowing; the reader keeps their place) and `@link {href}` on an `html`
-  island (a tapped link still never navigates; your code gets its href,
-  relative to the page). A `split` takes `halves`: on a regular width the
+  `zoom` (the page zoom, 0.5–3: it reflows, and the reader keeps their
+  place) and `@link {href}` on an `html` island (a tapped link still never
+  navigates; your code gets its href, relative to the page). A `split` takes `halves`: on a regular width the
   two columns share it equally — a document beside its conversation (an
   open iPhone Duo puts one each side of the hinge); compact, it collapses
   as before. Apps that predate them show your web page when the tree uses
@@ -35,12 +35,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   refuse absolute paths.
 - **Agent template in the app: the report preview is a reader** (D208,
   issues #41, #49, #46). On a phone the preview fills the screen and zooms
-  (pinch, or − / + in its bottom bar); on an iPad or an open Duo it opens
+  (pinch, or − / + in its bottom bar, kept per person like the web's
+  zoom); on an iPad or an open Duo it opens
   beside its conversation, half each, the conversation live, with a Close
   (the list comes back when it closes). A report's links to the run's own
-  files (its render step's `links`) open the share sheet for the file;
-  every other link stays inert. Older apps keep the preview pushed, zoom by
-  re-rendering it, and list the linked files under it.
+  files (its render step's `links`, D207) open the share sheet for the
+  file; every other link stays inert. Older apps keep the preview pushed,
+  zoom by re-rendering it, and list the linked files under it (sharing
+  from those apps waits for the share fix above).
 - **The agent template: reports link their files, the preview zooms, Files
   downloads and deletes in bulk** (D207, issues #46, #47, #49; the
   template's API.md §Session files + render). A report's links to files

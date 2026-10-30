@@ -223,6 +223,7 @@ import Testing
         #expect(TileResource.dispositionName(#"attachment; filename="run-9-files.zip""#) == "run-9-files.zip")
         #expect(TileResource.dispositionName("attachment; filename=\"a.pdf\"; filename*=UTF-8''q3%20r%C3%A9sum%C3%A9.pdf") == "q3 résumé.pdf")
         #expect(TileResource.dispositionName(#"attachment; filename="../../etc/passwd""#) == "passwd", "never a path")
+        #expect(TileResource.dispositionName("attachment; filename*=utf-8''r%C3%A9sum%C3%A9.pdf") == "résumé.pdf", "as Go's mime.FormatMediaType writes it")
         #expect(TileResource.dispositionName("attachment") == nil && TileResource.dispositionName(nil) == nil)
     }
 
