@@ -475,7 +475,8 @@ test('the list: groups, row actions, search with snippets, scope, a pasted invit
   const sheet = topScreen(t);
   assert.equal(sheet.p.title, 'Agent', 'the list is the root screen');
   const sections = all(sheet, { t: 'section' }).map((s) => (s.p || {}).title || '');
-  assert.deepEqual(sections, ['', 'Pinned', 'Today', 'Yesterday', 'Older']);
+  assert.deepEqual(sections, ['', '', 'Pinned', 'Today', 'Yesterday', 'Older'], 'the scope, then Projects (D209: no project yet, one row), pinned, by date');
+  assert.ok(find(all(sheet, { t: 'section' })[1], { t: 'row', p: { title: 'Projects' } }), 'one row to the Projects page');
   const row = (title) => find(sheet, { t: 'row', p: { title } });
   assert.equal(row('today one').p.badge, 'working');
   assert.equal(row('old one').p.badge, 'failed');

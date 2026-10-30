@@ -1,5 +1,6 @@
 // sidebar.js — how the conversation list draws (lit, keyed by id): the views
-// switch (Mine · Shared · Archived), Pinned, then date groups
+// switch (Mine · Shared · Archived), in Mine the seams' sections (ui.listTop:
+// web-ext.js listTop — projects.js's your active projects, D209), Pinned, then date groups
 // (model/conv-groups.js), newest activity first — or, in Shared, what you
 // shared and what was shared with you; a shared row says how (chips); search
 // results with the matching line; a row menu (right-click or ⋯) to rename,
@@ -19,15 +20,17 @@ import { kidsWords } from './model/harness-child.js';
  * @param list  ConvList (conv-list.js)
  * @param ui    {sel, renaming, menu: {id,x,y}|null, select(id), openMenu(id, ev),
  *               closeMenu(), act(action, row), rename(id, title), cancelRename(), more(),
- *               view(scope, archived)}
+ *               view(scope, archived), listTop?() → the seams' sections atop Mine}
  */
 export function sidebarTpl(list, ui) {
   const results = list.results;
   const shared = list.scope === 'shared' && !list.archived;
+  const mine = list.scope === 'mine' && !list.archived;
   const byMe = (r) => (rowShared(r) || {}).byMe;
   const body = results
     ? (results.length ? rowsTpl(results, ui, true) : html`<div class="empty">nothing found</div>`)
     : html`
+      ${mine && ui.listTop ? ui.listTop() || nothing : nothing}
       ${list.pinned.length ? html`<div class="grp">Pinned</div>${rowsTpl(list.pinned, ui)}` : nothing}
       ${shared
         ? [['Shared by you', list.items.filter(byMe)], ['Shared with you', list.items.filter((r) => !byMe(r))]]
@@ -100,7 +103,7 @@ export function viewsTpl(list, ui) {
 // makeSideUI is the list's behaviour: selection, the row menu, inline rename
 // and the row actions (confirmed here, done by model/actions.js). d: {convs,
 // api, selectRun, goHome, paint, current, search() → the search input,
-// share(row), me() → GET /me}.
+// share(row), me() → GET /me, listTop?() → the seams' sections atop Mine}.
 export function makeSideUI(d) {
   let menu = null, renaming = null;
   const ui = {
@@ -118,6 +121,7 @@ export function makeSideUI(d) {
       d.paint();
     },
     more: () => d.convs.more(),
+    listTop: () => (d.listTop ? d.listTop() : null),
     view: (scope, archived) => { d.search().value = ''; d.convs.view(scope, archived); },
     act: async (action, r) => {
       try {

@@ -266,7 +266,7 @@ export const FEATURES = {
   'harness.account': 'a coding agent\'s conversation names the account it uses ("using Work", or the sandbox\'s own sign-in) and switches it: the default, another saved sign-in, or the sandbox\'s own — the session resumes with it at the next message',
 
   // Projects (API.md §Projects)
-  'proj.entry': 'the Projects entry (the sidebar; the app\'s list menu), with how many tasks need you',
+  'proj.entry': 'Projects atop your conversations (Mine, not while searching; above Pinned — D209): your active projects, those with tasks that need you first (at most 5), each with how many need you and a tap to its board, then All projects; it folds (the fold kept in your prefs), and folded it says how many tasks need you',
   'proj.list': 'the projects you may see — yours and team ones — with their state',
   'proj.new': 'a new project: the scm provider, its repos (a picker of what you can reach), the sandbox (one of yours or a new one) and the policy basics',
   'proj.upgrade': '"Make this a project…": a conversation with a sandbox and git repos becomes a project, the conversation its first task',
@@ -281,6 +281,7 @@ export const FEATURES = {
   'proj.status': 'a project\'s status: its sandbox, repos (fetched, protected), credentials (whose, until when — never the token), jobs and warnings',
   'proj.signin': 'signing in to the scm provider (its device code shown only to you), and Forget',
   'proj.coordinator': 'the project\'s coordinator: open it, write to it',
+  'proj.coordinator.preview': 'the coordinator as a small chat on its project\'s page (D209): what it does now (working, waiting for you), its last 3 messages — read when the page opens, after Send and when its run moves, never made by reading — and, before it exists, that your first message starts it; the message line right under them',
   'proj.events': 'the project\'s event feed: tasks, PRs, CI and reviews as they happen',
   'proj.team': 'a team project: the shared board (others\' tasks without their transcripts), "Work on this" in your own space, reviewing the team\'s changes before they apply, members who left',
   'proj.delete': 'archive or delete a project, keeping or deleting its sandbox, confirmed',

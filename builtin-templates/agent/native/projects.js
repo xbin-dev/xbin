@@ -2,10 +2,17 @@
 // UI), the web's projects.js and project-new.js with the app's primitives,
 // as screens of the stack (native/nav.js):
 //
+//   drawer               Projects atop your conversations (Mine, not while
+//                        searching; D209): your active projects — those with
+//                        tasks that need you first, at most PINNED — each with
+//                        how many need you, a tap to its board, All projects;
+//                        the section folds (kept in your prefs), and folded it
+//                        says how many tasks need you
 //   main                 Projects in the list's ⋯ menu, with how many tasks
-//                        need you
+//                        need you (from Shared and Archived too)
 //   'projects'           the list — yours, team projects, archived — New project
-//   'project' {pid}      a project: the coordinator (open it, write to it), the
+//   'project' {pid}      a project: the coordinator (a small chat: what it
+//                        does now, its last messages, open it, write to it), the
 //                        board as a section per column — a row per task: #n,
 //                        title, state, branch, its PRs (their checks only while
 //                        it has no CI summary), the words other modules add
@@ -33,9 +40,9 @@
 import { html, nothing, repeat } from '/vendor/xb-native.js';
 import { ext } from './ext.js';
 import { ctx, ui, push, top, when } from './ui.js';
-import { can, agentChoices, repoSlug } from '../model/projects.js';
+import { can, agentChoices, repoSlug, pinWords, PINNED } from '../model/projects.js';
 import { cardWords, issueWords, prWords } from '../model/project-task.js';
-import { projectFeed, feedWords } from '../model/project-feed.js';
+import { projectFeed, feedWords, COORD_EMPTY } from '../model/project-feed.js';
 import { projectTeam } from '../model/project-team.js';
 import { partitionState } from '../model/partition.js';
 import { projectSandbox } from '../model/sandboxes.js';
@@ -73,6 +80,17 @@ export function follow(s) {
 }
 
 ext.register({
+  drawer() {
+    const p = ctx.app.projects;
+    const pin = p.pinned(PINNED);
+    if (!pin.shown) return null;
+    if (pin.none) return html`<section><row title="Projects" subtitle="a sandbox, its repos and a conversation per task" icon="folder" nav @tap=${() => openProjects()}/></section>`; // none yet: one row to the page
+    return html`<section title="Projects" collapsible ?collapsed=${p.folded} badge=${p.folded && pin.need ? String(pin.need) : nothing}
+        @toggle=${(e) => p.setFolded(!!e.collapsed)}>
+      ${repeat(pin.items, (pv) => pv.id, (pv) => pinRow(pv))}
+      <row title="All projects" detail=${pin.total ? String(pin.total) : nothing} icon="list" nav @tap=${() => openProjects()}/>
+    </section>`;
+  },
   main() {
     const p = ctx.app.projects;
     if (!p.supported) return null;
@@ -109,6 +127,13 @@ function listTpl(s) {
           : html`<empty title=${p.loaded ? 'none yet — a project groups tasks around one sandbox and its repos' : 'loading…'}/>`}
       </section>`)}
   </screen>`;
+}
+
+// a project atop your conversations: its name, how many tasks need you, what is under way
+function pinRow(pv) {
+  const w = pinWords(pv);
+  return html`<row title=${w.name} subtitle=${w.detail || nothing} icon=${w.team ? 'people' : 'folder'}
+    badge=${w.need ? String(w.need) : nothing} tone=${w.need ? 'warn' : nothing} nav @tap=${() => openProject(pv.id)}/>`;
 }
 
 function projRow(pv) {
@@ -182,18 +207,39 @@ function taskRow(pv, t, c) {
   </row>`;
 }
 
-// the coordinator: open it (made on first use), write to it
+// the coordinator, a small chat (D209): open it (made on first use), what it
+// does now, its last messages and right under them a message to it
+const ABOUT = 'Your agent for this project: it makes tasks, follows them and tells you what needs you — it never merges or answers a task\'s question for you.';
 function coordTpl(pv, c) {
   if (pv.kind === 'team' || !c.act) return nothing;
   const f = projectFeed(ctx.app);
   const k = f.coord(pv.id);
   if (k.missing) return nothing;
+  const pr = f.preview(pv.id);
+  const st = pr.shown ? pr.state : null;
   const open = async () => { const run = await f.openCoordinator(pv.id); if (run && run.id) ctx.app.select(run.id); };
-  return html`<section title="Coordinator" footer=${k.err || k.note || 'Your agent for this project: it makes tasks, follows them and tells you what needs you — it never merges or answers a task\'s question for you.'}>
-    <row title="Open the coordinator" icon="agent" nav ?disabled=${!!k.busy} @tap=${open}/>
-    <field kind="multiline" placeholder="Ask it something: make tasks for the open bugs…" value=${k.text} @input=${(e) => { k.text = e.value; }}/>
+  return html`<section title="Coordinator" badge=${st && st.word ? st.word : nothing} footer=${k.err || k.note || ABOUT}>
+    <row title="Open the coordinator" subtitle=${pr.shown && pr.line ? pr.line : nothing} icon="agent"
+      tone=${st && st.tone === 'warn' ? 'warn' : st && st.tone === 'bad' ? 'danger' : nothing} nav ?disabled=${!!k.busy} @tap=${open}/>
+    ${pr.shown ? coordPreviewTpl(pv, pr, f) : nothing}
+    <field kind="multiline" placeholder=${pr.shown && !pr.run ? 'Ask it something — this starts it…' : 'Ask it something: make tasks for the open bugs…'} value=${k.text} @input=${(e) => { k.text = e.value; }}/>
     <button icon="send" ?busy=${k.busy === 'send'} @tap=${() => f.messageCoordinator(pv.id, k.text)}>Send to the coordinator</button>
   </section>`;
+}
+
+// one message of the preview: the chat's message, without its actions (its chat has them)
+const saidTpl = (b) => (b.k === 'user' ? html`<message role="user" text=${b.text}/>`
+  : html`<message role="assistant" markdown ?streaming=${b.k === 'draft'} text=${b.text}/>`);
+
+// its last messages, or why there are none
+function coordPreviewTpl(pv, pr, f) {
+  if (!pr.run) return pr.err ? html`<notice tone="danger" text=${pr.err}/>` : pr.loading ? html`<progress label="loading…"/>` : html`<text tone="muted">${COORD_EMPTY}</text>`;
+  if (!pr.tail) {
+    return pr.err ? html`<notice tone="danger" text=${`Couldn't read its latest messages: ${pr.err}`}/>
+      <button icon="refresh" @tap=${() => f.readTail(pv.id)}>Read them again</button>` : html`<progress label="loading…"/>`;
+  }
+  return html`${pr.more ? html`<text style="footnote" tone="muted">… earlier messages are in its chat</text>` : nothing}
+    ${pr.tail.length ? repeat(pr.tail, (b) => b.id, saidTpl) : html`<text tone="muted">Nothing said yet.</text>`}`;
 }
 
 function eventRow(pv, ev) {

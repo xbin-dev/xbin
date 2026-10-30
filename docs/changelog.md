@@ -12,6 +12,27 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-30
 
+- **Agent template: Projects atop your conversations, and the coordinator
+  as a small chat** (D209, issues #43 and #44; the template's API.md
+  "Projects in the UI", "The coordinator"). On the web and in the app, Mine
+  now starts with a **Projects** section above Pinned: your active projects
+  (those with tasks that need you first, at most five), each with how many
+  need you and a click or tap to its board, then **All projects**. Its
+  heading folds it, and the fold is kept per person
+  (`prefs/projects-folded`). With no project yet it is one row to the page.
+  The web's "Projects" entry under Automations is gone. The app keeps
+  Projects in the list's ⋯ menu. A project's **coordinator card** now shows
+  what the coordinator is doing and its last three messages, with the
+  message line right under them. They are refreshed when the page opens,
+  after Send and when its turns start and end. New route **`GET
+  /projects/{pid}/coordinator`** → `{run}`: your coordinator, or `null`. It
+  never creates one; the `POST` still does that, on first use. Older apps
+  need no update: it is all vocabulary they already have. **Instances that
+  customised the template:** `ext.drawer` (native) now answers sections,
+  drawn in Mine only and not while searching, below the scope. The web has a
+  new `ext.listTop(list)` seam, and `ext.side` stays for entries under
+  Automations.
+
 - **Fix: people without admin saw no code in a tile's window** (D206,
   issue #50; [auth.md](/docs/auth.md), [protocol.md](/docs/protocol.md)).
   `/api/xbin/code/*` and `/api/xbin/git/{log,diff,activity}` now answer a

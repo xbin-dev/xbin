@@ -239,7 +239,7 @@ export const IMPLEMENTS = {
   'harness.signins': 'native/harness-signins.js — the Coding-agent sign-ins screen (from Coding agent settings, native/harness-ask.js, and the managers\' Coding agents screen): a section per coding agent, rows with Default, row actions Make default and Forget, signin-edit (Rename, Make default, Forget), signin-add (a secure field kept off props, Which key, Make it the default); unpartitioned or shared: a notice saying why',
   'harness.account': 'native/harness-ask.js — controlsTpl: the Account menu in the toolbar ("Account: using Work"), its choices (a refused or expired one left out) → app.harness.pickSignin, Saved sign-ins… (model/harness-signins.js accountOf)',
   // Projects — every native key (the list, the board, new projects and tasks, settings, a task's chips, the coordinator, events, upgrades, team projects)
-  'proj.entry': 'native/projects.js — Projects in the list\'s ⋯ through ext.main (native/home.js mainMenu), saying how many tasks need you (app.projects.needsYou)',
+  'proj.entry': 'native/projects.js — the Projects section through ext.drawer (native/convs.js, atop Mine): collapsible (model/projects.js setFolded), a row per pinned project with its badge, All projects (model/projects.js pinned, pinWords); and Projects in the list\'s ⋯ through ext.main (native/home.js mainMenu)',
   'proj.list': 'native/projects.js — the \'projects\' screen: a section per model/projects.js sections() (yours, team, archived), a row per project with its repos, slots and counts',
   'proj.new': 'native/projects.js — the \'project-new\' screen: the provider (and your sign-in), the repo search and setup scripts, the name, the sandbox, the basics (model/projects.js formBody)',
   'proj.upgrade': 'native/project-task.js — ⋯ → Make this a project… (model/project-upgrade.js upgradeOffer) and the \'project-upgrade\' screen: the sandbox\'s repos as toggles, https, name, branch, Make it',
@@ -254,6 +254,7 @@ export const IMPLEMENTS = {
   'proj.status': 'native/project-settings.js — statusTpl: warnings, the sandbox, repos, credentials (never a token), jobs, Warm',
   'proj.signin': 'native/project-settings.js — signinTpl in the status and the new-project screen (the device code, Copy the code, Forget); native/project-task.js — the sign-in card',
   'proj.coordinator': 'native/projects.js — coordTpl: the Coordinator section of the \'project\' screen (Open the coordinator, a message, Send; model/project-feed.js)',
+  'proj.coordinator.preview': 'native/projects.js — coordPreviewTpl in the Coordinator section: its state as the section badge, the line on Open the coordinator, its last messages as message rows (saidTpl, no actions); model/project-feed.js preview, clipSaid',
   'proj.events': 'native/projects.js — the Activity section and the \'project-events\' screen (model/project-feed.js feedWords: plain text, https links only)',
   'proj.team': 'native/project-team.js — the \'project-team\' screen: the team board (plain rows, opened by their own member, stale, Hide), Work on this with the security part, the team\'s changes side by side and Accept; native/projects.js — a team definition from your own space (model/project-team.js)',
   'proj.delete': 'native/project-settings.js — projectTpl: rename, Archive/Unarchive, the sandbox kept or deleted, Delete project (confirmed)',

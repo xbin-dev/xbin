@@ -4,8 +4,10 @@
 // paging, search, kept current by the stream); its groups are
 // model/conv-groups.js; which glyphs and actions a row gets is
 // model/rules.js — the web's sidebar.js draws the same. What needs you
-// (GET /needs, model/home.js needWords) heads it; New chat and the main
-// menu (native/home.js) are in its bar. A row pushes its conversation.
+// (GET /needs, model/home.js needWords) heads it; in Mine, above Pinned, the
+// seams' sections (ext.drawer: native/projects.js's your active projects,
+// D209); New chat and the main menu (native/home.js) are in its bar. A row
+// pushes its conversation.
 import { html, repeat, nothing } from '/vendor/xb-native.js';
 import { ui, ctx, guard } from './ui.js';
 import { groupRows } from '../model/conv-groups.js';
@@ -31,7 +33,8 @@ const needKey = (n) => `${n.reason}:${n.run.id}:${n.subRun || ''}`;
 const uniq = (list) => { const seen = new Set(); return list.filter((n) => !seen.has(needKey(n)) && seen.add(needKey(n))); };
 
 // listScreen: the root — search (a pasted invite link joins), what needs you,
-// the scope (mine, shared, archived), pinned, then by date; pull to read again.
+// the scope (mine, shared, archived), in Mine the seams' sections (Projects),
+// pinned, then by date; pull to read again.
 export function listScreen() {
   const app = ctx.app;
   const list = app.convs;
@@ -39,7 +42,7 @@ export function listScreen() {
   const scope = list.archived ? 'archived' : list.scope;
   const shared = scope === 'shared';
   const byMe = (r) => (rowShared(r) || {}).byMe;
-  const extra = ctx.ext.drawer(() => {}); // the seams' rows (native/ext.js)
+  const extra = !results && scope === 'mine' ? ctx.ext.drawer(() => {}) : null; // the seams' sections, atop Mine (native/ext.js)
   const notices = appNotices(app);
   const needs = uniq(app.needs || []);
   const r2 = rev2('screen'); // the refresh spinner until the list is read, Return searches at once (D189)
@@ -59,7 +62,6 @@ export function listScreen() {
         ${app.halted ? html`<notice tone="warn" title="Halted" text="Every run of this agent is stopped. Resume it from More."/>` : nothing}
         ${notices.map((n) => html`<notice tone=${n.kind === 'sandbox' ? 'warn' : 'info'} text=${n.text}/>`)}
       </section>` : nothing}
-      ${extra ? html`<section>${extra}</section>` : nothing}
       ${!results && needs.length ? html`<section title="Needs you">${repeat(needs, needKey, (n) => html`
         <row title=${n.run.title || 'run ' + n.run.id} subtitle=${needWords(n)} icon=${NEED_ICON[n.reason] || 'question'}
           tone=${n.reason === 'failed' ? 'danger' : n.reason === 'unfinished' ? 'warn' : 'accent'} nav @tap=${() => app.select(n.subRun || n.run.id)}>
@@ -70,6 +72,7 @@ export function listScreen() {
       ${results
         ? (results.length ? html`<section title="Results">${rowsTpl(results, true)}</section>` : html`<empty icon="search" title="nothing found"/>`)
         : html`
+          ${extra || nothing}
           ${list.pinned.length ? html`<section title="Pinned">${rowsTpl(list.pinned)}</section>` : nothing}
           ${shared
             ? [['Shared by you', list.items.filter(byMe)], ['Shared with you', list.items.filter((r) => !byMe(r))]]

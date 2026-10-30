@@ -100,6 +100,27 @@ async function listAll(home) {
 }
 
 const byActivity = (a, b) => (b.updatedMs || 0) - (a.updatedMs || 0) || (b.id || 0) - (a.id || 0);
+const needOf = (p) => (p && p.state === 'active' && p.counts && p.counts['needs-you']) || 0;
+
+/** PINNED: how many projects the conversation list shows at its top (D209). */
+export const PINNED = 5;
+
+const UNDER_WAY = [['working', 'working'], ['queued', 'queued'], ['pr', 'in PR']];
+/** pinWords(view): a project as a row atop the conversations — {name, need (tasks that
+ * need you), detail (what is under way: "2 working · 1 in PR"), repos, team (a team project)}. */
+export function pinWords(pv) {
+  const counts = (pv && pv.counts) || {};
+  return {
+    name: (pv && pv.name) || `#${pv && pv.id}`,
+    need: needOf(pv),
+    detail: UNDER_WAY.filter(([k]) => counts[k]).map(([k, w]) => `${counts[k]} ${w}`).join(' · '),
+    repos: ((pv && pv.repos) || []).map((r) => r.repo).join(', '),
+    team: !!pv && pv.kind !== 'personal' && !!pv.kind,
+  };
+}
+// FOLDED: the person's prefs key (xbind's per-person store: a tile frame keeps
+// no storage of its own) — the list's Projects section folded.
+const FOLDED = '/api/xbin/prefs/projects-folded';
 
 /** createProjects(app, {route, now}): the Projects store (app.projects). */
 export function createProjects(app, opts = {}) {
@@ -139,6 +160,9 @@ export class Projects {
     this.failedAt = new Map(); // pid → when ensure()'s read of it failed
     this.listSeq = 0;        // load()'s reads, numbered: only the latest one's answer is kept
     this.gone = new Set();   // pids deleted here: a list read in flight doesn't bring them back
+    this.opens = 0;          // open()s so far: what a page reads once per opening counts them (the coordinator's preview)
+    this.folded = false;     // the conversation list's Projects section folded (prefs/projects-folded)
+    this.foldRead = false;
   }
 
   changed() { this.app.emit('projects'); }
@@ -151,6 +175,7 @@ export class Projects {
   // it (`next`), so the needs-you count covers them all. Only the latest
   // read's answer is kept: an older one that arrives after it is dropped.
   async load() {
+    if (!this.foldRead) { this.foldRead = true; this.readFold(); }
     const seq = ++this.listSeq;
     const homes = listHomes('mine');
     const got = await Promise.all(homes.map((h) => listAll(h).then((items) => ({ h, items }), (e) => ({ h, e }))));
@@ -204,14 +229,46 @@ export class Projects {
     ].filter((s) => s.items.length || s.key === 'yours');
   }
 
-  // needsYou: tasks that need you across your projects (the sidebar entry's count).
-  needsYou() { return this.list.reduce((n, p) => n + (p.state === 'active' ? (p.counts && p.counts['needs-you']) || 0 : 0), 0); }
+  // needsYou: tasks that need you across your projects (the Projects section's and the menu's count).
+  needsYou() { return this.list.reduce((n, p) => n + needOf(p), 0); }
+
+  // pinned: the projects the conversation list shows at its top, above its
+  // pinned conversations (D209) — your active ones, those with tasks that
+  // need you first, then by activity, at most n; `total` counts every
+  // project the page lists (All projects), `need` the tasks that need you;
+  // `none`: you have no project yet — the views draw one quiet row to the
+  // page (where New project is) instead of the section. A team project's
+  // definition is left out while your half of it is there: the half leads to it.
+  pinned(n = PINNED) {
+    const live = this.list.filter((p) => p.state === 'active');
+    const halves = new Set(live.filter((p) => p.kind === 'membership' && p.teamRef).map((p) => +p.teamRef));
+    const rows = live.filter((p) => !(p.kind === 'team' && halves.has(p.id)));
+    const items = [...rows].sort((a, b) => (needOf(b) > 0) - (needOf(a) > 0) || byActivity(a, b)).slice(0, n);
+    return { items, total: this.list.length, need: this.needsYou(), shown: this.supported && this.loaded, none: !this.list.length };
+  }
+
+  // The section folded: kept per person (xbind's prefs, read once with the
+  // list); a refused read or write leaves it as the page has it.
+  async readFold() {
+    try {
+      const r = await globalThis.xbin.fetch(FOLDED);
+      const v = r.ok ? await r.json() : null;
+      if (r.ok && !this.foldSet) { this.folded = v === true; this.changed(); } // a fold made meanwhile stands
+    } catch { /* no prefs: unfolded */ }
+  }
+  setFolded(on) {
+    this.folded = !!on;
+    this.foldSet = true;
+    this.changed();
+    Promise.resolve().then(() => globalThis.xbin.fetch(FOLDED, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.folded) })).catch(() => {});
+  }
 
   // --- one project --------------------------------------------------------------------
 
   // open shows a project's page (pid null: the list) and reads it.
   async open(pid, tab = 'board') {
     this.opened = pid == null ? null : +pid;
+    this.opens++;
     this.tab = tab;
     this.form = null;
     this.taskForm = null;

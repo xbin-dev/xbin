@@ -1,6 +1,8 @@
 // projects.mjs — Projects on the web (API.md §Projects in the UI) over
-// projSeed() and PROJ_STUB (test/projects-stub.mjs): the sidebar entry with
-// tasks that need you; #proj and the list (yours, archived); a project's
+// projSeed() and PROJ_STUB (test/projects-stub.mjs): Projects atop your
+// conversations (D209: the active ones with the tasks that need you, All
+// projects, the fold kept in your prefs, Mine only and not while
+// searching); #proj and the list (yours, archived); a project's
 // board — its columns, a card's words, PR chips with checks only while the
 // task has no CI, ext.card's chips; New task and From issues… (issue text
 // plain and untrusted, the refusals said); the Settings tab — status,
@@ -49,14 +51,32 @@ const seed = projSeed();
 const { page, errors } = await open(seed);
 await page.waitForSelector('#projentry');
 
-// --- the entry and the list ---------------------------------------------------------------------------
-ok('the sidebar entry: Projects, with the tasks that need you', await page.waitForFunction(() => document.querySelector('#projentry').textContent.replace(/\s+/g, '') === 'Projects3',
-  null, { timeout: 5000 }).then(() => true, () => false), await page.textContent('#projentry'));
+// --- atop your conversations (D209) and the list ---------------------------------------------------------
+ok('atop your conversations: each active project, with the tasks that need you', await page.waitForFunction(() => (document.querySelector('#projsec .projrow[data-pid="7"]')?.textContent || '').replace(/\s+/g, '') === 'Web3',
+  null, { timeout: 5000 }).then(() => true, () => false), await page.textContent('#projsec'));
+ok('…the archived one left out', !(await page.$('#projsec .projrow[data-pid="8"]')));
+ok('…then All projects, counting every one', (await page.textContent('#projentry')).replace(/\s+/g, ' ').trim() === 'All projects (2)', await page.textContent('#projentry'));
+ok('…at the top of the list, above the conversations', await page.$eval('#runs', (el) => el.querySelector('#projsec') === el.firstElementChild && !document.querySelector('#sideext').textContent.trim()));
 ok('task conversations are not chats', !(await page.textContent('#runs')).includes('Fix the login loop'));
+await page.click('#projfold');
+ok('folded: the rows go, the heading says how many tasks need you', await page.waitForFunction(() => !document.querySelector('#projsec .projrow') && !document.querySelector('#projentry')
+  && document.querySelector('#projfold').textContent.replace(/\s+/g, '') === 'Projects3' && document.querySelector('#projfold').getAttribute('aria-expanded') === 'false', null, { timeout: 5000 }).then(() => true, () => false));
+ok('…kept in your prefs', await page.evaluate(() => window.__prefs['projects-folded'] === true));
+await page.click('#projfold');
+await page.waitForSelector('#projentry');
+ok('…and back', await page.evaluate(() => window.__prefs['projects-folded'] === false));
+await page.click('#views .seg:last-child'); // Archived
+ok('not in Archived', await page.waitForFunction(() => !document.querySelector('#projsec'), null, { timeout: 5000 }).then(() => true, () => false));
+await page.click('#views .seg:first-child'); // Mine
+await page.waitForSelector('#projsec');
+await page.fill('#csearch', 'chat');
+ok('not while searching', await page.waitForFunction(() => !document.querySelector('#projsec'), null, { timeout: 5000 }).then(() => true, () => false));
+await page.fill('#csearch', '');
+await page.waitForSelector('#projentry');
 await page.click('#projentry');
 await page.waitForSelector('.pcard[data-pid="7"]');
 ok('#proj is in the address', await page.evaluate(() => location.hash === '#proj'));
-ok('the entry is on', await page.$eval('#projentry', (e) => e.classList.contains('on')));
+ok('All projects is on', await page.$eval('#projentry', (e) => e.classList.contains('on')));
 const groups = await page.$$eval('.projs-page h5', (els) => els.map((e) => e.textContent));
 ok('yours, then the archived', JSON.stringify(groups) === '["Projects","Archived"]', groups.join(' | '));
 const card = await page.textContent('.pcard[data-pid="7"]');

@@ -1,6 +1,10 @@
 // projects.js — the Projects page on the web (API.md §Projects in the UI):
 //
-//   side   the sidebar's "Projects" entry, with how many tasks need you
+//   listTop  Projects atop your conversations (Mine, not while searching;
+//            D209): your active projects — those with tasks that need you
+//            first, at most PINNED — each with how many need you, a click to
+//            its board, and All projects; the heading folds it (kept in your
+//            prefs), and folded it says how many tasks need you
 //   page   'projects': the list (yours, then team ones, archived last) — or
 //          one project's page: its board (a column per state: queued,
 //          working, needs you, PR, done) of task cards — #n, title, state,
@@ -23,7 +27,7 @@
 // issue bodies) is untrusted: drawn as plain text, never markdown or HTML.
 import { html, nothing, repeat } from '/vendor/lit-all.min.js';
 import { ext, ctx } from './web-ext.js';
-import { can, agentChoices } from './model/projects.js';
+import { can, agentChoices, pinWords, PINNED } from './model/projects.js';
 import { cardWords, issueWords } from './model/project-task.js';
 import { newProjectTpl } from './project-new.js';
 import { settingsTpl } from './project-settings.js';
@@ -40,20 +44,45 @@ const pj = () => ctx.app.projects;
 let shownKey = '';
 
 ext.register({
-  side: () => sideTpl(),
+  listTop: () => listTopTpl(),
   page: (p) => (p === 'projects' ? { get top() { return topTpl(); }, get body() { return bodyTpl(); } } : null), // drawn when asked
   paint: (v) => toTop(v),
 });
 
-// --- the sidebar's entry ---------------------------------------------------------------
+// --- atop your conversations (D209) -------------------------------------------------------
 
-function sideTpl() {
+const needBadge = (n, title) => (n ? html`<span class="badge unread" title=${title}>${n}</span>` : nothing);
+
+function listTopTpl() {
   const app = ctx.app;
-  if (!app || !app.projects || !app.projects.supported) return null;
-  const n = app.projects.needsYou();
-  return html`<div class="autos-entry projentry ${app.page === 'projects' ? 'on' : ''}" id="projentry" role="button" tabindex="0" @click=${() => app.openProjects()} @keydown=${keys(() => app.openProjects())}>
-    <span>Projects</span>
-    ${n ? html`<span class="badge unread" title="tasks that need you">${n}</span>` : nothing}
+  const p = app && app.projects;
+  if (!p) return null;
+  const pin = p.pinned(PINNED);
+  if (!pin.shown) return null;
+  const at = app.page === 'projects' && app.sel == null;
+  const fold = () => p.setFolded(!p.folded);
+  if (pin.none) { // no project yet: one quiet row to the page, where New project is
+    return html`<div class="projsec" id="projsec"><div class="prow projall ${at ? 'on' : ''}" id="projentry" role="button" tabindex="0"
+        title="a sandbox, its repos and a conversation per task" @click=${() => app.openProjects()} @keydown=${keys(() => app.openProjects())}>
+      <span class="pic"><bx-icon name="folder"></bx-icon></span><div class="t">Projects</div></div></div>`;
+  }
+  return html`<div class="projsec" id="projsec">
+    <button class="grp projgrp" id="projfold" aria-expanded=${p.folded ? 'false' : 'true'} title=${p.folded ? 'show your projects' : 'fold your projects'} @click=${fold}>
+      <bx-icon name=${p.folded ? 'caret-right' : 'caret-down'}></bx-icon><span>Projects</span>${p.folded ? needBadge(pin.need, 'tasks that need you, across your projects') : nothing}</button>
+    ${p.folded ? nothing : html`${repeat(pin.items, (x) => x.id, (x) => {
+      const w = pinWords(x);
+      const go = () => app.openProjects(x.id);
+      return html`<div class="prow projrow ${at && p.opened === x.id ? 'on' : ''}" data-pid=${x.id} role="button" tabindex="0"
+          title=${[w.repos, w.detail, x.kind === 'membership' ? 'a team project — your half' : x.kind === 'team' ? 'a team project' : ''].filter(Boolean).join(' · ') || w.name}
+          @click=${go} @keydown=${keys(go)}>
+        <span class="pic"><bx-icon name=${w.team ? 'people' : 'folder'}></bx-icon></span>
+        <div class="t">${w.name}</div>
+        ${needBadge(w.need, 'tasks that need you')}
+      </div>`;
+    })}
+    <div class="prow projall ${at && p.opened == null ? 'on' : ''}" id="projentry" role="button" tabindex="0" @click=${() => app.openProjects()} @keydown=${keys(() => app.openProjects())}>
+      <div class="t">All projects${pin.total ? html` <span class="muted">(${pin.total})</span>` : nothing}</div>
+    </div>`}
   </div>`;
 }
 
@@ -259,6 +288,22 @@ function pickerTpl(p, pv) {
 // the page's look (the tile's own sheet stays as it is): it builds on .autos-page's
 const style = document.createElement('style');
 style.textContent = `
+  .projsec { margin: 0 0 2px; }
+  .bx .projgrp { display: flex; align-items: center; gap: 4px; width: 100%; box-sizing: border-box; border: 0; border-radius: 0; background: none;
+    min-height: 0; text-align: left; cursor: pointer; padding: 12px 12px 4px 8px;
+    font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase; color: var(--bx-muted); }
+  .bx .projgrp:hover { color: var(--bx-text); background: none; }
+  .bx .projgrp .badge { margin-left: 4px; text-transform: none; letter-spacing: 0; }
+  /* a project's row looks like a conversation's (index.html .run) without being one */
+  .projsec .prow { box-sizing: border-box; min-height: var(--bx-row); padding: 4px 6px 4px 10px; cursor: pointer; display: flex; align-items: center; gap: 4px;
+    border-radius: var(--bx-radius); margin: 0 4px; }
+  .projsec .prow:hover { background: var(--bx-hover); }
+  .projsec .prow.on { background: var(--bx-selection); color: var(--bx-selection-text); box-shadow: inset 2px 0 0 var(--bx-accent); }
+  .projsec .prow .t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+  .projsec .pic { display: inline-flex; flex: none; color: var(--bx-muted); }
+  .projsec .on .pic { color: inherit; }
+  .projall .t { color: var(--bx-muted); }
+  .projall.on .t, .projall:hover .t { color: inherit; }
   .projs-page.wide { max-width: 1180px; }
   .projs-page .pcounts { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; }
   .projs-page .pcnt[data-col="needs-you"] { color: var(--bx-warn); font-weight: 600; }

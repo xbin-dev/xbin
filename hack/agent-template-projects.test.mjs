@@ -306,7 +306,7 @@ test('the list from both homes; needs-you counts live projects', async () => {
   const app = fakeApp();
   const pj = M.createProjects(app);
   await pj.load();
-  assert.deepEqual(b.calls.map((c) => c.home).sort(), ['', 'global']);
+  assert.deepEqual(b.calls.filter((c) => c.path.startsWith('/projects')).map((c) => c.home).sort(), ['', 'global']);
   assert.deepEqual(pj.sections().map((s) => [s.key, s.items.map((p) => p.id)]), [['yours', [B + 7]], ['team', [9]], ['archived', [B + 8]]]);
   assert.equal(pj.needsYou(), 5, 'the archived one\'s are not counted');
   assert.ok(app.emitted.includes('projects'));
@@ -315,6 +315,38 @@ test('the list from both homes; needs-you counts live projects', async () => {
   const pj2 = M.createProjects(fakeApp());
   await pj2.load();
   assert.equal(pj2.supported, false, 'a backend without Projects: no entry');
+});
+
+test('atop the conversations (D209): your active projects, needs-you first, at most n; a definition with your half there left out; the fold kept in your prefs', async () => {
+  const b = projectsBackend();
+  const pj = M.createProjects(fakeApp());
+  await pj.load();
+  await wait(0);
+  const pin = pj.pinned();
+  assert.deepEqual(pin.items.map((p) => p.id), [B + 7, 9], 'live ones, those that need you first; the archived one left out');
+  assert.deepEqual([pin.total, pin.need, pin.shown], [3, 5, true]);
+  const now = Date.now();
+  pj.list = [
+    { id: 1, state: 'active', kind: 'personal', updatedMs: now, counts: {} },
+    { id: 2, state: 'active', kind: 'personal', updatedMs: now - 5, counts: { 'needs-you': 1 } },
+    { id: 3, state: 'active', kind: 'team', updatedMs: now - 1, counts: {} },
+    { id: B + 4, state: 'active', kind: 'membership', teamRef: 3, updatedMs: now - 2, counts: {} },
+    { id: 5, state: 'archived', kind: 'personal', updatedMs: now, counts: { 'needs-you': 9 } },
+    { id: 6, state: 'active', kind: 'personal', updatedMs: now - 9, counts: {} },
+  ];
+  assert.deepEqual(pj.pinned(3).items.map((p) => p.id), [2, 1, B + 4], 'needs you, then by activity; the definition behind your half left out');
+  assert.deepEqual(M.pinWords({ id: 2, name: 'Web', kind: 'membership', state: 'active', counts: { 'needs-you': 2, working: 1, pr: 3 }, repos: [{ repo: 'a/web' }] }),
+    { name: 'Web', need: 2, detail: '1 working · 3 in PR', repos: 'a/web', team: true });
+  assert.equal(M.pinWords({ id: 5, name: 'Old', state: 'archived', counts: { 'needs-you': 4 } }).need, 0, 'an archived one needs no one');
+  assert.equal(pj.folded, false);
+  pj.setFolded(true);
+  await wait(0);
+  assert.deepEqual(b.calls.filter((c) => c.path === '/api/xbin/prefs/projects-folded').map((c) => [c.method, c.body]), [['GET', null], ['PUT', true]]);
+  backend([['GET', /^\/api\/xbin\/prefs\/projects-folded$/, () => json(true)], ['GET', /^\/projects/, () => json({ items: [] })]], 'user:alice');
+  const pj2 = M.createProjects(fakeApp());
+  await pj2.load();
+  await wait(0);
+  assert.equal(pj2.folded, true, 'read back with the list');
 });
 
 test('a project\'s page: open, the board, a new task\'s spec, a stale PATCH', async () => {

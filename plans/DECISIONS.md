@@ -12615,3 +12615,76 @@ Deviations and refinements made while implementing; all deliberate:
   with read on the tile passes too — docs/auth.md's read level is "read
   its source". An element is never let in through the person it acts
   for: its own grant decides, as before.
+- **D209 — Projects atop your conversations; the coordinator as a small
+  chat (2026-10-30; issues #43, #44).** builtin-templates/agent:
+  model/projects.js (`pinned`, `pinWords`, `PINNED`, `setFolded`,
+  `opens`), model/project-feed.js (`preview`, `readTail`, `coordTail`,
+  `coordState`), projects.js (`listTop`), sidebar.js and web-ext.js (the
+  `listTop` seam), project-feed.js (the card), native/projects.js (the
+  `drawer` section, `coordTpl`), native/convs.js, native/ext.js,
+  _backend/projects_coord_resolve.go (`GET /projects/{pid}/coordinator`);
+  features `proj.entry` (reworded) and `proj.coordinator.preview`; tests in
+  hack/agent-template-{native-projects,projects,native}.test.mjs,
+  test/projects.mjs, test/projects-more.mjs, TestCoordinatorRoute. The
+  owner: "AgTT iOS projects hidden in a menu — When enabled projects
+  should be as first class as conversations, ideally pinned at the top;
+  same for web" and "AgTT coordinator convo on main project screen —
+  Currently the simple input is too distant to it, having even small convo
+  preview would really help". This partly reverses D190, which moved
+  Projects from a drawer row into the list's ⋯ menu.
+  - **Where.** A Projects section at the top of Mine (not while searching,
+    not in Shared or Archived), below the scope switch and above Pinned, on
+    both views. Below the scope, not above it: the section depends on the
+    scope, and above the switch it would move the switch under the pointer
+    whenever the scope changes. On the web the old entry under Automations
+    is gone. It would only repeat the section's heading, and showing it
+    only outside Mine would move the views switch the same way. The app
+    keeps Projects in the list's ⋯ menu: a menu costs no room, and it
+    reaches the page from Shared and Archived.
+  - **What.** Active projects only. Those with tasks that need you come
+    first, then by activity, at most five; the rest are behind All
+    projects (n), the page. Each row shows how many of its tasks need you.
+    A team project's definition is left out while your membership of it
+    is listed: the membership links to the definition. There is no
+    per-project pin, because there is no pin state for projects (a
+    conversation's pins are run rows); needs-you first, then activity,
+    keeps what waits for you inside the cap. With no project yet, the section is
+    one quiet row to the page (where New project is). It takes the old
+    entry's place without adding a heading for people who don't use
+    Projects.
+  - **Folding.** The heading folds the section. Folded, the heading shows
+    how many tasks need you in total. The fold is kept in xbind's
+    per-person prefs (`prefs/projects-folded`), where the template already
+    keeps the class, the model and CI's dismissed cards, and it is read
+    once with the list. Natively it is the rev-1 `section collapsible`, so
+    every app version has it.
+  - **The coordinator's preview.** D186 makes the coordinator only when
+    its person asks, so the preview must not POST. A new read-only `GET
+    /projects/{pid}/coordinator` answers `{run}` or `{run: null}` (viewer
+    level, the caller's own; a component or someone viewing as another
+    person gets null). The card shows the coordinator's state, its last
+    three messages (only the person's and the agent's; tool calls and
+    thinking stay in its chat) and the message line right under them.
+    Before a coordinator exists, it says the first message starts it. The
+    messages come from `GET /runs/{id}/view?limit=20` (20 so that a turn's
+    tool calls don't push the words out of the page), kept in the feed's
+    own store and folded there. They are not the session's views: a view
+    read into the session is one the stream doesn't follow, and replacing
+    the open chat's paged view would disturb it. The preview reads them
+    again when the project's page opens, after Send, and on the
+    coordinator's `run` events. Those reach its owner whatever the stream
+    follows, at a turn's start and end. The reads are coalesced to at most
+    one a second while the page shows it; otherwise the next opening reads
+    them. So the preview updates per turn, without token streaming. While
+    the coordinator's own chat is open, the preview uses the session's
+    live view and reads nothing. A backend without the `GET` (405) shows
+    the card as before.
+  - **Compatibility.** Additive. The new route is a GET beside the POST.
+    The app needs nothing new: section, row, message and text are rev-1
+    vocabulary. The `ext.drawer` seam (native), which nothing in the
+    template used, now answers sections drawn in Mine only. The web gains
+    `ext.listTop`; `ext.side` stays.
+  - **Not built.** On a project's page the bottom composer still starts a
+    new chat, and it does not say so. Proposed: its placeholder on the
+    Projects page becomes "New chat — not this project's coordinator…", or
+    the composer hides there. Left for the owner to pick.

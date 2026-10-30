@@ -32,13 +32,16 @@
 //   screen(s)        a pushed screen (ui.stack entry s = {kind, …}) of a kind
 //                    native/tools.js doesn't know — push({kind: 'mine', …})
 //   task(s)          sections at the end of the Task screen (s = {kind: 'task', run})
-//   drawer(close)    rows at the top of the conversation list (the stack's
-//                    root since D190; the name is from its drawer days)
+//   drawer(close)    sections at the top of your conversations — Mine, not
+//                    while searching, below the scope and above Pinned (D209;
+//                    a row answered alone stands in the list as it is). The
+//                    list is the stack's root since D190: the name is from
+//                    its drawer days
 //   dock(v)          sections of the Coding agents screen after the coding
 //                    agents: {key, title, badge?, tpl()} (native/harness-board.js)
 //   card(task)       words on a project board's task row (task a TaskView)
 //   childStatus(r)   words after a coding agent row's status (r the child run)
-// Their call sites: drawer in native/convs.js, dock in native/harness-board.js,
+// Their call sites: drawer in native/convs.js (native/projects.js: Projects), dock in native/harness-board.js,
 // card in native/projects.js (the board), childStatus in native/harness-child.js.
 import { makeExt } from '../model/ext.js';
 

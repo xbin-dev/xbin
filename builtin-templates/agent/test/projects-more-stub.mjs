@@ -10,7 +10,11 @@
 //
 // window.__more holds what a test reads and changes:
 //   events   {pid: [ProjectEvent]} (GET /projects/{pid}/events: id > since, oldest first, pages of `limit`)
-//   coord    {pid: run}: the coordinator a POST makes on first use; texts [{pid, text}]
+//   coord    {pid: run}: the coordinator a POST makes on first use; texts [{pid, text}];
+//            GET /projects/{pid}/coordinator answers it or null (seed.coordLookup
+//            false: a backend without that route, 405); seed.coordinator
+//            {pid: {status, messages}} makes one before the page opens
+//            (coordMsgs(runId, said) builds the messages)
 //   board    {gpid: [BoardRow]} (hidden rows are left out; hides [{gpid, member, n}])
 //   defs     {gpid: {hash, definition}}: a team definition's security part
 //   pending  {pid: {hash, accepted, pending}} of a membership
@@ -39,6 +43,17 @@ export function PROJ_MORE_STUB(seed) {
   const API = '/api/apps/agent';
 
   // --- the coordinator (C) ----------------------------------------------------------------
+  for (const [pid, c] of Object.entries(seed.coordinator || {})) {
+    const id = (seed.coordRun || 900) + Object.keys(M.coord).length;
+    M.coord[pid] = { id, title: 'Coordinator · Web', status: c.status || 'idle', parentId: 0, rootId: id, origin: 'project', originId: +pid,
+      ...(c.status === 'waiting_input' ? { pendingState: { kind: 'ask' } } : {}) };
+    window.__views[id] = { run: M.coord[pid], project: { id: +pid, name: 'Web', n: 0, role: 'coordinator' }, messages: c.messages || [], hasOlder: !!c.hasOlder };
+  }
+  r('GET', new RegExp(`${API}/projects/(\\d+)/coordinator$`), (m) => {
+    if (seed.noCoordinator) return new Response('404 page not found\n', { status: 404, headers: { 'Content-Type': 'text/plain' } });
+    if (seed.coordLookup === false) return new Response('Method Not Allowed\n', { status: 405, headers: { 'Content-Type': 'text/plain', Allow: 'POST' } });
+    return json({ run: M.coord[+m[1]] || null });
+  });
   r('POST', new RegExp(`${API}/projects/(\\d+)/coordinator$`), (m, o) => {
     const pid = +m[1];
     if (seed.noCoordinator) return new Response('404 page not found\n', { status: 404, headers: { 'Content-Type': 'text/plain' } });
@@ -48,7 +63,12 @@ export function PROJ_MORE_STUB(seed) {
       M.coord[pid] = { id, title: 'Coordinator', status: 'idle', parentId: 0, rootId: id, origin: 'project', originId: pid };
       window.__views[id] = { run: M.coord[pid], project: { id: pid, name: 'Web', n: 0, role: 'coordinator' } };
     }
-    if (b.text) M.texts.push({ pid, text: b.text });
+    if (b.text) {
+      M.texts.push({ pid, text: b.text });
+      const v = window.__views[M.coord[pid].id];
+      const seq = (v.messages || []).length + 1;
+      v.messages = [...(v.messages || []), { id: 5000 + seq, runId: M.coord[pid].id, seq, role: 'user', content: b.text, created: Math.floor(Date.now() / 1000), sender: 'alice' }];
+    }
     return json({ run: M.coord[pid] });
   });
 
@@ -138,6 +158,24 @@ export function PROJ_MORE_STUB(seed) {
 }
 
 // --- seeds ---------------------------------------------------------------------------------------------
+
+/** coordMsgs(runId, said): a coordinator's messages from [['user' | 'assistant' | 'tool', text], …] — a tool step is a call and its result. */
+export function coordMsgs(runId, said) {
+  const out = [];
+  let seq = 0;
+  for (const [role, text] of said) {
+    seq++;
+    if (role === 'tool') {
+      const id = `call_${seq}`;
+      out.push({ id: seq, runId, seq, role: 'assistant', content: '', created: 1790000000 + seq, toolCalls: [{ id, type: 'function', function: { name: 'task_list', arguments: '{}' } }] });
+      seq++;
+      out.push({ id: seq, runId, seq, role: 'tool', toolCallId: id, name: 'task_list', content: text, created: 1790000000 + seq });
+      continue;
+    }
+    out.push({ id: seq, runId, seq, role, content: text, created: 1790000000 + seq, ...(role === 'user' ? { sender: 'alice' } : {}) });
+  }
+  return out;
+}
 
 const NOW = Date.now();
 export const ev = (id, pid, kind, n, body = {}, extra = {}) => ({ id, project: pid, n, kind, body, wake: false, created: NOW - (100 - id) * 60e3, ...extra });

@@ -235,7 +235,7 @@ export const IMPLEMENTS = {
   'harness.signins': 'harness-catalog.js — #hsignins in the Settings → Coding agents tab: .hsrow rows (Default, Make default, Rename, Forget), a paste form per coding agent (model/harness-signins.js signinGroups)',
   'harness.account': 'harness-controls.js — #hctl\'s label ends with the account; its popover\'s Account section switches it (model/harness-signins.js accountOf, app.harness.pickSignin)',
   // Projects — the page, the board, new projects and tasks, settings, a task's chips
-  'proj.entry': 'projects.js — #projentry through ext.side (agent.js paintSide → #sideext; app.projects.needsYou, model/projects.js)',
+  'proj.entry': 'projects.js — listTopTpl through ext.listTop (sidebar.js, atop Mine): #projsec, #projfold (folds: model/projects.js setFolded, prefs/projects-folded), .projrow[data-pid] with its badge, #projentry All projects (model/projects.js pinned, pinWords)',
   'proj.list': 'projects.js — listTpl through ext.page(\'projects\'): .pcard[data-pid] by section (model/projects.js sections, load from every home)',
   'proj.new': 'project-new.js — newProjectTpl (#proj-form: #pn-scm, the repo picker .pnres, setup scripts, #pn-name, the sandbox, the policy basics, #pn-create; model/projects.js formBody)',
   'proj.board': 'projects.js — boardPageTpl: .pboard .pcol[data-col] of .ptask cards, PR chips, ext.card (model/project-task.js columns, cardWords)',
@@ -255,6 +255,7 @@ export const IMPLEMENTS = {
   'link.project': 'agent.js — followHash (model/router.js #proj, #proj=<id>); project-chips.js — #projcrumb through ext.crumb, #ptasksec through ext.task',
   // Projects — the coordinator, events, upgrades, team projects
   'proj.coordinator': 'project-feed.js — coordCardTpl above the board in projects.js (#pcoord: #pcoord-open opens it, #pcoord-text and #pcoord-send write to it; model/project-feed.js openCoordinator, messageCoordinator)',
+  'proj.coordinator.preview': 'project-feed.js — previewTpl in #pcoord: #pcoord-state, #pcoord-prev (blocksTpl of chat-cards.js, newest at the bottom), .pcline, Retry; model/project-feed.js preview, coordTail, coordState',
   'proj.events': 'project-feed.js — feedTpl, the Activity tab ([data-tab="events"] in projects.js): #pfeed .pev rows, newest first, plain text, https links only (model/project-feed.js feedWords; read since the last event held on a project event)',
   'proj.upgrade': 'project-new.js — the ext.sbx action #sbx-upgrade at the end of the sandbox popover (sandboxes.js #sbxpop) and the dialog #pupg: the sandbox\'s repos, https, name, branch, #pupg-make (model/project-upgrade.js upgradeOffer, candidateWords, submit)',
   'proj.team': 'project-team.js — teamBoardTpl (.pteamboard .tbrow: plain rows, open (yours), stale, Hide), teamLinkTpl (#pteam-work, #pteam-form with the security part #psec, #pteam-go), reviewCardTpl (#pteam-review side by side, #pteam-review-accept); project-new.js #pn-kind (a team definition from your own space) — model/project-team.js',
