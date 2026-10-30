@@ -105,7 +105,7 @@ final class XbinNavigationTests: XCTestCase {
         XCTAssertTrue(page.staticTexts["Q3 revenue"].waitForExistence(timeout: 20), "the report drawn")
         let window = e.app.windows.firstMatch.frame
         let pad = window.width >= 700
-        let convo = e.containing("the US was flat")
+        let convo = e.containing("Summarise Q3 revenue by region") // the conversation's alone (the report says "the US was flat" too)
         if pad {
             XCTAssertTrue(convo.waitForExistence(timeout: 10) && e.until(10) { convo.isHittable }, "the conversation beside the report")
             let ratio = page.frame.width / window.width

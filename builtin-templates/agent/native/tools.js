@@ -470,7 +470,9 @@ function renderLinks(s) {
       if (d && d.path === s.path) { ls = Array.isArray(d.links) ? d.links : []; break; }
     }
   }
-  return ls.filter((l) => l && typeof l.href === 'string' && l.href && typeof l.path === 'string' && l.path);
+  const seen = new Set();
+  return ls.filter((l) => l && typeof l.href === 'string' && l.href && typeof l.path === 'string' && l.path
+    && !seen.has(l.href) && seen.add(l.href));
 }
 
 // shareLinked: the share sheet for a linked file (its own name: GET /dl/).
