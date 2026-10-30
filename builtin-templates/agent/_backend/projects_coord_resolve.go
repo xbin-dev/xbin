@@ -35,6 +35,7 @@ func init() {
 func coordRoutes() []routeDef {
 	return []routeDef{
 		{"POST /projects/{pid}/coordinator", needAny, projectNeed(lvParticipant, handleCoordinator)},
+		{"GET /projects/{pid}/coordinator", needAny, projectNeed(lvViewer, handleCoordinatorOf)},
 		{"GET /projects/{pid}/needs", needAny, projectNeed(lvViewer, handleProjectNeeds)},
 	}
 }
@@ -255,6 +256,25 @@ func handleCoordinator(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	xbin.WriteJSON(w, 200, map[string]any{"run": runAnswer(run)})
+}
+
+// handleCoordinatorOf is GET /projects/{pid}/coordinator: the caller's
+// coordinator of the project, or null while they have none — read only, so
+// a page can show it without making one (D186: it is made only when its
+// person asks, by the POST). A coordinator is a person's own: a component,
+// or someone viewing as another person, has none.
+func handleCoordinatorOf(w http.ResponseWriter, r *http.Request) {
+	p, _ := projectOf(r)
+	c := callerOf(r)
+	var run any
+	if c.kind == whoUser && c.viewedBy == "" {
+		if id := projAg().db.coordRunOf(p.ID, c.user); id != 0 {
+			if cur, err := projAg().db.getRun(id); err == nil {
+				run = runAnswer(cur)
+			}
+		}
+	}
+	xbin.WriteJSON(w, 200, map[string]any{"run": run})
 }
 
 // --- never answering a park ------------------------------------------------------------------

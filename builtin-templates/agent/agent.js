@@ -48,7 +48,7 @@ import { hostedChipTpl, hostedPaint } from './hosted-ui.js'; // non-secure (host
 import { makeWorkflow } from './workflow.js';
 import { ext, ctx as extCtx } from './web-ext.js';
 import './harness-web.js'; // the coding harnesses' modules (their hooks on ext)
-import './project-web.js'; // Projects' modules: the page (ext.page, ext.side), a task's chips, crumb and cards
+import './project-web.js'; // Projects' modules: the page (ext.page; atop Mine, ext.listTop), a task's chips, crumb and cards
 import { steerWords } from './model/harness-ask.js'; // a coding harness's queued chips
 import { clsIcon } from './classes.js'; // a class's glyph (or its admin's emoji) before its name
 // The drawn glyphs (<bx-icon name>, D184). An xbind from before them serves
@@ -159,11 +159,12 @@ const sideUI = makeSideUI({
   convs, api, selectRun: (id) => app.select(id), goHome: () => app.home(), paint: () => paintSide(),
   current: () => session.current(), search: () => $('csearch'), me: () => app.me,
   share: (r) => openShare(r, app.me, () => convs.load()),
+  listTop: () => ext.listTop(convs), // atop Mine (projects.js: your active projects)
 });
 
 function paintSide() {
   render(sideEntryTpl(autos, app.page === 'automations', () => app.openAutomations()), $('autos'));
-  render(ext.side() || nothing, $('sideext')); // entries under Automations (projects.js: Projects)
+  render(ext.side() || nothing, $('sideext')); // entries under Automations (none of the template's own since D209)
   render(sidebarTpl(convs, sideUI), $('runs'));
   render(viewsTpl(convs, sideUI), $('views'));
   syncHalt();

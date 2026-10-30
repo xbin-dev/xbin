@@ -430,10 +430,45 @@ func TestCoordinatorRoute(t *testing.T) {
 			t.Errorf("%s: %d %s (want %d)", who, w.Code, w.Body, code)
 		}
 	}
+	// GET only reads (D209): none yet is null, and nothing is made
+	coordOf := func(c caller) (int, int64) {
+		t.Helper()
+		w := callAs(t, fx.mux, c, "GET", path, nil)
+		var got struct {
+			Run *Run `json:"run"`
+		}
+		if w.Code == 200 {
+			if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+				t.Fatalf("GET: %v %s", err, w.Body)
+			}
+		}
+		if got.Run == nil {
+			return w.Code, 0
+		}
+		return w.Code, got.Run.ID
+	}
+	if code, id := coordOf(asCarol); code != 200 || id != 0 {
+		t.Fatalf("GET before any: %d run %d", code, id)
+	}
+	if fx.ag.db.coordRunOf(fx.p.ID, "carol") != 0 {
+		t.Fatalf("a GET made a coordinator")
+	}
+	for who, code := range map[string]int{"dave": 200, "viewAs": 404, "element": 404, "bob": 404} {
+		c := map[string]caller{"dave": asDave, "viewAs": asViewAs, "element": asElement, "bob": asBob}[who]
+		if got, id := coordOf(c); got != code || id != 0 {
+			t.Errorf("GET as %s: %d run %d (want %d, none)", who, got, id, code)
+		}
+	}
 	carol := fx.coordinator(t, asCarol, fx.p.ID)
 	alice := fx.coordinator(t, asAlice, fx.p.ID)
 	if carol.ID == alice.ID || carol.Owner != "carol" || carol.SessionKey != coordSessionKey(fx.p.ID, "carol") {
 		t.Fatalf("each person's own coordinator: carol %+v alice %+v", carol, alice)
+	}
+	if _, id := coordOf(asCarol); id != carol.ID {
+		t.Fatalf("GET as carol: run %d, want %d", id, carol.ID)
+	}
+	if _, id := coordOf(asAlice); id != alice.ID {
+		t.Fatalf("GET as alice: run %d, want her own %d", id, alice.ID)
 	}
 	if w := callAs(t, fx.mux, asCarol, "GET", fmt.Sprintf("/runs/%d", alice.ID), nil); w.Code != 404 {
 		t.Fatalf("carol reads alice's coordinator: %d", w.Code)

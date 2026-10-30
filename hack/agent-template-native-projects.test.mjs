@@ -1,8 +1,9 @@
 // hack/agent-template-native-projects.test.mjs — Projects in the agent
-// template's native view (API.md §Projects in the UI): the drawer's row,
+// template's native view (API.md §Projects in the UI): Projects atop your
+// conversations (D209: needs-you first, All projects, the fold kept), the menu's row,
 // the list, a project's board (ext.card's words), #proj and back, a new
 // task, tasks from issues, the settings (status, the policy saved at its
-// version, delete), the coordinator, the activity, a new project, a task's
+// version, delete), the coordinator (its small chat), the activity, a new project, a task's
 // conversation (its branch and PR menu, Open PR, the way back, the prep and
 // sign-in cards, Retry), "Make this a project…", and team projects (the
 // team board, its seed, Work on this, the team's changes) — and the model's words
@@ -13,9 +14,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runNative } from './xbn/node.mjs';
 import { PHONE } from './agent-template-native-caps.mjs'; // the phone stack (rev-1 split): the tests walk its nav
-import { projSeed, partitionSeed } from '../builtin-templates/agent/test/projects-stub.mjs';
-import { moreSeed, teamSeed, ev } from '../builtin-templates/agent/test/projects-more-stub.mjs';
-import { feedWords, plain, httpsUrl, projectFeed } from '../builtin-templates/agent/model/project-feed.js';
+import { projSeed, partitionSeed, task } from '../builtin-templates/agent/test/projects-stub.mjs';
+import { moreSeed, teamSeed, ev, coordMsgs } from '../builtin-templates/agent/test/projects-more-stub.mjs';
+import { feedWords, plain, httpsUrl, projectFeed, coordTail, coordState } from '../builtin-templates/agent/model/project-feed.js';
 import { boardWords, boardColumns, securityDiff, projectTeam } from '../builtin-templates/agent/model/project-team.js';
 import { upgradeOffer, candidateWords } from '../builtin-templates/agent/model/project-upgrade.js';
 
@@ -138,6 +139,71 @@ test('Projects: the list\'s menu, the list, a project\'s board with ext.card\'s 
   assert.equal(find(board, { t: 'row', p: { title: '#5 Merged one' } }).p.subtitle, 'merged · branch xbin/k3x9qa/5-task-5 · PR #40 merged · CI passed', 'checks only while no CI summary; ext.card (native/ci.js) last');
   assert.equal(lastHash(r), 'proj=7');
   assert.ok(called(r, 'GET', /\/projects\/7\/tasks\?/).length >= 1);
+});
+
+// many(): projSeed() with five more active projects, newer than Web — Web has tasks that need you
+function many() {
+  const s = projSeed();
+  const web = s.projects[0];
+  const extra = ['Docs', 'API', 'CLI', 'Mobile', 'Infra'].map((name, i) => ({ ...web, id: 20 + i, uid: `x${i}`, name, slug: name.toLowerCase(), updatedMs: web.updatedMs + 100 * (i + 1), repos: [] }));
+  return { ...s, projects: [...s.projects, ...extra], tasks: { ...s.tasks, 24: [task(24, 1, { run: 301, column: 'working' }), task(24, 2, { run: 302, column: 'pr' })] } };
+}
+const LIST = { t: 'screen', p: { title: 'Agent' } };
+const projSec = { t: 'section', p: { title: 'Projects' }, in: LIST };
+
+test('Projects atop your conversations (D209): needs-you first, at most five, All projects; a tap opens the board; Mine only, not while searching', async () => {
+  const r = await run(many(), [
+    { wait: 40 },
+    { snapshot: 'list' },
+    { tap: { t: 'row', p: { title: 'Web' }, in: projSec } },
+    { wait: 60 },
+    { snapshot: 'board' },
+    { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
+    { wait: 30 },
+    { event: [{ t: 'picker', p: { style: 'segmented' }, in: LIST }, 'change', { value: 'shared' }] },
+    { wait: 30 },
+    { snapshot: 'shared' },
+    { event: [{ t: 'picker', p: { style: 'segmented' }, in: LIST }, 'change', { value: 'mine' }] },
+    { event: [LIST, 'search', { value: 'chat' }] },
+    { wait: 300 },
+    { snapshot: 'search' },
+    { event: [LIST, 'search', { value: '' }] },
+    { wait: 300 },
+    { tap: { t: 'row', p: { title: 'All projects' }, in: projSec } },
+    { wait: 60 },
+    { snapshot: 'all' },
+  ]);
+  const list = topScreen(r.snapshots.list);
+  const sec = find(list, { t: 'section', p: { title: 'Projects' } });
+  assert.ok(sec, 'the section, in the list');
+  assert.deepEqual(all(sec, { t: 'row' }).map((x) => x.p.title), ['Web', 'Infra', 'Mobile', 'CLI', 'API', 'All projects'], 'needs you first, then by activity; at most five; the archived one left out');
+  const web = find(sec, { t: 'row', p: { title: 'Web' } });
+  assert.deepEqual([web.p.badge, web.p.tone, web.p.icon, web.p.nav], ['3', 'warn', 'folder', true]);
+  assert.equal(find(sec, { t: 'row', p: { title: 'Infra' } }).p.subtitle, '1 working · 1 in PR', 'what is under way');
+  assert.equal(find(sec, { t: 'row', p: { title: 'All projects' } }).p.detail, '7', 'every project the page lists');
+  assert.equal(sec.p.collapsible, true);
+  const order = all(list, { t: 'section' }).map((s) => (s.p || {}).title || (find(s, { t: 'picker' }) ? 'scope' : '?'));
+  assert.ok(order.indexOf('scope') < order.indexOf('Projects'), `below the scope: ${order}`);
+  assert.deepEqual(titles(r.snapshots.board), ['Agent', 'Web'], 'the project\'s board, over the list');
+  assert.equal(find(topScreen(r.snapshots.shared), { t: 'section', p: { title: 'Projects' } }), null, 'not in Shared');
+  assert.equal(find(topScreen(r.snapshots.search), { t: 'section', p: { title: 'Projects' } }), null, 'not while searching');
+  assert.deepEqual(titles(r.snapshots.all), ['Agent', 'Projects'], 'All projects: the page');
+  assert.ok(find(r.snapshots.list, { ...btn('Projects (3 need you)'), in: { t: 'menu' } }), 'the ⋯ menu keeps Projects (Shared, Archived)');
+});
+
+test('Projects atop your conversations: folding is kept in your prefs, and folded the section says how many tasks need you', async () => {
+  const r = await run(many(), [
+    { wait: 40 },
+    { event: [projSec, 'toggle', { collapsed: true }] },
+    { wait: 30 },
+    { snapshot: 'folded' },
+  ]);
+  const sec = find(topScreen(r.snapshots.folded), { t: 'section', p: { title: 'Projects' } });
+  assert.deepEqual([sec.p.collapsed, sec.p.badge], [true, '3']);
+  assert.deepEqual(bodies(r, 'PUT', /\/api\/xbin\/prefs\/projects-folded$/), [true]);
+  const again = await run({ ...many(), prefs: { 'projects-folded': true } }, [{ wait: 40 }, { snapshot: 'list' }]);
+  const kept = find(topScreen(again.snapshots.list), { t: 'section', p: { title: 'Projects' } });
+  assert.equal(kept.p.collapsed, true, 'read back at start');
 });
 
 test('Projects: a task opened from the board is pushed over it; back returns to the board (D190)', async () => {
@@ -275,6 +341,59 @@ test('Projects: the coordinator — write to it, open it — Fork base now, and 
   assert.ok(reads.some((u) => /since=5/.test(u)), `a project event reads since the last one: ${reads}`);
   assert.equal(lastHash(r), 'c=900', 'the coordinator\'s conversation is open');
   assert.match(topScreen(r.snapshots.coord).p.subtitle, /^Web · coordinator/);
+});
+
+// the coordinator's section, a small chat (D209)
+const coordSec = { t: 'section', p: { title: 'Coordinator' } };
+const said = (sec) => all(sec, { t: 'message' }).map((m) => `${m.p.role}: ${m.p.text}`);
+
+test('the coordinator as a small chat: its last three messages, what it does now, read again when its run moves — nothing made by reading', async () => {
+  const msgs = coordMsgs(900, [['user', 'make tasks for the open bugs'], ['assistant', 'On it — reading the board.'], ['tool', '#1 Fix the login loop …'],
+    ['assistant', 'Made **3 tasks**: #9, #10 and #11.'], ['user', 'thanks'], ['assistant', 'Anything else?']]);
+  const r = await run({ ...moreSeed(), coordinator: { 7: { status: 'running', messages: msgs } } }, [
+    { wait: 60 },
+    { snapshot: 'busy' },
+    { call: ['push', { type: 'run', run: 900, root: 900, data: { id: 900, status: 'idle', parentId: 0, rootId: 900, origin: 'project', originId: 7 } }] },
+    { wait: 1100 },
+    { snapshot: 'idle' },
+  ], 'proj=7');
+  const sec = find(topScreen(r.snapshots.busy), coordSec);
+  assert.deepEqual(said(sec), ['assistant: Made **3 tasks**: #9, #10 and #11.', 'user: thanks', 'assistant: Anything else?'], 'the last three said, its tool steps left to its chat');
+  assert.equal(find(sec, { t: 'message', p: { role: 'assistant' } }).p.markdown, true);
+  assert.ok(find(sec, { t: 'text', has: 'earlier messages are in its chat' }), 'more in its chat');
+  assert.equal(sec.p.badge, 'working');
+  assert.equal(find(sec, { t: 'row', p: { title: 'Open the coordinator' } }).p.subtitle, 'Working…');
+  const order = sec.c.map((n) => n.t);
+  assert.ok(order.indexOf('message') < order.indexOf('field') && order.lastIndexOf('message') < order.indexOf('field'), `the line right under the messages: ${order}`);
+  assert.equal(called(r, 'POST', /\/projects\/7\/coordinator$/).length, 0, 'reading makes no coordinator');
+  assert.ok(called(r, 'GET', /\/projects\/7\/coordinator$/).length >= 1);
+  const reads = called(r, 'GET', /\/runs\/900\/view\?limit=20$/).length;
+  assert.ok(reads >= 2, `its run moved: read again (${reads})`);
+  const idle = find(topScreen(r.snapshots.idle), coordSec);
+  assert.equal(idle.p.badge, undefined, 'idle: no state said');
+  assert.equal(find(idle, { t: 'row', p: { title: 'Open the coordinator' } }).p.subtitle, undefined);
+});
+
+test('the coordinator before it exists: your first message starts it, then shows; an older backend shows the section as it was', async () => {
+  const r = await run(moreSeed(), [
+    { wait: 60 },
+    { snapshot: 'none' },
+    { input: [{ t: 'field', in: coordSec }, 'what failed?'] },
+    { tap: btn('Send to the coordinator') },
+    { wait: 60 },
+    { snapshot: 'sent' },
+  ], 'proj=7');
+  const none = find(topScreen(r.snapshots.none), coordSec);
+  assert.ok(find(none, { t: 'text', has: 'your first message starts it' }));
+  assert.equal(all(none, { t: 'message' }).length, 0);
+  assert.deepEqual(bodies(r, 'POST', /\/projects\/7\/coordinator$/), [{ text: 'what failed?' }], 'made by the message, not before');
+  const sent = find(topScreen(r.snapshots.sent), coordSec);
+  assert.deepEqual(said(sent), ['user: what failed?']);
+  assert.equal(sent.p.footer, 'Sent to the coordinator.');
+  const old = await run({ ...moreSeed(), coordLookup: false }, [{ wait: 60 }, { snapshot: 'board' }], 'proj=7');
+  const sec = find(topScreen(old.snapshots.board), coordSec);
+  assert.deepEqual(sec.c.map((n) => n.t), ['row', 'field', 'button'], 'Open, the message, Send — as before');
+  assert.equal(called(old, 'GET', /\/runs\/\d+\/view/).length, 0);
 });
 
 test('Projects: a new project — a repo, a name, a new sandbox — then its board', async () => {
@@ -582,5 +701,36 @@ test('the coordinator: a second send while one is under way queues nothing twice
     release();
     assert.deepEqual(await first, { id: 900 });
     assert.equal(posts.filter((x) => x.method === 'POST').length, 1);
+  } finally { globalThis.xbin = g; }
+});
+
+test('the coordinator\'s preview: the last messages said, its state; while its chat is open the session\'s view, read by no one else; a backend without the lookup shows none', async () => {
+  let n = 0;
+  const blk = (k, text = 't') => ({ id: `${k}${n++}`, k, text });
+  const blocks = [blk('user'), blk('assistant'), blk('tool'), blk('think'), blk('user', ''), blk('assistant'), blk('notice'), blk('user'), blk('draft')];
+  assert.deepEqual(coordTail(blocks).map((x) => x.k), ['assistant', 'user', 'draft'], 'a person\'s and the agent\'s words; an empty user row (files only) and the steps left out');
+  assert.deepEqual(['running', 'awaiting', 'waiting_input', 'error', 'idle', 'done'].map((status) => coordState({ status }).key), ['working', 'working', 'waiting', 'failed', 'idle', 'idle']);
+  assert.equal(coordState({ status: 'idle', waiting: true }).word, 'waiting for you', 'a run below it waits');
+  assert.equal(coordState(null).key, 'none');
+  const g = globalThis.xbin;
+  const seen = [];
+  const answer = { lookup: () => new Response(JSON.stringify({ run: { id: 900, status: 'running' } }), { status: 200, headers: { 'Content-Type': 'application/json' } }) };
+  globalThis.xbin = { self: 'apps/agent', fetch: async (url, opts = {}) => { seen.push(`${opts.method || 'GET'} ${url}`); return answer.lookup(url); } };
+  const tick = () => new Promise((r) => setTimeout(r, 5));
+  try {
+    const live = { run: { id: 900, rootId: 900, status: 'running' }, messages: [], steps: [], links: [] };
+    const session = { sel: 900, views: new Map([[900, live]]), runs: new Map(), merged: (id) => (id === 900 ? live : null), blocks: () => [blk('user', 'hi'), blk('assistant', 'hello')] };
+    const app = { projects: { take() {}, opens: 1, opened: 7 }, page: 'projects', emit() {}, session };
+    const f = projectFeed(app);
+    f.preview(7);
+    await tick();
+    const p = f.preview(7);
+    assert.deepEqual([p.shown, p.state.key, p.tail.map((b) => b.text)], [true, 'working', ['hi', 'hello']], 'its open chat, as the session holds it');
+    assert.deepEqual(seen, ['GET /api/apps/agent/projects/7/coordinator'], 'looked up once; no view read while the stream keeps it');
+    answer.lookup = () => new Response('Method Not Allowed\n', { status: 405 });
+    const old = projectFeed({ projects: { take() {}, opens: 1, opened: 8 }, page: 'projects', emit() {}, session: { sel: null, views: new Map(), runs: new Map() } });
+    old.preview(8);
+    await tick();
+    assert.deepEqual(old.preview(8), { shown: false }, 'a backend without GET …/coordinator: the card as it was');
   } finally { globalThis.xbin = g; }
 });

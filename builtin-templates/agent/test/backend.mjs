@@ -63,7 +63,7 @@ export function STUB(seed) {
   window.__calls = [];
   window.__runs = seed.runs || [];
   window.__views = seed.views || {};
-  window.__prefs = {};
+  window.__prefs = { ...(seed.prefs || {}) }; // the person's prefs (seed.prefs: some set already)
   const routes = [];
   window.__route = (method, re, fn) => routes.unshift({ method, re, fn });
   const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json' } });

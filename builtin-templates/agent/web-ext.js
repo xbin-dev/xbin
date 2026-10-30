@@ -26,6 +26,8 @@
 //                        body() is merged into the POST /ask it sends
 //   task(v)              in the unfolded pinned task, after its requests
 //   side()               entries in the sidebar under Automations
+//   listTop(list)        sections at the top of your conversations (list the
+//                        ConvList): Mine, not while searching, above Pinned
 //   page(p)              the page app.page names when no conversation is open
 //                        (not 'automations'): {top, body} templates — the
 //                        first module that knows p answers
@@ -41,10 +43,11 @@
 //                        closes the popover; the conversation is
 //                        ctx.app.session.current())
 // Their call sites: side, page and crumb in agent.js (the Projects page),
+// listTop in sidebar.js (projects.js: your active projects, D209),
 // dock in harness-board.js, card in projects.js (the board), childStatus in
 // harness-child.js, sbx in sandboxes.js.
 import { makeExt } from './model/ext.js';
 
 export const ext = makeExt({ block: 'first', end: 'all', top: 'all', paint: 'each', newChat: 'all', task: 'all',
-  side: 'all', page: 'first', crumb: 'first', dock: 'all', card: 'all', childStatus: 'all', sbx: 'all' });
+  side: 'all', listTop: 'all', page: 'first', crumb: 'first', dock: 'all', card: 'all', childStatus: 'all', sbx: 'all' });
 export const ctx = { app: null, paint: () => {} };

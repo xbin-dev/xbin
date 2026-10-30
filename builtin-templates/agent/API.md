@@ -3976,10 +3976,15 @@ conversation list like a task, and deleted with its project.
 
 ```
 POST /projects/{pid}/coordinator   {text?}   → {run}   (participant; a person, not viewing as someone)
+GET  /projects/{pid}/coordinator             → {run}   (viewer; run null while you have none)
 GET  /projects/{pid}/needs                   → {items} (viewer)
 ```
 
-`POST` answers the caller's coordinator, made on first use; `text` is
+`GET` (D209) only reads: the caller's coordinator of the project, or
+`run: null` — it never makes one, so a page can show it before its person
+asks for it; a component, or a team project's definition, has none (null).
+A backend from before it answers the `GET` with 405 (the path has its
+`POST` only). `POST` answers the caller's coordinator, made on first use; `text` is
 queued to it as their message (as `POST /runs/{id}/message` would). 404
 for someone viewing as another person (as on every project route); 403 for
 a viewer, for a component that takes part (a coordinator is a person's),
@@ -4466,15 +4471,27 @@ run answers' `ci` key and the `ci` event, and its provider subscriptions
 
 ### Projects in the UI
 
-**The Projects page** opens from the sidebar's **Projects** entry (under
-Automations; its badge counts the tasks that need you across your active
-projects) or the address `#proj`; one project is `#proj=<id>`. Its id says
+**Projects atop your conversations** (D209). In Mine, while not
+searching, the conversation list starts with a **Projects** section,
+above Pinned: your active projects — those with tasks that need you
+first, then by activity, at most five (`PINNED`) — each with how many of
+its tasks need you, a click or tap to its board; then **All projects
+(n)**, the page. A team project's definition is left out while your half
+of it is listed (the half leads to it). Its heading folds it — folded, it
+says how many tasks need you across your projects — and the fold is kept
+in your prefs (`/api/xbin/prefs/projects-folded`, read with the list).
+With no project yet it is one quiet **Projects** row to the page, where
+New project is. Shared, Archived and search results show none; the app
+keeps **Projects** in the list's ⋯ menu as well, for those. A backend
+without Projects (`GET /projects` 404) shows nothing.
+
+**The Projects page** opens from there (All projects) or the address
+`#proj`; one project is `#proj=<id>`. Its id says
 where it lives (`model/homes.js`): in a person's partition their own
 projects are in their partition and a team project's definition in the
 shared space, and the page lists both (every page of `GET /projects`
 at each) — yours, then team projects, archived ones last — each with its
-repos, the slots at work and its counts per column. A backend without Projects (`GET /projects` 404) shows no
-entry.
+repos, the slots at work and its counts per column.
 
 **A project's page** has three tabs — Board, Activity and Settings (a team
 project's definition: Board and Settings):
@@ -4502,10 +4519,22 @@ project's definition: Board and Settings):
   (`kind: "team"`, at the shared space) has no tasks of its own — they run
   in each member's own space — so its board is a line saying so and the
   team board (below), with no task actions and no read of tasks. Above a
-  project's board, for its participants, the **coordinator card**: Open
-  (`POST /projects/{pid}/coordinator` — your coordinator, made on first
-  use; its conversation opens) and a line to write to it (the same route
-  with `{text}`); a backend without the route shows none. **Fork base
+  project's board, for its participants, the **coordinator card**, a
+  small chat (D209): what the coordinator does now (working, waiting for
+  you, failed), its last three messages — yours and its own, markdown,
+  newest at the bottom; its tool calls stay in its chat, "earlier messages
+  are in its chat" says when there are more — and right under them a line
+  to write to it (`POST /projects/{pid}/coordinator {text}`); **Open**
+  (the same route without text — your coordinator, made on first use; its
+  conversation opens). The coordinator is found with `GET
+  /projects/{pid}/coordinator`, which makes none: before you have one the
+  card says your first message starts it. Its messages are read (`GET
+  /runs/{id}/view?limit=20`) when the page opens, after Send and when its
+  `run` event says it moved (at a turn's start and end; at most one read a
+  second) — so it shows each turn's outcome, not its tokens; while its own
+  chat is open the session's view is used. A backend without the `GET`
+  (405) shows the card as before, Open and the line; one without the route
+  at all shows none. **Fork base
   now** (its owner, where big tasks fork the project's sandbox): `POST
   /projects/{pid}/fork-base {now: true}`, confirmed first — the sandbox
   stops while the snapshot is taken.
@@ -4664,17 +4693,18 @@ events coalesced for 250 ms into one read each.
 
 | Module | What it holds |
 |---|---|
-| `model/projects.js` | `createProjects(app)` → `app.projects`: `list`, `load()`, `open(pid, tab)`, `opened`, `board(pid)`, `tasks(pid, filter)`, `take(ev)`, `create(body)`, `createTask(pid, spec)`, `batch(pid, issues)`, `patch(pid, body)`, `remove(pid, sandbox)`, `status(pid)`, `warm(pid)`, `issues(pid, q)`, `signin(scm)`, `forget(scm)`, `pending(pid)`, `accept(pid, hash)`, the forms (`newProject`, `newTask`, `openPicker`, `editPolicy`) and `POLICY` (the policy's keys, grouped); it emits `projects` |
+| `model/projects.js` | `createProjects(app)` → `app.projects`: `list`, `load()`, `open(pid, tab)` (`opens` counts them), `opened`, `pinned(n)` (atop the conversations: `{items, total, need, shown, none}`), `folded`/`setFolded(on)` (prefs/projects-folded), `board(pid)`, `tasks(pid, filter)`, `take(ev)`, `create(body)`, `createTask(pid, spec)`, `batch(pid, issues)`, `patch(pid, body)`, `remove(pid, sandbox)`, `status(pid)`, `warm(pid)`, `issues(pid, q)`, `signin(scm)`, `forget(scm)`, `pending(pid)`, `accept(pid, hash)`, the forms (`newProject`, `newTask`, `openPicker`, `editPolicy`) and `POLICY` (the policy's keys, grouped); it emits `projects` |
 | `model/project-policy.js` | `POLICY` (the policy's keys as the settings show them), `policyGet(policy, path)`, `policySet(policy, path, value)`, `fieldValue(field, raw)`, `fieldText(field, value)` — re-exported by `model/projects.js` |
 | `model/project-task.js` | a task's words: `columns`, `columnOf`, `cardWords`, `stateWords`, `taskChips(view, project)`, `prChip`, `setupOutcome`, `prepCard(view, me)`, `prButton(view, route)`, `crumb(view)`, `taskSection(view)` |
 | `model/project-api.js` | `projectApi(app, pid)`, `taskApi(runId)`, `scmApi(home)`, `listProjects`, `createProject` — each call at its home, a refusal kept whole (`e.status`, `e.refusal`, `e.data`) |
 | `model/router.js` | `#proj`, `#proj=<id>` (`parse().proj`, `projHash`); `app.openProjects(pid)` |
-| `model/project-feed.js` | `projectFeed(app)`: a project's events (`load(pid)`, `items(pid)`, read since the last one on a `project` event) and your coordinator (`coord(pid)`, `openCoordinator(pid)`, `messageCoordinator(pid, text)`); `feedWords(ev)`, `plain(text)`, `httpsUrl(url)` |
+| `model/project-feed.js` | `projectFeed(app)`: a project's events (`load(pid)`, `items(pid)`, read since the last one on a `project` event) and your coordinator (`coord(pid)`, `openCoordinator(pid)`, `messageCoordinator(pid, text)`, `preview(pid)` — the card's small chat: `{shown, run, state, line, tail, more, loading, err}`, `readTail(pid)`); `coordTail(blocks, n)`, `coordState(run)`, `COORD_EMPTY`, `feedWords(ev)`, `plain(text)`, `httpsUrl(url)`; `model/projects.js` `pinWords(view)` |
 | `model/project-team.js` | `projectTeam(app)`: the team board (`load`, `rows`, `hide`), the seed (`seedChoices`, `setSeed`), Work on this (`startWork`, `submitWork`), the team's changes (`ensureReview`, `acceptReview`), a definition from your own space (`saveTeam`); `boardWords(row, me)`, `boardColumns`, `securityDiff(accepted, pending)` |
 | `model/project-upgrade.js` | `upgradeOffer(view)`, `candidateWords`, `projectUpgrade(app)` (`open(runId)`, `toggle`, `submit`), `forkBaseOffer(view)`, `forkBase(pid)` |
 
-On the web, `project-web.js` lists the modules: `projects.js` (the entry,
-`ext.side`; the page, `ext.page('projects')`; it draws `project-feed.js`'s
+On the web, `project-web.js` lists the modules: `projects.js` (Projects
+atop your conversations, `ext.listTop` — sidebar.js draws it in Mine; the
+page, `ext.page('projects')`; it draws `project-feed.js`'s
 coordinator card and Activity tab and `project-team.js`'s team board and
 cards), `project-new.js` (the form, and Make this a project… through
 `ext.sbx` in the ▣ popover), `project-settings.js` and `project-chips.js`
@@ -4683,14 +4713,16 @@ conversation).
 
 **Natively** (`native/project-all.js` lists the modules) the same model
 draws with the app's primitives, as screens of the view's stack
-(`native/nav.js`, D190): **Projects** in the conversation list's ⋯
-(`ext.main`) with the tasks that need you; the list and a project are
+(`native/nav.js`, D190): **Projects** atop your conversations
+(`ext.drawer`, a collapsible section in Mine; D209) and in the list's ⋯
+(`ext.main`), with the tasks that need you; the list and a project are
 places of the stack (`#proj`, `#proj=<id>` build [list, Projects, the
 project]; a task's ⋯ → Project: ‹name› pushes it over the task, or goes
 back to it), the model opens what the top one shows, so the address
 follows; a task opened from the board is pushed over it and Back returns
 to the board. `native/projects.js`:
-the list; a project — the coordinator (open it, write to it), the board as
+the list; a project — the coordinator (its small chat: what it does now,
+its last messages, open it, write to it), the board as
 a section per column (each task a row: number, title, state, branch, pull
 requests, the words other modules add through `ext.card(task)`; a tap
 opens its conversation, a swipe cancels it), search and Mine, the latest
