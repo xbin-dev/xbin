@@ -15,10 +15,11 @@
  */
 import { html, css, nothing, noChange, directive, Directive, unsafeCSS } from 'lit';
 import { md, mdInto, mdCssText } from '/vendor/bx-md.js';
-import { diffHTML, diffStats, codeCss } from '/vendor/bx-code.js';
+import { diffHTML, diffStats, langFor, codeCss } from '/vendor/bx-code.js';
 import '/vendor/bx-icons.js';
 import { headline, commandOf, isPlanApproval, planText, stripAnsi, rawText, unifiedDiff, filesStat, formFields, formContent } from '/vendor/agent-tools.js';
 import { cached } from '/vendor/agent-fold.js';
+import { DIFF_LINES, lineCount, headLines, diffBody } from '/vendor/agent-diffs.js';
 
 // mdLive(text, block): markdown rendered into the element it sits on, a
 // top-level block at a time (bx-md.js mdInto) — for text that streams: only
@@ -65,32 +66,70 @@ export function diffStat(t) {
 
 const FSTATUS = { added: 'A', modified: 'M', deleted: 'D', renamed: 'R', typechange: 'T' };
 
-// a snapshot diff (files.changed: what a call or a turn changed on disk,
-// from git trees — so a shell write shows as the real change): the files,
-// then git's own patch (highlighted once opened); owner is the block it hangs on
-export function filesBlock(a, owner, f, label) {
+// a snapshot diff (files.changed: what a call or a turn changed on disk, from
+// git trees — so a shell write shows as the real change), reviewed a file at
+// a time (D210): folded, its counts; open, its files; a file's row opens that
+// file's diff (agent-diffs.js: the event's own patch, else the full-diff
+// route), its first DIFF_LINES lines until "Show all" — never the whole
+// patch at once. owner is the block it hangs on; sel names the change set
+// to the route ({turn} | {toolCallId}).
+export function filesBlock(a, owner, f, label, sel) {
   const st = filesStat(f);
   const open = a._isOpen(owner, 'files');
   return html`<details class="files" @toggle=${(e) => a._toggled(e, owner, 'files', false)}>
     <summary>${label || 'Changed'} ${st.n} file${st.n === 1 ? '' : 's'} <span class="fadd">+${st.add}</span> <span class="fdel">−${st.del}</span></summary>
-    <ul class="flist">${(f.changes || []).map((c) => html`<li><span class="fs ${c.status}" title=${c.status}>${FSTATUS[c.status] || '?'}</span>
-      <span class="fp">${c.oldPath ? `${c.oldPath} → ` : ''}${c.path}</span>${c.binary ? html` <span class="muted">binary</span>` : html` <span class="fadd">+${c.add}</span> <span class="fdel">−${c.del}</span>`}</li>`)}</ul>
-    ${open && f.patch && f.patch.text ? html`<pre class="diff" .innerHTML=${cached(owner, 'patch', () => diffHTML(f.patch.text))}></pre>` : nothing}
-    ${f.patch && f.patch.truncated ? html`<div class="muted">… the rest of the patch is too large to show</div>` : nothing}
+    ${open ? html`<ul class="flist">${(f.changes || []).map((c) => fileRow(a, owner, f, c, sel))}</ul>` : nothing}
   </details>`;
+}
+
+// a file of a change set: its status, path and counts; opened, its diff
+function fileRow(a, owner, f, c, sel) {
+  const head = html`<span class="fs ${c.status}" title=${c.status}>${FSTATUS[c.status] || '?'}</span>
+    <span class="fp" title=${c.path}>${c.oldPath ? `${c.oldPath} → ` : ''}${c.path}</span>${c.binary ? html` <span class="muted">binary</span>` : html` <span class="fadd">+${c.add}</span> <span class="fdel">−${c.del}</span>`}`;
+  if (c.binary || !sel) return html`<li><div class="frow-static">${head}</div></li>`;
+  const slot = 'f:' + c.path;
+  return html`<li><details class="frow" @toggle=${(e) => a._toggled(e, owner, slot, false)}>
+    <summary><bx-icon class="cr" name="caret-right"></bx-icon>${head}</summary>
+    ${a._isOpen(owner, slot) ? fileBody(a, owner, a._fileDiff(owner, f, c, sel), slot, c.path) : nothing}
+  </details></li>`;
+}
+
+// one file's diff (its hunks: the row names the file), or why there is none
+function fileBody(a, owner, d, slot, path) {
+  if (d.state === 'loading') return html`<div class="fbody muted">loading the diff…</div>`;
+  if (d.state !== 'ok') return html`<div class="fbody muted">${d.note}</div>`;
+  const body = (d.body ??= diffBody(d.text));
+  if (!body.trim()) return html`<div class="fbody muted">no line changes</div>`;
+  return html`<div class="fbody">${capped(a, owner, slot, d, () => body, langFor(path))}
+    ${d.cut ? html`<div class="muted">… the rest of this file's diff is too large to keep</div>` : nothing}</div>`;
+}
+
+// a diff's first DIFF_LINES lines, then "Show all N lines" (slot + ':all'
+// remembers the choice); the highlighted HTML memoized on memo; lang: the
+// language of lines before any header
+function capped(a, owner, slot, memo, textOf, lang = '') {
+  const all = a._isOpen(owner, slot + ':all');
+  const h = (memo.$html ||= {});
+  const n = (h.n ??= lineCount(textOf()));
+  const cut = !all && n > DIFF_LINES;
+  const k = cut ? 'head' : 'all';
+  h[k] ??= diffHTML((cut ? headLines(textOf(), DIFF_LINES) : textOf()).replace(/\n$/, ''), lang); // (no empty row for the final newline)
+  return html`<pre class="diff" .innerHTML=${h[k]}></pre>
+    ${cut ? html`<button class="more" @click=${() => a._openSlot(owner, slot + ':all')}>Show all ${n} lines</button>` : nothing}`;
 }
 
 // what a whole turn changed, after its last card
 export function changesCard(a, b) {
-  return html`<div class="turn-changes">${filesBlock(a, b, b, 'This turn changed')}</div>`;
+  return html`<div class="turn-changes">${filesBlock(a, b, b, 'This turn changed', b.turn != null ? { turn: b.turn } : null)}</div>`;
 }
 
 const hasContent = (t) => Array.isArray(t.content) && t.content.length > 0;
 
-function contentItems(t, skipText) {
+function contentItems(a, t, skipText, owner = t) {
   const items = Array.isArray(t.content) ? t.content : [];
   return items.map((it, i) => {
-    if (it.type === 'diff') return html`<pre class="diff" .innerHTML=${cached(t, 'diff' + i, () => diffHTML(unifiedDiff(it.path, it.oldText, it.newText)))}></pre>`;
+    // an edit's diff: capped like a snapshot's (a write of a whole new file is long)
+    if (it.type === 'diff') return capped(a, owner, 'diff' + i, cached(t, 'diff' + i, () => ({})), () => cached(t, 'udiff' + i, () => unifiedDiff(it.path, it.oldText, it.newText)));
     if (it.type === 'terminal') return t.output ? nothing : html`<div class="muted">${running(t) ? 'running…' : '(no output)'}</div>`;
     const text = it.content?.text ?? it.text ?? '';
     if (!String(text).trim() || text === skipText) return nothing;
@@ -131,10 +170,10 @@ export function toolCard(a, t) {
   const dflt = t.status === 'failed';
   const body = !(dflt || a._isOpen(t, 'body')) ? []
     : exec
-      ? [commandOf(t) ? commandBlock(commandOf(t)) : nothing, t.output ? outputBlock(t) : hasContent(t) ? contentItems(t, t.label) : nothing, t.files ? filesBlock(a, t, t.files) : nothing]
+      ? [commandOf(t) ? commandBlock(commandOf(t)) : nothing, t.output ? outputBlock(t) : hasContent(t) ? contentItems(a, t, t.label) : nothing, t.files ? filesBlock(a, t, t.files, '', { toolCallId: t.id }) : nothing]
       : plan
         ? [planText(t) ? html`<div class="md plan-md" .innerHTML=${cached(t, 'plan', () => md(planText(t)))}></div>` : nothing]
-        : [hasContent(t) ? contentItems(t) : nothing, t.output ? outputBlock(t) : nothing, t.files ? filesBlock(a, t, t.files) : nothing, rawInputBlock(t)];
+        : [hasContent(t) ? contentItems(a, t) : nothing, t.output ? outputBlock(t) : nothing, t.files ? filesBlock(a, t, t.files, '', { toolCallId: t.id }) : nothing, rawInputBlock(t)];
   // a finished command shows its exit status in place of the generic word (product-ui §8)
   const exited = t.exitCode != null && !running(t);
   return html`<details class="tool ${exec ? 'exec' : ''}" ?open=${dflt} @toggle=${(e) => a._toggled(e, t, 'body', dflt)}>
@@ -163,7 +202,7 @@ function subagentCard(a, t) {
     ${dflt || a._isOpen(t, 'body') ? html`<div class="body">
       ${prompt ? html`<details class="raw"><summary>prompt</summary><div class="md" .innerHTML=${cached(t, 'prompt', () => md(prompt))}></div></details>` : nothing}
       <div class="children">${t.children.map((c) => a._block(c))}</div>
-      ${!live && hasContent(t) ? html`<div class="answer">${contentItems(t)}</div>` : nothing}
+      ${!live && hasContent(t) ? html`<div class="answer">${contentItems(a, t)}</div>` : nothing}
     </div>` : nothing}
   </details>`;
 }
@@ -249,7 +288,7 @@ export function permCard(a, b) {
   return html`<div class="perm">
     <div class="q"><b><bx-icon name="warning"></bx-icon>Permission</b> — ${heading}${desc ? html`<div class="desc">${desc}</div>` : nothing}</div>
     ${cmd ? commandBlock(cmd) : tc.rawInput != null ? html`<pre class="cmd">${rawText(tc.rawInput)}</pre>` : nothing}
-    <div class="pbody">${contentItems({ ...view, status: 'pending' }, heading)}</div>
+    <div class="pbody">${contentItems(a, { ...view, status: 'pending' }, heading, b)}</div>
     ${scoped && b.rule && (b.rule.kind || b.rule.title) ? html`<div class="rulenote">“Allow for the session” auto-approves later ${b.rule.kind || ''} calls${b.rule.title ? html` titled “${b.rule.title}”` : ''}.</div>` : nothing}
     <div class="btns">
       ${opts.length
@@ -338,11 +377,25 @@ export const cardsCss = [codeCss, css`
   .fadd { color: var(--bx-diff-add, #5EDBA5); } .fdel { color: var(--bx-diff-del, #FF8F8F); }
   .fadd, .fdel { font-variant-numeric: tabular-nums; }
   .flist { list-style: none; margin: 4px 0; padding: 0; font: var(--bx-font-code, 400 12px/18px "JetBrains Mono", ui-monospace, monospace); }
-  .flist li { display: flex; gap: 6px; align-items: baseline; }
-  .flist .fp { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .fs { width: 1.2em; text-align: center; font-weight: 700; color: var(--bx-muted, #A3A6B6); }
+  /* a change set's files (D210): a row per file, its diff beneath it once opened */
+  .flist .frow > summary, .flist .frow-static { display: flex; gap: 6px; align-items: baseline; padding: 0 4px; border-radius: var(--bx-radius, 2px); }
+  .flist .frow > summary { list-style: none; cursor: pointer; }
+  .flist .frow > summary::-webkit-details-marker { display: none; }
+  .flist .frow > summary:hover { background: var(--bx-hover, #2A2B34); }
+  .flist .frow[open] > summary { background: var(--bx-panel-2, #262730); }
+  .turn-changes .frow[open] > summary { position: sticky; top: 0; z-index: 1; } /* which file a long diff is of */
+  .flist .frow-static { padding-left: 22px; }
+  .flist .cr { flex: none; align-self: center; --bx-icon-size: 12px; color: var(--bx-muted, #A3A6B6); transition: transform 0.1s; }
+  .flist .frow[open] > summary .cr { transform: rotate(90deg); }
+  .flist .fp { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .fs { flex: none; width: 1.2em; text-align: center; font-weight: 700; color: var(--bx-muted, #A3A6B6); }
   .fs.added { color: var(--bx-diff-add, #5EDBA5); } .fs.deleted { color: var(--bx-diff-del, #FF8F8F); } .fs.modified, .fs.renamed { color: var(--bx-warn, #F2994A); }
-  .files pre.diff { max-height: 420px; overflow: auto; margin-top: 4px; }
+  .fbody { margin: 2px 0 8px 22px; display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+  /* a diff flows in the transcript (no scroller in the scroller), its long lines wrapped */
+  .fbody pre.diff { align-self: stretch; white-space: pre-wrap; overflow-wrap: anywhere; }
+  button.more { padding: 0; border: 0; background: none; cursor: pointer; color: var(--bx-link, #8C9BFF);
+    font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); }
+  button.more:hover { text-decoration: underline; }
   .turn-changes { border: 1px solid var(--bx-border, #33353F); border-radius: var(--bx-radius, 2px); padding: 4px 8px; margin: 0 0 8px; }
   .tool.sub { border-color: var(--bx-border-strong, #666A7E); }
   .tool.sub .children { border-left: 2px solid var(--bx-border-strong, #666A7E); padding-left: 8px; }
