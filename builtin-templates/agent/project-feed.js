@@ -6,8 +6,13 @@
 //                        messages (model/project-feed.js preview — none yet:
 //                        your first message starts it), Open ↗ (your
 //                        coordinator, made on first use — its conversation
-//                        opens) and right under them a line to write to it
-//                        (POST /projects/{pid}/coordinator {text})
+//                        opens), and what Send did
+//   coordComposer(p)     the page's bar at the bottom (page-composer.js,
+//                        D212): on a project's board or activity, a message
+//                        to its coordinator (POST /projects/{pid}/coordinator
+//                        {text}) — never a new chat; none on the list, the
+//                        forms, a project's settings, or where there is no
+//                        coordinator for you
 //   feedTpl(p, pv)       the Activity tab: the project's events, newest
 //                        first — tasks made and finished, workspaces,
 //                        pull requests, CI, reviews and comments, merges —
@@ -34,7 +39,6 @@ export function coordCardTpl(p, pv) {
   if (c.missing) return nothing;
   const pr = f.preview(pv.id);
   const open = async () => { const run = await f.openCoordinator(pv.id); if (run && run.id) ctx.app.select(run.id); };
-  const send = () => f.messageCoordinator(pv.id, c.text);
   const st = pr.shown ? pr.state : null;
   return html`<div class="pcoord" id="pcoord" data-state=${st ? st.key : nothing}>
     <div class="pcoordh"><b>Coordinator</b>
@@ -43,12 +47,26 @@ export function coordCardTpl(p, pv) {
       <button class="btn ghost btnsm" id="pcoord-open" title="its whole conversation" ?disabled=${!!c.busy} @click=${open}>${c.busy === 'open' ? 'Opening…' : html`Open<bx-icon name="popout"></bx-icon>`}</button>
       <span class="muted small pcabout">your agent for this project: it makes tasks, follows them and tells you what needs you — it never merges or answers a task's question for you</span></div>
     ${pr.shown ? previewTpl(pv, pr, f, open) : nothing}
-    <div class="pcoordrow">
-      <input id="pcoord-text" aria-label="A message to the coordinator" placeholder=${pr.shown && !pr.run ? 'Ask it something — this starts it: make tasks for the open bugs…' : 'Ask it something: make tasks for the open bugs, tell me what failed…'} .value=${c.text}
-        @input=${(e) => { c.text = e.target.value; }} @keydown=${(e) => { if (e.key === 'Enter' && !e.isComposing) send(); }}>
-      <button class="btn btnsm" id="pcoord-send" ?disabled=${!!c.busy} @click=${send}>${c.busy === 'send' ? 'Sending…' : 'Send'}</button></div>
-    ${c.err ? html`<div class="err" id="pcoord-err">${c.err}</div>` : c.note ? html`<div class="muted small" id="pcoord-note">${c.note}${c.run && c.run.id && !pr.shown ? html` <a class="lnk" @click=${() => ctx.app.select(c.run.id)}>open it</a>` : nothing}</div>` : nothing}
+    ${c.busy === 'send' ? html`<div class="muted small" id="pcoord-note">Sending…</div>`
+      : c.err ? html`<div class="err" id="pcoord-err">${c.err}</div>` : c.note ? html`<div class="muted small" id="pcoord-note">${c.note}${c.run && c.run.id && !pr.shown ? html` <a class="lnk" @click=${() => ctx.app.select(c.run.id)}>open it</a>` : nothing}</div>` : nothing}
   </div>`;
+}
+
+/** coordComposer(p): the bar at the bottom of the Projects page — the coordinator's line, or none (null). */
+export function coordComposer(p) {
+  if (p.form || p.opened == null || p.tab === 'settings') return null;
+  const pv = p.view();
+  if (!pv || pv.kind === 'team' || !can(pv).act) return null;
+  const f = feed();
+  const c = f.coord(pv.id);
+  if (c.missing) return null;
+  const pr = f.preview(pv.id);
+  return {
+    key: `coord:${pv.id}`,
+    placeholder: pr.shown && !pr.run ? 'Message the coordinator — your first message starts it…' : 'Message the coordinator: make tasks for the open bugs, tell me what failed…',
+    busy: !!c.busy,
+    send: async (text) => !!(await f.messageCoordinator(pv.id, text)),
+  };
 }
 
 // previewTpl: its last messages, newest at the bottom (the box keeps its end
@@ -105,7 +123,6 @@ style.textContent = `
   .projs-page .pcoord { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 8px 12px; margin: 0 0 12px; background: var(--bx-panel); }
   .projs-page .pcoordh { display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
   .projs-page .pcoordh .pcabout { flex-basis: 100%; }
-  .projs-page .pcoordrow { display: flex; gap: 6px; margin-top: 6px; }
   .projs-page .pcst { display: inline-flex; align-items: center; gap: 4px; font: var(--bx-font-meta); color: var(--bx-muted); }
   .projs-page .pcst[data-tone="run"] { color: var(--bx-info); }
   .projs-page .pcst[data-tone="warn"] { color: var(--bx-warn); }
@@ -118,7 +135,6 @@ style.textContent = `
   .projs-page .pcline { color: var(--bx-muted); padding-bottom: 6px; }
   .projs-page .pcline[data-tone="warn"] { color: var(--bx-warn); }
   .projs-page .pcprev .lnk, .projs-page .pcmore .lnk { border: 0; background: none; padding: 0; min-height: 0; font: inherit; font-weight: normal; }
-  .projs-page .pcoordrow input { flex: 1; min-width: 0; }
   .projs-page .lnk { cursor: pointer; color: var(--bx-link); }
   .projs-page .pfeed .pev { display: flex; gap: 8px; padding: 4px 2px; border-bottom: 1px solid var(--bx-border); min-width: 0; }
   .projs-page .pfeed .pevg { flex: none; display: inline-flex; width: 16px; height: var(--bx-text-line, 18px); align-items: center; justify-content: center; color: var(--bx-muted); }

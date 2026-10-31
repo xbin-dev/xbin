@@ -27,8 +27,9 @@ export function pinWords(pv) {
 
 // pinnedOf(projects, n): the projects the conversation list shows at its
 // top, above its pinned conversations — your active ones, those with tasks
-// that need you first, then by activity, at most n; `total` counts every
-// project the page lists (All projects), `need` the tasks that need you;
+// that need you first, then by activity, at most n; `more` the active ones
+// past n (All projects says so, D212); `total` counts every project the
+// page lists (All projects), `need` the tasks that need you;
 // `none`: you have no project yet — the views draw one quiet row to the
 // page (where New project is) instead of the section. A team project's
 // definition is left out while your half of it is there: the half leads to it.
@@ -37,7 +38,7 @@ export function pinnedOf(pj, n = PINNED) {
   const halves = new Set(live.filter((p) => p.kind === 'membership' && p.teamRef).map((p) => +p.teamRef));
   const rows = live.filter((p) => !(p.kind === 'team' && halves.has(p.id)));
   const items = [...rows].sort((a, b) => (needOf(b) > 0) - (needOf(a) > 0) || byActivity(a, b)).slice(0, n);
-  return { items, total: pj.list.length, need: pj.needsYou(), shown: pj.supported && pj.loaded, none: !pj.list.length };
+  return { items, more: rows.length - items.length, total: pj.list.length, need: pj.needsYou(), shown: pj.supported && pj.loaded, none: !pj.list.length };
 }
 
 // FOLDED: the person's prefs key (xbind's per-person store: a tile frame keeps

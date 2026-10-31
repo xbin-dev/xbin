@@ -5,19 +5,21 @@
 //   drawer               Projects atop your conversations (Mine, not while
 //                        searching; D209): your active projects — those with
 //                        tasks that need you first, at most PINNED — each with
-//                        how many need you, a tap to its board, All projects;
-//                        the section folds (kept in your prefs), and folded it
-//                        says how many tasks need you
+//                        how many need you, a tap to its board, All projects
+//                        (how many more; D212); the section folds (kept in
+//                        your prefs) — folded it says how many tasks need you,
+//                        and All projects stays under it
 //   main                 Projects in the list's ⋯ menu, with how many tasks
 //                        need you (from Shared and Archived too)
 //   'projects'           the list — yours, team projects, archived — New project
 //   'project' {pid}      a project: the coordinator (a small chat: what it
-//                        does now, its last messages, open it, write to it), the
+//                        does now, its last messages, open it; the composer
+//                        docked at the bottom writes to it — D212), the
 //                        board as a section per column — a row per task: #n,
 //                        title, state, branch, its PRs (their checks only while
 //                        it has no CI summary), the words other modules add
 //                        (ext.card: CI's) — a tap opens its conversation, a
-//                        swipe cancels it; a search field and Mine; the latest
+//                        swipe cancels it; Find a task and Mine; the latest
 //                        activity; ⊕ New task, From issues…, Warm; ⚙ Settings
 //                        (native/project-settings.js); your half of a team
 //                        project leads to the team's board and its changes
@@ -85,11 +87,14 @@ ext.register({
     const pin = p.pinned(PINNED);
     if (!pin.shown) return null;
     if (pin.none) return html`<section><row title="Projects" subtitle="a sandbox, its repos and a conversation per task" icon="folder" nav @tap=${() => openProjects()}/></section>`; // none yet: one row to the page
+    const all = html`<row title="All projects" subtitle=${pin.more && !p.folded ? `${pin.more} more` : nothing} detail=${pin.total ? String(pin.total) : nothing}
+      icon="list" nav @tap=${() => openProjects()}/>`;
     return html`<section title="Projects" collapsible ?collapsed=${p.folded} badge=${p.folded && pin.need ? String(pin.need) : nothing}
         @toggle=${(e) => p.setFolded(!!e.collapsed)}>
       ${repeat(pin.items, (pv) => pv.id, (pv) => pinRow(pv))}
-      <row title="All projects" detail=${pin.total ? String(pin.total) : nothing} icon="list" nav @tap=${() => openProjects()}/>
-    </section>`;
+      ${p.folded ? nothing : all}
+    </section>
+    ${p.folded ? html`<section>${all}</section>` : nothing}`;
   },
   main() {
     const p = ctx.app.projects;
@@ -164,7 +169,7 @@ function projectTpl(s) {
   const f = projectFeed(app);
   const recent = f.items(pv.id, 4); // the latest activity once its screen has read it (the read walks oldest first)
   return html`<screen title=${pv.name} subtitle=${[(pv.repos || []).map((r) => r.repo).join(', '), pv.state !== 'active' ? pv.state : ''].filter(Boolean).join(' · ')}
-      style="list" search=${p.filter.q} @search=${(e) => p.setFilter({ q: e.value || '' })} refreshable @refresh=${() => { p.refresh(pv.id); if ((f.feeds.get(+pv.id) || {}).loaded) f.load(pv.id); }}>
+      style="list" refreshable @refresh=${() => { p.refresh(pv.id); if ((f.feeds.get(+pv.id) || {}).loaded) f.load(pv.id); }}>
     <toolbar>
       ${c.act ? html`<menu icon="plus" label="New">
         <button icon="pencil" @tap=${() => { p.newTask(); push({ kind: 'project-task-new', pid: pv.id }); }}>New task</button>
@@ -183,7 +188,9 @@ function projectTpl(s) {
     </section>` : nothing}
     ${coordTpl(pv, c)}
     <section><picker style="segmented" value=${p.filter.mine ? 'mine' : 'all'} options=${[{ value: 'all', label: 'All tasks' }, { value: 'mine', label: 'Mine' }]}
-      @change=${(e) => p.setFilter({ mine: e.value === 'mine' })}/></section>
+      @change=${(e) => p.setFilter({ mine: e.value === 'mine' })}/>
+      <field kind="search" placeholder="Find a task" submit="search" value=${p.filter.q} @submit=${(e) => p.setFilter({ q: e.value || '' })}
+        @change=${(e) => { if ((e.value || '') !== p.filter.q) p.setFilter({ q: e.value || '' }); }}/></section>
     ${list.err ? html`<section><notice tone="danger" text=${list.err}/></section>` : nothing}
     ${repeat(p.board(pv.id), (col) => col.key, (col) => html`<section title=${`${col.title}${col.tasks.length ? ` (${col.tasks.length})` : ''}`}>
       ${col.tasks.length ? repeat(col.tasks, (t) => t.n, (t) => taskRow(pv, t, c)) : html`<empty text="none"/>`}
@@ -193,6 +200,7 @@ function projectTpl(s) {
       ${recent.length ? repeat(recent, (ev) => ev.id, (ev) => eventRow(pv, ev)) : nothing}
       <row title="All activity" icon="clock" nav @tap=${() => push({ kind: 'project-events', pid: pv.id })}/>
     </section>
+    ${coordComposerTpl(pv, c)}
   </screen>`;
 }
 
@@ -208,7 +216,7 @@ function taskRow(pv, t, c) {
 }
 
 // the coordinator, a small chat (D209): open it (made on first use), what it
-// does now, its last messages and right under them a message to it
+// does now, its last messages (the screen's composer writes to it, D212)
 const ABOUT = 'Your agent for this project: it makes tasks, follows them and tells you what needs you — it never merges or answers a task\'s question for you.';
 function coordTpl(pv, c) {
   if (pv.kind === 'team' || !c.act) return nothing;
@@ -222,9 +230,20 @@ function coordTpl(pv, c) {
     <row title="Open the coordinator" subtitle=${pr.shown && pr.line ? pr.line : nothing} icon="agent"
       tone=${st && st.tone === 'warn' ? 'warn' : st && st.tone === 'bad' ? 'danger' : nothing} nav ?disabled=${!!k.busy} @tap=${open}/>
     ${pr.shown ? coordPreviewTpl(pv, pr, f) : nothing}
-    <field kind="multiline" placeholder=${pr.shown && !pr.run ? 'Ask it something — this starts it…' : 'Ask it something: make tasks for the open bugs…'} value=${k.text} @input=${(e) => { k.text = e.value; }}/>
-    <button icon="send" ?busy=${k.busy === 'send'} @tap=${() => f.messageCoordinator(pv.id, k.text)}>Send to the coordinator</button>
+    ${k.busy === 'send' ? html`<progress label="Sending…"/>` : nothing}
   </section>`;
+}
+
+// the composer docked at the bottom of a project's screen (D212): a message
+// to its coordinator — never a new chat; no attachments (it takes text)
+function coordComposerTpl(pv, c) {
+  if (pv.kind === 'team' || !c.act) return nothing;
+  const f = projectFeed(ctx.app);
+  const k = f.coord(pv.id);
+  if (k.missing) return nothing;
+  const pr = f.preview(pv.id);
+  return html`<composer value=${k.text} placeholder=${pr.shown && !pr.run ? 'Message the coordinator — this starts it…' : 'Message the coordinator…'}
+    @input=${(e) => { k.text = e.value; }} @send=${(e) => f.messageCoordinator(pv.id, e.value)}/>`;
 }
 
 // one message of the preview: the chat's message, without its actions (its chat has them)

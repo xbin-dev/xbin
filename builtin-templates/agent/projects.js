@@ -3,8 +3,9 @@
 //   listTop  Projects atop your conversations (Mine, not while searching;
 //            D209): your active projects — those with tasks that need you
 //            first, at most PINNED — each with how many need you, a click to
-//            its board, and All projects; the heading folds it (kept in your
-//            prefs), and folded it says how many tasks need you
+//            its board, and All projects (how many more there are; D212);
+//            the heading folds the projects (kept in your prefs) — folded it
+//            says how many tasks need you, and All projects stays
 //   page   'projects': the list (yours, then team ones, archived last) — or
 //          one project's page: its board (a column per state: queued,
 //          working, needs you, PR, done) of task cards — #n, title, state,
@@ -14,12 +15,14 @@
 //          which repos), "From issues…" (a batch picker of the project's
 //          issues, a task each), Warm; its Settings tab (project-settings.js);
 //          the new-project form (project-new.js). Above the board, the
-//          coordinator card; an Activity tab, the project's event feed
-//          (project-feed.js). A team project's definition (kind team, at the
-//          shared space) has no tasks of its own: its board is the team
-//          board — each member's tasks — with "Work on this" from your own
-//          space; your half of it (kind membership) leads to it, and asks you
-//          to review the team's changes when there are some (project-team.js)
+//          coordinator card, and the bar at the bottom of the page writes to
+//          the coordinator — never a new chat (D212); an Activity tab, the
+//          project's event feed (project-feed.js). A team project's
+//          definition (kind team, at the shared space) has no tasks of its
+//          own: its board is the team board — each member's tasks — with
+//          "Work on this" from your own space; your half of it (kind
+//          membership) leads to it, and asks you to review the team's
+//          changes when there are some (project-team.js)
 //
 // A card opens its task's conversation, whose crumb (project-chips.js)
 // comes back here. The state is app.projects (model/projects.js); the words
@@ -31,7 +34,7 @@ import { can, agentChoices, pinWords, PINNED } from './model/projects.js';
 import { cardWords, issueWords } from './model/project-task.js';
 import { newProjectTpl } from './project-new.js';
 import { settingsTpl } from './project-settings.js';
-import { coordCardTpl, feedTpl } from './project-feed.js';
+import { coordCardTpl, coordComposer, feedTpl } from './project-feed.js';
 import { teamBoardTpl, teamLinkTpl, reviewCardTpl } from './project-team.js';
 import { forkBaseOffer, forkBase } from './model/project-upgrade.js';
 import { chipBody } from './project-chips.js';
@@ -45,7 +48,7 @@ let shownKey = '';
 
 ext.register({
   listTop: () => listTopTpl(),
-  page: (p) => (p === 'projects' ? { get top() { return topTpl(); }, get body() { return bodyTpl(); } } : null), // drawn when asked
+  page: (p) => (p === 'projects' ? { get top() { return topTpl(); }, get body() { return bodyTpl(); }, get composer() { return coordComposer(pj()); } } : null), // drawn when asked
   paint: (v) => toTop(v),
 });
 
@@ -69,7 +72,7 @@ function listTopTpl() {
   return html`<div class="projsec" id="projsec">
     <button class="grp projgrp" id="projfold" aria-expanded=${p.folded ? 'false' : 'true'} title=${p.folded ? 'show your projects' : 'fold your projects'} @click=${fold}>
       <bx-icon name=${p.folded ? 'caret-right' : 'caret-down'}></bx-icon><span>Projects</span>${p.folded ? needBadge(pin.need, 'tasks that need you, across your projects') : nothing}</button>
-    ${p.folded ? nothing : html`${repeat(pin.items, (x) => x.id, (x) => {
+    ${p.folded ? nothing : repeat(pin.items, (x) => x.id, (x) => {
       const w = pinWords(x);
       const go = () => app.openProjects(x.id);
       return html`<div class="prow projrow ${at && p.opened === x.id ? 'on' : ''}" data-pid=${x.id} role="button" tabindex="0"
@@ -81,8 +84,9 @@ function listTopTpl() {
       </div>`;
     })}
     <div class="prow projall ${at && p.opened == null ? 'on' : ''}" id="projentry" role="button" tabindex="0" @click=${() => app.openProjects()} @keydown=${keys(() => app.openProjects())}>
-      <div class="t">All projects${pin.total ? html` <span class="muted">(${pin.total})</span>` : nothing}</div>
-    </div>`}
+      <span class="pic"><bx-icon name="list"></bx-icon></span><div class="t">All projects${pin.total ? html` <span class="muted">(${pin.total})</span>` : nothing}</div>
+      ${pin.more && !p.folded ? html`<span class="muted small pmore" title="active projects not shown above">${pin.more} more</span>` : nothing}
+    </div>
   </div>`;
 }
 

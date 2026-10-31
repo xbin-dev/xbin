@@ -47,6 +47,7 @@ import { stepLinks, frameLinks, dropTicket } from './model/report-links.js';
 import { mountPartitionUI, mountStaticMcp } from './partition-ui.js';
 import { mountNewShare } from './homes-ui.js'; // a person's partition: who can see a new chat (two homes)
 import { hostedChipTpl, hostedPaint } from './hosted-ui.js'; // non-secure (hosted) conversations: the chip, the warning, the lock
+import { pageComposer, paintPageComposer, sendPage } from './page-composer.js'; // a page's own bar (a project's: its coordinator) or none
 import { makeWorkflow } from './workflow.js';
 import { ext, ctx as extCtx } from './web-ext.js';
 import './harness-web.js'; // the coding harnesses' modules (their hooks on ext)
@@ -299,6 +300,7 @@ function paint() {
   $('stop').hidden = !c.stop;
   $('msg').disabled = c.disabled;
   $('msg').placeholder = c.placeholder;
+  paintPageComposer(pageComposer(app, v), app);
   hostedPaint(v, app); // a hosted conversation's lock and warning (hosted-ui.js); nothing elsewhere
   if (v) syncPreview(v);
   if (wf.shown) wf.dirty();
@@ -600,9 +602,11 @@ function renderAttach() {
 
 // send: at home a fresh ask that opens with its streaming answer; in a
 // conversation a message — while the run works it is queued and delivered at
-// its next step (the strip above the composer shows it until then). The text
-// box empties once the text is on its way (app.send, model/app.js).
-const send = () => app.send($('msg').value, () => { $('msg').value = ''; autosize(); });
+// its next step (the strip above the composer shows it until then); on a page
+// with a bar of its own, the page's (page-composer.js: a project's coordinator).
+// The box empties once the text is on its way (app.send, model/app.js).
+const sent = () => { $('msg').value = ''; autosize(); };
+const send = () => sendPage(app, session.current(), $('msg').value, sent) || app.send($('msg').value, sent);
 $('send').onclick = send;
 $('clip').onclick = () => $('clipin').click();
 $('clipin').onchange = () => { addFiles($('clipin').files); $('clipin').value = ''; };
