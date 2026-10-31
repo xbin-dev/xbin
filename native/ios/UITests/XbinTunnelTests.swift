@@ -317,9 +317,11 @@ final class XbinTunnelTests: XCTestCase {
         XCTAssertTrue(web.waitForExistence(timeout: 30), "the welcome page, through the tunnel")
         e.goHome()
 
-        // The workspace's admin turns tunnelling off: its sidecar stops.
+        // The workspace's admin turns tunnelling off: its sidecar stops. A
+        // tile not opened yet in this run must load now (the welcome page,
+        // reopened, would show what it already holds — no request at all).
         _ = try await e.server.browserSend("PUT", "/api/xbin/app-tunnel", json: ["enabled": false])
-        e.openTile("apps/welcome")
+        e.openTile("apps/wide")
         let failed = e.containing("Can't load")
         XCTAssertTrue(failed.waitForExistence(timeout: 120), "the page fails to load, as with no network")
         e.shot("tunnel-down-01-cant-load")
