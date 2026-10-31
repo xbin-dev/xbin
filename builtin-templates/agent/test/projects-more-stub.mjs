@@ -203,17 +203,19 @@ export function overviewSeed(pid = 7, range = 'day') {
   };
 }
 
-/** coordMsgs(runId, said): a coordinator's messages from [['user' | 'assistant' | 'tool', text], …] — a tool step is a call and its result. */
+/** coordMsgs(runId, said): a coordinator's messages from [['user' | 'assistant' | 'tool', text, call?], …] — a tool step is a
+ * call ({name, args}: task_list with none by default) and its result (text; '' while it runs). */
 export function coordMsgs(runId, said) {
   const out = [];
   let seq = 0;
-  for (const [role, text] of said) {
+  for (const [role, text, call] of said) {
     seq++;
     if (role === 'tool') {
       const id = `call_${seq}`;
-      out.push({ id: seq, runId, seq, role: 'assistant', content: '', created: 1790000000 + seq, toolCalls: [{ id, type: 'function', function: { name: 'task_list', arguments: '{}' } }] });
+      const name = (call && call.name) || 'task_list';
+      out.push({ id: seq, runId, seq, role: 'assistant', content: '', created: 1790000000 + seq, toolCalls: [{ id, type: 'function', function: { name, arguments: JSON.stringify((call && call.args) || {}) } }] });
       seq++;
-      out.push({ id: seq, runId, seq, role: 'tool', toolCallId: id, name: 'task_list', content: text, created: 1790000000 + seq });
+      out.push({ id: seq, runId, seq, role: 'tool', toolCallId: id, name, content: text, created: 1790000000 + seq });
       continue;
     }
     out.push({ id: seq, runId, seq, role, content: text, created: 1790000000 + seq, ...(role === 'user' ? { sender: 'alice' } : {}) });

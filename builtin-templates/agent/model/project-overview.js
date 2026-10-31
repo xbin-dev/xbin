@@ -16,7 +16,8 @@
 // Words (pure, for both views): stripWords(data) — one entry per cell, in
 // the strip's order; foldLine(data); cardAgent(data, n); tokenChart(data);
 // sparkline(series, key); coordPlaceholder(preview, short); fmtTokens, fmtBytes, ago. TIPS: each part's
-// tooltip text (the web shows them on hover, the native view in a sheet a tap opens).
+// tooltip text (the web shows them on hover, the native view in a sheet a tap opens);
+// wakeTip(w) a wakesOn entry's.
 //
 // A backend from before the overview answers 404 (the mux's, plain) or 405:
 // `supported` false, and the page draws as it did. Text that came from the
@@ -46,7 +47,42 @@ export const TIPS = {
   idle: 'Idle. The coordinator has no turn running. It wakes for the events listed, or when you write to it.',
   chat: 'The coordinator\'s newest messages. Its whole conversation, with every tool call, is behind Open chat.',
   fold: 'Fold the status. The status strip as one line, to give the board and the coordinator more room. Kept for you.',
+  // the parts inside them, and the page's controls
+  line: 'Status, folded. The status strip in one line. Click it, or Status, to unfold it.',
+  last: 'Last event. What woke the coordinator last, and how long ago.',
+  engines: 'Who works on the tasks. How many tasks the agent works on with its own model, and how many a coding agent works on.',
+  range: 'Day or week. The chart over the last 24 hours (a point an hour) or the last 7 days (a point a day).',
+  cost: 'Coding agents\' cost. Coding agents report what they cost, not tokens: their own running count, added up over the range.',
+  repo: 'A repository. Opens it at its provider. The mark is its default branch\'s checks: passing, failing or running.',
+  prFailing: 'Failing pull requests. The project\'s own pull requests whose checks fail.',
+  prReview: 'Awaiting review. The project\'s own pull requests waiting for a review.',
+  cpu: 'CPU. Percent of one core the sandbox used, over the last hour.',
+  mem: 'Memory. What the sandbox holds in memory, over the last hour, of its limit.',
+  newTask: 'New task. What to do, a title, small or big, who works on it (the agent or a coding agent) and which repos.',
+  fromIssues: 'From issues. Pick issues from the project\'s repos; each becomes a task.',
+  warm: 'Warm. Start the sandbox, fetch the repos and refresh the credentials now, so the next task starts at once.',
+  forkBase: 'Fork base now. Big tasks fork a snapshot of the project\'s sandbox; this takes one now. The sandbox stops while it is taken.',
+  find: 'Find a task. Narrows the board to the tasks whose title has these words.',
+  mine: 'Mine. Only the tasks you made.',
+  slots: 'Slots. Tasks holding a slot now, of the most the project\'s policy lets work at once.',
+  stop: 'Stop. Interrupts the coordinator\'s turn. What you wrote that it has not read yet comes back into the input.',
+  open: 'Open its chat. The coordinator\'s whole conversation, with every tool call and its results.',
+  send: 'Send to the coordinator. It starts a turn, or reads it at its next step while it works. Never a new chat.',
+  to: 'To the coordinator. This bar writes to the project\'s coordinator, never a new chat. Its answer shows in the Coordinator section.',
+  overview: 'Overview. The project\'s status, its tasks and its coordinator.',
+  activity: 'Activity. Every event of the project, newest first: tasks made and finished, pull requests, CI, reviews, merges.',
+  settings: 'Settings. Repos, the policy (how many tasks at once, branches, CI and reviews), members, the sandbox.',
 };
+
+/** wakeTip(w): a wakesOn entry's tooltip. */
+export function wakeTip(w) {
+  const k = w && w.kind;
+  if (k === 'ci') return `${plain(w.label, 40)}. It wakes when the checks on #${w.n || '?'} finish.`;
+  if (k === 'review') return `${plain(w.label, 40)}. It wakes when someone reviews the pull request.`;
+  if (k === 'issues') return 'New issues. It wakes for every new issue in the project\'s repos.';
+  if (k === 'you') return 'Your message. Your messages wake it at once.';
+  return `${plain((w && w.label) || 'An event', 40)}. It wakes for it.`;
+}
 
 const ENGINE_TITLE = { agent: 'agent', 'claude-code': 'Claude Code', codex: 'Codex' };
 
@@ -142,6 +178,7 @@ export function stripWords(d, now = Date.now()) {
       commands: sb ? sb.commands || 0 : 0,
       cpu: sb && sb.usage && sb.usage.cpuPct != null ? `${Math.round(sb.usage.cpuPct)}%` : '',
       memUsed: sb && sb.usage && sb.usage.memBytes != null ? fmtBytes(sb.usage.memBytes) : '',
+      memMax: (sb && sb.usage && sb.usage.memMaxBytes) || 0,
       series: (sb && sb.usage && sb.usage.series) || [] },
   ];
 }

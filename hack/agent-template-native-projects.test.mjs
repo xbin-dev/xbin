@@ -377,7 +377,7 @@ test('the coordinator as a small chat (a backend without the overview): its last
   assert.equal(find(topScreen(r.snapshots.busy), { t: 'composer' }).p.placeholder, 'Message the coordinator…', 'the composer docked at the bottom writes to it (D212)');
   assert.equal(called(r, 'POST', /\/projects\/7\/coordinator$/).length, 0, 'reading makes no coordinator');
   assert.ok(called(r, 'GET', /\/projects\/7\/coordinator$/).length >= 1);
-  const reads = called(r, 'GET', /\/runs\/900\/view\?limit=20$/).length;
+  const reads = called(r, 'GET', /\/runs\/900\/view\?limit=30$/).length;
   assert.ok(reads >= 2, `its run moved: read again (${reads})`);
   const idle = find(topScreen(r.snapshots.idle), coordSec);
   assert.equal(idle.p.badge, undefined, 'idle: no state said');

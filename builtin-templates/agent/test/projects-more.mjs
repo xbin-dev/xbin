@@ -1,10 +1,12 @@
 // projects-more.mjs — what the coordinator, the event feed, team projects
 // and "Make this a project…" add to Projects on the web (API.md §Projects in
 // the UI) over moreSeed()/teamSeed() and PROJ_MORE_STUB
-// (test/projects-more-stub.mjs), beside PROJ_STUB: the coordinator card
-// (Send, Open; D209 its small chat — the last messages, what it does now,
-// read again when its run moves, none made by reading, an older backend's
-// card as it was); the Activity tab (newest first, scm text plain, only https
+// (test/projects-more-stub.mjs), beside PROJ_STUB: the coordinator (the
+// bar at the bottom writes to it, D212; Open; its section below the board,
+// D214 — test/projects-overview.mjs has the rest of the overview); on a
+// backend without the overview the card above the board (D209 its small
+// chat — the last messages, what it does now, read again when its run
+// moves, none made by reading; an older backend's card as it was); the Activity tab (newest first, scm text plain, only https
 // links, a `project` event reads only what is new); the ▣ popover's "Make
 // this a project…" (detect, the picks, https, the body, the crumb after);
 // a team definition's board (rows plain, "open (yours)" for your own,
@@ -48,17 +50,21 @@ const noHScroll = (page) => page.evaluate(() => document.documentElement.scrollW
 // === an unpartitioned agent: the coordinator and the feed ====================================================
 const { page, errors } = await open(moreSeed(), { hash: '#proj=7' });
 await page.waitForSelector('#pcoord');
-ok('the coordinator card, above the board', await page.$eval('#pcoord', (e) => !!e.nextElementSibling && e.closest('.projs-page') !== null));
-ok('none yet: your first message starts it', await waitText(page, '#pcoord-prev', 'your first message starts it'));
+ok('the coordinator\'s section, below the board (D214)', await page.$eval('#pcoord', (e) => e.closest('.projs-page') !== null
+  && !!(document.querySelector('#pov-board').compareDocumentPosition(e) & Node.DOCUMENT_POSITION_FOLLOWING)));
+ok('none yet: your first message starts it', await waitText(page, '#pcoord-chat', 'your first message starts it'));
 ok('…nothing made by looking', (await calls(page, 'POST', '/projects/7/coordinator$')).length === 0 && (await calls(page, 'GET', '/projects/7/coordinator$')).length >= 1);
-await page.fill('#pcoord-text', 'make tasks for the open bugs');
-await page.click('#pcoord-send');
+ok('the bar at the bottom writes to it (D212), and says so', !(await page.$eval('.composer', (e) => e.hidden)) && (await page.getAttribute('#msg', 'placeholder')).includes('your first message starts it')
+  && (await page.textContent('#pjto')).trim() === 'Coordinator');
+await page.fill('#msg', 'make tasks for the open bugs');
+await page.click('#send');
 ok('Send writes to it (made on first use)', await waitCall(page, 'POST', '/projects/7/coordinator$'));
 ok('…with the text', JSON.stringify((await calls(page, 'POST', '/projects/7/coordinator$'))[0].body) === '{"text":"make tasks for the open bugs"}');
 ok('…and says so', await waitText(page, '#pcoord-note', 'Sent to the coordinator'));
-ok('…the line emptied', (await page.inputValue('#pcoord-text')) === '');
-ok('…what you wrote shows, above the line', await page.waitForFunction(() => document.querySelector('#pcoord-prev .msg.user')?.textContent.includes('make tasks for the open bugs')
-  && document.querySelector('#pcoord-prev').compareDocumentPosition(document.querySelector('#pcoord-text')) & Node.DOCUMENT_POSITION_FOLLOWING, null, { timeout: 5000 }).then(() => true, () => false));
+ok('…the bar emptied', (await page.inputValue('#msg')) === '');
+ok('…never a new chat', (await calls(page, 'POST', '/ask')).length === 0);
+ok('…what you wrote shows in its window', await page.waitForFunction(() => document.querySelector('#pcoord-chat .msg.user')?.textContent.includes('make tasks for the open bugs'),
+  null, { timeout: 5000 }).then(() => true, () => false));
 await page.click('#pcoord-open');
 ok('Open opens its conversation', await page.waitForFunction(() => location.hash === '#c=900', null, { timeout: 5000 }).then(() => true, () => false));
 ok('…asked with no text', JSON.stringify((await calls(page, 'POST', '/projects/7/coordinator$'))[1].body) === '{}');
@@ -93,7 +99,8 @@ ok('no page errors (coordinator, feed)', errors.length === 0, errors.join(' | ')
 {
   const msgs = coordMsgs(900, [['user', 'make tasks for the open bugs'], ['assistant', 'On it — reading the board.'], ['tool', '#1 Fix the login loop …'],
     ['assistant', 'Made **3 tasks**: #9, #10 and #11.'], ['user', 'thanks'], ['assistant', 'Anything else?']]);
-  const { page: c, errors: ce } = await open({ ...moreSeed(), coordinator: { 7: { status: 'running', messages: msgs } } }, { hash: '#proj=7', realMarked: true });
+  // a backend without the overview (D214): the card above the board, as it was
+  const { page: c, errors: ce } = await open({ ...moreSeed(), noOverview: true, coordinator: { 7: { status: 'running', messages: msgs } } }, { hash: '#proj=7', realMarked: true });
   await c.waitForSelector('#pcoord-prev .msg');
   const said = await c.$$eval('#pcoord-prev .msg', (els) => els.map((e) => `${e.classList.contains('user') ? 'user' : 'assistant'}: ${e.textContent.trim()}`));
   ok('its last three messages, its tool steps left to its chat', JSON.stringify(said) === JSON.stringify(['assistant: Made 3 tasks: #9, #10 and #11.', 'user: thanks', 'assistant: Anything else?']), JSON.stringify(said));
@@ -101,7 +108,8 @@ ok('no page errors (coordinator, feed)', errors.length === 0, errors.join(' | ')
   ok('…earlier ones are in its chat', await waitText(c, '#pcoord-prev .pcmore', 'earlier messages'));
   ok('what it does now', (await c.textContent('#pcoord-state')).trim() === 'working' && (await c.textContent('#pcoord .pcline')).includes('Working'));
   ok('…nothing made by reading', (await calls(c, 'POST', '/projects/7/coordinator$')).length === 0);
-  const reads = (await calls(c, 'GET', '/runs/900/view\\?limit=20$')).length;
+  ok('…the card above the board', await c.$eval('#pcoord', (e) => !!(e.compareDocumentPosition(document.querySelector('.pboard')) & Node.DOCUMENT_POSITION_FOLLOWING)) && !(await c.$('#pov-strip')));
+  const reads = (await calls(c, 'GET', '/runs/900/view\\?limit=30$')).length;
   await c.evaluate(() => {
     const v = window.__views[900];
     v.run = { ...v.run, status: 'idle' };
@@ -109,12 +117,13 @@ ok('no page errors (coordinator, feed)', errors.length === 0, errors.join(' | ')
     window.__push({ type: 'run', run: 900, root: 900, data: { id: 900, status: 'idle', parentId: 0, rootId: 900, origin: 'project', originId: 7 } });
   });
   ok('its run moved: read again, the new message shown', await waitText(c, '#pcoord-prev', 'All three are queued.'));
-  ok('…one read more', (await calls(c, 'GET', '/runs/900/view\\?limit=20$')).length === reads + 1);
+  ok('…one read more', (await calls(c, 'GET', '/runs/900/view\\?limit=30$')).length === reads + 1);
   ok('…idle: no state said', !(await c.$('#pcoord-state')) && !(await c.$('#pcoord .pcline')));
-  ok('the line under the messages', await c.$eval('#pcoord-prev', (e) => e.nextElementSibling.classList.contains('pcoordrow')));
+  ok('the bar at the bottom writes to it (D212)', !(await c.$eval('.composer', (e) => e.hidden)) && (await c.getAttribute('#msg', 'placeholder')).startsWith('Message the coordinator')
+    && !(await c.$('#pcoord-text')));
   ok('no page errors (the small chat)', ce.length === 0, ce.join(' | '));
-  const { page: o, errors: oe } = await open({ ...moreSeed(), coordLookup: false }, { hash: '#proj=7' });
-  await o.waitForSelector('#pcoord-text');
+  const { page: o, errors: oe } = await open({ ...moreSeed(), coordLookup: false, noOverview: true }, { hash: '#proj=7' });
+  await o.waitForSelector('#pcoord-open');
   await o.waitForTimeout(200);
   ok('an older backend (no GET …/coordinator): the card as it was', !(await o.$('#pcoord-prev')) && !!(await o.$('#pcoord-open')));
   ok('no page errors (older backend)', oe.length === 0, oe.join(' | '));
