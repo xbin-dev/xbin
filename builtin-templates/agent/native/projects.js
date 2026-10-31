@@ -12,18 +12,24 @@
 //   main                 Projects in the list's ⋯ menu, with how many tasks
 //                        need you (from Shared and Archived too)
 //   'projects'           the list — yours, team projects, archived — New project
-//   'project' {pid}      a project: the coordinator (a small chat: what it
-//                        does now, its last messages, open it; the composer
-//                        docked at the bottom writes to it — D212), the
-//                        board as a section per column — a row per task: #n,
-//                        title, state, branch, its PRs (their checks only while
-//                        it has no CI summary), the words other modules add
-//                        (ext.card: CI's) — a tap opens its conversation, a
-//                        swipe cancels it; Find a task and Mine; the latest
-//                        activity; ⊕ New task, From issues…, Warm; ⚙ Settings
-//                        (native/project-settings.js); your half of a team
-//                        project leads to the team's board and its changes
-//                        to review (native/project-team.js)
+//   'project' {pid}      a project, as the web's overview orders it (D214):
+//                        its status (native/project-status.js: the
+//                        coordinator, workers, subagents, tokens, source
+//                        control, the sandbox; it folds), the board as a
+//                        section per column — a row per task: #n, title,
+//                        state, branch, its PRs (their checks only while it
+//                        has no CI summary), its agent and subagents, the
+//                        words other modules add (ext.card: CI's) — a tap
+//                        opens its conversation, a swipe cancels it; Find a
+//                        task and Mine; the latest activity; the coordinator
+//                        (its state, goal — idle: what wakes it — its newest
+//                        messages, open it; the composer docked at the bottom
+//                        writes to it — D212); ⊕ New task, From issues…,
+//                        Warm; ⚙ Settings (native/project-settings.js); your
+//                        half of a team project leads to the team's board and
+//                        its changes to review (native/project-team.js). A
+//                        backend without the overview: the coordinator (a
+//                        small chat) first, then the board, as before
 //   'project-task-new'   what to do, a title, small or big, who works on it,
 //                        which repos
 //   'project-issues'     the batch picker: a repo's issues (plain, untrusted),
@@ -44,14 +50,16 @@ import { ext } from './ext.js';
 import { ctx, ui, push, top, when } from './ui.js';
 import { can, agentChoices, repoSlug, pinWords, PINNED } from '../model/projects.js';
 import { cardWords, issueWords, prWords } from '../model/project-task.js';
-import { projectFeed, feedWords, COORD_EMPTY } from '../model/project-feed.js';
+import { projectFeed, feedWords, COORD_EMPTY, COORD_TAIL } from '../model/project-feed.js';
+import { projectOverview, coordPlaceholder, coordWords, fmtTokens } from '../model/project-overview.js';
+import { overviewOf, statusTpl, agentWords, coordBadge, goalTpl, aboutSheet } from './project-status.js';
 import { projectTeam } from '../model/project-team.js';
 import { partitionState } from '../model/partition.js';
 import { projectSandbox } from '../model/sandboxes.js';
 import { openUrl } from './project-task.js';
 import { forkBaseOffer, forkBase } from '../model/project-upgrade.js';
 import { signinTpl } from './project-settings.js';
-import { openProjects, projectEntry } from './nav.js';
+import { openProjects, projectEntry, wide } from './nav.js';
 
 export const TONE = { run: 'accent', ok: 'ok', bad: 'danger', warn: 'warn', idle: 'muted' };
 const pj = () => ctx.app.projects;
@@ -168,8 +176,9 @@ function projectTpl(s) {
   const review = team.ensureReview(pv);
   const f = projectFeed(app);
   const recent = f.items(pv.id, 4); // the latest activity once its screen has read it (the read walks oldest first)
+  const ov = overviewOf(pv, s); // null: a backend without the overview — the screen as before (D214)
   return html`<screen title=${pv.name} subtitle=${[(pv.repos || []).map((r) => r.repo).join(', '), pv.state !== 'active' ? pv.state : ''].filter(Boolean).join(' · ')}
-      style="list" refreshable @refresh=${() => { p.refresh(pv.id); if ((f.feeds.get(+pv.id) || {}).loaded) f.load(pv.id); }}>
+      style="list" refreshable @refresh=${() => { p.refresh(pv.id); if (ov) projectOverview(app).load(pv.id); if ((f.feeds.get(+pv.id) || {}).loaded) f.load(pv.id); }}>
     <toolbar>
       ${c.act ? html`<menu icon="plus" label="New">
         <button icon="pencil" @tap=${() => { p.newTask(); push({ kind: 'project-task-new', pid: pv.id }); }}>New task</button>
@@ -186,28 +195,31 @@ function projectTpl(s) {
       ${review ? html`<row title="Review the team project's changes" subtitle="until you accept, your tasks run what you accepted before" icon="warning" tone="warn" nav
         @tap=${() => push({ kind: 'project-team', pid: pv.id })}/>` : nothing}
     </section>` : nothing}
-    ${coordTpl(pv, c)}
+    ${ov ? statusTpl(pv, s, ov) : coordTpl(pv, c, s, null)}
     <section><picker style="segmented" value=${p.filter.mine ? 'mine' : 'all'} options=${[{ value: 'all', label: 'All tasks' }, { value: 'mine', label: 'Mine' }]}
       @change=${(e) => p.setFilter({ mine: e.value === 'mine' })}/>
       <field kind="search" placeholder="Find a task" submit="search" value=${p.filter.q} @submit=${(e) => p.setFilter({ q: e.value || '' })}
         @change=${(e) => { if ((e.value || '') !== p.filter.q) p.setFilter({ q: e.value || '' }); }}/></section>
     ${list.err ? html`<section><notice tone="danger" text=${list.err}/></section>` : nothing}
     ${repeat(p.board(pv.id), (col) => col.key, (col) => html`<section title=${`${col.title}${col.tasks.length ? ` (${col.tasks.length})` : ''}`}>
-      ${col.tasks.length ? repeat(col.tasks, (t) => t.n, (t) => taskRow(pv, t, c)) : html`<empty text="none"/>`}
+      ${col.tasks.length ? repeat(col.tasks, (t) => t.n, (t) => taskRow(pv, t, c, ov)) : html`<empty text="none"/>`}
     </section>`)}
     ${list.next ? html`<section><row title="More tasks" icon="expand" @tap=${() => p.tasks(pv.id, p.filter, true)}/></section>` : nothing}
     <section title="Activity" footer="Text from the scm provider is shown as it came, plain.">
       ${recent.length ? repeat(recent, (ev) => ev.id, (ev) => eventRow(pv, ev)) : nothing}
       <row title="All activity" icon="clock" nav @tap=${() => push({ kind: 'project-events', pid: pv.id })}/>
     </section>
+    ${ov ? coordTpl(pv, c, s, ov) : nothing}
+    ${ov ? aboutSheet(s, ov) : nothing}
     ${coordComposerTpl(pv, c)}
   </screen>`;
 }
 
-// a task's row: a tap opens its conversation (whose More menu comes back here)
-function taskRow(pv, t, c) {
+// a task's row: a tap opens its conversation (whose More menu comes back here);
+// its agent from the overview (ov), else a coding agent's name
+function taskRow(pv, t, c, ov) {
   const w = cardWords(t);
-  const sub = [w.state.text, w.branch ? `branch ${w.branch}` : '', ...w.prs.map(prWords), w.agent, w.size ? 'big' : '', ...(ext.card(t) || [])].filter(Boolean).join(' · ');
+  const sub = [w.state.text, w.branch ? `branch ${w.branch}` : '', ...w.prs.map(prWords), agentWords(ov, t.n) || w.agent, w.size ? 'big' : '', ...(ext.card(t) || [])].filter(Boolean).join(' · ');
   const open = !['merged', 'closed', 'done', 'deleted'].includes(t.phase) && !['cancelled', 'failed'].includes(t.state);
   return html`<row title=${`${w.n} ${w.title}`} subtitle=${sub} tone=${TONE[w.state.tone] || nothing} ?disabled=${!t.run} nav @tap=${() => { if (t.run) ctx.app.select(t.run); }}>
     ${c.act && open ? html`<actions><button icon="stop" role="destructive" confirm=${{ title: `Cancel task ${w.n}?`, message: 'It stops, with everything it started; its conversation, worktree and branch stay.', label: 'Cancel task', destructive: true }}
@@ -216,20 +228,28 @@ function taskRow(pv, t, c) {
 }
 
 // the coordinator, a small chat (D209): open it (made on first use), what it
-// does now, its last messages (the screen's composer writes to it, D212)
+// does now, its last messages (the screen's composer writes to it, D212).
+// With the overview (ov, D214) it ends the screen, its state as the badge: its
+// goal (idle: what wakes it), its newest COORD_MORE messages, then Open.
 const ABOUT = 'Your agent for this project: it makes tasks, follows them and tells you what needs you — it never merges or answers a task\'s question for you.';
-function coordTpl(pv, c) {
+const COORD_MORE = 8;
+function coordTpl(pv, c, s, ov) {
   if (pv.kind === 'team' || !c.act) return nothing;
   const f = projectFeed(ctx.app);
   const k = f.coord(pv.id);
   if (k.missing) return nothing;
-  const pr = f.preview(pv.id);
+  const pr = f.preview(pv.id, ov ? COORD_MORE : COORD_TAIL);
   const st = pr.shown ? pr.state : null;
   const open = async () => { const run = await f.openCoordinator(pv.id); if (run && run.id) ctx.app.select(run.id); };
-  return html`<section title="Coordinator" badge=${st && st.word ? st.word : nothing} footer=${k.err || k.note || ABOUT}>
-    <row title="Open the coordinator" subtitle=${pr.shown && pr.line ? pr.line : nothing} icon="agent"
-      tone=${st && st.tone === 'warn' ? 'warn' : st && st.tone === 'bad' ? 'danger' : nothing} nav ?disabled=${!!k.busy} @tap=${open}/>
+  const d = ov && ov.data && ov.data.coordinator ? coordWords(ov.data) : null;
+  const row = html`<row title="Open the coordinator" icon="agent" nav ?disabled=${!!k.busy} @tap=${open}
+    subtitle=${[pr.shown && pr.line, d && d.model, d && d.tokensToday && `${fmtTokens(d.tokensToday)} tokens today`].filter(Boolean).join(' · ') || nothing}
+    tone=${st && st.tone === 'warn' ? 'warn' : st && st.tone === 'bad' ? 'danger' : nothing}/>`;
+  const badge = ov ? coordBadge(pr, ov) : st && st.word;
+  return html`<section title="Coordinator" badge=${badge || nothing} footer=${k.err || k.note || ABOUT}>
+    ${ov ? goalTpl(s, ov) : row}
     ${pr.shown ? coordPreviewTpl(pv, pr, f) : nothing}
+    ${ov ? row : nothing}
     ${k.busy === 'send' ? html`<progress label="Sending…"/>` : nothing}
   </section>`;
 }
@@ -242,7 +262,7 @@ function coordComposerTpl(pv, c) {
   const k = f.coord(pv.id);
   if (k.missing) return nothing;
   const pr = f.preview(pv.id);
-  return html`<composer value=${k.text} placeholder=${pr.shown && !pr.run ? 'Message the coordinator — this starts it…' : 'Message the coordinator…'}
+  return html`<composer value=${k.text} placeholder=${coordPlaceholder(pr, !wide())}
     @input=${(e) => { k.text = e.value; }} @send=${(e) => f.messageCoordinator(pv.id, e.value)}/>`;
 }
 

@@ -328,13 +328,14 @@ class Feed {
    *   run     your coordinator's summary; null while you have none (the
    *           first message starts it: COORD_EMPTY)
    *   state   coordState(run); line  what it does now while it works or waits
-   *   tail    its last COORD_TAIL messages (fold.js blocks), null until read;
+   *   tail    its last n messages (COORD_TAIL unless a view asks for more;
+   *           fold.js blocks), null until read;
    *           more  older ones are in its chat
    *   loading, err  the lookup's or the read's
    * Reads what it lacks: the lookup once, the messages when the project's page
    * opens (app.projects.opens), after Send and when its run moves.
    */
-  preview(pid) {
+  preview(pid, n = COORD_TAIL) {
     pid = +pid;
     const c = this.coord(pid);
     const pj = this.app.projects;
@@ -360,7 +361,7 @@ class Feed {
     }
     const run = v ? v.run : { ...c.run, ...((s && s.runs.get(id)) || {}) };
     const state = coordState(run);
-    const tail = blocks ? coordTail(blocks).map(short) : null;
+    const tail = blocks ? coordTail(blocks, n).map(short) : null;
     const all = blocks ? coordTail(blocks, Infinity) : [];
     return {
       shown: true, run, state,
