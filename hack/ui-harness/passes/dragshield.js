@@ -3,11 +3,13 @@
 // pointer moves, each landing over ANOTHER tile's page — and must keep
 // following to the end:
 //   - a tile window's (bx-frame's terminal/IDE window) bottom-right corner
-//     across a tile's page: the size follows the pointer, is kept after the
-//     release, and the page under it takes a click again (no shield left);
+//     (clear of the status bar's last button) across a tile's page: the size
+//     follows the pointer, is kept after the release, and the page under it
+//     takes a click again (no shield left);
 //   - Escape mid-resize: the size goes back, the shield is gone, the moves
 //     after it change nothing; the window losing focus mid-resize (a release
-//     the page never saw): the same;
+//     the page never saw): the same; a page that had the keyboard has it
+//     again after the drag;
 //   - the window's title bar jumped onto another tile's page;
 //   - a floating tile's corner, then its title bar pressed and held, and
 //     dragged: the size stays (and after a reload);
@@ -50,6 +52,8 @@ async function clickReaches(page, p, x, y) {
   await sleep(100);
   return (await f.evaluate(() => window.dsHits)) > n0;
 }
+// does tile p's page have the keyboard?
+const hasKeys = async (page, p) => (await tileFrame(page, p)).evaluate(() => document.hasFocus());
 // press at (x, y), then each [dx, dy] stop in `steps` moves — a fast drag
 async function press(page, x, y, stops, steps = 1) {
   await page.mouse.move(x, y);
@@ -112,6 +116,12 @@ async function drags(browser) {
   const cx = r.x + r.w - 4, cy = r.y + r.h - 4; // inside the corner's grip
   check(/^div\.rsz/.test(await deepAt(page, cx, cy) ?? ''), `the window's corner is its resize grip (${await deepAt(page, cx, cy)})`);
   check(/^iframe/.test(await deepAt(page, cx + 200, cy + 150) ?? ''), `past the corner lies B's page (${await deepAt(page, cx + 200, cy + 150)})`);
+  const last = await sh(page, (t, p) => {
+    const b = [...(t.frameFor(p)?.shadowRoot?.querySelectorAll('.pop .status button') ?? [])].filter((x) => x.offsetParent).at(-1);
+    const q = b?.getBoundingClientRect();
+    return q ? { x: q.x, y: q.y, w: q.width, h: q.height } : null;
+  }, A);
+  check(!!last && last.x + last.w <= r.x + r.w - 14, `the status bar's last button clears the corner's grip (${JSON.stringify(R(last))} in ${JSON.stringify(R(r))})`);
   await press(page, cx, cy, [[400, 300], [410, 310]], 2);
   const during = await popRect(page), shieldOn = await shielded(page);
   await page.mouse.up();
@@ -139,6 +149,7 @@ async function drags(browser) {
   check(near(grown.w, P0.w + 200) && near(back.w, P0.w) && near(back.h, P0.h) && !escShield && near(after.w, P0.w) && near(after.h, P0.h),
     `Escape mid-resize: the size goes back, the shield goes, later moves change nothing (${Math.round(grown.w)} → ${Math.round(back.w)}×${Math.round(back.h)} → ${Math.round(after.w)}×${Math.round(after.h)}; shield ${escShield})`);
   check(near((await popBox(page))?.w, P0.w), `and the kept size is the old one (${(await popBox(page))?.w})`);
+  check(await hasKeys(page, B), "B's page has the keyboard again after Escape");
 
   // ---- the window losing focus mid-resize (a release outside it, never seen) ----
   await setPop(page, P0);
@@ -164,6 +175,7 @@ async function drags(browser) {
   check(near(moving.x, r.x - 160) && near(moving.y, r.y + 260) && near(moved?.x, r.x - 160) && near(moved?.y, r.y + 260),
     `the window followed its title bar onto A's page and stays there (${JSON.stringify(R(r))} → ${JSON.stringify(R(moving))}; kept ${moved?.x},${moved?.y})`);
   check(!(await shielded(page)), 'no shield after the move');
+  check(await hasKeys(page, B), "B's page has the keyboard again after the move (the drag took it)");
   check(await clickReaches(page, A, pa.x + 40, pa.y + pa.h - 40), "A's page takes a click again");
   await fr(page, A, (f) => f.closeTerminal());
   await waitSel(page, `bx-frame[src="${A}"] .pop`, { state: 'hidden' });

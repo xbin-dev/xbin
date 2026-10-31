@@ -146,10 +146,12 @@ function shieldEl(cursor) {
 // nobody saw). Every other end takes the shield down too — Escape (kept from
 // what is under it), the pointer cancelled or its capture lost, the window
 // losing focus — then onCancel() runs, or, without one, onUp(e) with the
-// last move, so a caller's drag state never outlives the drag. Guards (which
+// last move, so a caller's drag state never outlives the drag. A tile's page
+// that had the keyboard gets it back when the drag ends. Guards (which
 // button, which target, mobile) stay with the caller. Returns a function
 // that ends the drag early (onUp).
 export function dragPointer({ ev = null, cursor = 'grabbing', onMove, onUp, onCancel } = {}) {
+  const kbd = deepActive()?.tagName === 'IFRAME' ? deepActive() : null;
   const shield = shieldEl(cursor);
   let last = ev, held = false, over = false;
   const hold = (e) => {
@@ -168,6 +170,8 @@ export function dragPointer({ ev = null, cursor = 'grabbing', onMove, onUp, onCa
     shield.remove(); // first: whatever the callbacks do, the iframes take the pointer again
     if (cancel && onCancel) onCancel();
     else onUp?.(e);
+    // the keyboard back to the page it was taken from, unless a callback put it elsewhere
+    if (kbd?.isConnected && [shield, document.body, null].includes(deepActive() ?? null)) kbd.focus({ preventScroll: true });
   };
   const move = (e) => {
     if (e.pointerType === 'mouse' && e.buttons === 0) { end(last, false); return; }
@@ -185,9 +189,9 @@ export function dragPointer({ ev = null, cursor = 'grabbing', onMove, onUp, onCa
   };
   hold(ev);
   // a tile's page with the keyboard keeps it through a press on the chrome
-  // (the drag's pointerdown is cancelled): the shield takes it, so Escape
-  // reaches this document — as a plain click on the chrome would have
-  if (deepActive()?.tagName === 'IFRAME') { shield.tabIndex = -1; shield.focus({ preventScroll: true }); }
+  // (the drag's pointerdown is cancelled): the shield takes it for the drag,
+  // so Escape reaches this document, and end() gives it back
+  if (kbd) { shield.tabIndex = -1; shield.focus({ preventScroll: true }); }
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', up);
   window.addEventListener('pointercancel', lost);

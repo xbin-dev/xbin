@@ -159,7 +159,7 @@ function openFolded(f, e) {
 export const statusCss = css`
   .status {
     display: flex; align-items: center; gap: 4px; flex: none; box-sizing: border-box;
-    height: var(--bx-titlebar-h, 28px); padding: 0 2px 0 8px; min-width: 0; overflow: hidden; white-space: nowrap;
+    height: var(--bx-titlebar-h, 28px); padding: 0 14px 0 8px; min-width: 0; overflow: hidden; white-space: nowrap;
     color: var(--bx-muted, #A3A6B6); background: var(--bx-titlebar, #1F2028);
     border-top: 1px solid var(--bx-border, #33353F);
     font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif);
@@ -196,4 +196,6 @@ export const statusCss = css`
     max-width: 24ch; text-overflow: ellipsis;
   }
   select.scope:focus-visible { outline-offset: 0; box-shadow: none; }
+  /* the bar's right 14 px stay clear for the window's resize corner (win-resize.js), which phones don't have */
+  @media (max-width: 820px) { .status { padding-right: 2px; } }
 `;

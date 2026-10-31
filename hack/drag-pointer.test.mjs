@@ -11,12 +11,12 @@ import assert from 'node:assert/strict';
 class Shield extends EventTarget {
   constructor() { super(); this.style = {}; this.dataset = {}; this.captured = null; this.removed = false; }
   setPointerCapture(id) { if (id < 0) throw new Error('NotFoundError'); this.captured = id; }
-  remove() { this.removed = true; }
-  focus() { this.focused = true; }
+  remove() { this.removed = true; if (document.activeElement === this) document.activeElement = document.body; }
+  focus() { this.focused = true; document.activeElement = this; }
 }
 let shields = [];
 globalThis.window = new EventTarget();
-globalThis.document = { activeElement: null, createElement: () => new Shield(), body: { appendChild: (el) => shields.push(el) } };
+globalThis.document = { activeElement: null, createElement: () => new Shield(), body: { tagName: 'BODY', appendChild: (el) => shields.push(el) } };
 const { dragPointer } = await import('../web/bx-kit.js');
 
 const ev = (type, props = {}) => Object.assign(new Event(type), { pointerId: 7, pointerType: 'mouse', buttons: 1, clientX: 0, clientY: 0, ...props });
@@ -147,15 +147,40 @@ test("a caller's own Escape, registered after the drag began, is heard first", a
 });
 
 // a press on the chrome is cancelled, so a tile's page that had the keyboard
-// keeps it — and Escape would never reach the shell: the shield takes it
-test("a tile's page with the keyboard gives it to the shield; the shell's own focus stays", () => {
-  document.activeElement = { tagName: 'IFRAME' };
+// keeps it — and Escape would never reach the shell: the shield takes it for
+// the drag and gives it back at the end
+const page = () => ({ tagName: 'IFRAME', isConnected: true, focus() { document.activeElement = this; } });
+test("a tile's page with the keyboard gives it to the shield, and gets it back; the shell's own focus stays", async () => {
+  const p = page();
+  document.activeElement = p;
   const d = drag();
   assert.ok(d.shield.focused);
-  d.end();
-  document.activeElement = { tagName: 'TEXTAREA' }; // a terminal in the shell: left alone
+  assert.equal(document.activeElement, d.shield, 'the shield has it during the drag');
+  send('pointerup', { buttons: 0 });
+  assert.equal(document.activeElement, p, 'the page has it again after the release');
+  const c = drag(); // Escape: the same, after the cancel
+  window.dispatchEvent(Object.assign(new Event('keydown'), { key: 'Escape' }));
+  await tick();
+  assert.deepEqual(c.log, [['cancel']]);
+  assert.equal(document.activeElement, p, 'the page has it again after Escape');
+  const t = { tagName: 'TEXTAREA' }; // a terminal in the shell: left alone
+  document.activeElement = t;
   const e = drag();
   assert.ok(!e.shield.focused);
   e.end();
+  assert.equal(document.activeElement, t);
+  document.activeElement = null;
+});
+
+test("the keyboard isn't given back where a callback moved it, nor to a page that's gone", () => {
+  const p = page(), other = { tagName: 'INPUT' };
+  document.activeElement = p;
+  drag({ onUp: () => { document.activeElement = other; } }).end();
+  assert.equal(document.activeElement, other, "the callback's choice stands");
+  document.activeElement = p;
+  const d = drag();
+  p.isConnected = false; // re-rendered away mid-drag
+  d.end();
+  assert.equal(document.activeElement, document.body);
   document.activeElement = null;
 });

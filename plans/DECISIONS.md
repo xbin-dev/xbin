@@ -13267,3 +13267,11 @@ Deviations and refinements made while implementing; all deliberate:
   - **Compatibility.** `dragPointer`'s options are additive; a shell from
     before this keeps its CSS corners, and its drags get the capture and
     the ends.
+  - **The owner's calls (2026-10-31).** Only the corner is a grip (no edge
+    grips); Escape reverts, as built. A tile page that had the keyboard
+    gets it back when the drag ends (released or cancelled), unless a
+    callback focused something else or the page was re-rendered away —
+    before, the shield kept it and the tile needed a click. The IDE
+    window's status bar pads its right side to 14 px so its last button
+    clears the 14 px grip (2 px again at phone width, where there is no
+    grip).

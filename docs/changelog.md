@@ -12,6 +12,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-10-31
 
+- **Shell: a tile keeps the keyboard through a window drag** (D217;
+  [frontend-kit.md](/docs/frontend-kit.md)). Dragging a window's title bar,
+  corner or a divider while typing in a tile no longer leaves the tile
+  without the keyboard: the drag takes it (so Escape reaches the shell) and
+  gives it back when the drag ends, released or Escape. The IDE window's
+  status bar keeps its last button clear of the resize corner.
+
 - **xbin app: a tunnel that is down looks like a dropped network** (D213;
   [app-tunnel.md](/docs/app-tunnel.md)). Tile pages no longer get a page of
   the app's own ("the workspace's tunnel isn't connected", a 502) while the
