@@ -68,6 +68,7 @@ func (s *srv) clearUser() {
 	// purpose still reaches them through global); none is reused.
 	s.bot.retire(func(k cacheKey) bool { return k.kind == asPerson })
 	s.reposC.clear()
+	s.statsC.clear()
 }
 
 // ensureUser answers the person's parent access token, refreshing it when

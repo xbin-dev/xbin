@@ -10,8 +10,8 @@
 // gh_jwt.go talk to GitHub; app.go, setup.go and policy.go are the App and
 // what managers set; bot.go and person.go mint tokens, signin.go runs the
 // device flow and relay.go carries a person's partition's calls to global;
-// hello.go, tokens.go, repos.go, pulls.go, checks.go, issues.go and poll.go
-// are the /scm/* routes; page.go is the page's own API; store.go the kv
+// hello.go, tokens.go, repos.go, stats.go, pulls.go, checks.go, issues.go
+// and poll.go are the /scm/* routes; page.go is the page's own API; store.go the kv
 // resources and the vault. The events half — hook.go, normalize*.go, forks.go,
 // subs.go, outbox.go, deliver.go — mounts itself through the seams below.
 package main
@@ -65,6 +65,7 @@ type srv struct {
 	pulls   *clientIDs  // POST /scm/pulls clientIds
 	checksC *shortCache // GET /scm/checks per (identity, repo, sha), 5 s
 	reposC  *shortCache // GET /scm/repos per identity, 5 min
+	statsC  *shortCache // GET /scm/repo/stats per (identity, repo), 5 min
 	logsC   *shortCache // completed jobs' logs, 10 min (a few: each up to 8 MiB)
 
 	seenGen   int64      // modeUser: the conf "public" tokenGen the cache was filled under (mu)
@@ -93,7 +94,7 @@ func newSrv(partition, self string, state, conf kvStore, vault vaultStore, hc *h
 		mode: modeOf(partition), self: self, state: state, conf: conf, vault: vault, now: now,
 		defaultAPI: "https://api.github.com", defaultWeb: "https://github.com",
 		bot: newTokenCache(2000), intl: newTokenCache(256), pulls: newClientIDs(),
-		checksC: newShortCache(500), reposC: newShortCache(200), logsC: newShortCache(4),
+		checksC: newShortCache(500), reposC: newShortCache(200), statsC: newShortCache(500), logsC: newShortCache(4),
 	}
 	if s.mode == modeUser {
 		s.user = partition[len("user:"):]
@@ -159,6 +160,7 @@ func (s *srv) routes() http.Handler {
 	mux.HandleFunc("GET /scm/signin/{pollId}", s.scmGuard(page, s.handleSigninPoll))
 	mux.HandleFunc("GET /scm/repos", s.scmGuard(!page, s.handleRepos))
 	mux.HandleFunc("GET /scm/repo", s.scmGuard(!page, s.handleRepo))
+	mux.HandleFunc("GET /scm/repo/stats", s.scmGuard(!page, s.handleRepoStats))
 	mux.HandleFunc("POST /scm/pulls", s.scmGuard(!page, s.handlePullCreate))
 	mux.HandleFunc("GET /scm/pulls", s.scmGuard(!page, s.handlePulls))
 	mux.HandleFunc("GET /scm/pulls/{n}", s.scmGuard(!page, s.handlePull))

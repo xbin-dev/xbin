@@ -39,6 +39,7 @@ func (s *srv) hello(c who) helloResp {
 	if s.rerunOffered() {
 		h.Caps = append(h.Caps, capRerun)
 	}
+	h.Caps = append(h.Caps, capStats)
 	for _, f := range extraCaps {
 		h.Caps = append(h.Caps, f(s)...)
 	}

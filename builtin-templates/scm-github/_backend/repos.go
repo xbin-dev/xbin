@@ -70,6 +70,7 @@ type ghRepo struct {
 	Private       bool            `json:"private"`
 	Archived      bool            `json:"archived"`
 	Permissions   map[string]bool `json:"permissions"`
+	PushedAt      string          `json:"pushed_at"`
 }
 
 // repoOf maps GitHub's repository; bot says the identity is the App's.

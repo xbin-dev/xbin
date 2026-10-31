@@ -157,7 +157,7 @@ this contract adds six. A consumer treats an unknown refusal by its status.
   "protocols": [1],
   "scm": {"name": "scm-github", "title": "GitHub", "version": "1.0.0", "kind": "github"},
   "hosts": ["github.com"],
-  "caps": ["credentials", "repos", "pulls", "issues", "checks", "checks.rerun", "events", "poll", "partitions"],
+  "caps": ["credentials", "repos", "pulls", "issues", "checks", "checks.rerun", "stats", "events", "poll", "partitions"],
   "identities": ["person", "bot"],
   "you": {
     "identities": ["person"],
@@ -409,6 +409,45 @@ untrusted.
 - `GET /scm/issues/{n}?repo=&comments=1&as=` → the issue, with `comments`
   (oldest first) when asked.
 
+### Repo stats
+
+The optional cap **`stats`**: a repo at a glance — what an overview shows
+of it — in one read, instead of a consumer counting through the list
+routes (which page, and would cost the host a call per page).
+
+- `GET /scm/repo/stats?repo=&as=` →
+
+  ```json
+  {"repo": "acme/web", "url": "https://github.com/acme/web", "defaultBranch": "main",
+   "openPulls": 3, "openIssues": 14, "mergedPulls": {"days": 7, "count": 5},
+   "defaultBranchChecks": {"sha": "9fceb02…", "state": "success",
+                           "url": "https://github.com/acme/web/commit/9fceb02…/checks"},
+   "pushedAt": 1789990000000, "at": 1789990060000, "etag": "…"}
+  ```
+
+  | Field | Meaning |
+  |---|---|
+  | `repo` | the repo asked about |
+  | `url`, `defaultBranch` | as `GET /scm/repo` |
+  | `openPulls` | open pull requests (merge requests), drafts included |
+  | `openIssues` | open issues; pull requests aren't counted |
+  | `mergedPulls` | how many pull requests were merged in the last `days` days (7) |
+  | `defaultBranchChecks` | CI on the default branch's head commit, as `GET /scm/checks?ref=<defaultBranch>` answers it: `sha`, `state` (`none`, `pending`, `failure`, `success`), `url` where the host shows that commit's checks |
+  | `pushedAt` | the latest push to the repo (any branch) the host recorded |
+  | `at` | when the provider read these from the host |
+
+- A field the host can't tell — it has no such count, the identity may not
+  read it, or that part of the host failed this time — is **absent**, never
+  `0` or a guess (a `0` is a count). Only the repo itself failing fails the
+  read, with that refusal (404 `not-found` for a repo the identity can't
+  see, 429 `limit`, 503 `unavailable`, …).
+- Counts are of what the identity sees (`as`, §Identities), like every read.
+- Cached by the provider at most 5 min per (identity, repo); `at` says how
+  old the answer is. A consumer gains nothing reading it more often.
+- Without the cap: 501 `unsupported`. A consumer then shows what the other
+  reads give — `url` and `defaultBranch` from `GET /scm/repo`, the checks
+  from `GET /scm/checks?ref=<defaultBranch>` — and no counts.
+
 ## Events
 
 ### Subscriptions
@@ -559,6 +598,16 @@ limits).
 - CI maps too: workflow runs → pipelines, jobs → jobs (no steps:
   `steps: []`), job logs → the job trace, which such hosts serve while it
   runs (`complete: false`, and no `in-progress` refusal).
+- Repo stats (`stats`) map to what the host counts. GitLab: open merge
+  requests and issues from its GraphQL `count` (or a REST list's `X-Total`
+  with `per_page=1`, which GitLab leaves out past 10 000: absent then),
+  merged ones from merge requests `merged` after the window's start,
+  `defaultBranchChecks` from the default branch's latest pipeline (the
+  same mapping as `GET /scm/checks`). Gitea: its repo object's open pull
+  request and issue counters. A host with no push time of its own (an
+  "updated" or "last activity" time isn't one) leaves `pushedAt` out; one
+  that can't count merges by date leaves `mergedPulls` out. Count with the
+  host's counters, never by paging a whole list on every read.
 - Provide service `scm` with a `consumer` role (§Wiring), keep people's
   sign-ins in their partitions (§Identities), and list only the caps you
   serve.

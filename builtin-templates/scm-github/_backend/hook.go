@@ -220,6 +220,7 @@ func (s *srv) accessEvent(ghEvent string, hk *ghHook, now time.Time) {
 			_ = s.state.Put(key, instCache{ID: hk.Installation.ID, Account: acct, At: now.UnixMilli()})
 		}
 		s.reposC.clear()
+		s.statsC.clear()
 	case "installation_repositories":
 		for _, rp := range append(append([]ghHookRepo{}, hk.RepositoriesAdded...), hk.RepositoriesRemoved...) {
 			if validRepo(rp.FullName) {
@@ -227,6 +228,7 @@ func (s *srv) accessEvent(ghEvent string, hk *ghHook, now time.Time) {
 			}
 		}
 		s.reposC.clear()
+		s.statsC.clear()
 	case "member":
 		if hk.Member != nil && validLogin(hk.Member.Login) && hk.Repository != nil && validRepo(hk.Repository.FullName) {
 			s.dropAccess(hk.Member.Login, "", hk.Repository.FullName)

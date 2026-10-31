@@ -18,6 +18,7 @@ const (
 	capIssues      = "issues"
 	capChecks      = "checks"
 	capRerun       = "checks.rerun"
+	capStats       = "stats"
 	capEvents      = "events"
 	capPoll        = "poll"
 	capPartitions  = "partitions"
@@ -175,6 +176,33 @@ type repoInfo struct {
 	Archived      bool   `json:"archived"`
 	URL           string `json:"url"`
 	Protected     *bool  `json:"protected,omitempty"`
+}
+
+// repoStats is GET /scm/repo/stats (D216): a repo at a glance. A part
+// GitHub didn't answer is absent, never a guess: the counts are pointers
+// (0 is an answer), the checks and the push time left out when unknown.
+type repoStats struct {
+	Repo                string        `json:"repo"`
+	URL                 string        `json:"url,omitempty"`
+	DefaultBranch       string        `json:"defaultBranch,omitempty"`
+	OpenPulls           *int          `json:"openPulls,omitempty"`
+	OpenIssues          *int          `json:"openIssues,omitempty"`
+	MergedPulls         *mergedPulls  `json:"mergedPulls,omitempty"`
+	DefaultBranchChecks *branchChecks `json:"defaultBranchChecks,omitempty"`
+	PushedAt            int64         `json:"pushedAt,omitempty"`
+	At                  int64         `json:"at"`
+}
+
+type mergedPulls struct {
+	Days  int `json:"days"`
+	Count int `json:"count"`
+}
+
+// branchChecks is GET /scm/checks's verdict on a branch's head commit.
+type branchChecks struct {
+	SHA   string `json:"sha"`
+	State string `json:"state"`
+	URL   string `json:"url,omitempty"`
 }
 
 type refSide struct {
