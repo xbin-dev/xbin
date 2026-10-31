@@ -1,5 +1,7 @@
 # The project overview page (D214, D215, D216)
 
+> Status: implemented (2026-10-31) — D214 (the route and the page, web and native), D215 (tile sandbox usage), D216 (scm repo stats). Shapes as built are in the template's API.md, docs/protocol.md, docs/sandbox-manager.md and docs/scm.md; where they differ from this page, they win.
+
 The owner, 2026-10-31: a project's page shows, on one screen, all the
 machinery that moves the project — dense, for professionals, every part
 with a tooltip. Agreed from the prototype
