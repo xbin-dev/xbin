@@ -91,6 +91,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   hidden on the Projects list and forms. In the conversation list, **All
   projects** stays visible when Projects is folded, and says how many
   active projects didn't fit.
+- **Shell: a drag no longer falls off over a tile** (D217, issue #54;
+  [frontend-kit.md](/docs/frontend-kit.md)). A window's bottom-right corner
+  (the tile window, floating tiles, pop-outs) is now a grip instead of CSS
+  `resize`, so a fast stretch across another tile's page keeps following,
+  and a resized `xbin.window()` sub-window no longer snaps back to its
+  first size when its title bar is pressed or dragged.
+  Every drag holds the pointer and ends cleanly — release, Escape (which
+  puts it back), a lost focus — leaving tile pages clickable. Kit:
+  `dragPointer` takes `ev` and `onCancel`; new `dragResize(ev, el, edge,
+  opts)`.
 
 ## 2026-10-30
 

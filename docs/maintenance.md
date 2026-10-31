@@ -772,7 +772,8 @@ end.
 
 `bx-shell.js` is being taken apart the same way as the admin console: its
 stylesheet is `shell-css.js` (`shellCss`), every pointer drag goes through
-the kit's `dragPointer`, and the context menus are pure builders in
+the kit's `dragPointer` (a window's corner through `/vendor/win-resize.js`,
+never CSS `resize`: D217), and the context menus are pure builders in
 `menus.js` — `canvasMenuItems(state, actions)`, `tileMenuItems(path,
 state, actions)`, `openTileItems` — over the plain state view and the
 actions object the shell assembles in `_menuState()` / `_menuActions()`.

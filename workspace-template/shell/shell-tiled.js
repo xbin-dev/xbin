@@ -167,7 +167,9 @@ function divStart(c, ev, d) {
   const row = d.split === 'row', b = d.box, sx = ev.clientX, sy = ev.clientY;
   let ratio = null;
   dragPointer({
+    ev,
     cursor: row ? 'ew-resize' : 'ns-resize',
+    onCancel: () => { c._tdiv = null; }, // Escape…: the split stays as it was
     onMove: (e) => {
       if (ratio == null && Math.hypot(e.clientX - sx, e.clientY - sy) < 3) return;
       ratio = row ? (e.clientX - host.left - b.x) / b.w : (e.clientY - host.top - b.y) / b.h;
@@ -211,12 +213,12 @@ export function tiledDragStart(c, ev, path) {
   if (ev.button !== 0 || ev.target.closest('button, select, a')) return;
   ev.preventDefault();
   const sx = ev.clientX, sy = ev.clientY;
-  let live = false, cancelled = false;
-  const esc = (k) => { if (k.key === 'Escape') { k.preventDefault(); k.stopPropagation(); cancelled = true; end(); } }; // Escape: nothing moves
-  const end = dragPointer({
+  let live = false;
+  dragPointer({
+    ev,
     onMove: (e) => {
       if (!live && Math.hypot(e.clientX - sx, e.clientY - sy) < 6) return; // a click, not a drag
-      if (!live) { live = true; window.addEventListener('keydown', esc, true); }
+      live = true;
       const d = dropAt(c, e.clientX, e.clientY, path);
       // a new outcome redraws; the pointer's chip just follows
       if (!c._tdrag || !sameDrop(c._tdrag.drop, d)) c._tdrag = { path, drop: d, x: e.clientX, y: e.clientY };
@@ -224,11 +226,11 @@ export function tiledDragStart(c, ev, path) {
       if (chip) { chip.style.left = `${e.clientX}px`; chip.style.top = `${e.clientY}px`; }
     },
     onUp: () => {
-      window.removeEventListener('keydown', esc, true);
       const d = c._tdrag?.drop;
       c._tdrag = null;
-      if (d && !cancelled) commit(c, (t) => drop(t, path, d));
+      if (d) commit(c, (t) => drop(t, path, d));
     },
+    onCancel: () => { c._tdrag = null; }, // Escape (the kit's), a lost pointer…: nothing moves
   });
 }
 

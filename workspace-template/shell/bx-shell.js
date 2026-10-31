@@ -64,6 +64,7 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 
 // deepActive: the focused element through open shadow roots.
 import { deepActive, pathHas, clampBox, dragPointer } from '/vendor/bx-kit.js';
+import { resizeCorner, resizeCss } from '/vendor/win-resize.js'; // a pop-out's corner (D217)
 import { shellCss, statusCss, partCss } from './shell-css.js';
 import './bx-canvas.js';
 import './bx-side.js';
@@ -155,7 +156,7 @@ export class BxShell extends LitElement {
     _front: { state: true },      // the active window's key (zorder.js): 'spawn:<id>' is a spawned window of ours
   };
 
-  static styles = [shellCss, statusCss, partCss]; // partCss: a pop-out's marker and partition chip
+  static styles = [shellCss, statusCss, partCss, resizeCss]; // partCss: a pop-out's marker and partition chip
 
   constructor() {
     super();
@@ -818,13 +819,15 @@ export class BxShell extends LitElement {
     this._spawnFront(id);
     const w = this._spawnWins.find((x) => x.id === id);
     if (!w) return;
-    const ox = e.clientX - w.x, oy = e.clientY - w.y;
+    const x0 = w.x, y0 = w.y, ox = e.clientX - w.x, oy = e.clientY - w.y;
     dragPointer({
+      ev: e,
       onMove: (ev) => {
         w.x = Math.max(-w.w + 60, Math.min(ev.clientX - ox, window.innerWidth - 40));
         w.y = Math.max(0, Math.min(ev.clientY - oy, window.innerHeight - 24));
         this.requestUpdate();
       },
+      onCancel: () => { w.x = x0; w.y = y0; this.requestUpdate(); }, // Escape…: back where it was
     });
   }
 
@@ -845,6 +848,7 @@ export class BxShell extends LitElement {
         <div class="sbody">
           <bx-frame src=${w.src} height="100%" no-edit style="position:absolute; inset:0"></bx-frame>
         </div>
+        ${resizeCorner({ onMove: (ww, hh) => { w.w = ww; w.h = hh; } })}
       </div>`;
   }
 
@@ -1502,9 +1506,11 @@ export class BxShell extends LitElement {
     e.preventDefault();
     const startX = e.clientX, startW = this._side.width || 224;
     dragPointer({
+      ev: e,
       cursor: 'col-resize',
       onMove: (ev) => { this._side = { ...this._side, width: Math.min(480, Math.max(140, startW + ev.clientX - startX)) }; },
       onUp: () => this._save(),
+      onCancel: () => { this._side = { ...this._side, width: startW }; },
     });
   }
 

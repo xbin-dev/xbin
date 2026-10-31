@@ -58,6 +58,7 @@ import { pushLayout } from './grid-layout.js';
 import { FIXED_W, fixedRects } from './fixed-layout.js';
 import { itemsOf } from './blocks.js';
 import { titleOf, iconOf } from '/vendor/tile-meta.js';
+import { resizeCorner, resizeCss } from '/vendor/win-resize.js'; // a float's corner (D217)
 import { hasIcon } from '/vendor/bx-icons.js';
 import { promptBadge, promptPop, promptsCss } from './shell-prompts.js';
 import { nextZ, raiseTo, frontWindow, onWindowFront, activeWindow } from './zorder.js';
@@ -110,7 +111,7 @@ export class BxCanvas extends LitElement {
     _tdrag: { state: true },            // Tiled: a card dragged by its title bar {path, drop, x, y} (shell-tiled.js, D205)
     _tdiv: { state: true },             // Tiled: a divider being dragged {node, ratio}
   };
-  static styles = [canvasCss, prbCss, partCss, docCss, blocksCss, tiledCss, promptsCss];
+  static styles = [canvasCss, prbCss, partCss, docCss, blocksCss, tiledCss, promptsCss, resizeCss];
 
   constructor() {
     super();
@@ -321,8 +322,10 @@ export class BxCanvas extends LitElement {
     const kx = this._kx, ky = this._ky, dx = ev.clientX - g.x * kx, dy = ev.clientY - g.y * ky;
     this._drag = { path, rect: { x: g.x, y: g.y, w: g.w, h: g.h }, moves: [], dirs: null, orig: g };
     dragPointer({
+      ev,
       onMove: (e) => this._dragTo(base, this._bound({ x: snap(Math.max(0, (e.clientX - dx) / kx)), y: snap(Math.max(0, (e.clientY - dy) / ky)), w: g.w, h: g.h })),
       onUp: () => this._commitDrag(),
+      onCancel: () => { this._drag = null; }, // Escape…: everyone back where they were
     });
   }
 
@@ -337,9 +340,11 @@ export class BxCanvas extends LitElement {
     // a resize grows from its top-left corner: it only ever pushes right/down
     this._drag = { path, rect: { x: g.x, y: g.y, w: g.w, h: g.h }, moves: [], dirs: null, orig: g, positive: true };
     dragPointer({
+      ev,
       cursor: 'nwse-resize',
       onMove: (e) => this._dragTo(base, this._bound({ x: g.x, y: g.y, w: snap(Math.max(MIN_W, g.w + (e.clientX - sx) / kx)), h: snap(Math.max(MIN_H, g.h + (e.clientY - sy) / ky)) }, true)),
       onUp: () => this._commitDrag(),
+      onCancel: () => { this._drag = null; },
     });
   }
 
@@ -597,9 +602,9 @@ export class BxCanvas extends LitElement {
       <div class="float ${this._isActive(o.path) ? 'active' : ''}" data-path=${o.path}
            style="left:${f.x}px; top:${f.y}px; width:${f.w}px; height:${f.h}px; z-index:${f.z ?? 100};"
            @contextmenu=${(e) => this._onContextMenu(e)}
-           @pointerdown=${() => this._floatFront(o.path)}
-           @pointerup=${(e) => this._floatCommit(e, o.path)}>
+           @pointerdown=${() => this._floatFront(o.path)}>
         ${this._cardTemplate(o, 'float')}
+        ${resizeCorner({ onUp: (w, h) => { if (w !== o.float.w || h !== o.float.h) this._setFloat(o.path, { w, h }); } })}
       </div>`;
   }
 
@@ -666,16 +671,8 @@ export class BxCanvas extends LitElement {
     }, 0);
   }
 
-  // Commit a resize (via the CSS resize handle) back into the tile; skip clicks
-  // that didn't change the size, so buttons don't churn the layout.
-  _floatCommit(e, path) {
-    const win = e.currentTarget;
-    const o = this._all().find((t) => t.path === path);
-    if (!o?.float) return;
-    if (win.offsetWidth === o.float.w && win.offsetHeight === o.float.h) return;
-    this._setFloat(path, { w: win.offsetWidth, h: win.offsetHeight });
-  }
-
+  // Title-bar drag; its corner (win-resize.js, D217) resizes it, committed
+  // on release when the size changed (a click doesn't churn the layout).
   _floatDragStart(ev, path) {
     if (this.mobile) return; // floats are full-screen sheets on mobile
     if (ev.button !== 0 || ev.target.closest('button, select')) return;
@@ -683,14 +680,13 @@ export class BxCanvas extends LitElement {
     this._floatFront(path);
     const win = this._floatWin(path);
     if (!win) return;
-    const dx = ev.clientX - win.offsetLeft, dy = ev.clientY - win.offsetTop;
+    const x0 = win.offsetLeft, y0 = win.offsetTop, dx = ev.clientX - x0, dy = ev.clientY - y0;
+    const place = (x, y) => { win.style.left = x + 'px'; win.style.top = y + 'px'; };
     dragPointer({
-      onMove: (e) => {
-        const x = Math.max(-win.offsetWidth + 60, Math.min(e.clientX - dx, window.innerWidth - 40));
-        const y = Math.max(0, Math.min(e.clientY - dy, window.innerHeight - 24));
-        win.style.left = x + 'px'; win.style.top = y + 'px';
-      },
+      ev,
+      onMove: (e) => place(Math.max(-win.offsetWidth + 60, Math.min(e.clientX - dx, window.innerWidth - 40)), Math.max(0, Math.min(e.clientY - dy, window.innerHeight - 24))),
       onUp: () => this._setFloat(path, { x: win.offsetLeft, y: win.offsetTop }),
+      onCancel: () => place(x0, y0), // Escape…: back where it was
     });
   }
 

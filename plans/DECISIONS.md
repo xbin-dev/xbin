@@ -13221,3 +13221,49 @@ Deviations and refinements made while implementing; all deliberate:
       screen follows the same order, and each status row opens a sheet
       with its explanation. An older backend (no overview route) gets the
       page exactly as before, on both views.
+
+- **D217 — A drag never falls off its window onto a tile (2026-10-31;
+  issue #54).** The owner: stretching the tile window by its bottom-right
+  corner "too fast" over another tile lost the drag.
+  - **Cause.** The kit's drags (`dragPointer`) already raised a shield —
+    a transparent full-viewport layer, so a tile's `<iframe>` can't take
+    the pointer — but the corners of the tile window, floating tiles and
+    pop-outs were CSS `resize: both`, the browser's own drag, which has no
+    shield: once the cursor outran the corner onto another tile's page,
+    that page (its own document, often its own process) took the moves and
+    the release. The owner's second report has the same root: a CSS
+    resize changes only the DOM, so a tile's sub-window (`xbin.window`,
+    `.spawn`) kept its spawn-time `w`/`h`, and a mere press on its title
+    bar (bring to front: a new `z`, the whole `style` re-rendered) put the
+    old size back. The grip writes the window's own geometry as it moves
+    (the sub-window's `w`/`h`, the terminal window's `_pop`, a float's
+    saved layout on release), so a press, a drag, a re-render keep it, and
+    a float's survives a reload (sub-windows close with the page).
+  - **Two mechanisms, one helper (web/bx-kit.js `dragPointer`).** (1) The
+    shield, now over every drag: the corners became a grip
+    (`web/win-resize.js`, `resizeCorner` over the kit's new `dragResize`)
+    with the grid tile's corner mark, and `resize: both` is gone from
+    `.pop`, `.float` and `.spawn`. The admin popover keeps it: its
+    backdrop already covers the tiles. Edges are not grips (they would
+    sit over the panes' scrollbars). (2) Pointer capture: the shield holds
+    the pointer from the pointerdown (`ev`, new) or else the first move,
+    so leaving the browser window doesn't lose it either. On the shield,
+    not on the element that started the drag: a re-render may replace
+    that element mid-drag (a lost capture ends the drag), and the shield's
+    cursor is the one that shows.
+  - **The always-remove rule.** A shield left up would leave every tile
+    unclickable, far worse than the bug. It comes down first, before any
+    callback, on every end: pointerup; a mouse move with no button held (a
+    release nobody saw: `onUp`); and, through `onCancel` (else `onUp` at
+    the last move), Escape, `pointercancel`, a lost capture and the window
+    losing focus. Escape is ended after the event, so an older shell's own
+    Escape on the Tiled drag still decides. Escape undoes: windows go back,
+    grid and block drags drop their ghosts, dividers keep their ratio. Unit
+    tests: `hack/drag-pointer.test.mjs`; the `dragShield` harness pass
+    drags fast across tile pages, in a Chromium of its own with the pages
+    out of process (only there did the CSS corner stall: 2b9f9d40 fails
+    it), then presses, holds and drags a resized float's and sub-window's
+    title bar (2b9f9d40 snaps the sub-window back).
+  - **Compatibility.** `dragPointer`'s options are additive; a shell from
+    before this keeps its CSS corners, and its drags get the capture and
+    the ends.

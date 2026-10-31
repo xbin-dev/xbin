@@ -65,7 +65,7 @@ export const frameCss = css`
     border: 1px solid var(--bx-window-border, #666A7E);
     border-radius: var(--bx-radius, 2px);
     box-shadow: var(--bx-shadow-rest, 0 10px 28px rgba(0, 0, 0, 0.4));
-    resize: both; overflow: hidden;
+    overflow: hidden; /* resized by its corner (win-resize.js, D217), not resize: both */
     min-width: 380px; min-height: 220px;
   }
   .pop.active { border-color: var(--bx-window-border-active, #9396A4); box-shadow: var(--bx-shadow-active, 0 16px 40px rgba(0, 0, 0, 0.55)); }
@@ -76,6 +76,6 @@ export const frameCss = css`
   /* On phones the draggable pop-up becomes a full-screen sheet. */
   @media (max-width: 820px) {
     .pop { inset: 0 !important; width: auto !important; height: auto !important;
-      resize: none !important; border-radius: 0; min-width: 0; min-height: 0; }
+      border-radius: 0; min-width: 0; min-height: 0; }
   }
 `;
