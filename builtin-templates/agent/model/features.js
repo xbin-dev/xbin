@@ -333,6 +333,7 @@ export const DIFFERENCES = {
     'composer.keys': 'on a phone Return is a new line and Send is the button; the app\'s composer handles a hardware keyboard and IME composition itself',
     'composer.attach.paste': 'the app\'s composer owns the pasteboard: an image pasted there is uploaded like a picked one — nothing for the tile to draw',
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',
+    'proj.overview.split': 'a project\'s screen is a list: it scrolls as one, the coordinator\'s messages end it and its composer is always docked at the bottom — there is no height to share, so no bar',
   },
 };
 

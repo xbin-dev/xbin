@@ -15,8 +15,8 @@
 //
 // Words (pure, for both views): stripWords(data) — one entry per cell, in
 // the strip's order; foldLine(data); cardAgent(data, n); tokenChart(data);
-// sparkline(series, key); fmtTokens, fmtBytes, ago. TIPS: each part's
-// tooltip text (the web shows them on hover, the native view as footers).
+// sparkline(series, key); coordPlaceholder(preview, short); fmtTokens, fmtBytes, ago. TIPS: each part's
+// tooltip text (the web shows them on hover, the native view in a sheet a tap opens).
 //
 // A backend from before the overview answers 404 (the mux's, plain) or 405:
 // `supported` false, and the page draws as it did. Text that came from the
@@ -180,6 +180,13 @@ export function tokenChart(d) {
 
 /** sparkline(series, key): one value per point, for a small line chart. */
 export const sparkline = (series, key) => (series || []).map((p) => +p[key] || 0);
+
+/** coordPlaceholder(pr, short): the placeholder of the composer that writes to the coordinator,
+ * for both views (pr: model/project-feed.js preview) — before you have one, that your first
+ * message starts it; short: for a narrow screen (a phone). */
+export const coordPlaceholder = (pr, short = false) => (pr && pr.shown && !pr.run
+  ? (short ? 'Message the coordinator — this starts it…' : 'Message the coordinator — your first message starts it…')
+  : (short ? 'Message the coordinator…' : 'Message the coordinator: make tasks for the open bugs, tell me what failed…'));
 
 // --- the store -----------------------------------------------------------------------------
 

@@ -41,9 +41,13 @@
 //                    agents: {key, title, badge?, tpl()} (native/harness-board.js)
 //   card(task)       words on a project board's task row (task a TaskView)
 //   childStatus(r)   words after a coding agent row's status (r the child run)
+//   drawn()          after each draw, the stack as drawn (native/nav.js): a
+//                    module notices which of its screens is on top — and when
+//                    none is (popped, covered), stops what it does for it
 // Their call sites: drawer in native/convs.js (native/projects.js: Projects), dock in native/harness-board.js,
-// card in native/projects.js (the board), childStatus in native/harness-child.js.
+// card in native/projects.js (the board), childStatus in native/harness-child.js, drawn in native.js
+// (native/project-status.js: a project's overview read again while it shows).
 import { makeExt } from '../model/ext.js';
 
 export const ext = makeExt({ block: 'first', end: 'all', toolbar: 'all', subtitle: 'all', menu: 'all', main: 'all', composer: 'all', newChat: 'all', screen: 'first', task: 'all',
-  drawer: 'all', dock: 'all', card: 'all', childStatus: 'all' });
+  drawer: 'all', dock: 'all', card: 'all', childStatus: 'all', drawn: 'each' });

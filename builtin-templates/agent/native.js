@@ -104,6 +104,7 @@ function draw() {
   if (key !== meta) { meta = key; try { native.meta(m); } catch { /* no app */ } }
   save();
   chatDrawn();
+  ctx.ext.drawn(); // the seams' modules see what is on top now (native/ext.js)
 }
 
 // layout: how the screens are drawn. Where the app has the collapsing split

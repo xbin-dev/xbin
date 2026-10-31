@@ -53,6 +53,25 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (`sdk/sandboxcontract`) checks a `usage` only where a manager gives one,
   and that a stopped sandbox has none. Additive: older managers and
   consumers need no change.
+- **Agent template: a project's overview in the app** (D214; the template's
+  API.md "Projects in the UI"). A project's screen in the app now follows the
+  web page's order: a **Status** section, then the board, then the
+  coordinator. Status shows the coordinator, worker agents, subagents and
+  tokens (Day | Week, with a chart), then source control under the
+  provider's title, with a row per repo that opens it, then the sandbox,
+  with CPU and memory sparklines. A tap on a part opens what it counts, the
+  web's tooltip, with its numbers in full. The section folds to one row,
+  and the fold is kept per person (`prefs/project-status-folded`). Each
+  task row says its agent, what it is doing and its subagents. The
+  coordinator's section ends the screen. It has its goal (when idle, what
+  wakes it), its newest messages (up to eight) and Open, and the composer
+  stays docked below it. The overview is read again every minute and on the
+  project's events while the screen is on top. Against an agent backend
+  without the overview, the screen is as before. Older apps need no update:
+  area charts are used only where the app has `chart.area`, and charts only
+  where it has `chart`. **Instances that customised the template:** the
+  native view has a new `ext.drawn()` seam, called after each draw.
+  `projectFeed(app).preview(pid, n)` takes how many messages to show.
 
 ## 2026-10-30
 

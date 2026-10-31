@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 import { runNative } from './xbn/node.mjs';
 import { PHONE } from './agent-template-native-caps.mjs'; // the phone stack (rev-1 split): the tests walk its nav
 import { projSeed, partitionSeed, task } from '../builtin-templates/agent/test/projects-stub.mjs';
-import { moreSeed, teamSeed, ev, coordMsgs } from '../builtin-templates/agent/test/projects-more-stub.mjs';
+import { moreSeed, teamSeed, ev, coordMsgs, overviewSeed } from '../builtin-templates/agent/test/projects-more-stub.mjs';
 import { feedWords, plain, httpsUrl, projectFeed, coordTail, coordState } from '../builtin-templates/agent/model/project-feed.js';
 import { boardWords, boardColumns, securityDiff, projectTeam } from '../builtin-templates/agent/model/project-team.js';
 import { upgradeOffer, candidateWords } from '../builtin-templates/agent/model/project-upgrade.js';
@@ -55,6 +55,12 @@ const sections = (screen) => all(screen, { t: 'section' }).map((s) => (s.p || {}
 const rowIn = (title, screen) => ({ t: 'row', p: { title }, in: { t: 'screen', p: { title: screen } } });
 const btn = (label, extra = {}) => ({ t: 'button', p: { label }, ...extra });
 const lastHash = (r) => (r.messages.filter((m) => m.op === 'state').pop() || { state: {} }).state.hash;
+// ovAt(): project 7's overview (day and week) as of the tests' clock (overviewSeed reads Date.now())
+function ovAt() {
+  const real = Date.now;
+  Date.now = () => NOW;
+  try { return { 7: overviewSeed(7, 'day'), '7:week': overviewSeed(7, 'week') }; } finally { Date.now = real; }
+}
 
 // --- the model's words, shared by both views -------------------------------------------------------------
 
@@ -307,10 +313,10 @@ test('Projects: settings — status, the policy saved at its version (unknown ke
   assert.deepEqual(titles(r.snapshots.deleted), ['Agent', 'Projects']);
 });
 
-test('Projects: the coordinator — write to it, open it — Fork base now, and the activity (plain, https links, read since the last one)', async () => {
+test('Projects: the coordinator — write to it (the composer docked at the bottom, D212), open it — Fork base now, and the activity (plain, https links, read since the last one)', async () => {
   const r = await run(moreSeed(), [
-    { input: [{ t: 'field', in: { t: 'section', p: { title: 'Coordinator' } } }, 'what failed?'] },
-    { tap: btn('Send to the coordinator') },
+    { input: [{ t: 'composer' }, 'what failed?'] },
+    { event: [{ t: 'composer' }, 'send', { value: 'what failed?' }] },
     { wait: 30 },
     { snapshot: 'sent' },
     { tap: btn('Fork base now') },
@@ -328,6 +334,7 @@ test('Projects: the coordinator — write to it, open it — Fork base now, and 
   assert.deepEqual(bodies(r, 'POST', /\/projects\/7\/coordinator$/), [{ text: 'what failed?' }, {}]);
   assert.deepEqual(bodies(r, 'POST', /\/projects\/7\/fork-base$/), [{ now: true }], 'Fork base now (P2)');
   assert.equal(find(r.snapshots.sent, { t: 'section', p: { title: 'Coordinator' } }).p.footer, 'Sent to the coordinator.');
+  assert.equal(find(topScreen(r.snapshots.sent), { t: 'composer' }).p.value, '', 'sent: the composer is empty again');
   const feed = topScreen(r.snapshots.feed);
   assert.equal(feed.p.title, 'Activity');
   assert.deepEqual(all(feed, { t: 'row' }).map((x) => x.p.title), ['note', '#1 comment (not forwarded)', '#1 CI failed', '#1 pull request opened', '#1 task made']);
@@ -347,10 +354,12 @@ test('Projects: the coordinator — write to it, open it — Fork base now, and 
 const coordSec = { t: 'section', p: { title: 'Coordinator' } };
 const said = (sec) => all(sec, { t: 'message' }).map((m) => `${m.p.role}: ${m.p.text}`);
 
-test('the coordinator as a small chat: its last three messages, what it does now, read again when its run moves — nothing made by reading', async () => {
-  const msgs = coordMsgs(900, [['user', 'make tasks for the open bugs'], ['assistant', 'On it — reading the board.'], ['tool', '#1 Fix the login loop …'],
-    ['assistant', 'Made **3 tasks**: #9, #10 and #11.'], ['user', 'thanks'], ['assistant', 'Anything else?']]);
-  const r = await run({ ...moreSeed(), coordinator: { 7: { status: 'running', messages: msgs } } }, [
+const openCoord = { t: 'row', p: { title: 'Open the coordinator' } };
+const COORD_SAID = coordMsgs(900, [['user', 'make tasks for the open bugs'], ['assistant', 'On it — reading the board.'], ['tool', '#1 Fix the login loop …'],
+  ['assistant', 'Made **3 tasks**: #9, #10 and #11.'], ['user', 'thanks'], ['assistant', 'Anything else?']]);
+
+test('the coordinator as a small chat (a backend without the overview): its last three messages, what it does now, read again when its run moves — nothing made by reading', async () => {
+  const r = await run({ ...moreSeed(), noOverview: true, coordinator: { 7: { status: 'running', messages: COORD_SAID } } }, [
     { wait: 60 },
     { snapshot: 'busy' },
     { call: ['push', { type: 'run', run: 900, root: 900, data: { id: 900, status: 'idle', parentId: 0, rootId: 900, origin: 'project', originId: 7 } }] },
@@ -362,37 +371,69 @@ test('the coordinator as a small chat: its last three messages, what it does now
   assert.equal(find(sec, { t: 'message', p: { role: 'assistant' } }).p.markdown, true);
   assert.ok(find(sec, { t: 'text', has: 'earlier messages are in its chat' }), 'more in its chat');
   assert.equal(sec.p.badge, 'working');
-  assert.equal(find(sec, { t: 'row', p: { title: 'Open the coordinator' } }).p.subtitle, 'Working…');
-  const order = sec.c.map((n) => n.t);
-  assert.ok(order.indexOf('message') < order.indexOf('field') && order.lastIndexOf('message') < order.indexOf('field'), `the line right under the messages: ${order}`);
+  assert.equal(find(sec, openCoord).p.subtitle, 'Working…');
+  assert.deepEqual(sec.c.map((n) => n.t).filter((t) => t !== 'message'), ['row', 'text'], 'Open, then the messages — as before the overview');
+  assert.equal(sections(topScreen(r.snapshots.busy))[0], 'Coordinator', 'first, as before');
+  assert.equal(find(topScreen(r.snapshots.busy), { t: 'composer' }).p.placeholder, 'Message the coordinator…', 'the composer docked at the bottom writes to it (D212)');
   assert.equal(called(r, 'POST', /\/projects\/7\/coordinator$/).length, 0, 'reading makes no coordinator');
   assert.ok(called(r, 'GET', /\/projects\/7\/coordinator$/).length >= 1);
   const reads = called(r, 'GET', /\/runs\/900\/view\?limit=20$/).length;
   assert.ok(reads >= 2, `its run moved: read again (${reads})`);
   const idle = find(topScreen(r.snapshots.idle), coordSec);
   assert.equal(idle.p.badge, undefined, 'idle: no state said');
-  assert.equal(find(idle, { t: 'row', p: { title: 'Open the coordinator' } }).p.subtitle, undefined);
+  assert.equal(find(idle, openCoord).p.subtitle, undefined);
+});
+
+test('the coordinator with the overview (D214): last on the screen, its goal, its newest messages (more than three), then Open with its model and tokens; idle said', async () => {
+  const r = await run({ ...moreSeed(), overview: ovAt(), coordinator: { 7: { status: 'running', messages: COORD_SAID } } }, [
+    { wait: 60 },
+    { snapshot: 'busy' },
+    { call: ['push', { type: 'run', run: 900, root: 900, data: { id: 900, status: 'idle', parentId: 0, rootId: 900, origin: 'project', originId: 7 } }] },
+    { wait: 1100 },
+    { snapshot: 'idle' },
+  ], 'proj=7');
+  const screen = topScreen(r.snapshots.busy);
+  assert.equal(sections(screen).at(-1), 'Coordinator', 'the coordinator ends the screen, over its composer');
+  const sec = find(screen, coordSec);
+  assert.deepEqual(said(sec), ['user: make tasks for the open bugs', 'assistant: On it — reading the board.', 'assistant: Made **3 tasks**: #9, #10 and #11.', 'user: thanks', 'assistant: Anything else?'],
+    'all five said (up to eight), its tool steps left to its chat');
+  assert.equal(find(sec, { t: 'text', has: 'earlier messages are in its chat' }), null, 'none older');
+  assert.equal(sec.p.badge, 'working');
+  const order = sec.c.map((n) => (n.t === 'row' ? n.p.title.split(':')[0] : n.t)).filter((t, i, a) => t !== a[i - 1]);
+  assert.deepEqual(order, ['Goal', 'message', 'Open the coordinator'], 'the goal, the messages, then Open');
+  assert.equal(find(sec, openCoord).p.subtitle, 'Working… · Claude Opus 5.5 · 312 k tokens today');
+  assert.equal(find(screen, { t: 'composer' }).p.placeholder, 'Message the coordinator…');
+  const idle = find(topScreen(r.snapshots.idle), coordSec);
+  assert.equal(idle.p.badge, 'idle', 'idle: said, as its run moves');
+  assert.equal(find(idle, openCoord).p.subtitle, 'Claude Opus 5.5 · 312 k tokens today');
 });
 
 test('the coordinator before it exists: your first message starts it, then shows; an older backend shows the section as it was', async () => {
-  const r = await run(moreSeed(), [
+  const none = ovAt();
+  for (const o of Object.values(none)) o.coordinator = { run: null, state: 'none', goal: null, wakesOn: [], lastEvent: null, turnsToday: 0, tasksMade7d: 0 };
+  const r = await run({ ...moreSeed(), overview: none }, [
     { wait: 60 },
     { snapshot: 'none' },
-    { input: [{ t: 'field', in: coordSec }, 'what failed?'] },
-    { tap: btn('Send to the coordinator') },
+    { input: [{ t: 'composer' }, 'what failed?'] },
+    { event: [{ t: 'composer' }, 'send', { value: 'what failed?' }] },
     { wait: 60 },
     { snapshot: 'sent' },
   ], 'proj=7');
-  const none = find(topScreen(r.snapshots.none), coordSec);
-  assert.ok(find(none, { t: 'text', has: 'your first message starts it' }));
-  assert.equal(all(none, { t: 'message' }).length, 0);
+  const sec0 = find(topScreen(r.snapshots.none), coordSec);
+  assert.ok(find(sec0, { t: 'text', has: 'your first message starts it' }));
+  assert.equal(all(sec0, { t: 'message' }).length, 0);
+  assert.equal(sec0.p.badge, 'not started');
+  assert.equal(all(sec0, { t: 'row' }).length, 1, 'no goal yet: Open alone');
+  assert.equal(find(topScreen(r.snapshots.none), { t: 'composer' }).p.placeholder, 'Message the coordinator — this starts it…');
+  assert.equal(find(topScreen(r.snapshots.none), { t: 'row', p: { title: 'Coordinator' } }).p.detail, 'Not started', 'the status says so too');
   assert.deepEqual(bodies(r, 'POST', /\/projects\/7\/coordinator$/), [{ text: 'what failed?' }], 'made by the message, not before');
   const sent = find(topScreen(r.snapshots.sent), coordSec);
   assert.deepEqual(said(sent), ['user: what failed?']);
   assert.equal(sent.p.footer, 'Sent to the coordinator.');
-  const old = await run({ ...moreSeed(), coordLookup: false }, [{ wait: 60 }, { snapshot: 'board' }], 'proj=7');
+  const old = await run({ ...moreSeed(), coordLookup: false, noOverview: true }, [{ wait: 60 }, { snapshot: 'board' }], 'proj=7');
   const sec = find(topScreen(old.snapshots.board), coordSec);
-  assert.deepEqual(sec.c.map((n) => n.t), ['row', 'field', 'button'], 'Open, the message, Send — as before');
+  assert.deepEqual(sec.c.map((n) => n.t), ['row'], 'Open — its messages need the lookup; the composer writes to it (D212)');
+  assert.ok(find(topScreen(old.snapshots.board), { t: 'composer' }));
   assert.equal(called(old, 'GET', /\/runs\/\d+\/view/).length, 0);
 });
 
