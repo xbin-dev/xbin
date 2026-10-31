@@ -72,6 +72,19 @@ export function PROJ_MORE_STUB(seed) {
     return json({ run: M.coord[pid] });
   });
 
+  // --- the overview (D214, plans/project-overview.md): seed.overview['<pid>'] (and '<pid>:week',
+  // else the day's) — overviewSeed() makes one; none seeded, or seed.noOverview: an older backend
+  // (the mux's plain 404). Each read is counted (M.overviewReads). (This runs in the page: no helpers.)
+  M.overviewReads = [];
+  r('GET', new RegExp(`${API}/projects/(\\d+)/overview(?:\\?(.*))?$`), (m) => {
+    const pid = +m[1];
+    const range = new URLSearchParams(m[2] || '').get('range') === 'week' ? 'week' : 'day';
+    const o = (seed.overview || {})[`${pid}:${range}`] || (seed.overview || {})[pid];
+    if (seed.noOverview || !o) return new Response('404 page not found\n', { status: 404, headers: { 'Content-Type': 'text/plain' } });
+    M.overviewReads.push({ pid, range });
+    return json({ ...o, range });
+  });
+
   // --- the event feed (P1's route, E's and C's events) ------------------------------------------
   r('GET', new RegExp(`${API}/projects/(\\d+)/events\\?(.*)$`), (m) => {
     const q = new URLSearchParams(m[2]);
@@ -159,6 +172,37 @@ export function PROJ_MORE_STUB(seed) {
 
 // --- seeds ---------------------------------------------------------------------------------------------
 
+/** overviewSeed(pid, range): a project overview (GET /projects/{pid}/overview) with every part filled. */
+export function overviewSeed(pid = 7, range = 'day') {
+  const now = Date.now();
+  const n = range === 'week' ? 7 : 24, step = range === 'week' ? 864e5 : 36e5;
+  const wave = (i, base, amp) => Math.round(base + amp * Math.sin(i / 2.7) + amp / 2);
+  return {
+    at: now, range,
+    coordinator: { run: { id: 900, status: 'running', turnStartedMs: now - 38e3 }, state: 'working',
+      goal: { text: 'Triage open bugs into tasks and keep main green; #9 first.', now: 'making a task for the flaky upload test', by: 'coordinator', atMs: now - 72e5 },
+      wakesOn: [{ kind: 'ci', n: 1, label: 'CI on #1' }, { kind: 'review', n: 1, pr: 42, label: 'review on #42' }, { kind: 'issues', label: 'new issues' }, { kind: 'you', label: 'your message' }],
+      lastEvent: { kind: 'ci.failed', n: 1, label: 'CI failed on #1', atMs: now - 18e4 }, turnsToday: 6, tasksMade7d: 11, model: 'Claude Opus 5.5', tokensToday: 312000 },
+    workers: { total: 7, working: 2, needsYou: 3, idle: 2, queued: 1, done: 1, slots: { used: 2, max: 3 },
+      byEngine: [{ engine: 'claude-code', title: 'Claude Code', count: 4 }, { engine: 'agent', title: 'agent', count: 3 }] },
+    subagents: { running: 4, waiting: 1, finished24h: 17, failed24h: 2, by: [{ n: 2, count: 2 }, { n: 1, count: 1 }, { coordinator: true, count: 1 }] },
+    tokens: { buckets: Array.from({ length: n }, (_, i) => ({ t: now - (n - 1 - i) * step, workers: wave(i, 40e3, 25e3), coordinator: wave(i, 12e3, 6e3), subagents: wave(i, 8e3, 7e3) })),
+      total: range === 'week' ? { workers: 7.6e6, coordinator: 2.4e6, subagents: 1.6e6 } : { workers: 1.21e6, coordinator: 0.38e6, subagents: 0.25e6 },
+      cost: { amount: 6.4, currency: 'USD' } },
+    scm: { provider: { name: 'scm-github', title: 'GitHub', kind: 'github' }, stats: true,
+      repos: [{ repo: 'acme/web', url: 'https://github.com/acme/web', defaultBranch: 'main', checks: { state: 'success', url: 'https://github.com/acme/web/actions' }, openPulls: 2, openIssues: 9, merged7d: 4 },
+        { repo: 'acme/api', url: 'https://github.com/acme/api', defaultBranch: 'main', checks: { state: 'failure', url: 'https://github.com/acme/api/actions' }, openPulls: 1, openIssues: 5, merged7d: 1 }],
+      pulls: { open: 3, failing: 1, review: 1 } },
+    sandbox: { ref: 'apps/coding-sandbox|sb-web', name: 'sb-web', state: 'running', vcpus: 2, memMiB: 4096, diskGiB: 20, diskBytes: 3328599654, commands: 2,
+      usage: { at: now, cpuPct: 63, memBytes: 2791728742, memMaxBytes: 4294967296,
+        series: Array.from({ length: 60 }, (_, i) => ({ t: now - (59 - i) * 6e4, cpu: Math.max(0, wave(i, 40, 25)), mem: 2.4e9 + wave(i, 1e8, 2e8) })) } },
+    tasks: { 1: { engine: 'claude-code', title: 'Claude Code', state: 'working', subagents: 1, tokens: 210000 }, 2: { engine: 'agent', title: 'agent', state: 'working', subagents: 2, tokens: 120000 },
+      3: { engine: 'agent', title: 'agent', state: 'waiting', subagents: 0, tokens: 40000 }, 4: { engine: 'agent', title: 'agent', state: 'idle', subagents: 0 },
+      5: { engine: 'agent', title: 'agent', state: 'done', subagents: 0, tokens: 90000 }, 6: { engine: 'claude-code', title: 'Claude Code', state: 'waiting', subagents: 0 },
+      8: { engine: 'agent', title: 'agent', state: 'failed', subagents: 0 } },
+  };
+}
+
 /** coordMsgs(runId, said): a coordinator's messages from [['user' | 'assistant' | 'tool', text], …] — a tool step is a call and its result. */
 export function coordMsgs(runId, said) {
   const out = [];
@@ -199,7 +243,8 @@ export function moreSeed(base = projSeed()) {
   ] } };
   const sandboxes = [{ ref: 'apps/coding-sandbox|api', provider: 'apps/coding-sandbox', manager: 'Coding sandboxes', id: 'api', name: 'api', state: 'running', egress: 'internet',
     visibility: 'private', owner: { user: 'alice' }, mine: true, canUse: true, canManage: true, canEdit: true, workdir: '/work', caps: ['exec', 'files'], boundTo: [1], lastActive: NOW }];
-  return { ...base, views, events, detect, sandboxes, ...(base.sandboxes ? { sandboxes: base.sandboxes } : {}) };
+  const overview = { 7: overviewSeed(7, 'day'), '7:week': overviewSeed(7, 'week') };
+  return { ...base, views, events, detect, sandboxes, overview, ...(base.sandboxes ? { sandboxes: base.sandboxes } : {}) };
 }
 
 /** teamSeed(): alice's partition, with team definition 9's board and security part, and definition 10 whose membership (B+20) has changes waiting. */
