@@ -85,7 +85,7 @@ const idleOverview = () => {
     === '["https://github.com/acme/web","https://github.com/acme/api"]');
   ok('…a failing default branch marked', (await page.getAttribute('.repo[data-repo="acme/api"] .pdot', 'data-tone')) === 'bad' && (await page.getAttribute('.repo[data-repo="acme/web"] .pdot', 'data-tone')) === 'ok');
   const b = await text(page, '.povc[data-cell="sandbox"]');
-  ok('the sandbox: its name, state, commands, size, disk, CPU and memory', has(b, 'sb-web', 'Running', '2 cmds', '2 vCPU', '4.0 GiB', '3.1 GiB', '/ 20 GiB', 'CPU', '63%', 'Mem', '2.6 GiB'), b);
+  ok('the sandbox: its name, state, commands, size, disk, CPU and memory', has(b, 'sb-web', 'Running', '2 cmds', '2 vCPU', '4 GiB', '3.1/20 GiB', 'CPU', '63%', 'Mem', '2.6 GiB'), b);
   ok('…two charts of the last hour', (await page.$$('.povc[data-cell="sandbox"] svg.povch')).length === 2);
   ok('the strip is ~125 px tall (a row)', await page.$eval('.povc[data-cell="coordinator"]', (e) => Math.abs(e.offsetHeight - 124) <= 2));
 

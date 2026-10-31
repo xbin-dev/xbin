@@ -100,7 +100,7 @@ export function fmtTokens(n) {
 /** fmtBytes(n): bytes as GiB/MiB, one decimal. */
 export function fmtBytes(n) {
   n = +n || 0;
-  if (n >= 2 ** 30) return `${(n / 2 ** 30).toFixed(1)} GiB`;
+  if (n >= 2 ** 30) { const g = n / 2 ** 30; return `${Number.isInteger(g) ? g : g.toFixed(1)} GiB`; }
   if (n >= 2 ** 20) return `${Math.round(n / 2 ** 20)} MiB`;
   return `${Math.round(n / 1024)} KiB`;
 }
@@ -175,6 +175,7 @@ export function stripWords(d, now = Date.now()) {
     { key: 'sandbox', title: 'Sandbox', tip: TIPS.sandbox, none: !sb,
       name: sb ? plain(sb.name, 60) : '', state: sb ? sb.state || '' : '', running: !!sb && sb.state === 'running', vcpus: sb ? sb.vcpus || 0 : 0,
       mem: sb && sb.memMiB ? fmtBytes(sb.memMiB * 2 ** 20) : '', disk: sb && sb.diskBytes != null ? fmtBytes(sb.diskBytes) : '', diskMax: sb && sb.diskGiB ? `${sb.diskGiB} GiB` : '',
+      diskShort: sb && sb.diskBytes != null && sb.diskGiB ? `${(sb.diskBytes / 2 ** 30).toFixed(1)}/${sb.diskGiB} GiB` : '', // "3.1/20 GiB": the strip's narrow cell
       commands: sb ? sb.commands || 0 : 0,
       cpu: sb && sb.usage && sb.usage.cpuPct != null ? `${Math.round(sb.usage.cpuPct)}%` : '',
       memUsed: sb && sb.usage && sb.usage.memBytes != null ? fmtBytes(sb.usage.memBytes) : '',

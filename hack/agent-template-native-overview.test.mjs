@@ -77,7 +77,7 @@ test('the overview (D214): the status first — its rows and charts — the boar
   assert.deepEqual([row('GitHub').tone, row('GitHub').subtitle], ['danger', '3 PRs of its tasks open · 1 failing · 1 awaiting review · 14 open issues · 5 merged in 7 d']);
   assert.deepEqual([row('acme/web').tone, row('acme/web').nav, row('acme/web').mono, row('acme/web').subtitle], ['ok', true, 'title', 'main · checks passed · 2 open PRs · 9 open issues · 4 merged in 7 d']);
   assert.deepEqual([row('acme/api').tone, row('acme/api').subtitle], ['danger', 'main · checks failed · 1 open PR · 5 open issues · 1 merged in 7 d']);
-  assert.deepEqual([row('Sandbox').detail, row('Sandbox').tone, row('Sandbox').subtitle], ['running', 'ok', 'sb-web · 2 vCPU · 4.0 GiB · disk 3.1 GiB of 20 GiB · 2 commands running']);
+  assert.deepEqual([row('Sandbox').detail, row('Sandbox').tone, row('Sandbox').subtitle], ['running', 'ok', 'sb-web · 2 vCPU · 4 GiB · disk 3.1 GiB of 20 GiB · 2 commands running']);
   assert.deepEqual(r.messages.filter((m) => m.op === 'call' && m.what === 'open').map((m) => m.args.url), ['https://github.com/acme/web'], 'a repo opens its page');
 
   // the token chart: stacked (each line the top of its band), 24 hours
@@ -179,7 +179,7 @@ test('a part\'s tip: a tap on it opens what it counts, its numbers in full and (
   assert.equal(find(sheet, { t: 'text' }).p.text, TIPS.sandbox.slice('Sandbox. '.length), 'the web\'s tooltip');
   const fact = (sh, title) => { const x = find(sh, { t: 'row', p: { title } }); return x && (x.p.detail || x.p.subtitle); };
   assert.deepEqual(['Name', 'State', 'Size', 'Disk', 'Commands running', 'CPU now', 'Memory now'].map((k) => fact(sheet, k)),
-    ['sb-web', 'running', '2 vCPU · 4.0 GiB', '3.1 GiB of 20 GiB', '2', '63%', '2.6 GiB of 4.0 GiB']);
+    ['sb-web', 'running', '2 vCPU · 4 GiB', '3.1 GiB of 20 GiB', '2', '63%', '2.6 GiB of 4 GiB']);
   const charts = all(sheet, { t: 'chart', p: { kind: 'line' } });
   assert.deepEqual(charts.map((c) => c.p.y), ['percent', 'bytes']);
   assert.ok(charts[0].p.series[0].points.every(([, y]) => y >= 0 && y <= 1), 'CPU as a fraction of one core');

@@ -129,7 +129,7 @@ function sandboxCell(sb) {
   if (sb.none) return html`<div class="ln muted">No sandbox yet: the first task's workspace makes it.</div>`;
   const cpu = sparkline(sb.series, 'cpu'), mem = sparkline(sb.series, 'mem');
   return html`<div class="big">${dot(SB_TONE[sb.state] || 'idle')}<span>${cap(sb.state)}</span><small>${sb.commands} cmd${sb.commands === 1 ? '' : 's'}</small></div>
-    <div class="kv muted"><span>${[sb.vcpus ? `${sb.vcpus} vCPU` : '', sb.mem].filter(Boolean).join(' · ')}</span>${sb.disk ? html`<span>·</span>${num(sb.disk)}${sb.diskMax ? html`<span>/ ${sb.diskMax}</span>` : nothing}` : nothing}</div>
+    <div class="kv muted" data-tip=${sb.disk ? `Disk: ${sb.disk} used${sb.diskMax ? ` of ${sb.diskMax}` : ''}.` : nothing}><span>${[sb.vcpus ? `${sb.vcpus} vCPU` : '', sb.mem].filter(Boolean).join(' · ')}</span>${sb.disk ? html`<span>·</span>${num(sb.diskShort || sb.disk)}` : nothing}</div>
     ${cpu.length > 1 ? html`<div class="spark2">
       <div data-tip=${TIPS.cpu}><div class="lbl"><span>CPU</span><b>${sb.cpu}</b></div>${lineTpl(cpu, 100, 'run', 'CPU, the last hour')}</div>
       <div data-tip=${TIPS.mem}><div class="lbl"><span>Mem</span><b>${sb.memUsed}</b></div>${lineTpl(mem, sb.memMax || 0, 'coord', 'Memory, the last hour')}</div>
@@ -182,7 +182,7 @@ style.textContent = `
   .bx .povfold { gap: 2px; }
   /* 1. the strip: six cells of one height — three a row on a narrow page, two on a phone */
   .pov .povstrip { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px; background: var(--bx-border); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); }
-  @container pov (max-width: 1100px) { .pov .povstrip { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @container pov (max-width: 960px) { .pov .povstrip { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
   @container pov (max-width: 560px) { .pov .povstrip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .pov .povstrip.povwait { grid-template-columns: minmax(0, 1fr); }
   .pov .povc { background: var(--bx-panel); padding: 5px 8px 6px; height: 124px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow: hidden; cursor: help; }
