@@ -96,12 +96,13 @@ struct SplitView: View {
     }
 
     /// Two columns: a list beside the detail, or (`halves`, rev 3, D208)
-    /// half the split's measured width each.
+    /// half the split's measured width each — the bar between them dragged
+    /// to any other ratio (D213).
     @ViewBuilder private func columns(_ kids: [XbinNode], flags: XbinNavFlags) -> some View {
         if SplitLayout.halves(node) {
             GeometryReader { geo in
                 ColumnsSplit(node: node, primary: kids[0], secondary: kids[1], flags: flags,
-                             half: CGFloat(SplitLayout.halfWidth(Double(geo.size.width))))
+                             halves: SplitLayout.halvesWidths(Double(geo.size.width)))
             }
         } else {
             ColumnsSplit(node: node, primary: kids[0], secondary: kids[1], flags: flags)
@@ -148,9 +149,9 @@ private struct ColumnsSplit: View {
     let flags: XbinNavFlags
     @Environment(\.xbin) private var cx
     @Environment(\.scenePhase) private var phase
-    /// A halves split's leading column width (rev 3, ``SplitView``); nil:
-    /// a list column.
-    var half: CGFloat? = nil
+    /// A halves split's leading column (rev 3, ``SplitView``): half, and
+    /// how far the bar drags (D213); nil: a list column.
+    var halves: SplitLayout.ColumnWidths? = nil
     /// Until when a change to both columns is SwiftUI's own, not the
     /// person's: as the split appears, and as the app comes back to the
     /// front, it shows the list again — a link opened from outside brought
@@ -188,7 +189,7 @@ private struct ColumnsSplit: View {
             .navigationSplitViewStyle(.balanced)
             .onAppear { settling.start() }
             .onChange(of: phase) { _, p in if p == .active { settling.start() } }
-        } else if half != nil {
+        } else if halves != nil {
             // halves (rev 3) that don't bind `columns`: both halves show —
             // unbound, an iPad in portrait opened on the detail alone, the
             // conversation behind the sidebar button (2026-10-30)
@@ -213,11 +214,13 @@ private struct ColumnsSplit: View {
     @State private var halvesShown: NavigationSplitViewVisibility = .all
 
     /// The list, 280–400 pt wide (the reference renderer's clamp); half the
-    /// split for `halves` (rev 3).
+    /// split for `halves` (rev 3), the bar between the two dragged by the
+    /// person to any ratio that leaves each side 280 (iPadOS 26 resizes a
+    /// split's columns; D213).
     @ViewBuilder private var sidebar: some View {
-        if let half {
+        if let w = halves {
             NodeView(node: primary).environment(\.xbinNav, flags)
-                .navigationSplitViewColumnWidth(half)
+                .navigationSplitViewColumnWidth(min: CGFloat(w.min), ideal: CGFloat(w.ideal), max: CGFloat(w.max))
         } else {
             NodeView(node: primary).environment(\.xbinNav, flags)
                 .navigationSplitViewColumnWidth(min: 280, ideal: 360, max: 400)

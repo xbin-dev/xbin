@@ -163,6 +163,34 @@ struct NoKeys: DeviceKeyStore {
         events.setWanted(false)
     }
 
+    /// D213: a socket that opens after the way to the workspace failed says
+    /// the workspace is reachable again (open pages recover) — whatever the
+    /// transport; the first open and a reopen after a background don't.
+    @Test func reachableAgainAfterAFailureOnly() async {
+        let (events, sockets, _, _) = await makeEvents()
+        var reachable = 0
+        events.onReachable = { reachable += 1 }
+        events.setWanted(true)
+        await until("first socket") { sockets.opened.count == 1 }
+        sockets.opened[0].signal(.opened)
+        #expect(reachable == 0)                     // the first open: nothing failed
+        events.setWanted(false)                     // the background closes it on purpose…
+        events.setWanted(true)
+        await until("second socket") { sockets.opened.count == 2 }
+        sockets.opened[1].signal(.opened)
+        #expect(reachable == 0)                     // …so the reopen isn't a recovery
+        sockets.opened[1].signal(.closed(.dropped))
+        await until("third socket") { sockets.opened.count == 3 }
+        sockets.opened[2].signal(.closed(.refused(status: 502)))
+        await until("fourth socket") { sockets.opened.count == 4 }
+        sockets.opened[3].signal(.opened)
+        #expect(reachable == 1)                     // dropped, a gateway's 502, then open: once
+        sockets.opened[3].signal(.closed(.refused(status: 403)))
+        await until("parked") { events.policy.parked }
+        #expect(!WorkspaceEvents.isFailure(.refused(status: 403)) && WorkspaceEvents.isFailure(.unreachable))
+        events.setWanted(false)
+    }
+
     @Test func noSessionParks() async {
         let (events, sockets, auth, _) = await makeEvents()
         await auth.adopt(nil)

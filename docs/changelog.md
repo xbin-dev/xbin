@@ -10,6 +10,20 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-31
+
+- **xbin app: a tunnel that is down looks like a dropped network** (D213;
+  [app-tunnel.md](/docs/app-tunnel.md)). Tile pages no longer get a page of
+  the app's own ("the workspace's tunnel isn't connected", a 502) while the
+  tunnel is down: their requests fail as on a lost connection, and when the
+  workspace is reachable again — its tunnel back, or its connection back
+  for a workspace reached directly — pages that failed load again and the
+  others get the browser's `online` event.
+- **xbin app: a document beside its conversation drags to any ratio**
+  (D213; [native.md](/docs/native.md) §A document to read). On an iPad,
+  drag the bar between a `split halves` pair's columns; each side keeps at
+  least 280 points.
+
 ## 2026-10-30
 
 - **Agent template: Projects atop your conversations, and the coordinator

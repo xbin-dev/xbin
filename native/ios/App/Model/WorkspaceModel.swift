@@ -77,6 +77,8 @@ final class WorkspaceModel: Identifiable {
     @ObservationIgnored private(set) lazy var events: WorkspaceEvents = makeEvents()
     @ObservationIgnored private var relist: Task<Void, Never>?
     @ObservationIgnored private var recatalog: Task<Void, Never>?
+    /// When "reachable again" goes out (``reachableAgain(_:)``, D213).
+    @ObservationIgnored private var reachable = ReachableGate()
 
     init(record: WorkspaceRecord, transport: (any WorkspaceTransport)? = nil, keys: any DeviceKeyStore = EnclaveKeyStore(),
          sessions: any SessionStore = KeychainSessionStore()) {
@@ -348,6 +350,7 @@ final class WorkspaceModel: Identifiable {
         })
         e.userID = { [weak self] in self?.whoami?.userID ?? self?.record.user.id ?? "" }
         e.onTerm = { [weak self] t in self?.apply(t) }
+        e.onReachable = { [weak self] in self?.reachableAgain("its events socket is back after a failure") }
         let tokens = frameTokens
         e.onCodeChange = { tile in await tokens.invalidate(tile) }
         e.onEvent = { [weak self] ev in
@@ -601,13 +604,39 @@ final class WorkspaceModel: Identifiable {
 
     /// The tunnel came up and answered (after a background, a drop, a
     /// network change — D211): what is open recovers in place. The events
-    /// socket connects now (not at the end of its backoff), open pages hear
-    /// it (WebTileController: a page that failed reloads, the others get
-    /// `online`), and the tunnel's config is read again.
+    /// socket connects now (not at the end of its backoff), the workspace is
+    /// reachable again (``reachableAgain(_:)``), and the tunnel's config is
+    /// read again.
     func tunnelCameUp() {
         events.nudge()
-        NotificationCenter.default.post(name: .xbinTunnelUp, object: id)
+        reachableAgain("its tunnel came up")
         Task { await refreshTunnel() }
+    }
+
+    /// The way to the workspace works again after it had failed — its
+    /// tunnel came up, or its events socket opened after a drop, whatever
+    /// the transport (D213): open pages hear it (WebTileController: a page
+    /// whose load failed loads again, the others get `online`). At once,
+    /// then at most once per quiet spell (ReachableGate).
+    func reachableAgain(_ why: String) {
+        switch reachable.signal(at: Date()) {
+        case .now:
+            postReachable(why)
+        case .after(let s):
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: UInt64(s * 1e9))
+                guard let self else { return }
+                self.reachable.fired(at: Date())
+                self.postReachable(why)
+            }
+        case .none:
+            break
+        }
+    }
+
+    private func postReachable(_ why: String) {
+        tunnelLog("reachable again: \(why)", workspace: id)
+        NotificationCenter.default.post(name: .xbinWorkspaceReachable, object: id)
     }
 
     /// After each connect: the ticket, relay and token as the workspace has
@@ -668,4 +697,12 @@ final class WorkspaceModel: Identifiable {
         NativeRuntimePool.shared.forget(workspace: id)
         tileMeta.removeAll()
     }
+}
+
+extension Notification.Name {
+    /// The way to a workspace works again after it had failed — its tunnel
+    /// came up, or its events socket opened after a drop (D213; posted by
+    /// ``WorkspaceModel/reachableAgain(_:)``); `object` is the workspace's
+    /// id. Open pages that failed load again, the others hear `online`.
+    static let xbinWorkspaceReachable = Notification.Name("dev.xbin.workspace.reachable")
 }

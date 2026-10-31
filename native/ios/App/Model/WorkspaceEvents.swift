@@ -63,6 +63,9 @@ final class WorkspaceEvents {
     private var pending: Task<Void, Never>?
     /// The bearer the current socket was opened with (a 401 replaces it).
     private var token: String?
+    /// The way to the workspace failed since a socket was last open
+    /// (``onReachable``).
+    private var failedSinceOpen = false
 
     /// A `term` event (the session directory) for this workspace's user.
     var onTerm: ((TermEvent) -> Void)?
@@ -73,6 +76,11 @@ final class WorkspaceEvents {
     var onNativeSwitch: (() -> Void)?
     /// A socket reopened after a gap: re-list what may have changed.
     var onResync: (() -> Void)?
+    /// A socket opened after the way to the workspace had failed (a drop,
+    /// no connection, a gateway's 5xx) — whatever the transport (D213): the
+    /// workspace is reachable again. Not after a background, which closes
+    /// the socket on purpose.
+    var onReachable: (() -> Void)?
     /// A tile's code changed (a `reload` names it): drop what was minted for
     /// it before anything reloads. A frame token is bound to the deployment
     /// that was primary when it was minted (tile deployments), so after the
@@ -260,6 +268,7 @@ final class WorkspaceEvents {
             origin = try await endpoint()
         } catch {
             guard gen == generation, !Task.isCancelled else { return }
+            failedSinceOpen = true
             perform(policy.closed(.unreachable, jitter: jitter()))
             return
         }
@@ -283,11 +292,25 @@ final class WorkspaceEvents {
                 for sub in deploySubs.values { sub.cont.yield(nil) }
                 for sub in prSubs.values { sub.cont.yield(()) }
             }
+            if failedSinceOpen {
+                failedSinceOpen = false
+                onReachable?()
+            }
         case .text(let text):
             receive(text)
         case .closed(let why):
             socket = nil
+            if Self.isFailure(why) { failedSinceOpen = true }
             perform(policy.closed(why, jitter: jitter()))
+        }
+    }
+
+    /// A close that says the way to the workspace failed (not a refusal of
+    /// this socket: 401, 403, 404).
+    static func isFailure(_ why: EventSocketPolicy.Close) -> Bool {
+        switch why {
+        case .dropped, .unreachable: return true
+        case .refused(let status): return status >= 500
         }
     }
 

@@ -47,18 +47,28 @@ final class TunnelAddress: @unchecked Sendable {
 /// tunnel.md §7), on the app's ordinary session — loopback needs nothing
 /// special. ``ready()`` brings the tunnel up (TunnelManager) when it is
 /// down. The public origin stays the workspace's identity.
+///
+/// Above this transport the tunnel is invisible (D213): one that can't come
+/// up fails the call as a dropped network does — a URL error
+/// (``NetworkFailure``), the tunnel's own reason under it and in TunnelLog
+/// — so callers show, retry and recover exactly as for a direct workspace.
 struct TunnelTransport: WorkspaceTransport {
     let publicOrigin: ServerOrigin
     let address: TunnelAddress
     /// Brings the tunnel up (or waits for it); throws why it can't.
     let start: @Sendable () async throws -> Void
+    /// The phone has no network path now (NWPathMonitor): a tunnel that
+    /// can't come up then reads as offline.
+    let offline: @MainActor @Sendable () -> Bool
     private let shared: AppTransport
 
     init(publicOrigin: ServerOrigin, address: TunnelAddress, shared: AppTransport = .shared,
+         offline: @escaping @MainActor @Sendable () -> Bool = { false },
          start: @escaping @Sendable () async throws -> Void) {
         self.publicOrigin = publicOrigin
         self.address = address
         self.shared = shared
+        self.offline = offline
         self.start = start
     }
 
@@ -66,8 +76,26 @@ struct TunnelTransport: WorkspaceTransport {
     var generation: Int { address.generation }
 
     func ready() async throws -> ServerOrigin {
-        try await start()
+        try await Self.up(start, offline: offline)
         return address.origin
+    }
+
+    /// The tunnel up, or why not as a network failure (D213).
+    static func up(_ start: @Sendable () async throws -> Void, offline: @MainActor @Sendable () -> Bool) async throws {
+        do {
+            try await start()
+        } catch {
+            throw networkFailure(error, offline: await offline())
+        }
+    }
+
+    /// Why the tunnel can't come up, as a URL error (one already, or a
+    /// cancellation, as it is): offline when the phone has no path, timed
+    /// out when a step ran out of time, else the server can't be reached.
+    static func networkFailure(_ error: any Error, offline: Bool) -> any Error {
+        let code: NetworkFailure.Code = offline ? .notConnectedToInternet
+            : error is DeadlineExceeded ? .timedOut : .cannotConnectToHost
+        return NetworkFailure.wrap(error, as: code)
     }
 
     func send(_ request: APIRequest, to origin: ServerOrigin) async throws -> APIResponse {
@@ -82,15 +110,15 @@ struct TunnelTransport: WorkspaceTransport {
                 onResponse: @escaping @Sendable (HTTPURLResponse) -> Void,
                 onData: @escaping @Sendable (Data) -> Void,
                 onDone: @escaping @Sendable ((any Error)?) -> Void) -> StreamingLoad {
-        let start = self.start, address = self.address
+        let start = self.start, offline = self.offline, address = self.address
         return shared.stream(after: {
-            try await start()
+            try await Self.up(start, offline: offline)
             return Self.moved(request, to: address.port)
         }, allowRedirect: allowRedirect, onResponse: onResponse, onData: onData, onDone: onDone)
     }
 
     func upload(_ request: URLRequest, from data: Data, delegate: (any URLSessionTaskDelegate)?) async throws -> (Data, URLResponse) {
-        try await start()
+        try await Self.up(start, offline: offline)
         return try await shared.session.upload(for: Self.moved(request, to: address.port), from: data, delegate: delegate)
     }
 

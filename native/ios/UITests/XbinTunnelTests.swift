@@ -302,6 +302,39 @@ final class XbinTunnelTests: XCTestCase {
         e.shot("tunnel-resume-06-diagnostics")
     }
 
+    /// D213: the tunnel is a transport like a direct connection — gone, a
+    /// web tile that opens fails as on a dropped network (the app's own
+    /// "Can't load" with URLSession's words; no page about a tunnel), and
+    /// back, the page loads again by itself.
+    @MainActor
+    func test05TunnelDownReadsAsANetworkFailure() async throws {
+        let e = try E2E(self)
+        try await pairAndConfirm(e)
+        let server = e.server
+        addTeardownBlock { _ = try? await server.browserSend("PUT", "/api/xbin/app-tunnel", json: ["enabled": true]) }
+        e.openTile("apps/welcome")
+        let web = e.app.webViews.firstMatch
+        XCTAssertTrue(web.waitForExistence(timeout: 30), "the welcome page, through the tunnel")
+        e.goHome()
+
+        // The workspace's admin turns tunnelling off: its sidecar stops.
+        _ = try await e.server.browserSend("PUT", "/api/xbin/app-tunnel", json: ["enabled": false])
+        e.openTile("apps/welcome")
+        let failed = e.containing("Can't load")
+        XCTAssertTrue(failed.waitForExistence(timeout: 120), "the page fails to load, as with no network")
+        e.shot("tunnel-down-01-cant-load")
+        let words = ["Could not connect to the server.", "The network connection was lost.", "The request timed out.",
+                     "The Internet connection appears to be offline."]
+        XCTAssertTrue(words.contains { e.containing($0).exists }, "URLSession's words, as for a direct workspace")
+        XCTAssertFalse(e.containing("isn't connected").exists, "no page of the tunnel's own")
+        XCTAssertFalse(e.containing("Bad Gateway").exists)
+
+        // Back on: the tunnel comes up again and the page loads by itself.
+        _ = try await e.server.browserSend("PUT", "/api/xbin/app-tunnel", json: ["enabled": true])
+        XCTAssertTrue(e.until(150) { !failed.exists && web.exists }, "the page loads again once the tunnel is back")
+        e.shot("tunnel-down-02-back")
+    }
+
     static func grouped(_ s: String) -> String {
         let d = s.filter(\.isNumber)
         guard d.count == 6 else { return s }

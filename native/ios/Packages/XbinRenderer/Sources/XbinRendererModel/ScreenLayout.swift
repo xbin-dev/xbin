@@ -247,6 +247,24 @@ public enum SplitLayout: Sendable, Equatable {
     /// What the second column of a halves split keeps at least.
     public static let halvesDetailMin = 480.0
 
+    /// A halves split's leading column in a split `width` points wide: it
+    /// starts at ``halfWidth(_:)``, and the person drags the bar between
+    /// the two to any ratio that leaves each side ``halvesSideMin`` (D213).
+    public static func halvesWidths(_ width: Double) -> ColumnWidths {
+        let ideal = halfWidth(width)
+        return ColumnWidths(min: Swift.min(halvesSideMin, ideal), ideal: ideal, max: Swift.max(ideal, width - halvesSideMin))
+    }
+
+    /// What either side of a halves split keeps at least, dragged.
+    public static let halvesSideMin = 280.0
+
+    /// A column's width: where it starts, and how far it may be dragged.
+    public struct ColumnWidths: Sendable, Equatable {
+        public var min: Double
+        public var ideal: Double
+        public var max: Double
+    }
+
     public init(children: Int, regularWidth: Bool, prefer: String?, collapses: Bool = false) {
         if children >= 2 && regularWidth && prefer != "single" { self = .columns }
         else if children >= 2 && collapses { self = .collapsed }

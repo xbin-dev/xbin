@@ -71,15 +71,19 @@ final class TileSchemeHandler: NSObject, WKURLSchemeHandler {
         do {
             token = attempt == 0 ? try await ws.frameTokens.token(for: tile) : try await ws.frameTokens.renew(tile)
         } catch {
-            fail(task, key, serial, status: 401, message: ws.describe(error))
+            // No way to the workspace: a lost connection, as below (D213).
+            if NetworkFailure.isNetwork(error) { failConnection(task, key, serial, error) } else {
+                fail(task, key, serial, status: 401, message: ws.describe(error))
+            }
             return
         }
-        // Where the workspace's requests go (a tunnel comes up first, D204).
+        // Where the workspace's requests go (a tunnel comes up first, D204;
+        // one that can't is a network failure, D213).
         let at: ServerOrigin
         do {
             at = try await ws.transport.ready()
         } catch {
-            fail(task, key, serial, status: 502, message: ws.describe(error))
+            failConnection(task, key, serial, error)
             return
         }
         guard serials[key] == serial, let url = at.url(path: path) else { return }
@@ -160,6 +164,18 @@ final class TileSchemeHandler: NSObject, WKURLSchemeHandler {
                 task.task.didReceive(Data(":\n\n".utf8))
             }
         }
+    }
+
+    /// The way to the workspace failed (no network, a tunnel that can't come
+    /// up — the same to the page, D213): the request fails as a lost
+    /// connection does, never with a page of the app's own.
+    private func failConnection(_ task: UncheckedTask, _ key: ObjectIdentifier, _ serial: Int, _ error: any Error) {
+        guard serials[key] == serial else { return }
+        serials[key] = nil
+        eventStreams[key] = nil
+        let e = NetworkFailure.isNetwork(error) && !(error is CancellationError) ? error
+            : NetworkFailure.error(.networkConnectionLost, underlying: error)
+        task.task.didFailWithError(e)
     }
 
     private func fail(_ task: UncheckedTask, _ key: ObjectIdentifier, _ serial: Int, status: Int, message: String) {

@@ -56,6 +56,12 @@ classic code for it.
 The app keeps the tunnel only while it is on screen: in the background it
 closes it, and coming back it opens a fresh one and checks it with a quick
 request before anything uses it; the open screen carries on where it was.
+To everything above it the tunnel is just the way to the workspace: while
+it is down, requests fail exactly as they do when the phone's network drops
+(a tile page sees a lost connection, never a page about the tunnel), and
+when it is back, pages that failed load again and the others get the
+browser's `online` event — the same as for a workspace the app reaches
+directly once its connection returns.
 **Settings → Connection** on the phone shows the tunnel's path, relay and
 round trip, a **Reconnect** button, and **Diagnostics** — what the tunnel
 did lately (connects, drops, retries, the app going away and back). **Copy
