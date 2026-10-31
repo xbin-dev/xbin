@@ -13114,3 +13114,65 @@ Deviations and refinements made while implementing; all deliberate:
   - **memMaxBytes is the leaf's memory.max** — `memMiB` plus the agent's
     and fuse-overlayfs's 128 MiB (a VM's: its VMM's overhead), what the
     OOM killer acts on — not `memMiB`; absent when the leaf has no cap.
+- **D214 — A project's overview: one read for the machinery that moves it
+  (2026-10-31).** builtin-templates/agent/_backend project_overview.go
+  (`GET /projects/{pid}/overview`, the board's classes of runs, tokens,
+  wakesOn), project_overview_ext.go (the scm and sandbox cells),
+  usage_hourly.go, project_goal.go (`project_goal`, `coord_goals`, the
+  `coordinator` change), scm.go `RepoStats`; the template's API.md (§The
+  overview, §The coordinator); tests project_overview{,_ext}_test.go,
+  usage_hourly_test.go, project_goal_test.go. Contract:
+  plans/project-overview.md. The owner wants a project's page to show, on
+  one screen, everything that moves the project.
+  - **One route.** The strip has six cells (coordinator, workers,
+    subagents, tokens, source control, sandbox) and every card names its
+    agent. Read separately, that would be six to ten reads, each with its
+    own access checks, re-read on every `project` event and every minute.
+    One viewer-level read under `projectNeed` gives the same visibility as
+    `GET …/tasks` and `…/status` and a single coalesced re-read. The scm
+    and sandbox reads, which go to other tiles, run beside the database
+    work under one 15 s bound.
+  - **Classes of runs.** The page's split is who spends: the person's own
+    coordinator, the worker agents (each task's conversation and the coding
+    agents it drives), and their helpers (every other descendant, from
+    `subagent_spawn`). They are told apart by root and engine, from one
+    query over the tasks' and the coordinator's trees. Only the caller's
+    coordinator counts. Other people's coordinators in a shared project are
+    theirs and private, so a viewer sees the board and no coordinator. A
+    worker's state follows its board column, so the strip and the board
+    agree. "Idle" is the PR column: CI or a review is next.
+  - **usage_hourly.** The runs table has lifetime counters only, so a chart
+    over time needs time-bucketed spend. The new table has one row per run
+    per hour and is written in `addRunCost`, beside the counters. Coding
+    agents report a cumulative cost, not tokens, so each usage update adds
+    its increase in USD, or the whole value when it drops (a new adapter
+    counts from zero), to the same table. The chart shows cost on its own
+    line. Rows are kept 8 days, enough for the week view plus a margin. They
+    are pruned at the first write of each new hour and when the table is
+    opened. There is no ticker (D81). The table is additive: an older build
+    ignores it, and spend from before it is simply absent. We chose not to
+    backfill from the lifetime counters, which have no time.
+  - **project_goal.** The goal line needs words the coordinator chooses, so
+    it gets a tool. Its prompt says when to use it: a new instruction, or
+    an aim reached. `now` is the current turn's and clears at the turn's
+    end. Until a goal is set, the person's latest message to the
+    coordinator stands in for it (`by: "you"`). The goal lives in its own
+    table, keyed by the coordinator run, and goes when the run is deleted.
+    Setting it, a coordinator's turn starting or ending, and its status
+    moving all send the `project` event's new `coordinator` change, so an
+    open page re-reads the overview. The event names no person.
+  - **wakesOn** is derived, never stored. It lists the caller's own tasks
+    with CI pending or a PR awaiting review, because a task's events reach
+    its creator's coordinator. It lists `issues` for the owner when
+    `policy.autoLabel` is set, because project-level events reach the
+    owner's coordinator. It always lists `you`.
+  - **Fallbacks.** The scm part is provider-neutral: the provider's hello
+    names it. Repo counts come from the provider's new `stats` cap (D216),
+    kept 5 minutes per repo and identity. Without the cap, or on a 501, the
+    rows carry what the project knows plus the default branch's checks via
+    the existing checks read, and `stats` is false. Refusals sit in the row
+    (kept a minute) and never fail the read. The sandbox cell is the
+    manager's GET, read as the project's owner (as the status reads it).
+    The manager's `diskBytes` and `usage` (D215) pass through as sent, and
+    are absent when it sends none.
+  - UI: see plans/project-overview.md (web and native).

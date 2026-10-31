@@ -3374,6 +3374,7 @@ conversation.
 | `PATCH /projects/{pid}/repos/{slug}` | O | `{setup?, checkout?: "worktree" \| "clone"}` | `{repo}` |
 | `DELETE /projects/{pid}/repos/{slug}?force=1` | O | — | **202**; 409 `busy` `{error, tasks}` while open tasks work in it |
 | `GET /projects/{pid}/status` | V | — | `ProjectStatus` |
+| `GET /projects/{pid}/overview?range=day\|week` | V | — | `Overview` — the page's status strip and its cards in one read (below) |
 | `POST /projects/{pid}/warm` | P | — | **202** `{jobs}`: start the sandbox, fetch the repos, renew credentials |
 | `GET /projects/{pid}/issues?repo=&q=&state=&labels=&cursor=` | V | — | the provider's page of issues of one of the project's repos (bodies clipped to 2 KiB; untrusted text) |
 | `GET /projects/{pid}/tasks?col=&phase=&q=&mine=1&cursor=&limit=` | V | — | `{items: [TaskView], next}` |
@@ -3564,6 +3565,102 @@ says when `maxTasks` is more than the model calls built-in tasks may make
 at once (a built-in task takes a subagent's place at the model-call gate:
 never the last one a person's top-level conversation may take).
 
+**The overview** (`GET /projects/{pid}/overview?range=day|week`, D214) —
+what moves the project, in one read for its page's status strip and its
+board's cards. `range` picks the token chart: `day` (the default) is 24
+hourly buckets, the last one the current hour; `week` is 7 buckets of 24
+hours ending with it; any other value is 400. A field the agent can't
+tell is absent (or `null`), never guessed.
+
+```jsonc
+{"at": 1793445000000, "range": "day",
+ "coordinator": {
+   "run": {"id": 900, "status": "running", "turnStartedMs": …} | null,
+   "state": "working" | "waiting" | "idle" | "failed" | "none",
+   "goal": {"text": "…", "now": "…", "by": "coordinator" | "you", "atMs": …} | null,
+   "wakesOn": [{"kind": "ci", "n": 1, "label": "CI on #1"}, {"kind": "review", "n": 2, "pr": 42, "label": "review on #42"},
+               {"kind": "issues", "label": "new issues"}, {"kind": "you", "label": "your message"}],
+   "lastEvent": {"kind": "ci.failed", "n": 1, "label": "CI failed on #1", "atMs": …} | null,
+   "turnsToday": 6, "tasksMade7d": 11, "model": "…", "tokensToday": 312000},
+ "workers": {"total": 7, "working": 2, "needsYou": 3, "idle": 1, "queued": 1, "done": 0,
+             "slots": {"used": 2, "max": 3},
+             "byEngine": [{"engine": "claude", "title": "Claude Code", "count": 4}, {"engine": "agent", "title": "agent", "count": 3}]},
+ "subagents": {"running": 4, "waiting": 1, "finished24h": 17, "failed24h": 2,
+               "by": [{"n": 2, "count": 2}, {"n": 1, "count": 1}, {"coordinator": true, "count": 1}]},
+ "tokens": {"buckets": [{"t": …, "workers": 0, "coordinator": 0, "subagents": 0}, …],
+            "total": {"workers": 0, "coordinator": 0, "subagents": 0},
+            "cost": {"amount": 6.4, "currency": "USD"} | null},
+ "scm": {"provider": {"name": "scm-github", "title": "GitHub", "kind": "github"} | null,
+         "stats": true,
+         "repos": [{"repo": "acme/web", "url": "…", "defaultBranch": "main", "checks": {"state": "success", "url": "…"} | null,
+                    "openPulls": 3, "openIssues": 14, "merged7d": 5, "err"?: "…"}],
+         "pulls": {"open": 3, "failing": 1, "review": 1}},
+ "sandbox": {"ref": "…", "name": "sb-web", "state": "running", "vcpus": 2, "memMiB": 4096, "diskGiB": 20,
+             "diskBytes"?: 3328599654, "commands": 2, "usage"?: {…}, "err"?: "…"} | null,
+ "tasks": {"2": {"engine": "agent", "title": "agent", "state": "working", "turnStartedMs": …, "subagents": 2, "tokens": 120000}, …}}
+```
+
+- **Classes of runs.** The *coordinator* is the caller's own coordinator
+  run. *Workers* are each task's conversation and the coding agents it
+  drives. *Subagents* are every other conversation under a task's or the
+  coordinator's (`subagent_spawn`). Counts are over the project's tasks,
+  which every viewer sees, as `GET /projects/{pid}/tasks` lists them. A
+  coordinator is a person's own: for a component, someone viewing as
+  another person or a team project's definition the coordinator is
+  `state: "none"`, `run: null`, with no `wakesOn` and no coordinator class
+  in the tokens. A person without one yet is `none` too, with what would
+  wake it.
+- **`workers`** counts the tasks by their board column: `working`;
+  `needsYou` (the `needs-you` column); `idle` (the `pr` column: CI or a
+  review is next); `queued`; `done`. `byEngine` says who works on each
+  task: the coding agent it is (or, for a built-in task, the latest one it
+  drives), by its catalog id and name, else `agent`. A card (`tasks`, by
+  number) has its engine, its state (`working`, `waiting` — needs you —,
+  `failed`, `idle`, `queued`, `done`), when its turn began while it works,
+  its running subagents and its tokens over its life (it and every
+  conversation under it).
+- **`subagents`**: `running` (a turn runs, or it waits on its own
+  subagents or a timer), `waiting` (for a person), and those that ended in
+  the last 24 hours, `finished24h` or `failed24h` (an error or a stop);
+  `by` is the running ones per task, and the coordinator's.
+- **`tokens`** are prompt plus completion tokens as the model provider
+  reported them, from `usage_hourly` (one row per conversation per hour,
+  kept 8 days); spend from before it existed isn't there. A bucket's `t`
+  is its start (unix ms), oldest first. Coding agents report a running
+  cost, not tokens: `cost` is the sum, over the range, of the increases of
+  their reported cost in USD (`null`: none). `tokensToday` and
+  `turnsToday` are the coordinator's over the last 24 hours (a turn: an
+  answer it finished); `tasksMade7d` the tasks it made in 7 days; `model`
+  the model of its latest answer (else its configured one), without the
+  provider's prefix.
+- **`goal`**: the one the coordinator set with `project_goal` (§The
+  coordinator), else its person's latest message to it (`by: "you"`).
+  **`wakesOn`**: the caller's own tasks with CI pending (`ci`) or a pull
+  request awaiting review (`review`, its number in `pr`) — at most 10 —,
+  `issues` for the project's owner when `policy.autoLabel` is set (new
+  issues reach the owner's coordinator), and always `you`. **`lastEvent`**
+  is the latest project event for the caller's coordinator (`coordUser`),
+  in a few words.
+- **`scm`**: the provider's hello (`name`, `title`, `kind`), and per repo
+  the provider's `GET /scm/repo/stats` (cap `stats`, docs/scm.md), read as
+  the project and kept 5 minutes: `checks` is the default branch's,
+  `merged7d` the pull requests merged in 7 days. A provider without the cap
+  — or one that answers 501 — gives `stats: false` and rows with the url
+  and default branch the project knows and the default branch's `checks`
+  (`GET /scm/checks` on it). A refusal is the row's `err` (kept a minute);
+  a provider that doesn't answer gives `provider: null` and the rows with
+  `err`. `pulls` are the project's own tasks' pull requests, from the
+  board: open, with failing CI, awaiting review.
+- **`sandbox`** is the manager's view of the project's sandbox, read as
+  the project's owner (as the status reads it): its size, `diskBytes` and
+  `usage` (CPU and memory, with the last hour's `series`; docs/protocol.md
+  §Tile sandboxes) as the manager sends them — absent when it sends none —
+  and `commands`, how many commands the agent runs in it now. A manager
+  that can't be read gives `state: "unknown"` and `err`.
+- Reading it counts as the page being open, as the status does: the
+  project's repos are fetched meanwhile. A page reads it again on the
+  project's `project` events (coalesced) and every minute while it shows.
+
 **Events.** A project's feed (`GET /projects/{pid}/events`, kept 30 days):
 `{id, project, n, kind, body: {text, …}, wake, coordUser, delivered,
 msgId, created}` — `n` 0 is about the project. Kinds: `task.created`,
@@ -3577,10 +3674,13 @@ redacted.
 
 **The `project` stream event** — `{"type": "project", "data": {"id",
 "change": "project" | "task" | "repo" | "job" | "event" | "board" |
-"deleted", "n"?}}` — reaches the list streams (`GET /stream` with no run)
-of those who may see the project, and, for `task`, the task's own
-conversation's stream. It says what to read again; it is never replayed
-and is coalesced per project, change and task (250 ms).
+"coordinator" | "deleted", "n"?}}` — reaches the list streams (`GET
+/stream` with no run) of those who may see the project, and, for `task`,
+the task's own conversation's stream. It says what to read again; it is
+never replayed and is coalesced per project, change and task (250 ms).
+`coordinator` (D214): a coordinator of the project set its goal, began or
+ended a turn, or its status moved — the overview's coordinator cell to
+read again (it names no person: each reads their own).
 
 **Rolling back to a build without Projects** leaves nothing to clean up by
 hand. The older build never reads the project tables. It keeps a task's and
@@ -3596,7 +3696,10 @@ whatever workspace there is, without fresh credentials (a push fails;
 nothing leaks); Needs shows such a park as waiting, with its words.
 Starts and messages waiting in the project's queue wait until this build
 is back; credential files in sandboxes expire on their own (an hour for
-the bot's, hours for a person's).
+the bot's, hours for a person's). A build from before the overview (D214)
+answers its route 404 and ignores `usage_hourly` and `coord_goals`: no
+hours are written meanwhile (the chart has a gap; the older rows go once
+they are 8 days old), and a coordinator's goal stays as it was.
 
 ### The workspace
 
@@ -4078,6 +4181,17 @@ that its person still takes part:
 | `task_cancel` | `tasks` (≤ 10), `reason?` | stops tasks and what they started; conversations, worktrees and branches stay |
 | `scm_pr` | `task`, or `repo` and `number` | a pull request: state, mergeability, reviews and comments, its checks in one aggregate with each failing job's failing step and the end of its log (≤ 2 KiB each, 8 KiB in all) |
 | `scm_issues` | `repo`, `numbers?` (≤ 10), `state?`, `labels?`, `q?` | issues in full with their comments, or a list |
+| `project_goal` | `text` (≤ 500 characters), `now?` (≤ 300) | sets its goal — what it works towards — and what it does this turn (D214) |
+
+**Its goal.** `project_goal` keeps one goal per coordinator, redacted and
+clipped, shown at the top of the project's page (the overview's
+`coordinator.goal`, `by: "coordinator"`); its prompt says to set it when
+its aim changes — a new instruction from its person, an aim reached — with
+`now` for what it does this turn. `now` clears when the turn ends; the
+text stays until it sets another. Before it set one, the overview's goal
+is its person's latest message to it (`by: "you"`). Setting it sends the
+`project` event's `coordinator` change, as its turn starting or ending
+and its status moving do.
 
 A task is named by its **number** in the project, never by a conversation
 id. `repo` — in `scm_pr`, `scm_issues` and `task_create`'s issues form — must

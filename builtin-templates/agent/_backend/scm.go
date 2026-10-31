@@ -429,6 +429,14 @@ func (c *scmConn) Repo(ctx context.Context, repo, as string) (*scmRepo, error) {
 	return &out, err
 }
 
+// RepoStats is GET /scm/repo/stats (cap stats, D216). Not in scmAPI: a
+// client without it answers unsupported (scmRepoStatsOf).
+func (c *scmConn) RepoStats(ctx context.Context, repo, as string) (*scmRepoStats, error) {
+	var out scmRepoStats
+	_, err := c.do(ctx, "GET", "/repo/stats", scmVals("repo", repo, "as", as), nil, &out, scmCallTimeout)
+	return &out, err
+}
+
 func (c *scmConn) PullCreate(ctx context.Context, req scmPullReq) (*scmPull, error) {
 	var out scmPull
 	_, err := c.do(ctx, "POST", "/pulls", nil, req, &out, scmCallTimeout)

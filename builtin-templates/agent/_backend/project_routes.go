@@ -41,6 +41,7 @@ func projectRoutes() []routeDef {
 		{"PATCH /projects/{pid}/repos/{slug}", needAny, projectNeed(lvOwner, handlePatchRepo)},
 		{"DELETE /projects/{pid}/repos/{slug}", needAny, projectNeed(lvOwner, handleRemoveRepo)},
 		{"GET /projects/{pid}/status", needAny, projectNeed(lvViewer, handleProjectStatus)},
+		{"GET /projects/{pid}/overview", needAny, projectNeed(lvViewer, handleProjectOverview)}, // D214: project_overview.go
 		{"POST /projects/{pid}/warm", needAny, projectNeed(lvParticipant, handleWarmProject)},
 		{"GET /projects/{pid}/issues", needAny, projectNeed(lvViewer, handleProjectIssues)},
 		{"GET /projects/{pid}/tasks", needAny, projectNeed(lvViewer, handleListTasks)},

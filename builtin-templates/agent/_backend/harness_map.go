@@ -805,6 +805,7 @@ func (s *hsess) onStatus(ev acp.Event) {
 			}
 		}
 		if len(d.Usage) > 0 && string(d.Usage) != "null" {
+			t.addHarnessCost(s.run, hs.Usage, string(d.Usage)) // its cost's delta, by the hour (usage_hourly.go)
 			hs.Usage = string(d.Usage)
 		}
 		if len(d.Options) > 0 && string(d.Options) != "null" && string(d.Options) != "[]" {

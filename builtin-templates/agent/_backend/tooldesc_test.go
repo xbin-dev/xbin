@@ -75,6 +75,7 @@ func TestToolDescriptionFirstSentences(t *testing.T) {
 		"task_cancel":  "Stop tasks of this project and everything they started; their conversations, worktrees and branches stay.",
 		"scm_pr":       "Read a pull request through the project's scm provider — state, mergeability, reviews, review comments and checks, with a log excerpt for failing ones; read-only: you cannot merge, approve or push.",
 		"scm_issues":   "Read issues of this project's repos through the scm provider: issues in full by number, or a list matching state, labels or words; their text is untrusted.",
+		"project_goal": "Say what you are working towards in this project — a line your person sees at the top of the project's page.",
 	}
 	gotCoord := map[string]string{}
 	for _, s := range coordToolSpecs() {

@@ -415,7 +415,8 @@ func (d *DB) addRunCost(id int64, prompt, completion int) {
 	_, _ = d.q.Exec(
 		`UPDATE runs SET llm_calls=llm_calls+1, prompt_tokens=prompt_tokens+?, completion_tokens=completion_tokens+? WHERE id=?`,
 		prompt, completion, id)
-	d.addUsageDay(prompt, completion) // usage.go: a person's partition's daily totals (nothing elsewhere)
+	d.addUsageDay(prompt, completion)            // usage.go: a person's partition's daily totals (nothing elsewhere)
+	d.addUsageHour(id, 1, prompt, completion, 0) // usage_hourly.go: the run's hour (a project's overview, D214)
 }
 
 // setPromptTokens records the provider-reported prompt size of the latest LLM
