@@ -6439,7 +6439,7 @@ running | stopping | error), stateDetail, mode, accel?, memMiB, vcpus,
 diskGiB, net:{egress, reach, egressNext, note}, mounts, defaults, labels,
 for?, forUser?, idleStopMin, autoStart, base:{version, outdated}, users,
 diskBytes, snapshots, execsRunning, created, started?, lastActive?,
-version, clientId?, restartNeeded}` — `uid` is the sandbox's identity (12 hex,
+version, clientId?, restartNeeded, usage?}` — `uid` is the sandbox's identity (12 hex,
 fixed at create; its name is only its address): a sandbox deleted and
 created again under the same name gets another `uid`, and never the old
 one's state. `creating` is a clone whose copy still runs: until it ends
@@ -6447,6 +6447,12 @@ one's state. `creating` is a clone whose copy still runs: until it ends
 `DELETE` answers 409 `state`. `reach` is what the egress reaches (`none`,
 `internet` or `open`, the contract's words), `egressNext` an egress a
 `PATCH` set that waits for the next start.
+
+**`usage`** (D215) is a running sandbox's CPU and memory: its cgroup leaf
+read once a minute, the last 60 readings kept in memory — the contract's
+`usage` ([sandbox-manager.md](sandbox-manager.md) §The sandbox, §On xbin).
+Only `GET /sandboxes/<name>` carries its `series`. Absent before the first
+reading, once stopped, and without cgroup delegation.
 
 **The policy** (`.xbin/sandboxes/policy.json`; 0 = the default, a `PUT`
 keeps the fields it doesn't name): `{enabled (true), perTile:{max 8,

@@ -141,6 +141,15 @@ trusts its consumers.
   **`restartNeeded: true`**, its `stateDetail` saying why, until it runs
   again (the substrate's `started` after that answer) — a restart brings
   today's agent.
+- **`usage`** (D215, docs/sandbox-manager.md §The sandbox): a running
+  sandbox's CPU and memory, the substrate's passed on as it gives them —
+  on xbind, its `SandboxInfo.usage`, the sandbox's cgroup read once a
+  minute, the last hour kept: `{at, cpuPct, memBytes, memMaxBytes?, pids,
+  series?}`. `GET /sbx/sandboxes/{id}` carries its `series`; the list and
+  every other answer carrying a sandbox (create, PATCH, start, stop, the
+  operators' `/ops/state`) leave the series out. Absent before the
+  substrate's first reading, once stopped, on an xbind without cgroup
+  delegation or from before it, and on a backend that doesn't measure.
 - **`hello.limits`** are the substrate's, with `sandboxes` the caller's
   effective count quota, plus (additive) `running`, `memMiB`, `vcpus` and
   `diskGiB` — 0 is no fixed limit. `hello.notes`, when present, says what

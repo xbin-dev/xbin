@@ -58,6 +58,7 @@ type usageState struct {
 	soon    []usageRef    // measured ahead of the rotation: stopped just now, reset, never measured
 	idle    chan struct{} // closed when the worker ends (tests)
 	watch   stopper       // the statfs watch (nil: none armed)
+	sample  stopper       // the CPU and memory sampler's next pass (sample.go; nil: none armed)
 	lowPass bool          // a low-disk stop pass runs
 	closed  bool          // xbind is shutting down: nothing more is measured
 }
@@ -199,7 +200,7 @@ func (m *Manager) nextMeasure() (usageRef, bool) {
 
 // closeUsage ends the measuring: xbind is shutting down, and a confined
 // du started now would only outlive it. What the worker measures now it
-// finishes.
+// finishes. The CPU and memory sampler ends with it (sample.go).
 func (m *Manager) closeUsage() {
 	u := &m.usage
 	u.mu.Lock()
@@ -208,6 +209,10 @@ func (m *Manager) closeUsage() {
 	if u.next != nil {
 		u.next.Stop()
 		u.next = nil
+	}
+	if u.sample != nil {
+		u.sample.Stop()
+		u.sample = nil
 	}
 }
 

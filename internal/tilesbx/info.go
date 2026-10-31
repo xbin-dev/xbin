@@ -33,6 +33,10 @@ type Info struct {
 	Version       int64             `json:"version"`
 	ClientID      string            `json:"clientId,omitempty"`
 	RestartNeeded bool              `json:"restartNeeded"`
+	// Usage is its CPU and memory as last sampled while it runs (D215,
+	// sample.go): absent before the first sample, when stopped, and
+	// without cgroup delegation; Series only on a GET of it.
+	Usage *LiveUsage `json:"usage,omitempty"`
 }
 
 // NetInfo is a sandbox's egress: the class it has, what that reaches (the
@@ -118,6 +122,7 @@ func (m *Manager) info(k Key, d *Def) Info {
 		}
 		in.RestartNeeded = mem != ld.MemMiB || vcpus != ld.VCPUs || disk != ld.DiskGiB ||
 			d.Net.Egress != ld.Net.Egress || b.egressNext || !sameMounts(d.Mounts, ld.Mounts)
+		in.Usage = m.usageLocked(k, d.Name, false)
 		return in
 	}
 	in.Net.Reach, in.Net.Note = m.reachOf(k, d.Net.Egress)

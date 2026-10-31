@@ -643,6 +643,13 @@ snaps, err := sb.Snapshots(ctx)                                             // S
   `StateDetail` `busy: …`, a clone's with `State` `creating`. Poll
   `Snapshots` or `Get` until it is done. Meanwhile the sandbox is busy:
   its calls answer `ErrSandboxState` with a `RetryAfter`.
+- **CPU and memory.** `Get`'s `SandboxInfo.Usage` (`*xbin.SandboxLiveUsage`,
+  D215) is a running sandbox's CPU (`CPUPct`, percent of one core over the
+  last minute) and memory as xbind last read them, once a minute, with
+  `Series` the last hour, oldest first; `List`'s carry the latest reading
+  alone. It is nil before the first reading, once stopped, without cgroup
+  delegation and from an older xbind. Pass it on as the contract's
+  optional `usage` (sandbox-manager.md §The sandbox).
 - **Forwarding.** The runtime's routes mirror the contract's, so most of a
   manager's routes pass its own request through to a typed route:
   `sb.Forward(w, r, xbin.ExecOutput(eid), q)`. The routes are

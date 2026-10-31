@@ -477,16 +477,23 @@ func (m *Manager) Usage(name string) (Usage, bool) {
 	if !valid {
 		return Usage{}, false
 	}
-	if _, err := os.Stat(leaf); err != nil {
+	return ReadUsage(leaf)
+}
+
+// ReadUsage reads a cgroup directory's accounting as Usage reads a leaf's
+// (memory.current, memory.max, pids.current, cpu.stat usage_usec; a file
+// missing reads 0): ok=false when dir doesn't exist.
+func ReadUsage(dir string) (Usage, bool) {
+	if _, err := os.Stat(dir); err != nil {
 		return Usage{}, false
 	}
 	u := Usage{MemMax: -1}
-	u.MemCurrent = readInt(filepath.Join(leaf, "memory.current"))
-	if s := strings.TrimSpace(readStr(filepath.Join(leaf, "memory.max"))); s != "" && s != "max" {
+	u.MemCurrent = readInt(filepath.Join(dir, "memory.current"))
+	if s := strings.TrimSpace(readStr(filepath.Join(dir, "memory.max"))); s != "" && s != "max" {
 		u.MemMax, _ = strconv.ParseInt(s, 10, 64)
 	}
-	u.PidsCurrent = readInt(filepath.Join(leaf, "pids.current"))
-	for _, ln := range strings.Split(readStr(filepath.Join(leaf, "cpu.stat")), "\n") {
+	u.PidsCurrent = readInt(filepath.Join(dir, "pids.current"))
+	for _, ln := range strings.Split(readStr(filepath.Join(dir, "cpu.stat")), "\n") {
 		if v, ok := strings.CutPrefix(ln, "usage_usec "); ok {
 			u.CPUUsec, _ = strconv.ParseInt(strings.TrimSpace(v), 10, 64)
 		}

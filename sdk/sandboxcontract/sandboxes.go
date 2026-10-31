@@ -106,8 +106,17 @@ var sandboxChecks = []check{
 		if stopped.State != "stopped" {
 			t.Fatalf("start:false: %s", stopped.State)
 		}
-		if l := a.List(); len(l) != 2 || l[sb.ID].Name != "api-dev" || l[stopped.ID].State != "stopped" {
+		l := a.List()
+		if len(l) != 2 || l[sb.ID].Name != "api-dev" || l[stopped.ID].State != "stopped" {
 			t.Fatalf("list: %+v", l)
+		}
+		// usage is optional; where a manager gives it, it is well formed
+		checkUsage(t, "get", a.Get(sb.ID).Usage, true)
+		for _, x := range l {
+			checkUsage(t, "list", x.Usage, false)
+		}
+		if u := a.Get(stopped.ID).Usage; u != nil {
+			t.Errorf("a stopped sandbox has usage: %+v", u)
 		}
 		a.Refused("GET", "/sandboxes/nope", nil, 404, "not-found")
 		for _, bad := range []map[string]any{{"name": ""}, {"name": strings.Repeat("n", 65)}, {"name": "x", "image": "no-such"},
@@ -174,6 +183,31 @@ var sandboxChecks = []check{
 			t.Fatal("a deleted sandbox is still listed")
 		}
 	}},
+}
+
+// checkUsage checks an optional usage where a manager gives one (D215):
+// no negative numbers, a reading time, and its series oldest first, ending
+// with the latest reading — on a GET of one sandbox only (the list's has
+// none).
+func checkUsage(t *testing.T, where string, u *Usage, get bool) {
+	t.Helper()
+	if u == nil {
+		return
+	}
+	if u.At <= 0 || u.CPUPct < 0 || u.MemBytes < 0 || u.MemMaxBytes < 0 || u.Pids < 0 {
+		t.Errorf("%s: usage %+v", where, u)
+	}
+	if !get && len(u.Series) > 0 {
+		t.Errorf("%s: usage carries its series (only a GET of one sandbox does): %d points", where, len(u.Series))
+	}
+	for i, p := range u.Series {
+		if p.T <= 0 || p.CPU < 0 || p.Mem < 0 || i > 0 && p.T < u.Series[i-1].T {
+			t.Errorf("%s: usage.series[%d] %+v (oldest first)", where, i, p)
+		}
+	}
+	if n := len(u.Series); n > 0 && u.Series[n-1].T != u.At {
+		t.Errorf("%s: usage.series ends at %d, not at the latest reading (%d)", where, u.Series[n-1].T, u.At)
+	}
 }
 
 // egressChanges: a PATCHed egress applies at the next start (egressNext

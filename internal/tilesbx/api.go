@@ -465,6 +465,9 @@ func (m *Manager) ServeGet(w http.ResponseWriter, r *http.Request) {
 	}
 	m.mu.Lock()
 	in := m.info(k, d)
+	if in.Usage != nil {
+		in.Usage = m.usageLocked(k, d.Name, true) // one sandbox's GET: with its series (the list's has none)
+	}
 	m.mu.Unlock()
 	writeJSON(w, http.StatusOK, in)
 }
