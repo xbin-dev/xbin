@@ -141,6 +141,8 @@ export function docDragStart(c, ev, path) {
   const sx = ev.clientX, sy = ev.clientY;
   let live = false;
   dragPointer({
+    ev,
+    onCancel: () => { c._ddrag = null; }, // Escape…: nothing moves
     onMove: (e) => {
       if (!live && Math.hypot(e.clientX - sx, e.clientY - sy) < 6) return; // a click, not a drag
       live = true;
@@ -168,6 +170,8 @@ function heightStart(c, ev, path) {
   const h0 = fr?.getBoundingClientRect().height || 480, sy = ev.clientY;
   let h = h0;
   dragPointer({
+    ev,
+    onCancel: () => { c._dh = null; },
     cursor: 'ns-resize',
     onMove: (e) => { h = Math.max(MIN_DOC_H, Math.round(h0 + e.clientY - sy)); c._dh = { path, h }; },
     onUp: () => {
@@ -192,6 +196,8 @@ function widthStart(c, ev) {
   const w0 = page?.getBoundingClientRect().width || 0, pane = c.getBoundingClientRect().width || w0, sx = ev.clientX;
   let w = w0;
   dragPointer({
+    ev,
+    onCancel: () => { c._dw = null; },
     cursor: 'ew-resize',
     onMove: (e) => { w = Math.max(DOC_MIN_W, Math.min(pane, Math.round(w0 + 2 * (e.clientX - sx)))); c._dw = w; },
     onUp: () => {

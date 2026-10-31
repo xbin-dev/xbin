@@ -13221,3 +13221,39 @@ Deviations and refinements made while implementing; all deliberate:
       screen follows the same order, and each status row opens a sheet
       with its explanation. An older backend (no overview route) gets the
       page exactly as before, on both views.
+
+- **D217 — A drag never falls off its window onto a tile (2026-10-31;
+  issue #54).** The owner: stretching the tile window by its bottom-right
+  corner "too fast" over another tile lost the drag.
+  - **Cause.** The kit's drags (`dragPointer`) already raised a shield —
+    a transparent full-viewport layer, so a tile's `<iframe>` can't take
+    the pointer — but the corners of the tile window, floating tiles and
+    pop-outs were CSS `resize: both`, the browser's own drag, which has no
+    shield: once the cursor outran the corner onto another tile's page,
+    that page (its own document, often its own process) took the moves and
+    the release.
+  - **Two mechanisms, one helper (web/bx-kit.js `dragPointer`).** (1) The
+    shield, now over every drag: the corners became a grip
+    (`web/win-resize.js`, `resizeCorner` over the kit's new `dragResize`)
+    with the grid tile's corner mark, and `resize: both` is gone from
+    `.pop`, `.float` and `.spawn`. The admin popover keeps it: its
+    backdrop already covers the tiles. Edges are not grips (they would
+    sit over the panes' scrollbars). (2) Pointer capture: the shield holds
+    the pointer from the pointerdown (`ev`, new) or else the first move,
+    so leaving the browser window doesn't lose it either. On the shield,
+    not on the element that started the drag: a re-render may replace
+    that element mid-drag (a lost capture ends the drag), and the shield's
+    cursor is the one that shows.
+  - **The always-remove rule.** A shield left up would leave every tile
+    unclickable, far worse than the bug. It comes down first, before any
+    callback, on every end: pointerup; a mouse move with no button held (a
+    release nobody saw: `onUp`); and, through `onCancel` (else `onUp` at
+    the last move), Escape, `pointercancel`, a lost capture and the window
+    losing focus. Escape is ended after the event, so an older shell's own
+    Escape on the Tiled drag still decides. Escape undoes: windows go back,
+    grid and block drags drop their ghosts, dividers keep their ratio. Unit
+    tests: `hack/drag-pointer.test.mjs`; the `dragShield` harness pass
+    drags fast across tile pages.
+  - **Compatibility.** `dragPointer`'s options are additive; a shell from
+    before this keeps its CSS corners, and its drags get the capture and
+    the ends.

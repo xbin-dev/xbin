@@ -342,6 +342,7 @@ function divStart(f, e, d) {
   if (e.button !== 0) return;
   e.preventDefault();
   const bar = e.currentTarget, area = bar.parentElement.getBoundingClientRect(), x0 = e.clientX, y0 = e.clientY;
+  const r0 = nodeAt(f._ide.tree, d.path)?.r ?? 0.5;
   const to = (ev) => {
     const v = d.dir === 'row' ? ((ev.clientX - area.left) / area.width - d.box.x) / d.box.w : ((ev.clientY - area.top) / area.height - d.box.y) / d.box.h;
     set(f, M.setRatio(f._ide, d.path, v));
@@ -351,7 +352,7 @@ function divStart(f, e, d) {
   const move = (ev) => {
     if (Math.abs(ev.clientX - x0) < 3 && Math.abs(ev.clientY - y0) < 3) return;
     done(); to(ev);
-    dragPointer({ cursor: d.dir === 'row' ? 'col-resize' : 'row-resize', onMove: to });
+    dragPointer({ ev, cursor: d.dir === 'row' ? 'col-resize' : 'row-resize', onMove: to, onCancel: () => set(f, M.setRatio(f._ide, d.path, r0)) });
   };
   bar.addEventListener('pointermove', move);
   bar.addEventListener('pointerup', done);
@@ -375,7 +376,8 @@ function dockStart(f, e) {
   if (e.button !== 0) return;
   e.preventDefault();
   const y0 = e.clientY, h0 = f._ide.dock.h, max = Math.max(120, (e.currentTarget.parentElement.getBoundingClientRect().height || 600) - 120);
-  dragPointer({ cursor: 'row-resize', onMove: (ev) => set(f, M.setDock(f._ide, true, Math.min(max, h0 - (ev.clientY - y0)))) });
+  dragPointer({ ev: e, cursor: 'row-resize', onMove: (ev) => set(f, M.setDock(f._ide, true, Math.min(max, h0 - (ev.clientY - y0)))),
+    onCancel: () => set(f, M.setDock(f._ide, true, h0)) });
 }
 function dockTpl(f) {
   if (!f._dockMounted && !f._ide.dock.open) return nothing;

@@ -85,6 +85,8 @@ function dragStart(c, ev, b0) {
   const base = canvasItems(c), kx = c._kx, ky = c._ky, dx = ev.clientX - b.x * kx, dy = ev.clientY - b.y * ky;
   c._drag = { path: keyOf(b0.id), rect: { x: b.x, y: b.y, w: b.w, h: b.h }, moves: [], dirs: null, orig: b };
   dragPointer({
+    ev,
+    onCancel: () => { c._drag = null; }, // Escape…: everything back where it was
     onMove: (e) => c._dragTo(base, c._bound({ x: snap(Math.max(0, (e.clientX - dx) / kx)), y: snap(Math.max(0, (e.clientY - dy) / ky)), w: b.w, h: b.h })),
     onUp: () => c._commitDrag(),
   });
@@ -96,6 +98,8 @@ function resizeStart(c, ev, b0) {
   const base = canvasItems(c), kx = c._kx, ky = c._ky, sx = ev.clientX, sy = ev.clientY;
   c._drag = { path: keyOf(b0.id), rect: { x: b.x, y: b.y, w: b.w, h: b.h }, moves: [], dirs: null, orig: b, positive: true };
   dragPointer({
+    ev,
+    onCancel: () => { c._drag = null; },
     cursor: 'nwse-resize',
     onMove: (e) => c._dragTo(base, c._bound({ x: b.x, y: b.y, w: snap(Math.max(MIN.w, b.w + (e.clientX - sx) / kx)), h: snap(Math.max(MIN.h, b.h + (e.clientY - sy) / ky)) }, true)),
     onUp: () => c._commitDrag(),

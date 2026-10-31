@@ -32,8 +32,8 @@
  * (docs/auth.md §Tile asset gating) — frame-info.js decides.
  *
  * The edit button opens a floating terminal window: anchored at the frame's
- * top-right corner when opened, draggable by its title bar, resizable by the
- * native bottom-right handle (ctrl+scroll inside adjusts the font). It is
+ * top-right corner when opened, draggable by its title bar, resizable by its
+ * bottom-right corner (win-resize.js, D217; ctrl+scroll inside adjusts the font). It is
  * viewport-fixed (container overflow can't clip it) but positioned RELATIVE
  * to this frame (D66): it follows the tile through scrolls and drags, and
  * stays inside the host's `popBounds` (the shell's canvas) so it is always
@@ -84,6 +84,7 @@ import { infoFor, refreshFrameInfo, sandboxAttr, frameSource } from '/vendor/fra
 import { testApi } from '/vendor/frame-testapi.js';
 import { deployCss, deployMount, onDeployEvent, keepTargets, setTarget, sessionEcho } from '/vendor/frame-deploy.js';
 import { frameBaseCss, frameCss } from '/vendor/frame-css.js';
+import { resizeCorner, resizeCss } from '/vendor/win-resize.js'; // the window's corner (D217)
 
 // Shared z-order for all terminal windows on the page.
 let zTop = 2000;
@@ -157,7 +158,7 @@ export class BxFrame extends LitElement {
     popBounds: { attribute: false },
   };
 
-  static styles = [scrollCss, frameBaseCss, titlebarCss, launcherCss, deployCss, ideCss, statusCss, frameCss];
+  static styles = [scrollCss, frameBaseCss, titlebarCss, launcherCss, deployCss, ideCss, statusCss, frameCss, resizeCss];
 
   constructor() {
     super();
@@ -680,7 +681,7 @@ export class BxFrame extends LitElement {
   }
 
   // Title-bar drag (kit dragWindow, fenced inside the canvas — D66); the
-  // native CSS resize handle owns width/height, read back into _pop on release.
+  // corner (win-resize.js) owns width/height, read back into _pop on release.
   _dragStart(ev) {
     const el = this._popEl, r0 = this.getBoundingClientRect(); // fixed for the drag (the shield blocks scrolling)
     dragWindow(ev, el, {
@@ -870,6 +871,7 @@ export class BxFrame extends LitElement {
           ${this._menu ? html`<bx-menu open .items=${this._menu.items} .anchor=${this._menu.anchor} ?sheet=${this._menu.sheet}
               @bx-menu-close=${() => { this._menu = null; }}></bx-menu>` : nothing}
           ${ideBody(this)}
+          ${resizeCorner({ onMove: (w, h) => { this._pop.w = w; this._pop.h = h; }, onUp: () => { this._saveTerm(); this._popChanged(); } })}
         </div>`)(this._popBox()) : nothing}
     `;
   }

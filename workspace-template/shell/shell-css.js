@@ -227,7 +227,7 @@ export const shellCss = [scrollCss, baseCss, chromeCss, css`
       position: fixed; display: flex; flex-direction: column; box-sizing: border-box;
       border: 1px solid var(--bx-window-border, #666A7E); border-radius: var(--bx-radius, 2px);
       background: var(--bx-panel, #1F2028); box-shadow: var(--bx-shadow-rest, 0 10px 28px rgba(0, 0, 0, 0.4));
-      overflow: hidden; resize: both; min-width: 200px; min-height: 120px;
+      overflow: hidden; min-width: 200px; min-height: 120px; /* its corner resizes it (win-resize.js, D217) */
     }
     .spawn.active { border-color: var(--bx-window-border-active, #9396A4); box-shadow: var(--bx-shadow-active, 0 16px 40px rgba(0, 0, 0, 0.55)); }
     .spawn .shead {
@@ -584,7 +584,7 @@ export const canvasCss = [scrollCss, baseCss, chromeCss, css`
       border-radius: var(--bx-radius, 2px);
       background: var(--bx-panel, #1F2028);
       box-shadow: var(--bx-shadow-rest, 0 10px 28px rgba(0, 0, 0, 0.4));
-      overflow: hidden; resize: both; min-width: 220px; min-height: 120px;
+      overflow: hidden; min-width: 220px; min-height: 120px; /* its corner resizes it (win-resize.js, D217) */
     }
     .float.active { border-color: var(--bx-window-border-active, #9396A4); box-shadow: var(--bx-shadow-active, 0 16px 40px rgba(0, 0, 0, 0.55)); }
     .float > .card { border: 0; border-radius: 0; box-shadow: none; }
@@ -612,7 +612,7 @@ export const canvasCss = [scrollCss, baseCss, chromeCss, css`
       .float {
         position: fixed !important; inset: 0 !important;
         width: auto !important; height: auto !important;
-        resize: none !important; border-radius: 0; border: 0;
+        border-radius: 0; border: 0;
       }
     }
 `];

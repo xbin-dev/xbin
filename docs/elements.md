@@ -463,7 +463,8 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   **floating terminal window** with a shell cwd'd to `src`: it appears at
   the frame's corner and keeps its position *relative to the frame* — it
   follows the frame through scrolls and drags (D66); drags by its title bar,
-  resizes by the bottom-right handle, and stacks above everything (click
+  resizes by its bottom-right corner (a drag no tile page under the pointer
+  can take, D217), and stacks above everything (click
   brings to front). A host may set the element's `popBounds` (a function
   returning a viewport rect) to fence the window in — the shell hands the
   canvas's tile extent, so a terminal never leaves the scroll area; the
