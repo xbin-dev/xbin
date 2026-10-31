@@ -72,7 +72,7 @@ export function PROJ_MORE_STUB(seed) {
     return json({ run: M.coord[pid] });
   });
 
-  // --- the overview (D214, plans/project-overview.md): seed.overview['<pid>'] (and '<pid>:week',
+  // --- the overview (D214): seed.overview['<pid>'] (and '<pid>:week',
   // else the day's) — overviewSeed() makes one; none seeded, or seed.noOverview: an older backend
   // (the mux's plain 404). Each read is counted (M.overviewReads). (This runs in the page: no helpers.)
   M.overviewReads = [];

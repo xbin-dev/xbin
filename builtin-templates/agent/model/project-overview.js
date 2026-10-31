@@ -1,4 +1,4 @@
-// model/project-overview.js — a project's overview (D214, plans/project-overview.md):
+// model/project-overview.js — a project's overview (D214):
 // the status strip, the agent words on board cards, the page's fold and the
 // coordinator chat's height, for both views. No lit, no DOM.
 //

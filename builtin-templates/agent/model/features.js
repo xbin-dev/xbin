@@ -287,7 +287,7 @@ export const FEATURES = {
   'proj.signin': 'signing in to the scm provider (its device code shown only to you), and Forget',
   'proj.coordinator': 'the project\'s coordinator: open it, write to it',
   'proj.coordinator.preview': 'the coordinator as a small chat on its project\'s page (D209): what it does now (working, waiting for you), its last 3 messages — read when the page opens, after Send and when its run moves, never made by reading — and, before it exists, that your first message starts it; the message line right under them',
-  // the project's overview (D214, plans/project-overview.md)
+  // the project's overview (D214)
   'proj.overview': 'a project\'s page as an overview of its machinery, top to bottom: the status, the board, the coordinator; the status folds to one line (kept per person); every part explains itself (a tooltip after a hover delay on the web)',
   'proj.overview.coordinator': 'the status\'s coordinator: working, waiting or idle, for how long, the last event that woke it, its turns today and tasks made this week',
   'proj.overview.workers': 'the status\'s worker agents: working, needing you, idle and queued, the slots in use, and how many tasks each kind of agent works on',
