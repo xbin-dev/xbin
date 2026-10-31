@@ -53,48 +53,44 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (`sdk/sandboxcontract`) checks a `usage` only where a manager gives one,
   and that a stopped sandbox has none. Additive: older managers and
   consumers need no change.
-- **Agent template: a project's overview in the app** (D214; the template's
-  API.md "Projects in the UI"). A project's screen in the app now follows the
-  web page's order: a **Status** section, then the board, then the
-  coordinator. Status shows the coordinator, worker agents, subagents and
-  tokens (Day | Week, with a chart), then source control under the
-  provider's title, with a row per repo that opens it, then the sandbox,
-  with CPU and memory sparklines. A tap on a part opens what it counts, the
-  web's tooltip, with its numbers in full. The section folds to one row,
-  and the fold is kept per person (`prefs/project-status-folded`). Each
-  task row says its agent, what it is doing and its subagents. The
-  coordinator's section ends the screen. It has its goal (when idle, what
-  wakes it), its newest messages (up to eight) and Open, and the composer
-  stays docked below it. The overview is read again every minute and on the
-  project's events while the screen is on top. Against an agent backend
-  without the overview, the screen is as before. Older apps need no update:
-  area charts are used only where the app has `chart.area`, and charts only
-  where it has `chart`. **Instances that customised the template:** the
-  native view has a new `ext.drawn()` seam, called after each draw.
-  `projectFeed(app).preview(pid, n)` takes how many messages to show.
-- **Agent template: a project's overview** (D214; the template's API.md
-  "The overview", "The coordinator"). New route **`GET
-  /projects/{pid}/overview?range=day|week`** (viewer): the coordinator, the
-  worker agents, their subagents, tokens per hour or day (new table
-  `usage_hourly`, kept 8 days), the repos at the scm provider (its new
-  `stats` cap, D216) and the sandbox (its `usage`, D215) in one read. The
-  coordinator gains a `project_goal` tool, and the `project` stream event
-  a `coordinator` change. Additive: an older build ignores the new tables.
-- **Agent template: a project's page is its overview, on the web** (D214;
-  the template's API.md "Projects in the UI"). Where the agent serves `GET
-  /projects/{pid}/overview`, the Board tab becomes **Overview**: a status
-  strip (the coordinator, worker agents, subagents, tokens over a day or a
-  week, source control, the sandbox's CPU and memory), the board with each
-  card's agent, a bar to share the height, and the coordinator's section:
-  its state, Stop, Open chat, its goal in one line, and its newest
-  messages in a window of fixed height. On a tile at least 600 px tall the
-  page fits the tile and the bar at the bottom stays in view; shorter, the
-  page scrolls and the input ends the coordinator's section. Every part
-  has a tooltip after a short hover delay. The fold and the chat's height
-  are kept per person (`prefs/project-status-folded`,
-  `prefs/project-chat-height`). The bar at the bottom says it writes to the
-  coordinator. An older agent backend gets the page as it was. The
-  coordinator's messages are now read 30 at a time (`limit=30`), not 20.
+- **Agent template: a project's page is its overview** (D214; the
+  template's API.md "The overview", "Projects in the UI").
+  - **New route `GET /projects/{pid}/overview?range=day|week`** (viewer
+    level). One read returns the coordinator, the worker agents and their
+    subagents, the repos at the scm provider (its new `stats` cap, D216) and
+    the sandbox (its `usage`, D215). It also returns tokens per hour or day,
+    from a new table `usage_hourly`, kept 8 days.
+  - **Coordinator:** a new `project_goal` tool. The `project` stream event
+    gains a `coordinator` change.
+  - **Web:** where the agent serves the route, the Board tab becomes
+    **Overview**:
+    - A status strip: the coordinator, worker agents, subagents, tokens
+      over a day or a week, source control, and the sandbox's CPU and
+      memory.
+    - The board, each card naming its agent.
+    - A bar that shares the height between the board and the coordinator.
+    - The coordinator's section: its state, Stop, Open chat, its goal in
+      one line, and its newest messages in a window of fixed height.
+    - On a tile at least 600 px tall the page fits the tile and the input
+      stays in view at the bottom. Shorter, the page scrolls.
+    - Every part has a tooltip after a short hover delay.
+  - **App:** the project screen follows the same order. Tapping a status
+    row shows what it counts.
+  - **Kept per person:** the strip's fold and the chat's height
+    (`prefs/project-status-folded`, `prefs/project-chat-height`).
+  - **Compatibility:** additive. An older agent backend gets the page as it
+    was. Older apps draw charts only where they support them, and an older
+    build ignores the new tables. The coordinator's messages are now read
+    30 at a time (`limit=30`), not 20.
+  - **Instances that customised the template:** the native view has a new
+    `ext.drawn()` seam, called after each draw.
+    `projectFeed(app).preview(pid, n)` takes how many messages to show.
+- **Agent template: the project page's bottom bar writes to its
+  coordinator** (D212). On a project's page, the composer at the bottom
+  sends to the project's coordinator instead of starting a new chat; it is
+  hidden on the Projects list and forms. In the conversation list, **All
+  projects** stays visible when Projects is folded, and says how many
+  active projects didn't fit.
 
 ## 2026-10-30
 

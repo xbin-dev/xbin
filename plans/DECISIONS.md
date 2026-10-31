@@ -13000,6 +13000,27 @@ Deviations and refinements made while implementing; all deliberate:
   - **Parity.** `tools.render.zoom` and `tools.render.links` (D207's keys)
     come off DIFFERENCES.native; `tools.render.beside` is new (the web's
     render pane already sits beside the conversation).
+- **D212 — On a project's page the bottom bar writes to its coordinator,
+  and All projects is always in reach (2026-10-31).**
+  builtin-templates/agent/page-composer.js (a page's own bar: web-ext
+  `page(p).composer`), project-feed.js `coordComposer`, projects.js,
+  model/project-pins.js (`more`), native/projects.js (the docked
+  composer). The owner, after D209: the bottom composer on a project's
+  page started a general new chat, which is "really where I imagine the
+  coordinator chat input would be"; and with at most 5 projects pinned,
+  "more should be very easy to access".
+  - **A page can give the bar a job, or none.** A project's board and
+    activity give it to the coordinator (POST /projects/{pid}/coordinator).
+    The Projects list, the forms and a project's settings hide it. Each job
+    keeps its own draft, so text for a new chat never goes to a
+    coordinator. The pickers and attachments belong to a new chat and are
+    hidden while the bar has a page's job.
+  - **All projects** stays visible when the section is folded, and says how
+    many active projects didn't fit ("2 more"), on web and native.
+  - On iOS the coordinator's input is a composer docked at the bottom of the
+    project's screen. The screen's own search moved into the board's
+    section as a field, because iOS 26 puts a screen's search in the same
+    bottom bar.
 - **D213 — The tunnel is invisible above the transport; the halves split
   drags (2026-10-31; the owner's polish calls on D208 and D211).** XbinCore
   Client/NetworkFailure.swift (`NetworkFailure`, `ReachableGate`);
@@ -13175,4 +13196,28 @@ Deviations and refinements made while implementing; all deliberate:
     manager's GET, read as the project's owner (as the status reads it).
     The manager's `diskBytes` and `usage` (D215) pass through as sent, and
     are absent when it sends none.
-  - UI: see plans/project-overview.md (web and native).
+  - **The page (web: project-status.js, project-coord.js, tooltips.js,
+    projects.js; native: native/project-status.js, native/projects.js; the
+    shared model model/project-overview.js).** Agreed with the owner over
+    four rounds of a clickable prototype. Top to bottom: the status strip,
+    the board, a drag bar, then the coordinator (header, a one-line goal,
+    its newest messages, the input). The owner's calls:
+    - **Dense and explained.** It is for professionals who want the high
+      level at a glance. Every part has a tooltip, shown after a 600 ms
+      hover so it isn't always on; keyboard focus shows it at once.
+    - **One scroll, and the input stays in view.** On a tile with room
+      (≥ 600 px tall and enough for a 120 px board and a 100 px chat), the
+      page fits the tile, the board scrolls inside its share, and the
+      coordinator's input is the page's bottom bar (D212). Otherwise the
+      whole page scrolls and the input ends the coordinator's section.
+    - **The chat never jumps.** The conversation is a window of fixed
+      height on the newest messages: the oldest are clipped at the top
+      under a fade, it has no scrollbar of its own, and its whole history
+      stays behind Open chat.
+    - **Folding and sizing are kept per person.** The strip folds to one
+      line, and the drag bar shares the height between the board and the
+      chat. Both are in xbind's prefs.
+    - **Native.** The app's vocabulary has no drag bar or tooltip. The iOS
+      screen follows the same order, and each status row opens a sheet
+      with its explanation. An older backend (no overview route) gets the
+      page exactly as before, on both views.
