@@ -261,6 +261,9 @@ final class XbinAgentNativeTests: XCTestCase {
             XCTAssertTrue(e.until(10) { answer.exists && answer.isHittable }, "the conversation beside the report")
             let ratio = page.frame.width / window.width
             XCTAssertTrue(ratio > 0.35 && ratio < 0.6, "half each (\(page.frame.width) of \(window.width))")
+            // D213: the bar between them drags to any ratio — each side
+            // keeps 280 pt
+            e.dragHalves(report: page, beside: answer, shots: "agent-17")
         } else {
             XCTAssertTrue(page.frame.height > window.height * 0.6, "the report fills the screen (\(page.frame.height) of \(window.height))")
         }

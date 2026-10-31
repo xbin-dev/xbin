@@ -112,6 +112,7 @@ final class XbinNavigationTests: XCTestCase {
             XCTAssertTrue(convo.exists && convo.isHittable, "the conversation beside the report")
             let ratio = page.frame.width / window.width
             XCTAssertTrue(ratio > 0.4 && ratio < 0.6, "halves: the report takes half the width (\(page.frame.width) of \(window.width))")
+            e.dragHalves(report: page, beside: convo, shots: "doc-01")
         } else {
             XCTAssertFalse(convo.exists && convo.isHittable, "a phone shows the report over the conversation")
             XCTAssertTrue(page.frame.height > window.height * 0.6, "the report fills the screen (\(page.frame.height) of \(window.height))")
@@ -136,6 +137,37 @@ final class XbinNavigationTests: XCTestCase {
 }
 
 extension E2E {
+    /// D213: the bar between a halves split's columns drags to another
+    /// ratio — right (the report narrower), then left past the start (the
+    /// report wider) — and the conversation stays beside it, at least 280 pt.
+    func dragHalves(report page: XCUIElement, beside convo: XCUIElement, shots prefix: String,
+                    file: StaticString = #filePath, line: UInt = #line) {
+        let window = app.windows.firstMatch.frame
+        let half = page.frame.width
+        dragSplitBar(at: page, by: 120)
+        XCTAssertTrue(until(5) { page.frame.width < half - 80 }, "dragged right: the report narrower (\(page.frame.width), was \(half))",
+                      file: file, line: line)
+        XCTAssertTrue(convo.exists && convo.isHittable, "…the conversation wider, beside it", file: file, line: line)
+        shot(prefix + "b-halves-dragged-right")
+        dragSplitBar(at: page, by: -220)
+        XCTAssertTrue(until(5) { page.frame.width > half + 40 }, "dragged left: the report wider (\(page.frame.width), was \(half))",
+                      file: file, line: line)
+        XCTAssertTrue(convo.exists && convo.isHittable, "…the conversation still beside it", file: file, line: line)
+        XCTAssertTrue(window.width - page.frame.width >= 279, "the conversation keeps 280 (\(window.width - page.frame.width))",
+                      file: file, line: line)
+        shot(prefix + "c-halves-dragged-left")
+    }
+
+    /// Drags the bar between a split's two columns — at the left edge of
+    /// `right`, the second column's content — by `dx` points.
+    func dragSplitBar(at right: XCUIElement, by dx: CGFloat) {
+        let f = right.frame
+        let origin = app.coordinate(withNormalizedOffset: CGVector(dx: 0, dy: 0))
+        let from = origin.withOffset(CGVector(dx: f.minX - 1, dy: f.midY))
+        let to = origin.withOffset(CGVector(dx: f.minX - 1 + dx, dy: f.midY))
+        from.press(forDuration: 0.3, thenDragTo: to, withVelocity: .slow, thenHoldForDuration: 0.3)
+    }
+
     /// Opens `link` through the system, in the app as it runs (a
     /// notification's tap does the same); confirms the system's "Open in
     /// xbin?" when it asks.

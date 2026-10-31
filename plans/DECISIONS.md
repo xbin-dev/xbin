@@ -13000,3 +13000,44 @@ Deviations and refinements made while implementing; all deliberate:
   - **Parity.** `tools.render.zoom` and `tools.render.links` (D207's keys)
     come off DIFFERENCES.native; `tools.render.beside` is new (the web's
     render pane already sits beside the conversation).
+- **D213 — The tunnel is invisible above the transport; the halves split
+  drags (2026-10-31; the owner's polish calls on D208 and D211).** XbinCore
+  Client/NetworkFailure.swift (`NetworkFailure`, `ReachableGate`);
+  native/ios/App/Model/TunnelTransport.swift, LoopbackForwarder.swift,
+  TunnelPairing.swift (`overTunnel`), WorkspaceEvents.swift
+  (`onReachable`), WorkspaceModel.swift (`reachableAgain`,
+  `.xbinWorkspaceReachable`); Tiles/WebTileController.swift,
+  TileSchemeHandler.swift; XbinRenderer Navigation.swift
+  (`SplitLayout.halvesWidths`).
+  - **The owner:** "for the app there should be no difference between
+    'tunnel is down' and 'internet disconnected and some http reqs failed
+    transiently', tunnel is not something layers above it should care".
+  - **Failures look like the network's.** The forwarder no longer answers
+    its own 502 page when the tunnel can't carry a connection: the
+    connection ends unanswered (URLSession and WebKit: "the network
+    connection was lost"). `TunnelTransport` turns a tunnel that can't come
+    up into a URL error — offline when the phone has no path, timed out
+    for a step that ran out of time, else "could not connect to the
+    server" — with the tunnel's reason under it and in TunnelLog. The tile
+    scheme handler fails such a request as a lost connection (no 502 or
+    401 page of the app's own), as it already did for a stream that broke.
+    Pairing keeps its own words: it is about the tunnel, so a network
+    failure during the first sign-in is still "can't reach the tunnel".
+  - **Recovery is the workspace's, not the tunnel's.**
+    `.xbinTunnelUp` became `.xbinWorkspaceReachable`: posted when the
+    tunnel comes up and when the events socket opens after a drop, no
+    connection or a gateway's 5xx (any transport; not after a background,
+    which closes it on purpose), at most once per 2 s with one trailing
+    (`ReachableGate`) — a tunnel and its socket coming back are one
+    recovery. Open pages that failed load again, the others get `online`:
+    a direct workspace's pages now recover the same way.
+  - **Halves drag to any ratio.** The leading column of a halves split is
+    `navigationSplitViewColumnWidth(min: 280, ideal: half, max: width −
+    280)` instead of a fixed width: iPadOS 26 lets the person drag a
+    split's column separator (UIKit's iOS 26 split view gained
+    `minimumSecondaryColumnWidth` and friends for it), and each side keeps
+    280 pt. The system keeps the dragged width while the split's width
+    doesn't change. The tile isn't told (no vocabulary change). The UI
+    tests drag it (`E2E.dragHalves`, in XbinNavigationTests test03 and
+    XbinAgentNativeTests test11); if the system turns out not to resize,
+    the fallback is a drag handle of our own at the boundary.

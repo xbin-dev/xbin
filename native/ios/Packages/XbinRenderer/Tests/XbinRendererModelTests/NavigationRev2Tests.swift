@@ -178,6 +178,10 @@ import XbinCore
         #expect(SplitLayout.halfWidth(1180) == 590 && SplitLayout.halfWidth(1032) == 516, "half, where both fit")
         #expect(SplitLayout.halfWidth(834) == 354, "an iPad in portrait: the document keeps 480")
         #expect(SplitLayout.halfWidth(500) == 280)
+        // D213: the bar between them drags to any ratio that leaves each side 280
+        #expect(SplitLayout.halvesWidths(834) == .init(min: 280, ideal: 354, max: 554))
+        #expect(SplitLayout.halvesWidths(1180) == .init(min: 280, ideal: 590, max: 900))
+        #expect(SplitLayout.halvesWidths(500) == .init(min: 280, ideal: 280, max: 280))
         let doc = split.children[1]
         let layout = ScreenLayout(doc)
         let island = try #require(layout.fillCanvas)
