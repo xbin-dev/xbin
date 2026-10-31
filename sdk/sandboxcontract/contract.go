@@ -465,6 +465,19 @@ type Sandbox struct {
 	AutoStopMin         int
 	Version             int
 	RestartNeeded       bool
+	Usage               *Usage // optional (D215): nil when the manager can't tell
+}
+
+// Usage is a running sandbox's CPU and memory (optional): Series only on a
+// GET of one sandbox, oldest first.
+type Usage struct {
+	At, MemBytes, MemMaxBytes, Pids int64
+	CPUPct                          float64
+	Series                          []struct {
+		T   int64
+		CPU float64
+		Mem int64
+	}
 }
 
 // Output is one stream of a run: head, tail, what was elided between.

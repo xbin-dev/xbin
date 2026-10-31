@@ -619,6 +619,19 @@ type sandboxView struct {
 	AutoStopMin   int               `json:"autoStopMin"`
 	Version       int               `json:"version"`
 	RestartNeeded bool              `json:"restartNeeded,omitempty"`
+	// Usage is the substrate's CPU and memory while it runs, passed on as
+	// it gives them (xbind's: read once a minute, D215); absent when it
+	// can't tell. Its series only on a GET of one sandbox (withSeries).
+	Usage *xbin.SandboxLiveUsage `json:"usage,omitempty"`
+}
+
+// withSeries is v with its usage's series from info: the answer to a GET
+// of one sandbox (view leaves the series out, as the list must).
+func withSeries(v sandboxView, info *xbin.SandboxInfo) sandboxView {
+	if v.Usage != nil && info != nil && info.Usage != nil {
+		v.Usage.Series = info.Usage.Series
+	}
+	return v
 }
 
 // view is rec (a copy) with the substrate's info (nil: it has none) as the
@@ -676,6 +689,11 @@ func (m *Manager) view(rec record, info *xbin.SandboxInfo, c caller, caps []stri
 			v.LastActive = info.LastActive
 		}
 		v.RestartNeeded = info.RestartNeeded || v.EgressNext != ""
+		if info.Usage != nil {
+			u := *info.Usage
+			u.Series = nil
+			v.Usage = &u
+		}
 		if agentPredatesPorts(rec.ID, info) { // its agent refused a port: a restart brings today's (ports.go)
 			v.RestartNeeded = true
 			v.StateDetail = strings.TrimPrefix(v.StateDetail+"; its agent predates ports (live previews): restart it", "; ")

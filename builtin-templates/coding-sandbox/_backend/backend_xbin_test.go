@@ -311,6 +311,9 @@ func (d *rtDouble) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		b.State = map[string]string{"start": "running", "stop": "stopped"}[seg[1]]
+		if b.State == "stopped" {
+			b.Usage = nil // its samples go with the run (D215)
+		}
 		if b.State == "running" && b.Net.EgressNext != "" {
 			b.Net.Egress, b.Net.EgressNext = b.Net.EgressNext, ""
 		}

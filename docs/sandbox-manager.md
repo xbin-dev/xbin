@@ -322,14 +322,35 @@ person who uses the image's coding agents.
 - `caps` may be fewer than `hello.caps` for this sandbox.
 - `version` increments on every change; `PATCH` may pass it back to refuse
   a lost update (`precondition`).
+- `usage` (**optional**, added 2026-10-31, D215) — a running sandbox's CPU
+  and memory as its substrate measures them:
+
+  ```json
+  "usage": {"at": 1790000160000, "cpuPct": 63.5, "memBytes": 2791728742,
+            "memMaxBytes": 4294967296, "pids": 41,
+            "series": [{"t": 1790000100000, "cpu": 41.5, "mem": 2600000000},
+                       {"t": 1790000160000, "cpu": 63.5, "mem": 2791728742}]}
+  ```
+
+  `at` and each point's `t` are unix ms; `cpuPct` (each point's `cpu`) is
+  the percent of one core over the interval before it (200: two cores
+  busy); `memBytes` (`mem`) the memory in use and `memMaxBytes` its cap
+  (absent without one); `pids` its processes; `series` the recent
+  readings, oldest first, the last one `at`'s. `GET /sbx/sandboxes/{id}`
+  carries `series`; the list carries `usage` without it. A manager leaves
+  `usage` out when it can't tell — before the first reading, once the
+  sandbox stopped, on a substrate that doesn't measure, and every manager
+  from before it — so a consumer treats it as optional, and never as
+  "idle". On xbin the builtin manager passes the runtime's on: one reading
+  a minute, the last hour's (§On xbin).
 
 ### Routes
 
 | Method & path | Body | Result |
 |---|---|---|
-| `GET /sbx/sandboxes` | | `{"sandboxes": [sandbox…]}` — the caller's own and those shared with it (a verified person: only those they may use) |
+| `GET /sbx/sandboxes` | | `{"sandboxes": [sandbox…]}` — the caller's own and those shared with it (a verified person: only those they may use); a `usage` without its `series` |
 | `POST /sbx/sandboxes` | `{name, image?, size?, egress?, visibility?, members?, labels?, clientId?, start?, from?}` | **201** + the sandbox. `start` defaults to true; `from: {sandbox, snapshot?}` clones (`clone`) |
-| `GET /sbx/sandboxes/{id}` | | the sandbox |
+| `GET /sbx/sandboxes/{id}` | | the sandbox, a `usage` with its `series` |
 | `PATCH /sbx/sandboxes/{id}` | `{name?, visibility?, members?, shares?, labels?, egress?, size?, autoStopMin?, version?}` | the sandbox, with `restartNeeded: true` when a change applies at the next start (an egress: `egressNext`) |
 | `DELETE /sbx/sandboxes/{id}` | | **204** |
 | `POST /sbx/sandboxes/{id}/start` · `/stop` · `/archive` · `/thaw` | `{start?}` on thaw | the sandbox |
@@ -748,6 +769,18 @@ the cause is gone:
   owning it, within the org's ceiling) approves it; a start refused at a
   total or a sandbox stopped at one offers them a raise. A grant raises
   the per-sandbox maximums with it (D203; protocol.md §Admission).
+- **CPU and memory.** While a sandbox runs, xbind reads its cgroup leaf
+  once a minute — `cpu.stat` `usage_usec`, `memory.current`,
+  `memory.max`, `pids.current` — and keeps the last 60 readings in memory
+  as `SandboxInfo.usage` (D215), the contract's shape: `cpuPct` over the
+  minute before (the first from the start), `memBytes` the leaf's memory
+  (the sandbox's processes plus its agent's and its root filesystem's; a
+  VM's: its VMM's), `memMaxBytes` its cap (`memMiB` plus that overhead),
+  `pids` its processes (a VM's: the VMM's, not the guest's). The series
+  rides a `GET` of one sandbox, the latest reading alone the list and
+  every other answer. A stop or an xbind restart starts it over; an xbind
+  without cgroup delegation has none. Pass it on as the contract's
+  optional `usage` (§The sandbox), as the builtin manager does.
 - **Disk.** Each sandbox's bytes are measured (`diskBytes`, after each
   stop and every few minutes while it runs). Past the tile's
   `perTile.diskGiB`, its largest running namespace sandbox is stopped and
@@ -782,6 +815,7 @@ the cause is gone:
 | `tar` | `tar -C <dir> -cf -` / `-xf -` over ssh |
 | snapshots, clones, archives | disk snapshots and images; archive = snapshot + terminate |
 | `egress: none` | a security group denying all egress (ssh from the manager only) |
+| `usage` (optional) | the provider's metrics API, or leave it out |
 | partitions, people | the manager's own table |
 
 **Check it against the contract.** The conformance suite is a Go package,

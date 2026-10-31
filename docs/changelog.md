@@ -10,6 +10,27 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-31
+
+- **Tile sandboxes: live CPU and memory** (D215; protocol.md §Tile
+  sandboxes, sandbox-manager.md §The sandbox). xbind reads every running
+  tile sandbox's cgroup once a minute and keeps the last hour in memory.
+  `SandboxInfo` gains an optional **`usage`**: `{at, cpuPct, memBytes,
+  memMaxBytes?, pids, series?: [{t, cpu, mem}]}`. `cpuPct` is the percent
+  of one core over the last minute. `GET /api/xbin/sandboxes/<name>`
+  carries the `series` (oldest first); the list carries `usage` without
+  it. There is no `usage` before the first reading after a start, once
+  stopped, or on an xbind without cgroup delegation. A stop or a restart
+  starts the series over. The Go SDK has it as `SandboxInfo.Usage`
+  (`*xbin.SandboxLiveUsage`). The sandbox-manager contract gains the same
+  optional `usage` on its sandbox: with `series` on `GET
+  /sbx/sandboxes/{id}`, without it in the list. A manager that can't tell
+  leaves it out, so consumers must treat it as optional. The builtin
+  **coding-sandbox** passes xbind's through. The conformance suite
+  (`sdk/sandboxcontract`) checks a `usage` only where a manager gives one,
+  and that a stopped sandbox has none. Additive: older managers and
+  consumers need no change.
+
 ## 2026-10-30
 
 - **Agent template: Projects atop your conversations, and the coordinator

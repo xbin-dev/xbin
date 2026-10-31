@@ -164,12 +164,17 @@ func (m *Manager) get(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	m.answer(w, r, http.StatusOK, rec.ID, c, nil)
+	m.answerAs(w, r, http.StatusOK, rec.ID, c, nil, true)
 }
 
 // answer writes sandbox id as c sees it now (in: the substrate's info when
 // the caller just got it).
 func (m *Manager) answer(w http.ResponseWriter, r *http.Request, status int, id string, c caller, in *xbin.SandboxInfo) {
+	m.answerAs(w, r, status, id, c, in, false)
+}
+
+// answerAs is answer, with its usage's series when series (a GET of it).
+func (m *Manager) answerAs(w http.ResponseWriter, r *http.Request, status int, id string, c caller, in *xbin.SandboxInfo, series bool) {
 	o, err := m.offer(r.Context())
 	if err != nil {
 		writeErr(w, err, nil)
@@ -192,7 +197,11 @@ func (m *Manager) answer(w http.ResponseWriter, r *http.Request, status int, id 
 			return
 		}
 	}
-	writeJSON(w, status, m.view(rec, in, c, o.caps))
+	v := m.view(rec, in, c, o.caps)
+	if series {
+		v = withSeries(v, in)
+	}
+	writeJSON(w, status, v)
 }
 
 // forget drops a record and what names it (m.mu held).
