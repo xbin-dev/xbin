@@ -10,6 +10,24 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-31
+
+- **Agent template: a project's page is its overview, on the web** (D214;
+  the template's API.md "Projects in the UI"). Where the agent serves `GET
+  /projects/{pid}/overview`, the Board tab becomes **Overview**: a status
+  strip (the coordinator, worker agents, subagents, tokens over a day or a
+  week, source control, the sandbox's CPU and memory), the board with each
+  card's agent, a bar to share the height, and the coordinator's section:
+  its state, Stop, Open chat, its goal in one line, and its newest
+  messages in a window of fixed height. On a tile at least 600 px tall the
+  page fits the tile and the bar at the bottom stays in view; shorter, the
+  page scrolls and the input ends the coordinator's section. Every part
+  has a tooltip after a short hover delay. The fold and the chat's height
+  are kept per person (`prefs/project-status-folded`,
+  `prefs/project-chat-height`). The bar at the bottom says it writes to the
+  coordinator. An older agent backend gets the page as it was. The
+  coordinator's messages are now read 30 at a time (`limit=30`), not 20.
+
 ## 2026-10-30
 
 - **Agent template: Projects atop your conversations, and the coordinator

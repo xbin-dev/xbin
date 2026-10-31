@@ -14,7 +14,13 @@
 //                         attachments)
 //   sendPage(app, v, text, clear)  Send while a page has a job: true when
 //                         the page took it (clear() once sent)
+//   draftOf(key), setDraft(key, text)  a job's draft — the bar's text while
+//                         it shows that job; a page's own input uses them
+//                         while the bar is hidden (a project's overview on
+//                         a short tile, D214), so the text moves between them
 //
+// A job may name whom the bar writes to: label {text, tone, tip} — a mark
+// before the text box (a project's: Coordinator, with its state's dot).
 // Each job keeps its own draft: what you were writing to a new chat is not
 // sent to a coordinator, nor the other way round.
 import { ext } from './web-ext.js';
@@ -40,6 +46,7 @@ export function paintPageComposer(pc, app) {
   }
   bar.hidden = key === 'none';
   bar.classList.toggle('pagejob', !!pc);
+  paintLabel(pc && pc.label);
   if (!pc) {
     if (was !== '' && key === '') { $('send').disabled = !!app.sending; $('attach').hidden = !app.attach.items.length; } // its own again
     if (key === 'none') $('attach').hidden = true;
@@ -49,6 +56,32 @@ export function paintPageComposer(pc, app) {
   $('msg').placeholder = pc.placeholder;
   $('msg').disabled = false;
   $('send').disabled = !!pc.busy;
+}
+
+export const draftOf = (key) => (key === shown ? $('msg').value : drafts.get(key) || '');
+export function setDraft(key, text) {
+  if (key === shown) { $('msg').value = text; $('msg').dispatchEvent(new Event('input')); return; }
+  if (text) drafts.set(key, text); else drafts.delete(key);
+}
+
+// paintLabel: whom the bar writes to, before its text box (none: hidden)
+function paintLabel(l) {
+  let to = $('pjto');
+  if (!to) {
+    if (!l) return;
+    to = document.createElement('span');
+    to.id = 'pjto';
+    to.className = 'pjto';
+    to.append(document.createElement('span'), document.createElement('span'));
+    to.firstChild.className = 'pdot';
+    to.lastChild.className = 'lb';
+    $('msg').before(to);
+  }
+  to.hidden = !l;
+  if (!l) return;
+  to.firstChild.dataset.tone = l.tone || 'idle';
+  to.lastChild.textContent = l.text;
+  if (l.tip) to.dataset.tip = l.tip; else delete to.dataset.tip;
 }
 
 export function sendPage(app, v, text, clear) {
@@ -62,5 +95,9 @@ const style = document.createElement('style');
 style.textContent = `
   .composer[hidden] { display: none; }
   .composer.pagejob .cpicks, .composer.pagejob #clip { display: none; }
+  .composer .pjto { flex: none; align-self: center; display: inline-flex; align-items: center; gap: 5px; cursor: help;
+    font: var(--bx-font-micro); letter-spacing: var(--bx-tracking-micro); text-transform: uppercase; color: var(--bx-muted); white-space: nowrap; }
+  .composer .pjto[hidden] { display: none; }
+  @media (max-width: 560px) { .composer .pjto .lb { display: none; } }
 `;
 document.head.append(style);

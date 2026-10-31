@@ -59,7 +59,7 @@ ok('…then All projects, counting every one', (await page.textContent('#projent
 ok('…at the top of the list, above the conversations', await page.$eval('#runs', (el) => el.querySelector('#projsec') === el.firstElementChild && !document.querySelector('#sideext').textContent.trim()));
 ok('task conversations are not chats', !(await page.textContent('#runs')).includes('Fix the login loop'));
 await page.click('#projfold');
-ok('folded: the rows go, the heading says how many tasks need you', await page.waitForFunction(() => !document.querySelector('#projsec .projrow') && !document.querySelector('#projentry')
+ok('folded: the rows go, All projects stays, the heading says how many tasks need you', await page.waitForFunction(() => !document.querySelector('#projsec .projrow') && !!document.querySelector('#projentry')
   && document.querySelector('#projfold').textContent.replace(/\s+/g, '') === 'Projects3' && document.querySelector('#projfold').getAttribute('aria-expanded') === 'false', null, { timeout: 5000 }).then(() => true, () => false));
 ok('…kept in your prefs', await page.evaluate(() => window.__prefs['projects-folded'] === true));
 await page.click('#projfold');

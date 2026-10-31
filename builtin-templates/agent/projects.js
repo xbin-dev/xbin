@@ -17,7 +17,13 @@
 //          the new-project form (project-new.js). Above the board, the
 //          coordinator card, and the bar at the bottom of the page writes to
 //          the coordinator — never a new chat (D212); an Activity tab, the
-//          project's event feed (project-feed.js). A team project's
+//          project's event feed (project-feed.js). On a backend that serves
+//          a project's overview (D214) the page is that: the status strip
+//          (project-status.js), the board — each card with its agent's line
+//          —, the bar and the coordinator's section (project-coord.js, which
+//          also fits the page to a tall tile); its name, Status and the
+//          tabs in the top bar; an older backend's page is drawn as before
+//          (the coordinator card above the board). A team project's
 //          definition (kind team, at the shared space) has no tasks of its
 //          own: its board is the team board — each member's tasks — with
 //          "Work on this" from your own space; your half of it (kind
@@ -34,10 +40,13 @@ import { can, agentChoices, pinWords, PINNED } from './model/projects.js';
 import { cardWords, issueWords } from './model/project-task.js';
 import { newProjectTpl } from './project-new.js';
 import { settingsTpl } from './project-settings.js';
-import { coordCardTpl, coordComposer, feedTpl } from './project-feed.js';
+import { coordCardTpl, feedTpl } from './project-feed.js';
 import { teamBoardTpl, teamLinkTpl, reviewCardTpl } from './project-team.js';
 import { forkBaseOffer, forkBase } from './model/project-upgrade.js';
 import { chipBody } from './project-chips.js';
+import { projectOverview, cardAgent, TIPS } from './model/project-overview.js';
+import { stripTpl, foldTpl, agentLineTpl, cardTip } from './project-status.js';
+import { coordSecTpl, splitTpl, pageBar, onOverview } from './project-coord.js';
 
 // keys(fn): Enter and Space on the element itself (not a control inside it) do what a click does —
 // a clickable card, entry or crumb, reached by Tab
@@ -48,7 +57,7 @@ let shownKey = '';
 
 ext.register({
   listTop: () => listTopTpl(),
-  page: (p) => (p === 'projects' ? { get top() { return topTpl(); }, get body() { return bodyTpl(); }, get composer() { return coordComposer(pj()); } } : null), // drawn when asked
+  page: (p) => (p === 'projects' ? { get top() { return topTpl(); }, get body() { return bodyTpl(); }, get composer() { return pageBar(pj()); } } : null), // drawn when asked
   paint: (v) => toTop(v),
 });
 
@@ -107,8 +116,19 @@ function topTpl() {
   const pv = p.view();
   if (p.form) return html`<a class="crumb" role="button" tabindex="0" @click=${() => p.closeForm()} @keydown=${keys(() => p.closeForm())}>Projects ›</a><span class="title">New project</span>`;
   if (p.opened == null) return html`<span class="title">Projects</span><span class="muted small">a sandbox, its repos and task conversations</span>`;
-  return html`<a class="crumb" role="button" tabindex="0" @click=${() => p.open(null)} @keydown=${keys(() => p.open(null))}>Projects ›</a><span class="title">${pv ? pv.name : '#' + p.opened}</span>
-    ${pv && pv.state !== 'active' ? html`<span class="badge">${pv.state}</span>` : nothing}`;
+  const crumb = html`<a class="crumb" role="button" tabindex="0" @click=${() => p.open(null)} @keydown=${keys(() => p.open(null))}>Projects ›</a>`;
+  const badge = pv && pv.state !== 'active' ? html`<span class="badge">${pv.state}</span>` : nothing;
+  if (!onOverview(p)) return html`${crumb}<span class="title">${pv ? pv.name : '#' + p.opened}</span>${badge}`;
+  // the overview (D214): its repos beside the name, Status (the strip's fold) and the tabs up here
+  return html`${crumb}<span class="title">${pv.name}<span class="prepos">${(pv.repos || []).map((r) => r.repo).join(', ')}</span></span>${badge}
+    ${p.tab === 'board' ? foldTpl(projectOverview(ctx.app)) : nothing}${tabsTpl(p, pv, true)}`;
+}
+
+// the tabs: Board (the overview's: Overview), Activity (not a team definition's), Settings
+function tabsTpl(p, pv, ov) {
+  const tab = (key, word, tip) => html`<button class="btn ghost btnsm" role="tab" data-tab=${key} aria-selected=${p.tab === key ? 'true' : 'false'}
+    data-tip=${ov ? tip : nothing} @click=${() => p.showTab(key)}>${word}</button>`;
+  return html`<span class="ptabs" role="tablist">${tab('board', ov ? 'Overview' : 'Board', TIPS.overview)}${pv.kind !== 'team' ? tab('events', 'Activity', TIPS.activity) : nothing}${tab('settings', 'Settings', TIPS.settings)}</span>`;
 }
 
 // --- the page --------------------------------------------------------------------------
@@ -155,15 +175,13 @@ function projCardTpl(p, x) {
 function projectTpl(p, pv) {
   if (!pv) return html`<div class="autos-page projs-page">${errTpl(p)}<div class="muted small">loading…</div></div>`;
   const c = can(pv);
+  if (pv.kind !== 'team') projectOverview(ctx.app).ensure(pv.id); // read once: whether this backend serves the overview
+  if (onOverview(p)) return overviewTpl(p, pv, c);
   return html`<div class="autos-page projs-page wide">
     <div class="ahd"><h3>${pv.name}</h3>
       <span class="muted small">${(pv.repos || []).map((r) => r.repo).join(', ')}</span>
       <span style="flex:1"></span>
-      <span class="ptabs" role="tablist">
-        <button class="btn ghost btnsm" role="tab" data-tab="board" aria-selected=${p.tab === 'board' ? 'true' : 'false'} @click=${() => p.showTab('board')}>Board</button>
-        ${pv.kind !== 'team' ? html`<button class="btn ghost btnsm" role="tab" data-tab="events" aria-selected=${p.tab === 'events' ? 'true' : 'false'} @click=${() => p.showTab('events')}>Activity</button>` : nothing}
-        <button class="btn ghost btnsm" role="tab" data-tab="settings" aria-selected=${p.tab === 'settings' ? 'true' : 'false'} @click=${() => p.showTab('settings')}>Settings</button>
-      </span></div>
+      ${tabsTpl(p, pv, false)}</div>
     ${errTpl(p)}
     ${p.tab === 'settings' ? settingsTpl(p, pv) : p.tab === 'events' && pv.kind !== 'team' ? feedTpl(p, pv) : boardPageTpl(p, pv, c)}
   </div>`;
@@ -174,43 +192,79 @@ function boardPageTpl(p, pv, c) {
     return html`<div class="note" id="pdef-note">This is the team project's definition. Its tasks run in each member's own space,
       on their own board — the Settings tab keeps its repos, policy and members.</div>${teamBoardTpl(p, pv)}`;
   }
-  const list = p.taskList(pv.id);
   return html`
     ${pv.kind === 'membership' ? html`${teamLinkTpl(p, pv)}${reviewCardTpl(p, pv)}` : nothing}
     ${coordCardTpl(p, pv)}
-    <div class="pbar">
-      ${c.act ? html`<button class="btn btnsm" id="ptask-new" @click=${() => p.newTask()}>New task</button>
-        <button class="btn ghost btnsm" id="ptask-issues" @click=${() => p.openPicker()} ?disabled=${!(pv.repos || []).length}>From issues…</button>
-        <button class="btn ghost btnsm" id="proj-warm" title="start the sandbox, fetch the repos and refresh the credentials" @click=${() => p.warm(pv.id)}>Warm</button>` : nothing}
-      ${forkBaseOffer(pv) ? html`<button class="btn ghost btnsm" id="proj-forkbase" title="big tasks fork a snapshot of the project's sandbox, taken while it is quiet"
+    ${taskBarTpl(p, pv, c, false)}
+    ${boardTpl(p, pv, c, null)}`;
+}
+
+// overviewTpl: a project's page as its overview (D214) — the strip, the board, the bar, the coordinator;
+// its Activity and Settings tabs as before, their tabs in the top bar
+function overviewTpl(p, pv, c) {
+  if (p.tab !== 'board') return html`<div class="autos-page projs-page wide povtab">${errTpl(p)}${p.tab === 'settings' ? settingsTpl(p, pv) : feedTpl(p, pv)}</div>`;
+  const o = projectOverview(ctx.app);
+  const it = o.ensure(pv.id);
+  return html`<div class="autos-page projs-page pov" id="pov">
+    ${errTpl(p)}
+    ${pv.kind === 'membership' ? html`${teamLinkTpl(p, pv)}${reviewCardTpl(p, pv)}` : nothing}
+    ${stripTpl(o, it, pv.id)}
+    ${taskBarTpl(p, pv, c, true)}
+    <div class="povboard" id="pov-board">${boardTpl(p, pv, c, it)}</div>
+    ${splitTpl(pv)}
+    ${coordSecTpl(p, pv, it)}
+  </div>`;
+}
+
+// the board's bar: New task, From issues…, Warm, Fork base now, find, mine, the slots (ov: the overview's —
+// headed Tasks, each part with its tooltip)
+function taskBarTpl(p, pv, c, ov) {
+  const tip = (k) => (ov ? TIPS[k] : nothing);
+  const title = (t) => (ov ? nothing : t);
+  return html`<div class="pbar">
+      ${ov ? html`<h3 data-tip=${TIPS.board}>Tasks</h3>` : nothing}
+      ${c.act ? html`<button class="btn btnsm" id="ptask-new" data-tip=${tip('newTask')} @click=${() => p.newTask()}>New task</button>
+        <button class="btn ghost btnsm" id="ptask-issues" data-tip=${tip('fromIssues')} @click=${() => p.openPicker()} ?disabled=${!(pv.repos || []).length}>From issues…</button>
+        <button class="btn ghost btnsm" id="proj-warm" title=${title('start the sandbox, fetch the repos and refresh the credentials')} data-tip=${tip('warm')} @click=${() => p.warm(pv.id)}>Warm</button>` : nothing}
+      ${forkBaseOffer(pv) ? html`<button class="btn ghost btnsm" id="proj-forkbase" title=${title('big tasks fork a snapshot of the project\'s sandbox, taken while it is quiet')} data-tip=${tip('forkBase')}
         @click=${() => { if (confirm('Snapshot the project\'s sandbox for big tasks now? It stops while the snapshot is taken; running tasks wait.')) p.act(() => forkBase(pv.id), pv.id).then((r) => { if (r) { p.flash = 'The fork base is being taken.'; p.changed(); } }); }}>Fork base now</button>` : nothing}
       <span style="flex:1"></span>
-      <input type="search" class="pq" aria-label="Find a task" placeholder="Find a task…" .value=${p.filter.q} @change=${(e) => p.setFilter({ q: e.target.value })}>
-      <label class="chk small"><input type="checkbox" .checked=${p.filter.mine} @change=${(e) => p.setFilter({ mine: e.target.checked })}> mine</label>
-      ${pv.slots ? html`<span class="muted small" title="tasks holding a slot now, of the policy's maxTasks">${pv.slots.used}/${pv.slots.max} at work</span>` : nothing}
-    </div>
+      <input type="search" class="pq" aria-label="Find a task" placeholder="Find a task…" data-tip=${tip('find')} .value=${p.filter.q} @change=${(e) => p.setFilter({ q: e.target.value })}>
+      <label class="chk small" data-tip=${tip('mine')}><input type="checkbox" .checked=${p.filter.mine} @change=${(e) => p.setFilter({ mine: e.target.checked })}> mine</label>
+      ${pv.slots ? html`<span class="muted small" title=${title('tasks holding a slot now, of the policy\'s maxTasks')} data-tip=${tip('slots')}>${pv.slots.used}/${pv.slots.max} at work</span>` : nothing}
+    </div>`;
+}
+
+// the board: the forms, a column per state, more, none yet (it: the overview's item — each card says its agent)
+function boardTpl(p, pv, c, it) {
+  const list = p.taskList(pv.id);
+  return html`
     ${p.taskForm ? taskFormTpl(p, pv) : nothing}
     ${p.picker ? pickerTpl(p, pv) : nothing}
     ${list.err ? html`<div class="err">${list.err}</div>` : nothing}
     <div class="pboard">${p.board(pv.id).map((col) => html`<div class="pcol" data-col=${col.key}>
         <div class="pcolh">${col.title} <span class="muted">${col.tasks.length || ''}</span></div>
-        ${repeat(col.tasks, (t) => t.n, (t) => taskCardTpl(t))}
+        ${repeat(col.tasks, (t) => t.n, (t) => taskCardTpl(t, it))}
       </div>`)}</div>
     ${list.next ? html`<button class="btn ghost btnsm" @click=${() => p.tasks(pv.id, p.filter, true)}>more</button>` : nothing}
     ${!list.items.length && !list.loading ? html`<div class="muted small empty-line">No tasks yet${c.act ? ' — New task, or From issues…' : ''}.</div>` : nothing}`;
 }
 
-// a task's card: opens its conversation; links (its PRs) open on the platform
-function taskCardTpl(t) {
+// a task's card: opens its conversation; links (its PRs) open on the platform. On the overview (it) its
+// agent's line (model/project-overview.js cardAgent) and a tooltip instead of a title
+function taskCardTpl(t, it = null) {
   const w = cardWords(t);
+  const a = it ? cardAgent(it.data, t.n) : null;
   const open = () => { if (t.run) ctx.app.select(t.run); };
   const stop = (e) => e.stopPropagation();
-  return html`<div class="ptask" data-n=${t.n} data-state=${t.state || ''} tabindex="0" title=${t.run ? 'open its conversation' : 'its conversation was deleted'}
+  return html`<div class="ptask" data-n=${t.n} data-state=${t.state || ''} tabindex="0" title=${it ? nothing : t.run ? 'open its conversation' : 'its conversation was deleted'}
+      data-tip=${it ? cardTip(t, a) : nothing} data-tip-title=${it ? `${w.n} ${w.title}` : nothing}
       @click=${open} @keydown=${(e) => { if (e.key === 'Enter') open(); }}>
     <div class="pth"><span class="ptn">${w.n}</span><span class="ptt">${w.title}</span></div>
     <div class="ptm"><span class="ptst" data-tone=${w.state.tone}>${w.state.text}</span>
       ${w.size ? html`<span class="badge">big</span>` : nothing}
-      ${w.agent ? html`<span class="badge" title="a coding agent works on it">${w.agent}</span>` : nothing}</div>
+      ${w.agent && !a ? html`<span class="badge" title="a coding agent works on it">${w.agent}</span>` : nothing}</div>
+    ${a ? agentLineTpl(a) : nothing}
     ${w.branch ? html`<div class="ptb mono" title="its branch"><bx-icon name="branch"></bx-icon>${w.branch}</div>` : nothing}
     ${w.prs.length || ext.has('card') ? html`<div class="ptc">
       ${w.prs.map((c) => (c.url ? html`<a class="badge pchip" data-tone=${c.tone} href=${c.url} target="_blank" rel="noopener noreferrer" title=${c.title} @click=${stop}>${chipBody(c)} ↗</a>`

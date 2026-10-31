@@ -367,7 +367,7 @@ test('the coordinator as a small chat: its last three messages, what it does now
   assert.ok(order.indexOf('message') < order.indexOf('field') && order.lastIndexOf('message') < order.indexOf('field'), `the line right under the messages: ${order}`);
   assert.equal(called(r, 'POST', /\/projects\/7\/coordinator$/).length, 0, 'reading makes no coordinator');
   assert.ok(called(r, 'GET', /\/projects\/7\/coordinator$/).length >= 1);
-  const reads = called(r, 'GET', /\/runs\/900\/view\?limit=20$/).length;
+  const reads = called(r, 'GET', /\/runs\/900\/view\?limit=30$/).length;
   assert.ok(reads >= 2, `its run moved: read again (${reads})`);
   const idle = find(topScreen(r.snapshots.idle), coordSec);
   assert.equal(idle.p.badge, undefined, 'idle: no state said');

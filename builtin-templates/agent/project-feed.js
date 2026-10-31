@@ -2,7 +2,9 @@
 // (API.md §Projects in the UI), drawn in a project's page (projects.js):
 //
 //   coordCardTpl(p, pv)  the coordinator card above the board, a small chat
-//                        (D209): what it is and what it does now, its last
+//                        (D209; on a backend without the overview — with
+//                        it, project-coord.js draws the coordinator): what
+//                        it is and what it does now, its last
 //                        messages (model/project-feed.js preview — none yet:
 //                        your first message starts it), Open ↗ (your
 //                        coordinator, made on first use — its conversation
@@ -12,7 +14,10 @@
 //                        to its coordinator (POST /projects/{pid}/coordinator
 //                        {text}) — never a new chat; none on the list, the
 //                        forms, a project's settings, or where there is no
-//                        coordinator for you
+//                        coordinator for you; the bar says "Coordinator"
+//                        with its state (D214). On the overview of a short
+//                        tile the input is in its section instead
+//                        (project-coord.js pageBar)
 //   feedTpl(p, pv)       the Activity tab: the project's events, newest
 //                        first — tasks made and finished, workspaces,
 //                        pull requests, CI, reviews and comments, merges —
@@ -27,6 +32,7 @@ import { ctx } from './web-ext.js';
 import { projectFeed, feedWords, COORD_EMPTY } from './model/project-feed.js';
 import { can } from './model/projects.js';
 import { blocksTpl } from './chat-cards.js';
+import { TIPS } from './model/project-overview.js';
 
 const feed = () => projectFeed(ctx.app);
 const ago = (ms) => (ms ? new Date(ms).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '');
@@ -65,6 +71,7 @@ export function coordComposer(p) {
     key: `coord:${pv.id}`,
     placeholder: pr.shown && !pr.run ? 'Message the coordinator — your first message starts it…' : 'Message the coordinator: make tasks for the open bugs, tell me what failed…',
     busy: !!c.busy,
+    label: { text: 'Coordinator', tone: (pr.shown && pr.run && pr.state.tone) || 'idle', tip: TIPS.to }, // whom the bar writes to (D214)
     send: async (text) => !!(await f.messageCoordinator(pv.id, text)),
   };
 }

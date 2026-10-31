@@ -10,7 +10,11 @@
 //                 f.messageCoordinator(pid, text)
 //   f.preview(pid) → the coordinator card's small chat (D209): your
 //                 coordinator (GET /projects/{pid}/coordinator — read only,
-//                 none is made), what it does now, its last messages
+//                 none is made), what it does now, its last messages — and
+//                 the overview's chat window (D214): its newest messages
+//                 and tool steps, more than fit
+//   f.stopCoordinator(pid) → its turn interrupted, as the chat's Stop: the
+//                 text of what was still queued to it
 //
 // The feed is kept current by the `project` stream event (change `event`,
 // or any change about a task: a turn ended, a PR moved) — app.projects.take
@@ -66,14 +70,25 @@ export function feedWords(ev) {
 // --- the coordinator's preview (D209) -----------------------------------------------------------
 
 export const COORD_TAIL = 3;  // the messages the coordinator card shows
-export const COORD_READ = 20; // the messages read for them (GET /runs/{id}/view?limit=): a turn's tool calls and results take several
+export const COORD_READ = 30; // the messages read for them (GET /runs/{id}/view?limit=): a turn's tool calls and results take several,
+                              // and the overview's window (D214) holds more than fit
+export const COORD_WINDOW = 30; // the blocks the overview's chat window holds (it shows the newest that fit)
 const SAID = new Set(['user', 'assistant', 'draft']);
+const STEPS = new Set(['tool', 'agent', 'notice']); // one line each in the overview's window
 
 /** coordTail(blocks, n): the conversation's last n messages — the person's and the agent's
  * (fold.js blocks; its tool calls, thinking and notices stay in its chat). */
 export function coordTail(blocks, n = COORD_TAIL) {
   const said = (blocks || []).filter((b) => SAID.has(b.k) && (b.k !== 'user' || b.text));
   return said.length > n ? said.slice(-n) : said;
+}
+
+/** coordRecent(blocks, n): the overview's chat window (D214) — the last n of the person's and the
+ * agent's messages and its tool steps, notices and subagents (each drawn as one line); its
+ * thinking and journal steps stay in its chat. */
+export function coordRecent(blocks, n = COORD_WINDOW) {
+  const shown = (blocks || []).filter((b) => (SAID.has(b.k) && (b.k !== 'user' || b.text)) || STEPS.has(b.k));
+  return shown.length > n ? shown.slice(-n) : shown;
 }
 
 export const COORD_CLIP = 700; // a message's characters the preview shows; the rest is in its chat
@@ -238,6 +253,20 @@ class Feed {
   /** openCoordinator(pid): your coordinator's run ({id, …}), made if need be — the view opens it. */
   openCoordinator(pid) { return this.call(pid, '', 'open'); }
 
+  /** stopCoordinator(pid): interrupt its turn (POST /runs/{id}/interrupt, as the chat's Stop does) —
+   * the text of the messages still queued to it ('' none), for the input to take back. */
+  async stopCoordinator(pid) {
+    const c = this.coord(pid);
+    const id = c.run && c.run.id;
+    if (!id || c.busy) return '';
+    c.busy = 'stop'; c.err = ''; c.note = '';
+    this.changed();
+    try {
+      const r = await projCall(homeOf(id), `/runs/${id}/interrupt`, 'POST');
+      return ((r && r.returned) || []).map((q) => q.text).filter(Boolean).join('\n\n');
+    } catch (e) { c.err = e.message; return ''; } finally { c.busy = ''; this.changed(); }
+  }
+
   /** messageCoordinator(pid, text): write to it (it reads it at its next step, or starts a turn). */
   async messageCoordinator(pid, text) {
     const t = String(text ?? this.coord(pid).text ?? '').trim();
@@ -330,6 +359,8 @@ class Feed {
    *   state   coordState(run); line  what it does now while it works or waits
    *   tail    its last COORD_TAIL messages (fold.js blocks), null until read;
    *           more  older ones are in its chat
+   *   recent  the overview's window (D214): its last COORD_WINDOW messages and
+   *           steps (coordRecent), null until read; older  some are not in it
    *   loading, err  the lookup's or the read's
    * Reads what it lacks: the lookup once, the messages when the project's page
    * opens (app.projects.opens), after Send and when its run moves.
@@ -344,7 +375,7 @@ class Feed {
     if (c.look === 'unsupported' || c.missing) return { shown: false };
     const id = c.run && c.run.id;
     if (!id) {
-      return { shown: true, run: null, state: coordState(null), line: '', tail: [], more: false,
+      return { shown: true, run: null, state: coordState(null), line: '', tail: [], more: false, recent: [], older: false,
         loading: c.look === 'reading' || (c.look === '' && !c.lookErr), err: c.look === 'failed' ? c.lookErr : '' };
     }
     const s = this.app.session;
@@ -362,10 +393,13 @@ class Feed {
     const state = coordState(run);
     const tail = blocks ? coordTail(blocks).map(short) : null;
     const all = blocks ? coordTail(blocks, Infinity) : [];
+    const every = blocks ? coordRecent(blocks, Infinity) : [];
+    const recent = blocks ? every.slice(-COORD_WINDOW).map((b) => (SAID.has(b.k) ? short(b) : b)) : null;
     return {
       shown: true, run, state,
       line: state.key === 'working' || state.key === 'waiting' ? activity(v || { run }, blocks || []) : '',
       tail, more: !!tail && (!!(v && v.hasOlder) || all.length > tail.length),
+      recent, older: !!recent && (!!(v && v.hasOlder) || every.length > recent.length),
       loading: !tail && c.reading, err: tail ? '' : c.tailErr,
     };
   }

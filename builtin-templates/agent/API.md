@@ -4552,7 +4552,69 @@ at each) — yours, then team projects, archived ones last — each with its
 repos, the slots at work and its counts per column.
 
 **A project's page** has three tabs — Board, Activity and Settings (a team
-project's definition: Board and Settings):
+project's definition: Board and Settings). Wherever it is open, the bar
+at the bottom of the page writes to the project's coordinator, never a new
+chat (D212; none on the list, the forms or Settings, nor where you have no
+coordinator); it says so ("Coordinator", with its state's mark).
+
+**The overview** (D214). On a backend that serves `GET
+/projects/{pid}/overview` the Board tab is the project's overview, called
+**Overview** — on the web, top to bottom, on one screen:
+
+1. **The status strip** (about 125 px, six cells; three a row on a narrow
+   page, two on a phone): the **coordinator** (working, waiting for you,
+   idle or failed and for how long, what it does or what would wake it,
+   the last event that woke it, its turns today and tasks made in 7 days);
+   **worker agents** (tasks, slots in use, how many work, need you, idle,
+   wait, and how many each kind of agent works on); **subagents** (running,
+   waiting, finished and failed in 24 hours, under which task); **tokens**
+   (the total over the last 24 hours or 7 days — **Day / Week**, a read
+   with `range=week` — each class's, a stacked chart, and what coding
+   agents reported they cost); **source control**, headed by the provider's
+   own title (each repo with its default branch's checks, ↗ to it only for
+   an `https` link; the project's PRs, failing and awaiting review; open
+   issues and what merged in 7 days when the provider serves repo stats);
+   the **sandbox** (state, commands running, size, disk, and CPU and
+   memory over the last hour). **Status** in the top bar folds it to one
+   line (a click on the line unfolds it), kept per person
+   (`/api/xbin/prefs/project-status-folded`). While it is first read the
+   strip's place says so; a read that failed says why, with Retry.
+2. **The board** (below), each card also saying its agent — the agent or
+   the coding agent, what it does now, its running subagents and tokens.
+3. **A bar** (a separator) shares the height between the board and the
+   coordinator's conversation: drag it, or Arrow keys ±24 px (Shift ±96);
+   double-click puts it back; the conversation keeps at least 100 px and
+   the board 120. Kept per person (`/api/xbin/prefs/project-chat-height`).
+4. **The coordinator**: a header (its state, model, tokens today, **Stop**
+   while it works — `POST /runs/{id}/interrupt`, as the chat's Stop; what
+   it had not read yet comes back into the input — and **Open chat ↗**);
+   its **goal** in one line (what it does now beside it; a click shows all
+   of it; idle, what wakes it — each a chip — then the goal); its
+   **conversation** as a window of fixed height (300 px; 200 px on a short
+   tile) on its newest messages and tool steps, a step one line: more are
+   read than fit (`GET /runs/{id}/view?limit=30`), the oldest are clipped
+   at the top under a fade with "earlier messages are in its chat", a new
+   one pushes the oldest out and nothing below it moves; no scrollbar of
+   its own.
+5. **Height.** On a tile at least 600 px tall the page fits the tile: the
+   board takes what is left and scrolls inside it, the conversation's window
+   gives way before the board goes under 120 px, and the input is the bar
+   at the bottom, always in view. On a shorter tile — or one too short for
+   the rest with the board's 120 px and the conversation's 100 (a strip of
+   two or three rows, a phone) — the page scrolls as one, nothing clipped,
+   the board at its own height, and the input ends the coordinator's
+   section instead of the bar (what you were writing moves between them).
+
+Every cell, chip and button explains itself in a tooltip — after about
+600 ms of the pointer resting on it (none while it passes over things;
+once one shows, moving to another switches at once), at once on keyboard
+focus (the element is described by it), and on a touch screen a tap shows
+it until the next tap; Escape hides it. The page reads the overview when it
+opens, on its project's `project` events (coalesced) and every 60 s while
+it shows; nothing while it doesn't. An older backend (the route answers a
+plain 404) gets the page as it was: the coordinator card above the board,
+below. The Activity and Settings tabs are as below, their tabs in the top
+bar beside Status.
 
 - **Board** — a column per state (queued, working, needs you, PR, done:
   `TaskView.column`), each task a card: `#n`, its title, its state (and
@@ -4576,22 +4638,24 @@ project's definition: Board and Settings):
   search box and "mine" narrow the board. A team project's definition
   (`kind: "team"`, at the shared space) has no tasks of its own — they run
   in each member's own space — so its board is a line saying so and the
-  team board (below), with no task actions and no read of tasks. Above a
-  project's board, for its participants, the **coordinator card**, a
-  small chat (D209): what the coordinator does now (working, waiting for
-  you, failed), its last three messages — yours and its own, markdown,
-  newest at the bottom; its tool calls stay in its chat, "earlier messages
-  are in its chat" says when there are more — and right under them a line
-  to write to it (`POST /projects/{pid}/coordinator {text}`); **Open**
-  (the same route without text — your coordinator, made on first use; its
-  conversation opens). The coordinator is found with `GET
-  /projects/{pid}/coordinator`, which makes none: before you have one the
-  card says your first message starts it. Its messages are read (`GET
-  /runs/{id}/view?limit=20`) when the page opens, after Send and when its
+  team board (below), with no task actions and no read of tasks. On a
+  backend without the overview, above a project's board, for its
+  participants, the **coordinator card**, a small chat (D209): what the
+  coordinator does now (working, waiting for you, failed), its last three
+  messages — yours and its own, markdown, newest at the bottom; its tool
+  calls stay in its chat, "earlier messages are in its chat" says when
+  there are more; the bar at the bottom writes to it (`POST
+  /projects/{pid}/coordinator {text}`); **Open** (the same route without
+  text — your coordinator, made on first use; its conversation opens).
+  With the overview, its section below the board (above) does all this.
+  The coordinator is found with `GET /projects/{pid}/coordinator`, which
+  makes none: before you have one the card (or the section) says your
+  first message starts it. Its messages are read (`GET
+  /runs/{id}/view?limit=30`) when the page opens, after Send and when its
   `run` event says it moved (at a turn's start and end; at most one read a
   second) — so it shows each turn's outcome, not its tokens; while its own
   chat is open the session's view is used. A backend without the `GET`
-  (405) shows the card as before, Open and the line; one without the route
+  (405) shows the card as before, Open and the bar; one without the route
   at all shows none. **Fork base
   now** (its owner, where big tasks fork the project's sandbox): `POST
   /projects/{pid}/fork-base {now: true}`, confirmed first — the sandbox

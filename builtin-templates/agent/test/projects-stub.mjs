@@ -133,6 +133,8 @@ export function PROJ_STUB(seed) {
     p.repos = p.repos.filter((x) => x.slug !== m[2]);
     return json({ state: 'removing' }, 202);
   });
+  // a backend from before the overview (D214): the mux's plain 404 — PROJ_MORE_STUB serves it
+  r('GET', new RegExp(`${API}/projects/(\\d+)/overview(\\?.*)?$`), () => plain404());
   r('GET', new RegExp(`${API}/projects/(\\d+)/status$`), (m) => json(P.status[m[1]] || { sandbox: {}, repos: [], creds: [], jobs: [], slots: { used: 0, max: 3 }, warnings: [] }));
   r('POST', new RegExp(`${API}/projects/(\\d+)/warm$`), () => json({ jobs: [] }, 202));
   r('GET', new RegExp(`${API}/projects/(\\d+)/issues\\?(.*)$`), (m) => {
