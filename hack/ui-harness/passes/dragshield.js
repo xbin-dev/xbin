@@ -9,7 +9,10 @@
 //     after it change nothing; the window losing focus mid-resize (a release
 //     the page never saw): the same;
 //   - the window's title bar jumped onto another tile's page;
-//   - a floating tile's corner and a pop-out window's corner;
+//   - a floating tile's corner, then its title bar pressed and held, and
+//     dragged: the size stays (and after a reload);
+//   - the same for a tile's sub-window (xbin.window) — before D217 the
+//     press alone put its spawn-time size back (#54's second report);
 //   - a Tiled screen's divider jumped onto the next tile's page.
 // Runs in a Chromium of its own whose tile pages are out of process, as a
 // desktop Chrome's are (site isolation, sandboxed frames isolated): only
@@ -52,6 +55,23 @@ async function press(page, x, y, stops, steps = 1) {
   await page.mouse.move(x, y);
   await page.mouse.down();
   for (const [dx, dy] of stops) await page.mouse.move(x + dx, y + dy, { steps });
+}
+
+// a resized window's title bar pressed and held (no move), then dragged:
+// the size stays, the position follows
+async function holdThenDrag(page, check, what, bar, rect) {
+  const r0 = await rect(), h = await rectOf(page, bar);
+  const x = h.x + 60, y = h.y + h.h / 2;
+  await page.mouse.move(x, y);
+  await page.mouse.down();
+  await sleep(300); await settle(page);
+  const held = await rect();
+  await page.mouse.move(x - 120, y + 90, { steps: 2 });
+  await page.mouse.up();
+  await settle(page);
+  const r1 = await rect();
+  check(near(held.w, r0.w) && near(held.h, r0.h), `${what}: pressing and holding its title bar keeps its size (${R(r0)} → ${R(held)})`);
+  check(near(r1.w, r0.w) && near(r1.h, r0.h) && near(r1.x, r0.x - 120) && near(r1.y, r0.y + 90), `${what}: dragged by its title bar it moves and keeps its size (${R(r0)} → ${R(r1)})`);
 }
 
 async function dragShield() {
@@ -159,20 +179,39 @@ async function drags(browser) {
   await settle(page);
   const fl = await sh(page, (t, c) => t.floatOf(c), C);
   check(near(fl?.w, F0.w + 260) && near(fl?.h, F0.h + 210) && !(await shielded(page)), `a floating tile's corner followed across B's page and kept the size (${JSON.stringify(fl)})`);
+  // then its title bar: a press and hold, a drag — the size stays (#54's second report)
+  const fw = `.float[data-path="${C}"]`;
+  await holdThenDrag(page, check, 'a floating tile', `${fw} .card .head`, () => rectOf(page, fw));
+  // and a reload: the layout kept it
+  await sh(page, (t) => t.flushSave());
+  await page.reload();
+  await page.waitForSelector('bx-shell', { timeout: 15000 });
+  await waitSel(page, fw, { state: 'attached', timeout: 15000 }).catch(() => {});
+  const fr2 = await rectOf(page, fw), fl2 = await sh(page, (t, c) => t.floatOf(c), C);
+  check(near(fr2?.w, F0.w + 260) && near(fr2?.h, F0.h + 210) && near(fl2?.w, F0.w + 260), `after a reload the floating tile has its resized size (${JSON.stringify(R(fr2))}; saved ${fl2?.w}×${fl2?.h})`);
   await sh(page, (t, c) => t.closeTile(c), C);
   await settle(page);
 
-  // ---- a pop-out window's corner across B's page ----
-  await sh(page, (t, [a, c, f]) => t.setSpawnWindows([{ id: 'ds', from: a, src: c, reply() {}, title: 'pop-out', ...f, z: 3000 }]), [A, C, F0]);
+  // ---- a tile's sub-window (xbin.window, docs/elements.md): its corner
+  // across B's page; then pressing its title bar put back the old size before
+  // D217 (the CSS corner changed only the DOM, the press re-rendered the
+  // window from its spawn-time size) — now the size holds through a press,
+  // a hold and a drag. Spawned windows live with the tile's page: a reload
+  // closes them, so there is no size to keep across one.
+  const fb = await tileFrame(page, B);
+  await fb.evaluate((f) => { window.dsWin = window.xbin.window({ title: 'sub-window', width: f.w, height: f.h, x: f.x, y: f.y }); }, F0);
   await waitSel(page, '.spawn', { state: 'attached' });
   r = await rectOf(page, '.spawn');
+  const S0 = { w: Math.round(r.w), h: Math.round(r.h) };
   await press(page, r.x + r.w - 4, r.y + r.h - 4, [[250, 200], [260, 210]], 2);
   await page.mouse.up();
   await settle(page);
   const sw = await sh(page, (t) => { const w = t.spawnWindows[0]; const r = t.query('.spawn')?.getBoundingClientRect(); return w && { w: w.w, h: w.h, dw: Math.round(r?.width ?? 0), dh: Math.round(r?.height ?? 0) }; });
-  check(near(sw?.w, F0.w + 260) && near(sw?.h, F0.h + 210) && near(sw?.dw, F0.w + 260) && !(await shielded(page)), `a pop-out window's corner followed across B's page (${JSON.stringify(sw)})`);
-  await sh(page, (t) => t.setSpawnWindows([]));
-  await settle(page);
+  check(near(sw?.dw, S0.w + 260) && near(sw?.dh, S0.h + 210) && near(sw?.w, sw?.dw) && near(sw?.h, sw?.dh) && !(await shielded(page)),
+    `a tile's sub-window: its corner followed across B's page, and the size is the window's (${S0.w}×${S0.h} → ${JSON.stringify(sw)})`);
+  await holdThenDrag(page, check, "a tile's sub-window", '.spawn .shead', () => rectOf(page, '.spawn'));
+  await fb.evaluate(() => window.dsWin?.close());
+  await waitSel(page, '.spawn', { state: 'detached' });
 
   // ---- a Tiled screen's divider jumped onto A's page ----
   await sh(page, (t) => t.addScreen('tiled'));
