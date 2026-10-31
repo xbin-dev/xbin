@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/xbin-dev/xbin/sdk/acp/acptest"
 )
@@ -91,19 +93,38 @@ func TestHarnessRoutePatch(t *testing.T) {
 		t.Fatalf("the adapter's mode: %+v", st.Modes)
 	}
 
-	// the adapter's refusal, in its words: an option value it doesn't take
-	hs, _ := ag.db.harnessSession(run.ID)
-	hs.Snapshot = strings.Replace(hs.Snapshot, `"value":"fake-fast"`, `"value":"fake-fast"},{"value":"fake-bogus","name":"Bogus"`, 1)
-	if err := ag.db.putHarnessSession(hs); err != nil {
-		t.Fatal(err)
+	// the adapter's refusal, in its words: an option value it doesn't take.
+	// The route checks the value against the stored session, so the test
+	// adds "fake-bogus" there — but every status the adapter sends is
+	// committed with the session's own state (hsess.commit), and one that
+	// lands after the edit drops it (CI, 2026-10-31: the PATCH above still
+	// had a status in flight). So: put it back before each PATCH, and once
+	// more whenever the route answered from a snapshot written meanwhile
+	// (its 400) — setup, never what is under test.
+	bogus := func(body map[string]any) *httptest.ResponseRecorder {
+		t.Helper()
+		for i := 0; ; i++ {
+			hs, _ := ag.db.harnessSession(run.ID)
+			if !strings.Contains(hs.Snapshot, `"fake-bogus"`) {
+				hs.Snapshot = strings.Replace(hs.Snapshot, `"value":"fake-fast"`, `"value":"fake-fast"},{"value":"fake-bogus","name":"Bogus"`, 1)
+				if err := ag.db.putHarnessSession(hs); err != nil {
+					t.Fatal(err)
+				}
+			}
+			w := callAs(t, mux, asAlice, "PATCH", path, body)
+			if w.Code != 400 || !strings.Contains(w.Body.String(), "value: one of") || i == 20 {
+				return w
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
 	}
-	if w := callAs(t, mux, asAlice, "PATCH", path, map[string]any{"option": map[string]string{"id": "model", "value": "fake-bogus"}}); w.Code != 502 ||
+	if w := bogus(map[string]any{"option": map[string]string{"id": "model", "value": "fake-bogus"}}); w.Code != 502 ||
 		!strings.Contains(w.Body.String(), "unknown option or value") {
 		t.Fatalf("a refused value: %d %s", w.Code, w.Body)
 	}
 	// a mode it takes with an option it refuses: the refusal, and the mode
 	// stored (the next start keeps it)
-	if w := callAs(t, mux, asAlice, "PATCH", path, map[string]any{"mode": "ask", "option": map[string]string{"id": "model", "value": "fake-bogus"}}); w.Code != 502 {
+	if w := bogus(map[string]any{"mode": "ask", "option": map[string]string{"id": "model", "value": "fake-bogus"}}); w.Code != 502 {
 		t.Fatalf("mode and a refused value: %d %s", w.Code, w.Body)
 	}
 	if cfg, _ := ag.db.runConfig(run.ID); cfg.Harness.Mode != "ask" || cfg.Harness.Options["model"] != "fake-fast" {
