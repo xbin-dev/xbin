@@ -13000,3 +13000,40 @@ Deviations and refinements made while implementing; all deliberate:
   - **Parity.** `tools.render.zoom` and `tools.render.links` (D207's keys)
     come off DIFFERENCES.native; `tools.render.beside` is new (the web's
     render pane already sits beside the conversation).
+- **D215 — Live CPU and memory for tile sandboxes, passed through the
+  sandbox-manager contract (2026-10-31; plans/project-overview.md §"Tile
+  sandbox usage").** internal/tilesbx/sample.go (+ `usageState.sample`,
+  `run.stats`, `Info.Usage`), internal/cgroup `ReadUsage`, sdk
+  `SandboxInfo.Usage`, sdk/sandboxcontract (`Sandbox.Usage`, an optional
+  check), builtin-templates/coding-sandbox (`sandboxView.Usage`,
+  `answerAs`), docs/protocol.md, docs/sandbox-manager.md. The project
+  overview's sandbox cell (D214) shows CPU and memory over the last hour.
+  - **Once a minute, one pass.** The overview re-reads every 60 s, and an
+    hour of minutes is a readable chart. One `time.AfterFunc` chain, as
+    usage.go's disk measuring is (no ticker): a sandbox coming up arms it,
+    it re-arms only while one with a leaf runs, and xbind's shutdown
+    (`closeUsage`) ends it. A pass reads four small files per running
+    sandbox's leaf (`cgroup.Usage`), with no lock held: no walk, no
+    process listing, nothing confined (the leaves are xbind's own
+    cgroup tree, not sandbox-written data). Lock order stays usage.go's
+    (m.mu before m.usage.mu; never both while reading).
+  - **In memory, 60 points per run.** The samples live on the run, so a
+    stop (or a restart of xbind) starts them over by construction; nothing
+    is persisted: an hour's chart isn't worth a write a minute per
+    sandbox, and a restart's gap is honest. `cpuPct` is the percent of one
+    core over the interval (`usage_usec` delta / wall time); the first
+    interval starts at the run's start, its leaf being made fresh for it.
+    A reading within a second of the last is dropped (noise, not data).
+  - **The list without `series`.** The list is polled by every manager
+    and the overview; 60 points × every sandbox would be most of its
+    bytes. The latest reading rides the list; `GET` of one sandbox (and
+    the manager's `GET /sbx/sandboxes/{id}`) carries the series. Other
+    answers that carry a SandboxInfo (start, PATCH, …) leave it out too.
+  - **Absent, never zero.** Without cgroup delegation there is no leaf:
+    no `usage` at all (and the sampler is never armed), rather than a
+    reading of 0 that would read as "idle". The same before the first
+    reading and once stopped. Older managers and xbinds don't send it;
+    the contract makes it optional for consumers.
+  - **memMaxBytes is the leaf's memory.max** — `memMiB` plus the agent's
+    and fuse-overlayfs's 128 MiB (a VM's: its VMM's overhead), what the
+    OOM killer acts on — not `memMiB`; absent when the leaf has no cap.

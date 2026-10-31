@@ -66,6 +66,7 @@ type run struct {
 	once   sync.Once
 
 	idle    idleState      // activity, holds and the idle timer (idle.go)
+	stats   liveStats      // its CPU and memory, sampled once a minute while it runs (sample.go; under m.mu)
 	killers sync.WaitGroup // leaf killers in flight: the teardown waits for them before removing the leaf
 
 	// mu guards what the start attaches while the watcher may already be
@@ -607,7 +608,8 @@ func (m *Manager) launch(k Key, d *Def, b *box, lim Limits, ops *modeOps) (err e
 		m.end(r, ask)
 		return fail("it was stopped", errEnded)
 	}
-	m.kickUsage() // measured while it runs (usage.go)
+	m.kickUsage()  // measured while it runs (usage.go)
+	m.armSampler() // its CPU and memory, once a minute (sample.go)
 	if d.Mode == ModeNamespace {
 		m.watchDisk() // an upper has no cap: the partition is watched while one runs
 	}

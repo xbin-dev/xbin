@@ -226,6 +226,9 @@ type Manager struct {
 	// oomKills is the parent's OOMKills of a run's leaf (nil: m.cg's; a
 	// test stands in): teardown reads it before the leaf goes.
 	oomKills func(leaf string) int64
+	// leafStats reads a running sandbox's leaf for the CPU and memory
+	// sampler (nil: m.cg's Usage; a test reads a fake directory, sample.go).
+	leafStats func(leaf string) (cgroup.Usage, bool)
 
 	mu     sync.Mutex // defs, live and the policy file
 	defs   *defStore

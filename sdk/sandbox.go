@@ -503,6 +503,32 @@ type SandboxInfo struct {
 	Version       int64             `json:"version"`
 	ClientID      string            `json:"clientId,omitempty"`
 	RestartNeeded bool              `json:"restartNeeded"`
+	// Usage is its CPU and memory as xbind last sampled them (once a
+	// minute while it runs, D215): nil before the first sample, when it is
+	// stopped, without cgroup delegation, and from an xbind before it.
+	// Series is there only on Get.
+	Usage *SandboxLiveUsage `json:"usage,omitempty"`
+}
+
+// SandboxLiveUsage is a running sandbox's latest sample: CPUPct the percent of
+// one core over the last interval (a minute), MemBytes its cgroup's
+// memory.current, MemMaxBytes its memory.max (0: no cap), Pids its
+// pids.current; Series the last hour's samples, oldest first (Get only).
+type SandboxLiveUsage struct {
+	At          int64               `json:"at"` // unix ms
+	CPUPct      float64             `json:"cpuPct"`
+	MemBytes    int64               `json:"memBytes"`
+	MemMaxBytes int64               `json:"memMaxBytes,omitempty"`
+	Pids        int64               `json:"pids"`
+	Series      []SandboxUsagePoint `json:"series,omitempty"`
+}
+
+// SandboxUsagePoint is one sample of SandboxLiveUsage.Series: T unix ms, CPU as
+// CPUPct, Mem as MemBytes.
+type SandboxUsagePoint struct {
+	T   int64   `json:"t"`
+	CPU float64 `json:"cpu"`
+	Mem int64   `json:"mem"`
 }
 
 // SandboxNetInfo is a sandbox's egress and what it reaches (none |

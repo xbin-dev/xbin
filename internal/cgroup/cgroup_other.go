@@ -80,3 +80,6 @@ func (m *Manager) Populated(string) bool                            { return fal
 func (m *Manager) OOMKills(string) int64                            { return 0 }
 func (m *Manager) Sweep(string) ([]string, error)                   { return nil, nil }
 func (m *Manager) Pids() (int64, bool)                              { return 0, false }
+
+// ReadUsage reads a cgroup directory's accounting (none off Linux).
+func ReadUsage(string) (Usage, bool) { return Usage{}, false }
