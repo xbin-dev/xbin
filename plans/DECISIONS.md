@@ -13000,3 +13000,39 @@ Deviations and refinements made while implementing; all deliberate:
   - **Parity.** `tools.render.zoom` and `tools.render.links` (D207's keys)
     come off DIFFERENCES.native; `tools.render.beside` is new (the web's
     render pane already sits beside the conversation).
+
+- **D216 — Repo stats are a read of the scm protocol, cap `stats`
+  (2026-10-31; plans/project-overview.md §Repo stats).** docs/scm.md
+  §Repo stats; builtin-templates/scm-github/_backend/stats.go. The project
+  overview (D214) shows each repo's open pull requests and issues, merges
+  in the last week, CI on the default branch and the last push.
+  - **A route, not the consumer counting through the list routes.** A
+    count from `GET /scm/pulls`/`/scm/issues` pages a whole list (30 to
+    100 a page, a host call each) on every refresh, and "merged in the last
+    seven days" isn't a filter those routes have. Every host keeps these
+    counts itself (GitHub's `totalCount`/search `issueCount`, GitLab's
+    `count`/`X-Total`, Gitea's counters); only the provider can ask for
+    them cheaply.
+  - **Provider-neutral.** "Pulls" are pull or merge requests; the fields
+    are what any host can say, and one it can't is **absent**, never `0`
+    or a guess — a GitLab or Gitea provider maps it (docs/scm.md §Building
+    a provider). Without the cap, 501 `unsupported`, as any cap; a
+    consumer falls back to `GET /scm/repo` and `GET /scm/checks`. Protocol
+    stays 1 (additive).
+  - **Cached by the provider, at most 5 minutes per (identity, repo)**,
+    `at` saying when it was read: an overview re-reads every minute and
+    counts that lag minutes are fine. The identity (`as`) and policy are
+    checked before the cache, so it never outlives a caller's right to it.
+    scm-github keeps an answer missing a part that failed transiently (the
+    rate limit, GitHub's trouble) a minute only.
+  - **scm-github counts with one GraphQL query, not REST search.** The
+    repository's `pullRequests`/`issues(states: OPEN)` `totalCount` (exact,
+    not the search index) and `search(type: ISSUE)` `issueCount` for the
+    merged ones: one call and one point of the GraphQL limit (5000/h per
+    identity), where REST search would be three calls against search's
+    30 a minute per identity — which `GET /scm/issues?q=` also spends, and
+    which one cold overview of ten repos would exhaust. The client already
+    tracked GraphQL's limit apart (`rateResource`); `graphqlRaw` reads a
+    partial answer (a field GitHub answers null stays absent).
+    `defaultBranchChecks` is `GET /scm/checks`'s own computation on the
+    default branch (`checksAt`, shared), not a second one.

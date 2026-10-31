@@ -5,7 +5,7 @@
 A template (`bx template new scm-github`) whose copies provide service
 **`scm`** — the contract in [/docs/scm.md](/docs/scm.md), protocol 1 — from
 GitHub: repo credentials for sandboxes, repos, pull requests, issues, CI
-(workflow runs, jobs, steps, logs, annotations, reruns), events from
+(workflow runs, jobs, steps, logs, annotations, reruns), repo stats, events from
 GitHub's webhooks, and polling. The agent template binds it in its `scm` slot; any tile that requests service
 `scm` can. /docs/scm.md is the contract; this page is GitHub's side of it.
 
@@ -404,6 +404,23 @@ passed through untrusted.
   partition lists the person's own repos (`as: bot` there is 403
   `identity`; name a repo instead).
 - A check's `suite` is GitHub's check suite id, as a string.
+- `GET /scm/repo/stats` (cap `stats`, every instance: global, a person's
+  partition, an unpartitioned copy) reads the repo with the REST API (the
+  identity's access, as `GET /scm/repo`; conditional), then **one GraphQL
+  query** for the counts — the repository's `pullRequests(states: OPEN)`
+  and `issues(states: OPEN)` `totalCount` (exact counts, not the search
+  index; GitHub's issues leave pull requests out) and `search(type:
+  ISSUE)`'s `issueCount` for `repo:<repo> is:pr is:merged
+  merged:>=<seven days ago>` — and the default branch's checks exactly as
+  `GET /scm/checks?ref=<default branch>` (its 5-second cache too). The
+  query costs one point of GitHub's GraphQL limit (5000 an hour per
+  identity), and none of REST search's 30 a minute that `GET /scm/issues?q=`
+  spends. A part GitHub answers null (no permission, a timeout) or fails
+  is left out; a failed repo read fails the call. `pushedAt` is GitHub's
+  `pushed_at`; `defaultBranchChecks.url` its page of the commit's checks.
+  Kept 5 minutes per (identity, repo) — a minute when a part failed in a
+  way a retry may mend (the rate limit, GitHub's trouble) — and emptied
+  with the repo lists (a policy change, Forget, installation changes).
 
 ## 10. Page routes and their guards
 
@@ -441,7 +458,7 @@ they can read the repo, and only for the partition that subscribed.
 100 repos per token, one owner; `minTtlSec` 900 to 3000 (hello's
 `limits.minTtlSec` and `limits.maxTtlSec`); pages of at most
 100 (annotations 50); 50 items a poll; repo lists of at most 1000, kept 5
-minutes; logs: the last 8 MiB, a tail of at most 1 MiB a call; 2000
+minutes; repo stats kept 5 minutes (500 entries); logs: the last 8 MiB, a tail of at most 1 MiB a call; 2000
 reusable tokens and 2000 cached GitHub answers; 8000 live tokens recorded,
 500 of them one consumer's (a person's relayed bot tokens count as one
 consumer); past either, a new one is 429 `limit` until some expire or are

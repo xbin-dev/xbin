@@ -119,28 +119,36 @@ func (s *srv) getChecks(ctx context.Context, c who, repo, ref, as string) (*chec
 		return nil, refuse(refInvalid, "ref is a branch, pull/<n> or a commit sha")
 	}
 	var out *checksResp
-	err := s.withAuth(ctx, c, as, repo, false, func(a ghAuth) error {
-		sha, err := s.resolveSHA(ctx, a, repo, ref)
-		if err != nil {
-			return err
-		}
-		key := a.key + " " + strings.ToLower(repo) + " " + sha
-		if v, ok := s.checksC.get(key, s.now(), 5*time.Second); ok {
-			cp := *v.(*checksResp)
-			cp.Ref = ref
-			out = &cp
-			return nil
-		}
-		if out, err = s.combined(ctx, a, repo, sha); err != nil {
-			return err
-		}
-		s.checksC.put(key, out, s.now())
-		cp := *out
-		cp.Ref = ref
-		out = &cp
-		return nil
+	err := s.withAuth(ctx, c, as, repo, false, func(a ghAuth) (err error) {
+		out, err = s.checksAt(ctx, a, repo, ref)
+		return err
 	})
 	return out, err
+}
+
+// checksAt is GET /scm/checks's answer for ref as the identity a: the
+// commit ref resolves to and everything CI reported there, the combined
+// answer kept 5 seconds per (identity, repo, sha). Repo stats read the
+// default branch's through it too.
+func (s *srv) checksAt(ctx context.Context, a ghAuth, repo, ref string) (*checksResp, error) {
+	sha, err := s.resolveSHA(ctx, a, repo, ref)
+	if err != nil {
+		return nil, err
+	}
+	key := a.key + " " + strings.ToLower(repo) + " " + sha
+	if v, ok := s.checksC.get(key, s.now(), 5*time.Second); ok {
+		cp := *v.(*checksResp)
+		cp.Ref = ref
+		return &cp, nil
+	}
+	out, err := s.combined(ctx, a, repo, sha)
+	if err != nil {
+		return nil, err
+	}
+	s.checksC.put(key, out, s.now())
+	cp := *out
+	cp.Ref = ref
+	return &cp, nil
 }
 
 // resolveSHA turns a branch or pull/<n> into the commit it points at.

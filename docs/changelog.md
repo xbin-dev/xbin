@@ -10,6 +10,21 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-31
+
+- **scm: repo stats** (D216; [scm.md](/docs/scm.md) §Repo stats). A new
+  optional cap **`stats`** and route **`GET /scm/repo/stats?repo=&as=`** →
+  `{repo, url, defaultBranch, openPulls, openIssues, mergedPulls: {days: 7,
+  count}, defaultBranchChecks: {sha, state, url}, pushedAt, at}`: a repo at
+  a glance in one read, counted as the identity sees it, cached by the
+  provider at most 5 minutes (`at` says when it was read). A field the host
+  can't tell is absent, never `0`. A provider without the cap answers 501
+  `unsupported`; protocol stays 1. The builtin **scm-github** serves it —
+  one GitHub GraphQL query for the counts (none of the REST search limit),
+  the default branch's checks as `GET /scm/checks` reads them — and lists
+  `stats` in hello. Instances take it with a template update (`bx template
+  updates` lists the ones behind).
+
 ## 2026-10-30
 
 - **Agent template: Projects atop your conversations, and the coordinator

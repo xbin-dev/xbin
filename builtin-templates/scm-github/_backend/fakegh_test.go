@@ -787,7 +787,7 @@ func (f *fakeGH) repoJSON(full, perm string) map[string]any {
 	p := map[string]bool{"admin": perm == "admin", "push": perm == "admin" || perm == "write", "pull": perm != "" && perm != "none"}
 	return map[string]any{"name": name, "full_name": full, "owner": map[string]any{"login": owner},
 		"clone_url": f.srv.URL + "/" + full + ".git", "html_url": f.srv.URL + "/" + full, "default_branch": "main",
-		"private": true, "archived": false, "permissions": p}
+		"private": true, "archived": false, "permissions": p, "pushed_at": "2026-10-03T11:00:00Z"}
 }
 
 // approve is the person entering the code on GitHub.

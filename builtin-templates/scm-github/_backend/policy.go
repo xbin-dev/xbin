@@ -245,6 +245,7 @@ func (s *srv) handlePolicyPut(w http.ResponseWriter, r *http.Request, _ who) {
 	}
 	s.bot.clear()
 	s.reposC.clear()
+	s.statsC.clear()
 	if err := s.writePublic(pubTokens); err != nil {
 		fail(w, err)
 		return

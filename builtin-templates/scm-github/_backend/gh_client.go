@@ -427,20 +427,35 @@ func graphqlURL(apiBase string) string {
 	return apiBase + "/graphql"
 }
 
-// graphql runs one GraphQL operation; GitHub's errors become refusals.
-func (g *ghClient) graphql(ctx context.Context, a ghAuth, apiBase, query string, vars map[string]any, out any) error {
+// gqlError is one of a GraphQL answer's errors.
+type gqlError struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
+}
+
+// graphqlRaw runs one GraphQL operation and answers its data and errors
+// as GitHub sent them: a query whose parts can fail alone (a field the
+// identity can't read comes back null, with an error) reads what did
+// come back. The error is the call's own (HTTP, the rate limit).
+func (g *ghClient) graphqlRaw(ctx context.Context, a ghAuth, apiBase, query string, vars map[string]any) (json.RawMessage, []gqlError, error) {
 	var resp struct {
 		Data   json.RawMessage `json:"data"`
-		Errors []struct {
-			Type    string `json:"type"`
-			Message string `json:"message"`
-		} `json:"errors"`
+		Errors []gqlError      `json:"errors"`
 	}
 	if _, err := g.call(ctx, a, http.MethodPost, graphqlURL(apiBase), map[string]any{"query": query, "variables": vars}, &resp); err != nil {
+		return nil, nil, err
+	}
+	return resp.Data, resp.Errors, nil
+}
+
+// graphql runs one GraphQL operation; GitHub's errors become refusals.
+func (g *ghClient) graphql(ctx context.Context, a ghAuth, apiBase, query string, vars map[string]any, out any) error {
+	data, errs, err := g.graphqlRaw(ctx, a, apiBase, query, vars)
+	if err != nil {
 		return err
 	}
-	if len(resp.Errors) > 0 {
-		e := resp.Errors[0]
+	if len(errs) > 0 {
+		e := errs[0]
 		switch e.Type {
 		case "NOT_FOUND":
 			return refuse(refNotFound, "GitHub: %s", clip(e.Message, 300))
@@ -449,8 +464,8 @@ func (g *ghClient) graphql(ctx context.Context, a ghAuth, apiBase, query string,
 		}
 		return refuse(refUpstream, "GitHub's GraphQL API: %s", clip(e.Message, 300))
 	}
-	if out != nil && len(resp.Data) > 0 {
-		return json.Unmarshal(resp.Data, out)
+	if out != nil && len(data) > 0 {
+		return json.Unmarshal(data, out)
 	}
 	return nil
 }

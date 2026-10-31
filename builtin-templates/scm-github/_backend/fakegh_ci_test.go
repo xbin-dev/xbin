@@ -1,6 +1,7 @@
 // fakegh_ci_test.go — the fake GitHub's content and CI: repos and branches,
 // pull requests (422 when one is open for the head, mergeable null until
-// computed), GraphQL draft ↔ ready, issues, comments, reviews, review
+// computed), GraphQL draft ↔ ready (and the repo stats query, answered in
+// fakegh_stats_test.go), issues, comments, reviews, review
 // comments, search, check runs, commit statuses, workflow runs and their
 // jobs, job logs (a 302 to a second path, which has no blob while the job
 // runs), annotations
@@ -27,6 +28,7 @@ type fPull struct {
 	State     string // open | closed
 	Draft     bool
 	Merged    bool
+	MergedAt  time.Time // zero: 2026-10-03T10:00:00Z
 	Mergeable *bool
 	User      string
 }
@@ -64,6 +66,7 @@ type fakeCI struct {
 	extra      map[string]func(http.ResponseWriter, *http.Request)
 	searchAll  bool     // search answers every readable repo, whatever q names
 	searches   []string // the q of every search
+	gqlFail    string   // a part of the stats query (fakegh_stats_test.go) GitHub answers null, with an error
 }
 
 func newFakeCI() *fakeCI {
@@ -79,7 +82,7 @@ func (f *fakeGH) pullJSON(repo string, p *fPull) map[string]any {
 	owner := strings.Split(repo, "/")[0]
 	var merged any
 	if p.Merged {
-		merged = "2026-10-03T10:00:00Z"
+		merged = p.mergedAt().Format(time.RFC3339)
 	}
 	return map[string]any{"number": p.Number, "node_id": "PR_" + strconv.Itoa(p.Number), "html_url": f.srv.URL + "/" + repo + "/pull/" + strconv.Itoa(p.Number),
 		"title": p.Title, "body": p.Body, "state": p.State, "draft": p.Draft, "merged_at": merged, "mergeable": p.Mergeable,
@@ -258,6 +261,10 @@ func (f *fakeGH) ciRoutes(mux *http.ServeMux) {
 			Variables map[string]any `json:"variables"`
 		}
 		json.NewDecoder(r.Body).Decode(&b)
+		if strings.HasPrefix(b.Query, "query repoStats(") {
+			f.repoStatsGQL(w, r, b.Variables)
+			return
+		}
 		id, _ := b.Variables["id"].(string)
 		f.mu.Lock()
 		pulls := map[string][]*fPull{}

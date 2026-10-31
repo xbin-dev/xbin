@@ -24,7 +24,7 @@ func TestHelloShape(t *testing.T) {
 		h.Limits != (limitsInfo{100, 900, 3000, 100, 50}) || h.Events.PollMinMs != 120000 || h.Events.Webhooks != "unknown" {
 		t.Fatalf("hello: %+v", h)
 	}
-	if got := strings.Join(h.Caps, ","); got != "credentials,repos,pulls,issues,checks,events,poll,partitions" {
+	if got := strings.Join(h.Caps, ","); got != "credentials,repos,pulls,issues,checks,stats,events,poll,partitions" {
 		t.Fatalf("caps: %s", got)
 	}
 	// The body carries its etag and the header the same.
