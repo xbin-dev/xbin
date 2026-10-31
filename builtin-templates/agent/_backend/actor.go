@@ -301,6 +301,7 @@ func (e *Engine) startTurn(run *Run, wakes []*InboxRow) bool {
 			return err
 		}
 		e.emitRun(t, run.ID)
+		coordTurnMoved(t, run) // a coordinator's turn began: its project's page hears (project_goal.go)
 		return nil
 	})
 	if err == nil {

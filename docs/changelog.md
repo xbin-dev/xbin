@@ -10,6 +10,17 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-10-31
+
+- **Agent template: a project's overview** (D214; the template's API.md
+  "The overview", "The coordinator"). New route **`GET
+  /projects/{pid}/overview?range=day|week`** (viewer): the coordinator, the
+  worker agents, their subagents, tokens per hour or day (new table
+  `usage_hourly`, kept 8 days), the repos at the scm provider (its new
+  `stats` cap, D216) and the sandbox (its `usage`, D215) in one read. The
+  coordinator gains a `project_goal` tool, and the `project` stream event
+  a `coordinator` change. Additive: an older build ignores the new tables.
+
 ## 2026-10-30
 
 - **Agent template: Projects atop your conversations, and the coordinator

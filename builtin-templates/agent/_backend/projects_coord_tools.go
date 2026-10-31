@@ -1,8 +1,9 @@
 // projects_coord_tools.go — the coordinator's tools (API.md §The
 // coordinator): task_create, task_list, task_status, task_message,
-// task_result, task_cancel, and the read-only scm_pr and scm_issues
-// (projects_coord_scm.go). Offered at depth 0 only, to a run whose role
-// projectRefOf says is a coordinator (no new toolset: the way cfg.Channel
+// task_result, task_cancel, the read-only scm_pr and scm_issues
+// (projects_coord_scm.go), and project_goal (project_goal.go). Offered at
+// depth 0 only, to a run whose role projectRefOf says is a coordinator
+// (no new toolset: the way cfg.Channel
 // gates attach_to_reply), and dispatched from runTool beside the thread
 // tools. Every call resolves the coordinator again (coordinatorOf: its
 // project active, its owner still a participant, no internal reach) and
@@ -22,7 +23,7 @@ import (
 )
 
 var coordToolNames = map[string]bool{"task_create": true, "task_list": true, "task_status": true, "task_message": true,
-	"task_result": true, "task_cancel": true, "scm_pr": true, "scm_issues": true}
+	"task_result": true, "task_cancel": true, "scm_pr": true, "scm_issues": true, "project_goal": true}
 
 // coordWrites change a task (approval mode asks the person first: they
 // start or steer work that runs in the project's sandbox).
@@ -45,7 +46,7 @@ func coordIntsProp(desc string, max int) map[string]any {
 	return map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "minItems": 1, "maxItems": max, "description": desc}
 }
 
-// coordToolSpecs are the eight tools. The first sentence of each is pinned
+// coordToolSpecs are the nine tools. The first sentence of each is pinned
 // (tooldesc_test.go).
 func coordToolSpecs() []toolSpec {
 	taskStates := "queued, preparing, signin, working, needs-you (waiting for a person), ci, ci-failed, awaiting-review, merged, closed, done, failed, cancelled, blocked"
@@ -124,10 +125,11 @@ func coordToolSpecs() []toolSpec {
 				"labels":  map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "description": "for a list: every label"},
 				"q":       strProp("for a list: words"),
 			})}},
+		projectGoalSpec(),
 	}
 }
 
-// coordToolsFor is what runToolSpecs adds for run: the eight tools for a
+// coordToolsFor is what runToolSpecs adds for run: the nine tools for a
 // coordinator at depth 0 (its role through projectRefOf, its session key
 // agreeing), none otherwise.
 func coordToolsFor(cfg Config, run *Run) []toolSpec {
@@ -186,6 +188,8 @@ func (ag *Agent) runCoordTool(ctx context.Context, run *Run, cfg Config, name st
 		return ag.coordPR(ctx, p, args)
 	case "scm_issues":
 		return ag.coordIssues(ctx, p, args)
+	case "project_goal":
+		return ag.coordGoalTool(run, p, args)
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
 }

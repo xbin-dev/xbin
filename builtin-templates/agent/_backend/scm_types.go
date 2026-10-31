@@ -32,6 +32,7 @@ const (
 	scmCapPoll        = "poll"
 	scmCapPartitions  = "partitions"   // a partitioned provider: people's sign-ins live in their partitions
 	scmCapRerun       = "checks.rerun" // optional part of checks: POST /scm/checks/rerun
+	scmCapStats       = "stats"        // GET /scm/repo/stats (D216): a repo's counts for a project's overview
 )
 
 // Identities a token is asked as (the `as` field).
@@ -212,6 +213,35 @@ type scmRepo struct {
 	// Protected: the default branch has protection the identity can't
 	// bypass (null: the provider can't tell).
 	Protected *bool `json:"protected,omitempty"`
+}
+
+// scmRepoStats is GET /scm/repo/stats?repo=&as= (cap scmCapStats, D216):
+// what a project's overview shows of a repo. A field the host can't tell
+// is absent.
+type scmRepoStats struct {
+	Repo                string           `json:"repo"`
+	URL                 string           `json:"url,omitempty"`
+	DefaultBranch       string           `json:"defaultBranch,omitempty"`
+	OpenPulls           *int             `json:"openPulls,omitempty"`
+	OpenIssues          *int             `json:"openIssues,omitempty"`
+	MergedPulls         *scmMergedPulls  `json:"mergedPulls,omitempty"`
+	DefaultBranchChecks *scmBranchChecks `json:"defaultBranchChecks,omitempty"`
+	PushedAt            int64            `json:"pushedAt,omitempty"`
+	At                  int64            `json:"at,omitempty"`
+	ETag                string           `json:"etag,omitempty"`
+}
+
+// scmMergedPulls counts the pulls merged in the last Days days.
+type scmMergedPulls struct {
+	Days  int `json:"days"`
+	Count int `json:"count"`
+}
+
+// scmBranchChecks is the default branch's head's checks, combined.
+type scmBranchChecks struct {
+	SHA   string `json:"sha,omitempty"`
+	State string `json:"state"` // none | pending | success | failure
+	URL   string `json:"url,omitempty"`
 }
 
 // scmQuery is a list's query: what each list reads of it.
