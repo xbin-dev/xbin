@@ -778,6 +778,33 @@ struct FakeDeviceLogin: APITransport {
         }
     }
 
+    /// D213: the workspace transport reports a tunnel that can't come up as
+    /// a network failure (its reason under it); pairing — about the tunnel —
+    /// still says the tunnel couldn't be reached, with that reason.
+    @Test func aTunnelThatDoesntComeUpForTheSignIn() async throws {
+        struct Down: Error, CustomStringConvertible { var description: String { "no relay answered" } }
+        let k = TunnelKeys()
+        let keys = SoftwareKeys(), vault = MemoryTunnelVault()
+        let selector = NoiseTunnel.selector(k.link)
+        let dialer = FakeDialer(keys: k, serve: { s in
+            _ = try? await FakePairingServer(keys: k, replies: [["type": "await"], Self.enrolled]).run(s, selector: selector)
+        }, fail: nil)
+        let p = TunnelPairer(keys: keys, vault: vault, dialer: dialer,
+                             signInTransport: { _, _ in throw NetworkFailure.wrap(Down(), as: .cannotConnectToHost) },
+                             clientHeader: "app/1", platform: "ios")
+        do {
+            _ = try await p.pair(k.link, deviceName: "x", workspaceID: "ws1") { _, _ in }
+            Issue.record("paired")
+        } catch let f as PairingFailure {
+            #expect(f == .unreachable("no relay answered"))
+            #expect(ConnectProblem(f, server: nil).kind == .tunnelUnreachable)
+        }
+        #expect(await keys.count == 0)
+        #expect(await vault.count == 0)
+        // …a cancellation stays one
+        await #expect(throws: CancellationError.self) { try await TunnelPairer.overTunnel { () async throws -> Int in throw CancellationError() } }
+    }
+
     @Test func upgrade() async throws {
         let vault = MemoryTunnelVault()
         let rec = WorkspaceRecord(id: "w", server: try ServerOrigin(string: "https://xbin.example.com"), user: WorkspaceUser(id: "a"),

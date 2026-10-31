@@ -773,7 +773,7 @@ Plus additive changes:
 - `LoopbackForwarder.swift`:
   - `NWListener` on `127.0.0.1:<stored port>`, loopback only; any peer that is not 127.0.0.1 is refused;
   - on each accept: open a stream, run the IK handshake (the server key from the Keychain, the device's static key), then `TunnelSplice`;
-  - if nothing has been forwarded when the tunnel fails, it writes a canned `HTTP/1.1 502` with `Connection: close`, so WebKit shows a page;
+  - if nothing has been forwarded when the tunnel fails, the connection ends unanswered: WebKit and URLSession see a lost connection, as on a dropped network (D213 replaced the canned `HTTP/1.1 502` page: the tunnel is invisible above the transport);
   - if the port is taken: bind port 0, store the new port, bump `generation`.
 - `TunnelTransport.swift`: implements `WorkspaceTransport`. `origin` is `http://127.0.0.1:<port>`, `ready()` starts the session, and it uses `AppTransport.shared.session`, since loopback needs no special session.
 - `TunnelManager.swift` (main actor):

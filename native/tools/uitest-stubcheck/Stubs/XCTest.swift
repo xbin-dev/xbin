@@ -15,6 +15,8 @@ open class XCTestCase {
     open func tearDownWithError() throws {}
     open var continueAfterFailure: Bool = true
     open func add(_ attachment: XCTAttachment) {}
+    /// XCTest's async teardown block (Xcode 13.3+): runs after the test, failed or not.
+    open func addTeardownBlock(_ block: @escaping @Sendable () async throws -> Void) {}
 }
 
 public struct XCTSkip: Error {

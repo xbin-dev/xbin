@@ -82,13 +82,6 @@ func tunnelTrace(_ s: @autoclosure () -> String) {
     #endif
 }
 
-extension Notification.Name {
-    /// A workspace's tunnel came up and answered (D211); `object` is the
-    /// workspace's id. Open pages that failed reload, the others hear
-    /// `online`.
-    static let xbinTunnelUp = Notification.Name("dev.xbin.tunnel.up")
-}
-
 /// What a connection can say beyond XbinCore's TunnelConnection (IrohLib's
 /// does): when it closes, and its path.
 protocol TunnelConnectionDetails: Sendable {
@@ -139,7 +132,8 @@ final class TunnelManager {
         }
         let session = self.session(for: record, mode: mode)
         let id = record.id
-        return TunnelTransport(publicOrigin: record.server, address: session.address) { [weak self] in
+        return TunnelTransport(publicOrigin: record.server, address: session.address,
+                               offline: { [weak self] in self?.pathOK == false }) { [weak self] in
             guard let self else { throw TunnelSession.Problem(description: "the app is shutting down") }
             try await self.ready(id)
         }

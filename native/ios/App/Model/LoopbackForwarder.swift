@@ -24,8 +24,9 @@ protocol ForwardUpstream: Sendable {
 /// is in front. Loopback only: it binds 127.0.0.1 on the loopback interface
 /// (no Local Network prompt) and refuses any peer that isn't loopback. When
 /// `connect` fails for a connection — the tunnel is down — that connection
-/// gets a canned `502` page with `Connection: close`, so WebKit shows why
-/// rather than spinning.
+/// ends unanswered: WebKit and URLSession see a lost connection, as when
+/// the network drops, never a page of the forwarder's own (D213: the tunnel
+/// is invisible above the transport; why it failed is in TunnelLog).
 final class LoopbackForwarder: @unchecked Sendable {
     typealias Connect = @Sendable () async throws -> any ForwardUpstream
 
@@ -160,8 +161,9 @@ final class LoopbackForwarder: @unchecked Sendable {
             do {
                 upstream = try await connect()
             } catch {
-                tunnelLog("forwarder: no way through after \(Int(Date().timeIntervalSince(started) * 1000)) ms, answered 502: \(Self.describe(error))")
-                await Self.answer502(local, why: Self.describe(error))
+                tunnelLog("forwarder: no way through after \(Int(Date().timeIntervalSince(started) * 1000)) ms, "
+                          + "the connection ends unanswered: \(Self.describe(error))")
+                await Self.endUnanswered(local)
                 return
             }
             tunnelTrace("forwarder: upstream in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
@@ -202,22 +204,13 @@ final class LoopbackForwarder: @unchecked Sendable {
         return String(describing: error)
     }
 
-    /// The tunnel is down: read the request (so closing doesn't reset it
-    /// away), answer a small page, close.
-    static func answer502(_ local: NWByteStream, why: String) async {
+    /// The tunnel is down: the connection ends without an answer — URLSession
+    /// and WebKit report "the network connection was lost" (-1005), what a
+    /// dropped network gives a direct workspace (D213). The request is read
+    /// first, so the close is an orderly end rather than a reset.
+    static func endUnanswered(_ local: any ByteStream) async {
         _ = try? await local.read(max: 64 << 10)
-        let body = """
-        <!doctype html><meta name=viewport content='width=device-width'><title>Not connected</title>\
-        <body style='font:16px -apple-system,sans-serif;padding:24px'><h3>The workspace's tunnel isn't connected</h3>\
-        <p>\(why.htmlEscaped)</p><p>The page reloads once the tunnel is back. Pull to refresh, or open Settings → Connection.</p>
-        """
-        let data = Data(body.utf8)
-        // The page is the forwarder's, not xbind's (D211).
-        var head = "HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/html; charset=utf-8\r\nX-Xbin-Tunnel: down\r\n"
-        head += "Content-Length: \(data.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
-        try? await local.write(Data(head.utf8) + data)
         try? await local.finish()
-        try? await Task.sleep(nanoseconds: 500_000_000)
         await local.cancel()
     }
 }

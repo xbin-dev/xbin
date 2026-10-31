@@ -116,15 +116,30 @@ struct TunnelPairer: Sendable {
                                         required: link.required || enrolled.tunnel.required)
             await vault.save(secrets, workspace: id)
             await onSigningIn()
-            let transport = try await signInTransport(record, secrets)
+            let transport = try await Self.overTunnel { try await signInTransport(record, secrets) }
             let enrollment = Enrollment(transport: transport, keys: keys, clientHeader: clientHeader, platform: platform)
-            let session = try await enrollment.firstSignIn(record, over: transport)
+            let session = try await Self.overTunnel { try await enrollment.firstSignIn(record, over: transport) }
             return PairedWorkspace(record: record, session: session)
         } catch {
             if let connection { await connection.close() }
             await keys.deleteKey(workspace: id)
             await vault.delete(workspace: id)
             throw error
+        }
+    }
+
+    /// The first sign-in, over the tunnel just paired. Pairing is about the
+    /// tunnel, so a network failure there (how the transport reports a
+    /// tunnel that doesn't come up, D213 — its reason under it) is the
+    /// tunnel's: ``PairingFailure/unreachable(_:)``. A cancellation, or the
+    /// sign-in's own refusals, stay as they are.
+    static func overTunnel<T: Sendable>(_ work: @Sendable () async throws -> T) async throws -> T {
+        do {
+            return try await work()
+        } catch {
+            guard !(error is CancellationError), NetworkFailure.isNetwork(error),
+                  (error as NSError).code != -999 else { throw error } // NSURLErrorCancelled
+            throw PairingFailure.unreachable(NetworkFailure.reason(error) ?? PairingClient.text(error))
         }
     }
 }

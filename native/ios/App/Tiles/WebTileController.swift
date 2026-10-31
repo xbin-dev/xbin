@@ -56,8 +56,9 @@ final class WebTileController: NSObject {
     /// its address changed meanwhile (a tunnel lost its port, D204), the
     /// page reloads on the new one.
     @ObservationIgnored private var loadedGeneration = 0
-    /// The page's last load failed or showed a server error (the tunnel's
-    /// 502 page among them): it reloads when the tunnel is back (D211).
+    /// The page's last load failed (no connection, the connection lost —
+    /// a tunnel that was down reads so too) or showed a gateway's error: it
+    /// reloads when the workspace is reachable again (D211, D213).
     @ObservationIgnored private var failedLoad = false
     @ObservationIgnored private var downloads: [ObjectIdentifier: URL] = [:]
     @ObservationIgnored private let initialURL: URL?
@@ -127,7 +128,7 @@ final class WebTileController: NSObject {
             webView.scrollView.refreshControl = refresh
         }
         if !chrome { workspace.schemeHandler.register(webView, tile: tile) }
-        NotificationCenter.default.addObserver(self, selector: #selector(tunnelCameUp(_:)), name: .xbinTunnelUp, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(workspaceReachable(_:)), name: .xbinWorkspaceReachable, object: nil)
         observations = [
             webView.observe(\.estimatedProgress) { [weak self] wv, _ in
                 MainActor.assumeIsolated { self?.progress = wv.estimatedProgress }
@@ -248,9 +249,10 @@ final class WebTileController: NSObject {
         backgroundedAt = nil
         let transport = workspace.transport
         Task {
-            // A tunnelled workspace's forwarder comes back first (D204): only
-            // then is it known whether it kept its port.
-            if workspace.isTunnelled { _ = try? await transport.ready() }
+            // The transport is ready first — a tunnel's forwarder comes back
+            // (D204), and only then is it known whether it kept its port; a
+            // direct connection is ready at once.
+            _ = try? await transport.ready()
             if transport.generation != loadedGeneration {
                 // The workspace's address moved: a chrome page opens afresh
                 // there (a new ticket), a tile page reloads (its own
@@ -262,12 +264,13 @@ final class WebTileController: NSObject {
         }
     }
 
-    /// The workspace's tunnel came up and answered (D211): a page whose load
-    /// failed meanwhile (the forwarder's 502, a connection refused) loads
-    /// again; any other page hears `online` — its sockets went with the old
-    /// tunnel, and a page that listens (xbin-client's events) reconnects now
-    /// rather than at the end of its backoff.
-    @objc private func tunnelCameUp(_ n: Notification) {
+    /// The workspace is reachable again after the way to it failed — its
+    /// tunnel came up, or its events socket is back, whatever the transport
+    /// (D211, D213): a page whose load failed meanwhile loads again; any
+    /// other page hears `online` — its sockets may have gone with the
+    /// network, and a page that listens (xbin-client's events) reconnects
+    /// now rather than at the end of its backoff.
+    @objc private func workspaceReachable(_ n: Notification) {
         guard (n.object as? String) == workspace.id, !closed else { return }
         if failedLoad || loadError != nil {
             tunnelLog("a page that failed loads again (\(chromePath ?? (tile.isEmpty ? "page" : tile)))", workspace: workspace.id)
@@ -401,8 +404,9 @@ extension WebTileController: WKNavigationDelegate, WKUIDelegate {
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
         if navigationResponse.isForMainFrame, let h = navigationResponse.response as? HTTPURLResponse {
-            // A gateway error (the tunnel's own 502 page, an unreachable
-            // backend): loaded again when the tunnel comes back (D211).
+            // A gateway error (a proxy before a restarting xbind, an
+            // unreachable backend): loaded again when the workspace is
+            // reachable again (D211, D213).
             failedLoad = [502, 503, 504].contains(h.statusCode)
         }
         if let h = navigationResponse.response as? HTTPURLResponse,
