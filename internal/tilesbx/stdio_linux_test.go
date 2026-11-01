@@ -89,6 +89,40 @@ func (sc *stdioClient) next(d time.Duration) bool {
 	return true
 }
 
+// gaps are the ranges [from, to) of a stream the ring dropped before this
+// client read them (gap ops).
+func (sc *stdioClient) gaps(stream string) (r [][2]int) {
+	for _, c := range sc.ctl {
+		if c["op"] == "gap" && c["stream"] == stream {
+			r = append(r, [2]int{int(c["from"].(float64)), int(c["to"].(float64))})
+		}
+	}
+	return r
+}
+
+// dropped is how many bytes of a stream its gaps left out.
+func (sc *stdioClient) dropped(stream string) (n int) {
+	for _, g := range sc.gaps(stream) {
+		n += g[1] - g[0]
+	}
+	return n
+}
+
+// without is s less the ranges dropped from it ("" for gaps that aren't
+// ordered ranges inside it: no match for any stream's bytes).
+func without(s string, gaps [][2]int) string {
+	var b strings.Builder
+	at := 0
+	for _, g := range gaps {
+		if g[0] < at || g[1] < g[0] || g[1] > len(s) {
+			return ""
+		}
+		b.WriteString(s[at:g[0]])
+		at = g[1]
+	}
+	return b.String() + s[at:]
+}
+
 // until reads until cond holds.
 func (sc *stdioClient) until(what string, cond func() bool) {
 	sc.t.Helper()
@@ -235,9 +269,12 @@ func TestStdioNewestWins(t *testing.T) {
 	big := strings.Repeat("0123456789abcde\n", 2<<20/16)
 	first.send(websocket.BinaryMessage, []byte(big[:1<<20]))
 	first.send(websocket.BinaryMessage, []byte(big[1<<20:]))
-	first.until("the echo", func() bool { return len(first.out) == len(big) })
-	if string(first.out) != big || first.has("error") != nil {
-		t.Fatalf("2 MiB through a slow reader: %d bytes, control %v", len(first.out), first.ctl)
+	// …and back through cat. The ring never holds the command up: a reader
+	// that falls behind (this one, under a loaded make check) gets gap ops
+	// for what it dropped — every other byte arrives, in order.
+	first.until("the echo", func() bool { return len(first.out)+first.dropped("stdout") == len(big) })
+	if string(first.out) != without(big, first.gaps("stdout")) || first.has("error") != nil {
+		t.Fatalf("2 MiB through a slow reader: %d bytes, gaps %v, control %v", len(first.out), first.gaps("stdout"), first.ctl)
 	}
 	second, _ := dialStdio(t, srv, fmt.Sprintf("%s?since=%d", path, len(big)))
 	for first.next(10 * time.Second) {
