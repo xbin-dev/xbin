@@ -1555,6 +1555,72 @@ concurrently, 5 s at most each. A run is marked `running` before any of this;
 a class without `internal` skips discovery entirely, and one naming servers
 wakes only those.
 
+### Direct MCP servers
+
+Besides the servers bound to the `mcp` slot and the config's static ones,
+people connect **streamable-HTTP MCP servers by URL** in Settings → MCP
+("Connected by URL", web and native — also for someone who isn't a manager:
+their ⚙ panel has the MCP tab alone, and the native home an **MCP servers**
+button). Each is either a person's own (**personal**: offered only in
+conversations that person owns; its tools are `mcp:my-<name>:<tool>`) or —
+added by a manager — **global** (everyone's conversations; `mcp:<name>:<tool>`).
+Either way a class gets its tools only as it gets any MCP server's: with
+`internal`, and its `mcp` list allowing the name. **They reach outside the
+workspace**: what a conversation passes a tool goes to that server, so leave
+them out of a class (`mcp`) that must not send data out.
+
+**Where they live.** A partitioned agent keeps a person's own servers in their
+partition and the global ones in the global instance; an unpartitioned one
+both, a personal one with its owner. Each home keeps its rows (`mcp_servers`)
+and its sign-ins' tokens in its own vault — never in a row, never in `conf`. A
+person's partition lists the global instance's servers (a minute at a time)
+and calls them **through** it (`POST /mcp/servers/{sid}/rpc` there), so a
+global server's tokens never leave the global instance.
+
+**Adding one** probes it with an unauthenticated `initialize`:
+
+- it answers — no sign-in (`auth: "none"`), its tools listed at once;
+- a `token` was given and it answers with `Authorization: Bearer ‹token›` —
+  `auth: "bearer"`, the token kept in the vault;
+- it answers **401** — the MCP authorization spec (2025-06-18): the
+  challenge's `resource_metadata` (else the well-known protected resource
+  metadata), its authorization server's metadata (RFC 8414, else OpenID
+  discovery, else the 2025-03-26 default endpoints), which must offer PKCE
+  S256 if it lists methods — `auth: "oauth"`, `state: "signin"`.
+
+**Signing in** (OAuth): the page asks `POST …/signin` with its
+`redirectUri` — this tile's `mcp-callback.html` at the workspace's address. The
+agent registers a public client there once per redirect (dynamic client
+registration, RFC 7591; a server without it can't be signed in to), keeps a
+PKCE verifier and a single-use `state` (15 minutes, bound to the person who
+started it), and answers the authorization page's URL (`resource` = the
+server, RFC 8707; `scope` = what its metadata lists). The page opens it as a
+real link (native: the app opens it); the authorization server sends the
+person back to `mcp-callback.html`, which posts the code and state to `POST
+/mcp/oauth/callback` — at the global instance when the state says so — and
+drops them from the address bar. The code is exchanged (with the verifier,
+the redirect and the resource; `iss` checked where the server says it sends
+it) and the tokens go to the vault. An access token within a minute of its
+end, or one the server answers 401 to, is refreshed (once at a time per
+server; a rotated refresh token is kept); a refresh refused as
+`invalid_grant` — a revoked grant — marks the server `signin`, and its
+tools are left out until someone signs in again. A server waiting for a
+sign-in offers no tools.
+
+Addresses are `https://` (`http://` only to this machine's loopback), with no
+credentials in them.
+
+| Method and path | Who | Body | Answer |
+|---|---|---|---|
+| `GET /mcp/servers` | anyone | — | `{servers: [{id, name, slug, url, scope, owner?, auth, state, error?, title?, issuer?, scopes?, tools: [names], toolsAt?, canEdit, signedIn, created, updated}], personal, global, canGlobal}` — this home's servers the caller may see (a personal one: its person's); `personal`/`global`: the scopes this home keeps; `canGlobal`: the caller may add a global one here |
+| `POST /mcp/servers` | personal: the person themself; global: a manager | `{url, name?, scope?: "personal" \| "global", token?}` | **201** `{server}`; **400** a bad address, name (`a–z 0–9 -`, a letter first, ≤ 32; a global one not `my-…`) or a refused token; **409** a scope this home doesn't keep (a person's partition: personal; global instance: global) or a name taken; **502** unreachable, not an MCP server, or no usable authorization |
+| `DELETE /mcp/servers/{sid}` | its person; a global one: a manager | — | **204**: its vault entry, pending sign-ins and tool list go too |
+| `POST /mcp/servers/{sid}/signin` | the same, as themself | `{redirectUri}` (…`/mcp-callback.html`) | `{url}`: the authorization page; **409** for a server without OAuth; **502** a registration refused |
+| `POST /mcp/oauth/callback` | the person who started it | `{state, code?, iss?, error?, errorDescription?}` | `{server, home}`; **400** an unknown, used or expired state, a refusal, a wrong `iss`; **403** someone else's sign-in; **502** the code refused |
+| `POST /mcp/servers/{sid}/signout` | its person; a global one: a manager | — | `{server}`: its tokens out of the vault, `state: "signin"` |
+| `POST /mcp/servers/{sid}/refresh` | anyone who sees it | — | `{server}`: its tools listed again now |
+| `POST /mcp/servers/{sid}/rpc` | a person (their partition's backend), at the global instance | `{method: "initialize" \| "tools/list" \| "tools/call", params?, session?}` | `{result, session}`; **409** `{error, signin: true}` when it waits for a sign-in |
+
 ### Threads, schedules and grants (D111)
 
 Four tools let a conversation's agent look at its automations and what they
