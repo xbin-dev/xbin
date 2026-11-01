@@ -13062,6 +13062,22 @@ Deviations and refinements made while implementing; all deliberate:
     tests drag it (`E2E.dragHalves`, in XbinNavigationTests test03 and
     XbinAgentNativeTests test11); if the system turns out not to resize,
     the fallback is a drag handle of our own at the boundary.
+  - **Verified 2026-11-01, and the document side fixed** (the first iPad
+    run: the Mac mini's iPad simulators failed until its reinstall). The
+    system resizes, but the document stopped at 448 pt on an 11-inch iPad
+    in portrait (480 at the start: the bar moved 32 pt toward it) — UIKit's
+    own automatic minimum for the secondary column, which no setting of
+    ours reached. The detail column now takes a width range too
+    (`SplitLayout.halvesDetailWidths`: 280, the rest, the width less the
+    sidebar's minimum); iOS 26's SwiftUI passes it to UIKit's
+    `minimumSecondaryColumnWidth`/`preferredSecondaryColumnWidth`. (Setting
+    `minimumSecondaryColumnWidth` on the split controller directly was
+    reset by SwiftUI's next update.) The owner asked for this first, a drag
+    handle of our own only if it failed. An open iPhone Duo arranges its
+    halves with the system's `ArrangementView` (D200), not a split view:
+    its panes take `splitArrangementLayoutSize(minWidth: 280)`, the same
+    rule where the system resizes them — built (the `duo` job), not run:
+    Xcode 27.1 (27A9269) has no Duo simulator.
 
 - **D216 — Repo stats are a read of the scm protocol, cap `stats`
   (2026-10-31; plans/project-overview.md §Repo stats).** docs/scm.md

@@ -156,6 +156,11 @@ extension E2E {
         XCTAssertTrue(window.width - page.frame.width >= 279, "the conversation keeps 280 (\(window.width - page.frame.width))",
                       file: file, line: line)
         shot(prefix + "c-halves-dragged-left")
+        // back where it started: the system keeps a dragged width for the
+        // app's next launch too, where a later test would start from it
+        dragSplitBar(at: page, by: page.frame.width - half)
+        XCTAssertTrue(until(5) { abs(page.frame.width - half) < 32 }, "dragged back (\(page.frame.width), was \(half))",
+                      file: file, line: line)
     }
 
     /// Drags the bar between a split's two columns — at the left edge of

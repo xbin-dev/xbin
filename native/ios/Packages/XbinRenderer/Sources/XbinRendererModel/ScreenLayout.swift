@@ -258,6 +258,16 @@ public enum SplitLayout: Sendable, Equatable {
     /// What either side of a halves split keeps at least, dragged.
     public static let halvesSideMin = 280.0
 
+    /// A halves split's second column in a split `width` points wide: the
+    /// rest of ``halvesWidths(_:)``. Given to the column itself: on its own,
+    /// the system kept it at a minimum of its own (448 pt on an 11-inch iPad
+    /// in portrait, where the bar dragged only 32 pt toward it; 2026-11-01).
+    public static func halvesDetailWidths(_ width: Double) -> ColumnWidths {
+        let lead = halvesWidths(width)
+        let ideal = width - lead.ideal
+        return ColumnWidths(min: Swift.min(halvesSideMin, ideal), ideal: ideal, max: Swift.max(ideal, width - lead.min))
+    }
+
     /// A column's width: where it starts, and how far it may be dragged.
     public struct ColumnWidths: Sendable, Equatable {
         public var min: Double

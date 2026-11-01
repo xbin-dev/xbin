@@ -182,6 +182,10 @@ import XbinCore
         #expect(SplitLayout.halvesWidths(834) == .init(min: 280, ideal: 354, max: 554))
         #expect(SplitLayout.halvesWidths(1180) == .init(min: 280, ideal: 590, max: 900))
         #expect(SplitLayout.halvesWidths(500) == .init(min: 280, ideal: 280, max: 280))
+        // …and the second column the rest, dragged down to 280 too (D213)
+        #expect(SplitLayout.halvesDetailWidths(834) == .init(min: 280, ideal: 480, max: 554))
+        #expect(SplitLayout.halvesDetailWidths(1180) == .init(min: 280, ideal: 590, max: 900))
+        #expect(SplitLayout.halvesDetailWidths(500) == .init(min: 220, ideal: 220, max: 220))
         let doc = split.children[1]
         let layout = ScreenLayout(doc)
         let island = try #require(layout.fillCanvas)

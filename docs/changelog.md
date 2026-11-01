@@ -10,6 +10,15 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-01
+
+- **xbin app: either side of a `split halves` drags down to 280 points**
+  (D213; [native.md](/docs/native.md) §A document to read). On an iPad in
+  portrait the bar stopped 32 points into the document — iPadOS kept that
+  column at 448 points of its own; now the document goes down to 280 as the
+  conversation does. On an open iPhone Duo the two panes keep the same
+  minimum wherever the system lets the person resize them.
+
 ## 2026-10-31
 
 - **Shell: a tile keeps the keyboard through a window drag** (D217;

@@ -143,6 +143,11 @@ public struct ArrangementView<Primary: View, Secondary: View>: _Leaf {
     public init(@ViewBuilder primary: () -> Primary, @ViewBuilder secondary: () -> Secondary) {}
 }
 @available(iOS 27.1, *)
+extension View {
+    public func splitArrangementLayoutSize(minWidth: CGFloat? = nil, idealWidth: CGFloat? = nil, maxWidth: CGFloat? = nil,
+                                           minHeight: CGFloat? = nil, idealHeight: CGFloat? = nil, maxHeight: CGFloat? = nil) -> some View { self }
+}
+@available(iOS 27.1, *)
 public struct ToolbarItemAxisBehavior: Hashable, Sendable {
     public static let automatic = ToolbarItemAxisBehavior(), horizontalOnly = ToolbarItemAxisBehavior(),
         verticalPreferred = ToolbarItemAxisBehavior()

@@ -102,7 +102,8 @@ struct SplitView: View {
         if SplitLayout.halves(node) {
             GeometryReader { geo in
                 ColumnsSplit(node: node, primary: kids[0], secondary: kids[1], flags: flags,
-                             halves: SplitLayout.halvesWidths(Double(geo.size.width)))
+                             halves: SplitLayout.halvesWidths(Double(geo.size.width)),
+                             halvesDetail: SplitLayout.halvesDetailWidths(Double(geo.size.width)))
             }
         } else {
             ColumnsSplit(node: node, primary: kids[0], secondary: kids[1], flags: flags)
@@ -152,6 +153,8 @@ private struct ColumnsSplit: View {
     /// A halves split's leading column (rev 3, ``SplitView``): half, and
     /// how far the bar drags (D213); nil: a list column.
     var halves: SplitLayout.ColumnWidths? = nil
+    /// …and its second column's: the rest, each side keeping 280 (D213).
+    var halvesDetail: SplitLayout.ColumnWidths? = nil
     /// Until when a change to both columns is SwiftUI's own, not the
     /// person's: as the split appears, and as the app comes back to the
     /// front, it shows the list again — a link opened from outside brought
@@ -227,13 +230,25 @@ private struct ColumnsSplit: View {
         }
     }
 
+    /// A halves split's detail takes its width range too (iOS 26 passes it
+    /// to UIKit's secondary column; without it the system's own minimum
+    /// held the document at 448 pt on an iPad in portrait — D213).
+    @ViewBuilder private var detail: some View {
+        if let w = halvesDetail {
+            detailContent
+                .navigationSplitViewColumnWidth(min: CGFloat(w.min), ideal: CGFloat(w.ideal), max: CGFloat(w.max))
+        } else {
+            detailContent
+        }
+    }
+
     /// The detail. A `nav` there, in the app's own stack
     /// (``XbinRenderOptions/hostNavigation``), shows its top screen with a
     /// Back of its own (``ColumnNav``): a NavigationStack in a split's
     /// column inside the app's NavigationStack pushed nowhere — a pushed
     /// screen's title went to the app's bar and the column kept showing the
     /// one under it, covered (an iPad, 2026-10-07).
-    @ViewBuilder private var detail: some View {
+    @ViewBuilder private var detailContent: some View {
         if secondary.type == "nav", cx?.options.hostNavigation == true {
             ColumnNav(node: secondary)
         } else {
@@ -534,7 +549,10 @@ private enum SplitPath: Hashable { case detail }
 /// Two panes on an open iPhone Duo (iOS 27.1): the system's arrangement of
 /// a primary and a secondary pane, which keeps them off the hinge —
 /// `ArrangementView(primary:secondary:)` as the 27.1 SDK declares it
-/// (SwiftUICore). Used only where the system draws its vertical bar.
+/// (SwiftUICore). Used only where the system draws its vertical bar. Where
+/// the system lets the person resize the panes, each keeps
+/// ``SplitLayout/halvesSideMin``, as an iPad's halves do (D213; the 27.1
+/// SDK has no Duo simulator to try it on: built, not run).
 @available(iOS 27.1, *)
 private struct DuoSplit: View {
     let primary: XbinNode
@@ -542,12 +560,15 @@ private struct DuoSplit: View {
     let flags: XbinNavFlags
 
     var body: some View {
+        let side = CGFloat(SplitLayout.halvesSideMin)
         ArrangementView {
             NavigationStack { NodeView(node: primary) }
                 .environment(\.xbinNav, flags)
+                .splitArrangementLayoutSize(minWidth: side)
         } secondary: {
             NavigationStack { NodeView(node: secondary) }
                 .environment(\.xbinNav, flags)
+                .splitArrangementLayoutSize(minWidth: side)
         }
     }
 }
