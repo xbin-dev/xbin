@@ -42,6 +42,9 @@ type Options struct {
 	noSandbox  bool          // run unconfined even where a sandbox would start
 	minBackoff time.Duration // the first restart delay (1 s)
 	extraEnv   []string
+	// readyResend runs the re-send on ready (a test holds it back past a
+	// SetAllow, the 2026-11-01 race)
+	readyResend func(send func())
 }
 
 const (
@@ -76,6 +79,10 @@ type Supervisor struct {
 	stopped   bool
 	onState   func(State) // SetOnState's
 	told      State       // the state onState last ran for
+
+	// polMu orders the sends of the allow list and the pairing switch
+	// (sendPolicy): each reads them as it sends.
+	polMu sync.Mutex
 
 	selftestMu sync.Mutex
 }
@@ -433,12 +440,15 @@ func (s *Supervisor) onEvent(p *proc, ev wire.Event, mode string) {
 			s.st.Error = ""
 			s.setRunning(mode)
 			s.log.Info("iroh sidecar ready", "endpoint", ev.EndpointID, "relay", ev.HomeRelay, "version", ev.Version, "confined", s.st.Confined, "exec", s.st.Exec)
-			// the list and pairing as they are now: they may have moved
+			// the list and pairing as they are by now: they may have moved
 			// since the init was written
-			allow, seq, pairing := slices.Clone(s.cfg.Allow), s.allowSeq, s.cfg.Pairing
-			go func() { // pairing first: the allow list's ack then covers both
-				_ = p.send(wire.Command{T: "pairing", Open: pairing})
-				_ = p.send(wire.Command{T: "allow", Seq: seq, Allow: allow})
+			go func() {
+				send := func() { s.sendPolicy(p) }
+				if h := s.o.readyResend; h != nil {
+					h(send)
+					return
+				}
+				send()
 			}()
 			s.broadcast()
 		}
@@ -541,13 +551,29 @@ func (s *Supervisor) SetAllow(ctx context.Context, ids []string) error {
 	seq, p := s.allowSeq, s.proc
 	s.mu.Unlock()
 	if p != nil {
-		allow := slices.Clone(ids)
-		if allow == nil {
-			allow = []string{}
-		}
-		_ = p.send(wire.Command{T: "allow", Seq: seq, Allow: allow})
+		s.sendPolicy(p)
 	}
 	return s.wait(ctx, seq)
+}
+
+// sendPolicy sends the pairing switch and the allow list as they are when
+// it runs (pairing first: the list's ack then covers both). Every send of
+// either goes through here, one at a time, reading them as it sends: the
+// sidecar applies what it gets in order, so the last it gets is the
+// newest. A list read first and sent later could land after a newer one
+// and undo it — the re-send on ready did (2026-11-01): a device allowed as
+// the sidecar came up was refused, its SetAllow already acknowledged.
+func (s *Supervisor) sendPolicy(p *proc) {
+	s.polMu.Lock()
+	defer s.polMu.Unlock()
+	s.mu.Lock()
+	allow, seq, pairing := slices.Clone(s.cfg.Allow), s.allowSeq, s.cfg.Pairing
+	s.mu.Unlock()
+	if allow == nil {
+		allow = []string{}
+	}
+	_ = p.send(wire.Command{T: "pairing", Open: pairing, Seq: seq})
+	_ = p.send(wire.Command{T: "allow", Seq: seq, Allow: allow})
 }
 
 // Sync implements Runner.
@@ -584,10 +610,10 @@ func (s *Supervisor) SetPairing(open bool) {
 	s.mu.Lock()
 	s.cfg.Pairing = open
 	s.allowSeq++
-	seq, p := s.allowSeq, s.proc
+	p := s.proc
 	s.mu.Unlock()
 	if p != nil {
-		_ = p.send(wire.Command{T: "pairing", Open: open, Seq: seq})
+		s.sendPolicy(p)
 	}
 }
 

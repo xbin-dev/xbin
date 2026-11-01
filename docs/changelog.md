@@ -12,6 +12,10 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-01
 
+- **App tunnels: a device paired as the tunnel's sidecar starts is let in**
+  (D204; [app-tunnel.md](/docs/app-tunnel.md)). The sidecar could get the
+  allow list as it stood when it came up after a newer one, and refuse a
+  device xbind had just paired until the next change to the list.
 - **xbin app: either side of a `split halves` drags down to 280 points**
   (D213; [native.md](/docs/native.md) §A document to read). On an iPad in
   portrait the bar stopped 32 points into the document — iPadOS kept that

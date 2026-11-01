@@ -60,6 +60,53 @@ func fakeSupervisor(t *testing.T, env ...string) *Supervisor {
 	return s
 }
 
+// A device allowed as the sidecar comes up stays allowed: the re-send on
+// ready reads the list as it sends. Read at ready and sent late, it landed
+// after the newer SetAllow (already acknowledged) and undid it — the
+// device was refused (TestConfinedRealSidecar in CI, 2026-11-01). Here the
+// re-send is held back until SetAllow is through.
+func TestSupervisorReadyResendKeepsANewerAllow(t *testing.T) {
+	self, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	allowed, resent := make(chan struct{}), make(chan struct{})
+	s := New(Options{RunDir: t.TempDir(), Workspace: t.TempDir(), Binary: self, noSandbox: true,
+		minBackoff: 20 * time.Millisecond,
+		readyResend: func(send func()) {
+			select {
+			case <-allowed:
+			case <-time.After(15 * time.Second):
+			}
+			send()
+			close(resent)
+		}})
+	t.Cleanup(s.Stop)
+	dev := testKey(2)
+	ctx := context.Background()
+	if err := s.Start(ctx, Config{Key: testKey(1), Relay: wire.Relay{Mode: "disabled"}}); err != nil {
+		t.Fatal(err)
+	}
+	st := waitState(t, s, StateRunning)
+	if err := s.SetAllow(ctx, []string{endpointOf(dev)}); err != nil {
+		t.Fatal(err)
+	}
+	close(allowed)
+	<-resent
+	// the sidecar takes commands in order: the selftest's answer comes after
+	// it applied the re-send
+	if _, err := s.SelfTest(ctx); err != nil {
+		t.Fatal(err)
+	}
+	c, _, err := fakeiroh.Dial(st.Ticket, wire.ALPNTunnelName, endpointOf(dev))
+	if err != nil {
+		t.Fatalf("the device allowed as the sidecar came up was refused after the re-send: %v", err)
+	}
+	c.Close()
+	got := nextStream(t, s)
+	got.Conn.Close()
+}
+
 func waitFor(t *testing.T, what string, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
