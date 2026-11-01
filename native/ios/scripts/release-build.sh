@@ -191,11 +191,16 @@ esac
 kcpass=$(cat "$kcpass_file")
 security unlock-keychain -p "$kcpass" "$kc"
 security set-keychain-settings -l -u -t 7200 "$kc"
-# The intermediates, from the keychains Xcode keeps them in (public certs;
-# an "already exists" is fine).
+# The intermediates (public certs; an "already exists" is fine): Apple's
+# current WWDR CAs, G3–G6 from apple.com/certificateauthority, kept next to
+# this script — a user who never logged in to the desktop has no login
+# keychain for Xcode to have put them in, and the System keychain holds
+# only the first one, expired in 2023 — and any the keychains Xcode uses
+# have.
 wwdr=$(mktemp "${TMPDIR:-/tmp}/wwdr.XXXXXX")
+cat "$here/apple-wwdr-intermediates.crt" >"$wwdr"
 security find-certificate -a -c "Apple Worldwide Developer Relations" -p \
-  "$HOME/Library/Keychains/login.keychain-db" /Library/Keychains/System.keychain >"$wwdr" 2>/dev/null || true
+  "$HOME/Library/Keychains/login.keychain-db" /Library/Keychains/System.keychain >>"$wwdr" 2>/dev/null || true
 if [ -s "$wwdr" ]; then security import "$wwdr" -k "$kc" -t cert -f pemseq >/dev/null 2>&1 || true; fi
 rm -f "$wwdr"
 kc_list=()
@@ -205,7 +210,8 @@ while IFS= read -r l; do
   l=${l%\"}
   [ -n "$l" ] && kc_list+=("$l")
 done < <(security list-keychains -d user)
-kc_default=$(security default-keychain -d user | sed 's/^[[:space:]]*"//; s/"$//')
+# (none for a user who never logged in to the desktop: nothing to put back)
+kc_default=$(security default-keychain -d user 2>/dev/null | sed 's/^[[:space:]]*"//; s/"$//') || kc_default=""
 kc_restore() {
   security list-keychains -d user -s ${kc_list[@]+"${kc_list[@]}"} || true
   [ -z "$kc_default" ] || security default-keychain -d user -s "$kc_default" || true

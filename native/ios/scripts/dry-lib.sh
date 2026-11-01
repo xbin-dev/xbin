@@ -237,8 +237,9 @@ cat >"$bin/xcode-select" <<'SH'
 #!/bin/sh
 echo "xcode-select $*" >>"$FAKE_LOG"
 case "${1:-}" in
--p)
-  if [ -f "$FAKE_STATE/xcode-select" ]; then cat "$FAKE_STATE/xcode-select"
+-p) # as the real one: DEVELOPER_DIR first, then the system's selection
+  if [ -n "${DEVELOPER_DIR:-}" ]; then echo "$DEVELOPER_DIR"
+  elif [ -f "$FAKE_STATE/xcode-select" ]; then cat "$FAKE_STATE/xcode-select"
   else echo "${FAKE_XCODE_SELECT:-/Applications/Xcode_27.0.app/Contents/Developer}"; fi ;;
 -s) echo "$2" >"$FAKE_STATE/xcode-select" ;;
 esac
@@ -279,13 +280,14 @@ install)
   for f in "$@"; do
     case $f in -*) continue ;; esac
     touch "$FAKE_STATE/brew-$f"
+    [ -z "${FAKE_BREW_PREFIX:-}" ] || mkdir -p "$FAKE_BREW_PREFIX/opt/$f"
     if [ -n "${FAKE_BREW_BIN:-}" ]; then
       printf '#!/bin/sh\necho "Version: 2.46.0"\n' >"$FAKE_BREW_BIN/$f"
       chmod +x "$FAKE_BREW_BIN/$f"
     fi
   done ;;
 shellenv) echo "export HOMEBREW_PREFIX=/opt/homebrew" ;;
---prefix) echo /opt/homebrew ;;
+--prefix) echo "${FAKE_BREW_PREFIX:-/opt/homebrew}" ;;
 esac
 exit 0
 SH
@@ -376,9 +378,10 @@ case "${1:-}" in
 esac
 SH
 # security: keychains (create-keychain makes the file; the user search list
-# and default are the login keychain) and signing identities
-# (FAKE_DIST_IDENTITY=1: an Apple Distribution one). Passwords (-p, -k) are
-# logged as "***".
+# and default are the login keychain — FAKE_NO_KEYCHAINS=1: none, as for a
+# user who never logged in to the desktop), what import is given (appended
+# to $FAKE_STATE/imported) and signing identities (FAKE_DIST_IDENTITY=1: an
+# Apple Distribution one). Passwords (-p, -k) are logged as "***".
 cat >"$bin/security" <<'SH'
 #!/bin/sh
 args="" prev=""
@@ -388,10 +391,16 @@ for a in "$@"; do
 done
 echo "security${args}" >>"$FAKE_LOG"
 case "${1:-}" in
-show-keychain-info | unlock-keychain | lock-keychain | set-keychain-settings | set-key-partition-list | import) exit 0 ;;
+show-keychain-info | unlock-keychain | lock-keychain | set-keychain-settings | set-key-partition-list) exit 0 ;;
+import) [ -z "${FAKE_STATE:-}" ] || cat "$2" >>"$FAKE_STATE/imported"; exit 0 ;;
 create-keychain) for a in "$@"; do last=$a; done; mkdir -p "$(dirname "$last")" && : >"$last" ;;
 list-keychains | default-keychain)
   case " $* " in *" -s "*) exit 0 ;; esac
+  if [ "${FAKE_NO_KEYCHAINS:-0}" = 1 ]; then
+    [ "$1" = list-keychains ] && exit 0
+    echo "security: SecKeychainCopyDomainDefault user: A default keychain could not be found." >&2
+    exit 1
+  fi
   echo "    \"$HOME/Library/Keychains/login.keychain-db\"" ;;
 find-certificate) exit 0 ;;
 find-identity)
@@ -444,7 +453,7 @@ export PATH="$bin:$PATH"
 # A scratch tree: the scripts at their real path, so XBIN_REPO resolves here.
 repo=$tmp/repo
 mkdir -p "$repo/native/ios/scripts" "$repo/native/fixtures"
-cp "$here"/*.sh "$repo/native/ios/scripts/"
+cp "$here"/*.sh "$here"/*.crt "$repo/native/ios/scripts/"
 cp -R "$here/testdata" "$repo/native/ios/scripts/"
 S=$repo/native/ios/scripts
 td=$here/testdata

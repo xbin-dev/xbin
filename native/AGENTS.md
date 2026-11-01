@@ -509,10 +509,12 @@ Mac tools (`ci-local-check.sh`).
   KeepAlive), which gives ci a session the way an ssh login does. The daily
   cleanup, `dev.xbin.ci-cleanup` at 04:30, runs the same way. Simulators
   boot and run in that session: an 18 s boot, and every job green. So
-  neither automatic login nor a ci FileVault login is needed.
-  `mac-setup.sh` still installs and checks the LaunchAgent, and its
-  `--check` warns about automatic login. Folding the daemon into it is
-  open work; the box used a one-off installer.
+  neither automatic login nor a ci FileVault login is needed. The admin's
+  `mac-setup.sh --no-runner --daemons` installs both (one cleanup per user,
+  `dev.xbin.ci-cleanup.ci` and `.dev`; the runner's waits for ci's
+  registration, `KeepAlive` on `~ci/actions-runner/.runner`), and ci's and
+  dev's own runs then install no LaunchAgent (since the 2026-10-31
+  reinstall; before, a one-off installer did it).
 - **FileVault is on. After a reboot the admin unlocks it over ssh**
   (macOS 27's pre-boot ssh unlock works), and then the daemon starts the
   runner. The KVM is only needed when ssh is down.
@@ -634,6 +636,8 @@ licence and first launch, the simulator platform, Homebrew):
 ```sh
 native/ios/scripts/mac-setup.sh --check          # what is missing; changes nothing
 native/ios/scripts/mac-setup.sh --no-runner      # the system half
+native/ios/scripts/mac-setup.sh --no-runner --daemons   # a headless box, once ci and dev exist:
+                                                 # the runner and the cleanups as LaunchDaemons
 ```
 
 then as **ci**, with a runner registration token from GitHub → the
@@ -757,11 +761,15 @@ setups do. So release-build.sh keeps its own,
 `~/Library/Keychains/xbin-signing.keychain-db`, made on its first run with a
 random password in `~/.appstoreconnect/signing-keychain.pass` (mode 600,
 next to the API key, which is worth more). For the build it unlocks it,
-copies Apple's public WWDR intermediates in, makes it the user's only and
+copies Apple's public WWDR intermediates in (G3–G6 from
+`scripts/apple-wwdr-intermediates.crt`, apple.com/certificateauthority: a
+release user who never logged in to the desktop has no login keychain for
+Xcode to have put them in, and the System keychain holds only the first,
+expired one — then nothing chains), makes it the user's only and
 default keychain — xcodebuild then makes the development identity there —
 lets codesign use its keys (`set-key-partition-list`, retried once after the
 first run makes the identity mid-build), and puts the user's keychain list
-and default back on exit. It holds only that development identity. Apple
+and default (if it had any) back on exit. It holds only that development identity. Apple
 keeps **one development certificate per Mac**: one made before (whose key is
 in the login keychain) must be revoked in Certificates, Identifiers &
 Profiles first — the script says so when xcodebuild asks.

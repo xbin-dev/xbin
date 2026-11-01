@@ -16,6 +16,13 @@
 #   --repo URL    default https://github.com/xbin-dev/xbin (XBIN_RUNNER_REPO)
 #   --name N      the runner's name, default xbin-mini (XBIN_RUNNER_NAME)
 #   --no-runner   leave the runner alone
+#   --daemons     (an admin, on a box nobody logs in to) start the runner and
+#       the daily cleanups from LaunchDaemons that enter the users' sessions:
+#       a user's LaunchAgents load only at a desktop login, and a headless
+#       Mac whose FileVault is unlocked over ssh has none. dev.xbin.actions-
+#       runner runs ci's runner while it is registered; dev.xbin.ci-cleanup.
+#       <user> runs ci's and dev's mac-cleanup.sh at 04:30. Their own runs
+#       then install no LaunchAgent for either.
 #
 # Items, in order: macOS; Xcode (XBIN_XCODE, else the selected one, else the
 # newest /Applications/Xcode*.app — installing it is yours: the App Store or
@@ -44,7 +51,8 @@
 # don't fail --check; each says how to fix it.
 #
 # Users: the admin runs this first (`--no-runner`: sudo for Xcode and
-# Homebrew), then the standard user ci runs it with the token (its own
+# Homebrew; with `--daemons` on a headless box, once ci and dev exist),
+# then the standard user ci runs it with the token (its own
 # simulators, cleanup agent and runner), and the standard user dev — the
 # ssh dev loop's, mac-remote.sh — with `--no-runner` (its own simulators
 # and cleanup agent). It refuses to put the runner under the release or the
@@ -58,7 +66,7 @@ RUNNER_VERSION=${XBIN_RUNNER_VERSION:-2.337.0}
 RUNNER_SHA256_arm64=5a2cd92908a93d7276a194e1de6008099f3e7946f3f8e14aa7a1a7b4a31fdec2
 RUNNER_SHA256_x64=d383f505d7ed041b1873ab68c35dd766fc093f2252330f95bb427be8f2c6dcfc
 
-check=0 no_runner=0
+check=0 no_runner=0 daemons=0
 token=${XBIN_RUNNER_TOKEN:-}
 repo_url=${XBIN_RUNNER_REPO:-https://github.com/xbin-dev/xbin}
 name=${XBIN_RUNNER_NAME:-xbin-mini}
@@ -70,6 +78,7 @@ while [ $# -gt 0 ]; do
   --repo) repo_url=${2:?}; shift 2 ;;
   --name) name=${2:?}; shift 2 ;;
   --no-runner) no_runner=1; shift ;;
+  --daemons) daemons=1; shift ;;
   -h | --help) sed -n '2,/^set -euo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
   *) echo "mac-setup: unknown argument $1 (--help)" >&2; exit 2 ;;
   esac
@@ -84,6 +93,14 @@ uid=$(id -u)
 ci_user=${XBIN_CI_USER:-ci}
 dev_user=${XBIN_DEV_USER:-dev}
 release_user=${XBIN_RELEASE_USER:-release}
+# --daemons: the system's LaunchDaemons, their log directory, and where the
+# users' homes are
+daemon_dir=${XBIN_LAUNCHDAEMONS:-/Library/LaunchDaemons}
+daemon_logs=${XBIN_DAEMON_LOGS:-/Library/Logs/xbin-ci}
+users_dir=${XBIN_USERS_DIR:-/Users}
+runner_label=dev.xbin.actions-runner
+runner_daemon=$daemon_dir/$runner_label.plist
+cleanup_daemon=$daemon_dir/$agent_label.$(id -un).plist
 # owner/name, what the job hook lets run (https://github.com/<owner>/<name>)
 repo_slug=${repo_url#https://github.com/}
 repo_slug=${repo_slug%.git}
@@ -133,21 +150,25 @@ fi
 dev="$xcode/Contents/Developer"
 export DEVELOPER_DIR=$dev
 
-selected() { [ "$(xcode-select -p 2>/dev/null || true)" = "$dev" ]; }
+# xcode-select -p answers DEVELOPER_DIR when it is set (as above): the
+# system's selection is the one without it. sudo drops DEVELOPER_DIR, so
+# the root steps get it back by env.
+selected() { [ "$(env -u DEVELOPER_DIR xcode-select -p 2>/dev/null || true)" = "$dev" ]; }
 select_it() { sudo xcode-select -s "$dev"; }
 item "xcode-select → $dev" selected select_it
 
 licensed() { xcodebuild -license check >/dev/null 2>&1; }
-accept() { sudo xcodebuild -license accept; }
+accept() { sudo env DEVELOPER_DIR="$dev" xcodebuild -license accept; }
 item "Xcode licence accepted" licensed accept
 
 launched() { xcodebuild -checkFirstLaunchStatus >/dev/null 2>&1; }
-first_launch() { sudo xcodebuild -runFirstLaunch; }
+first_launch() { sudo env DEVELOPER_DIR="$dev" xcodebuild -runFirstLaunch; }
 item "Xcode first-launch packages" launched first_launch
 
 # The simulator runtime of the SDK's own version (iphonesimulator27.0 →
-# an available iOS 27.0 runtime).
-sdk=$(xcodebuild -showsdks 2>/dev/null | sed -n 's/.*-sdk iphonesimulator\([0-9.]*\).*/\1/p' | tail -n 1)
+# an available iOS 27.0 runtime). An unlicensed Xcode lists none: the
+# runtime is then missing, not the end of the run.
+sdk=$(xcodebuild -showsdks 2>/dev/null | sed -n 's/.*-sdk iphonesimulator\([0-9.]*\).*/\1/p' | tail -n 1) || sdk=""
 platform() {
   [ -n "$sdk" ] || return 1
   xcrun simctl list runtimes -j 2>/dev/null | python3 -c '
@@ -179,9 +200,12 @@ item "Homebrew" has_brew install_brew
 if has_brew; then
   PATH="$(dirname "$brew_bin"):$PATH"
   export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ENV_HINTS=1
+  brew_prefix=$("$brew_bin" --prefix 2>/dev/null) || brew_prefix=$(dirname "$(dirname "$brew_bin")")
   for formula in xcodegen xcbeautify rsync; do
     f=$formula
-    brewed() { "$brew_bin" list --formula "$f" >/dev/null 2>&1; }
+    # The keg's opt link, not `brew list`: that fetches Homebrew's API index
+    # first, into a lock only Homebrew's owner may write (ci, dev).
+    brewed() { [ -d "$brew_prefix/opt/$f" ]; }
     brew_install() { "$brew_bin" install "$f"; }
     item "brew: $formula" brewed brew_install
   done
@@ -238,20 +262,27 @@ plist_body() {
 EOF
 }
 agent_loaded() { launchctl print "gui/$uid/$agent_label" >/dev/null 2>&1 || launchctl print "user/$uid/$agent_label" >/dev/null 2>&1; }
+# An admin's --daemons run gave this user a cleanup LaunchDaemon: then the
+# script is all it needs here.
 cleanup_installed() {
   cmp -s "$here/mac-cleanup.sh" "$home_ci/bin/mac-cleanup.sh" &&
-    [ -f "$agent_plist" ] && [ "$(plist_body)" = "$(cat "$agent_plist")" ] && agent_loaded
+    { [ -f "$cleanup_daemon" ] || { [ -f "$agent_plist" ] && [ "$(plist_body)" = "$(cat "$agent_plist")" ] && agent_loaded; }; }
 }
 install_cleanup() {
   mkdir -p "$home_ci/bin" "$HOME/Library/LaunchAgents" "$HOME/Library/Logs/xbin-ci" || return 1
   cp "$here/mac-cleanup.sh" "$home_ci/bin/mac-cleanup.sh" && chmod 755 "$home_ci/bin/mac-cleanup.sh" || return 1
+  [ ! -f "$cleanup_daemon" ] || return 0
   plist_body >"$agent_plist" || return 1
   launchctl bootout "gui/$uid/$agent_label" >/dev/null 2>&1 || launchctl bootout "user/$uid/$agent_label" >/dev/null 2>&1 || true
   # gui/ exists while the user is logged in (automatic login); over plain
   # ssh without one, the user/ domain still runs it.
   launchctl bootstrap "gui/$uid" "$agent_plist" 2>/dev/null || launchctl bootstrap "user/$uid" "$agent_plist"
 }
-item "daily cleanup ($agent_label → $home_ci/bin/mac-cleanup.sh, 04:30)" cleanup_installed install_cleanup
+if [ -f "$cleanup_daemon" ]; then
+  item "daily cleanup ($home_ci/bin/mac-cleanup.sh, 04:30, the LaunchDaemon $agent_label.$(id -un))" cleanup_installed install_cleanup
+else
+  item "daily cleanup ($agent_label → $home_ci/bin/mac-cleanup.sh, 04:30)" cleanup_installed install_cleanup
+fi
 
 # ---- the Actions runner --------------------------------------------------
 hook_line() {
@@ -264,10 +295,24 @@ hook_body() {
     "$repo_slug" "$repo_slug" "$home_ci/bin/mac-cleanup.sh"
 }
 registered() { [ -f "$runner_dir/.runner" ]; }
+# svc.sh's LaunchAgent, or an admin's --daemons LaunchDaemon (it starts the
+# runner whenever .runner exists)
 service() {
   local p
+  [ ! -f "$runner_daemon" ] || return 0
   for p in "$HOME"/Library/LaunchAgents/actions.runner.*.plist; do [ -f "$p" ] && return 0; done
   return 1
+}
+# The hook into the runner's .env — before config.sh, so a runner the
+# LaunchDaemon starts the moment it is registered has it.
+write_hook() {
+  mkdir -p "$home_ci/bin" || return 1
+  cp "$here/mac-cleanup.sh" "$home_ci/bin/mac-cleanup.sh" || return 1
+  hook_body >"$home_ci/bin/job-hook.sh" || return 1
+  chmod 755 "$home_ci/bin/mac-cleanup.sh" "$home_ci/bin/job-hook.sh"
+  touch "$runner_dir/.env"
+  { grep -Ev '^ACTIONS_RUNNER_HOOK_JOB_(STARTED|COMPLETED)=' "$runner_dir/.env" || true; hook_line; } >"$runner_dir/.env.new" &&
+    mv "$runner_dir/.env.new" "$runner_dir/.env"
 }
 hooked() {
   [ -x "$home_ci/bin/job-hook.sh" ] && [ "$(cat "$home_ci/bin/job-hook.sh")" = "$(hook_body)" ] &&
@@ -277,7 +322,8 @@ hooked() {
 }
 runner_ready() { registered && service && hooked; }
 setup_runner() {
-  local arch sum tmp got
+  local arch sum tmp got was=0
+  if registered; then was=1; fi
   if ! registered; then
     if [ -z "$token" ] && [ -t 0 ]; then
       printf 'A registration token for %s (Settings → Actions → Runners → New self-hosted runner), or empty to skip: ' "$repo_url"
@@ -307,6 +353,7 @@ setup_runner() {
     fi
     mkdir -p "$runner_dir" && tar -xzf "$tmp/runner.tar.gz" -C "$runner_dir" || { rm -rf "$tmp"; return 1; }
     rm -rf "$tmp"
+    write_hook || return 1
     # Repository-scoped (the URL is the repository's); self-hosted, macOS and
     # the architecture are its default labels, xbin-mini the one ios.yml's
     # XBIN_IOS_RUNNER names. Brew's tools must be on PATH now: config.sh
@@ -314,13 +361,14 @@ setup_runner() {
     (cd "$runner_dir" && ./config.sh --unattended --url "$repo_url" --token "$token" --name "$name" \
       --labels xbin-mini --work _work --replace) || return 1
   fi
-  mkdir -p "$home_ci/bin" || return 1
-  cp "$here/mac-cleanup.sh" "$home_ci/bin/mac-cleanup.sh" || return 1
-  hook_body >"$home_ci/bin/job-hook.sh" || return 1
-  chmod 755 "$home_ci/bin/mac-cleanup.sh" "$home_ci/bin/job-hook.sh"
-  touch "$runner_dir/.env"
-  { grep -Ev '^ACTIONS_RUNNER_HOOK_JOB_(STARTED|COMPLETED)=' "$runner_dir/.env" || true; hook_line; } >"$runner_dir/.env.new" &&
-    mv "$runner_dir/.env.new" "$runner_dir/.env" || return 1
+  write_hook || return 1
+  if [ -f "$runner_daemon" ]; then
+    # The LaunchDaemon starts a newly registered runner itself; one that was
+    # running restarts to read .env: it is this user's, and launchd starts
+    # it again (KeepAlive).
+    if [ "$was" = 1 ]; then pkill -TERM -u "$uid" -f 'bin/RunnerService.js' || true; fi
+    return 0
+  fi
   if ! service; then
     (cd "$runner_dir" && ./svc.sh install) || return 1
   fi
@@ -338,6 +386,122 @@ else
     warn "the runner runs as $(id -un), an admin: register it as the standard user $ci_user (native/AGENTS.md → Mac mini)"
   fi
   item "Actions runner $name for $repo_url ($runner_dir, labels self-hosted,macOS,xbin-mini, launchd, job hook)" runner_ready setup_runner
+fi
+
+# ---- the LaunchDaemons (--daemons: an admin, on a headless box) ----------
+# Each enters its user's session the way an ssh login does (launchctl
+# asuser), where the simulators boot; no desktop or automatic login needed.
+runner_daemon_body() { # <ci's uid>
+  local h="$users_dir/$ci_user"
+  cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>$runner_label</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/launchctl</string>
+		<string>asuser</string>
+		<string>$1</string>
+		<string>/usr/bin/sudo</string>
+		<string>-u</string>
+		<string>$ci_user</string>
+		<string>-H</string>
+		<string>/bin/bash</string>
+		<string>-c</string>
+		<string>cd $h/actions-runner &amp;&amp; exec /bin/bash ./bin/runsvc.sh</string>
+	</array>
+	<key>KeepAlive</key>
+	<dict>
+		<key>PathState</key>
+		<dict>
+			<key>$h/actions-runner/.runner</key>
+			<true/>
+		</dict>
+	</dict>
+	<key>ThrottleInterval</key>
+	<integer>30</integer>
+	<key>ProcessType</key>
+	<string>Interactive</string>
+	<key>StandardOutPath</key>
+	<string>$daemon_logs/actions-runner.log</string>
+	<key>StandardErrorPath</key>
+	<string>$daemon_logs/actions-runner.log</string>
+</dict>
+</plist>
+EOF
+}
+cleanup_daemon_body() { # <user> <uid>
+  cat <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>$agent_label.$1</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/launchctl</string>
+		<string>asuser</string>
+		<string>$2</string>
+		<string>/usr/bin/sudo</string>
+		<string>-u</string>
+		<string>$1</string>
+		<string>-H</string>
+		<string>/usr/bin/env</string>
+		<string>PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+		<string>DEVELOPER_DIR=$dev</string>
+		<string>/bin/bash</string>
+		<string>-c</string>
+		<string>[ -f ~/xbin-ci/bin/mac-cleanup.sh ] || exit 0; mkdir -p ~/Library/Logs/xbin-ci &amp;&amp; exec /bin/bash ~/xbin-ci/bin/mac-cleanup.sh &gt;&gt;~/Library/Logs/xbin-ci/cleanup.log 2&gt;&amp;1</string>
+	</array>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>4</integer>
+		<key>Minute</key>
+		<integer>30</integer>
+	</dict>
+	<key>LowPriorityIO</key>
+	<true/>
+	<key>Nice</key>
+	<integer>10</integer>
+</dict>
+</plist>
+EOF
+}
+d_label="" d_body=""
+daemon_ok() {
+  [ -f "$daemon_dir/$d_label.plist" ] && [ "$(cat "$daemon_dir/$d_label.plist")" = "$d_body" ] &&
+    launchctl print "system/$d_label" >/dev/null 2>&1
+}
+daemon_install() {
+  local p="$daemon_dir/$d_label.plist"
+  sudo mkdir -p "$daemon_logs" || return 1
+  sudo launchctl bootout "system/$d_label" >/dev/null 2>&1 || true
+  printf '%s\n' "$d_body" | sudo tee "$p" >/dev/null && sudo chmod 644 "$p" || return 1
+  sudo launchctl bootstrap system "$p"
+}
+if [ "$daemons" = 1 ]; then
+  if ! dsmemberutil checkmembership -U "$(id -un)" -G admin 2>/dev/null | grep -q 'is a member'; then
+    miss "LaunchDaemons (--daemons): an admin's — $(id -un) is not one"
+  else
+    for u in "$ci_user" "$dev_user"; do
+      u_uid=$(dscl . -read "/Users/$u" UniqueID 2>/dev/null | awk '{ print $2 }')
+      if [ -z "$u_uid" ]; then
+        miss "LaunchDaemons for $u: no user $u (sudo sysadminctl -addUser $u …, then run this again)"
+        continue
+      fi
+      d_label=$agent_label.$u d_body=$(cleanup_daemon_body "$u" "$u_uid")
+      item "LaunchDaemon $d_label ($u's mac-cleanup.sh at 04:30, in its session)" daemon_ok daemon_install
+      if [ "$u" = "$ci_user" ]; then
+        d_label=$runner_label d_body=$(runner_daemon_body "$u_uid")
+        item "LaunchDaemon $d_label ($u's Actions runner, in its session, while it is registered)" daemon_ok daemon_install
+      fi
+    done
+  fi
 fi
 
 # ---- the box: headless in a datacenter (reported, never changed) ---------
@@ -377,7 +541,10 @@ esac
 autologin=$(defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser 2>/dev/null || true)
 if [ -n "$autologin" ]; then
   ok "automatic login ($autologin)"
-  [ "$autologin" = "$ci_user" ] || warn "automatic login is $autologin's, but the runner is $ci_user's: its LaunchAgent starts with $ci_user's session"
+  [ "$autologin" = "$ci_user" ] || [ -f "$runner_daemon" ] ||
+    warn "automatic login is $autologin's, but the runner is $ci_user's: its LaunchAgent starts with $ci_user's session"
+elif [ -f "$runner_daemon" ]; then
+  ok "no automatic login needed (the runner and the cleanups are LaunchDaemons: mac-setup.sh --daemons)"
 elif [ "$fv_on" = 1 ]; then
   ok "no automatic login (FileVault on: unlocking the disk as $ci_user — KVM-over-IP, or authrestart with $ci_user's password — logs $ci_user in, and the runner starts)"
 else
@@ -502,7 +669,10 @@ all_external_contributors) ok "fork pull requests' workflows wait for approval (
 "") info "fork pull request approval: not checked (needs gh signed in as an admin of $repo_slug) — GitHub → Settings → Actions → General → require approval for all external contributors" ;;
 *) warn "fork pull requests' workflows run without approval for some contributors ($fork_policy): GitHub → $repo_slug → Settings → Actions → General → require approval for all external contributors (the job hook refuses their jobs here regardless)" ;;
 esac
-if registered; then
+if registered && [ -f "$runner_daemon" ]; then
+  if pgrep -u "$uid" -f 'bin/RunnerService.js' >/dev/null 2>&1; then ok "runner running (the LaunchDaemon $runner_label)"
+  else warn "runner not running: the LaunchDaemon $runner_label starts it (the admin: sudo launchctl kickstart -k system/$runner_label; log $daemon_logs/actions-runner.log)"; fi
+elif registered; then
   for p in "$HOME"/Library/LaunchAgents/actions.runner.*.plist; do
     [ -f "$p" ] || continue
     l=$(basename "$p" .plist)

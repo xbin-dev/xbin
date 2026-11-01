@@ -43,6 +43,12 @@ if [ -n "${FAKE_PGREP_MATCH:-}" ]; then
 fi
 exit 1
 SH
+# pkill: logged, never run (mac-setup.sh restarts a LaunchDaemon's runner)
+cat >"$bin/pkill" <<'SH'
+#!/bin/sh
+echo "pkill $*" >>"$FAKE_LOG"
+exit 0
+SH
 # gh: the fork pull request approval setting (FAKE_GH_APPROVAL; unset: gh
 # is not signed in) — never the network.
 cat >"$bin/gh" <<'SH'
@@ -53,7 +59,7 @@ case "$*" in
 *) exit 1 ;;
 esac
 SH
-chmod +x "$bin/ssh" "$bin/pgrep" "$bin/gh"
+chmod +x "$bin/ssh" "$bin/pgrep" "$bin/pkill" "$bin/gh"
 
 have() { command -v "$1" >/dev/null 2>&1; }
 local_env() { # a dev box, not Actions
@@ -65,12 +71,13 @@ local_env() { # a dev box, not Actions
 apps=$tmp/Applications
 mkdir -p "$apps/Xcode_26.4.app/Contents/Developer" "$apps/Xcode_27.0.app/Contents/Developer"
 xdev=$apps/Xcode_27.0.app/Contents/Developer
-# The runner release, as a fake: config.sh leaves .runner, svc.sh install a
-# LaunchAgent.
+# The runner release, as a fake: config.sh leaves .runner (and logs whether
+# the job hook was in .env by then), svc.sh install a LaunchAgent.
 mkdir -p "$tmp/rt"
 cat >"$tmp/rt/config.sh" <<'SH'
 #!/bin/sh
-echo "config.sh $*" >>"$FAKE_LOG"
+n=$(grep -c '^ACTIONS_RUNNER_HOOK_JOB_STARTED=' .env 2>/dev/null) || true
+echo "config.sh $* (hooked: ${n:-0})" >>"$FAKE_LOG"
 echo '{"agentName":"fake"}' >.runner
 SH
 cat >"$tmp/rt/svc.sh" <<'SH'
@@ -96,6 +103,9 @@ setup_env() { # a Mac with Xcode unpacked and nothing else done
   export FAKE_SIMCTL_JSON=$tmp/sim.json FAKE_SDK=27.0 FAKE_XCODE_SELECT=/Library/Developer/CommandLineTools
   export FAKE_LICENSE_STATUS=69 FAKE_FIRSTLAUNCH_STATUS=69 FAKE_METAL_STATUS=1 FAKE_SLEEP=1 FAKE_AUTOLOGIN=""
   export FAKE_CURL_FILE=$tmp/runner.tar.gz XBIN_RUNNER_SHA256=$rsum
+  export XBIN_LAUNCHDAEMONS=$tmp/LaunchDaemons XBIN_DAEMON_LOGS=$tmp/daemon-logs XBIN_USERS_DIR=/Users FAKE_BREW_PREFIX=$tmp/brew
+  rm -rf "$XBIN_LAUNCHDAEMONS" "$XBIN_DAEMON_LOGS" "$FAKE_BREW_PREFIX"
+  mkdir -p "$XBIN_LAUNCHDAEMONS"
 }
 realhome=$HOME
 
@@ -122,8 +132,8 @@ eq "mac-setup: sets a fresh Mac up" "$rc" 0
 has "mac-setup: …ready" "$out" "mac-setup: ready."
 log=$(cat "$FAKE_LOG")
 has "mac-setup: selects the Xcode" "$log" "sudo xcode-select -s $xdev"
-has "mac-setup: accepts the licence" "$log" "sudo xcodebuild -license accept"
-has "mac-setup: first launch" "$log" "sudo xcodebuild -runFirstLaunch"
+has "mac-setup: accepts the licence (for the Xcode it picked: sudo drops DEVELOPER_DIR)" "$log" "sudo env DEVELOPER_DIR=$xdev xcodebuild -license accept"
+has "mac-setup: first launch" "$log" "sudo env DEVELOPER_DIR=$xdev xcodebuild -runFirstLaunch"
 has "mac-setup: the iOS platform" "$log" "xcodebuild -downloadPlatform iOS"
 has "mac-setup: the Metal toolchain" "$log" "xcodebuild -downloadComponent MetalToolchain"
 for f in xcodegen xcbeautify rsync; do has "mac-setup: brew install $f" "$log" "brew install $f"; done
@@ -287,8 +297,66 @@ setup_env
 FAKE_ADMINS="owner $me" run "$S/mac-setup.sh" --runner-token tok
 has "mac-setup: an admin's runner is warned about" "$out" "warn    the runner runs as $me, an admin: register it as the standard user ci"
 has "mac-setup: …and the runner reported running" "$out" "ok      runner actions.runner.xbin-dev-xbin.xbin-mini running"
+
+# --daemons (an admin, a headless box): ci's runner and ci's and dev's
+# cleanups as LaunchDaemons entering their sessions; then ci's own run
+# installs neither svc.sh's LaunchAgent nor the cleanup agent.
+setup_env
+run "$S/mac-setup.sh" --no-runner --daemons
+eq "mac-setup --daemons: not as a standard user" "$rc" 1
+has "mac-setup --daemons: …says so" "$out" "MISSING LaunchDaemons (--daemons): an admin's — $me is not one"
+hasnt "mac-setup --daemons: …loads none" "$(cat "$FAKE_LOG")" "launchctl bootstrap system"
+setup_env
+FAKE_ADMINS="owner $me" run "$S/mac-setup.sh" --no-runner --daemons
+eq "mac-setup --daemons: as an admin" "$rc" 0
+log=$(cat "$FAKE_LOG")
+for l in dev.xbin.ci-cleanup.ci dev.xbin.ci-cleanup.dev dev.xbin.actions-runner; do
+  has "mac-setup --daemons: loads $l" "$log" "launchctl bootstrap system $XBIN_LAUNCHDAEMONS/$l.plist"
+done
+hasnt "mac-setup --daemons: none for the release user" "$log" "ci-cleanup.release"
+daemons=$(python3 - "$XBIN_LAUNCHDAEMONS" <<'PY'
+import plistlib, sys
+for l in ("dev.xbin.actions-runner", "dev.xbin.ci-cleanup.dev"):
+    with open(f"{sys.argv[1]}/{l}.plist", "rb") as f:
+        p = plistlib.load(f)
+    print(p["Label"], "|", " ".join(p["ProgramArguments"]), "|", p.get("KeepAlive"), "|", p.get("StartCalendarInterval"))
+PY
+)
+eq "mac-setup --daemons: valid plists — ci's runner while registered, dev's cleanup at 04:30" "$daemons" \
+  "dev.xbin.actions-runner | /bin/launchctl asuser 502 /usr/bin/sudo -u ci -H /bin/bash -c cd /Users/ci/actions-runner && exec /bin/bash ./bin/runsvc.sh | {'PathState': {'/Users/ci/actions-runner/.runner': True}} | None
+dev.xbin.ci-cleanup.dev | /bin/launchctl asuser 504 /usr/bin/sudo -u dev -H /usr/bin/env PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin DEVELOPER_DIR=$xdev /bin/bash -c [ -f ~/xbin-ci/bin/mac-cleanup.sh ] || exit 0; mkdir -p ~/Library/Logs/xbin-ci && exec /bin/bash ~/xbin-ci/bin/mac-cleanup.sh >>~/Library/Logs/xbin-ci/cleanup.log 2>&1 | None | {'Hour': 4, 'Minute': 30}"
+: >"$FAKE_LOG"
+FAKE_ADMINS="owner $me" run "$S/mac-setup.sh" --no-runner --daemons
+hasnt "mac-setup --daemons: a second run is a no-op" "$(cat "$FAKE_LOG")" "launchctl bootstrap"
+# ci's own run (this user as ci) on a box with the daemons
+setup_env
+export XBIN_CI_USER=$me FAKE_USERS="owner:501 $me:502 release:503 dev:504"
+FAKE_ADMINS="owner $me" run "$S/mac-setup.sh" --no-runner --daemons
+: >"$FAKE_LOG"
+run "$S/mac-setup.sh" --runner-token tok
+eq "mac-setup as ci, with the daemons: ready" "$rc" 0
+log=$(cat "$FAKE_LOG")
+has "mac-setup as ci, with the daemons: the hook is in .env before config.sh registers" "$log" "--replace (hooked: 1)"
+hasnt "mac-setup as ci, with the daemons: no svc.sh LaunchAgent" "$log" "svc.sh"
+hasnt "mac-setup as ci, with the daemons: no cleanup LaunchAgent" "$log" "launchctl bootstrap"
+hasnt "mac-setup as ci, with the daemons: a new runner isn't restarted (the daemon starts it)" "$log" "pkill"
+has "mac-setup as ci, with the daemons: the cleanup is the daemon's" "$out" \
+  "ok      daily cleanup ($HOME/xbin-ci/bin/mac-cleanup.sh, 04:30, the LaunchDaemon dev.xbin.ci-cleanup.$me)"
+has "mac-setup as ci, with the daemons: says when the runner isn't up" "$out" \
+  "warn    runner not running: the LaunchDaemon dev.xbin.actions-runner starts it"
+has "mac-setup as ci, with the daemons: no automatic login needed" "$out" "ok      no automatic login needed (the runner and the cleanups are LaunchDaemons"
+FAKE_PGREP=0 run "$S/mac-setup.sh" --check
+eq "mac-setup --check as ci, with the daemons: ready" "$rc" 0
+has "mac-setup --check as ci, with the daemons: the runner running" "$out" "ok      runner running (the LaunchDaemon dev.xbin.actions-runner)"
+echo "# changed" >>"$HOME/xbin-ci/bin/job-hook.sh"
+: >"$FAKE_LOG"
+run "$S/mac-setup.sh"
+has "mac-setup as ci, with the daemons: a changed hook restarts the running runner (launchd starts it again)" "$(cat "$FAKE_LOG")" \
+  "pkill -TERM -u $(id -u) -f bin/RunnerService.js"
+unset XBIN_CI_USER FAKE_USERS
 export HOME=$realhome
 unset FAKE_STATEFUL XBIN_APPLICATIONS FAKE_SDK FAKE_XCODE_SELECT FAKE_LICENSE_STATUS FAKE_FIRSTLAUNCH_STATUS FAKE_SLEEP FAKE_AUTOLOGIN XBIN_RUNNER_SHA256
+unset XBIN_LAUNCHDAEMONS XBIN_DAEMON_LOGS XBIN_USERS_DIR FAKE_BREW_PREFIX
 
 # ---- mac-cleanup.sh ------------------------------------------------------
 local_env
@@ -366,7 +434,7 @@ if have git; then
   me=$(id -un)
   rel=$tmp/relrepo
   mkdir -p "$rel/native/ios/scripts" "$HOME/.appstoreconnect/private_keys"
-  cp "$S"/*.sh "$rel/native/ios/scripts/"
+  cp "$S"/*.sh "$S"/*.crt "$rel/native/ios/scripts/"
   echo "name: Xbin" >"$rel/native/ios/project.yml"
   printf 'native/ios/*.xcodeproj/\n' >"$rel/.gitignore"
   git -C "$rel" init -q
@@ -470,6 +538,16 @@ PY2
   has "release-build: warns about a distribution identity in the keychain" "$out" "an Apple Distribution identity is in $me's keychain"
   FAKE_NO_IPA=1 run "$R" "$@" --build 45 --out "$tmp/rel-noipa"
   eq "release-build: no .ipa → fails" "$rc" 2
+  # a release user who never logged in to the desktop (a fresh Mac): no
+  # login keychain, no default — and so no WWDR intermediates of Xcode's
+  rm -f "$FAKE_STATE/imported"
+  : >"$FAKE_LOG"
+  FAKE_NO_KEYCHAINS=1 run "$R" "$@" --build 46 --out "$tmp/rel-fresh"
+  eq "release-build, no keychains yet: archives and exports" "$rc" 0
+  has "release-build, no keychains yet: signs with its own" "$(cat "$FAKE_LOG")" "security default-keychain -d user -s $skc"
+  hasnt "release-build, no keychains yet: …and puts no default back" "$(cat "$FAKE_LOG")" "security default-keychain -d user -s $HOME/Library/Keychains/login.keychain-db"
+  eq "release-build: imports Apple's current WWDR intermediates (G3–G6) from its own copy" \
+    "$(grep -c 'BEGIN CERTIFICATE' "$FAKE_STATE/imported" 2>/dev/null || true)" 4
   set --
   unset XBIN_RELEASE_USER XBIN_CI_USER
   export HOME=$realhome
