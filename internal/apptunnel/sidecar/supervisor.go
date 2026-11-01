@@ -572,7 +572,9 @@ func (s *Supervisor) sendPolicy(p *proc) {
 	if allow == nil {
 		allow = []string{}
 	}
-	_ = p.send(wire.Command{T: "pairing", Open: pairing, Seq: seq})
+	// unsequenced: its own ack would let a SetAllow waiting on seq return
+	// before the list behind it is applied
+	_ = p.send(wire.Command{T: "pairing", Open: pairing})
 	_ = p.send(wire.Command{T: "allow", Seq: seq, Allow: allow})
 }
 
