@@ -406,8 +406,11 @@ func safeJob(fn projectJobFunc, ctx context.Context, p *Project, k *ProjectTask,
 }
 
 // jobBackoff is the wait before a failed attempt's retry.
+// jobBackoffBase is a failed step's first wait (a var: tests shorten it).
+var jobBackoffBase = 10 * time.Second
+
 func jobBackoff(attempts int) time.Duration {
-	d := 10 * time.Second
+	d := jobBackoffBase
 	for i := 1; i < attempts && d < 10*time.Minute; i++ {
 		d *= 2
 	}

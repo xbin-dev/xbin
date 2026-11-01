@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // oauthMCP is a streamable-HTTP MCP server behind its own OAuth
@@ -409,10 +410,13 @@ func TestDirectMCPPartitions(t *testing.T) {
 		b, _ := io.ReadAll(w.Body)
 		return gwResp{Status: w.Code, Body: b}, nil
 	}
-	t.Cleanup(func() { callGlobal = old })
-	globalDirectMu.Lock()
-	globalDirectAt = globalDirectAt.AddDate(-1, 0, 0)
-	globalDirectMu.Unlock()
+	resetGlobalDirect := func() {
+		globalDirectMu.Lock()
+		globalDirectAt, globalDirectList = time.Time{}, nil
+		globalDirectMu.Unlock()
+	}
+	resetGlobalDirect()
+	t.Cleanup(func() { callGlobal = old; resetGlobalDirect() }) // the cache is the process's: no later test in a person's mode may see these
 	if w := callAs(t, mux, asAlice, "POST", "/mcp/servers", map[string]any{"url": open.URL, "name": "docs", "scope": "global"}); w.Code != 409 {
 		t.Fatalf("a global server from a partition: %d %s", w.Code, w.Body)
 	}

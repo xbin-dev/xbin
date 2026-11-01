@@ -38,13 +38,21 @@ func init() {
 // clientId carries it (sbxClientID).
 func sbxGenKey(pid int64) string { return "proj_sbx_gen:" + strconv.FormatInt(pid, 10) }
 
-// sbxClientID is the clientId of the sandbox job's create: the first
-// sandbox's as it always was, a recreated one's with its generation.
-func sbxClientID(pid int64, attempts int, d *DB) string {
-	if g, _ := strconv.Atoi(d.getSetting(sbxGenKey(pid))); g > 0 {
-		return fmt.Sprintf("agent:proj:%d:sbx:r%d:%d", pid, g, attempts)
+// sbxGen is the project's sandbox generation (0 until it is recreated).
+func sbxGen(pid int64, d *DB) int {
+	g, _ := strconv.Atoi(d.getSetting(sbxGenKey(pid)))
+	return g
+}
+
+// sbxClientID is the clientId of the sandbox job's create: one per sandbox
+// (generation), the same on every try — so a create whose answer was lost
+// (a timeout while the manager makes a VM) answers that sandbox when it is
+// tried again, rather than making another.
+func sbxClientID(pid int64, d *DB) string {
+	if g := sbxGen(pid, d); g > 0 {
+		return fmt.Sprintf("agent:proj:%d:sbx:r%d", pid, g)
 	}
-	return fmt.Sprintf("agent:proj:%d:sbx:%d", pid, attempts)
+	return fmt.Sprintf("agent:proj:%d:sbx", pid)
 }
 
 // sandboxGone: ref's manager says there is no such sandbox (deleted, or

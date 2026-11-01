@@ -183,15 +183,23 @@ func jobSandbox(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) 
 		if p.Kind == projTeam {
 			vis = p.Visibility // a team's seed is the team's to see
 		}
-		start := true
-		box, err := conn.Create(ctx, sbxCreate{Name: p.Slug, Image: req.Image, Size: req.Size, Egress: req.Egress, Visibility: vis,
-			Labels: withHomeLabel(map[string]string{projectLabel: p.UID}), Start: &start,
-			ClientID: sbxClientID(p.ID, j.Attempts, projAg().db)})
+		made := fmt.Sprintf("%s.%d", p.UID, sbxGen(p.ID, projAg().db))
+		// one an earlier try made — its answer lost to a timeout — is taken up, never made again
+		box, err := adoptMade(ctx, conn, p, made)
 		if err != nil {
-			if managerRefused(err) && sbxRefusal(err) != "unavailable" {
-				return jobOutcome{}, jobFail("creating the sandbox: %v", err)
-			}
 			return jobOutcome{}, err
+		}
+		if box == nil {
+			start := true
+			box, err = conn.CreateWait(ctx, sbxCreate{Name: p.Slug, Image: req.Image, Size: req.Size, Egress: req.Egress, Visibility: vis,
+				Labels: withHomeLabel(map[string]string{projectLabel: p.UID, projectMadeLabel: made}), Start: &start,
+				ClientID: sbxClientID(p.ID, projAg().db)}, sbxCreateTimeout)
+			if err != nil {
+				if managerRefused(err) && sbxRefusal(err) != "unavailable" {
+					return jobOutcome{}, jobFail("creating the sandbox: %v", err)
+				}
+				return jobOutcome{}, err
+			}
 		}
 		ref := sandboxRef(conn.M.Provider, box.ID)
 		err = projAg().db.Tx(func(t *DB) error {
@@ -224,6 +232,10 @@ func jobSandbox(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) 
 	}
 	switch s.box.State {
 	case "running":
+	case "creating", "starting":
+		return waitJob(10000, "the sandbox is being made") // a VM can take many minutes
+	case "error":
+		return jobOutcome{}, jobFail("the sandbox %s failed at its manager: %s — recreate it (Settings)", s.box.Name, orStr(s.box.StateDetail, "no detail"))
 	case "archived":
 		if s.box, err = s.conn.Lifecycle(ctx, s.id, "thaw", 120, true); err != nil {
 			return jobOutcome{}, err
@@ -265,6 +277,10 @@ func jobSandbox(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) 
 	})
 	if err != nil {
 		return jobOutcome{}, err
+	}
+	if left := sweepTwins(ctx, p); left > 0 {
+		// the workspace is ready (its repos go on); this job stays to delete the rest
+		return waitJob(30000, fmt.Sprintf("deleting %d duplicate sandbox(es) earlier tries made", left))
 	}
 	return doneJob("the sandbox is ready")
 }

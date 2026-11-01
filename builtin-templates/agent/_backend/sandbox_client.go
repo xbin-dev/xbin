@@ -429,6 +429,17 @@ func (c *sbxConn) Create(ctx context.Context, req sbxCreate) (*sbxSandbox, error
 	return &out, c.call(ctx, "POST", "/sandboxes", nil, req, &out, sbxCallTimeout)
 }
 
+// sbxCreateTimeout bounds a create that makes its sandbox before it answers
+// — a VM from a cold pool takes many minutes (a project's sandbox job).
+const sbxCreateTimeout = 25 * time.Minute
+
+// CreateWait is Create, waiting up to wait for the manager's answer.
+func (c *sbxConn) CreateWait(ctx context.Context, req sbxCreate, wait time.Duration) (*sbxSandbox, error) {
+	req.Labels = withHomeLabel(req.Labels)
+	var out sbxSandbox
+	return &out, c.call(ctx, "POST", "/sandboxes", nil, req, &out, wait)
+}
+
 func (c *sbxConn) Get(ctx context.Context, id string) (*sbxSandbox, error) {
 	var out sbxSandbox
 	return &out, c.call(ctx, "GET", sbxPath(id), nil, nil, &out, sbxCallTimeout)
