@@ -288,6 +288,7 @@ func handleProjectStatus(w http.ResponseWriter, r *http.Request) {
 				st.Sandbox = StatusSandbox{Ref: p.SandboxRef, Name: box.Name, State: box.State, Workdir: box.Workdir, Shared: !sandboxPrivate(box)}
 			} else {
 				st.Sandbox.State = "unknown: " + err.Error()
+				st.Sandbox.Gone = sbxRefusal(err) == "not-found"
 			}
 		}
 		cancel()

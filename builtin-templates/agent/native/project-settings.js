@@ -4,7 +4,9 @@
 //
 //   Status     its sandbox, repos (fetched, head, protected), credentials
 //              (whose, until when, why one is blocked — never the token),
-//              jobs and warnings; Warm; your sign-in to the provider (its
+//              jobs and warnings; Warm; Recreate sandbox (a new one when it
+//              is gone — again, with force, when it is still there); your
+//              sign-in to the provider (its
 //              device code shown to you only — in your own partition, as the
 //              provider lets you) and Forget
 //   Repos      each one's setup script and checkout, Remove (confirmed; again,
@@ -42,7 +44,7 @@ function settingsTpl(s) {
   }
   return html`<screen title="Settings" subtitle=${pv.name} style="form" refreshable @refresh=${() => p.loadSettings(pv.id)}>
     ${p.err ? html`<section><notice tone="danger" text=${p.err}/></section>` : nothing}
-    ${statusTpl(p, pv, c)}
+    ${statusTpl(s, p, pv, c)}
     ${reposTpl(s, p, pv, c)}
     ${policyTpl(s, p, pv, c)}
     ${membersTpl(s, p, pv, c)}
@@ -52,14 +54,15 @@ function settingsTpl(s) {
 
 // --- status -------------------------------------------------------------------------------------
 
-function statusTpl(p, pv, c) {
+function statusTpl(s, p, pv, c) {
   const st = p.statusOf.get(pv.id);
   const prov = p.provider(pv.scm);
   if (!st) return html`<section title="Status"><progress label="loading…"/></section>`;
   const sb = st.sandbox || {};
   return html`<section title="Status" footer=${st.slots ? `${st.slots.used} of ${st.slots.max} at work` : ''}>
     ${(st.warnings || []).map((w) => html`<notice tone="warn" title=${w.repo || nothing} text=${w.text}/>`)}
-    <row title="Sandbox" subtitle=${sb.ref ? [sb.name || sb.ref, sb.state, pv.dir || sb.workdir, sb.shared ? 'shared — no credentials go in' : ''].filter(Boolean).join(' · ') : 'none yet'} icon="box"/>
+    <row title="Sandbox" subtitle=${sb.ref ? [sb.name || sb.ref, sb.state, pv.dir || sb.workdir, sb.shared ? 'shared — no credentials go in' : ''].filter(Boolean).join(' · ') : 'none yet'} icon="box" tone=${sb.gone ? 'danger' : nothing}/>
+    ${sb.gone ? html`<notice tone="warn" text=${c.settings ? 'The project\'s sandbox is gone at its manager. Recreate it to carry on: the repos are cloned again and open tasks prepared again from their pushed branches.' : 'The project\'s sandbox is gone at its manager. Its owner can recreate it.'}/>` : nothing}
     ${repeat(st.repos || [], (r) => r.slug, (r) => html`<row title=${r.slug} subtitle=${[r.state, r.fetchedMs ? `fetched ${when(r.fetchedMs)}` : 'never fetched', (r.head || '').slice(0, 9), prot(r.protected), r.error].filter(Boolean).join(' · ')}
       icon="folder" tone=${r.error ? 'danger' : r.protected === false ? 'warn' : nothing}/>`)}
     ${(st.creds || []).length ? st.creds.map((k) => html`<row title=${`${k.host} in ${k.sandbox}`}
@@ -68,8 +71,25 @@ function statusTpl(p, pv, c) {
     ${repeat(st.jobs || [], (j) => j.id, (j) => html`<row title=${`${j.kind}${j.repo ? ` · ${j.repo}` : ''}${j.task ? ' · task' : ''}`}
       subtitle=${[j.state + (j.attempts > 1 ? ` (try ${j.attempts})` : ''), j.step, j.error, when(j.updated)].filter(Boolean).join(' · ')} icon="clock" tone=${j.state === 'failed' ? 'danger' : nothing}/>`)}
     ${c.act ? html`<button icon="bolt" @tap=${() => p.warm(pv.id)}>Warm</button>` : nothing}
+    ${c.settings ? recreateTpl(s, p, pv, sb) : nothing}
     ${canSignin(prov) ? signinTpl(p, prov) : nothing}
   </section>`;
+}
+
+// recreateTpl: a new sandbox on the same manager — confirmed once; when the
+// old one is still there (or its manager can't say), said again with force.
+function recreateTpl(s, p, pv, sb) {
+  const go = (force) => async () => {
+    const r = await p.recreateSandbox(pv.id, force);
+    s.resbx = r && (r.exists || r.unsure) ? r.exists || r.unsure : '';
+    ctx.paint();
+  };
+  const msg = 'A new one is made on the same manager; the repos are cloned again and open tasks prepared again from their pushed branches.'
+    + (sb.gone ? ' What was never pushed is lost with the old sandbox.' : '');
+  return html`<button icon="box" confirm=${{ title: `Recreate the sandbox of "${pv.name}"?`, message: msg, label: 'Recreate' }} @tap=${go(false)}>Recreate sandbox</button>
+    ${s.resbx ? html`<notice tone="warn" text=${s.resbx}/>
+      <button role="destructive" confirm=${{ title: 'Start over in a new sandbox anyway?', message: 'The old one is left as it is (not deleted) and the project\'s credentials are removed from it; work there that wasn\'t pushed stays only there.', label: 'Recreate anyway', destructive: true }}
+        @tap=${go(true)}>Recreate anyway</button>` : nothing}`;
 }
 
 /**

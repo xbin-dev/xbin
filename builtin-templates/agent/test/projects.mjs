@@ -163,6 +163,18 @@ ok('your sign-in: not offered at an unpartitioned agent (its routes answer 409 t
   && !st.includes('Your sign-in') && (await calls(page, 'GET', '/projects/scm/signin')).length === 0);
 await page.click('#pset-warm');
 ok('Warm', await waitCall(page, 'POST', '/projects/7/warm$'));
+ok('no gone-sandbox note while it is there', !(await page.$('#pset-sbx-gone')));
+await page.click('#pset-recreate');
+ok('Recreate sandbox: a live one is asked about again', await waitCall(page, 'POST', '/projects/7/sandbox/recreate$', 2));
+const re2 = await calls(page, 'POST', '/projects/7/sandbox/recreate$');
+ok('…first without force, then forced', !re2[0].body.force && re2[1].body.force === true, JSON.stringify(re2.map((c) => c.body)));
+await page.evaluate(() => { const s = window.__proj.status[7]; s.sandbox = { ref: 'apps/coding-sandbox|sb-new', state: 'unknown: sandbox manager apps/coding-sandbox: no such sandbox', gone: true }; });
+await page.click('#pset-status button:has-text("Refresh")');
+ok('a gone sandbox: the note says so', await page.waitForSelector('#pset-sbx-gone', { timeout: 5000 }).then(() => true, () => false));
+const nRe = (await calls(page, 'POST', '/projects/7/sandbox/recreate$')).length;
+await page.click('#pset-recreate');
+ok('…and Recreate asks once, without force', await page.waitForFunction(() => !document.querySelector('#pset-sbx-gone'), null, { timeout: 5000 }).then(() => true, () => false)
+  && (await calls(page, 'POST', '/projects/7/sandbox/recreate$')).length === nRe + 1 && !(await calls(page, 'POST', '/projects/7/sandbox/recreate$'))[nRe].body.force);
 
 // repos
 await page.fill('.prepo[data-repo="web"] textarea', 'npm ci');

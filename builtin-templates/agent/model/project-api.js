@@ -70,6 +70,7 @@ export function projectApi(app, pid) {
     removeRepo: (slug, force = false) => call(`${p}/repos/${enc(slug)}${qs({ force })}`, 'DELETE'),
     status: () => call(`${p}/status`),
     warm: () => call(`${p}/warm`, 'POST'),
+    recreateSandbox: (force = false) => call(`${p}/sandbox/recreate`, 'POST', force ? { force: true } : {}),
     issues: (q = {}) => call(`${p}/issues${qs(q)}`),
     tasks: (f = {}) => call(`${p}/tasks${qs(f)}`),
     createTask: (spec) => call(`${p}/tasks`, 'POST', spec),

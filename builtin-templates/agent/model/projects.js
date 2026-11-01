@@ -319,6 +319,24 @@ export class Projects {
 
   warm(pid = this.opened) { return this.act(() => projectApi(this.app, pid).warm(), pid); }
 
+  // recreateSandbox: a new workspace sandbox on the same manager (its
+  // defaults) — for one that is gone; force for one that is still there
+  // (left as it is). {exists} when it is still there and force wasn't
+  // said, {unsure} when its manager couldn't say: ask, then force.
+  async recreateSandbox(pid, force = false) {
+    try {
+      await projectApi(this.app, pid).recreateSandbox(force);
+      await this.refresh(pid);
+      await this.status(pid).catch(() => {});
+      return { ok: true };
+    } catch (e) {
+      if (!force && e.refusal === 'exists') return { exists: e.message };
+      if (!force && e.refusal === 'unavailable') return { unsure: e.message };
+      this.fail(e);
+      return { ok: false };
+    }
+  }
+
   // patch: the owner's PATCH with the version the change was made at
   // (opts.version: a draft's or an input's, taken when the editing began;
   // else the version last read) — a stale one (412) reads the project again

@@ -1,7 +1,9 @@
 // project-settings.js — a project's Settings tab on the web (API.md
 // §Projects in the UI):
 //
-//   status    its sandbox, repos (fetched, head, protected), credentials
+//   status    its sandbox (Recreate: a new one when it is gone — or, said
+//             twice, in place of one that is still there), repos (fetched,
+//             head, protected), credentials
 //             (whose, until when, why one is blocked — never the token),
 //             jobs and warnings; Warm; signing in to the provider (your
 //             own sign-in, its device code shown to you only — offered in
@@ -54,6 +56,7 @@ function statusTpl(p, pv, c) {
       ${(s.warnings || []).map((w) => html`<div class="note pwarn" data-kind=${w.kind}><bx-icon name="warning"></bx-icon> ${w.repo ? html`<b class="mono">${w.repo}</b>: ` : nothing}${w.text}</div>`)}
       <div class="pkv"><span>Sandbox</span><span>${s.sandbox && s.sandbox.ref ? html`<b>${s.sandbox.name || s.sandbox.ref}</b> · ${s.sandbox.state}
         ${s.sandbox.workdir ? html` · <span class="mono">${pv.dir || s.sandbox.workdir}</span>` : nothing}${s.sandbox.shared ? html` · <span class="err">shared — no credentials go in</span>` : nothing}` : 'none yet'}</span></div>
+      ${s.sandbox && s.sandbox.gone ? html`<div class="note pwarn" id="pset-sbx-gone"><bx-icon name="warning"></bx-icon> The project's sandbox is gone at its manager.${c.settings ? ' Recreate it to carry on: the repos are cloned again and open tasks prepared again from their pushed branches.' : ' Its owner can recreate it.'}</div>` : nothing}
       <div class="pkv"><span>Slots</span><span>${s.slots ? `${s.slots.used} of ${s.slots.max} at work` : ''}</span></div>
       <table class="ptable" id="pstatus-repos"><tr><th>Repo</th><th>State</th><th>Fetched</th><th>Head</th><th>Base branch</th></tr>
         ${(s.repos || []).map((r) => html`<tr data-repo=${r.slug}><td class="mono">${r.slug}</td><td>${r.state}${r.error ? html` <span class="err">${r.error}</span>` : nothing}</td>
@@ -68,10 +71,23 @@ function statusTpl(p, pv, c) {
           : html`<tr><td colspan="4" class="muted">none</td></tr>`}</table>`}
     <div class="pbtns">
       ${c.act ? html`<button class="btn ghost btnsm" id="pset-warm" title="start the sandbox, fetch the repos and refresh the credentials" @click=${() => p.warm(pv.id)}>Warm</button>` : nothing}
+      ${c.settings ? html`<button class="btn ghost btnsm" id="pset-recreate" title="a new sandbox on the same manager: the repos cloned again, open tasks prepared again" @click=${() => recreate(p, pv, s)}>Recreate sandbox…</button>` : nothing}
       <button class="btn ghost btnsm" @click=${() => p.status(pv.id).catch((e) => p.fail(e))}>Refresh</button>
     </div>
     ${canSignin(prov) ? html`<div class="pkv"><span>Your sign-in</span><span>${signinTpl(p, pv.scm, prov.title)}</span></div>` : nothing}
   </section>`;
+}
+
+// recreate: a new sandbox for the project — said once when it is gone, a
+// second time (force) when it is still there or its manager can't say.
+async function recreate(p, pv, s) {
+  const lost = 'What was never pushed is lost with the old sandbox.';
+  if (s && s.sandbox && s.sandbox.gone) {
+    if (!confirm(`Recreate the sandbox of "${pv.name}"? A new one is made on the same manager; the repos are cloned again and open tasks prepared again from their pushed branches. ${lost}`)) return;
+  } else if (!confirm(`Recreate the sandbox of "${pv.name}"? A new one is made on the same manager; the repos are cloned again and open tasks prepared again from their pushed branches.`)) return;
+  const r = await p.recreateSandbox(pv.id);
+  const again = r && (r.exists || r.unsure);
+  if (again && confirm(`${again}\n\nStart over in a new sandbox anyway? The old one is left as it is (not deleted) and the project's credentials are removed from it; work there that wasn't pushed stays only there.`)) await p.recreateSandbox(pv.id, true);
 }
 
 // --- repos ---------------------------------------------------------------------------------

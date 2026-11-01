@@ -137,6 +137,14 @@ export function PROJ_STUB(seed) {
   r('GET', new RegExp(`${API}/projects/(\\d+)/overview(\\?.*)?$`), () => plain404());
   r('GET', new RegExp(`${API}/projects/(\\d+)/status$`), (m) => json(P.status[m[1]] || { sandbox: {}, repos: [], creds: [], jobs: [], slots: { used: 0, max: 3 }, warnings: [] }));
   r('POST', new RegExp(`${API}/projects/(\\d+)/warm$`), () => json({ jobs: [] }, 202));
+  // a sandbox still there needs force; a gone one doesn't (it comes back running)
+  r('POST', new RegExp(`${API}/projects/(\\d+)/sandbox/recreate$`), (m, o) => {
+    const st = P.status[m[1]];
+    const gone = !!(st && st.sandbox && st.sandbox.gone);
+    if (!gone && !body(o).force) return json({ error: `the sandbox ${st && st.sandbox.ref} is still there: send force to start over in a new one (the old one is left as it is)`, refusal: 'exists' }, 409);
+    if (st) st.sandbox = { ref: 'apps/coding-sandbox|sb-new', name: 'web', state: 'running', workdir: '/work', shared: false };
+    return json({ project: proj(m[1]), jobs: [{ id: 99, kind: 'sandbox', state: 'queued' }], gone }, 202);
+  });
   r('GET', new RegExp(`${API}/projects/(\\d+)/issues\\?(.*)$`), (m) => {
     const q = new URLSearchParams(m[2]);
     const repo = q.get('repo');

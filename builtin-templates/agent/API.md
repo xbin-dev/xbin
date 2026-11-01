@@ -3376,9 +3376,10 @@ conversation.
 | `POST /projects/{pid}/repos` | O | `{repo, slug?, setup?}` | **201** `{repo, jobs}` |
 | `PATCH /projects/{pid}/repos/{slug}` | O | `{setup?, checkout?: "worktree" \| "clone"}` | `{repo}` |
 | `DELETE /projects/{pid}/repos/{slug}?force=1` | O | — | **202**; 409 `busy` `{error, tasks}` while open tasks work in it |
-| `GET /projects/{pid}/status` | V | — | `ProjectStatus` |
+| `GET /projects/{pid}/status` | V | — | `ProjectStatus` — its `sandbox.gone` says the manager has no such sandbox (§Recreating the sandbox) |
 | `GET /projects/{pid}/overview?range=day\|week` | V | — | `Overview` — the page's status strip and its cards in one read (below) |
 | `POST /projects/{pid}/warm` | P | — | **202** `{jobs}`: start the sandbox, fetch the repos, renew credentials |
+| `POST /projects/{pid}/sandbox/recreate` | O | `{new?: {provider, image?, size?, egress?}, force?}` | **202** `{project, jobs, gone}`: a new workspace sandbox (§Recreating the sandbox); **409** `refusal: "exists"` when the old one is still there and `force` isn't said, **502** `refusal: "unavailable"` when its manager can't say; **409** for a team project's definition |
 | `GET /projects/{pid}/issues?repo=&q=&state=&labels=&cursor=` | V | — | the provider's page of issues of one of the project's repos (bodies clipped to 2 KiB; untrusted text) |
 | `GET /projects/{pid}/tasks?col=&phase=&q=&mine=1&cursor=&limit=` | V | — | `{items: [TaskView], next}` |
 | `POST /projects/{pid}/tasks` | P | `TaskSpec` | **201** `{task: TaskView, run}` |
@@ -3751,6 +3752,26 @@ runs in a sandbox; git's own lock refusals are waited out (never removed).
 A job one process was running when it handed over is taken up again by the
 next, which finds the same command in the sandbox by its `clientId`. A job
 of a kind this build doesn't know fails "not in this build".
+
+**Recreating the sandbox.** A project's sandbox that is gone — its manager
+lost it, or it was deleted outside the agent; the status says `sandbox.gone`
+and its jobs fail "no such sandbox" — never comes back by itself: the
+sandbox job only opens the one the project names. Its owner recreates it
+(`POST /projects/{pid}/sandbox/recreate`; Settings → Recreate sandbox): a
+new sandbox on the same manager with its defaults (internet egress where it
+offers it), or as `new` says. The project forgets what lived in the old
+one — `P`, its repos' bases (an adopted repo becomes a base of the
+project's own), its fork base, its tasks' checkouts — and the jobs that
+waited to act there fail "superseded"; the sandbox job makes the new one
+(its create's `clientId` carries a generation, so a manager that dedupes
+creates makes a new sandbox), clones the repos, and every open task is
+prepared again: its branch comes back from the remote, and what was never
+pushed is lost with the old sandbox. Tasks that are over are marked
+cleaned; a big task's own sandbox is its own and is left be. Credentials
+the project wrote to the old sandbox are emptied (where it is still there)
+and revoked first. A sandbox still there is replaced only with `force`: it
+is left as it is, never deleted. A running job of the project (other than
+a fork's) answers **409** `refusal: "busy"`: ask again once it ends.
 
 **The workspace gate.** A task's turn waits until its workspace is ready.
 Its conversation is parked — `sleeping` while it is being prepared (or its

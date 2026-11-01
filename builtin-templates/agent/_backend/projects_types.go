@@ -171,6 +171,7 @@ type StatusSandbox struct {
 	State   string `json:"state"`
 	Workdir string `json:"workdir"`
 	Shared  bool   `json:"shared"`
+	Gone    bool   `json:"gone,omitempty"` // its manager has no such sandbox: POST /projects/{pid}/sandbox/recreate
 }
 
 type StatusRepo struct {

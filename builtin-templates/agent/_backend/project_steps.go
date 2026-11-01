@@ -186,7 +186,7 @@ func jobSandbox(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) 
 		start := true
 		box, err := conn.Create(ctx, sbxCreate{Name: p.Slug, Image: req.Image, Size: req.Size, Egress: req.Egress, Visibility: vis,
 			Labels: withHomeLabel(map[string]string{projectLabel: p.UID}), Start: &start,
-			ClientID: fmt.Sprintf("agent:proj:%d:sbx:%d", p.ID, j.Attempts)})
+			ClientID: sbxClientID(p.ID, j.Attempts, projAg().db)})
 		if err != nil {
 			if managerRefused(err) && sbxRefusal(err) != "unavailable" {
 				return jobOutcome{}, jobFail("creating the sandbox: %v", err)
