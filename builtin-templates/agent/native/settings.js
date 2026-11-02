@@ -9,7 +9,6 @@ import * as actions from '../model/actions.js';
 import { ui, ctx, push } from './ui.js';
 import { classScreens } from './classes.js';
 import { partitionState, staticMcp, mcpNote } from '../model/partition.js';
-import { directSectionTpl, loadDirect } from './mcp-direct.js'; // servers connected by URL
 
 function load(s, fn) {
   if (s.loaded) return;
@@ -125,16 +124,14 @@ function featuresTpl(s) {
 // mcp: the bound MCP providers (the multi:true `mcp` http slot), read-only;
 // in a partitioned instance also the config's static servers, the ones with
 // headers marked as working in shared (global) conversations only
-// (model/partition.js staticMcp). Unpartitioned: no call, no section. Then
-// the servers connected by URL (native/mcp-direct.js) — everyone's screen:
-// someone who isn't a manager reaches it from home for their own servers.
+// (model/partition.js staticMcp). Unpartitioned: no call, no section.
 function mcpTpl(s = {}) {
   const mcp = globalThis.xbin?.iface?.('mcp');
   const eps = (mcp && mcp.endpoints) || [];
   const state = partitionState();
-  if (state !== 'legacy' && ctx.app.me.manager) load(s, async () => { s.static = staticMcp(await actions.getConfig().catch(() => null), state); });
+  if (state !== 'legacy') load(s, async () => { s.static = staticMcp(await actions.getConfig().catch(() => null), state); });
   const st = s.static || [];
-  return html`<screen title="MCP servers" style="list" refreshable @refresh=${() => loadDirect(true)}>
+  return html`<screen title="MCP servers" style="list">
     <section footer=${eps.length ? 'Their tools are offered to the model as mcp:<server>:<tool>.'
       : 'No MCP servers bound. Bind MCP-providing components to this component\'s mcp slot (its Interfaces tab); their tools then become available to the agent.'}>
       ${eps.length ? repeat(eps, (e, i) => i, (e) => html`<row title=${e.provider || e.instance || e.service || ''} subtitle=${e.url || ''} mono="subtitle" icon="server"/>`)
@@ -143,7 +140,6 @@ function mcpTpl(s = {}) {
     ${st.length ? html`<section title="Static servers (config)" footer=${mcpNote(st) || nothing}>
       ${repeat(st, (x, i) => i, (x) => html`<row title=${x.name} subtitle=${x.url} mono="subtitle" icon="server" detail=${x.globalOnly ? 'shared only' : nothing}/>`)}
     </section>` : nothing}
-    ${directSectionTpl()}
   </screen>`;
 }
 

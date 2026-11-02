@@ -43,11 +43,6 @@ func (ag *Agent) ownConversation(root int64) bool {
 
 // personalCtx is ctx for work on run's conversation.
 func (ag *Agent) personalCtx(ctx context.Context, run *Run) context.Context {
-	if run != nil && !partitioned() && ag != nil && ag.db != nil {
-		if root, err := ag.db.getRun(rootOf(run)); err == nil { // whose MCP servers it may use (mcp_direct.go)
-			ctx = withMCPOwner(ctx, root.Owner)
-		}
-	}
 	if run == nil || !userMode() {
 		return ctx
 	}
@@ -109,7 +104,7 @@ func catalogIn(ctx context.Context, c *catalog) *catalog {
 
 // allMCPServersIn is the MCP servers a call in ctx may use.
 func allMCPServersIn(ctx context.Context, cfg Config) []MCPServer {
-	all := append(allMCPServers(cfg), directMCPServers(ctx)...) // and those connected by URL (mcp_direct.go)
+	all := allMCPServers(cfg)
 	if personalOK(ctx) {
 		return all
 	}

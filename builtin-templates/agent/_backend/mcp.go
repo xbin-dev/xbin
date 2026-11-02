@@ -2,8 +2,7 @@
 // JSON-RPC initialize → tools/list → tools/call. Servers come from the agent's
 // `mcp` interface binding (multi:true, like the chat tile) — read from env by
 // boundMCPServers — plus any legacy static config.mcp entries; their tools are
-// merged into the tool set as `mcp:<server>:<tool>` — with the servers people
-// connect by URL (mcp_direct.go, OAuth sign-ins). This is a working seam,
+// merged into the tool set as `mcp:<server>:<tool>`. This is a working seam,
 // not a full MCP stack — extend it (stdio transport, resources, prompts, auth)
 // per instance. Disable by binding nothing to the mcp slot.
 package main
@@ -33,11 +32,6 @@ type MCPServer struct {
 	// personal: a person's own server, bound into their partition only
 	// (iface_personal.go: offered in their own conversations only).
 	personal bool
-	// direct: a server connected by URL (mcp_direct.go) — its calls go
-	// through directRPC (its token; the global instance's for viaGlobal).
-	direct    *directServer
-	viaGlobal bool
-	external  bool // reached with directHTTP (a direct server's own address)
 }
 
 // httpClient reaches a bound provider through the xbin gateway (so the binding
@@ -45,9 +39,6 @@ type MCPServer struct {
 func (s MCPServer) httpClient() *http.Client {
 	if s.gateway {
 		return xbin.Client()
-	}
-	if s.external {
-		return directHTTP
 	}
 	return http.DefaultClient
 }
@@ -107,9 +98,6 @@ var rpcID int64
 // rpc sends one JSON-RPC call and returns the result. sessionID (if non-empty)
 // is sent and any server-issued session id is returned for reuse.
 func (s MCPServer) rpc(ctx context.Context, method string, params any, sessionID string) (json.RawMessage, string, error) {
-	if s.direct != nil {
-		return directRPC(ctx, s, method, params, sessionID)
-	}
 	body, _ := json.Marshal(rpcReq{JSONRPC: "2.0", ID: atomic.AddInt64(&rpcID, 1), Method: method, Params: params})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.URL, bytes.NewReader(body))
 	if err != nil {
@@ -133,7 +121,7 @@ func (s MCPServer) rpc(ctx context.Context, method string, params any, sessionID
 	}
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if resp.StatusCode >= 300 {
-		return nil, sessionID, &mcpHTTPError{Method: method, Status: resp.StatusCode, Body: strings.TrimSpace(string(raw))}
+		return nil, sessionID, fmt.Errorf("mcp %s: HTTP %d: %s", method, resp.StatusCode, strings.TrimSpace(string(raw)))
 	}
 	// A streamable-HTTP server may answer with SSE; pull the first data: frame.
 	payload := raw
@@ -148,18 +136,6 @@ func (s MCPServer) rpc(ctx context.Context, method string, params any, sessionID
 		return nil, sessionID, fmt.Errorf("mcp %s: %s", method, rr.Error.Message)
 	}
 	return rr.Result, sessionID, nil
-}
-
-// mcpHTTPError is a server's non-2xx answer (a direct server's 401 refreshes
-// its sign-in: mcp_direct.go).
-type mcpHTTPError struct {
-	Method string
-	Status int
-	Body   string
-}
-
-func (e *mcpHTTPError) Error() string {
-	return fmt.Sprintf("mcp %s: HTTP %d: %s", e.Method, e.Status, clip(e.Body, 2000))
 }
 
 func sseFirstData(raw []byte) []byte {

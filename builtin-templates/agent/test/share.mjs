@@ -42,8 +42,7 @@ page.on('pageerror', (e) => errors.push(e.message));
 await page.goto(`${ORIGIN}/?frame=SECRET#c=1`);
 await page.waitForFunction(() => document.querySelector('#top .title')?.textContent === 'plan the quarter');
 ok('#c=<id> opens the conversation', true);
-ok('a non-manager\'s settings gear has no managers\' tab', !(await page.$eval('#gear', (e) => e.hidden))
-  && (await page.$$eval('#tabs .tab[data-tab]', (bs) => bs.filter((b) => !b.hidden).map((b) => b.dataset.tab))).join() === 'memory,files,mcp');
+ok('a non-manager sees no settings gear', await page.$eval('#gear', (e) => e.hidden));
 
 ok('the top bar says it is private', (await page.textContent('#top .sharepill')).includes('private'));
 await page.click('#top .sharepill');

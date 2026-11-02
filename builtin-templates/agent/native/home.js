@@ -54,8 +54,7 @@ export function mainMenu() {
   return html`
     <button icon="clock" @tap=${() => openAutos()}>${n ? `Automations (${n} new)` : 'Automations'}</button>
     ${ctx.ext.main(() => {}) || nothing}
-    ${app.me.manager ? html`<button icon="gear" @tap=${() => push({ kind: 'settings' })}>Settings</button>`
-      : html`<button icon="server" @tap=${() => push({ kind: 'mcp' })}>MCP servers</button>`}
+    ${app.me.manager ? html`<button icon="gear" @tap=${() => push({ kind: 'settings' })}>Settings</button>` : nothing}
     ${h.shown ? html`<divider/>${app.halted
       ? html`<button icon="play" @tap=${guard(() => app.setHalt(false))}>Resume the agent</button>`
       : html`<button icon="power" role="destructive" confirm=${{ title: 'Stop every running agent now?',
