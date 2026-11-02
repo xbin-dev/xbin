@@ -1,5 +1,0 @@
-# build outputs — `go build` inside _backend/ names its binary after the
-# directory, and a stray one (26 MB) was once committed by `git add -A`.
-/_backend/_backend
-*.test
-*.out
