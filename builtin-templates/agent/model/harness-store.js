@@ -112,7 +112,7 @@ export function createHarnessStore(app) {
       emit();
     },
     // setting: the person's Auto / Always approve for provider (unset: approve).
-    setting(provider) { return hs.modes[provider] || hs.find(provider)?.setting || 'approve'; },
+    setting(provider) { return hs.modes[provider] || hs.find(provider)?.setting || (hs.find(provider)?.autoMode ? 'auto' : 'approve'); },
     async setSetting(provider, mode) {
       const r = await call(`/prefs/harness-mode/${encodeURIComponent(provider)}`, 'PUT', { mode });
       hs.modes = { ...hs.modes, [r.provider || provider]: r.mode || mode };

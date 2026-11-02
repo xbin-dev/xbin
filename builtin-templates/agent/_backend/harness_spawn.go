@@ -205,8 +205,8 @@ func (e *Engine) harnessChildModeOf(root int64, prov acp.Provider, want string) 
 	case hmApprove:
 		return prov.ApproveMode
 	}
-	if r, err := e.db.getRun(root); err == nil && person(r.Owner) && e.db.harnessMode(r.Owner, prov.ID) == hmAuto && prov.AutoMode != "" {
-		return prov.AutoMode
+	if r, err := e.db.getRun(root); err == nil && person(r.Owner) && e.db.harnessMode(r.Owner, prov.ID) == hmAuto && autoModeOf(prov) != "" {
+		return autoModeOf(prov)
 	}
 	return prov.ApproveMode
 }

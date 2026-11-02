@@ -322,7 +322,7 @@ func harnessCatalog(c who, mgrs []hcManager, visible func(ref string) bool) []hc
 		e := byID[id]
 		p := harnessProvider(id, adv[id])
 		e.Name, e.Modes, e.DefaultMode = p.Name, p.Modes, p.DefaultMode
-		e.AutoMode, e.ApproveMode, e.PlanMode = p.AutoMode, p.ApproveMode, p.PlanMode
+		e.AutoMode, e.ApproveMode, e.PlanMode = autoModeOf(p), p.ApproveMode, p.PlanMode
 		if e.Modes == nil {
 			e.Modes = []acp.Mode{}
 		}
@@ -332,6 +332,9 @@ func harnessCatalog(c who, mgrs []hcManager, visible func(ref string) bool) []hc
 		}
 		e.Login.Guided, e.Login.Mint = p.Signin != nil, p.Mint != nil && userMode()
 		e.Setting = hmApprove
+		if e.AutoMode != "" {
+			e.Setting = hmAuto // auto unless they chose approve (harness_unattended.go)
+		}
 		if m := modes[id]; m != "" {
 			e.Setting = m
 		}
@@ -648,7 +651,7 @@ func handlePutHarnessMode(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, fmt.Sprintf("no coding agent %q", id))
 		return
 	}
-	if body.Mode == hmAuto && p.AutoMode == "" {
+	if body.Mode == hmAuto && autoModeOf(p) == "" {
 		xbin.WriteError(w, 400, p.Name+" has no auto mode — it asks as its own settings say")
 		return
 	}

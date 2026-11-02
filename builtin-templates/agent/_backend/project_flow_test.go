@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/xbin-dev/xbin/sdk/acp"
 	"github.com/xbin-dev/xbin/sdk/acp/acptest"
 )
 
@@ -463,5 +464,73 @@ func TestHarnessTask(t *testing.T) {
 	text = fullText(fx.ag.db, run2)
 	if i, j := strings.Index(text, "# Project"), strings.Index(text, "fix the footer"); i < 0 || j < i {
 		t.Fatalf("a queued start's first prompt doesn't start with the brief: %s", clip(text, 600))
+	}
+}
+
+// harnessTaskFix is a project fixture whose sandbox manager has the fake
+// coding agent, and a task of it answering text.
+func harnessTaskFix(t *testing.T, text string) (*projFix, int64) {
+	t.Helper()
+	fx := newProjFix(t)
+	fx.m.Caps = []string{"exec", "files", "tar"}
+	argv := acptest.Command()
+	fx.m.Harnesses = []fsbHarness{{ID: "fake", Title: "Fake agent (tests)", Argv: argv, Login: argv[0] + " acptest login"}}
+	forgetHarnessProbes()
+	t.Cleanup(func() { settleHarnesses(fx.ag.eng) })
+	_ = fx.ag.db.setHarnessMode("alice", "fake", hmApprove) // what she chose for her own conversations: a task runs unattended all the same
+	p := fx.newProject(t, asAlice, nil)
+	_, runID := fx.newTask(t, asAlice, p.ID, map[string]any{"text": text, "agent": map[string]any{"provider": "fake"}})
+	fx.waitWS(t, p.ID, 1, wsReady)
+	return fx, runID
+}
+
+// noApprovalPark: run never waited on a person for an approval.
+func noApprovalPark(t *testing.T, fx *projFix, runID int64) {
+	t.Helper()
+	r, _ := fx.ag.db.getRun(runID)
+	if r.Status == statusWaiting || strings.Contains(r.Pending, `"approval"`) {
+		t.Fatalf("the task waits on a person: %s %s", r.Status, r.Pending)
+	}
+}
+
+// A project task's coding agent runs unattended: it starts in the
+// provider's full-access mode (the fake's yolo), whatever its person chose
+// for their own conversations, and a command runs without asking.
+func TestTaskHarnessUnattended(t *testing.T) {
+	fx, runID := harnessTaskFix(t, "perm: list the files")
+	hwait(t, "the task's turn", func() bool {
+		return turnOver(fx.ag, runID)() && strings.Contains(fullText(fx.ag.db, runID), "perm: list the files")
+	})
+	noApprovalPark(t, fx, runID)
+	w := callAs(t, fx.mux, asAlice, "GET", fmt.Sprintf("/runs/%d/harness", runID), nil)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"current":"yolo"`) {
+		t.Fatalf("the task's mode: %d %s", w.Code, w.Body)
+	}
+}
+
+// A permission request that comes all the same (an adapter that won't take
+// full access: here the task starts in ask) is allowed at once, with a note.
+func TestTaskHarnessAutoAllows(t *testing.T) {
+	old := unattendedMode
+	unattendedMode = func(acp.Provider) string { return "ask" }
+	t.Cleanup(func() { unattendedMode = old })
+	fx, runID := harnessTaskFix(t, "perm: list the files")
+	defer func() {
+		if t.Failed() {
+			r, _ := fx.ag.db.getRun(runID)
+			t.Logf("run: %s %s\ntext: %s", r.Status, clip(r.Pending, 600), clip(fullText(fx.ag.db, runID), 3000))
+		}
+	}()
+	note := func() string {
+		var d string
+		_ = fx.ag.db.q.QueryRow(`SELECT detail FROM steps WHERE run_id=? AND kind='note' AND detail LIKE '%allowed without asking%'`, runID).Scan(&d)
+		return d
+	}
+	hwait(t, "the task's turn", func() bool {
+		return turnOver(fx.ag, runID)() && strings.Contains(fullText(fx.ag.db, runID), "listed") && note() != ""
+	})
+	noApprovalPark(t, fx, runID)
+	if n := note(); !strings.Contains(n, "run ls") || !strings.Contains(n, "Allow always") {
+		t.Fatalf("the note: %s", n)
 	}
 }

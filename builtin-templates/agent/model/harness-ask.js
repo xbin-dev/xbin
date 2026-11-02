@@ -273,9 +273,9 @@ export function settingOf(entry, setting = 'approve') {
     choices: [
       { value: 'approve', label: 'Always approve', title: `${name} asks you before it edits or runs anything${ask ? ` (${ask})` : ''}` },
       { value: 'auto', label: 'Auto', disabled: !canAuto,
-        title: canAuto ? `${name} edits files without asking (${mode(entry.autoMode)}); commands still ask` : `${name} has no auto mode — it asks as its own settings say` },
+        title: canAuto ? `${name} goes ahead on its own (${mode(entry.autoMode)}) — it may still ask now and then` : `${name} has no auto mode — it asks as its own settings say` },
     ],
-    note: `How ${name} starts for you — your new conversations and the coding agents started for you.`,
+    note: `How ${name} starts for you — your new conversations and the coding agents started for you (a project's tasks always run unattended).`,
   };
 }
 

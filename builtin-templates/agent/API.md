@@ -2441,8 +2441,8 @@ advertises, after the SDK catalog's four (`claude`, `codex`, `gemini`,
  "images": [{"provider": "apps/coding-sandbox", "manager": "Coding sandboxes", "image": "base",
              "advertised": true, "egress": ["internet"]}],
  "modes": [{"id": "default", "name": "Ask before acting"}, {"id": "bypassPermissions", "name": "Bypass permissions", "explicit": true}],
- "defaultMode": "default", "autoMode": "acceptEdits", "approveMode": "default", "planMode": "plan",
- "setting": "approve",                        // the caller's own (below)
+ "defaultMode": "default", "autoMode": "auto", "approveMode": "default", "planMode": "plan",
+ "setting": "auto",                           // the caller's own (below; unset: auto)
  "login": {"command": "claude auth login", "guided": true, "mint": true}, // its terminal sign-in; guided: the guided sign-in (D179), mint: its Remember (a person's partition)
  "options": [ /* the config options its last session reported, any conversation — absent before one */ ],
  "sandboxes": {"apps/coding-sandbox|sb-7f3a": {"installed": true, "signedIn": false, "at": 1790000100000}}}
@@ -2483,12 +2483,25 @@ advertises, after the SDK catalog's four (`claude`, `codex`, `gemini`,
 
 **Auto / Always approve** is each person's own setting per coding agent,
 kept by the agent (not in xbind's prefs — the agent reads the conversation
-owner's when it spawns a coding agent for them): `auto` is the agent's
-auto-edit mode (`autoMode`: claude `acceptEdits`, codex `agent`, gemini
-`autoEdit`), `approve` — also what unset means — its ask-first mode
-(`approveMode`). It applies when a coding-agent conversation or child is
-created; one that exists keeps its mode. Explicit modes (bypass, full
-access) are never a setting.
+owner's when it spawns a coding agent for them): `auto` — also what unset
+means — is the agent's own Auto mode where it has one (claude `auto`: it
+decides most asks itself and may still ask now and then), else its
+auto-edit mode (`autoMode`: codex `agent`, gemini `autoEdit`); `approve`
+its ask-first mode (`approveMode`). It applies when a coding-agent
+conversation or child is created; one that exists keeps its mode.
+Explicit modes (bypass, full access) are never a setting.
+
+**A project task's coding agent runs unattended**, always — no one watches
+a task's turn, so a request it parks on is one nobody answers: it
+(re)starts in the provider's one explicit full-access mode (claude
+`bypassPermissions`, codex `agent-full-access`, gemini `yolo`; one without:
+its auto) whatever the task or its person asked, and a permission request
+that comes all the same — an adapter that won't take that mode (claude as
+root), one with none (opencode), a plan's approval — is answered at once
+with its allow option (allow always before allow once; one that offers
+none parks as ever), a `note` in the conversation saying what was
+allowed. It works in the project's sandbox on the task's branch; the
+agent pushes no default branch for it (§Pull requests), whatever its mode.
 
 **Driving one (the API).** `POST /ask` and `POST /runs` take `harness:
 {provider, mode?, options?}` with a `sandbox: {ref, cwd?}` (`POST /runs`
@@ -3215,8 +3228,8 @@ config's `harness: {provider, mode, ref, cwd}`) of its parent's class in
 that sandbox; the task is its first prompt (an `hprompt` row: the user row
 and the task ledger's entry, source `parent`, are written as it is
 delivered). Its mode is the **root conversation owner's** Auto / Always
-approve for that coding agent (`/prefs/harness-mode`; a conversation owned
-by no person: Always approve), which `harness_mode` only narrows —
+approve for that coding agent (`/prefs/harness-mode`, unset: Auto; a
+conversation owned by no person: Always approve), which `harness_mode` only narrows —
 `approve` asks before every edit and command, `plan` only plans (the
 provider's plan mode, else its approve mode); the model never picks an
 explicit (bypass) mode. The link, the placeholder, the digest and the
