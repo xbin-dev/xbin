@@ -563,9 +563,10 @@ reviewed code only: its primary and every provider bound to it must be
 protected, and stay so while it is on. All are your own acts — bx with
 your login or the root token, never a tile's terminal — and exit 6 against
 an xbind without them. In a partition's terminal, `bx status` prints
-`partition: user:<id>` and `bx logs` reads your partition's own log;
-elsewhere `bx logs <tile> --global` reads a partitioned tile's global
-instance's log and `--user <id>` a person's partition's log while they
+`partition: user:<id>` and `bx logs` reads your partition's own log
+(`--global` there reads the global instance's if you can change the tile's
+code: write level on it); elsewhere `bx logs <tile> --global` reads a
+partitioned tile's global instance's log and `--user <id>` a person's partition's log while they
 share it (both from xbind).
 `bx doctor` reports tiles waiting for a mode decision, partitioned tiles
 without `--isolate`, who can change a partitioned tile's code while it runs

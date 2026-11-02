@@ -1468,9 +1468,13 @@ and admins read it with `&user=<your id>` (`bx logs <tile> --user <id>`); a
 follow (`-f`) of it ends by itself once the share ends or you stop it. The
 global instance's log stays where it was: admins, people with terminal
 level and the tile's own credentials read it with `&xbin-partition=global`
-(`bx logs <tile> --global`; a person's partition never does), and a
-credential that acts in no person's partition (the root token, another
-tile) reads it as before. `?partition=` is refused (400):
+(`bx logs <tile> --global`). A person's partition doesn't — except the
+tile's own terminals, agent sessions and frames of a person who can change
+its code (write level on the tile, at their level now): that code runs in
+the global instance too, so its log is theirs to read. The partition's
+backend, view-as and another tile's credentials never do. A credential
+that acts in no person's partition (the root token, another tile) reads it
+as before. `?partition=` is refused (400):
 the credential decides. `GET /api/xbin/tile-status` and `bx status` in a
 partition's terminal answer that partition's instance and disk and say
 `partition: user:<id>`; admins' `GET /api/xbin/backends` lists people's

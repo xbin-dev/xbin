@@ -10,6 +10,18 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-02
+
+- **Partitions: a tile's agent reads the global instance's log when its
+  person can change the tile's code** (D218, #55;
+  [partitions.md](/docs/partitions.md) §Logs and status). On a partitioned
+  tile, a terminal, agent session or frame of the tile in a person's
+  partition was refused `GET /api/xbin/logs?component=<tile>&xbin-partition=global`
+  (`bx logs <tile> --global`) with 403 even for a writer of the tile. It
+  now reads it when that person holds write on the tile; for anyone else,
+  and for the partition's backend, it stays 403 and their own partition's
+  log stays the default.
+
 ## 2026-11-01
 
 - **App tunnels: a device paired as the tunnel's sidecar starts is let in**

@@ -13291,3 +13291,23 @@ Deviations and refinements made while implementing; all deliberate:
     window's status bar pads its right side to 14 px so its last button
     clears the 14 px grip (2 px again at phone width, where there is no
     grip).
+- **D218 — A person who can change a partitioned tile's code reads its
+  global instance's log from their partition (2026-11-02; issue #55).**
+  The owner: a tile agent "can only view its own partition. When someone
+  can change tile code they should also be able to view global instance
+  logs". D156 had refused `GET /logs?xbin-partition=global` to every
+  credential acting in a person's partition (its "not chosen": listing the
+  global instance's log to a person's partition), so an agent session in
+  a writer's partition couldn't read the log of the code it was changing.
+  - **Chosen.** The tile's own terminals, agent sessions and frames in a
+    person's partition read the global instance's log when that person
+    holds write on the tile at their level now (`codeWriterOf`,
+    internal/broker/partitionlogshare.go) — the level that changes the
+    code (docs/partitions.md §What partitions protect: whoever can change
+    the code already reaches every partition's data through it). After
+    that, apiLogs' gate is today's (the tile's own credential).
+  - **Unchanged.** The partition's backend (its instance token names no
+    person), view-as, another tile's credentials and anyone without write
+    on the tile stay 403; the default answer stays the caller's own
+    partition's log; a person in the shell still needs terminal level or
+    admin, as before (the issue names the tile's agent).

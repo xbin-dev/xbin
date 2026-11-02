@@ -303,6 +303,35 @@ func TestPartitionLogChoice(t *testing.T) {
 	if _, _, _, st := ask(instanceOf("apps/pg", "user:alice"), "apps/pg", "xbin-partition=global"); st != 403 {
 		t.Errorf("a partition's instance asks global's: %d", st)
 	}
+	// #55: the tile's own terminal, agent session or frame in a person's
+	// partition reads global's when its person can change the tile's code
+	// (wendy writes apps/pg); alice only reads it and keeps her own
+	inPart := func(id, via string) auth.Principal {
+		p := personP(t, f.partWS, id)
+		p.Component, p.Via, p.Partition = "apps/pg", via, util.UserPartition(id)
+		return p
+	}
+	for _, via := range []string{"terminal", "frame"} {
+		if rel, part, _, st := ask(inPart("wendy", via), "apps/pg", "xbin-partition=global"); rel != "" || part != "global" || st != 0 {
+			t.Errorf("wendy's %s (write) asks global's: %q %q %d", via, rel, part, st)
+		}
+		if _, _, _, st := ask(inPart("alice", via), "apps/pg", "xbin-partition=global"); st != 403 {
+			t.Errorf("BUG: alice's %s (read) reads global's: %d", via, st)
+		}
+		if rel, part, _, st := ask(inPart("alice", via), "apps/pg", ""); rel != own || part != "user:alice" || st != 0 {
+			t.Errorf("alice's %s, her own: %q %q %d", via, rel, part, st)
+		}
+	}
+	viewAs := inPart("wendy", "frame")
+	viewAs.Impersonator = "bob"
+	if _, _, _, st := ask(viewAs, "apps/pg", "xbin-partition=global"); st != 403 {
+		t.Errorf("BUG: view-as wendy reads global's: %d", st)
+	}
+	other := inPart("wendy", "terminal")
+	other.Component = "apps/q"
+	if _, _, _, st := ask(other, "apps/pg", "xbin-partition=global"); st != 403 {
+		t.Errorf("BUG: apps/q's terminal of wendy reads apps/pg global's: %d", st)
+	}
 	if rel, _, _, st := ask(auth.Principal{Owner: true}, "apps/pg", ""); rel != "" || st != 0 {
 		t.Errorf("the root token: %q %d", rel, st)
 	}
