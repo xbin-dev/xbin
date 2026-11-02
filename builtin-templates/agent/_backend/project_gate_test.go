@@ -287,3 +287,29 @@ func TestProjectPromptStable(t *testing.T) {
 		}
 	}
 }
+
+// A provider whose fresh credential lasts 16 minutes with its refresh due in
+// 6 (scm-github's shape, late in a person's sign-in) mustn't park the turn:
+// the gate used to call it due (its refresh inside the 10-minute margin)
+// while the renewal called it fresh and minted nothing — the run slept for
+// good. The credential's expiry alone decides, as the renewal judges it.
+func TestCredsShortRefreshDoesNotStrand(t *testing.T) {
+	old := scmEnsureCreds
+	scmEnsureCreds = func(ctx context.Context, p *Project, k *ProjectTask, ref string, left time.Duration) error {
+		err := old(ctx, p, k, ref, left)
+		if err == nil { // as the provider hands it out late in a sign-in
+			_, _ = projAg().db.q.Exec(`UPDATE project_creds SET expires_ms=?, refresh_ms=?`, nowMs()+16*60*1000, nowMs()+6*60*1000)
+		}
+		return err
+	}
+	t.Cleanup(func() { scmEnsureCreds = old })
+	fx := newProjFix(t)
+	p := fx.newProject(t, asAlice, nil)
+	_, runID := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "go"})
+	fx.waitWS(t, p.ID, 1, wsReady)
+	waitFor(t, "the task's turn", func() bool { return len(fakeOf(fx.ag).callsFor(runID)) > 0 })
+	r, _ := fx.ag.db.getRun(runID)
+	if ps := parsePending(r.Pending); ps.Kind == pendKindProject {
+		t.Fatalf("still parked: %s %s", r.Status, r.Pending)
+	}
+}

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // projectGate (Engine.pass, after the inbox is read, before a coding
@@ -84,6 +85,16 @@ func (e *Engine) projectGate(run *Run, rows []*InboxRow) bool {
 		park.Step = "renewing the credentials"
 	}
 	if ours && run.Status == want && ps.Project != nil && ps.Project.WS == park.WS && ps.Project.Detail == park.Detail {
+		if creds && projectJobKinds[pjCreds] != nil && e.db.liveJob(p.ID, k.ID, "", pjCreds) == nil {
+			// parked already, but nothing renews it (the last renewal ended and
+			// it is still due): one more, or the turn would sleep for good — a
+			// minute after the last at the soonest, never back to back
+			after := time.Duration(0)
+			if js := e.db.jobsWhere(`WHERE task_id=? AND kind=? AND state IN ('done','failed') ORDER BY id DESC LIMIT 1`, k.ID, pjCreds); len(js) > 0 {
+				after = max(time.Minute-time.Duration(nowMs()-js[0].Updated)*time.Millisecond, 0)
+			}
+			_ = e.fenced(func(t *DB) error { _, err := t.queueJob(p.ID, k.ID, "", pjCreds, "", after); return err })
+		}
 		return false // parked already, as it stands
 	}
 	pend, _ := json.Marshal(pendingState{Kind: pendKindProject, Project: &park})

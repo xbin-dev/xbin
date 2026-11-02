@@ -374,8 +374,10 @@ func TestRefreshRewritesFile(t *testing.T) {
 }
 
 // scmCredsDue reads project_creds alone: no row, not live, another
-// identity, or a refresh within 10 minutes is due; a project without repos
-// (or archived) never is.
+// identity, an expiry within 10 minutes or a refresh instant passed is due —
+// a refresh instant merely inside the 10 minutes is not (the renewal
+// wouldn't mint: the turn would park for good); a project without repos (or
+// archived) never is.
 func TestCredsDue(t *testing.T) {
 	fx := credFixture(t, modeUser)
 	db := fx.ag.db
@@ -395,11 +397,19 @@ func TestCredsDue(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	set(`UPDATE project_creds SET refresh_ms = ` + itoa(nowMs()+5*60*1000))
-	if !scmCredsDue(db, fx.p, nil) {
-		t.Fatal("refresh within 10 min: due")
+	set(`UPDATE project_creds SET refresh_ms = ` + itoa(nowMs()+5*60*1000) + `, expires_ms = ` + itoa(nowMs()+16*60*1000))
+	if scmCredsDue(db, fx.p, nil) {
+		t.Fatal("a refresh within 10 min, an expiry 16 min out: not due (the renewal wouldn't mint)")
 	}
-	set(`UPDATE project_creds SET refresh_ms = ` + itoa(nowMs()+50*60*1000) + `, identity='bot'`)
+	set(`UPDATE project_creds SET expires_ms = ` + itoa(nowMs()+5*60*1000))
+	if !scmCredsDue(db, fx.p, nil) {
+		t.Fatal("an expiry within 10 min: due")
+	}
+	set(`UPDATE project_creds SET expires_ms = ` + itoa(nowMs()+60*60*1000) + `, refresh_ms = ` + itoa(nowMs()-1000))
+	if !scmCredsDue(db, fx.p, nil) {
+		t.Fatal("a refresh instant passed: due")
+	}
+	set(`UPDATE project_creds SET refresh_ms = ` + itoa(nowMs()+50*60*1000) + `, expires_ms = ` + itoa(nowMs()+60*60*1000) + `, identity='bot'`)
 	if !scmCredsDue(db, fx.p, nil) {
 		t.Fatal("another identity: due")
 	}
