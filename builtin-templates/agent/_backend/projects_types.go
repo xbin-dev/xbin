@@ -268,7 +268,10 @@ const (
 	colWorking  = "working"
 	colNeedsYou = "needs-you"
 	colPR       = "pr"
-	colDone     = "done"
+	// countReady counts, beside the columns, the PR column's tasks whose CI
+	// passed (ProjectView.Counts): they wait for a person too
+	countReady = "ready"
+	colDone    = "done"
 )
 
 // Who asked for a task's current turn (project_tasks.turn_by), and where a
@@ -439,6 +442,7 @@ const (
 	taskCI             = "ci"
 	taskCIFailed       = "ci-failed"
 	taskAwaitingReview = "awaiting-review"
+	taskCIPassed       = "ci-passed" // its PR's CI passed: it waits for a person to review and merge (Needs you: review)
 	taskMerged         = "merged"
 	taskClosed         = "closed"
 	taskDone           = "done"

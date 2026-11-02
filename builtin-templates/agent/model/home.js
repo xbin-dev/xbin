@@ -18,9 +18,10 @@ export const HOME = {
 // REASON: why a conversation is in "Needs you" (GET /needs items[].reason);
 // login: a coding agent in it waits for you to sign in (D147 §4.3.9).
 // unfinished: its coding agent's or project's last turn stopped part-way
-// (the judge, D198) — the item's run carries the reason.
+// (the judge, D198) — the item's run carries the reason. review: a project
+// task's pull request passed CI — it waits for you to review and merge it.
 export const REASON = { question: 'has a question for you', approval: 'wants your approval', failed: 'failed', login: 'needs you to sign in',
-  unfinished: 'stopped before finishing' };
+  unfinished: 'stopped before finishing', review: 'passed CI — its pull request is ready for your review' };
 
 // needWords: an item's reason in words — a sign-in names the coding agent
 // when the item says which (its own `harness`, or its conversation's when

@@ -358,7 +358,7 @@ func coordErrWords(err error) string {
 var coordStateWords = map[string]string{
 	taskQueued: "queued", taskPreparing: "queued (its workspace is being prepared)", taskSignin: "waiting for a person (to sign in)",
 	taskWorking: "working", taskNeedsYou: "waiting for a person", taskCI: "awaiting CI", taskCIFailed: "CI failed",
-	taskAwaitingReview: "awaiting review", taskMerged: "merged", taskClosed: "closed", taskDone: "done", taskFailed: "failed",
+	taskAwaitingReview: "awaiting review", taskCIPassed: "CI passed, awaiting review", taskMerged: "merged", taskClosed: "closed", taskDone: "done", taskFailed: "failed",
 	taskCancelled: "cancelled", taskBlocked: "waiting for a person (its cleanup found unpushed work)", taskDeleted: "deleted",
 }
 

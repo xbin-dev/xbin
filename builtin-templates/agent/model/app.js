@@ -381,6 +381,8 @@ export function createApp(opts = {}) {
         if (r && r.unread && ev.run === app.root && visible()) app.convs.read(ev.run);
         if (app.sel == null) { clearTimeout(needsT); needsT = setTimeout(() => app.loadNeeds(), 300); }
       }
+      // a CI result or a task's change: a pull request that passed CI joins Needs you (reason review)
+      if ((ev.type === 'ci' || ev.type === 'project') && app.sel == null) { clearTimeout(needsT); needsT = setTimeout(() => app.loadNeeds(), 300); }
       if (ev.type === 'automation' || (ev.type === 'run' && ev.run === ev.root && ['schedule', 'watcher', 'channel', 'trigger'].includes((ev.data || {}).origin))) {
         clearTimeout(autosT);
         autosT = setTimeout(() => (app.page ? app.autos.load() : app.autos.loadSummary()), 300);

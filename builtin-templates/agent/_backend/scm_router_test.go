@@ -79,7 +79,7 @@ func TestRoutingTable(t *testing.T) {
 		if len(evs) != 1 || !evs[0].Wake || k.taskPRs()[0].Checks != "success" || len(fx.inputs()) != 0 {
 			t.Fatalf("pr.ready %+v, checks %q, inputs %d", evs, k.taskPRs()[0].Checks, len(fx.inputs()))
 		}
-		if v := fx.ag.db.projTaskView(fx.p, k); v.State != taskAwaitingReview || v.WaitingFor != "review" {
+		if v := fx.ag.db.projTaskView(fx.p, k); v.State != taskCIPassed || v.WaitingFor != "review" { // its CI passed: in Needs you (ciPassedNeeds)
 			t.Fatalf("the task: %s waiting for %s", v.State, v.WaitingFor)
 		}
 	})

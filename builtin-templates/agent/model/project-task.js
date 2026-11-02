@@ -51,7 +51,7 @@ export function columns(tasks) {
 export const STATES = {
   queued: ['queued', 'idle'], preparing: ['preparing the workspace', 'run'], signin: ['needs a sign-in', 'warn'],
   working: ['working', 'run'], 'needs-you': ['needs you', 'warn'], ci: ['CI running', 'run'], 'ci-failed': ['CI failed', 'bad'],
-  'awaiting-review': ['awaiting review', 'idle'], merged: ['merged', 'ok'], closed: ['closed', 'idle'], done: ['done', 'ok'],
+  'awaiting-review': ['awaiting review', 'idle'], 'ci-passed': ['CI passed — review it', 'ok'], merged: ['merged', 'ok'], closed: ['closed', 'idle'], done: ['done', 'ok'],
   failed: ['failed', 'bad'], cancelled: ['cancelled', 'idle'], blocked: ['cleanup refused', 'warn'], deleted: ['deleted', 'idle'],
 };
 // What a task waits for (TaskView.waitingFor).

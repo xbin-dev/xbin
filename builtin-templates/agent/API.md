@@ -55,7 +55,7 @@ a subagent is exactly as visible as the conversation it works for.
 | `GET /conversations?q=` | — | search titles and everything said, in every conversation you may see (archived and automation runs included), up to 50; content hits carry `match {msgId, snippet}` |
 | `PATCH /runs/{id}` | `{title?, pinned?, archived?, visibility?, teamRole?, model?}` | pin and archive are yours (any viewer); title and visibility are the owner's. Making an unowned run private claims it. `model` switches the conversation's model from its next turn (anyone who may talk in it; `""` = the agent's default) |
 | `POST /runs/{id}/read` | — | mark it read up to now |
-| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval — or a coding agent waits for you to sign in (`login`, D147 §4.3.9) — conversations you may talk to whose coding agent's or project's last turn stopped part-way (`unfinished`, D198, §Not finished), and automations you own whose last run failed and you haven't looked at → `{items:[{run, reason: question\|approval\|login\|unfinished\|failed, subRun, harness?}]}`; `harness` is the waiting run's compact summary when a coding agent waits (as `/tree` nodes carry it) |
+| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval — or a coding agent waits for you to sign in (`login`, D147 §4.3.9) — conversations you may talk to whose coding agent's or project's last turn stopped part-way (`unfinished`, D198, §Not finished), automations you own whose last run failed and you haven't looked at, and project tasks you may act in whose pull request passed CI — open, its checks `success`: it waits for you to review and merge it (`review`, §Projects and tasks) → `{items:[{run, reason: question\|approval\|login\|unfinished\|failed\|review, subRun, harness?, project?}]}`; `harness` is the waiting run's compact summary when a coding agent waits (as `/tree` nodes carry it) |
 | `POST /runs/{id}/unfinished/dismiss` | — | take the conversation's "not finished" mark down — for everyone, as an answered question is (anyone who may talk to it; D198) → `{ok}` |
 
 Items are run summaries plus `access`, `mine`, `members`, `pinnedAt`,
@@ -3560,7 +3560,8 @@ by key, and `null` takes a key back to its default.
 | `coordinator` | `{web: false, model: ""}` | the coordinator's web tools and model |
 
 **`ProjectView`** — the row, your `level`, its `repos`, the board's `counts`
-and the slots in use:
+(per column, and `ready`: the `pr` column's tasks whose CI passed — they need
+you too) and the slots in use:
 
 ```jsonc
 {"id": 1099511627777, "uid": "k3x9qa", "name": "Web", "slug": "web", "kind": "personal",
@@ -3570,7 +3571,7 @@ and the slots in use:
  "repos": [{"slug": "web", "repo": "acme/web", "url": "https://github.com/acme/web.git", "defaultBranch": "main",
             "mode": "bare", "checkout": "worktree", "setup": "npm ci", "state": "ready", "fetchedMs": …,
             "head": "9fceb02…", "protected": true}],
- "counts": {"queued": 1, "working": 2, "needs-you": 0, "pr": 1, "done": 7},
+ "counts": {"queued": 1, "working": 2, "needs-you": 0, "pr": 1, "done": 7, "ready": 1},
  "slots": {"used": 2, "max": 3}, "createdBy": "alice", "createdMs": …, "updatedMs": …}
 ```
 
@@ -3617,7 +3618,7 @@ the task's **`state`** follow from those and its conversation's status:
 | `queued` | `queued` (`slot` while its start waits in the queue), `preparing` | its workspace isn't ready |
 | `working` | `working` | its conversation runs, waits on its subagents or its own work |
 | `needs-you` | `needs-you` (`you`), `signin` (`signin`), `failed` (`you`), `blocked` (`you`) | it asks a person something (an approval, a question, a sign-in), its workspace failed or its cleanup was refused, its turn failed — or its turn ended and its answer waits for you (no pull request yet) |
-| `pr` | `ci` (`ci`), `ci-failed` (`you`), `awaiting-review` (`review`) | a pull request is open and its turn is over |
+| `pr` | `ci` (`ci`), `ci-failed` (`you`), `ci-passed` (`review`: its CI passed — in Needs you as a `review`, and in the project's `counts.ready`), `awaiting-review` (`review`: no CI to wait for) | a pull request is open and its turn is over |
 | `done` | `merged`, `closed`, `done`, `cancelled`, `deleted` | — |
 
 **`park`** (in `GET /runs/{id}/task`, `GET /projects/{pid}/tasks/{n}` and
