@@ -539,6 +539,8 @@ func checkPolicy(raw json.RawMessage) string {
 		return "policy.maxTasks: 1 to 16"
 	case !in(pol.Engine, "auto", "builtin", "harness"):
 		return "policy.engine: auto, builtin or harness"
+	case !in(pol.TaskPermissions, taskPermAsk, taskPermAllow):
+		return "policy.taskPermissions: ask or allow"
 	case !in(pol.As, scmAsPerson, scmAsBot):
 		return "policy.as: person or bot"
 	case !in(pol.AutoPR, "off", "draft", "ready"):

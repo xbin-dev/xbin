@@ -275,7 +275,7 @@ export function settingOf(entry, setting = 'approve') {
       { value: 'auto', label: 'Auto', disabled: !canAuto,
         title: canAuto ? `${name} goes ahead on its own (${mode(entry.autoMode)}) — it may still ask now and then` : `${name} has no auto mode — it asks as its own settings say` },
     ],
-    note: `How ${name} starts for you — your new conversations and the coding agents started for you (a project's tasks always run unattended).`,
+    note: `How ${name} starts for you — your new conversations and the coding agents started for you (a project's tasks start in a mode of their own: the project's settings say what a request of theirs does).`,
   };
 }
 

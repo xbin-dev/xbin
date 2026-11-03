@@ -55,7 +55,7 @@ a subagent is exactly as visible as the conversation it works for.
 | `GET /conversations?q=` | — | search titles and everything said, in every conversation you may see (archived and automation runs included), up to 50; content hits carry `match {msgId, snippet}` |
 | `PATCH /runs/{id}` | `{title?, pinned?, archived?, visibility?, teamRole?, model?}` | pin and archive are yours (any viewer); title and visibility are the owner's. Making an unowned run private claims it. `model` switches the conversation's model from its next turn (anyone who may talk in it; `""` = the agent's default) |
 | `POST /runs/{id}/read` | — | mark it read up to now |
-| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval — or a coding agent waits for you to sign in (`login`, D147 §4.3.9) — conversations you may talk to whose coding agent's or project's last turn stopped part-way (`unfinished`, D198, §Not finished), automations you own whose last run failed and you haven't looked at, and project tasks you may act in whose pull request passed CI — open, its checks `success`: it waits for you to review and merge it (`review`, §Projects and tasks) → `{items:[{run, reason: question\|approval\|login\|unfinished\|failed\|review, subRun, harness?, project?}]}`; `harness` is the waiting run's compact summary when a coding agent waits (as `/tree` nodes carry it) |
+| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval — or a coding agent waits for you to sign in (`login`, D147 §4.3.9) — conversations you may talk to whose coding agent's or project's last turn stopped part-way (`unfinished`, D198, §Not finished), automations you own whose last run failed and you haven't looked at, and project tasks you may act in whose pull request passed CI — open, its checks `success`: it waits for you to review and merge it (`review`, §Projects and tasks); a project task's approval is `action` — action required: its turn waits on it, and no one else watches a task (§Coding agents) → `{items:[{run, reason: question\|approval\|action\|login\|unfinished\|failed\|review, subRun, harness?, project?}]}`; `harness` is the waiting run's compact summary when a coding agent waits (as `/tree` nodes carry it) |
 | `POST /runs/{id}/unfinished/dismiss` | — | take the conversation's "not finished" mark down — for everyone, as an answered question is (anyone who may talk to it; D198) → `{ok}` |
 
 Items are run summaries plus `access`, `mine`, `members`, `pinnedAt`,
@@ -2510,17 +2510,31 @@ its ask-first mode (`approveMode`). It applies when a coding-agent
 conversation or child is created; one that exists keeps its mode.
 Explicit modes (bypass, full access) are never a setting.
 
-**A project task's coding agent runs unattended**, always — no one watches
-a task's turn, so a request it parks on is one nobody answers: it
-(re)starts in the provider's one explicit full-access mode (claude
-`bypassPermissions`, codex `agent-full-access`, gemini `yolo`; one without:
-its auto) whatever the task or its person asked, and a permission request
-that comes all the same — an adapter that won't take that mode (claude as
-root), one with none (opencode), a plan's approval — is answered at once
-with its allow option (allow always before allow once; one that offers
-none parks as ever), a `note` in the conversation saying what was
-allowed. It works in the project's sandbox on the task's branch; the
-agent pushes no default branch for it (§Pull requests), whatever its mode.
+**A project task's coding agent starts in a mode of its own**, whatever
+the task or its person asked — no one watches a task's turn. The
+project's `taskPermissions` (§Projects and tasks, policy) says which:
+
+- `ask` (the default): the provider's own Auto mode where it has one
+  (claude `auto`: it decides most asks itself), else its one explicit
+  full-access mode (codex `agent-full-access`, gemini `yolo`), else as it
+  would (opencode). A permission request that comes all the same parks the
+  turn as ever, and `GET /needs` lists the task as **action required**
+  (reason `action`; its push says "Action required — …") until a person
+  answers it.
+- `allow` — allow without asking: the provider's full-access mode for
+  every provider (claude `bypassPermissions`), and a permission request
+  that comes all the same — an adapter that won't take that mode (claude
+  as root), one with none (opencode), a plan's approval — is answered at
+  once with its allow option (allow always before allow once; one that
+  offers none parks as ever), a `note` in the conversation saying what was
+  allowed.
+
+The mode is chosen when the adapter (re)starts: a changed policy reaches a
+running task at its next (re)start. Either way it works in the project's
+sandbox; the agent pushes no default branch for it (§Pull requests), but
+the task's own branch is the prompt's rule, not a fence — the token in the
+sandbox writes the project's repos, so the repo's branch protection
+(`protection: refuse`) is what stops a push elsewhere.
 
 **Driving one (the API).** `POST /ask` and `POST /runs` take `harness:
 {provider, mode?, options?}` with a `sandbox: {ref, cwd?}` (`POST /runs`
@@ -3559,6 +3573,7 @@ by key, and `null` takes a key back to its default.
 | `taskClass` | `coding` | the class tasks run in (never one with internal reach) |
 | `engine` | `auto` | `builtin`, `harness` (`harness`'s coding agent), or `auto`: `harness` if set, else the coding agent the task's creator last started a conversation with, else the built-in agent |
 | `harness` | — | the coding agent `engine` picks |
+| `taskPermissions` | `ask` | what a permission request of a task's coding agent does: `ask` — it starts in the provider's own Auto (else full access) and a request parks the task as action required (`GET /needs` reason `action`); `allow` — allow without asking: full access, every request allowed at once with a note (§Coding agents, "A project task's coding agent") |
 | `as` | — | `person` or `bot`: the identity at the provider (above) |
 | `membersAsBot` | `false` | a team's members may work as the bot (§Team projects) |
 | `maxTasks` | `3` | tasks at work at once (1–16, §The workspace) |

@@ -27,7 +27,7 @@ const GLYPH = { ask: ['waiting for you', 'accent'], error: ['failed', 'danger'],
 const SCOPES = [{ value: 'mine', label: 'Mine' }, { value: 'shared', label: 'Shared' }, { value: 'archived', label: 'Archived' }]
   .filter((s) => s.value !== 'shared' || sharing());
 const EMPTY_SHARED = 'nothing shared yet — share a conversation from its menu, and whatever others share with you shows here too';
-const NEED_ICON = { failed: 'warning', approval: 'shield', login: 'key', unfinished: 'pause' };
+const NEED_ICON = { failed: 'warning', approval: 'shield', login: 'key', unfinished: 'pause', action: 'shield' };
 const needKey = (n) => `${n.reason}:${n.run.id}:${n.subRun || ''}`;
 // uniq: an item once (GET /needs may name a run's park twice: its own and its root's)
 const uniq = (list) => { const seen = new Set(); return list.filter((n) => !seen.has(needKey(n)) && seen.add(needKey(n))); };
@@ -64,7 +64,7 @@ export function listScreen() {
       </section>` : nothing}
       ${!results && needs.length ? html`<section title="Needs you">${repeat(needs, needKey, (n) => html`
         <row title=${n.run.title || 'run ' + n.run.id} subtitle=${needWords(n)} icon=${NEED_ICON[n.reason] || 'question'}
-          tone=${n.reason === 'failed' ? 'danger' : n.reason === 'unfinished' ? 'warn' : 'accent'} nav @tap=${() => app.select(n.subRun || n.run.id)}>
+          tone=${n.reason === 'failed' ? 'danger' : n.reason === 'unfinished' || n.reason === 'action' ? 'warn' : 'accent'} nav @tap=${() => app.select(n.subRun || n.run.id)}>
           ${n.reason === 'unfinished' ? html`<actions><button icon="check" @tap=${guard(async () => { await app.actions.dismissUnfinished(n.run.id); app.loadNeeds(); })}>Mark as finished</button></actions>` : nothing}
         </row>`)}</section>` : nothing}
       ${results ? nothing : html`<section title=${narrow ? app.HOME.tagline : nothing}><picker style="segmented" value=${scope} options=${SCOPES}

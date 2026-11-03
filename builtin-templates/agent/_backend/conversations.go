@@ -529,6 +529,9 @@ func needsItems(c who, scope string, scopeArgs ...any) ([]map[string]any, error)
 			switch ps.Kind {
 			case "approval":
 				reason = "approval"
+				if agent.db.isProjectTask(x) { // no one watches a task's turn: it stopped on this (harness_unattended.go)
+					reason = needAction
+				}
 			case "login": // a coding agent waits for a sign-in (D147 §4.3.9)
 				reason = "login"
 			case pendKindProject: // a task's workspace needs a person: a sign-in, a failure (project_gate.go)
@@ -593,6 +596,11 @@ func ciPassedNeeds(c who, where string, args []any, listed map[int64]bool) []map
 
 // needReview: a task's pull request passed CI (ciPassedNeeds).
 const needReview = "review"
+
+// needAction: a project task's turn parked on an approval — its coding
+// agent asked for a permission its mode doesn't give, and nothing goes on
+// until a person answers (harness_unattended.go).
+const needAction = "action"
 
 // treeWait is §4.3.8 for one conversation: whether it or a run below it
 // waits for a person, and — below the root — its live coding agents and

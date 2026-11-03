@@ -468,8 +468,9 @@ func TestHarnessTask(t *testing.T) {
 }
 
 // harnessTaskFix is a project fixture whose sandbox manager has the fake
-// coding agent, and a task of it answering text.
-func harnessTaskFix(t *testing.T, text string) (*projFix, int64) {
+// coding agent, and a task of it answering text; policy is the project's
+// (nil: the defaults).
+func harnessTaskFix(t *testing.T, text string, policy map[string]any) (*projFix, int64) {
 	t.Helper()
 	fx := newProjFix(t)
 	fx.m.Caps = []string{"exec", "files", "tar"}
@@ -477,8 +478,12 @@ func harnessTaskFix(t *testing.T, text string) (*projFix, int64) {
 	fx.m.Harnesses = []fsbHarness{{ID: "fake", Title: "Fake agent (tests)", Argv: argv, Login: argv[0] + " acptest login"}}
 	forgetHarnessProbes()
 	t.Cleanup(func() { settleHarnesses(fx.ag.eng) })
-	_ = fx.ag.db.setHarnessMode("alice", "fake", hmApprove) // what she chose for her own conversations: a task runs unattended all the same
-	p := fx.newProject(t, asAlice, nil)
+	_ = fx.ag.db.setHarnessMode("alice", "fake", hmApprove) // what she chose for her own conversations: a task starts in its own mode all the same
+	var more map[string]any
+	if policy != nil {
+		more = map[string]any{"policy": policy}
+	}
+	p := fx.newProject(t, asAlice, more)
 	_, runID := fx.newTask(t, asAlice, p.ID, map[string]any{"text": text, "agent": map[string]any{"provider": "fake"}})
 	fx.waitWS(t, p.ID, 1, wsReady)
 	return fx, runID
@@ -493,28 +498,126 @@ func noApprovalPark(t *testing.T, fx *projFix, runID int64) {
 	}
 }
 
-// A project task's coding agent runs unattended: it starts in the
-// provider's full-access mode (the fake's yolo), whatever its person chose
-// for their own conversations, and a command runs without asking.
+// taskModeIs: GET /runs/{id}/harness says the task's coding agent is in mode.
+func taskModeIs(t *testing.T, fx *projFix, runID int64, mode string) {
+	t.Helper()
+	w := callAs(t, fx.mux, asAlice, "GET", fmt.Sprintf("/runs/%d/harness", runID), nil)
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `"current":"`+mode+`"`) {
+		t.Fatalf("the task's mode, want %s: %d %s", mode, w.Code, w.Body)
+	}
+}
+
+// The mode a task's coding agent starts in, per provider: by default its
+// own Auto where it has one (Claude Code), else its full-access mode
+// (Codex, Gemini); with allow without asking, full access for each. And
+// the policy key takes ask or allow.
+func TestTaskModeOf(t *testing.T) {
+	want := map[string][2]string{ // provider → {ask, allow}
+		"claude": {"auto", "bypassPermissions"},
+		"codex":  {"agent-full-access", "agent-full-access"},
+		"gemini": {"yolo", "yolo"},
+		"fake":   {"auto", "yolo"},
+	}
+	seen := 0
+	for _, p := range append(acp.Providers(), acp.Fake([]string{"fakeacp"})) {
+		w, ok := want[p.ID]
+		if !ok {
+			continue
+		}
+		seen++
+		if got := taskModeOf(p, false); got != w[0] {
+			t.Errorf("%s, ask: %q, want %q", p.ID, got, w[0])
+		}
+		if got := taskModeOf(p, true); got != w[1] {
+			t.Errorf("%s, allow: %q, want %q", p.ID, got, w[1])
+		}
+	}
+	if seen != len(want) {
+		t.Fatalf("the catalog lacks a provider the test expects: %d of %d", seen, len(want))
+	}
+	for _, v := range []string{`{"taskPermissions":"ask"}`, `{"taskPermissions":"allow"}`, `{}`} {
+		if why := checkPolicy(json.RawMessage(v)); why != "" {
+			t.Errorf("%s refused: %s", v, why)
+		}
+	}
+	if why := checkPolicy(json.RawMessage(`{"taskPermissions":"always"}`)); !strings.Contains(why, "taskPermissions") {
+		t.Errorf("an unknown taskPermissions: %q", why)
+	}
+}
+
+// By default a project task's coding agent starts in the provider's own
+// Auto (the fake's auto), whatever its person chose for their own
+// conversations; a request Auto still makes parks the turn, and Needs you
+// lists the task as action required until a person answers.
+func TestTaskHarnessAsks(t *testing.T) {
+	fx, runID := harnessTaskFix(t, "perm: list the files", nil)
+	defer func() {
+		if t.Failed() {
+			r, _ := fx.ag.db.getRun(runID)
+			t.Logf("run: %s %s\ntext: %s", r.Status, clip(r.Pending, 600), clip(fullText(fx.ag.db, runID), 3000))
+		}
+	}()
+	var park string
+	hwait(t, "the task's approval", func() bool {
+		r, err := fx.ag.db.getRun(runID)
+		if err != nil || r.Status != statusWaiting {
+			return false
+		}
+		p := parsePending(r.Pending)
+		park = p.Park
+		return p.Kind == "approval" && p.Harness != nil
+	})
+	taskModeIs(t, fx, runID, "auto")
+	reason := func() any {
+		w := callAs(t, fx.mux, asAlice, "GET", "/needs", nil)
+		var out struct {
+			Items []map[string]any `json:"items"`
+		}
+		_ = json.Unmarshal(w.Body.Bytes(), &out)
+		for _, it := range out.Items {
+			if r, _ := it["run"].(map[string]any); r != nil && fmt.Sprint(r["id"]) == fmt.Sprint(runID) {
+				return it["reason"]
+			}
+		}
+		return nil
+	}
+	if got := reason(); got != needAction {
+		t.Fatalf("Needs you: reason %v, want %s", got, needAction)
+	}
+	if n := fx.ag.needsPushes(runID); len(n) == 0 || !strings.HasPrefix(n[0].body, "Action required — ") {
+		t.Fatalf("the push: %+v", n)
+	}
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/approve", runID), map[string]any{"approve": true, "park": park}); w.Code != 200 {
+		t.Fatalf("approve: %d %s", w.Code, w.Body)
+	}
+	hwait(t, "the task's turn", func() bool {
+		return turnOver(fx.ag, runID)() && strings.Contains(fullText(fx.ag.db, runID), "listed")
+	})
+	if got := reason(); got != nil {
+		t.Fatalf("still in Needs you once answered: %v", got)
+	}
+}
+
+// With allow without asking a project task's coding agent starts in the
+// provider's full-access mode (the fake's yolo), and a command runs
+// without asking.
 func TestTaskHarnessUnattended(t *testing.T) {
-	fx, runID := harnessTaskFix(t, "perm: list the files")
+	fx, runID := harnessTaskFix(t, "perm: list the files", map[string]any{"taskPermissions": taskPermAllow})
 	hwait(t, "the task's turn", func() bool {
 		return turnOver(fx.ag, runID)() && strings.Contains(fullText(fx.ag.db, runID), "perm: list the files")
 	})
 	noApprovalPark(t, fx, runID)
-	w := callAs(t, fx.mux, asAlice, "GET", fmt.Sprintf("/runs/%d/harness", runID), nil)
-	if w.Code != 200 || !strings.Contains(w.Body.String(), `"current":"yolo"`) {
-		t.Fatalf("the task's mode: %d %s", w.Code, w.Body)
-	}
+	taskModeIs(t, fx, runID, "yolo")
 }
 
-// A permission request that comes all the same (an adapter that won't take
-// full access: here the task starts in ask) is allowed at once, with a note.
+// With allow without asking, a permission request that comes all the same
+// (an adapter that won't take full access: here the task starts in ask) is
+// allowed at once, with a note.
 func TestTaskHarnessAutoAllows(t *testing.T) {
-	old := unattendedMode
-	unattendedMode = func(acp.Provider) string { return "ask" }
-	t.Cleanup(func() { unattendedMode = old })
-	fx, runID := harnessTaskFix(t, "perm: list the files")
+	old := taskMode
+	taskMode = func(acp.Provider, bool) string { return "ask" }
+	t.Cleanup(func() { taskMode = old })
+	fx, runID := harnessTaskFix(t, "perm: list the files", map[string]any{"taskPermissions": taskPermAllow})
 	defer func() {
 		if t.Failed() {
 			r, _ := fx.ag.db.getRun(runID)

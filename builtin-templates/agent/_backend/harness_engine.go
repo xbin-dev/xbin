@@ -118,9 +118,10 @@ type hsess struct {
 	rest    atomic.Bool
 	signing atomic.Bool
 
-	// unattended: a project task's — its own mode, and its permission
-	// requests allowed at once (harness_unattended.go)
-	unattended bool
+	// task: a project task's — it starts in a mode of its own; allowAll:
+	// and its project allows without asking — its permission requests
+	// allowed at once (harness_unattended.go). Read at each (re)start.
+	task, allowAll bool
 }
 
 // newHsess is a session of run at generation gen, started (or attached)
@@ -131,7 +132,7 @@ func newHsess(e *Engine, run *Run, gen int, epoch int64, prov acp.Provider) *hse
 		act: hActivity{Kind: "idle", At: nowMs()}, abandoned: map[string]string{}, checked: time.Now(), fresh: true,
 		reuse: e.db.harnessReuse(run.ID, gen)}
 	s.setSecret("")
-	s.unattended = e.db.isProjectTask(run) // harness_unattended.go
+	s.task, s.allowAll = e.db.taskPermissionsOf(run) // harness_unattended.go
 	return s
 }
 

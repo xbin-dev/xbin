@@ -80,7 +80,7 @@ func (s *hsess) onPermission(ev acp.Event) {
 			tool.Content = nil // the call's content is the plan: said once, as `plan`
 		}
 	}
-	if s.autoAllow(park) { // a project task's — a plan's approval too: no one is there to ask (harness_unattended.go)
+	if s.autoAllow(park) { // a project task's whose project allows without asking — a plan's approval too (harness_unattended.go)
 		return
 	}
 	s.parkOrQueue(ev, "approval", park, c)
