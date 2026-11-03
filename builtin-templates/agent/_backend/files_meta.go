@@ -23,9 +23,9 @@ import (
 )
 
 const (
-	maxFileVersions  = 10       // earlier versions kept per file
-	maxHistoryText   = 1 << 20  // earlier text versions' bytes, per run
-	maxHistoryBinary = 32 << 20 // earlier binary versions' bytes, per run (their blob objects)
+	maxFileVersions  = 10        // earlier versions kept per file
+	maxHistoryText   = 1 << 20   // earlier text versions' bytes, per run
+	maxHistoryBinary = 128 << 20 // earlier binary versions' bytes, per run (their blob objects): one of a file at the cap
 )
 
 func (d *DB) addFileMetaSchema() error {

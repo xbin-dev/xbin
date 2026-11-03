@@ -44,7 +44,7 @@ const stagedTTL = 86400
 
 // handleAdapterUpload stages one attachment for a message to come.
 //
-//	POST /adapter/files?channelId=&name=&mime=   body: the bytes (≤16 MiB) → {fileId}
+//	POST /adapter/files?channelId=&name=&mime=   body: the bytes (≤128 MiB) → {fileId}
 func handleAdapterUpload(w http.ResponseWriter, r *http.Request) {
 	chID, _ := strconv.ParseInt(r.URL.Query().Get("channelId"), 10, 64)
 	ch, err := agent.db.getChannel(chID)

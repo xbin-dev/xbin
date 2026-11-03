@@ -175,12 +175,12 @@ func TestReplZipSlipAndBomb(t *testing.T) {
 	o, _ := tool("js_eval", map[string]any{"code": "zip.extract('evil.zip')"})
 	mustHave(t, "zip slip", o, "climbs out")
 
-	// 80 MiB of zeros deflates to ~80 KB: over the in-VM entry cap
+	// zeros one MiB past the in-VM entry cap deflate to ~130 KB
 	var buf bytes.Buffer
 	w := zip.NewWriter(&buf)
 	f, _ := w.Create("zeros")
 	chunk := make([]byte, 1<<20)
-	for i := 0; i < 80; i++ {
+	for i := 0; i < maxArchiveEntryBytes>>20+1; i++ {
 		_, _ = f.Write(chunk)
 	}
 	_ = w.Close()

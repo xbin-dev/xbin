@@ -10,6 +10,15 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-03
+
+- **Agent template: a session file may be 128 MiB** (was 16 MiB; a run's
+  files 512 MiB, was 64). That covers uploads and attachments,
+  `sandbox_download`, the sandbox's `files.write` and archive extraction,
+  and a channel adapter's `POST /adapter/files`
+  ([agent-inbox.md](/docs/agent-inbox.md)). An adapter that refused larger
+  attachments itself to match the old cap can pass them on now.
+
 ## 2026-11-02
 
 - **Partitions: a tile's agent reads the global instance's log when its

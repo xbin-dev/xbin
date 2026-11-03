@@ -26,8 +26,9 @@ import (
 
 // maxArchiveEntryBytes bounds one inflated entry (or gzip stream) read into
 // the VM — a zip bomb ends here as an error, not an OOM. Extracting to a
-// session file is bounded tighter, by maxBinaryFileBytes.
-const maxArchiveEntryBytes = 64 << 20
+// session file is bounded by maxBinaryFileBytes (the same), and the run's
+// quotas bound an extraction's whole: maxReplFiles files, maxBinaryRunBytes.
+const maxArchiveEntryBytes = 128 << 20
 
 func errEntryTooLarge(max int) error {
 	return fmt.Errorf("archive entry too large (over %s inflated)", humanBytes(max))

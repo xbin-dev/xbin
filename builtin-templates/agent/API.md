@@ -717,7 +717,7 @@ background tab doesn't keep a partition running.
 | `GET /runs/{id}/file?path=` | — | one file with its content — a binary-stored text file up to 2 MiB too (a report over the text cap that `render_html` shows), still `binary: true` |
 | `PUT /runs/{id}/file` | `{path, content, version?}` | write a file; a non-zero `version` that no longer matches answers **409** |
 | `DELETE /runs/{id}/file?path=` | — | delete a file (and its blob, for an attachment) |
-| `PUT /runs/{id}/upload?name=` | raw bytes, the file's own `Content-Type` | attach a file: `{path, mime, bytes, binary}`. Never overwrites — a taken name gets `-2`, `-3`…. **413** over 16 MiB, **502** when the blob store fails |
+| `PUT /runs/{id}/upload?name=` | raw bytes, the file's own `Content-Type` | attach a file: `{path, mime, bytes, binary}`. Never overwrites — a taken name gets `-2`, `-3`…. **413** over 128 MiB, **502** when the blob store fails |
 | `GET /runs/{id}/raw?path=` | — | a file's bytes with its type and `nosniff` (the tile's preview and download) |
 | `GET /runs/{id}/dl/<path…>` | — | a file as a download (D207): its bytes and type with `Content-Disposition: attachment; filename=<its base name>`, `nosniff`, `Cache-Control: no-store`. Path-shaped, so an xbind path ticket for `runs/{id}/dl` covers every file of the run — the preview's file links (**Session files + render**). **400** a bad key, **404** no such file |
 | `GET /runs/{id}/zip?path=…&path=…&name=` | — | several files as one zip (D207), each under its key, streamed — one file in memory at a time. No `path`: every file of the run. `name` names the archive (`.zip` added; default `run-<id>-files.zip`). Every path is checked before the first byte: **400** a bad one or more than 64, **404** a missing one (or a run with no files); a file that fails to read later aborts the response, never a short archive that looks whole |
@@ -858,8 +858,8 @@ run's session files — the same store the model's `file_*` tools and the REPL
 use. **Text** (`text/*`, JSON, XML, CSV, SVG… that is valid UTF-8 and within 64
 KiB) is stored as an ordinary text file. **Everything else is binary**: its
 bytes go to the scope's `files` **blob** resource at a random, never-reused
-path, and sqlite keeps only the metadata. Binary caps: 16 MiB per file, 64 MiB
-per run. Deleting a file or a run deletes its objects, after the rows (a failed
+path, and sqlite keeps only the metadata. Binary caps: 128 MiB per file, 512 MiB
+per run (earlier versions: 10 a file, 128 MiB a run, the oldest dropped first). Deleting a file or a run deletes its objects, after the rows (a failed
 object delete is logged and leaves an orphan object, never a row pointing at
 nothing).
 
@@ -1303,7 +1303,7 @@ Where each event goes (`mode`):
 | `GET /usage` | `?days=30` (1–90) | people's daily usage totals (managers; a partitioned agent's global instance, forwarded from a partition): `{days, since, people: [{user, days: [{day, runs, llmCalls, promptTokens, completionTokens, harnessSessions}], total}]}`; 404 unpartitioned |
 | `GET /handoffs/{id}/files/{fid}` | — | a partitioned agent's global instance: a file of a DM handed to the caller (too large for its mail, named in its `fetch`) — the bytes; 404 for anyone but the handoff's person from their own partition, and once it was fetched |
 | `POST /handoffs/{id}/fetched` | — | …the caller's partition has the handoff's files: the global instance deletes what it held → `{deleted}` |
-| `PUT /handoffs/{id}/reply-files` | `?key=<outbox key>-<row>/<file>&name=&mime=`, body: the bytes (≤ 16 MiB) | …stages a file of the caller's reply too large for its mail (named then in `outbox/add`'s `staged`) → `{id}`; the same key stages once. The same callers. 400 for another key; 410 for a DM older than 30 days; 413 past 10 files staged for the chat; 507 past 32 files or 64 MiB the person staged and hasn't sent (later) |
+| `PUT /handoffs/{id}/reply-files` | `?key=<outbox key>-<row>/<file>&name=&mime=`, body: the bytes (≤ 128 MiB) | …stages a file of the caller's reply too large for its mail (named then in `outbox/add`'s `staged`) → `{id}`; the same key stages once. The same callers. 400 for another key; 410 for a DM older than 30 days; 413 past 10 files staged for the chat; 507 past 32 files or 64 MiB the person staged and hasn't sent (later) |
 | `GET /moves/{id}` | — | a partitioned agent's global instance: where a conversation of the caller's that stopped being shared went → `{run, state: "asked" \| "leaving" \| "moved", to}` (30 days); 404 for anyone else (Partitioned instances → Shared conversations) |
 | `GET /moves/{id}/export`, `POST /moves/{id}/done {to, ticket}`, `POST /moves/{id}/abandon {why}` | | …its owner's partition — only it: 403 to their page or terminals — drives the move: reads it (`{…the bundle, ticket, memory, schedules, pinnedAt, archivedAt, behind}`; 409 while anything in it is under way), says it has it (with that export's ticket: it is deleted here; idempotent; 412 when it changed or works again since — read it again; 409 when the move was given up or the conversation left another way), or gives it up (it stays here). Anyone else's partition: 404, and done `{state: "gone"}` whatever the id |
 
@@ -1740,7 +1740,7 @@ session files with it — under names of their own (as the report's copy is,
 so the href and the session file can differ), a repeated render updating
 the same copies; a session report links session files, and a relative one
 it lacks is looked for in the sandbox's working directory. At most 32
-distinct files per render and 60 s of copying; the usual caps hold (16 MiB
+distinct files per render and 60 s of copying; the usual caps hold (128 MiB
 a file, 64 files a run). The step records them:
 
 ```json
@@ -2065,7 +2065,7 @@ attached ones — built from the binding alone, so it changes on a rebind only
 | `glob` | `{pattern, path?}` | files by name, relative to the working directory, sorted, at most 200: `**` spans directories, a pattern without `/` matches names at any depth, `{a,b}` alternates. The listing is the sandbox's own `rg --files` (which honours `.gitignore`) or `find` (skipping `.git` and `node_modules`) — at most 20 000 files — matched here |
 | `grep` | `{pattern, path?, glob?, ignore_case?}` | `path:line: text` lines, at most 100 (then how many more), text clipped at 300 characters: `rg` where the sandbox has it (its regex syntax), else `grep -rE`; skips `.git` and binary files |
 | `sandbox_upload` | `{file, path?}` | copies a session file (text or attachment) into the sandbox: to `path`, into it when it ends in `/` or is a directory (default: the working directory). Feature `files` |
-| `sandbox_download` | `{path, name?, keep_both?}` | copies a sandbox file (≤ 16 MiB) into the session files — text within the text cap as text, anything else as an attachment — under `name` or its own, **in place** (D136): an existing session file of that name becomes the next version, the replaced one kept (`file_diff`), text or binary either way. A file that hasn't changed writes nothing — `unchanged: … (sha …, v2)` — known by the etag the copy recorded (no read) or else by its sha256. `keep_both: true` is the old behaviour: a taken name gets a suffix (`-2`, `-3`…). A directory is refused: pack it with `bash` first. Feature `files` |
+| `sandbox_download` | `{path, name?, keep_both?}` | copies a sandbox file (≤ 128 MiB) into the session files — text within the text cap as text, anything else as an attachment — under `name` or its own, **in place** (D136): an existing session file of that name becomes the next version, the replaced one kept (`file_diff`), text or binary either way. A file that hasn't changed writes nothing — `unchanged: … (sha …, v2)` — known by the etag the copy recorded (no read) or else by its sha256. `keep_both: true` is the old behaviour: a taken name gets a suffix (`-2`, `-3`…). A directory is refused: pack it with `bash` first. Feature `files` |
 | `browser_check` | `{target, wait_ms? (1000, ≤ 20000), screenshots_ms? ([wait_ms], ≤ 4), viewport? {width, height}, script?}` | loads a page in a headless Chromium **inside the sandbox** and returns raw facts (below). A side effect when the sandbox has egress |
 | `sandbox_copy` | `{from: {sandbox?, path}, to: {sandbox?, path}}` | between the conversation's attached sandboxes (a ref or a unique name; default the active one), or within one: a directory is tar-streamed (`GET …/tar` into `PUT …/tar`; both managers need `tar`) and its **contents** land in `to.path`; a file goes through the file routes (mode kept) to `to.path`, or into it when it is a directory. The source streams as the destination's request body, so a failure names the side that failed: `reading "a":/p failed: …` (the source's refusal, or its stream cut short — the destination may hold a partial copy) or `writing "b":/q failed: …`. Offered when more than one sandbox is attached |
 | `sandbox_info` | `{}` | every attached sandbox as its manager describes it now (active or attached, state, egress, image, manager, cwd, workdir, home, user, caps, the manager's caps and whether a live preview works — or why it is unavailable) and the conversation's latest 15 jobs |
@@ -5298,14 +5298,15 @@ is readable whatever its size or type: `files.read(path[, 'base64'])` returns
 text — a blob-held large text file included — and `files.readBytes(path)` any
 file as a `Uint8Array`. `files.write(path, string|Uint8Array[, mime])` (alias
 `writeBytes`) writes a text row up to 64 KiB, and anything larger, or bytes, as
-a blob (≤ 16 MiB, the run's attachment quota) — the file's next version, as
+a blob (≤ 128 MiB, the run's attachment quota) — the file's next version, as
 the sandbox copy path writes (`putFileData`). Pure helpers: `atob`/`btoa`,
 `base64.encode/decode`, UTF-8 `TextEncoder`/`TextDecoder`, and native
 `zip.list/read/readText/extract({to, only})/create`, `tar.list/read/readText/
 extract` (plain or gzipped) and `gzip.compress/decompress`. An archive source
 is a session path or bytes; `extract` writes session files (entry names are
 mapped to keys, `..`/absolute names refused), and one inflated entry is capped
-at 64 MiB in the VM (16 MiB extracted), so a zip bomb is an error, not an OOM.
+at 128 MiB in the VM (and extracted; an extraction's whole by the run's quotas,
+64 files and 512 MiB), so a zip bomb is an error, not an OOM.
 Blob I/O inside a statement is bounded by its time budget. A `Uint8Array`
 prints as its length and first 32 bytes.
 
