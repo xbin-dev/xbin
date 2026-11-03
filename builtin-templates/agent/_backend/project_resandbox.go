@@ -18,6 +18,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -162,6 +163,16 @@ func handleRecreateSandbox(w http.ResponseWriter, r *http.Request) {
 	var jobs []*ProjectJob
 	err := projAg().db.Tx(func(t *DB) error {
 		ms := nowMs()
+		// checked again here, where nothing else changes the project: two
+		// recreates at once (a double click) both passed the checks above
+		if js := t.jobsWhere(`WHERE project_id=? AND state='running' AND kind<>?`, p.ID, pjFork); len(js) > 0 {
+			return errRecreateBusy(fmt.Sprintf("the project's %s job is at work: try again once it ends", js[0].Kind))
+		}
+		if res, err := t.q.Exec(`UPDATE projects SET version=version+1 WHERE id=? AND version=? AND sandbox_ref=?`, p.ID, p.Version, old); err != nil {
+			return err
+		} else if n, _ := res.RowsAffected(); n == 0 {
+			return errRecreateBusy("the project changed meanwhile (another recreate, or its settings): look again and retry")
+		}
 		g, _ := strconv.Atoi(t.getSetting(sbxGenKey(p.ID)))
 		if err := t.putSetting(sbxGenKey(p.ID), strconv.Itoa(g+1)); err != nil {
 			return err
@@ -188,6 +199,13 @@ func handleRecreateSandbox(w http.ResponseWriter, r *http.Request) {
 		tasks, err := t.tasksWhere(`WHERE project_id=? AND fork_made=0 AND sandbox_ref IN (?, '')`, p.ID, old)
 		if err != nil {
 			return err
+		}
+		if !gone { // a turn at work in a sandbox still there would go on in it, unpushed work lost with its credentials
+			for _, k := range tasks {
+				if r, err := t.getRun(k.RunID); k.RunID != 0 && err == nil && r.Status == statusRunning {
+					return errRecreateBusy(fmt.Sprintf("task #%d's turn is at work in the sandbox: stop it, or wait for it to end", k.N))
+				}
+			}
 		}
 		for _, k := range tasks {
 			if _, err := t.q.Exec(`DELETE FROM project_checkouts WHERE task_id=?`, k.ID); err != nil {
@@ -229,6 +247,11 @@ func handleRecreateSandbox(w http.ResponseWriter, r *http.Request) {
 		emitProject(t, p.ID, "project", 0)
 		return nil
 	})
+	var busy errRecreateBusy
+	if errors.As(err, &busy) {
+		writeRefused(w, http.StatusConflict, "busy", string(busy))
+		return
+	}
 	if err != nil {
 		writeProjErr(w, err)
 		return
@@ -236,6 +259,11 @@ func handleRecreateSandbox(w http.ResponseWriter, r *http.Request) {
 	p, _ = projAg().db.getProject(p.ID)
 	xbin.WriteJSON(w, http.StatusAccepted, map[string]any{"project": projAg().db.projectView(p, projAg().db.projectLevel(c, p.ID)), "jobs": jobs, "gone": gone})
 }
+
+// errRecreateBusy: a recreate refused as busy, found inside its transaction.
+type errRecreateBusy string
+
+func (e errRecreateBusy) Error() string { return string(e) }
 
 // writeRefused answers a refusal the client tells apart by name (exists,
 // unavailable, busy) with why.

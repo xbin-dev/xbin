@@ -3477,7 +3477,7 @@ conversation.
 | `GET /projects/{pid}/status` | V | — | `ProjectStatus` — its `sandbox.gone` says the manager has no such sandbox (§Recreating the sandbox) |
 | `GET /projects/{pid}/overview?range=day\|week` | V | — | `Overview` — the page's status strip and its cards in one read (below) |
 | `POST /projects/{pid}/warm` | P | — | **202** `{jobs}`: start the sandbox, fetch the repos, renew credentials |
-| `POST /projects/{pid}/sandbox/recreate` | O | `{new?: {provider, image?, size?, egress?}, force?}` | **202** `{project, jobs, gone}`: a new workspace sandbox (§Recreating the sandbox); **409** `refusal: "exists"` when the old one is still there and `force` isn't said, **502** `refusal: "unavailable"` when its manager can't say; **409** for a team project's definition |
+| `POST /projects/{pid}/sandbox/recreate` | O | `{new?: {provider, image?, size?, egress?}, force?}` | **202** `{project, jobs, gone}`: a new workspace sandbox (§Recreating the sandbox); **409** `refusal: "exists"` when the old one is still there and `force` isn't said, **502** `refusal: "unavailable"` when its manager can't say; **409** `refusal: "busy"` while a project job is at work, a task's turn is at work in a sandbox still there (force or not: it would go on there, its unpushed work lost), or the project changed meanwhile (a second recreate at once); **409** for a team project's definition |
 | `GET /projects/{pid}/issues?repo=&q=&state=&labels=&cursor=` | V | — | the provider's page of issues of one of the project's repos (bodies clipped to 2 KiB; untrusted text) |
 | `GET /projects/{pid}/tasks?col=&phase=&q=&mine=1&cursor=&limit=` | V | — | `{items: [TaskView], next}` |
 | `POST /projects/{pid}/tasks` | P | `TaskSpec` | **201** `{task: TaskView, run}` |

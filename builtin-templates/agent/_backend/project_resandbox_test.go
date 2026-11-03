@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -128,4 +129,41 @@ func TestRecreateLiveSandboxNeedsForce(t *testing.T) {
 	if _, err := conn.Get(context.Background(), fx.box.ID); err != nil {
 		t.Fatalf("the old sandbox: %v", err)
 	}
+}
+
+// A turn at work in a sandbox that is still there refuses a recreate, force
+// or not: it would go on in the old sandbox while its task is prepared
+// again in the new one and its credentials are revoked (unpushed work lost).
+func TestRecreateRefusesATurnAtWork(t *testing.T) {
+	fx := newProjFix(t)
+	p := fx.newProject(t, asAlice, nil)
+	fx.waitRepoReady(t, p.ID)
+	_, runID := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "Fix the login page"})
+	fx.waitWS(t, p.ID, 1, wsReady)
+	old := sandboxRef("apps/cs", fx.box.ID)
+	if _, err := fx.ag.db.q.Exec(`UPDATE runs SET status=? WHERE id=?`, statusRunning, runID); err != nil {
+		t.Fatal(err)
+	}
+	w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/sandbox/recreate", p.ID), map[string]any{"force": true})
+	var refused struct {
+		Refusal string `json:"refusal"`
+	}
+	_ = json.Unmarshal(w.Body.Bytes(), &refused)
+	if w.Code != 409 || refused.Refusal != "busy" || !strings.Contains(w.Body.String(), "task #1") {
+		t.Fatalf("a turn at work: %d %s", w.Code, w.Body)
+	}
+	if q, _ := fx.ag.db.getProject(p.ID); q.SandboxRef != old || fx.ag.db.getSetting(sbxNewKey(p.ID)) != "" {
+		t.Fatalf("a refusal changed the project: %s", q.SandboxRef)
+	}
+	if _, err := fx.ag.db.q.Exec(`UPDATE runs SET status=? WHERE id=?`, statusDone, runID); err != nil {
+		t.Fatal(err)
+	}
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/sandbox/recreate", p.ID), map[string]any{"force": true}); w.Code != 202 {
+		t.Fatalf("once the turn ended: %d %s", w.Code, w.Body)
+	}
+	// a second one at once is refused, not a second sandbox
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/sandbox/recreate", p.ID), map[string]any{"force": true}); w.Code != 409 {
+		t.Fatalf("a second recreate at once: %d %s", w.Code, w.Body)
+	}
+	fx.waitRepoReady(t, p.ID)
 }
