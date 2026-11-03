@@ -22,12 +22,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 )
-
-// directHTTP reaches direct MCP servers and their authorization servers
-// (outside the workspace: the agent's net slot). A var so tests can swap it.
-var directHTTP = &http.Client{Timeout: 30 * time.Second}
 
 // oauthMeta is what discovery learnt about a server's authorization.
 type oauthMeta struct {
@@ -173,6 +168,9 @@ func discoverOAuth(ctx context.Context, server string, pr probeResult) (oauthMet
 			break
 		}
 	}
+	if prm.Resource != "" && !resourceCovers(prm.Resource, server) {
+		return oauthMeta{}, fmt.Errorf("its resource metadata names another resource (%s), not this server", clip(prm.Resource, 200))
+	}
 	m := oauthMeta{Resource: orStr(prm.Resource, server), ResourceName: prm.ResourceName}
 	issuer := origin // 2025-03-26: without resource metadata the server's origin is its authorization server
 	if len(prm.AuthorizationServers) > 0 {
@@ -223,6 +221,19 @@ func discoverOAuth(ctx context.Context, server string, pr probeResult) (oauthMet
 		m.Scopes = as.Scopes
 	}
 	return m, nil
+}
+
+// resourceCovers: the protected resource metadata's resource names server —
+// the same origin, and server's path within the resource's (RFC 9728 §3.3:
+// a token is never asked for one resource on another's word).
+func resourceCovers(resource, server string) bool {
+	ru, err1 := url.Parse(resource)
+	su, err2 := url.Parse(server)
+	if err1 != nil || err2 != nil || !strings.EqualFold(ru.Scheme, su.Scheme) || !strings.EqualFold(ru.Host, su.Host) {
+		return false
+	}
+	rp, sp := strings.TrimRight(ru.Path, "/"), strings.TrimRight(su.Path, "/")
+	return rp == "" || sp == rp || strings.HasPrefix(sp, rp+"/")
 }
 
 func contains(xs []string, x string) bool {

@@ -281,10 +281,13 @@ var slugRE = regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
 
 // checkDirectURL: an https address (http only to a loopback host — a
 // sign-in's tokens never cross a network in the clear).
-func checkDirectURL(raw string) (string, error) {
+func checkDirectURL(raw, scope string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil || u.Host == "" || (u.Scheme != "https" && u.Scheme != "http") {
 		return "", errors.New("url: an https:// address of a streamable-HTTP MCP server")
+	}
+	if u.Scheme == "http" && scope == mcpPersonal && !directLocalOK {
+		return "", errors.New("url: https:// only (a server on this machine or the LAN is added for everyone, by a manager)")
 	}
 	if u.Scheme == "http" {
 		host := u.Hostname()
@@ -332,7 +335,7 @@ func handleAddDirect(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, http.StatusForbidden, "a personal MCP server is a person's own: add it yourself")
 		return
 	}
-	u, err := checkDirectURL(body.URL)
+	u, err := checkDirectURL(body.URL, scope)
 	if err != nil {
 		xbin.WriteError(w, 400, err.Error())
 		return
@@ -353,7 +356,7 @@ func handleAddDirect(w http.ResponseWriter, r *http.Request) {
 	if scope == mcpPersonal {
 		owner = c.user
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 45*time.Second)
+	ctx, cancel := context.WithTimeout(withDirectReach(r.Context(), scope == mcpGlobal), 45*time.Second) // mcp_reach.go
 	defer cancel()
 	s := &directServer{ID: "mcp" + strings.ToLower(randToken(9)), Slug: slug, URL: u, Scope: scope, Owner: owner, CreatedBy: c.tag(),
 		CreatedMs: nowMs(), UpdatedMs: nowMs(), State: mcpReady}
@@ -478,7 +481,7 @@ func handleDirectSignin(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, "redirectUri: this tile's mcp-callback.html, as the page's address says it")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(s.reach(r.Context()), 30*time.Second)
 	defer cancel()
 	if s.ClientID == "" || s.Redirect != body.RedirectURI {
 		id, secret, err := registerClient(ctx, s.Meta, body.RedirectURI)
@@ -486,12 +489,13 @@ func handleDirectSignin(w http.ResponseWriter, r *http.Request) {
 			xbin.WriteError(w, http.StatusBadGateway, err.Error())
 			return
 		}
-		t := directTokens(s.ID)
-		t.ClientSecret = secret
-		if err := putDirectTokens(s.ID, t); err != nil {
+		// a new client: the old one's tokens are no use to it (its refresh
+		// would only fail as invalid_client) — signed in again below
+		if err := putDirectTokens(s.ID, oauthTokens{ClientSecret: secret}); err != nil {
 			xbin.WriteError(w, http.StatusServiceUnavailable, "the vault: "+err.Error())
 			return
 		}
+		agent.db.setDirectState(s.ID, mcpSignin, "")
 		s.ClientID, s.Redirect = id, body.RedirectURI
 		_, _ = agent.db.q.Exec(`UPDATE mcp_servers SET client_id=?, redirect=?, updated_ms=? WHERE id=?`, id, body.RedirectURI, nowMs(), s.ID)
 	}
@@ -547,11 +551,11 @@ func handleDirectCallback(w http.ResponseWriter, r *http.Request) {
 		xbin.WriteError(w, 400, fmt.Sprintf("the sign-in was refused: %s", clip(strings.TrimSpace(body.Error+": "+body.Desc), 300)))
 		return
 	}
-	if s.Meta.IssParam && body.Iss != "" && s.Meta.Issuer != "" && body.Iss != s.Meta.Issuer {
+	if s.Meta.IssParam && s.Meta.Issuer != "" && body.Iss != s.Meta.Issuer { // RFC 9207: it says iss, so a response without it is refused too
 		xbin.WriteError(w, 400, "the sign-in came back from another authorization server than the one asked (iss)")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(s.reach(r.Context()), 30*time.Second)
 	defer cancel()
 	prev := directTokens(s.ID)
 	t, err := tokenGrant(ctx, s.Meta, s.ClientID, prev.ClientSecret, url.Values{
@@ -615,9 +619,11 @@ func handleDirectRefresh(w http.ResponseWriter, r *http.Request) {
 // of that person's conversations (directRPC); the answer is {result,
 // session} or an error. Its tokens stay here.
 func handleDirectRPC(w http.ResponseWriter, r *http.Request) {
-	c := callerOf(r)
 	s, err := agent.db.directServer(r.PathValue("sid"))
-	if err != nil || s.Scope != mcpGlobal || !globalMode() || (c.kind != whoUser && c.kind != whoSystem) {
+	// a person's own partition's backend only (personFromPartition): it
+	// offers the server only in conversations whose class lists it — their
+	// page or terminal calling here would skip that
+	if err != nil || s.Scope != mcpGlobal || !globalMode() || !personFromPartition(r) {
 		xbin.WriteError(w, 404, "no such global MCP server")
 		return
 	}
@@ -751,6 +757,7 @@ func directRPC(ctx context.Context, srv MCPServer, method string, params any, se
 }
 
 func (s *directServer) localRPC(ctx context.Context, method string, params any, sessionID string) (json.RawMessage, string, error) {
+	ctx = s.reach(ctx) // mcp_reach.go
 	plain := MCPServer{Name: s.name(), URL: s.URL, external: true}
 	if s.Auth == mcpAuthNone {
 		return plain.rpc(ctx, method, params, sessionID)
@@ -783,6 +790,7 @@ var directRefreshMu sync.Map // id → *sync.Mutex
 // token is s's bearer: the pasted one, or the OAuth access token —
 // refreshed when it ends within a minute, or when force.
 func (s *directServer) token(ctx context.Context, force bool) (string, error) {
+	ctx = s.reach(ctx) // mcp_reach.go
 	t := directTokens(s.ID)
 	if s.Auth == mcpAuthBearer {
 		if t.Bearer == "" {

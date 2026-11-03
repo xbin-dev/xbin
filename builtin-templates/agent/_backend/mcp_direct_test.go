@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"strings"
 	"sync"
@@ -190,6 +191,7 @@ func signInState(t *testing.T, mux *http.ServeMux, f *oauthMCP, c caller, id str
 }
 
 func TestDirectMCPOAuth(t *testing.T) {
+	allowLocalMCP(t)
 	ag, mux := accessFixture(t)
 	vault := memVault(t)
 	f := newOAuthMCP(t)
@@ -309,6 +311,7 @@ func TestDirectMCPOAuth(t *testing.T) {
 }
 
 func TestDirectMCPGlobalAndToken(t *testing.T) {
+	allowLocalMCP(t)
 	ag, mux := accessFixture(t)
 	memVault(t)
 	open := newFakeMCP(t, "search", false)
@@ -372,12 +375,15 @@ func TestDirectMCPGlobalAndToken(t *testing.T) {
 // (its tokens stay there); their own servers are theirs, in their
 // conversations only.
 func TestDirectMCPPartitions(t *testing.T) {
+	allowLocalMCP(t)
 	ag, mux := accessFixture(t)
 	memVault(t)
 	open := newFakeMCP(t, "search", false)
 
 	// at the global instance: a global server, used over its rpc route
 	setMode(t, modeGlobal, "")
+	gMux := http.NewServeMux() // built at global: a person's partition's calls pass agentRole there
+	routes(gMux)
 	if w := callAs(t, mux, asMgr, "POST", "/mcp/servers", map[string]any{"url": open.URL, "name": "docs", "scope": "personal"}); w.Code != 409 {
 		t.Fatalf("a personal server at global: %d %s", w.Code, w.Body)
 	}
@@ -386,11 +392,18 @@ func TestDirectMCPPartitions(t *testing.T) {
 		t.Fatalf("add at global: %d %s", w.Code, w.Body)
 	}
 	g := decodeServer(t, w)
-	w = callAs(t, mux, asAlice, "POST", "/mcp/servers/"+g.ID+"/rpc", map[string]any{"method": "tools/list"})
+	// her page can't call it (only her partition's backend, which offers it
+	// where her class lists it), nor can a manager's
+	for _, c := range []caller{asAlice, asMgr} {
+		if w := callAs(t, mux, c, "POST", "/mcp/servers/"+g.ID+"/rpc", map[string]any{"method": "tools/list"}); w.Code != 404 {
+			t.Fatalf("rpc at global from a page: %d %s", w.Code, w.Body)
+		}
+	}
+	w = serveAs(gMux, "POST", "/mcp/servers/"+g.ID+"/rpc", `{"method":"tools/list"}`, asPartition("alice"))
 	if w.Code != 200 || !strings.Contains(w.Body.String(), "search") {
 		t.Fatalf("rpc at global: %d %s", w.Code, w.Body)
 	}
-	if w := callAs(t, mux, asAlice, "POST", "/mcp/servers/"+g.ID+"/rpc", map[string]any{"method": "resources/read"}); w.Code != 400 {
+	if w := serveAs(gMux, "POST", "/mcp/servers/"+g.ID+"/rpc", `{"method":"resources/read"}`, asPartition("alice")); w.Code != 400 {
 		t.Fatalf("another method: %d", w.Code)
 	}
 	globalList := callAs(t, mux, asAlice, "GET", "/mcp/servers", nil).Body.Bytes()
@@ -406,7 +419,7 @@ func TestDirectMCPPartitions(t *testing.T) {
 		if method == http.MethodGet {
 			return gwResp{Status: 200, Body: globalList}, nil
 		}
-		w := callAs(t, mux, asAlice, method, path, json.RawMessage(body))
+		w := serveAs(gMux, method, path, string(body), asPartition("alice"))
 		b, _ := io.ReadAll(w.Body)
 		return gwResp{Status: w.Code, Body: b}, nil
 	}
@@ -449,5 +462,68 @@ func TestWWWAuthParams(t *testing.T) {
 	}
 	if s := slugFromURL("https://api.ottotheagent.com/mcp"); s != "ottotheagent" {
 		t.Fatalf("slug %q", s)
+	}
+}
+
+// allowLocalMCP lets t's personal servers be httptest's (http, loopback).
+func allowLocalMCP(t *testing.T) {
+	directLocalOK = true
+	t.Cleanup(func() { directLocalOK = false })
+}
+
+// A person's own server reaches public addresses only, over https — not the
+// LAN, a cloud's metadata endpoint or the backend's loopback, whatever its
+// URL, its metadata or a redirect says; a global one (a manager's) keeps
+// what the agent's network reaches (mcp_reach.go).
+func TestDirectMCPReach(t *testing.T) {
+	for ip, want := range map[string]bool{
+		"8.8.8.8": true, "2606:4700:4700::1111": true, "1.1.1.1": true,
+		"10.1.2.3": false, "172.16.0.1": false, "192.168.1.1": false, "127.0.0.1": false, "169.254.169.254": false,
+		"100.64.0.1": false, "0.0.0.0": false, "0.1.2.3": false, "198.18.0.1": false, "240.0.0.1": false, "255.255.255.255": false,
+		"::1": false, "fd00::1": false, "fe80::1": false, "::ffff:10.0.0.1": false, "64:ff9b::a00:1": false, "224.0.0.1": false,
+	} {
+		if got := publicAddr(netip.MustParseAddr(ip)); got != want {
+			t.Errorf("publicAddr(%s) = %v", ip, got)
+		}
+	}
+	if _, err := checkDirectURL("http://127.0.0.1:8080/mcp", mcpPersonal); err == nil {
+		t.Fatal("a personal server over http on loopback")
+	}
+	if _, err := checkDirectURL("http://127.0.0.1:8080/mcp", mcpGlobal); err != nil {
+		t.Fatalf("a global one on this machine: %v", err)
+	}
+	tls := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) }))
+	t.Cleanup(tls.Close)
+	for _, u := range []string{tls.URL, strings.Replace(tls.URL, "https://", "http://", 1)} {
+		req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, u, nil)
+		resp, err := directHTTP.Do(req)
+		if err == nil {
+			resp.Body.Close()
+			t.Fatalf("a personal server's request reached %s", u)
+		}
+		if !strings.Contains(err.Error(), "not a public address") && !strings.Contains(err.Error(), "https only") {
+			t.Fatalf("%s: %v", u, err)
+		}
+	}
+	// the open (global) transport dials it: the TLS handshake is what fails here (httptest's own CA)
+	req, _ := http.NewRequestWithContext(withDirectReach(context.Background(), true), http.MethodGet, tls.URL, nil)
+	if _, err := directHTTP.Do(req); err == nil || strings.Contains(err.Error(), "not a public address") {
+		t.Fatalf("a global server's request: %v", err)
+	}
+	for _, c := range []struct {
+		res, server string
+		ok          bool
+	}{
+		{"https://a.example/mcp", "https://a.example/mcp", true},
+		{"https://a.example", "https://a.example/mcp", true},
+		{"https://a.example/mcp/", "https://a.example/mcp/v1", true},
+		{"https://a.example/other", "https://a.example/mcp", false},
+		{"https://a.example/mc", "https://a.example/mcp", false},
+		{"https://b.example/mcp", "https://a.example/mcp", false},
+		{"http://a.example/mcp", "https://a.example/mcp", false},
+	} {
+		if got := resourceCovers(c.res, c.server); got != c.ok {
+			t.Errorf("resourceCovers(%s, %s) = %v", c.res, c.server, got)
+		}
 	}
 }

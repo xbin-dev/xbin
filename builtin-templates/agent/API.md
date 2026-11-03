@@ -1586,12 +1586,15 @@ global server's tokens never leave the global instance.
   challenge's `resource_metadata` (else the well-known protected resource
   metadata), its authorization server's metadata (RFC 8414, else OpenID
   discovery, else the 2025-03-26 default endpoints), which must offer PKCE
-  S256 if it lists methods — `auth: "oauth"`, `state: "signin"`.
+  S256 if it lists methods — `auth: "oauth"`, `state: "signin"`. Resource
+  metadata that names another resource than the server (another origin, or
+  a path the server's isn't under; RFC 9728) is refused.
 
 **Signing in** (OAuth): the page asks `POST …/signin` with its
 `redirectUri` — this tile's `mcp-callback.html` at the workspace's address. The
 agent registers a public client there once per redirect (dynamic client
-registration, RFC 7591; a server without it can't be signed in to), keeps a
+registration, RFC 7591; a server without it can't be signed in to — a new
+registration drops the old client's tokens, `state: "signin"`), keeps a
 PKCE verifier and a single-use `state` (15 minutes, bound to the person who
 started it), and answers the authorization page's URL (`resource` = the
 server, RFC 8707; `scope` = what its metadata lists). The page opens it as a
@@ -1599,16 +1602,32 @@ real link (native: the app opens it); the authorization server sends the
 person back to `mcp-callback.html`, which posts the code and state to `POST
 /mcp/oauth/callback` — at the global instance when the state says so — and
 drops them from the address bar. The code is exchanged (with the verifier,
-the redirect and the resource; `iss` checked where the server says it sends
-it) and the tokens go to the vault. An access token within a minute of its
+the redirect and the resource; `iss` required, and checked, where the
+authorization server says it sends it, RFC 9207) and the tokens go to the
+vault. An access token within a minute of its
 end, or one the server answers 401 to, is refreshed (once at a time per
 server; a rotated refresh token is kept); a refresh refused as
 `invalid_grant` — a revoked grant — marks the server `signin`, and its
 tools are left out until someone signs in again. A server waiting for a
 sign-in offers no tools.
 
-Addresses are `https://` (`http://` only to this machine's loopback), with no
-credentials in them.
+Addresses have no credentials in them. **Reach** — what a server's requests
+(its MCP calls, and the discovery, registration and token requests whose
+addresses the server's metadata names) may reach:
+
+- **a person's own server**: `https://` only, and only **public** addresses —
+  never loopback, the LAN (RFC 1918, ULA), link-local (a cloud's metadata
+  endpoint), CGNAT or the other non-public ranges (docs/isolation.md, "A
+  class's `internet` is strict"). It is checked on every connection as it is
+  dialled, so a hostname resolving to a private address, a redirect, or a DNS
+  answer that changes after a check reaches nothing inside the network; behind
+  an HTTP proxy the environment names, the host's addresses are checked before
+  the request goes to the proxy. A person can't point the agent at the
+  network it sits in and read what comes back.
+- **a global server** (a manager's): whatever the agent's network reaches — a
+  server on the LAN, or `http://` on this machine's loopback.
+
+The two never share a connection.
 
 | Method and path | Who | Body | Answer |
 |---|---|---|---|
@@ -1619,7 +1638,7 @@ credentials in them.
 | `POST /mcp/oauth/callback` | the person who started it | `{state, code?, iss?, error?, errorDescription?}` | `{server, home}`; **400** an unknown, used or expired state, a refusal, a wrong `iss`; **403** someone else's sign-in; **502** the code refused |
 | `POST /mcp/servers/{sid}/signout` | its person; a global one: a manager | — | `{server}`: its tokens out of the vault, `state: "signin"` |
 | `POST /mcp/servers/{sid}/refresh` | anyone who sees it | — | `{server}`: its tools listed again now |
-| `POST /mcp/servers/{sid}/rpc` | a person (their partition's backend), at the global instance | `{method: "initialize" \| "tools/list" \| "tools/call", params?, session?}` | `{result, session}`; **409** `{error, signin: true}` when it waits for a sign-in |
+| `POST /mcp/servers/{sid}/rpc` | a person's own partition (its backend, which offers the server only in conversations whose class lists it), at the global instance — **404** to anyone else, a manager's or a person's page included | `{method: "initialize" \| "tools/list" \| "tools/call", params?, session?}` | `{result, session}`; **409** `{error, signin: true}` when it waits for a sign-in |
 
 ### Threads, schedules and grants (D111)
 
