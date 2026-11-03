@@ -33,3 +33,31 @@ func TestModelForFallsBackToTheCatalog(t *testing.T) {
 		t.Fatalf("explicit model: got %q", got)
 	}
 }
+
+// The fallback skips what no conversation can use — an OpenAI-style list
+// sorts babbage-002 and the embedding models first — and the vlm tier takes
+// a model that sees images when one is served.
+func TestFallbackModelSkipsNonChat(t *testing.T) {
+	ms := func(ids ...string) []catalogModel {
+		out := make([]catalogModel, len(ids))
+		for i, id := range ids {
+			out[i] = catalogModel{ID: id, Ref: "p/" + id}
+		}
+		return out
+	}
+	openai := ms("babbage-002", "dall-e-3", "davinci-002", "gpt-3.5-turbo", "gpt-4o", "text-embedding-3-small", "tts-1", "whisper-1")
+	for _, c := range []struct {
+		models     []catalogModel
+		tier, want string
+	}{
+		{openai, "general", "p/gpt-3.5-turbo"},
+		{openai, "vlm", "p/gpt-4o"},
+		{ms("text-embedding-3-small", "whisper-1"), "general", "p/text-embedding-3-small"}, // nothing better: the first
+		{ms("mistral-small", "qwen3-coder"), "vlm", "p/mistral-small"},                     // nothing that sees: the first chat one
+		{nil, "general", ""},
+	} {
+		if got := fallbackModel(c.models, c.tier); got != c.want {
+			t.Errorf("%s over %v: got %q, want %q", c.tier, c.models, got, c.want)
+		}
+	}
+}
