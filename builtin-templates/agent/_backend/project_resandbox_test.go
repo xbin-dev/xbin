@@ -43,6 +43,7 @@ func TestRecreateGoneSandbox(t *testing.T) {
 	if w := callAs(t, fx.mux, asBob, "POST", fmt.Sprintf("/projects/%d/sandbox/recreate", p.ID), map[string]any{}); w.Code != 404 {
 		t.Fatalf("bob: %d %s", w.Code, w.Body)
 	}
+	fx.waitJobsIdle(t, p.ID) // a job at work (a refs fetch) refuses it as busy for its own reason
 	w = callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/sandbox/recreate", p.ID), map[string]any{})
 	if w.Code != 202 {
 		t.Fatalf("recreate: %d %s", w.Code, w.Body)
@@ -84,6 +85,7 @@ func TestRecreateGoneSandbox(t *testing.T) {
 
 	// once more: another generation, another sandbox
 	fx.loseSandbox(t, after.SandboxRef)
+	fx.waitJobsIdle(t, p.ID) // a job at work (a refs fetch) refuses it as busy for its own reason
 	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/sandbox/recreate", p.ID), map[string]any{}); w.Code != 202 {
 		t.Fatalf("recreate again: %d %s", w.Code, w.Body)
 	}
@@ -115,6 +117,7 @@ func TestRecreateLiveSandboxNeedsForce(t *testing.T) {
 		t.Fatalf("a refusal changed the project: %s", q.SandboxRef)
 	}
 
+	fx.waitJobsIdle(t, p.ID) // a job at work (a refs fetch) refuses it as busy for its own reason
 	w = callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/sandbox/recreate", p.ID), map[string]any{"force": true})
 	if w.Code != 202 {
 		t.Fatalf("force: %d %s", w.Code, w.Body)
@@ -131,6 +134,16 @@ func TestRecreateLiveSandboxNeedsForce(t *testing.T) {
 	}
 }
 
+// waitJobsIdle waits for project pid to have no job queued or at work: a
+// recreate refuses while one is (busy), and the project queues its own (a
+// refs fetch after a turn, a prepare after a sandbox).
+func (fx *projFix) waitJobsIdle(t *testing.T, pid int64) {
+	t.Helper()
+	hwait(t, "the project's jobs", func() bool {
+		return len(fx.ag.db.jobsWhere(`WHERE project_id=? AND state IN ('queued','running')`, pid)) == 0
+	})
+}
+
 // A turn at work in a sandbox that is still there refuses a recreate, force
 // or not: it would go on in the old sandbox while its task is prepared
 // again in the new one and its credentials are revoked (unpushed work lost).
@@ -140,6 +153,16 @@ func TestRecreateRefusesATurnAtWork(t *testing.T) {
 	fx.waitRepoReady(t, p.ID)
 	_, runID := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "Fix the login page"})
 	fx.waitWS(t, p.ID, 1, wsReady)
+	// its own turn over first: the engine writes the run's status while it
+	// works, and would put back another over the one set here
+	// its first turn over and the project's own jobs (a refs fetch after it)
+	// done: the engine writes the run's status while it works, and a job at
+	// work refuses a recreate as busy for its own reason
+	hwait(t, "the task's first turn", func() bool {
+		r, err := fx.ag.db.getRun(runID)
+		return err == nil && resting(r.Status) && strings.Contains(fullText(fx.ag.db, runID), "Fix the login page")
+	})
+	fx.waitJobsIdle(t, p.ID)
 	old := sandboxRef("apps/cs", fx.box.ID)
 	if _, err := fx.ag.db.q.Exec(`UPDATE runs SET status=? WHERE id=?`, statusRunning, runID); err != nil {
 		t.Fatal(err)
@@ -158,6 +181,7 @@ func TestRecreateRefusesATurnAtWork(t *testing.T) {
 	if _, err := fx.ag.db.q.Exec(`UPDATE runs SET status=? WHERE id=?`, statusDone, runID); err != nil {
 		t.Fatal(err)
 	}
+	fx.waitJobsIdle(t, p.ID)
 	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/sandbox/recreate", p.ID), map[string]any{"force": true}); w.Code != 202 {
 		t.Fatalf("once the turn ended: %d %s", w.Code, w.Body)
 	}
