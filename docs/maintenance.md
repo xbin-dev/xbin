@@ -173,15 +173,17 @@ went unrun.
 
 ## Size budget (the ratchet)
 
-`internal/sizebudget` reads `hack/size-budget.txt` (`<path> <max-lines>`)
-and fails `make test` when a listed file grows past its budget, when an
-unlisted non-test Go file passes 800 lines or a shipped `.js`/`.mjs`/`.html`
-passes 900, or when a listed file has shrunk below 90 % of its budget —
+`internal/sizebudget` reads `hack/size-budget.txt` (`<path> <max-lines>
+[ceiling]`) and fails `make test` when a listed file grows past its budget,
+when an unlisted non-test Go file or a shipped `.js`/`.mjs`/`.html` passes
+1000 lines, or when a listed file has shrunk below 90 % of its budget —
 then the number in the file comes down, so a split never quietly regrows.
-Raising a budget is the wrong fix; splitting the file is the right one
+A budget marked `ceiling` is room a core file may grow into (the agent
+template's `agent.js`, 1500) and is never asked to come down. Raising a
+budget is the wrong fix for an ordinary file; splitting it is the right one
 (the admin console's tabs and the shell's children are the pattern). The
 seed numbers are the sizes on 2026-09-09; `notes.js` (prose in JS) is
-listed deliberately.
+listed deliberately. The caps were 800 (Go) and 900 (JS) until D219.
 
 ## Docs check (decision ids, links, plan status)
 

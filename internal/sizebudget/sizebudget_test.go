@@ -3,7 +3,8 @@
 // cap, and a listed file that shrank well below its budget makes the test
 // ask for the number to come down — so the two 3,000-line files that made
 // the admin console and the shell hard to work in cannot come back once
-// they are split.
+// they are split. A budget marked `ceiling` is room a core file may grow
+// into (D219): it never asks to come down.
 package sizebudget
 
 import (
@@ -19,20 +20,27 @@ import (
 )
 
 const (
-	goCap = 800 // an unlisted non-test Go file
-	jsCap = 900 // an unlisted shipped .js / .mjs / .html
+	goCap = 1000 // an unlisted non-test Go file
+	jsCap = 1000 // an unlisted shipped .js / .mjs / .html
 )
+
+// budget is a listed file's: its max lines, and whether that max is a
+// ceiling (room to grow into) rather than a ratchet.
+type budget struct {
+	max     int
+	ceiling bool
+}
 
 var repo = filepath.Join("..", "..")
 
-func loadBudget(t *testing.T) map[string]int {
+func loadBudget(t *testing.T) map[string]budget {
 	t.Helper()
 	f, err := os.Open(filepath.Join(repo, "hack", "size-budget.txt"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	out := map[string]int{}
+	out := map[string]budget{}
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
@@ -40,14 +48,14 @@ func loadBudget(t *testing.T) map[string]int {
 			continue
 		}
 		fields := strings.Fields(line)
-		if len(fields) != 2 {
-			t.Fatalf("hack/size-budget.txt: bad line %q (want: <path> <max-lines>)", line)
+		if len(fields) != 2 && (len(fields) != 3 || fields[2] != "ceiling") {
+			t.Fatalf("hack/size-budget.txt: bad line %q (want: <path> <max-lines> [ceiling])", line)
 		}
 		n, err := strconv.Atoi(fields[1])
 		if err != nil {
 			t.Fatalf("hack/size-budget.txt: bad number in %q", line)
 		}
-		out[fields[0]] = n
+		out[fields[0]] = budget{max: n, ceiling: len(fields) == 3}
 	}
 	return out
 }
@@ -65,7 +73,7 @@ func countLines(path string) (int, error) {
 }
 
 func TestSizeBudget(t *testing.T) {
-	budget := loadBudget(t)
+	budgets := loadBudget(t)
 	seen := map[string]bool{}
 	var problems []string
 	add := func(format string, a ...any) { problems = append(problems, fmt.Sprintf(format, a...)) }
@@ -75,12 +83,12 @@ func TestSizeBudget(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if max, ok := budget[rel]; ok {
+		if b, ok := budgets[rel]; ok {
 			seen[rel] = true
-			switch {
+			switch max := b.max; {
 			case n > max:
 				add("%s: %d lines, over its budget of %d — split it rather than raising the number (docs/maintenance.md → \"Size budget\")", rel, n, max)
-			case n < max*9/10:
+			case n < max*9/10 && !b.ceiling:
 				add("%s: %d lines, well under its budget of %d — lower the budget in hack/size-budget.txt to %d so the gain sticks", rel, n, max, n+n/20)
 			}
 			return
@@ -120,7 +128,7 @@ func TestSizeBudget(t *testing.T) {
 	walk([]string{"web", "workspace-template", "builtin-tiles", "builtin-templates", "hack"}, jsCap, func(rel string) bool {
 		return strings.HasSuffix(rel, ".js") || strings.HasSuffix(rel, ".mjs") || strings.HasSuffix(rel, ".html")
 	})
-	for rel := range budget {
+	for rel := range budgets {
 		if !seen[rel] {
 			add("hack/size-budget.txt lists %s, which does not exist — remove the line", rel)
 		}
