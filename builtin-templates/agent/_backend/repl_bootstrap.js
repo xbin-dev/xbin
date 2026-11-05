@@ -24,6 +24,7 @@
   var stringify = J.stringify;
   var mapGet = Map.prototype.forEach, setEach = Set.prototype.forEach;
   var push = A.prototype.push, join = A.prototype.join;
+  var isView = ArrayBuffer.isView;
 
   // --- prelude: single-allocation bombs -----------------------------------
   // 'x'.repeat(1e9) is one sb.Grow(1e9) inside goja — there is no bytecode
@@ -52,8 +53,32 @@
   try { delete globalThis.WeakRef; } catch (e) {}
   try { delete globalThis.FinalizationRegistry; } catch (e) {}
 
+  // --- TextEncoder / TextDecoder (UTF-8 only) ----------------------------
+  // Thin classes over two Go natives (repl_bytes.go), captured here and
+  // removed from the global scope.
+  var u8enc = globalThis.__utf8enc, u8dec = globalThis.__utf8dec;
+  delete globalThis.__utf8enc;
+  delete globalThis.__utf8dec;
+  function TextEncoder() {}
+  O.defineProperty(TextEncoder.prototype, 'encoding', { get: function () { return 'utf-8'; } });
+  TextEncoder.prototype.encode = function (s) { return u8enc(s === undefined ? '' : S(s)); };
+  function TextDecoder(label, opts) {
+    var l = label === undefined ? 'utf-8' : S(label).toLowerCase().trim();
+    if (l !== 'utf-8' && l !== 'utf8' && l !== 'unicode-1-1-utf-8') {
+      throw new RangeError('TextDecoder: only utf-8 is supported here, not "' + label + '"');
+    }
+    this.fatal = !!(opts && opts.fatal);
+    this.ignoreBOM = !!(opts && opts.ignoreBOM);
+  }
+  O.defineProperty(TextDecoder.prototype, 'encoding', { get: function () { return 'utf-8'; } });
+  TextDecoder.prototype.decode = function (buf) {
+    return buf === undefined ? '' : u8dec(buf, this.fatal, this.ignoreBOM);
+  };
+  globalThis.TextEncoder = TextEncoder;
+  globalThis.TextDecoder = TextDecoder;
+
   // --- formatter ----------------------------------------------------------
-  var MAXDEPTH = 4, MAXARR = 100, MAXKEYS = 50, MAXSTR = 200;
+  var MAXDEPTH = 4, MAXARR = 100, MAXKEYS = 50, MAXSTR = 200, MAXBYTES = 32;
 
   function quote(s) {
     var t = s.length > MAXSTR ? strSlice.call(s, 0, MAXSTR) : s;
@@ -113,6 +138,18 @@
     if (tag === 'RegExp') return S(v);
     if (tag === 'Promise') return 'Promise { … }';   // Go reads the real state
 
+    // Byte arrays can be megabytes: a head and a length, never every index.
+    if (tag === 'ArrayBuffer') {
+      var bl = 0;
+      try { bl = v.byteLength; } catch (e) {}
+      return 'ArrayBuffer { byteLength: ' + bl + ' }';
+    }
+    if (tag !== 'DataView' && isView(v)) {
+      n = v.length;
+      for (i = 0; i < n && i < MAXBYTES; i++) push.call(parts, S(v[i]));
+      if (n > MAXBYTES) push.call(parts, '… ' + (n - MAXBYTES) + ' more');
+      return tag + '(' + n + ') [ ' + join.call(parts, ', ') + ' ]';
+    }
     if (isArr(v)) {
       n = v.length;
       for (i = 0; i < n && i < MAXARR; i++) {

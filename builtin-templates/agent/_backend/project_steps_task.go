@@ -593,6 +593,9 @@ func deleteProjectStep(ctx context.Context, p *Project, j *ProjectJob) (jobOutco
 	if err := scmScrubCreds(ctx, p, "", "delete"); err != nil {
 		return jobOutcome{}, err
 	}
+	if err := deleteTwins(ctx, p); err != nil { // sandboxes earlier tries made (project_sbx_adopt.go): never left behind
+		return jobOutcome{}, err
+	}
 	key := "proj_sbx_delete:" + strconv.FormatInt(p.ID, 10)
 	dropSbx := projAg().db.getSetting(key) == "1" && p.SandboxMade && p.SandboxRef != ""
 	ks, _ := projAg().db.tasksWhere(`WHERE project_id=?`, p.ID)
@@ -662,7 +665,7 @@ func deleteProjectStep(ctx context.Context, p *Project, j *ProjectJob) (jobOutco
 				return err
 			}
 		}
-		_, _ = t.q.Exec(`DELETE FROM settings WHERE k IN (?, ?)`, key, sbxNewKey(p.ID))
+		_, _ = t.q.Exec(`DELETE FROM settings WHERE k IN (?, ?, ?, ?)`, key, sbxNewKey(p.ID), sbxGenKey(p.ID), twinsKey(p.ID))
 		return nil
 	})
 	if err != nil {

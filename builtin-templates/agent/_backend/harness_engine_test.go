@@ -34,6 +34,11 @@ func harnessFixtureWith(t *testing.T, wrap func(http.Handler) http.Handler, stdi
 	argv := acptest.Command(flags...)
 	m.Harnesses = []fsbHarness{{ID: "fake", Title: "Fake agent (tests)", Argv: argv, Login: argv[0] + " acptest login"}}
 	box := mkSandbox(t, "apps/cs", "alice", sbxCreate{Egress: "internet"})
+	// these tests watch the fake agent ask: their people chose Always approve
+	// (a person's unset setting is auto — TestHarnessDefaultAuto)
+	for _, u := range []string{"alice", "bob", "carol", "dave"} {
+		_ = ag.db.setHarnessMode(u, "fake", hmApprove)
+	}
 	forgetHarnessProbes()
 	t.Cleanup(func() { settleHarnesses(ag.eng) }) // before the manager goes (cleanups run last first)
 	return ag, mux, box, m
@@ -718,5 +723,21 @@ func TestHarnessTurnText(t *testing.T) {
 	}
 	if got := ag.db.harnessTurnText(run.ID); got != "two it is" {
 		t.Fatalf("the later turn's text: %q", got)
+	}
+}
+
+// A person who never chose starts a coding agent in its auto mode (the
+// fake's auto); one who chose Always approve, in its asking one.
+func TestHarnessDefaultAuto(t *testing.T) {
+	ag, mux, box := harnessFixture(t, false)
+	_, _ = ag.db.q.Exec(`DELETE FROM harness_prefs WHERE user='alice'`)
+	run := askHarness(t, mux, box, "cards")
+	if cfg, _ := ag.db.runConfig(run.ID); cfg.Harness == nil || cfg.Harness.Mode != "auto" {
+		t.Fatalf("an unset setting's mode: %+v", cfg.Harness)
+	}
+	_ = ag.db.setHarnessMode("alice", "fake", hmApprove)
+	run = askHarness(t, mux, box, "cards")
+	if cfg, _ := ag.db.runConfig(run.ID); cfg.Harness == nil || cfg.Harness.Mode != "ask" {
+		t.Fatalf("Always approve's mode: %+v", cfg.Harness)
 	}
 }

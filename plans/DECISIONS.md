@@ -13311,3 +13311,22 @@ Deviations and refinements made while implementing; all deliberate:
     on the tile stay 403; the default answer stays the caller's own
     partition's log; a person in the shell still needs terminal level or
     admin, as before (the issue names the tile's agent).
+
+- **D219 — The size caps rise to 1000 lines; a core file may have a
+  ceiling instead of a ratchet (2026-11-03).** The owner: the budget had
+  become arbitrary for a codebase this far along, and the agent template's
+  `agent.js` is core. Reviewing the agent-template series, #13 (MCP by
+  URL) took `agent.js` from 946 to 957 lines against its 949 budget.
+  - **The caps.** An unlisted non-test Go file and an unlisted shipped
+    `.js`/`.mjs`/`.html` may reach 1000 lines, up from 800 and 900. The
+    listed budgets stay as they were, ratchets: a listed file still may
+    not grow past its number, and still is asked to lower it once it
+    shrinks below 90 %.
+  - **Ceilings.** A line in `hack/size-budget.txt` may end in `ceiling`:
+    room a core file may grow into, never asked to come down (otherwise
+    the 90 % rule would undo the room at once). `agent.js` is the first,
+    at 1500.
+  - **Not chosen.** A two-tier rule (500 lines for basic files, 1000 for
+    core) would have failed 131 files that passed under the old caps, and
+    needed each classified as basic or core; the owner chose to raise the
+    caps alone.

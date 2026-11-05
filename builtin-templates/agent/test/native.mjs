@@ -17,6 +17,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
+import { HOME } from '../model/home.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const WEB = process.env.BX_WEB || join(here, '..', '..', '..', 'web');
@@ -124,7 +125,7 @@ const titled = (t) => page.waitForFunction((x) => window.topTitle() === x, t).th
 // the list: the root, what needs you first
 const depth = () => page.evaluate(() => window.stackOf().length);
 const back = async () => { await view.locator('.back:visible').click(); };
-ok('the list is the root', await titled('Agent'), await topTitle());
+ok('the list is the root', await titled(HOME.title), await topTitle());
 ok('the list: Needs you', await shown('xb-row:has-text("send the invoices")'));
 ok('the list: its conversations', await shown('xb-row:has-text("fix the build")'));
 // New chat is pushed: the greeting; back returns to the list
@@ -132,7 +133,7 @@ await view.locator('button[aria-label="New chat"]:visible').first().click();
 ok('New chat is pushed', await titled('New chat'), await topTitle());
 ok('…with the greeting', await shown('xb-text:has-text("What do you need?")'));
 await back();
-ok('back returns to the list', await titled('Agent'), await topTitle());
+ok('back returns to the list', await titled(HOME.title), await topTitle());
 // a row pushes its conversation
 await view.locator('xb-row:visible:has-text("plan the quarter") .row-main').first().click();
 ok('the conversation opens', await titled('plan the quarter'), await topTitle());
@@ -180,7 +181,7 @@ await back();
 await back();
 ok('back pops it', await page.waitForFunction(() => window.stackOf().length === 2).then(() => true, () => false));
 await back();
-ok('…and back again: the list', await titled('Agent'), await topTitle());
+ok('…and back again: the list', await titled(HOME.title), await topTitle());
 
 // an approval: Approve reaches the backend
 await view.locator('xb-row:visible:has-text("send the invoices") .row-main').first().click();

@@ -180,6 +180,9 @@ func (ag *Agent) needsPushes(runID int64) []needsPush {
 	default:
 		return nil
 	}
+	if state == needApproval && ag.db.isProjectTask(root) { // GET /needs says action: no one watches a task's turn
+		body = "Action required — " + body
+	}
 	acl, err := ag.db.loadACL(root.ID) // fresh: who may answer NOW
 	if err != nil {
 		return nil

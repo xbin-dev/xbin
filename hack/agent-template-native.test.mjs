@@ -261,7 +261,7 @@ test('the composer: queued messages taken back, Stop returns queued text, attach
     { snapshot: 'open' },
     { tap: { t: 'button', p: { label: 'queued: queued one' } } },
     { event: [{ t: 'composer' }, 'uploaded', { name: 'shot.png', response: { path: 'shot.png', mime: 'image/png', bytes: 1234, binary: true } }] },
-    { event: [{ t: 'composer' }, 'uploaded', { name: 'huge.mov', response: { error: 'too large: over 16 MiB' } }] },
+    { event: [{ t: 'composer' }, 'uploaded', { name: 'huge.mov', response: { error: 'too large: over 128 MiB' } }] },
     { snapshot: 'attached' },
     { event: [{ t: 'composer' }, 'remove', { id: '2' }] },
     { event: [{ t: 'composer' }, 'stop', {}] },
@@ -274,7 +274,7 @@ test('the composer: queued messages taken back, Stop returns queued text, attach
   assert.equal(c.p.placeholder, 'steer — delivered at the agent\'s next step…');
   assert.deepEqual(c.p.upload, { method: 'PUT', path: '/api/apps/agent/runs/1/upload?name={name}' }, 'the app uploads into the run itself');
   assert.equal(called(r, 'DELETE', /\/runs\/1\/inbox\/7$/).length, 1, 'a queued message is taken back');
-  assert.deepEqual(find(r.snapshots.attached, { t: 'composer' }).p.attachments.map((a) => a.name), ['shot.png', 'huge.mov — too large (max 16.0 MB)']);
+  assert.deepEqual(find(r.snapshots.attached, { t: 'composer' }).p.attachments.map((a) => a.name), ['shot.png', 'huge.mov — too large (max 128.0 MB)']);
   assert.equal(find(r.snapshots.stopped, { t: 'composer' }).p.value, 'first\n\nsecond', 'Stop gives the queued text back');
   const sent = called(r, 'POST', /\/runs\/1\/message$/).pop();
   assert.deepEqual({ ...JSON.parse(sent.body), clientId: 'x' }, { text: 'look at this', files: ['shot.png'], clientId: 'x' });
@@ -292,7 +292,7 @@ test('a new ask with attachments from home: the app uploads into the draft, Send
     { tap: NEW_CHAT },
     { snapshot: 'home' },
     { event: [{ t: 'composer' }, 'uploaded', { name: 'shot.png', response: { path: 'shot.png', mime: 'image/png', bytes: 1234, binary: true, run: 41 } }] },
-    { event: [{ t: 'composer' }, 'uploaded', { name: 'huge.mov', response: { error: 'file too large (max 16 MiB)' } }] },
+    { event: [{ t: 'composer' }, 'uploaded', { name: 'huge.mov', response: { error: 'file too large (max 128 MiB)' } }] },
     { event: [{ t: 'composer' }, 'uploaded', { name: 'b.txt', response: { path: 'b.txt', mime: 'text/plain', bytes: 3, binary: false, run: 41 } }] },
     { snapshot: 'attached' },
     { event: [{ t: 'nav' }, 'pop', { depth: 1 }] },
@@ -311,10 +311,10 @@ test('a new ask with attachments from home: the app uploads into the draft, Send
   assert.equal(up.method, 'PUT');
   const key = /draft=([\w-]+)&/.exec(up.path)[1];
   const chips = (snap) => find(r.snapshots[snap], { t: 'composer' }).p.attachments.map((a) => a.name);
-  assert.deepEqual(chips('attached'), ['shot.png', 'huge.mov — too large (max 16.0 MB)', 'b.txt']);
+  assert.deepEqual(chips('attached'), ['shot.png', 'huge.mov — too large (max 128.0 MB)', 'b.txt']);
   assert.deepEqual(chips('elsewhere'), [], 'what was picked at home stays at home');
   assert.deepEqual(find(r.snapshots.elsewhere, { t: 'composer' }).p.upload, { method: 'PUT', path: '/api/apps/agent/runs/2/upload?name={name}' });
-  assert.deepEqual(chips('back'), ['shot.png', 'huge.mov — too large (max 16.0 MB)', 'b.txt'], '…and is there when you come back');
+  assert.deepEqual(chips('back'), ['shot.png', 'huge.mov — too large (max 128.0 MB)', 'b.txt'], '…and is there when you come back');
   const asks = called(r, 'POST', /\/ask$/);
   assert.equal(asks.length, 1);
   assert.deepEqual(JSON.parse(asks[0].body), { text: 'look at this', class: 'internal', toolset: 'private', draft: key, files: ['shot.png'] }, 'Send sends the draft with the chips still there');

@@ -12,12 +12,24 @@ import (
 	"github.com/dop251/goja/parser"
 )
 
+// testIOs gives each test database one blob-backed file writer, so a replay
+// (a fresh registry over the same database) reads the blobs the original
+// session wrote.
+var testIOs sync.Map // *DB → *Agent
+
+// testIO is the session's replIO: an Agent with just a database and an
+// in-memory blob store.
+func testIO(db *DB) *Agent {
+	ag, _ := testIOs.LoadOrStore(db, &Agent{db: db, blobs: newMemBlobs(), blobCache: newBlobCache(8 << 20)})
+	return ag.(*Agent)
+}
+
 // newTestSession builds a live session against an in-memory DB.
 func newTestSession(t *testing.T, runID int64) (*replSession, *DB) {
 	t.Helper()
 	db := newTestDB(t)
 	reg := newReplRegistry()
-	s := reg.get(runID, db, Config{})
+	s := reg.get(runID, db, testIO(db), Config{})
 	if _, err := s.ensure(); err != nil {
 		t.Fatalf("ensure: %v", err)
 	}
@@ -215,7 +227,7 @@ func TestReplSerializedEvals(t *testing.T) {
 func replay(t *testing.T, db *DB, runID int64) (*replSession, string) {
 	t.Helper()
 	reg := newReplRegistry()
-	s := reg.get(runID, db, Config{})
+	s := reg.get(runID, db, testIO(db), Config{})
 	banner, err := s.ensure()
 	if err != nil {
 		t.Fatalf("rebuild: %v", err)
@@ -321,7 +333,7 @@ func TestReplKilledStatementIsNotReplayed(t *testing.T) {
 		t.Fatal(err)
 	}
 	reg := newReplRegistry()
-	if _, err := reg.get(5, db, Config{}).ensure(); err == nil {
+	if _, err := reg.get(5, db, testIO(db), Config{}).ensure(); err == nil {
 		t.Fatal("a second killed statement should disable the sandbox for this run")
 	}
 }

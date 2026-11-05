@@ -171,6 +171,7 @@ type StatusSandbox struct {
 	State   string `json:"state"`
 	Workdir string `json:"workdir"`
 	Shared  bool   `json:"shared"`
+	Gone    bool   `json:"gone,omitempty"` // its manager has no such sandbox: POST /projects/{pid}/sandbox/recreate
 }
 
 type StatusRepo struct {
@@ -267,7 +268,10 @@ const (
 	colWorking  = "working"
 	colNeedsYou = "needs-you"
 	colPR       = "pr"
-	colDone     = "done"
+	// countReady counts, beside the columns, the PR column's tasks whose CI
+	// passed (ProjectView.Counts): they wait for a person too
+	countReady = "ready"
+	colDone    = "done"
 )
 
 // Who asked for a task's current turn (project_tasks.turn_by), and where a
@@ -438,6 +442,7 @@ const (
 	taskCI             = "ci"
 	taskCIFailed       = "ci-failed"
 	taskAwaitingReview = "awaiting-review"
+	taskCIPassed       = "ci-passed" // its PR's CI passed: it waits for a person to review and merge (Needs you: review)
 	taskMerged         = "merged"
 	taskClosed         = "closed"
 	taskDone           = "done"
@@ -645,6 +650,11 @@ type ProjectPolicy struct {
 	BigTasks      PolicyBig     `json:"bigTasks"`
 	Cleanup       PolicyCleanup `json:"cleanup"`
 	Coordinator   PolicyCoord   `json:"coordinator"`
+
+	// TaskPermissions is what a permission request a task's coding agent
+	// still makes does: ask (it parks — action required) | allow (allow
+	// without asking: full access, allowed at once) (harness_unattended.go)
+	TaskPermissions string `json:"taskPermissions"`
 }
 
 // PolicyPorts: task n listens on base + ((n-1) mod slots) × span, span ports.
@@ -691,7 +701,7 @@ type PolicyCoord struct {
 // API.md §Projects).
 func defaultProjectPolicy() ProjectPolicy {
 	return ProjectPolicy{
-		TaskClass: "coding", Engine: "auto", MaxTasks: 3, MaxOpenTasks: 20, MaxCreatesDay: 50,
+		TaskClass: "coding", Engine: "auto", TaskPermissions: taskPermAsk, MaxTasks: 3, MaxOpenTasks: 20, MaxCreatesDay: 50,
 		AutoPR: "off", Checkout: coWorktree, SetupTimeout: 600, SetupBlocking: true,
 		Ports: PolicyPorts{Base: 20000, Span: 10, Slots: 100}, FetchEveryMin: 10, Protection: "warn",
 		CI:          PolicyCI{AutoFix: true, MaxPerDay: 5, DelaySec: 60, LogBytes: 8192},

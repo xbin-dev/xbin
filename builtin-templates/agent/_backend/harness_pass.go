@@ -627,8 +627,8 @@ func harnessClass(ctx context.Context, c who, req *harnessReq, class, system, mo
 		}
 	} else {
 		req.Mode = prov.ApproveMode
-		if c.kind == whoUser && agent.db.harnessMode(c.user, prov.ID) == hmAuto && prov.AutoMode != "" {
-			req.Mode = prov.AutoMode
+		if c.kind == whoUser && agent.db.harnessMode(c.user, prov.ID) == hmAuto && autoModeOf(prov) != "" {
+			req.Mode = autoModeOf(prov)
 		}
 	}
 	var catalogOpts []acp.ConfigOption

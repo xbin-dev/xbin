@@ -483,7 +483,53 @@ func modelFor(ctx context.Context, cfg Config, tier string) string {
 	if m := preferredModel(ctx, use); m != "" {
 		return m
 	}
+	// No preferred model for this use-type: fall back to ANY model a bound
+	// provider serves before the hardcoded last resort, which 404s on a
+	// gateway that doesn't carry it.
+	if cfg.Model == "" {
+		if m := fallbackModel(modelCatalog(ctx).Models, tier); m != "" {
+			return m
+		}
+	}
 	return firstNonEmpty(cfg.Model, "gpt-4o-mini")
+}
+
+// notChat are names of models a conversation can't use: embeddings, images,
+// audio, moderation, reranking, and the legacy completions-only models an
+// OpenAI-style list sorts first (babbage-002, davinci-002).
+var notChat = []string{"embed", "dall-e", "image", "whisper", "tts", "audio", "speech", "transcribe", "realtime",
+	"moderation", "rerank", "babbage", "davinci", "sora", "veo", "imagen"}
+
+// fallbackModel is the first model of models a conversation can use — for
+// the vlm tier one that sees images if any does — else the first of all
+// ("" for none). The catalog is sorted by id, so without the filter an
+// OpenAI gateway would hand a run babbage-002 or an embedding model.
+func fallbackModel(models []catalogModel, tier string) string {
+	chat := func(id string) bool {
+		id = strings.ToLower(id)
+		for _, s := range notChat {
+			if strings.Contains(id, s) {
+				return false
+			}
+		}
+		return true
+	}
+	var first string
+	for _, m := range models {
+		if !chat(m.ID) {
+			continue
+		}
+		if tier != "vlm" || modelHasVision(m.ID) {
+			return m.Ref
+		}
+		if first == "" {
+			first = m.Ref
+		}
+	}
+	if first == "" && len(models) > 0 {
+		first = models[0].Ref
+	}
+	return first
 }
 
 // --- the LLM call -------------------------------------------------------

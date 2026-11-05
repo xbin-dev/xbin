@@ -117,6 +117,11 @@ type hsess struct {
 	// answer) (harness_partition.go).
 	rest    atomic.Bool
 	signing atomic.Bool
+
+	// task: a project task's — it starts in a mode of its own; allowAll:
+	// and its project allows without asking — its permission requests
+	// allowed at once (harness_unattended.go). Read at each (re)start.
+	task, allowAll bool
 }
 
 // newHsess is a session of run at generation gen, started (or attached)
@@ -127,6 +132,7 @@ func newHsess(e *Engine, run *Run, gen int, epoch int64, prov acp.Provider) *hse
 		act: hActivity{Kind: "idle", At: nowMs()}, abandoned: map[string]string{}, checked: time.Now(), fresh: true,
 		reuse: e.db.harnessReuse(run.ID, gen)}
 	s.setSecret("")
+	s.task, s.allowAll = e.db.taskPermissionsOf(run) // harness_unattended.go
 	return s
 }
 
@@ -631,7 +637,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 			opts[k] = v
 		}
 	}
-	acfg := acp.Config{Provider: prov, Mode: h.Mode, Options: opts, SkipModeOptions: true, ResumeID: resume, Cwd: cwd,
+	acfg := acp.Config{Provider: prov, Mode: s.startMode(h.Mode), Options: opts, SkipModeOptions: true, ResumeID: resume, Cwd: cwd,
 		Argv: prov.Argv, Perms: s.perms, Log: s.log, Spawn: func(context.Context, acp.Config) (*acp.Process, error) { return s.process(), nil }}
 	err = s.c.Start(ctx, acfg)
 	handed := false
@@ -896,7 +902,7 @@ func (e *Engine) attachHarness(ctx context.Context, run *Run, cfg Config, hs *ha
 	s.c = acp.NewWith(acp.ClientOptions{Caps: harnessCaps(), AwaitLogin: true, Attach: &st, AuthHint: s.authHint,
 		IDPrefix: fmt.Sprintf("h%d.%de%da%d", run.ID, hs.Gen, epoch, seq)})
 	go s.consume()
-	acfg := acp.Config{Provider: prov, Mode: cfg.Harness.Mode, Cwd: hs.Cwd, Argv: prov.Argv, Perms: s.perms, Log: s.log,
+	acfg := acp.Config{Provider: prov, Mode: s.startMode(cfg.Harness.Mode), Cwd: hs.Cwd, Argv: prov.Argv, Perms: s.perms, Log: s.log,
 		Spawn: func(context.Context, acp.Config) (*acp.Process, error) { return s.process(), nil }}
 	if err := s.c.Start(ctx, acfg); err != nil {
 		s.stop()

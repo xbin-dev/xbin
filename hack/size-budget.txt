@@ -1,10 +1,11 @@
 # hack/size-budget.txt — the size ratchet (internal/sizebudget).
 #
-# <path> <max-lines>. A listed file may not GROW past its budget; an unlisted
-# Go file may not exceed 800 lines, an unlisted JS/HTML file 900. When a
+# <path> <max-lines> [ceiling]. A listed file may not GROW past its budget;
+# an unlisted Go or JS/HTML file may not exceed 1000 lines (D219). When a
 # listed file shrinks below 90 % of its budget the test asks you to lower the
-# number here — the file is a ratchet, not a monument. Seeded 2026-09-09 from
-# the sizes at the time; every number only ever goes down.
+# number here — the file is a ratchet, not a monument. A budget marked
+# `ceiling` is room a core file may grow into: it is never asked to come down
+# (D219). Seeded 2026-09-09 from the sizes at the time.
 #
 # Go (non-test)
 internal/users/orgs.go 1600
@@ -23,9 +24,8 @@ workspace-template/tiles/admin/admin.js 318
 # the agent template's control tile entry: instances fork it and merge template updates by
 # git (D50), so the file keeps its name; the chat lives in sibling modules (chat-*.js), as do
 # the panes and tabs that outgrew it (workflow.js, settings-files.js, …), the state and
-# behaviour in model/ (shared with the native view). 949, not 5 % over its 854 lines: the
-# most the ratchet allows, kept for the harness seams (plans/agtt-harness.md §8 U0/U1)
-builtin-templates/agent/agent.js 949
+# behaviour in model/ (shared with the native view). Core: room to 1500 (D219)
+builtin-templates/agent/agent.js 1500 ceiling
 workspace-template/shell/bx-shell.js 1892
 workspace-template/apps/welcome/notes.js 1050
 # the harness passes: one function per feature; split into passes/*.js past this

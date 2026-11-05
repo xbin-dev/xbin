@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // partAgent is a test agent installed as the package's agent, with the
@@ -69,7 +70,18 @@ func stubGlobalCalls(t *testing.T, reply func(method, path string, body []byte) 
 		}
 		return gwResp{Status: st, Type: "application/json", Body: []byte(b)}, nil
 	}
-	t.Cleanup(func() { callGlobal = old })
+	// the global MCP servers' list is a minute's process-wide cache
+	// (mcp_direct.go): fresh and empty here, so no run's tools poll the stub
+	// for it — whether one would depended on the tests run before
+	globalDirectMu.Lock()
+	globalDirectAt, globalDirectList = time.Now(), nil
+	globalDirectMu.Unlock()
+	t.Cleanup(func() {
+		callGlobal = old
+		globalDirectMu.Lock()
+		globalDirectAt, globalDirectList = time.Time{}, nil
+		globalDirectMu.Unlock()
+	})
 	return s
 }
 

@@ -508,7 +508,9 @@ func needsItems(c who, scope string, scopeArgs ...any) ([]map[string]any, error)
 	states := agent.db.userStates(c.user, ids)
 	trees := agent.db.treeWaits(ids)
 	items := []map[string]any{}
+	listed := map[int64]bool{} // in for a reason of its own: not again as a review (ciPassedNeeds)
 	for _, x := range runs {
+		before := len(items)
 		it := withTreeWait(agent.convItem(x, c, states[x.ID]), trees[x.ID])
 		lv := lvNone
 		if a, err := agent.aclOf(x.ID); err == nil {
@@ -527,6 +529,9 @@ func needsItems(c who, scope string, scopeArgs ...any) ([]map[string]any, error)
 			switch ps.Kind {
 			case "approval":
 				reason = "approval"
+				if agent.db.isProjectTask(x) { // no one watches a task's turn: it stopped on this (harness_unattended.go)
+					reason = needAction
+				}
 			case "login": // a coding agent waits for a sign-in (D147 §4.3.9)
 				reason = "login"
 			case pendKindProject: // a task's workspace needs a person: a sign-in, a failure (project_gate.go)
@@ -545,9 +550,57 @@ func needsItems(c who, scope string, scopeArgs ...any) ([]map[string]any, error)
 		case !waiting && lv >= lvOwner && it["unread"] == true:
 			items = append(items, withNeedsProject(agent.db, map[string]any{"run": it, "reason": "failed", "subRun": 0}, x))
 		}
+		listed[x.ID] = len(items) > before
 	}
-	return items, nil
+	return append(items, ciPassedNeeds(c, where, args, listed)...), nil
 }
+
+// ciPassedNeeds is Needs you's project tasks whose pull request passed CI
+// (taskCIPassed): a person reviews and merges it — reason "review", for
+// those who may act in the task (a participant), each once (listed: those
+// already in for another reason).
+func ciPassedNeeds(c who, where string, args []any, listed map[int64]bool) []map[string]any {
+	if !agent.db.features {
+		return nil
+	}
+	runs, err := agent.db.queryRuns(`r WHERE r.parent_id=0 AND `+where+` AND r.origin=?
+		AND r.id IN (SELECT run_id FROM project_tasks WHERE phase=? AND run_id<>0)
+		ORDER BY r.activity_ms DESC LIMIT 50`, append(append([]any{}, args...), originProject, phasePR)...)
+	if err != nil {
+		return nil
+	}
+	var ids []int64
+	for _, x := range runs {
+		ids = append(ids, x.ID)
+	}
+	states := agent.db.userStates(c.user, ids)
+	var out []map[string]any
+	for _, x := range runs {
+		if listed[x.ID] {
+			continue
+		}
+		k := agent.db.taskByRun(x.ID)
+		if k == nil {
+			continue
+		}
+		if _, state, _ := taskDerived(k, x.Status, taskCISummary(k.RunID), false); state != taskCIPassed {
+			continue
+		}
+		if a, err := agent.aclOf(x.ID); err != nil || a.level(c) < lvParticipant {
+			continue
+		}
+		out = append(out, withNeedsProject(agent.db, map[string]any{"run": agent.convItem(x, c, states[x.ID]), "reason": needReview, "subRun": 0}, x))
+	}
+	return out
+}
+
+// needReview: a task's pull request passed CI (ciPassedNeeds).
+const needReview = "review"
+
+// needAction: a project task's turn parked on an approval — its coding
+// agent asked for a permission its mode doesn't give, and nothing goes on
+// until a person answers (harness_unattended.go).
+const needAction = "action"
 
 // treeWait is §4.3.8 for one conversation: whether it or a run below it
 // waits for a person, and — below the root — its live coding agents and

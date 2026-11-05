@@ -353,7 +353,7 @@ func (d *DB) harnessModes(user string) map[string]string {
 func (d *DB) harnessMode(user, provider string) string {
 	var m string
 	if d.q.QueryRow(`SELECT mode FROM harness_prefs WHERE user=? AND provider=?`, user, provider).Scan(&m) != nil || m == "" {
-		return hmApprove
+		return hmAuto // unless they chose approve (harness_unattended.go)
 	}
 	return m
 }

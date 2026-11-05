@@ -409,7 +409,7 @@ func TestD136ToolDescriptionFirstSentences(t *testing.T) {
 	want := map[string]string{
 		"browser_check": "Load a page in a real headless Chromium inside your sandbox and report what happened: " +
 			"console, errors, failed requests, an accessibility snapshot, screenshots.",
-		"sandbox_download": "Copy a file from the coding sandbox into the session files (up to 16 MB), to keep it with the conversation or hand it to people.",
+		"sandbox_download": "Copy a file from the coding sandbox into the session files (up to 128 MB), to keep it with the conversation or hand it to people.",
 		"file_read":        "Read a session file, or — given a sandbox path (/…, ./…) — a file in the coding sandbox, as its read does.",
 		"file_info": "Describe one file — a session file (its sha256, source, the version it replaced, earlier versions kept, " +
 			"whether its sandbox copy changed since) or a sandbox file (size, mode, etag, sha256, its session copies).",

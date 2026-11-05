@@ -343,7 +343,12 @@ func scmDue(t *DB, p *Project, k *ProjectTask) bool {
 	soon := nowMs() + scmMinLeft.Milliseconds()
 	as := scmProjectAs(p)
 	for _, c := range rows {
-		if (p.Host == "" || c.Host == p.Host) && c.State == credLive && c.Identity == as && c.Refresh > soon && c.Expires > soon {
+		// as ensureCreds judges it: an expiry within the margin, or a refresh
+		// instant already passed (0: due at once, scmCredUnemptied). A refresh
+		// instant merely inside the margin is not — a provider's (scm-github:
+		// 10 min before an expiry it guarantees only 15 min ahead) would be due
+		// to the gate and fresh to the renewal, and the turn parked for good.
+		if (p.Host == "" || c.Host == p.Host) && c.State == credLive && c.Identity == as && c.Expires > soon && c.Refresh > nowMs() {
 			return false
 		}
 	}

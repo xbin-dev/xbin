@@ -5,7 +5,7 @@
 import { html, nothing } from '/vendor/lit-all.min.js';
 import { needWords } from './model/home.js';
 
-const NEED_ICON = { failed: 'warning', login: 'key', unfinished: 'pause' }; // the judge's mark (D198)
+const NEED_ICON = { failed: 'warning', login: 'key', unfinished: 'pause', action: 'shield' }; // the judge's mark (D198); action: a task's approval
 
 /**
  * @param HOME   the words (model/home.js)

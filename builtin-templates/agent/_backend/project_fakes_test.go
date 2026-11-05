@@ -243,8 +243,15 @@ type projFix struct {
 
 func newProjFix(t *testing.T) *projFix {
 	t.Helper()
+	return newProjFixWith(t, nil)
+}
+
+// newProjFixWith is newProjFix with the manager's handler wrapped (a
+// fault the reference manager can't inject).
+func newProjFixWith(t *testing.T, wrap func(http.Handler) http.Handler) *projFix {
+	t.Helper()
 	ag, mux := accessFixture(t)
-	m := bindSbx(t, "apps/cs")["apps/cs"]
+	m := bindSbxWith(t, wrap, "apps/cs")["apps/cs"]
 	box := mkSandbox(t, "apps/cs", "alice", sbxCreate{Egress: "internet"})
 	f := newP1SCM(t)
 	url, dir := bareOrigin(t)

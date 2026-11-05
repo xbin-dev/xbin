@@ -4,14 +4,18 @@
 //
 // Sandbox stance: goja.New() has NO host surface at all — no require, process,
 // fetch, setTimeout, console, Buffer or WebAssembly (asserted by a test). We
-// add exactly three things: console.*, files.* (this run's sqlite rows), and
-// load(). We never add a network or xbin bridge: that would hand a private-lane
-// run an egress channel and silently defeat the toolset firewall in tools.go.
+// add console.*, files.* (this run's session files: sqlite rows, and the blob
+// objects of large or binary ones), load(), and pure byte helpers that touch
+// nothing but their arguments — atob/btoa, base64, TextEncoder/TextDecoder,
+// zip/gzip/tar (repl_bytes.go, repl_archive.go). We never add a network or
+// xbin bridge: that would hand a private-lane run an egress channel and
+// silently defeat the toolset firewall in tools.go.
 package main
 
 import (
 	"context"
 	_ "embed"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"math/rand"
@@ -19,6 +23,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/dop251/goja"
 	"github.com/dop251/goja/parser"
@@ -119,7 +124,14 @@ type replSession struct {
 	lastUse time.Time
 	idle    *time.Timer // drops the session after replIdleTTL unused
 
-	db         *DB
+	db *DB
+	// io reaches the bytes of blob-backed files and writes files too large
+	// (or too binary) for a text row — the Agent in production. ctx bounds
+	// that I/O to the running statement's budget: a native call is not
+	// interruptible, so the I/O has to give up on its own.
+	io         replIO
+	ctx        context.Context
+	u8         *goja.Object // the VM's own Uint8Array, before model code can replace it
 	timeout    time.Duration
 	memCap     uint64
 	rejections []string
@@ -133,7 +145,7 @@ type replRegistry struct {
 
 func newReplRegistry() *replRegistry { return &replRegistry{byID: map[int64]*replSession{}} }
 
-func (r *replRegistry) get(runID int64, db *DB, cfg Config) *replSession {
+func (r *replRegistry) get(runID int64, db *DB, io replIO, cfg Config) *replSession {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if s, ok := r.byID[runID]; ok {
@@ -154,7 +166,7 @@ func (r *replRegistry) get(runID int64, db *DB, cfg Config) *replSession {
 		delete(r.byID, oldestID)
 	}
 	s := &replSession{
-		runID: runID, gate: make(chan struct{}, 1), db: db,
+		runID: runID, gate: make(chan struct{}, 1), db: db, io: io,
 		loaded: map[string]bool{}, lastUse: time.Now(),
 		timeout: cfg.replTimeout(), memCap: uint64(cfg.replMemMB()) << 20,
 	}
@@ -259,7 +271,9 @@ func (s *replSession) newVM() (*goja.Runtime, error) {
 
 	files := vm.NewObject()
 	_ = files.Set("read", s.jsFileRead)
+	_ = files.Set("readBytes", s.jsFileReadBytes)
 	_ = files.Set("write", s.jsFileWrite)
+	_ = files.Set("writeBytes", s.jsFileWrite)
 	_ = files.Set("list", s.jsFileList)
 	_ = files.Set("exists", s.jsFileExists)
 	_ = files.Set("remove", s.jsFileRemove)
@@ -267,6 +281,17 @@ func (s *replSession) newVM() (*goja.Runtime, error) {
 		return nil, err
 	}
 	if err := vm.Set("load", s.jsLoad); err != nil {
+		return nil, err
+	}
+	u8, ok := vm.Get("Uint8Array").(*goja.Object)
+	if !ok {
+		return nil, fmt.Errorf("the VM has no Uint8Array")
+	}
+	s.u8 = u8
+	if err := s.installBytes(vm); err != nil {
+		return nil, err
+	}
+	if err := s.installArchive(vm); err != nil {
 		return nil, err
 	}
 
@@ -314,33 +339,110 @@ func (s *replSession) argPath(call goja.FunctionCall, i int) string {
 	return p
 }
 
+// jsFileRead is files.read(path[, encoding]): the file as a string. A large
+// text file lives in the blob store and reads the same; a binary one throws,
+// pointing at files.readBytes — or, with encoding 'base64', comes back as
+// base64 text.
 func (s *replSession) jsFileRead(call goja.FunctionCall) goja.Value {
 	f, err := s.db.replFile(s.runID, s.argPath(call, 0))
 	if err != nil {
 		s.throw(fmt.Errorf("files.read: %w", err))
 	}
-	if f.Binary {
-		// The VM has no byte type, atob or Buffer, and its string conversion
-		// would silently produce garbage — so say so rather than guess.
-		s.throw(fmt.Errorf("files.read: %s is a binary file (%s); the sandbox reads text only", f.Path, f.Mime))
+	enc := readEncoding(call.Argument(1))
+	if !f.Binary && enc != "base64" {
+		return s.vm.ToValue(f.Content)
 	}
-	return s.vm.ToValue(f.Content)
+	data, err := s.fileBytes(f)
+	if err != nil {
+		s.throw(fmt.Errorf("files.read: %w", err))
+	}
+	switch enc {
+	case "base64":
+		return s.vm.ToValue(base64.StdEncoding.EncodeToString(data))
+	case "", "utf8", "utf-8":
+	default:
+		s.throw(fmt.Errorf("files.read: unknown encoding %q (utf8 or base64; files.readBytes for bytes)", enc))
+	}
+	if !isTextMime(f.Mime) || !utf8.Valid(data) {
+		// A string conversion would silently produce garbage, so say so.
+		s.throw(fmt.Errorf("files.read: %s is a binary file (%s, %s) — files.readBytes(path) returns its bytes "+
+			"as a Uint8Array; zip.*, tar.* and gzip.* open archives", f.Path, f.Mime, humanBytes(f.Bytes)))
+	}
+	return s.vm.ToValue(string(data))
 }
 
+// readEncoding takes files.read's second argument: 'base64', or {encoding}.
+func readEncoding(v goja.Value) string {
+	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
+		return ""
+	}
+	if o, ok := v.(*goja.Object); ok {
+		if e := o.Get("encoding"); e != nil && !goja.IsUndefined(e) {
+			return strings.ToLower(e.String())
+		}
+		return ""
+	}
+	return strings.ToLower(v.String())
+}
+
+// jsFileReadBytes is files.readBytes(path): any file's bytes, as a Uint8Array.
+func (s *replSession) jsFileReadBytes(call goja.FunctionCall) goja.Value {
+	f, err := s.db.replFile(s.runID, s.argPath(call, 0))
+	if err != nil {
+		s.throw(fmt.Errorf("files.readBytes: %w", err))
+	}
+	data, err := s.fileBytes(f)
+	if err != nil {
+		s.throw(fmt.Errorf("files.readBytes: %w", err))
+	}
+	return s.bytesVal(data)
+}
+
+// jsFileWrite is files.write(path, content[, mime]) and files.writeBytes: a
+// string or a Uint8Array/ArrayBuffer. Text that fits a text row is written as
+// one, as always; anything larger, or bytes, goes to the blob store as the
+// file's next version (putFileData).
 func (s *replSession) jsFileWrite(call goja.FunctionCall) goja.Value {
 	path := s.argPath(call, 0)
 	body := call.Argument(1)
 	if goja.IsUndefined(body) || goja.IsNull(body) {
 		s.throw(fmt.Errorf("files.write: content is required"))
 	}
-	f, err := s.db.replPutFile(s.runID, path, body.String(), 0)
-	if err != nil {
-		s.throw(fmt.Errorf("files.write: %w", err))
+	declared := ""
+	if m := call.Argument(2); !goja.IsUndefined(m) && !goja.IsNull(m) {
+		declared = m.String()
 	}
+	var f *ReplFile
+	data, isBytes := s.asBytes(body)
+	if !isBytes {
+		content := body.String()
+		cur, curErr := s.db.replFile(s.runID, path)
+		if len(content) <= maxReplFileBytes && declared == "" && (curErr != nil || !cur.Binary) {
+			var err error
+			if f, err = s.db.replPutFile(s.runID, path, content, 0); err != nil {
+				s.throw(fmt.Errorf("files.write: %w", err))
+			}
+			return s.writeResult(f)
+		}
+		data = []byte(content)
+		if declared == "" {
+			declared = textMimeFor(path)
+		}
+	} else if declared == "" {
+		declared = mimeFor(path)
+	}
+	f = s.putData("files.write", path, data, declared)
+	return s.writeResult(f)
+}
+
+func (s *replSession) writeResult(f *ReplFile) goja.Value {
 	o := s.vm.NewObject()
 	_ = o.Set("path", f.Path)
 	_ = o.Set("bytes", f.Bytes)
 	_ = o.Set("version", f.Version)
+	if f.Binary {
+		_ = o.Set("mime", f.Mime)
+	}
 	return o
 }
 
@@ -356,7 +458,10 @@ func (s *replSession) jsFileList(goja.FunctionCall) goja.Value {
 			e["mime"] = f.Mime
 		}
 		if f.Binary {
-			e["binary"] = true // files.read will refuse it
+			// held as a blob: files.readBytes always works; files.read too
+			// when it is text (large text is stored this way)
+			e["binary"] = !isTextMime(f.Mime)
+			e["large"] = true
 		}
 		out = append(out, e)
 	}
@@ -370,13 +475,18 @@ func (s *replSession) jsFileExists(call goja.FunctionCall) goja.Value {
 
 func (s *replSession) jsFileRemove(call goja.FunctionCall) goja.Value {
 	path := s.argPath(call, 0)
-	if f, ferr := s.db.replFile(s.runID, path); ferr == nil && f.Binary {
-		// Attachments are the owner's uploads; the sandbox can read their
-		// metadata but not delete them (and has no way to drop the blob).
+	if f, ferr := s.db.replFile(s.runID, path); ferr == nil && f.Binary && (f.Source == nil || f.Source.Kind != "tool") {
+		// Attachments are the owner's uploads (and copies from a sandbox or a
+		// browser); the sandbox can read them but not delete them. What a tool
+		// wrote — files.write's large files, zip.extract's — it may.
 		s.throw(fmt.Errorf("files.remove: %s is an attachment (%s) and can only be deleted from the Files tab", path, f.Mime))
 	}
-	if _, err := s.db.replDeleteFile(s.runID, path); err != nil {
+	blobs, err := s.db.replDeleteFileBlobs(s.runID, path)
+	if err != nil {
 		s.throw(fmt.Errorf("files.remove: %w", err))
+	}
+	if s.io != nil {
+		s.io.dropBlobs(nonEmpty(blobs))
 	}
 	delete(s.loaded, path)
 	return goja.Undefined()
@@ -430,6 +540,9 @@ func (s *replSession) exec(ctx context.Context, name, code string, budget time.D
 	s.out = &replOutput{}
 	s.rejections = nil
 	start := time.Now()
+	ioCtx, cancelIO := context.WithTimeout(ctx, budget)
+	defer cancelIO()
+	s.ctx = ioCtx
 
 	type outcome struct {
 		v   goja.Value

@@ -167,7 +167,7 @@ func TestProjectPolicyDefaults(t *testing.T) {
 		`"ports":{"base":20000,"span":10,"slots":100}`, `"fetchEveryMin":10`, `"protection":"warn"`, `"workflows":false`,
 		`"ci":{"autoFix":true,"maxPerDay":5,"delaySec":60,"logBytes":8192}`, `"reviews":{"forward":"trusted","batchSec":120}`,
 		`"bigTasks":{"mode":"fork","keepFork":false}`, `"cleanup":{"onMerge":true,"onClose":true}`, `"coordinator":{"web":false}`,
-		`"membersAsBot":false`} {
+		`"membersAsBot":false`, `"taskPermissions":"ask"`} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("policy JSON lacks %s: %s", want, b)
 		}

@@ -231,8 +231,8 @@ func TestHarnessStore(t *testing.T) {
 		t.Fatal("a deleted run's session stays")
 	}
 
-	if db.harnessMode("alice", "codex") != hmApprove || len(db.harnessModes("alice")) != 0 {
-		t.Fatal("unset is approve, and not listed")
+	if db.harnessMode("alice", "codex") != hmAuto || len(db.harnessModes("alice")) != 0 {
+		t.Fatal("unset is auto, and not listed")
 	}
 	_ = db.setHarnessMode("alice", "codex", hmAuto)
 	_ = db.setHarnessMode("alice", "codex", hmApprove)

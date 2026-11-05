@@ -195,7 +195,7 @@ func teamSanitize(in BoardRow, host string) (BoardRow, error) {
 	}
 	out := BoardRow{Title: boardText(in.Title), Column: boardWord(in.Column, colQueued, colWorking, colNeedsYou, colPR, colDone),
 		State: boardWord(in.State, taskQueued, taskPreparing, taskSignin, taskWorking, taskNeedsYou, taskCI, taskCIFailed,
-			taskAwaitingReview, taskMerged, taskClosed, taskDone, taskFailed, taskCancelled, taskBlocked, taskDeleted),
+			taskAwaitingReview, taskCIPassed, taskMerged, taskClosed, taskDone, taskFailed, taskCancelled, taskBlocked, taskDeleted),
 		Waiting: boardText(in.Waiting), Branch: boardText(in.Branch), Run: in.Run, PRs: []TaskPR{},
 		UpdatedMs: min(max(in.UpdatedMs, 0), nowMs())}
 	if deleted {

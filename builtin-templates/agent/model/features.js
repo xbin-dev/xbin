@@ -108,7 +108,7 @@ export const FEATURES = {
   'composer.attach': 'attach files (a picker)',
   'composer.attach.paste': 'paste an image to attach it',
   'composer.attach.drop': 'drop files on the chat to attach them',
-  'composer.attach.limit': 'the 16 MiB per-file cap, marked on the chip',
+  'composer.attach.limit': 'the 128 MiB per-file cap, marked on the chip',
   'composer.attach.camera': 'attach a photo from the camera or the photo library',
   'composer.dictation': 'dictate a message',
   'composer.uploadChips': 'attachment chips: size, uploading, failed, remove',

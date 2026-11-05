@@ -55,7 +55,7 @@ a subagent is exactly as visible as the conversation it works for.
 | `GET /conversations?q=` | — | search titles and everything said, in every conversation you may see (archived and automation runs included), up to 50; content hits carry `match {msgId, snippet}` |
 | `PATCH /runs/{id}` | `{title?, pinned?, archived?, visibility?, teamRole?, model?}` | pin and archive are yours (any viewer); title and visibility are the owner's. Making an unowned run private claims it. `model` switches the conversation's model from its next turn (anyone who may talk in it; `""` = the agent's default) |
 | `POST /runs/{id}/read` | — | mark it read up to now |
-| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval — or a coding agent waits for you to sign in (`login`, D147 §4.3.9) — conversations you may talk to whose coding agent's or project's last turn stopped part-way (`unfinished`, D198, §Not finished), and automations you own whose last run failed and you haven't looked at → `{items:[{run, reason: question\|approval\|login\|unfinished\|failed, subRun, harness?}]}`; `harness` is the waiting run's compact summary when a coding agent waits (as `/tree` nodes carry it) |
+| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval — or a coding agent waits for you to sign in (`login`, D147 §4.3.9) — conversations you may talk to whose coding agent's or project's last turn stopped part-way (`unfinished`, D198, §Not finished), automations you own whose last run failed and you haven't looked at, and project tasks you may act in whose pull request passed CI — open, its checks `success`: it waits for you to review and merge it (`review`, §Projects and tasks); a project task's approval is `action` — action required: its turn waits on it, and no one else watches a task (§Coding agents) → `{items:[{run, reason: question\|approval\|action\|login\|unfinished\|failed\|review, subRun, harness?, project?}]}`; `harness` is the waiting run's compact summary when a coding agent waits (as `/tree` nodes carry it) |
 | `POST /runs/{id}/unfinished/dismiss` | — | take the conversation's "not finished" mark down — for everyone, as an answered question is (anyone who may talk to it; D198) → `{ok}` |
 
 Items are run summaries plus `access`, `mine`, `members`, `pinnedAt`,
@@ -717,7 +717,7 @@ background tab doesn't keep a partition running.
 | `GET /runs/{id}/file?path=` | — | one file with its content — a binary-stored text file up to 2 MiB too (a report over the text cap that `render_html` shows), still `binary: true` |
 | `PUT /runs/{id}/file` | `{path, content, version?}` | write a file; a non-zero `version` that no longer matches answers **409** |
 | `DELETE /runs/{id}/file?path=` | — | delete a file (and its blob, for an attachment) |
-| `PUT /runs/{id}/upload?name=` | raw bytes, the file's own `Content-Type` | attach a file: `{path, mime, bytes, binary}`. Never overwrites — a taken name gets `-2`, `-3`…. **413** over 16 MiB, **502** when the blob store fails |
+| `PUT /runs/{id}/upload?name=` | raw bytes, the file's own `Content-Type` | attach a file: `{path, mime, bytes, binary}`. Never overwrites — a taken name gets `-2`, `-3`…. **413** over 128 MiB, **502** when the blob store fails |
 | `GET /runs/{id}/raw?path=` | — | a file's bytes with its type and `nosniff` (the tile's preview and download) |
 | `GET /runs/{id}/dl/<path…>` | — | a file as a download (D207): its bytes and type with `Content-Disposition: attachment; filename=<its base name>`, `nosniff`, `Cache-Control: no-store`. Path-shaped, so an xbind path ticket for `runs/{id}/dl` covers every file of the run — the preview's file links (**Session files + render**). **400** a bad key, **404** no such file |
 | `GET /runs/{id}/zip?path=…&path=…&name=` | — | several files as one zip (D207), each under its key, streamed — one file in memory at a time. No `path`: every file of the run. `name` names the archive (`.zip` added; default `run-<id>-files.zip`). Every path is checked before the first byte: **400** a bad one or more than 64, **404** a missing one (or a run with no files); a file that fails to read later aborts the response, never a short archive that looks whole |
@@ -858,8 +858,8 @@ run's session files — the same store the model's `file_*` tools and the REPL
 use. **Text** (`text/*`, JSON, XML, CSV, SVG… that is valid UTF-8 and within 64
 KiB) is stored as an ordinary text file. **Everything else is binary**: its
 bytes go to the scope's `files` **blob** resource at a random, never-reused
-path, and sqlite keeps only the metadata. Binary caps: 16 MiB per file, 64 MiB
-per run. Deleting a file or a run deletes its objects, after the rows (a failed
+path, and sqlite keeps only the metadata. Binary caps: 128 MiB per file, 512 MiB
+per run (earlier versions: 10 a file, 128 MiB a run, the oldest dropped first). Deleting a file or a run deletes its objects, after the rows (a failed
 object delete is logged and leaves an orphan object, never a row pointing at
 nothing).
 
@@ -1119,11 +1119,14 @@ is text, and the image is added in one user message placed after that turn's
 GIF and WebP are shown, each ≤ 3 MiB, and only the **4 newest** images in the
 context; older ones become `[image x.png not shown — file_view to see it
 again]`. With `vision` off, nothing is inlined and `file_view` is not offered.
-`file_read` on a binary file returns a pointer to `file_view` — on a
-document (PDF, .docx, .xlsx, .pptx, CSV, with `docs` on) it returns the
-document as `doc_read` reads it, and the attachment note says so; the REPL's
-`files.read` throws, and `files.remove` refuses attachments (delete them from
-the Files tab).
+`file_read` on an image returns a pointer to `file_view`; on a document
+(PDF, .docx, .xlsx, .pptx, CSV, with `docs` on) it returns the document as
+`doc_read` reads it, and the attachment note says so; on other binary it
+returns a pointer to the REPL's byte API. Text over the 64 KiB text cap (held
+as a blob) reads as text, clipped at 64 KiB per call — page it with
+`offset`/`limit`. The REPL's `files.read` throws on binary
+(`files.readBytes` returns it), and `files.remove` refuses attachments
+(delete them from the Files tab) — files a tool wrote may be removed.
 
 Known limitation: whether a model can see is a name heuristic
 (`modelHasVision`), and the `vlm` tier's last fallback is any gateway model,
@@ -1300,7 +1303,7 @@ Where each event goes (`mode`):
 | `GET /usage` | `?days=30` (1–90) | people's daily usage totals (managers; a partitioned agent's global instance, forwarded from a partition): `{days, since, people: [{user, days: [{day, runs, llmCalls, promptTokens, completionTokens, harnessSessions}], total}]}`; 404 unpartitioned |
 | `GET /handoffs/{id}/files/{fid}` | — | a partitioned agent's global instance: a file of a DM handed to the caller (too large for its mail, named in its `fetch`) — the bytes; 404 for anyone but the handoff's person from their own partition, and once it was fetched |
 | `POST /handoffs/{id}/fetched` | — | …the caller's partition has the handoff's files: the global instance deletes what it held → `{deleted}` |
-| `PUT /handoffs/{id}/reply-files` | `?key=<outbox key>-<row>/<file>&name=&mime=`, body: the bytes (≤ 16 MiB) | …stages a file of the caller's reply too large for its mail (named then in `outbox/add`'s `staged`) → `{id}`; the same key stages once. The same callers. 400 for another key; 410 for a DM older than 30 days; 413 past 10 files staged for the chat; 507 past 32 files or 64 MiB the person staged and hasn't sent (later) |
+| `PUT /handoffs/{id}/reply-files` | `?key=<outbox key>-<row>/<file>&name=&mime=`, body: the bytes (≤ 128 MiB) | …stages a file of the caller's reply too large for its mail (named then in `outbox/add`'s `staged`) → `{id}`; the same key stages once. The same callers. 400 for another key; 410 for a DM older than 30 days; 413 past 10 files staged for the chat; 507 past 32 files or 64 MiB the person staged and hasn't sent (later) |
 | `GET /moves/{id}` | — | a partitioned agent's global instance: where a conversation of the caller's that stopped being shared went → `{run, state: "asked" \| "leaving" \| "moved", to}` (30 days); 404 for anyone else (Partitioned instances → Shared conversations) |
 | `GET /moves/{id}/export`, `POST /moves/{id}/done {to, ticket}`, `POST /moves/{id}/abandon {why}` | | …its owner's partition — only it: 403 to their page or terminals — drives the move: reads it (`{…the bundle, ticket, memory, schedules, pinnedAt, archivedAt, behind}`; 409 while anything in it is under way), says it has it (with that export's ticket: it is deleted here; idempotent; 412 when it changed or works again since — read it again; 409 when the move was given up or the conversation left another way), or gives it up (it stays here). Anyone else's partition: 404, and done `{state: "gone"}` whatever the id |
 
@@ -1552,6 +1555,91 @@ concurrently, 5 s at most each. A run is marked `running` before any of this;
 a class without `internal` skips discovery entirely, and one naming servers
 wakes only those.
 
+### Direct MCP servers
+
+Besides the servers bound to the `mcp` slot and the config's static ones,
+people connect **streamable-HTTP MCP servers by URL** in Settings → MCP
+("Connected by URL", web and native — also for someone who isn't a manager:
+their ⚙ panel has the MCP tab alone, and the native home an **MCP servers**
+button). Each is either a person's own (**personal**: offered only in
+conversations that person owns; its tools are `mcp:my-<name>:<tool>`) or —
+added by a manager — **global** (everyone's conversations; `mcp:<name>:<tool>`).
+Either way a class gets its tools only as it gets any MCP server's: with
+`internal`, and its `mcp` list allowing the name. **They reach outside the
+workspace**: what a conversation passes a tool goes to that server, so leave
+them out of a class (`mcp`) that must not send data out.
+
+**Where they live.** A partitioned agent keeps a person's own servers in their
+partition and the global ones in the global instance; an unpartitioned one
+both, a personal one with its owner. Each home keeps its rows (`mcp_servers`)
+and its sign-ins' tokens in its own vault — never in a row, never in `conf`. A
+person's partition lists the global instance's servers (a minute at a time)
+and calls them **through** it (`POST /mcp/servers/{sid}/rpc` there), so a
+global server's tokens never leave the global instance.
+
+**Adding one** probes it with an unauthenticated `initialize`:
+
+- it answers — no sign-in (`auth: "none"`), its tools listed at once;
+- a `token` was given and it answers with `Authorization: Bearer ‹token›` —
+  `auth: "bearer"`, the token kept in the vault;
+- it answers **401** — the MCP authorization spec (2025-06-18): the
+  challenge's `resource_metadata` (else the well-known protected resource
+  metadata), its authorization server's metadata (RFC 8414, else OpenID
+  discovery, else the 2025-03-26 default endpoints), which must offer PKCE
+  S256 if it lists methods — `auth: "oauth"`, `state: "signin"`. Resource
+  metadata that names another resource than the server (another origin, or
+  a path the server's isn't under; RFC 9728) is refused.
+
+**Signing in** (OAuth): the page asks `POST …/signin` with its
+`redirectUri` — this tile's `mcp-callback.html` at the workspace's address. The
+agent registers a public client there once per redirect (dynamic client
+registration, RFC 7591; a server without it can't be signed in to — a new
+registration drops the old client's tokens, `state: "signin"`), keeps a
+PKCE verifier and a single-use `state` (15 minutes, bound to the person who
+started it), and answers the authorization page's URL (`resource` = the
+server, RFC 8707; `scope` = what its metadata lists). The page opens it as a
+real link (native: the app opens it); the authorization server sends the
+person back to `mcp-callback.html`, which posts the code and state to `POST
+/mcp/oauth/callback` — at the global instance when the state says so — and
+drops them from the address bar. The code is exchanged (with the verifier,
+the redirect and the resource; `iss` required, and checked, where the
+authorization server says it sends it, RFC 9207) and the tokens go to the
+vault. An access token within a minute of its
+end, or one the server answers 401 to, is refreshed (once at a time per
+server; a rotated refresh token is kept); a refresh refused as
+`invalid_grant` — a revoked grant — marks the server `signin`, and its
+tools are left out until someone signs in again. A server waiting for a
+sign-in offers no tools.
+
+Addresses have no credentials in them. **Reach** — what a server's requests
+(its MCP calls, and the discovery, registration and token requests whose
+addresses the server's metadata names) may reach:
+
+- **a person's own server**: `https://` only, and only **public** addresses —
+  never loopback, the LAN (RFC 1918, ULA), link-local (a cloud's metadata
+  endpoint), CGNAT or the other non-public ranges (docs/isolation.md, "A
+  class's `internet` is strict"). It is checked on every connection as it is
+  dialled, so a hostname resolving to a private address, a redirect, or a DNS
+  answer that changes after a check reaches nothing inside the network; behind
+  an HTTP proxy the environment names, the host's addresses are checked before
+  the request goes to the proxy. A person can't point the agent at the
+  network it sits in and read what comes back.
+- **a global server** (a manager's): whatever the agent's network reaches — a
+  server on the LAN, or `http://` on this machine's loopback.
+
+The two never share a connection.
+
+| Method and path | Who | Body | Answer |
+|---|---|---|---|
+| `GET /mcp/servers` | anyone | — | `{servers: [{id, name, slug, url, scope, owner?, auth, state, error?, title?, issuer?, scopes?, tools: [names], toolsAt?, canEdit, signedIn, created, updated}], personal, global, canGlobal}` — this home's servers the caller may see (a personal one: its person's); `personal`/`global`: the scopes this home keeps; `canGlobal`: the caller may add a global one here |
+| `POST /mcp/servers` | personal: the person themself; global: a manager | `{url, name?, scope?: "personal" \| "global", token?}` | **201** `{server}`; **400** a bad address, name (`a–z 0–9 -`, a letter first, ≤ 32; a global one not `my-…`) or a refused token; **409** a scope this home doesn't keep (a person's partition: personal; global instance: global) or a name taken; **502** unreachable, not an MCP server, or no usable authorization |
+| `DELETE /mcp/servers/{sid}` | its person; a global one: a manager | — | **204**: its vault entry, pending sign-ins and tool list go too |
+| `POST /mcp/servers/{sid}/signin` | the same, as themself | `{redirectUri}` (…`/mcp-callback.html`) | `{url}`: the authorization page; **409** for a server without OAuth; **502** a registration refused |
+| `POST /mcp/oauth/callback` | the person who started it | `{state, code?, iss?, error?, errorDescription?}` | `{server, home}`; **400** an unknown, used or expired state, a refusal, a wrong `iss`; **403** someone else's sign-in; **502** the code refused |
+| `POST /mcp/servers/{sid}/signout` | its person; a global one: a manager | — | `{server}`: its tokens out of the vault, `state: "signin"` |
+| `POST /mcp/servers/{sid}/refresh` | anyone who sees it | — | `{server}`: its tools listed again now |
+| `POST /mcp/servers/{sid}/rpc` | a person's own partition (its backend, which offers the server only in conversations whose class lists it), at the global instance — **404** to anyone else, a manager's or a person's page included | `{method: "initialize" \| "tools/list" \| "tools/call", params?, session?}` | `{result, session}`; **409** `{error, signin: true}` when it waits for a sign-in |
+
 ### Threads, schedules and grants (D111)
 
 Four tools let a conversation's agent look at its automations and what they
@@ -1652,7 +1740,7 @@ session files with it — under names of their own (as the report's copy is,
 so the href and the session file can differ), a repeated render updating
 the same copies; a session report links session files, and a relative one
 it lacks is looked for in the sandbox's working directory. At most 32
-distinct files per render and 60 s of copying; the usual caps hold (16 MiB
+distinct files per render and 60 s of copying; the usual caps hold (128 MiB
 a file, 64 files a run). The step records them:
 
 ```json
@@ -1977,7 +2065,7 @@ attached ones — built from the binding alone, so it changes on a rebind only
 | `glob` | `{pattern, path?}` | files by name, relative to the working directory, sorted, at most 200: `**` spans directories, a pattern without `/` matches names at any depth, `{a,b}` alternates. The listing is the sandbox's own `rg --files` (which honours `.gitignore`) or `find` (skipping `.git` and `node_modules`) — at most 20 000 files — matched here |
 | `grep` | `{pattern, path?, glob?, ignore_case?}` | `path:line: text` lines, at most 100 (then how many more), text clipped at 300 characters: `rg` where the sandbox has it (its regex syntax), else `grep -rE`; skips `.git` and binary files |
 | `sandbox_upload` | `{file, path?}` | copies a session file (text or attachment) into the sandbox: to `path`, into it when it ends in `/` or is a directory (default: the working directory). Feature `files` |
-| `sandbox_download` | `{path, name?, keep_both?}` | copies a sandbox file (≤ 16 MiB) into the session files — text within the text cap as text, anything else as an attachment — under `name` or its own, **in place** (D136): an existing session file of that name becomes the next version, the replaced one kept (`file_diff`), text or binary either way. A file that hasn't changed writes nothing — `unchanged: … (sha …, v2)` — known by the etag the copy recorded (no read) or else by its sha256. `keep_both: true` is the old behaviour: a taken name gets a suffix (`-2`, `-3`…). A directory is refused: pack it with `bash` first. Feature `files` |
+| `sandbox_download` | `{path, name?, keep_both?}` | copies a sandbox file (≤ 128 MiB) into the session files — text within the text cap as text, anything else as an attachment — under `name` or its own, **in place** (D136): an existing session file of that name becomes the next version, the replaced one kept (`file_diff`), text or binary either way. A file that hasn't changed writes nothing — `unchanged: … (sha …, v2)` — known by the etag the copy recorded (no read) or else by its sha256. `keep_both: true` is the old behaviour: a taken name gets a suffix (`-2`, `-3`…). A directory is refused: pack it with `bash` first. Feature `files` |
 | `browser_check` | `{target, wait_ms? (1000, ≤ 20000), screenshots_ms? ([wait_ms], ≤ 4), viewport? {width, height}, script?}` | loads a page in a headless Chromium **inside the sandbox** and returns raw facts (below). A side effect when the sandbox has egress |
 | `sandbox_copy` | `{from: {sandbox?, path}, to: {sandbox?, path}}` | between the conversation's attached sandboxes (a ref or a unique name; default the active one), or within one: a directory is tar-streamed (`GET …/tar` into `PUT …/tar`; both managers need `tar`) and its **contents** land in `to.path`; a file goes through the file routes (mode kept) to `to.path`, or into it when it is a directory. The source streams as the destination's request body, so a failure names the side that failed: `reading "a":/p failed: …` (the source's refusal, or its stream cut short — the destination may hold a partial copy) or `writing "b":/q failed: …`. Offered when more than one sandbox is attached |
 | `sandbox_info` | `{}` | every attached sandbox as its manager describes it now (active or attached, state, egress, image, manager, cwd, workdir, home, user, caps, the manager's caps and whether a live preview works — or why it is unavailable) and the conversation's latest 15 jobs |
@@ -2372,8 +2460,8 @@ advertises, after the SDK catalog's four (`claude`, `codex`, `gemini`,
  "images": [{"provider": "apps/coding-sandbox", "manager": "Coding sandboxes", "image": "base",
              "advertised": true, "egress": ["internet"]}],
  "modes": [{"id": "default", "name": "Ask before acting"}, {"id": "bypassPermissions", "name": "Bypass permissions", "explicit": true}],
- "defaultMode": "default", "autoMode": "acceptEdits", "approveMode": "default", "planMode": "plan",
- "setting": "approve",                        // the caller's own (below)
+ "defaultMode": "default", "autoMode": "auto", "approveMode": "default", "planMode": "plan",
+ "setting": "auto",                           // the caller's own (below; unset: auto)
  "login": {"command": "claude auth login", "guided": true, "mint": true}, // its terminal sign-in; guided: the guided sign-in (D179), mint: its Remember (a person's partition)
  "options": [ /* the config options its last session reported, any conversation — absent before one */ ],
  "sandboxes": {"apps/coding-sandbox|sb-7f3a": {"installed": true, "signedIn": false, "at": 1790000100000}}}
@@ -2414,12 +2502,39 @@ advertises, after the SDK catalog's four (`claude`, `codex`, `gemini`,
 
 **Auto / Always approve** is each person's own setting per coding agent,
 kept by the agent (not in xbind's prefs — the agent reads the conversation
-owner's when it spawns a coding agent for them): `auto` is the agent's
-auto-edit mode (`autoMode`: claude `acceptEdits`, codex `agent`, gemini
-`autoEdit`), `approve` — also what unset means — its ask-first mode
-(`approveMode`). It applies when a coding-agent conversation or child is
-created; one that exists keeps its mode. Explicit modes (bypass, full
-access) are never a setting.
+owner's when it spawns a coding agent for them): `auto` — also what unset
+means — is the agent's own Auto mode where it has one (claude `auto`: it
+decides most asks itself and may still ask now and then), else its
+auto-edit mode (`autoMode`: codex `agent`, gemini `autoEdit`); `approve`
+its ask-first mode (`approveMode`). It applies when a coding-agent
+conversation or child is created; one that exists keeps its mode.
+Explicit modes (bypass, full access) are never a setting.
+
+**A project task's coding agent starts in a mode of its own**, whatever
+the task or its person asked — no one watches a task's turn. The
+project's `taskPermissions` (§Projects and tasks, policy) says which:
+
+- `ask` (the default): the provider's own Auto mode where it has one
+  (claude `auto`: it decides most asks itself), else its one explicit
+  full-access mode (codex `agent-full-access`, gemini `yolo`), else as it
+  would (opencode). A permission request that comes all the same parks the
+  turn as ever, and `GET /needs` lists the task as **action required**
+  (reason `action`; its push says "Action required — …") until a person
+  answers it.
+- `allow` — allow without asking: the provider's full-access mode for
+  every provider (claude `bypassPermissions`), and a permission request
+  that comes all the same — an adapter that won't take that mode (claude
+  as root), one with none (opencode), a plan's approval — is answered at
+  once with its allow option (allow always before allow once; one that
+  offers none parks as ever), a `note` in the conversation saying what was
+  allowed.
+
+The mode is chosen when the adapter (re)starts: a changed policy reaches a
+running task at its next (re)start. Either way it works in the project's
+sandbox; the agent pushes no default branch for it (§Pull requests), but
+the task's own branch is the prompt's rule, not a fence — the token in the
+sandbox writes the project's repos, so the repo's branch protection
+(`protection: refuse`) is what stops a push elsewhere.
 
 **Driving one (the API).** `POST /ask` and `POST /runs` take `harness:
 {provider, mode?, options?}` with a `sandbox: {ref, cwd?}` (`POST /runs`
@@ -3146,8 +3261,8 @@ config's `harness: {provider, mode, ref, cwd}`) of its parent's class in
 that sandbox; the task is its first prompt (an `hprompt` row: the user row
 and the task ledger's entry, source `parent`, are written as it is
 delivered). Its mode is the **root conversation owner's** Auto / Always
-approve for that coding agent (`/prefs/harness-mode`; a conversation owned
-by no person: Always approve), which `harness_mode` only narrows —
+approve for that coding agent (`/prefs/harness-mode`, unset: Auto; a
+conversation owned by no person: Always approve), which `harness_mode` only narrows —
 `approve` asks before every edit and command, `plan` only plans (the
 provider's plan mode, else its approve mode); the model never picks an
 explicit (bypass) mode. The link, the placeholder, the digest and the
@@ -3373,9 +3488,10 @@ conversation.
 | `POST /projects/{pid}/repos` | O | `{repo, slug?, setup?}` | **201** `{repo, jobs}` |
 | `PATCH /projects/{pid}/repos/{slug}` | O | `{setup?, checkout?: "worktree" \| "clone"}` | `{repo}` |
 | `DELETE /projects/{pid}/repos/{slug}?force=1` | O | — | **202**; 409 `busy` `{error, tasks}` while open tasks work in it |
-| `GET /projects/{pid}/status` | V | — | `ProjectStatus` |
+| `GET /projects/{pid}/status` | V | — | `ProjectStatus` — its `sandbox.gone` says the manager has no such sandbox (§Recreating the sandbox) |
 | `GET /projects/{pid}/overview?range=day\|week` | V | — | `Overview` — the page's status strip and its cards in one read (below) |
 | `POST /projects/{pid}/warm` | P | — | **202** `{jobs}`: start the sandbox, fetch the repos, renew credentials |
+| `POST /projects/{pid}/sandbox/recreate` | O | `{new?: {provider, image?, size?, egress?}, force?}` | **202** `{project, jobs, gone}`: a new workspace sandbox (§Recreating the sandbox); **409** `refusal: "exists"` when the old one is still there and `force` isn't said, **502** `refusal: "unavailable"` when its manager can't say; **409** `refusal: "busy"` while a project job is at work, a task's turn is at work in a sandbox still there (force or not: it would go on there, its unpushed work lost), or the project changed meanwhile (a second recreate at once); **409** for a team project's definition |
 | `GET /projects/{pid}/issues?repo=&q=&state=&labels=&cursor=` | V | — | the provider's page of issues of one of the project's repos (bodies clipped to 2 KiB; untrusted text) |
 | `GET /projects/{pid}/tasks?col=&phase=&q=&mine=1&cursor=&limit=` | V | — | `{items: [TaskView], next}` |
 | `POST /projects/{pid}/tasks` | P | `TaskSpec` | **201** `{task: TaskView, run}` |
@@ -3457,6 +3573,7 @@ by key, and `null` takes a key back to its default.
 | `taskClass` | `coding` | the class tasks run in (never one with internal reach) |
 | `engine` | `auto` | `builtin`, `harness` (`harness`'s coding agent), or `auto`: `harness` if set, else the coding agent the task's creator last started a conversation with, else the built-in agent |
 | `harness` | — | the coding agent `engine` picks |
+| `taskPermissions` | `ask` | what a permission request of a task's coding agent does: `ask` — it starts in the provider's own Auto (else full access) and a request parks the task as action required (`GET /needs` reason `action`); `allow` — allow without asking: full access, every request allowed at once with a note (§Coding agents, "A project task's coding agent") |
 | `as` | — | `person` or `bot`: the identity at the provider (above) |
 | `membersAsBot` | `false` | a team's members may work as the bot (§Team projects) |
 | `maxTasks` | `3` | tasks at work at once (1–16, §The workspace) |
@@ -3477,7 +3594,8 @@ by key, and `null` takes a key back to its default.
 | `coordinator` | `{web: false, model: ""}` | the coordinator's web tools and model |
 
 **`ProjectView`** — the row, your `level`, its `repos`, the board's `counts`
-and the slots in use:
+(per column, and `ready`: the `pr` column's tasks whose CI passed — they need
+you too) and the slots in use:
 
 ```jsonc
 {"id": 1099511627777, "uid": "k3x9qa", "name": "Web", "slug": "web", "kind": "personal",
@@ -3487,7 +3605,7 @@ and the slots in use:
  "repos": [{"slug": "web", "repo": "acme/web", "url": "https://github.com/acme/web.git", "defaultBranch": "main",
             "mode": "bare", "checkout": "worktree", "setup": "npm ci", "state": "ready", "fetchedMs": …,
             "head": "9fceb02…", "protected": true}],
- "counts": {"queued": 1, "working": 2, "needs-you": 0, "pr": 1, "done": 7},
+ "counts": {"queued": 1, "working": 2, "needs-you": 0, "pr": 1, "done": 7, "ready": 1},
  "slots": {"used": 2, "max": 3}, "createdBy": "alice", "createdMs": …, "updatedMs": …}
 ```
 
@@ -3534,7 +3652,7 @@ the task's **`state`** follow from those and its conversation's status:
 | `queued` | `queued` (`slot` while its start waits in the queue), `preparing` | its workspace isn't ready |
 | `working` | `working` | its conversation runs, waits on its subagents or its own work |
 | `needs-you` | `needs-you` (`you`), `signin` (`signin`), `failed` (`you`), `blocked` (`you`) | it asks a person something (an approval, a question, a sign-in), its workspace failed or its cleanup was refused, its turn failed — or its turn ended and its answer waits for you (no pull request yet) |
-| `pr` | `ci` (`ci`), `ci-failed` (`you`), `awaiting-review` (`review`) | a pull request is open and its turn is over |
+| `pr` | `ci` (`ci`), `ci-failed` (`you`), `ci-passed` (`review`: its CI passed — in Needs you as a `review`, and in the project's `counts.ready`), `awaiting-review` (`review`: no CI to wait for) | a pull request is open and its turn is over |
 | `done` | `merged`, `closed`, `done`, `cancelled`, `deleted` | — |
 
 **`park`** (in `GET /runs/{id}/task`, `GET /projects/{pid}/tasks/{n}` and
@@ -3732,7 +3850,7 @@ no harm.
 
 | Kind | Does |
 |---|---|
-| `sandbox` | finds the sandbox (`{ref}`: labelled `xbin.agent/project: ‹uid›`, for display — a label proves nothing) or creates it (`{new}`: private — a team's seed the team's — with the label and the space it belongs to, `clientId` `agent:proj:‹pid›:sbx:‹try›`), starts it, lays out `P` and queues the repos |
+| `sandbox` | finds the sandbox (`{ref}`: labelled `xbin.agent/project: ‹uid›`, for display — a label proves nothing) or creates it (`{new}`: private — a team's seed the team's — with the label, `xbin.agent/project-made: ‹uid›.‹generation›` and the space it belongs to, `clientId` `agent:proj:‹pid›:sbx` — `…:sbx:r‹generation›` once recreated — the same on every try; the create may take 25 min, a manager that makes a VM before it answers). Before it creates it takes up one an earlier try made — its answer lost to a timeout; for a project never recreated, also one labelled with its uid alone, as earlier builds made one per try — a running one first, then the newest; the others are deleted, the job staying (`deleting N duplicate sandbox(es)…`) until they are, and a project's deletion deletes any left. A sandbox still `creating` is waited for; one in `error` fails the job (recreate it). Then it starts it, lays out `P` and queues the repos |
 | `repo` | clones a base in the background (30 min): the default branch from the provider, else the remote's `HEAD`; with `policy.protection` `refuse`, an unprotected default branch fails it |
 | `fetch` | fetches a base (2 min): every `fetchEveryMin` while a task works or someone has the project's status open — never waking a stopped space for it — and before a task is prepared when its last is older than 2 min |
 | `prepare` | a task's checkouts, in one command: an existing local branch, else the remote's (tracking it), else a new one from the default branch; then `.task-env`, its setup jobs and `bind` |
@@ -3748,6 +3866,26 @@ runs in a sandbox; git's own lock refusals are waited out (never removed).
 A job one process was running when it handed over is taken up again by the
 next, which finds the same command in the sandbox by its `clientId`. A job
 of a kind this build doesn't know fails "not in this build".
+
+**Recreating the sandbox.** A project's sandbox that is gone — its manager
+lost it, or it was deleted outside the agent; the status says `sandbox.gone`
+and its jobs fail "no such sandbox" — never comes back by itself: the
+sandbox job only opens the one the project names. Its owner recreates it
+(`POST /projects/{pid}/sandbox/recreate`; Settings → Recreate sandbox): a
+new sandbox on the same manager with its defaults (internet egress where it
+offers it), or as `new` says. The project forgets what lived in the old
+one — `P`, its repos' bases (an adopted repo becomes a base of the
+project's own), its fork base, its tasks' checkouts — and the jobs that
+waited to act there fail "superseded"; the sandbox job makes the new one
+(its create's `clientId` carries a generation, so a manager that dedupes
+creates makes a new sandbox), clones the repos, and every open task is
+prepared again: its branch comes back from the remote, and what was never
+pushed is lost with the old sandbox. Tasks that are over are marked
+cleaned; a big task's own sandbox is its own and is left be. Credentials
+the project wrote to the old sandbox are emptied (where it is still there)
+and revoked first. A sandbox still there is replaced only with `force`: it
+is left as it is, never deleted. A running job of the project (other than
+a fork's) answers **409** `refusal: "busy"`: ask again once it ends.
 
 **The workspace gate.** A task's turn waits until its workspace is ready.
 Its conversation is parked — `sleeping` while it is being prepared (or its
@@ -5169,6 +5307,23 @@ across calls) · `js_run` (evaluate a session file) · `js_reset`. Inside the VM
 is how the agent computes instead of guessing, and how it draws a chart for
 `render_html`: build inline SVG in `js_eval`, `files.write` it into an .html
 file, render that.
+
+**Bytes and archives** (`repl_bytes.go`, `repl_archive.go`). Every session file
+is readable whatever its size or type: `files.read(path[, 'base64'])` returns
+text — a blob-held large text file included — and `files.readBytes(path)` any
+file as a `Uint8Array`. `files.write(path, string|Uint8Array[, mime])` (alias
+`writeBytes`) writes a text row up to 64 KiB, and anything larger, or bytes, as
+a blob (≤ 128 MiB, the run's attachment quota) — the file's next version, as
+the sandbox copy path writes (`putFileData`). Pure helpers: `atob`/`btoa`,
+`base64.encode/decode`, UTF-8 `TextEncoder`/`TextDecoder`, and native
+`zip.list/read/readText/extract({to, only})/create`, `tar.list/read/readText/
+extract` (plain or gzipped) and `gzip.compress/decompress`. An archive source
+is a session path or bytes; `extract` writes session files (entry names are
+mapped to keys, `..`/absolute names refused), and one inflated entry is capped
+at 128 MiB in the VM (and extracted; an extraction's whole by the run's quotas,
+64 files and 512 MiB), so a zip bomb is an error, not an OOM.
+Blob I/O inside a statement is bounded by its time budget. A `Uint8Array`
+prints as its length and first 32 bytes.
 
 **There is no host surface.** `goja.New()` ships no `require`, `process`,
 `fetch`, `setTimeout` or `Buffer`, and the parser's default filesystem

@@ -203,7 +203,7 @@ var (
 var replyKeyRe = regexp.MustCompile(`^[0-9a-f]{16}-[1-9][0-9]{0,18}/[0-9]{1,3}$`)
 
 // handleReplyFilePut: PUT /handoffs/{id}/reply-files?key=&name=&mime= (body:
-// the bytes, ≤ 16 MiB) — the caller's partition stages a reply's file too
+// the bytes, ≤ 128 MiB) — the caller's partition stages a reply's file too
 // large for its mail; outbox/add names it in `staged`. → {id}. 410 for a
 // handoff too old to answer; 413 past maxStagedPerHandoff; 507 past the
 // person's share (later).

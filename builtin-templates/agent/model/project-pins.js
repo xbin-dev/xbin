@@ -6,7 +6,8 @@
 // pinWords and PINNED, where the views import them from.
 
 export const byActivity = (a, b) => (b.updatedMs || 0) - (a.updatedMs || 0) || (b.id || 0) - (a.id || 0);
-export const needOf = (p) => (p && p.state === 'active' && p.counts && p.counts['needs-you']) || 0;
+// (a task whose PR passed CI — counts.ready, in the PR column — waits for you too)
+export const needOf = (p) => (p && p.state === 'active' && p.counts && ((p.counts['needs-you'] || 0) + (p.counts.ready || 0))) || 0;
 
 /** PINNED: how many projects the conversation list shows at its top (D209). */
 export const PINNED = 5;

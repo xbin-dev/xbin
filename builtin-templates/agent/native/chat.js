@@ -572,7 +572,7 @@ const uploaded = (place) => (e) => {
     ctx.app.attach.uploaded({ name: e.name, size: r.bytes || 0, type: r.mime || '', path: r.path, at: place });
     return;
   }
-  // Refused over the 16 MiB cap (413): a chip marked like the web's, which
+  // Refused over the 128 MiB cap (413): a chip marked like the web's, which
   // holds Send until it is removed. Any other failure is just said.
   if (!/413|too large|over 16/i.test(JSON.stringify(r))) { fail(`${e.name}: ${r.error || 'upload failed'}`); return; }
   const a = ctx.app.attach;

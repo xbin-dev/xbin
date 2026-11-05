@@ -66,12 +66,13 @@ func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string, mi
 	if err != nil {
 		return err
 	}
-	req := scmTokenReq{Repos: repos, Access: "write", As: as, Purpose: scmPurpose(p, ref)}
+	// twice the margin: a credential fresh from the provider is never due at once (scmDue)
+	req := scmTokenReq{Repos: repos, Access: "write", As: as, Purpose: scmPurpose(p, ref), MinTTLSec: int(2 * minLeft / time.Second)}
 	if scmPolicyOf(p).Workflows {
 		req.Permissions = map[string]string{"workflows": "write"}
 	}
 	if l := scmLiveGet(key); l != nil && l.identity == as && l.scope == scmScopeOf(req) &&
-		time.Until(time.UnixMilli(l.expires)) >= minLeft && scmRowLive(p.ID, ref, l.host) {
+		time.Until(time.UnixMilli(l.expires)) >= minLeft && l.refresh > nowMs() && scmRowLive(p.ID, ref, l.host) { // as scmDue judges it
 		return nil // a repo added, or workflows turned on, since: minted again
 	}
 	tok, err := api.Token(ctx, req)
@@ -84,6 +85,10 @@ func ensureCreds(ctx context.Context, p *Project, k *ProjectTask, ref string, mi
 		return err
 	}
 	scmMask(tok.Token, tok.ExpiresAt) // masked from here on, whatever happens next
+	// one that would be due at once (scmDue) would have the gate renew it again and again
+	if left := time.Until(time.UnixMilli(tok.ExpiresAt)); tok.ExpiresAt > 0 && left < scmMinLeft {
+		return fmt.Errorf("%s handed out a credential that lasts %s, less than the %s a turn needs: sign in to it again", p.SCM, left.Round(time.Second), scmMinLeft)
+	}
 	if host == "" {
 		host = tok.Host
 	}

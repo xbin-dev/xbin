@@ -22,8 +22,10 @@ const (
 	// Binary files (attachments) are bounded separately: their bytes live in
 	// the blob resource rather than the run's database, and they are read by
 	// people and by the vision path, not pasted into the transcript.
-	maxBinaryFileBytes = 16 << 20
-	maxBinaryRunBytes  = 64 << 20
+	// 128 MiB a file, 512 MiB a run: what a document workflow (a scanned
+	// PDF, a deck, a zip of sources) needs; the blob store takes 256 MiB.
+	maxBinaryFileBytes = 128 << 20
+	maxBinaryRunBytes  = 512 << 20
 	// maxRenderBytes bounds what render_html shows: a sandbox's report is
 	// often over the text cap (then stored as a binary file, text/html),
 	// and a preview pane paints a few MB of HTML without trouble.

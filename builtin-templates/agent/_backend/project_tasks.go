@@ -399,6 +399,8 @@ func taskDerived(k *ProjectTask, status string, ci *CISummary, queued bool) (col
 			return colPR, taskCIFailed, "you"
 		case "pending":
 			return colPR, taskCI, "ci"
+		case "success": // ready: a person reviews and merges it (Needs you lists it: ciPassedNeeds)
+			return colPR, taskCIPassed, "review"
 		}
 		return colPR, taskAwaitingReview, "review"
 	}

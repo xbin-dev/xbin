@@ -14,6 +14,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // fileToolSpecs describes the file tools. With the REPL on, the descriptions
@@ -146,6 +147,7 @@ func (ag *Agent) runFileTool(ctx context.Context, run *Run, cfg Config, name str
 			return "", err
 		}
 		path := f.Path
+		content := f.Content
 		docErr := ""
 		if f.Binary && isDocFile(f) && cfg.feature("docs") {
 			// a document reads as its Markdown, as doc_read gives it
@@ -161,13 +163,24 @@ func (ag *Agent) runFileTool(ctx context.Context, run *Run, cfg Config, name str
 		if f.Binary {
 			// Never paste binary into the transcript: it would ride every
 			// later call until compaction, and it is meaningless as text.
-			hint := "it cannot be read as text"
-			if visionMimes[f.Mime] {
-				hint = "use file_view to look at it"
+			// Large text is held the same way and reads as text.
+			data, rerr := []byte(nil), error(nil)
+			if isTextMime(f.Mime) {
+				data, rerr = ag.readBlob(ctx, f.Blob)
 			}
-			return fmt.Sprintf("%s is a binary attachment (%s, %s) — %s%s.", path, f.Mime, humanBytes(f.Bytes), hint, docErr), nil
+			if data == nil || rerr != nil || !utf8.Valid(data) {
+				hint := "it cannot be read as text"
+				switch {
+				case visionMimes[f.Mime]:
+					hint = "use file_view to look at it"
+				case cfg.feature("repl"):
+					hint += "; js_eval opens it: files.readBytes(path) for its bytes, zip.list/tar.list(path) for an archive"
+				}
+				return fmt.Sprintf("%s is a binary attachment (%s, %s) — %s%s.", path, f.Mime, humanBytes(f.Bytes), hint, docErr), nil
+			}
+			content = string(data)
 		}
-		return sliceLines(f.Content, toInt(args["offset"]), toInt(args["limit"])), nil
+		return clipRead(sliceLines(content, toInt(args["offset"]), toInt(args["limit"]))), nil
 
 	case "file_view":
 		return ag.toolFileView(ctx, run, cfg, args)
@@ -191,6 +204,23 @@ func (ag *Agent) runFileTool(ctx context.Context, run *Run, cfg Config, name str
 }
 
 func str(v any) string { s, _ := v.(string); return s }
+
+// clipRead bounds what one file_read pastes into the transcript: a large
+// text file is read in pages (offset/limit), never whole.
+func clipRead(s string) string {
+	if len(s) <= maxReplFileBytes {
+		return s
+	}
+	cut := strings.LastIndexByte(s[:maxReplFileBytes], '\n')
+	if cut <= 0 {
+		cut = maxReplFileBytes
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+	}
+	return s[:cut] + fmt.Sprintf("\n…[clipped at %s of %s — pass offset/limit to read the rest in pages, or search it in js_eval]",
+		humanBytes(maxReplFileBytes), humanBytes(len(s)))
+}
 
 // fileEdit is file_edit: an exact-string replacement, refusing to guess.
 func (ag *Agent) fileEdit(ctx context.Context, runID int64, args map[string]any) (string, error) {

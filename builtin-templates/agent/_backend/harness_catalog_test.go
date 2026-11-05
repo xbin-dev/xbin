@@ -67,8 +67,8 @@ func TestHarnessCatalogShape(t *testing.T) {
 	}
 	claude := l.entry(t, "claude")
 	if claude["available"] != false || claude["reason"] != "no-image" || claude["why"] != "no bound sandbox manager's image has it" ||
-		claude["name"] != "Claude Code" || claude["autoMode"] != "acceptEdits" || claude["approveMode"] != "default" ||
-		claude["planMode"] != "plan" || claude["defaultMode"] != "default" || claude["setting"] != "approve" ||
+		claude["name"] != "Claude Code" || claude["autoMode"] != "auto" || claude["approveMode"] != "default" ||
+		claude["planMode"] != "plan" || claude["defaultMode"] != "default" || claude["setting"] != "auto" ||
 		jsonOf(claude["login"]) != `{"command":"claude auth login","guided":true}` || jsonOf(claude["images"]) != `[]` ||
 		jsonOf(claude["classes"]) != `["coding"]` {
 		t.Fatalf("claude: %s", jsonOf(claude))
@@ -83,7 +83,7 @@ func TestHarnessCatalogShape(t *testing.T) {
 			"advertised": true, "egress": []any{"internet"}}},
 		"modes": []any{map[string]any{"id": "ask", "name": "Ask before acting"}, map[string]any{"id": "auto", "name": "Auto"},
 			map[string]any{"id": "yolo", "name": "Yolo", "explicit": true}},
-		"defaultMode": "ask", "autoMode": "auto", "approveMode": "ask", "planMode": "ask", "setting": "approve",
+		"defaultMode": "ask", "autoMode": "auto", "approveMode": "ask", "planMode": "ask", "setting": "auto",
 		"login": map[string]any{"command": "fakeacp login", "guided": true}, "sandboxes": map[string]any{}, // it signs in as Claude Code does (D179)
 	}
 	if !reflect.DeepEqual(fake, want) {
@@ -448,10 +448,10 @@ func TestHarnessModePrefs(t *testing.T) {
 	if s := getHarnesses(t, mux, asAlice, "").entry(t, "claude")["setting"]; s != "auto" {
 		t.Fatalf("alice's catalog: %v", s)
 	}
-	if s := getHarnesses(t, mux, asBob, "").entry(t, "claude")["setting"]; s != "approve" {
+	if s := getHarnesses(t, mux, asBob, "").entry(t, "claude")["setting"]; s != "auto" { // unset: auto
 		t.Fatalf("bob's catalog: %v", s)
 	}
-	if agent.db.harnessMode("bob", "claude") != hmApprove || agent.db.harnessMode("alice", "claude") != hmAuto {
+	if agent.db.harnessMode("bob", "claude") != hmAuto || agent.db.harnessMode("alice", "claude") != hmAuto {
 		t.Fatal("what the engine reads")
 	}
 }

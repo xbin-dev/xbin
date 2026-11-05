@@ -271,7 +271,7 @@ func loadBoard(d *DB, p *Project, c who, now time.Time) *ovBoard {
 		switch b.state[k.N] {
 		case taskCIFailed:
 			b.pulls.Failing++
-		case taskAwaitingReview:
+		case taskAwaitingReview, taskCIPassed:
 			b.pulls.Review++
 		}
 	}

@@ -27,9 +27,11 @@ func replToolSpecs() []toolSpec {
 			Name: "js_eval",
 			Description: "Evaluate JavaScript in this run's private sandbox; returns the last expression's value plus anything console.log'd. " +
 				"State persists across calls, so you can build up variables and functions. " +
-				"There is NO filesystem, network, require, or timers — pure computation over data you paste in or keep in session files. " +
-				"Available beyond standard JS: console.*, files.read/write/list/exists/remove(path), and load(path) to evaluate a session file. " +
-				"Use this for arithmetic, parsing, data wrangling, and for generating documents (build a string, files.write it). " +
+				"There is NO filesystem, network, require, or timers — computation over the session files (uploads included, any size or type) and data you paste in. " +
+				"Available beyond standard JS: console.*; files.read(path[, 'base64']) / write(path, string|Uint8Array) / readBytes / writeBytes / list / exists / remove; load(path) to evaluate a session file; " +
+				"atob, btoa, base64.encode/decode, TextEncoder/TextDecoder (UTF-8); " +
+				"zip.list/read/readText/extract({to, only})/create, tar.list/read/readText/extract (plain or .tar.gz) and gzip.compress/decompress — native, so never hand-write an unzipper. " +
+				"Use this for arithmetic, parsing, data wrangling, unpacking archives, and for generating documents (build a string, files.write it). " +
 				"Math.random is seeded per run, so results are reproducible. There is no event loop: a promise not settled by synchronous code never settles.",
 			Parameters: obj([]string{"code"}, map[string]any{
 				"code": strProp("JavaScript to evaluate. The value of the last expression is returned."),
@@ -59,7 +61,7 @@ var replToolNames = map[string]bool{"js_eval": true, "js_run": true, "js_reset":
 // the session gate, the log bookkeeping, and the result formatting. Called
 // from runTool.
 func (ag *Agent) runReplTool(ctx context.Context, run *Run, cfg Config, name string, args map[string]any) (string, error) {
-	s := ag.repl.get(run.ID, ag.db, cfg)
+	s := ag.repl.get(run.ID, ag.db, ag, cfg)
 
 	if name == "js_reset" {
 		ag.repl.drop(run.ID)

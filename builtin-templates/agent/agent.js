@@ -54,6 +54,7 @@ import './harness-web.js'; // the coding harnesses' modules (their hooks on ext)
 import './project-web.js'; // Projects' modules: the page (ext.page; atop Mine, ext.listTop), a task's chips, crumb and cards
 import { steerWords } from './model/harness-ask.js'; // a coding harness's queued chips
 import { clsIcon } from './classes.js'; // a class's glyph (or its admin's emoji) before its name
+import { mountDirectMcp } from './mcp-direct.js'; // Settings → MCP: servers connected by URL
 // The drawn glyphs (<bx-icon name>, D184). An xbind from before them serves
 // no /vendor/bx-icons.js: the buttons and badges keep their words.
 try { await import('/vendor/bx-icons.js'); } catch { /* an older xbind: words without glyphs */ }
@@ -118,7 +119,7 @@ app.on('runs', () => { paintSide(); if (app.sel == null) paint(); });
 app.on('list', () => { paintSide(); paint(); }); // the top bar's sharing reads the list row
 app.on('autos', () => { paintSide(); if (app.page) paint(); });
 app.on('needs', () => { if (app.sel == null) paint(); });
-app.on('me', () => { $('gear').hidden = !app.me.manager; syncHalt(); });
+app.on('me', () => { $('gear').hidden = false; syncSettingsTabs(); syncHalt(); }); // everyone: a person's own MCP servers (mcp-direct.js)
 app.on('halt', () => syncHalt());
 app.on('class', () => classPicker.paint(session.current()));
 app.on('model', () => paint());
@@ -721,9 +722,18 @@ $('csearch').oninput = () => {
 function syncTabs() {
   document.querySelectorAll('#tabs .tab[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === activeTab));
 }
+// someone who isn't a manager has a conversation's Memory and Files (opened from it) and MCP: their own MCP servers (mcp-direct.js)
+const tabAllowed = (tab) => app.me.manager || tab === 'mcp' || tab === 'memory' || tab === 'files';
+function syncSettingsTabs() {
+  document.querySelectorAll('#tabs .tab[data-tab]').forEach((b) => { b.hidden = !tabAllowed(b.dataset.tab); });
+  if (!tabAllowed(activeTab)) activeTab = 'mcp';
+  syncTabs();
+}
 function openSettings(tab) {
   settingsOpen = true;
   if (tab) activeTab = tab;
+  else if (!app.me.manager) activeTab = 'mcp'; // the gear: someone who isn't a manager opens their MCP servers
+  if (!tabAllowed(activeTab)) activeTab = 'mcp';
   $('settings').hidden = false;
   syncTabs();
   renderTab();
@@ -918,7 +928,7 @@ async function tabSkills(bd) {
 
 // MCP tab: read-only status of the bound MCP providers (the multi:true `mcp`
 // http interface). xbin.iface('mcp') is null, or {multi, endpoints:[...]}.
-function tabMcp(bd) {
+async function tabMcp(bd) {
   const mcp = (window.xbin && xbin.iface) ? xbin.iface('mcp') : null;
   const eps = (mcp && mcp.endpoints) || [];
   bd.innerHTML = `<div class="sec"><h4>MCP providers</h4>
@@ -930,7 +940,8 @@ function tabMcp(bd) {
          component's <b>Interfaces</b> tab (slot <span class="mono">mcp</span>); their tools then become
          available to the agent.</div>`}
   </div>`;
-  mountStaticMcp(bd, actions.getConfig); // a partitioned instance's static servers (partition-ui.js); nothing unpartitioned
+  if (app.me.manager) mountStaticMcp(bd, actions.getConfig); // a partitioned instance's static servers (partition-ui.js); nothing unpartitioned
+  await mountDirectMcp(bd); // servers connected by URL: yours, and everyone's (mcp-direct.js)
 }
 
 // --- start ------------------------------------------------------------------

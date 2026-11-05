@@ -12,6 +12,8 @@
 //   node test/harness-start.mjs        (needs playwright + a chromium build)
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
 import { harnessSeed, API_DEV } from './harness-fixtures.mjs';
+import { HOME } from '../model/home.js';
+const HOME_PLACEHOLDER = HOME.placeholder; // the instance's words (model/home.js)
 
 const { ok, done } = checker();
 const browser = await launch();
@@ -30,7 +32,7 @@ const shown = (sel) => page.$eval(sel, (e) => !e.hidden && getComputedStyle(e).d
 
 await page.goto(`${ORIGIN}/`);
 await page.waitForSelector('#apick:not([hidden]) #abtn');
-ok('who answers: the built-in agent until you pick', (await text('#abtn')).includes('Agent'));
+ok('who answers: the built-in agent until you pick', (await text('#abtn')).includes(HOME.title));
 ok('…the class picker beside it', await shown('#cpick'));
 await page.click('#abtn');
 await page.waitForSelector('#apick .clsmenu');
@@ -132,9 +134,9 @@ ok('…its ask: codex, its class and sandbox, no instructions', ask2.harness.pro
 await page.click('#home');
 await page.click('#abtn');
 await page.click('#apick .mi[data-agent="agent"]');
-await page.waitForFunction(() => document.getElementById('abtn')?.textContent.includes('Agent'));
+await page.waitForFunction((title) => document.getElementById('abtn')?.textContent.includes(title), HOME.title);
 ok('the built-in agent: the class picker is back', await shown('#cpick'));
-ok('…the placeholder too', (await page.getAttribute('#msg', 'placeholder')) === 'ask anything…');
+ok('…the placeholder too', (await page.getAttribute('#msg', 'placeholder')) === HOME_PLACEHOLDER);
 
 // a narrow tile: the composer stays inside it
 await page.setViewportSize({ width: 480, height: 700 });

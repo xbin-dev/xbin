@@ -328,7 +328,7 @@ export const deleteSkill = (name) => api(`/skills/${encodeURIComponent(name)}`, 
 // (PUT /runs/{id}/upload) and then named in the message, so the model finds
 // them with its file tools and sees images. `path` is set once an upload
 // lands, so a retry after a failed message re-sends rather than re-uploads.
-export const MAX_ATTACH = 16 * 1024 * 1024; // the backend's per-file cap
+export const MAX_ATTACH = 128 * 1024 * 1024; // the backend's per-file cap
 
 export const fmtBytes = (n) => n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`;
 

@@ -187,7 +187,7 @@ its `ref`) is acked without posting again.
 **In:** upload each attachment first:
 
 - The request is `POST /adapter/files?channelId=&name=&mime=`, with the raw
-  bytes as the body (16 MiB at most). It answers `{fileId, name, mime, bytes}`.
+  bytes as the body (128 MiB at most). It answers `{fileId, name, mime, bytes}`.
 - Then name the ids in the message (`files: [...]`).
 - When the message finds its conversation, each file becomes one of that
   run's session files, attached to the message. The model sees images and
