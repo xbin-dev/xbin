@@ -12,7 +12,8 @@ package broker
 //     tile manager while the person shares it (POST /partitions/share-log);
 //   - ?xbin-partition=global: the global instance's log, under today's rule
 //     (admins, terminal level, the tile's own credentials — never a person's
-//     partition's);
+//     partition's, but for the tile's frames, terminals and agent sessions
+//     of a person who can change its code: codeWriterOf, D218);
 //   - a credential that acts in no person's partition (the root token,
 //     another tile): the global instance's log, as today;
 //   - ?partition=: 400 — the credential decides, never a parameter.
@@ -159,8 +160,8 @@ func (b *Broker) PartitionLog(p auth.Principal, tile string, q url.Values) (rel 
 		if xp != string(util.PartitionGlobal) {
 			return "", "", true, http.StatusBadRequest, errors.New("?xbin-partition= takes global only")
 		}
-		if p.Partition.IsUser() {
-			return "", "", true, http.StatusForbidden, errors.New("a person's partition reads its own log, never the global instance's")
+		if p.Partition.IsUser() && !codeWriterOf(p, tile) {
+			return "", "", true, http.StatusForbidden, errors.New("a person's partition reads its own log, never the global instance's — unless its person can change the tile's code")
 		}
 		return "", util.PartitionGlobal, true, 0, nil
 	}
@@ -216,6 +217,23 @@ func (b *Broker) sharedLog(p auth.Principal, tile, dep, who string) (string, uti
 // that person's log of tile.
 func ownCredential(p auth.Principal, tile string) bool {
 	return p.Component != "" && p.Component == tile
+}
+
+// codeWriterOf reports one of tile's own frames, terminals or agent
+// sessions acting in a person's partition whose person can change tile's
+// code — write level on it now (the credential's Access is rebuilt on every
+// request). That code runs in the global instance too, so its log is
+// theirs to read (D218, #55). The partition's instance (it names no
+// person), view-as and another tile's credential never pass.
+func codeWriterOf(p auth.Principal, tile string) bool {
+	switch {
+	case !ownCredential(p, tile), p.Via == "instance", p.Impersonator != "", p.UserID == "":
+		return false
+	case p.Access != nil:
+		return p.Access.CanWriteTile(tile)
+	default:
+		return p.User != nil && p.User.CanWriteTile(tile)
+	}
 }
 
 // partitionLogRel is person id's partition log of tile, workspace-relative.

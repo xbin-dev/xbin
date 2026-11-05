@@ -1256,7 +1256,7 @@ GET    /logs?component=<p>         admin, the tile itself, or a user with
                                    /partitions/share-log; else 403);
                                    &xbin-partition=global: the global
                                    instance's under the rule above (a
-                                   person's partition 403); a credential
+                                   partition's 403 but a writer's, D218); a credential
                                    acting in no person's partition (the
                                    root token, another tile) reads the
                                    global instance's as before;
