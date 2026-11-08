@@ -1,7 +1,8 @@
 // projects_coord_tools.go — the coordinator's tools (API.md §The
 // coordinator): task_create, task_list, task_status, task_message,
-// task_result, task_cancel, the read-only scm_pr and scm_issues
-// (projects_coord_scm.go), and project_goal (project_goal.go). Offered at
+// task_result, task_cancel, task_retry (projects_coord_retry.go), the
+// read-only scm_pr and scm_issues (projects_coord_scm.go), and
+// project_goal (project_goal.go). Offered at
 // depth 0 only, to a run whose role projectRefOf says is a coordinator
 // (no new toolset: the way cfg.Channel
 // gates attach_to_reply), and dispatched from runTool beside the thread
@@ -23,11 +24,11 @@ import (
 )
 
 var coordToolNames = map[string]bool{"task_create": true, "task_list": true, "task_status": true, "task_message": true,
-	"task_result": true, "task_cancel": true, "scm_pr": true, "scm_issues": true, "project_goal": true}
+	"task_result": true, "task_cancel": true, "task_retry": true, "scm_pr": true, "scm_issues": true, "project_goal": true}
 
 // coordWrites change a task (approval mode asks the person first: they
 // start or steer work that runs in the project's sandbox).
-var coordWrites = map[string]bool{"task_create": true, "task_message": true, "task_cancel": true}
+var coordWrites = map[string]bool{"task_create": true, "task_message": true, "task_cancel": true, "task_retry": true}
 
 // The tools' bounds.
 const (
@@ -46,8 +47,8 @@ func coordIntsProp(desc string, max int) map[string]any {
 	return map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "minItems": 1, "maxItems": max, "description": desc}
 }
 
-// coordToolSpecs are the nine tools. The first sentence of each is pinned
-// (tooldesc_test.go).
+// coordToolSpecs are the coordinator's tools. The first sentence of each
+// is pinned (tooldesc_test.go).
 func coordToolSpecs() []toolSpec {
 	taskStates := "queued, preparing, signin, agent-signin (its coding agent waits for a sign-in), working, needs-you (waiting for a person), ci, ci-failed, awaiting-review, merged, closed, done, failed, cancelled, blocked"
 	return []toolSpec{
@@ -107,6 +108,7 @@ func coordToolSpecs() []toolSpec {
 				"tasks":  coordIntsProp("task numbers (1–10)", coordMaxStatus),
 				"reason": strProp("why, shown in the task"),
 			})}},
+		taskRetrySpec(),
 		{Type: "function", Function: funcDef{Name: "scm_pr",
 			Description: "Read a pull request through the project's scm provider — state, mergeability, reviews, review comments and checks, with a log excerpt for failing ones; read-only: you cannot merge, approve or push. " +
 				"Name a task (its pull request) or one of the project's repos and a number.",
@@ -129,7 +131,7 @@ func coordToolSpecs() []toolSpec {
 	}
 }
 
-// coordToolsFor is what runToolSpecs adds for run: the nine tools for a
+// coordToolsFor is what runToolSpecs adds for run: the tools for a
 // coordinator at depth 0 (its role through projectRefOf, its session key
 // agreeing), none otherwise.
 func coordToolsFor(cfg Config, run *Run) []toolSpec {
@@ -184,6 +186,8 @@ func (ag *Agent) runCoordTool(ctx context.Context, run *Run, cfg Config, name st
 		return ag.coordResult(p, args)
 	case "task_cancel":
 		return ag.coordCancel(run, p, args)
+	case "task_retry":
+		return ag.coordRetry(run, p, args)
 	case "scm_pr":
 		return ag.coordPR(ctx, p, args)
 	case "scm_issues":

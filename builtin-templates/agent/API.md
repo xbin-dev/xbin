@@ -4348,6 +4348,7 @@ that its person still takes part:
 | `task_message` | `task`, `text` | a message to a task, through the project's queue |
 | `task_result` | `task`, `offset?`, `limit?` | a task's latest full answer, paged |
 | `task_cancel` | `tasks` (≤ 10), `reason?` | stops tasks and what they started; conversations, worktrees and branches stay |
+| `task_retry` | `task` | a task whose workspace failed: its failed workspace jobs (and the project's it waits for) queued again, as the task's Retry (`POST /runs/{id}/task/retry`); one whose last turn ended in an error: that too, and the turn runs again (as Resume, `POST /runs/{id}/resume`). Refused for a task in any other state — waiting for a person, working, in review or over — and while a manager has paused the agent (an errored turn) |
 | `scm_pr` | `task`, or `repo` and `number` | a pull request: state, mergeability, reviews and comments, its checks in one aggregate with each failing job's failing step and the end of its log (≤ 2 KiB each, 8 KiB in all) |
 | `scm_issues` | `repo`, `numbers?` (≤ 10), `state?`, `labels?`, `q?` | issues in full with their comments, or a list |
 | `project_goal` | `text` (≤ 500 characters), `now?` (≤ 300) | sets its goal — what it works towards — and what it does this turn (D214) |
@@ -4367,7 +4368,8 @@ id. `repo` — in `scm_pr`, `scm_issues` and `task_create`'s issues form — mus
 be one of the project's repos (owner/name or its slug), wherever the agent
 runs: the coordinator reads through the project's identity, which may be
 the provider's bot, and never about a repo nobody named for the project. In
-approval mode `task_create`, `task_message` and `task_cancel` ask first.
+approval mode `task_create`, `task_message`, `task_cancel` and
+`task_retry` ask first.
 
 **What it may not do.** It acts only on its own project's tasks. It
 **never answers in a person's place**: a message to a task that waits for a
