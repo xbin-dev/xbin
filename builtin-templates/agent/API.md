@@ -4150,7 +4150,11 @@ its own**, made by its `prepare` job before its checkouts:
   the project (`xbin.agent/project`), the task (`xbin.agent/task`) and the
   space it belongs to, with the project sandbox's visibility and members.
   In it, before anything else runs: every credential the snapshot carried
-  is removed (`H/.config/xbin-scm`), the other tasks' checkouts are removed
+  is removed (`H/.config/xbin-scm`, and each coding agent's own login —
+  Claude Code's `.credentials.json`, Codex's `auth.json`, Gemini CLI's
+  `oauth_creds.json`, OpenCode's `auth.json`: a copy of a login shares its
+  refresh token, and whichever copy refreshes first signs the other out),
+  the other tasks' checkouts are removed
   and git forgets them (`worktree prune`, then `repair`); then it gets a
   **credential of its own** (the credential gate judges the fork — and the
   sandbox it came from: one a non-secure conversation used refuses it) and
@@ -4158,6 +4162,26 @@ its own**, made by its `prepare` job before its checkouts:
   branch as it is now. Its checkouts, setup and binding then follow as for
   any task, in the fork; `TaskView` says `fork: true` and the fork's
   `sandboxRef`.
+- **While it is made.** The create waits up to 2 minutes for the
+  manager's answer; a sandbox its manager is still making (a VM made cold
+  takes many minutes) — `creating` or `starting`, in that answer or in a
+  later one for the same `clientId` after the first was lost — is looked
+  at again every 10 s, never started meanwhile and with no attempt spent:
+  the workspace stays `preparing`, its step `its own sandbox is being
+  created`. One the manager answers `error` fails the workspace at once
+  with the manager's words; that sandbox is deleted and the next Retry
+  asks for another (`clientId` `…:again‹n›`). One `stopped` is started,
+  one `archived` thawed.
+- **Signing in.** Its credential waiting for the person's sign-in to the
+  provider is the workspace's `signin`, as a small task's is. Its coding
+  agent starts signed out there (the login copied with the snapshot was
+  removed): it uses the person's **saved sign-in** (§Coding agents, "Saved
+  sign-ins") where the gate lets one in — a person's own partition, their
+  own task, a private sandbox of theirs — or parks on its sign-in
+  (`agent-signin`). When none will go in, the task says so before its
+  first turn (an event, and a note in its conversation): "big tasks need a
+  saved sign-in — Settings → Coding agents → Coding-agent sign-ins", or
+  the gate's own reason.
 - **Fresh.** Without a fork base, with `bigTasks.mode` `fresh`, or where
   the manager can't clone, the task's sandbox is a new one of the project
   sandbox's image, size and egress, laid out as the project's, with every
