@@ -164,7 +164,7 @@ class Wiki {
       s.err = '';
       if (s.slug == null && !s.edit && s.pages.length) await this.open(pid, s.pages[0].slug, true);
       else if (s.slug != null && s.view !== 'edit') await this.open(pid, s.slug, true);
-    } catch (e) { if (seq === s.seq) s.err = e.message; }
+    } catch (e) { if (seq === s.seq) s.err = e.status === 404 && !s.loaded ? 'This project\'s backend has no wiki yet (an older version).' : e.message; }
     if (seq !== s.seq) return;
     s.loading = false;
     s.loaded = true;
