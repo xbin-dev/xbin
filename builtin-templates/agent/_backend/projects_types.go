@@ -272,6 +272,14 @@ const (
 	// passed (ProjectView.Counts): they wait for a person too
 	countReady = "ready"
 	colDone    = "done"
+	// countAsks and countFailed split Needs you (project_needs.go): tasks a
+	// person's answer, approval or sign-in holds up, and failed ones — not
+	// those whose turn ended with an answer ready. countCoord: the caller's
+	// own coordinator waits for them (withCoordAsk; GET /projects and
+	// GET /projects/{pid} only).
+	countAsks   = "asks"
+	countFailed = "failed"
+	countCoord  = "coord"
 )
 
 // Who asked for a task's current turn (project_tasks.turn_by), and where a
@@ -424,6 +432,7 @@ type TaskView struct {
 	CreatedBy  string            `json:"createdBy"`
 	CreatedMs  int64             `json:"createdMs"`
 	UpdatedMs  int64             `json:"updatedMs"`
+	wait       *taskWait         // what its run waits on, for the coordinator's words (projects_coord_waits.go)
 }
 
 // TaskPorts are the ports a task may listen on (TASK_PORT_BASE …+SPAN-1).

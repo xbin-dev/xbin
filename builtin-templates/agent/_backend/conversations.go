@@ -474,7 +474,8 @@ func handleRead(w http.ResponseWriter, r *http.Request) {
 // talk to where the agent (or a subagent) asks a question or an approval, or
 // whose coding agent or project stopped part-way (judge.go, D198), and
 // automations they own whose last run failed and that they haven't looked
-// at.
+// at. A question, an approval or a failure carries its words (text) and
+// since when (since, unix ms).
 func handleNeeds(w http.ResponseWriter, r *http.Request) {
 	items, err := needsItems(callerOf(r), "")
 	if err != nil {
@@ -538,17 +539,23 @@ func needsItems(c who, scope string, scopeArgs ...any) ([]map[string]any, error)
 				reason = needsReason(ps)
 			}
 			item := map[string]any{"run": it, "reason": reason, "subRun": subID}
+			if ps.Project != nil { // which workspace state: a sign-in, a failure, a refused cleanup
+				item["ws"] = ps.Project.WS
+			}
 			if sub, err := agent.db.getRun(subID); err == nil {
 				if h := harnessSummaryOf(sub); h != nil { // which coding agent waits
 					item["harness"] = harnessNodeView(h)
 				}
+				pk := agent.db.parkOf(sub) // what it asks, and since when (needs_text.go)
+				item["text"], item["since"] = pk.Text, pk.Since
 			}
 			items = append(items, withNeedsProject(agent.db, item, x)) // a project's run: project {id, name, n} (projects_coord_push.go)
 		case !waiting && lv >= lvParticipant && x.Status == statusIdle && it["unfinished"] != nil:
 			// a coding agent's or project's turn that stopped part-way (judge.go, D198)
 			items = append(items, withNeedsProject(agent.db, map[string]any{"run": it, "reason": needUnfinished, "subRun": 0}, x))
 		case !waiting && lv >= lvOwner && it["unread"] == true:
-			items = append(items, withNeedsProject(agent.db, map[string]any{"run": it, "reason": "failed", "subRun": 0}, x))
+			items = append(items, withNeedsProject(agent.db, map[string]any{"run": it, "reason": "failed", "subRun": 0,
+				"text": clip(plainText(x.Result), needTextMax), "since": x.Updated * 1000}, x))
 		}
 		listed[x.ID] = len(items) > before
 	}

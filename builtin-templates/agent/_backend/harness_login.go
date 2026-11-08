@@ -159,7 +159,7 @@ func (s *hsess) loginTx(t *DB, hs *harnessSession, held *heldPrompt) error {
 	if p := parsePending(run.Pending); run.Status == statusWaiting && p.Kind == "login" {
 		return nil // parked on it already
 	}
-	ps := pendingState{Kind: "login", Park: newPark(), Harness: &hPark{Login: b}}
+	ps := pendingState{Kind: "login", Park: newPark(), Harness: &hPark{Login: b}, Since: nowMs()}
 	raw, _ := json.Marshal(ps)
 	if err := t.setStatus(run.ID, statusWaiting, 0, run.Result, string(raw)); err != nil {
 		return err

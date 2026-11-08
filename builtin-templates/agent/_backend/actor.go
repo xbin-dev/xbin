@@ -43,6 +43,8 @@ type pendingState struct {
 	Park string `json:"park,omitempty"`
 	// Job and Since, on a sleep (yield, sandbox_wait.go): the job it waits
 	// for (0: any job the run started), and when it went to sleep (unix ms).
+	// Since, on a park for a person (an approval, a coding agent's question
+	// or sign-in): when it began waiting (needs_text.go; none on an older one).
 	Job   int   `json:"job,omitempty"`
 	Since int64 `json:"since,omitempty"`
 	// Harness, on a harness run's park (approval, question, login): the

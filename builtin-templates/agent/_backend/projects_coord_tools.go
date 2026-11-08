@@ -50,7 +50,7 @@ func coordIntsProp(desc string, max int) map[string]any {
 // coordToolSpecs are the coordinator's tools. The first sentence of each
 // is pinned (tooldesc_test.go).
 func coordToolSpecs() []toolSpec {
-	taskStates := "queued, preparing, signin, agent-signin (its coding agent waits for a sign-in), working, needs-you (waiting for a person), ci, ci-failed, awaiting-review, merged, closed, done, failed, cancelled, blocked"
+	taskStates := "queued, preparing, signin, agent-signin (its coding agent waits for a sign-in), working, needs-you (a person's question or approval waits, or its turn ended with its answer ready), ci, ci-failed, awaiting-review, merged, closed, done, failed, cancelled, blocked"
 	return []toolSpec{
 		{Type: "function", Function: funcDef{Name: "task_create",
 			Description: "Create tasks in this project — each its own conversation with a git worktree per repo — started now or queued behind the project's limit of tasks running at once. " +
@@ -88,7 +88,7 @@ func coordToolSpecs() []toolSpec {
 			})}},
 		{Type: "function", Function: funcDef{Name: "task_message",
 			Description: "Send one of this project's tasks a message — a working task reads it at its next step, an idle one starts a new turn on it (queued behind the running-task limit); a task waiting for a person gets it only after that person answers. " +
-				"It reaches the task as a message from the project coordinator.",
+				"It reaches the task as a message from the project coordinator. You never answer a person's question or approval for them: it is theirs, on their Needs you list.",
 			Parameters: obj([]string{"task", "text"}, map[string]any{
 				"task": coordIntProp("the task's number"),
 				"text": strProp("the message"),
@@ -361,7 +361,7 @@ func coordErrWords(err error) string {
 // coordStateWords are the task states in the coordinator's words.
 var coordStateWords = map[string]string{
 	taskQueued: "queued", taskPreparing: "queued (its workspace is being prepared)", taskSignin: "waiting for a person (to sign in)",
-	taskWorking: "working", taskNeedsYou: "waiting for a person", taskCI: "awaiting CI", taskCIFailed: "CI failed",
+	taskWorking: "working", taskNeedsYou: "needs a person (a question or approval waits, or its turn ended with its answer ready)", taskCI: "awaiting CI", taskCIFailed: "CI failed",
 	taskAwaitingReview: "awaiting review", taskCIPassed: "CI passed, awaiting review", taskMerged: "merged", taskClosed: "closed", taskDone: "done", taskFailed: "failed",
 	taskCancelled: "cancelled", taskBlocked: "waiting for a person (its cleanup found unpushed work)", taskDeleted: "deleted",
 	// coordStateOf names the agent and the sandbox (a team board's row: these)
@@ -383,15 +383,18 @@ func coordStateOf(v TaskView) string {
 }
 
 // coordTaskLine is one task in a line: number, title, state, branch, PRs.
+// Its state says what it waits for when the board's word would mislead
+// (coordWaitWords: a person's question, quoted, or an answer ready).
 func coordTaskLine(v TaskView) string {
 	var b strings.Builder
+	state := orStr(coordWaitWords(v), coordStateOf(v))
 	if v.Issue != nil {
 		// its title may be the issue's (createTask's default): text from
 		// outside, labelled so (and defused) as an scm event's title is
 		fmt.Fprintf(&b, "#%d (from the issue %s#%d; title, untrusted: %s) — %s", v.N, coordPlain(v.Issue.Repo), v.Issue.Number,
-			scmLine(coordPlain(v.Title), 120), coordStateOf(v))
+			scmLine(coordPlain(v.Title), 120), state)
 	} else {
-		fmt.Fprintf(&b, "#%d %s — %s", v.N, clip(coordPlain(v.Title), 120), coordStateOf(v))
+		fmt.Fprintf(&b, "#%d %s — %s", v.N, clip(coordPlain(v.Title), 120), state)
 	}
 	if v.WaitingFor == "slot" {
 		b.WriteString(" (for a free slot)")
@@ -631,8 +634,8 @@ func (ag *Agent) coordMessage(p *Project, args map[string]any) (string, error) {
 		return "", err
 	}
 	switch {
-	case run.Status == statusWaiting:
-		return fmt.Sprintf("queued for task #%d: it waits for a person, and gets your message once they have answered", k.N), nil
+	case run.Status == statusWaiting: // held (HoldPark): only a person answers what it asks
+		return ag.db.coordHeldWords(k.N, run), nil
 	case holdsSlot(run.Status):
 		return fmt.Sprintf("sent to task #%d: it reads it at its next step", k.N), nil
 	}

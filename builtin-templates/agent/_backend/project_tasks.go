@@ -443,6 +443,7 @@ func (d *DB) projTaskView(p *Project, k *ProjectTask) TaskView {
 	if k.RunID != 0 {
 		if run, err := d.getRun(k.RunID); err == nil {
 			v.RunStatus, status = run.Status, taskRunStatus(run.Status, run.Pending)
+			v.wait = d.taskWaitOf(run)
 			if run.Engine == engineHarness {
 				v.Engine = engineHarness
 				if cfg, err := d.runConfig(run.ID); err == nil && cfg.Harness != nil {
