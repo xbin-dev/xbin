@@ -13,7 +13,7 @@ const (
 	EvPermissionRequest  = "permission.request"   // {pid, toolCall, options, rule, meta?}
 	EvPermissionResolved = "permission.resolved"  // {pid, optionId, by}
 	EvElicitRequest      = "elicitation.request"  // {eid, toolCallId?, message, schema, mode?, url?, elicitationId?}
-	EvElicitResolved     = "elicitation.resolved" // {eid, action, by, content?} — action "complete" (by "agent"): a url one's elicitation/complete
+	EvElicitResolved     = "elicitation.resolved" // {eid, action, by, content?} — action "complete" (by "agent"): a url one's elicitation/complete; "cancel" by "agent": withdrawn ($/cancel_request)
 	EvTurnEnd            = "turn.end"             // {turn, stopReason, usage?, error?}
 	EvStatus             = "status"               // {status, detail?, modes?, currentMode?, options?, commands?, usage?, agent?, title?, login?}
 )

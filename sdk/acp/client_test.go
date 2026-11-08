@@ -783,6 +783,58 @@ func TestElicitation(t *testing.T) {
 	}
 }
 
+// A question the agent withdraws ($/cancel_request) is settled as a
+// withdrawn permission is: elicitation.resolved (cancel, by agent), the
+// session running again, the request answered -32800 — and an answer after
+// it finds nothing.
+func TestElicitationWithdrawn(t *testing.T) {
+	answers := make(chan error, 2)
+	asked := make(chan struct{}) // the client filed the question: withdraw it now
+	c, _, _, _ := rig(t, func(f *fakeAgent, text string) {
+		id := json.RawMessage(`"ask-w"`)
+		reply := f.conn.Expect(id)
+		p, _ := json.Marshal(map[string]any{"mode": "form", "sessionId": f.sid, "message": "Pick one",
+			"requestedSchema": map[string]any{"type": "object", "properties": map[string]any{"q": map[string]any{"type": "string"}}}})
+		_ = f.conn.Send(&Message{ID: id, Method: MElicitCreate, Params: p})
+		<-asked
+		_ = f.conn.Notify(MCancelRequest, CancelRequestParams{RequestID: id})
+		m := <-reply
+		if m == nil || m.Error == nil {
+			answers <- errors.New("no error reply")
+		} else {
+			answers <- m.Error
+		}
+		f.end("end_turn")
+	}, "")
+	defer c.Close()
+	collect(t, c, func(e Event) bool { return e.Type == EvStatus && data(e)["status"] == StatusIdle })
+	if err := c.Send(context.Background(), "ask"); err != nil {
+		t.Fatal(err)
+	}
+	var eid string
+	for _, e := range collect(t, c, func(e Event) bool { return e.Type == EvElicitRequest }) {
+		if e.Type == EvElicitRequest {
+			eid, _ = data(e)["eid"].(string)
+		}
+	}
+	close(asked)
+	es := collect(t, c, func(e Event) bool { return e.Type == EvElicitResolved })
+	d := data(es[len(es)-1])
+	if eid == "" || d["eid"] != eid || d["action"] != "cancel" || d["by"] != "agent" {
+		t.Fatalf("the withdrawal: %v (asked %q)", d, eid)
+	}
+	var rerr *Error
+	if err := <-answers; !errors.As(err, &rerr) || rerr.Code != CodeRequestCancelled {
+		t.Fatalf("the agent's reply: %v", err)
+	}
+	if qs := c.PendingElicitations(); len(qs) != 0 {
+		t.Fatalf("a withdrawn question is still pending: %+v", qs)
+	}
+	if err := c.RespondElicitation(eid, "accept", nil, "user:a"); !errors.Is(err, ErrNoElicitation) {
+		t.Fatalf("an answer after the withdrawal: %v", err)
+	}
+}
+
 // The client asks for the adapter extensions it renders (terminal output in
 // the tool call's _meta), and a provider's SessionMeta rides session/new —
 // Claude's summarized thinking display, without which no thought streams.

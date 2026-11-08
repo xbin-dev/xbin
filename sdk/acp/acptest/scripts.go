@@ -17,6 +17,10 @@ func (f *fake) turn(t *turnState, text string, files []string) {
 	mode, cwd, sid := f.mode, f.cwd, f.sid
 	f.mu.Unlock()
 	switch {
+	case strings.Contains(text, "ask-withdraw"):
+		if !f.askWithdraw(text) {
+			return
+		}
 	case strings.HasPrefix(text, "perm-edit"):
 		if !f.permEdit(mode, cwd) {
 			return

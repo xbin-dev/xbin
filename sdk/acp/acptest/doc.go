@@ -9,6 +9,11 @@
 // Scripts, by the first match in this order (a word matches anywhere in
 // the prompt's text, a prefix only at its start):
 //
+//	ask-withdraw <file>  Claude's AskUserQuestion (a tool_call and an
+//	            elicitation/create, one single-select) that the agent withdraws
+//	            ($/cancel_request) once <file> — named after the word's last
+//	            use — exists (polled; none named: at once): the call fails,
+//	            then "withdrew the question"; answered first, as ask… below
 //	perm-edit…  (a prefix) an edit tool_call (a diff for hello.txt) and a
 //	            session/request_permission — skipped in modes auto and yolo;
 //	            selected → the edit completes, "edited hello.txt"
