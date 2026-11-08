@@ -521,7 +521,7 @@ func scmPollAfter(d *DB, r *scmPollRow, etag *string, state string, final bool, 
 		}
 		if k, err := t.taskByN(r.Project, r.N); err == nil && k.RunID != 0 && (k.Phase == phaseOpen || k.Phase == phasePR) {
 			addProjectEvent(t, r.Project, r.N, pevNote, map[string]any{
-				"text": fmt.Sprintf("lost track of CI on %s@%s — check manually", k.Branch, sha7(r.Item.Ref)), "repo": r.Repo, "sha": r.Item.Ref},
+				"text": fmt.Sprintf("lost track of CI on %s@%s — check manually", taskBranchIn(k, r.Repo), sha7(r.Item.Ref)), "repo": r.Repo, "sha": r.Item.Ref},
 				true, fmt.Sprintf("lost:%d:%s:%s", r.N, strings.ToLower(r.Repo), r.Item.Ref))
 		}
 		return nil

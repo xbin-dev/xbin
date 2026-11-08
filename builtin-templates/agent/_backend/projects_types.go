@@ -321,7 +321,8 @@ type ProjectTask struct {
 	CleanedMs  int64           `json:"cleanedMs,omitempty"`
 }
 
-// TaskPR is one pull request a task opened (project_tasks.prs holds a list).
+// TaskPR is one pull request a task opened, or that was linked to it
+// (project_tasks.prs holds a list).
 type TaskPR struct {
 	Repo     string `json:"repo"`
 	Number   int    `json:"number"`
@@ -331,6 +332,10 @@ type TaskPR struct {
 	HeadSHA  string `json:"headSha"`
 	Checks   string `json:"checks"` // none | pending | success | failure
 	ChecksAt int64  `json:"checksAt,omitempty"`
+	// Head is the PR's branch when the task pushes to it and it isn't the
+	// task's own — a PR its coding agent opened from another branch, adopted
+	// or linked (taskBranchIn); "" the task's branch, or a PR it only tracks.
+	Head string `json:"head,omitempty"`
 }
 
 // ProjectCheckout is a row of project_checkouts: one task × one repo.

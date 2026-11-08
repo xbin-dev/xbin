@@ -174,7 +174,7 @@ func scmApplyChecks(ctx context.Context, d *DB, api scmAPI, r *scmPollRow, c *sc
 			}
 			scmSetChecks(t, p, k, r.Repo, sha, "success")
 			addProjectEvent(t, p.ID, k.N, pevPRReady, map[string]any{
-				"text": fmt.Sprintf("CI is green on PR #%d (%s@%s): it awaits review", pr.Number, k.Branch, sha7(sha)),
+				"text": fmt.Sprintf("CI is green on PR #%d (%s@%s): it awaits review", pr.Number, taskBranchIn(k, r.Repo), sha7(sha)),
 				"repo": r.Repo, "pr": pr.Number, "sha": sha, "url": pr.URL}, true, fmt.Sprintf("pr.ready:%d:%s:%d:%s", k.N, strings.ToLower(r.Repo), pr.Number, sha))
 			return nil
 		})
@@ -210,13 +210,14 @@ func scmCIFailed(t *DB, p *Project, k *ProjectTask, repo, sha string, fails []*s
 		}
 	}
 	failed := scmLine(strings.Join(names, ", "), 300)
-	ev := map[string]any{"text": fmt.Sprintf("CI failed on %s@%s — failing (untrusted names): %s", k.Branch, sha7(sha), failed),
+	br := taskBranchIn(k, repo)
+	ev := map[string]any{"text": fmt.Sprintf("CI failed on %s@%s — failing (untrusted names): %s", br, sha7(sha), failed),
 		"repo": repo, "sha": sha, "suite": suite}
 	switch {
 	case !pol.AutoFix:
 		addProjectEvent(t, p.ID, k.N, pevCIFailed, ev, false, "ci.failed:"+ns+":"+sha+":"+suite)
 	case scmFixesToday(k) >= pol.MaxPerDay:
-		ev["text"] = fmt.Sprintf("CI failed again on %s@%s — the task had its %d CI fixes today; it needs a person", k.Branch, sha7(sha), pol.MaxPerDay)
+		ev["text"] = fmt.Sprintf("CI failed again on %s@%s — the task had its %d CI fixes today; it needs a person", br, sha7(sha), pol.MaxPerDay)
 		addProjectEvent(t, p.ID, k.N, pevCIStuck, ev, true, "ci.stuck:"+ns+":"+sha)
 	default:
 		if body == "" { // the cap moved while the logs were read: the names alone
@@ -226,8 +227,8 @@ func scmCIFailed(t *DB, p *Project, k *ProjectTask, repo, sha string, fails []*s
 		b, _ := json.Marshal(fixes)
 		k.CIFixes = b
 		_ = t.setTask(k.ID, map[string]any{"ci_fixes": string(b)})
-		text := fmt.Sprintf("[scm: CI failed on %s@%s — untrusted output]\n%s\n— fix it and push.", k.Branch, sha7(sha),
-			untrusted(p.Host, "CI output of "+k.Branch+"@"+sha7(sha), body))
+		text := fmt.Sprintf("[scm: CI failed on %s@%s — untrusted output]\n%s\n— fix it and push.", br, sha7(sha),
+			untrusted(p.Host, "CI output of "+br+"@"+sha7(sha), body))
 		_, _ = queueTaskInput(t, taskInput{Project: p.ID, N: k.N, Kind: "input", Text: text, Source: srcEvent, HoldPark: true,
 			Dedupe: "ci:" + ns + ":" + sha + ":" + suite})
 		addProjectEvent(t, p.ID, k.N, pevCIFailed, ev, false, "ci.failed:"+ns+":"+sha+":"+suite)

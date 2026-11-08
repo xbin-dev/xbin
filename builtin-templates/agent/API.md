@@ -3638,7 +3638,8 @@ when the project made it and `sandbox=delete` asked, then its rows.
  "ports": {"base": 20020, "span": 10},
  "checkouts": [{"repo": "web", "path": "/work/web/tasks/3-fix-login/web", "mode": "worktree", "state": "ready",
                 "setupExit": 0, "remoteSha": "…"}],
- "prs": [{"repo": "acme/web", "number": 42, "url": "…", "state": "open", "draft": false, "headSha": "…", "checks": "pending"}],
+ "prs": [{"repo": "acme/web", "number": 42, "url": "…", "state": "open", "draft": false, "headSha": "…", "checks": "pending",
+          "head": "…"}],    // head: the PR's branch when the task pushes to it and it isn't the task's own (a PR its coding agent opened elsewhere); absent otherwise
  "ci": {…},                 // its CI at a glance, when watched (§CI in the conversation)
  "turnBy": "coordinator",   // who asked for its latest turn: human | coordinator | event
  "step": "running web's setup", "error": "", "last": "…its latest answer, clipped…",
@@ -3925,9 +3926,13 @@ is lifted. The coordinator's messages reach the
 task framed `[message from the project coordinator]`.
 
 **What a task is told.** A built-in task's system prompt has a `# Project`
-section after its sandbox's — the project, the task, its branch ("push it,
-never the default branch; never merge"), its checkouts and where it
-starts, "each repo's AGENTS.md / CLAUDE.md governs — read it first", the
+section after its sandbox's — the project, the task, its branch ("stay on
+it: commit to it and push it", that the platform opens its pull request
+from it — when its turn ends with `policy.autoPR`, when a person asks
+without — and "never run `gh pr create`, never switch to or create another
+branch, never push the default branch, never merge"), its checkouts and
+where it starts (a repo whose branch is a linked pull request's head says
+so on its line), "each repo's AGENTS.md / CLAUDE.md governs — read it first", the
 project's instructions, checks and pull request conventions, its ports,
 and a failed setup's outcome — built from the project's state alone, so it
 is the same from one turn to the next. A coding agent's first prompt starts
@@ -4211,9 +4216,11 @@ its own**, made by its `prepare` job before its checkouts:
   deleted). A fork outlives neither its project: the forks of a deleted
   project are deleted soon after (unless they were to be kept).
 
-**Pull requests.** The `pr` job, for each of the task's checkouts **on the
-task's branch** with commits the repo's default branch (as last fetched)
-lacks, pushes that branch — `git push origin refs/heads/‹branch›`, never
+**Pull requests.** A task's branch is **per repo**: the head of a pull
+request linked to it there that it pushes to (`TaskView.prs[].head`), else
+its own `branch`. The `pr` job, for each of the task's checkouts **on the
+task's branch** there with commits the repo's default branch (as last
+fetched) lacks, pushes that branch — `git push origin refs/heads/‹branch›`, never
 anything else, and **never the default branch**: a task whose branch is
 its repo's default branch is refused (the job fails, saying so) — then,
 for each such repo with no open pull request in `prs`, opens one through
@@ -4226,13 +4233,43 @@ else one line saying which task of which project it is for — and `Closes
 `draft` defaults to `policy.autoPR` being `draft`. The pull requests are
 recorded in the task's `prs` (`phase` `pr`, a `pr.opened` event each, a
 `note` for each push), and the parts that follow a task's branch (scm
-events, CI) are told. A checkout on another branch is left alone (a `note`
-says so). Asking again while the job runs runs it once more after. A
+events, CI) are told. A checkout on another branch is never pushed; it is
+**adopted** instead (below). Asking again while the job runs runs it once more after. A
 pull request's create that fails as a connection would (or the provider
 answers `limit`, `unavailable` or `upstream`) after the push is tried
 again: the job records what it did and runs again, with backoff. At its
 last try it ends with a `note` instead (the task's workspace untouched,
 never failed), and the ask stays for the next ask or turn.
+
+**Adopting a pull request the coding agent opened.** The `pr` job, the
+refs job (after each turn) and `task_refresh` find a checkout on a branch
+that isn't the task's there (git's `HEAD`, a detached one left alone by
+the refs job) and look that branch up at the provider (`GET /scm/pulls
+?head=‹branch›&state=all`). The pull request is adopted only when exactly
+one comes from that branch, from the repo itself (`head.repo`, not a
+fork), opened by the project's own login (its credential's), held by no
+other open or in-review task, and its head commit is the checkout's `HEAD`
+or in its history: it is recorded in `prs` with `head` the branch, the
+task goes to `phase` `pr`, a `pr.opened` event says "linked PR #‹n›: the
+coding agent opened it from ‹branch›", the parts that follow the task's
+branches are told — and one already merged or closed ends as its event
+would. From then on that branch is the task's in that repo: the `pr` job
+pushes it, the refs job reads it, scm events for it and for the task's own
+branch both route to the task. Otherwise a waking `note` names the branch
+and the reason and says the coordinator (`task_link_pr`) or a person
+(`POST /projects/{pid}/tasks/{n}/link-pr`) can link the task's pull
+request — once per branch and reason; a detached `HEAD` or a provider that
+couldn't be read is a quiet one.
+
+**Linking.** `task_link_pr` and `POST /projects/{pid}/tasks/{n}/link-pr`
+link a pull request of one of the task's repos to an open or in-review
+task, read at once at the provider: refused when another open or
+in-review task holds it. The task pushes to its head only when it comes
+from that repo (not a fork) and the project's own login opened it;
+otherwise the link only tracks it — its state, checks, reviews and merge —
+and the answer says why. It is recorded as an adopted one is (`head` set
+only when the task pushes there; one that is over ends the task as its
+event would). Nothing is merged, approved, pushed or commented.
 
 **Auto-PR.** With `policy.autoPR` `draft` or `ready`, a task whose turn
 ended well (it rests `idle` or `done` — not cancelled, not failed), whose
@@ -4297,7 +4334,10 @@ visible regression: it is reachable by its link and by search, and is task
 1 of its project again once this build is back. Forks and fork bases stay
 at their manager until this build is back (a fork base is replaced, a
 cleaned task's fork deleted, as above); the settings `proj_fork:‹pid›:‹n›`
-and `proj_pr:‹pid›:‹n›` are unknown settings to it.
+and `proj_pr:‹pid›:‹n›` are unknown settings to it. A build without
+linked pull requests ignores `prs[].head` (and drops it when it writes the
+list again): the task's own branch is the only one it pushes and follows,
+and a `pr` job of it leaves a checkout on the adopted branch alone.
 
 ### The coordinator
 
@@ -4474,7 +4514,8 @@ gets the earlier one's events — and dedupes it again.
 
 **Subscriptions.** Once a task's branch is on the remote, or it has a PR,
 the agent keeps one subscription per task and repo at the project's
-provider, key `task:<pid>:<n>:<repo slug>`: the task's branch, its PRs, and
+provider, key `task:<pid>:<n>:<repo slug>`: the task's branches there (its
+own, and a linked pull request's head it pushes to), its PRs, and
 the kinds `pull`, `checks`, `comment`, `review`, `push` and the progress
 kinds `workflow`, `job`, `check` (the CI view shows those). It is posted
 again when the PRs change and every 25 days while the task is open (a
@@ -4486,7 +4527,9 @@ user:<id>`); team definitions subscribe to nothing. A provider without
 events (no `events` cap) keeps none: polling stands in.
 
 **Routing.** An event finds its task by its pull request, then its
-branch, then its head sha (each task's, in that provider and repo);
+branch (its own, or a linked pull request's head it pushes to — a task
+linked to two branches follows both), then its head sha (each task's, in
+that provider and repo);
 progress events (`workflow`, `job`, `check`) go to the CI view only. Then:
 
 | Event | When | What happens |
@@ -4495,9 +4538,9 @@ progress events (`workflow`, `job`, `check`) go to the CI view only. Then:
 | CI failing | each failing suite on the head, once | with `policy.ci.autoFix`: a task input — `[scm: CI failed on <branch>@<sha7> — untrusted output]`, up to 3 failing jobs each with its failing step and its log's last 120 lines (ANSI stripped, redacted; only the steps while a host serves no log of a running job), ≤ `policy.ci.logBytes` in all, framed as untrusted, then `— fix it and push.` — and a quiet `ci.failed` event; at most `policy.ci.maxPerDay` (5) such inputs per task per day, past which a waking `ci.stuck` event instead (the coordinator's `ci-stuck` push). Without `autoFix`: the `ci.failed` event alone. The PR's checks say `failure` |
 | CI green | on the head, the PR open | the PR's checks say `success` — the task **awaits review** — and a waking `pr.ready` event (the `pr-ready` push) |
 | `review` (changes requested, commented), `comment` on the task's PR | after `policy.reviews.batchSec` (120 s; later ones join the same read) | the PR's timeline is read: words from an `OWNER`, `MEMBER` or `COLLABORATOR`, or a login in `policy.reviews.allow` (everyone with `forward: "all"`, nobody with `"off"`), go to the task as one input — each with its author and, inline, `path:line`, ≤ 8 KiB, framed as untrusted — with a quiet `review` event; anyone else's is a quiet `comment` event, "not forwarded". Approvals and dismissals aren't forwarded; each entry is taken once |
-| `pull.opened`, `reopened` | the PR's head is the task's branch and the task doesn't hold it open | the task's refs check runs again and records the PR |
+| `pull.opened`, `reopened` | the PR's head is one of the task's branches there and the task doesn't hold it open | the task's refs check runs again and records the PR |
 | `pull.merged`, `closed` | the task's PR | the PR's state; with none of the task's PRs open, its phase `merged` (one was) or `closed`, its credentials scrubbed (its own sandbox's; the project's when no other task of the project is open), its workspace cleaned up as `policy.cleanup` says, and a waking `merged` / `closed` event |
-| `pull.synchronize`, a `push` to the task's branch | | the task's head moves (the PR's checks unknown again) |
+| `pull.synchronize`, a `push` to one of the task's branches | | the head of the PR from that branch moves (its checks unknown again); a push to a branch no open PR of the task comes from, while one is open in that repo, moves none |
 | a `push` by anyone but the task | | a quiet note queued to the task — someone else pushed to its branch: pull before pushing — and a quiet `push` event |
 | `issue.opened`, `labeled` | a repo of a project with `autoLabel` | a quiet `issue` event (the title framed as untrusted); waking when the issue carries the `autoLabel` label |
 

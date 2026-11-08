@@ -213,13 +213,21 @@ func orTask(a, b *ProjectTask) *ProjectTask {
 
 // --- refs: what the task pushed -----------------------------------------------------------------
 
-// refsScript prints, for each checkout C_i, the task branch's sha on the
-// remote as its base last saw it ("-": not there) — a push updates it.
+// refsScript prints, for each checkout C_i, the sha of the task's branch
+// there (BR_i) on the remote as its base last saw it ("-": not there) — a
+// push updates it — and OFF <i> <branch> <head> for a checkout on another
+// branch (a detached HEAD, mid-rebase say, is left alone).
 const refsScript = `i=0
 while [ "$i" -lt "$N" ]; do
-  eval "C=\${C_$i}"
+  eval "C=\${C_$i}; BR=\${BR_$i}"
   sha=-
-  if [ -e "$C/.git" ]; then sha=$(git -C "$C" rev-parse -q --verify "refs/remotes/origin/$BR" 2>/dev/null || echo -); fi
+  if [ -e "$C/.git" ]; then
+    sha=$(git -C "$C" rev-parse -q --verify "refs/remotes/origin/$BR" 2>/dev/null || echo -)
+    cur=$(git -C "$C" symbolic-ref -q --short HEAD || true)
+    if [ -n "$cur" ] && [ "$cur" != "$BR" ]; then
+      printf 'OFF %s %s %s\n' "$i" "$cur" "$(git -C "$C" rev-parse -q --verify HEAD || echo -)"
+    fi
+  fi
   printf 'REF %s %s\n' "$i" "$sha"
   i=$((i+1))
 done
@@ -232,7 +240,8 @@ const refsReadPulls = "read-pulls"
 // jobRefs (after each of a task's turns, and when an scm event says a PR
 // opened): the task's branch on the remote and its open pull requests,
 // recorded; when either changed, projectRefsHooks run (subscriptions, CI
-// watches) in the same transaction.
+// watches) in the same transaction. A checkout on another branch has its
+// pull request adopted, or a note says why not (prAdoptRun).
 func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobOutcome, error) {
 	if k == nil || k.RunID == 0 || k.WS != wsReady {
 		return doneJob("no workspace to look at")
@@ -246,13 +255,24 @@ func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 	if err != nil {
 		return jobOutcome{}, err
 	}
-	env := map[string]string{"N": strconv.Itoa(len(cos)), "BR": k.Branch}
+	repoOf := map[string]ProjectRepo{}
+	branchOf := map[string]string{} // slug → the task's branch there
+	for _, r := range repos {
+		repoOf[r.Slug], branchOf[r.Slug] = r, taskBranchIn(k, r.Repo)
+	}
+	env := map[string]string{"N": strconv.Itoa(len(cos))}
 	for i, c := range cos {
-		env[fmt.Sprintf("C_%d", i)] = c.Path
+		env[fmt.Sprintf("C_%d", i)], env[fmt.Sprintf("BR_%d", i)] = c.Path, orStr(branchOf[c.Repo], k.Branch)
 	}
 	out, err := s.must(ctx, "reading the task's branch", refsScript, env, "", time.Minute)
 	if err != nil {
 		return jobOutcome{}, err
+	}
+	var offs []prOff
+	for _, o := range prOffLines(out, cos, repoOf) {
+		if o.repo.Repo != "" {
+			offs = append(offs, o)
+		}
 	}
 	shas := map[int]string{}
 	for _, l := range strings.Split(out, "\n") {
@@ -262,10 +282,6 @@ func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 				shas[i] = f[2]
 			}
 		}
-	}
-	repoOf := map[string]ProjectRepo{}
-	for _, r := range repos {
-		repoOf[r.Slug] = r
 	}
 	prs := k.taskPRs()
 	changed, moved := false, map[string]string{}
@@ -289,7 +305,7 @@ func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 			continue
 		}
 		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		page, err := api.Pulls(cctx, scmQuery{Repo: r.Repo, Head: k.Branch, State: "open", As: projectAs(p)})
+		page, err := api.Pulls(cctx, scmQuery{Repo: r.Repo, Head: branchOf[c.Repo], State: "open", As: projectAs(p)})
 		cancel()
 		if err != nil {
 			logf("project %d task %d: reading its pull requests: %v", p.ID, k.N, err)
@@ -302,7 +318,7 @@ func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 				if strings.EqualFold(prs[x].Repo, r.Repo) && prs[x].Number == pl.Number {
 					found = true
 					if prs[x].State != upd.State || prs[x].HeadSHA != upd.HeadSHA || prs[x].Draft != upd.Draft || prs[x].URL != upd.URL {
-						upd.Checks, upd.ChecksAt = prs[x].Checks, prs[x].ChecksAt
+						upd.Checks, upd.ChecksAt, upd.Head = prs[x].Checks, prs[x].ChecksAt, prs[x].Head
 						prs[x] = upd
 						changed = true
 					}
@@ -310,13 +326,29 @@ func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 			}
 			if !found {
 				upd.Checks = "none"
+				if branchOf[c.Repo] != k.Branch {
+					upd.Head = branchOf[c.Repo]
+				}
 				prs = append(prs, upd)
 				opened = append(opened, upd)
 				changed = true
 			}
 		}
 	}
+	adopt := func() int { // after the job's own writes: the adoption reads the task again
+		if len(offs) == 0 || apiErr != nil {
+			return 0
+		}
+		n, err := prAdoptRun(ctx, p, k, s, api, offs)
+		if err != nil {
+			logf("project %d task %d: adopting the pull requests of its checkouts on other branches: %v", p.ID, k.N, err)
+		}
+		return n
+	}
 	if !changed {
+		if adopt() > 0 {
+			return doneJob("linked the pull requests the coding agent opened")
+		}
 		return doneJob("nothing new")
 	}
 	err = projAg().db.Tx(func(t *DB) error {
@@ -345,7 +377,7 @@ func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 				"url": pr.URL, "repo": pr.Repo, "pr": pr.Number}, false, fmt.Sprintf("pr.opened:%d:%s:%d", k.N, pr.Repo, pr.Number))
 		}
 		for slug, sha := range moved {
-			addProjectEvent(t, p.ID, k.N, pevNote, map[string]any{"text": fmt.Sprintf("pushed %s to %s", shortSHA(sha), k.Branch),
+			addProjectEvent(t, p.ID, k.N, pevNote, map[string]any{"text": fmt.Sprintf("pushed %s to %s", shortSHA(sha), branchOf[slug]),
 				"sha": sha, "repo": repoOf[slug].Repo}, false, "")
 		}
 		for _, h := range projectRefsHooks {
@@ -357,6 +389,7 @@ func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 	if err != nil {
 		return jobOutcome{}, err
 	}
+	adopt()
 	return doneJob("recorded the branch and its pull requests")
 }
 

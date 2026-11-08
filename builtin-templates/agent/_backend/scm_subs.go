@@ -3,12 +3,13 @@
 //
 //   - The refs hook (projectRefsHooks: the task's refs job saw its branch on
 //     the remote, a PR open or change; an event moved its head) writes the
-//     task's project_refs — its branch, each PR's number and head, the
-//     branch's pushed sha, per repo — and keeps, per task and repo once the
-//     branch is on the remote or a PR exists, one subscription, key
-//     task:<pid>:<n>:<repo slug>: {repo, branches: [its branch], prs: [its
-//     PRs], kinds: pull, checks, comment, review, push and the progress kinds
-//     workflow, job, check}. It also keeps the task's poll rows (scm_poll.go).
+//     task's project_refs — its branches (its own, and a linked PR's head:
+//     taskBranches), each PR's number and head, the branch's pushed sha, per
+//     repo — and keeps, per task and repo once the branch is on the remote or
+//     a PR exists, one subscription, key task:<pid>:<n>:<repo slug>: {repo,
+//     branches: [its branches], prs: [its PRs], kinds: pull, checks, comment,
+//     review, push and the progress kinds workflow, job, check}. It also
+//     keeps the task's poll rows (scm_poll.go).
 //   - A project whose policy names an autoLabel keeps one issue subscription
 //     per repo, key issues:<pid>:<repo slug>: {repo, issues: true, kinds:
 //     [issue]}. Team definitions subscribe to nothing.
@@ -102,7 +103,10 @@ func scmRefsChanged(t *DB, p *Project, k *ProjectTask) {
 				pushed = strings.ToLower(c.RemoteSHA)
 			}
 		}
-		add(refBranch, k.Branch)
+		branches := taskBranches(k, r.Repo)
+		for _, b := range branches {
+			add(refBranch, b)
+		}
 		add(refSHA, pushed)
 		var nums []int
 		var open *TaskPR
@@ -119,7 +123,7 @@ func scmRefsChanged(t *DB, p *Project, k *ProjectTask) {
 		}
 		if pushed != "" || len(nums) > 0 {
 			slices.Sort(nums)
-			scmWantSub(t, scmTaskSubKey(p.ID, k.N, r.Slug), p, k.N, scmSubscription{Repo: r.Repo, Branches: []string{k.Branch}, PRs: nums,
+			scmWantSub(t, scmTaskSubKey(p.ID, k.N, r.Slug), p, k.N, scmSubscription{Repo: r.Repo, Branches: branches, PRs: nums,
 				Kinds: scmTaskKinds, Key: scmTaskSubKey(p.ID, k.N, r.Slug)})
 		}
 		head := pushed

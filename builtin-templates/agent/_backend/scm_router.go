@@ -11,11 +11,12 @@
 //   - review and comment on the task's PR schedule its timeline's read
 //     after policy.reviews.batchSec (coalesced): trusted people's words are
 //     forwarded to the task, anyone else's is a quiet event;
-//   - pull.opened/reopened of the task's branch asks the task's refs job to
-//     record the PR (projectRefsCheck); pull.merged/closed ends it (phase,
-//     scrub, cleanup per policy, a waking event); synchronize moves its head;
-//   - push to the task's branch moves its head and, by anyone but the task's
-//     own identity, queues a note to the task;
+//   - pull.opened/reopened of one of the task's branches (its own, or a
+//     linked PR's head: taskOnBranch) asks the task's refs job to record the
+//     PR (projectRefsCheck); pull.merged/closed ends it (phase, scrub,
+//     cleanup per policy, a waking event); synchronize moves its head;
+//   - push to one of the task's branches moves its head and, by anyone but
+//     the task's own identity, queues a note to the task;
 //   - issue.opened/labeled: a quiet event, waking with policy.autoLabel.
 //
 // The provider's own app (actor.self) and the task's own identity (the login
@@ -171,7 +172,7 @@ func scmRouteTask(t *DB, p *Project, k *ProjectTask, repo string, ev *scmEvent) 
 			scmPullEnded(t, p, k, repo, num, ev.Action == "merged")
 		case "opened", "reopened":
 			branch := orStr(d.Pull.Head.Ref, ev.Ref.Branch)
-			if self || branch != k.Branch {
+			if self || !taskOnBranch(k, repo, branch) {
 				return
 			}
 			held := false
@@ -189,19 +190,22 @@ func scmRouteTask(t *DB, p *Project, k *ProjectTask, repo string, ev *scmEvent) 
 			scmSetDraft(t, p, k, repo, num, ev.Action == "draft")
 		}
 	case scmKindPush:
-		if ev.Ref.Branch != k.Branch || strings.Trim(ev.Ref.SHA, "0") == "" {
+		if !taskOnBranch(k, repo, ev.Ref.Branch) || strings.Trim(ev.Ref.SHA, "0") == "" {
 			return // another branch, or the branch deleted (no head to move to)
 		}
-		scmSetHead(t, p, k, repo, 0, ev.Ref.SHA)
+		if num, ok := scmHeadPR(k, repo, ev.Ref.Branch); ok {
+			scmSetHead(t, p, k, repo, num, ev.Ref.SHA)
+		}
 		if self {
 			return
 		}
 		who := scmLogin(ev.Actor.Login)
+		br := ev.Ref.Branch
 		text := fmt.Sprintf("[scm: %s pushed %s to %s — not this task]\nSomeone else pushed to %s: pull before pushing.",
-			who, sha7(ev.Ref.SHA), k.Branch, k.Branch)
+			who, sha7(ev.Ref.SHA), br, br)
 		_, _ = queueTaskInput(t, taskInput{Project: p.ID, N: k.N, Kind: "input", Text: text, Source: srcEvent, HoldPark: true,
 			Dedupe: "push:" + strconv.FormatInt(k.N, 10) + ":" + strings.ToLower(ev.Ref.SHA)})
-		addProjectEvent(t, p.ID, k.N, pevPush, map[string]any{"text": fmt.Sprintf("%s pushed %s to %s", who, sha7(ev.Ref.SHA), k.Branch),
+		addProjectEvent(t, p.ID, k.N, pevPush, map[string]any{"text": fmt.Sprintf("%s pushed %s to %s", who, sha7(ev.Ref.SHA), br),
 			"sha": ev.Ref.SHA, "repo": repo, "by": who}, false, "push:"+strconv.FormatInt(k.N, 10)+":"+strings.ToLower(ev.Ref.SHA))
 	case scmKindReview, scmKindComment:
 		if self || ev.Ref.PR == 0 || scmOpenPR(k, repo, ev.Ref.PR) == nil {
@@ -284,6 +288,24 @@ func scmOwnLogin(t *DB, p *Project, k *ProjectTask) string {
 		_ = t.q.QueryRow(`SELECT login FROM project_creds WHERE project_id=? AND login<>'' ORDER BY written_ms DESC LIMIT 1`, p.ID).Scan(&login)
 	}
 	return login
+}
+
+// scmHeadPR is the number of task k's open PR in repo whose head is branch
+// (its Head, else the task's own branch); 0 with none open there (the
+// checks row follows the branch). false: PRs are open there, none from
+// branch — a push to it moves no PR's head.
+func scmHeadPR(k *ProjectTask, repo, branch string) (int, bool) {
+	open := false
+	for _, pr := range k.taskPRs() {
+		if pr.State != "open" || !strings.EqualFold(pr.Repo, repo) {
+			continue
+		}
+		if orStr(pr.Head, k.Branch) == branch {
+			return pr.Number, true
+		}
+		open = true
+	}
+	return 0, !open
 }
 
 // scmOpenPR is task k's open PR number n (0: any) in repo (nil: none).
