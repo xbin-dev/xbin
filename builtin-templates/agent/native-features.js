@@ -273,6 +273,8 @@ export const IMPLEMENTS = {
   'proj.overview.goal': 'native/project-status.js — goalTpl: the Coordinator section\'s first row, the goal and what it does now (yours, before it set one); idle, what wakes it, then the goal; a tap: all of it in a sheet',
   'proj.overview.chat': 'native/projects.js — coordTpl: the coordinator\'s newest messages (up to COORD_MORE, 8; model/project-feed.js preview(pid, n)) in its section at the bottom of the screen, Open the coordinator under them with its model and tokens today, the composer docked below',
   'proj.events': 'native/projects.js — the Activity section and the \'project-events\' screen (model/project-feed.js feedWords: plain text, https links only)',
+  'proj.wiki': 'native/project-wiki.js — the \'project-wiki\' screen (from the project screen\'s Wiki row: the pages, a search) and \'project-wiki-page\' (markdown, its [[slug]] links as rows: model/project-wiki.js linkedSlugs, plainLinks)',
+  'proj.wiki.stats': 'native/project-wiki.js — the \'project-wiki\' screen\'s footer (model/project-wiki.js statsWords)',
   'proj.team': 'native/project-team.js — the \'project-team\' screen: the team board (plain rows, opened by their own member, stale, Hide), Work on this with the security part, the team\'s changes side by side and Accept; native/projects.js — a team definition from your own space (model/project-team.js)',
   'proj.delete': 'native/project-settings.js — projectTpl: rename, Archive/Unarchive, the sandbox kept or deleted, Delete project (confirmed)',
   'top.task.chips': 'native/project-task.js — toolbar: a menu titled with its branch or PR, each chip a link to the platform (model/project-task.js taskChips)',

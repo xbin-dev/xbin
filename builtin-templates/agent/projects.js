@@ -54,6 +54,8 @@ import { projectOverview, cardAgent, TIPS } from './model/project-overview.js';
 import { stripTpl, foldTpl, agentLineTpl, cardTip } from './project-status.js';
 import { coordSecTpl, splitTpl, pageBar, onOverview } from './project-coord.js';
 import { needsStripTpl } from './project-needs.js';
+import { wikiTpl } from './project-wiki.js';
+import { WIKI_TIP } from './model/project-wiki.js';
 
 // keys(fn): Enter and Space on the element itself (not a control inside it) do what a click does —
 // a clickable card, entry or crumb, reached by Tab
@@ -134,11 +136,11 @@ function topTpl() {
     ${p.tab === 'board' ? foldTpl(projectOverview(ctx.app)) : nothing}${tabsTpl(p, pv, true)}`;
 }
 
-// the tabs: Board (the overview's: Overview), Activity (not a team definition's), Settings
+// the tabs: Board (the overview's: Overview), Activity and Wiki (not a team definition's), Settings
 function tabsTpl(p, pv, ov) {
   const tab = (key, word, tip) => html`<button class="btn ghost btnsm" role="tab" data-tab=${key} aria-selected=${p.tab === key ? 'true' : 'false'}
     data-tip=${ov ? tip : nothing} @click=${() => p.showTab(key)}>${word}</button>`;
-  return html`<span class="ptabs" role="tablist">${tab('board', ov ? 'Overview' : 'Board', TIPS.overview)}${pv.kind !== 'team' ? tab('events', 'Activity', TIPS.activity) : nothing}${tab('settings', 'Settings', TIPS.settings)}</span>`;
+  return html`<span class="ptabs" role="tablist">${tab('board', ov ? 'Overview' : 'Board', TIPS.overview)}${pv.kind !== 'team' ? tab('events', 'Activity', TIPS.activity) : nothing}${pv.kind !== 'team' ? tab('wiki', 'Wiki', WIKI_TIP) : nothing}${tab('settings', 'Settings', TIPS.settings)}</span>`;
 }
 
 // --- the page --------------------------------------------------------------------------
@@ -195,7 +197,7 @@ function projectTpl(p, pv) {
       <span style="flex:1"></span>
       ${tabsTpl(p, pv, false)}</div>
     ${errTpl(p)}
-    ${p.tab === 'settings' ? settingsTpl(p, pv) : p.tab === 'events' && pv.kind !== 'team' ? feedTpl(p, pv) : boardPageTpl(p, pv, c)}
+    ${p.tab === 'settings' ? settingsTpl(p, pv) : p.tab === 'events' && pv.kind !== 'team' ? feedTpl(p, pv) : p.tab === 'wiki' && pv.kind !== 'team' ? wikiTpl(p, pv) : boardPageTpl(p, pv, c)}
   </div>`;
 }
 
@@ -215,7 +217,7 @@ function boardPageTpl(p, pv, c) {
 // overviewTpl: a project's page as its overview (D214) — the strip, the board, the bar, the coordinator;
 // its Activity and Settings tabs as before, their tabs in the top bar
 function overviewTpl(p, pv, c) {
-  if (p.tab !== 'board') return html`<div class="autos-page projs-page wide povtab">${errTpl(p)}${p.tab === 'settings' ? settingsTpl(p, pv) : feedTpl(p, pv)}</div>`;
+  if (p.tab !== 'board') return html`<div class="autos-page projs-page wide povtab">${errTpl(p)}${p.tab === 'settings' ? settingsTpl(p, pv) : p.tab === 'wiki' ? wikiTpl(p, pv) : feedTpl(p, pv)}</div>`;
   const o = projectOverview(ctx.app);
   const it = o.ensure(pv.id);
   return html`<div class="autos-page projs-page pov" id="pov">
