@@ -59,8 +59,9 @@ func dreamTexts(d *DB, pid, runID int64) []string {
 }
 
 // When a task dreams: the first time its turn rests with its PR open (the
-// PR opening while it rests counts), never twice; at its end only after 3
-// turns since; never with policy dream off.
+// PR opening while it rests counts: the pr.opened event), never twice — and
+// not a task from before dreaming came in (no turn of it ended since); at
+// its end only after 3 turns since; never with policy dream off.
 func TestDreamTriggers(t *testing.T) {
 	fx := newWikiFix(t)
 	d := fx.ag.db
@@ -68,12 +69,20 @@ func TestDreamTriggers(t *testing.T) {
 	fx.ag.eng.Shutdown(2 * time.Second) // the store only: nothing delivers what is queued
 	p, _ := d.getProject(fx.p.ID)
 	k := openPRs(t, d, fx.k)
-	_ = d.Tx(func(tx *DB) error { dreamRefs(tx, p, k); return nil })
+	_ = d.Tx(func(tx *DB) error { dreamOnPR(tx, p, k); return nil })
+	if q := dreamTexts(d, p.ID, fx.task.ID); len(q) != 0 {
+		t.Fatalf("a task with no turn since dreaming came in dreams: %q", q)
+	}
+	_ = d.Tx(func(tx *DB) error { tx.putDream(k, dreamRow{Turns: 1}); return nil })
+	_ = d.Tx(func(tx *DB) error {
+		addProjectEvent(tx, p.ID, k.N, pevPROpened, map[string]any{"text": "opened PR #7 on acme/web"}, false, "")
+		return nil
+	})
 	q := dreamTexts(d, p.ID, fx.task.ID)
 	if len(q) != 1 || !strings.Contains(q[0], "improve the project wiki") || !strings.Contains(q[0], "wiki_write") {
 		t.Fatalf("the PR's dream round: %q", q)
 	}
-	_ = d.Tx(func(tx *DB) error { dreamRefs(tx, p, k); dreamTurnEnd(tx, fx.task, turnAnswered, "", ""); return nil })
+	_ = d.Tx(func(tx *DB) error { dreamOnPR(tx, p, k); dreamTurnEnd(tx, fx.task, turnAnswered, "", ""); return nil })
 	if n := len(dreamTexts(d, p.ID, fx.task.ID)); n != 1 {
 		t.Fatalf("dream rounds after a second rest: %d", n)
 	}
@@ -110,7 +119,7 @@ func TestDreamTriggers(t *testing.T) {
 	_, _ = d.q.Exec(`UPDATE projects SET policy=? WHERE id=?`, `{"dream":false}`, p.ID)
 	p, _ = d.getProject(p.ID)
 	k2 = openPRs(t, d, k2)
-	_ = d.Tx(func(tx *DB) error { dreamRefs(tx, p, k2); return nil })
+	_ = d.Tx(func(tx *DB) error { tx.putDream(k2, dreamRow{Turns: 1}); dreamOnPR(tx, p, k2); return nil })
 	if q := dreamTexts(d, p.ID, k2.RunID); len(q) != 0 {
 		t.Fatalf("a dream round with policy dream off: %q", q)
 	}
@@ -240,7 +249,7 @@ func TestDreamIngestHarness(t *testing.T) {
 	}
 	t.Cleanup(func() { dreamFollowUpFor = oldFollow })
 	k = openPRs(t, d, k)
-	_ = d.Tx(func(tx *DB) error { dreamRefs(tx, p, k); return nil })
+	_ = d.Tx(func(tx *DB) error { dreamOnPR(tx, p, k); return nil })
 	t.Cleanup(func() {
 		if t.Failed() {
 			t.Logf("jobs: %s", jobsDump(d, p.ID))

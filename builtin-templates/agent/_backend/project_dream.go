@@ -39,7 +39,7 @@ const (
 func init() {
 	projectJobKinds[pjWikiIngest] = jobWikiIngest
 	turnEndHooks = append(turnEndHooks, dreamTurnEnd)
-	projectRefsHooks = append(projectRefsHooks, dreamRefs)
+	projectEventHooks = append(projectEventHooks, dreamPROpened)
 	taskChangedHooks = append(taskChangedHooks, dreamTaskChanged)
 }
 
@@ -105,10 +105,35 @@ func dreamTurnEnd(t *DB, run *Run, why, outcome, result string) {
 	}
 }
 
-// dreamRefs (projectRefsHooks): a PR opened while the task rests — the
-// usual way: auto-PR after its turn.
-func dreamRefs(t *DB, p *Project, k *ProjectTask) {
-	if k.RunID == 0 || !t.features {
+// dreamPROpened (projectEventHooks): a pull request opened while the task
+// rests — the usual way: auto-PR after its turn. The event is written
+// before the task's row says phase pr: it looks after the commit.
+func dreamPROpened(t *DB, p *Project, ev *ProjectEvent) {
+	if ev.Kind != pevPROpened || ev.N <= 0 || !t.features {
+		return
+	}
+	pid, n := p.ID, ev.N
+	t.AfterCommit(func() {
+		ag := projAg()
+		if ag == nil {
+			return
+		}
+		_ = ag.db.Tx(func(t *DB) error {
+			p, err := t.getProject(pid)
+			if err != nil {
+				return nil
+			}
+			if k, err := t.taskByN(pid, n); err == nil {
+				dreamOnPR(t, p, k)
+			}
+			return nil
+		})
+	})
+}
+
+// dreamOnPR: task k's PR is open — it dreams if its turn rests.
+func dreamOnPR(t *DB, p *Project, k *ProjectTask) {
+	if k.RunID == 0 {
 		return
 	}
 	if run, err := t.getRun(k.RunID); err == nil {
@@ -139,7 +164,9 @@ func dreamMaybe(t *DB, p *Project, k *ProjectTask, run *Run, end bool) {
 		}
 		r.EndDone = true
 	} else {
-		if r.PRDone || k.Phase != phasePR || !resting(run.Status) || run.Status == statusCanceled || !openPR(k) {
+		// a turn of it ended since dreaming came in (its row counts them):
+		// a task from before has none, and dreams when it works again
+		if r.PRDone || r.Turns == 0 || k.Phase != phasePR || !resting(run.Status) || run.Status == statusCanceled || !openPR(k) {
 			return
 		}
 		r.PRDone = true

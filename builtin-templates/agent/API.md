@@ -4656,7 +4656,8 @@ with the copy it has.
 so it gets a **dream round**: once, the first time its turn rests with its
 pull request open (the PR opening while it rests counts), and once more
 when it ends (merged or closed) if it worked 3 turns or more since and its
-conversation (a coding agent's session) is still there. `policy.dream`
+conversation (a coding agent's session) is still there. Turns are counted
+from this build on: a task from before dreams once it has worked a turn. `policy.dream`
 (default on) turns it off. The round is a platform input — source
 `dream`, never a person's nor the coordinator's — through the project's
 queue with `hold_park`, delivered only when the run rests: it never
