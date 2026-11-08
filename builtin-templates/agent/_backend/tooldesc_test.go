@@ -102,7 +102,7 @@ func TestToolDescriptionFirstSentences(t *testing.T) {
 		"wiki_write":   "Create a page of this project's wiki, or replace a whole page — Markdown, [[slug]] links to other pages, at most 16 KB.",
 		"wiki_edit":    "Replace an exact piece of a wiki page's text — old must appear in the page exactly once.",
 		"wiki_archive": "Archive a wiki page that is wrong, merged into another or no longer useful — it leaves search and the list; its history stays.",
-		"git":          "Run a read-only git command in the code you are reading: log, show, diff, blame, grep, ls-files or status — argv only, no shell.",
+		"git":          "Run a read-only git command in the code you are reading: log, show, diff, blame, grep or ls-files — argv only, no shell.",
 	}
 	gotWiki := map[string]string{"git": gitSpec().Function.Description}
 	for _, s := range wikiToolSpecs(true) {

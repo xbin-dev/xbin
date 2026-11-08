@@ -22,6 +22,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,6 +32,8 @@ import (
 	"strings"
 	"time"
 )
+
+func init() { turnEndHooks = append(turnEndHooks, researchEnded) }
 
 // CodeReadBinding is Config.CodeRead: a research subagent's read-only reach
 // into a project's code. Set when it is made, never changed.
@@ -41,6 +45,10 @@ type CodeReadBinding struct {
 	Repo    string   `json:"repo,omitempty"`  // owner/name, when it works in one repo
 	Task    int64    `json:"task,omitempty"`  // a task's worktree
 	Heads   []string `json:"heads,omitempty"` // "<repo> <sha>": what its checkouts are at
+	// Checkout is its own directory of research checkouts (removed when it
+	// answers), Bases the base repos they are worktrees of.
+	Checkout string   `json:"checkout,omitempty"`
+	Bases    []string `json:"bases,omitempty"`
 }
 
 const (
@@ -212,24 +220,28 @@ You have 10 minutes; after that your tools stop answering.`)
 
 // --- where it reads ------------------------------------------------------------------------------
 
-// researchScript lays out (or refreshes) each base repo's research checkout
-// W_i — a detached worktree of B_i at origin's DEF_i — and prints
-// AT <i> <sha>, or SKIP <i> <why>; then ROOT <dir> for each R_j, resolved.
-const researchScript = `i=0
+// researchScript lays out a research subagent's own checkouts: each W_i a
+// detached worktree of base B_i at origin's DEF_i (W_i empty: B_i read as
+// it stands, its HEAD said), and prints AT <i> <sha> or SKIP <i> <why>,
+// then ROOT <dir> for each R_j, resolved. First it removes the research
+// directories older than half an hour (RD): their subagents' time is long
+// over, and one that lost its own removal goes with them.
+const researchScript = `if [ -d "$RD" ]; then
+  find "$RD" -mindepth 1 -maxdepth 1 -type d -mmin +30 2>/dev/null | while read -r old; do
+    rm -rf -- "$old"
+  done
+  i=0
+  while [ "$i" -lt "$N" ]; do eval "B=\${B_$i}"; [ -e "$B/HEAD" ] && git -C "$B" worktree prune 2>/dev/null; i=$((i+1)); done
+fi
+i=0
 while [ "$i" -lt "$N" ]; do
   eval "B=\${B_$i}; W=\${W_$i}; DEF=\${DEF_$i}"
   if [ ! -e "$B/HEAD" ] && [ ! -e "$B/.git" ]; then echo "SKIP $i not-cloned"; i=$((i+1)); continue; fi
   if [ -z "$W" ]; then echo "AT $i $(git -C "$B" rev-parse HEAD 2>/dev/null || echo -)"; i=$((i+1)); continue; fi
   rev=$(git -C "$B" rev-parse -q --verify "refs/remotes/origin/$DEF^{commit}" || true)
   if [ -z "$rev" ]; then echo "SKIP $i no-ref"; i=$((i+1)); continue; fi
-  if [ -e "$W/.git" ]; then
-    git -C "$W" checkout -q --detach --force "$rev"
-    git -C "$W" clean -qfdx
-  else
-    rm -rf -- "$W"
-    mkdir -p "$(dirname "$W")"
-    git -C "$B" worktree add -q --detach --force "$W" "$rev"
-  fi
+  mkdir -p "$(dirname "$W")"
+  git -C "$B" worktree add -q --detach "$W" "$rev"
   echo "AT $i $rev"
   i=$((i+1))
 done
@@ -239,6 +251,14 @@ while [ "$j" -lt "$NR" ]; do
   if [ -e "$R" ]; then echo "ROOT $(realpath -e -- "$R" 2>/dev/null || readlink -f -- "$R")"; fi
   j=$((j+1))
 done
+`
+
+// researchRemoveScript removes a research subagent's checkouts (C) and
+// prunes their bases' worktree lists (B_i).
+const researchRemoveScript = `rm -rf -- "$C"
+i=0
+while [ "$i" -lt "$N" ]; do eval "B=\${B_$i}"; [ -e "$B/HEAD" ] && git -C "$B" worktree prune 2>/dev/null; i=$((i+1)); done
+true
 `
 
 // researchPlace is a research subagent's binding: task n's worktree (its
@@ -304,7 +324,10 @@ func researchPlace(ctx context.Context, d *DB, p *Project, repo string, n int64)
 			env[fmt.Sprintf("W_%d", i)] = ""
 		}
 	} else {
-		env["N"] = strconv.Itoa(len(pick))
+		// its own checkouts: research of two people's coordinators never
+		// shares one, nor resets it under the other
+		mine := researchDir(p) + "/" + researchToken()
+		env["N"], env["RD"] = strconv.Itoa(len(pick)), researchDir(p)
 		for i, r := range pick {
 			env[fmt.Sprintf("B_%d", i)] = basePath(p, r)
 			env[fmt.Sprintf("DEF_%d", i)] = r.DefaultBranch
@@ -312,16 +335,17 @@ func researchPlace(ctx context.Context, d *DB, p *Project, repo string, n int64)
 				env[fmt.Sprintf("W_%d", i)] = "" // a person's own clone: read as it stands
 				roots = append(roots, r.BasePath)
 			} else {
-				env[fmt.Sprintf("W_%d", i)] = researchDir(p) + "/" + r.Slug
+				env[fmt.Sprintf("W_%d", i)] = mine + "/" + r.Slug
+				b.Checkout, b.Bases = mine, append(b.Bases, basePath(p, r))
 			}
 		}
 		switch {
 		case len(pick) > 1:
-			b.Cwd = researchDir(p)
+			b.Cwd = mine
 		case pick[0].Mode == repoAdopted && pick[0].BasePath != "":
 			b.Cwd = pick[0].BasePath
 		default:
-			b.Cwd = researchDir(p) + "/" + pick[0].Slug
+			b.Cwd = mine + "/" + pick[0].Slug
 		}
 	}
 	env["NR"] = strconv.Itoa(len(roots))
@@ -361,15 +385,64 @@ func researchPlace(ctx context.Context, d *DB, p *Project, repo string, n int64)
 	return b, nil
 }
 
-// researchDir is where a project's research checkouts live.
+// researchDir is where a project's research checkouts live, a directory
+// per research subagent.
 func researchDir(p *Project) string { return p.Dir + "/.xbin/research" }
+
+// researchToken names one research subagent's directory of checkouts.
+func researchToken() string {
+	var b [6]byte
+	_, _ = rand.Read(b[:])
+	return "r-" + hex.EncodeToString(b[:])
+}
+
+// researchEnded (turnEndHooks): a research subagent answered — its own
+// checkouts go (in the background, as the project's owner: best effort;
+// the next research sweeps what is left).
+func researchEnded(t *DB, run *Run, why, outcome, result string) {
+	if run.ParentID == 0 || run.Origin != originProject || !t.features {
+		return
+	}
+	cfg, err := t.runConfig(run.ID)
+	if err != nil || cfg.CodeRead == nil || cfg.CodeRead.Checkout == "" || !strings.HasPrefix(cfg.CodeRead.Checkout, "/") {
+		return
+	}
+	b := *cfg.CodeRead
+	t.AfterCommit(func() { go researchRemove(b) })
+}
+
+// researchRemove removes binding b's checkouts.
+func researchRemove(b CodeReadBinding) {
+	ag := projAg()
+	if ag == nil {
+		return
+	}
+	p, err := ag.db.getProject(b.Project)
+	if err != nil || p.Dir == "" || !strings.HasPrefix(b.Checkout, researchDir(p)+"/r-") {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	s, err := openWsbx(ctx, p, b.Ref)
+	if err != nil {
+		return
+	}
+	env := map[string]string{"C": b.Checkout, "N": strconv.Itoa(len(b.Bases))}
+	for i, base := range b.Bases {
+		env[fmt.Sprintf("B_%d", i)] = base
+	}
+	if _, err := s.must(ctx, "removing a research checkout", researchRemoveScript, env, "", time.Minute); err != nil {
+		logf("project %d: removing research checkout %s: %v", p.ID, b.Checkout, err)
+	}
+}
 
 // --- its tools -------------------------------------------------------------------------------------
 
 func gitSpec() toolSpec {
 	return toolSpec{Type: "function", Function: funcDef{Name: "git",
-		Description: "Run a read-only git command in the code you are reading: log, show, diff, blame, grep, ls-files or status — argv only, no shell. " +
-			"Options that write files, run programs or leave the repository (-c, -C, --output, --no-index, --exec, …) are refused.",
+		Description: "Run a read-only git command in the code you are reading: log, show, diff, blame, grep or ls-files — argv only, no shell. " +
+			"Each subcommand takes its read-only options by exact name, one flag per argument, a long option's value attached (--date=iso); paths stay relative to the repository. " +
+			"diff compares commits (A B, A..B) or the index (--cached); blame names its revision ([\"blame\", \"HEAD\", \"--\", \"file\"]).",
 		Parameters: obj([]string{"args"}, map[string]any{
 			"args": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1,
 				"description": "the subcommand and its arguments, e.g. [\"log\", \"--oneline\", \"-20\", \"--\", \"src/\"]"},
@@ -443,6 +516,13 @@ func (ag *Agent) runCodeReadTool(ctx context.Context, run *Run, cfg Config, name
 	var out string
 	switch name {
 	case "read", "ls", "glob", "grep":
+		// a glob is matched under path: one that is absolute, at a home or climbing out would move it
+		if why := codeReadPattern(name+"'s pattern", str(args["pattern"])); name == "glob" && why != "" {
+			return "", errors.New(why)
+		}
+		if why := codeReadPattern("glob", str(args["glob"])); name == "grep" && why != "" {
+			return "", errors.New(why)
+		}
 		key := "path"
 		p, err := resolve(str(args[key]), name != "read")
 		if err != nil {
@@ -471,7 +551,7 @@ func (ag *Agent) runCodeReadTool(ctx context.Context, run *Run, cfg Config, name
 		if err != nil {
 			return "", err
 		}
-		if out, err = codeReadGit(ctx, use, dir, args["args"]); err != nil {
+		if out, err = codeReadGit(ctx, use, dir, b.Roots, args["args"]); err != nil {
 			return "", err
 		}
 	}
@@ -542,103 +622,4 @@ func inRoots(p string, roots []string) bool {
 		}
 	}
 	return false
-}
-
-// --- git, read-only --------------------------------------------------------------------------------
-
-var gitReadSubs = map[string][]string{ // the subcommands, and the flags each is given first
-	"log": {"--no-ext-diff", "--no-textconv"}, "show": {"--no-ext-diff", "--no-textconv"}, "diff": {"--no-ext-diff", "--no-textconv"},
-	"blame": {"--no-textconv"}, "grep": {"--no-textconv"}, "ls-files": nil, "status": nil,
-}
-
-// gitLongRefused are long options a read-only git never takes — nor any
-// abbreviation of one (git accepts unambiguous prefixes).
-var gitLongRefused = []string{"--git-dir", "--work-tree", "--output", "--output-directory", "--exec", "--upload-pack", "--receive-pack",
-	"--ext-diff", "--textconv", "--no-index", "--open-files-in-pager", "--contents", "--exclude-from", "--ignore-revs-file",
-	"--config", "--config-env", "--namespace", "--super-prefix", "--paginate"}
-
-// gitArgsRefused says why git's argv is refused ("" = it runs).
-func gitArgsRefused(argv []string) string {
-	if len(argv) == 0 {
-		return "args: the subcommand first, e.g. [\"log\", \"--oneline\", \"-20\"]"
-	}
-	sub := argv[0]
-	if _, ok := gitReadSubs[sub]; !ok {
-		return fmt.Sprintf("git %s isn't read-only here: log, show, diff, blame, grep, ls-files or status", clip(sub, 40))
-	}
-	for _, a := range argv[1:] {
-		if a == "--" {
-			break // pathspecs follow
-		}
-		switch {
-		case strings.ContainsRune(a, 0) || len(a) > 4096:
-			return "an argument is malformed"
-		case strings.HasPrefix(a, "--"):
-			name, _, _ := strings.Cut(a, "=")
-			for _, f := range gitLongRefused {
-				if strings.HasPrefix(f, name) && len(name) > 3 || strings.HasPrefix(name, f) {
-					return fmt.Sprintf("%s is refused: research's git only reads, inside the repository", clip(name, 60))
-				}
-			}
-		case strings.HasPrefix(a, "-") && len(a) > 1:
-			flags := a[1:]
-			switch {
-			case flags[0] == 'c' || flags[0] == 'C':
-				return fmt.Sprintf("-%c is refused: research's git takes no config and no other directory", flags[0])
-			case sub == "grep" && strings.ContainsAny(flags, "Of"):
-				return "git grep's -O (open in a pager) and -f (patterns from a file) are refused"
-			case sub == "ls-files" && strings.ContainsRune(flags, 'X'):
-				return "git ls-files -X (excludes from a file) is refused"
-			case sub == "blame" && strings.ContainsRune(flags, 'S'):
-				return "git blame -S (revisions from a file) is refused"
-			}
-		}
-	}
-	return ""
-}
-
-// codeReadGit runs one read-only git command in dir, argv only.
-func codeReadGit(ctx context.Context, use *sbxUse, dir string, raw any) (string, error) {
-	var argv []string
-	if list, ok := raw.([]any); ok {
-		for _, x := range list {
-			s, ok := x.(string)
-			if !ok {
-				return "", errors.New("args: strings only")
-			}
-			argv = append(argv, s)
-		}
-	}
-	if why := gitArgsRefused(argv); why != "" {
-		return "", errors.New(why)
-	}
-	full := append([]string{"git", "--no-pager", "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
-		argv[0]}, gitReadSubs[argv[0]]...)
-	full = append(full, argv[1:]...)
-	res, err := use.Conn.Run(ctx, use.ID, sbxRunReq{Argv: full, Cwd: dir, Merge: true, TimeoutMs: runTimeout, MaxOutput: 256 << 10,
-		Env: map[string]string{"GIT_PAGER": "cat", "PAGER": "cat", "GIT_CONFIG_NOSYSTEM": "1", "GIT_TERMINAL_PROMPT": "0"}})
-	if err != nil {
-		return "", err
-	}
-	out := ""
-	if res.Output != nil {
-		out = res.Output.Head
-		if res.Output.Elided > 0 || res.Output.Tail != "" {
-			out = clip(out, 10<<10) + fmt.Sprintf("\n… (%d bytes left out) …\n", res.Output.Elided) + res.Output.Tail
-		}
-	}
-	out = clip(out, 14<<10)
-	code := -1
-	if res.ExitCode != nil {
-		code = *res.ExitCode
-	}
-	switch {
-	case res.TimedOut:
-		return out + "\n[timed out]", nil
-	case code != 0:
-		return fmt.Sprintf("%s\n[exit %d]", strings.TrimRight(out, "\n"), code), nil
-	case strings.TrimSpace(out) == "":
-		return "(no output)", nil
-	}
-	return out, nil
 }

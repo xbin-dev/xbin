@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,21 +11,49 @@ import (
 	"github.com/xbin-dev/xbin/sdk/acp/acptest"
 )
 
-// research's git takes read-only subcommands and refuses what writes files,
-// runs programs or leaves the repository — abbreviations included.
+// research's git: a subcommand's read-only options by exact name, one flag
+// an argument, values that can't pass for options; revisions and paths
+// inside the repository; diff between commits or against the index, blame
+// at a revision. The review's bypasses: a pattern of "--" that let the
+// option check stop early, -O and --open-files-in-pager after it, an
+// outside file to diff (git's implicit --no-index), abbreviations.
 func TestResearchGitArgs(t *testing.T) {
-	for _, bad := range [][]string{{"log", "-c", "x"}, {"log", "-C"}, {"log", "--output=/tmp/x"}, {"log", "--out=/tmp/x"},
-		{"diff", "--no-index", "/etc/passwd", "x"}, {"grep", "-O", "x"}, {"grep", "-iO", "x"}, {"grep", "-f", "/etc/passwd"},
-		{"push"}, {"config", "x"}, {"-c", "x=y", "log"}, {"blame", "--contents", "/etc/passwd", "x"}, {"show", "--ext-diff"},
-		{"show", "--textconv"}, {"log", "--exec=sh"}, {"ls-files", "-X", "/etc/passwd"}, {"diff", "--git-dir=/x"}, {}} {
-		if gitArgsRefused(bad) == "" {
+	roots := []string{"/w/web"}
+	dir := "/w/web/.xbin/research/r-1/web"
+	for _, bad := range [][]string{
+		{"grep", "-e", "--", "--open-files-in-pager=touch ../pwned;true"},
+		{"grep", "-e", "--", "-e", "web", "--open-files-in-pager=touch /x/pwned;true"},
+		{"grep", "-e", "--", "-Otouch ../pwned;true"},
+		{"grep", "-Otouch", "x"}, {"grep", "-O"}, {"grep", "--open-files-in-pager=x"}, {"grep", "--open=x"}, {"grep", "-iO", "x"},
+		{"grep", "-f", "/etc/passwd"}, {"grep", "-e", "-Ox"}, {"grep", "--no-index", "x"},
+		{"diff", "../outside.txt", "/dev/null"}, {"diff", "/home/user/.git-credentials", "/dev/null"}, {"diff", "--no-index", "a", "b"},
+		{"diff"}, {"diff", "HEAD"}, {"diff", "--", "README.md"}, {"diff", "HEAD", "HEAD~1", "--", "/etc/passwd"},
+		{"log", "-c", "x"}, {"log", "-C"}, {"log", "--output=/tmp/x"}, {"log", "--out=/tmp/x"}, {"log", "--exec=sh"},
+		{"log", "--show-signature"}, {"log", "--format", "x"}, {"log", "--", "../../../../.."}, {"grep", "-e", "--"}, {"log", ":(top)x"}, {"show", ":/fix"},
+		{"show", "~/x"}, {"show", "--ext-diff"}, {"show", "--textconv"}, {"push"}, {"config", "x"}, {"status"}, {"-c", "x=y", "log"},
+		{"blame", "--contents", "/etc/passwd", "x"}, {"blame", "README.md"}, {"blame", "-S", "revs", "HEAD", "--", "x"},
+		{"ls-files", "-X", "/etc/passwd"}, {"ls-files", "-m"}, {"log", "-in"}, {}} {
+		if _, err := gitArgv(bad, dir, roots); err == nil {
 			t.Errorf("git %q was taken", bad)
 		}
 	}
-	for _, ok := range [][]string{{"log", "--oneline", "-5"}, {"show", "HEAD:README.md"}, {"grep", "-n", "hello"}, {"ls-files"},
-		{"status", "--short"}, {"log", "--", "--output"}, {"diff", "--stat", "HEAD~1"}, {"blame", "-L", "1,5", "README.md"}, {"log", "--no-textconv"}} {
-		if why := gitArgsRefused(ok); why != "" {
-			t.Errorf("git %q was refused: %s", ok, why)
+	for _, ok := range [][]string{{"log", "--oneline", "-5"}, {"log", "-n", "5", "--", "src/"}, {"log", "--date=iso", "--format=%h %s"},
+		{"show", "HEAD:README.md"}, {"show", "--stat", "HEAD~2"}, {"grep", "-n", "hello"}, {"grep", "-n", "-e-x", "HEAD", "--", "src"},
+		{"grep", "-e--open-files-in-pager=x"}, {"log", "--", "../.."}, {"ls-files", "--others"}, {"diff", "--stat", "HEAD~1", "HEAD"}, {"diff", "HEAD~3..HEAD"}, {"diff", "--cached"},
+		{"blame", "-L", "1,5", "HEAD", "--", "README.md"}, {"log", "-L1,5:README.md"}} {
+		argv, err := gitArgv(ok, dir, roots)
+		if err != nil {
+			t.Errorf("git %q was refused: %v", ok, err)
+			continue
+		}
+		line := strings.Join(argv, " ")
+		for _, want := range []string{"--no-pager", "core.fsmonitor=false", "core.hooksPath=/dev/null", "core.attributesFile=/dev/null", "log.showSignature=false"} {
+			if !strings.Contains(line, want) {
+				t.Errorf("git %q runs without %s: %s", ok, want, line)
+			}
+		}
+		if (ok[0] == "log" || ok[0] == "show" || ok[0] == "diff") && !strings.Contains(line, "--no-ext-diff --no-textconv") {
+			t.Errorf("git %q runs with external diffs or textconv: %s", ok, line)
 		}
 	}
 }
@@ -33,12 +62,21 @@ func TestResearchGitArgs(t *testing.T) {
 // lane that reads the project's code (a checkout of origin's default
 // branch) and writes the wiki — and nothing else, whatever it calls:
 // write, edit and bash are refused, git's -c and --output too, a path
-// outside the project's directory, the web, subagents.
+// outside the project's directory, the web, subagents — and the review's
+// escapes: git grep opening "files in a pager" (a program) behind a
+// pattern of "--", git diff of a file outside (an implicit --no-index), a
+// glob or grep's glob reaching outside. Its own checkout goes when it
+// answers.
 func TestResearchReadOnly(t *testing.T) {
 	fx := newProjFix(t)
 	p := fx.newProject(t, asAlice, nil)
 	fx.waitRepoReady(t, p.ID)
 	pwned := filepath.Join(t.TempDir(), "pwned")
+	outside := filepath.Join(t.TempDir(), "secret.txt")
+	if err := os.WriteFile(outside, []byte("TOPSECRET-OUTSIDE-ROOTS\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	jsonArgs := func(a ...string) string { b, _ := json.Marshal(a); return string(b) }
 	f := fakeOf(fx.ag)
 	isResearch := func(r LLMRequest) bool {
 		return len(r.Msgs) > 0 && strings.Contains(asString(r.Msgs[0].Content), "research subagent of the project")
@@ -56,6 +94,12 @@ func TestResearchReadOnly(t *testing.T) {
 		tc("c10", "subagent_spawn", `{"task":"x"}`),
 		tc("c11", "wiki_write", `{"slug":"readme","body":"README.md is one heading: `+"`# web`"+`.","note":"read it"}`),
 		tc("c12", "grep", `{"pattern":"web"}`),
+		tc("e1", "git", `{"args":`+jsonArgs("grep", "-e", "--", "-e", "web", "--open-files-in-pager=touch "+pwned+";true")+`}`),
+		tc("e1b", "git", `{"args":`+jsonArgs("grep", "-e", "--", "-Otouch "+pwned+";true")+`}`),
+		tc("e2", "git", `{"args":`+jsonArgs("diff", outside, "/dev/null")+`}`),
+		tc("e3", "glob", fmt.Sprintf(`{"pattern":"%s/*.txt"}`, filepath.Dir(outside))),
+		tc("e4", "grep", fmt.Sprintf(`{"pattern":"TOPSECRET","glob":"../../../../%s"}`, filepath.Base(outside))),
+		tc("e5", "glob", `{"pattern":"../../**/*.txt"}`),
 	)).once()
 	f.on(func(r LLMRequest) bool { return isResearch(r) && lastIs("tool", "")(r) }, say("README.md says: # web")).once()
 	f.on(func(r LLMRequest) bool {
@@ -89,8 +133,9 @@ func TestResearchReadOnly(t *testing.T) {
 		t.Fatalf("the child's config: %+v (class %s, parent's %s)", ccfg.CodeRead, classOf(ccfg).ID, classOf(pcfg).ID)
 	}
 	pp, _ := fx.ag.db.getProject(p.ID)
-	if want := researchDir(pp) + "/web"; ccfg.CodeRead.Cwd != want {
-		t.Fatalf("its cwd %q, want %q", ccfg.CodeRead.Cwd, want)
+	if !strings.HasPrefix(ccfg.CodeRead.Cwd, researchDir(pp)+"/r-") || !strings.HasSuffix(ccfg.CodeRead.Cwd, "/web") ||
+		ccfg.CodeRead.Checkout == "" || !strings.HasPrefix(ccfg.CodeRead.Cwd, ccfg.CodeRead.Checkout+"/") {
+		t.Fatalf("its cwd %q (its own checkout %q)", ccfg.CodeRead.Cwd, ccfg.CodeRead.Checkout)
 	}
 	got := runSpecNames(ccfg, child)
 	for _, n := range []string{"bash", "write", "edit", "web_fetch", "web_search", "subagent_spawn", "research", "task_create", "xbin_call"} {
@@ -111,21 +156,29 @@ func TestResearchReadOnly(t *testing.T) {
 		}
 	}
 	for id, want := range map[string]string{"c1": "not available to a research subagent", "c2": "not available to a research subagent",
-		"c3": "not available to a research subagent", "c4": "refused", "c5": "refused", "c6": "# web", "c7": "first",
-		"c8": "outside the project's code", "c9": "error", "c10": "error", "c11": "created readme", "c12": "README.md"} {
+		"c3": "not available to a research subagent", "c4": "isn't one of research's read-only options", "c5": "isn't one of research's read-only options", "c6": "# web", "c7": "first",
+		"c8": "outside the project's code", "c9": "error", "c10": "error", "c11": "created readme", "c12": "README.md",
+		"e1": "-e needs a value", "e1b": "-e needs a value", "e2": "absolute path",
+		"e3": "absolute or home pattern", "e4": ".. isn't taken", "e5": ".. isn't taken"} {
 		if !strings.Contains(results[id], want) {
 			t.Errorf("%s: %q, want %q", id, results[id], want)
 		}
 	}
 	if _, err := os.Stat(pwned); err == nil {
-		t.Fatal("git wrote a file outside the repository")
+		t.Fatal("git wrote a file outside the repository, or ran a program")
+	}
+	for id, r := range results {
+		if strings.Contains(r, "TOPSECRET-OUTSIDE") || (id != "e2" && strings.Contains(r, "secret.txt")) {
+			t.Errorf("%s read outside the roots: %q", id, clip(r, 300))
+		}
 	}
 	if _, err := os.Stat(filepath.Join(ccfg.CodeRead.Cwd, "x.txt")); err == nil {
 		t.Fatal("the child wrote a file")
 	}
-	if b, _ := os.ReadFile(filepath.Join(ccfg.CodeRead.Cwd, "README.md")); string(b) != "# web\n" {
-		t.Fatalf("the checkout changed: %q", b)
-	}
+	hwait(t, "its own checkout removed after it answered", func() bool {
+		_, err := os.Stat(ccfg.CodeRead.Checkout)
+		return os.IsNotExist(err)
+	})
 	pg, err := fx.ag.db.wikiPage(p.ID, "readme")
 	if err != nil || !strings.HasPrefix(pg.UpdatedBy, fmt.Sprintf("research #%d", child.ID)) {
 		t.Fatalf("the child's page: %+v %v", pg, err)
