@@ -124,6 +124,9 @@ function gpuInventory() {
   return _gpuInv;
 }
 
+// a page's fragment as the frame keeps it: no '#', no control characters, 2 KiB at most
+const cleanHash = (h) => String(h ?? '').replace(/^#/, '').replace(/[\u0000-\u001f\u007f]/g, '').slice(0, 2048);
+
 export class BxFrame extends LitElement {
   static properties = {
     src: { type: String },
@@ -238,6 +241,7 @@ export class BxFrame extends LitElement {
     const info = await infoFor(page);
     const next = await frameSource(page, info);
     next.url = deviceUrl(next.url, this.ownerDocument); // this browser's theme override, at the first frame (D188)
+    if (this._loc) next.url += `#${this._loc}`; // the place navigate() asked for before the frame existed (#7)
     if (page !== this._page) return; // the window switched deployments meanwhile
     // A changed token set (a cap:open-links grant approved or revoked) must
     // reach a FRESH element: the attribute applies only to the next
@@ -498,6 +502,7 @@ export class BxFrame extends LitElement {
     // every load, the first one too: a choice that changed while the frame
     // was loading is corrected (the relay; D184)
     this._postAppearance();
+    if (this._navWant != null) this._postNav(); // navigate() while the document loaded
     if (!this._inFlight) return; // the initial load, not a reload
     this._inFlight = false;
     const gen = (this._loadGen = (this._loadGen || 0) + 1);
@@ -521,6 +526,7 @@ export class BxFrame extends LitElement {
   willUpdate(changed) {
     if (changed.has('height')) this._syncAutoHeight();
     if (changed.has('src') && changed.get('src') !== undefined && this.tileMeta) this.tileMeta = null; // another tile: not its meta (D194)
+    if (changed.has('src') && changed.get('src') !== undefined) { this._loc = ''; this._navWant = null; } // nor its place (#7)
     if (changed.has('_sessions') || changed.has('_active')) ideSync(this); // every session a tab; the one in view shown (D202)
   }
   _syncAutoHeight() {
@@ -579,6 +585,19 @@ export class BxFrame extends LitElement {
       }));
       return;
     }
+    // xbin:location (#7): the page's fragment, kept as `hash` and announced
+    // as bx-location — the shell's URL names it (`at`)
+    if (d.type === 'xbin:location') {
+      if (typeof d.hash !== 'string') return;
+      const h = cleanHash(d.hash);
+      // the place it started on, reported before our navigate reached it: once
+      // more (only once — a page may well rewrite the fragment it was sent)
+      if (this._navWant != null && h !== this._navWant && this._navTries++ < 1) { this._postNav(); return; }
+      this._navWant = null;
+      this._loc = h;
+      this.dispatchEvent(new CustomEvent('bx-location', { bubbles: true, composed: true, detail: { path: this.src, hash: this._loc } }));
+      return;
+    }
     if (d.type === 'xbin:copy') { frameCopy(this, d); return; } // xbin.copy: this page writes the clipboard (D199, copy-rich.js)
 
     // Dialog / pop-out window requests — relayed to <bx-shell> with the VERIFIED
@@ -618,6 +637,25 @@ export class BxFrame extends LitElement {
   }
 
   _url() { return deviceUrl(`/c/${this._page}/`, this.ownerDocument); }
+
+  // hash: the page's fragment as it last reported it (xbin:location), without
+  // its '#'; '' for none or a page that doesn't say (#7).
+  get hash() { return this._loc ?? ''; }
+  // navigate(hash): send the page to that fragment — xbin:navigate, which
+  // xbin-client applies by replacing its location's fragment (no history
+  // entry of its own); before the frame exists, the first load carries it.
+  navigate(hash) {
+    const h = cleanHash(hash);
+    if (h === this.hash) return;
+    this._loc = h;
+    this._navWant = h;
+    this._navTries = 0;
+    if (this._frame) this._postNav();
+  }
+  _postNav() {
+    const w = this._iframe?.contentWindow;
+    if (w) w.postMessage({ type: 'xbin:navigate', hash: this._navWant ?? '' }, this._frame?.origin || '*');
+  }
 
   // ---- terminal window ----
 

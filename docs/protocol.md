@@ -7118,8 +7118,7 @@ as events, then continues) and the continuation supersedes the entry.
 
 Tiles are sandboxed opaque-origin iframes (ND8); a small `postMessage`
 protocol between a tile's `xbin-client.js` and its embedding `<bx-frame>`
-(relayed to `<bx-shell>`) backs the height, dialog, and pop-out-window
-features. Every message is `{ type: "xbin:…", … }` and is only honored from
+(relayed to `<bx-shell>`) backs what follows. Every message is `{ type: "xbin:…", … }` and is only honored from
 the frame's *own* iframe (`event.source` match) — the sender window is the
 verified component identity. Because an opaque origin matches no origin
 string, `targetOrigin` is `*` in both directions; confidentiality relies on
@@ -7135,6 +7134,7 @@ tile → frame   xbin:meta     {meta: {title?, icon?, badge?}}  the page's title
 tile → parent  xbin:scroll-focus {}                  the pointer entered this document (cosmetic)
 tile → frame   xbin:contextmenu {x, y, selection, html} a right-click: the shell's tile menu (Copy first with a selection)
 tile → frame   xbin:copy     {id, text, html}        copy to the clipboard, text and HTML (D199)
+tile ⇄ frame   xbin:location, xbin:navigate {hash}  (D220)
 frame → tile   xbin:reply    {id, result}            dialog result / window closed / copy taken (true|false)
 frame → tile   xbin:appearance {theme, density}      the person's appearance changed (cosmetic)
 ```

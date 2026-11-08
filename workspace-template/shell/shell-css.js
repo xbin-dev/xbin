@@ -185,6 +185,10 @@ export const shellCss = [scrollCss, baseCss, chromeCss, css`
     .orgbar .newer { display: inline-flex; align-items: center; gap: 4px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
       color: var(--bx-warn, #F2994A); }
     .orgbar .newer a { color: var(--bx-link, #8C9BFF); cursor: pointer; text-decoration: underline; }
+    /* a link that named what can't be shown (shell-route.js, #7): the same strip, in warning colours, wrapping */
+    .orgbar.routemsg { color: var(--bx-text, #E9EAF0); background: var(--bx-warn-bg, #382F2C); }
+    .orgbar.routemsg .ico { color: var(--bx-warn, #F2994A); }
+    .orgbar.routemsg .txt { white-space: normal; }
     .orgbar button.act {
       flex: none; box-sizing: border-box; height: var(--bx-control-h, 28px); padding: 0 10px; white-space: nowrap; cursor: pointer;
       font: var(--bx-font-ui, 400 13px/18px system-ui, sans-serif); font-weight: 600;
