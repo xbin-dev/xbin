@@ -436,7 +436,8 @@ type TaskPorts struct {
 const (
 	taskQueued         = "queued"
 	taskPreparing      = "preparing"
-	taskSignin         = "signin"
+	taskSignin         = "signin"       // its workspace waits for a person's sign-in to the scm provider
+	taskAgentSignin    = "agent-signin" // its coding agent waits for a sign-in in the task's sandbox (waitingFor signin)
 	taskWorking        = "working"
 	taskNeedsYou       = "needs-you"
 	taskCI             = "ci"

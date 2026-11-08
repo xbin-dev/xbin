@@ -3651,9 +3651,16 @@ the task's **`state`** follow from those and its conversation's status:
 |---|---|---|
 | `queued` | `queued` (`slot` while its start waits in the queue), `preparing` | its workspace isn't ready |
 | `working` | `working` | its conversation runs, waits on its subagents or its own work |
-| `needs-you` | `needs-you` (`you`), `signin` (`signin`), `failed` (`you`), `blocked` (`you`) | it asks a person something (an approval, a question, a sign-in), its workspace failed or its cleanup was refused, its turn failed — or its turn ended and its answer waits for you (no pull request yet) |
+| `needs-you` | `needs-you` (`you`), `signin` (`signin`), `agent-signin` (`signin`), `failed` (`you`), `blocked` (`you`) | it asks a person something (an approval, a question), its workspace waits for a sign-in to the scm provider (`signin`) or its coding agent for one in the task's sandbox (`agent-signin`: its run parked on pending kind `login`), its workspace failed or its cleanup was refused, its turn failed — or its turn ended and its answer waits for you (no pull request yet) |
 | `pr` | `ci` (`ci`), `ci-failed` (`you`), `ci-passed` (`review`: its CI passed — in Needs you as a `review`, and in the project's `counts.ready`), `awaiting-review` (`review`: no CI to wait for) | a pull request is open and its turn is over |
 | `done` | `merged`, `closed`, `done`, `cancelled`, `deleted` | — |
+
+A client meets states it doesn't know as they come (a newer agent's):
+the backend's `column` places the task, and the state shows as its word
+with what it waits for (`waitingFor`). `agent-signin` is the web's and
+native card's "sign in to ‹the coding agent›"; the task's conversation
+shows the coding agent's sign-in card (`signin.js`: the guided sign-in,
+`POST /runs/{id}/harness/authenticate`).
 
 **`park`** (in `GET /runs/{id}/task`, `GET /projects/{pid}/tasks/{n}` and
 the run view's `projectTask`): the workspace's park of its conversation —
@@ -4367,10 +4374,13 @@ approval mode `task_create`, `task_message` and `task_cancel` ask first.
 person (an approval, a question, a coding agent's question or sign-in)
 waits in the queue until that person has answered — one already delivered
 when the task starts waiting goes back to the head of the queue, held the
-same way. It can't merge, approve, push or comment (its scm tools only
-read, and the scm contract has no merge); it changes no policy, sharing or
-sign-in, and deletes no task or project. People stay in charge: everyone
-taking part in the project opens, messages, approves and cancels any task.
+same way. A task whose coding agent waits for a sign-in reads to it as
+"waiting for the owner to sign in to ‹the agent› in the task's own sandbox"
+(the project's sandbox for a small task), never as a question. It can't
+merge, approve, push or comment (its scm tools only read, and the scm
+contract has no merge); it changes no policy, sharing or sign-in, and
+deletes no task or project. People stay in charge: everyone taking part
+in the project opens, messages, approves and cancels any task.
 The halt stops it as it stops everything.
 
 **Limits.** At most 10 tasks per `task_create`; coordinators of a project

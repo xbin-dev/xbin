@@ -10,7 +10,7 @@
 // members (what is typed stays its project's), archive, delete; the new-project form; a task's conversation —
 // the crumb back, the branch and PR chips, Open PR once the route exists,
 // the prep card with Retry, the sign-in card (polled, then the task looked
-// at again — a person's partition's); a `project` event; #proj=<id> on
+// at again — a person's partition's); a coding agent's sign-in on a card; a `project` event; #proj=<id> on
 // load; signing in to the provider offered only in a person's partition
 // (from the settings, then Forget), never at an unpartitioned agent or the
 // shared space; a phone's width; a person's partition (two homes, a team
@@ -150,6 +150,15 @@ await page.evaluate(() => {
 ok('a project event moves the card', await page.waitForSelector('.pcol[data-col="needs-you"] .ptask[data-n="2"]', { timeout: 5000 }).then(() => true, () => false));
 await page.waitForTimeout(400);
 ok('…two events, one read (coalesced)', (await calls(page, 'GET', '/projects/7/tasks')).length === before + 1, String((await calls(page, 'GET', '/projects/7/tasks')).length - before));
+// its coding agent waits for a sign-in (agent-signin): still Needs you, the card naming whom to sign in to
+await page.evaluate(() => {
+  const t = window.__proj.tasks[7].find((x) => x.n === 3);
+  Object.assign(t, { state: 'agent-signin', waitingFor: 'signin', engine: 'harness', harness: 'claude' });
+  window.__push({ type: 'project', run: 0, root: 0, data: { id: 7, change: 'task', n: 3 } });
+});
+ok('a coding agent\'s sign-in: the card says whom to sign in to', await waitText(page, '.pcol[data-col="needs-you"] .ptask[data-n="3"] .ptst', 'sign in to Claude Code')
+  && (await page.getAttribute('.ptask[data-n="3"] .ptst', 'data-tone')) === 'warn' && (await page.getAttribute('.ptask[data-n="3"]', 'data-state')) === 'agent-signin'
+  && !(await page.textContent('.ptask[data-n="3"] .ptst')).includes('needs you'), await page.textContent('.ptask[data-n="3"]'));
 
 // --- settings -------------------------------------------------------------------------------------------------------
 await page.click('[data-tab="settings"]');

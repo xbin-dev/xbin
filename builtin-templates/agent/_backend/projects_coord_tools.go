@@ -49,7 +49,7 @@ func coordIntsProp(desc string, max int) map[string]any {
 // coordToolSpecs are the nine tools. The first sentence of each is pinned
 // (tooldesc_test.go).
 func coordToolSpecs() []toolSpec {
-	taskStates := "queued, preparing, signin, working, needs-you (waiting for a person), ci, ci-failed, awaiting-review, merged, closed, done, failed, cancelled, blocked"
+	taskStates := "queued, preparing, signin, agent-signin (its coding agent waits for a sign-in), working, needs-you (waiting for a person), ci, ci-failed, awaiting-review, merged, closed, done, failed, cancelled, blocked"
 	return []toolSpec{
 		{Type: "function", Function: funcDef{Name: "task_create",
 			Description: "Create tasks in this project — each its own conversation with a git worktree per repo — started now or queued behind the project's limit of tasks running at once. " +
@@ -360,6 +360,22 @@ var coordStateWords = map[string]string{
 	taskWorking: "working", taskNeedsYou: "waiting for a person", taskCI: "awaiting CI", taskCIFailed: "CI failed",
 	taskAwaitingReview: "awaiting review", taskCIPassed: "CI passed, awaiting review", taskMerged: "merged", taskClosed: "closed", taskDone: "done", taskFailed: "failed",
 	taskCancelled: "cancelled", taskBlocked: "waiting for a person (its cleanup found unpushed work)", taskDeleted: "deleted",
+	// coordStateOf names the agent and the sandbox (a team board's row: these)
+	taskAgentSignin: "waiting for the owner to sign in to its coding agent in the task's sandbox",
+}
+
+// coordStateOf is task v's state in the coordinator's words — a coding
+// agent's sign-in naming the agent and the sandbox it waits in (a person
+// signs in there; the coordinator can't).
+func coordStateOf(v TaskView) string {
+	if v.State == taskAgentSignin {
+		where := "the project's sandbox"
+		if v.Fork {
+			where = "the task's own sandbox"
+		}
+		return fmt.Sprintf("waiting for the owner to sign in to %s in %s", harnessName(v.Harness), where)
+	}
+	return orStr(coordStateWords[v.State], v.State)
 }
 
 // coordTaskLine is one task in a line: number, title, state, branch, PRs.
@@ -369,9 +385,9 @@ func coordTaskLine(v TaskView) string {
 		// its title may be the issue's (createTask's default): text from
 		// outside, labelled so (and defused) as an scm event's title is
 		fmt.Fprintf(&b, "#%d (from the issue %s#%d; title, untrusted: %s) — %s", v.N, coordPlain(v.Issue.Repo), v.Issue.Number,
-			scmLine(coordPlain(v.Title), 120), orStr(coordStateWords[v.State], v.State))
+			scmLine(coordPlain(v.Title), 120), coordStateOf(v))
 	} else {
-		fmt.Fprintf(&b, "#%d %s — %s", v.N, clip(coordPlain(v.Title), 120), orStr(coordStateWords[v.State], v.State))
+		fmt.Fprintf(&b, "#%d %s — %s", v.N, clip(coordPlain(v.Title), 120), coordStateOf(v))
 	}
 	if v.WaitingFor == "slot" {
 		b.WriteString(" (for a free slot)")

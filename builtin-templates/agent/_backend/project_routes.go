@@ -132,11 +132,11 @@ func (d *DB) projectView(p *Project, lv level) ProjectView {
 	queued := d.queuedInputs(p.ID, 0)
 	ks, _ := d.tasksWhere(`WHERE project_id=? AND phase<>'deleted'`, p.ID)
 	for _, k := range ks {
-		status := ""
+		status, pending := "", ""
 		if k.RunID != 0 {
-			_ = d.q.QueryRow(`SELECT status FROM runs WHERE id=?`, k.RunID).Scan(&status)
+			_ = d.q.QueryRow(`SELECT status, pending FROM runs WHERE id=?`, k.RunID).Scan(&status, &pending)
 		}
-		col, state, _ := taskDerived(k, status, taskCISummary(k.RunID), queueWaits(queued, k.N))
+		col, state, _ := taskDerived(k, taskRunStatus(status, pending), taskCISummary(k.RunID), queueWaits(queued, k.N))
 		v.Counts[col]++
 		if state == taskCIPassed {
 			v.Counts[countReady]++ // in the PR column, and waiting for a person (model/project-pins.js needOf)

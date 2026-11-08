@@ -399,8 +399,11 @@ func projectStatusChanged(t *DB, runID int64, status string) {
 	if status == statusWaiting {
 		if run, err := t.getRun(runID); err == nil && run.ParentID == 0 {
 			if ps := parsePending(run.Pending); ps.Kind != pendKindProject { // the gate's own parks are the workspace's events
-				addProjectEvent(t, p.ID, k.N, pevTaskState, map[string]any{
-					"text": "waits for a person: " + clip(firstLine(run.Result), 200), "status": status}, true, "")
+				text := "waits for a person: " + clip(firstLine(run.Result), 200)
+				if ps.Kind == "login" { // its coding agent's sign-in, no question (taskAgentSignin)
+					text = "waits for the owner to sign in to " + harnessName(harnessProviderOf(t, run.ID)) + " in the task's sandbox"
+				}
+				addProjectEvent(t, p.ID, k.N, pevTaskState, map[string]any{"text": text, "status": status}, true, "")
 			}
 		}
 	}
