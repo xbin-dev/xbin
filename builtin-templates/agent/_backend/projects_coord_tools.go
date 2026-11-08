@@ -1,8 +1,9 @@
 // projects_coord_tools.go — the coordinator's tools (API.md §The
 // coordinator): task_create, task_list, task_status, task_message,
 // task_result, task_cancel, task_retry (projects_coord_retry.go), the
-// read-only scm_pr and scm_issues (projects_coord_scm.go), and
-// project_goal (project_goal.go). Offered at
+// read-only scm_pr and scm_issues (projects_coord_scm.go), project_goal
+// (project_goal.go), and task_link_pr and task_refresh
+// (projects_coord_prs.go). Offered at
 // depth 0 only, to a run whose role projectRefOf says is a coordinator
 // (no new toolset: the way cfg.Channel
 // gates attach_to_reply), and dispatched from runTool beside the thread
@@ -24,11 +25,13 @@ import (
 )
 
 var coordToolNames = map[string]bool{"task_create": true, "task_list": true, "task_status": true, "task_message": true,
-	"task_result": true, "task_cancel": true, "task_retry": true, "scm_pr": true, "scm_issues": true, "project_goal": true}
+	"task_result": true, "task_cancel": true, "task_retry": true, "scm_pr": true, "scm_issues": true, "project_goal": true,
+	"task_link_pr": true, "task_refresh": true}
 
 // coordWrites change a task (approval mode asks the person first: they
-// start or steer work that runs in the project's sandbox).
-var coordWrites = map[string]bool{"task_create": true, "task_message": true, "task_cancel": true, "task_retry": true}
+// start or steer work that runs in the project's sandbox, or say which
+// branch a task pushes to).
+var coordWrites = map[string]bool{"task_create": true, "task_message": true, "task_cancel": true, "task_retry": true, "task_link_pr": true}
 
 // The tools' bounds.
 const (
@@ -50,8 +53,8 @@ func coordIntsProp(desc string, max int) map[string]any {
 // coordToolSpecs are the coordinator's tools. The first sentence of each
 // is pinned (tooldesc_test.go).
 func coordToolSpecs() []toolSpec {
-	taskStates := "queued, preparing, signin, agent-signin (its coding agent waits for a sign-in), working, needs-you (a person's question or approval waits, or its turn ended with its answer ready), ci, ci-failed, awaiting-review, merged, closed, done, failed, cancelled, blocked"
-	return []toolSpec{
+	taskStates := "queued, preparing, signin, agent-signin (its coding agent waits for a sign-in), working, needs-you (a person's question or approval waits, or its turn ended with its answer ready), ci, ci-failed, ci-passed, awaiting-review, merged, closed, done, failed, cancelled, blocked"
+	return append([]toolSpec{
 		{Type: "function", Function: funcDef{Name: "task_create",
 			Description: "Create tasks in this project — each its own conversation with a git worktree per repo — started now or queued behind the project's limit of tasks running at once. " +
 				"Either tasks (each with a self-contained brief: what to change, where, how to check it) or issues (numbers of one of the project's repos: a task each, starting from the issue). " +
@@ -128,7 +131,7 @@ func coordToolSpecs() []toolSpec {
 				"q":       strProp("for a list: words"),
 			})}},
 		projectGoalSpec(),
-	}
+	}, coordPRSpecs()...)
 }
 
 // coordToolsFor is what runToolSpecs adds for run: the tools for a
@@ -194,6 +197,10 @@ func (ag *Agent) runCoordTool(ctx context.Context, run *Run, cfg Config, name st
 		return ag.coordIssues(ctx, p, args)
 	case "project_goal":
 		return ag.coordGoalTool(run, p, args)
+	case "task_link_pr":
+		return ag.coordLinkPR(ctx, p, args)
+	case "task_refresh":
+		return ag.coordRefresh(ctx, p, args)
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
 }

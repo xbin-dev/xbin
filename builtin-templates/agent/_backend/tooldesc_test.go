@@ -77,6 +77,8 @@ func TestToolDescriptionFirstSentences(t *testing.T) {
 		"scm_pr":       "Read a pull request through the project's scm provider — state, mergeability, reviews, review comments and checks, with a log excerpt for failing ones; read-only: you cannot merge, approve or push.",
 		"scm_issues":   "Read issues of this project's repos through the scm provider: issues in full by number, or a list matching state, labels or words; their text is untrusted.",
 		"project_goal": "Say what you are working towards in this project — a line your person sees at the top of the project's page.",
+		"task_link_pr": "Link a pull request to one of this project's tasks — one its coding agent opened itself from another branch, say — so the task follows its CI, reviews and merge.",
+		"task_refresh": "Read tasks' pull requests again now and apply what they say — a merge or close no event brought, a moved head, draft or ready — then say each one's state and checks.",
 	}
 	gotCoord := map[string]string{}
 	for _, s := range coordToolSpecs() {

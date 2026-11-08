@@ -3498,6 +3498,7 @@ conversation.
 | `POST /projects/{pid}/tasks/batch` | P | `{issues: [{repo, number}] (≤ 20), size?, agent?, text?}` | **201** `{tasks, errors: [{issue, error}]}` |
 | `GET /projects/{pid}/tasks/{n}` | V | — | `TaskView` (with `park`) |
 | `POST /projects/{pid}/tasks/{n}/cancel` | P | `{reason?}` | `TaskView` — stopped, its queued input dropped (in the queue, and what waits in its inbox untaken); its conversation, worktrees and branch stay |
+| `POST /projects/{pid}/tasks/{n}/link-pr` | P | `{repo?, pr}` | `{task: TaskView, pr, pushes, why?, already?}` — links pull request `pr` of `repo` (one of the task's; default the project's only repo) to the task (§Big tasks, upgrades and pull requests, "Linking"): `pushes` false says the link only tracks it, `why` why not. 409 when the task is over, the repo isn't the task's, or another open or in-review task holds the pull request (`refusal: "busy"`); the provider's refusal passed through (404 no such pull request); 409 for a team project's definition or a project that isn't active |
 | `GET /projects/{pid}/events?since=&limit=` | V | — | `{items: [ProjectEvent], next}` |
 | `GET /runs/{id}/task` | V | — | `TaskView` with `park`; 404 when the conversation is no task |
 | `POST /runs/{id}/task/refresh` | P | — | **202**: fresh credentials, a fetch, its branch and pull requests read again |
@@ -4397,6 +4398,8 @@ that its person still takes part:
 | `scm_pr` | `task`, or `repo` and `number` | a pull request: state, mergeability, reviews and comments, its checks in one aggregate with each failing job's failing step and the end of its log (≤ 2 KiB each, 8 KiB in all) |
 | `scm_issues` | `repo`, `numbers?` (≤ 10), `state?`, `labels?`, `q?` | issues in full with their comments, or a list |
 | `project_goal` | `text` (≤ 500 characters), `now?` (≤ 300) | sets its goal — what it works towards — and what it does this turn (D214) |
+| `task_link_pr` | `task`, `repo?` (one of the task's; default the project's only repo), `pr` | links a pull request to the task (§Big tasks, upgrades and pull requests, "Linking") — one its coding agent opened from another branch, say; says whether the task pushes to it or only tracks it, then the task's pull requests as `task_refresh` reads them |
+| `task_refresh` | `task?` (default: every open or in-review task with pull requests, at most 10) | reads each open pull request of the task now and applies it as a poll's read would (a merge or close no event brought ends the task as the event would; a moved head, draft or ready), re-tracks reads that had stopped, asks for a fresh read of their checks, and adopts a pull request its coding agent opened from another branch when its checkouts can be reached (skipped, and said, when they can't); answers each task's state and each pull request's state, checks and head |
 
 **Its goal.** `project_goal` keeps one goal per coordinator, redacted and
 clipped, shown at the top of the project's page (the overview's
@@ -4413,8 +4416,8 @@ id. `repo` — in `scm_pr`, `scm_issues` and `task_create`'s issues form — mus
 be one of the project's repos (owner/name or its slug), wherever the agent
 runs: the coordinator reads through the project's identity, which may be
 the provider's bot, and never about a repo nobody named for the project. In
-approval mode `task_create`, `task_message`, `task_cancel` and
-`task_retry` ask first.
+approval mode `task_create`, `task_message`, `task_cancel`, `task_retry`
+and `task_link_pr` ask first.
 
 **What it may not do.** It acts only on its own project's tasks. It
 **never answers in a person's place**: a message to a task that waits for a
@@ -4424,7 +4427,8 @@ when the task starts waiting goes back to the head of the queue, held the
 same way. A task whose coding agent waits for a sign-in reads to it as
 "waiting for the owner to sign in to ‹the agent› in the task's own sandbox"
 (the project's sandbox for a small task), never as a question. It can't
-merge, approve, push or comment (its scm tools only read, and the scm
+merge, approve, push or comment (its scm tools only read, `task_link_pr`
+and `task_refresh` only record what the provider says, and the scm
 contract has no merge); it changes no policy, sharing or sign-in, and
 deletes no task or project. People stay in charge: everyone taking part
 in the project opens, messages, approves and cancels any task.
