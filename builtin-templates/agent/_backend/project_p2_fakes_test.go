@@ -34,8 +34,16 @@ func (f p2SCM) PullCreate(ctx context.Context, req scmPullReq) (*scmPull, error)
 	return f.creds.PullCreate(ctx, req)
 }
 func (f p2SCM) Pulls(ctx context.Context, q scmQuery) (*scmPage[scmPull], error) {
-	return f.creds.Pulls(ctx, q)
+	pg, err := f.creds.Pulls(ctx, q)
+	if h := p2PullsHook.Load(); h != nil {
+		(*h)() // what happens while a job holds the answer
+	}
+	return pg, err
 }
+
+// p2PullsHook, when set, runs after each list of pull requests is read.
+var p2PullsHook atomic.Pointer[func()]
+
 func (f p2SCM) Pull(ctx context.Context, repo string, n int, as string) (*scmPull, error) {
 	return f.creds.Pull(ctx, repo, n, as)
 }

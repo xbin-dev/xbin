@@ -13,11 +13,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 ## 2026-11-08
 
 - **Agent template Projects: a task follows its pull request wherever its
-  coding agent opened it, and sees a merge however late** (D221). A PR the
-  agent opened itself from another branch is linked to its task when the
-  task's checkout is on that branch at the PR's head; otherwise the task
-  says so, and the coordinator's new `task_link_pr` (or
-  `POST /projects/{pid}/tasks/{n}/link-pr`) links it. An open PR is polled
+  coding agent opened it, and sees a merge however late** (D221). An open
+  PR the agent opened itself from another branch is linked to its task when
+  the task's checkout is on that branch at the PR's head (a merged or
+  closed one is only named; a task holds one open PR per repo); otherwise
+  the task says so, and the coordinator's new `task_link_pr` (or
+  `POST /projects/{pid}/tasks/{n}/link-pr`) links it — one the task can't
+  push to (another author's, a fork's) is `tracked`: its CI and reviews
+  are shown, not sent to the task. Cleanup no longer counts a merged PR
+  as holding commits its head doesn't contain. An open PR is polled
   every 6 h past its first day instead of no more, so a merge no webhook
   reported still lands; `task_refresh` reads a task's PRs now. Tasks
   stranded by the old 24 h stop are picked up again after the upgrade.

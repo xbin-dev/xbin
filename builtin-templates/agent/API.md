@@ -3498,7 +3498,7 @@ conversation.
 | `POST /projects/{pid}/tasks/batch` | P | `{issues: [{repo, number}] (≤ 20), size?, agent?, text?}` | **201** `{tasks, errors: [{issue, error}]}` |
 | `GET /projects/{pid}/tasks/{n}` | V | — | `TaskView` (with `park`) |
 | `POST /projects/{pid}/tasks/{n}/cancel` | P | `{reason?}` | `TaskView` — stopped, its queued input dropped (in the queue, and what waits in its inbox untaken); its conversation, worktrees and branch stay |
-| `POST /projects/{pid}/tasks/{n}/link-pr` | P | `{repo?, pr}` | `{task: TaskView, pr, pushes, why?, already?}` — links pull request `pr` of `repo` (one of the task's; default the project's only repo) to the task (§Big tasks, upgrades and pull requests, "Linking"): `pushes` false says the link only tracks it, `why` why not. 409 when the task is over, the repo isn't the task's, or another open or in-review task holds the pull request (`refusal: "busy"`); the provider's refusal passed through (404 no such pull request); 409 for a team project's definition or a project that isn't active |
+| `POST /projects/{pid}/tasks/{n}/link-pr` | P | `{repo?, pr}` | `{task: TaskView, pr, pushes, why?, already?}` — links pull request `pr` of `repo` (one of the task's; default the project's only repo) to the task (§Big tasks, upgrades and pull requests, "Linking"): `pushes` false says the link only tracks it (`pr.tracked`), `why` why not. 409 when the task is over or the repo isn't the task's; 409 `refusal: "busy"` when another open or in-review task holds the pull request, its head is the repo's default branch or another such task's branch, or the task has another open pull request in that repo (named: close it, or let it merge, first); the provider's refusal passed through (404 no such pull request); 409 for a team project's definition or a project that isn't active |
 | `GET /projects/{pid}/events?since=&limit=` | V | — | `{items: [ProjectEvent], next}` |
 | `GET /runs/{id}/task` | V | — | `TaskView` with `park`; 404 when the conversation is no task |
 | `POST /runs/{id}/task/refresh` | P | — | **202**: fresh credentials, a fetch, its branch and pull requests read again |
@@ -3640,7 +3640,7 @@ when the project made it and `sandbox=delete` asked, then its rows.
  "checkouts": [{"repo": "web", "path": "/work/web/tasks/3-fix-login/web", "mode": "worktree", "state": "ready",
                 "setupExit": 0, "remoteSha": "…"}],
  "prs": [{"repo": "acme/web", "number": 42, "url": "…", "state": "open", "draft": false, "headSha": "…", "checks": "pending",
-          "head": "…"}],    // head: the PR's branch when the task pushes to it and it isn't the task's own (a PR its coding agent opened elsewhere); absent otherwise
+          "head": "…", "tracked": false}],  // head: the PR's branch when it isn't the task's own (owner/name:branch for a fork's); tracked: linked, not the task's to push to
  "ci": {…},                 // its CI at a glance, when watched (§CI in the conversation)
  "turnBy": "coordinator",   // who asked for its latest turn: human | coordinator | event
  "step": "running web's setup", "error": "", "last": "…its latest answer, clipped…",
@@ -3954,7 +3954,11 @@ agent, its setup — gets `TASK_DIR`, `BRANCH`, `TASK_PORT_BASE`,
 when its conversation is deleted, and by `POST /runs/{id}/task/cleanup` —
 first makes sure nothing would be lost: each checkout has no uncommitted
 change and no commit its upstream (else the default branch on the remote)
-lacks; a merged pull request counts as pushed. Otherwise it is refused —
+lacks. A merged pull request of the task (its own, adopted or linked)
+counts as holding a checkout's commits only when the checkout's `HEAD` is
+its head commit or in that commit's history — a head not in the checkout
+is fetched first (`pull/‹n›/head`, quietly); one that still can't be shown
+leaves the commits unpushed. Otherwise it is refused —
 409 `dirty` from the route, `ws` `blocked` from the worker — unless
 `force`, which only the conversation's owner sends. The conversation stays.
 
@@ -4246,31 +4250,45 @@ never failed), and the ask stays for the next ask or turn.
 refs job (after each turn) and `task_refresh` find a checkout on a branch
 that isn't the task's there (git's `HEAD`, a detached one left alone by
 the refs job) and look that branch up at the provider (`GET /scm/pulls
-?head=‹branch›&state=all`). The pull request is adopted only when exactly
-one comes from that branch, from the repo itself (`head.repo`, not a
-fork), opened by the project's own login (its credential's), held by no
-other open or in-review task, and its head commit is the checkout's `HEAD`
-or in its history: it is recorded in `prs` with `head` the branch, the
-task goes to `phase` `pr`, a `pr.opened` event says "linked PR #‹n›: the
-coding agent opened it from ‹branch›", the parts that follow the task's
-branches are told — and one already merged or closed ends as its event
-would. From then on that branch is the task's in that repo: the `pr` job
-pushes it, the refs job reads it, scm events for it and for the task's own
-branch both route to the task. Otherwise a waking `note` names the branch
-and the reason and says the coordinator (`task_link_pr`) or a person
-(`POST /projects/{pid}/tasks/{n}/link-pr`) can link the task's pull
-request — once per branch and reason; a detached `HEAD` or a provider that
-couldn't be read is a quiet one.
+?head=‹branch›&state=all`). Only an **open** pull request is adopted, and
+only when it is the one open from that branch, from the repo itself
+(`head.repo`, not a fork), opened by the project's own login (its
+credential's), its head commit the checkout's `HEAD` or in its history
+but not already on the default branch (`origin/‹default›` holding it: none
+of the task's work is in it), while no other open or in-review task holds
+it or has that branch and the task has no other open pull request in that
+repo — all of it checked again as it is recorded. It is recorded in `prs`
+with `head` the branch, the task goes to `phase` `pr`, a `pr.opened`
+event says "linked PR #‹n›: the coding agent opened it from ‹branch›",
+and the parts that follow the task's branches are told. Adopting never
+ends a task: a merged or closed pull request from the branch is only
+named. While that pull request is open its branch is the task's in that
+repo: the `pr` job pushes it, the refs job reads it, scm events for it and
+for the task's own branch both route to the task. Otherwise a waking
+`note` names the branch and the reason and says the coordinator
+(`task_link_pr`) or a person (`POST /projects/{pid}/tasks/{n}/link-pr`)
+can link the task's pull request — once per branch and reason; a detached
+`HEAD` or a provider that couldn't be read is a quiet one.
 
 **Linking.** `task_link_pr` and `POST /projects/{pid}/tasks/{n}/link-pr`
 link a pull request of one of the task's repos to an open or in-review
 task, read at once at the provider: refused when another open or
-in-review task holds it. The task pushes to its head only when it comes
-from that repo (not a fork) and the project's own login opened it;
-otherwise the link only tracks it — its state, checks, reviews and merge —
-and the answer says why. It is recorded as an adopted one is (`head` set
-only when the task pushes there; one that is over ends the task as its
-event would). Nothing is merged, approved, pushed or commented.
+in-review task holds it, when its head (a branch of that repo) is the
+repo's default branch or another such task's branch, and when the task
+has another open pull request in that repo — **a task holds at most one
+open pull request per repo** (its reads are per repo): close it, or let it
+merge, first. The refs job doesn't record a second one it reads from the
+task's branch either (or one another task holds): a waking `note` says
+so, once. The task pushes to its head only when it comes from that
+repo (not a fork) and the project's own login opened it; otherwise the
+link is **tracked** (`tracked: true`): its state, checks, reviews and
+merge are followed and shown, but its CI failures and review comments
+don't go to the task (a `ci.failed` or `comment` event says so). It is
+recorded as an adopted one is. A merged or closed pull request may be
+linked (one the task finished before this build, say): it ends the task as
+its event would — and its cleanup trusts it only for the commits its head
+holds (§The workspace, "Cleanup"). Nothing is merged, approved, pushed or
+commented.
 
 **Auto-PR.** With `policy.autoPR` `draft` or `ready`, a task whose turn
 ended well (it rests `idle` or `done` — not cancelled, not failed), whose
@@ -4336,9 +4354,11 @@ visible regression: it is reachable by its link and by search, and is task
 at their manager until this build is back (a fork base is replaced, a
 cleaned task's fork deleted, as above); the settings `proj_fork:‹pid›:‹n›`
 and `proj_pr:‹pid›:‹n›` are unknown settings to it. A build without
-linked pull requests ignores `prs[].head` (and drops it when it writes the
-list again): the task's own branch is the only one it pushes and follows,
-and a `pr` job of it leaves a checkout on the adopted branch alone.
+linked pull requests ignores `prs[].head` and `prs[].tracked` (and drops
+them when it writes the list again): the task's own branch is the only one
+it pushes and follows, a `pr` job of it leaves a checkout on the adopted
+branch alone, and a tracked pull request's CI failures and reviews go to
+the task as its own would.
 
 ### The coordinator
 
@@ -4564,7 +4584,8 @@ minutes, every 10 to 2 hours, every 30 to 24 hours; then the head's
 checks stop — with a waking `note` "lost track of CI — check manually"
 for checks still pending — while the open PR itself and its timeline are
 read on **every 6 hours** until it is merged or closed (a merge days later,
-with no webhook, still ends the task). When the agent starts, and daily
+with no webhook, still ends the task); a task holds one open pull request
+per repo, so these reads follow it. When the agent starts, and daily
 after, every task in review whose open PR has no read due (one an older
 build stopped after a day, or none made) is read again: its stopped reads
 due within minutes (its timeline's `since` kept), a missing one made.

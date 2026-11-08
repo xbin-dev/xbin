@@ -61,17 +61,20 @@ func TestLinkPRTool(t *testing.T) {
 	if err != nil || !strings.Contains(out, "only tracks it") || !strings.Contains(out, "octo-dev opened it") {
 		t.Fatalf("task_link_pr #59: %v\n%s", err, out)
 	}
-	if k, _ := fx.ag.db.taskByN(fx.p.ID, 2); len(k.taskPRs()) != 1 || k.taskPRs()[0].Head != "" || taskBranchIn(k, "acme/web") != k.Branch {
+	if k, _ := fx.ag.db.taskByN(fx.p.ID, 2); len(k.taskPRs()) != 1 || !k.taskPRs()[0].Tracked || taskBranchIn(k, "acme/web") != k.Branch ||
+		taskOnBranch(k, "acme/web", "feature-x") {
 		t.Fatalf("task 2 tracks #59: %+v", k.taskPRs())
 	}
-	// the people's route: a fork's, tracked only; another task's, 409
-	w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/tasks/2/link-pr", fx.p.ID), map[string]any{"pr": 60})
+	// the people's route: a fork's, tracked only (for a task with no open PR); another task's, 409
+	fx.addTask(t, fx.p, 3, "alice")
+	w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/tasks/3/link-pr", fx.p.ID), map[string]any{"pr": 60})
 	var got struct {
 		PR     TaskPR `json:"pr"`
 		Pushes bool   `json:"pushes"`
 		Why    string `json:"why"`
 	}
-	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &got) != nil || got.Pushes || got.PR.Number != 60 || !strings.Contains(got.Why, "fork") {
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &got) != nil || got.Pushes || got.PR.Number != 60 || !strings.Contains(got.Why, "fork") ||
+		!got.PR.Tracked || got.PR.Head != "magik6k/web:patch-1" {
 		t.Fatalf("POST …/link-pr #60: %d %s", w.Code, w.Body)
 	}
 	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/tasks/2/link-pr", fx.p.ID), map[string]any{"pr": 58}); w.Code != 409 {

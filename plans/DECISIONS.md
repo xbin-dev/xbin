@@ -13346,13 +13346,30 @@ Deviations and refinements made while implementing; all deliberate:
     quiet note. Now `TaskPR.Head` is a branch the task pushes to, and
     `taskBranchIn` answers every match (the push script's `BR_i`, the
     create, `jobRefs`, `pull.opened` and push routing, `project_refs`, the
-    CI watch). A PR is adopted on its own only when exactly one comes from
-    the checkout's branch, from the same repo, by the project's own login,
-    held by no other open task, and its head is the checkout's HEAD or an
-    ancestor of it — the login alone proves little, since a person's
-    project acts as that person, so the checkout is the evidence. Anything
-    less says so once, visibly, naming `task_link_pr`. The brief says to
-    stay on the branch and never `gh pr create`.
+    CI watch) — the head of its one OPEN pull request there that it may
+    push to, else `k.Branch`. A PR is adopted on its own only when it is the
+    one OPEN PR from the checkout's branch, from the same repo, by the
+    project's own login, its head the checkout's HEAD or an ancestor of it
+    but not on `origin/<default>` already, while no other live task holds
+    it or its branch and the task has no other open PR in that repo
+    (checked again in the transaction that records it) — the login alone
+    proves little, since a person's project acts as that person, so the
+    checkout is the evidence. Adopting never ends a task: a merged or
+    closed PR (an old one from a reused branch name) is only named.
+    Anything less says so once, visibly, naming `task_link_pr`. Linking
+    refuses another live task's PR, a head that is the default branch or
+    another live task's branch, and a second open PR in a repo (one open
+    PR per task and repo: the poll rows are per repo); a link the task may
+    not push to (another author's, a fork's) is `tracked` — followed and
+    shown, its CI failures and review comments never sent to the task. A
+    merged PR may still be linked (task #9 / #58 merged before this), so
+    cleanup no longer takes "a PR merged in the repo" as "pushed": a merged
+    PR holds a checkout's commits only when HEAD is its head or in its
+    history (its head fetched as `pull/<n>/head` if missing); else the
+    commits count as unpushed and the task is `blocked` for a person, its
+    fork kept. The refs job writes what it read onto the task as stored in
+    its transaction, so a concurrent end or link isn't reverted. The brief
+    says to stay on the branch and never `gh pr create`.
   - **A PR's state stays true (the report's "never re-derived" was
     wrong).** States were always derived (`taskDerived`); the facts went
     stale. #57's last push was 2026-11-02 11:31, its merge 2026-11-05

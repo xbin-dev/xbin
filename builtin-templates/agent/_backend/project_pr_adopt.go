@@ -1,14 +1,19 @@
 // project_pr_adopt.go — a task's branch per repo, and pull requests that
 // came to a task another way than its pr job (API.md §Big tasks, upgrades
 // and pull requests, "Pull requests"). A task's branch in a repo is the
-// head of a pull request linked to it there that it pushes to (TaskPR.Head),
-// else its own (taskBranchIn): the pr and refs jobs push and read that one,
-// and the scm routing follows both. A checkout prScript or refsScript finds
-// on another branch is looked up at the provider: the one pull request from
-// that branch, in the same repo, opened by the project's own login, its
-// head in the checkout's history, is adopted — recorded with its head, the
-// task in review — else a waking note says why not and that task_link_pr
-// links one (linkTaskPR: the coordinator's tool and the people's route).
+// head of its open pull request there that it pushes to (TaskPR.Head, not
+// Tracked), else its own (taskBranchIn): the pr and refs jobs push and read
+// that one, and the scm routing follows both. A checkout prScript or
+// refsScript finds on another branch is looked up at the provider: the one
+// OPEN pull request from that branch, in the same repo, opened by the
+// project's own login, its head in the checkout's history and not already
+// on the default branch, while the task has no other open PR in that repo
+// and no other live task holds the PR or its branch — that one is adopted,
+// the task in review; anything else gets a note saying why and that
+// task_link_pr links one (linkTaskPR: the coordinator's tool and the
+// people's route). Adopting never ends a task: a merged or closed PR is
+// only named. A task holds at most one open PR per repo (its poll rows are
+// per repo).
 package main
 
 import (
@@ -21,39 +26,26 @@ import (
 	"time"
 )
 
-// taskBranchIn is task k's branch in repo (owner/name): the head of a pull
-// request linked to it there that it pushes to (an open one first), else
-// its own branch. Everything that matches a task's branch asks this.
+// taskBranchIn is task k's branch in repo (owner/name): the head of its
+// open pull request there that it pushes to (not Tracked), else its own
+// branch. Everything that matches a task's branch asks this.
 func taskBranchIn(k *ProjectTask, repo string) string {
-	head := ""
 	for _, pr := range k.taskPRs() {
-		if pr.Head == "" || !strings.EqualFold(pr.Repo, repo) {
-			continue
-		}
-		if pr.State == "open" {
+		if pr.Head != "" && pr.State == "open" && !pr.Tracked && strings.EqualFold(pr.Repo, repo) {
 			return pr.Head
 		}
-		head = orStr(head, pr.Head)
 	}
-	return orStr(head, k.Branch)
+	return k.Branch
 }
 
 // taskOnBranch: branch is one of task k's in repo — its own, or the head of
-// a pull request linked to it there that it pushes to (a task linked to two
+// its open pull request there that it pushes to (a task linked to two
 // branches follows both).
 func taskOnBranch(k *ProjectTask, repo, branch string) bool {
 	if branch == "" {
 		return false
 	}
-	if branch == k.Branch {
-		return true
-	}
-	for _, pr := range k.taskPRs() {
-		if pr.Head == branch && strings.EqualFold(pr.Repo, repo) {
-			return true
-		}
-	}
-	return false
+	return branch == k.Branch || branch == taskBranchIn(k, repo)
 }
 
 // taskBranches are task k's branches in repo: its own, then a linked head.
@@ -62,6 +54,17 @@ func taskBranches(k *ProjectTask, repo string) []string {
 		return []string{k.Branch, b}
 	}
 	return []string{k.Branch}
+}
+
+// openPRIn is the open pull request of prs in repo other than number
+// except (nil: none) — a task holds at most one per repo.
+func openPRIn(prs []TaskPR, repo string, except int) *TaskPR {
+	for i, pr := range prs {
+		if pr.State == "open" && pr.Number != except && strings.EqualFold(pr.Repo, repo) {
+			return &prs[i]
+		}
+	}
+	return nil
 }
 
 // mergeTaskPRs folds add into task k's pull requests — one it holds keeps
@@ -109,6 +112,34 @@ func prHeldBy(t *DB, pid, exceptID int64, repo string, n int) int64 {
 	return 0
 }
 
+// branchHeldBy is the number of the other live task (open or in review) of
+// project pid whose branch in repo branch is — its own, or a linked head it
+// pushes to (0: none).
+func branchHeldBy(t *DB, pid, exceptID int64, repo, branch string) int64 {
+	ks, _ := t.tasksWhere(`WHERE project_id=? AND id<>? AND run_id<>0 AND phase IN (?, ?)`, pid, exceptID, phaseOpen, phasePR)
+	for _, o := range ks {
+		if taskOnBranch(o, repo, branch) {
+			return o.N
+		}
+	}
+	return 0
+}
+
+// prHeadRefusal says why pull request n's head branch in repo r can't be
+// task k's ("" it can): the repo's default branch, or another live task's
+// branch. Asked inside the transaction that records it.
+func prHeadRefusal(t *DB, p *Project, k *ProjectTask, r ProjectRepo, n int, branch string) string {
+	switch {
+	case branch != "" && branch == r.DefaultBranch:
+		return fmt.Sprintf("PR #%d's head is %s's default branch (%s), which a task never takes", n, r.Repo, branch)
+	case branch != "" && branch != k.Branch:
+		if other := branchHeldBy(t, p.ID, k.ID, r.Repo, branch); other != 0 {
+			return fmt.Sprintf("PR #%d's head %s is task #%d's branch", n, scmLine(branch, 120), other)
+		}
+	}
+	return ""
+}
+
 // prPushable says whether task k may push to pull request pl's head in
 // repo: the PR comes from repo itself (not a fork) and the project's own
 // login opened it. why says what it lacks.
@@ -148,6 +179,10 @@ type prAdopt struct {
 	wake bool
 }
 
+func (a *prAdopt) refuse(why, code string, wake bool) {
+	a.pull, a.why, a.code, a.wake = nil, why, code, wake
+}
+
 // prOffLines are out's OFF lines, for cos (the script's checkouts, by its
 // index).
 func prOffLines(out string, cos []ProjectCheckout, bySlug map[string]ProjectRepo) []prOff {
@@ -170,41 +205,41 @@ func prOffLines(out string, cos []ProjectCheckout, bySlug map[string]ProjectRepo
 	return offs
 }
 
-// shaShape is a commit id as a provider names one (the ancestry check
-// passes it to git, so nothing else goes).
+// shaShape is a commit id as a provider names one (the history checks pass
+// it to git, so nothing else goes).
 var shaShape = regexp.MustCompile(`^[0-9a-fA-F]{7,64}$`)
 
-// ancestorScript prints, for each checkout C_i, whether commit S_i is in
-// its HEAD's history: ANC <i> 1|0.
-const ancestorScript = `i=0
+// headScript prints, for each checkout C_i and commit S_i, whether S_i is
+// in its HEAD's history and whether its default branch on the remote
+// (origin/DEF_i) holds it already: ANC <i> 1|0 1|0.
+const headScript = `i=0
 while [ "$i" -lt "$N" ]; do
-  eval "C=\${C_$i}; S=\${S_$i}"
-  if git -C "$C" merge-base --is-ancestor "$S" HEAD 2>/dev/null; then
-    printf 'ANC %s 1\n' "$i"
-  else
-    printf 'ANC %s 0\n' "$i"
-  fi
+  eval "C=\${C_$i}; S=\${S_$i}; DEF=\${DEF_$i}"
+  a=0; b=0
+  if git -C "$C" merge-base --is-ancestor "$S" HEAD 2>/dev/null; then a=1; fi
+  if git -C "$C" merge-base --is-ancestor "$S" "refs/remotes/origin/$DEF" 2>/dev/null; then b=1; fi
+  printf 'ANC %s %s %s\n' "$i" "$a" "$b"
   i=$((i+1))
 done
 `
 
 // prAdoptCheck looks each off checkout's branch up at the provider (every
-// pull request from it, any state) and decides: exactly one, from the same
-// repo, opened by the project's own login, held by no other live task, its
-// head the checkout's HEAD or in its history (s: the sandbox that holds it).
+// pull request from it, any state) and decides (prAdoptFind), then reads
+// each candidate's head in the checkout (s: the sandbox that holds it): its
+// HEAD or in its history, and not on the default branch already.
 func prAdoptCheck(ctx context.Context, d *DB, p *Project, k *ProjectTask, s *wsbx, api scmAPI, offs []prOff) []prAdopt {
 	out := make([]prAdopt, len(offs))
-	var need []int // adopted but for the ancestry check
+	var need []int // adopted but for the history check
 	for i, o := range offs {
 		a := prAdopt{prOff: o, wake: true}
 		switch {
 		case o.branch == "" || o.branch == "-":
-			a.why, a.code, a.wake = "it isn't on a branch (a detached HEAD)", "detached", false
+			a.refuse("it isn't on a branch (a detached HEAD)", "detached", false)
 		case o.branch == o.repo.DefaultBranch:
-			a.why, a.code = "that is the repo's default branch", "default"
+			a.refuse("that is the repo's default branch", "default", true)
 		default:
 			a.pull, a.why, a.code, a.wake = prAdoptFind(ctx, d, p, k, api, o)
-			if a.pull != nil && !strings.EqualFold(a.pull.Head.SHA, o.head) {
+			if a.pull != nil {
 				need = append(need, i)
 			}
 		}
@@ -216,31 +251,35 @@ func prAdoptCheck(ctx context.Context, d *DB, p *Project, k *ProjectTask, s *wsb
 	env := map[string]string{"N": strconv.Itoa(len(need))}
 	for j, i := range need {
 		env[fmt.Sprintf("C_%d", j)], env[fmt.Sprintf("S_%d", j)] = out[i].co.Path, out[i].pull.Head.SHA
+		env[fmt.Sprintf("DEF_%d", j)] = out[i].repo.DefaultBranch
 	}
-	res, err := s.must(ctx, "reading the checkout's history", ancestorScript, env, "", time.Minute)
-	yes := map[int]bool{}
+	res, err := s.must(ctx, "reading the checkout's history", headScript, env, "", time.Minute)
+	inHead, onDef := map[int]bool{}, map[int]bool{}
 	for _, l := range strings.Split(res, "\n") {
-		if f := strings.Fields(l); len(f) == 3 && f[0] == "ANC" && f[2] == "1" {
+		if f := strings.Fields(l); len(f) == 4 && f[0] == "ANC" {
 			if j, err := strconv.Atoi(f[1]); err == nil {
-				yes[j] = true
+				inHead[j], onDef[j] = f[2] == "1", f[3] == "1"
 			}
 		}
 	}
 	for j, i := range need {
+		pl := out[i].pull
 		switch {
 		case err != nil:
-			out[i].why, out[i].code, out[i].wake = "its history couldn't be read: "+clip(err.Error(), 200), "read", false
-		case !yes[j]:
-			out[i].why, out[i].code = fmt.Sprintf("PR #%d's head %s isn't in the checkout's history", out[i].pull.Number, sha7(out[i].pull.Head.SHA)), "history"
-		default:
-			continue
+			out[i].refuse("its history couldn't be read: "+clip(err.Error(), 200), "read", false)
+		case !inHead[j]:
+			out[i].refuse(fmt.Sprintf("PR #%d's head %s isn't in the checkout's history", pl.Number, sha7(pl.Head.SHA)), "history", true)
+		case onDef[j]:
+			out[i].refuse(fmt.Sprintf("PR #%d's head %s is on the default branch already: nothing of the task's is in it", pl.Number, sha7(pl.Head.SHA)), "on-default", true)
 		}
-		out[i].pull = nil
 	}
 	return out
 }
 
-// prAdoptFind is the pull request off's branch may adopt (nil: why not).
+// prAdoptFind is the pull request off's branch may adopt (nil: why not):
+// the one open PR from it — a merged or closed one only named — from the
+// repo itself, by the project's own login, held by no other live task,
+// while the task has no other open PR in that repo.
 func prAdoptFind(ctx context.Context, d *DB, p *Project, k *ProjectTask, api scmAPI, o prOff) (*scmPull, string, string, bool) {
 	cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	page, err := api.Pulls(cctx, scmQuery{Repo: o.repo.Repo, Head: o.branch, State: "all", As: projectAs(p)})
@@ -248,46 +287,75 @@ func prAdoptFind(ctx context.Context, d *DB, p *Project, k *ProjectTask, api scm
 	if err != nil {
 		return nil, "its pull requests couldn't be read: " + clip(err.Error(), 200), "read", false
 	}
-	var from []scmPull
+	var open []scmPull
+	var over []string
 	for _, pl := range page.Items {
-		if pl.Head.Ref == "" || pl.Head.Ref == o.branch {
-			from = append(from, pl)
+		if pl.Head.Ref != "" && pl.Head.Ref != o.branch {
+			continue
+		}
+		if orStr(pl.State, "open") == "open" {
+			open = append(open, pl)
+		} else {
+			over = append(over, fmt.Sprintf("PR #%d (%s)", pl.Number, pl.State))
 		}
 	}
-	switch len(from) {
-	case 0:
+	switch {
+	case len(open) == 0 && len(over) > 0:
+		// adopting never ends a task: a person or the coordinator links it if it is the task's
+		return nil, fmt.Sprintf("only %s comes from it, and an open one alone is adopted", strings.Join(over, ", ")), "over", true
+	case len(open) == 0:
 		return nil, "no pull request comes from it", "none", true
-	case 1:
-	default:
-		return nil, fmt.Sprintf("%d pull requests come from it", len(from)), "many", true
+	case len(open) > 1:
+		return nil, fmt.Sprintf("%d open pull requests come from it", len(open)), "many", true
 	}
-	pl := from[0]
+	pl := open[0]
 	if ok, why := prPushable(d, p, k, o.repo.Repo, &pl); !ok {
 		return nil, fmt.Sprintf("PR #%d: %s", pl.Number, why), "pushable", true
 	}
 	if pl.Head.SHA == "" || !shaShape.MatchString(pl.Head.SHA) {
 		return nil, fmt.Sprintf("PR #%d has no head commit the agent can check", pl.Number), "history", true
 	}
-	if other := prHeldBy(d, p.ID, k.ID, o.repo.Repo, pl.Number); other != 0 {
-		return nil, fmt.Sprintf("PR #%d is task #%d's", pl.Number, other), "held", true
+	if why, code := prAdoptHeld(d, p, k, o, pl.Number); why != "" {
+		return nil, why, code, true
 	}
 	return &pl, "", "", true
 }
 
-// prAdoptApply records ads in t for task k (as stored now): each pull
-// request adopted with its head and a pr.opened event saying so — the task
-// in review, the refs hooks told, a merged or closed one ended as an event
-// would end it — and each refusal as a note, once per branch and reason.
-// Answers how many were adopted.
-func prAdoptApply(t *DB, p *Project, k *ProjectTask, ads []prAdopt) (int, error) {
-	type end struct {
-		repo string
-		pl   *scmPull
+// prAdoptHeld says why task k can't take PR n from off's branch now ("" it
+// can): another live task holds the PR or its branch, or k has another
+// open PR in that repo. Asked again inside the transaction that records it.
+func prAdoptHeld(t *DB, p *Project, k *ProjectTask, o prOff, n int) (string, string) {
+	if other := prHeldBy(t, p.ID, k.ID, o.repo.Repo, n); other != 0 {
+		return fmt.Sprintf("PR #%d is task #%d's", n, other), "held"
 	}
+	if why := prHeadRefusal(t, p, k, o.repo, n, o.branch); why != "" {
+		return why, "held"
+	}
+	if open := openPRIn(k.taskPRs(), o.repo.Repo, n); open != nil {
+		return fmt.Sprintf("PR #%d is open for this task in %s: a task holds one open pull request per repo — close it, or let it merge, first",
+			open.Number, o.repo.Repo), "second"
+	}
+	return "", ""
+}
+
+// prAdoptApply records ads in t for task k (as stored now): each pull
+// request adopted — checked again here, as stored — with its head and a
+// pr.opened event saying so, the task in review, the refs hooks told; each
+// refusal as a note, once per branch and reason. Answers how many were
+// adopted.
+func prAdoptApply(t *DB, p *Project, k *ProjectTask, ads []prAdopt) (int, error) {
 	var add []TaskPR
-	var ended []end
-	held := k.taskPRs()
 	for _, a := range ads {
+		if a.pull != nil && orStr(a.pull.State, "open") != "open" { // adopting never ends a task
+			a.refuse(fmt.Sprintf("PR #%d is %s, and an open one alone is adopted", a.pull.Number, a.pull.State), "over", true)
+		}
+		if a.pull != nil {
+			if why, code := prAdoptHeld(t, p, k, a.prOff, a.pull.Number); why != "" {
+				a.refuse(why, code, true)
+			} else if held := openPRIn(k.taskPRs(), a.repo.Repo, 0); held != nil && held.Number == a.pull.Number && held.Head == a.branch && !held.Tracked {
+				continue // adopted already
+			}
+		}
 		if a.pull == nil {
 			if a.why == "" {
 				continue
@@ -300,18 +368,12 @@ func prAdoptApply(t *DB, p *Project, k *ProjectTask, ads []prAdopt) (int, error)
 			continue
 		}
 		pl := a.pull
-		known := false
-		for _, h := range held {
-			known = known || (strings.EqualFold(h.Repo, a.repo.Repo) && h.Number == pl.Number && h.State != "open")
+		m := TaskPR{Repo: a.repo.Repo, Number: pl.Number, URL: pl.URL, State: "open", Draft: pl.Draft,
+			HeadSHA: strings.ToLower(pl.Head.SHA), Checks: "none", Head: a.branch}
+		if err := mergeTaskPRs(t, k, []TaskPR{m}); err != nil { // one at a time: the next one's checks see it
+			return 0, err
 		}
-		if known {
-			continue // linked already, and over: its state stays
-		}
-		add = append(add, TaskPR{Repo: a.repo.Repo, Number: pl.Number, URL: pl.URL, State: "open", Draft: pl.Draft,
-			HeadSHA: strings.ToLower(pl.Head.SHA), Checks: "none", Head: a.branch})
-		if pl.State == "merged" || pl.State == "closed" {
-			ended = append(ended, end{a.repo.Repo, pl})
-		}
+		add = append(add, m)
 		addProjectEvent(t, p.ID, k.N, pevPROpened, map[string]any{
 			"text": fmt.Sprintf("linked PR #%d on %s: the coding agent opened it from %s", pl.Number, a.repo.Repo, scmLine(a.branch, 120)),
 			"url":  pl.URL, "repo": a.repo.Repo, "pr": pl.Number, "head": a.branch}, false,
@@ -320,16 +382,10 @@ func prAdoptApply(t *DB, p *Project, k *ProjectTask, ads []prAdopt) (int, error)
 	if len(add) == 0 {
 		return 0, nil
 	}
-	if err := mergeTaskPRs(t, k, add); err != nil {
-		return 0, err
-	}
 	for _, h := range projectRefsHooks {
 		h(t, p, k)
 	}
 	onTaskChange(t, p, k, "prs")
-	for _, e := range ended {
-		scmPullEnded(t, p, k, e.repo, e.pl.Number, e.pl.State == "merged")
-	}
 	return len(add), nil
 }
 

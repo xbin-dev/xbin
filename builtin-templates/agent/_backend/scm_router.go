@@ -527,6 +527,7 @@ func scmApplyComments(d *DB, r *scmPollRow, pg *scmPage[scmComment]) (since int6
 			return nil
 		}
 		pol := policyOf(p.Policy).Reviews
+		tracked := scmOpenPR(k, r.Repo, r.Item.Number).Tracked // shown, never forwarded: not the task's PR to change
 		own := scmOwnLogin(t, p, k)
 		var fwd []scmComment
 		ns := strconv.FormatInt(k.N, 10)
@@ -540,12 +541,15 @@ func scmApplyComments(d *DB, r *scmPollRow, pg *scmPage[scmComment]) (since int6
 			if !scmSeenOnce(t, scmSemKey(p.ID, k.N, "review", strconv.Itoa(r.Item.Number), c.ID, orStr(c.State, c.Kind))) {
 				continue
 			}
-			if scmTrusted(pol, c.Author) {
+			if scmTrusted(pol, c.Author) && !tracked {
 				fwd = append(fwd, c)
 				continue
 			}
 			why := "not forwarded"
-			if pol.Forward == "off" {
+			switch {
+			case tracked:
+				why = "not forwarded: the task only tracks this PR"
+			case pol.Forward == "off":
 				why = "not forwarded: reviews.forward is off"
 			}
 			addProjectEvent(t, p.ID, k.N, pevComment, map[string]any{

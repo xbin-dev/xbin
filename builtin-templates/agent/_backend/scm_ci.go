@@ -213,8 +213,13 @@ func scmCIFailed(t *DB, p *Project, k *ProjectTask, repo, sha string, fails []*s
 	br := taskBranchIn(k, repo)
 	ev := map[string]any{"text": fmt.Sprintf("CI failed on %s@%s — failing (untrusted names): %s", br, sha7(sha), failed),
 		"repo": repo, "sha": sha, "suite": suite}
+	tracked := false // a PR the task only tracks: its CI is information, not the task's to fix
+	if pr := scmOpenPR(k, repo, 0); pr != nil && pr.Tracked && strings.EqualFold(pr.HeadSHA, sha) {
+		tracked = true
+		ev["text"] = fmt.Sprintf("CI failed on tracked PR #%d (%s@%s) — not the task's to fix; failing (untrusted names): %s", pr.Number, br, sha7(sha), failed)
+	}
 	switch {
-	case !pol.AutoFix:
+	case !pol.AutoFix || tracked:
 		addProjectEvent(t, p.ID, k.N, pevCIFailed, ev, false, "ci.failed:"+ns+":"+sha+":"+suite)
 	case scmFixesToday(k) >= pol.MaxPerDay:
 		ev["text"] = fmt.Sprintf("CI failed again on %s@%s — the task had its %d CI fixes today; it needs a person", br, sha7(sha), pol.MaxPerDay)

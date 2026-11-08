@@ -332,10 +332,14 @@ type TaskPR struct {
 	HeadSHA  string `json:"headSha"`
 	Checks   string `json:"checks"` // none | pending | success | failure
 	ChecksAt int64  `json:"checksAt,omitempty"`
-	// Head is the PR's branch when the task pushes to it and it isn't the
-	// task's own — a PR its coding agent opened from another branch, adopted
-	// or linked (taskBranchIn); "" the task's branch, or a PR it only tracks.
+	// Head is the PR's branch when it isn't the task's own — a PR its
+	// coding agent opened from another branch, adopted or linked; the task
+	// pushes there while it is open and not Tracked (taskBranchIn).
 	Head string `json:"head,omitempty"`
+	// Tracked: linked, but not the task's to push to (another author's, a
+	// fork's) — its state, checks and reviews are followed and shown, but
+	// neither its CI failures nor its review comments go to the task.
+	Tracked bool `json:"tracked,omitempty"`
 }
 
 // ProjectCheckout is a row of project_checkouts: one task × one repo.

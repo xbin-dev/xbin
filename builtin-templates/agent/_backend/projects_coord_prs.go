@@ -3,9 +3,13 @@
 // requests). task_link_pr and POST /projects/{pid}/tasks/{n}/link-pr link a
 // pull request of one of the task's repos to it (linkTaskPR): read at once,
 // recorded, the task in review — and ended as an event would end it when
-// it is over. The task pushes to its head only when it comes from that repo
-// (not a fork) and the project's own login opened it (prPushable); else the
-// link only tracks it. task_refresh reads a task's open pull requests again
+// it is over (cleanup then trusts it only for the commits its head holds:
+// dirtyIn). Refused: one another live task holds, a head that is the
+// default branch or another live task's branch, a second open PR in the
+// repo. The task pushes to its head only when it comes from that repo (not
+// a fork) and the project's own login opened it (prPushable); else the link
+// is Tracked: followed and shown, but its CI failures and review comments
+// don't go to the task. task_refresh reads a task's open pull requests again
 // now through the poll's own path (scmApplyPull: a merge no webhook brought
 // ends the task), asks for a fresh read of their checks, re-tracks reads
 // that had stopped (scmRetrackTask), and adopts what its checkouts on other
@@ -46,8 +50,9 @@ func coordPRSpecs() []toolSpec {
 	return []toolSpec{
 		{Type: "function", Function: funcDef{Name: "task_link_pr",
 			Description: "Link a pull request to one of this project's tasks — one its coding agent opened itself from another branch, say — so the task follows its CI, reviews and merge. " +
-				"The task pushes to the pull request's branch only when it comes from that repo (not a fork) and the project's own identity opened it; otherwise the link only tracks it. " +
-				"A pull request another open task holds is refused. It reads the pull request at once; it never merges, approves, pushes or comments.",
+				"The task pushes to the pull request's branch only when it comes from that repo (not a fork) and the project's own identity opened it; otherwise the link only tracks it (its CI failures and reviews don't go to the task). " +
+				"Refused: a pull request another open task holds, one from the default branch or another task's branch, and a second open one in a repo (a task holds one per repo). " +
+				"A merged one may be linked: it ends the task. It reads the pull request at once; it never merges, approves, pushes or comments.",
 			Parameters: obj([]string{"task", "pr"}, map[string]any{
 				"task": coordIntProp("the task's number"),
 				"repo": strProp("one of the task's repos (owner/name; default: the project's only repo)"),
@@ -130,9 +135,25 @@ func (ag *Agent) linkTaskPR(ctx context.Context, p *Project, k *ProjectTask, rep
 		if res.Already && res.PR.State != "open" {
 			return nil // over already: it stays as it ended
 		}
-		m := TaskPR{Repo: repo.Repo, Number: n, URL: pl.URL, State: "open", Draft: pl.Draft, HeadSHA: strings.ToLower(pl.Head.SHA), Checks: "none"}
-		if res.Pushes && pl.Head.Ref != "" && pl.Head.Ref != cur.Branch {
+		// its head, when a branch of this repo, may be neither the default
+		// branch nor another live task's; and one open PR per repo
+		sameRepo := pl.Head.Repo != "" && strings.EqualFold(pl.Head.Repo, repo.Repo)
+		if sameRepo {
+			if why := prHeadRefusal(t, p, cur, repo, n, pl.Head.Ref); why != "" {
+				return &projErr{code: 409, refusal: refusalBusy, msg: why}
+			}
+		}
+		if open := openPRIn(cur.taskPRs(), repo.Repo, n); open != nil && orStr(pl.State, "open") == "open" {
+			return &projErr{code: 409, refusal: refusalBusy, msg: fmt.Sprintf("PR #%d is open for task #%d in %s: a task holds one open pull request per repo — close it, or let it merge, first",
+				open.Number, cur.N, repo.Repo)}
+		}
+		m := TaskPR{Repo: repo.Repo, Number: n, URL: pl.URL, State: "open", Draft: pl.Draft, HeadSHA: strings.ToLower(pl.Head.SHA), Checks: "none",
+			Tracked: !res.Pushes}
+		switch {
+		case sameRepo && pl.Head.Ref != "" && pl.Head.Ref != cur.Branch:
 			m.Head = pl.Head.Ref
+		case !sameRepo && pl.Head.Ref != "":
+			m.Head = orStr(pl.Head.Repo, "?") + ":" + pl.Head.Ref // a fork's: never a branch of this repo (scmHeadPR)
 		}
 		if err := mergeTaskPRs(t, cur, []TaskPR{m}); err != nil {
 			return err
@@ -252,7 +273,7 @@ func (ag *Agent) coordLinkPR(ctx context.Context, p *Project, args map[string]an
 	if res.Pushes {
 		fmt.Fprintf(&b, " The task pushes to its branch, %s.", coordPlain(taskBranchIn(mustTask(ag.db, k), r.Repo)))
 	} else {
-		fmt.Fprintf(&b, " The link only tracks it — the task doesn't push to it: %s.", res.Why)
+		fmt.Fprintf(&b, " The link only tracks it — the task doesn't push to it (%s), and its CI failures and review comments don't go to the task.", res.Why)
 	}
 	b.WriteString("\n" + ag.coordRefreshOne(ctx, p, k.N, false))
 	return b.String(), nil

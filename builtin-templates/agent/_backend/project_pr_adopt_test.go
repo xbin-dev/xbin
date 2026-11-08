@@ -223,10 +223,9 @@ func TestTaskBriefStaysOnBranch(t *testing.T) {
 	}
 }
 
-// A PR the coding agent opened elsewhere that was merged before anyone
-// looked: adopted, then ended as its event would end it (phase merged, a
-// waking merged event); adopted again, nothing changes.
-func TestPROffBranchAdoptedMerged(t *testing.T) {
+// Adopting never ends a task: a merged PR handed to prAdoptApply (only an
+// open one ever is) is a note, the task open.
+func TestPROffBranchMergedNeverEndsTask(t *testing.T) {
 	fx := newEvFx(t, modeLegacy, "")
 	k := fx.addTask(1, "xbin/bchzwo/7-fix-55-tile-agent-can-read-globa", "")
 	r, _ := fx.ag.db.repoNamed(fx.p.ID, "acme/web")
@@ -246,17 +245,13 @@ func TestPROffBranchAdoptedMerged(t *testing.T) {
 		}
 		return n
 	}
-	if n := adopt(); n != 1 {
+	if n := adopt(); n != 0 {
 		t.Fatalf("adopted %d", n)
 	}
-	k = fx.task(1)
-	if prs := k.taskPRs(); k.Phase != phaseMerged || len(prs) != 1 || prs[0].State != "merged" || prs[0].Head != adoptBranch {
-		t.Fatalf("after adopting a merged PR: phase %s prs %+v", k.Phase, prs)
+	if k = fx.task(1); k.Phase != phaseOpen || len(k.taskPRs()) != 0 || len(fx.events(pevMerged)) != 0 || len(fx.events(pevPROpened)) != 0 {
+		t.Fatalf("after a merged PR: phase %s prs %+v events %+v", k.Phase, k.taskPRs(), fx.events(""))
 	}
-	if evs := fx.events(pevMerged); len(evs) != 1 || !evs[0].Wake || len(fx.events(pevPROpened)) != 1 {
-		t.Fatalf("events: %+v", fx.events(""))
-	}
-	if n := adopt(); n != 0 || fx.task(1).taskPRs()[0].State != "merged" {
-		t.Fatalf("adopted again: %d %+v", n, fx.task(1).taskPRs())
+	if notes := fx.events(pevNote); len(notes) != 1 || !strings.Contains(pevText(notes[0]), "PR #58 is merged") {
+		t.Fatalf("the note: %+v", notes)
 	}
 }
