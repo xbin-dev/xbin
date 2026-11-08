@@ -78,6 +78,7 @@ export function projectApi(app, pid) {
     task: (n) => call(`${p}/tasks/${n}`),
     cancel: (n, reason = '') => call(`${p}/tasks/${n}/cancel`, 'POST', reason ? { reason } : {}),
     events: (since = 0, limit = 0) => call(`${p}/events${qs({ since, limit })}`),
+    needs: () => call(`${p}/needs`), // what waits on you in it (#56: model/project-needs.js)
     // a membership's (team projects, U2): the definition's changes waiting for the member
     pending: () => call(`/memberships/${pid}/pending`),
     accept: (hash) => call(`/memberships/${pid}/accept`, 'POST', { hash }),

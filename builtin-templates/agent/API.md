@@ -55,7 +55,7 @@ a subagent is exactly as visible as the conversation it works for.
 | `GET /conversations?q=` | — | search titles and everything said, in every conversation you may see (archived and automation runs included), up to 50; content hits carry `match {msgId, snippet}` |
 | `PATCH /runs/{id}` | `{title?, pinned?, archived?, visibility?, teamRole?, model?}` | pin and archive are yours (any viewer); title and visibility are the owner's. Making an unowned run private claims it. `model` switches the conversation's model from its next turn (anyone who may talk in it; `""` = the agent's default) |
 | `POST /runs/{id}/read` | — | mark it read up to now |
-| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval — or a coding agent waits for you to sign in (`login`, D147 §4.3.9) — conversations you may talk to whose coding agent's or project's last turn stopped part-way (`unfinished`, D198, §Not finished), automations you own whose last run failed and you haven't looked at, and project tasks you may act in whose pull request passed CI — open, its checks `success`: it waits for you to review and merge it (`review`, §Projects and tasks); a project task's approval is `action` — action required: its turn waits on it, and no one else watches a task (§Coding agents) → `{items:[{run, reason: question\|approval\|action\|login\|unfinished\|failed\|review, subRun, harness?, project?}]}`; `harness` is the waiting run's compact summary when a coding agent waits (as `/tree` nodes carry it) |
+| `GET /needs` | — | what waits for you: conversations where the agent (or a subagent) asks a question or wants an approval — or a coding agent waits for you to sign in (`login`, D147 §4.3.9) — conversations you may talk to whose coding agent's or project's last turn stopped part-way (`unfinished`, D198, §Not finished), automations you own whose last run failed and you haven't looked at, and project tasks you may act in whose pull request passed CI — open, its checks `success`: it waits for you to review and merge it (`review`, §Projects and tasks); a project task's approval is `action` — action required: its turn waits on it, and no one else watches a task (§Coding agents) → `{items:[{run, reason: question\|approval\|action\|login\|unfinished\|failed\|review, subRun, harness?, project?, text?, since?, ws?}]}`; `harness` is the waiting run's compact summary when a coding agent waits (as `/tree` nodes carry it); `text` is what it asks, in words, clipped to 240 characters — the question (a coding agent's form question: its questions, else its message; the built-in agent's `ask_user`: its question), the approval, the sign-in, a task's workspace park — or, for `failed`, what it said; `since` is when it began waiting (unix ms; a park stored before this field: its run's last change; `failed`: when it failed); `ws`, on a task's workspace park (`reason` `project`), is its workspace's state (`signin`, `failed`, `blocked`) (#56) |
 | `POST /runs/{id}/unfinished/dismiss` | — | take the conversation's "not finished" mark down — for everyone, as an answered question is (anyone who may talk to it; D198) → `{ok}` |
 
 Items are run summaries plus `access`, `mine`, `members`, `pinnedAt`,
@@ -3595,7 +3595,12 @@ by key, and `null` takes a key back to its default.
 
 **`ProjectView`** — the row, your `level`, its `repos`, the board's `counts`
 (per column, and `ready`: the `pr` column's tasks whose CI passed — they need
-you too) and the slots in use:
+you too; `asks`: the `needs-you` column's tasks a person's question,
+approval or sign-in holds up — or a refused cleanup — and `failed`, those
+whose turn or workspace failed: what really waits, never a task whose turn
+ended with its answer ready; and, in `GET /projects` and `GET
+/projects/{pid}` only, `coord`: 1 while your own coordinator of the project
+waits for you — #56) and the slots in use:
 
 ```jsonc
 {"id": 1099511627777, "uid": "k3x9qa", "name": "Web", "slug": "web", "kind": "personal",
@@ -3605,7 +3610,7 @@ you too) and the slots in use:
  "repos": [{"slug": "web", "repo": "acme/web", "url": "https://github.com/acme/web.git", "defaultBranch": "main",
             "mode": "bare", "checkout": "worktree", "setup": "npm ci", "state": "ready", "fetchedMs": …,
             "head": "9fceb02…", "protected": true}],
- "counts": {"queued": 1, "working": 2, "needs-you": 0, "pr": 1, "done": 7, "ready": 1},
+ "counts": {"queued": 1, "working": 2, "needs-you": 0, "pr": 1, "done": 7, "ready": 1, "asks": 0, "failed": 0, "coord": 0},
  "slots": {"used": 2, "max": 3}, "createdBy": "alice", "createdMs": …, "updatedMs": …}
 ```
 
@@ -4343,9 +4348,9 @@ that its person still takes part:
 | Tool | Parameters | What it does |
 |---|---|---|
 | `task_create` | `tasks: [{title?, brief, repos?, size?}]` (1–10) or `issues: [n]` (1–10) with `repo`; `note?` (added to every brief) | creates tasks as its person (each starts when a slot is free and its workspace is ready) |
-| `task_list` | `state?` (a task state, or `open`), `q?`, `scope?` (`mine`, or `team`: a team project's board, read-only), `cursor?`, `limit?` (≤ 50) | the project's tasks, newest activity first: number, title (a task started from an issue: the issue's number, and the title labelled untrusted), state, branch, pull requests |
+| `task_list` | `state?` (a task state, or `open`), `q?`, `scope?` (`mine`, or `team`: a team project's board, read-only), `cursor?`, `limit?` (≤ 50) | the project's tasks, newest activity first: number, title (a task started from an issue: the issue's number, and the title labelled untrusted), state, branch, pull requests. A `needs-you` task's state says which: "waiting for a person to answer: «‹its question›» (asked 2d ago)" (or to approve, or to sign in), or "its turn ended — its answer is ready (task_result); a message from you starts its next turn"; a coding agent being taken over again after a restart whose attach its manager doesn't answer yet: "reconnecting to its coding agent" |
 | `task_status` | `tasks?` (≤ 10; default every open task), `detail?` | what each is doing now: its phase, whom it waits for, its recent tool calls and latest text, its pull requests and checks |
-| `task_message` | `task`, `text` | a message to a task, through the project's queue |
+| `task_message` | `task`, `text` | a message to a task, through the project's queue. While the task waits for a person the message is held, and the answer quotes what it waits for and its age, and says that only a person may answer it — it is on their Needs you list and the project's page — and that the message goes once they have; the coordinator can neither answer nor decline it |
 | `task_result` | `task`, `offset?`, `limit?` | a task's latest full answer, paged |
 | `task_cancel` | `tasks` (≤ 10), `reason?` | stops tasks and what they started; conversations, worktrees and branches stay |
 | `task_retry` | `task` | a task whose workspace failed: its failed workspace jobs (and the project's it waits for) queued again, as the task's Retry (`POST /runs/{id}/task/retry`); one whose last turn ended in an error: that too, and the turn runs again (as Resume, `POST /runs/{id}/resume`). Refused for a task in any other state — waiting for a person, working, in review or over — and while a manager has paused the agent (an errored turn) |
@@ -4404,7 +4409,9 @@ project workspace: the project's repo job failed: …
 one line each (at most 40 lines and 8 KiB; older ones are counted, not
 shown), each event then `delivered` with the message's id (`msgId`). An
 event that asks for a wake (`wake`) — a turn the coordinator asked for
-ended, a task failed or waits for a person, a pull request's checks
+ended, a task failed or waits for a person (its event says what it asks:
+"waits for a person to answer: ‹question›", "… to approve: ‹what›" — never
+its earlier answer), a pull request's checks
 passed, CI stuck — starts an idle coordinator's turn, at most once a
 minute; the others wait for its next turn. A coordinator that can't take
 a turn now — it waits for its person, its last turn failed, its project
@@ -4416,7 +4423,9 @@ updates' and frames' markers inside such text lose their bracket.
 
 **Needs and pushes.** `GET /needs` items of a project's conversation carry
 `project` `{id, name, n}` (`n` 0 for a coordinator); `GET
-/projects/{pid}/needs` lists the project's alone. A push about a task (a
+/projects/{pid}/needs` lists the project's alone — its tasks' and your own
+coordinator's (its `ask_user`), with `text` and `since` as `/needs` has them;
+the project's page shows it as **Waiting for you** (§Projects in the UI). A push about a task (a
 question, an approval, a failure) is titled `‹project› · ‹task›`. The
 project's own pushes go to the person whose task it is, within the same
 per-person budget, collapsed on the device per project and kind
@@ -4821,7 +4830,13 @@ run answers' `ci` key and the `ci` event, and its provider subscriptions
 searching, the conversation list starts with a **Projects** section,
 above Pinned: your active projects — those with tasks that need you
 first, then by activity, at most five (`PINNED`) — each with how many of
-its tasks need you, a click or tap to its board; then **All projects
+its tasks need you, split (#56): a red count of what really waits on you
+(`counts.asks` + `failed` + `coord`: a question, an approval or a sign-in
+holds a task up, a task failed, or your coordinator asks you something —
+not a task whose turn just ended) and beside it the pull requests ready
+for your review (`counts.ready`); the app shows the red one as the row's
+badge (danger), the ready ones beside it (an older backend: the needs-you
+column's count, as before) — a click or tap to its board; then **All projects
 (n)**, the page. A team project's definition is left out while your half
 of it is listed (the half leads to it). Its heading folds it — folded, it
 says how many tasks need you across your projects — and the fold is kept
@@ -4840,7 +4855,16 @@ at each) — yours, then team projects, archived ones last — each with its
 repos, the slots at work and its counts per column.
 
 **A project's page** has three tabs — Board, Activity and Settings (a team
-project's definition: Board and Settings). Wherever it is open, the bar
+project's definition: Board and Settings). Atop its Board (the overview's
+too, above the status strip; first on the app's screen) is **Waiting for
+you** (#56) while something in it waits on you — `GET
+/projects/{pid}/needs`, read at each opening of the page and again on the
+project's `project` events (coalesced): a row each for a task's question,
+approval or sign-in (red), its failure or a turn that stopped part-way
+(yellow), and your coordinator's own question — who asks (`#n` and its
+title, or Coordinator), why, what (`text`), how long ago (`since`), and
+**Open**, which opens the conversation it waits in (`subRun`, else the
+run). A pull request ready for review stays a count. Wherever it is open, the bar
 at the bottom of the page writes to the project's coordinator, never a new
 chat (D212; none on the list, the forms or Settings, nor where you have no
 coordinator); it says so ("Coordinator", with its state's mark).
@@ -5103,18 +5127,20 @@ events coalesced for 250 ms into one read each.
 
 | Module | What it holds |
 |---|---|
-| `model/projects.js` | `createProjects(app)` → `app.projects`: `list`, `load()`, `open(pid, tab)` (`opens` counts them), `opened`, `pinned(n)` (atop the conversations: `{items, total, need, shown, none}`), `folded`/`setFolded(on)` (prefs/projects-folded) — both from `model/project-pins.js` (`pinnedOf`, `readFold`, `writeFold`, `pinWords`, `PINNED`), `board(pid)`, `tasks(pid, filter)`, `take(ev)`, `create(body)`, `createTask(pid, spec)`, `batch(pid, issues)`, `patch(pid, body)`, `remove(pid, sandbox)`, `status(pid)`, `warm(pid)`, `issues(pid, q)`, `signin(scm)`, `forget(scm)`, `pending(pid)`, `accept(pid, hash)`, the forms (`newProject`, `newTask`, `openPicker`, `editPolicy`) and `POLICY` (the policy's keys, grouped); it emits `projects` |
+| `model/projects.js` | `createProjects(app)` → `app.projects`: `list`, `load()`, `open(pid, tab)` (`opens` counts them), `opened`, `pinned(n)` (atop the conversations: `{items, total, need, asks, ready, split, shown, none}`), `folded`/`setFolded(on)` (prefs/projects-folded) — both from `model/project-pins.js` (`pinnedOf`, `readFold`, `writeFold`, `pinWords`, `needSplit`, `PINNED`), `board(pid)`, `tasks(pid, filter)`, `take(ev)`, `create(body)`, `createTask(pid, spec)`, `batch(pid, issues)`, `patch(pid, body)`, `remove(pid, sandbox)`, `status(pid)`, `warm(pid)`, `issues(pid, q)`, `signin(scm)`, `forget(scm)`, `pending(pid)`, `accept(pid, hash)`, the forms (`newProject`, `newTask`, `openPicker`, `editPolicy`) and `POLICY` (the policy's keys, grouped); it emits `projects` |
 | `model/project-policy.js` | `POLICY` (the policy's keys as the settings show them), `policyGet(policy, path)`, `policySet(policy, path, value)`, `fieldValue(field, raw)`, `fieldText(field, value)` — re-exported by `model/projects.js` |
 | `model/project-task.js` | a task's words: `columns`, `columnOf`, `cardWords`, `stateWords`, `taskChips(view, project)`, `prChip`, `setupOutcome`, `prepCard(view, me)`, `prButton(view, route)`, `crumb(view)`, `taskSection(view)` |
-| `model/project-api.js` | `projectApi(app, pid)`, `taskApi(runId)`, `scmApi(home)`, `listProjects`, `createProject` — each call at its home, a refusal kept whole (`e.status`, `e.refusal`, `e.data`) |
+| `model/project-api.js` | `projectApi(app, pid)` (`needs()` among its calls), `taskApi(runId)`, `scmApi(home)`, `listProjects`, `createProject` — each call at its home, a refusal kept whole (`e.status`, `e.refusal`, `e.data`) |
 | `model/router.js` | `#proj`, `#proj=<id>` (`parse().proj`, `projHash`); `app.openProjects(pid)` |
 | `model/project-feed.js` | `projectFeed(app)`: a project's events (`load(pid)`, `items(pid)`, read since the last one on a `project` event) and your coordinator (`coord(pid)`, `openCoordinator(pid)`, `messageCoordinator(pid, text)`, `preview(pid)` — the card's small chat: `{shown, run, state, line, tail, more, loading, err}`, `readTail(pid)`); `coordTail(blocks, n)`, `coordState(run)`, `COORD_EMPTY`, `feedWords(ev)`, `plain(text)`, `httpsUrl(url)`; `model/projects.js` `pinWords(view)` |
+| `model/project-needs.js` | `projectNeeds(app)`: a project's Waiting for you (`ensure(pid)` → `{items, loaded, loading, err}`, `load(pid)`; `GET /projects/{pid}/needs`, read at each opening of its page and again on the open project's `project` events); `needRows(items, now)` (`{key, reason, tone, n, who, title, words, text, age, run}`, red first), `toneOf(item)`, `ageWords(since)` (#56) |
 | `model/project-team.js` | `projectTeam(app)`: the team board (`load`, `rows`, `hide`), the seed (`seedChoices`, `setSeed`), Work on this (`startWork`, `submitWork`), the team's changes (`ensureReview`, `acceptReview`), a definition from your own space (`saveTeam`); `boardWords(row, me)`, `boardColumns`, `securityDiff(accepted, pending)` |
 | `model/project-upgrade.js` | `upgradeOffer(view)`, `candidateWords`, `projectUpgrade(app)` (`open(runId)`, `toggle`, `submit`), `forkBaseOffer(view)`, `forkBase(pid)` |
 
 On the web, `project-web.js` lists the modules: `projects.js` (Projects
 atop your conversations, `ext.listTop` — sidebar.js draws it in Mine; the
-page, `ext.page('projects')`; it draws `project-feed.js`'s
+page, `ext.page('projects')`; it draws `project-needs.js`'s Waiting
+for you, `project-feed.js`'s
 coordinator card and Activity tab and `project-team.js`'s team board and
 cards), `project-new.js` (the form, and Make this a project… through
 `ext.sbx` in the ▣ popover), `project-settings.js` and `project-chips.js`

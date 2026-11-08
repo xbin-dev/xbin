@@ -5,7 +5,9 @@
 //   drawer               Projects atop your conversations (Mine, not while
 //                        searching; D209): your active projects — those with
 //                        tasks that need you first, at most PINNED — each with
-//                        how many need you, a tap to its board, All projects
+//                        how many need you (#56: the badge, danger, what
+//                        really waits on you; the ready-for-review ones
+//                        beside it), a tap to its board, All projects
 //                        (how many more; D212); the section folds (kept in
 //                        your prefs) — folded it says how many tasks need you,
 //                        and All projects stays under it
@@ -13,7 +15,10 @@
 //                        need you (from Shared and Archived too)
 //   'projects'           the list — yours, team projects, archived — New project
 //   'project' {pid}      a project, as the web's overview orders it (D214):
-//                        its status (native/project-status.js: the
+//                        what waits on you first (native/project-needs.js,
+//                        #56: a task's question, approval, sign-in or
+//                        failure, your coordinator's question — a tap opens
+//                        it); its status (native/project-status.js: the
 //                        coordinator, workers, subagents, tokens, source
 //                        control, the sandbox; it folds), the board as a
 //                        section per column — a row per task: #n, title,
@@ -60,6 +65,8 @@ import { openUrl } from './project-task.js';
 import { forkBaseOffer, forkBase } from '../model/project-upgrade.js';
 import { signinTpl } from './project-settings.js';
 import { openProjects, projectEntry, wide } from './nav.js';
+import { needsSectionTpl } from './project-needs.js';
+import { needSplit } from '../model/project-pins.js';
 
 export const TONE = { run: 'accent', ok: 'ok', bad: 'danger', warn: 'warn', idle: 'muted' };
 const pj = () => ctx.app.projects;
@@ -97,7 +104,7 @@ ext.register({
     if (pin.none) return html`<section><row title="Projects" subtitle="a sandbox, its repos and a conversation per task" icon="folder" nav @tap=${() => openProjects()}/></section>`; // none yet: one row to the page
     const all = html`<row title="All projects" subtitle=${pin.more && !p.folded ? `${pin.more} more` : nothing} detail=${pin.total ? String(pin.total) : nothing}
       icon="list" nav @tap=${() => openProjects()}/>`;
-    return html`<section title="Projects" collapsible ?collapsed=${p.folded} badge=${p.folded && pin.need ? String(pin.need) : nothing}
+    return html`<section title="Projects" collapsible ?collapsed=${p.folded} badge=${p.folded && pin.need ? String((pin.split && pin.asks) || pin.need) : nothing}
         @toggle=${(e) => p.setFolded(!!e.collapsed)}>
       ${repeat(pin.items, (pv) => pv.id, (pv) => pinRow(pv))}
       ${p.folded ? nothing : all}
@@ -142,21 +149,25 @@ function listTpl(s) {
   </screen>`;
 }
 
-// a project atop your conversations: its name, how many tasks need you, what is under way
+// a project atop your conversations: its name, what really waits on you (the badge, danger — #56;
+// else the pull requests ready for review, warn), the ready ones beside it, what is under way
 function pinRow(pv) {
   const w = pinWords(pv);
-  return html`<row title=${w.name} subtitle=${w.detail || nothing} icon=${w.team ? 'people' : 'folder'}
-    badge=${w.need ? String(w.need) : nothing} tone=${w.need ? 'warn' : nothing} nav @tap=${() => openProject(pv.id)}/>`;
+  const ready = w.asks && w.ready ? `${w.ready} ready for review` : '';
+  const n = w.asks || w.ready;
+  return html`<row title=${w.name} subtitle=${[ready, w.detail].filter(Boolean).join(' · ') || nothing} icon=${w.team ? 'people' : 'folder'}
+    badge=${n ? String(n) : nothing} tone=${w.asks && w.split ? 'danger' : n ? 'warn' : nothing} nav @tap=${() => openProject(pv.id)}/>`;
 }
 
 function projRow(pv) {
-  const counts = COUNTS.filter(([k]) => (pv.counts || {})[k]).map(([k, w]) => `${pv.counts[k]} ${w}`);
-  const need = (pv.counts || {})['needs-you'] || 0;
+  const s = needSplit(pv); // what really waits on you first (#56)
+  const counts = [...(s.split && s.asks ? [`${s.asks} waiting for you`] : []), ...COUNTS.filter(([k]) => (pv.counts || {})[k]).map(([k, w]) => `${pv.counts[k]} ${w}`)];
+  const need = s.asks || s.ready;
   const kind = pv.kind === 'team' ? 'team' : pv.kind === 'membership' ? 'team · yours' : '';
   const sub = [(pv.repos || []).map((r) => r.repo).join(', ') || 'no repos yet', pv.slots ? `${pv.slots.used}/${pv.slots.max} at work` : '', ...counts,
     pv.owner && pv.level !== 'owner' ? `${pv.owner}'s` : ''].filter(Boolean).join(' · ');
   return html`<row title=${pv.name} subtitle=${sub} detail=${[kind, pv.state !== 'active' ? pv.state : ''].filter(Boolean).join(' · ') || nothing}
-    icon="folder" badge=${need && pv.state === 'active' ? String(need) : nothing} tone=${need && pv.state === 'active' ? 'warn' : nothing} nav @tap=${() => openProject(pv.id)}/>`;
+    icon="folder" badge=${need ? String(need) : nothing} tone=${s.asks && s.split ? 'danger' : need ? 'warn' : nothing} nav @tap=${() => openProject(pv.id)}/>`;
 }
 
 // --- a project ------------------------------------------------------------------------------------------
@@ -190,6 +201,7 @@ function projectTpl(s) {
       <button icon="gear" @tap=${() => { p.showTab('settings'); push({ kind: 'project-settings', pid: pv.id }); }}>Project settings</button>
     </toolbar>
     ${errTpl(p)}
+    ${needsSectionTpl(pv)}
     ${pv.kind === 'membership' ? html`<section title="Team project">
       ${def ? html`<row title="The team's board" subtitle=${def.name} icon="people" nav @tap=${() => openProject(def.id)}/>` : nothing}
       ${review ? html`<row title="Review the team project's changes" subtitle="until you accept, your tasks run what you accepted before" icon="warning" tone="warn" nav

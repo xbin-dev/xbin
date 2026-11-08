@@ -1,25 +1,44 @@
 // model/project-pins.js — the projects the conversation list shows at its
 // top (D209), for both views, out of model/projects.js (its size budget):
-// the list's order, the needs-you count, the pinned rows and their words,
+// the list's order, the needs-you count — split: what really waits on you
+// (red) and the pull requests ready for review (#56) —, the pinned rows and their words,
 // and the section's fold, kept per person. app.projects calls these with
 // itself (pinned(), readFold(), setFolded()); model/projects.js re-exports
 // pinWords and PINNED, where the views import them from.
 
 export const byActivity = (a, b) => (b.updatedMs || 0) - (a.updatedMs || 0) || (b.id || 0) - (a.id || 0);
+
+/** needSplit(pv): a project's count in the conversation list, split (#56) — asks (red: a question, an
+ * approval or a sign-in holds a task up, a task failed, or your coordinator asks you something; never a
+ * task whose turn just ended with its answer ready) and ready (its pull requests that passed CI). A
+ * backend from before the split (no counts.asks) has its needs-you column count as asks. */
+export function needSplit(pv) {
+  const c = (pv && pv.state === 'active' && pv.counts) || {};
+  const split = c.asks != null;
+  const asks = split ? (c.asks || 0) + (c.failed || 0) + (c.coord || 0) : (c['needs-you'] || 0);
+  const ready = c.ready || 0;
+  const tip = !split ? 'tasks that need you'
+    : [c.asks ? `${c.asks} waiting for your answer, approval or sign-in` : '', c.failed ? `${c.failed} failed` : '',
+      c.coord ? 'your coordinator asks you something' : ''].filter(Boolean).join(' · ');
+  return { asks, ready, total: asks + ready, split, tip };
+}
 // (a task whose PR passed CI — counts.ready, in the PR column — waits for you too)
-export const needOf = (p) => (p && p.state === 'active' && p.counts && ((p.counts['needs-you'] || 0) + (p.counts.ready || 0))) || 0;
+export const needOf = (p) => needSplit(p).total;
 
 /** PINNED: how many projects the conversation list shows at its top (D209). */
 export const PINNED = 5;
 
 const UNDER_WAY = [['working', 'working'], ['queued', 'queued'], ['pr', 'in PR']];
-/** pinWords(view): a project as a row atop the conversations — {name, need (tasks that
- * need you), detail (what is under way: "2 working · 1 in PR"), repos, team (a team project)}. */
+/** pinWords(view): a project as a row atop the conversations — {name, need (all that waits for you),
+ * asks and ready (needSplit: the red count, the review one; split false: an older backend's needs-you
+ * count, drawn as before), tip (the red one's words), detail (what is
+ * under way: "2 working · 1 in PR"), repos, team (a team project)}. */
 export function pinWords(pv) {
   const counts = (pv && pv.counts) || {};
+  const s = needSplit(pv);
   return {
     name: (pv && pv.name) || `#${pv && pv.id}`,
-    need: needOf(pv),
+    need: s.total, asks: s.asks, ready: s.ready, tip: s.tip, split: s.split,
     detail: UNDER_WAY.filter(([k]) => counts[k]).map(([k, w]) => `${counts[k]} ${w}`).join(' · '),
     repos: ((pv && pv.repos) || []).map((r) => r.repo).join(', '),
     team: !!pv && pv.kind !== 'personal' && !!pv.kind,
@@ -39,7 +58,9 @@ export function pinnedOf(pj, n = PINNED) {
   const halves = new Set(live.filter((p) => p.kind === 'membership' && p.teamRef).map((p) => +p.teamRef));
   const rows = live.filter((p) => !(p.kind === 'team' && halves.has(p.id)));
   const items = [...rows].sort((a, b) => (needOf(b) > 0) - (needOf(a) > 0) || byActivity(a, b)).slice(0, n);
-  return { items, more: rows.length - items.length, total: pj.list.length, need: pj.needsYou(), shown: pj.supported && pj.loaded, none: !pj.list.length };
+  const asks = live.reduce((n, p) => n + needSplit(p).asks, 0); // the folded heading's split (#56)
+  return { items, more: rows.length - items.length, total: pj.list.length, need: pj.needsYou(), asks, ready: pj.needsYou() - asks,
+    split: live.some((p) => needSplit(p).split), shown: pj.supported && pj.loaded, none: !pj.list.length };
 }
 
 // FOLDED: the person's prefs key (xbind's per-person store: a tile frame keeps
