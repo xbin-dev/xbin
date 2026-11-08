@@ -12,6 +12,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-08
 
+- **Agent template Projects: a project wiki, and the coordinator reads
+  code** (D222). Each project keeps a versioned wiki — a Wiki tab with
+  search, history and edits — that its coordinator and the coordinator's
+  new **research** subagents (read-only: files, search and `git log/show/
+  diff/blame`, no shell) read and write. Tasks read it (a coding agent
+  from `.xbin/wiki/` in its workspace) and, when their PR opens, get one
+  "dream" turn to write down what they verified (project setting `dream`,
+  on by default). Writes are optimistic: a page someone changed since you
+  read it refuses your write until you read it again. API:
+  `GET/PUT/DELETE /projects/{pid}/wiki[/{slug}]`, `…/{slug}/history`.
 - **Agent template Projects: a task follows its pull request wherever its
   coding agent opened it, and sees a merge however late** (D221). An open
   PR the agent opened itself from another branch is linked to its task when

@@ -13439,3 +13439,70 @@ Deviations and refinements made while implementing; all deliberate:
     fork still asks, and the words say why (saved sign-ins need a person's
     partition; with partitions on, one serves every big task); no shared
     vault was invented.
+
+- **D222 — A project keeps a wiki its agents read and write, and the
+  coordinator reads code through research subagents (2026-11-08).** The
+  owner, after D221's report: the coordinator is "a somewhat weaker
+  agentic model and I don't think it has great access to understand the
+  projects by itself - which itself is a problem"; give it "sub-agents
+  with read-only access to code and code search tools" and a "Shared
+  project KB based on ideas from
+  https://www.anthropic.com/research/components-of-agent-memory, so -
+  coordinator can R(/W?) the wiki, research subagents can R/W wiki, coding
+  agents can read the wiki and at the end they have a 'dreaming' round
+  where they write the memories". Owner calls: the wiki lives in the
+  project's store, versioned; "Everyone writes directly, on conflict:
+  write retuns: 'other agent changed contents of this article since you
+  last read it, read the article again before editing'".
+  - **The store.** `wiki_pages` (slug, title, body, version, archived,
+    who and which run last wrote it), every version in `wiki_revisions`,
+    `wiki_reads` (the version each run last read), `wiki_fts`. 16 KB a
+    page, about 400 a project; written text redacted (`projRedact`).
+  - **Optimistic concurrency, kept by the server.** A run's read records
+    the version it saw; a write or edit to a page is a compare-and-swap
+    against that version, so a weaker model never carries version numbers.
+    A stale one gets the owner's words: "Another agent changed the contents
+    of this article since you last read it — read the article again before
+    editing."; a page it never read, "read the article before editing it".
+    People write through `PUT …/wiki/{slug}` with `baseVersion` and get the
+    same words with a 409.
+  - **The article's lessons, applied.** A small injected layer: the
+    `index` page (about 60 lines) rides the coordinator's prompt and each
+    task's brief, framed as notes that may be wrong, its version
+    snapshotted at the task's start so the prompt cache holds. Navigation
+    plus search (`[[links]]`, `wiki_search` over FTS5). The dream prompt
+    steers the goal — the next agent on this project — not steps, asks for
+    verified facts that quote paths and identifiers verbatim, and forbids
+    status and what goes stale. Size, reads per page and dream tokens show
+    under the Wiki tab.
+  - **Research subagents.** The coordinator stays in the web class (no
+    sandbox); `research` starts a subagent through the subagent machinery
+    with a `codeRead` binding built by the agent, never from the call: a
+    detached worktree of a repo's default branch under
+    `.xbin/research/<slug>`, or a small task's worktree. Its tools are
+    `read`, `ls`, `glob`, `grep`, an argv-only read-only `git` (seven
+    subcommands; options that write, run or redirect refused, abbreviations
+    too) and the wiki — `runTool` refuses everything else whatever the
+    model calls, and an API-made conversation can't carry the binding.
+    Paths resolve inside the project after symlinks. Four at once per
+    project, ten minutes each. Project code isn't internal data, so the
+    coordinator's lane is unchanged.
+  - **Coding agents** have no tools of ours: they read a copy of the wiki
+    written to `.xbin/wiki/<slug>.md` (a header names its version) before a
+    prompt reaches them when it changed, and write in the dream round to
+    `.xbin/wiki-out/<slug>.md` keeping the header of what they read; the
+    ingest applies each with the same compare-and-swap and, on a conflict,
+    copies the wiki again and sends the conflict's words once more (two
+    rounds at most). Built-in task runs get the wiki tools, writing only in
+    their dream turn.
+  - **The dream round.** Once when a task's PR opens after a turn it
+    worked (`pr.opened`: tasks from before this build don't all dream at
+    their next push), and once more when the task ends after three or more
+    turns since. It waits for the task to rest and is held behind a
+    person's question as the coordinator's messages are; its answer doesn't
+    replace the task's latest. Project policy `dream` (default on).
+  - **Not done.** A task reads "working" during its dream turn; on a
+    downgrade a queued wiki sync or ingest job fails its task's workspace
+    ("not in this build"); real Claude Code/Codex sessions writing
+    `wiki-out` were not exercised (the fake agent's files are written by
+    the test).
