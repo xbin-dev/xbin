@@ -303,7 +303,7 @@ func coordHoldPark(t *DB, runID int64, status string) {
 	moved := false
 	for _, row := range t.inboxRows(`WHERE run_id=? AND delivered_at=0 AND kind IN (?, ?) ORDER BY id DESC`, runID, inboxUser, inboxHPrompt) {
 		src := row.Body.Source
-		if (src != srcCoordinator && src != srcEvent) || len(row.Body.Files) > 0 || row.ClientID == startClientID(k.ProjectID, k.N) {
+		if (src != srcCoordinator && src != srcEvent && src != srcDream) || len(row.Body.Files) > 0 || row.ClientID == startClientID(k.ProjectID, k.N) {
 			continue
 		}
 		text := row.Body.Text

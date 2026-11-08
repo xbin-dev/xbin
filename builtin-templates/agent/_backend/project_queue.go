@@ -145,6 +145,9 @@ func projectPump(pid int64) {
 			if in.HoldPark && run.Status == statusWaiting {
 				continue // the person answers first
 			}
+			if in.Source == srcDream && !resting(run.Status) {
+				continue // a dream round is a turn of its own, after the work (project_dream.go)
+			}
 			if !t.runHoldsSlot(run) {
 				if holders >= max {
 					continue

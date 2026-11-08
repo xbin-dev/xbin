@@ -337,7 +337,7 @@ func projectTurnEnd(t *DB, run *Run, why, outcome, result string) {
 		last = t.lastAssistant(run.ID)
 	}
 	last = clip(projRedact(last), inlineBudget(1))
-	if last != "" {
+	if last != "" && k.TurnBy != srcDream { // a dream round's answer isn't the task's (project_dream.go)
 		k.Last = last
 		_ = t.setTask(k.ID, map[string]any{"last": last})
 	}

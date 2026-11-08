@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/xbin-dev/xbin/sdk/acp/acptest"
 )
 
 // research's git takes read-only subcommands and refuses what writes files,
@@ -151,5 +153,55 @@ func dumpRuns(t *testing.T, d *DB) {
 		for _, m := range msgs {
 			t.Logf("   %s %s %s", m.Role, clip(m.Content, 300), clip(m.ToolCalls, 300))
 		}
+	}
+}
+
+// End to end: the coordinator's research reads the repo and writes a wiki
+// page; a coding agent's task started later finds it in its sandbox
+// (.xbin/wiki/<slug>.md, the copy written before its first prompt) and its
+// brief points there.
+func TestResearchWikiReachesTask(t *testing.T) {
+	fx := newProjFix(t)
+	fx.m.Caps = []string{"exec", "files", "tar"}
+	argv := acptest.Command()
+	fx.m.Harnesses = []fsbHarness{{ID: "fake", Title: "Fake agent (tests)", Argv: argv, Login: argv[0] + " acptest login"}}
+	forgetHarnessProbes()
+	t.Cleanup(func() { settleHarnesses(fx.ag.eng) })
+	p := fx.newProject(t, asAlice, nil)
+	fx.waitRepoReady(t, p.ID)
+	f := fakeOf(fx.ag)
+	isResearch := func(r LLMRequest) bool {
+		return len(r.Msgs) > 0 && strings.Contains(asString(r.Msgs[0].Content), "research subagent of the project")
+	}
+	f.on(func(r LLMRequest) bool { return isResearch(r) && lastIs("user", "")(r) }, callTools(tc("c1", "read", `{"path":"README.md"}`))).once()
+	f.on(func(r LLMRequest) bool { return isResearch(r) && lastIs("tool", "# web")(r) }, callTools(
+		tc("c2", "wiki_write", `{"slug":"index","body":"- [[layout]]: what is where","note":"start the map"}`),
+		tc("c3", "wiki_write", `{"slug":"layout","title":"Layout","body":"README.md holds one heading, `+"`# web`"+`.","note":"read it","sources":["README.md"]}`))).once()
+	f.on(func(r LLMRequest) bool { return isResearch(r) && lastIs("tool", "")(r) }, say("README.md is `# web`; noted in the wiki")).once()
+	f.on(func(r LLMRequest) bool { return !isResearch(r) && lastUser("map the repo")(r) && lastIs("user", "")(r) },
+		callTools(tc("r1", "research", `{"question":"What is in the repo?"}`))).once()
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/coordinator", p.ID), map[string]any{"text": "map the repo"}); w.Code != 200 {
+		t.Fatalf("POST coordinator: %d %s", w.Code, w.Body)
+	}
+	coord := fx.ag.db.coordRunOf(p.ID, "alice")
+	hwait(t, "the coordinator's turn", func() bool {
+		r, _ := fx.ag.db.getRun(coord)
+		return r != nil && r.Status == statusIdle && len(f.callsFor(coord)) >= 2
+	})
+	if pg, err := fx.ag.db.wikiPage(p.ID, "layout"); err != nil || pg.Version != 1 {
+		t.Fatalf("research's page: %+v %v", pg, err)
+	}
+	_, runID := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "fix the header", "agent": map[string]any{"provider": "fake"}})
+	hwait(t, "the coding agent's first turn", func() bool {
+		return turnOver(fx.ag, runID)() && strings.Contains(fullText(fx.ag.db, runID), "echo: ")
+	})
+	pp, _ := fx.ag.db.getProject(p.ID)
+	b, err := os.ReadFile(filepath.Join(wikiDir(pp), "layout.md"))
+	if err != nil || !strings.HasPrefix(string(b), "<!-- wiki: layout version 1 -->\n# Layout\n") || !strings.Contains(string(b), "`# web`") {
+		t.Fatalf("the task's copy of the page: %v %q", err, b)
+	}
+	text := fullText(fx.ag.db, runID)
+	if !strings.Contains(text, wikiDir(pp)+"/index.md") || !strings.Contains(text, "[[layout]]: what is where") {
+		t.Fatalf("the task's brief doesn't point at the wiki:\n%s", clip(text, 3000))
 	}
 }
