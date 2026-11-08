@@ -144,6 +144,12 @@ type Config struct {
 	// "project"; the global defaults never hold one (PUT /config).
 	Project *ProjectRef `json:"project,omitempty"`
 
+	// CodeRead: the run is a project coordinator's research subagent — it
+	// reads the project's code through this binding and nothing else
+	// (projects_coord_research.go). Set when it is made, never changed; the
+	// global defaults never hold one (PUT /config).
+	CodeRead *CodeReadBinding `json:"codeRead,omitempty"`
+
 	// noHarness: no coding agent may start in this turn's run — the global
 	// instance's, a hosted conversation's (harness_partition.go):
 	// subagent_spawn offers none. Set per turn (runToolSpecs), never stored.

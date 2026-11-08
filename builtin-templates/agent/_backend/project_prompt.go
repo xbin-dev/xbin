@@ -82,6 +82,7 @@ func projectPrompt(d *DB, p *Project, k *ProjectTask, sub bool) string {
 	if setup := setupOutcome(d, k); setup != "" {
 		b.WriteString("\n" + setup)
 	}
+	b.WriteString(wikiBrief(d, p, k, sub)) // the wiki's index, as at the task's start (project_wiki_prompt.go)
 	return strings.TrimRight(b.String(), "\n")
 }
 

@@ -134,9 +134,12 @@ func (e *Engine) execTools(ctx context.Context, ts *turnState, calls []toolCall,
 		case isSubagentTool(name):
 			e.subagentTool(ctx, ts, calls[i])
 			i++
+		case name == "research": // a coordinator's research subagent: it waits as one does (projects_coord_research.go)
+			e.researchTool(ctx, ts, calls[i])
+			i++
 		default:
 			j := i
-			for j < len(calls) && !isControlTool(calls[j].Function.Name) && !isSubagentTool(calls[j].Function.Name) {
+			for j < len(calls) && !isControlTool(calls[j].Function.Name) && !isSubagentTool(calls[j].Function.Name) && calls[j].Function.Name != "research" {
 				j++
 			}
 			e.runToolBatch(ctx, ts, calls[i:j])
