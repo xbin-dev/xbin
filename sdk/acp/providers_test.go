@@ -162,3 +162,28 @@ func TestProviderAuthFile(t *testing.T) {
 		t.Errorf("AuthFile in the JSON: %s", b)
 	}
 }
+
+// Every provider says where its CLI keeps its login (a copy of a $HOME
+// has them removed): codex's is its AuthFile; the fake's is
+// --require-login's. Never in the JSON.
+func TestProviderLoginFiles(t *testing.T) {
+	for _, p := range append(Providers(), Fake(nil)) {
+		if len(p.LoginFiles) == 0 {
+			t.Errorf("%s: no LoginFiles", p.ID)
+		}
+		for _, f := range p.LoginFiles {
+			if !strings.Contains(f, "HOME") || strings.ContainsAny(f, "\"`;\n") {
+				t.Errorf("%s: login file %q is no shell word under a home", p.ID, f)
+			}
+		}
+		if b, _ := json.Marshal(p); strings.Contains(string(b), "LoginFiles") || strings.Contains(string(b), "loginFiles") {
+			t.Errorf("%s: LoginFiles in the JSON: %s", p.ID, b)
+		}
+	}
+	if c, _ := Lookup("codex"); !slices.Contains(c.LoginFiles, c.AuthFile) {
+		t.Errorf("codex's login files lack its AuthFile: %v", c.LoginFiles)
+	}
+	if f := Fake(nil); !slices.Equal(f.LoginFiles, []string{"$HOME/.fakeacp/credentials"}) {
+		t.Errorf("the fake's login files: %v", f.LoginFiles)
+	}
+}

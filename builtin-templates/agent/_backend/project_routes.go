@@ -123,7 +123,8 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 
 // projectView is GET /projects/{pid}'s answer for a caller at level lv.
 func (d *DB) projectView(p *Project, lv level) ProjectView {
-	v := ProjectView{Project: *p, Level: lv.String(), Counts: map[string]int{colQueued: 0, colWorking: 0, colNeedsYou: 0, colPR: 0, colDone: 0, countReady: 0}}
+	v := ProjectView{Project: *p, Level: lv.String(), Counts: map[string]int{colQueued: 0, colWorking: 0, colNeedsYou: 0, colPR: 0, colDone: 0, countReady: 0,
+		countAsks: 0, countFailed: 0}}
 	v.Policy = policyView(p.Policy)
 	v.Repos, _ = d.projectRepos(p.ID)
 	if v.Repos == nil {
@@ -132,14 +133,17 @@ func (d *DB) projectView(p *Project, lv level) ProjectView {
 	queued := d.queuedInputs(p.ID, 0)
 	ks, _ := d.tasksWhere(`WHERE project_id=? AND phase<>'deleted'`, p.ID)
 	for _, k := range ks {
-		status := ""
+		status, pending := "", ""
 		if k.RunID != 0 {
-			_ = d.q.QueryRow(`SELECT status FROM runs WHERE id=?`, k.RunID).Scan(&status)
+			_ = d.q.QueryRow(`SELECT status, pending FROM runs WHERE id=?`, k.RunID).Scan(&status, &pending)
 		}
-		col, state, _ := taskDerived(k, status, taskCISummary(k.RunID), queueWaits(queued, k.N))
+		col, state, _ := taskDerived(k, taskRunStatus(status, pending), taskCISummary(k.RunID), queueWaits(queued, k.N))
 		v.Counts[col]++
 		if state == taskCIPassed {
 			v.Counts[countReady]++ // in the PR column, and waiting for a person (model/project-pins.js needOf)
+		}
+		if c := askCount(col, state, status); c != countNone {
+			v.Counts[c]++ // the real needs among Needs you's (project_needs.go)
 		}
 	}
 	v.Slots = ProjectSlots{Used: d.slotsUsed(p.ID), Max: policyOf(p.Policy).MaxTasks}
@@ -195,14 +199,14 @@ func handleListProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	items := []ProjectView{}
 	for _, p := range ps {
-		items = append(items, projAg().db.projectView(p, projAg().db.projectLevel(c, p.ID)))
+		items = append(items, projAg().db.withCoordAsk(projAg().db.projectView(p, projAg().db.projectLevel(c, p.ID)), c))
 	}
 	xbin.WriteJSON(w, 200, map[string]any{"items": items, "next": next})
 }
 
 func handleGetProject(w http.ResponseWriter, r *http.Request) {
 	p, lv := projectOf(r)
-	xbin.WriteJSON(w, 200, map[string]any{"project": projAg().db.projectView(p, lv)})
+	xbin.WriteJSON(w, 200, map[string]any{"project": projAg().db.withCoordAsk(projAg().db.projectView(p, lv), callerOf(r))})
 }
 
 // --- creating a project -------------------------------------------------------------------

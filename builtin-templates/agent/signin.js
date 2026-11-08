@@ -20,6 +20,13 @@
 //   authenticate answers the page and the code to enter there (a link), and
 //   the run leaves `login` by itself once that is done.
 //
+// On a project's task (D221) it offers first to sign in ONCE for every big
+// task — the guided sign-in with Remember, saved as the coding agent's
+// default (Claude Code: setup-token), or for one with no mint a key pasted
+// and saved — and "Sign in for this task only" second, with its caveat;
+// where no saved sign-in may go into the task's sandbox (a team project's
+// shared one, an agent without partitions), it says why (taskSigninOf).
+//
 // It warns that the credentials land in the sandbox's shared HOME, and on a
 // sandbox others may use asks for a confirm first (sent as confirm: true).
 // Someone who may not use the sandbox is told whom to ask; a sandbox that is
@@ -29,7 +36,8 @@
 import { html, nothing } from '/vendor/lit-all.min.js';
 import { signIn, methodLabel, isHttps } from './model/terminals.js';
 import { findHarness } from './model/harness.js';
-import { newGuided, guidedStarted, guidedFailed, guidedFinished, guidedWords, cleanCode, nameFor, shownMethods } from './model/harness-signins.js';
+import { newGuided, guidedStarted, guidedFailed, guidedFinished, guidedWords, cleanCode, nameFor, shownMethods, taskSigninOf } from './model/harness-signins.js';
+import { partitionState } from './model/partition.js';
 import { termDock } from './terminals.js';
 import { openSignins } from './harness-catalog.js';
 import { ext, ctx } from './web-ext.js';
@@ -52,7 +60,7 @@ ext.register({
     const c = signIn(v, { list: app.sbx.list, entry: findHarness(app.harness.catalog, (v.run.harness || {}).provider), me: app.me });
     if (!c) return null;
     app.sbx.ensure(c.sandbox.ref);
-    if (c.remember.offered) app.harness.ensureSignins();
+    if (c.remember.offered || (c.task && partitionState() === 'user')) app.harness.ensureSignins();
     return cardTpl(app, c, (v.run.harness || {}).provider || '');
   },
 });
@@ -108,11 +116,11 @@ function cardTpl(app, c, provider = '') {
   return html`<div class="ask hlogin" id="hlogin" data-run=${c.run}>
     <b>${c.title}</b>
     ${c.gone ? html`<div id="hl-gone"><bx-icon name="warning"></bx-icon><span>${c.goneText}</span></div>`
-      : html`<div class="hint" id="hl-warn"><bx-icon name="warning"></bx-icon><span>${x.g.remember ? rememberWarn(c) : c.warn}</span></div>`}
+      : c.task ? nothing : html`<div class="hint" id="hl-warn"><bx-icon name="warning"></bx-icon><span>${x.g.remember ? rememberWarn(c) : c.warn}</span></div>`}
     ${c.gone ? nothing : c.ask ? html`<div id="hl-ask">${c.ask}</div>` : html`
       ${(c.shared || x.needConfirm) && !x.g.remember ? html`<label class="chk" id="hl-shared"><input type="checkbox" id="hl-confirm" .checked=${!!x.confirm}
         @change=${(e) => { x.confirm = e.target.checked; redraw(); }}> ${c.confirmLabel}</label>` : nothing}
-      ${c.guided ? guidedTpl(app, c, x, provider, redraw, opts) : nothing}
+      ${c.task ? taskTpl(app, c, x, provider, redraw, opts, run) : c.guided ? guidedTpl(app, c, x, provider, redraw, opts) : nothing}
       <div class="hlm">${shownMethods(c).map((m) => METHOD[m.kind](m))}</div>`}
     ${dev && isHttps(dev.url) ? html`<div class="hldev" id="hl-device">Open <a id="hl-device-link" href=${dev.url} target="_blank" rel="noopener noreferrer">${dev.url}</a>
       ${dev.message ? html`<div class="mono" id="hl-device-msg">${dev.message}</div>` : nothing}
@@ -130,22 +138,64 @@ function cardTpl(app, c, provider = '') {
 const rememberWarn = (c) => `${c.name} mints a long-lived token for your account in ${c.sandbox.name}; it is kept as your saved sign-in — not in the sandbox's home — and goes only into sandboxes of your own.`;
 
 // the guided sign-in: Sign in (with Remember), then the link, Copy link, the code and Finish
+// startGuided starts the guided sign-in as x.g says (remember: the mint)
+async function startGuided(app, c, x, redraw, opts) {
+  const g = x.g;
+  x.g = { ...g, phase: 'starting', err: '', msg: '' };
+  redraw();
+  try {
+    const r = await app.harness.guided(c.run, { remember: g.remember, name: g.remember ? g.name : '', ...(g.remember ? {} : opts()) });
+    x.g = guidedStarted(x.g, r);
+  } catch (e) {
+    if (e && e.status === 409 && e.data && e.data.confirm) { x.needConfirm = true; x.confirm = false; }
+    x.g = guidedFailed(x.g, e);
+  }
+  redraw();
+}
+
+// a project task's card (D221, model/harness-signins.js taskSigninOf): first, sign in ONCE for
+// every big task — the guided sign-in with Remember, made the default, or a key pasted and saved
+// as the default — then "Sign in for this task only"; where no saved sign-in may go in, why
+function taskTpl(app, c, x, provider, redraw, opts, run) {
+  const g = x.g;
+  if (g.phase !== 'idle' && g.phase !== 'starting') return guidedTpl(app, c, x, provider, redraw, opts); // its link, code, Finish
+  const t = taskSigninOf(c, { entry: findHarness(app.harness.catalog, provider), st: app.harness.signins });
+  const busy = g.phase === 'starting' || !!x.busy;
+  const onceBlocked = ((c.shared || x.needConfirm) && !x.confirm) || busy;
+  const go = (remember) => { x.g = { ...g, remember, def: remember, name: '' }; startGuided(app, c, x, redraw, opts); };
+  const paste = (e) => {
+    e.preventDefault();
+    const input = e.target.querySelector('input');
+    const secret = input.value;
+    input.value = '';
+    if (!secret) return;
+    run('save', async () => {
+      await app.harness.saveSignin({ harness: c.provider, secret, isDefault: true });
+      await app.harness.retry(c.run);
+      x.msg = `Saved — ${c.name} starts again with it, and so will every later big task.`;
+    });
+  };
+  return html`<div class="hltask" id="hl-task" data-primary=${t.primary}>
+    ${t.primary === 'mint' ? html`<div class="hlgrow"><button class="btn btnsm" id="hl-all" ?disabled=${busy}
+        @click=${() => go(true)}>${g.phase === 'starting' && g.remember ? 'Starting…' : t.title}</button></div>
+      <div class="hint" id="hl-all-hint">${t.hint}</div>` : nothing}
+    ${t.primary === 'paste' ? html`<form class="hlgrow" id="hl-all-key" @submit=${paste}>
+        <input type="password" autocomplete="off" spellcheck="false" placeholder=${t.keys[0].label} aria-label=${t.keys[0].label} ?disabled=${busy}>
+        <button class="btn btnsm" ?disabled=${busy}>${x.busy === 'save' ? 'Saving…' : t.title}</button></form>
+      <div class="hint" id="hl-all-hint">${t.hint}</div>` : nothing}
+    ${t.why ? html`<div class="hint" id="hl-task-why">${t.why}</div>` : nothing}
+    ${c.guided ? html`<div class="hlgrow"><button class="btn btnsm ${t.primary === 'once' ? '' : 'ghost'}" id="hl-once" ?disabled=${onceBlocked}
+        @click=${() => go(false)}>${g.phase === 'starting' && !g.remember ? 'Starting…' : t.once.title}</button></div>
+      <div class="hint" id="hl-once-hint">${t.once.hint} ${c.warn}</div>` : nothing}
+    ${g.err ? html`<div class="err" id="hl-gstatus">${g.err}</div>` : nothing}
+  </div>`;
+}
+
 function guidedTpl(app, c, x, provider, redraw, opts) {
   const g = x.g;
   const w = guidedWords(g, c);
   const blocked = ((c.shared || x.needConfirm) && !x.confirm && !g.remember) || w.busy;
-  const start = async () => {
-    x.g = { ...g, phase: 'starting', err: '', msg: '' };
-    redraw();
-    try {
-      const r = await app.harness.guided(c.run, { remember: g.remember, name: g.remember ? g.name : '', ...(g.remember ? {} : opts()) });
-      x.g = guidedStarted(x.g, r);
-    } catch (e) {
-      if (e && e.status === 409 && e.data && e.data.confirm) { x.needConfirm = true; x.confirm = false; }
-      x.g = guidedFailed(x.g, e);
-    }
-    redraw();
-  };
+  const start = () => startGuided(app, c, x, redraw, opts);
   const finish = async (e) => {
     e.preventDefault();
     const input = e.target.querySelector('input');
@@ -155,7 +205,7 @@ function guidedTpl(app, c, x, provider, redraw, opts) {
     x.g = { ...x.g, phase: 'finishing', err: '' };
     redraw();
     try {
-      const r = await app.harness.guided(c.run, { code });
+      const r = await app.harness.guided(c.run, { code, ...(x.g.def ? { default: true } : {}) });
       x.g = guidedFinished(x.g, r, c.name);
       if (r && r.saved) app.harness.loadSignins().catch(() => {});
     } catch (e2) { x.g = guidedFailed(x.g, e2); }

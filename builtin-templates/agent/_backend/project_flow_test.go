@@ -325,8 +325,9 @@ func TestDeleteRunMarksTask(t *testing.T) {
 
 // What a task pushes itself is noticed: its branch on the remote, then a
 // moved head, each run projectRefsHooks once; a PR opened in a later turn
-// without a push, and one opened outside any turn (projectRefsCheck), are
-// recorded in prs.
+// without a push is recorded in prs; a second open one for the branch,
+// opened outside any turn (projectRefsCheck), isn't — a task holds one open
+// PR per repo — and a waking note says so.
 func TestRefsJobFiresHooks(t *testing.T) {
 	refs := &hookLog{}
 	old := projectRefsHooks
@@ -388,10 +389,22 @@ func TestRefsJobFiresHooks(t *testing.T) {
 	_ = fx.ag.db.Tx(func(t2 *DB) error { projectRefsCheck(t2, p.ID, 1); return nil })
 	waitJobsDone(t, fx, p.ID)
 	k3, _ := fx.ag.db.taskByN(p.ID, 1)
-	if prs := k3.taskPRs(); len(prs) != 2 || prs[1].Number != 43 {
-		t.Fatalf("the PR opened outside a turn: %s", k3.PRs)
+	if prs := k3.taskPRs(); len(prs) != 1 || prs[0].Number != 42 {
+		t.Fatalf("a second open PR in the repo: %s", k3.PRs)
 	}
-	if got := refs.all(); len(got) != 4 {
+	var notes []string
+	for _, e := range fx.ag.db.projectEvents(p.ID, 0, 200) {
+		if e.Kind == pevNote && strings.Contains(pevText(e), "PR #43") {
+			notes = append(notes, pevText(e))
+			if !e.Wake {
+				t.Fatalf("the note doesn't wake the coordinator: %+v", e)
+			}
+		}
+	}
+	if len(notes) != 1 || !strings.Contains(notes[0], "holds PR #42 open") {
+		t.Fatalf("the note about #43: %v", notes)
+	}
+	if got := refs.all(); len(got) != 3 {
 		t.Fatalf("hooks after it: %v", got)
 	}
 	opened := 0
@@ -400,7 +413,7 @@ func TestRefsJobFiresHooks(t *testing.T) {
 			opened++
 		}
 	}
-	if opened != 2 {
+	if opened != 1 {
 		t.Fatalf("pr.opened events: %d", opened)
 	}
 }

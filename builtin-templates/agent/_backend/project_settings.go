@@ -301,6 +301,7 @@ func handleProjectStatus(w http.ResponseWriter, r *http.Request) {
 				Text: rp.Repo + "'s default branch has no protection: a token in the sandbox could push to it or merge through the API (policy.protection refuse makes this a refusal)"})
 		}
 	}
+	st.Warnings = append(st.Warnings, signinOnceHints(projAg().db, p, callerOf(r))...)
 	st.Creds = projAg().db.projectCredsView(p.ID)
 	st.Jobs = []ProjectJob{}
 	for _, j := range projAg().db.jobsWhere(`WHERE project_id=? AND (state IN ('queued','running','waiting') OR id IN

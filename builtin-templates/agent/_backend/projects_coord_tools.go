@@ -1,7 +1,9 @@
 // projects_coord_tools.go — the coordinator's tools (API.md §The
 // coordinator): task_create, task_list, task_status, task_message,
-// task_result, task_cancel, the read-only scm_pr and scm_issues
-// (projects_coord_scm.go), and project_goal (project_goal.go). Offered at
+// task_result, task_cancel, task_retry (projects_coord_retry.go), the
+// read-only scm_pr and scm_issues (projects_coord_scm.go), project_goal
+// (project_goal.go), and task_link_pr and task_refresh
+// (projects_coord_prs.go). Offered at
 // depth 0 only, to a run whose role projectRefOf says is a coordinator
 // (no new toolset: the way cfg.Channel
 // gates attach_to_reply), and dispatched from runTool beside the thread
@@ -23,11 +25,13 @@ import (
 )
 
 var coordToolNames = map[string]bool{"task_create": true, "task_list": true, "task_status": true, "task_message": true,
-	"task_result": true, "task_cancel": true, "scm_pr": true, "scm_issues": true, "project_goal": true}
+	"task_result": true, "task_cancel": true, "task_retry": true, "scm_pr": true, "scm_issues": true, "project_goal": true,
+	"task_link_pr": true, "task_refresh": true}
 
 // coordWrites change a task (approval mode asks the person first: they
-// start or steer work that runs in the project's sandbox).
-var coordWrites = map[string]bool{"task_create": true, "task_message": true, "task_cancel": true}
+// start or steer work that runs in the project's sandbox, or say which
+// branch a task pushes to).
+var coordWrites = map[string]bool{"task_create": true, "task_message": true, "task_cancel": true, "task_retry": true, "task_link_pr": true}
 
 // The tools' bounds.
 const (
@@ -46,11 +50,11 @@ func coordIntsProp(desc string, max int) map[string]any {
 	return map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "minItems": 1, "maxItems": max, "description": desc}
 }
 
-// coordToolSpecs are the nine tools. The first sentence of each is pinned
-// (tooldesc_test.go).
+// coordToolSpecs are the coordinator's tools. The first sentence of each
+// is pinned (tooldesc_test.go).
 func coordToolSpecs() []toolSpec {
-	taskStates := "queued, preparing, signin, working, needs-you (waiting for a person), ci, ci-failed, awaiting-review, merged, closed, done, failed, cancelled, blocked"
-	return []toolSpec{
+	taskStates := "queued, preparing, signin, agent-signin (its coding agent waits for a sign-in), working, needs-you (a person's question or approval waits, or its turn ended with its answer ready), ci, ci-failed, ci-passed, awaiting-review, merged, closed, done, failed, cancelled, blocked"
+	return append([]toolSpec{
 		{Type: "function", Function: funcDef{Name: "task_create",
 			Description: "Create tasks in this project — each its own conversation with a git worktree per repo — started now or queued behind the project's limit of tasks running at once. " +
 				"Either tasks (each with a self-contained brief: what to change, where, how to check it) or issues (numbers of one of the project's repos: a task each, starting from the issue). " +
@@ -87,7 +91,7 @@ func coordToolSpecs() []toolSpec {
 			})}},
 		{Type: "function", Function: funcDef{Name: "task_message",
 			Description: "Send one of this project's tasks a message — a working task reads it at its next step, an idle one starts a new turn on it (queued behind the running-task limit); a task waiting for a person gets it only after that person answers. " +
-				"It reaches the task as a message from the project coordinator.",
+				"It reaches the task as a message from the project coordinator. You never answer a person's question or approval for them: it is theirs, on their Needs you list.",
 			Parameters: obj([]string{"task", "text"}, map[string]any{
 				"task": coordIntProp("the task's number"),
 				"text": strProp("the message"),
@@ -107,6 +111,7 @@ func coordToolSpecs() []toolSpec {
 				"tasks":  coordIntsProp("task numbers (1–10)", coordMaxStatus),
 				"reason": strProp("why, shown in the task"),
 			})}},
+		taskRetrySpec(),
 		{Type: "function", Function: funcDef{Name: "scm_pr",
 			Description: "Read a pull request through the project's scm provider — state, mergeability, reviews, review comments and checks, with a log excerpt for failing ones; read-only: you cannot merge, approve or push. " +
 				"Name a task (its pull request) or one of the project's repos and a number.",
@@ -126,10 +131,10 @@ func coordToolSpecs() []toolSpec {
 				"q":       strProp("for a list: words"),
 			})}},
 		projectGoalSpec(),
-	}
+	}, coordPRSpecs()...)
 }
 
-// coordToolsFor is what runToolSpecs adds for run: the nine tools for a
+// coordToolsFor is what runToolSpecs adds for run: the tools for a
 // coordinator at depth 0 (its role through projectRefOf, its session key
 // agreeing), none otherwise.
 func coordToolsFor(cfg Config, run *Run) []toolSpec {
@@ -184,12 +189,18 @@ func (ag *Agent) runCoordTool(ctx context.Context, run *Run, cfg Config, name st
 		return ag.coordResult(p, args)
 	case "task_cancel":
 		return ag.coordCancel(run, p, args)
+	case "task_retry":
+		return ag.coordRetry(run, p, args)
 	case "scm_pr":
 		return ag.coordPR(ctx, p, args)
 	case "scm_issues":
 		return ag.coordIssues(ctx, p, args)
 	case "project_goal":
 		return ag.coordGoalTool(run, p, args)
+	case "task_link_pr":
+		return ag.coordLinkPR(ctx, p, args)
+	case "task_refresh":
+		return ag.coordRefresh(ctx, p, args)
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
 }
@@ -357,21 +368,44 @@ func coordErrWords(err error) string {
 // coordStateWords are the task states in the coordinator's words.
 var coordStateWords = map[string]string{
 	taskQueued: "queued", taskPreparing: "queued (its workspace is being prepared)", taskSignin: "waiting for a person (to sign in)",
-	taskWorking: "working", taskNeedsYou: "waiting for a person", taskCI: "awaiting CI", taskCIFailed: "CI failed",
+	taskWorking: "working", taskNeedsYou: "needs a person (a question or approval waits, or its turn ended with its answer ready)", taskCI: "awaiting CI", taskCIFailed: "CI failed",
 	taskAwaitingReview: "awaiting review", taskCIPassed: "CI passed, awaiting review", taskMerged: "merged", taskClosed: "closed", taskDone: "done", taskFailed: "failed",
 	taskCancelled: "cancelled", taskBlocked: "waiting for a person (its cleanup found unpushed work)", taskDeleted: "deleted",
+	// coordStateOf names the agent and the sandbox (a team board's row: these)
+	taskAgentSignin: "waiting for the owner to sign in to its coding agent in the task's sandbox",
 }
 
+// coordStateOf is task v's state in the coordinator's words — a coding
+// agent's sign-in naming the agent and the sandbox it waits in (a person
+// signs in there; the coordinator can't).
+func coordStateOf(v TaskView) string {
+	if v.State == taskAgentSignin {
+		where := "the project's sandbox"
+		if v.Fork {
+			where = "the task's own sandbox"
+		}
+		return fmt.Sprintf("waiting for the owner to sign in to %s in %s", harnessName(v.Harness), where)
+	}
+	return orStr(coordStateWords[v.State], v.State)
+}
+
+// coordTaskState is v's state as the coordinator reads it: what exactly
+// waits (coordWaitWords), else the state's words.
+func coordTaskState(v TaskView) string { return orStr(coordWaitWords(v), coordStateOf(v)) }
+
 // coordTaskLine is one task in a line: number, title, state, branch, PRs.
+// Its state says what it waits for when the board's word would mislead
+// (coordWaitWords: a person's question, quoted, or an answer ready).
 func coordTaskLine(v TaskView) string {
 	var b strings.Builder
+	state := coordTaskState(v)
 	if v.Issue != nil {
 		// its title may be the issue's (createTask's default): text from
 		// outside, labelled so (and defused) as an scm event's title is
 		fmt.Fprintf(&b, "#%d (from the issue %s#%d; title, untrusted: %s) — %s", v.N, coordPlain(v.Issue.Repo), v.Issue.Number,
-			scmLine(coordPlain(v.Title), 120), orStr(coordStateWords[v.State], v.State))
+			scmLine(coordPlain(v.Title), 120), state)
 	} else {
-		fmt.Fprintf(&b, "#%d %s — %s", v.N, clip(coordPlain(v.Title), 120), orStr(coordStateWords[v.State], v.State))
+		fmt.Fprintf(&b, "#%d %s — %s", v.N, clip(coordPlain(v.Title), 120), state)
 	}
 	if v.WaitingFor == "slot" {
 		b.WriteString(" (for a free slot)")
@@ -611,8 +645,8 @@ func (ag *Agent) coordMessage(p *Project, args map[string]any) (string, error) {
 		return "", err
 	}
 	switch {
-	case run.Status == statusWaiting:
-		return fmt.Sprintf("queued for task #%d: it waits for a person, and gets your message once they have answered", k.N), nil
+	case run.Status == statusWaiting: // held (HoldPark): only a person answers what it asks
+		return ag.db.coordHeldWords(k.N, run), nil
 	case holdsSlot(run.Status):
 		return fmt.Sprintf("sent to task #%d: it reads it at its next step", k.N), nil
 	}

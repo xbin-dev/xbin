@@ -180,9 +180,10 @@ func projectOverview(ctx context.Context, d *DB, p *Project, c who, rng string, 
 type ovRunRow struct {
 	ID, Root       int64
 	Status, Engine string
-	TurnStarted    int64 // unix s
-	Updated        int64 // unix s
-	Tokens         int64 // prompt + completion, its life long
+	Pending        string // while it waits for a person (taskRunStatus)
+	TurnStarted    int64  // unix s
+	Updated        int64  // unix s
+	Tokens         int64  // prompt + completion, its life long
 }
 
 // Classes of runs.
@@ -235,14 +236,15 @@ func loadBoard(d *DB, p *Project, c who, now time.Time) *ovBoard {
 			args = append(args, id)
 		}
 		args = append(args, args...)
-		rows, err := d.q.Query(`SELECT id, root_id, status, engine, turn_started, updated, prompt_tokens + completion_tokens
+		rows, err := d.q.Query(`SELECT id, root_id, status, engine, turn_started, updated, prompt_tokens + completion_tokens,
+			CASE WHEN status='waiting_input' THEN pending ELSE '' END
 			FROM runs WHERE root_id IN (`+marks+`) OR id IN (`+marks+`)`, args...)
 		if err != nil {
 			continue
 		}
 		for rows.Next() {
 			r := &ovRunRow{}
-			if rows.Scan(&r.ID, &r.Root, &r.Status, &r.Engine, &r.TurnStarted, &r.Updated, &r.Tokens) == nil {
+			if rows.Scan(&r.ID, &r.Root, &r.Status, &r.Engine, &r.TurnStarted, &r.Updated, &r.Tokens, &r.Pending) == nil {
 				if r.Root == 0 {
 					r.Root = r.ID
 				}
@@ -256,7 +258,7 @@ func loadBoard(d *DB, p *Project, c who, now time.Time) *ovBoard {
 	for _, k := range b.tasks {
 		status := ""
 		if r := b.runs[k.RunID]; r != nil {
-			status = r.Status
+			status = taskRunStatus(r.Status, r.Pending)
 		}
 		var ci *CISummary
 		if k.Phase == phasePR && k.RunID != 0 {

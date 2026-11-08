@@ -27,6 +27,7 @@ function register(P) {
   P.pairing = require('./passes/pairing').pairing; // D204: adding a phone over the tunnel — the big QR code, the confirmation code, They don't, replacing at the limit, /xbin/devices (mocked API)
   P.agentReview = require('./passes/agentreview').agentReview; // D210: a turn's changes a file at a time — folded, the list, inline or the full-diff route, 400 lines then Show all
   P.dragShield = require('./passes/dragshield').dragShield; // D217 (#54): fast drags across tile pages — a window's corner and title bar, a float's and a sub-window's corner then their title bars held and dragged (the size stays), a Tiled divider; Escape and a lost focus mid-drag; no shield left — in its own Chromium with tile pages out of process
+  P.projectsNeeds = require('./passes/projectsneeds').projectsNeeds; // #56: Waiting for you atop a project's page (a task's question, the coordinator's, a failure), Open, the list's badge split — light and dark, the project's routes stubbed
 }
 
 module.exports = { register };

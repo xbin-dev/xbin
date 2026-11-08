@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,12 +17,17 @@ import (
 // creates are made but answered 504 unavailable (the sandbox exists, the
 // answer is lost); while refuse is set a create is answered 504 and makes
 // nothing, and a list is answered 504 too (the job can't look yet). Only the
-// project sandbox job's creates (its clientId) are touched.
+// project's own creates are touched — its sandbox job's and its forks'
+// (their clientIds), or those whose body holds match when it is set; made,
+// when set, is called with each touched create's sandbox once the manager
+// made it, before the answer (a test puts it in a state of its choosing).
 type slowCreates struct {
 	mu      sync.Mutex
 	lose    int
 	refuse  bool
 	creates int // that reached the manager
+	match   string
+	made    func(id string)
 }
 
 func (s *slowCreates) wrap(h http.Handler) http.Handler {
@@ -43,12 +49,16 @@ func (s *slowCreates) wrap(h http.Handler) http.Handler {
 		}
 		body, _ := io.ReadAll(r.Body)
 		r.Body = io.NopCloser(bytes.NewReader(body))
-		if !strings.Contains(string(body), `"clientId":"agent:proj:`) { // only the project's sandbox job's
+		match := s.match
+		if match == "" {
+			match = `"clientId":"agent:proj:`
+		}
+		if !strings.Contains(string(body), match) { // only the project's own
 			h.ServeHTTP(w, r)
 			return
 		}
 		s.mu.Lock()
-		refuse, lose := s.refuse, s.lose > 0
+		refuse, lose, made := s.refuse, s.lose > 0, s.made
 		if lose {
 			s.lose--
 		}
@@ -59,6 +69,21 @@ func (s *slowCreates) wrap(h http.Handler) http.Handler {
 		if !refuse {
 			rec := httptest.NewRecorder()
 			h.ServeHTTP(rec, r)
+			var box struct {
+				ID string `json:"id"`
+			}
+			if made != nil && rec.Code < 300 && json.Unmarshal(rec.Body.Bytes(), &box) == nil && box.ID != "" {
+				made(box.ID)
+				// the answer as the sandbox is now
+				g := r.Clone(r.Context())
+				g.Method, g.Body, g.ContentLength = http.MethodGet, http.NoBody, 0
+				g.URL.Path, g.URL.RawPath = r.URL.Path+"/"+box.ID, ""
+				now := httptest.NewRecorder()
+				h.ServeHTTP(now, g)
+				if now.Code == http.StatusOK {
+					rec.Body = now.Body
+				}
+			}
 			if !lose {
 				for k, v := range rec.Header() {
 					w.Header()[k] = v

@@ -1,11 +1,12 @@
 package acptest
 
 // The scripts and methods added when the engine left hack/fakeacp: the
-// steering extension, perm-edit, perm2, todo, cards, steer (stall is
-// inline in turn). None of them changes what an existing script plays.
+// steering extension, perm-edit, perm2, todo, cards, steer, ask-withdraw
+// (stall is inline in turn). None of them changes what an existing script plays.
 
 import (
 	"encoding/json"
+	"os"
 	"path"
 	"strconv"
 	"strings"
@@ -296,4 +297,70 @@ func (f *fake) session() string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.sid
+}
+
+// askWithdraw is a question the agent withdraws: an AskUserQuestion call
+// and its elicitation/create; once the file named after the word (its last
+// use) exists (polled; none named: at once), $/cancel_request for it — the client
+// answers -32800 — the call fails and the turn says "withdrew the
+// question". Answered first: accept → "answers: <content>", decline →
+// "skipped", cancel → the turn ends cancelled (false).
+func (f *fake) askWithdraw(text string) bool {
+	trigger := "" // the word's last use names it (a brief before the prompt may quote it clipped)
+	if i := strings.LastIndex(text, "ask-withdraw"); i >= 0 {
+		if fs := strings.Fields(text[i+len("ask-withdraw"):]); len(fs) > 0 {
+			trigger = fs[0]
+		}
+	}
+	f.update(map[string]any{"sessionUpdate": acp.UpToolCall, "toolCallId": "askw", "title": "AskUserQuestion", "kind": "other", "status": "pending",
+		"_meta": map[string]any{"claudeCode": map[string]any{"toolName": "AskUserQuestion"}}})
+	f.mu.Lock()
+	f.asks++
+	id, _ := json.Marshal("askw-" + strconv.Itoa(f.asks))
+	f.mu.Unlock()
+	params, _ := json.Marshal(map[string]any{"mode": "form", "sessionId": f.session(), "toolCallId": "askw", "message": "Please answer the following questions.",
+		"requestedSchema": map[string]any{"type": "object", "properties": map[string]any{
+			"question_0": map[string]any{"type": "string", "title": "Deploy", "description": "Deploy the fix to staging now?",
+				"oneOf": []any{map[string]string{"const": "Yes", "title": "Yes"}, map[string]string{"const": "No", "title": "No"}}}}}})
+	reply := f.conn.Expect(id)
+	_ = f.conn.Send(&acp.Message{ID: id, Method: acp.MElicitCreate, Params: params})
+	answered := func(m *acp.Message) bool {
+		var res struct {
+			Action  string          `json:"action"`
+			Content json.RawMessage `json:"content"`
+		}
+		if m == nil || m.Error != nil || json.Unmarshal(m.Result, &res) != nil || res.Action == "cancel" {
+			f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "askw", "status": "failed"})
+			f.end("cancelled")
+			return false
+		}
+		f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "askw", "status": "completed"})
+		if res.Action == "decline" {
+			f.say("skipped")
+		} else {
+			f.say("answers: " + string(res.Content))
+		}
+		return true
+	}
+	tick := time.NewTicker(20 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		select {
+		case m := <-reply: // closed when Serve returns
+			return answered(m)
+		case <-tick.C:
+			if trigger != "" {
+				if _, err := os.Stat(trigger); err != nil {
+					continue
+				}
+			}
+			_ = f.conn.Notify(acp.MCancelRequest, acp.CancelRequestParams{RequestID: id})
+			if m := <-reply; m == nil || m.Error == nil { // answered before the withdrawal reached it
+				return answered(m)
+			}
+			f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "askw", "status": "failed"})
+			f.say("withdrew the question")
+			return true
+		}
+	}
 }

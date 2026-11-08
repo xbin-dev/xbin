@@ -104,6 +104,13 @@ test('stateWords and a card', () => {
   assert.deepEqual(W.stateWords({ state: 'ci-failed' }), { text: 'CI failed', tone: 'bad' });
   assert.deepEqual(W.stateWords({ state: 'queued', waitingFor: 'slot' }), { text: 'queued · waiting for a free slot', tone: 'idle' });
   assert.equal(W.stateWords({ state: 'signin', waitingFor: 'signin' }).text, 'needs a sign-in');
+  // a coding agent's sign-in (not the provider's): the agent by name, in Needs you
+  assert.deepEqual(W.stateWords({ state: 'agent-signin', waitingFor: 'signin', engine: 'harness', harness: 'claude' }), { text: 'sign in to Claude Code', tone: 'warn' });
+  assert.equal(W.stateWords({ state: 'agent-signin', waitingFor: 'signin' }).text, 'sign in to the coding agent');
+  assert.equal(W.columnOf({ state: 'agent-signin', column: 'needs-you', runStatus: 'waiting_input' }), 'needs-you');
+  assert.equal(W.cardWords(F.task(7, 3, { state: 'agent-signin', waitingFor: 'signin', engine: 'harness', harness: 'codex' })).state.text, 'sign in to Codex');
+  // a state this build doesn't know: its own word and what it waits for, never a throw
+  assert.deepEqual(W.stateWords({ state: 'later-state', waitingFor: 'signin' }), { text: 'later-state · waiting for a sign-in', tone: 'idle' });
   const c = W.cardWords(F.task(7, 2, { engine: 'harness', harness: 'claude', size: 'big' }));
   assert.equal(c.n, '#2');
   assert.equal(c.agent, 'claude');
@@ -336,7 +343,10 @@ test('atop the conversations (D209): your active projects, needs-you first, at m
   ];
   assert.deepEqual(pj.pinned(3).items.map((p) => p.id), [2, 1, B + 4], 'needs you, then by activity; the definition behind your half left out');
   assert.deepEqual(M.pinWords({ id: 2, name: 'Web', kind: 'membership', state: 'active', counts: { 'needs-you': 2, working: 1, pr: 3 }, repos: [{ repo: 'a/web' }] }),
-    { name: 'Web', need: 2, detail: '1 working · 3 in PR', repos: 'a/web', team: true });
+    { name: 'Web', need: 2, asks: 2, ready: 0, tip: 'tasks that need you', split: false, detail: '1 working · 3 in PR', repos: 'a/web', team: true });
+  // #56: a backend with the split counts what really waits (asks + failed + coord), never an idle task, beside the ready ones
+  const split = M.pinWords({ id: 2, name: 'Web', state: 'active', counts: { 'needs-you': 4, asks: 1, failed: 1, coord: 1, ready: 2 } });
+  assert.deepEqual([split.need, split.asks, split.ready], [5, 3, 2]);
   assert.equal(M.pinWords({ id: 5, name: 'Old', state: 'archived', counts: { 'needs-you': 4 } }).need, 0, 'an archived one needs no one');
   assert.equal(pj.folded, false);
   pj.setFolded(true);

@@ -2,12 +2,17 @@
 //
 //   listTop  Projects atop your conversations (Mine, not while searching;
 //            D209): your active projects — those with tasks that need you
-//            first, at most PINNED — each with how many need you, a click to
-//            its board, and All projects (how many more there are; D212);
-//            the heading folds the projects (kept in your prefs) — folded it
-//            says how many tasks need you, and All projects stays
+//            first, at most PINNED — each with how many need you (#56: red,
+//            what really waits on you — a question, an approval, a sign-in,
+//            a failure, your coordinator's question —, then the pull requests
+//            ready for review), a click to its board, and All projects (how
+//            many more there are; D212); the heading folds the projects (kept
+//            in your prefs) — folded it says how many need you, and All
+//            projects stays
 //   page   'projects': the list (yours, then team ones, archived last) — or
-//          one project's page: its board (a column per state: queued,
+//          one project's page — atop it, Waiting for you (project-needs.js,
+//          #56: each task question, approval, sign-in or failure and your
+//          coordinator's question, with Open) — its board (a column per state: queued,
 //          working, needs you, PR, done) of task cards — #n, title, state,
 //          branch, its pull requests (their checks only while the task has
 //          no CI summary) and the chips other modules add (ext.card: CI) —
@@ -37,6 +42,7 @@
 import { html, nothing, repeat } from '/vendor/lit-all.min.js';
 import { ext, ctx } from './web-ext.js';
 import { can, agentChoices, pinWords, PINNED } from './model/projects.js';
+import { needSplit } from './model/project-pins.js';
 import { cardWords, issueWords } from './model/project-task.js';
 import { newProjectTpl } from './project-new.js';
 import { settingsTpl } from './project-settings.js';
@@ -47,6 +53,7 @@ import { chipBody } from './project-chips.js';
 import { projectOverview, cardAgent, TIPS } from './model/project-overview.js';
 import { stripTpl, foldTpl, agentLineTpl, cardTip } from './project-status.js';
 import { coordSecTpl, splitTpl, pageBar, onOverview } from './project-coord.js';
+import { needsStripTpl } from './project-needs.js';
 
 // keys(fn): Enter and Space on the element itself (not a control inside it) do what a click does —
 // a clickable card, entry or crumb, reached by Tab
@@ -63,7 +70,10 @@ ext.register({
 
 // --- atop your conversations (D209) -------------------------------------------------------
 
-const needBadge = (n, title) => (n ? html`<span class="badge unread" title=${title}>${n}</span>` : nothing);
+// needBadges: a project's count, split (#56) — red, what really waits on you (a question, an approval, a
+// sign-in, a failure, your coordinator's question); then the pull requests ready for your review
+const needBadges = (w, scope = '') => html`${w.asks ? html`<span class="badge ${w.split ? 'pneedb' : 'unread'}" title=${w.tip ? `${w.tip}${scope}` : `tasks that need you${scope}`}>${w.asks}</span>` : nothing}${w.ready
+  ? html`<span class="badge unread" title=${`pull requests ready for your review${scope}`}>${w.ready}</span>` : nothing}`;
 
 function listTopTpl() {
   const app = ctx.app;
@@ -80,7 +90,7 @@ function listTopTpl() {
   }
   return html`<div class="projsec" id="projsec">
     <button class="grp projgrp" id="projfold" aria-expanded=${p.folded ? 'false' : 'true'} title=${p.folded ? 'show your projects' : 'fold your projects'} @click=${fold}>
-      <bx-icon name=${p.folded ? 'caret-right' : 'caret-down'}></bx-icon><span>Projects</span>${p.folded ? needBadge(pin.need, 'tasks that need you, across your projects') : nothing}</button>
+      <bx-icon name=${p.folded ? 'caret-right' : 'caret-down'}></bx-icon><span>Projects</span>${p.folded ? needBadges({ asks: pin.asks, ready: pin.ready, split: pin.split }, ', across your projects') : nothing}</button>
     ${p.folded ? nothing : repeat(pin.items, (x) => x.id, (x) => {
       const w = pinWords(x);
       const go = () => app.openProjects(x.id);
@@ -89,7 +99,7 @@ function listTopTpl() {
           @click=${go} @keydown=${keys(go)}>
         <span class="pic"><bx-icon name=${w.team ? 'people' : 'folder'}></bx-icon></span>
         <div class="t">${w.name}</div>
-        ${needBadge(w.need, 'tasks that need you')}
+        ${needBadges(w)}
       </div>`;
     })}
     <div class="prow projall ${at && p.opened == null ? 'on' : ''}" id="projentry" role="button" tabindex="0" @click=${() => app.openProjects()} @keydown=${keys(() => app.openProjects())}>
@@ -159,7 +169,9 @@ function listTpl(p) {
 const COUNTS = [['needs-you', 'need you'], ['working', 'working'], ['queued', 'queued'], ['pr', 'in PR'], ['done', 'done']];
 
 function projCardTpl(p, x) {
-  const counts = COUNTS.filter(([k]) => (x.counts || {})[k]).map(([k, w]) => html`<span class="pcnt" data-col=${k}>${x.counts[k]} ${w}</span>`);
+  const s = needSplit(x); // what really waits on you, red, first (#56)
+  const counts = [...(s.split && s.asks ? [html`<span class="pcnt" data-col="asks" title=${s.tip}>${s.asks} waiting for you</span>`] : []),
+    ...COUNTS.filter(([k]) => (x.counts || {})[k]).map(([k, w]) => html`<span class="pcnt" data-col=${k}>${x.counts[k]} ${w}</span>`)];
   return html`<div class="acard2 pcard" data-pid=${x.id} role="button" tabindex="0" @click=${() => p.open(x.id)} @keydown=${keys(() => p.open(x.id))}>
     <div class="ah"><span class="nm">${x.name}</span>
       ${x.kind !== 'personal' ? html`<span class="badge">${x.kind === 'team' ? 'team' : 'team · yours'}</span>` : nothing}
@@ -193,6 +205,7 @@ function boardPageTpl(p, pv, c) {
       on their own board — the Settings tab keeps its repos, policy and members.</div>${teamBoardTpl(p, pv)}`;
   }
   return html`
+    ${needsStripTpl(ctx.app, pv.id)}
     ${pv.kind === 'membership' ? html`${teamLinkTpl(p, pv)}${reviewCardTpl(p, pv)}` : nothing}
     ${coordCardTpl(p, pv)}
     ${taskBarTpl(p, pv, c, false)}
@@ -207,6 +220,7 @@ function overviewTpl(p, pv, c) {
   const it = o.ensure(pv.id);
   return html`<div class="autos-page projs-page pov" id="pov">
     ${errTpl(p)}
+    ${needsStripTpl(ctx.app, pv.id)}
     ${pv.kind === 'membership' ? html`${teamLinkTpl(p, pv)}${reviewCardTpl(p, pv)}` : nothing}
     ${stripTpl(o, it, pv.id)}
     ${taskBarTpl(p, pv, c, true)}
@@ -365,6 +379,9 @@ style.textContent = `
   .projs-page.wide { max-width: 1180px; }
   .projs-page .pcounts { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 3px; }
   .projs-page .pcnt[data-col="needs-you"] { color: var(--bx-warn); font-weight: 600; }
+  .projs-page .pcnt[data-col="asks"] { color: var(--bx-danger); font-weight: 600; }
+  .badge.pneedb { color: var(--bx-danger); border-color: var(--bx-danger); background: var(--bx-danger-bg); }
+  .projsec .prow .badge + .badge { margin-left: 2px; }
   .projs-page .ahd { flex-wrap: wrap; }
   .projs-page .ptabs { display: inline-flex; gap: 2px; }
   .projs-page .ptabs [aria-selected="true"] { background: var(--bx-panel-2); box-shadow: inset 0 -2px 0 var(--bx-accent); }

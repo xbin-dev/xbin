@@ -13330,3 +13330,112 @@ Deviations and refinements made while implementing; all deliberate:
     core) would have failed 131 files that passed under the old caps, and
     needed each classified as basic or core; the owner chose to raise the
     caps alone.
+
+- **D221 — AgTT Projects say what really happened to a task: its PR
+  wherever the agent opened it, a PR's end however late, a person's
+  question as the question, a sandbox being made as being made
+  (2026-11-08).** The owner tried Projects and passed on the coordinator's
+  report of five defects: "Check in detail what can be causing what, don't
+  trust it blindly". Each claim was checked against 003700b3 before
+  anything was built; two were half wrong, and the fixes follow the code,
+  not the report.
+  - **A PR binds to its task wherever the agent opened it (confirmed).**
+    The coding agent opened #58 itself with `gh` (the project's token is
+    in its `GH_CONFIG_DIR`) from `xbin/bchzwo/review-agent-template-series-17`;
+    every match knew only `k.Branch`, and `prScript`'s `OFF` line was a
+    quiet note. Now `TaskPR.Head` is a branch the task pushes to, and
+    `taskBranchIn` answers every match (the push script's `BR_i`, the
+    create, `jobRefs`, `pull.opened` and push routing, `project_refs`, the
+    CI watch) — the head of its one OPEN pull request there that it may
+    push to, else `k.Branch`. A PR is adopted on its own only when it is the
+    one OPEN PR from the checkout's branch, from the same repo, by the
+    project's own login, its head the checkout's HEAD or an ancestor of it
+    but not on `origin/<default>` already, while no other live task holds
+    it or its branch and the task has no other open PR in that repo
+    (checked again in the transaction that records it) — the login alone
+    proves little, since a person's project acts as that person, so the
+    checkout is the evidence. Adopting never ends a task: a merged or
+    closed PR (an old one from a reused branch name) is only named.
+    Anything less says so once, visibly, naming `task_link_pr`. Linking
+    refuses another live task's PR, a head that is the default branch or
+    another live task's branch, and a second open PR in a repo (one open
+    PR per task and repo: the poll rows are per repo); a link the task may
+    not push to (another author's, a fork's) is `tracked` — followed and
+    shown, its CI failures and review comments never sent to the task. A
+    merged PR may still be linked (task #9 / #58 merged before this), so
+    cleanup no longer takes "a PR merged in the repo" as "pushed": a merged
+    PR holds a checkout's commits only when HEAD is its head or in its
+    history (its head fetched as `pull/<n>/head` if missing); else the
+    commits count as unpushed and the task is `blocked` for a person, its
+    fork kept. The refs job writes what it read onto the task as stored in
+    its transaction, so a concurrent end or link isn't reverted. The brief
+    says to stay on the branch and never `gh pr create`.
+  - **A PR's state stays true (the report's "never re-derived" was
+    wrong).** States were always derived (`taskDerived`); the facts went
+    stale. #57's last push was 2026-11-02 11:31, its merge 2026-11-05
+    00:38: the pull row had stopped 24 h after the push and the webhook
+    never came. Now an open PR's `pull` and `comments` rows back off to
+    every 6 h instead of stopping (a `checks` row still gives up, with its
+    note); the scm loop re-tracks open PRs with no row at start and daily,
+    so a task stranded before this heals; `task_refresh` reads them now.
+  - **A person's question reads as the question (partly confirmed).** A
+    question can't outlive its turn (every turn end clears it); task #8
+    most likely asked a new one and waited 57 h, with the coordinator
+    told only "waiting for a person" — the words it also used for an idle
+    task whose answer was ready. Now it reads the question, quoted, and
+    its age (`pendingState.since`), and an idle task as "its answer is
+    ready"; `task_message` says who must answer. Nothing expires a
+    question and the coordinator can't decline one (its messages stay
+    held, `HoldPark`). A question the agent withdraws (`$/cancel_request`)
+    is settled in the sdk like a withdrawn permission.
+  - **What waits shows on the project's page (#56; partly confirmed: it
+    was pushed and in the global Needs you, not on the project).** `/needs`
+    items carry `text` and `since`; "Waiting for you" heads the overview
+    and the board (red: questions, approvals, sign-ins; yellow: failures),
+    the coordinator's own `ask_user` included, each with Open; the list's
+    badge splits real needs (`counts.asks/failed/coord`) from ready ones.
+  - **Infrastructure isn't a person (confirmed, two causes).** A big
+    task's fork that was still being created was started (409, "a creating
+    sandbox can't start") until five tries ran out against a 15-minute
+    create: it now waits (`forkCreateWait` 2 minutes per call, then looks
+    again without spending attempts), and a fork its manager says failed
+    is deleted and made again on Retry (it holds no work: only a first
+    prepare makes one). A snapshot fork carried the project sandbox's
+    coding-agent login — tested, all five providers' files survived — and
+    copies of one refresh token sign each other out: forks now remove each
+    provider's `acp.Provider.LoginFiles` and use a saved sign-in (D179),
+    saying before the first turn when none can go in. A coding agent
+    waiting for its sign-in is the state `agent-signin`, not a question;
+    a fork's scm sign-in is the `signin` workspace state small tasks have.
+  - **The coordinator's new tools** — `task_link_pr`, `task_refresh`,
+    `task_retry` — record what the provider says or re-queue failed
+    workspace jobs. It still never merges, approves, pushes, comments or
+    answers a person (the report's constraints); `task_retry` was not on
+    the report's list and is recorded here as the owner's to veto.
+    Issue create/comment/close (allowed by the report) is left out: no
+    defect needed it, and it widens the scm contract.
+  - **Owner's call: mint, don't copy.** Asked whether forks should drop
+    the copied login, the owner answered: "Don't copy whatever token would
+    be 'bound' to one claude path, see if we can mint new tokens from the
+    in-partition signup? Whatever is claude/acp standard way of doing
+    this". So the removal stays, and the standard way for one CLI login
+    used in many places — a long-lived credential that doesn't rotate:
+    Claude Code's `claude setup-token` (`CLAUDE_CODE_OAUTH_TOKEN`), an API
+    key for Codex and Gemini CLI — is the path, through D179's saved
+    sign-ins (the person's partition vault; `credPick`/`credWhy` hand it
+    to every fork, gates unchanged). A task parked on `agent-signin` gets
+    a card whose first offer is "Sign in once for every big task": the
+    guided sign-in with Remember, and `default: true` with its code so the
+    minted sign-in becomes the coding agent's default even over a refused
+    one (for a coding agent with no mint, a key pasted and saved as the
+    default); "Sign in for this task only" comes second. The park's
+    `login.save {ok, why}` (the gate as judged at the adapter's start)
+    decides the offer; a team project's fork shares its members, so no
+    saved sign-in goes in and the card says so. The fork's note before the
+    first turn points at the same one-click path, and the project's status
+    warns its person while a coding agent there runs on the sandbox's own
+    login with nothing saved. Where minting can't happen — an unpartitioned
+    agent, the global instance (A-M1: no person's credentials there) — each
+    fork still asks, and the words say why (saved sign-ins need a person's
+    partition; with partitions on, one serves every big task); no shared
+    vault was invented.

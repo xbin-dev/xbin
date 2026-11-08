@@ -272,6 +272,14 @@ const (
 	// passed (ProjectView.Counts): they wait for a person too
 	countReady = "ready"
 	colDone    = "done"
+	// countAsks and countFailed split Needs you (project_needs.go): tasks a
+	// person's answer, approval or sign-in holds up, and failed ones — not
+	// those whose turn ended with an answer ready. countCoord: the caller's
+	// own coordinator waits for them (withCoordAsk; GET /projects and
+	// GET /projects/{pid} only).
+	countAsks   = "asks"
+	countFailed = "failed"
+	countCoord  = "coord"
 )
 
 // Who asked for a task's current turn (project_tasks.turn_by), and where a
@@ -313,7 +321,8 @@ type ProjectTask struct {
 	CleanedMs  int64           `json:"cleanedMs,omitempty"`
 }
 
-// TaskPR is one pull request a task opened (project_tasks.prs holds a list).
+// TaskPR is one pull request a task opened, or that was linked to it
+// (project_tasks.prs holds a list).
 type TaskPR struct {
 	Repo     string `json:"repo"`
 	Number   int    `json:"number"`
@@ -323,6 +332,14 @@ type TaskPR struct {
 	HeadSHA  string `json:"headSha"`
 	Checks   string `json:"checks"` // none | pending | success | failure
 	ChecksAt int64  `json:"checksAt,omitempty"`
+	// Head is the PR's branch when it isn't the task's own — a PR its
+	// coding agent opened from another branch, adopted or linked; the task
+	// pushes there while it is open and not Tracked (taskBranchIn).
+	Head string `json:"head,omitempty"`
+	// Tracked: linked, but not the task's to push to (another author's, a
+	// fork's) — its state, checks and reviews are followed and shown, but
+	// neither its CI failures nor its review comments go to the task.
+	Tracked bool `json:"tracked,omitempty"`
 }
 
 // ProjectCheckout is a row of project_checkouts: one task × one repo.
@@ -424,6 +441,7 @@ type TaskView struct {
 	CreatedBy  string            `json:"createdBy"`
 	CreatedMs  int64             `json:"createdMs"`
 	UpdatedMs  int64             `json:"updatedMs"`
+	wait       *taskWait         // what its run waits on, for the coordinator's words (projects_coord_waits.go)
 }
 
 // TaskPorts are the ports a task may listen on (TASK_PORT_BASE …+SPAN-1).
@@ -436,7 +454,8 @@ type TaskPorts struct {
 const (
 	taskQueued         = "queued"
 	taskPreparing      = "preparing"
-	taskSignin         = "signin"
+	taskSignin         = "signin"       // its workspace waits for a person's sign-in to the scm provider
+	taskAgentSignin    = "agent-signin" // its coding agent waits for a sign-in in the task's sandbox (waitingFor signin)
 	taskWorking        = "working"
 	taskNeedsYou       = "needs-you"
 	taskCI             = "ci"

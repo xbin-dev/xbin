@@ -84,6 +84,8 @@ type Engine struct {
 	hretry   map[int64]int         // a takeover's unanswered attaches in a row (resumeHarness)
 	idleCh   chan struct{}         // closed when the last actor exits during shutdown
 
+	hretrying sync.Map // run → struct{}: hretry's runs, read without e.mu (reattaching: inside transactions)
+
 	legacyTimer *time.Timer
 	hbrake      *time.Timer // a person's partition: the look at the halt while a coding agent works (harness_partition.go)
 	hold        holder

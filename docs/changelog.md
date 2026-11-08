@@ -10,6 +10,42 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-08
+
+- **Agent template Projects: a task follows its pull request wherever its
+  coding agent opened it, and sees a merge however late** (D221). An open
+  PR the agent opened itself from another branch is linked to its task when
+  the task's checkout is on that branch at the PR's head (a merged or
+  closed one is only named; a task holds one open PR per repo); otherwise
+  the task says so, and the coordinator's new `task_link_pr` (or
+  `POST /projects/{pid}/tasks/{n}/link-pr`) links it — one the task can't
+  push to (another author's, a fork's) is `tracked`: its CI and reviews
+  are shown, not sent to the task. Cleanup no longer counts a merged PR
+  as holding commits its head doesn't contain. An open PR is polled
+  every 6 h past its first day instead of no more, so a merge no webhook
+  reported still lands; `task_refresh` reads a task's PRs now. Tasks
+  stranded by the old 24 h stop are picked up again after the upgrade.
+- **Agent template Projects: what waits for a person says what it is**
+  (D221, #56). A project's page opens with **Waiting for you** — a task's
+  question or approval and the coordinator's own question, in its words
+  and with its age, each with Open; failures in yellow. `GET /needs` items
+  carry `text` and `since`; the conversation list's count no longer counts
+  tasks whose answer is merely ready. The coordinator quotes a task's
+  question instead of "waiting for a person", and calls an idle task's
+  answer ready.
+- **Agent template Projects: a big task's own sandbox waits while it is
+  made, and its coding agent signs in on its own** (D221). A fork still
+  being created no longer fails the task after a few minutes. A fork no
+  longer carries the project sandbox's coding-agent login (two copies of
+  one login sign each other out): it uses your saved sign-in (Settings →
+  Coding agents), else asks for one — a new task state, `agent-signin`.
+  The coordinator gained `task_retry` for a failed workspace.
+- **SDK (`sdk/acp`): a question the agent withdraws is settled** — an
+  `$/cancel_request` for an elicitation now emits `elicitation.resolved`
+  (action `cancel`, by `agent`), as a withdrawn permission already did
+  ([sdk.md](/docs/sdk.md), [protocol.md](/docs/protocol.md)). New
+  `Provider.LoginFiles`: where each CLI keeps its login.
+
 ## 2026-11-03
 
 - **Agent template: a session file may be 128 MiB** (was 16 MiB; a run's

@@ -141,6 +141,18 @@ func waitJob(ms int64, step string) (jobOutcome, error) {
 	return jobOutcome{WaitMs: ms, Step: step}, nil
 }
 
+// jobWaitErr is "not yet" from a helper that answers an error
+// (provisionFork): its job waits ms and looks again (waitJob), no attempt
+// spent.
+type jobWaitErr struct {
+	ms   int64
+	step string
+}
+
+func (e *jobWaitErr) Error() string { return e.step }
+
+func jobWaitFor(ms int64, step string) error { return &jobWaitErr{ms, step} }
+
 func doneJob(step string) (jobOutcome, error) { return jobOutcome{Done: true, Step: step}, nil }
 
 // signinWait is how long a task's workspace waits for its person's sign-in
@@ -160,6 +172,20 @@ func stepCreds(ctx context.Context, p *Project, k *ProjectTask, ref string) (sig
 		return true, nil
 	}
 	return false, err
+}
+
+// awaitSignin is prepare waiting for its person's sign-in to the provider:
+// the workspace in signin (its park shows the device code), the creds job
+// polling it — failing once it has waited signinWait.
+func awaitSignin(p *Project, k *ProjectTask, j *ProjectJob) (jobOutcome, error) {
+	if nowMs()-j.Created > signinWait.Milliseconds() {
+		return jobOutcome{}, jobFail("the sign-in to %s wasn't finished: sign in, then Retry", orStr(p.Host, "the scm provider"))
+	}
+	_ = projAg().db.Tx(func(t *DB) error { setWS(t, p, k, wsSignin, ""); return nil })
+	if projectJobKinds[pjCreds] != nil {
+		_, _ = projAg().db.queueJob(p.ID, k.ID, "", pjCreds, j.By, 0)
+	}
+	return waitJob(10000, "waiting for a sign-in")
 }
 
 // --- sandbox ----------------------------------------------------------------------------------
@@ -611,7 +637,12 @@ func jobPrepare(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 	}
 	if k.Size == sizeBig && !k.ForkMade {
 		ref, err := provisionFork(ctx, p, k)
+		var wait *jobWaitErr
 		switch {
+		case errors.As(err, &wait):
+			return waitJob(wait.ms, wait.step)
+		case scmRefused(err, scmRefSignin): // the fork's own credential waits for it, as a small task's does
+			return awaitSignin(p, k, j)
 		case err == nil && ref != "":
 			k.SandboxRef, k.ForkMade = ref, true
 			if err := projAg().db.setTask(k.ID, map[string]any{"sandbox_ref": ref, "fork_made": 1}); err != nil {
@@ -629,14 +660,7 @@ func jobPrepare(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) 
 		return jobOutcome{}, err
 	}
 	if signin, err := stepCreds(ctx, p, k, ref); signin {
-		if nowMs()-j.Created > signinWait.Milliseconds() {
-			return jobOutcome{}, jobFail("the sign-in to %s wasn't finished: sign in, then Retry", orStr(p.Host, "the scm provider"))
-		}
-		_ = projAg().db.Tx(func(t *DB) error { setWS(t, p, k, wsSignin, ""); return nil })
-		if projectJobKinds[pjCreds] != nil {
-			_, _ = projAg().db.queueJob(p.ID, k.ID, "", pjCreds, j.By, 0)
-		}
-		return waitJob(10000, "waiting for a sign-in")
+		return awaitSignin(p, k, j)
 	} else if err != nil {
 		return jobOutcome{}, err
 	}

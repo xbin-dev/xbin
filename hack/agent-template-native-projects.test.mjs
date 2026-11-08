@@ -775,3 +775,41 @@ test('the coordinator\'s preview: the last messages said, its state; while its c
     assert.deepEqual(old.preview(8), { shown: false }, 'a backend without GET …/coordinator: the card as it was');
   } finally { globalThis.xbin = g; }
 });
+
+// #56: what really waits on you in a project — a task's coding agent's question and the coordinator's own
+// ask_user, red (danger); a failed task, warn; a pull request ready for review stays a count — first on its
+// screen, a tap opening the conversation it waits in; the drawer's badge the red count (danger), the ready
+// ones beside it; an older backend's needs-you count as before (the tests above).
+test('Waiting for you (#56): first on a project\'s screen — the questions red, a failure warn, a tap opens it; the drawer\'s badge the red count', async () => {
+  const s = projSeed();
+  s.projects[0].counts = { queued: 1, working: 1, 'needs-you': 3, pr: 1, done: 1, ready: 1, asks: 1, failed: 1, coord: 1 };
+  s.needs = [
+    { reason: 'failed', subRun: 0, run: { id: 108, title: 'Workspace failed' }, project: { id: 7, name: 'Web', n: 8 }, text: 'git clone: repository not found', since: NOW - 3 * 3600e3 },
+    { reason: 'question', subRun: 103, run: { id: 103, title: 'Bump deps' }, project: { id: 7, name: 'Web', n: 3 }, text: 'Deploy the fix to staging now?', since: NOW - 2 * 86400e3 },
+    { reason: 'question', subRun: 0, run: { id: 300, title: 'Coordinator · Web' }, project: { id: 7, name: 'Web', n: 0 }, text: 'Which repo first: web or api?', since: NOW - 5 * 60e3 },
+    { reason: 'review', subRun: 0, run: { id: 101, title: 'Fix the login loop' }, project: { id: 7, name: 'Web', n: 1 } },
+  ];
+  const drawer = await run(s, [{ wait: 40 }, { snapshot: 'list' }]);
+  const web = find(topScreen(drawer.snapshots.list), { t: 'row', p: { title: 'Web' }, in: projSec });
+  assert.deepEqual([web.p.badge, web.p.tone], ['3', 'danger'], 'the red count: asks + failed + coord');
+  assert.match(web.p.subtitle, /^1 ready for review/, 'the ready one beside it');
+  const r = await run(s, [
+    { wait: 60 },
+    { snapshot: 'board' },
+    { tap: { t: 'row', p: { title: '#3 Bump deps' }, in: { t: 'section', p: { title: 'Waiting for you' } } } },
+    { wait: 60 },
+    { snapshot: 'task' },
+  ], 'proj=7');
+  const board = topScreen(r.snapshots.board);
+  assert.equal(sections(board)[0], 'Waiting for you', 'first on the screen');
+  const sec = find(board, { t: 'section', p: { title: 'Waiting for you' } });
+  assert.equal(sec.p.badge, '3');
+  const rows = all(sec, { t: 'row' }).map((x) => [x.p.title, x.p.tone, x.p.icon]);
+  assert.deepEqual(rows, [['#3 Bump deps', 'danger', 'question'], ['Coordinator', 'danger', 'question'], ['#8 Workspace failed', 'warn', 'warning']], 'red first; no review row');
+  const q = find(sec, { t: 'row', p: { title: '#3 Bump deps' } });
+  assert.match(q.p.subtitle, /^has a question for you: Deploy the fix to staging now\? · .+ ago$/);
+  assert.match(find(sec, { t: 'row', p: { title: 'Coordinator' } }).p.subtitle, /Which repo first: web or api\?/);
+  assert.ok(called(r, 'GET', /\/projects\/7\/needs$/).length >= 1, 'read from GET /projects/{pid}/needs');
+  assert.equal(titles(r.snapshots.task).length, 4, 'the task\'s conversation pushed over the board');
+  assert.ok(called(r, 'GET', /\/runs\/103\/view/).length, 'the conversation it waits in read');
+});

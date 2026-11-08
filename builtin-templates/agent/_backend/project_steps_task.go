@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -213,13 +214,21 @@ func orTask(a, b *ProjectTask) *ProjectTask {
 
 // --- refs: what the task pushed -----------------------------------------------------------------
 
-// refsScript prints, for each checkout C_i, the task branch's sha on the
-// remote as its base last saw it ("-": not there) — a push updates it.
+// refsScript prints, for each checkout C_i, the sha of the task's branch
+// there (BR_i) on the remote as its base last saw it ("-": not there) — a
+// push updates it — and OFF <i> <branch> <head> for a checkout on another
+// branch (a detached HEAD, mid-rebase say, is left alone).
 const refsScript = `i=0
 while [ "$i" -lt "$N" ]; do
-  eval "C=\${C_$i}"
+  eval "C=\${C_$i}; BR=\${BR_$i}"
   sha=-
-  if [ -e "$C/.git" ]; then sha=$(git -C "$C" rev-parse -q --verify "refs/remotes/origin/$BR" 2>/dev/null || echo -); fi
+  if [ -e "$C/.git" ]; then
+    sha=$(git -C "$C" rev-parse -q --verify "refs/remotes/origin/$BR" 2>/dev/null || echo -)
+    cur=$(git -C "$C" symbolic-ref -q --short HEAD || true)
+    if [ -n "$cur" ] && [ "$cur" != "$BR" ]; then
+      printf 'OFF %s %s %s\n' "$i" "$cur" "$(git -C "$C" rev-parse -q --verify HEAD || echo -)"
+    fi
+  fi
   printf 'REF %s %s\n' "$i" "$sha"
   i=$((i+1))
 done
@@ -232,7 +241,8 @@ const refsReadPulls = "read-pulls"
 // jobRefs (after each of a task's turns, and when an scm event says a PR
 // opened): the task's branch on the remote and its open pull requests,
 // recorded; when either changed, projectRefsHooks run (subscriptions, CI
-// watches) in the same transaction.
+// watches) in the same transaction. A checkout on another branch has its
+// pull request adopted, or a note says why not (prAdoptRun).
 func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobOutcome, error) {
 	if k == nil || k.RunID == 0 || k.WS != wsReady {
 		return doneJob("no workspace to look at")
@@ -246,13 +256,24 @@ func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 	if err != nil {
 		return jobOutcome{}, err
 	}
-	env := map[string]string{"N": strconv.Itoa(len(cos)), "BR": k.Branch}
+	repoOf := map[string]ProjectRepo{}
+	branchOf := map[string]string{} // slug → the task's branch there
+	for _, r := range repos {
+		repoOf[r.Slug], branchOf[r.Slug] = r, taskBranchIn(k, r.Repo)
+	}
+	env := map[string]string{"N": strconv.Itoa(len(cos))}
 	for i, c := range cos {
-		env[fmt.Sprintf("C_%d", i)] = c.Path
+		env[fmt.Sprintf("C_%d", i)], env[fmt.Sprintf("BR_%d", i)] = c.Path, orStr(branchOf[c.Repo], k.Branch)
 	}
 	out, err := s.must(ctx, "reading the task's branch", refsScript, env, "", time.Minute)
 	if err != nil {
 		return jobOutcome{}, err
+	}
+	var offs []prOff
+	for _, o := range prOffLines(out, cos, repoOf) {
+		if o.repo.Repo != "" {
+			offs = append(offs, o)
+		}
 	}
 	shas := map[int]string{}
 	for _, l := range strings.Split(out, "\n") {
@@ -263,13 +284,9 @@ func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 			}
 		}
 	}
-	repoOf := map[string]ProjectRepo{}
-	for _, r := range repos {
-		repoOf[r.Slug] = r
-	}
 	prs := k.taskPRs()
 	changed, moved := false, map[string]string{}
-	var opened []TaskPR
+	var seen []TaskPR // the open PRs read from the task's branches
 	api, apiErr := scmFor(p.SCM)
 	for i, c := range cos {
 		sha := shas[i]
@@ -289,34 +306,40 @@ func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 			continue
 		}
 		cctx, cancel := context.WithTimeout(ctx, 20*time.Second)
-		page, err := api.Pulls(cctx, scmQuery{Repo: r.Repo, Head: k.Branch, State: "open", As: projectAs(p)})
+		page, err := api.Pulls(cctx, scmQuery{Repo: r.Repo, Head: branchOf[c.Repo], State: "open", As: projectAs(p)})
 		cancel()
 		if err != nil {
 			logf("project %d task %d: reading its pull requests: %v", p.ID, k.N, err)
 			continue
 		}
 		for _, pl := range page.Items {
-			upd := TaskPR{Repo: r.Repo, Number: pl.Number, URL: pl.URL, State: orStr(pl.State, "open"), Draft: pl.Draft, HeadSHA: pl.Head.SHA}
-			found := false
-			for x := range prs {
-				if strings.EqualFold(prs[x].Repo, r.Repo) && prs[x].Number == pl.Number {
-					found = true
-					if prs[x].State != upd.State || prs[x].HeadSHA != upd.HeadSHA || prs[x].Draft != upd.Draft || prs[x].URL != upd.URL {
-						upd.Checks, upd.ChecksAt = prs[x].Checks, prs[x].ChecksAt
-						prs[x] = upd
-						changed = true
-					}
-				}
+			upd := TaskPR{Repo: r.Repo, Number: pl.Number, URL: pl.URL, State: orStr(pl.State, "open"), Draft: pl.Draft, HeadSHA: pl.Head.SHA,
+				Checks: "none"}
+			if branchOf[c.Repo] != k.Branch {
+				upd.Head = branchOf[c.Repo]
 			}
-			if !found {
-				upd.Checks = "none"
-				prs = append(prs, upd)
-				opened = append(opened, upd)
-				changed = true
+			x := slices.IndexFunc(prs, func(h TaskPR) bool { return strings.EqualFold(h.Repo, upd.Repo) && h.Number == upd.Number })
+			if x >= 0 && prs[x].State == upd.State && prs[x].HeadSHA == upd.HeadSHA && prs[x].Draft == upd.Draft && prs[x].URL == upd.URL {
+				continue
 			}
+			seen = append(seen, upd) // weighed again against the task as stored, in the transaction
+			changed = true
 		}
 	}
+	adopt := func() int { // after the job's own writes: the adoption reads the task again
+		if len(offs) == 0 || apiErr != nil {
+			return 0
+		}
+		n, err := prAdoptRun(ctx, p, k, s, api, offs)
+		if err != nil {
+			logf("project %d task %d: adopting the pull requests of its checkouts on other branches: %v", p.ID, k.N, err)
+		}
+		return n
+	}
 	if !changed {
+		if adopt() > 0 {
+			return doneJob("linked the pull requests the coding agent opened")
+		}
 		return doneJob("nothing new")
 	}
 	err = projAg().db.Tx(func(t *DB) error {
@@ -329,23 +352,61 @@ func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 		if err != nil {
 			return err
 		}
-		b, _ := json.Marshal(prs)
-		cols := map[string]any{"prs": string(b)}
-		cur.PRs = b
-		for _, pr := range prs {
-			if pr.State == "open" && cur.Phase == phaseOpen {
-				cols["phase"], cur.Phase = phasePR, phasePR
+		// what was read goes onto the task as stored now: a PR a link, an
+		// adoption or an event changed meanwhile isn't reverted
+		var opened []TaskPR
+		type skip struct {
+			pr  TaskPR
+			why string
+		}
+		var skipped []skip // PRs read but not taken, said once each
+		wrote := false
+		if len(seen) > 0 {
+			prs := cur.taskPRs()
+			for _, upd := range seen {
+				x := slices.IndexFunc(prs, func(h TaskPR) bool { return strings.EqualFold(h.Repo, upd.Repo) && h.Number == upd.Number })
+				switch {
+				case x >= 0 && prs[x].State != "open":
+					// ended meanwhile: it stays ended
+				case x >= 0:
+					if prs[x].HeadSHA != upd.HeadSHA || prs[x].Draft != upd.Draft || prs[x].URL != upd.URL {
+						prs[x].HeadSHA, prs[x].Draft, prs[x].URL, wrote = upd.HeadSHA, upd.Draft, upd.URL, true
+					}
+				case openPRIn(prs, upd.Repo, upd.Number) != nil:
+					skipped = append(skipped, skip{upd, fmt.Sprintf("the task holds PR #%d open there, and one per repo — close one, or let it merge",
+						openPRIn(prs, upd.Repo, upd.Number).Number)})
+				case prHeldBy(t, p.ID, cur.ID, upd.Repo, upd.Number) != 0:
+					skipped = append(skipped, skip{upd, fmt.Sprintf("it is task #%d's", prHeldBy(t, p.ID, cur.ID, upd.Repo, upd.Number))})
+				default:
+					prs, wrote = append(prs, upd), true
+					opened = append(opened, upd)
+				}
+			}
+			if wrote {
+				b, _ := json.Marshal(prs)
+				cols := map[string]any{"prs": string(b)}
+				cur.PRs = b
+				if len(opened) > 0 && cur.Phase == phaseOpen {
+					cols["phase"], cur.Phase = phasePR, phasePR
+				}
+				if err := t.setTask(k.ID, cols); err != nil {
+					return err
+				}
 			}
 		}
-		if err := t.setTask(k.ID, cols); err != nil {
-			return err
+		for _, sk := range skipped {
+			addProjectEvent(t, p.ID, k.N, pevNote, map[string]any{"text": fmt.Sprintf("PR #%d on %s isn't followed: %s", sk.pr.Number, sk.pr.Repo, sk.why),
+				"repo": sk.pr.Repo, "pr": sk.pr.Number}, true, fmt.Sprintf("refs-skip:%d:%s:%d", k.N, strings.ToLower(sk.pr.Repo), sk.pr.Number))
+		}
+		if !wrote && len(moved) == 0 {
+			return nil
 		}
 		for _, pr := range opened {
 			addProjectEvent(t, p.ID, k.N, pevPROpened, map[string]any{"text": fmt.Sprintf("opened PR #%d on %s", pr.Number, pr.Repo),
 				"url": pr.URL, "repo": pr.Repo, "pr": pr.Number}, false, fmt.Sprintf("pr.opened:%d:%s:%d", k.N, pr.Repo, pr.Number))
 		}
 		for slug, sha := range moved {
-			addProjectEvent(t, p.ID, k.N, pevNote, map[string]any{"text": fmt.Sprintf("pushed %s to %s", shortSHA(sha), k.Branch),
+			addProjectEvent(t, p.ID, k.N, pevNote, map[string]any{"text": fmt.Sprintf("pushed %s to %s", shortSHA(sha), branchOf[slug]),
 				"sha": sha, "repo": repoOf[slug].Repo}, false, "")
 		}
 		for _, h := range projectRefsHooks {
@@ -357,6 +418,7 @@ func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 	if err != nil {
 		return jobOutcome{}, err
 	}
+	adopt()
 	return doneJob("recorded the branch and its pull requests")
 }
 
@@ -364,16 +426,27 @@ func jobRefs(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jo
 
 // dirtyScript reports, per checkout C_i (DEF_i its default branch), its
 // uncommitted files and the commits its upstream (else the default branch
-// on the remote) lacks.
+// on the remote) lacks — none when HEAD is in the history of one of the
+// task's merged PRs there (M_i: "<number>:<head sha>" each; a head not
+// here is fetched as pull/<number>/head, quietly: what can't be shown
+// counts as unpushed).
 const dirtyScript = `i=0
 while [ "$i" -lt "$N" ]; do
-  eval "C=\${C_$i}; DEF=\${DEF_$i}"
+  eval "C=\${C_$i}; DEF=\${DEF_$i}; M=\${M_$i}"
   if [ -e "$C/.git" ]; then
     d=$(git -C "$C" status --porcelain | wc -l)
     if git -C "$C" rev-parse -q --verify "@{u}" >/dev/null 2>&1; then
       u=$(git -C "$C" log --oneline "@{u}..HEAD" | wc -l)
     else
       u=$(git -C "$C" log --oneline "origin/$DEF..HEAD" 2>/dev/null | wc -l)
+    fi
+    u=$((u))
+    if [ "$u" -gt 0 ] && [ -n "$M" ]; then
+      for m in $M; do
+        n=${m%%:*}; s=${m#*:}
+        git -C "$C" cat-file -e "$s^{commit}" 2>/dev/null || git -C "$C" fetch -q origin "pull/$n/head" >/dev/null 2>&1 || true
+        if git -C "$C" merge-base --is-ancestor HEAD "$s" 2>/dev/null; then u=0; break; fi
+      done
     fi
     printf 'DIRTY %s %s %s\n' "$i" "$d" "$u"
   fi
@@ -382,7 +455,9 @@ done
 `
 
 // taskDirty is the checkouts of k with uncommitted or unpushed work
-// ({slug, dirty, unpushed}); a repo whose PR merged counts as pushed.
+// ({slug, dirty, unpushed}); a merged PR counts as holding a checkout's
+// commits only when its head holds HEAD (dirtyScript) — whether the task
+// opened it, adopted or linked it.
 func taskDirty(ctx context.Context, p *Project, k *ProjectTask) ([]map[string]any, error) {
 	cos := projAg().db.checkouts(k.ID)
 	if len(cos) == 0 {
@@ -401,18 +476,19 @@ func dirtyIn(ctx context.Context, s *wsbx, p *Project, k *ProjectTask, cos []Pro
 	for _, r := range repos {
 		byslug[r.Slug] = r
 	}
-	merged := map[string]bool{}
+	merged := map[string][]string{} // repo → "<number>:<head sha>" of its merged PRs
 	for _, pr := range k.taskPRs() {
-		if pr.State == "merged" {
-			merged[strings.ToLower(pr.Repo)] = true
+		if pr.State == "merged" && pr.Number > 0 && shaShape.MatchString(pr.HeadSHA) {
+			merged[strings.ToLower(pr.Repo)] = append(merged[strings.ToLower(pr.Repo)], fmt.Sprintf("%d:%s", pr.Number, pr.HeadSHA))
 		}
 	}
-	env := map[string]string{"N": strconv.Itoa(len(cos))}
+	env := map[string]string{"N": strconv.Itoa(len(cos)), "GIT_TERMINAL_PROMPT": "0"}
 	for i, c := range cos {
 		env[fmt.Sprintf("C_%d", i)] = c.Path
 		env[fmt.Sprintf("DEF_%d", i)] = byslug[c.Repo].DefaultBranch
+		env[fmt.Sprintf("M_%d", i)] = strings.Join(merged[strings.ToLower(byslug[c.Repo].Repo)], " ")
 	}
-	out, err := s.must(ctx, "checking the checkouts", dirtyScript, env, "", time.Minute)
+	out, err := s.must(ctx, "checking the checkouts", dirtyScript, env, "", 2*time.Minute)
 	if err != nil {
 		return nil, err
 	}
@@ -427,9 +503,6 @@ func dirtyIn(ctx context.Context, s *wsbx, p *Project, k *ProjectTask, cos []Pro
 		u, _ := strconv.Atoi(f[3])
 		if i >= len(cos) || cos[i].Mode == coMain {
 			continue
-		}
-		if merged[strings.ToLower(byslug[cos[i].Repo].Repo)] {
-			u = 0
 		}
 		if d > 0 || u > 0 {
 			dirty = append(dirty, map[string]any{"slug": cos[i].Repo, "dirty": d, "unpushed": u})

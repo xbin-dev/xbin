@@ -10,7 +10,9 @@
 // members (what is typed stays its project's), archive, delete; the new-project form; a task's conversation —
 // the crumb back, the branch and PR chips, Open PR once the route exists,
 // the prep card with Retry, the sign-in card (polled, then the task looked
-// at again — a person's partition's); a `project` event; #proj=<id> on
+// at again — a person's partition's); a coding agent's sign-in on a card,
+// and on a big task its card's first offer — sign in once for every big task
+// (Remember, made the default) — or why not (a shared fork, no partitions); a `project` event; #proj=<id> on
 // load; signing in to the provider offered only in a person's partition
 // (from the settings, then Forget), never at an unpartitioned agent or the
 // shared space; a phone's width; a person's partition (two homes, a team
@@ -150,6 +152,15 @@ await page.evaluate(() => {
 ok('a project event moves the card', await page.waitForSelector('.pcol[data-col="needs-you"] .ptask[data-n="2"]', { timeout: 5000 }).then(() => true, () => false));
 await page.waitForTimeout(400);
 ok('…two events, one read (coalesced)', (await calls(page, 'GET', '/projects/7/tasks')).length === before + 1, String((await calls(page, 'GET', '/projects/7/tasks')).length - before));
+// its coding agent waits for a sign-in (agent-signin): still Needs you, the card naming whom to sign in to
+await page.evaluate(() => {
+  const t = window.__proj.tasks[7].find((x) => x.n === 3);
+  Object.assign(t, { state: 'agent-signin', waitingFor: 'signin', engine: 'harness', harness: 'claude' });
+  window.__push({ type: 'project', run: 0, root: 0, data: { id: 7, change: 'task', n: 3 } });
+});
+ok('a coding agent\'s sign-in: the card says whom to sign in to', await waitText(page, '.pcol[data-col="needs-you"] .ptask[data-n="3"] .ptst', 'sign in to Claude Code')
+  && (await page.getAttribute('.ptask[data-n="3"] .ptst', 'data-tone')) === 'warn' && (await page.getAttribute('.ptask[data-n="3"]', 'data-state')) === 'agent-signin'
+  && !(await page.textContent('.ptask[data-n="3"] .ptst')).includes('needs you'), await page.textContent('.ptask[data-n="3"]'));
 
 // --- settings -------------------------------------------------------------------------------------------------------
 await page.click('[data-tab="settings"]');
@@ -193,7 +204,7 @@ ok('…by owner/name', (await calls(page, 'POST', '/projects/7/repos$'))[0].body
 const groupsP = await page.$$eval('#pset-policy .pgroup', (els) => els.map((e) => e.dataset.group));
 ok('the policy in its groups', groupsP.join() === 'tasks,prs,ci,setup,big,cleanup,coord', groupsP.join());
 const keys = await page.$$eval('#pset-policy :is(input, select, textarea)[id^="pol-"]', (els) => els.length);
-ok('every key is there', keys === 36, String(keys));
+ok('every key is there', keys === 37, String(keys));
 await page.fill('#pol-maxTasks', '5');
 await page.dispatchEvent('#pol-maxTasks', 'change');
 await page.evaluate(() => { document.querySelector('.pgroup[data-group="ci"]').open = true; });
@@ -412,6 +423,60 @@ ok('…posted as the seed, by its ref', await waitCall(g, 'POST', '/projects$', 
 const gs = ((await calls(g, 'POST', '/projects$'))[1] || {}).body || {};
 ok('…its body', gs.kind === 'team' && JSON.stringify(gs.sandbox) === '{"ref":"apps/coding-sandbox|sb-mine-team"}', JSON.stringify(gs));
 ok('no page errors (shared space)', ge.length === 0, ge.join(' | '));
+
+// === a big task's coding agent waiting for its sign-in (D221): sign in ONCE for every big task, first ====
+// task 3 of Web in alice's partition: Claude Code parked on its sign-in in the task's own sandbox
+function signinSeed(save, extra = {}) {
+  const B = 2 ** 40;
+  const s = partitionSeed();
+  const fork = { ref: 'apps/coding-sandbox|sb-web-3', provider: 'apps/coding-sandbox', manager: 'Coding sandboxes', id: 'sb-web-3', name: 'web-3',
+    state: 'running', egress: 'internet', visibility: 'private', image: { id: 'base' }, owner: { user: 'alice' }, mine: true, canUse: true, workdir: '/work' };
+  const t3 = s.tasks[B + 7].find((t) => t.n === 3);
+  Object.assign(t3, { state: 'agent-signin', waitingFor: 'signin', engine: 'harness', harness: 'claude', size: 'big', fork: true, sandboxRef: fork.ref });
+  const login = { command: 'claude auth login', methods: [{ id: 'claude-login', name: 'Log in with Claude', kind: 'terminal' }], ...(save ? { save } : {}) };
+  const h = { provider: 'claude', name: 'Claude Code', state: 'login', login, gen: 1, pending: { park: 'pk3', kind: 'login', title: 'Sign in to Claude Code' },
+    sandbox: { ref: fork.ref, name: fork.name, cwd: '/work/web/tasks/3-task-3/web', shared: false } };
+  const v = s.views[B + 103];
+  v.run = { ...v.run, engine: 'harness', harness: h, status: 'waiting_input', pendingState: { kind: 'login', park: 'pk3', harness: { login } } };
+  v.config = { engine: 'harness', harness: { provider: 'claude', ref: fork.ref, cwd: h.sandbox.cwd, by: 'alice' } };
+  const r = s.runs.find((x) => x.id === B + 103);
+  Object.assign(r, { engine: 'harness', harness: h, status: 'waiting_input' });
+  return { ...s, sandboxes: [fork], harnesses: [{ id: 'claude', name: 'Claude Code', available: true, reason: '', why: '', classes: ['coding'], images: [], modes: [],
+    login: { command: 'claude auth login', guided: true, mint: true } }], ...extra };
+}
+{
+  const B = 2 ** 40;
+  const user = () => { window.xbin.partition = 'user:alice'; };
+  const { page: sp, errors: se } = await open(signinSeed({ ok: true }), { hash: `#c=${B + 103}`, init: user });
+  ok('a big task\'s sign-in: once for every big task first', await sp.waitForSelector('#hl-task[data-primary="mint"]', { timeout: 5000 }).then(() => true, () => false)
+    && (await sp.textContent('#hl-all')).trim() === 'Sign in once for every big task'
+    && (await sp.textContent('#hl-all-hint')).includes('a long-lived sign-in (Claude Code: setup-token) in your partition'), await sp.textContent('#hlogin').catch(() => ''));
+  ok('…then this task only, with its caveat', (await sp.textContent('#hl-once')).trim() === 'Sign in for this task only'
+    && (await sp.getAttribute('#hl-once', 'class')).includes('ghost') && (await sp.textContent('#hl-once-hint')).includes('the next big task asks again'));
+  await sp.click('#hl-all');
+  ok('…the guided sign-in with Remember', await waitCall(sp, 'POST', `/runs/${B + 103}/harness/authenticate$`)
+    && (await calls(sp, 'POST', '/harness/authenticate$'))[0].body.remember === true, JSON.stringify(await calls(sp, 'POST', '/harness/authenticate$')));
+  await sp.waitForSelector('#hl-gcode');
+  await sp.fill('#hl-gcode input', 'abc#def');
+  await sp.click('#hl-gcode button');
+  ok('…its code saves it as the default', await waitCall(sp, 'POST', '/harness/authenticate$', 2)
+    && JSON.stringify((await calls(sp, 'POST', '/harness/authenticate$'))[1].body) === '{"method":"guided","code":"abc#def","default":true}', JSON.stringify(await calls(sp, 'POST', '/harness/authenticate$')));
+  ok('no page errors (a big task\'s sign-in)', se.length === 0, se.join(' | '));
+
+  // a team project's fork: shared with its members — no saved sign-in goes in, and the card says so
+  const shared = 'this task\'s sandbox is shared with the project\'s members, and a saved sign-in goes only into a sandbox of your own that no one else uses — sign in for this task only';
+  const { page: tp, errors: te } = await open(signinSeed({ ok: false, why: shared }), { hash: `#c=${B + 103}`, init: user });
+  ok('a shared fork: why, and this task only', await tp.waitForSelector('#hl-task[data-primary="once"]', { timeout: 5000 }).then(() => true, () => false)
+    && (await tp.textContent('#hl-task-why')).includes('shared with the project\'s members') && !(await tp.$('#hl-all'))
+    && !(await tp.getAttribute('#hl-once', 'class')).includes('ghost'));
+  ok('no page errors (a shared fork)', te.length === 0, te.join(' | '));
+
+  // an agent without partitions: each big task asks — saved sign-ins need partitions on
+  const { page: lp, errors: le } = await open(signinSeed({ ok: false, why: 'saved sign-ins need a partitioned agent' }), { hash: `#c=${B + 103}` });
+  ok('no partitions: why, and what changes it', await lp.waitForSelector('#hl-task[data-primary="once"]', { timeout: 5000 }).then(() => true, () => false)
+    && (await lp.textContent('#hl-task-why')).includes('with partitions on, one saved sign-in serves every big task'), await lp.textContent('#hlogin').catch(() => ''));
+  ok('no page errors (no partitions)', le.length === 0, le.join(' | '));
+}
 
 await browser.close();
 done('projects');
