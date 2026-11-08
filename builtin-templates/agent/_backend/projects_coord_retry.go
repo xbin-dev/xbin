@@ -39,7 +39,7 @@ func (ag *Agent) coordRetry(run *Run, p *Project, args map[string]any) (string, 
 	failed, errored := k.WS == wsFailed, trun.Status == statusError
 	if !failed && !errored {
 		return "", fmt.Errorf("task #%d is %s: task_retry retries only a task whose workspace failed or whose last turn ended in an error",
-			k.N, coordStateOf(ag.db.projTaskView(p, k)))
+			k.N, coordTaskState(ag.db.projTaskView(p, k)))
 	}
 	if errored && !failed && ag.db.getSetting("halt") == "1" {
 		return "", errors.New("the agent is paused by a manager: no turn starts until they resume it")

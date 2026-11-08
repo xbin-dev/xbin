@@ -382,12 +382,16 @@ func coordStateOf(v TaskView) string {
 	return orStr(coordStateWords[v.State], v.State)
 }
 
+// coordTaskState is v's state as the coordinator reads it: what exactly
+// waits (coordWaitWords), else the state's words.
+func coordTaskState(v TaskView) string { return orStr(coordWaitWords(v), coordStateOf(v)) }
+
 // coordTaskLine is one task in a line: number, title, state, branch, PRs.
 // Its state says what it waits for when the board's word would mislead
 // (coordWaitWords: a person's question, quoted, or an answer ready).
 func coordTaskLine(v TaskView) string {
 	var b strings.Builder
-	state := orStr(coordWaitWords(v), coordStateOf(v))
+	state := coordTaskState(v)
 	if v.Issue != nil {
 		// its title may be the issue's (createTask's default): text from
 		// outside, labelled so (and defused) as an scm event's title is
