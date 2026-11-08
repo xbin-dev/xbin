@@ -3604,6 +3604,7 @@ by key, and `null` takes a key back to its default.
 | `bigTasks` | `{mode: "fork", keepFork: false}` | a big task's sandbox |
 | `cleanup` | `{onMerge: true, onClose: true}` | when a task's workspace is cleaned up |
 | `coordinator` | `{web: false, model: ""}` | the coordinator's web tools and model |
+| `dream` | `true` | a task's dream round: it writes what it learned to the project wiki (§Project wiki) |
 
 **`ProjectView`** — the row, your `level`, its `repos`, the board's `counts`
 (per column, and `ready`: the `pr` column's tasks whose CI passed — they need
@@ -4452,6 +4453,45 @@ that its person still takes part:
 | `project_goal` | `text` (≤ 500 characters), `now?` (≤ 300) | sets its goal — what it works towards — and what it does this turn (D214) |
 | `task_link_pr` | `task`, `repo?` (one of the task's; default the project's only repo), `pr` | links a pull request to the task (§Big tasks, upgrades and pull requests, "Linking") — one its coding agent opened from another branch, say; says whether the task pushes to it or only tracks it, then the task's pull requests as `task_refresh` reads them |
 | `task_refresh` | `task?` (default: every open or in-review task with pull requests, at most 10) | reads each open pull request of the task now and applies it as a poll's read would (a merge or close no event brought ends the task as the event would; a moved head, draft or ready), re-tracks reads that had stopped, asks for a fresh read of their checks, and adopts a pull request its coding agent opened from another branch when its checkouts can be reached (skipped, and said, when they can't); answers each task's state and each pull request's state, checks and head |
+| `research` | `question`, `repo?`, `task?`, `label?`, `wait?` (default true) | starts a research subagent that reads the project's code and answers (below, D222) |
+| `wiki_search`, `wiki_read`, `wiki_list`, `wiki_history`, `wiki_write`, `wiki_edit`, `wiki_archive` | §Project wiki | the project wiki, read and written (D222) |
+
+**Research** (D222). The coordinator runs in the web class, with no sandbox:
+`research` is how it reads code. It starts a subagent — through the
+subagent machinery: a link, waited for like `subagent_spawn` (`wait`
+false: its answer arrives later as a message), its status and full answer
+through `subagent_status` and `subagent_result` — in the coordinator's own
+class and lane, whose config is built by the agent, never from the call:
+`codeRead` `{project, ref, cwd, roots, repo?, task?, heads}` binds it to
+the project's sandbox (or a task's own). Its working directory is a repo's
+**research checkout** — a detached worktree of the repo's base at
+origin's default branch as last fetched, at
+`‹project dir›/.xbin/research/‹slug›`, refreshed as research starts (every
+repo's, under `.xbin/research`, when the project has several and none is
+named; an adopted repo's own clone as it stands) — or, with `task`, that
+task's worktree (its branch and changes). Its tools are exactly: `read`,
+`ls`, `glob`, `grep` (each path resolved in the sandbox, symlinks
+followed, and refused outside the project's directory and an adopted
+repo's clone; what they return is redacted), `git` (below), the wiki's
+seven tools, `note` and `finish` — `runTool` refuses every other tool,
+whatever the model calls (`bash`, `write`, `edit`, the web, coding agents,
+subagents; the coordinator's own). Its sandbox is used as the project's
+owner, as the project's jobs use it, checked on every call: its root is
+still the project's coordinator, the sandbox still the project's or one of
+its tasks'. `git {args, path?}` runs argv only, no shell: `log`, `show`,
+`diff`, `blame`, `grep`, `ls-files` or `status`; refused: `-c`, `-C`,
+`--git-dir`, `--work-tree`, `--output*`, `--exec*`, `--upload-pack`,
+`--receive-pack`, `--ext-diff`, `--textconv`, `--no-index`, `--contents`,
+`--open-files-in-pager` (and `grep -O`/`-f`, `ls-files -X`, `blame -S`),
+any abbreviation of them included; it runs with `--no-pager
+--no-optional-locks -c core.fsmonitor=false -c core.hooksPath=/dev/null`,
+`--no-ext-diff --no-textconv` where the subcommand takes them, and
+`GIT_PAGER=cat GIT_CONFIG_NOSYSTEM=1`. At most 4 research subagents of a
+project run at once (the 5th call is refused, saying so); each has 10
+minutes — its foreground wait, and after that its tools stop answering so
+it answers with what it found. Research subagents don't count against the
+coordinator's lifetime `maxSpawn` (they can't spawn). Project code isn't
+internal data: the coordinator's lane is unchanged (D222).
 
 **Its goal.** `project_goal` keeps one goal per coordinator, redacted and
 clipped, shown at the top of the project's page (the overview's
@@ -4529,6 +4569,139 @@ per-person budget, collapsed on the device per project and kind
 `task-failed` (its workspace failed, or a coding agent's turn did),
 `ci-stuck` (CI kept failing past the day's fixes) and `all-done` (every
 task of the project finished).
+
+### Project wiki
+
+A project's **wiki** (D222) is the shared memory of its agents and people:
+Markdown pages with `[[slug]]` links, kept in the agent's own database
+with every version. Its design follows Anthropic's *components of agent
+memory*: a small layer every prompt carries (the `index` page), the rest
+reached by search and by reading; notes are bets, so they are framed as
+possibly wrong and agents are asked for verified facts that quote source
+terms verbatim; the prompts steer goals, not steps; and size, reads and
+cost are measured.
+
+**Pages.** A slug is lowercase letters, digits and dashes (1–64). A page
+has a title (≤ 120 characters), a body (≤ 16 KB), `sources` (≤ 20: paths,
+commands, commits, URLs), a version counting from 1, who changed it last
+(`updatedBy`: a person's id, `coordinator (‹user›)`, `research #‹run›
+(‹user›'s coordinator)`, `task #‹n›` or `task #‹n› (dream)`) and how often
+agents read it (`reads`). A project holds at most 400 live pages. The page
+`index` is the map — at most 60 lines. Everything written is redacted
+(`projRedact`: scm tokens and every live secret). Every version is kept in
+`wiki_revisions` (who, run, task, note; the last 200 per page); archiving
+retires a page from search and the list — its history stays, and a write
+brings it back. The wiki goes with its project.
+
+```jsonc
+// WikiPage
+{"project": 3, "slug": "build", "title": "Build and test", "body": "…",   // body only where a page is read
+ "version": 4, "sources": ["Makefile"], "archived": false,
+ "updatedBy": "task #3 (dream)", "updatedRun": 41, "updatedMs": 1762600000000,
+ "createdMs": 1762500000000, "size": 812, "reads": 17}
+```
+
+**Concurrency: compare-and-swap, tracked here.** Everyone writes directly.
+`wiki_read` records the version a run saw (`wiki_reads`); a run's write to
+an existing page lands only while that version is still the page's — in
+one transaction — and its own write counts as reading what it wrote. A
+write that lost answers, word for word:
+
+```
+Another agent changed the contents of this article since you last read it — read the article again before editing.
+```
+
+A run that never read the page is told `read the article before editing
+it` (with the page's version). Each subagent is its own run, with its own
+reads. People, and a coding agent's dream files, name their base version
+instead (0: a new page).
+
+**The tools** — each call resolves the run's role again, from the database:
+
+| Tool | Parameters | Who |
+|---|---|---|
+| `wiki_search` | `query`, `limit?` (≤ 20) | the coordinator, its research subagents, a built-in task's own run |
+| `wiki_read` | `slug`, `offset?` | the same — records the version read |
+| `wiki_list` | — | the same |
+| `wiki_history` | `slug`, `version?` (that version in full) | the same |
+| `wiki_write` | `slug`, `title?`, `body`, `note`, `sources?` | the coordinator, its research subagents; a built-in task only in its dream round |
+| `wiki_edit` | `slug`, `old` (exactly once in the page), `new`, `note` | the same |
+| `wiki_archive` | `slug`, `note` | the same |
+
+A coding agent's run has none of them: it reads the wiki from files and
+writes it in its dream round (below). A task's subagents have none.
+
+**In prompts.** The `index` page is in the coordinator's `# Project`
+section and in every task's brief (a `# Project wiki` part), framed as
+notes earlier agents and people kept that may be wrong — verify before
+relying on them. A task's brief shows the index as it was when the task
+started (its snapshot), so the prompt stays the same bytes and the cache
+warm; the coordinator's shows it as it was at the start of its turn. The
+coordinator is told to research any code question and to keep the wiki
+true; a coding agent's brief points at `.xbin/wiki/index.md`.
+
+**Coding agents.** Before a prompt reaches a task's coding agent, the
+workspace gate checks whether its sandbox's copy of the wiki is current
+(`wiki_sync`: per sandbox, the project's newest revision id when it was
+last written). If not, the turn parks (`sleeping`, its step "writing the
+project wiki into its sandbox") for a `wikisync` job that writes every live
+page to `‹project dir›/.xbin/wiki/‹slug›.md` — read-only files, each
+starting with `<!-- wiki: ‹slug› version ‹N› -->`, then `# ‹title›`, the
+body and a `<!-- sources: … -->` line — with a `README.md` saying how the
+folder works. A big task's own sandbox (its fork) gets the same. A sync
+that fails is a task note, never a failed workspace: the turn goes on
+with the copy it has.
+
+**Dreaming.** When a task's work goes to review its context is still live,
+so it gets a **dream round**: once, the first time its turn rests with its
+pull request open (the PR opening while it rests counts), and once more
+when it ends (merged or closed) if it worked 3 turns or more since and its
+conversation (a coding agent's session) is still there. `policy.dream`
+(default on) turns it off. The round is a platform input — source
+`dream`, never a person's nor the coordinator's — through the project's
+queue with `hold_park`, delivered only when the run rests: it never
+answers a person's pending question (it waits behind it; one delivered
+just before the task parks goes back to the queue), and it is a turn of
+its own. Its answer isn't the task's latest answer. Its prompt states the
+goal — improve the wiki for the next agent working on this project:
+verified facts with their paths, how to build, test and run, traps and how
+they were fixed, decisions and why, identifiers quoted verbatim; update
+existing pages rather than duplicate them, keep `index` a short map; never
+task status or anything stale next week; change no code. A built-in task
+writes with the wiki's tools in that turn. A coding agent writes whole
+pages to `‹project dir›/.xbin/wiki-out/‹slug›.md`, keeping the header of
+the copy it read (`version 0` for a new page); after its turn a
+`wikiingest` job applies each with compare-and-swap against that version.
+Pages that lost re-sync the copy and go back to the agent in one
+follow-up prompt carrying the conflict's words (a page refused for its
+size or slug goes back too); after a second round what is left is
+dropped, with a task note.
+
+**Routes** (a project's viewer reads; a participant writes, while the
+project is active):
+
+```
+GET    /projects/{pid}/wiki[?q=&archived=1]               → {pages, hits?, stats, dream}
+GET    /projects/{pid}/wiki/{slug}[?v=]                   → {page, revision?}
+PUT    /projects/{pid}/wiki/{slug}   {title?, body, note?, sources?, baseVersion}   → {page}
+DELETE /projects/{pid}/wiki/{slug}?baseVersion=N   ({note?})   → {page}   (archives it)
+GET    /projects/{pid}/wiki/{slug}/history[?v=]           → {slug, version, revisions, revision?}
+```
+
+`pages` have no bodies; `hits` are `{slug, title, version, snippet}` (the
+match in `«…»`), best first (FTS5, stemmed; every word must match).
+`revisions` are `WikiRevision` `{version, title, archived, by, run, task,
+note, atMs, size}` newest first; `revision` adds its `body`. A `PUT` or
+`DELETE` at a `baseVersion` that is no longer the page's answers **409**
+`{error: "Another agent changed …", refusal: "conflict", current: N}`; 400
+for a bad slug, an empty body or an index over 60 lines, 413 for a body
+over 16 KB, 409 at the 400-page limit and on a project that isn't active.
+Each write sends the `project` stream event with change `wiki`.
+
+**Measures** (`stats`): `pages`, `bytes`, `reads` (agents' `wiki_read`
+calls), `readers` (runs that read a page), `revisions`, `dreams` (dream
+rounds) and `dreamTokens` (the tokens their turns used, where the engine
+counts them: a built-in task's; a coding agent reports no tokens).
 
 ### scm events and polling
 
@@ -4960,7 +5133,7 @@ shared space, and the page lists both (every page of `GET /projects`
 at each) — yours, then team projects, archived ones last — each with its
 repos, the slots at work and its counts per column.
 
-**A project's page** has three tabs — Board, Activity and Settings (a team
+**A project's page** has four tabs — Board, Activity, Wiki and Settings (a team
 project's definition: Board and Settings). Atop its Board (the overview's
 too, above the status strip; first on the app's screen) is **Waiting for
 you** (#56) while something in it waits on you — `GET
@@ -5089,6 +5262,17 @@ bar beside Status.
   provider (anyone may have written a comment): drawn as plain text,
   clipped, control and direction characters dropped; a link only when it
   is `https`.
+- **Wiki** (D222, §Project wiki; `project-wiki.js`, `model/project-wiki.js`)
+  — the pages (the index first, each with its version, size, who changed
+  it last and how often agents read it) and a search; a page drawn as the
+  chat draws markdown (sanitized), its `[[slug]]` links opening the page
+  they name; **History**: every version, a version picked showing its
+  change against the one before as a line diff; for a participant **New
+  page**, **Edit** and **Archive**, each at the version read — when someone
+  changed the page meanwhile the save is refused with the conflict's words
+  and **Reload** reads the page again, what you typed kept beside it to
+  merge. The footer says the wiki's measures: pages, size, reads (a page),
+  versions, dream rounds and their tokens.
 - **Settings** — everyone who sees the project reads it; its owner changes
   it. **Status**: the sandbox, each repo (fetched, head, whether its base
   branch is protected), each credential's metadata (whose, its state, until
@@ -5277,7 +5461,10 @@ a link to the platform; Open PR, confirmed), "‹project› #n" in the
 subtitle, ⋯ → Project: ‹name›, the prep card with a step per repo and
 Retry the workspace, the sign-in card (its code to its person only,
 polled), the Task screen's project section; and ⋯ → Make this a
-project…. `native/project-team.js`: the team board with its seed, Work on
+project…. `native/project-wiki.js`: the project's wiki, read-only (a Wiki
+row in the project's Activity section): its pages and a search, the
+measures as the footer, a page as markdown with a row per page it links
+(the runtime opens web links only). `native/project-team.js`: the team board with its seed, Work on
 this after the security part, and the team's changes to review.
 
 ## The frontend: one model, thin views
