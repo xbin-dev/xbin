@@ -13469,7 +13469,11 @@ Deviations and refinements made while implementing; all deliberate:
   - **The article's lessons, applied.** A small injected layer: the
     `index` page (about 60 lines) rides the coordinator's prompt and each
     task's brief, framed as notes that may be wrong, its version
-    snapshotted at the task's start so the prompt cache holds. Navigation
+    snapshotted at the task's start so the prompt cache holds (pruning
+    keeps every snapshotted version). Injected text is defused like
+    untrusted text — invisibles out, the frames', the coordinator's and its
+    own tags' markers defused in any case or spacing, 3 KB at most — and
+    the coordinator counts the wiki among what is data. Navigation
     plus search (`[[links]]`, `wiki_search` over FTS5). The dream prompt
     steers the goal — the next agent on this project — not steps, asks for
     verified facts that quote paths and identifiers verbatim, and forbids
@@ -13477,30 +13481,65 @@ Deviations and refinements made while implementing; all deliberate:
     under the Wiki tab.
   - **Research subagents.** The coordinator stays in the web class (no
     sandbox); `research` starts a subagent through the subagent machinery
-    with a `codeRead` binding built by the agent, never from the call: a
-    detached worktree of a repo's default branch under
-    `.xbin/research/<slug>`, or a small task's worktree. Its tools are
-    `read`, `ls`, `glob`, `grep`, an argv-only read-only `git` (seven
-    subcommands; options that write, run or redirect refused, abbreviations
-    too) and the wiki — `runTool` refuses everything else whatever the
-    model calls, and an API-made conversation can't carry the binding.
-    Paths resolve inside the project after symlinks. Four at once per
-    project, ten minutes each. Project code isn't internal data, so the
-    coordinator's lane is unchanged.
+    with a `codeRead` binding built by the agent, never from the call: its
+    own detached worktree of a repo's default branch under
+    `.xbin/research/r-<id>/` (removed when it answers; stale ones swept),
+    or a small task's worktree. Its tools are `read`, `ls`, `glob`, `grep`
+    and the wiki, and a read-only `git` — `runTool` refuses everything else
+    whatever the model calls, and an API-made conversation can't carry the
+    binding. Paths resolve inside the project after symlinks; glob
+    patterns may not be absolute, `~` or climb with `..`.
+  - **Research's git, after the review** (git grep ran `sh` through
+    `--open-files-in-pager` behind a pattern of `--`; `git diff <outside>
+    /dev/null` became `--no-index`). argv only, and every argument parsed
+    by the agent against an allowlist per subcommand (`log`, `show`,
+    `diff`, `blame`, `grep`, `ls-files`; `status` dropped): options by exact
+    name, one flag an argument, a short option's separate value never
+    starting with `-`, a long option's value always attached — so git and
+    the parser can't disagree about where an option or a path starts.
+    Revisions and paths before and after `--` refused when absolute, `~`,
+    pathspec magic or out of the roots. `diff` only between commits or
+    against the index, `blame` only at a named revision: the forms that
+    read the working tree through git's filters are gone. Run with
+    `GIT_CONFIG_GLOBAL=/dev/null`, `core.attributesFile=/dev/null`,
+    `log.showSignature=false`, fsmonitor and hooks off, no textconv or
+    external diff. **Residual risk:** the repository's own `.git/config`
+    is still read, so a filter or diff driver planted there could run on a
+    form that still reads a blob through a driver — only someone who can
+    already write the sandbox (and so run anything in it) can plant one.
+  - Four research subagents at once per project, ten minutes each.
+    Project code isn't internal data, so the coordinator's lane is
+    unchanged.
   - **Coding agents** have no tools of ours: they read a copy of the wiki
     written to `.xbin/wiki/<slug>.md` (a header names its version) before a
     prompt reaches them when it changed, and write in the dream round to
-    `.xbin/wiki-out/<slug>.md` keeping the header of what they read; the
-    ingest applies each with the same compare-and-swap and, on a conflict,
-    copies the wiki again and sends the conflict's words once more (two
-    rounds at most). Built-in task runs get the wiki tools, writing only in
+    their task's own `.xbin/wiki-out/<n>/<slug>.md` (small tasks share a
+    sandbox) keeping the header of what they read; the ingest applies the
+    files written since the round began with the same compare-and-swap
+    and, on a conflict, copies the wiki again and sends the conflict's
+    words once more (two rounds at most). A version-0 page over an
+    archived slug brings it back rather than conflicting forever. Built-in task runs get the wiki tools, writing only in
     their dream turn.
   - **The dream round.** Once when a task's PR opens after a turn it
     worked (`pr.opened`: tasks from before this build don't all dream at
-    their next push), and once more when the task ends after three or more
-    turns since. It waits for the task to rest and is held behind a
-    person's question as the coordinator's messages are; its answer doesn't
-    replace the task's latest. Project policy `dream` (default on).
+    their next push), and once more when the task merges after three or
+    more turns since — never when a person closed or stopped it. Project
+    policy `dream` (default on).
+  - **A turn of its own, after the review** (a coordinator's message and
+    the dream were delivered together; a message mid-dream stranded the
+    ingest; the dream erased the work turn's D198 verdict; the end dream
+    raced cleanup). The queue delivers the round only to a resting run
+    with nothing else pending and its last work turn's verdict in (the
+    judge's end releases it; 90 s at most); what is queued after it, and
+    anything queued while it runs, waits for its end (a person's own
+    message goes straight in as ever). Its delivery records that the next
+    turn is the dream's (`wiki_dreams.active`) — the write right, the
+    ingest and the judge key off that, never `turn_by`. The dream turn
+    isn't judged and doesn't take the work's verdict down. It is held
+    behind a person's question as the coordinator's messages are; its
+    answer doesn't replace the task's latest. The end dream holds the
+    task's cleanup back until its pages are in (30 minutes at most) —
+    chosen over skipping it, since cleanup is on by default.
   - **Not done.** A task reads "working" during its dream turn; on a
     downgrade a queued wiki sync or ingest job fails its task's workspace
     ("not in this build"); real Claude Code/Codex sessions writing

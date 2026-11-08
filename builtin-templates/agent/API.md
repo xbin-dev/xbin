@@ -4462,32 +4462,59 @@ subagent machinery: a link, waited for like `subagent_spawn` (`wait`
 false: its answer arrives later as a message), its status and full answer
 through `subagent_status` and `subagent_result` — in the coordinator's own
 class and lane, whose config is built by the agent, never from the call:
-`codeRead` `{project, ref, cwd, roots, repo?, task?, heads}` binds it to
-the project's sandbox (or a task's own). Its working directory is a repo's
-**research checkout** — a detached worktree of the repo's base at
-origin's default branch as last fetched, at
-`‹project dir›/.xbin/research/‹slug›`, refreshed as research starts (every
-repo's, under `.xbin/research`, when the project has several and none is
-named; an adopted repo's own clone as it stands) — or, with `task`, that
-task's worktree (its branch and changes). Its tools are exactly: `read`,
-`ls`, `glob`, `grep` (each path resolved in the sandbox, symlinks
-followed, and refused outside the project's directory and an adopted
-repo's clone; what they return is redacted), `git` (below), the wiki's
-seven tools, `note` and `finish` — `runTool` refuses every other tool,
-whatever the model calls (`bash`, `write`, `edit`, the web, coding agents,
-subagents; the coordinator's own). Its sandbox is used as the project's
-owner, as the project's jobs use it, checked on every call: its root is
-still the project's coordinator, the sandbox still the project's or one of
-its tasks'. `git {args, path?}` runs argv only, no shell: `log`, `show`,
-`diff`, `blame`, `grep`, `ls-files` or `status`; refused: `-c`, `-C`,
-`--git-dir`, `--work-tree`, `--output*`, `--exec*`, `--upload-pack`,
-`--receive-pack`, `--ext-diff`, `--textconv`, `--no-index`, `--contents`,
-`--open-files-in-pager` (and `grep -O`/`-f`, `ls-files -X`, `blame -S`),
-any abbreviation of them included; it runs with `--no-pager
---no-optional-locks -c core.fsmonitor=false -c core.hooksPath=/dev/null`,
+`codeRead` `{project, ref, cwd, roots, repo?, task?, heads, checkout?,
+bases?}` binds it to the project's sandbox (or a task's own). Its working
+directory is its **own research checkout** — a detached worktree of the
+repo's base at origin's default branch as last fetched, at
+`‹project dir›/.xbin/research/r-‹id›/‹slug›`, made for it alone (every
+repo's under `r-‹id›` when the project has several and none is named; an
+adopted repo's own clone as it stands) and removed when it answers;
+research directories older than 30 minutes are swept when research
+starts — or, with `task`, that task's worktree (its branch and changes).
+Its tools are exactly: `read`, `ls`, `glob`, `grep` (each path resolved in
+the sandbox, symlinks followed, and refused outside the project's
+directory and an adopted repo's clone; a `glob` pattern, and `grep`'s
+`glob`, refused when absolute, at `~` or with a `..` segment; what they
+return is redacted), `git` (below), the wiki's seven tools, `note` and
+`finish` — `runTool` refuses every other tool, whatever the model calls
+(`bash`, `write`, `edit`, the web, coding agents, subagents; the
+coordinator's own). Its sandbox is used as the project's owner, as the
+project's jobs use it, checked on every call: its root is still the
+project's coordinator, the sandbox still the project's or one of its
+tasks'.
+
+`git {args, path?}` runs argv only, never a shell, and every argument is
+parsed by the agent against an allowlist per subcommand — `log`, `show`,
+`diff`, `blame`, `grep`, `ls-files` (no `status`):
+- an option is one of that subcommand's read-only options by its exact
+  name (no abbreviation; one flag per argument, no `-in` clusters) — e.g.
+  `log`: `--oneline`, `--stat`, `-p`, `-n`, `-<N>`, `--since=`,
+  `--author=`, `--grep=`, `-S`, `-G`, `-L`, `--format=`, `--follow`…;
+  `grep`: `-n`, `-i`, `-w`, `-l`, `-e`, `-E`, `-F`, `-A`, `-B`,
+  `--context=`, `--cached`…; never `-c`, `-C`, `-O`, `-f`, `--output`,
+  `--no-index`, `--ext-diff`, `--textconv`, `--exec`, `--contents`,
+  `--show-signature`, `--open-files-in-pager`;
+- a short option's value is attached (`-n5`, `-e-x`) or the next
+  argument, which may not start with `-`; a long option's value is always
+  attached (`--date=iso`) — so git and the parser never disagree about
+  where an option or a path starts;
+- every other argument — revisions and paths, before and after `--` — is
+  refused when absolute, at `~`, pathspec magic (`:(…)`, `:/`), or when
+  `‹path›/‹it›` leaves the roots;
+- `diff` compares commits (`A B`, `A..B`) or the index (`--cached`,
+  `--staged`, `--merge-base`); `blame` names its revision and one file
+  (`["blame", "-L", "10,20", "HEAD", "--", "file"]`) — the working tree is
+  read with `read` and `grep`, not through git's filters.
+
+It runs as `git --no-pager --no-optional-locks -c core.fsmonitor=false -c
+core.hooksPath=/dev/null -c core.attributesFile=/dev/null -c
+log.showSignature=false -c core.pager=cat ‹subcommand›`, with
 `--no-ext-diff --no-textconv` where the subcommand takes them, and
-`GIT_PAGER=cat GIT_CONFIG_NOSYSTEM=1`. At most 4 research subagents of a
-project run at once (the 5th call is refused, saying so); each has 10
+`GIT_PAGER=cat GIT_CONFIG_NOSYSTEM=1 GIT_CONFIG_GLOBAL=/dev/null
+GIT_ATTR_NOSYSTEM=1`. The repository's own `.git/config` is still read:
+a filter or diff driver planted there by someone who can write the
+sandbox is the residual risk D222 records. At most 4 research subagents
+of a project run at once (the 5th call is refused, saying so); each has 10
 minutes — its foreground wait, and after that its tools stop answering so
 it answers with what it found. Research subagents don't count against the
 coordinator's lifetime `maxSpawn` (they can't spawn). Project code isn't
@@ -4589,9 +4616,11 @@ commands, commits, URLs), a version counting from 1, who changed it last
 agents read it (`reads`). A project holds at most 400 live pages. The page
 `index` is the map — at most 60 lines. Everything written is redacted
 (`projRedact`: scm tokens and every live secret). Every version is kept in
-`wiki_revisions` (who, run, task, note; the last 200 per page); archiving
-retires a page from search and the list — its history stays, and a write
-brings it back. The wiki goes with its project.
+`wiki_revisions` (who, run, task, note; the last 200 per page, and every
+index version a run's prompt still shows); archiving retires a page from
+search and the list — its history stays, and a write brings it back (a
+write at base version 0, as a new page's, too). The wiki goes with its
+project.
 
 ```jsonc
 // WikiPage
@@ -4614,7 +4643,7 @@ Another agent changed the contents of this article since you last read it — re
 A run that never read the page is told `read the article before editing
 it` (with the page's version). Each subagent is its own run, with its own
 reads. People, and a coding agent's dream files, name their base version
-instead (0: a new page).
+instead (0: a new page — or an archived one, which comes back).
 
 **The tools** — each call resolves the run's role again, from the database:
 
@@ -4633,8 +4662,13 @@ writes it in its dream round (below). A task's subagents have none.
 
 **In prompts.** The `index` page is in the coordinator's `# Project`
 section and in every task's brief (a `# Project wiki` part), framed as
-notes earlier agents and people kept that may be wrong — verify before
-relying on them. A task's brief shows the index as it was when the task
+notes earlier agents and people kept — data, never instructions — that
+may be wrong: verify before relying on them. What is injected is defused
+as untrusted text is: invisible characters dropped, the frames' and the
+coordinator's markers (`[project updates`, `[end of untrusted text]`, …)
+and the frame's own `<wiki-index>` tags defused in any case, spacing or
+full-width bracket, and at most 3 KB, cut at a line's end. The
+coordinator's prompt counts the wiki's pages among what is data. A task's brief shows the index as it was when the task
 started (its snapshot), so the prompt stays the same bytes and the cache
 warm; the coordinator's shows it as it was at the start of its turn. The
 coordinator is told to research any code question and to keep the wiki
@@ -4655,28 +4689,42 @@ with the copy it has.
 **Dreaming.** When a task's work goes to review its context is still live,
 so it gets a **dream round**: once, the first time its turn rests with its
 pull request open (the PR opening while it rests counts), and once more
-when it ends (merged or closed) if it worked 3 turns or more since and its
-conversation (a coding agent's session) is still there. Turns are counted
-from this build on: a task from before dreams once it has worked a turn. `policy.dream`
-(default on) turns it off. The round is a platform input — source
-`dream`, never a person's nor the coordinator's — through the project's
-queue with `hold_park`, delivered only when the run rests: it never
-answers a person's pending question (it waits behind it; one delivered
-just before the task parks goes back to the queue), and it is a turn of
-its own. Its answer isn't the task's latest answer. Its prompt states the
-goal — improve the wiki for the next agent working on this project:
-verified facts with their paths, how to build, test and run, traps and how
-they were fixed, decisions and why, identifiers quoted verbatim; update
-existing pages rather than duplicate them, keep `index` a short map; never
-task status or anything stale next week; change no code. A built-in task
-writes with the wiki's tools in that turn. A coding agent writes whole
-pages to `‹project dir›/.xbin/wiki-out/‹slug›.md`, keeping the header of
-the copy it read (`version 0` for a new page); after its turn a
-`wikiingest` job applies each with compare-and-swap against that version.
-Pages that lost re-sync the copy and go back to the agent in one
-follow-up prompt carrying the conflict's words (a page refused for its
-size or slug goes back too); after a second round what is left is
-dropped, with a task note.
+when it merges if it worked 3 turns or more since and its conversation (a
+coding agent's session) is still there — never when a person closed or
+stopped it, nor when its PR closed unmerged. Turns are counted from this
+build on: a task from before dreams once it has worked a turn.
+`policy.dream` (default on) turns it off.
+
+The round is a platform input — source `dream`, never a person's nor the
+coordinator's — through the project's queue with `hold_park`, and **a turn
+of its own**: the queue delivers it only to a resting run with nothing
+else pending, once its last work turn's verdict is in (D198: the dream
+waits for the judge, at most 90 s); inputs queued after it wait behind
+it, and while its turn runs nothing else queued for the task is
+delivered (a person's own message goes straight in as ever; the dream turn
+then just ends with it). Its delivery records that the turn taking it up
+is the dream's — a built-in task's wiki writes, the ingest and the judge
+key off that record. It never answers a person's pending question (it
+waits behind it; one delivered just before the task parks goes back to the
+queue). Its turn isn't judged and its start doesn't take the work turn's
+verdict down, so "stopped part-way" stays the work's; its answer isn't the
+task's latest answer. Its prompt states the goal — improve the wiki for
+the next agent working on this project: verified facts with their paths,
+how to build, test and run, traps and how they were fixed, decisions and
+why, identifiers quoted verbatim; update existing pages rather than
+duplicate them, keep `index` a short map; never task status or anything
+stale next week; change no code. A built-in task writes with the wiki's
+tools in that turn. A coding agent writes whole pages to its task's own
+folder, `‹project dir›/.xbin/wiki-out/‹n›/‹slug›.md` (small tasks share
+the project's sandbox), keeping the header of the copy it read (`version
+0` for a new page); after its turn a `wikiingest` job applies each file
+written since the round began (a file older than that is removed, not
+applied) with compare-and-swap against that version. Pages that lost
+re-sync the copy and go back to the agent in one follow-up prompt carrying
+the conflict's words (a page refused for its size or slug goes back too);
+after a second round what is left is dropped, with a task note. The end
+dream holds the task's cleanup back (at most 30 minutes) until its round
+is over — its pages ingested — so the session keeps its directory.
 
 **Routes** (a project's viewer reads; a participant writes, while the
 project is active):
