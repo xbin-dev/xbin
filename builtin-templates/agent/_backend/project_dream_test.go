@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -82,7 +84,12 @@ func TestDreamTriggers(t *testing.T) {
 	if len(q) != 1 || !strings.Contains(q[0], "improve the project wiki") || !strings.Contains(q[0], "wiki_write") {
 		t.Fatalf("the PR's dream round: %q", q)
 	}
-	_ = d.Tx(func(tx *DB) error { dreamOnPR(tx, p, k); dreamTurnEnd(tx, fx.task, turnAnswered, "", ""); return nil })
+	_ = d.Tx(func(tx *DB) error {
+		dreamOnPR(tx, p, k)
+		run, _ := tx.getRun(fx.task.ID)
+		dreamTurnEnd(tx, p, k, run, turnAnswered)
+		return nil
+	})
 	if n := len(dreamTexts(d, p.ID, fx.task.ID)); n != 1 {
 		t.Fatalf("dream rounds after a second rest: %d", n)
 	}
@@ -225,25 +232,36 @@ func TestDreamIngestHarness(t *testing.T) {
 	if _, err := d.wikiPut(p.ID, wikiActor{By: "bob"}, wikiChange{Slug: "notes", Body: "Build with make; test with make test.", Base: &one}); err != nil {
 		t.Fatal(err)
 	}
-	// the coding agent's pages, as it would write them in its round (the
-	// fake agent has no file system of its own here: no agent host)
-	out := wikiOutDir(p)
-	write := func(slug string, v int, body string) {
+	// the coding agent's pages, as it would write them in its round, in its
+	// task's own folder (the fake agent has no file system of its own here:
+	// no agent host). Written now, they carry a time within the round; one
+	// left from before it, and another task's, are never this round's.
+	out := wikiOutFor(p, k)
+	writeIn := func(dir, slug string, v int, body string, at time.Time) {
 		t.Helper()
-		if err := os.MkdirAll(out, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		text := fmt.Sprintf("<!-- wiki: %s version %d -->\n# %s\n\n%s\n", slug, v, strings.ToUpper(slug[:1])+slug[1:], body)
-		if err := os.WriteFile(filepath.Join(out, slug+".md"), []byte(text), 0o644); err != nil {
+		f := filepath.Join(dir, slug+".md")
+		if err := os.WriteFile(f, []byte(text), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(f, at, at); err != nil {
 			t.Fatal(err)
 		}
 	}
+	during := time.Now().Add(10 * time.Minute)
+	write := func(slug string, v int, body string) { t.Helper(); writeIn(out, slug, v, body, during) }
 	write("notes", 1, "Build with make; lint with make lint.")
 	write("fresh", 0, "A new page.\n\n<!-- sources: Makefile; ci.yml -->")
+	writeIn(out, "stale", 0, "Left from before the round.", time.Now().Add(-time.Hour))
+	other := filepath.Join(wikiOutDir(p), "2")
+	writeIn(other, "theirs", 0, "Task 2's page.", during)
 	oldFollow := dreamFollowUpFor
 	var followUp string
-	dreamFollowUpFor = func(p *Project, lost, bad []string) string {
-		followUp = dreamFollowUp(p, lost, bad)
+	dreamFollowUpFor = func(p *Project, k *ProjectTask, lost, bad []string) string {
+		followUp = dreamFollowUp(p, k, lost, bad)
 		write("notes", 1, "Still from version 1.")
 		return followUp
 	}
@@ -297,7 +315,203 @@ func TestDreamIngestHarness(t *testing.T) {
 	if d.wikiSynced(taskRef(p, k), p.ID) != d.wikiSeq(p.ID) {
 		t.Fatal("the sync's watermark lags")
 	}
+	for _, slug := range []string{"stale", "theirs"} {
+		if _, err := d.wikiPage(p.ID, slug); err == nil {
+			t.Errorf("%s was ingested: not this task's round's", slug)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(other, "theirs.md")); err != nil {
+		t.Fatalf("another task's page file was touched: %v", err)
+	}
 	if left, _ := os.ReadDir(out); len(left) != 0 {
 		t.Fatalf("wiki-out keeps files: %v", left)
+	}
+}
+
+// stillPump is the wiki fixture with its engine stopped: the queue and the
+// pump alone, a turn played by hand.
+func stillPump(t *testing.T) (*wikiFix, *Project) {
+	t.Helper()
+	fx := newWikiFix(t)
+	stopEngineFirst(t, fx.ag)
+	fx.ag.eng.Shutdown(2 * time.Second)
+	_ = fx.ag.db.Tx(func(tx *DB) error { return tx.setStatus(fx.task.ID, statusIdle, 0, "", "") })
+	p, _ := fx.ag.db.getProject(fx.p.ID)
+	return fx, p
+}
+
+// undelivered is run's inbox inputs not taken up yet, by source.
+func undelivered(d *DB, runID int64) []string {
+	var out []string
+	for _, r := range d.inboxRows(`WHERE run_id=? AND delivered_at=0 AND kind IN ('user','hprompt')`, runID) {
+		out = append(out, r.Body.Source)
+	}
+	return out
+}
+
+// The review's case: a coordinator's message and a dream round queued
+// together were delivered by one pump, one turn on both, turn_by "dream".
+// Now the dream round is a turn of its own: the message goes first, the
+// round only once nothing else is pending; while its turn runs, what is
+// queued for the task waits; that the turn is the dream's is recorded when
+// it is delivered — the wiki's write right and the turn's end key off it.
+func TestDreamTurnAlone(t *testing.T) {
+	fx, p := stillPump(t)
+	d := fx.ag.db
+	queue := func(src, text, dedupe string) {
+		t.Helper()
+		if err := d.Tx(func(tx *DB) error {
+			_, err := queueTaskInput(tx, taskInput{Project: p.ID, N: 1, Kind: "input", Text: text, Source: src, HoldPark: true, Dedupe: dedupe})
+			return err
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	takeUp := func() {
+		_, _ = d.q.Exec(`UPDATE inbox SET delivered_at=? WHERE run_id=? AND delivered_at=0`, nowMs(), fx.task.ID)
+	}
+	queue(srcCoordinator, "please fix the login bug", "")
+	queue(srcDream, "[dream round — x", "dream:1:pr")
+	projectPump(p.ID)
+	if got := undelivered(d, fx.task.ID); strings.Join(got, ",") != srcCoordinator || len(dreamsQueued(d, p.ID)) != 1 {
+		t.Fatalf("delivered together: %v (queued dreams %d)", got, len(dreamsQueued(d, p.ID)))
+	}
+	if k, _ := d.taskByN(p.ID, 1); k.TurnBy != srcCoordinator || d.dreamOf(k.ID).Active {
+		t.Fatalf("the work turn: turn_by %q, dream active %v", k.TurnBy, d.dreamOf(k.ID).Active)
+	}
+	tcfg, _ := d.runConfig(fx.task.ID)
+	if r, _ := fx.ag.wikiRoleOf(fx.task, tcfg); r == nil || r.write {
+		t.Fatal("the work turn may write the wiki")
+	}
+	// the work turn: taken up, still running — the round waits
+	takeUp()
+	_ = d.Tx(func(tx *DB) error { return tx.setStatus(fx.task.ID, statusRunning, 0, "", "") })
+	projectPump(p.ID)
+	if len(undelivered(d, fx.task.ID)) != 0 {
+		t.Fatal("the dream round reached a working run")
+	}
+	k, _ := d.taskByN(p.ID, 1)
+	_ = d.Tx(func(tx *DB) error {
+		_ = tx.setStatus(fx.task.ID, statusIdle, 0, "", "")
+		cur, _ := tx.getRun(fx.task.ID)
+		if dreamTurnEnd(tx, p, k, cur, turnError) {
+			t.Error("the work turn ended as the dream's")
+		}
+		return nil
+	})
+	projectPump(p.ID)
+	if got := undelivered(d, fx.task.ID); strings.Join(got, ",") != srcDream || !d.dreamOf(k.ID).Active {
+		t.Fatalf("the round alone, recorded: %v active %v", got, d.dreamOf(k.ID).Active)
+	}
+	if r, _ := fx.ag.wikiRoleOf(fx.task, tcfg); r == nil || !r.write {
+		t.Fatal("the dream turn may not write the wiki")
+	}
+	// its turn runs: a coordinator's message waits for its end
+	takeUp()
+	_ = d.Tx(func(tx *DB) error { return tx.setStatus(fx.task.ID, statusRunning, 0, "", "") })
+	queue(srcCoordinator, "and then deploy", "")
+	_ = d.Tx(func(tx *DB) error { return tx.setStatus(fx.task.ID, statusIdle, 0, "", "") })
+	projectPump(p.ID)
+	if got := undelivered(d, fx.task.ID); len(got) != 0 {
+		t.Fatalf("delivered while the dream turn runs: %v", got)
+	}
+	_ = d.Tx(func(tx *DB) error {
+		cur, _ := tx.getRun(fx.task.ID)
+		if !dreamTurnEnd(tx, p, k, cur, turnAnswered) {
+			t.Error("the dream turn's end wasn't the dream's")
+		}
+		return nil
+	})
+	projectPump(p.ID)
+	if got := undelivered(d, fx.task.ID); strings.Join(got, ",") != srcCoordinator {
+		t.Fatalf("after the dream turn: %v", got)
+	}
+	if r, _ := fx.ag.wikiRoleOf(fx.task, tcfg); r == nil || r.write {
+		t.Fatal("the turn after the dream may write the wiki")
+	}
+}
+
+// D198 and the dream: the work turn's verdict ("stopped part-way") is
+// stored before the dream round goes, the round's start doesn't take it
+// down, and the round's own turn isn't judged.
+func TestDreamKeepsVerdict(t *testing.T) {
+	fx := newCoordFix(t)
+	if w := callAs(t, fx.mux, asMgr, "PUT", "/config", map[string]any{"models": map[string]any{"memory": "m-memory"}}); w.Code != 200 {
+		t.Fatalf("config: %d %s", w.Code, w.Body)
+	}
+	_, _ = fx.ag.db.q.Exec(`UPDATE projects SET dir='/work/web' WHERE id=?`, fx.p.ID)
+	k, task := fx.addTask(t, fx.p, 1, "alice")
+	d, f := fx.ag.db, fakeOf(fx.ag)
+	_, _ = d.q.Exec(`UPDATE runs SET config=json_set(config, '$.models.memory', 'm-memory') WHERE id=?`, task.ID) // its judge's model
+	var asks []string
+	var mu sync.Mutex
+	f.on(func(r LLMRequest) bool { return r.Purpose == "judge" }, func(r LLMRequest) (LLMReply, error) {
+		mu.Lock()
+		asks = append(asks, asString(r.Msgs[1].Content))
+		mu.Unlock()
+		return LLMReply{Msg: wireMsg{Role: "assistant", Content: `{"delivered": false, "reason": "it only made a plan"}`}}, nil
+	}).block("judge")
+	f.on(forRun(task.ID, lastUser("do the work")), say("Here is my plan; I'll start next.")).once()
+	f.on(forRun(task.ID, lastUser("[dream round")), say("wiki: nothing new")).once()
+	k = openPRs(t, d, k)
+	_ = d.Tx(func(tx *DB) error { tx.putDream(k, dreamRow{}); return nil })
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/message", task.ID), map[string]any{"text": "do the work"}); w.Code != 200 {
+		t.Fatalf("message: %d %s", w.Code, w.Body)
+	}
+	waitFor(t, "the work turn's end, the dream queued", func() bool { return !active(statusOf(d, task.ID)) && len(dreamsQueued(d, fx.p.ID)) == 1 })
+	time.Sleep(100 * time.Millisecond)
+	if len(dreamsQueued(d, fx.p.ID)) != 1 || len(dreamsIn(d, task.ID)) != 0 {
+		t.Fatal("the dream round went before its work turn's verdict")
+	}
+	f.release("judge")
+	hwait(t, "the dream round's turn", func() bool {
+		return len(f.callsFor(task.ID)) >= 3 && !active(statusOf(d, task.ID)) && !d.dreamOf(k.ID).Active
+	})
+	time.Sleep(200 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if len(asks) != 1 || !strings.Contains(asks[0], "do the work") {
+		t.Fatalf("the judge was asked %d time(s): %q", len(asks), asks)
+	}
+	if v := d.verdictOf(task.ID); v == nil || v.Delivered || v.Reason != "it only made a plan" {
+		t.Fatalf("the work turn's verdict after the dream: %+v", v)
+	}
+}
+
+// The end dream: only when the task merged — never when a person closed it
+// — and it holds the task's cleanup back until its round is over.
+func TestDreamEndHoldsCleanup(t *testing.T) {
+	fx, p := stillPump(t)
+	d := fx.ag.db
+	k := openPRs(t, d, fx.k)
+	_ = d.Tx(func(tx *DB) error { tx.putDream(k, dreamRow{Turns: 3, PRDone: true}); return nil })
+	_ = d.Tx(func(tx *DB) error { scmPullEnded(tx, p, k, "acme/web", 7, true); return nil })
+	cleanups := d.jobsWhere(`WHERE task_id=? AND kind=? AND state='queued'`, k.ID, pjCleanup)
+	if len(cleanups) != 1 || cleanups[0].NextMs < nowMs()+(dreamCleanHold-time.Minute).Milliseconds() {
+		t.Fatalf("the cleanup isn't held back for the end dream: %+v", cleanups)
+	}
+	if q := dreamTexts(d, p.ID, fx.task.ID); len(q) != 1 || !strings.Contains(q[0], "This task is over") {
+		t.Fatalf("the end dream: %q", q)
+	}
+	k, _ = d.taskByID(k.ID)
+	_ = d.Tx(func(tx *DB) error {
+		cur, _ := tx.getRun(fx.task.ID)
+		if !dreamTurnEnd(tx, p, k, cur, turnAnswered) {
+			t.Error("its turn wasn't the dream's")
+		}
+		return nil
+	})
+	if cl := d.jobsWhere(`WHERE task_id=? AND kind=? AND state='queued'`, k.ID, pjCleanup); len(cl) != 1 || cl[0].NextMs > nowMs() {
+		t.Fatalf("the cleanup still held after the round: %+v", cl)
+	}
+	// a person closes task 2: no end dream, its cleanup as it was
+	k2, run2 := fx.addTask(t, fx.p, 2, "alice")
+	k2 = openPRs(t, d, k2)
+	_ = d.Tx(func(tx *DB) error { tx.putDream(k2, dreamRow{Turns: 5, PRDone: true}); return nil })
+	if err := fx.ag.closeTask(context.Background(), p, k2, coordWho("alice"), ActOpts{Cleanup: true}); err != nil {
+		t.Fatal(err)
+	}
+	if q := dreamTexts(d, p.ID, run2.ID); len(q) != 0 {
+		t.Fatalf("a task a person closed dreams: %q", q)
 	}
 }

@@ -100,7 +100,7 @@ func handleWikiHistory(w http.ResponseWriter, r *http.Request) {
 		writeWikiErr(w, err)
 		return
 	}
-	out := map[string]any{"slug": slug, "version": pg.Version, "revisions": d.wikiHistory(pg.ID, wikiRevKeep)}
+	out := map[string]any{"slug": slug, "version": pg.Version, "revisions": d.wikiHistory(pg.ID, int(wikiRevKeep))}
 	if v, _ := strconv.ParseInt(r.URL.Query().Get("v"), 10, 64); v > 0 {
 		rev, err := d.wikiRevision(pg.ID, v)
 		if err != nil {

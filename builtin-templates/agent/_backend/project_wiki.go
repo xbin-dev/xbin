@@ -37,7 +37,6 @@ const (
 	wikiTitleMax   = 120
 	wikiNoteMax    = 300
 	wikiSourcesMax = 20
-	wikiRevKeep    = 200 // revisions kept per page, the oldest dropped
 	wikiIndex      = "index"
 
 	// wikiConflict is what a write that lost answers (the owner's words, D222).
@@ -45,6 +44,10 @@ const (
 	// wikiUnread is what a run's write to a page it never read answers.
 	wikiUnread = "read the article before editing it"
 )
+
+// wikiRevKeep is the revisions kept per page, the oldest dropped — never an
+// index version a run's prompt shows (wiki_snaps). A var: tests.
+var wikiRevKeep int64 = 200
 
 const wikiSchema = `
 CREATE TABLE IF NOT EXISTS wiki_pages (
@@ -118,6 +121,11 @@ CREATE TABLE IF NOT EXISTS wiki_dreams (
   round      INTEGER NOT NULL DEFAULT 0,
   tokens     INTEGER NOT NULL DEFAULT 0,
   last_total INTEGER NOT NULL DEFAULT 0,
+  active     INTEGER NOT NULL DEFAULT 0, -- its dream round was delivered: the turn taking it up is the dream's
+  started_ms INTEGER NOT NULL DEFAULT 0, -- when (the page files it ingests are newer)
+  last_dream INTEGER NOT NULL DEFAULT 0, -- the turn that ended last was the dream's (the judge skips it)
+  judge_ms   INTEGER NOT NULL DEFAULT 0, -- the last work turn's verdict is due (the dream waits for it)
+  hold_clean INTEGER NOT NULL DEFAULT 0, -- the end dream holds the task's cleanup back
   updated_ms INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_wiki_dreams_project ON wiki_dreams(project_id);
@@ -459,7 +467,8 @@ func (d *DB) wikiPut(pid int64, a wikiActor, c wikiChange) (*WikiPage, error) {
 			next.UpdatedBy, a.Run, a.Task, note, now); err != nil {
 			return err
 		}
-		_, _ = t.q.Exec(`DELETE FROM wiki_revisions WHERE page_id=? AND version<=?`, next.ID, next.Version-wikiRevKeep)
+		_, _ = t.q.Exec(`DELETE FROM wiki_revisions WHERE page_id=? AND version<=?
+			AND NOT (?='index' AND version IN (SELECT version FROM wiki_snaps WHERE project_id=?))`, next.ID, next.Version-wikiRevKeep, slug, pid)
 		_, _ = t.q.Exec(`DELETE FROM wiki_fts WHERE page_id=?`, next.ID)
 		if !next.Archived {
 			if _, err := t.q.Exec(`INSERT INTO wiki_fts (title, body, project_id, page_id) VALUES (?, ?, ?, ?)`,
@@ -492,6 +501,9 @@ func (t *DB) wikiBaseOK(a wikiActor, c wikiChange, cur *WikiPage) error {
 	}
 	conflict := &wikiErr{code: 409, msg: wikiConflict, current: have}
 	if c.Base != nil {
+		if *c.Base == 0 && cur != nil && cur.Archived {
+			return nil // a new page where an archived one was: it comes back, as a write at its version would
+		}
 		if *c.Base != have {
 			return conflict
 		}

@@ -7,7 +7,7 @@
 //   - a project's coordinator (depth 0) and its research subagents
 //     (Config.CodeRead, projects_coord_research.go): read and write;
 //   - a built-in task's own run (depth 0): read, and write only while its
-//     turn is the dream round's (turn_by dream, project_dream.go);
+//     turn is the dream round's (wiki_dreams.active, project_dream.go);
 //   - nothing else — a coding agent reads the wiki from files
 //     (project_wiki_sync.go) and writes it through its dream round's files.
 package main
@@ -148,7 +148,7 @@ func (ag *Agent) wikiRoleOf(run *Run, cfg Config) (*wikiRole, error) {
 			return nil, errNoWiki
 		}
 		r := &wikiRole{p: p, actor: wikiActor{By: fmt.Sprintf("task #%d", k.N), Run: run.ID, Task: k.N}}
-		if k.TurnBy == srcDream {
+		if d.dreamOf(k.ID).Active { // its dream round's turn (project_dream.go)
 			r.write, r.actor.By = true, fmt.Sprintf("task #%d (dream)", k.N)
 		} else {
 			r.why = "a task writes the wiki only in its dream round, at the end of its work — note what you learn, and keep working"

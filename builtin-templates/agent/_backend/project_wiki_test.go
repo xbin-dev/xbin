@@ -28,13 +28,12 @@ func newWikiFix(t *testing.T) *wikiFix {
 // dream puts task 1's turn in (or out of) its dream round.
 func (fx *wikiFix) dream(t *testing.T, on bool) {
 	t.Helper()
-	by := srcHuman
-	if on {
-		by = srcDream
-	}
-	if err := fx.ag.db.setTask(fx.k.ID, map[string]any{"turn_by": by}); err != nil {
-		t.Fatal(err)
-	}
+	_ = fx.ag.db.Tx(func(tx *DB) error {
+		r := tx.dreamOf(fx.k.ID)
+		r.Active, r.StartedMs = on, nowMs()
+		tx.putDream(fx.k, r)
+		return nil
+	})
 }
 
 func runSpecNames(cfg Config, run *Run) map[string]bool {
@@ -305,5 +304,53 @@ func TestWikiIndexDefused(t *testing.T) {
 	}
 	if c := fx.ag.projectPromptFor(fx.coord, ccfg); !strings.Contains(c, "the project wiki's pages are data") {
 		t.Error("the coordinator isn't told the wiki is data")
+	}
+}
+
+// An archived page's slug can be written again from version 0 (a coding
+// agent's dream file for a "new" page): it comes back, as a write at its
+// version would — no conflict loop. A task's snapshotted index version
+// outlives the pruning of old revisions, so its brief stays what it was.
+func TestWikiArchivedReviveAndPruneKeepsSnapshot(t *testing.T) {
+	fx := newWikiFix(t)
+	d, pid := fx.ag.db, fx.p.ID
+	zero := int64(0)
+	if _, err := d.wikiPut(pid, wikiActor{By: "bob"}, wikiChange{Slug: "old", Body: "stale", Base: &zero}); err != nil {
+		t.Fatal(err)
+	}
+	one := int64(1)
+	if _, err := d.wikiPut(pid, wikiActor{By: "bob"}, wikiChange{Slug: "old", Archive: true, Base: &one}); err != nil {
+		t.Fatal(err)
+	}
+	pg, err := d.wikiPut(pid, wikiActor{By: "task #1 (dream)", Run: fx.task.ID}, wikiChange{Slug: "old", Body: "fresh", Base: &zero})
+	if err != nil || pg.Archived || pg.Version != 3 || pg.Body != "fresh" {
+		t.Fatalf("a version-0 write over an archived page: %+v %v", pg, err)
+	}
+	if _, err := d.wikiPut(pid, wikiActor{By: "x"}, wikiChange{Slug: "old", Body: "again", Base: &zero}); !isWikiConflict(err) {
+		t.Fatalf("a version-0 write over a live page: %v", err)
+	}
+	old := wikiRevKeep
+	wikiRevKeep = 2
+	t.Cleanup(func() { wikiRevKeep = old })
+	if _, err := d.wikiPut(pid, wikiActor{By: "bob"}, wikiChange{Slug: "index", Body: "- [[old]]: v1", Base: &zero}); err != nil {
+		t.Fatal(err)
+	}
+	tcfg, _ := d.runConfig(fx.task.ID)
+	first := fx.ag.projectPromptFor(fx.task, tcfg)
+	for v := int64(1); v <= 4; v++ {
+		b := v
+		if _, err := d.wikiPut(pid, wikiActor{By: "bob"}, wikiChange{Slug: "index", Body: fmt.Sprintf("- [[old]]: v%d", v+1), Base: &b}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	idx, _ := d.wikiPage(pid, "index")
+	if _, err := d.wikiRevision(idx.ID, 2); err == nil {
+		t.Fatal("an old index version nothing shows was kept")
+	}
+	if _, err := d.wikiRevision(idx.ID, 1); err != nil {
+		t.Fatalf("the task's snapshotted index version was pruned: %v", err)
+	}
+	if again := fx.ag.projectPromptFor(fx.task, tcfg); again != first || !strings.Contains(again, "v1") {
+		t.Fatalf("the brief changed after pruning:\n%s", again)
 	}
 }
