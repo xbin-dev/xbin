@@ -48,7 +48,34 @@ type hLogin struct {
 	Command string         `json:"command,omitempty"`
 	Methods []hLoginMethod `json:"methods"`
 	Device  *hDevice       `json:"device,omitempty"`
+	Save    *hLoginSave    `json:"save,omitempty"`
 }
+
+// hLoginSave says whether a sign-in the person saves (D179: minted with
+// Remember, or a key pasted) would go into this sandbox — so into every
+// later start there and, for a project's task, every big task's own
+// sandbox (the card's first offer: sign in once) — and why not when it
+// wouldn't. As the gate judged it when the adapter started; the routes
+// judge again.
+type hLoginSave struct {
+	OK  bool   `json:"ok"`
+	Why string `json:"why,omitempty"`
+}
+
+// loginSaveWhy is why no saved sign-in of the person's can go into run's
+// coding agent in box ("" = one can): credWhy's gate, a project task's
+// shared sandbox said as such (a team project's forks share its members).
+func loginSaveWhy(run *Run, ref string, box *sbxSandbox) string {
+	why := credWhy(run, ref, box)
+	if why == credNotOwnBox && run != nil && run.Origin == originProject && sandboxShared(box) {
+		return credProjectShared
+	}
+	return why
+}
+
+// credProjectShared: a project task's sandbox others may use.
+const credProjectShared = "this task's sandbox is shared with the project's members, and a saved sign-in goes only into a sandbox " +
+	"of your own that no one else uses — sign in for this task only"
 
 type hLoginMethod struct {
 	ID   string `json:"id"`
@@ -114,6 +141,9 @@ func (s *hsess) loginOf() hLogin {
 	}
 	if l.Command == "" {
 		l.Command = orStr(s.prov.LoginCmd, s.prov.Login)
+	}
+	if s.saveSet {
+		l.Save = &hLoginSave{OK: s.save == "", Why: s.save}
 	}
 	return l
 }

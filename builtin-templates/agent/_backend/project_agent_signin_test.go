@@ -33,7 +33,12 @@ func signinTaskFix(t *testing.T) (*projFix, ProjectView, TaskView, int64) {
 func TestAgentSigninState(t *testing.T) {
 	fx, p, tv, runID := signinTaskFix(t)
 	d := fx.ag.db
-	parkOf(t, fx.ag, runID, "login")
+	pk := parkOf(t, fx.ag, runID, "login")
+	// no saved sign-in in an unpartitioned agent: the card offers this task's sign-in alone, saying why
+	var l hLogin
+	if json.Unmarshal(pk.Harness.Login, &l) != nil || l.Save == nil || l.Save.OK || l.Save.Why != signinsLegacy {
+		t.Fatalf("the park's word on saving a sign-in: %s", pk.Harness.Login)
+	}
 	var tw TaskView
 	if w := callAs(t, fx.mux, asAlice, "GET", fmt.Sprintf("/runs/%d/task", runID), nil); w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &tw) != nil {
 		t.Fatalf("GET task: %d %s", w.Code, w.Body)

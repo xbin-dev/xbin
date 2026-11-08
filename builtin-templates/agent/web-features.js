@@ -237,6 +237,7 @@ export const IMPLEMENTS = {
   'harness.login': 'signin.js — #hlogin (ext.end, a login park only): [data-kind] methods, a login tab in the dock (terminals.js #sbxterm-retry), the password form, #hl-device, #hl-confirm, #hl-ask, #hl-retry (model/terminals.js signIn)',
   'harness.login.guided': 'signin.js — #hl-guided: #hl-gstart, #hl-gopen (a link), #hl-gcopy, #hl-gcode with Finish, #hl-gstatus; the terminal method "Use a terminal instead" (model/harness-signins.js guidedWords)',
   'harness.login.remember': 'signin.js — #hl-remember and #hl-rname, or #hl-noremember saying why (model/harness-signins.js rememberOf)',
+  'harness.login.task': 'signin.js — taskTpl on a project\'s task: #hl-all "Sign in once for every big task" (Remember, made the default) or #hl-all-key (a key saved as the default), then #hl-once "Sign in for this task only", or #hl-task-why (model/harness-signins.js taskSigninOf)',
   'harness.signins': 'harness-catalog.js — #hsignins in the Settings → Coding agents tab: .hsrow rows (Default, Make default, Rename, Forget), a paste form per coding agent (model/harness-signins.js signinGroups)',
   'harness.account': 'harness-controls.js — #hctl\'s label ends with the account; its popover\'s Account section switches it (model/harness-signins.js accountOf, app.harness.pickSignin)',
   // Projects — the page, the board, new projects and tasks, settings, a task's chips

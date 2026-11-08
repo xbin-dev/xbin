@@ -205,6 +205,9 @@ export function signIn(v, { list = null, entry = null, me = null } = {}) {
   const talk = access(v).talk && !away;
   const c = {
     run: r.id, park: ps.park || '', name, command, methods, shared, canUse,
+    // a project's task (its card offers a saved sign-in for every big task first: taskSigninOf),
+    // its coding agent, and the park's word on saving one here ({ok, why}; null: not judged)
+    task: !!(v.projectTask), provider: h.provider || '', save: login.save && typeof login.save === 'object' ? login.save : null,
     sandbox: { ref, name: sname, cwd },
     // someone else's: ask them; yours no longer (a share taken back): its owner, or another sandbox
     ask: canUse !== false ? '' : binder && binder !== who ? `Ask ${binder} to sign in — the sandbox is theirs.`

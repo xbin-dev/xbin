@@ -147,6 +147,43 @@ export function rememberOf(c, { entry = null, row = null, me = '', state = parti
   return { offered: true, why: '' };
 }
 
+// The mint each coding agent's Remember runs, as the card names it.
+const MINT = { claude: 'setup-token' };
+
+// NO_PARTITIONS: why an agent without a person's partition saves no sign-in, and what changes that.
+export const NO_PARTITIONS = 'Saved sign-ins live only in a person\'s own partition, which this agent doesn\'t give — with partitions on, one saved sign-in serves every big task.';
+
+/**
+ * taskSigninOf: a project task's sign-in card (D221) — its first offer, where
+ * a saved sign-in may go into the task's sandbox (the park's login.save, the
+ * partition, the Remember rules): sign in ONCE for every big task — the
+ * guided sign-in with Remember, made the default (Claude Code: setup-token),
+ * or, for a coding agent with no mint, a key pasted and saved — and the
+ * one-off sign-in second, with its caveat; where none may, why, and the
+ * one-off alone. {primary: 'mint' | 'paste' | 'once', title, hint, why,
+ * keys, once: {title, hint}}. c: signIn(); entry: the catalog's; st: signinsOf.
+ */
+export function taskSigninOf(c, { entry = null, st = null, state = partitionState() } = {}) {
+  const once = { title: 'Sign in for this task only', hint: 'It stays in this task\'s sandbox — the next big task asks again.' };
+  const out = { primary: 'once', title: '', hint: '', why: '', keys: [], once };
+  if (!c) return out;
+  if (state !== 'user') return { ...out, why: NO_PARTITIONS };
+  if (c.save && !c.save.ok) return { ...out, why: c.save.why ? `No saved sign-in goes in here: ${c.save.why}.` : '' };
+  const mint = !!(entry && entry.login && entry.login.mint);
+  if (mint && c.guided) {
+    if (!c.remember.offered) return { ...out, why: c.remember.why };
+    const how = MINT[c.provider] ? `${c.name}: ${MINT[c.provider]}` : c.name;
+    return { ...out, primary: 'mint', title: 'Sign in once for every big task',
+      hint: `Saves a long-lived sign-in (${how}) in your partition — this task and every later big task start signed in with it.` };
+  }
+  const keys = ((st && st.harnesses && st.harnesses[c.provider]) || {}).keys || [];
+  if (keys.length && !c.shared) {
+    return { ...out, primary: 'paste', keys, title: 'Save a key for every big task',
+      hint: `Kept in your partition (never in a sandbox) — this task and every later big task start signed in with it.` };
+  }
+  return out;
+}
+
 // guidedOf: whether the card offers the guided sign-in — the provider has
 // one (GET /harnesses' login.guided) and the card talks.
 export const guidedOf = (c, entry) => !!(c && c.talk && !c.gone && !c.ask && entry && entry.login && entry.login.guided);

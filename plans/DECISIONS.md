@@ -13414,6 +13414,28 @@ Deviations and refinements made while implementing; all deliberate:
     the report's list and is recorded here as the owner's to veto.
     Issue create/comment/close (allowed by the report) is left out: no
     defect needed it, and it widens the scm contract.
-  - **Owner's call.** An agent without partitions has no saved sign-ins,
-    so its big tasks' coding agents now ask for a sign-in in each fork
-    (before, the copied login worked until a refresh signed one copy out).
+  - **Owner's call: mint, don't copy.** Asked whether forks should drop
+    the copied login, the owner answered: "Don't copy whatever token would
+    be 'bound' to one claude path, see if we can mint new tokens from the
+    in-partition signup? Whatever is claude/acp standard way of doing
+    this". So the removal stays, and the standard way for one CLI login
+    used in many places — a long-lived credential that doesn't rotate:
+    Claude Code's `claude setup-token` (`CLAUDE_CODE_OAUTH_TOKEN`), an API
+    key for Codex and Gemini CLI — is the path, through D179's saved
+    sign-ins (the person's partition vault; `credPick`/`credWhy` hand it
+    to every fork, gates unchanged). A task parked on `agent-signin` gets
+    a card whose first offer is "Sign in once for every big task": the
+    guided sign-in with Remember, and `default: true` with its code so the
+    minted sign-in becomes the coding agent's default even over a refused
+    one (for a coding agent with no mint, a key pasted and saved as the
+    default); "Sign in for this task only" comes second. The park's
+    `login.save {ok, why}` (the gate as judged at the adapter's start)
+    decides the offer; a team project's fork shares its members, so no
+    saved sign-in goes in and the card says so. The fork's note before the
+    first turn points at the same one-click path, and the project's status
+    warns its person while a coding agent there runs on the sandbox's own
+    login with nothing saved. Where minting can't happen — an unpartitioned
+    agent, the global instance (A-M1: no person's credentials there) — each
+    fork still asks, and the words say why (saved sign-ins need a person's
+    partition; with partitions on, one serves every big task); no shared
+    vault was invented.

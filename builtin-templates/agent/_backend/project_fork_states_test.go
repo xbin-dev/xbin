@@ -276,10 +276,10 @@ func TestForkSigninNote(t *testing.T) {
 	d := fx.ag.db
 	tv, runID := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "a big one", "size": "big", "agent": map[string]any{"provider": "fake"}})
 	k := fx.waitWS(t, p.ID, tv.N, wsReady)
-	want := "Fake agent (tests) starts signed out in the task's own sandbox and will ask for a sign-in there (" + signinsLegacy + ")"
+	want := "Fake agent (tests) starts signed out in each big task's own sandbox and asks there: " + noSavedSignins
 	said := false
 	for _, ev := range d.projectEvents(p.ID, 0, 100) {
-		said = said || ev.N == tv.N && strings.Contains(string(ev.Body), "starts signed out in the task's own sandbox")
+		said = said || ev.N == tv.N && strings.Contains(string(ev.Body), "starts signed out in each big task's own sandbox")
 	}
 	var notes string
 	_ = d.q.QueryRow(`SELECT group_concat(detail, ' | ') FROM steps WHERE run_id=? AND kind='note'`, runID).Scan(&notes)
@@ -287,14 +287,16 @@ func TestForkSigninNote(t *testing.T) {
 		t.Fatalf("the task didn't say its coding agent starts signed out (event %v): %s", said, notes)
 	}
 
-	// in alice's partition: where to save one; one saved goes in (nothing
-	// said); one the gate leaves out (a sandbox someone else uses) says why
+	// in alice's partition: the card's one-click path; one saved goes in
+	// (nothing said); one the gate leaves out (a team project's shared fork)
+	// says why
 	setMode(t, modeUser, "alice")
 	memVault(t)
 	box := &sbxSandbox{Visibility: "private"}
 	box.Owner.User = "alice"
-	if note := forkSigninNote(d, k, k.SandboxRef, box); note != "big tasks need a saved sign-in — "+savedSigninsPath+
-		": Fake agent (tests) starts signed out in the task's own sandbox and will ask for a sign-in there" {
+	if note := forkSigninNote(d, k, k.SandboxRef, box); note != "Fake agent (tests) starts signed out in the task's own sandbox; when it asks, "+
+		"“Sign in once for every big task” saves a long-lived sign-in (Fake agent (tests): claude setup-token) in your partition, "+
+		"and every later big task starts signed in (or save one in "+savedSigninsPath+")" {
 		t.Fatalf("no saved sign-in: %q", note)
 	}
 	if _, err := d.saveSignin("alice", "fake", "Personal", acp.Key{Env: "CLAUDE_CODE_OAUTH_TOKEN", Kind: "setup-token"}, "sk-ant-oat01-x", time.Time{}); err != nil {
@@ -304,7 +306,18 @@ func TestForkSigninNote(t *testing.T) {
 		t.Fatalf("a saved sign-in that goes in: %q", note)
 	}
 	box.Members = []string{"bob"}
-	if note := forkSigninNote(d, k, k.SandboxRef, box); !strings.Contains(note, credNotOwnBox) || !strings.Contains(note, "starts signed out") {
-		t.Fatalf("a saved sign-in the gate leaves out: %q", note)
+	if note := forkSigninNote(d, k, k.SandboxRef, box); note != "Fake agent (tests) starts signed out in the task's own sandbox and will ask there: "+credProjectShared {
+		t.Fatalf("a saved sign-in the gate leaves out (a team project's shared fork): %q", note)
+	}
+	// a saved sign-in that can't be used (refused): the one-click path replaces it
+	box.Members = nil
+	ss := d.signins("alice", "fake")[0]
+	ss.RefusedAt = nowMs()
+	if err := d.putSignin(ss); err != nil {
+		t.Fatal(err)
+	}
+	if note := forkSigninNote(d, k, k.SandboxRef, box); !strings.HasPrefix(note, "your saved sign-in Personal isn't used: it was refused") ||
+		!strings.Contains(note, "“Sign in once for every big task”") {
+		t.Fatalf("a refused saved sign-in: %q", note)
 	}
 }

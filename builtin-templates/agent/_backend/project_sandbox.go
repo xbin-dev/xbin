@@ -329,9 +329,10 @@ func forkLoginsScript() string {
 
 // forkSigninNote is what the task says before its first turn when its
 // coding agent will start signed out in its own sandbox (forkLoginsScript
-// removed the login the snapshot carried): no saved sign-in of the
-// person's goes in there (credPick and its gate, credWhy) — "" when one
-// does, or when no coding agent answers the task.
+// removed the login the snapshot carried) — "" when a saved sign-in of the
+// person's goes in (credPick), or no coding agent answers the task. Where
+// one may go in (the gate, loginSaveWhy) it points at the card's one-click
+// path — sign in once, saved, for every big task; where none may, why.
 func forkSigninNote(d *DB, k *ProjectTask, ref string, box *sbxSandbox) string {
 	run, err := d.getRun(k.RunID)
 	if err != nil || run.Engine != engineHarness {
@@ -345,16 +346,70 @@ func forkSigninNote(d *DB, k *ProjectTask, ref string, box *sbxSandbox) string {
 	if cred != nil {
 		return ""
 	}
-	name := harnessName(cfg.Harness.Provider)
-	switch {
-	case why != "":
-		return fmt.Sprintf("%s — %s starts signed out in the task's own sandbox and will ask for a sign-in there", why, name)
+	prov := harnessProvider(cfg.Harness.Provider, nil)
+	name := harnessName(prov.ID)
+	switch gate := loginSaveWhy(run, ref, box); {
 	case signinsWhy() != "":
-		return fmt.Sprintf("%s starts signed out in the task's own sandbox and will ask for a sign-in there (%s)", name, signinsWhy())
+		return fmt.Sprintf("%s starts signed out in each big task's own sandbox and asks there: %s", name, noSavedSignins)
+	case gate != "":
+		return fmt.Sprintf("%s starts signed out in the task's own sandbox and will ask there: %s", name, gate)
+	case why != "":
+		return fmt.Sprintf("%s — %s starts signed out in the task's own sandbox; when it asks, %s", why, name, signinOnceWords(prov))
 	}
-	return fmt.Sprintf("big tasks need a saved sign-in — %s: %s starts signed out in the task's own sandbox and will ask for a sign-in there",
-		savedSigninsPath, name)
+	return fmt.Sprintf("%s starts signed out in the task's own sandbox; when it asks, %s", name, signinOnceWords(prov))
 }
+
+// signinOnceWords is the sign-in card's first offer on a task, in words:
+// a saved sign-in — minted (Claude Code: setup-token), else a key pasted —
+// that every big task's sandbox starts with.
+func signinOnceWords(prov acp.Provider) string {
+	if prov.Mint != nil {
+		return fmt.Sprintf("“Sign in once for every big task” saves a long-lived sign-in (%s: %s) in your partition, "+
+			"and every later big task starts signed in (or save one in %s)", harnessName(prov.ID), prov.Mint.Command, savedSigninsPath)
+	}
+	what := "an API key"
+	if len(prov.Keys) > 0 {
+		what = "your " + prov.Keys[0].Label
+	}
+	return fmt.Sprintf("“Save a key for every big task” keeps %s in your partition, and every later big task starts signed in "+
+		"(or save one in %s)", what, savedSigninsPath)
+}
+
+// signinOnceHints are the project's status's hints, to the person whose
+// partition it is, that a coding agent works in the project's sandbox on
+// that sandbox's own $HOME login while they have no usable saved sign-in for
+// it: a big task's own sandbox starts without that login (forkLoginsScript),
+// so a saved one is what lets big tasks start signed in.
+func signinOnceHints(d *DB, p *Project, c who) []ProjectWarning {
+	if signinsWhy() != "" || c.kind != whoUser || c.viewedBy != "" || c.user != runUser || p.SandboxRef == "" || p.Kind == projTeam {
+		return nil
+	}
+	// adapters that started here and weren't asking for a sign-in, with no saved one in them
+	provs := scanStrings(d.q.Query(`SELECT DISTINCT provider FROM harness_sessions WHERE ref=? AND cred='' AND login=''
+		AND state IN (?, ?) AND started_ms>0 ORDER BY provider`, p.SandboxRef, hsLive, hsStopped))
+	var out []ProjectWarning
+	now := time.Now()
+	for _, id := range provs {
+		if len(signinProvider(id).Keys) == 0 {
+			continue // takes no saved sign-in
+		}
+		saved := false
+		for _, s := range d.signins(runUser, id) {
+			saved = saved || s.usable(now)
+		}
+		if !saved {
+			out = append(out, ProjectWarning{Kind: "agent-signin", Text: fmt.Sprintf("%s works in this project's sandbox on that sandbox's own sign-in, "+
+				"which a big task's own sandbox doesn't get: save a sign-in so big tasks start signed in (%s, or “Sign in once for every big task” "+
+				"when one asks)", harnessName(id), savedSigninsPath)})
+		}
+	}
+	return out
+}
+
+// noSavedSignins is why an agent without a person's partition has no
+// saved sign-ins, and what changes that.
+const noSavedSignins = "saved sign-ins live only in a person's own partition (a space of their own), which this agent " +
+	"doesn't give — with partitions on, one saved sign-in serves every big task"
 
 // savedSigninsPath is where a person saves a sign-in on the web.
 const savedSigninsPath = "Settings → Coding agents → Coding-agent sign-ins"

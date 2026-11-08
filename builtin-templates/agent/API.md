@@ -2650,7 +2650,14 @@ the binding's own refusals as for any sandbox. `hold`, `draft`, `files` and
   message so — parks the run on `pendingState: {kind: "login", park,
   harness: {login}}` (`waiting_input`; `harness.state` `login`,
   `harness.login: {command, methods: [{id, name, kind: terminal | api-key
-  | device-code}], device?: {by}}`) and keeps the message that failed. **Retry**
+  | device-code}], device?: {by}, save?: {ok, why?}}`) and keeps the
+  message that failed. `save` (D221) is whether a sign-in you save — minted
+  with Remember, or a key pasted — would go into this sandbox, as the gate
+  of saved sign-ins judged it when the coding agent started (`why` when it
+  wouldn't: no partition of yours here, a sandbox others may use — on a
+  project's task, "this task's sandbox is shared with the project's
+  members …" —, a hosted conversation's); absent for a coding agent picked
+  up again after a restart. The routes judge again. **Retry**
   (`/resume`) ends the signed-out coding agent, starts a fresh one — it
   reads what a terminal sign-in left in the sandbox's home — and sends the
   message again (signed out still, it parks again). Signing in through the
@@ -2861,7 +2868,11 @@ loop answers they are **409** `not a coding-agent conversation`.
   know would be that line) — `‹name›'s sign-in didn't finish: no word
   from it (it ended without a token)`. The sandbox's HOME isn't signed
   in: the conversation uses the saved sign-in (picked for it when it
-  isn't your default). Only in your own partition, your own conversation,
+  isn't your default; with **`default: true`** beside the `code` it is made
+  the coding agent's default even when you have another, so every start
+  that takes the default — every big task's own sandbox — uses it: the
+  task's card, "Sign in once for every big task", sends it). Only in your
+  own partition, your own conversation,
   in a sandbox of yours no one else uses and no hosted conversation ever
   worked in — the exec's output is readable by whoever may use the
   sandbox while it lives — else **409** with why (unpartitioned: `saved
@@ -3695,7 +3706,11 @@ its `TaskView` with `park`. (`task` stays the pinned task.)
 Credentials show their metadata only — never a token. A `slots` warning
 says when `maxTasks` is more than the model calls built-in tasks may make
 at once (a built-in task takes a subagent's place at the model-call gate:
-never the last one a person's top-level conversation may take).
+never the last one a person's top-level conversation may take). An
+`agent-signin` warning, to the project's person in their partition, says
+a coding agent works in the project's sandbox on that sandbox's own
+login while they have no usable saved sign-in for it — save one so big
+tasks start signed in (§Big tasks, "Signing in").
 
 **The overview** (`GET /projects/{pid}/overview?range=day|week`, D214) —
 what moves the project, in one read for its page's status strip and its
@@ -4197,13 +4212,30 @@ its own**, made by its `prepare` job before its checkouts:
 - **Signing in.** Its credential waiting for the person's sign-in to the
   provider is the workspace's `signin`, as a small task's is. Its coding
   agent starts signed out there (the login copied with the snapshot was
-  removed): it uses the person's **saved sign-in** (§Coding agents, "Saved
-  sign-ins") where the gate lets one in — a person's own partition, their
-  own task, a private sandbox of theirs — or parks on its sign-in
-  (`agent-signin`). When none will go in, the task says so before its
-  first turn (an event, and a note in its conversation): "big tasks need a
-  saved sign-in — Settings → Coding agents → Coding-agent sign-ins", or
-  the gate's own reason.
+  removed: a login bound to one `$HOME` is never copied). The way in is a
+  **saved sign-in** (§Coding agents, "Saved sign-ins"): a long-lived one
+  that doesn't rotate — Claude Code's `claude setup-token`
+  (`CLAUDE_CODE_OAUTH_TOKEN`), an API key for the others — kept in the
+  person's partition's vault and handed to the coding agent in its
+  environment wherever the gate lets one in (their own partition, their
+  own task, a private sandbox of theirs), so every big task starts signed
+  in once one is saved as the default. Without one, the task parks on
+  its sign-in (`agent-signin`), and its card's **first offer** is to sign
+  in once for every big task: the guided sign-in with `remember: true`
+  and, with the code, `default: true` (or, for a coding agent with no
+  mint, a key pasted to `POST /prefs/harness-signins` with `default:
+  true`) — then the run is retried; "Sign in for this task only" (the
+  plain sign-in, into the fork's home) comes second, saying the next big
+  task asks again. Before the first turn the task says what will happen
+  (an event, and a note in its conversation): the one-click path; or,
+  where no saved sign-in may go in, why — a team project's fork shares
+  its members ("this task's sandbox is shared with the project's members
+  …"), an agent without a person's partition has no saved sign-ins (each
+  big task asks; with partitions on, one saved sign-in serves every big
+  task). The project's status (`GET /projects/{pid}/status`) warns its
+  person (`kind: "agent-signin"`) while a coding agent works in the
+  project's sandbox on that sandbox's own login and they have no usable
+  saved sign-in for it: "save a sign-in so big tasks start signed in".
 - **Fresh.** Without a fork base, with `bigTasks.mode` `fresh`, or where
   the manager can't clone, the task's sandbox is a new one of the project
   sandbox's image, size and egress, laid out as the project's, with every

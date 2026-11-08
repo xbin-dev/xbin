@@ -122,6 +122,13 @@ type hsess struct {
 	// and its project allows without asking — its permission requests
 	// allowed at once (harness_unattended.go). Read at each (re)start.
 	task, allowAll bool
+
+	// save is why no saved sign-in of the person's could go into this
+	// generation's sandbox, as the gate judged it at its start
+	// (loginSaveWhy; saveSet once judged — an adapter attached after a
+	// restart wasn't): the sign-in card's offer to save one (hLogin.Save).
+	save    string
+	saveSet bool
 }
 
 // newHsess is a session of run at generation gen, started (or attached)
@@ -578,6 +585,9 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 	if cred != nil {
 		s.setCred(cred.ID)
 	}
+	// what the sign-in card may offer, should it park
+	s.save, s.saveSet = loginSaveWhy(run, h.Ref, u.Box), true
+
 	s.setSecret(secret)  // redacted from all it prints (harness_redact.go)
 	var rules []acp.Rule // what "allow always" answers remember in this conversation
 	if json.Unmarshal([]byte(hs.Rules), &rules) == nil {
