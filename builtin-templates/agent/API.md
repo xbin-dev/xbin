@@ -4513,9 +4513,15 @@ the head's checks, the PR and its timeline, conditionally (`POST
 /scm/poll`, one call per provider and identity per pass, at most its
 `limits.pollItems` items; each route's own read where a provider has no
 `poll`). Without events for the head: every 2 minutes for its first 20
-minutes, every 10 to 2 hours, every 30 to 24 hours, then it stops — with a
-waking `note` "lost track of CI — check manually" for checks still
-pending. With healthy events (the provider's hello says so, a delivery
+minutes, every 10 to 2 hours, every 30 to 24 hours; then the head's
+checks stop — with a waking `note` "lost track of CI — check manually"
+for checks still pending — while the open PR itself and its timeline are
+read on **every 6 hours** until it is merged or closed (a merge days later,
+with no webhook, still ends the task). When the agent starts, and daily
+after, every task in review whose open PR has no read due (one an older
+build stopped after a day, or none made) is read again: its stopped reads
+due within minutes (its timeline's `since` kept), a missing one made.
+With healthy events (the provider's hello says so, a delivery
 for the repo in the last 30 minutes, or one for the head) only a safety
 read every 15 minutes once the head has waited 30. Never sooner than the
 provider's `events.pollMinMs`. Checks that finished stop until the head

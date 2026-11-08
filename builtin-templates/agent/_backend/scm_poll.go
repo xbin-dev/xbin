@@ -9,14 +9,19 @@
 //     policy.reviews.batchSec — coalesced: a read already due keeps its
 //     time). A read an event asked for is made whatever the cadence says.
 //   - Cadence while no event came for the head: every 2 min for the first
-//     20 min, every 10 min until 2 h, every 30 min until 24 h — then the
-//     row stops, checks with a waking note "lost track of CI — check
-//     manually". With healthy events (the provider's hello says so, the repo
-//     delivered within 30 min, or one came for the head) only a safety read
-//     every 15 min once the head has waited 30 min. Never sooner than the
-//     provider's events.pollMinMs. Checks that are done (success, failure)
-//     stop the row until the head moves; checks that nobody reports (state
-//     none for 30 min: a repo without CI) stop it quietly.
+//     20 min, every 10 min until 2 h, every 30 min until 24 h — then a
+//     checks row stops, with a waking note "lost track of CI — check
+//     manually", while an open PR's pull and comments rows go on every 6 h
+//     (a merge days later must still be seen). With healthy events (the
+//     provider's hello says so, the repo delivered within 30 min, or one
+//     came for the head) only a safety read every 15 min once the head has
+//     waited 30 min. Never sooner than the provider's events.pollMinMs.
+//     Checks that are done (success, failure) stop the row until the head
+//     moves; checks that nobody reports (state none for 30 min: a repo
+//     without CI) stop it quietly.
+//   - The loop re-tracks, at its start and then daily (scmRetrack), every
+//     task in review whose open PR has no pull row reading: a row an older
+//     build stopped after a day, or one never made.
 //   - One pass reads every due row: one POST /scm/poll per provider and
 //     identity (at most its limits.pollItems items; the rest wait for the
 //     next pass), or each route's own read where the provider has no poll.
@@ -61,8 +66,10 @@ var (
 	scmPollFirst    = 2 * time.Minute  // the first read of a new head
 	scmPollSafety   = 15 * time.Minute // with healthy events: the safety read
 	scmPollPatience = 30 * time.Minute // with healthy events: no read before the head waited this long
-	scmPollGiveUp   = 24 * time.Hour   // then stop
+	scmPollGiveUp   = 24 * time.Hour   // then stop (checks), or back off (an open PR)
+	scmPollBackoff  = 6 * time.Hour    // an open PR's pull and comments rows past scmPollGiveUp
 	scmPollNoCI     = 30 * time.Minute // checks still none after this: no CI here
+	scmRetrackEvery = 24 * time.Hour   // scmRetrack's period
 )
 
 // scmPollDelay is when to read a row again: age is how long its head has
@@ -490,6 +497,9 @@ func scmPollAfter(d *DB, r *scmPollRow, etag *string, state string, final bool, 
 	if !stop {
 		var delay time.Duration
 		delay, stop = scmPollDelay(age, r.healthy)
+		if stop && r.Kind != scmPollChecks {
+			delay, stop = scmPollBackoff, false // its PR is open (an ended one is final): never let go
+		}
 		lost = stop && r.Kind == scmPollChecks && r.Item.State != scmCINone
 		if r.Kind == scmPollChecks && r.Item.State == scmCINone && age >= scmPollNoCI {
 			stop = true // nobody reports CI here
@@ -516,6 +526,60 @@ func scmPollAfter(d *DB, r *scmPollRow, etag *string, state string, final bool, 
 		}
 		return nil
 	})
+}
+
+// scmRetrack re-tracks every task in review of an active project whose
+// open PR has no pull row reading (scmRetrackTask). Answers how many.
+func scmRetrack(d *DB) int {
+	ks, err := d.tasksWhere(`WHERE phase=? AND run_id<>0`, phasePR)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, k := range ks {
+		_ = d.Tx(func(t *DB) error {
+			p, err := t.getProject(k.ProjectID)
+			if err != nil || p.State != projActive || p.Kind == projTeam {
+				return nil
+			}
+			cur, err := t.taskByID(k.ID)
+			if err == nil && cur.Phase == phasePR && scmRetrackTask(t, p, cur) {
+				n++
+			}
+			return nil
+		})
+	}
+	return n
+}
+
+// scmRetrackTask makes task k's open PRs read again where no pull row
+// reads them: a stopped row (due 0) is due at the first read's time, its
+// comments row with it (its since kept: nothing said meanwhile is lost);
+// a missing one is made by the refs hook. true: one was.
+func scmRetrackTask(t *DB, p *Project, k *ProjectTask) bool {
+	first := scmClock() + scmPollFirst.Milliseconds()
+	stale, missing := false, false
+	for _, pr := range k.taskPRs() {
+		if pr.State != "open" || pr.Number == 0 {
+			continue
+		}
+		row, ok := scmPollRowOf(t, p.ID, k.N, pr.Repo, scmPollPull)
+		switch {
+		case !ok:
+			missing = true
+		case row.Due == 0 && row.Item.Number == pr.Number:
+			_, _ = t.q.Exec(`UPDATE scm_poll SET due_ms=? WHERE project_id=? AND n=? AND repo=? AND kind IN (?, ?) AND due_ms=0`,
+				first, p.ID, k.N, pr.Repo, scmPollPull, scmPollComments)
+			stale = true
+		}
+	}
+	if missing {
+		scmRefsChanged(t, p, k) // its rows as its refs say (scmPollTrack)
+	}
+	if stale || missing {
+		t.AfterCommit(scmLoopPoke)
+	}
+	return stale || missing
 }
 
 // scmPollAt moves r's next read to at, reading nothing.
@@ -553,13 +617,17 @@ func scmLoop(ctx context.Context, e *Engine) {
 		// read (resume_mode.go) goes here — the first pass reads what is due
 		e.ag.cronDelete("wake")
 	}
-	var pruned time.Time
+	var pruned, retracked time.Time
 	for {
 		next := int64(0)
 		if !scmLoopOff.Load() && e.db.features {
 			if time.Since(pruned) > time.Hour {
 				scmPruneSeen(e.db)
 				pruned = time.Now()
+			}
+			if time.Since(retracked) > scmRetrackEvery { // at the start, then daily: the loop wakes at least every 10 min
+				scmRetrack(e.db)
+				retracked = time.Now()
 			}
 			scmPass(ctx, e.db)
 			next = e.db.scmNextMs()
