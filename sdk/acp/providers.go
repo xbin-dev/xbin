@@ -48,6 +48,13 @@ type Provider struct {
 	// once the adapter took it (codex 0.156 keeps it in memory then); the
 	// file would otherwise outlive the client's own forgetting of the key.
 	AuthFile string `json:"-"`
+	// LoginFiles are where the CLI keeps the login it signs in from (the
+	// one LoginCmd or Signin leaves in $HOME), as shell words ($HOME,
+	// $CODEX_HOME, …). A client that copies a $HOME — a sandbox cloned
+	// from another — removes them in the copy: two copies of one login
+	// share a refresh token, and the one that refreshes first signs the
+	// other out.
+	LoginFiles []string `json:"-"`
 	// Bins are the executables the provider needs on PATH: the adapter
 	// first, then the CLI LoginCmd runs when that is another one.
 	Bins []string `json:"-"`
@@ -133,7 +140,7 @@ var catalog = []Provider{
 		// a terminal's sign-in (D178; Signin is the one a client drives), Mint
 		// the long-lived token and Keys where a saved credential goes (D179)
 		LoginCmd: "claude auth login", Bins: []string{"claude-agent-acp", "claude"}, AutoMode: "acceptEdits",
-		Mint: claudeSetupToken, Keys: claudeKeys,
+		Mint: claudeSetupToken, Keys: claudeKeys, LoginFiles: []string{`${CLAUDE_CONFIG_DIR:-$HOME/.claude}/.credentials.json`},
 		ApproveMode: "default", PlanMode: "plan",
 		// its ExitPlanMode approval's options (claude-agent-acp 0.81)
 		OptionModes: map[string]string{"exit-plan-default": "default", "exit-plan-accept-edits": "acceptEdits",
@@ -148,15 +155,18 @@ var catalog = []Provider{
 		// through authenticate, which writes it to auth.json (its file store)
 		Keys:        []Key{{Env: "CODEX_API_KEY", Label: "OpenAI API key", Kind: "api-key"}},
 		AuthFile:    `${CODEX_HOME:-$HOME/.codex}/auth.json`,
+		LoginFiles:  []string{`${CODEX_HOME:-$HOME/.codex}/auth.json`},
 		ApproveMode: "read-only", PlanMode: "read-only"},
 	{ID: "gemini", Name: "Gemini CLI", Driver: "acp", Argv: []string{"gemini", "--acp"}, Login: "gemini (then choose Login with Google)",
 		Modes: []Mode{{ID: "default", Name: "Ask before acting"}, {ID: "autoEdit", Name: "Auto edit"}, {ID: "plan", Name: "Plan"},
 			{ID: "yolo", Name: "Auto-approve everything", Explicit: true}},
 		LoginCmd: "NO_BROWSER=true gemini", Bins: []string{"gemini"}, AutoMode: "autoEdit",
 		Keys:        []Key{{Env: "GEMINI_API_KEY", Label: "Gemini API key", Kind: "api-key"}},
+		LoginFiles:  []string{`$HOME/.gemini/oauth_creds.json`},
 		ApproveMode: "default", PlanMode: "plan"},
 	{ID: "opencode", Name: "OpenCode", Driver: "acp", Argv: []string{"opencode", "acp"}, Login: "opencode auth login",
 		LoginCmd: "opencode auth login", Bins: []string{"opencode"},
+		LoginFiles: []string{`${XDG_DATA_HOME:-$HOME/.local/share}/opencode/auth.json`},
 		// the provider keys opencode reads from its environment
 		Keys: []Key{{Env: "ANTHROPIC_API_KEY", Label: "Anthropic API key", Kind: "api-key", Prefix: "sk-ant-"},
 			{Env: "OPENROUTER_API_KEY", Label: "OpenRouter API key", Kind: "api-key", Prefix: "sk-or-"},
@@ -177,13 +187,15 @@ func Providers() []Provider { return append([]Provider(nil), catalog...) }
 
 // Fake is the scripted test agent (hack/fakeacp, sdk/acp/acptest) as a
 // provider, run as argv: id "fake", modes ask, auto and yolo (explicit),
-// signed in by "<argv[0]> login". A consumer offers it only where a test
+// signed in by "<argv[0]> login" (its login: $HOME/.fakeacp/credentials,
+// --require-login's). A consumer offers it only where a test
 // fixture advertises it (a sandbox manager's hello); it is never in the
 // catalog.
 func Fake(argv []string) Provider {
 	p := Provider{ID: "fake", Name: "Fake agent (tests)", Driver: "acp", Argv: append([]string(nil), argv...),
 		Modes:       []Mode{{ID: "ask", Name: "Ask before acting"}, {ID: "auto", Name: "Auto"}, {ID: "yolo", Name: "Yolo", Explicit: true}},
-		DefaultMode: "ask", AutoMode: "auto", ApproveMode: "ask", PlanMode: "ask"}
+		DefaultMode: "ask", AutoMode: "auto", ApproveMode: "ask", PlanMode: "ask",
+		LoginFiles: []string{`$HOME/.fakeacp/credentials`}}
 	if len(argv) > 0 {
 		p.Login = argv[0] + " login"
 		p.LoginCmd, p.Bins = p.Login, []string{argv[0]}
