@@ -13592,3 +13592,40 @@ Deviations and refinements made while implementing; all deliberate:
     ("not in this build"); real Claude Code/Codex sessions writing
     `wiki-out` were not exercised (the fake agent's files are written by
     the test).
+
+- **D223 — A new project is made in a wizard, and can start with built-in
+  work: build and test it, then write its wiki (2026-11-09).** The owner:
+  "project creation/onboarding - should split into few screens wizard
+  style, adding projects is a bit janky (find repo should be a more
+  readable dropdown, shouldn't have another add step) and the wizard should
+  allow starting the projects with some built-in 'clone, compile and run
+  tests' -> 'create initial KB' tasks".
+  - **The wizard** (web and app, one state, `app.projects.form`): Code →
+    Name → Sandbox → How it works → Get started → Review. Steps that don't
+    apply drop out (a team definition: no sandbox, no starter), Next says
+    why it is disabled, Review has an Edit per part. The repos are a
+    readable combobox (ARIA): your repos on focus, filtered as you type
+    (debounced, the latest answer wins), private, permission and archived
+    shown (archived ones disabled); choosing one adds it — no Add step;
+    each chosen repo's setup script is a collapsed disclosure.
+  - **The starter is the backend's, not the page's** (`POST /projects
+    {starter: {build, wiki}}`, stored as a small pending record; no new
+    state machine). `build`: once the project's sandbox and repos are ready,
+    task #1 "Clone, build and run the tests" is created as its creator,
+    with a built-in brief (per repo: how it is built and tested, worked out
+    from its manifests when it has no build docs; the exact commands, the
+    toolchain, timings, what passed and failed, what had to be worked
+    around; no code changed, no PR). `wiki`: the creator's coordinator gets
+    one message from the platform (source `starter`) to build the initial
+    wiki from task #1's answer with research subagents.
+  - **The build task dreams before the wiki starts** — the lab (D222) had a
+    real agent do the build brief: it found the facts most worth keeping
+    (the sdk from github.com/xbin-dev/xbin, a go.work, `-mod=mod` breaking
+    workspace mode, `go build` needing `-o`), and a starter task (one turn,
+    no PR) would never have a dream round to keep them. So task #1's first
+    turn ends with its dream round, and the coordinator's message waits for
+    that round's pages — at once when dreaming is off, the turn failed, or
+    the task ended; at most 30 minutes otherwise.
+  - **Once only**, across restarts; a failed task #1 still starts the wiki
+    step, which says what failed. The `[project starter` marker is defused
+    in text from outside, like the coordinator's other markers.
