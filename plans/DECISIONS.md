@@ -13623,9 +13623,18 @@ Deviations and refinements made while implementing; all deliberate:
     (the sdk from github.com/xbin-dev/xbin, a go.work, `-mod=mod` breaking
     workspace mode, `go build` needing `-o`), and a starter task (one turn,
     no PR) would never have a dream round to keep them. So task #1's first
-    turn ends with its dream round, and the coordinator's message waits for
-    that round's pages — at once when dreaming is off, the turn failed, or
-    the task ended; at most 30 minutes otherwise.
+    turn ends with its dream round (with the wiki step or without it), and
+    the coordinator's message waits for that round's pages — at once when
+    dreaming is off, the turn failed, or the task ended; at most 30 minutes
+    otherwise. A turn a person stopped isn't the builds' end (the next turn's
+    is); one that hit its limit counts, and the dream and the message say it
+    stopped part-way.
+  - **It never waits unsaid** (the review): a workspace job it waits for,
+    or its own job, that failed is a `starter:` note, and Warm (or Retry on
+    a task) goes on from it; an archived project's starter is queued and
+    held like its other jobs; a kick while its job runs reruns it. Warm
+    after a failed clone used to get the old exec's answer (the clone's
+    client id repeated across jobs): it now carries the job's id.
   - **Once only**, across restarts; a failed task #1 still starts the wiki
     step, which says what failed. The `[project starter` marker is defused
     in text from outside, like the coordinator's other markers.

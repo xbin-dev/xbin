@@ -30,12 +30,17 @@ import (
 
 func init() {
 	projectJobKinds[pjStarter] = jobStarter
+	rerunMarks[pjStarter] = starterAgain // a kick while it runs: it runs once more (finish)
 	turnEndHooks = append(turnEndHooks, starterTurnEnd)
 	taskChangedHooks = append(taskChangedHooks, starterTaskChanged)
 }
 
-// pjStarter is the job that does a project's starter work.
-const pjStarter = "starter"
+// pjStarter is the job that does a project's starter work; starterAgain the
+// mark (its client id) a kick leaves on it while it is live.
+const (
+	pjStarter    = "starter"
+	starterAgain = "again"
+)
 
 // srcStarter is the coordinator's starter message's source: the platform,
 // never a person (the chat shows it as a notice, model/fold.js).
@@ -43,7 +48,8 @@ const srcStarter = "starter"
 
 // A starter step's states: wait (for its moment), dream (the wiki: task
 // #1's dream round runs first), due (the job does it now), done, failed.
-// "" is a step nobody asked for.
+// "" is a step nobody asked for. Task #1's dream (starterRec.Dream): ""
+// (its first turn hasn't ended), asked, over, or none (it got no round).
 const (
 	stWait   = "wait"
 	stDream  = "dream"
@@ -87,9 +93,18 @@ type starterRec struct {
 	Build   string `json:"build,omitempty"`   // "" | wait | done | failed
 	Wiki    string `json:"wiki,omitempty"`    // "" | wait | dream | due | done | failed
 	Task    int64  `json:"task,omitempty"`    // the build's task number
+	Dream   string `json:"dream,omitempty"`   // task #1's dream round: "" | asked | over | none
 	DreamMs int64  `json:"dreamMs,omitempty"` // when task #1's dream round was queued
+	Partial bool   `json:"partial,omitempty"` // task #1's first turn stopped part-way (its limit)
 	Error   string `json:"error,omitempty"`   // why a step failed
 }
+
+// Task #1's dream round (starterRec.Dream).
+const (
+	drAsked = "asked"
+	drOver  = "over"
+	drNone  = "none"
+)
 
 func starterKey(pid int64) string { return "proj_starter:" + strconv.FormatInt(pid, 10) }
 
@@ -202,32 +217,64 @@ func workspaceReady(d *DB, p *Project) bool {
 	return true
 }
 
-// starterKick queues pid's starter job, or makes its waiting one look now.
+// starterKick queues pid's starter job; a live one is marked (starterAgain)
+// — a waiting one looks now, a running one runs once more when it ends. An
+// archived project's job waits, held (claimableSQL), until it is active.
 func starterKick(t *DB, pid int64, by string) {
-	if j, err := t.queueJob(pid, 0, "", pjStarter, by, 0); err == nil && j.State == pjWaiting {
-		_, _ = t.q.Exec(`UPDATE project_jobs SET next_ms=0 WHERE id=? AND state='waiting'`, j.ID)
+	if j, err := t.queueJob(pid, 0, "", pjStarter, by, 0); err == nil && j.State != pjQueued {
+		_, _ = t.q.Exec(`UPDATE project_jobs SET client_id=?, next_ms=CASE WHEN state='waiting' THEN 0 ELSE next_ms END
+			WHERE id=? AND state IN ('waiting','running')`, starterAgain, j.ID)
 	}
+}
+
+// starterToDo: what the record says the job has to do now — task #1 or
+// the wiki step once the workspace is ready, the wiki step due or waiting
+// for task #1's dream round.
+func (r starterRec) toDo(ready bool) bool {
+	return (r.Build == stWait || r.wikiFree()) && ready || r.Wiki == stDue || r.Wiki == stDream
 }
 
 // starterJobDone (finish, in its transaction): a project's sandbox or repo
 // job is done — once the workspace is ready, the starter's work waiting on
-// it is queued.
+// it is queued; and anything the record still says is due, whatever became
+// of its job (one failed: Warm or a task's Retry runs the sandbox job, and
+// this queues it again).
 func starterJobDone(t *DB, pid int64) {
 	r, ok := t.starterOf(pid)
-	if !ok || r.Build != stWait && !r.wikiFree() {
+	if !ok {
 		return
 	}
 	p, err := t.getProject(pid)
-	if err != nil || p.State != projActive || !workspaceReady(t, p) {
+	if err == nil && r.toDo(workspaceReady(t, p)) {
+		starterKick(t, pid, r.By)
+	}
+}
+
+// starterJobFailed (finish, in its transaction): a project's own job failed
+// — a sandbox or repo job the starter waits for, or the starter's own. Said
+// once per job, with what goes on: Warm (or a task's Retry) runs them again.
+func starterJobFailed(t *DB, pid int64, j *ProjectJob, errText string) {
+	r, ok := t.starterOf(pid)
+	if !ok {
 		return
 	}
-	starterKick(t, pid, r.By)
+	var text string
+	switch {
+	case j.Kind == pjStarter && (r.Build == stWait || r.Wiki == stWait || r.Wiki == stDue || r.Wiki == stDream):
+		text = "starter: its work failed (" + clip(errText, 300) + ") — Warm, or Retry on a task, tries again"
+	case (j.Kind == pjSandbox || j.Kind == pjRepo) && (r.Build == stWait || r.wikiFree()):
+		text = fmt.Sprintf("starter: waits for the project's workspace (its %s job failed) — Warm, or Retry on a task, goes on", j.Kind)
+	default:
+		return
+	}
+	addProjectEvent(t, pid, 0, pevNote, map[string]any{"text": text, "by": "starter"}, false, fmt.Sprintf("starter:failed:%d", j.ID))
 }
 
 // starterTurnEnd (turnEndHooks): task #1's first turn ended — it dreams
-// first where it can, else the wiki step is due; a built-in task's dream
-// turn ended — its pages are in, the wiki step is due. (A coding agent's
-// dream is over when its ingest is: starterDreamOver.)
+// first where it can (a wiki step waits for the round), else the wiki step
+// is due; a turn a person stopped (interrupted) isn't the builds' end: the
+// next one's is. A built-in task's dream turn ended — its pages are in. (A
+// coding agent's dream is over when its ingest is: starterDreamOver.)
 func starterTurnEnd(t *DB, run *Run, why, outcome, result string) {
 	if run.ParentID != 0 || run.Origin != originProject {
 		return
@@ -237,40 +284,67 @@ func starterTurnEnd(t *DB, run *Run, why, outcome, result string) {
 		return
 	}
 	r, ok := t.starterOf(k.ProjectID)
-	if !ok || r.Build != stDone || r.Task != k.N || r.Wiki != stWait && r.Wiki != stDream {
+	if !ok || r.Build != stDone || r.Task != k.N {
+		return
+	}
+	switch r.Dream {
+	case drAsked:
+		// its dream turn ends: its row says active (before projectTurnEnd's
+		// bookkeeping) or that the last turn was the dream's (after it)
+		if dr := t.dreamOf(k.ID); run.Engine != engineHarness && (dr.Active || dr.LastDream) {
+			starterDreamEnded(t, k.ProjectID, r)
+		}
+		return
+	case "":
+	default:
+		return
+	}
+	if why == turnInterrupted {
 		return
 	}
 	cur, err := t.getRun(run.ID)
 	if err != nil {
 		return
 	}
-	if r.Wiki == stDream {
-		// its dream turn ends: its row says active (before projectTurnEnd's
-		// bookkeeping) or that the last turn was the dream's (after it)
-		if dr := t.dreamOf(k.ID); run.Engine != engineHarness && (dr.Active || dr.LastDream) {
-			starterWikiDue(t, k.ProjectID, r)
-		}
-		return
-	}
 	p, err := t.getProject(k.ProjectID)
 	if err != nil {
 		return
 	}
-	if starterDream(t, p, k, cur, why) {
-		r.Wiki, r.DreamMs = stDream, nowMs()
-		if t.putStarter(p.ID, r) == nil {
+	r.Partial = why == turnIncomplete
+	if starterDream(t, p, k, cur, why, r.Partial) {
+		r.Dream, r.DreamMs = drAsked, nowMs()
+		if r.Wiki == stWait {
+			r.Wiki = stDream
+		}
+		if t.putStarter(p.ID, r) == nil && r.Wiki == stDream {
 			starterKick(t, p.ID, r.By) // it waits for the round, at most starterDreamWait
 		}
 		return
 	}
-	starterWikiDue(t, p.ID, r)
+	r.Dream = drNone
+	if r.Wiki == stWait {
+		starterWikiDue(t, p.ID, r)
+		return
+	}
+	_ = t.putStarter(p.ID, r)
+}
+
+// starterDreamEnded: task #1's dream round is over — the wiki step that
+// waited for it is due.
+func starterDreamEnded(t *DB, pid int64, r starterRec) {
+	r.Dream = drOver
+	if r.Wiki == stDream {
+		starterWikiDue(t, pid, r)
+		return
+	}
+	_ = t.putStarter(pid, r)
 }
 
 // starterDreamOver (jobWikiIngest, once no follow-up round goes out): task
 // n's dream round's pages are in.
 func starterDreamOver(t *DB, pid, n int64) {
-	if r, ok := t.starterOf(pid); ok && r.Wiki == stDream && r.Task == n {
-		starterWikiDue(t, pid, r)
+	if r, ok := t.starterOf(pid); ok && r.Dream == drAsked && r.Task == n {
+		starterDreamEnded(t, pid, r)
 	}
 }
 
@@ -296,14 +370,19 @@ func starterWikiDue(t *DB, pid int64, r starterRec) {
 // starterDream queues task #1's dream round after its first turn — the
 // project's dream policy, and the dream's own rules (a run at rest whose
 // turn didn't fail, its session still there), as dreamMaybe's: it keeps
-// what it verified in the wiki before the coordinator builds on it.
-func starterDream(t *DB, p *Project, k *ProjectTask, run *Run, why string) bool {
+// what it verified in the wiki before the coordinator builds on it. A turn
+// that hit its limit (partial) dreams too, told it stopped part-way.
+func starterDream(t *DB, p *Project, k *ProjectTask, run *Run, why string, partial bool) bool {
 	if !t.features || !policyOf(p.Policy).Dream || p.State != projActive || k.WS != wsReady || why == turnError || why == turnCanceled ||
 		!resting(run.Status) || run.Status == statusCanceled || run.Status == statusError || !dreamSessionLives(t, run) {
 		return false
 	}
+	opening := "Your builds and tests are done. "
+	if partial {
+		opening = "Your builds and tests stopped part-way (your turn hit its limit): keep what you did verify. "
+	}
 	text := dreamPromptFor(p, k, run.Engine == engineHarness, true)
-	text = strings.Replace(text, "This task is over. ", "Your builds and tests are done. ", 1)
+	text = strings.Replace(text, "This task is over. ", opening, 1)
 	if _, err := queueTaskInput(t, taskInput{Project: p.ID, N: k.N, Kind: "input", Text: text, Source: srcDream, HoldPark: true,
 		Dedupe: fmt.Sprintf("dream:%d:starter", k.N)}); err != nil {
 		logf("project %d task %d: queueing its starter dream round: %v", p.ID, k.N, err)
@@ -325,11 +404,19 @@ func starterDream(t *DB, p *Project, k *ProjectTask, run *Run, why string) bool 
 // task), anything else is tried again as any job's step is.
 func jobStarter(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) (jobOutcome, error) {
 	d := projAg().db
+	if j.ClientID == starterAgain { // the kick is taken up now: a later one marks it again (rerunMarks)
+		j.ClientID = ""
+		_, _ = d.q.Exec(`UPDATE project_jobs SET client_id='' WHERE id=? AND client_id=?`, j.ID, starterAgain)
+	}
 	r, ok := d.starterOf(p.ID)
 	if !ok {
 		return doneJob("no starter")
 	}
-	if p.State != projActive {
+	switch p.State {
+	case projActive:
+	case projArchived:
+		return waitJob(60000, "the project is archived") // held until it is active again (claimableSQL)
+	default:
 		return doneJob("the project is " + p.State)
 	}
 	if r.Build == stWait {
@@ -382,6 +469,9 @@ func starterBuild(ctx context.Context, p *Project) error {
 		return nil
 	case !errors.As(err, &pe) || pe.code >= 500:
 		return err
+	}
+	if cur, gerr := ag.db.getProject(p.ID); gerr == nil && cur.State != projActive {
+		return err // archived meanwhile: tried again once it is active (its job is held till then)
 	}
 	return ag.db.Tx(func(t *DB) error {
 		cur, ok := t.starterOf(p.ID)
@@ -475,6 +565,10 @@ func starterWikiText(t *DB, p *Project, r starterRec) string {
 		if r.DreamMs > 0 {
 			task = fmt.Sprintf("Task #%d ran the builds and tests and kept what it verified in the wiki: read its answer (task_result %d) and those pages, "+
 				"and build on them rather than duplicate them. ", n, n)
+		}
+		if r.Partial {
+			task = strings.Replace(task, "ran the builds and tests", "ran the builds and tests but stopped part-way (its turn hit its limit)", 1) +
+				"Find out through research what it didn't get to. "
 		}
 		if k, err := t.taskByN(p.ID, n); err == nil && strings.TrimSpace(k.Last) == "" {
 			task = fmt.Sprintf("Task #%d was to run the builds and tests, and ended without an answer: task_status %d and task_result %d say what failed — say it too. ", n, n, n)

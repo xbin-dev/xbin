@@ -3553,7 +3553,11 @@ started step, both on there:
   installed or worked around. When its first turn ends it gets a **dream
   round** (§Project wiki, "Dreaming"; `policy.dream`, the round's own
   rules — a turn that failed, was cancelled or waits for a person gets
-  none), so what it verified goes into the wiki.
+  none), so what it verified goes into the wiki — with `wiki` or without
+  it. A turn a person stopped (Stop: interrupted) isn't the builds' end:
+  the starter waits for the next turn's. A turn that hit its limit
+  (incomplete) counts, and its dream round and the coordinator's message
+  say it stopped part-way.
 - **`wiki`** — the creator's coordinator (made now if they have none) is
   sent one message, source `starter` (the platform's, never a person's;
   the chat shows it as a notice, "Project starter"), opening `[project
@@ -3577,7 +3581,16 @@ is marked in the transaction that makes task #1 or queues the message,
 and a `starter` job does the work — queued in the transaction that made it
 due, so a restart loses nothing and repeats nothing. Each step is an event
 (`note`): "starter: task #1 created", "starter: the coordinator builds the
-initial wiki" (or why it couldn't). Refused before anything is made: a
+initial wiki" (or why it couldn't). It never waits unsaid: a sandbox or
+repo job it waits for that failed ("starter: waits for the project's
+workspace (its repo job failed) — …") or a `starter` job that gave up
+("starter: its work failed (…) — …") is a note, and **Warm** — its
+sandbox job, and the repos it queues — or **Retry** on a task (the
+project's failed jobs) goes on from there: the starter is queued again
+whenever a sandbox or repo job of the project ends done and the record
+still has something due. An archived project's `starter` job is queued
+all the same and held (as its other jobs are) until it is active again. A
+`starter` job kicked while it runs runs once more when it ends. Refused before anything is made: a
 team project's definition (no tasks, no coordinator) and a project
 without a sandbox — 409 `refusal: "starter"`; `wiki` from a component
 (a coordinator is a person's own) — 409; `wiki` where the coordinator's

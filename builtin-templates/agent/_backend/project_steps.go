@@ -399,7 +399,9 @@ func jobRepo(ctx context.Context, p *Project, _ *ProjectTask, j *ProjectJob) (jo
 		for k, v := range bashEnv {
 			env[k] = v
 		}
-		j.ClientID = fmt.Sprintf("agent:proj:%d:repo:%s:%d", p.ID, r.Slug, j.Attempts)
+		// the job's id too: a clone queued again after one failed (Warm, Retry) starts
+		// its attempts from 0, and its manager would answer the old exec
+		j.ClientID = fmt.Sprintf("agent:proj:%d:repo:%s:j%d:%d", p.ID, r.Slug, j.ID, j.Attempts)
 		ex, err := s.conn.ExecStart(ctx, s.id, sbxExecReq{Cmd: "set -eu\n" + repoScript, Env: env, TimeoutMs: int((30 * time.Minute).Milliseconds()),
 			Label: "agent · project " + p.Slug + " · clone " + r.Repo, ClientID: j.ClientID})
 		if err != nil {

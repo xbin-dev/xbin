@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -331,7 +332,7 @@ func TestProjectStarterDreamWaits(t *testing.T) {
 
 	// a coding agent's dream turn ending isn't its pages being in
 	_ = d.Tx(func(tx *DB) error {
-		return tx.putStarter(p.ID, starterRec{By: "alice", Build: stDone, Wiki: stDream, Task: 1, DreamMs: nowMs()})
+		return tx.putStarter(p.ID, starterRec{By: "alice", Build: stDone, Wiki: stDream, Task: 1, Dream: drAsked, DreamMs: nowMs()})
 	})
 	run, _ := d.getRun(k.RunID)
 	run.Engine = engineHarness
@@ -350,5 +351,204 @@ func TestProjectStarterDreamWaits(t *testing.T) {
 	hwait(t, "the record's message sent", func() bool { r, _ := d.starterOf(p.ID); return r.Wiki == stDone })
 	if n := len(starterRows(d, coord)); n != 1 {
 		t.Fatalf("%d starter messages: one coordinator inbox row per project, whatever the record says", n)
+	}
+}
+
+// A person's Stop isn't the builds' end: an interrupted first turn leaves
+// the starter waiting — no dream, no message — and the next turn's end
+// counts; one that ended at its limit dreams told it stopped part-way, and
+// the coordinator's message says so.
+func TestProjectStarterStoppedTurn(t *testing.T) {
+	fx := newProjFix(t)
+	coordWakerReset()
+	t.Cleanup(coordWakerReset)
+	d := fx.ag.db
+	fake := fakeOf(fx.ag)
+	fake.on(func(r LLMRequest) bool {
+		u := userTexts(r)
+		return len(u) > 0 && strings.HasSuffix(u[len(u)-1], starterBrief)
+	}, nil).once().block("build")
+	t.Cleanup(func() { fake.release("build") })
+	p, _ := newStarterProject(t, fx, map[string]any{"build": true, "wiki": true})
+	var k *ProjectTask
+	hwait(t, "task #1 at work", func() bool { k, _ = d.taskByN(p.ID, 1); return k != nil && len(fake.callsFor(k.RunID)) > 0 })
+	if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/runs/%d/interrupt", k.RunID), nil); w.Code != 200 {
+		t.Fatalf("Stop: %d %s", w.Code, w.Body)
+	}
+	hwait(t, "the stopped turn's end", func() bool { r, _ := d.getRun(k.RunID); return r != nil && resting(r.Status) })
+	waitJobsDone(t, fx, p.ID)
+	if r, _ := d.starterOf(p.ID); r.Wiki != stWait || r.Dream != "" {
+		t.Fatalf("a stopped turn moved the starter: %+v", r)
+	}
+	if q := dreamTexts(d, p.ID, k.RunID); len(q) != 0 || d.coordRunOf(p.ID, "alice") != 0 {
+		t.Fatalf("a stopped turn dreamed (%d) or asked the coordinator", len(q))
+	}
+	// its next turn ends at its limit
+	run, _ := d.getRun(k.RunID)
+	_ = d.Tx(func(tx *DB) error { starterTurnEnd(tx, run, turnIncomplete, "", ""); return nil })
+	projectPump(p.ID)
+	var coord int64
+	hwait(t, "the coordinator's starter message", func() bool {
+		coord = d.coordRunOf(p.ID, "alice")
+		return coord != 0 && len(starterRows(d, coord)) == 1
+	})
+	dreams := dreamsIn(d, k.RunID)
+	if len(dreams) != 1 || !strings.Contains(dreams[0].Body.Text, "Your builds and tests stopped part-way (your turn hit its limit)") {
+		t.Fatalf("the dream round of a turn at its limit: %+v", dreams)
+	}
+	if r, _ := d.starterOf(p.ID); !r.Partial || r.Dream != drOver || r.Wiki != stDone {
+		t.Fatalf("the record: %+v", r)
+	}
+	if text := starterRows(d, coord)[0].Body.Text; !strings.Contains(text, "ran the builds and tests but stopped part-way (its turn hit its limit)") ||
+		!strings.Contains(text, "what it didn't get to") {
+		t.Fatalf("the message of a turn at its limit:\n%s", text)
+	}
+}
+
+// With the build alone task #1 still dreams after its first turn — its
+// round depends on nothing the wiki step keeps — and no coordinator is asked.
+func TestProjectStarterBuildOnlyDreams(t *testing.T) {
+	fx := newProjFix(t)
+	d := fx.ag.db
+	p, _ := newStarterProject(t, fx, map[string]any{"build": true})
+	var k *ProjectTask
+	hwait(t, "task #1", func() bool { k, _ = d.taskByN(p.ID, 1); return k != nil })
+	hwait(t, "its dream round, over", func() bool { r, _ := d.starterOf(p.ID); return r.Dream == drOver })
+	dreams := dreamsIn(d, k.RunID)
+	if len(dreams) != 1 || dreams[0].DeliveredAt == 0 || !strings.Contains(dreams[0].Body.Text, "Your builds and tests are done.") {
+		t.Fatalf("task #1's dream round with the build alone: %+v", dreams)
+	}
+	waitJobsDone(t, fx, p.ID)
+	if r, _ := d.starterOf(p.ID); r.Wiki != "" || d.coordRunOf(p.ID, "alice") != 0 {
+		t.Fatalf("the build alone asked for a wiki: %+v", r)
+	}
+}
+
+// The starter never waits silently: a workspace job that failed is said,
+// and Warm goes on from it; an archived project's starter is queued all
+// the same and runs once it is active; a starter job that failed is said,
+// and Warm queues it again.
+func TestProjectStarterWaitsSaid(t *testing.T) {
+	old := jobBackoffBase
+	jobBackoffBase = time.Millisecond
+	t.Cleanup(func() { jobBackoffBase = old })
+	fx := newProjFix(t)
+	coordWakerReset()
+	t.Cleanup(coordWakerReset)
+	d := fx.ag.db
+	warm := func(pid int64) {
+		t.Helper()
+		if w := callAs(t, fx.mux, asAlice, "POST", fmt.Sprintf("/projects/%d/warm", pid), nil); w.Code >= 300 {
+			t.Fatalf("Warm: %d %s", w.Code, w.Body)
+		}
+	}
+	saidIt := func(pid int64, want string) bool {
+		for _, e := range starterEvents(d, pid) {
+			if strings.Contains(e, want) {
+				return true
+			}
+		}
+		return false
+	}
+
+	// (a) a repo that can't be cloned: said; once it can, Warm goes on
+	fx.scm.addRepo("acme/gone", "file:///nonexistent/gone.git", "main", nil)
+	body := fx.projBody(map[string]any{"name": "Gone", "repos": []map[string]any{{"repo": "acme/gone"}}, "starter": map[string]any{"build": true}})
+	w := callAs(t, fx.mux, asAlice, "POST", "/projects", body)
+	if w.Code != 201 {
+		t.Fatalf("POST /projects: %d %s", w.Code, w.Body)
+	}
+	var out struct{ Project ProjectView }
+	_ = json.Unmarshal(w.Body.Bytes(), &out)
+	gone := out.Project.ID
+	hwait(t, "the failed clone said", func() bool { return saidIt(gone, "starter: waits for the project's workspace (its repo job failed)") })
+	if _, err := d.taskByN(gone, 1); err == nil {
+		t.Fatal("task #1 made without its repo")
+	}
+	if _, err := d.q.Exec(`UPDATE project_repos SET url=? WHERE project_id=?`, fx.origin, gone); err != nil {
+		t.Fatal(err)
+	}
+	warm(gone)
+	for i := 0; i < 300; i++ {
+		if _, err := d.taskByN(gone, 1); err == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if _, err := d.taskByN(gone, 1); err != nil {
+		r, _ := d.starterOf(gone)
+		t.Fatalf("no task #1 once the repo is cloned: %+v %q (jobs %s)", r, starterEvents(d, gone), jobsDump(d, gone))
+	}
+
+	// (b) archived when its workspace is ready: queued, held, run once active
+	p, _ := newStarterProject(t, fx, nil)
+	fx.waitRepoReady(t, p.ID)
+	waitJobsDone(t, fx, p.ID)
+	pv, _ := d.getProject(p.ID)
+	if w := callAs(t, fx.mux, asAlice, "PATCH", fmt.Sprintf("/projects/%d", p.ID), map[string]any{"state": "archived", "version": pv.Version}); w.Code != 200 {
+		t.Fatalf("archive: %d %s", w.Code, w.Body)
+	}
+	_ = d.Tx(func(tx *DB) error {
+		if err := tx.putStarter(p.ID, starterRec{By: "alice", Build: stWait}); err != nil {
+			return err
+		}
+		starterJobDone(tx, p.ID)
+		return nil
+	})
+	if d.liveJob(p.ID, 0, "", pjStarter) == nil {
+		t.Fatal("an archived project's starter wasn't queued")
+	}
+	pv, _ = d.getProject(p.ID)
+	if w := callAs(t, fx.mux, asAlice, "PATCH", fmt.Sprintf("/projects/%d", p.ID), map[string]any{"state": "active", "version": pv.Version}); w.Code != 200 {
+		t.Fatalf("unarchive: %d %s", w.Code, w.Body)
+	}
+	hwait(t, "task #1 once active again", func() bool { _, err := d.taskByN(p.ID, 1); return err == nil })
+
+	// (c) a starter job that gave up: said; Warm queues it again
+	q, _ := newStarterProject(t, fx, nil)
+	fx.waitRepoReady(t, q.ID)
+	waitJobsDone(t, fx, q.ID)
+	_ = d.Tx(func(tx *DB) error {
+		if err := tx.putStarter(q.ID, starterRec{By: "alice", Wiki: stDue}); err != nil {
+			return err
+		}
+		long := nowMs() - projJobMaxAge.Milliseconds() - 60000 // queued too long ago: the worker gives up on it
+		_, err := tx.q.Exec(`INSERT INTO project_jobs (project_id, task_id, repo_slug, kind, state, next_ms, by_user, created_ms, updated_ms)
+			VALUES (?, 0, '', ?, 'queued', 0, 'alice', ?, ?)`, q.ID, pjStarter, long, long)
+		tx.AfterCommit(kickProjectWorker)
+		return err
+	})
+	hwait(t, "the failed starter job said", func() bool { return saidIt(q.ID, "starter: its work failed") })
+	if r, _ := d.starterOf(q.ID); r.Wiki != stDue || d.coordRunOf(q.ID, "alice") != 0 {
+		t.Fatalf("the record after its job failed: %+v", r)
+	}
+	warm(q.ID)
+	hwait(t, "the coordinator's starter message after Warm", func() bool {
+		id := d.coordRunOf(q.ID, "alice")
+		return id != 0 && len(starterRows(d, id)) == 1
+	})
+}
+
+// A kick that lands while the starter job runs isn't lost: the job runs
+// once more (rerunMarks).
+func TestProjectStarterKickWhileRunning(t *testing.T) {
+	if rerunMarks[pjStarter] != starterAgain {
+		t.Fatalf("pjStarter isn't in rerunMarks: %v", rerunMarks)
+	}
+	fx := newProjFix(t)
+	d := fx.ag.db
+	p, _ := newStarterProject(t, fx, nil)
+	waitJobsDone(t, fx, p.ID)
+	var id int64
+	_ = d.Tx(func(tx *DB) error {
+		res, err := tx.q.Exec(`INSERT INTO project_jobs (project_id, task_id, repo_slug, kind, state, next_ms, by_user, created_ms, updated_ms)
+			VALUES (?, 0, '', ?, 'running', 0, 'alice', ?, ?)`, p.ID, pjStarter, nowMs(), nowMs())
+		id, _ = res.LastInsertId()
+		return err
+	})
+	_ = d.Tx(func(tx *DB) error { starterKick(tx, p.ID, "alice"); return nil })
+	j, _ := d.getJob(id)
+	if j.ClientID != starterAgain {
+		t.Fatalf("the running job isn't marked: %+v", j)
 	}
 }
