@@ -491,6 +491,21 @@ test('Projects: a new project — the wizard, a screen per step: a repo found an
   assert.deepEqual(titles(r.snapshots.made), ['Agent', 'Projects', 'web'], 'the wizard\'s screens go, the board comes');
 });
 
+test('Projects: Edit on Review goes back to each step\'s own screen — Code\'s too, the first one pushed', async () => {
+  const seed = projSeed({ sbxManagers: [{ provider: 'apps/coding-sandbox', title: 'Coding sandboxes', ok: true, egress: ['none', 'internet'], images: [{ id: 'base', default: true }], sizes: [{ id: 's', default: true }] }] });
+  const on = (sub) => ({ t: 'screen', p: { title: 'New project', subtitle: sub } });
+  const toReview = [
+    { tap: btn('New project') }, { wait: 60 },
+    { tap: { t: 'row', p: { title: 'acme/web' }, in: on('1 of 6 · Code') } }, { wait: 20 },
+    ...['1 of 6 · Code', '2 of 6 · Name', '3 of 6 · Sandbox', '4 of 6 · How it works', '5 of 6 · Get started'].flatMap((sub) => [{ tap: { ...btn('Next'), in: on(sub) } }, { wait: 20 }]),
+  ];
+  for (const [n, label] of [[1, 'Code'], [2, 'Name'], [3, 'Sandbox'], [4, 'How it works'], [5, 'Get started']]) {
+    const r = await run(seed, [...toReview, { tap: { t: 'row', p: { title: `Edit ${label}` } } }, { wait: 20 }, { snapshot: 'edit' }], 'proj');
+    assert.equal(topScreen(r.snapshots.edit).p.subtitle, `${n} of 6 · ${label}`, `Edit ${label}`);
+    assert.equal(titles(r.snapshots.edit).filter((t) => t === 'New project').length, n, `Edit ${label}: back to its screen, none stacked over it`);
+  }
+});
+
 test('Projects: the wizard for a team project\'s definition skips the sandbox and the starter; Edit goes back to a step', async () => {
   const on = (sub) => ({ t: 'screen', p: { title: 'New project', subtitle: sub } });
   const r = await run({ ...partitionSeed(), partition: 'user:alice' }, [

@@ -46,7 +46,7 @@ export function repoPickerTpl(p, f) {
   };
   const move = (d) => {
     if (!opts.length) return;
-    let i = v.active;
+    let i = v.active < 0 && d < 0 ? opts.length : v.active; // ↑ with none active: the last one
     for (let n = 0; n < opts.length; n++) {
       i = d === 'first' ? n : d === 'last' ? opts.length - 1 - n : (i + d + opts.length) % opts.length;
       if (usable(opts[i])) break;
@@ -75,8 +75,8 @@ export function repoPickerTpl(p, f) {
         @input=${(e) => { v.open = true; v.active = -1; p.setRepoQuery(e.target.value); }}
         @blur=${() => setTimeout(() => { if (document.activeElement && document.activeElement.id === 'pn-q') return; close(); }, 120)}>
       <div class="muted small" id="pn-q-hint">${f.repos.length ? 'Choose another to add it too.' : 'Choose a repo to add it; you can add several.'}</div>
-      ${v.open ? html`<ul class="pnlist" id="pn-list" role="listbox" aria-label="Repos you can reach" @mousedown=${(e) => e.preventDefault()}>
-        ${opts.map((o, i) => (o.more
+      <ul class="pnlist" id="pn-list" role="listbox" aria-label="Repos you can reach" ?hidden=${!v.open} @mousedown=${(e) => e.preventDefault()}>
+        ${!v.open ? nothing : opts.map((o, i) => (o.more
           ? html`<li role="option" id=${`pn-opt-${i}`} class="pnopt more" data-more aria-selected=${i === v.active ? 'true' : 'false'} @click=${() => choose(o)}>more…</li>`
           : html`<li role="option" id=${`pn-opt-${i}`} class="pnopt" data-repo=${o.key} aria-selected=${i === v.active ? 'true' : 'false'}
               aria-disabled=${o.why ? 'true' : 'false'} title=${o.why && !o.added ? o.why : nothing} @click=${() => choose(o)} @mousemove=${() => { if (v.active !== i) { v.active = i; paint(); } }}>
@@ -86,10 +86,10 @@ export function repoPickerTpl(p, f) {
               ${o.r.permission ? html`<span class="muted small">${o.r.permission}</span>` : nothing}
               ${o.r.archived ? html`<span class="badge">archived</span><span class="muted small pnwhy">read-only: a task can't push to it</span>` : nothing}
             </li>`))}
-        ${f.loading ? html`<li class="pnnote muted small" role="presentation">loading…</li>`
+        ${!v.open ? nothing : f.loading ? html`<li class="pnnote muted small" role="presentation">loading…</li>`
           : f.err ? html`<li class="pnnote err" role="presentation">${f.err}</li>`
           : !f.results.length ? html`<li class="pnnote muted small" role="presentation">${f.q ? `No repo you can reach matches “${f.q}”.` : 'No repos found.'}</li>` : nothing}
-      </ul>` : nothing}
+      </ul>
       <div class="sr" aria-live="polite">${v.open && !f.loading ? `${f.results.length} repo${f.results.length === 1 ? '' : 's'}${f.next ? ', more to load' : ''}` : ''}</div>
     </div>
     ${f.repos.length ? html`<ul class="pnrepos" aria-label="Chosen repos">${f.repos.map((r) => html`<li class="pnrepo" data-repo=${r.repo}>
@@ -105,6 +105,7 @@ export function closeRepoPicker(f) { if (f) { const v = viewOf(f); v.open = fals
 
 export const repoPickerCss = `
   .projs-page .pncombo { position: relative; }
+  .projs-page .pnlist[hidden] { display: none; }
   .projs-page .pnlist { position: absolute; z-index: 20; left: 0; right: 0; top: 34px; max-height: 280px; overflow: auto; margin: 0; padding: 4px 0;
     list-style: none; background: var(--bx-panel); border: 1px solid var(--bx-border-strong); border-radius: var(--bx-radius);
     box-shadow: var(--bx-shadow-pop); }

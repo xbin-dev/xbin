@@ -134,7 +134,7 @@ function listTpl(s) {
   follow(s);
   if (!p.loaded && !s.loading) { s.loading = true; p.load().catch(() => {}); }
   return html`<screen title="Projects" subtitle="a sandbox, its repos and task conversations" style="list" refreshable @refresh=${() => p.load()}>
-    ${p.supported ? html`<toolbar><button icon="plus" @tap=${() => { p.newProject(); push({ kind: 'project-new' }); }}>New project</button></toolbar>` : nothing}
+    ${p.supported ? html`<toolbar><button icon="plus" @tap=${() => { p.newProject(); push({ kind: 'project-new', step: 'code' }); }}>New project</button></toolbar>` : nothing}
     ${errTpl(p)}
     ${!p.supported ? html`<section><empty icon="folder" title="This agent has no Projects yet"/></section>`
       : repeat(p.sections(), (x) => x.key, (x) => html`<section title=${x.title}>

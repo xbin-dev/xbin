@@ -35,7 +35,7 @@ ext.register({ screen: (s) => (s.kind === 'project-new' ? newTpl(s) : null) });
 
 // goStep: back to that step's screen when it is on the stack, else pushed
 function goStep(key) {
-  const i = ui.stack.findIndex((x) => x.kind === 'project-new' && x.step === key);
+  const i = ui.stack.findIndex((x) => x.kind === 'project-new' && (x.step || 'code') === key); // the first screen may name no step
   pj().formStep(key);
   if (i >= 0) { ui.stack.splice(i + 1); ctx.paint(); } else push({ kind: 'project-new', step: key });
 }

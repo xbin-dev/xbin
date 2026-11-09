@@ -342,6 +342,29 @@ await waitCall(oc, 'POST', '/projects$');
 ok('…the build alone sent', JSON.stringify((await calls(oc, 'POST', '/projects$'))[0].body.starter) === '{"build":true,"wiki":false}');
 ok('no page errors (no coordinator)', oce.length === 0, oce.join(' | '));
 
+// the form's own buttons never submit a step: Sign in (and Forget) in your partition, on Code
+const signSeed = { ...teamSeed(), scmRepos: [{ host: 'github.com', owner: 'acme', name: 'web', permission: 'write' }, { host: 'github.com', owner: 'acme', name: 'api', permission: 'write' },
+  { host: 'github.com', owner: 'acme', name: 'docs', permission: 'write' }] };
+const { page: os, errors: ose } = await open(signSeed, { hash: '#proj', init: part });
+await os.waitForSelector('#proj-new');
+await os.click('#proj-new');
+await os.waitForSelector('#proj-form[data-step="code"] #pn-q');
+await os.focus('#pn-q');
+await os.click('#pn-list [data-repo="acme/web"]');
+await os.keyboard.press('Escape');
+ok('in your partition: Sign in offered on Code', !!(await os.$('#proj-form #psignin-start')) && (await os.getAttribute('#psignin-start', 'type')) === 'button');
+await os.click('#psignin-start');
+ok('…Sign in starts the sign-in, and stays on Code (it doesn\'t submit the step)', await waitCall(os, 'POST', '/projects/scm/signin$')
+  && (await os.getAttribute('#proj-form', 'data-step')) === 'code');
+ok('…every button in the step\'s form is a button or Next', await os.$$eval('#pn-step button', (els) => els.every((b) => b.type === 'button' || b.id === 'pn-next')));
+// ↑ with no option active: the last one
+await os.focus('#pn-q');
+await os.waitForSelector('#pn-list [data-repo="acme/docs"]');
+await os.keyboard.press('ArrowUp');
+ok('↑ with none active makes the last option active', (await os.getAttribute('#pn-q', 'aria-activedescendant')) === 'pn-opt-2'
+  && (await os.getAttribute('#pn-opt-2', 'data-repo')) === 'acme/docs');
+ok('no page errors (the form\'s buttons)', ose.length === 0, ose.join(' | '));
+
 // a phone's width
 const { page: ph, errors: pe } = await open(teamSeed(), { width: 390, hash: '#proj=9', init: part });
 await ph.waitForSelector('.pteamboard .tbrow');

@@ -275,12 +275,12 @@ export function signinTpl(p, scm, title = '') {
   }
   if (s && s.state === 'done') {
     return html`<div class="psignin" data-state="done">Signed in to ${name}${s.identity ? ` as ${s.identity.login}` : ''}.
-      <button class="btn ghost btnsm" id="psignin-forget" title="forget your sign-in: your projects' credentials are removed from their sandboxes first"
+      <button type="button" class="btn ghost btnsm" id="psignin-forget" title="forget your sign-in: your projects' credentials are removed from their sandboxes first"
         @click=${() => { if (confirm(`Forget your sign-in to ${name}? Your projects' credentials are removed from their sandboxes first.`)) p.forget(scm); }}>Forget</button></div>`;
   }
   return html`<div class="psignin" data-state=${(s && s.state) || 'none'}>
     ${s && (s.err || s.error) ? html`<div class="err">${s.err || s.error}</div>` : s && ['denied', 'expired'].includes(s.state) ? html`<div class="err">The sign-in was ${s.state}.</div>` : nothing}
-    <button class="btn btnsm" id="psignin-start" @click=${() => p.signin(scm)}>Sign in to ${name}</button></div>`;
+    <button type="button" class="btn btnsm" id="psignin-start" @click=${() => p.signin(scm)}>Sign in to ${name}</button></div>`;
 }
 
 // --- "Make this a project…" ----------------------------------------------------------------------

@@ -314,7 +314,9 @@ ok('the provider: projects work as its bot, no sign-in offered', await waitText(
 ok('Next waits for a repo, saying why', await page.isDisabled('#pn-next') && (await page.textContent('#pn-why')) === 'Choose a repo.'
   && (await page.getAttribute('#pn-next', 'aria-describedby')) === 'pn-why');
 // the repo picker: a combobox
-ok('the picker is a combobox, closed until focused', (await page.getAttribute('#pn-q', 'role')) === 'combobox' && (await page.getAttribute('#pn-q', 'aria-expanded')) === 'false' && !(await page.$('#pn-list')));
+ok('the picker is a combobox, closed until focused — the list it controls there, hidden', (await page.getAttribute('#pn-q', 'role')) === 'combobox'
+  && (await page.getAttribute('#pn-q', 'aria-expanded')) === 'false' && (await page.getAttribute('#pn-q', 'aria-controls')) === 'pn-list'
+  && await page.$eval('#pn-list', (e) => e.hidden && e.getAttribute('role') === 'listbox'));
 await page.focus('#pn-q');
 await page.waitForSelector('#pn-list[role="listbox"]');
 ok('…opens on focus with your repos', JSON.stringify(await options(page)) === '["acme/web","acme/api","acme/attic"]' && (await page.getAttribute('#pn-q', 'aria-expanded')) === 'true'
@@ -341,13 +343,13 @@ ok('…the words searched once, the list what matched', JSON.stringify(searched)
 await page.keyboard.press('ArrowDown');
 await page.keyboard.press('Enter');
 ok('Enter chooses: the repo is added at once', await page.waitForSelector('.pnrepo[data-repo="acme/api"]', { timeout: 5000 }).then(() => true, () => false));
-ok('…the words cleared for the next, the list open', (await page.inputValue('#pn-q')) === '' && !!(await page.$('#pn-list')));
+ok('…the words cleared for the next, the list open', (await page.inputValue('#pn-q')) === '' && await page.isVisible('#pn-list'));
 await page.waitForFunction(() => document.querySelectorAll('#pn-list [data-repo]').length === 3, null, { timeout: 5000 }).catch(() => {});
 await page.click('#pn-list [data-repo="acme/web"]');
 ok('a click chooses too; a chosen option is marked', await page.waitForSelector('.pnrepo[data-repo="acme/web"]', { timeout: 5000 }).then(() => true, () => false)
   && (await page.getAttribute('#pn-list [data-repo="acme/api"]', 'aria-disabled')) === 'true' && !!(await page.$('#pn-list [data-repo="acme/api"] bx-icon[name="check"]')));
 await page.keyboard.press('Escape');
-ok('Escape closes it', !(await page.$('#pn-list')) && (await page.getAttribute('#pn-q', 'aria-expanded')) === 'false');
+ok('Escape closes it', !(await page.isVisible('#pn-list')) && (await page.getAttribute('#pn-q', 'aria-expanded')) === 'false');
 await page.click('.pnrepo[data-repo="acme/api"] button[aria-label="Remove acme/api"]');
 ok('a chosen repo is removable', !(await page.$('.pnrepo[data-repo="acme/api"]')) && !!(await page.$('.pnrepo[data-repo="acme/web"]')));
 ok('its setup script is folded away', !(await page.isVisible('.pnrepo[data-repo="acme/web"] textarea'))
