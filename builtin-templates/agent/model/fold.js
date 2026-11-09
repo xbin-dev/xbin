@@ -33,8 +33,9 @@ import { activityLine } from './harness.js';
 // Engine-written user messages that are not the owner speaking — a person's
 // message to a harness child, told its parent (§4.3.13), among them.
 const NOTICE = /^\[(subagent results|results of the runs|message from your parent|direct message to #)/;
-// Prompts an automation delivered into a conversation (messages.meta origin).
-const ORIGIN_LABEL = { schedule: 'Scheduled', watch: 'Watcher check', learn: 'Learn a skill', trigger: 'Triggered' };
+// Prompts an automation (or a new project's starter) delivered into a
+// conversation (messages.meta origin).
+const ORIGIN_LABEL = { schedule: 'Scheduled', watch: 'Watcher check', learn: 'Learn a skill', trigger: 'Triggered', starter: 'Project starter' };
 // Journal steps worth a line in the chat (the rest is in the transcript).
 const SHOWN_STEPS = new Set(['note', 'error', 'compaction', 'yield', 'finish', 'render', 'live', 'state_changed', 'cancel', 'ask']);
 

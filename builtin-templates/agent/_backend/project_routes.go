@@ -237,6 +237,9 @@ type newProjectBody struct {
 	Policy json.RawMessage `json:"policy"`
 	Share  *shareSpec      `json:"share"`
 	Kind   string          `json:"kind"`
+	// Starter: task #1 builds and tests, the coordinator builds the
+	// initial wiki (project_starter.go).
+	Starter *starterReq `json:"starter"`
 }
 
 // sbxNewKey is the setting a project's sandbox to create waits in until
@@ -335,6 +338,10 @@ func handleNewProject(w http.ResponseWriter, r *http.Request) {
 		writeProjErr(w, err)
 		return
 	}
+	if err := checkStarter(c, kind, provider != "", pol, probe, body.Starter); err != nil {
+		writeProjErr(w, err)
+		return
+	}
 	hello, err := api.Hello(ctx)
 	if err != nil {
 		writeProjErr(w, err)
@@ -395,6 +402,9 @@ func handleNewProject(w http.ResponseWriter, r *http.Request) {
 			}
 			jobs = append(jobs, j)
 		}
+		if err := newStarter(t, p.ID, c, body.Starter); err != nil {
+			return err
+		}
 		addProjectEvent(t, p.ID, 0, pevNote, map[string]any{"text": "project created", "by": c.tag()}, false, "")
 		emitProject(t, p.ID, "project", 0)
 		return nil
@@ -407,7 +417,11 @@ func handleNewProject(w http.ResponseWriter, r *http.Request) {
 		jobs = []*ProjectJob{}
 	}
 	p, _ = projAg().db.getProject(p.ID)
-	xbin.WriteJSON(w, 201, map[string]any{"project": projAg().db.projectView(p, projAg().db.projectLevel(c, p.ID)), "jobs": jobs})
+	out := map[string]any{"project": projAg().db.projectView(p, projAg().db.projectLevel(c, p.ID)), "jobs": jobs}
+	if st := starterView(projAg().db.starterOf(p.ID)); st != nil {
+		out["starter"] = st
+	}
+	xbin.WriteJSON(w, 201, out)
 }
 
 // checkProjectSandbox: w may make sandbox ref a project's workspace — it is

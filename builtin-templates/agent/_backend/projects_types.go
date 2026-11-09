@@ -384,6 +384,10 @@ type TaskSpec struct {
 	// From is the coordinator run that asked (0: a person): turn_by,
 	// project_tasks.from_run and the ledger follow it.
 	From int64 `json:"-"`
+	// InTx runs in the task's creating transaction, the task made: an error
+	// rolls the task back (the starter marks its record there — one task
+	// however often it is asked, project_starter.go).
+	InTx func(t *DB, k *ProjectTask) error `json:"-"`
 }
 
 // TaskFilter narrows a task list.

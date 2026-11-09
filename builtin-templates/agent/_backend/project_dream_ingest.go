@@ -83,7 +83,8 @@ func parseDreamPage(file, text string) dreamPage {
 // jobWikiIngest applies the page files task k's dream round wrote — in its
 // own folder, those written since the round began. Never fails the
 // workspace: what can't be read is a note. When no follow-up round goes
-// out, the end dream's hold on the task's cleanup ends here.
+// out, the end dream's hold on the task's cleanup ends here, and so does
+// the starter's wait for task #1's round.
 func jobWikiIngest(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (out jobOutcome, err error) {
 	d := projAg().db
 	if k == nil || p.Dir == "" {
@@ -105,6 +106,7 @@ func jobWikiIngest(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJo
 					t.putDream(k, r)
 					dreamLetClean(t, k)
 				}
+				starterDreamOver(t, p.ID, k.N) // the starter's wiki step waited for these pages (project_starter.go)
 				return nil
 			})
 		}
