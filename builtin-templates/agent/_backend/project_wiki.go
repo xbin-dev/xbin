@@ -93,7 +93,7 @@ CREATE TABLE IF NOT EXISTS wiki_reads (
 );
 CREATE INDEX IF NOT EXISTS idx_wiki_reads_page ON wiki_reads(page_id);
 CREATE VIRTUAL TABLE IF NOT EXISTS wiki_fts USING fts5(
-  title, body, project_id UNINDEXED, page_id UNINDEXED, tokenize='porter'
+  title, body, project_id UNINDEXED, page_id UNINDEXED, tokenize='` + wikiTokenizer + `'
 );
 -- the index version a run's prompt shows (a task's brief: from its start)
 CREATE TABLE IF NOT EXISTS wiki_snaps (
@@ -133,9 +133,29 @@ CREATE INDEX IF NOT EXISTS idx_wiki_dreams_project ON wiki_dreams(project_id);
 
 // addWikiSchema makes the wiki's tables (schemaAdds: additive, idempotent,
 // never on team).
+// wikiTokenizer is wiki_fts's: porter stems over unicode61, diacritics
+// folded everywhere ("café" finds "cafe").
+const wikiTokenizer = "porter unicode61 remove_diacritics 2"
+
 func (d *DB) addWikiSchema() error {
+	// a wiki_fts made with another tokenizer (a build before this one) is
+	// made again and refilled from the pages: once — the next run finds
+	// this one's
+	var old string
+	rebuilt := false
+	if d.q.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='wiki_fts'`).Scan(&old) == nil && !strings.Contains(old, wikiTokenizer) {
+		if _, err := d.q.Exec(`DROP TABLE wiki_fts`); err != nil {
+			return err
+		}
+		rebuilt = true
+	}
 	if _, err := d.q.Exec(wikiSchema); err != nil {
 		return err
+	}
+	if rebuilt {
+		if _, err := d.q.Exec(`INSERT INTO wiki_fts (title, body, project_id, page_id) SELECT title, body, project_id, id FROM wiki_pages WHERE archived=0`); err != nil {
+			return err
+		}
 	}
 	// the commits a revision's facts were read at ("web@eb52d73, api@…"):
 	// a research subagent's checkouts, a task's pushed heads
@@ -328,19 +348,63 @@ type wikiHit struct {
 	Snippet string `json:"snippet"`
 }
 
-// wikiSearch finds live pages of pid matching q (words, stemmed), best
-// first: those with every word, else (any true) those with some of them.
-func (d *DB) wikiSearch(pid int64, q string, limit int) (hits []wikiHit, any bool, err error) {
-	m := ftsQuery(q)
-	if m == "" {
-		return nil, false, nil
+// wikiSearch finds live pages of pid matching q, best first (bm25): those
+// with every word (mode "all"), else those with some of them ("any") —
+// the common English words left out of that; "stopwords" when only those
+// were left to look for. Words are stemmed, and one of 3 letters or more
+// matches as a prefix too ("alias" finds "aliases", which porter stems
+// differently).
+func (d *DB) wikiSearch(pid int64, q string, limit int) (hits []wikiHit, mode string, err error) {
+	words := wikiWords(q)
+	if len(words) == 0 {
+		return nil, "all", nil
 	}
-	if hits, err = d.wikiMatch(pid, m, limit); err != nil || len(hits) > 0 || !strings.Contains(m, " ") {
-		return hits, false, err
+	if hits, err = d.wikiMatch(pid, wikiTerms(words, " "), limit); err != nil || len(hits) > 0 || len(words) == 1 {
+		return hits, "all", err
 	}
-	hits, err = d.wikiMatch(pid, strings.Join(strings.Split(m, `" "`), `" OR "`), limit)
-	return hits, len(hits) > 0, err
+	var some []string
+	for _, w := range words {
+		if !wikiStopwords[strings.ToLower(w)] {
+			some = append(some, w)
+		}
+	}
+	if len(some) == 0 {
+		return nil, "stopwords", nil
+	}
+	hits, err = d.wikiMatch(pid, wikiTerms(some, " OR "), limit)
+	return hits, "any", err
 }
+
+// wikiWords is a query's words, quotes out.
+func wikiWords(q string) []string {
+	var out []string
+	for _, f := range strings.Fields(q) {
+		if f = strings.ReplaceAll(f, `"`, ""); f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// wikiTerms is words as an FTS5 query, joined by sep: each a literal, one
+// of 3 letters or more a prefix as well.
+func wikiTerms(words []string, sep string) string {
+	out := make([]string, len(words))
+	for i, w := range words {
+		out[i] = `"` + w + `"`
+		if len([]rune(w)) >= 3 {
+			out[i] += "*"
+		}
+	}
+	return strings.Join(out, sep)
+}
+
+// wikiStopwords are left out of the any-word fallback: they'd rank pages
+// by "the".
+var wikiStopwords = map[string]bool{"the": true, "a": true, "an": true, "of": true, "to": true, "in": true, "on": true, "for": true,
+	"and": true, "or": true, "is": true, "are": true, "be": true, "it": true, "this": true, "that": true, "with": true, "as": true,
+	"at": true, "by": true, "from": true, "how": true, "what": true, "why": true, "when": true, "where": true, "do": true,
+	"does": true, "i": true, "my": true, "we": true, "you": true}
 
 // wikiMatch runs one FTS5 query over pid's live pages, by bm25.
 func (d *DB) wikiMatch(pid int64, m string, limit int) ([]wikiHit, error) {

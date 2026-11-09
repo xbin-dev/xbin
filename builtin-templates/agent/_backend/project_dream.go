@@ -361,7 +361,7 @@ func dreamPrompt(p *Project, k *ProjectTask, harness, end bool) string {
 	}
 	b.WriteString(`Before you stop, improve the project wiki for the next agent who works on this project.
 Keep what you verified while working: facts with their file paths, how to build, test and run things, traps you hit and how you got past them, decisions and why. Quote identifiers, commands and error messages verbatim.
-Update the page a fact belongs on rather than adding a near-duplicate, and keep the index page (slug ` + "`index`" + `) a short map of the pages (at most 60 lines).
+Update the page a fact belongs on rather than adding a near-duplicate. The index page (slug ` + "`index`" + `) is a short map of the pages (at most 60 lines): add a line to ` + "`index`" + ` only for a new page.
 Never record task status, branches or pull requests, or anything that will be stale next week. If you learned nothing worth keeping, change nothing.
 Just before you write a page, read it again: if another agent already recorded the fact, change nothing.
 Don't mark what you add with your task number or name: the history records who wrote what.

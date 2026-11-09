@@ -15,6 +15,7 @@ import (
 // is known (the lab: agents couldn't tell verified from reported).
 const wikiProvenance = "State how each fact is known: (read in path:line), (ran `cmd`), (reported by ‹who›, unverified). " +
 	"For a table or a list read from one place, one line saying how it is known is enough. " +
+	"Cite paths, commands and commits — never a task's or research run's number: those mean nothing to the next reader. " +
 	"Never write facts about your own environment or session (\"not verified here\"): those go in the note."
 
 // wikiBrief is the # Project wiki part of task k's brief ("" for a
@@ -62,7 +63,7 @@ func coordWikiPrompt(d *DB, p *Project, run *Run) string {
 	var b strings.Builder
 	b.WriteString(`
 - Use research for any question about the code — what it does, where a thing is, how to build or test it, what a task changed: a research subagent reads the repos (or a task's worktree) and answers. Give it the question and the facts it needs; don't guess about code nobody read.
-- The project wiki keeps what the project's agents verified: search and read it before you research, and keep it true — update the page a fact belongs on (wiki_read it first), archive what is wrong, keep the index page (slug ` + "`index`" + `) a short map of the pages. Tasks see the index in their brief and add what they learned when their work goes to review.
+- The project wiki keeps what the project's agents verified: search and read it before you research, and keep it true — update the page a fact belongs on (wiki_read it first), archive what is wrong, keep the index page (slug ` + "`index`" + `) a short map of the pages. Tasks see the index in their brief; when their work goes to review they add what they learned to the pages, and to the index only a line for a page they create.
   ` + wikiProvenance)
 	v, body, ok := d.wikiIndexFor(p.ID, run.ID)
 	if ok {

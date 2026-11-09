@@ -48,15 +48,12 @@ func handleWikiList(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"pages": orEmpty(d.wikiPages(p.ID, r.URL.Query().Get("archived") == "1")), "stats": d.wikiStats(p.ID),
 		"dream": policyOf(p.Policy).Dream}
 	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
-		hits, some, err := d.wikiSearch(p.ID, q, 50)
+		hits, mode, err := d.wikiSearch(p.ID, q, 50)
 		if err != nil {
 			xbin.WriteError(w, 400, "q: "+err.Error())
 			return
 		}
-		out["hits"], out["match"] = hits, "all"
-		if some {
-			out["match"] = "any" // no page had every word: these have some
-		}
+		out["hits"], out["match"] = orEmpty(hits), mode // any: no page had every word, these have some
 	}
 	xbin.WriteJSON(w, 200, out)
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -493,5 +494,84 @@ func TestWikiRound2(t *testing.T) {
 	if p := dreamPrompt(fx.p, fx.k, true, false); !strings.Contains(p, "Just before you write a page, read it again") ||
 		!strings.Contains(p, "Don't mark what you add with your task number or name") || !strings.Contains(p, "For a table or a list read from one place") {
 		t.Fatalf("the dream prompt:\n%s", p)
+	}
+}
+
+// Round three of the lab: stemming that finds "aliases" from "alias" (a
+// prefix as well as the stem) and folds diacritics; an older wiki_fts made
+// again with the new tokenizer and refilled, once; the any-word fallback
+// without "the"; absolute times in the headers; the index rules.
+func TestWikiRound3(t *testing.T) {
+	fx := newWikiFix(t)
+	d, pid := fx.ag.db, fx.p.ID
+	zero := int64(0)
+	for slug, body := range map[string]string{"aliases": "Model aliases resolve in the gateway router.", "cafe": "The café menu.",
+		"gateway": "The gateway partition caps requests per person.", "misc": "Notes about the build."} {
+		if _, err := d.wikiPut(pid, wikiActor{By: "bob"}, wikiChange{Slug: slug, Body: body, Base: &zero}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	slugs := func(q string) (string, string) {
+		hits, mode, err := d.wikiSearch(pid, q, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for _, h := range hits {
+			out = append(out, h.Slug)
+		}
+		return strings.Join(out, ","), mode
+	}
+	if got, _ := slugs("alias"); got != "aliases" {
+		t.Errorf("alias: %q", got)
+	}
+	if got, _ := slugs("cafe"); got != "cafe" {
+		t.Errorf("cafe (café): %q", got)
+	}
+	if got, mode := slugs("hogging the gateway partition"); !strings.HasPrefix(got, "gateway") || strings.Contains(got, "cafe") || strings.Contains(got, "misc") || mode != "any" {
+		t.Errorf("hogging the gateway partition (ranked by its words, never by \"the\"): %q %s", got, mode)
+	}
+	if got, mode := slugs("hogging the menu"); got != "cafe" || mode != "any" {
+		t.Errorf("an any-word fallback ranked by \"the\": %q %s", got, mode)
+	}
+	if out, _ := fx.tool(t, fx.coord, "wiki_search", map[string]any{"query": "what is the"}); out != "no page matches — try more specific words (wiki_list lists them all)" {
+		t.Errorf("stopwords only: %q", out)
+	}
+	// an older table: made again with the tokenizer, refilled — once
+	_, _ = d.q.Exec(`DROP TABLE wiki_fts`)
+	_, _ = d.q.Exec(`CREATE VIRTUAL TABLE wiki_fts USING fts5(title, body, project_id UNINDEXED, page_id UNINDEXED, tokenize='porter')`)
+	for i := 0; i < 2; i++ {
+		if err := d.addWikiSchema(); err != nil {
+			t.Fatal(err)
+		}
+		var sql string
+		var n int
+		_ = d.q.QueryRow(`SELECT sql FROM sqlite_master WHERE name='wiki_fts'`).Scan(&sql)
+		_ = d.q.QueryRow(`SELECT count(*) FROM wiki_fts`).Scan(&n)
+		if !strings.Contains(sql, wikiTokenizer) || n != 4 {
+			t.Fatalf("migration %d: %s, %d rows", i+1, sql, n)
+		}
+	}
+	if got, _ := slugs("alias"); got != "aliases" {
+		t.Errorf("alias after the rebuild: %q", got)
+	}
+	// absolute times beside the age
+	when := regexp.MustCompile(`\d{4}-\d{2}-\d{2} \d{2}:\d{2} UTC \(`)
+	for _, call := range []struct {
+		name string
+		args map[string]any
+	}{{"wiki_read", map[string]any{"slug": "misc"}}, {"wiki_list", map[string]any{}}, {"wiki_history", map[string]any{"slug": "misc"}},
+		{"wiki_history", map[string]any{"slug": "misc", "version": 1}}} {
+		if out, err := fx.tool(t, fx.coord, call.name, call.args); err != nil || !when.MatchString(out) {
+			t.Errorf("%s %v: no absolute time: %q %v", call.name, call.args, out, err)
+		}
+	}
+	ccfg, _ := d.runConfig(fx.coord.ID)
+	if c := fx.ag.projectPromptFor(fx.coord, ccfg); !strings.Contains(c, "to the index only a line for a page they create") ||
+		!strings.Contains(c, "never a task's or research run's number") {
+		t.Errorf("the coordinator's index and provenance rules:\n%s", c)
+	}
+	if p := dreamPrompt(fx.p, fx.k, false, false); !strings.Contains(p, "add a line to `index` only for a new page") {
+		t.Errorf("the dream prompt's index rule:\n%s", p)
 	}
 }

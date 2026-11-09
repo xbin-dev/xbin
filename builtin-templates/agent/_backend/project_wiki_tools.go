@@ -206,15 +206,18 @@ func (ag *Agent) runWikiTool(_ context.Context, run *Run, cfg Config, name strin
 		if limit <= 0 {
 			limit = 8
 		}
-		hits, some, err := d.wikiSearch(pid, q, min(limit, 20))
+		hits, mode, err := d.wikiSearch(pid, q, min(limit, 20))
 		if err != nil {
 			return "", fmt.Errorf("searching the wiki: %v", err)
+		}
+		if mode == "stopwords" {
+			return "no page matches — try more specific words (wiki_list lists them all)", nil
 		}
 		if len(hits) == 0 {
 			return fmt.Sprintf("no page matches %q (wiki_list lists them all)", clip(q, 80)), nil
 		}
 		var b strings.Builder
-		if some {
+		if mode == "any" {
 			fmt.Fprintf(&b, "no page has every word; %d page(s) with some of them:\n", len(hits))
 		} else {
 			fmt.Fprintf(&b, "%d page(s) match:\n", len(hits))
@@ -238,7 +241,7 @@ func (ag *Agent) runWikiTool(_ context.Context, run *Run, cfg Config, name strin
 			if p.At != "" {
 				at = ", read at " + p.At
 			}
-			fmt.Fprintf(&b, "- %s — %s (v%d, %s, by %s, %s%s)\n", p.Slug, p.Title, p.Version, humanBytes(p.Size), p.UpdatedBy, wikiAge(p.UpdatedMs), at)
+			fmt.Fprintf(&b, "- %s — %s (v%d, %s, by %s, %s%s)\n", p.Slug, p.Title, p.Version, humanBytes(p.Size), p.UpdatedBy, wikiWhen(p.UpdatedMs), at)
 		}
 		return strings.TrimRight(b.String(), "\n"), nil
 	case "wiki_read":
@@ -252,7 +255,7 @@ func (ag *Agent) runWikiTool(_ context.Context, run *Run, cfg Config, name strin
 		}
 		d.wikiRead(run.ID, p)
 		off := max(toInt(args["offset"]), 0)
-		head := fmt.Sprintf("# %s\n(page %s, version %d, by %s, %s", p.Title, p.Slug, p.Version, p.UpdatedBy, wikiAge(p.UpdatedMs))
+		head := fmt.Sprintf("# %s\n(page %s, version %d, by %s, %s", p.Title, p.Slug, p.Version, p.UpdatedBy, wikiWhen(p.UpdatedMs))
 		if p.At != "" {
 			head += "; read at " + p.At
 		}
@@ -291,12 +294,12 @@ func (ag *Agent) runWikiTool(_ context.Context, run *Run, cfg Config, name strin
 				arch = "; archived"
 			}
 			return fmt.Sprintf("# %s\n(page %s, version %d of %d, by %s, %s%s)\n\n%s", rev.Title, slug, rev.Version, p.Version, rev.By,
-				wikiAge(rev.AtMs), arch, rev.Body), nil
+				wikiWhen(rev.AtMs), arch, rev.Body), nil
 		}
 		var b strings.Builder
 		fmt.Fprintf(&b, "%s — %d version(s), newest first:\n", slug, p.Version)
 		for _, rev := range d.wikiHistory(p.ID, 30) {
-			fmt.Fprintf(&b, "- v%d %s by %s (%s)", rev.Version, wikiAge(rev.AtMs), rev.By, humanBytes(rev.Size))
+			fmt.Fprintf(&b, "- v%d %s by %s (%s)", rev.Version, wikiWhen(rev.AtMs), rev.By, humanBytes(rev.Size))
 			if rev.Archived {
 				b.WriteString(" archived")
 			}
@@ -379,6 +382,15 @@ func (d *DB) taskAt(k *ProjectTask) string {
 		}
 	}
 	return strings.Join(out, ", ")
+}
+
+// wikiWhen is ms as an absolute time and how long ago: "2026-11-09 10:41
+// UTC (3h ago)" — an age alone means nothing in a page read later.
+func wikiWhen(ms int64) string {
+	if ms <= 0 {
+		return "never"
+	}
+	return time.UnixMilli(ms).UTC().Format("2006-01-02 15:04 UTC") + " (" + wikiAge(ms) + ")"
 }
 
 // wikiAge says how long ago ms was, roughly.

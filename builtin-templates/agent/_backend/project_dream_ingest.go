@@ -90,7 +90,14 @@ func jobWikiIngest(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJo
 		return doneJob("no task")
 	}
 	again := false // a follow-up round went out: the cleanup waits for it
+	var s *wsbx
+	var rejected []string // a lost page's file, kept as <name>.rejected for the follow-up to merge from
 	defer func() {
+		if !again && s != nil { // the round is over: what it kept back goes
+			for _, f := range rejected {
+				_ = s.conn.Remove(ctx, s.id, f, false)
+			}
+		}
 		if !again {
 			_ = d.Tx(func(t *DB) error {
 				if r := t.dreamOf(k.ID); r.HoldClean {
@@ -109,8 +116,7 @@ func jobWikiIngest(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJo
 		})
 	}
 	ref := taskRef(p, k)
-	s, err := openWsbx(ctx, p, ref)
-	if err != nil {
+	if s, err = openWsbx(ctx, p, ref); err != nil {
 		note("the dream round's wiki pages weren't read: " + err.Error())
 		return doneJob("the sandbox: " + clip(err.Error(), 200))
 	}
@@ -126,6 +132,10 @@ func jobWikiIngest(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJo
 	}
 	var names []string
 	for _, e := range list.Entries {
+		if e.Type == "file" && strings.HasSuffix(e.Name, ".md.rejected") && e.MtimeMs > 0 && e.MtimeMs < since {
+			_ = s.conn.Remove(ctx, s.id, dir+"/"+e.Name, false) // an earlier round's: its follow-up is over
+			continue
+		}
 		if e.Type != "file" || !strings.HasSuffix(e.Name, ".md") {
 			continue
 		}
@@ -154,19 +164,29 @@ func jobWikiIngest(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJo
 			continue
 		}
 		pg := parseDreamPage(name, string(data))
-		_ = s.conn.Remove(ctx, s.id, path, false) // read: the agent writes it again if it has to
 		if pg.err != "" {
+			_ = s.conn.Remove(ctx, s.id, path, false)
 			bad = append(bad, fmt.Sprintf("%s: %s", name, pg.err))
 			continue
 		}
 		base := pg.base
 		pw, err := d.wikiPut(p.ID, actor, wikiChange{Slug: pg.slug, Title: pg.title, Body: pg.body, Sources: pg.sources, Base: &base, Note: "dream round"})
+		if isWikiConflict(err) { // kept, never applied (only *.md is read): what the agent merges from
+			if s.conn.Move(ctx, s.id, path, path+".rejected", true) == nil {
+				rejected = append(rejected, path+".rejected")
+				lostWhy[pg.slug] = err.Error() + " Your rejected version is in " + path + ".rejected — merge it into the fresh copy."
+			} else {
+				_ = s.conn.Remove(ctx, s.id, path, false)
+				lostWhy[pg.slug] = err.Error()
+			}
+		} else {
+			_ = s.conn.Remove(ctx, s.id, path, false) // read: the agent writes it again if it has to
+		}
 		switch {
 		case err == nil:
 			wrote = append(wrote, fmt.Sprintf("%s (v%d)", pw.Slug, pw.Version))
 		case isWikiConflict(err):
 			lost = append(lost, pg.slug)
-			lostWhy[pg.slug] = err.Error()
 		default:
 			bad = append(bad, fmt.Sprintf("%s: %v", pg.slug, err))
 		}

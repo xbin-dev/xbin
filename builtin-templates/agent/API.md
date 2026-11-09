@@ -4617,7 +4617,9 @@ characters —, `task #‹n›` or `task #‹n› (dream)`), how often agents re
 (`reads`), and `at`: the commits its latest version was read at
 (`web@eb52d73, api@…` — a research subagent's checkouts, a task's pushed
 heads for its dream; empty for the coordinator and people). `wiki_read`'s
-header says it ("read at web@eb52d73"), as do `wiki_list` and the Wiki tab. A project holds at most 400 live pages. The page
+header says it ("read at web@eb52d73"), as do `wiki_list` and the Wiki tab.
+The tools give times absolute and relative ("2026-11-09 10:41 UTC (3h
+ago)") — `wiki_read`'s header, `wiki_list` and `wiki_history`. A project holds at most 400 live pages. The page
 `index` is the map — at most 60 lines. Everything written is redacted
 (`projRedact`: scm tokens and every live secret). Every version is kept in
 `wiki_revisions` (who, run, task, note; the last 200 per page, and every
@@ -4656,7 +4658,7 @@ instead (0: a new page — or an archived one, which comes back).
 
 | Tool | Parameters | Who |
 |---|---|---|
-| `wiki_search` | `query`, `limit?` (≤ 20): pages with every word; none — pages with some of them, said so | the coordinator, its research subagents, a built-in task's own run |
+| `wiki_search` | `query`, `limit?` (≤ 20): pages with every word; none — pages with some of them (common English words left out), said so; only those words — "try more specific words" | the coordinator, its research subagents, a built-in task's own run |
 | `wiki_read` | `slug`, `offset?` | the same — records the version read |
 | `wiki_list` | — | the same |
 | `wiki_history` | `slug`, `version?` (that version in full) | the same |
@@ -4679,9 +4681,11 @@ starting with it, in any case) loses that line, and any other leading `# X`
 becomes the plain line `X`: the title is shown above the body. The prompts
 and `wiki_write`'s description ask every writer to say how each fact is
 known — "(read in path:line)", "(ran `cmd`)", "(reported by ‹who›,
-unverified)"; one line for a table or a list read from one place — and to
+unverified)"; one line for a table or a list read from one place; paths,
+commands and commits, never a task's or research run's number — and to
 keep facts about their own environment or session out of the page (they go
-in the note); and they name the map by its slug, `index`. Reading a missing
+in the note); and they name the map by its slug, `index`, to which a task's
+dream adds a line only for a page it creates. Reading a missing
 `index` says how to start it: `there is no page "index" yet — create it
 with wiki_write once there are pages (a short map of them, one line
 each)`; another missing page adds "(wiki_list lists them)".
@@ -4753,8 +4757,11 @@ the project's sandbox), keeping the header of the copy it read (`version
 written since the round began (a file older than that is removed, not
 applied) with compare-and-swap against that version. Pages that lost
 re-sync the copy and go back to the agent in one follow-up prompt carrying
-the conflict's words (a page refused for its size or slug goes back too);
-after a second round what is left is dropped, with a task note. The end
+the conflict's words, the agent's own version kept beside the copy as
+`‹slug›.md.rejected` to merge from (never applied: the ingest reads only
+`*.md`; removed when the round ends) — a page refused for its size or slug
+goes back too; after a second round what is left is dropped, with a task
+note. The end
 dream holds the task's cleanup back (at most 30 minutes) until its round
 is over — its pages ingested — so the session keeps its directory.
 
@@ -4770,8 +4777,11 @@ GET    /projects/{pid}/wiki/{slug}/history[?v=]           → {slug, version, re
 ```
 
 `pages` have no bodies; `hits` are `{slug, title, version, snippet}` (the
-match in `«…»`), best first (FTS5, stemmed, bm25): the pages with every
-word (`match: "all"`), else those with some of them (`match: "any"`).
+match in `«…»`), best first (FTS5 with porter stems over unicode61,
+diacritics folded; a word of 3 letters or more also matches as a prefix,
+so "alias" finds "aliases"; bm25): the pages with every word (`match:
+"all"`), else those with some of them, common English words (the, of, how…)
+left out (`match: "any"`); `match: "stopwords"` when only those were left.
 `revisions` are `WikiRevision` `{version, title, archived, by, run, task,
 note, atMs, size, at}` newest first; `revision` adds its `body`. A `PUT` or
 `DELETE` at a `baseVersion` that is no longer the page's answers **409**

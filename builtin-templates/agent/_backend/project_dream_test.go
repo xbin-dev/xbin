@@ -260,8 +260,12 @@ func TestDreamIngestHarness(t *testing.T) {
 	writeIn(other, "theirs", 0, "Task 2's page.", during)
 	oldFollow := dreamFollowUpFor
 	var followUp string
+	var rejectedThen string
 	dreamFollowUpFor = func(p *Project, k *ProjectTask, lost, bad []string) string {
 		followUp = dreamFollowUp(p, k, lost, bad)
+		if b, err := os.ReadFile(filepath.Join(out, "notes.md.rejected")); err == nil { // what the agent merges from
+			rejectedThen = string(b)
+		}
 		write("notes", 1, "Still from version 1.")
 		return followUp
 	}
@@ -293,6 +297,9 @@ func TestDreamIngestHarness(t *testing.T) {
 	}
 	if notes, _ := d.wikiPage(p.ID, "notes"); notes.Version != 2 || notes.UpdatedBy != "bob" {
 		t.Fatalf("the page another changed was overwritten: %+v", notes)
+	}
+	if !strings.Contains(rejectedThen, "lint with make lint") || !strings.Contains(followUp, "notes.md.rejected — merge it into the fresh copy") {
+		t.Fatalf("the rejected page wasn't kept for the follow-up: %q\n%s", rejectedThen, followUp)
 	}
 	if !strings.Contains(followUp, "notes: Another agent changed the contents of this article since you last read it (now version 2, by bob) — read the article again before editing.") {
 		t.Fatalf("the follow-up lacks the conflict's words:\n%s", followUp)

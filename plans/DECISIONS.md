@@ -13579,6 +13579,14 @@ Deviations and refinements made while implementing; all deliberate:
     to start it; the dream prompt says to re-read just before writing and
     not to sign what it adds; one provenance line suffices for a table or
     a list read from one place.
+  - **Round 3 (2026-11-09):** four fresh agents on round two's wiki rated
+    it about 4/4; fixed after it: "alias" now finds "aliases" (porter
+    stems them apart — words of 3+ letters match as prefixes too; the
+    tokenizer also folds diacritics, an older `wiki_fts` rebuilt once),
+    the any-word fallback leaves out common English words, headers carry
+    absolute times, writers cite paths and commits never run or task
+    numbers, a dream adds to `index` only a line for a new page, and a
+    dream page that lost is kept as `<slug>.md.rejected` to merge from.
   - **Not done.** A task reads "working" during its dream turn; on a
     downgrade a queued wiki sync or ingest job fails its task's workspace
     ("not in this build"); real Claude Code/Codex sessions writing
