@@ -13556,6 +13556,29 @@ Deviations and refinements made while implementing; all deliberate:
     now version N"); an edit without a note left a blank reason (agents'
     changes now need one; people's `PUT` doesn't); the folder README and
     the research prompt still named `wiki-out/<slug>.md` and git `status`.
+  - **Tried with agents, round 2 (2026-11-09).** Ten agents: a real
+    build-and-test starter task, a Haiku coordinator bootstrapping the
+    wiki from empty, four research subagents in parallel, an A/B against a
+    no-wiki control, two dream rounds at once. What held: 10 of 10 sampled
+    claims matched the code; four writers on `index` lost no update; the
+    second dreamer was refused, read again and rightly added nothing. A/B:
+    the control (no wiki) took 44k tokens, 4 tool calls, 34 s and didn't
+    know how to run the tests; with the wiki 53–54k tokens, 6–9 tool
+    calls, 44 s, and both knew the build recipe and the test patterns —
+    better plans for ~20 % more tokens. Fixed after it: a leading heading
+    other than the title becomes a plain line; the conflict keeps the
+    owner's words and adds "(now version N, by …)", in the dream's
+    follow-up too; the index is framed as the index page with "that page's
+    own version" (agents read "version 5" as the wiki's); an all-words
+    search that finds nothing falls back to any word, said so; research
+    subagents get the framed index in their prompt; a research author is
+    `research #8 "‹label›" (…'s coordinator)`; each revision records the
+    commits it was read at (`at`: research's checkouts, a task's pushed
+    heads), shown in `wiki_read`, `wiki_list` and the tab; the writing
+    tools say "(note required: one line, why)"; a missing `index` says how
+    to start it; the dream prompt says to re-read just before writing and
+    not to sign what it adds; one provenance line suffices for a table or
+    a list read from one place.
   - **Not done.** A task reads "working" during its dream turn; on a
     downgrade a queued wiki sync or ingest job fails its task's workspace
     ("not in this build"); real Claude Code/Codex sessions writing

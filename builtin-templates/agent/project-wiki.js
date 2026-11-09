@@ -68,7 +68,7 @@ function pageTpl(pv, s, w, write) {
       <button class="btn ghost btnsm" id="pwiki-history" @click=${() => w.history(pv.id)}>History</button>
       ${write ? html`<button class="btn ghost btnsm" id="pwiki-edit" @click=${() => w.edit(pv.id)}>Edit</button>
         ${pg.archived ? nothing : html`<button class="btn ghost btnsm" id="pwiki-archive" ?disabled=${s.busy === 'archive'} @click=${archive}>Archive</button>`}` : nothing}</div>
-    <div class="muted small pwmeta">${pg.slug} · version ${pg.version} · by ${pg.updatedBy || '—'} · ${ago(pg.updatedMs)}${pg.archived ? ' · archived' : ''}${pg.reads ? ` · read ${pg.reads}×` : ''}</div>
+    <div class="muted small pwmeta">${pg.slug} · version ${pg.version} · by ${pg.updatedBy || '—'} · ${ago(pg.updatedMs)}${pg.archived ? ' · archived' : ''}${pg.at ? ` · checked at ${pg.at}` : ''}${pg.reads ? ` · read ${pg.reads}×` : ''}</div>
     ${(pg.sources || []).length ? html`<div class="muted small pwsrc">sources: ${pg.sources.join(' · ')}</div>` : nothing}
     <div class="md pwbody" @click=${linkClick(pv.id)}>${unsafeHTML(wikiLinks(md(pg.body)))}</div>
   </div>`;

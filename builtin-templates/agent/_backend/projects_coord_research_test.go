@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -77,6 +78,10 @@ func TestResearchReadOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	jsonArgs := func(a ...string) string { b, _ := json.Marshal(a); return string(b) }
+	zero := int64(0)
+	if _, err := fx.ag.db.wikiPut(p.ID, wikiActor{By: "bob"}, wikiChange{Slug: "index", Body: "- [[layout]]: what lives where", Base: &zero}); err != nil {
+		t.Fatal(err)
+	}
 	f := fakeOf(fx.ag)
 	isResearch := func(r LLMRequest) bool {
 		return len(r.Msgs) > 0 && strings.Contains(asString(r.Msgs[0].Content), "research subagent of the project")
@@ -180,8 +185,20 @@ func TestResearchReadOnly(t *testing.T) {
 		return os.IsNotExist(err)
 	})
 	pg, err := fx.ag.db.wikiPage(p.ID, "readme")
-	if err != nil || !strings.HasPrefix(pg.UpdatedBy, fmt.Sprintf("research #%d", child.ID)) {
-		t.Fatalf("the child's page: %+v %v", pg, err)
+	if err != nil || pg.UpdatedBy != fmt.Sprintf(`research #%d "readme" (alice's coordinator)`, child.ID) || !regexp.MustCompile(`^web@[0-9a-f]{7}$`).MatchString(pg.At) {
+		t.Fatalf("the child's page (its author with its label, the commit it read at): %+v %v", pg, err)
+	}
+	if out, _ := fx.ag.runWikiTool(nil, child, ccfg, "wiki_read", map[string]any{"slug": "readme"}); !strings.Contains(out, "; read at "+pg.At) {
+		t.Fatalf("wiki_read's header lacks the commit: %q", out)
+	}
+	// the index is in its prompt, framed as everywhere
+	sys := ""
+	for _, c := range fakeOf(fx.ag).callsFor(child.ID) {
+		sys = asString(c.Msgs[0].Content)
+		break
+	}
+	if !strings.Contains(sys, "<wiki-index>") || !strings.Contains(sys, "[[layout]]: what lives where") || !strings.Contains(sys, "index page (slug `index`") {
+		t.Fatalf("the research subagent's prompt lacks the index:\n%s", sys)
 	}
 	// at most researchMax at once
 	for i := 0; i < researchMax; i++ {

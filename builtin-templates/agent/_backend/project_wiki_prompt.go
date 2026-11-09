@@ -14,6 +14,7 @@ import (
 // wikiProvenance is how every writer of the wiki is told to say how a fact
 // is known (the lab: agents couldn't tell verified from reported).
 const wikiProvenance = "State how each fact is known: (read in path:line), (ran `cmd`), (reported by ‹who›, unverified). " +
+	"For a table or a list read from one place, one line saying how it is known is enough. " +
 	"Never write facts about your own environment or session (\"not verified here\"): those go in the note."
 
 // wikiBrief is the # Project wiki part of task k's brief ("" for a
@@ -41,6 +42,19 @@ func wikiBrief(d *DB, p *Project, k *ProjectTask, sub bool) string {
 		b.WriteString("It has no index page yet.\n")
 	}
 	return b.String()
+}
+
+// researchWikiPrompt is a research subagent's # Project wiki: the index,
+// framed as everywhere, as it was when it first saw one (wiki_snaps).
+func researchWikiPrompt(d *DB, p *Project, run *Run) string {
+	if !d.features {
+		return ""
+	}
+	v, body, ok := d.wikiIndexFor(p.ID, run.ID)
+	if !ok {
+		return "\n\n# Project wiki\nIt has no index page yet."
+	}
+	return "\n\n# Project wiki\n" + strings.TrimRight(wikiPromptIndex(v, body), "\n")
 }
 
 // coordWikiPrompt is the coordinator's part about research and the wiki.

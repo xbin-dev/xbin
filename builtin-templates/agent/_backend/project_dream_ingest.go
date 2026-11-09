@@ -142,7 +142,8 @@ func jobWikiIngest(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJo
 	if len(names) > dreamFilesMax {
 		names = names[:dreamFilesMax]
 	}
-	actor := wikiActor{By: fmt.Sprintf("task #%d (dream)", k.N), Run: k.RunID, Task: k.N}
+	actor := wikiActor{By: fmt.Sprintf("task #%d (dream)", k.N), Run: k.RunID, Task: k.N, At: d.taskAt(k)}
+	lostWhy := map[string]string{} // a lost page's conflict, in the owner's words with the page as it is now
 	var wrote, lost []string
 	var bad []string // "slug: why"
 	for _, name := range names {
@@ -165,6 +166,7 @@ func jobWikiIngest(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJo
 			wrote = append(wrote, fmt.Sprintf("%s (v%d)", pw.Slug, pw.Version))
 		case isWikiConflict(err):
 			lost = append(lost, pg.slug)
+			lostWhy[pg.slug] = err.Error()
 		default:
 			bad = append(bad, fmt.Sprintf("%s: %v", pg.slug, err))
 		}
@@ -192,6 +194,9 @@ func jobWikiIngest(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJo
 			d.setWikiSynced(ref, p.ID, d.wikiSeq(p.ID))
 		}
 	}
+	for i, s := range lost {
+		lost[i] = s + ": " + lostWhy[s]
+	}
 	text := dreamFollowUpFor(p, k, lost, bad)
 	again = true
 	err = d.Tx(func(t *DB) error {
@@ -213,8 +218,8 @@ var dreamFollowUpFor = dreamFollowUp // (a var: tests)
 func dreamFollowUp(p *Project, k *ProjectTask, lost, bad []string) string {
 	var b strings.Builder
 	b.WriteString("[dream round — from the platform, not a person]\nSome of your wiki pages weren't saved:\n")
-	for _, s := range lost {
-		fmt.Fprintf(&b, "- %s: %s\n", s, wikiConflict)
+	for _, s := range lost { // "slug: the conflict's words (now version N, by …)"
+		fmt.Fprintf(&b, "- %s\n", s)
 	}
 	for _, s := range bad {
 		fmt.Fprintf(&b, "- %s\n", s)

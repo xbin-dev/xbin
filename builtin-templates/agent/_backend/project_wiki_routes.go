@@ -34,7 +34,7 @@ func writeWikiErr(w http.ResponseWriter, err error) {
 		return
 	}
 	body := map[string]any{"error": we.msg}
-	if we.code == 409 && we.msg == wikiConflict {
+	if we.conflict {
 		body["refusal"], body["current"] = "conflict", we.current
 	}
 	xbin.WriteJSON(w, we.code, body)
@@ -48,12 +48,15 @@ func handleWikiList(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"pages": orEmpty(d.wikiPages(p.ID, r.URL.Query().Get("archived") == "1")), "stats": d.wikiStats(p.ID),
 		"dream": policyOf(p.Policy).Dream}
 	if q := strings.TrimSpace(r.URL.Query().Get("q")); q != "" {
-		hits, err := d.wikiSearch(p.ID, q, 50)
+		hits, some, err := d.wikiSearch(p.ID, q, 50)
 		if err != nil {
 			xbin.WriteError(w, 400, "q: "+err.Error())
 			return
 		}
-		out["hits"] = hits
+		out["hits"], out["match"] = hits, "all"
+		if some {
+			out["match"] = "any" // no page had every word: these have some
+		}
 	}
 	xbin.WriteJSON(w, 200, out)
 }

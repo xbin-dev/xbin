@@ -35,7 +35,7 @@ const wikiReadPage = 12000 // wiki_read's page of a long body
 // The first sentence of each is pinned (tooldesc_test.go).
 func wikiToolSpecs(write bool) []toolSpec {
 	slug := strProp("the page's slug (lowercase words joined by dashes, like build-and-test; [[slug]] links name pages)")
-	note := strProp("why you change it, in a line (shown in the page's history)")
+	note := strProp("required: why you change it, in one line (shown in the page's history)")
 	specs := []toolSpec{
 		{Type: "function", Function: funcDef{Name: "wiki_search",
 			Description: "Search this project's wiki — the notes its agents and people keep: how to build and test, traps, decisions — by words, for the best-matching pages with a snippet each. " +
@@ -70,7 +70,8 @@ func wikiToolSpecs(write bool) []toolSpec {
 			Description: "Create a page of this project's wiki, or replace a whole page — Markdown, [[slug]] links to other pages, at most 16 KB. " +
 				"To replace an existing page, wiki_read it first: a write is refused when another agent changed the page since you read it (then read it again and merge). " +
 				"Record verified facts with their paths, quoting identifiers and commands verbatim; never task status or anything stale next week. " +
-				wikiProvenance + " The title is shown above the body: don't repeat it as a heading. The index page (slug `index`) is the wiki's short map.",
+				wikiProvenance + " The title is shown above the body: don't repeat it as a heading. The index page (slug `index`) is the wiki's short map. " +
+				"(note required: one line, why)",
 			Parameters: obj([]string{"slug", "body", "note"}, map[string]any{
 				"slug":    slug,
 				"title":   strProp("the page's title (default: kept, or the slug in words)"),
@@ -80,7 +81,7 @@ func wikiToolSpecs(write bool) []toolSpec {
 			})}},
 		toolSpec{Type: "function", Function: funcDef{Name: "wiki_edit",
 			Description: "Replace an exact piece of a wiki page's text — old must appear in the page exactly once. " +
-				"The same rule as wiki_write: read the page first, and read it again if another agent changed it since.",
+				"The same rule as wiki_write: read the page first, and read it again if another agent changed it since. (note required: one line, why)",
 			Parameters: obj([]string{"slug", "old", "new", "note"}, map[string]any{
 				"slug": slug,
 				"old":  strProp("the exact text to replace, as the page has it"),
@@ -89,7 +90,7 @@ func wikiToolSpecs(write bool) []toolSpec {
 			})}},
 		toolSpec{Type: "function", Function: funcDef{Name: "wiki_archive",
 			Description: "Archive a wiki page that is wrong, merged into another or no longer useful — it leaves search and the list; its history stays. " +
-				"Read it first, as for a change.",
+				"Read it first, as for a change. (note required: one line, why)",
 			Parameters: obj([]string{"slug", "note"}, map[string]any{"slug": slug, "note": note})}},
 	)
 }
@@ -127,7 +128,7 @@ func (ag *Agent) wikiRoleOf(run *Run, cfg Config) (*wikiRole, error) {
 		if p.ID != cfg.CodeRead.Project {
 			return nil, errNoWiki
 		}
-		return &wikiRole{p: p, write: true, actor: wikiActor{By: fmt.Sprintf("research #%d (%s's coordinator)", run.ID, root.Owner), Run: run.ID}}, nil
+		return &wikiRole{p: p, write: true, actor: wikiActor{By: researchBy(run, root.Owner), Run: run.ID, At: headsAt(cfg.CodeRead.Heads)}}, nil
 	}
 	if run.Depth != 0 || run.ParentID != 0 || run.Origin != originProject {
 		return nil, errNoWiki
@@ -148,7 +149,7 @@ func (ag *Agent) wikiRoleOf(run *Run, cfg Config) (*wikiRole, error) {
 		if p == nil {
 			return nil, errNoWiki
 		}
-		r := &wikiRole{p: p, actor: wikiActor{By: fmt.Sprintf("task #%d", k.N), Run: run.ID, Task: k.N}}
+		r := &wikiRole{p: p, actor: wikiActor{By: fmt.Sprintf("task #%d", k.N), Run: run.ID, Task: k.N, At: d.taskAt(k)}}
 		if d.dreamOf(k.ID).Active { // its dream round's turn (project_dream.go)
 			r.write, r.actor.By = true, fmt.Sprintf("task #%d (dream)", k.N)
 		} else {
@@ -205,7 +206,7 @@ func (ag *Agent) runWikiTool(_ context.Context, run *Run, cfg Config, name strin
 		if limit <= 0 {
 			limit = 8
 		}
-		hits, err := d.wikiSearch(pid, q, min(limit, 20))
+		hits, some, err := d.wikiSearch(pid, q, min(limit, 20))
 		if err != nil {
 			return "", fmt.Errorf("searching the wiki: %v", err)
 		}
@@ -213,7 +214,11 @@ func (ag *Agent) runWikiTool(_ context.Context, run *Run, cfg Config, name strin
 			return fmt.Sprintf("no page matches %q (wiki_list lists them all)", clip(q, 80)), nil
 		}
 		var b strings.Builder
-		fmt.Fprintf(&b, "%d page(s) match:\n", len(hits))
+		if some {
+			fmt.Fprintf(&b, "no page has every word; %d page(s) with some of them:\n", len(hits))
+		} else {
+			fmt.Fprintf(&b, "%d page(s) match:\n", len(hits))
+		}
 		for _, h := range hits {
 			fmt.Fprintf(&b, "- %s — %s (v%d): %s\n", h.Slug, h.Title, h.Version, clip(h.Snippet, 300))
 		}
@@ -229,7 +234,11 @@ func (ag *Agent) runWikiTool(_ context.Context, run *Run, cfg Config, name strin
 		var b strings.Builder
 		fmt.Fprintf(&b, "%d page(s):\n", len(pages))
 		for _, p := range pages {
-			fmt.Fprintf(&b, "- %s — %s (v%d, %s, by %s, %s)\n", p.Slug, p.Title, p.Version, humanBytes(p.Size), p.UpdatedBy, wikiAge(p.UpdatedMs))
+			at := ""
+			if p.At != "" {
+				at = ", read at " + p.At
+			}
+			fmt.Fprintf(&b, "- %s — %s (v%d, %s, by %s, %s%s)\n", p.Slug, p.Title, p.Version, humanBytes(p.Size), p.UpdatedBy, wikiAge(p.UpdatedMs), at)
 		}
 		return strings.TrimRight(b.String(), "\n"), nil
 	case "wiki_read":
@@ -244,6 +253,9 @@ func (ag *Agent) runWikiTool(_ context.Context, run *Run, cfg Config, name strin
 		d.wikiRead(run.ID, p)
 		off := max(toInt(args["offset"]), 0)
 		head := fmt.Sprintf("# %s\n(page %s, version %d, by %s, %s", p.Title, p.Slug, p.Version, p.UpdatedBy, wikiAge(p.UpdatedMs))
+		if p.At != "" {
+			head += "; read at " + p.At
+		}
 		if p.Archived {
 			head += "; archived — a write brings it back"
 		}
@@ -330,6 +342,43 @@ func (ag *Agent) runWikiTool(_ context.Context, run *Run, cfg Config, name strin
 		return fmt.Sprintf("wrote %s — now version %d (%s)", p.Slug, p.Version, humanBytes(p.Size)), nil
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
+}
+
+// researchBy names a research subagent as an author: its number, what it
+// was asked (the call's label, its run's title), its coordinator's person.
+func researchBy(run *Run, owner string) string {
+	label := strings.TrimSpace(strings.TrimPrefix(run.Title, "research:"))
+	label = strings.ReplaceAll(oneLineTitle(label), `"`, "'")
+	if label == "" {
+		return fmt.Sprintf("research #%d (%s's coordinator)", run.ID, owner)
+	}
+	return fmt.Sprintf("research #%d \"%s\" (%s's coordinator)", run.ID, clip(label, 40), owner)
+}
+
+// headsAt is a research binding's heads ("acme/web 1234567") as a
+// revision's at: "web@1234567, api@89abcde".
+func headsAt(heads []string) string {
+	var out []string
+	for _, h := range heads {
+		repo, sha, ok := strings.Cut(strings.TrimSpace(h), " ")
+		if !ok || sha == "" || sha == "-" {
+			continue
+		}
+		out = append(out, repo[strings.LastIndexByte(repo, '/')+1:]+"@"+sha7(sha))
+	}
+	return strings.Join(out, ", ")
+}
+
+// taskAt is task k's checkouts' heads as last pushed (the refs check keeps
+// them): what its dream round's facts were read at, when it is known.
+func (d *DB) taskAt(k *ProjectTask) string {
+	var out []string
+	for _, c := range d.checkouts(k.ID) {
+		if c.RemoteSHA != "" && c.State != "removed" {
+			out = append(out, c.Repo+"@"+sha7(c.RemoteSHA))
+		}
+	}
+	return strings.Join(out, ", ")
 }
 
 // wikiAge says how long ago ms was, roughly.

@@ -294,11 +294,11 @@ func TestDreamIngestHarness(t *testing.T) {
 	if notes, _ := d.wikiPage(p.ID, "notes"); notes.Version != 2 || notes.UpdatedBy != "bob" {
 		t.Fatalf("the page another changed was overwritten: %+v", notes)
 	}
-	if !strings.Contains(followUp, "notes: "+wikiConflict) {
+	if !strings.Contains(followUp, "notes: Another agent changed the contents of this article since you last read it (now version 2, by bob) — read the article again before editing.") {
 		t.Fatalf("the follow-up lacks the conflict's words:\n%s", followUp)
 	}
 	text := fullText(d, runID)
-	if strings.Count(text, "[dream round") != 2 || !strings.Contains(text, out+"/<slug>.md") || !strings.Contains(text, wikiConflict) {
+	if strings.Count(text, "[dream round") != 2 || !strings.Contains(text, out+"/<slug>.md") || !strings.Contains(text, "since you last read it (now version 2, by bob)") {
 		t.Fatalf("the dream round's prompts:\n%s", clip(text, 4000))
 	}
 	// the copy: every page, its header first, read-only; re-synced after the conflict

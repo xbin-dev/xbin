@@ -58,7 +58,7 @@ function pageTpl(s) {
       <section>${c.err ? html`<notice tone="danger" text=${c.err}/>` : html`<empty title="loading…"/>`}</section></screen>`;
   }
   const links = linkedSlugs(pg.body);
-  const meta = [`version ${pg.version}`, pg.updatedBy ? `by ${pg.updatedBy}` : '', ago(pg.updatedMs), pg.archived ? 'archived' : ''].filter(Boolean).join(' · ');
+  const meta = [`version ${pg.version}`, pg.updatedBy ? `by ${pg.updatedBy}` : '', ago(pg.updatedMs), pg.at ? `checked at ${pg.at}` : '', pg.archived ? 'archived' : ''].filter(Boolean).join(' · ');
   return html`<screen title=${pg.title} subtitle=${pg.slug} style="list">
     <section footer=${meta}><markdown source=${plainLinks(pg.body)}/></section>
     ${(pg.sources || []).length ? html`<section title="Sources">${repeat(pg.sources, (x) => x, (x) => html`<row title=${x}/>`)}</section>` : nothing}

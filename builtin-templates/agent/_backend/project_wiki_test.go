@@ -66,7 +66,7 @@ func TestWikiCAS(t *testing.T) {
 		t.Fatalf("the coordinator's edit of its own write: %v", err)
 	}
 	_, err = fx.tool(t, fx.task, "wiki_write", map[string]any{"slug": "build", "body": "stale", "note": "mine"})
-	if err == nil || err.Error() != wikiConflict {
+	if err == nil || err.Error() != "Another agent changed the contents of this article since you last read it (now version 2, by coordinator (alice)) — read the article again before editing." {
 		t.Fatalf("a write over another's: %v", err)
 	}
 	if _, err := fx.ag.db.wikiPut(fx.p.ID, wikiActor{By: "bob"}, wikiChange{Slug: "deploy", Body: "kubectl", Base: new(int64)}); err != nil {
@@ -94,7 +94,7 @@ func TestWikiCAS(t *testing.T) {
 		Refusal string `json:"refusal"`
 		Current int64  `json:"current"`
 	}
-	if w.Code != 409 || json.Unmarshal(w.Body.Bytes(), &refusal) != nil || refusal.Error != wikiConflict || refusal.Refusal != "conflict" || refusal.Current != 3 {
+	if w.Code != 409 || json.Unmarshal(w.Body.Bytes(), &refusal) != nil || refusal.Error != "Another agent changed the contents of this article since you last read it (now version 3, by task #1 (dream)) — read the article again before editing." || refusal.Refusal != "conflict" || refusal.Current != 3 {
 		t.Fatalf("a person's stale PUT: %d %s", w.Code, w.Body)
 	}
 	if w := callAs(t, fx.mux, asAlice, "PUT", fmt.Sprintf("/projects/%d/wiki/build", fx.p.ID), map[string]any{"body": "mine", "baseVersion": 3, "note": "by hand"}); w.Code != 200 ||
@@ -143,13 +143,13 @@ func TestWikiRevisionsArchiveFTS(t *testing.T) {
 		return pg
 	}
 	put("build", "Build with `go build ./...`", 0)
-	put("deploy", "Deploys go through kubectl rollout restart.", 0)
+	put("deploy", "Deploys use kubectl rollout restart.", 0)
 	put("build", "Build with `make build`; tests are `make test`.", 1)
-	hits, err := d.wikiSearch(pid, "kubectl", 10)
+	hits, _, err := d.wikiSearch(pid, "kubectl", 10)
 	if err != nil || len(hits) != 1 || hits[0].Slug != "deploy" || !strings.Contains(hits[0].Snippet, "«kubectl»") {
 		t.Fatalf("search kubectl: %+v %v", hits, err)
 	}
-	if hits, _ := d.wikiSearch(pid, "go build", 10); len(hits) != 0 {
+	if hits, _, _ := d.wikiSearch(pid, "go", 10); len(hits) != 0 {
 		t.Fatalf("search found a replaced version: %+v", hits)
 	}
 	w := callAs(t, fx.mux, asAlice, "GET", fmt.Sprintf("/projects/%d/wiki/build/history?v=1", pid), nil)
@@ -162,7 +162,7 @@ func TestWikiRevisionsArchiveFTS(t *testing.T) {
 	if w := callAs(t, fx.mux, asAlice, "DELETE", fmt.Sprintf("/projects/%d/wiki/deploy?baseVersion=1", pid), nil); w.Code != 200 || !strings.Contains(w.Body.String(), `"archived":true`) {
 		t.Fatalf("archive: %d %s", w.Code, w.Body)
 	}
-	if hits, _ := d.wikiSearch(pid, "kubectl", 10); len(hits) != 0 {
+	if hits, _, _ := d.wikiSearch(pid, "kubectl", 10); len(hits) != 0 {
 		t.Fatalf("an archived page is found: %+v", hits)
 	}
 	w = callAs(t, fx.mux, asAlice, "GET", fmt.Sprintf("/projects/%d/wiki?q=make", pid), nil)
@@ -205,7 +205,7 @@ func TestWikiRevisionsArchiveFTS(t *testing.T) {
 	if len(d.wikiPages(pid, true)) != 0 || d.wikiSeq(pid) != 0 {
 		t.Fatal("the wiki outlived its project")
 	}
-	if hits, _ := d.wikiSearch(pid, "helm", 10); len(hits) != 0 {
+	if hits, _, _ := d.wikiSearch(pid, "helm", 10); len(hits) != 0 {
 		t.Fatalf("the index outlived its project: %+v", hits)
 	}
 }
@@ -231,7 +231,7 @@ func TestWikiIndexSnapshotStable(t *testing.T) {
 	}
 	tcfg, _ := d.runConfig(fx.task.ID)
 	first := fx.ag.projectPromptFor(fx.task, tcfg)
-	if !strings.Contains(first, "how to build") || !strings.Contains(first, "may be wrong") || !strings.Contains(first, "(version 1)") {
+	if !strings.Contains(first, "how to build") || !strings.Contains(first, "may be wrong") || !strings.Contains(first, "own version 1") {
 		t.Fatalf("the brief lacks the index:\n%s", first)
 	}
 	one := int64(1)
@@ -243,7 +243,7 @@ func TestWikiIndexSnapshotStable(t *testing.T) {
 	}
 	ccfg, _ := d.runConfig(fx.coord.ID)
 	c1 := fx.ag.projectPromptFor(fx.coord, ccfg)
-	if !strings.Contains(c1, "(version 2)") || !strings.Contains(c1, "research") {
+	if !strings.Contains(c1, "own version 2") || !strings.Contains(c1, "research") {
 		t.Fatalf("the coordinator's prompt:\n%s", c1)
 	}
 	two := int64(2)
@@ -254,14 +254,14 @@ func TestWikiIndexSnapshotStable(t *testing.T) {
 		t.Fatal("the coordinator's prompt changed within its turn")
 	}
 	_ = d.Tx(func(tx *DB) error { wikiTurnEnd(tx, fx.coord, turnAnswered, "", ""); return nil })
-	if c3 := fx.ag.projectPromptFor(fx.coord, ccfg); !strings.Contains(c3, "(version 3)") {
+	if c3 := fx.ag.projectPromptFor(fx.coord, ccfg); !strings.Contains(c3, "own version 3") {
 		t.Fatalf("the coordinator's next turn shows the old index:\n%s", c3)
 	}
 	// a new task: the index as it is now
 	k2, run2 := fx.addTask(t, fx.p, 2, "alice")
 	_ = k2
 	cfg2, _ := d.runConfig(run2.ID)
-	if b := fx.ag.projectPromptFor(run2, cfg2); !strings.Contains(b, "(version 3)") {
+	if b := fx.ag.projectPromptFor(run2, cfg2); !strings.Contains(b, "own version 3") {
 		t.Fatalf("a new task's brief:\n%s", b)
 	}
 }
@@ -374,10 +374,10 @@ func TestWikiIndexArrivesLater(t *testing.T) {
 		t.Fatal(err)
 	}
 	first := fx.ag.projectPromptFor(fx.task, tcfg)
-	if !strings.Contains(first, "(version 1)") || !strings.Contains(first, "how to build") || strings.Contains(first, "no index page yet") {
+	if !strings.Contains(first, "own version 1") || !strings.Contains(first, "how to build") || strings.Contains(first, "no index page yet") {
 		t.Fatalf("the brief once the index exists:\n%s", first)
 	}
-	if c := fx.ag.projectPromptFor(fx.coord, ccfg); !strings.Contains(c, "(version 1)") {
+	if c := fx.ag.projectPromptFor(fx.coord, ccfg); !strings.Contains(c, "own version 1") {
 		t.Fatalf("the coordinator within its turn once the index exists:\n%s", c)
 	}
 	one := int64(1)
@@ -399,7 +399,8 @@ func TestWikiWriteShape(t *testing.T) {
 	for _, c := range []struct{ title, body, want string }{
 		{"Build and test", "# Build and test\n\nRun `make`.", "Run `make`."},
 		{"Build and test", "#  build AND TEST — notes\nRun `make`.", "Run `make`."},
-		{"Build and test", "# Deploy\n\nRun `make`.", "# Deploy\n\nRun `make`."},
+		{"Build and test", "# Deploy\n\nRun `make`.", "Deploy\n\nRun `make`."},
+		{"Traps and API.md vs code gaps", "# Traps in llm-gw (read in api.go at commit eb52d73)\nOne.", "Traps in llm-gw (read in api.go at commit eb52d73)\nOne."},
 		{"Build and test", "## Build and test\nRun `make`.", "## Build and test\nRun `make`."},
 	} {
 		if got := wikiDropTitleHeading(c.body, c.title); got != c.want {
@@ -441,5 +442,56 @@ func TestWikiWriteShape(t *testing.T) {
 	got, err := d.wikiPut(pid, wikiActor{By: "task #1 (dream)", Run: fx.task.ID, Task: 1}, wikiChange{Slug: pg.slug, Title: pg.title, Body: pg.body, Base: &base, Note: "dream round"})
 	if err != nil || got.Title != "Notes" || got.Body != "Build with make." {
 		t.Fatalf("an ingested page with its title twice: %+v %v", got, err)
+	}
+}
+
+// Round two of the lab: an all-words search that finds nothing falls back
+// to any word (said so); reading a missing index says how to start one; a
+// heading other than the title becomes a plain first line; the conflict
+// carries what the page is now; the descriptions say the note is needed.
+func TestWikiRound2(t *testing.T) {
+	fx := newWikiFix(t)
+	d, pid := fx.ag.db, fx.p.ID
+	if _, err := fx.tool(t, fx.coord, "wiki_read", map[string]any{"slug": "index"}); err == nil ||
+		err.Error() != `there is no page "index" yet — create it with wiki_write once there are pages (a short map of them, one line each)` {
+		t.Fatalf("a missing index: %v", err)
+	}
+	if _, err := fx.tool(t, fx.coord, "wiki_read", map[string]any{"slug": "nope"}); err == nil || !strings.HasSuffix(err.Error(), "(wiki_list lists them)") {
+		t.Fatalf("a missing page: %v", err)
+	}
+	zero := int64(0)
+	for slug, body := range map[string]string{"api": "The API lives in api.go.", "tests": "Run the tests with make test."} {
+		if _, err := d.wikiPut(pid, wikiActor{By: "bob"}, wikiChange{Slug: slug, Body: body, Base: &zero}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	out, err := fx.tool(t, fx.coord, "wiki_search", map[string]any{"query": "api tests"})
+	if err != nil || !strings.HasPrefix(out, "no page has every word; 2 page(s) with some of them:") {
+		t.Fatalf("an all-words miss: %q %v", out, err)
+	}
+	if out, _ := fx.tool(t, fx.coord, "wiki_search", map[string]any{"query": "make tests"}); !strings.HasPrefix(out, "1 page(s) match:") {
+		t.Fatalf("an all-words hit: %q", out)
+	}
+	if w := callAs(t, fx.mux, asAlice, "GET", fmt.Sprintf("/projects/%d/wiki?q=api+tests", pid), nil); !strings.Contains(w.Body.String(), `"match":"any"`) {
+		t.Fatalf("the route's fallback: %s", w.Body)
+	}
+	pg, err := d.wikiPut(pid, wikiActor{By: "bob"}, wikiChange{Slug: "traps", Title: "Traps and gaps", Body: "# Traps in llm-gw (read in api.go)\n\n- one", Base: &zero})
+	if err != nil || pg.Body != "Traps in llm-gw (read in api.go)\n\n- one" {
+		t.Fatalf("a heading other than the title: %q %v", pg.Body, err)
+	}
+	one := int64(1)
+	_, err = d.wikiPut(pid, wikiActor{By: "alice"}, wikiChange{Slug: "traps", Body: "x", Base: &zero})
+	if err == nil || err.Error() != "Another agent changed the contents of this article since you last read it (now version 1, by bob) — read the article again before editing." {
+		t.Fatalf("the conflict's facts: %v", err)
+	}
+	_ = one
+	for _, s := range wikiToolSpecs(true) {
+		if wikiWrites[s.Function.Name] && !strings.Contains(s.Function.Description, "(note required: one line, why)") {
+			t.Errorf("%s doesn't say its note is required", s.Function.Name)
+		}
+	}
+	if p := dreamPrompt(fx.p, fx.k, true, false); !strings.Contains(p, "Just before you write a page, read it again") ||
+		!strings.Contains(p, "Don't mark what you add with your task number or name") || !strings.Contains(p, "For a table or a list read from one place") {
+		t.Fatalf("the dream prompt:\n%s", p)
 	}
 }

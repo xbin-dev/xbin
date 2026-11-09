@@ -334,6 +334,9 @@ func (ag *Agent) projectPromptFor(run *Run, cfg Config) string {
 	if ref.isCoordinator() {
 		return projectCoordPrompt(p, run)
 	}
+	if ref.Role == projRoleResearch { // a coordinator's research subagent: the wiki's index (project_wiki_prompt.go)
+		return researchWikiPrompt(ag.db, p, run)
+	}
 	root := run
 	if run.ParentID != 0 {
 		if root, err = ag.db.getRun(rootOf(run)); err != nil {
