@@ -29,6 +29,7 @@ function register(P) {
   P.dragShield = require('./passes/dragshield').dragShield; // D217 (#54): fast drags across tile pages — a window's corner and title bar, a float's and a sub-window's corner then their title bars held and dragged (the size stays), a Tiled divider; Escape and a lost focus mid-drag; no shield left — in its own Chromium with tile pages out of process
   P.projectsNeeds = require('./passes/projectsneeds').projectsNeeds; // #56: Waiting for you atop a project's page (a task's question, the coordinator's, a failure), Open, the list's badge split — light and dark, the project's routes stubbed
   P.projectWiki = require('./passes/projectwiki').projectWiki; // D222: a project's Wiki tab — the pages, a link, New page, two writers (the conflict's words, Reload), history's diff; light and dark (mocked project routes)
+  P.projectWizard = require('./passes/projectwizard').projectWizard; // D223: the new-project wizard — the step header, Next saying why, the repo combobox, Name from the repo, the starter, Review; light and dark (mocked project routes)
 }
 
 module.exports = { register };

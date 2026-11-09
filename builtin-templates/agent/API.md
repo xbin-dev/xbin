@@ -3489,7 +3489,7 @@ conversation.
 | Method and path | Need | Body | Answer |
 |---|---|---|---|
 | `GET /projects?state=&kind=&cursor=` | Any | — | `{items: [ProjectView], next}` — those you may see, latest activity first (`state` default: all but `deleting`) |
-| `POST /projects` | Start | `{name, scm, repos: [{repo, slug?, setup?}], sandbox: {ref} \| {new: {provider, image?, size?, egress?}}, policy?, share?: {visibility, teamRole, members: [{user, role}]}, kind?: "team"}` | **201** `{project, jobs}` |
+| `POST /projects` | Start | `{name, scm, repos: [{repo, slug?, setup?}], sandbox: {ref} \| {new: {provider, image?, size?, egress?}}, policy?, share?: {visibility, teamRole, members: [{user, role}]}, kind?: "team", starter?: {build?, wiki?}}` | **201** `{project, jobs, starter?: {build, wiki}}` |
 | `GET /projects/{pid}` | V | — | `{project: ProjectView}` |
 | `PATCH /projects/{pid}` | O | `{version, name?, policy?, visibility?, teamRole?, state?: "active" \| "archived"}` | `{project}`; **412** `{error, version}` when `version` isn't the current one |
 | `DELETE /projects/{pid}?sandbox=keep\|delete` | O | — | **202** `{state: "deleting"}` |
@@ -3534,6 +3534,58 @@ another tile made) isn't shared: `share`, a team visibility and `POST
 /projects/{pid}/members` answer 409 "a component's project isn't shared"
 — its tasks work with the component's authority, which takes part in no
 one else's conversation (a team definition, which has no tasks, may be).
+
+**Starter work** (D223; `project_starter.go`). `starter: {build, wiki}`
+asks for work the project starts with — the new-project wizard's Get
+started step, both on there:
+
+- **`build`** — once the project's workspace is ready (its sandbox laid
+  out and every repo cloned: the last sandbox or repo job done), task #1,
+  made as the project's creator (`createTask`, as `POST
+  /projects/{pid}/tasks` makes one, its class and engine the policy's),
+  titled "Clone, build and run the tests", its brief built in: for each
+  repo, find how it is built and tested (README, Makefile, CI config,
+  package files; no build docs — say so and work it out from its
+  manifests), build it and run its tests in the workspace, change no code
+  and open no pull request, and answer per repo with the commands that
+  worked, the toolchain, how long they took, what passed and failed (the
+  failing tests' names and first error lines) and what had to be
+  installed or worked around. When its first turn ends it gets a **dream
+  round** (§Project wiki, "Dreaming"; `policy.dream`, the round's own
+  rules — a turn that failed, was cancelled or waits for a person gets
+  none), so what it verified goes into the wiki.
+- **`wiki`** — the creator's coordinator (made now if they have none) is
+  sent one message, source `starter` (the platform's, never a person's;
+  the chat shows it as a notice, "Project starter"), opening `[project
+  starter — from the platform, not a person]`: build the project's
+  initial wiki — read task #1's answer (`task_result 1`) and the pages its
+  dream round wrote, then map, with research subagents in parallel (one
+  per repo or area), where things live, how to build, test and run it,
+  the architecture and main flows, conventions and traps; a page per
+  topic and the `index` (≤ 60 lines), paths, commands and errors quoted
+  verbatim with how each fact is known; then tell its person in two lines
+  what the wiki covers. With `build` it goes once task #1's dream round's
+  pages are in (a built-in task's dream turn ended; a coding agent's
+  ingest over) — at once when there is no round, after 30 minutes at most
+  when one doesn't end; when task #1 ends otherwise (its workspace failed,
+  it was cancelled or deleted) it goes then, telling the coordinator to
+  say what failed; when task #1 couldn't be made, at once, saying why.
+  Without `build`, as soon as the workspace is ready.
+
+Each step happens once: the record (the setting `proj_starter:<pid>`)
+is marked in the transaction that makes task #1 or queues the message,
+and a `starter` job does the work — queued in the transaction that made it
+due, so a restart loses nothing and repeats nothing. Each step is an event
+(`note`): "starter: task #1 created", "starter: the coordinator builds the
+initial wiki" (or why it couldn't). Refused before anything is made: a
+team project's definition (no tasks, no coordinator) and a project
+without a sandbox — 409 `refusal: "starter"`; `wiki` from a component
+(a coordinator is a person's own) — 409; `wiki` where the coordinator's
+class (the built-in web class) has internal reach or is the managers' —
+409 `class-internal` / 403; `build` where the policy's task class isn't
+one the creator may use without a manager's rights (task #1 is made in
+the background as them) — its refusal. No `starter`, or both false: the
+project starts as before, and the answer has no `starter`.
 
 **A shared project has its sandbox to itself.** Everyone who may talk in a
 project's tasks runs commands in its sandbox, and so may read anything kept
@@ -5438,24 +5490,66 @@ conversation becomes the project's task 1 and is read again (its crumb
 and chips appear); a refusal (`class-internal`, the bot rule) is said in
 the dialog.
 
-**A new project** (the page's **New project**): the scm provider
-(`GET /projects/scm` — each bound one as this home sees it, what it says
-of you), the repos — a picker of what you can reach through it
-(`GET /projects/scm/repos`), each with an optional setup script — a name,
-its sandbox (a new one: manager, image, size, network — the manager's
-default image and size and internet by default, in both views; or one of
-your own private sandboxes) and the policy basics
-(tasks at once, who answers tasks, pull requests opened by hand or as a
-draft or ready when a task rests, whose identity it works as when the
-provider offers both). In an unpartitioned agent it may be shared with
-everyone who can open the agent at once. At a partitioned agent's shared
-space the form makes a team project's definition (`kind: "team"`), sent
-shared — with everyone who can open the agent, or only the members added
-next — its seed sandbox optional (none at first). A seed picked from your
-own sandboxes is one you have shared with the team: an existing sandbox
-keeps its own visibility, and members' sandboxes fork from the seed only
-when they can see it, so the form offers only those (a private one of
-yours must be shared first). Then `POST /projects` and its page.
+**A new project** (the page's **New project**; D223) is a wizard over one
+form (`app.projects.form`; its steps `model/project-wizard.js`): a step
+header — **1 Code · 2 Name · 3 Sandbox · 4 How it works · 5 Get started ·
+6 Review**, the steps seen so far a click away — one step at a time, Back
+and Next, Next disabled while the step can't go on, saying why beside it
+("Choose a repo.", "Name the project.", "Pick a sandbox, or make a new
+one.", …). Steps that don't apply are left out and the rest numbered on: a
+team project's definition has no Get started, and one made from your own
+space no Sandbox either.
+
+1. **Code** — the scm provider (`GET /projects/scm` — each bound one as
+   this home sees it, what it says of you; signing in, below), then the
+   repos: a combobox (ARIA `combobox` and `listbox`; ↓/↑, Home/End, Enter,
+   Escape) that opens on focus with the repos you can reach (the first page
+   of `GET /projects/scm/repos`), filters as you type (one search 250 ms
+   after the last keystroke; the latest answer wins) and ends with "more"
+   while there is a next page. Each option says `owner/name`, private, your
+   permission and archived — an archived one is disabled, saying it is
+   read-only. Choosing one adds it at once; the chosen repos are rows below,
+   each removable, its setup script a folded "setup script (optional)".
+2. **Name** — the first repo's name until you type one; in a person's own
+   space, who it is for: just you, or a team project's definition (below).
+3. **Sandbox** — a new one (manager, image, size, network — the manager's
+   default image and size and internet by default, in both views) or one of
+   your own private sandboxes; at the shared space its seed (below).
+4. **How it works** — tasks at once, who answers tasks, pull requests
+   opened by hand or as a draft or ready when a task rests, whose identity
+   it works as when the provider offers both, the wiki's dream rounds
+   (`policy.dream`, on; only where the backend has the wiki), and, where
+   the project may be shared, who can see it.
+5. **Get started** — the starter work (`starter`, §Projects and tasks,
+   "Starter work"), each said in a line and on by default: **Clone, build
+   and run the tests** (task #1) and **Create the initial knowledge base**
+   (your coordinator builds the wiki, after task #1 when both are chosen).
+   Disabled, saying why, where it can't apply: a backend without the
+   project wiki has no starter either (the page probes `GET
+   /projects/0/wiki` once: a 404 with a JSON body means the route is
+   there, the mux's plain 404 that it isn't), and the knowledge base needs
+   a coordinator — its class, the built-in web class, among the classes you
+   may use (`GET /classes`) without internal reach. A backend that answers
+   without `starter` is said after Create.
+6. **Review** — everything chosen, each part with **Edit** to its step
+   (then **Review** goes straight back), and **Create** — `POST /projects`,
+   then its page.
+
+In an unpartitioned agent it may be shared with everyone who can open the
+agent at once. At a partitioned agent's shared space the wizard makes a
+team project's definition (`kind: "team"`), sent shared — with everyone
+who can open the agent, or only the members added next — its seed sandbox
+optional (none at first). A seed picked from your own sandboxes is one you
+have shared with the team: an existing sandbox keeps its own visibility,
+and members' sandboxes fork from the seed only when they can see it, so
+the form offers only those (a private one of yours must be shared first).
+
+The app's screens are the same wizard (`native/project-new.js`): a screen
+pushed per step (its subtitle "2 of 6 · Name"), Next in its toolbar
+(disabled, the reason in a notice below), back the stack's own, Edit on
+Review going back to that step's screen; the repos are a search field
+over what you can reach, a tap on a result adding it, the chosen ones with
+a swipe to remove and their setup script in a disclosure.
 
 **Signing in to the provider** (a person's partition, where projects use
 your own sign-in): offered only there, and only when the provider lets you
