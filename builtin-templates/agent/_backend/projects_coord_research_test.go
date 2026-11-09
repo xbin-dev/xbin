@@ -157,7 +157,7 @@ func TestResearchReadOnly(t *testing.T) {
 	}
 	for id, want := range map[string]string{"c1": "not available to a research subagent", "c2": "not available to a research subagent",
 		"c3": "not available to a research subagent", "c4": "isn't one of research's read-only options", "c5": "isn't one of research's read-only options", "c6": "# web", "c7": "first",
-		"c8": "outside the project's code", "c9": "error", "c10": "error", "c11": "created readme", "c12": "README.md",
+		"c8": "outside the project's code", "c9": "error", "c10": "error", "c11": "wrote readme — a new page", "c12": "README.md",
 		"e1": "-e needs a value", "e1b": "-e needs a value", "e2": "absolute path",
 		"e3": "absolute or home pattern", "e4": ".. isn't taken", "e5": ".. isn't taken"} {
 		if !strings.Contains(results[id], want) {

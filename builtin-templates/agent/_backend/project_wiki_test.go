@@ -50,7 +50,7 @@ func TestWikiCAS(t *testing.T) {
 	fx := newWikiFix(t)
 	out, err := fx.tool(t, fx.coord, "wiki_write", map[string]any{"slug": "build", "title": "Build and test",
 		"body": "Run `make check` before pushing.", "note": "what I verified", "sources": []any{"Makefile"}})
-	if err != nil || !strings.Contains(out, "created build") {
+	if err != nil || !strings.Contains(out, "wrote build — a new page, version 1") {
 		t.Fatalf("the coordinator's first write: %q %v", out, err)
 	}
 	if _, err := fx.tool(t, fx.task, "wiki_write", map[string]any{"slug": "x", "body": "y", "note": "z"}); err == nil ||
@@ -80,7 +80,7 @@ func TestWikiCAS(t *testing.T) {
 		t.Fatal(err)
 	}
 	if out, err := fx.tool(t, fx.task, "wiki_write", map[string]any{"slug": "build", "body": "Run `make check vet`; CI runs the same.", "note": "merged"}); err != nil ||
-		!strings.Contains(out, "version 3") {
+		!strings.Contains(out, "wrote build — now version 3") {
 		t.Fatalf("the write after reading again: %q %v", out, err)
 	}
 	pg, _ := fx.ag.db.wikiPage(fx.p.ID, "build")
@@ -352,5 +352,94 @@ func TestWikiArchivedReviveAndPruneKeepsSnapshot(t *testing.T) {
 	}
 	if again := fx.ag.projectPromptFor(fx.task, tcfg); again != first || !strings.Contains(again, "v1") {
 		t.Fatalf("the brief changed after pruning:\n%s", again)
+	}
+}
+
+// The lab's case: a task (and a coordinator, within its turn) started while
+// the wiki had no index — the usual case in a new project — takes the index
+// once it is written (one prompt-cache miss), then keeps that version.
+func TestWikiIndexArrivesLater(t *testing.T) {
+	fx := newWikiFix(t)
+	d, pid := fx.ag.db, fx.p.ID
+	tcfg, _ := d.runConfig(fx.task.ID)
+	ccfg, _ := d.runConfig(fx.coord.ID)
+	if b := fx.ag.projectPromptFor(fx.task, tcfg); !strings.Contains(b, "It has no index page yet") {
+		t.Fatalf("the brief before an index:\n%s", b)
+	}
+	if c := fx.ag.projectPromptFor(fx.coord, ccfg); !strings.Contains(c, "no index page yet") {
+		t.Fatalf("the coordinator before an index:\n%s", c)
+	}
+	zero := int64(0)
+	if _, err := d.wikiPut(pid, wikiActor{By: "bob"}, wikiChange{Slug: "index", Body: "- [[build]]: how to build", Base: &zero}); err != nil {
+		t.Fatal(err)
+	}
+	first := fx.ag.projectPromptFor(fx.task, tcfg)
+	if !strings.Contains(first, "(version 1)") || !strings.Contains(first, "how to build") || strings.Contains(first, "no index page yet") {
+		t.Fatalf("the brief once the index exists:\n%s", first)
+	}
+	if c := fx.ag.projectPromptFor(fx.coord, ccfg); !strings.Contains(c, "(version 1)") {
+		t.Fatalf("the coordinator within its turn once the index exists:\n%s", c)
+	}
+	one := int64(1)
+	if _, err := d.wikiPut(pid, wikiActor{By: "bob"}, wikiChange{Slug: "index", Body: "- [[deploy]]: deploys", Base: &one}); err != nil {
+		t.Fatal(err)
+	}
+	if again := fx.ag.projectPromptFor(fx.task, tcfg); again != first {
+		t.Fatalf("the brief moved past the version it took:\n%s", again)
+	}
+}
+
+// The lab's other findings on writing: a body opening with a heading that
+// repeats the title loses it (on a write and on a dream file's ingest); an
+// agent's change needs a note (a person's PUT doesn't); success says what
+// happened, not a state that reads like an error.
+func TestWikiWriteShape(t *testing.T) {
+	fx := newWikiFix(t)
+	d, pid := fx.ag.db, fx.p.ID
+	for _, c := range []struct{ title, body, want string }{
+		{"Build and test", "# Build and test\n\nRun `make`.", "Run `make`."},
+		{"Build and test", "#  build AND TEST — notes\nRun `make`.", "Run `make`."},
+		{"Build and test", "# Deploy\n\nRun `make`.", "# Deploy\n\nRun `make`."},
+		{"Build and test", "## Build and test\nRun `make`.", "## Build and test\nRun `make`."},
+	} {
+		if got := wikiDropTitleHeading(c.body, c.title); got != c.want {
+			t.Errorf("%q under %q: %q, want %q", c.body, c.title, got, c.want)
+		}
+	}
+	out, err := fx.tool(t, fx.coord, "wiki_write", map[string]any{"slug": "build", "title": "Build and test", "body": "# Build and test\n\nRun `make`.", "note": "first"})
+	if err != nil || out != "wrote build — a new page, version 1 (11 B)" {
+		t.Fatalf("a new page: %q %v", out, err)
+	}
+	if pg, _ := d.wikiPage(pid, "build"); pg.Body != "Run `make`." {
+		t.Fatalf("the title repeated as a heading was kept: %q", pg.Body)
+	}
+	if _, err := fx.tool(t, fx.coord, "wiki_edit", map[string]any{"slug": "build", "old": "make", "new": "make all"}); err == nil ||
+		err.Error() != "note: say in a line why you change this page" {
+		t.Fatalf("an edit without a note: %v", err)
+	}
+	if out, err := fx.tool(t, fx.coord, "wiki_edit", map[string]any{"slug": "build", "old": "make", "new": "make all", "note": "all"}); err != nil ||
+		!strings.HasPrefix(out, "edited build — now version 2 (") {
+		t.Fatalf("an edit: %q %v", out, err)
+	}
+	if out, _ := fx.tool(t, fx.coord, "wiki_write", map[string]any{"slug": "build", "title": "Build and test", "body": "Run `make all`.", "note": "same"}); !strings.HasPrefix(out, "no change: build") {
+		t.Fatalf("a write of the same text: %q", out)
+	}
+	if out, err := fx.tool(t, fx.coord, "wiki_archive", map[string]any{"slug": "build", "note": "merged into layout"}); err != nil || out != "archived build — now version 3" {
+		t.Fatalf("an archive: %q %v", out, err)
+	}
+	for _, name := range []string{"wiki_write", "wiki_archive"} {
+		if _, err := fx.tool(t, fx.coord, name, map[string]any{"slug": "x", "body": "y", "note": "  "}); err == nil || !strings.HasPrefix(err.Error(), "note:") {
+			t.Errorf("%s with a blank note: %v", name, err)
+		}
+	}
+	if w := callAs(t, fx.mux, asAlice, "PUT", fmt.Sprintf("/projects/%d/wiki/people", pid), map[string]any{"body": "no note needed", "baseVersion": 0}); w.Code != 200 {
+		t.Fatalf("a person's PUT without a note: %d %s", w.Code, w.Body)
+	}
+	// a dream file: its # title, then the same heading again in the body
+	pg := parseDreamPage("notes.md", "<!-- wiki: notes version 0 -->\n# Notes\n\n# Notes\n\nBuild with make.\n")
+	base := pg.base
+	got, err := d.wikiPut(pid, wikiActor{By: "task #1 (dream)", Run: fx.task.ID, Task: 1}, wikiChange{Slug: pg.slug, Title: pg.title, Body: pg.body, Base: &base, Note: "dream round"})
+	if err != nil || got.Title != "Notes" || got.Body != "Build with make." {
+		t.Fatalf("an ingested page with its title twice: %+v %v", got, err)
 	}
 }

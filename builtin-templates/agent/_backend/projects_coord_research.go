@@ -211,9 +211,11 @@ func researchSystem(p *Project, b *CodeReadBinding) string {
 	if len(b.Heads) > 0 {
 		fmt.Fprintf(&s, "Checkouts: %s.\n", strings.Join(b.Heads, "; "))
 	}
-	s.WriteString(`Tools: read, ls, glob and grep for the files; git (read-only: log, show, diff, blame, grep, ls-files, status) for history; wiki_search, wiki_read, wiki_list and wiki_history for the project wiki — notes earlier agents and people kept, which may be wrong: verify them against the code.
+	fmt.Fprintf(&s, "Tools: read, ls, glob and grep for the files; git (read-only: %s) for history; ", gitSubWords(", ", ", "))
+	s.WriteString(`wiki_search, wiki_read, wiki_list and wiki_history for the project wiki — notes earlier agents and people kept, which may be wrong: verify them against the code.
 Answer with the facts the coordinator needs, each with its file path (and line) or commit, identifiers quoted verbatim; say what you could not determine.
-Keep what you verified for the next agent: when you confirm something worth knowing — how to build, test or run it, where a thing lives, a trap — write it to the wiki (wiki_write, wiki_edit), on the page it belongs to rather than a near-duplicate (read a page before you change it), and keep the index page a short map of the pages. Never record task status or anything that will be stale next week.
+Keep what you verified for the next agent: when you confirm something worth knowing — how to build, test or run it, where a thing lives, a trap — write it to the wiki (wiki_write, wiki_edit), on the page it belongs to rather than a near-duplicate (read a page before you change it), and keep the index page (slug ` + "`index`" + `) a short map of the pages. Never record task status or anything that will be stale next week.
+` + wikiProvenance + `
 You have 10 minutes; after that your tools stop answering.`)
 	return s.String()
 }
@@ -440,7 +442,7 @@ func researchRemove(b CodeReadBinding) {
 
 func gitSpec() toolSpec {
 	return toolSpec{Type: "function", Function: funcDef{Name: "git",
-		Description: "Run a read-only git command in the code you are reading: log, show, diff, blame, grep or ls-files — argv only, no shell. " +
+		Description: "Run a read-only git command in the code you are reading: " + gitSubWords(", ", " or ") + " — argv only, no shell. " +
 			"Each subcommand takes its read-only options by exact name, one flag per argument, a long option's value attached (--date=iso); paths stay relative to the repository. " +
 			"diff compares commits (A B, A..B) or the index (--cached); blame names its revision ([\"blame\", \"HEAD\", \"--\", \"file\"]).",
 		Parameters: obj([]string{"args"}, map[string]any{

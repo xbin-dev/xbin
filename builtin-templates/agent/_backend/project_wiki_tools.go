@@ -52,7 +52,7 @@ func wikiToolSpecs(write bool) []toolSpec {
 				"offset": intProp("character offset to start from, for a long page (default 0)"),
 			})}},
 		{Type: "function", Function: funcDef{Name: "wiki_list",
-			Description: "List this project's wiki pages — slug, title, version, size, who changed it last — the index (its map) first.",
+			Description: "List this project's wiki pages — slug, title, version, size, who changed it last — the index (slug `index`, its map) first.",
 			Parameters:  obj(nil, map[string]any{})}},
 		{Type: "function", Function: funcDef{Name: "wiki_history",
 			Description: "A wiki page's versions, newest first: who changed it, when and why. " +
@@ -69,7 +69,8 @@ func wikiToolSpecs(write bool) []toolSpec {
 		toolSpec{Type: "function", Function: funcDef{Name: "wiki_write",
 			Description: "Create a page of this project's wiki, or replace a whole page — Markdown, [[slug]] links to other pages, at most 16 KB. " +
 				"To replace an existing page, wiki_read it first: a write is refused when another agent changed the page since you read it (then read it again and merge). " +
-				"Record verified facts with their paths, quoting identifiers and commands verbatim; never task status or anything stale next week.",
+				"Record verified facts with their paths, quoting identifiers and commands verbatim; never task status or anything stale next week. " +
+				wikiProvenance + " The title is shown above the body: don't repeat it as a heading. The index page (slug `index`) is the wiki's short map.",
 			Parameters: obj([]string{"slug", "body", "note"}, map[string]any{
 				"slug":    slug,
 				"title":   strProp("the page's title (default: kept, or the slug in words)"),
@@ -221,7 +222,7 @@ func (ag *Agent) runWikiTool(_ context.Context, run *Run, cfg Config, name strin
 		pages := d.wikiPages(pid, false)
 		if len(pages) == 0 {
 			if r.write {
-				return "the wiki is empty — wiki_write starts it (an index page is its map)", nil
+				return "the wiki is empty — wiki_write starts it (the index page, slug `index`, is its map)", nil
 			}
 			return "the wiki is empty", nil
 		}
@@ -295,6 +296,9 @@ func (ag *Agent) runWikiTool(_ context.Context, run *Run, cfg Config, name strin
 		return strings.TrimRight(b.String(), "\n"), nil
 	case "wiki_write", "wiki_edit", "wiki_archive":
 		c := wikiChange{Slug: str(args["slug"]), Note: str(args["note"])}
+		if strings.TrimSpace(c.Note) == "" { // the history's reason (a person's PUT may leave it out)
+			return "", errors.New("note: say in a line why you change this page")
+		}
 		switch name {
 		case "wiki_write":
 			c.Title, c.Body = str(args["title"]), str(args["body"])
@@ -314,12 +318,16 @@ func (ag *Agent) runWikiTool(_ context.Context, run *Run, cfg Config, name strin
 			return "", err
 		}
 		switch {
+		case p.unchanged:
+			return fmt.Sprintf("no change: %s already reads so (version %d)", p.Slug, p.Version), nil
 		case p.Archived:
-			return fmt.Sprintf("archived %s (version %d)", p.Slug, p.Version), nil
+			return fmt.Sprintf("archived %s — now version %d", p.Slug, p.Version), nil
+		case name == "wiki_edit":
+			return fmt.Sprintf("edited %s — now version %d (%s)", p.Slug, p.Version, humanBytes(p.Size)), nil
 		case p.Version == 1:
-			return fmt.Sprintf("created %s (version 1, %s)", p.Slug, humanBytes(p.Size)), nil
+			return fmt.Sprintf("wrote %s — a new page, version 1 (%s)", p.Slug, humanBytes(p.Size)), nil
 		}
-		return fmt.Sprintf("%s is at version %d (%s)", p.Slug, p.Version, humanBytes(p.Size)), nil
+		return fmt.Sprintf("wrote %s — now version %d (%s)", p.Slug, p.Version, humanBytes(p.Size)), nil
 	}
 	return "", fmt.Errorf("unknown tool %q", name)
 }

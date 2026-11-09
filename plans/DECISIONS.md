@@ -13540,6 +13540,22 @@ Deviations and refinements made while implementing; all deliberate:
     answer doesn't replace the task's latest. The end dream holds the
     task's cleanup back until its pages are in (30 minutes at most) —
     chosen over skipping it, since cleanup is on by default.
+  - **Tried with agents (2026-11-08).** A lab ran five real agents
+    (Sonnet and Haiku) on the real wiki code — coordinator, research
+    subagents, a built-in task and a coding-agent task. It showed: a task
+    started before the wiki had an index never saw one (a "no index"
+    snapshot was kept for life — now it isn't: the index is taken once it
+    exists, then kept); agents had to guess the map's slug (prompts and
+    tool descriptions now say `index`); they asked for a way to tell
+    verified from reported from not runnable (no schema field: every
+    writer is asked to say "(read in path:line)", "(ran `cmd`)" or
+    "(reported by ‹who›, unverified)", and to keep facts about its own
+    session in the note); they repeated the title as a heading (a leading
+    `# …` that repeats the title is dropped on write and ingest); "‹slug›
+    is at version 2" read as an error (now "edited/wrote/archived ‹slug› —
+    now version N"); an edit without a note left a blank reason (agents'
+    changes now need one; people's `PUT` doesn't); the folder README and
+    the research prompt still named `wiki-out/<slug>.md` and git `status`.
   - **Not done.** A task reads "working" during its dream turn; on a
     downgrade a queued wiki sync or ingest job fails its task's workspace
     ("not in this build"); real Claude Code/Codex sessions writing

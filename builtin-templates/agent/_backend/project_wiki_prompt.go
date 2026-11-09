@@ -11,6 +11,11 @@ import (
 	"strings"
 )
 
+// wikiProvenance is how every writer of the wiki is told to say how a fact
+// is known (the lab: agents couldn't tell verified from reported).
+const wikiProvenance = "State how each fact is known: (read in path:line), (ran `cmd`), (reported by ‹who›, unverified). " +
+	"Never write facts about your own environment or session (\"not verified here\"): those go in the note."
+
 // wikiBrief is the # Project wiki part of task k's brief ("" for a
 // subagent of it: it has no wiki tools).
 func wikiBrief(d *DB, p *Project, k *ProjectTask, sub bool) string {
@@ -43,12 +48,13 @@ func coordWikiPrompt(d *DB, p *Project, run *Run) string {
 	var b strings.Builder
 	b.WriteString(`
 - Use research for any question about the code — what it does, where a thing is, how to build or test it, what a task changed: a research subagent reads the repos (or a task's worktree) and answers. Give it the question and the facts it needs; don't guess about code nobody read.
-- The project wiki keeps what the project's agents verified: search and read it before you research, and keep it true — update the page a fact belongs on (wiki_read it first), archive what is wrong, keep the index page a short map of the pages. Tasks see the index in their brief and add what they learned when their work goes to review.`)
+- The project wiki keeps what the project's agents verified: search and read it before you research, and keep it true — update the page a fact belongs on (wiki_read it first), archive what is wrong, keep the index page (slug ` + "`index`" + `) a short map of the pages. Tasks see the index in their brief and add what they learned when their work goes to review.
+  ` + wikiProvenance)
 	v, body, ok := d.wikiIndexFor(p.ID, run.ID)
 	if ok {
 		b.WriteString("\n" + strings.TrimRight(wikiPromptIndex(v, body), "\n"))
 	} else {
-		b.WriteString("\nThe wiki has no index page yet: write one (slug index) once there are pages to map.")
+		b.WriteString("\nThe wiki has no index page yet: write one (slug `index`) once there are pages to map.")
 	}
 	return b.String()
 }

@@ -172,5 +172,6 @@ things live, traps and decisions. They may be wrong or out of date — verify
 what you rely on. index.md is the map; grep the folder for the rest.
 
 The platform rewrites this folder when the wiki changes; edits here are lost.
-In a dream round you write pages to ../wiki-out/<slug>.md instead.
+In a dream round you write pages to the folder the dream round's prompt
+names (../wiki-out/<task number>/<slug>.md) instead.
 `

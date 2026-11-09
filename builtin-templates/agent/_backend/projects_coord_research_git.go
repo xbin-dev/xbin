@@ -82,6 +82,14 @@ var gitSubs = map[string]gitSub{
 		"--full-name": false, "--stage": false, "-s": false, "--deduplicate": false, "--error-unmatch": false}},
 }
 
+// gitSubOrder is the subcommands as prompts and refusals list them.
+var gitSubOrder = []string{"log", "show", "diff", "blame", "grep", "ls-files"}
+
+// gitSubWords is gitSubOrder in words ("log, show, … or ls-files").
+func gitSubWords(sep, last string) string {
+	return strings.Join(gitSubOrder[:len(gitSubOrder)-1], sep) + last + gitSubOrder[len(gitSubOrder)-1]
+}
+
 // gitGlobals come before the subcommand: no pager, no optional locks, and
 // what the repository's config could otherwise run switched off.
 var gitGlobals = []string{"--no-pager", "--no-optional-locks", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null",
@@ -97,7 +105,7 @@ func gitArgv(args []string, dir string, roots []string) ([]string, error) {
 	}
 	sub, ok := gitSubs[args[0]]
 	if !ok {
-		return nil, fmt.Errorf("git %s isn't one of research's: log, show, diff, blame, grep or ls-files", clip(args[0], 40))
+		return nil, fmt.Errorf("git %s isn't one of research's: %s", clip(args[0], 40), gitSubWords(", ", " or "))
 	}
 	var revs, paths []string
 	cached, dashes := false, false

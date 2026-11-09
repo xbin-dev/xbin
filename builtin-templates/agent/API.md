@@ -4658,7 +4658,21 @@ instead (0: a new page — or an archived one, which comes back).
 | `wiki_archive` | `slug`, `note` | the same |
 
 A coding agent's run has none of them: it reads the wiki from files and
-writes it in its dream round (below). A task's subagents have none.
+writes it in its dream round (below). A task's subagents have none. An
+agent's change needs its `note` — the history's reason: a blank one is
+refused (`note: say in a line why you change this page`); a person's `PUT`
+may leave it out, and a dream's ingest writes `dream round`. A change
+answers what it did: `wrote ‹slug› — a new page, version 1 (‹size›)`,
+`wrote ‹slug› — now version ‹N› (‹size›)`, `edited ‹slug› — now version
+‹N› (‹size›)`, `archived ‹slug› — now version ‹N›`, or `no change: …` for
+the page as it was. On every write (a person's, an agent's, a dream
+file's) a body that opens with a `# …` heading repeating the title (equal
+to it, or starting with it, in any case) loses that line: the title is
+shown above the body. The prompts and `wiki_write`'s description ask every
+writer to say how each fact is known — "(read in path:line)", "(ran
+`cmd`)", "(reported by ‹who›, unverified)" — and to keep facts about their
+own environment or session out of the page (they go in the note); and they
+name the map by its slug, `index`.
 
 **In prompts.** The `index` page is in the coordinator's `# Project`
 section and in every task's brief (a `# Project wiki` part), framed as
@@ -4669,8 +4683,11 @@ coordinator's markers (`[project updates`, `[end of untrusted text]`, …)
 and the frame's own `<wiki-index>` tags defused in any case, spacing or
 full-width bracket, and at most 3 KB, cut at a line's end. The
 coordinator's prompt counts the wiki's pages among what is data. A task's brief shows the index as it was when the task
-started (its snapshot), so the prompt stays the same bytes and the cache
-warm; the coordinator's shows it as it was at the start of its turn. The
+first saw one (its snapshot), so the prompt stays the same bytes and the
+cache warm; the coordinator's shows it as it was when its turn first saw
+one. "No index yet" isn't kept: a task (or a coordinator's turn) that
+started before the index was written takes it once it exists — one
+prompt-cache miss — and keeps that version from then on. The
 coordinator is told to research any code question and to keep the wiki
 true; a coding agent's brief points at `.xbin/wiki/index.md`.
 

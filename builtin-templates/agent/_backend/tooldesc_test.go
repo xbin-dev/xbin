@@ -97,7 +97,7 @@ func TestToolDescriptionFirstSentences(t *testing.T) {
 	wiki := map[string]string{
 		"wiki_search":  "Search this project's wiki — the notes its agents and people keep: how to build and test, traps, decisions — by words, for the best-matching pages with a snippet each.",
 		"wiki_read":    "Read a page of this project's wiki in full by its slug — notes that may be wrong, so verify what you rely on.",
-		"wiki_list":    "List this project's wiki pages — slug, title, version, size, who changed it last — the index (its map) first.",
+		"wiki_list":    "List this project's wiki pages — slug, title, version, size, who changed it last — the index (slug `index`, its map) first.",
 		"wiki_history": "A wiki page's versions, newest first: who changed it, when and why.",
 		"wiki_write":   "Create a page of this project's wiki, or replace a whole page — Markdown, [[slug]] links to other pages, at most 16 KB.",
 		"wiki_edit":    "Replace an exact piece of a wiki page's text — old must appear in the page exactly once.",

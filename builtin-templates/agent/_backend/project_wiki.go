@@ -172,6 +172,8 @@ type WikiPage struct {
 	CreatedMs  int64    `json:"createdMs"`
 	Size       int      `json:"size"`
 	Reads      int64    `json:"reads"`
+
+	unchanged bool // wikiPut: the write was the page as it was (no version)
 }
 
 // WikiRevision is one version of a page (Body only where asked for).
@@ -428,6 +430,9 @@ func (d *DB) wikiPut(pid int64, a wikiActor, c wikiChange) (*WikiPage, error) {
 		}
 		next.Body = strings.TrimSpace(projRedact(strings.ReplaceAll(next.Body, "\r\n", "\n")))
 		next.Title = clip(oneLineTitle(projRedact(orStr(next.Title, slugTitle(slug)))), wikiTitleMax)
+		if !c.Edit && !c.Archive {
+			next.Body = wikiDropTitleHeading(next.Body, next.Title)
+		}
 		next.Sources = wikiSources(next.Sources)
 		if !next.Archived {
 			if err := wikiFits(t, pid, slug, next.Body, cur); err != nil {
@@ -436,7 +441,9 @@ func (d *DB) wikiPut(pid int64, a wikiActor, c wikiChange) (*WikiPage, error) {
 		}
 		if cur != nil && !c.Archive && cur.Body == next.Body && cur.Title == next.Title && !cur.Archived &&
 			strings.Join(cur.Sources, "\n") == strings.Join(next.Sources, "\n") {
-			out = cur // nothing changed: no version
+			same := *cur
+			same.unchanged = true
+			out = &same // nothing changed: no version
 			t.wikiRead(a.Run, cur)
 			return nil
 		}
@@ -548,6 +555,19 @@ func isWikiNotFound(err error) bool {
 	return errors.As(err, &we) && we.code == 404
 }
 
+// wikiDropTitleHeading is body without a leading `# …` line that repeats
+// title (equal to it, or starting with it, in any case): the title is shown
+// above the body, and agents tend to open the page with it once more.
+func wikiDropTitleHeading(body, title string) string {
+	first, rest, _ := strings.Cut(body, "\n")
+	h, ok := strings.CutPrefix(strings.TrimSpace(first), "# ")
+	t := strings.ToLower(strings.TrimSpace(title))
+	if !ok || t == "" || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(h)), t) {
+		return body
+	}
+	return strings.TrimSpace(rest)
+}
+
 // wikiSources is a page's sources, trimmed, deduplicated, capped.
 func wikiSources(in []string) []string {
 	out := []string{}
@@ -575,15 +595,14 @@ func slugTitle(slug string) string {
 // --- the index in prompts ------------------------------------------------------------------------
 
 // wikiIndexFor is the index as run's prompt shows it: the version it took
-// when it first asked (wiki_snaps), so the prompt is the same bytes from
+// when it first saw one (wiki_snaps), so the prompt is the same bytes from
 // one step to the next — a task's for its whole life, a coordinator's for
-// a turn (wikiTurnEnd drops its snapshot). ok false: no index page (then,
-// or now for a run with no snapshot yet).
+// a turn (wikiTurnEnd drops its snapshot). "No index yet" (version 0) is
+// not kept: a run started before the index was written takes it once it
+// exists — one prompt-cache miss — and keeps that version from then on.
+// ok false: no index page.
 func (d *DB) wikiIndexFor(pid, runID int64) (v int64, body string, ok bool) {
-	if runID != 0 && d.q.QueryRow(`SELECT version FROM wiki_snaps WHERE run_id=?`, runID).Scan(&v) == nil {
-		if v == 0 {
-			return 0, "", false
-		}
+	if runID != 0 && d.q.QueryRow(`SELECT version FROM wiki_snaps WHERE run_id=?`, runID).Scan(&v) == nil && v != 0 {
 		var pageID int64
 		if d.q.QueryRow(`SELECT id FROM wiki_pages WHERE project_id=? AND slug=?`, pid, wikiIndex).Scan(&pageID) == nil {
 			if r, err := d.wikiRevision(pageID, v); err == nil && !r.Archived {
@@ -597,7 +616,8 @@ func (d *DB) wikiIndexFor(pid, runID int64) (v int64, body string, ok bool) {
 		v, body, ok = p.Version, p.Body, true
 	}
 	if runID != 0 {
-		_, _ = d.q.Exec(`INSERT OR IGNORE INTO wiki_snaps (run_id, project_id, version) VALUES (?, ?, ?)`, runID, pid, v)
+		_, _ = d.q.Exec(`INSERT INTO wiki_snaps (run_id, project_id, version) VALUES (?, ?, ?)
+			ON CONFLICT(run_id) DO UPDATE SET version=excluded.version WHERE wiki_snaps.version=0`, runID, pid, v)
 	}
 	return v, body, ok
 }

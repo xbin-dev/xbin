@@ -361,13 +361,14 @@ func dreamPrompt(p *Project, k *ProjectTask, harness, end bool) string {
 	}
 	b.WriteString(`Before you stop, improve the project wiki for the next agent who works on this project.
 Keep what you verified while working: facts with their file paths, how to build, test and run things, traps you hit and how you got past them, decisions and why. Quote identifiers, commands and error messages verbatim.
-Update the page a fact belongs on rather than adding a near-duplicate, and keep the index page a short map of the pages (at most 60 lines).
+Update the page a fact belongs on rather than adding a near-duplicate, and keep the index page (slug ` + "`index`" + `) a short map of the pages (at most 60 lines).
 Never record task status, branches or pull requests, or anything that will be stale next week. If you learned nothing worth keeping, change nothing.
+` + wikiProvenance + `
 Don't change code or push in this round.
 `)
 	if harness {
 		fmt.Fprintf(&b, "The wiki's pages are in %s (read-only; index.md is the map). To add or change a page, write the whole page to %s/<slug>.md (make the folder if it isn't there): "+
-			"its first line is the header of the copy you read, `<!-- wiki: <slug> version <N> -->` — `version 0` for a new page — then `# Title`, then the page in Markdown "+
+			"its first line is the header of the copy you read, `<!-- wiki: <slug> version <N> -->` — `version 0` for a new page — then `# Title`, then the page in Markdown without the title again "+
 			"([[slug]] links to other pages, at most 16 KB). A slug is lowercase letters, digits and dashes.\n", wikiDir(p), wikiOutFor(p, k))
 	} else {
 		b.WriteString("Use wiki_list, wiki_search and wiki_read, then wiki_write or wiki_edit — read a page before you change it.\n")
