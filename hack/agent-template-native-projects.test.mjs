@@ -437,28 +437,87 @@ test('the coordinator before it exists: your first message starts it, then shows
   assert.equal(called(old, 'GET', /\/runs\/\d+\/view/).length, 0);
 });
 
-test('Projects: a new project — a repo, a name, a new sandbox — then its board', async () => {
+test('Projects: a new project — the wizard, a screen per step: a repo found and added by a tap, a name, a new sandbox, the starter — then its board', async () => {
   const seed = projSeed({ sbxManagers: [{ provider: 'apps/coding-sandbox', title: 'Coding sandboxes', ok: true, egress: ['none', 'internet'], images: [{ id: 'base', default: true }], sizes: [{ id: 's', default: true }] }] });
+  const on = (sub) => ({ t: 'screen', p: { title: 'New project', subtitle: sub } });
+  const next = (sub) => ({ tap: { ...btn('Next'), in: on(sub) } });
   const r = await run(seed, [
     { tap: btn('New project') },
     { wait: 60 },
-    { snapshot: 'form' },
-    { tap: { t: 'row', p: { title: 'acme/web' }, in: { t: 'screen', p: { title: 'New project' } } } },
+    { snapshot: 'code' },
+    { input: [{ t: 'field', p: { label: 'Find a repo you can reach' } }, 'we'] },
+    { wait: 400 },
+    { snapshot: 'found' },
+    { tap: { t: 'row', p: { title: 'acme/web' }, in: on('1 of 6 · Code') } },
     { wait: 20 },
-    { tap: btn('Create') },
+    { snapshot: 'chosen' },
+    next('1 of 6 · Code'), { wait: 20 }, { snapshot: 'name' },
+    next('2 of 6 · Name'), { wait: 20 },
+    next('3 of 6 · Sandbox'), { wait: 20 },
+    next('4 of 6 · How it works'), { wait: 20 }, { snapshot: 'start' },
+    next('5 of 6 · Get started'), { wait: 20 }, { snapshot: 'review' },
+    { tap: { ...btn('Create'), in: on('6 of 6 · Review') } },
     { wait: 80 },
     { snapshot: 'made' },
   ], 'proj');
-  const f = topScreen(r.snapshots.form);
-  assert.equal(f.p.title, 'New project');
-  assert.ok(find(f, { t: 'picker', p: { label: 'Provider', value: 'apps/scm-github' } }));
-  assert.equal(find(f, { t: 'row', p: { title: 'acme/attic' } }).p.disabled, true, 'an archived repo can\'t be added');
+  const code = topScreen(r.snapshots.code);
+  assert.equal(code.p.title, 'New project');
+  assert.equal(code.p.subtitle, '1 of 6 · Code');
+  assert.ok(find(code, { t: 'picker', p: { label: 'Provider', value: 'apps/scm-github' } }));
+  assert.equal(find(code, { t: 'row', p: { title: 'acme/attic' } }).p.disabled, true, 'an archived repo can\'t be added');
+  assert.match(find(code, { t: 'row', p: { title: 'acme/attic' } }).p.subtitle, /archived — read-only/);
+  assert.equal(find(code, btn('Next')).p.disabled, true, 'Next waits for a repo');
+  assert.equal(find(code, { t: 'notice', p: { title: 'To go on' } }).p.text, 'Choose a repo.');
+  const searched = called(r, 'GET', /\/projects\/scm\/repos\?/).map((c) => new URL(c.url, 'http://x').searchParams.get('q'));
+  assert.deepEqual(searched, [null, 'we'], 'all your repos, then what you typed — searched once, after the last keystroke');
+  assert.deepEqual(all(topScreen(r.snapshots.found), { t: 'row', in: { t: 'section', p: { title: 'Choose a repo' } } }).map((x) => x.p.title), ['acme/web']);
+  const chosen = topScreen(r.snapshots.chosen);
+  assert.ok(find(chosen, { t: 'row', p: { title: 'acme/web' }, in: { t: 'section', p: { title: 'Repos' } } }), 'a tap adds it at once');
+  assert.ok(find(chosen, { t: 'disclosure', p: { title: 'setup script (optional)' } }), 'its setup script folded');
+  assert.notEqual(find(chosen, btn('Next')).p.disabled, true);
+  assert.deepEqual(titles(r.snapshots.name).slice(-2).map(() => 'New project'), ['New project', 'New project'], 'each step a screen of its own');
+  assert.ok(find(topScreen(r.snapshots.name), { t: 'field', p: { label: 'Name', value: 'web' } }), 'named after its first repo');
+  const start = topScreen(r.snapshots.start);
+  assert.equal(find(start, { t: 'toggle', p: { label: 'Clone, build and run the tests' } }).p.value, true);
+  assert.equal(find(start, { t: 'toggle', p: { label: 'Create the initial knowledge base' } }).p.value, true);
+  const review = topScreen(r.snapshots.review);
+  assert.deepEqual(all(review, { t: 'row', p: { icon: 'pencil' } }).map((x) => x.p.title), ['Edit Code', 'Edit Name', 'Edit Sandbox', 'Edit How it works', 'Edit Get started']);
   const [body] = bodies(r, 'POST', /\/projects$/);
   assert.equal(body.name, 'web');
   assert.deepEqual(body.repos, [{ repo: 'acme/web' }]);
   assert.deepEqual(body.sandbox.new, { provider: 'apps/coding-sandbox', image: 'base', size: 's', egress: 'internet' },
     'the manager\'s defaults, and internet: a sandbox made without an egress has no network, and the repo is cloned in it');
-  assert.deepEqual(titles(r.snapshots.made), ['Agent', 'Projects', 'web']);
+  assert.deepEqual(body.starter, { build: true, wiki: true });
+  assert.deepEqual(titles(r.snapshots.made), ['Agent', 'Projects', 'web'], 'the wizard\'s screens go, the board comes');
+});
+
+test('Projects: the wizard for a team project\'s definition skips the sandbox and the starter; Edit goes back to a step', async () => {
+  const on = (sub) => ({ t: 'screen', p: { title: 'New project', subtitle: sub } });
+  const r = await run({ ...partitionSeed(), partition: 'user:alice' }, [
+    { tap: btn('New project') },
+    { wait: 60 },
+    { tap: { t: 'row', p: { title: 'acme/web' }, in: on('1 of 6 · Code') } },
+    { wait: 20 },
+    { tap: { ...btn('Next'), in: on('1 of 6 · Code') } },
+    { wait: 20 },
+    { event: { k: { t: 'picker', p: { style: 'segmented', value: 'mine' }, in: on('2 of 6 · Name') }, type: 'change', payload: { value: 'team' } } },
+    { wait: 20 },
+    { snapshot: 'name' },
+    { tap: { ...btn('Next'), in: on('2 of 4 · Name') } },
+    { wait: 20 },
+    { tap: { ...btn('Next'), in: on('3 of 4 · How it works') } },
+    { wait: 20 },
+    { snapshot: 'review' },
+    { tap: { t: 'row', p: { title: 'Edit Name' } } },
+    { wait: 20 },
+    { snapshot: 'edit' },
+  ], 'proj');
+  assert.equal(topScreen(r.snapshots.name).p.subtitle, '2 of 4 · Name');
+  const review = topScreen(r.snapshots.review);
+  assert.equal(review.p.subtitle, '4 of 4 · Review');
+  assert.deepEqual(all(review, { t: 'row', p: { icon: 'pencil' } }).map((x) => x.p.title), ['Edit Code', 'Edit Name', 'Edit How it works']);
+  assert.equal(topScreen(r.snapshots.edit).p.subtitle, '2 of 4 · Name', 'Edit: back to its screen, the ones after it gone');
+  assert.equal(titles(r.snapshots.edit).filter((t) => t === 'New project').length, 2);
 });
 
 test('a task\'s conversation: its branch and PR menu, the way back, Open PR once the route exists', async () => {

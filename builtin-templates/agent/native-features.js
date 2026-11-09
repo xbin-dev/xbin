@@ -247,7 +247,8 @@ export const IMPLEMENTS = {
   // Projects — every native key (the list, the board, new projects and tasks, settings, a task's chips, the coordinator, events, upgrades, team projects)
   'proj.entry': 'native/projects.js — the Projects section through ext.drawer (native/convs.js, atop Mine): collapsible (model/projects.js setFolded), a row per pinned project with its badge, All projects (model/projects.js pinned, pinWords); and Projects in the list\'s ⋯ through ext.main (native/home.js mainMenu)',
   'proj.list': 'native/projects.js — the \'projects\' screen: a section per model/projects.js sections() (yours, team, archived), a row per project with its repos, slots and counts',
-  'proj.new': 'native/projects.js — the \'project-new\' screen: the provider (and your sign-in), the repo search and setup scripts, the name, the sandbox, the basics (model/projects.js formBody)',
+  'proj.new': 'native/project-new.js — the \'project-new\' screens, one per step (model/project-wizard.js): the provider (and your sign-in), the repo search (a tap adds) and folded setup scripts, the name, the sandbox, the basics, Review (model/projects.js formBody)',
+  'proj.new.starter': 'native/project-new.js — the Get started screen: a toggle per starter step, its line, and why not (model/project-wizard.js starterOffer)',
   'proj.upgrade': 'native/project-task.js — ⋯ → Make this a project… (model/project-upgrade.js upgradeOffer) and the \'project-upgrade\' screen: the sandbox\'s repos as toggles, https, name, branch, Make it',
   'proj.board': 'native/projects.js — the \'project\' screen: a section per column, a row per task (#n, title, state, branch, PRs, its agent, ext.card\'s words), a tap to its conversation, Cancel task as its swipe action; Find a task and Mine',
   'proj.task.new': 'native/projects.js — the \'project-task-new\' screen (What to do, Title, Create; model/projects.js submitTask)',

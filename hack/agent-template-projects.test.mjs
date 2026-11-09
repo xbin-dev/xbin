@@ -685,6 +685,95 @@ test('the new-project form: what is missing, then the body', async () => {
   assert.equal(pj.formBody().error, 'No sandbox manager to make a sandbox with.', 'a project of your own needs its sandbox');
 });
 
+test('the new-project wizard: its steps where they apply, what keeps a step from going on, the starter offered and sent', async () => {
+  const Z = await import(new URL('model/project-wizard.js', TPL));
+  const f = { teamDef: false, name: '', named: false, scm: '', repos: [], sandbox: { mode: 'new' }, policy: { maxTasks: 3 }, starter: { build: true, wiki: true } };
+  const keys = (st, form = f) => Z.wizardSteps(form, st).map((s) => `${s.n}${s.key}`).join(' ');
+  assert.equal(keys('legacy'), '1code 2name 3sandbox 4how 5start 6review');
+  assert.equal(keys('user'), '1code 2name 3sandbox 4how 5start 6review');
+  assert.equal(keys('user', { ...f, teamDef: true }), '1code 2name 3how 4review', 'a definition from your own space: no sandbox of yours, no starter');
+  assert.equal(keys('global'), '1code 2name 3sandbox 4how 5review', 'the shared space: its seed sandbox, no starter');
+  assert.equal(Z.stepAt({ ...f, teamDef: true }, 'start', 'user'), 'how', 'a step taken away: the one before it');
+  assert.equal(Z.nextStep({ ...f, teamDef: true }, 'name', 'user'), 'how');
+  assert.equal(Z.prevStep(f, 'code', 'legacy'), '');
+  const why = (key, form, ctx = {}) => Z.stepProblem(form, key, { state: 'legacy', ...ctx });
+  assert.equal(why('code', f), 'Pick a provider.');
+  assert.equal(why('code', f, { providers: 0 }), 'No scm provider is bound to this agent.');
+  assert.equal(why('code', { ...f, scm: 'gh' }), 'Choose a repo.');
+  assert.equal(why('code', { ...f, scm: 'gh', repos: [{ repo: 'acme/web', setup: '' }] }), '');
+  assert.equal(why('name', { ...f, name: '  ' }), 'Name the project.');
+  assert.equal(why('name', { ...f, name: 'x'.repeat(81) }), 'A name is at most 80 characters.');
+  assert.equal(why('sandbox', f, { sb: { mode: 'new', provider: '' } }), 'No sandbox manager to make a sandbox with.');
+  assert.equal(why('sandbox', f, { sb: { mode: 'pick', ref: '' } }), 'Pick a sandbox, or make a new one.');
+  assert.equal(why('sandbox', f, { sb: { mode: 'none' }, state: 'global' }), '', 'a seed is optional');
+  assert.equal(why('how', { ...f, policy: { maxTasks: '17' } }), 'Tasks at work at once: 1 to 16.');
+  assert.equal(why('review', { ...f, scm: 'gh', repos: [{ repo: 'acme/web' }], name: 'Web' }, { sb: { mode: 'new', provider: 'm' } }), '');
+  assert.equal(why('review', { ...f, scm: 'gh', repos: [{ repo: 'acme/web' }] }, { sb: { mode: 'new', provider: 'm' } }), 'Name the project.', 'Review: the first step that can\'t go on');
+  // the starter
+  const offer = (form, ctx) => Z.starterOffer(form, { state: 'legacy', wiki: true, ...ctx });
+  assert.deepEqual(Z.starterBody(f, offer(f)), { build: true, wiki: true });
+  assert.equal(Z.starterBody({ ...f, starter: { build: false, wiki: false } }, offer(f)), undefined, 'nothing chosen: nothing sent');
+  assert.equal(offer(f, { wiki: false }).build.ok, false);
+  assert.match(offer(f, { wiki: false }).build.why, /backend is older/);
+  assert.equal(Z.starterBody(f, offer(f, { wiki: false })), undefined, 'an older backend: none');
+  assert.match(offer(f, { wiki: null }).wiki.why, /Checking/);
+  assert.equal(offer(f, { state: 'global' }).applies, false, 'a definition has none');
+  assert.equal(offer({ ...f, teamDef: true }, { state: 'user' }).applies, false);
+  const cls = (list) => ({ classes: list, default: list[0].id });
+  const noWeb = offer(f, { classes: cls([{ id: 'internal', toolsets: ['internal'] }]) });
+  assert.equal(noWeb.wiki.ok, false);
+  assert.match(noWeb.wiki.why, /kept for the agent's managers/);
+  assert.equal(noWeb.build.ok, true, 'the build needs no coordinator');
+  assert.deepEqual(Z.starterBody(f, noWeb), { build: true, wiki: false });
+  assert.match(offer(f, { classes: cls([{ id: 'web', toolsets: ['web', 'internal'] }]) }).wiki.why, /internal reach/);
+  assert.equal(offer(f, { classes: { classes: [], fallback: true } }).wiki.ok, true, 'classes unknown: the backend decides');
+});
+
+test('the new-project form: the name follows the first repo until typed; the repo search waits for the last keystroke; the wiki probed once', async () => {
+  const seen = [];
+  backend([
+    ['GET', /^\/projects\/scm$/, () => json({ providers: [{ scm: 'gh', title: 'GitHub' }] })],
+    ['GET', /^\/projects\/scm\/repos\?(.*)$/, (m) => { seen.push(new URLSearchParams(m[1]).get('q') || ''); return json({ items: [], next: '' }); }],
+    ['GET', /^\/projects\/0\/wiki$/, () => json({ error: 'no such project' }, 404)],
+  ], 'legacy');
+  const pj = M.createProjects(fakeApp());
+  await pj.newProject();
+  await wait(10);
+  assert.equal(pj.wikiRoute, true, 'a 404 with a body: the route is there');
+  assert.equal(pj.form.step, 'code');
+  assert.deepEqual(pj.form.starter, { build: true, wiki: true });
+  pj.addFormRepo('acme/web');
+  pj.addFormRepo('acme/api');
+  assert.equal(pj.form.name, 'web');
+  pj.dropFormRepo('acme/web');
+  assert.equal(pj.form.name, 'api', 'the first repo names it');
+  pj.setFormName('Shop');
+  pj.addFormRepo('acme/web');
+  pj.dropFormRepo('acme/api');
+  assert.equal(pj.form.name, 'Shop', 'a name typed stays');
+  seen.length = 0;
+  pj.setRepoQuery('a');
+  pj.setRepoQuery('ac');
+  pj.setRepoQuery('acm');
+  await wait(100);
+  assert.deepEqual(seen, [], 'nothing while typing');
+  await wait(250);
+  assert.deepEqual(seen, ['acm'], 'once, the last words');
+  pj.formStep('start');
+  assert.equal(pj.form.step, 'start');
+  pj.form.policy.dream = false;
+  pj.form.sandbox = { mode: 'pick', ref: 'apps/cs|sb-1' };
+  const { body } = pj.formBody();
+  assert.equal(body.policy.dream, false, 'dream rounds off: said');
+  assert.deepEqual(body.starter, { build: true, wiki: true });
+  pj.closeForm();
+  // an older backend: the mux's plain 404
+  backend([], 'legacy');
+  const old = M.createProjects(fakeApp());
+  assert.equal(await old.probeWiki(), false);
+  assert.equal(await old.probeWiki(), false, 'asked once');
+});
+
 test('a `project` event: coalesced, the list, the open project and an open task read again', async () => {
   const b = projectsBackend();
   const app = fakeApp();

@@ -21,3 +21,6 @@ import './project-team.js';
 
 // D222 a project's wiki, read-only: its pages and one page
 import './project-wiki.js';
+
+// D223 the new-project wizard: a screen per step, the repos found and added by a tap, the starter work
+import './project-new.js';
