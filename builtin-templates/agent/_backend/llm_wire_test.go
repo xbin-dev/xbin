@@ -488,9 +488,9 @@ func TestAutoWireAndResponsesFallback(t *testing.T) {
 
 func TestIdleWatchdogAbortsAStalledStream(t *testing.T) {
 	fastWires(t)
-	old := llmIdleTimeout
-	llmIdleTimeout = 150 * time.Millisecond
-	t.Cleanup(func() { llmIdleTimeout = old })
+	old, oldStarted := llmIdleTimeout, llmStartedIdleTimeout
+	llmIdleTimeout, llmStartedIdleTimeout = 150*time.Millisecond, 300*time.Millisecond
+	t.Cleanup(func() { llmIdleTimeout, llmStartedIdleTimeout = old, oldStarted })
 	var n atomic.Int32
 	release := make(chan struct{})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -537,6 +537,42 @@ func TestIdleWatchdogAbortsAStalledStream(t *testing.T) {
 	_, err = testGW(srv2).Chat(ctx, LLMRequest{Model: "m", Stream: true, Wire: "chat"}, nil)
 	if !errors.Is(err, context.Canceled) || n.Load() != 1 {
 		t.Fatalf("cancel: %v attempts %d", err, n.Load())
+	}
+}
+
+// A model that started answering may go quiet for longer than the bound
+// before its first byte: some upstreams send a tool call whole when it is
+// done, so a large one is silence mid-stream (llmStartedIdleTimeout). That
+// silence isn't a dead stream — the call arrives, nothing is retried.
+func TestStartedStreamOutlastsTheFirstByteBound(t *testing.T) {
+	fastWires(t)
+	old, oldStarted := llmIdleTimeout, llmStartedIdleTimeout
+	llmIdleTimeout, llmStartedIdleTimeout = 100*time.Millisecond, 2*time.Second
+	t.Cleanup(func() { llmIdleTimeout, llmStartedIdleTimeout = old, oldStarted })
+	var n atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		fl, _ := w.(http.Flusher)
+		send := func(l string) {
+			fmt.Fprintf(w, "data: %s\n\n", l)
+			if fl != nil {
+				fl.Flush()
+			}
+		}
+		send(`{"choices":[{"delta":{"content":"writing it"}}]}`)
+		time.Sleep(400 * time.Millisecond) // the whole call composed upstream: 4× the first-byte bound
+		send(`{"choices":[{"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"file_write","arguments":"{\"path\":\"a\"}"}}]},"finish_reason":"tool_calls"}]}`)
+		send(`[DONE]`)
+	}))
+	defer srv.Close()
+	rep, err := testGW(srv).Chat(context.Background(), LLMRequest{Model: "m", Stream: true, Wire: "chat"}, nil)
+	if err != nil {
+		t.Fatalf("a stream quiet mid-way for longer than the first-byte bound was cut: %v", err)
+	}
+	if n.Load() != 1 || len(rep.Msg.ToolCalls) != 1 || rep.Msg.ToolCalls[0].Function.Arguments != `{"path":"a"}` || rep.Finish != "tool_calls" {
+		t.Fatalf("attempts %d calls %+v finish %q", n.Load(), rep.Msg.ToolCalls, rep.Finish)
 	}
 }
 
