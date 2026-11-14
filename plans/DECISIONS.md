@@ -13673,3 +13673,107 @@ Deviations and refinements made while implementing; all deliberate:
   - **Once only**, across restarts; a failed task #1 still starts the wiki
     step, which says what failed. The `[project starter` marker is defused
     in text from outside, like the coordinator's other markers.
+
+- **D229 — Orgs constrain agents by harness and model; scope and
+  connection state; agent preferences on the server (2026-11-14; issue
+  #51).** The owner: "Orgs define constraints; Workspace agents then get
+  their calls filtered based on those constraints", a multi-select of orgs
+  (unfolding to tiles) says what a session sees, and the UI "should very
+  clearly indicate what orgs/tiles are hooked up and which are not (incl
+  top level UI element showing eg aggregate numbers)"; from the issue:
+  "internal-data org only allows private LLMs". This is the data and the
+  API of `plans/workspace-agent.md` §5.3 and §5.6; the scope picker, the
+  chip and the panel are the web and iOS packages'.
+  - **Three rules, one shape, two levels.** `Org.Agents` (additive, in
+    `data/users.json` like D203's `Org.Limits`): `workspaceAgent` on|off,
+    `harnesses` any | a list of `sdk/acp` provider ids, `models` any |
+    `private` | a list of LLM connector ids (an upstream, or
+    `upstream/model`). The workspace has the same three as outer bounds
+    (a top-level `agents` key beside the workspace policy rows, not
+    `workspace-settings.json`: that store is booleans with their own
+    protections, and the bounds are validated together with the orgs' rules
+    under one lock), plus the credential default of S4 §1.5 (`own-first`,
+    or `connector` forced). Stored only when it narrows something: with
+    nothing set `users.json` is byte for byte what it was.
+  - **Filtering follows the tile's org, on every call**
+    (`internal/agentpolicy`, pure: `Check(layers, ask)`). A tile's layers
+    are the workspace's bounds, the org that owns it, and every org it is
+    shared into (an exact share or a pattern — `users.Store.TileOrgs`).
+    Every layer must allow, so several orgs give the strictest and a tile
+    in no org follows the bounds. A share is the tile's managers' act
+    (D24), so the org a tile is shared into gaining a say over it is
+    something its owner chose. The answer carries the reason a person
+    reads ("Finance allows private models only"), the org and the rule.
+  - **An org only narrows — at write time and at call time.** A list entry
+    the bounds don't cover is refused when written, for a workspace admin
+    too; "any" is always accepted (it adds no rule). Bounds tightened later
+    rewrite nothing: each call is asked against both.
+  - **Who sets what.** Workspace admins (and `xbin:users`): the bounds and
+    any org. An org's admin: their own org, in their own session only —
+    refused from a tile they drive (the frame-token rule), from a
+    terminal's or an agent session's token, and in view-as. D203 kept
+    ceilings to workspace admins because a ceiling is a budget; these
+    rules are the org's own data policy, so its admins hold them, and the
+    bounds are where a workspace pins what no org may loosen. The stricter
+    "own session" rule is new here: a coding agent running on an org
+    admin's token must not widen the rules it runs under.
+  - **`private` is the connector's word.** `Broker.AgentModels` (wired by
+    the LLM connector) says whether a model's upstream is private; without
+    it, and for a model it doesn't know, nothing is private. No route takes
+    the caller's word for it.
+  - **The connection view** (`GET /agents/connection?model=&orgs=&tiles=
+    &whatIf=`): every org the person has to do with and every tile they
+    can read as connected | hidden (by their scope) | blocked (reason, org,
+    rule) | no-access (the scope names what they can't see — or what
+    doesn't exist: not told apart), with the totals and the sentence for
+    the chip, and what a model change would connect and disconnect.
+    Blocked wins over hidden: selecting it would not connect it. The scope
+    is the caller's parameter — the session that holds it is the agent
+    component's — and takes `workspace` for the tiles in no org (a
+    reserved org id). The handler answers whoever its credential names as
+    a person, so a delegate gets its person's view with no code of its own.
+  - **The harness list also governs sessions people start themselves**
+    (`term.Manager.AgentGate`, the broker's `AgentHarnessGate`):
+    `GET /agent/providers?cwd=` offers only what the tile allows, and
+    `POST /term/sessions` refuses the rest with the reason. Nothing running
+    is ever ended: a session keeps going, a restart of it is refused before
+    it would end it, and a resume of a past session of a disallowed harness
+    is refused with its transcript still readable. Without `cwd` the
+    catalog is whole, so the shipped app and older frames lose nothing and
+    learn the reason from the refusal. Not a sandbox boundary: a terminal
+    on the tile can still run any CLI.
+  - **Agent preferences on the server** (`internal/agentprefs`,
+    `data/agent-prefs/<user>.json`, `GET`/`PUT /agent/prefs`, a merge
+    patch): the default harness and the launcher's last choice; per
+    harness the mode, model, options and the credential choice; and what
+    the person's workspace agent may start a session with — `start` ask
+    (default) or allow, a mode per harness, the network and tile-API
+    pickers. A bypass mode is never stored (Explicit modes are per
+    session, D74), and `agentSessions.modes` takes only modes the catalog
+    knows keep asking — checked again on every read (`AgentStart`), so the
+    file is never trusted. The routes are `PersonOnly` and refuse terminal
+    and agent tokens too: what an agent may do without asking is not the
+    agent's to write. The file records whose it is (the account's creation
+    stamp): a user id given to a new person keeps the conveniences, like
+    the home directory, and resets `agentSessions`. The launcher reads and
+    writes them, with its `localStorage` value as the migration source and
+    as the fallback against an xbind without the route or a credential the
+    route refuses (the root token, `--no-auth`).
+  - **`origin`** on a session row and its history entry: `"agent"` and
+    `originBy` (the component) for one a workspace agent opened, absent
+    otherwise; set by xbind's own callers (`term.AgentOpen`), kept across
+    a restart and a resume. The field and its JSON are the delegation
+    prototype's.
+  - **A session opens from outside its tile's window.** `<bx-frame>`
+    `open({session})` shows a live session's tab, or a past one's
+    transcript; `xbin:open-session {tile, session}` asks the shell for it
+    from a tile's page; the D220 link gains `&session=<id>`. A shell that
+    doesn't answer the request (an older scaffold) gets the link, which it
+    reads as a plain link to the tile.
+  - **Not done.** The scope picker, chip and panel (web, iOS); the
+    delegation gate calling `WorkspaceAgentGate` and `AgentStart` (the
+    delegation package wires both); a session's `llm` choice and the
+    connector's variables (the connector's); per-model rules inside one
+    upstream beyond the allowlist; the admin console's editor reaches an
+    old scaffold only after `bx builtin update` (`bx org agents` and the
+    API reach it now).
