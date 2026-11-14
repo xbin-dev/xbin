@@ -105,12 +105,21 @@ func (e *sealedEnv) rows(t *testing.T) map[string]sealedRowView {
 func TestSealedComponentsOnAProductionXbind(t *testing.T) {
 	a := xbindtest.Require(t)
 	if a.Gocryptfs == "" {
-		t.Skip("no gocryptfs: people's partitions keep their data in encrypted volumes")
+		xbindtest.Skip(t, "no gocryptfs: people's partitions keep their data in encrypted volumes")
 	}
 	a = a.WithSealedFixture(t)
-	builds, _ := os.ReadDir(filepath.Join(a.Bin, "sealed"))
-	if len(builds) != 2 {
-		t.Fatalf("sealed-build made %d backends, want the fixture's two", len(builds))
+	ents, _ := os.ReadDir(filepath.Join(a.Bin, "sealed"))
+	var builds []os.DirEntry
+	manifest := false
+	for _, e := range ents {
+		if e.Name() == "sealed.json" { // what each build is, and its hash
+			manifest = true
+			continue
+		}
+		builds = append(builds, e)
+	}
+	if len(builds) != 2 || !manifest {
+		t.Fatalf("sealed-build made %v, want the fixture's two backends and sealed.json", ents)
 	}
 	d := xbindtest.Start(t, a, xbindtest.Options{Auth: true, Production: true,
 		Env: []string{"XBIN_VAULT_PASSPHRASE=xbindtest-vault"}})
@@ -224,6 +233,17 @@ func TestSealedComponentsOnAProductionXbind(t *testing.T) {
 		if relay.Status != 403 {
 			t.Errorf("a backend's call into a sealed component: %d %s", relay.Status, relay.Body)
 		}
+		// its page holds a viewer's token: its own backend, and nothing of
+		// xbind's API or the component's own resources
+		for _, path := range []string{"/api/xbin/kv/res:" + sealedProbe + "/state/k", "/api/xbin/components", "/api/xbin/cron/jobs", "/api/apps/welcome/x"} {
+			if r := d.Call(t, "GET", path, nil, fr); r.Status != 403 || !strings.Contains(r.String(), "its page reaches its own backend only") {
+				t.Errorf("its page's GET %s: %d %s", path, r.Status, r)
+			}
+		}
+		// and neither an admin nor the root token reads its resources
+		if r := d.Call(t, "GET", "/api/xbin/kv/res:"+sealedProbe+"/state/k", nil); r.Status != 403 || !strings.Contains(r.String(), "system component") {
+			t.Errorf("the root token's read of its kv: %d %s", r.Status, r)
+		}
 		// and the levels above read don't exist, whatever a pattern says
 		if r := d.Call(t, "GET", "/ws/term?cwd="+sealedProbe, nil, e.as("mallory")...); r.Status != 403 || !strings.Contains(r.String(), "system component") {
 			t.Errorf("a terminal for someone with terminal on *: %d %s", r.Status, r)
@@ -284,6 +304,23 @@ func TestSealedComponentsOnAProductionXbind(t *testing.T) {
 			t.Errorf("bob's note after a restart: %q", v.Value)
 		}
 		if err := os.Rename(probe+".away", probe); err != nil {
+			t.Fatal(err)
+		}
+		// a file of that name that isn't the one the release's manifest
+		// lists is not run either
+		orig, err := os.ReadFile(probe)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(probe, append(append([]byte{}, orig...), 0), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		d.Restart(t)
+		relogin()
+		if h := e.rows(t)[sealedProbe].Hold; h == nil || h.Code != "no-build" || !strings.Contains(h.Reason, "SHA-256 differs") {
+			t.Errorf("GET /sealed with a changed build: %+v", h)
+		}
+		if err := os.WriteFile(probe, orig, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		d.Restart(t)
