@@ -147,7 +147,7 @@ POST   /restore                    admin. body {component, version?, file?,
                                    backup keys import)".
                                    {ok, component, restored:[parts],
                                    sandboxesSkipped?:[…]} — a manager's sandbox
-                                   definitions come back by uid, stopped (§Tile
+                                   definitions come back by uid, stopped (protocol/sandboxes.md §Tile
                                    sandboxes, "The workspace around them"); the
                                    ones left out, and why, are listed.
                                    The archiver is chosen by the @archive binding:

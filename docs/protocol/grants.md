@@ -277,7 +277,7 @@ PUT    /iface-instances            self or admin. body {component?, instances:
                                    (main beside another primary included):
                                    200, today's body plus dormant:true; the
                                    map is stored for that deployment
-                                   (§Filesystem contract) and never routed —
+                                   (protocol.md §Filesystem contract) and never routed —
                                    no grants event, no re-wiring, not even
                                    with its deliveries on. provider#id always
                                    resolves against the provider primary's

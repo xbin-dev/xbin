@@ -266,9 +266,9 @@ no longer exists loses the subscription. Answer 2xx; ≥400 counts as
 `failed`. Stored in `data/bus-subscriptions.json`, carried in the
 component's backup; a new tile created at a removed tile's path starts
 without that path's cron jobs and subscriptions. A tile deployment beyond
-`main` keeps its cron jobs and subscriptions in files of its own (§Filesystem
+`main` keeps its cron jobs and subscriptions in files of its own (protocol.md §Filesystem
 contract); a tick or delivery reaches the deployment that registered it, and
-a dormant one (§Tile deployments) doesn't tick or receive anything (its
+a dormant one (protocol/deployments.md) doesn't tick or receive anything (its
 events count as `dormantEvents`, not `dropped`). A subscription on the tile's
 own bus receives only events published in its deployment's data; one on
 another scope's bus receives that scope's primary's, re-checked against its

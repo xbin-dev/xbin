@@ -303,7 +303,7 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    scope "partition"; metadata only.
                                    failures[] of another deployment
                                    carry deployment? (a start past the caps
-                                   or the VM room of §Tile deployments shows
+                                   or the VM room of protocol/deployments.md shows
                                    here, stage refused).
                                    &deployment=<name> narrows rows and
                                    failures (main: the rows without a
@@ -326,7 +326,7 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    status?,refusal?,from}] (from: the calling
                                    manager tile); both absent until one. A manager
                                    tile's backend gets its own tile sandboxes
-                                   instead (§Tile sandboxes)
+                                   instead (protocol/sandboxes.md)
 GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
                                    backend {state,gen,sandbox,vm?,cpuSec,cgroup:{mem,pids},
                                    rssKb,fds,activeConns,egress}, disk {usage,

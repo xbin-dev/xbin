@@ -38,7 +38,7 @@ sessions are yours on a tile: `GET /api/xbin/term/sessions?cwd=` (the
 session directory, D73) — a browser keeps no session ids of its own. An
 **agent session** (`kind:"agent"`, created on `POST /api/xbin/term/sessions`)
 has no terminal socket: `?session=<agent id>` answers **409** — drive it
-through the agent routes above.
+through the agent routes (protocol/agents.md).
 
 For a **non-admin**, the query params below are clamped rather than honored
 (docs/isolation.md): `api` is forced to `0` without the `termApi` grant; on a
@@ -173,7 +173,7 @@ used by the UI to restart under a new scope); `204` on success, `404` unknown.
 
 **On a partitioned tile** ([partitions.md](/docs/partitions.md) §Terminals and
 agent sessions) a new session belongs to its opener's partition: its
-`XBIN_TOKEN` acts there (§Authentication), `XBIN_PARTITION=user:<id>` is set
+`XBIN_TOKEN` acts there (protocol.md §Authentication), `XBIN_PARTITION=user:<id>` is set
 right after `XBIN_COMPONENT` (after `XBIN_DEPLOYMENT` when that is set;
 `global` for a session targeting a non-primary deployment), it starts in its
 `$HOME` instead of the tile directory, and its persistent layer is the

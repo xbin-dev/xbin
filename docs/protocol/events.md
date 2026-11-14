@@ -123,7 +123,7 @@ tile principal (frame token, terminal, backend) only its own bucket's, the
 reach `GET /prefs` gives it. `data.writer` is the `X-Prefs-Writer` header of
 the write when it had one (absent otherwise). The shell skips its own writes
 by that id and reloads its layout when another client (the app) wrote it.
-A write to a tile deployment's bucket beyond `main` (above) is heard only by
+A write to a tile deployment's bucket beyond `main` (protocol/workspace.md, `/prefs`) is heard only by
 that deployment's own principals, those whose `GET /prefs` reads the bucket:
 never by main's frames or the user's human sessions, since today's types
 don't speak of another deployment. Main's bucket's events never reach
@@ -154,7 +154,7 @@ A `bus` event of a deployment's data beyond `main` carries `deployment`
 and the credentials bound to that deployment's data only — never a
 primary-bound principal of the same scope. `term` events (open, rename) of a
 session with a named target carry `deployment` in `data`, and those of a
-guided sign-in's shell carry `purpose: "signin"` (`/ws/term`, above).
+guided sign-in's shell carry `purpose: "signin"` (protocol/terminals.md).
 `deployments` events are filtered by the tile and the deployment they name,
 at your current level on each delivery. A fact about the tile's primary
 reaches everyone who may read the tile: ops `record` and `deploy` (onto the
@@ -169,7 +169,7 @@ reach the write audience. Anything naming another deployment — ops `deploy`, `
 audience and that deployment's own frame and backend tokens: never the
 primary's frame token (minted for readers too), never another tile. `status`
 events broadcast like the build events (the shell renders each only for tiles
-it shows; the `GET /tile-report` snapshot below is read-filtered per caller).
+it shows; the `GET /tile-report` snapshot (protocol/tiles.md) is read-filtered per caller).
 Slow consumers are disconnected; reconnect with backoff (the bundled clients
 do).
 

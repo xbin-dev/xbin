@@ -204,7 +204,7 @@ GET  /c/<component-path>/[file]  component static files; HTML gets the
                                  people with write on the tile, and the
                                  tile's own credentials bound to <name>;
                                  resolution, the gate and what its
-                                 documents carry: §Tile deployments,
+                                 documents carry: protocol/deployments.md,
                                  *Deployment URLs*
 GET  /c/<component-path>/?native=1
                                  the tile's native runtime document
@@ -425,7 +425,7 @@ GET  /xbin/devices                the devices page (D204,
                                  Headers, sign-in and /vendor/ as
                                  /xbin/partitions
 ANY  /api/<component-path>/<p>   → component backend (see below)
-ANY  /api/xbin/<p>              → xbind's own API (below)
+ANY  /api/xbin/<p>              → xbind's own API (protocol.md §xbind API)
 ANY  /api/~<ticket>/<p>         → a path ticket's prefix of one tile's API
                                  (§Path tickets below, D135)
 ```
@@ -435,7 +435,7 @@ the remainder is the backend path, decoded: an encoded `/` (`%2F`) is a
 separator there, and `.` and `..` segments are resolved (xbind's router
 redirects a plain dot segment first). So a backend routes — and checks — the
 path a request names: a caller can't smuggle a `/` into one segment's value
-(the `/api/xbin` routes below keep an encoded `/` in its segment instead).
+(the `/api/xbin` routes keep an encoded `/` in its segment instead).
 A tile's bare `/api/<self>/` call reaches
 the caller's own deployment (a self-call, at `admin`); anyone else's bare
 call reaches the primary. `/api/<tile>+<name>/<p>` reaches deployment
@@ -443,13 +443,13 @@ call reaches the primary. `/api/<tile>+<name>/<p>` reaches deployment
 credentials bound to it; other tiles use the bare URL only, the primary's
 name included; a person with write passes the URL gate and then holds no
 role there, as on the bare URL. The qualifier is consumed: the backend sees
-`/<p>` (§Tile deployments, *Deployment URLs*). Responses stream
+`/<p>` (protocol/deployments.md, *Deployment URLs*). Responses stream
 (SSE/chunked flush immediately) and WebSocket upgrades pass through; a `?frame=` query
 credential is accepted for browser WS attribution and is consumed by xbind
 (stripped before forwarding). Backends with active streams are exempt from
 idle reaping; streams still end at the callee's blue/green drain (D8).
 **Path tickets** (D135). A tile's page mints one with `POST
-/api/xbin/path-tickets {path}` (its frame token; below) for a prefix of
+/api/xbin/path-tickets {path}` (its frame token; protocol/users.md) for a prefix of
 its own tile's API, and `/api/~<ticket>/<p>` then reaches
 `/api/<tile>/<prefix>/<p>` — any method, WebSocket upgrades too — as that
 page's frame principal (the tile, the person, the login's deployment and
@@ -506,7 +506,7 @@ other files are served as before. The primary's deployment URL
 (`/c/<tile>+<primary>/`, and a deployment origin's bare URL) shows the page
 too; another deployment's URL isn't paused.
 On a partitioned tile a call reaches the
-partition §Authentication names (403 with the reason when it reaches none),
+partition protocol.md §Authentication names (403 with the reason when it reaches none),
 and a person's partition that can't start now answers 503 with why;
 public ingress reaches only the tile's global instance, and a tile without
 one answers 503 `this site is not being served right now`.
@@ -520,7 +520,7 @@ reaches global anyway); on every other tile it reaches the backend as any
 query parameter, as it always has. It is honoured for the tile's own
 frames, terminals, agent sessions and user-partition backends, whose call
 reaches the global instance attributed to the partition's person
-(§Authentication, after the identity headers), and for an admin calling
+(protocol.md §Authentication, after the identity headers), and for an admin calling
 the tile directly, who keeps their own role (a reader or writer calling
 `/api/<tile>/…` by themselves is refused with or without it, `403 user:<id>
 is not granted access to <tile>`: their way in is the tile's frame). A
@@ -543,6 +543,6 @@ instance` — the one 404 with that text: the same words as a 403 are the
 refusal of a credential whose own partition is `global`, such as the
 global instance's token or a global cron job, on a tile without one); and
 a person who can't read the tile, is disabled or deleted
-(the partition refusals of §Authentication). The client's
+(the partition refusals of protocol.md §Authentication). The client's
 `xbin.fetch(url, {partition: 'global'})` and the Go SDK's
 `xbin.GlobalURL(path)` add it, from a user partition only.

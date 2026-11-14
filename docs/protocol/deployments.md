@@ -280,7 +280,7 @@ POST   /deployments/protect        tile manager. {tile, on, expect?} →
                                    managers change its code, naming the
                                    checkpoint they reviewed, and sessions
                                    following it restart onto the default
-                                   target (§/ws/term). off: nothing moves;
+                                   target (protocol/terminals.md). off: nothing moves;
                                    the primary stays pinned. nested (dry
                                    runs too): the components nested in the
                                    tile, [{tile, protected, manager}], whose
@@ -595,7 +595,7 @@ deployment `<name>`; the qualifier sits in the tile path's last segment.
 - **Asset modes.** Legacy mode serves a deployment's non-document files by
   the credential-less subresource rule, as it serves the tile's. Tokens mode
   serves them under an asset token whose user writes the tile. Origins mode
-  serves each deployment on its own origin (§Core, *tile origin*).
+  serves each deployment on its own origin (protocol/core.md, *tile origin*).
 - **Documents.** A document at a deployment URL carries `<meta
   name="xbin-deployment" content="<name>">` and an import-map entry mapping
   `/c/<tile>/` to `/c/<tile>+<name>/` (under the asset token in tokens mode),
@@ -605,7 +605,7 @@ deployment `<name>`; the qualifier sits in the tile path's last segment.
   never chrome, whatever its code declares. `?native=1` there runs that
   deployment's native entry.
 - **Frame tokens.** A document's frame token names its deployment (six
-  fields when it isn't `main`, §Authentication). A person gets one only for a
+  fields when it isn't `main`, protocol.md §Authentication). A person gets one only for a
   deployment they may open (read for the primary, write for any other), a
   tile's own credential only for the deployment it is bound to, and the
   one-tree navigation rule holds only between primaries: a frame of `main`
@@ -731,7 +731,7 @@ another primary included) are stored for that deployment.
   unchanged: into the deployment's own data only.
 - `main`'s registrations stay in the stores they always used, whether or not
   `main` is the primary; another deployment's live in files of its own
-  (§Filesystem contract), which an older xbind never loads.
+  (protocol.md §Filesystem contract), which an older xbind never loads.
 - A non-primary deployment's tile status and notices travel only in
   `deployments` events (ops `status` and `notify`): nothing is pushed or
   counted, no `status` event is sent and `GET /tile-report` never lists them.
@@ -935,7 +935,7 @@ tile's non-primary deployments; the primary uses every edge as before.
     — or one a checkout raced — deploys nothing: live reload pauses, the
     deployment pinned to the code it runs (the last save deployed on its
     branch; its deploy log entry is a `pause` by `xbind`), and op `branch`
-    tells the write audience (§`/ws/events`). A pause on another branch pins
+    tells the write audience (protocol/events.md). A pause on another branch pins
     it the same way, never to the other branch's work tree. Tiles without
     an assigned branch save as before.
   - Checkpoints taken from the work tree carry an `Xbin-Work-Tree-Branch`

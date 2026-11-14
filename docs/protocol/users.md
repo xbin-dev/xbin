@@ -47,13 +47,13 @@ GET    /frame-token?component=<p>  a principal that may use the tile: humans
 POST   /path-tickets              a tile's page (its frame token) only.
                                    {path: "<prefix>"} → {url: "/api/~<ticket>/",
                                    expires (unix ms)}: a path ticket (D135,
-                                   below) to a prefix of the page's own
+                                   protocol/core.md) to a prefix of the page's own
                                    tile's API. The prefix is a relative path
                                    of unreserved characters (A–Z a–z 0–9
                                    . _ ~ -), no . or .. segment, ≤ 256 bytes
                                    (400 otherwise); anyone but a tile's page
                                    is 403. The url is used as
-                                   /api/~<ticket>/<rest> (§Path tickets)
+                                   /api/~<ticket>/<rest> (protocol/core.md §Path tickets)
 
 GET    /whoami                    any. caller identity + permissions; for
                                    users also orgs:[{id,name,level,create,

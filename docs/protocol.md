@@ -111,7 +111,7 @@ The person's **appearance** (D184) rides the same block, only when they
 chose one: `<meta name="xbin-theme" content="light">` (or `dark`; absent:
 follow the system) and `<meta name="xbin-density" content="comfortable">`
 (absent: compact), from the `theme` and `density` keys of their shell
-bucket (§HTTP routes › `/prefs`). The person is the principal's: a
+bucket (protocol/workspace.md, `/prefs`). The person is the principal's: a
 session's or device's, the person behind a frame or terminal token, the
 viewed person while an admin views as someone, the owner's (`root`'s
 bucket) for the root token and `--no-auth`; a tile's backend gets neither.
@@ -218,10 +218,10 @@ X-XBin-Backup-Subkey: bk-<32 hex>        (only on xbind's own archive PUT
 
 A proxied response from a non-primary deployment carries
 `X-XBin-Deployment: <name>`, set by xbind over any value the backend set; a
-primary's responses are unchanged (§Tile deployments).
+primary's responses are unchanged (protocol/deployments.md).
 
 A partitioned tile's own call **addressing its global instance**
-(`?xbin-partition=global`, §HTTP routes › Core) arrives there as the
+(`?xbin-partition=global`, protocol/core.md) arrives there as the
 partition's **person**, whatever the credential — a user partition's
 backend's instance token included, and any value the caller sent
 stripped: `X-XBin-User` is the person, `X-XBin-User-Level` their level on
@@ -259,7 +259,7 @@ other tiles see. Such a credential bound to a deployment that isn't the
 primary is default-deny on `/api/xbin/*`: every route is classed
 deployment-scoped (it acts on the caller's own deployment), primary-only
 (refused) or neutral (no deployment in it, unchanged), and a route without a
-class refuses it too, reads included (§Tile deployments, *Which deployment
+class refuses it too, reads included (protocol/deployments.md, *Which deployment
 a call acts on*).
 
 **A partitioned tile's credentials act in a partition**
@@ -296,7 +296,7 @@ credential, never from the URL or a header:
 - the one way out of a partition by the URL: the tile's own frames,
   terminals, agent sessions and user-partition backends — and an admin
   calling it directly — reach its **global instance** with
-  `?xbin-partition=global` (§HTTP routes › Core), attributed to the person.
+  `?xbin-partition=global` (protocol/core.md), attributed to the person.
   Nothing addresses a user partition by the URL.
 
 A user partition's credential is default-deny on `/api/xbin/*`, like a
@@ -511,7 +511,7 @@ a time, sub-paths traversal-stripped. The native runtime document
   alwaysOn switch on; and it receives only its own requests: no other tile's
   calls, no ingress, no lan-ingress legs, no stream interface dials, no host
   networking or provider splice. Its calls to other tiles follow the tile's
-  edge policy (§Tile deployments), its cron jobs and bus subscriptions fire
+  edge policy (protocol/deployments.md), its cron jobs and bus subscriptions fire
   for it unless a tile manager switched its deliveries off, and its
   notifications are held.
 - stdout/stderr → `.xbin/log/<compkey>.log` (`bx logs`), where a failed

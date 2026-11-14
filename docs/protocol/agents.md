@@ -114,7 +114,7 @@ POST   /term/sessions             terminal-level on the tile (a shell's own
                                    primary — or, while the primary is
                                    protected, targets the live reload target,
                                    and has no tile API (api false) when
-                                   there is none (§/ws/term)
+                                   there is none (protocol/terminals.md)
 GET    /term/sessions/<id>        creator or admin → {session, permissions:
                                    [{pid,toolCall,options}], elicitations:
                                    [{eid,toolCallId?,message,schema}]}

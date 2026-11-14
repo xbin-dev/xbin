@@ -361,7 +361,7 @@ GET    /tile-report                      any signed-in user (read-filtered).
                                          — status tiles reported about themselves,
                                          for the shell's sidebar/tab indicators.
                                          (Distinct from /tile-status = runtime
-                                         metrics, above.)
+                                         metrics, protocol/runtime.md.)
 POST   /tile-report                      element (self) or owner (?component=).
                                          body {level:ok|info|warn|error, message?,
                                          transient?}. Sets this tile's persistent,
@@ -382,11 +382,11 @@ POST   /tile-report                      element (self) or owner (?component=).
                                          deploy swaps onto it; a reassignment
                                          exchanges it with the primary's.
                                          From a user partition's credentials
-                                         (partitioned tiles, §Authentication):
+                                         (partitioned tiles, protocol.md §Authentication):
                                          kept for that partition, never the
                                          tile's status; its `status` event
                                          carries partition and reaches only
-                                         that person (§/ws/events); GET
+                                         that person (protocol/events.md); GET
                                          /tile-report answers such a caller
                                          its partition's own record for its
                                          tile (none: no entry), and never a

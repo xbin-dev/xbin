@@ -28,8 +28,8 @@ sandboxes).
   delete a tile's sandboxes (`?tile=`) — and never defines one, runs a
   command in one, reads its files or attaches to it.
 - **Deployments.** A manager tile's sandboxes are its `main`
-  deployment's. The backend of any other deployment of it (§Tile
-  deployments) gets 501 `unsupported` on every manager route — never
+  deployment's. The backend of any other deployment of it
+  (protocol/deployments.md) gets 501 `unsupported` on every manager route — never
   `main`'s sandboxes, files or quota — and so does an admin's `?deployment=`
   naming one; a deployment's own sandbox set isn't built yet.
 - **Isolation.** Without `--isolate` every manager route but `runtime`
@@ -79,7 +79,7 @@ GET    /sandboxes/policy           admin. → {policy (effective), stored (0 = d
 PUT    /sandboxes/policy           admin. a partial policy, merged onto the stored
                                    one → {policy, stored}; 400 invalid when out of range
 GET    /sandboxes                  manager. → {sandboxes:[SandboxInfo]} (an admin's
-                                   GET /sandboxes is the registry view above)
+                                   GET /sandboxes is the registry view, protocol/runtime.md)
 POST   /sandboxes                  manager. define one → 201 SandboxInfo (200 when
                                    clientId repeats the same request)
 GET    /sandboxes/<name>           manager. → SandboxInfo
@@ -644,7 +644,7 @@ error.
   exec's (`{rows, cols}`, 1…65535). Both are 409 `state` once the exec
   ended. `DELETE …/execs/<id>` kills the group and forgets the exec.
 
-**The TTY routes** are WebSockets on exactly the `/ws/term` wire (below):
+**The TTY routes** are WebSockets on exactly the `/ws/term` wire (protocol/terminals.md):
 binary frames both ways (the ring's tail replays first, at most 256 KiB),
 `{"op":"session","id":…,"sandbox":…,"echoAck":true}` first, acks and
 pongs, and `{"op":"exit","code":N}` at the end (`code` null and a `signal`
