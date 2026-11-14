@@ -406,7 +406,7 @@ func (st *State) stepTerminals() error {
 	tm.HiddenTiles = func(p auth.Principal) []string {
 		var hide []string
 		for _, c := range reg.Components() {
-			if !p.CanReadTile(c.Path) {
+			if !c.Sealed && !p.CanReadTile(c.Path) { // a sealed component has no directory to mask
 				hide = append(hide, c.Path)
 			}
 		}
@@ -430,7 +430,7 @@ func (st *State) stepTerminals() error {
 	tm.TermView = func(p auth.Principal) ([]string, map[string][]byte) {
 		var readable []string
 		for _, c := range reg.Components() {
-			if p.CanReadTile(c.Path) {
+			if !c.Sealed && p.CanReadTile(c.Path) { // nor one to bind
 				readable = append(readable, c.Path)
 			}
 		}
@@ -657,7 +657,8 @@ func (st *State) stepProxy() error {
 			run.ChangedTile(c)
 		}
 	}
-	brk.StopBackend = run.Stop // lifecycle: disabling stops the backend now
+	brk.Sealed = broker.SealedHooks{DataFormat: st.Sealed.DataFormat, RestoreRefusal: st.Sealed.RestoreRefusal} // backups of sealed components (D227)
+	brk.StopBackend = run.Stop                                                                                  // lifecycle: disabling stops the backend now
 	brk.WakeBackends = run.WakeAlwaysOn
 	// A component may spawn only if enabled AND its encrypted tile state is
 	// currently accessible (vault unsealed + mounts up) — see plans/vault-data.md
@@ -766,6 +767,7 @@ func (st *State) stepServer() error {
 	st.Auth.SetClientIP(srv.ClientIP)
 	st.Broker.Register(srv)
 	st.registerRuntimeAPI(srv)
+	st.registerSealedAPI(srv) // the admins' read of sealed components (sealedapi.go, D227)
 	st.registerVMAPI(srv)
 	st.registerSandboxAPI(srv)
 	registerDeploymentsAPI(srv, st.Deployments, st.Broker) // the broker answers the state's vault, registrations, edges, disk

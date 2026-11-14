@@ -72,3 +72,52 @@ func TestSealedNamesShadowNoRoute(t *testing.T) {
 		}
 	}
 }
+
+// TestSealedRouteClasses is the guard of internal/server/sealedclass.go
+// (D227): every /api/xbin route xbind mounts has a row saying what a
+// sealed component's path gets on it, every row names a route that exists,
+// and a row that refuses or reserves says where the route names a tile.
+// A new route can't be added without deciding it. The answers themselves
+// are driven through a real daemon by internal/boot's
+// TestSealedRouteAnswers.
+func TestSealedRouteClasses(t *testing.T) {
+	inv := inventory(t)
+	table := server.SealedRules()
+	var problems []string
+	for p, where := range inv {
+		if table[p].Class == server.SealedUnclassified {
+			problems = append(problems, where+" registers "+p+", which has no row in internal/server/sealedclass.go: "+
+				"say what a sealed component's path gets on it (no-tile when it names no tile)")
+		}
+	}
+	for p, r := range table {
+		if _, ok := inv[p]; !ok {
+			problems = append(problems, "internal/server/sealedclass.go has a row for "+p+", which no code registers: drop it")
+		}
+		named := len(r.Query) > 0 || len(r.Body) > 0 || r.Rest
+		switch r.Class {
+		case server.SealedRefused, server.SealedSelf:
+			if !named {
+				problems = append(problems, p+" is "+r.Class.String()+" but names no parameter that carries the tile: the gate would never refuse")
+			}
+			if r.What == "" {
+				problems = append(problems, p+" is "+r.Class.String()+" without a reason (What)")
+			}
+			if r.Rest && !strings.Contains(p, "{rest...}") && !strings.Contains(p, "{path...}") {
+				problems = append(problems, p+" reads the tile from the rest of its path, and has no rest wildcard")
+			}
+		case server.SealedHandled:
+			if r.What == "" {
+				problems = append(problems, p+" is handled without saying what the handler's rule is (What)")
+			}
+		case server.SealedNoTile:
+			if named {
+				problems = append(problems, p+" names a tile parameter and is classed no-tile")
+			}
+		}
+	}
+	sort.Strings(problems)
+	for _, p := range problems {
+		t.Error(p)
+	}
+}

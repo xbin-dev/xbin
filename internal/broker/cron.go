@@ -257,7 +257,7 @@ func (b *Broker) apiCronList(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, code, err.Error(), "/docs/resources.md")
 		return
 	}
-	keep := func(comp string) bool { return admin || p.Component == comp }
+	keep := func(comp string) bool { return admin && listSealed(r, comp) || p.Component == comp }
 	var jobs []cronJob
 	if dep == util.MainDeployment {
 		b.cron.mu.Lock()

@@ -52,6 +52,9 @@ func (b *Broker) apiVaults(w http.ResponseWriter, r *http.Request) {
 	// registry so we report by component path, not opaque key.
 	out := []entry{}
 	for _, c := range b.Reg.Components() {
+		if c.Sealed {
+			continue // its secrets are its own: not listed, read or set by an admin (D227)
+		}
 		m, err := b.vaultRead(c.Path)
 		parts := b.partitionVaults(c.Path) // partitionvault.go
 		if (err != nil || len(m) == 0) && parts == 0 {
@@ -87,7 +90,9 @@ func (b *Broker) apiResources(w http.ResponseWriter, r *http.Request) {
 	}
 	add("", b.Reg.Workspace().Resources)
 	for scope, sm := range b.Reg.Scopes() {
-		add(scope, sm.Resources)
+		if listSealed(r, scope) {
+			add(scope, sm.Resources)
+		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
 	server.WriteJSON(w, http.StatusOK, out)
@@ -109,6 +114,7 @@ func (b *Broker) apiAuthOverview(w http.ResponseWriter, r *http.Request) {
 
 	type comp struct {
 		Path     string            `json:"path"`
+		Sealed   bool              `json:"sealed,omitempty"` // a sealed component, listed with ?sealed=1 (D227)
 		Runtime  string            `json:"runtime,omitempty"`
 		Scope    string            `json:"scope,omitempty"`
 		Roles    map[string]string `json:"roles,omitempty"`
@@ -125,7 +131,10 @@ func (b *Broker) apiAuthOverview(w http.ResponseWriter, r *http.Request) {
 	comps := []comp{}
 	exposed := 0
 	for _, c := range b.Reg.Components() {
-		ci := comp{Path: c.Path, Runtime: c.Manifest.Runtime, Scope: c.Scope,
+		if !listSealed(r, c.Path) {
+			continue // an admin console that predates sealed components never lists one
+		}
+		ci := comp{Path: c.Path, Runtime: c.Manifest.Runtime, Scope: c.Scope, Sealed: c.Sealed,
 			Uses: c.Manifest.Uses, Manifest: c.ManifestErr, Warnings: b.unresolvedUses(c.Path)}
 		if v := c.Manifest.VM; v.Enabled() {
 			ci.VM = &vmIntent{MemMiB: v.MemMiB, VCPUs: v.VCPUs}
@@ -146,7 +155,7 @@ func (b *Broker) apiAuthOverview(w http.ResponseWriter, r *http.Request) {
 	}
 
 	pending := b.Pending()
-	grants := ws.Grants
+	grants := listedGrants(r, ws.Grants)
 	if grants == nil {
 		grants = []registry.Grant{} // [] not null; the tile does .length on it
 	}

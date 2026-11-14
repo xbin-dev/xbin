@@ -172,7 +172,7 @@ func (b *Broker) writeDataArchive(bw *backup.Writer, c *registry.Component, back
 	scope := b.mainDeclared(c.Path, b.Reg.Scopes()[c.Path])
 	m := backup.Manifest{Schema: backup.SchemaSplit, Kind: backup.KindData, Component: c.Path, Scope: c.Path, ScopeRoot: true,
 		Resources: map[string]string{}, XBinVersion: b.Version, Created: time.Now().UTC().Format(time.RFC3339), Includes: []string{"data"},
-		BackupID: backupID}
+		BackupID: backupID, SealedData: b.sealedDataFormat(c.Path)}
 	if scope != nil {
 		for name, res := range scope.Resources {
 			m.Resources[name] = res.Type

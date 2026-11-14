@@ -48,7 +48,7 @@ func (b *Broker) apiLifecycleSet(w http.ResponseWriter, r *http.Request) {
 	if util.SealedPath(body.Component) && registry.IsOffloaded(body.State) {
 		// no source to archive or remove: a sealed component is switched
 		// off (disabled, hidden), never offloaded
-		server.WriteError(w, http.StatusBadRequest, body.Component+" is part of xbin itself: it can be disabled or hidden, not offloaded")
+		server.WriteError(w, http.StatusBadRequest, server.SealedRefusal(body.Component, "it can be turned off (disabled or hidden), never offloaded: there is no source to archive"), server.SealedDocs)
 		return
 	}
 	// Heavy transitions run before the state flips, so a failure leaves the

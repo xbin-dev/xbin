@@ -404,13 +404,4 @@ func TestRestoreGoesThroughTheStamp(t *testing.T) {
 	if s.DataFormat("xbin/fix") != 2 {
 		t.Fatal("not at format 2")
 	}
-	if err := s.Restored("xbin/fix", 1); err != nil {
-		t.Fatal(err)
-	}
-	if st := readStamp(t, ws); st.Data != 1 {
-		t.Fatalf("the stamp didn't follow the restored data down: %+v", st)
-	}
-	if s.Admit("xbin/fix") != "" || readStamp(t, ws).Data != 2 {
-		t.Error("the next start didn't raise it again")
-	}
 }

@@ -543,6 +543,9 @@ func (b *Broker) restorePartitionData(t partitionBackupTarget, id nsID, raw []by
 	if err != nil {
 		return err
 	}
+	if err := b.sealedArchiveRefusal(t.c.Path, br.M); err != nil { // newer data than this release reads (D227)
+		return err
+	}
 	defer b.markBusy(id, nsRestoring, true)()
 	n := &nsRestorer{b: b, scope: t.c.Scope, dep: t.dep, pkey: t.pkeyNow, replace: true, declared: declared,
 		dirs: map[string]string{}, trees: map[string]*destTree{}, skipped: map[string]bool{}}

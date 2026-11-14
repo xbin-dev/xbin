@@ -31,7 +31,7 @@ documented in exactly one of them:
 | [protocol/sandboxes.md](/docs/protocol/sandboxes.md) | a manager tile's `/sandboxes…` routes |
 | [protocol/devices.md](/docs/protocol/devices.md) | `/devices…`, `/web-ticket`, `/app-tunnel`, `/notify`, `/push/…`; push notifications, Live Activities |
 | [protocol/llm.md](/docs/protocol/llm.md) | reserved: the LLM connector |
-| [protocol/sealed.md](/docs/protocol/sealed.md) | reserved: sealed components |
+| [protocol/sealed.md](/docs/protocol/sealed.md) | `/sealed`, `/xbin/system`, the `?sealed=1` listing switch; what every route answers about a system (sealed) component |
 
 ## Authentication
 

@@ -7,6 +7,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Human access requests (D36). The element plane has had a request/approve
@@ -59,6 +60,10 @@ func (b *Broker) apiRequestCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if _, ok := b.Reg.Component(body.Tile); !ok {
 		server.WriteError(w, http.StatusNotFound, "no such tile")
+		return
+	}
+	if util.SealedPath(body.Tile) && body.Level != users.LevelRead {
+		server.WriteError(w, http.StatusBadRequest, server.SealedRefusal(body.Tile, "access to it is read or none"), server.SealedDocs)
 		return
 	}
 	if lvlSatisfied(p, body.Tile, body.Level) {

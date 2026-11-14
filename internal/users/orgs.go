@@ -416,6 +416,9 @@ func (s *Store) SetOrgTile(orgID, path, level string) error {
 	if level != "" && levelRank(level) == 0 {
 		return fmt.Errorf("unknown level %q (want read|write|terminal, or empty to remove)", level)
 	}
+	if err := sealedLevel(path, level); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	org := s.orgs[normalizeID(orgID)]
@@ -1409,6 +1412,9 @@ func (s *Store) SetUserTile(id, path, level string) error {
 	if level != "" && level != LevelNone && levelRank(level) == 0 {
 		return fmt.Errorf("unknown level %q (want read|write|terminal, none to exclude, or empty to remove)", level)
 	}
+	if err := sealedLevel(path, level); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	u := s.byID[normalizeID(id)]
@@ -1419,6 +1425,15 @@ func (s *Store) SetUserTile(id, path, level string) error {
 	nu.Tiles = withEntry(u.Tiles, path, level)
 	s.byID[nu.ID] = &nu
 	return s.persistLocked()
+}
+
+// sealedLevel refuses an access entry above read on a sealed component's
+// path: the level is read or nothing there (capSealed).
+func sealedLevel(path, level string) error {
+	if capSealed(path, level) != level {
+		return fmt.Errorf("%s is a system component, managed by xbin: access to it is read or none (the %s level doesn't exist on it)", path, level)
+	}
+	return nil
 }
 
 // withEntry returns a copy of m with path set to level ("" = removed).

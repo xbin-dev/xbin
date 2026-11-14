@@ -539,7 +539,9 @@ func (b *Broker) apiBusSubsList(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, code, err.Error(), "/docs/resources.md")
 		return
 	}
-	keep := func(comp string) bool { return admin || (p.Component != "" && p.Component == comp) }
+	keep := func(comp string) bool {
+		return admin && listSealed(r, comp) || (p.Component != "" && p.Component == comp)
+	}
 	out := []busSubView{}
 	if dep == util.MainDeployment {
 		b.bus.mu.Lock()

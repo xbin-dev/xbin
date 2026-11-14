@@ -23,6 +23,8 @@ import (
 	"time"
 
 	"golang.org/x/crypto/argon2"
+
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 const (
@@ -163,6 +165,20 @@ func matchTile(t, path string) bool {
 // the level outright — including `none` as an explicit exclusion — while
 // pattern entries union upward as before.
 func (u *User) TileLevel(path string) string {
+	return capSealed(path, u.tileLevel(path))
+}
+
+// capSealed caps a level on a sealed component's path at read (D227): it
+// has no source and no terminal, so write and terminal don't exist there —
+// for admins, owners, exact entries and patterns alike.
+func capSealed(path, l string) string {
+	if util.SealedPath(path) && levelRank(l) > levelRank(LevelRead) {
+		return LevelRead
+	}
+	return l
+}
+
+func (u *User) tileLevel(path string) string {
 	if u.IsAdmin() {
 		return LevelTerminal
 	}

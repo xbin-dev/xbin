@@ -220,6 +220,12 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 		if !isChrome(c.Path) && !p.CanReadTile(c.Path) && !s.codeGranted(p, c.Path) {
 			continue
 		}
+		if c.Sealed && !WantsSealed(r) {
+			// A shell, console or app that predates sealed components would
+			// offer a terminal, the source and deployments on the row
+			// (docs/compat.md): it is listed only for a caller that asks.
+			continue
+		}
 		ci := componentInfo{
 			Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
 			Title: c.Manifest.DisplayTitle(), Icon: c.Manifest.DisplayIcon(),

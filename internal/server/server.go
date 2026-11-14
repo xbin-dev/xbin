@@ -174,6 +174,7 @@ func (s *Server) Handler() http.Handler {
 	handle("GET "+PersonPagePath, s.authed(http.HandlerFunc(s.handlePersonPage)))   // the partitions page, top-level only (personpage.go)
 	handle("GET "+LimitsPagePath, s.authed(http.HandlerFunc(s.handleLimitsPage)))   // the tile limits page, likewise (limitspage.go)
 	handle("GET "+DevicesPagePath, s.authed(http.HandlerFunc(s.handleDevicesPage))) // the devices page (devicespage.go, D204)
+	handle("GET "+SystemPagePath, s.authed(http.HandlerFunc(s.handleSystemPage)))   // the system components page (systempage.go, D227)
 
 	handle("/api/", s.authedAPI(http.HandlerFunc(s.handleAPI)))
 
@@ -566,6 +567,11 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		dep, deny := s.classGate(r2) // non-primary principals: default-deny (deployclass.go)
 		if deny == nil {
 			r2, deny = s.partitionGate(r2) // a person's partition: default-deny too (partitionclass.go)
+		}
+		// what a sealed component has no such thing as (sealedclass.go):
+		// the same answer whoever asks, so it goes before the others'
+		if d := s.sealedGate(r2); d != nil {
+			deny = d
 		}
 		if deny != nil {
 			h = deny

@@ -144,10 +144,12 @@ func (s *Set) DataFormat(path string) int {
 	return st.Data
 }
 
-// RestoreRefusal says why a backup whose data is in format data, written by
-// release, can't be restored into the component at path: this release's
-// code can't read it. nil when it can (an older format migrates forward at
-// the next start), or when path is no sealed component.
+// RestoreRefusal says why a backup whose data is in format data (0 means
+// 1), written by release, can't be restored into the component at path:
+// this release's code can't read it. nil when it can, or when path is no
+// sealed component. An older format needs nothing: the backend migrates
+// its store forward at its next start, and the stamp stays the high-water
+// mark it is.
 func (s *Set) RestoreRefusal(path string, data int, release string) error {
 	c, ok := s.Component(path)
 	if !ok || data <= c.data() {
@@ -155,17 +157,4 @@ func (s *Set) RestoreRefusal(path string, data int, release string) error {
 	}
 	h := newerData(Stamp{Data: data, Release: release}, c.data(), s.opts.Release)
 	return fmt.Errorf("this backup of %s can't be restored here: %s", path, h.Reason[len("is held: "):])
-}
-
-// Restored records that the data of the component at path is now a
-// backup's, in format data (0 means 1): the stamp follows the data, down
-// as well as up, and the next start migrates it forward.
-func (s *Set) Restored(path string, data int) error {
-	c, ok := s.Component(path)
-	if !ok {
-		return nil
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.writeStamp(c, max(data, 1))
 }

@@ -13673,3 +13673,86 @@ Deviations and refinements made while implementing; all deliberate:
   - **Once only**, across restarts; a failed task #1 still starts the wiki
     step, which says what failed. The `[project starter` marker is defused
     in text from outside, like the coordinator's other markers.
+
+- **D227 — Sealed components: code that is always the running release's
+  (2026-11-14; issue #51).** The owner, on where the workspace agent runs:
+  a sealed system component, as a general facility ("will be useful later
+  when we begin a hosted xbin offering": a component managing the hosted
+  instance, a platform inference gateway), with "a very clean auto-update
+  story (eg code always = builtin template code)". Spike and findings:
+  `plans/wsagent/s1-sealed.md`. The facility ships with an **empty table**;
+  `xbin/wsagent` is registered by the workspace agent's own work.
+  - **A compiled-in table declares them** (`internal/sealed`): name (path
+    `xbin/<name>`), embedded source, partition mode, the interface slots an
+    admin may bind, the grants and capabilities the release gives it
+    (`Capabilities.Delegate`, read by the delegation primitive through
+    `sealed.Lookup`), its data format. Nothing in a workspace declares one,
+    and what a workspace `xbin.json` says about one (a grant from or on it,
+    a binding of an undeclared slot, a binding naming it as provider) is
+    not read; the file is never rewritten for it.
+  - **No workspace can hold the path.** `xbin` has been a reserved
+    top-level name since before v0.1.0: the scan skips it, every creation
+    path refuses it, `/c/` refuses it. A name may not shadow an xbind route
+    or page: boot refuses, and a test walks the route table. That is why
+    the workspace agent is `xbin/wsagent`: `/api/xbin/agent/…` is xbind's.
+  - **The code is the binary's.** At boot the embedded tree is rendered as
+    a template instance is (`builtins.RenderTree`), hashed, and
+    materialized read-only under `.xbin/sealed/<name>/<digest>`, verified
+    file by file at every boot; other digests are removed. It is a tile
+    whose primary is permanently pinned to that tree: the frontend goes
+    through the pinned-checkpoint serving in all three asset modes, with
+    the one HTML transform. Serving from memory was weighed and left: the
+    backend needs files on disk anyway, and `.xbin` is as trusted as the
+    binary beside it.
+  - **Prebuilt in production** (owner). `make build` and
+    `deploy/publish-release.sh` produce `bin/sealed/<name>-<digest>` per
+    architecture (`xbind sealed-build`); the digest in the name is the
+    rendered source's, so a build of other source is never run. Only
+    `--dev`/`--no-auth` compile from the tree (against no workspace module
+    and no line of the root `go.work`). Measured for the agent template:
+    33 s cold on two cores, 60 MB (16 MB stripped and compressed in a
+    1.9 GB bundle), against 780 MB of caches and a module download per
+    workspace.
+  - **Holds, not fallbacks.** A component that can't run is held with a
+    reason its API, `/xbin/system` and `bx system` show: `no-build`,
+    `foreign-data`, `newer-data`, `stamp`, `needs-sandboxes`.
+  - **The data key and the stamp.** `util.ScopeKey` maps `xbin~x` and
+    `xbin/x` to one key. The sealed scope always holds it (a same-key
+    workspace scope loses its resources, D118's refusal); and
+    `data/sealed/<name>.json` says the data at the key is the component's
+    and in which format. Claimed at the first boot while nothing sits at
+    the key — data found there unclaimed holds the component and is never
+    read, moved or deleted (owner). Raised by the first admitted start of
+    a release with a higher format; a stamp above the running release's
+    format holds it (a downgrade). One mark for the whole component:
+    partitions migrate as they start. A restore is refused the same way
+    and never lowers it.
+  - **Partitions** work for a sealed scope (the partition key checks admit
+    one); the table's mode is the only one. Without `--isolate` a
+    partitioned component is held, except that a development xbind runs
+    one global instance (owner).
+  - **Never a target** (the delegation spike's threat T3): its roles,
+    provided interfaces and public endpoints are dropped, so no grant,
+    binding or route reaches it or a person's partition of it; its
+    resources, secrets and registrations pass only its own credentials.
+  - **What an admin may change** (owner): who has read access (the levels
+    above read don't exist on it, for admins too), enabled/disabled, its
+    limits, the bindings of its declared slots. Everything else is the
+    table's. Each of the 300-odd `/api/xbin` routes has a row saying what a
+    sealed path gets (`server/sealedclass.go`, a gate before the handler;
+    guards in `internal/apicheck` and `internal/boot`), as deployments and
+    partitions have theirs.
+  - **Compat.** Listings leave sealed rows out unless asked (`?sealed=1`),
+    so a shell, an admin console or an app that predates them never shows
+    a tile with a dead terminal; `/xbin/system` is the surface that is
+    always there. Backups are data only.
+  - **Words.** "Sealed component" in code, plans and builder docs (the
+    owner's term); people read "system component". No user-facing sentence
+    puts it beside the vault's sealed state, and `docs/sealed.md` says how
+    the two differ.
+  - **Not done here.** No entry point in the shell, the admin console or
+    the app (the workspace agent's UI work adds them; `web/xb/
+    tile-resource.js` and the app's deep links still read `xbin/…` as an
+    xbind page). Table default bindings. A frame doesn't reload when xbind
+    restarts onto other code. The real-binary downgrade suite has nothing
+    sealed to downgrade until a row exists.

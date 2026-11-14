@@ -29,6 +29,8 @@ func main() {
 	switch os.Args[1] {
 	case "ls":
 		err = cmdLs()
+	case "system":
+		err = cmdSystem(os.Args[2:])
 	case "new":
 		err = cmdNew(os.Args[2:])
 	case "tile":
@@ -110,6 +112,8 @@ func usage() {
 	fmt.Fprint(os.Stderr, `bx — xbin workspace CLI (docs: /docs/bx.md)
 
   bx ls                                 list components
+  bx system [<name>]                    xbin's system components: state, version,
+                                        access, connections (docs/sealed.md)
   bx status [<component>] [--all]        one tile's runtime metrics (defaults
                                         to this terminal's tile); --all = global
   bx new <path> [--runtime go|node|python] [--expose]

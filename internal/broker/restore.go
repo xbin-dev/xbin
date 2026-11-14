@@ -195,6 +195,8 @@ func (d *restoreDst) member(name, scope string, withData bool, br *backup.Reader
 		if tree, err = d.resource(scope, res); err != nil {
 			return err
 		}
+	case util.SealedPath(d.comp) && (strings.HasPrefix(name, backup.SourcePrefix) || strings.HasPrefix(name, backup.TermPrefix)):
+		return nil // a sealed component has neither: nothing of an archive becomes a directory under xbin/ (D227)
 	case strings.HasPrefix(name, backup.SourcePrefix):
 		if rel = cleanRel(strings.TrimPrefix(name, backup.SourcePrefix)); rel == "" {
 			return nil

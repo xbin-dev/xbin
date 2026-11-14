@@ -53,7 +53,7 @@ func (r *Runner) build(c *registry.Component) (string, error) {
 			if err := r.buildConfined(c, entry, out); err != nil {
 				return "", err
 			}
-			r.GoVersions.Built(c.Path)
+			r.builtGo(c)
 			return out, nil
 		}
 		// the build's own workspace here too (D166): the same module graph
@@ -87,6 +87,14 @@ func (r *Runner) build(c *registry.Component) (string, error) {
 		return p, nil
 	default:
 		return "", fmt.Errorf("unknown runtime %q", c.Manifest.Runtime)
+	}
+}
+
+// builtGo tells the D166 upgrade check of a tile's Go build; never of a
+// sealed component's, whose versions are the release's.
+func (r *Runner) builtGo(c *registry.Component) {
+	if !c.Sealed {
+		r.GoVersions.Built(c.Path)
 	}
 }
 

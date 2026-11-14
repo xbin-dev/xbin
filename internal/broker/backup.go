@@ -82,6 +82,11 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component, archives 
 	if split != nil {
 		m.Schema, m.Data, m.BackupID = backup.SchemaSplit, split.data, split.id
 	}
+	if c.Sealed {
+		// data alone: its code is the release's, it has no terminal layer,
+		// and its data's format rides along for the restore (D227)
+		includes, m.SealedData = nil, b.sealedDataFormat(c.Path)
+	}
 	if isRoot {
 		scope = b.mainDeclared(c.Path, scope)
 		m.Resources = map[string]string{}
@@ -92,7 +97,7 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component, archives 
 	} else {
 		m.Scope = c.Scope // data belongs to an ancestor scope; not this component's to hold
 	}
-	if _, err := os.Stat(b.termDir(c.Path)); err == nil {
+	if _, err := os.Stat(b.termDir(c.Path)); err == nil && !c.Sealed {
 		includes = append(includes, "term-env")
 	}
 	if jobs := b.cronJobsFor(c.Path); len(jobs) > 0 {
@@ -122,8 +127,10 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component, archives 
 	// Source subtree — skip reproducible/history dirs (git owns history). The
 	// tile's dir is reached from the workspace without symlinks: a nested
 	// tile lives in its parent's writable tree, which could swap it for a link.
-	if err := bw.TreeIn(backup.SourcePrefix, b.Reg.Root, c.Path, skipSource); err != nil {
-		return err
+	if !c.Sealed {
+		if err := bw.TreeIn(backup.SourcePrefix, b.Reg.Root, c.Path, skipSource); err != nil {
+			return err
+		}
 	}
 	// Resource data (only when this component roots its scope, and inline
 	// only in a plaintext workspace's archive).
@@ -134,6 +141,9 @@ func (b *Broker) writeBackup(bw *backup.Writer, c *registry.Component, archives 
 	}
 	// Terminal dev layer — without a VM terminal's disk image (vm/): a sparse
 	// multi-GiB file, live while its VM runs (plans/vm-sandbox.md).
+	if c.Sealed {
+		return nil
+	}
 	if err := bw.Tree(backup.TermPrefix, b.termDir(c.Path), func(rel string) bool { return rel == "vm" }); err != nil {
 		return err
 	}
@@ -377,6 +387,9 @@ func (b *Broker) restoreTileConfirmed(comp, version, confirm string) (restored, 
 	br, err := b.openArchive(body)
 	if err != nil {
 		return restored{}, nil, err
+	}
+	if err := b.sealedArchiveRefusal(comp, br.M); err != nil { // newer data than this release reads (D227)
+		return restored{Manifest: br.M}, nil, err
 	}
 	if err := b.preSwitchRestore(comp, br.M, util.MainDeployment, confirm); err != nil {
 		return restored{Manifest: br.M}, nil, err

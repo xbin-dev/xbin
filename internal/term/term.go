@@ -272,6 +272,11 @@ func (m *Manager) ServeWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, rel, err := util.SafeJoin(m.Root, cwd)
+		if err == nil && util.SealedPath(rel) {
+			// a sealed component has no source and no dev sandbox (D227)
+			http.Error(w, rel+" is a system component, managed by xbin: it has no terminal", http.StatusForbidden)
+			return
+		}
 		if err != nil || rel == "" || !p.CanTerminalTile(rel) {
 			http.Error(w, "your account doesn't have terminal access to this tile", http.StatusForbidden)
 			return

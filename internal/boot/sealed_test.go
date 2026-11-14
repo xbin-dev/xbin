@@ -35,8 +35,10 @@ import (
 // SDK alone (no module download), and a go.mod.tile as builtins ship one.
 func sealedCounter(version string) fs.FS {
 	return fstest.MapFS{
-		"xbin.json":   {Data: []byte(`{"runtime":"go","title":"Sealed counter","expose":{"roles":{"reader":"read","writer":"write"}}}`)},
-		"scope.json":  {Data: []byte(`{"resources":{"state":{"type":"kv"}}}`)},
+		"xbin.json": {Data: []byte(`{"runtime":"go","title":"Sealed counter","expose":{"roles":{"reader":"read","writer":"write"}},
+  "interfaces":{"llm":{"kind":"http","service":"openai"},"net":{"kind":"net"}},
+  "uses":[{"target":"res:apps/counter/state","role":"writer"},{"target":"res:apps/counter/events","role":"writer"}]}`)},
+		"scope.json":  {Data: []byte(`{"resources":{"state":{"type":"kv"},"events":{"type":"bus"}}}`)},
 		"index.html":  {Data: []byte("<!doctype html><html><head><title>sealed</title></head><body>" + version + "</body></html>")},
 		"app.js":      {Data: []byte("export const version = '" + version + "';\n")},
 		"go.mod.tile": {Data: []byte("module counter\n\ngo 1.24\n\nrequire github.com/xbin-dev/xbin/sdk v0.0.0\n")},
@@ -62,9 +64,19 @@ func main() {
 	}
 }
 
-// serving boots ws in-process with the given sealed table and returns its
-// address; the daemon stops when the test ends (or stop is called).
-func serving(t *testing.T, ws string, table []sealed.Spec, tune ...func(*Config)) (addr string, stop func()) {
+// sealedDaemon is an in-process xbind serving ws, with its built state.
+type sealedDaemon struct {
+	t     *testing.T
+	st    *State
+	base  string // http://127.0.0.1:<port>
+	token string // the owner token ("" under --no-auth)
+	stop  func()
+}
+
+// startSealed boots ws in-process with the given sealed table (tune adjusts
+// the config: by default --no-auth, a development xbind) and serves it
+// until the test ends or stop is called.
+func startSealed(t *testing.T, ws string, table []sealed.Spec, tune ...func(*Config)) *sealedDaemon {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -72,16 +84,27 @@ func serving(t *testing.T, ws string, table []sealed.Spec, tune ...func(*Config)
 	}
 	cfg := testConfig(ws, ln)
 	cfg.Sealed = table
+	if cfg.Sealed == nil {
+		cfg.Sealed = []sealed.Spec{}
+	}
+	cfg.SealedBin = filepath.Join(t.TempDir(), "no-sealed-bin")
 	for _, f := range tune {
 		f(cfg)
 	}
 	ready := make(chan string, 1)
 	cfg.Ready = func(a string) { ready <- a }
+	st, err := prepare(cfg)
+	if err != nil {
+		ln.Close()
+		t.Fatalf("boot: %v", err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- Run(ctx, cfg) }()
+	go func() { done <- st.serve(ctx) }()
+	d := &sealedDaemon{t: t, st: st}
 	select {
-	case addr = <-ready:
+	case addr := <-ready:
+		d.base = "http://" + addr
 	case err := <-done:
 		cancel()
 		t.Fatalf("boot ended before serving: %v", err)
@@ -90,7 +113,7 @@ func serving(t *testing.T, ws string, table []sealed.Spec, tune ...func(*Config)
 		t.Fatal("boot never served")
 	}
 	stopped := false
-	stop = func() {
+	d.stop = func() {
 		if stopped {
 			return
 		}
@@ -102,8 +125,88 @@ func serving(t *testing.T, ws string, table []sealed.Spec, tune ...func(*Config)
 			t.Error("boot did not stop after cancel")
 		}
 	}
-	t.Cleanup(stop)
-	return addr, stop
+	t.Cleanup(d.stop)
+	if !cfg.NoAuth {
+		b, err := os.ReadFile(filepath.Join(ws, ".xbin", "token"))
+		if err != nil {
+			t.Fatalf("the owner token: %v", err)
+		}
+		d.token = strings.TrimSpace(string(b))
+	}
+	return d
+}
+
+// do sends a request as the owner, or with the bearer token as[0].
+func (d *sealedDaemon) do(method, path string, body any, as ...string) (int, string) {
+	d.t.Helper()
+	var rd io.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		rd = bytes.NewReader(b)
+	}
+	req, err := http.NewRequest(method, d.base+path, rd)
+	if err != nil {
+		d.t.Fatal(err)
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	tok := d.token
+	if len(as) > 0 {
+		tok = as[0]
+	}
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+	resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+	if err != nil {
+		d.t.Fatalf("%s %s: %v", method, path, err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
+}
+
+// addUser makes an account with tile access entries and signs it in.
+func (d *sealedDaemon) addUser(id string, tiles map[string]string) (token string) {
+	d.t.Helper()
+	if code, body := d.do("POST", "/api/xbin/users", map[string]any{"id": id, "name": id, "role": "user", "password": "pw-" + id + "-pw", "tiles": tiles}); code != 200 {
+		d.t.Fatalf("adding %s: %d %s", id, code, body)
+	}
+	code, body := d.do("POST", "/api/xbin/login", map[string]string{"username": id, "password": "pw-" + id + "-pw"}, "")
+	var out struct{ Token string }
+	if code != 200 || json.Unmarshal([]byte(body), &out) != nil || out.Token == "" {
+		d.t.Fatalf("signing %s in: %d %s", id, code, body)
+	}
+	return out.Token
+}
+
+// serving is startSealed for the tests that need only the address.
+func serving(t *testing.T, ws string, table []sealed.Spec, tune ...func(*Config)) (addr string, stop func()) {
+	t.Helper()
+	d := startSealed(t, ws, table, tune...)
+	return strings.TrimPrefix(d.base, "http://"), d.stop
+}
+
+// prebuilt builds the Go backends of table as a release does (sealed.Build)
+// and answers the directory: a production xbind's bin/sealed.
+func prebuilt(t *testing.T, table []sealed.Spec) string {
+	t.Helper()
+	set, err := sealed.Load(table)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if _, err := set.Build(sealed.BuildOptions{Out: dir, SDK: "../../sdk"}); err != nil {
+		t.Fatalf("building the fixture's backends: %v", err)
+	}
+	return dir
+}
+
+// production makes a config a production xbind's as far as sealed
+// components go: auth on, not --dev, its prebuilt backends beside it.
+func production(bin string) func(*Config) {
+	return func(c *Config) { c.NoAuth, c.Dev, c.SealedBin = false, false, bin }
 }
 
 func httpDo(t *testing.T, method, url string, body any) (int, string) {
@@ -169,8 +272,12 @@ func TestSealedComponentServedAndRunFromEmbeddedSource(t *testing.T) {
 
 	// 1. the registry row: there, marked sealed, with the table's manifest
 	code, body := httpDo(t, "GET", base+"/api/xbin/components", nil)
+	if code != 200 || strings.Contains(body, `"xbin/counter"`) {
+		t.Fatalf("GET /components lists the sealed component to a caller that didn't ask: %d %s", code, body)
+	}
+	code, body = httpDo(t, "GET", base+"/api/xbin/components?sealed=1", nil)
 	if code != 200 {
-		t.Fatalf("GET /components: %d %s", code, body)
+		t.Fatalf("GET /components?sealed=1: %d %s", code, body)
 	}
 	var rows []struct {
 		Path, Runtime, Scope, ManifestError string
@@ -245,7 +352,7 @@ func TestSealedComponentServedAndRunFromEmbeddedSource(t *testing.T) {
 	if code, body := httpDo(t, "GET", base+"/ws/term?cwd=xbin/counter", nil); code != 403 {
 		t.Errorf("a terminal on the sealed component: %d %s, want 403", code, body)
 	}
-	if code, body := httpDo(t, "POST", base+"/api/xbin/clone", map[string]string{"from": "xbin/counter", "to": "apps/counter2"}); code != 400 || !strings.Contains(body, "part of xbin itself") {
+	if code, body := httpDo(t, "POST", base+"/api/xbin/clone", map[string]string{"from": "xbin/counter", "to": "apps/counter2"}); code != 400 || !strings.Contains(body, "is a system component, managed by xbin") {
 		t.Errorf("cloning the sealed component: %d %s", code, body)
 	}
 	if _, err := os.Stat(filepath.Join(ws, "apps", "counter2")); err == nil {
@@ -449,5 +556,200 @@ func TestSealedAgentTemplateHosted(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+// ownCall sends a request with the sealed component's own frame token (the
+// owner's frame of it): how its page, and so its people, reach it.
+func (d *sealedDaemon) ownCall(component, method, path string, body any) (int, string) {
+	d.t.Helper()
+	code, tok := d.do("GET", "/api/xbin/frame-token?component="+component, nil)
+	var ft struct{ Token string }
+	if code != 200 || json.Unmarshal([]byte(tok), &ft) != nil || ft.Token == "" {
+		d.t.Fatalf("the frame token of %s: %d %s", component, code, tok)
+	}
+	var rd io.Reader
+	if body != nil {
+		b, _ := json.Marshal(body)
+		rd = bytes.NewReader(b)
+	}
+	req, _ := http.NewRequest(method, d.base+path, rd)
+	req.Header.Set("X-XBin-Frame-Token", ft.Token)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		d.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp.StatusCode, string(b)
+}
+
+func (d *sealedDaemon) sealedRow(path string) sealedRow {
+	d.t.Helper()
+	code, body := d.do("GET", "/api/xbin/sealed", nil)
+	var out struct{ Components []sealedRow }
+	if code != 200 || json.Unmarshal([]byte(body), &out) != nil {
+		d.t.Fatalf("GET /sealed: %d %s", code, body)
+	}
+	for _, r := range out.Components {
+		if r.Path == path {
+			return r
+		}
+	}
+	d.t.Fatalf("GET /sealed has no %s: %s", path, body)
+	return sealedRow{}
+}
+
+// A production xbind never compiles a sealed component: without the
+// release's build of it the component is held, and says so everywhere.
+func TestSealedProductionNeverCompiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("boots a workspace")
+	}
+	quiet(t)
+	ws := filepath.Join(t.TempDir(), "ws")
+	if err := InitWorkspace(ws); err != nil {
+		t.Fatal(err)
+	}
+	table := []sealed.Spec{{Name: "counter", Source: sealedCounter("r1"), Authored: "apps/counter"}}
+	// a bin/sealed holding a build of other source, and nothing else
+	other := prebuilt(t, []sealed.Spec{{Name: "counter", Source: sealedCounter("other"), Authored: "apps/counter"}})
+	d := startSealed(t, ws, table, production(other))
+	code, body := d.do("GET", "/api/xbin/counter/hello", nil)
+	if code != 502 || !strings.Contains(body, "this xbin install has no build of it") || !strings.Contains(body, "never compiles") {
+		t.Errorf("a call to a component without its build: %d %s", code, body)
+	}
+	if row := d.sealedRow("xbin/counter"); row.Hold == nil || row.Hold.Code != sealed.HoldNoBuild || row.Build != "none" {
+		t.Errorf("GET /sealed: %+v", row)
+	}
+	if ents, _ := os.ReadDir(filepath.Join(ws, ".xbin", "build")); len(ents) > 0 {
+		t.Errorf("a production xbind compiled: %v", ents)
+	}
+	// its page is still the release's (the frontend needs no build)
+	if code, body := d.do("GET", "/c/xbin/counter/app.js", nil); code != 200 || !strings.Contains(body, "r1") {
+		t.Errorf("its frontend: %d %s", code, body)
+	}
+}
+
+// The upgrade and downgrade path of a sealed component, as a production
+// xbind: each release ships its own code and build; the data format rises
+// with an upgrade's first start; a downgrade below it holds the component
+// and touches nothing; a release from before the component leaves its data
+// alone; going forward again runs it on the same data.
+func TestSealedUpgradeAndDowngrade(t *testing.T) {
+	if testing.Short() {
+		t.Skip("boots a workspace five times and builds two backends")
+	}
+	quiet(t)
+	ws := filepath.Join(t.TempDir(), "ws")
+	if err := InitWorkspace(ws); err != nil {
+		t.Fatal(err)
+	}
+	release := func(code string, data int) []sealed.Spec {
+		return []sealed.Spec{{Name: "counter", Source: sealedCounter(code), Authored: "apps/counter", Data: data}}
+	}
+	v1, v2 := release("code-1", 1), release("code-2", 2)
+	bin1, bin2 := prebuilt(t, v1), prebuilt(t, v2)
+	boot := func(version string, table []sealed.Spec, bin string) *sealedDaemon {
+		return startSealed(t, ws, table, production(bin), func(c *Config) { c.Version = version })
+	}
+	stamp := func() sealed.Stamp {
+		t.Helper()
+		b, err := os.ReadFile(filepath.Join(ws, "data", "sealed", "counter.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var st sealed.Stamp
+		if err := json.Unmarshal(b, &st); err != nil {
+			t.Fatal(err)
+		}
+		return st
+	}
+	const key = "/api/xbin/kv/res:xbin/counter/state/marker"
+
+	// release 1
+	d := boot("v1", v1, bin1)
+	if st := stamp(); st.Data != 1 || st.Release != "v1" {
+		t.Fatalf("the first boot's stamp: %+v", st)
+	}
+	if code, body := d.do("GET", "/api/xbin/counter/hello", nil); code != 200 || !strings.HasPrefix(body, "code-1 ") {
+		t.Fatalf("release 1: %d %s", code, body)
+	}
+	if code, body := d.ownCall("xbin/counter", "PUT", key, "written-by-v1"); code != 200 {
+		t.Fatalf("its kv write: %d %s", code, body)
+	}
+	digest1 := d.sealedRow("xbin/counter").Digest
+	d.stop()
+
+	// the upgrade: new code, new build, the same data; the stamp rises when
+	// the new code first starts, not before
+	d = boot("v2", v2, bin2)
+	row := d.sealedRow("xbin/counter")
+	if row.Digest == digest1 || row.Hold != nil || row.Build != "release" || row.DataFormat != 2 || row.Stamp.Data != 1 {
+		t.Errorf("after the upgrade, before a start: %+v", row)
+	}
+	if code, body := d.do("GET", "/c/xbin/counter/app.js", nil); code != 200 || !strings.Contains(body, "code-2") {
+		t.Errorf("the upgraded frontend: %d %s", code, body)
+	}
+	if code, body := d.do("GET", "/api/xbin/counter/hello", nil); code != 200 || !strings.HasPrefix(body, "code-2 ") {
+		t.Fatalf("release 2: %d %s", code, body)
+	}
+	if st := stamp(); st.Data != 2 || st.Release != "v2" {
+		t.Errorf("the stamp after release 2's first start: %+v", st)
+	}
+	if code, body := d.ownCall("xbin/counter", "GET", key, nil); code != 200 || !strings.Contains(body, "written-by-v1") {
+		t.Errorf("release 1's data under release 2: %d %s", code, body)
+	}
+	if ents, _ := os.ReadDir(sealed.Dir(ws, "counter")); len(ents) != 1 {
+		t.Errorf("%d code trees after the upgrade", len(ents))
+	}
+	d.stop()
+	kvBefore, _ := os.ReadFile(filepath.Join(ws, "data", "kv.db"))
+
+	// the downgrade: held, with the reason; nothing of its data is touched
+	d = boot("v1", v1, bin1)
+	code, body := d.do("GET", "/api/xbin/counter/hello", nil)
+	for _, want := range []string{"is held: its data was written by xbin v2 (data format 2)", "this xbin (v1) reads up to format 1", "Nothing was changed"} {
+		if code != 502 || !strings.Contains(body, want) {
+			t.Errorf("a call after the downgrade: %d %s\n\twant 502 with %q", code, body, want)
+		}
+	}
+	if row := d.sealedRow("xbin/counter"); row.Hold == nil || row.Hold.Code != sealed.HoldNewerData || row.Backend == "healthy" {
+		t.Errorf("GET /sealed after the downgrade: %+v", row)
+	}
+	if code, body := d.ownCall("xbin/counter", "GET", key, nil); code == 200 {
+		t.Errorf("held over newer data, its kv is still served: %s", body)
+	}
+	if _, body := d.do("GET", "/api/xbin/resources?sealed=1", nil); strings.Contains(body, "xbin/counter") {
+		t.Errorf("held over newer data, its resources are still declared: %s", body)
+	}
+	if st := stamp(); st.Data != 2 || st.Release != "v2" {
+		t.Errorf("the downgraded release rewrote the stamp: %+v", st)
+	}
+	d.stop()
+	if kvAfter, _ := os.ReadFile(filepath.Join(ws, "data", "kv.db")); !bytes.Equal(kvBefore, kvAfter) {
+		t.Error("the workspace's kv store changed while the component was held")
+	}
+
+	// a release from before the component: it isn't there, its data is
+	d = boot("v0", []sealed.Spec{}, bin1)
+	if code, _ := d.do("GET", "/c/xbin/counter/", nil); code == 200 {
+		t.Error("a release without the component serves it")
+	}
+	if code, body := d.do("GET", "/api/xbin/sealed", nil); code != 200 || strings.Contains(body, "xbin/counter") {
+		t.Errorf("GET /sealed on a release without it: %d %s", code, body)
+	}
+	d.stop()
+	if st := stamp(); st.Data != 2 {
+		t.Errorf("a release without the component touched its stamp: %+v", st)
+	}
+
+	// forward again: it runs, on the data it had
+	d = boot("v2", v2, bin2)
+	if code, body := d.do("GET", "/api/xbin/counter/hello", nil); code != 200 || !strings.HasPrefix(body, "code-2 ") {
+		t.Fatalf("release 2 again: %d %s", code, body)
+	}
+	if code, body := d.ownCall("xbin/counter", "GET", key, nil); code != 200 || !strings.Contains(body, "written-by-v1") {
+		t.Errorf("its data after the round trip: %d %s", code, body)
 	}
 }

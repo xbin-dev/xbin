@@ -151,6 +151,11 @@ type Manifest struct {
 	// Partition, in a partition archive (Kind "partition"), names whose
 	// partition of Component it holds. Absent otherwise.
 	Partition *PartitionRef `json:"partition,omitempty"`
+	// SealedData, in an archive of a sealed component (D227), is the data
+	// format its data was in: a restore into a release whose code reads only
+	// an older format is refused. Such an archive holds data alone — the
+	// code is the release's. Absent for a tile.
+	SealedData int `json:"sealedData,omitempty"`
 }
 
 // PartitionRef is whose partition a partition archive holds: the partition

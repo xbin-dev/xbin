@@ -237,7 +237,7 @@ func Open(specs []Spec, o Options) (*Set, error) {
 	for _, c := range s.comps {
 		c.Partitioned = len(c.Partition) > 0 && (o.Isolate || !o.Dev)
 		if o.BinDir != "" {
-			if p := filepath.Join(o.BinDir, c.Name+"-"+c.ID()); executable(p) {
+			if p := filepath.Join(o.BinDir, BuildName(c)); executable(p) {
 				c.Prebuilt = p
 			}
 		}

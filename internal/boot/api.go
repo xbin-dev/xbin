@@ -6,10 +6,12 @@ import (
 	"net/http"
 	"os"
 	goruntime "runtime"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/runner"
 	"github.com/xbin-dev/xbin/internal/server"
@@ -55,6 +57,14 @@ func (st *State) registerRuntimeAPI(srv *server.Server) {
 			}
 		}
 		bs := run.Inspect()
+		usage := brk.ResourceUsage()
+		if !server.WantsSealed(r) { // sealed components' rows only when asked (D227)
+			bs = slices.DeleteFunc(bs, func(b runner.Backend) bool { return util.SealedPath(b.Path) })
+			usage = slices.DeleteFunc(usage, func(u broker.ResourceInfo) bool { return util.SealedPath(u.Scope) })
+			if tiles, ok := stats["tiles"].([]runner.TileStats); ok {
+				stats["tiles"] = slices.DeleteFunc(slices.Clone(tiles), func(t runner.TileStats) bool { return util.SealedPath(t.Path) })
+			}
+		}
 		// Annotate the runtime picture with each backend's effective network
 		// (D54): the ref, mode, source and inert reason the console shows.
 		for i := range bs {
@@ -62,7 +72,7 @@ func (st *State) registerRuntimeAPI(srv *server.Server) {
 			bs[i].NetRef, bs[i].Net, bs[i].NetSource, bs[i].NetNote = l.Ref, l.Effective, l.Source, l.Note
 		}
 		out := map[string]any{
-			"host": host, "backends": bs, "resources": brk.ResourceUsage(),
+			"host": host, "backends": bs, "resources": usage,
 			"stats": stats,
 		}
 		if deps := rd.deploymentBackends(auth.PrincipalOf(r), bs); len(deps) > 0 {
@@ -202,6 +212,13 @@ func (rd runtimeReads) backends(w http.ResponseWriter, r *http.Request) {
 		rd.nestDeployments(p, out)
 	}
 	rd.parts.nest(out) // people's partition instances, nested in their tile's row (partitionstatus.go)
+	if !server.WantsSealed(r) {
+		for tile := range out { // a console that predates sealed components never lists one (D227)
+			if util.SealedPath(tile) {
+				delete(out, tile)
+			}
+		}
+	}
 	server.WriteJSON(w, http.StatusOK, out)
 }
 

@@ -640,7 +640,9 @@ func (b *Broker) apiAccessMatrix(w http.ResponseWriter, r *http.Request) {
 	comps := b.Reg.Components()
 	paths := make([]string, 0, len(comps))
 	for _, c := range comps {
-		paths = append(paths, c.Path)
+		if listSealed(r, c.Path) {
+			paths = append(paths, c.Path)
+		}
 	}
 	sort.Strings(paths)
 	type cell struct {

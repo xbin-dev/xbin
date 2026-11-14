@@ -14,6 +14,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/sandbox"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Network-function interface wiring (plans/interfaces.md): a component's `net`
@@ -871,6 +872,14 @@ func (b *Broker) validateBinding(comp, slot string, binding registry.Binding) er
 	routeCfg := false
 	for _, br := range binding {
 		routeCfg = routeCfg || br.Host != "" || br.Zone != "" || br.Listen != ""
+	}
+	for _, ref := range refs {
+		if util.SealedPath(ref) { // never a target (D227); the API's gate says so first
+			return fmt.Errorf("%s", server.SealedRefusal(ref, "it is never the provider of a binding"))
+		}
+	}
+	if util.SealedPath(comp) && strings.HasPrefix(slot, "@") {
+		return fmt.Errorf("%s", server.SealedRefusal(comp, "only the interface slots its release declares are bound (its backups go to the workspace's archiver)"))
 	}
 	if strings.HasPrefix(slot, "@") { // pseudo-slots are single-valued
 		if len(refs) > 1 {

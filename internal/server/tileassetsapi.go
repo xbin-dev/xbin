@@ -27,8 +27,8 @@ func (s *Server) apiTileAssets(w http.ResponseWriter, r *http.Request) {
 	out := []tileAssetReport{}
 	found := false
 	for _, c := range s.Reg.Components() {
-		if want != "" && c.Path != want {
-			continue
+		if want != "" && c.Path != want || want == "" && c.Sealed {
+			continue // a sealed component is reported only by name: its files aren't the workspace's to fix
 		}
 		if !p.CanReadTile(c.Path) && !s.codeGranted(p, c.Path) {
 			continue

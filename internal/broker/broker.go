@@ -163,6 +163,8 @@ type Broker struct {
 
 	// Version is the xbind version, stamped into backup manifests.
 	Version string
+	// Sealed asks the sealed set about a sealed component's data (sealed.go).
+	Sealed SealedHooks
 
 	// AllowInsecureVault permits storing secrets as plaintext at rest when no
 	// encryption barrier is configured (dev / --insecure-vault only). When
@@ -603,6 +605,9 @@ func (b *Broker) Pending() []PendingGrant {
 		if registry.IsOffloaded(b.Reg.LifecycleState(c.Path)) {
 			continue
 		}
+		if c.Sealed {
+			continue // what it holds is the table's: nothing of it waits for an approval (D227)
+		}
 		for _, u := range c.Manifest.Uses {
 			if u.Target == "" || u.Role == "" {
 				continue
@@ -641,8 +646,9 @@ func (b *Broker) apiGrantsList(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusForbidden, "admin only")
 		return
 	}
+	grants := listedGrants(r, b.Reg.Workspace().Grants)
 	server.WriteJSON(w, http.StatusOK, map[string]any{
-		"grants":  b.Reg.Workspace().Grants,
+		"grants":  grants,
 		"pending": b.Pending(),
 	})
 }

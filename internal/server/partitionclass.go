@@ -446,6 +446,7 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /vaults":                            GlobalOnlyRefused,
 	"GET /resources":                         GlobalOnlyRefused,
 	"GET /auth-overview":                     GlobalOnlyRefused,
+	"GET /sealed":                            GlobalOnlyRefused, // admins' alone (D227)
 	"GET /backends":                          GlobalOnlyRefused,
 	"GET /runtime":                           GlobalOnlyRefused,
 	"GET /ingress":                           GlobalOnlyRefused,

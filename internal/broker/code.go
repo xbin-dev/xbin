@@ -113,6 +113,9 @@ func gitInitComponent(dir string) error {
 // are versioned; existing ones are migrated on first sight.
 func (b *Broker) EnsureComponentRepos() {
 	for _, c := range b.Reg.Components() {
+		if c.Sealed {
+			continue // xbind's own read-only tree, no repo (D227)
+		}
 		if err := gitInitComponent(c.Dir); err != nil {
 			slog.Debug("git init component", "path", c.Path, "err", err)
 		}
