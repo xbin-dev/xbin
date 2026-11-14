@@ -12,6 +12,35 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-14
 
+- **Frontend kit: `/vendor/chat/tools.js` and `/vendor/chat/ask.js` — one
+  model of a tool call and of what an agent asks; the chat kit's `KIT` is
+  2** (D224; [frontend-kit.md](/docs/frontend-kit.md)). Two new pure
+  modules a tile may import, made of what xbind's Agent tab and the agent
+  template each had: `tools.js` reads a call from its `ToolRecord` (the
+  merge of an agent's `tool.call` / `tool.update` events, headline, the
+  command under it, outcome and state chips, `stripAnsi`, the output's
+  tail, diffs as a patch or as the two texts, plan approval); `ask.js` a
+  permission request as its card (option order, who sees an option that
+  stops the agent asking, what "always" remembers), a question as a form or
+  a page to open, the slash menu, the composer's words while a turn runs.
+  `/vendor/agent-tools.js`, `/vendor/agent-slash.js` and
+  `/vendor/signin-scan.js`'s `cleanCode` are re-exports now: every name
+  they exported is there and says what it said, with the changes below.
+  An event log's tool block in the Agent tab's fold (`/vendor/agent-fold.js`)
+  also carries `rec`, the kit's record (its locations and files; a diff a
+  later content list left out; `changed`), and a question's block its
+  `mode` and `url`.
+- **Agent tab: what changes in it.** Command output: a terminal hyperlink
+  keeps its text (it was dropped, with everything up to the last link),
+  and colours written with colon sub-parameters (`ESC[38:2::…m`), a
+  character-set designation (`ESC ( B`) and the 8-bit CSI are stripped
+  (they showed as stray characters). A question's form: a single choice
+  written as `anyOf`, labels from `enumNames`, and schema `default`s (drawn
+  chosen; an untouched field answers its default) are read; a choice
+  without a title is called by its value; a required choice answered in
+  its "Other" box counts as answered. A question that is a page to open
+  (URL mode) is drawn as its link with Done / Skip. The iOS app's port
+  follows the output rule in its next build.
 - **docs: the protocol reference is split by topic.** `/docs/protocol.md`
   had reached the size limit of a served doc, so its route tables and
   WebSocket sections moved, unchanged, to one page per area under

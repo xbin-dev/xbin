@@ -2,42 +2,12 @@
 // model (/vendor/chat/blocks.js): what web/agent-fold.js holds today,
 // field by field, with nothing added — where today's fold has dropped
 // something the model asks for, the block says its zero value and
-// hack/chat-fixtures/gaps.mjs names the gap. The spec's "Agent tab" mapping
-// table is this file; when the fold makes blocks itself, this goes.
-import { block, newToolRecord, toolState, up } from '../../web/chat/blocks.js';
-import { isPlanApproval, planText } from '../../web/agent-tools.js';
-import { toolDiff, changeSet, commandOf } from './reference.mjs';
-
-// webRecord: the fold's tool record (agent-tools.js foldTool) as a ToolRecord
-export function webRecord(t) {
-  const rec = newToolRecord(t.id);
-  rec.kind = t.tk;
-  rec.title = t.title;
-  rec.label = t.label;
-  rec.name = t.name;
-  rec.status = t.status;
-  rec.parent = t.parent;
-  rec.subagent = !!t.subagent;
-  rec.planReview = !!t.planReview;
-  rec.rawInput = t.rawInput;
-  // (locations: foldTool keeps none)
-  const text = [];
-  for (const it of Array.isArray(t.content) ? t.content : []) { // content: the last list said, whole
-    if (!it || typeof it !== 'object') continue;
-    if (it.type === 'diff') rec.diffs.push(toolDiff(it, rec));
-    else if (it.type === 'terminal') rec.terminal = true;
-    else {
-      const s = it.content?.text ?? (it.type === 'text' ? it.text : undefined);
-      if (typeof s === 'string' && s !== '') text.push(s);
-    }
-  }
-  rec.text = text.join('\n\n');
-  rec.files = [...new Set(rec.diffs.map((d) => d.path).filter(Boolean))];
-  rec.output = t.output;
-  rec.exitCode = t.exitCode;
-  rec.changed = t.files ? changeSet({ changes: t.files.changes, patch: t.files.patch }) : null;
-  return rec;
-}
+// hack/chat-fixtures/expect.mjs names the gap. The spec's "Agent tab"
+// mapping table is this file; when the fold makes blocks itself, this goes.
+// A call's record is the fold's own (the kit's ToolRecord, kept by
+// /vendor/chat/tools.js mergeTool beside the tab's old record).
+import { block, toolState, up } from '../../web/chat/blocks.js';
+import { isPlanApproval, planText, planPath, inputCommand, changeSet } from '../../web/chat/tools.js';
 
 function webBlock(b, parent) {
   const k = b.key;
@@ -52,7 +22,7 @@ function webBlock(b, parent) {
       out = block('thought', k, { text: b.text, live: !b.done, ms: Math.max(0, (b.t1 || 0) - (b.t0 || 0)), at: b.t0 || 0 });
       break;
     case 'tool': {
-      const rec = webRecord(b);
+      const rec = b.rec;
       out = block('tool', k, { rec, state: toolState(rec), children: null, at: b.t0 || 0 });
       if (b.children) out.children = b.children.map((c) => webBlock(c, out));
       break;
@@ -69,18 +39,17 @@ function webBlock(b, parent) {
       const plan = isPlanApproval(tc);
       out = block('perm', k, {
         pid: b.pid, callId: tc.id || '',
-        tool: { title: tc.title || '', kind: tc.kind || '', name: tc.name || '', label: '', command: commandOf(tc.rawInput), rawInput: tc.rawInput ?? null, content: tc.content ?? null },
+        tool: { title: tc.title || '', kind: tc.kind || '', name: tc.name || '', label: '', command: inputCommand(tc.rawInput), rawInput: tc.rawInput ?? null, content: tc.content ?? null },
         options: (b.options || []).map((o) => ({ optionId: o.optionId, name: o.name, kind: o.kind, explicit: false })),
         rule: b.rule && b.rule.scoped !== false && (b.rule.kind || b.rule.title) ? { kind: b.rule.kind || '', title: b.rule.title || '' } : null,
         title: meta.title || '', description: meta.description || '', defaultToNo: !!meta.defaultToNo,
-        plan: plan ? { text: planText(tc), path: tc.rawInput && typeof tc.rawInput.planFilePath === 'string' ? tc.rawInput.planFilePath : '' } : null,
+        plan: plan ? { text: planText(tc), path: planPath(tc) } : null,
         by: b.by ?? null, optionId: b.optionId ?? null,
       });
       break;
     }
     case 'ask':
-      // (mode and url: the fold keeps neither — every question is a form to it)
-      out = block('ask', k, { eid: b.eid, callId: b.toolCallId || '', message: b.message, mode: 'form', schema: b.schema, url: '', action: b.action ?? null, by: b.by ?? null, content: b.content ?? null });
+      out = block('ask', k, { eid: b.eid, callId: b.toolCallId || '', message: b.message, mode: b.mode, schema: b.schema, url: b.url, action: b.action ?? null, by: b.by ?? null, content: b.content ?? null });
       break;
     case 'turn':
       out = block('turn', k, { turn: b.turn, stopReason: b.stopReason || '', usage: b.usage || null, error: b.error || '' });

@@ -10,21 +10,46 @@
 // a log, at each of its checkpoints: the Agent tab's fold through its
 // adapter (web.mjs), with what the model asks for and that fold has dropped
 // put back from the log itself:
-//   - a tool block's record is the reference's (reference.mjs: locations,
-//     files, a content list read by the model's rules);
+//   - a tool block's record is the one /vendor/chat/tools.js makes of the
+//     log's events (records(): the id-reuse rule included);
 //   - its state is `approval` while an unanswered permission request names
 //     its call;
 //   - a permission request names its call's label, and marks the options
 //     the agent template's backend says raise the mode (`explicit`: the one
-//     thing no log says — taken from <name>.agtt.json);
-//   - a question says its mode and its url.
+//     thing no log says — taken from <name>.agtt.json).
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { Fold } from '../../web/agent-fold.js';
 import { walk, toolState, toolDone, plain } from '../../web/chat/blocks.js';
-import { records, compact } from './reference.mjs';
+import { records } from '../../web/chat/tools.js';
 import { webTranscript } from './web.mjs';
+
+/**
+ * compact(x): x as the fixtures hold it — a field at its zero value ('' / 0
+ * / false / null / []) left out, at every depth: absent means zero. Never
+ * left out: a block's k and kind, a checkpoint's seq and blocks, a tool
+ * record's id, kind, title and status — and an exitCode of 0, whose zero
+ * value is null (no exit status yet). What the agent sent whole (a call's
+ * rawInput, a form's schema, an answer's content, a request's content list)
+ * is kept as it came.
+ */
+const zero = (v, key) => v == null || v === '' || (v === 0 && key !== 'exitCode') || v === false || (Array.isArray(v) && v.length === 0);
+const opaque = (key, x) => key === 'rawInput' || key === 'schema' || (key === 'content' && (x.kind === 'ask' || 'rawInput' in x || 'command' in x));
+
+export function compact(x) {
+  if (Array.isArray(x)) return x.map(compact);
+  if (!x || typeof x !== 'object') return x;
+  const record = 'id' in x && 'status' in x && 'kind' in x && !('k' in x);
+  const out = {};
+  for (const [key, val] of Object.entries(x)) {
+    if (key[0] === '$' || val === undefined) continue;
+    const keep = key === 'k' || key === 'kind' || key === 'seq' || key === 'blocks' || (record && (key === 'id' || key === 'title' || key === 'status'));
+    if (zero(val, key) && !keep) continue;
+    out[key] = opaque(key, x) ? val : compact(val);
+  }
+  return out;
+}
 
 export const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'sdk', 'acp', 'testdata', 'transcripts');
 
@@ -56,15 +81,13 @@ export function expectedAt(log, seq, explicit = new Map()) {
   const events = upTo(log, seq);
   const tr = webTranscript(new Fold(events));
   const recs = new Map(records(events).map((r) => [String(r.seq), r.rec]));
-  const asked = new Map(); // eid → its request
-  for (const e of events) if (e.type === 'elicitation.request') asked.set(e.data.eid, e.data);
   const waits = new Set(); // call ids an unanswered permission request names
   walk(tr.blocks, (b) => { if (b.kind === 'perm' && b.by == null && b.callId) waits.add(b.callId); });
   const newest = new Map(); // call id → its newest tool block
   walk(tr.blocks, (b) => {
     if (b.kind !== 'tool') return;
     const rec = recs.get(b.k);
-    if (!rec) throw new Error(`${log.name}: no reference record begins at seq ${b.k}`);
+    if (!rec) throw new Error(`${log.name}: no record begins at seq ${b.k}`);
     b.rec = rec;
     b.state = toolState(rec);
     newest.set(rec.id, b);
@@ -76,10 +99,6 @@ export function expectedAt(log, seq, explicit = new Map()) {
       b.tool.label = call ? call.rec.label : '';
       const ex = explicit.get(b.pid);
       for (const o of b.options) o.explicit = !!(ex && ex.has(o.optionId));
-    } else if (b.kind === 'ask') {
-      const q = asked.get(b.eid) || {};
-      b.mode = q.mode === 'url' ? 'url' : 'form';
-      b.url = q.url || '';
     }
   });
   return tr;
@@ -152,14 +171,10 @@ function prune(x, drop) {
 export const GAPS = {
   // the Agent tab's fold (web/agent-fold.js, web/agent-tools.js)
   web: [
-    { id: 'W1', why: 'foldTool keeps no locations, so a call\'s files are its diffs\' paths only',
-      both: (t) => each(t, (b) => { if (b.kind === 'tool') { delete b.rec.locations; delete b.rec.files; } }) },
     { id: 'W2', why: 'the fold does not connect a permission request to its call\'s card: the card says pending while the request waits',
       expected: (t) => each(t, (b) => { if (b.kind === 'tool' && b.state === 'approval') b.state = 'pending'; }) },
     { id: 'W3', why: 'a permission request carries no `explicit`: no escalation rule runs for the Agent tab',
       both: (t) => each(t, (b) => { if (b.kind === 'perm') for (const o of b.options || []) delete o.explicit; }) },
-    { id: 'W4', why: 'the fold drops a question\'s mode and url: every question is a form to it',
-      expected: (t) => each(t, (b) => { if (b.kind === 'ask') { delete b.url; b.mode = 'form'; } }) },
   ],
   // the agent template (its backend's rows, model/fold.js)
   agtt: [
