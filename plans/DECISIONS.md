@@ -13723,3 +13723,31 @@ Deviations and refinements made while implementing; all deliberate:
     minute; no grant or binding may target a sealed holder; each delegate
     tile call is counted in the partition's egress ledger and its edges
     count as approved for the consent prompt.
+  - **After the security review (2026-11-15).** Nine findings, fixed on the
+    branch, each with the case that passed before as a test. What changed
+    in the design: (1) a session-start card shows the harness, mode and
+    options the session *will* run with (history included), the ticket
+    binds them, and an agent resumes only sessions it started; (2) change
+    sets are closed by what a kind can *express*, not only by its name —
+    nothing on a holder, no `xbin`/`cap:`/`gpu:`/`code` targets, no `@`
+    slots, workspace default or host network, no share of a tile that
+    holds such grants; a binding's line states its route and xbind writes
+    PUBLIC / OPEN PORT / EGRESS warnings; an item whose warnings changed
+    is stale; (3) the plane is primary-only; (4) `?xbin-partition=global`
+    takes the same consent and ledger as the person's partition; (5) a
+    standing approval is of one call (tile, method, path) by default, the
+    whole tile a separate explicit scope — and every shipped tile and
+    template says `"agent"` (most `off`; the agent template `read`, with
+    a closed rule in its backend). The review's "the agent can answer a
+    harness's permission through the template's API" did not reproduce:
+    every route there needs the `admin` role and a delegate's call never
+    carries it — an accident, so the explicit rule went in anyway; (6)
+    the audit log rate-limits what isn't an act that ran, stores are
+    per-person locked and bounded; (7) running calls are re-judged (3 s,
+    and at once on a sweep), method-override headers are stripped, a
+    ticket binds the content type and the tile; (8) the cap's classes are
+    pinned by a golden file; (9) `Subject.Model` has one source.
+    Rejected: letting an agent message or start conversations in the
+    agent template under `"agent": "full"` — a message answers a parked
+    question and a start picks a harness and mode; each needs its own
+    design.

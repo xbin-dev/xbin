@@ -68,7 +68,7 @@ func TestDelegateClient(t *testing.T) {
 		case r.Method == "DELETE" && r.URL.Path == "/api/xbin/delegate/requests/t1":
 			_, _ = w.Write([]byte(`{"id":"t1","state":"withdrawn"}`))
 		case r.URL.Path == "/api/xbin/delegate/approvals":
-			_, _ = w.Write([]byte(`{"approvals":[{"id":"a1","tile":"apps/mail"}]}`))
+			_, _ = w.Write([]byte(`{"approvals":[{"id":"a1","tile":"apps/mail","scope":"call","method":"POST","path":"/api/apps/mail/send"},{"id":"a2","tile":"apps/x","scope":"tile"},{"id":"a3","tile":"apps/old"}]}`))
 		case r.Method == "POST" && r.URL.Path == "/api/xbin/delegate/changesets":
 			_, _ = w.Write([]byte(`{"id":"c1","title":"t","state":"proposed","items":[{"n":1,"kind":"grant.add","line":"Let apps/a use apps/b as reader","blocked":""}]}`))
 		case r.URL.Path == "/api/xbin/delegate/changesets/c1":
@@ -146,8 +146,21 @@ func TestDelegateClient(t *testing.T) {
 	if err := WithdrawApproval(ctx, ask.ID); err != nil {
 		t.Fatal(err)
 	}
-	if aps, err := StandingApprovals(ctx); err != nil || len(aps) != 1 || aps[0].Tile != "apps/mail" || !aps[0].Until.IsZero() {
+	aps, err := StandingApprovals(ctx)
+	if err != nil || len(aps) != 3 || aps[0].Tile != "apps/mail" || !aps[0].Until.IsZero() {
 		t.Fatalf("StandingApprovals: %+v %v", aps, err)
+	}
+	// an approval is of one call unless it says the whole tile; one without a scope covers nothing
+	for i, c := range []struct {
+		method, path string
+		want         bool
+	}{{"POST", "/api/apps/mail/send", true}, {"post", "/api/apps/mail/send", true}, {"DELETE", "/api/apps/mail/send", false}, {"POST", "/api/apps/mail/drafts", false}} {
+		if aps[0].Covers(c.method, c.path) != c.want {
+			t.Errorf("case %d: a call approval covers %s %s = %v", i, c.method, c.path, !c.want)
+		}
+	}
+	if !aps[1].Covers("DELETE", "/api/apps/x/a/b") || aps[1].Covers("POST", "/api/apps/xy/a") || aps[2].Covers("POST", "/api/apps/old/a") {
+		t.Errorf("tile and unscoped approvals: %+v", aps)
 	}
 	cs, err := ProposeChanges(ctx, "t", []Change{{Kind: "grant.add", Args: map[string]string{"from": "apps/a", "target": "apps/b", "role": "reader"}, Why: "so a can read b"}})
 	if err != nil || cs.ID != "c1" || cs.State != "proposed" || cs.Items[0].Line == "" {

@@ -239,15 +239,18 @@ func DryRun(ctx context.Context, method, path string) (map[string]any, error) {
 // ApprovalRequest is one request for the person's approval, and — once
 // State is "approved" — the ticket for exactly that call.
 type ApprovalRequest struct {
-	ID      string         `json:"id"`
-	Kind    string         `json:"kind"`   // call | session | template
-	Method  string         `json:"method"` //
-	Target  string         `json:"target"` // the path with its query, as approved
-	Tile    string         `json:"tile,omitempty"`
-	State   string         `json:"state"`           // pending | approved | denied | used | expired | withdrawn
-	Grant   string         `json:"grant,omitempty"` // once | hour | always
-	Preview map[string]any `json:"preview,omitempty"`
-	Expires time.Time      `json:"expires"`
+	ID     string `json:"id"`
+	Kind   string `json:"kind"`   // call | session | template
+	Method string `json:"method"` //
+	Target string `json:"target"` // the path with its query, as approved
+	Tile   string `json:"tile,omitempty"`
+	// ContentType is the media type the approval is of: the ticketed call
+	// carries this Content-Type or is refused (ErrBadTicket).
+	ContentType string         `json:"contentType,omitempty"`
+	State       string         `json:"state"`           // pending | approved | denied | used | expired | withdrawn
+	Grant       string         `json:"grant,omitempty"` // once | hour | always
+	Preview     map[string]any `json:"preview,omitempty"`
+	Expires     time.Time      `json:"expires"`
 }
 
 // Approved reports a request the person approved and that isn't spent: its
@@ -265,11 +268,25 @@ func (a ApprovalRequest) Decided() bool { return a.State != "pending" && a.State
 // agent), POST /api/xbin/templates/new. summary is the agent's own words
 // for the person, shown as the agent's. The person is told (an event, a
 // push); poll ApprovalOf until it is approved or decided.
+//
+// A body is approved as JSON: send the ticketed call with Content-Type
+// application/json (parameters such as charset don't matter), or ask with
+// RequestApprovalAs — the content type is part of what was approved.
 func RequestApproval(ctx context.Context, method, path string, body []byte, summary string) (ApprovalRequest, error) {
+	return RequestApprovalAs(ctx, method, path, "", body, summary)
+}
+
+// RequestApprovalAs is RequestApproval for a body that isn't JSON:
+// contentType is the Content-Type the ticketed call will carry ("" is
+// application/json when there is a body).
+func RequestApprovalAs(ctx context.Context, method, path, contentType string, body []byte, summary string) (ApprovalRequest, error) {
 	var out ApprovalRequest
 	in := map[string]string{"method": method, "path": path, "summary": summary}
 	if len(body) > 0 {
 		in["bodyBase64"] = base64.StdEncoding.EncodeToString(body)
+	}
+	if contentType != "" {
+		in["contentType"] = contentType
 	}
 	return out, delegateCall(ctx, http.MethodPost, "/api/xbin/delegate/requests", in, &out)
 }
@@ -294,11 +311,28 @@ func StandingApprovals(ctx context.Context) ([]StandingApproval, error) {
 	return out.Approvals, delegateCall(ctx, http.MethodGet, "/api/xbin/delegate/approvals", nil, &out)
 }
 
-// StandingApproval is one standing approval.
+// StandingApproval is one standing approval: of one call — Method on Path
+// of Tile's API, any body and query (Scope "call") — or of every write to
+// Tile's API (Scope "tile").
 type StandingApproval struct {
-	ID    string    `json:"id"`
-	Tile  string    `json:"tile"`
-	Until time.Time `json:"until,omitempty"`
+	ID     string    `json:"id"`
+	Tile   string    `json:"tile"`
+	Scope  string    `json:"scope"`
+	Method string    `json:"method,omitempty"`
+	Path   string    `json:"path,omitempty"`
+	Until  time.Time `json:"until,omitempty"`
+}
+
+// Covers reports whether the approval lets method on path (a tile API
+// path, "/api/<tile>/…", without its query) through without a ticket.
+func (a StandingApproval) Covers(method, path string) bool {
+	switch a.Scope {
+	case "tile":
+		return path == "/api/"+a.Tile || strings.HasPrefix(path, "/api/"+a.Tile+"/")
+	case "call":
+		return strings.EqualFold(a.Method, method) && a.Path == path
+	}
+	return false
 }
 
 // Change is one admin operation of a change set. Kind is one of a closed

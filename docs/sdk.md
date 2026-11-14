@@ -643,13 +643,17 @@ for {
 	// wait: the person answers when they answer
 }
 req, _ = http.NewRequestWithContext(ctx, "POST", "http://xbin/api/apps/mail/send", bytes.NewReader(body))
-xbin.WithTicket(req, ask.ID)         // once, within 15 minutes; another method,
-resp, err = xbin.AsPerson().Do(req)  // path, query or body is ErrBadTicket
+req.Header.Set("Content-Type", "application/json") // part of what was approved
+xbin.WithTicket(req, ask.ID)         // once, within 15 minutes; another method, path,
+resp, err = xbin.AsPerson().Do(req)  // query, body or content type is ErrBadTicket
 ```
 
-`xbin.StandingApprovals(ctx)` lists the tiles the person lets their agent
-write to without a ticket; `xbin.WithdrawApproval(ctx, id)` takes a request
-back. Starting a tile agent without a ticket works only when the person
+A body is approved as JSON; `xbin.RequestApprovalAs(ctx, method, path,
+contentType, body, summary)` asks for another content type.
+`xbin.StandingApprovals(ctx)` lists what the person lets their agent do
+without a ticket — each one call (`Scope "call"`: `Method` on `Path`) or
+every write to a tile (`Scope "tile"`); `a.Covers(method, path)` answers
+for one. `xbin.WithdrawApproval(ctx, id)` takes a request back. Starting a tile agent without a ticket works only when the person
 allowed it in their agent preferences, and then without `mode`, `net` or
 `api` in the body — those are the preference's.
 

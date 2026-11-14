@@ -841,9 +841,12 @@ sessions, their partitions — with three differences:
   approval**. A non-GET call to a tile's API, starting a tile agent and
   creating a tile pass only with a one-shot *ticket* — a request the
   person approved in their own session, bound to exactly that method,
-  path, query and body — or, for a tile's API, under a *standing approval*
-  the person gave ("this tile for an hour", "always") and can list and
-  revoke. Only the person's own top-level session, app or device grants:
+  path, query, body and content type — or, for a tile's API, under a
+  *standing approval* the person gave and can list and revoke: of **that
+  call** (the method and path — "this call, always") unless they chose the
+  separate, wider "every write to this tile". An approval goes with the
+  tile, and with the person's access to it. Only the person's own
+  top-level session, app or device grants:
   the agent's own page shows the request and renders what the agent wrote,
   so it may read and may pause the agent, and can approve nothing. So a credential taken from the agent's sandbox can read what the
   person reads, and change nothing.
@@ -853,9 +856,11 @@ sessions, their partitions — with three differences:
 required) and is marked `origin: "agent"`. Its mode, network and API
 access are what the person approved for that start, or — when they allowed
 starts without asking — their agent preferences; never the agent's choice.
-It targets the tile's default deployment. The agent prompts, cancels and
-ends only sessions it started; whatever any session asks, the person
-answers. An admin's agent opens sessions in the sandbox tier of an ordinary
+It targets the tile's default deployment; the approval card shows the
+harness and mode the session will really run in (a resumed session's
+included), and the agent resumes only sessions it started. The agent
+prompts, cancels and ends only sessions it started; whatever any session
+asks, the person answers. An admin's agent opens sessions in the sandbox tier of an ordinary
 user.
 
 **What a tile sees.** `X-XBin-From: user:<id>`, `X-XBin-User` and
@@ -876,7 +881,23 @@ workspace's `partitionConsent` on it needs their consent for
 A tile says how much of its API agents may use with **`"agent"`** in its
 manifest: `"full"` (the default: everything the person's level allows —
 writes still need the person's approval), `"read"` (`GET` and `HEAD`
-only) or `"off"`.
+only) or `"off"`. xbind's approval is of a *call*; what the call means is
+the tile's to know. A tile whose API answers its own approvals, questions
+or sign-ins, or hands out secrets, must refuse those routes to a caller
+with `X-XBin-Agent` itself, or say `"read"` or `"off"`:
+[elements.md → A person's agent](/docs/elements.md). Every tile and
+template that ships with xbind says one of the three.
+
+> **Tiles written before workspace agents can't tell the agent from the
+> person.** A backend that doesn't look at `X-XBin-Agent` treats an agent's
+> call as its person's at role `reader` or `writer`. That includes
+> **instances of the agent template made before this release**: their
+> routes all ask for the `admin` role, which an agent's call never carries,
+> so an unmodified one refuses the agent outright — but one whose routes
+> were opened to `writer` would let a person's agent answer a coding
+> agent's permission requests as the person. Merge the template's update
+> (`git merge template/main`: it brings `"agent": "read"` and the backend's
+> own rule), or add `"agent": "off"` to the instance's `xbin.json`.
 
 **Who else decides.** In order, on every call: the workspace's switch (off
 until an admin turns it on); the person's pause, which stops their agent
@@ -897,16 +918,21 @@ mail delivered to it are other tiles' data: untrusted input.
 (off by default; set in their own session). The agent then reads grants,
 bindings, orgs and limits as the person sees them, and submits **change
 sets**: batches of operations from a closed list (grants, bindings, org
-shares, limits). xbind writes each operation's line and its before/after
-itself. Only the person whose agent proposed a set approves it — all, some
+shares, limits), each closed to wiring tiles: nothing on a workspace agent
+itself, no grant of `xbin`, `cap:*`, `gpu:*` or all `code`, no host
+network, no backup destination, no share of a tile that holds such power.
+xbind writes each operation's line and its before/after itself, and says
+in its own words what a binding opens to the internet, the host's ports or
+the network. Only the person whose agent proposed a set approves it — all, some
 or none, in their own session, after a recent sign-in (the step-up device
 enrolment uses) — and xbind applies the approved operations in order as
 that person, through the ordinary handlers. Passwords, devices, SSO, the
 vault, policy rows, ownership and view-as are not operations: they can't be
 in a change set.
 
-**The log.** Every side effect, tile call, refusal, read of code, logs or
-admin state, approval and applied change is a row of the person's own log
+**The log.** Every side effect, approval and applied change — and tile
+reads, refusals and reads of code, logs or admin state, up to a rate, with
+a count of what was left out — is a row of the person's own log
 (`GET /api/xbin/delegate/audit`: method and path, never a query or a body;
 13 months). The person reads theirs; an admin anyone's; the agent and its
 page never.

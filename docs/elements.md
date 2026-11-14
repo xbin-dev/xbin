@@ -141,7 +141,8 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // acts for them (docs/auth.md §Delegation): "full" — the default, absent
   // means it — everything that person's level allows, each write approved
   // by them; "read" — GET and HEAD only; "off" — nothing. An unknown word
-  // reads as "off". Such calls carry X-XBin-Agent.
+  // reads as "off". Such calls carry X-XBin-Agent. Decide it — see
+  // "A person's agent" under API contract below — and say why in a comment.
   "agent": "full",
 
   // Runtime call rights this component wants (docs/auth.md). Targets are
@@ -1101,6 +1102,53 @@ integrates with you in minutes. Standard shape (scaffolded by
 5. **Use it**: a copy-paste `uses` snippet.
 
 Keep it truthful over pretty — it's a contract, not marketing.
+
+### A person's agent
+
+A person can have a **workspace agent**: software a model drives, which
+xbind lets call your tile's API *as that person*
+([auth.md §Delegation](/docs/auth.md#delegation-a-persons-workspace-agent)).
+Its calls look like the person's — `X-XBin-From: user:<id>`, `X-XBin-User`,
+their level — at role `reader` or `writer`, never `admin`, plus
+**`X-XBin-Agent`** (`xbin.Caller(r).ByAgent()`). xbind asks the person
+before every write the agent makes, but it approves a *call*: only your
+tile knows what a call means. Before your tile has a backend with people
+in it, decide:
+
+1. **Say it in the manifest.** `"agent": "off"`, `"read"` or `"full"`,
+   with the reason in a comment. Absent means `full`. `read` if agents
+   should see what the person sees and change nothing; `off` if the API
+   hands out secrets or is itself a control surface (firewall rules,
+   tokens, routes, terminals). Every tile and template that ships with
+   xbind says one of the three.
+2. **Refuse an agent the answers that are a person's.** With `full`, any
+   route that *answers* something a person was asked — an approval, a
+   permission request, a question, a consent, a sign-in — or that changes
+   what your tile's own agents and automations may do, must refuse a
+   caller with `ByAgent()`:
+
+   ```go
+   if xbin.Caller(r).ByAgent() {
+   	xbin.WriteError(w, http.StatusForbidden, "this is for the person themselves")
+   	return
+   }
+   ```
+
+   Otherwise a person's agent approves its own way through your tile: the
+   person's "always allow this call" on your `…/approve` route is one click.
+   Prefer a closed rule — refuse every write from an agent, and list the
+   routes it may use — over a list of routes to refuse (the agent
+   template's `_backend/wsagent.go` is the worked example).
+3. **Don't trust `user:` to mean an admin, or a WebSocket to be a read.**
+   Judge by `X-XBin-Role` / `X-XBin-User-Level`; treat an upgrade as a
+   write.
+4. **Record who acted.** When an agent's call changes something, store
+   `Caller(r).Agent` beside the user, so your history says "Ada's agent",
+   not "Ada".
+
+A backend written before workspace agents ignores the header and treats
+the agent as the person, at their level. If that is wrong for your tile,
+set `"agent": "read"` or `"off"` until its routes tell the two apart.
 
 ## Cross-component code access (editing plane)
 

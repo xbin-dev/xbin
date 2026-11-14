@@ -53,6 +53,9 @@ Authorization: XBin-Delegate <XBIN_TOKEN>
   and `--no-auth` excepted).
 - A request that carries the scheme is judged as the delegate's or refused,
   whatever else it carries.
+- The method judged is the method made: `X-HTTP-Method-Override`,
+  `X-HTTP-Method` and `X-Method-Override` are removed before a tile sees
+  the call, and a call whose query carries `_method` is refused (`403`).
 
 Request headers a delegate may add (xbind reads them at the gate and never
 forwards them):
@@ -84,6 +87,13 @@ off reasons above;
 `413 {refusal: "too-large"}` for a ticketed body over 256 KiB; and
 `429 {refusal: "rate-limited"}` + `Retry-After` past 30 acts a minute (a
 burst of 30, one more every 2 seconds; reads and dry runs don't count).
+
+**A call ends with what allowed it.** A call in flight (a followed stream,
+a slow tile) is cut when the person pauses their agent or the workspace's
+switch goes off — at once — and when the person is disabled or deleted,
+loses the tile, the tile or its org turns agents away, or the standing
+approval a write ran under is revoked: at once where xbind makes the
+change, within 3 seconds otherwise.
 
 ### Dry run
 
@@ -117,7 +127,14 @@ person's own partition of a partitioned tile — with:
 | `X-XBin-Partition`, `X-XBin-Partition-Id` | the person's partition, on a partitioned tile |
 
 A tile limits what agents use of its API with `"agent"` in its manifest
-(`"off"`, `"read"`, `"full"`; [elements.md](/docs/elements.md)).
+(`"off"`, `"read"`, `"full"`), and its backend tells an agent's call from
+the person's own by `X-XBin-Agent`
+([elements.md → A person's agent](/docs/elements.md)).
+
+`?xbin-partition=global` on such a call reaches a partitioned tile's global
+instance under the same rules as the person's own partition: with
+`partitionConsent` on it needs the person's consent for *agent → tile*, and
+it is counted in their ledger.
 
 ## The switches
 
@@ -163,15 +180,20 @@ agent's sandbox can ask and can read, and nothing more.
    approves or denies it (a `delegate` event, a push of kind
    `agent.approval`).
 3. Approved, the request **is a ticket**: for 15 minutes, once, the agent
-   makes that call with `X-XBin-Ticket: <id>`. Another method, path, query
-   or body is `403 {refusal: "ticket"}` and spends nothing.
+   makes that call with `X-XBin-Ticket: <id>`. Another method, path, query,
+   body or content type — or a path that now resolves to another tile — is
+   `403 {refusal: "ticket"}` and spends nothing.
 
 ```
 POST   /delegate/requests       the person's agent only. {method, path,
-                                 body? | bodyBase64?, summary?} → the
-                                 request, pending. path is the call's path
-                                 under /api/ with its query; the body at
-                                 most 256 KiB. Only a call that needs
+                                 body? | bodyBase64?, contentType?,
+                                 summary?} → the request, pending. path is
+                                 the call's path under /api/ with its query
+                                 (at most 2048 bytes, no _method); the body
+                                 at most 256 KiB; contentType the
+                                 Content-Type the call will carry
+                                 (application/json when there is a body and
+                                 none is said). Only a call that needs
                                  approval (400 otherwise): a non-GET call
                                  to a tile's API, POST /term/sessions,
                                  POST /templates/new. 403 when the tile or
@@ -186,11 +208,14 @@ GET    /delegate/requests/<id>  the person, their agent's page, or their
 POST   /delegate/requests/<id>/approve
                                  the person, in their own session, app or
                                  device — never the agent's page (403).
-                                 {grant?: "once" | "hour" | "always"} →
-                                 {request, approval?}. once is the
-                                 default; hour and always (a tile API call
-                                 only) also record a standing approval.
-                                 409 when no longer pending
+                                 {grant?: "once" | "hour" | "always",
+                                 scope?: "call" | "tile"} → {request,
+                                 approval?}. once is the default; hour and
+                                 always (a tile API call only) also record
+                                 a standing approval — of this call
+                                 (scope "call", the default) or of every
+                                 write to the tile (scope "tile"). 409 when
+                                 no longer pending
 POST   /delegate/requests/<id>/deny
                                  the person. → {request}
 DELETE /delegate/requests/<id>  the person, or their agent. withdraws a
@@ -201,42 +226,61 @@ A request:
 
 ```
 {id, user, agent, kind: "call" | "session" | "template",
- method, target, tile?, body?, bodyShown, bodySize, bodySha256,
- summary?, preview: {class, tile?, owner?, level?, role?, session?},
+ method, target, tile?, contentType?, body?, bodyShown, bodySize, bodySha256,
+ summary?, preview: {class, tile?, owner?, level?, role?, standing?, session?},
  state: "pending" | "approved" | "denied" | "used" | "expired" | "withdrawn",
  grant?, created, decided?, expires, decidedVia?}
 ```
 
 `body` is shown while the request is pending or approved, when it is text;
-`summary` is the agent's own text — show it as the agent's. For a session
-start `preview.session` is `{tile, provider, providerName, mode, asks, net,
-api, vm, gpu, model, name, resume}`; `asks: false` means the mode lets the
-tile agent act without asking — say so on the card. A pending request
-expires after 24 hours.
+`summary` is the agent's own text — show it as the agent's. For a tile
+call `preview.standing` is `{call, tile}`: xbind's sentence for what each
+standing scope would allow from then on — show the one the person is about
+to choose. For a session start `preview.session` is `{tile, provider,
+providerName, mode, asks, options, net, api, vm, gpu, model, name,
+resume}`: the harness and mode the session **will** run in — a resumed
+session's come from its history when the request names none — and every
+option the start carries; `asks: false` means the mode lets the tile agent
+act without asking — say so on the card. A pending request expires after 24
+hours; decided and withdrawn ones are kept a day, 200 a person at most.
 
 **Starting a tile agent.** With a ticket the session opens as the person
-approved it — any mode and pickers they could choose themselves. Without
+approved it — the harness and mode on the card, which no option of the
+start can change (an option that would set the mode is refused). Without
 one it opens only when the person's agent preferences allow starts without
 asking, and then the mode, network and API access are the preference's:
 sending `mode`, `net` or `api` is `403`. Either way: the tile's default
-deployment, a harness the tile's org allows, and the session's row carries
-`origin: "agent"`.
+deployment, a harness the tile's org allows, never a tile that is itself a
+workspace agent, and the session's row carries `origin: "agent"`. An agent
+resumes only past sessions it started.
 
 ## Standing approvals
 
 ```
 GET    /delegate/approvals      the person, their agent's page, or their
                                  agent. {approvals: [{id, user, tile,
-                                 until?, created, via?, request?}]}
-POST   /delegate/approvals      the person. {tile,
-                                 grant: "hour" | "always"} → the approval:
-                                 the agent may write to that tile's API
-                                 without a ticket. One a tile. 404 for a
-                                 tile the person can't read
-DELETE /delegate/approvals/<id> the person. 204
+                                 scope, method?, path?, until?, created,
+                                 via?, request?}]}
+POST   /delegate/approvals      the person. {tile, grant: "hour" |
+                                 "always", scope: "call", method, path} or
+                                 {tile, grant, scope: "tile"} → the
+                                 approval. scope is required (400). 404
+                                 for a tile the person can't read
+DELETE /delegate/approvals/<id> the person. 204; a write running under it
+                                 is cut
 ```
 
-A standing approval covers one tile's API. A session start and a tile
+A standing approval has a **scope**:
+
+- `call` — one call, again: that `method` on that `path` of the tile's API
+  (`/api/<tile>/…`, no query), with any body and query. What "always" means
+  unless the person chose wider.
+- `tile` — every write to the tile's API: any method, any path. A separate,
+  explicit choice; say what it is before the person makes it
+  (`preview.standing.tile`).
+
+An approval goes when its tile is deleted or the person can no longer read
+it, and does not come back with the access. A session start and a tile
 create are approved each time.
 
 ## Change sets
@@ -265,7 +309,9 @@ POST   /delegate/changesets/<id>/approve
                                  the person whose agent proposed it, in
                                  their own session, app or device. {items?:
                                  [n, …], password?} → the set with each
-                                 item's result. Needs a sign-in under 10
+                                 item's result. Without items: all of
+                                 them; items: [] applies none (the set
+                                 ends rejected). Needs a sign-in under 10
                                  minutes old, or the password in the body:
                                  403 {error, stepUp: "password" | "signin"}
                                  otherwise, as for adding a device
@@ -288,6 +334,19 @@ Kinds — a closed list; there is no kind that names a route:
 | `org.share` | `{org, tile, level}` (`""` stops sharing) | `PUT /access` |
 | `limits.set` | `{tile, kind, value}` — a raise | `POST /limits` |
 
+What a kind can't express — refused as no change at all (`400` at the
+proposal, and again if it became true by the time the set is applied):
+
+- an operation **on a workspace agent**: a grant from it or on it (its
+  code too), a binding of it or to it, a share of it, its limits;
+- a grant or revoke whose target is `xbin`, `xbin:*`, `cap:*`, `gpu:*`,
+  the bare `code`, `net:*` or a pattern — those are given and taken away on
+  the Grants page;
+- a binding of an `@` pseudo-slot (`@archive`) or of the workspace default
+  (`*`), a binding to the host's network (`host`, or a network set that
+  says host), and `provider` together with `providers`;
+- a share of a tile that itself holds `xbin`, `cap:*`, `gpu:*` or `code`.
+
 A change set:
 
 ```
@@ -301,11 +360,16 @@ A change set:
 - `line`, `before`, `after`, `effects` and `warnings` are **xbind's**: the
   sentence is written from the kind and its arguments, the state read by
   running the handler's own checks without writing. `why` is the agent's
-  text.
+  text. A binding's `line` states its `host`, `zone` and `listen`, and its
+  `warnings` say what the routes it adds open: `PUBLIC: …` for a hostname
+  or zone (with the endpoint's paths), `OPEN PORT: …` for a listen
+  address, `EGRESS: …` for what a network slot will reach. Show warnings
+  as prominently as the line.
 - `blocked` is the handler's refusal: that item can't be applied.
 - At approve, each chosen item is checked again. `result`: `applied`;
-  `failed` (`error`: the handler's words); `stale` — the state changed
-  since the proposal, nothing applied; `skipped` — an earlier item failed;
+  `failed` (`error`: the handler's words); `stale` — the state, or
+  xbind's line, effects or warnings for it, changed since the proposal:
+  nothing applied; `skipped` — an earlier item failed;
   `rejected` — the person left it out; `blocked`.
 - The set is not atomic: what was applied stays. `applied` when every
   chosen item applied, else `partial`.
@@ -321,11 +385,14 @@ GET    /delegate/audit          the person, in their own session, app or
 ```
 
 A row: `{ts, user, agent, method, path, tile?, class, effect?, dryRun?,
-status, refused?, ticket?, under?}`. Written for every side effect, every
-tile call, every refusal, every read of code, logs and admin state, every
-approval decision (`class: "decision:…"`) and every applied change-set
-item (`class: "changeset:<kind>"`). Not for the listing reads a UI makes.
-Never a body, a query or a header. Thirteen months are kept. The agent, its
+status, refused?, ticket?, under?, n?}`. Written for every side effect
+that ran, every approval decision (`class: "decision:…"`) and every
+applied change-set item (`class: "changeset:<kind>"`) — always — and for
+tile reads, refusals, dry runs and reads of code, logs and admin state up
+to 60 in a burst and one a second after that, per person: the next row's
+`n` says how many were left out before it. Not for the listing reads a UI
+makes. Never a body, a query or a header; a path is cut at 512 bytes.
+Thirteen months are kept. The agent, its
 page, tiles and view-as sessions can't read it.
 
 ## Events and pushes

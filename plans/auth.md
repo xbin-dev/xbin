@@ -352,9 +352,11 @@ element. Builder contract: `docs/auth.md` §Delegation; routes:
   test over the route inventory fails for one.
 - **Approvals belong to xbind**: a side effect passes with a one-shot
   ticket the person approved in their own session (bound to method, path,
-  query, body) or a standing approval of a tile's API. The agent asks; the
-  person, or the agent's own page under the person's login, answers; the
-  agent never does.
+  query, body, content type) or a standing approval — of one call (tile,
+  method, path) by default, of the whole tile's API only as a separate
+  explicit choice. The agent asks; the person answers, in their own
+  top-level session, app or device; the agent never does, and neither does
+  its page (it renders what the agent wrote: it reads and may pause).
 - **Tile calls** are attributed like an F5 call: `X-XBin-From: user:<id>`,
   `X-XBin-User`, `-User-Level`, `X-XBin-Role` clamped to the level, plus
   `X-XBin-Agent`. A tile's manifest narrows it (`"agent"`).

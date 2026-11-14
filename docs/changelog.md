@@ -35,21 +35,48 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     ([elements.md](/docs/elements.md)). `GET /api/xbin/components` rows
     carry `agent` when it isn't full.
   - **Every write an agent makes was approved by its person, and xbind
-    checks it**: a one-shot ticket bound to the exact method, path and
-    body, or a standing approval of your tile the person gave and can
-    revoke. Your tile needs no code for this.
+    checks it**: a one-shot ticket bound to the exact method, path, body
+    and content type, or a standing approval the person gave and can
+    revoke — of that call (method and path), or of every write to your
+    tile when they chose that. Your tile needs no code for this.
   - No tile can be granted or bound to a sealed component that acts for
     people: `POST /grants` and `POST /bindings` answer 409 for such a
     target.
+  - **Decide what an agent may do in your tile**
+    ([elements.md → A person's agent](/docs/elements.md)): xbind approves a
+    *call*, and only your tile knows what the call means. A route that
+    answers an approval, a permission request, a question or a sign-in must
+    refuse a caller with `ByAgent()`, or the manifest says `"read"` or
+    `"off"`. A backend written before this release treats an agent's call
+    as its person's.
+  - **Every builtin tile and template now says `"agent"`.** `read`: chat,
+    prometheus-viewer, the agent and starter templates. `off`:
+    egress-approver, llm-gw, s3-archiver, sandbox-terminal, traefik,
+    webhooks, and the agent-messaging-bridge, coding-sandbox and scm-github
+    templates. Each builtin tile is one version up (`bx builtin updates`);
+    a template's instances get it with `git merge template/main`.
+  - **The agent template refuses a person's agent everything but reads**
+    (and stopping a run, marking one read) in its backend too
+    (`_backend/wsagent.go`; API.md "A person's workspace agent"). **An
+    instance made before this release can't tell the agent from the
+    person**: unmodified, its routes all need the `admin` role, which an
+    agent's call never has, so it refuses the agent outright; if you opened
+    routes to `writer`, merge the template's update or add `"agent": "off"`
+    to the instance's `xbin.json`.
 - **API: `/api/xbin/delegate/…`** ([protocol/delegation.md](/docs/protocol/delegation.md)):
   the workspace's switch and a person's pause, approval requests and
-  tickets, standing approvals, admin change sets (an admin's agent proposes
-  grants, bindings, org shares and limit raises; the person approves after
-  a recent sign-in; xbind applies them as the person), and the person's
-  audit log of what their agent did. A `delegate` event on `/ws/events`;
+  tickets (bound to the call's method, path, query, body and content
+  type), standing approvals — of one call (`scope: "call"`, the default) or,
+  as a separate explicit choice, of every write to a tile (`scope:
+  "tile"`) — admin change sets (an admin's agent proposes grants, bindings,
+  org shares and limit raises, none of them on an agent itself or of
+  workspace-level power; the person approves after a recent sign-in; xbind
+  applies them as the person), and the person's audit log of what their
+  agent did. A `delegate` event on `/ws/events`;
   push kinds `agent.approval` and `agent.changeset`.
 - **SDK: `xbin.AsPerson()` and the delegate helpers** (`RequestApproval`,
-  `ApprovalOf`, `WithTicket`, `WithAgentModel`, `DryRun`, `ProposeChanges`,
+  `RequestApprovalAs`, `ApprovalOf`, `StandingApprovals`, `WithTicket`,
+  `WithAgentModel`, `DryRun`, `ProposeChanges`,
   `ChangeSetOf`, `DelegateRefusal` and its `Err…` values) — for xbind's own
   workspace-agent component; from any other tile they answer 401
   ([sdk.md](/docs/sdk.md)).
