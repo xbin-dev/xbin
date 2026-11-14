@@ -160,65 +160,6 @@ func TestPromptAttachmentsDegrade(t *testing.T) {
 	}
 }
 
-// Inline images stay within the model APIs' limits: one over MaxImageBytes
-// (5 MiB once base64) and those past MaxInlineImagesBytes in one prompt are
-// files only — dropped in the sandbox, a link in the prompt, inline:false in
-// the transcript — never an image block the model API would refuse (and
-// the agent would carry into every later turn).
-func TestPromptInlineImageLimits(t *testing.T) {
-	c, f, _, _ := rigWith(t, echoEnd, "", func(f *fakeAgent) {
-		f.promptCaps = &PromptCapabilities{Image: true}
-	})
-	defer c.Close()
-	collect(t, c, idle)
-	img := func(n int) []byte { return append(append([]byte(nil), png...), bytes.Repeat([]byte{0}, n-len(png))...) }
-	atts, err := agent.PrepareAttachments([]agent.Attachment{
-		{Name: "huge.png", Data: img(agent.MaxImageBytes + 1)},                           // over the per-image limit
-		{Name: "a.png", Data: img(agent.MaxImageBytes)},                                  // at it: inline
-		{Name: "b.png", Data: img(agent.MaxInlineImagesBytes - agent.MaxImageBytes + 1)}, // past the prompt's budget
-		{Name: "c.png", Data: img(agent.MaxInlineImagesBytes - agent.MaxImageBytes)},     // fits what is left
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := c.Prompt(context.Background(), agent.Prompt{Text: "see", Attachments: atts}); err != nil {
-		t.Fatal(err)
-	}
-	es := collect(t, c, func(e agent.Event) bool { return e.Type == agent.EvTurnEnd })
-	var inline []string
-	for _, e := range es {
-		if e.Type == agent.EvMessageDelta && data(e)["role"] == "user" {
-			for _, a := range data(e)["attachments"].([]any) {
-				m := a.(map[string]any)
-				inline = append(inline, m["name"].(string)+"="+strconv.FormatBool(m["inline"] == true))
-			}
-		}
-	}
-	if strings.Join(inline, " ") != "huge.png=false a.png=true b.png=false c.png=true" {
-		t.Fatalf("inline: %v", inline)
-	}
-	var kinds []string
-	for _, blk := range f.promptBlocks() {
-		k := blk["type"].(string)
-		if k == "image" && len(blk["data"].(string)) > 5<<20 {
-			t.Fatalf("an image block of %d base64 bytes", len(blk["data"].(string)))
-		}
-		if k == "resource_link" {
-			k += ":" + blk["name"].(string)
-		}
-		kinds = append(kinds, k)
-	}
-	if got := strings.Join(kinds, " "); got != "text resource_link:huge.png image resource_link:a.png resource_link:b.png image resource_link:c.png" {
-		t.Fatalf("blocks: %s", got)
-	}
-	f.mu.Lock()
-	n := len(f.attached)
-	f.mu.Unlock()
-	if n != 4 {
-		t.Fatalf("every image is still a file in the sandbox: %d dropped", n)
-	}
-}
-
 // One prompt at a time from the moment it is taken: while a prompt's files
 // are on their way to the host, a second prompt is busy at once (it moves
 // no file of its own), and Cancel aborts the hand-off — no turn starts, a

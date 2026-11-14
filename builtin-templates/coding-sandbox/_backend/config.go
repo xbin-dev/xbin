@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	xbin "github.com/xbin-dev/xbin/sdk"
+	"github.com/xbin-dev/xbin/sdk/acp"
 )
 
 // Config is the manager's settings (settings "config").
@@ -111,18 +112,27 @@ type Harness struct {
 }
 
 // baseHarnesses are the coding agents xbin's base rootfs installs
-// (docker/rootfs.Dockerfile; /etc/xbin-rootfs-tools lists what did), each
-// through its ACP adapter as xbind's Agent tab runs it, and a sign-in that
-// needs no browser in the sandbox: a code to paste, a device code. Claude
-// Code's is `claude auth login` (D178): one sign-in, a link to open and a
-// code to paste back — `claude /login` signs a fresh $HOME in twice (its
+// (docker/rootfs.Dockerfile; /etc/xbin-rootfs-tools lists what did), each as
+// sdk/acp's catalog has it: its name, its ACP adapter as xbind's Agent tab
+// runs it, and the catalog's terminal sign-in (LoginCmd), which needs no
+// browser in the sandbox: a code to paste, a device code. Claude Code's is
+// `claude auth login` (D178): one sign-in, a link to open and a code to
+// paste back — `claude /login` signs a fresh $HOME in twice (its
 // onboarding, then the command). A saved config keeps the logins it was
 // saved with (an older `CLAUDE_CODE_REMOTE=1 claude /login` still works).
-var baseHarnesses = []Harness{
-	{ID: "claude", Title: "Claude Code", Argv: []string{"claude-agent-acp"}, Login: "claude auth login"},
-	{ID: "codex", Title: "Codex", Argv: []string{"codex-acp"}, Login: "codex login --device-auth"},
-	{ID: "gemini", Title: "Gemini CLI", Argv: []string{"gemini", "--acp"}, Login: "NO_BROWSER=true gemini"},
-	{ID: "opencode", Title: "OpenCode", Argv: []string{"opencode", "acp"}, Login: "opencode auth login"},
+// The ids are listed here, not taken from the catalog whole: an adapter the
+// catalog learns is not one the rootfs has. Fresh each call, with argvs of
+// their own: store.config decodes a saved config into defaultConfig's, and
+// a saved argv must never land in the catalog's (its slices are shared).
+// TestBaseHarnessesPinned holds the result byte for byte.
+func baseHarnesses() []Harness {
+	var out []Harness
+	for _, id := range []string{"claude", "codex", "gemini", "opencode"} {
+		if p, ok := acp.Lookup(id); ok {
+			out = append(out, Harness{ID: p.ID, Title: p.Name, Argv: slices.Clone(p.Argv), Login: p.LoginCmd})
+		}
+	}
+	return out
 }
 
 // Size is a sandbox's resources.
@@ -181,17 +191,6 @@ func (q Quotas) forPerson(u string) Quota {
 	return q.Person
 }
 
-// cloneHarnesses is hs with argvs of their own: store.config decodes a
-// saved config into defaultConfig's, and a saved argv must never land in
-// baseHarnesses' (a shallow copy's Argv is the same array).
-func cloneHarnesses(hs []Harness) []Harness {
-	out := slices.Clone(hs)
-	for i := range out {
-		out[i].Argv = slices.Clone(out[i].Argv)
-	}
-	return out
-}
-
 // baseTools are the commands xbin's base rootfs has beyond a POSIX shell
 // (docker/rootfs.Dockerfile; its best-effort installs are listed in
 // /etc/xbin-rootfs-tools), the coding agents' own CLIs included. Not bun (a
@@ -205,7 +204,7 @@ func defaultConfig() Config {
 	return Config{
 		Mode: "vm",
 		Images: []Image{{ID: "base", Title: "Ubuntu with git, Go, Node and Python", Default: true,
-			Tools: slices.Clone(baseTools), Harnesses: cloneHarnesses(baseHarnesses)}},
+			Tools: slices.Clone(baseTools), Harnesses: baseHarnesses()}},
 		Sizes: []Size{
 			{ID: "small", Title: "Small", MemMiB: 2048, VCPUs: 2, DiskGiB: 20, Default: true},
 			{ID: "medium", Title: "Medium", MemMiB: 4096, VCPUs: 4, DiskGiB: 40},
