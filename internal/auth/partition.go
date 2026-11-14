@@ -41,6 +41,9 @@ type Attribution struct {
 	Level  string // X-XBin-User-Level: the person's level on the tile
 	Role   string // X-XBin-Role: clamped to that level, never self-admin
 	Agent  string // X-XBin-Agent: the sealed component acting for UserID; "" for F5
+	// ReadOnly: the tile lets a person's agent read only ("agent": "read"):
+	// the proxy refuses every method but GET and HEAD.
+	ReadOnly bool
 }
 
 // SetPartitionCoverage installs the broker's answer to "is this user

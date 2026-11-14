@@ -72,6 +72,11 @@ type Principal struct {
 	// it is never an admin (IsAdmin), and it reaches only the routes the
 	// delegation cap lists (internal/server/delegateclass.go).
 	Agent string
+	// AgentModel is the model a delegate says its conversation is on now
+	// (X-XBin-Agent-Model on a delegate call): the sealed component's own
+	// statement, not verified, asked by the orgs' model rules. "" when it
+	// said nothing, and for everyone else.
+	AgentModel string
 	// DeviceID names the enrolled device behind a "device" session.
 	DeviceID string
 	// Gen is the credential generation this principal authenticated under —
