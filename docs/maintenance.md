@@ -1035,12 +1035,22 @@ source) and reconciles three lists:
   WebSockets);
 - `internal/server/openapi.go` — the `/api/xbin` surface with the capability
   each operation needs (served at `/api/xbin/openapi.json`);
-- `docs/protocol.md` — every route row inside a code fence, i.e. a line
+- the protocol reference — `docs/protocol.md` (the entry: the shared
+  conventions and the index) and its topic pages `docs/protocol/<topic>.md`,
+  read as one list: every route row inside a code fence, i.e. a line
   starting at column 0 with `GET|POST|PUT|PATCH|DELETE|ANY` and a path
   (continuation lines are indented, so prose never matches).
 
-Rules: every mounted API route has an OpenAPI entry **and** a protocol.md
-row; every core route has a protocol.md row; every documented row is a
+A route's row goes in the topic page its area has (the entry's Topics table
+names each; a new area gets a new page and a row in that table) — never in
+`protocol.md` itself, which stays small on purpose: every embedded file is
+capped at 512 KB (Embedded assets, above), and the reference once sat 14
+bytes under it in one file. Split a topic page long before it gets there.
+A code fence left open fails the test: it would flip prose and rows for the
+rest of the page.
+
+Rules: every mounted API route has an OpenAPI entry **and** a protocol
+row; every core route has a protocol row; every documented row is a
 mounted route; every `RegisterAPI("…")` literal under `cmd/` and `internal/`
 is one the fixture mounts (a new registration site must be wired into the
 test, or it silently stops being covered). Wildcards reconcile as you would
@@ -1052,10 +1062,10 @@ are all "one segment"; `?query` suffixes are ignored — which is why an
 (the bracket would turn the segment into a wildcard).
 
 Adding a route is therefore four edits in one commit — `RegisterAPI` (or
-`Handler`), an `openapi.go` row, a `protocol.md` row, and a row in
-`internal/server/deployclass.go` (its class for a non-primary tile
-deployment's credentials, §Tile deployments) — and `make test` says which one
-you forgot.
+`Handler`), an `openapi.go` row, a row in its `docs/protocol/<topic>.md`
+page, and a row in `internal/server/deployclass.go` (its class for a
+non-primary tile deployment's credentials, docs/protocol/deployments.md) —
+and `make test` says which one you forgot.
 
 ## Pins (`hack/check-pins.sh`)
 

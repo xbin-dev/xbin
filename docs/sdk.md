@@ -198,7 +198,7 @@ err = c.Prompt(ctx, acp.Prompt{Text: "fix the build"}) // acp.ErrBusy while a tu
   `running`, `waiting_permission`, `cancelling`, `error`, `exited`, with the
   modes, config options, slash commands, usage, the agent's title, and
   `login{needed, provider, command}` while it is signed out). The shapes are
-  xbind's session events: [protocol.md](protocol.md) §Agent session events.
+  xbind's session events: [protocol/agents.md](/docs/protocol/agents.md) §Agent session events.
 - **Answering.** A `permission.request` names a `pid`:
   `res, err := perms.Resolve(pid, optionID, decision, by)` then
   `c.RespondPermission(res)` (first answer wins; `allow_always` records a
@@ -537,7 +537,7 @@ don't retry.
 `xbin.NotifyUser` sends a push notification to a person's xbin app devices —
 for the moments that need them while they are away: a question, an approval,
 a failed run. It is the platform's `POST /api/xbin/notify`
-(docs/protocol.md §Push notifications), so node/python backends can call
+(docs/protocol/devices.md §Push notifications), so node/python backends can call
 that route directly with the same body. Notify from the **backend**: a tile's
 frontend (and a shell in the tile) may notify only the person using it.
 
@@ -604,7 +604,7 @@ A **manager tile** serves the sandbox-manager contract
 ([sandbox-manager.md](sandbox-manager.md)) to other tiles and can have
 xbind run its sandboxes (D120). Its backend needs **`cap:sandboxes`**, a
 grant only a workspace admin approves, and an xbind running with
-`--isolate`. The routes are in [protocol.md](protocol.md) §Tile sandboxes;
+`--isolate`. The routes are in [protocol/sandboxes.md](/docs/protocol/sandboxes.md);
 the SDK has one call per route. The xbin repository's
 `examples/sandbox-go` is the smallest manager built on it — each of its
 routes a few lines (its `API.md`):
@@ -911,7 +911,7 @@ async function drain(handle) {
 
 A handler that throws leaves its page unacknowledged, so it comes again at
 the next ring. The routes' bodies and refusals are in
-[protocol.md](/docs/protocol.md) (`POST /partitions/mail`).
+[protocol/partitions.md](/docs/protocol/partitions.md) (`POST /partitions/mail`).
 
 ## python backend
 

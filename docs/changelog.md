@@ -10,6 +10,21 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-14
+
+- **docs: the protocol reference is split by topic.** `/docs/protocol.md`
+  had reached the size limit of a served doc, so its route tables and
+  WebSocket sections moved, unchanged, to one page per area under
+  `/docs/protocol/`: `core.md`, `users.md`, `orgs.md`, `grants.md`,
+  `workspace.md`, `tiles.md`, `code.md`, `runtime.md`, `agents.md`,
+  `terminals.md`, `events.md`, `resources.md`, `partitions.md`,
+  `backups.md`, `deployments.md`, `sandboxes.md`, `devices.md`.
+  `/docs/protocol.md` still works: it keeps authentication, the routing
+  rule, the tile ↔ shell, backend and filesystem contracts, a Topics table
+  naming the page for every route, and each moved section's heading with a
+  pointer to its new page. No route, header or wire format changed; an
+  error's `docs` field still says `/docs/protocol.md`.
+
 ## 2026-11-09
 
 - **Agent template Projects: a new project is made in a wizard, and can
