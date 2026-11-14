@@ -350,7 +350,8 @@ POST   /term/sessions/<id>/options
                                    to the next turn, the refreshed list rides
                                    the next status event → ok
 GET    /term/sessions/<id>/log    creator or admin. text/plain: the adapter's
-                                   stderr + driver notes (debugging)
+                                   stderr + driver notes (debugging); LLM
+                                   keys in it are masked (xbl_[redacted])
 GET    /term/sessions/<id>/diff   creator or admin. ?toolCallId=<id> |
                                    ?turn=<n>, ?path=<file>? → text/x-diff:
                                    the complete git patch behind a

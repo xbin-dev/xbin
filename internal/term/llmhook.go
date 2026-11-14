@@ -35,6 +35,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -124,6 +125,21 @@ type llmOpts struct {
 	llm       *llmSession // the session's hold on the connector (llmArm); nil = none
 	llmChoice string      // an agent session's own choice of who serves it ("" | connector | own)
 	noLLM     bool        // a person whose terminals hold no tile API token (D17): no LLM key in one either
+}
+
+// llmKeyShape is an LLM key as it shows in text (internal/llm's KeyPrefix).
+var llmKeyShape = regexp.MustCompile(`xbl_[A-Za-z0-9_-]{20,}`)
+
+// maskLLMKeys is text with every LLM key in it masked: for what xbind
+// itself keeps or logs of a session's output — the agent's stderr, a dead
+// session's last lines — where a hook or a tool may have printed the
+// environment. (A session's transcript is its person's own, and its key
+// dies with it.)
+func maskLLMKeys(text string) string {
+	if !strings.Contains(text, "xbl_") {
+		return text
+	}
+	return llmKeyShape.ReplaceAllString(text, "xbl_[redacted]")
 }
 
 // llmOwner is the connector's name for the root token's sessions

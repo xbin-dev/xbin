@@ -348,6 +348,13 @@ as long as the session lives, whatever else reads that home (the person's
 other terminals) could spend their quota with it — which a terminal of
 theirs can already do with its own key.
 
+What xbind itself keeps of a session's output masks LLM keys by their
+shape (`xbl_[redacted]`): the session's log (`GET
+/api/xbin/term/sessions/<id>/log` — the agent's stderr, where a hook may
+print the environment) and the last lines xbind logs of a session that
+died at start. A conversation's transcript is the person's own and is not
+rewritten.
+
 ### The network path
 
 The connector is reached at xbind's own address (`XBIN_URL`), which a

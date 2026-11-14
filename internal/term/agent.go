@@ -111,6 +111,7 @@ type agentState struct {
 }
 
 func (st *agentState) logf(line string) {
+	line = maskLLMKeys(line) // a hook that printed the environment (llmhook.go)
 	st.mu.Lock()
 	st.text = append(st.text, line...)
 	st.text = append(st.text, '\n')

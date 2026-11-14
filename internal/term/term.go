@@ -825,7 +825,7 @@ func (s *Session) pump(onExit func()) {
 	// the PTY's last bytes (that's where "sandbox-init: <the actual error>"
 	// went) in the log, or the failure is undiagnosable server-side.
 	if time.Since(s.born) < 10*time.Second {
-		tail := scrollTail(s.hub.Tail(2048), 2048) // room for the [sbx] debug trace + the error line
+		tail := maskLLMKeys(scrollTail(s.hub.Tail(2048), 2048)) // room for the [sbx] debug trace + the error line
 		if tail != "" {
 			slog.Warn("terminal died at start; last output", "id", s.ID, "tail", tail)
 		}

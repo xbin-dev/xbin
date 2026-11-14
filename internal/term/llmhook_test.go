@@ -714,3 +714,19 @@ func TestAgentLLMRefusalSaid(t *testing.T) {
 		t.Error("a terminal's key is watched")
 	}
 }
+
+// What xbind keeps of a session's output — the agent's stderr in the
+// session's text log, a dead session's last lines in xbind's own log —
+// never holds an LLM key: a hook or a tool that printed the environment.
+func TestLLMKeyMaskedInLogs(t *testing.T) {
+	key := "xbl_" + strings.Repeat("Ab0-_", 8)
+	got := maskLLMKeys("hook: XBIN_LLM_KEY=" + key + "\nBearer " + key + " and xbl_short stays\n")
+	if strings.Contains(got, key) || !strings.Contains(got, "XBIN_LLM_KEY=xbl_[redacted]\n") || !strings.Contains(got, "xbl_short stays") {
+		t.Fatalf("masked: %q", got)
+	}
+	st := &agentState{}
+	st.logf("hook: XBIN_LLM_KEY=" + key + "\n")
+	if s := string(st.text); strings.Contains(s, key) || !strings.Contains(s, "xbl_[redacted]") {
+		t.Fatalf("the session's text log: %q", s)
+	}
+}
