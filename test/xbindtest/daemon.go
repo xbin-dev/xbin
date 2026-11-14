@@ -37,6 +37,10 @@ type Options struct {
 	// run that shares the host with others keeps to the ports it was given
 	// (hack/demo/measure).
 	Addr string
+	// Production boots it without --dev: the xbind an install runs, which
+	// serves its embedded web and docs and never compiles a sealed
+	// component (D227). With Auth.
+	Production bool
 	// Cgroup is a cgroup directory the daemon starts in (clone3's
 	// CLONE_INTO_CGROUP), every boot: a delegated cgroup of its own, where
 	// xbind makes its tiles' leaves ("" = the test's own; test/limits).
@@ -115,7 +119,10 @@ func (d *Daemon) start(t testing.TB) {
 	}
 	d.boots++
 	fmt.Fprintf(d.log, "\n===== xbindtest: boot %d =====\n", d.boots)
-	args := []string{"--dev", "--isolate", "--rootfs", d.Rootfs(), "--workspace", d.WS, "--listen", d.Addr}
+	args := []string{"--isolate", "--rootfs", d.Rootfs(), "--workspace", d.WS, "--listen", d.Addr}
+	if !d.o.Production {
+		args = append([]string{"--dev"}, args...)
+	}
 	if !d.o.Auth {
 		args = append(args, "--no-auth")
 	}

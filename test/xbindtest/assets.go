@@ -124,6 +124,45 @@ func Require(t testing.TB) *Assets {
 	return a
 }
 
+// WithSealedFixture is a copy of the assets whose xbind is built with -tags
+// sealedfixture — its sealed table holds the fixture components
+// (internal/sealed/table_fixture.go) — in a bin directory of its own, with
+// the release's builds of their backends beside it (bin/sealed, made by
+// that xbind's own `sealed-build`, as `make build` does). The directory is
+// removed when the test ends.
+func (a *Assets) WithSealedFixture(t testing.TB) *Assets {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "xbindtest-sealed-bin-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	run := func(wd string, argv ...string) {
+		cmd := exec.Command(argv[0], argv[1:]...)
+		cmd.Dir = wd
+		cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+		if b, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v\n%s", strings.Join(argv, " "), err, b)
+		}
+	}
+	run(a.Repo, "go", "build", "-tags", "sealedfixture", "-o", filepath.Join(dir, "xbind"), "./cmd/xbind")
+	for _, b := range []string{"bx", "xbin-vmagent"} {
+		if err := os.Link(filepath.Join(a.Bin, b), filepath.Join(dir, b)); err != nil {
+			raw, rerr := os.ReadFile(filepath.Join(a.Bin, b))
+			if rerr != nil {
+				t.Fatal(rerr)
+			}
+			if err := os.WriteFile(filepath.Join(dir, b), raw, 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	run(a.Repo, filepath.Join(dir, "xbind"), "sealed-build", "--out", filepath.Join(dir, "sealed"), "--sdk", filepath.Join(a.Repo, "sdk"))
+	b := *a
+	b.Bin = dir
+	return &b
+}
+
 // Example is the path of examples/<name> in the repo.
 func (a *Assets) Example(name string) string { return filepath.Join(a.Repo, "examples", name) }
 

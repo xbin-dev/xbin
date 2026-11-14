@@ -115,9 +115,9 @@ func (s *Set) Lookup(path string) (Spec, bool) {
 	return Spec{}, false
 }
 
-// Table is the compiled-in table of the running xbind. Empty: the facility
-// ships no component yet, so no workspace sees a change.
-func Table() []Spec { return nil }
+// Table is the compiled-in table of the running xbind (table.go). Empty:
+// the facility ships no component yet, so no workspace sees a change.
+func Table() []Spec { return table() }
 
 // reservedNames are names under xbin/ that are already something else:
 // xbind's synthetic caller identities (util.ReservedTop's note; the
