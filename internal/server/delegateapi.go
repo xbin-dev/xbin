@@ -36,16 +36,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
-	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/term"
 )
 
 const delegationDocs = "/docs/protocol/delegation.md"
@@ -436,9 +435,13 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 }
 
 // sessionPreview is what a person is shown of a POST /term/sessions body
-// their agent wants approved — the tile, the harness, the mode and whether
-// it asks before acting, the sandbox pickers — or why the start would be
-// refused anyway.
+// their agent wants approved — or why the start would be refused anyway.
+// It shows what the start AMOUNTS TO (term.DelegateEffective): the harness
+// and mode a resumed session takes from its history entry, not only what
+// the body says; every option the body carries; whether that mode asks
+// before acting; the sandbox pickers. The ticket is bound to the harness
+// and mode shown here (delegateApproval hands them to the open), and to
+// the body — so to every option — by its hash.
 func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, string) {
 	var b struct {
 		Cwd, Kind, Provider, Mode, Net, GPU, Name, Model, Resume string
@@ -446,32 +449,31 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 		VM                                                       bool
 		Options                                                  map[string]string
 	}
-	if json.Unmarshal(body, &b) != nil || b.Cwd == "" || b.Provider == "" {
+	if json.Unmarshal(body, &b) != nil || b.Cwd == "" || b.Provider == "" && b.Resume == "" {
 		return nil, "a session start names its tile and harness: {cwd, kind:\"agent\", provider, …}"
 	}
-	tile := strings.Trim(b.Cwd, "/")
-	prov, ok := agent.Lookup(b.Provider)
-	if !ok {
-		return nil, fmt.Sprintf("unknown provider %q", b.Provider)
+	if s.Term == nil {
+		return nil, "terminals are not enabled"
 	}
-	mode, err := prov.ResolveMode(b.Mode)
+	eff, _, err := s.Term.DelegateEffective(p, term.AgentOpen{Cwd: b.Cwd, Provider: b.Provider, Mode: b.Mode, Resume: b.Resume})
 	if err != nil {
 		return nil, err.Error()
 	}
-	if !p.CanTerminalTileVia(tile) {
-		return nil, p.UserID + " doesn't have terminal access to " + tile + ": their agent can't start a tile agent there"
-	}
-	if err := s.agentPolicy().SessionAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: tile, Model: p.AgentModel}, prov.ID); err != nil {
+	if err := s.agentPolicy().SessionAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: eff.Tile, Model: p.AgentModel}, eff.Provider.ID); err != nil {
 		return nil, err.Error()
 	}
-	model := b.Model
-	if model == "" {
-		model = b.Options["model"]
+	options := map[string]string{}
+	for k, v := range b.Options {
+		options[k] = v
+	}
+	if b.Model != "" { // the body's shorthand for options.model
+		options["model"] = b.Model
 	}
 	return map[string]any{
-		"tile": tile, "provider": prov.ID, "providerName": prov.Name, "mode": mode,
-		"asks": prov.Safe(mode), // false: this mode lets the tile agent act without asking
-		"net":  b.Net, "api": b.API == nil || *b.API, "vm": b.VM, "gpu": b.GPU, "model": model, "name": b.Name, "resume": b.Resume != "",
+		"tile": eff.Tile, "provider": eff.Provider.ID, "providerName": eff.Provider.Name, "mode": eff.Mode,
+		"asks":    eff.Provider.Safe(eff.Mode), // false: this mode lets the tile agent act without asking
+		"options": options,                     // every setting the start carries; none of them can change the mode
+		"net":     b.Net, "api": b.API == nil || *b.API, "vm": b.VM, "gpu": b.GPU, "model": options["model"], "name": b.Name, "resume": eff.Resumes,
 	}, ""
 }
 

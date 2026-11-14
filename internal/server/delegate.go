@@ -513,7 +513,15 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 		}
 		row.Ticket = req.ID
 		if session {
-			start = &term.DelegateStart{Approved: true}
+			// the harness and mode the person was shown (sessionPreview):
+			// the open refuses anything else
+			shown, _ := req.Preview["session"].(map[string]any)
+			prov, _ := shown["provider"].(string)
+			mode, _ := shown["mode"].(string)
+			if prov == "" || mode == "" {
+				return nil, http.StatusForbidden, "ticket", "the ticket says no harness and mode: ask again"
+			}
+			start = &term.DelegateStart{Approved: true, Provider: prov, Mode: mode}
 		}
 		s.delegateEvent(p.UserID, "request", req.ID)
 		return start, 0, "", ""

@@ -13,13 +13,18 @@ package term
 // agent's say-so:
 //
 //   - a TICKET (DelegateStart.Approved): the person approved exactly this
-//     start, having been shown its provider, mode, network and API access.
-//     Any value they could pick themselves;
+//     start, having been shown the harness, mode, options, network and API
+//     access it AMOUNTS TO (DelegateEffective: a resumed session's harness
+//     and mode come from its history entry). Any value they could pick
+//     themselves — and the open is refused if it would be anything else;
 //   - their PREFERENCES (DelegateStart.Prefs): they let their agent start
 //     sessions without asking. The pickers are the preference's; the mode
 //     is the preference's or the provider's default, asking, mode.
 //
-// In both cases the session targets the tile's default deployment, the
+// In both cases no option moves the mode (acp.Config.SkipModeOptions: an
+// agent's config option of category mode is applied after the mode), a
+// resumed session is one this agent started, the tile is no sealed
+// component, the session targets the tile's default deployment, the
 // tile's org must allow the workspace agent and this harness there
 // (Manager.AgentPolicy), and the session is marked: SessionInfo.Origin
 // "agent". A delegate drives — prompts, cancels, ends — only the sessions
@@ -27,9 +32,14 @@ package term
 // everything they ask.
 
 import (
+	"errors"
+	"fmt"
+	"strings"
+
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // OriginAgent is SessionInfo.Origin of a session a person's workspace agent
@@ -47,12 +57,71 @@ func originOf(holder string) string {
 // delegate gate decides it and nothing a caller sends does.
 type DelegateStart struct {
 	// Approved: the person approved this start (a ticket bound to this
-	// request's body).
-	Approved bool
+	// request's body). Provider and Mode are the EFFECTIVE harness and mode
+	// they were shown (DelegateEffective: what the body and the history
+	// entry it resumes add up to); the open is refused if it would be
+	// anything else.
+	Approved       bool
+	Provider, Mode string
 	// Prefs: the person's preferences for sessions their agent starts
 	// without asking; nil when they allow none.
 	Prefs *delegation.StartPrefs
 }
+
+// EffectiveStart is what a delegate's session start amounts to once the
+// history entry it resumes is counted: what its person is shown and
+// approves.
+type EffectiveStart struct {
+	Tile     string
+	Provider agent.Provider
+	Mode     string // resolved: never ""
+	Resumes  bool
+}
+
+// DelegateEffective computes it for delegate p's open a, with the refusals
+// a start would meet anyway: no terminal level, an unknown harness or mode,
+// a history entry that isn't this tile's, can't be reopened, or wasn't a
+// session this agent started. The int is the HTTP status of a refusal.
+func (m *Manager) DelegateEffective(p auth.Principal, a AgentOpen) (EffectiveStart, int, error) {
+	_, rel, err := util.SafeJoin(m.Root, a.Cwd)
+	if a.Cwd == "" || err != nil || rel == "" || !p.CanTerminalTileVia(rel) {
+		return EffectiveStart{}, 403, fmt.Errorf("%s doesn't have terminal access to %s: their agent can't start a tile agent there", p.UserID, strings.Trim(a.Cwd, "/"))
+	}
+	if auth.HoldsDelegation(rel) {
+		return EffectiveStart{}, 403, errors.New("a workspace agent starts no tile agent on a sealed system component")
+	}
+	providerID, mode := a.Provider, a.Mode
+	if a.Resume != "" {
+		meta, _, err := m.historyMetaFrom(HistoryOf(p), a.Resume)
+		switch {
+		case err != nil:
+			return EffectiveStart{}, 404, fmt.Errorf("no such past session %q", a.Resume)
+		case meta.Cwd != rel:
+			return EffectiveStart{}, 400, errors.New("a past session resumes on the tile it ran on")
+		case meta.Agent != p.Agent:
+			return EffectiveStart{}, 403, errors.New(resumeOwn)
+		case !meta.Loadable || meta.ACPSessionID == "":
+			return EffectiveStart{}, 409, agent.ErrResumeUnsupported
+		}
+		providerID = meta.Provider
+		if mode == "" {
+			mode = meta.Mode
+		}
+	}
+	prov, ok := agent.Lookup(providerID)
+	if !ok {
+		return EffectiveStart{}, 400, fmt.Errorf("unknown provider %q", providerID)
+	}
+	if mode, err = prov.ResolveMode(mode); err != nil {
+		return EffectiveStart{}, 400, err
+	}
+	return EffectiveStart{Tile: rel, Provider: prov, Mode: mode, Resumes: a.Resume != ""}, 0, nil
+}
+
+// resumeOwn: a delegate reopens only what it opened — a past session of
+// the person's own may have run in a mode that asks nothing, and its
+// transcript is theirs.
+const resumeOwn = "a workspace agent resumes only the sessions it started: this one is its person's own"
 
 // AgentOrigin is the sealed component that opened live session id for its
 // person; "" when the person opened it themselves, and for an unknown id.
@@ -81,11 +150,19 @@ func (m *Manager) delegateOpen(p auth.Principal, a *AgentOpen, rel string, prov 
 	if err := delegation.PolicyOr(m.AgentPolicy).SessionAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: rel, Model: p.AgentModel}, prov.ID); err != nil {
 		return "", "", err.Error()
 	}
+	switch {
+	case auth.HoldsDelegation(rel):
+		return "", "", who + "starts no tile agent on a sealed system component"
+	case resumed != nil && resumed.Agent != p.Agent:
+		return "", "", resumeOwn
+	}
 	if d.Approved {
 		if mode == "" && resumed != nil {
 			mode = resumed.Mode
 		}
-		return mode, net, "" // what the person saw and approved; their own gates decide the rest
+		// what the person saw and approved: the caller checks the provider
+		// and the resolved mode against it; their own gates decide the rest
+		return mode, net, ""
 	}
 	// the person's preferences: nothing the agent sent picks the sandbox
 	switch {
@@ -94,8 +171,6 @@ func (m *Manager) delegateOpen(p auth.Principal, a *AgentOpen, rel string, prov 
 	case len(a.Options) > 1 || len(a.Options) == 1 && a.Options["model"] == "":
 		// an agent's settings can carry its permission mode under another id
 		return "", "", who + "starting without asking may choose the tile agent's model: every other option needs the person's approval"
-	case resumed != nil && resumed.Agent != p.Agent:
-		return "", "", who + "resumes without asking only the sessions it started: this one needs the person's approval"
 	}
 	mode = d.Prefs.Mode
 	if mode == "" {

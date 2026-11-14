@@ -2,7 +2,10 @@ package term
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -10,6 +13,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/users"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // A person's workspace agent (a delegate principal, auth/delegate.go) opens
@@ -24,7 +28,7 @@ func TestAgentSessionAsDelegate(t *testing.T) {
 	person := auth.Principal{UserID: "alice", User: alice, Via: "session"}
 	delegate := auth.Principal{UserID: "alice", User: alice, Via: "delegate", Agent: holder, AgentModel: "m1"}
 	reader := &users.User{ID: "rita", Role: users.RoleUser, Tiles: map[string]string{"apps/x": users.LevelRead}}
-	approved := &DelegateStart{Approved: true}
+	approved := &DelegateStart{Approved: true, Provider: "fake", Mode: "ask"}
 	prefs := &DelegateStart{Prefs: &delegation.StartPrefs{}}
 	refused := func(name string, p auth.Principal, a AgentOpen, want string) {
 		t.Helper()
@@ -113,7 +117,7 @@ func TestAgentSessionAsDelegate(t *testing.T) {
 	m.Kill(id)
 
 	// with a ticket: what the person approved, an explicit mode included
-	info, code, err = m.OpenAgentWith(delegate, AgentOpen{Cwd: "apps/x", Provider: "fake", Mode: "yolo", Delegate: approved})
+	info, code, err = m.OpenAgentWith(delegate, AgentOpen{Cwd: "apps/x", Provider: "fake", Mode: "yolo", Delegate: &DelegateStart{Approved: true, Provider: "fake", Mode: "yolo"}})
 	if err != nil || code != 200 || info.Mode != "yolo" || info.Origin != OriginAgent {
 		t.Fatalf("approved, in yolo: %d %v %+v", code, err, info)
 	}
@@ -138,4 +142,87 @@ func (f sessionPolicy) TileAllows(s delegation.Subject) error                 { 
 func (f sessionPolicy) SessionAllows(s delegation.Subject, prov string) error { return f(s, prov) }
 func (sessionPolicy) StartPrefs(string, string, string) (delegation.StartPrefs, bool) {
 	return delegation.StartPrefs{}, false
+}
+
+// What a ticket approves is the session the start AMOUNTS TO — the harness
+// and mode a resumed session takes from its history entry included — and
+// nothing else opens under it; no option moves the mode; a delegate resumes
+// only sessions it started; a sealed component is no tile to start on.
+// (Security review: a ticket's card said "asks before acting" while the
+// history entry it resumed, or a mode-category option, made it a session
+// that never asks.)
+func TestDelegateStartIsWhatWasApproved(t *testing.T) {
+	r := newAgentRig(t)
+	m := r.m
+	m.AgentPolicy = delegation.OpenPolicy{}
+	const holder = "xbin/wsagent"
+	t.Cleanup(auth.TestSealDelegate(holder))
+	alice := &users.User{ID: "alice", Role: users.RoleUser, Tiles: map[string]string{"apps/x": users.LevelTerminal, holder: users.LevelTerminal}}
+	delegate := auth.Principal{UserID: "alice", User: alice, Via: "delegate", Agent: holder}
+	seed := func(id, mode, by string) {
+		dir := filepath.Join(r.root, "data", "agent-history", "alice", util.CompKey("apps/x"))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		b, _ := json.Marshal(historyFile{Meta: HistoryMeta{ID: id, Cwd: "apps/x", Provider: "fake", Mode: mode, ACPSessionID: "c-" + id, Loadable: true, Turns: 1,
+			Created: "2026-01-01T00:00:00Z", Ended: "2026-01-01T00:01:00Z", Agent: by, Origin: originOf(by)}})
+		if err := os.WriteFile(filepath.Join(dir, id+".json"), b, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed("hers", "yolo", "")     // a session alice ran herself, in the mode that asks nothing
+	seed("mine", "yolo", holder) // one the agent started, approved in yolo then
+	refused := func(name string, a AgentOpen, want string) {
+		t.Helper()
+		info, code, err := m.OpenAgentWith(delegate, a)
+		if err == nil {
+			m.Kill(info.ID)
+		}
+		if code != 403 || err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("%s: %d %v (mode %q), want a 403 containing %q", name, code, err, info.Mode, want)
+		}
+	}
+	ask := &DelegateStart{Approved: true, Provider: "fake", Mode: "ask"}
+
+	// the effective start: a resumed session's harness and mode are its history's
+	eff, _, err := m.DelegateEffective(delegate, AgentOpen{Cwd: "apps/x", Provider: "claude", Resume: "mine"})
+	if err != nil || eff.Provider.ID != "fake" || eff.Mode != "yolo" || !eff.Resumes || eff.Tile != "apps/x" || eff.Provider.Safe(eff.Mode) {
+		t.Fatalf("the effective start of a resume: %+v %v", eff, err)
+	}
+	if eff, _, err := m.DelegateEffective(delegate, AgentOpen{Cwd: "apps/x", Provider: "fake"}); err != nil || eff.Mode != "ask" || eff.Resumes {
+		t.Fatalf("the effective start: %+v %v", eff, err)
+	}
+	if _, code, err := m.DelegateEffective(delegate, AgentOpen{Cwd: "apps/x", Provider: "fake", Resume: "hers"}); code != 403 || err == nil {
+		t.Fatalf("asking to resume the person's own session: %d %v", code, err)
+	}
+	if _, code, _ := m.DelegateEffective(delegate, AgentOpen{Cwd: holder, Provider: "fake"}); code != 403 {
+		t.Fatalf("asking to start on a sealed component: %d", code)
+	}
+
+	// approved as "ask": a body that resumes a yolo session is another session
+	refused("a resume whose history mode isn't the approved one", AgentOpen{Cwd: "apps/x", Provider: "fake", Resume: "mine", Delegate: ask}, "exactly the session its person approved")
+	refused("another mode than the approved one", AgentOpen{Cwd: "apps/x", Provider: "fake", Mode: "yolo", Delegate: ask}, "exactly the session its person approved")
+	// the person's own past session: never, whatever the ticket says
+	for _, d := range []*DelegateStart{ask, {Approved: true, Provider: "fake", Mode: "yolo"}, {Prefs: &delegation.StartPrefs{}}} {
+		refused("resuming the person's own session", AgentOpen{Cwd: "apps/x", Provider: "fake", Resume: "hers", Delegate: d}, "resumes only the sessions it started")
+	}
+	refused("a sealed component", AgentOpen{Cwd: holder, Provider: "fake", Delegate: ask}, "sealed system component")
+
+	// no option moves the mode of a session the agent opens
+	var cfgs []agent.Config
+	onAgentConfig = func(c agent.Config) { cfgs = append(cfgs, c) }
+	t.Cleanup(func() { onAgentConfig = nil })
+	info, code, err := m.OpenAgentWith(delegate, AgentOpen{Cwd: "apps/x", Provider: "fake", Options: map[string]string{"mode": "yolo", "model": "fake-fast"}, Delegate: ask})
+	if err != nil || code != 200 || info.Mode != "ask" {
+		t.Fatalf("an approved start with options: %d %v %+v", code, err, info)
+	}
+	m.Kill(info.ID)
+	person := auth.Principal{UserID: "alice", User: alice, Via: "session"}
+	if info, _, err = m.OpenAgentWith(person, AgentOpen{Cwd: "apps/x", Provider: "fake"}); err != nil {
+		t.Fatal(err)
+	}
+	m.Kill(info.ID)
+	if len(cfgs) != 2 || !cfgs[0].SkipModeOptions || cfgs[0].Mode != "ask" || cfgs[1].SkipModeOptions {
+		t.Fatalf("SkipModeOptions: the agent's open %v, the person's %v", cfgs[0].SkipModeOptions, cfgs[len(cfgs)-1].SkipModeOptions)
+	}
 }

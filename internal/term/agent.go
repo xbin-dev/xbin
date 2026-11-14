@@ -191,6 +191,12 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	if mode, err = prov.ResolveMode(mode); err != nil {
 		return SessionInfo{}, 400, err
 	}
+	if d := a.Delegate; p.Agent != "" && d != nil && d.Approved && (d.Provider != prov.ID || d.Mode != mode) {
+		// what would open now isn't what the person was shown (the history
+		// entry it resumes changed, or the catalog did)
+		return SessionInfo{}, 403, fmt.Errorf("a workspace agent opens exactly the session its person approved (%s in mode %s): this would be %s in mode %s — ask again",
+			d.Provider, d.Mode, prov.ID, mode)
+	}
 	if m.BxPath == "" {
 		return SessionInfo{}, 503, errors.New("agent sessions need the bx binary the daemon could not find at startup (build it: CGO_ENABLED=0 go build -o bin/bx ./cmd/bx, or set XBIN_BIN)")
 	}
@@ -282,6 +288,9 @@ func (m *Manager) AgentToken(tok string) bool {
 	}
 	return false
 }
+
+// onAgentConfig sees each agent session's driver config (tests).
+var onAgentConfig func(agent.Config)
 
 // createAgent is create() for the agent kind: pipes instead of a PTY, the
 // driver started in the background (the session reports `starting` until
@@ -382,7 +391,14 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		return &agent.Process{Stdin: stdin, Stdout: stdout, Stderr: stderr, Kill: s.kill}, nil
 	}
 	cfg := agent.Config{Provider: prov, Mode: mode, Options: options, ResumeID: resumeID, Cwd: start, Env: agentEnv, Argv: prov.Argv, Spawn: spawn,
-		Perms: st.perms, Version: Version, Log: st.logf, Meta: map[string]string{"tile": rel}}
+		Perms: st.perms, Version: Version, Log: st.logf, Meta: map[string]string{"tile": rel},
+		// a session a person's workspace agent opened: its mode is the one
+		// its person approved, and no option may move it (an agent's config
+		// option of category mode is set after the mode; delegate.go)
+		SkipModeOptions: o.origin != ""}
+	if onAgentConfig != nil {
+		onAgentConfig(cfg)
+	}
 	go s.agentPump(m, func() {
 		unlist()
 		st.mu.Lock()

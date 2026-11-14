@@ -3,8 +3,11 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +15,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // A tile agent session started by a person's agent: with a ticket the
@@ -70,6 +74,43 @@ func TestDelegateSessionStart(t *testing.T) {
 	if c, b := create("", bypass, alice, header(HeaderTicket, req.ID)); c != 403 || !strings.Contains(b, `"refusal":"ticket"`) {
 		t.Fatalf("the ticket a second time: %d %s", c, b)
 	}
+	// a resume: the card shows what the session AMOUNTS TO — the history
+	// entry's harness and mode, not the body's — and only a session the
+	// agent started can be resumed (security review, finding 1)
+	seed := func(id, mode, by string) {
+		dir := filepath.Join(w.s.Term.Root, "data", "agent-history", "alice", util.CompKey("apps/x"))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		f := fmt.Sprintf(`{"meta":{"id":%q,"cwd":"apps/x","provider":"claude","mode":%q,"created":"2026-01-01T00:00:00Z","ended":"2026-01-01T00:01:00Z","turns":2,"acpSessionId":"c-1","loadable":true,"agent":%q},"events":[]}`, id, mode, by)
+		if err := os.WriteFile(filepath.Join(dir, id+".json"), []byte(f), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seed("mine", "bypassPermissions", dHolder)
+	seed("hers", "bypassPermissions", "")
+	const resume = `{"cwd":"apps/x","kind":"agent","provider":"codex","resume":"mine","options":{"effort":"high"}}`
+	rr := w.ask(alice, "POST", "/api/xbin/term/sessions", resume)
+	shown, _ := rr.Preview["session"].(map[string]any)
+	if shown["provider"] != "claude" || shown["mode"] != "bypassPermissions" || shown["asks"] != false || shown["resume"] != true || fmt.Sprint(shown["options"]) != "map[effort:high]" {
+		t.Fatalf("a resume's card must show the history entry's harness and mode, and every option: %v", shown)
+	}
+	in, _ := json.Marshal(map[string]string{"method": "POST", "path": "/api/xbin/term/sessions", "body": `{"cwd":"apps/x","kind":"agent","provider":"claude","resume":"hers"}`})
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), alice); rec.Code != 403 || !strings.Contains(rec.Body.String(), "resumes only the sessions it started") {
+		t.Fatalf("asking to resume the person's own bypass session: %d %s", rec.Code, rec.Body.String())
+	}
+	// the history entry changes between the approval and the start: no longer what was approved
+	seed("mine", "default", dHolder)
+	rr2 := w.ask(alice, "POST", "/api/xbin/term/sessions", resume) // its card says: default, asks
+	if sh, _ := rr2.Preview["session"].(map[string]any); sh["mode"] != "default" || sh["asks"] != true {
+		t.Fatalf("the card: %v", sh)
+	}
+	w.approve(person, rr2.ID, "")
+	seed("mine", "bypassPermissions", dHolder)
+	if c, b := create("", resume, alice, header(HeaderTicket, rr2.ID)); c != 403 || !strings.Contains(b, "exactly the session its person approved") {
+		t.Fatalf("a start that is no longer what the card said: %d %s", c, b)
+	}
+
 	// a deployment is never the agent's pick, approved or not
 	req2 := w.ask(alice, "POST", "/api/xbin/term/sessions?deployment=dev", plain)
 	w.approve(person, req2.ID, "")
@@ -82,7 +123,7 @@ func TestDelegateSessionStart(t *testing.T) {
 		t.Fatalf("always, for a session start: %d %s", rec.Code, rec.Body.String())
 	}
 	// bob holds no terminal level on apps/x: his agent can't even ask
-	in, _ := json.Marshal(map[string]string{"method": "POST", "path": "/api/xbin/term/sessions", "body": plain})
+	in, _ = json.Marshal(map[string]string{"method": "POST", "path": "/api/xbin/term/sessions", "body": plain})
 	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), bob); rec.Code != 403 || !strings.Contains(rec.Body.String(), "terminal access") {
 		t.Fatalf("bob's agent asks: %d %s", rec.Code, rec.Body.String())
 	}
