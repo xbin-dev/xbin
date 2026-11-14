@@ -11,6 +11,12 @@ api() { # method path [json]
   echo
 }
 
+# the LLM connector's setup card (D226) would sit on every admin page of
+# every pass: dismissed for the workspace here; the llm pass re-arms it
+# (it removes data/llm/setup.json) and dismisses it again
+say "the LLM connector's setup card: dismissed"
+api POST /llm/setup/dismiss
+
 say "network sets"
 api PUT /net-sets/devs-net  '{"rules":["internet","lan:10.42.0.0/16","internet:*.github.com:443"]}'
 api PUT /net-sets/infra-net '{"rules":["lan:10.0.0.0/8","host"]}'

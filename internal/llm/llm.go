@@ -51,6 +51,11 @@ type Options struct {
 	// IsAdmin reports a workspace admin (the broker's: the owner, an admin's
 	// sign-in, the admin console). nil = nobody.
 	IsAdmin func(auth.Principal) bool
+	// AdminShell reports an admin's shell: a trusted chrome frame minted
+	// under a workspace admin's own login (the broker's AdminShell). It may
+	// dismiss the setup alert it is shown (alerts.go), and nothing else.
+	// nil = none.
+	AdminShell func(auth.Principal) bool
 	// Bound reports a component whose llm slot is bound to the connector
 	// (the broker's LLMBound). nil = none.
 	Bound func(component string) bool

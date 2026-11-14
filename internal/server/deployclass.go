@@ -351,6 +351,7 @@ var routeClasses = map[string]RouteClass{
 	"GET /llm/usage":                         PrimaryOnly,
 	"GET /llm/quotas":                        PrimaryOnly,
 	"PUT /llm/quotas":                        PrimaryOnly,
+	"POST /llm/setup/dismiss":                PrimaryOnly,
 	"DELETE /push/config":                    PrimaryOnly,
 	"GET /push/devices":                      PrimaryOnly,
 	"DELETE /push/devices/{user}":            PrimaryOnly,

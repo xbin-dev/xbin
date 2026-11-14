@@ -143,7 +143,12 @@ GET    /llm                        any authenticated caller. The connector as
                                    tokensPerDay | tokensPerMonth | costPerDay
                                    | costPerMonth, value, source: user |
                                    org:<id> | default | workspace, action:
-                                   stop|warn, used, resets, state}
+                                   stop|warn, used, resets, state}. A
+                                   person's own sign-in reads user and quota
+                                   also when their direct calls aren't
+                                   admitted (callable false): the calls
+                                   tiles make for them count against the
+                                   same limits
 GET    /llm/preferred?use=<role>   a caller. use is optional. The workspace's default models in
                                    the shape the llm-gw tile answers. use:
                                    {use, model} — that role's model as
@@ -290,3 +295,34 @@ default the host's file sets is a ceiling: a `users` or `orgs` entry
 written through this route narrows it, and one above it (or unlimited)
 gives nothing — the person's limits then show the host's value with
 `source: "default"`.
+
+## Alerts and the page
+
+The connector tells the workspace's admins through `GET /alerts`
+([core.md](/docs/protocol/core.md)): rows `{level, kind, message,
+dismiss?}`, answered to a workspace admin — their own sign-in, the owner
+token, the admin console — and to the shell an admin drives (the frame
+token of root, the shell or an approved chrome tile, minted under the
+admin's own login); nobody else gets them. Every message names `/xbin/llm`
+in words, so a shell or an admin console from before the connector shows
+something a person can act on.
+
+| `kind` | When | Goes when |
+|---|---|---|
+| `llm-quota` | a person's quota, or the workspace's, is reached: `warn` for a person (their calls are refused, or — a quota whose action is `warn` — still go through), `crit` for a workspace quota that refuses every call. The message names the person, the limit, where it comes from (their own quota, an org's, the default), and when it resets. More than five people at a limit are one row | the window resets, or an admin raises the quota |
+| `llm` | cost quotas are in force and this month has calls on models without a price, which no cost quota counts (`warn`) | the models are priced and the month's unpriced calls are behind, or the cost quotas go |
+| `llm-setup` | no upstream exists, no admin has changed the connector, and the host's file doesn't lock every setting. `dismiss` is `/llm/setup/dismiss` | an upstream is added, or an admin dismisses it |
+
+```
+POST   /llm/setup/dismiss          admin, or the shell an admin drives (it
+                                   shows the alert with its Dismiss). The
+                                   llm-setup alert is gone for the
+                                   workspace, for good. → {ok}
+```
+
+`GET /xbin/llm` (not under `/api/xbin/`; any signed-in principal) is
+xbind's own page for the connector — `web/llm.html` as shipped, with the
+headers, sign-in and `/vendor/` rules of `/xbin/partitions`
+([core.md](/docs/protocol/core.md)). An admin configures the connector
+there through the routes above; anyone else reads their own usage and quota
+(`GET /llm`, `GET /llm/usage`).

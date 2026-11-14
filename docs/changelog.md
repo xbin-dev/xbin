@@ -12,6 +12,35 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-14
 
+- **The LLM connector has a page and an admin console tab** (D226;
+  [llm.md](/docs/llm.md)). `/xbin/llm` — xbind's own page, there whatever
+  scaffold a workspace runs — is where a workspace admin sets the connector
+  up: status, providers (add, edit, remove; a masked key that is never
+  shown again; **Test**), default models by role and aliases, who may call
+  directly, quotas (workspace total, default per person, per-person and
+  per-org overrides; stop or warn) and usage per person and per component
+  for today and the month, sortable. Everyone else reads **their own usage
+  and quota** there. The admin console's new **workspace → LLM** tab is the
+  same page; its users tab has *LLM quota…* per person and an org's page an
+  *LLM quota* panel (after `bx builtin update scaffold:tiles/admin`).
+  - **What a host's file sets is read-only**, marked **Set by your host**
+    with its controls disabled; a connector the host locks entirely says
+    so at the top.
+  - **A quota that is reached raises an admin alert** (`GET
+    /api/xbin/alerts`, kind `llm-quota`; a banner in an admin's shell, a
+    row in the admin console): the person, the limit and where
+    it comes from, whether their calls are refused or only warned about,
+    when it resets, and `/xbin/llm`. The person reads a plain sentence on
+    their own page; `GET /api/xbin/llm` now answers a person's `user` and
+    `quota` even when the people switch doesn't admit their direct calls.
+  - **One setup card for admins** while no provider exists: an alert of
+    kind `llm-setup` — answered to admins and to the shell an admin
+    drives, nobody else — that the admin console draws as a card, an
+    admin's shell as a banner, and older shells and consoles as text
+    naming `/xbin/llm`. Its `dismiss` route, `POST
+    /api/xbin/llm/setup/dismiss`, ends it for the workspace; so does
+    adding a provider. Nothing else changes for a
+    workspace that ignores the connector ([compat.md](/docs/compat.md)).
 - **Orgs constrain agents** (D229; [auth.md](/docs/auth.md) §Agent
   constraints, [protocol/orgs.md](/docs/protocol/orgs.md) §Agent
   constraints). An org can now say what agents may do on its tiles:

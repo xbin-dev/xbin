@@ -14,6 +14,7 @@ import '/vendor/bx-multiselect.js';
 import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
 import { base, usersCss } from '../admin-css.js';
 import { targetDatalist, WithDrafts, WithRouter, PRESETS, presetOf, ruleFor, agoCoarse } from '../shared.js';
+import { hasLLM, xfetch } from './llm.js'; // <bx-llm-quota>: a person's LLM quota (D226)
 
 // "stale" for the offboarding chip: no sign-in for 30 days.
 const STALE_SEC = 30 * 86400;
@@ -39,6 +40,8 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     _err: { state: true },        // the last API refusal (also reported to the router's slot)
     _devices: { state: true },    // user id → their app devices (the devices… expansion)
     _devLim: { state: true },     // user id → {limit, override} from GET /users/{id}/devices (D204; absent before)
+    _llm: { state: true },        // the LLM connector has a provider: rows offer "LLM quota…" (D226)
+    _llmOpen: { state: true },    // the user id whose LLM quota is open
   };
   static styles = [base, usersCss];
 
@@ -56,6 +59,7 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
     this._onKey = (e) => { if (e.key === 'Escape') this._closeMenus(); };
     document.addEventListener('pointerdown', this._onDocDown, true);
     document.addEventListener('keydown', this._onKey);
+    hasLLM().then((on) => { this._llm = on; });
   }
   disconnectedCallback() {
     super.disconnectedCallback();
@@ -494,6 +498,8 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
             @click=${() => this._toggleDraft(personalKey, () => true)}>personal…</button>`}
         ${u.deviceCount || u.deviceLimit != null ? html`<button class="act quiet" title="the xbin app devices enrolled for this account, and their device limit"
           @click=${() => this._toggleDevices(u.id)}>${u.deviceCount ? `devices (${u.deviceCount})…` : 'devices…'}</button>` : nothing}
+        ${this._llm ? html`<button class="act quiet" data-llm-quota=${u.id} title="how much of the workspace's LLMs this person may use: tokens and cost per day and month"
+          @click=${() => { this._llmOpen = this._llmOpen === u.id ? null : u.id; }}>LLM quota…</button>` : nothing}
         ${this._pwEdit === u.id ? html`
           <form style="display:inline-flex; gap:4px" @submit=${(e) => { e.preventDefault();
               const pw = e.target.pw.value; this._pwEdit = null; this._resetPw(u.id, pw); }}>
@@ -509,7 +515,13 @@ export class BxAdminUsers extends WithRouter(WithDrafts(LitElement)) {
       ${this._tilesEditor(tilesKey, (tiles) => this._orgAPI('PATCH', `/users/${encodeURIComponent(u.id)}`, { tiles }))}
     </td></tr>` : nothing}
     ${this._draft(personalKey) ? html`<tr><td colspan="6">${this._personalEditor(u)}</td></tr>` : nothing}
-    ${this._devicesRow(u)}`;
+    ${this._devicesRow(u)}
+    ${this._llmOpen === u.id ? html`<tr><td colspan="6"><div class="editor" data-llm-quota-row=${u.id}>
+      <div class="muted hint">${u.id}'s own LLM quota: it wins over their orgs' and the workspace default, limit by limit — upwards or downwards.
+        Empty: not set here. Every quota and the usage: workspace → LLM.</div>
+      <bx-llm-quota subject=${`user:${u.id}`} standalone effective .fetcher=${xfetch}></bx-llm-quota>
+      <div class="orow" style="margin-top:4px"><span style="flex:1"></span><button class="act" @click=${() => { this._llmOpen = null; }}>close</button></div>
+    </div></td></tr>` : nothing}`;
   }
 
   // personal… expansion (D88): the two switches and the user's own sets,

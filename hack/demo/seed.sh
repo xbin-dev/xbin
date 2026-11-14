@@ -247,6 +247,9 @@ for u in "$TMP"/users/*.json; do api POST /users "@$u"; done
 say "branding: the company's name and mark in place of xbin's"
 ICON=$(base64 -w0 < "$DATA/brand-icon.svg")
 api PUT /branding "{\"title\":\"$(cfield 'c["company"]["name"]')\",\"icon\":\"data:image/svg+xml;base64,$ICON\"}"
+# the LLM connector's setup card (D226) is not part of the set: dismissed
+# for the workspace, as an admin who chose another setup would
+api POST /llm/setup/dismiss >/dev/null
 
 say "network sets, attached to the teams"
 api PUT /net-sets/internet     '{"rules":["internet"]}'
