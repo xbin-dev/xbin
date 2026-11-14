@@ -105,6 +105,16 @@
     // (XBIN_IROH_RELAY_TEST, bin/iroh-relay or PATH)
     { "name": "apptunnel", "pkg": "./test/apptunnel/", "overhead": 8 },
 
+    // the LLM connector end to end (D226, test/llm over test/xbindtest): an
+    // `xbind --isolate` built from this tree, auth on, booted from a
+    // deployment file (XBIN_LLM_CONFIG), with hack/fakeopenai as the
+    // upstream: the host's locks, `bx llm`, a stream relayed as it arrives
+    // and metered, a hang-up reaching the upstream, a quota's 429 naming its
+    // reset, a tile admitted by its xbin:llm binding and metered to its
+    // person, no key in any answer, log or file, counters across a restart.
+    // Skips without .rootfs/userns
+    { "name": "llm", "pkg": "./test/llm/", "overhead": 8 },
+
     // VM sandboxes (D89): skip without /dev/kvm or the vm-assets; then
     // again under QEMU's emulation (skips without its assets). CI's vm job
     // gives them KVM, the assets and a guest rootfs (XBIN_ROOTFS)
