@@ -136,8 +136,14 @@ func New(o Options) (*Service, error) {
 	return s, nil
 }
 
-// Close flushes the usage counters.
-func (s *Service) Close() { s.meter.close() }
+// Close flushes the usage counters and ends every LLM key: the sessions
+// they were minted for end with xbind.
+func (s *Service) Close() {
+	if s.llmKeys != nil {
+		s.llmKeys.RevokeWhere(func(KeyGrant) bool { return true })
+	}
+	s.meter.close()
+}
 
 // Keys is the store of LLM keys, for the packages that mint them (nil when
 // Options.Keys supplied another source).

@@ -348,8 +348,27 @@ are for).
 - The worst a leaked key does is spend its person's LLM quota until it
   expires or is revoked.
 
-Nothing hands out LLM keys yet: the hook-up of terminals, agent sessions
-and sandboxes is a later release.
+Who gets one ([llm.md](/docs/llm.md) §Coding agents and terminals):
+
+- **A terminal or an agent session**, from xbind, when the workspace's
+  connector is offered to it: minted as the session opens, for the person
+  who opened it and its tile, revoked when the session ends (a restarted or
+  resumed session has a new one). It is never the session's terminal
+  token, and an agent session's is in the agent's own environment only.
+- **A tile bound to `xbin:llm`**, for a coding tool it runs in a sandbox:
+  `POST /api/xbin/llm/keys` with its own credential (the SDK's
+  `xbin.LLMKeyFor`). The key is for the person that credential acts for —
+  a partition's person, the person driving its frame or terminal, nobody
+  for a backend that serves everyone — exactly who the tile's own calls are
+  metered to; naming anyone else is `403`. A person's sign-in, an LLM key
+  and an unbound tile mint none.
+
+A sandbox made by a sandbox manager has no route to xbind. One created
+with the connector asked for (`net.llm`,
+[sandbox-manager.md](/docs/sandbox-manager.md)) reaches **the LLM-only
+listener** at its gateway: the three model routes for an LLM key, and
+nothing else of xbind — no other route exists there and no other
+credential is read.
 
 ## Roles and grants
 

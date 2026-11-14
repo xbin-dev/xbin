@@ -9,7 +9,7 @@ func llmEndpoints() []ep {
 	const (
 		caller = "a person the workspace's people switch admits, a component whose llm slot is bound to xbin:llm, or an LLM key (Authorization: Bearer xbl_…)"
 		admin  = "admin"
-		view   = "{configured, enabled, people, upstreams:[{name, kind, baseURL, key:{set, source?, hint?}, models, private, prices?, source, locked, reason?}], defaults:{model?, roles}, aliases, quotas, locks:{<path>:{locked, reason}}, host:{active, lockAll?, error?}, vault, problems, storeError?, set?, by?}"
+		view   = "{configured, enabled, people, upstreams:[{name, kind, baseURL, key:{set, source?, hint?}, models, private, prices?, source, locked, reason?}], defaults:{model?, roles}, aliases, quotas, sessions:{harnesses, terminals, openaiEnv}, locks:{<path>:{locked, reason}}, host:{active, lockAll?, error?}, vault, problems, storeError?, set?, by?}"
 		oaiErr = " Errors are OpenAI-shaped, {error: {message, type, param, code}}: 401 invalid_api_key; 403 xbin_llm_not_bound | xbin_llm_people_off | xbin_llm_policy; 404 model_not_found; 429 xbin_llm_quota_exceeded (with quota, resets, limit, used, and Retry-After); 503 xbin_llm_not_configured | xbin_llm_disabled | xbin_vault_sealed; 502/504 xbin_llm_upstream…; an upstream's own error passes with its status (its 401/403 as 502 xbin_llm_upstream_auth)."
 	)
 	quota := oapi{"type": "object", "description": "{tokensPerDay?, tokensPerMonth?, costPerDay?, costPerMonth?, action?: stop|warn} — 0 not set, -1 unlimited; null removes"}
@@ -27,7 +27,15 @@ func llmEndpoints() []ep {
 			nil, nil, "{object: \"list\", data: [{id, object, owned_by, alias_of?, …}], upstream_errors?}"},
 		{"GET", "/llm", llmTag, "The connector as the caller meets it", "authenticated",
 			"configured (an upstream exists), enabled, callable (the caller's calls would be admitted; reason and code when not), url (the OpenAI base, /api/xbin/llm/v1), ref (xbin:llm, what an llm slot binds to), people, host (a deployment file is in force), defaults, the caller's user and component, and quota {user, orgs?, limits, workspace, state: ok|warn|stop} — each limit {name, value, source, action, used, resets, state}. Always 200.",
-			nil, nil, "{configured, enabled, callable, reason?, code?, url, ref, people, host, defaults, user?, component?, admin?, quota?}"},
+			nil, nil, "{configured, enabled, callable, reason?, code?, url, ref, people, host, defaults, sessions, user?, component?, admin?, quota?}"},
+		{"POST", "/llm/keys", llmTag, "An LLM key for a harness a bound tile runs", "a component whose llm slot is bound to xbin:llm, with its own credential",
+			"A narrow key (xbl_…, good for /llm/v1/… only) for a coding tool the tile runs where its own credential must not go — a sandbox. It is metered as the tile's own calls are: to the person the credential acts for (a partition's person, the person driving the frame or terminal, nobody for a backend that serves everyone) and to the tile. user, when named, must be that person (403 otherwise). ttlSec: default 24 h, at most 30 days. label and sandbox (≤200 characters) are recorded for the log. The token is answered once. 403 a person's sign-in, an LLM key, or a tile that isn't bound; 503 the connector is not configured or off.",
+			nil, jsonBody("the key", oapi{"user": str("the person it is for (default, and only: the one this credential acts for)"), "ttlSec": integer(),
+				"label": str("what it is for"), "sandbox": str("the sandbox it is handed to")}),
+			"{id, token, user, component, expires, url}"},
+		{"DELETE", "/llm/keys/{id}", llmTag, "End an LLM key", "the component that asked for it",
+			"Revokes the key now. 204 whether or not it still lived (a key of another component is not touched).",
+			[]oapi{pathParam("id", "the key's id")}, nil, ""},
 		{"GET", "/llm/preferred", llmTag, "The workspace's default models (the llm-gw convention)", caller,
 			"use=<role>: {use, model} — that role's model as <upstream>/<model>, the default model when the role has none, \"\" when neither. No use: {preferred: {default?, <role>…}, useTypes}. The shape the llm-gw tile answers, so a tile resolves its default model from either provider." + oaiErr,
 			[]oapi{queryParam("use", "a role: agent, harness, … (default: all)", false)}, nil, "{use, model} | {preferred, useTypes}"},
@@ -35,9 +43,10 @@ func llmEndpoints() []ep {
 			"The admin's settings and the host's deployment file (XBIN_LLM_CONFIG) merged. locks maps each setting the file sets (enabled, people, upstreams.<name>, defaults.model, defaults.roles.<role>, aliases.<alias>, quotas.workspace|default|users|orgs; \"*\": all of them) to {locked: true, reason: \"set by your host\"}; a host's upstream is locked too. No key is ever answered: key {set, source: vault|host, hint} (hint: an admin's key's last four characters, while the vault is open). vault: open | sealed | locked | plaintext. problems: defaults and aliases that resolve to nothing.",
 			nil, nil, view},
 		{"PUT", "/llm/config", llmTag, "Change the connector's switches, default models and aliases", admin,
-			"Only what is named changes: enabled, people (admins | everyone | nobody: who may call directly), defaults {model?, roles?: {<role>: <model>}}, aliases {<alias>: <model>} (\"*\": every unknown model name). \"\" removes a role, an alias or the default. 400 invalid; 409 {error, locked: [<path>…], reason} when a named setting is the host's (sending a locked setting back unchanged is fine). → the view. Audited.",
+			"Only what is named changes: enabled, people (admins | everyone | nobody: who may call directly), defaults {model?, roles?: {<role>: <model>}}, aliases {<alias>: <model>} (\"*\": every unknown model name), sessions {harnesses?: own-first | connector | off, terminals?, openaiEnv?} (what coding agents and terminals get). \"\" removes a role, an alias or the default. 400 invalid; 409 {error, locked: [<path>…], reason} when a named setting is the host's (sending a locked setting back unchanged is fine). → the view. Audited.",
 			nil, jsonBody("the changes", oapi{"enabled": boolean(), "people": str("admins | everyone | nobody"),
-				"defaults": oapi{"type": "object", "description": "{model?, roles?: {<role>: <model>}}"}, "aliases": oapi{"type": "object", "description": "{<alias>: <model>}"}}), view},
+				"defaults": oapi{"type": "object", "description": "{model?, roles?: {<role>: <model>}}"}, "aliases": oapi{"type": "object", "description": "{<alias>: <model>}"},
+				"sessions": oapi{"type": "object", "description": "{harnesses?: own-first | connector | off, terminals?: bool, openaiEnv?: bool}"}}), view},
 		{"PUT", "/llm/upstreams/{name}", llmTag, "Add or change an upstream", admin,
 			"name: lowercase letters, digits, . _ - (not xbin). A new upstream needs baseURL (http(s), the provider's OpenAI-compatible base, with or without /v1); what isn't named stays. key is stored in xbind's vault and never answered (\"\" removes it); models lists what is offered (empty: the upstream's own /models and any model name pass through); private marks it for org constraints; prices {<model>: {in, out, cachedIn?}} in USD per million tokens. 400 invalid; 409 {locked} for a host's upstream, or any new one when the host locks all; 409 when a key is given and the vault is sealed or not set up. → the view. Audited.",
 			[]oapi{pathParam("name", "the upstream")}, jsonBody("the upstream", oapi{"baseURL": str("https://api.openai.com/v1"), "key": str("the provider's API key"),

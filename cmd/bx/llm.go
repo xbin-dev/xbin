@@ -34,6 +34,8 @@ const llmUsage = `  bx llm [status] [--json]              the LLM connector: ups
   bx llm default [set <model> [--role agent|harness|…] | unset [--role <role>]]
   bx llm alias [set <alias> <model> | rm <alias>]      "*" catches every unknown model name
   bx llm on | off | people admins|everyone|nobody
+  bx llm sessions [harnesses=own-first|connector|off] [terminals=on|off] [openai-env=on|off]
+                                        what coding agents and terminals get of it
   bx llm usage [--month] [--from <day>] [--to <day>] [--user <id>] [--component <tile>] [--json]
   bx llm quota [show [<user>]] | set <default|workspace|user:<id>|org:<id>>
                  [tokens/day=<n>] [tokens/month=<n>] [cost/day=<usd>] [cost/month=<usd>]
@@ -99,6 +101,7 @@ type llmConfig struct {
 	Defaults   llmDefaults        `json:"defaults"`
 	Aliases    map[string]string  `json:"aliases"`
 	Quotas     llmQuotaRules      `json:"quotas"`
+	Sessions   *llmSessions       `json:"sessions"` // nil: an xbind from before the session hook-up
 	Locks      map[string]llmLock `json:"locks"`
 	Host       struct {
 		Active  bool   `json:"active"`
@@ -218,6 +221,8 @@ func cmdLLM(args []string) error {
 			return usage
 		}
 		return llmPutConfig(map[string]any{"people": pos[1]})
+	case "sessions":
+		return llmSessionsCmd(pos[1:], usage)
 	case "usage":
 		return llmUsageCmd(pos[1:], jsonOut)
 	case "quota", "quotas":
@@ -319,6 +324,7 @@ func printLLMConfig(v llmConfig) {
 		fmt.Printf("  ! %s\n", v.StoreError)
 	}
 	fmt.Printf("  people who may call directly: %s%s\n", v.People, lock("people"))
+	printLLMSessions(v.Sessions, lock)
 	if v.Vault != "open" && v.Vault != "" {
 		fmt.Printf("  vault: %s\n", v.Vault)
 	}

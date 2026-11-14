@@ -443,6 +443,11 @@ var routeClasses = map[string]RouteClass{
 	"POST /partitions/mail":     PrimaryOnly,
 	"GET /partitions/mail":      PrimaryOnly,
 	"POST /partitions/mail/ack": PrimaryOnly,
+
+	// ---- a bound tile's LLM keys for the harnesses it runs (D226): the
+	// binding admits them, whichever deployment asks ----
+	"POST /llm/keys":        Neutral,
+	"DELETE /llm/keys/{id}": Neutral,
 }
 
 // classGate applies D127r to one /api/xbin request, r2 as the API mux sees it.

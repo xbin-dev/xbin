@@ -33,6 +33,9 @@ type Settings struct {
 	// ("<upstream>/<model>"); the alias "*" catches every unknown name.
 	Aliases map[string]string `json:"aliases,omitempty"`
 	Quotas  QuotaRules        `json:"quotas"`
+	// Sessions are the switches for coding tools in terminals and agent
+	// sessions (sessions.go).
+	Sessions Sessions `json:"sessions"`
 }
 
 // Defaults are the workspace's default models: Model for a call that names
@@ -164,6 +167,9 @@ func (s Settings) validate() error {
 			return err
 		}
 	}
+	if err := s.Sessions.validate(); err != nil {
+		return err
+	}
 	return s.Quotas.validate()
 }
 
@@ -281,6 +287,7 @@ type snapshot struct {
 	defaults  Defaults
 	aliases   map[string]string
 	quotas    QuotaRules
+	sessions  sessionsInForce // the switches for coding tools (sessions.go)
 
 	locks   map[string]bool // setting path → set by the host
 	lockAll bool            // the host's file locks every setting
@@ -303,7 +310,9 @@ func merge(admin Settings, host *hostConfig) *snapshot {
 		admin = Settings{} // every setting is the host's: the admin's are not in force
 	}
 	s := &snapshot{enabled: true, people: PeopleAdmins, upstreams: map[string]effUpstream{}, aliases: map[string]string{},
-		locks: map[string]bool{}, defaults: Defaults{Roles: map[string]string{}}}
+		locks: map[string]bool{}, defaults: Defaults{Roles: map[string]string{}},
+		sessions: sessionsInForce{Harnesses: HarnessOwnFirst, Terminals: true}}
+	s.sessions.lay(admin.Sessions, func(string) {})
 	if admin.Enabled != nil {
 		s.enabled = *admin.Enabled
 	}
@@ -345,6 +354,7 @@ func merge(admin Settings, host *hostConfig) *snapshot {
 	for a, t := range h.Aliases {
 		s.aliases[a], s.locks["aliases."+a] = t, true
 	}
+	s.sessions.lay(h.Sessions, func(path string) { s.locks[path] = true })
 	if h.Quotas.Workspace != nil {
 		s.quotas.Workspace, s.locks["quotas.workspace"] = h.Quotas.Workspace, true
 	}

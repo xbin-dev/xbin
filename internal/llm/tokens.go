@@ -19,9 +19,9 @@ import (
 // quota until it expires or is revoked.
 //
 // This package holds the store and honours the keys (Authorization: Bearer
-// xbl_…, the form OpenCode and Codex send). Nothing mints one yet: the
-// session hook-up and the SDK call that do are later packages, which call
-// Mint and Revoke.
+// xbl_…, the form OpenCode and Codex send). They are minted for terminal
+// and agent sessions (internal/term, through MintKey) and for a bound
+// component that asks for one (POST /llm/keys, sessions.go).
 
 // KeyPrefix starts every LLM key, so redaction and secret scanners
 // recognise one.
@@ -30,7 +30,7 @@ const KeyPrefix = "xbl_"
 // KeyGrant is what an LLM key stands for.
 type KeyGrant struct {
 	ID        string    `json:"id"`                  // names the key in listings and for Revoke; not secret
-	User      string    `json:"user"`                // the person its calls are metered to ("owner": the root token's)
+	User      string    `json:"user"`                // the person its calls are metered to ("owner": the root token's; "": nobody — a component's key for a backend that serves everyone)
 	Component string    `json:"component,omitempty"` // the tile it was minted for or by
 	Label     string    `json:"label,omitempty"`     // what it is for: a session id, a harness and run
 	Sandbox   string    `json:"sandbox,omitempty"`   // the sandbox it was handed to, when one
@@ -73,8 +73,8 @@ func NewKeys(now func() time.Time) *Keys {
 // Mint makes a key for g (ID and Expires are set here; ttl is capped at
 // MaxKeyTTL) and answers the token, shown once.
 func (k *Keys) Mint(g KeyGrant, ttl time.Duration) (token string, grant KeyGrant, err error) {
-	if g.User == "" {
-		return "", KeyGrant{}, errors.New("an LLM key names the person it is metered to")
+	if g.User == "" && g.Component == "" {
+		return "", KeyGrant{}, errors.New("an LLM key names the person or the component it is metered to")
 	}
 	if ttl <= 0 || ttl > MaxKeyTTL {
 		ttl = MaxKeyTTL

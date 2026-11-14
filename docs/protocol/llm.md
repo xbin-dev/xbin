@@ -31,6 +31,13 @@ header or the body ([auth.md](/docs/auth.md) §The LLM connector).
 An LLM key is accepted on `/llm/v1/…` only; presented anywhere else the
 request is `401`, whatever else it carries.
 
+**The LLM-only listener.** A tile sandbox created with `net.llm`
+([sandboxes.md](/docs/protocol/sandboxes.md)) has no route to xbind but
+this: at `http://10.0.2.2:4180/v1` it reaches `POST /v1/chat/completions`,
+`POST /v1/responses` and `GET /v1/models` — the three routes below, as an
+LLM key's holder. A request without a live key is `401`, any other path
+`404`, both in OpenAI's error shape; no other credential is read there.
+
 ## The OpenAI-compatible routes
 
 ```
@@ -108,7 +115,10 @@ GET    /llm                        any authenticated caller. The connector as
                                    call's error would say), url:
                                    "/api/xbin/llm/v1", ref: "xbin:llm",
                                    people, host (a deployment file is in
-                                   force), defaults: {model?, roles}, user?,
+                                   force), defaults: {model?, roles},
+                                   sessions: {harnesses, terminals,
+                                   openaiEnv} (what coding agents and
+                                   terminals get, below), user?,
                                    component?, admin?, quota?: {user, orgs?,
                                    limits: [Limit], workspace: [Limit],
                                    state: ok|warn|stop}}. Limit: {name:
@@ -126,6 +136,45 @@ GET    /llm/preferred?use=<role>   a caller. use is optional. The workspace's de
                                    OpenAI-compatible routes'
 ```
 
+## Keys for a tile's harnesses
+
+An **LLM key** (`xbl_…`) is a narrow credential: good for the
+OpenAI-compatible routes above and nothing else. xbind gives one to each
+terminal and agent session it points at the connector
+([llm.md](/docs/llm.md) §Coding agents and terminals); a tile asks for one
+here, for a coding tool it runs where its own credential must not go — a
+sandbox. The Go SDK: `xbin.LLMKeyFor` ([sdk.md](/docs/sdk.md)).
+
+```
+POST   /llm/keys                   a component whose llm slot is bound to
+                                   xbin:llm, with its own credential (403 a
+                                   person's sign-in, an LLM key, a tile that
+                                   isn't bound). {user?, ttlSec?, label?,
+                                   sandbox?} → {id, token, user, component,
+                                   expires, url}. The key is metered as the
+                                   tile's own calls are: to the person the
+                                   credential acts for — a partition's
+                                   person, the person driving its frame or
+                                   terminal, nobody ("") for a backend that
+                                   serves everyone — and to the tile. user,
+                                   when named, must be that person: 403
+                                   otherwise (a tile never names someone
+                                   else). ttlSec: default 86400, at most 30
+                                   days; the key also ends when xbind
+                                   restarts. label and sandbox (≤200
+                                   characters each) are kept for the log.
+                                   token is answered this once. url is the
+                                   connector's path under xbind (/api/xbin/
+                                   llm/v1); a sandbox reaches it at the
+                                   address its manager names (sandbox-
+                                   manager.md §The sandbox, llm). 503 not
+                                   configured or switched off
+DELETE /llm/keys/<id>              the component that asked for it. Ends the
+                                   key now. 204 whether or not it still
+                                   lived; another component's key is not
+                                   touched
+```
+
 ## Configuration (admins)
 
 "admin" is a workspace admin: an admin's own sign-in, the owner token, or
@@ -140,14 +189,18 @@ GET    /llm/config                 admin. The configuration in force, the
                                    baseURL, key: {set, source?: vault|host,
                                    hint?}, models, private, prices?, source:
                                    admin|host, locked, reason?}], defaults:
-                                   {model?, roles}, aliases, quotas, locks,
-                                   host: {active, lockAll?, error?}, vault:
+                                   {model?, roles}, aliases, quotas,
+                                   sessions: {harnesses: own-first |
+                                   connector | off, terminals, openaiEnv},
+                                   locks, host: {active, lockAll?, error?},
+                                   vault:
                                    open | sealed | locked | plaintext,
                                    problems, storeError?, set?, by?}. locks
                                    maps each setting the host's file sets —
                                    enabled, people, upstreams.<name>,
                                    defaults.model, defaults.roles.<role>,
-                                   aliases.<alias>, quotas.workspace |
+                                   aliases.<alias>, sessions.harnesses |
+                                   terminals | openaiEnv, quotas.workspace |
                                    default | users | orgs, and "*" when it
                                    locks all — to {locked: true, reason: "set
                                    by your host"}. No key is ever answered:
@@ -158,10 +211,23 @@ GET    /llm/config                 admin. The configuration in force, the
 PUT    /llm/config                 admin. {enabled?, people?: admins |
                                    everyone | nobody, defaults?: {model?,
                                    roles?: {<role>: <model>}}, aliases?:
-                                   {<alias>: <model>}} — only what is named
-                                   changes; "" removes a role, an alias or
-                                   the default; the alias "*" catches every
-                                   unknown model name. → the view. 400
+                                   {<alias>: <model>}, sessions?:
+                                   {harnesses?: own-first | connector | off,
+                                   terminals?, openaiEnv?}} — only what is
+                                   named changes; "" removes a role, an
+                                   alias or the default; the alias "*"
+                                   catches every unknown model name.
+                                   sessions: who serves a coding agent's
+                                   model calls by default (own-first: the
+                                   person's own sign-in when they have one,
+                                   else the connector; connector; off:
+                                   agent sessions get nothing), whether
+                                   tile terminals get XBIN_LLM_URL and
+                                   XBIN_LLM_KEY (default true), and whether
+                                   they also get OPENAI_BASE_URL and
+                                   OPENAI_API_KEY (default false) —
+                                   llm.md §Coding agents and terminals.
+                                   → the view. 400
                                    invalid; 409 {error, locked: [<path>…],
                                    reason} when a named setting is the
                                    host's (a locked setting sent back
