@@ -12,6 +12,48 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-14
 
+- **Delegation: a person's workspace agent acts as them, under a cap
+  (D228).** The auth primitive the workspace agent will run on; nothing
+  uses it until an xbind ships that sealed component and an admin turns
+  workspace agents on, so an upgrade changes no tile's behaviour today.
+  What a tile builder should know now ([auth.md
+  §Delegation](/docs/auth.md#delegation-a-persons-workspace-agent)):
+  - **A new header, `X-XBin-Agent`.** A call made by a person's workspace
+    agent for them carries it (the sealed component's path) beside
+    `X-XBin-User`, with `X-XBin-From: user:<id>` and `X-XBin-Role:
+    reader | writer` — the person's level on your tile. Stripped inbound
+    like every `X-XBin-*`. SDK: `xbin.Caller(r).Agent` and `.ByAgent()`.
+  - **`X-XBin-From: user:<id>` no longer implies an admin.** Until now
+    only an admin could call a tile's API in person, so a backend saw
+    `user:<id>` only with role `admin`. An agent's call arrives as
+    `user:<id>` at `reader` or `writer`. If your backend treats the `user:`
+    prefix as "an admin", change it to read `X-XBin-Role` or
+    `X-XBin-User-Level` (`xbin.Role(…)`, `Caller(r).UserCanWrite()` already
+    do). The shipped tiles and templates judge by level.
+  - **A new manifest key, `"agent"`**: `"full"` (the default), `"read"`
+    (an agent may only `GET`/`HEAD` your API) or `"off"`
+    ([elements.md](/docs/elements.md)). `GET /api/xbin/components` rows
+    carry `agent` when it isn't full.
+  - **Every write an agent makes was approved by its person, and xbind
+    checks it**: a one-shot ticket bound to the exact method, path and
+    body, or a standing approval of your tile the person gave and can
+    revoke. Your tile needs no code for this.
+  - No tile can be granted or bound to a sealed component that acts for
+    people: `POST /grants` and `POST /bindings` answer 409 for such a
+    target.
+- **API: `/api/xbin/delegate/…`** ([protocol/delegation.md](/docs/protocol/delegation.md)):
+  the workspace's switch and a person's pause, approval requests and
+  tickets, standing approvals, admin change sets (an admin's agent proposes
+  grants, bindings, org shares and limit raises; the person approves after
+  a recent sign-in; xbind applies them as the person), and the person's
+  audit log of what their agent did. A `delegate` event on `/ws/events`;
+  push kinds `agent.approval` and `agent.changeset`.
+- **Agent sessions: `origin`.** A session row, and its history entry,
+  carries `origin: "agent"` when the person's workspace agent opened it
+  (`GET /term/sessions`, `GET /agent/history`). Absent otherwise.
+- **`GET /tile-status`** also answers a person's workspace agent for a tile
+  that person can read.
+
 - **docs: the protocol reference is split by topic.** `/docs/protocol.md`
   had reached the size limit of a served doc, so its route tables and
   WebSocket sections moved, unchanged, to one page per area under

@@ -38,7 +38,7 @@ xbin.WriteError(w, http.StatusForbidden, "…") // {"error": "…"} — the shap
 
 ```go
 c := xbin.Caller(r)          // CallerInfo{From, Role, Owner, User, UserLevel, ViewedBy, Deployment,
-                             //            Partition, PartitionID}
+                             //            Partition, PartitionID, Agent}
 c.UserCanWrite()             // gate mutating endpoints on the DRIVING user's
                              // level (D29) — frame calls from your own UI run
                              // at full role even for read-level viewers
@@ -68,6 +68,11 @@ c.Partition                  // X-XBin-Partition: the partition the call acts
                              // display name
 c.PartitionID                // X-XBin-Partition-Id: key per-caller state on
                              // (From, Deployment, PartitionID) — partitions.md
+c.Agent, c.ByAgent()         // X-XBin-Agent: the call is User's workspace agent
+                             // acting for them (auth.md §Delegation), not
+                             // their own hand. From is then "user:<id>" and
+                             // Role "reader" | "writer" — their level here,
+                             // never admin: "user:" does NOT mean an admin
 ```
 
 Headers are trustworthy: xbind strips inbound `X-XBin-*` and injects

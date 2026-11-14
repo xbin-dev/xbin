@@ -137,6 +137,13 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   "partitionMail": "/mailbox",
   "partitionNote": "Switching deletes every conversation, memory and schedule.",
 
+  // How much of this tile's API a person's workspace agent may use when it
+  // acts for them (docs/auth.md §Delegation): "full" — the default, absent
+  // means it — everything that person's level allows, each write approved
+  // by them; "read" — GET and HEAD only; "off" — nothing. An unknown word
+  // reads as "off". Such calls carry X-XBin-Agent.
+  "agent": "full",
+
   // Runtime call rights this component wants (docs/auth.md). Targets are
   // component paths, resources ("res:<scope>/<name>"), reserved capabilities
   // ("cap:open-links" — links in new tabs from the frontend; "cap:net-admin",

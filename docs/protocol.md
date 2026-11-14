@@ -176,6 +176,12 @@ X-XBin-Viewed-By: owner | <admin id>     (set with X-XBin-User when an admin
                                           is VIEWING AS that user, D64 — a
                                           backend keeping per-user private
                                           data should not show it)
+X-XBin-Agent: <sealed component path>    (set with X-XBin-User when the call is
+                                          that person's workspace agent acting
+                                          for them, not their own hand:
+                                          X-XBin-From is user:<id>, X-XBin-Role
+                                          reader | writer — their level, never
+                                          admin; protocol/delegation.md)
 X-XBin-Ingress-Host: <public hostname>   (ingress traffic only)
 X-XBin-Deployment: <name>                (the calling tile's deployment, when
                                           the caller is one of a tile's own

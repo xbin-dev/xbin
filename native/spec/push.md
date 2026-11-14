@@ -109,6 +109,8 @@ matches `agent.turn`; `test` is always delivered):
 | `agent.turn` | a turn ends (`turn.end`), except when the user cancelled it | `agent/<session>` |
 | `tile`, `tile.<kind>` | a tile called `POST /api/xbin/notify` | `c/<tile>/…` |
 | `tile.partition-switch`, `tile.partition-deleted` | xbind: a tile's partition mode switch is requested (its managers), or deleted the person's partition | `xbin/partitions` — the partitions page, where managers decide and the person's notice is |
+| `agent.approval` | xbind: the person's workspace agent asks them to approve one side effect (collapse `agent-approval:<request id>`; the text is xbind's, never the agent's) | `xbin/agent` |
+| `agent.changeset` | xbind: the person's workspace agent proposed admin changes that wait for their approval (collapse `agent-changeset:<id>`) | `xbin/agent` |
 | `tile.partition-consent` | xbind: a partitioned tile's call into the person's data in another was refused for want of their consent (the workspace policy partitionConsent on; one a day per edge, collapse `partition-consent:<from>→<to>`) | `xbin/partitions` |
 | `tile.partition-reset` | xbind: someone else (a tile manager or an admin) reset the person's partition of a tile | `xbin/partitions` |
 | `account.credential` | xbind: someone else made a sign-in link, password, single sign-on email or provider change for the person's account, a partition holder (held for them to allow or refuse while the workspace policy credentialResetConfirm is on; collapse `credential:<id>`) | `xbin/partitions` |

@@ -76,6 +76,9 @@ required). JSON text frames:
  "data":{"op":"notify","deployment":"dev","to":"user:bob","title":"…","at":"…"}}
 {"type":"prefs","component":"root",                  // one of YOUR pref buckets changed:
  "data":{"key":"layout","writer":"…"}}               // re-read GET /prefs/<key> if you care
+{"type":"delegate",                                  // something about YOUR workspace agent changed — to your own
+ "data":{"op":"request","id":"…","user":"<you>"}}    // sockets and your agent's page only (protocol/delegation.md):
+                                                     // op request | approval | changeset | state; refetch that list
 ```
 
 **Tile deployments** ([tile-deployments.md](/docs/tile-deployments.md)).

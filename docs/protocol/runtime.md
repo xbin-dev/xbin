@@ -327,7 +327,9 @@ GET    /sandboxes?tile=            admin. every sandbox xbind runs (D112) →
                                    manager tile); both absent until one. A manager
                                    tile's backend gets its own tile sandboxes
                                    instead (protocol/sandboxes.md)
-GET    /tile-status?component=<p>  self or admin. one tile's runtime metrics —
+GET    /tile-status?component=<p>  self or admin; a person's workspace agent
+                                   for a tile that person can read
+                                   (protocol/delegation.md). one tile's runtime metrics —
                                    backend {state,gen,sandbox,vm?,cpuSec,cgroup:{mem,pids},
                                    rssKb,fds,activeConns,egress}, disk {usage,
                                    quota,blocked}, alerts[], net {netRef, net,

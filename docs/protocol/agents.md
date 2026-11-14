@@ -20,7 +20,12 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    first (agent rows add kind:"agent",
                                    provider, mode, model?, status, pending
                                    — unanswered permission requests — and
-                                   questions — unanswered elicitations);
+                                   questions — unanswered elicitations; and
+                                   origin:"agent" when the person's
+                                   workspace agent opened the session for
+                                   them — set by xbind only, absent when
+                                   they opened it themselves;
+                                   protocol/delegation.md);
                                    ?cwd=<p> one tile only. [] without
                                    terminal rights; a tile the caller may no
                                    longer open a terminal on is omitted.
@@ -319,6 +324,8 @@ GET    /agent/history             terminal-level. Your past agent sessions,
                                    never-prompted sessions are not kept).
                                    ?cwd= narrows to a tile. loadable: the
                                    agent can reopen it (resume). An entry of
+                                   a session the person's workspace agent
+                                   opened carries origin:"agent". An entry of
                                    a session that had a named target carries
                                    deployment. A session on a partitioned
                                    tile's entry is kept with its person's

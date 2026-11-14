@@ -13673,3 +13673,53 @@ Deviations and refinements made while implementing; all deliberate:
   - **Once only**, across restarts; a failed task #1 still starts the wiki
     step, which says what failed. The `[project starter` marker is defused
     in text from outside, like the coordinator's other markers.
+
+- **D228 — Delegation: a sealed component acts as its person, under a cap,
+  with xbind-verified approvals and admin change sets (2026-11-14; issue
+  #51).** The workspace agent needs "the access of its user clicking
+  through the UI". Spike S2 (`plans/wsagent/s2-delegation.md`) found the
+  shape; the owner decided its nine questions the same day. Contract:
+  `docs/auth.md` §Delegation, `docs/protocol/delegation.md`.
+  - **Who**: only a sealed system component marked for it (one lookup, set
+    at boot from the sealed-component table). Never a workspace's
+    `xbin.json`, a grant or an approval.
+  - **The credential** is the instance token of the person's partition
+    under another scheme (`Authorization: XBin-Delegate`), honoured on the
+    gateway socket and on `/api/` only; with isolation off (outside
+    `--dev`/`--no-auth`) delegation refuses to run. It resolves to the
+    person's principal (`Via: "delegate"`, `Agent`), **never an admin**.
+  - **The cap** is a table naming every route xbind mounts (read, act,
+    admin-read, never, refused), kept exhaustive by a test over the route
+    inventory. Never delegated: answering a tile agent, a session's
+    settings, terminals, deletes, code writes, the account and devices,
+    other identities, the person's consents, tile stores, the admin API.
+  - **Approvals are xbind's, not the agent's.** A side effect (a non-GET
+    tile call, a session start, a tile create) needs a one-shot ticket the
+    person approved — bound to method, path with query, and body — or a
+    standing approval of a tile's API the person can list and revoke. A
+    stolen token is read-only. Rejected: approval only in the engine (a
+    token taken from the sandbox would then write).
+  - **Tiles** see `From: user:<id>`, the person's level as the role
+    (`reader`/`writer`), and a new `X-XBin-Agent`. `From` is not the
+    component's path: the agent template in the wild treats another
+    component as a tile manager. Consequence, stated in the changelog:
+    `user:<id>` no longer implies an admin. A tile opts down with
+    `"agent": "off" | "read" | "full"`; absent is full.
+  - **Tile agents it starts** take mode and pickers from the ticket the
+    person approved or from their preferences, on the default deployment;
+    the agent drives only sessions it opened and never answers one. A
+    reduced `$HOME` for such sessions waits for the sign-in store.
+  - **Admin changes** are change sets: a closed list of kinds (grants,
+    bindings, org shares, limits), each previewed by the handler's own
+    checks without writing, approved only by the person whose agent
+    proposed it after a step-up, applied in order as that person through
+    the ordinary handlers; stale items are not applied; an undo set.
+    An opted-in admin's agent also reads grants, bindings, orgs and limits.
+  - **Org rules** live in one place, `Org.Agents` (another package);
+    delegation asks through `delegation.Policy` and refuses without one.
+    No new policy deny kind.
+  - **Also**: per-person audit log, 13 months, every act and tile call and
+    no listing read; the person's pause cuts running calls; 30 acts a
+    minute; no grant or binding may target a sealed holder; each delegate
+    tile call is counted in the partition's egress ledger and its edges
+    count as approved for the consent prompt.
