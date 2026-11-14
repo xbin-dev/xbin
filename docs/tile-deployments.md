@@ -98,7 +98,7 @@ the zero state; `&deployment=<name>` selects one) or read `deployments:
 {primary, pinned, protected}` on the tile's `/api/xbin/components` entry,
 present only for a tile that has left the zero state. A reader of the tile gets the primary's facts only: no other
 deployment's name, and no count that reveals one
-([protocol.md](/docs/protocol.md) §Tile deployments).
+([protocol/deployments.md](/docs/protocol/deployments.md)).
 
 ## Pausing live reload
 
@@ -648,7 +648,7 @@ panel's tile-wide **Non-primary access** table does both):
   so its non-primary deployments can't reach them: test sandbox work from
   the primary. A sandbox manager tile's own sandboxes are `main`'s: its other
   deployments get 501 from xbind's tile-sandbox routes
-  ([protocol.md](/docs/protocol.md) §Tile sandboxes).
+  ([protocol/sandboxes.md](/docs/protocol/sandboxes.md)).
 - A tile whose `net` shares the host's network gives its non-primary
   deployments **no egress**, and the panel says why. A non-primary
   deployment never gets host networking, a provider splice, a stream

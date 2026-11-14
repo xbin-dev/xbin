@@ -149,7 +149,7 @@ the same commit as the change**, per this table:
 
 | You changed | Update |
 |---|---|
-| HTTP/WS surface (any `/api/xbin/*`, `/ws/*`) | `docs/protocol.md` **and** `internal/server/openapi.go` — `make test` fails on drift (`internal/apicheck`; rules in `docs/maintenance.md`) |
+| HTTP/WS surface (any `/api/xbin/*`, `/ws/*`) | its topic page `docs/protocol/<topic>.md` (`docs/protocol.md` is the entry: the shared conventions and the index of the topic pages — a new area gets a new page and a row in its Topics table) **and** `internal/server/openapi.go` — `make test` fails on drift (`internal/apicheck`; rules in `docs/maintenance.md`) |
 | builder-visible behavior | the relevant `docs/*.md`, `workspace-template/AGENTS.md`, and the welcome tile notes (`workspace-template/apps/welcome/notes.js`) if it teaches that area |
 | a design decision | `plans/<area>.md` + an entry in `plans/DECISIONS.md` |
 | a guard, budget or check | `docs/maintenance.md` (what it protects, how to satisfy it) |
@@ -176,14 +176,20 @@ refactors don't.
 
 - Newest first, grouped by date under `## YYYY-MM-DD`, one `- area: what
   changed` line each — written for a tile builder, not for us.
+- Entries go at the **top of `docs/changelog.md`**, which holds the recent
+  weeks only. Older months live, unchanged, in `docs/changelog/<YYYY-MM>.md`
+  (listed under "Older entries" at its end): every embedded file is capped
+  at 512 KB, so when the changelog passes about 200 KB, move its oldest
+  whole months there — cut from the old end, never reword
+  (`docs/maintenance.md` → "Embedded assets").
 - A change is **BREAKING** when existing tiles/providers must change code or
   config, or a wire/persisted format changes incompatibly. Mark the entry
   `**BREAKING**`, and add a migration note at
   `docs/changes/YYYY-MM-DD-<slug>.md` with exactly these sections:
   **What changed · Who's affected · How to migrate · Why**. Link it from the
   entry.
-- These files are embedded and served at `/docs/changelog.md` and
-  `/docs/changes/…` — workspace agents are told (in the workspace
+- These files are embedded and served at `/docs/changelog.md`,
+  `/docs/changelog/…` and `/docs/changes/…` — workspace agents are told (in the workspace
   `AGENTS.md`) to check the changelog after an xbind upgrade, so this is the
   channel by which every workspace learns what moved. Keep it true.
 

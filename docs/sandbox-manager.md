@@ -492,7 +492,7 @@ manager doesn't know: it ignores it, and the exec answers `split` false).
 `GET /sbx/sandboxes/{id}/execs/{eid}/tty` attaches to a `tty` exec, and
 `GET /sbx/sandboxes/{id}/tty?cwd=&cmd=&rows=&cols=` starts one (the login
 shell unless `cmd`) and attaches — both are WebSocket upgrades speaking
-exactly the terminal wire of `/ws/term` (docs/protocol.md §The terminal
+exactly the terminal wire of `/ws/term` (docs/protocol/terminals.md §The terminal
 wire), so `<bx-terminal src>` (docs/elements.md) works against it:
 
 - **Binary frames** both ways: raw terminal bytes. The ring's tail replays
@@ -696,7 +696,7 @@ approves its `cap:sandboxes`, and consumers bind it
 (`bx bind apps/agent sandboxes+=apps/coding-sandbox`). Each copy is a
 manager of its own (its `API.md` has everything):
 
-- **Sandboxes on xbind's own runtime** (docs/protocol.md §Tile sandboxes):
+- **Sandboxes on xbind's own runtime** (docs/protocol/sandboxes.md):
   a VM where the workspace runs VMs for tiles, else a namespace — or only
   the one mode its operators choose, never falling back (`isolation` always
   says which). `caps` are what the runtime serves (`exec`, `files`, `tar`,
@@ -738,7 +738,7 @@ manager of its own (its `API.md` has everything):
 ## On xbin
 
 A manager that runs its sandboxes on xbind's own runtime
-(docs/protocol.md §Tile sandboxes; the Go SDK's `xbin.SandboxAPI()`,
+(docs/protocol/sandboxes.md; the Go SDK's `xbin.SandboxAPI()`,
 docs/sdk.md; the xbin repository's `examples/sandbox-go` is the smallest
 one) hands them to the workspace too, which may stop one under it —
 synced, state kept, the reason in its `stateDetail`. Show that reason to
@@ -768,7 +768,7 @@ the cause is gone:
   8, "disk": "200G"}}` — and a workspace admin (or an admin of the org
   owning it, within the org's ceiling) approves it; a start refused at a
   total or a sandbox stopped at one offers them a raise. A grant raises
-  the per-sandbox maximums with it (D203; protocol.md §Admission).
+  the per-sandbox maximums with it (D203; docs/protocol/sandboxes.md §Admission).
 - **CPU and memory.** While a sandbox runs, xbind reads its cgroup leaf
   once a minute — `cpu.stat` `usage_usec`, `memory.current`,
   `memory.max`, `pids.current` — and keeps the last 60 readings in memory

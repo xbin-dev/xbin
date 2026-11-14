@@ -600,7 +600,7 @@ A tile can run several deployments of its code
 the bare URLs, grants, bindings and ingress reach, and
 others (`dev`, …) its developers open at `/c/<tile>+<name>/`. Nothing below
 changes a tile that has only its primary. The wire is
-[protocol.md](/docs/protocol.md) §Tile deployments.
+[protocol/deployments.md](/docs/protocol/deployments.md).
 
 **Every tile credential acts in one deployment.** A backend's
 instance token acts in the deployment its generation runs, a frame token (or
@@ -795,7 +795,7 @@ a banner across the top of the shell naming who you are viewing and an
   it never grants more than reading as them.
 
 API: `POST /api/xbin/impersonate {user}` → `{url}`; `POST
-/api/xbin/impersonate/stop` ends it ([protocol.md](/docs/protocol.md)).
+/api/xbin/impersonate/stop` ends it ([protocol/users.md](/docs/protocol/users.md)).
 
 ## Multi-user (users, roles, tile access)
 
@@ -1257,7 +1257,8 @@ Routes: `GET /api/xbin/login/methods`, `POST /api/xbin/invite/check`,
 `GET /login/sso?app=1`, `POST /login/ticket`, `POST /api/xbin/web-ticket`,
 `GET /login?ticket=`, `POST /login/web-ticket`, `GET|DELETE /api/xbin/devices`,
 `GET /api/xbin/users/<id>/devices`, `GET|PUT /api/xbin/devices/limits`
-([protocol.md](/docs/protocol.md)). The
+([protocol/core.md](/docs/protocol/core.md),
+[protocol/devices.md](/docs/protocol/devices.md)). The
 exact signed message and a test vector for client implementers:
 `native/spec/device-login.md` in the source tree.
 

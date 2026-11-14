@@ -380,7 +380,7 @@ own, so testing against it never touches what everyone else sees.
   cron jobs, bus subscriptions or registrations. An admin can back a
   deployment's data up, now or on a schedule of its own, and restore an
   archive into it, replacing what it held (`/api/xbin/deployments/backup`,
-  `restore`: [protocol.md](/docs/protocol.md) §Tile deployments).
+  `restore`: [protocol/deployments.md](/docs/protocol/deployments.md)).
 - **Reset** empties it: terminal level on every tile of the scope that has
   that deployment (the refusal names the tile that blocks), `main`'s only by
   a tile manager while `main` isn't the primary, never data some tile serves

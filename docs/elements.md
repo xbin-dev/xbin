@@ -668,7 +668,7 @@ count, no restore line; the shell's settings menu has **Show dismissed
 banners).
 The dismissals are the viewer's pref `dismissed` in the bucket the page's
 `xbin.fetch` reaches (the shell's, in the workspace root page;
-[protocol.md](/docs/protocol.md) `/prefs`):
+[protocol/workspace.md](/docs/protocol/workspace.md) `/prefs`):
 
 ```json
 {"grants":   {"<from>|<target>|<role>": "<dismissed at, ISO 8601>"},
@@ -695,7 +695,7 @@ font size. The palette is *Workspace (follows the theme)* unless the person
 picks one: its colours are the `--bx-term-*` tokens, so an open terminal
 turns light or dark with the workspace, live; the named palettes include
 *Concrete Night* and *Concrete Day* (a dark terminal in a light workspace is
-one pick) (D184). The font is the `--bx-mono` token, JetBrains Mono. It speaks the terminal wire ([protocol.md](protocol.md) §The terminal
+one pick) (D184). The font is the `--bx-mono` token, JetBrains Mono. It speaks the terminal wire ([protocol/terminals.md](/docs/protocol/terminals.md) §The terminal
 wire) to one of two places:
 
 - **xbind's `/ws/term`** — the `cwd`, `net`, `gpu`, `api`, `vm` and
@@ -918,7 +918,7 @@ tab for `warn`/`error`, and the level's word in the browser-tab title.
 - **`xbin.notify(level, message)`** — a **one-shot** notification (toast) that
   fades; does not change the persistent status.
 - Backend equivalents: `xbin.Status` / `xbin.ClearStatus` / `xbin.Notify`
-  (SDK). Both planes POST `/api/xbin/tile-report` ([protocol.md](/docs/protocol.md)).
+  (SDK). Both planes POST `/api/xbin/tile-report` ([protocol/tiles.md](/docs/protocol/tiles.md)).
 
 Status is per-component and self-reported (the owner sees all; other users only
 tiles they can read), and it **resets when your backend restarts**. It speaks
