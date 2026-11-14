@@ -121,6 +121,102 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     the tile's edge policy: read-clamped by default (models, no calls).
   - Not yet: an admin console section, the connector in terminals and
     agent sessions, an Anthropic-wire route, `llm-gw` as an upstream.
+- **Agent sessions: one sign-in hint (D225).** When a coding agent
+  refuses a session or a prompt because it is signed out, the error and
+  the `status` event's `detail` end with one sentence everywhere,
+  `sdk/acp`'s new `Provider.SignInHint`. **Wording that changed** — a tile
+  agent session's (the Agent tab's status line, `bx agent`): "‹the
+  agent's message›: the agent isn't signed in — in a terminal on ‹tile›,
+  run: ‹command›", where it read "… — open a terminal on ‹tile› and run:
+  ‹command›  (your terminal $HOME is shared with agent sessions, so one
+  login serves every tile)"; and ‹command› is now the provider's terminal
+  sign-in line (`LoginCmd`: `codex login --device-auth`, `NO_BROWSER=true
+  gemini` — the forms that print a URL or code instead of opening a
+  browser) where it was the display line (`codex login`, `gemini (then
+  choose Login with Google)`). The `login` object of a status event
+  (`{needed, provider, command}`) and the agent template's texts are
+  unchanged. Also new in `sdk/acp`, additive: `IsAuthRequired`,
+  `SaysSignedOut`, `AuthState` (`/docs/sdk.md` "The session rules").
+- **Agent sessions: a turn the agent starts on its own is followed
+  (D225).** codex-acp answers a message steered just after its turn ended
+  by starting a turn of its own, which no prompt's answer ends. A tile
+  agent session used to read as idle through such a turn — the next
+  message was prompted into it, and held messages were sent while it ran.
+  Now `POST …/queue` still answers `steered`, a `status` event says
+  `running` (statuses the agent's client restates as idle meanwhile are
+  served as `running`, or `waiting_permission` while a request waits), a
+  message sent meanwhile is held, `POST …/prompt` answers 409 as for any
+  running turn, and the turn ends with xbind's own `turn.end`
+  `{stopReason, detached: true}` (no `turn` number) once the agent has
+  sent nothing for 5 s with no request waiting — or at `POST …/cancel`
+  (`stopReason: "cancelled"`; the requests it waited on are answered
+  cancelled) — followed by an idle `status`, after which held messages go
+  in. Additive: a client that doesn't know `detached` shows an ordinary
+  turn end. `/docs/protocol/agents.md` §Agent session events. In
+  **`sdk/acp`** the rules both hosts follow are new API — `QueueState`
+  (`Message`, `Flush`, `Busy`), `SteerOutcome`, the `Message*` constants,
+  `DetachedTurn` and `DetachedQuiet` (`/docs/sdk.md` "The session rules")
+  — and one behaviour of `Client` changed: a permission request or form
+  question the agent makes outside a prompt leaves the status `idle` again
+  once answered (it stayed `waiting_permission` until the next prompt).
+  `sdk/acp/acptest` gains the `detach…` script (with `--steer`) to play
+  such a turn. The agent template decides with the same functions; one
+  thing moves there: a message sent during the agent's own turn no longer
+  splits the text the agent is writing into two rows (it waits, as before).
+- **sdk/acp: status words — `Busy`, `TurnOver`, `StateOf`, `Summary`,
+  `Need` (D225).** New, additive (`/docs/sdk.md` "The session rules"):
+  the status classes, a session's state in one word (`starting`, `ready`,
+  `working`, `login`, `failed`, `stopped`), the summary an inbox compares,
+  and what a session waits on a person for as a heading and a sentence.
+  xbind's agent-session summaries and notifications and the agent
+  template's "Needs you" now take their words from it. **Wording that
+  changed** — xbind's push notifications for a tile agent session, only
+  when the request says nothing of itself: a permission request without a
+  title reads "The agent wants to run a command — approve or deny." (was
+  "A tool call is waiting for your answer."), a question without a message
+  "The agent is waiting for your answer." (was "The agent is asking you
+  something."). Titles ("Permission needed — ‹tile›", "Question —
+  ‹tile›"), every other body, the `term` status event and the agent
+  template's texts and `harness.state` words are unchanged.
+- **Agent sessions: a permission option that raises the mode says so —
+  `explicit: true` (D225).** A `permission.request`'s options (the event,
+  `GET /term/sessions/<id>`'s `permissions`, the tail page's
+  `state.permissions`) gain an optional `explicit`: answering with that
+  option switches the session to a mode beyond the agent's own asks — a
+  plan approval's "yes, and bypass permissions", or a "yes, and switch to
+  ‹mode›" the provider catalog can't place — unless the session was opened
+  in that mode. Additive: absent on every other option, ignored by clients
+  that don't know it (the app's decoder does), and xbind answers such an
+  option like any other — it is there so a client can ask twice.
+  `/docs/protocol/agents.md` §Agent session events. In **`sdk/acp`** the
+  rule is `Provider.OptionRaises`, with `Provider.ModeOpen`,
+  `Provider.ModeIDs`, `ModeOption`, `SessionState.Mode` and the new field
+  `PermissionOption.Explicit`, which a `Client` now sets on the requests it
+  files (`Config.Mode` is the mode the session began in). The agent
+  template judges its owner-only options with the same function (it was
+  its own `optionRaises`); what it refuses is unchanged.
+- **sdk/acp: the tool record (D225).** New, additive: `acp.ToolRecord`
+  (one tool call, its `tool.call` / `tool.update` events merged),
+  `acp.ToolRecords` (a session's fold: `Apply`, `Entries`, `Newest`,
+  `Observe`, `EndTurn`), `ToolEntry`, `ToolEvent` / `ParseToolEvent`,
+  `ToolPolicy`, `ToolDiff`, `ToolLocation`, `ChangeSet`, `FileChange`,
+  `ChangePatch`, `OutputChunk`, `StartsToolRecord`, `ToolDone`,
+  `NewToolRecord`, `NewToolRecords`, the `Tool*` status constants and
+  `EvFilesChanged` — `/docs/sdk.md` "The session rules". xbind's event
+  pager and the agent template's backend now use it, so they agree on one
+  reading of a call. What changes in the **agent template** (a new
+  instance, or one that merges the template; it needs the SDK of this
+  xbind, as any newer template does — `/docs/compat.md`): a call id the
+  coding agent uses again in a later turn is a new card even when the
+  earlier call never reported its end (it was merged into the earlier
+  card); a call's kept output and its result's tail are cut between
+  characters, never inside one; a tool kind ACP doesn't define is stored
+  as `other` (the tool row's name was `acp:<that kind>`); a permission
+  request for a call the agent has not announced yet makes the card with
+  the request's arguments and content (a plan approval shows its plan
+  then). The tool row's `acp` object is unchanged for every other call.
+  xbind's `GET …/events?before=` pages: a page is never cut between two
+  calls that share an id within one turn; nothing else moves.
 - **docs: the protocol reference is split by topic.** `/docs/protocol.md`
   had reached the size limit of a served doc, so its route tables and
   WebSocket sections moved, unchanged, to one page per area under

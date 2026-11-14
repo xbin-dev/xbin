@@ -37,7 +37,8 @@ type steerResult struct {
 
 // steer serves _session/steering (--steer) as claude-agent-acp does: into
 // the running turn, else promptRequired when the client opted in, else a
-// new turn of its own.
+// new turn of its own — and, during the detach… script, as codex-acp does
+// when the steer lands just after its turn ended.
 func (f *fake) steer(m *acp.Message) (any, *acp.Error) {
 	var p steerParams
 	if err := json.Unmarshal(m.Params, &p); err != nil || p.SessionID == "" || len(p.Prompt) == 0 {
@@ -49,6 +50,24 @@ func (f *fake) steer(m *acp.Message) (any, *acp.Error) {
 	}
 	text, files := readPrompt(p.Prompt)
 	f.mu.Lock()
+	if t := f.cur; t != nil && t.detach {
+		// codex-acp, when a steer lands just as its turn ended: the prompt
+		// is answered (the turn is over), then the steer — startedNewTurn,
+		// whatever idleBehavior asked — and the steered text's script plays
+		// as a turn of the agent's own, with no prompt to answer
+		id := f.prompt
+		nt := &turnState{cancel: make(chan struct{}), gone: make(chan struct{})}
+		f.prompt, f.cur = nil, nt
+		f.mu.Unlock()
+		close(t.gone)
+		if id != nil {
+			_ = f.conn.Reply(id, acp.PromptResult{StopReason: "end_turn"}, nil)
+		}
+		f.record(map[string]any{"sessionUpdate": acp.UpUserChunk, "content": acp.ContentBlock{Type: "text", Text: text}})
+		_ = f.conn.Reply(m.ID, steerResult{Outcome: "startedNewTurn"}, nil) // before the turn's updates
+		go f.turn(nt, text, files)
+		return nil, nil
+	}
 	if t := f.cur; t != nil {
 		t.pending = append(t.pending, text)
 		t.steered = append(t.steered, text)
@@ -59,7 +78,7 @@ func (f *fake) steer(m *acp.Message) (any, *acp.Error) {
 		f.mu.Unlock()
 		return steerResult{Outcome: "promptRequired", Reason: "noRunningTurn"}, nil
 	}
-	t := &turnState{cancel: make(chan struct{})} // a turn with no prompt to answer
+	t := &turnState{cancel: make(chan struct{}), gone: make(chan struct{})} // a turn with no prompt to answer
 	f.cur = t
 	f.mu.Unlock()
 	f.record(map[string]any{"sessionUpdate": acp.UpUserChunk, "content": acp.ContentBlock{Type: "text", Text: text}})

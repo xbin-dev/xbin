@@ -19,6 +19,10 @@ type turnState struct {
 	cancel  chan struct{}
 	pending []string // steered in, not yet said
 	steered []string // every steer the turn took
+	// detach: the detach… script — a steer ends this turn and starts one
+	// of the agent's own (moves.go); gone is closed when it has.
+	detach bool
+	gone   chan struct{}
 }
 
 type fake struct {
@@ -145,7 +149,7 @@ func (f *fake) onRequest(m *acp.Message) (any, *acp.Error) {
 		f.record(map[string]any{"sessionUpdate": acp.UpUserChunk, "content": acp.ContentBlock{Type: "text", Text: text}})
 		f.mu.Lock()
 		f.prompt = m.ID
-		t := &turnState{cancel: make(chan struct{})}
+		t := &turnState{cancel: make(chan struct{}), gone: make(chan struct{}), detach: f.o.Steer && strings.HasPrefix(text, "detach")}
 		f.cur = t
 		f.mu.Unlock()
 		go f.turn(t, text, files)

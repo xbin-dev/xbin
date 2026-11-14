@@ -52,13 +52,8 @@ func Lookup(id string) (Provider, bool) {
 	return Provider{}, false
 }
 
-// LoginHint is what to tell the operator when the agent has no credentials:
-// sign the CLI in from a shell terminal on this tile — that $HOME is shared
-// with agent sessions (D6), so one login serves the agent everywhere.
-func LoginHint(p Provider, tile string) string {
-	how := p.Login
-	if how == "" {
-		how = "sign it in"
-	}
-	return "the agent isn't signed in — open a terminal on " + tile + " and run: " + how + "  (your terminal $HOME is shared with agent sessions, so one login serves every tile)"
-}
+// LoginHint is what to tell the operator when the agent has no credentials
+// — sdk/acp's one sign-in sentence (Provider.SignInHint), naming where to
+// run the command: a shell terminal on this tile. That $HOME is shared with
+// agent sessions (D6), so one login serves the agent everywhere.
+func LoginHint(p Provider, tile string) string { return p.SignInHint("a terminal on " + tile) }

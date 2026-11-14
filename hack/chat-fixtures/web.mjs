@@ -70,7 +70,7 @@ function webBlock(b, parent) {
       out = block('perm', k, {
         pid: b.pid, callId: tc.id || '',
         tool: { title: tc.title || '', kind: tc.kind || '', name: tc.name || '', label: '', command: commandOf(tc.rawInput), rawInput: tc.rawInput ?? null, content: tc.content ?? null },
-        options: (b.options || []).map((o) => ({ optionId: o.optionId, name: o.name, kind: o.kind, explicit: false })),
+        options: (b.options || []).map((o) => ({ optionId: o.optionId, name: o.name, kind: o.kind, explicit: !!o.explicit })),
         rule: b.rule && b.rule.scoped !== false && (b.rule.kind || b.rule.title) ? { kind: b.rule.kind || '', title: b.rule.title || '' } : null,
         title: meta.title || '', description: meta.description || '', defaultToNo: !!meta.defaultToNo,
         plan: plan ? { text: planText(tc), path: tc.rawInput && typeof tc.rawInput.planFilePath === 'string' ? tc.rawInput.planFilePath : '' } : null,

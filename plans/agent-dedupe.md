@@ -243,6 +243,17 @@ shared fixtures)
 | `guided.go`: the guided sign-in driver over an `Exec` interface | `harness_guided.go` | a new server-side `/agent/signin` | `harness_guided.go` becomes an adapter | see B4 |
 | provider table: how to point each CLI at the LLM connector | new | session spawn | harness spawn | OpenCode works by default |
 
+Status (2026-11-14, branch `wsagent/a2-core`, D225): the first five rows
+are in — `toolrec.go`, `escalation.go`, `queue.go`, `authstate.go`,
+`summary.go`, each adopted by both hosts — with one addition to the table:
+`permission.request`'s `explicit` is set by the client itself (so the
+pending list and the page state carry it), and tile agents end a detached
+turn with a `turn.end` marked `detached`. Sizes: the template's backend
+lost 123 lines net (313 out, 190 in; `harness_map.go` 896 → 828), xbind's
+existing files stayed level (142 out, 146 in) and gained the 158 lines of
+`agentdetached.go`; the five SDK files are 1,094 lines. `guided.go` and the
+provider table wait for B4 and the connector.
+
 **B2 — `sdk/llm`** (standard library only): wire types and usage extraction
 for Chat Completions and Responses, streaming included, and the price-table
 type. Used by the new connector (`internal/llm`), llm-gw's `stats.go`,

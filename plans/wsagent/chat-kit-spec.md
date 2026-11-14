@@ -130,7 +130,11 @@ fixtures' `<name>.records.json` are its output):
 7. A capping reducer keeps the newest 64 KiB of output, cut between
    characters, and counts the dropped bytes in `outputTruncated`.
 
-Go proposal for `sdk/acp/toolrec.go` (B1; **not added here**). JSON is the
+Go proposal for `sdk/acp/toolrec.go` (B1; **not added here** — landed as
+D225 with these types, plus `ToolEntry` (`Seq`, `Turn`, `N`), `ToolPolicy`
+in place of `capOutput`, `Observe`/`EndTurn`/`Newest`/`Entries`,
+`StartsToolRecord` and `OutputChunk`; `sdk/acp`'s
+`TestToolRecordsMatchTheSharedFixtures` holds it to the records). JSON is the
 fixtures' form: zero values omitted, `id`/`kind`/`title`/`status` always.
 
 ```go
@@ -254,7 +258,7 @@ Agent tab (to close in F2/F3):
 |---|---|---|
 | W1 | `rec.locations`, `rec.files` | `foldTool` keeps no locations |
 | W2 | `tool.state` `approval` → `pending` | the fold does not tie a request to its call's card |
-| W3 | `perm.options[].explicit` | no escalation rule runs for the Agent tab (B1 adds `explicit` to `permission.request`) |
+| ~~W3~~ | `perm.options[].explicit` | closed by B1 (D225): `permission.request` options carry `explicit` (`sdk/acp` `Provider.OptionRaises`); the gap line is gone from `expect.mjs` |
 | W4 | `ask.mode`, `ask.url` | the fold drops them: every question is a form |
 
 Not reached by a fixture, pinned by inline cases in
@@ -410,8 +414,9 @@ plan-feedback box, the sign-in card, the composer.
   event that wrote it; park ids, clocks and offsets are zeroed.
 
 The expectation is the model's reading of a log: the Agent tab's blocks
-with what that fold drops put back from the log (`expect.mjs` header), and
-`explicit` taken from AgTT's backend (the one thing no log says).
+with what that fold drops put back from the log (`expect.mjs` header).
+`explicit` is in the log since B1 (D225) — it was taken from AgTT's
+backend before; the two agree on every fixture.
 
 Regenerating: the three commands in `hack/chat-fixtures.test.mjs`'s header,
 in order. Swift: `native/tools/agent-parity.mjs` can read `<name>.json`
@@ -427,8 +432,9 @@ row and turn start (the pass's), filing a permission in `acp.Permissions`
 1. **D-number**: K1–K20 are recorded here only. `plans/DECISIONS.md` needs
    an entry when Track A lands; none was allocated (parallel agents collide
    on numbers).
-2. **`explicit` for the Agent tab** depends on B1's `escalation.go`; until
-   then the expectation's `explicit` is AgTT's `optionRaises`.
+2. ~~**`explicit` for the Agent tab**~~ — done in B1 (D225): the client
+   marks the options (`Provider.OptionRaises`, start = `Config.Mode`), the
+   expectation reads them from the log.
 3. **K8 (joined text)** loses item boundaries the Agent tab renders today
    (each text item sniffed for markdown on its own). If F3 finds a harness
    that relies on it, `rec.text` becomes `texts: string[]` — an additive

@@ -13,6 +13,13 @@ type PermissionOption struct {
 	OptionID string `json:"optionId"`
 	Name     string `json:"name"`
 	Kind     string `json:"kind"` // allow_once | allow_always | reject_once | reject_always
+	// Explicit: answering with it raises the session's mode past the
+	// agent's own asks — a plan approval's "yes, and bypass permissions"
+	// (Provider.OptionRaises, escalation.go). A Client sets it on the
+	// requests it files, judged against the mode the session was opened
+	// with (Config.Mode); it refuses nothing — a host's clients ask twice,
+	// or the host keeps the option to some people.
+	Explicit bool `json:"explicit,omitempty"`
 }
 
 // Permission option kinds.

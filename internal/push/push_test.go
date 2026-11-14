@@ -476,6 +476,27 @@ func TestAgentEvents(t *testing.T) {
 	}
 }
 
+// A request that says nothing of itself is pushed in the words every
+// surface uses for it (sdk/acp Need): the same sentence the agent template
+// sends for a coding agent's.
+func TestAgentEventsWithoutWords(t *testing.T) {
+	r := newRig(t, func(o *Options) { o.Grace = 20 * time.Millisecond })
+	r.register(alice, "phone", "handle-phone")
+	r.s.AgentEvent("alice", "s1", "apps/cal", agent.New(agent.EvPermissionRequest, map[string]any{"pid": "p1", "toolCall": map[string]any{}}))
+	r.s.AgentEvent("alice", "s1", "apps/cal", agent.New(agent.EvElicitRequest, map[string]any{"eid": "e1"}))
+	byKind := map[string]Payload{}
+	for _, p := range r.relay.waitPushes(2) {
+		pl := r.open(p)
+		byKind[pl.Kind] = pl
+	}
+	if p := byKind[KindAgentPermission]; p.Title != "Permission needed — cal" || p.Body != "The agent wants to run a command — approve or deny." {
+		t.Fatalf("permission push %+v", p)
+	}
+	if p := byKind[KindAgentQuestion]; p.Title != "Question — cal" || p.Body != "The agent is waiting for your answer." {
+		t.Fatalf("question push %+v", p)
+	}
+}
+
 func TestRelayAnswers(t *testing.T) {
 	r := newRig(t, nil)
 	r.register(alice, "phone", "handle-phone")
