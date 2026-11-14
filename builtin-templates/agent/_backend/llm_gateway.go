@@ -22,12 +22,17 @@ import (
 
 // Per-call bounds. Vars so tests can shorten them. The idle bound is a
 // watchdog re-armed on every read of the stream, not a ticker: a stream that
-// keeps delivering bytes runs as long as llmStreamTimeout allows.
+// keeps delivering bytes runs as long as llmStreamTimeout allows. It is short
+// until the model starts answering, and longer once it has: some upstreams
+// send a tool call whole when it is done (kimi-k3, deepseek-v4.1-flash via
+// llm-gw), so a large one — a file written in one call — is minutes of
+// silence mid-stream (~4 s per KB of arguments) that isn't a dead stream.
 var (
-	llmCallTimeout   = 5 * time.Minute  // one non-streaming call
-	llmStreamTimeout = 10 * time.Minute // one streaming call, overall
-	llmIdleTimeout   = 90 * time.Second // a stream with no bytes for this long is dead
-	wireBackoff      = llmBackoff       // between retries (tests make it instant)
+	llmCallTimeout        = 5 * time.Minute  // one non-streaming call
+	llmStreamTimeout      = 10 * time.Minute // one streaming call, overall
+	llmIdleTimeout        = 90 * time.Second // no bytes yet (headers, the first token) for this long: dead
+	llmStartedIdleTimeout = 5 * time.Minute  // once bytes came: silence this long is dead
+	wireBackoff           = llmBackoff       // between retries (tests make it instant)
 )
 
 var (
@@ -252,7 +257,8 @@ func causeOf(ctx context.Context, err error) error {
 	return err
 }
 
-// watchedReader re-arms the idle watchdog on every read that delivered bytes.
+// watchedReader re-arms the idle watchdog on every read that delivered bytes
+// — with the started bound: the model has begun answering.
 type watchedReader struct {
 	r    io.Reader
 	idle *time.Timer
@@ -261,7 +267,7 @@ type watchedReader struct {
 func (w *watchedReader) Read(p []byte) (int, error) {
 	n, err := w.r.Read(p)
 	if n > 0 {
-		w.idle.Reset(llmIdleTimeout)
+		w.idle.Reset(llmStartedIdleTimeout)
 	}
 	return n, err
 }

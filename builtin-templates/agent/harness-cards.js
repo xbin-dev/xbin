@@ -263,7 +263,9 @@ const CSS = `
 .tch .st.bad { color: var(--bx-danger); }
 .tch .st.run { color: var(--bx-text); }
 .tch .hin { color: var(--bx-muted); }
-.hcb .hnote { white-space: pre-wrap; color: var(--bx-muted); margin: 2px 0 4px; }
+/* a thought's or a Task prompt's wide line (a code block in it, #1) scrolls in place, never the chat */
+.hcb .hnote { white-space: pre-wrap; color: var(--bx-muted); margin: 2px 0 4px; overflow-x: auto; }
+.hcb > .task { overflow-x: auto; }
 .hcb .hpre, .hcmd pre { margin: 0; font: var(--bx-font-code); white-space: pre-wrap; word-break: break-word;
   background: var(--bx-panel); border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 4px 8px; max-height: 320px; overflow: auto; }
 .hcmd { display: flex; align-items: flex-start; gap: 8px; }

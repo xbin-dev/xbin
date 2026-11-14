@@ -1098,7 +1098,10 @@ does not have `/v1/responses`. Reasoning streams as thinking from either:
 reasoning items kept for replay). It is stored on the assistant message
 (`messages.meta`: `reasoning`, `reasoningMs`, model, usage) and replayed to the
 model only on the same wire and model. A stream that goes 90 s without a byte
-is abandoned; a call that failed before its first token is retried.
+before the model starts answering is abandoned, and once it has, one that goes
+5 minutes without a byte: some upstreams send a tool call whole when it is
+done, so a large one (a file written in one call) is minutes of silence
+mid-stream. A call that failed before its first token is retried.
 
 **Tool summaries.** Every tool offered to the model gets a required `summary`
 argument — "one short line for the person watching: what this call does" — and

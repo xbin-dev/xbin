@@ -141,6 +141,22 @@ await push({ type: 'message', run: 21, root: 21, data: { id: 45, runId: 21, seq:
   acp: { kind: 'read', status: 'completed', parent: 'h1:toolu_99' } } });
 await page.waitForSelector(card('toolu_22'));
 ok('an orphan (its subagent\'s call paged out) is flat, marked ↳', (await text(`${card('toolu_22')} .hl`)).startsWith('↳ Read /work/api/x.go'));
+// a code block in a thought or a Task's prompt scrolls inside its card, not the chat (#1)
+const wideCode = 'Look at this:\n```go\nreturn ' + 'aVeryLongIdentifierWithoutSpaces'.repeat(12) + '\n```';
+for (const [id, callId, acp] of [[46, 'h1:toolu_23', {}], [48, 'h1:toolu_24', { subagent: true }]]) {
+  await push({ type: 'message', run: 21, root: 21, data: { id, runId: 21, seq: id, role: 'assistant', content: '', created: now,
+    toolCalls: [{ id: callId, type: 'function', function: { name: 'acp:think', arguments: JSON.stringify({ description: 'Think it over', prompt: wideCode }) } }] } });
+  await push({ type: 'message', run: 21, root: 21, data: { id: id + 1, runId: 21, seq: id + 1, role: 'tool', toolCallId: callId, name: 'acp:think', content: 'done',
+    created: now, acp: { kind: 'think', status: 'completed', ...acp } } });
+}
+await page.waitForSelector(card('toolu_24'));
+await toggle('toolu_23');
+await toggle('toolu_24');
+const sideways = await page.evaluate(() => {
+  const tl = document.getElementById('timeline');
+  return { tl: tl.scrollWidth - tl.clientWidth, note: !!tl.querySelector('[data-k="ch1:toolu_23"] .hnote'), task: !!tl.querySelector('[data-k="ch1:toolu_24"] .task') };
+});
+ok('a wide code line in a thought or a Task prompt does not widen the chat', sideways.note && sideways.task && sideways.tl === 0, JSON.stringify(sideways));
 
 // --- the top bar: usage, changes, the plan pin ----------------------------------------------------------
 ok('usage: ctx and the cost', (await text('#top .husage')) === 'ctx 26% · $0.41'
