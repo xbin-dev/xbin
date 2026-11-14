@@ -5684,8 +5684,12 @@ platform controls (`/vendor/xb-native.js`, docs/frontend-kit.md). Both draw
 the same model.
 
 **The page needs the xbind it shipped with.** The web view is drawn with
-xbind's chat kit (`/vendor/chat/…`, docs/frontend-kit.md — today its markdown
-renderer, behind `chat-md.js`), and an instance of this template is a copy
+xbind's chat kit (`/vendor/chat/…`, docs/frontend-kit.md — its markdown
+renderer, behind `chat-md.js`; its model of a coding agent's tool call and
+of what it asks, `/vendor/chat/tools.js` and `/vendor/chat/ask.js`, behind
+`model/harness-heads.js`, `model/harness-ask.js` and `cleanCode` in
+`model/harness-signins.js`, which keep their exports and are the adapters
+from this tile's rows to the kit), and an instance of this template is a copy
 in a workspace that can be newer than the xbind under it. So `index.html`
 starts `boot.js`, not `agent.js`: it imports `/vendor/chat/rev.js`, guarded,
 and compares its `KIT` with `NEEDS.kit`. When xbind serves that revision or
@@ -5694,8 +5698,12 @@ agent needs xbind ≥ v… — update xbind", with a link to how to update, and
 nothing else loads. A failure in `agent.js` itself is an uncaught error as
 before, never that panel. When you start using something a later kit
 revision brought, raise `NEEDS` in `boot.js` (the revision, and the first
-xbind release that serves it). The native view imports nothing from the kit
-and needs no check; `test/needs-xbind.mjs` pins all of this.
+xbind release that serves it). The native view imports the same models, so
+it stands on the kit too, and a module cannot ask first: on an older xbind
+`native.js` fails to load, whole, and the app shows this page instead
+(docs/native.md → Fallback) — which says what it needs.
+`test/needs-xbind.mjs` pins the page; xbind's
+`hack/agent-template-boot.test.mjs` the native view.
 
 | `model/` | What it holds |
 |---|---|
@@ -5711,10 +5719,10 @@ and needs no check; `test/needs-xbind.mjs` pins all of this.
 | `home.js` | `HOME` — the home view's words — and what "Needs you" says |
 | `features.js` | `FEATURES`: every feature of the UI by key, and the intended differences between views |
 | `classes.js` | agent classes (D116): the composer's picker and your pick, the conversation's badge, the managers' editor (a class as a form, its checks, what a save sends), an automation's class (its forms' choices, what its card says, a channel's two classes) |
-| `harness.js`, `harness-heads.js`, `harness-store.js` | coding agents (Claude Code, Codex, Gemini CLI, opencode in a coding sandbox — §Coding agents): a harness run's summary (`run.harness`) in words — its state, park, activity, counts, usage, plan, mode — and the catalog (`GET /harnesses`: why one isn't available, the class a conversation starts in, whether a sandbox fits); a harness call (`acp:<kind>`) as tool-heads.js says a built-in one; `app.harness` — the catalog, "Who answers" (`prefs/agent`), the sandbox last used per harness (`prefs/harness-sandbox`), Auto / Always approve per harness (`/prefs/harness-mode`), what a new ask carries, and a harness run's calls (mode, options, a permission's option, a question's answer, sign-in, the adapter's log, a message that interrupts) |
+| `harness.js`, `harness-heads.js`, `harness-store.js` | coding agents (Claude Code, Codex, Gemini CLI, opencode in a coding sandbox — §Coding agents): a harness run's summary (`run.harness`) in words — its state, park, activity, counts, usage, plan, mode — and the catalog (`GET /harnesses`: why one isn't available, the class a conversation starts in, whether a sandbox fits); a harness call (`acp:<kind>`) as tool-heads.js says a built-in one — `harness-heads.js` is the adapter from its row (the name, the arguments with `summary`, the tool row's `acp`) to xbind's chat kit's tool record (`acpRecord`), and the headline (`acpHeadline`: the agent's label, else its command read deterministically, else its title's first line, else a reading by kind), the command under it, the outcome and state chips, the output's tail and the diffs are the kit's (`/vendor/chat/tools.js`); `app.harness` — the catalog, "Who answers" (`prefs/agent`), the sandbox last used per harness (`prefs/harness-sandbox`), Auto / Always approve per harness (`/prefs/harness-mode`), what a new ask carries, and a harness run's calls (mode, options, a permission's option, a question's answer, sign-in, the adapter's log, a message that interrupts) |
 | `harness-manage.js` | the Coding agents catalog as the managers' view says it (`catalogRows`, `modesWords`, `probeTargets`); the class editor's toolset and checklist are `classes.js`'s (`harnessNames`, `harnessWhy`) |
 | `harness-start.js` | starting a conversation with a coding agent: "Who answers" (`agentPicker`), the sandbox it starts in (`sandboxOptions`, `preferredSandbox`, `createPrefill`), the home's setup card (`setupOf`), a row's kind and the top bar's chip (`kindOf`, `topChip`), the new-chat dialog's part of the ask (`newChatPick`); `keepSandbox` keeps the next chat's sandbox one the coding agent picked fits (wired by `createApp`; `app.newClassId()` is the class a new ask starts in) |
-| `harness-ask.js` | a coding harness asking and driven, in words both views draw (below): a permission request as its own options (`permission`: reject first when it defaults to no, an explicit option the owner's only, the call, a diff preview, what "always" remembers; a plan approval with its plan), a question (`question`, `formFields`/`formContent`/`missingRequired`, `nativeSchema`/`nativeContent` for the native `question`; url mode), the live mode and options (`controls`), Auto / Always approve (`settingOf`), the slash menu (`slashCommands`, `slashMatches`), and the composer while a turn runs (`steerWords`; `steerTrack` notices a message steered into it) |
+| `harness-ask.js` | a coding harness asking and driven, in words both views draw (below) — the cards' words, the form, the slash menu's rule and the composer's words are xbind's chat kit's (`/vendor/chat/ask.js`); this module converts a park to the kit's blocks (`permBlock`, `askBlock`) and keeps its exports: a permission request as its own options (`permission`: reject first when it defaults to no, an explicit option the owner's only, the call, a diff preview, what "always" remembers; a plan approval with its plan), a question (`question`, `formFields`/`formContent`/`missingRequired`, `nativeSchema`/`nativeContent` for the native `question`; url mode), the live mode and options (`controls`), Auto / Always approve (`settingOf`), the slash menu (`slashCommands`, `slashMatches`: names that start with what is typed, then names or descriptions containing it, at most eight), and the composer while a turn runs (`steerWords`; `steerTrack` notices a message steered into it) |
 | `ext.js` | seams: named hooks a view calls at fixed points of its drawing, filled by feature modules (below) |
 | `sandboxes.js`, `sandbox-store.js` | coding sandboxes (D115): the composer's picker, the sandbox badge and why a binding no longer resolves, the Sandboxes dialog's rows and their actions, the create form, a terminal onto one (its manager's `tty` — or, for the native view, the tile's relay (`RELAY`, `relaySrc`): the route, a command, whether it is offered and why not), sharing one with a terminal tile (`shareForm`), a project's new sandbox (`projectSandbox`: the manager's defaults, internet when offered); `app.sbx` — the list (in a person's partition, where the open conversation lives: `listAt(home)`), the next new chat's pick, binding, the working directory, detaching, creating, the lifecycle, sharing (`shareTerminal`, `unshare`), the run events that carry a binding, ending a terminal's shell |
 | `homes.js`, `home-api.js`, `moves.js` | a partitioned instance's two homes (a person's own partition, the shared space): a conversation's home by its id, calls and streams sent there; a shared conversation that moved to your own space, followed (`movedTo`) |

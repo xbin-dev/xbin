@@ -21,6 +21,7 @@
  * Pure (no DOM, no lit): node-tested in hack/agent-fold.test.mjs.
  */
 import { newTool, foldTool } from './agent-tools.js';
+import { changeSet } from './chat/tools.js';
 
 // bump b's version and its enclosing subagent cards' (their bodies render it)
 const bump = (b) => { for (let x = b; x; x = x.up) x.v++; };
@@ -118,7 +119,7 @@ export class Fold {
         const f = { changes: d.changes || [], patch: d.patch || null };
         if (d.toolCallId) {
           const t = this.tools.get(this.turn + '/' + d.toolCallId) || this.byId.get(d.toolCallId);
-          if (t) { t.files = f; bump(t); }
+          if (t) { t.files = f; if (t.rec) t.rec.changed = changeSet(d); bump(t); }
           break;
         }
         const blk = this._new({ kind: 'changes', turn: d.turn, ...f });
@@ -140,7 +141,9 @@ export class Fold {
       }
       case 'elicitation.request': {
         this.cur = null;
-        const q = this._new({ kind: 'ask', eid: d.eid, toolCallId: d.toolCallId || '', message: d.message || '', schema: d.schema || null, action: null, by: null, content: null });
+        // a form from its schema, or — mode url — a page to open (/vendor/chat/ask.js question())
+        const q = this._new({ kind: 'ask', eid: d.eid, toolCallId: d.toolCallId || '', message: d.message || '', mode: d.mode === 'url' ? 'url' : 'form', url: d.url || '',
+          schema: d.schema || null, action: null, by: null, content: null });
         this.asks.set(d.eid, q); this.blocks.push(q);
         break;
       }

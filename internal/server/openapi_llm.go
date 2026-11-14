@@ -69,5 +69,8 @@ func llmEndpoints() []ep {
 			"Only what is named changes: workspace (everyone together), default (each person), users and orgs {<id>: quota}. A person's quota is their own override, else the most generous of their orgs' per limit, else the default — each limit on its own; a default the host's file sets is a ceiling these entries only narrow. Windows are UTC days and months. 400 invalid; 409 {locked} for a part the host's file sets. → as GET. Audited.",
 			nil, jsonBody("the rules to change", oapi{"workspace": quota, "default": quota,
 				"users": oapi{"type": "object", "description": "{<user id>: quota | null}"}, "orgs": oapi{"type": "object", "description": "{<org id>: quota | null}"}}), "{quotas, locks}"},
+		{"POST", "/llm/setup/dismiss", llmTag, "Dismiss the setup alert", "admin, or the shell an admin drives",
+			"While no upstream exists and no admin has changed the connector, GET /alerts carries one alert of kind llm-setup for admins and the shell an admin drives, naming /xbin/llm (its dismiss is this route). A POST ends it for the workspace, for good. Nothing else changes.",
+			nil, nil, "{ok}"},
 	}
 }

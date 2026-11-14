@@ -27,6 +27,7 @@ import { hasIcon } from '/vendor/bx-icons.js'; // <bx-icon name>: drawn glyphs (
 const glyph = (name) => (name && hasIcon(name) ? html`<bx-icon name=${name}></bx-icon>` : nothing);
 
 import { xbinApi as api, jbody } from '/vendor/bx-kit.js';
+import { agentsView } from './agents.js'; // an org's constraints on agents (D229)
 
 export class BxOrganisations extends LitElement {
   static properties = {
@@ -747,6 +748,7 @@ export class BxOrganisations extends LitElement {
         ${this._orgNetLine(o)}
         <div class="card">${this._memberEditor(o)}</div>
         ${this._ceilingsView(o)}
+        ${agentsView(o, () => this._load())}
         ${this._overridesView(o)}
         ${this._screensView(o)}
         ${(o.ownedTiles ?? []).length ? html`<div class="card">

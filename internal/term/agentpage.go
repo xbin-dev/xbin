@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/agent"
+	sdkacp "github.com/xbin-dev/xbin/sdk/acp"
 )
 
 // AgentPage is one page of a live session's log (agent.PageOf): the events
@@ -34,34 +35,19 @@ func (m *Manager) AgentPage(id string, before uint64, limit int) (agent.Page, er
 	return p, nil
 }
 
-// outRun is a tool call's output chunks being coalesced: a tool.update that
-// carries nothing but outputDelta (and the subagent it runs under).
-type outRun struct {
-	ID          string `json:"id"`
-	OutputDelta string `json:"outputDelta"`
-	Parent      string `json:"parent,omitempty"`
-}
-
-// outputChunk reports whether e is a bare output chunk — merging two of the
-// same call appends their text, exactly what a fold does with the two.
-func outputChunk(e agent.Event) (outRun, bool) {
+// outputChunk reports whether e is a bare output chunk (sdk/acp's
+// OutputChunk: a tool.update that carries nothing but outputDelta, and the
+// subagent it runs under) — merging two of the same call appends their
+// text, exactly what a fold does with the two.
+func outputChunk(e agent.Event) (sdkacp.OutputChunk, bool) {
 	if e.Type != agent.EvToolUpdate {
-		return outRun{}, false
+		return sdkacp.OutputChunk{}, false
 	}
-	var d map[string]json.RawMessage
-	if json.Unmarshal(e.Data, &d) != nil || len(d["outputDelta"]) == 0 || len(d["id"]) == 0 {
-		return outRun{}, false
+	d, ok := sdkacp.ParseToolEvent(e.Data)
+	if !ok {
+		return sdkacp.OutputChunk{}, false
 	}
-	for k := range d {
-		if k != "id" && k != "outputDelta" && k != "parent" {
-			return outRun{}, false
-		}
-	}
-	var o outRun
-	if json.Unmarshal(e.Data, &o) != nil || o.ID == "" || o.OutputDelta == "" {
-		return outRun{}, false
-	}
-	return o, true
+	return d.OutputChunk()
 }
 
 // replayState is a resumed session's replay: session/load streams the

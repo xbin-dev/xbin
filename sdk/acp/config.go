@@ -86,8 +86,8 @@ type ClientOptions struct {
 	Drop func(ctx context.Context, conn *Conn, a Attachment) (path string, err error)
 	// AuthHint is the text of an error the agent answered "auth required"
 	// (-32000) to: msg is the agent's own message. It tells the person how
-	// to sign in. nil = msg plus "the agent isn't signed in — run: " and the
-	// provider's LoginCmd.
+	// to sign in. nil = msg, ": ", and the provider's SignInHint ("the agent
+	// isn't signed in — run: " and its LoginCmd).
 	AuthHint func(cfg Config, msg string) string
 	// OnExt sees a notification the client does not handle itself — an
 	// extension such as xbind's _xbin/log from its in-sandbox host — and

@@ -151,6 +151,5 @@ export class SigninReader {
 export const typedLine = (spec) => ` ${spec.command}; exit\r`;
 
 // cleanCode(s): a pasted code as the CLI reads it — one line, nothing but
-// what a code is made of (a paste may carry spaces, a newline, or a
-// trailing control character).
-export const cleanCode = (s) => String(s || '').replace(/[\s\x00-\x1f\x7f]/g, '');
+// what a code is made of. The chat kit's (/vendor/chat/ask.js, D224).
+export { cleanCode } from './chat/ask.js';

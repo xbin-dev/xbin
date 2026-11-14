@@ -156,7 +156,16 @@ says so):
    shared rule would change output). The guard (`/vendor/chat/rev.js`,
    the template's `boot.js`) landed here rather than in F4.
 3. **F2 — models.** `chat/tools.js`, `chat/ask.js`; old modules re-export;
-   Swift fixtures regenerated.
+   Swift fixtures regenerated. *Landed (D224 "F2",
+   `plans/wsagent/chat-kit-spec.md` §10), with these changes to the table
+   above:* `patchLines` stays, in the kit (`bx-code.js` needs lit and
+   highlight.js, so a tile page draws a patch plain first); plan feedback
+   is `permAnswer` → `{verdict, feedback}` and each host still sends it its
+   own way; the Agent tab's cards keep reading its old record until F3 —
+   the fold already holds the kit's record beside it — so the bypass
+   confirmation and the reading by kind in a headline reach the tab with
+   its views. Three `stripAnsi` outputs of the Swift parity corpus changed
+   and the port's regex with them.
 4. **F3 — views.** The kit; `<bx-agent>` moves onto it. `agent-cards.js`
    and `agent-css.js` stay as re-exports.
 5. **F4 — AgTT onto the kit**, one view at a time (tool cards, asks,
@@ -242,6 +251,17 @@ shared fixtures)
 | `summary.go`: status words for "Needs you" | `agentstatus.go`, `publishSummary` | `agentstatus.go` | `harness_view.go` | same words on web, iOS and AgTT |
 | `guided.go`: the guided sign-in driver over an `Exec` interface | `harness_guided.go` | a new server-side `/agent/signin` | `harness_guided.go` becomes an adapter | see B4 |
 | provider table: how to point each CLI at the LLM connector | new | session spawn | harness spawn | OpenCode works by default |
+
+Status (2026-11-14, branch `wsagent/a2-core`, D225): the first five rows
+are in — `toolrec.go`, `escalation.go`, `queue.go`, `authstate.go`,
+`summary.go`, each adopted by both hosts — with one addition to the table:
+`permission.request`'s `explicit` is set by the client itself (so the
+pending list and the page state carry it), and tile agents end a detached
+turn with a `turn.end` marked `detached`. Sizes: the template's backend
+lost 123 lines net (313 out, 190 in; `harness_map.go` 896 → 828), xbind's
+existing files stayed level (142 out, 146 in) and gained the 158 lines of
+`agentdetached.go`; the five SDK files are 1,094 lines. `guided.go` and the
+provider table wait for B4 and the connector.
 
 **B2 — `sdk/llm`** (standard library only): wire types and usage extraction
 for Chat Completions and Responses, streaming included, and the price-table

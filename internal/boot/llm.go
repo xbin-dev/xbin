@@ -34,9 +34,9 @@ func (st *State) setupLLM(srv *server.Server) error {
 		// upstream keys an admin sets are sealed under the vault barrier;
 		// in the clear only in the plaintext vault mode, like every vault file
 		Vault: brk.Barrier(), AllowPlaintext: brk.AllowInsecureVault,
-		IsAdmin: brk.IsAdmin,
-		Bound:   brk.LLMBound, // the binding is the authorization, asked per call
-		Edge:    brk.LLMEdge,  // …and a non-primary deployment uses it by the tile's edge policy
+		IsAdmin: brk.IsAdmin, AdminShell: brk.AdminShell,
+		Bound: brk.LLMBound, // the binding is the authorization, asked per call
+		Edge:  brk.LLMEdge,  // …and a non-primary deployment uses it by the tile's edge policy
 		// an LLM key stands while its person exists, is enabled and can
 		// still open the tile it was minted for
 		KeyOwner: func(user, component string) bool {
@@ -93,16 +93,23 @@ func (st *State) setupLLM(srv *server.Server) error {
 		}
 		svc.BindingChanged(comp)
 	}
-	prevAlerts := brk.AdminAlerts // a single func: chained, never overwritten
-	brk.AdminAlerts = func() []broker.Alert {
-		var out []broker.Alert
-		if prevAlerts != nil {
-			out = prevAlerts()
+	// its notices for admins — a quota reached, the setup card, cost quotas
+	// that miss unpriced calls (llm/adminalerts.go, alerts.go)
+	// — reach an admin's own session and the admin console (AdminAlerts) and
+	// the shell an admin drives (AdminShellAlerts); each a single func:
+	// chained after the earlier sources, never overwritten
+	chain := func(prev func() []broker.Alert) func() []broker.Alert {
+		return func() []broker.Alert {
+			var out []broker.Alert
+			if prev != nil {
+				out = prev()
+			}
+			for _, a := range svc.AdminAlerts() {
+				out = append(out, broker.Alert{Level: a.Level, Kind: a.Kind, Message: a.Message, Dismiss: a.Dismiss})
+			}
+			return out
 		}
-		for _, a := range svc.Alerts() {
-			out = append(out, broker.Alert{Level: a.Level, Kind: llm.AlertKind, Message: a.Message})
-		}
-		return out
 	}
+	brk.AdminAlerts, brk.AdminShellAlerts = chain(brk.AdminAlerts), chain(brk.AdminShellAlerts)
 	return nil
 }

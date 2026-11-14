@@ -17,5 +17,9 @@
  *   1  /vendor/chat/md.js; /vendor/bx-md.js gains closedFence, mdEpoch and
  *      onHighlighter; /vendor/chat/blocks.js: the block model (kinds, the
  *      tool record, keys and versions, nesting)
+ *   2  /vendor/chat/tools.js: a tool call from its record (the merge of an
+ *      agent's events, headline, outcome and state chips, output tail,
+ *      diffs, plan approval); /vendor/chat/ask.js: a permission request's
+ *      card, a question's form, the slash menu, the composer's words
  */
-export const KIT = 1;
+export const KIT = 2;

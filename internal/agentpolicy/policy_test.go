@@ -358,3 +358,172 @@ func TestResolveCredentials(t *testing.T) {
 		}
 	}
 }
+
+// covers D229 round 2 — a rule a workspace admin pinned on an org holds
+// whatever the org says, and the reason names it; a tile under an org by
+// a share names the share.
+func TestPinsAndShares(t *testing.T) {
+	pin, own := rules(t, `{"models":"private"}`), rules(t, `{"harnesses":["claude"]}`)
+	layers := append([]Layer{{}}, OrgLayers("finance", "Finance", own, pin, "")...)
+	d := Check(layers, Ask{WorkspaceAgent: true, Model: public})
+	if d.Allowed || d.Reason != "Finance allows private models only (pinned by a workspace admin)" || !d.Pinned || d.By != "finance" {
+		t.Errorf("a pinned rule: %+v", d)
+	}
+	if d = Check(layers, Ask{Harness: "codex"}); d.Allowed || d.Pinned || d.Reason != "Finance allows these coding agents only: claude (not codex)" {
+		t.Errorf("the org's own rule beside a pin: %+v", d)
+	}
+	if d = Check(layers, Ask{WorkspaceAgent: true, Harness: "claude", Model: private}); !d.Allowed {
+		t.Errorf("both satisfied: %+v", d)
+	}
+	// the org's own "any" loosens nothing a pin holds
+	if d = Check(append([]Layer{{}}, OrgLayers("finance", "Finance", Rules{}, pin, "")...), Ask{WorkspaceAgent: true, Model: public}); d.Allowed {
+		t.Error("an org with no rules of its own escaped its pin")
+	}
+	if ls := OrgLayers("eng", "Eng", own, Rules{}, ""); len(ls) != 1 || ls[0].Pinned {
+		t.Errorf("no pin, one layer: %+v", ls)
+	}
+	shared := append([]Layer{{}}, OrgLayers("finance", "Finance", rules(t, `{"models":"private"}`), pin, "apps/*")...)
+	d = Check(shared, Ask{WorkspaceAgent: true, Model: public})
+	if d.Reason != "Finance allows private models only (pinned by a workspace admin; this tile is under Finance by its share apps/*)" || d.Via != "apps/*" {
+		t.Errorf("a pinned rule on a shared tile: %+v", d)
+	}
+	d = Check([]Layer{{}, {ID: "finance", Name: "Finance", Rules: rules(t, `{"workspaceAgent":"off"}`), Via: "*"}}, Ask{WorkspaceAgent: true})
+	if d.Reason != "Finance has the workspace agent turned off (this tile is under Finance by its share *)" {
+		t.Errorf("a share's note: %+v", d)
+	}
+}
+
+// covers D229 round 2 — three credential modes, and a model rule that
+// binds agent sessions: connector-only wherever a layer's model rule
+// isn't any, with the models the rule allows, and a harness that can't run
+// on the connector refused with the reason.
+func TestSessionLLM(t *testing.T) {
+	for _, c := range []struct {
+		session, saved, mode, want string
+		forced                     bool
+	}{
+		{"", "", "own-first", "own-first", false},
+		{"", "own", "own-first", "own", false},
+		{"connector", "own", "own-first", "connector", false},
+		{"", "", "connector-first", "connector", false},
+		{"", "own", "connector-first", "own", false},
+		{"own", "", "connector-first", "own", false},
+		{"connector", "own", "connector-first", "connector", false},
+		{"own", "own", "connector-only", "connector", true},
+		{"own", "own", "connector", "connector", true}, // the name connector-only had before
+		{"", "", "nonsense", "own-first", false},
+	} {
+		if got, forced := ResolveCredentials(c.session, c.saved, c.mode); got != c.want || forced != c.forced {
+			t.Errorf("%+v: %s %v", c, got, forced)
+		}
+	}
+	for in, want := range map[string]string{"": "own-first", "own-first": "own-first", "connector-first": "connector-first", "connector-only": "connector-only", "connector": "connector-only"} {
+		if got, ok := CredentialMode(in); got != want || !ok {
+			t.Errorf("mode %q: %s %v", in, got, ok)
+		}
+	}
+	if _, ok := CredentialMode("sometimes"); ok {
+		t.Error("a mode that doesn't exist")
+	}
+
+	free := []Layer{{}, {ID: "eng", Name: "Engineering", Rules: rules(t, `{"harnesses":["claude"]}`)}}
+	s := Session(free, "", "own")
+	if s.Mode != "own-first" || s.Use != "own" || s.Forced || s.Restricted() || s.Choose("connector") != "connector" || s.ModelAllowed(*public) != nil {
+		t.Errorf("no model rule: %+v", s)
+	}
+	if s.HarnessRefusal("gemini", nil) != "" {
+		t.Error("no connector is needed where nothing forces it")
+	}
+	if s = Session(free, "connector-first", ""); s.Use != "connector" || s.Choose("own") != "own" || s.Forced {
+		t.Errorf("connector-first: %+v", s)
+	}
+	fin := []Layer{{}, {ID: "finance", Name: "Finance", Rules: rules(t, `{"models":"private"}`), Via: "apps/*"}}
+	s = Session(fin, "own-first", "own")
+	if s.Mode != "connector-only" || s.Use != "connector" || !s.Forced || s.Choose("own") != "connector" || !s.Restricted() || s.By != "finance" ||
+		s.Reason != "Finance allows private models only (this tile is under Finance by its share apps/*)" {
+		t.Errorf("a private-models org forces the connector: %+v", s)
+	}
+	if err := s.ModelAllowed(*public); err == nil || !strings.HasPrefix(err.Error(), "Finance allows private models only") {
+		t.Errorf("a public model there: %v", err)
+	}
+	if err := s.ModelAllowed(*private); err != nil {
+		t.Errorf("a private model there: %v", err)
+	}
+	listed := Session([]Layer{{Rules: rules(t, `{"models":["local"]}`)}}, "", "")
+	if listed.Reason != "This workspace allows these models only: local" || listed.By != WorkspaceID || listed.ModelAllowed(*public) == nil || listed.ModelAllowed(*private) != nil {
+		t.Errorf("the bounds' model list: %+v", listed)
+	}
+	can := func(h string) error {
+		if h == "gemini" {
+			return errString("its CLI speaks Google's wire only")
+		}
+		return nil
+	}
+	if why := s.HarnessRefusal("opencode", can); why != "" {
+		t.Errorf("a harness the connector serves: %s", why)
+	}
+	want := "Finance allows private models only (this tile is under Finance by its share apps/*), so a coding agent here runs on the workspace's LLM connector — and gemini can't: its CLI speaks Google's wire only"
+	if why := s.HarnessRefusal("gemini", can); why != want {
+		t.Errorf("a harness the connector can't serve:\n got %s\nwant %s", why, want)
+	}
+	if why := s.HarnessRefusal("claude", nil); !strings.HasSuffix(why, "and claude can't: this xbind has no LLM connector set up") {
+		t.Errorf("no connector at all: %s", why)
+	}
+	only := Session(free, "connector-only", "own")
+	if why := only.HarnessRefusal("gemini", can); why != "This workspace runs coding agents on its LLM connector only — and gemini can't: its CLI speaks Google's wire only" || only.Restricted() {
+		t.Errorf("the workspace's own connector-only: %s", why)
+	}
+}
+
+type errString string
+
+func (e errString) Error() string { return string(e) }
+
+// covers D229 round 2 — the connection view says what an agent session on
+// each tile runs on, which harnesses can't start there, and names a pin
+// and a share in a block's reason.
+func TestConnectionSessionsAndPins(t *testing.T) {
+	in := Input{
+		Orgs: []Org{
+			{ID: "eng", Name: "Engineering"},
+			{ID: "finance", Name: "Finance", Pin: rules(t, `{"models":"private"}`), Rules: rules(t, `{"harnesses":["claude","gemini"]}`)},
+		},
+		Tiles: []Tile{
+			{Path: "apps/wiki", Owner: "eng", Orgs: []string{"eng"}},
+			{Path: "apps/ledger", Owner: "finance", Orgs: []string{"finance"}},
+			{Path: "apps/plan", Owner: "eng", Orgs: []string{"eng", "finance"}, Via: map[string]string{"finance": "apps/pl*"}},
+		},
+		Model: public, Harnesses: []string{"claude", "codex", "gemini"},
+		Connector: func(h string) error {
+			if h == "gemini" {
+				return errString("its CLI speaks Google's wire only")
+			}
+			return nil
+		},
+	}
+	v := Connection(in)
+	wiki, ledger, plan := stateOf(v, "apps/wiki"), stateOf(v, "apps/ledger"), stateOf(v, "apps/plan")
+	if wiki.Credentials != "own-first" || wiki.CredentialsReason != "" || wiki.Unavailable != nil {
+		t.Errorf("a tile with no model rule: %+v", wiki)
+	}
+	if ledger.State != Blocked || !ledger.Pinned || ledger.Reason != "Finance allows private models only (pinned by a workspace admin)" ||
+		ledger.Credentials != "connector-only" || ledger.CredentialsReason != ledger.Reason {
+		t.Errorf("a pinned org's tile: %+v", ledger)
+	}
+	// gemini is on finance's list but can't run on the connector; codex is
+	// not on the list at all (the harness rule's business, not this map's)
+	if len(ledger.Unavailable) != 1 || !strings.Contains(ledger.Unavailable["gemini"], "gemini can't: its CLI speaks Google's wire only") {
+		t.Errorf("harnesses that can't start there: %+v", ledger.Unavailable)
+	}
+	if plan.State != Blocked || plan.Via != "apps/pl*" || !strings.Contains(plan.Reason, "this tile is under Finance by its share apps/pl*") || plan.Org != "eng" {
+		t.Errorf("a tile shared into a pinned org: %+v", plan)
+	}
+	if o := orgOf(v, "finance"); o.Pin == nil || !o.Pinned || o.State != Blocked || o.Rules == nil {
+		t.Errorf("the org's row carries its pin: %+v", o)
+	}
+	in.Credentials = "connector-only"
+	in.Connector = nil
+	if w := stateOf(Connection(in), "apps/wiki"); w.Credentials != "connector-only" || len(w.Unavailable) != 3 || w.CredentialsReason != "" {
+		t.Errorf("the workspace's connector-only with no connector: %+v", w)
+	}
+}

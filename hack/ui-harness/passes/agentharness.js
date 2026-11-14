@@ -420,10 +420,15 @@ async function controls(a, check, conv, dialogs) {
   // the setting: Auto / Always approve
   if (!(await a.$('#hctl-pop [data-setting]'))) await a.click('#hctl button');
   const set = await a.$$eval('#hctl-pop [data-setting]', (els) => els.map((e) => `${e.dataset.setting}:${e.getAttribute('aria-pressed')}`));
-  check(set.includes('auto:false') && set.includes('approve:true'), `your setting: Always approve now, Auto offered (${set.join(' ')})`);
+  // (a person's default is Auto since 2026-11-02 — unset reads as auto — so the stored setting is shown by choosing each)
+  check(set.includes('auto:true') && set.includes('approve:false'), `your setting: Auto until you choose, Always approve offered (${set.join(' ')})`);
+  await a.click('#hctl-pop [data-setting="approve"]');
+  await until(a, () => document.querySelector('#hctl-pop [data-setting="approve"]')?.getAttribute('aria-pressed') === 'true', null, 10000).catch(() => {});
+  let pref = (await call(a, '/api/apps/agent/prefs/harness-mode')).body;
+  check(pref?.modes?.fake === 'approve', `Always approve: stored as your setting for the fake agent (${JSON.stringify(pref)})`);
   await a.click('#hctl-pop [data-setting="auto"]');
   await until(a, () => document.querySelector('#hctl-pop [data-setting="auto"]')?.getAttribute('aria-pressed') === 'true', null, 10000).catch(() => {});
-  const pref = (await call(a, '/api/apps/agent/prefs/harness-mode')).body;
+  pref = (await call(a, '/api/apps/agent/prefs/harness-mode')).body;
   check(pref?.modes?.fake === 'auto', `Auto: stored as your setting for the fake agent (${JSON.stringify(pref)})`);
   await shots(a, 'setting');
   await a.click('#hctl-pop [data-setting="approve"]');

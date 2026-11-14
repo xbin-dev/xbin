@@ -71,7 +71,10 @@ All under `/api/xbin`, gated by owner-or-`xbin:admin` unless
 `/deployments/deliveries`, `/deployments/always-on`, `/partitions`,
 `/partitions/mode`, `/partitions/reviewed`, `/partitions/limits`,
 `/partitions/stop`, `/partitions/reset`, `/partitions/purge`,
-`/partitions/binds`, `/partitions/backups`, `/partitions/restore`.
+`/partitions/binds`, `/partitions/backups`, `/partitions/restore`,
+`/llm`, `/llm/config`, `/llm/upstreams/<name>` (+ `/test`), `/llm/quotas`,
+`/llm/usage`, `/llm/v1/models`, `/llm/setup/dismiss` (workspace → LLM, the
+users and organisations tabs' quota rows, the setup card; D226).
 
 The partitions tab reads and acts as the person who opened the console,
 like the deployments tab below — not with the tile's `xbin:admin` grant:

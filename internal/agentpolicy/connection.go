@@ -22,19 +22,23 @@ const (
 	NoAccess State = "no-access"
 )
 
-// Org is one org as the connection view needs it.
+// Org is one org as the connection view needs it: its own rules, and the
+// rules a workspace admin pinned on it.
 type Org struct {
 	ID, Name string
 	Rules    Rules
+	Pin      Rules
 }
 
 // Tile is one tile the person can read: the org that owns it ("" for a
 // tile no org owns) and every org it falls under — the owner and the orgs
-// it is shared into.
+// it is shared into, each of those with the share that covers it (Via:
+// org id → the share's path or pattern).
 type Tile struct {
 	Path, Name string
 	Owner      string
 	Orgs       []string
+	Via        map[string]string
 }
 
 // Scope is what a person lets one workspace agent session see: orgs
@@ -59,6 +63,13 @@ type Input struct {
 	Tiles  []Tile
 	Scope  Scope
 	Model  *ModelRef
+	// Credentials is the workspace's credential mode; Harnesses the ids
+	// this xbind runs; Connector says why a harness can't run on the LLM
+	// connector (nil func: there is none). With them a tile's row says
+	// what an agent session there runs on, and which harnesses can't.
+	Credentials string
+	Harnesses   []string
+	Connector   func(harness string) error
 }
 
 // OrgState is one org's row. Tiles counts the tiles listed under it and
@@ -74,6 +85,8 @@ type OrgState struct {
 	Tiles     int    `json:"tiles"`
 	Connected int    `json:"connected"`
 	Rules     *Rules `json:"rules,omitempty"` // the org's own rules, when it has any
+	Pin       *Rules `json:"pin,omitempty"`   // the rules a workspace admin pinned on it, when any
+	Pinned    bool   `json:"pinned,omitempty"`
 }
 
 // TileState is one tile's row: Org is the group it is listed under (its
@@ -89,7 +102,17 @@ type TileState struct {
 	Reason    string   `json:"reason,omitempty"`
 	By        string   `json:"by,omitempty"`
 	Rule      string   `json:"rule,omitempty"`
+	Pinned    bool     `json:"pinned,omitempty"` // the blocking rule is one a workspace admin pinned
+	Via       string   `json:"via,omitempty"`    // the share that put the tile under the blocking org
 	Harnesses Allow    `json:"harnesses"`
+	// Credentials is the mode an agent session on the tile runs under
+	// (own-first | connector-first | connector-only) and
+	// CredentialsReason the model rule that made it connector-only, when
+	// one did; Unavailable the harnesses that can't start there for it
+	// (id → why).
+	Credentials       string            `json:"credentials"`
+	CredentialsReason string            `json:"credentialsReason,omitempty"`
+	Unavailable       map[string]string `json:"unavailable,omitempty"`
 }
 
 // Counts are the totals a chip shows. Tiles and Orgs count what is
@@ -121,10 +144,21 @@ func layersOf(in Input, orgs map[string]Org, t Tile) []Layer {
 	ls := []Layer{{Rules: in.Bounds}}
 	for _, id := range t.Orgs {
 		if o, ok := orgs[id]; ok {
-			ls = append(ls, Layer{ID: o.ID, Name: o.Name, Rules: o.Rules})
+			ls = append(ls, OrgLayers(o.ID, o.Name, o.Rules, o.Pin, t.Via[id])...)
 		}
 	}
 	return ls
+}
+
+// OrgLayers is one org's layers for a tile under it: the rules pinned on
+// it, when there are any, then its own. via is the share that covers the
+// tile ("" when the org owns it).
+func OrgLayers(id, name string, own, pin Rules, via string) []Layer {
+	var ls []Layer
+	if !pin.IsZero() {
+		ls = append(ls, Layer{ID: id, Name: name, Rules: pin, Pinned: true, Via: via})
+	}
+	return append(ls, Layer{ID: id, Name: name, Rules: own, Via: via})
 }
 
 // groupOf is the org a tile is listed under.
@@ -174,6 +208,10 @@ func Connection(in Input) View {
 				rules := o.Rules
 				r.Rules = &rules
 			}
+			if !o.Pin.IsZero() {
+				pin := o.Pin
+				r.Pin = &pin
+			}
 		}
 		rows[id] = r
 		return r
@@ -191,6 +229,16 @@ func Connection(in Input) View {
 		known[t.Path] = true
 		layers := layersOf(in, orgs, t)
 		ts := TileState{Tile: t.Path, Name: t.Name, Org: groupOf(t), State: Connected, Harnesses: Harnesses(layers)}
+		llm := Session(layers, in.Credentials, "")
+		ts.Credentials, ts.CredentialsReason = llm.Mode, llm.Reason
+		for _, h := range in.Harnesses {
+			if why := llm.HarnessRefusal(h, in.Connector); why != "" && Check(layers, Ask{Harness: h}).Allowed {
+				if ts.Unavailable == nil {
+					ts.Unavailable = map[string]string{}
+				}
+				ts.Unavailable[h] = why
+			}
+		}
 		if len(t.Orgs) > 1 {
 			ts.Orgs = t.Orgs
 		}
@@ -201,7 +249,7 @@ func Connection(in Input) View {
 			inScopeTiles[ts.Org]++
 		}
 		if d := Check(layers, Ask{WorkspaceAgent: true, Model: v.Model}); !d.Allowed {
-			ts.State, ts.Reason, ts.By, ts.Rule = Blocked, d.Reason, d.By, d.Rule
+			ts.State, ts.Reason, ts.By, ts.Rule, ts.Pinned, ts.Via = Blocked, d.Reason, d.By, d.Rule, d.Pinned, d.Via
 		} else if !sel {
 			ts.State = Hidden
 		} else {
@@ -238,11 +286,11 @@ func Connection(in Input) View {
 			// the org's own answer: its rules and the bounds, whatever its tiles
 			layers := []Layer{{Rules: in.Bounds}}
 			if o, ok := orgs[id]; ok {
-				layers = append(layers, Layer{ID: o.ID, Name: o.Name, Rules: o.Rules})
+				layers = append(layers, OrgLayers(o.ID, o.Name, o.Rules, o.Pin, "")...)
 			}
 			switch d := Check(layers, Ask{WorkspaceAgent: true, Model: v.Model}); {
 			case !d.Allowed:
-				r.State, r.Reason, r.Rule = Blocked, d.Reason, d.Rule
+				r.State, r.Reason, r.Rule, r.Pinned = Blocked, d.Reason, d.Rule, d.Pinned
 			case !scope.Empty() && !slices.Contains(scope.Orgs, id) && inScopeTiles[id] == 0:
 				r.State = Hidden
 			}

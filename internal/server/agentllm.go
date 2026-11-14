@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -14,33 +13,32 @@ import (
 // of the caller's would run on the connector, on their own sign-in, or
 // needs one — so a launcher can say it before the session opens.
 
-// providerRow is a catalog row with its `llm` member. Without one it
-// marshals exactly as the catalog's (the route's golden).
+// providerRow is a catalog row with what the route adds to it: why the
+// harness can't start on the tile asked about (D229: ?all=1), and its `llm`
+// member. With neither it marshals exactly as the catalog's (the route's
+// golden).
 type providerRow struct {
 	agent.Provider
-	LLM *term.ProviderLLM `json:"llm,omitempty"`
+	Unavailable string            `json:"unavailable,omitempty"`
+	LLM         *term.ProviderLLM `json:"llm,omitempty"`
 }
 
-// withAgentLLM is provs as the route answers them: the catalog itself while
-// agent sessions get nothing of a connector, else each row with its `llm`.
-// ?cwd=<tile> names the tile the session would open on (the connector's
-// answer may depend on it); a tile the caller can't read counts as none.
-func (s *Server) withAgentLLM(r *http.Request, provs []agent.Provider) any {
+// withAgentLLM is rows with each one's `llm`, while the workspace's LLM
+// connector is offered to agent sessions; rows as they are otherwise. tile
+// is the tile the session would open on ("" none: the caller named none,
+// or one they can't read).
+func (s *Server) withAgentLLM(r *http.Request, tile string, rows []providerRow) []providerRow {
 	if s.Term == nil {
-		return provs
+		return rows
 	}
 	p := auth.PrincipalOf(r)
-	cwd := strings.Trim(r.URL.Query().Get("cwd"), "/")
-	if cwd != "" && !p.CanReadTile(cwd) {
-		cwd = ""
+	provs := make([]agent.Provider, len(rows))
+	for i, row := range rows {
+		provs[i] = row.Provider
 	}
-	llm := s.Term.AgentLLM(p.UserID, term.HomeKey(p), cwd, provs)
-	if llm == nil {
-		return provs
-	}
-	rows := make([]providerRow, len(provs))
-	for i, pr := range provs {
-		rows[i] = providerRow{Provider: pr, LLM: llm[pr.ID]}
+	llm := s.Term.AgentLLM(p.UserID, term.HomeKey(p), tile, provs)
+	for i := range rows {
+		rows[i].LLM = llm[rows[i].ID]
 	}
 	return rows
 }

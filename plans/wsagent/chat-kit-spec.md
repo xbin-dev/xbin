@@ -1,12 +1,13 @@
 # Chat kit — the block model, the tool record, the fixtures (F0)
 
-> Status: live — specified and pinned by tests; no shipped module changed
-> (2026-11-14, branch `wsagent/a0-spec`). Step F0 of
-> `plans/agent-dedupe.md` §3. Everything later in the dedupe — the kit's
-> models (F2) and views (F3), AgTT onto the kit (F4), `sdk/acp`'s tool
-> record (B1) — is tested against what this step fixes.
+> Status: live — specified and pinned by tests (F0, 2026-11-14, branch
+> `wsagent/a0-spec`); the models of F2 are built on it (same day, branch
+> `wsagent/a2-models`: §10). Step F0 of `plans/agent-dedupe.md` §3.
+> Everything later in the dedupe — the kit's models (F2) and views (F3),
+> AgTT onto the kit (F4), `sdk/acp`'s tool record (B1) — is tested against
+> what this step fixes.
 
-What exists after F0:
+What exists after F0 (and what F2 changed in it: §10):
 
 | File | What |
 |---|---|
@@ -19,7 +20,7 @@ What exists after F0:
 | `builtin-templates/agent/_backend/transcripts_test.go` | feeds the logs through `harness_map.go`, writes/compares the views |
 | `hack/chat-fixtures.test.mjs` | today's `web/agent-fold.js` against the expectations |
 | `hack/chat-fixtures-agtt.test.mjs` | today's `model/fold.js` over the views against the same expectations |
-| `hack/chat-fixtures/{reference,web,agtt,expect}.mjs` | the record's rules (executable), the two adapters, the expectations' builder and the gap list |
+| `hack/chat-fixtures/{web,agtt,expect}.mjs` | the two adapters, the expectations' builder and the gap list (F0 also had `reference.mjs`, the record's rules: they are `web/chat/tools.js` since F2) |
 | `hack/chat-fixtures/rows-bench.cjs` | the templates-vs-elements measurement of §7 |
 
 ## 1. The block model
@@ -110,13 +111,16 @@ preview and live-page buttons); the kit asks the host to draw those
 `files[]`, `text`, `terminal`, `output`, `outputTruncated`, `exitCode`,
 `diffs[]`, `changed`.
 
-Merge rules (executable in `hack/chat-fixtures/reference.mjs`, which
-`sdk/acp/toolrec.go` and `/vendor/chat/tools.js` must reproduce; the
-fixtures' `<name>.records.json` are its output):
+Merge rules (executable as `/vendor/chat/tools.js` — `mergeTool`,
+`startsNewCall`, `ToolRecords` — since F2; in F0 they were
+`hack/chat-fixtures/reference.mjs`. `sdk/acp/toolrec.go` must reproduce
+them; the fixtures' `<name>.records.json` are their output):
 
 1. A field an event carries replaces the record's. `outputDelta` appends
-   to `output`; `output` replaces what was gathered. `parent` is the first
-   one said. An unknown `kind` reads as `other`.
+   to `output`; `output` replaces what was gathered (an event with both:
+   the whole output, then the delta — the template backend's order; the
+   Agent tab's old record takes the whole output alone, see §10). `parent`
+   is the first one said. An unknown `kind` reads as `other`.
 2. `content` is read into `text`, `diffs` and `terminal`; a list with no
    text keeps the text, one with no diffs keeps the diffs (K7).
 3. `files` = locations' paths, then diffs' paths, each once (K10).
@@ -130,7 +134,11 @@ fixtures' `<name>.records.json` are its output):
 7. A capping reducer keeps the newest 64 KiB of output, cut between
    characters, and counts the dropped bytes in `outputTruncated`.
 
-Go proposal for `sdk/acp/toolrec.go` (B1; **not added here**). JSON is the
+Go proposal for `sdk/acp/toolrec.go` (B1; **not added here** — landed as
+D225 with these types, plus `ToolEntry` (`Seq`, `Turn`, `N`), `ToolPolicy`
+in place of `capOutput`, `Observe`/`EndTurn`/`Newest`/`Entries`,
+`StartsToolRecord` and `OutputChunk`; `sdk/acp`'s
+`TestToolRecordsMatchTheSharedFixtures` holds it to the records). JSON is the
 fixtures' form: zero values omitted, `id`/`kind`/`title`/`status` always.
 
 ```go
@@ -204,11 +212,11 @@ uses `ToolRecords` for its cuts.
 | `tool.files` `{changes, patch}` | `rec.changed` `{files, patch}` |
 | `tool.rawOutput` | dropped (K12) |
 | `tool.children`, `tool.t0` | `children`, `at` |
-| — (not kept: `locations`) | `rec.locations`, `rec.files` (gap W1) |
+| — (not kept in the old record: `locations`) | `rec.locations`, `rec.files` — since F2 the fold's tool block carries the kit's record itself (`tool.rec`, kept by `mergeTool`), which the adapter hands on whole |
 | `changes`: `turn`, `changes`, `patch` | `changes`: `turn`, `set.files`, `set.patch` |
 | `plan.entries` | `plan.entries` |
 | `perm`: `pid`, `tool{id,name,title,kind,rawInput,content}`, `options`, `rule{kind,title,scoped}`, `meta{title,description,defaultToNo}`, `by`, `optionId` | `pid`, `callId=tool.id`, `tool{title,kind,name,rawInput,content,command}`, `options`, `rule` (null unless scoped), `title`, `description`, `defaultToNo`, `plan` (from `isPlanApproval`/`planText`/`rawInput.planFilePath`), `by`, `optionId` |
-| `ask`: `eid`, `toolCallId`, `message`, `schema`, `action`, `by`, `content` | same; `callId`; `mode='form'` (gap W4) |
+| `ask`: `eid`, `toolCallId`, `message`, `schema`, `action`, `by`, `content`; since F2 `mode`, `url` | same; `callId` |
 | `turn`: `turn`, `stopReason`, `usage`, `error` | same |
 | `notice.text`, `gap` | same |
 | `fold.st.last.login` `{needed, provider, command}` | `tail: [signin]` |
@@ -252,16 +260,17 @@ Agent tab (to close in F2/F3):
 
 | Gap | Field | Why |
 |---|---|---|
-| W1 | `rec.locations`, `rec.files` | `foldTool` keeps no locations |
+| ~~W1~~ | `rec.locations`, `rec.files` | closed in F2: the fold keeps the kit's record (`mergeTool`) on its tool block |
 | W2 | `tool.state` `approval` → `pending` | the fold does not tie a request to its call's card |
-| W3 | `perm.options[].explicit` | no escalation rule runs for the Agent tab (B1 adds `explicit` to `permission.request`) |
-| W4 | `ask.mode`, `ask.url` | the fold drops them: every question is a form |
+| ~~W3~~ | `perm.options[].explicit` | closed by B1 (D225): `permission.request` options carry `explicit` (`sdk/acp` `Provider.OptionRaises`); the gap line is gone from `expect.mjs` |
+| ~~W4~~ | `ask.mode`, `ask.url` | closed in F2: the fold keeps both |
 
 Not reached by a fixture, pinned by inline cases in
-`hack/chat-fixtures.test.mjs`: K7 (the web loses a diff when a later
-content list has none) and K6's first half (an id reused within a turn
-merges into one card). Not exercised at all: `perm.tool.label` (no fixture
-asks about a labelled call).
+`hack/chat-fixtures.test.mjs`: K7 (since F2 the Agent tab's *record* keeps
+the diff; its card, which still draws the old record's last content list,
+loses it until F3) and K6's first half (an id reused within a turn merges
+into one card). Not exercised at all: `perm.tool.label` (no fixture asks
+about a labelled call).
 
 AgTT (to close in F4, or permanent by design — marked P):
 
@@ -410,8 +419,9 @@ plan-feedback box, the sign-in card, the composer.
   event that wrote it; park ids, clocks and offsets are zeroed.
 
 The expectation is the model's reading of a log: the Agent tab's blocks
-with what that fold drops put back from the log (`expect.mjs` header), and
-`explicit` taken from AgTT's backend (the one thing no log says).
+with what that fold drops put back from the log (`expect.mjs` header).
+`explicit` is in the log since B1 (D225) — it was taken from AgTT's
+backend before; the two agree on every fixture.
 
 Regenerating: the three commands in `hack/chat-fixtures.test.mjs`'s header,
 in order. Swift: `native/tools/agent-parity.mjs` can read `<name>.json`
@@ -427,17 +437,53 @@ row and turn start (the pass's), filing a permission in `acp.Permissions`
 1. **D-number**: K1–K20 are recorded here only. `plans/DECISIONS.md` needs
    an entry when Track A lands; none was allocated (parallel agents collide
    on numbers).
-2. **`explicit` for the Agent tab** depends on B1's `escalation.go`; until
-   then the expectation's `explicit` is AgTT's `optionRaises`.
+2. ~~**`explicit` for the Agent tab**~~ — done in B1 (D225): the client
+   marks the options (`Provider.OptionRaises`, start = `Config.Mode`), the
+   expectation reads them from the log.
 3. **K8 (joined text)** loses item boundaries the Agent tab renders today
    (each text item sniffed for markdown on its own). If F3 finds a harness
    that relies on it, `rec.text` becomes `texts: string[]` — an additive
    change while nothing reads `text` yet.
 4. **`notice` and `gap`** have no shared fixture (xbind writes `notice` on a
    layer move, D175; the tab synthesises `gap`); `hack/agent-fold.test.mjs`
-   covers them.
+   covers them, and since F2 an inline case of `hack/chat-fixtures.test.mjs`
+   holds them as blocks of the model. F2 added no log for them, nor for
+   `agent` or `perm.tool.label`: a shared log is made by real machinery —
+   `sdk/acp/acptest`'s scripts through `acp.Client`, then the template
+   backend's views — and neither `notice` nor `gap` is an agent's event,
+   `agent` is the template's own child run (no ACP log), and a labelled
+   permission request needs a new acptest script and a regenerated
+   `.agtt.json` (Go, B1's package).
 5. **The Swift port** keeps its own fold and fixtures; moving
    `ParityTests` onto `<name>.blocks.json` is F2's regeneration step.
 6. **docs**: `/vendor/chat/*` is listed in `docs/frontend-kit.md` as the
    kit's first modules with the shapes "only grow" promise; the plan's
    "needs xbind ≥" compat statement is F4's.
+
+## 10. F2 — the models (2026-11-14)
+
+`/vendor/chat/tools.js` and `/vendor/chat/ask.js` (`KIT` 2). What this
+step settled where §1–§2 were silent (rationale: D224, "F2"):
+
+| # | Question | Decision |
+|---|---|---|
+| M1 | Headline | label → a `description` argument → a shell command read by `describeCommand` (while the call runs, a short one-line text content first) → the title's first line → a reading of the arguments by kind → name → id. `/vendor/agent-tools.js` `headline` keeps its old chain (no reading by kind) for the Swift port |
+| M2 | A row's label (AgTT) | the lift's `label`; else a `summary` that is neither the lift's title nor the kind |
+| M3 | The command among the arguments | `command` (string or argv), else `cmd`, else `script`; a string command's `args` appended (`inputCommand`) |
+| M4 | Subline | an execute's `$ command`, clipped to 90, unless what the headline says is the command |
+| M5 | Outcome | of a completed call only: `exit N` (ok / bad), `+a −d` (`N files` past one), `−d` for a delete, `N lines` of a read's text, `N matches` (a search's locations) |
+| M6 | `stripAnsi` | CSI with any parameter byte (0x30–0x3F) and the 8-bit CSI, an OSC up to its own BEL or ST, character-set designations, ESC @ … ESC _; nothing else (line endings and control characters are a view's) |
+| M7 | Output tail | the last 20 000 characters after stripping (`OUTPUT_TAIL`), with `cut` (left out here) and `dropped` (`outputTruncated`) |
+| M8 | Diffs | `diffPatch(d)`: the patch, else `unifiedDiff` of the two texts; `joinPatches` whole files under a cap; `patchLines` for drawing one plain (kept: `bx-code.js` `diffHTML` needs lit and highlight.js) |
+| M9 | A permission card's options | the agent's order; rejections first when `defaultToNo`; `explicit` ones only with `can.raise`, counted in `hidden` otherwise; a host whose "always" is its own rule (`scopedOnly`) leaves `allow_always` out when `rule` is null — never on a plan |
+| M10 | Answering | `permAnswer(option, feedback)` → `{optionId \| decision, verdict, feedback}`; feedback only with a rejection; the host picks the transport (`ChatCtx.permit`) |
+| M11 | Forms | the template's superset: `oneOf` / `anyOf` / `enum` (+ `enumNames`) single choice, array multiple choice, `default` as `dflt` (an untouched field answers it), "Other" riding on its question and answering a required one |
+| M12 | URL-mode questions | `question(ask)` → `{mode: 'url', url, text}`; `url` only when http(s) |
+| M13 | Slash menu | prefix matches first, then names or descriptions containing the query; at most 8; a draft is a command while it is `/[\w:.-]*` |
+| M14 | Composer words | `composerWords({name, busy, steering, waits, barred, native})`; `steerTracker` notices a steered message |
+| M15 | An event with a whole output and a delta | the record: the whole output, then the delta (as the template's backend). The Agent tab's old record: the whole output alone. One string is held while the two agree. Open: which is right (no fixture has one) |
+
+Gaps closed: W1, W4. `hack/chat-fixtures-agtt.test.mjs` additionally holds
+that the kit's headline, subline, state chip and outcome of every call of
+the shared transcripts are the same from either reducer's record.
+

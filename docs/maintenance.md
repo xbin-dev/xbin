@@ -581,8 +581,19 @@ stay byte for byte what it was.
 `hasIcon`) and `web/chat/md.js` the markdown renderer for untrusted text
 (`mdInto`, `mdCssText`, `closedFence`, `onHighlighter`, `useHighlighter`;
 D224 — the agent template's copy became a re-export, and a new copy would be
-a second sanitizing policy). `make js-check` refuses a second definition of
-any of them in the shipped trees — import from `/vendor/…` by absolute URL instead
+a second sanitizing policy), `web/chat/tools.js` the model of a tool call
+(`mergeTool`, `stripAnsi`, `outputTail`, `describeCommand`, `unifiedDiff`,
+`joinPatches`, `patchLines`, `diffFiles`, `diffTotals`, `contentPreview`,
+`diffsPreview`, `filesStat`, `rawText`) and `web/chat/ask.js` the model of
+what an agent asks (`formFields`, `formContent`, `missingRequired`,
+`nativeSchema`, `nativeContent`, `cleanCode`, `slashQuery`, `matchCommands`,
+`commandHint`, `optionConfirm`, `modeConfirm`, `composerWords`,
+`steerTracker`; D224 — the Agent tab and the agent template each had these
+and they had drifted: two escape rules, a form reader that labelled a plain
+enum's choices "false"). `make js-check` refuses a second definition of
+any of them in the shipped trees — a module that must keep an old name
+re-exports it (`export { stripAnsi } from '/vendor/chat/tools.js'`, which
+the check does not match); import from `/vendor/…` by absolute URL instead
 ([frontend-kit.md](/docs/frontend-kit.md) lists what tiles may import and
 why bare specifiers are banned).
 
@@ -667,7 +678,7 @@ held to one set of fixtures, `sdk/acp/testdata/transcripts/`:
 |---|---|---|
 | `<name>.json` — an event log, xbind's served shape, with checkpoints | `sdk/acp/acptest` `TestTranscripts`: the scripted agent through `acp.Client` (`xbind-shell.json`: the native capture's events) | the same test (`go test ./sdk/...`) fails when the client no longer emits it |
 | `<name>.agtt.json` — the agent template's run view at each checkpoint | the template backend's `TestChatTranscripts` (the log through `harness_map.go`) | the same test (`make tile-check`) |
-| `<name>.records.json`, `<name>.blocks.json` — the log's tool records and its blocks | `hack/chat-fixtures/expect.mjs` | `hack/chat-fixtures.test.mjs` (the Agent tab's fold) and `hack/chat-fixtures-agtt.test.mjs` (the template's), both in `make js-test` |
+| `<name>.records.json`, `<name>.blocks.json` — the log's tool records and its blocks | `hack/chat-fixtures/expect.mjs` — the records are what `web/chat/tools.js` (`records()`, the kit's merge rules) makes of the log | `hack/chat-fixtures.test.mjs` (the Agent tab's fold) and `hack/chat-fixtures-agtt.test.mjs` (the template's, and that the kit says each call the same from either side's record), both in `make js-test` |
 
 A reducer that cannot produce a field yet has a **gap** in
 `hack/chat-fixtures/expect.mjs` (`GAPS`: an id, the reason, what makes the
@@ -707,6 +718,12 @@ VM health and the VM policy, `limits` for every tile's resource limits
 (D203: a thin wrapper around `<bx-limits-table>` from
 `/vendor/limits-table.js`, which the `/xbin/limits` page and the shell's ⚙
 share; an org's ceilings are `<bx-org-limits>` on its `orgs` page),
+`llm` for the LLM connector (D226: a thin wrapper around `<bx-llm-admin>`
+from `/vendor/llm-admin.js`, which the `/xbin/llm` page shares — its words
+in `/vendor/llm-kit.js`, every call in `/vendor/llm-client.js`; a person's
+quota is `<bx-llm-quota standalone>` in `users`, an org's on its `orgs`
+page, both asking `hasLLM()` first; the setup card is `alertBar`'s drawing
+of the `llm-setup` alert, in `shared.js`),
 `deployments` for every tile's deployment
 record and a tile manager's protect / reassign / deliveries / alwaysOn — its
 words and confirmations imported from `/vendor/deploy-state.js` and
@@ -987,6 +1004,27 @@ list didn't predict. Without `bin/tunnelpair` or a sidecar the real halves
 `SKIP`, said so. `pairing` serves `web/devices.html` itself when xbind
 doesn't. `devices` gives the admin an own limit of 3 for its two classic
 devices (the workspace default is 1, D204) and clears it after.
+`llm` covers the LLM connector's UI (D226) end to end against the real API,
+with `hack/fakeopenai` as the one provider: `run.sh` starts the harness
+xbind with a deployment file (`XBIN_LLM_CONFIG=$HARNESS_DIR/llm-host.jsonc`,
+written empty — it sets and locks nothing — so no other pass is affected),
+and the pass writes a host's settings into it for its locks half (xbind
+reads a changed file again) and empties it after. The seed dismisses the
+setup card for the workspace, or it would sit on every admin page of every
+pass; `llm` re-arms it by removing `data/llm/setup.json` and dismisses it
+again — on a workspace whose connector was configured before (a `--shots`
+rerun) that half `SKIP`s, said so, as the card is then gone for good. It
+adds a provider through the form and checks the key is nowhere on the page
+afterwards (text, attributes, field values), runs Test, saves the default
+model, the people switch and three quotas, has dev1 call until an org's
+warning limit and then the default's stopping one are reached (limits are
+set relative to what was already counted today, so a rerun holds), reads
+the alerts, the usage tables and dev1's own page, and drives the admin
+console's tab and its users and organisations quota rows. Run it in both
+themes; it leaves the connector unconfigured. `oldScaffold` also checks
+that the last release's shell and admin console show the setup alert's
+words — `/xbin/llm` in them — with no tab and no card, and that the page
+works beside them.
 
 ```
 hack/ui-harness/run.sh                    # build, fresh workspace, seed, every pass, stop

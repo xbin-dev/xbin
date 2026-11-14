@@ -20,9 +20,10 @@ import { ruleLabel } from '/vendor/bx-netrules.js';
 import { parseAllow, fmtAllow, allowProblem, describeAllow } from '/vendor/bx-allow.js';
 import '/vendor/bx-multiselect.js';
 import '/vendor/limits-table.js'; // <bx-org-limits>: the org's per-tile resource ceilings (D203)
-import './org-agents.js'; // <bx-org-agents>: an org's constraints on agents, and the workspace's bounds (D229)
+import '/vendor/org-agents.js'; // <bx-org-agents>: an org's constraints on agents, its pin, the workspace's bounds (D229)
 import { base, orgsCss } from '../admin-css.js';
 import { targetDatalist, serviceDatalist, groupsDatalist, allowRows, WithDrafts, WithRouter, PRESETS, presetOf } from '../shared.js';
+import { hasLLM, xfetch } from './llm.js'; // <bx-llm-quota>: an org's LLM quota (D226)
 
 export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
   static properties = {
@@ -43,8 +44,10 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
     _polEdit: { state: true }, // policy-editor drafts, keyed '' (workspace) / org id
     _drafts: { state: true },  // click-through editor drafts (orgallow:<org>, ws:defaults, ws:newusers:*)
     _err: { state: true },     // the last API refusal (also reported to the router's slot)
+    _llm: { state: true },     // the LLM connector has a provider: an org's page has its quota (D226)
   };
   static styles = [base, orgsCss];
+  connectedCallback() { super.connectedCallback(); hasLLM().then((on) => { this._llm = on; }); }
 
   // The harness surface (routed here by the admin router's testApi).
   testApi() { return { ...this.draftApi(), org: this._org ?? null, openOrg: (id) => this._open(id) }; }
@@ -356,7 +359,13 @@ export class BxAdminOrgs extends WithRouter(WithDrafts(LitElement)) {
           @org-limits-saved=${() => this._emit('bx-admin-refresh')}></bx-org-limits>`)}
 
       ${this._panel('agents', 'what agents may do on this org\'s tiles — the workspace agent, the coding agents an agent session may run, the models that may see their data (D229)', html`
-        <bx-org-agents org=${o.id} .rules=${o.agents ?? null} @org-agents-saved=${() => this._emit('bx-admin-refresh')}></bx-org-agents>`)}
+        <bx-org-agents org=${o.id} .rules=${o.agents ?? null} .pin=${o.agentsPin ?? null} @org-agents-saved=${() => this._emit('bx-admin-refresh')}></bx-org-agents>`)}
+
+      ${this._panel('agents: pinned', 'rules a workspace admin pins on this org — its own admins can narrow them, never loosen them (D229)', html`
+        <bx-org-agents org=${o.id} pinned .pin=${o.agentsPin ?? null} @org-agents-saved=${() => this._emit('bx-admin-refresh')}></bx-org-agents>`)}
+
+      ${this._llm ? this._panel('LLM quota', 'what each member may use of the workspace\'s LLMs — it replaces the default for them; someone in several orgs gets the most generous (D226)', html`
+        <bx-llm-quota subject=${`org:${o.id}`} standalone .fetcher=${xfetch}></bx-llm-quota>`) : nothing}
 
       ${this._panel('danger zone', '', html`<div class="kv">
         <button class="act rm" @click=${() => this._deleteOrg(o)}>delete org…</button>

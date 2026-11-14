@@ -17,6 +17,7 @@ import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
 const { ok, done } = checker();
 const BOOT = readFileSync(fileURLToPath(new URL('../boot.js', import.meta.url)), 'utf8');
 const XBIND = BOOT.match(/xbind: '(v[\d.]+)'/)[1];
+const NEED = Number(BOOT.match(/NEEDS = Object\.freeze\(\{ kit: (\d+),/)[1]);
 const seed = { runs: [{ id: 1, title: 'a chat', status: 'idle', parentId: 0, rootId: 1 }],
   views: { 1: { run: { id: 1, title: 'a chat', status: 'idle', parentId: 0, rootId: 1 }, messages: [] } } };
 
@@ -74,13 +75,18 @@ const started = (page) => page.waitForFunction(() => window.__calls.length > 0, 
   await ctx.close();
 }
 
-// the kit is there, older than the page needs
+// the kit is there, older than the page needs: an xbind that serves the
+// revision before — rev.js says so, and what this revision added (revision
+// 2: tools.js and ask.js) is a 404 there
 {
-  const { ctx, needs, app } = await open({}, (ctx) => ctx.route(`${ORIGIN}/boot.js`, (r) =>
-    r.fulfill({ contentType: 'text/javascript', body: BOOT.replace('kit: 1,', 'kit: 2,') })), message);
+  const { ctx, page, errors, needs, app } = await open({}, async (ctx) => {
+    await ctx.route('**/vendor/chat/rev.js', (r) => r.fulfill({ contentType: 'text/javascript', body: `export const KIT = ${NEED - 1};` }));
+    await ctx.route(/\/vendor\/chat\/(tools|ask)\.js$/, (r) => r.fulfill({ status: 404, body: '' }));
+  }, message);
   ok('an older kit: the same message, with both revisions', !!needs && needs.text.includes(`needs xbind ≥ ${XBIND}`)
-    && needs.text.includes('serves revision 1') && needs.text.includes('needs revision 2') && needs.kit === '1', JSON.stringify(needs));
-  ok('…and no app', !app.wrap && app.calls === 0, JSON.stringify(app));
+    && needs.text.includes(`serves revision ${NEED - 1}`) && needs.text.includes(`needs revision ${NEED}`) && needs.kit === String(NEED - 1), JSON.stringify(needs));
+  await page.waitForTimeout(300);
+  ok('…and no app: nothing of it is loaded, so its imports of the newer kit never fail', !app.wrap && app.calls === 0 && errors.length === 0, JSON.stringify(app) + errors.join(' | '));
   await ctx.close();
 }
 

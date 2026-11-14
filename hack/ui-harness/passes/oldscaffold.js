@@ -16,6 +16,12 @@
 //     raise `action` an old shell knows nothing of; served — the harness
 //     can't produce a hit) shows in the old shell's banner and the old
 //     admin console's alert bar by its words, which name /xbin/limits;
+//   - the LLM connector's setup alert (D226: no provider yet — the real
+//     one, re-armed; served with the same words when this workspace's
+//     connector was configured before) shows in the old shell's banner and
+//     the old admin console's alert bar by its words, which name
+//     /xbin/llm; the old console has no LLM tab and draws no card; and
+//     /xbin/llm, xbind's own page, works beside the old scaffold;
 //   - the old admin console opens and lists both tiles;
 //   - the theme (D184): with the admin's light theme on a light system the
 //     old root, shell and admin console, which never opted in, stay Night;
@@ -55,6 +61,13 @@ const LIMIT = {
   action: { action: 'raise-limit', tile: PART, kind: 'memMiB', unit: 'MiB', current: 2048, approvers: ['workspace-admin'],
     choices: [{ pct: 25, value: 2560, fits: true, approvable: true }, { pct: 50, value: 3072, fits: true, approvable: true, default: true },
       { pct: 100, value: 4096, fits: false, approvable: true, why: 'needs +2 GiB; 1 GiB free after the 10% reserve' }] },
+};
+
+// the LLM connector's setup alert as xbind words it (internal/llm
+// alerts.go), for a workspace where the real one can't be armed any more
+const LLM_SETUP = {
+  level: 'warn', kind: 'llm-setup', system: false, dismiss: '/llm/setup/dismiss',
+  message: 'No LLM is set up for this workspace: its agents, tiles and coding tools can share one provider setup, metered per person — a workspace admin adds a provider at /xbin/llm (the admin console\'s workspace → LLM, or `bx llm upstream add`). Dismiss this to leave it off',
 };
 
 async function until(fn, label, timeout = 15000) {
@@ -160,6 +173,11 @@ async function oldScaffold(browser) {
     await until(async () => (await api('GET', `/components/${THEMED}`)).status() === 200, `${THEMED} registered`);
     await A.ctx.request.fetch(`${URL}/api/xbin/prefs/theme`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, data: '"light"' });
 
+    // ---- the LLM connector's setup alert: the real one when it can be armed ----
+    fs.rmSync(path.join(WS, 'data', 'llm', 'setup.json'), { force: true });
+    const real = ((await (await api('GET', '/alerts')).json().catch(() => ({}))).alerts ?? []).find((x) => x.kind === 'llm-setup');
+    check(!real || real.message === LLM_SETUP.message, `the setup alert's words are the ones this pass serves when it can't arm it (${real?.message ?? 'not armed: the connector was configured before'})`);
+
     // ---- the old shell ----
     sc.swap();
     S = await login(browser, 'admin', 'admin', { colorScheme: 'light' });
@@ -167,7 +185,8 @@ async function oldScaffold(browser) {
     await S.page.route('**/api/xbin/alerts', async (route) => {
       const resp = await route.fetch();
       const j = await resp.json().catch(() => ({}));
-      await route.fulfill({ response: resp, json: { ...j, alerts: [...(j.alerts ?? []), LIMIT] } });
+      const llm = (j.alerts ?? []).some((x) => x.kind === 'llm-setup') ? [] : [LLM_SETUP];
+      await route.fulfill({ response: resp, json: { ...j, alerts: [...(j.alerts ?? []), LIMIT, ...llm] } });
     });
     await openShell(S.page);
     const src = await S.page.evaluate(async () => (await (await fetch('/c/shell/bx-shell.js', { cache: 'no-store' })).text()).includes('bx-part-consent'));
@@ -184,6 +203,8 @@ async function oldScaffold(browser) {
     check(limit.includes(PART) && limit.includes('/xbin/limits') && limit.includes(`bx limits raise ${PART} memory`),
       `the old shell's banner shows a tile limits alert's words, /xbin/limits in them (${limit.slice(0, 240)})`);
     check(await S.page.locator('bx-shell .alerts .achoice, bx-shell .alerts .achoices').count() === 0, '…and nothing of its action (an old shell has no raise buttons)');
+    const setup = (await alerts.allInnerTexts()).find((x) => x.includes('No LLM is set up')) || '';
+    check(setup.includes('/xbin/llm') && setup.includes('bx llm upstream add'), `the old shell's banner shows the LLM setup alert's words, /xbin/llm in them (${setup.slice(0, 240)})`);
     await shot(S.page, 'old-scaffold-shell');
     const scheme = (f) => f.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--bx-scheme').trim() || 'none');
     const rootScheme = await scheme(S.page.mainFrame());
@@ -223,12 +244,22 @@ async function oldScaffold(browser) {
     }
     const bar = await S.page.locator('.al', { hasText: 'OOM-killed' }).allInnerTexts();
     check(bar.length === 1 && bar[0].includes('/xbin/limits'), `the old admin console's alert bar shows the limits alert's words (${(bar[0] ?? '').slice(0, 200)})`);
+    const lbar = await S.page.locator('.al', { hasText: 'No LLM is set up' }).allInnerTexts();
+    check(lbar.length === 1 && lbar[0].includes('/xbin/llm'), `the old admin console's alert bar shows the LLM setup alert's words (${(lbar[0] ?? '').slice(0, 200)})`);
+    check(await S.page.locator('text=/^\\s*LLM\\s*$/').count() === 0 && await S.page.locator('[data-llm-setup]').count() === 0, `${OLD}'s admin console has no LLM tab and draws no card`);
     await shot(S.page, 'old-scaffold-admin');
+    // xbind's own page needs no scaffold: it works beside the old one
+    await S.page.goto(`${URL}/xbin/llm`);
+    await S.page.waitForSelector('bx-llm-page main[data-mode=admin] bx-llm-admin [data-status]', { timeout: 15000 });
+    await settle(S.page);
+    check(await S.page.locator('bx-llm-admin bx-llm-upstreams [data-add]').count() === 1, '/xbin/llm works beside the old scaffold: the admin\'s page, with Add a provider');
+    await shot(S.page, 'old-scaffold-llm-page');
     check(errors.length === 0, `no page error in the old shell or admin console (${errors.join(' | ')})`);
   } finally {
     sc.restore();
     if (S) await closeCtx(S.ctx, S.page).catch(() => {});
     writeTile(PEND, null); // the request withdrawn
+    await api('POST', '/llm/setup/dismiss').catch(() => {}); // the setup alert dismissed again, as the seed left it
     await A.ctx.request.fetch(`${URL}/api/xbin/prefs/theme`, { method: 'DELETE' }).catch(() => {});
     await until(async () => (await comp(PEND)).partition?.state !== 'pending', `${PEND}'s request withdrawn`).catch(() => {});
     await A.ctx.close();

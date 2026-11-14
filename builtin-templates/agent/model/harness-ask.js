@@ -13,222 +13,85 @@
 //   slashMatches    the slash-command menu while "/" is typed
 //   steerWords(v)   what the composer says while a turn runs; steerTrack
 //                   notices a message steered into it (from the stream)
+// The cards' words, the form, the slash menu's rule and the composer's words
+// are xbind's chat kit's (/vendor/chat/ask.js, D224 — the Agent tab asks the
+// same way). This module is the adapter from the template's park
+// (pendingState.harness) and run view to the kit's perm and ask blocks
+// (permBlock, askBlock), and keeps every export it had.
 // Pure (no DOM): node-tested in hack/agent-template-harness-ask.test.mjs.
 import { isHarness, nameOf, modeOf } from './harness.js';
 import { busy } from './fold.js';
 import { barredWhy, BARRED_WORDS } from './harness-homes.js';
+import { callIdOf } from './harness-heads.js';
+import { permission as permCard, question as askCard, slashCommands as commandsOf, slashMenu, composerWords, steerTracker } from '/vendor/chat/ask.js';
+
+// The kit's, under the names they had here: an option's kind; the form of a
+// question (formFields: a single choice → radio — oneOf, anyOf or enum, with
+// enumNames — a multiple one → check, boolean, number, else text; a field
+// marked as another's custom answer rides on it as `other`; each property's
+// `default` as dflt), an accept's content and what it leaves out, the native
+// `question` primitive's flat schema and its answers folded back; the words
+// that confirm an explicit (bypass) mode or option; a command picked from
+// the slash menu.
+export { isAllow, isReject, formFields, formContent, missingRequired, nativeSchema, nativeContent, modeConfirm, optionConfirm, slashText } from '/vendor/chat/ask.js';
+// …and a request's diff preview: ACP tool content as [{path, lines: [{t:
+// '+'|'-'|' '|'@', text}], add, del, more}] per diff or [{text}] per text
+// (contentPreview), a tool row's backend-made patches the same way
+// (diffsPreview), old → new as its changed lines (lineDiff), a preview's
+// diff as patch text for the native `diff` primitive (patchOf).
+export { contentPreview, diffsPreview, lineDiff, patchOf } from '/vendor/chat/tools.js';
 
 const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
-export const isAllow = (o) => /^allow/.test((o && o.kind) || '');
-export const isReject = (o) => /^reject/.test((o && o.kind) || '');
-
-// What a call of each ACP kind asks to do.
-const VERB = {
-  execute: 'run a command', edit: 'edit a file', delete: 'delete a file', move: 'move a file', read: 'read a file',
-  search: 'search', fetch: 'fetch a page', think: 'start a subagent', switch_mode: 'switch mode', other: 'use a tool',
-};
 
 // owner: the conversation's owner, a person (explicit options are theirs);
 // talk: may answer at all (a participant).
 export const ownerOf = (v, me) => !!(v && (!v.access || v.access === 'owner' || v.access === 'system') && me && me.kind === 'user' && !me.viewedBy);
 
-// permission: a harness's permission park (pendingState.kind approval with
-// harness) as a card — null for anything else. acp: the call's tool row's
-// acp (§4.3.5), whose backend-made patches preview an edit when the park's
-// own content has no diff.
-export function permission(ps, { owner = false, talk = true, name = 'the coding agent', acp = null } = {}) {
+// permBlock: a harness's permission park (pendingState.kind approval with
+// harness) as the kit's perm block — null for anything else.
+export function permBlock(ps) {
   const hs = ps && ps.kind === 'approval' && ps.harness;
   if (!hs) return null;
-  const all = (hs.options || []).filter((o) => o && o.optionId);
-  const shown = all.filter((o) => !o.explicit || owner);
-  const ordered = hs.defaultToNo ? [...shown.filter(isReject), ...shown.filter((o) => !isReject(o))] : shown;
-  const tool = hs.tool || {};
-  const plan = !!hs.planApproval;
-  const always = ordered.find((o) => o.kind === 'allow_always' && !o.explicit);
-  const rule = !plan && always && hs.rule && hs.rule.title
-    ? `‘${always.name || 'Always allow'}’ lets ${name} run later ${hs.rule.kind || tool.kind || ''} calls titled ‘${clip(hs.rule.title, 80)}’ without asking in this conversation`.replace(/ {2}/g, ' ')
-    : '';
-  const options = ordered.map((o) => ({
-    id: o.optionId, name: o.name || o.optionId, kind: o.kind || '', allow: isAllow(o), reject: isReject(o), explicit: !!o.explicit,
-    title: o.explicit ? `raises ${name} to a mode where it stops asking — only the owner may` : o.kind === 'allow_always' && rule ? rule : '',
-  }));
-  const title = tool.title || (ps.toolCalls && ps.toolCalls[0] && ps.toolCalls[0].function && ps.toolCalls[0].function.name) || '';
-  const label = tool.label && tool.label !== title ? tool.label : '';
-  const command = tool.command && tool.command !== title ? tool.command : '';
+  const t = hs.tool || {};
   return {
-    park: ps.park || '', plan, planText: plan ? String(hs.plan || '') : '',
-    lead: plan ? `${name} has a plan` : `${name} asks to ${VERB[tool.kind] || VERB.other}`,
-    title, label, command,
-    raw: !tool.command && !plan ? rawOf(tool.rawInput) : '', // a lifted command says it (in the title when they're one)
-    preview: contentPreview(tool.content) || diffsPreview(acp && acp.diffs),
-    description: String(hs.description || ''),
-    defaultToNo: !!hs.defaultToNo,
-    rule, options, talk,
-    hidden: all.length - shown.length, // explicit options a non-owner doesn't see
-    reject: (ordered.find(isReject) || {}).optionId || '', // the rejection feedback goes with
+    k: 'park:' + (ps.park || ''), v: 0, kind: 'perm', pid: hs.pid || '', park: ps.park || '', callId: callIdOf(hs.callId),
+    tool: { title: t.title || '', kind: t.kind || '', name: t.name || '', label: t.label || '', command: t.command || '', rawInput: t.rawInput ?? null, content: t.content ?? null },
+    options: (hs.options || []).filter(Boolean).map((o) => ({ optionId: o.optionId, name: o.name, kind: o.kind, explicit: !!o.explicit })),
+    rule: hs.rule ? { kind: hs.rule.kind || '', title: hs.rule.title || '' } : null,
+    title: '', description: hs.description || '', defaultToNo: !!hs.defaultToNo,
+    plan: hs.planApproval ? { text: hs.plan || '', path: t.rawInput && typeof t.rawInput.planFilePath === 'string' ? t.rawInput.planFilePath : '' } : null,
+    by: null, optionId: null,
   };
 }
 
-// rawOf: a call's raw input for the card — '' when nothing worth showing.
-function rawOf(raw) {
-  if (raw == null || raw === '') return '';
-  if (typeof raw === 'string') return clip(raw, 600);
-  if (typeof raw !== 'object' || !Object.keys(raw).length) return '';
-  return clip(JSON.stringify(raw, null, 2), 600);
+// permission: a harness's permission park as a card — null for anything
+// else. acp: the call's tool row's acp (§4.3.5), whose backend-made patches
+// preview an edit when the park's own content has no diff.
+export function permission(ps, { owner = false, talk = true, name = 'the coding agent', acp = null } = {}) {
+  const perm = permBlock(ps);
+  if (!perm) return null;
+  const first = ps.toolCalls && ps.toolCalls[0] && ps.toolCalls[0].function && ps.toolCalls[0].function.name;
+  if (!perm.tool.title && first) perm.tool.title = first;
+  return { park: perm.park, ...permCard(perm, { name, can: { answer: talk, raise: owner }, diffs: acp && acp.diffs }), talk };
 }
-
-// --- the diff preview -----------------------------------------------------------------
-
-const PREVIEW_LINES = 60;
-
-// contentPreview: ACP tool content (a park's tool.content) as what a card
-// shows — [{path, lines: [{t: '+'|'-'|' '|'@', text}], add, del, more}] per
-// diff, or [{text}] for text content; null when there is none.
-export function contentPreview(content) {
-  const out = [];
-  for (const c of Array.isArray(content) ? content : []) {
-    if (!c || typeof c !== 'object') continue;
-    if (c.type === 'diff' && c.path) out.push(lineDiff(c.path, c.oldText, c.newText));
-    else if (c.type === 'content' && c.content && c.content.type === 'text' && c.content.text) out.push({ text: clip(c.content.text, 2000) });
-  }
-  return out.length ? out : null;
-}
-
-// diffsPreview: the tool row's backend-made patches (acp.diffs) the same way.
-export function diffsPreview(diffs) {
-  const out = (Array.isArray(diffs) ? diffs : []).filter((d) => d && d.patch).map((d) => {
-    const lines = String(d.patch).split('\n').filter((l) => l && !/^(---|\+\+\+) /.test(l))
-      .map((l) => ({ t: l[0] === '@' ? '@' : '+- '.includes(l[0]) ? l[0] : ' ', text: l[0] === '@' ? l : l.slice(1) }));
-    return { path: d.path, lines: lines.slice(0, PREVIEW_LINES), add: d.add || 0, del: d.del || 0, more: Math.max(0, lines.length - PREVIEW_LINES) };
-  });
-  return out.length ? out : null;
-}
-
-// lineDiff: old → new as the lines that changed, with two lines of context
-// each side — the common head and tail cut (enough for a preview; the tool
-// row carries the exact patch once the call ran).
-export function lineDiff(path, oldText, newText) {
-  const a = oldText == null || oldText === '' ? [] : String(oldText).split('\n');
-  const b = newText == null || newText === '' ? [] : String(newText).split('\n');
-  let p = 0;
-  while (p < a.length && p < b.length && a[p] === b[p]) p++;
-  let s = 0;
-  while (s < a.length - p && s < b.length - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
-  const del = a.slice(p, a.length - s), add = b.slice(p, b.length - s);
-  const ctx = 2, from = Math.max(0, p - ctx);
-  const lines = [
-    ...(a.length || b.length ? [{ t: '@', text: `@@ -${from + 1} +${from + 1} @@` }] : []),
-    ...a.slice(from, p).map((text) => ({ t: ' ', text })),
-    ...del.map((text) => ({ t: '-', text })),
-    ...add.map((text) => ({ t: '+', text })),
-    ...a.slice(a.length - s, Math.min(a.length, a.length - s + ctx)).map((text) => ({ t: ' ', text })),
-  ];
-  return { path, lines: lines.slice(0, PREVIEW_LINES), add: add.length, del: del.length, more: Math.max(0, lines.length - PREVIEW_LINES) };
-}
-
-// patchOf: a preview's diff as unified patch text (native's `diff` primitive).
-export const patchOf = (d) => [`--- a${d.path}`, `+++ b${d.path}`, ...d.lines.map((l) => (l.t === '@' ? l.text : l.t + l.text))].join('\n');
 
 // --- a question (elicitation) ---------------------------------------------------------
+
+// askBlock: a harness's question park as the kit's ask block — null for
+// anything else.
+export function askBlock(ps) {
+  const hs = ps && ps.kind === 'question' && ps.harness;
+  if (!hs) return null;
+  const url = hs.url || '';
+  return { k: 'park:' + (ps.park || ''), v: 0, kind: 'ask', eid: hs.eid || '', park: ps.park || '', callId: callIdOf(hs.callId), message: hs.message || '',
+    mode: url || hs.mode === 'url' ? 'url' : 'form', schema: hs.schema ?? null, url, action: null, by: null, content: null };
+}
 
 // question: a harness's question park — {park, message, mode: 'form', fields}
 // or {mode: 'url', url} (a page to open, then Done) — null for anything else.
 export function question(ps) {
-  const hs = ps && ps.kind === 'question' && ps.harness;
-  if (!hs) return null;
-  const message = String(hs.message || '');
-  const url = hs.url || (hs.mode === 'url' && hs.schema && hs.schema.url) || '';
-  if (url || hs.mode === 'url') return { park: ps.park || '', message, mode: 'url', url: /^https?:\/\//i.test(url) ? url : '', text: url };
-  return { park: ps.park || '', message, mode: 'form', fields: formFields(hs.schema) };
-}
-
-// formFields: a form-mode schema (a flat object of primitives, ACP form
-// mode) as what a form draws, in property order — the shape of the shell's
-// /vendor/agent-tools.js formFields (a single choice → radio, a multiple one
-// → check, boolean, number, else text; a field marked as another's custom
-// answer, `_meta._askUserQuestionCustomAnswer`, rides on it as `other`),
-// plus `enumNames` for an enum's labels and each property's `default`.
-export function formFields(schema) {
-  const props = schema && typeof schema === 'object' && schema.properties && typeof schema.properties === 'object' ? schema.properties : {};
-  const required = new Set(Array.isArray(schema && schema.required) ? schema.required : []);
-  const opts = (list, names) => (Array.isArray(list) ? list : []).map((o, i) => (o && typeof o === 'object'
-    ? { value: o.const ?? o.value ?? o.title, title: o.title ?? String(o.const ?? o.value ?? ''), description: o.description || '' }
-    : { value: o, title: String((Array.isArray(names) && names[i]) ?? o), description: '' }));
-  const fields = [], byKey = {}, others = [];
-  for (const [key, p] of Object.entries(props)) {
-    if (!p || typeof p !== 'object') continue;
-    const custom = p._meta && p._meta._askUserQuestionCustomAnswer;
-    if (custom && custom.questionId) { others.push([custom.questionId, key, p]); continue; }
-    const f = { key, title: p.title || '', description: p.description || '', required: required.has(key), options: [], other: null, otherHint: '', dflt: p.default };
-    if (p.type === 'array') { f.kind = 'check'; f.options = opts((p.items && (p.items.anyOf || p.items.oneOf || p.items.enum)) || [], p.items && p.items.enumNames); }
-    else if (p.oneOf || p.anyOf || p.enum) { f.kind = 'radio'; f.options = opts(p.oneOf || p.anyOf || p.enum, p.enumNames); }
-    else if (p.type === 'boolean') f.kind = 'bool';
-    else if (p.type === 'number' || p.type === 'integer') f.kind = 'number';
-    else f.kind = 'text';
-    fields.push(f); byKey[key] = f;
-  }
-  for (const [qid, key, p] of others) {
-    if (byKey[qid]) { byKey[qid].other = key; byKey[qid].otherHint = p.description || p.title || ''; }
-    else fields.push({ key, kind: 'text', title: p.title || 'Other', description: p.description || '', required: required.has(key), options: [], other: null, otherHint: '' });
-  }
-  return fields;
-}
-
-// formContent: an accept's content from the form's values (key → value; a
-// check field's value is a list): empty answers are left out; a field left
-// as it was drawn answers its schema default (the form shows it chosen).
-export function formContent(fields, vals) {
-  const out = {}, v = vals || {};
-  for (const f of fields) {
-    const x = v[f.key] ?? f.dflt;
-    if (f.kind === 'check') { if (Array.isArray(x) && x.length) out[f.key] = x; }
-    else if (f.kind === 'bool') { if (typeof x === 'boolean') out[f.key] = x; }
-    else if (f.kind === 'number') { if (x !== '' && x != null && !Number.isNaN(Number(x))) out[f.key] = Number(x); }
-    else if (x != null && String(x).trim() !== '') out[f.key] = x;
-    if (f.other && v[f.other] != null && String(v[f.other]).trim() !== '') out[f.other] = String(v[f.other]).trim();
-  }
-  return out;
-}
-
-// missingRequired: the required fields a content leaves out (a choice
-// answered by its "Other" box counts), by title.
-export const missingRequired = (fields, content) =>
-  fields.filter((f) => f.required && !(f.key in content) && !(f.other && f.other in content)).map((f) => f.title || f.key);
-
-// nativeSchema: the fields as the native `question` primitive's flat schema
-// (strings, numbers, booleans; choices as oneOf consts) — a multiple choice,
-// which it can't draw, becomes a yes/no per choice (`<key>.<i>`), which
-// nativeContent folds back.
-export function nativeSchema(fields, description = '') {
-  const properties = {}, required = [];
-  for (const f of fields) {
-    const base = { title: f.title || f.key, ...(f.description ? { description: f.description } : {}) };
-    if (f.kind === 'check') {
-      // a yes/no per choice, each named for the question it answers (the
-      // first also says it): a flat form has no field over the choices
-      f.options.forEach((o, i) => {
-        const d = [i === 0 ? f.description : '', o.description].filter(Boolean).join(' — ');
-        properties[`${f.key}.${i}`] = { type: 'boolean', title: `${base.title}: ${o.title}`, ...(d ? { description: d } : {}) };
-      });
-    } else if (f.kind === 'radio') properties[f.key] = { ...base, type: 'string', oneOf: f.options.map((o) => ({ const: String(o.value), title: o.title })) };
-    else if (f.kind === 'bool') properties[f.key] = { ...base, type: 'boolean' };
-    else if (f.kind === 'number') properties[f.key] = { ...base, type: 'number' };
-    else properties[f.key] = { ...base, type: 'string' };
-    if (f.dflt !== undefined && properties[f.key]) properties[f.key].default = f.dflt;
-    if (f.other) properties[f.other] = { type: 'string', title: 'Other', ...(f.otherHint ? { description: f.otherHint } : {}) };
-    if (f.required && f.kind !== 'check' && !f.other) required.push(f.key);
-  }
-  return { type: 'object', ...(description ? { description } : {}), properties, ...(required.length ? { required } : {}) };
-}
-
-// nativeContent: the native question's answers as the form's content.
-export function nativeContent(fields, content) {
-  const c = content || {}, vals = { ...c };
-  for (const f of fields) {
-    if (f.kind === 'check') vals[f.key] = f.options.filter((o, i) => c[`${f.key}.${i}`] === true).map((o) => o.value);
-    else if (f.kind === 'radio' && c[f.key] != null) vals[f.key] = (f.options.find((o) => String(o.value) === String(c[f.key])) || { value: c[f.key] }).value;
-  }
-  return formContent(fields, vals);
+  const ask = askBlock(ps);
+  return ask ? { park: ask.park, ...askCard(ask) } : null;
 }
 
 // --- the mode and config options (§4.2.4) ---------------------------------------------
@@ -252,11 +115,6 @@ export function controls(h, entry = null, { owner = false, talk = true } = {}) {
   const label = [m.name, ...options.map((o) => o.valueName)].filter(Boolean).join(' · ') || 'Mode';
   return { name: nameOf(h), mode: { current: m.current, name: m.name, explicit: m.explicit }, modes, options, label: clip(label, 48), talk, owner };
 }
-
-// modeConfirm: the words that confirm switching to an explicit (bypass) mode.
-export const modeConfirm = (name, mode) => `Switch ${name} to ${mode.name}? It stops asking before it edits files or runs commands in this conversation.`;
-// optionConfirm: …and allowing a permission option that raises it there.
-export const optionConfirm = (name, o) => `${o.name}: ${name} then stops asking before it edits files or runs commands in this conversation. Go ahead?`;
 
 // --- Auto / Always approve (§4.3.12) ------------------------------------------------------
 
@@ -282,22 +140,13 @@ export function settingOf(entry, setting = 'approve') {
 // --- slash commands -------------------------------------------------------------------
 
 // slashCommands: a harness's advertised commands ({name, description, hint}).
-export const slashCommands = (h) => ((h && h.commands) || []).filter((c) => c && c.name)
-  .map((c) => ({ name: String(c.name).replace(/^\//, ''), description: c.description || '', hint: c.hint || (c.input && c.input.hint) || '' }));
+export const slashCommands = (h) => commandsOf(h && h.commands);
 
 // slashMatches: the commands the draft names so far — null while the draft
 // isn't a command being typed ("/" and a name, no space yet); names that
-// start with it first, then those containing it.
-export function slashMatches(cmds, draft) {
-  const m = /^\/([^\s/]*)$/.exec(String(draft ?? ''));
-  if (!m) return null;
-  const q = m[1].toLowerCase();
-  const list = cmds || [];
-  const starts = list.filter((c) => c.name.toLowerCase().startsWith(q));
-  const has = q ? list.filter((c) => !c.name.toLowerCase().startsWith(q) && c.name.toLowerCase().includes(q)) : [];
-  return [...starts, ...has].slice(0, 12);
-}
-export const slashText = (c) => `/${c.name} `;
+// start with it first, then names or descriptions containing it (the kit's
+// one rule, at most eight).
+export const slashMatches = (cmds, draft) => slashMenu(cmds, draft);
 
 // --- steering (§3.5, §4.2.10) -------------------------------------------------------------
 
@@ -309,21 +158,13 @@ export function steerWords(v, { native = false } = {}) {
   const r = v && v.run;
   if (!isHarness(r) || v.access === 'viewer') return null;
   const h = r.harness || {};
-  const name = nameOf(h);
-  const cut = native ? 'Send now interrupts' : '⌘/Ctrl+Enter interrupts';
-  // one in the shared space never runs again (model/harness-homes.js barredWhy): the composer is off, saying why
-  if (barredWhy(r)) return { busy: false, steering: false, placeholder: BARRED_WORDS, label: `queued for ${name}`, title: BARRED_WORDS };
-  if (busy(r.status)) {
-    return h.steering
-      ? { busy: true, steering: true, placeholder: `steer ${name} — sent into its running turn (${cut})`, label: 'steering', title: `being sent into ${name}'s running turn` }
-      : { busy: true, steering: false, placeholder: `queued — sent to ${name} when this turn ends (${cut})`, label: `queued for ${name}`, title: `sent to ${name} when its current turn ends` };
-  }
   const ps = r.status === 'waiting_input' ? r.pendingState || {} : {};
-  const words = (placeholder) => ({ busy: false, steering: false, placeholder, label: `queued for ${name}`, title: `sent to ${name} next` });
-  if (ps.kind === 'login' || h.state === 'login') return words(`sign in to ${name} first — then message it…`);
-  if (ps.kind === 'approval') return words(`reply — rejects the request, then goes to ${name}`);
-  if (ps.kind === 'question') return words(`reply — skips the question, then goes to ${name}`);
-  return words(`message ${name}…`);
+  return composerWords({
+    name: nameOf(h), native, busy: busy(r.status), steering: !!h.steering,
+    // one in the shared space never runs again (model/harness-homes.js barredWhy): the composer is off, saying why
+    barred: barredWhy(r) ? BARRED_WORDS : '',
+    waits: ps.kind === 'login' || h.state === 'login' ? 'login' : ps.kind === 'approval' || ps.kind === 'question' ? ps.kind : '',
+  });
 }
 
 // steerTrack: a tracker that notices, from the stream, a message of the
@@ -338,24 +179,15 @@ export function steerWords(v, { native = false } = {}) {
 // notes to show ([{text, until}]), each for `ms`. A taken-back message never
 // shows up, so never counts.
 export function steerTrack(ms = 6000) {
-  let run = null, seen = new Map(), gone = [], notes = [];
-  const count = (blocks, text) => (blocks || []).reduce((n, b) => n + (b.k === 'user' && b.text === text ? 1 : 0), 0);
+  const track = steerTracker(ms);
   return (v, blocks, now) => {
     const r = v && v.run;
-    if (!isHarness(r)) { run = null; seen = new Map(); gone = []; notes = []; return []; }
-    if (r.id !== run) { run = r.id; seen = new Map(); gone = []; notes = []; }
-    const steering = !!(r.harness && r.harness.steering);
-    const turn = busy(r.status) && !!(r.harness && r.harness.state === 'working') && (blocks || []).some((b) => b.k === 'user');
-    // each queued message with how often its text was in the transcript when
-    // it was queued, and whether a turn ran then
-    const q = new Map((v.queued || []).map((x) => [x.id, seen.get(x.id) || { text: x.text || '', had: count(blocks, x.text || ''), turn }]));
-    for (const [id, x] of seen) if (!q.has(id) && x.text && steering && x.turn && turn) gone.push({ text: x.text, at: now, had: x.had });
-    seen = q;
-    gone = gone.filter((g) => {
-      if (count(blocks, g.text) > g.had) { notes.push({ text: g.text, until: now + ms }); return false; }
-      return now - g.at < 15000;
-    });
-    notes = notes.filter((n) => n.until > now);
-    return notes.slice();
+    if (!isHarness(r)) return track(null, now);
+    const users = (blocks || []).filter((b) => b.k === 'user');
+    return track({
+      run: r.id, steering: !!(r.harness && r.harness.steering), queued: v.queued || [],
+      turn: busy(r.status) && !!(r.harness && r.harness.state === 'working') && users.length > 0,
+      count: (text) => users.reduce((n, b) => n + (b.text === text ? 1 : 0), 0),
+    }, now);
   };
 }

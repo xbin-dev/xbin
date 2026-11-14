@@ -14,7 +14,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 
@@ -58,20 +57,40 @@ func (s *Server) SessionEvent(cwd string, ev term.SessionEvent) {
 
 // apiAgentProviders lists what this daemon can run — with ?cwd=<tile>, what
 // an agent session may run on that tile: the harnesses its orgs and the
-// workspace allow (D229; a harness left out is refused by POST
-// /term/sessions with the reason). A tile the caller can't read is answered
-// as no tile: the whole catalog. Each row carries `llm`, what a session of
-// the caller's would run on, while the workspace has an LLM connector for
-// agent sessions (agentllm.go); exactly the catalog's rows otherwise.
+// workspace allow, and that can run where the tile's sessions must (D229;
+// a harness left out is refused by POST /term/sessions with the reason).
+// With &all=1 the rest stay in the list, each carrying `unavailable`: the
+// reason — what a launcher shows instead of offering it. A tile the
+// caller can't read is answered as no tile: the whole catalog. Each row
+// carries `llm`, what a session of the caller's would run on, while the
+// workspace has an LLM connector for agent sessions (agentllm.go); exactly
+// the catalog's rows otherwise.
 func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
 	provs := agent.Providers()
 	p := auth.PrincipalOf(r)
 	// (a tile's own credentials ask about their tile only: CanReadTile passes
 	// every element)
-	if cwd := strings.Trim(r.URL.Query().Get("cwd"), "/"); cwd != "" && s.Term != nil && p.CanReadTile(cwd) && (p.Component == "" || p.Component == cwd) {
-		provs = slices.DeleteFunc(provs, func(pr agent.Provider) bool { return s.Term.HarnessAllowed(p, cwd, pr.ID) != nil })
+	cwd := strings.Trim(r.URL.Query().Get("cwd"), "/")
+	if cwd == "" || s.Term == nil || !p.CanReadTile(cwd) || (p.Component != "" && p.Component != cwd) {
+		rows := make([]providerRow, len(provs))
+		for i, pr := range provs {
+			rows[i] = providerRow{Provider: pr}
+		}
+		WriteJSON(w, http.StatusOK, s.withAgentLLM(r, "", rows))
+		return
 	}
-	WriteJSON(w, http.StatusOK, s.withAgentLLM(r, provs))
+	all := r.URL.Query().Get("all") == "1"
+	out := make([]providerRow, 0, len(provs))
+	for _, pr := range provs {
+		err := s.Term.HarnessAllowed(p, cwd, pr.ID)
+		switch {
+		case err == nil:
+			out = append(out, providerRow{Provider: pr})
+		case all:
+			out = append(out, providerRow{Provider: pr, Unavailable: err.Error()})
+		}
+	}
+	WriteJSON(w, http.StatusOK, s.withAgentLLM(r, cwd, out))
 }
 
 // apiAgentCreate opens an agent session: {cwd, kind:"agent", provider,

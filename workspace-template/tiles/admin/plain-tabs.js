@@ -16,6 +16,7 @@ import './tabs/terminals.js'; // one section of settings: an older admin.js's ta
 import './tabs/policies.js';
 import './tabs/partitions.js';
 import './tabs/limits.js';
+import './tabs/llm.js';
 
 export const PLAIN_TABS = {
   sandboxes: () => html`<bx-admin-sandboxes></bx-admin-sandboxes>`,
@@ -27,4 +28,5 @@ export const PLAIN_TABS = {
   policies: () => html`<bx-admin-policies></bx-admin-policies>`,
   partitions: () => html`<bx-admin-partitions></bx-admin-partitions>`,
   limits: (sub) => html`<bx-admin-limits .sub=${sub}></bx-admin-limits>`,
+  llm: () => html`<bx-admin-llm></bx-admin-llm>`,
 };

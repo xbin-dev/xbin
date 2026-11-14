@@ -27,7 +27,7 @@
 // re-deriving a thousand headlines, and a view (the native bridge) can skip
 // what is identical. The output is exactly what fold() without a cache makes.
 import { headline, family, isSpawn, parseArgs, resultState, subline, outcome } from './tool-heads.js';
-import { acpState } from './harness-heads.js';
+import { acpState, acpWords, isAcp } from './harness-heads.js';
 import { activityLine } from './harness.js';
 
 // Engine-written user messages that are not the owner speaking — a person's
@@ -213,11 +213,13 @@ export function fold(v, childView = () => null, depth = 0, cache = null) {
         const content = res ? res.content : '';
         const acp = res && res.acp ? res.acp : null;
         const parent = (acp && acp.parent) || (under && under.parent) || '';
+        // a harness call's words: from its tool row's acp (model/harness-heads.js — xbind's chat kit's headline)
+        const words = acp && isAcp(name) ? acpWords(name, parseArgs(raw), acp) : { headline: headline(name, raw), sub: subline(name, raw) };
         return {
-          id: 'c' + c.id, callId: c.id, name, args: raw, headline: headline(name, raw), fam: family(name),
+          id: 'c' + c.id, callId: c.id, name, args: raw, headline: words.headline, fam: family(name),
           state: acp ? acpState(acp, resultState(content)) : resultState(content), result: content, resultId: res ? res.id : 0, created: m.created,
           // a sandbox call (D115): its command under a summary, and what it came to
-          sub: subline(name, raw), outcome: outcome(name, content, acp),
+          sub: words.sub, outcome: outcome(name, content, acp),
           ...(acp ? { acp } : {}), ...(parent ? { parent } : {}),
         };
       };

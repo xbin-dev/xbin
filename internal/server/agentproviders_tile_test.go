@@ -52,6 +52,12 @@ func TestAgentProvidersFollowTheTile(t *testing.T) {
 	if got := ids(get(bob, "?cwd=apps/x")); got != "claude,codex,gemini,opencode" {
 		t.Errorf("a tile the caller can't read: %s", got)
 	}
+	// &all=1: the rest stay, each with the reason a launcher shows
+	withAll := get(alice, "?cwd=apps/x&all=1")
+	if ids(withAll) != "claude,codex,gemini,opencode" || strings.Count(withAll, `"unavailable":"Finance allows these coding agents only: claude, codex (not gemini)"`) != 2 ||
+		strings.Contains(get(alice, "?cwd=apps/x"), "unavailable") || strings.Contains(get(bob, "?cwd=apps/x&all=1"), "unavailable") {
+		t.Errorf("all=1: %s", withAll)
+	}
 	s.Term.AgentGate = func(auth.Principal, string, string) error { return why }
 	if got := strings.TrimSpace(get(alice, "?cwd=apps/x")); got != "[]" {
 		t.Errorf("nothing allowed is an empty list: %s", got)

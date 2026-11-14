@@ -9,7 +9,8 @@ package agent
 // so on, and later events update the card they belong to. So a page may
 // only start where no card begun before it is touched after it: a SAFE CUT.
 // safeCuts mirrors the fold's bookkeeping to find them — which event opened
-// the card each later event lands on — and treats what can still change as
+// the card each later event lands on (for a tool call: the tool record's id
+// rule, sdk/acp's ToolRecords) — and treats what can still change as
 // open to the end of the log: the message or thought being written, a tool
 // call of the running turn not finished yet, an unanswered request, the
 // running turn's plan, and the snapshots the daemon has yet to report
@@ -19,6 +20,8 @@ package agent
 import (
 	"encoding/json"
 	"strconv"
+
+	"github.com/xbin-dev/xbin/sdk/acp"
 )
 
 // EvReplayed is never logged: when a resumed session's replay (session/load)
@@ -27,7 +30,7 @@ import (
 const EvReplayed = "replayed"
 
 // evFilesChanged is internal/term's snapshot diff event, as the fold reads it.
-const evFilesChanged = "files.changed"
+const evFilesChanged = acp.EvFilesChanged
 
 // DefaultPageLimit and MaxPageLimit bound a page's event count.
 const (
@@ -147,16 +150,19 @@ func safeCuts(ms []evMeta, open Open) []bool {
 		role, mid    string
 		files, ended bool
 	}
-	type tkey struct {
-		turn float64
-		id   string
-	}
 	var c *cur // the main thread's current message or thought
-	turn := 0.0
-	tools := map[tkey]int{}
-	byID := map[string]int{}
+	// which call an id names now — the tool record's rule (an id used again
+	// once its call is over, or in a later turn, is a new call) — and the
+	// event that opened each call's card
+	var recs acp.ToolRecords
+	card := map[*acp.ToolEntry]int{}
+	cardOf := func(id string) (int, bool) {
+		if e := recs.Newest(id); e != nil && id != "" {
+			return card[e], true
+		}
+		return 0, false
+	}
 	sub := map[int]bool{}
-	tstatus := map[int]string{}
 	perms, asks := map[string]int{}, map[string]int{}
 	answered := map[int]bool{}
 	turnEnds := map[uint64]int{}
@@ -168,7 +174,7 @@ func safeCuts(ms []evMeta, open Open) []bool {
 		}
 		switch m.typ {
 		case EvMessageDelta, EvThoughtDelta:
-			if b, ok := byID[m.parent]; ok && m.parent != "" && sub[b] {
+			if b, ok := cardOf(m.parent); ok && sub[b] {
 				touch(b, j) // a subagent's text lives in its call's card
 				continue
 			}
@@ -182,10 +188,15 @@ func safeCuts(ms []evMeta, open Open) []bool {
 				c = &cur{idx: j, thought: thought, role: m.role, mid: m.mid, files: m.attach}
 			}
 		case EvToolCall, EvToolUpdate:
-			k := tkey{turn, m.id}
-			t, seen := tools[k]
+			prev := recs.Newest(m.id)
+			e, isNew := recs.Observe(m.typ, m.id, m.status)
+			if e == nil { // names no call: no card
+				c = nil
+				continue
+			}
+			t := card[e]
 			box := -1
-			if b, ok := byID[m.parent]; ok && m.parent != "" && sub[b] && (!seen || b != t) {
+			if b, ok := cardOf(m.parent); ok && sub[b] && (isNew || b != t) {
 				box = b
 			}
 			if box >= 0 {
@@ -193,27 +204,28 @@ func safeCuts(ms []evMeta, open Open) []bool {
 			} else {
 				c = nil
 			}
-			if !seen {
+			if isNew {
 				t = j
-				tools[k] = j
+				card[e] = j
 				if box >= 0 {
 					up[j] = box
+				}
+				if prev != nil && prev.Turn == e.Turn {
+					// the id again in one turn, its earlier call over: a fold
+					// from before the shared rule merged the two into the
+					// earlier card — no cut between them (a client's fold may
+					// be older than this daemon)
+					touch(card[prev], j)
 				}
 			} else {
 				touch(t, j)
 			}
-			byID[m.id] = t
 			if m.subagent {
 				sub[t] = true
 			}
-			if m.status != "" {
-				tstatus[t] = m.status
-			}
 		case evFilesChanged:
 			if m.toolCallID != "" {
-				if t, ok := tools[tkey{turn, m.toolCallID}]; ok {
-					touch(t, j)
-				} else if t, ok := byID[m.toolCallID]; ok {
+				if t, ok := cardOf(m.toolCallID); ok { // the newest call of the id: its turn may be over
 					touch(t, j)
 				}
 			} else if k, ok := turnEnds[m.turn]; ok && m.hasTurn {
@@ -245,11 +257,9 @@ func safeCuts(ms []evMeta, open Open) []bool {
 		case EvTurnEnd:
 			c, plan = nil, -1
 			if m.hasTurn {
-				turn = float64(m.turn) + 0.5
 				turnEnds[m.turn] = j
-			} else {
-				turn += 0.5
 			}
+			recs.EndTurn(m.turn) // 0: a turn's end that names none
 			lastEnd = j
 		case EvGap:
 			c = nil
@@ -262,8 +272,8 @@ func safeCuts(ms []evMeta, open Open) []bool {
 	if plan >= 0 {
 		touch(plan, n)
 	}
-	for _, t := range tools {
-		if s := tstatus[t]; t > lastEnd && s != "completed" && s != "failed" && s != "cancelled" {
+	for e, t := range card {
+		if t > lastEnd && !e.Rec.Done() {
 			touch(t, n)
 		}
 	}
@@ -275,7 +285,7 @@ func safeCuts(ms []evMeta, open Open) []bool {
 		}
 	}
 	for id := range open.Tools {
-		if t, ok := byID[id]; ok {
+		if t, ok := cardOf(id); ok {
 			touch(t, n)
 		}
 	}

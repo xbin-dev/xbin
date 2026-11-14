@@ -83,6 +83,14 @@ type Broker struct {
 	// only, whatever tile they name: the Go build versions alert (D166),
 	// which names tiles and their dependency versions.
 	AdminAlerts func() []Alert
+	// AdminShellAlerts, if set, is a source of alerts GET /alerts also
+	// shows an admin's shell: a trusted chrome frame minted under a
+	// workspace admin's own login (AdminShell), whose token is otherwise
+	// no admin's. The LLM connector's notices (D226) — a quota reached,
+	// nothing set up — so an admin meets them where they work, in a shell
+	// of any age; the admin's own session and the admin console get them
+	// through AdminAlerts.
+	AdminShellAlerts func() []Alert
 
 	// OnStructureChange, if set, is called after the broker changes the
 	// component tree (e.g. a tile import) so the host can reconcile deps/
@@ -148,6 +156,16 @@ type Broker struct {
 	// private — what an org's "private models only" rule asks (D229,
 	// agentpolicy.go). nil ⇒ no connector: no model is private.
 	AgentModels func(id string) (agentpolicy.ModelRef, bool)
+	// AgentConnector answers why a harness (a provider id) can't run on the
+	// LLM connector now — its CLI speaks no wire the connector serves, or
+	// the connector isn't set up — and nil when it can. nil func ⇒ no
+	// connector on this xbind: wherever a tile's sessions must run on it
+	// (AgentSessionLLM), no harness starts.
+	AgentConnector func(harness string) error
+	// AgentSaved answers a person's saved credential choice for a harness
+	// ("own", "connector" or ""), from their agent preferences; wired by
+	// boot. nil ⇒ nobody saved one.
+	AgentSaved func(userID, harness string) string
 	// rmTree stands in for the confined removal of a terminal layer
 	// (removeTree) in tests; nil = confine.RemoveAll.
 	rmTree func(dir string) error

@@ -182,4 +182,4 @@ var wantResumeFrames = []string{
 	`{"jsonrpc":"2.0","id":2,"method":"session/load","params":{"sessionId":"s-old","cwd":"/w/apps/x","mcpServers":[],"_meta":{"claudeCode":{"options":{"thinking":{"display":"summarized","type":"adaptive"}}}}}}`,
 }
 
-const wantAuthStatus = `{"currentMode":"ask","detail":"Authentication required: the agent isn't signed in — open a terminal on apps/x and run: fake-login  (your terminal $HOME is shared with agent sessions, so one login serves every tile)","login":{"command":"fake-login","needed":true,"provider":""},"status":"error"}`
+const wantAuthStatus = `{"currentMode":"ask","detail":"Authentication required: the agent isn't signed in — in a terminal on apps/x, run: fake-login","login":{"command":"fake-login","needed":true,"provider":""},"status":"error"}`

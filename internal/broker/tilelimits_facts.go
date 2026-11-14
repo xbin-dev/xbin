@@ -72,6 +72,17 @@ func (b *Broker) chromeFrameDriver(p auth.Principal) (auth.Principal, bool) {
 	return auth.Principal{UserID: p.UserID, User: u, Access: acc, Via: p.Via, Gen: p.Gen}, true
 }
 
+// AdminShell reports a trusted chrome frame — root, the shell, a tile whose
+// chrome a workspace admin approved — minted under a workspace admin's own
+// login (chromeFrameDriver): a document that already runs with that
+// admin's session cookie. It is not IsAdmin: the frame's own token manages
+// nothing; the few acts that take it say so (the LLM connector's notices
+// and the dismissal of its setup alert, D226).
+func (b *Broker) AdminShell(p auth.Principal) bool {
+	d, ok := b.chromeFrameDriver(p)
+	return ok && b.IsAdmin(d)
+}
+
 // trustedChromeTile mirrors server.trustedChrome for a primary: the
 // implicit chrome, shipped chrome, or an approved request.
 func (b *Broker) trustedChromeTile(path string) bool {

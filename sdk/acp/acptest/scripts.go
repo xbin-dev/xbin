@@ -29,6 +29,14 @@ func (f *fake) turn(t *turnState, text string, files []string) {
 		if !f.todo(cancel) {
 			return
 		}
+	case strings.HasPrefix(text, "detach") && t.detach:
+		f.say("waiting for a steer")
+		select { // a steer ends this turn and starts the agent's own (moves.go)
+		case <-t.gone:
+		case <-cancel:
+		case <-f.done:
+		}
+		return
 	case strings.HasPrefix(text, "stall"):
 		f.say("stalling")
 		select { // nothing more until session/cancel

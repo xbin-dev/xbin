@@ -746,7 +746,11 @@ menu and the chooser then offer only those (`GET
 with the reason — "Finance allows these coding agents only: claude, codex
 (not gemini)". A rule decides what starts next: a session already running
 keeps running; it can't be restarted or resumed while its harness is
-disallowed, and its transcript stays readable. What you last picked — the
+disallowed, and its transcript stays readable. An org's **models** rule
+binds these sessions too: on its tiles they run on the workspace's LLM
+connector only, with the models the rule allows, and a harness that can't
+run on the connector isn't offered — the chooser says which and why. None
+of this governs what you type in a plain terminal. What you last picked — the
 harness, and per harness the mode, model and settings — is remembered on
 the server (`/api/xbin/agent/prefs`), so every browser you sign into
 starts a session the same way; a bypass mode is never remembered. A

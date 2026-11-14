@@ -44,4 +44,19 @@
 // endpoint a host serves in place of the vendor's — from its environment
 // (a provider's Connector, ConnectorEnv, and who serves a session:
 // ConnectorServes, HasOwnLogin).
+//
+// The session rules — what a host does with the events, the same whoever
+// hosts the session (xbind's tile agent sessions and the agent template's
+// coding agents both call them; each file is pure: no I/O, no goroutines):
+// toolrec.go the tool record (ToolRecord, ToolRecords: a call's events
+// merged, an id used again, what output a reducer keeps); escalation.go
+// whether a permission option raises the session's mode
+// (Provider.OptionRaises, ModeOpen — what marks an option Explicit);
+// authstate.go whether the agent is signed out and the one sentence that
+// says how to sign it in (IsAuthRequired, SaysSignedOut, AuthState,
+// Provider.SignInHint); queue.go a message while a turn runs — prompt, steer or hold, what a
+// steer's answer means, when held messages go, and the turn codex starts
+// on its own (QueueState, SteerOutcome, DetachedTurn); summary.go a session
+// in a word and a line (Busy, TurnOver, StateOf, Summary, and Need: what it
+// waits on a person for, in words).
 package acp

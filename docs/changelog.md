@@ -56,6 +56,35 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   who serves a session ([sdk.md](/docs/sdk.md) §Driving a coding agent).
   `acp.Fake` takes a connector too, and the scripted agent (`acptest`)
   gains the `llm-call` script.
+- **The LLM connector has a page and an admin console tab** (D226;
+  [llm.md](/docs/llm.md)). `/xbin/llm` — xbind's own page, there whatever
+  scaffold a workspace runs — is where a workspace admin sets the connector
+  up: status, providers (add, edit, remove; a masked key that is never
+  shown again; **Test**), default models by role and aliases, who may call
+  directly, quotas (workspace total, default per person, per-person and
+  per-org overrides; stop or warn) and usage per person and per component
+  for today and the month, sortable. Everyone else reads **their own usage
+  and quota** there. The admin console's new **workspace → LLM** tab is the
+  same page; its users tab has *LLM quota…* per person and an org's page an
+  *LLM quota* panel (after `bx builtin update scaffold:tiles/admin`).
+  - **What a host's file sets is read-only**, marked **Set by your host**
+    with its controls disabled; a connector the host locks entirely says
+    so at the top.
+  - **A quota that is reached raises an admin alert** (`GET
+    /api/xbin/alerts`, kind `llm-quota`; a banner in an admin's shell, a
+    row in the admin console): the person, the limit and where
+    it comes from, whether their calls are refused or only warned about,
+    when it resets, and `/xbin/llm`. The person reads a plain sentence on
+    their own page; `GET /api/xbin/llm` now answers a person's `user` and
+    `quota` even when the people switch doesn't admit their direct calls.
+  - **One setup card for admins** while no provider exists: an alert of
+    kind `llm-setup` — answered to admins and to the shell an admin
+    drives, nobody else — that the admin console draws as a card, an
+    admin's shell as a banner, and older shells and consoles as text
+    naming `/xbin/llm`. Its `dismiss` route, `POST
+    /api/xbin/llm/setup/dismiss`, ends it for the workspace; so does
+    adding a provider. Nothing else changes for a
+    workspace that ignores the connector ([compat.md](/docs/compat.md)).
 - **Orgs constrain agents** (D229; [auth.md](/docs/auth.md) §Agent
   constraints, [protocol/orgs.md](/docs/protocol/orgs.md) §Agent
   constraints). An org can now say what agents may do on its tiles:
@@ -63,13 +92,27 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   may run there (`any` or a list of ids), and the `models` that may see
   their data (`any`, `private`, or a list of LLM connector ids) —
   `PUT /api/xbin/orgs/<org>/agents`, `bx org agents <org>`; `GET /orgs`
-  carries `agents`. The workspace sets the outer bounds and the default
-  for whose credentials serve a coding agent
-  (`GET`/`PUT /api/xbin/agents/policy`, `bx org agents`): an org only
-  narrows them. Workspace admins set both; an org's admin sets their own
-  org, in their own session. A tile falls under the org that owns it and
-  every org it is shared into, and the strictest wins. **With nothing set,
-  nothing changes.**
+  carries `agents`. The workspace sets the outer bounds and the mode for
+  whose credentials serve a coding agent — `own-first`, `connector-first`
+  or `connector-only` (`GET`/`PUT /api/xbin/agents/policy`, `bx org
+  agents`): an org only narrows them. Workspace admins set both; an org's
+  admin sets their own org, in their own session. A tile falls under the
+  org that owns it and every org it is shared into, and the strictest
+  wins. **With nothing set, nothing changes.**
+  - **A workspace admin can pin an org's rules.**
+    `PUT /api/xbin/orgs/<org>/agents/pin` (`bx org agents <org> --pin …`;
+    `GET /orgs` carries `agentsPin`): the org's admins narrow below the
+    pin and never loosen it. A refusal says where its rule comes from —
+    "(pinned by a workspace admin)", and for a tile the org doesn't own
+    the share that put it under the org ("this tile is under Finance by
+    its share apps/*").
+  - **An org's models rule binds agent sessions on its tiles.** Where a
+    `models` rule other than `any` applies, an agent session runs on the
+    workspace's LLM connector only, with the models the rule allows; a
+    harness that can't run on the connector isn't offered there
+    (`GET /agent/providers?cwd=<tile>&all=1` keeps it in the list with
+    `unavailable`: why; the tile window's chooser shows it). Neither this
+    nor the harness list governs what a person runs in a plain terminal.
   - **Agent sessions follow the tile's harness list.**
     `GET /api/xbin/agent/providers?cwd=<tile>` lists only what may run
     there, and `POST /api/xbin/term/sessions` answers 403 with the reason
@@ -81,8 +124,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     ?model=&orgs=&tiles=&whatIf=` (and `bx agent connection`) lists every
     org and tile a person can see as `connected`, `hidden` (left out of
     the scope), `blocked` (with the reason) or `no-access`, with totals
-    ("14 tiles · 3 orgs connected · 6 not connected") and what a model
-    change would connect and disconnect
+    ("14 tiles · 3 orgs connected · 6 not connected"), what an agent
+    session on each tile runs on (`credentials`, `unavailable`), and what
+    a model change would connect and disconnect
     ([protocol/agents.md](/docs/protocol/agents.md) §The connection view).
   - **`origin` on a session.** A `GET /term/sessions` row and a
     `GET /agent/history` entry carry `origin: "agent"` when the person's
@@ -165,6 +209,163 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     the tile's edge policy: read-clamped by default (models, no calls).
   - Not yet: an admin console section, the connector in terminals and
     agent sessions, an Anthropic-wire route, `llm-gw` as an upstream.
+- **Agent sessions: one sign-in hint (D225).** When a coding agent
+  refuses a session or a prompt because it is signed out, the error and
+  the `status` event's `detail` end with one sentence everywhere,
+  `sdk/acp`'s new `Provider.SignInHint`. **Wording that changed** — a tile
+  agent session's (the Agent tab's status line, `bx agent`): "‹the
+  agent's message›: the agent isn't signed in — in a terminal on ‹tile›,
+  run: ‹command›", where it read "… — open a terminal on ‹tile› and run:
+  ‹command›  (your terminal $HOME is shared with agent sessions, so one
+  login serves every tile)"; and ‹command› is now the provider's terminal
+  sign-in line (`LoginCmd`: `codex login --device-auth`, `NO_BROWSER=true
+  gemini` — the forms that print a URL or code instead of opening a
+  browser) where it was the display line (`codex login`, `gemini (then
+  choose Login with Google)`). The `login` object of a status event
+  (`{needed, provider, command}`) and the agent template's texts are
+  unchanged. Also new in `sdk/acp`, additive: `IsAuthRequired`,
+  `SaysSignedOut`, `AuthState` (`/docs/sdk.md` "The session rules").
+- **Agent sessions: a turn the agent starts on its own is followed
+  (D225).** codex-acp answers a message steered just after its turn ended
+  by starting a turn of its own, which no prompt's answer ends. A tile
+  agent session used to read as idle through such a turn — the next
+  message was prompted into it, and held messages were sent while it ran.
+  Now `POST …/queue` still answers `steered`, a `status` event says
+  `running` (statuses the agent's client restates as idle meanwhile are
+  served as `running`, or `waiting_permission` while a request waits), a
+  message sent meanwhile is held, `POST …/prompt` answers 409 as for any
+  running turn, and the turn ends with xbind's own `turn.end`
+  `{stopReason, detached: true}` (no `turn` number) once the agent has
+  sent nothing for 5 s with no request waiting — or at `POST …/cancel`
+  (`stopReason: "cancelled"`; the requests it waited on are answered
+  cancelled) — followed by an idle `status`, after which held messages go
+  in. Additive: a client that doesn't know `detached` shows an ordinary
+  turn end. `/docs/protocol/agents.md` §Agent session events. In
+  **`sdk/acp`** the rules both hosts follow are new API — `QueueState`
+  (`Message`, `Flush`, `Busy`), `SteerOutcome`, the `Message*` constants,
+  `DetachedTurn` and `DetachedQuiet` (`/docs/sdk.md` "The session rules")
+  — and one behaviour of `Client` changed: a permission request or form
+  question the agent makes outside a prompt leaves the status `idle` again
+  once answered (it stayed `waiting_permission` until the next prompt).
+  `sdk/acp/acptest` gains the `detach…` script (with `--steer`) to play
+  such a turn. The agent template decides with the same functions; one
+  thing moves there: a message sent during the agent's own turn no longer
+  splits the text the agent is writing into two rows (it waits, as before).
+- **sdk/acp: status words — `Busy`, `TurnOver`, `StateOf`, `Summary`,
+  `Need` (D225).** New, additive (`/docs/sdk.md` "The session rules"):
+  the status classes, a session's state in one word (`starting`, `ready`,
+  `working`, `login`, `failed`, `stopped`), the summary an inbox compares,
+  and what a session waits on a person for as a heading and a sentence.
+  xbind's agent-session summaries and notifications and the agent
+  template's "Needs you" now take their words from it. **Wording that
+  changed** — xbind's push notifications for a tile agent session, only
+  when the request says nothing of itself: a permission request without a
+  title reads "The agent wants to run a command — approve or deny." (was
+  "A tool call is waiting for your answer."), a question without a message
+  "The agent is waiting for your answer." (was "The agent is asking you
+  something."). Titles ("Permission needed — ‹tile›", "Question —
+  ‹tile›"), every other body, the `term` status event and the agent
+  template's texts and `harness.state` words are unchanged.
+- **Agent sessions: a permission option that raises the mode says so —
+  `explicit: true` (D225).** A `permission.request`'s options (the event,
+  `GET /term/sessions/<id>`'s `permissions`, the tail page's
+  `state.permissions`) gain an optional `explicit`: answering with that
+  option switches the session to a mode beyond the agent's own asks — a
+  plan approval's "yes, and bypass permissions", or a "yes, and switch to
+  ‹mode›" the provider catalog can't place — unless the session was opened
+  in that mode. Additive: absent on every other option, ignored by clients
+  that don't know it (the app's decoder does), and xbind answers such an
+  option like any other — it is there so a client can ask twice.
+  `/docs/protocol/agents.md` §Agent session events. In **`sdk/acp`** the
+  rule is `Provider.OptionRaises`, with `Provider.ModeOpen`,
+  `Provider.ModeIDs`, `ModeOption`, `SessionState.Mode` and the new field
+  `PermissionOption.Explicit`, which a `Client` now sets on the requests it
+  files (`Config.Mode` is the mode the session began in). The agent
+  template judges its owner-only options with the same function (it was
+  its own `optionRaises`); what it refuses is unchanged.
+- **sdk/acp: the tool record (D225).** New, additive: `acp.ToolRecord`
+  (one tool call, its `tool.call` / `tool.update` events merged),
+  `acp.ToolRecords` (a session's fold: `Apply`, `Entries`, `Newest`,
+  `Observe`, `EndTurn`), `ToolEntry`, `ToolEvent` / `ParseToolEvent`,
+  `ToolPolicy`, `ToolDiff`, `ToolLocation`, `ChangeSet`, `FileChange`,
+  `ChangePatch`, `OutputChunk`, `StartsToolRecord`, `ToolDone`,
+  `NewToolRecord`, `NewToolRecords`, the `Tool*` status constants and
+  `EvFilesChanged` — `/docs/sdk.md` "The session rules". xbind's event
+  pager and the agent template's backend now use it, so they agree on one
+  reading of a call. What changes in the **agent template** (a new
+  instance, or one that merges the template; it needs the SDK of this
+  xbind, as any newer template does — `/docs/compat.md`): a call id the
+  coding agent uses again in a later turn is a new card even when the
+  earlier call never reported its end (it was merged into the earlier
+  card); a call's kept output and its result's tail are cut between
+  characters, never inside one; a tool kind ACP doesn't define is stored
+  as `other` (the tool row's name was `acp:<that kind>`); a permission
+  request for a call the agent has not announced yet makes the card with
+  the request's arguments and content (a plan approval shows its plan
+  then). The tool row's `acp` object is unchanged for every other call.
+  xbind's `GET …/events?before=` pages: a page is never cut between two
+  calls that share an id within one turn; nothing else moves.
+- **Frontend kit: `/vendor/chat/tools.js` and `/vendor/chat/ask.js` — one
+  model of a tool call and of what an agent asks; the chat kit's `KIT` is
+  2** (D224; [frontend-kit.md](/docs/frontend-kit.md)). Two new pure
+  modules a tile may import, made of what xbind's Agent tab and the agent
+  template each had: `tools.js` reads a call from its `ToolRecord` (the
+  merge of an agent's `tool.call` / `tool.update` events, headline, the
+  command under it, outcome and state chips, `stripAnsi`, the output's
+  tail, diffs as a patch or as the two texts, plan approval); `ask.js` a
+  permission request as its card (option order, who sees an option that
+  stops the agent asking, what "always" remembers), a question as a form or
+  a page to open, the slash menu, the composer's words while a turn runs.
+  `/vendor/agent-tools.js`, `/vendor/agent-slash.js` and
+  `/vendor/signin-scan.js`'s `cleanCode` are re-exports now: every name
+  they exported is there and says what it said, with the changes below.
+  An event log's tool block in the Agent tab's fold (`/vendor/agent-fold.js`)
+  also carries `rec`, the kit's record (its locations and files; a diff a
+  later content list left out; `changed`), and a question's block its
+  `mode` and `url`.
+- **Agent tab: what changes in it.** Command output: a terminal hyperlink
+  keeps its text (it was dropped, with everything up to the last link),
+  and colours written with colon sub-parameters (`ESC[38:2::…m`), a
+  character-set designation (`ESC ( B`) and the 8-bit CSI are stripped
+  (they showed as stray characters). A question's form: a single choice
+  written as `anyOf`, labels from `enumNames`, and schema `default`s (drawn
+  chosen; an untouched field answers its default) are read; a choice
+  without a title is called by its value; a required choice answered in
+  its "Other" box counts as answered. A question that is a page to open
+  (URL mode) is drawn as its link with Done / Skip. The iOS app's port
+  follows the output rule in its next build.
+- **Agent template: a coding agent's calls and requests are said by
+  xbind's chat kit, and the page needs chat kit revision 2 (xbind ≥
+  v0.3.80).** `model/harness-heads.js`, `model/harness-ask.js` and
+  `cleanCode` in `model/harness-signins.js` keep their exports and become
+  adapters from the template's rows to the kit. What reads differently:
+  - a call's headline. With the agent's own label (Claude Code's
+    description of a command) nothing changes. Without one, a shell command
+    is read ("Python script (12 lines) → main.go", "Edit a.txt (sed)",
+    else its first line) with the command under it, where it was the
+    command's first hundred characters; a title of several lines is its
+    first; a call with neither label nor title is read from its arguments
+    ("Read /w/a.go:10–49") where it said its kind ("read"), and an untitled
+    command is `make test`, not `$ make test`;
+  - a command given as `script`, and a string command's `args`, are read;
+  - a question's plain `enum` (no `enumNames`) is labelled by its values —
+    every choice was labelled "false";
+  - the slash menu also finds a command by its description, offers at most
+    8 (it was 12, by name only), and opens while the draft is `/` and a
+    name of letters, digits, `_`, `:`, `.` and `-`.
+  The template's native view imports these models, so on an xbind older
+  than v0.3.80 its `native.js` does not load: the app shows the tile's web
+  page ([native.md](/docs/native.md) → Fallback), which says "This agent
+  needs xbind ≥ v0.3.80". Instances you already have are not touched.
+- **Admin console and organisations tile: agent rules.** The admin
+  console's organisations tab gained **agents** panels on each org's page
+  (its own rules, and the pin) and one for the workspace's bounds under
+  the list; the organisations tile gained an **agents** card on each org
+  its viewer admins, so an org's admin has a UI for their own rules. Both
+  use xbind's `<bx-org-agents>` (`/vendor/org-agents.js`); the scaffold
+  part is a few lines in `tiles/admin/tabs/orgs.js` and a new file,
+  `tiles/organisations/agents.js` (`bx builtin update`). `bx org agents`
+  and the API do the same for a workspace whose scaffold predates it.
 - **docs: the protocol reference is split by topic.** `/docs/protocol.md`
   had reached the size limit of a served doc, so its route tables and
   WebSocket sections moved, unchanged, to one page per area under
@@ -207,7 +408,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   v0.3.80 — update xbind" instead of the app. Instances you already have
   are not touched and keep working on this and later xbinds; this is about
   merging a newer template into an instance on an older xbind — update
-  xbind first. The native view is unaffected. What the template's chat
+  xbind first. (The native view: see the entry above.) What the template's chat
   draws differently: code is coloured up to 32 KiB a block (it was 20,000
   characters), a fence's language becomes a `language-…` class only when
   it is a plain name, and an image's placeholder carries the class `md-img`

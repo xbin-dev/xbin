@@ -351,28 +351,58 @@ func ParseModelID(id string) ModelRef {
 	return ModelRef{Upstream: up, Model: model}
 }
 
-// The workspace's default for whose credentials serve a coding agent's
-// model calls, and a person's choice per harness (plans/wsagent
-// s4-connector.md §1.5).
+// Whose credentials serve a coding agent's model calls (plans/wsagent
+// s4-connector.md §1.5). The workspace sets a mode; a person and a session
+// may state a choice, which the mode may or may not honour.
 const (
-	CredentialsOwnFirst  = "own-first" // the workspace default: the person's own sign-in when there is one, else the connector
-	CredentialsConnector = "connector" // the workspace's: forced; a person's or a session's: use the connector
-	CredentialsOwn       = "own"       // a person's or a session's: use my own sign-in
+	// CredentialsOwnFirst (the default): the person's own sign-in when they
+	// have one, else the LLM connector; a choice of either is honoured.
+	CredentialsOwnFirst = "own-first"
+	// CredentialsConnectorFirst: the connector, unless the person
+	// explicitly chose their own sign-in (for the harness, or the session).
+	CredentialsConnectorFirst = "connector-first"
+	// CredentialsConnectorOnly: the connector; own sign-ins are not used,
+	// whatever anyone chose.
+	CredentialsConnectorOnly = "connector-only"
+
+	// A person's or a session's choice.
+	CredentialsOwn       = "own"       // my own sign-in
+	CredentialsConnector = "connector" // the connector
 )
 
-// ResolveCredentials is the precedence rule: the session's own choice,
-// then the person's saved default for the harness, then the workspace
-// default — unless the workspace forces the connector, which nothing
-// overrides. It answers "own", "connector" or "own-first", and whether
-// the workspace forced it.
-func ResolveCredentials(session, saved, workspace string) (use string, forced bool) {
-	if workspace == CredentialsConnector {
+// CredentialMode is a workspace mode as stored: "" and anything unknown
+// read as own-first, and "connector" — what connector-only was called
+// before the three modes — as connector-only. ok is false for a value
+// that is no mode at all.
+func CredentialMode(s string) (mode string, ok bool) {
+	switch s {
+	case "", CredentialsOwnFirst:
+		return CredentialsOwnFirst, true
+	case CredentialsConnectorFirst:
+		return CredentialsConnectorFirst, true
+	case CredentialsConnectorOnly, CredentialsConnector:
+		return CredentialsConnectorOnly, true
+	}
+	return CredentialsOwnFirst, false
+}
+
+// ResolveCredentials is the precedence rule under a mode: the session's
+// own choice, then the person's saved choice for the harness, then the
+// mode. It answers "own", "connector" or "own-first" (their own sign-in
+// when they have one, else the connector — only the host that starts the
+// CLI can see which), and whether the mode forced it past any choice.
+func ResolveCredentials(session, saved, mode string) (use string, forced bool) {
+	mode, _ = CredentialMode(mode)
+	if mode == CredentialsConnectorOnly {
 		return CredentialsConnector, true
 	}
 	for _, c := range []string{session, saved} {
 		if c == CredentialsOwn || c == CredentialsConnector {
 			return c, false
 		}
+	}
+	if mode == CredentialsConnectorFirst {
+		return CredentialsConnector, false
 	}
 	return CredentialsOwnFirst, false
 }

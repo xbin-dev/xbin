@@ -20,6 +20,7 @@
 // hack/agent-template-ci.test.mjs.
 import { projCall, qs } from './project-api.js';
 import { homeOf } from './homes.js';
+import { stripAnsi as noEscapes } from '/vendor/chat/tools.js';
 
 export const LIVE_MS = 15000; // the dock's re-read while anything is not completed
 export const LOG_TAIL = 65536;
@@ -60,14 +61,16 @@ export function openChecks(c) {
 export const ICON = { ok: 'ok', bad: 'error', run: 'live', warn: 'warning', idle: '' };
 export const NATIVE_ICON = { ok: 'check', bad: 'error', run: 'clock', warn: 'warning', idle: '' };
 
-/** stripAnsi(s): terminal escapes (colours, cursor moves, titles) and
- * control characters gone; a carriage return ends a line. */
-export function stripAnsi(s) {
-  return String(s || '')
-    .replace(/\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-Za-z]|\x1b[@-_]|\x9b[0-?]*[ -/]*[@-~]/g, '')
+/** stripAnsi(s) — a log's text: terminal escapes gone (colours, cursor
+ * moves, titles: xbind's chat kit's one rule, /vendor/chat/tools.js
+ * stripAnsi, D224), then what a log adds — a carriage return ends a line,
+ * other control characters go. */
+function logText(s) {
+  return noEscapes(s || '')
     .replace(/\r\n?/g, '\n')
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\x80-\x9f]/g, '');
 }
+export { logText as stripAnsi };
 
 /** elapsed(ms): "42s", "2:14", "1:02:03" ('' for nothing or less than 0). */
 export function elapsed(ms) {
@@ -336,7 +339,7 @@ export function createCI(app, opts = {}) {
     async log(root, watch, job, { tail = LOG_TAIL, since = 0, until = 0 } = {}) {
       try {
         const r = await call(root, `/runs/${root}/ci/jobs/${encodeURIComponent(job)}/log${qs({ watch, tail, since: since || undefined, until: until || undefined })}`);
-        return { ...r, text: stripAnsi(r.text), inProgress: false };
+        return { ...r, text: logText(r.text), inProgress: false };
       } catch (e) {
         if (e && e.status === 409 && e.refusal === 'in-progress') {
           return { text: '', bytes: 0, from: 0, complete: false, truncated: false, url: (e.data && e.data.url) || '', inProgress: true };
