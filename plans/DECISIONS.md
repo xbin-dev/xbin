@@ -13771,3 +13771,90 @@ Deviations and refinements made while implementing; all deliberate:
     first that can carry this; whoever cuts the release this lands in
     checks the number. Later steps (tool and ask models, views, composer)
     add to this entry and raise `KIT`.
+- **D225 — The agent session rules live in sdk/acp: tool record, mode
+  escalation, steer queue, auth state, status words (2026-11-14; issue
+  #51).** Two hosts run coding agents through `sdk/acp`'s client — xbind's
+  tile agent sessions (`internal/term`, `internal/agent`) and the agent
+  template's harness engine (`builtin-templates/agent/_backend`) — and each
+  had its own reading of what to do with the event stream
+  (`plans/agent-dedupe.md` §1, §4 B1). The hosts stay two (different
+  stores, different lifetimes); the rules move to five pure files of
+  `sdk/acp` — no I/O, no goroutine, no clock of their own, table-tested —
+  that both call, and that the workspace agent will call too. `sdk/` is
+  the only place a tile backend can import from, so that is where shared
+  Go lives; every name below is public API that only grows.
+  - **`toolrec.go` — the tool record.** `ToolRecord` is a call's
+    `tool.call`/`tool.update` events merged (the chat kit's record,
+    `plans/wsagent/chat-kit-spec.md` §2, K6–K12); `ToolRecords` folds a
+    session, with the id-reuse rule (`StartsToolRecord`: a `tool.call` for
+    an id whose record is over, or of an earlier turn, starts a new one —
+    the union of the two halves each side had) and an embedder's
+    `files.changed`. `ToolPolicy` is the one parameter set: xbind keeps
+    everything and coalesces bare output chunks in its log
+    (`OutputChunk`); the template keeps the newest 64 KiB of output, 64 KiB
+    of text, an edit as a patch (`Diff`), and an 8 KiB result tail
+    (`OutputTail`). The Go fold reproduces the shared fixtures'
+    `<name>.records.json` exactly. The template stores what it stored
+    (`harnessMeta`, with `tool` and patch-form diffs: rows written by
+    earlier versions read back), so its `acp` row meta is byte-identical on
+    every fixture; four intended differences are tested in
+    `harness_toolrec_test.go` (an id of an earlier turn's unfinished call,
+    cuts between characters, an unknown kind stored as `other`, a call
+    first named by its permission request takes the request's content).
+    `internal/agent/page.go` asks `ToolRecords.Observe` which card an
+    event lands on; because a client's fold may be older than the daemon,
+    it also keeps two same-turn calls of one id in one page (the old fold
+    merged them) — that clause goes when no fold from before the rule is
+    in use.
+  - **`escalation.go` — does an option raise the mode.** The template's
+    `optionRaises` is `Provider.OptionRaises` (with `ModeOpen`, `ModeIDs`,
+    `ModeOption`, `SessionState.Mode`). The client marks the options of
+    every request it files — `PermissionOption.Explicit`, `explicit: true`
+    in `permission.request`, the pending list and the tail page's state —
+    judged with `Config.Mode` as the start mode: a session opened in a
+    bypass mode by its person is not "raised" by returning to it. xbind
+    refuses nothing; the flag is for the Agent tab's second confirmation
+    (K13, gap W3 closed). The template keeps refusing such options to
+    non-owners, judged with its own start mode (the adapter's first).
+    Rejected: marking in xbind's pump — the requests a client re-reads
+    (`GET …/sessions/{id}`, the page state) come from `Permissions`, which
+    only the client fills.
+  - **`queue.go` — a message while a turn runs.** `QueueState.Message`
+    (prompt, steer, hold), `SteerOutcome`, `QueueState.Flush`, and
+    `DetachedTurn` for the turn codex-acp starts when a steer lands just
+    after its turn ended. Each host keeps its store (xbind: memory and
+    `queue` events; the template: inbox rows and its steer mark) and its
+    timer. xbind gains the detached turn it lacked
+    (`internal/term/agentdetached.go`): the session says running, holds
+    messages, and ends the turn itself with a `turn.end {stopReason,
+    detached: true}` — after 5 s of quiet with no request waiting, or at a
+    cancel. Two choices there: statuses the client restates as idle are
+    rewritten in the pump rather than teaching the client about detached
+    turns (the template would have had to unlearn its own handling in the
+    same step); and a turn waiting on a person is never "quiet" (the
+    template ends its detached state at the quiet time and goes idle at the
+    answer — left as it is). One client fix came with it: a request
+    answered outside a prompt returns the status to idle.
+  - **`authstate.go` — signed out, and what to say.** `IsAuthRequired`,
+    `SaysSignedOut`, `AuthState.SignedOut` (a host that injected a
+    credential trusts only the agent's own refusal) and one sentence,
+    `Provider.SignInHint(where)`. xbind's longer sentence goes; it names
+    the place ("in a terminal on ‹tile›") and uses `LoginCmd`, the line
+    that works in a sandbox terminal.
+  - **`summary.go` — status words.** `Busy`, `TurnOver`, `StateOf` (the
+    template's `harness.state` words, now also the SDK's), `Summary` (what
+    xbind's `term` status event carries), `Need` (heading and sentence for
+    an approval, a question, a sign-in). Strings a client or test matches
+    are kept on both sides; two fallback push bodies of xbind's take the
+    template's wording. Not unified: stop-reason words (xbind's push says
+    "Stop reason: ‹reason›" and a test holds it) and the three vocabularies
+    for "what it is doing" (ACP status, the template's `activity.kind`,
+    the Live Activity's phase) — they are wire formats of three clients.
+  - **Compatibility.** Everything is additive on the wire (`explicit`,
+    `detached`) and in the SDK; the v0.3.79 template backend builds and
+    passes its tests against this `sdk/`. A newer template needs the SDK
+    of the xbind it ships with, as ever (`docs/compat.md`, "What this does
+    not promise") — no fallback code is kept for an older SDK.
+  - **Not here.** The guided sign-in driver (`guided.go`) and anything
+    about credentials land with the sign-in store (B4); the provider table
+    for the LLM connector with the connector.

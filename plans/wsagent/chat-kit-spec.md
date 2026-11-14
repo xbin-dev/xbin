@@ -130,7 +130,11 @@ fixtures' `<name>.records.json` are its output):
 7. A capping reducer keeps the newest 64 KiB of output, cut between
    characters, and counts the dropped bytes in `outputTruncated`.
 
-Go proposal for `sdk/acp/toolrec.go` (B1; **not added here**). JSON is the
+Go proposal for `sdk/acp/toolrec.go` (B1; **not added here** — landed as
+D225 with these types, plus `ToolEntry` (`Seq`, `Turn`, `N`), `ToolPolicy`
+in place of `capOutput`, `Observe`/`EndTurn`/`Newest`/`Entries`,
+`StartsToolRecord` and `OutputChunk`; `sdk/acp`'s
+`TestToolRecordsMatchTheSharedFixtures` holds it to the records). JSON is the
 fixtures' form: zero values omitted, `id`/`kind`/`title`/`status` always.
 
 ```go
