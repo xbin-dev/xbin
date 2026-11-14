@@ -63,7 +63,13 @@ await ctx.addInitScript(([MINE, COPY]) => {
     return j({ run: { id: 7, title: 'my notes (shared)', owner: 'alice' }, deleted: false, left: [] });
   });
   window.__route('POST', /\/copy$/, () => { window.__homeRows[''].push(row(COPY, 'a private copy')); return j({ id: COPY, title: 'a private copy' }); });
-  window.__route('POST', /\/ask$/, (m, o) => j({ id: o.partition ? 8 : 2 ** 40 + 8, title: 'new', status: 'running', rootId: o.partition ? 8 : 2 ** 40 + 8 }));
+  // each new chat its own id (8, 9, … in its home's range), kept in order: asked(n) waits for the page to open it
+  window.__asked = [];
+  window.__route('POST', /\/ask$/, (m, o) => {
+    const id = (o.partition ? 0 : 2 ** 40) + 8 + window.__asked.length;
+    window.__asked.push(id);
+    return j({ id, title: 'new', status: 'running', rootId: id });
+  });
   // the coding sandboxes, per home (GET /sandboxes): hers, homed in her partition, and the team's as her
   // partition sees them (`shared`; the backend's `homed` and `why`) — the global instance sees the team's alone
   const P = 'apps/coding-sandbox';
@@ -86,6 +92,12 @@ await page.goto(`${ORIGIN}/`);
 await page.waitForSelector(`#runs .run[data-id="${MINE}"]`);
 await page.waitForSelector('#runs .run[data-id="2"]');
 const calls = (re) => page.evaluate((s) => window.__calls.filter((c) => new RegExp(s).test(c.url)), re.source);
+// asked(n): the nth new chat is made AND the page has opened it — app.ask
+// reads what it made and only then moves the address there. Going on at the
+// request alone races that: a conversation the test opens meanwhile is left
+// again when the ask's own navigation lands (seen once under load: the
+// shared conversation's card never came).
+const asked = (n) => page.waitForFunction((nth) => window.__asked.length >= nth && location.hash === '#c=' + window.__asked[nth - 1], n);
 const rows = () => page.$$eval('#runs .run', (els) => els.map((e) => +e.dataset.id));
 const segs = () => page.$$eval('#views .seg', (els) => els.map((e) => e.textContent.trim()));
 const menu = async (id) => {
@@ -148,7 +160,7 @@ await page.waitForSelector('#newdlg #n-share');
 await page.fill('#n-goal', 'for the team');
 await page.selectOption('#n-share', 'team-participant');
 await page.click('#n-create');
-await page.waitForFunction(() => window.__calls.some((c) => /\/ask$/.test(c.url)));
+await asked(1);
 const ask = (await calls(/\/ask$/))[0];
 ok('a shared new chat is made at global, shared', ask.home === 'global' && JSON.parse(ask.body).share.visibility === 'team', JSON.stringify(ask));
 // …or shared with people: none named, the dialog says so and stays open
@@ -161,7 +173,7 @@ await page.waitForSelector('#newdlg[open] #n-share-err');
 ok('people chosen, none named: the dialog says so and stays open', (await calls(/\/ask$/)).length === 1);
 await page.fill('#n-share-people', 'carol, dave');
 await page.click('#n-create');
-await page.waitForFunction(() => window.__calls.filter((c) => /\/ask$/.test(c.url)).length === 2);
+await asked(2);
 const ask2 = (await calls(/\/ask$/))[1];
 ok('a chat shared with people is made at global, with them', ask2.home === 'global' &&
   JSON.stringify(JSON.parse(ask2.body).share) === '{"members":[{"user":"carol","role":"participant"},{"user":"dave","role":"participant"}]}', ask2.body);
@@ -251,7 +263,7 @@ await page.waitForSelector('#newdlg #n-agent-shared');
 await page.selectOption('#n-class', 'coding'); // a class with the sandbox toolset: the next chat's pick (hers) would go along
 await page.fill('#n-goal', 'for the team');
 await page.click('#n-create');
-await page.waitForFunction(() => window.__calls.filter((c) => /\/ask$/.test(c.url)).length === 3);
+await asked(3);
 const ask3 = (await calls(/\/ask$/))[2];
 ok('…made at global, the built-in agent\'s', ask3.home === 'global' && !('harness' in JSON.parse(ask3.body)) && !!JSON.parse(ask3.body).share, ask3.body);
 ok('…taking no sandbox of hers along (the shared space can\'t see it)', JSON.parse(ask3.body).class === 'coding' && !('sandbox' in JSON.parse(ask3.body)), ask3.body);
@@ -265,7 +277,7 @@ await page.selectOption('#n-agent', 'claude');
 await page.waitForFunction((ref) => document.getElementById('n-sandbox')?.value === ref, OWN_REF);
 await page.fill('#n-goal', 'mine, with claude');
 await page.click('#n-create');
-await page.waitForFunction(() => window.__calls.filter((c) => /\/ask$/.test(c.url)).length === 4);
+await asked(4);
 const ask4 = (await calls(/\/ask$/))[3];
 const b4 = JSON.parse(ask4.body);
 ok('…made in her partition, Claude Code in her own sandbox', ask4.home === '' && b4.harness && b4.harness.provider === 'claude' && b4.sandbox && b4.sandbox.ref === OWN_REF && !b4.share, ask4.body);
