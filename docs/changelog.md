@@ -48,6 +48,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   a recent sign-in; xbind applies them as the person), and the person's
   audit log of what their agent did. A `delegate` event on `/ws/events`;
   push kinds `agent.approval` and `agent.changeset`.
+- **SDK: `xbin.AsPerson()` and the delegate helpers** (`RequestApproval`,
+  `ApprovalOf`, `WithTicket`, `WithAgentModel`, `DryRun`, `ProposeChanges`,
+  `ChangeSetOf`, `DelegateRefusal` and its `Err…` values) — for xbind's own
+  workspace-agent component; from any other tile they answer 401
+  ([sdk.md](/docs/sdk.md)).
 - **Agent sessions: `origin`.** A session row, and its history entry,
   carries `origin: "agent"` when the person's workspace agent opened it
   (`GET /term/sessions`, `GET /agent/history`). Absent otherwise.

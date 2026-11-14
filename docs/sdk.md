@@ -603,6 +603,86 @@ if err != nil || !a.CanRead() {        // fail closed: no answer is no
   sandbox-terminal tile keeps them 30 s) rather than asking on every
   packet.
 
+### Acting as a person — `xbin.AsPerson()` (xbind's own agent component)
+
+For the backend of the **workspace agent**: a sealed component that ships
+inside xbind, partitioned per person, which xbind lets act as its person
+([auth.md §Delegation](/docs/auth.md#delegation-a-persons-workspace-agent),
+[protocol/delegation.md](/docs/protocol/delegation.md)). A tile of your own
+that calls these gets `401`: who may delegate is xbind's table, not a
+grant.
+
+```go
+xbin.Client()                 // the component itself: its kv, vault, bus, notify
+xbin.AsPerson()               // the person this partition belongs to: xbind's
+                              // API under the delegation cap, and /api/<tile>/…
+                              // where they can read the tile, at their level
+
+req, _ := http.NewRequestWithContext(ctx, "GET", "http://xbin/api/apps/mail/inbox", nil)
+xbin.WithAgentModel(req, model)      // the model the conversation is on: the
+                                     // orgs' model rules are asked with it
+resp, err := xbin.AsPerson().Do(req) // reads need nothing more
+if err := xbin.DelegateRefusal(resp); err != nil { … }  // nil for 2xx; else *DelegateError
+```
+
+Every **side effect** — a non-`GET` call to a tile's API, starting a tile
+agent (`POST /api/xbin/term/sessions`), creating a tile — needs the
+person's approval, and xbind checks it. Ask, wait, then send exactly what
+was approved:
+
+```go
+info, _ := xbin.DryRun(ctx, "POST", "/api/apps/mail/send") // what it would be: tile, level, role,
+                                                           // needsApproval — nothing runs
+ask, err := xbin.RequestApproval(ctx, "POST", "/api/apps/mail/send", body, "send the summary to Ada")
+// the person is told (an event, a push) and answers in their own session;
+// summary is shown as the agent's words, beside xbind's own description
+for {
+	a, err := xbin.ApprovalOf(ctx, ask.ID)
+	if err != nil || a.Decided() { return /* denied, expired, withdrawn */ }
+	if a.Approved() { break }
+	// wait: the person answers when they answer
+}
+req, _ = http.NewRequestWithContext(ctx, "POST", "http://xbin/api/apps/mail/send", bytes.NewReader(body))
+xbin.WithTicket(req, ask.ID)         // once, within 15 minutes; another method,
+resp, err = xbin.AsPerson().Do(req)  // path, query or body is ErrBadTicket
+```
+
+`xbin.StandingApprovals(ctx)` lists the tiles the person lets their agent
+write to without a ticket; `xbin.WithdrawApproval(ctx, id)` takes a request
+back. Starting a tile agent without a ticket works only when the person
+allowed it in their agent preferences, and then without `mode`, `net` or
+`api` in the body — those are the preference's.
+
+Admin changes are never calls: an admin's agent **proposes** them, the
+person approves, xbind applies.
+
+```go
+cs, err := xbin.ProposeChanges(ctx, "let the report read the calendar", []xbin.Change{
+	{Kind: "grant.add", Args: map[string]string{"from": "apps/report", "target": "apps/calendar", "role": "reader"},
+		Why: "the weekly report lists meetings"},
+})
+// cs.Items[i].Line, .Effects, .Warnings, .Blocked are xbind's description;
+// later: xbin.ChangeSetOf(ctx, cs.ID) → State and each item's Result
+```
+
+The refusals to tell apart (`errors.Is` on what `DelegateRefusal` and the
+helpers return; `*DelegateError` carries xbind's `Message`, fit to show):
+
+| Error | Meaning | Do |
+|---|---|---|
+| `ErrNotDelegated` | the route isn't in the delegation cap (the admin API, answering a tile agent, …) | don't retry; no approval changes it |
+| `ErrNeedsApproval` | a side effect without the person's approval | `RequestApproval`, then `WithTicket` |
+| `ErrBadTicket` | the ticket is unknown, unapproved, expired, used, or for another call | ask again |
+| `ErrPolicyRefused` | the tile, or the org that owns it, keeps the agent out — or the person can't read it; `Message` says why | tell the person; don't retry |
+| `ErrAgentPaused` | the person paused their agent | stop until they resume |
+| `ErrAgentOff` | workspace agents are off here | stop |
+| `ErrAdminRead` | admin state without the person's opt-in | propose nothing; say how to opt in |
+| `ErrRateLimited` | more than 30 acts a minute; `RetryAfter` says when | wait |
+
+A `*DelegateError` with an empty `Refusal` is the called tile's own
+refusal. Data that reaches the component from other tiles — bus events,
+partition mail, anything a tile's API returns — is untrusted input.
+
 ### Tile sandboxes, for manager tiles — `xbin.SandboxAPI()`
 
 A **manager tile** serves the sandbox-manager contract
