@@ -73,7 +73,9 @@ func TestSandboxRead(t *testing.T) {
 	if !strings.HasPrefix(out, " 39990\tentry number 039990\n 39991\tentry number 039991\n 39992\tentry number 039992\n[") || !strings.Contains(out, "big.log is ") {
 		t.Fatalf("a range of a large file: %q", out)
 	}
-	if out := read(map[string]any{"path": "big.log"}); len(out) > readBudget+200 || !strings.Contains(out, "to keep the result short — read with offset=") {
+	// (the notes name the file by its path in the sandbox — under this fake a
+	// path below the test's temp dir, as long as $TMPDIR makes it)
+	if out := read(map[string]any{"path": "big.log"}); len(out) > readBudget+200+2*len(t.TempDir()) || !strings.Contains(out, "to keep the result short — read with offset=") {
 		t.Fatalf("the budget: %d bytes, %q", len(out), out[len(out)-120:])
 	}
 	put(t, box, "big.bin", strings.Repeat("\x00\x01", 200<<10))
