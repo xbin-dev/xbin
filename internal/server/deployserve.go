@@ -78,6 +78,15 @@ func (s *Server) deploymentRoot(owner, dep string) (root string, pinned, ok bool
 // primary), with primaryRoot's answers: the materialized root while pinned,
 // "" for the work tree, ok false when there is nothing to serve.
 func (s *Server) codeRoot(c *registry.Component, dep string) (root string, pinned, ok bool) {
+	if c.Sealed {
+		// A sealed component has one deployment and no work tree: its files
+		// are served from xbind's own materialized tree, opened beneath it
+		// like a pinned checkpoint, in every asset mode (sealed.go).
+		if dep != "" && dep != util.MainDeployment {
+			return "", false, false
+		}
+		return c.Dir, true, true
+	}
 	root, pinned, err := s.policy().CodeRoot(c, dep)
 	switch {
 	case err != nil, pinned && root == "":

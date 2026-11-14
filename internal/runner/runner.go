@@ -122,6 +122,11 @@ type Runner struct {
 	// as (auth tier 2, per-scope uids). nil = same-user (tier 1).
 	SpawnUser func(c *registry.Component) *syscall.Credential
 
+	// SealedPrebuilt answers the release's prebuilt backend of a sealed
+	// component, when the release ships one (boot wires the directory
+	// beside xbind); nil or false = build from its materialized source.
+	SealedPrebuilt func(c *registry.Component) (bin string, ok bool)
+
 	// Isolate + Rootfs enable per-component sandboxing (auth tier 3): each
 	// backend runs in its own user/mount/pid/net namespaces over an overlay of
 	// Rootfs, with default-deny egress (plans/isolation.md). Off by default.

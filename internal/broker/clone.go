@@ -65,6 +65,11 @@ func (b *Broker) apiClone(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusNotFound, "no such component: "+from)
 		return
 	}
+	if src.Sealed {
+		// its code is xbind's own and never becomes a tree of the workspace
+		server.WriteError(w, http.StatusBadRequest, from+" is part of xbin itself and can't be cloned")
+		return
+	}
 	if !util.ComponentPathOK(to) || util.ReservedTop[strings.Split(to, "/")[0]] {
 		server.WriteError(w, http.StatusBadRequest, "bad or reserved clone path: "+to)
 		return

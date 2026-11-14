@@ -55,6 +55,12 @@ func (r *Runner) buildWork(c *registry.Component, entry, codeRoot string, shown 
 		slog.Warn("go build: the workspace's go.work is not a file beneath the workspace; its lines don't reach tile builds", "err", err)
 	}
 	comps := r.components()
+	if c.Sealed {
+		// xbind's own code builds against nothing of the workspace: no
+		// workspace module stands in for one of its requirements, and no
+		// line of a hand-managed go.work (a replace) reaches its build
+		rw, comps = nil, nil
+	}
 	// where xbind reads component n's code: its primary's checkpoint when the
 	// build shows that, else its work tree
 	codeOf := func(n *registry.Component) (string, string) {

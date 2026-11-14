@@ -126,6 +126,13 @@ func (p Principal) IsAdmin() bool {
 func (p Principal) CanReadTile(path string) bool  { return p.tileLevel(path, users.LevelRead) }
 func (p Principal) CanWriteTile(path string) bool { return p.tileLevel(path, users.LevelWrite) }
 func (p Principal) CanTerminalTile(path string) bool {
+	if util.SealedPath(path) {
+		// A sealed component (internal/sealed) has no source and no dev
+		// sandbox: the terminal level doesn't exist there, for admins and
+		// the root token too — no terminal, no agent session, no "*"
+		// pattern reaches one. Its logs are the admins' (obs.canReadLogs).
+		return false
+	}
 	if p.IsAdmin() {
 		return true
 	}

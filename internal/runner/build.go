@@ -28,6 +28,13 @@ import (
 func (r *Runner) build(c *registry.Component) (string, error) {
 	switch c.Manifest.Runtime {
 	case "go":
+		if c.Sealed && r.SealedPrebuilt != nil {
+			// the release's own build of the release's own code: no compile
+			// and no module download on this host (sealed.go)
+			if bin, ok := r.SealedPrebuilt(c); ok {
+				return bin, nil
+			}
+		}
 		entry := goEntry(c.Manifest)
 		out := filepath.Join(r.Root, ".xbin", "build", util.CompKey(c.Path), "bin")
 		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
@@ -121,6 +128,10 @@ type goBuild struct {
 // no c/ and gets today's binds.
 func (r *Runner) buildConfined(c *registry.Component, entry, out string) error {
 	g := goBuild{out: out, outDir: filepath.Dir(out)}
+	if c.Sealed {
+		// its tree is xbind's own, under the masked .xbin: shown read-only
+		g.extra = append(g.extra, confine.RO(c.Dir))
+	}
 	if arts := filepath.Join(g.outDir, "c"); realDir(arts) {
 		g.extra = append(g.extra, confine.Mask(arts))
 	}

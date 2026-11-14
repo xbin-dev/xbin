@@ -32,6 +32,9 @@ import (
 func (st *State) serve(ctx context.Context) error {
 	cfg, run, brk, px := st.Cfg, st.Run, st.Broker, st.Proxy
 	handler := st.Server.Handler()
+	if clash := st.Server.SealedAPIClash(); clash != "" {
+		return fmt.Errorf("%s", clash) // every route is registered by now (server/sealed.go)
+	}
 
 	// Gateway socket: element backends call other elements / xbin APIs here
 	// with their instance tokens (plans/auth.md §3). Same handler, same auth.
@@ -247,7 +250,10 @@ func changedComponents(reg *registry.Registry, paths []string) (reload map[strin
 	reload, restart = map[string]*registry.Component{}, map[string]bool{}
 	for _, p := range paths {
 		c, rest, ok := reg.Resolve(p)
-		if !ok {
+		if !ok || c.Sealed {
+			// a sealed component has no work tree: a file saved in a
+			// workspace directory that happens to sit at its path (xbin/…,
+			// never scanned) reloads and rebuilds nothing
 			continue
 		}
 		reload[c.Path] = c

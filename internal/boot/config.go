@@ -19,6 +19,8 @@ import (
 	"reflect"
 	"strings"
 	"time"
+
+	"github.com/xbin-dev/xbin/internal/sealed"
 )
 
 // Config is everything the daemon reads at boot: the flag block of
@@ -84,7 +86,11 @@ type Config struct {
 	// serves; Privileges nil ⇒ the real setuid path; Stdout nil ⇒ os.Stdout;
 	// GoVersionsDelay is how long after boot the D166 upgrade check's first
 	// pass waits (0 ⇒ 30 s; tests shorten it).
-	Version         string
+	Version string
+	// Sealed replaces the compiled-in table of sealed components
+	// (sealed.Table) — tests only; nil ⇒ the table. Never a setting: no
+	// flag, variable or workspace file declares a sealed component.
+	Sealed          []sealed.Spec
 	Listener        net.Listener
 	Ready           func(addr string)
 	Privileges      Privileges

@@ -70,7 +70,7 @@ func (s *Server) sandboxDocument(w http.ResponseWriter, r *http.Request, compPat
 func (s *Server) handleComponentStatic(w http.ResponseWriter, r *http.Request) {
 	rel := strings.TrimPrefix(r.URL.Path, "/c/")
 	_, cleaned, err := util.SafeJoin(s.Reg.Root, rel)
-	if err != nil || !pathAllowed(cleaned) {
+	if err != nil || !pathAllowed(cleaned) && !s.sealedOwned(cleaned) {
 		http.Error(w, "bad path", http.StatusBadRequest)
 		return
 	}

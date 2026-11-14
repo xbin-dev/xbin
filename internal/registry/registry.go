@@ -349,6 +349,11 @@ type Component struct {
 	WorkTree   *WorkTreeScan // the work tree's own scan while the primary is pinned
 	Kept       bool          // registered for its pinned primary though the work tree has neither xbin.json nor index.html, or a broken xbin.json
 
+	// Sealed marks a sealed component (sealed.go): its code is the running
+	// xbind's own, Dir a read-only tree xbind materialized from its embedded
+	// source — never a directory of the workspace, never a work tree.
+	Sealed bool
+
 	// PartitionErr says why the primary's partition request is invalid
 	// (also in ManifestErr); partition is the settled mode (partition.go).
 	// Partition/PartitionID: the user partition ("user:<id>", its pkey) a
@@ -424,6 +429,12 @@ type Registry struct {
 	// mode on every rescan (partition.go); nil: nothing is recorded.
 	PartitionModes func(PartitionAsk) PartitionMode
 
+	// Sealed, set at boot before the first scan, lists the sealed
+	// components of the running xbind (sealed.go): every Rescan registers
+	// them at their reserved paths, which no walk of the workspace reaches.
+	// nil: none.
+	Sealed func() []SealedCode
+
 	mu         sync.RWMutex
 	components map[string]*Component
 	scopes     map[string]*ScopeManifest // scope path → manifest
@@ -434,8 +445,12 @@ type Registry struct {
 	partScan   partitionScan // serializes Rescan; what it logged (partition.go)
 }
 
-func Open(root string) (*Registry, error) {
-	r := &Registry{Root: root}
+func Open(root string) (*Registry, error) { return OpenSealed(root, nil) }
+
+// OpenSealed is Open with the sealed components of the running xbind, there
+// from the first scan on.
+func OpenSealed(root string, sealed func() []SealedCode) (*Registry, error) {
+	r := &Registry{Root: root, Sealed: sealed}
 	if err := r.Rescan(); err != nil {
 		return nil, err
 	}
@@ -484,22 +499,7 @@ func (r *Registry) Rescan() error {
 		hasManifest, parsed := false, false
 		if b, err := os.ReadFile(filepath.Join(p, "xbin.json")); err == nil {
 			hasManifest = true
-			perr := jsonc.Unmarshal(b, &c.Manifest)
-			parsed = perr == nil
-			if perr != nil {
-				c.ManifestErr, c.partition.unread = perr.Error(), "its xbin.json doesn't parse"
-			} else if err := ValidateRuntime(c.Manifest); err != nil {
-				// A removed runtime: files still serve, the backend never runs.
-				c.ManifestErr = err.Error()
-			} else if err := ValidateExposes(c.Manifest); err != nil {
-				// Surfaced like a parse error (bx ls/doctor, status API); the
-				// component keeps serving — publishing just refuses at bind.
-				c.ManifestErr = err.Error()
-			} else if err := ValidateInterfaces(c.Manifest); err != nil {
-				c.ManifestErr = err.Error() // the same; binding refuses the slot
-			} else if err := ValidateLimits(c.Manifest); err != nil {
-				c.ManifestErr = err.Error() // informational: the values that parsed still ask
-			}
+			parsed = c.readManifest(b)
 		}
 		if _, err := os.Stat(filepath.Join(p, "index.html")); err == nil {
 			c.HasIndex = true
@@ -519,6 +519,7 @@ func (r *Registry) Rescan() error {
 		return err
 	}
 	composePinnedScopes(scopes, comps, pinned)
+	r.addSealed(comps, scopes) // after the walk: nothing in the workspace takes their paths (sealed.go)
 
 	ws := WorkspaceManifest{Schema: 1}
 	if b, err := os.ReadFile(filepath.Join(r.Root, "xbin.json")); err == nil {
@@ -536,7 +537,7 @@ func (r *Registry) Rescan() error {
 
 	r.mu.Lock()
 	r.warnWorkspaceResources(ws)
-	r.keys.resolve(r.Root, scopes) // one holder per data key (D118)
+	r.keys.resolve(r.Root, scopes, sealedScopes(comps)) // one holder per data key (D118)
 	for _, c := range comps {
 		if sm := scopes[c.Scope]; sm != nil && sm.Err != "" {
 			if c.ManifestErr != "" {
@@ -548,6 +549,28 @@ func (r *Registry) Rescan() error {
 	r.components, r.scopes, r.workspace = comps, scopes, ws
 	r.mu.Unlock()
 	return nil
+}
+
+// readManifest parses b, an xbin.json, into c.Manifest and records what
+// xbind refuses in it as c.ManifestErr; false when it doesn't parse.
+func (c *Component) readManifest(b []byte) (parsed bool) {
+	if perr := jsonc.Unmarshal(b, &c.Manifest); perr != nil {
+		c.ManifestErr, c.partition.unread = perr.Error(), "its xbin.json doesn't parse"
+		return false
+	}
+	if err := ValidateRuntime(c.Manifest); err != nil {
+		// A removed runtime: files still serve, the backend never runs.
+		c.ManifestErr = err.Error()
+	} else if err := ValidateExposes(c.Manifest); err != nil {
+		// Surfaced like a parse error (bx ls/doctor, status API); the
+		// component keeps serving — publishing just refuses at bind.
+		c.ManifestErr = err.Error()
+	} else if err := ValidateInterfaces(c.Manifest); err != nil {
+		c.ManifestErr = err.Error() // the same; binding refuses the slot
+	} else if err := ValidateLimits(c.Manifest); err != nil {
+		c.ManifestErr = err.Error() // informational: the values that parsed still ask
+	}
+	return true
 }
 
 func nearestScope(scopes map[string]*ScopeManifest, compPath string) string {

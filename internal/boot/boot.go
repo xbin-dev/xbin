@@ -26,6 +26,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/runner"
 	"github.com/xbin-dev/xbin/internal/sbx"
+	"github.com/xbin-dev/xbin/internal/sealed"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/term"
 	"github.com/xbin-dev/xbin/internal/tilesbx"
@@ -47,6 +48,7 @@ type State struct {
 	Auth    *auth.Auth
 	Users   *users.Store
 	Reg     *registry.Registry
+	Sealed  *sealed.Set // the sealed components of this xbind (stepRegistry)
 	Hub     *events.Hub
 	Run     *runner.Runner
 	Term    *term.Manager
@@ -271,13 +273,29 @@ func (st *State) stepHomes() error {
 }
 
 func (st *State) stepRegistry() error {
-	reg, err := registry.Open(st.WS)
+	// Sealed components (internal/sealed): the running binary's own code,
+	// rendered from its embedded trees into .xbin/sealed/ before the first
+	// scan, so the registry holds them from the start.
+	specs := st.Cfg.Sealed
+	if specs == nil {
+		specs = sealed.Table()
+	}
+	set, err := sealed.Load(specs)
+	if err != nil {
+		return err
+	}
+	if err := set.Materialize(st.WS); err != nil {
+		return err
+	}
+	st.Sealed = set
+	reg, err := registry.OpenSealed(st.WS, set.Registry)
 	if err != nil {
 		return err
 	}
 	st.Reg = reg
 	st.Hub = events.NewHub()
 	st.Run = runner.New(st.WS, st.Auth, st.Hub, reg)
+	st.Run.SealedPrebuilt = sealedPrebuilt(set)
 	st.Sbx = sbx.New()
 	st.Run.Sandboxes = st.Sbx
 	st.bootGoVersions() // before any build: an earlier xbind's builds say the check is due (goversions.go)
@@ -298,6 +316,27 @@ func (st *State) stepRegistry() error {
 		slog.Warn("go.work", "err", err)
 	}
 	return nil
+}
+
+// sealedPrebuilt answers a sealed component's prebuilt backend from the
+// release bundle: bin/sealed/<name>-<digest> beside xbind, the digest being
+// that of the source this binary embeds — a file built from any other
+// source has another name and is never run.
+func sealedPrebuilt(set *sealed.Set) func(*registry.Component) (string, bool) {
+	exe, err := os.Executable()
+	if err != nil {
+		return nil
+	}
+	dir := filepath.Join(filepath.Dir(exe), "sealed")
+	return func(c *registry.Component) (string, bool) {
+		for _, sc := range set.Components() {
+			if sc.Path == c.Path {
+				p := filepath.Join(dir, sc.Name+"-"+sc.Digest[:24])
+				return p, isFile(p)
+			}
+		}
+		return "", false
+	}
 }
 
 func (st *State) stepTerminals() error {

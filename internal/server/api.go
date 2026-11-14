@@ -137,13 +137,16 @@ type componentInfo struct {
 	Path string `json:"path"`
 	// Title and Icon are the manifest's, cleaned (D194): what the shell and
 	// the app call the tile beside its path. Absent when it gives none.
-	Title       string   `json:"title,omitempty"`
-	Icon        string   `json:"icon,omitempty"`
-	Scope       string   `json:"scope,omitempty"`
-	Runtime     string   `json:"runtime,omitempty"`
-	HasIndex    bool     `json:"hasIndex"`
-	Template    bool     `json:"template,omitempty"` // a blueprint, not a live tile
-	State       string   `json:"state,omitempty"`    // lifecycle; "" = enabled (offloaded/disabled hidden by clients)
+	Title    string `json:"title,omitempty"`
+	Icon     string `json:"icon,omitempty"`
+	Scope    string `json:"scope,omitempty"`
+	Runtime  string `json:"runtime,omitempty"`
+	HasIndex bool   `json:"hasIndex"`
+	Template bool   `json:"template,omitempty"` // a blueprint, not a live tile
+	// Sealed marks a component whose code is xbind's own (sealed.go): it
+	// has no source to open, edit, clone, deploy or delete.
+	Sealed      bool     `json:"sealed,omitempty"`
+	State       string   `json:"state,omitempty"` // lifecycle; "" = enabled (offloaded/disabled hidden by clients)
 	Roles       any      `json:"roles,omitempty"`
 	Uses        any      `json:"uses,omitempty"`
 	Deps        []string `json:"deps,omitempty"`
@@ -220,7 +223,7 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 		ci := componentInfo{
 			Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
 			Title: c.Manifest.DisplayTitle(), Icon: c.Manifest.DisplayIcon(),
-			HasIndex: c.HasIndex, Template: c.IsTemplate(),
+			HasIndex: c.HasIndex, Template: c.IsTemplate(), Sealed: c.Sealed,
 			Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
 			Chrome: s.trustedChrome(c.Path, c), ChromeRequested: s.chromeRequested(c),
 			Native: s.nativeOf(c),
@@ -259,7 +262,7 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 	ci := componentInfo{
 		Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
 		Title: c.Manifest.DisplayTitle(), Icon: c.Manifest.DisplayIcon(),
-		HasIndex: c.HasIndex, Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
+		HasIndex: c.HasIndex, Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr, Sealed: c.Sealed,
 		Chrome: s.trustedChrome(c.Path, c), ChromeRequested: s.chromeRequested(c),
 		Native: s.nativeOf(c),
 	}

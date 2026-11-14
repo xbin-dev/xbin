@@ -69,6 +69,17 @@ var ReservedTop = map[string]bool{
 	"ingress": true, "runtime": true, "owner": true,
 }
 
+// SealedPrefix is the path prefix of sealed components (internal/sealed):
+// components whose code is the running xbind's own, declared in a
+// compiled-in table and never by anything in the workspace. "xbin" is a
+// ReservedTop name, so no workspace directory, clone, import or template
+// instance can sit at, or below, such a path; the rule is structural — a
+// path under xbin/ is xbind's or nothing.
+const SealedPrefix = "xbin/"
+
+// SealedPath reports whether p lies in the sealed components' namespace.
+func SealedPath(p string) bool { return strings.HasPrefix(p, SealedPrefix) }
+
 // IgnoredDirs are never watched, scanned, or served as component internals.
 var IgnoredDirs = map[string]bool{
 	".git": true, ".xbin": true, "node_modules": true, "deps": true,
