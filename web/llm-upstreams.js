@@ -10,13 +10,15 @@
  * A key is typed into a masked field and sent once: after the save the
  * field is gone and nothing reads the key back. An upstream the host's
  * file defines is drawn read-only with "Set by your host"; when the host
- * locks every setting there is no Add.
+ * locks every setting there is no Add. Changing an upstream's scheme, host
+ * or port drops its stored key (xbind's rule): the form says so and asks
+ * for the key again, or for "remove the key".
  */
 import { LitElement, html, css, nothing } from '/vendor/lit-all.min.js';
 import '/vendor/bx-icons.js';
 import { limitsCss } from '/vendor/bx-limits.js';
 import { llmCss, lockTpl, errTpl } from '/vendor/llm-css.js';
-import { lockOf, fullyLocked, keyWords, modelsWords, testWords, upstreamBody, upstreamDraft, vaultShut, vaultWords, plural } from '/vendor/llm-kit.js';
+import { lockOf, fullyLocked, keyWords, modelsWords, testWords, upstreamBody, upstreamDraft, addressChanged, vaultShut, vaultWords, plural } from '/vendor/llm-kit.js';
 
 const NEW = '+';
 
@@ -73,7 +75,10 @@ export class BxLlmUpstreams extends LitElement {
 
   _editor(cur) {
     const d = this._d, shut = vaultShut(this.cfg);
+    // a key is only ever sent to the address it was set for: a new scheme, host or port needs it again
+    const moved = !!cur?.key?.set && addressChanged(cur.baseURL, d.baseURL);
     const keyHint = shut ? vaultWords(this.cfg.vault)
+      : moved ? 'The address changed, so the stored key is not kept: a key is only ever sent to the address it was set for. Enter the key for the new address, or tick “remove the key”.'
       : cur?.key?.set ? `A key is set (${keyWords(cur.key)}). Leave this empty to keep it; a key typed here replaces it and is never shown again.`
         : 'Stored in xbind’s vault and never shown again — not here, not by any API.';
     return html`<div class="editor" data-editor=${cur?.name ?? 'new'}>
@@ -87,8 +92,9 @@ export class BxLlmUpstreams extends LitElement {
         <span class="meta">The provider’s OpenAI-compatible API, with or without <code>/v1</code>.</span>
         <label for="u-key">API key</label>
         <input id="u-key" data-f="key" type="password" autocomplete="new-password" spellcheck="false" .value=${d.key} ?disabled=${shut || d.removeKey}
-          placeholder=${cur?.key?.set ? 'unchanged' : 'the provider’s key'} @input=${(e) => this._set({ key: e.target.value })}>
-        <span class="meta ${shut ? 'warnc' : ''}" data-key-hint>${keyHint}</span>
+          placeholder=${moved ? 'the key for the new address' : cur?.key?.set ? 'unchanged' : 'the provider’s key'}
+          @input=${(e) => this._set({ key: e.target.value })}>
+        <span class="meta ${shut || moved ? 'warnc' : ''}" data-key-hint=${moved ? 'moved' : ''}>${keyHint}</span>
         ${cur?.key?.set && !shut ? html`<label class="sw wide"><input type="checkbox" data-f="removeKey" .checked=${d.removeKey}
           @change=${(e) => this._set({ removeKey: e.target.checked, key: '' })}><span>remove the key</span></label>` : nothing}
         <label for="u-models">models</label>

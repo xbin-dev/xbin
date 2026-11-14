@@ -46,6 +46,7 @@ export const llmCss = css`
   .note.warn { border-color: var(--bx-warn, #F2994A); background: var(--bx-warn-bg, #382F2C); }
   .note.crit { border-color: var(--bx-danger, #FF7A7A); background: var(--bx-danger-bg, #3A2B32); }
   .note bx-icon { flex: none; margin-top: 1px; }
+  .note > span { flex: 1; min-width: 0; }
   .form { display: grid; grid-template-columns: minmax(8em, max-content) minmax(0, 1fr); gap: 6px 12px; align-items: center; max-width: 720px; }
   .form > label { color: var(--bx-muted, #A3A6B6); }
   .form input:not([type=checkbox]):not([type=radio]) { width: 100%; }

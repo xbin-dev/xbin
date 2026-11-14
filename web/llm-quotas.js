@@ -16,7 +16,10 @@
  *   limitsTpl(limits, now, whose)  limits in force as bars: used of the limit,
  *       where it comes from, when it resets.
  *
- * A part the host's file sets is read-only, "Set by your host". Whose quota
+ * A part the host's file sets is read-only, "Set by your host". A default
+ * the host sets is also a ceiling over the per-person and per-org entries
+ * an admin writes: the form says so, shows the ceiling in each field and
+ * refuses a limit above it (xbind would let it give nothing). Whose quota
  * applies to a person — their own, else the most generous of their orgs',
  * else the default, each limit on its own — is the server's to decide.
  */
@@ -25,7 +28,7 @@ import '/vendor/bx-icons.js';
 import { limitsCss } from '/vendor/bx-limits.js';
 import { llmCss, lockTpl, errTpl } from '/vendor/llm-css.js';
 import { llmClient, quotaOf, quotaLockPath } from '/vendor/llm-client.js';
-import { LIMITS, LIMIT_META, lockOf, quotaDraft, quotaBody, quotaSummary, limitPct, usedWords, resetWords, sourceWords } from '/vendor/llm-kit.js';
+import { LIMITS, LIMIT_META, lockOf, quotaDraft, quotaBody, quotaSummary, limitPct, usedWords, resetWords, sourceWords, ceilingOf, ceilingProblem, limitText, fmtLimit } from '/vendor/llm-kit.js';
 
 // limitsTpl(limits, now, whose): each limit in force — its bar, what is
 // used, its source and reset. whose: "your" (a person's own page) or
@@ -82,7 +85,8 @@ export class BxLlmQuota extends LitElement {
   }
   _submit() {
     const { quota, error } = quotaBody(this._d ?? quotaDraft(quotaOf(this._rules, this.subject)));
-    if (error) { this._err = error; return; }
+    const over = error ? '' : ceilingProblem(quota, ceilingOf(this._rules, this._locks, this.subject));
+    if (error || over) { this._err = error || over; return; }
     this._save(quota);
   }
 
@@ -91,10 +95,14 @@ export class BxLlmQuota extends LitElement {
     const cur = quotaOf(this._rules, this.subject), lock = lockOf(this._locks, quotaLockPath(this.subject));
     const d = this._d ?? quotaDraft(cur), dirty = !!this._d, off = lock.locked || this._busy;
     const set = (patch) => { this._d = { ...d, ...patch }; this._saved = false; };
+    // the host's default holds an entry the admin writes here: it can only narrow it
+    const ceil = lock.locked ? null : ceilingOf(this._rules, this._locks, this.subject);
     return html`
+      ${ceil ? html`<div class="meta" data-ceiling>Your host sets the default (${LIMITS.filter((k) => ceil[k] > 0).map((k) => `${LIMIT_META[k].label} ${fmtLimit(k, ceil[k])}`).join(', ')}),
+        and it is a ceiling: a limit here can only be lower — a higher one, or unlimited, would give nothing.</div>` : nothing}
       <form class="limits" data-quota=${this.subject} ?data-host=${lock.locked} @submit=${(e) => { e.preventDefault(); this._submit(); }}>
         ${LIMITS.map((k) => html`<label>${LIMIT_META[k].label}${LIMIT_META[k].cost ? ' (USD)' : ''}
-          <input data-limit=${k} .value=${d[k]} placeholder=${cur ? 'not set' : PLACE[k]} ?disabled=${off} autocomplete="off" spellcheck="false"
+          <input data-limit=${k} .value=${d[k]} placeholder=${ceil?.[k] > 0 ? `up to ${limitText(k, ceil[k])}` : cur ? 'not set' : PLACE[k]} ?disabled=${off} autocomplete="off" spellcheck="false"
             title=${LIMIT_META[k].cost ? 'USD, like 50; "unlimited" lifts a limit set further down; empty: not set' : 'tokens in and out, like 200k or 2M; "unlimited" lifts a limit set further down; empty: not set'}
             @input=${(e) => set({ [k]: e.target.value })}></label>`)}
         <label>at a limit

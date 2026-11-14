@@ -14143,6 +14143,20 @@ Deviations and refinements made while implementing; all deliberate:
       alerts go this way; the other admin-only alerts (Go build versions,
       backup keys, consent files, settings) stay where they were — moving
       them is a separate call.
+    - **After the review's route changes** (merged while this was built):
+      the core's own alert (kind `llm`, unpriced calls under cost quotas)
+      rides the same chain — `internal/llm/adminalerts.go` holds this
+      package's `AdminAlerts()`, which appends `Alerts()`. The page gained
+      *Calls at once* (`concurrency`, lockable), a write's `notices` at
+      the top, `~`/"estimated" and an "unknown models" row in usage (and a
+      per-model table for admins). A moved address needs the key again
+      **in the form**, before any write: the kit refuses the keyless move
+      xbind would answer by dropping the key, so the notice is a backstop,
+      not the way an admin learns it. A host's default is drawn as a
+      ceiling over the per-person and per-org forms — said, shown in each
+      field, a higher limit refused client-side (xbind accepts it and it
+      gives nothing, which is the silent failure the form exists to
+      prevent).
     - **Not done here**: a banner for the affected person in the shell
       (the alert chain has no per-person source; they read it on the page
       and in their call's refusal); live updates (the connector emits no

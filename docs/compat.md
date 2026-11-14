@@ -344,8 +344,8 @@ nothing is written under `data/llm/`.
 - **Additive wire.** New: `POST /api/xbin/llm/setup/dismiss`, the page
   `/xbin/llm`, alert kinds `llm-setup` and `llm-quota`; `GET /api/xbin/llm`
   now answers `user` and `quota` to a person whose direct calls aren't
-  admitted, too (rule 2). The two alert kinds are the first admin notices
-  an admin's shell is answered: every other admin-only alert stays with
+  admitted, too (rule 2). The connector's alert kinds (`llm` with them)
+  are the first admin notices an admin's shell is answered: every other admin-only alert stays with
   the admin's own sign-in and the admin console, as before.
 - **State.** `data/llm/setup.json` marks the card dismissed; an older xbind
   ignores it. **Downgrading** below the connector leaves `data/llm/`

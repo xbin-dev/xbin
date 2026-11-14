@@ -294,7 +294,8 @@ export function agoCoarse(unixSec) {
 // carries dismiss, the route a POST to which does it; done(err?) follows.
 // One about a cap (D203: its `action` offers a raise) links the limits tab
 // at its tile ("raise…": #limits/<tile>). The LLM connector's (D226): a
-// quota reached links the LLM tab ("quotas…"), and "no LLM is set up"
+// quota reached, or cost quotas that miss unpriced calls (kind llm), links
+// the LLM tab ("quotas…", "prices…"), and "no LLM is set up"
 // (kind llm-setup) is drawn as the setup card — what it offers, Set up…
 // (the LLM tab) and dismiss, which ends it for the workspace.
 export function alertBar(alerts, done) {
@@ -310,7 +311,7 @@ export function alertBar(alerts, done) {
     ${alerts.map((a) => (a.kind === 'llm-setup' ? setup(a) : html`<div class="al ${a.level}" data-kind=${a.kind ?? ''}>
       <bx-icon name=${a.level === 'crit' ? 'error' : 'warning'}></bx-icon><span>${a.message}</span>
       ${a.action?.tile ? html`<a class="link al-x" data-raise href=${`#limits/${a.action.tile}`} @click=${(ev) => go(ev, `limits/${a.action.tile}`)}>raise…</a>` : nothing}
-      ${a.kind === 'llm-quota' ? html`<a class="link al-x" data-llm-quotas href="#llm" @click=${(ev) => go(ev, 'llm')}>quotas…</a>` : nothing}
+      ${a.kind === 'llm-quota' || a.kind === 'llm' ? html`<a class="link al-x" data-llm-quotas href="#llm" @click=${(ev) => go(ev, 'llm')}>${a.kind === 'llm' ? 'prices…' : 'quotas…'}</a>` : nothing}
       ${a.dismiss ? html`<button class="act quiet ${a.action?.tile ? '' : 'al-x'}" @click=${() => dismiss(a)}>dismiss</button>` : nothing}</div>`))}
   </div>`;
 }

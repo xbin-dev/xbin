@@ -8,14 +8,17 @@
  *   providers   <bx-llm-upstreams>: add / edit / remove, masked keys, Test
  *   models      the default model, each role's (agent, harness, your own),
  *               and aliases — one Save, sending only what differs
- *   people      who may call directly: admins, everyone, nobody
+ *   people      who may call directly: admins, everyone, nobody; how many
+ *               calls one caller may have in flight
  *   quotas      <bx-llm-quotas>: workspace, default, per person, per org
  *   usage       <bx-llm-usage>: per person and per component
  *
  * Every setting the host's deployment file sets (GET /llm/config's `locks`)
  * is drawn read-only with "Set by your host" and its controls disabled; a
  * connector the host locks entirely says so at the top. xbind refuses a
- * write to a locked setting whatever this page shows.
+ * write to a locked setting whatever this page shows. What a write did
+ * beyond what was asked (`notices`: a key removed with its address) is
+ * shown at the top until the next write.
  *
  * `.fetcher`: plain fetch by default (the person's session), the admin
  * console's xbin.fetch there. Emits `llm-denied` when the configuration
@@ -30,7 +33,7 @@ import { llmClient, directory } from '/vendor/llm-client.js';
 import '/vendor/llm-upstreams.js';
 import '/vendor/llm-quotas.js';
 import '/vendor/llm-usage.js';
-import { ROLES, PEOPLE, lockOf, fullyLocked, statusOf, vaultWords, modelChoices, modelsDraft, modelsChanges } from '/vendor/llm-kit.js';
+import { ROLES, PEOPLE, lockOf, fullyLocked, statusOf, vaultWords, modelChoices, modelsDraft, modelsChanges, concurrencyChange } from '/vendor/llm-kit.js';
 
 export class BxLlmAdmin extends LitElement {
   static properties = {
@@ -40,6 +43,8 @@ export class BxLlmAdmin extends LitElement {
     _dir: { state: true },     // {people, orgs}: ids the quota overrides offer
     _md: { state: true },      // the models form's draft (modelsDraft); null: as saved
     _remind: { state: true },  // admins are being reminded to set the connector up (the llm-setup alert)
+    _notices: { state: true }, // what the last write did beyond what was asked (a key removed)
+    _cc: { state: true },      // the calls-in-flight field's draft; undefined: as saved
     _err: { state: true }, _merr: { state: true }, _busy: { state: true }, _saved: { state: true },
   };
   static styles = [limitsCss, llmCss, css`
@@ -71,12 +76,13 @@ export class BxLlmAdmin extends LitElement {
   // a write's answer is the configuration in force
   _take(cfg) {
     this._cfg = cfg ?? {}; this._err = '';
+    if ((cfg?.notices ?? []).length) this._notices = cfg.notices;
     this._llm.models().then((m) => { this._models = modelChoices(m.ok ? m.data : null, this._cfg); });
     if (this._cfg.configured) this._remind = false; else this._llm.setupPending().then((on) => { this._remind = on; });
     this.dispatchEvent(new CustomEvent('llm-loaded', { detail: this._cfg }));
   }
   async _put(changes, what) {
-    this._busy = true; this._saved = '';
+    this._busy = true; this._saved = ''; this._notices = null;
     const r = await this._llm.putConfig(changes);
     this._busy = false;
     if (!r.ok) return r.error;
@@ -86,6 +92,12 @@ export class BxLlmAdmin extends LitElement {
   async _switch(el, changes, what, undo) {
     const err = await this._put(changes, what);
     if (err) { this._err = err; undo(el); }
+  }
+  async _saveConcurrency() {
+    const { value, error } = concurrencyChange(this._cc);
+    if (error) { this._err = error; return; }
+    const err = await this._put({ concurrency: value }, 'concurrency');
+    if (err) this._err = err; else this._cc = undefined;
   }
   async _saveModels() {
     const { changes, error } = modelsChanges(this._md, this._cfg);
@@ -102,6 +114,8 @@ export class BxLlmAdmin extends LitElement {
         this workspace’s LLM connector: every setting below is read-only. Usage is yours to read.</span></div>`
         : cfg.host?.active && Object.keys(cfg.locks ?? {}).length ? html`<div class="note" data-locked-some><bx-icon name="lock"></bx-icon><span>Your host’s deployment file
           sets part of this: those settings are marked <b>Set by your host</b> and can’t be changed here. The rest is yours.</span></div>` : nothing}
+      ${(this._notices ?? []).length ? html`<div class="note warn" role="status" data-notices><bx-icon name="info"></bx-icon><span>${this._notices.map((n) => html`<div>${n}</div>`)}</span>
+        <button class="quiet small" title="hide" aria-label="hide" @click=${() => { this._notices = null; }}><bx-icon name="xmark"></bx-icon></button></div>` : nothing}
       ${cfg.host?.error ? html`<div class="note warn" data-host-error><bx-icon name="warning"></bx-icon><span>${cfg.host.error}</span></div>` : nothing}
       ${cfg.storeError ? html`<div class="note crit"><bx-icon name="error"></bx-icon><span>The settings saved here can’t be read and are not in force (nothing is written over them): ${cfg.storeError}</span></div>` : nothing}
       ${vault && (cfg.upstreams ?? []).length ? html`<div class="note warn" data-vault=${cfg.vault}><bx-icon name="lock"></bx-icon><span>${vault}</span></div>` : nothing}
@@ -188,13 +202,31 @@ export class BxLlmAdmin extends LitElement {
           @change=${(e) => this._switch(e.target, { people: p.id }, 'people', () => {
             for (const r of this.renderRoot.querySelectorAll('input[name=people]')) r.checked = r.value === this._cfg.people; })}>
           <span><b>${p.label}</b> <span class="muted">— ${p.hint}</span></span></label>`)}
-      </div>`;
+      </div>
+      ${this._concurrency(cfg)}`;
+  }
+
+  // calls one caller may have in flight (concurrency): the next is refused, "busy"
+  _concurrency(cfg) {
+    if (cfg.concurrency == null) return nothing; // an xbind from before the cap
+    const lock = lockOf(cfg.locks, 'concurrency'), dirty = this._cc !== undefined;
+    return html`<h4>Calls at once ${lockTpl(lock)}</h4>
+      <div class="hint">How many calls one caller — a person, or a tile calling for nobody — may have in flight; the next one is refused as busy and
+        retried by its client. It also bounds how far calls running together can overshoot a quota.</div>
+      <form class="line" data-concurrency @submit=${(e) => { e.preventDefault(); this._saveConcurrency(); }}>
+        <input aria-label="calls in flight per caller" inputmode="numeric" size="6" style="width:7em" .value=${dirty ? this._cc : String(cfg.concurrency)}
+          ?disabled=${lock.locked || this._busy} @input=${(e) => { this._cc = e.target.value; this._saved = ''; }}>
+        ${lock.locked ? nothing : html`<button class="primary small" type="submit" data-save-concurrency ?disabled=${!dirty || this._busy}>Save</button>
+          ${dirty ? html`<button type="button" class="quiet small" @click=${() => { this._cc = undefined; }}>Cancel</button>` : nothing}`}
+        ${this._saved === 'concurrency' ? html`<span class="ok" data-saved="concurrency"><bx-icon name="ok"></bx-icon> saved</span>` : nothing}
+        <span class="meta">1–1024; empty: the default</span>
+      </form>`;
   }
 
   render() {
     const cfg = this._cfg;
     if (!cfg) return this._err ? errTpl(this._err) : html`<div class="empty">…</div>`;
-    return html`<div data-llm-admin @llm-config=${(e) => this._take(e.detail)}>
+    return html`<div data-llm-admin @llm-config=${(e) => { this._notices = null; this._take(e.detail); }}>
       ${this._notes(cfg)}
       ${errTpl(this._err)}
       ${this._status(cfg)}

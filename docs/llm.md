@@ -36,17 +36,30 @@ bottom:
 2. **Providers** — *Add a provider*: a name, the base URL, the API key (a
    masked field; once saved the key is never shown again — the row reads
    its last four characters), the models, the `private` mark and prices.
-   **Test** makes a one-line call through the provider and answers in the
-   row.
+   Changing a provider's scheme, host or port drops its stored key — a key
+   is only ever sent to the address it was set for — so the form asks for
+   the key again (or for *remove the key*). **Test** makes the smallest
+   call through the provider and answers in the row; it is a call like any
+   other (refused while the connector is off or at your quota).
 3. **Models** — the default model, the model of each role (`xbin/agent`,
    `xbin/harness`, or a role you add) and aliases; one *Save models*.
-4. **Who may call directly** — admins (the default), everyone, nobody.
+4. **Who may call directly** — admins (the default), everyone, nobody;
+   and *Calls at once*, how many calls one caller may have in flight.
 5. **Quotas** — the workspace total, the default for each person, and
    overrides per person and per organisation; each limit *stops calls* or
    *warns only*. A person's quota is also in the console's users → *LLM
-   quota…*, an org's on its page.
-6. **Usage** — this month per person and per component, today and the
-   month so far, tokens and cost; a click on a column header sorts.
+   quota…*, an org's on its page. Where your host sets the default, it is
+   a ceiling: the per-person and per-org forms say so, show it in each
+   field and refuse a higher limit, which would give nothing.
+6. **Usage** — this month per person, per component and per model, today
+   and the month so far, tokens and cost; a click on a column header
+   sorts. `~` and *estimated* mark requests whose answer ended without the
+   provider's own count; *unknown models* is every name neither a
+   provider's list nor the configuration has; *unpriced* requests count
+   for no cost limit.
+
+What a write did beyond what was asked — a key removed with its address —
+is shown at the top of the page until the next write.
 
 A setting your host's deployment file holds (§The host's file, below) is
 read-only, marked **Set by your host**; a connector the host locks entirely says so at the top of the

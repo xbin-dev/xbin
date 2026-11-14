@@ -6,7 +6,10 @@
  *       and per component (a workspace admin: every row), for today and
  *       for the month — tokens, cost, requests; a click on a column header
  *       sorts by it. Calls a tile made for nobody are a row of their own
- *       ("no person"). `own`: the viewer's own rows, per tile and per model.
+ *       ("no person"); an admin also gets them per model. Requests whose
+ *       usage is an estimate are marked ("~", "N estimated"), and every
+ *       model name nothing lists is one row per provider ("unknown
+ *       models"). `own`: the viewer's own rows, per tile and per model.
  *   <bx-llm-me .client>  what a person who is not an admin sees on
  *       /xbin/llm: their own quota — a plain sentence when a limit is
  *       reached, each limit's bar — and their own usage. Nothing of the
@@ -20,7 +23,7 @@ import '/vendor/bx-icons.js';
 import { limitsCss } from '/vendor/bx-limits.js';
 import { llmCss, errTpl } from '/vendor/llm-css.js';
 import { limitsTpl } from '/vendor/llm-quotas.js';
-import { aggregate, totalsOf, sortGroups, USAGE_COLS, fmtTokens, costWords, tokensTitle, quotaMessage, today } from '/vendor/llm-kit.js';
+import { aggregate, totalsOf, sortGroups, USAGE_COLS, costWords, tokensTitle, tokensWords, requestMarks, quotaMessage, today } from '/vendor/llm-kit.js';
 
 export class BxLlmUsage extends LitElement {
   static properties = {
@@ -52,16 +55,16 @@ export class BxLlmUsage extends LitElement {
     const [col, dir] = this._sort[id] ?? ['monthTokens', 'desc'];
     const rows = sortGroups(groups, col, dir), t = totalsOf(groups);
     const cells = (g) => html`
-      <td class="num" data-l="tokens today" title=${tokensTitle(g.today)}>${fmtTokens(g.today.tokens)}</td>
+      <td class="num" data-l="tokens today" title=${tokensTitle(g.today)}>${tokensWords(g.today)}</td>
       <td class="num" data-l="cost today">${costWords(g.today)}</td>
-      <td class="num" data-l="tokens this month" title=${tokensTitle(g.month)}>${fmtTokens(g.month.tokens)}</td>
+      <td class="num" data-l="tokens this month" title=${tokensTitle(g.month)}>${tokensWords(g.month)}</td>
       <td class="num" data-l="cost this month">${costWords(g.month)}</td>
-      <td class="num" data-l="requests">${g.month.requests}${g.month.failed ? html` <span class="meta">(${g.month.failed} failed)</span>` : nothing}</td>`;
+      <td class="num" data-l="requests">${g.month.requests}${requestMarks(g.month) ? html` <span class="meta" data-marks>(${requestMarks(g.month)})</span>` : nothing}</td>`;
     return html`<table data-usage=${id}>
       <thead><tr>${USAGE_COLS.map(([c, head]) => html`<th class=${c === 'label' ? '' : 'num'} aria-sort=${c === col ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
         <button class="sort" data-sort=${c} title="sort by this column" @click=${() => this._by(id, c)}>${head || first}${c === col
           ? html`<bx-icon name=${dir === 'asc' ? 'chevron-up' : 'chevron-down'}></bx-icon>` : nothing}</button></th>`)}</tr></thead>
-      <tbody>${rows.map((g) => html`<tr data-row=${g.key}><td class=${g.key === '' ? 'muted' : 'mono'}>${g.label}</td>${cells(g)}</tr>`)}</tbody>
+      <tbody>${rows.map((g) => html`<tr data-row=${g.key}><td class=${g.label === g.key ? 'mono' : 'muted'}>${g.label}</td>${cells(g)}</tr>`)}</tbody>
       ${rows.length > 1 ? html`<tfoot><tr data-total><td>total</td>${cells(t)}</tr></tfoot>` : nothing}
     </table>`;
   }
@@ -71,9 +74,12 @@ export class BxLlmUsage extends LitElement {
     return html`
       ${errTpl(this._err)}
       ${this.own ? html`<h4>By tile</h4>${this._table('component', 'component', 'tile')}<h4>By model</h4>${this._table('model', 'model', 'model')}`
-        : html`<h4>By person</h4>${this._table('user', 'user', 'person')}<h4>By component</h4>${this._table('component', 'component', 'component')}`}
+        : html`<h4>By person</h4>${this._table('user', 'user', 'person')}<h4>By component</h4>${this._table('component', 'component', 'component')}
+          <h4>By model</h4>${this._table('model', 'model', 'model')}`}
       <div class="line"><button class="small" data-refresh ?disabled=${this._busy} @click=${() => this.reload()}><bx-icon name="refresh"></bx-icon> Refresh</button>
-        <span class="meta">This month so far; days and months are UTC. Tokens are input plus output; cost covers the models that have a price.</span></div>`;
+        <span class="meta">This month so far; days and months are UTC. Tokens are input plus output; cost covers the models that have a price
+          (the others are “unpriced”, and count for no cost limit). “~” and “estimated”: an answer that ended without the provider’s own count is charged
+          an estimate. “unknown models” are names neither a provider’s list nor the configuration has.</span></div>`;
   }
   testApi() { const s = this; return { get rows() { return s._rows; }, reload: () => s.reload(), sort: (table) => s._sort[table] ?? ['monthTokens', 'desc'] }; }
 }

@@ -14,10 +14,13 @@
 //      in the page afterwards (text, attributes, field values) nor in any
 //      answer, the row reads its last four characters, and the editor
 //      opens with an empty key field; Test answers inline;
-//   4. the default model, the people switch, the default quota, a
-//      per-person and a per-org override — each read back from the API;
+//   4. the default model, the people switch, calls in flight (and a
+//      write's notices, served), the default quota, a per-person and a
+//      per-org override — each read back from the API; a changed address
+//      asks for the key again;
 //   5. usage after dev1's calls: their row (tokens today, cost from the
-//      price table), the component table, a sort by a column header;
+//      price table), the component and model tables, a sort by a column
+//      header; an estimated request and an unknown model (served rows);
 //   6. quota alerts: an org's warn limit and then the default's stop —
 //      GET /alerts names dev1, the limit's source and /xbin/llm; the admin
 //      console's bar links the LLM tab; the third call is 429;
@@ -26,8 +29,10 @@
 //      refuses the rest;
 //   8. the host's file: a locked upstream, default model and quota parts
 //      are read-only with "Set by your host", their controls disabled, and
-//      a write is 409; lockAll says so at the top and disables every
-//      control; the file is emptied again;
+//      a write is 409; its default quota is a ceiling over an org's entry
+//      (said, shown in the fields, a higher limit refused, a lower one
+//      saved); lockAll says so at the top and disables every control; the
+//      file is emptied again;
 //   9. the admin console: workspace → LLM is the same element; a person's
 //      quota in users → LLM quota…, an org's on its page; a phone width.
 // Everything it set is removed at the end (the usage it counted stays:
@@ -99,7 +104,7 @@ async function llm(browser) {
     const none = (m) => Object.fromEntries(Object.keys(m ?? {}).map((k) => [k, null]));
     await api('PUT', '/llm/quotas', { workspace: null, default: null, users: none(q.users), orgs: none(q.orgs) });
     for (const u of c.upstreams ?? []) await api('DELETE', `/llm/upstreams/${u.name}`);
-    await api('PUT', '/llm/config', { enabled: true, people: 'admins', defaults: { model: '', roles: Object.fromEntries(Object.keys(c.defaults?.roles ?? {}).map((r) => [r, ''])) },
+    await api('PUT', '/llm/config', { enabled: true, people: 'admins', concurrency: 0, defaults: { model: '', roles: Object.fromEntries(Object.keys(c.defaults?.roles ?? {}).map((r) => [r, ''])) },
       aliases: Object.fromEntries(Object.keys(c.aliases ?? {}).map((a) => [a, ''])) });
   };
   const admin = A.page.locator('bx-llm-admin');
@@ -191,7 +196,7 @@ async function llm(browser) {
     await ed2.locator('button.quiet', { hasText: 'Cancel' }).click();
     await row.locator('[data-test]').click();
     await ups.locator('[data-test-result=ok]').waitFor({ timeout: 20000 });
-    check(/fake-chat answered in \d+ ms \(120 tokens\)/.test(await ups.locator('[data-test-result]').innerText()), `Test answers inline (${await ups.locator('[data-test-result]').innerText()})`);
+    check(/fake-chat answered in \d+ ms \(\d+ tokens?\)/.test(await ups.locator('[data-test-result]').innerText()), `Test answers inline (${await ups.locator('[data-test-result]').innerText()})`);
 
     // ---- 4. the default model, the people switch, quotas ----
     await admin.locator('[data-model=default]').fill(`${UP}/${MODEL}`);
@@ -202,6 +207,28 @@ async function llm(browser) {
     await admin.locator('[data-people] input[value=everyone]').check();
     await until(async () => (await cfg()).people === 'everyone', 'the people switch is saved');
     check(true, 'who may call directly: everyone');
+    // a changed address: the stored key doesn't follow it
+    await row.locator('[data-edit]').click();
+    await ed2.locator('[data-f=baseURL]').fill(`${FAKE.replace('127.0.0.1', 'localhost')}/v1`);
+    await ed2.locator('[data-key-hint=moved]').waitFor({ timeout: 5000 });
+    await ed2.locator('[data-save]').click();
+    await until(async () => /the address changed/.test(await ed2.innerText()), 'the form refuses the move without a key');
+    check(/Enter the key for the new address/.test(await ed2.locator('[data-key-hint]').innerText()) && (await cfg()).upstreams[0].baseURL === `${FAKE}/v1`,
+      'a new host in the base URL: the form says the stored key is not kept and asks for it again (nothing is sent without it)');
+    await ed2.locator('button.quiet', { hasText: 'Cancel' }).click();
+    // calls in flight per caller; what a write did beyond what was asked is shown
+    const notice = async (route) => {
+      if (route.request().method() !== 'PUT') return route.continue();
+      const res = await route.fetch();
+      return route.fulfill({ response: res, json: { ...(await res.json()), notices: ['the key of upstream fake was removed: its address changed'] } });
+    };
+    await A.page.route('**/api/xbin/llm/config', notice);
+    await admin.locator('form[data-concurrency] input').fill('8');
+    await admin.locator('[data-save-concurrency]').click();
+    await admin.locator('[data-saved=concurrency]').waitFor({ timeout: 10000 });
+    await A.page.unroute('**/api/xbin/llm/config', notice);
+    check((await cfg()).concurrency === 8 && /the key of upstream fake was removed/.test(await admin.locator('[data-notices]').innerText()),
+      'calls at once: saved; a write\'s notices are shown at the top');
     const base = await used('dev1'); // counts from an earlier run today stay: limits are set relative to them
     const quotas = admin.locator('bx-llm-quotas');
     const setQuota = async (subject, fields, action) => {
@@ -251,6 +278,7 @@ async function llm(browser) {
     check(/^\$0\.\d+/.test(cells[2]), `…and their cost, from the price table (${cells[2]})`);
     check(await usage.locator('table[data-usage=user] tr[data-row=admin]').count() === 1, 'the Test call is counted to the admin who ran it');
     check(/direct calls/.test(await usage.locator('table[data-usage=component]').innerText()), 'per component: calls no tile made are "direct calls"');
+    check(await usage.locator(`table[data-usage=model] tr[data-row="${UP}/${MODEL}"]`).count() === 1, 'per model: the provider\'s model');
     await usage.locator('table[data-usage=user] [data-sort=label]').click();
     await settle(A.page);
     const names = (await usage.locator('table[data-usage=user] tbody tr td:first-child').allInnerTexts()).map((s) => s.trim());
@@ -258,6 +286,21 @@ async function llm(browser) {
       `a click on a column header sorts by it (${names.join(', ')})`);
     await shotEl(A.page, 'bx-llm-usage', `llm-usage-${THEME}`);
     await shot(A.page, `llm-page-${THEME}`);
+    // an estimated request and a name nothing lists (served: fakeopenai always reports usage, and its models are listed)
+    const more = async (route) => {
+      const res = await route.fetch();
+      const j = await res.json();
+      return route.fulfill({ response: res, json: { ...j, rows: [...(j.rows ?? []),
+        { day: kit.today(), user: 'sales1', component: 'apps/agent', model: `${UP}/(unknown)`, requests: 3, failed: 2, estimated: 1, inputTokens: 40, outputTokens: 9, cost: 0, unpriced: 1 }] } });
+    };
+    await A.page.route('**/api/xbin/llm/usage*', more);
+    await usage.locator('[data-refresh]').click();
+    const unk = usage.locator(`table[data-usage=model] tr[data-row="${UP}/(unknown)"]`);
+    await unk.waitFor({ timeout: 10000 });
+    const ucells = (await unk.locator('td').allInnerTexts()).map((s) => s.trim());
+    check(ucells[0] === `${UP}: unknown models` && ucells[1] === '~49' && /\+ 1 unpriced/.test(ucells[2]) && /3\s*\(2 failed · 1 estimated\)/.test(ucells[5]),
+      `an estimated request is marked and unknown model names are one row (${ucells.join(' | ')})`);
+    await A.page.unroute('**/api/xbin/llm/usage*', more);
 
     // ---- 7. a person who is not an admin ----
     await open(D.page);
@@ -279,7 +322,7 @@ async function llm(browser) {
 
     // ---- 8. the host's file ----
     host({ upstreams: { house: { baseURL: `${FAKE}/v1`, models: [MODEL], private: true } }, defaults: { model: `house/${MODEL}` },
-      quotas: { workspace: { tokensPerMonth: 50000000 }, users: {} } });
+      quotas: { workspace: { tokensPerMonth: 50000000 }, default: { tokensPerDay: 5000000 }, users: {} } });
     await until(async () => (await cfg()).locks?.['defaults.model']?.locked, 'xbind reads the changed deployment file');
     await open();
     await loaded();
@@ -298,7 +341,24 @@ async function llm(browser) {
       && await wsq.locator('input[data-limit=tokensPerMonth]').inputValue() === '50M', 'the workspace quota is the host\'s: read-only, no Save');
     check(await quotas.locator('form[data-add=users]').count() === 0 && await quotas.locator('details[data-override^="user:"]').count() === 0
       && await quotas.locator('form[data-add=orgs]').count() === 1, 'per-person overrides are locked with none (no Add); per-org ones stay the admin\'s');
-    check(await quotas.locator('bx-llm-quota[subject=default] input[data-limit=tokensPerDay]').isEnabled(), 'the default quota, which the file leaves out, stays editable');
+    const dq = quotas.locator('bx-llm-quota[subject=default]');
+    check(await dq.locator('input[data-limit=tokensPerDay]').isDisabled() && await dq.locator('input[data-limit=tokensPerDay]').inputValue() === '5M', 'the default quota is the host\'s too');
+    // …and a ceiling over an org's entry, which the admin may still write
+    await quotas.locator('form[data-add=orgs] input').fill('devs');
+    await quotas.locator('form[data-add=orgs] button').click();
+    const oq0 = quotas.locator('bx-llm-quota[subject="org:devs"]');
+    await oq0.locator('[data-ceiling]').waitFor({ timeout: 10000 });
+    check(/Your host sets the default \(tokens per day 5M tokens\), and it is a ceiling/.test((await oq0.locator('[data-ceiling]').innerText()).replace(/\s+/g, ' '))
+      && await oq0.locator('input[data-limit=tokensPerDay]').getAttribute('placeholder') === 'up to 5M', 'an org\'s entry under the host\'s default: the form says it is a ceiling, and shows it in the field');
+    await oq0.locator('input[data-limit=tokensPerDay]').fill('6M');
+    await oq0.locator('[data-save]').click();
+    await until(async () => /at most 5M tokens/.test(await oq0.locator('.err').innerText()), 'a limit above the ceiling is refused in the form');
+    check(!(await api('GET', '/llm/quotas')).body.quotas.orgs?.devs, 'a limit above the ceiling is not sent: it would give nothing');
+    await oq0.locator('input[data-limit=tokensPerDay]').fill('1M');
+    await oq0.locator('[data-save]').click();
+    await oq0.locator('[data-saved]').waitFor({ timeout: 10000 });
+    check((await api('GET', '/llm/quotas')).body.quotas.orgs?.devs?.tokensPerDay === 1e6, 'a lower one narrows it, and is saved');
+    await api('PUT', '/llm/quotas', { orgs: { devs: null } });
     const w = await api('PUT', '/llm/config', { defaults: { model: `${UP}/${MODEL}` } });
     check(w.status === 409 && (w.body.locked ?? []).includes('defaults.model'), `xbind refuses a write to a locked setting (${w.status} ${JSON.stringify(w.body.locked)})`);
     await shot(A.page, `llm-locked-${THEME}`);

@@ -463,7 +463,7 @@ GET    /alerts                    any. workspace health {alerts:[{level,kind,
                                    dismiss: the route a POST to which
                                    dismisses the alert
                                    (/go-build-versions/dismiss). Kinds
-                                   llm-quota and llm-setup (D226,
+                                   llm, llm-quota and llm-setup (D226,
                                    protocol/llm.md): the LLM connector's,
                                    to admins and to the shell an admin
                                    drives.

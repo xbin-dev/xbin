@@ -86,8 +86,9 @@ function actionTpl(s, a) {
 }
 
 // llmTpl(alert): the LLM connector's banners (D226) open its page.
-const llmTpl = (a) => (a?.kind === 'llm-setup' || a?.kind === 'llm-quota' ? html`<a class="aopen" data-llm-page href="/xbin/llm" target="_blank" rel="noopener"
-  title="the LLM connector's page: providers, quotas, usage">${a.kind === 'llm-setup' ? 'set up…' : 'quotas…'}</a>` : nothing);
+const LLM_OPEN = { 'llm-setup': 'set up…', 'llm-quota': 'quotas…', llm: 'prices…' };
+const llmTpl = (a) => (Object.hasOwn(LLM_OPEN, a?.kind ?? '') ? html`<a class="aopen" data-llm-page href="/xbin/llm" target="_blank" rel="noopener"
+  title="the LLM connector's page: providers, quotas, usage">${LLM_OPEN[a.kind]}</a>` : nothing);
 
 // the greyed raises' reasons, under an open banner
 function whysTpl(a) {

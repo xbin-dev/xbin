@@ -236,11 +236,20 @@ export function pricesBody(rows) {
 
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
+// addressChanged(was, now) → true when two base URLs differ in scheme, host
+// or port: xbind then drops the stored key unless the write brings one — a
+// key is only ever sent to the address it was set for.
+export function addressChanged(was, now) {
+  try { return new URL(String(was ?? '').trim()).origin !== new URL(String(now ?? '').trim()).origin; } catch { return false; }
+}
+
 // upstreamBody(draft, current) → {name, body} or {error}: PUT
 // /llm/upstreams/<name>'s body. draft: {name, baseURL, key, models (text),
 // private, prices (rows)}; current: the upstream as GET /llm/config answers
 // it, null for a new one. Only what changed is named; the key only when one
-// was typed (it is never read back), "" never — removeKey says that.
+// was typed (it is never read back), "" never — removeKey says that. A
+// changed address (scheme, host or port) needs the key again or removeKey:
+// xbind would drop the stored one.
 export function upstreamBody(draft, current) {
   const name = String(draft?.name ?? current?.name ?? '').trim();
   let err = validName(name);
@@ -257,6 +266,9 @@ export function upstreamBody(draft, current) {
     if (/\s/.test(key) || key.length > 4096) return { error: 'key: one line without spaces, at most 4096 characters' };
     body.key = key;
   } else if (draft?.removeKey && current?.key?.set) body.key = '';
+  else if (current?.key?.set && addressChanged(current.baseURL, baseURL)) {
+    return { error: 'key: the address changed, and the stored key doesn’t follow it — enter the key for the new address, or tick “remove the key”' };
+  }
   const models = parseModels(draft?.models);
   if (!same(models, current?.models ?? [])) body.models = models;
   if (!!draft?.private !== !!current?.private) body.private = !!draft?.private;
@@ -294,6 +306,27 @@ export function modelsDraft(cfg) {
   };
 }
 
+// aliasShadows(alias, cfg) → why a name can't be an alias, or '': a name
+// under an upstream in force, or a model an upstream lists, is that model
+// — an alias never takes it over (xbind answers 400).
+export function aliasShadows(alias, cfg) {
+  const a = String(alias ?? '');
+  for (const u of cfg?.upstreams ?? []) {
+    if (a.startsWith(`${u.name}/`)) return `names under ${u.name}/ are that provider’s models; an alias can’t take one over`;
+    if ((u.models ?? []).includes(a)) return `${u.name} lists a model of that name; an alias can’t take it over`;
+  }
+  return '';
+}
+
+// concurrencyChange(text, cfg) → {value} or {error}: the calls one caller
+// may have in flight, 1–1024; empty: the default (0 on the wire).
+export function concurrencyChange(text) {
+  const t = String(text ?? '').trim();
+  if (!t) return { value: 0 };
+  if (!/^\d+$/.test(t) || +t < 1 || +t > 1024) return { error: 'calls in flight: a whole number from 1 to 1024, or empty for the default' };
+  return { value: +t };
+}
+
 // modelsChanges(draft, cfg) → {changes} or {error}: PUT /llm/config's body
 // for the rows that differ — "" removes a role, an alias or the default; a
 // row the host locks is never named. changes is null when nothing differs.
@@ -315,6 +348,8 @@ export function modelsChanges(draft, cfg) {
     if (!a) { if (text(target)) return { error: 'an alias needs a name — the model name a client sends' }; continue; }
     if (seen.has(a)) return { error: `alias ${a} is listed twice` };
     seen.add(a);
+    const shadow = aliasShadows(a, cfg);
+    if (shadow && text(target) && text(target) !== (cfg?.aliases?.[a] ?? '')) return { error: `alias ${a}: ${shadow}` };
     if (text(target) !== (cfg?.aliases?.[a] ?? '') && !isLocked(locks, `aliases.${a}`)) aliases[a] = text(target);
   }
   for (const a of Object.keys(cfg?.aliases ?? {})) if (!seen.has(a) && !isLocked(locks, `aliases.${a}`)) aliases[a] = '';
@@ -343,6 +378,31 @@ export function quotaBody(draft) {
   if (!Object.keys(q).length) return { quota: null };
   if (draft?.action === 'warn') q.action = 'warn';
   return { quota: q };
+}
+
+// ceilingOf(rules, locks, subject) → the host's default quota when it
+// holds this subject's entry, else null: a default the host's file sets is
+// a ceiling over the per-person and per-org entries an admin writes —
+// lower narrows it, higher or unlimited gives nothing.
+export function ceilingOf(rules, locks, subject) {
+  const s = String(subject ?? '');
+  if (!(s.startsWith('user:') || s.startsWith('org:'))) return null;
+  if (!isLocked(locks, 'quotas.default') || isLocked(locks, s.startsWith('user:') ? 'quotas.users' : 'quotas.orgs')) return null;
+  const d = rules?.default;
+  return d && LIMITS.some((k) => d[k] > 0) ? d : null;
+}
+
+// ceilingProblem(quota, ceiling) → '' or why an entry gives nothing under
+// the host's default: a limit above it, or unlimited.
+export function ceilingProblem(quota, ceiling) {
+  for (const k of LIMITS) {
+    const c = ceiling?.[k], v = quota?.[k];
+    if (!(c > 0) || !v) continue;
+    if (v === UNLIMITED || v > c) {
+      return `${LIMIT_META[k].label}: at most ${fmtLimit(k, c)} — your host’s default is a ceiling; ${v === UNLIMITED ? 'unlimited' : 'a higher limit'} here would give nothing`;
+    }
+  }
+  return '';
 }
 
 // quotaSummary(q) → "2M tokens/day · $50/month · warns" or "no limits".
@@ -412,9 +472,16 @@ export const today = (now = Date.now()) => new Date(now).toISOString().slice(0, 
 export const personLabel = (u) => (u === '' ? 'no person (a tile’s own calls)' : u === 'owner' ? 'owner token' : String(u));
 export const componentLabel = (c) => (c === '' ? 'direct calls' : String(c));
 
-const zero = () => ({ requests: 0, failed: 0, tokens: 0, inputTokens: 0, outputTokens: 0, cost: 0, unpriced: 0 });
+// modelLabel(m): "<upstream>/(unknown)" is every name neither the
+// configuration nor the provider's own list has.
+export function modelLabel(m) {
+  const s = String(m ?? '');
+  return s.endsWith('/(unknown)') ? `${s.slice(0, -'/(unknown)'.length)}: unknown models` : s;
+}
+
+const zero = () => ({ requests: 0, failed: 0, estimated: 0, tokens: 0, inputTokens: 0, outputTokens: 0, cost: 0, unpriced: 0 });
 function add(t, r) {
-  t.requests += r.requests ?? 0; t.failed += r.failed ?? 0;
+  t.requests += r.requests ?? 0; t.failed += r.failed ?? 0; t.estimated += r.estimated ?? 0;
   t.inputTokens += r.inputTokens ?? 0; t.outputTokens += r.outputTokens ?? 0;
   t.tokens += (r.inputTokens ?? 0) + (r.outputTokens ?? 0);
   t.cost += r.cost ?? 0; t.unpriced += r.unpriced ?? 0;
@@ -423,14 +490,14 @@ function add(t, r) {
 // aggregate(rows, by, day) → [{key, label, today, month}] — per-day rows
 // of the current month summed by `by` (user | component | model): `month`
 // everything, `today` the rows of `day`. Each sum: {requests, failed,
-// tokens, inputTokens, outputTokens, cost, unpriced}.
+// estimated, tokens, inputTokens, outputTokens, cost, unpriced}.
 export function aggregate(rows, by = 'user', day = today()) {
   const out = new Map();
   for (const r of rows ?? []) {
     const key = String(r?.[by] ?? '');
     let g = out.get(key);
     if (!g) {
-      g = { key, label: by === 'user' ? personLabel(key) : by === 'component' ? componentLabel(key) : key, today: zero(), month: zero() };
+      g = { key, label: by === 'user' ? personLabel(key) : by === 'component' ? componentLabel(key) : modelLabel(key), today: zero(), month: zero() };
       out.set(key, g);
     }
     add(g.month, r);
@@ -472,10 +539,21 @@ export function sortGroups(groups, col = 'monthTokens', dir = col === 'label' ? 
 // a model without a price.
 export const costWords = (sum) => `${fmtCost(sum?.cost ?? 0)}${sum?.unpriced ? ` + ${sum.unpriced} unpriced` : ''}`;
 
-// tokensTitle(sum) → "12,000 in · 3,400 out · 14 requests (1 failed)".
+// requestMarks(sum) → "1 failed · 2 estimated", or '': what a count of
+// requests hides. estimated: answers that ended without the provider's
+// usage and were charged an estimate.
+export const requestMarks = (sum) => [sum?.failed ? `${sum.failed} failed` : '', sum?.estimated ? `${sum.estimated} estimated` : ''].filter(Boolean).join(' · ');
+
+// tokensWords(sum) → "12.3k", or "~12.3k" when some of it is an estimate.
+export const tokensWords = (sum) => `${sum?.estimated ? '~' : ''}${fmtTokens(sum?.tokens ?? 0)}`;
+
+// tokensTitle(sum) → "12,000 in · 3,400 out · 14 requests (1 failed · 2
+// estimated: their provider reported no usage)".
 export function tokensTitle(sum) {
   const n = (v) => Number(v ?? 0).toLocaleString('en-US');
-  return `${n(sum?.inputTokens)} in · ${n(sum?.outputTokens)} out · ${plural(sum?.requests ?? 0, 'request')}${sum?.failed ? ` (${sum.failed} failed)` : ''}`;
+  const marks = requestMarks(sum);
+  return `${n(sum?.inputTokens)} in · ${n(sum?.outputTokens)} out · ${plural(sum?.requests ?? 0, 'request')}${marks
+    ? ` (${marks}${sum.estimated ? ': their provider reported no usage' : ''})` : ''}`;
 }
 
 // ---- alerts (GET /alerts) ----
@@ -483,5 +561,6 @@ export function tokensTitle(sum) {
 // setupAlert(alerts) → the "no LLM is set up" alert, or null: what the
 // admin console's setup card stands on.
 export const setupAlert = (alerts) => (alerts ?? []).find((a) => a?.kind === 'llm-setup') ?? null;
-// isLLMAlert(a): one of the connector's (its setup card, a quota reached).
-export const isLLMAlert = (a) => a?.kind === 'llm-setup' || a?.kind === 'llm-quota';
+// isLLMAlert(a): one of the connector's (its setup card, a quota reached,
+// cost quotas that miss unpriced calls).
+export const isLLMAlert = (a) => a?.kind === 'llm-setup' || a?.kind === 'llm-quota' || a?.kind === 'llm';

@@ -11,8 +11,8 @@ import { readFileSync } from 'node:fs';
 import {
   LIMITS, LIMIT_META, UNLIMITED, PEOPLE, fmtTokens, fmtCost, limitText, fmtLimit, parseLimit, lockOf, isLocked, fullyLocked, lockLabel, lockedPaths,
   statusOf, vaultWords, vaultShut, keyWords, modelsWords, testWords, validName, validBaseURL, parseModels, priceRows, pricesBody, upstreamBody,
-  upstreamDraft, modelChoices, modelsDraft, modelsChanges, quotaDraft, quotaBody, quotaSummary, sourceWords, limitPct, usedWords, resetWords, quotaMessage, today,
-  personLabel, componentLabel, aggregate, totalsOf, sortGroups, USAGE_COLS, costWords, tokensTitle, setupAlert, isLLMAlert,
+  upstreamDraft, addressChanged, modelChoices, modelsDraft, modelsChanges, aliasShadows, concurrencyChange, ceilingOf, ceilingProblem, quotaDraft, quotaBody, quotaSummary, sourceWords, limitPct, usedWords, resetWords, quotaMessage, today,
+  personLabel, componentLabel, modelLabel, requestMarks, tokensWords, aggregate, totalsOf, sortGroups, USAGE_COLS, costWords, tokensTitle, setupAlert, isLLMAlert,
 } from '../web/llm-kit.js';
 import { llmClient, errorText, quotaRules, quotaOf, quotaLockPath } from '../web/llm-client.js';
 
@@ -29,7 +29,9 @@ test('the limits, the people switch and the lock reason are internal/llm\'s', ()
   for (const p of PEOPLE) assert.ok(config.includes(`"${p.id}"`), `people: ${p.id}`);
   assert.equal(lockLabel(/const LockReason = "([^"]*)"/.exec(config)[1]), 'Set by your host');
   const alerts = read('../internal/llm/alerts.go');
-  assert.ok(alerts.includes('AlertSetup = "llm-setup"') && alerts.includes('AlertQuota = "llm-quota"'));
+  const admin = read('../internal/llm/adminalerts.go');
+  assert.ok(admin.includes('AlertSetup = "llm-setup"') && admin.includes('AlertQuota = "llm-quota"') && alerts.includes('const AlertKind = "llm"'));
+  assert.ok(read('../internal/llm/models.go').includes('const unknownModel = "(unknown)"'), 'the name unknown models are metered under');
 });
 
 test('numbers: tokens and cost to read', () => {
@@ -141,6 +143,19 @@ test('upstreamBody(): a new upstream names everything, a change only what change
   assert.match(upstreamBody({ ...draft, key: 'two words' }, null).error, /^key:/);
 });
 
+test('a changed address needs the key again: xbind drops the stored one', () => {
+  assert.ok(addressChanged('https://api.openai.com/v1', 'https://evil.example/v1') && addressChanged('https://a.example/v1', 'http://a.example/v1')
+    && addressChanged('http://127.0.0.1:8080/v1', 'http://127.0.0.1:8081/v1'));
+  assert.ok(!addressChanged('https://a.example/v1', 'https://a.example/v2/') && !addressChanged('https://a.example', 'not a url'));
+  const cur = { name: 'openai', baseURL: 'https://api.openai.com/v1', key: { set: true, source: 'vault' }, models: [], private: false };
+  const moved = { ...upstreamDraft(cur), baseURL: 'https://proxy.example/v1' };
+  assert.match(upstreamBody(moved, cur).error, /^key: the address changed/);
+  assert.deepEqual(upstreamBody({ ...moved, key: 'sk-again' }, cur).body, { baseURL: 'https://proxy.example/v1', key: 'sk-again' });
+  assert.deepEqual(upstreamBody({ ...moved, removeKey: true }, cur).body, { baseURL: 'https://proxy.example/v1', key: '' });
+  assert.deepEqual(upstreamBody({ ...upstreamDraft(cur), baseURL: 'https://api.openai.com/v2' }, cur).body, { baseURL: 'https://api.openai.com/v2' }, 'a path alone keeps the key');
+  assert.deepEqual(upstreamBody({ ...moved }, { ...cur, key: { set: false } }).body, { baseURL: 'https://proxy.example/v1' }, 'no key stored: nothing to ask');
+});
+
 test('the models a default may take', () => {
   const list = { data: [{ id: 'openai/gpt-5', owned_by: 'openai' }, { id: 'fast', owned_by: 'alias' }, { id: 'xbin/default', owned_by: 'xbin' }] };
   assert.deepEqual(modelChoices(list, { upstreams: [{ name: 'local', models: ['m1'] }] }), ['local/m1', 'openai/gpt-5']);
@@ -162,6 +177,38 @@ test('default models and aliases: the form\'s rows, and only what differs is sen
   assert.match(modelsChanges({ ...d, roles: [['Default', 'main/x']] }, cfg).error, /lowercase/);
   assert.match(modelsChanges({ ...d, aliases: [['a', 'x/y'], ['a', 'x/z']] }, cfg).error, /twice/);
   assert.deepEqual(modelsDraft(null), { model: '', roles: [['agent', ''], ['harness', '']], aliases: [] });
+});
+
+test('an alias never takes over a name the configuration has; calls in flight', () => {
+  const cfg = { upstreams: [{ name: 'main', models: ['gpt-5'] }, { name: 'open', models: [] }], aliases: { 'main/old': 'main/gpt-5' } };
+  assert.match(aliasShadows('main/gpt-9', cfg), /names under main\//);
+  assert.match(aliasShadows('gpt-5', cfg), /main lists a model of that name/);
+  assert.equal(aliasShadows('gpt-6-astra', cfg), '');
+  assert.equal(aliasShadows('other/x', cfg), '');
+  const d = modelsDraft(cfg);
+  assert.match(modelsChanges({ ...d, aliases: [...d.aliases, ['open/x', 'main/gpt-5']] }, cfg).error, /^alias open\/x: names under open\//);
+  assert.deepEqual(modelsChanges(d, cfg), { changes: null }, 'one that is already there is left alone');
+  assert.deepEqual(modelsChanges({ ...d, aliases: [] }, cfg), { changes: { aliases: { 'main/old': '' } } }, '…and can be removed');
+  assert.deepEqual(concurrencyChange('32'), { value: 32 });
+  assert.deepEqual(concurrencyChange(' '), { value: 0 }, 'empty: the default');
+  for (const bad of ['0', '1025', '1.5', 'many']) assert.ok(concurrencyChange(bad).error, bad);
+});
+
+test('the host\'s default is a ceiling over the admin\'s per-person and per-org entries', () => {
+  const rules = { default: { tokensPerDay: 2e6, costPerMonth: 50 }, users: {} };
+  const host = { 'quotas.default': { locked: true, reason: 'set by your host' } };
+  assert.deepEqual(ceilingOf(rules, host, 'user:bob'), rules.default);
+  assert.deepEqual(ceilingOf(rules, host, 'org:eng'), rules.default);
+  assert.equal(ceilingOf(rules, host, 'default'), null);
+  assert.equal(ceilingOf(rules, host, 'workspace'), null);
+  assert.equal(ceilingOf(rules, {}, 'user:bob'), null, 'the admin\'s own default is no ceiling');
+  assert.equal(ceilingOf(rules, { ...host, 'quotas.users': { locked: true } }, 'user:bob'), null, 'the host\'s own entries are the host\'s to give');
+  assert.equal(ceilingOf({ default: { action: 'warn' } }, host, 'user:bob'), null);
+  assert.equal(ceilingProblem({ tokensPerDay: 1e6, costPerMonth: 50 }, rules.default), '', 'lower, or the same: it narrows');
+  assert.equal(ceilingProblem({ tokensPerMonth: -1, costPerDay: 500 }, rules.default), '', 'a limit the host doesn\'t set is free');
+  assert.match(ceilingProblem({ tokensPerDay: 3e6 }, rules.default), /^tokens per day: at most 2M tokens — your host’s default is a ceiling; a higher limit here would give nothing$/);
+  assert.match(ceilingProblem({ costPerMonth: -1 }, rules.default), /^cost per month: at most \$50\.00 .* unlimited here would give nothing$/);
+  assert.equal(ceilingProblem({ tokensPerDay: 3e6 }, null), '');
 });
 
 test('a quota\'s form goes round; an empty one removes the quota', () => {
@@ -222,8 +269,8 @@ test('usage: rows summed per person and per component, today and this month, sor
   assert.equal(today(NOW), '2026-11-14');
   const people = aggregate(rows, 'user', today(NOW));
   const bob = people.find((g) => g.key === 'bob');
-  assert.deepEqual(bob.today, { requests: 2, failed: 0, tokens: 240, inputTokens: 200, outputTokens: 40, cost: 0.5, unpriced: 0 });
-  assert.deepEqual(bob.month, { requests: 3, failed: 1, tokens: 360, inputTokens: 300, outputTokens: 60, cost: 0.75, unpriced: 0 });
+  assert.deepEqual(bob.today, { requests: 2, failed: 0, estimated: 0, tokens: 240, inputTokens: 200, outputTokens: 40, cost: 0.5, unpriced: 0 });
+  assert.deepEqual(bob.month, { requests: 3, failed: 1, estimated: 0, tokens: 360, inputTokens: 300, outputTokens: 60, cost: 0.75, unpriced: 0 });
   assert.deepEqual(people.map((g) => g.label).sort(), ['bob', 'no person (a tile’s own calls)', 'owner token']);
   assert.equal(personLabel('ana'), 'ana');
   const comps = aggregate(rows, 'component', today(NOW));
@@ -245,11 +292,29 @@ test('usage: rows summed per person and per component, today and this month, sor
   assert.deepEqual(aggregate(null), []);
 });
 
+test('usage: estimated requests are marked, and unknown models are one row per provider', () => {
+  const rows = [
+    { day: '2026-11-14', user: 'bob', component: '', model: 'main/gpt-5', requests: 3, estimated: 2, inputTokens: 900, outputTokens: 100, cost: 0 },
+    { day: '2026-11-14', user: 'bob', component: '', model: 'main/(unknown)', requests: 4, failed: 4, inputTokens: 0, outputTokens: 0, cost: 0 },
+  ];
+  const [bob] = aggregate(rows, 'user', '2026-11-14');
+  assert.equal(bob.month.estimated, 2);
+  assert.equal(tokensWords(bob.month), '~1k', 'a sum with an estimate in it says so');
+  assert.equal(tokensWords({ tokens: 1000 }), '1k');
+  assert.equal(requestMarks(bob.month), '4 failed · 2 estimated');
+  assert.equal(requestMarks({ requests: 3 }), '');
+  assert.equal(tokensTitle(bob.month), '900 in · 100 out · 7 requests (4 failed · 2 estimated: their provider reported no usage)');
+  const models = aggregate(rows, 'model', '2026-11-14');
+  assert.deepEqual(models.map((g) => [g.key, g.label]), [['main/gpt-5', 'main/gpt-5'], ['main/(unknown)', 'main: unknown models']]);
+  assert.equal(modelLabel('a/b/(unknown)'), 'a/b: unknown models');
+  assert.deepEqual(testWords({ ok: false, error: 'this workspace’s LLM connector is turned off' }), { ok: false, text: 'this workspace’s LLM connector is turned off' });
+});
+
 test('the connector\'s alerts', () => {
-  const alerts = [{ kind: 'oom' }, { kind: 'llm-quota', message: 'q' }, { kind: 'llm-setup', dismiss: '/llm/setup/dismiss' }];
+  const alerts = [{ kind: 'oom' }, { kind: 'llm-quota', message: 'q' }, { kind: 'llm-setup', dismiss: '/llm/setup/dismiss' }, { kind: 'llm', message: 'unpriced' }];
   assert.equal(setupAlert(alerts).dismiss, '/llm/setup/dismiss');
   assert.equal(setupAlert([alerts[0]]), null);
-  assert.deepEqual(alerts.map(isLLMAlert), [false, true, true]);
+  assert.deepEqual(alerts.map(isLLMAlert), [false, true, true, true]);
 });
 
 // ---- the client ----
