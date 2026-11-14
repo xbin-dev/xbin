@@ -1,6 +1,6 @@
 {
  "name": "permission",
- "about": "a permission rejected; one answered allow always (a session rule); the next one answered by that rule — the call id t1 used in all three turns; then a plan approval (switch_mode, meta.title \"Ready to code?\") answered with the option that raises the mode to auto",
+ "about": "a permission rejected; one answered allow always (a session rule); the next one answered by that rule — the call id t1 used in all three turns; then a plan approval (switch_mode, meta.title \"Ready to code?\") answered with an option that also raises the mode",
  "source": "sdk/acp/acptest TestTranscripts: the scripted agent through acp.Client; seq and ts are the test's (ts = 2026-01-01T00:00:00Z + 100 ms per event)",
  "flags": [
   "--auto-mode"
@@ -12,7 +12,7 @@
   "permission p2: always by user:alice",
   "prompt: perm three",
   "prompt: plan the work",
-  "permission p4: auto by user:alice"
+  "permission p4: exit-plan-clear-auto by user:alice"
  ],
  "checkpoints": [
   8,
@@ -821,7 +821,7 @@
    "type": "permission.resolved",
    "data": {
     "by": "user:alice",
-    "optionId": "auto",
+    "optionId": "exit-plan-clear-auto",
     "pid": "p4"
    }
   },
@@ -850,7 +850,7 @@
    "data": {
     "messageId": "m",
     "role": "agent",
-    "text": "plan approved: auto"
+    "text": "plan approved: exit-plan-clear-auto"
    }
   },
   {

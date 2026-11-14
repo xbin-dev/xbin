@@ -1,0 +1,5 @@
+{
+ "name": "signin",
+ "about": "the tool calls of signin.json after its last event, as ToolRecords (/vendor/chat/blocks.js), in the order they began — seq: the event that began the call; turn: the turn it was made in. A field at its zero value is left out.",
+ "records": []
+}

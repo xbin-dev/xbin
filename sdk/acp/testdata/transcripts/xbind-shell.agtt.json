@@ -1,0 +1,214 @@
+{
+ "about": "the run's view (GET /runs/{id}/view: run, messages, steps, links, drafts) after each checkpoint of xbind-shell.json, as the agent template's backend maps the log (its transcripts_test.go)",
+ "name": "xbind-shell",
+ "views": [
+  {
+   "seq": 22,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "run: printf '\\033[1;31merror\\033[0m: \\033[32mok\\033[0m\\n'; echo line2; exit 3",
+      "created": 3,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 5,
+      "id": 3,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 2,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"command\":\"printf '\\\\033[1;31merror\\\\033[0m: \\\\033[32mok\\\\033[0m\\\\n'; echo line2; exit 3\",\"summary\":\"printf '\\\\033[1;31merror\\\\033[0m: \\\\033[32mok\\\\033[0m\\\\n'; echo line2; exit 3\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:run1",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "exitCode": 3,
+       "kind": "execute",
+       "output": "\u001b[1;31merror\u001b[0m: \u001b[32mok\u001b[0m\r\nline2\r\n",
+       "outputTruncated": 0,
+       "planReview": false,
+       "status": "failed",
+       "subagent": false,
+       "title": "printf '\\033[1;31merror\\033[0m: \\033[32mok\\033[0m\\n'; echo line2; exit 3"
+      },
+      "compacted": false,
+      "content": "error: \u001b[1;31merror\u001b[0m: \u001b[32mok\u001b[0m\r\nline2\r\n",
+      "created": 5,
+      "id": 4,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 3,
+      "toolCallId": "h1:run1"
+     },
+     {
+      "compacted": false,
+      "content": "run: \u001b[1;31merror\u001b[0m: \u001b[32mok\u001b[0m line2",
+      "created": 10,
+      "id": 5,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 4,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "run: echo hi > made.txt && sed -i 's/main() {}/main() { println(1) }/' main.go",
+      "created": 12,
+      "id": 6,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 5,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 14,
+      "id": 7,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 6,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"command\":\"echo hi \\u003e made.txt \\u0026\\u0026 sed -i 's/main() {}/main() { println(1) }/' main.go\",\"summary\":\"echo hi \\u003e made.txt \\u0026\\u0026 sed -i 's/main() {}/main() { println(1) }/' main.go\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:run1#2",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "exitCode": 0,
+       "kind": "execute",
+       "output": "",
+       "outputTruncated": 0,
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "echo hi > made.txt && sed -i 's/main() {}/main() { println(1) }/' main.go"
+      },
+      "compacted": false,
+      "content": "[exit 0]",
+      "created": 14,
+      "id": 8,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 7,
+      "toolCallId": "h1:run1#2"
+     },
+     {
+      "compacted": false,
+      "content": "run: ",
+      "created": 18,
+      "id": 9,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 8,
+      "toolCallId": ""
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "idle"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 2
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "ready",
+      "steering": false,
+      "title": "fake: run: printf '\\033[1;31merror\\033[0m: \\03",
+      "usage": {
+       "size": 1000,
+       "used": 42
+      }
+     },
+     "id": 1,
+     "pendingState": {
+      "kind": ""
+     },
+     "result": "",
+     "status": "idle",
+     "title": "xbind-shell"
+    },
+    "steps": []
+   }
+  }
+ ]
+}

@@ -331,7 +331,7 @@ func TestTranscripts(t *testing.T) {
 
 	t.Run("permission", func(t *testing.T) {
 		r := startTx(t, "permission", "a permission rejected; one answered allow always (a session rule); the next one answered by that rule — the call id t1 "+
-			"used in all three turns; then a plan approval (switch_mode, meta.title \"Ready to code?\") answered with the option that raises the mode to auto",
+			"used in all three turns; then a plan approval (switch_mode, meta.title \"Ready to code?\") answered with an option that also raises the mode",
 			[]string{"--auto-mode"}, false)
 		r.prompt("perm one")
 		r.permit(r.nth(1, acp.EvPermissionRequest, nil), "no", "user:bob")
@@ -341,7 +341,7 @@ func TestTranscripts(t *testing.T) {
 		r.rest()
 		r.turn("perm three") // the rule answers it
 		r.prompt("plan the work")
-		r.permit(r.nth(1, acp.EvPermissionRequest, nil), "auto", "user:alice")
+		r.permit(r.nth(1, acp.EvPermissionRequest, nil), "exit-plan-clear-auto", "user:alice")
 		r.rest()
 		r.done()
 	})

@@ -1,0 +1,217 @@
+{
+ "name": "tools",
+ "about": "the tool calls of tools.json after its last event, as ToolRecords (/vendor/chat/blocks.js), in the order they began — seq: the event that began the call; turn: the turn it was made in. A field at its zero value is left out.",
+ "records": [
+  {
+   "seq": 6,
+   "turn": 1,
+   "rec": {
+    "id": "card-read",
+    "kind": "read",
+    "title": "Read hello.txt",
+    "status": "completed",
+    "rawInput": {
+     "file_path": "/w/apps/x/hello.txt"
+    },
+    "locations": [
+     {
+      "path": "/w/apps/x/hello.txt",
+      "line": 1
+     }
+    ],
+    "files": [
+     "/w/apps/x/hello.txt"
+    ],
+    "text": "```\nhello\n```"
+   }
+  },
+  {
+   "seq": 8,
+   "turn": 1,
+   "rec": {
+    "id": "card-edit",
+    "kind": "edit",
+    "title": "Edit hello.txt",
+    "status": "completed",
+    "rawInput": {
+     "file_path": "/w/apps/x/hello.txt"
+    },
+    "locations": [
+     {
+      "path": "/w/apps/x/hello.txt"
+     }
+    ],
+    "files": [
+     "/w/apps/x/hello.txt"
+    ],
+    "diffs": [
+     {
+      "path": "/w/apps/x/hello.txt",
+      "status": "modified",
+      "add": 1,
+      "del": 1,
+      "oldText": "hello\n",
+      "newText": "hello, world\n"
+     }
+    ]
+   }
+  },
+  {
+   "seq": 10,
+   "turn": 1,
+   "rec": {
+    "id": "card-delete",
+    "kind": "delete",
+    "title": "Delete old.txt",
+    "status": "completed",
+    "rawInput": {
+     "path": "/w/apps/x/old.txt"
+    },
+    "locations": [
+     {
+      "path": "/w/apps/x/old.txt"
+     }
+    ],
+    "files": [
+     "/w/apps/x/old.txt"
+    ]
+   }
+  },
+  {
+   "seq": 12,
+   "turn": 1,
+   "rec": {
+    "id": "card-move",
+    "kind": "move",
+    "title": "Move draft.md → notes.md",
+    "status": "completed",
+    "rawInput": {
+     "from": "/w/apps/x/draft.md",
+     "to": "/w/apps/x/notes.md"
+    },
+    "locations": [
+     {
+      "path": "/w/apps/x/notes.md"
+     }
+    ],
+    "files": [
+     "/w/apps/x/notes.md"
+    ]
+   }
+  },
+  {
+   "seq": 14,
+   "turn": 1,
+   "rec": {
+    "id": "card-search",
+    "kind": "search",
+    "title": "grep TODO",
+    "status": "completed",
+    "rawInput": {
+     "path": "/w/apps/x",
+     "pattern": "TODO"
+    },
+    "text": "hello.txt:3: // TODO: greet the world"
+   }
+  },
+  {
+   "seq": 16,
+   "turn": 1,
+   "rec": {
+    "id": "card-exec",
+    "kind": "execute",
+    "title": "go test ./...",
+    "status": "completed",
+    "rawInput": {
+     "command": "go test ./..."
+    },
+    "terminal": true,
+    "output": "ok  \texample\t0.01s\n",
+    "exitCode": 0
+   }
+  },
+  {
+   "seq": 18,
+   "turn": 1,
+   "rec": {
+    "id": "card-fetch",
+    "kind": "fetch",
+    "title": "Fetch https://example.invalid/docs",
+    "status": "completed",
+    "rawInput": {
+     "url": "https://example.invalid/docs"
+    },
+    "text": "# Docs\n\nA page about greetings."
+   }
+  },
+  {
+   "seq": 20,
+   "turn": 1,
+   "rec": {
+    "id": "card-think",
+    "kind": "think",
+    "title": "Think it over",
+    "status": "completed",
+    "rawInput": {
+     "thought": "Which greeting fits?"
+    },
+    "text": "Weighing two greetings."
+   }
+  },
+  {
+   "seq": 22,
+   "turn": 1,
+   "rec": {
+    "id": "card-other",
+    "kind": "other",
+    "title": "Do something else",
+    "status": "completed",
+    "rawInput": {},
+    "text": "done"
+   }
+  },
+  {
+   "seq": 31,
+   "turn": 2,
+   "rec": {
+    "id": "chatty",
+    "kind": "execute",
+    "title": "yes | head",
+    "status": "completed",
+    "output": "line 1\nline 2\nline 3\nline 4\n",
+    "exitCode": 0
+   }
+  },
+  {
+   "seq": 43,
+   "turn": 3,
+   "rec": {
+    "id": "task1",
+    "kind": "think",
+    "title": "Explore the repo",
+    "label": "Explore the repo",
+    "name": "Task",
+    "status": "completed",
+    "subagent": true,
+    "rawInput": {
+     "description": "Explore the repo",
+     "prompt": "Find where **main** starts.",
+     "subagent_type": "Explore"
+    },
+    "text": "`main` is in **main.go**."
+   }
+  },
+  {
+   "seq": 45,
+   "turn": 3,
+   "rec": {
+    "id": "read1",
+    "kind": "read",
+    "title": "Read main.go",
+    "name": "Read",
+    "status": "completed",
+    "parent": "task1"
+   }
+  }
+ ]
+}
