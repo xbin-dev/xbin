@@ -50,6 +50,9 @@ const (
 	MaxOpenSets = 10
 	SetTTL      = 7 * 24 * time.Hour
 	keepSets    = 90 * 24 * time.Hour // decided sets stay listed this long
+	// applyingStale: a set still "applying" this long after it was claimed
+	// was interrupted (applying takes seconds).
+	applyingStale = 10 * time.Minute
 )
 
 // ChangeOp is one admin operation of a closed list of kinds.
@@ -165,6 +168,16 @@ func (s *Store) setsLocked(user string) ([]ChangeSet, error) {
 			ended = cs.Created
 		}
 		switch {
+		case cs.State == SetApplying && now.Sub(ended) > applyingStale:
+			// xbind stopped while applying it: what ran is in the audit log
+			// and in each item's result; the rest never ran
+			cs.State = SetPartial
+			for i := range cs.Items {
+				if cs.Items[i].Result == "" {
+					cs.Items[i].Result, cs.Items[i].Error = ItemSkipped, "xbind stopped while this change set was being applied: your agent's log says what ran"
+				}
+			}
+			_ = writeJSON(path, cs)
 		case cs.State == SetProposed && !now.Before(cs.Expires):
 			cs.State, cs.Decided = SetExpired, now.UTC().Truncate(time.Second)
 			_ = writeJSON(path, cs)

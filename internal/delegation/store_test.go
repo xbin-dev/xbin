@@ -260,6 +260,18 @@ func TestChangeSetStore(t *testing.T) {
 	if sets, _ := s.ChangeSets("bob"); len(sets) != 0 {
 		t.Fatalf("a set naming alice is listed for bob: %+v", sets)
 	}
+	// a set xbind stopped while applying: partial, its unrun items skipped
+	_, _ = s.UpdateChangeSet("alice", cs.ID, func(c *ChangeSet) error {
+		c.State, c.Decided, c.Items[0].Result, c.Items[1].Result = SetApplying, *now, ItemApplied, ""
+		return nil
+	})
+	if got, _ := s.ChangeSet("alice", cs.ID); got.State != SetApplying {
+		t.Fatalf("applying: %s", got.State)
+	}
+	*now = now.Add(applyingStale + time.Second)
+	if got, _ := s.ChangeSet("alice", cs.ID); got.State != SetPartial || got.Items[0].Result != ItemApplied || got.Items[1].Result != ItemSkipped {
+		t.Fatalf("an interrupted set: %+v", got)
+	}
 	// the open limit and expiry
 	for i := 0; i < MaxOpenSets; i++ {
 		if _, err := s.NewChangeSet(ChangeSet{User: "alice", Items: []ChangeItem{{ChangeOp: op}}}); err != nil {
