@@ -87,6 +87,7 @@ import { docRows, placeNew, setCols, rowOf, step, setHeight } from './doc-layout
 import { placeFixed } from './fixed-layout.js';
 import { gridItems, itemsOf } from './blocks.js'; // headings and text on a screen, no tile (D192)
 import { mutateItems, addBlock, blockTestApi } from './shell-blocks.js';
+import { followRoute, routeUpdated, routeBar } from './shell-route.js'; // the place shown, in the page's URL (#7)
 
 // Convert a legacy column-based tile ({col, height}) to a fixed-grid tile
 // ({x,y,w,h}); tiles already in grid form pass through. Old columns become grid
@@ -154,6 +155,7 @@ export class BxShell extends LitElement {
     _shareOrg: { state: true },   // settings menu: org chosen for "share screen to org"
     _look: { state: true },       // the page's appearance {theme, density} (/vendor/bx-theme.js), for the settings menu
     _front: { state: true },      // the active window's key (zorder.js): 'spawn:<id>' is a spawned window of ours
+    _routeMsg: { state: true },   // what a link named but this person can't be shown (shell-route.js)
   };
 
   static styles = [shellCss, statusCss, partCss, resizeCss]; // partCss: a pop-out's marker and partition chip
@@ -244,6 +246,7 @@ export class BxShell extends LitElement {
     // window: its focusin does (the active window follows the click)
     window.addEventListener('focusin', this._onBlur);
     this._offFront = onWindowFront((key) => { this._front = key; });
+    this._offRoute = followRoute(this); // ?screen=&tile=&at= — landed on once the layout is in
     // Narrow-screen layout: switch to the mobile shell (off-canvas sidebar,
     // stacked tiles) under 820px. matchMedia so it flips live on rotate/resize.
     this._mq = window.matchMedia('(max-width: 820px)');
@@ -317,7 +320,7 @@ export class BxShell extends LitElement {
     clearInterval(this._alertTimer);
     window.removeEventListener('blur', this._onBlur);
     window.removeEventListener('focusin', this._onBlur);
-    this._offFront?.();
+    this._offFront?.(); this._offRoute?.();
     window.removeEventListener('keydown', this._onKey);
     window.removeEventListener('keydown', this._onZoomKey);
     window.removeEventListener('wheel', this._onZoomWheel);
@@ -325,7 +328,7 @@ export class BxShell extends LitElement {
     clearTimeout(this._staleTimer);
   }
 
-  updated() { revealActiveTab(this); syncPrompts(this); }
+  updated() { revealActiveTab(this); syncPrompts(this); routeUpdated(this); }
 
   firstUpdated() {
     // The grid is absolute-positioned in fixed px, so window resize never
@@ -621,6 +624,7 @@ export class BxShell extends LitElement {
       const r = await (window.xbin?.fetch ?? fetch)('/api/xbin/components');
       if (r.ok) {
         this._components = await r.json();
+        this._compsLoaded = true; // a link's tile is judged against this list (shell-route.js)
         this._pruneOffloaded(); // an offloaded tile disappears from open screens too
       }
     } catch { /* xbind restarting; next event retries */ }
@@ -1681,6 +1685,7 @@ export class BxShell extends LitElement {
       get topBar() { return { on: s._top.on, hidden: s._top.hidden }; },
       get arrange() { return s._screen?.arrange ?? null; }, // the active screen's arrange (D193, modes.js)
       get prompts() { return Object.fromEntries(s._prompts ?? []); }, // path → its waiting decisions (D195)
+      get routeMessage() { return s._routeMsg ?? null; }, // what a link named but can't be shown
       get anchor() { return s._canvas?.anchorState ?? null; }, // the focused tile's hold (D191, shell-anchor.js)
       ...blockTestApi(s), // blocks(), addBlock(kind, at), editBlock(id), blockMenuItems(id) (D192)
       ...tiledTestApi(s), // tiling(): the Tiled screen's tree as drawn (D193)
@@ -1758,6 +1763,7 @@ export class BxShell extends LitElement {
 
       ${this._mobile ? tabStrip(this) : nothing}
       ${this._orgBar()}
+      ${routeBar(this)}
 
       <div class="body ${this._mobile ? 'mobile' : ''}">
         ${(this._side.collapsed && !this._mobile) ? html`

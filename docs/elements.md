@@ -356,6 +356,51 @@ an admin approves it, and your frame's sandbox gains
 silently dropped (the console says which grant). Use `rel="noopener"`.
 Top navigation is never allowed.
 
+### Links to a place in your tile
+
+A person can link someone to a place in the workspace (#7, D220): the
+shell's page names it in its own query, readable —
+
+```
+/c/root/?screen=<screen id>&tile=apps/notes&at=projects/q3
+```
+
+`screen` is a tab (a personal screen, or an org screen its members share),
+`tile` the window brought to the front on it, `at` **your page's
+fragment** (`#projects/q3`). The URL follows the person: another screen or
+another tile in front is a new browser history entry, your fragment
+changing updates the entry in place. Opening the link (or Back and Forward
+to it) lands there: the screen comes up, the tile is found on it — or on
+another tab that holds it, or opened on the person's own screen — brought
+to the front and scrolled to, and your page sent to `at`. A screen that is
+gone or not shared with the viewer, or a tile that doesn't exist, isn't
+theirs to read or is offloaded, says so in a strip above the canvas. A
+personal screen's id means nothing to anyone else: share links to org
+screens, or to a tile alone.
+
+So keep where your page is **in its fragment**, and follow it both ways:
+
+- read `location.hash` on start **and on `hashchange`** — a link to a tile
+  that is already open, or Back in the shell, changes it under you
+  (`xbin-client.js` replaces the fragment, so `hashchange` fires as for a
+  link and your page adds no history entry of its own);
+- write it as the person moves (`location.hash = …`, `history.pushState` /
+  `replaceState` with a `#…` URL): `xbin-client.js` reports every change to
+  the frame (`xbin:location`, [protocol.md](/docs/protocol.md) §Tile ↔
+  shell messaging; at most 2 KiB, without the `#`). Your path and query
+  are not part of the link: under strict asset gating they carry
+  credentials.
+
+`xbin-client.js` takes `xbin:navigate` only from its parent window (on a
+tile's own origin, only from the workspace origin), and it asks for
+nothing a link to `/c/<tile>/#<fragment>` couldn't: your page decides what
+its fragment means — treat it as input, never as a command to act on
+unasked.
+
+The scaffold's admin console (`#users`, `#orgs/<id>`) and welcome notes
+(`#storage/kv`) do both. A page that keeps no fragment is linked to as a
+tile, opened where it starts.
+
 ### Asset URLs
 
 Every load of a tile's files is authorized for the **user** the browser acts
@@ -452,6 +497,12 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   ([tile-deployments.md](/docs/tile-deployments.md)). (The window's buttons
   draw `/vendor/bx-icons.js` glyphs, D184; this section names them.)
 
+- **Place** (#7): `hash` is the page's fragment as it last reported it
+  (without `#`; `''` for none), announced as a `bx-location` event
+  `{path, hash}` (bubbles, composed) on every change; `navigate(hash)`
+  sends the page there (`xbin:navigate`) — before the frame has loaded,
+  its first load carries it. The shell's links use both (§Links to a
+  place in your tile).
 - **Auto-height**: the framed document reports its size via xbin-client
   (with hysteresis, so no resize loops). Set `height` for a fixed frame.
   The mode follows the element live (D187): setting or removing `height`

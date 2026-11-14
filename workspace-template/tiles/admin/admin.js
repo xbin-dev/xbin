@@ -105,17 +105,21 @@ export class BxAdmin extends WithDrafts(LitElement) {
     { id: 'workspace', label: 'workspace', tabs: [{ id: 'branding', label: 'branding' }, { id: 'nativeapp', label: 'xbin app' }, { id: 'settings', label: 'settings' }] },
   ];
   static tabsFlat() { return BxAdmin.GROUPS.flatMap((g) => g.tabs); }
-  _grpOf(tab) { return BxAdmin.GROUPS.find((g) => g.tabs.some((t) => t.id === tab)) || BxAdmin.GROUPS[0]; }
-
-  constructor() {
-    super();
-    // #tab, or #tab/sub for a tab's drill-in (organisations: #orgs/<id>).
+  // [tab, sub] the page's fragment names: #tab, or #tab/sub for a tab's
+  // drill-in (organisations: #orgs/<id>).
+  static fromHash() {
     const [h, ...rest] = location.hash.replace(/^#/, '').split('/');
     // Back-compat: honor a couple of old hash ids so bookmarks don't 404.
     const alias = { overview: 'components', runtime: 'components', interfaces: 'providers', terminals: 'settings', policies: 'settings' };
     const want = alias[h] || h;
-    this._tab = BxAdmin.tabsFlat().some((t) => t.id === want) ? want : 'components';
-    this._sub = this._tab === want ? rest.join('/') : '';
+    const tab = BxAdmin.tabsFlat().some((t) => t.id === want) ? want : 'components';
+    return [tab, tab === want ? rest.join('/') : ''];
+  }
+  _grpOf(tab) { return BxAdmin.GROUPS.find((g) => g.tabs.some((t) => t.id === tab)) || BxAdmin.GROUPS[0]; }
+
+  constructor() {
+    super();
+    [this._tab, this._sub] = BxAdmin.fromHash();
     this._err = '';
     this._alerts = [];
     this._denied = false;
@@ -143,6 +147,9 @@ export class BxAdmin extends WithDrafts(LitElement) {
     this.addEventListener('bx-admin-notice', (e) => { this._err = ''; this._flash(e.detail, 6000); });
     this.addEventListener('bx-admin-refresh', () => this._refreshSoon());
     this.addEventListener('bx-admin-tab', (e) => this._setTab(e.detail));
+    // the fragment moved under us (a workspace link to a tab, Back in the shell; #7)
+    this._onHash = () => { const [t, sub] = BxAdmin.fromHash(); if (t !== this._tab || sub !== this._sub) this._setTab(sub ? `${t}/${sub}` : t); };
+    addEventListener('hashchange', this._onHash);
     this._refresh();
     // Prime the data the initial tab needs (constructor set _tab from the hash
     // but doesn't fetch; _setTab does that on later clicks).
@@ -154,6 +161,7 @@ export class BxAdmin extends WithDrafts(LitElement) {
   }
   disconnectedCallback() {
     super.disconnectedCallback(); this._off?.(); clearInterval(this._rtTimer); clearTimeout(this._refreshT);
+    removeEventListener('hashchange', this._onHash);
     this._navRO?.disconnect(); this._navRO = null;
   }
   // The tabs' table headers stick under the nav: its height, as it wraps or

@@ -13330,6 +13330,41 @@ Deviations and refinements made while implementing; all deliberate:
     core) would have failed 131 files that passed under the old caps, and
     needed each classified as basic or core; the owner chose to raise the
     caps alone.
+- **D220 — A place in the workspace is a link: the shell's query, and a
+  tile's fragment inside it (2026-11-08; #7).** Nothing in the shell's URL
+  said where the person was, so nobody could be sent there.
+  - **The grammar.** `/c/root/?screen=<id>&tile=<path>&at=<fragment>`,
+    each optional, values escaped only where a query needs it (a tile path
+    keeps its slashes). The query, not the shell's own fragment: it is the
+    convention the limits page set (`?tile=`), and a query can be carried
+    through a sign-in's `?next=` later, a fragment never reaches the
+    server. Pure parse/build in `shell/route.js`, tested round-trip
+    (`hack/shell-route.test.mjs`).
+  - **A tile's place is its fragment.** Tiles already deep-link that way
+    (the admin console's `#tab/sub`, the welcome notes' `#topic/child`).
+    `xbin-client.js` reports it to the frame (`xbin:location`: start,
+    hashchange, popstate, and the page's own push/replaceState) and applies
+    `xbin:navigate` by replacing the fragment — hashchange fires, no reload
+    and no history entry of the tile's own. The path and query stay out:
+    under strict asset gating they carry credentials.
+  - **History.** A different screen or front tile is pushState; the tile's
+    fragment changing is replaceState on the shell — the tile's frame
+    already made its own entry when it navigated, so pushing too would make
+    Back take two steps. The first write after a load or a popstate
+    replaces: opening the workspace adds no entry.
+  - **Landing.** The screen is activated (un-parked, an org tab un-hidden);
+    the tile is the one on it, else on another visible tab, else opened —
+    on the active personal screen, or the person's own when the active (or
+    linked) one is a shared org screen: a link never opens an org draft.
+  - **What can't be shown says so** in a strip above the canvas: a screen
+    not among the viewer's tabs ("doesn't exist any more, or isn't shared
+    with you" — a personal screen's id never is), a tile not in their
+    `/components` (gone or unreadable: the list is filtered server-side, so
+    the shell can't tell which and doesn't guess), an offloaded tile. The
+    rest of the link still applies.
+  - **Not done.** Signing in drops the query (the root page isn't a
+    `loginNextPaths` page; adding it is a server change of its own). The
+    frame window's IDE state (open file, terminal) isn't in the link.
 
 - **D221 — AgTT Projects say what really happened to a task: its PR
   wherever the agent opened it, a PR's end however late, a person's

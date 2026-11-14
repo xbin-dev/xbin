@@ -571,6 +571,40 @@ if (assetBase) {
   } catch { /* no resource timing */ }
 }
 
+// --- the page's place (#7; docs/protocol.md "Tile ↔ shell messaging") ---
+// The fragment is where a page is (the admin console's #users, a notes
+// tile's #<note>): the frame hears it as xbin:location on start and on every
+// change — hashchange, popstate, and the page's own pushState/replaceState —
+// so the shell's URL can link here. xbin:navigate from the frame (a link
+// opened, Back in the shell) moves the page there by replacing its fragment:
+// hashchange fires as for a link, and no history entry is added.
+if (framed) {
+  let sent = null;
+  const where = () => location.hash.replace(/^#/, '');
+  const sendLoc = () => {
+    const h = where();
+    if (h === sent) return;
+    sent = h;
+    window.parent.postMessage({ type: 'xbin:location', hash: h.slice(0, 2048) }, PARENT);
+  };
+  addEventListener('hashchange', sendLoc);
+  addEventListener('popstate', sendLoc);
+  for (const m of ['pushState', 'replaceState']) {
+    const orig = history[m]; // the asset base's wrapper, when there is one (set above)
+    history[m] = function (...args) { const r = orig.apply(this, args); sendLoc(); return r; };
+  }
+  addEventListener('message', (e) => {
+    if (e.source !== window.parent || e.data?.type !== 'xbin:navigate') return;
+    if (WORKSPACE && e.origin !== WORKSPACE) return;
+    const h = String(e.data.hash ?? '').replace(/^#/, '');
+    if (h === where()) { sent = null; sendLoc(); return; } // already there: say so
+    const u = new URL(location.href);
+    u.hash = h;
+    location.replace(h ? u.href : `${u.href.replace(/#.*$/, '')}#`); // '#' alone: no reload
+  });
+  sendLoc();
+}
+
 // --- focused-scroll tint (D123) ---
 // A document that links /vendor/theme.css gets its thin themed scrollbars from
 // the sheet; the tint on the scroller the next wheel or key would move needs

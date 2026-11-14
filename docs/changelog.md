@@ -29,6 +29,24 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-08
 
+- **Links to a place in the workspace** (#7, D220;
+  [elements.md](/docs/elements.md) §Links to a place in your tile). The
+  shell's URL now says where the person is —
+  `/c/root/?screen=<id>&tile=apps/notes&at=<the tile page's fragment>` —
+  and a link to it lands there: the screen, the tile brought to the front
+  (opened on the person's own screen when no tab holds it), the tile's page
+  at that fragment. Switching screens or tiles adds a browser history
+  entry, so Back and Forward walk them. A link to a screen or tile the
+  viewer can't see (gone, not shared, no access, offloaded) says so in a
+  strip above the canvas. New frame messages `xbin:location` and
+  `xbin:navigate` ([protocol.md](/docs/protocol.md) §Tile ↔ shell
+  messaging), and `<bx-frame>`'s `hash`, `navigate()` and `bx-location`
+  event. `xbin-client.js` reports your page's fragment by itself; to be
+  linkable, **read `location.hash` on `hashchange` as well as on start** —
+  the scaffold's admin console and welcome notes now do. The shell part
+  is new scaffold files (`shell/route.js`, `shell/shell-route.js`) and a
+  few lines in `shell/bx-shell.js`: an existing workspace gets it with `bx
+  builtin update`; until then its shell ignores the query, as before.
 - **Agent template Projects: a project wiki, and the coordinator reads
   code** (D222). Each project keeps a versioned wiki — a Wiki tab with
   search, history and edits — that its coordinator and the coordinator's

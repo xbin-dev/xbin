@@ -834,11 +834,25 @@ class WelcomeNotes extends LitElement {
 
   constructor() {
     super();
-    // deep-linkable: /c/apps/welcome/#rbac or #storage/kv
+    this._path = WelcomeNotes.fromHash();
+    // the fragment moved under us (a workspace link here, Back in the shell)
+    this._onHash = () => {
+      const p = WelcomeNotes.fromHash();
+      if (p.join('/') === this._path.join('/')) return;
+      this._path = p;
+      this.updateComplete.then(() => this.scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+    };
+  }
+  connectedCallback() { super.connectedCallback(); addEventListener('hashchange', this._onHash); }
+  firstUpdated() { if (this._path.length) this.scrollIntoView({ block: 'nearest' }); } // opened on a note: it's in view
+  disconnectedCallback() { super.disconnectedCallback(); removeEventListener('hashchange', this._onHash); }
+
+  // deep-linkable: /c/apps/welcome/#rbac or #storage/kv
+  static fromHash() {
     const [topId, childId] = location.hash.replace(/^#/, '').split('/');
     const top = NOTES.find((n) => n.id === topId);
     const child = top?.children?.find((c) => c.id === childId);
-    this._path = child ? [top.id, child.id] : top ? [top.id] : [];
+    return child ? [top.id, child.id] : top ? [top.id] : [];
   }
 
   // Base Two (D184): theme.css's tokens only (the page links it and opts

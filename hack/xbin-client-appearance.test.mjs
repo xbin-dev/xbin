@@ -41,6 +41,7 @@ async function load({ framed = true, metas = {}, theme, href = 'https://ws.examp
   globalThis.parent = framed ? parent : globalThis;
   globalThis.document = doc;
   globalThis.location = new URL(href);
+  globalThis.history = { pushState() {}, replaceState() {} }; // the client wraps both to report the fragment (#7)
   globalThis.WebSocket = class { };
   globalThis.ResizeObserver = class { observe() {} };
   globalThis.fetch = async () => new Response('{}');
