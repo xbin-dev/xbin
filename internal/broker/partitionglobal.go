@@ -60,14 +60,28 @@ const GlobalAddressFeature = "global-address/1"
 // partitioned (F5, the file comment). Route's deployment rules apply
 // unchanged; only the partition reached, and for the tile's own credentials
 // the identity, change.
+//
+// A person's workspace agent (delegation.go) is another tile's code here
+// as at their own partition: the global instance holds what the person can
+// read there, so the call needs their consent when the workspace asks for
+// it, and is counted in their ledger — the parameter is no way round either
+// (the 2026-11 security review).
 func (b *Broker) RouteGlobal(p auth.Principal, target *registry.Component, qualifier string) Decision {
 	t := target.Path
 	spec, partitioned, err := b.tilePartitioning(t)
 	if err != nil || !partitioned {
 		// a mode that can't be read (the proxy's partition gate answers
 		// 409), or one that changed under the call: Route's own answer
+		// (which counts a delegate's call itself)
 		return b.Route(p, target, qualifier)
 	}
+	d := b.routeGlobal(p, target, qualifier, spec)
+	b.countDelegate(p, t, d)
+	return d
+}
+
+func (b *Broker) routeGlobal(p auth.Principal, target *registry.Component, qualifier string, spec registry.PartitionSpec) Decision {
+	t := target.Path
 	if kind := deliveryOf(p); kind != "" {
 		return Decision{Deny: fmt.Errorf("a %s delivery acts in the partition it was registered for: ?xbin-partition=global is for %s's own frames, terminals, agent sessions and backends", kind, t)}
 	}
@@ -91,6 +105,8 @@ func (b *Broker) RouteGlobal(p auth.Principal, target *registry.Component, quali
 		return Decision{Deny: util.NoGlobalInstance(t)}
 	case person == "":
 		return b.routePartition(p, target, d) // in global already
+	case p.Agent != "" && b.Policies().PartitionConsent && !partitionConsentHolds(b, person, p.Agent, t):
+		return Decision{Deny: fmt.Errorf("%s hasn't let %s use their %s data (they allow it at /xbin/partitions)", person, p.Agent, t)}
 	}
 	part := util.UserPartition(person)
 	id, err := b.partitionID(part)

@@ -2,6 +2,7 @@ package broker
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -151,11 +152,41 @@ func TestRouteDelegate(t *testing.T) {
 	check("consent given", bob, "apps/pu", "", want{role: "writer", level: "terminal", part: "user:bob"})
 	partRouteConsent(w, false)
 
-	// the global instance, addressed explicitly: as the person, clamped
+	// the global instance, addressed explicitly: as the person, clamped —
+	// and counted in their ledger, as what left the agent for that tile
+	var edges []string
+	withSeam(t, &partitionEdgeSeam, func(_ *Broker, user, from, to string) { edges = append(edges, user+" "+from+"→"+to) })
 	d := b.RouteGlobal(alice, comp("apps/pg"), "")
 	if d.Deny != nil || d.Partition != util.PartitionGlobal || d.Role != "reader" || d.Attribute == nil || d.Attribute.Agent != holder {
 		t.Errorf("alice's agent at apps/pg's global instance: %+v (attribute %+v)", d, d.Attribute)
 	}
+	if want := []string{"alice " + holder + "→apps/pg+main"}; !slices.Equal(edges, want) {
+		t.Errorf("the ledger after a call to the global instance: %v, want %v", edges, want)
+	}
+	// ?xbin-partition=global is no way round the person's consent (the
+	// security review's finding 4: it skipped both the consent check and
+	// the ledger)
+	partRouteConsent(w, true)
+	edges = nil
+	d = b.RouteGlobal(alice, comp("apps/pg"), "")
+	if d.Deny == nil || !strings.Contains(d.Deny.Error(), "alice hasn't let apps/q use their apps/pg data") || len(edges) != 0 {
+		t.Errorf("alice's agent at apps/pg's global instance, without her consent: %+v, ledger %v", d, edges)
+	}
+	if d := b.Route(alice, comp("apps/pg"), ""); d.Deny == nil {
+		t.Errorf("…and at her own partition: %+v", d)
+	}
+	withSeam(t, &partitionConsentHolds, func(_ *Broker, user, from, to string) bool {
+		return user == "alice" && from == holder && to == "apps/pg"
+	})
+	d = b.RouteGlobal(alice, comp("apps/pg"), "")
+	if d.Deny != nil || d.Partition != util.PartitionGlobal || len(edges) != 1 {
+		t.Errorf("…with her consent: %+v, ledger %v", d, edges)
+	}
+	// a person in person is not their agent: no consent asked of them
+	if d := b.RouteGlobal(personP(t, w, "bob"), comp("apps/pg"), ""); d.Deny != nil || len(edges) != 1 {
+		t.Errorf("bob in person at the global instance: %+v, ledger %v", d, edges)
+	}
+	partRouteConsent(w, false)
 }
 
 // policyFunc is a delegation.Policy from one function (tile and session
