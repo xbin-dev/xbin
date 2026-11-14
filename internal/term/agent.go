@@ -16,6 +16,7 @@ package term
 // agent on every tile. There are no provider keys in the tile vault.
 
 import (
+	"cmp"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -133,6 +134,11 @@ type AgentOpen struct {
 	// of the tile, "" for the default (target.go). A resumed session doesn't
 	// take its history entry's: the client names it again.
 	Deployment string
+	// Delegate says how a delegate's open was authorised (delegate.go): the
+	// server's delegate gate fills it; nil for everyone else, and a
+	// delegate's open without it is refused.
+	Delegate *DelegateStart
+	origin   string // a restart: the session's origin carries over
 }
 
 // OpenAgentWith is OpenAgent with the sandbox pickers.
@@ -149,6 +155,7 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	// (history.go) — its provider, mode and name carry over; the agent must
 	// have advertised loadSession, else 409 and the UI offers a fresh start
 	var resumeID string
+	var resumeFrom *HistoryMeta
 	var fromPart bool // the entry is partition history (resumeHere)
 	if resume != "" {
 		var meta HistoryMeta
@@ -163,7 +170,8 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 			return SessionInfo{}, 409, agent.ErrResumeUnsupported
 		}
 		providerID, resumeID = meta.Provider, meta.ACPSessionID
-		if mode == "" {
+		resumeFrom = &meta
+		if mode == "" && p.Agent == "" { // a delegate's mode is its ticket's or the person's preference
 			mode = meta.Mode
 		}
 		if name == "" {
@@ -174,20 +182,21 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	if !ok {
 		return SessionInfo{}, 400, fmt.Errorf("unknown provider %q (GET /api/xbin/agent/providers lists them)", providerID)
 	}
+	if p.Agent != "" { // a person's workspace agent: narrowed beyond the person's own gates (delegate.go)
+		var why string
+		if mode, netMode, why = m.delegateOpen(p, &a, rel, prov, mode, netMode, resumeFrom); why != "" {
+			return SessionInfo{}, 403, errors.New(why)
+		}
+	}
 	if mode, err = prov.ResolveMode(mode); err != nil {
 		return SessionInfo{}, 400, err
-	}
-	if why := delegateOpenRefusal(p, a, prov, mode); why != "" {
-		return SessionInfo{}, 403, errors.New(why)
 	}
 	if m.BxPath == "" {
 		return SessionInfo{}, 503, errors.New("agent sessions need the bx binary the daemon could not find at startup (build it: CGO_ENABLED=0 go build -o bin/bx ./cmd/bx, or set XBIN_BIN)")
 	}
 	o := m.openOptsFor(p, rel, cwd, normalizeNet(netMode), a.GPU, !a.NoAPI)
 	o.kind, o.vm = KindAgent, a.VM
-	if p.Agent != "" {
-		o.origin = OriginAgent // SessionInfo.Origin: "started by your agent"
-	}
+	o.origin = cmp.Or(p.Agent, a.origin) // a delegate's open; a restart keeps its session's (delegate.go)
 	if code, err := m.pickTarget(p, &o, rel, a.Deployment); err != nil {
 		return SessionInfo{}, code, err
 	}
@@ -210,38 +219,6 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 		m.Rename(s.ID, name)
 	}
 	return m.row(s), 200, nil
-}
-
-// OriginAgent is SessionInfo.Origin of a session a person's workspace agent
-// opened for them under delegation (auth/delegate.go).
-const OriginAgent = "agent"
-
-// delegateOpenRefusal narrows what a delegate — a person's workspace agent
-// (p.Agent) — may open, beyond the person's own gates; "" for everyone
-// else. POST /term/sessions mixes route classes: the same body opens a
-// session that asks its person before acting, or one that never asks. A
-// delegate can never answer a tile agent's permission request or question
-// (internal/server/delegateclass.go), and choosing a mode that stops the
-// asking is the same act: so a delegate opens a session only in the
-// provider's default mode, which is never an Explicit one, and only where
-// the catalog knows that mode keeps asking (Provider.Safe: a provider
-// without a mode table, or a default it marks Explicit, is refused). Modes
-// the person allowed their agent beforehand are their server-side
-// preference, asked here when it exists (plans/workspace-agent.md §5.3).
-func delegateOpenRefusal(p auth.Principal, a AgentOpen, prov agent.Provider, mode string) string {
-	if p.Agent == "" {
-		return ""
-	}
-	switch {
-	case mode != prov.DefaultMode || !prov.Safe(mode):
-		return "a workspace agent opens a tile agent in its default mode (" + prov.DefaultMode + "): the person picks any other mode themselves"
-	case len(a.Options) > 1 || len(a.Options) == 1 && a.Options["model"] == "":
-		// an agent's settings can carry its permission mode under another id
-		return "a workspace agent may choose a tile agent's model: every other option is the person's to set"
-	case a.VM || a.GPU != "":
-		return "a workspace agent opens a tile agent in the tile's ordinary sandbox: VM and GPU sandboxes are the person's to pick"
-	}
-	return ""
 }
 
 // Info is one session's directory row.

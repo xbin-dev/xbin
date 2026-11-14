@@ -29,6 +29,7 @@ import (
 	"github.com/creack/pty"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/gpu"
 	"github.com/xbin-dev/xbin/internal/layers"
 	"github.com/xbin-dev/xbin/internal/sandbox"
@@ -72,7 +73,7 @@ type Session struct {
 	target  sessionTarget // the target deployment, fixed at start (target.go)
 	part    sessionPart   // its partition on a partitioned tile, fixed at start (partition.go)
 	purpose string        // "" or PurposeSignin, fixed at start (purpose.go)
-	origin  string        // "" or OriginAgent: opened by its person's workspace agent (agent.go), fixed at start
+	origin  string        // "" or the sealed component that opened it for its person (delegate.go), fixed at start
 
 	// hub is the session's side of the /ws/term wire: its scrollback, the
 	// attached sockets, the last activity (the reaper's clock) and the exit.
@@ -125,6 +126,10 @@ type Manager struct {
 	// broker by main. nil ⇒ the pre-D54 rules (termNet → internet, host
 	// admin-only).
 	TermNet func(p auth.Principal, component string) TermNet
+	// AgentPolicy answers the orgs' rules when a person's workspace agent
+	// opens a tile agent session (delegate.go); nil refuses every such open
+	// (delegation.NoPolicy).
+	AgentPolicy delegation.Policy
 
 	// HiddenTiles lists the component dirs to mask out of this principal's
 	// terminals (D17a — source visibility scoped to the allow-list): every
@@ -330,7 +335,7 @@ type openOpts struct {
 	target     sessionTarget     // the target deployment (pickTarget, target.go)
 	part       sessionPart       // the partition on a partitioned tile (pickPartition, partition.go)
 	purpose    string            // "" or PurposeSignin: a guided sign-in's shell (purpose.go)
-	origin     string            // "" or OriginAgent (agent.go)
+	origin     string            // "" or the sealed component opening it for its person (delegate.go)
 }
 
 // prepare is the part of opening a session that both kinds share: the cwd,

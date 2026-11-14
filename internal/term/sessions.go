@@ -46,8 +46,8 @@ type SessionInfo struct {
 	// which no tab shows (purpose.go); absent on every other session.
 	Purpose string `json:"purpose,omitempty"`
 	// Origin is set by xbind only: "agent" for a session the person's
-	// workspace agent opened for them (agent.go); absent when they opened
-	// it themselves.
+	// workspace agent opened for them (delegate.go); absent when they
+	// opened it themselves.
 	Origin   string `json:"origin,omitempty"`
 	personal bool   // a person's session on a partitioned tile (Personal)
 }
@@ -66,7 +66,7 @@ func (s *Session) info() SessionInfo {
 	}
 	si := SessionInfo{
 		ID: s.ID, Cwd: s.Cwd, Net: s.Net, Label: s.Label, Scopes: scopes,
-		GPU: s.gpu, API: s.api, Name: s.name, Kind: KindShell, VM: s.vm, Purpose: s.purpose, Origin: s.origin,
+		GPU: s.gpu, API: s.api, Name: s.name, Kind: KindShell, VM: s.vm, Purpose: s.purpose, Origin: originOf(s.origin),
 		Created:    s.born.UTC().Format(time.RFC3339),
 		LastActive: s.hub.LastActive().UTC().Format(time.RFC3339),
 		Clients:    s.hub.Clients(), EnvHeld: s.envKey != "",
