@@ -121,7 +121,7 @@ export const repoPickerCss = `
   .projs-page .pnrepo { border: 1px solid var(--bx-border); border-radius: var(--bx-radius); padding: 6px 8px; background: var(--bx-panel); }
   .projs-page .pnrh { display: flex; gap: 8px; align-items: center; min-width: 0; }
   .projs-page .pnrh b { overflow-wrap: anywhere; }
-  .projs-page .pnsetup summary { cursor: pointer; color: var(--bx-muted); font-size: 12px; margin-top: 2px; }
+  .projs-page .pnsetup summary { cursor: pointer; color: var(--bx-muted); font: var(--bx-font-meta); margin-top: 2px; }
   .projs-page .pnsetup textarea { margin-top: 4px; width: 100%; box-sizing: border-box; }
   .projs-page .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 `;

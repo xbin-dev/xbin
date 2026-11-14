@@ -357,9 +357,9 @@ style.textContent = repoPickerCss + `
   .projs-page .pnstep button.pnstepb { cursor: pointer; color: var(--bx-text); }
   .projs-page .pnstep button.pnstepb:hover { background: var(--bx-hover); }
   .projs-page .pnstep.on .pnstepb { color: var(--bx-text); font-weight: 600; border-bottom-color: var(--bx-accent); }
-  .projs-page .pnn { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: 50%;
-    border: 1px solid currentColor; font-size: 11px; font-weight: 600; flex: none; }
-  .projs-page .pnstep.on .pnn { background: var(--bx-accent); border-color: var(--bx-accent); color: var(--bx-accent-ink, #fff); }
+  .projs-page .pnn { display: inline-flex; align-items: center; justify-content: center; width: 18px; height: 18px; border-radius: var(--bx-radius);
+    border: 1px solid currentColor; font: var(--bx-font-micro); flex: none; }
+  .projs-page .pnstep.on .pnn { background: var(--bx-accent); border-color: var(--bx-accent); color: var(--bx-accent-ink, #0B0C12); }
   .projs-page .pnstep.done .pnn { border-color: var(--bx-ok); color: var(--bx-ok); }
   .projs-page .pnhead { margin: 4px 0 12px; font: var(--bx-font-title); outline: none; }
   .projs-page .pnfs { border: 0; padding: 0; margin: 0 0 12px; min-width: 0; }
