@@ -69,7 +69,7 @@ func TestCoordProfileToolAllowlist(t *testing.T) {
 		t.Fatalf("a tool with no handler: %v", err)
 	}
 	both := scratchTool("probe_engine", false)
-	both.Engine = func(*Engine, context.Context, *turnState, toolCall) {}
+	both.Engine = func(*Engine, context.Context, *turnState, toolCall, any) {}
 	if err := p.register(both); err == nil || !strings.Contains(err.Error(), "one handler") {
 		t.Fatalf("a tool with two handlers: %v", err)
 	}

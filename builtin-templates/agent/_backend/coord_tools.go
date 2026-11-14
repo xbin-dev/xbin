@@ -17,13 +17,14 @@ import (
 )
 
 // coordTool is one tool of a profile: Run for a tool that answers at once,
-// Engine for one that needs the turn (it settles its own result). Write: it
-// starts or steers work, so approval mode asks the person first.
+// Engine for one that needs the turn (it settles its own result; scope is
+// what the profile's Resolve answered). Write: it starts or steers work,
+// so approval mode asks the person first.
 type coordTool struct {
 	Spec   toolSpec
 	Write  bool
 	Run    func(ctx context.Context, ag *Agent, c coordCall) (string, error)
-	Engine func(e *Engine, ctx context.Context, ts *turnState, tc toolCall)
+	Engine func(e *Engine, ctx context.Context, ts *turnState, tc toolCall, scope any)
 }
 
 // coordCall is one call of a coordinator's tool: the run and its config as
@@ -151,15 +152,20 @@ func (ag *Agent) runCoordTool(ctx context.Context, run *Run, cfg Config, name st
 	return tool.Run(ctx, ag, coordCall{Run: run, Cfg: cfg, Scope: scope, Args: args})
 }
 
-// coordEngineTool runs a coordinator's tool that needs the turn (execTools);
-// the tool resolves the coordinator itself and settles its result.
+// coordEngineTool runs a coordinator's tool that needs the turn (execTools),
+// after resolving the coordinator again; the tool settles its own result.
 func (e *Engine) coordEngineTool(ctx context.Context, ts *turnState, tc toolCall) {
-	_, tool := coordToolOf(e.db, ts.run, tc.Function.Name)
+	p, tool := coordToolOf(e.db, ts.run, tc.Function.Name)
 	if tool == nil || tool.Engine == nil {
 		e.settleResult(ts, tc, fmt.Sprintf("error: unknown tool %q", tc.Function.Name))
 		return
 	}
-	tool.Engine(e, ctx, ts, tc)
+	scope, err := p.resolve(e.ag, e.db, ts.run, ts.cfg)
+	if err != nil {
+		e.settleResult(ts, tc, "error: "+err.Error())
+		return
+	}
+	tool.Engine(e, ctx, ts, tc, scope)
 }
 
 // coordArgs decodes a tool call's arguments into v.

@@ -52,15 +52,11 @@ func researchSpec() toolSpec {
 
 // research runs a project coordinator's research call (the profile
 // registers it through researchTool: it waits as a subagent does, so it
-// needs the turn).
-func (e *Engine) research(ctx context.Context, ts *turnState, tc toolCall, args map[string]any) (string, error) {
-	run, cfg := ts.run, ts.cfg
-	if cfg.denied("research") {
+// needs the turn; the kit resolved the coordinator to its project).
+func (e *Engine) research(ctx context.Context, ts *turnState, tc toolCall, scope any, args map[string]any) (string, error) {
+	p := scope.(*Project)
+	if ts.cfg.denied("research") {
 		return "", errors.New("research is not available in this conversation")
-	}
-	p, err := e.ag.coordinatorOf(e.db, run, cfg)
-	if err != nil {
-		return "", err
 	}
 	if e.halted() {
 		return "", errors.New("the owner has halted this agent — no research until they resume it")

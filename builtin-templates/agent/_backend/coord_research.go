@@ -12,8 +12,8 @@
 // spawn budget (they can't spawn).
 //
 // A profile's research tool is its own (its arguments name what the
-// profile coordinates); it resolves the coordinator, decides the binding
-// and calls researchSpawn.
+// profile coordinates): the kit resolves the coordinator, the tool decides
+// the binding and calls researchSpawn.
 package main
 
 import (
@@ -156,12 +156,13 @@ func (e *Engine) researchSpawn(ts *turnState, tc toolCall, s researchStart) (str
 	return fmt.Sprintf("started research subagent #%d in the background; its answer arrives as a message when it is done", childID), nil
 }
 
-// researchTool is a profile's research tool as execTools runs it: f does
-// the call (through researchSpawn) and this settles what it answers.
-func researchTool(f func(e *Engine, ctx context.Context, ts *turnState, tc toolCall, args map[string]any) (string, error)) func(*Engine, context.Context, *turnState, toolCall) {
-	return func(e *Engine, ctx context.Context, ts *turnState, tc toolCall) {
+// researchTool is a profile's research tool as execTools runs it
+// (coordTool.Engine): f does the call for the scope the coordinator
+// resolved to (through researchSpawn) and this settles what it answers.
+func researchTool(f func(e *Engine, ctx context.Context, ts *turnState, tc toolCall, scope any, args map[string]any) (string, error)) func(*Engine, context.Context, *turnState, toolCall, any) {
+	return func(e *Engine, ctx context.Context, ts *turnState, tc toolCall, scope any) {
 		args, _ := callArgs(tc, ts.own)
-		out, err := f(e, ctx, ts, tc, args)
+		out, err := f(e, ctx, ts, tc, scope, args)
 		if err != nil {
 			out = "error: " + err.Error()
 		}
