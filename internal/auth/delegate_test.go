@@ -40,7 +40,7 @@ func delegateFx(t *testing.T) (*Auth, *users.Store) {
 func delegateReq(scheme, tok string) *http.Request {
 	r := httptest.NewRequest("GET", "/api/xbin/whoami", nil)
 	r.Header.Set("Authorization", scheme+" "+tok)
-	return r
+	return r.WithContext(WithGateway(r.Context()))
 }
 
 // A person's partition of a sealed holder resolves, under the delegate
@@ -141,18 +141,40 @@ func TestDelegateRefusals(t *testing.T) {
 	}
 	not("a person disabled since", "tok-bob")
 
-	// the table is compiled in: with the holder unsealed nothing delegates
-	TestSealDelegate(testHolder)()
-	not("a holder no longer in the table", "tok-global")
+	// the table decides: a holder no longer in it delegates nothing
+	b.Disabled = false
+	if _, err := st.Upsert(*b, ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := a.DelegateFromRequest(delegateReq(DelegateScheme, "tok-bob")); err != nil {
+		t.Fatalf("enabled again: %v", err)
+	}
+	prev := delegateHolders.Load()
+	SetDelegateHolders(func(string) bool { return false })
+	defer delegateHolders.Store(prev)
+	not("a holder no longer in the table", "tok-bob")
 }
 
-// A device's tunnel carries that device's credentials only.
-func TestDelegateNotOverTunnel(t *testing.T) {
+// The scheme is honoured on the gateway socket alone: on the console
+// listener (no mark) and on a device's tunnel the token delegates nothing.
+func TestDelegateOnlyOnTheGateway(t *testing.T) {
 	a, _ := delegateFx(t)
 	a.RegisterInstancePartition("tok-bob", testHolder, "", util.UserPartition("bob"), "uid-bob")
-	r := delegateReq(DelegateScheme, "tok-bob")
+	r := httptest.NewRequest("GET", "/api/xbin/whoami", nil)
+	r.Header.Set("Authorization", DelegateScheme+" tok-bob")
+	if _, present, err := a.DelegateFromRequest(r); !present || !errors.Is(err, ErrNotDelegate) {
+		t.Fatalf("off the gateway: present %v err %v", present, err)
+	}
+	r = delegateReq(DelegateScheme, "tok-bob")
 	r = r.WithContext(WithTransport(r.Context(), Transport{Tunnel: true, DeviceID: "d1", UserID: "bob"}))
 	if _, _, err := a.DelegateFromRequest(r); !errors.Is(err, ErrNotDelegate) {
 		t.Fatalf("over a tunnel: %v", err)
+	}
+	// with no lookup installed nothing delegates
+	prev := delegateHolders.Load()
+	SetDelegateHolders(nil)
+	defer delegateHolders.Store(prev)
+	if _, _, err := a.DelegateFromRequest(delegateReq(DelegateScheme, "tok-bob")); !errors.Is(err, ErrNotDelegate) || HoldsDelegation(testHolder) {
+		t.Fatalf("no table: %v", err)
 	}
 }

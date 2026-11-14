@@ -4,9 +4,10 @@ package auth
 // agent, issue #51): a person's partition of a SEALED system component may
 // call xbind and other tiles as that person.
 //
-//   - Who holds it: a compiled-in table (sealedDelegates). Nothing in a
-//     workspace — no xbin.json, grant, binding, policy row or approval —
-//     adds to it, and no API reads it from a request.
+//   - Who holds it: the sealed-component table, asked through one function
+//     boot installs (SetDelegateHolders). Nothing in a workspace — no
+//     xbin.json, grant, binding, policy row or approval — adds to it, and
+//     no API reads it from a request.
 //   - The credential: the instance token of that person's partition of the
 //     component (partition.go), sent under its own scheme,
 //     "Authorization: XBin-Delegate <token>". The same token as a Bearer is
@@ -18,8 +19,9 @@ package auth
 //     live record and access — with Via "delegate" and Agent the component.
 //     Never an admin (Principal.IsAdmin), never read-only, no generation
 //     (it can't be a device's, and nothing it mints is bound to a login).
-//   - Where it resolves: only where the server asks DelegateFromRequest (the
-//     /api/ plane's delegate gate). FromRequest doesn't know the scheme, so
+//   - Where it resolves: only on the gateway socket (WithGateway), and only
+//     where the server asks DelegateFromRequest (the /api/ plane's delegate
+//     gate). FromRequest doesn't know the scheme, so
 //     everywhere else — /c/, /ws/term, /ws/events, /docs/, the pages, the
 //     tile origins — the credential is no credential at all: 401.
 //   - Off switches: the hook SetDelegationGate installs is asked on every
@@ -32,22 +34,54 @@ package auth
 // ordinary read access on the sealed component.
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
+	"sync/atomic"
 )
 
 // DelegateScheme is the Authorization scheme of a delegate call.
 const DelegateScheme = "XBin-Delegate"
 
-// sealedDelegates names the sealed system components that hold delegation.
-// Compiled in; the sealed-component table (spike S1) takes its place. Empty
-// until the workspace agent ships: no component of any workspace delegates.
-var sealedDelegates = map[string]bool{}
+// delegateHolders answers whether a component is a sealed system component
+// that holds delegation. One function, set once at boot from the
+// sealed-component table (internal/sealed, Capabilities.Delegate); nil — no
+// table installed — means no component of any workspace delegates.
+var delegateHolders atomic.Pointer[func(component string) bool]
+
+// SetDelegateHolders installs the holder lookup (boot). The table behind it
+// is compiled in: nothing in a workspace — no xbin.json, grant, binding,
+// policy row or approval — adds to it, and no API reads it from a request.
+func SetDelegateHolders(f func(component string) bool) {
+	if f == nil {
+		delegateHolders.Store(nil)
+		return
+	}
+	delegateHolders.Store(&f)
+}
 
 // HoldsDelegation reports whether component is a sealed system component
 // that holds delegation.
-func HoldsDelegation(component string) bool { return sealedDelegates[component] }
+func HoldsDelegation(component string) bool {
+	f := delegateHolders.Load()
+	return component != "" && f != nil && (*f)(component)
+}
+
+type gatewayKey struct{}
+
+// WithGateway marks a connection as one that arrived on xbind's gateway
+// socket — the unix socket only sandboxes on this host are given (boot:
+// the gateway server's ConnContext; nothing a client sends can set it).
+func WithGateway(ctx context.Context) context.Context {
+	return context.WithValue(ctx, gatewayKey{}, true)
+}
+
+// OnGateway reports whether r arrived on the gateway socket.
+func OnGateway(r *http.Request) bool {
+	v, _ := r.Context().Value(gatewayKey{}).(bool)
+	return v
+}
 
 // Delegation refusals. ErrNotDelegate is "this credential delegates
 // nothing" (401: indistinguishable from a bad token); the others are 403s
@@ -96,8 +130,11 @@ func (a *Auth) DelegateFromRequest(r *http.Request) (p Principal, present bool, 
 	if !ok {
 		return Principal{}, false, nil
 	}
-	if TransportOf(r).Tunnel {
-		return Principal{}, true, ErrNotDelegate // a device's tunnel carries that device's credentials only (transport.go)
+	if !OnGateway(r) || TransportOf(r).Tunnel {
+		// the scheme is honoured on the gateway socket alone: a token that
+		// left the host is worth nothing on the console listener, an
+		// ingress or a device's tunnel
+		return Principal{}, true, ErrNotDelegate
 	}
 	id, ok := a.lookupInstance(tok) // a user partition's: 401 once it isn't covered (partition.go)
 	userID, isUser := id.partition.User()

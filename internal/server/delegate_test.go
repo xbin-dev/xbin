@@ -111,8 +111,13 @@ func bearer(tok string) cred {
 	return func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+tok) }
 }
 
+// delegateCred is a delegate call as a sandbox makes it: the scheme, on the
+// gateway socket.
 func delegateCred(tok string) cred {
-	return func(r *http.Request) { r.Header.Set("Authorization", auth.DelegateScheme+" "+tok) }
+	return func(r *http.Request) {
+		r.Header.Set("Authorization", auth.DelegateScheme+" "+tok)
+		*r = *r.WithContext(auth.WithGateway(r.Context()))
+	}
 }
 
 func (w *dWorld) frame(tile, user string) cred {

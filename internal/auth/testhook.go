@@ -40,17 +40,12 @@ func (a *Auth) TestExpireWebTickets() {
 	}
 }
 
-// TestSealDelegate marks component as a sealed system component holding
-// delegation (delegate.go) until the returned function runs. Test-only: the
-// daemon's table is compiled in.
+// TestSealDelegate makes component a sealed system component holding
+// delegation (delegate.go), beside whatever the installed lookup answers,
+// until the returned function runs. Test-only: the daemon installs the
+// sealed-component table's lookup at boot and never calls this.
 func TestSealDelegate(component string) (restore func()) {
-	prev, had := sealedDelegates[component]
-	sealedDelegates[component] = true
-	return func() {
-		if had {
-			sealedDelegates[component] = prev
-		} else {
-			delete(sealedDelegates, component)
-		}
-	}
+	prev := delegateHolders.Load()
+	SetDelegateHolders(func(c string) bool { return c == component || prev != nil && (*prev)(c) })
+	return func() { delegateHolders.Store(prev) }
 }
