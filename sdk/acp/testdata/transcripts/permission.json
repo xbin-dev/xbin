@@ -1,0 +1,944 @@
+{
+ "name": "permission",
+ "about": "a permission rejected; one answered allow always (a session rule); the next one answered by that rule — the call id t1 used in all three turns; then a plan approval (switch_mode, meta.title \"Ready to code?\") answered with the option that raises the mode to auto",
+ "source": "sdk/acp/acptest TestTranscripts: the scripted agent through acp.Client; seq and ts are the test's (ts = 2026-01-01T00:00:00Z + 100 ms per event)",
+ "flags": [
+  "--auto-mode"
+ ],
+ "steps": [
+  "prompt: perm one",
+  "permission p1: no by user:bob",
+  "prompt: perm two",
+  "permission p2: always by user:alice",
+  "prompt: perm three",
+  "prompt: plan the work",
+  "permission p4: auto by user:alice"
+ ],
+ "checkpoints": [
+  8,
+  19,
+  43,
+  50
+ ],
+ "events": [
+  {
+   "seq": 1,
+   "ts": 1767225600100,
+   "type": "status",
+   "data": {
+    "status": "starting"
+   }
+  },
+  {
+   "seq": 2,
+   "ts": 1767225600200,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "auto",
+      "name": "Auto",
+      "description": "Edits without asking; asks for the rest"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 3,
+   "ts": 1767225600300,
+   "type": "status",
+   "data": {
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 4,
+   "ts": 1767225600400,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "perm one"
+   }
+  },
+  {
+   "seq": 5,
+   "ts": 1767225600500,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 6,
+   "ts": 1767225600600,
+   "type": "tool.call",
+   "data": {
+    "id": "t1",
+    "kind": "execute",
+    "rawInput": {
+     "cmd": "ls"
+    },
+    "status": "pending",
+    "title": "run ls"
+   }
+  },
+  {
+   "seq": 7,
+   "ts": 1767225600700,
+   "type": "permission.request",
+   "data": {
+    "meta": null,
+    "options": [
+     {
+      "optionId": "once",
+      "name": "Allow once",
+      "kind": "allow_once"
+     },
+     {
+      "optionId": "always",
+      "name": "Allow always",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "no",
+      "name": "Reject",
+      "kind": "reject_once"
+     }
+    ],
+    "pid": "p1",
+    "rule": {
+     "kind": "execute",
+     "scoped": true,
+     "title": "run ls"
+    },
+    "toolCall": {
+     "id": "t1",
+     "title": "run ls",
+     "kind": "execute"
+    }
+   }
+  },
+  {
+   "seq": 8,
+   "ts": 1767225600800,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "waiting_permission"
+   }
+  },
+  {
+   "seq": 9,
+   "ts": 1767225600900,
+   "type": "permission.resolved",
+   "data": {
+    "by": "user:bob",
+    "optionId": "no",
+    "pid": "p1"
+   }
+  },
+  {
+   "seq": 10,
+   "ts": 1767225601000,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 11,
+   "ts": 1767225601100,
+   "type": "tool.update",
+   "data": {
+    "id": "t1",
+    "status": "failed"
+   }
+  },
+  {
+   "seq": 12,
+   "ts": 1767225601200,
+   "type": "message.delta",
+   "data": {
+    "messageId": "m",
+    "role": "agent",
+    "text": "denied"
+   }
+  },
+  {
+   "seq": 13,
+   "ts": 1767225601300,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 1
+   }
+  },
+  {
+   "seq": 14,
+   "ts": 1767225601400,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "auto",
+      "name": "Auto",
+      "description": "Edits without asking; asks for the rest"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 15,
+   "ts": 1767225601500,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "perm two"
+   }
+  },
+  {
+   "seq": 16,
+   "ts": 1767225601600,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 17,
+   "ts": 1767225601700,
+   "type": "tool.call",
+   "data": {
+    "id": "t1",
+    "kind": "execute",
+    "rawInput": {
+     "cmd": "ls"
+    },
+    "status": "pending",
+    "title": "run ls"
+   }
+  },
+  {
+   "seq": 18,
+   "ts": 1767225601800,
+   "type": "permission.request",
+   "data": {
+    "meta": null,
+    "options": [
+     {
+      "optionId": "once",
+      "name": "Allow once",
+      "kind": "allow_once"
+     },
+     {
+      "optionId": "always",
+      "name": "Allow always",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "no",
+      "name": "Reject",
+      "kind": "reject_once"
+     }
+    ],
+    "pid": "p2",
+    "rule": {
+     "kind": "execute",
+     "scoped": true,
+     "title": "run ls"
+    },
+    "toolCall": {
+     "id": "t1",
+     "title": "run ls",
+     "kind": "execute"
+    }
+   }
+  },
+  {
+   "seq": 19,
+   "ts": 1767225601900,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "waiting_permission"
+   }
+  },
+  {
+   "seq": 20,
+   "ts": 1767225602000,
+   "type": "permission.resolved",
+   "data": {
+    "by": "user:alice",
+    "optionId": "always",
+    "pid": "p2"
+   }
+  },
+  {
+   "seq": 21,
+   "ts": 1767225602100,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 22,
+   "ts": 1767225602200,
+   "type": "tool.update",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "a.txt b.txt"
+      },
+      "type": "content"
+     }
+    ],
+    "id": "t1",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 23,
+   "ts": 1767225602300,
+   "type": "message.delta",
+   "data": {
+    "messageId": "m",
+    "role": "agent",
+    "text": "listed"
+   }
+  },
+  {
+   "seq": 24,
+   "ts": 1767225602400,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 25,
+   "ts": 1767225602500,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "title": "fake: perm two"
+   }
+  },
+  {
+   "seq": 26,
+   "ts": 1767225602600,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 2,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 27,
+   "ts": 1767225602700,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "auto",
+      "name": "Auto",
+      "description": "Edits without asking; asks for the rest"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 28,
+   "ts": 1767225602800,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "perm three"
+   }
+  },
+  {
+   "seq": 29,
+   "ts": 1767225602900,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 30,
+   "ts": 1767225603000,
+   "type": "tool.call",
+   "data": {
+    "id": "t1",
+    "kind": "execute",
+    "rawInput": {
+     "cmd": "ls"
+    },
+    "status": "pending",
+    "title": "run ls"
+   }
+  },
+  {
+   "seq": 31,
+   "ts": 1767225603100,
+   "type": "permission.request",
+   "data": {
+    "meta": null,
+    "options": [
+     {
+      "optionId": "once",
+      "name": "Allow once",
+      "kind": "allow_once"
+     },
+     {
+      "optionId": "always",
+      "name": "Allow always",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "no",
+      "name": "Reject",
+      "kind": "reject_once"
+     }
+    ],
+    "pid": "p3",
+    "rule": {
+     "kind": "execute",
+     "scoped": true,
+     "title": "run ls"
+    },
+    "toolCall": {
+     "id": "t1",
+     "title": "run ls",
+     "kind": "execute"
+    }
+   }
+  },
+  {
+   "seq": 32,
+   "ts": 1767225603200,
+   "type": "permission.resolved",
+   "data": {
+    "by": "auto",
+    "optionId": "always",
+    "pid": "p3"
+   }
+  },
+  {
+   "seq": 33,
+   "ts": 1767225603300,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 34,
+   "ts": 1767225603400,
+   "type": "tool.update",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "a.txt b.txt"
+      },
+      "type": "content"
+     }
+    ],
+    "id": "t1",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 35,
+   "ts": 1767225603500,
+   "type": "message.delta",
+   "data": {
+    "messageId": "m",
+    "role": "agent",
+    "text": "listed"
+   }
+  },
+  {
+   "seq": 36,
+   "ts": 1767225603600,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 37,
+   "ts": 1767225603700,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 3,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 38,
+   "ts": 1767225603800,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "auto",
+      "name": "Auto",
+      "description": "Edits without asking; asks for the rest"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 39,
+   "ts": 1767225603900,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "plan the work"
+   }
+  },
+  {
+   "seq": 40,
+   "ts": 1767225604000,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 41,
+   "ts": 1767225604100,
+   "type": "tool.call",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n"
+      },
+      "type": "content"
+     }
+    ],
+    "id": "plan1",
+    "kind": "switch_mode",
+    "name": "ExitPlanMode",
+    "rawInput": {
+     "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+     "planFilePath": "/tmp/fake-plan.md"
+    },
+    "status": "pending",
+    "title": "Ready to code?"
+   }
+  },
+  {
+   "seq": 42,
+   "ts": 1767225604200,
+   "type": "permission.request",
+   "data": {
+    "meta": {
+     "title": "Ready to code?"
+    },
+    "options": [
+     {
+      "optionId": "exit-plan-default",
+      "name": "Yes, manually approve edits",
+      "kind": "allow_once"
+     },
+     {
+      "optionId": "exit-plan-clear-auto",
+      "name": "Yes, clear context (13% used) and use auto mode",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "auto",
+      "name": "Yes, and use auto mode",
+      "kind": "allow_always"
+     },
+     {
+      "optionId": "reject",
+      "name": "No, keep planning",
+      "kind": "reject_once"
+     }
+    ],
+    "pid": "p4",
+    "rule": {
+     "kind": "switch_mode",
+     "scoped": false,
+     "title": "Approve Plan"
+    },
+    "toolCall": {
+     "id": "plan1",
+     "title": "Approve Plan",
+     "kind": "switch_mode",
+     "rawInput": {
+      "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+      "planFilePath": "/tmp/fake-plan.md"
+     },
+     "content": [
+      {
+       "content": {
+        "type": "text",
+        "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n"
+       },
+       "type": "content"
+      }
+     ]
+    }
+   }
+  },
+  {
+   "seq": 43,
+   "ts": 1767225604300,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "waiting_permission"
+   }
+  },
+  {
+   "seq": 44,
+   "ts": 1767225604400,
+   "type": "permission.resolved",
+   "data": {
+    "by": "user:alice",
+    "optionId": "auto",
+    "pid": "p4"
+   }
+  },
+  {
+   "seq": 45,
+   "ts": 1767225604500,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 46,
+   "ts": 1767225604600,
+   "type": "tool.update",
+   "data": {
+    "id": "plan1",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 47,
+   "ts": 1767225604700,
+   "type": "message.delta",
+   "data": {
+    "messageId": "m",
+    "role": "agent",
+    "text": "plan approved: auto"
+   }
+  },
+  {
+   "seq": 48,
+   "ts": 1767225604800,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 49,
+   "ts": 1767225604900,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 4,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 50,
+   "ts": 1767225605000,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "auto",
+      "name": "Auto",
+      "description": "Edits without asking; asks for the rest"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  }
+ ]
+}
