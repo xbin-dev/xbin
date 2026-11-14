@@ -138,6 +138,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/xbin-dev/xbin/sdk/llm"
 )
 
 var callSeq, callIDs atomic.Int64
@@ -252,18 +254,13 @@ func (p plan) outputTokens() int {
 	return 20
 }
 
-// chatUsage is a Chat Completions usage block, its fields in the order
-// providers send them (a gateway that scrapes the counts from the stream's
-// tail, llm-gw's, reads prompt_tokens before completion_tokens).
-type chatUsage struct {
-	PromptTokens     int            `json:"prompt_tokens"`
-	CompletionTokens int            `json:"completion_tokens"`
-	TotalTokens      int            `json:"total_tokens"`
-	Details          map[string]any `json:"completion_tokens_details,omitempty"`
-}
-
-func (p plan) chatUsage(details map[string]any) chatUsage {
-	return chatUsage{p.promptTokens(), p.outputTokens(), p.promptTokens() + p.outputTokens(), details}
+// chatUsage is the plan's Chat Completions usage block (llm.ChatUsage: its
+// fields in the order providers send them — a gateway that scrapes the
+// counts from the stream's tail, llm-gw's, reads prompt_tokens before
+// completion_tokens); details nil leaves the breakdown out.
+func (p plan) chatUsage(details *llm.OutputDetails) *llm.ChatUsage {
+	in, out := int64(p.promptTokens()), int64(p.outputTokens())
+	return &llm.ChatUsage{PromptTokens: in, CompletionTokens: out, TotalTokens: in + out, CompletionTokensDetails: details}
 }
 
 // purposeOf tells the agent's calls apart by their system prompt.
@@ -587,7 +584,7 @@ func chatCompletions(w http.ResponseWriter, r *http.Request) {
 		} `json:"messages"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || len(req.Messages) == 0 {
-		http.Error(w, `{"error":{"message":"bad request"}}`, 400)
+		llm.WriteError(w, 400, llm.Error{Message: "bad request"})
 		return
 	}
 	names := map[string]string{}
@@ -616,34 +613,39 @@ func chatCompletions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer rec.done(false)
+	// a tool call, whole or as a fragment of a stream (its id, type and name
+	// are left out of a fragment that has none)
+	call := func(i int, id, name, args string) llm.ToolCallDelta {
+		tc := llm.ToolCallDelta{Index: i, ID: id}
+		if id != "" {
+			tc.Type = "function"
+		}
+		tc.Function.Name, tc.Function.Arguments = name, args
+		return tc
+	}
 	if !req.Stream {
-		msg := map[string]any{"role": "assistant", "content": p.Text}
+		msg := llm.ChatReplyFields{Role: "assistant", Content: jsonOf(p.Text)}
 		if len(p.Thinking) > 0 {
-			msg["reasoning_content"] = strings.Join(p.Thinking, "")
+			t := strings.Join(p.Thinking, "")
+			msg.ReasoningContent = &t
 		}
-		if len(p.Calls) > 0 {
-			var tcs []map[string]any
-			for _, c := range p.Calls {
-				b, _ := json.Marshal(c.Args)
-				tcs = append(tcs, map[string]any{"id": fmt.Sprintf("call_%d", callIDs.Add(1)), "type": "function",
-					"function": map[string]any{"name": c.Name, "arguments": string(b)}})
-			}
-			msg["tool_calls"] = tcs
+		for i, c := range p.Calls {
+			b, _ := json.Marshal(c.Args)
+			msg.ToolCalls = append(msg.ToolCalls, call(i, fmt.Sprintf("call_%d", callIDs.Add(1)), c.Name, string(b)))
 		}
-		writeJSON(w, map[string]any{"choices": []any{map[string]any{"message": msg, "finish_reason": finish(p)}},
-			"usage": p.chatUsage(nil)})
+		writeJSON(w, llm.ChatResponse{Choices: []llm.ChatChoice{{Message: msg, FinishReason: finish(p)}}, Usage: p.chatUsage(nil)})
 		return
 	}
 	sse := startSSE(w)
-	chunk := func(delta map[string]any, fin any) {
-		sse(map[string]any{"choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": fin}}})
+	chunk := func(delta llm.ChatReplyFields, fin *string) {
+		sse(llm.ChatChunk{Choices: []llm.ChatChunkChoice{{Delta: delta, FinishReason: fin}}})
 	}
 	for _, t := range p.Thinking {
-		chunk(map[string]any{"reasoning_content": t}, nil)
+		chunk(llm.ChatReplyFields{ReasoningContent: &t}, nil)
 		p.pause(150 * time.Millisecond)
 	}
 	for _, word := range p.chunks() {
-		chunk(map[string]any{"content": word}, nil)
+		chunk(llm.ChatReplyFields{Content: jsonOf(word)}, nil)
 		p.pause(40 * time.Millisecond)
 	}
 	for i, c := range p.Calls {
@@ -651,14 +653,20 @@ func chatCompletions(w http.ResponseWriter, r *http.Request) {
 		args := string(b)
 		id := fmt.Sprintf("call_%d", callIDs.Add(1))
 		half := len(args) / 2
-		chunk(map[string]any{"tool_calls": []any{map[string]any{"index": i, "id": id, "type": "function",
-			"function": map[string]any{"name": c.Name, "arguments": args[:half]}}}}, nil)
+		chunk(llm.ChatReplyFields{ToolCalls: []llm.ToolCallDelta{call(i, id, c.Name, args[:half])}}, nil)
 		p.pause(60 * time.Millisecond)
-		chunk(map[string]any{"tool_calls": []any{map[string]any{"index": i, "function": map[string]any{"arguments": args[half:]}}}}, nil)
+		chunk(llm.ChatReplyFields{ToolCalls: []llm.ToolCallDelta{call(i, "", "", args[half:])}}, nil)
 	}
-	chunk(map[string]any{}, finish(p))
-	sse(map[string]any{"choices": []any{}, "usage": p.chatUsage(map[string]any{"reasoning_tokens": len(p.Thinking) * 3})})
+	fin := finish(p)
+	chunk(llm.ChatReplyFields{}, &fin)
+	sse(llm.ChatChunk{Choices: []llm.ChatChunkChoice{}, Usage: p.chatUsage(&llm.OutputDetails{ReasoningTokens: int64(len(p.Thinking) * 3)})})
 	sse("[DONE]")
+}
+
+// jsonOf is v as JSON (a reply's content is raw in the wire types).
+func jsonOf(v any) json.RawMessage {
+	b, _ := json.Marshal(v)
+	return b
 }
 
 // --- the Responses API ---------------------------------------------------------
@@ -672,7 +680,7 @@ func responses(w http.ResponseWriter, r *http.Request) {
 		Tools        []json.RawMessage `json:"tools"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
-		http.Error(w, `{"error":{"message":"bad request"}}`, 400)
+		llm.WriteError(w, 400, llm.Error{Message: "bad request"})
 		return
 	}
 	names := map[string]string{}
@@ -709,7 +717,7 @@ func responses(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if len(conv) == 0 {
-		http.Error(w, `{"error":{"message":"empty input"}}`, 400)
+		llm.WriteError(w, 400, llm.Error{Message: "empty input"})
 		return
 	}
 	p := pick(conv, system, offered(req.Tools))
@@ -743,25 +751,25 @@ func responses(w http.ResponseWriter, r *http.Request) {
 	sse := startSSE(w)
 	idx := 0
 	if len(p.Thinking) > 0 {
-		sse(map[string]any{"type": "response.output_item.added", "output_index": idx, "item": map[string]any{"type": "reasoning", "id": "rs_1", "summary": []any{}}})
+		sse(map[string]any{"type": llm.EventOutputItemAdded, "output_index": idx, "item": map[string]any{"type": "reasoning", "id": "rs_1", "summary": []any{}}})
 		for _, t := range p.Thinking {
-			sse(map[string]any{"type": "response.reasoning_summary_text.delta", "output_index": idx, "summary_index": 0, "item_id": "rs_1", "delta": t})
+			sse(map[string]any{"type": llm.EventReasoningSummaryDelta, "output_index": idx, "summary_index": 0, "item_id": "rs_1", "delta": t})
 			p.pause(150 * time.Millisecond)
 		}
 		item := map[string]any{"type": "reasoning", "id": "rs_1", "encrypted_content": "enc",
 			"summary": []any{map[string]any{"type": "summary_text", "text": strings.Join(p.Thinking, "")}}}
-		sse(map[string]any{"type": "response.output_item.done", "output_index": idx, "item": item})
+		sse(map[string]any{"type": llm.EventOutputItemDone, "output_index": idx, "item": item})
 		output = append(output, item)
 		idx++
 	}
 	if p.Text != "" {
-		sse(map[string]any{"type": "response.output_item.added", "output_index": idx, "item": map[string]any{"type": "message", "id": "msg_1", "role": "assistant", "content": []any{}}})
+		sse(map[string]any{"type": llm.EventOutputItemAdded, "output_index": idx, "item": map[string]any{"type": "message", "id": "msg_1", "role": "assistant", "content": []any{}}})
 		for _, word := range p.chunks() {
-			sse(map[string]any{"type": "response.output_text.delta", "output_index": idx, "content_index": 0, "item_id": "msg_1", "delta": word})
+			sse(map[string]any{"type": llm.EventOutputTextDelta, "output_index": idx, "content_index": 0, "item_id": "msg_1", "delta": word})
 			p.pause(40 * time.Millisecond)
 		}
 		item := map[string]any{"type": "message", "id": "msg_1", "role": "assistant", "content": []any{map[string]any{"type": "output_text", "text": p.Text}}}
-		sse(map[string]any{"type": "response.output_item.done", "output_index": idx, "item": item})
+		sse(map[string]any{"type": llm.EventOutputItemDone, "output_index": idx, "item": item})
 		output = append(output, item)
 		idx++
 	}
@@ -769,18 +777,18 @@ func responses(w http.ResponseWriter, r *http.Request) {
 		b, _ := json.Marshal(c.Args)
 		args := string(b)
 		cid := fmt.Sprintf("call_%d", callIDs.Add(1))
-		sse(map[string]any{"type": "response.output_item.added", "output_index": idx,
+		sse(map[string]any{"type": llm.EventOutputItemAdded, "output_index": idx,
 			"item": map[string]any{"type": "function_call", "id": "fc_" + cid, "call_id": cid, "name": c.Name, "arguments": ""}})
 		half := len(args) / 2
-		sse(map[string]any{"type": "response.function_call_arguments.delta", "output_index": idx, "item_id": "fc_" + cid, "delta": args[:half]})
+		sse(map[string]any{"type": llm.EventFunctionArgsDelta, "output_index": idx, "item_id": "fc_" + cid, "delta": args[:half]})
 		p.pause(60 * time.Millisecond)
-		sse(map[string]any{"type": "response.function_call_arguments.delta", "output_index": idx, "item_id": "fc_" + cid, "delta": args[half:]})
+		sse(map[string]any{"type": llm.EventFunctionArgsDelta, "output_index": idx, "item_id": "fc_" + cid, "delta": args[half:]})
 		item := map[string]any{"type": "function_call", "id": "fc_" + cid, "call_id": cid, "name": c.Name, "arguments": args}
-		sse(map[string]any{"type": "response.output_item.done", "output_index": idx, "item": item})
+		sse(map[string]any{"type": llm.EventOutputItemDone, "output_index": idx, "item": item})
 		output = append(output, item)
 		idx++
 	}
-	sse(map[string]any{"type": "response.completed", "response": map[string]any{"id": "resp_1", "status": "completed", "output": output, "usage": usage}})
+	sse(map[string]any{"type": llm.EventCompleted, "response": map[string]any{"id": "resp_1", "status": "completed", "output": output, "usage": usage}})
 }
 
 // --- helpers ------------------------------------------------------------------------
@@ -904,21 +912,19 @@ func main() {
 		servePort = n + 1
 	}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET "+llm.PathModels, func(w http.ResponseWriter, r *http.Request) {
+		ids := []string{"fake-chat", "gpt-5-fake"}
 		if demo != nil && len(demo.Models) > 0 {
-			var data []any
-			for _, m := range demo.Models {
-				data = append(data, map[string]any{"id": m, "object": "model", "context_length": 128000})
-			}
-			writeJSON(w, map[string]any{"object": "list", "data": data})
-			return
+			ids = demo.Models
 		}
-		writeJSON(w, map[string]any{"object": "list", "data": []any{
-			map[string]any{"id": "fake-chat", "object": "model", "context_length": 128000},
-			map[string]any{"id": "gpt-5-fake", "object": "model", "context_length": 128000}}})
+		list := llm.ModelList{Object: "list", Data: []llm.Model{}}
+		for _, id := range ids {
+			list.Data = append(list.Data, llm.Model{ID: id, Object: "model", Extra: map[string]json.RawMessage{"context_length": json.RawMessage("128000")}})
+		}
+		writeJSON(w, list)
 	})
-	mux.HandleFunc("POST /v1/chat/completions", chatCompletions)
-	mux.HandleFunc("POST /v1/responses", responses)
+	mux.HandleFunc("POST "+llm.PathChat, chatCompletions)
+	mux.HandleFunc("POST "+llm.PathResponses, responses)
 	mux.HandleFunc("GET /debug/requests", func(w http.ResponseWriter, r *http.Request) {
 		recMu.Lock()
 		defer recMu.Unlock()

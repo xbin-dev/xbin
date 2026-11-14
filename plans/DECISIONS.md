@@ -13944,7 +13944,10 @@ Deviations and refinements made while implementing; all deliberate:
   - **Shared wire code**: `sdk/llm` (standard library only) holds the two
     wires' types, usage from a body or a stream, the model list, prices and
     the error shape. The connector is its first user; llm-gw, the agent
-    template and `hack/fakeopenai` move onto it in a later package.
+    template and `hack/fakeopenai` moved onto it next (2026-11-15), which
+    added `ReadData` — a stream read one data line at a time, as the
+    template always read one — and names for a chunk's choice and a usage
+    block's details, so the types write the wire as well as read it.
   - **Two sources, the host's on top.** An admin's settings live in
     `data/llm/config.json` (the D204 pattern); the host's in the file
     `XBIN_LLM_CONFIG` names (JSON with comments; keys by `keyFile`). The

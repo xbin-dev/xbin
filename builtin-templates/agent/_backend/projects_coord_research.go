@@ -1,33 +1,28 @@
-// projects_coord_research.go — the coordinator's research subagents (API.md
-// §The coordinator, "research"; D222): the coordinator runs in the web
-// class, with no sandbox of its own, so it can't read code. research starts
-// a subagent that can — read, ls, glob and grep over the project's
-// sandbox, a read-only git, and the wiki's tools (it may write the wiki) —
-// and answers the coordinator's question. Its config is built here, never
-// from the call's arguments: a Config.CodeRead binding to the project's
-// sandbox (or a task's own) with its cwd at a repo's research checkout (a
-// detached worktree of the base at origin's default branch, as last
-// fetched; an adopted repo's own clone) or a task's worktree. Its class and
-// lane are its parent's (childConfig), so it gains nothing the coordinator
-// lacks but the project's code, which isn't internal data (D222).
+// projects_coord_research.go — the project coordinator's research
+// subagents (API.md §The coordinator, "research"; D222), on the kit's
+// machinery (coord_research.go, coord_reader.go): the coordinator runs in
+// the web class, with no sandbox of its own, so it can't read code.
+// research starts a subagent that can — read, ls, glob and grep over the
+// project's sandbox, a read-only git, and the wiki's tools (it may write
+// the wiki) — and answers the coordinator's question. Its binding is built
+// here, never from the call's arguments: the project's sandbox (or a
+// task's own) with its cwd at a repo's research checkout (a detached
+// worktree of the base at origin's default branch, as last fetched; an
+// adopted repo's own clone) or a task's worktree. The project's code isn't
+// internal data (D222), so it gains nothing else the coordinator lacks.
 //
-// Whatever a model calls, a CodeRead run gets only its tools (runCodeReadTool):
-// no bash, write, edit, web, coding agents or subagents. Every path must
-// resolve (symlinks followed, in the sandbox) inside the project's
-// directory or an adopted repo's clone; what it reads comes back redacted.
+// Every path must resolve (symlinks followed, in the sandbox) inside the
+// project's directory or an adopted repo's clone (projects_coord_reader.go).
 // At most researchMax run at once per project; each has researchTimeout to
-// answer (its tools refuse after that) — research children don't count
-// against the coordinator tree's lifetime spawn budget (they can't spawn).
+// answer (its tools refuse after that).
 package main
 
 import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -35,30 +30,11 @@ import (
 
 func init() { turnEndHooks = append(turnEndHooks, researchEnded) }
 
-// CodeReadBinding is Config.CodeRead: a research subagent's read-only reach
-// into a project's code. Set when it is made, never changed.
-type CodeReadBinding struct {
-	Project int64    `json:"project"`
-	Ref     string   `json:"ref"`             // the sandbox: the project's, or a task's own
-	Cwd     string   `json:"cwd"`             // where it starts (paths resolve against it)
-	Roots   []string `json:"roots"`           // every path must resolve inside one of these
-	Repo    string   `json:"repo,omitempty"`  // owner/name, when it works in one repo
-	Task    int64    `json:"task,omitempty"`  // a task's worktree
-	Heads   []string `json:"heads,omitempty"` // "<repo> <sha>": what its checkouts are at
-	// Checkout is its own directory of research checkouts (removed when it
-	// answers), Bases the base repos they are worktrees of.
-	Checkout string   `json:"checkout,omitempty"`
-	Bases    []string `json:"bases,omitempty"`
-}
-
+// The project profile's limits (coordProject.Limits).
 const (
 	researchMax     = 4                // research subagents at once per project
 	researchTimeout = 10 * time.Minute // its wait, and how long its tools answer
-	researchQMax    = 8 << 10
 )
-
-// codeReadTools are the tools a research subagent may call.
-var codeReadTools = map[string]bool{"read": true, "ls": true, "glob": true, "grep": true, "git": true, "note": true, "message_get": true}
 
 func researchSpec() toolSpec {
 	return toolSpec{Type: "function", Function: funcDef{Name: "research",
@@ -74,27 +50,13 @@ func researchSpec() toolSpec {
 		})}}
 }
 
-// researchTool runs a coordinator's research call (execTools: it waits as
-// a subagent does, so it needs the turn).
-func (e *Engine) researchTool(ctx context.Context, ts *turnState, tc toolCall) {
-	args, _ := callArgs(tc, ts.own)
-	out, err := e.research(ctx, ts, tc, args)
-	if err != nil {
-		out = "error: " + err.Error()
-	}
-	if out != "" {
-		e.settleResult(ts, tc, out)
-	}
-}
-
-func (e *Engine) research(ctx context.Context, ts *turnState, tc toolCall, args map[string]any) (string, error) {
-	run, cfg := ts.run, ts.cfg
-	if cfg.denied("research") {
+// research runs a project coordinator's research call (the profile
+// registers it through researchTool: it waits as a subagent does, so it
+// needs the turn; the kit resolved the coordinator to its project).
+func (e *Engine) research(ctx context.Context, ts *turnState, tc toolCall, scope any, args map[string]any) (string, error) {
+	p := scope.(*Project)
+	if ts.cfg.denied("research") {
 		return "", errors.New("research is not available in this conversation")
-	}
-	p, err := e.ag.coordinatorOf(e.db, run, cfg)
-	if err != nil {
-		return "", err
 	}
 	if e.halted() {
 		return "", errors.New("the owner has halted this agent — no research until they resume it")
@@ -109,15 +71,18 @@ func (e *Engine) research(ctx context.Context, ts *turnState, tc toolCall, args 
 	if err := coordArgs(args, &a); err != nil {
 		return "", err
 	}
-	q := strings.TrimSpace(a.Question)
-	switch {
-	case q == "":
-		return "", errors.New("question: what to find out")
-	case len(q) > researchQMax:
-		return "", fmt.Errorf("question: at most %d bytes", researchQMax)
+	q, err := researchQuestion(a.Question)
+	if err != nil {
+		return "", err
 	}
-	if n := e.db.researchRunning(p.ID); n >= researchMax {
-		return "", fmt.Errorf("%d research subagents of this project are running (at most %d): wait for one (subagent_wait), or ask one of them more (subagent_message)", n, researchMax)
+	s := researchStart{Question: q, Label: a.Label, Wait: a.Wait == nil || *a.Wait,
+		Limit: coordProject.Limits.Research, Timeout: coordProject.Limits.ResearchTimeout, Scope: "this project",
+		Running: func(t *DB) int { return t.researchRunning(p.ID) },
+		Config: func(child *Config) {
+			child.Project = &ProjectRef{ID: p.ID, Role: projRoleResearch} // projectClamp holds it out of internal reach
+		}}
+	if err := researchRoom(e.db, s, true); err != nil {
+		return "", err
 	}
 	pctx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	b, err := researchPlace(pctx, e.db, p, a.Repo, a.Task)
@@ -125,69 +90,8 @@ func (e *Engine) research(ctx context.Context, ts *turnState, tc toolCall, args 
 	if err != nil {
 		return "", err
 	}
-	wait := a.Wait == nil || *a.Wait
-	label := clip(oneLineTitle(a.Label), 80)
-	title := "research: " + orStr(label, clip(oneLineTitle(q), 60))
-	child := childConfig(cfg, researchSystem(p, b))
-	child.CodeRead = b
-	child.Project = &ProjectRef{ID: p.ID, Role: projRoleResearch} // projectClamp holds it out of internal reach
-	child.Subagents, child.Sandbox, child.Attached, child.Engine, child.Harness = false, nil, nil, "", nil
-	if child.Features == nil {
-		child.Features = map[string]bool{}
-	}
-	for _, f := range []string{"skills", "files", "repl", "workflow", "watcher", "threads"} {
-		child.Features[f] = false
-	}
-	var childID int64
-	err = e.fenced(func(t *DB) error {
-		if n := t.researchRunning(p.ID); n >= researchMax { // again, in the transaction
-			return fmt.Errorf("%d research subagents of this project are running (at most %d)", n, researchMax)
-		}
-		cfgJSON, _ := json.Marshal(child)
-		var err error
-		if childID, err = t.createRunStamped(title, string(cfgJSON), run.ID, statusRunning, runStamp{}); err != nil {
-			return err
-		}
-		if _, err := t.addMessage(&Message{RunID: childID, Role: "system", Content: child.System}); err != nil {
-			return err
-		}
-		tm := &Message{RunID: childID, Role: "user", Content: q}
-		if _, err := t.addMessage(tm); err != nil {
-			return err
-		}
-		if err := t.recordAsk(tm, "parent", fmt.Sprintf("#%d", run.ID)); err != nil {
-			return err
-		}
-		mode, tcID, deadline := "bg", "", int64(0)
-		if wait {
-			mode, tcID, deadline = "fg", tc.ID, e.unix()+int64(researchTimeout/time.Second)+30
-		}
-		var linkID int64
-		if err := t.q.QueryRow(`INSERT INTO links (parent_id, child_id, tool_call_id, mode, deadline, label, created)
-			VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id`, run.ID, childID, tcID, mode, deadline, orStr(label, "research"), e.unix()).Scan(&linkID); err != nil {
-			return err
-		}
-		e.emitStep(t, ts.root, t.journal(run.ID, "spawn", map[string]any{"runId": childID, "linkId": linkID, "toolCallId": tc.ID,
-			"task": clip(q, 200), "mode": mode, "research": true}))
-		if wait {
-			if ok, _ := t.setToolPlaceholder(run.ID, tc.ID, fmt.Sprintf("(waiting for research subagent #%d…)", childID)); ok {
-				if id, _, err := t.toolResultRow(run.ID, tc.ID); err == nil {
-					e.emitMessageID(t, ts.root, run.ID, id)
-				}
-			}
-		}
-		e.emitRun(t, childID)
-		e.emitLink(t, ts.root, linkID)
-		t.AfterCommit(func() { e.Poke(childID) })
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	if wait {
-		return "", nil // the placeholder waits; resolveAwait answers it
-	}
-	return fmt.Sprintf("started research subagent #%d in the background; its answer arrives as a message when it is done", childID), nil
+	s.Binding, s.System = b, researchSystem(p, b)
+	return e.researchSpawn(ts, tc, s)
 }
 
 // researchRunning is how many of project pid's research subagents are at work.
@@ -436,192 +340,4 @@ func researchRemove(b CodeReadBinding) {
 	if _, err := s.must(ctx, "removing a research checkout", researchRemoveScript, env, "", time.Minute); err != nil {
 		logf("project %d: removing research checkout %s: %v", p.ID, b.Checkout, err)
 	}
-}
-
-// --- its tools -------------------------------------------------------------------------------------
-
-func gitSpec() toolSpec {
-	return toolSpec{Type: "function", Function: funcDef{Name: "git",
-		Description: "Run a read-only git command in the code you are reading: " + gitSubWords(", ", " or ") + " — argv only, no shell. " +
-			"Each subcommand takes its read-only options by exact name, one flag per argument, a long option's value attached (--date=iso); paths stay relative to the repository. " +
-			"diff compares commits (A B, A..B) or the index (--cached); blame names its revision ([\"blame\", \"HEAD\", \"--\", \"file\"]).",
-		Parameters: obj([]string{"args"}, map[string]any{
-			"args": map[string]any{"type": "array", "items": map[string]any{"type": "string"}, "minItems": 1,
-				"description": "the subcommand and its arguments, e.g. [\"log\", \"--oneline\", \"-20\", \"--\", \"src/\"]"},
-			"path": strProp("the repository's directory (default: the working directory)"),
-		})}}
-}
-
-// codeReadToolSpecs is a research subagent's whole tool list.
-func codeReadToolSpecs(cfg Config, run *Run) []toolSpec {
-	specs := []toolSpec{
-		{Type: "function", Function: funcDef{Name: "note",
-			Description: "Record a short visible note in the run timeline (for the human watching). No effect on control flow.",
-			Parameters:  obj([]string{"text"}, map[string]any{"text": strProp("the note")})}},
-		finishSpec(run.Depth),
-	}
-	for _, s := range sandboxFileSpecs() {
-		if codeReadTools[s.Function.Name] {
-			specs = append(specs, s)
-		}
-	}
-	specs = append(specs, gitSpec())
-	specs = append(specs, wikiToolSpecs(true)...)
-	kept := specs[:0:0]
-	for _, s := range specs {
-		if !cfg.denied(s.Function.Name) {
-			kept = append(kept, s)
-		}
-	}
-	return kept
-}
-
-// runCodeReadTool is runTool for a research subagent: its tools only.
-func (ag *Agent) runCodeReadTool(ctx context.Context, run *Run, cfg Config, name string, args map[string]any) (string, error) {
-	if !codeReadTools[name] && !wikiToolNames[name] {
-		return "", fmt.Errorf("%s is not available to a research subagent: it reads the project's code and its wiki, and changes nothing else", name)
-	}
-	if created := time.Unix(run.Created, 0); run.Created > 0 && time.Since(created) > researchTimeout {
-		return "", errors.New("your 10 minutes are up: answer now with what you found, and what you could not determine")
-	}
-	switch name {
-	case "note":
-		return "noted", nil
-	case "message_get":
-		return ag.toolMessageGet(run, args)
-	}
-	if wikiToolNames[name] {
-		return ag.runWikiTool(ctx, run, cfg, name, args)
-	}
-	use, err := ag.codeReadUse(ctx, run, cfg)
-	if err != nil {
-		return "", err
-	}
-	b := cfg.CodeRead
-	resolve := func(p string, def bool) (string, error) {
-		if strings.TrimSpace(p) == "" && !def {
-			return "", errors.New("path: the file")
-		}
-		at, err := use.path(p)
-		if err != nil {
-			return "", err
-		}
-		real, err := codeReadReal(ctx, use, at)
-		if err != nil {
-			return "", err
-		}
-		if !inRoots(real, b.Roots) {
-			return "", fmt.Errorf("%s is outside the project's code (%s): research reads only there", at, strings.Join(b.Roots, ", "))
-		}
-		return real, nil
-	}
-	var out string
-	switch name {
-	case "read", "ls", "glob", "grep":
-		// a glob is matched under path: one that is absolute, at a home or climbing out would move it
-		if why := codeReadPattern(name+"'s pattern", str(args["pattern"])); name == "glob" && why != "" {
-			return "", errors.New(why)
-		}
-		if why := codeReadPattern("glob", str(args["glob"])); name == "grep" && why != "" {
-			return "", errors.New(why)
-		}
-		key := "path"
-		p, err := resolve(str(args[key]), name != "read")
-		if err != nil {
-			return "", err
-		}
-		a := map[string]any{}
-		for k, v := range args {
-			a[k] = v
-		}
-		a[key] = p
-		switch name {
-		case "read":
-			out, err = sbxRead(ctx, use, a)
-		case "ls":
-			out, err = sbxLs(ctx, use, a)
-		case "glob":
-			out, err = sbxGlob(ctx, use, a)
-		case "grep":
-			out, err = sbxGrep(ctx, use, a)
-		}
-		if err != nil {
-			return "", err
-		}
-	case "git":
-		dir, err := resolve(str(args["path"]), true)
-		if err != nil {
-			return "", err
-		}
-		if out, err = codeReadGit(ctx, use, dir, b.Roots, args["args"]); err != nil {
-			return "", err
-		}
-	}
-	return projRedact(out), nil
-}
-
-// codeReadUse is the sandbox a research subagent reads, as its binding names
-// it — checked on every call: its root is still the project's coordinator,
-// the sandbox still the project's (or one of its tasks'), and the class's
-// firewall allows it. Called as the project's owner, as the worker is.
-func (ag *Agent) codeReadUse(ctx context.Context, run *Run, cfg Config) (*sbxUse, error) {
-	r, err := ag.wikiRoleOf(run, cfg) // its root, resolved as the project's coordinator
-	if err != nil {
-		return nil, err
-	}
-	p, b := r.p, cfg.CodeRead
-	if b.Ref != p.SandboxRef {
-		var n int
-		_ = ag.db.q.QueryRow(`SELECT count(*) FROM project_tasks WHERE project_id=? AND n=? AND sandbox_ref=?`, p.ID, b.Task, b.Ref).Scan(&n)
-		if n == 0 {
-			return nil, errors.New("the sandbox you were reading is no longer the project's: tell the coordinator, who can start research again")
-		}
-	}
-	conn, id, err := sbxDialRef(b.Ref, sbxUserOf(binderWho(p.Owner)))
-	if err != nil {
-		return nil, err
-	}
-	hello, err := managerHello(ctx, conn.M)
-	if err != nil {
-		return nil, err
-	}
-	box, err := conn.Get(ctx, id)
-	if err != nil {
-		return nil, err
-	}
-	if why := partitionBoxRefusal(box); why != "" {
-		return nil, &sbxError{Refusal: "not-allowed", Msg: why}
-	}
-	if why := taintRefusal(classOf(cfg), box); why != "" {
-		return nil, &sbxError{Refusal: "not-allowed", Msg: why}
-	}
-	return &sbxUse{Conn: conn, ID: id, Binding: SandboxBinding{Ref: b.Ref, Name: box.Name, Cwd: b.Cwd}, Box: box, Hello: hello, Cwd: b.Cwd}, nil
-}
-
-// codeReadReal is p with every symlink on its way resolved, in the sandbox.
-func codeReadReal(ctx context.Context, use *sbxUse, p string) (string, error) {
-	res, err := use.Conn.Run(ctx, use.ID, sbxRunReq{Cmd: `realpath -e -- "$X" 2>/dev/null || readlink -e -- "$X"`, Env: map[string]string{"X": p},
-		TimeoutMs: 20000, MaxOutput: 8 << 10})
-	if err != nil {
-		return "", err
-	}
-	if !res.ok() {
-		return "", &sbxError{Refusal: "not-found", Msg: p + " doesn't exist in the sandbox"}
-	}
-	lines, _ := runLines(res.Stdout)
-	if len(lines) == 0 || !strings.HasPrefix(lines[0], "/") {
-		return "", fmt.Errorf("%s: the sandbox couldn't resolve it", p)
-	}
-	return path.Clean(lines[0]), nil
-}
-
-// inRoots: p is one of roots or inside one.
-func inRoots(p string, roots []string) bool {
-	for _, r := range roots {
-		r = strings.TrimSuffix(r, "/")
-		if r != "" && (p == r || strings.HasPrefix(p, r+"/")) {
-			return true
-		}
-	}
-	return false
 }

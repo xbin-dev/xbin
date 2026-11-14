@@ -229,6 +229,40 @@ jobs:
             go-integration-
       - run: go run ./hack/testshard verify
 
+  # The agent template's browser scripts (make agent-ui-check;
+  # docs/maintenance.md → "Builtin tiles and templates"): its real page in
+  # Chromium against a stubbed backend, every script, each in its own
+  # browser. Playwright at the version hack/dev-setup.sh pins, cached with
+  # its Chromium under that version; `install --with-deps` adds the system
+  # libraries Chromium needs (apt) and downloads only what the cache lacks.
+  agent-ui:
+    name: agent-ui
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+      - id: pw
+        run: |
+          v=$(sed -n 's/^PLAYWRIGHT_VERSION=${XBIN_PLAYWRIGHT_VERSION:-\([0-9.]*\)}$/\1/p' hack/dev-setup.sh)
+          test -n "$v"
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          echo "PLAYWRIGHT_DIR=$HOME/.cache/xbin-dev/playwright" >> "$GITHUB_ENV"
+      - uses: actions/cache@v6
+        with:
+          path: |
+            ~/.cache/xbin-dev/playwright
+            ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.pw.outputs.version }}
+      - name: Playwright and its Chromium
+        run: |
+          mkdir -p "$PLAYWRIGHT_DIR" && cd "$PLAYWRIGHT_DIR"
+          [ -d node_modules/playwright ] || npm install --no-audit --no-fund --silent "playwright@${{ steps.pw.outputs.version }}"
+          ./node_modules/.bin/playwright install --with-deps chromium
+      - run: make agent-ui-check
+
   # The native client on Linux (native/AGENTS.md): its Swift packages under the
   # Swift the Apple CI's Xcode carries, with 512 KiB test stacks (make
   # swift-test; swiftly, the toolchain cached on the install script's pins),

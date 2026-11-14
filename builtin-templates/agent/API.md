@@ -4687,6 +4687,47 @@ per-person budget, collapsed on the device per project and kind
 `ci-stuck` (CI kept failing past the day's fixes) and `all-done` (every
 task of the project finished).
 
+**Profiles (for whoever changes the backend).** Nothing above is a route
+or a behaviour of its own: it is how the coordinator is built. A
+coordinator is one layer, the **coordinator kit** (`_backend/coord_*.go`),
+with a **profile** per kind of coordinator; the project coordinator is the
+profile `project` (`projects_coord_profile.go`), and `workspace` is a
+registered, empty slot (`coord_workspace.go`: no class, no tools, no hooks,
+and nothing stamps a conversation with its origin).
+
+- **The kit owns the invariants.** Which run is whose coordinator (a
+  top-level run of the profile's `Origin` that its `Is` accepts); that a
+  tool is registered only under a name on the profile's `Allow` list and is
+  one kind of tool in every profile that has it; that every call runs the
+  profile's `Resolve` again and then holds the lane (a class with internal
+  reach acts on nothing); the wake's coalescing (`coordWakes`); the updates
+  message (`deliverCoordUpdates`); the never-answers rule's predicate and a
+  park's words (`coord_hold.go`).
+- **A profile supplies** its forced class and denials, its allowlist and
+  tools (`register`), limits, status words, and the hooks `Is`, `Resolve`,
+  `Pending`, `Deliver`, `Prompt` and `Knowledge`. Its block of the system
+  prompt is assembled from parts (`coordAssemble`: heading, role, its own
+  sections, the rules — its own and the ones every coordinator shares,
+  worded once — and the knowledge store's index).
+- **Research** is the kit's (`coord_research.go`): a profile decides a
+  `CodeReadBinding` and a base prompt, `researchSpawn` makes the run, and
+  the subagent's tools are defined against the `codeReader` interface
+  (`coord_reader.go`) — `read`, `ls`, `glob`, `grep`, and `git` only for a
+  reader kind that declares the subcommands it runs. A project's sandbox is
+  the first kind (`projects_coord_reader.go`).
+- **The wiki's store is a knowledge store with an owner**
+  (`coord_know*.go`): `knowOwner{Kind, Key}` — `project` and the project's
+  id here — resolved by `DB.knowID` to the id the wiki's tables carry in
+  `project_id`. A project's is its own id (its rows are as they always
+  were); any other kind of owner gets a negative id from `wiki_owners`. A
+  kind registers how the store is named in refusals and who is told of a
+  write (`registerKnowKind`).
+
+To add a kind of coordinator: fill a profile (never the kit's tables), add
+the code that makes its conversation with the profile's origin, and test
+that its allowlist is exactly what it registers
+(`coord_profile_test.go` has the pattern).
+
 ### Project wiki
 
 A project's **wiki** (D222) is the shared memory of its agents and people:

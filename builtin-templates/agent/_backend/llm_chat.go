@@ -2,6 +2,9 @@
 // the provider speaks: delta.reasoning_content (DeepSeek, vLLM), delta.reasoning
 // (OpenRouter, Ollama), reasoning_details (OpenRouter's structured blocks, kept
 // raw so they can be replayed), or a leading <think>…</think> in the content.
+// What an answer looks like on the wire — a chunk, a body, a usage block — is
+// the SDK's (sdk/llm, D226); the request's messages and tools are the
+// engine's own types, written as they are stored.
 package main
 
 import (
@@ -9,12 +12,14 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/xbin-dev/xbin/sdk/llm"
 )
 
 type chatCodec struct{}
 
 func (chatCodec) name() string                           { return "chat" }
-func (chatCodec) path() string                           { return "/v1/chat/completions" }
+func (chatCodec) path() string                           { return llm.PathChat }
 func (chatCodec) unsupported(int, string) bool           { return false }
 func (chatCodec) parseBody(raw []byte) (LLMReply, error) { return parseChatBody(raw) }
 
@@ -26,23 +31,23 @@ type chatMsg struct {
 	ReasoningDetails json.RawMessage `json:"reasoning_details,omitempty"`
 }
 
-type chatStreamOpts struct {
-	IncludeUsage bool `json:"include_usage"`
-}
-
+// chatBody is llm.ChatRequest over the engine's messages and tools: they
+// omit and keep members by the engine's rules (a nil content is left out, a
+// tool's empty description is written), and what a provider is sent must
+// not change with where the type lives.
 type chatBody struct {
-	Model           string          `json:"model"`
-	Messages        []chatMsg       `json:"messages"`
-	Tools           []toolSpec      `json:"tools,omitempty"`
-	Stream          bool            `json:"stream,omitempty"`
-	StreamOptions   *chatStreamOpts `json:"stream_options,omitempty"`
-	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
+	Model           string             `json:"model"`
+	Messages        []chatMsg          `json:"messages"`
+	Tools           []toolSpec         `json:"tools,omitempty"`
+	Stream          bool               `json:"stream,omitempty"`
+	StreamOptions   *llm.StreamOptions `json:"stream_options,omitempty"`
+	ReasoningEffort string             `json:"reasoning_effort,omitempty"`
 }
 
 func (chatCodec) encode(req LLMRequest) ([]byte, error) {
 	b := chatBody{Model: req.Model, Tools: req.Tools, ReasoningEffort: req.ReasoningEffort}
 	if req.Stream {
-		b.Stream, b.StreamOptions = true, &chatStreamOpts{IncludeUsage: true}
+		b.Stream, b.StreamOptions = true, &llm.StreamOptions{IncludeUsage: true}
 	}
 	for _, m := range req.Msgs {
 		cm := chatMsg{wireMsg: m}
@@ -54,66 +59,36 @@ func (chatCodec) encode(req LLMRequest) ([]byte, error) {
 	return json.Marshal(b)
 }
 
-type chatUsage struct {
-	PromptTokens            int `json:"prompt_tokens"`
-	CompletionTokens        int `json:"completion_tokens"`
-	TotalTokens             int `json:"total_tokens"`
-	CompletionTokensDetails *struct {
-		ReasoningTokens int `json:"reasoning_tokens"`
-	} `json:"completion_tokens_details"`
-}
-
-func (u *chatUsage) block() usageBlock {
-	b := usageBlock{PromptTokens: u.PromptTokens, CompletionTokens: u.CompletionTokens, TotalTokens: u.TotalTokens}
+// chatUsageBlock is a usage block as its provider counted it: nothing is
+// filled in or bounded (a provider that counts reasoning apart from the
+// completion reports more of it than completion tokens).
+func chatUsageBlock(u *llm.ChatUsage) usageBlock {
+	b := usageBlock{PromptTokens: int(u.PromptTokens), CompletionTokens: int(u.CompletionTokens), TotalTokens: int(u.TotalTokens)}
 	if u.CompletionTokensDetails != nil {
-		b.ReasoningTokens = u.CompletionTokensDetails.ReasoningTokens
+		b.ReasoningTokens = int(u.CompletionTokensDetails.ReasoningTokens)
 	}
 	return b
 }
 
-type chatToolDelta struct {
-	Index    int    `json:"index"`
-	ID       string `json:"id"`
-	Function struct {
-		Name      string `json:"name"`
-		Arguments string `json:"arguments"`
-	} `json:"function"`
-}
-
+// chatChunk and chatAnswer are the wire's stream chunk and body with the
+// error member kept as it came: what a person is shown is its message, or
+// else the member whole (upstreamError), whatever shape a server gave it.
 type chatChunk struct {
-	Choices []struct {
-		Delta struct {
-			Content          *string           `json:"content"`
-			ReasoningContent *string           `json:"reasoning_content"`
-			Reasoning        json.RawMessage   `json:"reasoning"`
-			ReasoningDetails []json.RawMessage `json:"reasoning_details"`
-			ToolCalls        []chatToolDelta   `json:"tool_calls"`
-		} `json:"delta"`
-		FinishReason *string `json:"finish_reason"`
-	} `json:"choices"`
-	Usage *chatUsage      `json:"usage"`
+	llm.ChatChunk
 	Error json.RawMessage `json:"error"`
 }
 
-// rawString returns a JSON value's string when it is one ("" otherwise) —
-// delta.reasoning is a string on every provider that sends it, but null too.
-func rawString(r json.RawMessage) string {
-	var s string
-	if len(r) > 0 && r[0] == '"' && json.Unmarshal(r, &s) == nil {
-		return s
-	}
-	return ""
+type chatAnswer struct {
+	llm.ChatResponse
+	Error json.RawMessage `json:"error"`
 }
 
 func upstreamError(r json.RawMessage) error {
 	if len(r) == 0 || string(r) == "null" {
 		return nil
 	}
-	var e struct {
-		Message string `json:"message"`
-		Code    any    `json:"code"`
-	}
-	if json.Unmarshal(r, &e) == nil && e.Message != "" {
+	var e llm.Error
+	if r[0] == '{' && json.Unmarshal(r, &e) == nil && e.Message != "" {
 		return &streamError{msg: fmt.Sprintf("llm upstream error: %s", e.Message)}
 	}
 	return &streamError{msg: "llm upstream error: " + string(r)}
@@ -171,7 +146,7 @@ func (a *chatAcc) addContent(s string) {
 	}
 }
 
-func (a *chatAcc) addTool(t chatToolDelta) {
+func (a *chatAcc) addTool(t llm.ToolCallDelta) {
 	tc := a.tcs[t.Index]
 	if tc == nil {
 		tc = &toolCall{Type: "function"}
@@ -224,24 +199,20 @@ func (chatCodec) parseStream(r io.Reader, emit func(LLMEvent)) (LLMReply, error)
 			return err
 		}
 		if c.Usage != nil {
-			a.usage = c.Usage.block()
+			a.usage = chatUsageBlock(c.Usage)
 		}
 		if len(c.Choices) == 0 {
 			return nil
 		}
 		ch := c.Choices[0]
 		d := ch.Delta
-		plain := ""
-		if d.ReasoningContent != nil {
-			plain += *d.ReasoningContent
-		}
-		plain += rawString(d.Reasoning)
+		plain := d.ReasoningText()
 		detailText := a.details.add(d.ReasoningDetails)
 		if plain != "" || detailText != "" {
 			a.addThinking(plain, detailText)
 		}
-		if d.Content != nil && *d.Content != "" {
-			a.addContent(*d.Content)
+		if text := d.Text(); text != "" {
+			a.addContent(text)
 		}
 		for _, t := range d.ToolCalls {
 			a.addTool(t)
@@ -256,20 +227,7 @@ func (chatCodec) parseStream(r io.Reader, emit func(LLMEvent)) (LLMReply, error)
 }
 
 func parseChatBody(raw []byte) (LLMReply, error) {
-	var cr struct {
-		Choices []struct {
-			Message struct {
-				Content          json.RawMessage   `json:"content"`
-				ReasoningContent *string           `json:"reasoning_content"`
-				Reasoning        json.RawMessage   `json:"reasoning"`
-				ReasoningDetails []json.RawMessage `json:"reasoning_details"`
-				ToolCalls        []toolCall        `json:"tool_calls"`
-			} `json:"message"`
-			FinishReason string `json:"finish_reason"`
-		} `json:"choices"`
-		Usage *chatUsage      `json:"usage"`
-		Error json.RawMessage `json:"error"`
-	}
+	var cr chatAnswer
 	if err := json.Unmarshal(raw, &cr); err != nil {
 		return LLMReply{}, fmt.Errorf("llm-gw bad response: %w", err)
 	}
@@ -281,26 +239,26 @@ func parseChatBody(raw []byte) (LLMReply, error) {
 	}
 	m := cr.Choices[0].Message
 	a := newChatAcc(nil)
-	plain := ""
-	if m.ReasoningContent != nil {
-		plain = *m.ReasoningContent
-	}
-	plain += rawString(m.Reasoning)
-	a.addThinking(plain, a.details.add(m.ReasoningDetails))
-	content := rawString(m.Content)
+	a.addThinking(m.ReasoningText(), a.details.add(m.ReasoningDetails))
+	content := m.Text()
 	if content == "" && len(m.Content) > 0 && m.Content[0] != 'n' && m.Content[0] != '"' {
 		content = string(m.Content) // a parts array: keep it readable rather than lose it
 	}
 	a.addContent(content)
 	rep := a.reply()
-	for i := range m.ToolCalls {
-		if m.ToolCalls[i].Type == "" {
-			m.ToolCalls[i].Type = "function"
-		}
+	if m.ToolCalls != nil {
+		rep.Msg.ToolCalls = make([]toolCall, len(m.ToolCalls))
 	}
-	rep.Msg.ToolCalls = m.ToolCalls
+	for i, t := range m.ToolCalls {
+		tc := toolCall{ID: t.ID, Type: t.Type}
+		if tc.Type == "" {
+			tc.Type = "function"
+		}
+		tc.Function.Name, tc.Function.Arguments = t.Function.Name, t.Function.Arguments
+		rep.Msg.ToolCalls[i] = tc
+	}
 	if cr.Usage != nil {
-		rep.Usage = cr.Usage.block()
+		rep.Usage = chatUsageBlock(cr.Usage)
 	}
 	rep.Finish = cr.Choices[0].FinishReason
 	if rep.Finish == "" {
