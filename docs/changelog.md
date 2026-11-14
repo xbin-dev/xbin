@@ -12,6 +12,32 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-14
 
+- **Agent sessions: a turn the agent starts on its own is followed
+  (D225).** codex-acp answers a message steered just after its turn ended
+  by starting a turn of its own, which no prompt's answer ends. A tile
+  agent session used to read as idle through such a turn — the next
+  message was prompted into it, and held messages were sent while it ran.
+  Now `POST …/queue` still answers `steered`, a `status` event says
+  `running` (statuses the agent's client restates as idle meanwhile are
+  served as `running`, or `waiting_permission` while a request waits), a
+  message sent meanwhile is held, `POST …/prompt` answers 409 as for any
+  running turn, and the turn ends with xbind's own `turn.end`
+  `{stopReason, detached: true}` (no `turn` number) once the agent has
+  sent nothing for 5 s with no request waiting — or at `POST …/cancel`
+  (`stopReason: "cancelled"`; the requests it waited on are answered
+  cancelled) — followed by an idle `status`, after which held messages go
+  in. Additive: a client that doesn't know `detached` shows an ordinary
+  turn end. `/docs/protocol/agents.md` §Agent session events. In
+  **`sdk/acp`** the rules both hosts follow are new API — `QueueState`
+  (`Message`, `Flush`, `Busy`), `SteerOutcome`, the `Message*` constants,
+  `DetachedTurn` and `DetachedQuiet` (`/docs/sdk.md` "The session rules")
+  — and one behaviour of `Client` changed: a permission request or form
+  question the agent makes outside a prompt leaves the status `idle` again
+  once answered (it stayed `waiting_permission` until the next prompt).
+  `sdk/acp/acptest` gains the `detach…` script (with `--steer`) to play
+  such a turn. The agent template decides with the same functions; one
+  thing moves there: a message sent during the agent's own turn no longer
+  splits the text the agent is writing into two rows (it waits, as before).
 - **sdk/acp: status words — `Busy`, `TurnOver`, `StateOf`, `Summary`,
   `Need` (D225).** New, additive (`/docs/sdk.md` "The session rules"):
   the status classes, a session's state in one word (`starting`, `ready`,

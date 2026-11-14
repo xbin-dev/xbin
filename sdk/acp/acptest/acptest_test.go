@@ -159,6 +159,42 @@ func TestSteerIntoTurn(t *testing.T) {
 	d2.finish()
 }
 
+// The detach… script: a steer during it ends the prompt's turn and starts
+// one of the agent's own — the prompt's answer comes before the steer's
+// (startedNewTurn, though the client asked for promptRequired), and no
+// prompt answers the turn that follows.
+func TestSteerDetached(t *testing.T) {
+	d, _ := start(t, Options{Steer: true, wait: quick})
+	d.handshake()
+	d.call(3, "session/prompt", promptParams("detach now"))
+	d.chunkText("waiting for a steer")
+	d.call(4, "_session/steering", `{"sessionId":"fake-1","prompt":[{"type":"text","text":"perm please"}],"_meta":{"steering":{"idleBehavior":"promptRequired"}}}`)
+	if r := d.response(3); str(get(r, "result", "stopReason")) != "end_turn" {
+		t.Fatalf("the prompt's turn ends first: %s", r.raw)
+	}
+	if r := d.response(4); str(get(r, "result", "outcome")) != "startedNewTurn" {
+		t.Fatalf("the steer: %s", r.raw)
+	}
+	// the steered text's script, a turn of its own: perm asks, then runs
+	req := d.request("session/request_permission")
+	d.reply(req, `"result":{"outcome":{"outcome":"selected","optionId":"once"}}`)
+	d.chunkText("listed")
+	d.update("usage_update", "")
+	// a steer while the agent's own turn ran would be injected; now it is idle again
+	d.call(5, "_session/steering", `{"sessionId":"fake-1","prompt":[{"type":"text","text":"x"}],"_meta":{"steering":{"idleBehavior":"promptRequired"}}}`)
+	if r := d.response(5); str(get(r, "result", "outcome")) != "promptRequired" {
+		t.Fatalf("a steer after the detached turn: %s", r.raw)
+	}
+	// without --steer, detach is no script: the default echo
+	d.finish()
+	d2, _ := start(t, Options{wait: quick})
+	d2.handshake()
+	d2.call(3, "session/prompt", promptParams("detach now"))
+	d2.chunkText("echo: detach now")
+	d2.response(3)
+	d2.finish()
+}
+
 func TestAutoMode(t *testing.T) {
 	d, _ := start(t, Options{AutoMode: true, wait: quick})
 	d.call(1, "initialize", initParams)

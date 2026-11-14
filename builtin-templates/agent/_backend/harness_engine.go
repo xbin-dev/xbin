@@ -79,9 +79,8 @@ type hsess struct {
 	turns   int            // turns ended here (turnNo): a call knows the turn it was made in
 
 	inflight  *heldPrompt       // the prompt of the turn in flight (a sign-in holds it)
-	detached  bool              // the adapter runs a turn of its own (harness_steer.go)
-	quiet     *time.Timer       // ends a detached turn once the adapter goes quiet
-	quietDue  bool              // … it went quiet: the pass ends it
+	det       acp.DetachedTurn  // the adapter's own turn, followed (harness_steer.go; the rule is sdk/acp's)
+	quiet     *time.Timer       // looks at its deadline: the pass ends a turn gone quiet
 	idleT     *time.Timer       // the idle reclaim (harness_life.go)
 	reclaim   bool              // the idle reclaim is due: the pass stops the adapter
 	graceT    *time.Timer       // stops an adapter that doesn't end its turn after session/cancel

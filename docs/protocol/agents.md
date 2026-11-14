@@ -182,7 +182,13 @@ POST   /term/sessions/<id>/queue  creator or admin (not an agent sandbox's
                                    once one is held later ones queue behind
                                    it. interrupt: hold it and cancel the
                                    running turn — it goes in once that turn
-                                   has ended. The held messages are the
+                                   has ended. A steer the agent answers by
+                                   starting a turn of its own (codex-acp,
+                                   when the turn had just ended) is
+                                   "steered" too, and the session is
+                                   running until that turn ends (see
+                                   `turn.end` `detached` below): a message
+                                   meanwhile is held. The held messages are the
                                    session's (every client sees them: a
                                    `queue` event after each change, the tail
                                    page's state.queue now); a cancel keeps
@@ -222,7 +228,10 @@ POST   /term/sessions/<id>/restart
 POST   /term/sessions/<id>/cancel creator or admin → ok (the turn ends
                                    cancelled; pending permissions cancelled;
                                    a prompt still handing its files over
-                                   gets 409 and never starts)
+                                   gets 409 and never starts; a turn the
+                                   agent runs on its own ends for xbind —
+                                   `turn.end` with detached — the agent is
+                                   not asked: it has no prompt to cancel)
 POST   /term/sessions/<id>/permissions/<pid>
                                    creator or admin. {optionId} | {decision:
                                    allow_once|allow_always|reject_once|
@@ -390,7 +399,7 @@ them apart by `hasOlder`.
 | `elicitation.request` | `{eid, toolCallId?, message, schema}` — the agent asks the user a question (ACP `elicitation/create`, form mode — Claude's AskUserQuestion, an MCP server's form); the session is `waiting_permission` until one client answers on `POST …/elicitations/<eid>`. `schema` is a flat JSON Schema object: a `oneOf`/`enum` string is a single choice (options `{const, title, description?}`), an array of `anyOf`/`enum` items is a multi-choice, plus plain string/number/integer/boolean fields; a string field whose `_meta._askUserQuestionCustomAnswer.questionId` names another field is that question's free-text "Other" answer. Cancelling the turn answers `cancel` |
 | `elicitation.resolved` | `{eid, action, by, content?}` — action: accept \| decline \| cancel (by `agent`: withdrawn); `content` the submitted values (with accept) |
 | `permission.resolved` | `{pid, optionId, by}` — by: `user:<id>`, `owner`, `auto` (a session rule), `cancel` |
-| `turn.end` | `{turn, stopReason, usage?:{used, size, cost?}, error?}` — stopReason: end_turn \| max_tokens \| max_turn_requests \| refusal \| cancelled \| error |
+| `turn.end` | `{turn, stopReason, usage?:{used, size, cost?}, error?}` — stopReason: end_turn \| max_tokens \| max_turn_requests \| refusal \| cancelled \| error. `{stopReason, detached: true}` (no `turn`) is xbind's, not the agent's: the end of a turn the agent ran on its own — codex-acp answers a steer that lands just after its turn ended by starting one (`sdk/acp` `SteerStartedNewTurn`), and no prompt's answer reports its end. xbind follows it as a running turn (a `status` `running` after the steer; a status the agent's client restates as idle meanwhile is served as `running`, or `waiting_permission` while a request waits) and ends it once the agent has sent nothing for 5 s with no request waiting (`end_turn`), or at a cancel (`cancelled`); an idle `status` follows and the held messages go in |
 | `status` | `{status, detail?, modes?, currentMode?, options?, commands?, agent?, login?, usage?, title?}` — status: starting \| idle \| running \| waiting_permission \| cancelling \| error \| exited; `title` is the agent's own name for the session (ACP `session_info_update` — most adapters generate one after the first turn); it names a session that has no name yet (SessionInfo `name`, announced by a `term` `rename` event) — a name the user gave is kept; `modes` (the agent's available modes), `options` (its settings: `[{id, name, category, type, currentValue, options:[{value, name}]}]` — model, effort, …, in the agent's priority order) and `agent` (`{name, version}`) ride every `idle`; `options` also rides a status whenever a setting changes; `commands` (the agent's slash commands, `[{name, description?, hint?}]` — `hint` says what to type after the name; a command is sent as ordinary prompt text, `/name args`) rides a status when the agent advertises them and every `idle` after; `login` (`{needed:true, provider, command}`) rides every status while the agent reports it is signed out (an `_auth/status_update{kind:none}`) or a turn hit auth-required — the frontend shows a sign-in: the provider's guided one when `GET /agent/providers` gives it a `signin` (D178: a link to open and a code to paste, the CLI running in a terminal session no tab shows), else — and on request — `command` run in a shell terminal sharing the agent's home; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
 | `gap` | `{before}` — only on a `?follow=1` stream: the cursor predated the log's ring; earlier events were dropped |
 | `queue` | `{items:[{id, text, files?, at}], sent?, dropped?, reason?}` — xbin's, not the agent's (D197): the messages held for the running turn's end after a change (`POST`/`DELETE …/queue`) — the whole list, replacing the last; `text` is a preview (200 characters), `files` the attachments' names. `sent` lists the ids that just went in as a prompt (its user `message.delta` follows); `dropped` counts held messages that went without being sent, with `reason` (the session ended; a prompt refused for good — a `notice` says so too). A client that doesn't know the type skips it |

@@ -14,6 +14,12 @@
 // event), the draft flushed as the answer. A message meanwhile waits (a
 // steer answers promptRequired while no prompt runs); an interrupt ends it
 // in AgTT's view only (the client has no prompt of its own to cancel).
+//
+// Which of prompt, steer and wait a message gets, what a steer's answer
+// means and when a detached turn is over are sdk/acp's rules (queue.go:
+// QueueState.Message, SteerOutcome, DetachedTurn) — the ones xbind's tile
+// agent sessions follow; this file is what the engine does with them: the
+// inbox rows, the steer marked on its way, the user row, the run's status.
 package main
 
 import (
@@ -28,7 +34,7 @@ import (
 
 // hDetachedQuiet: a detached turn is over after this long without an event
 // (a var: tests shorten it).
-var hDetachedQuiet = 5 * time.Second
+var hDetachedQuiet = acp.DetachedQuiet
 
 // hCancelGrace: an adapter that doesn't end its turn this long after
 // session/cancel is stopped.
@@ -72,6 +78,7 @@ func (e *Engine) harnessSteer(ctx context.Context, run *Run, row *InboxRow) {
 	out, err := s.c.Steer(sctx, acp.Prompt{Text: text})
 	cancel()
 	id := s.steerWent()
+	next, detached := acp.SteerOutcome(out, err)
 	if err != nil {
 		var re *acp.Error
 		why := s.takeAbandoned(id)
@@ -95,7 +102,7 @@ func (e *Engine) harnessSteer(ctx context.Context, run *Run, row *InboxRow) {
 		e.steerUnsure(run, row.ID, why)
 		return
 	}
-	if out == acp.SteerPromptRequired {
+	if next != acp.MessageDelivered { // promptRequired: no turn runs any more — it is the next prompt, at the pass the turn's end pokes
 		e.unmarkSteer(run.ID, row.ID)
 		return
 	}
@@ -107,7 +114,7 @@ func (e *Engine) harnessSteer(ctx context.Context, run *Run, row *InboxRow) {
 		if err != nil {
 			return err
 		}
-		if out != acp.SteerStartedNewTurn {
+		if !detached {
 			return nil
 		}
 		cur, err := t.getRun(run.ID)
@@ -126,7 +133,7 @@ func (e *Engine) harnessSteer(ctx context.Context, run *Run, row *InboxRow) {
 		return nil
 	})
 	e.delivered(row.ID)
-	if out == acp.SteerStartedNewTurn {
+	if detached {
 		s.followDetached()
 	}
 }
@@ -244,7 +251,7 @@ func detachedStored(run *Run, hs *harnessSession) bool {
 // followDetached: the adapter runs a turn of its own (startedNewTurn).
 func (s *hsess) followDetached() {
 	s.mu.Lock()
-	s.detached = true
+	s.det.Begin(time.Now())
 	s.quietLocked()
 	s.mu.Unlock()
 	s.toWork(false) // at work: it keeps a person's partition up (harness_partition.go)
@@ -254,24 +261,22 @@ func (s *hsess) followDetached() {
 func (s *hsess) isDetached() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.detached
+	return s.det.Running()
 }
 
-// quietLocked (re)arms the detached turn's end (s.mu held).
+// quietLocked (re)arms the look at the detached turn's deadline (s.mu
+// held): gone quiet by then, the pass ends it (serialized with prompts).
 func (s *hsess) quietLocked() {
-	s.quietDue = false
 	if s.quiet != nil {
 		s.quiet.Stop()
+		s.quiet = nil
 	}
-	if s.halted {
+	if s.halted || !s.det.Running() {
 		return
 	}
-	s.quiet = time.AfterFunc(hDetachedQuiet, func() { // the pass ends it (serialized with prompts)
-		s.mu.Lock()
-		due := s.detached && !s.halted
-		s.quietDue, s.quiet = due, nil
-		s.mu.Unlock()
-		if due {
+	s.det.Quiet = hDetachedQuiet
+	s.quiet = time.AfterFunc(time.Until(s.det.Deadline()), func() {
+		if s.detachedQuiet() {
 			s.e.Poke(s.run)
 		}
 	})
@@ -281,13 +286,13 @@ func (s *hsess) quietLocked() {
 func (s *hsess) detachedQuiet() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.quietDue
+	return !s.halted && s.det.Over(time.Now())
 }
 
 // touchDetached: an event of the detached turn — it goes on.
 func (s *hsess) touchDetached() {
 	s.mu.Lock()
-	if s.detached {
+	if s.det.Event(time.Now()) {
 		s.quietLocked()
 	}
 	s.mu.Unlock()
@@ -298,11 +303,10 @@ func (s *hsess) touchDetached() {
 // turn over unless a prompt of its own runs (its answer ends it).
 func (s *hsess) endDetached(why string) {
 	s.mu.Lock()
-	if !s.detached || s.halted {
+	if s.halted || !s.det.End() {
 		s.mu.Unlock()
 		return
 	}
-	s.detached, s.quietDue = false, false
 	if s.quiet != nil {
 		s.quiet.Stop()
 		s.quiet = nil

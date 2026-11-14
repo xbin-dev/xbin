@@ -400,6 +400,32 @@ pure: no I/O, no goroutine, no clock of its own.
   owner, judged with the mode its adapter started in).
   `acp.ModeOption(options)` is an adapter's config option of category
   `mode`; `state.Mode()` the session's current mode either way.
+- **Messages while a turn runs** (`queue.go`): what to do with a message
+  a person sends when the agent is busy. You keep the held messages and do
+  the sending; the decisions are `acp.QueueState{Status, Detached, Held,
+  Steering, Sending}`'s:
+  - `q.Message(interrupt)` → `acp.MessagePrompt` (nothing runs, nothing is
+    held: `c.Prompt`), `acp.MessageSteer` (a turn runs and the agent
+    steers: `c.Steer`) or `acp.MessageHold` (no steering, others already
+    held — never past them —, an interrupt, or the agent's own turn).
+  - `acp.SteerOutcome(outcome, err)` reads `c.Steer`'s answer →
+    `MessageDelivered` (injected; with `detached` true for
+    `SteerStartedNewTurn`), `MessagePrompt` (`SteerPromptRequired`: the
+    turn had ended), `MessageHold` (`ErrSteeringUnsupported`) or
+    `MessageRefused` (any other error: yours to judge).
+  - `q.Flush()` — the held messages go as a prompt now: the turn is over
+    (idle, or it failed), no detached turn runs, no prompt is on its way.
+  - **A detached turn**: codex-acp answers a steer that lands just after
+    its turn ended by starting a turn of its own, which no `turn.end`
+    reports and during which every status the client restates says idle.
+    `acp.DetachedTurn` follows it: `Begin(now)` at the steer's answer,
+    `Event(now)` for each event the agent sends, `Over(now)` /
+    `Deadline()` to know when it has been quiet for `Quiet`
+    (`acp.DetachedQuiet`, 5 s), `End()`. It keeps no timer — arm yours for
+    `Deadline()`. Treat the session as running meanwhile, hold messages,
+    and end the turn in your own view at an interrupt (the client has no
+    prompt to cancel). A request the agent makes outside a prompt leaves
+    the client `idle` again once answered (it stayed `waiting_permission`).
 - **Status words** (`summary.go`): a session in a word and in a line.
   `acp.Busy(status)` — a turn runs (`running`, `waiting_permission`,
   `cancelling`); `acp.TurnOver(status)` — it takes a prompt (`idle`,
@@ -460,6 +486,11 @@ argv := acptest.Command("--require-login") // [the test binary, "acptest", flags
 | `--auto-mode` (`AutoMode`) | a mode `auto` between `ask` and `yolo` that skips an edit's permission request |
 | `--require-login` (`RequireLogin`) | signed in only while `$HOME/.fakeacp/credentials` exists; auth methods `fake-login` (terminal, `<agent> login` asks for the code `fake-code`), `fake-api-key` (`_meta["api-key"].apiKey`; `bad` is refused) and `fake-device` (a device code through URL elicitation, then `elicitation/complete`) |
 | `--persist` (`Persist`) | sessions kept in `$HOME/.fakeacp/sessions`; `session/load` replays exactly what a session sent |
+
+With `--steer`, a prompt starting `detach` plays codex-acp's detached turn:
+the turn waits for a steer, then ends (`end_turn`) before answering the
+steer `startedNewTurn`, and the steered text's script plays as a turn of the
+agent's own, with no prompt to answer.
 | `--device-ms=N` (`DeviceDelay`) | how long after the URL is accepted the device sign-in completes (1 s) |
 
 `Serve` returns when its reader ends (or `*acptest.ExitError` for

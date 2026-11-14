@@ -91,17 +91,19 @@ type agentState struct {
 	status    string
 	turn      uint64
 	text      []byte
-	acpID     string         // the agent's own session id (after the handshake)
-	loadable  bool           // the agent can reopen acpID later (session/load) — resume
-	resumed   string         // the history entry this session reopened (superseded when this one is saved)
-	snap      *snapper       // files.changed snapshots of the tile (agentdiff.go); nil = off
-	published sdkacp.Summary // the last summary handed to OnStatus (agentstatus.go)
-	prompting atomic.Bool    // a prompt is being taken (ReservePrompt)
-	attachDir string         // the daemon's attachments dir (isolation off), removed with the session
-	replay    replayState    // a resume's replay, logged but not published one by one (agentpage.go); under mu
-	queue     []queueItem    // messages held for the running turn's end (agentqueue.go, D197); under mu
-	flushing  bool           // the queue is being sent as a prompt; under mu
-	queueing  atomic.Bool    // a message for the queue is being taken (ReserveQueue)
+	acpID     string              // the agent's own session id (after the handshake)
+	loadable  bool                // the agent can reopen acpID later (session/load) — resume
+	resumed   string              // the history entry this session reopened (superseded when this one is saved)
+	snap      *snapper            // files.changed snapshots of the tile (agentdiff.go); nil = off
+	published sdkacp.Summary      // the last summary handed to OnStatus (agentstatus.go)
+	prompting atomic.Bool         // a prompt is being taken (ReservePrompt)
+	attachDir string              // the daemon's attachments dir (isolation off), removed with the session
+	replay    replayState         // a resume's replay, logged but not published one by one (agentpage.go); under mu
+	queue     []queueItem         // messages held for the running turn's end (agentqueue.go, D197); under mu
+	flushing  bool                // the queue is being sent as a prompt; under mu
+	queueing  atomic.Bool         // a message for the queue is being taken (ReserveQueue)
+	det       sdkacp.DetachedTurn // a turn the agent runs on its own (agentdetached.go); under mu
+	quiet     *time.Timer         // looks at det's deadline; under mu
 }
 
 func (st *agentState) logf(line string) {
@@ -448,6 +450,7 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 				flush()
 				goto ended
 			}
+			e = s.detachedEvent(m, e) // the agent's own turn goes on (agentdetached.go)
 			if e.Type == agent.EvMessageDelta || e.Type == agent.EvThoughtDelta {
 				var d delta
 				_ = json.Unmarshal(e.Data, &d)
@@ -487,6 +490,7 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 		}
 	}
 ended:
+	s.stopDetached()                    // the agent's own turn ends with the session, unsaid (agentdetached.go)
 	s.dropQueue(m, "the session ended") // held messages go with it, said in the log (D197)
 	s.endReplay(m)                      // a replay the session never finished (agentpage.go)
 	s.publishStatus(m)                  // the last word before the directory's close
@@ -534,7 +538,7 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 		if d.Status != "" {
 			st.status = d.Status
 		}
-		flush := len(st.queue) > 0 && sdkacp.TurnOver(d.Status) // the turn ended: what is held goes in (D197)
+		flush := sdkacp.TurnOver(d.Status) && st.queueStateLocked().Flush() // the turn ended: what is held goes in (D197)
 		if d.CurrentMode != "" {
 			st.mode = d.CurrentMode
 		}
@@ -645,13 +649,14 @@ func (m *Manager) AgentPromptWith(ctx context.Context, id string, p agent.Prompt
 	return turn, nil
 }
 
-// AgentCancel interrupts the running turn (a no-op when idle).
+// AgentCancel interrupts the running turn (a no-op when idle) — the
+// client's, or the agent's own (agentdetached.go).
 func (m *Manager) AgentCancel(id string) error {
-	_, st, err := m.agentOf(id)
+	s, _, err := m.agentOf(id)
 	if err != nil {
 		return err
 	}
-	return st.drv.Cancel()
+	return m.cancelTurn(s)
 }
 
 // AgentSetOption changes one of the agent's session settings (a config

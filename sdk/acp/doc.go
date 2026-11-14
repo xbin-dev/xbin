@@ -48,6 +48,9 @@
 // merged, an id used again, what output a reducer keeps); escalation.go
 // whether a permission option raises the session's mode
 // (Provider.OptionRaises, ModeOpen — what marks an option Explicit);
-// summary.go a session in a word and a line (Busy, TurnOver, StateOf,
-// Summary, and Need: what it waits on a person for, in words).
+// queue.go a message while a turn runs — prompt, steer or hold, what a
+// steer's answer means, when held messages go, and the turn codex starts
+// on its own (QueueState, SteerOutcome, DetachedTurn); summary.go a session
+// in a word and a line (Busy, TurnOver, StateOf, Summary, and Need: what it
+// waits on a person for, in words).
 package acp
