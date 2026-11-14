@@ -1245,6 +1245,13 @@ func (m *fsbManager) command(b *fsbBox, q fsbCmdReq) (*exec.Cmd, error) {
 	if q.Cmd == "" && len(q.Argv) == 0 {
 		return nil, errors.New("cmd or argv is required")
 	}
+	// as xbind's own sandboxes have it: nothing of xbind's but the LLM
+	// connector's two variables
+	for k := range q.Env {
+		if strings.HasPrefix(strings.ToUpper(k), "XBIN_") && k != "XBIN_LLM_URL" && k != "XBIN_LLM_KEY" {
+			return nil, fmt.Errorf("env: %s — XBIN_* variables are xbind's", k)
+		}
+	}
 	cwd := b.Workdir
 	if q.Cwd != "" {
 		p, err := b.pathFollow(q.Cwd)

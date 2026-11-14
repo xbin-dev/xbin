@@ -703,7 +703,8 @@ and defines and drives them through `/api/xbin/sandboxes/…`
   with the tail of its console in `stateDetail`.
 - **No xbin identity inside.** A tile sandbox gets no token, no gateway
   socket and no route to xbind; `XBIN_*` variables are refused in its
-  definition. One door opens when its manager asks at create (`net.llm`,
+  definition (and in a command's `env`, but for the LLM connector's
+  address and key, `XBIN_LLM_URL` and `XBIN_LLM_KEY`). One door opens when its manager asks at create (`net.llm`,
   D226): a port of the sandbox's own gateway, forwarded to xbind's
   **LLM-only listener** — a unix socket in xbind's run directory that
   serves the LLM connector's three model routes to the holder of an LLM

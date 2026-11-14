@@ -221,7 +221,9 @@ definitions, lifecycle, snapshots and the policy are.
   both modes. `sqlite` and
   other kinds are `invalid`.
 - `defaults.env` keys `XBIN_*` are `invalid`: a sandbox never gets an xbin
-  identity. `uid`/`gid` must be runnable (`users: root` — a namespace host
+  identity (a *command's* `env` may carry the LLM connector's two,
+  `XBIN_LLM_URL` and `XBIN_LLM_KEY`; below). `uid`/`gid` must be
+  runnable (`users: root` — a namespace host
   mapping a single uid — allows only 0). `labels` are opaque, ≤ 1 KiB in
   all; `for` and `forUser` (≤ 128) are claims, stored and shown, widening
   nothing.
@@ -597,7 +599,11 @@ error.
   terminal (a `tty` exec, the `tty` route), `TERM=xterm-256color`,
   `COLORTERM=truecolor` and `LANG=C.UTF-8`, as xbind's terminals have
   them — with `defaults.env` and then the command's `env` over them;
-  `XBIN_*` keys are 400. Nothing of xbind's or of the agent's own
+  `XBIN_*` keys are 400, except `XBIN_LLM_URL` and `XBIN_LLM_KEY` in a
+  command's `env` (D226: where the LLM connector is and a key for it,
+  which a consumer hands a coding agent; an LLM key opens the connector's
+  model routes and nothing else, so it is no identity — and `defaults.env`,
+  which is stored, still refuses them). Nothing of xbind's or of the agent's own
   environment gets in, nor xbind's user's supplementary groups: a command has none (except on a
   namespace host mapping a single uid, `users: root`, which can't drop
   them). Each command leads its own process group, and it is what the OOM

@@ -41,6 +41,15 @@ var llmChecks = []check{
 		var patched Sandbox
 		a.Call("PATCH", "/sandboxes/"+sb.ID, map[string]any{"labels": map[string]string{"k": "v"}}, 200, &patched)
 		check("after a PATCH", patched)
+		// the names a coding agent reads the address and the key by get
+		// into a command, whatever else of the workspace's a manager refuses
+		if e.has("exec") {
+			r := a.Run(sb.ID, map[string]any{"cmd": `printf '%s|%s' "$XBIN_LLM_URL" "$XBIN_LLM_KEY"`,
+				"env": map[string]string{"XBIN_LLM_URL": sb.LLM.URL, "XBIN_LLM_KEY": "xbl_contract-check-not-a-key"}})
+			if r.ExitCode == nil || *r.ExitCode != 0 || r.Stdout == nil || r.Stdout.Head != sb.LLM.URL+"|xbl_contract-check-not-a-key" {
+				t.Errorf("a command's env with XBIN_LLM_URL and XBIN_LLM_KEY: %+v", r)
+			}
+		}
 		if slices.Contains(e.hello.Egress, "none") && sb.Egress != "none" {
 			t.Errorf("the sandbox was created with no egress named, and has %q", sb.Egress)
 		}

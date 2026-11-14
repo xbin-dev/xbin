@@ -679,6 +679,11 @@ manager that can arrange that offers the capability `llm`:
   `xbin.LLMKeyFor`, [sdk.md](/docs/sdk.md)). The manager holds no key and
   mints none. It works with every `egress`, `none` included: reaching the
   connector is not egress.
+- **A command's `env` may carry `XBIN_LLM_URL` and `XBIN_LLM_KEY`** — the
+  names a coding agent's configuration reads the address and the key by.
+  A manager that refuses a workspace's own variables in `env` (xbind's
+  runtime refuses `XBIN_*`: a sandbox gets no xbin identity) lets these
+  two through, in a command's `env` only; an LLM key is no identity.
 - **A consumer reads `hello.caps` first** and sends `llm` only to a
   manager that offers it: a manager from before the capability may refuse
   a member it doesn't know, or ignore it. Either way a sandbox without

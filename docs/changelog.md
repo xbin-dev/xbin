@@ -47,7 +47,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   ([protocol/sandboxes.md](/docs/protocol/sandboxes.md)) gets the
   connector's model routes at `http://10.0.2.2:4180/v1` — its SandboxInfo
   says so in `net.llm` — for the holder of an LLM key, with any egress,
-  `none` included. Go SDK: `xbin.SandboxNet.LLM`, `SandboxNetInfo.LLM`,
+  `none` included. A command's `env` there may now carry `XBIN_LLM_URL`
+  and `XBIN_LLM_KEY` (every other `XBIN_*` is still refused, and so are
+  these two in `defaults.env`). Go SDK: `xbin.SandboxNet.LLM`, `SandboxNetInfo.LLM`,
   and **`xbin.LLMKeyFor` / `xbin.RevokeLLMKey`** for the key
   ([sdk.md](/docs/sdk.md) §An LLM key for a coding tool).
 - **Sandbox-manager contract: the optional capability `llm`**
@@ -58,7 +60,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   a manager that doesn't offer it: a consumer reads `hello.caps` first. The
   builtin `coding-sandbox` manager offers it on an xbind that forwards the
   connector (the runtime's `caps` carry `llm`), and the conformance suite
-  (`sdk/sandboxcontract`) gained the section `llm`.
+  (`sdk/sandboxcontract`) gained the section `llm`. A manager that offers
+  it accepts `XBIN_LLM_URL` and `XBIN_LLM_KEY` in a command's `env`.
 - **Agent template: coding agents start on the workspace's LLM connector**
   when they have no sign-in (D226; the template's API.md §Coding agents).
   Bind the agent's `llm` slot to `xbin:llm` and use a sandbox manager that
