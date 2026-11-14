@@ -88,6 +88,14 @@ func TestLLMBuiltinProvider(t *testing.T) {
 			t.Errorf("options lack %s: %v", want, got)
 		}
 	}
+	// after the provider tiles: a prompt preselects its first option, and that stays what it was
+	if i, j := slices.Index(got, "apps/agent.llm=xbin:llm"), slices.Index(got, "apps/agent.llm=apps/gw"); j < 0 || i < j {
+		t.Errorf("the connector comes before the provider tile: %v", got)
+	}
+	if nonAdmin := b.bindOptions("apps/agent", registry.Iface{Kind: "http", Service: "openai", Multi: true}, false); len(nonAdmin) != 2 ||
+		nonAdmin[0].ID != "apps/gw" || nonAdmin[1].ID != LLMRef || !nonAdmin[1].Blocked {
+		t.Errorf("for someone who can't bind it, the connector is last and greyed: %+v", nonAdmin)
+	}
 	if slices.Contains(got, "apps/agent.mcp=xbin:llm") || slices.Contains(got, "apps/agent.net=xbin:llm") {
 		t.Errorf("the connector is offered for a slot that isn't openai: %v", got)
 	}

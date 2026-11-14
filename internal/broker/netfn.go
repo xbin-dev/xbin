@@ -710,6 +710,9 @@ func (b *Broker) bindOptions(comp string, req registry.Iface, wsAdmin bool) []bi
 		b.blockPartitionedProviders(comp, tiles) // POST's 409 for everyone (personalbind_api.go)
 	}
 	sort.Slice(tiles, func(i, j int) bool { return tiles[i].ID < tiles[j].ID })
+	if req.Kind == "http" {
+		return append(tiles, builtins...) // after the tiles: a prompt's first (preselected) choice stays what it was
+	}
 	return append(builtins, tiles...)
 }
 
