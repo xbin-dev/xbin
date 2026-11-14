@@ -141,9 +141,13 @@ func (b *Broker) restoreFrom(comp string, br, data *backup.Reader, put deploymen
 		return m, err
 	}
 	// Restore this component's cron jobs.
+	// (a job of another component is never restored from this backup: the
+	// archive's manifest is an archiver's word in a workspace without sealed
+	// backups, and a job calls its component's backend at a chosen path and
+	// role — as the subscriptions below, which always had this check)
 	for _, raw := range m.CronJobs {
 		var j cronJob
-		if json.Unmarshal(raw, &j) == nil && b.cron != nil {
+		if json.Unmarshal(raw, &j) == nil && j.Component == m.Component && b.cron != nil {
 			if b.cron.add(j) == nil {
 				b.cron.persist()
 			}
