@@ -21,7 +21,7 @@ documented in exactly one of them:
 | [protocol/tiles.md](/docs/protocol/tiles.md) | `/components`, `/tile-assets`, `/create`, `/clone`, `/builtins`, `/templates`, `/lifecycle`, `/tile-report` |
 | [protocol/code.md](/docs/protocol/code.md) | `/code/…`, `/git/…`, change proposals (`/code/prs`, `/code/pr`) |
 | [protocol/runtime.md](/docs/protocol/runtime.md) | `/status`, `/backends`, `/runtime`, `/gpus`, `/go-build-versions`, `/vm`, `/sandboxes?tile=`, `/tile-status`, `/term-net`, `/logs`, `/alerts` |
-| [protocol/agents.md](/docs/protocol/agents.md) | `/term/sessions…`, `/agent/providers`, `/agent/history`, `/agents/connection`; agent session events |
+| [protocol/agents.md](/docs/protocol/agents.md) | `/term/sessions…`, `/agent/providers`, `/agent/history`, `/agent/prefs`, `/agents/connection`; agent session events |
 | [protocol/terminals.md](/docs/protocol/terminals.md) | `/ws/term`, the terminal wire |
 | [protocol/events.md](/docs/protocol/events.md) | `/ws/events` |
 | [protocol/resources.md](/docs/protocol/resources.md) | `/vaults`, `/resources`, `/vault…`, `/kv`, `/blob`, `/bus`, `/cron`; bus push delivery |

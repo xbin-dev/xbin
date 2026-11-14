@@ -334,6 +334,8 @@ var routeClasses = map[string]RouteClass{
 	"PUT /agents/policy":                     PrimaryOnly,
 	"PUT /orgs/{org}/agents":                 PrimaryOnly,
 	"GET /agents/connection":                 PrimaryOnly,
+	"GET /agent/prefs":                       PrimaryOnly, // a person's agent preferences (D229)
+	"PUT /agent/prefs":                       PrimaryOnly,
 	"PUT /workspace-settings":                PrimaryOnly,
 	"GET /push/config":                       PrimaryOnly,
 	"PUT /push/config":                       PrimaryOnly,

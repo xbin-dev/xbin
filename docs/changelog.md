@@ -44,6 +44,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     `GET /agent/history` entry carry `origin: "agent"` when the person's
     workspace agent started the session; absent otherwise.
   - New event type `agents` (`{org}`) when the rules change.
+- **Agent preferences live on the server** (D229;
+  [protocol/agents.md](/docs/protocol/agents.md) §Agent preferences).
+  `GET`/`PUT /api/xbin/agent/prefs` keep, per person: the harness a new
+  agent session starts with, per harness the mode, model, options and
+  whose credentials (`own` | `connector`), and what their workspace agent
+  may start a tile agent session with (`agentSessions`: `start` ask —
+  the default — or allow, a mode per harness, the network and tile-API
+  pickers). `PUT` is a JSON merge patch. Only the person's own session
+  reads or writes them: a tile's credentials, a terminal's or an agent
+  session's token, view-as and the root token get 403. A bypass
+  (`explicit`) mode can't be saved.
 - **docs: the protocol reference is split by topic.** `/docs/protocol.md`
   had reached the size limit of a served doc, so its route tables and
   WebSocket sections moved, unchanged, to one page per area under

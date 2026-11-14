@@ -1511,7 +1511,13 @@ connector; `connector`: forced for everyone).
   install there: a terminal's reach is governed by access levels and
   network sets, as before.
 
-`bx org agents` and
+Each person also keeps **agent preferences** (`GET`/`PUT /agent/prefs`):
+what their sessions start with, and whether their workspace agent may start
+a tile agent session without asking (default: it asks) and with which mode,
+network and tile-API access. Only the person's own session reads or writes
+them — never a tile, a terminal, an agent session, the root token or
+view-as — and the workspace agent is handed them by xbind and can't change
+them. `bx org agents` and
 [protocol/orgs.md](/docs/protocol/orgs.md) §Agent constraints have the
 detail.
 

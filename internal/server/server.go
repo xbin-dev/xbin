@@ -20,6 +20,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 
+	"github.com/xbin-dev/xbin/internal/agentprefs"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/branding"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -47,6 +48,9 @@ type Server struct {
 	Brand *branding.Store
 	// Settings is the workspace settings file (D175, wssettings.go); nil = none.
 	Settings *wssettings.Store
+	// AgentPrefs is the people's agent preferences (D229, agentprefsapi.go);
+	// nil = none.
+	AgentPrefs *agentprefs.Store
 
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.

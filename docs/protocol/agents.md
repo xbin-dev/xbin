@@ -358,6 +358,15 @@ GET    /agent/history/<id>/events terminal-level (own). {meta, events} — the
                                    ?before=&limit= → {meta, …a page} as on a
                                    live session
 DELETE /agent/history/<id>        terminal-level (own) → 204 (forget it)
+GET    /agent/prefs               a person's own session, app or device
+                                   (403 a tile's credentials, a terminal's
+                                   or an agent session's token, view-as,
+                                   the root token). your agent preferences
+                                   (D229; §Agent preferences below),
+                                   defaults filled in
+PUT    /agent/prefs               the same callers. a JSON merge patch (RFC
+                                   7386) of them → the preferences now;
+                                   400 says what was refused
 GET    /agents/connection         a person, for themselves — their session,
                                    app, device or workspace agent; 403 a
                                    tile's credentials. what a workspace
@@ -366,6 +375,40 @@ GET    /agents/connection         a person, for themselves — their session,
                                    ?model=<upstream/model>&orgs=&tiles=
                                    &whatIf=<upstream/model>
 ```
+
+### Agent preferences
+
+What a person's agent sessions start with, kept by xbind per person
+(before D229 the tile window kept its part in the browser):
+
+```jsonc
+{"harness": "claude",                 // the harness a new agent session starts with ("" none yet)
+ "lastKind": "agent",                 // the launcher's last choice: "shell" | "agent" | ""
+ "harnesses": {                       // per harness id, what a session of it starts with
+   "claude": {"mode": "acceptEdits",  //   a mode of the harness, never an explicit (bypass) one
+              "model": "opus",        //   the model option's value
+              "options": {"effort": "high"},   // the agent's other settings, by option id
+              "credentials": "own"}}, //   "own" | "connector"; absent: the workspace's default
+ "agentSessions": {                   // sessions your workspace agent starts on tiles
+   "start": "ask",                    //   "ask" (default): it asks you first | "allow"
+   "modes": {"claude": "plan"},       //   per harness; absent: the harness's asking mode. Only modes
+                                      //   xbind knows keep asking (never an explicit one)
+   "net": "none",                     //   the network picker's value; absent: the default network
+   "api": true}}                      //   tile-API access; absent: yes
+```
+
+`PUT` merges: `{"harnesses": {"claude": {"options": {"effort": null}}}}`
+removes one option and leaves the rest. A client applies `harnesses` itself
+when it opens a session (`POST /term/sessions {mode, model, options}`);
+xbind never starts a person's own session in a saved mode by itself.
+`agentSessions` is read by xbind when the person's workspace agent starts a
+session — the agent can't read or write these routes — and checked again
+on every read: a stored mode this xbind doesn't know to keep asking is
+replaced by the harness's asking mode. `credentials` follows the
+precedence rule: the session's own choice, then this saved default, then
+the workspace's (`GET /agents/policy`) — unless the workspace forces the
+connector. A user id given to a new person keeps the launcher's
+conveniences and resets `agentSessions`.
 
 ### The connection view
 
