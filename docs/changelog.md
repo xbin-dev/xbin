@@ -29,6 +29,36 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `GET /agent/providers` with the modes `sdk/acp`'s `Fake` has — `ask`
   ("Ask before acting"), `auto`, `yolo` — where it listed `ask` and `yolo`.
   Nothing changes for an xbind without that variable.
+- **Frontend kit: one markdown renderer for untrusted text, and tiles may
+  import it** (D224; [frontend-kit.md](/docs/frontend-kit.md)).
+  `/vendor/bx-md.js` — the Agent tab's and the screen text blocks' renderer
+  — moves from the shell-only modules to the ones a tile may import: `md`,
+  `mdInto`, `mdCssText`, and new `closedFence`, `mdEpoch`, `onHighlighter`.
+  New `/vendor/chat/md.js` is the same renderer without the code highlighter
+  up front (it is imported on the first fence that needs it; code is plain
+  until then), and new `/vendor/chat/rev.js` exports `KIT`, the revision of
+  the chat kit this xbind serves, for a page that must check before it
+  imports the kit. The renderer has a marked instance of its own: xbind's
+  modules no longer change the `marked` a document imports from
+  `/vendor/marked.esm.js`. One change in what it draws, in the Agent tab
+  and in a screen's text: a code fence counts as closed (and is coloured)
+  only when its last line is a fence of the same character at least as long
+  as the opening one — a block still being written whose last line was a
+  shorter or different fence used to be coloured early.
+- **Agent template: its chat's markdown is xbind's renderer, and a newer
+  template needs xbind ≥ v0.3.80 for its page** (D224;
+  [compat.md](/docs/compat.md) §What this does not promise). `chat-md.js`
+  is now a re-export of `/vendor/chat/md.js`, and `index.html` starts
+  `boot.js`, which checks the chat kit's revision before it loads
+  `agent.js`: on an older xbind the page says "This agent needs xbind ≥
+  v0.3.80 — update xbind" instead of the app. Instances you already have
+  are not touched and keep working on this and later xbinds; this is about
+  merging a newer template into an instance on an older xbind — update
+  xbind first. The native view is unaffected. What the template's chat
+  draws differently: code is coloured up to 32 KiB a block (it was 20,000
+  characters), a fence's language becomes a `language-…` class only when
+  it is a plain name, and an image's placeholder carries the class `md-img`
+  (it was `muted`; `index.html` colours it the same).
 
 ## 2026-11-09
 

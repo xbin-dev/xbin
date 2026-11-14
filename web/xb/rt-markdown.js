@@ -2,22 +2,23 @@
  * xb/rt-markdown.js — markdown for the native runtime: the vendored marked
  * lexer turns `markdown source` (and `message markdown text`) into a small,
  * sanitized token tree the app renders natively, so web and iOS agree on
- * what a document is. Same policy as the web kit's renderers (bx-md.js,
- * the agent template's chat-md.js): gfm with single-newline breaks, raw HTML
- * dropped, images shown as their text (never loaded), links only for
- * http/https/mailto. The token shapes are native/spec/tree.md "Markdown
- * tokens".
+ * what a document is. Same policy as the web kit's HTML renderer
+ * (/vendor/chat/md.js): gfm with single-newline breaks, raw HTML dropped,
+ * images shown as their text (never loaded). Links are stricter here: only
+ * http, https and mailto become links (the HTML renderer keeps relative
+ * links and refuses the script schemes). The token shapes are
+ * native/spec/tree.md "Markdown tokens".
  *
  * Streaming: while a node is `streaming`, only the tail (the last block of
  * the previous lex) is re-lexed when the source grows by appending; the final
  * render (streaming false) is always a full lex.
  */
-import { Lexer } from '/vendor/marked.esm.js';
+import { Marked } from '/vendor/marked.esm.js';
 
-// A fresh options object per lexer: marked mutates it (tokenizer), and
-// marked.use() elsewhere in a document changes the shared defaults.
-const options = () => ({ async: false, breaks: true, extensions: null, gfm: true, hooks: null,
-  pedantic: false, renderer: null, silent: false, tokenizer: null, walkTokens: null });
+// This module's own marked (D224): its options are set here and nowhere
+// else, so marked.use() on the shared `marked` elsewhere in a document —
+// an older agent template does that — changes nothing in these tokens.
+const lexer = new Marked({ breaks: true, gfm: true });
 
 const ENT = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', copy: '©', reg: '®',
   trade: '™', hellip: '…', mdash: '—', ndash: '–', lsquo: '‘', rsquo: '’', ldquo: '“', rdquo: '”',
@@ -124,7 +125,7 @@ function block(tk, o) {
 function lex(src, o) {
   const norm = src.replace(/\r\n?/g, '\n');
   let toks;
-  try { toks = new Lexer(options()).lex(norm); } catch { return { parts: [{ raw: norm, out: fallback(norm) }], ok: false }; }
+  try { toks = lexer.lexer(norm); } catch { return { parts: [{ raw: norm, out: fallback(norm) }], ok: false }; }
   const parts = toks.map((tk) => ({ raw: tk.raw || '', space: tk.type === 'space', out: blocks([tk], o) }));
   return { parts, ok: parts.map((p) => p.raw).join('') === norm };
 }

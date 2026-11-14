@@ -30,6 +30,9 @@ import '/vendor/bx-frame.js';
 | `/vendor/bx-allow.js` | the allowance grammar (`ALLOW_KINDS`, `parseAllow`, `fmtAllow`, `allowProblem`, `describeAllow`, `capInfo`) (D57) |
 | `/vendor/bx-grant-row.js` | `grantArrow(g)` — a grant or request's `from → target` with the policy-block / capability tooltip, as rendered by the shell, the admin console and the organisations tile |
 | `/vendor/bx-code.js` | `<bx-code>` (file tree + highlighted viewer + diffs); exports `diffHTML(diff, startLang?)`, `diffStats`, `hl`, `langFor`, `buildTree` |
+| `/vendor/bx-md.js` | the hardened markdown renderer for **untrusted** text (a model's output, what a person typed): `md(text)` → HTML in which raw HTML is escaped, an image is its text (`<span class="md-img">[image: alt]</span>`, never loaded), a link opens in a new tab with no opener and never on a `javascript:`, `data:` or `vbscript:` URL, and a closed code fence in a language highlight.js knows is coloured (at most 32 KiB; a fence still being written stays plain; the language becomes a `language-…` class only when it is a plain name); a parse error is escaped text. `mdInto(el, text, memo?)` renders into `el` a top-level block at a time (`<div class="md-b">` each, `display: contents`) so text that streams re-parses only its last block and a selection above it survives; `memo`, an object you keep with the text, spares the parse when the element is new. `mdCssText(scope)` is the CSS for the result under a selector, on the theme's tokens with Night's fallbacks (for a shadow root: `unsafeCSS(mdCssText('.md'))`). `closedFence(raw)`, `mdEpoch` and `onHighlighter(fn)` are the chat kit's (next row); here the highlighter is loaded with the module, so the first HTML is coloured and `mdEpoch` never moves afterwards. It has a marked instance of its own: your document's `marked` is not changed by it |
+| `/vendor/chat/md.js` | the same renderer — the same functions and state as `/vendor/bx-md.js` in a document — without the highlighter up front: `/vendor/highlight.min.js` is imported on the first fence that could use it, code is plain until it arrives (and stays plain if it never does), then `mdEpoch` goes up by one and every `onHighlighter(fn)` callback runs: HTML you kept from an earlier epoch is stale, so render again (`mdInto` and its `memo` do that themselves at the next call). `useHighlighter(hljs)` hands over one you already loaded. For a page that should paint before 127 KB of highlighter arrives; the agent template's chat uses it |
+| `/vendor/chat/rev.js` | `KIT` — the revision of the chat kit this xbind serves (the modules under `/vendor/chat/`), a whole number that only goes up, as the kit only grows; the file lists what each revision brought. A page that ships apart from xbind (a template instance, a builtin tile in a workspace) and needs the kit imports this first, guarded — `try { ({ KIT } = await import('/vendor/chat/rev.js')) } catch {}` — and compares before it imports anything else from the kit: on an xbind from before the kit the URL is a 404. The agent template's `boot.js` is the pattern ([compat.md](/docs/compat.md) §What this does not promise) |
 | `/vendor/events-socket.js` | `onEvent(cb)` — every `/ws/events` frame goes to `cb(e)` over the one shared socket; returns an unsubscribe. Filter on `e.type` yourself |
 | `/vendor/theme.css` | the design tokens (§Theme below: Concrete Night and Concrete Day, D184), the self-hosted fonts, opt-in `.bx` base and control styles, and the workspace's thin scrollbars (D123): on a mouse/trackpad a 6px bar whose thumb is drawn 3px and fattens under the pointer, the scroller the next wheel or key would move tinted in the focus colour (`[data-bx-scroll]`); touch keeps its native bars. Link it to take the theme; it is **never injected** into your document, and your document turns light only when it opts in (`<html data-bx-theme="auto">`). A document that links it also gets the focused-scroll tracker (below) from `xbin-client.js`; `<meta name="xbin-scroll-focus" content="off">` opts out |
 | `/vendor/bx-theme.js` | a document's appearance, for code that paints or follows the person (§Theme): `appearance()`, `setAppearance()`, `follows()`, `scheme()`, `token(name, el)`, `onAppearance(cb)`. Dependency-free |
@@ -58,8 +61,8 @@ global instance's log or a person's shared one under the same echo rule
 ([partitions.md](/docs/partitions.md) §Operating people's partitions) — and
 `<bx-terminal deployment="<name>">` opens sessions targeting one — the
 server's echo is what it shows), `/vendor/bx-agent.js` (the pop-up's Agent
-tab, D74) with `/vendor/bx-md.js` (its hardened markdown renderer),
-`/vendor/agent-fold.js`, `/vendor/agent-pages.js` (the session log folded,
+tab, D74; its markdown is `/vendor/bx-md.js`, which is a tile's to import —
+the table above), `/vendor/agent-fold.js`, `/vendor/agent-pages.js` (the session log folded,
 and the pages of it the tab holds, D124/D130), `/vendor/agent-tools.js`,
 `/vendor/agent-cards.js`, `/vendor/agent-slash.js`,
 `/vendor/agent-css.js` (its styles), `/vendor/agent-testapi.js` (its test
@@ -463,8 +466,9 @@ rewrites a layout keeps every field it doesn't know, `blocks` included.
   that moves leaves a re-export behind (`clampBox` in `bx-frame.js`).
 - **One home per helper.** `make js-check` refuses a second definition of
   a kit helper (`api`, `jbody`, `esc`, `deepActive`, `pathHas`, `clampBox`),
-  of the code viewer's highlight helpers, or of `bx-theme.js`'s and
-  `bx-icons.js`'s, anywhere in the shipped trees.
+  of the code viewer's highlight helpers, of `bx-theme.js`'s and
+  `bx-icons.js`'s, or of the markdown renderer's (`mdInto`, `mdCssText`,
+  `closedFence`, …), anywhere in the shipped trees.
 - **Theme fallbacks stay.** Core elements carry `var(--bx-x, <literal>)`
   fallbacks so a document that never linked `theme.css` still renders;
   `make theme-check` keeps every literal equal to Concrete Night's value in

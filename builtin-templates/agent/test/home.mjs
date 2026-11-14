@@ -8,7 +8,7 @@
 //
 //   node test/home.mjs        (needs playwright + a chromium build)
 import { readFileSync, readdirSync } from 'node:fs';
-import { serveKit, tileHtml } from './kit.mjs';
+import { serveKit, tileHtml, MARKED_STUB } from './kit.mjs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -54,7 +54,7 @@ await serveKit(ctx);
 await ctx.route('**/vendor/lit-all.min.js', (r) => r.fulfill({ contentType: 'text/javascript',
   body: readFileSync(process.env.BX_VENDOR ? join(process.env.BX_VENDOR, 'lit-all.min.js') : join(here, '..', '..', '..', 'web', 'vendor', 'lit-all.min.js'), 'utf8') }));
 await ctx.route('**/vendor/marked.esm.js', (r) =>
-  r.fulfill({ contentType: 'text/javascript', body: 'export const marked={parse:(s)=>s,use(){}};' }));
+  r.fulfill({ contentType: 'text/javascript', body: MARKED_STUB }));
 
 // prefs survive a reload through the opener's storage, like the real
 // server-side prefs do.

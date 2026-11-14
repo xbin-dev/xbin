@@ -577,9 +577,12 @@ stay byte for byte what it was.
 `clampBox`); `web/bx-code.js` owns the highlight helpers (`hl`, `langFor`,
 `diffHTML`), `web/bx-theme.js` a document's appearance (`setAppearance`,
 `onAppearance`, `appearanceMessage`, `applyAppearanceMessage`,
-`rememberTheme`) and `web/bx-icons.js` the drawn glyphs (`iconSvg`,
-`hasIcon`). `make js-check` refuses a second definition of any of them in
-the shipped trees — import from `/vendor/…` by absolute URL instead
+`rememberTheme`), `web/bx-icons.js` the drawn glyphs (`iconSvg`,
+`hasIcon`) and `web/chat/md.js` the markdown renderer for untrusted text
+(`mdInto`, `mdCssText`, `closedFence`, `onHighlighter`, `useHighlighter`;
+D224 — the agent template's copy became a re-export, and a new copy would be
+a second sanitizing policy). `make js-check` refuses a second definition of
+any of them in the shipped trees — import from `/vendor/…` by absolute URL instead
 ([frontend-kit.md](/docs/frontend-kit.md) lists what tiles may import and
 why bare specifiers are banned).
 
