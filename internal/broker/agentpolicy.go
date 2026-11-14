@@ -16,7 +16,8 @@ package broker
 //
 //	GET  /api/xbin/agents/policy        the workspace's bounds + credential default
 //	PUT  /api/xbin/agents/policy        workspace admins
-//	PUT  /api/xbin/orgs/{org}/agents    workspace admins, or an admin of the org — within the bounds
+//	PUT  /api/xbin/orgs/{org}/agents    workspace admins, or an admin of the org — within the bounds and the pin
+//	PUT  /api/xbin/orgs/{org}/agents/pin   workspace admins: the rules the org's admins can't loosen
 //	GET  /api/xbin/agents/connection    a person's own connection view
 //
 // With no users store (the single-user workspace) there are no orgs and no
@@ -24,6 +25,7 @@ package broker
 
 import (
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"slices"
@@ -43,6 +45,7 @@ func (b *Broker) registerAgentPolicy(srv *server.Server) {
 	srv.RegisterAPI("GET /agents/policy", b.apiAgentsPolicyGet)
 	srv.RegisterAPI("PUT /agents/policy", b.apiAgentsPolicyPut)
 	srv.RegisterAPI("PUT /orgs/{org}/agents", b.apiOrgAgentsPut)
+	srv.RegisterAPI("PUT /orgs/{org}/agents/pin", b.apiOrgAgentsPinPut)
 	srv.RegisterAPI("GET /agents/connection", b.apiAgentsConnection)
 }
 
@@ -71,9 +74,50 @@ func (b *Broker) AgentCheck(tile string, ask agentpolicy.Ask) agentpolicy.Decisi
 // AgentHarnessGate answers why an agent session of harness may not run on
 // tile — the reason a person reads ("Finance allows these coding agents
 // only: claude, codex (not gemini)") — or nil. For everyone: the person
-// who opens the session themselves and the workspace agent alike.
+// who opens the session themselves and the workspace agent alike. Two
+// rules: the harness lists of the tile's orgs and the workspace; and,
+// where the session must run on the LLM connector (the workspace's
+// connector-only, or a model rule on the tile: AgentSessionLLM), that the
+// harness can — one that can't would send the tile's code to a model
+// xbind doesn't see.
 func (b *Broker) AgentHarnessGate(tile, harness string) error {
-	return b.AgentCheck(tile, agentpolicy.Ask{Harness: harness}).Err()
+	if err := b.AgentCheck(tile, agentpolicy.Ask{Harness: harness}).Err(); err != nil {
+		return err
+	}
+	if why := b.AgentSessionLLM("", tile, harness).HarnessRefusal(harness, b.AgentConnector); why != "" {
+		return errors.New(why)
+	}
+	return nil
+}
+
+// AgentSessionLLM answers how the model calls of an agent session of
+// harness on tile, started by or for userID, are served: the credential
+// mode in force (own-first | connector-first | connector-only), who serves
+// the session once the person's saved choice for the harness is applied
+// (Use; Choose(session) applies a session's own), and the models it may
+// use (ModelAllowed). An org's model rule binds the sessions on its tiles:
+// wherever a layer's model rule is anything but "any" the mode is
+// connector-only, whatever the workspace's mode and the person's choice,
+// and Reason says which rule. userID "" asks for the tile alone (no saved
+// choice). With no users store: own-first, any model.
+func (b *Broker) AgentSessionLLM(userID, tile, harness string) agentpolicy.SessionLLM {
+	mode, saved := agentpolicy.CredentialsOwnFirst, ""
+	if b.Users != nil {
+		mode = b.Users.WorkspaceAgents().Credentials
+	}
+	if userID != "" && b.AgentSaved != nil {
+		saved = b.AgentSaved(userID, harness)
+	}
+	return agentpolicy.Session(b.AgentLayers(tile), mode, saved)
+}
+
+// AgentCallAllows is nil when a model call made by a session or a key of
+// tile may use m — the model rules of the tile's orgs and the workspace —
+// else the refusal a person reads. The LLM connector asks it before every
+// call it serves for a tile (its CallPolicy); it is what makes a
+// connector-only session's model rule hold.
+func (b *Broker) AgentCallAllows(tile string, m agentpolicy.ModelRef) error {
+	return b.AgentCheck(tile, agentpolicy.Ask{Model: &m}).Err()
 }
 
 // AgentHarnesses is the harness rule that holds on tile: any, or the ids
@@ -103,7 +147,10 @@ func (b *Broker) AgentTileAllows(holder, user, tile, model string) error {
 }
 
 func (b *Broker) AgentSessionAllows(holder, user, tile, model, harness string) error {
-	return b.AgentCheck(tile, agentpolicy.Ask{WorkspaceAgent: true, Harness: harness, Model: b.ResolveModel(model)}).Err()
+	if err := b.AgentCheck(tile, agentpolicy.Ask{WorkspaceAgent: true, Harness: harness, Model: b.ResolveModel(model)}).Err(); err != nil {
+		return err
+	}
+	return b.AgentHarnessGate(tile, harness) // …and the harness can run where the tile's sessions must
 }
 
 // ResolveModel turns a model id ("upstream/model") into a ModelRef with
@@ -124,8 +171,10 @@ func (b *Broker) ResolveModel(id string) *agentpolicy.ModelRef {
 }
 
 // AgentCredentials resolves whose credentials serve a coding agent's model
-// calls for one session (agentpolicy.ResolveCredentials): the session's
-// choice, the person's saved default for the harness, the workspace's.
+// calls under the workspace's mode alone (agentpolicy.ResolveCredentials):
+// the session's choice, the person's saved choice for the harness, the
+// mode. A session on a tile is AgentSessionLLM's to answer — the tile's
+// model rules can force the connector.
 func (b *Broker) AgentCredentials(session, saved string) (use string, forced bool) {
 	ws := agentpolicy.CredentialsOwnFirst
 	if b.Users != nil {
@@ -158,17 +207,22 @@ func (b *Broker) agentInput(p auth.Principal, scope agentpolicy.Scope, model *ag
 		}
 		t := agentpolicy.Tile{Path: c.Path, Name: c.Manifest.DisplayTitle()}
 		if b.Users != nil {
-			t.Owner, t.Orgs = b.Users.TileOrgs(c.Path)
+			t.Owner, t.Orgs, t.Via = b.Users.TileOrgVia(c.Path)
 		}
 		for _, id := range t.Orgs {
 			seen[id] = true
 		}
 		in.Tiles = append(in.Tiles, t)
 	}
+	in.Connector = b.AgentConnector
+	for _, pr := range agent.Providers() {
+		in.Harnesses = append(in.Harnesses, pr.ID)
+	}
 	if b.Users == nil {
 		return in
 	}
-	in.Bounds = b.Users.WorkspaceAgents().Rules
+	ws := b.Users.WorkspaceAgents()
+	in.Bounds, in.Credentials = ws.Rules, ws.Credentials
 	for _, o := range b.Users.Orgs() {
 		_, member := o.Member(p.UserID)
 		if !seen[o.ID] && !member && !b.canManageUsers(p) {
@@ -177,6 +231,9 @@ func (b *Broker) agentInput(p auth.Principal, scope agentpolicy.Scope, model *ag
 		org := agentpolicy.Org{ID: o.ID, Name: o.Name}
 		if o.Agents != nil {
 			org.Rules = *o.Agents
+		}
+		if o.AgentsPin != nil {
+			org.Pin = *o.AgentsPin
 		}
 		in.Orgs = append(in.Orgs, org)
 	}
@@ -260,7 +317,7 @@ func (b *Broker) apiAgentsPolicyPut(w http.ResponseWriter, r *http.Request) {
 	creds := ""
 	if raw, ok := body["credentials"]; ok && string(raw) != "null" {
 		if json.Unmarshal(raw, &creds) != nil || creds == "" {
-			server.WriteError(w, http.StatusBadRequest, `credentials: "own-first" or "connector"`, agentPolicyDocs)
+			server.WriteError(w, http.StatusBadRequest, `credentials: "own-first", "connector-first" or "connector-only"`, agentPolicyDocs)
 			return
 		}
 	} else if ok {
@@ -278,21 +335,38 @@ func (b *Broker) apiAgentsPolicyPut(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiOrgAgentsPut — PUT /orgs/{org}/agents {workspaceAgent?, harnesses?,
-// models?}: an org's rules for agents on its tiles. Workspace admins (and
-// the xbin:users capability) for any org; an admin of the org, signed in
-// themselves, for their own — never a tile driven by one. The result must
-// sit within the workspace's bounds. → {agents, bounds}.
+// models?}: an org's own rules for agents on its tiles. Workspace admins
+// (and the xbin:users capability) for any org; an admin of the org, signed
+// in themselves, for their own — never a tile driven by one. The result
+// must sit within the workspace's bounds and within the rules a workspace
+// admin pinned on the org. → {agents, pin, bounds}.
 func (b *Broker) apiOrgAgentsPut(w http.ResponseWriter, r *http.Request) {
-	st := b.usersStore(w)
-	if st == nil {
+	org, p := r.PathValue("org"), auth.PrincipalOf(r)
+	if b.usersStore(w) == nil {
 		return
 	}
-	org := r.PathValue("org")
-	p := auth.PrincipalOf(r)
 	if !b.canManageUsers(p) && !(ownSession(p) && p.Access.IsAdminOrg(org)) {
 		server.WriteError(w, http.StatusForbidden, "an org's agent rules are set by a workspace admin, or by an admin of the org in their own session — not from a tile, a terminal or an agent session", agentPolicyDocs)
 		return
 	}
+	b.putOrgAgents(w, r, org, false)
+}
+
+// apiOrgAgentsPinPut — PUT /orgs/{org}/agents/pin {workspaceAgent?,
+// harnesses?, models?}: the rules a workspace admin pins on an org
+// (workspace admins and xbin:users only). The org's admins narrow below
+// them and never loosen them: every call is asked against the pin as well
+// as the org's own rules, and a write of the org's own rules past the pin
+// is refused. → {agents, pin, bounds}.
+func (b *Broker) apiOrgAgentsPinPut(w http.ResponseWriter, r *http.Request) {
+	if !b.requireUsersCap(w, r) || b.usersStore(w) == nil {
+		return
+	}
+	b.putOrgAgents(w, r, r.PathValue("org"), true)
+}
+
+func (b *Broker) putOrgAgents(w http.ResponseWriter, r *http.Request, org string, pin bool) {
+	st := b.Users
 	body, ok := decodeAgentRules(w, r)
 	if !ok {
 		return
@@ -302,7 +376,11 @@ func (b *Broker) apiOrgAgentsPut(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, err.Error(), agentPolicyDocs)
 		return
 	}
-	out, err := st.SetOrgAgents(org, patch, knownHarness)
+	set, path := st.SetOrgAgents, "/orgs/"+org+"/agents"
+	if pin {
+		set, path = st.SetOrgAgentsPin, path+"/pin"
+	}
+	out, err := set(org, patch, knownHarness)
 	if err != nil {
 		code := http.StatusBadRequest
 		if strings.HasPrefix(err.Error(), "no such org") {
@@ -311,9 +389,10 @@ func (b *Broker) apiOrgAgentsPut(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, code, err.Error(), agentPolicyDocs)
 		return
 	}
-	slog.Info("audit", "who", p.From(), "method", "PUT", "path", "/orgs/"+org+"/agents", "status", http.StatusOK, "agents", rulesJSON(out))
+	slog.Info("audit", "who", auth.PrincipalOf(r).From(), "method", "PUT", "path", path, "status", http.StatusOK, "agents", rulesJSON(out))
 	b.agentPolicyChanged(org)
-	server.WriteJSON(w, http.StatusOK, map[string]any{"agents": out, "bounds": st.WorkspaceAgents().Rules})
+	own, pinned := st.OrgAgents(org)
+	server.WriteJSON(w, http.StatusOK, map[string]any{"agents": own, "pin": pinned, "bounds": st.WorkspaceAgents().Rules})
 }
 
 // rulesJSON is v as the API shows it, for the audit line.

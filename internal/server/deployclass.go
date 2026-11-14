@@ -333,6 +333,7 @@ var routeClasses = map[string]RouteClass{
 	"GET /agents/policy":                     PrimaryOnly, // org constraints on agents (D229): people's and admins', never tile code
 	"PUT /agents/policy":                     PrimaryOnly,
 	"PUT /orgs/{org}/agents":                 PrimaryOnly,
+	"PUT /orgs/{org}/agents/pin":             PrimaryOnly,
 	"GET /agents/connection":                 PrimaryOnly,
 	"GET /agent/prefs":                       PrimaryOnly, // a person's agent preferences (D229)
 	"PUT /agent/prefs":                       PrimaryOnly,

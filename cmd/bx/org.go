@@ -25,7 +25,7 @@ import (
 //	                        [--set '<json>']          IdP-group → membership rules (D53)
 //	bx org rm  <id>
 //	bx org policy [<org>] [--set '<rows json>']
-//	bx org agents [<org>] [--workspace-agent on|off] [--harnesses …] [--models …]   (D229, orgagents.go)
+//	bx org agents [<org>] [--pin] [--workspace-agent on|off] [--harnesses …] [--models …]   (D229, orgagents.go)
 //	bx owner <tile> [--transfer user:<id>|org:<id>|workspace]
 //	bx permset ls | set <name> [--allow a,b] [--policy '<json>']
 //	                 [--term-api[=false]] [--term-net[=false]] | rm <name>

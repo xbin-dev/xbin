@@ -363,15 +363,18 @@ differently.
   `data/agent-prefs/<user>.json`, absent until their first write (rules 1,
   9). `bx org agents` and `bx agent connection` are new commands (rule 6).
 - **Additive wire.** New routes (`/api/xbin/agents/policy`,
-  `PUT /orgs/<org>/agents`, `/api/xbin/agents/connection`,
+  `PUT /orgs/<org>/agents`, `PUT /orgs/<org>/agents/pin`, `/api/xbin/agents/connection`,
   `/api/xbin/agent/prefs`), a new optional query (`GET
   /agent/providers?cwd=`: without it the answer is what it always was), new
-  optional fields (`agents` on an org; `origin` on a session row and a
-  history entry), a new event type (`agents`), a new frame
+  optional fields (`agents` and `agentsPin` on an org; `origin` on a
+  session row and a history entry; `unavailable` on a provider row asked
+  with `&all=1`), a new event type (`agents`), a new frame
   message (`xbin:open-session`) and `xbin.openSession` (rule 2). The one
   new refusal — 403 from `POST /term/sessions` and `…/restart` for a
-  harness the tile's orgs don't allow — exists only once an admin sets a
-  rule, and carries the reason; a session already running is never ended.
+  harness the tile's orgs don't allow, or one that can't run on the LLM
+  connector where a `models` rule or `connector-only` requires it — exists
+  only once an admin sets a rule, and carries the reason; a session
+  already running is never ended.
 - **The shipped app and older frames** ask `GET /agent/providers` without
   `cwd`, list every harness, and show the refusal's reason when one is
   picked that the tile doesn't allow. They ignore `origin`.
@@ -383,10 +386,11 @@ differently.
 - **Old shells and admin consoles** (rule 4). `?tile=…&session=<id>` is a
   plain link to the tile for a shell before D229 (it keeps the parameter it
   doesn't know); `xbin.openSession` still opens a session whose tile is on
-  the page, and otherwise follows that link. The admin console's agents
-  panels arrive with `bx builtin update`; until then `bx org agents` and
-  the API set the same rules. The scaffold gained one file
-  (`tiles/admin/tabs/org-agents.js`, imported relatively) and no entry file
+  the page, and otherwise follows that link. The admin console's and the
+  organisations tile's agents panels arrive with `bx builtin update`; until
+  then `bx org agents` and the API set the same rules. The editor itself is
+  xbind's (`/vendor/org-agents.js`); the scaffold gained one file
+  (`tiles/organisations/agents.js`, imported relatively) and no entry file
   moved.
 - **Downgrading** an xbind ignores the rules (every harness starts
   everywhere again, as before D229) and the preferences file; an older

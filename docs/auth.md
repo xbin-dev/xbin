@@ -1544,9 +1544,11 @@ audit log.
 | `models` | `any` (default) · `private` · a list of LLM connector ids (an upstream, or `upstream/model`) | which models may see its tiles' data: a workspace agent's current model must satisfy it |
 
 The workspace has the same three rules as **outer bounds**, plus the
-default for whose credentials serve a coding agent's model calls
-(`own-first`: the person's own sign-in when they have one, else the LLM
-connector; `connector`: forced for everyone).
+mode for whose credentials serve a coding agent's model calls: `own-first`
+(the default: the person's own sign-in when they have one, else the LLM
+connector), `connector-first` (the connector, unless the person chose
+their own sign-in for that harness or session) or `connector-only` (own
+sign-ins are not used).
 
 - **Filtering follows the tile's org, on every call.** A tile falls under
   the org that owns it and every org it is shared into, and under the
@@ -1555,25 +1557,45 @@ connector; `connector`: forced for everyone).
   (personal, or workspace-owned) follows the bounds alone. The refusal
   names the org and the rule: "Finance allows private models only".
 - **Who sets what.** Workspace admins (and the `xbin:users` capability):
-  the bounds (`PUT /agents/policy`) and any org's rules
-  (`PUT /orgs/<org>/agents`). An admin of an org: their own org's rules —
-  in their own session only. A tile driven by them, a terminal's token and
-  an agent session's token are refused, so a coding agent can't widen the
-  rules it runs under; viewing as someone sets nothing. Members read the
-  rules where they apply (the connection view, the refusal's reason).
-- **An org only narrows.** A list entry the bounds don't cover is refused
-  when it is written, for a workspace admin too. Bounds tightened later
-  need no rewrite of the orgs: each call is asked against both.
+  the bounds (`PUT /agents/policy`), any org's rules
+  (`PUT /orgs/<org>/agents`) and any org's **pin**
+  (`PUT /orgs/<org>/agents/pin`). An admin of an org: their own org's
+  rules — in their own session only (the organisations tile, or the API).
+  A tile driven by them, a terminal's token and an agent session's token
+  are refused, so a coding agent can't widen the rules it runs under;
+  viewing as someone sets nothing. Members read the rules where they apply
+  (the connection view, the refusal's reason).
+- **A pin is the workspace admin's hold on one org.** It has the shape of
+  the org's own rules and is asked beside them on every call, so the org's
+  admins can narrow below it and never loosen it; a write of the org's own
+  rules past the pin is refused. A refusal by a pinned rule says
+  "(pinned by a workspace admin)".
+- **An org only narrows.** A list entry the bounds or the pin don't cover
+  is refused when it is written, for a workspace admin too. Bounds
+  tightened later need no rewrite of the orgs: each call is asked against
+  all of them.
+- **A share brings a tile under the org's rules** — an exact share or a
+  pattern: `*` shared into an org puts every tile under its rules, and the
+  strictest wins. The refusal names the share ("this tile is under Finance
+  by its share apps/*").
+- **The model rule binds agent sessions.** Where a `models` rule other
+  than `any` applies to a tile, an agent session there runs on the LLM
+  connector only, whatever the workspace's mode or the person's choice —
+  a harness on someone's own subscription would send the tile's code to a
+  model xbind can't verify — and the connector serves it only the models
+  the rule allows. A harness that can't run on the connector isn't offered
+  on that tile, and says why.
 - **A rule decides what starts next.** A session already running is never
   ended; it can't be restarted or, once ended, resumed while its harness is
   disallowed (the refusal says why, and the transcript stays readable).
   `GET /agent/providers?cwd=<tile>` lists what may start there.
 - **`private` is the connector's word.** Whether a model's upstream is
   private is the LLM connector's configuration; no caller can claim it.
-- **What it is not.** The harness list governs the agent sessions xbind
-  starts. Someone with a terminal on the tile can still run any CLI they
-  install there: a terminal's reach is governed by access levels and
-  network sets, as before.
+- **What it is not.** The harness list and the model rule govern the agent
+  sessions xbind starts — not what a person types in a plain terminal.
+  Someone with a terminal on the tile can still run any CLI they install
+  there, signed in as themselves: a terminal's reach is governed by access
+  levels and network sets, as before.
 
 Each person also keeps **agent preferences** (`GET`/`PUT /agent/prefs`):
 what their sessions start with, and whether their workspace agent may start

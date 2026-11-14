@@ -67,7 +67,14 @@ GET    /agent/providers           authenticated. the coding agents this daemon
                                    the workspace allow (D229,
                                    protocol/orgs.md §Agent constraints):
                                    what a launcher offers there; [] when
-                                   none is. Without cwd, or for a tile the
+                                   none is. A harness is left out when a
+                                   harness list excludes it, or when the
+                                   tile's sessions must run on the LLM
+                                   connector (a models rule on the tile, or
+                                   the workspace's connector-only) and it
+                                   can't. &all=1 keeps those rows, each
+                                   with unavailable: the reason to show.
+                                   Without cwd, or for a tile the
                                    caller can't read, the whole catalog
                                    (D74; explicit
                                    modes are never defaults; login is the
@@ -414,9 +421,11 @@ xbind never starts a person's own session in a saved mode by itself.
 session — the agent can't read or write these routes — and checked again
 on every read: a stored mode this xbind doesn't know to keep asking is
 replaced by the harness's asking mode. `credentials` follows the
-precedence rule: the session's own choice, then this saved default, then
-the workspace's (`GET /agents/policy`) — unless the workspace forces the
-connector. A user id given to a new person keeps the launcher's
+precedence rule: the session's own choice, then this saved choice, then
+the workspace's mode (`GET /agents/policy`): `own-first` honours either
+choice, `connector-first` uses the connector unless one of them says
+`own`, `connector-only` ignores both — as does a tile whose orgs set a
+`models` rule, where every session is connector-only. A user id given to a new person keeps the launcher's
 conveniences and resets `agentSessions`.
 
 ### The connection view
@@ -429,13 +438,20 @@ every tile they can read, as one workspace agent session would see them:
  "scope": {"orgs": [], "tiles": []},
  "bounds": {"workspaceAgent": "on", "harnesses": "any", "models": "any"},
  "orgs": [{"id": "finance", "name": "Finance", "kind": "org",        // kind "workspace": the tiles in no org (id "workspace")
-           "state": "blocked", "reason": "Finance allows private models only", "rule": "models",
+           "state": "blocked", "reason": "Finance allows private models only (pinned by a workspace admin)",
+           "rule": "models", "pinned": true,                         // the blocking rule is a workspace admin's pin
            "tiles": 2, "connected": 0,                               // connected < tiles: partly connected
-           "rules": {"workspaceAgent": "on", "harnesses": "any", "models": "private"}}],
+           "rules": {"workspaceAgent": "on", "harnesses": ["claude", "gemini"], "models": "any"},   // its own
+           "pin": {"workspaceAgent": "on", "harnesses": "any", "models": "private"}}],             // pinned on it
  "tiles": [{"tile": "apps/ledger", "name": "Ledger", "org": "finance",   // org: the group it is listed under
             "orgs": ["eng", "finance"],                              // every org whose rules apply, when more than one
-            "state": "blocked", "reason": "Finance allows private models only", "by": "finance", "rule": "models",
-            "harnesses": ["claude"]}],                               // what an agent session there may run: "any" | [ids]
+            "state": "blocked", "reason": "Finance allows private models only (pinned by a workspace admin)",
+            "by": "finance", "rule": "models", "pinned": true,
+            "via": "apps/*",                                         // the share that put it under `by`, when not owned by it
+            "harnesses": ["claude", "gemini"],                       // the harness lists together: "any" | [ids]
+            "credentials": "connector-only",                         // what an agent session there runs on
+            "credentialsReason": "Finance allows private models only (pinned by a workspace admin)",
+            "unavailable": {"gemini": "… and gemini can't: its CLI speaks Google's wire only"}}],   // listed, but can't start
  "counts": {"tiles": 14, "orgs": 3, "notConnected": 6, "hidden": 2, "blocked": 4, "noAccess": 0,
             "summary": "14 tiles · 3 orgs connected · 6 not connected"},
  "whatIf": {"model": {…}, "connect": [/* tile rows */], "disconnect": [/* tile rows, with the reason */], "counts": {…}}}
@@ -459,6 +475,13 @@ every tile they can read, as one workspace agent session would see them:
   and disconnect, before anything changes.
 - A tile under several orgs is listed once, under the org that owns it
   (else the first it is shared into), and blocked by the strictest of them.
+  `reason` names a pin (`pinned by a workspace admin`) and the share that
+  put the tile under the org (`this tile is under Finance by its share
+  apps/*`).
+- `credentials` is what an agent session on the tile runs on: the
+  workspace's mode, or `connector-only` wherever a `models` rule applies
+  (`credentialsReason` is that rule). `unavailable` names the harnesses a
+  list allows that still can't start there, each with why.
 - The route answers the person its credential names: their own session, or
   their workspace agent's. An org the caller is no member of and none of
   whose tiles they read is never named.

@@ -115,8 +115,11 @@ type Org struct {
 	Limits OrgLimits `json:"limits,omitempty"`
 	// Agents are the org's constraints on agents working on its tiles (D229;
 	// orgagents.go): nil for none.
-	Agents  *agentpolicy.Rules `json:"agents,omitempty"`
-	Created int64              `json:"created"`
+	Agents *agentpolicy.Rules `json:"agents,omitempty"`
+	// AgentsPin are the agent rules a workspace admin pinned on the org:
+	// its admins narrow below them and never loosen them (orgagents.go).
+	AgentsPin *agentpolicy.Rules `json:"agentsPin,omitempty"`
+	Created   int64              `json:"created"`
 }
 
 // Member returns the membership entry for a user, if any.
@@ -338,6 +341,7 @@ func (s *Store) UpsertOrg(o Org) (*Org, error) {
 		o.NetSets = existing.NetSets
 		o.Limits = existing.Limits
 		o.Agents = existing.Agents
+		o.AgentsPin = existing.AgentsPin
 	} else {
 		o.Created = time.Now().Unix()
 	}

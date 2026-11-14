@@ -2,6 +2,7 @@ package broker
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -127,6 +128,7 @@ func TestAgentPolicyAuthzMatrix(t *testing.T) {
 func TestAgentPolicyRoutes(t *testing.T) {
 	fx := agentFixture(t)
 	ps := fx.principals()
+	fx.b.AgentConnector = func(string) error { return nil } // an LLM connector that serves every harness
 	sales := map[string]string{"org": "sales"}
 	w := call(t, fx.b.apiOrgsList, ps["root"], "GET", "/orgs", "", nil)
 	if strings.Contains(w.Body.String(), `"agents"`) {
@@ -160,7 +162,7 @@ func TestAgentPolicyRoutes(t *testing.T) {
 
 	// the bounds: workspace admins; an org can't reach past them, whoever asks
 	if code, body = fx.agents(ps["root2"], "PUT", "/agents/policy", `{"harnesses":["claude","gemini"],"models":["local"],"credentials":"connector"}`, nil); code != 200 ||
-		!strings.Contains(body, `"harnesses":["claude","gemini"]`) || !strings.Contains(body, `"credentials":"connector"`) {
+		!strings.Contains(body, `"harnesses":["claude","gemini"]`) || !strings.Contains(body, `"credentials":"connector-only"`) {
 		t.Fatalf("bounds: %d %s", code, body)
 	}
 	for _, who := range []string{"carol", "root"} {
@@ -230,7 +232,7 @@ func TestAgentGatesFollowTheTilesOrg(t *testing.T) {
 		{"apps/ledger", public, "Finance allows private models only"},
 		{"apps/ledger", private, ""},
 		{"apps/ledger", nil, "Finance allows private models only, and no model is chosen"},
-		{"apps/calendar", public, "Finance allows private models only"}, // the workspace's tile, shared into finance
+		{"apps/calendar", public, "Finance allows private models only (this tile is under Finance by its share apps/calendar)"}, // the workspace's tile, shared into finance
 		{"apps/calendar", private, ""},
 		{"apps/email", public, ""}, // sales's own
 		{"apps/notes", public, ""}, // dave's own, in no org
@@ -244,6 +246,12 @@ func TestAgentGatesFollowTheTilesOrg(t *testing.T) {
 		t.Errorf("a harness on a tile shared into finance: %v", err)
 	}
 	// the delegation package's questions: a model by its id, as the agent states it
+	fx.b.AgentConnector = func(h string) error {
+		if h == "gemini" {
+			return errors.New("its CLI speaks Google's wire only")
+		}
+		return nil
+	}
 	for _, c := range []struct{ model, harness, want string }{
 		{"hosted/big", "", "Finance allows private models only"},
 		{"local/llama", "", ""},
@@ -350,7 +358,7 @@ func TestAgentConnectionRoute(t *testing.T) {
 	}
 	want := map[string]string{
 		"apps/ledger":   "blocked|Finance allows private models only|finance",
-		"apps/calendar": "blocked|Finance allows private models only|finance",
+		"apps/calendar": "blocked|Finance allows private models only (this tile is under Finance by its share apps/calendar)|finance",
 		"apps/notes":    "connected||workspace",
 	}
 	if len(states) != len(want) {
@@ -408,5 +416,176 @@ func TestAgentConnectionRoute(t *testing.T) {
 	}
 	if code, body := fx.agents(ps["dave"], "GET", "/agents/connection?tiles="+strings.Repeat("a,", 2001), "", nil); code != 200 || !strings.Contains(body, `"tiles":["a"]`) {
 		t.Errorf("a repeated scope entry counts once: %d", code)
+	}
+}
+
+// covers D229 round 2 — a workspace admin pins rules on an org: only they
+// set the pin, the org's admin narrows below it and can't loosen it, and a
+// refusal by the pin says so.
+func TestAgentPinRoute(t *testing.T) {
+	fx := agentFixture(t)
+	ps := fx.principals()
+	fin := map[string]string{"org": "finance"}
+	pin := func(p auth.Principal, body string) (int, string) {
+		w := call(t, fx.b.apiOrgAgentsPinPut, p, "PUT", "/orgs/finance/agents/pin", body, fin)
+		return w.Code, w.Body.String()
+	}
+	for who, want := range map[string]int{"root": 200, "root2": 200, "consoleB": 200, "wsTerm": 200,
+		"dave": 403 /* the org's own admin */, "carol": 403, "bob": 403, "frame": 403, "instance": 403, "viewAs": 403} {
+		if code, body := pin(ps[who], `{"models":"private"}`); code != want {
+			t.Errorf("%s pins finance: %d %s, want %d", who, code, body, want)
+		}
+	}
+	if code, body := pin(ps["root"], `{"harnesses":["claude","codex"]}`); code != 200 ||
+		!strings.Contains(body, `"pin":{"workspaceAgent":"on","harnesses":["claude","codex"],"models":"private"}`) || !strings.Contains(body, `"agents":{"workspaceAgent":"on","harnesses":"any","models":"any"}`) {
+		t.Fatalf("the pin: %d %s", code, body)
+	}
+	// dave, finance's admin: below the pin yes, past it no
+	if code, body := fx.agents(ps["dave"], "PUT", "/orgs/finance/agents", `{"harnesses":["claude"]}`, fin); code != 200 || !strings.Contains(body, `"pin":{`) {
+		t.Errorf("narrowing below the pin: %d %s", code, body)
+	}
+	if code, body := fx.agents(ps["dave"], "PUT", "/orgs/finance/agents", `{"harnesses":["gemini"]}`, fin); code != 400 ||
+		!strings.Contains(body, "gemini is outside what the pin allows (claude, codex)") || !strings.Contains(body, "pinned") {
+		t.Errorf("loosening past the pin: %d %s", code, body)
+	}
+	if code, _ := fx.agents(ps["dave"], "PUT", "/orgs/finance/agents", `{"models":"any","harnesses":"any"}`, fin); code != 200 {
+		t.Errorf("the org's own any: %d", code)
+	}
+	if err := fx.b.WorkspaceAgentGate("dave", "apps/ledger", fx.b.ResolveModel("hosted/big")); err == nil ||
+		err.Error() != "Finance allows private models only (pinned by a workspace admin)" {
+		t.Errorf("the pin holds whatever the org's own rules say: %v", err)
+	}
+	v := fx.connection(ps["dave"], "?model=hosted/big")
+	for _, tl := range v.Tiles {
+		if tl.Tile == "apps/ledger" && (!tl.Pinned || tl.Reason != "Finance allows private models only (pinned by a workspace admin)") {
+			t.Errorf("the connection view names the pin: %+v", tl)
+		}
+		if tl.Tile == "apps/calendar" && (!tl.Pinned || tl.Via != "apps/calendar" || !strings.Contains(tl.Reason, "pinned by a workspace admin; this tile is under Finance by its share apps/calendar")) {
+			t.Errorf("…and the share: %+v", tl)
+		}
+	}
+	w := call(t, fx.b.apiOrgsList, ps["dave"], "GET", "/orgs", "", nil)
+	if !strings.Contains(w.Body.String(), `"agentsPin":{"workspaceAgent":"on","harnesses":["claude","codex"],"models":"private"}`) {
+		t.Errorf("GET /orgs shows the org's admin its pin: %s", w.Body.String())
+	}
+	if code, body := pin(ps["root"], `{"models":null,"harnesses":null}`); code != 200 || !strings.Contains(body, `"pin":{"workspaceAgent":"on","harnesses":"any","models":"any"}`) {
+		t.Errorf("unpinned: %d %s", code, body)
+	}
+	if code, _ := pin(ps["root"], `{"models":"private"}`); code != 200 {
+		t.Fatal("pin again")
+	}
+	w = call(t, fx.b.apiOrgAgentsPinPut, ps["root"], "PUT", "/orgs/nope/agents/pin", `{"models":"private"}`, map[string]string{"org": "nope"})
+	if w.Code != 404 {
+		t.Errorf("an unknown org: %d", w.Code)
+	}
+}
+
+// covers D229 round 2 — an org's model rule binds the agent sessions on
+// its tiles: connector-only there, whatever the workspace's mode and the
+// person's choice; the models the rule allows; a harness that can't run
+// on the connector isn't offered, with the reason.
+func TestAgentSessionLLM(t *testing.T) {
+	fx := agentFixture(t)
+	saved := map[string]string{"dave|claude": "own", "carol|codex": "connector"}
+	fx.b.AgentSaved = func(user, harness string) string { return saved[user+"|"+harness] }
+	// nothing set: own-first, a person's choice honoured, any model, no connector needed
+	s := fx.b.AgentSessionLLM("dave", "apps/ledger", "claude")
+	if s.Mode != "own-first" || s.Use != "own" || s.Forced || s.Restricted() || s.Choose("connector") != "connector" {
+		t.Fatalf("no rules: %+v", s)
+	}
+	if s = fx.b.AgentSessionLLM("carol", "apps/email", "codex"); s.Use != "connector" {
+		t.Errorf("a saved connector choice: %+v", s)
+	}
+	if s = fx.b.AgentSessionLLM("bob", "apps/email", "codex"); s.Use != "own-first" {
+		t.Errorf("no choice saved: %+v", s)
+	}
+	if err := fx.b.AgentHarnessGate("apps/ledger", "gemini"); err != nil {
+		t.Errorf("nothing forces the connector: %v", err)
+	}
+	// the workspace's connector-first
+	if _, err := fx.st.SetWorkspaceAgents(agentpolicy.Patch{}, "connector-first", nil); err != nil {
+		t.Fatal(err)
+	}
+	if s = fx.b.AgentSessionLLM("bob", "apps/email", "codex"); s.Mode != "connector-first" || s.Use != "connector" || s.Choose("own") != "own" {
+		t.Errorf("connector-first: %+v", s)
+	}
+	if s = fx.b.AgentSessionLLM("dave", "apps/notes", "claude"); s.Use != "own" {
+		t.Errorf("connector-first, the person chose their own: %+v", s)
+	}
+	// finance allows private models only: its tiles' sessions run on the connector
+	if _, err := fx.st.SetOrgAgents("finance", agentpolicy.Patch{Models: &privateOnly}, nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, tile := range []string{"apps/ledger", "apps/calendar" /* shared into finance */, "apps/ledger/src"} {
+		s = fx.b.AgentSessionLLM("dave", tile, "claude")
+		if s.Mode != "connector-only" || s.Use != "connector" || !s.Forced || s.Choose("own") != "connector" || s.By != "finance" || !strings.HasPrefix(s.Reason, "Finance allows private models only") {
+			t.Errorf("%s: %+v", tile, s)
+		}
+		if err := s.ModelAllowed(agentpolicy.ModelRef{Upstream: "hosted", Model: "big"}); err == nil {
+			t.Errorf("%s: a public model allowed", tile)
+		}
+		if err := s.ModelAllowed(agentpolicy.ModelRef{Upstream: "local", Model: "llama", Private: true}); err != nil {
+			t.Errorf("%s: a private model: %v", tile, err)
+		}
+	}
+	if s = fx.b.AgentSessionLLM("dave", "apps/notes", "claude"); s.Mode != "connector-first" || s.Forced {
+		t.Errorf("a tile outside finance: %+v", s)
+	}
+	if err := fx.b.AgentCallAllows("apps/ledger", agentpolicy.ModelRef{Upstream: "hosted", Model: "big"}); err == nil || err.Error() != "Finance allows private models only" {
+		t.Errorf("the connector's call policy: %v", err)
+	}
+	if err := fx.b.AgentCallAllows("apps/ledger", agentpolicy.ModelRef{Upstream: "local", Model: "llama", Private: true}); err != nil {
+		t.Errorf("a private model's call: %v", err)
+	}
+	if err := fx.b.AgentCallAllows("apps/email", agentpolicy.ModelRef{Upstream: "hosted"}); err != nil {
+		t.Errorf("a call from a tile with no model rule: %v", err)
+	}
+	// no connector on this xbind: nothing starts on finance's tiles, and says why
+	err := fx.b.AgentHarnessGate("apps/ledger", "claude")
+	if err == nil || err.Error() != "Finance allows private models only, so a coding agent here runs on the workspace's LLM connector — and claude can't: this xbind has no LLM connector set up" {
+		t.Errorf("no connector: %v", err)
+	}
+	if err := fx.b.AgentHarnessGate("apps/email", "claude"); err != nil {
+		t.Errorf("a tile with no model rule needs no connector: %v", err)
+	}
+	// a connector that serves some harnesses
+	fx.b.AgentConnector = func(h string) error {
+		if h == "gemini" {
+			return errors.New("its CLI speaks Google's wire only")
+		}
+		return nil
+	}
+	if err := fx.b.AgentHarnessGate("apps/ledger", "claude"); err != nil {
+		t.Errorf("a harness the connector serves: %v", err)
+	}
+	if err := fx.b.AgentHarnessGate("apps/ledger", "gemini"); err == nil || !strings.Contains(err.Error(), "and gemini can't: its CLI speaks Google's wire only") {
+		t.Errorf("a harness the connector can't serve: %v", err)
+	}
+	v := fx.connection(fx.principals()["dave"], "?model=local/llama")
+	for _, tl := range v.Tiles {
+		switch tl.Tile {
+		case "apps/ledger":
+			if tl.Credentials != "connector-only" || tl.CredentialsReason != "Finance allows private models only" || len(tl.Unavailable) != 1 || tl.Unavailable["gemini"] == "" {
+				t.Errorf("the connection view, a finance tile: %+v", tl)
+			}
+		case "apps/notes":
+			if tl.Credentials != "connector-first" || tl.CredentialsReason != "" || tl.Unavailable != nil {
+				t.Errorf("the connection view, a tile in no org: %+v", tl)
+			}
+		}
+	}
+	// the workspace's connector-only reaches every tile
+	if _, err := fx.st.SetWorkspaceAgents(agentpolicy.Patch{}, "connector-only", nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := fx.b.AgentHarnessGate("apps/email", "gemini"); err == nil || !strings.HasPrefix(err.Error(), "This workspace runs coding agents on its LLM connector only") {
+		t.Errorf("connector-only, a harness that can't: %v", err)
+	}
+	if s = fx.b.AgentSessionLLM("dave", "apps/notes", "claude"); s.Use != "connector" || !s.Forced || s.Restricted() {
+		t.Errorf("connector-only: %+v", s)
+	}
+	fx.b.Users = nil
+	if s = fx.b.AgentSessionLLM("dave", "apps/ledger", "claude"); s.Mode != "own-first" || s.Forced {
+		t.Errorf("no users store: %+v", s)
 	}
 }

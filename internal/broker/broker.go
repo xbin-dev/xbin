@@ -156,6 +156,16 @@ type Broker struct {
 	// private — what an org's "private models only" rule asks (D229,
 	// agentpolicy.go). nil ⇒ no connector: no model is private.
 	AgentModels func(id string) (agentpolicy.ModelRef, bool)
+	// AgentConnector answers why a harness (a provider id) can't run on the
+	// LLM connector now — its CLI speaks no wire the connector serves, or
+	// the connector isn't set up — and nil when it can. nil func ⇒ no
+	// connector on this xbind: wherever a tile's sessions must run on it
+	// (AgentSessionLLM), no harness starts.
+	AgentConnector func(harness string) error
+	// AgentSaved answers a person's saved credential choice for a harness
+	// ("own", "connector" or ""), from their agent preferences; wired by
+	// boot. nil ⇒ nobody saved one.
+	AgentSaved func(userID, harness string) string
 	// rmTree stands in for the confined removal of a terminal layer
 	// (removeTree) in tests; nil = confine.RemoveAll.
 	rmTree func(dir string) error

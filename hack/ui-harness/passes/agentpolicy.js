@@ -17,11 +17,17 @@
 //       is refused with the reason in the tab, a running session keeps
 //       running and can't be restarted; they can't touch another org or the
 //       workspace's bounds; the connection view names the block;
-//   (e) the admin console's organisations tab edits an org's rules and the
-//       workspace's bounds (<bx-org-agents>, a sibling module of the tab):
+//       a models rule makes the tile's sessions connector-only — with no
+//       LLM connector on the harness xbind no harness is offered, and the
+//       chooser says why;
+//   (e) the admin console's organisations tab edits an org's rules, its pin
+//       and the workspace's bounds (<bx-org-agents>, /vendor/org-agents.js):
 //       a harness list, private models, a save that sends only what
 //       changed, the server's refusal of a list past the bounds in its
-//       words.
+//       words;
+//   (f) a pin: the org's admin sees it in the organisations tile, narrows
+//       below it there, can't loosen it, and the connection view's reason
+//       says the rule is pinned.
 // Everything it set — rules, preferences, sessions — is put back at the end.
 const { URL, login, closeCtx, settle, sleep, sh, fr, waitFor, waitSel, openShell, usePersonalScreen, openTile, tileFrame, gotoTab, shot, shotEl, checker, THEME } = require('../lib');
 
@@ -45,9 +51,11 @@ async function agentPolicy(browser) {
   // the admin's screens and the tile's window as they were: later passes
   // (deepLinks) read the place the shell shows
   const layoutURL = `${URL}/api/xbin/prefs/layout`, windowURL = `${URL}/api/xbin/prefs/${enc(`term:${TILE.replaceAll('/', ':')}`)}`;
-  const layout0 = await (await A.ctx.request.get(layoutURL)).json().catch(() => null);
+  const got0 = await A.ctx.request.get(layoutURL);
+  const layout0 = got0.ok() ? await got0.json().catch(() => null) : null; // none saved yet (a fresh workspace): nothing to put back
   const tidy = async () => {
     await a.put(`/orgs/${ORG}/agents`, noRules);
+    await a.put(`/orgs/${ORG}/agents/pin`, noRules);
     await a.put('/agents/policy', { ...noRules, credentials: null });
     for (const s of (await a.get(`/term/sessions?cwd=${enc(TILE)}`)).body || []) await a.del(`/term/sessions/${enc(s.id)}`);
     await a.put('/agent/prefs', { harness: '', lastKind: '', harnesses: { fake: null }, agentSessions: { start: 'ask', modes: null, net: null, api: null } });
@@ -175,7 +183,7 @@ async function agentPolicy(browser) {
     check((await d.put('/orgs/sales/agents', { harnesses: ['claude'] })).status === 403, 'nor another org\'s rules');
     const set = await d.put(`/orgs/${ORG}/agents`, { harnesses: ['claude'] });
     check(set.status === 200 && JSON.stringify(set.body?.agents?.harnesses) === '["claude"]', `an org admin narrows their own org's harnesses (${set.status} ${JSON.stringify(set.body?.agents)})`);
-    await closeCtx(D.ctx, D.page);
+    await D.ctx.close(); // (not closeCtx: dev1's shell has shown nothing of ours, and flushing it would save its first layout unfiltered)
     await waitFor(A.page, (t, a) => { const items = t.frameFor(a.tile)?.testApi().launcherItems() || []; return items.includes('Claude Code') && !items.some((x) => x.startsWith(a.name)); }, { tile: TILE, name: FAKE }, { timeout: 10000, label: 'the launcher follows the rule' });
     const items = await fr(A.page, TILE, (f) => f.launcherItems());
     check(items.includes('Bash') && items.includes('Claude Code') && !items.includes('Codex') && !items.some((x) => x.startsWith(FAKE)), `the launcher offers only what the org allows, and no stale "last" (${JSON.stringify(items)})`);
@@ -205,6 +213,20 @@ async function agentPolicy(browser) {
     check(/ not connected$/.test(conn?.counts?.summary || '') && conn.counts.blocked >= 1 && conn.orgs.find((o) => o.id === ORG)?.state === 'blocked', `its totals: ${conn?.counts?.summary}`);
     const scoped = (await a.get(`/agents/connection?orgs=${ORG}`)).body;
     check(scoped?.tiles?.some((x) => x.state === 'hidden') && scoped.tiles.find((x) => x.tile === TILE)?.state === 'blocked', 'a scope hides the rest; blocked still says blocked');
+    // the models rule binds the tile's own agent sessions: connector-only, and
+    // this xbind has no LLM connector, so nothing is offered — and says why
+    check(row?.credentials === 'connector-only' && row.credentialsReason === 'Devs allows private models only' && /no LLM connector/.test(row.unavailable?.claude || ''),
+      `the connection view says what a session there runs on (${row?.credentials}; ${JSON.stringify(row?.unavailable)})`);
+    check((await a.get(`/agent/providers?cwd=${enc(TILE)}`)).body.length === 0, 'no harness is offered on a tile whose sessions must run on a connector there isn\'t');
+    const allRows = (await a.get(`/agent/providers?cwd=${enc(TILE)}&all=1`)).body;
+    check(allRows.length > 1 && allRows.every((p) => p.unavailable) && /Devs allows private models only, so a coding agent here runs on the workspace's LLM connector — and claude can't: this xbind has no LLM connector set up/.test(allRows.find((p) => p.id === 'claude').unavailable),
+      `&all=1 keeps them with the reason (${allRows.find((p) => p.id === 'claude')?.unavailable})`);
+    await waitFor(A.page, (t, a) => (t.frameFor(a)?.testApi().notOffered || []).some((x) => x.id === 'claude' && /LLM connector/.test(x.why)), TILE, { timeout: 10000, label: 'the chooser knows why' });
+    const li = await fr(A.page, TILE, (f) => f.launcherItems());
+    check(li.includes('Bash') && !li.includes('Claude Code'), `the launcher offers Bash alone (${JSON.stringify(li)})`);
+    const denied = await a.post('/term/sessions', { cwd: TILE, kind: 'agent', provider: 'claude' });
+    check(denied.status === 403 && /runs on the workspace's LLM connector/.test(denied.body?.error || ''), `a start is refused with it (${denied.status})`);
+    check((await a.get(`/agents/connection`)).body.tiles.find((x) => x.tile === 'apps/dev1-notes')?.credentials === 'own-first', 'a tile with no models rule runs as the workspace\'s mode says');
 
     // back to no rules: the launcher offers the fake again
     await a.put(`/orgs/${ORG}/agents`, noRules);
@@ -218,7 +240,7 @@ async function agentPolicy(browser) {
       throw new Error(`timed out: ${label}`);
     };
     await gotoTab(C.page, `orgs/${ORG}`, 'resource ceilings');
-    const ed = C.page.locator(`bx-org-agents[org="${ORG}"]`);
+    const ed = C.page.locator(`bx-org-agents[org="${ORG}"]:not([pinned])`);
     await until(async () => (await ed.locator('select[data-rule=harnesses]').count()) === 1, 'the org\'s editor');
     check(await ed.locator('select[data-rule=workspaceAgent]').inputValue() === 'on' && await ed.locator('select[data-rule=harnesses]').inputValue() === 'any'
       && await ed.locator('select[data-rule=models]').inputValue() === 'any' && await ed.locator('[data-save]').isDisabled(), 'an org with no rules reads on, any, any — nothing to save');
@@ -227,7 +249,7 @@ async function agentPolicy(browser) {
     await ed.locator('input[data-harness=claude]').check();
     await ed.locator('input[data-harness=codex]').check();
     await ed.locator('select[data-rule=models]').selectOption('private');
-    await shotEl(C.page, `bx-org-agents[org="${ORG}"]`, `agentpolicy-admin-org-${THEME}`);
+    await shotEl(C.page, `bx-org-agents[org="${ORG}"]:not([pinned])`, `agentpolicy-admin-org-${THEME}`);
     const [req] = await Promise.all([C.page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith(`/api/xbin/orgs/${ORG}/agents`)), ed.locator('[data-save]').click()]);
     check(req.postData() === '{"harnesses":["claude","codex"],"models":"private"}', `Save sends only what changed (${req.postData()})`);
     await until(async () => (await ed.locator('.ok').count()) === 1, 'saved');
@@ -239,11 +261,11 @@ async function agentPolicy(browser) {
     await until(async () => (await ws.locator('select[data-rule=credentials]').count()) === 1, 'the workspace\'s editor');
     await ws.locator('select[data-rule=harnesses]').selectOption('list');
     await ws.locator('input[data-harness=claude]').check();
-    await ws.locator('select[data-rule=credentials]').selectOption('connector');
+    await ws.locator('select[data-rule=credentials]').selectOption('connector-first');
     await ws.locator('[data-save]').click();
     await until(async () => (await ws.locator('.ok').count()) === 1, 'the bounds saved');
     const bounds = (await a.get('/agents/policy')).body;
-    check(JSON.stringify(bounds.harnesses) === '["claude"]' && bounds.credentials === 'connector', `the workspace's bounds are stored (${JSON.stringify(bounds)})`);
+    check(JSON.stringify(bounds.harnesses) === '["claude"]' && bounds.credentials === 'connector-first', `the workspace's bounds are stored (${JSON.stringify(bounds)})`);
     await shot(C.page, `agentpolicy-admin-bounds-${THEME}`, { fullPage: false });
     await gotoTab(C.page, `orgs/${ORG}`, 'resource ceilings');
     await until(async () => (await ed.locator('.hint', { hasText: 'the workspace allows: claude' }).count()) === 1, 'the bound shows beside the org\'s rule');
@@ -253,8 +275,48 @@ async function agentPolicy(browser) {
     await until(async () => (await ed.locator('.err').count()) === 1, 'the refusal');
     const err = await ed.locator('.err').innerText();
     check(/codex is outside what the workspace allows \(claude\)/.test(err) && /can't widen/.test(err), `a list past the bounds is refused in the server's words (${err})`);
-    await shotEl(C.page, `bx-org-agents[org="${ORG}"]`, `agentpolicy-admin-refused-${THEME}`);
+    await shotEl(C.page, `bx-org-agents[org="${ORG}"]:not([pinned])`, `agentpolicy-admin-refused-${THEME}`);
+
+    // ---- (f) a pin ----
+    await a.put('/agents/policy', { ...noRules, credentials: null });
+    await a.put(`/orgs/${ORG}/agents`, noRules);
+    await gotoTab(C.page, `orgs/${ORG}`, 'resource ceilings');
+    const pinEd = C.page.locator(`bx-org-agents[org="${ORG}"][pinned]`);
+    await until(async () => (await pinEd.locator('select[data-rule=models]').count()) === 1, 'the pin\'s editor');
+    await pinEd.locator('select[data-rule=models]').selectOption('private');
+    await pinEd.locator('select[data-rule=harnesses]').selectOption('list');
+    await pinEd.locator('input[data-harness=claude]').check();
+    await pinEd.locator('input[data-harness=codex]').check();
+    const [pinReq] = await Promise.all([C.page.waitForRequest((r) => r.method() === 'PUT' && r.url().endsWith(`/api/xbin/orgs/${ORG}/agents/pin`)), pinEd.locator('[data-save]').click()]);
+    check(pinReq.postData() === '{"harnesses":["claude","codex"],"models":"private"}', `the admin console pins rules on the org (${pinReq.postData()})`);
+    await until(async () => (await pinEd.locator('.ok').count()) === 1, 'the pin saved');
     await closeCtx(C.ctx, C.page);
+    const pinned = (await a.get('/orgs')).body.orgs.find((o) => o.id === ORG);
+    check(JSON.stringify(pinned?.agentsPin) === '{"workspaceAgent":"on","harnesses":["claude","codex"],"models":"private"}' && !pinned.agents, `the pin is stored beside the org's own rules (${JSON.stringify(pinned?.agentsPin)})`);
+    // the org's admin: sees the pin in the organisations tile, narrows below it, can't loosen it
+    const E = await login(browser, 'dev1', 'devpass123', { viewport: { width: 1200, height: 1100 } });
+    const e = api(E.ctx);
+    check((await e.put(`/orgs/${ORG}/agents/pin`, { models: null })).status === 403, 'an org\'s admin can\'t touch the pin');
+    const loosen = await e.put(`/orgs/${ORG}/agents`, { harnesses: ['claude', 'gemini'] });
+    check(loosen.status === 400 && /gemini is outside what the pin allows \(claude, codex\)/.test(loosen.body?.error || ''), `…nor set rules past it (${loosen.status} ${loosen.body?.error})`);
+    await E.page.goto(`${URL}/c/tiles/organisations/`);
+    const card = E.page.locator(`bx-org-agents[org="${ORG}"]`);
+    await until(async () => (await card.locator('[data-pin]').count()) === 1, 'the organisations tile\'s agents card');
+    const pinLine = await card.locator('[data-pin]').innerText();
+    check(/pinned by a workspace admin: coding agents: claude, codex · private models only/.test(pinLine.replace(/\s+/g, ' ')), `the org's admin sees what is pinned (${pinLine.replace(/\s+/g, ' ')})`);
+    await card.locator('select[data-rule=harnesses]').selectOption('list');
+    await card.locator('input[data-harness=claude]').check();
+    await card.locator('[data-save]').click();
+    await until(async () => (await card.locator('.ok').count()) === 1, 'the org admin\'s save');
+    const narrowed = (await a.get('/orgs')).body.orgs.find((o) => o.id === ORG);
+    check(JSON.stringify(narrowed?.agents?.harnesses) === '["claude"]', `the org's admin narrows below the pin in the organisations tile (${JSON.stringify(narrowed?.agents)})`);
+    await shotEl(E.page, `bx-org-agents[org="${ORG}"]`, `agentpolicy-orgtile-${THEME}`);
+    const mine = (await e.get('/agents/connection?model=hosted/big')).body.tiles.find((x) => x.tile === TILE);
+    check(mine?.state === 'blocked' && mine.pinned === true && mine.reason === 'Devs allows private models only (pinned by a workspace admin)', `the connection view says the rule is pinned (${JSON.stringify({ state: mine?.state, reason: mine?.reason })})`);
+    await e.put(`/orgs/${ORG}/agents`, { models: 'any', harnesses: 'any' });
+    const still2 = (await e.get('/agents/connection?model=hosted/big')).body.tiles.find((x) => x.tile === TILE);
+    check(still2?.state === 'blocked' && still2.pinned === true, 'the org\'s own "any" loosens nothing the pin holds');
+    await E.ctx.close();
   } finally {
     await tidy();
   }
@@ -267,6 +329,9 @@ async function agentPolicy(browser) {
   if (layout0 && typeof layout0 === 'object') {
     const put = await A.ctx.request.put(layoutURL, { data: layout0, headers: { 'X-Prefs-Writer': 'harness-agentpolicy' } }).catch(() => null);
     check(!!put?.ok(), `tidy: the admin's layout back (${put?.status()})`);
+  } else {
+    const del = await A.ctx.request.delete(layoutURL).catch(() => null);
+    check(!!del && del.status() < 500, `tidy: the admin had no layout saved, and has none again (${del?.status()})`);
   }
   await A.ctx.close();
   done();

@@ -48,13 +48,27 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   may run there (`any` or a list of ids), and the `models` that may see
   their data (`any`, `private`, or a list of LLM connector ids) —
   `PUT /api/xbin/orgs/<org>/agents`, `bx org agents <org>`; `GET /orgs`
-  carries `agents`. The workspace sets the outer bounds and the default
-  for whose credentials serve a coding agent
-  (`GET`/`PUT /api/xbin/agents/policy`, `bx org agents`): an org only
-  narrows them. Workspace admins set both; an org's admin sets their own
-  org, in their own session. A tile falls under the org that owns it and
-  every org it is shared into, and the strictest wins. **With nothing set,
-  nothing changes.**
+  carries `agents`. The workspace sets the outer bounds and the mode for
+  whose credentials serve a coding agent — `own-first`, `connector-first`
+  or `connector-only` (`GET`/`PUT /api/xbin/agents/policy`, `bx org
+  agents`): an org only narrows them. Workspace admins set both; an org's
+  admin sets their own org, in their own session. A tile falls under the
+  org that owns it and every org it is shared into, and the strictest
+  wins. **With nothing set, nothing changes.**
+  - **A workspace admin can pin an org's rules.**
+    `PUT /api/xbin/orgs/<org>/agents/pin` (`bx org agents <org> --pin …`;
+    `GET /orgs` carries `agentsPin`): the org's admins narrow below the
+    pin and never loosen it. A refusal says where its rule comes from —
+    "(pinned by a workspace admin)", and for a tile the org doesn't own
+    the share that put it under the org ("this tile is under Finance by
+    its share apps/*").
+  - **An org's models rule binds agent sessions on its tiles.** Where a
+    `models` rule other than `any` applies, an agent session runs on the
+    workspace's LLM connector only, with the models the rule allows; a
+    harness that can't run on the connector isn't offered there
+    (`GET /agent/providers?cwd=<tile>&all=1` keeps it in the list with
+    `unavailable`: why; the tile window's chooser shows it). Neither this
+    nor the harness list governs what a person runs in a plain terminal.
   - **Agent sessions follow the tile's harness list.**
     `GET /api/xbin/agent/providers?cwd=<tile>` lists only what may run
     there, and `POST /api/xbin/term/sessions` answers 403 with the reason
@@ -66,8 +80,9 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     ?model=&orgs=&tiles=&whatIf=` (and `bx agent connection`) lists every
     org and tile a person can see as `connected`, `hidden` (left out of
     the scope), `blocked` (with the reason) or `no-access`, with totals
-    ("14 tiles · 3 orgs connected · 6 not connected") and what a model
-    change would connect and disconnect
+    ("14 tiles · 3 orgs connected · 6 not connected"), what an agent
+    session on each tile runs on (`credentials`, `unavailable`), and what
+    a model change would connect and disconnect
     ([protocol/agents.md](/docs/protocol/agents.md) §The connection view).
   - **`origin` on a session.** A `GET /term/sessions` row and a
     `GET /agent/history` entry carry `origin: "agent"` when the person's
@@ -298,6 +313,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   than v0.3.80 its `native.js` does not load: the app shows the tile's web
   page ([native.md](/docs/native.md) → Fallback), which says "This agent
   needs xbind ≥ v0.3.80". Instances you already have are not touched.
+- **Admin console and organisations tile: agent rules.** The admin
+  console's organisations tab gained **agents** panels on each org's page
+  (its own rules, and the pin) and one for the workspace's bounds under
+  the list; the organisations tile gained an **agents** card on each org
+  its viewer admins, so an org's admin has a UI for their own rules. Both
+  use xbind's `<bx-org-agents>` (`/vendor/org-agents.js`); the scaffold
+  part is a few lines in `tiles/admin/tabs/orgs.js` and a new file,
+  `tiles/organisations/agents.js` (`bx builtin update`). `bx org agents`
+  and the API do the same for a workspace whose scaffold predates it.
 - **docs: the protocol reference is split by topic.** `/docs/protocol.md`
   had reached the size limit of a served doc, so its route tables and
   WebSocket sections moved, unchanged, to one page per area under

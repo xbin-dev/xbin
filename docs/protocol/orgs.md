@@ -78,8 +78,12 @@ PUT    /orgs/<org>/limits         admin/xbin:users. the org's per-tile
 PUT    /orgs/<org>/agents         admin/xbin:users, or an admin of the org
                                    in their own session (§Agent constraints
                                    below). the org's constraints on agents
-                                   (D229) → {agents, bounds}. GET /orgs
-                                   carries each org's agents (absent: none)
+                                   (D229) → {agents, pin, bounds}. GET /orgs
+                                   carries each org's agents and agentsPin
+                                   (absent: none)
+PUT    /orgs/<org>/agents/pin     admin/xbin:users. the rules a workspace
+                                   admin pins on the org: its admins narrow
+                                   below them, never loosen them
 DELETE /orgs/<org>                admin/xbin:users; refused while the org
                                    still OWNS tiles (transfer first)
 GET    /permission-sets           admin/xbin:users. {sets:{name:{allow,
@@ -251,11 +255,30 @@ shape for both:
 ```
 
 A call is filtered by the **tile's** orgs — the org that owns it and every
-org it is shared into — and by the workspace's bounds: every one of them
-must allow it, so a tile under several orgs gets the strictest and a tile
-in no org follows the bounds alone. With nothing set, everything is
-allowed. A rule decides what starts next: a session already running is
-never ended.
+org it is shared into, by an exact share or a pattern — and by the
+workspace's bounds: every one of them must allow it, so a tile under
+several orgs gets the strictest and a tile in no org follows the bounds
+alone. With nothing set, everything is allowed. A rule decides what starts
+next: a session already running is never ended.
+
+An org has two sets of these rules: its **own** (its admins') and a
+**pin** (a workspace admin's). Both are asked on every call, so the org's
+own rules narrow below the pin and can never loosen it. A refusal's reason
+says where the rule comes from: `… (pinned by a workspace admin)` for a
+pinned rule, and `… (this tile is under Finance by its share apps/*)` when
+the tile isn't the org's own — so a rule that reaches a tile through a
+broad share can be traced.
+
+**The model rule binds agent sessions too.** Where the `models` rule of
+any of a tile's layers is anything but `any`, an agent session on that tile
+runs on the workspace's LLM connector only — a harness on a person's own
+sign-in would send the tile's code to a model xbind can't see — and the
+connector refuses a model the rule doesn't allow. A harness that can't run
+on the connector isn't offered there, and starting it answers 403 with the
+reason (`GET /agent/providers?cwd=`, `POST /term/sessions`). The harness
+list and this rule govern the agent sessions xbind starts; what a person
+runs by hand in a terminal on the tile is governed by access levels and
+network sets, as before.
 
 ```
 GET    /agents/policy             a person, or admin/xbin:users (a tile's
@@ -263,12 +286,17 @@ GET    /agents/policy             a person, or admin/xbin:users (a tile's
                                    bounds: {workspaceAgent, harnesses,
                                    models, credentials, knownHarnesses,
                                    canSet}. credentials: whose sign-in
-                                   serves a coding agent's model calls by
-                                   default — "own-first" (the person's own
-                                   when they have one, else the LLM
-                                   connector) or "connector" (forced for
-                                   everyone; a person's saved choice and a
-                                   session's are then ignored).
+                                   serves a coding agent's model calls —
+                                   "own-first" (the default: the person's
+                                   own when they have one, else the LLM
+                                   connector), "connector-first" (the
+                                   connector, unless the person chose their
+                                   own sign-in for the harness or the
+                                   session) or "connector-only" (own
+                                   sign-ins are not used; a harness that
+                                   can't run on the connector isn't
+                                   offered). "connector" is read as
+                                   connector-only.
                                    knownHarnesses: the ids a list may name;
                                    canSet: the caller may PUT
 PUT    /agents/policy             admin/xbin:users. {workspaceAgent?,
@@ -287,13 +315,23 @@ PUT    /orgs/<org>/agents         admin/xbin:users for any org; an admin of
                                    terminal's or an agent session's token,
                                    or view-as (403). {workspaceAgent?,
                                    harnesses?, models?}, as above → {agents,
-                                   bounds}. The result must sit within the
-                                   workspace's bounds: an org narrows them,
-                                   never widens — a list entry the bounds
-                                   don't cover is 400, naming it ("any" is
-                                   always within: it adds no rule of the
-                                   org's own). 404 no such org. Audited;
-                                   `users` and `agents` events
+                                   pin, bounds}. The result must sit within
+                                   the workspace's bounds and the org's
+                                   pin: an org narrows them, never widens —
+                                   a list entry they don't cover is 400,
+                                   naming it ("any" is always within: it
+                                   adds no rule of the org's own, and bounds
+                                   and pin still hold). 404 no such org.
+                                   Audited; `users` and `agents` events
+PUT    /orgs/<org>/agents/pin     admin/xbin:users only (an org's own admin:
+                                   403). {workspaceAgent?, harnesses?,
+                                   models?}: the pinned rules, each key
+                                   named set, null back to none → {agents,
+                                   pin, bounds}. Within the workspace's
+                                   bounds (400). The org's own rules are
+                                   left as they are: the pin holds at every
+                                   call. 404 no such org. Audited; `users`
+                                   and `agents` events
 ```
 
 `GET /agents/connection` — what one person's workspace agent session is
