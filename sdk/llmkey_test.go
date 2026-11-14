@@ -37,6 +37,8 @@ func TestLLMKeyFor(t *testing.T) {
 		switch {
 		case r.Method == http.MethodDelete && r.URL.Path == "/api/xbin/llm/keys/lk_1":
 			w.WriteHeader(204)
+		case r.Method == http.MethodDelete && r.URL.Path == "/api/xbin/llm/keys" && r.URL.Query().Get("label") == "codex run 12":
+			w.WriteHeader(204)
 		case r.Method != http.MethodPost || r.URL.Path != "/api/xbin/llm/keys":
 			w.WriteHeader(404)
 			_, _ = w.Write([]byte("404 page not found\n"))
@@ -80,9 +82,15 @@ func TestLLMKeyFor(t *testing.T) {
 	if err := RevokeLLMKey(ctx, "other/../x"); !errors.Is(err, ErrLLMUnavailable) { // escaped: one path segment, which this gateway doesn't know
 		t.Fatalf("an odd id: %v", err)
 	}
+	if err := RevokeLLMKeysLabeled(ctx, "codex run 12"); err != nil {
+		t.Fatal(err)
+	}
+	if err := RevokeLLMKeysLabeled(ctx, ""); err != nil {
+		t.Fatal(err)
+	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(seen) != 5 || seen[0] != `POST /api/xbin/llm/keys Bearer tok {"label":"codex run 12","sandbox":"sb-1","ttlSec":5400,"user":"kim"}` ||
+	if len(seen) != 6 || seen[5] != "DELETE /api/xbin/llm/keys Bearer tok " || seen[0] != `POST /api/xbin/llm/keys Bearer tok {"label":"codex run 12","sandbox":"sb-1","ttlSec":5400,"user":"kim"}` ||
 		seen[3] != "DELETE /api/xbin/llm/keys/lk_1 Bearer tok " || seen[4] != "DELETE /api/xbin/llm/keys/other%2F..%2Fx Bearer tok " {
 		t.Fatalf("requests: %q", seen)
 	}

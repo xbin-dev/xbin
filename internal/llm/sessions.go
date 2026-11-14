@@ -275,6 +275,29 @@ func (s *Service) apiRevokeKey(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// apiRevokeKeys — DELETE /llm/keys?label=<label>: the component ends every
+// key it asked for under that label for the person its credential acts
+// for. A consumer that names a run in the label needn't keep key ids — and
+// its successor after a restart can still end a run's key. 204 whatever
+// lived; 400 without a label.
+func (s *Service) apiRevokeKeys(w http.ResponseWriter, r *http.Request) {
+	c, ok := s.keyCaller(w, r)
+	if !ok {
+		return
+	}
+	label := r.URL.Query().Get("label")
+	if label == "" || len(label) > maxKeyLabel {
+		server.WriteError(w, http.StatusBadRequest, "need ?label=<the label the keys were asked for with> (or DELETE /llm/keys/<id> for one key)", docs)
+		return
+	}
+	if s.llmKeys != nil {
+		s.llmKeys.RevokeWhere(func(g KeyGrant) bool {
+			return g.Bound && g.Component == c.Component && g.User == c.User && g.Label == label
+		})
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // keyCaller admits the caller of the key routes: a component whose llm slot
 // is bound to the connector, by its own credential — never a person's
 // sign-in (their sessions get keys from xbind) and never an LLM key (a key

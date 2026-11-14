@@ -115,6 +115,29 @@ func RevokeLLMKey(ctx context.Context, id string) error {
 	return nil
 }
 
+// RevokeLLMKeysLabeled ends every key this tile asked for with Label label
+// for the person this backend acts for (DELETE /api/xbin/llm/keys?label=).
+// A tile that names a run in the label needn't keep key ids: before it
+// starts the run again, and when the run ends — in this process or its
+// successor after a restart — it ends the run's keys by name.
+func RevokeLLMKeysLabeled(ctx context.Context, label string) error {
+	if label == "" {
+		return nil
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, "http://xbin/api/xbin/llm/keys?label="+url.QueryEscape(label), nil)
+	if err != nil {
+		return err
+	}
+	raw, status, err := llmKeyCall(req)
+	if err != nil {
+		return err
+	}
+	if status != http.StatusNoContent && status != http.StatusOK {
+		return llmKeyErr(status, raw)
+	}
+	return nil
+}
+
 func llmKeyCall(req *http.Request) ([]byte, int, error) {
 	resp, err := Client().Do(req)
 	if err != nil {

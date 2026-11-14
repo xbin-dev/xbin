@@ -2443,6 +2443,25 @@ is D147.
   the sandbox's image has (`hello.images[].harnesses`) when it was bound —
   absent in one bound before, or from a manager that says nothing (unknown,
   not none: a probe decides).
+- **The workspace's LLM connector** (D226; the platform's /docs/llm.md).
+  A coding agent with no sign-in — none of the person's saved ones went
+  in, none in the sandbox's `home` — starts on the workspace's LLM
+  connector instead of parking on "sign in", when three things hold: this
+  agent's `llm` slot is bound to **`xbin:llm`**; the sandbox was made at a
+  manager that offers the contract's `llm` capability (the agent then
+  creates its sandboxes with `llm: true`, and the sandbox's row names the
+  address, `llm.url` — a sandbox made before that has none); and the
+  harness can speak to it (OpenCode, Codex; not Claude Code or Gemini CLI
+  yet). The backend asks xbind for an **LLM key** for the person the
+  instance acts for (`xbin.LLMKeyFor`: good for the connector's model
+  routes only, metered to them and this tile), hands it to the adapter in
+  its environment with the harness's own variables (`sdk/acp`'s table), and
+  says so in a note. A sign-in keeps its priority: a saved one first, then
+  one in the sandbox, then the connector. The key is the generation's
+  secret — masked in everything the adapter prints, like a saved sign-in's
+  (and any `xbl_…` by shape) — is stored nowhere, and is ended by the run's
+  label (`harness run ‹id›`) before a new start and when the adapter exits
+  or is stopped. A sandbox still needs an egress other than `none` here.
 - **Classes.** The `harness` toolset and the `harnesses` field (§Agent
   classes); the built-in `coding` has both (`"all"`). A coding-agent
   conversation or spawn needs a class that has the toolset, allows the

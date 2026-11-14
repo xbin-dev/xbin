@@ -456,6 +456,7 @@ var routeClasses = map[string]RouteClass{
 	// binding admits them, whichever deployment asks ----
 	"POST /llm/keys":        Neutral,
 	"DELETE /llm/keys/{id}": Neutral,
+	"DELETE /llm/keys":      Neutral,
 }
 
 // classGate applies D127r to one /api/xbin request, r2 as the API mux sees it.

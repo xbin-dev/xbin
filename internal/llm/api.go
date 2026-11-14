@@ -42,6 +42,7 @@ func (s *Service) mount(srv registrar) {
 	// a bound component's keys for the harnesses it runs (sessions.go)
 	srv.RegisterAPI("POST /llm/keys", s.apiMintKey)
 	srv.RegisterAPI("DELETE /llm/keys/{id}", s.apiRevokeKey)
+	srv.RegisterAPI("DELETE /llm/keys", s.apiRevokeKeys) // …by the label they were asked for with
 	// management: xbind's own error shape
 	srv.RegisterAPI("GET /llm", s.apiStatus)
 	srv.RegisterAPI("GET /llm/config", s.apiConfig)

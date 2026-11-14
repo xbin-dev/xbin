@@ -559,6 +559,11 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 	if err != nil {
 		return nil, &harnessFail{err.Error()}
 	}
+	if cred == nil { // no saved sign-in: the workspace's LLM connector, where it serves (harness_connector.go)
+		if key, note := e.connectorEnv(ctx, run, u, prov, env); key != "" {
+			secret, credNote = key, note
+		}
+	}
 	env = withProjectEnv(env, run, u.Box.Home) // a project task's ports, branch and credentials' env (project_gate.go)
 	credID := ""
 	if cred != nil {
@@ -802,6 +807,7 @@ func (e *Engine) dropExec(ctx context.Context, run *Run, cfg Config, hs *harness
 	if hs == nil || hs.ExecID == "" {
 		return
 	}
+	connectorEnded(run.ID) // an adapter this process never held: its LLM connector key goes with it (harness_connector.go)
 	ref, by := hs.Ref, ""
 	if cfg.Harness != nil {
 		ref, by = orStr(ref, cfg.Harness.Ref), cfg.Harness.By
@@ -1126,6 +1132,7 @@ func (s *hsess) consume() {
 func (s *hsess) stop() {
 	s.halt()
 	s.e.forget(s)
+	connectorEnded(s.run) // its LLM connector key, if it ran on one (harness_connector.go)
 	if s.c != nil {
 		_ = s.c.Close()
 	} else if s.pipe != nil {
@@ -1142,6 +1149,7 @@ func (s *hsess) ended() {
 	if s.isHalted() || errors.Is(perr, errPipeDetached) || errors.Is(perr, errPipeReplaced) {
 		return // let go: another process (or a stop) owns what follows
 	}
+	connectorEnded(s.run) // the adapter is gone: so is its LLM connector key
 	s.mu.Lock()
 	endWhy, endLost := s.endWhy, s.endLost
 	s.mu.Unlock()

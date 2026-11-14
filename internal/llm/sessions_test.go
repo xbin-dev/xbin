@@ -217,6 +217,21 @@ func TestComponentKeys(t *testing.T) {
 	if a := r.do(pAdmin, "DELETE", "/llm/keys/"+id, nil); a.code != 403 {
 		t.Errorf("a person's DELETE: %d", a.code)
 	}
+	// by label: the caller's person's keys under that label, nobody else's
+	mk := func(p auth.Principal, label string) string {
+		return mint(p, map[string]any{"label": label}).json(t)["token"].(string)
+	}
+	k1, k2, kBob, kOther := mk(pPartition("apps/agent", "kim"), "run 9"), mk(pPartition("apps/agent", "kim"), "run 9"),
+		mk(pPartition("apps/agent", "bob"), "run 9"), mk(pPartition("apps/agent", "kim"), "run 10")
+	if a := r.do(pPartition("apps/agent", "kim"), "DELETE", "/llm/keys", nil); a.code != 400 {
+		t.Errorf("DELETE /llm/keys without a label: %d", a.code)
+	}
+	if a := r.do(pPartition("apps/agent", "kim"), "DELETE", "/llm/keys?label=run+9", nil); a.code != 204 {
+		t.Errorf("DELETE by label: %d %s", a.code, a.body)
+	}
+	if call(k1) != 401 || call(k2) != 401 || call(kBob) != 200 || call(kOther) != 200 {
+		t.Errorf("by label: kim's run 9 keys %d %d, bob's %d, kim's run 10 %d", call(k1), call(k2), call(kBob), call(kOther))
+	}
 	// Close ends every key
 	r.s.Close()
 	if _, ok := r.keys.Resolve(nobody["token"].(string)); ok {

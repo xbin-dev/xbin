@@ -59,6 +59,16 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   builtin `coding-sandbox` manager offers it on an xbind that forwards the
   connector (the runtime's `caps` carry `llm`), and the conformance suite
   (`sdk/sandboxcontract`) gained the section `llm`.
+- **Agent template: coding agents start on the workspace's LLM connector**
+  when they have no sign-in (D226; the template's API.md §Coding agents).
+  Bind the agent's `llm` slot to `xbin:llm` and use a sandbox manager that
+  offers `llm` (the builtin `coding-sandbox` on this xbind): new sandboxes
+  are created with the connector asked for, and OpenCode or Codex with no
+  saved sign-in and none in the sandbox runs on it, with a key xbind mints
+  for the person. Existing sandboxes, saved sign-ins and instances not
+  bound to `xbin:llm` behave as before. Template instances pick it up with
+  a template update. New SDK call `xbin.RevokeLLMKeysLabeled` and route
+  `DELETE /api/xbin/llm/keys?label=`.
 - **Go SDK, `sdk/acp`**: `Provider.Connector`, `Provider.ConnectorEnv`,
   `acp.ConnectorServes`, `Provider.HasOwnLogin` and `acp.ExpandWord` — how
   each coding CLI is pointed at an LLM connector from its environment, and

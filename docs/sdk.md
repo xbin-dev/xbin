@@ -622,7 +622,9 @@ switch {
 case errors.Is(err, xbin.ErrLLMUnavailable): // no connector here (or an older xbind): run it on its own sign-in
 case errors.Is(err, xbin.ErrLLMKeyForbidden): // the slot isn't bound to xbin:llm, or User isn't who this backend acts for
 }
-defer xbin.RevokeLLMKey(context.Background(), k.ID) // when the run ends
+defer xbin.RevokeLLMKey(context.Background(), k.ID) // when the run ends — or
+// xbin.RevokeLLMKeysLabeled(ctx, "codex run 12"): every key asked for with that
+// label, with no id to keep (a successor after a restart can end the run's key)
 
 env, _ := provider.ConnectorEnv(acp.ConnectorParams{URL: box.LLM.URL, Key: k.Token,
 	Model: model, Serves: acp.ServeConnector}) // sdk/acp, above: the CLI's variables

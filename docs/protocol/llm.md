@@ -211,6 +211,14 @@ DELETE /llm/keys/<id>              the component that asked for it. Ends the
                                    key now. 204 whether or not it still
                                    lived; another component's key is not
                                    touched
+DELETE /llm/keys?label=<label>     the component that asked for them. Ends
+                                   every key it asked for with that label
+                                   for the person its credential acts for —
+                                   a consumer that names a run in the label
+                                   keeps no key ids, and its successor
+                                   after a restart can still end a run's
+                                   key. 204 whatever lived; 400 without
+                                   label
 ```
 
 ## Configuration (admins)
