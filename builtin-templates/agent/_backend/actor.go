@@ -189,7 +189,7 @@ func (e *Engine) pass(a *actor) {
 
 	case statusSleep:
 		if run.WakeAt <= e.unix() || len(in.user) > 0 || len(in.wake) > 0 || len(in.watch) > 0 ||
-			(run.ParentID == 0 && e.db.hasNotices(run.ID)) || e.jobWake(run) || projectWakes(e.db, run) {
+			(run.ParentID == 0 && e.db.hasNotices(run.ID)) || e.jobWake(run) || coordWakes(e.db, run) {
 			if e.setRunning(run, in.wake) {
 				e.turn(a, run, nil)
 			}
@@ -208,7 +208,7 @@ func (e *Engine) pass(a *actor) {
 	// Resting: idle, done, canceled, error.
 	e.consumeStale(run, in.approve)
 	wantTurn := len(in.user) > 0 || len(in.wake) > 0 || len(in.watch) > 0 ||
-		(run.Status != statusError && run.ParentID == 0 && (e.db.hasNotices(run.ID) || projectWakes(e.db, run)))
+		(run.Status != statusError && run.ParentID == 0 && (e.db.hasNotices(run.ID) || coordWakes(e.db, run)))
 	if wantTurn {
 		if e.startTurn(run, in.wake) {
 			e.turn(a, run, nil)
@@ -900,7 +900,7 @@ func (e *Engine) deliverBoundary(ts *turnState) bool {
 			delivered = append(delivered, r.ID)
 			e.emitMessage(t, ts.root, m)
 		}
-		noted = e.deliverProjectEvents(t, ts) || noted // a coordinator's project events (project_gate.go)
+		noted = e.deliverCoordUpdates(t, ts) || noted // a coordinator's updates, by its profile (coord_wake.go)
 		if n := e.deliverNotices(t, ts); n > 0 || len(delivered) > 0 || noted {
 			e.emitInbox(t, ts.root, run.ID)
 		}

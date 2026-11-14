@@ -38,6 +38,7 @@ func (ag *Agent) assembleContext(ctx context.Context, run *Run, cfg Config) ([]w
 	fmt.Fprintf(&sys, "\n\nToday's date (UTC): %s.", time.Now().UTC().Format("2006-01-02"))
 	sys.WriteString(sandboxPrompt(cfg))            // the bound sandbox; "" when none (sandbox_tools.go)
 	sys.WriteString(ag.projectPromptFor(run, cfg)) // a project's task or coordinator: # Project (project_gate.go)
+	sys.WriteString(ag.coordPromptFor(run, cfg))   // any other profile's coordinator: its block (coord_prompt.go)
 	sys.WriteString(notesBlock(mem))               // sorted: the same bytes every call
 	if cfg.feature("skills") {
 		if skills := ag.db.visibleSkills(ag.scopeOf(run, cfg)); len(skills) > 0 {

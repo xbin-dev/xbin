@@ -1,37 +1,31 @@
-// projects_coord_tools.go — the coordinator's tools (API.md §The
+// projects_coord_tools.go — the project coordinator's tools (API.md §The
 // coordinator): task_create, task_list, task_status, task_message,
 // task_result, task_cancel, task_retry (projects_coord_retry.go), the
 // read-only scm_pr and scm_issues (projects_coord_scm.go), project_goal
 // (project_goal.go), and task_link_pr and task_refresh
-// (projects_coord_prs.go). Offered at
-// depth 0 only, to a run whose role projectRefOf says is a coordinator
-// (no new toolset: the way cfg.Channel
-// gates attach_to_reply), and dispatched from runTool beside the thread
-// tools. Every call resolves the coordinator again (coordinatorOf: its
-// project active, its owner still a participant, no internal reach) and
-// names tasks by their number in the project (projectTaskOf) — never a run
-// id. Writes go through P1's queue (project_queue, the pump) and createTask;
-// what a task said, its titles from issues and the provider's text reach
-// the model clipped, redacted and framed as data.
+// (projects_coord_prs.go) — registered with the project profile
+// (projects_coord_profile.go) and offered, dispatched and resolved by the
+// coordinator kit (coord_tools.go): every call resolves the coordinator
+// again (coordinatorOf: its project active, its owner still a participant,
+// no internal reach) and names tasks by their number in the project
+// (projectTaskOf) — never a run id. Writes go through P1's queue
+// (project_queue, the pump) and createTask; what a task said, its titles
+// from issues and the provider's text reach the model clipped, redacted
+// and framed as data.
 package main
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 )
 
-var coordToolNames = map[string]bool{"task_create": true, "task_list": true, "task_status": true, "task_message": true,
-	"task_result": true, "task_cancel": true, "task_retry": true, "scm_pr": true, "scm_issues": true, "project_goal": true,
-	"task_link_pr": true, "task_refresh": true}
-
-// coordWrites change a task (approval mode asks the person first: they
+// projCoordWrites change a task (approval mode asks the person first: they
 // start or steer work that runs in the project's sandbox, or say which
 // branch a task pushes to).
-var coordWrites = map[string]bool{"task_create": true, "task_message": true, "task_cancel": true, "task_retry": true, "task_link_pr": true}
+var projCoordWrites = map[string]bool{"task_create": true, "task_message": true, "task_cancel": true, "task_retry": true, "task_link_pr": true}
 
 // The tools' bounds.
 const (
@@ -41,14 +35,6 @@ const (
 	coordMessageMax = 16 << 10 // a task_message's text
 	coordResultPage = 8000     // task_result's page (the untrusted frame holds 8 KiB)
 )
-
-func coordIntProp(desc string) map[string]any {
-	return map[string]any{"type": "integer", "description": desc}
-}
-
-func coordIntsProp(desc string, max int) map[string]any {
-	return map[string]any{"type": "array", "items": map[string]any{"type": "integer"}, "minItems": 1, "maxItems": max, "description": desc}
-}
 
 // coordToolSpecs are the coordinator's tools. The first sentence of each
 // is pinned (tooldesc_test.go).
@@ -135,75 +121,69 @@ func coordToolSpecs() []toolSpec {
 	}, coordPRSpecs()...)
 }
 
-// coordToolsFor is what runToolSpecs adds for run: the tools for a
-// coordinator at depth 0 (its role through projectRefOf, its session key
-// agreeing), none otherwise.
-func coordToolsFor(cfg Config, run *Run) []toolSpec {
-	if run == nil || run.Depth != 0 || run.ParentID != 0 || run.Origin != originProject || hostedID(run.ID) {
-		return nil
-	}
-	ag := projAg()
-	if ag == nil || !ag.db.features {
-		return nil
-	}
-	if _, _, ok := coordOf(ag.db, run); !ok {
-		return nil
-	}
-	var out []toolSpec
+// projToolFunc is one of the project coordinator's tools: the kit resolved
+// run as p's live coordinator before it runs.
+type projToolFunc func(ctx context.Context, ag *Agent, run *Run, p *Project, args map[string]any) (string, error)
+
+// projCoordRun is what runs each of coordToolSpecs' tools (research runs
+// through execTools: projects_coord_research.go).
+var projCoordRun = map[string]projToolFunc{
+	"task_create": func(ctx context.Context, ag *Agent, run *Run, p *Project, args map[string]any) (string, error) {
+		return ag.coordCreate(ctx, run, p, args)
+	},
+	"task_list": func(ctx context.Context, ag *Agent, _ *Run, p *Project, args map[string]any) (string, error) {
+		return ag.coordList(ctx, p, args)
+	},
+	"task_status": func(_ context.Context, ag *Agent, _ *Run, p *Project, args map[string]any) (string, error) {
+		return ag.coordStatus(p, args)
+	},
+	"task_message": func(_ context.Context, ag *Agent, _ *Run, p *Project, args map[string]any) (string, error) {
+		return ag.coordMessage(p, args)
+	},
+	"task_result": func(_ context.Context, ag *Agent, _ *Run, p *Project, args map[string]any) (string, error) {
+		return ag.coordResult(p, args)
+	},
+	"task_cancel": func(_ context.Context, ag *Agent, run *Run, p *Project, args map[string]any) (string, error) {
+		return ag.coordCancel(run, p, args)
+	},
+	"task_retry": func(_ context.Context, ag *Agent, run *Run, p *Project, args map[string]any) (string, error) {
+		return ag.coordRetry(run, p, args)
+	},
+	"scm_pr": func(ctx context.Context, ag *Agent, _ *Run, p *Project, args map[string]any) (string, error) {
+		return ag.coordPR(ctx, p, args)
+	},
+	"scm_issues": func(ctx context.Context, ag *Agent, _ *Run, p *Project, args map[string]any) (string, error) {
+		return ag.coordIssues(ctx, p, args)
+	},
+	"project_goal": func(_ context.Context, ag *Agent, run *Run, p *Project, args map[string]any) (string, error) {
+		return ag.coordGoalTool(run, p, args)
+	},
+	"task_link_pr": func(ctx context.Context, ag *Agent, _ *Run, p *Project, args map[string]any) (string, error) {
+		return ag.coordLinkPR(ctx, p, args)
+	},
+	"task_refresh": func(ctx context.Context, ag *Agent, _ *Run, p *Project, args map[string]any) (string, error) {
+		return ag.coordRefresh(ctx, p, args)
+	},
+}
+
+// projCoordTools are coordToolSpecs' tools as the project profile registers
+// them, in the order they are offered: each with what runs it and whether
+// it changes something.
+func projCoordTools() []coordTool {
+	var out []coordTool
 	for _, s := range coordToolSpecs() {
-		if !cfg.denied(s.Function.Name) {
-			out = append(out, s)
+		name := s.Function.Name
+		t := coordTool{Spec: s, Write: projCoordWrites[name]}
+		if f := projCoordRun[name]; f != nil {
+			t.Run = func(ctx context.Context, ag *Agent, c coordCall) (string, error) {
+				return f(ctx, ag, c.Run, c.Scope.(*Project), c.Args)
+			}
+		} else if name == "research" {
+			t.Engine = (*Engine).researchTool
 		}
+		out = append(out, t)
 	}
 	return out
-}
-
-// coordArgs decodes a tool call's arguments into v.
-func coordArgs(args map[string]any, v any) error {
-	b, err := json.Marshal(args)
-	if err != nil {
-		return err
-	}
-	if err := json.Unmarshal(b, v); err != nil {
-		return fmt.Errorf("the arguments don't fit the tool's parameters: %v", err)
-	}
-	return nil
-}
-
-// runCoordTool runs one of the coordinator's tools, after resolving the
-// coordinator again.
-func (ag *Agent) runCoordTool(ctx context.Context, run *Run, cfg Config, name string, args map[string]any) (string, error) {
-	p, err := ag.coordinatorOf(ag.db, run, cfg)
-	if err != nil {
-		return "", err
-	}
-	switch name {
-	case "task_create":
-		return ag.coordCreate(ctx, run, p, args)
-	case "task_list":
-		return ag.coordList(ctx, p, args)
-	case "task_status":
-		return ag.coordStatus(p, args)
-	case "task_message":
-		return ag.coordMessage(p, args)
-	case "task_result":
-		return ag.coordResult(p, args)
-	case "task_cancel":
-		return ag.coordCancel(run, p, args)
-	case "task_retry":
-		return ag.coordRetry(run, p, args)
-	case "scm_pr":
-		return ag.coordPR(ctx, p, args)
-	case "scm_issues":
-		return ag.coordIssues(ctx, p, args)
-	case "project_goal":
-		return ag.coordGoalTool(run, p, args)
-	case "task_link_pr":
-		return ag.coordLinkPR(ctx, p, args)
-	case "task_refresh":
-		return ag.coordRefresh(ctx, p, args)
-	}
-	return "", fmt.Errorf("unknown tool %q", name)
 }
 
 // --- task_create ------------------------------------------------------------------------------
@@ -366,8 +346,9 @@ func coordErrWords(err error) string {
 
 // --- what a task looks like to the coordinator -----------------------------------------------------
 
-// coordStateWords are the task states in the coordinator's words.
-var coordStateWords = map[string]string{
+// coordStateWords are the task states in the coordinator's words (the
+// project profile's Words).
+var coordStateWords = coordStates{
 	taskQueued: "queued", taskPreparing: "queued (its workspace is being prepared)", taskSignin: "waiting for a person (to sign in)",
 	taskWorking: "working", taskNeedsYou: "needs a person (a question or approval waits, or its turn ended with its answer ready)", taskCI: "awaiting CI", taskCIFailed: "CI failed",
 	taskAwaitingReview: "awaiting review", taskCIPassed: "CI passed, awaiting review", taskMerged: "merged", taskClosed: "closed", taskDone: "done", taskFailed: "failed",
@@ -646,7 +627,7 @@ func (ag *Agent) coordMessage(p *Project, args map[string]any) (string, error) {
 		return "", err
 	}
 	switch {
-	case run.Status == statusWaiting: // held (HoldPark): only a person answers what it asks
+	case coordHolds(run.Status): // held (HoldPark): only a person answers what it asks
 		return ag.db.coordHeldWords(k.N, run), nil
 	case holdsSlot(run.Status):
 		return fmt.Sprintf("sent to task #%d: it reads it at its next step", k.N), nil
