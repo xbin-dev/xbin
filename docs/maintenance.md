@@ -707,6 +707,12 @@ VM health and the VM policy, `limits` for every tile's resource limits
 (D203: a thin wrapper around `<bx-limits-table>` from
 `/vendor/limits-table.js`, which the `/xbin/limits` page and the shell's ⚙
 share; an org's ceilings are `<bx-org-limits>` on its `orgs` page),
+`llm` for the LLM connector (D226: a thin wrapper around `<bx-llm-admin>`
+from `/vendor/llm-admin.js`, which the `/xbin/llm` page shares — its words
+in `/vendor/llm-kit.js`, every call in `/vendor/llm-client.js`; a person's
+quota is `<bx-llm-quota standalone>` in `users`, an org's on its `orgs`
+page, both asking `hasLLM()` first; the setup card is `alertBar`'s drawing
+of the `llm-setup` alert, in `shared.js`),
 `deployments` for every tile's deployment
 record and a tile manager's protect / reassign / deliveries / alwaysOn — its
 words and confirmations imported from `/vendor/deploy-state.js` and
@@ -982,6 +988,27 @@ list didn't predict. Without `bin/tunnelpair` or a sidecar the real halves
 `SKIP`, said so. `pairing` serves `web/devices.html` itself when xbind
 doesn't. `devices` gives the admin an own limit of 3 for its two classic
 devices (the workspace default is 1, D204) and clears it after.
+`llm` covers the LLM connector's UI (D226) end to end against the real API,
+with `hack/fakeopenai` as the one provider: `run.sh` starts the harness
+xbind with a deployment file (`XBIN_LLM_CONFIG=$HARNESS_DIR/llm-host.jsonc`,
+written empty — it sets and locks nothing — so no other pass is affected),
+and the pass writes a host's settings into it for its locks half (xbind
+reads a changed file again) and empties it after. The seed dismisses the
+setup card for the workspace, or it would sit on every admin page of every
+pass; `llm` re-arms it by removing `data/llm/setup.json` and dismisses it
+again — on a workspace whose connector was configured before (a `--shots`
+rerun) that half `SKIP`s, said so, as the card is then gone for good. It
+adds a provider through the form and checks the key is nowhere on the page
+afterwards (text, attributes, field values), runs Test, saves the default
+model, the people switch and three quotas, has dev1 call until an org's
+warning limit and then the default's stopping one are reached (limits are
+set relative to what was already counted today, so a rerun holds), reads
+the alerts, the usage tables and dev1's own page, and drives the admin
+console's tab and its users and organisations quota rows. Run it in both
+themes; it leaves the connector unconfigured. `oldScaffold` also checks
+that the last release's shell and admin console show the setup alert's
+words — `/xbin/llm` in them — with no tab and no card, and that the page
+works beside them.
 
 ```
 hack/ui-harness/run.sh                    # build, fresh workspace, seed, every pass, stop

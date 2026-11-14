@@ -31,6 +31,7 @@ function register(P) {
   P.projectsNeeds = require('./passes/projectsneeds').projectsNeeds; // #56: Waiting for you atop a project's page (a task's question, the coordinator's, a failure), Open, the list's badge split — light and dark, the project's routes stubbed
   P.projectWiki = require('./passes/projectwiki').projectWiki; // D222: a project's Wiki tab — the pages, a link, New page, two writers (the conflict's words, Reload), history's diff; light and dark (mocked project routes)
   P.projectWizard = require('./passes/projectwizard').projectWizard; // D223: the new-project wizard — the step header, Next saying why, the repo combobox, Name from the repo, the starter, Review; light and dark (mocked project routes)
+  P.llm = require('./passes/llm').llm; // D226: the LLM connector — the setup card, /xbin/llm (a provider and its key, Test, models, quotas, usage, alerts), a non-admin's own page, the host's locks, the admin console's tab and quota rows; light and dark
 }
 
 module.exports = { register };
