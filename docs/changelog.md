@@ -73,6 +73,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   lines in the scaffold's `shell/route.js` and `shell/shell-route.js`
   (`bx builtin update`); an older shell treats the link as a link to the
   tile, and `xbin.openSession` still works for a tile on the page.
+- **Admin console: agent rules.** The organisations tab gained an
+  **agents** panel on each org's page and one for the workspace's bounds
+  under the list (new scaffold file `tiles/admin/tabs/org-agents.js`;
+  `bx builtin update`). `bx org agents` and the API do the same for a
+  workspace whose console predates it.
 - **docs: the protocol reference is split by topic.** `/docs/protocol.md`
   had reached the size limit of a served doc, so its route tables and
   WebSocket sections moved, unchanged, to one page per area under

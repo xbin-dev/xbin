@@ -1517,7 +1517,7 @@ a tile agent session without asking (default: it asks) and with which mode,
 network and tile-API access. Only the person's own session reads or writes
 them — never a tile, a terminal, an agent session, the root token or
 view-as — and the workspace agent is handed them by xbind and can't change
-them. `bx org agents` and
+them. `bx org agents`, the admin console's organisations tab and
 [protocol/orgs.md](/docs/protocol/orgs.md) §Agent constraints have the
 detail.
 
