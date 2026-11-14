@@ -158,6 +158,18 @@ func (s *Service) Offer(ctx context.Context, user, component string, models bool
 	return o, true
 }
 
+// ResolveModel says what a model id ("<upstream>/<model>", an alias, a
+// role's name) is under the configuration in force: its upstream, the
+// upstream's own name for it, and whether that upstream is marked private.
+// false for an id nothing resolves.
+func (s *Service) ResolveModel(id string) (upstream, model string, private, ok bool) {
+	u, m, err := s.current().resolve(id)
+	if err != nil {
+		return "", "", false, false
+	}
+	return u.Name, m, u.Private, true
+}
+
 // extraInt is the first of names an upstream's model object carries as a
 // positive whole number.
 func extraInt(m sdkllm.Model, names ...string) int {

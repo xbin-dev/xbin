@@ -737,7 +737,7 @@ export class BxAgent extends LitElement {
       ${prov?.modes?.length ? html`<select title="mode" @change=${(e) => { this._mode = e.target.value; this._modePicked = true; }}>
         ${prov.modes.map((m) => html`<option value=${m.id} ?selected=${m.id === this._curMode()}>${m.name}${m.explicit ? ' (caution)' : ''}</option>`)}
       </select>` : nothing}
-      ${llmHint(prov) ? html`<span class="hint" title=${prov.llm.note || ''}>${llmHint(prov)}</span>` : nothing}
+      ${llmHint(prov) ? html`<span class="hint" title=${prov.llm.reason || prov.llm.note || ''}>${llmHint(prov)}${prov.llm.reason ? ` — ${prov.llm.reason}` : ''}</span>` : nothing}
     </div>`;
   }
 

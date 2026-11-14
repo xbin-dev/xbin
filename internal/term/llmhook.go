@@ -80,26 +80,20 @@ type LLMOffer struct {
 	Models []sdkacp.ConnectorModel
 }
 
-// CredentialRule is the credential mode in force for one person's agent
-// session of one harness on one tile, and the connector models it may use:
-// what the agents policy answers (D229).
+// CredentialRule is who serves one agent session's model calls, as the
+// agents policy answers it (D229: the broker's AgentSessionLLM).
 type CredentialRule struct {
-	// Mode: CredOwnFirst (and ""), CredOwn, CredConnector or
-	// CredConnectorFirst, CredConnectorOnly.
-	Mode string
-	// Models, when not nil, are the only connector models the session may
-	// be given ("<upstream>/<model>"); nil: any.
-	Models []string
+	// Use: sdkacp.UseOwn, UseConnector or UseOwnFirst (and "") — the
+	// workspace's mode with the person's saved choice for the harness and
+	// the session's own applied.
+	Use string
+	// Forced: the connector alone serves, whatever anyone chose (the
+	// workspace's connector-only, or a model rule of one of the tile's
+	// orgs). Reason says which rule, for a person to read ("Finance allows
+	// private models only"); "" when the workspace's own mode is the reason.
+	Forced bool
+	Reason string
 }
-
-// The credential modes.
-const (
-	CredOwnFirst       = "own-first"       // the person's own sign-in when the session finds one, else the connector
-	CredOwn            = "own"             // their own sign-in (their saved choice)
-	CredConnector      = "connector"       // the connector (their saved choice, or the workspace's default)
-	CredConnectorFirst = "connector-first" // the same, as a workspace default: the connector unless a session says own
-	CredConnectorOnly  = "connector-only"  // the connector and nothing else: not a session's to override
-)
 
 // kindLaunch is the kind Offer is asked with for a launcher's listing and a
 // choice's check: what an agent session would get, without the model list
@@ -114,12 +108,13 @@ type LLMHook struct {
 	// at it with a key of the session's own. nil ⇒ sessions get nothing of
 	// it — exactly as before.
 	LLM LLMConnector
-	// Credentials answers the credential rule in force for a person (user
-	// id; "" the root token) opening an agent session of harness on tile:
-	// their saved default, the workspace's, what the tile's orgs force —
-	// the agents policy's one answer (D229; boot wires it). nil ⇒ own-first,
-	// any model.
-	Credentials func(userID, tile, harness string) CredentialRule
+	// Credentials answers who serves the model calls of an agent session of
+	// harness that a person (user id; "" the root token) opens on tile
+	// stating choice ("" none, "own", "connector"): their saved choice, the
+	// workspace's mode, what the tile's orgs force — the agents policy's
+	// one answer (D229; boot points it at the broker's AgentSessionLLM).
+	// nil ⇒ the choice, else own-first; nothing forced.
+	Credentials func(userID, tile, harness, choice string) CredentialRule
 
 	llmSeen llmLogins // which providers each home was last found signed in to
 }
@@ -206,57 +201,35 @@ func llmUser(o openOpts) string {
 // session but an isolated one with no network.
 func (m *Manager) llmReach(o openOpts) bool { return !m.Isolate || o.netHost || o.net != NetNone }
 
-// credentialRule is the rule in force for a new agent session — the one
-// place sessions ask the agents policy.
-func (m *Manager) credentialRule(o openOpts, rel, harness string) CredentialRule {
-	if m.Credentials == nil {
-		return CredentialRule{Mode: CredOwnFirst}
+// credentialRule is who serves a new agent session that states choice —
+// the one place sessions ask the agents policy.
+func (m *Manager) credentialRule(o openOpts, rel, harness, choice string) CredentialRule {
+	if m.Credentials != nil {
+		return m.Credentials(o.userID, rel, harness, choice)
 	}
-	return m.Credentials(o.userID, rel, harness)
+	if choice == sdkacp.UseOwn || choice == sdkacp.UseConnector {
+		return CredentialRule{Use: choice}
+	}
+	return CredentialRule{Use: sdkacp.UseOwnFirst}
 }
 
-// llmRule is what the agent host is told to settle: the rule, with the
-// session's own choice over it unless the rule is the connector alone.
-func llmRule(choice string, r CredentialRule) string {
+// rule is what the agent host is told to settle.
+func (r CredentialRule) rule() string {
 	switch {
-	case r.Mode == CredConnectorOnly:
+	case r.Forced, r.Use == sdkacp.UseConnector:
 		return sdkacp.UseConnector
-	case choice == sdkacp.UseOwn || choice == sdkacp.UseConnector:
-		return choice
-	case r.Mode == CredOwn:
+	case r.Use == sdkacp.UseOwn:
 		return sdkacp.UseOwn
-	case r.Mode == CredConnector || r.Mode == CredConnectorFirst:
-		return sdkacp.UseConnector
 	}
 	return sdkacp.UseOwnFirst
 }
 
-// allowed narrows an offer to the models a rule allows: the list, and the
-// default — the offered one when allowed, else the first allowed.
-func (o LLMOffer) allowed(models []string) LLMOffer {
-	if models == nil {
-		return o
-	}
-	var keep []sdkacp.ConnectorModel
-	for _, m := range o.Models {
-		if slices.Contains(models, m.ID) {
-			keep = append(keep, m)
-		}
-	}
-	o.Models = keep
-	switch {
-	case slices.Contains(models, o.Model):
-	case len(keep) > 0:
-		o.Model = keep[0].ID
-	case len(models) > 0:
-		o.Model = models[0]
-	default:
-		o.Model = ""
-	}
-	return o
-}
+// LLMWhyNot is why prov can't run on the connector under offer ("" = it
+// can): the answer for a session's gate, a launcher's listing and the
+// agents policy's question whether a harness can run where the connector
+// alone may serve (the broker's AgentConnector).
+func LLMWhyNot(prov agent.Provider, offer LLMOffer) string { return llmWhyNot(prov, offer) }
 
-// llmWhyNot is why prov can't run on the connector under offer ("" = it can).
 func llmWhyNot(prov agent.Provider, offer LLMOffer) string {
 	switch k := prov.Connector; {
 	case k == nil:
@@ -287,33 +260,37 @@ func (m *Manager) llmNoKey(o openOpts) string {
 // against what can be had, and keeps it in o: "" (the rule decides),
 // "connector" or "own". Asking for the connector where it can't serve is
 // refused with why (409) — a choice is never silently dropped — and so is
-// a session the rule gives the connector alone (CredConnectorOnly) when it
-// asks for its own sign-in or the connector can't serve it (403: the rule
-// stands, the session doesn't open). The int is the refusal's HTTP status.
+// a session the policy gives the connector alone when it asks for its own
+// sign-in or the connector can't serve it (403: the rule stands, the
+// session doesn't open). The int is the refusal's HTTP status.
 func (m *Manager) llmGate(o *openOpts, rel string, prov agent.Provider, choice string) (int, error) {
 	switch choice {
 	case "", sdkacp.UseOwn, sdkacp.UseConnector:
 	default:
 		return 400, fmt.Errorf("llm: %q — connector or own", choice)
 	}
-	only := m.credentialRule(*o, rel, prov.ID).Mode == CredConnectorOnly
-	if choice != sdkacp.UseConnector && !only {
+	rule := m.credentialRule(*o, rel, prov.ID, choice)
+	if choice != sdkacp.UseConnector && !rule.Forced {
 		o.llmChoice = choice
 		return 0, nil
 	}
 	code, lead := 409, ""
-	if only {
-		code, lead = 403, "this tile's rules let "+prov.Name+" run on the workspace's LLM connector only, and "
-		if choice == sdkacp.UseOwn {
-			return 403, errors.New("this tile's rules let " + prov.Name + " run on the workspace's LLM connector only, not on your own sign-in")
+	if rule.Forced {
+		code, lead = 403, "This workspace runs coding agents on its LLM connector only"
+		if rule.Reason != "" {
+			lead = rule.Reason + ", so a coding agent here runs on the workspace's LLM connector"
 		}
+		if choice == sdkacp.UseOwn {
+			return 403, errors.New(lead + " — not on your own sign-in")
+		}
+		lead += " — and "
 	}
 	why := ""
 	if m.LLM == nil {
 		why = "this workspace has no LLM connector configured (a workspace admin adds an upstream: bx llm upstream add)"
 	} else if offer, ok := m.LLM.Offer(context.Background(), llmUser(*o), rel, kindLaunch); !ok || !offer.Agents {
 		why = "the workspace's LLM connector is not offered to agent sessions (not configured, or switched off)"
-	} else if w := llmWhyNot(prov, offer.allowed(m.credentialRule(*o, rel, prov.ID).Models)); w != "" {
+	} else if w := llmWhyNot(prov, offer); w != "" {
 		why = w
 	} else if w := m.llmNoKey(*o); w != "" {
 		why = "the workspace's LLM connector can't serve this session: " + w
@@ -350,9 +327,7 @@ func (m *Manager) llmArm(o *openOpts, rel string, prov *agent.Provider, revokeTo
 		if !offer.Agents {
 			return revokeTok
 		}
-		rule := m.credentialRule(*o, rel, prov.ID)
-		l.offer = offer.allowed(rule.Models)
-		l.rule = llmRule(o.llmChoice, rule)
+		l.rule = m.credentialRule(*o, rel, prov.ID, o.llmChoice).rule()
 		why, noKey := llmWhyNot(*prov, l.offer), m.llmNoKey(*o)
 		switch {
 		case why != "":
@@ -563,6 +538,11 @@ type ProviderLLM struct {
 	// not, when it could in principle.
 	Connector bool   `json:"connector"`
 	Note      string `json:"note,omitempty"`
+	// Forced: the connector alone may serve a session here, whatever the
+	// person chose; Reason names the rule that says so, when one of the
+	// tile's orgs does ("Finance allows private models only").
+	Forced bool   `json:"forced,omitempty"`
+	Reason string `json:"reason,omitempty"`
 	// SignedIn: whether the person's home had a sign-in of this provider
 	// when an agent session last looked; absent before any did.
 	SignedIn *bool `json:"signedIn,omitempty"`
@@ -583,9 +563,9 @@ func (m *Manager) AgentLLM(userID, homeKey, tile string, provs []agent.Provider)
 	out := map[string]*ProviderLLM{}
 	for _, prov := range provs {
 		row := &ProviderLLM{}
-		cr := m.credentialRule(o, tile, prov.ID)
-		why := llmWhyNot(prov, offer.allowed(cr.Models))
-		row.Connector = why == ""
+		cr := m.credentialRule(o, tile, prov.ID, "")
+		why := llmWhyNot(prov, offer)
+		row.Connector, row.Forced, row.Reason = why == "", cr.Forced, cr.Reason
 		if prov.Connector != nil {
 			row.Note = why
 		}
@@ -593,9 +573,9 @@ func (m *Manager) AgentLLM(userID, homeKey, tile string, provs []agent.Provider)
 		if known {
 			row.SignedIn = &signedIn
 		}
-		rule := llmRule("", cr)
+		rule := cr.rule()
 		switch {
-		case !row.Connector && cr.Mode == CredConnectorOnly:
+		case !row.Connector && cr.Forced:
 			row.Use = "unavailable"
 		case !row.Connector && known && !signedIn:
 			row.Use = "signin"

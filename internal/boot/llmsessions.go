@@ -2,7 +2,11 @@ package boot
 
 import (
 	"context"
+	"errors"
 
+	"github.com/xbin-dev/xbin/internal/agent"
+	"github.com/xbin-dev/xbin/internal/agentpolicy"
+	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/llm"
 	"github.com/xbin-dev/xbin/internal/term"
 	sdkacp "github.com/xbin-dev/xbin/sdk/acp"
@@ -44,21 +48,52 @@ func (l llmSessions) Mint(user, tile, label string, refused func(status int, cod
 	return tok, func() { stop(); revoke() }, nil
 }
 
-// agentCredentials is the credential rule in force for a person opening an
-// agent session of harness on tile (term.Manager.Credentials) — THE one
-// place sessions ask the agents policy (D229): today the person's saved
-// default for the harness over the workspace's credentials default, which
-// when it is "connector" is not theirs to override. The policy package's
-// one function for (person, tile, harness) — the three modes, an org's
-// allowed models — takes this function's place when it lands.
-func (st *State) agentCredentials(userID, tile, harness string) term.CredentialRule {
-	saved := ""
-	if srv := st.Server; srv != nil && srv.AgentPrefs != nil && userID != "" {
-		saved = srv.AgentPrefs.Get(userID).Harnesses[harness].Credentials
+// agentCredentials is who serves an agent session's model calls
+// (term.Manager.Credentials): the agents policy's one answer for (person,
+// tile, harness), with the session's own choice applied (D229).
+func (st *State) agentCredentials(userID, tile, harness, choice string) term.CredentialRule {
+	s := st.Broker.AgentSessionLLM(userID, tile, harness)
+	return term.CredentialRule{Use: s.Choose(choice), Forced: s.Forced, Reason: s.Reason}
+}
+
+// agentConnector answers the policy's question whether a harness can run on
+// the LLM connector (broker.AgentConnector; nil: it can) — from the
+// provider table and what the connector serves now. Where a tile's
+// sessions must run on the connector, a harness that can't doesn't start.
+func (l llmSessions) agentConnector(harness string) error {
+	prov, ok := agent.Lookup(harness)
+	if !ok {
+		return errors.New("it is not a coding agent this xbind knows")
 	}
-	use, forced := st.Broker.AgentCredentials("", saved)
-	if forced {
-		return term.CredentialRule{Mode: term.CredConnectorOnly}
+	offer, ok := l.Offer(context.Background(), "", "", "")
+	if !ok || !offer.Agents {
+		return errors.New("the workspace's LLM connector is not set up for agent sessions (a workspace admin adds an upstream: bx llm upstream add)")
 	}
-	return term.CredentialRule{Mode: use} // own-first | own | connector
+	if why := term.LLMWhyNot(prov, offer); why != "" {
+		return errors.New(why)
+	}
+	return nil
+}
+
+// agentModel answers what the connector knows of a model id
+// (broker.AgentModels): its upstream and whether that upstream is private —
+// what an org's "private models only" asks.
+func (l llmSessions) agentModel(id string) (agentpolicy.ModelRef, bool) {
+	up, model, private, ok := l.svc.ResolveModel(id)
+	return agentpolicy.ModelRef{Upstream: up, Model: model, Private: private}, ok
+}
+
+// llmCallPolicy is the connector's CallPolicy: a call made for a tile — a
+// bound tile's own, or one with a key minted for a session or a harness on
+// it — may use only the models the tile's orgs and the workspace allow
+// (the broker's AgentCallAllows). The tile rides the key's grant, so a key
+// of a session on a tile that allows private models only can't call
+// another, whatever its CLI asks for.
+func llmCallPolicy(brk *broker.Broker) llm.CallPolicy {
+	return func(c llm.Caller, u llm.UpstreamInfo, model string) error {
+		if c.Component == "" {
+			return nil
+		}
+		return brk.AgentCallAllows(c.Component, agentpolicy.ModelRef{Upstream: u.Name, Model: model, Private: u.Private})
+	}
 }

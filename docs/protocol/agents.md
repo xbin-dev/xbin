@@ -117,7 +117,7 @@ GET    /agent/providers?cwd=<tile>
                                    one the rows are exactly the catalog's)
                                    says what a session of the caller's
                                    would run on: {use, connector, note?,
-                                   signedIn?} — use: "connector" (the
+                                   forced?, reason?, signedIn?} — use: "connector" (the
                                    workspace's LLM connector), "own" (the
                                    person's own sign-in), "own-first"
                                    (their own sign-in when the session
@@ -131,7 +131,12 @@ GET    /agent/providers?cwd=<tile>
                                    is refused); connector: whether the
                                    connector can serve this harness (note:
                                    why not, when it could in principle);
-                                   signedIn: whether the person's home held
+                                   forced: the agents policy gives sessions
+                                   here the connector alone (the
+                                   workspace's connector-only, or a model
+                                   rule of one of the tile's orgs — reason
+                                   says which: "Finance allows private
+                                   models only"); signedIn: whether the person's home held
                                    a sign-in of it when an agent session
                                    last looked (absent before any did). A
                                    hint for a launcher: the session itself

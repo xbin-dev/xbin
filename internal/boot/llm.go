@@ -36,7 +36,9 @@ func (st *State) setupLLM(srv *server.Server) error {
 		Vault: brk.Barrier(), AllowPlaintext: brk.AllowInsecureVault,
 		IsAdmin: brk.IsAdmin, AdminShell: brk.AdminShell,
 		Bound: brk.LLMBound, // the binding is the authorization, asked per call
-		Edge:  brk.LLMEdge,  // …and a non-primary deployment uses it by the tile's edge policy
+		// a call made for a tile uses only the models its orgs allow (D229)
+		Policy: llmCallPolicy(brk),
+		Edge:   brk.LLMEdge, // …and a non-primary deployment uses it by the tile's edge policy
 		// an LLM key stands while its person exists, is enabled and can
 		// still open the tile it was minted for
 		KeyOwner: func(user, component string) bool {
@@ -76,6 +78,9 @@ func (st *State) setupLLM(srv *server.Server) error {
 		st.Term.LLM = llmSessions{svc}
 		st.Term.Credentials = st.agentCredentials
 	}
+	// the agents policy's two questions of the connector (D229): can this
+	// harness run on it, and what is this model (its upstream, private?)
+	brk.AgentConnector, brk.AgentModels = llmSessions{svc}.agentConnector, llmSessions{svc}.agentModel
 	brk.LLMOffered = svc.Configured // pickers offer xbin:llm once an upstream exists
 	// LLM keys end with what they were minted under: a person signed out
 	// everywhere, disabled or deleted; a tile's binding to the connector

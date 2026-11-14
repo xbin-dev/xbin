@@ -183,7 +183,7 @@ export class Fold {
 // llmHint(p): what a session of provider p would run on, in a few words —
 // from the row's `llm` (GET /agent/providers, D226: only while the
 // workspace's LLM connector is offered to agent sessions); '' otherwise.
-export const llmHint = (p) => ({ connector: 'LLM by xbin', 'own-first': 'your sign-in, else LLM by xbin', own: 'your sign-in', signin: 'needs a sign-in' })[p?.llm?.use] || '';
+export const llmHint = (p) => ({ connector: 'LLM by xbin', 'own-first': 'your sign-in, else LLM by xbin', own: 'your sign-in', signin: 'needs a sign-in', unavailable: "can't run here" })[p?.llm?.use] || '';
 
 // the status digest: status/detail/currentMode/options/modes/commands each
 // from the last status that carried it, last = the last status's data (its

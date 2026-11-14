@@ -82,14 +82,24 @@ func (f *fakeLLM) minted() int {
 	return f.n
 }
 
-// rules is a Manager.Credentials that answers one rule for everyone, and
-// another for the keys it holds ("user/harness").
-func rules(dflt CredentialRule, per map[string]CredentialRule) func(userID, tile, harness string) CredentialRule {
-	return func(userID, tile, harness string) CredentialRule {
-		if r, ok := per[userID+"/"+harness]; ok {
-			return r
+// policy is a Manager.Credentials as the agents policy answers: a mode for
+// everyone (own-first | connector-first | connector-only), people's saved
+// choices by "user/harness", and the session's own choice over both unless
+// the mode is connector-only (forced, with why).
+func policy(mode, reason string, saved map[string]string) func(userID, tile, harness, choice string) CredentialRule {
+	return func(userID, tile, harness, choice string) CredentialRule {
+		if mode == "connector-only" {
+			return CredentialRule{Use: sdkacp.UseConnector, Forced: true, Reason: reason}
 		}
-		return dflt
+		for _, c := range []string{choice, saved[userID+"/"+harness]} {
+			if c == sdkacp.UseOwn || c == sdkacp.UseConnector {
+				return CredentialRule{Use: c}
+			}
+		}
+		if mode == "connector-first" {
+			return CredentialRule{Use: sdkacp.UseConnector}
+		}
+		return CredentialRule{Use: sdkacp.UseOwnFirst}
 	}
 }
 
@@ -189,40 +199,40 @@ func TestAgentLLMAbsent(t *testing.T) {
 	}
 }
 
-// The precedence, each branch: the session's choice, the rule in force for
-// the person (their saved default, the workspace's, an org's) — and
-// own-first's look at the session's $HOME.
+// The precedence, each branch: the session's choice, the person's saved
+// choice, the workspace's mode — and own-first's look at the session's
+// $HOME.
 func TestAgentLLMPrecedence(t *testing.T) {
 	alice := auth.Principal{UserID: "alice", User: &users.User{ID: "alice", Role: "admin"}}
 	for _, c := range []struct {
-		name         string
-		mode, choice string
-		signedIn     bool
-		serves       string
+		name                string
+		mode, saved, choice string
+		signedIn            bool
+		serves              string
 	}{
 		{name: "own-first, no sign-in: the connector", serves: sdkacp.ServeConnector},
-		{name: "own-first, signed in: their own", mode: CredOwnFirst, signedIn: true, serves: sdkacp.ServeOwn},
-		{name: "a rule of the connector, signed in", mode: CredConnector, signedIn: true, serves: sdkacp.ServeConnector},
-		{name: "connector-first is the connector too", mode: CredConnectorFirst, signedIn: true, serves: sdkacp.ServeConnector},
-		{name: "a rule of their own, no sign-in", mode: CredOwn, serves: sdkacp.ServeOwn},
-		{name: "the session's own outranks a rule of the connector", mode: CredConnector, choice: sdkacp.UseOwn, serves: sdkacp.ServeOwn},
-		{name: "the session's connector outranks a rule of their own", mode: CredOwn, choice: sdkacp.UseConnector, signedIn: true, serves: sdkacp.ServeConnector},
-		{name: "the session's connector outranks own-first", choice: sdkacp.UseConnector, signedIn: true, serves: sdkacp.ServeConnector},
-		{name: "connector-only, signed in", mode: CredConnectorOnly, signedIn: true, serves: sdkacp.ServeConnector},
+		{name: "own-first, signed in: their own", mode: "own-first", signedIn: true, serves: sdkacp.ServeOwn},
+		{name: "connector-first, signed in: the connector", mode: "connector-first", signedIn: true, serves: sdkacp.ServeConnector},
+		{name: "a saved choice of own outranks connector-first", mode: "connector-first", saved: sdkacp.UseOwn, serves: sdkacp.ServeOwn},
+		{name: "a saved choice of the connector outranks own-first", saved: sdkacp.UseConnector, signedIn: true, serves: sdkacp.ServeConnector},
+		{name: "the session's own outranks a saved connector", saved: sdkacp.UseConnector, choice: sdkacp.UseOwn, serves: sdkacp.ServeOwn},
+		{name: "the session's connector outranks a saved own", saved: sdkacp.UseOwn, choice: sdkacp.UseConnector, signedIn: true, serves: sdkacp.ServeConnector},
+		{name: "connector-only, signed in and saved as own", mode: "connector-only", saved: sdkacp.UseOwn, signedIn: true, serves: sdkacp.ServeConnector},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r, f := llmRig(t)
 			var asked []string
-			r.m.Credentials = func(userID, tile, harness string) CredentialRule {
-				asked = append(asked, userID+"|"+tile+"|"+harness)
-				return CredentialRule{Mode: c.mode}
+			pol := policy(c.mode, "", map[string]string{"alice/fake": c.saved})
+			r.m.Credentials = func(userID, tile, harness, choice string) CredentialRule {
+				asked = append(asked, userID+"|"+tile+"|"+harness+"|"+choice)
+				return pol(userID, tile, harness, choice)
 			}
 			if c.signedIn {
 				signIn(t, r.root, "alice")
 			}
 			info := r.openLLM(t, alice, AgentOpen{LLM: c.choice})
-			if len(asked) == 0 || asked[0] != "alice|apps/x|fake" {
-				t.Errorf("the rule was asked for %v", asked)
+			if len(asked) == 0 || asked[0] != "alice|apps/x|fake|"+c.choice {
+				t.Errorf("the policy was asked %v", asked)
 			}
 			key, url, model := r.agentEnv(t, info.ID, "XBIN_LLM_KEY"), r.agentEnv(t, info.ID, "XBIN_LLM_URL"), r.agentEnv(t, info.ID, "FAKEACP_LLM_MODEL")
 			row, _ := r.m.Info(info.ID)
@@ -252,12 +262,12 @@ func TestAgentLLMPrecedence(t *testing.T) {
 	}
 }
 
-// A rule of the connector alone is not a session's to override, and a
-// session it can't be kept for doesn't open; the models a rule allows are
-// the only ones a session is given.
+// Where the policy gives a session the connector alone it is not the
+// session's to override, a session it can't be kept for doesn't open, and
+// the reason is the policy's.
 func TestAgentLLMConnectorOnly(t *testing.T) {
 	r, f := llmRig(t)
-	r.m.Credentials = rules(CredentialRule{Mode: CredConnectorOnly, Models: []string{"up/m2", "up/m9"}}, nil)
+	r.m.Credentials = policy("connector-only", "Finance allows private models only", nil)
 	open := func(provider, choice string) (int, error) {
 		info, code, err := r.m.OpenAgentWith(owner, AgentOpen{Cwd: "apps/x", Provider: provider, LLM: choice})
 		if err == nil {
@@ -265,63 +275,42 @@ func TestAgentLLMConnectorOnly(t *testing.T) {
 		}
 		return code, err
 	}
-	if code, err := open("fake", sdkacp.UseOwn); code != 403 || err == nil || !strings.Contains(err.Error(), "not on your own sign-in") {
+	if code, err := open("fake", sdkacp.UseOwn); code != 403 || err == nil || !strings.Contains(err.Error(), "Finance allows private models only") || !strings.Contains(err.Error(), "not on your own sign-in") {
 		t.Errorf("choosing their own under connector-only: %d %v", code, err)
 	}
-	if code, err := open("claude", ""); code != 403 || err == nil || !strings.Contains(err.Error(), "LLM connector only") {
+	if code, err := open("claude", ""); code != 403 || err == nil || !strings.Contains(err.Error(), "Finance allows private models only") {
 		t.Errorf("a harness the connector can't serve: %d %v", code, err)
 	}
 	if code, err := open("gemini", ""); code != 403 || err == nil {
 		t.Errorf("gemini under connector-only: %d %v", code, err)
 	}
-	// the allowed models: the default isn't one of them, so the first allowed is
 	info := r.openLLM(t, owner, AgentOpen{})
-	if model := r.agentEnv(t, info.ID, "FAKEACP_LLM_MODEL"); model != "up/m2" {
-		t.Errorf("the model under an allow-list: %q", model)
+	if row, _ := r.m.Info(info.ID); row.LLM != sdkacp.ServeConnector {
+		t.Errorf("row llm %q", row.LLM)
 	}
 	r.endSession(t, info.ID)
-	// nothing allowed: no model, no connector, no session
-	r.m.Credentials = rules(CredentialRule{Mode: CredConnectorOnly, Models: []string{}}, nil)
+	// no model the tile may use: no connector, no session
+	f.offer.Model = ""
 	if code, err := open("fake", ""); code != 403 || err == nil || !strings.Contains(err.Error(), "no model") {
-		t.Errorf("an empty allow-list: %d %v", code, err)
+		t.Errorf("no model to start on: %d %v", code, err)
 	}
+	f.offer.Model = "up/m1"
 	// the connector gone: the rule still stands
 	f.off = true
 	if code, err := open("fake", ""); code != 403 || err == nil {
 		t.Errorf("connector-only with no connector: %d %v", code, err)
 	}
-	// the listing says so beforehand
+	// the listing says so beforehand, with the policy's reason
 	f.off = false
-	r.m.Credentials = rules(CredentialRule{Mode: CredConnectorOnly}, nil)
 	llm := r.m.AgentLLM("", "owner", "apps/x", agent.Providers())
-	if llm["claude"].Use != "unavailable" || llm["gemini"].Use != "unavailable" || llm["fake"].Use != sdkacp.ServeConnector || llm["opencode"].Use != sdkacp.ServeConnector {
+	if llm["claude"].Use != "unavailable" || llm["gemini"].Use != "unavailable" || llm["fake"].Use != sdkacp.ServeConnector || llm["opencode"].Use != sdkacp.ServeConnector ||
+		!llm["fake"].Forced || llm["fake"].Reason != "Finance allows private models only" {
 		t.Errorf("the listing under connector-only: claude %+v fake %+v", llm["claude"], llm["fake"])
 	}
-}
-
-// LLMOffer.allowed: the list and the default follow a rule's models.
-func TestOfferAllowed(t *testing.T) {
-	o := LLMOffer{Model: "up/m1", Models: []sdkacp.ConnectorModel{{ID: "up/m1"}, {ID: "up/m2"}, {ID: "up/m3"}}}
-	ids := func(o LLMOffer) string {
-		var out []string
-		for _, m := range o.Models {
-			out = append(out, m.ID)
-		}
-		return o.Model + " [" + strings.Join(out, " ") + "]"
-	}
-	for _, c := range []struct {
-		allow []string
-		want  string
-	}{
-		{nil, "up/m1 [up/m1 up/m2 up/m3]"},
-		{[]string{"up/m1", "up/m3"}, "up/m1 [up/m1 up/m3]"},
-		{[]string{"up/m3", "up/m2"}, "up/m2 [up/m2 up/m3]"}, // the default isn't allowed: the first listed that is
-		{[]string{"other/x"}, "other/x []"},                 // none listed (a launcher's offer lists none): the rule's first
-		{[]string{}, " []"},
-	} {
-		if got := ids(o.allowed(c.allow)); got != c.want {
-			t.Errorf("allowed(%v) = %s, want %s", c.allow, got, c.want)
-		}
+	// the workspace's own connector-only: forced, with no org's reason
+	r.m.Credentials = policy("connector-only", "", nil)
+	if code, err := open("fake", sdkacp.UseOwn); code != 403 || err == nil || !strings.Contains(err.Error(), "This workspace runs coding agents on its LLM connector only") {
+		t.Errorf("the workspace's connector-only: %d %v", code, err)
 	}
 }
 
@@ -676,10 +665,10 @@ func TestAgentLLMProviders(t *testing.T) {
 	if got = use(r.m.AgentLLM("bob", "bob", "apps/x", provs)); got["fake"] != sdkacp.UseOwnFirst {
 		t.Errorf("bob: %v", got)
 	}
-	// the rule in force is the connector; bob's rule for codex is his own
-	r.m.Credentials = rules(CredentialRule{Mode: CredConnector}, map[string]CredentialRule{"bob/codex": {Mode: CredOwn}})
+	// the workspace's mode is connector-first; bob saved codex as his own
+	r.m.Credentials = policy("connector-first", "", map[string]string{"bob/codex": sdkacp.UseOwn})
 	if got = use(r.m.AgentLLM("bob", "bob", "apps/x", provs)); got["fake"] != sdkacp.ServeConnector || got["codex"] != sdkacp.ServeOwn || got["claude"] != sdkacp.ServeOwn {
-		t.Errorf("a rule of the connector, bob's codex his own: %v", got)
+		t.Errorf("connector-first, bob's codex saved as his own: %v", got)
 	}
 	// the listing never waits on a provider's model list
 	if slices.Contains(f.kinds[len(f.kinds)-1:], KindAgent) {

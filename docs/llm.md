@@ -258,19 +258,30 @@ connector in its environment. What each harness gets:
 
 1. the session's own choice — `llm: "connector" | "own"` on `POST
    /term/sessions`, `bx agent run --llm`;
-2. the person's saved default for that harness (`credentials` in their
+2. the person's saved choice for that harness (`credentials` in their
    agent preferences, [protocol/agents.md](/docs/protocol/agents.md)
    §Agent preferences);
-3. the workspace's default (`credentials` in the agents policy, `bx org
-   agents --credentials`): `own-first` — the person's own sign-in when the
-   session finds one in their `$HOME` (`opencode auth login`, `codex
-   login`; a provider key in the environment counts), else the connector.
+3. the workspace's credential mode (the agents policy, `bx org agents
+   --credentials`; [auth.md](/docs/auth.md) §Agent constraints):
+   `own-first` (the default) — the person's own sign-in when the session
+   finds one in their `$HOME` (`opencode auth login`, `codex login`; a
+   provider key in the environment counts), else the connector;
+   `connector-first` — the connector, unless a person or a session says
+   their own.
 
-A workspace whose default is `connector` has made it the rule: the
-connector serves, whatever a person is signed in to or a session asks for,
-and a harness the connector can't serve doesn't start (403, with the
-reason). The `agents` switch (`bx llm sessions agents=off`) takes the
-connector away from agent sessions altogether.
+`connector-only` is not a default but a rule: the connector serves,
+whatever a person is signed in to or a session asks for, and a harness the
+connector can't serve doesn't start (403, with the reason). The workspace
+can set it, and **an org's model rule sets it on the org's tiles**: where
+only private models (or a list of them) may see a tile's code, a coding
+agent on its own sign-in would send that code to a model xbind can't see.
+The connector then holds the rule on every call: a session's key carries
+its tile, and a call for a model the tile's orgs don't allow is refused
+(`403 xbin_llm_policy`), whatever the CLI asks for; the models a session is
+offered, and the one it starts on, are the allowed ones.
+
+The `agents` switch (`bx llm sessions agents=off`) takes the connector away
+from agent sessions altogether.
 
 So with `own-first` a person who signed OpenCode in keeps their models as
 the default and gains the connector's in the picker, and a person with no
