@@ -98,7 +98,7 @@ func (h hInbox) nextPrompt() *InboxRow {
 func (h hInbox) replyPrompt() *InboxRow {
 	var own hInbox
 	for _, r := range h.prompt {
-		if r.Body.Source != "parent" {
+		if r.Body.Source != "parent" && r.Body.Source != srcDream { // nor the dream round's: it waits for the person too (project_dream.go)
 			own.prompt = append(own.prompt, r)
 		}
 	}
@@ -306,9 +306,18 @@ func (e *Engine) retryAttach(run int64) time.Duration {
 	n := e.hretry[run]
 	e.hretry[run] = n + 1
 	e.mu.Unlock()
+	e.hretrying.Store(run, struct{}{})
 	d := min(hAttachRetry<<min(n, 10), hAttachRetryMax)
 	e.armTimer(run, e.unix()+int64((d+time.Second-1)/time.Second))
 	return d
+}
+
+// reattaching: run's adapter is still being taken over — an attach its
+// manager didn't answer is to be tried again (a task says so rather than
+// "waiting for a person": projects_coord_waits.go).
+func (e *Engine) reattaching(run int64) bool {
+	_, ok := e.hretrying.Load(run)
+	return ok
 }
 
 // resetAttachRetry: run's adapter is taken over (or stopped) — a later
@@ -317,6 +326,7 @@ func (e *Engine) resetAttachRetry(run int64) {
 	e.mu.Lock()
 	delete(e.hretry, run)
 	e.mu.Unlock()
+	e.hretrying.Delete(run)
 }
 
 // --- prompts ----------------------------------------------------------------------------

@@ -24,7 +24,9 @@
 //   guided sign-in (D179: the CLI runs in the sandbox — open its page, Copy
 //   link, paste the code, Finish; Remember for my other sandboxes in a
 //   person's own partition and sandbox, which mints a saved sign-in the
-//   backend keeps), then the terminal login ("Use a terminal instead"
+//   backend keeps; on a project's task, first "Sign in once for every big
+//   task" — Remember made the default, or a key saved — then "Sign in for
+//   this task only", D221), then the terminal login ("Use a terminal instead"
 //   beside the guided one), an API key in a secure
 //   field (sent once, kept nowhere, never a prop), a device code (a link to
 //   open and the code to copy), the shared-HOME warning with a confirm on a
@@ -46,8 +48,9 @@ import { isHarness, harnessOf, findHarness } from '../model/harness.js';
 import { signIn, methodLabel, runTerminalSrc, isHttps, termsOf, tabLabel, tabHead } from '../model/terminals.js';
 import { homeApi } from '../model/home-api.js';
 import { abovePlace } from './nav.js';
-import { newGuided, guidedStarted, guidedFailed, guidedFinished, guidedWords, cleanCode, nameFor, shownMethods } from '../model/harness-signins.js';
+import { newGuided, guidedStarted, guidedFailed, guidedFinished, guidedWords, cleanCode, nameFor, shownMethods, taskSigninOf } from '../model/harness-signins.js';
 import { access } from '../model/rules.js';
+import { partitionState } from '../model/partition.js';
 import { ext } from './ext.js';
 import { ctx, fail, push, ui } from './ui.js';
 
@@ -146,6 +149,7 @@ function harnessOfView(v) {
   const sb = h.sandbox && h.sandbox.ref ? h.sandbox : null;
   const tt = sb ? app.sbx.terminal(sb.ref, sb.cwd) : null;
   if (c || tt) app.sbx.ensure(c && c.sandbox.ref);
+  if (c && c.task && partitionState() === 'user') app.harness.ensureSignins(); // a task's card offers to save one (taskSigninOf)
   return { h, c, sb, tt };
 }
 
@@ -310,7 +314,7 @@ function signInTpl(s) {
   };
   const remember = !!(g.remember && c.remember.offered);
   const gstart = gstep(async () => {
-    const rem = !!(s.g.remember && c.remember.offered); // as it is now: the name field reports without a repaint
+    const rem = !!(s.g.remember && (c.remember.offered || s.g.def)); // as it is now: the name field reports without a repaint
     const name = String(s.g.name || '').trim();
     s.g = { ...s.g, phase: 'starting', err: '', msg: '' };
     ctx.paint();
@@ -323,7 +327,7 @@ function signInTpl(s) {
     if (!code) { s.g = { ...s.g, err: 'Paste the code the sign-in page shows first.' }; return; }
     s.g = { ...s.g, phase: 'finishing', err: '' };
     ctx.paint();
-    const r = await app.harness.guided(c.run, { code });
+    const r = await app.harness.guided(c.run, { code, ...(s.g.def ? { default: true } : {}) });
     s.g = guidedFinished(s.g, r, c.name);
     if (r && r.saved) app.harness.loadSignins().catch(() => {});
   });
@@ -348,16 +352,48 @@ function signInTpl(s) {
       ${g.phase === 'done' ? html`<notice tone="ok" text=${g.msg}/>` : nothing}
     </section>`;
   };
+  // a project's task (D221, model/harness-signins.js taskSigninOf): sign in ONCE for every big task
+  // first — the guided sign-in with Remember made the default, or a key saved as the default —
+  // then "Sign in for this task only"; where no saved sign-in may go in, why. Once a guided
+  // sign-in is under way, its link, code and Finish (guidedTpl).
+  const taskTpl = () => {
+    if (g.phase !== 'idle' && g.phase !== 'starting') return guidedTpl();
+    const t = taskSigninOf(c, { entry: findHarness(app.harness.catalog, (x.h || {}).provider), st: app.harness.signins });
+    const go = (rem) => { s.g = { ...g, remember: rem, def: rem, name: '' }; return gstart(); };
+    const saveKey = run('save', async () => {
+      const secret = keys.get(s) || '';
+      keys.delete(s);
+      if (!secret) throw new Error(`Paste the ${t.keys[0].label} first.`);
+      await app.harness.saveSignin({ harness: c.provider, secret, isDefault: true });
+      await app.harness.retry(c.run);
+      s.msg = `Saved — ${c.name} starts again with it, and so will every later big task.`;
+    });
+    return html`
+      ${t.primary === 'mint' ? html`<section title=${t.title} footer=${t.hint}>
+        <button role="primary" icon="key" ?disabled=${!!s.busy} ?busy=${g.phase === 'starting' && g.remember} @tap=${s.busy ? nothing : () => go(true)}>${t.title}</button>
+      </section>` : nothing}
+      ${t.primary === 'paste' ? html`<section title=${t.title} footer=${t.hint}>
+        <field kind="secure" label=${t.keys[0].label} placeholder="paste it here" value="" ?disabled=${!!s.busy} submit="go"
+          @input=${(e) => keys.set(s, e.value)} @submit=${saveKey}/>
+        <button role="primary" ?disabled=${!!s.busy} ?busy=${s.busy === 'save'} @tap=${saveKey}>${t.title}</button>
+      </section>` : nothing}
+      ${t.why ? html`<section><notice tone="info" text=${t.why}/></section>` : nothing}
+      ${c.guided ? html`<section title=${t.once.title} footer=${`${t.once.hint} ${c.warn}`}>
+        <button role=${t.primary === 'once' ? 'primary' : nothing} ?disabled=${!!s.busy || needConfirm} ?busy=${g.phase === 'starting' && !g.remember}
+          @tap=${s.busy || needConfirm ? nothing : () => go(false)}>${t.once.title}</button>
+      </section>` : nothing}
+      ${g.err ? html`<section><notice tone="danger" text=${g.err}/></section>` : nothing}`;
+  };
   const METHOD = { terminal: term, 'api-key': key, 'device-code': device };
   return html`<screen title=${`Sign in to ${c.name}`} subtitle=${`in ${c.sandbox.name}`} style="form">
     <toolbar><button icon="refresh" ?busy=${s.busy === 'retry'} @tap=${retry}>Retry</button></toolbar>
-    <section><notice tone="warn" text=${c.goneText || c.warn}/></section>
+    ${c.task && !c.gone ? nothing : html`<section><notice tone="warn" text=${c.goneText || c.warn}/></section>`}
     ${s.err ? html`<section><notice tone="danger" text=${s.err}/></section>` : nothing}
     ${s.msg ? html`<section><notice tone="ok" text=${s.msg}/></section>` : nothing}
     ${c.gone ? nothing : c.ask ? html`<section><notice tone="info" text=${c.ask}/></section>` : html`
       ${c.shared || s.needConfirm ? html`<section footer="Anyone who may use it signs in as you there.">
         <toggle label=${c.confirmLabel} value=${!!s.confirm} @change=${(e) => { s.confirm = !!e.value; ctx.paint(); }}/></section>` : nothing}
-      ${c.guided ? guidedTpl() : nothing}
+      ${c.task ? taskTpl() : c.guided ? guidedTpl() : nothing}
       ${shownMethods(c).map((m) => METHOD[m.kind](m))}`}
     <section footer="Signed in in a terminal, or somewhere else? Retry starts it afresh: it reads the new credentials, and your message is sent again.">
       <button role="primary" ?busy=${s.busy === 'retry'} @tap=${retry}>Signed in? Retry</button>

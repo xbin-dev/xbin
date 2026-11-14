@@ -12,7 +12,8 @@ import (
 
 // The cadence (API.md §scm events and polling): without events every
 // 2 min to 20 min, every 10 to 2 h, every 30 to 24 h, then a waking "lost
-// track of CI"; with healthy events a first read at 30 min, then every 15.
+// track of CI" — while the open PR's pull and comments rows go on every
+// 6 h; with healthy events a first read at 30 min, then every 15.
 func TestPollCadence(t *testing.T) {
 	for _, c := range []struct {
 		age     time.Duration
@@ -67,6 +68,11 @@ func TestPollCadence(t *testing.T) {
 	lost := fx.events(pevNote)
 	if len(lost) != 1 || !lost[0].Wake || !strings.Contains(pevText(lost[0]), "lost track of CI") {
 		t.Fatalf("the note after 24 h: %+v", lost)
+	}
+	for _, kind := range []string{scmPollPull, scmPollComments} {
+		if r := fx.pollRow(1, kind); r == nil || r.Due == 0 || r.Due-r.Last != scmPollBackoff.Milliseconds() {
+			t.Fatalf("the open PR's %s row after a day: %+v", kind, r)
+		}
 	}
 	if n := len(fx.scm.Requests("POST /poll")); n < 64 {
 		t.Fatalf("%d POST /scm/poll for 64 reads", n)
@@ -306,5 +312,109 @@ func (fx *evFx) mustTakePartition(e scmEvent) {
 		return scmTake(t, &e)
 	}); err != nil {
 		fx.t.Fatal(err)
+	}
+}
+
+// An open PR's pull row backs off to every 6 h past a day and never stops:
+// at 61 h it is still read (the merge then seen, no webhook needed); a
+// checks row still gives up at 24 h with its lost note.
+func TestPollOpenPRBacksOffNeverStops(t *testing.T) {
+	fx := newEvFx(t, modeLegacy, "")
+	t0 := fx.now()
+	fx.addTask(1, evBranch, evSHA, TaskPR{Number: 57, HeadSHA: evSHA})
+	open := &scmPull{Number: 57, State: "open", Head: scmRef{Ref: evBranch, SHA: evSHA, Repo: "acme/web"}}
+	fx.scm.AddPull("acme/web", open)
+	fx.scm.SetChecks("acme/web", evSHA, &scmChecks{SHA: evSHA, State: "pending", Checks: []scmCheck{{ID: "1", Status: "in_progress"}}, Statuses: []scmStatus{}})
+	var reads []time.Duration
+	for i := 0; i < 300; i++ {
+		r := fx.pollRow(1, scmPollPull)
+		if r == nil || r.Due == 0 || r.Due > t0+(61*time.Hour).Milliseconds() {
+			break
+		}
+		fx.setNow(r.Due)
+		fx.pass()
+		reads = append(reads, time.Duration(fx.now()-t0)*time.Millisecond)
+	}
+	r := fx.pollRow(1, scmPollPull)
+	if r == nil || r.Due == 0 {
+		t.Fatalf("the open PR's pull row stopped: %+v", r)
+	}
+	var late []time.Duration
+	for i := 1; i < len(reads); i++ {
+		if reads[i-1] >= 24*time.Hour {
+			late = append(late, reads[i]-reads[i-1])
+		}
+	}
+	if len(late) < 5 {
+		t.Fatalf("reads past a day: %v (all %v)", late, reads)
+	}
+	for _, d := range late {
+		if d != 6*time.Hour {
+			t.Fatalf("past a day the pull row reads every %v, want 6h (%v)", d, late)
+		}
+	}
+	if c := fx.pollRow(1, scmPollComments); c == nil || c.Due == 0 {
+		t.Fatalf("the open PR's comments row stopped: %+v", c)
+	}
+	if c := fx.pollRow(1, scmPollChecks); c.Due != 0 {
+		t.Fatalf("the checks row still reads past a day: due %d", c.Due)
+	}
+	if lost := fx.events(pevNote); len(lost) != 1 || !lost[0].Wake || !strings.Contains(pevText(lost[0]), "lost track of CI") {
+		t.Fatalf("the lost note: %+v", lost)
+	}
+	// merged at 61 h with no webhook: the next read sees it
+	fx.scm.mu.Lock()
+	open.State = "merged"
+	fx.scm.mu.Unlock()
+	fx.setNow(r.Due)
+	fx.pass()
+	if k := fx.task(1); k.Phase != phaseMerged || k.taskPRs()[0].State != "merged" || len(fx.events(pevMerged)) != 1 {
+		t.Fatalf("after the merge: phase %s prs %+v", k.Phase, k.taskPRs())
+	}
+	if r := fx.pollRow(1, scmPollPull); r != nil {
+		t.Fatalf("a merged PR is still read: %+v", r)
+	}
+}
+
+// What an older build left — an open PR's pull row stopped after a day,
+// or none made — is re-tracked when the loop starts (and daily): due again,
+// the comments row's since kept; the merge it missed is then seen.
+func TestBootRetracksOrphanedPRs(t *testing.T) {
+	fx := newEvFx(t, modeLegacy, "")
+	fx.addTask(1, "xbin/bchzwo/7-fix-55-tile-agent-can-read-globa", evSHA, TaskPR{Number: 57, HeadSHA: evSHA})
+	fx.addTask(2, "xbin/bchzwo/8-other", evSHA2, TaskPR{Number: 60, HeadSHA: evSHA2})
+	fx.addTask(3, "xbin/bchzwo/9-quiet", evSHA3, TaskPR{Number: 61, HeadSHA: evSHA3}) // reading: left alone
+	d := fx.ag.db
+	since := fx.pollRow(1, scmPollComments).Item.Since
+	_, _ = d.q.Exec(`UPDATE scm_poll SET due_ms=0 WHERE project_id=? AND n=1 AND kind IN (?, ?)`, fx.p.ID, scmPollPull, scmPollComments)
+	_, _ = d.q.Exec(`DELETE FROM scm_poll WHERE project_id=? AND n=2 AND kind IN (?, ?)`, fx.p.ID, scmPollPull, scmPollComments)
+	due3 := fx.pollRow(3, scmPollPull).Due
+	fx.advance(61 * time.Hour)
+	fx.scm.AddPull("acme/web", &scmPull{Number: 57, State: "merged", Head: scmRef{Ref: "xbin/bchzwo/7-fix-55-tile-agent-can-read-globa", SHA: evSHA}})
+	fx.scm.AddPull("acme/web", &scmPull{Number: 60, State: "open", Head: scmRef{Ref: "xbin/bchzwo/8-other", SHA: evSHA2}})
+	fx.scm.AddPull("acme/web", &scmPull{Number: 61, State: "open", Head: scmRef{Ref: "xbin/bchzwo/9-quiet", SHA: evSHA3}})
+	if n := scmRetrack(d); n != 2 {
+		t.Fatalf("re-tracked %d task(s), want 2", n)
+	}
+	r1, r2 := fx.pollRow(1, scmPollPull), fx.pollRow(2, scmPollPull)
+	if r1 == nil || r1.Due == 0 || r2 == nil || r2.Due == 0 || r2.Item.Number != 60 {
+		t.Fatalf("after re-tracking: task 1 %+v, task 2 %+v", r1, r2)
+	}
+	if c := fx.pollRow(1, scmPollComments); c.Due == 0 || c.Item.Since != since {
+		t.Fatalf("task 1's comments row: due %d since %d (was %d)", c.Due, c.Item.Since, since)
+	}
+	if r3 := fx.pollRow(3, scmPollPull); r3.Due != due3 {
+		t.Fatalf("a reading row was moved: %d → %d", due3, r3.Due)
+	}
+	if n := scmRetrack(d); n != 0 {
+		t.Fatalf("re-tracked again: %d", n)
+	}
+	fx.setNow(max(r1.Due, r2.Due))
+	fx.pass()
+	if k := fx.task(1); k.Phase != phaseMerged {
+		t.Fatalf("task 1 after the read: %s %+v", k.Phase, k.taskPRs())
+	}
+	if k := fx.task(2); k.Phase != phasePR {
+		t.Fatalf("task 2 after the read: %s", k.Phase)
 	}
 }

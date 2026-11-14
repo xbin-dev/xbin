@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // loseSandbox drops ref at the fixture's manager as a manager that lost it
@@ -27,8 +28,16 @@ func TestRecreateGoneSandbox(t *testing.T) {
 	fx := newProjFix(t)
 	p := fx.newProject(t, asAlice, map[string]any{"sandbox": map[string]any{"new": map[string]any{"provider": "apps/cs"}}})
 	fx.waitRepoReady(t, p.ID)
-	tv, _ := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "Fix the login page"})
+	tv, runID := fx.newTask(t, asAlice, p.ID, map[string]any{"text": "Fix the login page"})
 	fx.waitWS(t, p.ID, 1, wsReady)
+	// its first turn over and the refs fetch after it done before the
+	// sandbox goes: a refs job that starts after would retry against the
+	// gone sandbox, and the jobs would never go idle
+	hwait(t, "the task's first turn", func() bool {
+		r, err := fx.ag.db.getRun(runID)
+		return err == nil && resting(r.Status) && strings.Contains(fullText(fx.ag.db, runID), "Fix the login page")
+	})
+	fx.waitJobsIdle(t, p.ID)
 	before, _ := fx.ag.db.getProject(p.ID)
 	old := before.SandboxRef
 
@@ -139,9 +148,13 @@ func TestRecreateLiveSandboxNeedsForce(t *testing.T) {
 // refs fetch after a turn, a prepare after a sandbox).
 func (fx *projFix) waitJobsIdle(t *testing.T, pid int64) {
 	t.Helper()
-	hwait(t, "the project's jobs", func() bool {
-		return len(fx.ag.db.jobsWhere(`WHERE project_id=? AND state IN ('queued','running')`, pid)) == 0
-	})
+	deadline := time.Now().Add(30 * time.Second)
+	for len(fx.ag.db.jobsWhere(`WHERE project_id=? AND state IN ('queued','running')`, pid)) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatalf("timed out waiting for the project's jobs:\n%s", jobsDump(fx.ag.db, pid))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // A turn at work in a sandbox that is still there refuses a recreate, force

@@ -267,13 +267,15 @@ export const FEATURES = {
   // Coding agents — guided and saved sign-ins (D179, model/harness-signins.js)
   'harness.login.guided': 'the guided sign-in on the sign-in card: the provider\'s own CLI runs in the sandbox (Claude Code\'s `claude auth login`) — Open sign-in page ↗, Copy link, the code it shows and Finish, a status line in the CLI\'s words, and Use a terminal instead',
   'harness.login.remember': '"Remember for my other sandboxes" on the guided sign-in, with a name: `claude setup-token` instead, its token kept by the backend as a saved sign-in (never shown) — a person\'s own partition and a sandbox of theirs no one else uses only, else why not',
+  'harness.login.task': 'on a project\'s task (D221): "Sign in once for every big task" first — the guided sign-in with Remember, made the coding agent\'s default, or a key pasted and saved as the default — then "Sign in for this task only" with its caveat; where no saved sign-in may go into the task\'s sandbox (a team project\'s shared one, no partitions), why',
   'harness.signins': 'Coding-agent sign-ins (the Coding agents settings): your saved sign-ins per coding agent — what each is, its state (expiring in 14 days, expired, refused), the default; rename, make the default, paste a key or token, Forget; unpartitioned or in the shared space, why there are none',
   'harness.account': 'a coding agent\'s conversation names the account it uses ("using Work", or the sandbox\'s own sign-in) and switches it: the default, another saved sign-in, or the sandbox\'s own — the session resumes with it at the next message',
 
   // Projects (API.md §Projects)
   'proj.entry': 'Projects atop your conversations (Mine, not while searching; above Pinned — D209): your active projects, those with tasks that need you first (at most 5), each with how many need you and a tap to its board, then All projects; it folds (the fold kept in your prefs), and folded it says how many tasks need you',
   'proj.list': 'the projects you may see — yours and team ones — with their state',
-  'proj.new': 'a new project: the scm provider, its repos (a picker of what you can reach), the sandbox (one of yours or a new one) and the policy basics',
+  'proj.new': 'a new project as a wizard, a step at a time (Next says what is missing): the scm provider and its repos (a picker of what you can reach — a choice adds it), the name, the sandbox (one of yours or a new one), the policy basics, the starter work and a review',
+  'proj.new.starter': 'a new project\'s starter work: task #1 clones, builds and runs the tests, then your coordinator builds the initial wiki — each on by default, said in a line, and why not where it can\'t be',
   'proj.upgrade': '"Make this a project…": a conversation with a sandbox and git repos becomes a project, the conversation its first task',
   'proj.board': 'a project\'s board: its tasks by column (queued, working, needs you, PR, done), each with its number, title, state, branch, PR and CI',
   'proj.task.new': 'a new task: what to do, and a title',
@@ -281,7 +283,7 @@ export const FEATURES = {
   'proj.task.size': 'a task\'s size: small (a worktree in the project\'s sandbox) or big (its own sandbox, forked)',
   'proj.task.agent': 'who works on a task: the built-in agent or a coding agent',
   'proj.repos': 'a project\'s repos: add, remove, and each one\'s setup script',
-  'proj.policy': 'a project\'s policy: every key, grouped (tasks, branches and PRs, CI and reviews, ports and setup, big tasks, cleanup, the coordinator)',
+  'proj.policy': 'a project\'s policy: every key, grouped (tasks, branches and PRs, CI and reviews, ports and setup, big tasks, cleanup, the coordinator, the wiki)',
   'proj.members': 'a project\'s members and what team visibility grants (where sharing is possible)',
   'proj.status': 'a project\'s status: its sandbox, repos (fetched, protected), credentials (whose, until when — never the token), jobs and warnings',
   'proj.signin': 'signing in to the scm provider (its device code shown only to you), and Forget',
@@ -300,6 +302,9 @@ export const FEATURES = {
   'proj.overview.chat': 'the coordinator\'s newest messages in a window of fixed height (oldest cut at the top, nothing jumps as one comes), Open chat, and the input to it at the bottom of the page',
   'proj.overview.split': 'a bar between the board and the coordinator shares the height between them (drag or keys; kept per person); on a tall tile the page fits it and the input stays in view',
   'proj.events': 'the project\'s event feed: tasks, PRs, CI and reviews as they happen',
+  'proj.wiki': 'a project\'s wiki: its pages (the index first, search), a page as markdown with [[slug]] links, who changed it and when, its sources',
+  'proj.wiki.edit': 'the wiki by hand: a new page, edit and archive at the version read (a change someone made meanwhile says so: Reload, what you typed kept), history with a version\'s change',
+  'proj.wiki.stats': 'the wiki\'s measures: pages, size, reads per page, versions, dream rounds and their tokens',
   'proj.team': 'a team project: the shared board (others\' tasks without their transcripts), "Work on this" in your own space, reviewing the team\'s changes before they apply, members who left',
   'proj.delete': 'archive or delete a project, keeping or deleting its sandbox, confirmed',
   'top.task.chips': 'a task conversation\'s branch and PR chips (each a link to the platform)',
@@ -334,6 +339,7 @@ export const DIFFERENCES = {
     'composer.attach.paste': 'the app\'s composer owns the pasteboard: an image pasted there is uploaded like a picked one — nothing for the tile to draw',
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',
     'proj.overview.split': 'a project\'s screen is a list: it scrolls as one, the coordinator\'s messages end it and its composer is always docked at the bottom — there is no height to share, so no bar',
+    'proj.wiki.edit': 'the wiki on a phone reads: editing pages of Markdown with a merge on a conflict is the web\'s; agents write it either way',
   },
 };
 

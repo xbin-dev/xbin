@@ -299,6 +299,9 @@ func (ag *Agent) createTask(ctx context.Context, w who, p *Project, s TaskSpec) 
 		addProjectEvent(t, p.ID, n, pevTaskCreated, map[string]any{"text": "created: " + title, "by": w.tag()}, false, "")
 		t.touchProject(p.ID)
 		onTaskChange(t, p, k, "created")
+		if s.InTx != nil {
+			return s.InTx(t, k)
+		}
 		return nil
 	})
 	if err != nil {
@@ -345,8 +348,23 @@ func projectAs(p *Project) string {
 
 // --- what a task looks like --------------------------------------------------------------
 
+// statusAgentLogin is no run's status: taskRunStatus's word for a run
+// parked on its coding agent's sign-in (waiting_input, pending kind login)
+// — what tells taskDerived that apart from a question.
+const statusAgentLogin = "waiting_login"
+
+// taskRunStatus is a task run's status as taskDerived takes it, from the
+// run's status and pending state.
+func taskRunStatus(status, pending string) string {
+	if status == statusWaiting && strings.Contains(pending, `"login"`) && parsePending(pending).Kind == "login" {
+		return statusAgentLogin
+	}
+	return status
+}
+
 // taskDerived is the board column, the task state and whom it waits for,
-// from its row, its run's status, its CI and whether input waits in the queue.
+// from its row, its run's status (taskRunStatus), its CI and whether input
+// waits in the queue.
 func taskDerived(k *ProjectTask, status string, ci *CISummary, queued bool) (col, state, waiting string) {
 	switch k.Phase {
 	case phaseDeleted:
@@ -374,6 +392,8 @@ func taskDerived(k *ProjectTask, status string, ci *CISummary, queued bool) (col
 		return colNeedsYou, taskBlocked, "you"
 	}
 	switch status {
+	case statusAgentLogin:
+		return colNeedsYou, taskAgentSignin, "signin"
 	case statusWaiting:
 		return colNeedsYou, taskNeedsYou, "you"
 	case statusRunning, statusQueued, statusBlocked, statusAwait, statusSleep:
@@ -422,9 +442,11 @@ func (d *DB) projTaskView(p *Project, k *ProjectTask) TaskView {
 	if p != nil && k.PortsBase > 0 {
 		v.Ports = &TaskPorts{Base: k.PortsBase, Span: policyOf(p.Policy).Ports.Span}
 	}
+	status := ""
 	if k.RunID != 0 {
 		if run, err := d.getRun(k.RunID); err == nil {
-			v.RunStatus = run.Status
+			v.RunStatus, status = run.Status, taskRunStatus(run.Status, run.Pending)
+			v.wait = d.taskWaitOf(run)
 			if run.Engine == engineHarness {
 				v.Engine = engineHarness
 				if cfg, err := d.runConfig(run.ID); err == nil && cfg.Harness != nil {
@@ -437,7 +459,7 @@ func (d *DB) projTaskView(p *Project, k *ProjectTask) TaskView {
 	if js := d.jobsWhere(`WHERE task_id=? AND state IN ('queued','running','waiting') ORDER BY id LIMIT 1`, k.ID); len(js) > 0 {
 		v.Step = orStr(js[0].Step, js[0].Kind)
 	}
-	v.Column, v.State, v.WaitingFor = taskDerived(k, v.RunStatus, v.CI, queueWaits(d.queuedInputs(k.ProjectID, k.N), k.N))
+	v.Column, v.State, v.WaitingFor = taskDerived(k, status, v.CI, queueWaits(d.queuedInputs(k.ProjectID, k.N), k.N))
 	return v
 }
 

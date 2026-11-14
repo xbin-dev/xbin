@@ -524,6 +524,7 @@ type guidedBody struct {
 	remember bool
 	name     *string
 	confirm  bool
+	def      bool // with the code: the minted sign-in becomes the default (a task's "sign in once for every big task")
 }
 
 // handleGuided is POST /runs/{id}/harness/authenticate {method: "guided"}
@@ -531,7 +532,7 @@ type guidedBody struct {
 // run waits for its sign-in):
 //
 //	{method: "guided", remember?, name?, confirm?} → 202 {ok, signin: {url, paste}}
-//	{method: "guided", code} → 200 {ok, state: "ready", saved?: {…the saved sign-in, no secret}}
+//	{method: "guided", code, default?} → 200 {ok, state: "ready", saved?: {…the saved sign-in, no secret}}
 //	  | 409 (an invalid code: paste it again) | 502 {error: the CLI's reason} | 504
 func handleGuided(w http.ResponseWriter, r *http.Request, run *Run, cfg Config, name string, b guidedBody, denied func(string) string) {
 	c := callerOf(r)
@@ -602,6 +603,11 @@ func handleGuided(w http.ResponseWriter, r *http.Request, run *Run, cfg Config, 
 		}
 		if s.replaced { // a sign-in of that name re-minted: what runs on the old token stops (N14)
 			stopCredUsers(s, fmt.Sprintf("your saved sign-in %s was replaced — the next message starts it with the new one", s.Name), run.ID)
+		}
+		if b.def && !s.IsDefault { // every later start that takes the default — every big task's sandbox — uses it
+			if err := agent.db.setDefaultSignin(c.user, prov.ID, s.ID); err == nil {
+				s.IsDefault = true
+			}
 		}
 		if !s.IsDefault { // this conversation picks it: its sandbox's own sign-in is still out
 			_ = e.fenced(func(t *DB) error {

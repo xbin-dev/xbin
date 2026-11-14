@@ -166,10 +166,12 @@ export function createHarnessStore(app) {
     // guided: the guided sign-in (D179) — without code it starts (202
     // {signin: {url, paste}}: yours alone), with code it finishes ({state:
     // "ready", saved?}); remember mints a saved sign-in named name instead
-    // (`claude setup-token`: its token stays with the backend).
-    guided(runId, { code, remember, name, confirm } = {}) {
+    // (`claude setup-token`: its token stays with the backend); default, with
+    // the code, makes the one it saves the coding agent's default (a task's
+    // "sign in once for every big task", D221).
+    guided(runId, { code, remember, name, confirm, default: def } = {}) {
       return call(`/runs/${runId}/harness/authenticate`, 'POST', { method: 'guided', ...(code ? { code } : {}),
-        ...(remember ? { remember: true, ...(name ? { name } : {}) } : {}), ...(confirm ? { confirm: true } : {}) });
+        ...(remember ? { remember: true, ...(name ? { name } : {}) } : {}), ...(confirm ? { confirm: true } : {}), ...(code && def ? { default: true } : {}) });
     },
     // pickSignin: the saved sign-in a conversation uses — "default",
     // "sandbox" or an id (PUT /runs/{id}/harness/signin) — {harness}.

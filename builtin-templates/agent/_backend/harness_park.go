@@ -141,7 +141,7 @@ func (s *hsess) parkOrQueue(ev acp.Event, kind string, p *hPark, c *hcall) {
 
 // parkTx parks run on p.
 func (s *hsess) parkTx(t *DB, run *Run, kind string, p *hPark, c *hcall) error {
-	ps := pendingState{Kind: kind, Park: newPark(), Harness: p}
+	ps := pendingState{Kind: kind, Park: newPark(), Harness: p, Since: nowMs()} // since: how long it waits (needs_text.go)
 	if c != nil && c.asst != nil {
 		_ = json.Unmarshal([]byte(c.asst.ToolCalls), &ps.ToolCalls)
 	}

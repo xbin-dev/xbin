@@ -13365,3 +13365,311 @@ Deviations and refinements made while implementing; all deliberate:
   - **Not done.** Signing in drops the query (the root page isn't a
     `loginNextPaths` page; adding it is a server change of its own). The
     frame window's IDE state (open file, terminal) isn't in the link.
+
+- **D221 — AgTT Projects say what really happened to a task: its PR
+  wherever the agent opened it, a PR's end however late, a person's
+  question as the question, a sandbox being made as being made
+  (2026-11-08).** The owner tried Projects and passed on the coordinator's
+  report of five defects: "Check in detail what can be causing what, don't
+  trust it blindly". Each claim was checked against 003700b3 before
+  anything was built; two were half wrong, and the fixes follow the code,
+  not the report.
+  - **A PR binds to its task wherever the agent opened it (confirmed).**
+    The coding agent opened #58 itself with `gh` (the project's token is
+    in its `GH_CONFIG_DIR`) from `xbin/bchzwo/review-agent-template-series-17`;
+    every match knew only `k.Branch`, and `prScript`'s `OFF` line was a
+    quiet note. Now `TaskPR.Head` is a branch the task pushes to, and
+    `taskBranchIn` answers every match (the push script's `BR_i`, the
+    create, `jobRefs`, `pull.opened` and push routing, `project_refs`, the
+    CI watch) — the head of its one OPEN pull request there that it may
+    push to, else `k.Branch`. A PR is adopted on its own only when it is the
+    one OPEN PR from the checkout's branch, from the same repo, by the
+    project's own login, its head the checkout's HEAD or an ancestor of it
+    but not on `origin/<default>` already, while no other live task holds
+    it or its branch and the task has no other open PR in that repo
+    (checked again in the transaction that records it) — the login alone
+    proves little, since a person's project acts as that person, so the
+    checkout is the evidence. Adopting never ends a task: a merged or
+    closed PR (an old one from a reused branch name) is only named.
+    Anything less says so once, visibly, naming `task_link_pr`. Linking
+    refuses another live task's PR, a head that is the default branch or
+    another live task's branch, and a second open PR in a repo (one open
+    PR per task and repo: the poll rows are per repo); a link the task may
+    not push to (another author's, a fork's) is `tracked` — followed and
+    shown, its CI failures and review comments never sent to the task. A
+    merged PR may still be linked (task #9 / #58 merged before this), so
+    cleanup no longer takes "a PR merged in the repo" as "pushed": a merged
+    PR holds a checkout's commits only when HEAD is its head or in its
+    history (its head fetched as `pull/<n>/head` if missing); else the
+    commits count as unpushed and the task is `blocked` for a person, its
+    fork kept. The refs job writes what it read onto the task as stored in
+    its transaction, so a concurrent end or link isn't reverted. The brief
+    says to stay on the branch and never `gh pr create`.
+  - **A PR's state stays true (the report's "never re-derived" was
+    wrong).** States were always derived (`taskDerived`); the facts went
+    stale. #57's last push was 2026-11-02 11:31, its merge 2026-11-05
+    00:38: the pull row had stopped 24 h after the push and the webhook
+    never came. Now an open PR's `pull` and `comments` rows back off to
+    every 6 h instead of stopping (a `checks` row still gives up, with its
+    note); the scm loop re-tracks open PRs with no row at start and daily,
+    so a task stranded before this heals; `task_refresh` reads them now.
+  - **A person's question reads as the question (partly confirmed).** A
+    question can't outlive its turn (every turn end clears it); task #8
+    most likely asked a new one and waited 57 h, with the coordinator
+    told only "waiting for a person" — the words it also used for an idle
+    task whose answer was ready. Now it reads the question, quoted, and
+    its age (`pendingState.since`), and an idle task as "its answer is
+    ready"; `task_message` says who must answer. Nothing expires a
+    question and the coordinator can't decline one (its messages stay
+    held, `HoldPark`). A question the agent withdraws (`$/cancel_request`)
+    is settled in the sdk like a withdrawn permission.
+  - **What waits shows on the project's page (#56; partly confirmed: it
+    was pushed and in the global Needs you, not on the project).** `/needs`
+    items carry `text` and `since`; "Waiting for you" heads the overview
+    and the board (red: questions, approvals, sign-ins; yellow: failures),
+    the coordinator's own `ask_user` included, each with Open; the list's
+    badge splits real needs (`counts.asks/failed/coord`) from ready ones.
+  - **Infrastructure isn't a person (confirmed, two causes).** A big
+    task's fork that was still being created was started (409, "a creating
+    sandbox can't start") until five tries ran out against a 15-minute
+    create: it now waits (`forkCreateWait` 2 minutes per call, then looks
+    again without spending attempts), and a fork its manager says failed
+    is deleted and made again on Retry (it holds no work: only a first
+    prepare makes one). A snapshot fork carried the project sandbox's
+    coding-agent login — tested, all five providers' files survived — and
+    copies of one refresh token sign each other out: forks now remove each
+    provider's `acp.Provider.LoginFiles` and use a saved sign-in (D179),
+    saying before the first turn when none can go in. A coding agent
+    waiting for its sign-in is the state `agent-signin`, not a question;
+    a fork's scm sign-in is the `signin` workspace state small tasks have.
+  - **The coordinator's new tools** — `task_link_pr`, `task_refresh`,
+    `task_retry` — record what the provider says or re-queue failed
+    workspace jobs. It still never merges, approves, pushes, comments or
+    answers a person (the report's constraints); `task_retry` was not on
+    the report's list and is recorded here as the owner's to veto.
+    Issue create/comment/close (allowed by the report) is left out: no
+    defect needed it, and it widens the scm contract.
+  - **Owner's call: mint, don't copy.** Asked whether forks should drop
+    the copied login, the owner answered: "Don't copy whatever token would
+    be 'bound' to one claude path, see if we can mint new tokens from the
+    in-partition signup? Whatever is claude/acp standard way of doing
+    this". So the removal stays, and the standard way for one CLI login
+    used in many places — a long-lived credential that doesn't rotate:
+    Claude Code's `claude setup-token` (`CLAUDE_CODE_OAUTH_TOKEN`), an API
+    key for Codex and Gemini CLI — is the path, through D179's saved
+    sign-ins (the person's partition vault; `credPick`/`credWhy` hand it
+    to every fork, gates unchanged). A task parked on `agent-signin` gets
+    a card whose first offer is "Sign in once for every big task": the
+    guided sign-in with Remember, and `default: true` with its code so the
+    minted sign-in becomes the coding agent's default even over a refused
+    one (for a coding agent with no mint, a key pasted and saved as the
+    default); "Sign in for this task only" comes second. The park's
+    `login.save {ok, why}` (the gate as judged at the adapter's start)
+    decides the offer; a team project's fork shares its members, so no
+    saved sign-in goes in and the card says so. The fork's note before the
+    first turn points at the same one-click path, and the project's status
+    warns its person while a coding agent there runs on the sandbox's own
+    login with nothing saved. Where minting can't happen — an unpartitioned
+    agent, the global instance (A-M1: no person's credentials there) — each
+    fork still asks, and the words say why (saved sign-ins need a person's
+    partition; with partitions on, one serves every big task); no shared
+    vault was invented.
+
+- **D222 — A project keeps a wiki its agents read and write, and the
+  coordinator reads code through research subagents (2026-11-08).** The
+  owner, after D221's report: the coordinator is "a somewhat weaker
+  agentic model and I don't think it has great access to understand the
+  projects by itself - which itself is a problem"; give it "sub-agents
+  with read-only access to code and code search tools" and a "Shared
+  project KB based on ideas from
+  https://www.anthropic.com/research/components-of-agent-memory, so -
+  coordinator can R(/W?) the wiki, research subagents can R/W wiki, coding
+  agents can read the wiki and at the end they have a 'dreaming' round
+  where they write the memories". Owner calls: the wiki lives in the
+  project's store, versioned; "Everyone writes directly, on conflict:
+  write retuns: 'other agent changed contents of this article since you
+  last read it, read the article again before editing'".
+  - **The store.** `wiki_pages` (slug, title, body, version, archived,
+    who and which run last wrote it), every version in `wiki_revisions`,
+    `wiki_reads` (the version each run last read), `wiki_fts`. 16 KB a
+    page, about 400 a project; written text redacted (`projRedact`).
+  - **Optimistic concurrency, kept by the server.** A run's read records
+    the version it saw; a write or edit to a page is a compare-and-swap
+    against that version, so a weaker model never carries version numbers.
+    A stale one gets the owner's words: "Another agent changed the contents
+    of this article since you last read it — read the article again before
+    editing."; a page it never read, "read the article before editing it".
+    People write through `PUT …/wiki/{slug}` with `baseVersion` and get the
+    same words with a 409.
+  - **The article's lessons, applied.** A small injected layer: the
+    `index` page (about 60 lines) rides the coordinator's prompt and each
+    task's brief, framed as notes that may be wrong, its version
+    snapshotted at the task's start so the prompt cache holds (pruning
+    keeps every snapshotted version). Injected text is defused like
+    untrusted text — invisibles out, the frames', the coordinator's and its
+    own tags' markers defused in any case or spacing, 3 KB at most — and
+    the coordinator counts the wiki among what is data. Navigation
+    plus search (`[[links]]`, `wiki_search` over FTS5). The dream prompt
+    steers the goal — the next agent on this project — not steps, asks for
+    verified facts that quote paths and identifiers verbatim, and forbids
+    status and what goes stale. Size, reads per page and dream tokens show
+    under the Wiki tab.
+  - **Research subagents.** The coordinator stays in the web class (no
+    sandbox); `research` starts a subagent through the subagent machinery
+    with a `codeRead` binding built by the agent, never from the call: its
+    own detached worktree of a repo's default branch under
+    `.xbin/research/r-<id>/` (removed when it answers; stale ones swept),
+    or a small task's worktree. Its tools are `read`, `ls`, `glob`, `grep`
+    and the wiki, and a read-only `git` — `runTool` refuses everything else
+    whatever the model calls, and an API-made conversation can't carry the
+    binding. Paths resolve inside the project after symlinks; glob
+    patterns may not be absolute, `~` or climb with `..`.
+  - **Research's git, after the review** (git grep ran `sh` through
+    `--open-files-in-pager` behind a pattern of `--`; `git diff <outside>
+    /dev/null` became `--no-index`). argv only, and every argument parsed
+    by the agent against an allowlist per subcommand (`log`, `show`,
+    `diff`, `blame`, `grep`, `ls-files`; `status` dropped): options by exact
+    name, one flag an argument, a short option's separate value never
+    starting with `-`, a long option's value always attached — so git and
+    the parser can't disagree about where an option or a path starts.
+    Revisions and paths before and after `--` refused when absolute, `~`,
+    pathspec magic or out of the roots. `diff` only between commits or
+    against the index, `blame` only at a named revision: the forms that
+    read the working tree through git's filters are gone. Run with
+    `GIT_CONFIG_GLOBAL=/dev/null`, `core.attributesFile=/dev/null`,
+    `log.showSignature=false`, fsmonitor and hooks off, no textconv or
+    external diff. **Residual risk:** the repository's own `.git/config`
+    is still read, so a filter or diff driver planted there could run on a
+    form that still reads a blob through a driver — only someone who can
+    already write the sandbox (and so run anything in it) can plant one.
+  - Four research subagents at once per project, ten minutes each.
+    Project code isn't internal data, so the coordinator's lane is
+    unchanged.
+  - **Coding agents** have no tools of ours: they read a copy of the wiki
+    written to `.xbin/wiki/<slug>.md` (a header names its version) before a
+    prompt reaches them when it changed, and write in the dream round to
+    their task's own `.xbin/wiki-out/<n>/<slug>.md` (small tasks share a
+    sandbox) keeping the header of what they read; the ingest applies the
+    files written since the round began with the same compare-and-swap
+    and, on a conflict, copies the wiki again and sends the conflict's
+    words once more (two rounds at most). A version-0 page over an
+    archived slug brings it back rather than conflicting forever. Built-in task runs get the wiki tools, writing only in
+    their dream turn.
+  - **The dream round.** Once when a task's PR opens after a turn it
+    worked (`pr.opened`: tasks from before this build don't all dream at
+    their next push), and once more when the task merges after three or
+    more turns since — never when a person closed or stopped it. Project
+    policy `dream` (default on).
+  - **A turn of its own, after the review** (a coordinator's message and
+    the dream were delivered together; a message mid-dream stranded the
+    ingest; the dream erased the work turn's D198 verdict; the end dream
+    raced cleanup). The queue delivers the round only to a resting run
+    with nothing else pending and its last work turn's verdict in (the
+    judge's end releases it; 90 s at most); what is queued after it, and
+    anything queued while it runs, waits for its end (a person's own
+    message goes straight in as ever). Its delivery records that the next
+    turn is the dream's (`wiki_dreams.active`) — the write right, the
+    ingest and the judge key off that, never `turn_by`. The dream turn
+    isn't judged and doesn't take the work's verdict down. It is held
+    behind a person's question as the coordinator's messages are; its
+    answer doesn't replace the task's latest. The end dream holds the
+    task's cleanup back until its pages are in (30 minutes at most) —
+    chosen over skipping it, since cleanup is on by default.
+  - **Tried with agents (2026-11-08).** A lab ran five real agents
+    (Sonnet and Haiku) on the real wiki code — coordinator, research
+    subagents, a built-in task and a coding-agent task. It showed: a task
+    started before the wiki had an index never saw one (a "no index"
+    snapshot was kept for life — now it isn't: the index is taken once it
+    exists, then kept); agents had to guess the map's slug (prompts and
+    tool descriptions now say `index`); they asked for a way to tell
+    verified from reported from not runnable (no schema field: every
+    writer is asked to say "(read in path:line)", "(ran `cmd`)" or
+    "(reported by ‹who›, unverified)", and to keep facts about its own
+    session in the note); they repeated the title as a heading (a leading
+    `# …` that repeats the title is dropped on write and ingest); "‹slug›
+    is at version 2" read as an error (now "edited/wrote/archived ‹slug› —
+    now version N"); an edit without a note left a blank reason (agents'
+    changes now need one; people's `PUT` doesn't); the folder README and
+    the research prompt still named `wiki-out/<slug>.md` and git `status`.
+  - **Tried with agents, round 2 (2026-11-09).** Ten agents: a real
+    build-and-test starter task, a Haiku coordinator bootstrapping the
+    wiki from empty, four research subagents in parallel, an A/B against a
+    no-wiki control, two dream rounds at once. What held: 10 of 10 sampled
+    claims matched the code; four writers on `index` lost no update; the
+    second dreamer was refused, read again and rightly added nothing. A/B:
+    the control (no wiki) took 44k tokens, 4 tool calls, 34 s and didn't
+    know how to run the tests; with the wiki 53–54k tokens, 6–9 tool
+    calls, 44 s, and both knew the build recipe and the test patterns —
+    better plans for ~20 % more tokens. Fixed after it: a leading heading
+    other than the title becomes a plain line; the conflict keeps the
+    owner's words and adds "(now version N, by …)", in the dream's
+    follow-up too; the index is framed as the index page with "that page's
+    own version" (agents read "version 5" as the wiki's); an all-words
+    search that finds nothing falls back to any word, said so; research
+    subagents get the framed index in their prompt; a research author is
+    `research #8 "‹label›" (…'s coordinator)`; each revision records the
+    commits it was read at (`at`: research's checkouts, a task's pushed
+    heads), shown in `wiki_read`, `wiki_list` and the tab; the writing
+    tools say "(note required: one line, why)"; a missing `index` says how
+    to start it; the dream prompt says to re-read just before writing and
+    not to sign what it adds; one provenance line suffices for a table or
+    a list read from one place.
+  - **Round 3 (2026-11-09):** four fresh agents on round two's wiki rated
+    it about 4/4; fixed after it: "alias" now finds "aliases" (porter
+    stems them apart — words of 3+ letters match as prefixes too; the
+    tokenizer also folds diacritics, an older `wiki_fts` rebuilt once),
+    the any-word fallback leaves out common English words, headers carry
+    absolute times, writers cite paths and commits never run or task
+    numbers, a dream adds to `index` only a line for a new page, and a
+    dream page that lost is kept as `<slug>.md.rejected` to merge from.
+  - **Not done.** A task reads "working" during its dream turn; on a
+    downgrade a queued wiki sync or ingest job fails its task's workspace
+    ("not in this build"); real Claude Code/Codex sessions writing
+    `wiki-out` were not exercised (the fake agent's files are written by
+    the test).
+
+- **D223 — A new project is made in a wizard, and can start with built-in
+  work: build and test it, then write its wiki (2026-11-09).** The owner:
+  "project creation/onboarding - should split into few screens wizard
+  style, adding projects is a bit janky (find repo should be a more
+  readable dropdown, shouldn't have another add step) and the wizard should
+  allow starting the projects with some built-in 'clone, compile and run
+  tests' -> 'create initial KB' tasks".
+  - **The wizard** (web and app, one state, `app.projects.form`): Code →
+    Name → Sandbox → How it works → Get started → Review. Steps that don't
+    apply drop out (a team definition: no sandbox, no starter), Next says
+    why it is disabled, Review has an Edit per part. The repos are a
+    readable combobox (ARIA): your repos on focus, filtered as you type
+    (debounced, the latest answer wins), private, permission and archived
+    shown (archived ones disabled); choosing one adds it — no Add step;
+    each chosen repo's setup script is a collapsed disclosure.
+  - **The starter is the backend's, not the page's** (`POST /projects
+    {starter: {build, wiki}}`, stored as a small pending record; no new
+    state machine). `build`: once the project's sandbox and repos are ready,
+    task #1 "Clone, build and run the tests" is created as its creator,
+    with a built-in brief (per repo: how it is built and tested, worked out
+    from its manifests when it has no build docs; the exact commands, the
+    toolchain, timings, what passed and failed, what had to be worked
+    around; no code changed, no PR). `wiki`: the creator's coordinator gets
+    one message from the platform (source `starter`) to build the initial
+    wiki from task #1's answer with research subagents.
+  - **The build task dreams before the wiki starts** — the lab (D222) had a
+    real agent do the build brief: it found the facts most worth keeping
+    (the sdk from github.com/xbin-dev/xbin, a go.work, `-mod=mod` breaking
+    workspace mode, `go build` needing `-o`), and a starter task (one turn,
+    no PR) would never have a dream round to keep them. So task #1's first
+    turn ends with its dream round (with the wiki step or without it), and
+    the coordinator's message waits for that round's pages — at once when
+    dreaming is off, the turn failed, or the task ended; at most 30 minutes
+    otherwise. A turn a person stopped isn't the builds' end (the next turn's
+    is); one that hit its limit counts, and the dream and the message say it
+    stopped part-way.
+  - **It never waits unsaid** (the review): a workspace job it waits for,
+    or its own job, that failed is a `starter:` note, and Warm (or Retry on
+    a task) goes on from it; an archived project's starter is queued and
+    held like its other jobs; a kick while its job runs reruns it. Warm
+    after a failed clone used to get the old exec's answer (the clone's
+    client id repeated across jobs): it now carries the job's id.
+  - **Once only**, across restarts; a failed task #1 still starts the wiki
+    step, which says what failed. The `[project starter` marker is defused
+    in text from outside, like the coordinator's other markers.

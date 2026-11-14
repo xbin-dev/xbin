@@ -123,7 +123,8 @@ func decodeBody(w http.ResponseWriter, r *http.Request, v any) bool {
 
 // projectView is GET /projects/{pid}'s answer for a caller at level lv.
 func (d *DB) projectView(p *Project, lv level) ProjectView {
-	v := ProjectView{Project: *p, Level: lv.String(), Counts: map[string]int{colQueued: 0, colWorking: 0, colNeedsYou: 0, colPR: 0, colDone: 0, countReady: 0}}
+	v := ProjectView{Project: *p, Level: lv.String(), Counts: map[string]int{colQueued: 0, colWorking: 0, colNeedsYou: 0, colPR: 0, colDone: 0, countReady: 0,
+		countAsks: 0, countFailed: 0}}
 	v.Policy = policyView(p.Policy)
 	v.Repos, _ = d.projectRepos(p.ID)
 	if v.Repos == nil {
@@ -132,14 +133,17 @@ func (d *DB) projectView(p *Project, lv level) ProjectView {
 	queued := d.queuedInputs(p.ID, 0)
 	ks, _ := d.tasksWhere(`WHERE project_id=? AND phase<>'deleted'`, p.ID)
 	for _, k := range ks {
-		status := ""
+		status, pending := "", ""
 		if k.RunID != 0 {
-			_ = d.q.QueryRow(`SELECT status FROM runs WHERE id=?`, k.RunID).Scan(&status)
+			_ = d.q.QueryRow(`SELECT status, pending FROM runs WHERE id=?`, k.RunID).Scan(&status, &pending)
 		}
-		col, state, _ := taskDerived(k, status, taskCISummary(k.RunID), queueWaits(queued, k.N))
+		col, state, _ := taskDerived(k, taskRunStatus(status, pending), taskCISummary(k.RunID), queueWaits(queued, k.N))
 		v.Counts[col]++
 		if state == taskCIPassed {
 			v.Counts[countReady]++ // in the PR column, and waiting for a person (model/project-pins.js needOf)
+		}
+		if c := askCount(col, state, status); c != countNone {
+			v.Counts[c]++ // the real needs among Needs you's (project_needs.go)
 		}
 	}
 	v.Slots = ProjectSlots{Used: d.slotsUsed(p.ID), Max: policyOf(p.Policy).MaxTasks}
@@ -195,14 +199,14 @@ func handleListProjects(w http.ResponseWriter, r *http.Request) {
 	}
 	items := []ProjectView{}
 	for _, p := range ps {
-		items = append(items, projAg().db.projectView(p, projAg().db.projectLevel(c, p.ID)))
+		items = append(items, projAg().db.withCoordAsk(projAg().db.projectView(p, projAg().db.projectLevel(c, p.ID)), c))
 	}
 	xbin.WriteJSON(w, 200, map[string]any{"items": items, "next": next})
 }
 
 func handleGetProject(w http.ResponseWriter, r *http.Request) {
 	p, lv := projectOf(r)
-	xbin.WriteJSON(w, 200, map[string]any{"project": projAg().db.projectView(p, lv)})
+	xbin.WriteJSON(w, 200, map[string]any{"project": projAg().db.withCoordAsk(projAg().db.projectView(p, lv), callerOf(r))})
 }
 
 // --- creating a project -------------------------------------------------------------------
@@ -233,6 +237,9 @@ type newProjectBody struct {
 	Policy json.RawMessage `json:"policy"`
 	Share  *shareSpec      `json:"share"`
 	Kind   string          `json:"kind"`
+	// Starter: task #1 builds and tests, the coordinator builds the
+	// initial wiki (project_starter.go).
+	Starter *starterReq `json:"starter"`
 }
 
 // sbxNewKey is the setting a project's sandbox to create waits in until
@@ -331,6 +338,10 @@ func handleNewProject(w http.ResponseWriter, r *http.Request) {
 		writeProjErr(w, err)
 		return
 	}
+	if err := checkStarter(c, kind, provider != "", pol, probe, body.Starter); err != nil {
+		writeProjErr(w, err)
+		return
+	}
 	hello, err := api.Hello(ctx)
 	if err != nil {
 		writeProjErr(w, err)
@@ -391,6 +402,9 @@ func handleNewProject(w http.ResponseWriter, r *http.Request) {
 			}
 			jobs = append(jobs, j)
 		}
+		if err := newStarter(t, p.ID, c, body.Starter); err != nil {
+			return err
+		}
 		addProjectEvent(t, p.ID, 0, pevNote, map[string]any{"text": "project created", "by": c.tag()}, false, "")
 		emitProject(t, p.ID, "project", 0)
 		return nil
@@ -403,7 +417,11 @@ func handleNewProject(w http.ResponseWriter, r *http.Request) {
 		jobs = []*ProjectJob{}
 	}
 	p, _ = projAg().db.getProject(p.ID)
-	xbin.WriteJSON(w, 201, map[string]any{"project": projAg().db.projectView(p, projAg().db.projectLevel(c, p.ID)), "jobs": jobs})
+	out := map[string]any{"project": projAg().db.projectView(p, projAg().db.projectLevel(c, p.ID)), "jobs": jobs}
+	if st := starterView(projAg().db.starterOf(p.ID)); st != nil {
+		out["starter"] = st
+	}
+	xbin.WriteJSON(w, 201, out)
 }
 
 // checkProjectSandbox: w may make sandbox ref a project's workspace — it is

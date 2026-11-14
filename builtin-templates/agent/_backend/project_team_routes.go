@@ -194,7 +194,7 @@ func teamSanitize(in BoardRow, host string) (BoardRow, error) {
 		return BoardRow{}, fmt.Errorf("run: a conversation of your own space (an id from 2^40)")
 	}
 	out := BoardRow{Title: boardText(in.Title), Column: boardWord(in.Column, colQueued, colWorking, colNeedsYou, colPR, colDone),
-		State: boardWord(in.State, taskQueued, taskPreparing, taskSignin, taskWorking, taskNeedsYou, taskCI, taskCIFailed,
+		State: boardWord(in.State, taskQueued, taskPreparing, taskSignin, taskAgentSignin, taskWorking, taskNeedsYou, taskCI, taskCIFailed,
 			taskAwaitingReview, taskCIPassed, taskMerged, taskClosed, taskDone, taskFailed, taskCancelled, taskBlocked, taskDeleted),
 		Waiting: boardText(in.Waiting), Branch: boardText(in.Branch), Run: in.Run, PRs: []TaskPR{},
 		UpdatedMs: min(max(in.UpdatedMs, 0), nowMs())}

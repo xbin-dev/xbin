@@ -134,15 +134,7 @@ func (ag *Agent) needsPushes(runID int64) []needsPush {
 		}
 		if pend.Kind == "approval" {
 			state = needApproval
-			var names []string
-			for _, c := range pend.ToolCalls {
-				names = append(names, c.Function.Name)
-				fp += c.ID + "\x00"
-			}
-			body = "Wants to run " + clip(strings.Join(names, ", "), 120) + " — approve or deny."
-			if pend.Grant != "" {
-				body = "Asks to " + orStr(pend.GrantAsk, grantOf(pend.Grant).askText()) + " — allow or deny."
-			}
+			body, fp = approvalWords(pend) // needs_text.go
 			ownerOnly = pend.Grant != ""
 		} else {
 			state = needQuestion
@@ -264,6 +256,11 @@ func harnessNeed(run *Run, p pendingState) (state, body, fp string) {
 	if h := harnessSummaryOf(run); h != nil {
 		name, _ = h["name"].(string)
 	}
+	return harnessNeedOf(name, p)
+}
+
+// harnessNeedOf is harnessNeed for the coding agent called name.
+func harnessNeedOf(name string, p pendingState) (state, body, fp string) {
 	switch p.Kind {
 	case "login":
 		return needLogin, name + " needs you to sign in to it.", p.Park

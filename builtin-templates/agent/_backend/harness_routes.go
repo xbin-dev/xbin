@@ -460,6 +460,7 @@ func handleHarnessAuthenticate(w http.ResponseWriter, r *http.Request) {
 		Code     string  `json:"code"`     // guided: the code the sign-in page showed
 		Remember bool    `json:"remember"` // guided: mint a saved sign-in instead (harness_guided.go)
 		Name     *string `json:"name"`     // guided with remember: its name
+		Default  bool    `json:"default"`  // guided, with the code of a remembered one: make it the coding agent's default
 	}
 	if !decodeHarnessBody(w, r, &body) {
 		return
@@ -483,7 +484,7 @@ func handleHarnessAuthenticate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Method == "guided" {
-		handleGuided(w, r, run, cfg, name, guidedBody{code: body.Code, remember: body.Remember, name: body.Name, confirm: body.Confirm}, denied)
+		handleGuided(w, r, run, cfg, name, guidedBody{code: body.Code, remember: body.Remember, name: body.Name, confirm: body.Confirm, def: body.Default}, denied)
 		return
 	}
 	if body.Code != "" || body.Remember {

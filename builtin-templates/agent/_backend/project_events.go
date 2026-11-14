@@ -337,7 +337,8 @@ func projectTurnEnd(t *DB, run *Run, why, outcome, result string) {
 		last = t.lastAssistant(run.ID)
 	}
 	last = clip(projRedact(last), inlineBudget(1))
-	if last != "" {
+	dream := dreamTurnEnd(t, p, k, cur, why) // the dream round's turn, and its bookkeeping (project_dream.go)
+	if last != "" && !dream {                // a dream round's answer isn't the task's
 		k.Last = last
 		_ = t.setTask(k.ID, map[string]any{"last": last})
 	}
@@ -383,6 +384,21 @@ func firstLine(s string) string {
 	return s
 }
 
+// parkFeedWords is a task's park as the feed says it: what it asks — never
+// run.result, which for a coding agent is its previous answer.
+func parkFeedWords(pk runPark) string {
+	switch pk.Kind {
+	case needApproval:
+		return "waits for a person to approve: " + clip(pk.Text, 200)
+	case needLogin:
+		return "waits for a person to sign in to its coding agent"
+	}
+	if pk.Text == "" {
+		return "waits for a person to answer"
+	}
+	return "waits for a person to answer: " + clip(pk.Text, 200)
+}
+
 // projectStatusChanged (runStatusHooks): a task run's status moved — a park
 // waiting for a person outside a turn's end (an approval, ask_user, a coding
 // agent's question or sign-in) wakes the coordinator; any move may free or
@@ -399,8 +415,11 @@ func projectStatusChanged(t *DB, runID int64, status string) {
 	if status == statusWaiting {
 		if run, err := t.getRun(runID); err == nil && run.ParentID == 0 {
 			if ps := parsePending(run.Pending); ps.Kind != pendKindProject { // the gate's own parks are the workspace's events
-				addProjectEvent(t, p.ID, k.N, pevTaskState, map[string]any{
-					"text": "waits for a person: " + clip(firstLine(run.Result), 200), "status": status}, true, "")
+				text := parkFeedWords(t.parkOf(run))
+				if ps.Kind == "login" { // its coding agent's sign-in, no question (taskAgentSignin)
+					text = "waits for the owner to sign in to " + harnessName(harnessProviderOf(t, run.ID)) + " in the task's sandbox"
+				}
+				addProjectEvent(t, p.ID, k.N, pevTaskState, map[string]any{"text": text, "status": status}, true, "")
 			}
 		}
 	}

@@ -134,9 +134,12 @@ func (e *Engine) execTools(ctx context.Context, ts *turnState, calls []toolCall,
 		case isSubagentTool(name):
 			e.subagentTool(ctx, ts, calls[i])
 			i++
+		case name == "research": // a coordinator's research subagent: it waits as one does (projects_coord_research.go)
+			e.researchTool(ctx, ts, calls[i])
+			i++
 		default:
 			j := i
-			for j < len(calls) && !isControlTool(calls[j].Function.Name) && !isSubagentTool(calls[j].Function.Name) {
+			for j < len(calls) && !isControlTool(calls[j].Function.Name) && !isSubagentTool(calls[j].Function.Name) && calls[j].Function.Name != "research" {
 				j++
 			}
 			e.runToolBatch(ctx, ts, calls[i:j])
@@ -160,7 +163,7 @@ func (e *Engine) parkApproval(ts *turnState, calls []toolCall, grant string) {
 	if grant != "" {
 		ask = grantOf(grant).askFor(e.ag, run, ts.cfg, calls, ts.own)
 	}
-	pend, _ := json.Marshal(pendingState{Kind: "approval", ToolCalls: calls, Grant: grant, GrantAsk: ask, Park: newPark()})
+	pend, _ := json.Marshal(pendingState{Kind: "approval", ToolCalls: calls, Grant: grant, GrantAsk: ask, Park: newPark(), Since: nowMs()})
 	_ = e.fenced(func(t *DB) error {
 		for _, tc := range calls {
 			if ok, _ := t.setToolPlaceholder(run.ID, tc.ID, toolAwaitingApproval); ok {

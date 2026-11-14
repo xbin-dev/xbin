@@ -7,7 +7,9 @@
 // records them in the task (phase pr) and tells the parts that follow its
 // branch (projectRefsHooks). POST /runs/{id}/task/pr asks for it by hand;
 // policy.autoPR asks for it when a task comes to rest (projectRested), for
-// the repos that have no pull request yet.
+// the repos that have no pull request yet. A task's branch is per repo
+// (taskBranchIn); a checkout found on another branch has its pull request
+// adopted, or a note says why not (project_pr_adopt.go).
 package main
 
 import (
@@ -159,17 +161,17 @@ func projectRestedPR(t *DB, p *Project, k *ProjectTask) {
 	}
 }
 
-// prScript pushes the task's branch BR from each checkout C_i whose
-// PUSH_i is 1 and that is on BR with commits origin/DEF_i lacks, and
-// prints what it found: AHEAD|PUSHED <i> <commits> <head>, or OFF <i>
-// <branch> for a checkout on another branch.
+// prScript pushes the task's branch BR_i (its branch in that repo) from
+// each checkout C_i whose PUSH_i is 1 and that is on BR_i with commits
+// origin/DEF_i lacks, and prints what it found: AHEAD|PUSHED <i> <commits>
+// <head>, or OFF <i> <branch> <head> for a checkout on another branch.
 const prScript = `i=0
 while [ "$i" -lt "$N" ]; do
-  eval "C=\${C_$i}; DEF=\${DEF_$i}; PUSH=\${PUSH_$i}"
+  eval "C=\${C_$i}; DEF=\${DEF_$i}; PUSH=\${PUSH_$i}; BR=\${BR_$i}"
   if [ -e "$C/.git" ]; then
     cur=$(git -C "$C" symbolic-ref -q --short HEAD || true)
     if [ "$cur" != "$BR" ]; then
-      printf 'OFF %s %s\n' "$i" "${cur:--}"
+      printf 'OFF %s %s %s\n' "$i" "${cur:--}" "$(git -C "$C" rev-parse -q --verify HEAD || echo -)"
     else
       ahead=$(git -C "$C" rev-list --count "refs/remotes/origin/$DEF..HEAD" 2>/dev/null || echo 0)
       head=$(git -C "$C" rev-parse HEAD)
@@ -239,8 +241,9 @@ func jobPR(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobO
 		return jobOutcome{}, err
 	}
 	bySlug := map[string]ProjectRepo{}
+	branchOf := map[string]string{} // slug → the task's branch there
 	for _, r := range repos {
-		bySlug[r.Slug] = r
+		bySlug[r.Slug], branchOf[r.Slug] = r, taskBranchIn(k, r.Repo)
 	}
 	open := map[string]bool{}
 	for _, pr := range k.taskPRs() {
@@ -254,7 +257,7 @@ func jobPR(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobO
 		r, ok := bySlug[c.Repo]
 		switch {
 		case !ok || c.State == "removed" || c.State == "pending":
-		case r.DefaultBranch == "" || r.DefaultBranch == k.Branch:
+		case r.DefaultBranch == "" || r.DefaultBranch == branchOf[c.Repo]:
 			notes = append(notes, fmt.Sprintf("%s: the task works on its default branch, which it never pushes", r.Repo))
 		case ask.Auto && open[strings.ToLower(r.Repo)]:
 		default:
@@ -279,11 +282,12 @@ func jobPR(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobO
 	} else if err != nil {
 		return jobOutcome{}, err
 	}
-	env := map[string]string{"N": strconv.Itoa(len(cos)), "BR": k.Branch, "GIT_TERMINAL_PROMPT": "0"}
+	env := map[string]string{"N": strconv.Itoa(len(cos)), "GIT_TERMINAL_PROMPT": "0"}
 	for i, c := range cos {
 		env[fmt.Sprintf("C_%d", i)] = c.Path
 		env[fmt.Sprintf("DEF_%d", i)] = bySlug[c.Repo].DefaultBranch
 		env[fmt.Sprintf("PUSH_%d", i)] = "1"
+		env[fmt.Sprintf("BR_%d", i)] = branchOf[c.Repo]
 	}
 	out, err := s.must(ctx, "pushing the task's branch", prScript, env, "", 5*time.Minute)
 	j.Out = clip(projRedact(out), 8<<10)
@@ -296,13 +300,9 @@ func jobPR(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobO
 		pushed bool
 	}
 	got := map[int]found{}
+	offs := prOffLines(out, cos, bySlug) // adopted or noted once the job's own writes are done
 	for _, l := range strings.Split(out, "\n") {
 		f := strings.Fields(l)
-		if len(f) >= 3 && f[0] == "OFF" {
-			if i, err := strconv.Atoi(f[1]); err == nil && i < len(cos) {
-				notes = append(notes, fmt.Sprintf("%s: its checkout is on %s, not the task's branch", bySlug[cos[i].Repo].Repo, clip(f[2], 100)))
-			}
-		}
 		if len(f) != 4 || (f[0] != "AHEAD" && f[0] != "PUSHED") {
 			continue
 		}
@@ -335,7 +335,7 @@ func jobPR(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobO
 		}
 		body := projRedact(orStr(ask.Body, prBody(p, k, r.Repo)))
 		cctx, cancel := context.WithTimeout(ctx, 60*time.Second)
-		pl, err := api.PullCreate(cctx, scmPullReq{Repo: r.Repo, Head: k.Branch, Base: r.DefaultBranch, Title: title, Body: body,
+		pl, err := api.PullCreate(cctx, scmPullReq{Repo: r.Repo, Head: branchOf[c.Repo], Base: r.DefaultBranch, Title: title, Body: body,
 			Draft: ask.Draft, ClientID: fmt.Sprintf("agent:proj:%d:pr:%d:%s", p.ID, k.N, r.Slug), As: projectAs(p)})
 		cancel()
 		if err != nil {
@@ -362,8 +362,12 @@ func jobPR(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobO
 			notes = append(notes, fmt.Sprintf("%s: %v", r.Repo, err))
 			continue
 		}
-		made = append(made, TaskPR{Repo: r.Repo, Number: pl.Number, URL: pl.URL, State: orStr(pl.State, "open"), Draft: pl.Draft,
-			HeadSHA: orStr(pl.Head.SHA, g.head), Checks: "none"})
+		m := TaskPR{Repo: r.Repo, Number: pl.Number, URL: pl.URL, State: orStr(pl.State, "open"), Draft: pl.Draft,
+			HeadSHA: orStr(pl.Head.SHA, g.head), Checks: "none"}
+		if branchOf[c.Repo] != k.Branch {
+			m.Head = branchOf[c.Repo]
+		}
+		made = append(made, m)
 	}
 	err = d.Tx(func(t *DB) error {
 		cur, err := t.taskByID(k.ID)
@@ -374,32 +378,15 @@ func jobPR(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobO
 			if _, err := t.q.Exec(`UPDATE project_checkouts SET remote_sha=? WHERE task_id=? AND repo_slug=?`, sha, k.ID, slug); err != nil {
 				return err
 			}
-			addProjectEvent(t, p.ID, k.N, pevNote, map[string]any{"text": fmt.Sprintf("pushed %s to %s", shortSHA(sha), k.Branch),
+			addProjectEvent(t, p.ID, k.N, pevNote, map[string]any{"text": fmt.Sprintf("pushed %s to %s", shortSHA(sha), branchOf[slug]),
 				"sha": sha, "repo": bySlug[slug].Repo}, false, "")
 		}
 		if len(made) > 0 {
-			prs := cur.taskPRs()
 			for _, m := range made {
-				replaced := false
-				for x := range prs {
-					if strings.EqualFold(prs[x].Repo, m.Repo) && prs[x].Number == m.Number {
-						m.Checks, m.ChecksAt = orStr(prs[x].Checks, "none"), prs[x].ChecksAt
-						prs[x], replaced = m, true
-					}
-				}
-				if !replaced {
-					prs = append(prs, m)
-				}
 				addProjectEvent(t, p.ID, k.N, pevPROpened, map[string]any{"text": fmt.Sprintf("opened PR #%d on %s", m.Number, m.Repo),
 					"url": m.URL, "repo": m.Repo, "pr": m.Number}, false, fmt.Sprintf("pr.opened:%d:%s:%d", k.N, m.Repo, m.Number))
 			}
-			b, _ := json.Marshal(prs)
-			cols := map[string]any{"prs": string(b)}
-			cur.PRs = b
-			if cur.Phase == phaseOpen {
-				cols["phase"], cur.Phase = phasePR, phasePR
-			}
-			if err := t.setTask(k.ID, cols); err != nil {
+			if err := mergeTaskPRs(t, cur, made); err != nil {
 				return err
 			}
 		}
@@ -420,10 +407,16 @@ func jobPR(ctx context.Context, p *Project, k *ProjectTask, j *ProjectJob) (jobO
 	if err != nil {
 		return jobOutcome{}, err
 	}
+	adopted, err := prAdoptRun(ctx, p, k, s, api, offs)
+	if err != nil {
+		logf("project %d task %d: adopting the pull requests of its checkouts on other branches: %v", p.ID, k.N, err)
+	}
 	if retry != nil {
 		return jobOutcome{}, retry
 	}
 	switch {
+	case adopted > 0 && len(made) == 0:
+		return doneJob(fmt.Sprintf("linked %d pull request(s) the coding agent opened", adopted))
 	case len(made) > 0:
 		return doneJob(fmt.Sprintf("opened %d pull request(s)", len(made)))
 	case kept:

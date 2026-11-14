@@ -27,7 +27,9 @@ func (c *Client) onNotify(m *Message) {
 			res.Cancel = false // an explicit -32800, as the protocol asks
 			w.RPCID = p.RequestID
 			_ = c.respondPermission(w, res)
+			return
 		}
+		c.withdrawElicit(w, p.RequestID) // a question, settled the same way
 	case MAuthStatus:
 		var p struct {
 			AuthStatus struct{ Kind, Label string } `json:"authStatus"`

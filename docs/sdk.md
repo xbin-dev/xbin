@@ -205,7 +205,11 @@ err = c.Prompt(ctx, acp.Prompt{Text: "fix the build"}) // acp.ErrBusy while a tu
   session rule; a plan approval — kind `switch_mode` — never does). A
   question: `c.RespondElicitation(eid, "accept"|"decline"|"cancel",
   content, by)`; `c.PendingElicitations()` lists the open ones. `c.Cancel()`
-  interrupts the turn and answers everything pending as cancelled.
+  interrupts the turn and answers everything pending as cancelled. A request
+  the agent withdraws (`$/cancel_request`) is settled for you: a permission's
+  `permission.resolved` (by `cancel`), a question's `elicitation.resolved`
+  (action `cancel`, by `agent`), each answered with the -32800 the protocol
+  asks for.
 - **Settings.** `c.SetOption(ctx, id, value)` (a config option the agent
   advertised — model, effort — or `"mode"`; `ctx` bounds the agent's
   answer); `Config.Mode` / `Options` request them at start (a mode an

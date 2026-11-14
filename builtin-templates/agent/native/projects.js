@@ -5,7 +5,9 @@
 //   drawer               Projects atop your conversations (Mine, not while
 //                        searching; D209): your active projects — those with
 //                        tasks that need you first, at most PINNED — each with
-//                        how many need you, a tap to its board, All projects
+//                        how many need you (#56: the badge, danger, what
+//                        really waits on you; the ready-for-review ones
+//                        beside it), a tap to its board, All projects
 //                        (how many more; D212); the section folds (kept in
 //                        your prefs) — folded it says how many tasks need you,
 //                        and All projects stays under it
@@ -13,7 +15,10 @@
 //                        need you (from Shared and Archived too)
 //   'projects'           the list — yours, team projects, archived — New project
 //   'project' {pid}      a project, as the web's overview orders it (D214):
-//                        its status (native/project-status.js: the
+//                        what waits on you first (native/project-needs.js,
+//                        #56: a task's question, approval, sign-in or
+//                        failure, your coordinator's question — a tap opens
+//                        it); its status (native/project-status.js: the
 //                        coordinator, workers, subagents, tokens, source
 //                        control, the sandbox; it folds), the board as a
 //                        section per column — a row per task: #n, title,
@@ -35,9 +40,8 @@
 //   'project-issues'     the batch picker: a repo's issues (plain, untrusted),
 //                        up to 20 picked, size and who works on them
 //   'project-events'     the project's activity, newest first
-//   'project-new'        the new-project form (provider and sign-in, repos,
-//                        name, sandbox, the basics; a team project's
-//                        definition from your own space)
+//   'project-new'        the new-project wizard, a screen per step
+//                        (native/project-new.js)
 //
 // The list and a project are places (the menu's Projects, #proj,
 // #proj=<id>, a task's Project: ‹name›): on top, the model has the page —
@@ -48,18 +52,17 @@
 import { html, nothing, repeat } from '/vendor/xb-native.js';
 import { ext } from './ext.js';
 import { ctx, ui, push, top, when } from './ui.js';
-import { can, agentChoices, repoSlug, pinWords, PINNED } from '../model/projects.js';
+import { can, agentChoices, pinWords, PINNED } from '../model/projects.js';
 import { cardWords, issueWords, prWords } from '../model/project-task.js';
 import { projectFeed, feedWords, COORD_EMPTY, COORD_TAIL } from '../model/project-feed.js';
 import { projectOverview, coordPlaceholder, coordWords, fmtTokens } from '../model/project-overview.js';
 import { overviewOf, statusTpl, agentWords, coordBadge, goalTpl, aboutSheet } from './project-status.js';
 import { projectTeam } from '../model/project-team.js';
-import { partitionState } from '../model/partition.js';
-import { projectSandbox } from '../model/sandboxes.js';
 import { openUrl } from './project-task.js';
 import { forkBaseOffer, forkBase } from '../model/project-upgrade.js';
-import { signinTpl } from './project-settings.js';
 import { openProjects, projectEntry, wide } from './nav.js';
+import { needsSectionTpl } from './project-needs.js';
+import { needSplit } from '../model/project-pins.js';
 
 export const TONE = { run: 'accent', ok: 'ok', bad: 'danger', warn: 'warn', idle: 'muted' };
 const pj = () => ctx.app.projects;
@@ -97,7 +100,7 @@ ext.register({
     if (pin.none) return html`<section><row title="Projects" subtitle="a sandbox, its repos and a conversation per task" icon="folder" nav @tap=${() => openProjects()}/></section>`; // none yet: one row to the page
     const all = html`<row title="All projects" subtitle=${pin.more && !p.folded ? `${pin.more} more` : nothing} detail=${pin.total ? String(pin.total) : nothing}
       icon="list" nav @tap=${() => openProjects()}/>`;
-    return html`<section title="Projects" collapsible ?collapsed=${p.folded} badge=${p.folded && pin.need ? String(pin.need) : nothing}
+    return html`<section title="Projects" collapsible ?collapsed=${p.folded} badge=${p.folded && pin.need ? String((pin.split && pin.asks) || pin.need) : nothing}
         @toggle=${(e) => p.setFolded(!!e.collapsed)}>
       ${repeat(pin.items, (pv) => pv.id, (pv) => pinRow(pv))}
       ${p.folded ? nothing : all}
@@ -117,7 +120,6 @@ ext.register({
       case 'project-task-new': return taskFormTpl(s);
       case 'project-issues': return pickerTpl(s);
       case 'project-events': return eventsTpl(s);
-      case 'project-new': return newTpl(s);
     }
     return null;
   },
@@ -132,7 +134,7 @@ function listTpl(s) {
   follow(s);
   if (!p.loaded && !s.loading) { s.loading = true; p.load().catch(() => {}); }
   return html`<screen title="Projects" subtitle="a sandbox, its repos and task conversations" style="list" refreshable @refresh=${() => p.load()}>
-    ${p.supported ? html`<toolbar><button icon="plus" @tap=${() => { p.newProject(); push({ kind: 'project-new' }); }}>New project</button></toolbar>` : nothing}
+    ${p.supported ? html`<toolbar><button icon="plus" @tap=${() => { p.newProject(); push({ kind: 'project-new', step: 'code' }); }}>New project</button></toolbar>` : nothing}
     ${errTpl(p)}
     ${!p.supported ? html`<section><empty icon="folder" title="This agent has no Projects yet"/></section>`
       : repeat(p.sections(), (x) => x.key, (x) => html`<section title=${x.title}>
@@ -142,21 +144,25 @@ function listTpl(s) {
   </screen>`;
 }
 
-// a project atop your conversations: its name, how many tasks need you, what is under way
+// a project atop your conversations: its name, what really waits on you (the badge, danger — #56;
+// else the pull requests ready for review, warn), the ready ones beside it, what is under way
 function pinRow(pv) {
   const w = pinWords(pv);
-  return html`<row title=${w.name} subtitle=${w.detail || nothing} icon=${w.team ? 'people' : 'folder'}
-    badge=${w.need ? String(w.need) : nothing} tone=${w.need ? 'warn' : nothing} nav @tap=${() => openProject(pv.id)}/>`;
+  const ready = w.asks && w.ready ? `${w.ready} ready for review` : '';
+  const n = w.asks || w.ready;
+  return html`<row title=${w.name} subtitle=${[ready, w.detail].filter(Boolean).join(' · ') || nothing} icon=${w.team ? 'people' : 'folder'}
+    badge=${n ? String(n) : nothing} tone=${w.asks && w.split ? 'danger' : n ? 'warn' : nothing} nav @tap=${() => openProject(pv.id)}/>`;
 }
 
 function projRow(pv) {
-  const counts = COUNTS.filter(([k]) => (pv.counts || {})[k]).map(([k, w]) => `${pv.counts[k]} ${w}`);
-  const need = (pv.counts || {})['needs-you'] || 0;
+  const s = needSplit(pv); // what really waits on you first (#56)
+  const counts = [...(s.split && s.asks ? [`${s.asks} waiting for you`] : []), ...COUNTS.filter(([k]) => (pv.counts || {})[k]).map(([k, w]) => `${pv.counts[k]} ${w}`)];
+  const need = s.asks || s.ready;
   const kind = pv.kind === 'team' ? 'team' : pv.kind === 'membership' ? 'team · yours' : '';
   const sub = [(pv.repos || []).map((r) => r.repo).join(', ') || 'no repos yet', pv.slots ? `${pv.slots.used}/${pv.slots.max} at work` : '', ...counts,
     pv.owner && pv.level !== 'owner' ? `${pv.owner}'s` : ''].filter(Boolean).join(' · ');
   return html`<row title=${pv.name} subtitle=${sub} detail=${[kind, pv.state !== 'active' ? pv.state : ''].filter(Boolean).join(' · ') || nothing}
-    icon="folder" badge=${need && pv.state === 'active' ? String(need) : nothing} tone=${need && pv.state === 'active' ? 'warn' : nothing} nav @tap=${() => openProject(pv.id)}/>`;
+    icon="folder" badge=${need ? String(need) : nothing} tone=${s.asks && s.split ? 'danger' : need ? 'warn' : nothing} nav @tap=${() => openProject(pv.id)}/>`;
 }
 
 // --- a project ------------------------------------------------------------------------------------------
@@ -190,6 +196,7 @@ function projectTpl(s) {
       <button icon="gear" @tap=${() => { p.showTab('settings'); push({ kind: 'project-settings', pid: pv.id }); }}>Project settings</button>
     </toolbar>
     ${errTpl(p)}
+    ${needsSectionTpl(pv)}
     ${pv.kind === 'membership' ? html`<section title="Team project">
       ${def ? html`<row title="The team's board" subtitle=${def.name} icon="people" nav @tap=${() => openProject(def.id)}/>` : nothing}
       ${review ? html`<row title="Review the team project's changes" subtitle="until you accept, your tasks run what you accepted before" icon="warning" tone="warn" nav
@@ -208,6 +215,7 @@ function projectTpl(s) {
     <section title="Activity" footer="Text from the scm provider is shown as it came, plain.">
       ${recent.length ? repeat(recent, (ev) => ev.id, (ev) => eventRow(pv, ev)) : nothing}
       <row title="All activity" icon="clock" nav @tap=${() => push({ kind: 'project-events', pid: pv.id })}/>
+      <row title="Wiki" subtitle="the project's shared notes" icon="doc" nav @tap=${() => push({ kind: 'project-wiki', pid: pv.id })}/>
     </section>
     ${ov ? coordTpl(pv, c, s, ov) : nothing}
     ${ov ? aboutSheet(s, ov) : nothing}
@@ -367,78 +375,3 @@ function pickerTpl(s) {
   </screen>`;
 }
 
-// --- a new project ------------------------------------------------------------------------------------------------
-
-function newTpl(s) {
-  const app = ctx.app;
-  const p = pj();
-  const f = p.form;
-  if (!f) return html`<screen title="New project" style="form"><section><empty title="closed"/></section></screen>`;
-  app.sbx.ensure('', '');
-  const list = app.sbx.listAt('');
-  const team = partitionState() === 'global';
-  const teamDef = partitionState() === 'user' && !!f.teamDef;
-  // the manager picked (else the first), its default image and size, and internet when it
-  // offers it — the web's choice (model/sandboxes.js projectSandbox): a project clones and fetches
-  const sb = projectSandbox(f.sandbox, list.managers);
-  const managers = sb.usable;
-  const mine = (list.sandboxes || []).filter((x) => x.mine && (x.visibility === 'team') === team && !['deleting', 'archived', 'error'].includes(x.state));
-  const provs = (p.scm && p.scm.providers) || [];
-  const prov = p.provider(f.scm);
-  const create = async () => {
-    if (f.sandbox.mode !== 'pick') f.sandbox = { ...f.sandbox, provider: sb.provider, image: sb.image, size: sb.size, egress: sb.egress };
-    const r = teamDef ? await projectTeam(app).saveTeam(p) : await p.saveProject();
-    if (r && r.project) { drop(s); const i = ui.stack.findIndex((x) => x.kind === 'projects'); if (i >= 0) ui.stack.splice(i + 1); openProject(r.project.id); }
-  };
-  const sbModes = [...(team ? [{ value: 'none', label: 'none' }] : []), { value: 'new', label: 'a new sandbox' }, ...(mine.length ? [{ value: 'pick', label: 'one of your own' }] : [])];
-  return html`<screen title="New project" style="form">
-    <toolbar><button role="primary" ?busy=${f.busy} @tap=${create}>Create</button></toolbar>
-    ${f.err ? html`<section><notice tone="danger" text=${f.err}/></section>` : nothing}
-    <section title="Where the code is" footer=${prov ? youWords(prov) : p.scm && p.scm.error ? p.scm.error : 'No scm provider is bound — bind one (such as the scm-github template) to this agent\'s scm slot.'}>
-      ${provs.length ? html`<picker label="Provider" value=${f.scm} options=${provs.map((x) => ({ value: x.scm, label: `${x.title || x.scm}${x.error ? ' — ' + x.error : ''}` }))}
-        @change=${(e) => { p.setForm('scm', e.value); p.searchRepos(); }}/>` : nothing}
-      ${prov ? signinTpl(p, prov) : nothing}
-    </section>
-    ${f.scm ? html`<section title="Repos" footer="Each with an optional setup script for each task's checkout.">
-      ${repeat(f.repos, (r) => r.repo, (r) => html`<row title=${r.repo} subtitle=${`→ ${repoSlug(r.repo)}`} mono="title" icon="folder">
-        <actions><button icon="xmark" role="destructive" @tap=${() => p.dropFormRepo(r.repo)}>Leave it out</button></actions></row>
-        <field label=${`Setup for ${r.repo}`} placeholder="npm ci" value=${r.setup} @input=${(e) => { r.setup = e.value; }}/>`)}
-      <field kind="search" label="Find a repo you can reach" value=${f.q} submit="search" @input=${(e) => { f.q = e.value; }} @submit=${() => p.searchRepos()}/>
-      ${repeat(f.results, (r) => `${r.owner}/${r.name}`, (r) => {
-        const name = `${r.owner}/${r.name}`;
-        const added = f.repos.some((x) => x.repo === name);
-        return html`<row title=${name} subtitle=${[r.private ? 'private' : '', r.permission && r.permission !== 'admin' ? r.permission : '', r.archived ? 'archived' : ''].filter(Boolean).join(' · ') || nothing}
-          icon=${added ? 'check' : 'plus'} ?disabled=${added || r.archived} @tap=${() => p.addFormRepo(name)}/>`;
-      })}
-      ${f.loading ? html`<progress label="loading…"/>` : !f.results.length && !f.err ? html`<empty title="No repos found"/>` : nothing}
-      ${f.next && !f.loading ? html`<row title="More" icon="expand" @tap=${() => p.searchRepos(true)}/>` : nothing}
-    </section>` : nothing}
-    <section><field label="Name" placeholder="Web" value=${f.name} @input=${(e) => { f.name = e.value; }}/></section>
-    ${partitionState() === 'user' ? html`<section title="Who it is for" footer=${teamDef ? 'A team project\'s definition holds the repos, the policy and its members; it has no tasks and no sandbox of yours — each member works on it in their own space. A seed sandbox can be set on its page.' : 'In your own space, with your own sandbox and sign-in.'}>
-      <picker style="segmented" value=${teamDef ? 'team' : 'mine'} options=${[{ value: 'mine', label: 'Just you' }, { value: 'team', label: 'A team project' }]}
-        @change=${(e) => p.setForm('teamDef', e.value === 'team')}/></section>` : nothing}
-    ${teamDef ? nothing : html`<section title=${team ? 'Its seed sandbox' : 'Its sandbox'} footer=${team ? 'Members\' sandboxes fork from a seed shared with the team; it holds no sign-in.' : 'Its credentials are yours: a project works only in a private sandbox of your own.'}>
-      <picker style="segmented" value=${f.sandbox.mode} options=${sbModes} @change=${(e) => p.setFormPart('sandbox', 'mode', e.value)}/>
-      ${f.sandbox.mode === 'pick' ? html`<picker label="Sandbox" value=${f.sandbox.ref} options=${[{ value: '', label: 'pick one…' }, ...mine.map((x) => ({ value: x.ref, label: `${x.name} · ${x.state}` }))]}
-        @change=${(e) => p.setFormPart('sandbox', 'ref', e.value)}/>`
-        : f.sandbox.mode === 'new' ? (managers.length ? html`<picker label="Manager" value=${sb.provider} options=${managers.map((m) => ({ value: m.provider, label: m.title || m.provider }))}
-          @change=${(e) => p.setFormPart('sandbox', 'provider', e.value)}/>` : html`<notice tone="warn" text="No sandbox manager is bound — bind one to this agent's sandboxes slot."/>`) : nothing}
-    </section>`}
-    <section title="How it works">
-      <field kind="number" label="Tasks at work at once" value=${String(f.policy.maxTasks)} @input=${(e) => { f.policy.maxTasks = e.value; }}/>
-      <picker label="Who answers tasks" value=${f.policy.engine} options=${[{ value: 'auto', label: 'auto — your pick per task' }, { value: 'builtin', label: 'the built-in agent' }, { value: 'harness', label: 'a coding agent' }]}
-        @change=${(e) => p.setFormPart('policy', 'engine', e.value)}/>
-      <picker label="Pull requests" value=${f.policy.autoPR} options=${[{ value: 'off', label: 'opened by hand (Open PR)' }, { value: 'draft', label: 'a draft when a task rests' }, { value: 'ready', label: 'ready for review when a task rests' }]}
-        @change=${(e) => p.setFormPart('policy', 'autoPR', e.value)}/>
-      ${partitionState() === 'legacy' || team || teamDef ? html`<picker label="Who can see it" value=${f.share.visibility} options=${[{ value: 'private', label: team || teamDef ? 'only the members you add next' : 'only you' }, { value: 'team', label: 'everyone who can open this agent' }]}
-        @change=${(e) => p.setFormPart('share', 'visibility', e.value)}/>` : nothing}
-    </section>
-  </screen>`;
-}
-
-// what the provider says of you (the web's providerNoteTpl)
-function youWords(prov) {
-  const you = prov.you || {};
-  const name = prov.title || prov.scm;
-  return [you.person ? `You are ${you.person.login} there.` : partitionState() === 'user' ? `You haven't signed in to ${name}.` : 'Projects here work as the provider\'s bot.', ...(prov.notes || [])].join(' ');
-}

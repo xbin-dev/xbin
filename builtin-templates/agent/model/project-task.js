@@ -12,6 +12,7 @@
 // task's title and an issue's text with their control, direction and
 // zero-width characters out, clipped (model/project-feed.js plain).
 import { plain } from './project-feed.js';
+import { nameOf } from './harness.js';
 
 // The board's columns (derived by the backend, TaskView.column), in order.
 export const COLUMNS = [
@@ -53,12 +54,17 @@ export const STATES = {
   working: ['working', 'run'], 'needs-you': ['needs you', 'warn'], ci: ['CI running', 'run'], 'ci-failed': ['CI failed', 'bad'],
   'awaiting-review': ['awaiting review', 'idle'], 'ci-passed': ['CI passed — review it', 'ok'], merged: ['merged', 'ok'], closed: ['closed', 'idle'], done: ['done', 'ok'],
   failed: ['failed', 'bad'], cancelled: ['cancelled', 'idle'], blocked: ['cleanup refused', 'warn'], deleted: ['deleted', 'idle'],
+  // its coding agent waits for a sign-in in the task's sandbox (stateWords names the agent; the
+  // conversation's card, signin.js, signs it in)
+  'agent-signin': ['sign in to its coding agent', 'warn'],
 };
 // What a task waits for (TaskView.waitingFor).
 export const WAITING = { you: 'waiting for you', signin: 'waiting for a sign-in', review: 'waiting for a review', ci: 'waiting for CI', slot: 'waiting for a free slot' };
 
-/** stateWords(task): {text, tone} — tone run | ok | bad | warn | idle. */
+/** stateWords(task): {text, tone} — tone run | ok | bad | warn | idle. A coding
+ * agent's sign-in names it: "sign in to Claude Code". */
 export function stateWords(t) {
+  if (t && t.state === 'agent-signin') return { text: `sign in to ${nameOf({ provider: t.harness })}`, tone: 'warn' };
   const [text, tone] = STATES[t && t.state] || [(t && t.state) || (t && t.ws) || '', 'idle'];
   const wait = t && t.waitingFor && WAITING[t.waitingFor];
   return { text: wait && t.state !== 'signin' ? `${text} · ${wait}` : text, tone };

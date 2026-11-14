@@ -7,7 +7,8 @@ package acp
 // the message and the requested JSON schema, the session waits, and the
 // first answer (accept with the form's values, decline, cancel) goes back
 // as the JSON-RPC reply and an elicitation.resolved event. Cancelling the
-// turn answers cancel.
+// turn answers cancel; one the agent withdraws ($/cancel_request) is
+// settled as a withdrawn permission is (resolved: action cancel, by agent).
 //
 // URL mode (only with ElicitationCaps.URL advertised; declined otherwise):
 // the agent asks the person to open a URL — codex-acp's device-code
@@ -79,6 +80,20 @@ func (e *elicits) take(eid, action string) (pendingElicit, bool) {
 		e.urls[p.q.ElicitationID] = p
 	}
 	return p, ok
+}
+
+// withdraw takes the question still unanswered under the agent's request
+// id ($/cancel_request).
+func (e *elicits) withdraw(rpcID json.RawMessage) (pendingElicit, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	for eid, p := range e.pend {
+		if len(p.rpcID) > 0 && idKey(p.rpcID) == idKey(rpcID) {
+			delete(e.pend, eid)
+			return p, true
+		}
+	}
+	return pendingElicit{}, false
 }
 
 // complete takes the url question an elicitation/complete names: still
@@ -210,6 +225,21 @@ func (c *Client) RespondElicitation(eid, action string, content json.RawMessage,
 	c.emitW(w, NewEvent(EvElicitResolved, res))
 	c.afterAnswer(w) // before the agent hears it (respondPermission)
 	return c.conn.Reply(pe.rpcID, out, nil)
+}
+
+// withdrawElicit settles the question the agent itself withdrew
+// ($/cancel_request) as a withdrawn permission is: an elicitation.resolved
+// with action "cancel" by "agent" (no client waits on it any more), then
+// the explicit -32800 the protocol asks for. One not pending is ignored.
+func (c *Client) withdrawElicit(w *Wire, rpcID json.RawMessage) {
+	pe, ok := c.elicits.withdraw(rpcID)
+	if !ok {
+		return
+	}
+	w.RPCID = pe.rpcID
+	c.emitW(w, NewEvent(EvElicitResolved, map[string]any{"eid": pe.q.EID, "action": "cancel", "by": "agent"}))
+	c.afterAnswer(w)
+	_ = c.conn.Reply(pe.rpcID, nil, &Error{Code: CodeRequestCancelled, Message: "request cancelled"})
 }
 
 // afterAnswer is the status once nothing waits for an answer any more: a

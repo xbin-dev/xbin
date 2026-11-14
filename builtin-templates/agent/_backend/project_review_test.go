@@ -195,6 +195,12 @@ func TestArchivedCleanupEndsHeldSetup(t *testing.T) {
 			t.Fatalf("checkout %s is %s after the cleanup", c.Repo, c.State)
 		}
 	}
+	// the cleanup's step sets cleaned in its own transaction; its job is
+	// marked done after (projWorker.finish) — wait for that, then nothing
+	// else of the task may still be live
+	waitFor(t, "the cleanup job finished", func() bool {
+		return len(fx.ag.db.jobsWhere(`WHERE task_id=? AND kind=? AND state IN ('queued','running','waiting')`, k.ID, pjCleanup)) == 0
+	})
 	if live := fx.ag.db.jobsWhere(`WHERE task_id=? AND state IN ('queued','running','waiting')`, k.ID); len(live) != 0 {
 		t.Fatalf("jobs still live after the cleanup: %s", jobsDump(fx.ag.db, p.ID))
 	}

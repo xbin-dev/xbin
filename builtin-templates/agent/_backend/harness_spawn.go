@@ -307,8 +307,8 @@ func harnessWaitWords(t *DB, r *Run) string {
 			title = orStr(p.Harness.Tool.Title, p.Harness.Tool.Label)
 		}
 		return "waiting for a person to approve: " + clip(oneLine(orStr(title, "a tool call")), 120)
-	case "question":
-		return "waiting for a person to answer: " + clip(oneLine(p.Harness.Message), 120)
+	case "question": // Claude's AskUserQuestion: its questions, not its stock message (needs_text.go)
+		return "waiting for a person to answer: " + clip(oneLine(orStr(questionWords(p.Harness), p.Harness.Message)), 120)
 	case "login":
 		return "waiting for a person to sign in"
 	}

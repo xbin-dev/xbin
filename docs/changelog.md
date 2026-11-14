@@ -10,6 +10,23 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-09
+
+- **Agent template Projects: a new project is made in a wizard, and can
+  start with built-in work** (D223). Code, Name, Sandbox, How it works, Get
+  started, Review — on the web and in the app. Repos are picked from a
+  readable dropdown that adds a repo when you choose it. **Get started**
+  offers "Clone, build and run the tests" (task #1: it works out how each
+  repo builds and tests, runs them, and records what it verified in the
+  wiki) and "Create the initial knowledge base" (afterwards, your
+  coordinator maps the code with research subagents and writes the
+  project wiki). `POST /projects` takes `starter: {build, wiki}`.
+- **Agent template: a model that goes quiet mid-answer is given 5 minutes,
+  not 90 s.** Some upstreams (kimi-k3, deepseek-v4.1-flash through llm-gw)
+  send a tool call whole once it is composed, so a large one, such as a file
+  written in one call, was minutes of silence that the agent cut as a stalled
+  stream, again and again. The 90 s bound still holds until the first byte.
+
 ## 2026-11-08
 
 - **Links to a place in the workspace** (#7, D220;
@@ -30,6 +47,49 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   is new scaffold files (`shell/route.js`, `shell/shell-route.js`) and a
   few lines in `shell/bx-shell.js`: an existing workspace gets it with `bx
   builtin update`; until then its shell ignores the query, as before.
+- **Agent template Projects: a project wiki, and the coordinator reads
+  code** (D222). Each project keeps a versioned wiki — a Wiki tab with
+  search, history and edits — that its coordinator and the coordinator's
+  new **research** subagents (read-only: files, search and `git log/show/
+  diff/blame`, no shell) read and write. Tasks read it (a coding agent
+  from `.xbin/wiki/` in its workspace) and, when their PR opens, get one
+  "dream" turn to write down what they verified (project setting `dream`,
+  on by default). Writes are optimistic: a page someone changed since you
+  read it refuses your write until you read it again. API:
+  `GET/PUT/DELETE /projects/{pid}/wiki[/{slug}]`, `…/{slug}/history`.
+- **Agent template Projects: a task follows its pull request wherever its
+  coding agent opened it, and sees a merge however late** (D221). An open
+  PR the agent opened itself from another branch is linked to its task when
+  the task's checkout is on that branch at the PR's head (a merged or
+  closed one is only named; a task holds one open PR per repo); otherwise
+  the task says so, and the coordinator's new `task_link_pr` (or
+  `POST /projects/{pid}/tasks/{n}/link-pr`) links it — one the task can't
+  push to (another author's, a fork's) is `tracked`: its CI and reviews
+  are shown, not sent to the task. Cleanup no longer counts a merged PR
+  as holding commits its head doesn't contain. An open PR is polled
+  every 6 h past its first day instead of no more, so a merge no webhook
+  reported still lands; `task_refresh` reads a task's PRs now. Tasks
+  stranded by the old 24 h stop are picked up again after the upgrade.
+- **Agent template Projects: what waits for a person says what it is**
+  (D221, #56). A project's page opens with **Waiting for you** — a task's
+  question or approval and the coordinator's own question, in its words
+  and with its age, each with Open; failures in yellow. `GET /needs` items
+  carry `text` and `since`; the conversation list's count no longer counts
+  tasks whose answer is merely ready. The coordinator quotes a task's
+  question instead of "waiting for a person", and calls an idle task's
+  answer ready.
+- **Agent template Projects: a big task's own sandbox waits while it is
+  made, and its coding agent signs in on its own** (D221). A fork still
+  being created no longer fails the task after a few minutes. A fork no
+  longer carries the project sandbox's coding-agent login (two copies of
+  one login sign each other out): it uses your saved sign-in (Settings →
+  Coding agents), else asks for one — a new task state, `agent-signin`.
+  The coordinator gained `task_retry` for a failed workspace.
+- **SDK (`sdk/acp`): a question the agent withdraws is settled** — an
+  `$/cancel_request` for an elicitation now emits `elicitation.resolved`
+  (action `cancel`, by `agent`), as a withdrawn permission already did
+  ([sdk.md](/docs/sdk.md), [protocol.md](/docs/protocol.md)). New
+  `Provider.LoginFiles`: where each CLI keeps its login.
 
 ## 2026-11-03
 

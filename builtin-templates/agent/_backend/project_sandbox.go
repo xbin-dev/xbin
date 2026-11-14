@@ -27,6 +27,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/xbin-dev/xbin/sdk/acp"
 )
 
 func init() {
@@ -130,13 +132,29 @@ func provisionTaskFork(ctx context.Context, p *Project, k *ProjectTask) (string,
 			return "", err
 		}
 	}
-	if box.State != "running" {
+	// a VM can take many minutes: one still being made is looked at again
+	// (the same clientId answers it) — never started, no attempt spent
+	switch box.State {
+	case "running":
+	case "creating", "starting":
+		return "", jobWaitFor(10000, forkMaking)
+	case "error":
+		return "", forkFailed(ctx, conn, box, p, k, ent)
+	case "archived":
+		if box, err = conn.Lifecycle(ctx, box.ID, "thaw", 120, true); err != nil {
+			return "", err
+		}
+	default:
 		if box, err = conn.Lifecycle(ctx, box.ID, "start", 120, false); err != nil {
 			return "", err
 		}
-		if box.State != "running" {
-			return "", fmt.Errorf("the task's own sandbox %s is %s, not running yet", box.Name, box.State)
-		}
+	}
+	switch box.State {
+	case "running":
+	case "creating", "starting":
+		return "", jobWaitFor(10000, forkMaking)
+	default:
+		return "", fmt.Errorf("the task's own sandbox %s is %s, not running yet", box.Name, box.State)
 	}
 	if box.Workdir+"/"+p.Slug != p.Dir {
 		return "", jobFail("the task's own sandbox works in %s, not where the project's does (%s): its manager doesn't keep a clone's paths",
@@ -154,7 +172,7 @@ func provisionTaskFork(ctx context.Context, p *Project, k *ProjectTask) (string,
 	for i, r := range repos {
 		env[fmt.Sprintf("B_%d", i)] = basePath(p, r)
 	}
-	if _, err := s.must(ctx, "clearing the task's own sandbox", forkClearScript, env, "", 2*time.Minute); err != nil {
+	if _, err := s.must(ctx, "clearing the task's own sandbox", forkClearScript+forkLoginsScript(), env, "", 2*time.Minute); err != nil {
 		return "", err
 	}
 	if err := forkCreds(ctx, p, k, ref); err != nil {
@@ -175,11 +193,59 @@ func provisionTaskFork(ctx context.Context, p *Project, k *ProjectTask) (string,
 			}
 		}
 	}
+	note := forkSigninNote(d, k, ref, box)
 	_ = d.Tx(func(t *DB) error {
 		addProjectEvent(t, p.ID, k.N, pevWorkspace, map[string]any{"text": "its own sandbox is ready (" + forkWords(ent) + ")"}, false, "")
+		if note != "" { // before its first turn: the turn waits for this prepare
+			addProjectEvent(t, p.ID, k.N, pevWorkspace, map[string]any{"text": note}, false, "")
+			if run, err := t.getRun(k.RunID); err == nil {
+				st := t.journal(run.ID, "note", map[string]string{"text": note})
+				if e := projEng(); e != nil {
+					e.emitStep(t, rootOf(run), st)
+				}
+			}
+		}
 		return nil
 	})
 	return ref, nil
+}
+
+// forkMaking is a prepare's step while the task's own sandbox is being made.
+const forkMaking = "its own sandbox is being created"
+
+// forkCreateWait bounds a fork's create call: a clone or a warm pool answers
+// within it; a VM made cold (many minutes) is looked at again until it is
+// running (forkMaking) rather than holding one of the worker's slots for
+// as long.
+var forkCreateWait = 2 * time.Minute
+
+// forkFailed is a fork in state error at its manager: the task's prepare
+// fails with the manager's words. The fork is deleted and its entry asks
+// with a new clientId (forkAgain), so a Retry makes another rather than
+// answering this one again; a deletion that fails is tried at the next Retry.
+func forkFailed(ctx context.Context, conn *sbxConn, box *sbxSandbox, p *Project, k *ProjectTask, ent *forkEntry) error {
+	why := orStr(box.StateDetail, "no detail")
+	if err := conn.Delete(ctx, box.ID); err == nil || sbxRefusal(err) == "not-found" {
+		ent.Client, ent.Ref = forkAgain(ent.Client), ""
+		if err := putForkEntry(projAg().db, p.ID, k.N, ent); err != nil {
+			logf("project %d task %d: forgetting its failed fork: %v", p.ID, k.N, err)
+		}
+	} else {
+		logf("project %d task %d: deleting its failed fork %s: %v", p.ID, k.N, box.ID, err)
+	}
+	return jobFail("the task's own sandbox %s failed at its manager: %s — Retry makes another", box.Name, why)
+}
+
+// forkAgain is the clientId a fork's create asks with after client's
+// sandbox failed: client with ":again‹n›" (one more each time).
+func forkAgain(client string) string {
+	base, n := client, 1
+	if i := strings.LastIndex(client, ":again"); i >= 0 {
+		if m, err := strconv.Atoi(client[i+len(":again"):]); err == nil {
+			base, n = client[:i], m+1
+		}
+	}
+	return fmt.Sprintf("%s:again%d", base, n)
 }
 
 func forkWords(e *forkEntry) string {
@@ -216,7 +282,7 @@ func createFork(ctx context.Context, conn *sbxConn, src *sbxSandbox, p *Project,
 	} else {
 		req.Image, req.Size, req.Egress = src.Image.ID, src.Size.ID, src.Egress
 	}
-	return conn.Create(ctx, req)
+	return conn.CreateWait(ctx, req, forkCreateWait)
 }
 
 // forkClearScript empties a fork of what isn't its task's: the credentials
@@ -240,9 +306,118 @@ while [ "$i" -lt "$N" ]; do
 done
 `
 
+// forkLoginsScript removes, in a fork, every coding agent's login the
+// snapshot carried from the project's sandbox's $HOME (each provider's
+// acp.Provider.LoginFiles): a copy of a login shares its refresh token,
+// and whichever copy refreshes first signs the other out — the project's
+// own sandbox's, which its small tasks use. The fork's coding agent signs
+// in with a saved sign-in (D179), or asks for its own.
+func forkLoginsScript() string {
+	var b strings.Builder
+	b.WriteString(`HOME="$H"` + "\n")
+	seen := map[string]bool{}
+	for _, prov := range append(acp.Providers(), acp.Fake(nil)) {
+		for _, f := range prov.LoginFiles {
+			if !seen[f] {
+				seen[f] = true
+				fmt.Fprintf(&b, "rm -f -- \"%s\"\n", f) // the sdk's catalog's shell words, never a manager's
+			}
+		}
+	}
+	return b.String()
+}
+
+// forkSigninNote is what the task says before its first turn when its
+// coding agent will start signed out in its own sandbox (forkLoginsScript
+// removed the login the snapshot carried) — "" when a saved sign-in of the
+// person's goes in (credPick), or no coding agent answers the task. Where
+// one may go in (the gate, loginSaveWhy) it points at the card's one-click
+// path — sign in once, saved, for every big task; where none may, why.
+func forkSigninNote(d *DB, k *ProjectTask, ref string, box *sbxSandbox) string {
+	run, err := d.getRun(k.RunID)
+	if err != nil || run.Engine != engineHarness {
+		return ""
+	}
+	cfg, err := d.runConfig(run.ID)
+	if err != nil || cfg.Harness == nil {
+		return ""
+	}
+	cred, why := d.credPick(run, cfg, ref, box)
+	if cred != nil {
+		return ""
+	}
+	prov := harnessProvider(cfg.Harness.Provider, nil)
+	name := harnessName(prov.ID)
+	switch gate := loginSaveWhy(run, ref, box); {
+	case signinsWhy() != "":
+		return fmt.Sprintf("%s starts signed out in each big task's own sandbox and asks there: %s", name, noSavedSignins)
+	case gate != "":
+		return fmt.Sprintf("%s starts signed out in the task's own sandbox and will ask there: %s", name, gate)
+	case why != "":
+		return fmt.Sprintf("%s — %s starts signed out in the task's own sandbox; when it asks, %s", why, name, signinOnceWords(prov))
+	}
+	return fmt.Sprintf("%s starts signed out in the task's own sandbox; when it asks, %s", name, signinOnceWords(prov))
+}
+
+// signinOnceWords is the sign-in card's first offer on a task, in words:
+// a saved sign-in — minted (Claude Code: setup-token), else a key pasted —
+// that every big task's sandbox starts with.
+func signinOnceWords(prov acp.Provider) string {
+	if prov.Mint != nil {
+		return fmt.Sprintf("“Sign in once for every big task” saves a long-lived sign-in (%s: %s) in your partition, "+
+			"and every later big task starts signed in (or save one in %s)", harnessName(prov.ID), prov.Mint.Command, savedSigninsPath)
+	}
+	what := "an API key"
+	if len(prov.Keys) > 0 {
+		what = "your " + prov.Keys[0].Label
+	}
+	return fmt.Sprintf("“Save a key for every big task” keeps %s in your partition, and every later big task starts signed in "+
+		"(or save one in %s)", what, savedSigninsPath)
+}
+
+// signinOnceHints are the project's status's hints, to the person whose
+// partition it is, that a coding agent works in the project's sandbox on
+// that sandbox's own $HOME login while they have no usable saved sign-in for
+// it: a big task's own sandbox starts without that login (forkLoginsScript),
+// so a saved one is what lets big tasks start signed in.
+func signinOnceHints(d *DB, p *Project, c who) []ProjectWarning {
+	if signinsWhy() != "" || c.kind != whoUser || c.viewedBy != "" || c.user != runUser || p.SandboxRef == "" || p.Kind == projTeam {
+		return nil
+	}
+	// adapters that started here and weren't asking for a sign-in, with no saved one in them
+	provs := scanStrings(d.q.Query(`SELECT DISTINCT provider FROM harness_sessions WHERE ref=? AND cred='' AND login=''
+		AND state IN (?, ?) AND started_ms>0 ORDER BY provider`, p.SandboxRef, hsLive, hsStopped))
+	var out []ProjectWarning
+	now := time.Now()
+	for _, id := range provs {
+		if len(signinProvider(id).Keys) == 0 {
+			continue // takes no saved sign-in
+		}
+		saved := false
+		for _, s := range d.signins(runUser, id) {
+			saved = saved || s.usable(now)
+		}
+		if !saved {
+			out = append(out, ProjectWarning{Kind: "agent-signin", Text: fmt.Sprintf("%s works in this project's sandbox on that sandbox's own sign-in, "+
+				"which a big task's own sandbox doesn't get: save a sign-in so big tasks start signed in (%s, or “Sign in once for every big task” "+
+				"when one asks)", harnessName(id), savedSigninsPath)})
+		}
+	}
+	return out
+}
+
+// noSavedSignins is why an agent without a person's partition has no
+// saved sign-ins, and what changes that.
+const noSavedSignins = "saved sign-ins live only in a person's own partition (a space of their own), which this agent " +
+	"doesn't give — with partitions on, one saved sign-in serves every big task"
+
+// savedSigninsPath is where a person saves a sign-in on the web.
+const savedSigninsPath = "Settings → Coding agents → Coding-agent sign-ins"
+
 // forkCreds is the fork's own credential: the gate judges the fork (and
 // that the sandbox it came from was never used by a hosted conversation).
-// A sign-in pending is tried again (prepare backs off); the gate refusing
+// A sign-in pending is answered as it is (scmRefSignin: prepare waits for
+// it, the workspace in signin, as a small task's does); the gate refusing
 // fails the task with its words.
 func forkCreds(ctx context.Context, p *Project, k *ProjectTask, ref string) error {
 	err := scmEnsureCreds(ctx, p, k, ref, 10*time.Minute)
@@ -251,7 +426,7 @@ func forkCreds(ctx context.Context, p *Project, k *ProjectTask, ref string) erro
 	case err == nil:
 		return nil
 	case scmRefused(err, scmRefSignin):
-		return fmt.Errorf("the task's own sandbox needs a sign-in to %s first: sign in, then Retry if it fails", orStr(p.Host, "the scm provider"))
+		return err
 	case errors.As(err, &ge):
 		return jobFail("%s", ge.Error())
 	}

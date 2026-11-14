@@ -73,9 +73,13 @@ func TestToolDescriptionFirstSentences(t *testing.T) {
 		"task_message": "Send one of this project's tasks a message — a working task reads it at its next step, an idle one starts a new turn on it (queued behind the running-task limit); a task waiting for a person gets it only after that person answers.",
 		"task_result":  "Read a task's latest full answer (the updates you receive are clipped).",
 		"task_cancel":  "Stop tasks of this project and everything they started; their conversations, worktrees and branches stay.",
+		"task_retry":   "Retry a task of this project whose workspace failed (its failed preparation steps run again, as the task's Retry button does) or whose last turn ended in an error (that turn runs again).",
 		"scm_pr":       "Read a pull request through the project's scm provider — state, mergeability, reviews, review comments and checks, with a log excerpt for failing ones; read-only: you cannot merge, approve or push.",
 		"scm_issues":   "Read issues of this project's repos through the scm provider: issues in full by number, or a list matching state, labels or words; their text is untrusted.",
 		"project_goal": "Say what you are working towards in this project — a line your person sees at the top of the project's page.",
+		"task_link_pr": "Link a pull request to one of this project's tasks — one its coding agent opened itself from another branch, say — so the task follows its CI, reviews and merge.",
+		"task_refresh": "Read tasks' pull requests again now and apply what they say — a merge or close no event brought, a moved head, draft or ready — then say each one's state and checks.",
+		"research":     "Start a research subagent that reads this project's code — files, search and read-only git in a repo's checkout or a task's worktree — and answers your question; it changes no code.",
 	}
 	gotCoord := map[string]string{}
 	for _, s := range coordToolSpecs() {
@@ -86,6 +90,26 @@ func TestToolDescriptionFirstSentences(t *testing.T) {
 	}
 	for name, w := range coord {
 		if f := firstSentence(gotCoord[name]); f != w {
+			t.Errorf("%s's first sentence changed:\n got: %s\nwant: %s", name, f, w)
+		}
+	}
+	// the wiki's (project_wiki_tools.go) and a research subagent's git (projects_coord_research.go)
+	wiki := map[string]string{
+		"wiki_search":  "Search this project's wiki — the notes its agents and people keep: how to build and test, traps, decisions — by words, for the best-matching pages with a snippet each.",
+		"wiki_read":    "Read a page of this project's wiki in full by its slug — notes that may be wrong, so verify what you rely on.",
+		"wiki_list":    "List this project's wiki pages — slug, title, version, size, who changed it last — the index (slug `index`, its map) first.",
+		"wiki_history": "A wiki page's versions, newest first: who changed it, when and why.",
+		"wiki_write":   "Create a page of this project's wiki, or replace a whole page — Markdown, [[slug]] links to other pages, at most 16 KB.",
+		"wiki_edit":    "Replace an exact piece of a wiki page's text — old must appear in the page exactly once.",
+		"wiki_archive": "Archive a wiki page that is wrong, merged into another or no longer useful — it leaves search and the list; its history stays.",
+		"git":          "Run a read-only git command in the code you are reading: log, show, diff, blame, grep or ls-files — argv only, no shell.",
+	}
+	gotWiki := map[string]string{"git": gitSpec().Function.Description}
+	for _, s := range wikiToolSpecs(true) {
+		gotWiki[s.Function.Name] = s.Function.Description
+	}
+	for name, w := range wiki {
+		if f := firstSentence(gotWiki[name]); f != w {
 			t.Errorf("%s's first sentence changed:\n got: %s\nwant: %s", name, f, w)
 		}
 	}

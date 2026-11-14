@@ -434,7 +434,7 @@ func ciTaskRefs(t *DB, p *Project, k *ProjectTask) {
 			continue
 		}
 		w := &ciWatch{RootRun: k.RunID, RunID: k.RunID, ProjectID: p.ID, N: k.N, Source: ciTask, SCM: p.SCM, Host: p.Host,
-			Repo: r.Repo, Ref: k.Branch, SHA: ciSHA(c.RemoteSHA)}
+			Repo: r.Repo, Ref: taskBranchIn(k, r.Repo), SHA: ciSHA(c.RemoteSHA)}
 		gone := false
 		for _, pr := range prs {
 			if !strings.EqualFold(pr.Repo, r.Repo) {

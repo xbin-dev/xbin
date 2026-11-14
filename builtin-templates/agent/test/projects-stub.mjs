@@ -13,6 +13,9 @@
 //             answers 405), false: it doesn't (404, plain text, as a mux)
 //   signin    the person's provider sign-in: polls left before it is done;
 //             its routes answer 409 outside a person's partition
+// seed.noWiki: a backend without the project wiki (its probe, GET
+// /projects/0/wiki, is the mux's plain 404); seed.noStarter: POST /projects
+// answers no `starter` (a backend that ignores it).
 // projSeed() is a seed: an unpartitioned agent with one project ("Web",
 // two repos), its tasks in every column and a task conversation each;
 // partitionSeed() the same in alice's partition (ids from 2^40), with a
@@ -84,8 +87,10 @@ export function PROJ_STUB(seed) {
       createdBy: 'alice', createdMs: Date.now(), updatedMs: Date.now() };
     P.projects.unshift(p);
     P.tasks[id] = [];
-    return json({ project: view(p), jobs: [] }, 201);
+    return json({ project: view(p), jobs: [], ...(b.starter && !seed.noStarter ? { starter: { build: !!b.starter.build, wiki: !!b.starter.wiki } } : {}) }, 201);
   });
+  // the wizard's probe of the project wiki (and the starter work): a 404 with a body where the route is
+  r('GET', new RegExp(`${API}/projects/0/wiki$`), () => (seed.noWiki ? plain404() : json({ error: 'no such project' }, 404)));
   r('GET', new RegExp(`${API}/projects/(\\d+)$`), (m) => (proj(m[1]) ? json({ project: view(proj(m[1])) }) : json({ error: 'no such project' }, 404)));
   r('PATCH', new RegExp(`${API}/projects/(\\d+)$`), (m, o) => {
     const p = proj(m[1]);

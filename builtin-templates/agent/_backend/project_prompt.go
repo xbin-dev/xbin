@@ -29,7 +29,8 @@ func projectPrompt(d *DB, p *Project, k *ProjectTask, sub bool) string {
 	} else {
 		fmt.Fprintf(&b, "This conversation is task #%d of the project %q%s (%s).\n", k.N, p.Name, title, orStr(k.Size, sizeSmall))
 	}
-	fmt.Fprintf(&b, "Branch: %s — commit to it and push it (`git push`); never push the default branch, never merge: a person reviews and merges.\n", k.Branch)
+	fmt.Fprintf(&b, "Branch: %s — stay on it: commit to it and push it (`git push`). %s Never run `gh pr create`, never switch to or create "+
+		"another branch, never push the default branch, never merge: a person reviews and merges.\n", k.Branch, prWho(pol))
 	repos, _ := d.projectRepos(p.ID)
 	cos := map[string]ProjectCheckout{}
 	for _, c := range d.checkouts(k.ID) {
@@ -51,7 +52,11 @@ func projectPrompt(d *DB, p *Project, k *ProjectTask, sub bool) string {
 			if path == "" && k.Dir != "" {
 				path = k.Dir + "/" + slug
 			}
-			fmt.Fprintf(&b, "- %s: %s (its default branch: %s)\n", r.Repo, orStr(path, "being prepared"), orStr(r.DefaultBranch, "unknown"))
+			fmt.Fprintf(&b, "- %s: %s (its default branch: %s", r.Repo, orStr(path, "being prepared"), orStr(r.DefaultBranch, "unknown"))
+			if br := taskBranchIn(k, r.Repo); br != k.Branch {
+				fmt.Fprintf(&b, "; the task's branch here: %s, its pull request's", br) // a PR linked to the task
+			}
+			b.WriteString(")\n")
 		}
 	}
 	b.WriteString("Each repo's AGENTS.md / CLAUDE.md governs how to work in it — read it first.\n")
@@ -77,7 +82,16 @@ func projectPrompt(d *DB, p *Project, k *ProjectTask, sub bool) string {
 	if setup := setupOutcome(d, k); setup != "" {
 		b.WriteString("\n" + setup)
 	}
+	b.WriteString(wikiBrief(d, p, k, sub)) // the wiki's index, as at the task's start (project_wiki_prompt.go)
 	return strings.TrimRight(b.String(), "\n")
+}
+
+// prWho is who opens a task's pull request, in the brief's words.
+func prWho(pol ProjectPolicy) string {
+	if pol.AutoPR == "draft" || pol.AutoPR == "ready" {
+		return "When your turn ends the platform opens its pull request from it."
+	}
+	return "The platform opens its pull request from it when a person asks."
 }
 
 // setupOutcome is what the task is told about its repos' setup scripts:

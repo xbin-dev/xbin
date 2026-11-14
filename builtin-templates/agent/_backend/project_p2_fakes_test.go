@@ -34,8 +34,16 @@ func (f p2SCM) PullCreate(ctx context.Context, req scmPullReq) (*scmPull, error)
 	return f.creds.PullCreate(ctx, req)
 }
 func (f p2SCM) Pulls(ctx context.Context, q scmQuery) (*scmPage[scmPull], error) {
-	return f.creds.Pulls(ctx, q)
+	pg, err := f.creds.Pulls(ctx, q)
+	if h := p2PullsHook.Load(); h != nil {
+		(*h)() // what happens while a job holds the answer
+	}
+	return pg, err
 }
+
+// p2PullsHook, when set, runs after each list of pull requests is read.
+var p2PullsHook atomic.Pointer[func()]
+
 func (f p2SCM) Pull(ctx context.Context, repo string, n int, as string) (*scmPull, error) {
 	return f.creds.Pull(ctx, repo, n, as)
 }
@@ -183,12 +191,25 @@ type p2Fix struct {
 
 func newP2Fix(t *testing.T) *p2Fix {
 	t.Helper()
+	return newP2FixWith(t, nil)
+}
+
+// newP2FixWith is newP2Fix with the fake manager's handler wrapped (inside
+// keepPaths: the wrapper sees the agent's requests with a fork's own paths).
+func newP2FixWith(t *testing.T, wrap func(http.Handler) http.Handler) *p2Fix {
+	t.Helper()
 	oldFirst, oldEvery := forkBaseFirst.Load(), forkBaseEvery.Load()
 	forkBaseFirst.Store(int64(time.Hour)) // a test runs the loop's sweeps itself
 	t.Cleanup(func() { forkBaseFirst.Store(oldFirst); forkBaseEvery.Store(oldEvery) })
 	ag, mux := accessFixture(t)
 	kp := &keepPaths{alias: map[string]string{}}
-	m := bindSbxWith(t, func(h http.Handler) http.Handler { kp.next = h; return kp }, "apps/cs")["apps/cs"]
+	m := bindSbxWith(t, func(h http.Handler) http.Handler {
+		if wrap != nil {
+			h = wrap(h)
+		}
+		kp.next = h
+		return kp
+	}, "apps/cs")["apps/cs"]
 	box := mkSandbox(t, "apps/cs", "alice", sbxCreate{Egress: "internet"})
 	kp.primary = box.ID
 	kp.root = filepath.Dir(filepath.Dir(box.Workdir))

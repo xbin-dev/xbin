@@ -121,6 +121,31 @@ test('Remember: only in a person\'s own partition, for an agent that mints, in a
   assert.equal(M.guidedOf({ ...card, gone: 'gone' }, entry), false);
 });
 
+test('a big task\'s sign-in card (D221): sign in once for every big task first where a saved sign-in may go in, else why', () => {
+  const entry = { login: { command: 'claude auth login', guided: true, mint: true } };
+  const base = { task: true, name: 'Claude Code', provider: 'claude', shared: false, guided: true, sandbox: { name: 'web-3' }, remember: { offered: true, why: '' }, save: { ok: true } };
+  const mint = M.taskSigninOf(base, { entry, st: st(), state: 'user' });
+  assert.deepEqual([mint.primary, mint.title, mint.once.title], ['mint', 'Sign in once for every big task', 'Sign in for this task only']);
+  assert.match(mint.hint, /long-lived sign-in \(Claude Code: setup-token\) in your partition/);
+  assert.match(mint.once.hint, /the next big task asks again/);
+  assert.equal(M.taskSigninOf({ ...base, save: null }, { entry, st: st(), state: 'user' }).primary, 'mint', 'not judged (an adapter attached after a restart): the card\'s own rules');
+  // the gate said no: why, the one-off alone
+  const shared = M.taskSigninOf({ ...base, save: { ok: false, why: 'this task\'s sandbox is shared with the project\'s members' } }, { entry, st: st(), state: 'user' });
+  assert.deepEqual([shared.primary, shared.why], ['once', 'No saved sign-in goes in here: this task\'s sandbox is shared with the project\'s members.']);
+  assert.equal(M.taskSigninOf({ ...base, remember: { offered: false, why: 'web-3 is shared.' } }, { entry, st: st(), state: 'user' }).why, 'web-3 is shared.');
+  // no partitions, or the shared space: why, and what changes it
+  for (const state of ['legacy', 'global']) {
+    const t = M.taskSigninOf(base, { entry, st: st(), state });
+    assert.deepEqual([t.primary, t.why], ['once', M.NO_PARTITIONS], state);
+  }
+  assert.match(M.NO_PARTITIONS, /with partitions on, one saved sign-in serves every big task/);
+  // no mint (Codex): a key pasted and saved, its label from the provider's keys
+  const codex = M.taskSigninOf({ ...base, name: 'Codex', provider: 'codex', guided: false, remember: { offered: false, why: '' } },
+    { entry: { login: { command: 'codex login' } }, st: st(), state: 'user' });
+  assert.deepEqual([codex.primary, codex.title, codex.keys.map((k) => k.label)], ['paste', 'Save a key for every big task', ['OpenAI API key']]);
+  assert.equal(M.taskSigninOf({ ...base, provider: 'nope', guided: false }, { entry: null, st: st(), state: 'user' }).primary, 'once', 'nothing to save');
+});
+
 test('the guided sign-in\'s steps and words', () => {
   const c = { name: 'Claude Code', sandbox: { name: 'my-dev' } };
   let g = M.newGuided();
