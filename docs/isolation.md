@@ -372,7 +372,7 @@ base that isn't installed any more fails to open (reset it), or moves with
 the setting on; it no longer keeps xbind from booting. This is the terminal dev layer only: the component
 env layer below is rebuilt for a new base by itself, and a tile sandbox's
 state is its manager's to reset or rebase (`base.outdated`;
-[protocol.md](/docs/protocol.md) §Reset and rebase).
+[protocol/sandboxes.md](/docs/protocol/sandboxes.md) §Reset and rebase).
 
 Keep two "layers" straight — they are deliberately separate:
 
@@ -691,7 +691,7 @@ A **manager tile** — one that serves coding sandboxes to other tiles
 ([sandbox-manager.md](sandbox-manager.md)) — can have xbind run them:
 its backend holds **`cap:sandboxes`** (only a workspace admin approves it)
 and defines and drives them through `/api/xbin/sandboxes/…`
-([protocol.md](protocol.md) §Tile sandboxes). They need `--isolate`.
+([protocol/sandboxes.md](/docs/protocol/sandboxes.md)). They need `--isolate`.
 
 - **Two modes, the manager's choice per sandbox.** `namespace` is the
   terminals' restricted sandbox: `apt` works, nested containers don't.

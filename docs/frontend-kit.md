@@ -450,7 +450,7 @@ the same draft and **Save and update for everyone**.
 `blocks` array beside its `tiles` — never inside it —
 `[{id, kind: "heading"|"text", text, level?, x, y, w, h, doc?}]`: in the
 `layout` pref's `screens[i].blocks` for a personal screen, and the org
-screen's `blocks` ([protocol.md](/docs/protocol.md) `PUT /screens/org`)
+screen's `blocks` ([protocol/workspace.md](/docs/protocol/workspace.md) `PUT /screens/org`)
 for a shared one. `x, y, w, h` are the canvas geometry in logical px on
 the 48 px grid, `doc` the Document-mode place (`{row, col, cols}`, the
 same numbering as the tiles'), `level` 1–3 on a heading (default 2). A
