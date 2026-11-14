@@ -311,6 +311,59 @@ policies), which are now the *defaults*.
   one ignores `data/tile-limits.json`), and its next write of `users.json`
   drops the orgs' ceilings.
 
+## Sealed components (system components, D227)
+
+A release may ship **sealed components**: parts of xbin that run like
+tiles at `xbin/<name>`, with the release's own code
+([sealed.md](/docs/sealed.md)). The release that adds the facility ships
+none, so a workspace sees no change. When a later release adds one:
+
+- **Nothing in the workspace is written or renamed** (rules 1, 9). The
+  component has no directory in the workspace tree and no row in
+  `xbin.json`; what xbind keeps for it is its own (`.xbin/sealed/`,
+  `data/sealed/<name>.json`, the component's data under `data/`). `xbin`
+  has been a reserved top-level name in every release: no workspace has a
+  tile at such a path, and a directory `<workspace>/xbin/…` is still never
+  scanned or served.
+- **Old shells, old admin consoles and the shipped app don't list it**
+  (rules 2, 4). `GET /api/xbin/components`, `/auth-overview`, `/grants`,
+  `/backends`, `/runtime`, `/access-matrix`, `/resources`, `/cron/jobs` and
+  `/bus/subscriptions` answer exactly what they did — without sealed rows —
+  unless the caller adds `?sealed=1`. A client written before sealed
+  components would offer a terminal, the source view, deployments and
+  grants on such a row, none of which exist for it. `sealed: true` is a new
+  optional field on the rows of a caller that asked.
+- **The surface that is always there** is `/xbin/system`, a page xbind
+  serves itself (as `/xbin/limits` and `/xbin/devices`): an admin on a
+  workspace with an old scaffold sees each system component there, why one
+  is held, its logs, who has access, its limits and its connections.
+  `bx system` shows the same.
+- **Additive wire** (rule 2): `GET /api/xbin/sealed`, the page, the
+  `?sealed=1` switch, `sealedData` in a sealed component's backup manifest.
+  A request that names a path under `xbin/` on a route that takes a tile
+  used to answer 400 or 404 (no such tile could exist); it now answers as
+  [protocol/sealed.md](/docs/protocol/sealed.md) lists — still a refusal
+  wherever the operation doesn't apply.
+- **Access entries above read** on a path under `xbin/` (which no tile
+  could be at) are refused by `PUT /api/xbin/access`; a pattern such as
+  `*` at terminal level keeps its meaning for tiles and reads as read
+  access on a sealed component.
+- **A tile whose path maps to a sealed component's data key** — a
+  top-level directory literally named `xbin~<name>` for a component
+  `xbin/<name>` — would share its encrypted volumes. The sealed component
+  holds the key: such a tile keeps running and loses its declared
+  resources, with the reason on its row (the rule two tiles sharing a key
+  already get, D118); data it had written there holds the sealed component
+  instead of being adopted. Rename the directory. This is the one way an
+  upgrade that adds a sealed component can change what an existing tile
+  does, and it needs a directory with `~` in its name spelling `xbin~`
+  followed by the component's name.
+- **`bx`** (rule 6): `bx system` is new; `bx ls` lists tiles as before.
+- **Downgrading** to a release from before a sealed component existed
+  leaves its data on disk, unused. Downgrading across a data format change
+  of one holds that component and touches nothing
+  ([sealed.md](/docs/sealed.md) → Upgrades, downgrades and data).
+
 ## What this does *not* promise
 
 - Undocumented internals: `.xbin/` contents, the on-disk shape of
@@ -321,7 +374,8 @@ policies), which are now the *defaults*.
   directories under `data/resources-enc/`, `data/vault/` and `data/prefs/`),
   `.xbin/deploy/` and the per-checkpoint builds under `.xbin/build/` —
   whose layout is not a builder contract; an older xbind started on the
-  workspace never reads it.
+  workspace never reads it. Likewise sealed components' state:
+  `.xbin/sealed/`, `data/sealed/` and the install's `bin/sealed/`.
 - Behaviour that `docs/changelog.md` marks **BREAKING** with a linked
   migration note under `/docs/changes/` — that note is the one place a
   workspace has to act after an upgrade.

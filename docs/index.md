@@ -44,6 +44,8 @@ overview is the map that puts them in context.
   [agents.md](/docs/protocol/agents.md),
   [events.md](/docs/protocol/events.md), …)
 - [isolation.md](/docs/isolation.md) — sandboxes, terminal scoping, the dev layer, egress
+- [sealed.md](/docs/sealed.md) — system (sealed) components: parts of xbin that run
+  like tiles with the release's own code; what an admin decides, holds, upgrades
 - [ingress.md](/docs/ingress.md) — publishing tiles: public HTTP(S) + TCP/UDP endpoints
 - [agent-inbox.md](/docs/agent-inbox.md) — the contract between chat adapters
   (Slack, …) and agents built from the agent template

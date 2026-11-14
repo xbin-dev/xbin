@@ -45,6 +45,12 @@ instance, as today, reachable by the tile's writers; when its code asks for
 partitions that instance runs as `global` — whether or not the primary is
 partitioned — so every writer who opens the deployment shares it.
 
+A sealed component ([sealed.md](sealed.md)) can be partitioned the same
+way: each person's instance, data and vault are theirs, and everything on
+this page about running, limits, backups and people's partition operations
+applies to it. Its mode is the release's — there is no request, no switch
+and no "keep" — and no other tile reaches people's partitions of it.
+
 In the workspace shell a partitioned tile is still one tile, with one
 window: opening it opens your own partition. Its sidebar row (before ⋯) and
 its window head (in place of the runtime dot) carry a small teal disc, half

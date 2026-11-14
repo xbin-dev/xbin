@@ -12,6 +12,48 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-14
 
+- **Sealed components (system components): the facility, with none shipped
+  yet** (D227). A release can now ship parts of xbin that run like tiles —
+  in the tile sandbox, with limits, logs, cron, bus and people's
+  partitions — whose code is always the running release's: no directory in
+  the workspace, nothing to edit, clone, deploy or merge, updated by
+  upgrading xbin. They live at `xbin/<name>` (a reserved name no tile can
+  take), and nothing in a workspace declares one. **This release adds none:
+  no workspace changes.** What is new for builders and admins, described in
+  [sealed.md](/docs/sealed.md) and
+  [protocol/sealed.md](/docs/protocol/sealed.md):
+  - `GET /api/xbin/sealed` (admins): each one, its code digest, state,
+    hold reason, partition mode, data format, slots and grants. The page
+    `/xbin/system` and `bx system` show it.
+  - Listings (`/components`, `/auth-overview`, `/grants`, `/backends`,
+    `/runtime`, `/access-matrix`, `/resources`, `/cron/jobs`,
+    `/bus/subscriptions`) answer as before and leave sealed components out
+    unless asked with `?sealed=1`; a row then carries `sealed: true`. A
+    client that shows one must not offer a terminal, source, deployments,
+    ownership or grants on it.
+  - An admin decides four things about one, with the routes a tile has:
+    who has read access (`PUT /access`: `read` or none — `write` and
+    `terminal` are 400), enabled/disabled/hidden (`POST /lifecycle`), its
+    limits, and the bindings of the slots the release declares. Every other
+    route that names a tile answers a path under `xbin/` with a refusal
+    whose text starts "`<path>` is a system component, managed by xbin:"
+    (400; 403 for its resources, secrets and registrations, which only the
+    component itself touches). No tile can be granted a call into one or
+    bind a slot to one.
+  - Its backend is the release's own build (`bin/sealed/<name>-<digest>`
+    in the bundle; `make build` and `xbind sealed-build` make it). A
+    production xbind never compiles one: without the build the component
+    is *held* and says why. Other holds: data at its key it didn't write,
+    data newer than the release reads (after a downgrade), a partitioned
+    one without `--isolate`.
+  - Backups of one are its data only; the manifest's `sealedData` is the
+    data format, and a restore into a release that reads only an older
+    format is refused.
+  - A directory or tile literally named `xbin~<name>` shares a data key
+    with a sealed component `xbin/<name>` and would lose its declared
+    resources once a release ships that component
+    ([compat.md](/docs/compat.md) → Sealed components).
+
 - **docs: the protocol reference is split by topic.** `/docs/protocol.md`
   had reached the size limit of a served doc, so its route tables and
   WebSocket sections moved, unchanged, to one page per area under

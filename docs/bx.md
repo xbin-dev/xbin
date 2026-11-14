@@ -9,6 +9,15 @@ not magic.
 
 ```
 bx ls                                  list components (runtime, exposed roles, manifest errors)
+bx system [<name>]                     xbin's system components (docs/sealed.md): each
+                                       one's state (ready, running, held and why, off),
+                                       and with <name> its version, data format,
+                                       connections and who has access. Admins. The
+                                       tile commands take a system component's path
+                                       where they apply — bx logs xbin/<name>,
+                                       bx status, bx access, bx bind <slot>=<provider>,
+                                       bx enable|disable, bx limits — and bx ls
+                                       doesn't list them
 bx status [<component>] [--all]         backend states (building/healthy/failed, generations);
                                        --all = workspace-wide, else this terminal's tile;
                                        <tile>+<name> or --deployment <name>: one tile

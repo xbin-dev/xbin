@@ -2,8 +2,32 @@
 
 > Spike S1 of the workspace agent (issue #51, `plans/workspace-agent.md`
 > §3, §8). Branch `wsagent/s1-sealed`, against master 83c03745, 2026-11-14.
-> A findings document plus a working prototype; no user docs, no
-> changelog, no D-number yet. Line references are to this branch.
+> Line references are to the spike's commit (321aaeaf).
+>
+> **Status: implemented as D227** on the same branch (`plans/DECISIONS.md`;
+> builder docs `docs/sealed.md`, `docs/protocol/sealed.md`). The owner's
+> decisions on §11, and what changed from this document:
+>
+> | §11 | Decided |
+> |---|---|
+> | 1 name | `xbin/wsagent`; boot refuses a name that shadows a route or page, and a test walks the route table |
+> | 2 word | "sealed component" in code and builder docs, "system component" for people |
+> | 3 backend | prebuilt in production; only `--dev`/`--no-auth` compile; a missing build holds the component |
+> | 4 squatter | the sealed scope takes its key; foreign data at the key holds the component and is never touched |
+> | 5 listing | sealed rows only with `?sealed=1`; `/xbin/system` |
+> | 6 admins | read access, enable/disable, limits, bindings of declared slots; nothing else |
+> | 7 partitions | work for a sealed scope; unavailable without `--isolate`, except one global instance in development |
+> | 8 backups | data only; a restore goes through the data stamp |
+> | new | the table carries `Capabilities.Delegate` and the declared slots; a sealed component is never a target (the delegation spike's T3) |
+>
+> Differences from the design below: the stamp is claimed at boot and
+> raised by the first admitted start (not "when the first instance is
+> healthy"), and a restore never lowers it; write level is clamped as well
+> as terminal level; the refusals are a table with a gate
+> (`server/sealedclass.go`) rather than per-handler checks; the estimate
+> of §7 held for the Go (about 2,600 lines without tests, 2,500 of tests) and the shell,
+> admin console and app changes were left to the workspace agent's UI work,
+> since the listing switch keeps sealed rows away from them.
 
 ## 1. Verdict
 
