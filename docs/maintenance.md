@@ -564,6 +564,77 @@ stay byte for byte what it was.
   Response bodies go through `xbin.WriteJSON` / `xbin.WriteError` from the
   SDK — a backend defining its own `writeJSON` is a copy to delete.
 
+## Sealed components (`internal/sealed`, D227)
+
+A sealed component ([sealed.md](/docs/sealed.md)) is a row of the table
+`sealed.Table()` returns: its code is embedded in xbind and is the running
+release's, always. The table is empty today.
+
+**Adding a row.** Name (the path is `xbin/<name>`), an embedded source tree
+(`xbin.BuiltinTemplatesFS()` sub-tree, or one of its own under an embedded
+directory), `Authored` (the path the source calls itself by), the partition
+mode, the slots an admin may bind, the grants and capabilities, and `Data`,
+the data format. What a row may never do:
+
+- **take a name xbind uses.** `/api/xbin/<name>/…` is the component's API,
+  so the name can't be the first segment of an xbind route, nor an xbind
+  page (`/xbin/<name>`), nor `cron`, `bus` or `mail`. Boot refuses a table
+  that does; `internal/apicheck` `TestSealedNamesShadowNoRoute` walks the
+  route table. Adding a *route* whose first segment is a sealed name fails
+  the same way.
+- **change its partition mode** once released: a mode switch of a component
+  that holds data deletes the data.
+- **lower `Data`**, or raise it without a forward migration in the
+  backend. Raise it only when a release's migrations leave a store the
+  previous release's code can't read: a downgrade below it holds the
+  component (`newer-data`).
+
+**The build.** `make build` ends with `make sealed`, which runs `xbind
+sealed-build` with the host's go and builds every Go row's backend into
+`bin/sealed/<name>-<digest>` for the target `GOOS`/`GOARCH` (static,
+stripped, `-trimpath`, the SDK replaced by the checkout's). The digest is
+the rendered source's, computed by the code that looks the file up at boot:
+a build of other source has another name and is never run. The directory is
+made to hold exactly the table's builds.
+
+- A **production** xbind (`--dev` and `--no-auth` both off) runs only that
+  file. Without it the component is held (`no-build`); nothing compiles on
+  the host.
+- A **development** xbind uses the file when `bin/sealed/` beside it has
+  it, and otherwise compiles the materialized source through the tile
+  build (against no workspace module and no line of the root `go.work`).
+  `make dev` (`go run`) has no `bin/sealed/` beside it and compiles.
+- `deploy/publish-release.sh` copies `bin/sealed/` into each
+  architecture's bundle and runs `xbind sealed-build --check` on it: a
+  missing or stray file fails the release. `deploy/install.sh` replaces
+  `$PREFIX/bin/sealed` whole.
+- `make vulncheck` scans a sealed backend as the builtin template or tile
+  its source is. A row whose source is neither needs a target of its own in
+  `hack/vulncheck`.
+
+**The guards.**
+
+- `internal/server/sealedclass.go` has a row for every `/api/xbin` route:
+  what a path under `xbin/` gets on it (`no-tile`, `refused`, `self`,
+  `handled`). `internal/apicheck` `TestSealedRouteClasses` fails for a
+  route without one; `internal/boot` `TestSealedRouteAnswers` drives every
+  refused and self row from the table through a production-mode daemon
+  (one request per parameter the row names) and needs a case for every
+  handled row. A new route that takes a tile path gets a row *and*, when
+  the handler decides, a case.
+- `internal/boot` `TestSealedUpgradeAndDowngrade` is the upgrade contract:
+  new code and build, the stamp raised at the first start, a downgrade held
+  with data and stamp untouched, a release without the component, forward
+  again.
+- A loop over `Registry.Components()` sees sealed components
+  (`c.Sealed`). That is what lets limits, cron, bus, partitions and
+  bindings work for them unasked; a loop that treats `c.Dir` as a work
+  tree — writes into it, runs git in it, binds it into a terminal — must
+  skip them. `c.Dir` of a sealed component is xbind's read-only tree under
+  `.xbin/sealed/`, verified and rewritten at every boot.
+- User-facing strings say "system component", never "sealed" (the vault's
+  word); `internal/sealed`'s tests check the hold reasons.
+
 ## Frontend kit and the theme guard
 
 `web/bx-kit.js` is the one home of the helpers every frontend used to copy
@@ -1061,11 +1132,13 @@ are all "one segment"; `?query` suffixes are ignored — which is why an
 *optional* query goes in the row as `?frame=<token>`, never `[?frame=…]`
 (the bracket would turn the segment into a wildcard).
 
-Adding a route is therefore four edits in one commit — `RegisterAPI` (or
+Adding a route is therefore six edits in one commit — `RegisterAPI` (or
 `Handler`), an `openapi.go` row, a row in its `docs/protocol/<topic>.md`
-page, and a row in `internal/server/deployclass.go` (its class for a
-non-primary tile deployment's credentials, docs/protocol/deployments.md) —
-and `make test` says which one you forgot.
+page, a row in `internal/server/deployclass.go` (its class for a
+non-primary tile deployment's credentials, docs/protocol/deployments.md),
+one in `partitionclass.go` (a person's partition's) and one in
+`sealedclass.go` (what a sealed component's path gets on it, Sealed
+components above) — and `make test` says which one you forgot.
 
 ## Pins (`hack/check-pins.sh`)
 
@@ -1227,7 +1300,7 @@ add it there. `make fmt` rewrites in place.
 
 ## Build output that must not be committed
 
-`bin/`, `dist/` (release bundles), the root `bx`, `website/dist/`, packed
+`bin/` (with `bin/sealed/`, the sealed components' backends), `dist/` (release bundles), the root `bx`, `website/dist/`, packed
 helper sets (`*.tar.zst`), the iroh sidecar's `sidecar/xbin-iroh/target/`
 and the gzip xbind embeds (`internal/apptunnel/sidecar/embedded/`), and
 `*/backend/backend` / `*/_backend/_backend` build leftovers are ignored; `make large-files` (in `check` and the

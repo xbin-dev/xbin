@@ -2,7 +2,7 @@
 
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 
-.PHONY: guards dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website website-guard website-check website-og website-chart website-images check js-check native-check swift-test swift-stubcheck app-check theme-check tile-check shellcheck pins pins-offline hooks release vulncheck sidecar-check xbin-iroh
+.PHONY: guards sealed dev dev-noauth dev-plaintext rootfs fuse-overlayfs gocryptfs vm-assets helpers helpers-build helpers-publish integration-deps large-files build test integration vet fmt-check fmt vendor dev-reset website website-guard website-check website-og website-chart website-images check js-check native-check swift-test swift-stubcheck app-check theme-check tile-check shellcheck pins pins-offline hooks release vulncheck sidecar-check xbin-iroh
 
 # Dev runs ISOLATED (per-component namespaces + overlay rootfs + egress relay):
 # the sandbox network/fs model is different enough from unsandboxed that dev must
@@ -185,6 +185,14 @@ build: $(FUSE_OVERLAYFS) $(GOCRYPTFS) $(XBIN_IROH)
 	CGO_ENABLED=0 go build -tags xbin_iroh -ldflags "-X main.version=$(VERSION)" -o bin/xbind ./cmd/xbind
 	CGO_ENABLED=0 go build -o bin/bx ./cmd/bx
 	CGO_ENABLED=0 go build -o bin/xbin-vmagent ./cmd/xbin-vmagent
+	$(MAKE) sealed
+
+# The release's builds of its sealed components' backends, bin/sealed/
+# <name>-<digest> (D227, docs/maintenance.md → Sealed components): a
+# production xbind runs these and never compiles one. The tool runs on this
+# host (GOOS and GOARCH unset for it) and builds for the target they name.
+sealed:
+	env -u GOOS -u GOARCH CGO_ENABLED=0 go run ./cmd/xbind sealed-build --out bin/sealed --sdk sdk --os "$(GOOS)" --arch "$(GOARCH)"
 
 test:
 ifeq ($(SHARD),)
