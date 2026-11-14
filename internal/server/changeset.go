@@ -59,6 +59,16 @@ func personOf(p auth.Principal) auth.Principal {
 	return p
 }
 
+// changeBasis is what the person was shown about an operation, hashed: the
+// state it replaces AND xbind's line, effects and warnings. An item whose
+// basis moved between the proposal and the approval is stale — a warning
+// that appeared since (the tile was published meanwhile, a network set
+// grew) is not something the person approved.
+func changeBasis(pv delegation.ChangePreview) string {
+	b, _ := json.Marshal([]any{pv.Before, pv.After, pv.Line, pv.Effects, pv.Warnings})
+	return delegation.BodyHash(b)
+}
+
 // describeItems previews ops as person and builds the set's items; the
 // error is the first operation that isn't one.
 func (s *Server) describeItems(person auth.Principal, ops []delegation.ChangeOp, whys []string) ([]delegation.ChangeItem, error) {
@@ -69,7 +79,7 @@ func (s *Server) describeItems(person auth.Principal, ops []delegation.ChangeOp,
 			return nil, fmt.Errorf("operation %d (%s): %w", i+1, op.Kind, err)
 		}
 		it := delegation.ChangeItem{ChangeOp: op, Line: pv.Line, Before: pv.Before, After: pv.After, Effects: pv.Effects,
-			Warnings: pv.Warnings, Blocked: pv.Blocked, Inverse: pv.Inverse, Basis: delegation.BodyHash(pv.Before)}
+			Warnings: pv.Warnings, Blocked: pv.Blocked, Inverse: pv.Inverse, Basis: changeBasis(pv)}
 		if i < len(whys) {
 			it.Why = whys[i]
 			if len(it.Why) > 500 {
@@ -229,7 +239,9 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var body struct {
-		Items    []int  `json:"items"`
+		// Items: absent — every operation that isn't blocked; present — these
+		// and no others, so an empty list applies nothing
+		Items    *[]int `json:"items"`
 		Password string `json:"password"`
 	}
 	if r.ContentLength != 0 {
@@ -249,7 +261,11 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusConflict, delegation.ErrSetNotOpen.Error(), delegationDocs)
 		return
 	}
-	for _, n := range body.Items {
+	var chosen []int
+	if body.Items != nil {
+		chosen = *body.Items
+	}
+	for _, n := range chosen {
 		if n < 1 || n > len(cs.Items) {
 			WriteError(w, http.StatusBadRequest, fmt.Sprintf("the set has no operation %d", n), delegationDocs)
 			return
@@ -279,7 +295,7 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusConflict, delegation.ErrSetNotOpen.Error(), delegationDocs)
 		return
 	}
-	s.applyChangeSet(r.Context(), a.p, &cs, body.Items)
+	s.applyChangeSet(r.Context(), a.p, &cs, chosen, body.Items == nil)
 	cs, err = s.Delegation.UpdateChangeSet(a.user, id, func(stored *delegation.ChangeSet) error {
 		*stored = cs
 		return nil
@@ -292,21 +308,21 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, cs)
 }
 
-// applyChangeSet applies the chosen operations of cs (all that aren't
-// blocked when chosen is empty) in order as approver, filling each item's
-// result and the set's state.
-func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs *delegation.ChangeSet, chosen []int) {
-	failed, problems := false, 0
+// applyChangeSet applies the chosen operations of cs — every one that
+// isn't blocked when all is set — in order as approver, filling each
+// item's result and the set's state. An empty choice applies nothing.
+func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs *delegation.ChangeSet, chosen []int, all bool) {
+	failed, problems, applied := false, 0, 0
 	for i := range cs.Items {
 		it := &cs.Items[i]
 		switch {
 		case it.Blocked != "":
 			it.Result = delegation.ItemBlocked
-			if len(chosen) == 0 || slices.Contains(chosen, it.N) {
+			if all || slices.Contains(chosen, it.N) {
 				problems++
 			}
 			continue
-		case len(chosen) > 0 && !slices.Contains(chosen, it.N):
+		case !all && !slices.Contains(chosen, it.N):
 			it.Result = delegation.ItemRejected
 			continue
 		case failed:
@@ -321,7 +337,7 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 			it.Result, it.Error = delegation.ItemFailed, err.Error()
 		case pv.Blocked != "":
 			it.Result, it.Error = delegation.ItemFailed, pv.Blocked
-		case delegation.BodyHash(pv.Before) != it.Basis:
+		case changeBasis(pv) != it.Basis:
 			it.Result, it.Error = delegation.ItemStale, "it changed since the change set was proposed: nothing was applied — ask your agent to propose it again"
 		default:
 			if status, msg := s.adminCall(ctx, approver, pv.Call); status >= 300 {
@@ -335,11 +351,17 @@ func (s *Server) applyChangeSet(ctx context.Context, approver auth.Principal, cs
 		if it.Result != delegation.ItemApplied {
 			failed = true
 			problems++
+		} else {
+			applied++
 		}
 	}
-	cs.State = delegation.SetApplied
-	if problems > 0 {
+	switch {
+	case problems > 0:
 		cs.State = delegation.SetPartial
+	case applied == 0:
+		cs.State = delegation.SetRejected // every operation was left out
+	default:
+		cs.State = delegation.SetApplied
 	}
 }
 

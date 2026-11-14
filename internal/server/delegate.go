@@ -33,8 +33,15 @@ package server
 //     uses (handleAPI: the deployment and partition gates, the audit line;
 //     the component proxy: the broker's Route), under a context the
 //     person's pause cancels; and
-//  8. writes the row of the person's audit log: every act, tile call,
-//     refusal and audited read — not the listing reads a UI makes.
+//  8. writes the row of the person's audit log: every act; tile reads,
+//     refusals, dry runs and audited reads up to a rate, the rest counted
+//     into the next row (an agent in a loop can't grow the log) — not the
+//     listing reads a UI makes.
+//
+// A call that runs long is checked again every few seconds, and at once
+// when people or tiles change (SweepDelegation): it ends when its person is
+// disabled or deleted, loses the tile, pauses, or revokes the standing
+// approval it ran under.
 
 import (
 	"bytes"
@@ -44,7 +51,9 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -196,7 +205,8 @@ const (
 type delegateRuntime struct {
 	mu      sync.Mutex
 	buckets map[string]*actBucket
-	streams map[string]map[uint64]context.CancelFunc
+	noise   map[string]*noiseBucket
+	calls   map[string]map[uint64]*runningCall
 	nextID  uint64
 	now     func() time.Time // tests
 }
@@ -206,6 +216,27 @@ type actBucket struct {
 	at     time.Time
 }
 
+// noiseBucket bounds the audit rows a person's agent writes for what isn't
+// an act: refusals, dry runs, reads. Past the rate they are counted, and
+// the next row written says how many were left out.
+type noiseBucket struct {
+	actBucket
+	left int
+}
+
+// Audit rows for non-acts: a burst, then one a second.
+const (
+	delegateNoiseBurst  = 60
+	delegateNoiseRefill = time.Second
+)
+
+// runningCall is a delegate call in flight: cancel ends it, still says
+// whether it may go on ("" yes, else why not).
+type runningCall struct {
+	cancel context.CancelFunc
+	still  func() string
+}
+
 func (d *delegateRuntime) clock() time.Time {
 	if d.now != nil {
 		return d.now()
@@ -213,71 +244,143 @@ func (d *delegateRuntime) clock() time.Time {
 	return time.Now()
 }
 
-// allowAct takes one act from user's bucket; wait is how long until the
-// next one when it is empty.
-func (d *delegateRuntime) allowAct(user string) (ok bool, wait time.Duration) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	now := d.clock()
-	if d.buckets == nil {
-		d.buckets = map[string]*actBucket{}
+func (b *actBucket) take(now time.Time, burst float64, refill time.Duration) (ok bool, wait time.Duration) {
+	if b.at.IsZero() {
+		b.tokens = burst
 	}
-	b := d.buckets[user]
-	if b == nil {
-		b = &actBucket{tokens: delegateActBurst, at: now}
-		d.buckets[user] = b
-	}
-	b.tokens = min(delegateActBurst, b.tokens+now.Sub(b.at).Seconds()/delegateActRefill.Seconds())
+	b.tokens = min(burst, b.tokens+now.Sub(b.at).Seconds()/refill.Seconds())
 	b.at = now
 	if b.tokens < 1 {
-		return false, time.Duration((1 - b.tokens) * float64(delegateActRefill))
+		return false, time.Duration((1 - b.tokens) * float64(refill))
 	}
 	b.tokens--
 	return true, 0
 }
 
-// track registers a running delegate call of user, which cut cancels.
-func (d *delegateRuntime) track(user string, cancel context.CancelFunc) (done func()) {
+// allowAct takes one act from user's bucket; wait is how long until the
+// next one when it is empty.
+func (d *delegateRuntime) allowAct(user string) (ok bool, wait time.Duration) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	if d.streams == nil {
-		d.streams = map[string]map[uint64]context.CancelFunc{}
+	if d.buckets == nil {
+		d.buckets = map[string]*actBucket{}
 	}
-	if d.streams[user] == nil {
-		d.streams[user] = map[uint64]context.CancelFunc{}
+	b := d.buckets[user]
+	if b == nil {
+		b = &actBucket{}
+		d.buckets[user] = b
+	}
+	return b.take(d.clock(), delegateActBurst, delegateActRefill)
+}
+
+// allowNoise reports whether a non-act row of user's is written now; left
+// is how many were left out since the last one written.
+func (d *delegateRuntime) allowNoise(user string) (ok bool, left int) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.noise == nil {
+		d.noise = map[string]*noiseBucket{}
+	}
+	b := d.noise[user]
+	if b == nil {
+		b = &noiseBucket{}
+		d.noise[user] = b
+	}
+	if ok, _ := b.take(d.clock(), delegateNoiseBurst, delegateNoiseRefill); !ok {
+		b.left++
+		return false, 0
+	}
+	left, b.left = b.left, 0
+	return true, left
+}
+
+// track registers a running delegate call of user.
+func (d *delegateRuntime) track(user string, c *runningCall) (done func()) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.calls == nil {
+		d.calls = map[string]map[uint64]*runningCall{}
+	}
+	if d.calls[user] == nil {
+		d.calls[user] = map[uint64]*runningCall{}
 	}
 	d.nextID++
 	id := d.nextID
-	d.streams[user][id] = cancel
+	d.calls[user][id] = c
 	return func() {
 		d.mu.Lock()
-		delete(d.streams[user], id)
-		if len(d.streams[user]) == 0 {
-			delete(d.streams, user)
+		delete(d.calls[user], id)
+		if len(d.calls[user]) == 0 {
+			delete(d.calls, user)
 		}
 		d.mu.Unlock()
 	}
+}
+
+// running lists user's calls in flight (all people's when user is "").
+func (d *delegateRuntime) running(user string) []*runningCall {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	var out []*runningCall
+	for u, m := range d.calls {
+		if user == "" || u == user {
+			for _, c := range m {
+				out = append(out, c)
+			}
+		}
+	}
+	return out
 }
 
 // CutDelegateStreams cancels the delegate calls running now for user — all
 // people's when user is "": what pausing does at once (a session's event
 // stream an agent follows would otherwise outlive the pause).
 func (s *Server) CutDelegateStreams(user string) int {
-	d := &s.delegateRT
-	d.mu.Lock()
-	var cancels []context.CancelFunc
-	for u, m := range d.streams {
-		if user == "" || u == user {
-			for _, c := range m {
-				cancels = append(cancels, c)
-			}
+	calls := s.delegateRT.running(user)
+	for _, c := range calls {
+		c.cancel()
+	}
+	return len(calls)
+}
+
+// delegateRecheck is how often a delegate call in flight is asked whether
+// it may still run (var: tests shrink it).
+var delegateRecheck = 3 * time.Second
+
+// SweepDelegation re-judges what delegation holds, now: every delegate call
+// in flight (it ends if its person was disabled or deleted, lost the tile,
+// paused, or revoked the approval it runs under), and every standing
+// approval (it goes when its tile is gone or its person can no longer read
+// it — an approval never comes back with a tile recreated at the path, or
+// with access given again). Boot calls it when people or tiles change; the
+// calls in flight are also asked every delegateRecheck.
+func (s *Server) SweepDelegation() {
+	for _, c := range s.delegateRT.running("") {
+		if c.still() != "" {
+			c.cancel()
 		}
 	}
-	d.mu.Unlock()
-	for _, c := range cancels {
-		c()
+	if s.Delegation == nil || s.Auth == nil || s.Auth.Users == nil {
+		return
 	}
-	return len(cancels)
+	for _, user := range s.Delegation.People() {
+		acc, ok := s.Auth.Users.Access(user)
+		u, live := s.Auth.Users.Get(user)
+		gone := func(a delegation.Approval) bool {
+			return !ok || !live || u.Disabled || !s.tileExists(a.Tile) || !acc.CanReadTile(a.Tile)
+		}
+		if n, _ := s.Delegation.DropApprovals(user, gone); n > 0 {
+			s.delegateEvent(user, "approval", "")
+		}
+	}
+}
+
+func (s *Server) tileExists(tile string) bool {
+	if s.Reg == nil {
+		return true
+	}
+	_, ok := s.Reg.Component(tile)
+	return ok
 }
 
 // ---- what the gate tells the handlers ----
@@ -332,7 +435,12 @@ func delegateRefuse(w http.ResponseWriter, status int, refusal, class, msg strin
 	WriteJSON(w, status, map[string]string{"error": msg, "refusal": refusal, "class": class, "docs": "/docs/auth.md"})
 }
 
-// agentModel is the model header, bounded and printable.
+// agentModel is the model a delegate call is judged on: today the header
+// the sealed component sends, bounded and printable. This function is the
+// ONE source of auth.Principal.AgentModel and so of delegation.Subject.Model
+// — nothing else reads the header. It is the component's own statement; a
+// later step replaces it with a session handle xbind issues, bound to a
+// scope and a model that the LLM connector enforces too. Change it here.
 func agentModel(r *http.Request) string {
 	m := strings.TrimSpace(r.Header.Get(HeaderAgentModel))
 	if len(m) > 128 {
@@ -372,7 +480,14 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 		return
 	}
 	p.AgentModel = agentModel(r)
+	recheck := s.Auth.DelegateRecheck(r)      // before any handler strips the credential
+	for _, h := range methodOverrideHeaders { // the method judged is the method made
+		r.Header.Del(h)
+	}
 	v := s.delegateVerdict(r, p)
+	if r.URL.Query().Has("_method") && v.deny == "" {
+		v.deny = "a call that names another method in its query (_method) isn't made for a person: the method judged must be the method made"
+	}
 	row := delegation.Call{User: p.UserID, Agent: p.Agent, Method: r.Method, Path: r.URL.Path, Tile: v.tile, Class: v.class, Effect: v.effect}
 	refuse := func(status int, refusal, msg string) {
 		row.Status, row.Refused = status, msg
@@ -436,7 +551,7 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 	}
 	if dry {
 		if needsApproval && v.tileAPI {
-			if a, ok := s.Delegation.Covers(p.UserID, v.tile); ok {
+			if a, ok := s.Delegation.Covers(p.UserID, v.tile, r.Method, r.URL.EscapedPath()); ok {
 				preview["needsApproval"], preview["under"] = false, "approval:"+a.ID
 			}
 		}
@@ -471,16 +586,97 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 		ctx = context.WithValue(ctx, delegateAdminReadKey{}, true)
 	}
 
-	// 7. run it, under a context the person's pause cancels
+	// 7. run it, under a context that ends when it may no longer run: the
+	// call is registered FIRST and judged again after, so a pause that lands
+	// between the gate's check and here still cuts it
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	defer s.delegateRT.track(p.UserID, cancel)()
+	still := s.delegateStill(recheck, p, v, row.Under)
+	defer s.delegateRT.track(p.UserID, &runningCall{cancel: cancel, still: still})()
+	if why := still(); why != "" {
+		refuse(http.StatusForbidden, "off", why)
+		return
+	}
+	go func() { // a call that runs long is asked again
+		tk := time.NewTicker(delegateRecheck)
+		defer tk.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tk.C:
+				if still() != "" {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
 	dw := &delegateWriter{ResponseWriter: w, status: http.StatusOK}
 	next.ServeHTTP(dw, r.WithContext(auth.WithPrincipal(ctx, run)))
 	row.Status = dw.status
 	if v.effect || v.audit {
 		s.delegateAudit(row)
 	}
+}
+
+// methodOverrideHeaders let a request say it is another method than the
+// one it is made with; frameworks behind a tile's API honour them. A
+// delegate call is judged — read or write, ticket or none — by its method,
+// so none of them reaches a handler.
+var methodOverrideHeaders = []string{"X-HTTP-Method-Override", "X-HTTP-Method", "X-Method-Override"}
+
+// delegateStill answers whether a call the gate let through may still run
+// ("" yes, else why not): its credential still resolves (the person lives,
+// holds their agent, hasn't paused; delegation is on), the tile it is about
+// still lets this person's agent in, and the standing approval it ran
+// under still holds.
+func (s *Server) delegateStill(recheck func() (auth.Principal, error), was auth.Principal, v delegateVerdict, under string) func() string {
+	return func() string {
+		if recheck == nil {
+			return "the credential is gone"
+		}
+		p, err := recheck()
+		if err != nil {
+			return "delegation ended for this person"
+		}
+		p.AgentModel = was.AgentModel
+		switch {
+		case v.tileAPI:
+			if dp, ok := s.policy().(DelegatePolicy); ok {
+				if _, _, _, err := dp.DelegateTile(p, v.tile, v.effect); err != nil {
+					return err.Error()
+				}
+			}
+		case v.tile != "" && v.row.class != DelegateAdminRead:
+			if !p.CanReadTile(v.tile) {
+				return p.UserID + " can no longer read " + v.tile
+			}
+			if err := s.agentPolicy().TileAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: v.tile, Model: p.AgentModel}); err != nil {
+				return err.Error()
+			}
+		}
+		if id, ok := strings.CutPrefix(under, "approval:"); ok {
+			aps, _ := s.Delegation.Approvals(p.UserID)
+			if !slices.ContainsFunc(aps, func(a delegation.Approval) bool { return a.ID == id }) {
+				return "the standing approval it ran under was revoked"
+			}
+		}
+		return ""
+	}
+}
+
+// contentTypeOf is the media type a request's body is sent as, lower case
+// and without parameters ("" none): what a ticket binds beside the body.
+func contentTypeOf(header string) string {
+	if strings.TrimSpace(header) == "" {
+		return ""
+	}
+	mt, _, err := mime.ParseMediaType(header)
+	if err != nil {
+		return strings.ToLower(strings.TrimSpace(header)) // not one: it must still be the same
+	}
+	return mt
 }
 
 // delegateApproval settles step 6 for a side effect that needs the
@@ -507,7 +703,7 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 	const ask = " — ask for one: POST /api/xbin/delegate/requests {method, path, body}, then send its id as X-XBin-Ticket once the person approved"
 	switch {
 	case ticket != "":
-		req, err := s.Delegation.Redeem(p.UserID, ticket, r.Method, requestTarget(r), body)
+		req, err := s.Delegation.Redeem(p.UserID, ticket, r.Method, requestTarget(r), v.tile, contentTypeOf(r.Header.Get("Content-Type")), body)
 		if err != nil {
 			return nil, http.StatusForbidden, "ticket", err.Error()
 		}
@@ -526,7 +722,7 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 		s.delegateEvent(p.UserID, "request", req.ID)
 		return start, 0, "", ""
 	case v.tileAPI:
-		a, ok := s.Delegation.Covers(p.UserID, v.tile)
+		a, ok := s.Delegation.Covers(p.UserID, v.tile, r.Method, r.URL.EscapedPath())
 		if !ok {
 			return nil, http.StatusForbidden, "needs-approval", "a write to " + v.tile + " needs its person's approval" + ask
 		}
@@ -563,14 +759,24 @@ func (s *Server) writeDryRun(w http.ResponseWriter, row *delegation.Call, previe
 
 // delegateAudit writes one delegate call to the person's audit log, and
 // its acts and refusals to the daemon's (the "audit" line governance
-// writes use).
+// writes use). An act that ran is always a row — the act limit bounds
+// those. Everything else (a refusal, a dry run, a read) is written up to a
+// rate; past it the rows are counted and the next one written carries the
+// count (N), so an agent looping on a refused call grows neither log.
 func (s *Server) delegateAudit(c delegation.Call) {
+	if !(c.Effect && c.Refused == "" && !c.DryRun) {
+		ok, left := s.delegateRT.allowNoise(c.User)
+		if !ok {
+			return
+		}
+		c.N = left
+	}
 	if err := s.delegateAuditLog().Append(c); err != nil {
 		slog.Warn("delegate audit: row not written", "user", c.User, "err", err)
 	}
 	if c.Effect || c.Refused != "" {
 		slog.Info("audit", "who", "user:"+c.User, "agent", c.Agent, "method", c.Method, "path", c.Path,
-			"class", c.Class, "status", c.Status, "refused", c.Refused, "dryRun", c.DryRun, "ticket", c.Ticket, "under", c.Under)
+			"class", c.Class, "status", c.Status, "refused", c.Refused, "dryRun", c.DryRun, "ticket", c.Ticket, "under", c.Under, "leftOut", c.N)
 	}
 }
 

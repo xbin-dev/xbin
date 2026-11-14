@@ -207,8 +207,8 @@ func (s *Store) NewChangeSet(cs ChangeSet) (ChangeSet, error) {
 	case len(cs.Items) > MaxItems:
 		return ChangeSet{}, ErrTooManyItems
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	p := s.lock(cs.User)
+	defer p.mu.Unlock()
 	sets, err := s.setsLocked(cs.User)
 	if err != nil {
 		return ChangeSet{}, err
@@ -238,8 +238,8 @@ func (s *Store) ChangeSets(user string) ([]ChangeSet, error) {
 	if s == nil {
 		return []ChangeSet{}, nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	p := s.lock(user)
+	defer p.mu.Unlock()
 	sets, err := s.setsLocked(user)
 	if sets == nil {
 		sets = []ChangeSet{}
@@ -270,8 +270,8 @@ func (s *Store) UpdateChangeSet(user, id string, change func(*ChangeSet) error) 
 	if !idOK(id) {
 		return ChangeSet{}, ErrNoChangeSet
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	p := s.lock(user)
+	defer p.mu.Unlock()
 	sets, err := s.setsLocked(user)
 	if err != nil {
 		return ChangeSet{}, err

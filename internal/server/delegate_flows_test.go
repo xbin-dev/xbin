@@ -15,6 +15,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
@@ -266,21 +267,44 @@ func TestDelegateTileCalls(t *testing.T) {
 		t.Fatalf("the ticket twice: %d", rec.Code)
 	}
 
-	// a standing approval: that tile's API, until revoked; no other tile's
-	req = w.ask(bob, "POST", "/api/apps/mail/send", send)
+	// a standing approval is of THIS CALL by default — the method and the
+	// path, whatever the body — and of nothing else on the tile (review 5:
+	// "always for this tile" let the agent call every route of the tile)
+	req = w.ask(bob, "POST", "/api/apps/mail/send?draft=1", send)
+	if st, _ := req.Preview["standing"].(map[string]any); !strings.Contains(fmt.Sprint(st["tile"]), "EVERY write to apps/mail") || !strings.Contains(fmt.Sprint(st["call"]), "POST /api/apps/mail/send") {
+		t.Fatalf("the card says what each standing choice is: %v", req.Preview["standing"])
+	}
 	w.approve(person, req.ID, "hour")
+	if rec := w.do(w.inv, "POST", "/api/apps/mail/send", `{"to":"someone else"}`, bob); rec.Code != 200 {
+		t.Fatalf("the approved call again: %d %s", rec.Code, rec.Body.String())
+	}
+	for _, c := range [][2]string{{"DELETE", "/api/apps/mail/drafts/3"}, {"POST", "/api/apps/mail/permissions/p1"}, {"PUT", "/api/apps/mail/send"}, {"POST", "/api/apps/x/notes"}} {
+		if rec := w.do(w.inv, c[0], c[1], "{}", bob); rec.Code != 403 || !strings.Contains(rec.Body.String(), `"refusal":"needs-approval"`) {
+			t.Fatalf("%s %s under an approval of POST …/send: %d %s", c[0], c[1], rec.Code, rec.Body.String())
+		}
+	}
+	// the wider choice is made explicitly
+	req = w.ask(bob, "DELETE", "/api/apps/mail/drafts/3", "")
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"grant":"hour","scope":"all"}`, person); rec.Code != 400 {
+		t.Fatalf("a scope that isn't one: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"grant":"hour","scope":"tile"}`, person); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"scope":"tile"`) {
+		t.Fatalf("the tile-wide approval: %d %s", rec.Code, rec.Body.String())
+	}
 	if rec := w.do(w.inv, "DELETE", "/api/apps/mail/drafts/3", "", bob); rec.Code != 200 {
-		t.Fatalf("under the standing approval: %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("under the tile-wide approval: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := w.do(w.inv, "POST", "/api/apps/x/notes", "{}", bob); rec.Code != 403 {
 		t.Fatalf("another tile under mail's approval: %d", rec.Code)
 	}
 	aps, _ := w.store.Approvals("bob")
-	if len(aps) != 1 {
+	if len(aps) != 2 {
 		t.Fatalf("approvals: %+v", aps)
 	}
-	if rec := w.do(w.full, "DELETE", "/api/xbin/delegate/approvals/"+aps[0].ID, "", person); rec.Code != 204 {
-		t.Fatalf("revoke: %d %s", rec.Code, rec.Body.String())
+	for _, a := range aps {
+		if rec := w.do(w.full, "DELETE", "/api/xbin/delegate/approvals/"+a.ID, "", person); rec.Code != 204 {
+			t.Fatalf("revoke: %d %s", rec.Code, rec.Body.String())
+		}
 	}
 	if rec := w.do(w.inv, "DELETE", "/api/apps/mail/drafts/3", "", bob); rec.Code != 403 {
 		t.Fatalf("after the revoke: %d", rec.Code)
@@ -305,7 +329,7 @@ func TestDelegateTileCalls(t *testing.T) {
 		out["tile"] != "apps/x" || out["role"] != "writer" || out["level"] != "write" || out["as"] != "bob" || out["class"] != "tile-write" {
 		t.Errorf("the dry run of a write: %v", out)
 	}
-	if _, err := w.store.AddApproval("bob", "apps/x", delegation.GrantAlways, "session"); err != nil {
+	if _, err := w.store.AddApproval(delegation.Approval{User: "bob", Tile: "apps/x", Scope: delegation.ScopeTile}, delegation.GrantAlways, "session"); err != nil {
 		t.Fatal(err)
 	}
 	if out = decode[map[string]any](t, w.do(w.inv, "POST", "/api/apps/x/send", `{}`, bob, dry)); out["needsApproval"] != false || !strings.HasPrefix(out["under"].(string), "approval:") {
@@ -632,10 +656,10 @@ func TestDelegationAPICallers(t *testing.T) {
 			t.Errorf("%s reads the approvals: %d %s", name, code, b)
 		}
 	}
-	if rec := w.do(w.full, "POST", "/api/xbin/delegate/approvals", `{"tile":"apps/x","grant":"hour"}`, bob); rec.Code != 403 {
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/approvals", `{"tile":"apps/x","grant":"hour","scope":"tile"}`, bob); rec.Code != 403 {
 		t.Errorf("the agent gives itself an approval: %d", rec.Code)
 	}
-	if rec := w.do(w.full, "POST", "/api/xbin/delegate/approvals", `{"tile":"apps/x","grant":"hour"}`, page); rec.Code != 403 {
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/approvals", `{"tile":"apps/x","grant":"hour","scope":"tile"}`, page); rec.Code != 403 {
 		t.Errorf("the page gives itself one: %d %s", rec.Code, rec.Body.String())
 	}
 	aps, _ := w.store.Approvals("bob")
@@ -645,16 +669,22 @@ func TestDelegationAPICallers(t *testing.T) {
 	if rec := w.do(w.full, "DELETE", "/api/xbin/delegate/approvals/"+aps[0].ID, "", page); rec.Code != 403 {
 		t.Errorf("the page revokes one: %d", rec.Code)
 	}
-	if rec := w.do(w.full, "POST", "/api/xbin/delegate/approvals", `{"tile":"apps/x","grant":"hour"}`, person); rec.Code != 200 {
-		t.Errorf("the person gives one: %d %s", rec.Code, rec.Body.String())
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/approvals", `{"tile":"apps/x","grant":"hour","scope":"call","method":"post","path":"/api/apps/x/notes"}`, person); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"method":"POST"`) {
+		t.Errorf("the person gives one, of a call: %d %s", rec.Code, rec.Body.String())
 	}
-	for _, body := range []string{`{"tile":"apps/secret","grant":"hour"}`, `{"tile":"apps/x","grant":"once"}`, `{"tile":"apps/x"}`} {
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/approvals", `{"tile":"apps/x","grant":"hour","scope":"tile"}`, person); rec.Code != 200 {
+		t.Errorf("the person gives one, of the tile: %d %s", rec.Code, rec.Body.String())
+	}
+	for _, body := range []string{`{"tile":"apps/secret","grant":"hour","scope":"tile"}`, `{"tile":"apps/x","grant":"once","scope":"tile"}`, `{"tile":"apps/x"}`,
+		`{"tile":"apps/x","grant":"always"}`, // the scope is said, never guessed
+		`{"tile":"apps/x","grant":"always","scope":"call"}`, `{"tile":"apps/x","grant":"always","scope":"call","method":"GET","path":"/api/apps/x/a"}`,
+		`{"tile":"apps/x","grant":"always","scope":"call","method":"POST","path":"/api/apps/mail/send"}`, `{"tile":"apps/x","grant":"always","scope":"call","method":"POST","path":"/api/apps/x/a?b=1"}`} {
 		if rec := w.do(w.full, "POST", "/api/xbin/delegate/approvals", body, person); rec.Code != 404 && rec.Code != 400 {
 			t.Errorf("an approval %s: %d %s", body, rec.Code, rec.Body.String())
 		}
 	}
 	for name, c := range others {
-		if rec := w.do(w.full, "POST", "/api/xbin/delegate/approvals", `{"tile":"apps/x","grant":"always"}`, c); rec.Code != 403 && rec.Code != 401 {
+		if rec := w.do(w.full, "POST", "/api/xbin/delegate/approvals", `{"tile":"apps/x","grant":"always","scope":"tile"}`, c); rec.Code != 403 && rec.Code != 401 {
 			t.Errorf("%s gives an approval: %d", name, rec.Code)
 		}
 	}
@@ -757,7 +787,7 @@ func TestDelegationDevOwner(t *testing.T) {
 	if code, body := do("POST", "/delegate/requests/"+bobs.ID+"/approve?user=bob", `{"grant":"hour"}`); code != 200 || !strings.Contains(body, `"approval":{`) {
 		t.Fatalf("the owner approves for bob: %d %s", code, body)
 	}
-	if _, ok := store.Covers("bob", "apps/mail"); !ok {
+	if _, ok := store.Covers("bob", "apps/mail", "POST", "/api/apps/mail/send"); !ok {
 		t.Fatal("no standing approval for bob")
 	}
 	if code, body := do("PUT", "/delegate/state?user=bob", `{"adminChanges":true,"paused":true}`); code != 200 || !store.State("bob").AdminChanges || !store.State("bob").Paused {
@@ -782,5 +812,211 @@ func TestDelegationDevOwner(t *testing.T) {
 		if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r4.ID+"/approve", "", c); rec.Code != 403 && rec.Code != 401 {
 			t.Errorf("with auth on: %d %s", rec.Code, rec.Body.String())
 		}
+	}
+}
+
+// The security review's remaining findings at the gate, each as the case
+// that passed before its fix.
+func TestDelegateReviewHardening(t *testing.T) {
+	w := delegateWorld(t)
+	bob, person := delegateCred("d-bob"), w.cookie("bob")
+	const send = `{"to":"x"}`
+	ticket := func(method, path, body string) string {
+		t.Helper()
+		req := w.ask(bob, method, path, body)
+		w.approve(person, req.ID, "once")
+		return req.ID
+	}
+
+	t.Run("the method judged is the method made", func(t *testing.T) {
+		// a GET that says it is a DELETE is a write the gate judged as a read
+		n := len(w.tileCalls())
+		rec := w.do(w.inv, "GET", "/api/apps/mail/drafts/3", "", bob, header("X-HTTP-Method-Override", "DELETE"), header("X-Method-Override", "DELETE"), header("X-HTTP-Method", "DELETE"))
+		calls := w.tileCalls()
+		if rec.Code != 200 || len(calls) != n+1 {
+			t.Fatalf("%d %s", rec.Code, rec.Body.String())
+		}
+		if rec := w.do(w.inv, "GET", "/api/apps/mail/drafts/3?_method=DELETE", "", bob); rec.Code != 403 || len(w.tileCalls()) != n+1 {
+			t.Errorf("?_method=: %d %s", rec.Code, rec.Body.String())
+		}
+		in, _ := json.Marshal(map[string]string{"method": "POST", "path": "/api/apps/mail/send?_method=DELETE"})
+		if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), bob); rec.Code != 400 {
+			t.Errorf("asking for a call with ?_method=: %d", rec.Code)
+		}
+	})
+	t.Run("a ticket binds the content type", func(t *testing.T) {
+		id := ticket("POST", "/api/apps/mail/send", send) // approved as JSON
+		form := header("Content-Type", "application/x-www-form-urlencoded")
+		if rec := w.do(w.inv, "POST", "/api/apps/mail/send", send, bob, header(HeaderTicket, id), form); rec.Code != 403 || !strings.Contains(rec.Body.String(), `"refusal":"ticket"`) {
+			t.Fatalf("the same bytes as a form: %d %s", rec.Code, rec.Body.String())
+		}
+		if rec := w.do(w.inv, "POST", "/api/apps/mail/send", send, bob, header(HeaderTicket, id), header("Content-Type", "Application/JSON; charset=utf-8")); rec.Code != 200 {
+			t.Fatalf("as JSON, with a parameter: %d %s", rec.Code, rec.Body.String())
+		}
+	})
+	t.Run("an agent in a loop grows no log", func(t *testing.T) {
+		now := time.Now()
+		w.invS.delegateRT.now = func() time.Time { return now }
+		before, _ := w.store.Audit.Read("bob", time.Time{}, 1000)
+		for i := 0; i < 500; i++ {
+			w.do(w.inv, "POST", "/api/xbin/grants", "{}", bob)                         // refused
+			w.do(w.inv, "GET", "/api/apps/x/"+strings.Repeat("a", 2000), "", bob)      // a tile read, a long path
+			w.do(w.inv, "POST", "/api/apps/x/a", "{}", bob, header(HeaderDryRun, "1")) // a dry run
+		}
+		after, _ := w.store.Audit.Read("bob", time.Time{}, 1000)
+		if n := len(after) - len(before); n > delegateNoiseBurst {
+			t.Fatalf("1500 refusals, reads and dry runs wrote %d rows, want at most %d", n, delegateNoiseBurst)
+		}
+		for _, c := range after {
+			if len(c.Path) > delegation.MaxPath+4 {
+				t.Fatalf("a row's path is %d bytes", len(c.Path))
+			}
+		}
+		now = now.Add(time.Minute)
+		w.do(w.inv, "POST", "/api/xbin/grants", "{}", bob)
+		if last, _ := w.store.Audit.Read("bob", time.Time{}, 1); len(last) != 1 || last[0].N < 1400 {
+			t.Fatalf("the next row doesn't say how many were left out: %+v", last)
+		}
+		// an act that ran is always a row
+		id := ticket("POST", "/api/apps/mail/send", send)
+		for i := 0; i < 200; i++ {
+			w.do(w.inv, "POST", "/api/xbin/grants", "{}", bob)
+		}
+		if rec := w.do(w.inv, "POST", "/api/apps/mail/send", send, bob, header(HeaderTicket, id)); rec.Code != 200 {
+			t.Fatal(rec.Code, rec.Body.String())
+		}
+		if last, _ := w.store.Audit.Read("bob", time.Time{}, 1); last[0].Ticket != id {
+			t.Fatalf("the act isn't the last row: %+v", last[0])
+		}
+		w.invS.delegateRT.now = nil
+	})
+	t.Run("a non-primary deployment has no part in this plane", func(t *testing.T) {
+		tok := w.s.Auth.MintFrameTokenDeployment(dHolder, "bob", "dev", time.Minute)
+		w.s.Auth.RegisterInstanceDeployment("h-dev", dHolder, "dev")
+		for name, c := range map[string]cred{"a frame of the holder's dev deployment": header(auth.FrameTokenHeader, tok), "its backend": bearer("h-dev"), "its backend as a delegate": delegateCred("h-dev")} {
+			for _, path := range []string{"/delegate/state", "/delegate/requests", "/delegate/approvals", "/delegate/changesets"} {
+				if rec := w.do(w.full, "GET", "/api/xbin"+path, "", c); rec.Code == 200 {
+					t.Errorf("%s reads %s: %d %s", name, path, rec.Code, rec.Body.String())
+				}
+			}
+		}
+		for p, c := range RouteClasses() {
+			if strings.Contains(p, " /delegate/") && c != PrimaryOnly {
+				t.Errorf("%s is %s for non-primary deployments, want primary-only", p, c)
+			}
+		}
+	})
+}
+
+// Calls in flight end, and standing approvals go, when what allowed them
+// does: the person is disabled, loses the tile, revokes the approval, or
+// the tile is deleted — at once on a sweep, and within delegateRecheck
+// without one. And a pause that lands between the gate's check and the
+// call's start still stops it.
+func TestDelegateCallsEndWithWhatAllowedThem(t *testing.T) {
+	old := delegateRecheck
+	delegateRecheck = 20 * time.Millisecond
+	t.Cleanup(func() { delegateRecheck = old })
+	w := delegateWorld(t)
+	bob := delegateCred("d-bob")
+	block := func() (cut chan error) {
+		started := make(chan struct{})
+		cut = make(chan error, 1)
+		w.invS.ComponentAPI = http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+			close(started)
+			select {
+			case <-r.Context().Done():
+				cut <- r.Context().Err()
+			case <-time.After(5 * time.Second):
+				cut <- nil
+			}
+		})
+		return cut
+	}
+	running := func(method, path string) chan error {
+		t.Helper()
+		cut := block()
+		go w.do(w.inv, method, path, "{}", bob)
+		deadline := time.After(5 * time.Second)
+		for len(w.invS.delegateRT.running("bob")) == 0 {
+			select {
+			case <-deadline:
+				t.Fatal("the call never started")
+			default:
+				time.Sleep(time.Millisecond)
+			}
+		}
+		return cut
+	}
+	ended := func(name string, cut chan error) {
+		t.Helper()
+		if err := <-cut; err == nil {
+			t.Fatalf("%s: the running call outlived it", name)
+		}
+	}
+	setBob := func(u users.User) {
+		t.Helper()
+		u.ID = "bob"
+		if _, err := w.s.Auth.Users.Upsert(u, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reads := map[string]string{"apps/x": users.LevelRead, "apps/mail": users.LevelRead}
+
+	// a revoked standing approval: the write running under it ends (no sweep: the recheck)
+	ap, _ := w.store.AddApproval(delegation.Approval{User: "bob", Tile: "apps/mail", Scope: delegation.ScopeTile}, delegation.GrantAlways, "session")
+	cut := running("POST", "/api/apps/mail/import")
+	if _, err := w.store.RevokeApproval("bob", ap.ID); err != nil {
+		t.Fatal(err)
+	}
+	ended("a revoked approval", cut)
+
+	// the person loses the tile: the call ends, and the approval of it goes for good
+	w.policy.set(func(d *dPolicy) { d.readCheck = true })
+	_, _ = w.store.AddApproval(delegation.Approval{User: "bob", Tile: "apps/mail", Scope: delegation.ScopeTile}, delegation.GrantAlways, "session")
+	_, _ = w.store.AddApproval(delegation.Approval{User: "bob", Tile: "apps/x", Scope: delegation.ScopeTile}, delegation.GrantAlways, "session")
+	cut = running("GET", "/api/apps/mail/stream")
+	setBob(users.User{Role: users.RoleUser, Tiles: map[string]string{"apps/x": users.LevelRead}})
+	w.invS.SweepDelegation()
+	ended("losing the tile", cut)
+	if aps, _ := w.store.Approvals("bob"); len(aps) != 1 || aps[0].Tile != "apps/x" {
+		t.Fatalf("approvals after bob lost apps/mail: %+v", aps)
+	}
+	setBob(users.User{Role: users.RoleUser, Tiles: reads}) // access given again: the approval doesn't come back
+	w.invS.SweepDelegation()
+	if _, ok := w.store.Covers("bob", "apps/mail", "POST", "/api/apps/mail/send"); ok {
+		t.Fatal("an approval came back with the access")
+	}
+
+	// the tile is deleted: its approvals go
+	if err := os.RemoveAll(filepath.Join(w.invS.Reg.Root, "apps", "x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.invS.Reg.Rescan(); err != nil {
+		t.Fatal(err)
+	}
+	w.invS.SweepDelegation()
+	if aps, _ := w.store.Approvals("bob"); len(aps) != 0 {
+		t.Fatalf("approvals after apps/x was deleted: %+v", aps)
+	}
+
+	// the person is disabled: the call ends
+	cut = running("GET", "/api/apps/mail/stream")
+	setBob(users.User{Role: users.RoleUser, Tiles: reads, Disabled: true})
+	ended("a disabled person", cut)
+	setBob(users.User{Role: users.RoleUser, Tiles: reads})
+
+	// a pause that lands after the gate judged the call and before it runs
+	ran := false
+	w.invS.ComponentAPI = http.HandlerFunc(func(http.ResponseWriter, *http.Request) { ran = true })
+	w.policy.set(func(d *dPolicy) {
+		d.onAsk = func() { // the gate is asking the tile's rules: the person pauses right now
+			d.onAsk = nil
+			_, _ = w.store.SetState("bob", func(st *delegation.State) { st.Paused = true })
+		}
+	})
+	rec := w.do(w.inv, "GET", "/api/apps/mail/inbox", "", bob)
+	if rec.Code != 403 || ran {
+		t.Fatalf("a call paused between the gate's check and its start: %d ran=%v %s", rec.Code, ran, rec.Body.String())
 	}
 }

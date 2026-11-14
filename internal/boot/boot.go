@@ -740,6 +740,9 @@ func (st *State) stepWatch() error {
 			if st.TileSbx != nil {
 				st.TileSbx.Reconcile() // a tile gone, its cap or a resource dropped by hand (§7)
 			}
+			if st.Server != nil {
+				st.Server.SweepDelegation() // a tile gone: its standing approvals and the agents' calls into it end (D228)
+			}
 		}, refreshViews)
 	}()
 	return nil

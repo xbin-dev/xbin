@@ -87,6 +87,9 @@ func (b *Broker) usersEvent() {
 	b.Hub.Publish(events.Event{Type: "users"})
 	b.capSweep()
 	b.PartitionPeopleChanged() // a person disabled or who lost read: their partitions' instances stop now (partitionpeople.go)
+	if b.OnPeopleChanged != nil {
+		b.OnPeopleChanged() // …and what their workspace agents were doing and may do (the server's SweepDelegation)
+	}
 }
 
 // orgView is the management-facing org shape: the org plus its resolved

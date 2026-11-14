@@ -28,6 +28,9 @@ func (st *State) setupDelegation(srv *server.Server) {
 	// the off switches, asked on every delegate call: sandboxes on (--dev
 	// and --no-auth excepted), the workspace's switch, the person's pause
 	st.Auth.SetDelegationGate(server.DelegationGate(store, st.Cfg.Isolate, st.Cfg.Dev || st.Cfg.NoAuth))
+	// people or their access changed: running delegate calls and standing
+	// approvals are judged again at once (tiles: serve.go's watch loop)
+	st.Broker.OnPeopleChanged = srv.SweepDelegation
 	srv.DelegationDev = st.Cfg.Dev || st.Cfg.NoAuth // developing an agent: no step-up; --no-auth's owner answers as the person
 	srv.AgentPolicy = st.AgentPolicy
 	st.Broker.AgentPolicy = st.AgentPolicy

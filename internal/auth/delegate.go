@@ -136,28 +136,47 @@ func (a *Auth) DelegateFromRequest(r *http.Request) (p Principal, present bool, 
 		// ingress or a device's tunnel
 		return Principal{}, true, ErrNotDelegate
 	}
+	p, err = a.delegateOf(tok)
+	return p, true, err
+}
+
+// DelegateRecheck returns a function that resolves r's delegate credential
+// again, later: for a call that runs long (a followed stream), so that it
+// ends when its person is disabled or deleted, loses the holder, or
+// switches delegation off. It captures the credential now — a handler
+// below may strip it from r. nil when r is no delegate call.
+func (a *Auth) DelegateRecheck(r *http.Request) func() (Principal, error) {
+	tok, ok := delegateToken(r)
+	if !ok || !OnGateway(r) || TransportOf(r).Tunnel {
+		return nil
+	}
+	return func() (Principal, error) { return a.delegateOf(tok) }
+}
+
+// delegateOf resolves a delegate token (DelegateFromRequest's rules).
+func (a *Auth) delegateOf(tok string) (Principal, error) {
 	id, ok := a.lookupInstance(tok) // a user partition's: 401 once it isn't covered (partition.go)
 	userID, isUser := id.partition.User()
 	switch {
 	case !ok, !isUser, id.uid == "":
-		return Principal{}, true, ErrNotDelegate // the global instance and every unpartitioned tile: nobody's delegate
+		return Principal{}, ErrNotDelegate // the global instance and every unpartitioned tile: nobody's delegate
 	case !HoldsDelegation(id.component):
-		return Principal{}, true, ErrNotDelegate
+		return Principal{}, ErrNotDelegate
 	case id.deployment != "":
-		return Principal{}, true, ErrNotDelegate // a person's partition runs on the primary only (PD-17)
+		return Principal{}, ErrNotDelegate // a person's partition runs on the primary only (PD-17)
 	}
 	u, found := a.userSnapshot(userID) // live: disabled or deleted is nobody
 	if !found {
-		return Principal{}, true, ErrNotDelegate
+		return Principal{}, ErrNotDelegate
 	}
 	a.mu.RLock()
 	gate := a.delegation
 	a.mu.RUnlock()
 	if gate == nil {
-		return Principal{}, true, ErrDelegateOff
+		return Principal{}, ErrDelegateOff
 	}
 	if why := gate(id.component, userID); why != nil {
-		return Principal{}, true, errors.Join(ErrDelegateOff, why)
+		return Principal{}, errors.Join(ErrDelegateOff, why)
 	}
-	return Principal{UserID: userID, User: u, Access: a.accessSnapshot(userID), Via: "delegate", Agent: id.component}, true, nil
+	return Principal{UserID: userID, User: u, Access: a.accessSnapshot(userID), Via: "delegate", Agent: id.component}, nil
 }

@@ -52,10 +52,10 @@ func TestStateAndWorkspace(t *testing.T) {
 	if none.Workspace().Enabled || !none.State("bob").Paused {
 		t.Fatal("a nil store is open")
 	}
-	if _, ok := none.Covers("bob", "apps/x"); ok {
+	if _, ok := none.Covers("bob", "apps/x", "POST", "/api/apps/x/a"); ok {
 		t.Fatal("a nil store covers")
 	}
-	if _, err := none.Redeem("bob", "x", "POST", "/api/apps/x/a", nil); !errors.Is(err, ErrNoTicket) {
+	if _, err := none.Redeem("bob", "x", "POST", "/api/apps/x/a", "apps/x", "", nil); !errors.Is(err, ErrNoTicket) {
 		t.Fatalf("a nil store redeems: %v", err)
 	}
 }
@@ -65,12 +65,12 @@ func TestRequestsAndTickets(t *testing.T) {
 	s, now := testStore(t)
 	body := []byte(`{"to":"x@example.com","text":"hi"}`)
 	r, err := s.NewRequest(Request{User: "bob", Agent: "xbin/agent", Kind: KindCall, Method: "POST", Target: "/api/apps/mail/send?draft=1", Tile: "apps/mail",
-		Summary: strings.Repeat("s", 600), State: Approved, Grant: GrantAlways}, body)
+		ContentType: "application/json", Summary: strings.Repeat("s", 600), State: Approved, Grant: GrantAlways}, body)
 	if err != nil || r.State != Pending || r.Grant != "" || r.ID == "" || !r.BodyShown || r.Body != string(body) || r.BodySHA256 != BodyHash(body) || len(r.Summary) != 500 {
 		t.Fatalf("new: %+v %v", r, err)
 	}
 	redeem := func(id, method, target string, b []byte) error {
-		_, err := s.Redeem("bob", id, method, target, b)
+		_, err := s.Redeem("bob", id, method, target, "apps/mail", "application/json", b)
 		return err
 	}
 	// pending: no ticket yet
@@ -78,17 +78,17 @@ func TestRequestsAndTickets(t *testing.T) {
 		t.Fatalf("a pending request redeemed: %v", err)
 	}
 	// only its person decides it
-	if _, _, err := s.Decide("alice", r.ID, GrantOnce, "session"); !errors.Is(err, ErrNoRequest) {
+	if _, _, err := s.Decide("alice", r.ID, GrantOnce, "", "session"); !errors.Is(err, ErrNoRequest) {
 		t.Fatalf("alice decided bob's request: %v", err)
 	}
-	if _, _, err := s.Decide("bob", r.ID, "forever", "session"); !errors.Is(err, ErrBadGrant) {
+	if _, _, err := s.Decide("bob", r.ID, "forever", "", "session"); !errors.Is(err, ErrBadGrant) {
 		t.Fatalf("a bad grant: %v", err)
 	}
-	d, ap, err := s.Decide("bob", r.ID, GrantOnce, "session")
+	d, ap, err := s.Decide("bob", r.ID, GrantOnce, "", "session")
 	if err != nil || ap != nil || d.State != Approved || d.DecidedVia != "session" || !d.Expires.Equal(now.Add(TicketTTL)) {
 		t.Fatalf("approve: %+v %+v %v", d, ap, err)
 	}
-	if _, _, err := s.Decide("bob", r.ID, "", "session"); !errors.Is(err, ErrNotPending) {
+	if _, _, err := s.Decide("bob", r.ID, "", "", "session"); !errors.Is(err, ErrNotPending) {
 		t.Fatalf("decided twice: %v", err)
 	}
 	// bound: another method, path, query or body is refused and spends nothing
@@ -99,15 +99,23 @@ func TestRequestsAndTickets(t *testing.T) {
 		"no query":       redeem(r.ID, "POST", "/api/apps/mail/send", body),
 		"another body":   redeem(r.ID, "POST", r.Target, []byte(`{"to":"evil@example.com","text":"hi"}`)),
 		"no body":        redeem(r.ID, "POST", r.Target, nil),
+		"another content type": func() error {
+			_, err := s.Redeem("bob", r.ID, "POST", r.Target, "apps/mail", "application/x-www-form-urlencoded", body)
+			return err
+		}(),
+		"another tile than it resolved to": func() error {
+			_, err := s.Redeem("bob", r.ID, "POST", r.Target, "apps/mail/nested", "application/json", body)
+			return err
+		}(),
 	} {
 		if !errors.Is(e, ErrTicketBound) {
 			t.Errorf("%s: %v, want ErrTicketBound", name, e)
 		}
 	}
-	if _, err := s.Redeem("alice", r.ID, "POST", r.Target, body); !errors.Is(err, ErrNoTicket) {
+	if _, err := s.Redeem("alice", r.ID, "POST", r.Target, "apps/mail", "application/json", body); !errors.Is(err, ErrNoTicket) {
 		t.Fatalf("alice redeemed bob's ticket: %v", err)
 	}
-	used, err := s.Redeem("bob", r.ID, "POST", r.Target, body)
+	used, err := s.Redeem("bob", r.ID, "POST", r.Target, "apps/mail", "application/json", body)
 	if err != nil || used.State != Used || used.Body != "" {
 		t.Fatalf("redeem: %+v %v", used, err)
 	}
@@ -116,15 +124,15 @@ func TestRequestsAndTickets(t *testing.T) {
 	}
 
 	// a ticket runs out; so does a request nobody answers
-	r2, _ := s.NewRequest(Request{User: "bob", Agent: "xbin/agent", Kind: KindCall, Method: "POST", Target: "/api/apps/mail/send", Tile: "apps/mail"}, body)
+	r2, _ := s.NewRequest(Request{User: "bob", Agent: "xbin/agent", Kind: KindCall, Method: "POST", Target: "/api/apps/mail/send", Tile: "apps/mail", ContentType: "application/json"}, body)
 	r3, _ := s.NewRequest(Request{User: "bob", Agent: "xbin/agent", Kind: KindSession, Method: "POST", Target: "/api/xbin/term/sessions"}, []byte{0xff, 0xfe})
 	if r3.BodyShown || r3.Body != "" || r3.BodySize != 2 {
 		t.Fatalf("a body that isn't text is bound, not shown: %+v", r3)
 	}
-	if _, _, err := s.Decide("bob", r3.ID, GrantHour, "session"); !errors.Is(err, ErrStandingKind) {
+	if _, _, err := s.Decide("bob", r3.ID, GrantHour, "", "session"); !errors.Is(err, ErrStandingKind) {
 		t.Fatalf("a standing approval of a session start: %v", err)
 	}
-	_, _, _ = s.Decide("bob", r2.ID, GrantOnce, "session")
+	_, _, _ = s.Decide("bob", r2.ID, GrantOnce, "", "session")
 	*now = now.Add(TicketTTL)
 	if err := redeem(r2.ID, "POST", r2.Target, body); !errors.Is(err, ErrNoTicket) {
 		t.Fatalf("an expired ticket: %v", err)
@@ -141,6 +149,23 @@ func TestRequestsAndTickets(t *testing.T) {
 		t.Fatalf("old requests stay listed: %+v", all)
 	}
 
+	// a path past the limit isn't stored
+	if _, err := s.NewRequest(Request{User: "bob", Kind: KindCall, Method: "POST", Target: "/api/apps/x/" + strings.Repeat("a", MaxTarget), Tile: "apps/x"}, nil); err == nil {
+		t.Fatal("a path past the limit was taken")
+	}
+	// asking and withdrawing in a loop grows nothing: the list is bounded
+	for i := 0; i < MaxRequests+50; i++ {
+		r, err := s.NewRequest(Request{User: "carol", Kind: KindCall, Method: "POST", Target: "/api/apps/x/a", Tile: "apps/x"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.Withdraw("carol", r.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if all, _ := s.Requests("carol", false); len(all) > MaxRequests {
+		t.Fatalf("%d requests are kept for carol, more than %d", len(all), MaxRequests)
+	}
 	// the pending limit, withdrawing, the body limit
 	var last Request
 	for i := 0; i < MaxPending; i++ {
@@ -167,35 +192,63 @@ func TestRequestsAndTickets(t *testing.T) {
 	}
 }
 
-// Standing approvals: a tile's API for an hour or until revoked.
+// Standing approvals: by default one call — a method on a path of a tile —
+// for an hour or until revoked; every write to the tile only when the
+// person chose that wider scope.
 func TestStandingApprovals(t *testing.T) {
 	s, now := testStore(t)
-	r, _ := s.NewRequest(Request{User: "bob", Kind: KindCall, Method: "POST", Target: "/api/apps/mail/send", Tile: "apps/mail"}, nil)
-	d, ap, err := s.Decide("bob", r.ID, GrantHour, "frame")
-	if err != nil || ap == nil || ap.Tile != "apps/mail" || !ap.Until.Equal(now.Add(time.Hour)) || ap.Request != r.ID || d.State != Approved {
-		t.Fatalf("an hour: %+v %+v %v", d, ap, err)
+	r, _ := s.NewRequest(Request{User: "bob", Kind: KindCall, Method: "POST", Target: "/api/apps/mail/send?draft=1", Tile: "apps/mail"}, nil)
+	d, ap, err := s.Decide("bob", r.ID, GrantHour, "", "session")
+	if err != nil || ap == nil || ap.Tile != "apps/mail" || ap.Scope != ScopeCall || ap.Method != "POST" || ap.Path != "/api/apps/mail/send" ||
+		!ap.Until.Equal(now.Add(time.Hour)) || ap.Request != r.ID || d.State != Approved {
+		t.Fatalf("an hour, this call: %+v %+v %v", d, ap, err)
 	}
-	if a, ok := s.Covers("bob", "apps/mail"); !ok || a.ID != ap.ID {
-		t.Fatal("not covered")
+	if a, ok := s.Covers("bob", "apps/mail", "POST", "/api/apps/mail/send"); !ok || a.ID != ap.ID {
+		t.Fatal("the approved call isn't covered")
 	}
-	for _, c := range [][2]string{{"alice", "apps/mail"}, {"bob", "apps/other"}, {"bob", "apps"}, {"bob", ""}} {
-		if _, ok := s.Covers(c[0], c[1]); ok {
-			t.Errorf("%s is covered on %q", c[0], c[1])
+	for _, c := range [][4]string{
+		{"bob", "apps/mail", "POST", "/api/apps/mail/delete-everything"}, // another path of the tile
+		{"bob", "apps/mail", "DELETE", "/api/apps/mail/send"},            // another method
+		{"alice", "apps/mail", "POST", "/api/apps/mail/send"},
+		{"bob", "apps/other", "POST", "/api/apps/mail/send"},
+		{"bob", "", "POST", "/api/apps/mail/send"},
+	} {
+		if _, ok := s.Covers(c[0], c[1], c[2], c[3]); ok {
+			t.Errorf("%s is covered for %s %s on %q", c[0], c[2], c[3], c[1])
 		}
 	}
 	*now = now.Add(time.Hour)
-	if _, ok := s.Covers("bob", "apps/mail"); ok {
+	if _, ok := s.Covers("bob", "apps/mail", "POST", "/api/apps/mail/send"); ok {
 		t.Fatal("covered past the hour")
 	}
-	always, err := s.AddApproval("bob", "apps/mail", GrantAlways, "session")
-	if err != nil || !always.Until.IsZero() {
-		t.Fatalf("always: %+v %v", always, err)
+	// the wider choice, made explicitly
+	r2, _ := s.NewRequest(Request{User: "bob", Kind: KindCall, Method: "POST", Target: "/api/apps/mail/send", Tile: "apps/mail"}, nil)
+	if _, _, err := s.Decide("bob", r2.ID, GrantAlways, "everything", "session"); !errors.Is(err, ErrBadScope) {
+		t.Fatalf("a scope that isn't one: %v", err)
 	}
-	again, _ := s.AddApproval("bob", "apps/mail", GrantHour, "session") // replaces: one a tile
+	_, wide, err := s.Decide("bob", r2.ID, GrantAlways, ScopeTile, "session")
+	if err != nil || wide.Scope != ScopeTile || wide.Method != "" || !wide.Until.IsZero() {
+		t.Fatalf("always, the tile: %+v %v", wide, err)
+	}
+	if _, ok := s.Covers("bob", "apps/mail", "DELETE", "/api/apps/mail/anything"); !ok {
+		t.Fatal("the tile-wide approval doesn't cover the tile")
+	}
+	if _, ok := s.Covers("bob", "apps/x", "POST", "/api/apps/x/a"); ok {
+		t.Fatal("…and covers another tile")
+	}
+	again, _ := s.AddApproval(Approval{User: "bob", Tile: "apps/mail", Scope: ScopeTile}, GrantHour, "session") // replaces the same thing
 	if list, _ := s.Approvals("bob"); len(list) != 1 || list[0].ID != again.ID {
 		t.Fatalf("list: %+v", list)
 	}
-	if _, err := s.AddApproval("bob", "apps/mail", GrantOnce, "session"); !errors.Is(err, ErrBadGrant) {
+	for name, a := range map[string]Approval{
+		"no scope": {User: "bob", Tile: "apps/mail"}, "a call without its path": {User: "bob", Tile: "apps/mail", Scope: ScopeCall, Method: "POST"},
+		"no tile": {User: "bob", Scope: ScopeTile},
+	} {
+		if _, err := s.AddApproval(a, GrantAlways, "session"); err == nil {
+			t.Errorf("%s was recorded", name)
+		}
+	}
+	if _, err := s.AddApproval(Approval{User: "bob", Tile: "apps/mail", Scope: ScopeTile}, GrantOnce, "session"); !errors.Is(err, ErrBadGrant) {
 		t.Fatalf("a once approval: %v", err)
 	}
 	if ok, _ := s.RevokeApproval("alice", again.ID); ok {
@@ -204,15 +257,109 @@ func TestStandingApprovals(t *testing.T) {
 	if ok, err := s.RevokeApproval("bob", again.ID); !ok || err != nil {
 		t.Fatalf("revoke: %v %v", ok, err)
 	}
-	if _, ok := s.Covers("bob", "apps/mail"); ok {
+	if _, ok := s.Covers("bob", "apps/mail", "POST", "/api/apps/mail/send"); ok {
 		t.Fatal("covered after the revoke")
 	}
-	// an unreadable file covers nothing
-	_, _ = s.AddApproval("bob", "apps/mail", GrantAlways, "session")
+	// a tile that is gone takes its approvals with it
+	_, _ = s.AddApproval(Approval{User: "bob", Tile: "apps/mail", Scope: ScopeTile}, GrantAlways, "session")
+	_, _ = s.AddApproval(Approval{User: "bob", Tile: "apps/x", Scope: ScopeTile}, GrantAlways, "session")
+	if n, err := s.DropApprovals("bob", func(a Approval) bool { return a.Tile == "apps/mail" }); n != 1 || err != nil {
+		t.Fatalf("drop: %d %v", n, err)
+	}
+	if list, _ := s.Approvals("bob"); len(list) != 1 || list[0].Tile != "apps/x" {
+		t.Fatalf("after the drop: %+v", list)
+	}
+	// an unreadable file, or a record that says no scope, covers nothing
+	_ = os.WriteFile(s.userFile("bob", "approvals.json"), []byte(`{"schema":1,"approvals":[{"id":"x","user":"bob","tile":"apps/x","created":"2026-11-14T12:00:00Z"}]}`), 0o600)
+	if _, ok := s.Covers("bob", "apps/x", "POST", "/api/apps/x/a"); ok {
+		t.Fatal("a record without a scope covers")
+	}
 	_ = os.WriteFile(s.userFile("bob", "approvals.json"), []byte("{"), 0o600)
-	if _, ok := s.Covers("bob", "apps/mail"); ok {
+	if _, ok := s.Covers("bob", "apps/x", "POST", "/api/apps/x/a"); ok {
 		t.Fatal("an unreadable approvals file covers")
 	}
+}
+
+// One person's agent can't stall another's: each person's files are behind
+// that person's lock, and a held one — a slow disk, a change set being
+// claimed — leaves everyone else's calls running. And a hand edit is seen
+// by the next call, without a read per call in between.
+func TestPeopleDontWaitOnEachOther(t *testing.T) {
+	s, _ := testStore(t)
+	_, _ = s.AddApproval(Approval{User: "bob", Tile: "apps/x", Scope: ScopeTile}, GrantAlways, "session")
+	cs, err := s.NewChangeSet(ChangeSet{User: "alice", Items: []ChangeItem{{ChangeOp: ChangeOp{Kind: "grant.add"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, release, done := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() { // alice's lock, held
+		_, _ = s.UpdateChangeSet("alice", cs.ID, func(*ChangeSet) error { close(held); <-release; return nil })
+		close(done)
+	}()
+	<-held
+	bobs := make(chan bool, 1)
+	go func() {
+		_, ok := s.Covers("bob", "apps/x", "POST", "/api/apps/x/a")
+		_ = s.State("bob")
+		_ = s.Audit.Append(Call{User: "bob", Method: "POST", Path: "/api/apps/x/a", Status: 200})
+		_, err := s.NewRequest(Request{User: "bob", Kind: KindCall, Method: "POST", Target: "/api/apps/x/a", Tile: "apps/x"}, nil)
+		bobs <- ok && err == nil
+	}()
+	select {
+	case ok := <-bobs:
+		if !ok {
+			t.Fatal("bob's calls failed")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("bob's calls waited on alice's lock")
+	}
+	close(release)
+	<-done
+
+	// a hand edit (a restore) is what the next call sees
+	path := s.userFile("bob", "approvals.json")
+	fi, _ := os.Stat(path)
+	if err := os.WriteFile(path, []byte(`{"schema":1,"approvals":[]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chtimes(path, fi.ModTime().Add(time.Second), fi.ModTime().Add(time.Second))
+	if _, ok := s.Covers("bob", "apps/x", "POST", "/api/apps/x/a"); ok {
+		t.Fatal("a rewritten approvals file isn't seen")
+	}
+}
+
+// BenchmarkCoversBesideABusyPerson measures the gate's hot read — is this
+// write covered by a standing approval — for one person while another's
+// agent floods the store with requests. Before per-person locks and the
+// parsed-file cache every Covers re-read its file under the one lock the
+// flood held.
+func BenchmarkCoversBesideABusyPerson(b *testing.B) {
+	s := OpenStore(b.TempDir())
+	for i := 0; i < 50; i++ {
+		_, _ = s.AddApproval(Approval{User: "bob", Tile: "apps/x", Scope: ScopeCall, Method: "POST", Path: "/api/apps/x/p" + strings.Repeat("a", i)}, GrantAlways, "session")
+	}
+	stop := make(chan struct{})
+	go func() { // alice's agent: asks and withdraws as fast as the disk allows
+		big := make([]byte, MaxBody)
+		for {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if r, err := s.NewRequest(Request{User: "alice", Kind: KindCall, Method: "POST", Target: "/api/apps/x/a", Tile: "apps/x"}, big); err == nil {
+				_, _ = s.Withdraw("alice", r.ID)
+			}
+		}
+	}()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, ok := s.Covers("bob", "apps/x", "POST", "/api/apps/x/p"); !ok {
+			b.Fatal("not covered")
+		}
+	}
+	b.StopTimer()
+	close(stop)
 }
 
 // Change sets: stored per person, limited, expiring, updated in place.

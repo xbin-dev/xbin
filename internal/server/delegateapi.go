@@ -91,7 +91,7 @@ func delegateActorOf(p auth.Principal) (delegateActor, bool) {
 		a.agent = true
 	case p.Component == "" && p.Agent == "" && p.Via != "delegate":
 		a.own = true
-	case p.Via == "frame" && auth.HoldsDelegation(p.Component) && p.LoginFrame() && strings.HasPrefix(p.Gen, "s."):
+	case p.Via == "frame" && p.Deployment == "" && p.Partition != "global" && auth.HoldsDelegation(p.Component) && p.LoginFrame() && strings.HasPrefix(p.Gen, "s."):
 		a.frame, a.via = true, "frame"
 	default:
 		return a, false
@@ -352,10 +352,13 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 		Path       string `json:"path"`
 		Body       string `json:"body"`
 		BodyBase64 string `json:"bodyBase64"`
-		Summary    string `json:"summary"`
+		// ContentType is the media type the call's body will be sent as:
+		// bound like the body. Absent with a body: application/json.
+		ContentType *string `json:"contentType"`
+		Summary     string  `json:"summary"`
 	}
 	if err := DecodeJSON(r, &in); err != nil || in.Method == "" || in.Path == "" {
-		WriteError(w, http.StatusBadRequest, "need {method, path, body? | bodyBase64?, summary?}", delegationDocs)
+		WriteError(w, http.StatusBadRequest, "need {method, path, body? | bodyBase64?, contentType?, summary?}", delegationDocs)
 		return
 	}
 	body := []byte(in.Body)
@@ -387,7 +390,18 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "this call needs no approval: make it", delegationDocs)
 		return
 	}
-	req := delegation.Request{User: a.user, Agent: p.Agent, Method: method, Target: requestTarget(sr), Tile: v.tile, Summary: in.Summary, Kind: delegation.KindCall}
+	if u.Query().Has("_method") {
+		WriteError(w, http.StatusBadRequest, "this call isn't delegated: it names another method in its query", delegationDocs)
+		return
+	}
+	ctype := ""
+	switch {
+	case in.ContentType != nil:
+		ctype = contentTypeOf(*in.ContentType)
+	case len(body) > 0:
+		ctype = "application/json"
+	}
+	req := delegation.Request{User: a.user, Agent: p.Agent, Method: method, Target: requestTarget(sr), Tile: v.tile, ContentType: ctype, Summary: in.Summary, Kind: delegation.KindCall}
 	preview := map[string]any{"class": v.class, "reversible": false}
 	switch {
 	case v.tileAPI:
@@ -402,6 +416,12 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		preview["tile"], preview["owner"], preview["level"], preview["role"] = v.tile, s.policy().OwnerOf(v.tile), level, role
+		// what each standing choice would let the agent do from now on, in
+		// xbind's words: the wider one says that it is
+		preview["standing"] = map[string]string{
+			delegation.ScopeCall: method + " " + u.EscapedPath() + " — this call again, with any body or query, without asking",
+			delegation.ScopeTile: "EVERY write to " + v.tile + "'s API — any method, any path, any body — without asking",
+		}
 	case v.pattern == "POST /term/sessions":
 		req.Kind = delegation.KindSession
 		ask, why := s.sessionPreview(p, body)
@@ -510,7 +530,7 @@ func (s *Server) apiDelegateRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiDelegateRequestDecide — POST /delegate/requests/{id}/approve
-// [{grant: "once" | "hour" | "always"}] and …/deny: the person, in their
+// [{grant: "once" | "hour" | "always", scope?: "call" | "tile"}] and …/deny: the person, in their
 // own session, app or device — never the agent's page, which shows the
 // card and renders what the agent wrote. once (the default) makes the request a ticket for exactly
 // that call, good for 15 minutes; hour and always — a tile API call only —
@@ -521,23 +541,24 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 	if !ok {
 		return
 	}
-	grant := ""
+	grant, scope := "", ""
 	if strings.HasSuffix(r.URL.Path, "/approve") {
 		var body struct {
 			Grant string `json:"grant"`
+			Scope string `json:"scope"`
 		}
 		if r.ContentLength != 0 {
 			if err := DecodeJSON(r, &body); err != nil {
-				WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always"}`, delegationDocs)
+				WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always", scope?: "call" | "tile"}`, delegationDocs)
 				return
 			}
 		}
-		grant = body.Grant
+		grant, scope = body.Grant, body.Scope
 		if grant == "" {
 			grant = delegation.GrantOnce
 		}
 	}
-	req, ap, err := s.Delegation.Decide(a.user, r.PathValue("id"), grant, a.via)
+	req, ap, err := s.Delegation.Decide(a.user, r.PathValue("id"), grant, scope, a.via)
 	switch {
 	case errors.Is(err, delegation.ErrNoRequest):
 		WriteError(w, http.StatusNotFound, err.Error(), delegationDocs)
@@ -554,8 +575,12 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 		out["approval"] = ap
 		s.delegateEvent(a.user, "approval", ap.ID)
 	}
-	s.delegateAudit(delegation.Call{User: a.user, Agent: req.Agent, Method: req.Method, Path: strings.SplitN(req.Target, "?", 2)[0], Tile: req.Tile,
-		Class: "decision:" + req.State, Effect: true, Status: http.StatusOK, Ticket: req.ID, Under: req.Grant})
+	under := req.Grant
+	if ap != nil {
+		under += " " + ap.Scope
+	}
+	s.delegateAudit(delegation.Call{User: a.user, Agent: req.Agent, Method: req.Method, Path: req.Path(), Tile: req.Tile,
+		Class: "decision:" + req.State, Effect: true, Status: http.StatusOK, Ticket: req.ID, Under: under})
 	s.delegateEvent(a.user, "request", req.ID)
 	WriteJSON(w, http.StatusOK, out)
 }
@@ -606,14 +631,28 @@ func (s *Server) apiDelegateApprovalAdd(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	var body struct {
-		Tile  string `json:"tile"`
-		Grant string `json:"grant"`
+		Tile   string `json:"tile"`
+		Grant  string `json:"grant"`
+		Scope  string `json:"scope"`
+		Method string `json:"method"`
+		Path   string `json:"path"`
 	}
-	if err := DecodeJSON(r, &body); err != nil || body.Tile == "" {
-		WriteError(w, http.StatusBadRequest, `need {tile, grant: "hour" | "always"}`, delegationDocs)
+	// the scope is said, never guessed: one call (its method and path), or
+	// — explicitly — the whole tile
+	const need = `need {tile, grant: "hour" | "always", scope: "call", method, path} or {tile, grant, scope: "tile"}`
+	if err := DecodeJSON(r, &body); err != nil || body.Tile == "" || body.Scope != delegation.ScopeCall && body.Scope != delegation.ScopeTile {
+		WriteError(w, http.StatusBadRequest, need, delegationDocs)
 		return
 	}
 	tile := strings.Trim(body.Tile, "/")
+	if body.Scope == delegation.ScopeCall {
+		u, err := url.ParseRequestURI(body.Path)
+		if err != nil || u.RawQuery != "" || body.Method == "" || isRead(strings.ToUpper(body.Method)) || !strings.HasPrefix(u.Path, "/api/"+tile+"/") {
+			WriteError(w, http.StatusBadRequest, need+" — path is the call's path under /api/"+tile+"/, without a query; method a writing one", delegationDocs)
+			return
+		}
+		body.Method, body.Path = strings.ToUpper(body.Method), u.EscapedPath()
+	}
 	known := s.Reg == nil
 	if s.Reg != nil {
 		_, known = s.Reg.Component(tile)
@@ -622,12 +661,12 @@ func (s *Server) apiDelegateApprovalAdd(w http.ResponseWriter, r *http.Request) 
 		WriteError(w, http.StatusNotFound, "no tile "+tile+" that you can read", delegationDocs)
 		return
 	}
-	ap, err := s.Delegation.AddApproval(a.user, tile, body.Grant, a.via)
+	ap, err := s.Delegation.AddApproval(delegation.Approval{User: a.user, Tile: tile, Scope: body.Scope, Method: body.Method, Path: body.Path}, body.Grant, a.via)
 	if err != nil {
 		WriteError(w, http.StatusBadRequest, err.Error(), delegationDocs)
 		return
 	}
-	s.delegateAudit(delegation.Call{User: a.user, Method: "POST", Path: "/api/xbin/delegate/approvals", Tile: tile, Class: "decision:approval", Effect: true, Status: http.StatusOK, Under: body.Grant})
+	s.delegateAudit(delegation.Call{User: a.user, Method: "POST", Path: "/api/xbin/delegate/approvals", Tile: tile, Class: "decision:approval", Effect: true, Status: http.StatusOK, Under: body.Grant + " " + body.Scope})
 	s.delegateEvent(a.user, "approval", ap.ID)
 	WriteJSON(w, http.StatusOK, ap)
 }
@@ -648,6 +687,7 @@ func (s *Server) apiDelegateApprovalRevoke(w http.ResponseWriter, r *http.Reques
 		WriteError(w, http.StatusNotFound, "no such approval", delegationDocs)
 		return
 	}
+	s.SweepDelegation() // a call running under it ends now
 	s.delegateEvent(a.user, "approval", r.PathValue("id"))
 	w.WriteHeader(http.StatusNoContent)
 }

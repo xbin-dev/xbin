@@ -179,8 +179,9 @@ func DelegateRefusal(resp *http.Response) error {
 	return e
 }
 
-// delegateCall makes one JSON call of the delegation API as the person and
-// decodes a 2xx answer into out (nil: discarded).
+// delegateCall makes one JSON call of the delegation API (path: the whole
+// path, from /api on) as the person and decodes a 2xx answer into
+// out (nil: discarded).
 func delegateCall(ctx context.Context, method, path string, in, out any) error {
 	var body io.Reader
 	if in != nil {
@@ -190,7 +191,7 @@ func delegateCall(ctx context.Context, method, path string, in, out any) error {
 		}
 		body = bytes.NewReader(b)
 	}
-	req, err := http.NewRequestWithContext(ctx, method, "http://xbin/api/xbin/delegate"+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, "http://xbin"+path, body)
 	if err != nil {
 		return err
 	}
@@ -270,18 +271,18 @@ func RequestApproval(ctx context.Context, method, path string, body []byte, summ
 	if len(body) > 0 {
 		in["bodyBase64"] = base64.StdEncoding.EncodeToString(body)
 	}
-	return out, delegateCall(ctx, http.MethodPost, "/requests", in, &out)
+	return out, delegateCall(ctx, http.MethodPost, "/api/xbin/delegate/requests", in, &out)
 }
 
 // ApprovalOf reads one of this person's requests.
 func ApprovalOf(ctx context.Context, id string) (ApprovalRequest, error) {
 	var out ApprovalRequest
-	return out, delegateCall(ctx, http.MethodGet, "/requests/"+url.PathEscape(id), nil, &out)
+	return out, delegateCall(ctx, http.MethodGet, "/api/xbin/delegate/requests/"+url.PathEscape(id), nil, &out)
 }
 
 // WithdrawApproval takes back a request the agent no longer wants.
 func WithdrawApproval(ctx context.Context, id string) error {
-	return delegateCall(ctx, http.MethodDelete, "/requests/"+url.PathEscape(id), nil, nil)
+	return delegateCall(ctx, http.MethodDelete, "/api/xbin/delegate/requests/"+url.PathEscape(id), nil, nil)
 }
 
 // StandingApprovals lists the tiles whose API this person lets their agent
@@ -290,7 +291,7 @@ func StandingApprovals(ctx context.Context) ([]StandingApproval, error) {
 	var out struct {
 		Approvals []StandingApproval `json:"approvals"`
 	}
-	return out.Approvals, delegateCall(ctx, http.MethodGet, "/approvals", nil, &out)
+	return out.Approvals, delegateCall(ctx, http.MethodGet, "/api/xbin/delegate/approvals", nil, &out)
 }
 
 // StandingApproval is one standing approval.
@@ -339,16 +340,16 @@ type ChangeSetItem struct {
 // otherwise); an unknown kind or bad arguments is 400.
 func ProposeChanges(ctx context.Context, title string, changes []Change) (ChangeSet, error) {
 	var out ChangeSet
-	return out, delegateCall(ctx, http.MethodPost, "/changesets", map[string]any{"title": title, "items": changes}, &out)
+	return out, delegateCall(ctx, http.MethodPost, "/api/xbin/delegate/changesets", map[string]any{"title": title, "items": changes}, &out)
 }
 
 // ChangeSetOf reads one of this person's change sets.
 func ChangeSetOf(ctx context.Context, id string) (ChangeSet, error) {
 	var out ChangeSet
-	return out, delegateCall(ctx, http.MethodGet, "/changesets/"+url.PathEscape(id), nil, &out)
+	return out, delegateCall(ctx, http.MethodGet, "/api/xbin/delegate/changesets/"+url.PathEscape(id), nil, &out)
 }
 
 // WithdrawChanges takes back a proposal nobody decided yet.
 func WithdrawChanges(ctx context.Context, id string) error {
-	return delegateCall(ctx, http.MethodDelete, "/changesets/"+url.PathEscape(id), nil, nil)
+	return delegateCall(ctx, http.MethodDelete, "/api/xbin/delegate/changesets/"+url.PathEscape(id), nil, nil)
 }

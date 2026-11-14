@@ -53,23 +53,54 @@ type Call struct {
 	Refused string    `json:"refused,omitempty"` // why the gate refused it, when it did
 	Ticket  string    `json:"ticket,omitempty"`  // the approved request it ran under
 	Under   string    `json:"under,omitempty"`   // …or the standing approval, or "preference" for a session started unasked
+	// N: rows the gate left out before this one — refusals, dry runs and
+	// reads beyond what it writes a minute (the gate's audit limit).
+	N int `json:"n,omitempty"`
 }
 
-// Log is the store. A nil *Log records nothing.
+// Log is the store. A nil *Log records nothing. Rows are appended under a
+// lock per person: one person's agent never holds up another's rows.
 type Log struct {
 	dir string
 	now func() time.Time
 
+	mu    sync.Mutex // users only
+	users map[string]*logUser
+}
+
+type logUser struct {
 	mu    sync.Mutex
-	month map[string]string // user → the month last written (prune once a month)
+	month string // the month last written (prune once a month)
 }
 
 // Open is the log under dir (created at the first row).
 func Open(dir string) *Log {
-	return &Log{dir: dir, now: time.Now, month: map[string]string{}}
+	return &Log{dir: dir, now: time.Now, users: map[string]*logUser{}}
 }
 
+func (l *Log) lock(user string) *logUser {
+	l.mu.Lock()
+	u := l.users[user]
+	if u == nil {
+		u = &logUser{}
+		l.users[user] = u
+	}
+	l.mu.Unlock()
+	u.mu.Lock()
+	return u
+}
+
+// MaxPath bounds a row's path: longer ones are cut (a path is the caller's
+// to choose, and the log must not grow by it).
+const MaxPath = 512
+
 func userDir(dir, user string) string { return filepath.Join(dir, hex.EncodeToString([]byte(user))) }
+
+// userOfDir is the person a directory under the store is for.
+func userOfDir(name string) (string, bool) {
+	b, err := hex.DecodeString(name)
+	return string(b), err == nil && len(b) > 0
+}
 
 const monthFmt = "2006-01"
 
@@ -78,18 +109,24 @@ func (l *Log) Append(c Call) error {
 	if l == nil || c.User == "" {
 		return nil
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	if len(c.Path) > MaxPath {
+		c.Path = c.Path[:MaxPath] + "…"
+	}
+	if len(c.Refused) > MaxPath {
+		c.Refused = c.Refused[:MaxPath] + "…"
+	}
+	u := l.lock(c.User)
+	defer u.mu.Unlock()
 	if c.Time.IsZero() {
 		c.Time = l.now().UTC()
 	}
 	dir := userDir(l.dir, c.User)
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return err
-	}
 	month := c.Time.Format(monthFmt)
-	if l.month[c.User] != month {
-		l.month[c.User] = month
+	if u.month != month {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return err
+		}
+		u.month = month
 		prune(dir, c.Time)
 	}
 	b, err := json.Marshal(c)
@@ -125,8 +162,8 @@ func (l *Log) Read(user string, before time.Time, limit int) ([]Call, error) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
+	u := l.lock(user)
+	defer u.mu.Unlock()
 	dir := userDir(l.dir, user)
 	ents, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {

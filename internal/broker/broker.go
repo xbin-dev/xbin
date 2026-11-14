@@ -53,6 +53,10 @@ type Broker struct {
 	templates *builtins.TemplateSet // embedded builtin template catalog (nil = none)
 	updater   *builtins.Updater     // builtin update tracking (nil = none)
 	Users     *users.Store          // human users (nil = single-user/root-only)
+	// OnPeopleChanged, if set, is called after people, their access or
+	// their orgs changed (usersEvent): boot wires the server's
+	// SweepDelegation.
+	OnPeopleChanged func()
 	// AgentPolicy answers the orgs' rules for people's workspace agents
 	// (delegation.go); nil refuses every delegate call (delegation.NoPolicy).
 	AgentPolicy delegation.Policy

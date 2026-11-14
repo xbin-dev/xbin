@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -62,13 +63,22 @@ type dPolicy struct {
 	deny  map[string]error                 // tile → the org's refusal
 	prefs map[string]delegation.StartPrefs // user → starts without asking
 	asked []delegation.Subject
+	// readCheck: DelegateTile also refuses a tile its person can't read (as
+	// the broker's does); onAsk runs once when the tile's rules are asked.
+	readCheck bool
+	onAsk     func()
 }
 
 func (d *dPolicy) TileAllows(s delegation.Subject) error {
 	d.mu.Lock()
-	defer d.mu.Unlock()
+	hook := d.onAsk
 	d.asked = append(d.asked, s)
-	return d.deny[s.Tile]
+	err := d.deny[s.Tile]
+	d.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	return err
 }
 func (d *dPolicy) SessionAllows(s delegation.Subject, _ string) error { return d.TileAllows(s) }
 func (d *dPolicy) StartPrefs(user, _, _ string) (delegation.StartPrefs, bool) {
@@ -80,6 +90,12 @@ func (d *dPolicy) StartPrefs(user, _, _ string) (delegation.StartPrefs, bool) {
 func (d *dPolicy) DelegateTile(p auth.Principal, tile string, write bool) (string, string, bool, error) {
 	if err := d.TileAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: tile, Model: p.AgentModel}); err != nil {
 		return "", "", false, err
+	}
+	d.mu.Lock()
+	check := d.readCheck
+	d.mu.Unlock()
+	if check && !p.CanReadTile(tile) {
+		return "", "", false, errors.New(p.UserID + " can't read " + tile)
 	}
 	return "write", "writer", false, nil
 }

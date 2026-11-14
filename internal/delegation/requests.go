@@ -12,10 +12,12 @@ package delegation
 //     request is a one-shot TICKET, bound to exactly that method, path
 //     (with its query) and body: the agent names the request's id on the
 //     call, the gate compares, and the ticket is spent.
-//   - a STANDING APPROVAL: "this tile for an hour", "always for this tile".
-//     A record the person can list and revoke; while it holds, the agent's
-//     calls to that tile's API need no ticket. It covers a tile's API only:
-//     never a session start or a tile create.
+//   - a STANDING APPROVAL: a record the person can list and revoke, for an
+//     hour or until revoked. By default it is of ONE CALL — this method on
+//     this path of the tile, whatever the body ("this call, always");
+//     "every write to this tile" is a separate, wider choice the person
+//     makes explicitly. It covers a tile's API only: never a session start
+//     or a tile create.
 //
 // So a credential stolen from the agent's sandbox is read-only: it can't
 // approve, and what it can redeem is only what the person already approved,
@@ -27,6 +29,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 	"unicode/utf8"
 
@@ -57,10 +60,22 @@ const (
 	KindTemplate = "template" // POST /templates/new
 )
 
+// Standing approval scopes.
+const (
+	// ScopeCall: one call — this method on this path of the tile ("this
+	// call, always"). The default.
+	ScopeCall = "call"
+	// ScopeTile: every write to the tile's API. The wider choice, made
+	// explicitly.
+	ScopeTile = "tile"
+)
+
 // Limits.
 const (
 	MaxPending     = 20             // pending requests a person holds; the 21st is refused
+	MaxRequests    = 200            // requests kept for a person, decided ones included: the oldest decided go first
 	MaxBody        = 256 << 10      // a request's body, kept to show and to bind
+	MaxTarget      = 2048           // a request's path with its query
 	PendingTTL     = 24 * time.Hour // a request nobody decided
 	TicketTTL      = 15 * time.Minute
 	keepDecided    = 24 * time.Hour // decided requests stay listed this long
@@ -81,6 +96,10 @@ type Request struct {
 	// /api/: what the ticket is bound to.
 	Target string `json:"target"`
 	Tile   string `json:"tile,omitempty"`
+	// ContentType is the media type the call's body will be sent as ("" for
+	// none): bound like the body — the same bytes under another type are
+	// another call to the tile that parses them.
+	ContentType string `json:"contentType,omitempty"`
 	// Body is the body the call will carry, kept while the request is
 	// pending or approved so the person sees what they approve; BodySHA256
 	// binds the ticket to it. A body that isn't text is kept out of the
@@ -101,19 +120,39 @@ type Request struct {
 	// Expires: a pending request's, then an approved ticket's, deadline.
 	Expires time.Time `json:"expires"`
 	// DecidedVia names the credential that decided: "session", "device",
-	// "app", or "frame" for the agent's own page under the person's login.
+	// "app" ("dev" on an xbind run with --no-auth).
 	DecidedVia string `json:"decidedVia,omitempty"`
 }
 
-// Approval is one standing approval.
+// Path is the request's path without its query: what a standing approval
+// of "this call" is for.
+func (r Request) Path() string {
+	p, _, _ := strings.Cut(r.Target, "?")
+	return p
+}
+
+// Approval is one standing approval: scope "call" lets the agent make
+// Method on Path of Tile without a ticket; scope "tile" every write to
+// Tile's API.
 type Approval struct {
 	ID      string    `json:"id"`
 	User    string    `json:"user"`
 	Tile    string    `json:"tile"`
-	Until   time.Time `json:"until,omitempty"` // zero: until revoked
+	Scope   string    `json:"scope"`
+	Method  string    `json:"method,omitempty"` // scope call
+	Path    string    `json:"path,omitempty"`   // scope call: the path under /api/, no query
+	Until   time.Time `json:"until,omitempty"`  // zero: until revoked
 	Created time.Time `json:"created"`
 	Via     string    `json:"via,omitempty"`
 	Request string    `json:"request,omitempty"` // the request it was given on
+}
+
+// covers reports whether a allows method on path of tile.
+func (a Approval) covers(tile, method, path string) bool {
+	if a.Tile != tile {
+		return false
+	}
+	return a.Scope == ScopeTile || a.Scope == ScopeCall && a.Method == method && a.Path == path
 }
 
 type requestsDoc struct {
@@ -132,8 +171,9 @@ var (
 	ErrNotPending   = errors.New("the request is no longer pending")
 	ErrTooMany      = fmt.Errorf("%d requests are already waiting for this person: they answer or the agent withdraws some first", MaxPending)
 	ErrNoTicket     = errors.New("no such ticket: the request doesn't exist, isn't approved, expired or was already used")
-	ErrTicketBound  = errors.New("the ticket was approved for another call: its method, path and body must be exactly what the person saw")
+	ErrTicketBound  = errors.New("the ticket was approved for another call: its method, path, body and content type must be exactly what the person saw")
 	ErrBadGrant     = errors.New(`grant is "once", "hour" or "always"`)
+	ErrBadScope     = errors.New(`scope is "call" (this method and path) or "tile" (every write to the tile)`)
 	ErrNoStore      = errors.New("this xbind keeps no delegation state")
 	ErrStandingKind = errors.New("a standing approval covers a tile's API: a session start or a tile create is approved each time")
 )
@@ -144,15 +184,18 @@ func BodyHash(b []byte) string {
 	return hex.EncodeToString(h[:])
 }
 
-// requestsLocked reads user's requests, expiring what ran out and dropping
-// what was decided long ago; changed says the file should be rewritten.
-func (s *Store) requestsLocked(user string) (doc requestsDoc, changed bool, err error) {
-	if _, err := readJSON(s.userFile(user, "requests.json"), &doc); err != nil {
+// requests reads user's requests under p's lock, expiring what ran out,
+// dropping what was decided long ago and keeping the list bounded;
+// changed says the file should be rewritten.
+func (s *Store) requests(p *person, user string) (doc requestsDoc, changed bool, err error) {
+	cur, err := load(&p.reqs, s.userFile(user, "requests.json"))
+	if err != nil {
 		return requestsDoc{}, false, err
 	}
 	now := s.now()
-	keep := doc.Requests[:0]
-	for _, r := range doc.Requests {
+	doc.Schema = cur.Schema
+	doc.Requests = make([]Request, 0, len(cur.Requests))
+	for _, r := range cur.Requests {
 		if (r.State == Pending || r.State == Approved) && !now.Before(r.Expires) {
 			r.State, r.Body, changed = Expired, "", true
 			r.Decided = now.UTC().Truncate(time.Second)
@@ -161,29 +204,43 @@ func (s *Store) requestsLocked(user string) (doc requestsDoc, changed bool, err 
 			changed = true
 			continue
 		}
-		keep = append(keep, r)
+		doc.Requests = append(doc.Requests, r)
 	}
-	doc.Requests = keep
+	// bounded: an agent that asks and withdraws in a loop grows nothing
+	for i := 0; len(doc.Requests) > MaxRequests && i < len(doc.Requests); {
+		if st := doc.Requests[i].State; st != Pending && st != Approved {
+			doc.Requests = slices.Delete(doc.Requests, i, i+1)
+			changed = true
+			continue
+		}
+		i++
+	}
 	return doc, changed, nil
 }
 
-func (s *Store) saveRequestsLocked(user string, doc requestsDoc) error {
+func (s *Store) saveRequests(p *person, user string, doc requestsDoc) error {
 	doc.Schema = requestsSchema
-	return writeJSON(s.userFile(user, "requests.json"), doc)
+	return save(&p.reqs, s.userFile(user, "requests.json"), doc)
 }
 
 // NewRequest stores a pending request for r.User: r's Agent, Kind, Method,
-// Target, Tile, Summary and Preview, and body as the call's body.
+// Target, Tile, ContentType, Summary and Preview, and body as the call's
+// body.
 func (s *Store) NewRequest(r Request, body []byte) (Request, error) {
 	if s == nil {
 		return Request{}, ErrNoStore
 	}
-	if len(body) > MaxBody {
+	switch {
+	case len(body) > MaxBody:
 		return Request{}, fmt.Errorf("the body is %d bytes: an approval shows and binds at most %d", len(body), MaxBody)
+	case len(r.Target) > MaxTarget:
+		return Request{}, fmt.Errorf("the path is %d bytes: an approval binds at most %d", len(r.Target), MaxTarget)
+	case len(r.ContentType) > 256 || len(r.Method) > 16 || len(r.Tile) > MaxTarget:
+		return Request{}, errors.New("not a call an approval can bind")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	doc, _, err := s.requestsLocked(r.User)
+	p := s.lock(r.User)
+	defer p.mu.Unlock()
+	doc, _, err := s.requests(p, r.User)
 	if err != nil {
 		return Request{}, err
 	}
@@ -208,7 +265,7 @@ func (s *Store) NewRequest(r Request, body []byte) (Request, error) {
 		r.Summary = r.Summary[:maxSummaryLen]
 	}
 	doc.Requests = append(doc.Requests, r)
-	return r, s.saveRequestsLocked(r.User, doc)
+	return r, s.saveRequests(p, r.User, doc)
 }
 
 // Requests lists user's requests, oldest first; pendingOnly leaves out the
@@ -217,14 +274,14 @@ func (s *Store) Requests(user string, pendingOnly bool) ([]Request, error) {
 	if s == nil {
 		return []Request{}, nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	doc, changed, err := s.requestsLocked(user)
+	p := s.lock(user)
+	defer p.mu.Unlock()
+	doc, changed, err := s.requests(p, user)
 	if err != nil {
 		return nil, err
 	}
 	if changed {
-		_ = s.saveRequestsLocked(user, doc)
+		_ = s.saveRequests(p, user, doc)
 	}
 	out := []Request{}
 	for _, r := range doc.Requests {
@@ -251,18 +308,25 @@ func (s *Store) Request(user, id string) (Request, bool) {
 
 // Decide approves (grant "once", "hour" or "always") or denies (grant "")
 // user's pending request id, through a credential of kind via. An hour or
-// always grant on a tile call also records the standing approval, which is
-// returned.
-func (s *Store) Decide(user, id, grant, via string) (Request, *Approval, error) {
+// always grant on a tile call also records a standing approval, which is
+// returned: of that one call (scope "call", or "": the default) or of
+// every write to the tile (scope "tile").
+func (s *Store) Decide(user, id, grant, scope, via string) (Request, *Approval, error) {
 	if s == nil {
 		return Request{}, nil, ErrNoStore
 	}
 	if grant != "" && grant != GrantOnce && grant != GrantHour && grant != GrantAlways {
 		return Request{}, nil, ErrBadGrant
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	doc, _, err := s.requestsLocked(user)
+	if scope == "" {
+		scope = ScopeCall
+	}
+	if scope != ScopeCall && scope != ScopeTile {
+		return Request{}, nil, ErrBadScope
+	}
+	p := s.lock(user)
+	defer p.mu.Unlock()
+	doc, _, err := s.requests(p, user)
 	if err != nil {
 		return Request{}, nil, err
 	}
@@ -285,7 +349,7 @@ func (s *Store) Decide(user, id, grant, via string) (Request, *Approval, error) 
 	} else {
 		r.State, r.Expires = Approved, now.Add(TicketTTL)
 		if grant != GrantOnce {
-			a, err := s.addApprovalLocked(Approval{User: user, Tile: r.Tile, Via: via, Request: r.ID}, grant)
+			a, err := s.addApproval(p, Approval{User: user, Tile: r.Tile, Scope: scope, Method: r.Method, Path: r.Path(), Via: via, Request: r.ID}, grant)
 			if err != nil {
 				return Request{}, nil, err
 			}
@@ -293,7 +357,7 @@ func (s *Store) Decide(user, id, grant, via string) (Request, *Approval, error) 
 		}
 	}
 	out := *r
-	return out, ap, s.saveRequestsLocked(user, doc)
+	return out, ap, s.saveRequests(p, user, doc)
 }
 
 // Withdraw takes back user's pending or approved request id (the agent no
@@ -302,9 +366,9 @@ func (s *Store) Withdraw(user, id string) (Request, error) {
 	if s == nil {
 		return Request{}, ErrNoStore
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	doc, _, err := s.requestsLocked(user)
+	p := s.lock(user)
+	defer p.mu.Unlock()
+	doc, _, err := s.requests(p, user)
 	if err != nil {
 		return Request{}, err
 	}
@@ -318,20 +382,22 @@ func (s *Store) Withdraw(user, id string) (Request, error) {
 	}
 	r.State, r.Body, r.Decided = Withdrawn, "", s.now().UTC().Truncate(time.Second)
 	out := *r
-	return out, s.saveRequestsLocked(user, doc)
+	return out, s.saveRequests(p, user, doc)
 }
 
-// Redeem spends user's ticket id for the call (method, target, body): the
-// request must be approved and unexpired, and the call exactly the one the
-// person approved. A ticket is spent by the attempt that matches it — never
-// by one that doesn't, so a wrong guess burns nothing.
-func (s *Store) Redeem(user, id, method, target string, body []byte) (Request, error) {
+// Redeem spends user's ticket id for a call: the request must be approved
+// and unexpired, and the call exactly the one the person approved — its
+// method, its path with the query, its body and the type it is sent as —
+// reaching the tile it resolved to when they approved it. A ticket is spent
+// by the attempt that matches it, never by one that doesn't: a wrong guess
+// burns nothing.
+func (s *Store) Redeem(user, id, method, target, tile, contentType string, body []byte) (Request, error) {
 	if s == nil {
 		return Request{}, ErrNoTicket
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	doc, _, err := s.requestsLocked(user)
+	p := s.lock(user)
+	defer p.mu.Unlock()
+	doc, _, err := s.requests(p, user)
 	if err != nil {
 		return Request{}, ErrNoTicket
 	}
@@ -340,12 +406,13 @@ func (s *Store) Redeem(user, id, method, target string, body []byte) (Request, e
 		return Request{}, ErrNoTicket
 	}
 	r := &doc.Requests[i]
-	if r.Method != method || r.Target != target || r.BodySize != len(body) || r.BodySHA256 != BodyHash(body) {
+	if r.Method != method || r.Target != target || r.ContentType != contentType || r.BodySize != len(body) || r.BodySHA256 != BodyHash(body) ||
+		r.Kind == KindCall && r.Tile != tile {
 		return Request{}, ErrTicketBound
 	}
 	r.State, r.Body, r.Decided = Used, "", s.now().UTC().Truncate(time.Second)
 	out := *r
-	if err := s.saveRequestsLocked(user, doc); err != nil {
+	if err := s.saveRequests(p, user, doc); err != nil {
 		return Request{}, err // not recorded as spent: not honoured
 	}
 	return out, nil
@@ -353,28 +420,44 @@ func (s *Store) Redeem(user, id, method, target string, body []byte) (Request, e
 
 // ---- standing approvals ----
 
-func (s *Store) approvalsLocked(user string) (doc approvalsDoc, changed bool, err error) {
-	if _, err := readJSON(s.userFile(user, "approvals.json"), &doc); err != nil {
+func (s *Store) approvals(p *person, user string) (doc approvalsDoc, changed bool, err error) {
+	cur, err := load(&p.aps, s.userFile(user, "approvals.json"))
+	if err != nil {
 		return approvalsDoc{}, false, err
 	}
 	now := s.now()
-	keep := doc.Approvals[:0]
-	for _, a := range doc.Approvals {
+	doc.Schema = cur.Schema
+	doc.Approvals = make([]Approval, 0, len(cur.Approvals))
+	for _, a := range cur.Approvals {
 		if !a.Until.IsZero() && !now.Before(a.Until) {
 			changed = true
 			continue
 		}
-		keep = append(keep, a)
+		if a.Scope == "" { // a record without one never widens: it covers nothing
+			changed = true
+			continue
+		}
+		doc.Approvals = append(doc.Approvals, a)
 	}
-	doc.Approvals = keep
 	return doc, changed, nil
 }
 
-func (s *Store) addApprovalLocked(a Approval, grant string) (Approval, error) {
-	if a.Tile == "" || a.User == "" {
+func (s *Store) saveApprovals(p *person, user string, doc approvalsDoc) error {
+	doc.Schema = requestsSchema
+	return save(&p.aps, s.userFile(user, "approvals.json"), doc)
+}
+
+func (s *Store) addApproval(p *person, a Approval, grant string) (Approval, error) {
+	switch {
+	case a.Tile == "" || a.User == "":
 		return Approval{}, errors.New("a standing approval names a tile")
+	case a.Scope == ScopeTile:
+		a.Method, a.Path = "", ""
+	case a.Scope == ScopeCall && a.Method != "" && a.Path != "" && len(a.Path) <= MaxTarget:
+	default:
+		return Approval{}, ErrBadScope
 	}
-	doc, _, err := s.approvalsLocked(a.User)
+	doc, _, err := s.approvals(p, a.User)
 	if err != nil {
 		return Approval{}, err
 	}
@@ -387,25 +470,28 @@ func (s *Store) addApprovalLocked(a Approval, grant string) (Approval, error) {
 	default:
 		return Approval{}, ErrBadGrant
 	}
-	// one approval a tile: the new one replaces the old
-	doc.Approvals = slices.DeleteFunc(doc.Approvals, func(e Approval) bool { return e.Tile == a.Tile })
+	// one approval of the same thing: the new one replaces the old
+	doc.Approvals = slices.DeleteFunc(doc.Approvals, func(e Approval) bool {
+		return e.Tile == a.Tile && e.Scope == a.Scope && e.Method == a.Method && e.Path == a.Path
+	})
 	if len(doc.Approvals) >= MaxApprovals {
 		return Approval{}, fmt.Errorf("%d standing approvals: revoke some first", MaxApprovals)
 	}
 	doc.Approvals = append(doc.Approvals, a)
-	doc.Schema = requestsSchema
-	return a, writeJSON(s.userFile(a.User, "approvals.json"), doc)
+	return a, s.saveApprovals(p, a.User, doc)
 }
 
-// AddApproval records a standing approval of user for tile: grant "hour" or
+// AddApproval records a standing approval of a.User: a.Tile with scope
+// "tile", or a.Method on a.Path of it with scope "call"; grant "hour" or
 // "always".
-func (s *Store) AddApproval(user, tile, grant, via string) (Approval, error) {
+func (s *Store) AddApproval(a Approval, grant, via string) (Approval, error) {
 	if s == nil {
 		return Approval{}, ErrNoStore
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.addApprovalLocked(Approval{User: user, Tile: tile, Via: via}, grant)
+	p := s.lock(a.User)
+	defer p.mu.Unlock()
+	a.Via, a.Request = via, ""
+	return s.addApproval(p, a, grant)
 }
 
 // Approvals lists user's standing approvals that hold now.
@@ -413,15 +499,14 @@ func (s *Store) Approvals(user string) ([]Approval, error) {
 	if s == nil {
 		return []Approval{}, nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	doc, changed, err := s.approvalsLocked(user)
+	p := s.lock(user)
+	defer p.mu.Unlock()
+	doc, changed, err := s.approvals(p, user)
 	if err != nil {
 		return nil, err
 	}
 	if changed {
-		doc.Schema = requestsSchema
-		_ = writeJSON(s.userFile(user, "approvals.json"), doc)
+		_ = s.saveApprovals(p, user, doc)
 	}
 	return append([]Approval{}, doc.Approvals...), nil
 }
@@ -429,38 +514,46 @@ func (s *Store) Approvals(user string) ([]Approval, error) {
 // RevokeApproval removes user's standing approval id; false when there is
 // none.
 func (s *Store) RevokeApproval(user, id string) (bool, error) {
-	if s == nil {
-		return false, ErrNoStore
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	doc, _, err := s.approvalsLocked(user)
-	if err != nil {
-		return false, err
-	}
-	n := len(doc.Approvals)
-	doc.Approvals = slices.DeleteFunc(doc.Approvals, func(e Approval) bool { return e.ID == id })
-	if len(doc.Approvals) == n {
-		return false, nil
-	}
-	doc.Schema = requestsSchema
-	return true, writeJSON(s.userFile(user, "approvals.json"), doc)
+	n, err := s.DropApprovals(user, func(a Approval) bool { return a.ID == id })
+	return n > 0, err
 }
 
-// Covers reports the standing approval under which user's agent may call
-// tile's API now. A store that can't be read covers nothing.
-func (s *Store) Covers(user, tile string) (Approval, bool) {
+// DropApprovals removes user's standing approvals that drop reports — a
+// tile that is gone, or that the person can no longer read — and answers
+// how many went.
+func (s *Store) DropApprovals(user string, drop func(Approval) bool) (int, error) {
+	if s == nil {
+		return 0, ErrNoStore
+	}
+	p := s.lock(user)
+	defer p.mu.Unlock()
+	doc, changed, err := s.approvals(p, user)
+	if err != nil {
+		return 0, err
+	}
+	n := len(doc.Approvals)
+	doc.Approvals = slices.DeleteFunc(doc.Approvals, drop)
+	if len(doc.Approvals) == n && !changed {
+		return 0, nil
+	}
+	return n - len(doc.Approvals), s.saveApprovals(p, user, doc)
+}
+
+// Covers reports the standing approval under which user's agent may make
+// method on path (under /api/, no query) of tile now. A store that can't be
+// read covers nothing.
+func (s *Store) Covers(user, tile, method, path string) (Approval, bool) {
 	if s == nil || tile == "" {
 		return Approval{}, false
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	doc, _, err := s.approvalsLocked(user)
+	p := s.lock(user)
+	defer p.mu.Unlock()
+	doc, _, err := s.approvals(p, user)
 	if err != nil {
 		return Approval{}, false
 	}
 	for _, a := range doc.Approvals {
-		if a.Tile == tile {
+		if a.covers(tile, method, path) {
 			return a, true
 		}
 	}
