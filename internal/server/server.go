@@ -91,6 +91,10 @@ type Server struct {
 	TileAssets  string
 	TilesDomain string
 
+	// LLMKey resolves an LLM key to the marker principal its request runs
+	// as (llmkey.go); installed by the LLM connector, nil = no key is valid.
+	LLMKey func(token string) (auth.Principal, bool)
+
 	// OnDeviceSignedOut, if set, is called after an enrolled device's app
 	// session signed itself out (POST /logout with its bearer,
 	// devicelogin.go), so per-device state — its push registration — ends
@@ -244,6 +248,10 @@ func (s *Server) authed(next http.Handler) http.Handler {
 			}
 			if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") {
 				http.Redirect(w, r, loginURLFor(r), http.StatusFound) // a deep-link page carries ?next= (loginnext.go)
+				return
+			}
+			if onLLMPlane(r) { // OpenAI clients show an OpenAI-shaped error (llmkey.go)
+				writeLLMUnauthorized(w, "no valid credential: the LLM connector takes an xbin sign-in, a bound tile's credential or an LLM key")
 				return
 			}
 			http.Error(w, "unauthorized — sign in at /login", http.StatusUnauthorized)
@@ -713,7 +721,7 @@ func auditable(method, path string) bool {
 	// The element data plane (prefs/kv/blob/bus, partition mail) is
 	// high-frequency and not governance — exclude it so the audit stream
 	// stays signal.
-	for _, dp := range []string{"/prefs", "/kv/", "/blob/", "/bus/", "/partitions/mail"} {
+	for _, dp := range []string{"/prefs", "/kv/", "/blob/", "/bus/", "/partitions/mail", "/llm/v1/"} { // …and model calls (metered, not audited)
 		if strings.HasPrefix(path, dp) {
 			return false
 		}

@@ -29,6 +29,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/apptunnel"
 	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/llm"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/users"
@@ -148,6 +149,12 @@ func mount(t *testing.T) *server.Server {
 	}
 	t.Cleanup(tun.Close)
 	tun.Register(srv)
+	conn, err := llm.New(llm.Options{Dir: t.TempDir()}) // the LLM connector (D226; boot/llm.go)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(conn.Close)
+	conn.Register(srv)
 	srv.Handler() // mounts the core routes and registerCoreAPI
 	return srv
 }
@@ -210,25 +217,34 @@ func sourceRoutes(t *testing.T) map[string]string {
 var docRow = regexp.MustCompile(`^(GET|POST|PUT|PATCH|DELETE|ANY)\s+(\S+)`)
 
 // protocolRows returns every route row inside a code fence of
-// docs/protocol.md (continuation lines never start at column 0 with a method).
+// docs/protocol.md and of the topic pages beside it, docs/protocol/*.md
+// (continuation lines never start at column 0 with a method).
 func protocolRows(t *testing.T) []route {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", "..", "docs", "protocol.md"))
+	docs := filepath.Join("..", "..", "docs")
+	files, err := filepath.Glob(filepath.Join(docs, "protocol", "*.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var rows []route
-	inFence := false
-	for i, line := range strings.Split(string(b), "\n") {
-		if strings.HasPrefix(line, "```") {
-			inFence = !inFence
-			continue
+	for _, f := range append([]string{filepath.Join(docs, "protocol.md")}, files...) {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
 		}
-		if !inFence {
-			continue
-		}
-		if m := docRow.FindStringSubmatch(line); m != nil {
-			rows = append(rows, parseDoc(m[1], m[2], fmt.Sprintf("docs/protocol.md:%d", i+1)))
+		name, _ := filepath.Rel(filepath.Join("..", ".."), f)
+		inFence := false
+		for i, line := range strings.Split(string(b), "\n") {
+			if strings.HasPrefix(line, "```") {
+				inFence = !inFence
+				continue
+			}
+			if !inFence {
+				continue
+			}
+			if m := docRow.FindStringSubmatch(line); m != nil {
+				rows = append(rows, parseDoc(m[1], m[2], fmt.Sprintf("%s:%d", filepath.ToSlash(name), i+1)))
+			}
 		}
 	}
 	return rows

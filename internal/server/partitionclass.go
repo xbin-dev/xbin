@@ -468,6 +468,14 @@ var partitionClasses = map[string]PartitionClass{
 	"PUT /app-tunnel":                        GlobalOnlyRefused,
 	"POST /app-tunnel/relay-tokens":          GlobalOnlyRefused,
 	"POST /app-tunnel/test":                  GlobalOnlyRefused,
+	"GET /llm/config":                        GlobalOnlyRefused, // the LLM connector's settings, usage and quotas (D226)
+	"PUT /llm/config":                        GlobalOnlyRefused,
+	"PUT /llm/upstreams/{name}":              GlobalOnlyRefused,
+	"DELETE /llm/upstreams/{name}":           GlobalOnlyRefused,
+	"POST /llm/upstreams/{name}/test":        GlobalOnlyRefused,
+	"GET /llm/usage":                         GlobalOnlyRefused,
+	"GET /llm/quotas":                        GlobalOnlyRefused,
+	"PUT /llm/quotas":                        GlobalOnlyRefused,
 	"DELETE /push/config":                    GlobalOnlyRefused,
 	"GET /push/devices":                      GlobalOnlyRefused,
 	"DELETE /push/devices/{user}":            GlobalOnlyRefused,
@@ -480,6 +488,14 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /limits/dismiss":   GlobalOnlyRefused,
 	"PUT /orgs/{org}/limits": GlobalOnlyRefused,
 	"GET /limits":            PartitionNeutral,
+
+	// ---- the LLM connector's calls (D226): a person's partition calls as
+	// that person — the handler meters the call to them (internal/llm) ----
+	"POST /llm/v1/chat/completions": PartitionScoped,
+	"POST /llm/v1/responses":        PartitionScoped,
+	"GET /llm/v1/models":            PartitionScoped,
+	"GET /llm/preferred":            PartitionScoped,
+	"GET /llm":                      PartitionScoped,
 
 	// ---- partitions' governance acts (02 §8): their handlers judge the
 	// person and refuse the target tile's own credentials. A mode decision

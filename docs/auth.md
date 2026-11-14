@@ -23,6 +23,7 @@ xbin has two planes with different rules:
 | Scheduler | internal | `xbin/cron` |
 | Bus push delivery | internal | `xbin/bus` (docs/resources.md §bus) |
 | Public visitor | none — anonymous traffic through a **published endpoint** (docs/ingress.md) | `ingress` |
+| An LLM key's holder | `Authorization: Bearer xbl_…`, on the LLM connector's routes only (§The LLM connector) | — (it calls no tile) |
 
 Callees never verify any of this themselves: xbind strips inbound
 `X-XBin-*` headers and injects the verified `X-XBin-From` and
@@ -300,6 +301,55 @@ release removes the credential-less rule** (the default becomes strict; an
 absolute `/c/` URL in markup or CSS, and `inject: false`, stop working under
 tokens mode) — see [compat.md](/docs/compat.md). The native app never used
 the credential-less path (it attaches the frame token to every request).
+
+## The LLM connector
+
+xbind's built-in LLM connector ([llm.md](/docs/llm.md), D226) serves
+OpenAI-compatible routes under `/api/xbin/llm/v1/`. Who may call them, and
+who a call is metered to, comes from the credential xbind verified — never
+from a header or the request body:
+
+- **A person** (session, app or device bearer, the owner token) is admitted
+  by the workspace's people switch: `admins` (the default), `everyone`,
+  `nobody`. Their calls are metered to them.
+- **An element principal** — a tile's backend, frame, terminal or agent
+  session — is default-deny, as everywhere: it is admitted only when one
+  of the tile's `openai` slots is **bound to `xbin:llm`**, the connector's
+  binding ref. The binding is the authorization and is asked on every
+  call; only a workspace admin makes it (an org admin or a personal tile's
+  owner can't: the calls spend the workspace's quota). No grant, role or
+  `xbin:` capability stands in for it, and a tile driven by an admin gets
+  nothing extra. The call is metered to the tile and to the person acting:
+  a partition's person, the person driving the frame or session, nobody
+  for a backend that isn't a person's partition.
+- **The settings** (`/api/xbin/llm/config`, `/upstreams`, `/quotas`) are a
+  workspace admin's — their own sign-in, the owner token, or the admin
+  console (`xbin:admin`); usage is read by the person it is about or an
+  admin, never by a tile's credentials. Changes are in the audit log;
+  model calls are metered, not audited.
+
+### LLM keys
+
+An **LLM key** (`xbl_…`) is a narrow credential for those routes and
+nothing else, made so a coding CLI in a terminal, an agent session or a
+sandbox can reach the workspace's models without holding the tile's API
+token: such tools keep their environment on disk, and some send whatever
+key they hold to their vendor. A key names the person its calls are metered
+to and the tile it was made for, expires, and can be revoked; xbind keeps
+only its hash, in memory (keys don't outlive xbind, like the sessions they
+are for).
+
+- It rides `Authorization: Bearer`, where OpenAI clients put theirs.
+- On `/api/xbin/llm/v1/…` a live key admits the call; a dead one is `401`
+  in OpenAI's error shape.
+- Anywhere else a request presenting one is `401`, whatever other
+  credential it carries. A key can't read the connector's settings or
+  usage, mint anything, or reach a tile.
+- The worst a leaked key does is spend its person's LLM quota until it
+  expires or is revoked.
+
+Nothing hands out LLM keys yet: the hook-up of terminals, agent sessions
+and sandboxes is a later release.
 
 ## Roles and grants
 

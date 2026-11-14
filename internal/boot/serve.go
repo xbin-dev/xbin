@@ -172,6 +172,9 @@ func (st *State) serve(ctx context.Context) error {
 		_ = tunSrv.Close()
 		st.AppTunnel.Close() // the sidecar stops, before the broker
 	}
+	if st.LLM != nil {
+		st.LLM.Close() // the usage counters not yet saved
+	}
 	brk.Close() // the KV database's file lock, the cron scheduler, the disk monitor, the resources' decrypted views
 	// Open tiles keep their login binding across the restart (auth/framegens.go).
 	st.Auth.FlushGens()

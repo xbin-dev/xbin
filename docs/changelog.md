@@ -10,6 +10,43 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-14
+
+- **xbind has an LLM connector built in** (D226; [llm.md](/docs/llm.md),
+  routes in [protocol/llm.md](/docs/protocol/llm.md)). One
+  OpenAI-compatible endpoint, `/api/xbin/llm/v1` (`chat/completions`,
+  `responses`, `models`), in front of the providers a workspace admin
+  configures — `bx llm upstream add <name> <base-url>`, keys in xbind's
+  vault. It is off until an upstream exists: nothing changes for a
+  workspace that doesn't set it up, and the `llm-gw` tile works as before.
+  - **Tiles bind to it like to a provider tile**: an `openai` slot takes
+    the new builtin ref **`xbin:llm`** (`bx bind apps/chat llm=xbin:llm`; a
+    workspace admin's bind, offered in pickers once the connector is
+    configured). The slot resolves to `/api/xbin/llm`
+    (`XBIN_IFACE_<SLOT>_URL`, or a `{provider: "xbin:llm", …}` row of a
+    multi slot; `xbin.iface(slot).url`), and `GET <url>/preferred?use=`
+    answers as `llm-gw`'s does. Calls are metered to the person acting
+    and the tile.
+  - **Per-person metering and quotas**: `GET /api/xbin/llm/usage` (your
+    own rows; an admin's: everyone's), quotas per UTC day and month in
+    tokens and cost — a workspace default, per-user and per-org overrides,
+    a workspace total — that stop (`429` in OpenAI's error shape, naming
+    the quota and its reset) or warn (`X-XBin-LLM-Quota`). `bx llm usage`,
+    `bx llm quota`.
+  - **A host can configure and lock it**: `XBIN_LLM_CONFIG=<file>`
+    ([config.md](/docs/config.md)) sets upstreams (keys by file), default
+    models, aliases, switches and quotas; what it sets reads `locked: true,
+    reason: "set by your host"` in `GET /api/xbin/llm/config` and can't be
+    changed through the API (409).
+  - New `bx llm` ([bx.md](/docs/bx.md)); new SDK package
+    `github.com/xbin-dev/xbin/sdk/llm` (the Chat Completions and Responses
+    wire types, usage extraction from a body or a stream, a price table);
+    a new credential kind, the LLM key (`xbl_…`, good for the connector's
+    routes only — [auth.md](/docs/auth.md) §LLM keys; nothing hands them
+    out yet).
+  - Not yet: an admin console section, the connector in terminals and
+    agent sessions, an Anthropic-wire route, `llm-gw` as an upstream.
+
 ## 2026-11-09
 
 - **Agent template Projects: a new project is made in a wizard, and can

@@ -1035,7 +1035,8 @@ source) and reconciles three lists:
   WebSockets);
 - `internal/server/openapi.go` — the `/api/xbin` surface with the capability
   each operation needs (served at `/api/xbin/openapi.json`);
-- `docs/protocol.md` — every route row inside a code fence, i.e. a line
+- `docs/protocol.md` and the topic pages beside it, `docs/protocol/*.md` —
+  every route row inside a code fence, i.e. a line
   starting at column 0 with `GET|POST|PUT|PATCH|DELETE|ANY` and a path
   (continuation lines are indented, so prose never matches).
 

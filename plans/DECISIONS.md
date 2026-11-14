@@ -13673,3 +13673,148 @@ Deviations and refinements made while implementing; all deliberate:
   - **Once only**, across restarts; a failed task #1 still starts the wiki
     step, which says what failed. The `[project starter` marker is defused
     in text from outside, like the coordinator's other markers.
+
+- **D226 — An LLM connector in the daemon: two config sources with a host
+  lock, per-user metering and quotas (2026-11-14; issue #51).** The owner:
+  "Connector built into xbind; Make sure it's configurable both from xbin
+  admin UI and from xbin deployment config (so eg hosted instances would
+  pre-populate the llm config and lock admin settings for the builtin
+  connector in hosted instances)", and "for admin purposes might make sense
+  to have some user-based metering/quota system in mind". Design:
+  `plans/workspace-agent.md` §5.4; builder page `docs/llm.md`; routes
+  `docs/protocol/llm.md`. This entry is the core, API and CLI; the admin
+  console section, the hook-up of harnesses and terminals and an
+  Anthropic-wire route are later packages.
+  - **In the daemon, behind one interface.** `internal/llm` serves
+    `/api/xbin/llm/v1/{chat/completions,responses,models}`: a streaming
+    reverse proxy that holds nothing back, ties the upstream call to the
+    client's context, bounds a call by silence (10 minutes without headers
+    or without a byte) and never by total time, caps a request at 32 MiB,
+    and follows no redirect. Everything that touches an upstream is
+    `llm.Connector` (three methods, a target resolved from configuration
+    handed in per call), so the data plane can move to a sealed component
+    without the rest moving; a call is a path, a body and a usage sink, so
+    another wire is a route and a sink. It interprets no model output and
+    logs no body and no key. Upstream URLs come from configuration only.
+    The connector doesn't retry: clients do, and two retry layers multiply.
+  - **Shared wire code**: `sdk/llm` (standard library only) holds the two
+    wires' types, usage from a body or a stream, the model list, prices and
+    the error shape. The connector is its first user; llm-gw, the agent
+    template and `hack/fakeopenai` move onto it in a later package.
+  - **Two sources, the host's on top.** An admin's settings live in
+    `data/llm/config.json` (the D204 pattern); the host's in the file
+    `XBIN_LLM_CONFIG` names (JSON with comments; keys by `keyFile`). The
+    host's values win setting by setting, and **what the file sets is
+    locked**: reads carry `locks: {<path>: {locked: true, reason: "set by
+    your host"}}` and writes naming a locked setting are 409 with the paths
+    (a locked value sent back unchanged passes, so a client may PUT what it
+    read). Granularity: `enabled`, `people`, each upstream, the default
+    model, each role and alias, and each part of `quotas` the file
+    mentions — an empty `"users": {}` locks per-user overrides with none.
+    `lockAll` makes every setting the host's and takes the admin's own out
+    of force. The admin's shadowed settings stay on disk: remove the file
+    and they are back.
+  - **The file is read at boot and on change.** An unreadable or invalid
+    file stops the boot (a host must not run without the limits it wrote);
+    afterwards its size and modification time, and its key files', are
+    looked at when the connector is used (at most every 2 s — the ingress
+    certificate's pattern, no watcher, no SIGHUP), and a change that is
+    invalid is refused with the last good file in force. Its error goes to
+    xbind's log; an admin's view says only that the host's configuration
+    could not be read (the host's paths are not a workspace admin's to see).
+  - **Keys in the vault; what happens while it is sealed.** Admin-set
+    upstream keys are one map in `data/llm/keys.json`, sealed under a
+    barrier subkey of their own (`llm/upstream-keys`) — not under
+    `data/vault/`, whose files the vault API lists and migrates as tiles'.
+    Sealed: an upstream whose key is in the vault answers 503
+    `xbin_vault_sealed` naming the unseal, setting a key is 409, nothing
+    decrypted outlives the seal (the cache drops on the first read after
+    it); the host's upstreams keep working, their keys being files. Locked
+    (production before a vault exists): the same, and a key is never
+    written in the clear. Plaintext mode: in the clear, 0600, sealed by the
+    first read once a barrier exists. No read ever answers a key: `{set,
+    source, hint}`, the hint an admin key's last four characters.
+  - **Callers.** (i) A person — session, app or device bearer, owner
+    token — by a workspace switch, `people: admins | everyone | nobody`,
+    default `admins`: adding a key must not, by itself, let every member
+    spend on it. (ii) A component, by its binding: the connector is a
+    builtin provider of the `openai` service, ref **`xbin:llm`**, so a tile
+    binds its `llm` slot to it as to llm-gw (`XBIN_IFACE_LLM[_URL]` →
+    `/api/xbin/llm`; `GET …/preferred` answers llm-gw's shape so the agent
+    template resolves its default model unchanged). Element principals
+    stay default-deny: no binding, no call, whoever drives the tile; the
+    binding is asked per call; binding it is a workspace admin's act (an
+    org admin's or an owner's would spend the workspace's quota), and
+    pickers offer it only once an upstream exists. (iii) An LLM key
+    (below). Attribution is from the verified credential only: the person
+    of a partition's backend, the person driving a frame, terminal or
+    agent session, `owner` for the root token, nobody for a backend that
+    isn't a person's partition (metered to the tile; the workspace quota
+    alone holds it).
+  - **LLM keys** (after spike S4, `plans/wsagent/s4-connector.md` §3): a
+    coding CLI must not hold the tile's API token — Codex writes its
+    environment to `$HOME`, and a tool that ignores the base URL sends its
+    key to the vendor. So a narrow credential, `xbl_…`, as `Authorization:
+    Bearer` (what OpenCode and Codex send): good on `/api/xbin/llm/v1/`
+    only, 401 anywhere else whatever rides beside it, resolved to a marker
+    principal (`Via: "llm"`) no other route accepts. The store
+    (`llm.Keys`: person, component, label, sandbox, expiry, revocation;
+    hashes only, in memory) and the server's gate are here; minting — per
+    terminal and agent session, and the SDK call for manager sandboxes —
+    is the hook-up package's.
+  - **Model names.** `<upstream>/<model>`, always prefixed in listings so
+    adding a second upstream renames nothing. A request's model resolves:
+    none or `xbin/default` → the default; `xbin/<role>` → the role's model
+    (`agent`, `harness`, any an admin adds), else the default; an alias; a
+    prefixed name; a bare name one upstream lists, or any name on a single
+    passthrough upstream. **An unknown name is refused, not mapped to the
+    default** — a client billed for a model it didn't ask for is a
+    surprise only an admin may arrange, with the alias `*` (S4: Codex sends
+    its own default model name). An upstream's `models` list is an
+    allowlist; empty passes its `/models` and any name through.
+  - **Metering.** Counters per UTC day, person, component and model —
+    requests, failed, input/output/cached/reasoning tokens, cost, unpriced
+    — in `data/llm/usage/<YYYY-MM>.json`, counted in memory (one lock, two
+    map writes), written 10 s after the first unsaved count and at
+    shutdown (the partition ledger's pattern; no new dependency),
+    24 months kept, a file this xbind can't read never written over. Cost
+    is the upstream's price table (USD per million tokens, cached input
+    priced apart), else what the provider itself reported. A streamed chat
+    completion is forced to `stream_options.include_usage`, or a client
+    could opt out of being metered. A call abandoned mid-stream counts as a
+    request without tokens: the provider reports usage last.
+  - **Quotas.** Tokens and cost per UTC day and month; `stop` (429 in
+    OpenAI's shape, `insufficient_quota`, naming the quota and its reset,
+    with `Retry-After`) or `warn` (a header and the status). A person's
+    quota, **each limit on its own**: their user override → else the most
+    generous of their orgs' overrides (unlimited beats numbers) → else the
+    default. Orgs add up as access does (a member of two orgs gets the
+    better grant); the user override wins in either direction. `workspace`
+    is a total over everyone and the one quota an admin can't lift for
+    themselves once a host locks it. Checked before a call against what is
+    metered, so calls in flight at a limit finish.
+  - **Errors** on the OpenAI routes are OpenAI-shaped, the 401 of xbind's
+    own auth gate on those routes included, so SDKs and CLIs show them. An
+    upstream's refusal of the workspace's key is a 502 of the connector's,
+    never the caller's 401 (a CLI would ask its person to sign in again);
+    an upstream's other errors pass with their status, the key cut out of
+    the body should it be echoed.
+  - **Nothing changes unconfigured** (compat): the routes answer 503 "not
+    configured", no picker lists `xbin:llm`, no file is written. Route
+    classes: the calls are neutral for deployments and partition-scoped
+    (a partition's credential is stamped with its person, which is the
+    attribution); the settings are primary-only and refused to partitions.
+    Model calls are left out of the audit log (metered instead; the audit
+    writer would also have hidden the flush); settings changes are audited.
+  - **Deviations from the plan, and why.** llm-gw is not an upstream yet:
+    the connector would need a daemon principal a tile's policy admits — an
+    identity rule that belongs with delegation's (B3), not here; the
+    upstream `kind` and the plane's `Target` leave room for it. The seam
+    for session credentials became a real key store and gate instead of an
+    interface with a test double, because S4 landed its design while this
+    was built and the gate (which route accepts which bearer) is the part
+    that must not be improvised later.
+  - **Open** for the owner: whether `people` should default to `everyone`
+    once quotas exist; whether calls nobody acts in should get a quota of
+    their own (per component) beside the workspace total; whether a warn
+    should also raise an admin alert.
