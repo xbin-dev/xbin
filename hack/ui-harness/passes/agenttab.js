@@ -446,6 +446,46 @@ async function agentTab(browser) {
   check((await fr(A.page, TILE, (f) => f.tabs)).filter((tb) => tb.kind === 'agent' && tb.ended && tb.id === resumedId).length === 0, 'no ghost tab for the old session');
   await shotEl(A.page, `bx-frame[src="${TILE}"] .pop`, 'agent-tab-restarted');
 
+  // ---- (m) a question's card off the chat kit's model (D224): a page to open, a schema's defaults ----
+  // (no agent sends these to the tab today — xbind does not advertise url
+  // questions, the fake asks a form without defaults — so the card is drawn
+  // here, in the shell's document, with a stand-in for its host)
+  const cards = await A.page.evaluate(async () => {
+    const { askCard } = await import('/vendor/agent-cards.js');
+    const { render } = await import('lit');
+    const sent = [];
+    const host = { _askVals: {}, _answer: (...a) => sent.push(a), requestUpdate() {} };
+    const draw = (b) => { const el = document.createElement('div'); document.body.append(el); render(askCard(host, b), el); return el; };
+    const ask = (more) => ({ kind: 'ask', eid: 'e-url', toolCallId: '', message: 'Open the page', mode: 'form', url: '', schema: null, action: null, by: null, content: null, ...more });
+    const url = draw(ask({ mode: 'url', url: 'https://example.test/device' }));
+    const link = url.querySelector('a');
+    const out = { href: link && link.getAttribute('href'), target: link && link.target, rel: link && link.rel, buttons: [...url.querySelectorAll('button')].map((x) => x.textContent.trim()), inputs: url.querySelectorAll('input').length };
+    url.querySelector('button').click();
+    out.sent = sent.splice(0);
+    const bad = draw(ask({ mode: 'url', url: 'javascript:alert(1)' }));
+    out.bad = { links: bad.querySelectorAll('a').length, text: bad.textContent.includes('javascript:alert(1)') };
+    const done = draw(ask({ mode: 'url', url: 'https://example.test/device', action: 'complete', by: 'agent' }));
+    out.settled = done.textContent.replace(/\s+/g, ' ').trim();
+    const form = draw(ask({ eid: 'e-form', message: 'Which?', schema: { type: 'object', properties: {
+      db: { title: 'DB', anyOf: [{ const: 'pg', title: 'Postgres' }, { const: 'sqlite', title: 'SQLite' }], default: 'sqlite' },
+      region: { type: 'string', enum: ['eu', 'us'], enumNames: ['Europe', 'United States'] },
+      port: { type: 'integer', title: 'Port', default: 8080 } } } }));
+    out.radios = [...form.querySelectorAll('input[type=radio]')].map((x) => x.checked);
+    out.labels = [...form.querySelectorAll('.opt b')].map((x) => x.textContent);
+    out.port = form.querySelector('input[type=number]').value;
+    form.querySelector('button').click();
+    out.answer = sent.splice(0)[0];
+    for (const el of [url, bad, done, form]) el.remove();
+    return out;
+  });
+  check(cards.href === 'https://example.test/device' && cards.target === '_blank' && /noopener/.test(cards.rel) && cards.inputs === 0, `a url question is its link, opened in a new tab (${JSON.stringify(cards)})`);
+  check(cards.buttons.join('|') === 'Done|Skip' && JSON.stringify(cards.sent) === '[["e-url","accept",{}]]', `…with Done (an accept without content) and Skip (${JSON.stringify(cards.buttons)} ${JSON.stringify(cards.sent)})`);
+  check(cards.bad.links === 0 && cards.bad.text, 'a url that is not http(s) is text, never a link');
+  check(/done by agent/.test(cards.settled), `a url question the agent completed says so (${cards.settled})`);
+  check(JSON.stringify(cards.radios) === '[false,true,false,false]' && cards.port === '8080', `a form draws its schema's defaults chosen — an anyOf choice, a number (${JSON.stringify(cards.radios)} ${cards.port})`);
+  check(cards.labels.join('|') === 'Postgres|SQLite|Europe|United States', `anyOf titles and enumNames label the choices (${cards.labels})`);
+  check(!!cards.answer && JSON.stringify(cards.answer.slice(0, 3)) === '["e-form","accept",{"db":"sqlite","port":8080}]', `an untouched form answers its defaults (${JSON.stringify(cards.answer && cards.answer.slice(0, 3))})`);
+
   await settle(A.page);
   // tidy: close both browsers, then end the sessions opened here and drop the
   // window pref — it would restore this window over the tile in the next
