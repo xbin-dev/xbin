@@ -58,6 +58,37 @@ func (b *Broker) sealedArchiveRefusal(path string, m backup.Manifest) error {
 	return b.sealedRestoreRefusal(path, m.SealedData, m.XBinVersion)
 }
 
+// sealedRestoreGate is what a restore into the sealed component at comp
+// must pass before anything is stopped or written (restoreFrom, the one
+// place a tile archive is written back):
+//
+//   - The archive, and the data archive it names, are sealed ones: written
+//     under a backup key this workspace's vault holds (backupkeys.go: a
+//     subkey derived per subject under the vault barrier's key, or one an
+//     admin imported with its workspace's key bundle) and authenticated end
+//     to end. A plain tar is whatever the archiver served — the archiver
+//     is a tile, and whoever writes its code would otherwise write a
+//     sealed component's data, registrations included. Its manifest is
+//     then xbind's own word: the component it names (checked by
+//     restoreFrom) and the data format it records.
+//   - The data format is one this release reads, and the component is not
+//     held for its data (foreign data at its key, a store newer than the
+//     code, an unreadable stamp): the hold says the data there is not this
+//     code's to overwrite.
+//   - It carries no deployment state: a sealed component has no record.
+func (b *Broker) sealedRestoreGate(comp string, br, data *backup.Reader) error {
+	const what = "it is restored only from a backup xbin sealed itself (encrypted under a backup key this workspace's vault holds, and authenticated)"
+	switch {
+	case !br.Sealed():
+		return &sealedError{Status: http.StatusConflict, Msg: util.SealedRefusal(comp, what+"; this archive is a plain one, which is the archiver's word alone")}
+	case data != nil && !data.Sealed():
+		return &sealedError{Status: http.StatusConflict, Msg: util.SealedRefusal(comp, what+"; its data archive is a plain one, which is the archiver's word alone")}
+	case br.M.Deployments != nil:
+		return &sealedError{Status: http.StatusConflict, Msg: util.SealedRefusal(comp, "it has no deployments, and this archive carries a deployment record")}
+	}
+	return b.sealedArchiveRefusal(comp, br.M)
+}
+
 func (b *Broker) sealedRestoreRefusal(path string, data int, release string) error {
 	if f := b.Sealed.RestoreRefusal; f != nil && util.SealedPath(path) {
 		return f(path, data, release)

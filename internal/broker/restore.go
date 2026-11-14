@@ -70,6 +70,14 @@ func (b *Broker) restoreFrom(comp string, br, data *backup.Reader, put deploymen
 	case data != nil && (!data.M.DataArchive() || data.M.Component != comp || data.M.Scope != comp || !data.M.ScopeRoot):
 		return m, fmt.Errorf("the data archive isn't %s's data", comp)
 	}
+	if util.SealedPath(comp) {
+		// a sealed component (D227): only an archive xbind sealed, into a
+		// component that isn't held, and never a deployment section
+		if err := b.sealedRestoreGate(comp, br, data); err != nil {
+			return m, err
+		}
+		put = nil
+	}
 	// deployment state is refused first when it isn't comp's (nothing on
 	// disk yet: it only checks)
 	dep, err := newDeploymentRestore(b.Reg.Root, comp, m, put)

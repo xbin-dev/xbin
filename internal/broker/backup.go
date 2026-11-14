@@ -324,6 +324,12 @@ func (b *Broker) backupTileWith(comp string, every bool) (string, map[string]str
 	if err != nil {
 		return "", nil, parts, err
 	}
+	if c.Sealed && !split {
+		// as a person's partition: archived only sealed. A plain tar would
+		// hand its data to the archiver tile, and could never be restored
+		// (sealedRestoreGate).
+		return "", nil, parts, errors.New(util.SealedRefusal(c.Path, "its data is archived only sealed, and this workspace has no vault barrier (plaintext-vault mode): nothing was archived"))
+	}
 	archives, err := b.putDeploymentArchives(c, provider, every)
 	if err != nil {
 		return "", nil, parts, err
@@ -620,7 +626,9 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 		}
 		data, code, err := b.extractMember(body.Component, ver, body.File)
 		if err != nil {
-			server.WriteError(w, code, err.Error())
+			if !sealedRefused(w, err) {
+				server.WriteError(w, code, err.Error())
+			}
 			return
 		}
 		w.Header().Set("Content-Type", "application/octet-stream")
@@ -631,6 +639,9 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 	var pre preSwitchError
 	if errors.As(err, &pre) { // it predates the tile's partition mode switch: confirm names it
 		server.WriteJSON(w, http.StatusConflict, map[string]any{"error": err.Error(), "docs": "/docs/partitions.md", "switch": pre.answer()})
+		return
+	}
+	if sealedRefused(w, err) {
 		return
 	}
 	if err != nil {

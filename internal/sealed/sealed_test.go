@@ -381,6 +381,11 @@ func TestForeignDataHolds(t *testing.T) {
 	if c, _ := reg.Component("xbin/fix"); !strings.Contains(c.ManifestErr, "system component xbin/fix is held") {
 		t.Errorf("the hold isn't the row's error: %q", c.ManifestErr)
 	}
+	// and nothing is restored into it while it is held: the data at its
+	// key is not this code's to overwrite
+	if err := s.RestoreRefusal("xbin/fix", 1, "v1"); err == nil || !strings.Contains(err.Error(), "nothing is restored while its data is held") {
+		t.Errorf("a restore into a component held over foreign data: %v", err)
+	}
 	// moved away by the admin: the next boot claims the key
 	if err := os.Rename(filepath.Join(ws, "data", "resources-enc", "xbin~fix"), filepath.Join(ws, "data", "moved-away")); err != nil {
 		t.Fatal(err)
@@ -403,6 +408,9 @@ func TestRestoreGoesThroughTheStamp(t *testing.T) {
 	}
 	if err := s.RestoreRefusal("apps/tile", 9, "v9"); err != nil {
 		t.Fatal("a tile's restore asks the stamp")
+	}
+	if err := s.RestoreRefusal("xbin/none", 1, "v1"); err == nil {
+		t.Error("a restore into a name under xbin/ that is no component of this release")
 	}
 	_ = s.Admit("xbin/fix")
 	if s.DataFormat("xbin/fix") != 2 {

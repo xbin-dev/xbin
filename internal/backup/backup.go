@@ -425,7 +425,14 @@ type Reader struct {
 	tr  *tar.Reader
 	hdr *tar.Header // the entry Next returned last
 	M   Manifest
+	// Seal is the header of the sealed archive this was opened from (Open);
+	// zero for a plaintext one. A sealed archive opened and read to its end
+	// was written by a holder of its backup key: nothing else authenticates.
+	Seal SealHeader
 }
+
+// Sealed reports whether the archive was a sealed one.
+func (r *Reader) Sealed() bool { return r.Seal.Subkey != "" }
 
 func NewReader(r io.Reader) (*Reader, error) {
 	tr := tar.NewReader(r)

@@ -287,6 +287,13 @@ func (b *Broker) openDataArchive(provider, comp string, m backup.Manifest) (r *b
 // with file. xbind reads every archive itself — an archiver can't parse a
 // sealed one — following a split main archive's data pointer for data/….
 func (b *Broker) extractMember(comp, version, name string) ([]byte, int, error) {
+	comp = strings.Trim(strings.TrimSpace(comp), "/")
+	if err := sealedNone(comp, "its backup is restored whole; a file is never read out of it"); err != nil {
+		// its archive is its data, which only the component reads (D227):
+		// refused here, where a member would be read out, whatever the
+		// handler checked
+		return nil, http.StatusBadRequest, err
+	}
 	provider := b.archiveProvider(comp)
 	if provider == "" {
 		return nil, http.StatusBadGateway, fmt.Errorf("no archiver bound for %q", comp)
@@ -305,6 +312,9 @@ func (b *Broker) extractMember(comp, version, name string) ([]byte, int, error) 
 	}
 	if br.M.PartitionArchive() { // an archiver's swap: a person's partition is never read out (G2)
 		return nil, http.StatusConflict, fmt.Errorf("the archiver served a person's partition archive as %s's: refused", comp)
+	}
+	if br.M.Component != comp { // another swap: one component's archive served as another's
+		return nil, http.StatusConflict, fmt.Errorf("the archiver served an archive of %q as %s's: refused", br.M.Component, comp)
 	}
 	if strings.HasPrefix(name, backup.DataPrefix) && br.M.Data != nil {
 		dr, gone, err := b.openDataArchive(provider, comp, br.M)

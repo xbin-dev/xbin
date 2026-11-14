@@ -150,9 +150,23 @@ func (s *Set) DataFormat(path string) int {
 // sealed component. An older format needs nothing: the backend migrates
 // its store forward at its next start, and the stamp stays the high-water
 // mark it is.
+//
+// A component held for its data — foreign data at its key, a store newer
+// than the code, an unreadable stamp — takes no restore either: the hold
+// says the data there is not this code's to overwrite. And a path in the
+// sealed namespace that is no component of this release takes none.
 func (s *Set) RestoreRefusal(path string, data int, release string) error {
 	c, ok := s.Component(path)
-	if !ok || data <= c.data() {
+	if !ok {
+		if util.SealedPath(path) {
+			return fmt.Errorf("%s is no system component of this xbin release: nothing is restored there", path)
+		}
+		return nil
+	}
+	if h, held := s.Hold(path); held && h.keepsData() {
+		return fmt.Errorf("%s %s — nothing is restored while its data is held", path, h.Reason)
+	}
+	if data <= c.data() {
 		return nil
 	}
 	h := newerData(Stamp{Data: data, Release: release}, c.data(), s.opts.Release)
