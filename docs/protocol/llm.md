@@ -144,7 +144,7 @@ GET    /llm                        any authenticated caller. The connector as
                                    "/api/xbin/llm/v1", ref: "xbin:llm",
                                    people, host (a deployment file is in
                                    force), defaults: {model?, roles},
-                                   sessions: {harnesses, terminals,
+                                   sessions: {agents, terminals,
                                    openaiEnv} (what coding agents and
                                    terminals get, below), user?,
                                    component?, admin?, quota?: {user, orgs?,
@@ -187,7 +187,12 @@ POST   /llm/keys                   a component whose llm slot is bound to
                                    serves everyone — and to the tile. user,
                                    when named, must be that person: 403
                                    otherwise (a tile never names someone
-                                   else). ttlSec: default 86400, at most 30
+                                   else). The key stands while the tile is
+                                   bound and its person can still read the
+                                   tile; a non-primary deployment gets one
+                                   only where its tile's edge policy leaves
+                                   it the binding in full (403
+                                   xbin_llm_edge otherwise). ttlSec: default 86400, at most 30
                                    days; the key also ends when xbind
                                    restarts. label and sandbox (≤200
                                    characters each) are kept for the log.
@@ -218,8 +223,7 @@ GET    /llm/config                 admin. The configuration in force, the
                                    hint?}, models, private, prices?, source:
                                    admin|host, locked, reason?}], defaults:
                                    {model?, roles}, aliases, quotas,
-                                   sessions: {harnesses: own-first |
-                                   connector | off, terminals, openaiEnv},
+                                   sessions: {agents, terminals, openaiEnv},
                                    locks, concurrency, host: {active,
                                    lockAll?, error?}, vault: open | sealed |
                                    locked | plaintext, problems,
@@ -228,7 +232,7 @@ GET    /llm/config                 admin. The configuration in force, the
                                    enabled, people, upstreams.<name>,
                                    defaults.model, defaults.roles.<role>,
                                    aliases.<alias>, concurrency,
-                                   sessions.harnesses | terminals |
+                                   sessions.agents | terminals |
                                    openaiEnv, quotas.workspace | default |
                                    users | orgs, and "*" when it locks all —
                                    to {locked: true, reason: "set by your
@@ -245,21 +249,21 @@ PUT    /llm/config                 admin. {enabled?, people?: admins |
                                    roles?: {<role>: <model>}}, aliases?:
                                    {<alias>: <model>}, concurrency?: 1–1024
                                    (0: the default, 16), sessions?:
-                                   {harnesses?: own-first | connector | off,
-                                   terminals?, openaiEnv?}} — only what is
+                                   {agents?, terminals?, openaiEnv?}} —
+                                   only what is
                                    named changes; "" removes a role, an
                                    alias or the default; the alias "*"
                                    catches every unknown model name. An
                                    alias named <upstream>/… for an upstream
                                    in force, or like a model an upstream
-                                   lists, is 400. sessions: who serves a
-                                   coding agent's model calls by default
-                                   (own-first: the person's own sign-in when
-                                   they have one, else the connector;
-                                   connector; off: agent sessions get
-                                   nothing), whether tile terminals get
-                                   XBIN_LLM_URL and XBIN_LLM_KEY (default
-                                   true), and whether they also get
+                                   lists, is 400. sessions: whether agent
+                                   sessions are offered the connector
+                                   (default true; who then serves one is
+                                   the agents policy's credentials and the
+                                   person's own choice), whether tile
+                                   terminals get XBIN_LLM_URL and
+                                   XBIN_LLM_KEY (default true), and whether
+                                   they also get
                                    OPENAI_BASE_URL and OPENAI_API_KEY
                                    (default false) — llm.md §Coding agents
                                    and terminals. → the view. 400 invalid; 409 {error, locked: [<path>…],

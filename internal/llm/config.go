@@ -182,9 +182,6 @@ func (s Settings) validate() error {
 	if s.Concurrency < 0 || s.Concurrency > MaxConcurrency {
 		return fmt.Errorf("concurrency: 1–%d calls in flight per caller (0: the default, %d)", MaxConcurrency, DefaultConcurrency)
 	}
-	if err := s.Sessions.validate(); err != nil {
-		return err
-	}
 	return s.Quotas.validate()
 }
 
@@ -344,7 +341,7 @@ func merge(admin Settings, host *hostConfig) *snapshot {
 	}
 	s := &snapshot{enabled: true, people: PeopleAdmins, upstreams: map[string]effUpstream{}, aliases: map[string]string{},
 		locks: map[string]bool{}, defaults: Defaults{Roles: map[string]string{}},
-		sessions: sessionsInForce{Harnesses: HarnessOwnFirst, Terminals: true}}
+		sessions: sessionsInForce{Agents: true, Terminals: true}}
 	s.sessions.lay(admin.Sessions, func(string) {})
 	if admin.Enabled != nil {
 		s.enabled = *admin.Enabled

@@ -19,10 +19,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   - **Agent sessions**: OpenCode and Codex start pointed at the connector
     with no sign-in — OpenCode with the provider "LLM by xbin" declared
     beside the person's own, Codex through its gateway sign-in. A person's
-    own sign-in keeps working and, by default, wins (`own-first`); a
-    workspace admin can make the connector the rule (`bx llm sessions
-    harnesses=connector`) or switch it off. Claude Code and Gemini CLI keep
-    running on the person's own sign-in. `POST /api/xbin/term/sessions`
+    own sign-in keeps working and, by default, wins (the agents policy's
+    `credentials: own-first`, D229); a workspace admin can make the
+    connector the rule (`bx org agents --credentials connector`) or take it
+    away from agent sessions (`bx llm sessions agents=off`). Claude Code and
+    Gemini CLI keep running on the person's own sign-in. `POST /api/xbin/term/sessions`
     takes `llm: "connector" | "own"` (`bx agent run --llm`), a session row
     gains `llm`, a `notice` event says when the connector serves, and `GET
     /api/xbin/agent/providers` gains `llm` per row — `{use, connector,
@@ -33,7 +34,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   - **The credential is a per-session LLM key** (`xbl_…`), never the
     terminal token: good for the connector's model routes only, metered to
     the session's person and tile, revoked when the session ends.
-  - **Settings**: `sessions: {harnesses, terminals, openaiEnv}` in `PUT
+  - **Settings**: `sessions: {agents, terminals, openaiEnv}` in `PUT
     /api/xbin/llm/config` and the host's `XBIN_LLM_CONFIG` (lockable), read
     back by `GET /api/xbin/llm` and `/llm/config`; `bx llm sessions`.
 - **A tile bound to `xbin:llm` can ask for an LLM key** for a coding tool it

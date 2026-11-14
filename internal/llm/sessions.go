@@ -13,10 +13,10 @@ import (
 	sdkllm "github.com/xbin-dev/xbin/sdk/llm"
 )
 
-// sessions.go — the connector as coding tools get it (D226 part 2,
+// sessions.go — the connector as coding tools get it (D226,
 // docs/llm.md "Coding agents and terminals"): the workspace's switches for
-// agent sessions and terminals, what a new session is offered (the models,
-// the default one, the default credential choice), the session keys, the
+// agent sessions and terminals, what a new session is offered (the models
+// and the default one), the session keys, the
 // key a bound component asks for a harness it runs in a sandbox (POST
 // /llm/keys), and the handler of the LLM-only listener such a sandbox
 // reaches.
@@ -24,12 +24,11 @@ import (
 // Sessions are the workspace's switches for coding tools: one source's say
 // (the admin's store or the host's file). A member left out says nothing.
 type Sessions struct {
-	// Harnesses is who serves a coding agent's model calls when neither
-	// the session nor its person chose: "own-first" (the default: the
-	// person's own sign-in when they have one, else the connector),
-	// "connector" (the connector, whatever they are signed in to) or "off"
-	// (agent sessions get nothing of the connector).
-	Harnesses string `json:"harnesses,omitempty"`
+	// Agents: agent sessions are offered the connector (default on). Who
+	// then serves a session — the connector or the person's own sign-in —
+	// is the agents policy's and the person's to say (the workspace's
+	// credentials default, D229), not this switch's.
+	Agents *bool `json:"agents,omitempty"`
 	// Terminals: tile terminals get XBIN_LLM_URL and XBIN_LLM_KEY (default
 	// on).
 	Terminals *bool `json:"terminals,omitempty"`
@@ -39,34 +38,19 @@ type Sessions struct {
 	OpenAIEnv *bool `json:"openaiEnv,omitempty"`
 }
 
-// The harnesses switch.
-const (
-	HarnessOwnFirst  = "own-first"
-	HarnessConnector = "connector"
-	HarnessOff       = "off"
-)
-
-func (s Sessions) validate() error {
-	switch s.Harnesses {
-	case "", HarnessOwnFirst, HarnessConnector, HarnessOff:
-		return nil
-	}
-	return fmt.Errorf("sessions.harnesses: %q — own-first, connector or off", s.Harnesses)
-}
-
 // sessionsInForce are the switches as merged.
 type sessionsInForce struct {
-	Harnesses string `json:"harnesses"`
-	Terminals bool   `json:"terminals"`
-	OpenAIEnv bool   `json:"openaiEnv"`
+	Agents    bool `json:"agents"`
+	Terminals bool `json:"terminals"`
+	OpenAIEnv bool `json:"openaiEnv"`
 }
 
 // lay puts one source's say over f; lock marks each member it sets (the
 // host's).
 func (f *sessionsInForce) lay(s Sessions, lock func(path string)) {
-	if s.Harnesses != "" {
-		f.Harnesses = s.Harnesses
-		lock("sessions.harnesses")
+	if s.Agents != nil {
+		f.Agents = *s.Agents
+		lock("sessions.agents")
 	}
 	if s.Terminals != nil {
 		f.Terminals = *s.Terminals
@@ -80,21 +64,19 @@ func (f *sessionsInForce) lay(s Sessions, lock func(path string)) {
 
 // sessionsBody is PUT /llm/config's sessions member.
 type sessionsBody struct {
-	Harnesses *string `json:"harnesses"`
-	Terminals *bool   `json:"terminals"`
-	OpenAIEnv *bool   `json:"openaiEnv"`
+	Agents    *bool `json:"agents"`
+	Terminals *bool `json:"terminals"`
+	OpenAIEnv *bool `json:"openaiEnv"`
 }
 
 // apply writes b into next, each member unless hold says the host has it.
-func (b *sessionsBody) apply(next *Settings, snap *snapshot, hold func(path string, same bool) bool) error {
+func (b *sessionsBody) apply(next *Settings, snap *snapshot, hold func(path string, same bool) bool) {
 	if b == nil {
-		return nil
+		return
 	}
-	if b.Harnesses != nil && !hold("sessions.harnesses", *b.Harnesses == snap.sessions.Harnesses) {
-		if *b.Harnesses == "" {
-			return badRequest("sessions.harnesses: own-first, connector or off")
-		}
-		next.Sessions.Harnesses = *b.Harnesses
+	if b.Agents != nil && !hold("sessions.agents", *b.Agents == snap.sessions.Agents) {
+		v := *b.Agents
+		next.Sessions.Agents = &v
 	}
 	if b.Terminals != nil && !hold("sessions.terminals", *b.Terminals == snap.sessions.Terminals) {
 		v := *b.Terminals
@@ -104,7 +86,6 @@ func (b *sessionsBody) apply(next *Settings, snap *snapshot, hold func(path stri
 		v := *b.OpenAIEnv
 		next.Sessions.OpenAIEnv = &v
 	}
-	return nil
 }
 
 // RoleHarness is the role whose model coding harnesses default to
@@ -121,10 +102,9 @@ type OfferModel struct {
 // SessionOffer is the connector as a new terminal or agent session of one
 // person on one tile would get it.
 type SessionOffer struct {
-	// Harnesses is the workspace's default for who serves a coding agent
-	// (HarnessOwnFirst | HarnessConnector | HarnessOff); Terminals and
+	// Agents: agent sessions are offered the connector; Terminals and
 	// OpenAIEnv the terminal switches.
-	Harnesses string
+	Agents    bool
 	Terminals bool
 	OpenAIEnv bool
 	// Model is the default model for a coding harness, as
@@ -150,7 +130,7 @@ func (s *Service) Offer(ctx context.Context, user, component string, models bool
 	if ready(snap) != nil {
 		return SessionOffer{}, false
 	}
-	o := SessionOffer{Harnesses: snap.sessions.Harnesses, Terminals: snap.sessions.Terminals, OpenAIEnv: snap.sessions.OpenAIEnv}
+	o := SessionOffer{Agents: snap.sessions.Agents, Terminals: snap.sessions.Terminals, OpenAIEnv: snap.sessions.OpenAIEnv}
 	c := Caller{User: user, Component: component, Via: "key"}
 	if u, m, err := snap.resolve(pseudoUpstream + "/" + RoleHarness); err == nil && !s.refusedByPolicy(c, u, m) {
 		o.Model = publicName(u, m)
@@ -223,7 +203,9 @@ const maxKeyLabel = 200
 // attributes this credential's calls to — its partition's person, the
 // person driving its frame or terminal, nobody for a backend that serves
 // everyone — and to the component. user, when named, must be that person:
-// a component never names someone else.
+// a component never names someone else. The key is minted under the
+// binding and ends with it; a non-primary deployment gets one only where
+// its tile's edge policy leaves it the binding in full.
 func (s *Service) apiMintKey(w http.ResponseWriter, r *http.Request) {
 	c, ok := s.keyCaller(w, r)
 	if !ok {
@@ -239,6 +221,10 @@ func (s *Service) apiMintKey(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "need {user?, ttlSec?, label?, sandbox?} (label and sandbox at most 200 characters)", docs)
 		return
 	}
+	if c.ReadOnly != "" { // a non-primary deployment under the read clamp: a key would let it call
+		server.WriteJSON(w, http.StatusForbidden, map[string]any{"error": c.ReadOnly, "code": "xbin_llm_edge", "docs": docs})
+		return
+	}
 	if body.User != "" && body.User != c.User {
 		who := "nobody (it serves everyone: its calls are metered to the tile)"
 		if c.User != "" {
@@ -251,7 +237,8 @@ func (s *Service) apiMintKey(w http.ResponseWriter, r *http.Request) {
 	if ttl <= 0 {
 		ttl = DefaultComponentKeyTTL
 	}
-	token, g, _, err := s.MintKey(KeyGrant{User: c.User, Component: c.Component, Label: body.Label, Sandbox: body.Sandbox}, ttl)
+	// Bound: the key stands only while the tile's binding does (keyHolds)
+	token, g, _, err := s.MintKey(KeyGrant{User: c.User, Component: c.Component, Label: body.Label, Sandbox: body.Sandbox, Bound: true}, ttl)
 	if err != nil {
 		server.WriteError(w, http.StatusServiceUnavailable, err.Error(), docs)
 		return
@@ -311,8 +298,8 @@ func (s *Service) keyCaller(w http.ResponseWriter, r *http.Request) (Caller, boo
 // own middleware, so no other credential means anything here.
 func (s *Service) KeyOnlyHandler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/chat/completions", s.apiCall(sdkllm.PathChat))
-	mux.HandleFunc("POST /v1/responses", s.apiCall(sdkllm.PathResponses))
+	mux.HandleFunc("POST /v1/chat/completions", s.watched(s.apiCall(sdkllm.PathChat)))
+	mux.HandleFunc("POST /v1/responses", s.watched(s.apiCall(sdkllm.PathResponses)))
 	mux.HandleFunc("GET /v1/models", s.apiModels)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, ok := bearerKey(r); !ok {

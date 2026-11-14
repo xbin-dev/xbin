@@ -29,10 +29,11 @@ type fakeLLM struct {
 	live    map[string]string // token → "user|tile|label"
 	revoked []string
 	kinds   []string
+	refused func(status int, code, message string) // the last minted key's
 }
 
 func newFakeLLM() *fakeLLM {
-	return &fakeLLM{live: map[string]string{}, offer: LLMOffer{Harnesses: sdkacp.UseOwnFirst, Terminals: true,
+	return &fakeLLM{live: map[string]string{}, offer: LLMOffer{Agents: true, Terminals: true,
 		Wires: []string{sdkacp.WireChat, sdkacp.WireResponses}, Model: "up/m1", Models: []sdkacp.ConnectorModel{{ID: "up/m1"}, {ID: "up/m2"}}}}
 }
 
@@ -47,12 +48,13 @@ func (f *fakeLLM) Offer(_ context.Context, user, tile, kind string) (LLMOffer, b
 	return o, !f.off
 }
 
-func (f *fakeLLM) Mint(user, tile, label string) (string, func(), error) {
+func (f *fakeLLM) Mint(user, tile, label string, refused func(int, string, string)) (string, func(), error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.n++
 	tok := "xbl_test" + strings.Repeat("k", f.n)
 	f.live[tok] = user + "|" + tile + "|" + label
+	f.refused = refused
 	return tok, func() {
 		f.mu.Lock()
 		defer f.mu.Unlock()
@@ -80,9 +82,16 @@ func (f *fakeLLM) minted() int {
 	return f.n
 }
 
-type fakePrefs map[string]string // "user/harness" → choice
-
-func (p fakePrefs) HarnessCredential(user, harness string) string { return p[user+"/"+harness] }
+// rules is a Manager.Credentials that answers one rule for everyone, and
+// another for the keys it holds ("user/harness").
+func rules(dflt CredentialRule, per map[string]CredentialRule) func(userID, tile, harness string) CredentialRule {
+	return func(userID, tile, harness string) CredentialRule {
+		if r, ok := per[userID+"/"+harness]; ok {
+			return r
+		}
+		return dflt
+	}
+}
 
 // llmRig is an agent rig with a connector and an XBIN_URL for sessions.
 func llmRig(t *testing.T) (*agentRig, *fakeLLM) {
@@ -157,7 +166,7 @@ func TestAgentLLMAbsent(t *testing.T) {
 	for name, set := range map[string]func(r *agentRig, f *fakeLLM){
 		"no connector":   func(r *agentRig, f *fakeLLM) { r.m.LLM = nil },
 		"not configured": func(r *agentRig, f *fakeLLM) { f.off = true },
-		"harnesses off":  func(r *agentRig, f *fakeLLM) { f.offer.Harnesses = LLMOff },
+		"agents off":     func(r *agentRig, f *fakeLLM) { f.offer.Agents = false },
 	} {
 		t.Run(name, func(t *testing.T) {
 			r, f := llmRig(t)
@@ -180,34 +189,41 @@ func TestAgentLLMAbsent(t *testing.T) {
 	}
 }
 
-// The precedence, each branch: the session's choice, the person's saved
-// default, the workspace's — and own-first's look at the session's $HOME.
+// The precedence, each branch: the session's choice, the rule in force for
+// the person (their saved default, the workspace's, an org's) — and
+// own-first's look at the session's $HOME.
 func TestAgentLLMPrecedence(t *testing.T) {
 	alice := auth.Principal{UserID: "alice", User: &users.User{ID: "alice", Role: "admin"}}
 	for _, c := range []struct {
-		name                     string
-		workspace, saved, choice string
-		signedIn                 bool
-		serves                   string
+		name         string
+		mode, choice string
+		signedIn     bool
+		serves       string
 	}{
 		{name: "own-first, no sign-in: the connector", serves: sdkacp.ServeConnector},
-		{name: "own-first, signed in: their own", signedIn: true, serves: sdkacp.ServeOwn},
-		{name: "the workspace forces the connector", workspace: sdkacp.UseConnector, signedIn: true, serves: sdkacp.ServeConnector},
-		{name: "a saved default of own outranks the workspace", workspace: sdkacp.UseConnector, saved: sdkacp.UseOwn, serves: sdkacp.ServeOwn},
-		{name: "a saved default of the connector outranks own-first", saved: sdkacp.UseConnector, signedIn: true, serves: sdkacp.ServeConnector},
-		{name: "the session's own outranks a saved connector", saved: sdkacp.UseConnector, choice: sdkacp.UseOwn, serves: sdkacp.ServeOwn},
-		{name: "the session's connector outranks a saved own", saved: sdkacp.UseOwn, choice: sdkacp.UseConnector, signedIn: true, serves: sdkacp.ServeConnector},
+		{name: "own-first, signed in: their own", mode: CredOwnFirst, signedIn: true, serves: sdkacp.ServeOwn},
+		{name: "a rule of the connector, signed in", mode: CredConnector, signedIn: true, serves: sdkacp.ServeConnector},
+		{name: "connector-first is the connector too", mode: CredConnectorFirst, signedIn: true, serves: sdkacp.ServeConnector},
+		{name: "a rule of their own, no sign-in", mode: CredOwn, serves: sdkacp.ServeOwn},
+		{name: "the session's own outranks a rule of the connector", mode: CredConnector, choice: sdkacp.UseOwn, serves: sdkacp.ServeOwn},
+		{name: "the session's connector outranks a rule of their own", mode: CredOwn, choice: sdkacp.UseConnector, signedIn: true, serves: sdkacp.ServeConnector},
+		{name: "the session's connector outranks own-first", choice: sdkacp.UseConnector, signedIn: true, serves: sdkacp.ServeConnector},
+		{name: "connector-only, signed in", mode: CredConnectorOnly, signedIn: true, serves: sdkacp.ServeConnector},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			r, f := llmRig(t)
-			if c.workspace != "" {
-				f.offer.Harnesses = c.workspace
+			var asked []string
+			r.m.Credentials = func(userID, tile, harness string) CredentialRule {
+				asked = append(asked, userID+"|"+tile+"|"+harness)
+				return CredentialRule{Mode: c.mode}
 			}
-			r.m.Prefs = fakePrefs{"alice/fake": c.saved}
 			if c.signedIn {
 				signIn(t, r.root, "alice")
 			}
 			info := r.openLLM(t, alice, AgentOpen{LLM: c.choice})
+			if len(asked) == 0 || asked[0] != "alice|apps/x|fake" {
+				t.Errorf("the rule was asked for %v", asked)
+			}
 			key, url, model := r.agentEnv(t, info.ID, "XBIN_LLM_KEY"), r.agentEnv(t, info.ID, "XBIN_LLM_URL"), r.agentEnv(t, info.ID, "FAKEACP_LLM_MODEL")
 			row, _ := r.m.Info(info.ID)
 			if row.LLM != c.serves {
@@ -233,6 +249,79 @@ func TestAgentLLMPrecedence(t *testing.T) {
 				t.Errorf("keys alive after the session ended: %v", live)
 			}
 		})
+	}
+}
+
+// A rule of the connector alone is not a session's to override, and a
+// session it can't be kept for doesn't open; the models a rule allows are
+// the only ones a session is given.
+func TestAgentLLMConnectorOnly(t *testing.T) {
+	r, f := llmRig(t)
+	r.m.Credentials = rules(CredentialRule{Mode: CredConnectorOnly, Models: []string{"up/m2", "up/m9"}}, nil)
+	open := func(provider, choice string) (int, error) {
+		info, code, err := r.m.OpenAgentWith(owner, AgentOpen{Cwd: "apps/x", Provider: provider, LLM: choice})
+		if err == nil {
+			r.endSession(t, info.ID)
+		}
+		return code, err
+	}
+	if code, err := open("fake", sdkacp.UseOwn); code != 403 || err == nil || !strings.Contains(err.Error(), "not on your own sign-in") {
+		t.Errorf("choosing their own under connector-only: %d %v", code, err)
+	}
+	if code, err := open("claude", ""); code != 403 || err == nil || !strings.Contains(err.Error(), "LLM connector only") {
+		t.Errorf("a harness the connector can't serve: %d %v", code, err)
+	}
+	if code, err := open("gemini", ""); code != 403 || err == nil {
+		t.Errorf("gemini under connector-only: %d %v", code, err)
+	}
+	// the allowed models: the default isn't one of them, so the first allowed is
+	info := r.openLLM(t, owner, AgentOpen{})
+	if model := r.agentEnv(t, info.ID, "FAKEACP_LLM_MODEL"); model != "up/m2" {
+		t.Errorf("the model under an allow-list: %q", model)
+	}
+	r.endSession(t, info.ID)
+	// nothing allowed: no model, no connector, no session
+	r.m.Credentials = rules(CredentialRule{Mode: CredConnectorOnly, Models: []string{}}, nil)
+	if code, err := open("fake", ""); code != 403 || err == nil || !strings.Contains(err.Error(), "no model") {
+		t.Errorf("an empty allow-list: %d %v", code, err)
+	}
+	// the connector gone: the rule still stands
+	f.off = true
+	if code, err := open("fake", ""); code != 403 || err == nil {
+		t.Errorf("connector-only with no connector: %d %v", code, err)
+	}
+	// the listing says so beforehand
+	f.off = false
+	r.m.Credentials = rules(CredentialRule{Mode: CredConnectorOnly}, nil)
+	llm := r.m.AgentLLM("", "owner", "apps/x", agent.Providers())
+	if llm["claude"].Use != "unavailable" || llm["gemini"].Use != "unavailable" || llm["fake"].Use != sdkacp.ServeConnector || llm["opencode"].Use != sdkacp.ServeConnector {
+		t.Errorf("the listing under connector-only: claude %+v fake %+v", llm["claude"], llm["fake"])
+	}
+}
+
+// LLMOffer.allowed: the list and the default follow a rule's models.
+func TestOfferAllowed(t *testing.T) {
+	o := LLMOffer{Model: "up/m1", Models: []sdkacp.ConnectorModel{{ID: "up/m1"}, {ID: "up/m2"}, {ID: "up/m3"}}}
+	ids := func(o LLMOffer) string {
+		var out []string
+		for _, m := range o.Models {
+			out = append(out, m.ID)
+		}
+		return o.Model + " [" + strings.Join(out, " ") + "]"
+	}
+	for _, c := range []struct {
+		allow []string
+		want  string
+	}{
+		{nil, "up/m1 [up/m1 up/m2 up/m3]"},
+		{[]string{"up/m1", "up/m3"}, "up/m1 [up/m1 up/m3]"},
+		{[]string{"up/m3", "up/m2"}, "up/m2 [up/m2 up/m3]"}, // the default isn't allowed: the first listed that is
+		{[]string{"other/x"}, "other/x []"},                 // none listed (a launcher's offer lists none): the rule's first
+		{[]string{}, " []"},
+	} {
+		if got := ids(o.allowed(c.allow)); got != c.want {
+			t.Errorf("allowed(%v) = %s, want %s", c.allow, got, c.want)
+		}
 	}
 }
 
@@ -373,7 +462,7 @@ func TestAgentLLMChoiceRefused(t *testing.T) {
 		t.Errorf("claude on the connector: %d %v", code, err)
 	}
 	f.offer.Model = ""
-	if code, err := open("fake", sdkacp.UseConnector); code != 409 || err == nil || !strings.Contains(err.Error(), "no default model") {
+	if code, err := open("fake", sdkacp.UseConnector); code != 409 || err == nil || !strings.Contains(err.Error(), "no model") {
 		t.Errorf("no model: %d %v", code, err)
 	}
 	f.offer.Model = "up/m1"
@@ -406,9 +495,28 @@ func TestLLMUnreachable(t *testing.T) {
 	if f.minted() != 0 || revoked != 1 || o.llm == nil || !strings.Contains(o.llm.note, "net: none") {
 		t.Fatalf("minted %d, llm %+v", f.minted(), o.llm)
 	}
-	if code, err := m.llmChoice(&o, "apps/x", fake, sdkacp.UseConnector); code != 409 || err == nil || !strings.Contains(err.Error(), "net: none") {
+	if code, err := m.llmGate(&o, "apps/x", fake, sdkacp.UseConnector); code != 409 || err == nil || !strings.Contains(err.Error(), "net: none") {
 		t.Errorf("asking for the connector offline: %d %v", code, err)
 	}
+	// a session that targets a deployment other than the primary: no key
+	// either (a key carries no deployment), said the same way
+	o = openOpts{kind: KindAgent}
+	o.target.env = "dev"
+	m.Isolate = false
+	m.llmArm(&o, "apps/x", &fake, func() {})
+	if f.minted() != 0 || o.llm == nil || !strings.Contains(o.llm.note, "other than the primary (dev)") {
+		t.Fatalf("a non-primary target: minted %d, llm %+v", f.minted(), o.llm)
+	}
+	if code, err := m.llmGate(&o, "apps/x", fake, sdkacp.UseConnector); code != 409 || err == nil || !strings.Contains(err.Error(), "other than the primary") {
+		t.Errorf("asking for the connector on a non-primary target: %d %v", code, err)
+	}
+	o = openOpts{}
+	o.target.env = "dev"
+	m.llmArm(&o, "apps/x", nil, func() {})
+	if f.minted() != 0 || o.llm != nil {
+		t.Errorf("a terminal on a non-primary target: minted %d", f.minted())
+	}
+	m.Isolate = true
 	// a terminal: nothing, silently
 	o = openOpts{net: NetNone}
 	m.llmArm(&o, "apps/x", nil, func() {})
@@ -568,14 +676,52 @@ func TestAgentLLMProviders(t *testing.T) {
 	if got = use(r.m.AgentLLM("bob", "bob", "apps/x", provs)); got["fake"] != sdkacp.UseOwnFirst {
 		t.Errorf("bob: %v", got)
 	}
-	// the workspace forces the connector; a saved default outranks it
-	f.offer.Harnesses = sdkacp.UseConnector
-	r.m.Prefs = fakePrefs{"bob/codex": sdkacp.UseOwn}
+	// the rule in force is the connector; bob's rule for codex is his own
+	r.m.Credentials = rules(CredentialRule{Mode: CredConnector}, map[string]CredentialRule{"bob/codex": {Mode: CredOwn}})
 	if got = use(r.m.AgentLLM("bob", "bob", "apps/x", provs)); got["fake"] != sdkacp.ServeConnector || got["codex"] != sdkacp.ServeOwn || got["claude"] != sdkacp.ServeOwn {
-		t.Errorf("forced connector, bob's codex saved as own: %v", got)
+		t.Errorf("a rule of the connector, bob's codex his own: %v", got)
 	}
 	// the listing never waits on a provider's model list
 	if slices.Contains(f.kinds[len(f.kinds)-1:], KindAgent) {
 		t.Errorf("the listing asked for models: %v", f.kinds)
+	}
+}
+
+// What the connector refuses a session's CLI is said in the session — a
+// CLI retrying a 429 says nothing — once per kind while it repeats.
+func TestAgentLLMRefusalSaid(t *testing.T) {
+	r, f := llmRig(t)
+	info := r.openLLM(t, owner, AgentOpen{})
+	f.mu.Lock()
+	refused := f.refused
+	f.mu.Unlock()
+	if refused == nil {
+		t.Fatal("the session's key is not watched")
+	}
+	notice := func(want string) {
+		t.Helper()
+		e := r.until(t, func(e SessionEvent) bool {
+			text, _ := edata(e.Event)["text"].(string)
+			return e.ID == info.ID && e.Type == EvNotice && strings.Contains(text, "refused a model call")
+		})
+		if text, _ := edata(e.Event)["text"].(string); !strings.Contains(text, want) {
+			t.Fatalf("notice %q, want %q in it", text, want)
+		}
+	}
+	refused(429, "xbin_llm_quota_exceeded", "your daily token quota is reached; it resets at 00:00 UTC")
+	notice("(429 xbin_llm_quota_exceeded): your daily token quota is reached")
+	refused(429, "xbin_llm_quota_exceeded", "again") // the CLI's retry: not said twice
+	refused(429, "xbin_llm_busy", "too many calls at once")
+	notice("(429 xbin_llm_busy): too many calls at once")
+	refused(502, "", "")
+	notice("(502): no reason given")
+	r.endSession(t, info.ID)
+	// a terminal's key is not watched: its tools show the answer themselves
+	m := NewManager(t.TempDir(), nil)
+	m.LLM = f
+	o := openOpts{}
+	m.llmArm(&o, "apps/x", nil, func() {})
+	if f.refused != nil {
+		t.Error("a terminal's key is watched")
 	}
 }

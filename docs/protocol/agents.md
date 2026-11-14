@@ -116,9 +116,12 @@ GET    /agent/providers?cwd=<tile>
                                    (their own sign-in when the session
                                    finds one, else the connector: no
                                    session has looked at their home since
-                                   xbind started) or "signin" (it needs a
+                                   xbind started), "signin" (it needs a
                                    sign-in: the connector can't serve it and
-                                   they have none); connector: whether the
+                                   they have none) or "unavailable" (the
+                                   rule in force gives it the connector
+                                   alone, which can't serve it: a session
+                                   is refused); connector: whether the
                                    connector can serve this harness (note:
                                    why not, when it could in principle);
                                    signedIn: whether the person's home held
@@ -144,11 +147,16 @@ POST   /term/sessions             terminal-level on the tile (a shell's own
                                    model calls where the workspace has an
                                    LLM connector (absent: the person's
                                    saved default for the harness, then the
-                                   workspace's switch); 409 with the reason
-                                   when the connector is asked for and
-                                   can't serve (not configured, a harness
-                                   it has no wire for, a session without
-                                   network), 400 another word. 400 unknown
+                                   workspace's credentials default); 409
+                                   with the reason when the connector is
+                                   asked for and can't serve (not
+                                   configured, a harness it has no wire
+                                   for, a session without network or
+                                   targeting a non-primary deployment), 403
+                                   when the rule in force is the connector
+                                   alone and the session asks for its own
+                                   sign-in or the connector can't serve it,
+                                   400 another word. 400 unknown
                                    provider/mode, 403, 409 per-user limit,
                                    503 vault sealed / no bx. 403 with the
                                    reason when the tile's orgs or the
@@ -554,7 +562,7 @@ them apart by `hasOlder`.
 | `status` | `{status, detail?, modes?, currentMode?, options?, commands?, agent?, login?, usage?, title?}` — status: starting \| idle \| running \| waiting_permission \| cancelling \| error \| exited; `title` is the agent's own name for the session (ACP `session_info_update` — most adapters generate one after the first turn); it names a session that has no name yet (SessionInfo `name`, announced by a `term` `rename` event) — a name the user gave is kept; `modes` (the agent's available modes), `options` (its settings: `[{id, name, category, type, currentValue, options:[{value, name}]}]` — model, effort, …, in the agent's priority order) and `agent` (`{name, version}`) ride every `idle`; `options` also rides a status whenever a setting changes; `commands` (the agent's slash commands, `[{name, description?, hint?}]` — `hint` says what to type after the name; a command is sent as ordinary prompt text, `/name args`) rides a status when the agent advertises them and every `idle` after; `login` (`{needed:true, provider, command}`) rides every status while the agent reports it is signed out (an `_auth/status_update{kind:none}`) or a turn hit auth-required — the frontend shows a sign-in: the provider's guided one when `GET /agent/providers` gives it a `signin` (D178: a link to open and a code to paste, the CLI running in a terminal session no tab shows), else — and on request — `command` run in a shell terminal sharing the agent's home; an `error` names what to do (no login → the command to sign the CLI in from a terminal) |
 | `gap` | `{before}` — only on a `?follow=1` stream: the cursor predated the log's ring; earlier events were dropped |
 | `queue` | `{items:[{id, text, files?, at}], sent?, dropped?, reason?}` — xbin's, not the agent's (D197): the messages held for the running turn's end after a change (`POST`/`DELETE …/queue`) — the whole list, replacing the last; `text` is a preview (200 characters), `files` the attachments' names. `sent` lists the ids that just went in as a prompt (its user `message.delta` follows); `dropped` counts held messages that went without being sent, with `reason` (the session ended; a prompt refused for good — a `notice` says so too). A client that doesn't know the type skips it |
-| `notice` | `{text, llm?}` — a line xbin itself says in the session, not the agent; a client shows it muted, as its own row (the Agent tab does; a client that doesn't know the type skips it). Today: the session's start moved the tile's terminal layer to a new base image, resetting everything outside the workspace files and `$HOME` (base auto-update, D175; the event is the session's first); held messages that were not sent (D197); who serves the session's model calls, when that needs saying (D226): the workspace's LLM connector serves it (`llm: "connector"`, among the session's first events — a client may show it in its header), or it can't have the connector it otherwise would (a session without network, no default model) |
+| `notice` | `{text, llm?}` — a line xbin itself says in the session, not the agent; a client shows it muted, as its own row (the Agent tab does; a client that doesn't know the type skips it). Today: the session's start moved the tile's terminal layer to a new base image, resetting everything outside the workspace files and `$HOME` (base auto-update, D175; the event is the session's first); held messages that were not sent (D197); who serves the session's model calls, when that needs saying (D226): the workspace's LLM connector serves it (`llm: "connector"`, among the session's first events — a client may show it in its header), it can't have the connector it otherwise would (a session without network or on a non-primary deployment, no model), or the connector refused one of its model calls — the status, the error's code and its message, once per kind while the CLI retries (a CLI often shows nothing of a `429`) |
 
 The live log is in memory; an `exited` or `error` status is final and the
 session leaves the directory (`term` event `close`). Its transcript does not

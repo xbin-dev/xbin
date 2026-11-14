@@ -196,10 +196,10 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	}
 	o := m.openOptsFor(p, rel, cwd, normalizeNet(netMode), a.GPU, !a.NoAPI)
 	o.kind, o.vm = KindAgent, a.VM
-	if code, err := m.llmChoice(&o, rel, prov, a.LLM); err != nil { // llmhook.go
+	if code, err := m.pickTarget(p, &o, rel, a.Deployment); err != nil {
 		return SessionInfo{}, code, err
 	}
-	if code, err := m.pickTarget(p, &o, rel, a.Deployment); err != nil {
+	if code, err := m.llmGate(&o, rel, prov, a.LLM); err != nil { // who serves its model calls (llmhook.go)
 		return SessionInfo{}, code, err
 	}
 	if code, err := m.pickPartition(p, &o, rel); err != nil { // partition.go

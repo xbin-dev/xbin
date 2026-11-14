@@ -193,7 +193,9 @@ const (
 // every call, so a disabled person's keys stop at once, whoever forgot to
 // revoke them.
 func (s *Service) keyHolds(g KeyGrant) bool {
-	if g.User != OwnerUser && s.opt.KeyOwner != nil && !s.opt.KeyOwner(g.User, g.Component) {
+	// (a key for nobody — a bound component's, for a backend that serves
+	// everyone — stands on its binding alone)
+	if g.User != "" && g.User != OwnerUser && s.opt.KeyOwner != nil && !s.opt.KeyOwner(g.User, g.Component) {
 		return false
 	}
 	if g.Bound && (s.opt.Bound == nil || !s.opt.Bound(g.Component)) {

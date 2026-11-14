@@ -74,6 +74,7 @@ func (st *State) setupLLM(srv *server.Server) error {
 	svc.Register(srv)
 	if st.Term != nil { // agent sessions and terminals on the connector (llmsessions.go)
 		st.Term.LLM = llmSessions{svc}
+		st.Term.Credentials = st.agentCredentials
 	}
 	brk.LLMOffered = svc.Configured // pickers offer xbin:llm once an upstream exists
 	// LLM keys end with what they were minted under: a person signed out

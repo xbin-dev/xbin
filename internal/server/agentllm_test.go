@@ -21,7 +21,9 @@ type offerLLM struct {
 func (o offerLLM) Offer(context.Context, string, string, string) (term.LLMOffer, bool) {
 	return o.offer, o.ok
 }
-func (offerLLM) Mint(string, string, string) (string, func(), error) { return "xbl_t", func() {}, nil }
+func (offerLLM) Mint(string, string, string, func(int, string, string)) (string, func(), error) {
+	return "xbl_t", func() {}, nil
+}
 
 // covers D226 — GET /agent/providers: exactly the catalog while agent
 // sessions get nothing of a connector (the golden), and each row with its
@@ -39,8 +41,8 @@ func TestAgentProvidersLLM(t *testing.T) {
 		}
 		return strings.TrimSpace(w.Body.String())
 	}
-	offer := term.LLMOffer{Harnesses: sdkacp.UseOwnFirst, Terminals: true, Wires: []string{sdkacp.WireChat, sdkacp.WireResponses}, Model: "up/m1"}
-	for name, llm := range map[string]term.LLMConnector{"not configured": offerLLM{ok: false}, "harnesses off": offerLLM{term.LLMOffer{Harnesses: term.LLMOff}, true}} {
+	offer := term.LLMOffer{Agents: true, Terminals: true, Wires: []string{sdkacp.WireChat, sdkacp.WireResponses}, Model: "up/m1"}
+	for name, llm := range map[string]term.LLMConnector{"not configured": offerLLM{ok: false}, "agents off": offerLLM{term.LLMOffer{Terminals: true}, true}} {
 		s.Term.LLM = llm
 		if got := get(""); got != wantProviders {
 			t.Errorf("%s: the rows changed\n got %s", name, got)

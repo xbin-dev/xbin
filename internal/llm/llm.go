@@ -104,6 +104,7 @@ type Service struct {
 	// someone else's).
 	llmKeys   *Keys
 	keySource KeySource
+	watch     keyWatch // minters told of their keys' refused calls (keywatch.go)
 	models    modelCache
 
 	flightMu sync.Mutex

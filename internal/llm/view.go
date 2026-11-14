@@ -62,7 +62,7 @@ type ConfigView struct {
 	Concurrency int `json:"concurrency"`
 	// Locks maps a setting's path (enabled, people, upstreams.<name>,
 	// defaults.model, defaults.roles.<role>, aliases.<alias>, concurrency,
-	// sessions.harnesses|terminals|openaiEnv,
+	// sessions.agents|terminals|openaiEnv,
 	// quotas.workspace|default|users|orgs; "*" when the host locks every
 	// setting) to its lock.
 	Locks    map[string]Lock `json:"locks"`

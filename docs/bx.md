@@ -135,7 +135,7 @@ bx llm alias [set <alias> <model> | rm <alias>] | on | off | people admins|every
                                        model aliases ("*": every unknown name),
                                        the switches, calls in flight per caller
                                        (admin)
-bx llm sessions [harnesses=own-first|connector|off] [terminals=on|off] [openai-env=on|off]
+bx llm sessions [agents=on|off] [terminals=on|off] [openai-env=on|off]
                                        what coding agents and terminals get of
                                        it (admin; no argument: print)
 bx llm usage [--month] [--from <day>] [--to <day>] [--user <id>] [--component <tile>] [--json]

@@ -190,7 +190,8 @@ their own, which keeps working.
 ```sh
 bx llm default set openai/gpt-5-mini --role harness   # the model harnesses start on
 bx llm sessions                                       # what is in force
-bx llm sessions harnesses=connector                   # the connector, whatever people are signed in to
+bx org agents --credentials connector                 # the connector, whatever people are signed in to
+bx llm sessions agents=off                            # agent sessions get nothing of it
 bx llm sessions terminals=off openai-env=on           # the terminal switches
 ```
 
@@ -210,19 +211,27 @@ connector in its environment. What each harness gets:
 
 1. the session's own choice — `llm: "connector" | "own"` on `POST
    /term/sessions`, `bx agent run --llm`;
-2. the person's saved default for that harness;
-3. the workspace's `harnesses` switch: `own-first` (the default) — the
-   person's own sign-in when the session finds one in their `$HOME`
-   (`opencode auth login`, `codex login`; a provider key in the
-   environment counts), else the connector; `connector` — the connector,
-   whatever they are signed in to; `off` — agent sessions get nothing.
+2. the person's saved default for that harness (`credentials` in their
+   agent preferences, [protocol/agents.md](/docs/protocol/agents.md)
+   §Agent preferences);
+3. the workspace's default (`credentials` in the agents policy, `bx org
+   agents --credentials`): `own-first` — the person's own sign-in when the
+   session finds one in their `$HOME` (`opencode auth login`, `codex
+   login`; a provider key in the environment counts), else the connector.
+
+A workspace whose default is `connector` has made it the rule: the
+connector serves, whatever a person is signed in to or a session asks for,
+and a harness the connector can't serve doesn't start (403, with the
+reason). The `agents` switch (`bx llm sessions agents=off`) takes the
+connector away from agent sessions altogether.
 
 So with `own-first` a person who signed OpenCode in keeps their models as
 the default and gains the connector's in the picker, and a person with no
 sign-in gets the connector's model — never, silently, OpenCode's own free
 third-party models. Asking for the connector where it can't serve (Claude
-Code, no default model, a session with no network) is refused with the
-reason; it is never dropped quietly.
+Code, no default model, a session with no network or one that targets a
+tile deployment other than the primary) is refused with the reason; it is
+never dropped quietly.
 
 The session says what it runs on: a first line in the transcript when the
 connector serves it, `llm: "connector" | "own"` in its row, and `GET
@@ -288,6 +297,22 @@ session's sandbox reaches whatever network scope it has — the tile's `net`
 rules never block it — except one: a session with **no network** (`net:
 none`) has no route to xbind at all. It gets no key; an agent session says
 so in its first line and runs on the person's own sign-in.
+
+A session that targets a **tile deployment other than the primary**
+([tile-deployments.md](/docs/tile-deployments.md)) gets no key either, and says so
+the same way: a key carries no deployment, so the tile's edge policy —
+which decides what a non-primary deployment may use — could not be held to
+its calls.
+
+When the connector refuses an agent session's call — a quota reached
+(`xbin_llm_quota_exceeded`), too many calls at once (`xbin_llm_busy`), a
+model nothing serves (`model_not_found`), a provider's own error — xbind
+says so in the session, as a line of its own with the code and the
+message: a coding CLI often keeps such an answer to itself (OpenCode waits
+out a `429`'s `Retry-After` in silence, until midnight UTC for a daily
+quota). The line is said once per kind while the CLI keeps retrying; the
+turn is the person's to cancel. A terminal's tools show the answer
+themselves.
 
 ### Sandboxes made by a sandbox manager
 
@@ -426,7 +451,7 @@ bring its own models and hold quotas the workspace's admins can't lift.
   },
   "defaults": { "model": "house/gpt-5", "roles": { "harness": "house/gpt-5-mini" } },
   "aliases": { "*": "house/gpt-5" },
-  "sessions": { "harnesses": "connector", "openaiEnv": false },
+  "sessions": { "agents": true, "openaiEnv": false },
   "quotas": {
     "workspace": { "costPerMonth": 500 },
     "default": { "tokensPerDay": 2000000 }   // a ceiling: admins may narrow it per user or org
@@ -440,7 +465,7 @@ bring its own models and hold quotas the workspace's admins can't lift.
   (`keyFile`).
 - **What it sets is locked, piece by piece**: `enabled`, `people`, each
   upstream it defines, the default model, each role and alias it names,
-  each `sessions` switch it sets (`harnesses`, `terminals`, `openaiEnv`),
+  each `sessions` switch it sets (`agents`, `terminals`, `openaiEnv`),
   and each part of `quotas` it mentions (`workspace`, `default`, `users`,
   `orgs` — an empty `{}` locks that part with nothing in it). What it
   leaves out stays the admin's: their own upstreams, other aliases, the

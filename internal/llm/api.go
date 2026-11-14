@@ -34,8 +34,9 @@ type registrar interface {
 
 func (s *Service) mount(srv registrar) {
 	// the OpenAI-compatible surface: errors in OpenAI's shape
-	srv.RegisterAPI("POST /llm/v1/chat/completions", s.apiCall(sdkllm.PathChat))
-	srv.RegisterAPI("POST /llm/v1/responses", s.apiCall(sdkllm.PathResponses))
+	// (watched: a refusal is reported to the minter of the key that called, keywatch.go)
+	srv.RegisterAPI("POST /llm/v1/chat/completions", s.watched(s.apiCall(sdkllm.PathChat)))
+	srv.RegisterAPI("POST /llm/v1/responses", s.watched(s.apiCall(sdkllm.PathResponses)))
 	srv.RegisterAPI("GET /llm/v1/models", s.apiModels)
 	srv.RegisterAPI("GET /llm/preferred", s.apiPreferred)
 	// a bound component's keys for the harnesses it runs (sessions.go)
@@ -240,7 +241,7 @@ func (s *Service) apiConfig(w http.ResponseWriter, r *http.Request) {
 
 // apiPutConfig — PUT /llm/config {enabled?, people?, defaults?: {model?,
 // roles?: {<role>: model | ""}}, aliases?: {<alias>: target | ""},
-// sessions?: {harnesses?, terminals?, openaiEnv?}}: only what is named
+// sessions?: {agents?, terminals?, openaiEnv?}}: only what is named
 // changes; "" removes a role, an alias or the default.
 func (s *Service) apiPutConfig(w http.ResponseWriter, r *http.Request) {
 	if !s.admin(w, r) {
@@ -258,7 +259,7 @@ func (s *Service) apiPutConfig(w http.ResponseWriter, r *http.Request) {
 		Sessions    *sessionsBody     `json:"sessions"`
 	}
 	if err := decode(r, &body); err != nil {
-		server.WriteError(w, http.StatusBadRequest, "need {enabled?, people?: admins|everyone|nobody, defaults?: {model?, roles?: {<role>: <model>}}, aliases?: {<alias>: <model>}, concurrency?, sessions?: {harnesses?: own-first|connector|off, terminals?, openaiEnv?}}", docs)
+		server.WriteError(w, http.StatusBadRequest, "need {enabled?, people?: admins|everyone|nobody, defaults?: {model?, roles?: {<role>: <model>}}, aliases?: {<alias>: <model>}, concurrency?, sessions?: {agents?, terminals?, openaiEnv?}}", docs)
 		return
 	}
 	err := s.change(r, func(next *Settings, snap *snapshot) error {
@@ -322,9 +323,7 @@ func (s *Service) apiPutConfig(w http.ResponseWriter, r *http.Request) {
 		if body.Concurrency != nil && !hold("concurrency", *body.Concurrency == snap.concurrency) {
 			next.Concurrency = *body.Concurrency
 		}
-		if err := body.Sessions.apply(next, snap, hold); err != nil {
-			return err
-		}
+		body.Sessions.apply(next, snap, hold)
 		if len(locked) > 0 {
 			return lockedErr(locked...)
 		}

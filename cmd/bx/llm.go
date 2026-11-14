@@ -37,7 +37,7 @@ const llmUsage = `  bx llm [status] [--json]              the LLM connector: ups
   bx llm alias [set <alias> <model> | rm <alias>]      "*" catches every unknown model name
   bx llm on | off | people admins|everyone|nobody | concurrency <n>
                                         concurrency: calls one caller may have in flight
-  bx llm sessions [harnesses=own-first|connector|off] [terminals=on|off] [openai-env=on|off]
+  bx llm sessions [agents=on|off] [terminals=on|off] [openai-env=on|off]
                                         what coding agents and terminals get of it
   bx llm usage [--month] [--from <day>] [--to <day>] [--user <id>] [--component <tile>] [--json]
   bx llm quota [show [<user>]] | set <default|workspace|user:<id>|org:<id>>
