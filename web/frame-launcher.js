@@ -26,13 +26,17 @@ const prefs = makeStore();
 // the harnesses the tile's orgs and the workspace allow there (?cwd=, D229;
 // an xbind before it answers the whole catalog), fetched once per tile and
 // shared by its frames — again after the rules change (an `agents` event).
-const _providers = new Map();
+// The harnesses that can't start there come along (&all=1), each with the
+// reason in `unavailable`: notOffered(cwd) has them, for the chooser to say.
+const _providers = new Map(), _rows = new Map();
 export function agentProviders(cwd = '') {
   if (!_providers.has(cwd)) {
-    _providers.set(cwd, fetch(`/api/xbin/agent/providers${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ''}`).then((r) => (r.ok ? r.json() : [])).catch(() => []));
+    _providers.set(cwd, fetch(`/api/xbin/agent/providers${cwd ? `?cwd=${encodeURIComponent(cwd)}&all=1` : ''}`).then((r) => (r.ok ? r.json() : [])).catch(() => [])
+      .then((rows) => { _rows.set(cwd, rows); return rows.filter((p) => !p.unavailable); }));
   }
   return _providers.get(cwd);
 }
+export const notOffered = (cwd) => (_rows.get(cwd) || []).filter((p) => p.unavailable);
 export function reloadProviders(f) {
   _providers.delete(f.src);
   if (f._providers) agentProviders(f.src).then((p) => { if (f.isConnected) f._providers = p; });
@@ -258,6 +262,9 @@ export function launcher(f) {
         ? provs.map((p) => card(p.name, (vm ? 'coding agent, in a VM' : 'coding agent') + target, () => f._startKind('agent', p.id), 'agent'))
         : html`<span class="lsub">loading agents…</span>`}
     </div>
+    ${notOffered(f.src).length ? html`<div class="lnot" role="note">
+      ${notOffered(f.src).map((p) => html`<div><b>${p.name}</b> isn’t offered here: ${p.unavailable}</div>`)}
+    </div>` : nothing}
     ${recent.length ? html`<div class="lrecent">
       <div class="lhead">Recent sessions</div>
       ${recent.map((r) => html`<div class="lrow">
@@ -298,6 +305,9 @@ export const launcherCss = css`
   .launcher .lname { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; }
   .launcher .lname bx-icon { color: var(--bx-muted, #A3A6B6); }
   .launcher .lsub { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); }
+  .launcher .lnot { display: flex; flex-direction: column; gap: 4px; width: min(460px, 100%); color: var(--bx-muted, #A3A6B6);
+    font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); }
+  .launcher .lnot b { color: var(--bx-text, #E9EAF0); font-weight: 600; }
   .launcher .lrecent { display: flex; flex-direction: column; gap: 6px; width: min(460px, 100%); }
   .launcher .lrow { display: flex; align-items: center; gap: 8px; }
   .launcher .lopen { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; align-items: flex-start; padding: 6px 10px;
