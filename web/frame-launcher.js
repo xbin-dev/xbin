@@ -62,6 +62,7 @@ export function loadTileState(f) {
   loadEnvStatus(f);
   prefs.loadVM(f.src).then((on) => { if (f.isConnected) { f._vmPref = on; f.requestUpdate(); } });
   agentPrefs().load().then(() => { if (f.isConnected) f.requestUpdate(); }); // the launcher's "last" entry (D229)
+  agentProviders().then((all) => { _catalog = all; });
   loadDeployIfShown(f); // the live reload state: the chip, the offer, the banner below
 }
 
@@ -90,7 +91,10 @@ function ago(iso) {
   return `${Math.floor(s / 86400)}d ago`;
 }
 const rowTitle = (r) => r.name || r.preview || `${r.provider} session`;
-const provName = (f, id) => (f._providers || []).find((p) => p.id === id)?.name || id;
+// a harness's name: among the tile's, else in the whole catalog — a past
+// session of one the tile no longer allows still reads by its name
+let _catalog = [];
+const provName = (f, id) => [...(f._providers || []), ..._catalog].find((p) => p.id === id)?.name || id;
 
 // openHistory shows a past session read-only: a <bx-agent> in history mode
 // (no process, no id — never absorbed into a live row, term-sessions.js).
