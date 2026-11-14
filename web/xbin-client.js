@@ -150,17 +150,39 @@ function bfetch(url, opts = {}) {
   // fetch itself (init.headers would otherwise drop them).
   const headers = new Headers(init.headers || (isReq ? url.headers : {}));
   if (frameToken) headers.set('X-XBin-Frame-Token', frameToken);
+  const target = isReq ? url.url : String(url);
+  const mine = code && ownApi(target); // a system component's page says which code it is
+  if (mine) headers.set('X-XBin-Code', code);
+  const sent = (p) => (mine ? p.then(staleCode) : p);
   if (want) {
-    const target = isReq ? url.url : String(url);
     if (want !== 'global') return Promise.reject(new TypeError(`xbin.fetch: partition must be 'global', not ${JSON.stringify(want)}`));
     if (!ownApi(target)) return Promise.reject(new TypeError(`xbin.fetch: partition 'global' reaches this tile's own /api/${self}/… only, not ${target}`));
     if (inUserPartition) {
-      if (isReq) return globalRequest(url).then((req) => fetch(req, { ...init, headers }));
+      if (isReq) return sent(globalRequest(url).then((req) => fetch(req, { ...init, headers })));
       url = toGlobal(target);
     }
   }
-  return fetch(url, { ...init, headers });
+  return sent(fetch(url, { ...init, headers }));
 }
+// --- a system component's code (docs/sealed.md) ---
+// A system component's page and backend are one xbin release's. Its documents
+// carry <meta name="xbin-code">, the calls to its own API name that code
+// (X-XBin-Code here, xbin-code= on ws/url), and after xbind restarts onto
+// another release the first such call answers 409 with X-XBin-Reload: the
+// page is the old release's and must go. The embedder reloads its frames on
+// the reload event xbind sends with that answer; a page opened by itself
+// reloads here. Other tiles' documents carry no such meta: nothing changes.
+const code = meta('xbin-code');
+let stale = false;
+function staleCode(r) {
+  if (r.status === 409 && r.headers.get('X-XBin-Reload') && !stale) {
+    stale = true;
+    console.warn(`[xbin] ${self}: updated with xbin — reloading onto the new version (docs/sealed.md).`);
+    if (window.parent === window) location.reload();
+  }
+  return r;
+}
+const withCode = (path) => (code && ownApi(path) ? `${path}${path.includes('?') ? '&' : '?'}xbin-code=${encodeURIComponent(code)}` : path);
 // Whether u, resolved against this document, is this tile's own API: on this
 // document's host (or the workspace origin xbind names on a tile origin), at
 // /api/<self> or below. location.origin is "null" in a sandboxed frame, so
@@ -204,6 +226,7 @@ const wsOrigin = /^wss?:\/\/[^/?#]+$/.test(wsOriginMeta) ? wsOriginMeta
   : `${location.protocol === 'https:' ? 'wss:' : 'ws:'}//${location.host}`;
 
 function bws(path) {
+  path = withCode(path);
   const sep = path.includes('?') ? '&' : '?';
   return new WebSocket(`${wsOrigin}${path}${sep}frame=${encodeURIComponent(frameToken)}`);
 }
@@ -217,6 +240,7 @@ function bws(path) {
 // with Content-Disposition: attachment. xbind consumes ?frame= itself and
 // never forwards it to the backend.
 function burl(path) {
+  path = withCode(path);
   const sep = path.includes('?') ? '&' : '?';
   return `${location.protocol}//${location.host}${path}${sep}frame=${encodeURIComponent(frameToken)}`;
 }

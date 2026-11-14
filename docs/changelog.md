@@ -165,6 +165,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     is *held* and says why. Other holds: data at its key it didn't write,
     data newer than the release reads (after a downgrade), a partitioned
     one without `--isolate`.
+  - A sealed component's page left open across an xbind restart onto
+    another release reloads onto the new code at its first call: its
+    documents carry `<meta name="xbin-code">`, `xbin.fetch`/`xbin.ws`/
+    `xbin.url` name it on calls to the component's own API (`X-XBin-Code`,
+    `xbin-code=`), and a call naming other code is answered `409` with
+    `X-XBin-Reload` and a `reload` event. Tiles' documents and calls are
+    unchanged.
   - Backups of one are its data only; the manifest's `sealedData` is the
     data format, and a restore into a release that reads only an older
     format is refused.

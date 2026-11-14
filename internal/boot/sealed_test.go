@@ -57,7 +57,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /hello", func(w http.ResponseWriter, r *http.Request) {
 		wd, _ := os.Getwd()
-		fmt.Fprintf(w, "` + version + ` self=%s from=%s cwd=%s llm=%s", os.Getenv("XBIN_COMPONENT"), xbin.Caller(r).From, wd, os.Getenv("XBIN_IFACE_LLM_URL"))
+		fmt.Fprintf(w, "` + version + ` self=%s from=%s query=%s cwd=%s llm=%s", os.Getenv("XBIN_COMPONENT"), xbin.Caller(r).From, r.URL.RawQuery, wd, os.Getenv("XBIN_IFACE_LLM_URL"))
 	})
 	xbin.Serve(mux)
 }

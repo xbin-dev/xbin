@@ -14180,6 +14180,21 @@ Deviations and refinements made while implementing; all deliberate:
       their unbinding it, kept as an empty entry — otherwise an unbind
       would be undone by the next read. A backend that started before the
       default applied restarts onto it (its bindings are its environment).
+    - *An open page across a release.* Chosen: a version check on the
+      page's next request, which then sends the existing `reload` event —
+      not a signal at boot. A boot-time signal has nobody to reach (the
+      events sockets died with the old xbind, and a frame that reconnects
+      late, or a page in a background tab or the app, misses it), and it
+      needs xbind to remember the previous release's id; the check needs
+      no state, because the page carries its code's id (`xbin-code` meta,
+      `X-XBin-Code` / `xbin-code=` on its calls to its own API) and the
+      first stale call is refused (`409`, `X-XBin-Reload`) before it
+      reaches the new backend. That refusal is what rules out the stale
+      mix; the `reload` event it triggers is only how embedded frames get
+      to the new page (`bx-frame` already reloads on it, re-minting what a
+      sandboxed frame needs), and a top-level page reloads itself. Callers
+      that name no code are not pages and pass. Old clients (a cached
+      `xbin-client.js`) send no id and behave as before this change.
   - **Not done here.** No entry point in the shell, the admin console or
     the app (the workspace agent's UI work adds them). The real-binary
     downgrade suite has nothing sealed to downgrade until a row exists.

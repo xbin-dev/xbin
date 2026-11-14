@@ -33,6 +33,9 @@ import (
 // it holds.
 type SealedCode struct {
 	Path string // its reserved path, under util.SealedPrefix
+	// ID names the code: the short digest of the tree at Dir. It changes
+	// exactly when a release changes the component's code.
+	ID string
 	// Dir is the read-only tree xbind materialized from the embedded source
 	// (xbind's own data, under .xbin/): what backends run in and files are
 	// served from.
@@ -74,7 +77,7 @@ func (r *Registry) addSealed(comps map[string]*Component, scopes map[string]*Sco
 		if !util.SealedPath(sc.Path) {
 			continue // the table is checked where it is loaded; never register outside the namespace
 		}
-		c := &Component{Path: sc.Path, Dir: sc.Dir, Sealed: true}
+		c := &Component{Path: sc.Path, Dir: sc.Dir, Sealed: true, SealedID: sc.ID}
 		if sc.Manifest != nil {
 			c.readManifest(sc.Manifest)
 		}

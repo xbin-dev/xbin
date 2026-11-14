@@ -186,8 +186,15 @@ own sandbox, with their own encrypted data and vault
 puts that release's code in place of the old (kept under
 `.xbin/sealed/<name>/`, verified at every start), the component keeps its
 path, access, bindings, limits and data, and its backend migrates its data
-forward the next time it starts. Open pages of it load the new frontend on
-their next load.
+forward the next time it starts.
+
+**A page left open across the upgrade** is the old release's. It does not
+go on talking to the new backend: the page's first call to the component
+after the restart is answered "updated with xbin" and the page reloads onto
+the new release's frontend — in the workspace, in a window of its own and
+in the app. Nothing a person typed into the old page is sent to the new
+backend by it; what the old page had not saved is lost with it, as with any
+reload.
 
 **The data stamp.** `data/sealed/<name>.json` records the data format its
 data is in and the release that wrote it. It is written the first time a

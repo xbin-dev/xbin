@@ -372,7 +372,7 @@ func (s *Set) Registry() []registry.SealedCode {
 	out := make([]registry.SealedCode, 0, len(s.comps))
 	for _, c := range s.comps {
 		sc := registry.SealedCode{
-			Path: c.Path, Dir: c.Dir, Title: c.Title,
+			Path: c.Path, ID: c.ID(), Dir: c.Dir, Title: c.Title,
 			Manifest: c.Files["xbin.json"], Scope: c.Files["scope.json"],
 			Slots: slices.Clone(c.Slots), Grants: slices.Clone(c.Grants), Defaults: maps.Clone(c.Defaults),
 		}

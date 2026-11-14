@@ -219,10 +219,10 @@ func nullOriginCORS(next http.Handler) http.Handler {
 		}
 		w.Header().Set("Vary", "Origin")
 		w.Header().Set("Access-Control-Allow-Origin", "null")
-		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id")
+		w.Header().Set("Access-Control-Expose-Headers", "Mcp-Session-Id, "+SealedReloadHeader)
 		if r.Method == http.MethodOptions {
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, "+auth.FrameTokenHeader+", Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID")
+			w.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, "+auth.FrameTokenHeader+", Mcp-Session-Id, MCP-Protocol-Version, Last-Event-ID, "+SealedCodeHeader)
 			w.Header().Set("Access-Control-Max-Age", "600")
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -559,6 +559,9 @@ func (s *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		// /api/xbin/<name>/… of a sealed component is its backend's, as
 		// /api/<tile>/… is a tile's (sealed.go); no route of xbind's own
 		// begins with a sealed name (SealedAPIClash, checked at boot).
+		if s.sealedStale(w, r, rest) {
+			return // a page of another release's code: told to reload (sealed.go)
+		}
 		s.ComponentAPI.ServeHTTP(w, r)
 		return
 	}

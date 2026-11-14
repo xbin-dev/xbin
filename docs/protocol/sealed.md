@@ -31,6 +31,26 @@ ANY    /api/xbin/<name>/<p>        its backend, as /api/<tile>/<p> is a
                                    refuses to start otherwise.
 ```
 
+**One release on both sides.** A sealed component's page and backend are
+one release's, and a page can outlive the xbind that served it. So:
+
+- every document of a sealed component carries
+  `<meta name="xbin-code" content="<id>">`: the id of its code (the first
+  24 hex digits of the digest `GET /sealed` reports). No other document
+  has it;
+- the injected client names it on each call to the component's own API:
+  the `X-XBin-Code` request header on `xbin.fetch`, the `xbin-code` query
+  parameter on what `xbin.ws` and `xbin.url` build. xbind consumes the
+  parameter; the backend never sees it;
+- a call that names another id than the running release's is answered
+  `409` with the header `X-XBin-Reload: <the current id>` (and the usual
+  JSON error) without reaching the backend, and a `reload` event for the
+  component goes to `/ws/events`, at most once a second. A frame reloads
+  on that event as it does when a tile is saved; a page that is nobody's
+  frame reloads itself on the answer;
+- a call that names no id (a script, `bx`, an admin's request) is not a
+  page and is not checked.
+
 People reach its backend the way they reach a tile's: from its own page,
 with the frame token a reader of it gets. **Nothing else calls into it.** It
 exposes no roles, provides no interface and publishes no endpoint, so no

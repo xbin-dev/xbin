@@ -1,0 +1,120 @@
+package boot
+
+import (
+	"io"
+	"net/http"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/sealed"
+	"github.com/xbin-dev/xbin/internal/server"
+)
+
+// A page of a sealed component that was open across an xbind restart onto
+// another release is the old release's; its first call to the component's
+// API is turned away with the new code's id and a reload event, so the
+// frame ends on the new page and no old page talks to the new backend
+// (server/sealed.go). Two builds of the fixture, one workspace.
+func TestSealedPageFollowsTheRelease(t *testing.T) {
+	if testing.Short() {
+		t.Skip("boots a workspace twice and builds two backends")
+	}
+	quiet(t)
+	ws := filepath.Join(t.TempDir(), "ws")
+	if err := InitWorkspace(ws); err != nil {
+		t.Fatal(err)
+	}
+	release := func(code string) []sealed.Spec {
+		return []sealed.Spec{{Name: "counter", Source: sealedCounter(code), Authored: "apps/counter"}}
+	}
+	meta := regexp.MustCompile(`<meta name="xbin-code" content="([0-9a-f]+)">`)
+	page := func(d *sealedDaemon) string {
+		t.Helper()
+		code, body := d.do("GET", "/c/xbin/counter/", nil)
+		m := meta.FindStringSubmatch(body)
+		if code != 200 || m == nil {
+			t.Fatalf("the document carries no code id: %d %s", code, body)
+		}
+		return m[1]
+	}
+	call := func(d *sealedDaemon, path, code string) (int, string, string) {
+		t.Helper()
+		req, _ := http.NewRequest("GET", d.base+path, nil)
+		if code != "" {
+			req.Header.Set(server.SealedCodeHeader, code)
+		}
+		resp, err := (&http.Client{Timeout: 5 * time.Minute}).Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b), resp.Header.Get(server.SealedReloadHeader)
+	}
+
+	// release 1: the page names its code, and its calls pass
+	d := startSealed(t, ws, release("code-1"))
+	id1 := page(d)
+	if row := d.sealedRow("xbin/counter"); !strings.HasPrefix(row.Digest, id1) {
+		t.Errorf("the page's code id %s is not the component's digest %s", id1, row.Digest)
+	}
+	if code, body, _ := call(d, "/api/xbin/counter/hello", id1); code != 200 || !strings.HasPrefix(body, "code-1 ") {
+		t.Fatalf("release 1, its own page: %d %s", code, body)
+	}
+	// an ordinary tile's document carries no such meta
+	if code, body := d.do("GET", "/c/apps/counter/", nil); code == 200 && meta.MatchString(body) {
+		t.Errorf("a tile's document names a code id: %s", body)
+	}
+	d.stop()
+
+	// release 2 on the same workspace; the old page is still open somewhere
+	d = startSealed(t, ws, release("code-2"))
+	id2 := page(d)
+	if id2 == id1 {
+		t.Fatal("two releases, one code id")
+	}
+	evs, cancel := d.st.Hub.Subscribe(func(e events.Event) bool { return e.Type == "reload" })
+	defer cancel()
+	reloaded := func() bool {
+		select {
+		case e := <-evs:
+			return e.Component == "xbin/counter"
+		case <-time.After(2 * time.Second):
+			return false
+		}
+	}
+
+	code, body, reload := call(d, "/api/xbin/counter/hello", id1)
+	if code != http.StatusConflict || reload != id2 || strings.Contains(body, "code-2 ") || !strings.Contains(body, "updated with xbin") {
+		t.Errorf("the old page's call: %d reload=%q %s (want 409 naming %s, nothing of the backend)", code, reload, body, id2)
+	}
+	if !reloaded() {
+		t.Error("no reload event for the component after the old page's call")
+	}
+	// the same on a URL (a socket, a tag): refused, and the events are spaced
+	if code, _, reload := call(d, "/api/xbin/counter/hello?a=1&xbin-code="+id1, ""); code != http.StatusConflict || reload != id2 {
+		t.Errorf("the old page's URL: %d reload=%q", code, reload)
+	}
+	select {
+	case e := <-evs:
+		t.Errorf("a second reload event within the second: %+v", e)
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	// the new page's calls pass, and the parameter is xbind's: the backend
+	// never sees it
+	if code, body, _ := call(d, "/api/xbin/counter/hello", id2); code != 200 || !strings.HasPrefix(body, "code-2 ") {
+		t.Errorf("release 2, its own page: %d %s", code, body)
+	}
+	if code, body, _ := call(d, "/api/xbin/counter/hello?a=1&xbin-code="+id2, ""); code != 200 || !strings.Contains(body, " query=a=1 ") {
+		t.Errorf("the new page's URL: %d %s (want query=a=1)", code, body)
+	}
+	// a caller that is no page names no code and is not asked for one
+	if code, body, _ := call(d, "/api/xbin/counter/hello", ""); code != 200 || !strings.HasPrefix(body, "code-2 ") {
+		t.Errorf("a call naming no code: %d %s", code, body)
+	}
+}

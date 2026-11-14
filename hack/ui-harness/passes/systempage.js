@@ -127,6 +127,31 @@ async function systemPage(browser) {
         return seen(document);
       }, paths);
       check(!inShell, 'the shell shows no system component among its tiles');
+
+      // 7. a page left open across a release: its calls name its code, and
+      // the answer a page of other code gets (409 + X-XBin-Reload, as after
+      // an xbind restart onto another release) reloads it
+      await A.page.goto(`${URL}/c/${P}/`);
+      await A.page.waitForFunction(() => !!window.xbin);
+      const code = await A.page.evaluate(() => document.querySelector('meta[name="xbin-code"]')?.content ?? '');
+      check(/^[0-9a-f]{24}$/.test(code), `its document names its code (${code})`);
+      let sent = null;
+      const who = await A.page.evaluate(async (path) => {
+        const r = await window.xbin.fetch(`/api/${path}/who`);
+        return r.status;
+      }, P);
+      check(who === 200, `a call from its own page passes (${who})`);
+      await A.page.route(`**/api/${P}/who`, (route) => {
+        sent = route.request().headers()['x-xbin-code'] ?? '';
+        return route.fulfill({ status: 409, headers: { 'X-XBin-Reload': 'f'.repeat(24), 'Access-Control-Expose-Headers': 'X-XBin-Reload' }, body: '{}' });
+      });
+      await A.page.evaluate(() => { window.__before = true; });
+      const nav = A.page.waitForNavigation({ timeout: 10000 }).then(() => true, () => false);
+      await A.page.evaluate((path) => { window.xbin.fetch(`/api/${path}/who`); }, P);
+      const reloaded = await nav;
+      check(sent === code, `xbin.fetch names the page's code (${sent})`);
+      check(reloaded && !(await A.page.evaluate(() => window.__before === true)), 'told its code is another release\'s, the page reloads');
+      await A.page.unroute(`**/api/${P}/who`);
     }
     check(errors.length === 0, `no page error (${errors.join(' | ')})`);
   } finally {

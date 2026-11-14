@@ -356,6 +356,10 @@ type Component struct {
 	// xbind's own, Dir a read-only tree xbind materialized from its embedded
 	// source — never a directory of the workspace, never a work tree.
 	Sealed bool
+	// SealedID names a sealed component's code (the short digest of its
+	// tree): its documents carry it, and a request from a page of other
+	// code is turned away (server/sealed.go).
+	SealedID string
 
 	// PartitionErr says why the primary's partition request is invalid
 	// (also in ManifestErr); partition is the settled mode (partition.go).
