@@ -10,6 +10,12 @@
   //          exposes the MCP Streamable-HTTP endpoint at "/mcp" under itself.
   //
   // Binding is also the call grant, so no separate `uses` is needed.
+
+  // What a person's workspace agent may do here for them (docs/auth.md
+  // §Delegation): read — a pure frontend: there is nothing here for an agent
+  // to change.
+  "agent": "read",
+
   "interfaces": {
     "llm": { "kind": "http", "service": "openai", "multi": true },
     "mcp": { "kind": "http", "service": "mcp", "multi": true }

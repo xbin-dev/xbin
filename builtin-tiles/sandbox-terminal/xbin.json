@@ -6,6 +6,10 @@
   // the agent's Share, or the manager's own UI), or by being its own.
   "runtime": "go",
 
+  // What a person's workspace agent may do here for them (docs/auth.md
+  // §Delegation): nothing — terminals and people's SSH keys.
+  "agent": "off",
+
   // keys (people's SSH public keys) and settings; the SSH host key is in
   // this tile's vault
   "uses": [

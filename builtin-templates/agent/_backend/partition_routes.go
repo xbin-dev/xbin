@@ -36,11 +36,14 @@ import (
 // agent's global instance also a person's call from their partition.
 func agentRole(h http.HandlerFunc) http.Handler {
 	admin := xbin.RoleFunc("admin", h)
-	if !globalMode() {
-		return admin
-	}
+	global := globalMode()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if personFromPartition(r) {
+		// a person's workspace agent, whatever role its call carries: reads,
+		// and the few routes in agentMay (wsagent.go)
+		if refuseWorkspaceAgent(w, r, r.Pattern) {
+			return
+		}
+		if global && personFromPartition(r) {
 			h(w, r)
 			return
 		}

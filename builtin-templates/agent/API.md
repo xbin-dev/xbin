@@ -47,6 +47,30 @@ a subagent is exactly as visible as the conversation it works for.
   `GET /runs/{id}/view` carries `access` and `acl {owner, visibility,
   teamRole, members}`.
 
+### A person's workspace agent
+
+A person's **workspace agent** (xbind's delegation, `/docs/auth.md`
+§Delegation) can call this API as them; its calls carry `X-XBin-Agent`.
+Here it **reads** what its person may read, and of everything else may only
+stop a run (`POST /runs/{id}/interrupt`, `…/cancel`) and mark one read.
+Every other `POST`, `PUT`, `PATCH` and `DELETE`, and every WebSocket, is
+`403` with `X-Agent-Refused: person-only` — answering a coding agent's
+permission request or sign-in, the built-in agent's questions and
+approvals, a run's mode, starting conversations, sending messages, sharing,
+settings: those are a person's. A waiting device-code sign-in's page and
+code aren't shown to it either.
+
+Two layers say so. The manifest's `"agent": "read"` has xbind refuse an
+agent's writes before they arrive; and the backend's own rule
+(`_backend/wsagent.go`: closed — a new route is refused to agents until it
+is added to `agentMay`) holds whatever the manifest says. To let a
+person's agent do more here, widen both, route by route.
+
+An instance made before this rule existed has neither. Its routes all need
+the `admin` role, which an agent's call never carries (`reader` or
+`writer`), so an unmodified one refuses the agent everything; merge the
+template's update to get the rule itself.
+
 ### The conversation list
 
 | Method & path | Body | Purpose |

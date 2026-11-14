@@ -80,3 +80,35 @@ func TestBuiltinManifestsAndRoleGuards(t *testing.T) {
 	check(xbin.BuiltinTilesFS(), "builtin-tiles")
 	check(xbin.BuiltinTemplatesFS(), "builtin-templates")
 }
+
+// Every shipped tile and template says, in its manifest, what a person's
+// workspace agent may do through it ("agent": off | read | full;
+// docs/auth.md §Delegation): absent means full, and full must be somebody's
+// decision — a tile whose API answers approvals or hands out secrets is
+// not one an agent drives because nobody wrote the line.
+func TestBuiltinManifestsSayAgent(t *testing.T) {
+	check := func(fsys fs.FS, kind string) {
+		entries, err := fs.ReadDir(fsys, ".")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range entries {
+			raw, err := fs.ReadFile(fsys, path.Join(e.Name(), "xbin.json"))
+			if !e.IsDir() || err != nil {
+				continue
+			}
+			var m struct {
+				Agent string `json:"agent"`
+			}
+			if err := jsonc.Unmarshal(raw, &m); err != nil {
+				t.Errorf("%s/%s/xbin.json does not parse: %v", kind, e.Name(), err)
+				continue
+			}
+			if m.Agent != "off" && m.Agent != "read" && m.Agent != "full" {
+				t.Errorf("%s/%s/xbin.json: \"agent\" is %q — say off, read or full, with the reason in a comment (docs/elements.md \"A person's agent\")", kind, e.Name(), m.Agent)
+			}
+		}
+	}
+	check(xbin.BuiltinTilesFS(), "builtin-tiles")
+	check(xbin.BuiltinTemplatesFS(), "builtin-templates")
+}
