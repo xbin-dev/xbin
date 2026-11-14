@@ -59,6 +59,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   characters), a fence's language becomes a `language-…` class only when
   it is a plain name, and an image's placeholder carries the class `md-img`
   (it was `muted`; `index.html` colours it the same).
+- **`/vendor/chat/blocks.js` and `/vendor/chat/rev.js`: the chat kit's block
+  model.** New, pure modules a tile may import
+  ([frontend-kit.md](/docs/frontend-kit.md)): the shape of a chat
+  transcript's blocks (kinds, keys, versions), the one record of a tool
+  call, what a view may ask of its host, and a reducer's helpers;
+  `rev.js` exports `KIT` (1), the revision a tile probes before relying on
+  the kit. Nothing draws with them yet — the Agent tab and the agent
+  template are unchanged; the views follow.
 
 ## 2026-11-09
 

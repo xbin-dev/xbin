@@ -1,0 +1,829 @@
+{
+ "name": "tools",
+ "about": "the transcript of tools.json in the chat kit's block model (/vendor/chat/blocks.js) after each of its checkpoints — blocks; tail: what waits on a person beside them; plan: the key of the newest plan block; usage. A block's k is the seq of the event that opened it (the Agent tab's key); versions (v) and clock times (at) are left out, and a field at its zero value too.",
+ "checkpoints": [
+  {
+   "seq": 33,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "cards"
+    },
+    {
+     "k": "6",
+     "kind": "tool",
+     "rec": {
+      "id": "card-read",
+      "kind": "read",
+      "title": "Read hello.txt",
+      "status": "completed",
+      "rawInput": {
+       "file_path": "/w/apps/x/hello.txt"
+      },
+      "locations": [
+       {
+        "path": "/w/apps/x/hello.txt",
+        "line": 1
+       }
+      ],
+      "files": [
+       "/w/apps/x/hello.txt"
+      ],
+      "text": "```\nhello\n```"
+     },
+     "state": "done"
+    },
+    {
+     "k": "8",
+     "kind": "tool",
+     "rec": {
+      "id": "card-edit",
+      "kind": "edit",
+      "title": "Edit hello.txt",
+      "status": "completed",
+      "rawInput": {
+       "file_path": "/w/apps/x/hello.txt"
+      },
+      "locations": [
+       {
+        "path": "/w/apps/x/hello.txt"
+       }
+      ],
+      "files": [
+       "/w/apps/x/hello.txt"
+      ],
+      "diffs": [
+       {
+        "path": "/w/apps/x/hello.txt",
+        "status": "modified",
+        "add": 1,
+        "del": 1,
+        "oldText": "hello\n",
+        "newText": "hello, world\n"
+       }
+      ]
+     },
+     "state": "done"
+    },
+    {
+     "k": "10",
+     "kind": "tool",
+     "rec": {
+      "id": "card-delete",
+      "kind": "delete",
+      "title": "Delete old.txt",
+      "status": "completed",
+      "rawInput": {
+       "path": "/w/apps/x/old.txt"
+      },
+      "locations": [
+       {
+        "path": "/w/apps/x/old.txt"
+       }
+      ],
+      "files": [
+       "/w/apps/x/old.txt"
+      ]
+     },
+     "state": "done"
+    },
+    {
+     "k": "12",
+     "kind": "tool",
+     "rec": {
+      "id": "card-move",
+      "kind": "move",
+      "title": "Move draft.md → notes.md",
+      "status": "completed",
+      "rawInput": {
+       "from": "/w/apps/x/draft.md",
+       "to": "/w/apps/x/notes.md"
+      },
+      "locations": [
+       {
+        "path": "/w/apps/x/notes.md"
+       }
+      ],
+      "files": [
+       "/w/apps/x/notes.md"
+      ]
+     },
+     "state": "done"
+    },
+    {
+     "k": "14",
+     "kind": "tool",
+     "rec": {
+      "id": "card-search",
+      "kind": "search",
+      "title": "grep TODO",
+      "status": "completed",
+      "rawInput": {
+       "path": "/w/apps/x",
+       "pattern": "TODO"
+      },
+      "text": "hello.txt:3: // TODO: greet the world"
+     },
+     "state": "done"
+    },
+    {
+     "k": "16",
+     "kind": "tool",
+     "rec": {
+      "id": "card-exec",
+      "kind": "execute",
+      "title": "go test ./...",
+      "status": "completed",
+      "rawInput": {
+       "command": "go test ./..."
+      },
+      "terminal": true,
+      "output": "ok  \texample\t0.01s\n",
+      "exitCode": 0
+     },
+     "state": "done"
+    },
+    {
+     "k": "18",
+     "kind": "tool",
+     "rec": {
+      "id": "card-fetch",
+      "kind": "fetch",
+      "title": "Fetch https://example.invalid/docs",
+      "status": "completed",
+      "rawInput": {
+       "url": "https://example.invalid/docs"
+      },
+      "text": "# Docs\n\nA page about greetings."
+     },
+     "state": "done"
+    },
+    {
+     "k": "20",
+     "kind": "tool",
+     "rec": {
+      "id": "card-think",
+      "kind": "think",
+      "title": "Think it over",
+      "status": "completed",
+      "rawInput": {
+       "thought": "Which greeting fits?"
+      },
+      "text": "Weighing two greetings."
+     },
+     "state": "done"
+    },
+    {
+     "k": "22",
+     "kind": "tool",
+     "rec": {
+      "id": "card-other",
+      "kind": "other",
+      "title": "Do something else",
+      "status": "completed",
+      "rawInput": {},
+      "text": "done"
+     },
+     "state": "done"
+    },
+    {
+     "k": "24",
+     "kind": "assistant",
+     "text": "cards done",
+     "mid": "m"
+    },
+    {
+     "k": "27",
+     "kind": "turn",
+     "turn": 1,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    },
+    {
+     "k": "29",
+     "kind": "user",
+     "text": "chatty 4"
+    },
+    {
+     "k": "31",
+     "kind": "tool",
+     "rec": {
+      "id": "chatty",
+      "kind": "execute",
+      "title": "yes | head",
+      "status": "in_progress",
+      "output": "line 1\nline 2\n"
+     },
+     "state": "running"
+    }
+   ],
+   "usage": {
+    "used": 42,
+    "size": 1000
+   }
+  },
+  {
+   "seq": 45,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "cards"
+    },
+    {
+     "k": "6",
+     "kind": "tool",
+     "rec": {
+      "id": "card-read",
+      "kind": "read",
+      "title": "Read hello.txt",
+      "status": "completed",
+      "rawInput": {
+       "file_path": "/w/apps/x/hello.txt"
+      },
+      "locations": [
+       {
+        "path": "/w/apps/x/hello.txt",
+        "line": 1
+       }
+      ],
+      "files": [
+       "/w/apps/x/hello.txt"
+      ],
+      "text": "```\nhello\n```"
+     },
+     "state": "done"
+    },
+    {
+     "k": "8",
+     "kind": "tool",
+     "rec": {
+      "id": "card-edit",
+      "kind": "edit",
+      "title": "Edit hello.txt",
+      "status": "completed",
+      "rawInput": {
+       "file_path": "/w/apps/x/hello.txt"
+      },
+      "locations": [
+       {
+        "path": "/w/apps/x/hello.txt"
+       }
+      ],
+      "files": [
+       "/w/apps/x/hello.txt"
+      ],
+      "diffs": [
+       {
+        "path": "/w/apps/x/hello.txt",
+        "status": "modified",
+        "add": 1,
+        "del": 1,
+        "oldText": "hello\n",
+        "newText": "hello, world\n"
+       }
+      ]
+     },
+     "state": "done"
+    },
+    {
+     "k": "10",
+     "kind": "tool",
+     "rec": {
+      "id": "card-delete",
+      "kind": "delete",
+      "title": "Delete old.txt",
+      "status": "completed",
+      "rawInput": {
+       "path": "/w/apps/x/old.txt"
+      },
+      "locations": [
+       {
+        "path": "/w/apps/x/old.txt"
+       }
+      ],
+      "files": [
+       "/w/apps/x/old.txt"
+      ]
+     },
+     "state": "done"
+    },
+    {
+     "k": "12",
+     "kind": "tool",
+     "rec": {
+      "id": "card-move",
+      "kind": "move",
+      "title": "Move draft.md → notes.md",
+      "status": "completed",
+      "rawInput": {
+       "from": "/w/apps/x/draft.md",
+       "to": "/w/apps/x/notes.md"
+      },
+      "locations": [
+       {
+        "path": "/w/apps/x/notes.md"
+       }
+      ],
+      "files": [
+       "/w/apps/x/notes.md"
+      ]
+     },
+     "state": "done"
+    },
+    {
+     "k": "14",
+     "kind": "tool",
+     "rec": {
+      "id": "card-search",
+      "kind": "search",
+      "title": "grep TODO",
+      "status": "completed",
+      "rawInput": {
+       "path": "/w/apps/x",
+       "pattern": "TODO"
+      },
+      "text": "hello.txt:3: // TODO: greet the world"
+     },
+     "state": "done"
+    },
+    {
+     "k": "16",
+     "kind": "tool",
+     "rec": {
+      "id": "card-exec",
+      "kind": "execute",
+      "title": "go test ./...",
+      "status": "completed",
+      "rawInput": {
+       "command": "go test ./..."
+      },
+      "terminal": true,
+      "output": "ok  \texample\t0.01s\n",
+      "exitCode": 0
+     },
+     "state": "done"
+    },
+    {
+     "k": "18",
+     "kind": "tool",
+     "rec": {
+      "id": "card-fetch",
+      "kind": "fetch",
+      "title": "Fetch https://example.invalid/docs",
+      "status": "completed",
+      "rawInput": {
+       "url": "https://example.invalid/docs"
+      },
+      "text": "# Docs\n\nA page about greetings."
+     },
+     "state": "done"
+    },
+    {
+     "k": "20",
+     "kind": "tool",
+     "rec": {
+      "id": "card-think",
+      "kind": "think",
+      "title": "Think it over",
+      "status": "completed",
+      "rawInput": {
+       "thought": "Which greeting fits?"
+      },
+      "text": "Weighing two greetings."
+     },
+     "state": "done"
+    },
+    {
+     "k": "22",
+     "kind": "tool",
+     "rec": {
+      "id": "card-other",
+      "kind": "other",
+      "title": "Do something else",
+      "status": "completed",
+      "rawInput": {},
+      "text": "done"
+     },
+     "state": "done"
+    },
+    {
+     "k": "24",
+     "kind": "assistant",
+     "text": "cards done",
+     "mid": "m"
+    },
+    {
+     "k": "27",
+     "kind": "turn",
+     "turn": 1,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    },
+    {
+     "k": "29",
+     "kind": "user",
+     "text": "chatty 4"
+    },
+    {
+     "k": "31",
+     "kind": "tool",
+     "rec": {
+      "id": "chatty",
+      "kind": "execute",
+      "title": "yes | head",
+      "status": "completed",
+      "output": "line 1\nline 2\nline 3\nline 4\n",
+      "exitCode": 0
+     },
+     "state": "done"
+    },
+    {
+     "k": "37",
+     "kind": "assistant",
+     "text": "chatty: 4 lines",
+     "mid": "m"
+    },
+    {
+     "k": "39",
+     "kind": "turn",
+     "turn": 2,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    },
+    {
+     "k": "41",
+     "kind": "user",
+     "text": "subagent explore"
+    },
+    {
+     "k": "43",
+     "kind": "tool",
+     "rec": {
+      "id": "task1",
+      "kind": "think",
+      "title": "Explore the repo",
+      "label": "Explore the repo",
+      "name": "Task",
+      "status": "in_progress",
+      "subagent": true,
+      "rawInput": {
+       "description": "Explore the repo",
+       "prompt": "Find where **main** starts.",
+       "subagent_type": "Explore"
+      },
+      "text": "Find where **main** starts."
+     },
+     "state": "running",
+     "children": [
+      {
+       "k": "44",
+       "kind": "thought",
+       "text": "Looking for the entry point.",
+       "parent": "task1"
+      },
+      {
+       "k": "45",
+       "kind": "tool",
+       "rec": {
+        "id": "read1",
+        "kind": "read",
+        "title": "Read main.go",
+        "name": "Read",
+        "status": "in_progress",
+        "parent": "task1"
+       },
+       "state": "running",
+       "parent": "task1"
+      }
+     ]
+    }
+   ],
+   "usage": {
+    "used": 42,
+    "size": 1000
+   }
+  },
+  {
+   "seq": 52,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "cards"
+    },
+    {
+     "k": "6",
+     "kind": "tool",
+     "rec": {
+      "id": "card-read",
+      "kind": "read",
+      "title": "Read hello.txt",
+      "status": "completed",
+      "rawInput": {
+       "file_path": "/w/apps/x/hello.txt"
+      },
+      "locations": [
+       {
+        "path": "/w/apps/x/hello.txt",
+        "line": 1
+       }
+      ],
+      "files": [
+       "/w/apps/x/hello.txt"
+      ],
+      "text": "```\nhello\n```"
+     },
+     "state": "done"
+    },
+    {
+     "k": "8",
+     "kind": "tool",
+     "rec": {
+      "id": "card-edit",
+      "kind": "edit",
+      "title": "Edit hello.txt",
+      "status": "completed",
+      "rawInput": {
+       "file_path": "/w/apps/x/hello.txt"
+      },
+      "locations": [
+       {
+        "path": "/w/apps/x/hello.txt"
+       }
+      ],
+      "files": [
+       "/w/apps/x/hello.txt"
+      ],
+      "diffs": [
+       {
+        "path": "/w/apps/x/hello.txt",
+        "status": "modified",
+        "add": 1,
+        "del": 1,
+        "oldText": "hello\n",
+        "newText": "hello, world\n"
+       }
+      ]
+     },
+     "state": "done"
+    },
+    {
+     "k": "10",
+     "kind": "tool",
+     "rec": {
+      "id": "card-delete",
+      "kind": "delete",
+      "title": "Delete old.txt",
+      "status": "completed",
+      "rawInput": {
+       "path": "/w/apps/x/old.txt"
+      },
+      "locations": [
+       {
+        "path": "/w/apps/x/old.txt"
+       }
+      ],
+      "files": [
+       "/w/apps/x/old.txt"
+      ]
+     },
+     "state": "done"
+    },
+    {
+     "k": "12",
+     "kind": "tool",
+     "rec": {
+      "id": "card-move",
+      "kind": "move",
+      "title": "Move draft.md → notes.md",
+      "status": "completed",
+      "rawInput": {
+       "from": "/w/apps/x/draft.md",
+       "to": "/w/apps/x/notes.md"
+      },
+      "locations": [
+       {
+        "path": "/w/apps/x/notes.md"
+       }
+      ],
+      "files": [
+       "/w/apps/x/notes.md"
+      ]
+     },
+     "state": "done"
+    },
+    {
+     "k": "14",
+     "kind": "tool",
+     "rec": {
+      "id": "card-search",
+      "kind": "search",
+      "title": "grep TODO",
+      "status": "completed",
+      "rawInput": {
+       "path": "/w/apps/x",
+       "pattern": "TODO"
+      },
+      "text": "hello.txt:3: // TODO: greet the world"
+     },
+     "state": "done"
+    },
+    {
+     "k": "16",
+     "kind": "tool",
+     "rec": {
+      "id": "card-exec",
+      "kind": "execute",
+      "title": "go test ./...",
+      "status": "completed",
+      "rawInput": {
+       "command": "go test ./..."
+      },
+      "terminal": true,
+      "output": "ok  \texample\t0.01s\n",
+      "exitCode": 0
+     },
+     "state": "done"
+    },
+    {
+     "k": "18",
+     "kind": "tool",
+     "rec": {
+      "id": "card-fetch",
+      "kind": "fetch",
+      "title": "Fetch https://example.invalid/docs",
+      "status": "completed",
+      "rawInput": {
+       "url": "https://example.invalid/docs"
+      },
+      "text": "# Docs\n\nA page about greetings."
+     },
+     "state": "done"
+    },
+    {
+     "k": "20",
+     "kind": "tool",
+     "rec": {
+      "id": "card-think",
+      "kind": "think",
+      "title": "Think it over",
+      "status": "completed",
+      "rawInput": {
+       "thought": "Which greeting fits?"
+      },
+      "text": "Weighing two greetings."
+     },
+     "state": "done"
+    },
+    {
+     "k": "22",
+     "kind": "tool",
+     "rec": {
+      "id": "card-other",
+      "kind": "other",
+      "title": "Do something else",
+      "status": "completed",
+      "rawInput": {},
+      "text": "done"
+     },
+     "state": "done"
+    },
+    {
+     "k": "24",
+     "kind": "assistant",
+     "text": "cards done",
+     "mid": "m"
+    },
+    {
+     "k": "27",
+     "kind": "turn",
+     "turn": 1,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    },
+    {
+     "k": "29",
+     "kind": "user",
+     "text": "chatty 4"
+    },
+    {
+     "k": "31",
+     "kind": "tool",
+     "rec": {
+      "id": "chatty",
+      "kind": "execute",
+      "title": "yes | head",
+      "status": "completed",
+      "output": "line 1\nline 2\nline 3\nline 4\n",
+      "exitCode": 0
+     },
+     "state": "done"
+    },
+    {
+     "k": "37",
+     "kind": "assistant",
+     "text": "chatty: 4 lines",
+     "mid": "m"
+    },
+    {
+     "k": "39",
+     "kind": "turn",
+     "turn": 2,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    },
+    {
+     "k": "41",
+     "kind": "user",
+     "text": "subagent explore"
+    },
+    {
+     "k": "43",
+     "kind": "tool",
+     "rec": {
+      "id": "task1",
+      "kind": "think",
+      "title": "Explore the repo",
+      "label": "Explore the repo",
+      "name": "Task",
+      "status": "completed",
+      "subagent": true,
+      "rawInput": {
+       "description": "Explore the repo",
+       "prompt": "Find where **main** starts.",
+       "subagent_type": "Explore"
+      },
+      "text": "`main` is in **main.go**."
+     },
+     "state": "done",
+     "children": [
+      {
+       "k": "44",
+       "kind": "thought",
+       "text": "Looking for the entry point.",
+       "parent": "task1"
+      },
+      {
+       "k": "45",
+       "kind": "tool",
+       "rec": {
+        "id": "read1",
+        "kind": "read",
+        "title": "Read main.go",
+        "name": "Read",
+        "status": "completed",
+        "parent": "task1"
+       },
+       "state": "done",
+       "parent": "task1"
+      },
+      {
+       "k": "47",
+       "kind": "assistant",
+       "text": "main starts in main.go",
+       "mid": "sub-m",
+       "parent": "task1"
+      }
+     ]
+    },
+    {
+     "k": "49",
+     "kind": "assistant",
+     "text": "the subagent found it",
+     "mid": "m"
+    },
+    {
+     "k": "51",
+     "kind": "turn",
+     "turn": 3,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   ],
+   "usage": {
+    "used": 42,
+    "size": 1000
+   }
+  }
+ ]
+}

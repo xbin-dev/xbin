@@ -1,0 +1,376 @@
+{
+ "about": "the run's view (GET /runs/{id}/view: run, messages, steps, links, drafts) after each checkpoint of signin.json, as the agent template's backend maps the log (its transcripts_test.go)",
+ "name": "signin",
+ "views": [
+  {
+   "seq": 8,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "echo hi",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "waiting"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 0
+      },
+      "error": "",
+      "gen": 1,
+      "login": {
+       "command": "fakeacp login",
+       "methods": []
+      },
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "pending": {
+       "kind": "login",
+       "park": "park",
+       "title": "Sign in to Fake agent (tests)"
+      },
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "login",
+      "steering": false,
+      "title": ""
+     },
+     "id": 1,
+     "pendingState": {
+      "harness": {
+       "login": {
+        "command": "fakeacp login",
+        "methods": []
+       }
+      },
+      "kind": "login",
+      "park": "park",
+      "since": 0
+     },
+     "result": "Authentication required: sign in with fake-login, fake-api-key or fake-device: the agent isn't signed in — run: fakeacp login",
+     "status": "waiting_input",
+     "title": "signin"
+    },
+    "steps": [
+     {
+      "created": 7,
+      "detail": "{\"error\":\"Authentication required: sign in with fake-login, fake-api-key or fake-device: the agent isn't signed in — run: fakeacp login\"}",
+      "id": 1,
+      "kind": "error",
+      "runId": 1,
+      "seq": 0
+     },
+     {
+      "created": 8,
+      "detail": "{\"text\":\"Fake agent (tests) isn't signed in — sign in, then Retry\"}",
+      "id": 2,
+      "kind": "note",
+      "runId": 1,
+      "seq": 1
+     }
+    ]
+   }
+  },
+  {
+   "seq": 9,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "echo hi",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "waiting"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 0
+      },
+      "error": "",
+      "gen": 1,
+      "login": {
+       "command": "fakeacp login",
+       "methods": []
+      },
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "pending": {
+       "kind": "login",
+       "park": "park",
+       "title": "Sign in to Fake agent (tests)"
+      },
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "login",
+      "steering": false,
+      "title": ""
+     },
+     "id": 1,
+     "pendingState": {
+      "harness": {
+       "login": {
+        "command": "fakeacp login",
+        "methods": []
+       }
+      },
+      "kind": "login",
+      "park": "park",
+      "since": 0
+     },
+     "result": "Authentication required: sign in with fake-login, fake-api-key or fake-device: the agent isn't signed in — run: fakeacp login",
+     "status": "waiting_input",
+     "title": "signin"
+    },
+    "steps": [
+     {
+      "created": 7,
+      "detail": "{\"error\":\"Authentication required: sign in with fake-login, fake-api-key or fake-device: the agent isn't signed in — run: fakeacp login\"}",
+      "id": 1,
+      "kind": "error",
+      "runId": 1,
+      "seq": 0
+     },
+     {
+      "created": 8,
+      "detail": "{\"text\":\"Fake agent (tests) isn't signed in — sign in, then Retry\"}",
+      "id": 2,
+      "kind": "note",
+      "runId": 1,
+      "seq": 1
+     }
+    ]
+   }
+  },
+  {
+   "seq": 19,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "echo hi",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "echo hi",
+      "created": 13,
+      "id": 3,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 2,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "echo: echo hi",
+      "created": 18,
+      "id": 4,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 3,
+      "toolCallId": ""
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "idle"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 0
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "ready",
+      "steering": false,
+      "title": "fake: echo hi",
+      "usage": {
+       "size": 1000,
+       "used": 42
+      }
+     },
+     "id": 1,
+     "pendingState": {
+      "kind": ""
+     },
+     "result": "Authentication required: sign in with fake-login, fake-api-key or fake-device: the agent isn't signed in — run: fakeacp login",
+     "status": "idle",
+     "title": "signin"
+    },
+    "steps": [
+     {
+      "created": 7,
+      "detail": "{\"error\":\"Authentication required: sign in with fake-login, fake-api-key or fake-device: the agent isn't signed in — run: fakeacp login\"}",
+      "id": 1,
+      "kind": "error",
+      "runId": 1,
+      "seq": 0
+     },
+     {
+      "created": 8,
+      "detail": "{\"text\":\"Fake agent (tests) isn't signed in — sign in, then Retry\"}",
+      "id": 2,
+      "kind": "note",
+      "runId": 1,
+      "seq": 1
+     }
+    ]
+   }
+  }
+ ]
+}

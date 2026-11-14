@@ -1,0 +1,1110 @@
+{
+ "about": "the run's view (GET /runs/{id}/view: run, messages, steps, links, drafts) after each checkpoint of permission.json, as the agent template's backend maps the log (its transcripts_test.go)",
+ "name": "permission",
+ "views": [
+  {
+   "seq": 8,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "perm one",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 6,
+      "id": 3,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 2,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"cmd\":\"ls\",\"summary\":\"run ls\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:t1",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "execute",
+       "planReview": false,
+       "status": "pending",
+       "subagent": false,
+       "title": "run ls"
+      },
+      "compacted": false,
+      "content": "(awaiting your approval)",
+      "created": 6,
+      "id": 4,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 3,
+      "toolCallId": "h1:t1"
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "waiting"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 1
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "pending": {
+       "kind": "approval",
+       "park": "park",
+       "title": "run ls"
+      },
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "working",
+      "steering": false,
+      "title": ""
+     },
+     "id": 1,
+     "pendingState": {
+      "harness": {
+       "callId": "h1:t1",
+       "options": [
+        {
+         "kind": "allow_once",
+         "name": "Allow once",
+         "optionId": "once"
+        },
+        {
+         "kind": "allow_always",
+         "name": "Allow always",
+         "optionId": "always"
+        },
+        {
+         "kind": "reject_once",
+         "name": "Reject",
+         "optionId": "no"
+        }
+       ],
+       "pid": "p1",
+       "rpcId": "rpcId",
+       "rule": {
+        "kind": "execute",
+        "title": "run ls"
+       },
+       "tool": {
+        "kind": "execute",
+        "title": "run ls"
+       }
+      },
+      "kind": "approval",
+      "park": "park",
+      "since": 0,
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"cmd\":\"ls\",\"summary\":\"run ls\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:t1",
+        "type": "function"
+       }
+      ]
+     },
+     "result": "",
+     "status": "waiting_input",
+     "title": "permission"
+    },
+    "steps": []
+   }
+  },
+  {
+   "seq": 19,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "perm one",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 6,
+      "id": 3,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 2,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"cmd\":\"ls\",\"summary\":\"run ls\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:t1",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "execute",
+       "planReview": false,
+       "status": "failed",
+       "subagent": false,
+       "title": "run ls"
+      },
+      "compacted": false,
+      "content": "error: the call failed",
+      "created": 6,
+      "id": 4,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 3,
+      "toolCallId": "h1:t1"
+     },
+     {
+      "compacted": false,
+      "content": "denied",
+      "created": 13,
+      "id": 5,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 4,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "perm two",
+      "created": 15,
+      "id": 6,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 5,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 17,
+      "id": 7,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 6,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"cmd\":\"ls\",\"summary\":\"run ls\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:t1#2",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "execute",
+       "planReview": false,
+       "status": "pending",
+       "subagent": false,
+       "title": "run ls"
+      },
+      "compacted": false,
+      "content": "(awaiting your approval)",
+      "created": 17,
+      "id": 8,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 7,
+      "toolCallId": "h1:t1#2"
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "waiting"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 2
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "pending": {
+       "kind": "approval",
+       "park": "park",
+       "title": "run ls"
+      },
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "working",
+      "steering": false,
+      "title": ""
+     },
+     "id": 1,
+     "pendingState": {
+      "harness": {
+       "callId": "h1:t1#2",
+       "options": [
+        {
+         "kind": "allow_once",
+         "name": "Allow once",
+         "optionId": "once"
+        },
+        {
+         "kind": "allow_always",
+         "name": "Allow always",
+         "optionId": "always"
+        },
+        {
+         "kind": "reject_once",
+         "name": "Reject",
+         "optionId": "no"
+        }
+       ],
+       "pid": "p2",
+       "rpcId": "rpcId",
+       "rule": {
+        "kind": "execute",
+        "title": "run ls"
+       },
+       "tool": {
+        "kind": "execute",
+        "title": "run ls"
+       }
+      },
+      "kind": "approval",
+      "park": "park",
+      "since": 0,
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"cmd\":\"ls\",\"summary\":\"run ls\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:t1#2",
+        "type": "function"
+       }
+      ]
+     },
+     "result": "",
+     "status": "waiting_input",
+     "title": "permission"
+    },
+    "steps": []
+   }
+  },
+  {
+   "seq": 43,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "perm one",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 6,
+      "id": 3,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 2,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"cmd\":\"ls\",\"summary\":\"run ls\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:t1",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "execute",
+       "planReview": false,
+       "status": "failed",
+       "subagent": false,
+       "title": "run ls"
+      },
+      "compacted": false,
+      "content": "error: the call failed",
+      "created": 6,
+      "id": 4,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 3,
+      "toolCallId": "h1:t1"
+     },
+     {
+      "compacted": false,
+      "content": "denied",
+      "created": 13,
+      "id": 5,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 4,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "perm two",
+      "created": 15,
+      "id": 6,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 5,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 17,
+      "id": 7,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 6,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"cmd\":\"ls\",\"summary\":\"run ls\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:t1#2",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "execute",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "run ls"
+      },
+      "compacted": false,
+      "content": "a.txt b.txt",
+      "created": 17,
+      "id": 8,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 7,
+      "toolCallId": "h1:t1#2"
+     },
+     {
+      "compacted": false,
+      "content": "listed",
+      "created": 26,
+      "id": 9,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 8,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "perm three",
+      "created": 28,
+      "id": 10,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 9,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 30,
+      "id": 11,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 10,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"cmd\":\"ls\",\"summary\":\"run ls\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:t1#3",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "execute",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "run ls"
+      },
+      "compacted": false,
+      "content": "a.txt b.txt",
+      "created": 30,
+      "id": 12,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 11,
+      "toolCallId": "h1:t1#3"
+     },
+     {
+      "compacted": false,
+      "content": "listed",
+      "created": 37,
+      "id": 13,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 12,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "plan the work",
+      "created": 39,
+      "id": 14,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 13,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 41,
+      "id": 15,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 14,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"plan\":\"# Fake plan\\n\\n1. **Read** the code\\n2. Change `main.go`\\n\",\"planFilePath\":\"/tmp/fake-plan.md\",\"summary\":\"Ready to code?\"}",
+         "name": "acp:switch_mode"
+        },
+        "id": "h1:plan1",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "switch_mode",
+       "planReview": false,
+       "status": "pending",
+       "subagent": false,
+       "title": "Ready to code?",
+       "tool": "ExitPlanMode"
+      },
+      "compacted": false,
+      "content": "(awaiting your approval)",
+      "created": 41,
+      "id": 16,
+      "name": "acp:switch_mode",
+      "role": "tool",
+      "runId": 1,
+      "seq": 15,
+      "toolCallId": "h1:plan1"
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "waiting"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 4
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "pending": {
+       "kind": "approval",
+       "park": "park",
+       "title": "Approve Plan"
+      },
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "working",
+      "steering": false,
+      "title": "fake: perm two",
+      "usage": {
+       "size": 1000,
+       "used": 42
+      }
+     },
+     "id": 1,
+     "pendingState": {
+      "harness": {
+       "callId": "h1:plan1",
+       "options": [
+        {
+         "kind": "allow_once",
+         "name": "Yes, manually approve edits",
+         "optionId": "exit-plan-default"
+        },
+        {
+         "explicit": true,
+         "kind": "allow_always",
+         "name": "Yes, clear context (13% used) and use auto mode",
+         "optionId": "exit-plan-clear-auto"
+        },
+        {
+         "kind": "allow_always",
+         "name": "Yes, and use auto mode",
+         "optionId": "auto"
+        },
+        {
+         "kind": "reject_once",
+         "name": "No, keep planning",
+         "optionId": "reject"
+        }
+       ],
+       "pid": "p4",
+       "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+       "planApproval": true,
+       "rpcId": "rpcId",
+       "tool": {
+        "kind": "switch_mode",
+        "rawInput": {
+         "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+         "planFilePath": "/tmp/fake-plan.md"
+        },
+        "title": "Approve Plan"
+       }
+      },
+      "kind": "approval",
+      "park": "park",
+      "since": 0,
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"plan\":\"# Fake plan\\n\\n1. **Read** the code\\n2. Change `main.go`\\n\",\"planFilePath\":\"/tmp/fake-plan.md\",\"summary\":\"Ready to code?\"}",
+         "name": "acp:switch_mode"
+        },
+        "id": "h1:plan1",
+        "type": "function"
+       }
+      ]
+     },
+     "result": "",
+     "status": "waiting_input",
+     "title": "permission"
+    },
+    "steps": []
+   }
+  },
+  {
+   "seq": 50,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "perm one",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 6,
+      "id": 3,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 2,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"cmd\":\"ls\",\"summary\":\"run ls\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:t1",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "execute",
+       "planReview": false,
+       "status": "failed",
+       "subagent": false,
+       "title": "run ls"
+      },
+      "compacted": false,
+      "content": "error: the call failed",
+      "created": 6,
+      "id": 4,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 3,
+      "toolCallId": "h1:t1"
+     },
+     {
+      "compacted": false,
+      "content": "denied",
+      "created": 13,
+      "id": 5,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 4,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "perm two",
+      "created": 15,
+      "id": 6,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 5,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 17,
+      "id": 7,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 6,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"cmd\":\"ls\",\"summary\":\"run ls\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:t1#2",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "execute",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "run ls"
+      },
+      "compacted": false,
+      "content": "a.txt b.txt",
+      "created": 17,
+      "id": 8,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 7,
+      "toolCallId": "h1:t1#2"
+     },
+     {
+      "compacted": false,
+      "content": "listed",
+      "created": 26,
+      "id": 9,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 8,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "perm three",
+      "created": 28,
+      "id": 10,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 9,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 30,
+      "id": 11,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 10,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"cmd\":\"ls\",\"summary\":\"run ls\"}",
+         "name": "acp:execute"
+        },
+        "id": "h1:t1#3",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "execute",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "run ls"
+      },
+      "compacted": false,
+      "content": "a.txt b.txt",
+      "created": 30,
+      "id": 12,
+      "name": "acp:execute",
+      "role": "tool",
+      "runId": 1,
+      "seq": 11,
+      "toolCallId": "h1:t1#3"
+     },
+     {
+      "compacted": false,
+      "content": "listed",
+      "created": 37,
+      "id": 13,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 12,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "plan the work",
+      "created": 39,
+      "id": 14,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 13,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 41,
+      "id": 15,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 14,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"plan\":\"# Fake plan\\n\\n1. **Read** the code\\n2. Change `main.go`\\n\",\"planFilePath\":\"/tmp/fake-plan.md\",\"summary\":\"Ready to code?\"}",
+         "name": "acp:switch_mode"
+        },
+        "id": "h1:plan1",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "switch_mode",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "Ready to code?",
+       "tool": "ExitPlanMode"
+      },
+      "compacted": false,
+      "content": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+      "created": 41,
+      "id": 16,
+      "name": "acp:switch_mode",
+      "role": "tool",
+      "runId": 1,
+      "seq": 15,
+      "toolCallId": "h1:plan1"
+     },
+     {
+      "compacted": false,
+      "content": "plan approved: exit-plan-clear-auto",
+      "created": 49,
+      "id": 17,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 16,
+      "toolCallId": ""
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "idle"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 4
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "ready",
+      "steering": false,
+      "title": "fake: perm two",
+      "usage": {
+       "size": 1000,
+       "used": 42
+      }
+     },
+     "id": 1,
+     "pendingState": {
+      "kind": ""
+     },
+     "result": "",
+     "status": "idle",
+     "title": "permission"
+    },
+    "steps": []
+   }
+  }
+ ]
+}

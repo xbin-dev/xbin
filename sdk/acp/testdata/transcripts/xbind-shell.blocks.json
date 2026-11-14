@@ -1,0 +1,131 @@
+{
+ "name": "xbind-shell",
+ "about": "the transcript of xbind-shell.json in the chat kit's block model (/vendor/chat/blocks.js) after each of its checkpoints — blocks; tail: what waits on a person beside them; plan: the key of the newest plan block; usage. A block's k is the seq of the event that opened it (the Agent tab's key); versions (v) and clock times (at) are left out, and a field at its zero value too.",
+ "checkpoints": [
+  {
+   "seq": 22,
+   "blocks": [
+    {
+     "k": "3",
+     "kind": "user",
+     "text": "run: printf '\\033[1;31merror\\033[0m: \\033[32mok\\033[0m\\n'; echo line2; exit 3"
+    },
+    {
+     "k": "5",
+     "kind": "tool",
+     "rec": {
+      "id": "run1",
+      "kind": "execute",
+      "title": "printf '\\033[1;31merror\\033[0m: \\033[32mok\\033[0m\\n'; echo line2; exit 3",
+      "status": "failed",
+      "rawInput": {
+       "command": "printf '\\033[1;31merror\\033[0m: \\033[32mok\\033[0m\\n'; echo line2; exit 3"
+      },
+      "terminal": true,
+      "output": "\u001b[1;31merror\u001b[0m: \u001b[32mok\u001b[0m\r\nline2\r\n",
+      "exitCode": 3
+     },
+     "state": "error"
+    },
+    {
+     "k": "7",
+     "kind": "assistant",
+     "text": "run: \u001b[1;31merror\u001b[0m: \u001b[32mok\u001b[0m line2",
+     "mid": "m"
+    },
+    {
+     "k": "10",
+     "kind": "turn",
+     "turn": 1,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    },
+    {
+     "k": "12",
+     "kind": "user",
+     "text": "run: echo hi > made.txt && sed -i 's/main() {}/main() { println(1) }/' main.go"
+    },
+    {
+     "k": "14",
+     "kind": "tool",
+     "rec": {
+      "id": "run1",
+      "kind": "execute",
+      "title": "echo hi > made.txt && sed -i 's/main() {}/main() { println(1) }/' main.go",
+      "status": "completed",
+      "rawInput": {
+       "command": "echo hi > made.txt && sed -i 's/main() {}/main() { println(1) }/' main.go"
+      },
+      "terminal": true,
+      "exitCode": 0,
+      "changed": {
+       "files": [
+        {
+         "path": "made.txt",
+         "status": "added",
+         "add": 1
+        },
+        {
+         "path": "main.go",
+         "status": "modified",
+         "add": 1,
+         "del": 1
+        }
+       ],
+       "patch": {
+        "text": "diff --git a/made.txt b/made.txt\nnew file mode 100644\nindex 0000000..45b983b\n--- /dev/null\n+++ b/made.txt\n@@ -0,0 +1 @@\n+hi\ndiff --git a/main.go b/main.go\nindex 38dd16d..508ac32 100644\n--- a/main.go\n+++ b/main.go\n@@ -1,3 +1,3 @@\n package main\n \n-func main() {}\n+func main() { println(1) }\n"
+       }
+      }
+     },
+     "state": "done"
+    },
+    {
+     "k": "16",
+     "kind": "assistant",
+     "text": "run: ",
+     "mid": "m"
+    },
+    {
+     "k": "21",
+     "kind": "changes",
+     "turn": 2,
+     "set": {
+      "files": [
+       {
+        "path": "made.txt",
+        "status": "added",
+        "add": 1
+       },
+       {
+        "path": "main.go",
+        "status": "modified",
+        "add": 1,
+        "del": 1
+       }
+      ],
+      "patch": {
+       "text": "diff --git a/made.txt b/made.txt\nnew file mode 100644\nindex 0000000..45b983b\n--- /dev/null\n+++ b/made.txt\n@@ -0,0 +1 @@\n+hi\ndiff --git a/main.go b/main.go\nindex 38dd16d..508ac32 100644\n--- a/main.go\n+++ b/main.go\n@@ -1,3 +1,3 @@\n package main\n \n-func main() {}\n+func main() { println(1) }\n"
+      }
+     }
+    },
+    {
+     "k": "18",
+     "kind": "turn",
+     "turn": 2,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   ],
+   "usage": {
+    "used": 42,
+    "size": 1000
+   }
+  }
+ ]
+}
