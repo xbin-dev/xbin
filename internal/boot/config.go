@@ -90,7 +90,10 @@ type Config struct {
 	// Sealed replaces the compiled-in table of sealed components
 	// (sealed.Table) — tests only; nil ⇒ the table. Never a setting: no
 	// flag, variable or workspace file declares a sealed component.
-	Sealed          []sealed.Spec
+	Sealed []sealed.Spec
+	// SealedBin is the directory of the release's prebuilt sealed backends
+	// ("" ⇒ sealed/ beside the xbind binary); tests point it at a fixture.
+	SealedBin       string
 	Listener        net.Listener
 	Ready           func(addr string)
 	Privileges      Privileges

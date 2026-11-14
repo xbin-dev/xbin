@@ -28,11 +28,17 @@ import (
 func (r *Runner) build(c *registry.Component) (string, error) {
 	switch c.Manifest.Runtime {
 	case "go":
-		if c.Sealed && r.SealedPrebuilt != nil {
+		if c.Sealed {
 			// the release's own build of the release's own code: no compile
-			// and no module download on this host (sealed.go)
-			if bin, ok := r.SealedPrebuilt(c); ok {
-				return bin, nil
+			// and no module download on this host (D227). Only a development
+			// xbind builds one from its materialized source, below.
+			if r.SealedPrebuilt != nil {
+				if bin, ok := r.SealedPrebuilt(c); ok {
+					return bin, nil
+				}
+			}
+			if !r.SealedCompile {
+				return "", &BuildError{Output: c.Path + ": this xbin install has no build of this system component, and it is never compiled on the host"}
 			}
 		}
 		entry := goEntry(c.Manifest)

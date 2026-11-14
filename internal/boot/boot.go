@@ -153,9 +153,20 @@ var Steps = []Step{
 // (a signal, in main; the test's cancel). Every failure is an error — no
 // os.Exit — and the console listener is cfg.Listener when given.
 func Run(ctx context.Context, cfg *Config) error {
-	d, err := cfg.Validate()
+	st, err := prepare(cfg)
 	if err != nil {
 		return err
+	}
+	return st.serve(ctx)
+}
+
+// prepare runs the boot steps for cfg: everything Run does before it
+// serves. A test that needs the built state (the route table, the sealed
+// set) calls it and then serves itself.
+func prepare(cfg *Config) (*State, error) {
+	d, err := cfg.Validate()
+	if err != nil {
+		return nil, err
 	}
 	st := &State{Cfg: cfg, WS: d.ws, trusted: d.trusted, externalURL: d.externalURL, overlay: d.overlay,
 		Started: time.Now(), priv: cfg.Privileges}
@@ -167,10 +178,10 @@ func Run(ctx context.Context, cfg *Config) error {
 	}
 	for _, s := range Steps {
 		if err := s.Run(st); err != nil {
-			return fmt.Errorf("%s: %w", s.Name, err)
+			return nil, fmt.Errorf("%s: %w", s.Name, err)
 		}
 	}
-	return st.serve(ctx)
+	return st, nil
 }
 
 // ---- the steps, in order ----
@@ -273,18 +284,12 @@ func (st *State) stepHomes() error {
 }
 
 func (st *State) stepRegistry() error {
-	// Sealed components (internal/sealed): the running binary's own code,
-	// rendered from its embedded trees into .xbin/sealed/ before the first
-	// scan, so the registry holds them from the start.
-	specs := st.Cfg.Sealed
-	if specs == nil {
-		specs = sealed.Table()
-	}
-	set, err := sealed.Load(specs)
+	// Sealed components (internal/sealed, D227): the running binary's own
+	// code, rendered from its embedded trees into .xbin/sealed/ before the
+	// first scan, so the registry holds them from the start; their data
+	// stamps are read, and claimed, before the broker provisions anything.
+	set, err := st.openSealed()
 	if err != nil {
-		return err
-	}
-	if err := set.Materialize(st.WS); err != nil {
 		return err
 	}
 	st.Sealed = set
@@ -296,6 +301,7 @@ func (st *State) stepRegistry() error {
 	st.Hub = events.NewHub()
 	st.Run = runner.New(st.WS, st.Auth, st.Hub, reg)
 	st.Run.SealedPrebuilt = sealedPrebuilt(set)
+	st.Run.SealedCompile = st.sealedDev() // only a development xbind compiles one (D227)
 	st.Sbx = sbx.New()
 	st.Run.Sandboxes = st.Sbx
 	st.bootGoVersions() // before any build: an earlier xbind's builds say the check is due (goversions.go)
@@ -318,22 +324,39 @@ func (st *State) stepRegistry() error {
 	return nil
 }
 
-// sealedPrebuilt answers a sealed component's prebuilt backend from the
-// release bundle: bin/sealed/<name>-<digest> beside xbind, the digest being
-// that of the source this binary embeds — a file built from any other
-// source has another name and is never run.
-func sealedPrebuilt(set *sealed.Set) func(*registry.Component) (string, bool) {
-	exe, err := os.Executable()
-	if err != nil {
-		return nil
+// sealedDev reports a development xbind for sealed components (--dev or
+// --no-auth): it compiles a backend the install has no build of, and runs a
+// partitioned component as one instance when it has no sandboxes.
+func (st *State) sealedDev() bool { return st.Cfg.Dev || st.Cfg.NoAuth }
+
+// openSealed opens the sealed components of this xbind on the workspace:
+// the compiled-in table (a test's, with Config.Sealed), the release's
+// prebuilt backends from bin/sealed beside xbind (Config.SealedBin).
+func (st *State) openSealed() (*sealed.Set, error) {
+	specs := st.Cfg.Sealed
+	if specs == nil {
+		specs = sealed.Table()
 	}
-	dir := filepath.Join(filepath.Dir(exe), "sealed")
+	bin := st.Cfg.SealedBin
+	if bin == "" {
+		if exe, err := os.Executable(); err == nil {
+			bin = filepath.Join(filepath.Dir(exe), "sealed")
+		}
+	}
+	return sealed.Open(specs, sealed.Options{
+		Workspace: st.WS, Isolate: st.Cfg.Isolate, Dev: st.sealedDev(),
+		BinDir: bin, Release: st.Cfg.Version,
+	})
+}
+
+// sealedPrebuilt answers a sealed component's prebuilt backend: the
+// release's bin/sealed/<name>-<digest>, the digest being that of the source
+// this binary embeds — a file built from any other source has another name
+// and is never run.
+func sealedPrebuilt(set *sealed.Set) func(*registry.Component) (string, bool) {
 	return func(c *registry.Component) (string, bool) {
-		for _, sc := range set.Components() {
-			if sc.Path == c.Path {
-				p := filepath.Join(dir, sc.Name+"-"+sc.Digest[:24])
-				return p, isFile(p)
-			}
+		if sc, ok := set.Component(c.Path); ok && sc.Prebuilt != "" {
+			return sc.Prebuilt, true
 		}
 		return "", false
 	}
@@ -644,6 +667,11 @@ func (st *State) stepProxy() error {
 		if s := reg.LifecycleState(comp); s != registry.StateEnabled {
 			return "is " + s
 		}
+		// a sealed component's own holds (D227), before anything of its
+		// data is looked at: no build, foreign or newer data, no sandboxes
+		if why := st.Sealed.Admit(comp); why != "" {
+			return why
+		}
 		if why := brk.PartitionHoldReason(comp); why != "" {
 			return why
 		}
@@ -654,7 +682,7 @@ func (st *State) stepProxy() error {
 	// the partition hold is the primary's alone (non-primary deployments keep
 	// running while a mode switch is pending).
 	run.ShouldRunDeployment = func(tile, dep string) bool {
-		return reg.LifecycleState(tile) == registry.StateEnabled && !brk.DeploymentEncryptionHold(tile, dep) &&
+		return reg.LifecycleState(tile) == registry.StateEnabled && st.Sealed.Admit(tile) == "" && !brk.DeploymentEncryptionHold(tile, dep) &&
 			(dep != st.Deployments.Primary(tile) || brk.PartitionHoldReason(tile) == "")
 	}
 	brk.SetPartitionStop(func(tile string) { run.StopDeployment(tile, st.Deployments.Primary(tile)) })

@@ -462,7 +462,7 @@ func partitionKeys(scope, dep, pkey string) (nsKeys, error) {
 		return nsKeys{}, fmt.Errorf("%q is not a deployment name", dep)
 	case scope == "":
 		return nsKeys{}, errors.New("the workspace's resources have one namespace: no partition has a copy of its own")
-	case !util.ComponentPathOK(scope):
+	case !util.PartitionScopeOK(scope): // a workspace path, or a sealed component's scope (D227)
 		return nsKeys{}, fmt.Errorf("scope %q is not a workspace path", scope)
 	}
 	e := escS(scope)
@@ -483,7 +483,7 @@ func partitionNS(ns string) (scope, dep, pkey string, ok bool) {
 		return "", "", "", false
 	}
 	scope, ok = unescS(parts[0])
-	return scope, parts[1], parts[2], ok && util.ComponentPathOK(scope)
+	return scope, parts[1], parts[2], ok && util.PartitionScopeOK(scope)
 }
 
 // resKeys is every physical key of one resource in one data namespace

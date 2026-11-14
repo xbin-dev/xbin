@@ -80,6 +80,31 @@ const SealedPrefix = "xbin/"
 // SealedPath reports whether p lies in the sealed components' namespace.
 func SealedPath(p string) bool { return strings.HasPrefix(p, SealedPrefix) }
 
+// SealedComponentPath reports whether p has the shape of a sealed
+// component's own path: xbin/<name>, the name lowercase letters, digits
+// and "-", starting with a letter, at most 24 characters. Such a path is
+// its component's scope too (a sealed component always roots one).
+func SealedComponentPath(p string) bool {
+	name, ok := strings.CutPrefix(p, SealedPrefix)
+	if !ok || name == "" || len(name) > 24 || name[0] < 'a' || name[0] > 'z' {
+		return false
+	}
+	for _, r := range name {
+		if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
+			return false
+		}
+	}
+	return true
+}
+
+// PartitionScopeOK reports whether scope may have people's partitions: a
+// workspace path (ComponentPathOK), or a sealed component's scope. The
+// partition namespaces are keyed by the scope's injective escape, so a
+// sealed scope's can be nothing else's.
+func PartitionScopeOK(scope string) bool {
+	return ComponentPathOK(scope) || SealedComponentPath(scope)
+}
+
 // IgnoredDirs are never watched, scanned, or served as component internals.
 var IgnoredDirs = map[string]bool{
 	".git": true, ".xbin": true, "node_modules": true, "deps": true,

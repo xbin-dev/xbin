@@ -126,6 +126,9 @@ type Runner struct {
 	// component, when the release ships one (boot wires the directory
 	// beside xbind); nil or false = build from its materialized source.
 	SealedPrebuilt func(c *registry.Component) (bin string, ok bool)
+	// SealedCompile lets a sealed component without one be compiled from
+	// its source: a development xbind's alone.
+	SealedCompile bool
 
 	// Isolate + Rootfs enable per-component sandboxing (auth tier 3): each
 	// backend runs in its own user/mount/pid/net namespaces over an overlay of

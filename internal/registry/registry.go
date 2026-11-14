@@ -439,6 +439,7 @@ type Registry struct {
 	components map[string]*Component
 	scopes     map[string]*ScopeManifest // scope path → manifest
 	workspace  WorkspaceManifest
+	sealed     []SealedCode  // the sealed components of the last scan (sealed.go)
 	keys       scopeKeys     // who holds each scope data key (scopekeys.go)
 	wsBadRes   string        // invalid workspace resource names last warned about (resnames.go)
 	views      viewCache     // deployment views and the checkpoints they read (deployview.go)
@@ -519,7 +520,7 @@ func (r *Registry) Rescan() error {
 		return err
 	}
 	composePinnedScopes(scopes, comps, pinned)
-	r.addSealed(comps, scopes) // after the walk: nothing in the workspace takes their paths (sealed.go)
+	sealed := r.addSealed(comps, scopes) // after the walk: nothing in the workspace takes their paths (sealed.go)
 
 	ws := WorkspaceManifest{Schema: 1}
 	if b, err := os.ReadFile(filepath.Join(r.Root, "xbin.json")); err == nil {
@@ -533,7 +534,7 @@ func (r *Registry) Rescan() error {
 		c.Scope = nearestScope(scopes, c.Path)
 	}
 
-	r.settlePartitions(comps, scopes, ws) // before the lock: the mode store may read the registry
+	r.settlePartitions(comps, scopes, sealedView(ws, sealed)) // before the lock: the mode store may read the registry
 
 	r.mu.Lock()
 	r.warnWorkspaceResources(ws)
@@ -546,7 +547,7 @@ func (r *Registry) Rescan() error {
 			c.ManifestErr += sm.Err
 		}
 	}
-	r.components, r.scopes, r.workspace = comps, scopes, ws
+	r.components, r.scopes, r.workspace, r.sealed = comps, scopes, ws, sealed
 	r.mu.Unlock()
 	return nil
 }
@@ -639,7 +640,7 @@ func (r *Registry) Scopes() map[string]*ScopeManifest {
 func (r *Registry) Workspace() WorkspaceManifest {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	ws := r.workspace
+	ws := sealedView(r.workspace, r.sealed) // the table's word on sealed components, never the file's (sealed.go)
 	ws.Resources = validResources(ws.Resources)
 	return ws
 }
