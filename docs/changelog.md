@@ -21,6 +21,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   wiki) and "Create the initial knowledge base" (afterwards, your
   coordinator maps the code with research subagents and writes the
   project wiki). `POST /projects` takes `starter: {build, wiki}`.
+- **Agent template: a model that goes quiet mid-answer is given 5 minutes,
+  not 90 s.** Some upstreams (kimi-k3, deepseek-v4.1-flash through llm-gw)
+  send a tool call whole once it is composed, so a large one, such as a file
+  written in one call, was minutes of silence that the agent cut as a stalled
+  stream, again and again. The 90 s bound still holds until the first byte.
 
 ## 2026-11-08
 
@@ -67,14 +72,6 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (action `cancel`, by `agent`), as a withdrawn permission already did
   ([sdk.md](/docs/sdk.md), [protocol.md](/docs/protocol.md)). New
   `Provider.LoginFiles`: where each CLI keeps its login.
-
-## 2026-11-09
-
-- **Agent template: a model that goes quiet mid-answer is given 5 minutes,
-  not 90 s.** Some upstreams (kimi-k3, deepseek-v4.1-flash through llm-gw)
-  send a tool call whole once it is composed, so a large one, such as a file
-  written in one call, was minutes of silence that the agent cut as a stalled
-  stream, again and again. The 90 s bound still holds until the first byte.
 
 ## 2026-11-03
 
