@@ -78,8 +78,13 @@ GET    /sealed                     admin. {release, components: [Row]} — the
                                    digest, at}: what its data was last
                                    written as, and by which release.
                                    slots: [{slot, kind, service?, multi?,
-                                   bound: [ref]}] — the interface slots an
-                                   admin may bind. grants: [{target, role}]
+                                   bound: [ref], default?, byDefault?}] —
+                                   the interface slots an admin may bind.
+                                   default: the builtin provider the release
+                                   binds the slot to while no admin has
+                                   bound it and the provider is available
+                                   (xbin:llm: the connector is configured);
+                                   byDefault: that is what binds it now. grants: [{target, role}]
                                    — what the release grants it. delegate:
                                    it may act for the person whose partition
                                    it is.
@@ -121,8 +126,12 @@ Four things, each with the route a tile has:
 PUT    /access                     {tile: "xbin/<name>", kind, id, level} —
                                    level read, none or "" (remove). write and
                                    terminal don't exist on a sealed
-                                   component: 400. A pattern or a permission
-                                   set that gives more reads as read.
+                                   component: 400, here and on every route
+                                   that writes entries — POST /users and
+                                   PATCH /users/<id> (tiles), PUT /defaults
+                                   (defaultTiles, newUsers.tiles). A pattern
+                                   that reaches it ("*", "xbin/*") is kept
+                                   and reads as read.
 POST   /access-requests            a person asks for read (400 for more);
 POST   /access-requests/approve    an admin approves at read.
 POST   /lifecycle                  {component, state} — enabled, disabled or
@@ -134,6 +143,13 @@ POST   /bindings                   {component: "xbin/<name>", slot, provider}
 DELETE /bindings                   — a slot the release declares for it
                                    (GET /sealed slots). Any other slot,
                                    pseudo-slots (@archive) included: 400.
+                                   A slot with a default: a binding replaces
+                                   the default; an unbind is kept (the slot's
+                                   entry in xbin.json is then []), so the
+                                   default doesn't return until the default
+                                   provider is bound by name. GET /bindings
+                                   shows a default binding like any other;
+                                   it is never written to xbin.json.
 ```
 
 Backups are data only (the code is the release's):
@@ -150,7 +166,9 @@ POST   /restore                    its data back. 502 when the archive's
                                    reads: install the release that wrote it,
                                    or a later one. An older format is
                                    restored; the backend migrates it forward
-                                   at its next start.
+                                   at its next start. With file (one file
+                                   read out of the archive): 400 — its data
+                                   is the component's alone to read.
 POST   /partitions/restore         the same check, for a person's partition.
 POST   /backup-schedule            as for a tile.
 ```

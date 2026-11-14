@@ -24,6 +24,11 @@ type sealedSlot struct {
 	Service string   `json:"service,omitempty"`
 	Multi   bool     `json:"multi,omitempty"`
 	Bound   []string `json:"bound"` // provider refs; [] = unbound
+	// Default is the provider the release binds the slot to while no admin
+	// has bound it and the provider is available; ByDefault says that is
+	// what binds it now.
+	Default   string `json:"default,omitempty"`
+	ByDefault bool   `json:"byDefault,omitempty"`
 }
 
 type sealedRow struct {
@@ -101,8 +106,10 @@ func (st *State) sealedRows() []sealedRow {
 				row.Backend = st.Run.PrimaryState(sc.Path)
 			}
 			for slot, def := range c.Manifest.Interfaces {
-				row.Slots = append(row.Slots, sealedSlot{Slot: slot, Kind: def.Kind, Service: def.Service, Multi: def.Multi,
-					Bound: append([]string{}, bindings[sc.Path][slot].Refs()...)})
+				ss := sealedSlot{Slot: slot, Kind: def.Kind, Service: def.Service, Multi: def.Multi,
+					Bound: append([]string{}, bindings[sc.Path][slot].Refs()...)}
+				ss.Default, ss.ByDefault = st.Reg.SealedDefault(sc.Path, slot)
+				row.Slots = append(row.Slots, ss)
 			}
 			sort.Slice(row.Slots, func(i, j int) bool { return row.Slots[i].Slot < row.Slots[j].Slot })
 		}

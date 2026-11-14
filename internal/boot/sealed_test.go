@@ -57,7 +57,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /hello", func(w http.ResponseWriter, r *http.Request) {
 		wd, _ := os.Getwd()
-		fmt.Fprintf(w, "` + version + ` self=%s from=%s cwd=%s", os.Getenv("XBIN_COMPONENT"), xbin.Caller(r).From, wd)
+		fmt.Fprintf(w, "` + version + ` self=%s from=%s cwd=%s llm=%s", os.Getenv("XBIN_COMPONENT"), xbin.Caller(r).From, wd, os.Getenv("XBIN_IFACE_LLM_URL"))
 	})
 	xbin.Serve(mux)
 }
@@ -817,4 +817,103 @@ func TestSealedFrontendInStrictAssetModes(t *testing.T) {
 			t.Errorf("its origin without a credential answers %d %q; a tile's %d %q", sc, sb, tc, tb)
 		}
 	})
+}
+
+// A slot's default binding (the workspace agent's llm slot → the LLM
+// connector): it applies once the connector is configured, restarts a
+// backend that started without it, and gives way to whatever an admin
+// decides — a binding, or no binding — across restarts.
+func TestSealedDefaultBinding(t *testing.T) {
+	if testing.Short() {
+		t.Skip("boots a workspace three times")
+	}
+	quiet(t)
+	ws := probeWorkspace(t)
+	sp := probeSpec()
+	sp.Defaults = map[string]string{"llm": "xbin:llm"}
+	table := []sealed.Spec{sp}
+	bin := prebuilt(t, table)
+	slot := func(d *sealedDaemon) sealedSlot {
+		t.Helper()
+		row := d.sealedRow(probePath)
+		if len(row.Slots) != 1 || row.Slots[0].Slot != "llm" {
+			t.Fatalf("slots: %+v", row.Slots)
+		}
+		return row.Slots[0]
+	}
+	is := func(d *sealedDaemon, what string, bound string, byDefault bool) {
+		t.Helper()
+		s := slot(d)
+		if strings.Join(s.Bound, ",") != bound || s.ByDefault != byDefault || s.Default != "xbin:llm" {
+			t.Errorf("%s: bound %v, byDefault %v, default %q — want [%s], %v", what, s.Bound, s.ByDefault, s.Default, bound, byDefault)
+		}
+	}
+	llmOf := func(d *sealedDaemon) string {
+		t.Helper()
+		code, body := d.do("GET", "/api/"+probePath+"/hello", nil)
+		if code != 200 {
+			t.Fatalf("hello: %d %s", code, body)
+		}
+		return body[strings.LastIndex(body, "llm=")+4:]
+	}
+	manifest := func() string {
+		b, _ := os.ReadFile(filepath.Join(ws, "xbin.json"))
+		return string(b)
+	}
+	before := manifest()
+
+	d := startSealed(t, ws, table, production(bin))
+	is(d, "the connector not configured", "", false)
+	if got := llmOf(d); got != "" {
+		t.Errorf("its backend has an llm endpoint before the connector exists: %q", got)
+	}
+	// the connector is configured: the default applies, and the running
+	// backend restarts onto it
+	if code, body := d.do("PUT", "/api/xbin/llm/upstreams/main", map[string]any{"baseURL": "http://127.0.0.1:9/v1", "models": []string{"m"}}); code != 200 {
+		t.Fatalf("configuring the connector: %d %s", code, body)
+	}
+	is(d, "the connector configured", "xbin:llm", true)
+	deadline := time.Now().Add(30 * time.Second)
+	for llmOf(d) == "" {
+		if time.Now().After(deadline) {
+			t.Fatal("the backend never restarted onto its default binding")
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if got := llmOf(d); !strings.Contains(got, "/api/xbin/llm") {
+		t.Errorf("its llm endpoint is %q, want the connector's", got)
+	}
+	// the connector admits its calls: the binding is the authorization
+	if code, body := d.ownCall(probePath, "GET", "/api/xbin/llm", nil); code != 200 || !strings.Contains(body, `"configured":true`) {
+		t.Errorf("the connector's view for it: %d %s", code, body)
+	}
+	if manifest() != before {
+		t.Error("a default binding was written to the workspace xbin.json")
+	}
+
+	// an admin's choice wins, and a boot doesn't undo it
+	if code, body := d.do("POST", "/api/xbin/bindings", map[string]any{"component": probePath, "slot": "llm", "provider": "apps/prov"}); code != 200 {
+		t.Fatalf("binding it elsewhere: %d %s", code, body)
+	}
+	is(d, "bound by an admin", "apps/prov", false)
+	d.stop()
+	d = startSealed(t, ws, table, production(bin))
+	is(d, "after a restart", "apps/prov", false)
+
+	// so does their unbinding it
+	if code, body := d.do("DELETE", "/api/xbin/bindings", map[string]any{"component": probePath, "slot": "llm"}); code != 200 {
+		t.Fatalf("unbinding it: %d %s", code, body)
+	}
+	is(d, "unbound by an admin", "", false)
+	d.stop()
+	d = startSealed(t, ws, table, production(bin))
+	is(d, "unbound, after a restart", "", false)
+	if got := llmOf(d); got != "" {
+		t.Errorf("unbound, its backend still has an llm endpoint: %q", got)
+	}
+	// and they bind the default themselves to have it back
+	if code, body := d.do("POST", "/api/xbin/bindings", map[string]any{"component": probePath, "slot": "llm", "provider": "xbin:llm"}); code != 200 {
+		t.Fatalf("binding the connector: %d %s", code, body)
+	}
+	is(d, "bound to the connector by an admin", "xbin:llm", false)
 }

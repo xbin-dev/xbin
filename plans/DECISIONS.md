@@ -14159,9 +14159,27 @@ Deviations and refinements made while implementing; all deliberate:
     owner's term); people read "system component". No user-facing sentence
     puts it beside the vault's sealed state, and `docs/sealed.md` says how
     the two differ.
+  - **Second round (2026-11-15; the owner's answers).**
+    - *Explicit entries.* An access entry that names a sealed path above
+      read is refused wherever entries are written (the users store: one
+      entry, a user's map, the defaults, a request, an owner); only a
+      pattern that reaches it is clamped to read.
+    - *What an admin sees.* People's-partition operations and data-only
+      backups stay an admin's, under the rules of any partitioned tile, and
+      none of them reads a person's data: resources, secrets and
+      registrations pass only the component, a partition restores into the
+      same person's partition, a person's log needs their share, and a
+      single file is never read out of a sealed component's backup
+      (`POST /restore {file}` is refused for one). `docs/sealed.md` lists
+      both sides, and says what an admin's control of accounts still means.
+    - *Default bindings.* A row may bind a declared slot to a builtin
+      provider (`Defaults`: the workspace agent's `llm` → `xbin:llm`). The
+      registry applies it when the manifest is read, while the file has no
+      entry for the slot and the provider is available (the connector is
+      configured); nothing is written. An admin's binding wins, and so does
+      their unbinding it, kept as an empty entry — otherwise an unbind
+      would be undone by the next read. A backend that started before the
+      default applied restarts onto it (its bindings are its environment).
   - **Not done here.** No entry point in the shell, the admin console or
-    the app (the workspace agent's UI work adds them; `web/xb/
-    tile-resource.js` and the app's deep links still read `xbin/…` as an
-    xbind page). Table default bindings. A frame doesn't reload when xbind
-    restarts onto other code. The real-binary downgrade suite has nothing
-    sealed to downgrade until a row exists.
+    the app (the workspace agent's UI work adds them). The real-binary
+    downgrade suite has nothing sealed to downgrade until a row exists.

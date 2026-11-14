@@ -437,6 +437,12 @@ type Registry struct {
 	// them at their reserved paths, which no walk of the workspace reaches.
 	// nil: none.
 	Sealed func() []SealedCode
+	// SealedProvider, set at boot, reports whether a builtin provider a
+	// sealed component's slot defaults to is available now ("xbin:llm":
+	// the LLM connector is configured). Workspace() asks it under the
+	// registry's lock: it must not read the registry. nil: no default
+	// applies.
+	SealedProvider func(ref string) bool
 
 	mu         sync.RWMutex
 	components map[string]*Component
@@ -537,7 +543,7 @@ func (r *Registry) Rescan() error {
 		c.Scope = nearestScope(scopes, c.Path)
 	}
 
-	r.settlePartitions(comps, scopes, sealedView(ws, sealed)) // before the lock: the mode store may read the registry
+	r.settlePartitions(comps, scopes, sealedView(ws, sealed, nil)) // before the lock: the mode store may read the registry
 
 	r.mu.Lock()
 	r.warnWorkspaceResources(ws)
@@ -643,7 +649,7 @@ func (r *Registry) Scopes() map[string]*ScopeManifest {
 func (r *Registry) Workspace() WorkspaceManifest {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	ws := sealedView(r.workspace, r.sealed) // the table's word on sealed components, never the file's (sealed.go)
+	ws := sealedView(r.workspace, r.sealed, r.SealedProvider) // the table's word on sealed components, never the file's (sealed.go)
 	ws.Resources = validResources(ws.Resources)
 	return ws
 }

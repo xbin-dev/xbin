@@ -142,9 +142,13 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     client that shows one must not offer a terminal, source, deployments,
     ownership or grants on it.
   - An admin decides four things about one, with the routes a tile has:
-    who has read access (`PUT /access`: `read` or none — `write` and
-    `terminal` are 400), enabled/disabled/hidden (`POST /lifecycle`), its
-    limits, and the bindings of the slots the release declares. Every other
+    who has read access (`read` or none — an entry naming it at `write` or
+    `terminal` is 400 on every route that writes entries; a pattern gives
+    read), enabled/disabled/hidden (`POST /lifecycle`), its limits, and the
+    bindings of the slots the release declares. A slot may have a default
+    binding to a built-in provider (`xbin:llm` once the LLM connector is
+    configured): it applies while no admin has bound or unbound the slot,
+    and is never written to `xbin.json`. Every other
     route that names a tile answers a path under `xbin/` with a refusal
     whose text starts "`<path>` is a system component, managed by xbin:"
     (400; 403 for its resources, secrets and registrations, which only the

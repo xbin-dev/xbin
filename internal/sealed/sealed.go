@@ -30,11 +30,13 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/xbin-dev/xbin/internal/builtins"
@@ -75,6 +77,13 @@ type Spec struct {
 	// (registry.addSealed), so no tile is granted a call into it and no
 	// slot binds to it.
 	Slots []string
+	// Defaults names, for some of Slots, the provider a slot is bound to
+	// while no admin has bound it: slot → a builtin provider's ref
+	// ("xbin:llm", never a tile of the workspace — the table knows none).
+	// It applies while that provider is available (the LLM connector:
+	// configured); an admin's binding of the slot, or their unbinding it,
+	// always wins and is never overwritten (registry.sealedView).
+	Defaults map[string]string
 	// Grants are the cross-scope grants the release gives it (its own
 	// scope's resources need none). No admin adds to or removes from them.
 	Grants []registry.Use
@@ -210,6 +219,14 @@ func Load(specs []Spec) (*Set, error) {
 		for _, slot := range sp.Slots {
 			if _, ok := man.Interfaces[slot]; !ok {
 				return nil, fmt.Errorf("sealed component %s: the table names slot %q, which its manifest doesn't declare", p, slot)
+			}
+		}
+		for slot, ref := range sp.Defaults {
+			if !slices.Contains(sp.Slots, slot) {
+				return nil, fmt.Errorf("sealed component %s: a default binding for slot %q, which the table doesn't give it", p, slot)
+			}
+			if ref == "" || strings.Contains(ref, "/") {
+				return nil, fmt.Errorf("sealed component %s: slot %q defaults to %q — a default is a builtin provider's ref, never a tile's path", p, slot, ref)
 			}
 		}
 		for _, g := range sp.Grants {
@@ -357,7 +374,7 @@ func (s *Set) Registry() []registry.SealedCode {
 		sc := registry.SealedCode{
 			Path: c.Path, Dir: c.Dir, Title: c.Title,
 			Manifest: c.Files["xbin.json"], Scope: c.Files["scope.json"],
-			Slots: slices.Clone(c.Slots), Grants: slices.Clone(c.Grants),
+			Slots: slices.Clone(c.Slots), Grants: slices.Clone(c.Grants), Defaults: maps.Clone(c.Defaults),
 		}
 		if c.Partitioned {
 			sc.Partition = slices.Clone(c.Partition)

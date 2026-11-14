@@ -45,22 +45,24 @@ const watchDebounce = 300 * time.Millisecond
 // the steps are done. Exported fields are what the runtime API and tests
 // read; the rest is plumbing between steps.
 type State struct {
-	Cfg     *Config
-	WS      string
-	Auth    *auth.Auth
-	Users   *users.Store
-	Reg     *registry.Registry
-	Sealed  *sealed.Set // the sealed components of this xbind (stepRegistry)
-	Hub     *events.Hub
-	Run     *runner.Runner
-	Term    *term.Manager
-	Broker  *broker.Broker
-	Proxy   *proxy.Proxy
-	Server  *server.Server
-	VM      *vm.Manager      // VM sandboxes (vm.go); nil without isolation
-	Sbx     *sbx.Registry    // every live sandbox and what the sandbox layer failed at (D112)
-	TileSbx *tilesbx.Manager // the tile-sandbox runtime (tilesandboxes.go, D120)
-	Push    *push.Service    // the push plane (push.go)
+	Cfg    *Config
+	WS     string
+	Auth   *auth.Auth
+	Users  *users.Store
+	Reg    *registry.Registry
+	Sealed *sealed.Set // the sealed components of this xbind (stepRegistry)
+	// sealedDefaults follows what sealed components' default bindings bind (sealeddefaults.go)
+	sealedDefaults sealedDefaults
+	Hub            *events.Hub
+	Run            *runner.Runner
+	Term           *term.Manager
+	Broker         *broker.Broker
+	Proxy          *proxy.Proxy
+	Server         *server.Server
+	VM             *vm.Manager      // VM sandboxes (vm.go); nil without isolation
+	Sbx            *sbx.Registry    // every live sandbox and what the sandbox layer failed at (D112)
+	TileSbx        *tilesbx.Manager // the tile-sandbox runtime (tilesandboxes.go, D120)
+	Push           *push.Service    // the push plane (push.go)
 	// AppTunnel is the xbin app's iroh tunnel (apptunnel.go, D204)
 	AppTunnel *apptunnel.Service
 	// LLM is the LLM connector (llm.go, D226)
@@ -677,7 +679,7 @@ func (st *State) stepProxy() error {
 		}
 		// a sealed component's own holds (D227), before anything of its
 		// data is looked at: no build, foreign or newer data, no sandboxes
-		if why := st.Sealed.Admit(comp); why != "" {
+		if why := st.sealedAdmit(comp); why != "" {
 			return why
 		}
 		if why := brk.PartitionHoldReason(comp); why != "" {
@@ -690,7 +692,7 @@ func (st *State) stepProxy() error {
 	// the partition hold is the primary's alone (non-primary deployments keep
 	// running while a mode switch is pending).
 	run.ShouldRunDeployment = func(tile, dep string) bool {
-		return reg.LifecycleState(tile) == registry.StateEnabled && st.Sealed.Admit(tile) == "" && !brk.DeploymentEncryptionHold(tile, dep) &&
+		return reg.LifecycleState(tile) == registry.StateEnabled && st.sealedAdmit(tile) == "" && !brk.DeploymentEncryptionHold(tile, dep) &&
 			(dep != st.Deployments.Primary(tile) || brk.PartitionHoldReason(tile) == "")
 	}
 	brk.SetPartitionStop(func(tile string) { run.StopDeployment(tile, st.Deployments.Primary(tile)) })
@@ -807,6 +809,7 @@ func (st *State) stepServer() error {
 	if err := st.setupLLM(srv); err != nil { // the LLM connector (llm.go, D226)
 		return err
 	}
+	st.wireSealedDefaults() // a sealed component's slot may default to the connector (sealeddefaults.go)
 	st.Server = srv
 	return nil
 }

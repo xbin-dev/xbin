@@ -48,6 +48,10 @@ type SealedCode struct {
 	// Slots are the interface slots it has: the manifest's other slots are
 	// dropped.
 	Slots []string
+	// Defaults binds a slot (of Slots) to a builtin provider while the
+	// workspace file has no entry for the slot and the provider is
+	// available (Registry.SealedProvider): slot → ref.
+	Defaults map[string]string
 	// Grants are the grants the table gives it, read as rows of the grant
 	// table (Workspace) that no workspace file holds.
 	Grants []Use
@@ -118,7 +122,7 @@ func (r *Registry) addSealed(comps map[string]*Component, scopes map[string]*Sco
 // sealed component — a grant from one, a grant on one or on its resources,
 // a binding of a slot the table doesn't give it — and the table's grants
 // are there as rows. The file itself is never rewritten for this.
-func sealedView(ws WorkspaceManifest, codes []SealedCode) WorkspaceManifest {
+func sealedView(ws WorkspaceManifest, codes []SealedCode, available func(ref string) bool) WorkspaceManifest {
 	sealedTarget := func(t string) bool {
 		return util.SealedPath(t) || strings.HasPrefix(t, "res:"+util.SealedPrefix)
 	}
@@ -137,6 +141,7 @@ func sealedView(ws WorkspaceManifest, codes []SealedCode) WorkspaceManifest {
 		ws.Grants = kept
 	}
 	ws.Bindings = withoutSealedProviders(ws.Bindings)
+	ws.Bindings = withSealedDefaults(ws.Bindings, codes, available)
 	// a sealed component is switched off, never offloaded (there is no
 	// source or archive to bring back): a file that says so reads disabled
 	for comp, state := range ws.Lifecycle {
@@ -182,6 +187,57 @@ func sealedView(ws WorkspaceManifest, codes []SealedCode) WorkspaceManifest {
 		}
 	}
 	return ws
+}
+
+// withSealedDefaults binds each sealed component's defaulted slots that the
+// file says nothing about, while their provider is available. A slot the
+// file has an entry for — a binding, or the empty one an unbind leaves
+// (broker.apiBindingSet) — is the admin's and is left alone. Copies only
+// when a default applies.
+func withSealedDefaults(all map[string]map[string]Binding, codes []SealedCode, available func(ref string) bool) map[string]map[string]Binding {
+	if available == nil {
+		return all
+	}
+	out, copied := all, false
+	for _, sc := range codes {
+		for slot, ref := range sc.Defaults {
+			if _, explicit := all[sc.Path][slot]; explicit || !slices.Contains(sc.Slots, slot) || !available(ref) {
+				continue
+			}
+			if !copied {
+				out, copied = make(map[string]map[string]Binding, len(all)+1), true
+				for k, v := range all {
+					out[k] = v
+				}
+			}
+			slots := make(map[string]Binding, len(out[sc.Path])+1)
+			for k, v := range out[sc.Path] {
+				slots[k] = v
+			}
+			slots[slot] = BindTo(ref)
+			out[sc.Path] = slots
+		}
+	}
+	return out
+}
+
+// SealedDefault is the provider the sealed component at comp binds slot to
+// by default ("" = none), and whether that default is what binds it now:
+// the workspace file has no entry for the slot and the provider is
+// available.
+func (r *Registry) SealedDefault(comp, slot string) (ref string, applied bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, sc := range r.sealed {
+		if sc.Path == comp {
+			ref = sc.Defaults[slot]
+		}
+	}
+	if ref == "" {
+		return "", false
+	}
+	_, explicit := r.workspace.Bindings[comp][slot]
+	return ref, !explicit && r.SealedProvider != nil && r.SealedProvider(ref)
 }
 
 // withoutSealedProviders drops every binding ref that names a sealed

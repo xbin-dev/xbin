@@ -408,3 +408,60 @@ func TestRestoreGoesThroughTheStamp(t *testing.T) {
 		t.Fatal("not at format 2")
 	}
 }
+
+// A slot's default binding (Spec.Defaults) applies while the workspace file
+// says nothing about the slot and the provider is available; whatever the
+// file says — a binding, or the empty entry an unbind leaves — wins.
+func TestDefaultBindings(t *testing.T) {
+	for what, sp := range map[string]Spec{
+		"a slot the table doesn't give it": {Name: "fix", Source: fixture(""), Slots: []string{"llm"}, Defaults: map[string]string{"net": "internet"}},
+		"a tile's path":                    {Name: "fix", Source: fixture(""), Slots: []string{"llm"}, Defaults: map[string]string{"llm": "apps/llm-gw"}},
+		"nothing":                          {Name: "fix", Source: fixture(""), Slots: []string{"llm"}, Defaults: map[string]string{"llm": ""}},
+	} {
+		if _, err := Load([]Spec{sp}); err == nil {
+			t.Errorf("a default binding to %s loaded", what)
+		}
+	}
+	sp := spec("")
+	sp.Defaults = map[string]string{"llm": "xbin:llm"}
+	bound := func(file string, available bool) (refs []string, applied bool, after string) {
+		t.Helper()
+		ws := t.TempDir()
+		if err := os.WriteFile(filepath.Join(ws, "xbin.json"), []byte(file), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		s := open(t, ws, Options{Dev: true}, sp)
+		reg, err := registry.OpenSealed(ws, s.Registry)
+		if err != nil {
+			t.Fatal(err)
+		}
+		reg.SealedProvider = func(ref string) bool { return available && ref == "xbin:llm" }
+		ref, applied := reg.SealedDefault("xbin/fix", "llm")
+		if ref != "xbin:llm" {
+			t.Fatalf("SealedDefault ref = %q", ref)
+		}
+		b, _ := os.ReadFile(filepath.Join(ws, "xbin.json"))
+		return reg.Workspace().Bindings["xbin/fix"]["llm"].Refs(), applied, string(b)
+	}
+	cases := []struct {
+		what, file string
+		available  bool
+		want       []string
+		applied    bool
+	}{
+		{"nothing in the file, the provider available", `{"schema":1}`, true, []string{"xbin:llm"}, true},
+		{"nothing in the file, the provider not available", `{"schema":1}`, false, nil, false},
+		{"an admin's binding", `{"schema":1,"bindings":{"xbin/fix":{"llm":"apps/gw"}}}`, true, []string{"apps/gw"}, false},
+		{"an admin's unbind", `{"schema":1,"bindings":{"xbin/fix":{"llm":[]}}}`, true, nil, false},
+		{"another component's binding only", `{"schema":1,"bindings":{"apps/a":{"llm":"apps/gw"}}}`, true, []string{"xbin:llm"}, true},
+	}
+	for _, c := range cases {
+		refs, applied, after := bound(c.file, c.available)
+		if strings.Join(refs, ",") != strings.Join(c.want, ",") || applied != c.applied {
+			t.Errorf("%s: bound to %v (by default: %v), want %v (%v)", c.what, refs, applied, c.want, c.applied)
+		}
+		if after != c.file {
+			t.Errorf("%s: the workspace xbin.json was rewritten: %s", c.what, after)
+		}
+	}
+}
