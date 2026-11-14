@@ -699,6 +699,12 @@ func (st *State) stepServer() error {
 		Settings:       st.settings,                                                 // workspace settings (D175)
 		AgentPrefs:     st.agentPrefs(),                                             // people's agent preferences (D229)
 	}
+	if st.Broker != nil && srv.AgentPrefs != nil {
+		// a person's saved credential choice for a harness: one of the
+		// inputs of Broker.AgentSessionLLM (D229)
+		prefs := srv.AgentPrefs
+		st.Broker.AgentSaved = func(user, harness string) string { return prefs.Get(user).Harnesses[harness].Credentials }
+	}
 	if st.Term != nil {
 		st.Term.OnChange = srv.TermChanged // the session directory's change stream (D73)
 		st.Term.OnEvent = srv.SessionEvent // agent session events (D74)

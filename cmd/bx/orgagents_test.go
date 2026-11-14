@@ -22,7 +22,8 @@ func TestBxOrgAgents(t *testing.T) {
 		got = append(got, strings.TrimSpace(r.Method+" "+r.URL.RequestURI()+" "+string(b)))
 		switch {
 		case r.URL.Path == "/api/xbin/orgs":
-			_, _ = io.WriteString(w, `{"orgs":[{"id":"acme"},{"id":"finance","agents":{"workspaceAgent":"on","harnesses":["claude"],"models":"private"}}]}`)
+			_, _ = io.WriteString(w, `{"orgs":[{"id":"acme"},{"id":"finance","agents":{"workspaceAgent":"on","harnesses":["claude"],"models":"private"},
+				"agentsPin":{"workspaceAgent":"on","harnesses":["claude","codex"],"models":"any"}}]}`)
 		case r.URL.Path == "/api/xbin/agents/policy":
 			_, _ = io.WriteString(w, `{"workspaceAgent":"on","harnesses":"any","models":["local"],"credentials":"connector","knownHarnesses":["claude"],"canSet":true}`)
 		case r.URL.Path == "/api/xbin/agents/connection":
@@ -32,8 +33,10 @@ func TestBxOrgAgents(t *testing.T) {
 				{"tile":"apps/secret","org":"","state":"no-access"}],
 				"counts":{"summary":"1 tile connected · 2 not connected"},
 				"whatIf":{"connect":[{"tile":"apps/ledger"}],"disconnect":[],"counts":{"summary":"2 tiles · 1 org connected · 1 not connected"}}}`)
+		case strings.HasSuffix(r.URL.Path, "/agents/pin"):
+			_, _ = io.WriteString(w, `{"agents":{"workspaceAgent":"on","harnesses":"any","models":"any"},"pin":{"workspaceAgent":"on","harnesses":"any","models":"private"},"bounds":{"workspaceAgent":"on","harnesses":"any","models":"any"}}`)
 		default:
-			_, _ = io.WriteString(w, `{"agents":{"workspaceAgent":"off","harnesses":[],"models":"private"},"bounds":{"workspaceAgent":"on","harnesses":"any","models":"any"}}`)
+			_, _ = io.WriteString(w, `{"agents":{"workspaceAgent":"off","harnesses":[],"models":"private"},"pin":{"workspaceAgent":"on","harnesses":"any","models":"any"},"bounds":{"workspaceAgent":"on","harnesses":"any","models":"any"}}`)
 		}
 	}))
 	defer srv.Close()
@@ -50,7 +53,8 @@ func TestBxOrgAgents(t *testing.T) {
 		{"finance", "--workspace-agent", "off", "--harnesses=none", "--models", "private"},
 		{"finance", "--harnesses", "claude, codex", "--models", "local,hosted/small"},
 		{},
-		{"--models", "any", "--credentials", "own-first"},
+		{"--models", "any", "--credentials", "connector-first"},
+		{"finance", "--pin", "--models", "private"},
 	} {
 		if err := cmdOrgAgents(args); err != nil {
 			t.Fatalf("bx org agents %v: %v", args, err)
@@ -65,7 +69,8 @@ func TestBxOrgAgents(t *testing.T) {
 		`PUT /api/xbin/orgs/finance/agents {"harnesses":[],"models":"private","workspaceAgent":"off"}`,
 		`PUT /api/xbin/orgs/finance/agents {"harnesses":["claude","codex"],"models":["local","hosted/small"]}`,
 		"GET /api/xbin/agents/policy",
-		`PUT /api/xbin/agents/policy {"credentials":"own-first","models":"any"}`,
+		`PUT /api/xbin/agents/policy {"credentials":"connector-first","models":"any"}`,
+		`PUT /api/xbin/orgs/finance/agents/pin {"models":"private"}`,
 		"GET /api/xbin/agents/connection?model=hosted%2Fbig&orgs=finance%2Cworkspace&whatIf=local%2Fllama",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -74,6 +79,8 @@ func TestBxOrgAgents(t *testing.T) {
 	for _, line := range []string{
 		"  harnesses        claude\n  models           private\n",
 		"acme: no rules of its own",
+		"pinned on finance by a workspace admin (its admins can't loosen these)\n  workspace agent  on\n  harnesses        claude, codex\n",
+		"pinned on finance by a workspace admin (its admins can't loosen these)\n  workspace agent  on\n  harnesses        any\n  models           private\n",
 		"  harnesses        none\n",
 		"within the workspace's bounds: workspace agent on · harnesses any · models any",
 		"  models           local\n  credentials      connector\n",
@@ -87,7 +94,7 @@ func TestBxOrgAgents(t *testing.T) {
 		}
 	}
 	for _, args := range [][]string{{"a", "b"}, {"finance", "--workspace-agent", "maybe"}, {"finance", "--harnesses", "private"},
-		{"finance", "--credentials", "connector"}, {"finance", "--models"}, {"finance", "--frob", "x"}} {
+		{"finance", "--credentials", "connector-only"}, {"finance", "--models"}, {"finance", "--frob", "x"}, {"--pin", "--models", "private"}} {
 		var e *dcError
 		if err := cmdOrgAgents(args); !errors.As(err, &e) || e.code != exitUsage {
 			t.Errorf("bx org agents %v: %v, want a usage error", args, err)

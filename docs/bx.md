@@ -129,10 +129,13 @@ bx limits approve <tile> [<kind>…] | raise <tile> <kind> [+25%|+50%|+100%|<siz
 bx org limits <org> [--set memory=8G,disk=500G,…] [--rm <kind>]
                                        an org's per-tile ceilings (workspace
                                        admin)
-bx org agents [<org>] [--workspace-agent on|off] [--harnesses any|none|<id,…>]
-              [--models any|private|none|<id,…>] [--credentials own-first|connector]
+bx org agents [<org>] [--pin] [--workspace-agent on|off] [--harnesses any|none|<id,…>]
+              [--models any|private|none|<id,…>]
+              [--credentials own-first|connector-first|connector-only]
                                        what agents may do on an org's tiles
-                                       (D229); no org: the workspace's bounds
+                                       (D229); --pin: the rules its admins
+                                       can't loosen; no org: the workspace's
+                                       bounds
 bx policies [ls] [--json] | set partition-consent|credential-reset-confirm on|off
                                        alias of bx settings for the partitioned
                                        tiles' two switches (v0.3.66's; D180)
@@ -494,10 +497,13 @@ in a browser.
 an org's rules; a flag sets one and leaves the others
 (`PUT /api/xbin/orgs/<org>/agents`): `--workspace-agent on|off`,
 `--harnesses any|none|claude,codex`, `--models
-any|private|none|local,hosted/small`. With no org it reads and sets the
-workspace's bounds (`/api/xbin/agents/policy`), which also take
-`--credentials own-first|connector`. An org's list must sit within the
-bounds. `bx agent connection --model hosted/big` prints what a workspace
+any|private|none|local,hosted/small`. `--pin` reads and sets the rules a workspace admin
+pins on the org instead (`…/agents/pin`): its own admins narrow below
+them, never loosen them. With no org it reads and sets the workspace's
+bounds (`/api/xbin/agents/policy`), which also take `--credentials
+own-first|connector-first|connector-only`. An org's list must sit within
+its pin and the bounds. A `models` rule other than `any` also makes agent
+sessions on the org's tiles run on the LLM connector only. `bx agent connection --model hosted/big` prints what a workspace
 agent session with that model is connected to — the totals, then each org
 and tile with its state and the reason it is blocked; `--orgs` and
 `--tiles` are the session's scope, `--what-if <model>` adds what a model

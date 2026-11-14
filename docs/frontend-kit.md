@@ -98,7 +98,7 @@ every question; `target` — `primary`, a deployment's name or `off` — is the
 session in view's, whose row it tags `Dev API`) with `/vendor/deploy-panel.js` (the panel's pure view
 model, beside `deploy-state.js`), `/vendor/frame-panels.js` (before D202
 the terminal window's body; kept for what imports it, its exports now
-mapped onto the IDE), `/vendor/frame-css.js` (`<bx-frame>`'s own styles), `/vendor/agent-prefs.js` (the person's agent preferences as the launcher and the Agent tab use them, D229: `agentPrefs()` over `GET`/`PUT /api/xbin/agent/prefs`, with this browser's older record as the migration source and the fallback), `/vendor/win-resize.js`
+mapped onto the IDE), `/vendor/frame-css.js` (`<bx-frame>`'s own styles), `/vendor/org-agents.js` (`<bx-org-agents>`: the editor of an org's constraints on agents, its pin and the workspace's bounds, D229 — the admin console and the organisations tile), `/vendor/agent-prefs.js` (the person's agent preferences as the launcher and the Agent tab use them, D229: `agentPrefs()` over `GET`/`PUT /api/xbin/agent/prefs`, with this browser's older record as the migration source and the fallback), `/vendor/win-resize.js`
 (a floating window's resize corner over the kit's `dragResize`, D217),
 `/vendor/frame-testapi.js` (`<bx-frame>`'s
 test surface for the UI harness), and the shell's own siblings under

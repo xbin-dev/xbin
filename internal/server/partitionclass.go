@@ -484,12 +484,13 @@ var partitionClasses = map[string]PartitionClass{
 	// ---- org constraints on agents (D229): admins', and a person's own
 	// connection view; a person's agent preferences are theirs alone to
 	// read and write — what their workspace agent may start is in them ----
-	"GET /agents/policy":     GlobalOnlyRefused,
-	"PUT /agents/policy":     GlobalOnlyRefused,
-	"PUT /orgs/{org}/agents": GlobalOnlyRefused,
-	"GET /agents/connection": GlobalOnlyRefused,
-	"GET /agent/prefs":       PersonOnly,
-	"PUT /agent/prefs":       PersonOnly,
+	"GET /agents/policy":         GlobalOnlyRefused,
+	"PUT /agents/policy":         GlobalOnlyRefused,
+	"PUT /orgs/{org}/agents":     GlobalOnlyRefused,
+	"PUT /orgs/{org}/agents/pin": GlobalOnlyRefused,
+	"GET /agents/connection":     GlobalOnlyRefused,
+	"GET /agent/prefs":           PersonOnly,
+	"PUT /agent/prefs":           PersonOnly,
 
 	// ---- partitions' governance acts (02 §8): their handlers judge the
 	// person and refuse the target tile's own credentials. A mode decision

@@ -230,7 +230,7 @@ the bootstrap owner) keeps pure capability semantics.
 | base permission | policy-ceiling rows (workspace and org) |
 | teams: create/delete, members, tiles, canCreate, newTiles | team `termApi` / `termNet` (terminal-plane security) |
 | per-tile access entries on org tiles | anything outside the org's tree |
-| the org's constraints on agents, within the workspace's bounds (D229) | the workspace's bounds on agents |
+| the org's constraints on agents, within the workspace's bounds and the org's pin (D229) | the workspace's bounds on agents, and the rules pinned on an org |
 
 Org admins hold implicit `terminal` and create on their org's tiles —
 equivalent power to their ACL-editing rights, with less friction (the

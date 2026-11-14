@@ -13871,12 +13871,48 @@ Deviations and refinements made while implementing; all deliberate:
     from a tile's page; the D220 link gains `&session=<id>`. A shell that
     doesn't answer the request (an older scaffold) gets the link, which it
     reads as a plain link to the tile.
+  - **Round 2 (2026-11-14), the owner's answers.**
+    - *A workspace admin pins an org's rules* (`Org.AgentsPin`, `PUT
+      /orgs/{org}/agents/pin`; the pattern of D203's ceiling, turned
+      around: a floor of strictness). The first round let an org's admin
+      put back anything a workspace admin had set on their org; only the
+      bounds held. Pin and own rules are two layers asked on every call,
+      so narrowing below the pin needs no rule and loosening it is
+      impossible; a write past it is also refused, for the message. The
+      answer names it: "(pinned by a workspace admin)".
+    - *A share brings a tile under the org's rules, patterns included*
+      (kept), and the reason names the share — "this tile is under
+      Finance by its share apps/*" — so a surprising `*` can be traced
+      (`TileOrgVia`, `Layer.Via`).
+    - *Three credential modes*: `own-first`, `connector-first` (the
+      connector unless the person chose their own sign-in for the harness
+      or the session), `connector-only`. The earlier `connector` reads as
+      `connector-only`.
+    - *The model rule binds tile agent sessions* (the issue: "internal-data
+      org only allows private LLMs … at harness/model level"). A harness
+      on a person's own subscription sends the tile's code to a model
+      xbind can't verify, so wherever a layer's `models` rule is not `any`
+      the session is connector-only whatever the mode and the person's
+      choice, and the connector asks the rule for every call
+      (`Broker.AgentCallAllows`, its `CallPolicy`). One function answers
+      the hook-up: `Broker.AgentSessionLLM(user, tile, harness)
+      agentpolicy.SessionLLM` — `Mode`, `Use` (the saved choice applied;
+      `Choose(session)` for a session's), `Forced`, `Reason`,
+      `ModelAllowed(ModelRef)`. A harness that can't run on the connector
+      (`Broker.AgentConnector`, the connector's to answer; unset: there is
+      none) isn't offered there: `AgentHarnessGate`, so providers, create,
+      resume and restart, and `unavailable` in the connection view and in
+      `GET /agent/providers?cwd=&all=1`. A plain terminal is not governed
+      by either rule, and the docs say so.
+    - *The editor is xbind's* (`/vendor/org-agents.js`, as
+      `<bx-org-limits>` is), used by the admin console and — through a new
+      sibling module — the organisations tile, so an org's admin has a UI.
   - **Not done.** The scope picker, chip and panel (web, iOS); the
     delegation package's `Policy` answered by `Broker.AgentTileAllows`,
     `AgentSessionAllows` and `agentprefs.Store.StartPrefs` (written for
-    it; wired where the two meet); the organisations tile has no editor,
-    so an org's admin who is not a workspace admin sets their org's rules
-    through the API from their own session; a session's `llm` choice and the
+    it; wired where the two meet); the connector's side of
+    `AgentSessionLLM`, `AgentCallAllows` and `AgentConnector` (the hook-up
+    package wires them); a session's `llm` choice and the
     connector's variables (the connector's); per-model rules inside one
     upstream beyond the allowlist; the admin console's editor reaches an
     old scaffold only after `bx builtin update` (`bx org agents` and the

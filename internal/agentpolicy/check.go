@@ -6,11 +6,18 @@ import (
 )
 
 // Layer is one set of rules a tile falls under: the workspace's bounds
-// (ID "") or one of the tile's orgs.
+// (ID "") or one of the tile's orgs — an org's own rules, or the rules a
+// workspace admin pinned on it (Pinned), which its admins can narrow below
+// and never loosen. Both are asked, so the pin holds whatever the org says.
 type Layer struct {
 	ID    string // the org's id; "" for the workspace
 	Name  string // the org's name, for reasons
 	Rules Rules
+	// Pinned: the rules a workspace admin pinned on the org.
+	Pinned bool
+	// Via is the share that brought the tile under the org — the pattern
+	// or path of the org's share that covers it; "" when the org owns it.
+	Via string
 }
 
 // WorkspaceID names the workspace layer in a Decision's By, and the
@@ -38,6 +45,11 @@ type Decision struct {
 	Reason  string `json:"reason,omitempty"`
 	By      string `json:"by,omitempty"`
 	Rule    string `json:"rule,omitempty"`
+	// Pinned: the rule is one a workspace admin pinned on the org (the
+	// org's admins can't loosen it); Via: the share that put the tile
+	// under the org, when it doesn't own it. The reason says both.
+	Pinned bool   `json:"pinned,omitempty"`
+	Via    string `json:"via,omitempty"`
 }
 
 // Err is the refusal as an error, nil when allowed.
@@ -79,7 +91,25 @@ func (l Layer) deny(rule, reason string) Decision {
 	if by == "" {
 		by = WorkspaceID
 	}
-	return Decision{Reason: reason, By: by, Rule: rule}
+	return Decision{Reason: reason + l.note(), By: by, Rule: rule, Pinned: l.Pinned, Via: l.Via}
+}
+
+// note is what a reason adds about the layer: that a workspace admin
+// pinned the rule, and the share that put the tile under the org — so a
+// rule that surprises (a `*` share, a rule the org's admins never set) can
+// be traced.
+func (l Layer) note() string {
+	var notes []string
+	if l.Pinned {
+		notes = append(notes, "pinned by a workspace admin")
+	}
+	if l.Via != "" {
+		notes = append(notes, "this tile is under "+l.who()+" by its share "+l.Via)
+	}
+	if len(notes) == 0 {
+		return ""
+	}
+	return " (" + strings.Join(notes, "; ") + ")"
 }
 
 func (l Layer) check(a Ask) Decision {
@@ -151,4 +181,104 @@ func Harnesses(layers []Layer) Allow {
 		return Any()
 	}
 	return Only(out...)
+}
+
+// SessionLLM is how the model calls of an agent session on one tile are
+// served: the credential mode in force there, who serves the session once
+// the person's saved choice is applied, and the models the tile's rules
+// let it use.
+//
+// An org's model rule binds the sessions on its tiles, not only the
+// workspace agent: a harness on a person's own sign-in sends the tile's
+// code to a model xbind can't see. So wherever a layer's model rule is
+// anything but "any", the mode is connector-only — the session's calls go
+// through the LLM connector, which asks ModelAllowed for each — and a
+// harness that can't run on the connector can't start there.
+type SessionLLM struct {
+	// Mode: own-first | connector-first | connector-only.
+	Mode string `json:"mode"`
+	// Use: "own", "connector" or "own-first" — the mode with the person's
+	// saved choice for the harness applied (Choose applies a session's).
+	Use string `json:"use"`
+	// Forced: connector-only; no choice changes it.
+	Forced bool `json:"forced"`
+	// Reason says why the mode is connector-only when a model rule made it
+	// so ("Finance allows private models only"); By names that layer's org
+	// (WorkspaceID for the bounds). Both empty when the workspace's own
+	// mode is the reason, or nothing forces anything.
+	Reason string `json:"reason,omitempty"`
+	By     string `json:"by,omitempty"`
+
+	layers []Layer
+	saved  string
+}
+
+// Session resolves SessionLLM for a tile's layers, the workspace's
+// credential mode and the person's saved choice for the harness ("" for
+// none).
+func Session(layers []Layer, workspaceMode, saved string) SessionLLM {
+	mode, _ := CredentialMode(workspaceMode)
+	s := SessionLLM{Mode: mode, layers: layers, saved: saved}
+	for _, l := range layers {
+		if why := modelRule(l.Rules.Models); why != "" {
+			d := l.deny("models", l.who()+" "+why)
+			s.Mode, s.Reason, s.By = CredentialsConnectorOnly, d.Reason, d.By
+			break
+		}
+	}
+	s.Use, s.Forced = ResolveCredentials("", saved, s.Mode)
+	return s
+}
+
+// modelRule is a model rule as a sentence after the layer's name; "" for
+// any.
+func modelRule(rule Allow) string {
+	switch ids, listed := rule.List(); {
+	case rule.IsPrivate():
+		return "allows private models only"
+	case listed && len(ids) == 0:
+		return "allows no models"
+	case listed:
+		return "allows these models only: " + strings.Join(ids, ", ")
+	}
+	return ""
+}
+
+// Choose is who serves the session when it states its own choice ("own",
+// "connector" or ""): "own", "connector" or "own-first".
+func (s SessionLLM) Choose(session string) string {
+	use, _ := ResolveCredentials(session, s.saved, s.Mode)
+	return use
+}
+
+// Restricted reports that some layer's model rule narrows the models (the
+// mode is then connector-only).
+func (s SessionLLM) Restricted() bool { return s.Reason != "" }
+
+// ModelAllowed is nil when every layer's model rule lets the session use
+// m, else the refusal a person reads.
+func (s SessionLLM) ModelAllowed(m ModelRef) error {
+	return Check(s.layers, Ask{Model: &m}).Err()
+}
+
+// HarnessRefusal is why an agent session of harness can't start under s
+// ("" when it can): under connector-only the harness has to run on the LLM
+// connector, and connector says why this one can't (nil: it can; a nil
+// func: there is no connector on this xbind).
+func (s SessionLLM) HarnessRefusal(harness string, connector func(harness string) error) string {
+	if s.Mode != CredentialsConnectorOnly {
+		return ""
+	}
+	why := "this xbind has no LLM connector set up"
+	if connector != nil {
+		err := connector(harness)
+		if err == nil {
+			return ""
+		}
+		why = err.Error()
+	}
+	if s.Reason != "" {
+		return s.Reason + ", so a coding agent here runs on the workspace's LLM connector — and " + harness + " can't: " + why
+	}
+	return "This workspace runs coding agents on its LLM connector only — and " + harness + " can't: " + why
 }
