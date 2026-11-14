@@ -20,6 +20,7 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 
+	"github.com/xbin-dev/xbin/internal/agentprefs"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/branding"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -47,6 +48,9 @@ type Server struct {
 	Brand *branding.Store
 	// Settings is the workspace settings file (D175, wssettings.go); nil = none.
 	Settings *wssettings.Store
+	// AgentPrefs is the people's agent preferences (D229, agentprefsapi.go);
+	// nil = none.
+	AgentPrefs *agentprefs.Store
 
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.
@@ -90,6 +94,10 @@ type Server struct {
 	// tile origins (--tiles-domain, optionally with a :port).
 	TileAssets  string
 	TilesDomain string
+
+	// LLMKey resolves an LLM key to the marker principal its request runs
+	// as (llmkey.go); installed by the LLM connector, nil = no key is valid.
+	LLMKey func(token string) (auth.Principal, bool)
 
 	// OnDeviceSignedOut, if set, is called after an enrolled device's app
 	// session signed itself out (POST /logout with its bearer,
@@ -246,6 +254,10 @@ func (s *Server) authed(next http.Handler) http.Handler {
 			}
 			if r.Method == http.MethodGet && strings.Contains(r.Header.Get("Accept"), "text/html") {
 				http.Redirect(w, r, loginURLFor(r), http.StatusFound) // a deep-link page carries ?next= (loginnext.go)
+				return
+			}
+			if onLLMPlane(r) { // OpenAI clients show an OpenAI-shaped error (llmkey.go)
+				writeLLMUnauthorized(w, "no valid credential: the LLM connector takes an xbin sign-in, a bound tile's credential or an LLM key")
 				return
 			}
 			http.Error(w, "unauthorized — sign in at /login", http.StatusUnauthorized)
@@ -701,6 +713,12 @@ func (c *countingWriter) Write(b []byte) (int, error) {
 	respBytes.Add(int64(n))
 	return n, err
 }
+
+// Unwrap lets http.ResponseController reach the connection through the
+// counter: a handler that streams sets a deadline on each write (the LLM
+// connector's relay), so a client that stops reading doesn't pin it.
+func (c *countingWriter) Unwrap() http.ResponseWriter { return c.ResponseWriter }
+
 func (c *countingWriter) Flush() {
 	if f, ok := c.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
@@ -727,7 +745,7 @@ func auditable(method, path string) bool {
 	// The element data plane (prefs/kv/blob/bus, partition mail) is
 	// high-frequency and not governance — exclude it so the audit stream
 	// stays signal.
-	for _, dp := range []string{"/prefs", "/kv/", "/blob/", "/bus/", "/partitions/mail"} {
+	for _, dp := range []string{"/prefs", "/kv/", "/blob/", "/bus/", "/partitions/mail", "/llm/v1/"} { // …and model calls (metered, not audited)
 		if strings.HasPrefix(path, dp) {
 			return false
 		}

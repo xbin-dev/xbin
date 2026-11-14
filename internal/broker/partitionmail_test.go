@@ -562,10 +562,14 @@ func fakeMailDispatch(t *testing.T, b *Broker, answer func(bellCall) int) chan b
 	calls := make(chan bellCall, 64)
 	ms := b.mail()
 	ms.bellMu.Lock()
-	ms.dispatch = func(_ context.Context, p auth.Principal, comp, path string, body []byte) (int, string) {
+	ms.dispatch = func(ctx context.Context, p auth.Principal, comp, path string, body []byte) (int, string) {
 		c := bellCall{p: p, comp: comp, path: path}
 		_ = json.Unmarshal(body, &c.body)
-		calls <- c
+		select {
+		case calls <- c:
+		case <-ctx.Done(): // nobody listens any more and the broker closed: its close waits for this ring
+			return 499, ""
+		}
 		if answer != nil {
 			return answer(c), ""
 		}

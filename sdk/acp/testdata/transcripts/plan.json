@@ -1,0 +1,279 @@
+{
+ "name": "plan",
+ "about": "the agent's plan moving along: three entries pending, one in progress, all completed",
+ "source": "sdk/acp/acptest TestTranscripts: the scripted agent through acp.Client; seq and ts are the test's (ts = 2026-01-01T00:00:00Z + 100 ms per event)",
+ "flags": [],
+ "steps": [
+  "prompt: todo list"
+ ],
+ "checkpoints": [
+  7,
+  13
+ ],
+ "events": [
+  {
+   "seq": 1,
+   "ts": 1767225600100,
+   "type": "status",
+   "data": {
+    "status": "starting"
+   }
+  },
+  {
+   "seq": 2,
+   "ts": 1767225600200,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 3,
+   "ts": 1767225600300,
+   "type": "status",
+   "data": {
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 4,
+   "ts": 1767225600400,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "todo list"
+   }
+  },
+  {
+   "seq": 5,
+   "ts": 1767225600500,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 6,
+   "ts": 1767225600600,
+   "type": "plan",
+   "data": {
+    "entries": [
+     {
+      "content": "Read the code",
+      "priority": "high",
+      "status": "pending"
+     },
+     {
+      "content": "Change main.go",
+      "priority": "medium",
+      "status": "pending"
+     },
+     {
+      "content": "Run the tests",
+      "priority": "low",
+      "status": "pending"
+     }
+    ]
+   }
+  },
+  {
+   "seq": 7,
+   "ts": 1767225600700,
+   "type": "plan",
+   "data": {
+    "entries": [
+     {
+      "content": "Read the code",
+      "priority": "high",
+      "status": "in_progress"
+     },
+     {
+      "content": "Change main.go",
+      "priority": "medium",
+      "status": "pending"
+     },
+     {
+      "content": "Run the tests",
+      "priority": "low",
+      "status": "pending"
+     }
+    ]
+   }
+  },
+  {
+   "seq": 8,
+   "ts": 1767225600800,
+   "type": "plan",
+   "data": {
+    "entries": [
+     {
+      "content": "Read the code",
+      "priority": "high",
+      "status": "completed"
+     },
+     {
+      "content": "Change main.go",
+      "priority": "medium",
+      "status": "completed"
+     },
+     {
+      "content": "Run the tests",
+      "priority": "low",
+      "status": "completed"
+     }
+    ]
+   }
+  },
+  {
+   "seq": 9,
+   "ts": 1767225600900,
+   "type": "message.delta",
+   "data": {
+    "messageId": "m",
+    "role": "agent",
+    "text": "todo done"
+   }
+  },
+  {
+   "seq": 10,
+   "ts": 1767225601000,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 11,
+   "ts": 1767225601100,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "title": "fake: todo list"
+   }
+  },
+  {
+   "seq": 12,
+   "ts": 1767225601200,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 1,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 13,
+   "ts": 1767225601300,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  }
+ ]
+}

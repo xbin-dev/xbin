@@ -13674,6 +13674,415 @@ Deviations and refinements made while implementing; all deliberate:
     step, which says what failed. The `[project starter` marker is defused
     in text from outside, like the coordinator's other markers.
 
+- **D224 — One chat kit for the Agent tab, the agent template and the
+  workspace agent; a newer template needs its xbind (2026-11-14; issue
+  #51).** The Agent tab (`web/agent-*.js`), the agent template
+  (`builtin-templates/agent/`) and, next, the workspace agent draw the same
+  things — markdown, tool cards, asks, a composer — from separate
+  implementations (`plans/agent-dedupe.md` §1). They move onto one kit
+  under `web/chat/` (`/vendor/chat/…`), public and additive like the rest
+  of the frontend kit, a step at a time. This entry grows with the steps;
+  the first is markdown (F1).
+  - **One HTML renderer: `/vendor/chat/md.js`.** `web/bx-md.js` and the
+    template's `chat-md.js` were two renderers with one policy (raw HTML
+    escaped, images as text, links on safe schemes) and small differences.
+    The kit's has both sides' parts: the template's line-based closed-fence
+    check and optional highlighter, the web's block memo, `mdCssText`.
+    Exports: `md`, `mdInto(el, s, memo?)`, `mdCssText`, `closedFence`,
+    `mdEpoch`, `onHighlighter`, `useHighlighter`.
+  - **Its own `Marked` instance.** Both old modules called `marked.use()`
+    on the one shared `marked` of `/vendor/marked.esm.js`, so two renderers
+    in a document would have stacked their options. The kit's instance is
+    its own, and so is `web/xb/rt-markdown.js`'s (it built a `Lexer` from a
+    full options object per call to stay clear of exactly that): an old
+    template instance still configures the shared `marked` in its own
+    document, and nothing of xbind's listens. rt-markdown's tokens are
+    byte-identical (`native/tools/markdown-parity.mjs` rewrites
+    `expected.json` unchanged), so Swift's `MarkdownLexer` is not touched.
+  - **`/vendor/bx-md.js` stays the renderer with the highlighter up
+    front; the lazy one is the new URL.** The plan had `bx-md.js` itself
+    go lazy ("plain text until the highlighter loads"). It can't: scaffold
+    copies of `shell/shell-blocks.js` in workspaces import `md` from it and
+    draw `unsafeHTML(md(text))` once — they know nothing of `mdEpoch`, so a
+    lazy `md` would leave a text block's code plain until some later
+    render (rule 3 freezes what a served URL does, not only that it
+    answers). A static import is the one way to have the highlighter
+    before the first call (top-level await was ruled out: WebKit's
+    multi-importer bug, and `bx-md.js` has two importers in the Agent
+    tab). So `bx-md.js` is four lines: import highlight.js, hand it to the
+    kit (`useHighlighter`), re-export. Both URLs are the same module state
+    in a document. The Agent tab keeps `bx-md.js` and its behaviour; the
+    template takes the lazy URL and keeps its own (no 127 KB before its
+    first paint). A host picks by which URL it imports.
+  - **The unifications, each the safer or the already-served rule.**
+    (1) *Closed fence*: line-based — the last line is a fence of the
+    opening character, at least as long (the web's regex took any trailing
+    fence line, so a ```` block whose last line was ``` was coloured while
+    still open). (2) *Size cap*: 32 KiB, the web's — what `bx-md.js`
+    callers in the wild already get; the template's 20,000 characters goes
+    (blocks between the two are now coloured there). (3) *Language class*:
+    the web's allowlist `^[\w+#.-]+$`, else no class attribute at all (the
+    template escaped any string into the attribute); highlighting needs
+    the same name (every highlight.js name and alias passes). (4) *Image
+    class*: `md-img`; the template's page gains a `.md-img` rule equal to
+    its `.muted`. (5) *CSS*: `mdCssText` for shadow roots as before; the
+    template keeps its own global `.md` rules, which differ on purpose
+    (coloured headings and list markers, #26) — moving it onto
+    `mdCssText` would have changed its look. (6) *mdInto*: one function
+    with the optional memo and the epoch; a memo is dropped when the epoch
+    moves.
+  - **Not unified: link safety between HTML and tokens.** The HTML
+    renderer refuses `javascript:`, `data:` and `vbscript:` and keeps
+    everything else (relative links, anchors, `tel:`); rt-markdown allows
+    only `http`, `https` and `mailto`, because a native app opens what it
+    is given. One rule would change one side's output (relative links in
+    the wiki and in screen text, or the Swift parity corpus), so both
+    stay, and rt-markdown's header says so.
+  - **A newer template needs its xbind: `/vendor/chat/rev.js` and
+    `boot.js`.** Template instances are forks in workspaces, never updated
+    by an upgrade, and they import xbind's modules by `/vendor/` URL. Old
+    instance on new xbind keeps working (nothing served is removed). New
+    template on old xbind is the new case: a static import of a module or
+    export the old xbind lacks fails the whole graph — a blank page. No
+    second code path is kept for it (that would be the duplicate this
+    programme removes); instead `rev.js` exports `KIT`, a number that only
+    goes up as the kit grows (1 = the markdown renderer), and the
+    template's `index.html` starts `boot.js`, which imports `rev.js`
+    guarded, compares `KIT` with `NEEDS.kit`, and either imports
+    `agent.js` or replaces the page with "This agent needs xbind ≥ v0.3.80
+    — update xbind" and a link to `/docs/install.md` (on the workspace's
+    origin when the tile has its own). A failure of `agent.js` itself is
+    re-raised with `reportError` — an uncaught error as a failing `<script
+    type="module">` was — never that message. `index.html` preloads
+    `agent.js` (`modulepreload`) so the probe costs no round trip. The
+    native view imports only models and `/vendor/xb-native.js`, nothing of
+    the kit: it needs no guard, and where the app falls back to the web
+    page (`docs/native.md` §Fallback) that page carries the guard.
+    `docs/compat.md` states it under "What this does not promise", next to
+    the Go case it mirrors (new SDK calls don't build on an older xbind).
+  - **Guards.** `make js-check` refuses a second definition of `mdInto`,
+    `mdCssText`, `closedFence`, `onHighlighter` or `useHighlighter` in the
+    shipped trees (`md` is too common a name to ban);
+    `hack/agent-template-boot.test.mjs` fails when the template asks for a
+    kit revision this checkout doesn't serve; the template's
+    `test/needs-xbind.mjs` drives the page with the kit, without it (404),
+    with an older one, and with a broken `agent.js`.
+  - **Open.** `NEEDS.xbind` is `v0.3.80`, the release after v0.3.79 — the
+    first that can carry this; whoever cuts the release this lands in
+    checks the number. Later steps (tool and ask models, views, composer)
+    add to this entry and raise `KIT`.
+- **D229 — Orgs constrain agents by harness and model; scope and
+  connection state; agent preferences on the server (2026-11-14; issue
+  #51).** The owner: "Orgs define constraints; Workspace agents then get
+  their calls filtered based on those constraints", a multi-select of orgs
+  (unfolding to tiles) says what a session sees, and the UI "should very
+  clearly indicate what orgs/tiles are hooked up and which are not (incl
+  top level UI element showing eg aggregate numbers)"; from the issue:
+  "internal-data org only allows private LLMs". This is the data and the
+  API of `plans/workspace-agent.md` §5.3 and §5.6; the scope picker, the
+  chip and the panel are the web and iOS packages'.
+  - **Three rules, one shape, two levels.** `Org.Agents` (additive, in
+    `data/users.json` like D203's `Org.Limits`): `workspaceAgent` on|off,
+    `harnesses` any | a list of `sdk/acp` provider ids, `models` any |
+    `private` | a list of LLM connector ids (an upstream, or
+    `upstream/model`). The workspace has the same three as outer bounds
+    (a top-level `agents` key beside the workspace policy rows, not
+    `workspace-settings.json`: that store is booleans with their own
+    protections, and the bounds are validated together with the orgs' rules
+    under one lock), plus the credential default of S4 §1.5 (`own-first`,
+    or `connector` forced). Stored only when it narrows something: with
+    nothing set `users.json` is byte for byte what it was.
+  - **Filtering follows the tile's org, on every call**
+    (`internal/agentpolicy`, pure: `Check(layers, ask)`). A tile's layers
+    are the workspace's bounds, the org that owns it, and every org it is
+    shared into (an exact share or a pattern — `users.Store.TileOrgs`).
+    Every layer must allow, so several orgs give the strictest and a tile
+    in no org follows the bounds. A path inside a tile (a session opened
+    on a sub-directory, a nested component) falls under the orgs of every
+    path above it: stepping into a tile never steps out of its org's
+    rules. A share is the tile's managers' act
+    (D24), so the org a tile is shared into gaining a say over it is
+    something its owner chose. The answer carries the reason a person
+    reads ("Finance allows private models only"), the org and the rule.
+  - **An org only narrows — at write time and at call time.** A list entry
+    the bounds don't cover is refused when written, for a workspace admin
+    too; "any" is always accepted (it adds no rule). Bounds tightened later
+    rewrite nothing: each call is asked against both.
+  - **Who sets what.** Workspace admins (and `xbin:users`): the bounds and
+    any org. An org's admin: their own org, in their own session only —
+    refused from a tile they drive (the frame-token rule), from a
+    terminal's or an agent session's token, and in view-as. D203 kept
+    ceilings to workspace admins because a ceiling is a budget; these
+    rules are the org's own data policy, so its admins hold them, and the
+    bounds are where a workspace pins what no org may loosen. The stricter
+    "own session" rule is new here: a coding agent running on an org
+    admin's token must not widen the rules it runs under.
+  - **`private` is the connector's word.** `Broker.AgentModels` (wired by
+    the LLM connector) says whether a model's upstream is private; without
+    it, and for a model it doesn't know, nothing is private. No route takes
+    the caller's word for it.
+  - **The connection view** (`GET /agents/connection?model=&orgs=&tiles=
+    &whatIf=`): every org the person has to do with and every tile they
+    can read as connected | hidden (by their scope) | blocked (reason, org,
+    rule) | no-access (the scope names what they can't see — or what
+    doesn't exist: not told apart), with the totals and the sentence for
+    the chip, and what a model change would connect and disconnect.
+    Blocked wins over hidden: selecting it would not connect it. The scope
+    is the caller's parameter — the session that holds it is the agent
+    component's — and takes `workspace` for the tiles in no org (a
+    reserved org id). The handler answers whoever its credential names as
+    a person, so a delegate gets its person's view with no code of its own.
+  - **The harness list also governs sessions people start themselves**
+    (`term.Manager.AgentGate`, the broker's `AgentHarnessGate`):
+    `GET /agent/providers?cwd=` offers only what the tile allows, and
+    `POST /term/sessions` refuses the rest with the reason. Nothing running
+    is ever ended: a session keeps going, a restart of it is refused before
+    it would end it, and a resume of a past session of a disallowed harness
+    is refused with its transcript still readable. Without `cwd` the
+    catalog is whole, so the shipped app and older frames lose nothing and
+    learn the reason from the refusal. Not a sandbox boundary: a terminal
+    on the tile can still run any CLI.
+  - **Agent preferences on the server** (`internal/agentprefs`,
+    `data/agent-prefs/<user>.json`, `GET`/`PUT /agent/prefs`, a merge
+    patch): the default harness and the launcher's last choice; per
+    harness the mode, model, options and the credential choice; and what
+    the person's workspace agent may start a session with — `start` ask
+    (default) or allow, a mode per harness, the network and tile-API
+    pickers. A bypass mode is never stored (Explicit modes are per
+    session, D74), and `agentSessions.modes` takes only modes the catalog
+    knows keep asking — checked again on every read (`AgentStart`), so the
+    file is never trusted. The routes are `PersonOnly` and refuse terminal
+    and agent tokens too: what an agent may do without asking is not the
+    agent's to write. The file records whose it is (the account's creation
+    stamp): a user id given to a new person keeps the conveniences, like
+    the home directory, and resets `agentSessions`. The launcher reads and
+    writes them, with its `localStorage` value as the migration source and
+    as the fallback against an xbind without the route or a credential the
+    route refuses (the root token, `--no-auth`).
+  - **`origin`** on a session row and its history entry: `"agent"` for
+    one a workspace agent opened, absent otherwise; the session keeps the
+    component that opened it. The field, its JSON and the lines that carry
+    it through `internal/term` are the delegation package's, word for
+    word, so the two merge; setting it at open is that package's alone,
+    and until it lands every row reads as its person's own.
+  - **A session opens from outside its tile's window.** `<bx-frame>`
+    `open({session})` shows a live session's tab, or a past one's
+    transcript; `xbin:open-session {tile, session}` asks the shell for it
+    from a tile's page; the D220 link gains `&session=<id>`. A shell that
+    doesn't answer the request (an older scaffold) gets the link, which it
+    reads as a plain link to the tile.
+  - **Not done.** The scope picker, chip and panel (web, iOS); the
+    delegation package's `Policy` answered by `Broker.AgentTileAllows`,
+    `AgentSessionAllows` and `agentprefs.Store.StartPrefs` (written for
+    it; wired where the two meet); the organisations tile has no editor,
+    so an org's admin who is not a workspace admin sets their org's rules
+    through the API from their own session; a session's `llm` choice and the
+    connector's variables (the connector's); per-model rules inside one
+    upstream beyond the allowlist; the admin console's editor reaches an
+    old scaffold only after `bx builtin update` (`bx org agents` and the
+    API reach it now).
+
+- **D226 — An LLM connector in the daemon: two config sources with a host
+  lock, per-user metering and quotas (2026-11-14; issue #51).** The owner:
+  "Connector built into xbind; Make sure it's configurable both from xbin
+  admin UI and from xbin deployment config (so eg hosted instances would
+  pre-populate the llm config and lock admin settings for the builtin
+  connector in hosted instances)", and "for admin purposes might make sense
+  to have some user-based metering/quota system in mind". Design:
+  `plans/workspace-agent.md` §5.4; builder page `docs/llm.md`; routes
+  `docs/protocol/llm.md`. This entry is the core, API and CLI; the admin
+  console section, the hook-up of harnesses and terminals and an
+  Anthropic-wire route are later packages.
+  - **In the daemon, behind one interface.** `internal/llm` serves
+    `/api/xbin/llm/v1/{chat/completions,responses,models}`: a streaming
+    reverse proxy that holds nothing back, ends the upstream call when its
+    client goes (after a grace, below), bounds a call by silence (10 minutes without headers
+    or without a byte) and never by total time, caps a request at 32 MiB,
+    and follows no redirect. Everything that touches an upstream is
+    `llm.Connector` (three methods, a target resolved from configuration
+    handed in per call), so the data plane can move to a sealed component
+    without the rest moving; a call is a path, a body and a usage sink, so
+    another wire is a route and a sink. It interprets no model output and
+    logs no body and no key. Upstream URLs come from configuration only.
+    The connector doesn't retry: clients do, and two retry layers multiply.
+  - **Shared wire code**: `sdk/llm` (standard library only) holds the two
+    wires' types, usage from a body or a stream, the model list, prices and
+    the error shape. The connector is its first user; llm-gw, the agent
+    template and `hack/fakeopenai` move onto it in a later package.
+  - **Two sources, the host's on top.** An admin's settings live in
+    `data/llm/config.json` (the D204 pattern); the host's in the file
+    `XBIN_LLM_CONFIG` names (JSON with comments; keys by `keyFile`). The
+    host's values win setting by setting, and **what the file sets is
+    locked**: reads carry `locks: {<path>: {locked: true, reason: "set by
+    your host"}}` and writes naming a locked setting are 409 with the paths
+    (a locked value sent back unchanged passes, so a client may PUT what it
+    read). Granularity: `enabled`, `people`, each upstream, the default
+    model, each role and alias, and each part of `quotas` the file
+    mentions — an empty `"users": {}` locks per-user overrides with none.
+    `lockAll` makes every setting the host's and takes the admin's own out
+    of force. The admin's shadowed settings stay on disk: remove the file
+    and they are back.
+  - **The file is read at boot and on change.** An unreadable or invalid
+    file stops the boot (a host must not run without the limits it wrote);
+    afterwards its size and modification time, and its key files', are
+    looked at when the connector is used (at most every 2 s — the ingress
+    certificate's pattern, no watcher, no SIGHUP), and a change that is
+    invalid is refused with the last good file in force. Its error goes to
+    xbind's log; an admin's view says only that the host's configuration
+    could not be read (the host's paths are not a workspace admin's to see).
+  - **Keys in the vault; what happens while it is sealed.** Admin-set
+    upstream keys are one map in `data/llm/keys.json`, sealed under a
+    barrier subkey of their own (`llm/upstream-keys`) — not under
+    `data/vault/`, whose files the vault API lists and migrates as tiles'.
+    Sealed: an upstream whose key is in the vault answers 503
+    `xbin_vault_sealed` naming the unseal, setting a key is 409, nothing
+    decrypted outlives the seal (the cache drops on the first read after
+    it); the host's upstreams keep working, their keys being files. Locked
+    (production before a vault exists): the same, and a key is never
+    written in the clear. Plaintext mode: in the clear, 0600, sealed by the
+    first read once a barrier exists. No read ever answers a key: `{set,
+    source, hint}`, the hint an admin key's last four characters.
+  - **Callers.** (i) A person — session, app or device bearer, owner
+    token — by a workspace switch, `people: admins | everyone | nobody`,
+    default `admins`: adding a key must not, by itself, let every member
+    spend on it. (ii) A component, by its binding: the connector is a
+    builtin provider of the `openai` service, ref **`xbin:llm`**, so a tile
+    binds its `llm` slot to it as to llm-gw (`XBIN_IFACE_LLM[_URL]` →
+    `/api/xbin/llm`; `GET …/preferred` answers llm-gw's shape so the agent
+    template resolves its default model unchanged). Element principals
+    stay default-deny: no binding, no call, whoever drives the tile; the
+    binding is asked per call; binding it is a workspace admin's act (an
+    org admin's or an owner's would spend the workspace's quota), and
+    pickers offer it only once an upstream exists. (iii) An LLM key
+    (below). Attribution is from the verified credential only: the person
+    of a partition's backend, the person driving a frame, terminal or
+    agent session, `owner` for the root token, nobody for a backend that
+    isn't a person's partition (metered to the tile; the workspace quota
+    alone holds it).
+  - **LLM keys** (after spike S4, `plans/wsagent/s4-connector.md` §3): a
+    coding CLI must not hold the tile's API token — Codex writes its
+    environment to `$HOME`, and a tool that ignores the base URL sends its
+    key to the vendor. So a narrow credential, `xbl_…`, as `Authorization:
+    Bearer` (what OpenCode and Codex send): good on `/api/xbin/llm/v1/`
+    only, 401 anywhere else whatever rides beside it, resolved to a marker
+    principal (`Via: "llm"`) no other route accepts. The store
+    (`llm.Keys`: person, component, label, sandbox, expiry, revocation;
+    hashes only, in memory) and the server's gate are here; minting — per
+    terminal and agent session, and the SDK call for manager sandboxes —
+    is the hook-up package's.
+  - **Model names.** `<upstream>/<model>`, always prefixed in listings so
+    adding a second upstream renames nothing. A request's model resolves:
+    none or `xbin/default` → the default; `xbin/<role>` → the role's model
+    (`agent`, `harness`, any an admin adds), else the default; an alias; a
+    prefixed name; a bare name one upstream lists, or any name on a single
+    passthrough upstream (the review, below, put aliases after what
+    configuration names). **An unknown name is refused, not mapped to the
+    default** — a client billed for a model it didn't ask for is a
+    surprise only an admin may arrange, with the alias `*` (S4: Codex sends
+    its own default model name). An upstream's `models` list is an
+    allowlist; empty passes its `/models` and any name through.
+  - **Metering.** Counters per UTC day, person, component and model —
+    requests, failed, input/output/cached/reasoning tokens, cost, unpriced
+    — in `data/llm/usage/<YYYY-MM>.json`, counted in memory (one lock, two
+    map writes), written 10 s after the first unsaved count and at
+    shutdown (the partition ledger's pattern; no new dependency),
+    24 months kept, a file this xbind can't read never written over. Cost
+    is the upstream's price table (USD per million tokens, cached input
+    priced apart), else what the provider itself reported. A streamed chat
+    completion is forced to `stream_options.include_usage`, or a client
+    could opt out of being metered. A call abandoned mid-stream is not free (the
+    review, below).
+  - **Quotas.** Tokens and cost per UTC day and month; `stop` (429 in
+    OpenAI's shape, `insufficient_quota`, naming the quota and its reset,
+    with `Retry-After`) or `warn` (a header and the status). A person's
+    quota, **each limit on its own**: their user override → else the most
+    generous of their orgs' overrides (unlimited beats numbers) → else the
+    default. Orgs add up as access does (a member of two orgs gets the
+    better grant); the user override wins in either direction. `workspace`
+    is a total over everyone and the one quota an admin can't lift for
+    themselves once a host locks it. Checked before a call against what is
+    metered, so calls in flight at a limit finish.
+  - **Errors** on the OpenAI routes are OpenAI-shaped, the 401 of xbind's
+    own auth gate on those routes included, so SDKs and CLIs show them. An
+    upstream's refusal of the workspace's key is a 502 of the connector's,
+    never the caller's 401 (a CLI would ask its person to sign in again);
+    an upstream's other errors pass with their status, the key cut out of
+    the body should it be echoed.
+  - **Nothing changes unconfigured** (compat): the routes answer 503 "not
+    configured", no picker lists `xbin:llm`, no file is written. Route
+    classes: the calls are neutral (the handler reads the tile's edge
+    policy for a non-primary deployment, below) and partition-scoped (a
+    partition's credential is stamped with its person, which is the
+    attribution); the settings are primary-only and refused to partitions.
+    Model calls are left out of the audit log (metered instead; the audit
+    writer would also have hidden the flush); settings changes are audited.
+  - **Deviations from the plan, and why.** llm-gw is not an upstream yet:
+    the connector would need a daemon principal a tile's policy admits — an
+    identity rule that belongs with delegation's (B3), not here; the
+    upstream `kind` and the plane's `Target` leave room for it. The seam
+    for session credentials became a real key store and gate instead of an
+    interface with a test double, because S4 landed its design while this
+    was built and the gate (which route accepts which bearer) is the part
+    that must not be improvised later.
+  - **Open** for the owner: whether `people` should default to `everyone`
+    once quotas exist; whether calls nobody acts in should get a quota of
+    their own (per component) beside the workspace total; whether a warn
+    should also raise an admin alert.
+  - **After an independent review (2026-11-14)** — what a caller, an admin
+    or a deployment could do that it shouldn't:
+    - *A caller-chosen model name made a usage row and a Warn line each.*
+      Names are bounded (200 characters, no spaces); on a pass-through
+      upstream a call is metered and logged under its model only when the
+      upstream's own list (cached; fetched once when missing) has it, and
+      as `<upstream>/(unknown)` otherwise, accepted or refused.
+    - *A cancelled stream was free.* The upstream call now outlives its
+      client by a grace (5 s, `XBIN_LLM_CANCEL_GRACE`) in which the answer
+      is read for its usage; then it is cut. Without usage — also from a
+      provider that reports none, or a stream that broke off — the call is
+      charged an estimate, stated in the docs and marked `estimated`: a
+      token per four request bytes in, a token per stream event (or four
+      answer bytes) out. The grace is short on purpose: generation nobody
+      reads is money too.
+    - *A non-primary deployment called in full.* The binding to `xbin:llm`
+      is an edge like a slot bound to a provider tile (role `writer`):
+      read-clamped by default — models and status, no calls, as llm-gw's
+      reader — or blocked by a tile manager; `docs/auth.md` and this entry
+      now say the same. The builtin is an edge and never a grant role
+      (`xbin:` is the governance namespace).
+    - *An admin's alias could redirect a host-locked model.* Resolution
+      puts everything configuration names — `<upstream>/<model>`, a listed
+      bare name — before aliases, and such alias names are refused.
+    - *A stored key followed a repointed base URL.* Changing scheme, host
+      or port drops the key unless the request brings one. Private and
+      loopback upstreams stay allowed (local model servers); the docs say
+      adding upstreams is an admin's reach into the host's network, and
+      that `lockAll` removes it.
+    - *Lenient parsing.* `stream` is a boolean or 400; the upstream always
+      gets a re-marshalled body (a duplicated member can't be read two
+      ways); Responses `background: true` is refused until it can be
+      metered.
+    - *The upstream test* needs the connector on, stops at the quotas,
+      sends one word for one token, and is metered to the admin running it.
+    - *Resources.* A per-caller cap on calls in flight (`concurrency`, 16,
+      lockable; 429 `xbin_llm_busy`) — which also bounds how far concurrent
+      calls overshoot a quota; who is calling, the cap and the quotas are
+      checked before the body is read; each write to the client has a
+      deadline, so one that stops reading is treated as gone.
+    - *LLM keys* are refused once their person is disabled, deleted or
+      lost the tile they were minted for, and (minted under a binding) once
+      the tile is unbound; sign-out-everywhere and unbinding revoke them.
+      `bx llm` takes no key on the command line.
+    - *Quotas (the owner's calls).* A host-set default is a ceiling: the
+      admin's per-user and per-org entries narrow it and never widen it,
+      with no empty `users` block needed; the host's own entries are the
+      host's to give. A model without a price counts for nothing toward a
+      cost limit: an upstream's `"*"` price is the default price, and
+      without one the calls are `unpriced`, token limits still hold, and
+      admins get one alert while cost limits are in force.
+    - *Backups.* `data/llm` is daemon state: in no tile backup, untouched
+      by a tile restore; restoring the workspace directory brings it back,
+      the keys readable only under the barrier that sealed them.
+
 - **D227 — Sealed components: code that is always the running release's
   (2026-11-14; issue #51).** The owner, on where the workspace agent runs:
   a sealed system component, as a general facility ("will be useful later

@@ -85,7 +85,7 @@ makes itself a sub-reaper.
 | codex | `codex-acp` (`NO_BROWSER=1`) | `codex login` | read-only, agent, *agent-full-access* |
 | gemini | `gemini --acp` | `gemini` (Login with Google) | default, autoEdit, plan, *yolo* |
 | opencode | `opencode acp` | `opencode auth login` | the agent's |
-| fake | `$XBIN_AGENT_FAKE` | none | ask, *yolo* (tests, harness) |
+| fake | `$XBIN_AGENT_FAKE` | none | ask, auto, *yolo* (tests, harness; `acp.Fake`) |
 
 ## Stages
 

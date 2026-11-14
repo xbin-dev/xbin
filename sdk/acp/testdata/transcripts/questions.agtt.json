@@ -1,0 +1,691 @@
+{
+ "about": "the run's view (GET /runs/{id}/view: run, messages, steps, links, drafts) after each checkpoint of questions.json, as the agent template's backend maps the log (its transcripts_test.go)",
+ "name": "questions",
+ "views": [
+  {
+   "seq": 8,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "ask me",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 6,
+      "id": 3,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 2,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"AskUserQuestion\"}",
+         "name": "acp:other"
+        },
+        "id": "h1:ask1",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "other",
+       "planReview": false,
+       "status": "pending",
+       "subagent": false,
+       "title": "AskUserQuestion",
+       "tool": "AskUserQuestion"
+      },
+      "compacted": false,
+      "content": "(running…)",
+      "created": 6,
+      "id": 4,
+      "name": "acp:other",
+      "role": "tool",
+      "runId": 1,
+      "seq": 3,
+      "toolCallId": "h1:ask1"
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "waiting"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 1
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "pending": {
+       "kind": "question",
+       "park": "park",
+       "title": "Please answer the following questions."
+      },
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "working",
+      "steering": false,
+      "title": ""
+     },
+     "id": 1,
+     "pendingState": {
+      "harness": {
+       "callId": "h1:ask1",
+       "eid": "e1",
+       "message": "Please answer the following questions.",
+       "rpcId": "rpcId",
+       "schema": {
+        "properties": {
+         "question_0": {
+          "description": "Which database should the service use?",
+          "oneOf": [
+           {
+            "const": "Postgres",
+            "description": "Relational, the default",
+            "title": "Postgres"
+           },
+           {
+            "const": "SQLite",
+            "description": "One file, no server",
+            "title": "SQLite"
+           }
+          ],
+          "title": "Database",
+          "type": "string"
+         },
+         "question_0_custom": {
+          "_meta": {
+           "_askUserQuestionCustomAnswer": {
+            "isCustomAnswer": true,
+            "questionId": "question_0"
+           }
+          },
+          "description": "Type your own answer (optional).",
+          "title": "Other",
+          "type": "string"
+         },
+         "question_1": {
+          "description": "What else should it ship with?",
+          "items": {
+           "anyOf": [
+            {
+             "const": "Metrics",
+             "description": "",
+             "title": "Metrics"
+            },
+            {
+             "const": "Tracing",
+             "description": "",
+             "title": "Tracing"
+            },
+            {
+             "const": "Admin UI",
+             "description": "",
+             "title": "Admin UI"
+            }
+           ]
+          },
+          "title": "Extras",
+          "type": "array"
+         },
+         "question_1_custom": {
+          "_meta": {
+           "_askUserQuestionCustomAnswer": {
+            "isCustomAnswer": true,
+            "questionId": "question_1"
+           }
+          },
+          "description": "Type your own answer (optional).",
+          "title": "Other",
+          "type": "string"
+         }
+        },
+        "type": "object"
+       }
+      },
+      "kind": "question",
+      "park": "park",
+      "since": 0
+     },
+     "result": "",
+     "status": "waiting_input",
+     "title": "questions"
+    },
+    "steps": []
+   }
+  },
+  {
+   "seq": 21,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "ask me",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 6,
+      "id": 3,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 2,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"AskUserQuestion\"}",
+         "name": "acp:other"
+        },
+        "id": "h1:ask1",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "other",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "AskUserQuestion",
+       "tool": "AskUserQuestion"
+      },
+      "compacted": false,
+      "content": "AskUserQuestion",
+      "created": 6,
+      "id": 4,
+      "name": "acp:other",
+      "role": "tool",
+      "runId": 1,
+      "seq": 3,
+      "toolCallId": "h1:ask1"
+     },
+     {
+      "compacted": false,
+      "content": "answers: {\"question_0\":\"SQLite\",\"question_1\":[\"Metrics\"],\"question_1_custom\":\"Admin UI\"}",
+      "created": 15,
+      "id": 5,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 4,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "ask again",
+      "created": 17,
+      "id": 6,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 5,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 19,
+      "id": 7,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 6,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"AskUserQuestion\"}",
+         "name": "acp:other"
+        },
+        "id": "h1:ask1#2",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "other",
+       "planReview": false,
+       "status": "pending",
+       "subagent": false,
+       "title": "AskUserQuestion",
+       "tool": "AskUserQuestion"
+      },
+      "compacted": false,
+      "content": "(running…)",
+      "created": 19,
+      "id": 8,
+      "name": "acp:other",
+      "role": "tool",
+      "runId": 1,
+      "seq": 7,
+      "toolCallId": "h1:ask1#2"
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "waiting"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 2
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "pending": {
+       "kind": "question",
+       "park": "park",
+       "title": "Please answer the following questions."
+      },
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "working",
+      "steering": false,
+      "title": "fake: ask me",
+      "usage": {
+       "size": 1000,
+       "used": 42
+      }
+     },
+     "id": 1,
+     "pendingState": {
+      "harness": {
+       "callId": "h1:ask1#2",
+       "eid": "e2",
+       "message": "Please answer the following questions.",
+       "rpcId": "rpcId",
+       "schema": {
+        "properties": {
+         "question_0": {
+          "description": "Which database should the service use?",
+          "oneOf": [
+           {
+            "const": "Postgres",
+            "description": "Relational, the default",
+            "title": "Postgres"
+           },
+           {
+            "const": "SQLite",
+            "description": "One file, no server",
+            "title": "SQLite"
+           }
+          ],
+          "title": "Database",
+          "type": "string"
+         },
+         "question_0_custom": {
+          "_meta": {
+           "_askUserQuestionCustomAnswer": {
+            "isCustomAnswer": true,
+            "questionId": "question_0"
+           }
+          },
+          "description": "Type your own answer (optional).",
+          "title": "Other",
+          "type": "string"
+         },
+         "question_1": {
+          "description": "What else should it ship with?",
+          "items": {
+           "anyOf": [
+            {
+             "const": "Metrics",
+             "description": "",
+             "title": "Metrics"
+            },
+            {
+             "const": "Tracing",
+             "description": "",
+             "title": "Tracing"
+            },
+            {
+             "const": "Admin UI",
+             "description": "",
+             "title": "Admin UI"
+            }
+           ]
+          },
+          "title": "Extras",
+          "type": "array"
+         },
+         "question_1_custom": {
+          "_meta": {
+           "_askUserQuestionCustomAnswer": {
+            "isCustomAnswer": true,
+            "questionId": "question_1"
+           }
+          },
+          "description": "Type your own answer (optional).",
+          "title": "Other",
+          "type": "string"
+         }
+        },
+        "type": "object"
+       }
+      },
+      "kind": "question",
+      "park": "park",
+      "since": 0
+     },
+     "result": "",
+     "status": "waiting_input",
+     "title": "questions"
+    },
+    "steps": []
+   }
+  },
+  {
+   "seq": 28,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "ask me",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 6,
+      "id": 3,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 2,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"AskUserQuestion\"}",
+         "name": "acp:other"
+        },
+        "id": "h1:ask1",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "other",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "AskUserQuestion",
+       "tool": "AskUserQuestion"
+      },
+      "compacted": false,
+      "content": "AskUserQuestion",
+      "created": 6,
+      "id": 4,
+      "name": "acp:other",
+      "role": "tool",
+      "runId": 1,
+      "seq": 3,
+      "toolCallId": "h1:ask1"
+     },
+     {
+      "compacted": false,
+      "content": "answers: {\"question_0\":\"SQLite\",\"question_1\":[\"Metrics\"],\"question_1_custom\":\"Admin UI\"}",
+      "created": 15,
+      "id": 5,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 4,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "ask again",
+      "created": 17,
+      "id": 6,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 5,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "",
+      "created": 19,
+      "id": 7,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 6,
+      "toolCallId": "",
+      "toolCalls": [
+       {
+        "function": {
+         "arguments": "{\"summary\":\"AskUserQuestion\"}",
+         "name": "acp:other"
+        },
+        "id": "h1:ask1#2",
+        "type": "function"
+       }
+      ]
+     },
+     {
+      "acp": {
+       "kind": "other",
+       "planReview": false,
+       "status": "completed",
+       "subagent": false,
+       "title": "AskUserQuestion",
+       "tool": "AskUserQuestion"
+      },
+      "compacted": false,
+      "content": "AskUserQuestion",
+      "created": 19,
+      "id": 8,
+      "name": "acp:other",
+      "role": "tool",
+      "runId": 1,
+      "seq": 7,
+      "toolCallId": "h1:ask1#2"
+     },
+     {
+      "compacted": false,
+      "content": "skipped",
+      "created": 27,
+      "id": 9,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 8,
+      "toolCallId": ""
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "idle"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 2
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "ready",
+      "steering": false,
+      "title": "fake: ask me",
+      "usage": {
+       "size": 1000,
+       "used": 42
+      }
+     },
+     "id": 1,
+     "pendingState": {
+      "kind": ""
+     },
+     "result": "",
+     "status": "idle",
+     "title": "questions"
+    },
+    "steps": []
+   }
+  }
+ ]
+}

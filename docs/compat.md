@@ -311,6 +311,48 @@ policies), which are now the *defaults*.
   one ignores `data/tile-limits.json`), and its next write of `users.json`
   drops the orgs' ceilings.
 
+## Agent constraints, preferences and session links (D229)
+
+With no rule set, nothing changes for anyone: every harness starts
+everywhere, `users.json` is byte for byte what it was, and no route answers
+differently.
+
+- **xbind-owned state, no migration.** An org's rules are `org.agents` and
+  the workspace's bounds a top-level `agents` key in `data/users.json`,
+  written only when they narrow something; a person's agent preferences are
+  `data/agent-prefs/<user>.json`, absent until their first write (rules 1,
+  9). `bx org agents` and `bx agent connection` are new commands (rule 6).
+- **Additive wire.** New routes (`/api/xbin/agents/policy`,
+  `PUT /orgs/<org>/agents`, `/api/xbin/agents/connection`,
+  `/api/xbin/agent/prefs`), a new optional query (`GET
+  /agent/providers?cwd=`: without it the answer is what it always was), new
+  optional fields (`agents` on an org; `origin` on a session row and a
+  history entry), a new event type (`agents`), a new frame
+  message (`xbin:open-session`) and `xbin.openSession` (rule 2). The one
+  new refusal — 403 from `POST /term/sessions` and `…/restart` for a
+  harness the tile's orgs don't allow — exists only once an admin sets a
+  rule, and carries the reason; a session already running is never ended.
+- **The shipped app and older frames** ask `GET /agent/providers` without
+  `cwd`, list every harness, and show the refusal's reason when one is
+  picked that the tile doesn't allow. They ignore `origin`.
+- **The launcher's remembered choice** moves from the browser
+  (`localStorage['bx-term-lastkind']`) to the server on the first window a
+  person opens; the browser's record is still written and still answers
+  for the root token, `--no-auth` and — after a downgrade — an xbind
+  without the route.
+- **Old shells and admin consoles** (rule 4). `?tile=…&session=<id>` is a
+  plain link to the tile for a shell before D229 (it keeps the parameter it
+  doesn't know); `xbin.openSession` still opens a session whose tile is on
+  the page, and otherwise follows that link. The admin console's agents
+  panels arrive with `bx builtin update`; until then `bx org agents` and
+  the API set the same rules. The scaffold gained one file
+  (`tiles/admin/tabs/org-agents.js`, imported relatively) and no entry file
+  moved.
+- **Downgrading** an xbind ignores the rules (every harness starts
+  everywhere again, as before D229) and the preferences file; an older
+  xbind that rewrites `users.json` drops the `agents` keys, as it drops
+  every key it doesn't know.
+
 ## Sealed components (system components, D227)
 
 A release may ship **sealed components**: parts of xbin that run like
@@ -383,6 +425,20 @@ none, so a workspace sees no change. When a later release adds one:
 - Behaviour that `docs/changelog.md` marks **BREAKING** with a linked
   migration note under `/docs/changes/` — that note is the one place a
   workspace has to act after an upgrade.
+- A newer agent template on an older xbind. An instance of the agent
+  template is a copy in the workspace, and no upgrade rewrites it: an
+  instance you have keeps working on every later xbind, since nothing it
+  imports is removed or re-shaped (rules 2, 3 and 8). The other direction is
+  not promised. Template code written against a later xbind needs that
+  xbind: its backend may call SDK functions an older xbind's SDK lacks (it
+  then doesn't build), and its page is drawn with the chat kit xbind serves
+  (`/vendor/chat/…`, D224). The page asks for the kit's revision
+  (`/vendor/chat/rev.js`) before it loads anything from it; on an xbind
+  that serves none, or an older one, it shows "This agent needs xbind ≥ v…
+  — update xbind" in place of the app, and loads once xbind is updated. The
+  template's native view uses none of the kit. Update xbind before you
+  merge a newer template into an instance
+  ([frontend-kit.md](/docs/frontend-kit.md) `/vendor/chat/rev.js`).
 - Building Go tiles after a downgrade to an xbind older than a `go` line
   the workspace's modules use. xbind v0.3.64 and older write `go 1.24`
   into the root `go.work` and build every Go tile with it. Once any

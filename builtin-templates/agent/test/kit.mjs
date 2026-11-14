@@ -22,10 +22,30 @@ if (!KIT_PATH) {
 // xbind from before them.
 export const ICONS_PATH = [process.env.BX_ICONS, join(dirname(KIT_PATH), 'bx-icons.js')].filter(Boolean).find((p) => existsSync(p));
 
-// serveKit(page | context): answer the kit's URL with the real kit, and the glyphs'.
+// The chat kit (/vendor/chat/*.js: the markdown renderer chat-md.js stands
+// on, and the revision boot.js asks for before it loads agent.js): xbind's
+// web/chat beside the kit (in an instance: BX_CHAT=<that directory>).
+export const CHAT_DIR = [process.env.BX_CHAT, join(dirname(KIT_PATH), 'chat')].filter(Boolean).find((p) => existsSync(join(p, 'rev.js')));
+if (!CHAT_DIR) {
+  console.log('SKIP: /vendor/chat/ not found beside the kit (set BX_CHAT=<xbin checkout>/web/chat)');
+  process.exit(0);
+}
+
+// marked as most tests stub it — markdown passes through as written, and a
+// streamed answer is its text: the renderer's own instance (Marked) and the
+// shared one an older page configured.
+export const MARKED_STUB = 'export class Marked{parse(s){return s}lexer(){throw new Error("marked is stubbed")}}' +
+  'export const marked={parse:(s)=>s,use(){}};';
+
+// serveKit(page | context): answer the kit's URL with the real kit, the chat
+// kit's with its modules, and the glyphs'.
 export const serveKit = async (target) => {
   await target.route('**/vendor/bx-kit.js', (r) =>
     r.fulfill({ contentType: 'text/javascript', body: readFileSync(KIT_PATH, 'utf8') }));
+  await target.route('**/vendor/chat/*.js', (r) => {
+    const f = join(CHAT_DIR, new URL(r.request().url()).pathname.replace(/^.*\/vendor\/chat\//, ''));
+    return existsSync(f) ? r.fulfill({ contentType: 'text/javascript', body: readFileSync(f, 'utf8') }) : r.fulfill({ status: 404, body: '' });
+  });
   if (ICONS_PATH) {
     await target.route('**/vendor/bx-icons.js', (r) =>
       r.fulfill({ contentType: 'text/javascript', body: readFileSync(ICONS_PATH, 'utf8') }));

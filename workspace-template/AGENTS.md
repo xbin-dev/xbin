@@ -16,7 +16,8 @@ curl -s -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/docs/index.md?raw=1"
 **After an xbind upgrade** (or when a previously-working API starts failing),
 read [`/docs/changelog.md`](/docs/changelog.md): builder-visible changes land
 there, and **BREAKING** entries link a migration note under `/docs/changes/`
-that says exactly what to change in your tile.
+that says exactly what to change in your tile. It holds the recent weeks; its
+last section lists the pages of older months (`/docs/changelog/<YYYY-MM>.md`).
 
 ## The model in five lines
 
@@ -875,7 +876,10 @@ you can't self-bind, same rule as grants) — unbound means no capability.
   binds it to whatever tile provides that service; you discover the endpoint at
   runtime — `xbin.iface('llm').url` in a frontend, `$XBIN_IFACE_LLM_URL` in a
   backend — and the binding is also your call grant. This makes providers
-  **swappable** (Ollama ↔ a cloud proxy) with no code change.
+  **swappable** (Ollama ↔ a cloud proxy) with no code change. An `openai`
+  slot can also be bound to xbind's own LLM connector (`xbin:llm`, a
+  workspace admin's bind; `/docs/llm.md`): same slot, same code, the URL is
+  then `…/api/xbin/llm` and calls are metered to the person using your tile.
 - **Providing a standard API?** Declare it so others can bind you:
   `"provides": { "openai": { "kind": "http", "service": "openai", "role": "writer" } }`
   (`role` = the exposed role a binding grants callers).

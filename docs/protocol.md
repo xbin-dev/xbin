@@ -15,13 +15,13 @@ documented in exactly one of them:
 |---|---|
 | [protocol/core.md](/docs/protocol/core.md) | routes outside `/api/xbin/`: `/healthz`, `/login…`, `/logout`, `/c/…`, `/vendor/`, `/docs/`, `/xbin/…` pages, `/api/<tile>/…`, path tickets |
 | [protocol/users.md](/docs/protocol/users.md) | `/frame-token`, `/path-tickets`, `/whoami`, `/impersonate`, `/users`, `/account/password`, `/login`, `/invite/…`, `/sessions`, `/auth-settings`, `/auth-rotate-token` |
-| [protocol/orgs.md](/docs/protocol/orgs.md) | `/orgs`, `/permission-sets`, `/net-sets`, `/owner`, `/access…`, `/users-directory`, `/policy`, `/partitions/limits`, `/limits` |
+| [protocol/orgs.md](/docs/protocol/orgs.md) | `/orgs`, `/permission-sets`, `/net-sets`, `/owner`, `/access…`, `/users-directory`, `/policy`, `/agents/policy`, `/partitions/limits`, `/limits` |
 | [protocol/grants.md](/docs/protocol/grants.md) | `/auth-overview`, `/grants`, `/bindings`, `/iface-instances`, `/ingress…` |
 | [protocol/workspace.md](/docs/protocol/workspace.md) | `/prefs`, `/screens`, `/branding`, `/native-runtime`, `/workspace-settings`, `/workspace-policies`, `/chrome`, `/defaults` |
 | [protocol/tiles.md](/docs/protocol/tiles.md) | `/components`, `/tile-assets`, `/create`, `/clone`, `/builtins`, `/templates`, `/lifecycle`, `/tile-report` |
 | [protocol/code.md](/docs/protocol/code.md) | `/code/…`, `/git/…`, change proposals (`/code/prs`, `/code/pr`) |
 | [protocol/runtime.md](/docs/protocol/runtime.md) | `/status`, `/backends`, `/runtime`, `/gpus`, `/go-build-versions`, `/vm`, `/sandboxes?tile=`, `/tile-status`, `/term-net`, `/logs`, `/alerts` |
-| [protocol/agents.md](/docs/protocol/agents.md) | `/term/sessions…`, `/agent/providers`, `/agent/history`; agent session events |
+| [protocol/agents.md](/docs/protocol/agents.md) | `/term/sessions…`, `/agent/providers`, `/agent/history`, `/agent/prefs`, `/agents/connection`; agent session events |
 | [protocol/terminals.md](/docs/protocol/terminals.md) | `/ws/term`, the terminal wire |
 | [protocol/events.md](/docs/protocol/events.md) | `/ws/events` |
 | [protocol/resources.md](/docs/protocol/resources.md) | `/vaults`, `/resources`, `/vault…`, `/kv`, `/blob`, `/bus`, `/cron`; bus push delivery |
@@ -30,7 +30,7 @@ documented in exactly one of them:
 | [protocol/deployments.md](/docs/protocol/deployments.md) | `/deployments…`, `/checkpoints/…`; the tile deployments conventions |
 | [protocol/sandboxes.md](/docs/protocol/sandboxes.md) | a manager tile's `/sandboxes…` routes |
 | [protocol/devices.md](/docs/protocol/devices.md) | `/devices…`, `/web-ticket`, `/app-tunnel`, `/notify`, `/push/…`; push notifications, Live Activities |
-| [protocol/llm.md](/docs/protocol/llm.md) | reserved: the LLM connector |
+| [protocol/llm.md](/docs/protocol/llm.md) | `/llm/v1/…` (the OpenAI-compatible routes), `/llm`, `/llm/config`, `/llm/upstreams`, `/llm/usage`, `/llm/quotas`; LLM keys |
 | [protocol/sealed.md](/docs/protocol/sealed.md) | `/sealed`, `/xbin/system`, the `?sealed=1` listing switch; what every route answers about a system (sealed) component |
 
 ## Authentication
@@ -383,6 +383,7 @@ tile → frame   xbin:dialog   {id, spec}              request a shell modal
 tile → frame   xbin:window   {id, spec}              request a pop-out window
 tile → frame   xbin:window-close {id}                close a window it opened
 tile → frame   xbin:open-deployments {tile}          open another tile's Deployments panel
+tile → frame   xbin:open-session {id, tile, session} show one of the viewer's sessions in its tile's window (D229)
 tile → frame   xbin:meta     {meta: {title?, icon?, badge?}}  the page's title, icon and badge for its window (D194)
 tile → parent  xbin:scroll-focus {}                  the pointer entered this document (cosmetic)
 tile → frame   xbin:contextmenu {x, y, selection, html} a right-click: the shell's tile menu (Copy first with a selection)
@@ -415,6 +416,22 @@ passes on only a well-formed tile path (no `.`/`..` segment), and
 `<bx-shell>` opens it only for a tile its viewer's `/components` lists; the
 panel then runs as the viewer, so the message grants nothing. Anything else
 ignores it (the xbin app has no terminal window).
+
+`xbin:open-session` (D229; `xbin.openSession({tile, session})`) asks for
+one of the viewer's own terminal or agent sessions to be shown in its
+tile's terminal window. `<bx-frame>` passes on only a well-formed tile path
+and session id, as the cancelable event `bx-open-session` `{from, tile,
+session}`; `<bx-shell>` takes it (`preventDefault`), and for a tile its
+viewer's `/components` lists lands on it as a link would and calls that
+tile's `<bx-frame>` `open({session})` — for any other it sets
+`detail.refused`. A shell that doesn't take the event (an older scaffold)
+leaves it to the frame: the session opens when its tile's frame is on the
+page, and otherwise the frame follows the link
+`?tile=<tile>&session=<id>` — only while the click that asked is still
+active, so a page cannot navigate the workspace by itself. The answer is
+`xbin:reply {id, result}`: whether the request was taken. The window lists
+the viewer's own sessions, so the message grants nothing; the xbin app has
+no terminal window and never answers.
 
 `xbin:copy` (D199; `xbin.copy({text, html})`) asks the embedding page to
 write the person's clipboard — a sandboxed tile has none of its own. Text

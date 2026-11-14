@@ -58,7 +58,7 @@ target, so a red line names the guard that failed.
 | gofmt over `GOFMT_DIRS` | `fmt-check` | formatting drift (CI's gofmt must match go.mod's minor — the pins check enforces that) |
 | `go vet ./...` | `vet` | the usual |
 | `node --check` over every shipped script and inline module block — a `.js` written as an ES module is checked as one (node's detection on a plain `.js` is lenient); named imports resolved against the exports of the relative / `/vendor/` module they name | `js-check` | a syntax error in a tile's inline `<script type="module">` or an unbalanced template expression in a module, or an import of a renamed or mislocated export — none is parsed by anything else before a user's browser (the trees include `website/`, so the landing page's inline module and its `js/` are covered) |
-| `node --test hack/*.test.mjs` — unit tests for pure frontend modules, and for the installer's host-editing helpers (`hack/install-sh.test.mjs`: functions cut out of `deploy/install.sh` by name, run by bash against temp files), and for the prebuilt-helpers scripts and the large-files guard (`hack/helpers.test.mjs`: throwaway repos with fake build scripts, `python3 -m http.server` as the public bucket, `rclone serve s3` as the signed side when installed) | `js-test` | the helper keys, the manifest's syntax, a sha256 mismatch refused with nothing installed, the source-build fallback and its CI warning, publish's refusals and its upload round trip; the installer's AppArmor block in `/etc/apparmor.d/local/fusermount3` (replaced in place, never duplicated, other lines kept, a hand-broken file left alone) and the VM policy it writes (xbind's field names, never over an existing file); the shell's context-menu builders (`shell/menus.js`), revisioned-draft helpers (`shell/rev-draft.js`), grid math (`shell/grid-layout.js` — the push a drag performs) the terminal's prediction engine (`web/term-predict.js` — what a keystroke predicts, what an ack confirms), the frame's view of the session directory (`web/term-sessions.js` — how a listing becomes the tab bar, how the legacy browser record is adopted), the terminal window's live reload view (`web/deploy-state.js` — which chip, menu items and API select entries a state and a viewer's permissions yield, and every string they show), the Deployments panel's view (`web/deploy-panel.js`), branch-assigned deployments' offers, forms and lines (`web/deploy-branch.js`: `hack/deploy-branch.test.mjs`), session targets and deployment frames (`hack/deploy-target.test.mjs`), how the binary-served components treat a tile deployment (`web/frame-info.js`, `web/term-sessions.js`, `web/xbin-client.js`: `hack/deploy-aware.test.mjs`), and old clients as fixtures (`hack/events-socket.test.mjs`: the web shell's reload targeting exactly as it ships, replayed against a deploy's event tape, so no frame of an old event type names a non-primary deployment): every branch a menu can show, how a stale save is classified, where a pushed tile lands, which predictions survive, which tabs a listing yields — without a browser |
+| `node --test hack/*.test.mjs` — unit tests for pure frontend modules, and for the installer's host-editing helpers (`hack/install-sh.test.mjs`: functions cut out of `deploy/install.sh` by name, run by bash against temp files), and for the prebuilt-helpers scripts and the large-files guard (`hack/helpers.test.mjs`: throwaway repos with fake build scripts, `python3 -m http.server` as the public bucket, `rclone serve s3` as the signed side when installed) | `js-test` | the helper keys, the manifest's syntax, a sha256 mismatch refused with nothing installed, the source-build fallback and its CI warning, publish's refusals and its upload round trip; the installer's AppArmor block in `/etc/apparmor.d/local/fusermount3` (replaced in place, never duplicated, other lines kept, a hand-broken file left alone) and the VM policy it writes (xbind's field names, never over an existing file); the shell's context-menu builders (`shell/menus.js`), revisioned-draft helpers (`shell/rev-draft.js`), grid math (`shell/grid-layout.js` — the push a drag performs) the terminal's prediction engine (`web/term-predict.js` — what a keystroke predicts, what an ack confirms), the frame's view of the session directory (`web/term-sessions.js` — how a listing becomes the tab bar, how the legacy browser record is adopted), the terminal window's live reload view (`web/deploy-state.js` — which chip, menu items and API select entries a state and a viewer's permissions yield, and every string they show), the Deployments panel's view (`web/deploy-panel.js`), branch-assigned deployments' offers, forms and lines (`web/deploy-branch.js`: `hack/deploy-branch.test.mjs`), session targets and deployment frames (`hack/deploy-target.test.mjs`), a person's agent preferences as the launcher uses them (`web/agent-prefs.js`: `hack/agent-prefs.test.mjs` — the server's answer wins, this browser's older record is moved once and stays the fallback, a bypass mode is never remembered), how the binary-served components treat a tile deployment (`web/frame-info.js`, `web/term-sessions.js`, `web/xbin-client.js`: `hack/deploy-aware.test.mjs`), and old clients as fixtures (`hack/events-socket.test.mjs`: the web shell's reload targeting exactly as it ships, replayed against a deploy's event tape, so no frame of an old event type names a non-primary deployment): every branch a menu can show, how a stale save is classified, where a pushed tile lands, which predictions survive, which tabs a listing yields — without a browser |
 | the native client's contract: xb-native's own tests, the fixture runner's, and every `native/fixtures/<name>` rendered in node and compared with its `expected.json`, plus the vocabulary coverage gate | `native-check` | the tree a tile's `native.js` renders — what the app's renderer and the reference renderer draw — drifting unreviewed, and a vocabulary item no fixture exercises (native/fixtures/README.md) |
 | shellcheck at warning level over `deploy/`, `hack/`, `.githooks/`, the site's `website/install.sh` bootstrap and the iOS CI scripts in `native/ios/scripts/` | `shellcheck` | the installer and release scripts (1,600 lines of bash; only the installer's host-editing helpers have unit tests, above); the iOS CI scripts, which only a macOS runner executes |
 | vendor checksums, Go-version agreement, alpine pins, the helpers manifest (well-formed; each group's current key published — a warning, never a failure) | `pins-offline` | pins drifting apart between the files that state one; build inputs changed without a published helper set (see "Prebuilt helpers") |
@@ -300,7 +300,13 @@ decision, and `assets_test.go` refuses:
   file not named after its directory (a tool a tile ships under `bin/`) is
   never matched.
 - **files over 512 KB** outside `web/vendor/` — the vendored frontend deps
-  are the only big files by design.
+  are the only big files by design. A doc that grows without end is split
+  before it gets there: the protocol reference is one page per topic
+  (`docs/protocol/<topic>.md`, Route inventory below), and the changelog
+  keeps its recent weeks in `docs/changelog.md` with older months moved,
+  unchanged, to `docs/changelog/<YYYY-MM>.md` and listed under its "Older
+  entries" — cut whole months from the old end, leave the top to the
+  entries being added.
 - **nested repos and dependency trees** (`.git`, `node_modules`, `.claude`,
   `deps`): `all:` embeds dotfiles too.
 - **pointers into `plans/`**. The design records are *not* embedded, so a
@@ -642,9 +648,12 @@ made to hold exactly the table's builds.
 `clampBox`); `web/bx-code.js` owns the highlight helpers (`hl`, `langFor`,
 `diffHTML`), `web/bx-theme.js` a document's appearance (`setAppearance`,
 `onAppearance`, `appearanceMessage`, `applyAppearanceMessage`,
-`rememberTheme`) and `web/bx-icons.js` the drawn glyphs (`iconSvg`,
-`hasIcon`). `make js-check` refuses a second definition of any of them in
-the shipped trees — import from `/vendor/…` by absolute URL instead
+`rememberTheme`), `web/bx-icons.js` the drawn glyphs (`iconSvg`,
+`hasIcon`) and `web/chat/md.js` the markdown renderer for untrusted text
+(`mdInto`, `mdCssText`, `closedFence`, `onHighlighter`, `useHighlighter`;
+D224 — the agent template's copy became a re-export, and a new copy would be
+a second sanitizing policy). `make js-check` refuses a second definition of
+any of them in the shipped trees — import from `/vendor/…` by absolute URL instead
 ([frontend-kit.md](/docs/frontend-kit.md) lists what tiles may import and
 why bare specifiers are banned).
 
@@ -716,6 +725,30 @@ sits in an element marked `data-bx-content` and isn't counted as an emoji.
 `appearance` is the mechanism's pass: no flash at the first frame in every
 kind of document, the relay, the hint cookie, density, fonts in every
 asset mode.
+
+### The chat kit's fixtures
+
+`web/chat/blocks.js` is the block model the chat kit draws from
+([frontend-kit.md](/docs/frontend-kit.md)); two reducers make its blocks —
+the Agent tab's fold (`web/agent-fold.js`) and the agent template's
+(`model/fold.js`, over rows its backend made of the same events). Both are
+held to one set of fixtures, `sdk/acp/testdata/transcripts/`:
+
+| File | Made by | Held by |
+|---|---|---|
+| `<name>.json` — an event log, xbind's served shape, with checkpoints | `sdk/acp/acptest` `TestTranscripts`: the scripted agent through `acp.Client` (`xbind-shell.json`: the native capture's events) | the same test (`go test ./sdk/...`) fails when the client no longer emits it |
+| `<name>.agtt.json` — the agent template's run view at each checkpoint | the template backend's `TestChatTranscripts` (the log through `harness_map.go`) | the same test (`make tile-check`) |
+| `<name>.records.json`, `<name>.blocks.json` — the log's tool records and its blocks | `hack/chat-fixtures/expect.mjs` | `hack/chat-fixtures.test.mjs` (the Agent tab's fold) and `hack/chat-fixtures-agtt.test.mjs` (the template's), both in `make js-test` |
+
+A reducer that cannot produce a field yet has a **gap** in
+`hack/chat-fixtures/expect.mjs` (`GAPS`: an id, the reason, what makes the
+two sides comparable); the tests compare through the gaps and fail when a
+listed gap no longer shows — delete its line when you close one. A change
+that moves a fixture regenerates in this order, reviewing each diff (the
+header of `hack/chat-fixtures.test.mjs` has the commands): the logs
+(`ACP_TRANSCRIPTS_WRITE=1`), the template's views
+(`CHAT_TRANSCRIPTS_WRITE=1`), the expectations (`CHAT_FIXTURES_WRITE=1`).
+The files are plain JSON so the Swift port and `sdk/acp` can read them.
 
 ## The native reference (`docs/native.md`)
 
@@ -968,6 +1001,11 @@ terminal window; the harness xbind runs without `--isolate`, so on a node
 backend it asserts the isolation refusal and skips pausing it (`SKIP …
 needs HARNESS_ISOLATE`). `HARNESS_ISOLATE=1` — with `XBIN_TEST_ROOTFS`, user
 namespaces, and the agent's own tool sandbox off — runs that half.
+`agentPolicy` (D229) drives agent preferences, a session's origin mark,
+`open({session})` with its link and `xbin.openSession`, an org's harness
+list in the launcher, and the admin console's `<bx-org-agents>` editor on
+`apps/focusy` with the scripted `fake` provider; it sets org rules and the
+workspace's bounds and puts every one back.
 `deployments` drives the terminal window's Deployments panel on the static,
 org-owned `deployy` (so it needs no `--isolate`): a manager, a terminal-level
 user and a reader add `dev` with live reload attached, see the rows, the

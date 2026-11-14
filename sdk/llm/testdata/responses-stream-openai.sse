@@ -1,0 +1,21 @@
+event: response.created
+data: {"type":"response.created","sequence_number":0,"response":{"id":"resp_B1","object":"response","created_at":1763100000,"status":"in_progress","model":"gpt-5-2026-08-07","output":[],"usage":null}}
+
+event: response.in_progress
+data: {"type":"response.in_progress","sequence_number":1,"response":{"id":"resp_B1","object":"response","created_at":1763100000,"status":"in_progress","model":"gpt-5-2026-08-07","output":[],"usage":null}}
+
+event: response.output_item.added
+data: {"type":"response.output_item.added","sequence_number":2,"output_index":0,"item":{"id":"msg_B1","type":"message","status":"in_progress","content":[],"role":"assistant"}}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":3,"item_id":"msg_B1","output_index":0,"content_index":0,"delta":"Counted"}
+
+event: response.output_text.delta
+data: {"type":"response.output_text.delta","sequence_number":4,"item_id":"msg_B1","output_index":0,"content_index":0,"delta":" once."}
+
+event: response.output_item.done
+data: {"type":"response.output_item.done","sequence_number":5,"output_index":0,"item":{"id":"msg_B1","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"text":"Counted once."}],"role":"assistant"}}
+
+event: response.completed
+data: {"type":"response.completed","sequence_number":6,"response":{"id":"resp_B1","object":"response","created_at":1763100000,"status":"completed","model":"gpt-5-2026-08-07","output":[{"id":"msg_B1","type":"message","status":"completed","content":[{"type":"output_text","annotations":[],"text":"Counted once."}],"role":"assistant"}],"usage":{"input_tokens":4096,"input_tokens_details":{"cached_tokens":3072},"output_tokens":640,"output_tokens_details":{"reasoning_tokens":512},"total_tokens":4736},"user":null,"metadata":{}}}
+

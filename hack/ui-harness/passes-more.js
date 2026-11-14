@@ -31,6 +31,7 @@ function register(P) {
   P.projectsNeeds = require('./passes/projectsneeds').projectsNeeds; // #56: Waiting for you atop a project's page (a task's question, the coordinator's, a failure), Open, the list's badge split — light and dark, the project's routes stubbed
   P.projectWiki = require('./passes/projectwiki').projectWiki; // D222: a project's Wiki tab — the pages, a link, New page, two writers (the conflict's words, Reload), history's diff; light and dark (mocked project routes)
   P.systemPage = require('./passes/systempage').systemPage; // D227: /xbin/system — the system (sealed) components, access, off and on, a non-admin; never in the shell (the lists need HARNESS_GO_TAGS=sealedfixture)
+  P.agentPolicy = require('./passes/agentpolicy').agentPolicy; // D229: agent preferences on the server, a session's origin, open({session}) and its link, an org's harness list in the launcher
   P.projectWizard = require('./passes/projectwizard').projectWizard; // D223: the new-project wizard — the step header, Next saying why, the repo combobox, Name from the repo, the starter, Review; light and dark (mocked project routes)
 }
 

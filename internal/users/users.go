@@ -290,6 +290,9 @@ type Store struct {
 	chrome map[string]bool
 	// deviceLimit: app devices per person (devicelimit.go); 0 = the default.
 	deviceLimit int
+	// agents: the workspace's outer bounds on agents and its credential
+	// default (D229, orgagents.go).
+	agents WorkspaceAgents
 }
 
 // Open loads (or starts empty) the user store under dataDir.
@@ -331,6 +334,7 @@ func Open(dataDir string) (*Store, error) {
 		NativeRuntimeOff   bool                      `json:"nativeRuntimeDisabled"`
 		ChromeTiles        []string                  `json:"chromeTiles"`
 		DeviceLimit        int                       `json:"deviceLimit"`
+		Agents             *WorkspaceAgents          `json:"agents"`
 	}
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return nil, fmt.Errorf("users.json: %w", err)
@@ -359,6 +363,9 @@ func Open(dataDir string) (*Store, error) {
 	s.nativeRuntimeOff = doc.NativeRuntimeOff
 	s.chrome = chromeSet(doc.ChromeTiles)
 	s.deviceLimit = doc.DeviceLimit
+	if doc.Agents != nil {
+		s.agents = doc.Agents.normalized()
+	}
 	if s.owners == nil {
 		s.owners = map[string]string{}
 	}
@@ -715,6 +722,9 @@ func (s *Store) persistLocked() error {
 	}
 	if s.deviceLimit > 0 {
 		doc["deviceLimit"] = s.deviceLimit
+	}
+	if !s.agents.isZero() {
+		doc["agents"] = s.agents
 	}
 	if len(s.orgs) > 0 {
 		orgs := make([]*Org, 0, len(s.orgs))

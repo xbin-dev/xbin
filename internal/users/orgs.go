@@ -20,6 +20,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/xbin-dev/xbin/internal/agentpolicy"
 )
 
 // Policy deny kinds (D20): the capability classes a policy row may strip from
@@ -110,8 +112,11 @@ type Org struct {
 	// NetSets are the attached network sets (D54; ws-admin, SetOrgNetSets).
 	NetSets []string `json:"netSets,omitempty"`
 	// Limits are the per-tile resource ceilings its admins approve within (D203; ws-admin, orglimits.go).
-	Limits  OrgLimits `json:"limits,omitempty"`
-	Created int64     `json:"created"`
+	Limits OrgLimits `json:"limits,omitempty"`
+	// Agents are the org's constraints on agents working on its tiles (D229;
+	// orgagents.go): nil for none.
+	Agents  *agentpolicy.Rules `json:"agents,omitempty"`
+	Created int64              `json:"created"`
 }
 
 // Member returns the membership entry for a user, if any.
@@ -332,6 +337,7 @@ func (s *Store) UpsertOrg(o Org) (*Org, error) {
 		o.SSOGroups = existing.SSOGroups
 		o.NetSets = existing.NetSets
 		o.Limits = existing.Limits
+		o.Agents = existing.Agents
 	} else {
 		o.Created = time.Now().Unix()
 	}

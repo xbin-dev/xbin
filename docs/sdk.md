@@ -391,6 +391,65 @@ argv := acptest.Command("--require-login") // [the test binary, "acptest", flags
 `Serve` returns when its reader ends (or `*acptest.ExitError` for
 `crash`); `Options.Getenv` gives it a `HOME` of your test's own.
 
+### Calling a model — `github.com/xbin-dev/xbin/sdk/llm`
+
+The OpenAI-compatible wire as xbin's own components speak it (D226;
+standard library only): the request, response and stream types of Chat
+Completions and of the Responses API, token usage, the model list, prices
+and the error shape. Use it with whatever your `llm` slot is bound to — the
+workspace's LLM connector (`xbin:llm`, [llm.md](/docs/llm.md)) or a
+provider tile such as `llm-gw`.
+
+```go
+import "github.com/xbin-dev/xbin/sdk/llm"
+
+body, _ := json.Marshal(llm.ChatRequest{
+	Model:    "xbin/default", // the connector's default model; or "<upstream>/<model>"
+	Messages: []llm.ChatMessage{{Role: "user", Content: "Say hi."}},
+}.WithStreamUsage()) // stream, with the usage chunk at the end
+req, _ := http.NewRequestWithContext(ctx, "POST", os.Getenv("XBIN_IFACE_LLM_URL")+llm.PathChat, bytes.NewReader(body))
+req.Header.Set("Content-Type", "application/json")
+resp, err := xbin.Client().Do(req)
+// … resp.StatusCode != 200: llm.ParseError(body) is the provider's message
+err = llm.ReadSSE(resp.Body, func(_ string, data []byte) error {
+	var c llm.ChatChunk
+	if json.Unmarshal(data, &c) != nil {
+		return nil // a keep-alive, or a shape you don't know
+	}
+	for _, ch := range c.Choices {
+		fmt.Print(ch.Delta.Text())
+	}
+	if c.Usage != nil {
+		u := c.Usage.Usage() // llm.Usage: input, output, cached, reasoning tokens
+		_ = u
+	}
+	return nil
+})
+```
+
+- **Types**: `ChatRequest` / `ChatResponse` / `ChatChunk`, `ResponsesRequest`
+  / `Response` / `ResponsesEvent` (and the `Event…` type names),
+  `ModelList` / `Model` (a provider's own members are kept in `Extra`;
+  `ContextWindow()` reads the context size wherever the provider puts it).
+- **Usage** is one shape for both wires: `llm.Usage{InputTokens,
+  OutputTokens, CachedTokens, ReasoningTokens, TotalTokens}`.
+  `UsageFromBody` reads it from a whole answer or from one stream event; a
+  relay that must not hold an answer back feeds the bytes it passes on to
+  `StreamUsage` (an SSE stream) or `BodyUsage` (a plain body) — both
+  `io.Writer`s — and asks `Usage()` at the end.
+- **A relay** rewrites a client's request without dropping members it
+  doesn't know: `llm.OpenRequest(body)` gives the model and whether it
+  streams (`ErrBadStream` when `stream` is no boolean: a relay must read
+  what its upstream will), `.Member(name)` any other member, and
+  `.Body(model, streamUsage)` the body to send — always written anew, each
+  member once. `StreamUsage.Events()` and `BodyUsage.Bytes()` say how much
+  passed, for an estimate when an answer ends without its usage. `JoinURL(base,
+  path)` joins a provider's base URL with or without `/v1`.
+- **Prices**: `llm.PriceTable{"gpt-5": {In: 1.25, Out: 10}}.Cost(model,
+  usage)` in USD (per million tokens; `CachedIn` prices cached input).
+- **Errors**: `llm.WriteError(w, status, llm.Error{…})` answers in OpenAI's
+  shape, `llm.ParseError(body)` reads one.
+
 ### Resources, vault, bus
 
 ```go

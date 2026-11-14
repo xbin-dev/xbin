@@ -69,10 +69,16 @@ overview is the map that puts them in context.
 - [app-tunnel.md](/docs/app-tunnel.md) — the xbin app over an iroh tunnel
   (D204): turning it on, pairing with the confirmation code, refusing the
   app outside it, device limits, running your own relay, the threat model
+- [llm.md](/docs/llm.md) — the built-in LLM connector (D226): upstreams
+  and keys, binding a tile's `llm` slot to `xbin:llm`, model names and
+  aliases, usage per person, quotas, and the host's lockable configuration
+  file; its routes are in [protocol/llm.md](/docs/protocol/llm.md)
 - [config.md](/docs/config.md) — every `xbind` flag and `XBIN_*` variable,
   generated from the daemon's configuration
 - [changelog.md](/docs/changelog.md) — builder-visible changes per xbind
-  upgrade; **BREAKING** entries link migration notes under `/docs/changes/`
+  upgrade; **BREAKING** entries link migration notes under `/docs/changes/`.
+  It holds the recent weeks; older months are under `/docs/changelog/`,
+  listed at its end
 - [frontend-kit.md](/docs/frontend-kit.md) — the `/vendor/` modules a tile
   may import (`bx-kit`, `bx-dialog`, `bx-code`, …), the theme's mechanics
   (opting in, tokens, icons), the URL rules, lit pitfalls

@@ -191,6 +191,24 @@ async function blocksPass(browser) {
   const cb = (await blocks(page)).map(({ id, x, y, w, h }) => ({ id, x, y, w, h }));
   check(JSON.stringify(cb) === JSON.stringify(kept.map(({ id, x, y, w, h }) => ({ id, x, y, w, h }))), 'back on the canvas the blocks are where they were');
 
+  // ---- fenced code is coloured in the HTML the block first draws ----
+  // (/vendor/bx-md.js has its highlighter before md() is first called: the
+  // shell draws md(text) as it is — so does every scaffold copy in a
+  // workspace — and never draws again for a highlighter that arrives late)
+  cv = await canvasTop();
+  await canvasMenu(page, cv.x + 1100, cv.y + 20, 'Add text');
+  await page.keyboard.type('```js\nlet a = "<b>";\n```');
+  await page.keyboard.press('Escape');
+  await settle(page);
+  const cid = (await blocks(page)).find((b) => (b.text || '').startsWith('```js'))?.id;
+  const code = await sh(page, (t, id) => {
+    const el = t.query(`[data-block="${id}"] .bt pre code`);
+    return el ? { cls: el.className, kw: el.querySelector('.hljs-keyword')?.textContent, b: !!el.querySelector('b'), text: el.textContent } : null;
+  }, cid);
+  check(!!code && code.cls === 'hljs language-js' && code.kw === 'let' && !code.b && code.text.includes('"<b>"'),
+    `a text block's fenced code is highlighted, its text still text (${JSON.stringify(code)})`);
+  if (cid) await blockMenu(page, cid, 'Delete text');
+
   // ---- delete from the menu ----
   cv = await canvasTop();
   await canvasMenu(page, cv.x + 1100, cv.y + 20, 'Add text');

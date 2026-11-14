@@ -44,7 +44,7 @@ export function testApi(f) {
     setPop(box) { f._setPopBox(box); f.requestUpdate(); f._popChanged(); },
     popElement: () => f.renderRoot.querySelector('.pop'),
     focusTerminal() { elOf(f, 'bx-terminal', f._sessions[f._active])?.shadowRoot?.querySelector('textarea')?.focus(); },
-    get tabs() { return f._sessions.map((s) => ({ kind: s.kind || 'shell', id: s.id, name: s.name, provider: s.provider, status: s.status, ended: !!s.ended, history: s.history || null, resume: s.resume || null, net: s.net, api: s.api !== false, deployment: s.deployment || '', gpu: s.gpu, vm: !!s.vm, run: s.run || null })); },
+    get tabs() { return f._sessions.map((s) => ({ kind: s.kind || 'shell', id: s.id, name: s.name, provider: s.provider, status: s.status, ended: !!s.ended, history: s.history || null, resume: s.resume || null, net: s.net, api: s.api !== false, deployment: s.deployment || '', gpu: s.gpu, vm: !!s.vm, run: s.run || null, origin: s.origin || '' })); },
     get history() { return f._history || []; }, openHistory(id) { const r = (f._history || []).find((x) => x.id === id); if (r) openHistory(f, r); }, resumeHistory(id) { const r = (f._history || []).find((x) => x.id === id); if (r) resumeHistory(f, r); },
     get activeTab() { return f._active; }, // the session in view (the status bar's)
     setActiveTab(i) { f._setActive(i | 0); },

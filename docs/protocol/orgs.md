@@ -4,8 +4,8 @@ Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
 index of these topic pages. This page:
 organisations and their members, permission sets, network
-sets, tile ownership, access and access requests, policy ceilings, and
-tile resource limits.
+sets, tile ownership, access and access requests, policy ceilings, agent
+constraints, and tile resource limits.
 
 Rows are paths below `/api/xbin/`; the words before the first full stop
 of a row say who may call it.
@@ -75,6 +75,11 @@ PUT    /orgs/<org>/limits         admin/xbin:users. the org's per-tile
                                    tile it owns (null or 0 removes a kind;
                                    unnamed kinds keep theirs) → {limits}.
                                    GET /orgs carries each org's limits
+PUT    /orgs/<org>/agents         admin/xbin:users, or an admin of the org
+                                   in their own session (§Agent constraints
+                                   below). the org's constraints on agents
+                                   (D229) → {agents, bounds}. GET /orgs
+                                   carries each org's agents (absent: none)
 DELETE /orgs/<org>                admin/xbin:users; refused while the org
                                    still OWNS tiles (transfer first)
 GET    /permission-sets           admin/xbin:users. {sets:{name:{allow,
@@ -230,6 +235,70 @@ GET    /orgs/<org>/policy         admin/xbin:users, or that org's admins
                                    tiles the org OWNS
 PUT    /orgs/<org>/policy         admin/xbin:users. replace them
 ```
+
+## Agent constraints
+
+An org says what agents may do on its tiles, and the workspace sets the
+outer bounds (D229, [auth.md](/docs/auth.md) §Agent constraints). One
+shape for both:
+
+```jsonc
+{"workspaceAgent": "on",              // "on" | "off": may people's workspace agents work on these tiles
+ "harnesses": "any",                  // "any" | ["claude", "codex"] — ids of GET /agent/providers; [] allows none
+ "models": "any"}                     // "any" | "private" | ["local", "hosted/small"] — LLM connector ids:
+                                      //   an upstream (all its models) or upstream/model; "private": a model
+                                      //   of an upstream the connector marks private
+```
+
+A call is filtered by the **tile's** orgs — the org that owns it and every
+org it is shared into — and by the workspace's bounds: every one of them
+must allow it, so a tile under several orgs gets the strictest and a tile
+in no org follows the bounds alone. With nothing set, everything is
+allowed. A rule decides what starts next: a session already running is
+never ended.
+
+```
+GET    /agents/policy             a person, or admin/xbin:users (a tile's
+                                   own credentials: 403). the workspace's
+                                   bounds: {workspaceAgent, harnesses,
+                                   models, credentials, knownHarnesses,
+                                   canSet}. credentials: whose sign-in
+                                   serves a coding agent's model calls by
+                                   default — "own-first" (the person's own
+                                   when they have one, else the LLM
+                                   connector) or "connector" (forced for
+                                   everyone; a person's saved choice and a
+                                   session's are then ignored).
+                                   knownHarnesses: the ids a list may name;
+                                   canSet: the caller may PUT
+PUT    /agents/policy             admin/xbin:users. {workspaceAgent?,
+                                   harnesses?, models?, credentials?}: each
+                                   key named is set, the rest keep their
+                                   value, null puts a rule back to its
+                                   default → the view above. 400 an unknown
+                                   harness, a malformed id. Orgs' own rules
+                                   are left alone: every call is asked
+                                   against the bounds too, so a bound
+                                   tightened later holds at once. Audited;
+                                   `users` and `agents` events
+PUT    /orgs/<org>/agents         admin/xbin:users for any org; an admin of
+                                   the org, signed in themselves, for their
+                                   own — never a tile driven by one, a
+                                   terminal's or an agent session's token,
+                                   or view-as (403). {workspaceAgent?,
+                                   harnesses?, models?}, as above → {agents,
+                                   bounds}. The result must sit within the
+                                   workspace's bounds: an org narrows them,
+                                   never widens — a list entry the bounds
+                                   don't cover is 400, naming it ("any" is
+                                   always within: it adds no rule of the
+                                   org's own). 404 no such org. Audited;
+                                   `users` and `agents` events
+```
+
+`GET /agents/connection` — what one person's workspace agent session is
+connected to under these rules — is in
+[protocol/agents.md](/docs/protocol/agents.md).
 
 ## Limits
 

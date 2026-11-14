@@ -18,7 +18,8 @@ import (
 func (s *Server) registerTermAPI() {
 	s.RegisterAPI("GET /term/sessions", s.apiTermSessions)
 	s.RegisterAPI("PATCH /term/sessions/{id}", s.apiTermRename)
-	s.registerAgentAPI() // agent sessions (agentapi.go, D74)
+	s.registerAgentAPI()      // agent sessions (agentapi.go, D74)
+	s.registerAgentPrefsAPI() // a person's agent preferences (agentprefsapi.go, D229)
 }
 
 // termChange is a `term` event's data: which session changed, whose, and

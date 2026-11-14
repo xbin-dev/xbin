@@ -1,0 +1,350 @@
+{
+ "about": "the run's view (GET /runs/{id}/view: run, messages, steps, links, drafts) after each checkpoint of text.json, as the agent template's backend maps the log (its transcripts_test.go)",
+ "name": "text",
+ "views": [
+  {
+   "seq": 8,
+   "view": {
+    "drafts": [
+     {
+      "model": "Fake agent (tests)",
+      "run": 1,
+      "started": 0,
+      "thinkStart": 0,
+      "thinking": "**step 0** — weighing it. **step 1** — weighing it. **step 2** — weighing it. "
+     }
+    ],
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "think about it",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "thinking"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 0
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "working",
+      "steering": false,
+      "title": ""
+     },
+     "id": 1,
+     "pendingState": {
+      "kind": ""
+     },
+     "result": "",
+     "status": "running",
+     "title": "text"
+    },
+    "steps": []
+   }
+  },
+  {
+   "seq": 20,
+   "view": {
+    "drafts": [
+     {
+      "model": "Fake agent (tests)",
+      "run": 1,
+      "started": 0,
+      "text": "Paragraph 1 of the answer, streamed.\n\nParagraph 2 of the answer, streamed.\n\n"
+     }
+    ],
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "think about it",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "thought it through",
+      "created": 15,
+      "id": 3,
+      "name": "",
+      "reasoning": "**step 0** — weighing it. **step 1** — weighing it. **step 2** — weighing it. **step 3** — weighing it. **step 4** — weighing it. **step 5** — weighing it. ",
+      "reasoningMs": 0,
+      "role": "assistant",
+      "runId": 1,
+      "seq": 2,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "paras 3",
+      "created": 17,
+      "id": 4,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 3,
+      "toolCallId": ""
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "writing"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 0
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "working",
+      "steering": false,
+      "title": "fake: think about it",
+      "usage": {
+       "size": 1000,
+       "used": 42
+      }
+     },
+     "id": 1,
+     "pendingState": {
+      "kind": ""
+     },
+     "result": "",
+     "status": "running",
+     "title": "text"
+    },
+    "steps": []
+   }
+  },
+  {
+   "seq": 24,
+   "view": {
+    "links": [],
+    "messages": [
+     {
+      "compacted": false,
+      "content": "You are a helpful autonomous agent running inside xbin. Work toward the user's goal using the available tools. Use memory_set to remember durable facts. Call finish when the goal is done, ask_user when you need input, and yield when you should wait before continuing.",
+      "created": 1,
+      "id": 1,
+      "name": "",
+      "role": "system",
+      "runId": 1,
+      "seq": 0,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "think about it",
+      "created": 4,
+      "id": 2,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 1,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "thought it through",
+      "created": 15,
+      "id": 3,
+      "name": "",
+      "reasoning": "**step 0** — weighing it. **step 1** — weighing it. **step 2** — weighing it. **step 3** — weighing it. **step 4** — weighing it. **step 5** — weighing it. ",
+      "reasoningMs": 0,
+      "role": "assistant",
+      "runId": 1,
+      "seq": 2,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "paras 3",
+      "created": 17,
+      "id": 4,
+      "name": "",
+      "role": "user",
+      "runId": 1,
+      "sender": "alice",
+      "seq": 3,
+      "toolCallId": ""
+     },
+     {
+      "compacted": false,
+      "content": "Paragraph 1 of the answer, streamed.\n\nParagraph 2 of the answer, streamed.\n\nParagraph 3 of the answer, streamed.\n\n",
+      "created": 23,
+      "id": 5,
+      "name": "",
+      "role": "assistant",
+      "runId": 1,
+      "seq": 4,
+      "toolCallId": ""
+     }
+    ],
+    "run": {
+     "engine": "harness",
+     "harness": {
+      "activity": {
+       "at": 0,
+       "kind": "idle"
+      },
+      "commands": [],
+      "counts": {
+       "add": 0,
+       "del": 0,
+       "files": 0,
+       "tools": 0
+      },
+      "error": "",
+      "gen": 1,
+      "mode": {
+       "available": [
+        {
+         "id": "ask",
+         "name": "Ask before acting"
+        },
+        {
+         "id": "auto",
+         "name": "Auto"
+        },
+        {
+         "explicit": true,
+         "id": "yolo",
+         "name": "Yolo"
+        }
+       ],
+       "current": "ask"
+      },
+      "name": "Fake agent (tests)",
+      "options": [],
+      "provider": "fake",
+      "sandbox": {
+       "cwd": "/w/apps/x",
+       "ref": "apps/cs/sb-1",
+       "shared": false
+      },
+      "state": "ready",
+      "steering": false,
+      "title": "fake: think about it",
+      "usage": {
+       "size": 1000,
+       "used": 42
+      }
+     },
+     "id": 1,
+     "pendingState": {
+      "kind": ""
+     },
+     "result": "",
+     "status": "idle",
+     "title": "text"
+    },
+    "steps": []
+   }
+  }
+ ]
+}

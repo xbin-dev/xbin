@@ -469,6 +469,14 @@ var partitionClasses = map[string]PartitionClass{
 	"PUT /app-tunnel":                        GlobalOnlyRefused,
 	"POST /app-tunnel/relay-tokens":          GlobalOnlyRefused,
 	"POST /app-tunnel/test":                  GlobalOnlyRefused,
+	"GET /llm/config":                        GlobalOnlyRefused, // the LLM connector's settings, usage and quotas (D226)
+	"PUT /llm/config":                        GlobalOnlyRefused,
+	"PUT /llm/upstreams/{name}":              GlobalOnlyRefused,
+	"DELETE /llm/upstreams/{name}":           GlobalOnlyRefused,
+	"POST /llm/upstreams/{name}/test":        GlobalOnlyRefused,
+	"GET /llm/usage":                         GlobalOnlyRefused,
+	"GET /llm/quotas":                        GlobalOnlyRefused,
+	"PUT /llm/quotas":                        GlobalOnlyRefused,
 	"DELETE /push/config":                    GlobalOnlyRefused,
 	"GET /push/devices":                      GlobalOnlyRefused,
 	"DELETE /push/devices/{user}":            GlobalOnlyRefused,
@@ -481,6 +489,23 @@ var partitionClasses = map[string]PartitionClass{
 	"POST /limits/dismiss":   GlobalOnlyRefused,
 	"PUT /orgs/{org}/limits": GlobalOnlyRefused,
 	"GET /limits":            PartitionNeutral,
+
+	// ---- org constraints on agents (D229): admins', and a person's own
+	// connection view; a person's agent preferences are theirs alone to
+	// read and write — what their workspace agent may start is in them ----
+	"GET /agents/policy":     GlobalOnlyRefused,
+	"PUT /agents/policy":     GlobalOnlyRefused,
+	"PUT /orgs/{org}/agents": GlobalOnlyRefused,
+	"GET /agents/connection": GlobalOnlyRefused,
+	"GET /agent/prefs":       PersonOnly,
+	"PUT /agent/prefs":       PersonOnly,
+	// ---- the LLM connector's calls (D226): a person's partition calls as
+	// that person — the handler meters the call to them (internal/llm) ----
+	"POST /llm/v1/chat/completions": PartitionScoped,
+	"POST /llm/v1/responses":        PartitionScoped,
+	"GET /llm/v1/models":            PartitionScoped,
+	"GET /llm/preferred":            PartitionScoped,
+	"GET /llm":                      PartitionScoped,
 
 	// ---- partitions' governance acts (02 §8): their handlers judge the
 	// person and refuse the target tile's own credentials. A mode decision
