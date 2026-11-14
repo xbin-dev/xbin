@@ -1,8 +1,8 @@
 // needs_text.go — what a run waiting for a person waits on, in words, and
 // since when (#56): the question or approval GET /needs items carry (text,
 // since), what the project coordinator reads of a task that waits
-// (projects_coord_waits.go) and what the project's feed says when a task
-// starts waiting (project_events.go). One reading of runs.pending for all
+// (coord_hold.go, projects_coord_waits.go) and what the project's feed says
+// when a task starts waiting (project_events.go). One reading of runs.pending for all
 // of them: a coding agent's park (harnessNeed), the built-in engine's
 // approval, a task's workspace park, else ask_user's question (run.result).
 package main

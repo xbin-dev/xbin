@@ -14,7 +14,9 @@
 // active, the owner still a participant, no internal reach), and
 // projectTaskOf finds a task by its project-local number — never a run id,
 // never a ParentID walk — refusing one whose run has internal reach anyway.
-// The tools (projects_coord_tools.go) go through both on every call.
+// The tools go through both on every call: the kit resolves the
+// coordinator before any of them runs (coord_tools.go, the project
+// profile's Resolve), and each names its tasks through projectTaskOf.
 package main
 
 import (
