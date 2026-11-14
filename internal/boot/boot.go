@@ -17,6 +17,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/branding"
 	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/builtins"
+	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/deps"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -42,21 +43,25 @@ const watchDebounce = 300 * time.Millisecond
 // the steps are done. Exported fields are what the runtime API and tests
 // read; the rest is plumbing between steps.
 type State struct {
-	Cfg     *Config
-	WS      string
-	Auth    *auth.Auth
-	Users   *users.Store
-	Reg     *registry.Registry
-	Hub     *events.Hub
-	Run     *runner.Runner
-	Term    *term.Manager
-	Broker  *broker.Broker
-	Proxy   *proxy.Proxy
-	Server  *server.Server
-	VM      *vm.Manager      // VM sandboxes (vm.go); nil without isolation
-	Sbx     *sbx.Registry    // every live sandbox and what the sandbox layer failed at (D112)
-	TileSbx *tilesbx.Manager // the tile-sandbox runtime (tilesandboxes.go, D120)
-	Push    *push.Service    // the push plane (push.go)
+	Cfg    *Config
+	WS     string
+	Auth   *auth.Auth
+	Users  *users.Store
+	Reg    *registry.Registry
+	Hub    *events.Hub
+	Run    *runner.Runner
+	Term   *term.Manager
+	Broker *broker.Broker
+	Proxy  *proxy.Proxy
+	Server *server.Server
+	// AgentPolicy is the agent-policy package's answers for delegation (the
+	// orgs' agent rules, people's agent preferences); nil refuses every
+	// delegate call (delegation.go).
+	AgentPolicy delegation.Policy
+	VM          *vm.Manager      // VM sandboxes (vm.go); nil without isolation
+	Sbx         *sbx.Registry    // every live sandbox and what the sandbox layer failed at (D112)
+	TileSbx     *tilesbx.Manager // the tile-sandbox runtime (tilesandboxes.go, D120)
+	Push        *push.Service    // the push plane (push.go)
 	// AppTunnel is the xbin app's iroh tunnel (apptunnel.go, D204)
 	AppTunnel *apptunnel.Service
 	held      *push.Holder // non-primary notifications, kept as would-notify (push.go)
@@ -704,6 +709,7 @@ func (st *State) stepServer() error {
 	registerDeploymentsAPI(srv, st.Deployments, st.Broker) // the broker answers the state's vault, registrations, edges, disk
 	st.registerTileSandboxAPI(srv)
 	st.registerGoVersionsAPI(srv) // the D166 upgrade check's routes and admin alert
+	st.setupDelegation(srv)       // people's workspace agents (delegation.go, D228)
 	if err := st.setupPush(srv); err != nil {
 		return err
 	}
