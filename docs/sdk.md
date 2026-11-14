@@ -548,6 +548,15 @@ err = llm.ReadSSE(resp.Body, func(_ string, data []byte) error {
   / `Response` / `ResponsesEvent` (and the `Event…` type names),
   `ModelList` / `Model` (a provider's own members are kept in `Extra`;
   `ContextWindow()` reads the context size wherever the provider puts it).
+  They write as well as read: a chunk's choice is `ChatChunkChoice`, a usage
+  block's details `InputDetails` / `OutputDetails`, so a fake upstream or a
+  translating proxy builds its answers from them.
+- **Reading a stream**: `ReadSSE(r, fn)` reads events as the SSE format
+  defines them (an event ends at a blank line; its data lines are joined).
+  `ReadData(r, fn)` hands `fn` each `data:` line's payload by itself, which
+  is how both wires write a stream — a JSON value per line — and also reads
+  a server that leaves the blank lines out. Both stop at `[DONE]`, and both
+  refuse a line past `MaxSSELine` (8 MiB) with `ErrSSELineTooLong`.
 - **Usage** is one shape for both wires: `llm.Usage{InputTokens,
   OutputTokens, CachedTokens, ReasoningTokens, TotalTokens}`.
   `UsageFromBody` reads it from a whole answer or from one stream event; a

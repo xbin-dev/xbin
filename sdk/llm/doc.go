@@ -22,5 +22,6 @@
 // non-streaming body of either wire; StreamUsage is an io.Writer a relay
 // feeds the stream's bytes to (and BodyUsage the same for a plain body), so
 // a proxy meters without holding a stream back. ReadSSE is the reading side
-// for a client.
+// for a client, and ReadData the one that takes each data line by itself,
+// as the two wires write them.
 package llm

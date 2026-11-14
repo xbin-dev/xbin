@@ -10,6 +10,19 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-15
+
+- **SDK: `sdk/llm` reads a stream a data line at a time, and its types
+  write the wire too** (D226; [sdk.md](/docs/sdk.md) §Calling a model).
+  `llm.ReadData(r, fn)` hands each `data:` line's payload to `fn` by itself
+  — how Chat Completions and the Responses API write a stream, and it reads
+  a server that leaves out the blank line between events (`ReadSSE` still
+  reads events as the SSE format defines them). `llm.ChatChunkChoice`,
+  `llm.InputDetails` and `llm.OutputDetails` name what were unnamed struct
+  types inside `ChatChunk`, `ChatUsage` and `ResponsesUsage`, so a fake
+  upstream or a translating proxy can build its answers from them; code
+  that reads their fields is unchanged.
+
 ## 2026-11-14
 
 - **Orgs constrain agents** (D229; [auth.md](/docs/auth.md) §Agent
