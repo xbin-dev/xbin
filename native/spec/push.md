@@ -133,6 +133,10 @@ the app never loads the plain page (a password form) and never frames it.
 Only xbind links its own pages: a tile's notification link is always under
 its `c/<tile>/` and an agent's `agent/<id>`, so a tile that names a
 `partition-…` kind still shows as that tile's (its actions, Mute included).
+A system (sealed) component (`xbin/<name>`, docs/sealed.md) is a component
+here too: its link is `c/xbin/<name>/…`, never `xbin/<name>`, which stays
+the form of xbind's pages — so an app that predates system components reads
+every link as it did.
 
 The kinds' categories and groups (§4):
 

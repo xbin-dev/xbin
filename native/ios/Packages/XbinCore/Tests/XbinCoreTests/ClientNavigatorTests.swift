@@ -65,6 +65,14 @@ import Testing
         #expect(cat.listed.map(\.path) == ["a/ok"])
         #expect(TileInfo(json: ["path": "t", "template": true])?.template == true)
         #expect(TileInfo(json: ["path": "t", "state": "hidden"])?.isListed == false)
+        // a system (sealed) component (D227): a row only for a client that
+        // asks (?sealed=1), never in the app's tile lists, found by its path
+        let sys = TileInfo(json: ["path": "xbin/wsagent", "title": "Workspace agent", "sealed": true, "hasIndex": true])
+        #expect(sys?.sealed == true && sys?.isListed == false && sys?.title == "Workspace agent")
+        #expect(TileInfo(json: ["path": "a/ok"])?.sealed == false)
+        let withSys = Catalog(tiles: [tile("a/ok"), TileInfo(path: "xbin/wsagent", sealed: true)])
+        #expect(withSys.listed.map(\.path) == ["a/ok"])
+        #expect(withSys.tiles.map(\.path).contains("xbin/wsagent"))
     }
 
     /// Labels (D55): the basename, the path when two of a section share it

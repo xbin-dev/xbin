@@ -154,6 +154,11 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     (400; 403 for its resources, secrets and registrations, which only the
     component itself touches). No tile can be granted a call into one or
     bind a slot to one.
+  - The app's and `bx preview --native`'s confinement of what a tile's
+    native UI may name (`web/xb/tile-resource.js`, XbinCore) resolves a
+    sealed component's own `/c/xbin/<name>/…` and `/api/xbin/<name>/…`
+    once xbind listed it to that client, and still nothing else under
+    `xbin/`. Its link is a tile link (`c/xbin/<name>/…`).
   - Its backend is the release's own build (`bin/sealed/<name>-<digest>`
     in the bundle; `make build` and `xbind sealed-build` make it). A
     production xbind never compiles one: without the build the component

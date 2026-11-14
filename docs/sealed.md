@@ -218,6 +218,14 @@ next start. A person's partition backup follows the same rule.
   deployments, ownership or grants on a row with `sealed: true`
   ([protocol/sealed.md](/docs/protocol/sealed.md) has every route's
   answer).
+- **Links and the app.** A sealed component's link is a tile link:
+  `/c/xbin/<name>/…` on the web, `xbin://<workspace>/c/xbin/<name>/…` for
+  the app, `c/xbin/<name>/…` in a notification. `xbin/<page>` stays the
+  form of xbind's own pages. In the app (and `bx preview --native`) a
+  component's native UI may name only its own files and API; a sealed
+  component's (`/c/xbin/<name>/…`, `/api/xbin/<name>/…`) resolve once xbind
+  listed it to that client (`?sealed=1`), and nothing else under `xbin/`
+  ever does. An app or shell that doesn't ask keeps its behaviour.
 - A top-level directory or tile whose name is `xbin~<something>` shares a
   data key with the sealed component `xbin/<something>`, should a release
   add one. The sealed component holds the key; such a tile keeps running
