@@ -74,8 +74,10 @@ the model it says it is on); a request about such a tile is `403 {refusal:
 agent is not an admin.
 
 Refusals are `403 {error, refusal, class, docs}` with `refusal` one of
-`not-delegated`, `tile`, `needs-approval`, `ticket`, `admin-read`, `off`,
-and `429 {refusal: "rate-limited"}` + `Retry-After` past 30 acts a minute.
+`not-delegated`, `tile`, `needs-approval`, `ticket`, `admin-read`, `off`;
+`413 {refusal: "too-large"}` for a ticketed body over 256 KiB; and
+`429 {refusal: "rate-limited"}` + `Retry-After` past 30 acts a minute (a
+burst of 30, one more every 2 seconds; reads and dry runs don't count).
 
 ### Dry run
 
