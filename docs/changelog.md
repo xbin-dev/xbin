@@ -33,6 +33,19 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   with: v11 needs this release's xbind ([compat.md](/docs/compat.md) "What
   this does not promise"); an llm-gw you already run keeps building against
   the newer SDK, which only grew.
+- **Agent template: its model wires read through `sdk/llm`** (D226). The
+  template's backend takes the wire types of Chat Completions and of the
+  Responses API, the stream reader and the model list's context sizes from
+  the SDK in place of its own copies. Nothing it sends or reads changes:
+  requests are encoded byte for byte as before, and answers — reasoning
+  under each provider's name, tool-call fragments, usage as the provider
+  counted it, errors in whatever shape a server sends them, streams with or
+  without blank lines — are read the same (58 recorded answers and six
+  requests are pinned in its tests). A template with this change needs
+  this release's xbind, as template code written against a later SDK always
+  does ([compat.md](/docs/compat.md) "What this does not promise"): update
+  xbind before you merge it into an instance. An instance you already have
+  keeps building against the newer SDK, which only grew.
 
 ## 2026-11-14
 
