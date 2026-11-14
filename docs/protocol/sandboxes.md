@@ -2,7 +2,8 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: the sandboxes a manager tile runs for the tiles it serves —
+index of these topic pages. This page:
+the sandboxes a manager tile runs for the tiles it serves —
 definitions, lifecycle, exec, files, snapshots and the TTY and stdio
 routes. The contract between a manager and its consumers is
 [sandbox-manager.md](/docs/sandbox-manager.md); the admin's inventory of
@@ -10,7 +11,6 @@ every sandbox (`GET /sandboxes?tile=`) is in
 [runtime.md](/docs/protocol/runtime.md).
 
 ## Tile sandboxes (manager tiles)
-
 
 A **manager tile** runs coding sandboxes for the tiles it serves (the
 sandbox-manager contract, [sandbox-manager.md](/docs/sandbox-manager.md)). On

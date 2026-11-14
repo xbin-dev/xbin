@@ -2,7 +2,8 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: per-person preferences, screens and sidebar folders,
+index of these topic pages. This page:
+per-person preferences, screens and sidebar folders,
 branding, the native runtime switch, workspace settings, chrome approval
 and the defaults for new users.
 
@@ -10,7 +11,6 @@ Rows are paths below `/api/xbin/`; the words before the first full stop
 of a row say who may call it.
 
 ## Preferences
-
 
 ```
 GET    /prefs                     the caller's per-(user×tile) prefs object
@@ -49,7 +49,6 @@ DELETE /prefs/<key>               remove it
 ```
 
 ## Screens
-
 
 ```
 GET    /screens                   signed-in. {default: {tiles,blocks?,
@@ -112,7 +111,6 @@ PUT    /screens/folders           {scope:"ws"|"org:<id>", folders:[…], rev,
 ```
 
 ## Branding, native runtime, workspace settings, chrome, defaults
-
 
 ```
 GET    /branding                  authenticated. {title, icon, hasIcon} — the

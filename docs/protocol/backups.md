@@ -2,14 +2,14 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: backing a tile up, restoring it, schedules, backup keys,
+index of these topic pages. This page:
+backing a tile up, restoring it, schedules, backup keys,
 erasure, and a person's partition backups.
 
 Rows are paths below `/api/xbin/`; the words before the first full stop
 of a row say who may call it.
 
 ## Backup and restore
-
 
 ```
 POST   /backup                     admin. body {component} — build a self-

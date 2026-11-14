@@ -2,7 +2,8 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: what is running and how it is doing — status, backends, the
+index of these topic pages. This page:
+what is running and how it is doing — status, backends, the
 runtime view, GPUs, Go build versions, VM sandboxes, the sandbox inventory,
 a tile's metrics and logs, and workspace alerts.
 
@@ -10,7 +11,6 @@ Rows are paths below `/api/xbin/`; the words before the first full stop
 of a row say who may call it.
 
 ## Status, runtime and logs
-
 
 ```
 GET    /status                     admin. terminals ({id,cwd,net,kind,vm,user,
@@ -443,7 +443,6 @@ GET    /logs?component=<p>         admin, the tile itself, or a user with
 ```
 
 ## Alerts
-
 
 ```
 GET    /alerts                    any. workspace health {alerts:[{level,kind,

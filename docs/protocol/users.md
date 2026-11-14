@@ -2,7 +2,8 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: who the caller is and who may sign in — frame tokens, path
+index of these topic pages. This page:
+who the caller is and who may sign in — frame tokens, path
 tickets, `whoami`, view-as, user accounts, passwords, invites, sessions and
 the sign-in settings (SSO, the owner token).
 
@@ -10,7 +11,6 @@ Rows are paths below `/api/xbin/`; the words before the first full stop
 of a row say who may call it.
 
 ## Identity and tokens
-
 
 ```
 GET    /frame-token?component=<p>  a principal that may use the tile: humans
@@ -112,7 +112,6 @@ POST   /impersonate/stop          a view-as session. ends the view, hands
 ```
 
 ## Users, sign-in and sessions
-
 
 ```
 GET    /users                     admin or xbin:users. [{id,name,role,

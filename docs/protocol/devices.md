@@ -2,7 +2,8 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: what the xbin mobile app speaks — device enrolment, web
+index of these topic pages. This page:
+what the xbin mobile app speaks — device enrolment, web
 tickets, pairing, the app tunnel, push registrations, tile notifications
 and Live Activities.
 
@@ -10,7 +11,6 @@ Rows are paths below `/api/xbin/`; the words before the first full stop
 of a row say who may call it.
 
 ## Devices, enrolment and pairing
-
 
 ```
 POST   /devices/enroll-code       a signed-in user (browser or app
@@ -159,7 +159,6 @@ POST   /devices/<id>/tunnel       the device's own session, signed in
 
 ## The app tunnel
 
-
 ```
 GET    /app-tunnel                       admin. The app tunnel (D204,
                                          docs/app-tunnel.md): {enabled,
@@ -214,7 +213,6 @@ GET    /app-tunnel/client                a device's own session, over its
 ```
 
 ## Push notifications
-
 
 ```
 POST   /notify                           element: a tile's backend (instance

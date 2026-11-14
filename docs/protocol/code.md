@@ -2,14 +2,14 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: reading a tile's code and git history, importing a
+index of these topic pages. This page:
+reading a tile's code and git history, importing a
 repository, and cross-tile change proposals (code PRs).
 
 Rows are paths below `/api/xbin/`; the words before the first full stop
 of a row say who may call it.
 
 ## Code, git and change proposals
-
 
 ```
 GET    /code/tree                  read on the tile, admin OR code[:<component>]. ?component=<path> → {component, files:

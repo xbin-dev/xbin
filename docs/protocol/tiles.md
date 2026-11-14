@@ -2,7 +2,8 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: the component list and tile assets, creating and cloning
+index of these topic pages. This page:
+the component list and tile assets, creating and cloning
 tiles, builtins and templates, lifecycle (disable, offload, remove…) and
 tile reports.
 
@@ -10,7 +11,6 @@ Rows are paths below `/api/xbin/`; the words before the first full stop
 of a row say who may call it.
 
 ## Components and assets
-
 
 ```
 GET    /components                 any. [{path, scope, runtime, hasIndex,
@@ -103,7 +103,6 @@ GET    /tile-assets                any (read-filtered); ?component=<p> for one.
 ```
 
 ## Creating tiles, builtins and templates
-
 
 ```
 POST   /create                     owner/admin, a user creating a tile
@@ -304,7 +303,6 @@ GET    /templates/{repo}/{rest...}  authenticated. Read-only dumb-HTTP git serve
 
 ## Lifecycle
 
-
 ```
 POST   /lifecycle                  admin, the tile's user-owner, or an
                                    owning-org admin (D24: lifecycle is the
@@ -353,7 +351,6 @@ POST   /lifecycle                  admin, the tile's user-owner, or an
 ```
 
 ## Tile reports
-
 
 ```
 GET    /tile-report                      any signed-in user (read-filtered).

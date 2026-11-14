@@ -2,7 +2,8 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: organisations and their members, permission sets, network
+index of these topic pages. This page:
+organisations and their members, permission sets, network
 sets, tile ownership, access and access requests, policy ceilings, and
 tile resource limits.
 
@@ -10,7 +11,6 @@ Rows are paths below `/api/xbin/`; the words before the first full stop
 of a row say who may call it.
 
 ## Organisations, permission sets and network sets
-
 
 ```
 GET    /orgs                      management view (docs/auth.md, ownership):
@@ -126,7 +126,6 @@ DELETE /net-sets/<name>           admin/xbin:users; 409 while attached to
 
 ## Ownership and access
 
-
 ```
 GET    /owner?tile=<path>         any principal that can READ the tile.
                                    {tile, owner: "user:<id>"|"org:<id>"|""}
@@ -220,7 +219,6 @@ GET    /users-directory           admin/xbin:users, or any org admin. the
 
 ## Policy ceilings
 
-
 ```
 GET    /policy                    admin/xbin:users. workspace policy-ceiling
                                    rows {policy:[{tiles,deny?,mayCall?}]}
@@ -234,7 +232,6 @@ PUT    /orgs/<org>/policy         admin/xbin:users. replace them
 ```
 
 ## Limits
-
 
 ```
 POST   /partitions/limits         admin (the admin console: when the

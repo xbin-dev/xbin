@@ -2,7 +2,8 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: the session directory (`/term/sessions`: terminals and coding
+index of these topic pages. This page:
+the session directory (`/term/sessions`: terminals and coding
 agent sessions), agent providers and their sign-in, prompts, queues,
 permissions, diffs, agent history, and the agent session event log.
 
@@ -10,7 +11,6 @@ Rows are paths below `/api/xbin/`; the words before the first full stop
 of a row say who may call it.
 
 ## Sessions, agent providers and history
-
 
 ```
 GET    /term/sessions             authenticated. the caller's live terminal
@@ -335,7 +335,6 @@ DELETE /agent/history/<id>        terminal-level (own) → 204 (forget it)
 ```
 
 ## Agent session events
-
 
 An agent session's log (`GET /term/sessions/<id>/events`) and its live
 `session` events carry the same entries: `{seq, ts, type, data}` — `seq`

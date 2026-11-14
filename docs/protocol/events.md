@@ -2,12 +2,12 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: `/ws/events` — the event types, who receives which, and
+index of these topic pages. This page:
+`/ws/events` — the event types, who receives which, and
 the filters. An agent session's events are in
 [agents.md](/docs/protocol/agents.md).
 
 ## `/ws/events` — event stream
-
 
 ```
 GET    /ws/events?frame=<token>    WebSocket upgrade → the event stream (below;

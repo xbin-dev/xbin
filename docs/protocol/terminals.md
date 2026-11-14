@@ -2,11 +2,11 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: `/ws/term` and the terminal wire. The session directory
+index of these topic pages. This page:
+`/ws/term` and the terminal wire. The session directory
 (`/term/sessions`) is in [agents.md](/docs/protocol/agents.md).
 
 ## `/ws/term` — terminals (admins + users with a terminal-level tile)
-
 
 ```
 GET    /ws/term?cwd=<p>|session=<id>   WebSocket upgrade → a terminal session (below)
@@ -225,7 +225,6 @@ Sessions survive disconnects; idle unattached sessions are reaped after 24 h;
 xbind restart kills them (run `tmux` inside if you care).
 
 ## The terminal wire
-
 
 `/ws/term`'s framing is the one terminal protocol in xbin, and other
 endpoints speak it too: a sandbox manager's `tty` routes

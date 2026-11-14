@@ -2,7 +2,8 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: a partitioned tile's mode, binds, consents, the ledger,
+index of these topic pages. This page:
+a partitioned tile's mode, binds, consents, the ledger,
 the partition list and its operations, and partition mail. The builder
 page is [partitions.md](/docs/partitions.md).
 
@@ -10,7 +11,6 @@ Rows are paths below `/api/xbin/`; the words before the first full stop
 of a row say who may call it.
 
 ## Partitions
-
 
 ```
 POST   /partitions/mode            a tile manager (the tile's user-owner, an
@@ -507,7 +507,6 @@ POST   /partitions/mail/ack        the same callers as GET. {ids} (≤ 1000)
 ```
 
 ## Partition mail doorbell
-
 
 **Partition mail doorbell** (docs/partitions.md §Partition mail). While an
 inbox of a partitioned tile holds unacked items (`POST /partitions/mail`),

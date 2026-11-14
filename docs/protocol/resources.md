@@ -2,7 +2,8 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: the vault and the shared resources — kv, blob, bus (publish
+index of these topic pages. This page:
+the vault and the shared resources — kv, blob, bus (publish
 and push subscriptions) and cron. The builder page is
 [resources.md](/docs/resources.md).
 
@@ -10,7 +11,6 @@ Rows are paths below `/api/xbin/`; the words before the first full stop
 of a row say who may call it.
 
 ## Overviews
-
 
 ```
 GET    /vaults                     admin. [{component, keys}] across all vaults.
@@ -23,7 +23,6 @@ GET    /resources                  admin. declared resources [{id,scope,name,typ
 ```
 
 ## Vault
-
 
 ```
 GET    /vault-status              admin. {initialized, sealed, mode, insecure}
@@ -95,7 +94,6 @@ DELETE /vault/<component>/<key>    backend/terminal self, or admin.
 ```
 
 ## kv, blob, bus and cron
-
 
 ```
 GET    /kv/res:<scope>/<name>/?prefix=   reader. {keys}
@@ -243,7 +241,6 @@ DELETE /cron/jobs/<name>[?component=]    element: own; admin: any.
 themselves.
 
 ## Bus push delivery
-
 
 **Bus push delivery (D85).** Each event published on a subscribed bus whose
 topic starts with the subscription's `prefix` is POSTed to the subscriber's

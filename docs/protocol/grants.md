@@ -2,14 +2,14 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: the edges between tiles and the world — grants, interface
+index of these topic pages. This page:
+the edges between tiles and the world — grants, interface
 bindings and instances, ingress hosts and routes.
 
 Rows are paths below `/api/xbin/`; the words before the first full stop
 of a row say who may call it.
 
 ## Grants
-
 
 ```
 GET    /auth-overview              admin. components(+roles/uses/vault, vm?:
@@ -83,7 +83,6 @@ DELETE /grants                     admin; also both D26/D33 edges (an org
 ```
 
 ## Interface bindings and instances
-
 
 ```
 GET    /bindings                   admin; signed-in users get a scoped view
@@ -289,7 +288,6 @@ PUT    /iface-instances            self or admin. body {component?, instances:
 ```
 
 ## Ingress
-
 
 ```
 PUT    /ingress-hosts              self or admin. body {component?, hosts:[…]}

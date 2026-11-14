@@ -2,7 +2,8 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: pausing live reload, a tile's named deployments, deploying,
+index of these topic pages. This page:
+pausing live reload, a tile's named deployments, deploying,
 promoting and rolling back, and the checkpoint remote. The builder page is
 [tile-deployments.md](/docs/tile-deployments.md).
 
@@ -10,7 +11,6 @@ Rows are paths below `/api/xbin/`; the words before the first full stop
 of a row say who may call it.
 
 ## Routes
-
 
 ```
 Tile deployments: pausing live reload, a tile's deployments, promotion
@@ -481,7 +481,6 @@ GET    /checkpoints/<tile>.git/<path>
 ```
 
 ## Tile deployments (`/deployments`, `/checkpoints`)
-
 
 The builder's view is [tile-deployments.md](/docs/tile-deployments.md);
 this is the wire's. Every tile has one deployment, `main`, which starts as

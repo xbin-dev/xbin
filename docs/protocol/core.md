@@ -2,12 +2,12 @@
 
 Part of the [protocol reference](/docs/protocol.md), which holds the
 conventions every route shares (authentication, tokens, headers) and the
-index of these topic pages. This page: the routes outside `/api/xbin/` — sign-in, component files
+index of these topic pages. This page:
+the routes outside `/api/xbin/` — sign-in, component files
 (`/c/`), the proxy to tile backends (`/api/<tile>/`), `/vendor/`, `/docs/`,
 the built-in pages — and path tickets.
 
 ## Core
-
 
 ```
 GET  /healthz                    200 "ok", unauthenticated (liveness)
