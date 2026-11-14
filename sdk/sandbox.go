@@ -317,7 +317,7 @@ type SandboxRuntime struct {
 	Unavailable []SandboxMode   `json:"unavailable"`
 	Users       string          `json:"users"` // "any", or "root" on a namespace host mapping one uid
 	Egress      []SandboxEgress `json:"egress"`
-	Caps        []string        `json:"caps"` // the contract capabilities served: exec, files, tar, tty, snapshots, clone, ports (D135; an older xbind leaves it out)
+	Caps        []string        `json:"caps"` // the contract capabilities served: exec, files, tar, tty, snapshots, clone, ports (D135; an older xbind leaves it out), llm (D226: it forwards the LLM connector into a sandbox created with net.llm)
 	Limits      SandboxLimits   `json:"limits"`
 	Used        SandboxUsage    `json:"used"`
 }

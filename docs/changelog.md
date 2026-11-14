@@ -50,6 +50,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `none` included. Go SDK: `xbin.SandboxNet.LLM`, `SandboxNetInfo.LLM`,
   and **`xbin.LLMKeyFor` / `xbin.RevokeLLMKey`** for the key
   ([sdk.md](/docs/sdk.md) §An LLM key for a coding tool).
+- **Sandbox-manager contract: the optional capability `llm`**
+  ([sandbox-manager.md](/docs/sandbox-manager.md) §The LLM connector in a
+  sandbox). A manager that offers it takes `llm: true` on `POST
+  /sbx/sandboxes` and the sandbox then carries `llm: {url}` — where a
+  process inside reaches the workspace's LLM connector. Nothing changes for
+  a manager that doesn't offer it: a consumer reads `hello.caps` first. The
+  builtin `coding-sandbox` manager offers it on an xbind that forwards the
+  connector (the runtime's `caps` carry `llm`), and the conformance suite
+  (`sdk/sandboxcontract`) gained the section `llm`.
 - **Go SDK, `sdk/acp`**: `Provider.Connector`, `Provider.ConnectorEnv`,
   `acp.ConnectorServes`, `Provider.HasOwnLogin` and `acp.ExpandWord` — how
   each coding CLI is pointed at an LLM connector from its environment, and

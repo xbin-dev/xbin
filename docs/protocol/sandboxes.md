@@ -43,7 +43,8 @@ sandboxes).
   `runtime.caps` lists the contract capabilities served (`exec`, `tty`,
   `files`, `tar`, `snapshots`, `clone`, `ports` since D135 and `stdio` —
   an older xbind leaves them out, and their routes are a 404; it ignores
-  `split` and `stream`).
+  `split` and `stream`), and `llm` while xbind forwards its LLM connector
+  into a sandbox created with `net.llm` (D226; below).
 - **Ports** (D135). `ANY /sandboxes/<name>/ports/<port>/<path>` proxies
   the request — any method, a WebSocket upgrade included — to a server
   listening on TCP `<port>` (1–65535) on the sandbox's **own loopback**:

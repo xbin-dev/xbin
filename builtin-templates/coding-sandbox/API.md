@@ -116,7 +116,10 @@ trusts its consumers.
   image says so (`sudo`, §Images) — in a VM sandbox on KVM, never a
   namespace one or an emulated VM.
 - **`caps`** are the substrate's (`exec`, `files`, `tar`, `tty`,
-  `snapshots`, `clone`, and `ports` and `stdio` where xbind serves them);
+  `snapshots`, `clone`, and `ports`, `stdio` and `llm` where xbind serves
+  them — `llm`: `POST /sbx/sandboxes {llm: true}` gives the sandbox the
+  workspace's LLM connector, and its row names the address, `llm.url`;
+  docs/sandbox-manager.md §The LLM connector in a sandbox);
   `archive` isn't offered yet (its routes answer 501). Hello's also carry
   `partitions`, the manager's own (a sandbox's `caps` never do).
 - **stdio** (docs/sandbox-manager.md §stdio): `POST …/execs {split: true}`
