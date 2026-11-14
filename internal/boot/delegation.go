@@ -28,6 +28,7 @@ func (st *State) setupDelegation(srv *server.Server) {
 	// the off switches, asked on every delegate call: sandboxes on (--dev
 	// and --no-auth excepted), the workspace's switch, the person's pause
 	st.Auth.SetDelegationGate(server.DelegationGate(store, st.Cfg.Isolate, st.Cfg.Dev || st.Cfg.NoAuth))
+	srv.DelegationDev = st.Cfg.Dev || st.Cfg.NoAuth // developing an agent: no step-up; --no-auth's owner answers as the person
 	srv.AgentPolicy = st.AgentPolicy
 	st.Broker.AgentPolicy = st.AgentPolicy
 	if st.Term != nil {

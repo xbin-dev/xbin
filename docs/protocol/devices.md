@@ -416,7 +416,8 @@ want of their consent (`tile.partition-consent`, at most one a day per
 edge, collapse `partition-consent:<from>→<to>`), all linking
 `xbin/partitions`; and a person's workspace agent waiting for them
 (`agent.approval`: a side effect needs their approval; `agent.changeset`:
-admin changes are proposed — both link `xbin/agent`, with text that is
+admin changes are proposed — both link the path of the sealed component
+that is their agent, with text that is
 xbind's own, never the agent's; protocol/delegation.md). `xbin/partitions`
 is the partitions page, `GET /xbin/partitions`, where
 managers decide and people consent (an app that doesn't know the link

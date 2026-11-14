@@ -95,10 +95,11 @@ func (c *captured) refusal() string {
 }
 
 // PreviewChange describes op as person p would apply it now (the file
-// comment). p is a person's own principal: a tile's, a delegate's or a
-// view-as one previews nothing.
+// comment). p is a person's own principal — or the owner's, who approves
+// under --no-auth, where nobody signs in (the server decides when that
+// counts): a tile's, a delegate's or a view-as one previews nothing.
 func (b *Broker) PreviewChange(p auth.Principal, op delegation.ChangeOp) (delegation.ChangePreview, error) {
-	if p.Component != "" || p.Agent != "" || p.Impersonator != "" || p.UserID == "" {
+	if p.Component != "" || p.Agent != "" || p.Impersonator != "" || p.UserID == "" && !p.Owner {
 		return delegation.ChangePreview{}, errors.New("an admin change is described for the person who would apply it")
 	}
 	switch op.Kind {

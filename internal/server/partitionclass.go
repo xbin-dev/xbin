@@ -576,15 +576,18 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /agent/history/{id}/events":                       PartitionNeutral,
 	"DELETE /agent/history/{id}":                           PartitionNeutral,
 	// ---- delegation (D228, delegateapi.go): a person's workspace agent.
-	// Their agent's own page — the sealed holder's frame, in their
-	// partition — answers approval requests and pauses; the handlers take
-	// it only under the person's own login. The log and a change set's
-	// decision are the person's own acts; the workspace's switch an admin's ----
+	// Every handler judges its caller in one place (delegateCaller): the
+	// person's own credential for whatever grants; their agent's own page
+	// — the sealed holder's frame, in their partition, under their login —
+	// to read and to pause; their agent to ask. Neutral here because the
+	// page must reach the reads, and --no-auth's owner (who names no
+	// person, so PersonOnly would refuse them) answers as the person in
+	// development. The workspace's switch is an admin's ----
 	"GET /delegate/state":                    PartitionNeutral,
 	"PUT /delegate/state":                    PartitionNeutral,
 	"GET /delegate/workspace":                GlobalOnlyRefused,
 	"PUT /delegate/workspace":                GlobalOnlyRefused,
-	"GET /delegate/audit":                    PersonOnly,
+	"GET /delegate/audit":                    PartitionNeutral,
 	"POST /delegate/requests":                PartitionNeutral,
 	"GET /delegate/requests":                 PartitionNeutral,
 	"GET /delegate/requests/{id}":            PartitionNeutral,
@@ -598,7 +601,7 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /delegate/changesets":               PartitionNeutral,
 	"GET /delegate/changesets/{id}":          PartitionNeutral,
 	"DELETE /delegate/changesets/{id}":       PartitionNeutral,
-	"POST /delegate/changesets/{id}/approve": PersonOnly,
-	"POST /delegate/changesets/{id}/reject":  PersonOnly,
-	"POST /delegate/changesets/{id}/undo":    PersonOnly,
+	"POST /delegate/changesets/{id}/approve": PartitionNeutral,
+	"POST /delegate/changesets/{id}/reject":  PartitionNeutral,
+	"POST /delegate/changesets/{id}/undo":    PartitionNeutral,
 }

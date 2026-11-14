@@ -137,7 +137,7 @@ func (s *Server) apiChangeSetNew(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.delegateEvent(a.user, "changeset", cs.ID)
-	s.delegatePush(a.user, "agent.changeset", "Your agent proposes admin changes",
+	s.delegatePush(a.user, a.p.Agent, "agent.changeset", "Your agent proposes admin changes",
 		fmt.Sprintf("%d change(s) wait for your approval. Nothing is applied until you approve it.", len(cs.Items)), "agent-changeset:"+cs.ID)
 	WriteJSON(w, http.StatusOK, cs)
 }
@@ -196,9 +196,9 @@ func (s *Server) endChangeSet(w http.ResponseWriter, a delegateActor, id, state 
 }
 
 // apiChangeSetWithdraw — DELETE /delegate/changesets/{id}: the agent takes
-// its proposal back (or the person, or the agent's page, dismisses it).
+// its proposal back (or the person dismisses it).
 func (s *Server) apiChangeSetWithdraw(w http.ResponseWriter, r *http.Request) {
-	if a, ok := s.delegateCaller(w, r, true, true, true); ok {
+	if a, ok := s.delegateCaller(w, r, true, false, true); ok {
 		s.endChangeSet(w, a, r.PathValue("id"), delegation.SetWithdrawn)
 	}
 }
@@ -255,12 +255,16 @@ func (s *Server) apiChangeSetApprove(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if a.p.User == nil || s.Auth.Users == nil || !s.stepUp(w, r, a.p, body.Password,
+	// the step-up — except under --dev / --no-auth, where an agent is being
+	// developed and (--no-auth) nobody signs in at all
+	switch {
+	case s.DelegationDev:
+	case a.p.User == nil || s.Auth.Users == nil:
+		WriteError(w, http.StatusForbidden, "admin changes are approved by a person with an account", delegationDocs)
+		return
+	case !s.stepUp(w, r, a.p, body.Password,
 		fmt.Sprintf("approving admin changes needs a recent sign-in — sign in again, then approve within %d minutes", int(auth.EnrollFreshLogin/time.Minute)),
-		"confirm your password to approve admin changes") {
-		if a.p.User == nil || s.Auth.Users == nil {
-			WriteError(w, http.StatusForbidden, "admin changes are approved by a person with an account", delegationDocs)
-		}
+		"confirm your password to approve admin changes"):
 		return
 	}
 	// claim the set: only one approval applies it
@@ -352,7 +356,7 @@ func resultStatus(result string) int {
 // approving person's own principal, from their own request: never a
 // delegate's.
 func (s *Server) adminCall(ctx context.Context, p auth.Principal, c delegation.AdminCall) (int, string) {
-	if p.Agent != "" || p.Component != "" || p.Impersonator != "" || p.UserID == "" {
+	if p.Agent != "" || p.Component != "" || p.Impersonator != "" || p.UserID == "" && !s.devOwner(p) {
 		return http.StatusForbidden, "admin changes are applied as the person who approved them"
 	}
 	req, err := http.NewRequestWithContext(auth.WithPrincipal(ctx, p), c.Method, "/api/xbin"+c.Path, bytes.NewReader(c.Body))

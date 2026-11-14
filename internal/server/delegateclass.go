@@ -201,6 +201,15 @@ func DelegateUnconverted() map[string]string {
 // delegateUnconverted names delegated routes whose handler doesn't answer a
 // delegate correctly yet, and what it lacks: refused until the change that
 // converts the handler removes the row.
+//
+// The two listings here wait for the orgs' agent rules. Those rules are
+// asked in ONE place for every listing: Server.delegateHides (exported as
+// DelegateHides for the handlers other packages serve), which asks the
+// installed delegation.Policy's TileAllows. To convert a listing: drop, in
+// its handler, each row whose tile DelegateHides(p, tile) reports — as
+// /components, /tile-report, /term/sessions and /agent/history do — then
+// delete its row below. Nothing else changes: the policy package plugs in
+// through Server.AgentPolicy alone.
 var delegateUnconverted = map[string]string{
 	"GET /alerts":  "its rows aren't filtered by the tiles' orgs' agent rules",
 	"GET /screens": "its rows aren't filtered by the tiles' orgs' agent rules",

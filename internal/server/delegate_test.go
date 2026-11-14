@@ -23,7 +23,7 @@ import (
 )
 
 // dHolder stands in for the sealed workspace-agent component.
-const dHolder = "xbin/agent"
+const dHolder = "xbin/wsagent"
 
 // dWorld is two servers over one Auth and one delegation store: full, the
 // real handler (the term server's: every core route with its own handler,

@@ -96,15 +96,22 @@ func DelegationGate(store *delegation.Store, isolated, open bool) func(component
 	return func(_, userID string) error {
 		switch {
 		case !isolated && !open:
-			return errors.New("this xbind runs tiles without sandboxes (--isolate is off): a workspace agent's credential isn't safe here")
+			return &OffError{"no-sandbox", "this xbind runs tiles without sandboxes (--isolate is off): a workspace agent's credential isn't safe here"}
 		case !store.Workspace().Enabled:
-			return errors.New("an admin hasn't turned workspace agents on for this workspace")
+			return &OffError{"workspace-off", "an admin hasn't turned workspace agents on for this workspace"}
 		case store.State(userID).Paused:
-			return errors.New("you paused it — resume it in your agent's settings")
+			return &OffError{"paused", "you paused it — resume it in your agent's settings"}
 		}
 		return nil
 	}
 }
+
+// OffError is why delegation is off for a person now; Code is the refusal
+// the gate answers ("paused", "workspace-off", "no-sandbox"), so an agent
+// can tell its person paused it from the workspace having none.
+type OffError struct{ Code, Msg string }
+
+func (e *OffError) Error() string { return e.Msg }
 
 // ---- classification ----
 
@@ -354,7 +361,11 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 	p, _, err := s.Auth.DelegateFromRequest(r)
 	if err != nil {
 		if errors.Is(err, auth.ErrDelegateOff) {
-			delegateRefuse(w, http.StatusForbidden, "off", "", "your workspace agent is off: "+delegateOffReason(err))
+			code, why := "off", "delegation isn't set up on this xbind"
+			if off := (*OffError)(nil); errors.As(err, &off) {
+				code, why = off.Code, off.Msg
+			}
+			delegateRefuse(w, http.StatusForbidden, code, "", "your workspace agent is off: "+why)
 			return
 		}
 		http.Error(w, "unauthorized", http.StatusUnauthorized) // delegates nothing: as any bad token
@@ -531,18 +542,6 @@ func sessionAsk(body []byte) (cwd, provider string) {
 	var b struct{ Cwd, Provider string }
 	_ = json.Unmarshal(body, &b)
 	return strings.Trim(b.Cwd, "/"), b.Provider
-}
-
-// delegateOffReason is the gate's own words of an ErrDelegateOff.
-func delegateOffReason(err error) string {
-	if u, ok := err.(interface{ Unwrap() []error }); ok {
-		for _, e := range u.Unwrap() {
-			if !errors.Is(e, auth.ErrDelegateOff) {
-				return e.Error()
-			}
-		}
-	}
-	return "delegation isn't set up on this xbind"
 }
 
 // writeDryRun answers a dry run and records it when it described an act.

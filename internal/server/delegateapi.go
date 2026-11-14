@@ -10,22 +10,29 @@ package server
 //	change sets    /delegate/changesets… (changeset.go)
 //
 // Three kinds of caller reach these routes, and each handler says which it
-// takes (delegateActor):
+// takes (delegateCaller):
 //
-//   - the PERSON, through their own session, app or device credential;
+//   - the PERSON, through their own top-level credential: a browser
+//     session, the app's session or a device's. Everything that GRANTS is
+//     theirs alone: approving a request (a ticket), a standing approval,
+//     the admin opt-in, resuming, reading the log, deciding a change set;
 //   - the agent's own PAGE: the sealed holder's frame, when its token was
-//     minted under the person's own login (auth.Principal.LoginFrame). The
-//     page is where the agent's approval cards are shown, and it is xbind's
-//     own code, served from the release. It may answer approval requests
-//     and pause the agent — never opt in to admin changes, read the log or
-//     approve a change set;
+//     minted under the person's own login (auth.Principal.LoginFrame). It
+//     shows the agent's cards, and it renders model output — so a script
+//     injected there must not be able to approve what the agent asked for.
+//     It reads (the state, the requests, the approvals, the change sets)
+//     and it may pause the agent. Nothing else;
 //   - the AGENT itself, a delegate principal, through the delegate gate,
 //     for the rows the delegation cap lists: asking, withdrawing, reading
 //     its own requests.
 //
-// Never a tile's other credentials, view-as, or the root token.
+// Never a tile's other credentials, view-as, or the root token. One
+// exception, for development only (Server.DelegationDev with --no-auth,
+// where nobody signs in): the implicit owner answers as the person, for
+// the person ?user= names (default "owner").
 
 import (
+	"cmp"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -96,7 +103,12 @@ func delegateActorOf(p auth.Principal) (delegateActor, bool) {
 // delegateCaller answers the actor of r when it is one of the kinds the
 // route takes; otherwise it writes the 403.
 func (s *Server) delegateCaller(w http.ResponseWriter, r *http.Request, own, frame, agent bool) (delegateActor, bool) {
-	a, ok := delegateActorOf(auth.PrincipalOf(r))
+	p := auth.PrincipalOf(r)
+	a, ok := delegateActorOf(p)
+	if !ok && s.devOwner(p) {
+		// --no-auth: nobody signs in, so the implicit owner is the person
+		a, ok = delegateActor{user: cmp.Or(r.URL.Query().Get("user"), "owner"), via: "dev", own: true, p: p}, true
+	}
 	if ok && (a.own && own || a.frame && frame || a.agent && agent) {
 		if s.Delegation == nil {
 			WriteError(w, http.StatusNotImplemented, "this xbind keeps no delegation state", delegationDocs)
@@ -104,7 +116,7 @@ func (s *Server) delegateCaller(w http.ResponseWriter, r *http.Request, own, fra
 		}
 		return a, true
 	}
-	msg := "this is the person's own act: sign in and do it yourself"
+	msg := "this is the person's own act: sign in and do it yourself — not from the agent's page, a tile or the agent"
 	if agent && !own {
 		msg = "only a person's workspace agent asks this"
 	}
@@ -112,9 +124,18 @@ func (s *Server) delegateCaller(w http.ResponseWriter, r *http.Request, own, fra
 	return a, false
 }
 
+// devOwner reports the implicit owner of an xbind run with --no-auth (and
+// DelegationDev set): the principal every request without a credential
+// gets there. Never the root token, a cookie or any credential of a real
+// deployment.
+func (s *Server) devOwner(p auth.Principal) bool {
+	return s.DelegationDev && s.Auth != nil && s.Auth.NoAuth() && p.Owner && p.Via == "dev" && p.Component == "" && p.Agent == "" && p.Impersonator == ""
+}
+
 // mayOptInAdmin: a workspace admin or an org's admin.
 func mayOptInAdmin(p auth.Principal) bool {
-	return p.User != nil && p.User.IsAdmin() || p.Access != nil && len(p.Access.AdminOrgs()) > 0
+	p.Agent = "" // the person behind a delegate
+	return p.IsAdmin() || p.Access != nil && len(p.Access.AdminOrgs()) > 0
 }
 
 // ---- events and pushes ----
@@ -130,6 +151,9 @@ type delegateChange struct {
 }
 
 func (c delegateChange) VisibleTo(p auth.Principal) bool {
+	if p.Owner && p.Via == "dev" { // --no-auth: every request is the owner
+		return true
+	}
 	a, ok := delegateActorOf(p)
 	return ok && !a.agent && a.user == c.User
 }
@@ -140,13 +164,12 @@ func (s *Server) delegateEvent(user, op, id string) {
 	}
 }
 
-// delegatePage is where a push about the agent leads: the xbind-served
-// agent page.
-const delegatePage = "xbin/agent"
-
-func (s *Server) delegatePush(user, kind, title, body, collapse string) {
+// delegatePush tells user on their devices that their agent waits for
+// them. The link is the holder's own path — the sealed component that is
+// their agent — never a name written here.
+func (s *Server) delegatePush(user, holder, kind, title, body, collapse string) {
 	if s.DelegatePush != nil {
-		s.DelegatePush(user, kind, title, body, delegatePage, collapse)
+		s.DelegatePush(user, kind, title, body, holder, collapse)
 	}
 }
 
@@ -181,10 +204,11 @@ func (s *Server) apiDelegateState(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiDelegateStatePut — PUT /delegate/state {paused?, adminChanges?}: the
-// person; their agent's page may pause and resume only. Pausing stops the
-// agent's calls at once, the ones running now included. adminChanges is an
-// admin's (a workspace admin, or an org's): 403 for anyone else turning it
-// on.
+// person; their agent's page may pause ({paused: true}) and nothing else —
+// resuming and the admin opt-in widen what the agent does, and are the
+// person's own. Pausing stops the agent's calls at once, the ones running
+// now included. adminChanges is an admin's (a workspace admin, or an
+// org's): 403 for anyone else turning it on.
 func (s *Server) apiDelegateStatePut(w http.ResponseWriter, r *http.Request) {
 	a, ok := s.delegateCaller(w, r, true, true, false)
 	if !ok {
@@ -198,11 +222,12 @@ func (s *Server) apiDelegateStatePut(w http.ResponseWriter, r *http.Request) {
 		WriteError(w, http.StatusBadRequest, "need {paused?, adminChanges?: bool} with at least one key", delegationDocs)
 		return
 	}
+	if !a.own && (body.AdminChanges != nil || body.Paused == nil || !*body.Paused) {
+		WriteError(w, http.StatusForbidden, "the agent's page may pause it; resuming it, and letting it propose admin changes, are decided in your own session", delegationDocs)
+		return
+	}
 	if body.AdminChanges != nil {
 		switch {
-		case !a.own:
-			WriteError(w, http.StatusForbidden, "letting your agent propose admin changes is decided in your own session, not on the agent's page", delegationDocs)
-			return
 		case *body.AdminChanges && !mayOptInAdmin(a.p):
 			WriteError(w, http.StatusForbidden, "only a workspace admin or an org's admin has admin changes for an agent to propose", delegationDocs)
 			return
@@ -405,7 +430,7 @@ func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
 	if out.Kind == delegation.KindSession {
 		what = "start a tile agent on " + out.Tile
 	}
-	s.delegatePush(a.user, "agent.approval", "Your agent asks for your approval",
+	s.delegatePush(a.user, p.Agent, "agent.approval", "Your agent asks for your approval",
 		"It wants to "+what+". Open your agent to see exactly what, and approve or deny it.", "agent-approval:"+out.ID)
 	WriteJSON(w, http.StatusOK, out)
 }
@@ -483,13 +508,14 @@ func (s *Server) apiDelegateRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiDelegateRequestDecide — POST /delegate/requests/{id}/approve
-// [{grant: "once" | "hour" | "always"}] and …/deny: the person or their
-// agent's page. once (the default) makes the request a ticket for exactly
+// [{grant: "once" | "hour" | "always"}] and …/deny: the person, in their
+// own session, app or device — never the agent's page, which shows the
+// card and renders what the agent wrote. once (the default) makes the request a ticket for exactly
 // that call, good for 15 minutes; hour and always — a tile API call only —
 // also record a standing approval of that tile's API. → {request,
 // approval?}.
 func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request) {
-	a, ok := s.delegateCaller(w, r, true, true, false)
+	a, ok := s.delegateCaller(w, r, true, false, false)
 	if !ok {
 		return
 	}
@@ -533,9 +559,9 @@ func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request
 }
 
 // apiDelegateRequestWithdraw — DELETE /delegate/requests/{id}: the agent
-// (it no longer wants it), the person or the agent's page.
+// (it no longer wants it) or the person.
 func (s *Server) apiDelegateRequestWithdraw(w http.ResponseWriter, r *http.Request) {
-	a, ok := s.delegateCaller(w, r, true, true, true)
+	a, ok := s.delegateCaller(w, r, true, false, true)
 	if !ok {
 		return
 	}
@@ -570,10 +596,10 @@ func (s *Server) apiDelegateApprovals(w http.ResponseWriter, r *http.Request) {
 }
 
 // apiDelegateApprovalAdd — POST /delegate/approvals {tile, grant: "hour" |
-// "always"}: the person or their agent's page lets the agent call that
+// "always"}: the person, in their own session, lets the agent call that
 // tile's API without asking each time. The tile must be one they can read.
 func (s *Server) apiDelegateApprovalAdd(w http.ResponseWriter, r *http.Request) {
-	a, ok := s.delegateCaller(w, r, true, true, false)
+	a, ok := s.delegateCaller(w, r, true, false, false)
 	if !ok {
 		return
 	}
@@ -590,7 +616,7 @@ func (s *Server) apiDelegateApprovalAdd(w http.ResponseWriter, r *http.Request) 
 	if s.Reg != nil {
 		_, known = s.Reg.Component(tile)
 	}
-	if !known || a.p.Access == nil || !a.p.Access.CanReadTile(tile) {
+	if !known || !a.p.CanReadTile(tile) {
 		WriteError(w, http.StatusNotFound, "no tile "+tile+" that you can read", delegationDocs)
 		return
 	}
@@ -604,10 +630,10 @@ func (s *Server) apiDelegateApprovalAdd(w http.ResponseWriter, r *http.Request) 
 	WriteJSON(w, http.StatusOK, ap)
 }
 
-// apiDelegateApprovalRevoke — DELETE /delegate/approvals/{id}: the person
-// or their agent's page. The next call needs a ticket again.
+// apiDelegateApprovalRevoke — DELETE /delegate/approvals/{id}: the person.
+// The next call needs a ticket again.
 func (s *Server) apiDelegateApprovalRevoke(w http.ResponseWriter, r *http.Request) {
-	a, ok := s.delegateCaller(w, r, true, true, false)
+	a, ok := s.delegateCaller(w, r, true, false, false)
 	if !ok {
 		return
 	}

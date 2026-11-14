@@ -28,10 +28,14 @@ type csWorld struct {
 	store *delegation.Store
 }
 
-func changeSetWorld(t *testing.T) *csWorld {
+func changeSetWorld(t *testing.T) *csWorld { return changeSetWorldWith(t, false, false) }
+
+// changeSetWorldWith is changeSetWorld for an xbind started with --no-auth
+// (noAuth) or --dev (dev: Server.DelegationDev).
+func changeSetWorldWith(t *testing.T, noAuth, dev bool) *csWorld {
 	t.Helper()
 	w := partRouteWS(t)
-	a, err := auth.Load(t.TempDir(), false)
+	a, err := auth.Load(t.TempDir(), noAuth)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +44,7 @@ func changeSetWorld(t *testing.T) *csWorld {
 		t.Fatal(err)
 	}
 	store := delegation.OpenStore(t.TempDir())
-	srv := &server.Server{Reg: w.b.Reg, Hub: events.NewHub(), Auth: a, Delegation: store, AgentPolicy: delegation.OpenPolicy{}}
+	srv := &server.Server{Reg: w.b.Reg, Hub: events.NewHub(), Auth: a, Delegation: store, AgentPolicy: delegation.OpenPolicy{}, DelegationDev: dev || noAuth}
 	w.b.AgentPolicy = delegation.OpenPolicy{}
 	w.b.Register(srv)
 	t.Cleanup(auth.TestSealDelegate("apps/q"))
@@ -428,7 +432,7 @@ func TestChangePreviewMatchesHandlers(t *testing.T) {
 		}
 	}
 	// a preview is for a person: never a tile, a delegate or a view-as principal
-	for _, p := range []auth.Principal{{Component: "apps/x", Via: "instance"}, delegateOf(t, w.partWS, "bob", "apps/q"), {UserID: "bob", Impersonator: "owner"}, {Owner: true}} {
+	for _, p := range []auth.Principal{{Component: "apps/x", Via: "instance"}, delegateOf(t, w.partWS, "bob", "apps/q"), {UserID: "bob", Impersonator: "owner"}, {}} {
 		if _, err := w.b.PreviewChange(p, delegation.ChangeOp{Kind: ChangeGrantAdd, Args: json.RawMessage(`{"from":"apps/x","target":"apps/pg","role":"reader"}`)}); err == nil {
 			t.Errorf("a preview for %+v", p)
 		}
@@ -439,4 +443,52 @@ func TestChangePreviewMatchesHandlers(t *testing.T) {
 func jsonEsc(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b[1 : len(b)-1])
+}
+
+// Developing an agent: under --dev a change set is approved without the
+// recent-sign-in step-up; under --no-auth, where nobody signs in, the
+// implicit owner approves for the person it names — and the changes are
+// applied as the owner.
+func TestChangeSetsInDevelopment(t *testing.T) {
+	const item = `[{"kind":"grant.add","args":{"from":"apps/x","target":"users/alice/mcp","role":"reader"}}]`
+	t.Run("--dev: no step-up", func(t *testing.T) {
+		w := changeSetWorldWith(t, false, true)
+		sid, bob := w.session("bob")
+		w.a.TestAgeSession(sid, time.Hour, 0)
+		if code, body := w.do("PUT", "/delegate/state", `{"adminChanges":true}`, bob); code != 200 {
+			t.Fatalf("opt in: %d %s", code, body)
+		}
+		cs := w.propose(t, item)
+		if done := w.approve(t, cs.ID, "", bob); done.State != delegation.SetApplied || !slices.Contains(w.grants(), "apps/x→users/alice/mcp:reader") {
+			t.Fatalf("approved under --dev: %s %s %v", done.State, results(done), w.grants())
+		}
+		// still only the person: their agent and its page approve nothing
+		cs = w.propose(t, `[{"kind":"grant.revoke","args":{"from":"apps/x","target":"users/alice/mcp","role":"reader"}}]`)
+		if code, _ := w.do("POST", "/delegate/changesets/"+cs.ID+"/approve", "", agentOf("bob")); code != 403 {
+			t.Errorf("the agent approves under --dev: %d", code)
+		}
+	})
+	t.Run("--no-auth: the implicit owner", func(t *testing.T) {
+		w := changeSetWorldWith(t, true, false)
+		owner := func(*http.Request) {} // no credential: every request is the owner
+		if code, body := w.do("PUT", "/delegate/state?user=bob", `{"adminChanges":true}`, owner); code != 200 {
+			t.Fatalf("opt bob in: %d %s", code, body)
+		}
+		cs := w.propose(t, item)
+		if code, _ := w.do("POST", "/delegate/changesets/"+cs.ID+"/approve", "", owner); code != 404 {
+			t.Errorf("bob's set without naming bob: %d", code)
+		}
+		code, body := w.do("POST", "/delegate/changesets/"+cs.ID+"/approve?user=bob", "", owner)
+		if code != 200 || !strings.Contains(body, `"state":"applied"`) {
+			t.Fatalf("the owner approves for bob: %d %s", code, body)
+		}
+		for _, g := range w.b.Reg.Workspace().Grants {
+			if g.From == "apps/x" && g.Target == "users/alice/mcp" && g.ApprovedBy != "owner" {
+				t.Errorf("the grant is approved by %q, want the owner", g.ApprovedBy)
+			}
+		}
+		if !slices.Contains(w.grants(), "apps/x→users/alice/mcp:reader") {
+			t.Fatalf("the grants: %v", w.grants())
+		}
+	})
 }

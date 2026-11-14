@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -45,7 +46,8 @@ func TestDelegateSessionStart(t *testing.T) {
 	}
 	// the agent can't approve its own request; nor can anyone but its person
 	for name, c := range map[string]cred{"the agent": alice, "bob": w.cookie("bob"), "a tile's frame": w.loginFrame("apps/x", "alice"),
-		"the holder's backend": bearer("d-alice"), "view-as": w.viewAs("dave", "alice"), "a frame of the holder no login minted": w.frame(dHolder, "alice")} {
+		"the holder's backend": bearer("d-alice"), "view-as": w.viewAs("dave", "alice"), "a frame of the holder no login minted": w.frame(dHolder, "alice"),
+		"the agent's own page, under her login": w.loginFrame(dHolder, "alice")} {
 		if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", "", c); rec.Code != 403 && rec.Code != 404 {
 			t.Errorf("%s approved alice's request: %d %s", name, rec.Code, rec.Body.String())
 		}
@@ -403,7 +405,7 @@ func TestDelegateRateLimitAndOffSwitches(t *testing.T) {
 	}
 	for _, c := range [][2]string{{"GET", "/api/apps/x/notes"}, {"GET", "/api/xbin/components"}, {"POST", "/api/xbin/delegate/requests"}} {
 		rec := w.do(w.inv, c[0], c[1], "{}", bob)
-		if rec.Code != 403 || rec.Header().Get("X-Ran") != "" || !strings.Contains(rec.Body.String(), "you paused it") || !strings.Contains(rec.Body.String(), `"refusal":"off"`) {
+		if rec.Code != 403 || rec.Header().Get("X-Ran") != "" || !strings.Contains(rec.Body.String(), "you paused it") || !strings.Contains(rec.Body.String(), `"refusal":"paused"`) {
 			t.Errorf("paused, %s %s: %d ran %q %s", c[0], c[1], rec.Code, rec.Header().Get("X-Ran"), rec.Body.String())
 		}
 	}
@@ -413,10 +415,18 @@ func TestDelegateRateLimitAndOffSwitches(t *testing.T) {
 	if rec := w.do(w.inv, "GET", "/api/xbin/components", "", delegateCred("nope")); rec.Code != 401 {
 		t.Errorf("an unknown token: %d", rec.Code)
 	}
-	// the agent's own page may pause and resume — and nothing more
+	// the agent's own page may pause — never resume: that widens what the agent does
 	page := w.loginFrame(dHolder, "bob")
-	if rec := w.do(w.full, "PUT", "/api/xbin/delegate/state", `{"paused":false}`, page); rec.Code != 200 {
-		t.Fatalf("resume from the page: %d %s", rec.Code, rec.Body.String())
+	for _, body := range []string{`{"paused":false}`, `{"paused":true,"adminChanges":false}`, `{"adminChanges":true}`} {
+		if rec := w.do(w.full, "PUT", "/api/xbin/delegate/state", body, page); rec.Code != 403 {
+			t.Fatalf("the page PUT %s: %d %s", body, rec.Code, rec.Body.String())
+		}
+	}
+	if rec := w.do(w.full, "PUT", "/api/xbin/delegate/state", `{"paused":true}`, page); rec.Code != 200 || !w.store.State("bob").Paused {
+		t.Fatalf("pause from the page: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := w.do(w.full, "PUT", "/api/xbin/delegate/state", `{"paused":false}`, w.cookie("bob")); rec.Code != 200 || w.store.State("bob").Paused {
+		t.Fatalf("resume by the person: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := w.do(w.inv, "GET", "/api/xbin/components", "", bob); rec.Code != 200 {
 		t.Errorf("resumed: %d", rec.Code)
@@ -432,14 +442,14 @@ func TestDelegateRateLimitAndOffSwitches(t *testing.T) {
 		t.Fatalf("off: %d %s", rec.Code, rec.Body.String())
 	}
 	for _, c := range []cred{bob, alice} {
-		if rec := w.do(w.inv, "GET", "/api/xbin/components", "", c); rec.Code != 403 || !strings.Contains(rec.Body.String(), "hasn't turned workspace agents on") {
+		if rec := w.do(w.inv, "GET", "/api/xbin/components", "", c); rec.Code != 403 || !strings.Contains(rec.Body.String(), "hasn't turned workspace agents on") || !strings.Contains(rec.Body.String(), `"refusal":"workspace-off"`) {
 			t.Errorf("the workspace off: %d %s", rec.Code, rec.Body.String())
 		}
 	}
 	// without sandboxes (and not in dev) nothing delegates
 	_, _ = w.store.SetWorkspace(true, "test")
 	w.s.Auth.SetDelegationGate(DelegationGate(w.store, false, false))
-	if rec := w.do(w.inv, "GET", "/api/xbin/components", "", bob); rec.Code != 403 || !strings.Contains(rec.Body.String(), "without sandboxes") {
+	if rec := w.do(w.inv, "GET", "/api/xbin/components", "", bob); rec.Code != 403 || !strings.Contains(rec.Body.String(), "without sandboxes") || !strings.Contains(rec.Body.String(), `"refusal":"no-sandbox"`) {
 		t.Errorf("isolation off: %d %s", rec.Code, rec.Body.String())
 	}
 	w.s.Auth.SetDelegationGate(DelegationGate(w.store, false, true)) // --dev / --no-auth
@@ -512,8 +522,8 @@ func TestDelegationAPICallers(t *testing.T) {
 			t.Errorf("%s gets bob's delegate event", name)
 		}
 	}
-	if len(pushes) != 1 || !strings.HasPrefix(pushes[0], "bob agent.approval xbin/agent | ") || strings.Contains(pushes[0], "IGNORE") || strings.Contains(pushes[0], "the agent's words") {
-		t.Errorf("the push (xbind's words only): %v", pushes)
+	if len(pushes) != 1 || !strings.HasPrefix(pushes[0], "bob agent.approval "+dHolder+" | ") || strings.Contains(pushes[0], "IGNORE") || strings.Contains(pushes[0], "the agent's words") {
+		t.Errorf("the push (xbind's words only; its link the holder's own path): %v", pushes)
 	}
 
 	// listing: the person and the page; never the agent (it asks, they answer)
@@ -551,10 +561,20 @@ func TestDelegationAPICallers(t *testing.T) {
 	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", "", bob); rec.Code != 403 {
 		t.Errorf("the agent approves itself: %d", rec.Code)
 	}
-	// the page approves, with a standing approval
-	rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"grant":"always"}`, page)
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"decidedVia":"frame"`) || !strings.Contains(rec.Body.String(), `"approval":{`) {
-		t.Fatalf("the page approves: %d %s", rec.Code, rec.Body.String())
+	// the agent's own page shows the card and renders what the agent
+	// wrote: it never approves, denies or withdraws
+	for _, c := range [][2]string{{"POST", "/approve"}, {"POST", "/deny"}, {"DELETE", ""}} {
+		if rec := w.do(w.full, c[0], "/api/xbin/delegate/requests/"+req.ID+c[1], `{"grant":"always"}`, page); rec.Code != 403 {
+			t.Errorf("the page %s %s: %d %s", c[0], c[1], rec.Code, rec.Body.String())
+		}
+	}
+	if got, _ := w.store.Request("bob", req.ID); got.State != delegation.Pending {
+		t.Fatalf("the request after the page tried: %s", got.State)
+	}
+	// the person approves, with a standing approval
+	rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/approve", `{"grant":"always"}`, person)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"decidedVia":"session"`) || !strings.Contains(rec.Body.String(), `"approval":{`) {
+		t.Fatalf("the person approves: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+req.ID+"/deny", "", person); rec.Code != 409 {
 		t.Errorf("decided twice: %d", rec.Code)
@@ -565,7 +585,7 @@ func TestDelegationAPICallers(t *testing.T) {
 		t.Errorf("withdraw: %d %s", rec.Code, rec.Body.String())
 	}
 
-	// standing approvals: read by all three, given and revoked by the person or the page
+	// standing approvals: read by all three, given and revoked by the person alone
 	for name, c := range map[string]cred{"the person": person, "the page": page, "the agent": bob} {
 		if code, b := get("/delegate/approvals", c); code != 200 || !strings.Contains(b, `"tile":"apps/mail"`) {
 			t.Errorf("%s reads the approvals: %d %s", name, code, b)
@@ -574,8 +594,18 @@ func TestDelegationAPICallers(t *testing.T) {
 	if rec := w.do(w.full, "POST", "/api/xbin/delegate/approvals", `{"tile":"apps/x","grant":"hour"}`, bob); rec.Code != 403 {
 		t.Errorf("the agent gives itself an approval: %d", rec.Code)
 	}
-	if rec := w.do(w.full, "POST", "/api/xbin/delegate/approvals", `{"tile":"apps/x","grant":"hour"}`, page); rec.Code != 200 {
-		t.Errorf("the page gives one: %d %s", rec.Code, rec.Body.String())
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/approvals", `{"tile":"apps/x","grant":"hour"}`, page); rec.Code != 403 {
+		t.Errorf("the page gives itself one: %d %s", rec.Code, rec.Body.String())
+	}
+	aps, _ := w.store.Approvals("bob")
+	if len(aps) != 1 {
+		t.Fatalf("approvals: %+v", aps)
+	}
+	if rec := w.do(w.full, "DELETE", "/api/xbin/delegate/approvals/"+aps[0].ID, "", page); rec.Code != 403 {
+		t.Errorf("the page revokes one: %d", rec.Code)
+	}
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/approvals", `{"tile":"apps/x","grant":"hour"}`, person); rec.Code != 200 {
+		t.Errorf("the person gives one: %d %s", rec.Code, rec.Body.String())
 	}
 	for _, body := range []string{`{"tile":"apps/secret","grant":"hour"}`, `{"tile":"apps/x","grant":"once"}`, `{"tile":"apps/x"}`} {
 		if rec := w.do(w.full, "POST", "/api/xbin/delegate/approvals", body, person); rec.Code != 404 && rec.Code != 400 {
@@ -644,5 +674,72 @@ func TestDelegationAPICallers(t *testing.T) {
 	// a delegate actor is exactly a delegate: the principal an admin read is run as never passes for the person
 	if _, ok := delegateActorOf(auth.Principal{UserID: "alice", Via: "delegate"}); ok {
 		t.Error("a delegate principal without its agent passes for a person")
+	}
+}
+
+// Developing an agent (--no-auth, Server.DelegationDev): nobody signs in,
+// so the implicit owner answers as the person — for the person ?user=
+// names. Without the dev mark, or with auth on, the same request is nobody
+// or the root token: refused.
+func TestDelegationDevOwner(t *testing.T) {
+	a, err := auth.Load(t.TempDir(), true) // --no-auth
+	if err != nil {
+		t.Fatal(err)
+	}
+	store := delegation.OpenStore(t.TempDir())
+	s := &Server{Auth: a, Delegation: store, DelegationDev: true, Hub: events.NewHub()}
+	h := s.Handler()
+	do := func(method, path, body string) (int, string) {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(method, "/api/xbin"+path, strings.NewReader(body)))
+		return rec.Code, rec.Body.String()
+	}
+	mk := func(user string) delegation.Request {
+		r, err := store.NewRequest(delegation.Request{User: user, Agent: dHolder, Kind: delegation.KindCall, Method: "POST", Target: "/api/apps/mail/send", Tile: "apps/mail"}, []byte("{}"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+	own, bobs := mk("owner"), mk("bob")
+	// the owner's own, by default
+	if code, body := do("GET", "/delegate/requests", ""); code != 200 || !strings.Contains(body, own.ID) || strings.Contains(body, bobs.ID) {
+		t.Fatalf("the owner's requests: %d %s", code, body)
+	}
+	if code, body := do("POST", "/delegate/requests/"+own.ID+"/approve", ""); code != 200 || !strings.Contains(body, `"decidedVia":"dev"`) {
+		t.Fatalf("the owner approves: %d %s", code, body)
+	}
+	// a named person's
+	if code, _ := do("POST", "/delegate/requests/"+bobs.ID+"/approve", ""); code != 404 {
+		t.Fatalf("bob's request without naming bob: %d", code)
+	}
+	if code, body := do("POST", "/delegate/requests/"+bobs.ID+"/approve?user=bob", `{"grant":"hour"}`); code != 200 || !strings.Contains(body, `"approval":{`) {
+		t.Fatalf("the owner approves for bob: %d %s", code, body)
+	}
+	if _, ok := store.Covers("bob", "apps/mail"); !ok {
+		t.Fatal("no standing approval for bob")
+	}
+	if code, body := do("PUT", "/delegate/state?user=bob", `{"adminChanges":true,"paused":true}`); code != 200 || !store.State("bob").AdminChanges || !store.State("bob").Paused {
+		t.Fatalf("the owner sets bob's switches: %d %s", code, body)
+	}
+	if code, body := do("GET", "/delegate/audit?user=bob", ""); code != 200 || !strings.Contains(body, `"decision:approved"`) {
+		t.Fatalf("the owner reads bob's log: %d %s", code, body)
+	}
+	// without the dev mark the implicit owner is the root: names no person
+	s.DelegationDev = false
+	r3 := mk("owner")
+	for _, c := range [][2]string{{"POST", "/delegate/requests/" + r3.ID + "/approve"}, {"GET", "/delegate/requests"}, {"GET", "/delegate/audit"}, {"POST", "/delegate/approvals"}} {
+		if code, _ := do(c[0], c[1], `{"tile":"apps/mail","grant":"always"}`); code != 403 {
+			t.Errorf("%s %s without the dev mark: %d", c[0], c[1], code)
+		}
+	}
+	// with auth on the dev mark changes nothing for the root token (the others' refusals: TestDelegationAPICallers)
+	w := delegateWorld(t)
+	w.s.DelegationDev = true
+	r4, _ := w.store.NewRequest(delegation.Request{User: "owner", Kind: delegation.KindCall, Method: "POST", Target: "/api/apps/mail/send", Tile: "apps/mail"}, nil)
+	for _, c := range []cred{bearer(w.s.Auth.OwnerTokenValue()), func(*http.Request) {}} {
+		if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+r4.ID+"/approve", "", c); rec.Code != 403 && rec.Code != 401 {
+			t.Errorf("with auth on: %d %s", rec.Code, rec.Body.String())
+		}
 	}
 }

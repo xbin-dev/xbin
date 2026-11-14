@@ -61,7 +61,12 @@ type Server struct {
 	// ChangeSets previews admin change-set operations (changeset.go: the
 	// broker's); nil = change sets can't be proposed.
 	ChangeSets ChangePreviewer
-	delegateRT delegateRuntime // the gate's rate limit and running calls
+	// DelegationDev: xbind runs with --dev or --no-auth. Approving admin
+	// change sets then needs no recent sign-in, and under --no-auth — where
+	// nobody signs in — the implicit owner answers for the person a
+	// delegation route names (delegateapi.go). Never set in production.
+	DelegationDev bool
+	delegateRT    delegateRuntime // the gate's rate limit and running calls
 
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.

@@ -13,13 +13,17 @@ delegate reaches, what a tile sees — are in
 Rows are paths below `/api/xbin/`; the words before the first full stop
 of a row say who may call it. Three callers appear:
 
-- **the person** — their own session, app or device credential. Never a
-  view-as session, a tile's credential or the root token;
+- **the person** — their own top-level credential: a browser session, the
+  app's session or a device's. Never a view-as session, a tile's
+  credential or the root token. **Everything that grants is the person's
+  alone**: approving a request, a standing approval, resuming a paused
+  agent, the admin opt-in, deciding a change set, reading the log;
 - **the agent's page** — the sealed component's own frame, when its token
-  was minted under the person's own login. It shows the agent's approval
-  cards, so it may answer approval requests, give and revoke standing
-  approvals and pause the agent. It may not opt in to admin changes, read
-  the log or decide a change set;
+  was minted under the person's own login. It shows the agent's cards, and
+  it renders what the agent wrote — so it only **reads** (the state, the
+  requests, the standing approvals, the change sets) and may **pause** the
+  agent. A script injected into it can approve nothing. The approval
+  itself is given in chrome xbind serves, or in the app;
 - **the agent** — the sealed component's backend making a *delegate call*
   (below). It asks; it never answers itself.
 
@@ -43,9 +47,10 @@ Authorization: XBin-Delegate <XBIN_TOKEN>
 - Honoured on the **gateway socket** only (`XBIN_GATEWAY`), and only on
   `/api/…`. Everywhere else — the console listener, `/c/`, `/ws/…`,
   `/docs/`, a device's tunnel — it is no credential: `401`.
-- `403 {error, refusal: "off"}` while delegation is off: the workspace's
-  switch, the person's pause, or an xbind that runs tiles without sandboxes
-  (`--isolate` off; `--dev` and `--no-auth` excepted).
+- `403 {error, refusal}` while delegation is off: `paused` — the person
+  paused their agent; `workspace-off` — the workspace's switch; `no-sandbox`
+  — an xbind that runs tiles without sandboxes (`--isolate` off; `--dev`
+  and `--no-auth` excepted).
 - A request that carries the scheme is judged as the delegate's or refused,
   whatever else it carries.
 
@@ -74,7 +79,8 @@ the model it says it is on); a request about such a tile is `403 {refusal:
 agent is not an admin.
 
 Refusals are `403 {error, refusal, class, docs}` with `refusal` one of
-`not-delegated`, `tile`, `needs-approval`, `ticket`, `admin-read`, `off`;
+`not-delegated`, `tile`, `needs-approval`, `ticket`, `admin-read`, and the
+off reasons above;
 `413 {refusal: "too-large"}` for a ticketed body over 256 KiB; and
 `429 {refusal: "rate-limited"}` + `Retry-After` past 30 acts a minute (a
 burst of 30, one more every 2 seconds; reads and dry runs don't count).
@@ -124,21 +130,27 @@ GET    /delegate/state          the person, their agent's page, or their
                                  workspace's switch; canAdminChanges
                                  whether the person is a workspace or org
                                  admin
-PUT    /delegate/state          the person, or their agent's page (paused
-                                 only). {paused?, adminChanges?} → the
+PUT    /delegate/state          the person, or their agent's page —
+                                 which may send {paused: true} and nothing
+                                 else (403). {paused?, adminChanges?} → the
                                  state. Pausing refuses the agent's every
                                  call at once and cuts the calls running
-                                 (a followed event stream ends).
-                                 adminChanges — the agent may read what
-                                 change sets cover and propose them — is
-                                 set in the person's own session only, and
-                                 only a workspace or org admin turns it on
-                                 (403)
+                                 (a followed event stream ends). Resuming,
+                                 and adminChanges — the agent may read what
+                                 change sets cover and propose them — are
+                                 the person's own session's; only a
+                                 workspace or org admin turns adminChanges
+                                 on (403)
 GET    /delegate/workspace      admin. {enabled, by?, at?}: off until an
                                  admin turns it on
 PUT    /delegate/workspace      admin. {enabled}. Off refuses every
                                  person's agent at once
 ```
+
+The workspace's switch is kept with the rest of delegation's state
+(`data/delegation/workspace.json`), not in `/workspace-settings`: the admin
+console and `bx settings` list that store's entries by name, so a new one
+would show in neither without its own UI. Set it with this route.
 
 ## Approval requests and tickets
 
@@ -172,18 +184,17 @@ GET    /delegate/requests/<id>  the person, their agent's page, or their
                                  agent (it polls: state approved = a
                                  ticket)
 POST   /delegate/requests/<id>/approve
-                                 the person, or their agent's page.
+                                 the person, in their own session, app or
+                                 device — never the agent's page (403).
                                  {grant?: "once" | "hour" | "always"} →
                                  {request, approval?}. once is the
                                  default; hour and always (a tile API call
                                  only) also record a standing approval.
                                  409 when no longer pending
 POST   /delegate/requests/<id>/deny
-                                 the person, or their agent's page.
-                                 → {request}
-DELETE /delegate/requests/<id>  the person, their agent's page, or their
-                                 agent. withdraws a pending or approved
-                                 request
+                                 the person. → {request}
+DELETE /delegate/requests/<id>  the person, or their agent. withdraws a
+                                 pending or approved request
 ```
 
 A request:
@@ -217,12 +228,12 @@ deployment, a harness the tile's org allows, and the session's row carries
 GET    /delegate/approvals      the person, their agent's page, or their
                                  agent. {approvals: [{id, user, tile,
                                  until?, created, via?, request?}]}
-POST   /delegate/approvals      the person, or their agent's page. {tile,
+POST   /delegate/approvals      the person. {tile,
                                  grant: "hour" | "always"} → the approval:
                                  the agent may write to that tile's API
                                  without a ticket. One a tile. 404 for a
                                  tile the person can't read
-DELETE /delegate/approvals/<id> the person, or their agent's page. 204
+DELETE /delegate/approvals/<id> the person. 204
 ```
 
 A standing approval covers one tile's API. A session start and a tile
@@ -248,8 +259,8 @@ GET    /delegate/changesets/<id>
                                  the person, their agent's page, or their
                                  agent
 DELETE /delegate/changesets/<id>
-                                 the person, their agent's page, or their
-                                 agent. withdraws a proposal
+                                 the person, or their agent. withdraws a
+                                 proposal
 POST   /delegate/changesets/<id>/approve
                                  the person whose agent proposed it, in
                                  their own session, app or device. {items?:
@@ -323,8 +334,16 @@ page, tiles and view-as sessions can't read it.
 person's own sockets and their agent's page — `op`: `request` (one
 appeared, was decided, withdrawn or used), `approval`, `changeset`,
 `state`. Refetch the list it names. Pushes: `agent.approval` (a request
-waits) and `agent.changeset` (a proposal waits), both linking to
-`xbin/agent`; their text is xbind's, never the agent's.
+waits) and `agent.changeset` (a proposal waits). Their link is the path of
+the sealed component that is the person's agent (the `agent` of the request
+or change set); their text is xbind's, never the agent's.
+
+**Developing an agent.** On an xbind started with `--dev` or `--no-auth`,
+approving a change set needs no recent sign-in. Under `--no-auth`, where
+nobody signs in, the implicit owner answers as the person on every route of
+this page — for the person `?user=<id>` names (default `owner`) — and
+approved changes are applied as the owner. Neither applies to any other
+xbind.
 
 Bus events and partition mail delivered **into** the sealed component are
 other tiles' data: the agent treats them as untrusted input, like any tile

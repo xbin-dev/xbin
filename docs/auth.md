@@ -843,7 +843,9 @@ sessions, their partitions — with three differences:
   person approved in their own session, bound to exactly that method,
   path, query and body — or, for a tile's API, under a *standing approval*
   the person gave ("this tile for an hour", "always") and can list and
-  revoke. So a credential taken from the agent's sandbox can read what the
+  revoke. Only the person's own top-level session, app or device grants:
+  the agent's own page shows the request and renders what the agent wrote,
+  so it may read and may pause the agent, and can approve nothing. So a credential taken from the agent's sandbox can read what the
   person reads, and change nothing.
 
 **Tile agents it starts.** A session the agent opens is the person's own
