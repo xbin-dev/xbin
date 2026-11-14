@@ -903,6 +903,11 @@ terminal window; the harness xbind runs without `--isolate`, so on a node
 backend it asserts the isolation refusal and skips pausing it (`SKIP …
 needs HARNESS_ISOLATE`). `HARNESS_ISOLATE=1` — with `XBIN_TEST_ROOTFS`, user
 namespaces, and the agent's own tool sandbox off — runs that half.
+`agentPolicy` (D229) drives agent preferences, a session's origin mark,
+`open({session})` with its link and `xbin.openSession`, an org's harness
+list in the launcher, and the admin console's `<bx-org-agents>` editor on
+`apps/focusy` with the scripted `fake` provider; it sets org rules and the
+workspace's bounds and puts every one back.
 `deployments` drives the terminal window's Deployments panel on the static,
 org-owned `deployy` (so it needs no `--isolate`): a manager, a terminal-level
 user and a reader add `dev` with live reload attached, see the rows, the
