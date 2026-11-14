@@ -1,0 +1,22 @@
+data: {"choices":[{"delta":{"reasoning_content":"Considering "},"finish_reason":null,"index":0}]}
+
+data: {"choices":[{"delta":{"reasoning_content":"the "},"finish_reason":null,"index":0}]}
+
+data: {"choices":[{"delta":{"reasoning_content":"greeting…"},"finish_reason":null,"index":0}]}
+
+data: {"choices":[{"delta":{"content":"Hello "},"finish_reason":null,"index":0}]}
+
+data: {"choices":[{"delta":{"content":"from "},"finish_reason":null,"index":0}]}
+
+data: {"choices":[{"delta":{"content":"the "},"finish_reason":null,"index":0}]}
+
+data: {"choices":[{"delta":{"content":"fake "},"finish_reason":null,"index":0}]}
+
+data: {"choices":[{"delta":{"content":"model."},"finish_reason":null,"index":0}]}
+
+data: {"choices":[{"delta":{},"finish_reason":"stop","index":0}]}
+
+data: {"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120,"completion_tokens_details":{"reasoning_tokens":9}}}
+
+data: [DONE]
+

@@ -78,6 +78,49 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   under the list (new scaffold file `tiles/admin/tabs/org-agents.js`;
   `bx builtin update`). `bx org agents` and the API do the same for a
   workspace whose console predates it.
+- **xbind has an LLM connector built in** (D226; [llm.md](/docs/llm.md),
+  routes in [protocol/llm.md](/docs/protocol/llm.md)). One
+  OpenAI-compatible endpoint, `/api/xbin/llm/v1` (`chat/completions`,
+  `responses`, `models`), in front of the providers a workspace admin
+  configures — `bx llm upstream add <name> <base-url>`, keys in xbind's
+  vault. It is off until an upstream exists: nothing changes for a
+  workspace that doesn't set it up, and the `llm-gw` tile works as before.
+  - **Tiles bind to it like to a provider tile**: an `openai` slot takes
+    the new builtin ref **`xbin:llm`** (`bx bind apps/chat llm=xbin:llm`; a
+    workspace admin's bind, offered in pickers once the connector is
+    configured). The slot resolves to `/api/xbin/llm`
+    (`XBIN_IFACE_<SLOT>_URL`, or a `{provider: "xbin:llm", …}` row of a
+    multi slot; `xbin.iface(slot).url`), and `GET <url>/preferred?use=`
+    answers as `llm-gw`'s does. Calls are metered to the person acting
+    and the tile.
+  - **Per-person metering and quotas**: `GET /api/xbin/llm/usage` (your
+    own rows; an admin's: everyone's), quotas per UTC day and month in
+    tokens and cost — a workspace default, per-user and per-org overrides,
+    a workspace total — that stop (`429` in OpenAI's error shape, naming
+    the quota and its reset) or warn (`X-XBin-LLM-Quota`). `bx llm usage`,
+    `bx llm quota`.
+  - **A host can configure and lock it**: `XBIN_LLM_CONFIG=<file>`
+    ([config.md](/docs/config.md)) sets upstreams (keys by file), default
+    models, aliases, switches and quotas; what it sets reads `locked: true,
+    reason: "set by your host"` in `GET /api/xbin/llm/config` and can't be
+    changed through the API (409).
+  - New `bx llm` ([bx.md](/docs/bx.md)); new SDK package
+    `github.com/xbin-dev/xbin/sdk/llm` (the Chat Completions and Responses
+    wire types, usage extraction from a body or a stream, a price table);
+    a new credential kind, the LLM key (`xbl_…`, good for the connector's
+    routes only — [auth.md](/docs/auth.md) §LLM keys; nothing hands them
+    out yet).
+  - What a caller can't do to it: a call abandoned mid-answer is still
+    metered (the provider's answer is read for 5 s more,
+    `XBIN_LLM_CANCEL_GRACE`, then charged as an estimate — usage rows carry
+    `estimated`); model names a caller makes up are counted together as
+    `<upstream>/(unknown)`; one caller has 16 calls in flight (`429
+    xbin_llm_busy`; the `concurrency` setting); an alias never takes over a
+    name the configuration has; a stored key never follows an upstream to
+    another address. A tile's non-primary deployments use the binding by
+    the tile's edge policy: read-clamped by default (models, no calls).
+  - Not yet: an admin console section, the connector in terminals and
+    agent sessions, an Anthropic-wire route, `llm-gw` as an upstream.
 - **docs: the protocol reference is split by topic.** `/docs/protocol.md`
   had reached the size limit of a served doc, so its route tables and
   WebSocket sections moved, unchanged, to one page per area under

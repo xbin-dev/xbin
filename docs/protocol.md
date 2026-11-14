@@ -30,7 +30,7 @@ documented in exactly one of them:
 | [protocol/deployments.md](/docs/protocol/deployments.md) | `/deployments…`, `/checkpoints/…`; the tile deployments conventions |
 | [protocol/sandboxes.md](/docs/protocol/sandboxes.md) | a manager tile's `/sandboxes…` routes |
 | [protocol/devices.md](/docs/protocol/devices.md) | `/devices…`, `/web-ticket`, `/app-tunnel`, `/notify`, `/push/…`; push notifications, Live Activities |
-| [protocol/llm.md](/docs/protocol/llm.md) | reserved: the LLM connector |
+| [protocol/llm.md](/docs/protocol/llm.md) | `/llm/v1/…` (the OpenAI-compatible routes), `/llm`, `/llm/config`, `/llm/upstreams`, `/llm/usage`, `/llm/quotas`; LLM keys |
 | [protocol/sealed.md](/docs/protocol/sealed.md) | reserved: sealed components |
 
 ## Authentication

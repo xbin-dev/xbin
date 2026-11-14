@@ -30,6 +30,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/apptunnel"
 	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/llm"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/users"
@@ -149,6 +150,12 @@ func mount(t *testing.T) *server.Server {
 	}
 	t.Cleanup(tun.Close)
 	tun.Register(srv)
+	conn, err := llm.New(llm.Options{Dir: t.TempDir()}) // the LLM connector (D226; boot/llm.go)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(conn.Close)
+	conn.Register(srv)
 	srv.Handler() // mounts the core routes and registerCoreAPI
 	return srv
 }

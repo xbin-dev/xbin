@@ -118,6 +118,12 @@ Provider (the `llm-gw` builtin):
   owner action wires the dependency *and* authorizes the call.
 - **No network involved**: http bindings ride the gateway socket and the normal RBAC
   spine ([05-identity.md](05-identity.md)) — they work for tiles with zero egress.
+- **One builtin provider: `xbin:llm`** (D226). An `openai` slot also binds to xbind's
+  own LLM connector ([/docs/llm.md](/docs/llm.md)) — `bx bind apps/chat llm=xbin:llm`, or
+  beside provider tiles on a multi slot. The slot then resolves to `/api/xbin/llm`
+  (`XBIN_IFACE_LLM_URL=http://xbin/api/xbin/llm`; the row's `provider` is `xbin:llm`),
+  and the binding is what admits the tile's calls there, asked per call. Pickers offer
+  it once the connector has an upstream, and binding it is a workspace admin's act.
 
 **Multi-input slots** (`multi: true`, http-only — **IFACE-6**): the requester explicitly
 declares it accepts a *set* — e.g. the `chat` builtin's `llm` and `mcp` slots take any

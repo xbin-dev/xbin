@@ -1,0 +1,12 @@
+data: {"id":"chatcmpl-B1","object":"chat.completion.chunk","created":1763100000,"model":"gpt-5-2026-08-07","service_tier":"default","system_fingerprint":"fp_1","choices":[{"index":0,"delta":{"role":"assistant","content":"","refusal":null},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"id":"chatcmpl-B1","object":"chat.completion.chunk","created":1763100000,"model":"gpt-5-2026-08-07","service_tier":"default","system_fingerprint":"fp_1","choices":[{"index":0,"delta":{"content":"The \"usage\" field is {"},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"id":"chatcmpl-B1","object":"chat.completion.chunk","created":1763100000,"model":"gpt-5-2026-08-07","service_tier":"default","system_fingerprint":"fp_1","choices":[{"index":0,"delta":{"content":" reported last."},"logprobs":null,"finish_reason":null}],"usage":null}
+
+data: {"id":"chatcmpl-B1","object":"chat.completion.chunk","created":1763100000,"model":"gpt-5-2026-08-07","service_tier":"default","system_fingerprint":"fp_1","choices":[{"index":0,"delta":{},"logprobs":null,"finish_reason":"stop"}],"usage":null}
+
+data: {"id":"chatcmpl-B1","object":"chat.completion.chunk","created":1763100000,"model":"gpt-5-2026-08-07","service_tier":"default","system_fingerprint":"fp_1","choices":[],"usage":{"prompt_tokens":2048,"completion_tokens":310,"total_tokens":2358,"prompt_tokens_details":{"cached_tokens":1024,"audio_tokens":0},"completion_tokens_details":{"reasoning_tokens":192,"audio_tokens":0,"accepted_prediction_tokens":0,"rejected_prediction_tokens":0}}}
+
+data: [DONE]
+

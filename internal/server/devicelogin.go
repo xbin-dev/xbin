@@ -76,6 +76,9 @@ func (s *Server) authedAPI(next http.Handler) http.Handler {
 			s.servePathTicket(w, r, "")
 			return
 		}
+		if s.llmKeyGate(w, r, next) { // an LLM key: the connector's routes only (llmkey.go, D226)
+			return
+		}
 		if rest, ok := strings.CutPrefix(r.URL.Path, "/api/xbin/"); ok && s.publicAPI[r.Method+" /"+rest] {
 			next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), auth.Principal{})))
 			return

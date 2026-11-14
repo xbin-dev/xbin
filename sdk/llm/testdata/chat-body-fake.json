@@ -1,0 +1,1 @@
+{"choices":[{"finish_reason":"stop","message":{"content":"Hello from the fake model.","reasoning_content":"Considering the greeting…","role":"assistant"}}],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120}}
