@@ -22,6 +22,17 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   types inside `ChatChunk`, `ChatUsage` and `ResponsesUsage`, so a fake
   upstream or a translating proxy can build its answers from them; code
   that reads their fields is unchanged.
+- **llm-gw v11: usage, prices and upstream URLs through `sdk/llm`** (D226).
+  The gateway's backend reads token usage, prices a call and joins a
+  backend's base URL with the SDK's shared wire code in place of its own
+  copies. What it counts is unchanged — the usage block of either wire from
+  an answer's last 8 KiB, a price by the upstream's exact model id — except
+  that a cost may differ in its last binary digit; a stored price may now
+  carry `cachedIn` (USD per million input tokens read from a prompt cache).
+  Like every builtin tile it builds against the SDK of the xbind it ships
+  with: v11 needs this release's xbind ([compat.md](/docs/compat.md) "What
+  this does not promise"); an llm-gw you already run keeps building against
+  the newer SDK, which only grew.
 
 ## 2026-11-14
 
