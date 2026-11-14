@@ -480,6 +480,12 @@ func (w *projWorker) finish(p *Project, k *ProjectTask, j *ProjectJob, out jobOu
 		}
 		if state == pjFailed {
 			jobFailed(t, p, k, j, errText)
+			if j.Task == 0 {
+				starterJobFailed(t, p.ID, j, errText) // the starter says what it waits for (project_starter.go)
+			}
+		}
+		if state == pjDone && j.Task == 0 && (j.Kind == pjSandbox || j.Kind == pjRepo) {
+			starterJobDone(t, p.ID) // the starter's work waits for the workspace (project_starter.go)
 		}
 		if state == pjDone || state == pjFailed {
 			// what waits on this one looks again now (prepare on the sandbox

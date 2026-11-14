@@ -7,7 +7,7 @@
 // task has no CI, ext.card's chips; New task and From issues… (issue text
 // plain and untrusted, the refusals said); the Settings tab — status,
 // repos, the policy (unknown keys kept, a stale version read again),
-// members (what is typed stays its project's), archive, delete; the new-project form; a task's conversation —
+// members (what is typed stays its project's), archive, delete; the new-project wizard (its steps, Next saying why, the repo combobox, Review, the starter sent; the shared space's steps); a task's conversation —
 // the crumb back, the branch and PR chips, Open PR once the route exists,
 // the prep card with Retry, the sign-in card (polled, then the task looked
 // at again — a person's partition's); a coding agent's sign-in on a card,
@@ -287,24 +287,113 @@ await page.evaluate(() => { location.hash = '#c=104'; });
 await page.waitForSelector('#pprep[data-ws="preparing"]');
 const steps = await page.$$eval('#pprep .pstep', (els) => els.map((e) => `${e.dataset.repo}:${e.dataset.tone}`));
 ok('preparing: a step per repo', JSON.stringify(steps) === '["web:ok","api:idle"]' && (await page.textContent('#pprep')).includes('cloning acme/api'), JSON.stringify(steps));
-// --- a new project --------------------------------------------------------------------------------------------------
+// --- a new project: the wizard (D223) -------------------------------------------------------------------------
+const stepWords = (pg) => pg.$$eval('#pn-steps .pnstep', (els) => els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()).join(' · '));
+const atStep = (pg, key) => pg.waitForSelector(`#proj-form[data-step="${key}"]`, { timeout: 5000 }).then(() => true, () => false);
+const options = (pg) => pg.$$eval('#pn-list [role="option"][data-repo]', (els) => els.map((e) => e.dataset.repo));
+// pickRepo: the picker opened, a repo chosen (and the list closed again)
+async function pickRepo(pg, repo) {
+  await pg.focus('#pn-q');
+  await pg.click(`#pn-list [data-repo="${repo}"]`);
+  await pg.waitForSelector(`.pnrepo[data-repo="${repo}"]`);
+  await pg.keyboard.press('Escape');
+}
+// nextTo: Next until the wizard shows step key
+async function nextTo(pg, key) {
+  for (let i = 0; i < 6 && !(await pg.$(`#proj-form[data-step="${key}"]`)); i++) await pg.click('#pn-next');
+  return atStep(pg, key);
+}
 await page.click('#projentry');
 await page.waitForSelector('#proj-new');
 await page.click('#proj-new');
-await page.waitForSelector('#proj-form .pnres[data-repo="acme/web"]');
-ok('the provider and what you can reach', (await page.inputValue('#pn-scm')) === 'apps/scm-github' && (await page.$$('#proj-form .pnres')).length === 3);
-ok('an archived repo can\'t be added', await page.isDisabled('#proj-form .pnres[data-repo="acme/attic"] button'));
+await page.waitForSelector('#proj-form[data-step="code"] #pn-q');
+ok('a wizard: Code, Name, Sandbox, How it works, Get started, Review', (await stepWords(page)) === '1Code · 2Name · 3Sandbox · 4How it works · 5Get started · 6Review', await stepWords(page));
+ok('…the step in view is the current one', (await page.getAttribute('#pn-steps .pnstep.on .pnstepb', 'aria-current')) === 'step');
+ok('the provider', (await page.inputValue('#pn-scm')) === 'apps/scm-github');
 ok('the provider: projects work as its bot, no sign-in offered', await waitText(page, '.pnyou', "work as the provider's bot") && !(await page.$('#proj-form #psignin-start')));
-await page.click('#proj-form .pnres[data-repo="acme/web"] button');
-ok('adding a repo names the project after it', (await page.inputValue('#pn-name')) === 'web');
-await page.fill('#proj-form .pnrepo[data-repo="acme/web"] textarea', 'make deps');
+ok('Next waits for a repo, saying why', await page.isDisabled('#pn-next') && (await page.textContent('#pn-why')) === 'Choose a repo.'
+  && (await page.getAttribute('#pn-next', 'aria-describedby')) === 'pn-why');
+// the repo picker: a combobox
+ok('the picker is a combobox, closed until focused — the list it controls there, hidden', (await page.getAttribute('#pn-q', 'role')) === 'combobox'
+  && (await page.getAttribute('#pn-q', 'aria-expanded')) === 'false' && (await page.getAttribute('#pn-q', 'aria-controls')) === 'pn-list'
+  && await page.$eval('#pn-list', (e) => e.hidden && e.getAttribute('role') === 'listbox'));
+await page.focus('#pn-q');
+await page.waitForSelector('#pn-list[role="listbox"]');
+ok('…opens on focus with your repos', JSON.stringify(await options(page)) === '["acme/web","acme/api","acme/attic"]' && (await page.getAttribute('#pn-q', 'aria-expanded')) === 'true'
+  && (await page.getAttribute('#pn-q', 'aria-controls')) === 'pn-list', JSON.stringify(await options(page)));
+const webOpt = (await page.textContent('#pn-list [data-repo="acme/web"]')).replace(/\s+/g, ' ');
+ok('…each option: owner/name, private, your permission', webOpt.includes('acme/web') && webOpt.includes('private') && webOpt.includes('write'), webOpt);
+ok('…an archived one disabled, saying why', (await page.getAttribute('#pn-list [data-repo="acme/attic"]', 'aria-disabled')) === 'true'
+  && (await page.textContent('#pn-list [data-repo="acme/attic"]')).includes('read-only: a task can\'t push to it'));
+await page.click('#pn-list [data-repo="acme/attic"]', { force: true });
+ok('…and choosing it adds nothing', !(await page.$('.pnrepo')));
+await page.keyboard.press('ArrowDown');
+ok('the keys: ↓ makes the first option active', (await page.getAttribute('#pn-q', 'aria-activedescendant')) === 'pn-opt-0'
+  && (await page.getAttribute('#pn-opt-0', 'aria-selected')) === 'true');
+await page.keyboard.press('ArrowDown');
+await page.keyboard.press('ArrowDown');
+ok('…↓ skips the archived one, round to the first', (await page.getAttribute('#pn-q', 'aria-activedescendant')) === 'pn-opt-0');
+const searchesBefore = (await calls(page, 'GET', '/projects/scm/repos')).length;
+await page.keyboard.type('ap');
+ok('typing filters: one search, after the last keystroke', await page.waitForFunction((n) => window.__calls.filter((c) => /\/projects\/scm\/repos\?/.test(c.url)).length > n,
+  searchesBefore, { timeout: 5000 }).then(() => true, () => false));
+await page.waitForFunction(() => [...document.querySelectorAll('#pn-list [data-repo]')].map((e) => e.dataset.repo).join() === 'acme/api', null, { timeout: 5000 }).catch(() => {});
+const searched = (await calls(page, 'GET', '/projects/scm/repos')).slice(searchesBefore).map((c) => new URL(c.url, 'http://x').searchParams.get('q'));
+ok('…the words searched once, the list what matched', JSON.stringify(searched) === '["ap"]' && JSON.stringify(await options(page)) === '["acme/api"]', JSON.stringify(searched));
+await page.keyboard.press('ArrowDown');
+await page.keyboard.press('Enter');
+ok('Enter chooses: the repo is added at once', await page.waitForSelector('.pnrepo[data-repo="acme/api"]', { timeout: 5000 }).then(() => true, () => false));
+ok('…the words cleared for the next, the list open', (await page.inputValue('#pn-q')) === '' && await page.isVisible('#pn-list'));
+await page.waitForFunction(() => document.querySelectorAll('#pn-list [data-repo]').length === 3, null, { timeout: 5000 }).catch(() => {});
+await page.click('#pn-list [data-repo="acme/web"]');
+ok('a click chooses too; a chosen option is marked', await page.waitForSelector('.pnrepo[data-repo="acme/web"]', { timeout: 5000 }).then(() => true, () => false)
+  && (await page.getAttribute('#pn-list [data-repo="acme/api"]', 'aria-disabled')) === 'true' && !!(await page.$('#pn-list [data-repo="acme/api"] bx-icon[name="check"]')));
+await page.keyboard.press('Escape');
+ok('Escape closes it', !(await page.isVisible('#pn-list')) && (await page.getAttribute('#pn-q', 'aria-expanded')) === 'false');
+await page.click('.pnrepo[data-repo="acme/api"] button[aria-label="Remove acme/api"]');
+ok('a chosen repo is removable', !(await page.$('.pnrepo[data-repo="acme/api"]')) && !!(await page.$('.pnrepo[data-repo="acme/web"]')));
+ok('its setup script is folded away', !(await page.isVisible('.pnrepo[data-repo="acme/web"] textarea'))
+  && (await page.textContent('.pnrepo[data-repo="acme/web"] summary')).includes('setup script (optional)'));
+await page.click('.pnrepo[data-repo="acme/web"] summary');
+await page.fill('.pnrepo[data-repo="acme/web"] textarea', 'make deps');
+ok('Next, now that a repo is chosen', !(await page.isDisabled('#pn-next')) && !(await page.$('#pn-why')));
+await page.click('#pn-next');
+ok('Next: the Name step, its heading focused', await atStep(page, 'name') && await page.waitForFunction(() => document.activeElement?.id === 'pn-stephead', null, { timeout: 5000 }).then(() => true, () => false));
+ok('…named after its first repo', (await page.inputValue('#pn-name')) === 'web');
+await page.fill('#pn-name', '');
+ok('…no name: Next says so', await page.isDisabled('#pn-next') && (await page.textContent('#pn-why')) === 'Name the project.');
 await page.fill('#pn-name', 'Web 2');
+await page.click('#pn-back');
+ok('Back: the Code step as it was', await atStep(page, 'code') && !!(await page.$('.pnrepo[data-repo="acme/web"]')) && (await page.inputValue('.pnrepo[data-repo="acme/web"] textarea')) === 'make deps');
+await page.click('#pn-next');
+await atStep(page, 'name');
+ok('…the name typed kept', (await page.inputValue('#pn-name')) === 'Web 2');
+await page.click('#pn-next');
+ok('the Sandbox step: a new one, the manager\'s defaults', await atStep(page, 'sandbox') && await page.isChecked('input[name="pn-sbx"][value="new"]')
+  && (await page.inputValue('#pn-sbx-net')) === 'internet');
+await page.click('#pn-next');
+ok('How it works: the policy basics and the wiki\'s dream rounds (on)', await atStep(page, 'how') && await page.isChecked('#pn-dream') && !!(await page.$('#pn-vis')));
+await page.selectOption('#pn-pr', 'draft');
+await page.click('#pn-next');
+ok('Get started: both on, each said in a line', await atStep(page, 'start') && await page.isChecked('#pn-st-build') && await page.isChecked('#pn-st-wiki')
+  && (await page.textContent('#pn-starter')).includes('Clone, build and run the tests') && (await page.textContent('#pn-starter')).includes('Create the initial knowledge base'));
+await page.click('#pn-next');
+ok('Review: everything chosen, an Edit per step', await atStep(page, 'review')
+  && JSON.stringify(await page.$$eval('#pn-review .pnedit', (els) => els.map((e) => e.dataset.edit))) === '["code","name","sandbox","how","start"]');
+const rv = (await page.textContent('#pn-review')).replace(/\s+/g, ' ');
+ok('…its words', ['GitHub', 'acme/web with a setup script', 'Web 2', 'a new one', 'internet', '3 tasks at work at once', 'pull requests a draft when a task rests',
+  'dream rounds on', 'Clone, build and run the tests', 'Create the initial knowledge base'].every((w) => rv.includes(w)), rv);
+await page.click('#pn-review .pnedit[data-edit="name"]');
+ok('Edit: back to its step, Review a click away', await atStep(page, 'name') && !!(await page.$('#pn-toreview')));
+await page.click('#pn-toreview');
+await atStep(page, 'review');
 await page.click('#pn-create');
 ok('Create posts the project', await waitCall(page, 'POST', '/projects$'));
 const nb = (await calls(page, 'POST', '/projects$'))[0].body;
-ok('…its provider, repos with setup, a new sandbox, the policy basics', nb.name === 'Web 2' && nb.scm === 'apps/scm-github'
+ok('…its provider, repos with setup, a new sandbox, the policy basics, the starter', nb.name === 'Web 2' && nb.scm === 'apps/scm-github'
   && JSON.stringify(nb.repos) === '[{"repo":"acme/web","setup":"make deps"}]' && nb.sandbox.new && nb.sandbox.new.provider === 'apps/coding-sandbox'
-  && nb.sandbox.new.egress === 'internet' && nb.policy.maxTasks === 3 && nb.policy.autoPR === 'off' && !nb.kind && !nb.share, JSON.stringify(nb));
+  && nb.sandbox.new.egress === 'internet' && nb.policy.maxTasks === 3 && nb.policy.autoPR === 'draft' && !('dream' in nb.policy) && !nb.kind && !nb.share
+  && JSON.stringify(nb.starter) === '{"build":true,"wiki":true}', JSON.stringify(nb));
 ok('…then opens it', await page.waitForFunction(() => location.hash === '#proj=50', null, { timeout: 5000 }).then(() => true, () => false));
 await page.waitForSelector('.pboard');
 await page.click('[data-tab="settings"]');
@@ -397,27 +486,35 @@ const { page: g, errors: ge } = await open(projSeed({ sandboxes: [box('mine-priv
 await g.click('#projentry');
 await g.waitForSelector('#proj-new');
 await g.click('#proj-new');
-await g.waitForSelector('#proj-form .pnres[data-repo="acme/web"]');
-ok('the shared space: a seed sandbox, none at first', (await g.textContent('#proj-form')).includes('Its seed sandbox') && await g.isChecked('#proj-form input[name="pn-sbx"][value="none"]'));
-ok('…shared with the team at first', (await g.inputValue('#pn-vis')) === 'team');
+await g.waitForSelector('#proj-form[data-step="code"] #pn-q');
+ok('the shared space: no Get started — a team project\'s definition has no tasks', (await stepWords(g)) === '1Code · 2Name · 3Sandbox · 4How it works · 5Review', await stepWords(g));
 ok('…no sign-in offered: each member signs in from their own space', await waitText(g, '.pnyou', 'each member signs in') && !(await g.$('#proj-form #psignin-start')));
-await g.click('#proj-form .pnres[data-repo="acme/web"] button');
+await pickRepo(g, 'acme/web');
+await nextTo(g, 'sandbox');
+ok('…a seed sandbox, none at first', (await g.textContent('#proj-form')).includes('Its seed sandbox') && await g.isChecked('#proj-form input[name="pn-sbx"][value="none"]'));
+await nextTo(g, 'how');
+ok('…shared with the team at first', (await g.inputValue('#pn-vis')) === 'team');
+await nextTo(g, 'review');
 await g.click('#pn-create');
 ok('…posted as a team definition, shared, without a seed', await waitCall(g, 'POST', '/projects$'));
 const gb = (await calls(g, 'POST', '/projects$'))[0].body;
-ok('…its body', gb.kind === 'team' && gb.share && gb.share.visibility === 'team' && Array.isArray(gb.share.members) && !('sandbox' in gb), JSON.stringify(gb));
+ok('…its body: no starter', gb.kind === 'team' && gb.share && gb.share.visibility === 'team' && Array.isArray(gb.share.members) && !('sandbox' in gb) && !('starter' in gb), JSON.stringify(gb));
 // a seed of your own: only one you have shared with the team (members fork from it only when they can see it)
 await g.click('#top .crumb');
 await g.waitForSelector('#proj-new');
 await g.click('#proj-new');
-await g.waitForSelector('#proj-form .pnres[data-repo="acme/web"]');
+await g.waitForSelector('#proj-form[data-step="code"] #pn-q');
+await pickRepo(g, 'acme/web');
+await nextTo(g, 'name');
+await g.fill('#pn-name', 'Seeded');
+await nextTo(g, 'sandbox');
 await g.check('#proj-form input[name="pn-sbx"][value="pick"]');
 await g.waitForSelector('#pn-sbx-ref');
 const seeds = await g.$$eval('#pn-sbx-ref option', (els) => els.map((e) => e.value).filter(Boolean));
 ok('a seed of yours: only your sandbox shared with the team is offered', JSON.stringify(seeds) === '["apps/coding-sandbox|sb-mine-team"]', JSON.stringify(seeds));
+ok('…none picked yet: Next says so', await g.isDisabled('#pn-next') && (await g.textContent('#pn-why')) === 'Pick a sandbox, or make a new one.');
 if (seeds.includes('apps/coding-sandbox|sb-mine-team')) await g.selectOption('#pn-sbx-ref', 'apps/coding-sandbox|sb-mine-team');
-await g.fill('#pn-name', 'Seeded');
-await g.click('#proj-form .pnres[data-repo="acme/web"] button');
+await nextTo(g, 'review');
 await g.click('#pn-create');
 ok('…posted as the seed, by its ref', await waitCall(g, 'POST', '/projects$', 2));
 const gs = ((await calls(g, 'POST', '/projects$'))[1] || {}).body || {};

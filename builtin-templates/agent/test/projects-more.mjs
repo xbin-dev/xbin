@@ -281,16 +281,89 @@ ok('no page errors (review on open)', oe.length === 0, oe.join(' | '));
 const { page: n, errors: ne } = await open(teamSeed(), { hash: '#proj', init: part });
 await n.waitForSelector('#proj-new');
 await n.click('#proj-new');
+await n.waitForSelector('#proj-form[data-step="code"] #pn-q');
+const stepWords = (pg) => pg.$$eval('#pn-steps .pnstep', (els) => els.map((e) => e.textContent.replace(/\s+/g, ' ').trim()).join(' · '));
+ok('your own project: every step', (await stepWords(n)) === '1Code · 2Name · 3Sandbox · 4How it works · 5Get started · 6Review', await stepWords(n));
+await n.focus('#pn-q');
+await n.click('#pn-list [data-repo="acme/web"]');
+await n.waitForSelector('.pnrepo[data-repo="acme/web"]');
+await n.keyboard.press('Escape');
+await n.click('#pn-next');
 await n.waitForSelector('#pn-kind');
 await n.click('#pn-kind input[value="team"]');
-ok('a team project: no sandbox of yours', !(await n.$('input[name="pn-sbx"]')) && !!(await n.$('#pn-team-note')));
-await n.click('.pnres[data-repo="acme/web"] button');
+ok('a team project: no sandbox of yours, no starter — their steps skipped', !!(await n.$('#pn-team-note'))
+  && (await stepWords(n)) === '1Code · 2Name · 3How it works · 4Review', await stepWords(n));
+await n.click('#pn-next');
+await n.waitForSelector('#proj-form[data-step="how"]');
 await n.selectOption('#pn-vis', 'team');
+await n.click('#pn-next');
+await n.waitForSelector('#proj-form[data-step="review"]');
+ok('…its review: no Sandbox, no Get started', JSON.stringify(await n.$$eval('#pn-review .pnedit', (els) => els.map((e) => e.dataset.edit))) === '["code","name","how"]');
 await n.click('#pn-create');
 ok('…made at the shared space', await waitCall(n, 'POST', '/projects$'));
 const nb = (await calls(n, 'POST', '/projects$'))[0];
-ok('…as a team definition, shared, with no sandbox', nb.home === 'global' && nb.body.kind === 'team' && !('sandbox' in nb.body) && nb.body.share.visibility === 'team', JSON.stringify(nb));
+ok('…as a team definition, shared, with no sandbox and no starter', nb.home === 'global' && nb.body.kind === 'team' && !('sandbox' in nb.body) && !('starter' in nb.body)
+  && nb.body.share.visibility === 'team', JSON.stringify(nb));
 ok('no page errors (team definition)', ne.length === 0, ne.join(' | '));
+
+// the starter where it can't be: an older backend (no project wiki, no starter); the coordinator's class not yours
+const wiz = async (seed, init = part) => {
+  const o = await open(seed, { hash: '#proj', init });
+  await o.page.waitForSelector('#proj-new');
+  await o.page.click('#proj-new');
+  await o.page.waitForSelector('#proj-form[data-step="code"] #pn-q');
+  await o.page.focus('#pn-q');
+  await o.page.click('#pn-list [data-repo="acme/web"]');
+  await o.page.keyboard.press('Escape');
+  for (let i = 0; i < 5 && !(await o.page.$('#proj-form[data-step="start"]')); i++) await o.page.click('#pn-next');
+  return o;
+};
+const { page: ow, errors: owe } = await wiz({ ...teamSeed(), noWiki: true });
+ok('an older backend: both disabled, saying why', await ow.isDisabled('#pn-st-build') && await ow.isDisabled('#pn-st-wiki') && !(await ow.isChecked('#pn-st-build'))
+  && (await ow.textContent('#pn-st-build-why')).includes('backend is older'));
+await ow.click('#pn-back');
+ok('…and no dream rounds offered', await ow.waitForSelector('#proj-form[data-step="how"]').then(() => true) && !(await ow.$('#pn-dream')));
+for (let i = 0; i < 3 && !(await ow.$('#proj-form[data-step="review"]')); i++) await ow.click('#pn-next');
+ok('…the review says it starts empty', (await ow.textContent('#pn-review .pnrev[data-step="start"]')).includes('nothing'));
+await ow.click('#pn-create');
+await waitCall(ow, 'POST', '/projects$');
+ok('…no starter sent', !('starter' in (await calls(ow, 'POST', '/projects$'))[0].body));
+ok('no page errors (older backend)', owe.length === 0, owe.join(' | '));
+const noWeb = () => { window.xbin.partition = 'user:alice'; window.__route('GET', /\/classes$/, () => window.__json({ classes: [{ id: 'internal', name: 'Internal', toolsets: ['files', 'internal'] }], default: 'internal' })); };
+const { page: oc, errors: oce } = await wiz(teamSeed(), noWeb);
+ok('the coordinator\'s class not yours: the knowledge base disabled, saying why; the build still on', await oc.isDisabled('#pn-st-wiki') && !(await oc.isDisabled('#pn-st-build'))
+  && await oc.isChecked('#pn-st-build') && (await oc.textContent('#pn-st-wiki-why')).includes('kept for the agent\'s managers'));
+await oc.click('#pn-st-build');
+ok('…unticked, nothing to start with', !(await oc.isChecked('#pn-st-build')));
+await oc.click('#pn-st-build');
+await oc.click('#pn-next');
+await oc.click('#pn-create');
+await waitCall(oc, 'POST', '/projects$');
+ok('…the build alone sent', JSON.stringify((await calls(oc, 'POST', '/projects$'))[0].body.starter) === '{"build":true,"wiki":false}');
+ok('no page errors (no coordinator)', oce.length === 0, oce.join(' | '));
+
+// the form's own buttons never submit a step: Sign in (and Forget) in your partition, on Code
+const signSeed = { ...teamSeed(), scmRepos: [{ host: 'github.com', owner: 'acme', name: 'web', permission: 'write' }, { host: 'github.com', owner: 'acme', name: 'api', permission: 'write' },
+  { host: 'github.com', owner: 'acme', name: 'docs', permission: 'write' }] };
+const { page: os, errors: ose } = await open(signSeed, { hash: '#proj', init: part });
+await os.waitForSelector('#proj-new');
+await os.click('#proj-new');
+await os.waitForSelector('#proj-form[data-step="code"] #pn-q');
+await os.focus('#pn-q');
+await os.click('#pn-list [data-repo="acme/web"]');
+await os.keyboard.press('Escape');
+ok('in your partition: Sign in offered on Code', !!(await os.$('#proj-form #psignin-start')) && (await os.getAttribute('#psignin-start', 'type')) === 'button');
+await os.click('#psignin-start');
+ok('…Sign in starts the sign-in, and stays on Code (it doesn\'t submit the step)', await waitCall(os, 'POST', '/projects/scm/signin$')
+  && (await os.getAttribute('#proj-form', 'data-step')) === 'code');
+ok('…every button in the step\'s form is a button or Next', await os.$$eval('#pn-step button', (els) => els.every((b) => b.type === 'button' || b.id === 'pn-next')));
+// ↑ with no option active: the last one
+await os.focus('#pn-q');
+await os.waitForSelector('#pn-list [data-repo="acme/docs"]');
+await os.keyboard.press('ArrowUp');
+ok('↑ with none active makes the last option active', (await os.getAttribute('#pn-q', 'aria-activedescendant')) === 'pn-opt-2'
+  && (await os.getAttribute('#pn-opt-2', 'data-repo')) === 'acme/docs');
+ok('no page errors (the form\'s buttons)', ose.length === 0, ose.join(' | '));
 
 // a phone's width
 const { page: ph, errors: pe } = await open(teamSeed(), { width: 390, hash: '#proj=9', init: part });

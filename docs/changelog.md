@@ -12,6 +12,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-09
 
+- **Agent template Projects: a new project is made in a wizard, and can
+  start with built-in work** (D223). Code, Name, Sandbox, How it works, Get
+  started, Review — on the web and in the app. Repos are picked from a
+  readable dropdown that adds a repo when you choose it. **Get started**
+  offers "Clone, build and run the tests" (task #1: it works out how each
+  repo builds and tests, runs them, and records what it verified in the
+  wiki) and "Create the initial knowledge base" (afterwards, your
+  coordinator maps the code with research subagents and writes the
+  project wiki). `POST /projects` takes `starter: {build, wiki}`.
 - **Agent template: a model that goes quiet mid-answer is given 5 minutes,
   not 90 s.** Some upstreams (kimi-k3, deepseek-v4.1-flash through llm-gw)
   send a tool call whole once it is composed, so a large one, such as a file

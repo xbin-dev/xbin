@@ -274,7 +274,8 @@ export const FEATURES = {
   // Projects (API.md §Projects)
   'proj.entry': 'Projects atop your conversations (Mine, not while searching; above Pinned — D209): your active projects, those with tasks that need you first (at most 5), each with how many need you and a tap to its board, then All projects; it folds (the fold kept in your prefs), and folded it says how many tasks need you',
   'proj.list': 'the projects you may see — yours and team ones — with their state',
-  'proj.new': 'a new project: the scm provider, its repos (a picker of what you can reach), the sandbox (one of yours or a new one) and the policy basics',
+  'proj.new': 'a new project as a wizard, a step at a time (Next says what is missing): the scm provider and its repos (a picker of what you can reach — a choice adds it), the name, the sandbox (one of yours or a new one), the policy basics, the starter work and a review',
+  'proj.new.starter': 'a new project\'s starter work: task #1 clones, builds and runs the tests, then your coordinator builds the initial wiki — each on by default, said in a line, and why not where it can\'t be',
   'proj.upgrade': '"Make this a project…": a conversation with a sandbox and git repos becomes a project, the conversation its first task',
   'proj.board': 'a project\'s board: its tasks by column (queued, working, needs you, PR, done), each with its number, title, state, branch, PR and CI',
   'proj.task.new': 'a new task: what to do, and a title',

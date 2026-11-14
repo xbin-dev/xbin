@@ -243,7 +243,8 @@ export const IMPLEMENTS = {
   // Projects — the page, the board, new projects and tasks, settings, a task's chips
   'proj.entry': 'projects.js — listTopTpl through ext.listTop (sidebar.js, atop Mine): #projsec, #projfold (folds: model/projects.js setFolded, prefs/projects-folded), .projrow[data-pid] with its badge, #projentry All projects (model/projects.js pinned, pinWords)',
   'proj.list': 'projects.js — listTpl through ext.page(\'projects\'): .pcard[data-pid] by section (model/projects.js sections, load from every home)',
-  'proj.new': 'project-new.js — newProjectTpl (#proj-form: #pn-scm, the repo picker .pnres, setup scripts, #pn-name, the sandbox, the policy basics, #pn-create; model/projects.js formBody)',
+  'proj.new': 'project-new.js — newProjectTpl, a wizard (#proj-form[data-step], #pn-steps, #pn-next/#pn-back with #pn-why; #pn-scm, the repo combobox #pn-q/#pn-list in project-repos.js, folded setup scripts, #pn-name, the sandbox, the policy basics, #pn-review, #pn-create; model/projects.js formBody)',
+  'proj.new.starter': 'project-new.js — the Get started step (#pn-starter: #pn-st-build, #pn-st-wiki, their reasons; model/project-wizard.js starterOffer)',
   'proj.wiki': 'project-wiki.js — wikiTpl through the Wiki tab (projects.js tabsTpl): #pwiki-list .pwrow[data-slug] (search #pwiki-q), #pwiki-page with .pwbody (chat-md.js md, a.wlink: model/project-wiki.js wikiLinks)',
   'proj.wiki.edit': 'project-wiki.js — #pwiki-new, #pwiki-edit → #pwiki-editor (#pwiki-save at the version read; #pwiki-conflict with #pwiki-reload), #pwiki-archive, #pwiki-history → #pwiki-hist .pwrev and #pwiki-diff (model/project-wiki.js lineDiff)',
   'proj.wiki.stats': 'project-wiki.js — #pwiki-stats (model/project-wiki.js statsWords)',

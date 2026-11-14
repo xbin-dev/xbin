@@ -299,6 +299,9 @@ func (ag *Agent) createTask(ctx context.Context, w who, p *Project, s TaskSpec) 
 		addProjectEvent(t, p.ID, n, pevTaskCreated, map[string]any{"text": "created: " + title, "by": w.tag()}, false, "")
 		t.touchProject(p.ID)
 		onTaskChange(t, p, k, "created")
+		if s.InTx != nil {
+			return s.InTx(t, k)
+		}
 		return nil
 	})
 	if err != nil {

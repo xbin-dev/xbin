@@ -148,9 +148,10 @@ func coordPlain(s string) string {
 	return coordMarkers.ReplaceAllString(s, "($1")
 }
 
-// coordMarkers are the coordinator's own headers inside text: the updates'
-// and the frame a coordinator's message to a task wears.
-var coordMarkers = regexp.MustCompile(`(?i)[\[\x{FF3B}]((?:` + frameSp + `)*(?:project` + frameSp + `+updates|message` + frameSp + `+from))`)
+// coordMarkers are the coordinator's own headers inside text: the updates',
+// the starter's (project_starter.go) and the frame a coordinator's message
+// to a task wears.
+var coordMarkers = regexp.MustCompile(`(?i)[\[\x{FF3B}]((?:` + frameSp + `)*(?:project` + frameSp + `+(?:updates|starter)|message` + frameSp + `+from))`)
 
 // --- the wake ----------------------------------------------------------------------------
 

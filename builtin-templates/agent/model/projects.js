@@ -22,11 +22,12 @@
 // in pj.err instead, for the page to say.
 import { listHomes, twoHomes } from './homes.js';
 import { partitionState } from './partition.js';
-import { projectApi, taskApi, scmApi, listProjects, createProject, projectHome } from './project-api.js';
+import { projectApi, taskApi, scmApi, listProjects, createProject, projectHome, projCall } from './project-api.js';
 import { columns, columnOf } from './project-task.js';
 import { choices, find, reach } from './classes.js';
 import { policySet } from './project-policy.js';
 import { byActivity, needOf, pinnedOf, readFold, writeFold, PINNED } from './project-pins.js';
+import { stepAt, starterOffer, starterBody } from './project-wizard.js';
 
 const clone = (v) => JSON.parse(JSON.stringify(v ?? {}));
 const samePolicy = (a, b) => JSON.stringify(a ?? {}) === JSON.stringify(b ?? {});
@@ -83,6 +84,13 @@ export function agentChoices(pv, harnesses = []) {
     ...hs.map((h) => ({ value: h.id, label: `${h.name}${h.available ? '' : ' (not available)'}`, disabled: !h.available }))];
 }
 
+// nameAfterRepo: a new project is named after its first repo while its name
+// is empty or the one a repo gave it — a name you typed stays.
+function nameAfterRepo(f) {
+  if (String(f.name || '').trim() && f.name !== f.autoName) return;
+  f.name = f.autoName = f.repos[0] ? f.repos[0].repo.split('/').pop() : '';
+}
+
 // slug: what the backend makes of a repo's name (a hint in the form; the backend decides).
 export const repoSlug = (repo) => String(repo || '').split('/').pop().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
 
@@ -130,6 +138,7 @@ export class Projects {
     this.picker = null;      // the open project's issue picker
     this.draft = null;       // the open project's policy as being edited ({pid, policy, dirty})
     this.scm = null;         // GET /projects/scm: {providers, error}
+    this.wikiRoute = null;   // has this backend the project wiki (and the starter work)? null until probed (probeWiki)
     this.signins = new Map(); // scm → scmSigninState (+ err)
     this.prRoute = new Map(); // home → true | false: has the backend "Open PR"?
     this.flash = '';         // a page's one-line news ("2 tasks made")
@@ -629,25 +638,46 @@ export class Projects {
   // --- the new-project form ------------------------------------------------------------------------
 
   // At a partitioned agent's global instance the form makes a team project's definition: shared
-  // with the team at once (or with the members added next), its seed sandbox optional.
+  // with the team at once (or with the members added next), its seed sandbox optional. The form is a
+  // wizard (model/project-wizard.js): step is the one shown; the name follows the first repo while
+  // it is the one the repos gave it (autoName) or empty; starter is the Get started step's choices, both on.
   async newProject() {
     this.opened = null;
     this.route(null);
     const team = partitionState() === 'global';
-    this.form = { name: '', scm: '', repos: [], q: '', results: [], next: '', loading: false, err: '', busy: false,
+    this.form = { name: '', autoName: '', scm: '', repos: [], q: '', results: [], next: '', loading: false, err: '', busy: false, step: 'code',
       sandbox: { mode: team ? 'none' : 'new', ref: '', provider: '', image: '', size: '', egress: '' },
-      policy: { maxTasks: 3, autoPR: 'off', engine: 'auto', harness: '', as: '' },
-      share: { visibility: team ? 'team' : 'private', teamRole: 'viewer' } };
+      policy: { maxTasks: 3, autoPR: 'off', engine: 'auto', harness: '', as: '', dream: true },
+      share: { visibility: team ? 'team' : 'private', teamRole: 'viewer' }, starter: { build: true, wiki: true } };
     this.changed();
+    this.probeWiki();
     await this.providers();
     const f = this.form;
     if (f && !f.scm) { const p = this.usableProviders()[0]; if (p) f.scm = p.scm; }
     this.changed();
     if (f && f.scm) this.searchRepos();
   }
-  closeForm() { this.form = null; this.changed(); }
+  closeForm() { clearTimeout(this.qTimer); this.form = null; this.changed(); }
   setForm(k, v) { if (this.form) { this.form[k] = v; this.changed(); } }
   setFormPart(part, k, v) { if (this.form) { this.form[part] = { ...this.form[part], [k]: v }; this.changed(); } }
+  setFormName(v) { if (this.form) { this.form.name = v; this.changed(); } }
+  // formStep: show the wizard's step key (the one before it that applies, when it doesn't).
+  formStep(key) { const f = this.form; if (f) { f.step = stepAt(f, key); f.err = ''; this.changed(); } }
+
+  // probeWiki: has this backend the project wiki — GET /projects/0/wiki answers a 404 with a body
+  // (no such project) where the route is, the mux's plain 404 where it isn't. Asked once.
+  async probeWiki() {
+    if (this.wikiRoute !== null || this.probing) return this.wikiRoute;
+    this.probing = true;
+    try { await projCall('', '/projects/0/wiki'); this.wikiRoute = true; } catch (e) {
+      this.wikiRoute = !(e.status === 404 && !(e.data && typeof e.data === 'object'));
+    }
+    this.probing = false;
+    this.changed();
+    return this.wikiRoute;
+  }
+  // starterOffer: what the form's starter work may be here (model/project-wizard.js).
+  starterOffer(f = this.form) { return starterOffer(f, { wiki: this.wikiRoute, classes: this.app.classes }); }
 
   // providers: GET /projects/scm, as this page's home sees them (cached; fresh to read again).
   async providers(fresh = false) {
@@ -680,14 +710,30 @@ export class Projects {
     f.loading = false;
     this.changed();
   }
+  // setRepoQuery: the picker's words — searched 250 ms after the last keystroke (searchRepos keeps
+  // the latest answer only).
+  setRepoQuery(q) {
+    const f = this.form;
+    if (!f) return;
+    f.q = q;
+    clearTimeout(this.qTimer);
+    this.qTimer = setTimeout(() => { if (this.form === f) this.searchRepos(); }, 250);
+    this.changed();
+  }
   addFormRepo(repo) {
     const f = this.form;
     if (!f || !repo || f.repos.some((r) => r.repo === repo)) return;
     f.repos = [...f.repos, { repo, setup: '' }];
-    if (!f.name) f.name = repo.split('/').pop();
+    nameAfterRepo(f);
     this.changed();
   }
-  dropFormRepo(repo) { if (this.form) { this.form.repos = this.form.repos.filter((r) => r.repo !== repo); this.changed(); } }
+  dropFormRepo(repo) {
+    const f = this.form;
+    if (!f) return;
+    f.repos = f.repos.filter((r) => r.repo !== repo);
+    nameAfterRepo(f);
+    this.changed();
+  }
   setFormSetup(repo, setup) { if (this.form) { this.form.repos = this.form.repos.map((r) => (r.repo === repo ? { ...r, setup } : r)); this.changed(); } }
 
   // formBody: the form as POST /projects' body, or {error} saying what is missing.
@@ -712,7 +758,10 @@ export class Projects {
     const policy = { maxTasks: Number(f.policy.maxTasks) || 3, autoPR: f.policy.autoPR || 'off', engine: f.policy.engine || 'auto' };
     if (f.policy.harness) policy.harness = f.policy.harness;
     if (f.policy.as) policy.as = f.policy.as;
+    if (f.policy.dream === false) policy.dream = false; // on by default (the backend's)
     const body = { name: f.name.trim(), scm: f.scm, repos: f.repos.map((r) => ({ repo: r.repo, ...(r.setup.trim() ? { setup: r.setup } : {}) })), ...(sandbox ? { sandbox } : {}), policy };
+    const starter = f.starter && starterBody(f, this.starterOffer(f));
+    if (starter) body.starter = starter;
     const shared = { visibility: f.share.visibility === 'team' ? 'team' : 'private', teamRole: f.share.teamRole === 'participant' ? 'participant' : 'viewer', members: [] };
     if (team) { body.kind = 'team'; body.share = shared; } // a person there must send share; private: only the members added next
     else if (state === 'legacy' && f.share.visibility === 'team') body.share = shared;
@@ -736,6 +785,7 @@ export class Projects {
       const r = await this.create(body);
       this.form = null;
       if (r && r.project) await this.open(r.project.id);
+      if (body.starter && r && !r.starter) { this.flash = 'This agent\'s backend took no starter work (an older version): make task #1 yourself.'; this.changed(); }
       return r;
     } catch (e) { f.err = e.message; f.busy = false; this.changed(); return null; }
   }
