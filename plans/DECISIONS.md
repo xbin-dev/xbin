@@ -14114,6 +14114,128 @@ Deviations and refinements made while implementing; all deliberate:
     - *Backups.* `data/llm` is daemon state: in no tile backup, untouched
       by a tile restore; restoring the workspace directory brings it back,
       the keys readable only under the barrier that sealed them.
+  - **Part 2 — harnesses and terminals on the connector by default
+    (2026-11-15; spike `plans/wsagent/s4-connector.md`).** The owner:
+    "consider how we could by-default hook up tile agent (maybe also agtt
+    acp) OpenCode to the builtin llm connector (right now OpenCode ships
+    with default config which is really painful to connect to custom llm
+    endpoint + tile terminals can't easily connect to llm connector bind";
+    their choice, "Connector by default + sign-ins held by xbind", with a
+    login the person already has still working. Builder page `docs/llm.md`
+    §Coding agents and terminals.
+    - *One table.* `sdk/acp`'s catalog says, per CLI, how it is pointed at
+      an OpenAI-compatible endpoint from its environment alone
+      (`Provider.Connector`, `ConnectorEnv`): the wire, **additive**
+      (opencode: an inline config declares the provider beside the
+      person's own, and its `model` member — what makes it the default —
+      is rendered only when the connector serves) or **replacing** (codex:
+      codex-acp's gateway auth request and `CODEX_CONFIG`'s model; claude:
+      the gateway variables, waiting for an Anthropic-wire route; gemini:
+      none), and the variables that must never hold the connector's key.
+      xbind's sessions and the agent template render from it; goldens pin
+      it. Rejected: the key in `OPENAI_API_KEY` for any harness (opencode
+      turns it into its built-in OpenAI provider, pointed at OpenAI).
+    - *Who serves a session.* The session's choice (`llm` on `POST
+      /term/sessions`), then the person's saved choice, then the workspace's
+      mode — one answer from the agents policy (D229's `AgentSessionLLM`,
+      asked through `term.Manager.Credentials`): `own-first` (default),
+      `connector-first`, and `connector-only`, which nothing overrides and
+      which an org's model rule forces on its tiles. "The person has a
+      sign-in" is a fact of the session's `$HOME`, which the daemon never
+      reads (D78): it renders both outcomes into `_xbin/spawn`, and the
+      agent host — in the sandbox, with the agent's own environment —
+      settles `own-first` by the provider's login files and key variables
+      and answers who serves in `_xbin/hello`. So opencode with no sign-in
+      gets the connector's model and never, silently, its vendor's free
+      third-party models.
+    - *The credential is a per-session LLM key*, never the terminal token:
+      minted in the open, revoked through the same revoke as the terminal
+      token (close, crash, failed spawn, restart — whose session has a new
+      one), ended at once when the person's own sign-in serves a replacing
+      harness, and all of them at xbind's stop. An agent session's travels
+      in the spawn frame: in the agent's environment only, not the
+      sandbox's nor the terminals the agent opens. **Codex writes its
+      environment to `~/.codex/shell_snapshots`** (seen live: the key was
+      there, answered 200 while the session lived and 401 after). Decided:
+      no scrub — xbind doesn't clean a person's home, the host is killed
+      with the session so there is no reliable moment, and revocation is
+      the control; the docs say so.
+    - *The model rule holds on the key.* A key's grant carries its tile,
+      and the connector's `CallPolicy` is the policy's `AgentCallAllows` by
+      tile: a session on a tile whose orgs allow private models only can't
+      call another, whatever its CLI asks; the models it is offered and
+      the one it starts on are filtered the same way. xbind answers the
+      policy's two questions of the connector (`AgentConnector`: can this
+      harness run on it; `AgentModels`: is this model private).
+    - *Terminals* get `XBIN_LLM_URL` and `XBIN_LLM_KEY`; `OPENAI_BASE_URL`
+      and `OPENAI_API_KEY` only by a switch of their own, default off:
+      everything started in a terminal inherits its environment, and a
+      tool that reads the key but not the base URL sends it to OpenAI. The
+      three switches (`sessions: {agents, terminals, openaiEnv}`) are the
+      connector's settings, host-lockable. A person without the terminal
+      API grant gets no key in a terminal.
+    - *No key where it couldn't be held to the rules:* a session with no
+      network has no route to xbind (it says so; asking for the connector
+      there is 409), and a session that targets a non-primary deployment
+      gets none either — a key carries no deployment, so the tile's edge
+      policy couldn't be applied to its calls.
+    - *What the connector refuses is said in the session.* Found live:
+      with a daily quota reached opencode sat in "running" without a word,
+      waiting out a `Retry-After` that ends at midnight. The minter of a
+      key may watch it (`llm.WatchKey`); an agent session logs a notice
+      with the status, code and message, once per kind while the CLI
+      retries.
+    - *Manager sandboxes: one door.* A sandbox a manager tile makes reaches
+      nothing of xbind. Created with `net.llm` it gets one port of its own
+      gateway forwarded to **the LLM-only listener** — a unix socket where
+      xbind serves the three model routes to an LLM key and nothing else,
+      outside its own handler. `relay.Config.Doors` is a new, separate
+      field: `HostFwd` under a `Deny` stays refused (the guard that says so
+      stands), a door is what an embedder opens on purpose. It needs no
+      egress and works in both modes (proved in a namespace sandbox and a
+      Firecracker VM). The contract gains the optional capability `llm`
+      (`llm: true` on create, `llm.url` on the sandbox); a consumer reads
+      hello first, so managers from before it are never sent the member.
+      Rejected: a general route to xbind for sandboxes; relaying through
+      the consumer over stdio (right for off-host managers, later).
+    - *Two variables of xbind's may enter a tile sandbox.* The runtime
+      refuses `XBIN_*` in a sandbox's environment ("never an xbin
+      identity"), and the first end-to-end run of the template on the
+      connector stopped there: the table names the address and the key
+      `XBIN_LLM_URL`/`XBIN_LLM_KEY` (opencode's config reads the key by
+      that name). Decided: exactly those two pass, in a *command's* `env`
+      only — an LLM key opens the model routes and nothing else, so it is
+      no identity; `defaults.env`, which is stored, still refuses them.
+      The contract says a manager offering `llm` lets them through, and
+      its suite checks it; the fake manager now refuses `XBIN_*` like the
+      real one, which is what would have caught this before the live run.
+    - *Not in xbind's logs.* A hook or a tool can print the environment:
+      the agent's stderr is the session's text log (`GET …/log`), and the
+      last lines of a session that dies at start go to xbind's own log.
+      Both mask `xbl_…` by shape (found by the integration test's last
+      check, with the scripted agent's `printenv`). The transcript is the
+      person's own and is not rewritten; the key dies with the session.
+    - *Keys for tiles.* `POST /api/xbin/llm/keys` (`xbin.LLMKeyFor`): a
+      tile bound to `xbin:llm` gets a key for the person its credential
+      acts for — exactly who its own calls are metered to — and nobody
+      else; the key stands on the binding. Ended by id or by label
+      (`DELETE /llm/keys?label=`), so a consumer keeps no ids: the agent
+      template labels a key by its run and ends it before a restart, at
+      the adapter's exit, and from a successor process.
+    - *The agent template* starts a coding agent with no sign-in (none
+      saved, none in the sandbox) on the connector when its `llm` slot is
+      bound to `xbin:llm` and the sandbox has `llm.url`; the key is the
+      generation's secret in its redactor, which also masks `xbl_…` by
+      shape. Its gate "a coding agent's sandbox needs an egress" stays.
+    - **Open** for the owner: whether `net: none` sessions should get the
+      door too (the connector is the one model source that needs no
+      internet, but it is also a way out for what the sandbox holds);
+      whether a session on a non-primary deployment should get a key bound
+      to that deployment instead of none; codex's per-turn "model metadata
+      not found" for a model it doesn't know (set by `CODEX_CONFIG`; the
+      alternative is codex's own model names and an alias); the
+      template's egress gate where the connector would do; a surface for a
+      person's saved choice per harness in the launcher.
 - **D225 — The agent session rules live in sdk/acp: tool record, mode
   escalation, steer queue, auth state, status words (2026-11-14; issue
   #51).** Two hosts run coding agents through `sdk/acp`'s client — xbind's
