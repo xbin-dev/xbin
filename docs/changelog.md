@@ -42,6 +42,14 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   `DELETE /api/xbin/llm/keys/<id>` ([protocol/llm.md](/docs/protocol/llm.md)
   §Keys for a tile's harnesses). The key is for the person the tile's
   credential acts for, and no one else.
+- **A sandbox can reach the LLM connector, and nothing else of xbind**:
+  a tile sandbox created with `net.llm: true`
+  ([protocol/sandboxes.md](/docs/protocol/sandboxes.md)) gets the
+  connector's model routes at `http://10.0.2.2:4180/v1` — its SandboxInfo
+  says so in `net.llm` — for the holder of an LLM key, with any egress,
+  `none` included. Go SDK: `xbin.SandboxNet.LLM`, `SandboxNetInfo.LLM`,
+  and **`xbin.LLMKeyFor` / `xbin.RevokeLLMKey`** for the key
+  ([sdk.md](/docs/sdk.md) §An LLM key for a coding tool).
 - **Go SDK, `sdk/acp`**: `Provider.Connector`, `Provider.ConnectorEnv`,
   `acp.ConnectorServes`, `Provider.HasOwnLogin` and `acp.ExpandWord` — how
   each coding CLI is pointed at an LLM connector from its environment, and

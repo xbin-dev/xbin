@@ -486,6 +486,44 @@ err = llm.ReadSSE(resp.Body, func(_ string, data []byte) error {
 - **Errors**: `llm.WriteError(w, status, llm.Error{…})` answers in OpenAI's
   shape, `llm.ParseError(body)` reads one.
 
+### An LLM key for a coding tool — `xbin.LLMKeyFor`
+
+A tile whose `llm` slot is bound to xbind's LLM connector (`xbin:llm`,
+[llm.md](/docs/llm.md)) calls it with its own credential. A coding agent
+the tile runs in a sandbox must not hold that credential, so the tile asks
+for a **narrow key** instead — good for the connector's model routes only,
+metered to the person and the tile:
+
+```go
+k, err := xbin.LLMKeyFor(ctx, xbin.LLMKeyOpts{User: person, TTL: 24 * time.Hour,
+	Label: "codex run 12", Sandbox: box.ID})
+switch {
+case errors.Is(err, xbin.ErrLLMUnavailable): // no connector here (or an older xbind): run it on its own sign-in
+case errors.Is(err, xbin.ErrLLMKeyForbidden): // the slot isn't bound to xbin:llm, or User isn't who this backend acts for
+}
+defer xbin.RevokeLLMKey(context.Background(), k.ID) // when the run ends
+
+env, _ := provider.ConnectorEnv(acp.ConnectorParams{URL: box.LLM.URL, Key: k.Token,
+	Model: model, Serves: acp.ServeConnector}) // sdk/acp, above: the CLI's variables
+```
+
+- `User` is the person the run acts for and must be the one this backend's
+  credential acts for — a partition's person
+  ([partitions.md](/docs/partitions.md)); `""` takes them. A backend that
+  serves everyone acts for nobody: its key is metered to the tile alone.
+  xbind refuses any other name: a tile never mints a key for someone else.
+- `TTL` defaults to a day and is capped at 30; a key also ends when xbind
+  restarts. Revoke it when the run ends.
+- `Token` is a secret: pass it in the tool's environment, keep it out of
+  stores and logs, and redact it from what the tool prints.
+- **Where the tool reaches the connector** is the sandbox's to say. A
+  sandbox created with the connector asked for — `llm: true` on a sandbox
+  manager's create ([sandbox-manager.md](/docs/sandbox-manager.md)),
+  `xbin.SandboxNet{LLM: true}` on xbind's own runtime — names the address
+  in its row (`llm.url`; `SandboxNetInfo.LLM`): an OpenAI base URL at the
+  sandbox's gateway, served by xbind's LLM-only listener whatever the
+  sandbox's egress. No address there means no connector: fall back.
+
 ### Resources, vault, bus
 
 ```go
@@ -708,7 +746,7 @@ routes a few lines (its `API.md`):
 sbx := xbin.SandboxAPI()
 rt, err := sbx.Runtime(ctx) // modes, egress classes, limits (rt.Limits.Flows too), and rt.Caps: what this xbind serves
 info, err := sbx.Create(ctx, xbin.SandboxSpec{Name: "sb-7f3a", Mode: "vm",
-	Net: &xbin.SandboxNet{Egress: "class:internet"}, ClientID: reqID})
+	Net: &xbin.SandboxNet{Egress: "class:internet"}, ClientID: reqID}) // SandboxNet.LLM: the LLM connector inside it (info.Net.LLM names its address)
 info, err = sbx.Start(ctx, "sb-7f3a", 30*time.Second) // Stop, Reset, Rebase alike; List, Get, Patch, Delete, Copy
 
 sb := sbx.Sandbox("sb-7f3a")

@@ -47,6 +47,10 @@ type NetInfo struct {
 	Reach      string `json:"reach"`
 	EgressNext string `json:"egressNext"`
 	Note       string `json:"note"`
+	// LLM is the workspace's LLM connector as the sandbox reaches it — an
+	// OpenAI base URL at its gateway — when it was created with net.llm and
+	// this xbind forwards one; absent otherwise.
+	LLM string `json:"llm,omitempty"`
 }
 
 // BaseInfo is the base image a sandbox's state is pinned to.
@@ -103,6 +107,9 @@ func (m *Manager) info(k Key, d *Def) Info {
 		Base:  BaseInfo{Version: d.Base, Outdated: d.Base != "" && m.baseVersion != "" && d.Base != m.baseVersion},
 		Users: m.users(d.Mode), DiskBytes: b.diskBytes, Snapshots: snapshots, ExecsRunning: b.execs.runningCount(),
 		Created: d.Created, LastActive: lastActiveLocked(b), Version: d.Version, ClientID: d.ClientID,
+	}
+	if d.Net.LLM && m.llmSock() != "" {
+		in.Net.LLM = LLMURL
 	}
 	if in.Mounts == nil {
 		in.Mounts = []Mount{}

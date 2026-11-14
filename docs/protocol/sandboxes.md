@@ -177,7 +177,7 @@ definitions, lifecycle, snapshots and the policy are.
 ```
 {"name": "sb-7f3a", "mode": "namespace" | "vm",
  "memMiB": 2048, "vcpus": 2, "diskGiB": 20,
- "net": {"egress": "none" | "class:<slot>"},
+ "net": {"egress": "none" | "class:<slot>", "llm": false},
  "mounts": [{"res": "res:apps/coding-sandbox/work", "path": "shared", "at": "/mnt/shared", "ro": false},
             {"source": true, "at": "/opt/manager"}],
  "defaults": {"cwd": "/work", "uid": 1000, "gid": 1000, "shell": "/bin/bash", "env": {"HOME": "/home/dev"}},
@@ -196,6 +196,18 @@ definitions, lifecycle, snapshots and the policy are.
 - `net.egress` is `none` (the default) or a **sandbox-net slot** the
   manager's manifest declares (`interfaces: {"internet": {"kind":
   "sandbox-net"}}`); `runtime.egress` lists them with what each reaches.
+- `net.llm: true` (D226; at create only — a `PATCH`'s `net` changes the
+  egress and keeps it) asks for the workspace's **LLM connector** inside
+  the sandbox ([llm.md](/docs/llm.md) §Sandboxes made by a sandbox
+  manager). xbind then forwards one port of the sandbox's gateway —
+  `http://10.0.2.2:4180/v1`, answered as `net.llm` in its SandboxInfo — to
+  its LLM-only listener: `POST /v1/chat/completions`, `POST /v1/responses`
+  and `GET /v1/models` for the holder of an LLM key
+  ([llm.md](/docs/protocol/llm.md)), and nothing else of xbind. It works
+  with every egress, `none` included, in both modes, and is the one
+  exception to "no route to xbind". An xbind from before it ignores the
+  member and answers no `net.llm`: that is how a caller learns the
+  connector isn't there.
 - A `res` mount is a `filesystem` resource of the manager's own scope that
   it holds the way its backend's `XBIN_RES_*` variables need: declared in
   its `uses` **and** granted (a same-scope `uses` entry is its own grant).
@@ -525,7 +537,7 @@ where the filesystem can. xbind never reads either.
 
 **SandboxInfo:** `{name, uid, state (creating | stopped | starting |
 running | stopping | error), stateDetail, mode, accel?, memMiB, vcpus,
-diskGiB, net:{egress, reach, egressNext, note}, mounts, defaults, labels,
+diskGiB, net:{egress, reach, egressNext, note, llm?}, mounts, defaults, labels,
 for?, forUser?, idleStopMin, autoStart, base:{version, outdated}, users,
 diskBytes, snapshots, execsRunning, created, started?, lastActive?,
 version, clientId?, restartNeeded, usage?}` — `uid` is the sandbox's identity (12 hex,
@@ -535,7 +547,9 @@ one's state. `creating` is a clone whose copy still runs: until it ends
 `stopped` (or `running`, or `error`), every call but `GET`, the list and
 `DELETE` answers 409 `state`. `reach` is what the egress reaches (`none`,
 `internet` or `open`, the contract's words), `egressNext` an egress a
-`PATCH` set that waits for the next start.
+`PATCH` set that waits for the next start, `llm` the LLM connector's
+OpenAI base URL inside the sandbox when it was created with `net.llm`
+(absent otherwise).
 
 **`usage`** (D215) is a running sandbox's CPU and memory: its cgroup leaf
 read once a minute, the last 60 readings kept in memory — the contract's

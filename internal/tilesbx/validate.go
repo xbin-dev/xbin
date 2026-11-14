@@ -136,8 +136,9 @@ func (m *Manager) define(k Key, req *CreateRequest, lim Limits) (*Def, error) {
 		AutoStart:   req.AutoStart == nil || *req.AutoStart,
 	}
 	if req.Net != nil && req.Net.Egress != "" {
-		d.Net = *req.Net
+		d.Net.Egress = req.Net.Egress
 	}
+	d.Net.LLM = req.Net != nil && req.Net.LLM // fixed at create: a PATCH's net changes the egress only
 	mounts, err := m.checkMounts(k, req.Mounts)
 	if err != nil {
 		return nil, err
@@ -194,6 +195,7 @@ func (m *Manager) amend(k Key, d *Def, p *PatchRequest, lim Limits) (n *Def, cha
 		if n.Net.Egress == "" {
 			n.Net.Egress = "none"
 		}
+		n.Net.LLM = d.Net.LLM // set at create, kept (a manager that never heard of it PATCHes egress alone)
 	}
 	if p.Mounts != nil {
 		if n.Mounts, err = m.checkMounts(k, *p.Mounts); err != nil {

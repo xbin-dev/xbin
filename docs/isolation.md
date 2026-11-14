@@ -703,7 +703,14 @@ and defines and drives them through `/api/xbin/sandboxes/…`
   with the tail of its console in `stateDetail`.
 - **No xbin identity inside.** A tile sandbox gets no token, no gateway
   socket and no route to xbind; `XBIN_*` variables are refused in its
-  definition. Its network is `none` unless the manager gives it one of its
+  definition. One door opens when its manager asks at create (`net.llm`,
+  D226): a port of the sandbox's own gateway, forwarded to xbind's
+  **LLM-only listener** — a unix socket in xbind's run directory that
+  serves the LLM connector's three model routes to the holder of an LLM
+  key and nothing else, outside xbind's own handler, so no other route
+  and no other credential exists there ([llm.md](/docs/llm.md)). The
+  relay's deny of the host and of the gateway's network stands for
+  everything else. Its network is `none` unless the manager gives it one of its
   **sandbox-net** interface slots, which an approver binds — the manager's
   own backend needn't hold that network.
 - **Mounts** are the manager's own `filesystem` resources, declared in its
