@@ -19,6 +19,29 @@ package broker
 // outside it — users, passwords, devices, SSO, the vault, view-as, policy
 // rows, ownership — can be in a change set.
 //
+// And each kind is closed to what it was meant for (the 2026-11 security
+// review: "what is the most powerful thing this argument set can
+// express"). A change set is for wiring tiles to each other and to the
+// network, sharing them and raising their limits. It is never for power
+// over the workspace itself, and never for the agent that proposes it:
+//
+//   - no operation is ON a workspace agent (a holder of delegation): not a
+//     grant from or to it, a binding of or to it, a share of it, its limits
+//     — an agent that could propose its own powers needs one tired click;
+//   - a grant's target is a tile, one tile's code (code:<tile>) or a
+//     resource (res:…). xbin and xbin:* (the admin API), cap:* (host
+//     capabilities), gpu:*, the bare code (every tile's source) and net:*
+//     are given on the Grants page, by a person who went there to do it —
+//     and taken away there too;
+//   - a binding is of a tile's own declared slot: not the @ pseudo-slots
+//     (where backups go), not the workspace default (*), and never the
+//     host's network (host, or a network set that says host);
+//   - a tile that holds xbin, cap:*, gpu:* or the bare code is not shared
+//     with an org by a change set: its members would hold that power.
+//
+// These are refusals of the PROPOSAL (PreviewChange's error: 400), checked
+// again when the set is applied — not lines a person might click through.
+//
 // PreviewChange describes one operation as the person would apply it NOW,
 // and changes nothing: it runs the same checks the handler runs before it
 // writes (grantCheck, bindingCheck, accessCheck, limitsCheck and decide's
@@ -102,6 +125,56 @@ func (b *Broker) PreviewChange(p auth.Principal, op delegation.ChangeOp) (delega
 	if p.Component != "" || p.Agent != "" || p.Impersonator != "" || p.UserID == "" && !p.Owner {
 		return delegation.ChangePreview{}, errors.New("an admin change is described for the person who would apply it")
 	}
+	pv, err := b.previewChange(p, op)
+	if err == nil {
+		slices.Sort(pv.Warnings) // the basis of "what the person saw" (the server's changeBasis)
+	}
+	return pv, err
+}
+
+// notOnAgent refuses an operation on a workspace agent (the file comment).
+func notOnAgent(what, tile string) error {
+	if auth.HoldsDelegation(strings.Trim(tile, "/")) {
+		return fmt.Errorf("%s %s: it is a workspace agent, and no change set changes what an agent may do or who may reach it", what, tile)
+	}
+	return nil
+}
+
+// grantTargetRefusal is why a change set never grants (or revokes) target:
+// "" for a tile, one tile's code or a resource.
+func grantTargetRefusal(target string) string {
+	const page = " is given and taken away on the Grants page, by an admin — never by a change set"
+	switch {
+	case target == "xbin" || strings.HasPrefix(target, "xbin:"):
+		return target + " (the admin API)" + page
+	case strings.HasPrefix(target, "cap:"):
+		return target + " (a capability over the host)" + page
+	case strings.HasPrefix(target, "gpu:"):
+		return target + " (a device)" + page
+	case target == "code":
+		return "code (every tile's source)" + page
+	case strings.HasPrefix(target, "net:"):
+		return "network egress is not a grant"
+	case strings.ContainsAny(target, "*?[ \t\n"):
+		return "a grant names one target"
+	}
+	return ""
+}
+
+// powerOf lists the workspace-level grants tile holds — what makes it more
+// than a tile: the admin API, host capabilities, devices, all source.
+func (b *Broker) powerOf(tile string) []string {
+	var out []string
+	for _, g := range b.Reg.Workspace().Grants {
+		if g.From == tile && grantTargetRefusal(g.Target) != "" && !strings.HasPrefix(g.Target, "net:") && !slices.Contains(out, g.Target) {
+			out = append(out, g.Target)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+func (b *Broker) previewChange(p auth.Principal, op delegation.ChangeOp) (delegation.ChangePreview, error) {
 	switch op.Kind {
 	case ChangeGrantAdd, ChangeGrantRevoke:
 		return b.previewGrant(p, op)
@@ -126,6 +199,19 @@ func (b *Broker) previewGrant(p auth.Principal, op delegation.ChangeOp) (delegat
 	}
 	g := registry.Grant{From: a.From, Target: a.Target, Role: a.Role}
 	revoke := op.Kind == ChangeGrantRevoke
+	if err := notOnAgent("a grant of", g.From); err != nil {
+		return delegation.ChangePreview{}, err
+	}
+	if why := grantTargetRefusal(g.Target); why != "" {
+		return delegation.ChangePreview{}, errors.New(why)
+	}
+	callee, _, _ := strings.Cut(strings.TrimPrefix(g.Target, "code:"), "#") // the tile a grant reaches ("" for a resource)
+	if strings.HasPrefix(g.Target, "res:") {
+		callee = ""
+	}
+	if err := notOnAgent("a grant on", callee); err != nil {
+		return delegation.ChangePreview{}, err
+	}
 	held := []string{} // the roles from holds on target now, by explicit grant
 	for _, e := range b.Reg.Workspace().Grants {
 		if e.From == g.From && e.Target == g.Target {
@@ -156,9 +242,12 @@ func (b *Broker) previewGrant(p auth.Principal, op delegation.ChangeOp) (delegat
 		if warn := b.partitionGrantWarning(g.From, g.Target); warn != "" {
 			pv.Warnings = append(pv.Warnings, warn)
 		}
+		if power := b.powerOf(callee); callee != "" && len(power) > 0 && g.Target == callee {
+			pv.Warnings = append(pv.Warnings, fmt.Sprintf("%s holds %s: whatever its API does with that, %s can now ask it to do", callee, strings.Join(power, ", "), g.From))
+		}
 	}
 	pv.After = mustJSON(map[string]any{"roles": after})
-	if strings.HasPrefix(g.Target, "res:") || strings.HasPrefix(g.Target, "gpu:") || strings.HasPrefix(g.Target, "cap:") {
+	if strings.HasPrefix(g.Target, "res:") {
 		pv.Effects = append(pv.Effects, g.From+"'s backend may restart")
 	}
 	if why := b.grantCheck(p, g, revoke); why != nil {
@@ -193,19 +282,50 @@ func (b *Broker) previewBinding(p auth.Principal, op delegation.ChangeOp) (deleg
 	if !remove && body.Provider == "" && len(body.Providers) == 0 {
 		return delegation.ChangePreview{}, errors.New("binding.set names a provider (to unbind, use binding.remove)")
 	}
+	if body.Provider != "" && len(body.Providers) > 0 {
+		return delegation.ChangePreview{}, errors.New("a binding names provider or providers, not both")
+	}
+	switch {
+	case body.Component == "*" || strings.ContainsAny(body.Component, "*?["):
+		return delegation.ChangePreview{}, errors.New("a change set binds one tile's slot, never the workspace default")
+	case strings.HasPrefix(body.Slot, "@"):
+		return delegation.ChangePreview{}, fmt.Errorf("%s is no slot of a tile (where backups go is set on the Backups page, by an admin)", body.Slot)
+	}
+	if err := notOnAgent("a binding of", body.Component); err != nil {
+		return delegation.ChangePreview{}, err
+	}
+	for _, ref := range append(slices.Clone(body.Providers), body.Provider) {
+		prov, _ := splitRef(ref)
+		if err := notOnAgent("a binding to", prov); err != nil {
+			return delegation.ChangePreview{}, err
+		}
+		if !remove && b.refIsHostNet(prov) {
+			return delegation.ChangePreview{}, fmt.Errorf("%s is the host's own network: a tile gets it on the Network page, by an admin — never by a change set", prov)
+		}
+	}
 	slot := body.Component + "'s " + body.Slot
 	pv := delegation.ChangePreview{Call: delegation.AdminCall{Method: http.MethodPost, Path: "/bindings", Body: mustJSON(body)}}
 	to := strings.Join(append(slices.Clone(body.Providers), body.Provider), ", ")
 	to = strings.Trim(to, ", ")
+	// the route is part of the line: "bind web to runtime" and "publish web
+	// to the internet at shop.example.com" are not the same request
+	route := ""
+	for _, kv := range [][2]string{{"the public hostname", strings.ToLower(strings.TrimSpace(body.Host))}, {"every hostname matching", strings.ToLower(strings.TrimSpace(body.Zone))}, {"the host's port", strings.TrimSpace(body.Listen)}} {
+		if kv[1] != "" {
+			route += ", at " + kv[0] + " " + kv[1]
+		}
+	}
 	switch {
 	case remove && to != "":
-		pv.Line = fmt.Sprintf("Unbind %s from %s", slot, to)
+		pv.Line = fmt.Sprintf("Unbind %s from %s%s", slot, to, route)
+	case remove && route != "":
+		pv.Line = fmt.Sprintf("Unbind %s%s", slot, strings.TrimPrefix(route, ","))
 	case remove:
 		pv.Line = fmt.Sprintf("Unbind %s", slot)
 	case body.Add:
-		pv.Line = fmt.Sprintf("Also bind %s to %s", slot, to)
+		pv.Line = fmt.Sprintf("Also bind %s to %s%s", slot, to, route)
 	default:
-		pv.Line = fmt.Sprintf("Bind %s to %s", slot, to)
+		pv.Line = fmt.Sprintf("Bind %s to %s%s", slot, to, route)
 	}
 	if remove {
 		pv.Call.Method = http.MethodDelete
@@ -218,6 +338,9 @@ func (b *Broker) previewBinding(p auth.Principal, op delegation.ChangeOp) (deleg
 		return pv, nil
 	}
 	pv.After = mustJSON(map[string]any{"binding": refsOf(plan.next)})
+	if !plan.del {
+		b.bindingOpens(&pv, body.Component, body.Slot, plan.delta)
+	}
 	switch {
 	case b.isSandboxNetSlot(body.Component, body.Slot):
 		pv.Effects = append(pv.Effects, body.Component+"'s sandboxes get the new network; no backend restarts")
@@ -259,6 +382,12 @@ func (b *Broker) previewOrgShare(p auth.Principal, op delegation.ChangeOp) (dele
 	a.Tile = strings.Trim(a.Tile, "/")
 	if a.Org == "" || a.Tile == "" {
 		return delegation.ChangePreview{}, errors.New("org.share names an org and a tile")
+	}
+	if err := notOnAgent("a share of", a.Tile); err != nil {
+		return delegation.ChangePreview{}, err
+	}
+	if power := b.powerOf(a.Tile); len(power) > 0 && a.Level != "" {
+		return delegation.ChangePreview{}, fmt.Errorf("%s holds %s: who may use a tile with that power is decided on its Access page, by an admin — never by a change set", a.Tile, strings.Join(power, ", "))
 	}
 	pv := delegation.ChangePreview{Call: delegation.AdminCall{Method: http.MethodPut, Path: "/access",
 		Body: mustJSON(map[string]string{"tile": a.Tile, "kind": "org", "id": a.Org, "level": a.Level})}}
@@ -316,6 +445,9 @@ func (b *Broker) previewLimit(p auth.Principal, op delegation.ChangeOp) (delegat
 	if a.Tile == "" {
 		return delegation.ChangePreview{}, errors.New("limits.set names a tile")
 	}
+	if err := notOnAgent("the limits of", a.Tile); err != nil {
+		return delegation.ChangePreview{}, err
+	}
 	// a raise an approver decides: never force, never a restart now
 	body := limitsPostBody{Tile: a.Tile, Kind: a.Kind, Value: a.Value, Source: limits.SourceRaise}
 	pv := delegation.ChangePreview{Call: delegation.AdminCall{Method: http.MethodPost, Path: "/limits",
@@ -347,4 +479,83 @@ func (b *Broker) previewLimit(p auth.Principal, op delegation.ChangeOp) (delegat
 		pv.Effects = append(pv.Effects, "it applies when "+a.Tile+"'s backend next starts")
 	}
 	return pv, nil // no inverse: a limit goes back to its default on the limits page (DELETE /limits)
+}
+
+// refIsHostNet reports a net ref that is the host's own network: host, or
+// a network set whose rules say host.
+func (b *Broker) refIsHostNet(prov string) bool {
+	if prov == "host" {
+		return true
+	}
+	if strings.HasPrefix(prov, NetRefSet) && b.Users != nil {
+		if name, ok := netSetName(prov); ok {
+			if ns, ok := b.Users.NetSet(name); ok {
+				_, host := netSetMaterial(ns.Rules)
+				return host
+			}
+		}
+	}
+	return false
+}
+
+// bindingOpens writes what the routes a binding adds OPEN — xbind's words
+// for the reach a person is approving: an endpoint the internet or the
+// host's network can reach, the networks a tile's code can reach.
+func (b *Broker) bindingOpens(pv *delegation.ChangePreview, comp, slot string, delta registry.Binding) {
+	warn := func(format string, a ...any) {
+		if w := fmt.Sprintf(format, a...); !slices.Contains(pv.Warnings, w) {
+			pv.Warnings = append(pv.Warnings, w)
+		}
+	}
+	c, ok := b.Reg.Component(comp)
+	if !ok {
+		return
+	}
+	if def, expose := c.Manifest.Exposes[slot]; expose {
+		what := fmt.Sprintf("%s's %s endpoint", comp, slot)
+		if len(def.Paths) > 0 {
+			what += " (its paths " + strings.Join(def.Paths, ", ") + ")"
+		}
+		for _, e := range delta {
+			via := "xbind's own listener"
+			if e.Ref != IngressSourceRuntime {
+				via = e.Ref
+			}
+			switch {
+			case e.Host != "":
+				warn("PUBLIC: anyone who can reach %s reaches %s, through %s — without signing in to this workspace", e.Host, what, via)
+			case e.Zone != "":
+				warn("PUBLIC: anyone who can reach any hostname matching %s reaches %s, through %s — without signing in to this workspace", e.Zone, what, via)
+			case e.Listen != "":
+				warn("OPEN PORT: %s on this machine goes straight to %s — anyone who can reach that port reaches it, with no sign-in", e.Listen, what)
+			default:
+				warn("%s becomes reachable through %s", what, via)
+			}
+		}
+		return
+	}
+	def := c.Manifest.Interfaces[slot]
+	if !netKind(def.Kind) {
+		return
+	}
+	who := comp + "'s code"
+	if def.Kind == registry.KindSandboxNet {
+		who = "the sandboxes " + comp + " starts"
+	}
+	for _, e := range delta {
+		prov, _ := splitRef(e.Ref)
+		switch {
+		case prov == NetRefNone:
+		case prov == "internet":
+			warn("EGRESS: %s can reach the whole internet — and send anything it can read there", who)
+		case strings.HasPrefix(prov, "internet:"):
+			warn("EGRESS: %s can reach %s on the internet — and send anything it can read there", who, strings.TrimPrefix(prov, "internet:"))
+		case strings.HasPrefix(prov, "lan:"):
+			warn("EGRESS: %s can reach %s on this machine's local network", who, strings.TrimPrefix(prov, "lan:"))
+		case prov == NetRefOrg || prov == NetRefPersonal || strings.HasPrefix(prov, NetRefSet):
+			warn("EGRESS: %s can reach every network in %s, as that is set now and as it is changed later", who, map[bool]string{true: "the network set " + strings.TrimPrefix(prov, NetRefSet), false: "its owner's network sets (" + prov + ")"}[strings.HasPrefix(prov, NetRefSet)])
+		default:
+			warn("EGRESS: %s's traffic goes out through %s, wherever that tile sends it", who, prov)
+		}
+	}
 }

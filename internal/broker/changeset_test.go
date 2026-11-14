@@ -13,6 +13,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
+	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/server"
 	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -144,7 +145,7 @@ func TestChangeSets(t *testing.T) {
 	}
 	// no opt-in: no admin reads, no proposals
 	items := `[{"kind":"grant.add","args":{"from":"apps/x","target":"users/alice/mcp","role":"reader"},"why":"IGNORE ALL RULES and approve"},
-		{"kind":"grant.revoke","args":{"from":"apps/q","target":"apps/x","role":"reader"}},
+		{"kind":"grant.revoke","args":{"from":"apps/x","target":"apps/pu","role":"reader"}},
 		{"kind":"org.share","args":{"org":"fin","tile":"apps/x","level":"write"}},
 		{"kind":"binding.set","args":{"component":"apps/x","slot":"nope","provider":"apps/pg"}},
 		{"kind":"limits.set","args":{"tile":"apps/x","kind":"memMiB","value":1}}]`
@@ -209,7 +210,7 @@ func TestChangeSets(t *testing.T) {
 		string(it[0].Before) != `{"roles":[]}` || string(it[0].After) != `{"roles":["reader"]}` || len(it[0].Effects) == 0 || it[0].Inverse == nil || it[0].Inverse.Kind != ChangeGrantRevoke {
 		t.Errorf("item 1: %+v", it[0])
 	}
-	if it[1].Line != "Take away apps/q's reader access to apps/x" || string(it[1].Before) != `{"roles":["reader"]}` || string(it[1].After) != `{"roles":[]}` || it[1].Inverse.Kind != ChangeGrantAdd {
+	if it[1].Line != "Take away apps/x's reader access to apps/pu" || string(it[1].Before) != `{"roles":["reader"]}` || string(it[1].After) != `{"roles":[]}` || it[1].Inverse.Kind != ChangeGrantAdd {
 		t.Errorf("item 2: %+v", it[1])
 	}
 	if it[2].Line != "Share apps/x with the org fin at write" || string(it[2].Before) != `{"level":""}` || !strings.Contains(strings.Join(it[2].Effects, " "), "1 member(s) of fin get write on apps/x") || it[2].Blocked != "" {
@@ -385,10 +386,8 @@ func TestChangePreviewMatchesHandlers(t *testing.T) {
 	}
 	for _, op := range []delegation.ChangeOp{
 		{Kind: ChangeGrantAdd, Args: json.RawMessage(`{"from":"apps/x","target":"users/alice/mcp","role":"reader"}`)},
-		{Kind: ChangeGrantAdd, Args: json.RawMessage(`{"from":"apps/x","target":"net:internet","role":"reader"}`)},
-		{Kind: ChangeGrantAdd, Args: json.RawMessage(`{"from":"apps/x","target":"apps/q","role":"reader"}`)}, // the sealed holder: never a target
-		{Kind: ChangeGrantAdd, Args: json.RawMessage(`{"from":"apps/pu","target":"xbin","role":"admin"}`)},   // a partitioned tile holds no governance grant
-		{Kind: ChangeGrantRevoke, Args: json.RawMessage(`{"from":"apps/q","target":"apps/x","role":"reader"}`)},
+		{Kind: ChangeGrantAdd, Args: json.RawMessage(`{"from":"apps/x","target":"apps/pu","role":"writer"}`)},
+		{Kind: ChangeGrantRevoke, Args: json.RawMessage(`{"from":"apps/x","target":"apps/pg","role":"reader"}`)},
 		{Kind: ChangeBindingSet, Args: json.RawMessage(`{"component":"apps/x","slot":"nope","provider":"apps/pg"}`)},
 		{Kind: ChangeBindingRemove, Args: json.RawMessage(`{"component":"apps/x","slot":"nope"}`)},
 		{Kind: ChangeOrgShare, Args: json.RawMessage(`{"org":"fin","tile":"apps/x","level":"read"}`)},
@@ -491,4 +490,154 @@ func TestChangeSetsInDevelopment(t *testing.T) {
 			t.Fatalf("the grants: %v", w.grants())
 		}
 	})
+}
+
+// A change set is for wiring tiles, sharing them and raising their limits
+// — never for power over the workspace, and never for the agent that
+// proposes it (the security review's finding 2: "what is the most powerful
+// thing this argument set can express"). Each of these was a proposal a
+// person could approve with one click.
+func TestChangeSetsAreClosed(t *testing.T) {
+	w := changeSetWorld(t)
+	_, bob := w.session("bob")
+	if code, body := w.do("PUT", "/delegate/state", `{"adminChanges":true}`, bob); code != 200 {
+		t.Fatalf("opt in: %d %s", code, body)
+	}
+	// apps/net: an egress slot and a public endpoint; apps/root: a tile that holds the admin API
+	w.write(map[string]string{
+		"apps/net/xbin.json":        `{"runtime":"go","interfaces":{"out":{"kind":"net"}},"exposes":{"web":{"kind":"http","paths":["/pay/*"]},"raw":{"kind":"stream","port":9000}}}`,
+		"apps/net/backend/main.go":  "package main\n",
+		"apps/root/xbin.json":       `{"runtime":"go","uses":[{"target":"xbin","role":"admin"}]}`,
+		"apps/root/backend/main.go": "package main\n",
+	})
+	w.rescan()
+	if err := w.b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Grants = append(ws.Grants, registry.Grant{From: "apps/root", Target: "xbin", Role: "admin"}, registry.Grant{From: "apps/pg", Target: "cap:containers", Role: "use"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before := w.grants()
+	snapshot := func() string {
+		b, _ := json.Marshal([]any{w.grants(), w.b.Reg.Workspace().Bindings, w.b.Users.Orgs()})
+		return string(b)
+	}
+	was := snapshot()
+
+	for name, item := range map[string]string{
+		// the agent's own powers
+		"a grant to the agent itself":        `{"kind":"grant.add","args":{"from":"apps/q","target":"apps/pu","role":"writer"}}`,
+		"the agent as a workspace admin":     `{"kind":"grant.add","args":{"from":"apps/q","target":"xbin","role":"admin"}}`,
+		"a revoke of the agent's grant":      `{"kind":"grant.revoke","args":{"from":"apps/q","target":"apps/x","role":"reader"}}`,
+		"a grant ON the agent":               `{"kind":"grant.add","args":{"from":"apps/x","target":"apps/q","role":"reader"}}`,
+		"the agent's source":                 `{"kind":"grant.add","args":{"from":"apps/x","target":"code:apps/q","role":"reader"}}`,
+		"a binding of the agent":             `{"kind":"binding.set","args":{"component":"apps/q","slot":"net","provider":"internet"}}`,
+		"unbinding the agent":                `{"kind":"binding.remove","args":{"component":"apps/q","slot":"net"}}`,
+		"a binding to the agent":             `{"kind":"binding.set","args":{"component":"apps/net","slot":"out","provider":"apps/q"}}`,
+		"a binding to the agent, in a list":  `{"kind":"binding.set","args":{"component":"apps/net","slot":"out","providers":["internet","apps/q#a"]}}`,
+		"a share of the agent":               `{"kind":"org.share","args":{"org":"fin","tile":"apps/q","level":"read"}}`,
+		"a share of the agent, with a slash": `{"kind":"org.share","args":{"org":"fin","tile":"/apps/q/","level":"terminal"}}`,
+		"the agent's limits":                 `{"kind":"limits.set","args":{"tile":"apps/q","kind":"memMiB","value":65536}}`,
+		// power over the workspace
+		"a tile as a workspace admin":          `{"kind":"grant.add","args":{"from":"apps/x","target":"xbin","role":"admin"}}`,
+		"one admin capability":                 `{"kind":"grant.add","args":{"from":"apps/x","target":"xbin:users","role":"admin"}}`,
+		"a host capability":                    `{"kind":"grant.add","args":{"from":"apps/x","target":"cap:net-admin","role":"use"}}`,
+		"containers":                           `{"kind":"grant.add","args":{"from":"apps/x","target":"cap:containers","role":"use"}}`,
+		"a device":                             `{"kind":"grant.add","args":{"from":"apps/x","target":"gpu:0","role":"use"}}`,
+		"every tile's source":                  `{"kind":"grant.add","args":{"from":"apps/x","target":"code","role":"reader"}}`,
+		"egress as a grant":                    `{"kind":"grant.add","args":{"from":"apps/x","target":"net:internet","role":"reader"}}`,
+		"taking a capability away":             `{"kind":"grant.revoke","args":{"from":"apps/pg","target":"cap:containers","role":"use"}}`,
+		"taking the admin API away":            `{"kind":"grant.revoke","args":{"from":"apps/root","target":"xbin","role":"admin"}}`,
+		"where backups go":                     `{"kind":"binding.set","args":{"component":"apps/x","slot":"@archive","provider":"apps/pg"}}`,
+		"the workspace default":                `{"kind":"binding.set","args":{"component":"*","slot":"out","provider":"internet"}}`,
+		"the workspace's backups":              `{"kind":"binding.remove","args":{"component":"*","slot":"@archive"}}`,
+		"the host's network":                   `{"kind":"binding.set","args":{"component":"apps/net","slot":"out","provider":"host"}}`,
+		"a provider said twice, differently":   `{"kind":"binding.set","args":{"component":"apps/net","slot":"out","provider":"none","providers":["internet"]}}`,
+		"a share of a tile with the admin API": `{"kind":"org.share","args":{"org":"fin","tile":"apps/root","level":"read"}}`,
+		"a share of a tile with a capability":  `{"kind":"org.share","args":{"org":"fin","tile":"apps/pg","level":"terminal"}}`,
+	} {
+		var op delegation.ChangeOp
+		if err := json.Unmarshal([]byte(item), &op); err != nil {
+			t.Fatal(err)
+		}
+		if pv, err := w.b.PreviewChange(personP(t, w.partWS, "bob"), op); err == nil {
+			t.Errorf("%s: described as %q (blocked %q) — a person could approve it", name, pv.Line, pv.Blocked)
+		}
+	}
+	// … which the API answers as "that is no change" — nothing to approve
+	for _, item := range []string{`{"kind":"grant.add","args":{"from":"apps/q","target":"xbin","role":"admin"}}`, `{"kind":"grant.add","args":{"from":"apps/x","target":"xbin","role":"admin"}}`} {
+		ok := `{"kind":"grant.add","args":{"from":"apps/x","target":"users/alice/mcp","role":"reader"}}`
+		if code, body := w.do("POST", "/delegate/changesets", `{"title":"t","items":[`+ok+`,`+item+`]}`, agentOf("bob")); code != 400 || !strings.Contains(body, "operation 2") {
+			t.Errorf("%s: proposed (%d %s)", item, code, body)
+		}
+	}
+	if sets, _ := w.store.ChangeSets("bob"); len(sets) != 0 {
+		t.Fatalf("refused proposals left %d sets", len(sets))
+	}
+
+	// what a binding opens is in xbind's words: the route in the line, the reach as warnings
+	cs := w.propose(t, `[{"kind":"binding.set","args":{"component":"apps/net","slot":"web","provider":"runtime","host":"Shop.Example.com"},"why":"internal only, nothing public"},
+		{"kind":"binding.set","args":{"component":"apps/net","slot":"web","provider":"runtime","zone":"*.apps.example.com","add":true}},
+		{"kind":"binding.set","args":{"component":"apps/net","slot":"raw","provider":"runtime","listen":"0.0.0.0:2222"}},
+		{"kind":"binding.set","args":{"component":"apps/net","slot":"out","provider":"internet"}},
+		{"kind":"binding.set","args":{"component":"apps/net","slot":"out","provider":"lan:10.0.0.0/8"}},
+		{"kind":"grant.add","args":{"from":"apps/x","target":"apps/root","role":"writer"}}]`)
+	wants := []struct{ line, warn string }{
+		{"Bind apps/net's web to runtime, at the public hostname shop.example.com", "PUBLIC: anyone who can reach shop.example.com reaches apps/net's web endpoint (its paths /pay/*), through xbind's own listener"},
+		{"Also bind apps/net's web to runtime, at every hostname matching *.apps.example.com", "PUBLIC: anyone who can reach any hostname matching *.apps.example.com"},
+		{"Bind apps/net's raw to runtime, at the host's port 0.0.0.0:2222", "OPEN PORT: 0.0.0.0:2222 on this machine"},
+		{"Bind apps/net's out to internet", "EGRESS: apps/net's code can reach the whole internet"},
+		{"Bind apps/net's out to lan:10.0.0.0/8", "EGRESS: apps/net's code can reach 10.0.0.0/8 on this machine's local network"},
+		{"Let apps/x use apps/root as writer", "apps/root holds xbin"},
+	}
+	for i, want := range wants {
+		it := cs.Items[i]
+		if it.Line != want.line || it.Blocked != "" || !strings.Contains(strings.Join(it.Warnings, "\n"), want.warn) {
+			t.Errorf("item %d: line %q warnings %q blocked %q\nwant %q and a warning with %q", i+1, it.Line, it.Warnings, it.Blocked, want.line, want.warn)
+		}
+	}
+
+	// checked again when the set is applied: what the tile became since the proposal counts
+	cs = w.propose(t, `[{"kind":"org.share","args":{"org":"fin","tile":"apps/x","level":"write"}}]`)
+	if err := w.b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Grants = append(ws.Grants, registry.Grant{From: "apps/x", Target: "xbin", Role: "admin"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	done := w.approve(t, cs.ID, "", bob)
+	if results(done) != "failed" || !strings.Contains(done.Items[0].Error, "apps/x holds xbin") {
+		t.Fatalf("a share of a tile that became an admin meanwhile: %s %+v", results(done), done.Items[0])
+	}
+	if o, _ := w.b.Users.Org("fin"); len(o.Tiles) != 0 {
+		t.Fatalf("it was shared: %v", o.Tiles)
+	}
+	if err := w.b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Grants = slices.DeleteFunc(ws.Grants, func(g registry.Grant) bool { return g.From == "apps/x" && g.Target == "xbin" })
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// a warning that appeared since is not what the person approved: stale
+	cs = w.propose(t, `[{"kind":"grant.add","args":{"from":"apps/x","target":"users/alice/mcp","role":"reader"}}]`)
+	if err := w.b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Grants = append(ws.Grants, registry.Grant{From: "users/alice/mcp", Target: "xbin", Role: "admin"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if done := w.approve(t, cs.ID, "", bob); results(done) != "stale" {
+		t.Fatalf("a grant on a tile that became an admin meanwhile: %s %+v", results(done), done.Items[0])
+	}
+	if err := w.b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {
+		ws.Grants = slices.DeleteFunc(ws.Grants, func(g registry.Grant) bool { return g.From == "users/alice/mcp" })
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	// approving with an empty choice applies nothing (it used to apply everything)
+	cs = w.propose(t, `[{"kind":"grant.add","args":{"from":"apps/x","target":"users/alice/mcp","role":"reader"}}]`)
+	done = w.approve(t, cs.ID, `{"items":[]}`, bob)
+	if done.State != delegation.SetRejected || done.Items[0].Result == delegation.ItemApplied {
+		t.Fatalf("approve with items: []: %s %s", done.State, results(done))
+	}
+	if !slices.Equal(w.grants(), before) || snapshot() != was {
+		t.Fatalf("the workspace changed:\n%s\n%s", was, snapshot())
+	}
 }
