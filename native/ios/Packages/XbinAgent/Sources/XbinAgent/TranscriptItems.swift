@@ -110,8 +110,9 @@ public struct ToolCall: Sendable, Hashable, Identifiable {
         self.toolCallId = toolCallId
     }
 
-    /// Merges one tool.call/tool.update: fields replace, outputDelta appends,
-    /// output replaces the accumulated output.
+    /// Merges one tool.call/tool.update: fields replace, output replaces the
+    /// accumulated output, then outputDelta appends (the web's rule, and
+    /// sdk/acp's ToolRecord).
     public mutating func fold(_ u: ToolCallUpdate) {
         if let v = u.title { title = v }
         if let v = u.kind { kind = v }
@@ -128,8 +129,9 @@ public struct ToolCall: Sendable, Hashable, Identifiable {
         if let v = u.parent { parent = v }
         if u.subagent { isSubagent = true }
         if u.planReview { planReview = true }
-        if let v = u.outputDelta { output += v }
+        // a whole output replaces what was gathered, then a delta appends (an update may carry both)
         if let v = u.output { output = v }
+        if let v = u.outputDelta { output += v }
         if let v = u.exitCode { exitCode = v }
     }
 

@@ -191,6 +191,7 @@ test('/vendor/agent-tools.js: its helpers are the kit\'s own functions; its reco
   assert.deepEqual(T.outcome(t.rec), { text: '+1 −1', tone: '' });
   // an object that is not newTool's folds as it always did
   assert.deepEqual(old.foldTool({ output: '' }, { outputDelta: 'x', kind: 'read' }), { output: 'x', tk: 'read' });
+  assert.deepEqual(old.foldTool({ output: 'gone' }, { output: 'W', outputDelta: 'd' }), { output: 'Wd' }, 'a whole output, then the delta');
   // the old headline says what it always said: no reading by kind
   assert.equal(old.headline(old.foldTool(old.newTool('r'), { kind: 'read', name: 'Read', rawInput: { file_path: '/w/a.go' } })), 'Read');
   assert.equal(old.headline(null), '');

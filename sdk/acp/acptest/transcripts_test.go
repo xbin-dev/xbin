@@ -386,4 +386,14 @@ func TestTranscripts(t *testing.T) {
 		r.turn("chatty 3")
 		r.done()
 	})
+
+	t.Run("output", func(t *testing.T) {
+		r := startTx(t, "output", "a command's output gathered: two deltas, then one update that carries the whole output so far and a further delta "+
+			"at once — the record takes the whole output, then the delta (sdk/acp's ToolRecord, the chat kit's and the agent template's rows agree)", nil, false)
+		r.prompt("recap")
+		r.nth(2, acp.EvToolUpdate, func(d map[string]any) bool { return d["outputDelta"] != nil })
+		r.checkpoint() // two deltas in
+		r.rest()
+		r.done()
+	})
 }

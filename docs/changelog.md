@@ -10,6 +10,17 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-15
+
+- **A tool call's output: a whole output, then a delta.** An update that
+  carries both the whole output so far and a further delta (`output` and
+  `outputDelta` in one `tool.update`) is read the same way everywhere now —
+  the whole output replaces what was gathered, then the delta is appended:
+  `sdk/acp`'s `ToolRecord`, the chat kit's (`mergeTool`), `/vendor/agent-tools.js`
+  `foldTool` (it took the whole output alone) and the iOS app's port. The
+  shared transcript `output` pins it; the scripted test agent's `recap`
+  prompt plays it (`sdk/acp/acptest`).
+
 ## 2026-11-14
 
 - **The LLM connector has a page and an admin console tab** (D226;
