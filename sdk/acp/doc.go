@@ -48,7 +48,9 @@
 // merged, an id used again, what output a reducer keeps); escalation.go
 // whether a permission option raises the session's mode
 // (Provider.OptionRaises, ModeOpen — what marks an option Explicit);
-// queue.go a message while a turn runs — prompt, steer or hold, what a
+// authstate.go whether the agent is signed out and the one sentence that
+// says how to sign it in (IsAuthRequired, SaysSignedOut, AuthState,
+// Provider.SignInHint); queue.go a message while a turn runs — prompt, steer or hold, what a
 // steer's answer means, when held messages go, and the turn codex starts
 // on its own (QueueState, SteerOutcome, DetachedTurn); summary.go a session
 // in a word and a line (Busy, TurnOver, StateOf, Summary, and Need: what it

@@ -651,7 +651,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 		Argv: prov.Argv, Perms: s.perms, Log: s.log, Spawn: func(context.Context, acp.Config) (*acp.Process, error) { return s.process(), nil }}
 	err = s.c.Start(ctx, acfg)
 	handed := false
-	if sid, _ := s.c.Session(); err != nil && isAuthErr(err) && sid == "" && s.c.State().AuthNeeded && cred != nil && s.credAuthenticate(ctx, cred) {
+	if sid, _ := s.c.Session(); err != nil && acp.IsAuthRequired(err) && sid == "" && s.c.State().AuthNeeded && cred != nil && s.credAuthenticate(ctx, cred) {
 		err, handed = nil, true // a saved API key the adapter takes only through authenticate (codex, gemini): its session is open now
 	}
 	if handed && prov.AuthFile != "" {
@@ -676,7 +676,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 		if ctx.Err() != nil || s.isHalted() {
 			return nil, errHandoff
 		}
-		if resume != "" && !errors.Is(err, context.DeadlineExceeded) && !isAuthErr(err) {
+		if resume != "" && !errors.Is(err, context.DeadlineExceeded) && !acp.IsAuthRequired(err) {
 			// the earlier session can't be reopened (the adapter lost it):
 			// a fresh one, with a note — the conversation's rows stay
 			s.stop()
@@ -692,7 +692,7 @@ func (e *Engine) spawnHarness(ctx context.Context, run *Run, cfg Config, hs *har
 			hs, _ := e.db.harnessSession(run.ID)
 			return e.spawnHarness(ctx, run, cfg, hs)
 		}
-		if sid, _ := s.c.Session(); isAuthErr(err) && sid == "" && s.c.State().AuthNeeded {
+		if sid, _ := s.c.Session(); acp.IsAuthRequired(err) && sid == "" && s.c.State().AuthNeeded {
 			// it refused a session signed out (codex): it stays up for a
 			// sign-in through it (harness_login.go)
 			if cerr := s.commit(nil, func(t *DB, hs *harnessSession) error {
@@ -770,11 +770,6 @@ func (s *hsess) dropModeOptionsTx(t *DB, run *Run, st acp.SessionState) error {
 	s.e.emitStep(t, s.root, t.journal(run.ID, "note", map[string]string{"text": fmt.Sprintf(
 		"%s's option %s is its mode — not set as an option (the mode picker switches it)", s.prov.Name, strings.Join(dropped, ", "))}))
 	return nil
-}
-
-func isAuthErr(err error) bool {
-	var re *acp.Error
-	return errors.As(err, &re) && re.Code == acp.CodeAuthRequired
 }
 
 // sandboxShared: others may use the sandbox — anything but private (team

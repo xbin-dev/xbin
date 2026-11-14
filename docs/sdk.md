@@ -273,7 +273,7 @@ default:
 |---|---|
 | `Caps` | the `clientCapabilities` advertised (`acp.DefaultCaps()`: xbind's — text files and terminals, which its in-sandbox host serves, the adapters' tool-call extensions, form questions). The `Client` itself serves no `fs/*` or `terminal/*` request (it answers method-not-found); without a proxy in between that does, advertise them `false`. |
 | `Drop` | hands a prompt's file to where the agent runs, returns its path (none: files refused) |
-| `AuthHint` | the text of an error the agent answered "auth required" (-32000) to (the agent's message, then `the agent isn't signed in — run: <LoginCmd>`); the error still unwraps to the agent's `*acp.Error` |
+| `AuthHint` | the text of an error the agent answered "auth required" (-32000) to (the agent's message, then `p.SignInHint("")`: `the agent isn't signed in — run: <LoginCmd>`); the error still unwraps to the agent's `*acp.Error` |
 | `OnExt` | sees a notification the client does not handle itself — an extension — and says whether it handled it |
 | `InlineBudget` | bytes of images one prompt sends inline (`acp.MaxInlineImagesBytes`; negative: none) |
 | `IDPrefix` | request ids become strings `"<prefix>-N"` (numbers `1, 2, …`) — give each process that drives the same agent its own prefix |
@@ -426,6 +426,18 @@ pure: no I/O, no goroutine, no clock of its own.
     and end the turn in your own view at an interrupt (the client has no
     prompt to cancel). A request the agent makes outside a prompt leaves
     the client `idle` again once answered (it stayed `waiting_permission`).
+- **Signed out?** (`authstate.go`): `acp.IsAuthRequired(err)` — the agent
+  answered a session or a prompt "auth required" (-32000; it sees through
+  the client's hint wrapping); `acp.SaysSignedOut(text)` — a status detail
+  or a turn's error reads as "sign in" (an adapter that fails in its own
+  words); `acp.AuthState{Needed, Injected, Refused}.SignedOut()` — whether
+  to treat the session as signed out when you may have put a credential of
+  your own in the agent's environment (`Needed`: `SessionState.AuthNeeded`;
+  with `Injected`, only the agent's own refusal counts — a status probe
+  can call an environment token's sign-in "none"). `p.SignInHint(where)`
+  is the one sentence for a person: "the agent isn't signed in — run:
+  ‹LoginCmd›", or "… — in ‹where›, run: …" when the reader may be elsewhere
+  (xbind: "a terminal on ‹tile›").
 - **Status words** (`summary.go`): a session in a word and in a line.
   `acp.Busy(status)` — a turn runs (`running`, `waiting_permission`,
   `cancelling`); `acp.TurnOver(status)` — it takes a prompt (`idle`,

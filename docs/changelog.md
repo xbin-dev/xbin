@@ -12,6 +12,22 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-14
 
+- **Agent sessions: one sign-in hint (D225).** When a coding agent
+  refuses a session or a prompt because it is signed out, the error and
+  the `status` event's `detail` end with one sentence everywhere,
+  `sdk/acp`'s new `Provider.SignInHint`. **Wording that changed** — a tile
+  agent session's (the Agent tab's status line, `bx agent`): "‹the
+  agent's message›: the agent isn't signed in — in a terminal on ‹tile›,
+  run: ‹command›", where it read "… — open a terminal on ‹tile› and run:
+  ‹command›  (your terminal $HOME is shared with agent sessions, so one
+  login serves every tile)"; and ‹command› is now the provider's terminal
+  sign-in line (`LoginCmd`: `codex login --device-auth`, `NO_BROWSER=true
+  gemini` — the forms that print a URL or code instead of opening a
+  browser) where it was the display line (`codex login`, `gemini (then
+  choose Login with Google)`). The `login` object of a status event
+  (`{needed, provider, command}`) and the agent template's texts are
+  unchanged. Also new in `sdk/acp`, additive: `IsAuthRequired`,
+  `SaysSignedOut`, `AuthState` (`/docs/sdk.md` "The session rules").
 - **Agent sessions: a turn the agent starts on its own is followed
   (D225).** codex-acp answers a message steered just after its turn ended
   by starting a turn of its own, which no prompt's answer ends. A tile
