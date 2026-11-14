@@ -27,6 +27,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/xbin-dev/xbin/internal/auth"
@@ -103,10 +104,6 @@ func sealedOwn(comp, name string) bool {
 	return comp != "" && (name == comp || strings.HasPrefix(name, comp+"/"))
 }
 
-// sealedBodyMax bounds the JSON body sealedGate reads to find a tile name;
-// the routes that carry one are control-plane calls with small bodies.
-const sealedBodyMax = 8 << 20
-
 // sealedGate answers a request that names a sealed component on a Refused
 // or Self route; nil lets the handler run. r2 is the inner request (its
 // path what follows /api/xbin). A body it had to read is put back.
@@ -130,26 +127,15 @@ func (s *Server) sealedGate(r2 *http.Request) http.HandlerFunc {
 		}
 	}
 	if len(rule.Body) > 0 && r2.Body != nil && r2.Body != http.NoBody {
-		b, err := io.ReadAll(io.LimitReader(r2.Body, sealedBodyMax+1))
+		// The whole body, as the handler's own decoder would buffer it (these
+		// are JSON control calls); put back for the handler.
+		b, err := io.ReadAll(r2.Body)
 		r2.Body.Close()
-		if err != nil || len(b) > sealedBodyMax {
-			return refusal(http.StatusRequestEntityTooLarge, "the request body is too large")
+		if err != nil {
+			return refusal(http.StatusBadRequest, "the request body couldn't be read")
 		}
 		r2.Body = io.NopCloser(bytes.NewReader(b))
-		var fields map[string]json.RawMessage
-		if json.Unmarshal(b, &fields) == nil {
-			for _, k := range rule.Body {
-				var one string
-				var many []string
-				switch raw := fields[k]; {
-				case raw == nil:
-				case json.Unmarshal(raw, &one) == nil:
-					names = append(names, one)
-				case json.Unmarshal(raw, &many) == nil:
-					names = append(names, many...)
-				}
-			}
-		}
+		names = append(names, sealedBodyNames(b, rule.Body)...)
 	}
 	p := auth.PrincipalOf(r2)
 	for _, v := range names {
@@ -164,6 +150,35 @@ func (s *Server) sealedGate(r2 *http.Request) http.HandlerFunc {
 		}
 	}
 	return nil
+}
+
+// sealedBodyNames are the values of the fields keys in the JSON object body
+// begins with, read the way the handlers' decoder (encoding/json into a
+// struct) reads them, so the gate sees every value a handler could: the
+// first JSON value of the body (what follows it is ignored there too), and
+// keys matched without regard to case — "Target" fills a field tagged
+// "target". Every match counts, though the decoder keeps the last. A value
+// is a string or a list of strings; anything else names nothing.
+func sealedBodyNames(body []byte, keys []string) []string {
+	var fields map[string]json.RawMessage
+	if json.NewDecoder(bytes.NewReader(body)).Decode(&fields) != nil {
+		return nil // not an object: the handler refuses it
+	}
+	var names []string
+	for name, raw := range fields {
+		if !slices.ContainsFunc(keys, func(k string) bool { return strings.EqualFold(k, name) }) {
+			continue
+		}
+		var one string
+		var many []string
+		switch {
+		case json.Unmarshal(raw, &one) == nil:
+			names = append(names, one)
+		case json.Unmarshal(raw, &many) == nil:
+			names = append(names, many...)
+		}
+	}
+	return names
 }
 
 // sealedRefusal answers with the API's error shape, pointing at the sealed

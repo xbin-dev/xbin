@@ -130,7 +130,8 @@ func TestSealedRouteAnswers(t *testing.T) {
 			for _, f := range rule.Body {
 				probes = append(probes, probe{"body " + f, base, map[string]any{f: probePath}},
 					probe{"body " + f + " (its resource)", base, map[string]any{f: probeRes}},
-					probe{"body " + f + " (a list)", base, map[string]any{f: []string{"apps/plain", probePath}}})
+					probe{"body " + f + " (a list)", base, map[string]any{f: []string{"apps/plain", probePath}}},
+					probe{"body " + strings.ToUpper(f) + " (the key in another case, which the handler's decoder reads too)", base, map[string]any{strings.ToUpper(f): probePath}})
 			}
 			for _, p := range probes {
 				n++
@@ -160,7 +161,7 @@ func TestSealedRouteAnswers(t *testing.T) {
 				t.Errorf("%s about a tile is answered as for a system component: %s", pat, body)
 			}
 		}
-		if n < 120 {
+		if n < 150 {
 			t.Errorf("only %d refusals driven: is the table intact?", n)
 		}
 	})

@@ -48,6 +48,11 @@ Name: **Workspace agent** in the UI and docs, `wsagent` in code (owner,
 
 ## 3. Where it runs: sealed components (decided)
 
+> The facility is built: **D227** (`plans/DECISIONS.md`), `docs/sealed.md`,
+> spike `plans/wsagent/s1-sealed.md`. The table is empty; the workspace
+> agent's row is `xbin/wsagent` (`xbin/agent` is xbind's own API prefix).
+> Where this section and D227 differ, D227 is what the code does.
+
 The workspace agent is a **sealed system component** built from the agent
 template's source. The owner: sealed components "will be useful later when
 we begin a hosted xbin offering" (a component managing the hosted instance,
