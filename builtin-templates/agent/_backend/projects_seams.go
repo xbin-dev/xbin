@@ -168,20 +168,6 @@ var (
 	projectRested = func(t *DB, p *Project, k *ProjectTask) {}
 )
 
-// The coordinator (C).
-var (
-	// projectWakeHook says whether a coordinator run has an undelivered
-	// event that should wake it (the idle-wake checks in actor.go call it).
-	projectWakeHook = func(d *DB, run *Run) bool { return false }
-	// projectDeliverHook is a coordinator's undelivered project events as
-	// one message's text, at a step boundary (deliverBoundary, beside
-	// deliverNotices); the caller writes the message and then calls mark
-	// with its id, which marks the events delivered. "": nothing to deliver.
-	projectDeliverHook = func(t *DB, run *Run) (text string, mark func(msgID int64)) { return "", nil }
-	// projectCoordPrompt is a coordinator's # Project block.
-	projectCoordPrompt = func(p *Project, run *Run) string { return "" }
-)
-
 // The CI view (V): a task's CI watches' aggregate (TaskView.ci, the board
 // row's ci); nil: none.
 var taskCISummary = func(runID int64) *CISummary { return nil }

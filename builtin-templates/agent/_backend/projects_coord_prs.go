@@ -357,7 +357,7 @@ func (ag *Agent) coordRefreshOne(ctx context.Context, p *Project, n int64, off b
 	k = mustTask(ag.db, k)
 	v := ag.db.projTaskView(p, k)
 	var b strings.Builder
-	fmt.Fprintf(&b, "#%d — %s", k.N, orStr(coordStateWords[v.State], v.State))
+	fmt.Fprintf(&b, "#%d — %s", k.N, coordProject.stateWords(v.State))
 	prs := k.taskPRs()
 	if len(prs) == 0 {
 		b.WriteString(" · no pull request")

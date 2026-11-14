@@ -3,9 +3,10 @@
 // Engine.pass parks a task's turn until its workspace is ready (and while
 // its credential is being renewed); a task's built-in run takes a
 // subagent's place at the model-call gate; a project run's class never has
-// internal reach (projectClamp, in classOf); a coordinator's project events
-// are delivered at its step boundaries and wake it; and the environment a
-// task's commands get (projectEnv).
+// internal reach (projectClamp, in classOf); and the environment a task's
+// commands get (projectEnv). (A coordinator's project events are delivered
+// at its step boundaries and wake it through the coordinator kit:
+// coord_wake.go.)
 //
 // The gate reads the database only — never a provider or a sandbox. A
 // coordinator is never gated.
@@ -285,38 +286,6 @@ func projectClamp(cfg Config, c agentClass) agentClass {
 	return c
 }
 
-// projectWakes: an idle coordinator has project events that should wake it
-// (the coordinator's part answers, projectWakeHook).
-func projectWakes(d *DB, run *Run) bool {
-	return run.ParentID == 0 && run.Origin == originProject && hooksOn(d, run.ID) && projectWakeHook(d, run)
-}
-
-// deliverProjectEvents writes a coordinator's undelivered project events as
-// one message at a step boundary (deliverBoundary, beside the notices) and
-// has them marked delivered with it. True when it wrote one.
-func (e *Engine) deliverProjectEvents(t *DB, ts *turnState) bool {
-	run := ts.run
-	if run.ParentID != 0 || run.Origin != originProject || !hooksOn(t, run.ID) {
-		return false
-	}
-	ref := t.projectRefOf(run)
-	if !ref.isCoordinator() {
-		return false
-	}
-	text, mark := projectDeliverHook(t, run)
-	if text == "" || mark == nil {
-		return false
-	}
-	m := &Message{RunID: run.ID, Role: "user", Content: text}
-	m.Meta, _ = json.Marshal(msgMeta{Origin: "project", OriginID: ref.ID, Label: "project updates"})
-	if _, err := t.addMessage(m); err != nil {
-		return false
-	}
-	mark(m.ID)
-	e.emitMessage(t, ts.root, m)
-	return true
-}
-
 // projectPromptFor is the # Project block of run's system prompt: a task's
 // brief (projectPrompt), a coordinator's (its part's), "" otherwise.
 func (ag *Agent) projectPromptFor(run *Run, cfg Config) string {
@@ -332,7 +301,7 @@ func (ag *Agent) projectPromptFor(run *Run, cfg Config) string {
 		return ""
 	}
 	if ref.isCoordinator() {
-		return projectCoordPrompt(p, run)
+		return coordPrompt(p, run)
 	}
 	if ref.Role == projRoleResearch { // a coordinator's research subagent: the wiki's index (project_wiki_prompt.go)
 		return researchWikiPrompt(ag.db, p, run)
