@@ -46,6 +46,10 @@ export const base = [scrollCss, css`
     .al.crit { background: var(--bx-danger-bg); border-color: var(--bx-danger); }
     .al.crit > bx-icon { color: var(--bx-danger); }
     .al-x { margin-left: auto; }
+    /* the LLM connector's setup card (D226): an offer, not a warning */
+    .al.setup { align-items: flex-start; padding: 8px 12px; background: var(--bx-panel); }
+    .al.setup > bx-icon { color: var(--bx-accent); margin-top: 1px; }
+    .al.setup > span { max-width: 80ch; }
     .denied { padding: 20px var(--bx-pad); }
     .denied code { background: var(--bx-code-bg); border: 1px solid var(--bx-border);
       border-radius: var(--bx-radius); padding: 0 4px; font: var(--bx-font-code); }

@@ -284,6 +284,8 @@ export const shellCss = [scrollCss, baseCss, chromeCss, css`
     .alert .achoice.primary { color: var(--bx-accent-ink, #0B0C12); background: var(--bx-accent, #8C9BFF); border-color: var(--bx-accent, #8C9BFF); }
     .alert .achoice:disabled { opacity: 0.5; cursor: default; }
     .alert .aask { flex: none; color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); }
+    .alert .aopen { flex: none; color: var(--bx-link, #8C9BFF); text-decoration: none; white-space: nowrap; }
+    .alert .aopen:hover { text-decoration: underline; }
     .alert.open.act { flex-wrap: wrap; }
     .alert .awhys { flex-basis: 100%; box-sizing: border-box; padding-left: 28px; color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px system-ui, sans-serif); }
     /* (border-box: a full line's indent stays inside the banner, and a narrow phone wraps the choices) */

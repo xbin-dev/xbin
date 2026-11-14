@@ -15,7 +15,10 @@
 //     xbind: its +25 / +50 / +100 % raises — the ones they may approve and
 //     that fit are buttons (each POST /api/xbin/limits, source "raise"), the
 //     others greyed with the reason (the title; the open banner lists them).
-//     Someone who may approve none reads who to ask.
+//     Someone who may approve none reads who to ask;
+//   - a banner of the LLM connector's (D226: nothing set up, a quota
+//     reached — an admin's shell alone gets them) links xbind's own page,
+//     /xbin/llm, beside its words.
 //
 // The shell keeps three fields: `_dismissed` (the stored dismissals, null
 // until read), `_alertOpen` (the keys of banners shown in full) and
@@ -82,6 +85,10 @@ function actionTpl(s, a) {
   })}</span>`;
 }
 
+// llmTpl(alert): the LLM connector's banners (D226) open its page.
+const llmTpl = (a) => (a?.kind === 'llm-setup' || a?.kind === 'llm-quota' ? html`<a class="aopen" data-llm-page href="/xbin/llm" target="_blank" rel="noopener"
+  title="the LLM connector's page: providers, quotas, usage">${a.kind === 'llm-setup' ? 'set up…' : 'quotas…'}</a>` : nothing);
+
 // the greyed raises' reasons, under an open banner
 function whysTpl(a) {
   const act = raiseOf(a);
@@ -99,7 +106,7 @@ export function alertsTpl(s) {
       <bx-icon class="ico" name=${l.icon}></bx-icon><span class="lvl">${l.word}</span>
       <button type="button" class="msg" aria-expanded=${open ? 'true' : 'false'} title=${open ? 'show one line' : 'show it all'}
         @click=${() => toggleOpen(s, key)}>${a.message}</button>
-      ${actionTpl(s, a)}
+      ${actionTpl(s, a)}${llmTpl(a)}
       <button type="button" class="dismiss" title=${a.dismiss ? 'dismiss it for the workspace' : 'hide it for you, on all your devices — it shows again if it changes'}
         @click=${() => dismissAlert(s, a)}>Dismiss</button>
       ${open ? whysTpl(a) : nothing}

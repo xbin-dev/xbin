@@ -293,15 +293,24 @@ export function agoCoarse(unixSec) {
 // /alerts). One that can be dismissed (the Go build versions alert, D166)
 // carries dismiss, the route a POST to which does it; done(err?) follows.
 // One about a cap (D203: its `action` offers a raise) links the limits tab
-// at its tile ("raise…": #limits/<tile>).
+// at its tile ("raise…": #limits/<tile>). The LLM connector's (D226): a
+// quota reached links the LLM tab ("quotas…"), and "no LLM is set up"
+// (kind llm-setup) is drawn as the setup card — what it offers, Set up…
+// (the LLM tab) and dismiss, which ends it for the workspace.
 export function alertBar(alerts, done) {
   if (!alerts?.length) return nothing;
   const dismiss = (a) => api(a.dismiss, { method: 'POST' }).then(() => done(), (e) => done(e));
-  const raise = (ev, t) => { ev.preventDefault(); ev.target.dispatchEvent(new CustomEvent('bx-admin-tab', { detail: `limits/${t}`, bubbles: true, composed: true })); };
+  const go = (ev, tab) => { ev.preventDefault(); ev.target.dispatchEvent(new CustomEvent('bx-admin-tab', { detail: tab, bubbles: true, composed: true })); };
+  const setup = (a) => html`<div class="al setup" data-llm-setup>
+    <bx-icon name="chat"></bx-icon><span><b>Set up an LLM for this workspace.</b> One provider setup for its agents, tiles and coding tools:
+      the keys in one place, every call metered to the person it was made for, quotas where you want them. Nothing calls a model until you add a provider.</span>
+    <button class="act go al-x" data-llm-open @click=${(ev) => go(ev, 'llm')}>Set up…</button>
+    ${a.dismiss ? html`<button class="act quiet" data-llm-dismiss title="leave it off — the LLM tab stays under workspace" @click=${() => dismiss(a)}>dismiss</button>` : nothing}</div>`;
   return html`<div class="alertbar">
-    ${alerts.map((a) => html`<div class="al ${a.level}">
+    ${alerts.map((a) => (a.kind === 'llm-setup' ? setup(a) : html`<div class="al ${a.level}" data-kind=${a.kind ?? ''}>
       <bx-icon name=${a.level === 'crit' ? 'error' : 'warning'}></bx-icon><span>${a.message}</span>
-      ${a.action?.tile ? html`<a class="link al-x" data-raise href=${`#limits/${a.action.tile}`} @click=${(ev) => raise(ev, a.action.tile)}>raise…</a>` : nothing}
-      ${a.dismiss ? html`<button class="act quiet ${a.action?.tile ? '' : 'al-x'}" @click=${() => dismiss(a)}>dismiss</button>` : nothing}</div>`)}
+      ${a.action?.tile ? html`<a class="link al-x" data-raise href=${`#limits/${a.action.tile}`} @click=${(ev) => go(ev, `limits/${a.action.tile}`)}>raise…</a>` : nothing}
+      ${a.kind === 'llm-quota' ? html`<a class="link al-x" data-llm-quotas href="#llm" @click=${(ev) => go(ev, 'llm')}>quotas…</a>` : nothing}
+      ${a.dismiss ? html`<button class="act quiet ${a.action?.tile ? '' : 'al-x'}" @click=${() => dismiss(a)}>dismiss</button>` : nothing}</div>`))}
   </div>`;
 }
