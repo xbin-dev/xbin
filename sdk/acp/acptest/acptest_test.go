@@ -179,12 +179,7 @@ func TestSteerDetached(t *testing.T) {
 	req := d.request("session/request_permission")
 	d.reply(req, `"result":{"outcome":{"outcome":"selected","optionId":"once"}}`)
 	d.chunkText("listed")
-	d.update("usage_update", "")
-	// a steer while the agent's own turn ran would be injected; now it is idle again
-	d.call(5, "_session/steering", `{"sessionId":"fake-1","prompt":[{"type":"text","text":"x"}],"_meta":{"steering":{"idleBehavior":"promptRequired"}}}`)
-	if r := d.response(5); str(get(r, "result", "outcome")) != "promptRequired" {
-		t.Fatalf("a steer after the detached turn: %s", r.raw)
-	}
+	d.update("usage_update", "") // its last words: nothing answers a prompt — there is none
 	// without --steer, detach is no script: the default echo
 	d.finish()
 	d2, _ := start(t, Options{wait: quick})

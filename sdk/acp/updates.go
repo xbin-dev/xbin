@@ -210,17 +210,17 @@ func (c *Client) onRequest(m *Message) (any, *Error) {
 		}
 		tc := toolRef(p.ToolCall)
 		opts := make([]PermissionOption, len(p.Options))
-		c.mu.Lock()
-		st := SessionState{Modes: c.modes, Options: c.options} // read only
+		c.mu.Lock() // the session's modes and options are read under it
+		st := SessionState{Modes: c.modes, Options: c.options}
 		kind := tc.Kind
 		if kind == "" {
 			kind = c.toolKinds[tc.ID] // a request that doesn't repeat its call's kind
 		}
-		c.mu.Unlock()
 		for i, o := range p.Options {
 			opts[i] = PermissionOption{OptionID: o.OptionID, Name: o.Name, Kind: o.Kind}
 			opts[i].Explicit = c.cfg.Provider.OptionRaises(opts[i], kind, st, c.cfg.Mode)
 		}
+		c.mu.Unlock()
 		w := c.wireOf(m)
 		pd, auto, dup := c.cfg.Perms.file(tc, opts, m.ID)
 		if dup { // read again after a handoff: it is already waiting
