@@ -35,6 +35,7 @@ package broker
 // shape: its path, lock, value layout, metadata and ids.
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
@@ -181,6 +182,13 @@ type mailState struct {
 	started  bool        // the boot load ran (loadMailBells)
 	closed   bool        // the broker closed: nothing rings or sweeps again
 	sweeper  *time.Timer
+	// rings counts the doorbell goroutines in flight (added under bellMu
+	// while !closed); stop ends their dispatches. closeMail cancels and
+	// waits, so nothing of the broker reads or writes a mail store after
+	// Close returns.
+	rings sync.WaitGroup
+	ctx   context.Context
+	stop  context.CancelFunc
 }
 
 var mailStates sync.Map // *Broker → *mailState
@@ -189,7 +197,12 @@ func (b *Broker) mail() *mailState {
 	if v, ok := mailStates.Load(b); ok {
 		return v.(*mailState)
 	}
-	v, _ := mailStates.LoadOrStore(b, &mailState{locks: map[string]*sync.Mutex{}, bells: map[mailBellKey]*mailBell{}})
+	ms := &mailState{locks: map[string]*sync.Mutex{}, bells: map[mailBellKey]*mailBell{}}
+	ms.ctx, ms.stop = context.WithCancel(context.Background())
+	v, loaded := mailStates.LoadOrStore(b, ms)
+	if loaded {
+		ms.stop()
+	}
 	return v.(*mailState)
 }
 

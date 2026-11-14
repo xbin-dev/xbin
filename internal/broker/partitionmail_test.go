@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -797,4 +798,38 @@ func TestMailUnreadableStore(t *testing.T) {
 	if held, err := holdsPartitionMail(b, ask); held || err != nil {
 		t.Errorf("after the wipe: held %v, err %v", held, err)
 	}
+}
+
+// Close ends the doorbells in flight and waits for them: a ring reads its
+// inbox (which opens the store's file) and waits on the addressee, and one
+// left running touched data/ after the broker was gone — what failed
+// TestMailTriggerLedger's TempDir cleanup under load ("directory not
+// empty").
+func TestMailCloseWaitsForRings(t *testing.T) {
+	w := mailWS(t)
+	b := w.b
+	ringing, rung := make(chan struct{}), atomic.Bool{}
+	ms := b.mail()
+	ms.bellMu.Lock()
+	ms.dispatch = func(ctx context.Context, _ auth.Principal, _, _ string, _ []byte) (int, string) {
+		close(ringing)
+		<-ctx.Done() // an addressee that never answers: only Close ends it
+		rung.Store(true)
+		return 0, ""
+	}
+	ms.bellMu.Unlock()
+	// global's inbox rings the global instance at once
+	mailSendOK(t, b, partInst("apps/pg", "alice"), "global", "x", 1)
+	select {
+	case <-ringing:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no doorbell")
+	}
+	b.Close()
+	if !rung.Load() {
+		t.Fatal("Close returned with a doorbell still in flight")
+	}
+	// and nothing rings after it
+	b.ringMail(mailBellKey{tile: "apps/pg", dep: "main", bucket: mailGlobalBox}, ringNew, time.Time{})
+	ms.rings.Wait()
 }

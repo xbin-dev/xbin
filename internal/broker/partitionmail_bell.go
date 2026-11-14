@@ -138,8 +138,12 @@ func (b *Broker) ringMail(k mailBellKey, why ringWhy, at time.Time) {
 		bl.timer = nil
 	}
 	bl.ringing = true
+	ms.rings.Add(1) // under bellMu, before closed: closeMail waits for it
 	ms.bellMu.Unlock()
-	go b.rungMail(k, bl)
+	go func() {
+		defer ms.rings.Done()
+		b.rungMail(k, bl)
+	}()
 }
 
 // rungMail rings once, then schedules what follows.
@@ -226,7 +230,7 @@ func (b *Broker) ringOnce(k mailBellKey) (pending int, dispatched bool) {
 		return n, false // the items wait: a later ring, a start or a new item
 	}
 	body, _ := json.Marshal(map[string]any{"partition": part, "pending": n})
-	ctx, cancel := context.WithTimeout(context.Background(), knobs().ringTimeout)
+	ctx, cancel := context.WithTimeout(b.mail().ctx, knobs().ringTimeout) // ended by Close (closeMail)
 	code, _ := dispatch(ctx, mailPrincipal(k.dep, part), k.tile, path, body)
 	cancel()
 	if code/100 != 2 { // the status only: the body is the addressee's (PD-46)
@@ -328,7 +332,6 @@ func (b *Broker) closeMail() {
 	}
 	ms := v.(*mailState)
 	ms.bellMu.Lock()
-	defer ms.bellMu.Unlock()
 	ms.closed = true
 	if ms.sweeper != nil {
 		ms.sweeper.Stop()
@@ -339,6 +342,14 @@ func (b *Broker) closeMail() {
 		}
 		delete(ms.bells, k)
 	}
+	ms.bellMu.Unlock()
+	// a ring in flight still reads its inbox — which opens the store's
+	// file — and may be waiting on the addressee: end its dispatch and wait
+	// for it, or it touches data/ after Close returned (a test's TempDir
+	// cleanup found the directory "not empty"; at shutdown, a store opened
+	// under a daemon that is gone)
+	ms.stop()
+	ms.rings.Wait()
 }
 
 // sweepMail drops every store's expired items, rings each inbox that holds
