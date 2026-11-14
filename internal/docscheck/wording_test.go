@@ -44,8 +44,11 @@ var wordingSources = []string{
 const wordingPage = "docs/tile-deployments.md"
 
 // wordingDocs are the markdown files whose sections headed by
-// wordingHeading are checked.
-var wordingDocs = []string{"docs/*.md", "docs/overview/*.md", "workspace-template/AGENTS.md"}
+// wordingHeading are checked. In docs/protocol/deployments.md that is the
+// conventions section; the route table above it sits outside, as it did in
+// protocol.md — its rows spell API fields (a backup's `version`, an edge's
+// `slot:`), which are not the feature's words to choose.
+var wordingDocs = []string{"docs/*.md", "docs/overview/*.md", "docs/protocol/*.md", "workspace-template/AGENTS.md"}
 
 var wordingHeading = regexp.MustCompile(`(?i)live reload|tile deployment`)
 

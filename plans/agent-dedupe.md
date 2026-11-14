@@ -1,6 +1,6 @@
 # Agent code dedupe — plan
 
-> Status: **plan only, nothing implemented** (2026-11-14, against master
+> Status: live — being built since 2026-11-14 (against master
 > 83c03745). Companion to `plans/workspace-agent.md` (issue #51, first
 > checkbox: "render / ACP / agent loop extracted and deduped between AgTT and
 > tile agents"). Owner decisions of 2026-11-14: **shared chat kit, two
@@ -146,7 +146,15 @@ says so):
    blocks) under `sdk/acp/testdata/`, read by Go, node and Swift tests. A
    spike on the `agentlongperf` harness pass settles templates vs elements
    for rows and records today's numbers.
-2. **F1 — markdown.** One module, one `Marked` instance.
+2. **F1 — markdown.** One module, one `Marked` instance. *Landed (D224),
+   with one change to the table above:* the renderer is
+   `/vendor/chat/md.js` (lazy highlighter) and `/vendor/bx-md.js` is that
+   module with the highlighter loaded up front — scaffold copies of
+   `shell-blocks.js` in workspaces call `md()` once and can't follow a
+   lazy highlighter. `chat-md.js` re-exports `/vendor/chat/md.js`.
+   rt-markdown has its own instance and keeps its stricter link rule (one
+   shared rule would change output). The guard (`/vendor/chat/rev.js`,
+   the template's `boot.js`) landed here rather than in F4.
 3. **F2 — models.** `chat/tools.js`, `chat/ask.js`; old modules re-export;
    Swift fixtures regenerated.
 4. **F3 — views.** The kit; `<bx-agent>` moves onto it. `agent-cards.js`
@@ -190,6 +198,37 @@ They stop re-implementing the rules.
   table from `acp.Providers()`.
 - Optional: the `fsb` fake moves to `sdk/sandboxcontract/` if it needs
   nothing outside the standard library, as its import list suggests.
+
+Status (2026-11-14, branch `wsagent/a0-cleanup`): the first three are done,
+with two more copied test files in `internal/agent` (attachments,
+permissions). The fake provider keeps xbind's login line and claude's
+`Signin` over `acp.Fake`; the manager's harness table lists its four ids and
+reads the rest from the catalog, pinned by `TestBaseHarnessesPinned`.
+
+The `fsb` move is **not done**. Its imports allow it (the standard library
+and `sdk/ws`), and `TestNoDirectExec` does not read `sdk/`. What stands in
+the way is that it is not a file move:
+
+- `fsb.go` is 3,244 lines and `sdk/` is under the 1000-line cap
+  (`TestSizeBudget`): four files or more, or a budget line.
+- The agent template's tests use the manager from inside its package. They
+  embed `*fsbManager` (`sbxTestManager`) and read, write and delete entries
+  of its private `boxes` map under its private mutex (`setBox` in
+  `sandbox_access_test.go`, and `attach_test.go`, `harness_takeover_test.go`,
+  `project_fork_states_test.go`, `project_resandbox_test.go`,
+  `project_sbx_adopt_test.go`, `sandbox_bind_test.go`). A package needs
+  exported types (manager, box, sandbox, users, share, call, harness) and new
+  hooks to edit, list and drop a box.
+- Those exports become public SDK API that only grows, for a fixture whose
+  header says it isolates nothing and never ships. That is a decision with a
+  D-entry, `docs/sdk.md` and a changelog line, not a cleanup.
+- It touches about twenty test files of the agent template while Projects
+  work is active there, and the sandbox-terminal tile needs a version bump.
+
+A work package of its own could do it as `sdk/sandboxcontract/sbxfake`:
+split by area (sandboxes, exec, files, stdio and tty, snapshots), export the
+fixture API on purpose, and keep `type fsbManager = sbxfake.Manager` aliases
+in each consumer so their tests change little.
 
 **B1 — session core in `sdk/acp`** (pure, no I/O, table-tested on the
 shared fixtures)

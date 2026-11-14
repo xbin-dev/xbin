@@ -1,0 +1,865 @@
+{
+ "name": "tools",
+ "about": "one completed call of every kind (a read with a location, an edit with a diff, a command with terminal output and exit 0, …); a command whose output streams as deltas; a subagent (Claude's Task) with its thought, a call and its text nested under it",
+ "source": "sdk/acp/acptest TestTranscripts: the scripted agent through acp.Client; seq and ts are the test's (ts = 2026-01-01T00:00:00Z + 100 ms per event)",
+ "flags": [],
+ "steps": [
+  "prompt: cards",
+  "prompt: chatty 4",
+  "prompt: subagent explore"
+ ],
+ "checkpoints": [
+  33,
+  45,
+  52
+ ],
+ "events": [
+  {
+   "seq": 1,
+   "ts": 1767225600100,
+   "type": "status",
+   "data": {
+    "status": "starting"
+   }
+  },
+  {
+   "seq": 2,
+   "ts": 1767225600200,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 3,
+   "ts": 1767225600300,
+   "type": "status",
+   "data": {
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 4,
+   "ts": 1767225600400,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "cards"
+   }
+  },
+  {
+   "seq": 5,
+   "ts": 1767225600500,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 6,
+   "ts": 1767225600600,
+   "type": "tool.call",
+   "data": {
+    "id": "card-read",
+    "kind": "read",
+    "locations": [
+     {
+      "line": 1,
+      "path": "/w/apps/x/hello.txt"
+     }
+    ],
+    "rawInput": {
+     "file_path": "/w/apps/x/hello.txt"
+    },
+    "status": "in_progress",
+    "title": "Read hello.txt"
+   }
+  },
+  {
+   "seq": 7,
+   "ts": 1767225600700,
+   "type": "tool.update",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "```\nhello\n```"
+      },
+      "type": "content"
+     }
+    ],
+    "id": "card-read",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 8,
+   "ts": 1767225600800,
+   "type": "tool.call",
+   "data": {
+    "content": [
+     {
+      "newText": "hello, world\n",
+      "oldText": "hello\n",
+      "path": "/w/apps/x/hello.txt",
+      "type": "diff"
+     }
+    ],
+    "id": "card-edit",
+    "kind": "edit",
+    "locations": [
+     {
+      "path": "/w/apps/x/hello.txt"
+     }
+    ],
+    "rawInput": {
+     "file_path": "/w/apps/x/hello.txt"
+    },
+    "status": "in_progress",
+    "title": "Edit hello.txt"
+   }
+  },
+  {
+   "seq": 9,
+   "ts": 1767225600900,
+   "type": "tool.update",
+   "data": {
+    "id": "card-edit",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 10,
+   "ts": 1767225601000,
+   "type": "tool.call",
+   "data": {
+    "id": "card-delete",
+    "kind": "delete",
+    "locations": [
+     {
+      "path": "/w/apps/x/old.txt"
+     }
+    ],
+    "rawInput": {
+     "path": "/w/apps/x/old.txt"
+    },
+    "status": "in_progress",
+    "title": "Delete old.txt"
+   }
+  },
+  {
+   "seq": 11,
+   "ts": 1767225601100,
+   "type": "tool.update",
+   "data": {
+    "id": "card-delete",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 12,
+   "ts": 1767225601200,
+   "type": "tool.call",
+   "data": {
+    "id": "card-move",
+    "kind": "move",
+    "locations": [
+     {
+      "path": "/w/apps/x/notes.md"
+     }
+    ],
+    "rawInput": {
+     "from": "/w/apps/x/draft.md",
+     "to": "/w/apps/x/notes.md"
+    },
+    "status": "in_progress",
+    "title": "Move draft.md → notes.md"
+   }
+  },
+  {
+   "seq": 13,
+   "ts": 1767225601300,
+   "type": "tool.update",
+   "data": {
+    "id": "card-move",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 14,
+   "ts": 1767225601400,
+   "type": "tool.call",
+   "data": {
+    "id": "card-search",
+    "kind": "search",
+    "rawInput": {
+     "path": "/w/apps/x",
+     "pattern": "TODO"
+    },
+    "status": "in_progress",
+    "title": "grep TODO"
+   }
+  },
+  {
+   "seq": 15,
+   "ts": 1767225601500,
+   "type": "tool.update",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "hello.txt:3: // TODO: greet the world"
+      },
+      "type": "content"
+     }
+    ],
+    "id": "card-search",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 16,
+   "ts": 1767225601600,
+   "type": "tool.call",
+   "data": {
+    "content": [
+     {
+      "terminalId": "card-exec",
+      "type": "terminal"
+     }
+    ],
+    "id": "card-exec",
+    "kind": "execute",
+    "rawInput": {
+     "command": "go test ./..."
+    },
+    "status": "in_progress",
+    "title": "go test ./..."
+   }
+  },
+  {
+   "seq": 17,
+   "ts": 1767225601700,
+   "type": "tool.update",
+   "data": {
+    "exitCode": 0,
+    "id": "card-exec",
+    "output": "ok  \texample\t0.01s\n",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 18,
+   "ts": 1767225601800,
+   "type": "tool.call",
+   "data": {
+    "id": "card-fetch",
+    "kind": "fetch",
+    "rawInput": {
+     "url": "https://example.invalid/docs"
+    },
+    "status": "in_progress",
+    "title": "Fetch https://example.invalid/docs"
+   }
+  },
+  {
+   "seq": 19,
+   "ts": 1767225601900,
+   "type": "tool.update",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "# Docs\n\nA page about greetings."
+      },
+      "type": "content"
+     }
+    ],
+    "id": "card-fetch",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 20,
+   "ts": 1767225602000,
+   "type": "tool.call",
+   "data": {
+    "id": "card-think",
+    "kind": "think",
+    "rawInput": {
+     "thought": "Which greeting fits?"
+    },
+    "status": "in_progress",
+    "title": "Think it over"
+   }
+  },
+  {
+   "seq": 21,
+   "ts": 1767225602100,
+   "type": "tool.update",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "Weighing two greetings."
+      },
+      "type": "content"
+     }
+    ],
+    "id": "card-think",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 22,
+   "ts": 1767225602200,
+   "type": "tool.call",
+   "data": {
+    "id": "card-other",
+    "kind": "other",
+    "rawInput": {},
+    "status": "in_progress",
+    "title": "Do something else"
+   }
+  },
+  {
+   "seq": 23,
+   "ts": 1767225602300,
+   "type": "tool.update",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "done"
+      },
+      "type": "content"
+     }
+    ],
+    "id": "card-other",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 24,
+   "ts": 1767225602400,
+   "type": "message.delta",
+   "data": {
+    "messageId": "m",
+    "role": "agent",
+    "text": "cards done"
+   }
+  },
+  {
+   "seq": 25,
+   "ts": 1767225602500,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 26,
+   "ts": 1767225602600,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "title": "fake: cards"
+   }
+  },
+  {
+   "seq": 27,
+   "ts": 1767225602700,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 1,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 28,
+   "ts": 1767225602800,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 29,
+   "ts": 1767225602900,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "chatty 4"
+   }
+  },
+  {
+   "seq": 30,
+   "ts": 1767225603000,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 31,
+   "ts": 1767225603100,
+   "type": "tool.call",
+   "data": {
+    "id": "chatty",
+    "kind": "execute",
+    "status": "in_progress",
+    "title": "yes | head"
+   }
+  },
+  {
+   "seq": 32,
+   "ts": 1767225603200,
+   "type": "tool.update",
+   "data": {
+    "id": "chatty",
+    "outputDelta": "line 1\n"
+   }
+  },
+  {
+   "seq": 33,
+   "ts": 1767225603300,
+   "type": "tool.update",
+   "data": {
+    "id": "chatty",
+    "outputDelta": "line 2\n"
+   }
+  },
+  {
+   "seq": 34,
+   "ts": 1767225603400,
+   "type": "tool.update",
+   "data": {
+    "id": "chatty",
+    "outputDelta": "line 3\n"
+   }
+  },
+  {
+   "seq": 35,
+   "ts": 1767225603500,
+   "type": "tool.update",
+   "data": {
+    "id": "chatty",
+    "outputDelta": "line 4\n"
+   }
+  },
+  {
+   "seq": 36,
+   "ts": 1767225603600,
+   "type": "tool.update",
+   "data": {
+    "exitCode": 0,
+    "id": "chatty",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 37,
+   "ts": 1767225603700,
+   "type": "message.delta",
+   "data": {
+    "messageId": "m",
+    "role": "agent",
+    "text": "chatty: 4 lines"
+   }
+  },
+  {
+   "seq": 38,
+   "ts": 1767225603800,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 39,
+   "ts": 1767225603900,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 2,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 40,
+   "ts": 1767225604000,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  },
+  {
+   "seq": 41,
+   "ts": 1767225604100,
+   "type": "message.delta",
+   "data": {
+    "role": "user",
+    "text": "subagent explore"
+   }
+  },
+  {
+   "seq": 42,
+   "ts": 1767225604200,
+   "type": "status",
+   "data": {
+    "currentMode": "ask",
+    "status": "running"
+   }
+  },
+  {
+   "seq": 43,
+   "ts": 1767225604300,
+   "type": "tool.call",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "Find where **main** starts."
+      },
+      "type": "content"
+     }
+    ],
+    "id": "task1",
+    "kind": "think",
+    "label": "Explore the repo",
+    "name": "Task",
+    "rawInput": {
+     "description": "Explore the repo",
+     "prompt": "Find where **main** starts.",
+     "subagent_type": "Explore"
+    },
+    "status": "in_progress",
+    "subagent": true,
+    "title": "Explore the repo"
+   }
+  },
+  {
+   "seq": 44,
+   "ts": 1767225604400,
+   "type": "thought.delta",
+   "data": {
+    "parent": "task1",
+    "text": "Looking for the entry point."
+   }
+  },
+  {
+   "seq": 45,
+   "ts": 1767225604500,
+   "type": "tool.call",
+   "data": {
+    "id": "read1",
+    "kind": "read",
+    "name": "Read",
+    "parent": "task1",
+    "status": "in_progress",
+    "title": "Read main.go"
+   }
+  },
+  {
+   "seq": 46,
+   "ts": 1767225604600,
+   "type": "tool.update",
+   "data": {
+    "id": "read1",
+    "parent": "task1",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 47,
+   "ts": 1767225604700,
+   "type": "message.delta",
+   "data": {
+    "messageId": "sub-m",
+    "parent": "task1",
+    "role": "agent",
+    "text": "main starts in main.go"
+   }
+  },
+  {
+   "seq": 48,
+   "ts": 1767225604800,
+   "type": "tool.update",
+   "data": {
+    "content": [
+     {
+      "content": {
+       "type": "text",
+       "text": "`main` is in **main.go**."
+      },
+      "type": "content"
+     }
+    ],
+    "id": "task1",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 49,
+   "ts": 1767225604900,
+   "type": "message.delta",
+   "data": {
+    "messageId": "m",
+    "role": "agent",
+    "text": "the subagent found it"
+   }
+  },
+  {
+   "seq": 50,
+   "ts": 1767225605000,
+   "type": "status",
+   "data": {
+    "status": "running",
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 51,
+   "ts": 1767225605100,
+   "type": "turn.end",
+   "data": {
+    "stopReason": "end_turn",
+    "turn": 3,
+    "usage": {
+     "used": 42,
+     "size": 1000
+    }
+   }
+  },
+  {
+   "seq": 52,
+   "ts": 1767225605200,
+   "type": "status",
+   "data": {
+    "agent": {
+     "name": "fakeacp",
+     "version": "1"
+    },
+    "commands": [
+     {
+      "name": "review",
+      "description": "Review the pending changes",
+      "hint": "what to focus on"
+     },
+     {
+      "name": "compact",
+      "description": "Summarize the conversation to free context"
+     },
+     {
+      "name": "init",
+      "description": "Write a CLAUDE.md for this project"
+     }
+    ],
+    "currentMode": "ask",
+    "modes": [
+     {
+      "id": "ask",
+      "name": "Ask"
+     },
+     {
+      "id": "yolo",
+      "name": "Yolo"
+     }
+    ],
+    "options": [
+     {
+      "id": "model",
+      "name": "Model",
+      "category": "model",
+      "type": "select",
+      "currentValue": "fake-default",
+      "options": [
+       {
+        "value": "fake-default",
+        "name": "Fake (default)"
+       },
+       {
+        "value": "fake-fast",
+        "name": "Fake fast"
+       }
+      ]
+     }
+    ],
+    "status": "idle"
+   }
+  }
+ ]
+}

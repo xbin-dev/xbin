@@ -38,7 +38,11 @@ overview is the map that puts them in context.
 **Reference:**
 
 - [overview/](/docs/overview/00-index.md) — the top-down system tour (start at `00-index.md`)
-- [protocol.md](/docs/protocol.md) — every HTTP/WS endpoint, header, and event
+- [protocol.md](/docs/protocol.md) — every HTTP/WS endpoint, header, and event:
+  the conventions they share and the index of the topic pages under
+  `/docs/protocol/` (one per area: [core.md](/docs/protocol/core.md),
+  [agents.md](/docs/protocol/agents.md),
+  [events.md](/docs/protocol/events.md), …)
 - [isolation.md](/docs/isolation.md) — sandboxes, terminal scoping, the dev layer, egress
 - [ingress.md](/docs/ingress.md) — publishing tiles: public HTTP(S) + TCP/UDP endpoints
 - [agent-inbox.md](/docs/agent-inbox.md) — the contract between chat adapters
@@ -70,7 +74,9 @@ overview is the map that puts them in context.
 - [config.md](/docs/config.md) — every `xbind` flag and `XBIN_*` variable,
   generated from the daemon's configuration
 - [changelog.md](/docs/changelog.md) — builder-visible changes per xbind
-  upgrade; **BREAKING** entries link migration notes under `/docs/changes/`
+  upgrade; **BREAKING** entries link migration notes under `/docs/changes/`.
+  It holds the recent weeks; older months are under `/docs/changelog/`,
+  listed at its end
 - [frontend-kit.md](/docs/frontend-kit.md) — the `/vendor/` modules a tile
   may import (`bx-kit`, `bx-dialog`, `bx-code`, …), the theme's mechanics
   (opting in, tokens, icons), the URL rules, lit pitfalls

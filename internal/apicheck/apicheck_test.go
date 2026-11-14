@@ -1,7 +1,8 @@
 // Package apicheck holds the route-inventory drift test: every route xbind
 // mounts must be described in internal/server/openapi.go (the /api/xbin
-// surface) and docs/protocol.md (everything), and everything those two
-// describe must exist. It is its own package because the check needs the
+// surface) and the protocol reference — docs/protocol.md and its topic pages,
+// docs/protocol/*.md — (everything), and everything those two describe must
+// exist. It is its own package because the check needs the
 // broker mounted on the server, and server cannot import broker.
 //
 // Three notations are reconciled onto one shape (method + path segments,
@@ -9,7 +10,7 @@
 //
 //	mux (RegisterAPI / Handler)   GET /kv/{rest...}     GET /components/{path...}   /c/
 //	openapi.go                    GET /kv/{resource}/{key}
-//	docs/protocol.md (in fences)  GET /kv/res:<scope>/<name>/<key>   GET /c/<component-path>/[file]
+//	docs/protocol/*.md (fences)   GET /kv/res:<scope>/<name>/<key>   GET /c/<component-path>/[file]
 //
 // A mux `{x...}` matches one or more documented segments, so one route may
 // be documented as several rows (/vault/{component} and
@@ -216,23 +217,33 @@ func sourceRoutes(t *testing.T) map[string]string {
 
 var docRow = regexp.MustCompile(`^(GET|POST|PUT|PATCH|DELETE|ANY)\s+(\S+)`)
 
-// protocolRows returns every route row inside a code fence of
-// docs/protocol.md and of the topic pages beside it, docs/protocol/*.md
-// (continuation lines never start at column 0 with a method).
-func protocolRows(t *testing.T) []route {
+// protocolFiles is the protocol reference: docs/protocol.md (the entry: the
+// shared conventions and the index) and its topic pages, docs/protocol/*.md.
+func protocolFiles(t *testing.T) []string {
 	t.Helper()
 	docs := filepath.Join("..", "..", "docs")
-	files, err := filepath.Glob(filepath.Join(docs, "protocol", "*.md"))
+	topics, err := filepath.Glob(filepath.Join(docs, "protocol", "*.md"))
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(topics) < 10 {
+		t.Fatalf("found only %d topic pages under docs/protocol/ — did the layout change?", len(topics))
+	}
+	sort.Strings(topics)
+	return append([]string{filepath.Join(docs, "protocol.md")}, topics...)
+}
+
+// protocolRows returns every route row inside a code fence of the protocol
+// reference (continuation lines never start at column 0 with a method).
+func protocolRows(t *testing.T) []route {
+	t.Helper()
 	var rows []route
-	for _, f := range append([]string{filepath.Join(docs, "protocol.md")}, files...) {
+	for _, f := range protocolFiles(t) {
 		b, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)
 		}
-		name, _ := filepath.Rel(filepath.Join("..", ".."), f)
+		rel := "docs/" + filepath.ToSlash(strings.TrimPrefix(f, filepath.Join("..", "..", "docs")+string(filepath.Separator)))
 		inFence := false
 		for i, line := range strings.Split(string(b), "\n") {
 			if strings.HasPrefix(line, "```") {
@@ -243,8 +254,11 @@ func protocolRows(t *testing.T) []route {
 				continue
 			}
 			if m := docRow.FindStringSubmatch(line); m != nil {
-				rows = append(rows, parseDoc(m[1], m[2], fmt.Sprintf("%s:%d", filepath.ToSlash(name), i+1)))
+				rows = append(rows, parseDoc(m[1], m[2], fmt.Sprintf("%s:%d", rel, i+1)))
 			}
+		}
+		if inFence {
+			t.Errorf("%s: a code fence is never closed — every row after it would be read wrong", rel)
 		}
 	}
 	return rows
@@ -346,12 +360,12 @@ func TestRouteInventory(t *testing.T) {
 			add("%s (%s) has no internal/server/openapi.go entry", r, r.src)
 		}
 		if apiProto[i] == 0 {
-			add("%s (%s) has no docs/protocol.md row", r, r.src)
+			add("%s (%s) has no row in the protocol reference (docs/protocol/<topic>.md)", r, r.src)
 		}
 	}
 	for i, r := range core {
 		if coreProto[i] == 0 {
-			add("%s (%s) has no docs/protocol.md row", r, r.src)
+			add("%s (%s) has no row in the protocol reference (docs/protocol/<topic>.md)", r, r.src)
 		}
 	}
 

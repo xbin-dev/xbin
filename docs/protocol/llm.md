@@ -1,10 +1,15 @@
-# Protocol: the LLM connector
+# Protocol: LLM connector
 
-The HTTP surface of xbind's built-in LLM connector (D226). What it is, how
-an admin or a host configures it and how a tile binds to it:
-[llm.md](/docs/llm.md). The other routes: [protocol.md](/docs/protocol.md).
+Part of the [protocol reference](/docs/protocol.md), which holds the
+conventions every route shares (authentication, tokens, headers) and the
+index of these topic pages. This page:
+the routes of xbind's built-in LLM connector (D226) — its
+OpenAI-compatible endpoint, configuration, usage and quotas. What the
+connector is, how an admin or a host configures it and how a tile binds to
+it: [llm.md](/docs/llm.md).
 
-Every path below is under `/api/xbin`. Two families:
+Rows are paths below `/api/xbin/`; the words before the first full stop
+of a row say who may call it. Two families:
 
 - **the OpenAI-compatible routes** (`/llm/v1/…`): OpenAI's wire, errors in
   OpenAI's error shape, so an OpenAI SDK or a coding CLI pointed at

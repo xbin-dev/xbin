@@ -1,0 +1,766 @@
+{
+ "name": "permission",
+ "about": "the transcript of permission.json in the chat kit's block model (/vendor/chat/blocks.js) after each of its checkpoints — blocks; tail: what waits on a person beside them; plan: the key of the newest plan block; usage. A block's k is the seq of the event that opened it (the Agent tab's key); versions (v) and clock times (at) are left out, and a field at its zero value too.",
+ "checkpoints": [
+  {
+   "seq": 8,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "perm one"
+    },
+    {
+     "k": "6",
+     "kind": "tool",
+     "rec": {
+      "id": "t1",
+      "kind": "execute",
+      "title": "run ls",
+      "status": "pending",
+      "rawInput": {
+       "cmd": "ls"
+      }
+     },
+     "state": "approval"
+    },
+    {
+     "k": "7",
+     "kind": "perm",
+     "pid": "p1",
+     "callId": "t1",
+     "tool": {
+      "title": "run ls",
+      "kind": "execute"
+     },
+     "options": [
+      {
+       "optionId": "once",
+       "name": "Allow once",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "always",
+       "name": "Allow always",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "no",
+       "name": "Reject",
+       "kind": "reject_once"
+      }
+     ],
+     "rule": {
+      "kind": "execute",
+      "title": "run ls"
+     }
+    }
+   ]
+  },
+  {
+   "seq": 19,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "perm one"
+    },
+    {
+     "k": "6",
+     "kind": "tool",
+     "rec": {
+      "id": "t1",
+      "kind": "execute",
+      "title": "run ls",
+      "status": "failed",
+      "rawInput": {
+       "cmd": "ls"
+      }
+     },
+     "state": "error"
+    },
+    {
+     "k": "7",
+     "kind": "perm",
+     "pid": "p1",
+     "callId": "t1",
+     "tool": {
+      "title": "run ls",
+      "kind": "execute"
+     },
+     "options": [
+      {
+       "optionId": "once",
+       "name": "Allow once",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "always",
+       "name": "Allow always",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "no",
+       "name": "Reject",
+       "kind": "reject_once"
+      }
+     ],
+     "rule": {
+      "kind": "execute",
+      "title": "run ls"
+     },
+     "by": "user:bob",
+     "optionId": "no"
+    },
+    {
+     "k": "12",
+     "kind": "assistant",
+     "text": "denied",
+     "mid": "m"
+    },
+    {
+     "k": "13",
+     "kind": "turn",
+     "turn": 1,
+     "stopReason": "end_turn"
+    },
+    {
+     "k": "15",
+     "kind": "user",
+     "text": "perm two"
+    },
+    {
+     "k": "17",
+     "kind": "tool",
+     "rec": {
+      "id": "t1",
+      "kind": "execute",
+      "title": "run ls",
+      "status": "pending",
+      "rawInput": {
+       "cmd": "ls"
+      }
+     },
+     "state": "approval"
+    },
+    {
+     "k": "18",
+     "kind": "perm",
+     "pid": "p2",
+     "callId": "t1",
+     "tool": {
+      "title": "run ls",
+      "kind": "execute"
+     },
+     "options": [
+      {
+       "optionId": "once",
+       "name": "Allow once",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "always",
+       "name": "Allow always",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "no",
+       "name": "Reject",
+       "kind": "reject_once"
+      }
+     ],
+     "rule": {
+      "kind": "execute",
+      "title": "run ls"
+     }
+    }
+   ]
+  },
+  {
+   "seq": 43,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "perm one"
+    },
+    {
+     "k": "6",
+     "kind": "tool",
+     "rec": {
+      "id": "t1",
+      "kind": "execute",
+      "title": "run ls",
+      "status": "failed",
+      "rawInput": {
+       "cmd": "ls"
+      }
+     },
+     "state": "error"
+    },
+    {
+     "k": "7",
+     "kind": "perm",
+     "pid": "p1",
+     "callId": "t1",
+     "tool": {
+      "title": "run ls",
+      "kind": "execute"
+     },
+     "options": [
+      {
+       "optionId": "once",
+       "name": "Allow once",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "always",
+       "name": "Allow always",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "no",
+       "name": "Reject",
+       "kind": "reject_once"
+      }
+     ],
+     "rule": {
+      "kind": "execute",
+      "title": "run ls"
+     },
+     "by": "user:bob",
+     "optionId": "no"
+    },
+    {
+     "k": "12",
+     "kind": "assistant",
+     "text": "denied",
+     "mid": "m"
+    },
+    {
+     "k": "13",
+     "kind": "turn",
+     "turn": 1,
+     "stopReason": "end_turn"
+    },
+    {
+     "k": "15",
+     "kind": "user",
+     "text": "perm two"
+    },
+    {
+     "k": "17",
+     "kind": "tool",
+     "rec": {
+      "id": "t1",
+      "kind": "execute",
+      "title": "run ls",
+      "status": "completed",
+      "rawInput": {
+       "cmd": "ls"
+      },
+      "text": "a.txt b.txt"
+     },
+     "state": "done"
+    },
+    {
+     "k": "18",
+     "kind": "perm",
+     "pid": "p2",
+     "callId": "t1",
+     "tool": {
+      "title": "run ls",
+      "kind": "execute"
+     },
+     "options": [
+      {
+       "optionId": "once",
+       "name": "Allow once",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "always",
+       "name": "Allow always",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "no",
+       "name": "Reject",
+       "kind": "reject_once"
+      }
+     ],
+     "rule": {
+      "kind": "execute",
+      "title": "run ls"
+     },
+     "by": "user:alice",
+     "optionId": "always"
+    },
+    {
+     "k": "23",
+     "kind": "assistant",
+     "text": "listed",
+     "mid": "m"
+    },
+    {
+     "k": "26",
+     "kind": "turn",
+     "turn": 2,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    },
+    {
+     "k": "28",
+     "kind": "user",
+     "text": "perm three"
+    },
+    {
+     "k": "30",
+     "kind": "tool",
+     "rec": {
+      "id": "t1",
+      "kind": "execute",
+      "title": "run ls",
+      "status": "completed",
+      "rawInput": {
+       "cmd": "ls"
+      },
+      "text": "a.txt b.txt"
+     },
+     "state": "done"
+    },
+    {
+     "k": "31",
+     "kind": "perm",
+     "pid": "p3",
+     "callId": "t1",
+     "tool": {
+      "title": "run ls",
+      "kind": "execute"
+     },
+     "options": [
+      {
+       "optionId": "once",
+       "name": "Allow once",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "always",
+       "name": "Allow always",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "no",
+       "name": "Reject",
+       "kind": "reject_once"
+      }
+     ],
+     "rule": {
+      "kind": "execute",
+      "title": "run ls"
+     },
+     "by": "auto",
+     "optionId": "always"
+    },
+    {
+     "k": "35",
+     "kind": "assistant",
+     "text": "listed",
+     "mid": "m"
+    },
+    {
+     "k": "37",
+     "kind": "turn",
+     "turn": 3,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    },
+    {
+     "k": "39",
+     "kind": "user",
+     "text": "plan the work"
+    },
+    {
+     "k": "41",
+     "kind": "tool",
+     "rec": {
+      "id": "plan1",
+      "kind": "switch_mode",
+      "title": "Ready to code?",
+      "name": "ExitPlanMode",
+      "status": "pending",
+      "rawInput": {
+       "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+       "planFilePath": "/tmp/fake-plan.md"
+      },
+      "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n"
+     },
+     "state": "approval"
+    },
+    {
+     "k": "42",
+     "kind": "perm",
+     "pid": "p4",
+     "callId": "plan1",
+     "tool": {
+      "title": "Approve Plan",
+      "kind": "switch_mode",
+      "rawInput": {
+       "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+       "planFilePath": "/tmp/fake-plan.md"
+      },
+      "content": [
+       {
+        "content": {
+         "type": "text",
+         "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n"
+        },
+        "type": "content"
+       }
+      ]
+     },
+     "options": [
+      {
+       "optionId": "exit-plan-default",
+       "name": "Yes, manually approve edits",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "exit-plan-clear-auto",
+       "name": "Yes, clear context (13% used) and use auto mode",
+       "kind": "allow_always",
+       "explicit": true
+      },
+      {
+       "optionId": "auto",
+       "name": "Yes, and use auto mode",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "reject",
+       "name": "No, keep planning",
+       "kind": "reject_once"
+      }
+     ],
+     "title": "Ready to code?",
+     "plan": {
+      "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+      "path": "/tmp/fake-plan.md"
+     }
+    }
+   ],
+   "usage": {
+    "used": 42,
+    "size": 1000
+   }
+  },
+  {
+   "seq": 50,
+   "blocks": [
+    {
+     "k": "4",
+     "kind": "user",
+     "text": "perm one"
+    },
+    {
+     "k": "6",
+     "kind": "tool",
+     "rec": {
+      "id": "t1",
+      "kind": "execute",
+      "title": "run ls",
+      "status": "failed",
+      "rawInput": {
+       "cmd": "ls"
+      }
+     },
+     "state": "error"
+    },
+    {
+     "k": "7",
+     "kind": "perm",
+     "pid": "p1",
+     "callId": "t1",
+     "tool": {
+      "title": "run ls",
+      "kind": "execute"
+     },
+     "options": [
+      {
+       "optionId": "once",
+       "name": "Allow once",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "always",
+       "name": "Allow always",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "no",
+       "name": "Reject",
+       "kind": "reject_once"
+      }
+     ],
+     "rule": {
+      "kind": "execute",
+      "title": "run ls"
+     },
+     "by": "user:bob",
+     "optionId": "no"
+    },
+    {
+     "k": "12",
+     "kind": "assistant",
+     "text": "denied",
+     "mid": "m"
+    },
+    {
+     "k": "13",
+     "kind": "turn",
+     "turn": 1,
+     "stopReason": "end_turn"
+    },
+    {
+     "k": "15",
+     "kind": "user",
+     "text": "perm two"
+    },
+    {
+     "k": "17",
+     "kind": "tool",
+     "rec": {
+      "id": "t1",
+      "kind": "execute",
+      "title": "run ls",
+      "status": "completed",
+      "rawInput": {
+       "cmd": "ls"
+      },
+      "text": "a.txt b.txt"
+     },
+     "state": "done"
+    },
+    {
+     "k": "18",
+     "kind": "perm",
+     "pid": "p2",
+     "callId": "t1",
+     "tool": {
+      "title": "run ls",
+      "kind": "execute"
+     },
+     "options": [
+      {
+       "optionId": "once",
+       "name": "Allow once",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "always",
+       "name": "Allow always",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "no",
+       "name": "Reject",
+       "kind": "reject_once"
+      }
+     ],
+     "rule": {
+      "kind": "execute",
+      "title": "run ls"
+     },
+     "by": "user:alice",
+     "optionId": "always"
+    },
+    {
+     "k": "23",
+     "kind": "assistant",
+     "text": "listed",
+     "mid": "m"
+    },
+    {
+     "k": "26",
+     "kind": "turn",
+     "turn": 2,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    },
+    {
+     "k": "28",
+     "kind": "user",
+     "text": "perm three"
+    },
+    {
+     "k": "30",
+     "kind": "tool",
+     "rec": {
+      "id": "t1",
+      "kind": "execute",
+      "title": "run ls",
+      "status": "completed",
+      "rawInput": {
+       "cmd": "ls"
+      },
+      "text": "a.txt b.txt"
+     },
+     "state": "done"
+    },
+    {
+     "k": "31",
+     "kind": "perm",
+     "pid": "p3",
+     "callId": "t1",
+     "tool": {
+      "title": "run ls",
+      "kind": "execute"
+     },
+     "options": [
+      {
+       "optionId": "once",
+       "name": "Allow once",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "always",
+       "name": "Allow always",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "no",
+       "name": "Reject",
+       "kind": "reject_once"
+      }
+     ],
+     "rule": {
+      "kind": "execute",
+      "title": "run ls"
+     },
+     "by": "auto",
+     "optionId": "always"
+    },
+    {
+     "k": "35",
+     "kind": "assistant",
+     "text": "listed",
+     "mid": "m"
+    },
+    {
+     "k": "37",
+     "kind": "turn",
+     "turn": 3,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    },
+    {
+     "k": "39",
+     "kind": "user",
+     "text": "plan the work"
+    },
+    {
+     "k": "41",
+     "kind": "tool",
+     "rec": {
+      "id": "plan1",
+      "kind": "switch_mode",
+      "title": "Ready to code?",
+      "name": "ExitPlanMode",
+      "status": "completed",
+      "rawInput": {
+       "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+       "planFilePath": "/tmp/fake-plan.md"
+      },
+      "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n"
+     },
+     "state": "done"
+    },
+    {
+     "k": "42",
+     "kind": "perm",
+     "pid": "p4",
+     "callId": "plan1",
+     "tool": {
+      "title": "Approve Plan",
+      "kind": "switch_mode",
+      "rawInput": {
+       "plan": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+       "planFilePath": "/tmp/fake-plan.md"
+      },
+      "content": [
+       {
+        "content": {
+         "type": "text",
+         "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n"
+        },
+        "type": "content"
+       }
+      ]
+     },
+     "options": [
+      {
+       "optionId": "exit-plan-default",
+       "name": "Yes, manually approve edits",
+       "kind": "allow_once"
+      },
+      {
+       "optionId": "exit-plan-clear-auto",
+       "name": "Yes, clear context (13% used) and use auto mode",
+       "kind": "allow_always",
+       "explicit": true
+      },
+      {
+       "optionId": "auto",
+       "name": "Yes, and use auto mode",
+       "kind": "allow_always"
+      },
+      {
+       "optionId": "reject",
+       "name": "No, keep planning",
+       "kind": "reject_once"
+      }
+     ],
+     "title": "Ready to code?",
+     "plan": {
+      "text": "# Fake plan\n\n1. **Read** the code\n2. Change `main.go`\n",
+      "path": "/tmp/fake-plan.md"
+     },
+     "by": "user:alice",
+     "optionId": "exit-plan-clear-auto"
+    },
+    {
+     "k": "47",
+     "kind": "assistant",
+     "text": "plan approved: exit-plan-clear-auto",
+     "mid": "m"
+    },
+    {
+     "k": "49",
+     "kind": "turn",
+     "turn": 4,
+     "stopReason": "end_turn",
+     "usage": {
+      "used": 42,
+      "size": 1000
+     }
+    }
+   ],
+   "usage": {
+    "used": 42,
+    "size": 1000
+   }
+  }
+ ]
+}

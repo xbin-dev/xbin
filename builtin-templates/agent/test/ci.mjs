@@ -232,7 +232,9 @@ ok('no errors', errors.length === 0, errors.join(' | '));
 // === the board's CI chip (ext.card) opens the task on CI ===========================================
 {
   const { page: p5 } = await open(ciSeedFor(), { hash: '' });
-  await p5.waitForFunction(() => !!window.__ci, null, { timeout: 5000 });
+  // the app has started — its modules have registered their hooks (ext.card is ci-cards.js's):
+  // the page's load event does not wait for them
+  await p5.waitForFunction(() => !!window.__ci && window.__calls.length > 0, null, { timeout: 5000 });
   const chip = await p5.evaluate(async () => {
     const { ext } = await import('/web-ext.js');
     const { render } = await import('/vendor/lit-all.min.js');

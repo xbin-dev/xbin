@@ -251,7 +251,7 @@ template's update (below):
   **Keep each person's data apart** on the Tile Manager's template card,
   run `bx template new <source> --no-partition`, or send `"partition":
   false` to `POST /api/xbin/templates/new`
-  ([protocol.md](protocol.md)). Without `xbind --isolate` the default isn't
+  ([protocol/tiles.md](/docs/protocol/tiles.md)). Without `xbind --isolate` the default isn't
   written at all (the box is off, "needs --isolate"), since people's
   partitions need isolation. The block is stripped from instances (the
   instance's own `partition` is the line after the opening brace), and the
@@ -414,7 +414,7 @@ bus events. The two sides talk through:
   bus deliveries and path tickets can't (403; a cron job or bus
   subscription whose path carries the parameter is refused, 400, when it
   is registered), and a tile without a global instance answers 404
-  ([protocol.md](protocol.md) §HTTP routes › Core has every refusal). In Go,
+  ([protocol/core.md](/docs/protocol/core.md) has every refusal). In Go,
   `xbin.Client().Get(xbin.GlobalURL("runs/42"))`; in a frame,
   `` xbin.fetch(`/api/${xbin.self}/runs/42`, {partition: 'global'}) ``. Both
   add `?xbin-partition=global`, and only in a user partition; elsewhere they
@@ -533,7 +533,7 @@ the expiry; `Source` names where a private trigger's event came from when
 the global instance hands one to a person, and is counted, never the
 content, in that person's egress ledger. The routes are `POST` and `GET
 /api/xbin/partitions/mail` and `POST /api/xbin/partitions/mail/ack`
-([protocol.md](protocol.md)); frames call them with `xbin.fetch`, though
+([protocol/partitions.md](/docs/protocol/partitions.md)); frames call them with `xbin.fetch`, though
 normally their backend does.
 
 Two patterns keep a person in charge of what leaves their partition:
@@ -1154,7 +1154,7 @@ the idle hour ([resources.md](resources.md)). A cron, bus or mail
 start never stops a partition that is in use or streaming, runs at most 4
 at once in the workspace (mail: 6 a minute per tile), and otherwise waits
 and retries. An admin sets the caps, and each person's byte ceiling on a
-tile, with `POST /api/xbin/partitions/limits` ([protocol.md](protocol.md));
+tile, with `POST /api/xbin/partitions/limits` ([protocol/orgs.md](/docs/protocol/orgs.md));
 a tile manager may lower their own tile's.
 
 **Admins** see who has an instance running — the tile and the partition
@@ -1393,7 +1393,7 @@ code that must never mix people serves per-person data only where
 ## Operating people's partitions
 
 xbind tells people and operators about partitions without handing anyone a
-person's data. `GET /api/xbin/partitions` ([protocol.md](protocol.md)) is
+person's data. `GET /api/xbin/partitions` ([protocol/partitions.md](/docs/protocol/partitions.md)) is
 the one read; its `features` list says what this xbind serves (a 404 means
 an xbind without partitions). What it answers depends on who asks:
 

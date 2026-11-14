@@ -27,7 +27,9 @@ practices in full: `AGENTS.md`.
 - **One sanctioned HTML transform** (import-map/client injection in
   `internal/server/static.go`). Do not add rewriting.
 - The `sdk/` module must stay **zero-dependency** — components inherit it.
-- New xbind HTTP/WS surface ⇒ document it in `docs/protocol.md` in the same
+- New xbind HTTP/WS surface ⇒ document it in its topic page,
+  `docs/protocol/<topic>.md` (`docs/protocol.md` is the entry: shared
+  conventions + the index of those pages; keep it small), in the same
   change; builder-visible behavior ⇒ the relevant `docs/*.md` **and a
   `docs/changelog.md` entry**; breaking ⇒ also a migration note at
   `docs/changes/YYYY-MM-DD-<slug>.md` linked from the changelog (AGENTS.md

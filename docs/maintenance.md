@@ -300,7 +300,13 @@ decision, and `assets_test.go` refuses:
   file not named after its directory (a tool a tile ships under `bin/`) is
   never matched.
 - **files over 512 KB** outside `web/vendor/` — the vendored frontend deps
-  are the only big files by design.
+  are the only big files by design. A doc that grows without end is split
+  before it gets there: the protocol reference is one page per topic
+  (`docs/protocol/<topic>.md`, Route inventory below), and the changelog
+  keeps its recent weeks in `docs/changelog.md` with older months moved,
+  unchanged, to `docs/changelog/<YYYY-MM>.md` and listed under its "Older
+  entries" — cut whole months from the old end, leave the top to the
+  entries being added.
 - **nested repos and dependency trees** (`.git`, `node_modules`, `.claude`,
   `deps`): `all:` embeds dotfiles too.
 - **pointers into `plans/`**. The design records are *not* embedded, so a
@@ -571,9 +577,12 @@ stay byte for byte what it was.
 `clampBox`); `web/bx-code.js` owns the highlight helpers (`hl`, `langFor`,
 `diffHTML`), `web/bx-theme.js` a document's appearance (`setAppearance`,
 `onAppearance`, `appearanceMessage`, `applyAppearanceMessage`,
-`rememberTheme`) and `web/bx-icons.js` the drawn glyphs (`iconSvg`,
-`hasIcon`). `make js-check` refuses a second definition of any of them in
-the shipped trees — import from `/vendor/…` by absolute URL instead
+`rememberTheme`), `web/bx-icons.js` the drawn glyphs (`iconSvg`,
+`hasIcon`) and `web/chat/md.js` the markdown renderer for untrusted text
+(`mdInto`, `mdCssText`, `closedFence`, `onHighlighter`, `useHighlighter`;
+D224 — the agent template's copy became a re-export, and a new copy would be
+a second sanitizing policy). `make js-check` refuses a second definition of
+any of them in the shipped trees — import from `/vendor/…` by absolute URL instead
 ([frontend-kit.md](/docs/frontend-kit.md) lists what tiles may import and
 why bare specifiers are banned).
 
@@ -645,6 +654,30 @@ sits in an element marked `data-bx-content` and isn't counted as an emoji.
 `appearance` is the mechanism's pass: no flash at the first frame in every
 kind of document, the relay, the hint cookie, density, fonts in every
 asset mode.
+
+### The chat kit's fixtures
+
+`web/chat/blocks.js` is the block model the chat kit draws from
+([frontend-kit.md](/docs/frontend-kit.md)); two reducers make its blocks —
+the Agent tab's fold (`web/agent-fold.js`) and the agent template's
+(`model/fold.js`, over rows its backend made of the same events). Both are
+held to one set of fixtures, `sdk/acp/testdata/transcripts/`:
+
+| File | Made by | Held by |
+|---|---|---|
+| `<name>.json` — an event log, xbind's served shape, with checkpoints | `sdk/acp/acptest` `TestTranscripts`: the scripted agent through `acp.Client` (`xbind-shell.json`: the native capture's events) | the same test (`go test ./sdk/...`) fails when the client no longer emits it |
+| `<name>.agtt.json` — the agent template's run view at each checkpoint | the template backend's `TestChatTranscripts` (the log through `harness_map.go`) | the same test (`make tile-check`) |
+| `<name>.records.json`, `<name>.blocks.json` — the log's tool records and its blocks | `hack/chat-fixtures/expect.mjs` | `hack/chat-fixtures.test.mjs` (the Agent tab's fold) and `hack/chat-fixtures-agtt.test.mjs` (the template's), both in `make js-test` |
+
+A reducer that cannot produce a field yet has a **gap** in
+`hack/chat-fixtures/expect.mjs` (`GAPS`: an id, the reason, what makes the
+two sides comparable); the tests compare through the gaps and fail when a
+listed gap no longer shows — delete its line when you close one. A change
+that moves a fixture regenerates in this order, reviewing each diff (the
+header of `hack/chat-fixtures.test.mjs` has the commands): the logs
+(`ACP_TRANSCRIPTS_WRITE=1`), the template's views
+(`CHAT_TRANSCRIPTS_WRITE=1`), the expectations (`CHAT_FIXTURES_WRITE=1`).
+The files are plain JSON so the Swift port and `sdk/acp` can read them.
 
 ## The native reference (`docs/native.md`)
 
@@ -1035,13 +1068,22 @@ source) and reconciles three lists:
   WebSockets);
 - `internal/server/openapi.go` — the `/api/xbin` surface with the capability
   each operation needs (served at `/api/xbin/openapi.json`);
-- `docs/protocol.md` and the topic pages beside it, `docs/protocol/*.md` —
-  every route row inside a code fence, i.e. a line
+- the protocol reference — `docs/protocol.md` (the entry: the shared
+  conventions and the index) and its topic pages `docs/protocol/<topic>.md`,
+  read as one list: every route row inside a code fence, i.e. a line
   starting at column 0 with `GET|POST|PUT|PATCH|DELETE|ANY` and a path
   (continuation lines are indented, so prose never matches).
 
-Rules: every mounted API route has an OpenAPI entry **and** a protocol.md
-row; every core route has a protocol.md row; every documented row is a
+A route's row goes in the topic page its area has (the entry's Topics table
+names each; a new area gets a new page and a row in that table) — never in
+`protocol.md` itself, which stays small on purpose: every embedded file is
+capped at 512 KB (Embedded assets, above), and the reference once sat 14
+bytes under it in one file. Split a topic page long before it gets there.
+A code fence left open fails the test: it would flip prose and rows for the
+rest of the page.
+
+Rules: every mounted API route has an OpenAPI entry **and** a protocol
+row; every core route has a protocol row; every documented row is a
 mounted route; every `RegisterAPI("…")` literal under `cmd/` and `internal/`
 is one the fixture mounts (a new registration site must be wired into the
 test, or it silently stops being covered). Wildcards reconcile as you would
@@ -1053,10 +1095,10 @@ are all "one segment"; `?query` suffixes are ignored — which is why an
 (the bracket would turn the segment into a wildcard).
 
 Adding a route is therefore four edits in one commit — `RegisterAPI` (or
-`Handler`), an `openapi.go` row, a `protocol.md` row, and a row in
-`internal/server/deployclass.go` (its class for a non-primary tile
-deployment's credentials, §Tile deployments) — and `make test` says which one
-you forgot.
+`Handler`), an `openapi.go` row, a row in its `docs/protocol/<topic>.md`
+page, and a row in `internal/server/deployclass.go` (its class for a
+non-primary tile deployment's credentials, docs/protocol/deployments.md) —
+and `make test` says which one you forgot.
 
 ## Pins (`hack/check-pins.sh`)
 

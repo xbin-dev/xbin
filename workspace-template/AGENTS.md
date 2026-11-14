@@ -10,12 +10,14 @@ by the daemon; fetch any of them with:
 ```sh
 curl -s -H "Authorization: Bearer $XBIN_TOKEN" "$XBIN_URL/docs/index.md?raw=1"
 # also: getting-started.md elements.md auth.md resources.md sdk.md design.md frontend-kit.md native.md protocol.md bx.md tile-deployments.md changelog.md
+# protocol.md indexes one page per area: protocol/core.md, protocol/agents.md, protocol/events.md, … (same URL shape)
 ```
 
 **After an xbind upgrade** (or when a previously-working API starts failing),
 read [`/docs/changelog.md`](/docs/changelog.md): builder-visible changes land
 there, and **BREAKING** entries link a migration note under `/docs/changes/`
-that says exactly what to change in your tile.
+that says exactly what to change in your tile. It holds the recent weeks; its
+last section lists the pages of older months (`/docs/changelog/<YYYY-MM>.md`).
 
 ## The model in five lines
 

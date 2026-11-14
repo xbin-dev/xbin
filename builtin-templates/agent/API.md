@@ -1720,12 +1720,15 @@ The tile's frontend is **one model, thin views** — see **The frontend** below.
 The chat's state is `model/session.js` (fed by `model/stream.js`),
 `model/fold.js` (pure: messages, links and drafts → blocks), `chat-cards.js`
 (lit templates), `model/tool-heads.js` (a tool call's headline and icon) and
-`chat-md.js` (markdown); `agent.js` is the page around it. The tile's other
+`chat-md.js` (markdown: xbind's renderer, `/vendor/chat/md.js`); `agent.js`
+is the page around it, loaded by `boot.js` once it knows this xbind serves
+the chat kit the page needs (below, **The frontend**). The tile's other
 browser tests (`test/layout.mjs`, `chat`, `home`, `sidebar`, `attach`) drive
 the real page against `test/backend.mjs`, a stubbed transport with a
 scriptable event stream; `test/kit.mjs` serves the frontend kit and vendored
 lit from the xbin checkout the template lives in (in an instance:
-`BX_KIT=/path/to/bx-kit.js`, `BX_VENDOR=/path/to/vendor`). Each needs
+`BX_KIT=/path/to/bx-kit.js`, `BX_VENDOR=/path/to/vendor`,
+`BX_CHAT=/path/to/web/chat`). Each needs
 Playwright with a Chromium build and skips without it. The backend: `go vet
 ./_backend && go test ./_backend` with a `go.mod` copied from `go.mod.tile`.
 
@@ -5679,6 +5682,20 @@ web view is the files you know (`agent.js`, `chat-cards.js`, `sidebar.js`,
 **native view** is `native.js` and `native/` — what the xbin app draws with
 platform controls (`/vendor/xb-native.js`, docs/frontend-kit.md). Both draw
 the same model.
+
+**The page needs the xbind it shipped with.** The web view is drawn with
+xbind's chat kit (`/vendor/chat/…`, docs/frontend-kit.md — today its markdown
+renderer, behind `chat-md.js`), and an instance of this template is a copy
+in a workspace that can be newer than the xbind under it. So `index.html`
+starts `boot.js`, not `agent.js`: it imports `/vendor/chat/rev.js`, guarded,
+and compares its `KIT` with `NEEDS.kit`. When xbind serves that revision or
+a later one it imports `agent.js`; otherwise the page is one panel, "This
+agent needs xbind ≥ v… — update xbind", with a link to how to update, and
+nothing else loads. A failure in `agent.js` itself is an uncaught error as
+before, never that panel. When you start using something a later kit
+revision brought, raise `NEEDS` in `boot.js` (the revision, and the first
+xbind release that serves it). The native view imports nothing from the kit
+and needs no check; `test/needs-xbind.mjs` pins all of this.
 
 | `model/` | What it holds |
 |---|---|

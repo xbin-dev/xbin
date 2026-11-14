@@ -1,0 +1,28 @@
+{
+ "name": "questions",
+ "about": "the tool calls of questions.json after its last event, as ToolRecords (/vendor/chat/blocks.js), in the order they began — seq: the event that began the call; turn: the turn it was made in. A field at its zero value is left out.",
+ "records": [
+  {
+   "seq": 6,
+   "turn": 1,
+   "rec": {
+    "id": "ask1",
+    "kind": "other",
+    "title": "AskUserQuestion",
+    "name": "AskUserQuestion",
+    "status": "completed"
+   }
+  },
+  {
+   "seq": 19,
+   "turn": 2,
+   "rec": {
+    "id": "ask1",
+    "kind": "other",
+    "title": "AskUserQuestion",
+    "name": "AskUserQuestion",
+    "status": "completed"
+   }
+  }
+ ]
+}
