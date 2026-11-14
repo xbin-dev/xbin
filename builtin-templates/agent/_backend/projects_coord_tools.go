@@ -368,7 +368,7 @@ func coordStateOf(v TaskView) string {
 		}
 		return fmt.Sprintf("waiting for the owner to sign in to %s in %s", harnessName(v.Harness), where)
 	}
-	return orStr(coordStateWords[v.State], v.State)
+	return coordProject.stateWords(v.State)
 }
 
 // coordTaskState is v's state as the coordinator reads it: what exactly
@@ -514,7 +514,7 @@ func (ag *Agent) coordBoard(ctx context.Context, p *Project, cursor string) (str
 		// another member's row: each field one plain line, the frames' and
 		// the updates' markers defused (coordPlain), as task_list's own
 		fmt.Fprintf(&b, "%s #%d %s — %s", clip(coordPlain(row.Member), 60), row.N, clip(coordPlain(row.Title), 120),
-			coordPlain(orStr(coordStateWords[row.State], row.State)))
+			coordPlain(coordProject.stateWords(row.State)))
 		if br := coordPlain(row.Branch); br != "" {
 			b.WriteString(" · " + clip(br, 120))
 		}
