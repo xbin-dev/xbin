@@ -1441,28 +1441,6 @@ func (s *Store) SetUserTile(id, path, level string) error {
 	return s.persistLocked()
 }
 
-// sealedLevel refuses an access entry above read on a sealed component's
-// path: the level is read or nothing there (capSealed). An entry that
-// names the path is refused wherever it is written — one entry, a user's
-// whole map, the defaults; a pattern that reaches it ("*", "xbin/*") is not
-// an entry for it, and gives read (TileLevel).
-func sealedLevel(path, level string) error {
-	if !strings.Contains(path, "*") && capSealed(path, level) != level {
-		return fmt.Errorf("%s is a system component, managed by xbin: access to it is read or none (the %s level doesn't exist on it)", path, level)
-	}
-	return nil
-}
-
-// sealedLevels is sealedLevel over a map of entries.
-func sealedLevels(tiles map[string]string) error {
-	for path, level := range tiles {
-		if err := sealedLevel(strings.Trim(strings.TrimSpace(path), "/"), level); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // withEntry returns a copy of m with path set to level ("" = removed).
 func withEntry(m map[string]string, path, level string) map[string]string {
 	out := make(map[string]string, len(m)+1)

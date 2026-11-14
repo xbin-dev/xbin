@@ -10,6 +10,7 @@ import (
 	"testing/fstest"
 
 	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // fixture is a sealed component's source: a Go backend, one requested slot
@@ -57,6 +58,10 @@ func TestTableValidation(t *testing.T) {
 		"an uppercase name":          {Name: "Fix", Source: fixture("")},
 		"a nested name":              {Name: "a/b", Source: fixture("")},
 		"no name":                    {Source: fixture("")},
+		"a name CompKey would cut":   {Name: "abcdefghijklmnopqrst", Source: fixture("")}, // 20 characters
+		"a provider for no slot":     {Name: "fix", Source: fixture(""), Providers: map[string][]string{"llm": {"apps/gw"}}},
+		"a sealed provider":          {Name: "fix", Source: fixture(""), Slots: []string{"llm"}, Providers: map[string][]string{"llm": {"xbin/other"}}},
+		"a provider's instance":      {Name: "fix", Source: fixture(""), Slots: []string{"llm"}, Providers: map[string][]string{"llm": {"apps/gw#a"}}},
 		"a slot it doesn't have":     {Name: "fix", Source: fixture(""), Slots: []string{"mcp"}},
 		"global without user":        {Name: "fix", Source: fixture(""), Partition: []string{"global"}},
 		"a grant without a role":     {Name: "fix", Source: fixture(""), Grants: []registry.Use{{Target: "cap:open-links"}}},
@@ -69,6 +74,22 @@ func TestTableValidation(t *testing.T) {
 	}
 	if _, err := Load([]Spec{spec(""), spec("")}); err == nil {
 		t.Error("a repeated name loaded")
+	}
+	// The longest name still has an uncut key: no tile path but the
+	// top-level xbin~<name> shares its readable part, and that one's hash
+	// differs (Load checks it) — a tile path can't be ground into a sealed
+	// component's key.
+	long := "abcdefghijklmnopqrs" // util.SealedNameMax characters
+	set, err := Load([]Spec{{Name: long, Source: fixture("")}})
+	if err != nil || len(long) != util.SealedNameMax {
+		t.Fatalf("a name of the longest length: %v", err)
+	}
+	key := util.CompKey(set.Components()[0].Path)
+	if !strings.HasPrefix(key, "xbin~"+long+"-") || key == util.CompKey("xbin~"+long) || key == util.CompKey("xbin~"+long+"/x") || key == util.CompKey("xbin~"+long+"x") {
+		t.Errorf("its key %s is cut, or a tile's", key)
+	}
+	if util.SealedComponentPath("xbin/"+long+"t") || !util.SealedComponentPath("xbin/"+long) {
+		t.Error("util.SealedComponentPath and the table disagree about the longest name")
 	}
 	if !fixtureTable && len(Table()) != 0 {
 		t.Error("the compiled-in table is not empty: a workspace in the wild would see a component appear (a release that ships one edits this test with it)")

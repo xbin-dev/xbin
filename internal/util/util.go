@@ -102,13 +102,25 @@ func SealedRefusal(path, what string) string {
 	return path + " is a system component, managed by xbin: " + what
 }
 
+// SealedNameMax is the longest name of a sealed component: with it
+// "xbin~<name>" is at most the 24 characters CompKey keeps of a path, so
+// the readable part of a sealed component's key is never cut short. A
+// longer name would share that part with every tile path beginning
+// "xbin~<its first 19 characters>", and CompKey's other part is 32 bits of
+// a hash — few enough to grind a tile path into the same key (its log,
+// build and archive names). Uncut, exactly one tile path has the same
+// readable part: the top-level "xbin~<name>", whose hash the table check
+// compares (sealed.Load).
+const SealedNameMax = 19
+
 // SealedComponentPath reports whether p has the shape of a sealed
 // component's own path: xbin/<name>, the name lowercase letters, digits
-// and "-", starting with a letter, at most 24 characters. Such a path is
-// its component's scope too (a sealed component always roots one).
+// and "-", starting with a letter, at most SealedNameMax characters. Such
+// a path is its component's scope too (a sealed component always roots
+// one).
 func SealedComponentPath(p string) bool {
 	name, ok := strings.CutPrefix(p, SealedPrefix)
-	if !ok || name == "" || len(name) > 24 || name[0] < 'a' || name[0] > 'z' {
+	if !ok || name == "" || len(name) > SealedNameMax || name[0] < 'a' || name[0] > 'z' {
 		return false
 	}
 	for _, r := range name {

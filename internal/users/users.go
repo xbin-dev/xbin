@@ -23,8 +23,6 @@ import (
 	"time"
 
 	"golang.org/x/crypto/argon2"
-
-	"github.com/xbin-dev/xbin/internal/util"
 )
 
 const (
@@ -168,16 +166,6 @@ func (u *User) TileLevel(path string) string {
 	return capSealed(path, u.tileLevel(path))
 }
 
-// capSealed caps a level on a sealed component's path at read (D227): it
-// has no source and no terminal, so write and terminal don't exist there —
-// for admins, owners, exact entries and patterns alike.
-func capSealed(path, l string) string {
-	if util.SealedPath(path) && levelRank(l) > levelRank(LevelRead) {
-		return LevelRead
-	}
-	return l
-}
-
 func (u *User) tileLevel(path string) string {
 	if u.IsAdmin() {
 		return LevelTerminal
@@ -218,8 +206,8 @@ func (u *User) CanTerminal() bool {
 	if u.NoTerminal {
 		return false
 	}
-	for _, l := range u.Tiles {
-		if levelRank(l) >= levelRank(LevelTerminal) {
+	for path, l := range u.Tiles {
+		if terminalEntry(path, l) { // (never an entry on a sealed path, sealed.go)
 			return true
 		}
 	}

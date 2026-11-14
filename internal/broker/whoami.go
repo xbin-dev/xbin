@@ -41,7 +41,7 @@ func (b *Broker) apiWhoami(w http.ResponseWriter, r *http.Request) {
 		out["id"] = p.User.ID
 		out["name"] = p.User.Name
 		out["role"] = p.User.Role
-		out["tiles"] = p.User.Tiles // path→level map (D16); direct entries only
+		out["tiles"] = p.User.ShownTiles() // path→level map (D16); direct entries only, as they take effect (a sealed path: read at most)
 		out["canCreate"] = p.User.CanCreate
 		out["termApi"] = p.CanTermAPI()
 		out["termNet"] = p.CanTermNet()

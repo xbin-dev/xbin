@@ -143,7 +143,9 @@ func Table() []Spec { return table() }
 // routes are refused where the routes are known (server.SealedAPIClash).
 var reservedNames = map[string]bool{"cron": true, "bus": true, "mail": true}
 
-var nameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,23}$`)
+// nameRe is a sealed component's name: at most util.SealedNameMax
+// characters, so that its key is never a cut-short one (util.CompKey).
+var nameRe = regexp.MustCompile(`^[a-z][a-z0-9-]{0,18}$`)
 
 // Options is what a boot knows that decides how the table's components run.
 type Options struct {
@@ -206,6 +208,15 @@ func Load(specs []Spec) (*Set, error) {
 	for _, sp := range specs {
 		if !nameRe.MatchString(sp.Name) || reservedNames[sp.Name] || seen[sp.Name] {
 			return nil, fmt.Errorf("sealed component %q: invalid, reserved or repeated name", sp.Name)
+		}
+		// Its key (logs, build directory, archive key) is the readable
+		// "xbin~<name>" and 32 bits of a hash of its path. The name is short
+		// enough that nothing cuts the readable part, so the one tile path
+		// with the same readable part is the top-level "xbin~<name>": the
+		// two hashes must differ, or that tile's key would be this
+		// component's.
+		if util.CompKey(util.SealedPrefix+sp.Name) == util.CompKey("xbin~"+sp.Name) {
+			return nil, fmt.Errorf("sealed component %q: its key %s is also the key of a tile named xbin~%s — pick another name", sp.Name, util.CompKey(util.SealedPrefix+sp.Name), sp.Name)
 		}
 		seen[sp.Name] = true
 		p := util.SealedPrefix + sp.Name

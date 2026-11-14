@@ -69,3 +69,50 @@ func TestSealedPathLevels(t *testing.T) {
 		t.Errorf("an admin's level on a tile is %q", got)
 	}
 }
+
+// A users file edited by hand can hold what the store refuses to write: an
+// entry above read on a sealed path. The readers that look at the stored
+// map itself — "may this person open any terminal", and what "who am I"
+// shows — go through the cap, as every level resolution does.
+func TestSealedEntriesOfAHandEditedFile(t *testing.T) {
+	const sealed = "xbin/wsagent"
+	only := &User{ID: "eve", Role: RoleUser, Tiles: map[string]string{sealed: LevelTerminal, "xbin/*": LevelTerminal, "/" + sealed + "/": LevelWrite}}
+	if only.CanTerminal() {
+		t.Error("terminal entries on sealed paths alone open the terminal pre-gate")
+	}
+	if only.TileLevel(sealed) != LevelRead || only.CanTerminalTile(sealed) || only.CanWriteTile(sealed) {
+		t.Errorf("its level there is %q", only.TileLevel(sealed))
+	}
+	shown := only.ShownTiles()
+	if shown[sealed] != LevelRead || shown["xbin/*"] != LevelRead || shown["/"+sealed+"/"] != LevelRead {
+		t.Errorf("ShownTiles: %v, want read on every sealed entry", shown)
+	}
+	if only.Tiles[sealed] != LevelTerminal {
+		t.Error("ShownTiles changed the stored map")
+	}
+	both := &User{ID: "dan", Role: RoleUser, Tiles: map[string]string{sealed: LevelTerminal, "apps/a": LevelTerminal}}
+	if !both.CanTerminal() || both.ShownTiles()["apps/a"] != LevelTerminal {
+		t.Error("a tile's terminal entry no longer counts")
+	}
+	if (&User{ID: "x", Role: RoleUser, NoTerminal: true, Tiles: map[string]string{"apps/a": LevelTerminal}}).CanTerminal() {
+		t.Error("NoTerminal no longer holds")
+	}
+	if (&User{ID: "n"}).ShownTiles() != nil {
+		t.Error("ShownTiles of a user without entries")
+	}
+	// an Access built over such a user answers the same
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.Upsert(User{ID: "eve", Role: RoleUser, Tiles: map[string]string{"xbin/*": LevelTerminal}}, "pw-eve-pw-pw"); err != nil {
+		t.Fatal(err)
+	}
+	a, ok := s.Access("eve")
+	if !ok {
+		t.Fatal("no Access for a stored user")
+	}
+	if a.CanTerminal() || a.CanTerminalTile(sealed) || a.TileLevel(sealed) != LevelRead {
+		t.Errorf("Access: terminal pre-gate %v, level %q", a.CanTerminal(), a.TileLevel(sealed))
+	}
+}
