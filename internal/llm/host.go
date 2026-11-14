@@ -59,11 +59,16 @@ const maxKeyFile = 16 << 10
 
 // loadHost reads the deployment file at path.
 func loadHost(path string) (*hostConfig, error) {
+	// a file's stamp is taken before it is read: one caught mid-write is
+	// then seen as changed once its writer is done, whatever was read
+	h := &hostConfig{keys: map[string]string{}, stamps: map[string]fileStamp{path: stampOf(path)}}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("XBIN_LLM_CONFIG: %w", err)
 	}
-	h := &hostConfig{keys: map[string]string{}, stamps: map[string]fileStamp{path: stampOf(path)}}
+	if afterHostRead != nil {
+		afterHostRead(path)
+	}
 	dec := json.NewDecoder(bytes.NewReader(jsonc.Strip(raw)))
 	dec.DisallowUnknownFields() // a misspelled setting is an error, never a limit silently not applied
 	if err := dec.Decode(h); err != nil {
@@ -108,6 +113,10 @@ func (h *hostConfig) changed() bool {
 	return false
 }
 
+// afterHostRead, in tests, runs after the deployment file was read and
+// before it is parsed: where a writer finishing the file would land.
+var afterHostRead func(path string)
+
 // hostCheckGap is how often, at most, the deployment file is looked at.
 const hostCheckGap = 2 * time.Second
 
@@ -136,17 +145,24 @@ func (w *hostWatch) poll(now time.Time) bool {
 	if w.cur != nil && !w.cur.changed() {
 		return false
 	}
+	// what the files look like before they are read: a refused read is
+	// remembered as these, so a file still being written is read again
+	// when it has changed since — never missed
+	before := map[string]fileStamp{}
+	if w.cur != nil {
+		for p := range w.cur.stamps {
+			before[p] = stampOf(p)
+		}
+	}
 	h, err := loadHost(w.path)
 	if err != nil {
-		// refused: the last good file stays in force. Its stamps move on, so
-		// the same broken file isn't read again until it changes once more.
+		// refused: the last good file stays in force, and the same broken
+		// file isn't read again until it changes once more
 		msg := err.Error()
 		same := msg == w.err
 		w.err = msg
 		if w.cur != nil {
-			for p := range w.cur.stamps {
-				w.cur.stamps[p] = stampOf(p)
-			}
+			w.cur.stamps = before
 		}
 		return !same
 	}

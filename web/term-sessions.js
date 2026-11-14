@@ -159,6 +159,7 @@ export function tabsFrom(server, local) {
       net: was ? (was.net ?? null) : (s.net || null), gpu: was ? (was.gpu || 'none') : (s.gpu || 'none'), api: was ? was.api !== false : s.api !== false,
       vm: s.vm ?? !!was?.vm,
       name: s.name || '', scopes: s.scopes ?? was?.scopes ?? null, label: s.label || '',
+      ...(s.origin ? { origin: s.origin } : {}), // "agent": the person's workspace agent started it (D229)
       baseOutdated: !!was?.baseOutdated,
       ...(was?.run ? { run: was.run } : {}),
     });

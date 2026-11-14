@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/fsutil"
-	sdkllm "github.com/xbin-dev/xbin/sdk/llm"
 )
 
 // meter.go — what was used (docs/llm.md "Usage"): counters per UTC day,
@@ -39,6 +38,12 @@ type Counters struct {
 	ReasoningTokens int64   `json:"reasoningTokens,omitempty"`
 	Cost            float64 `json:"cost"`               // USD, of the requests whose model has a price
 	Unpriced        int64   `json:"unpriced,omitempty"` // of Requests: used tokens on a model without a price
+	// Estimated: of Requests, those whose answer ended without the
+	// provider's usage (the client went away, the stream broke off, the
+	// provider reports none), so their tokens are an estimate: input one
+	// token per four bytes of the request, output one per stream event
+	// relayed (or per four bytes of a plain answer).
+	Estimated int64 `json:"estimated,omitempty"`
 }
 
 func (c *Counters) add(o Counters) {
@@ -50,6 +55,7 @@ func (c *Counters) add(o Counters) {
 	c.ReasoningTokens += o.ReasoningTokens
 	c.Cost += o.Cost
 	c.Unpriced += o.Unpriced
+	c.Estimated += o.Estimated
 }
 
 // UsageRow is one row: who used which model on which day, and how much.
@@ -202,17 +208,8 @@ func (m *meter) prune(now time.Time) {
 	}
 }
 
-// record counts one finished call.
-func (m *meter) record(now time.Time, user, component, model string, u sdkllm.Usage, cost float64, priced, failed bool) {
-	c := Counters{Requests: 1, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CachedTokens: u.CachedTokens, ReasoningTokens: u.ReasoningTokens}
-	switch {
-	case failed:
-		c.Failed = 1
-	case priced:
-		c.Cost = cost
-	case !u.Zero():
-		c.Unpriced = 1
-	}
+// record counts one finished call (c.Requests is 1).
+func (m *meter) record(now time.Time, user, component, model string, c Counters) {
 	m.mu.Lock()
 	day, month := m.roll(now)
 	d := m.doc(month)
@@ -353,4 +350,24 @@ func (m *meter) query(from, to string, byMonth bool, keep func(user, component, 
 		}
 	}
 	return out
+}
+
+// unpriced lists the models with unpriced calls in now's month, and how
+// many such calls there are.
+func (m *meter) unpriced(now time.Time) (models []string, calls int64) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, month := m.roll(now)
+	seen := map[string]bool{}
+	for k, c := range m.doc(month).rows {
+		if c.Unpriced > 0 {
+			calls += c.Unpriced
+			if !seen[k.model] {
+				seen[k.model] = true
+				models = append(models, k.model)
+			}
+		}
+	}
+	slices.Sort(models)
+	return models, calls
 }

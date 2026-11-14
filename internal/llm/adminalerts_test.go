@@ -11,9 +11,9 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 )
 
-func alertsOf(r *rig, kind string) []Alert {
-	var out []Alert
-	for _, a := range r.s.Alerts() {
+func alertsOf(r *rig, kind string) []AdminAlert {
+	var out []AdminAlert
+	for _, a := range r.s.AdminAlerts() {
 		if a.Kind == kind {
 			out = append(out, a)
 		}
@@ -31,7 +31,7 @@ func TestSetupAlert(t *testing.T) {
 	setup := alertsOf(r, AlertSetup)
 	if len(setup) != 1 || setup[0].Level != "warn" || setup[0].Dismiss != SetupDismissRoute ||
 		!strings.Contains(setup[0].Message, PagePath) || !strings.Contains(setup[0].Message, "bx llm upstream add") {
-		t.Fatalf("an unconfigured connector's alerts: %+v", r.s.Alerts())
+		t.Fatalf("an unconfigured connector's alerts: %+v", r.s.AdminAlerts())
 	}
 	for _, p := range []auth.Principal{pUser("bob"), pInstance("apps/agent")} {
 		if a := r.do(p, "POST", SetupDismissRoute, nil); a.code != 403 {
@@ -42,7 +42,7 @@ func TestSetupAlert(t *testing.T) {
 		t.Fatal("a refused dismissal dismissed it")
 	}
 	r.must(200, pAdmin, "POST", SetupDismissRoute, nil)
-	if got := r.s.Alerts(); len(got) != 0 {
+	if got := r.s.AdminAlerts(); len(got) != 0 {
 		t.Fatalf("after the dismissal: %+v", got)
 	}
 	// the shell an admin drives shows the alert with its Dismiss, and posts with its own token
@@ -54,14 +54,14 @@ func TestSetupAlert(t *testing.T) {
 		t.Errorf("dismiss from another person's shell: %d", a.code)
 	}
 	r.must(200, pFrame("shell", "ada"), "POST", SetupDismissRoute, nil)
-	if got := r.s.Alerts(); len(got) != 0 {
+	if got := r.s.AdminAlerts(); len(got) != 0 {
 		t.Fatalf("after an admin's shell dismissed it: %+v", got)
 	}
 	if a := r.do(pFrame("shell", "ada"), "GET", "/llm/config", nil); a.code != 403 {
 		t.Errorf("an admin's shell reads the settings: %d (it dismisses the alert, nothing else)", a.code)
 	}
 	// it is the workspace's, and kept: another xbind on the same data
-	if got := newRigAt(t, r.dir, "", r.vault).s.Alerts(); len(got) != 0 {
+	if got := newRigAt(t, r.dir, "", r.vault).s.AdminAlerts(); len(got) != 0 {
 		t.Errorf("after a restart: %+v", got)
 	}
 	// the file is the state: without it the alert is back (the harness re-arms it so)
@@ -74,22 +74,22 @@ func TestSetupAlert(t *testing.T) {
 
 	// an upstream ends it, and an admin who has changed anything is not asked again
 	r.addUpstream("main", newUpstream(t), nil)
-	if got := r.s.Alerts(); len(got) != 0 {
+	if got := r.s.AdminAlerts(); len(got) != 0 {
 		t.Errorf("configured: %+v", got)
 	}
 	r.must(200, pAdmin, "DELETE", "/llm/upstreams/main", nil)
-	if got := r.s.Alerts(); len(got) != 0 {
+	if got := r.s.AdminAlerts(); len(got) != 0 {
 		t.Errorf("after its one upstream was removed: %+v", got)
 	}
 
 	// a host that locks every setting: nothing an admin could set up
 	locked := newRig(t, writeHost(t, t.TempDir(), `{"lockAll": true}`, ""))
-	if got := locked.s.Alerts(); len(got) != 0 {
+	if got := locked.s.AdminAlerts(); len(got) != 0 {
 		t.Errorf("lockAll without upstreams: %+v", got)
 	}
 	// a host that brings the upstream: configured from the first boot
 	hosted := newRig(t, writeHost(t, t.TempDir(), `{"upstreams": {"house": {"baseURL": "http://127.0.0.1:9/v1", "keyFile": "upstream.key"}}}`, "k"))
-	if got := hosted.s.Alerts(); len(got) != 0 {
+	if got := hosted.s.AdminAlerts(); len(got) != 0 {
 		t.Errorf("a host's upstream: %+v", got)
 	}
 }
@@ -115,15 +115,19 @@ func TestQuotaAlerts(t *testing.T) {
 		return r.do(p, "POST", "/llm/v1/chat/completions", chatBody("gpt-5", false))
 	}
 	call(pUser("bob"))
-	if got := r.s.Alerts(); len(got) != 0 {
+	if got := alertsOf(r, AlertQuota); len(got) != 0 {
 		t.Fatalf("under every limit: %+v", got)
+	}
+	// alerts.go's own notice rides along under its kind: cy's cost quota can't count a model without a price
+	if got := alertsOf(r, AlertKind); len(got) != 1 || !strings.Contains(got[0].Message, "have no price") {
+		t.Errorf("the unpriced-calls alert: %+v", r.s.AdminAlerts())
 	}
 	call(pUser("bob")) // 240 of 200: stopped
 	call(pUser("ivy")) // 120 of 100: warned
 	call(pUser("cy"))  // no price, no cost: nothing reached
 	got := alertsOf(r, AlertQuota)
 	if len(got) != 2 {
-		t.Fatalf("alerts: %+v", r.s.Alerts())
+		t.Fatalf("alerts: %+v", r.s.AdminAlerts())
 	}
 	bob, ivy := got[0], got[1]
 	if bob.Level != "warn" || bob.Dismiss != "" || bob.Message != "LLM quota: bob reached their daily limit of 200 tokens (the default quota): their calls are refused until 2026-11-15 00:00 UTC"+
@@ -173,7 +177,7 @@ func TestQuotaAlerts(t *testing.T) {
 
 	// the next UTC day: nothing is reached
 	r.clock.set(time.Date(2026, 11, 15, 0, 0, 1, 0, time.UTC))
-	if got := r.s.Alerts(); len(got) != 0 {
+	if got := alertsOf(r, AlertQuota); len(got) != 0 {
 		t.Errorf("after the reset: %+v", got)
 	}
 }

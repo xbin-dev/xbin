@@ -163,3 +163,66 @@ func TestLLMBuiltinProvider(t *testing.T) {
 		t.Error("a refused bind took effect")
 	}
 }
+
+// covers D226 — a slot bound to xbin:llm is an edge of the tile like a slot
+// bound to a provider tile, and a non-primary deployment uses it by the
+// tile's edge policy: read by default (LLMEdge answers "read", which the
+// connector serves models to and refuses calls for), block when a tile
+// manager stores it, and the primary in full. The edge is listed for the
+// Deployments panel, where its policy is set and its uses are counted.
+func TestLLMEdgeFollowsTheEdgePolicy(t *testing.T) {
+	b := newEdgeBroker(t)
+	admin := auth.Principal{Owner: true}
+	if w := call(t, b.apiBindingSet, admin, "POST", "/bindings", `{"component":"apps/chat","slot":"llm","provider":"xbin:llm"}`, nil); w.Code != 200 {
+		t.Fatalf("bind: %d %s", w.Code, w.Body)
+	}
+	edgePlane(t, b, edgeRec{tile: fxChat, primary: "main"})
+	e := edgeListed(t, b, fxChat, "slot:llm")
+	if e.Kind != "http" || e.To != LLMRef || e.Role != "writer" || e.Default != "read" || e.Policy != "read" || !slices.Equal(e.Values, []string{"read", "block"}) {
+		t.Fatalf("the edge as listed: %+v", e)
+	}
+	if mode, why := b.LLMEdge(edgeMain(fxChat)); mode != "full" || why != "" {
+		t.Errorf("the primary: %s %q", mode, why)
+	}
+	for _, via := range []string{"instance", "frame", "terminal"} {
+		mode, why := b.LLMEdge(deployTilePrincipal(fxChat, via, "dev"))
+		if mode != "read" || !strings.Contains(why, `apps/chat's non-primary deployment "dev" reaches the LLM connector read-only (edge policy "read" on slot:llm to xbin:llm)`) {
+			t.Errorf("dev's %s credential under the default: %s %q", via, mode, why)
+		}
+	}
+	if e := edgeListed(t, b, fxChat, "slot:llm"); e.Clamped != 3 || e.Refused != 0 {
+		t.Errorf("the edge's counts after three clamped uses: %+v", e)
+	}
+	// a person is no deployment's principal
+	if mode, _ := b.LLMEdge(deployPerson(t, b, fxWriter)); mode != "full" {
+		t.Errorf("a person: %s", mode)
+	}
+
+	// a tile manager blocks the edge
+	edgePlane(t, b, edgeRec{tile: fxChat, primary: "main", edges: map[string]string{"slot:llm": "block"}})
+	mode, why := b.LLMEdge(edgeDev(fxChat))
+	if mode != "block" || !strings.Contains(why, `may not use edge slot:llm to xbin:llm: the tile's edge policy for it is "block"`) {
+		t.Errorf("dev with the edge blocked: %s %q", mode, why)
+	}
+	if mode, _ := b.LLMEdge(edgeMain(fxChat)); mode != "full" {
+		t.Errorf("the primary with the edge blocked: %s", mode)
+	}
+	if e := edgeListed(t, b, fxChat, "slot:llm"); e.Refused != 1 || e.Policy != "block" || !e.Set {
+		t.Errorf("the blocked edge as listed: %+v", e)
+	}
+	// dev as the primary: it is the tile, in full, and main is the clamped one
+	edgePlane(t, b, edgeRec{tile: fxChat, primary: "dev"})
+	if mode, _ := b.LLMEdge(edgeDev(fxChat)); mode != "full" {
+		t.Errorf("dev as the primary: %s", mode)
+	}
+	if mode, _ := b.LLMEdge(edgeMain(fxChat)); mode != "read" {
+		t.Errorf("main beside a primary dev: %s", mode)
+	}
+	// the policy is storable: the plane's validation takes the edge's values
+	if err := b.ValidateEdgePolicy(fxChat, "slot:llm", "block"); err != nil {
+		t.Errorf("storing block on the edge: %v", err)
+	}
+	if err := b.ValidateEdgePolicy(fxChat, "slot:llm", "inherit"); err == nil {
+		t.Error("inherit was accepted on a read-clamped edge")
+	}
+}

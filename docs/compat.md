@@ -351,6 +351,48 @@ nothing is written under `data/llm/`.
   ignores it. **Downgrading** below the connector leaves `data/llm/`
   unread.
 
+## Agent constraints, preferences and session links (D229)
+
+With no rule set, nothing changes for anyone: every harness starts
+everywhere, `users.json` is byte for byte what it was, and no route answers
+differently.
+
+- **xbind-owned state, no migration.** An org's rules are `org.agents` and
+  the workspace's bounds a top-level `agents` key in `data/users.json`,
+  written only when they narrow something; a person's agent preferences are
+  `data/agent-prefs/<user>.json`, absent until their first write (rules 1,
+  9). `bx org agents` and `bx agent connection` are new commands (rule 6).
+- **Additive wire.** New routes (`/api/xbin/agents/policy`,
+  `PUT /orgs/<org>/agents`, `/api/xbin/agents/connection`,
+  `/api/xbin/agent/prefs`), a new optional query (`GET
+  /agent/providers?cwd=`: without it the answer is what it always was), new
+  optional fields (`agents` on an org; `origin` on a session row and a
+  history entry), a new event type (`agents`), a new frame
+  message (`xbin:open-session`) and `xbin.openSession` (rule 2). The one
+  new refusal — 403 from `POST /term/sessions` and `…/restart` for a
+  harness the tile's orgs don't allow — exists only once an admin sets a
+  rule, and carries the reason; a session already running is never ended.
+- **The shipped app and older frames** ask `GET /agent/providers` without
+  `cwd`, list every harness, and show the refusal's reason when one is
+  picked that the tile doesn't allow. They ignore `origin`.
+- **The launcher's remembered choice** moves from the browser
+  (`localStorage['bx-term-lastkind']`) to the server on the first window a
+  person opens; the browser's record is still written and still answers
+  for the root token, `--no-auth` and — after a downgrade — an xbind
+  without the route.
+- **Old shells and admin consoles** (rule 4). `?tile=…&session=<id>` is a
+  plain link to the tile for a shell before D229 (it keeps the parameter it
+  doesn't know); `xbin.openSession` still opens a session whose tile is on
+  the page, and otherwise follows that link. The admin console's agents
+  panels arrive with `bx builtin update`; until then `bx org agents` and
+  the API set the same rules. The scaffold gained one file
+  (`tiles/admin/tabs/org-agents.js`, imported relatively) and no entry file
+  moved.
+- **Downgrading** an xbind ignores the rules (every harness starts
+  everywhere again, as before D229) and the preferences file; an older
+  xbind that rewrites `users.json` drops the `agents` keys, as it drops
+  every key it doesn't know.
+
 ## What this does *not* promise
 
 - Undocumented internals: `.xbin/` contents, the on-disk shape of

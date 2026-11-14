@@ -21,7 +21,7 @@ func TestBxLLMRequests(t *testing.T) {
 		{"name":"hosted","kind":"openai","baseURL":"https://host.example","key":{"set":true,"source":"host"},"models":[],"private":true,"source":"host","locked":true}],
 		"defaults":{"model":"main/gpt-5","roles":{"agent":"main/gpt-5"}},"aliases":{"fast":"main/gpt-5"},"quotas":{},
 		"locks":{"upstreams.hosted":{"locked":true,"reason":"set by your host"},"people":{"locked":true,"reason":"set by your host"}},
-		"host":{"active":true},"vault":"open","problems":["alias old: no upstream offers it"]}`
+		"host":{"active":true},"vault":"open","problems":["alias old: no upstream offers it"],"concurrency":16,"notices":["the key of upstream main was removed: its address changed"]}`
 	var got []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		b, _ := io.ReadAll(r.Body)
@@ -70,6 +70,8 @@ func TestBxLLMRequests(t *testing.T) {
 		{"alias", "set", "*", "main/gpt-5"},
 		{"alias", "rm", "fast"},
 		{"people", "everyone"},
+		{"concurrency", "8"},
+		{"upstream", "set", "main", "--price", "*=2:4"},
 		{"off"},
 		{"usage", "--month", "--user", "bob", "--from", "2026-01-01"},
 		{"quota"},
@@ -99,6 +101,9 @@ func TestBxLLMRequests(t *testing.T) {
 		`PUT /api/xbin/llm/config {"aliases":{"*":"main/gpt-5"}}`,
 		`PUT /api/xbin/llm/config {"aliases":{"fast":""}}`,
 		`PUT /api/xbin/llm/config {"people":"everyone"}`,
+		`PUT /api/xbin/llm/config {"concurrency":8}`,
+		"GET /api/xbin/llm/config",
+		`PUT /api/xbin/llm/upstreams/main {"prices":{"*":{"in":2,"out":4},"gpt-5":{"in":1.25,"out":10}}}`,
 		`PUT /api/xbin/llm/config {"enabled":false}`,
 		"GET /api/xbin/llm/usage?from=2026-01-01&period=month&user=bob",
 		"GET /api/xbin/llm/quotas",
@@ -120,6 +125,8 @@ func TestBxLLMRequests(t *testing.T) {
 		"agent model: main/gpt-5",
 		"alias fast → main/gpt-5",
 		"! alias old: no upstream offers it",
+		"calls in flight per caller: 16",
+		"note: the key of upstream main was removed: its address changed",
 		"you (owner) may call it at /api/xbin/llm/v1",
 		"tokens/day (default, stop): 1200 of 1000, resets 2026-11-15T00:00:00Z  ← reached (stop)",
 		"upstream main: ok — gpt-5 answered in 412 ms (17 tokens)",
@@ -141,6 +148,14 @@ func TestBxLLMRequests(t *testing.T) {
 	// a locked setting, an OpenAI-shaped refusal, a usage error
 	if err := cmdLLM([]string{"upstream", "set", "hosted", "--url", "https://x"}); err == nil || !strings.Contains(err.Error(), "set by your host") || !strings.Contains(err.Error(), "409") {
 		t.Errorf("a locked upstream: %v", err)
+	}
+	// a key on the command line is refused, and never sent
+	before := len(got)
+	if err := cmdLLM([]string{"upstream", "add", "x", "http://y", "--key", "sk-on-the-command-line"}); err == nil || !strings.Contains(err.Error(), "no key on the command line") || len(got) != before {
+		t.Errorf("--key on the command line: %v (requests sent: %d)", err, len(got)-before)
+	}
+	if err := cmdLLM([]string{"upstream", "set", "main", "--key=sk-on-the-command-line"}); err == nil || len(got) != before {
+		t.Errorf("--key= on the command line: %v", err)
 	}
 	for _, bad := range [][]string{{"upstream", "add", "x"}, {"quota", "set", "team:x", "tokens/day=5"}, {"quota", "set", "default", "tokens/day=lots"},
 		{"upstream", "add", "x", "http://y", "--no-key", "--price", "gpt-5=cheap"}, {"usage", "--bogus"}, {"nonsense"}} {

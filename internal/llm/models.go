@@ -20,18 +20,23 @@ import (
 //
 //  1. no model, or xbin/default → the workspace's default model;
 //     xbin/<role> → that role's model, else the default;
-//  2. an alias → its target (aliases may chain a few steps);
-//  3. "<upstream>/<model>" where <upstream> is configured → that upstream.
+//  2. "<upstream>/<model>" where <upstream> is configured → that upstream.
 //     With a model list the model must be on it; without one any name is
 //     passed through and the upstream judges it;
-//  4. a bare name → the one upstream whose list has it; else, when the
-//     workspace has a single upstream and it passes names through, that
-//     upstream;
-//  5. anything else → the alias "*" when there is one (an admin's choice to
+//  3. a bare name on exactly one upstream's model list → that upstream;
+//  4. an alias → its target, resolved from the top (aliases may chain a few
+//     steps);
+//  5. any other name, when the workspace has a single upstream and it
+//     passes names through → that upstream;
+//  6. anything else → the alias "*" when there is one (an admin's choice to
 //     map every unknown name, e.g. a CLI's own default, to one model);
-//  6. else refused with 404 model_not_found — never silently mapped to the
+//  7. else refused with 404 model_not_found — never silently mapped to the
 //     default: a client that asked for one model must not be billed for
 //     another without an admin having said so.
+//
+// Aliases come after everything configuration names (2, 3): an alias can
+// add a name, never take one over. So an admin's alias can't redirect a
+// model of the host's upstream, or the host's default written as one.
 
 // modelError is why a model name resolves to nothing.
 type modelError struct {
@@ -67,7 +72,7 @@ func (s *snapshot) resolveNamed(model string) (effUpstream, string, error) {
 	asked := model
 	for hop := 0; ; hop++ {
 		if hop > maxAliasHops {
-			return effUpstream{}, "", &modelError{http.StatusBadRequest, "xbin_llm_alias_loop", "model " + asked + ": its aliases go in a circle (an admin fixes them: bx llm alias)"}
+			return effUpstream{}, "", &modelError{http.StatusBadRequest, "xbin_llm_alias_loop", "model " + clip(asked) + ": its aliases go in a circle (an admin fixes them: bx llm alias)"}
 		}
 		role, isRole := strings.CutPrefix(model, pseudoUpstream+"/")
 		switch {
@@ -84,10 +89,26 @@ func (s *snapshot) resolveNamed(model string) (effUpstream, string, error) {
 				next = s.defaults.Model
 			}
 			if next == "" {
-				return effUpstream{}, "", notFound("model %s: the workspace has no %s model and no default model (an admin sets one: bx llm default set <model> --role %s)", model, role, role)
+				return effUpstream{}, "", notFound("model %s: the workspace has no such model and no default model (an admin sets one: bx llm default set <model> --role <role>)", clip(model))
 			}
 			model = next
 			continue
+		}
+		// what configuration names comes before any alias
+		if up, rest, ok := strings.Cut(model, "/"); ok && rest != "" {
+			if u, has := s.upstreams[up]; has {
+				if len(u.Models) > 0 && !slices.Contains(u.Models, rest) {
+					return effUpstream{}, "", notFound("model %s: the upstream %s doesn't offer it (it offers: %s)", clip(asked), up, strings.Join(u.Models, ", "))
+				}
+				return u, rest, nil
+			}
+		}
+		switch offering := s.offering(model); {
+		case len(offering) == 1:
+			return s.upstreams[offering[0]], model, nil
+		case len(offering) > 1:
+			return effUpstream{}, "", &modelError{http.StatusBadRequest, "xbin_llm_ambiguous_model",
+				fmt.Sprintf("model %s is offered by the upstreams %s: name it <upstream>/%s", clip(asked), strings.Join(offering, ", "), clip(model))}
 		}
 		if t, ok := s.aliases[model]; ok && model != AliasAny {
 			model = t
@@ -95,34 +116,38 @@ func (s *snapshot) resolveNamed(model string) (effUpstream, string, error) {
 		}
 		break
 	}
-	if up, rest, ok := strings.Cut(model, "/"); ok && rest != "" {
-		if u, has := s.upstreams[up]; has {
-			if len(u.Models) > 0 && !slices.Contains(u.Models, rest) {
-				return effUpstream{}, "", notFound("model %s: the upstream %s doesn't offer %s (it offers: %s)", asked, up, rest, strings.Join(u.Models, ", "))
-			}
-			return u, rest, nil
-		}
-	}
-	var offering []string
-	for _, name := range s.upstreamNames() {
-		if slices.Contains(s.upstreams[name].Models, model) {
-			offering = append(offering, name)
-		}
-	}
-	switch {
-	case len(offering) == 1:
-		return s.upstreams[offering[0]], model, nil
-	case len(offering) > 1:
-		return effUpstream{}, "", &modelError{http.StatusBadRequest, "xbin_llm_ambiguous_model",
-			fmt.Sprintf("model %s is offered by the upstreams %s: name it <upstream>/%s", asked, strings.Join(offering, ", "), model)}
-	case len(s.upstreams) == 1:
+	if len(s.upstreams) == 1 {
 		if u := s.upstreams[s.upstreamNames()[0]]; len(u.Models) == 0 {
 			return u, model, nil // the single upstream passes names through
 		}
 	}
 	return effUpstream{}, "", notFound("model %s: no upstream offers it — name a model as <upstream>/<model> (GET /api/xbin/llm/v1/models lists them; upstreams: %s)",
-		asked, strings.Join(s.upstreamNames(), ", "))
+		clip(asked), strings.Join(s.upstreamNames(), ", "))
 }
+
+// offering are the upstreams whose model list has the bare name model.
+func (s *snapshot) offering(model string) []string {
+	var out []string
+	for _, name := range s.upstreamNames() {
+		if slices.Contains(s.upstreams[name].Models, model) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
+// clip shortens a caller's model name for an error message.
+func clip(model string) string {
+	if len(model) > 80 {
+		return model[:80] + "…"
+	}
+	return model
+}
+
+// unknownModel is the name every call for a model nothing lists is metered
+// and logged under, per upstream: a caller picks the name it sends, and
+// must not pick how many rows the usage store keeps.
+const unknownModel = "(unknown)"
 
 // publicName is how a resolved model is named in listings and usage.
 func publicName(u effUpstream, model string) string { return u.Name + "/" + model }
@@ -136,8 +161,9 @@ const (
 
 // modelCache keeps each passthrough upstream's /models answer.
 type modelCache struct {
-	mu sync.Mutex
-	by map[string]modelEntry
+	mu         sync.Mutex
+	by         map[string]modelEntry
+	refreshing map[string]bool
 }
 
 type modelEntry struct {
@@ -159,6 +185,36 @@ func (c *modelCache) get(name, target string, now time.Time) (modelEntry, bool) 
 		ttl = modelsErrTTL
 	}
 	return e, now.Sub(e.at) < ttl
+}
+
+// peek is name's entry however old (ok false: never fetched for this
+// target), and whether it is stale.
+func (c *modelCache) peek(name, target string, now time.Time) (e modelEntry, stale, ok bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	e, ok = c.by[name]
+	if !ok || e.target != target {
+		return modelEntry{}, false, false
+	}
+	ttl := modelsTTL
+	if e.err != "" {
+		ttl = modelsErrTTL
+	}
+	return e, now.Sub(e.at) >= ttl, true
+}
+
+// refresh claims the one background refresh of name (false: one runs).
+func (c *modelCache) refresh(name string, running bool) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.refreshing == nil {
+		c.refreshing = map[string]bool{}
+	}
+	if running && c.refreshing[name] {
+		return false
+	}
+	c.refreshing[name] = running
+	return true
 }
 
 func (c *modelCache) put(name string, e modelEntry) {
@@ -202,6 +258,44 @@ func (s *Service) upstreamModels(ctx context.Context, u effUpstream) ([]sdkllm.M
 	}
 	s.models.put(u.Name, e)
 	return e.models, e.err
+}
+
+// meterName is the name a call for model through u is metered and logged
+// under: "<upstream>/<model>" when configuration or the upstream's own list
+// names the model, "<upstream>/(unknown)" otherwise. A pass-through
+// upstream's list is the cached one — fetched now when there is none yet
+// (bounded), refreshed in the background when it is old — so the names a
+// caller can make rows of are the names the upstream itself has.
+func (s *Service) meterName(ctx context.Context, u effUpstream, model string) string {
+	if len(u.Models) > 0 { // resolve only passes a listed model
+		return publicName(u, model)
+	}
+	t, err := s.target(u)
+	if err != nil {
+		return publicName(u, unknownModel)
+	}
+	fp := t.BaseURL + "|" + hint(t.Key)
+	e, stale, ok := s.models.peek(u.Name, fp, s.now())
+	switch {
+	case !ok:
+		fetch, cancel := context.WithTimeout(ctx, 5*time.Second)
+		models, _ := s.upstreamModels(fetch, u)
+		cancel()
+		e.models = models
+	case stale && s.models.refresh(u.Name, true):
+		go func() {
+			defer s.models.refresh(u.Name, false)
+			fetch, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+			defer cancel()
+			s.upstreamModels(fetch, u)
+		}()
+	}
+	for _, m := range e.models {
+		if m.ID == model {
+			return publicName(u, model)
+		}
+	}
+	return publicName(u, unknownModel)
 }
 
 // listModels is GET /v1/models for snap: every upstream's models as

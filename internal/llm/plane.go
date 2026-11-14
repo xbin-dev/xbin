@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	sdkllm "github.com/xbin-dev/xbin/sdk/llm"
@@ -66,7 +67,16 @@ type Outcome struct {
 	Upstream bool         // the upstream answered (Status is its own)
 	Usage    sdkllm.Usage // what the answer reported
 	HasUsage bool
-	Canceled bool   // the client went away
+	// Sent: the request reached the upstream (it may have worked on it,
+	// whatever came back). Stream: the answer was an SSE stream. Bytes and
+	// Events: how much of the answer was read from the upstream — what an
+	// estimate is made from when the answer ended without its usage.
+	Sent   bool
+	Stream bool
+	Bytes  int64
+	Events int64
+	// Canceled: the client went away before the answer ended.
+	Canceled bool
 	Err      string // why it failed, for the log: never a body or a key
 }
 
@@ -74,17 +84,29 @@ type Outcome struct {
 func (o Outcome) OK() bool { return o.Upstream && o.Status >= 200 && o.Status < 300 }
 
 // Proxy is the in-daemon plane: a streaming reverse proxy. Nothing of an
-// answer is held back — every read is written and flushed — the client's
-// context is the upstream request's, so a client that goes away ends the
-// upstream call, and no deadline bounds a whole call: an upstream is given
-// up on only after HeaderTimeout without an answer or IdleTimeout without
-// a byte, so a long stream runs as long as it keeps talking.
+// answer is held back — every read is written and flushed — and no deadline
+// bounds a whole call: an upstream is given up on only after HeaderTimeout
+// without an answer or IdleTimeout without a byte, so a long stream runs as
+// long as it keeps talking.
+//
+// A client that goes away ends the upstream call, after Grace: providers
+// report usage at the end of an answer and bill what they generated, so a
+// call dropped at once would be free to whoever drops it. For Grace the
+// upstream's answer is still read (and thrown away) to catch that usage;
+// then the call is cut, and what was relayed is what the caller is charged
+// an estimate for. A client that stays but stops reading is treated the
+// same once a write has waited WriteTimeout.
 type Proxy struct {
 	Client        *http.Client
 	HeaderTimeout time.Duration // no response headers for this long (a non-streaming call thinks before it answers)
 	IdleTimeout   time.Duration // no byte of the body for this long
+	Grace         time.Duration // how long an upstream call outlives its client, to report its usage
+	WriteTimeout  time.Duration // one write to the client waits this long at most
 	Log           *slog.Logger
 }
+
+// DefaultGrace is Proxy.Grace unless set (XBIN_LLM_CANCEL_GRACE).
+const DefaultGrace = 5 * time.Second
 
 // NewProxy is a Proxy with the default transport and timeouts.
 func NewProxy(log *slog.Logger) *Proxy {
@@ -102,11 +124,14 @@ func NewProxy(log *slog.Logger) *Proxy {
 		// an upstream's redirect is never followed: the key goes to the
 		// configured address and nowhere else
 		Client:        &http.Client{Transport: tr, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
-		HeaderTimeout: 10 * time.Minute, IdleTimeout: 10 * time.Minute, Log: log,
+		HeaderTimeout: 10 * time.Minute, IdleTimeout: 10 * time.Minute, Grace: DefaultGrace, WriteTimeout: 2 * time.Minute, Log: log,
 	}
 }
 
-var errUpstreamSilent = errors.New("the upstream went silent")
+var (
+	errUpstreamSilent = errors.New("the upstream went silent")
+	errClientGone     = errors.New("the client went away")
+)
 
 // answerHeaders are the upstream's response headers a client gets. Not
 // Set-Cookie (it would land on xbind's origin), not the provider's account
@@ -142,31 +167,61 @@ func (p *Proxy) request(ctx context.Context, method string, t Target, path strin
 
 // Relay implements Connector.
 func (p *Proxy) Relay(ctx context.Context, w http.ResponseWriter, c Call) Outcome {
-	fail := func(status int, code, msg, logged string, canceled bool) Outcome {
+	fail := func(status int, code, msg, logged string) Outcome {
 		copyHeader(w.Header(), c.Answer)
 		sdkllm.WriteError(w, status, sdkllm.Error{Message: msg, Code: code})
-		return Outcome{Status: status, Err: logged, Canceled: canceled}
+		return Outcome{Status: status, Err: logged}
 	}
-	up, cancel := context.WithCancelCause(ctx)
+	rc := http.NewResponseController(w)
+	defer func() { _ = rc.SetWriteDeadline(time.Time{}) }() // never leave a deadline on a connection that is kept alive
+
+	// the upstream call is the client's, but outlives it by Grace
+	up, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
 	defer cancel(nil)
 	silent := time.AfterFunc(p.HeaderTimeout, func() { cancel(errUpstreamSilent) })
 	defer silent.Stop()
+	var (
+		graceMu sync.Mutex
+		grace   *time.Timer
+		ended   bool
+	)
+	gone := func() { // the client went away, or stopped reading: once
+		graceMu.Lock()
+		defer graceMu.Unlock()
+		if grace == nil && !ended {
+			grace = time.AfterFunc(p.Grace, func() { cancel(errClientGone) })
+		}
+	}
+	unwatch := context.AfterFunc(ctx, gone)
+	defer func() {
+		unwatch()
+		graceMu.Lock()
+		ended = true
+		if grace != nil {
+			grace.Stop()
+		}
+		graceMu.Unlock()
+	}()
 
 	req, err := p.request(up, http.MethodPost, c.Target, c.Path, c.Body, c.Header)
 	if err != nil {
-		return fail(http.StatusBadGateway, "xbin_llm_upstream", "the upstream "+c.Target.Name+" is misconfigured (its base URL)", err.Error(), false)
+		return fail(http.StatusBadGateway, "xbin_llm_upstream", "the upstream "+c.Target.Name+" is misconfigured (its base URL)", err.Error())
 	}
 	resp, err := p.Client.Do(req)
 	if err != nil {
-		switch {
-		case ctx.Err() != nil: // the client went away; nobody reads this answer
-			return fail(499, "xbin_llm_canceled", "the call was cancelled", "canceled before the upstream answered", true)
-		case errors.Is(context.Cause(up), errUpstreamSilent):
-			return fail(http.StatusGatewayTimeout, "xbin_llm_upstream_timeout",
-				fmt.Sprintf("the upstream %s did not answer within %s", c.Target.Name, p.HeaderTimeout), "no response headers in time", false)
+		switch cause := context.Cause(up); {
+		case errors.Is(cause, errClientGone): // nobody reads this answer; the upstream had the request for Grace
+			out := fail(499, "xbin_llm_canceled", "the call was cancelled", "the client went away before the upstream answered")
+			out.Canceled, out.Sent = true, true
+			return out
+		case errors.Is(cause, errUpstreamSilent):
+			out := fail(http.StatusGatewayTimeout, "xbin_llm_upstream_timeout",
+				fmt.Sprintf("the upstream %s did not answer within %s", c.Target.Name, p.HeaderTimeout), "no response headers in time")
+			out.Sent = true
+			return out
 		}
 		return fail(http.StatusBadGateway, "xbin_llm_upstream_unreachable",
-			"the upstream "+c.Target.Name+" could not be reached (an admin checks it: bx llm upstream test "+c.Target.Name+")", transportErr(err, c.Target), false)
+			"the upstream "+c.Target.Name+" could not be reached (an admin checks it: bx llm upstream test "+c.Target.Name+")", transportErr(err, c.Target))
 	}
 	defer resp.Body.Close()
 
@@ -187,37 +242,44 @@ func (p *Proxy) Relay(ctx context.Context, w http.ResponseWriter, c Call) Outcom
 	}
 	copyHeader(h, c.Answer)
 	w.WriteHeader(resp.StatusCode)
-	rc := http.NewResponseController(w)
 	_ = rc.Flush()
 
 	var sink sdkllm.UsageSink
 	if c.Sink != nil {
 		sink = c.Sink(stream)
 	}
-	out := Outcome{Status: resp.StatusCode, Upstream: true}
+	out := Outcome{Status: resp.StatusCode, Upstream: true, Sent: true, Stream: stream}
 	buf := make([]byte, 32<<10)
+	reading := true // the client still takes what is written
 	for {
 		silent.Reset(p.IdleTimeout)
 		n, rerr := resp.Body.Read(buf)
 		if n > 0 {
-			if _, werr := w.Write(buf[:n]); werr != nil {
-				out.Canceled, out.Err = true, "the client stopped reading"
-				cancel(nil)
-				break
-			}
-			_ = rc.Flush()
+			out.Bytes += int64(n)
 			if sink != nil {
 				_, _ = sink.Write(buf[:n])
+			}
+			if reading {
+				_ = rc.SetWriteDeadline(time.Now().Add(p.WriteTimeout))
+				_, werr := w.Write(buf[:n])
+				if werr == nil {
+					werr = rc.Flush()
+				}
+				if werr != nil && !errors.Is(werr, http.ErrNotSupported) {
+					// gone, or not reading: the rest is read for its usage only, for Grace
+					reading, out.Canceled, out.Err = false, true, "the client stopped reading"
+					gone()
+				}
 			}
 		}
 		if rerr == io.EOF {
 			break
 		}
 		if rerr != nil {
-			switch {
-			case ctx.Err() != nil:
-				out.Canceled, out.Err = true, "canceled mid-answer"
-			case errors.Is(context.Cause(up), errUpstreamSilent):
+			switch cause := context.Cause(up); {
+			case errors.Is(cause, errClientGone):
+				out.Canceled, out.Err = true, "the client went away mid-answer"
+			case errors.Is(cause, errUpstreamSilent):
 				out.Err = "the upstream went silent mid-answer"
 			default:
 				out.Err = "the upstream's answer broke off: " + transportErr(rerr, c.Target)
@@ -225,8 +287,15 @@ func (p *Proxy) Relay(ctx context.Context, w http.ResponseWriter, c Call) Outcom
 			break
 		}
 	}
+	if ctx.Err() != nil {
+		out.Canceled = true
+	}
 	if sink != nil {
 		out.Usage, out.HasUsage = sink.Usage()
+		switch e := sink.(type) {
+		case interface{ Events() int64 }:
+			out.Events = e.Events()
+		}
 	}
 	return out
 }
@@ -239,7 +308,7 @@ func (p *Proxy) Relay(ctx context.Context, w http.ResponseWriter, c Call) Outcom
 // A redirect is refused the same way.
 func (p *Proxy) relayError(w http.ResponseWriter, resp *http.Response, c Call) Outcome {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrorBody))
-	out := Outcome{Status: resp.StatusCode, Upstream: true, Err: "upstream status " + resp.Status}
+	out := Outcome{Status: resp.StatusCode, Upstream: true, Sent: true, Err: "upstream status " + resp.Status}
 	own := func(code, msg string) Outcome {
 		copyHeader(w.Header(), c.Answer)
 		sdkllm.WriteError(w, http.StatusBadGateway, sdkllm.Error{Message: msg, Code: code})

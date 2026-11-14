@@ -149,60 +149,68 @@ type RequestInfo struct {
 // decode.
 type Request struct {
 	RequestInfo
-	raw []byte
-	m   map[string]json.RawMessage
+	m map[string]json.RawMessage
 }
 
-// OpenRequest decodes body's top level; an error means it is no JSON
-// object.
+// The errors of OpenRequest.
+var (
+	ErrNotObject = errors.New("llm: the request body is not a JSON object")
+	// ErrBadStream: "stream" is neither true, false nor null. A relay that
+	// read a string or a number as "not streaming" while its upstream read
+	// it as streaming would meter nothing.
+	ErrBadStream = errors.New(`llm: "stream" must be true or false`)
+	ErrBadModel  = errors.New(`llm: "model" must be a string`)
+)
+
+// OpenRequest decodes body's top level. A member written twice keeps its
+// last value, and Body writes each member once, so the upstream reads
+// exactly what the relay read.
 func OpenRequest(body []byte) (*Request, error) {
-	r := &Request{raw: body}
+	r := &Request{}
 	if err := json.Unmarshal(body, &r.m); err != nil {
 		return nil, err
 	}
 	if r.m == nil {
-		return nil, errNotObject
+		return nil, ErrNotObject
 	}
-	r.Model = rawString(r.m["model"])
-	_ = json.Unmarshal(r.m["stream"], &r.Stream)
+	if raw, has := r.m["model"]; has && string(raw) != "null" {
+		if len(raw) == 0 || raw[0] != '"' || json.Unmarshal(raw, &r.Model) != nil {
+			return nil, ErrBadModel
+		}
+	}
+	switch string(r.m["stream"]) {
+	case "", "null", "false":
+	case "true":
+		r.Stream = true
+	default:
+		return nil, ErrBadStream
+	}
 	return r, nil
 }
 
-var errNotObject = errors.New("llm: the request body is not a JSON object")
+// Member is the raw value of a top-level member (nil when absent).
+func (r *Request) Member(name string) json.RawMessage { return r.m[name] }
 
 // Body is the request for an upstream, no member the client sent dropped:
 // model, when not "", replaces the body's; streamUsage makes a streamed
 // Chat Completions call end with its usage chunk
 // (stream_options.include_usage, other stream options kept) — pass it for
-// PathChat only, the Responses wire reports usage on its own. With nothing
-// to change it is the client's own bytes.
+// PathChat only, the Responses wire reports usage on its own. It is always
+// written anew from what OpenRequest read (members in sorted order, each
+// once), never the client's own bytes.
 func (r *Request) Body(model string, streamUsage bool) ([]byte, error) {
-	changed := false
-	m := r.m
-	set := func(k string, v json.RawMessage) {
-		if !changed {
-			m, changed = make(map[string]json.RawMessage, len(r.m)+1), true
-			for k, v := range r.m {
-				m[k] = v
-			}
-		}
+	m := make(map[string]json.RawMessage, len(r.m)+1)
+	for k, v := range r.m {
 		m[k] = v
 	}
-	if model != "" && model != r.Model {
-		b, _ := json.Marshal(model)
-		set("model", b)
+	if model != "" {
+		m["model"], _ = json.Marshal(model)
 	}
 	if streamUsage && r.Stream {
 		opts := map[string]json.RawMessage{}
 		_ = json.Unmarshal(r.m["stream_options"], &opts)
-		if string(opts["include_usage"]) != "true" {
-			opts["include_usage"] = json.RawMessage("true")
-			b, _ := json.Marshal(opts)
-			set("stream_options", b)
-		}
-	}
-	if !changed {
-		return r.raw, nil
+		opts["include_usage"] = json.RawMessage("true")
+		m["stream_options"], _ = json.Marshal(opts)
 	}
 	return json.Marshal(m)
 }

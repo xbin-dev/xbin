@@ -115,7 +115,8 @@ await until(() => !document.getElementById('sbxterm-pane'));
 await until(() => window.__calls.some((c) => c.method === 'DELETE'));
 ok('Close ends the shell: DELETE its exec at the manager, from the page',
   (await deletes()).join() === '/api/apps/coding-sandbox/sbx/sandboxes/api/execs/e1', JSON.stringify(await deletes()));
-ok('…its socket is closed', await page.evaluate(() => window.__tty.sockets.every((s) => s.readyState === 3)));
+// the element ends its session a task after it leaves the page (a terminal moved between panes keeps it, D202): wait for it
+ok('…its socket is closed', await until(() => window.__tty.sockets.every((s) => s.readyState === 3)).then(() => true, () => false));
 
 // --- the dialog's row: Terminal; exit and New shell ---------------------------------------------------
 await page.click('#sbxbadge');

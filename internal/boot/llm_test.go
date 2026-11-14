@@ -236,6 +236,22 @@ func TestLLMHostFileStopsBoot(t *testing.T) {
 	if err := Run(ctx, cfg); err == nil || !strings.Contains(err.Error(), "XBIN_LLM_CONFIG") {
 		t.Fatalf("Run with an invalid XBIN_LLM_CONFIG: %v", err)
 	}
+	// …and so does a grace that is no duration (on a workspace of its own:
+	// the boot that just stopped half-way still holds the first one's store)
+	ws2 := filepath.Join(t.TempDir(), "ws")
+	if err := InitWorkspace(ws2); err != nil {
+		t.Fatal(err)
+	}
+	ln2, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln2.Close()
+	cfg = testConfig(ws2, ln2)
+	cfg.LLMCancelGrace = "soon"
+	if err := Run(ctx, cfg); err == nil || !strings.Contains(err.Error(), "XBIN_LLM_CANCEL_GRACE") {
+		t.Fatalf("Run with an invalid XBIN_LLM_CANCEL_GRACE: %v", err)
+	}
 }
 
 // covers D226 — the connector's notices reach the workspace's admins

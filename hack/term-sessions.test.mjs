@@ -141,6 +141,14 @@ test('tabsFrom: an ended agent tab is kept (marked), a vanished shell tab is dro
   assert.deepEqual(again.map((t) => [t.key, !!t.ended]), [['ag2', false], ['ag', true]]);
 });
 
+test('tabsFrom: a session the person\'s workspace agent started says so (D229)', () => {
+  const tabs = tabsFrom([{ id: 'a1', kind: 'agent', provider: 'claude', origin: 'agent' }, { id: 'a2', kind: 'agent', provider: 'claude' }], []);
+  assert.equal(tabs[0].origin, 'agent');
+  assert.ok(!('origin' in tabs[1]), 'a session its person opened carries none');
+  // the mark is the server's: a later listing without it clears it
+  assert.ok(!('origin' in tabsFrom([{ id: 'a1', kind: 'agent' }], tabs)[0]));
+});
+
 test('tabsFrom: a spawning tab keeps its one-shot run command when a listing absorbs it', () => {
   // the "open" event's listing can land before the terminal's session frame
   // — when bx-terminal types the command (the agent tab's one-click sign-in)

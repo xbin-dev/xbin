@@ -3,6 +3,8 @@ package broker
 import (
 	"fmt"
 
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/deployments"
 	"github.com/xbin-dev/xbin/internal/registry"
 )
 
@@ -25,10 +27,15 @@ type httpBuiltin struct {
 	Service string
 	URL     string // what a bound requester calls (under /api/xbin/)
 	Label   string
+	// Role is what the binding stands for in the edge policy of the tile's
+	// non-primary deployments (edgepolicy.go), as a provider tile's provide
+	// role does: writer is read-clamped by default, so such a deployment
+	// reads (the model list) and doesn't call.
+	Role string
 }
 
 var httpBuiltins = map[string]httpBuiltin{
-	LLMRef: {Service: "openai", URL: "/api/xbin/llm", Label: "LLM by xbin — the workspace's LLM connector"},
+	LLMRef: {Service: "openai", URL: "/api/xbin/llm", Label: "LLM by xbin — the workspace's LLM connector", Role: "writer"},
 }
 
 // httpBuiltinFor is the builtin ref names when it implements service.
@@ -91,4 +98,60 @@ func (b *Broker) LLMBound(comp string) bool {
 		}
 	}
 	return false
+}
+
+// The modes LLMEdge answers (internal/llm's EdgeFull, EdgeRead, EdgeBlock).
+const (
+	llmEdgeFull  = "full"
+	llmEdgeRead  = "read"
+	llmEdgeBlock = "block"
+)
+
+// LLMEdge says how tile principal p may use its tile's binding to the LLM
+// connector (docs/auth.md, the edge policy): in full from the tile's
+// primary; from a non-primary deployment by the tile's policy for the edge
+// — the slot bound to xbin:llm, an edge like a slot bound to a provider
+// tile: read by default (the connector then serves it the model list and
+// its status, and refuses its calls, as llm-gw's reader does), or block,
+// which a tile manager sets and which wins when several slots are bound.
+// why is the refusal's text. Counted for the Deployments panel like every
+// edge.
+func (b *Broker) LLMEdge(p auth.Principal) (mode, why string) {
+	dep, np, err := b.nonPrimary(p)
+	switch {
+	case err != nil:
+		return llmEdgeBlock, err.Error()
+	case !np:
+		return llmEdgeFull, ""
+	}
+	c, ok := b.Reg.Component(p.Component)
+	if !ok {
+		if c, _, ok = b.Reg.Resolve(p.Component); !ok {
+			return llmEdgeBlock, fmt.Sprintf("%s's non-primary deployment %q can't call the LLM connector: %s isn't a tile", p.Component, dep, p.Component)
+		}
+	}
+	edges := b.edgesTo(c, LLMRef)
+	if len(edges) == 0 {
+		return llmEdgeBlock, fmt.Sprintf("%s's non-primary deployment %q can't call the LLM connector: no edge of the tile authorizes it", c.Path, dep)
+	}
+	stored := b.deploymentEdges(c.Path)
+	read := false
+	for _, e := range edges {
+		switch policy, eff, why, _ := e.effective(stored); eff {
+		case deployments.EdgeInherit:
+		case deployments.EdgeRead:
+			read = true
+		default:
+			b.tally(c.Path, dep, e.id).refused.Add(1)
+			return llmEdgeBlock, blockText(c.Path, dep, LLMRef, e, policy, why)
+		}
+	}
+	if !read {
+		return llmEdgeFull, ""
+	}
+	for _, e := range edges {
+		b.tally(c.Path, dep, e.id).clamped.Add(1)
+	}
+	return llmEdgeRead, fmt.Sprintf("%s's non-primary deployment %q reaches the LLM connector read-only (edge policy \"read\" on %s to %s): it can list models, not run a call. Run the call from the primary; a tile manager can block the edge in the Deployments panel.",
+		c.Path, dep, edges[0].id, LLMRef)
 }

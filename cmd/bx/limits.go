@@ -33,6 +33,12 @@ const limitsUsage = `  bx limits [ls] [--pending] [--at-cap] [--json]
                                         sandbox-vcpus sandbox-disk; --scope <s> for a scope's disk
   bx org limits <org> [--set memory=8G,disk=500G,…] [--rm <kind>]
                                         an org's per-tile ceilings (workspace admins)
+  bx org agents [<org>] [--workspace-agent on|off] [--harnesses any|none|<id,…>]
+                [--models any|private|none|<id,…>] [--credentials own-first|connector]
+                                        what agents may do on an org's tiles; no org:
+                                        the workspace's bounds (D229)
+  bx agent connection [--model m] [--orgs a,b] [--tiles x,y] [--what-if m]
+                                        what a workspace agent session is connected to
 `
 
 const noLimitsMsg = "this xbind has no tile limits (no /api/xbin/limits); upgrade xbind"

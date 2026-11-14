@@ -33,7 +33,16 @@ type Settings struct {
 	// ("<upstream>/<model>"); the alias "*" catches every unknown name.
 	Aliases map[string]string `json:"aliases,omitempty"`
 	Quotas  QuotaRules        `json:"quotas"`
+	// Concurrency is how many calls one caller (a person; a component, for
+	// calls nobody acts in) may have in flight; 0 is DefaultConcurrency.
+	Concurrency int `json:"concurrency,omitempty"`
 }
+
+// DefaultConcurrency and MaxConcurrency bound Settings.Concurrency.
+const (
+	DefaultConcurrency = 16
+	MaxConcurrency     = 1024
+)
 
 // Defaults are the workspace's default models: Model for a call that names
 // none (and for xbin/default), Roles for the named jobs — "agent" (the
@@ -163,8 +172,30 @@ func (s Settings) validate() error {
 		if err := validAlias(a, target); err != nil {
 			return err
 		}
+		if up := aliasUpstream(a, s.Upstreams); up != "" {
+			return shadowErr(a, up)
+		}
+	}
+	if s.Concurrency < 0 || s.Concurrency > MaxConcurrency {
+		return fmt.Errorf("concurrency: 1–%d calls in flight per caller (0: the default, %d)", MaxConcurrency, DefaultConcurrency)
 	}
 	return s.Quotas.validate()
+}
+
+// aliasUpstream is the upstream an alias's name would shadow: an alias
+// named "<upstream>/…" reads as a model of that upstream, and an explicit
+// model name is never an alias's to redirect.
+func aliasUpstream[U any](alias string, upstreams map[string]U) string {
+	if up, rest, ok := strings.Cut(alias, "/"); ok && rest != "" {
+		if _, has := upstreams[up]; has {
+			return up
+		}
+	}
+	return ""
+}
+
+func shadowErr(alias, upstream string) error {
+	return fmt.Errorf("alias %q: names under %s/ are the upstream %s's models — an alias can't stand in for one", alias, upstream, upstream)
 }
 
 func validAlias(alias, target string) error {
@@ -281,6 +312,8 @@ type snapshot struct {
 	defaults  Defaults
 	aliases   map[string]string
 	quotas    QuotaRules
+	// concurrency is the per-caller cap in force (never 0).
+	concurrency int
 
 	locks   map[string]bool // setting path → set by the host
 	lockAll bool            // the host's file locks every setting
@@ -321,6 +354,10 @@ func merge(admin Settings, host *hostConfig) *snapshot {
 		s.aliases[a] = t
 	}
 	s.quotas = admin.Quotas.clone()
+	s.concurrency = DefaultConcurrency
+	if admin.Concurrency > 0 {
+		s.concurrency = admin.Concurrency
+	}
 	if host == nil {
 		return s
 	}
@@ -349,13 +386,21 @@ func merge(admin Settings, host *hostConfig) *snapshot {
 		s.quotas.Workspace, s.locks["quotas.workspace"] = h.Quotas.Workspace, true
 	}
 	if h.Quotas.Default != nil {
+		// the host's default is a ceiling: an admin's own per-user and
+		// per-org entries narrow it, never widen it (quota.go)
 		s.quotas.Default, s.locks["quotas.default"] = h.Quotas.Default, true
+		s.quotas.ceiling = h.Quotas.Default
 	}
 	if h.Quotas.Users != nil {
 		s.quotas.Users, s.locks["quotas.users"] = cloneMap(h.Quotas.Users), true
+		s.quotas.hostUsers = true
 	}
 	if h.Quotas.Orgs != nil {
 		s.quotas.Orgs, s.locks["quotas.orgs"] = cloneMap(h.Quotas.Orgs), true
+		s.quotas.hostOrgs = true
+	}
+	if h.Concurrency > 0 {
+		s.concurrency, s.locks["concurrency"] = h.Concurrency, true
 	}
 	return s
 }
@@ -380,6 +425,14 @@ func (s *snapshot) problems() []string {
 		check("the "+r+" model", s.defaults.Roles[r])
 	}
 	for _, a := range slices.Sorted(maps.Keys(s.aliases)) {
+		if up := aliasUpstream(a, s.upstreams); up != "" {
+			out = append(out, "alias "+a+": never used — names under "+up+"/ are the upstream's own models")
+			continue
+		}
+		if a != AliasAny && len(s.offering(a)) > 0 {
+			out = append(out, "alias "+a+": never used — an upstream lists a model of that name")
+			continue
+		}
 		check("alias "+a, s.aliases[a])
 	}
 	return out

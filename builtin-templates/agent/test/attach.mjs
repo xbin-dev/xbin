@@ -234,11 +234,13 @@ c = await chips();
 ok('paste and drop both attach', c.length === 2 && c[0].text.includes('pasted.png') && c[1].text.includes('dropped.txt'), JSON.stringify(c));
 ok('the drop highlight clears', !(await page.$eval('#main', (e) => e.classList.contains('dropping'))));
 
-// 7. Too large: refused before any upload.
+// 7. Too large: refused before any upload — one byte past the page's own cap
+// (model/actions.js MAX_ATTACH, the backend's per-file limit), whatever it is.
 await page.evaluate(() => { document.querySelectorAll('#attach [data-rm]').forEach((b) => b.click()); });
-await page.evaluate(() => {
+await page.evaluate(async () => {
+  const { MAX_ATTACH } = await import('/model/actions.js');
   const dt = new DataTransfer();
-  dt.items.add(new File([new Uint8Array(16 * 1024 * 1024 + 1)], 'big.bin'));
+  dt.items.add(new File([new Uint8Array(MAX_ATTACH + 1)], 'big.bin'));
   document.getElementById('msg').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));
 });
 await resetCalls();

@@ -1,7 +1,9 @@
 package boot
 
 import (
+	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/llm"
@@ -15,7 +17,16 @@ import (
 // xbind doesn't run without the limits its host wrote.
 func (st *State) setupLLM(srv *server.Server) error {
 	brk, userStore := st.Broker, st.Users
+	var grace time.Duration
+	if v := st.Cfg.LLMCancelGrace; v != "" {
+		d, err := time.ParseDuration(v)
+		if err != nil || d <= 0 || d > 10*time.Minute {
+			return fmt.Errorf("bad XBIN_LLM_CANCEL_GRACE %q: a duration up to 10m, e.g. 5s", v)
+		}
+		grace = d
+	}
 	svc, err := llm.New(llm.Options{
+		Grace:    grace,
 		Dir:      filepath.Join(st.WS, "data", "llm"),
 		HostFile: st.Cfg.LLMConfig,
 		// upstream keys an admin sets are sealed under the vault barrier;
@@ -23,6 +34,23 @@ func (st *State) setupLLM(srv *server.Server) error {
 		Vault: brk.Barrier(), AllowPlaintext: brk.AllowInsecureVault,
 		IsAdmin: brk.IsAdmin, AdminShell: brk.AdminShell,
 		Bound: brk.LLMBound, // the binding is the authorization, asked per call
+		Edge:  brk.LLMEdge,  // …and a non-primary deployment uses it by the tile's edge policy
+		// an LLM key stands while its person exists, is enabled and can
+		// still open the tile it was minted for
+		KeyOwner: func(user, component string) bool {
+			if userStore == nil {
+				return false
+			}
+			u, ok := userStore.Get(user)
+			if !ok || u.Disabled {
+				return false
+			}
+			if component == "" || u.IsAdmin() {
+				return true
+			}
+			acc, ok := userStore.Access(user)
+			return ok && acc.CanReadTile(component)
+		},
 		// a person's orgs, for the orgs' quota overrides: active memberships only
 		OrgsOf: func(user string) []string {
 			if userStore == nil {
@@ -43,7 +71,24 @@ func (st *State) setupLLM(srv *server.Server) error {
 	st.LLM = svc
 	svc.Register(srv)
 	brk.LLMOffered = svc.Configured // pickers offer xbin:llm once an upstream exists
-	// its notices for admins — a quota reached, the setup card (llm/alerts.go)
+	// LLM keys end with what they were minted under: a person signed out
+	// everywhere, disabled or deleted; a tile's binding to the connector
+	prevOut := brk.OnUserSignedOut
+	brk.OnUserSignedOut = func(id string, deleted bool) {
+		if prevOut != nil {
+			prevOut(id, deleted)
+		}
+		svc.UserGone(id)
+	}
+	prevGrant := brk.OnGrantChange // a bind or an unbind fires it
+	brk.OnGrantChange = func(comp string) {
+		if prevGrant != nil {
+			prevGrant(comp)
+		}
+		svc.BindingChanged(comp)
+	}
+	// its notices for admins — a quota reached, the setup card, cost quotas
+	// that miss unpriced calls (llm/adminalerts.go, alerts.go)
 	// — reach an admin's own session and the admin console (AdminAlerts) and
 	// the shell an admin drives (AdminShellAlerts); each a single func:
 	// chained after the earlier sources, never overwritten
@@ -53,7 +98,7 @@ func (st *State) setupLLM(srv *server.Server) error {
 			if prev != nil {
 				out = prev()
 			}
-			for _, a := range svc.Alerts() {
+			for _, a := range svc.AdminAlerts() {
 				out = append(out, broker.Alert{Level: a.Level, Kind: a.Kind, Message: a.Message, Dismiss: a.Dismiss})
 			}
 			return out

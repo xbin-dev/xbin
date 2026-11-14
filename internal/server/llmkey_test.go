@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -88,5 +89,26 @@ func TestLLMKeyGate(t *testing.T) {
 	// a model call is the data plane: metered, not audited — and its writer still flushes
 	if auditable("POST", "/llm/v1/chat/completions") || auditable("POST", "/llm/v1/responses") || !auditable("PUT", "/llm/config") || !auditable("PUT", "/llm/upstreams/x") {
 		t.Error("audit: model calls are not audited; the connector's settings are")
+	}
+}
+
+// deadlineWriter records the write deadline it is given.
+type deadlineWriter struct {
+	http.ResponseWriter
+	set bool
+}
+
+func (d *deadlineWriter) SetWriteDeadline(time.Time) error { d.set = true; return nil }
+
+// covers D226 — the request counter every response passes through lets a
+// streaming handler set write deadlines on the connection beneath it.
+func TestCountingWriterPassesWriteDeadlines(t *testing.T) {
+	inner := &deadlineWriter{ResponseWriter: httptest.NewRecorder()}
+	rc := http.NewResponseController(&countingWriter{inner})
+	if err := rc.SetWriteDeadline(time.Now().Add(time.Second)); err != nil || !inner.set {
+		t.Errorf("SetWriteDeadline through the counter: %v (reached the connection: %v)", err, inner.set)
+	}
+	if err := rc.Flush(); err != nil {
+		t.Errorf("Flush through the counter: %v", err)
 	}
 }

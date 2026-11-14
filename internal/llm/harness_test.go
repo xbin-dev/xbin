@@ -256,8 +256,13 @@ func newRigAt(t *testing.T, dir, hostFile string, v *fakeVault) *rig {
 	}
 	t.Cleanup(s.Close)
 	r.s, r.keys, r.mux = s, s.Keys(), newMux(s)
+	s.plane.(*Proxy).Grace = testGrace // an upstream call outlives its client this long
 	return r
 }
+
+// testGrace is the proxy's Grace in tests: long enough to release a held
+// upstream within it, short enough to wait out.
+const testGrace = 400 * time.Millisecond
 
 func newMux(s *Service) *http.ServeMux {
 	mux := http.NewServeMux()

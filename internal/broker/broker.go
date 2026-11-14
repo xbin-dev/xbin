@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/agentpolicy"
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/builtins"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -149,6 +150,12 @@ type Broker struct {
 	// release; a restore swaps a rebuilt layer in meanwhile. Wired to
 	// term.Manager.HoldEnv by boot.
 	HoldTermEnv func(component string) (release func(), err error)
+
+	// AgentModels answers what the LLM connector knows about a model id
+	// ("upstream/model"): its upstream, and whether that upstream is marked
+	// private — what an org's "private models only" rule asks (D229,
+	// agentpolicy.go). nil ⇒ no connector: no model is private.
+	AgentModels func(id string) (agentpolicy.ModelRef, bool)
 	// rmTree stands in for the confined removal of a terminal layer
 	// (removeTree) in tests; nil = confine.RemoveAll.
 	rmTree func(dir string) error
@@ -202,12 +209,14 @@ func (b *Broker) Close() {
 	if b.disk != nil {
 		b.disk.close()
 	}
+	// partition mail's doorbells and sweep, waited for (partitionmail_bell.go):
+	// before the flushes, so a ring's last delivery is in what they save
+	b.closeMail()
 	if b.kv != nil {
 		b.kv.close() // kv.db and every namespace's file (deploydata.go)
 	}
 	b.flushLedgers()   // counts not yet saved (partitionledger.go)
 	b.flushLimitHits() // hits not yet saved (tilelimits.go)
-	b.closeMail()      // partition mail's doorbells and sweep (partitionmail_bell.go)
 }
 
 func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, error) {
