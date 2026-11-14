@@ -49,9 +49,8 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    origin:"agent" (set by xbind only;
                                    absent on a session its person opened)
                                    is one the person's workspace agent
-                                   started for them (D229): originBy is the
-                                   component that did. It is the person's
-                                   session in every other way
+                                   started for them (D229). It is the
+                                   person's session in every other way
 PATCH  /term/sessions/<id>        creator or admin (on a partitioned tile
                                    the creator only: 403 for an admin on
                                    another person's session). {name}: name
@@ -338,10 +337,9 @@ GET    /term/sessions/<id>/diff   creator or admin. ?toolCallId=<id> |
 GET    /agent/history             terminal-level. Your past agent sessions,
                                    newest first: [{id, cwd, provider, mode,
                                    name, created, ended, turns, preview,
-                                   loadable, origin?, originBy?}] (origin
-                                   "agent": your workspace agent started
-                                   it; a session resumed from the entry
-                                   keeps it) — the transcripts kept when a
+                                   loadable, origin?}] (origin "agent":
+                                   your workspace agent started it) — the
+                                   transcripts kept when a
                                    session ended or the daemon stopped (per
                                    user × tile, the newest 20 per tile;
                                    never-prompted sessions are not kept).

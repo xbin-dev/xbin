@@ -79,8 +79,7 @@ func (m *Manager) RestartAgentOnto(p auth.Principal, id, net, gpu string, api bo
 		}
 	}
 	info, code, err = m.OpenAgentWith(p, AgentOpen{Cwd: s.Cwd, Net: net, GPU: gpu, NoAPI: !api, VM: inVM,
-		Provider: provider, Mode: mode, Name: name, Resume: resume, Options: options, Deployment: deployment,
-		Origin: s.origin, OriginBy: s.originBy})
+		Provider: provider, Mode: mode, Name: name, Resume: resume, Options: options, Deployment: deployment})
 	return info, resume != "", code, err
 }
 

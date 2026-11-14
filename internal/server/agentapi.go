@@ -64,7 +64,9 @@ func (s *Server) SessionEvent(cwd string, ev term.SessionEvent) {
 func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
 	provs := agent.Providers()
 	p := auth.PrincipalOf(r)
-	if cwd := strings.Trim(r.URL.Query().Get("cwd"), "/"); cwd != "" && s.Term != nil && p.CanReadTile(cwd) {
+	// (a tile's own credentials ask about their tile only: CanReadTile passes
+	// every element)
+	if cwd := strings.Trim(r.URL.Query().Get("cwd"), "/"); cwd != "" && s.Term != nil && p.CanReadTile(cwd) && (p.Component == "" || p.Component == cwd) {
 		provs = slices.DeleteFunc(provs, func(pr agent.Provider) bool { return s.Term.HarnessAllowed(p, cwd, pr.ID) != nil })
 	}
 	WriteJSON(w, http.StatusOK, provs)

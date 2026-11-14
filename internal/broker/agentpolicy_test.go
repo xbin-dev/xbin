@@ -243,6 +243,31 @@ func TestAgentGatesFollowTheTilesOrg(t *testing.T) {
 	if err := fx.b.AgentHarnessGate("apps/calendar", "codex"); err == nil || !strings.Contains(err.Error(), "Finance allows these coding agents only: claude (not codex)") {
 		t.Errorf("a harness on a tile shared into finance: %v", err)
 	}
+	// the delegation package's questions: a model by its id, as the agent states it
+	for _, c := range []struct{ model, harness, want string }{
+		{"hosted/big", "", "Finance allows private models only"},
+		{"local/llama", "", ""},
+		{"", "", "Finance allows private models only, and no model is chosen"},
+		{"local/llama", "claude", ""},
+		{"local/llama", "codex", "Finance allows these coding agents only: claude (not codex)"},
+		{"hosted/big", "claude", "Finance allows private models only"},
+		{"mystery/private-they-say", "claude", "Finance allows private models only"}, // a model the connector doesn't know is not private
+	} {
+		err := fx.b.AgentTileAllows("xbin/agent", "dave", "apps/ledger", c.model)
+		if c.harness != "" {
+			err = fx.b.AgentSessionAllows("xbin/agent", "dave", "apps/ledger", c.model, c.harness)
+		}
+		if (c.want == "") != (err == nil) || (err != nil && err.Error() != c.want) {
+			t.Errorf("delegate on apps/ledger with %q, harness %q: %v, want %q", c.model, c.harness, err, c.want)
+		}
+	}
+	// a session opened on a directory inside the tile is still under its org
+	if err := fx.b.AgentHarnessGate("apps/ledger/src/deep", "codex"); err == nil || !strings.Contains(err.Error(), "Finance allows these coding agents only") {
+		t.Errorf("a harness on a sub-path of a finance tile: %v", err)
+	}
+	if err := fx.b.WorkspaceAgentGate("dave", "/apps/ledger/", public); err == nil {
+		t.Errorf("a tile path with slashes around it: %v", err)
+	}
 	if h := fx.b.AgentHarnesses("apps/ledger"); h.String() != "claude" {
 		t.Errorf("the harnesses of a finance tile: %s", h)
 	}

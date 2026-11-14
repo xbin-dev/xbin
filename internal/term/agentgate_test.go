@@ -95,9 +95,10 @@ func TestAgentHarnessGate(t *testing.T) {
 }
 
 // covers D229 — a session says who started it: nothing for its person,
-// origin "agent" and the component for one their workspace agent opened;
-// the directory row, the history entry, a restart and a resume keep it.
-// Only xbind's own callers set it (AgentOpen).
+// origin "agent" for one their workspace agent opened — on the directory
+// row and on the history entry, which also keeps the component. Only
+// xbind marks a session (the delegation package, at open); here the mark
+// is put on a live session directly.
 func TestAgentSessionOrigin(t *testing.T) {
 	r := newAgentRig(t)
 	m := r.m
@@ -109,54 +110,43 @@ func TestAgentSessionOrigin(t *testing.T) {
 		})
 	}
 	mine, _, err := m.OpenAgent(owner, "apps/x", "", "fake", "", "", "", nil)
-	if err != nil || mine.Origin != "" || mine.OriginBy != "" {
+	if err != nil || mine.Origin != "" {
 		t.Fatalf("a person's own session: %+v %v", mine, err)
 	}
 	idle(mine.ID)
-	theirs, code, err := m.OpenAgentWith(owner, AgentOpen{Cwd: "apps/x", Provider: "fake", Origin: OriginAgent, OriginBy: "xbin/agent"})
-	if err != nil || code != 200 || theirs.Origin != "agent" || theirs.OriginBy != "xbin/agent" {
-		t.Fatalf("an agent-started session: %+v %d %v", theirs, code, err)
+	theirs, _, err := m.OpenAgent(owner, "apps/x", "", "fake", "", "", "", nil)
+	if err != nil {
+		t.Fatal(err)
 	}
 	idle(theirs.ID)
+	m.mu.Lock()
+	m.sessions[theirs.ID].origin = "xbin/agent" // as an open by the person's workspace agent leaves it
+	m.mu.Unlock()
 	for _, row := range m.ListFor("owner", "apps/x", nil) {
-		if want := map[string]string{mine.ID: "", theirs.ID: "agent"}[row.ID]; row.Origin != want {
+		if want := map[string]string{mine.ID: "", theirs.ID: OriginAgent}[row.ID]; row.Origin != want {
 			t.Errorf("the directory row of %s: origin %q, want %q", row.ID, row.Origin, want)
 		}
 	}
-	// anything but "agent" is not an origin
-	odd, _, err := m.OpenAgentWith(owner, AgentOpen{Cwd: "apps/x", Provider: "fake", Origin: "someone", OriginBy: "apps/evil"})
-	if err != nil || odd.Origin != "" || odd.OriginBy != "" {
-		t.Fatalf("an unknown origin: %+v %v", odd, err)
+	if info, _ := m.Info(theirs.ID); info.Origin != "agent" {
+		t.Errorf("Info: %+v", info)
 	}
-	m.Kill(odd.ID)
-	m.Kill(mine.ID)
-
-	if _, err := m.AgentPrompt(context.Background(), theirs.ID, "work"); err != nil {
-		t.Fatal(err)
-	}
-	r.until(t, func(e SessionEvent) bool { return e.ID == theirs.ID && e.Type == agent.EvTurnEnd })
-	// a restart by its person keeps who started the conversation
-	next, resumed, _, err := m.RestartAgent(owner, theirs.ID, "", "", true, nil)
-	if err != nil || !resumed || next.Origin != "agent" || next.OriginBy != "xbin/agent" {
-		t.Fatalf("restarted: %+v resumed=%v %v", next, resumed, err)
-	}
-	idle(next.ID)
-	m.Kill(next.ID)
-	waitClose(t, r.change, "close:"+next.ID)
-	var entry HistoryMeta
-	for _, h := range m.ListHistory(OwnHistory("owner"), "apps/x", nil) {
-		if h.ID == theirs.ID {
-			entry = h
+	for _, id := range []string{mine.ID, theirs.ID} {
+		if _, err := m.AgentPrompt(context.Background(), id, "work"); err != nil {
+			t.Fatal(err)
 		}
+		r.until(t, func(e SessionEvent) bool { return e.ID == id && e.Type == agent.EvTurnEnd })
+		m.Kill(id)
 	}
-	if entry.Origin != "agent" || entry.OriginBy != "xbin/agent" {
-		t.Fatalf("the history entry: %+v", entry)
+	waitClose(t, r.change, "close:"+theirs.ID)
+	m.FlushAgents()
+	got := map[string]HistoryMeta{}
+	for _, h := range m.ListHistory(OwnHistory("owner"), "apps/x", nil) {
+		got[h.ID] = h
 	}
-	// resumed by the person, from the history: still the agent's conversation
-	back, _, err := m.OpenAgent(owner, "apps/x", "", "", "", "", theirs.ID, nil)
-	if err != nil || back.Origin != "agent" || back.OriginBy != "xbin/agent" {
-		t.Fatalf("resumed from history: %+v %v", back, err)
+	if h := got[theirs.ID]; h.Origin != "agent" || h.Agent != "xbin/agent" {
+		t.Errorf("the agent-started session's history entry: %+v", h)
 	}
-	m.Kill(back.ID)
-	waitClose(t, r.change, "close:"+back.ID)
+	if h, ok := got[mine.ID]; !ok || h.Origin != "" || h.Agent != "" {
+		t.Errorf("the person's own session's history entry: %+v (%v)", h, ok)
+	}
 }

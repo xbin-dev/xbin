@@ -91,6 +91,21 @@ func (b *Broker) WorkspaceAgentGate(userID, tile string, model *agentpolicy.Mode
 	return b.AgentCheck(tile, agentpolicy.Ask{WorkspaceAgent: true, Model: model}).Err()
 }
 
+// AgentTileAllows and AgentSessionAllows are WorkspaceAgentGate in the
+// shape the delegation package asks (its Policy: TileAllows,
+// SessionAllows): may holder — a person's workspace agent — acting for user
+// on model reach tile, and may it open an agent session of harness there.
+// model is the id the agent says its conversation is on ("" for none
+// said); whether that model is private is the LLM connector's answer
+// (ResolveModel), never the agent's.
+func (b *Broker) AgentTileAllows(holder, user, tile, model string) error {
+	return b.WorkspaceAgentGate(user, tile, b.ResolveModel(model))
+}
+
+func (b *Broker) AgentSessionAllows(holder, user, tile, model, harness string) error {
+	return b.AgentCheck(tile, agentpolicy.Ask{WorkspaceAgent: true, Harness: harness, Model: b.ResolveModel(model)}).Err()
+}
+
 // ResolveModel turns a model id ("upstream/model") into a ModelRef with
 // what the LLM connector knows about it (AgentModels); nil for "". With no
 // connector installed, or for a model it doesn't know, the model is not

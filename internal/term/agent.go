@@ -133,11 +133,6 @@ type AgentOpen struct {
 	// of the tile, "" for the default (target.go). A resumed session doesn't
 	// take its history entry's: the client names it again.
 	Deployment string
-	// Origin and OriginBy say who opened the session when it wasn't its
-	// person: OriginAgent and the component acting for them. Set by xbind's
-	// own callers, never read from a request; a resumed session takes its
-	// history entry's.
-	Origin, OriginBy string
 }
 
 // OpenAgentWith is OpenAgent with the sandbox pickers.
@@ -174,13 +169,13 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 		if name == "" {
 			name = meta.Name
 		}
-		if a.Origin == "" { // who opened the conversation first
-			a.Origin, a.OriginBy = meta.Origin, meta.OriginBy
-		}
 	}
 	prov, ok := agent.Lookup(providerID)
 	if !ok {
 		return SessionInfo{}, 400, fmt.Errorf("unknown provider %q (GET /api/xbin/agent/providers lists them)", providerID)
+	}
+	if mode, err = prov.ResolveMode(mode); err != nil {
+		return SessionInfo{}, 400, err
 	}
 	if err := m.HarnessAllowed(p, rel, prov.ID); err != nil { // the tile's orgs' harness rules (D229)
 		if resume != "" {
@@ -188,17 +183,11 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 		}
 		return SessionInfo{}, 403, err
 	}
-	if mode, err = prov.ResolveMode(mode); err != nil {
-		return SessionInfo{}, 400, err
-	}
 	if m.BxPath == "" {
 		return SessionInfo{}, 503, errors.New("agent sessions need the bx binary the daemon could not find at startup (build it: CGO_ENABLED=0 go build -o bin/bx ./cmd/bx, or set XBIN_BIN)")
 	}
 	o := m.openOptsFor(p, rel, cwd, normalizeNet(netMode), a.GPU, !a.NoAPI)
 	o.kind, o.vm = KindAgent, a.VM
-	if a.Origin == OriginAgent {
-		o.origin, o.originBy = OriginAgent, a.OriginBy // SessionInfo.Origin: "started by your agent"
-	}
 	if code, err := m.pickTarget(p, &o, rel, a.Deployment); err != nil {
 		return SessionInfo{}, code, err
 	}
@@ -222,10 +211,6 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	}
 	return m.row(s), 200, nil
 }
-
-// OriginAgent is SessionInfo.Origin of a session a person's workspace agent
-// opened for them under delegation (auth/delegate.go).
-const OriginAgent = "agent"
 
 // HarnessAllowed answers why an agent session of harness may not open on
 // tile for p (AgentGate: the tile's orgs' harness rules, D229), nil when it
@@ -397,7 +382,6 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		}
 		return &agent.Process{Stdin: stdin, Stdout: stdout, Stderr: stderr, Kill: s.kill}, nil
 	}
-	s.originBy = o.originBy // with origin: who opened it for its person (OpenAgentWith)
 	cfg := agent.Config{Provider: prov, Mode: mode, Options: options, ResumeID: resumeID, Cwd: start, Env: agentEnv, Argv: prov.Argv, Spawn: spawn,
 		Perms: st.perms, Version: Version, Log: st.logf, Meta: map[string]string{"tile": rel}}
 	go s.agentPump(m, func() {

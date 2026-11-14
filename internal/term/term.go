@@ -72,15 +72,11 @@ type Session struct {
 	target  sessionTarget // the target deployment, fixed at start (target.go)
 	part    sessionPart   // its partition on a partitioned tile, fixed at start (partition.go)
 	purpose string        // "" or PurposeSignin, fixed at start (purpose.go)
-	origin  string        // "" or OriginAgent: opened by its person's workspace agent (agent.go), fixed at start
+	origin  string        // "" or the sealed component that opened it for its person (delegate.go), fixed at start
 
 	// hub is the session's side of the /ws/term wire: its scrollback, the
 	// attached sockets, the last activity (the reaper's clock) and the exit.
 	hub *termwire.Hub
-
-	// originBy: with origin, the component that opened it for its person
-	// (agent.go); fixed at start.
-	originBy string
 
 	mu sync.Mutex
 }
@@ -334,13 +330,12 @@ type openOpts struct {
 	readable   []string          // allow-list view: components bound into the mount (D40)
 	rootFiles  map[string][]byte // allow-list view: staged root-file contents (D40)
 	kind       string            // KindShell (default) or KindAgent: the sandbox entry (agent.go)
-	originBy   string            // with origin: the component that opened it for its person
 	vm         bool              // a VM sandbox (vm.go)
 	launch     *sbxLaunch        // what the setup learnt (sbx.go; set by create/createAgent)
 	target     sessionTarget     // the target deployment (pickTarget, target.go)
 	part       sessionPart       // the partition on a partitioned tile (pickPartition, partition.go)
 	purpose    string            // "" or PurposeSignin: a guided sign-in's shell (purpose.go)
-	origin     string            // "" or OriginAgent (agent.go)
+	origin     string            // "" or the sealed component opening it for its person (delegate.go)
 }
 
 // prepare is the part of opening a session that both kinds share: the cwd,

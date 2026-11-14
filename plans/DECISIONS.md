@@ -13700,7 +13700,10 @@ Deviations and refinements made while implementing; all deliberate:
     are the workspace's bounds, the org that owns it, and every org it is
     shared into (an exact share or a pattern — `users.Store.TileOrgs`).
     Every layer must allow, so several orgs give the strictest and a tile
-    in no org follows the bounds. A share is the tile's managers' act
+    in no org follows the bounds. A path inside a tile (a session opened
+    on a sub-directory, a nested component) falls under the orgs of every
+    path above it: stepping into a tile never steps out of its org's
+    rules. A share is the tile's managers' act
     (D24), so the org a tile is shared into gaining a say over it is
     something its owner chose. The answer carries the reason a person
     reads ("Finance allows private models only"), the org and the rule.
@@ -13759,11 +13762,12 @@ Deviations and refinements made while implementing; all deliberate:
     writes them, with its `localStorage` value as the migration source and
     as the fallback against an xbind without the route or a credential the
     route refuses (the root token, `--no-auth`).
-  - **`origin`** on a session row and its history entry: `"agent"` and
-    `originBy` (the component) for one a workspace agent opened, absent
-    otherwise; set by xbind's own callers (`term.AgentOpen`), kept across
-    a restart and a resume. The field and its JSON are the delegation
-    prototype's.
+  - **`origin`** on a session row and its history entry: `"agent"` for
+    one a workspace agent opened, absent otherwise; the session keeps the
+    component that opened it. The field, its JSON and the lines that carry
+    it through `internal/term` are the delegation package's, word for
+    word, so the two merge; setting it at open is that package's alone,
+    and until it lands every row reads as its person's own.
   - **A session opens from outside its tile's window.** `<bx-frame>`
     `open({session})` shows a live session's tab, or a past one's
     transcript; `xbin:open-session {tile, session}` asks the shell for it
@@ -13771,8 +13775,11 @@ Deviations and refinements made while implementing; all deliberate:
     doesn't answer the request (an older scaffold) gets the link, which it
     reads as a plain link to the tile.
   - **Not done.** The scope picker, chip and panel (web, iOS); the
-    delegation gate calling `WorkspaceAgentGate` and `AgentStart` (the
-    delegation package wires both); a session's `llm` choice and the
+    delegation package's `Policy` answered by `Broker.AgentTileAllows`,
+    `AgentSessionAllows` and `agentprefs.Store.StartPrefs` (written for
+    it; wired where the two meet); the organisations tile has no editor,
+    so an org's admin who is not a workspace admin sets their org's rules
+    through the API from their own session; a session's `llm` choice and the
     connector's variables (the connector's); per-model rules inside one
     upstream beyond the allowlist; the admin console's editor reaches an
     old scaffold only after `bx builtin update` (`bx org agents` and the

@@ -154,9 +154,12 @@ func TestTileOrgsAndLayers(t *testing.T) {
 	must(s.SetOrgTile("ops", "apps/*", LevelWrite))
 	must(s.SetOrgTile("eng", "apps/wiki", LevelRead)) // the owner sharing to itself counts once
 	for path, want := range map[string]string{
-		"apps/wiki":  "eng|eng,finance,ops",
-		"apps/mine":  "|ops",
-		"tiles/docs": "|",
+		"apps/wiki":         "eng|eng,finance,ops",
+		"apps/wiki/src/sub": "eng|eng,finance,ops", // inside the tile: its orgs still
+		"/apps/wiki/":       "eng|eng,finance,ops",
+		"apps/mine":         "|ops",
+		"tiles/docs":        "|",
+		"apps":              "|ops", // the pattern apps/* covers its own prefix
 	} {
 		owner, orgs := s.TileOrgs(path)
 		if got := owner + "|" + strings.Join(orgs, ","); got != want {

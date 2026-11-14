@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/xbin-dev/xbin/internal/agentpolicy"
 )
@@ -124,9 +125,12 @@ func (s *Store) SetOrgAgents(orgID string, p agentpolicy.Patch, knownHarness fun
 	return next, nil
 }
 
-// TileOrgs is the orgs tile falls under for agent constraints: owner is
+// TileOrgs is the orgs path falls under for agent constraints: owner is
 // the org that owns it ("" when none does), orgs the owner and every org
-// the tile is shared into, sorted.
+// it is shared into, sorted. A path inside a tile — a session opened on a
+// sub-directory, a component nested in another — falls under its own orgs
+// and those of every path above it: stepping into a tile never steps out
+// of its org's rules.
 func (s *Store) TileOrgs(path string) (owner string, orgs []string) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -134,19 +138,30 @@ func (s *Store) TileOrgs(path string) (owner string, orgs []string) {
 }
 
 func (s *Store) tileOrgsLocked(path string) (owner string, orgs []string) {
-	if k, id, _ := ParseOwner(s.owners[path]); k == OwnerKindOrg {
-		owner = id
-		orgs = append(orgs, id)
-	}
-	for id, o := range s.orgs {
-		if id == owner {
-			continue
-		}
-		for pat, level := range o.Tiles {
-			if levelRank(level) > 0 && matchTile(pat, path) {
-				orgs = append(orgs, id)
-				break
+	in := map[string]bool{}
+	for p := strings.Trim(path, "/"); p != ""; {
+		if k, id, _ := ParseOwner(s.owners[p]); k == OwnerKindOrg {
+			if owner == "" {
+				owner = id // the nearest owning org
 			}
+			in[id] = true
+		}
+		for id, o := range s.orgs {
+			for pat, level := range o.Tiles {
+				if !in[id] && levelRank(level) > 0 && matchTile(pat, p) {
+					in[id] = true
+				}
+			}
+		}
+		i := strings.LastIndexByte(p, '/')
+		if i < 0 {
+			break
+		}
+		p = p[:i]
+	}
+	for id := range in {
+		if s.orgs[id] != nil {
+			orgs = append(orgs, id)
 		}
 	}
 	sort.Strings(orgs)

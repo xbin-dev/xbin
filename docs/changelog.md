@@ -41,8 +41,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     change would connect and disconnect
     ([protocol/agents.md](/docs/protocol/agents.md) §The connection view).
   - **`origin` on a session.** A `GET /term/sessions` row and a
-    `GET /agent/history` entry carry `origin: "agent"` and `originBy` when
-    the person's workspace agent started the session; absent otherwise.
+    `GET /agent/history` entry carry `origin: "agent"` when the person's
+    workspace agent started the session; absent otherwise.
   - New event type `agents` (`{org}`) when the rules change.
 - **docs: the protocol reference is split by topic.** `/docs/protocol.md`
   had reached the size limit of a served doc, so its route tables and
