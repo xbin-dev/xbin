@@ -54,3 +54,29 @@ func TestHarnessKeywords(t *testing.T) {
 		t.Fatalf("steer: %q", p.Text)
 	}
 }
+
+// A coding CLI's turn (coder.go): the shell tool the request offers, then
+// the tool's output read back; the template's own turns are untouched.
+func TestCoderKeyword(t *testing.T) {
+	user := func(s string) turn { return turn{Role: "user", Text: s} }
+	for tools, want := range map[string]string{"read,bash,edit": "bash", "shell,apply_patch": "shell", "exec_command": "exec_command", "local_shell": "local_shell"} {
+		p := pick([]turn{user("Please shell echo now")}, "You are a coding agent", strings.Split(tools, ","))
+		if len(p.Calls) != 1 || p.Calls[0].Name != want {
+			t.Fatalf("tools %s: %+v", tools, p)
+		}
+	}
+	if p := pick([]turn{user("shell echo")}, "", []string{"note"}); p.Text != "No shell tool offered." {
+		t.Fatalf("no shell tool: %+v", p)
+	}
+	conv := []turn{user("shell echo"), {Role: "assistant"}, {Role: "tool", Tool: "bash", Text: "<stdout>\nconnector-tool-ok\n</stdout>"}}
+	if p := pick(conv, "", []string{"bash"}); p.Text != "Shell said: connector-tool-ok" {
+		t.Fatalf("the answer: %q", p.Text)
+	}
+	if p := pick([]turn{user("hello")}, "", []string{"bash"}); p.Text != "Hello from the fake model." {
+		t.Fatalf("hello: %+v", p)
+	}
+	// a title request that quotes the message is still a title
+	if p := pick([]turn{user("First message:\nshell echo")}, "Name this conversation", []string{"bash"}); !strings.HasPrefix(p.Text, "Titled") {
+		t.Fatalf("title: %+v", p)
+	}
+}

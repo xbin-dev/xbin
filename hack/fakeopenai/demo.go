@@ -119,6 +119,11 @@ func (d *demoScript) find(s string) *demoReply {
 // loaded (demoScript.answer), else from the built-in test scripts.
 func pick(conv []turn, system string, tools []string) plan {
 	if demo == nil || len(conv) == 0 {
+		if len(conv) > 0 && purposeOf(system) == "turn" {
+			if p, ok := coderScript(conv, tools); ok { // a coding CLI's turn (coder.go)
+				return p
+			}
+		}
 		return script(conv, system)
 	}
 	return demo.answer(conv, system, tools)

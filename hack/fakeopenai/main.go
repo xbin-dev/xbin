@@ -18,6 +18,8 @@
 //	harness steer
 //	             subagent_message {id: the newest coding agent this
 //	             conversation started, text "steer: use tabs"} → "Steered it."
+//	shell echo   (a coding CLI's turn, coder.go) the request's own shell tool
+//	             running `echo connector-tool-ok` → "Shell said: <its output>"
 //	hello        thinking "Considering the greeting…", then "Hello from the fake model."
 //	use a tool   a note call with summary "Jot down a quick note" → "Noted it."
 //	make a file  file_write note.txt, then attach_to_reply it (a chat channel's
@@ -99,7 +101,8 @@
 // "SUMMARY: <n> transcript line(s) folded".
 //
 // Every request reports a 100-token prompt and 20 completion tokens unless
-// its plan says otherwise (a -script answer reports its own sizes).
+// its plan says otherwise (a -script answer reports its own sizes), with
+// their sum as total_tokens on both wires.
 // The agent's task reminder (D133: a <task-reminder> block appended to the
 // last message, never stored) is cut off before a message is scripted, and
 // recorded on its own. /v1/models lists a 128 000-token context window.
@@ -717,7 +720,9 @@ func responses(w http.ResponseWriter, r *http.Request) {
 	}
 	defer rec.done(false)
 	var output []any
-	usage := map[string]any{"input_tokens": p.promptTokens(), "output_tokens": p.outputTokens(), "output_tokens_details": map[string]any{"reasoning_tokens": 7}}
+	// total_tokens too: Codex drops a stream whose response.completed lacks it, and retries
+	usage := map[string]any{"input_tokens": p.promptTokens(), "output_tokens": p.outputTokens(), "total_tokens": p.promptTokens() + p.outputTokens(),
+		"output_tokens_details": map[string]any{"reasoning_tokens": 7}}
 	if !req.Stream {
 		if len(p.Thinking) > 0 {
 			output = append(output, map[string]any{"type": "reasoning", "id": "rs_1", "encrypted_content": "enc",
