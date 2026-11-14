@@ -336,7 +336,11 @@ policies), which are now the *defaults*.
   (`/vendor/chat/rev.js`) before it loads anything from it; on an xbind
   that serves none, or an older one, it shows "This agent needs xbind ≥ v…
   — update xbind" in place of the app, and loads once xbind is updated. The
-  template's native view uses none of the kit. Update xbind before you
+  template's native view stands on the kit too (its models import
+  `/vendor/chat/tools.js` and `/vendor/chat/ask.js`), and a native view
+  cannot ask first: on such an xbind its `native.js` does not load, and the
+  app shows the tile's web page ([native.md](/docs/native.md) → Fallback),
+  which says the same. Update xbind before you
   merge a newer template into an instance
   ([frontend-kit.md](/docs/frontend-kit.md) `/vendor/chat/rev.js`).
 - Building Go tiles after a downgrade to an xbind older than a `go` line

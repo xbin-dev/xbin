@@ -5,7 +5,7 @@
 // A call's headline is the one-line `summary` the model wrote for it (every
 // tool schema asks for one), else a reading of its arguments, else its name.
 // A coding harness's calls (`acp:<kind>`) are harness-heads.js's.
-import { isAcp, acpFamily, acpReading, acpSubline, acpOutcome, ACP_ICON } from './harness-heads.js';
+import { isAcp, acpFamily, acpReading, acpHeadline, acpSubline, acpOutcome, ACP_ICON } from './harness-heads.js';
 
 // The families a tool belongs to — the card's glyph.
 const FAMILY = {
@@ -159,9 +159,10 @@ function boxReading(name, a) {
 
 // subline: the sandbox call's own words (the command, old → new, the
 // pattern) under a headline that is the model's summary; '' otherwise — the
-// headline already says them.
-export function subline(name, rawArgs) {
-  if (isAcp(name)) return acpSubline(name, parseArgs(rawArgs));
+// headline already says them. A harness call's: its command under a
+// headline (`said`, when the caller has it) that says something else.
+export function subline(name, rawArgs, said = undefined) {
+  if (isAcp(name)) return acpSubline(name, parseArgs(rawArgs), said);
   if (FAMILY[name] !== 'box') return '';
   const a = parseArgs(rawArgs);
   return typeof a.summary === 'string' && a.summary.trim() ? boxReading(name, a) : '';
@@ -253,9 +254,11 @@ function browserOutcome(first) {
   return parts.length ? { text: parts.join(' · '), tone: ce || pe ? 'bad' : '' } : { text: 'no errors', tone: 'ok' };
 }
 
-// headline is a call's one-line description.
-export function headline(name, rawArgs) {
+// headline is a call's one-line description. A harness call with its tool
+// row's `acp` is said by harness-heads.js (xbind's chat kit's headline).
+export function headline(name, rawArgs, acp = null) {
   const a = parseArgs(rawArgs);
+  if (acp && isAcp(name)) return acpHeadline(name, a, acp);
   const s = typeof a.summary === 'string' && name !== 'state_changed' ? a.summary.trim() : '';
   return s ? one(s, 100) : reading(name, a);
 }
