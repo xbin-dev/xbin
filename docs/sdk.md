@@ -202,8 +202,10 @@ err = c.Prompt(ctx, acp.Prompt{Text: "fix the build"}) // acp.ErrBusy while a tu
 - **Answering.** A `permission.request` names a `pid`:
   `res, err := perms.Resolve(pid, optionID, decision, by)` then
   `c.RespondPermission(res)` (first answer wins; `allow_always` records a
-  session rule; a plan approval — kind `switch_mode` — never does). A
-  question: `c.RespondElicitation(eid, "accept"|"decline"|"cancel",
+  session rule; a plan approval — kind `switch_mode` — never does). An
+  option with `Explicit` (`explicit: true` in the event) raises the
+  session's mode — see "The session rules" below; the client refuses
+  nothing. A question: `c.RespondElicitation(eid, "accept"|"decline"|"cancel",
   content, by)`; `c.PendingElicitations()` lists the open ones. `c.Cancel()`
   interrupts the turn and answers everything pending as cancelled. A request
   the agent withdraws (`$/cancel_request`) is settled for you: a permission's
@@ -382,6 +384,22 @@ pure: no I/O, no goroutine, no clock of its own.
   - `ToolEvent.OutputChunk()` says whether a `tool.update` is a bare output
     chunk (`{id, outputDelta, parent?}`); `chunk.Add(next)` merges two of
     one call — what a log does to keep a chatty command a few events.
+- **Mode escalation** (`escalation.go`): does a permission option take the
+  session past the agent's own asks?
+  `p.OptionRaises(option, callKind, sessionState, start)` — only an allow
+  can raise; its mode is its id when that names one of the agent's modes
+  (`p.ModeIDs(state)`: the catalog's and the session's), else the catalog's
+  `OptionModes` (claude's `exit-plan-bypass` is `bypassPermissions`); it
+  raises when `p.ModeOpen(mode, start)` is false — the mode is neither
+  `Safe` nor `start`, the mode the session began in. An `allow_always` of a
+  mode switch (`acp.KindSwitchMode`: a plan approval) that names no mode the
+  catalog knows raises too (default-deny). A `Client` marks the options of
+  every request it files (`PermissionOption.Explicit`, with `Config.Mode`
+  as the start) and refuses nothing: show a second confirmation, or keep
+  such an option to some people (the agent template: the conversation's
+  owner, judged with the mode its adapter started in).
+  `acp.ModeOption(options)` is an adapter's config option of category
+  `mode`; `state.Mode()` the session's current mode either way.
 
 The codec is exported too — `acp.NewConn(r, w)` / `acp.NewConnWith(r, w,
 acp.ConnOptions{IDPrefix, Offset})` (`Call`, `CallCtx`, `Notify`, `Reply`,

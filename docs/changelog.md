@@ -12,6 +12,23 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-14
 
+- **Agent sessions: a permission option that raises the mode says so —
+  `explicit: true` (D225).** A `permission.request`'s options (the event,
+  `GET /term/sessions/<id>`'s `permissions`, the tail page's
+  `state.permissions`) gain an optional `explicit`: answering with that
+  option switches the session to a mode beyond the agent's own asks — a
+  plan approval's "yes, and bypass permissions", or a "yes, and switch to
+  ‹mode›" the provider catalog can't place — unless the session was opened
+  in that mode. Additive: absent on every other option, ignored by clients
+  that don't know it (the app's decoder does), and xbind answers such an
+  option like any other — it is there so a client can ask twice.
+  `/docs/protocol/agents.md` §Agent session events. In **`sdk/acp`** the
+  rule is `Provider.OptionRaises`, with `Provider.ModeOpen`,
+  `Provider.ModeIDs`, `ModeOption`, `SessionState.Mode` and the new field
+  `PermissionOption.Explicit`, which a `Client` now sets on the requests it
+  files (`Config.Mode` is the mode the session began in). The agent
+  template judges its owner-only options with the same function (it was
+  its own `optionRaises`); what it refuses is unchanged.
 - **sdk/acp: the tool record (D225).** New, additive: `acp.ToolRecord`
   (one tool call, its `tool.call` / `tool.update` events merged),
   `acp.ToolRecords` (a session's fold: `Apply`, `Entries`, `Newest`,

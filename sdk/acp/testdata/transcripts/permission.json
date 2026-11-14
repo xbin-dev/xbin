@@ -767,7 +767,8 @@
      {
       "optionId": "exit-plan-clear-auto",
       "name": "Yes, clear context (13% used) and use auto mode",
-      "kind": "allow_always"
+      "kind": "allow_always",
+      "explicit": true
      },
      {
       "optionId": "auto",

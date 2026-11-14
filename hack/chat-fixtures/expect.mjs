@@ -14,9 +14,10 @@
 //     files, a content list read by the model's rules);
 //   - its state is `approval` while an unanswered permission request names
 //     its call;
-//   - a permission request names its call's label, and marks the options
-//     the agent template's backend says raise the mode (`explicit`: the one
-//     thing no log says — taken from <name>.agtt.json);
+//   - a permission request names its call's label; the options that raise
+//     the mode are marked in the log itself (`explicit`, by sdk/acp's
+//     Provider.OptionRaises — the rule the agent template's backend parks
+//     with too, so its views agree);
 //   - a question says its mode and its url.
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -41,12 +42,11 @@ export function load() {
 
 const upTo = (log, seq) => log.events.filter((e) => e.seq <= seq);
 
-/** explicitOf(agtt) → pid → Set of the option ids the backend marked explicit. */
-export function explicitOf(agtt) {
+/** explicitOf(log) → pid → Set of the option ids the log's permission requests mark explicit. */
+export function explicitOf(log) {
   const out = new Map();
-  for (const v of (agtt && agtt.views) || []) {
-    const hs = v.view.run && v.view.run.pendingState && v.view.run.pendingState.harness;
-    if (hs && hs.pid) out.set(hs.pid, new Set((hs.options || []).filter((o) => o.explicit).map((o) => o.optionId)));
+  for (const e of (log && log.events) || []) {
+    if (e.type === 'permission.request') out.set(e.data.pid, new Set((e.data.options || []).filter((o) => o.explicit).map((o) => o.optionId)));
   }
   return out;
 }
@@ -98,7 +98,7 @@ export function shown(tr, seq) {
 
 /** expectedFiles(t) → {records, blocks}: the two files beside a log, as objects. */
 export function expectedFiles(t) {
-  const explicit = explicitOf(t.agtt);
+  const explicit = explicitOf(t.log);
   return {
     records: {
       name: t.name,
@@ -156,8 +156,6 @@ export const GAPS = {
       both: (t) => each(t, (b) => { if (b.kind === 'tool') { delete b.rec.locations; delete b.rec.files; } }) },
     { id: 'W2', why: 'the fold does not connect a permission request to its call\'s card: the card says pending while the request waits',
       expected: (t) => each(t, (b) => { if (b.kind === 'tool' && b.state === 'approval') b.state = 'pending'; }) },
-    { id: 'W3', why: 'a permission request carries no `explicit`: no escalation rule runs for the Agent tab',
-      both: (t) => each(t, (b) => { if (b.kind === 'perm') for (const o of b.options || []) delete o.explicit; }) },
     { id: 'W4', why: 'the fold drops a question\'s mode and url: every question is a form to it',
       expected: (t) => each(t, (b) => { if (b.kind === 'ask') { delete b.url; b.mode = 'form'; } }) },
   ],

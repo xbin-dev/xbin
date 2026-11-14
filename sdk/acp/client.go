@@ -47,6 +47,7 @@ type Client struct {
 	status      string
 	usage       *UsageUpdate
 	tools       map[string]string // tool call id → last status, this turn
+	toolKinds   map[string]string // tool call id → its kind, this turn (a permission request may not repeat it)
 	closed      bool
 	done        chan struct{}
 	// replaying: a session/load is streaming earlier turns back (Wire.Replay);

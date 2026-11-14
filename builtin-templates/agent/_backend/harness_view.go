@@ -326,51 +326,16 @@ func harnessNodeView(sum map[string]any) map[string]any {
 }
 
 // harnessModeOpen: mode is one anyone who may talk in the conversation may
-// switch its coding agent to (D147 §4.3.12, default-deny) — the
-// catalog knows it never takes the agent past its own asks (acp
-// Provider.Safe), or it is the mode the adapter opened its first session in
-// by itself (start: a harness the catalog lacks knows no other). Every other
-// mode — an explicit one, one a newer adapter added, any other mode of a
-// harness the catalog lacks — is the root conversation owner's
-// (`explicit`).
-func harnessModeOpen(prov acp.Provider, start, mode string) bool {
-	return prov.Safe(mode) || (mode != "" && mode == start)
-}
-
-// harnessModeIDs are the ids that name one of the agent's modes: the
-// catalog's and the session's (its modes, else its option of category mode).
-func harnessModeIDs(prov acp.Provider, st acp.SessionState) map[string]bool {
-	ids := map[string]bool{}
-	for _, m := range prov.Modes {
-		ids[m.ID] = true
-	}
-	for _, m := range prov.SafeModes {
-		ids[m] = true
-	}
-	if st.Modes != nil {
-		for _, m := range st.Modes.AvailableModes {
-			ids[m.ID] = true
-		}
-	}
-	if o := modeOption(st.Options); o != nil {
-		for _, v := range o.Options {
-			ids[v.Value] = true
-		}
-	}
-	return ids
-}
+// switch its coding agent to (D147 §4.3.12, default-deny) — sdk/acp's
+// Provider.ModeOpen: the catalog knows it never takes the agent past its
+// own asks, or it is the mode the adapter opened its first session in by
+// itself (start: a harness the catalog lacks knows no other). Every other
+// mode is the root conversation owner's (`explicit`).
+func harnessModeOpen(prov acp.Provider, start, mode string) bool { return prov.ModeOpen(mode, start) }
 
 // currentMode is the session's mode now: its own, else its option of
 // category mode's value.
-func currentMode(st acp.SessionState) string {
-	if st.Modes != nil && st.Modes.CurrentModeID != "" {
-		return st.Modes.CurrentModeID
-	}
-	if o := modeOption(st.Options); o != nil {
-		return o.CurrentValue
-	}
-	return ""
-}
+func currentMode(st acp.SessionState) string { return st.Mode() }
 
 // harnessModes is the summary's mode: the session's modes, else its config
 // option of category mode (an adapter that speaks its modes only as one —
@@ -412,14 +377,7 @@ func harnessModes(prov acp.Provider, st acp.SessionState, want, start string) ma
 }
 
 // modeOption is the adapter's config option of category mode, if any.
-func modeOption(opts []acp.ConfigOption) *acp.ConfigOption {
-	for i := range opts {
-		if opts[i].Category == "mode" && len(opts[i].Options) > 0 {
-			return &opts[i]
-		}
-	}
-	return nil
-}
+func modeOption(opts []acp.ConfigOption) *acp.ConfigOption { return acp.ModeOption(opts) }
 
 // harnessOptionsView is the adapter's config options but a mode one (the
 // mode picker covers it).

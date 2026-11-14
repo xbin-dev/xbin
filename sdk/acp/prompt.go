@@ -84,7 +84,7 @@ func (c *Client) Prompt(ctx context.Context, p Prompt) error {
 	c.busy = true
 	c.turn++
 	turn := c.turn
-	c.tools = map[string]string{}
+	c.tools, c.toolKinds = map[string]string{}, nil
 	c.usage = nil
 	sid := c.sessionID
 	id := c.conn.newID() // known before the frame leaves: State names it from here on
