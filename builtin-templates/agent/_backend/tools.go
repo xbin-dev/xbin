@@ -64,10 +64,14 @@ func postedFinishSpec() toolSpec {
 // runToolSpecs is toolSpecs for run: a top-level run whose result is posted
 // (a channel's, a trigger's) gets postedFinishSpec's finish.
 func runToolSpecs(cfg Config, run *Run, mcp []toolSpec) []toolSpec {
+	if cfg.CodeRead != nil { // a coordinator's research subagent: its own list (projects_coord_research.go)
+		return codeReadToolSpecs(cfg, run)
+	}
 	// no coding agent at the global instance, nor in a hosted conversation (harness_partition.go)
 	cfg.noHarness = harnessBarred(run) != ""
 	specs := hostedToolSpecs(run, toolSpecs(cfg, run.Depth, mcp)) // a hosted conversation's lack (hosted_tools.go)
 	specs = append(specs, coordToolsFor(cfg, run)...)             // a project's coordinator, at depth 0 (projects_coord_tools.go)
+	specs = append(specs, wikiToolsFor(cfg, run)...)              // a project's wiki: its coordinator and built-in tasks (project_wiki_tools.go)
 	if run.ParentID == 0 && (run.Origin == "channel" || run.Origin == "trigger") {
 		for i := range specs {
 			if specs[i].Function.Name == "finish" {
@@ -336,6 +340,9 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 	if cfg.denied(name) {
 		return "", fmt.Errorf("%s is not available in this conversation", name)
 	}
+	if cfg.CodeRead != nil { // a research subagent: its tools only, whatever its class (projects_coord_research.go, D222)
+		return ag.runCodeReadTool(ctx, run, cfg, name, args)
+	}
 	// The class's toolsets (classes.go), whatever the model was offered: a
 	// hallucinated call, or a transcript from another class, stops here.
 	if err := classAllows(classOf(cfg), name); err != nil {
@@ -499,6 +506,9 @@ func (ag *Agent) runTool(ctx context.Context, run *Run, cfg Config, name string,
 	}
 	if coordToolNames[name] { // a project's coordinator (projects_coord_tools.go)
 		return ag.runCoordTool(ctx, run, cfg, name, args)
+	}
+	if wikiToolNames[name] { // a project's wiki (project_wiki_tools.go)
+		return ag.runWikiTool(ctx, run, cfg, name, args)
 	}
 	if sandboxToolNames[name] {
 		return ag.runSandboxTool(ctx, run, cfg, name, args)

@@ -738,6 +738,7 @@ func deleteProjectStep(ctx context.Context, p *Project, j *ProjectJob) (jobOutco
 				return err
 			}
 		}
+		wikiDropProject(t, p.ID) // project_wiki.go
 		_, _ = t.q.Exec(`DELETE FROM settings WHERE k IN (?, ?, ?, ?)`, key, sbxNewKey(p.ID), sbxGenKey(p.ID), twinsKey(p.ID))
 		return nil
 	})

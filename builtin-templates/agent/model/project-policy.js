@@ -61,6 +61,10 @@ export const POLICY = [
     { path: 'coordinator.web', label: 'May search and read the web', type: 'bool' },
     { path: 'coordinator.model', label: 'Its model', type: 'text', hint: 'empty: the agent\'s default' },
   ] },
+  { key: 'wiki', title: 'The project wiki', fields: [
+    { path: 'dream', label: 'Dream rounds: a task adds what it learned to the wiki', type: 'bool',
+      hint: 'once when its pull request opens, and at its end after 3 more turns — a turn of its own, never before a person\'s answer' },
+  ] },
 ];
 
 /** policyGet(policy, 'ci.autoFix'): a key's value. */

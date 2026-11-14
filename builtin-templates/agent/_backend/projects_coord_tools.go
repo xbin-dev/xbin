@@ -131,6 +131,7 @@ func coordToolSpecs() []toolSpec {
 				"q":       strProp("for a list: words"),
 			})}},
 		projectGoalSpec(),
+		researchSpec(), // projects_coord_research.go: runs through execTools, as a subagent does
 	}, coordPRSpecs()...)
 }
 

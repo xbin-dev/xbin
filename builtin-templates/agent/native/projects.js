@@ -220,6 +220,7 @@ function projectTpl(s) {
     <section title="Activity" footer="Text from the scm provider is shown as it came, plain.">
       ${recent.length ? repeat(recent, (ev) => ev.id, (ev) => eventRow(pv, ev)) : nothing}
       <row title="All activity" icon="clock" nav @tap=${() => push({ kind: 'project-events', pid: pv.id })}/>
+      <row title="Wiki" subtitle="the project's shared notes" icon="doc" nav @tap=${() => push({ kind: 'project-wiki', pid: pv.id })}/>
     </section>
     ${ov ? coordTpl(pv, c, s, ov) : nothing}
     ${ov ? aboutSheet(s, ov) : nothing}

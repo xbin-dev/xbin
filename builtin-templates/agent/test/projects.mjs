@@ -202,9 +202,9 @@ ok('…by owner/name', (await calls(page, 'POST', '/projects/7/repos$'))[0].body
 
 // policy: every group, an edit saved with the version, unknown keys kept; a stale version read again
 const groupsP = await page.$$eval('#pset-policy .pgroup', (els) => els.map((e) => e.dataset.group));
-ok('the policy in its groups', groupsP.join() === 'tasks,prs,ci,setup,big,cleanup,coord', groupsP.join());
+ok('the policy in its groups', groupsP.join() === 'tasks,prs,ci,setup,big,cleanup,coord,wiki', groupsP.join());
 const keys = await page.$$eval('#pset-policy :is(input, select, textarea)[id^="pol-"]', (els) => els.length);
-ok('every key is there', keys === 37, String(keys));
+ok('every key is there', keys === 38, String(keys));
 await page.fill('#pol-maxTasks', '5');
 await page.dispatchEvent('#pol-maxTasks', 'change');
 await page.evaluate(() => { document.querySelector('.pgroup[data-group="ci"]').open = true; });

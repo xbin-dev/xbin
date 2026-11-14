@@ -53,7 +53,7 @@ func (e *Engine) projectGate(run *Run, rows []*InboxRow) bool {
 	}
 	ps := parsePending(run.Pending)
 	ours := ps.Kind == pendKindProject
-	want, creds := "", false
+	want, creds, wiki := "", false, false
 	switch k.WS {
 	case wsPending, wsQueued, wsPreparing:
 		want = statusSleep
@@ -62,6 +62,8 @@ func (e *Engine) projectGate(run *Run, rows []*InboxRow) bool {
 	case wsReady:
 		if p.State == projActive && p.Kind != projTeam && scmCredsDue(e.db, p, k) {
 			want, creds = statusSleep, true
+		} else if p.State == projActive && wikiSyncDue(e.db, p, k, run) { // a coding agent reads the wiki from files (project_wiki_sync.go)
+			want, wiki = statusSleep, true
 		}
 	}
 	if want == "" {
@@ -84,7 +86,13 @@ func (e *Engine) projectGate(run *Run, rows []*InboxRow) bool {
 	if creds {
 		park.Step = "renewing the credentials"
 	}
+	if wiki {
+		park.Step = "writing the project wiki into its sandbox"
+	}
 	if ours && run.Status == want && ps.Project != nil && ps.Project.WS == park.WS && ps.Project.Detail == park.Detail {
+		if wiki && e.db.liveJob(p.ID, k.ID, "", pjWikiSync) == nil {
+			_ = e.fenced(func(t *DB) error { _, err := t.queueJob(p.ID, k.ID, "", pjWikiSync, "", 0); return err })
+		}
 		if creds && projectJobKinds[pjCreds] != nil && e.db.liveJob(p.ID, k.ID, "", pjCreds) == nil {
 			// parked already, but nothing renews it (the last renewal ended and
 			// it is still due): one more, or the turn would sleep for good — a
@@ -111,6 +119,11 @@ func (e *Engine) projectGate(run *Run, rows []*InboxRow) bool {
 		}
 		if creds && projectJobKinds[pjCreds] != nil {
 			if _, err := t.queueJob(p.ID, k.ID, "", pjCreds, "", 0); err != nil {
+				return err
+			}
+		}
+		if wiki {
+			if _, err := t.queueJob(p.ID, k.ID, "", pjWikiSync, "", 0); err != nil {
 				return err
 			}
 		}
@@ -320,6 +333,9 @@ func (ag *Agent) projectPromptFor(run *Run, cfg Config) string {
 	}
 	if ref.isCoordinator() {
 		return projectCoordPrompt(p, run)
+	}
+	if ref.Role == projRoleResearch { // a coordinator's research subagent: the wiki's index (project_wiki_prompt.go)
+		return researchWikiPrompt(ag.db, p, run)
 	}
 	root := run
 	if run.ParentID != 0 {

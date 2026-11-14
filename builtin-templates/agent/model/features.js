@@ -282,7 +282,7 @@ export const FEATURES = {
   'proj.task.size': 'a task\'s size: small (a worktree in the project\'s sandbox) or big (its own sandbox, forked)',
   'proj.task.agent': 'who works on a task: the built-in agent or a coding agent',
   'proj.repos': 'a project\'s repos: add, remove, and each one\'s setup script',
-  'proj.policy': 'a project\'s policy: every key, grouped (tasks, branches and PRs, CI and reviews, ports and setup, big tasks, cleanup, the coordinator)',
+  'proj.policy': 'a project\'s policy: every key, grouped (tasks, branches and PRs, CI and reviews, ports and setup, big tasks, cleanup, the coordinator, the wiki)',
   'proj.members': 'a project\'s members and what team visibility grants (where sharing is possible)',
   'proj.status': 'a project\'s status: its sandbox, repos (fetched, protected), credentials (whose, until when — never the token), jobs and warnings',
   'proj.signin': 'signing in to the scm provider (its device code shown only to you), and Forget',
@@ -301,6 +301,9 @@ export const FEATURES = {
   'proj.overview.chat': 'the coordinator\'s newest messages in a window of fixed height (oldest cut at the top, nothing jumps as one comes), Open chat, and the input to it at the bottom of the page',
   'proj.overview.split': 'a bar between the board and the coordinator shares the height between them (drag or keys; kept per person); on a tall tile the page fits it and the input stays in view',
   'proj.events': 'the project\'s event feed: tasks, PRs, CI and reviews as they happen',
+  'proj.wiki': 'a project\'s wiki: its pages (the index first, search), a page as markdown with [[slug]] links, who changed it and when, its sources',
+  'proj.wiki.edit': 'the wiki by hand: a new page, edit and archive at the version read (a change someone made meanwhile says so: Reload, what you typed kept), history with a version\'s change',
+  'proj.wiki.stats': 'the wiki\'s measures: pages, size, reads per page, versions, dream rounds and their tokens',
   'proj.team': 'a team project: the shared board (others\' tasks without their transcripts), "Work on this" in your own space, reviewing the team\'s changes before they apply, members who left',
   'proj.delete': 'archive or delete a project, keeping or deleting its sandbox, confirmed',
   'top.task.chips': 'a task conversation\'s branch and PR chips (each a link to the platform)',
@@ -335,6 +338,7 @@ export const DIFFERENCES = {
     'composer.attach.paste': 'the app\'s composer owns the pasteboard: an image pasted there is uploaded like a picked one — nothing for the tile to draw',
     'composer.attach.drop': 'dropping files on the composer (iPad) is the app\'s: they upload like picked ones — nothing for the tile to draw',
     'proj.overview.split': 'a project\'s screen is a list: it scrolls as one, the coordinator\'s messages end it and its composer is always docked at the bottom — there is no height to share, so no bar',
+    'proj.wiki.edit': 'the wiki on a phone reads: editing pages of Markdown with a merge on a conflict is the web\'s; agents write it either way',
   },
 };
 

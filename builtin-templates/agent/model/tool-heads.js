@@ -109,6 +109,16 @@ function reading(name, a) {
     case 'subagent_result': case 'workflow_result': return `Read #${a.id ?? '?'}'s answer`;
     case 'subagent_message': return `Message #${a.id ?? '?'}: ${one(a.text, 60)}`;
     case 'subagent_cancel': case 'workflow_cancel': return `Stop ${ids(a.ids)}`;
+    // a project's wiki and the coordinator's research (D222)
+    case 'research': return `Research: ${one(a.label || a.question, 80)}`;
+    case 'git': return `git ${one(Array.isArray(a.args) ? a.args.join(' ') : '', 80)}`;
+    case 'wiki_search': return `Search the wiki: ${one(a.query, 60)}`;
+    case 'wiki_read': return `Read the wiki's ${a.slug || 'page'}`;
+    case 'wiki_list': return 'List the wiki\'s pages';
+    case 'wiki_history': return `History of the wiki's ${a.slug || 'page'}${a.version ? ` (v${a.version})` : ''}`;
+    case 'wiki_write': return `Write the wiki's ${a.slug || 'page'}${a.note ? `: ${one(a.note, 60)}` : ''}`;
+    case 'wiki_edit': return `Edit the wiki's ${a.slug || 'page'}${a.note ? `: ${one(a.note, 60)}` : ''}`;
+    case 'wiki_archive': return `Archive the wiki's ${a.slug || 'page'}`;
   }
   if (FAMILY[name] === 'box') return boxReading(name, a);
   if (isAcp(name)) return acpReading(name, a);

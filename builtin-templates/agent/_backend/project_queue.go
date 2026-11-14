@@ -131,6 +131,7 @@ func projectPump(pid int64) {
 			return nil
 		}
 		holders, max := t.slotsUsed(pid), policyOf(p.Policy).MaxTasks
+		held := map[int64]bool{} // tasks whose inputs wait behind a dream round (dreamHolds)
 		for _, in := range items {
 			k, err := t.taskByN(pid, in.N)
 			if err != nil || k.RunID == 0 {
@@ -145,6 +146,9 @@ func projectPump(pid int64) {
 			if in.HoldPark && run.Status == statusWaiting {
 				continue // the person answers first
 			}
+			if dreamHolds(t, k, run, in, held) {
+				continue // a dream round is a turn of its own, after the work, and what follows waits for it (project_dream.go)
+			}
 			if !t.runHoldsSlot(run) {
 				if holders >= max {
 					continue
@@ -153,6 +157,10 @@ func projectPump(pid int64) {
 			}
 			if err := deliverTaskInput(t, p, k, run, in); err != nil {
 				return err
+			}
+			if in.Source == srcDream {
+				dreamStarted(t, k)
+				held[k.N] = true
 			}
 			poke = append(poke, run.ID)
 		}

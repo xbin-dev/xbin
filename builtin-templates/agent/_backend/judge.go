@@ -54,6 +54,10 @@ func init() {
 	runStatusHooks = append(runStatusHooks, judgeStatusChanged)
 }
 
+// judgeDone runs once a run's judgement is over, stored or not (a task's
+// dream round waits for its work turn's verdict: project_dream.go).
+var judgeDone = func(runID int64) {}
+
 // turnVerdict is a run's last judgement.
 type turnVerdict struct {
 	Delivered             bool
@@ -91,6 +95,9 @@ func withVerdict(d *DB, root int64, data map[string]any) map[string]any {
 func judgeStatusChanged(t *DB, runID int64, status string) {
 	switch status {
 	case statusRunning, statusQueued:
+		if dreamRunning(t, runID) {
+			return // a task's dream round: the verdict stays its work turn's (project_dream.go)
+		}
 		_, _ = t.q.Exec(`DELETE FROM run_verdicts WHERE run_id=?`, runID)
 	}
 }
@@ -100,6 +107,9 @@ func judgeStatusChanged(t *DB, runID int64, status string) {
 func (e *Engine) judgeTurn(t *DB, run *Run, why string) {
 	if run.ParentID != 0 || why != turnAnswered || (run.Engine != engineHarness && run.Origin != originProject) {
 		return
+	}
+	if run.Origin == originProject && dreamTurnJustEnded(t, run.ID) {
+		return // a task's dream round isn't the work it was asked for (project_dream.go)
 	}
 	t.AfterCommit(func() { e.maybeJudge(run.ID) })
 }
@@ -116,7 +126,7 @@ func (e *Engine) maybeJudge(runID int64) {
 	e.judging[runID] = true
 	e.titleMu.Unlock()
 	go func() {
-		defer func() { e.titleMu.Lock(); delete(e.judging, runID); e.titleMu.Unlock() }()
+		defer func() { e.titleMu.Lock(); delete(e.judging, runID); e.titleMu.Unlock(); judgeDone(runID) }()
 		e.judge(runID)
 	}()
 }

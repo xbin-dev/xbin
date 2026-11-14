@@ -18,3 +18,6 @@ import './project-task.js';
 
 // U2 team projects: the team board, Work on this, the team's changes to review
 import './project-team.js';
+
+// D222 a project's wiki, read-only: its pages and one page
+import './project-wiki.js';

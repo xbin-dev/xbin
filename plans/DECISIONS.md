@@ -13439,3 +13439,156 @@ Deviations and refinements made while implementing; all deliberate:
     fork still asks, and the words say why (saved sign-ins need a person's
     partition; with partitions on, one serves every big task); no shared
     vault was invented.
+
+- **D222 — A project keeps a wiki its agents read and write, and the
+  coordinator reads code through research subagents (2026-11-08).** The
+  owner, after D221's report: the coordinator is "a somewhat weaker
+  agentic model and I don't think it has great access to understand the
+  projects by itself - which itself is a problem"; give it "sub-agents
+  with read-only access to code and code search tools" and a "Shared
+  project KB based on ideas from
+  https://www.anthropic.com/research/components-of-agent-memory, so -
+  coordinator can R(/W?) the wiki, research subagents can R/W wiki, coding
+  agents can read the wiki and at the end they have a 'dreaming' round
+  where they write the memories". Owner calls: the wiki lives in the
+  project's store, versioned; "Everyone writes directly, on conflict:
+  write retuns: 'other agent changed contents of this article since you
+  last read it, read the article again before editing'".
+  - **The store.** `wiki_pages` (slug, title, body, version, archived,
+    who and which run last wrote it), every version in `wiki_revisions`,
+    `wiki_reads` (the version each run last read), `wiki_fts`. 16 KB a
+    page, about 400 a project; written text redacted (`projRedact`).
+  - **Optimistic concurrency, kept by the server.** A run's read records
+    the version it saw; a write or edit to a page is a compare-and-swap
+    against that version, so a weaker model never carries version numbers.
+    A stale one gets the owner's words: "Another agent changed the contents
+    of this article since you last read it — read the article again before
+    editing."; a page it never read, "read the article before editing it".
+    People write through `PUT …/wiki/{slug}` with `baseVersion` and get the
+    same words with a 409.
+  - **The article's lessons, applied.** A small injected layer: the
+    `index` page (about 60 lines) rides the coordinator's prompt and each
+    task's brief, framed as notes that may be wrong, its version
+    snapshotted at the task's start so the prompt cache holds (pruning
+    keeps every snapshotted version). Injected text is defused like
+    untrusted text — invisibles out, the frames', the coordinator's and its
+    own tags' markers defused in any case or spacing, 3 KB at most — and
+    the coordinator counts the wiki among what is data. Navigation
+    plus search (`[[links]]`, `wiki_search` over FTS5). The dream prompt
+    steers the goal — the next agent on this project — not steps, asks for
+    verified facts that quote paths and identifiers verbatim, and forbids
+    status and what goes stale. Size, reads per page and dream tokens show
+    under the Wiki tab.
+  - **Research subagents.** The coordinator stays in the web class (no
+    sandbox); `research` starts a subagent through the subagent machinery
+    with a `codeRead` binding built by the agent, never from the call: its
+    own detached worktree of a repo's default branch under
+    `.xbin/research/r-<id>/` (removed when it answers; stale ones swept),
+    or a small task's worktree. Its tools are `read`, `ls`, `glob`, `grep`
+    and the wiki, and a read-only `git` — `runTool` refuses everything else
+    whatever the model calls, and an API-made conversation can't carry the
+    binding. Paths resolve inside the project after symlinks; glob
+    patterns may not be absolute, `~` or climb with `..`.
+  - **Research's git, after the review** (git grep ran `sh` through
+    `--open-files-in-pager` behind a pattern of `--`; `git diff <outside>
+    /dev/null` became `--no-index`). argv only, and every argument parsed
+    by the agent against an allowlist per subcommand (`log`, `show`,
+    `diff`, `blame`, `grep`, `ls-files`; `status` dropped): options by exact
+    name, one flag an argument, a short option's separate value never
+    starting with `-`, a long option's value always attached — so git and
+    the parser can't disagree about where an option or a path starts.
+    Revisions and paths before and after `--` refused when absolute, `~`,
+    pathspec magic or out of the roots. `diff` only between commits or
+    against the index, `blame` only at a named revision: the forms that
+    read the working tree through git's filters are gone. Run with
+    `GIT_CONFIG_GLOBAL=/dev/null`, `core.attributesFile=/dev/null`,
+    `log.showSignature=false`, fsmonitor and hooks off, no textconv or
+    external diff. **Residual risk:** the repository's own `.git/config`
+    is still read, so a filter or diff driver planted there could run on a
+    form that still reads a blob through a driver — only someone who can
+    already write the sandbox (and so run anything in it) can plant one.
+  - Four research subagents at once per project, ten minutes each.
+    Project code isn't internal data, so the coordinator's lane is
+    unchanged.
+  - **Coding agents** have no tools of ours: they read a copy of the wiki
+    written to `.xbin/wiki/<slug>.md` (a header names its version) before a
+    prompt reaches them when it changed, and write in the dream round to
+    their task's own `.xbin/wiki-out/<n>/<slug>.md` (small tasks share a
+    sandbox) keeping the header of what they read; the ingest applies the
+    files written since the round began with the same compare-and-swap
+    and, on a conflict, copies the wiki again and sends the conflict's
+    words once more (two rounds at most). A version-0 page over an
+    archived slug brings it back rather than conflicting forever. Built-in task runs get the wiki tools, writing only in
+    their dream turn.
+  - **The dream round.** Once when a task's PR opens after a turn it
+    worked (`pr.opened`: tasks from before this build don't all dream at
+    their next push), and once more when the task merges after three or
+    more turns since — never when a person closed or stopped it. Project
+    policy `dream` (default on).
+  - **A turn of its own, after the review** (a coordinator's message and
+    the dream were delivered together; a message mid-dream stranded the
+    ingest; the dream erased the work turn's D198 verdict; the end dream
+    raced cleanup). The queue delivers the round only to a resting run
+    with nothing else pending and its last work turn's verdict in (the
+    judge's end releases it; 90 s at most); what is queued after it, and
+    anything queued while it runs, waits for its end (a person's own
+    message goes straight in as ever). Its delivery records that the next
+    turn is the dream's (`wiki_dreams.active`) — the write right, the
+    ingest and the judge key off that, never `turn_by`. The dream turn
+    isn't judged and doesn't take the work's verdict down. It is held
+    behind a person's question as the coordinator's messages are; its
+    answer doesn't replace the task's latest. The end dream holds the
+    task's cleanup back until its pages are in (30 minutes at most) —
+    chosen over skipping it, since cleanup is on by default.
+  - **Tried with agents (2026-11-08).** A lab ran five real agents
+    (Sonnet and Haiku) on the real wiki code — coordinator, research
+    subagents, a built-in task and a coding-agent task. It showed: a task
+    started before the wiki had an index never saw one (a "no index"
+    snapshot was kept for life — now it isn't: the index is taken once it
+    exists, then kept); agents had to guess the map's slug (prompts and
+    tool descriptions now say `index`); they asked for a way to tell
+    verified from reported from not runnable (no schema field: every
+    writer is asked to say "(read in path:line)", "(ran `cmd`)" or
+    "(reported by ‹who›, unverified)", and to keep facts about its own
+    session in the note); they repeated the title as a heading (a leading
+    `# …` that repeats the title is dropped on write and ingest); "‹slug›
+    is at version 2" read as an error (now "edited/wrote/archived ‹slug› —
+    now version N"); an edit without a note left a blank reason (agents'
+    changes now need one; people's `PUT` doesn't); the folder README and
+    the research prompt still named `wiki-out/<slug>.md` and git `status`.
+  - **Tried with agents, round 2 (2026-11-09).** Ten agents: a real
+    build-and-test starter task, a Haiku coordinator bootstrapping the
+    wiki from empty, four research subagents in parallel, an A/B against a
+    no-wiki control, two dream rounds at once. What held: 10 of 10 sampled
+    claims matched the code; four writers on `index` lost no update; the
+    second dreamer was refused, read again and rightly added nothing. A/B:
+    the control (no wiki) took 44k tokens, 4 tool calls, 34 s and didn't
+    know how to run the tests; with the wiki 53–54k tokens, 6–9 tool
+    calls, 44 s, and both knew the build recipe and the test patterns —
+    better plans for ~20 % more tokens. Fixed after it: a leading heading
+    other than the title becomes a plain line; the conflict keeps the
+    owner's words and adds "(now version N, by …)", in the dream's
+    follow-up too; the index is framed as the index page with "that page's
+    own version" (agents read "version 5" as the wiki's); an all-words
+    search that finds nothing falls back to any word, said so; research
+    subagents get the framed index in their prompt; a research author is
+    `research #8 "‹label›" (…'s coordinator)`; each revision records the
+    commits it was read at (`at`: research's checkouts, a task's pushed
+    heads), shown in `wiki_read`, `wiki_list` and the tab; the writing
+    tools say "(note required: one line, why)"; a missing `index` says how
+    to start it; the dream prompt says to re-read just before writing and
+    not to sign what it adds; one provenance line suffices for a table or
+    a list read from one place.
+  - **Round 3 (2026-11-09):** four fresh agents on round two's wiki rated
+    it about 4/4; fixed after it: "alias" now finds "aliases" (porter
+    stems them apart — words of 3+ letters match as prefixes too; the
+    tokenizer also folds diacritics, an older `wiki_fts` rebuilt once),
+    the any-word fallback leaves out common English words, headers carry
+    absolute times, writers cite paths and commits never run or task
+    numbers, a dream adds to `index` only a line for a new page, and a
+    dream page that lost is kept as `<slug>.md.rejected` to merge from.
+  - **Not done.** A task reads "working" during its dream turn; on a
+    downgrade a queued wiki sync or ingest job fails its task's workspace
+    ("not in this build"); real Claude Code/Codex sessions writing
+    `wiki-out` were not exercised (the fake agent's files are written by
+    the test).

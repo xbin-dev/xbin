@@ -38,7 +38,15 @@ func ownTask(t *testing.T, fx *p2Fix) (ProjectView, *ProjectTask, int64) {
 	if _, err := fx.ag.db.q.Exec(`UPDATE project_creds SET login=? WHERE project_id=?`, ownLogin, p.ID); err != nil {
 		t.Fatal(err)
 	}
+	// no dream round (D222): its turn would end, and run the refs job, while
+	// a test moves the checkout between branches by hand
+	if _, err := fx.ag.db.q.Exec(`UPDATE projects SET policy=json_set(CASE WHEN policy='' THEN '{}' ELSE policy END, '$.dream', json('false')) WHERE id=?`, p.ID); err != nil {
+		t.Fatal(err)
+	}
 	cur, _ := fx.ag.db.getProject(p.ID)
+	if policyOf(cur.Policy).Dream {
+		t.Fatalf("the dream policy stayed on: %s", cur.Policy)
+	}
 	if own := scmOwnLogin(fx.ag.db, cur, k); own != ownLogin {
 		t.Fatalf("the project's own login: %q", own)
 	}

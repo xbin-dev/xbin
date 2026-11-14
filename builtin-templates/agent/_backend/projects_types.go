@@ -49,6 +49,7 @@ type ProjectRef struct {
 const (
 	projRoleTask        = "task"
 	projRoleCoordinator = "coordinator"
+	projRoleResearch    = "research" // a coordinator's research subagent (projects_coord_research.go)
 )
 
 func (p *ProjectRef) isTask() bool        { return p != nil && p.Role == projRoleTask }
@@ -288,6 +289,7 @@ const (
 	srcHuman       = "human"
 	srcCoordinator = "coordinator"
 	srcEvent       = "event"
+	srcDream       = "dream" // the platform's dream round (project_dream.go): never a person, never answers a park
 )
 
 // ProjectTask is a row of project_tasks.
@@ -674,6 +676,11 @@ type ProjectPolicy struct {
 	// still makes does: ask (it parks — action required) | allow (allow
 	// without asking: full access, allowed at once) (harness_unattended.go)
 	TaskPermissions string `json:"taskPermissions"`
+
+	// Dream: a task gets a dream round — it writes what it learned to the
+	// project wiki — when its turn first rests with its PR open, and at its
+	// end after 3 more turns (project_dream.go). Default on.
+	Dream bool `json:"dream"`
 }
 
 // PolicyPorts: task n listens on base + ((n-1) mod slots) × span, span ports.
@@ -720,7 +727,7 @@ type PolicyCoord struct {
 // API.md §Projects).
 func defaultProjectPolicy() ProjectPolicy {
 	return ProjectPolicy{
-		TaskClass: "coding", Engine: "auto", TaskPermissions: taskPermAsk, MaxTasks: 3, MaxOpenTasks: 20, MaxCreatesDay: 50,
+		TaskClass: "coding", Engine: "auto", TaskPermissions: taskPermAsk, Dream: true, MaxTasks: 3, MaxOpenTasks: 20, MaxCreatesDay: 50,
 		AutoPR: "off", Checkout: coWorktree, SetupTimeout: 600, SetupBlocking: true,
 		Ports: PolicyPorts{Base: 20000, Span: 10, Slots: 100}, FetchEveryMin: 10, Protection: "warn",
 		CI:          PolicyCI{AutoFix: true, MaxPerDay: 5, DelaySec: 60, LogBytes: 8192},

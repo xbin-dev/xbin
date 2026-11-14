@@ -119,7 +119,7 @@ export class Projects {
     this.supported = true;   // false: this backend has no Projects (GET /projects 404)
     this.err = '';
     this.opened = null;      // the open project's id (null: the list)
-    this.tab = 'board';      // the open project's tab: board | settings
+    this.tab = 'board';      // the open project's tab: board | events | wiki | settings
     this.views = new Map();  // pid → ProjectView
     this.taskRows = new Map(); // pid → {items, next, loading, err}
     this.statusOf = new Map(); // pid → ProjectStatus
