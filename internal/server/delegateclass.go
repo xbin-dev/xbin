@@ -1,32 +1,57 @@
 package server
 
-// delegateclass.go — the delegation cap (plans/wsagent/s2-delegation.md):
+// delegateclass.go — the delegation cap (docs/auth.md §Delegation; D228):
 // xbind's API is default-deny for a delegate, a person's workspace agent
 // acting as them (auth/delegate.go), as deployclass.go is for non-primary
 // deployments and partitionclass.go for a person's partition. A delegate is
 // the person's principal, so a handler it reached would judge it as the
 // person — their tile levels, their sessions, their org admin rights. So
 // the gate (delegate.go) lets a delegate reach a route only when this
-// table lists it:
+// table says so, and the table names EVERY route xbind mounts (the guard,
+// internal/apicheck's TestDelegateRouteClasses: a new route fails the build
+// until someone decides its row):
 //
-//   - DelegateRead: a read the person's UI makes, answered at their level;
-//   - DelegateAct: a side effect the person could cause by clicking, which
-//     the gate marks in the audit log and can describe without running (a
-//     dry run);
-//   - DelegateNever: named so the refusal says why, and so a later edit
-//     can't quietly list it (TestDelegateNeverList);
-//   - no row: refused. A new route is not delegated until someone decides.
+//   - DelegateRead: a read at the person's level. Rows marked audit are
+//     written to the person's audit log (code, logs, a session's log and
+//     diff); the listing reads a UI makes all day are not;
+//   - DelegateAct: a side effect the person could cause themselves. Always
+//     audited, counted by the gate's rate limit, and described without
+//     running by a dry run. Rows marked ticket pass only with the person's
+//     approval (delegate.go: a one-shot ticket, or their preference);
+//   - DelegateAdminRead: a read of what admin change sets cover, open only
+//     while the person is an admin who opted in (delegation.State.
+//     AdminChanges), answered as the person — an admin's view, read-only;
+//   - DelegateNever: never delegated — the plan's never-list, with the
+//     reason the refusal gives (TestDelegateNeverList pins it);
+//   - DelegateRefused: not delegated — nothing a workspace agent does needs
+//     it, with the reason.
+//
+// A route without a row is refused too: a table edit can't open anything
+// by omission.
 //
 // /api/<tile>/… is not a row: every tile API call is a delegated class of
 // its own, decided by the broker's Route (broker/delegation.go).
 //
+// A row's tile function names the tile a request is about, so the gate can
+// ask the tile's org's agent rules (delegation.Policy.TileAllows) before
+// the handler runs, and write the tile into the audit row.
+//
 // Some routes mix classes — one pattern, several acts — and a table of
 // patterns can't split them. Each is narrowed where the act is known:
-// POST /term/sessions by term.delegateOpenRefusal (the mode decides whether
-// the session asks its person), POST /templates/new by the person's own
-// creation rule. Routes whose handler answers a person only through their
-// tile's frame are listed in delegateUnconverted and refused until the
-// handler judges a delegate by its person's level.
+// POST /term/sessions by term.Manager.delegateOpen (the mode decides whether
+// the session asks its person); the session routes that drive by
+// delegateDrives (a delegate drives only the sessions it opened);
+// POST /templates/new by the person's own creation rule. Listings are
+// filtered row by row in their handlers (delegateHides). Routes whose
+// handler isn't converted yet are in delegateUnconverted and refused.
+
+import (
+	"net/http"
+	"strings"
+
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/term"
+)
 
 // DelegateClass is a /api/xbin/* route's class for a delegate.
 type DelegateClass uint8
@@ -36,10 +61,15 @@ const (
 	DelegateUnlisted DelegateClass = iota
 	// DelegateRead: a read at the person's level.
 	DelegateRead
-	// DelegateAct: a side effect at the person's level; audited as one.
+	// DelegateAct: a side effect at the person's level.
 	DelegateAct
+	// DelegateAdminRead: a read of what change sets cover, for an admin who
+	// opted in.
+	DelegateAdminRead
 	// DelegateNever: never delegated; the row carries the reason.
 	DelegateNever
+	// DelegateRefused: not delegated; the row carries the reason.
+	DelegateRefused
 )
 
 func (c DelegateClass) String() string {
@@ -48,32 +78,99 @@ func (c DelegateClass) String() string {
 		return "read"
 	case DelegateAct:
 		return "act"
+	case DelegateAdminRead:
+		return "admin-read"
 	case DelegateNever:
 		return "never"
+	case DelegateRefused:
+		return "refused"
 	}
 	return "unlisted"
 }
 
-type delegateRow struct {
-	class DelegateClass
-	why   string // DelegateNever: the refusal
+// Allowed reports a class a delegate may reach.
+func (c DelegateClass) Allowed() bool {
+	return c == DelegateRead || c == DelegateAct || c == DelegateAdminRead
 }
 
-func dRead() delegateRow            { return delegateRow{class: DelegateRead} }
-func dAct() delegateRow             { return delegateRow{class: DelegateAct} }
-func dNever(why string) delegateRow { return delegateRow{class: DelegateNever, why: why} }
+type delegateRow struct {
+	class  DelegateClass
+	why    string // DelegateNever, DelegateRefused: the refusal
+	ticket bool   // DelegateAct: passes only with the person's approval
+	audit  bool   // DelegateRead: written to the audit log
+	// tile names the tile the request is about ("" none, or unknown): rest
+	// is the path below /api/xbin/.
+	tile func(s *Server, p auth.Principal, r *http.Request, rest string) string
+}
 
-// The never-list's reasons (plans/workspace-agent.md §4).
+func dRead() delegateRow                    { return delegateRow{class: DelegateRead} }
+func dAct() delegateRow                     { return delegateRow{class: DelegateAct} }
+func dAdminRead() delegateRow               { return delegateRow{class: DelegateAdminRead, audit: true} }
+func dNever(why string) delegateRow         { return delegateRow{class: DelegateNever, why: why} }
+func dNo(why string) delegateRow            { return delegateRow{class: DelegateRefused, why: why} }
+func (r delegateRow) logged() delegateRow   { r.audit = true; return r }
+func (r delegateRow) ticketed() delegateRow { r.ticket = true; return r }
+func (r delegateRow) on(f func(*Server, auth.Principal, *http.Request, string) string) delegateRow {
+	r.tile = f
+	return r
+}
+
+// ---- which tile a request is about ----
+
+// byComponent: ?component=<tile>.
+func byComponent(_ *Server, _ auth.Principal, r *http.Request, _ string) string {
+	return strings.Trim(r.URL.Query().Get("component"), "/")
+}
+
+// byComponentPath: /components/<tile>.
+func byComponentPath(_ *Server, _ auth.Principal, _ *http.Request, rest string) string {
+	t, _ := strings.CutPrefix(rest, "components/")
+	return strings.Trim(t, "/")
+}
+
+// bySession: /term/sessions/<id>…: the tile the live session runs on.
+func bySession(s *Server, _ auth.Principal, _ *http.Request, rest string) string {
+	seg := strings.Split(rest, "/")
+	if len(seg) < 3 || s.Term == nil {
+		return ""
+	}
+	info, _ := s.Term.Info(seg[2])
+	return info.Cwd
+}
+
+// byHistory: /agent/history/<id>…: the tile the past session ran on.
+func byHistory(s *Server, p auth.Principal, _ *http.Request, rest string) string {
+	seg := strings.Split(rest, "/")
+	if len(seg) < 3 || s.Term == nil {
+		return ""
+	}
+	meta, err := s.Term.HistoryMeta(term.HistoryOf(p), seg[2])
+	if err != nil {
+		return ""
+	}
+	return meta.Cwd
+}
+
+// The never-list's reasons (docs/auth.md §Delegation).
 const (
 	neverAnswer   = "a tile agent's permission requests and questions are answered by the person, never by their agent"
 	neverSettings = "a tile agent's mode and settings decide what it asks its person: they are the person's to change"
-	neverDelete   = "ending, deleting, disabling or offloading is the person's act"
+	neverDelete   = "deleting, disabling or offloading is the person's act"
 	neverCode     = "an agent doesn't write code or decide pull requests: it asks a tile agent, whose changes its person reviews"
 	neverAccount  = "passwords, devices, enrolment and sign-in tickets are the person's own"
 	neverIdentity = "a credential for another identity (a tile's frame, a path ticket, view-as) is never minted for an agent"
-	neverConsent  = "a person's consents and partition decisions are their own acts"
-	neverAdmin    = "the admin API is never delegated: an admin's agent proposes a change set, which a person approves"
-	neverData     = "a tile's stores are the tile's: an agent reads and writes a tile's data through the tile's API"
+	neverConsent  = "a person's consents, access requests and partition decisions are their own acts"
+	neverAdmin    = "the admin API is never delegated: an admin's agent proposes a change set, which the person approves"
+	neverData     = "a tile's stores and registrations are the tile's: an agent reads and writes a tile's data through the tile's API"
+	neverApprove  = "approving, pausing and the agent's own log are the person's: their agent asks, they answer"
+)
+
+// Why the rest isn't delegated.
+const (
+	noPrefs       = "interface preferences are the person's browsers' and apps'"
+	noSandboxes   = "tile sandboxes are driven by the tile that owns them"
+	noDeployments = "a tile's deployments are the work of the people on it"
+	noNotYet      = "not delegated: nothing a workspace agent does needs it"
 )
 
 // DelegateClassOf is the class of the route RegisterAPI mounted as pattern.
@@ -88,6 +185,10 @@ func DelegateClasses() map[string]DelegateClass {
 	return out
 }
 
+// DelegateTicketed reports whether a delegate's call to pattern needs the
+// person's approval.
+func DelegateTicketed(pattern string) bool { return delegateClasses[pattern].ticket }
+
 // DelegateUnconverted returns a copy of delegateUnconverted.
 func DelegateUnconverted() map[string]string {
 	out := make(map[string]string, len(delegateUnconverted))
@@ -97,46 +198,78 @@ func DelegateUnconverted() map[string]string {
 	return out
 }
 
-// delegateUnconverted names listed routes whose handler doesn't answer a
-// delegate at its person's level yet, and what it lacks: refused until the
-// change that converts the handler removes the row.
+// delegateUnconverted names delegated routes whose handler doesn't answer a
+// delegate correctly yet, and what it lacks: refused until the change that
+// converts the handler removes the row.
 var delegateUnconverted = map[string]string{
-	"GET /tile-status": "its handler answers admins and the tile itself: it needs the person's read level on the tile",
+	"GET /alerts":  "its rows aren't filtered by the tiles' orgs' agent rules",
+	"GET /screens": "its rows aren't filtered by the tiles' orgs' agent rules",
 }
 
 // delegateClasses is the table.
 var delegateClasses = map[string]delegateRow{
-	// ---- reads the UI makes: who am I, what exists, how it is doing ----
+	// ---- reads the UI makes: who am I, what exists, how it is doing.
+	// Listings are filtered row by row (delegateHides) ----
 	"GET /whoami":               dRead(),
 	"GET /components":           dRead(), // the tiles the person can read
-	"GET /components/{path...}": dRead(),
-	"GET /screens":              dRead(),
-	"GET /tile-status":          dRead(), // unconverted
-	"GET /tile-report":          dRead(), // the statuses of tiles the person can read
-	"GET /alerts":               dRead(),
-	"GET /logs":                 dRead(), // terminal level on the tile, as for the person
-	"GET /templates":            dRead(), // what a tile can be created from
+	"GET /components/{path...}": dRead().on(byComponentPath),
+	"GET /screens":              dRead(), // unconverted
+	"GET /tile-status":          dRead().on(byComponent),
+	"GET /tile-report":          dRead(),                          // the statuses of tiles the person can read
+	"GET /alerts":               dRead(),                          // unconverted
+	"GET /logs":                 dRead().on(byComponent).logged(), // terminal level on the tile, as for the person
+	"GET /templates":            dRead(),                          // what a tile can be created from
 	"GET /agent/providers":      dRead(),
 
 	// ---- the session directory and agent history: the person's own ----
 	"GET /term/sessions":             dRead(),
-	"GET /term/sessions/{id}":        dRead(),
-	"GET /term/sessions/{id}/events": dRead(),
+	"GET /term/sessions/{id}":        dRead().on(bySession),
+	"GET /term/sessions/{id}/events": dRead().on(bySession),
+	"GET /term/sessions/{id}/log":    dRead().on(bySession).logged(),
+	"GET /term/sessions/{id}/diff":   dRead().on(bySession).logged(), // code: where the person may read the tile's
 	"GET /agent/history":             dRead(),
-	"GET /agent/history/{id}/events": dRead(),
+	"GET /agent/history/{id}/events": dRead().on(byHistory),
 
 	// ---- code reads, for the research sub-agent: read on the tile ----
-	"GET /code/tree": dRead(),
-	"GET /code/file": dRead(),
+	"GET /code/tree": dRead().on(byComponent).logged(),
+	"GET /code/file": dRead().on(byComponent).logged(),
 
-	// ---- acts: tile agent sessions (create narrowed in term), tile creation ----
-	"POST /term/sessions":                    dAct(),
-	"POST /term/sessions/{id}/prompt":        dAct(),
-	"POST /term/sessions/{id}/queue":         dAct(),
-	"DELETE /term/sessions/{id}/queue":       dAct(), // taking back what it queued
-	"DELETE /term/sessions/{id}/queue/{qid}": dAct(),
-	"POST /term/sessions/{id}/cancel":        dAct(),
-	"POST /templates/new":                    dAct(), // where the person may create
+	// ---- acts: tile agent sessions and tile creation. A start and a
+	// create need the person's approval; driving is for sessions the
+	// delegate opened (delegateDrives) ----
+	"POST /term/sessions":                    dAct().ticketed(), // or the person's preference; the tile is the body's cwd
+	"POST /term/sessions/{id}/prompt":        dAct().on(bySession),
+	"POST /term/sessions/{id}/queue":         dAct().on(bySession),
+	"DELETE /term/sessions/{id}/queue":       dAct().on(bySession),
+	"DELETE /term/sessions/{id}/queue/{qid}": dAct().on(bySession),
+	"POST /term/sessions/{id}/cancel":        dAct().on(bySession),
+	"DELETE /term/sessions/{id}":             dAct().on(bySession), // only a session it opened
+	"POST /templates/new":                    dAct().ticketed(),    // where the person may create
+
+	// ---- its own asking: approval requests and change-set proposals ----
+	"POST /delegate/requests":          dAct(),
+	"GET /delegate/requests/{id}":      dRead(),
+	"DELETE /delegate/requests/{id}":   dAct(),
+	"GET /delegate/state":              dRead(),
+	"GET /delegate/approvals":          dRead(),
+	"POST /delegate/changesets":        dAct(),
+	"GET /delegate/changesets":         dRead(),
+	"GET /delegate/changesets/{id}":    dRead(),
+	"DELETE /delegate/changesets/{id}": dAct(),
+
+	// ---- never: answering itself ----
+	"GET /delegate/requests":                 dNever(neverApprove),
+	"POST /delegate/requests/{id}/approve":   dNever(neverApprove),
+	"POST /delegate/requests/{id}/deny":      dNever(neverApprove),
+	"POST /delegate/approvals":               dNever(neverApprove),
+	"DELETE /delegate/approvals/{id}":        dNever(neverApprove),
+	"PUT /delegate/state":                    dNever(neverApprove),
+	"GET /delegate/workspace":                dNever(neverApprove),
+	"PUT /delegate/workspace":                dNever(neverApprove),
+	"GET /delegate/audit":                    dNever(neverApprove),
+	"POST /delegate/changesets/{id}/approve": dNever(neverApprove),
+	"POST /delegate/changesets/{id}/reject":  dNever(neverApprove),
+	"POST /delegate/changesets/{id}/undo":    dNever(neverApprove),
 
 	// ---- never: answering a tile agent, or deciding what it asks ----
 	"POST /term/sessions/{id}/permissions/{pid}":  dNever(neverAnswer),
@@ -144,7 +277,6 @@ var delegateClasses = map[string]delegateRow{
 	"POST /term/sessions/{id}/options":            dNever(neverSettings),
 	"POST /term/sessions/{id}/restart":            dNever(neverSettings),
 	"PATCH /term/sessions/{id}":                   dNever(neverSettings),
-	"DELETE /term/sessions/{id}":                  dNever(neverDelete),
 	"DELETE /agent/history/{id}":                  dNever(neverDelete),
 
 	// ---- never: a tile's life, code writes ----
@@ -230,4 +362,216 @@ var delegateClasses = map[string]delegateRow{
 	"POST /partitions/mode":     dNever(neverAdmin),
 	"POST /partitions/purge":    dNever(neverAdmin),
 	"POST /deployments/promote": dNever(neverAdmin),
+
+	// ---- everything else xbind mounts ----
+	"GET /cron/jobs":                   dNever(neverData),
+	"PUT /cron/jobs":                   dNever(neverData),
+	"DELETE /cron/jobs/{name}":         dNever(neverData),
+	"GET /bus/subscriptions":           dNever(neverData),
+	"PUT /bus/subscriptions":           dNever(neverData),
+	"DELETE /bus/subscriptions/{name}": dNever(neverData),
+	"PUT /iface-instances":             dNever(neverData),
+	"PUT /ingress-hosts":               dNever(neverData),
+	"GET /ingress-routes":              dNever(neverData),
+	"POST /notify":                     dNever(neverData),
+	"POST /tile-report":                dNever(neverData),
+	"POST /partitions/mail":            dNever(neverData),
+	"GET /partitions/mail":             dNever(neverData),
+	"POST /partitions/mail/ack":        dNever(neverData),
+
+	"GET /prefs":          dNo(noPrefs),
+	"GET /prefs/{key}":    dNo(noPrefs),
+	"PUT /prefs/{key}":    dNo(noPrefs),
+	"DELETE /prefs/{key}": dNo(noPrefs),
+
+	"GET /sandboxes":                                 dNo(noSandboxes),
+	"DELETE /sandboxes/{name}":                       dNo(noSandboxes),
+	"/sandboxes/{name}/ports/{port}/{path...}":       dNo(noSandboxes),
+	"DELETE /sandboxes/{name}/execs/{id}":            dNo(noSandboxes),
+	"DELETE /sandboxes/{name}/snapshots/{sid}":       dNo(noSandboxes),
+	"GET /sandboxes/{name}":                          dNo(noSandboxes),
+	"GET /sandboxes/{name}/execs":                    dNo(noSandboxes),
+	"GET /sandboxes/{name}/execs/{id}":               dNo(noSandboxes),
+	"GET /sandboxes/{name}/execs/{id}/output":        dNo(noSandboxes),
+	"GET /sandboxes/{name}/execs/{id}/tty":           dNo(noSandboxes),
+	"GET /sandboxes/{name}/execs/{id}/stdio":         dNo(noSandboxes),
+	"GET /sandboxes/{name}/files/content":            dNo(noSandboxes),
+	"GET /sandboxes/{name}/files/list":               dNo(noSandboxes),
+	"GET /sandboxes/{name}/files/stat":               dNo(noSandboxes),
+	"GET /sandboxes/{name}/snapshots":                dNo(noSandboxes),
+	"GET /sandboxes/{name}/tar":                      dNo(noSandboxes),
+	"GET /sandboxes/{name}/tty":                      dNo(noSandboxes),
+	"GET /sandboxes/policy":                          dNo(noSandboxes),
+	"GET /sandboxes/runtime":                         dNo(noSandboxes),
+	"PATCH /sandboxes/{name}":                        dNo(noSandboxes),
+	"POST /sandboxes":                                dNo(noSandboxes),
+	"POST /sandboxes/copy":                           dNo(noSandboxes),
+	"POST /sandboxes/{name}/execs":                   dNo(noSandboxes),
+	"POST /sandboxes/{name}/execs/{id}/resize":       dNo(noSandboxes),
+	"POST /sandboxes/{name}/execs/{id}/signal":       dNo(noSandboxes),
+	"POST /sandboxes/{name}/execs/{id}/stdin":        dNo(noSandboxes),
+	"POST /sandboxes/{name}/files/mkdir":             dNo(noSandboxes),
+	"POST /sandboxes/{name}/files/move":              dNo(noSandboxes),
+	"POST /sandboxes/{name}/files/remove":            dNo(noSandboxes),
+	"POST /sandboxes/{name}/rebase":                  dNo(noSandboxes),
+	"POST /sandboxes/{name}/reset":                   dNo(noSandboxes),
+	"POST /sandboxes/{name}/run":                     dNo(noSandboxes),
+	"POST /sandboxes/{name}/snapshots":               dNo(noSandboxes),
+	"POST /sandboxes/{name}/snapshots/{sid}/restore": dNo(noSandboxes),
+	"POST /sandboxes/{name}/start":                   dNo(noSandboxes),
+	"POST /sandboxes/{name}/stop":                    dNo(noSandboxes),
+	"PUT /sandboxes/{name}/files/content":            dNo(noSandboxes),
+	"PUT /sandboxes/{name}/tar":                      dNo(noSandboxes),
+	"PUT /sandboxes/policy":                          dNo(noSandboxes),
+
+	"GET /deployments":                     dNo(noDeployments),
+	"GET /deployments/log":                 dNo(noDeployments),
+	"GET /deployments/diff":                dNo(noDeployments),
+	"POST /deployments/live-reload/pause":  dNo(noDeployments),
+	"POST /deployments/live-reload/resume": dNo(noDeployments),
+	"POST /deployments/live-reload/now":    dNo(noDeployments),
+	"POST /deployments/live-reload/attach": dNo(noDeployments),
+	"POST /deployments/add":                dNo(noDeployments),
+	"POST /deployments/remove":             dNo(noDeployments),
+	"POST /deployments/deploy":             dNo(noDeployments),
+	"POST /deployments/rollback":           dNo(noDeployments),
+	"POST /deployments/primary":            dNo(noDeployments),
+	"POST /deployments/protect":            dNo(noDeployments),
+	"POST /deployments/edge":               dNo(noDeployments),
+	"POST /deployments/deliveries":         dNo(noDeployments),
+	"POST /deployments/always-on":          dNo(noDeployments),
+	"POST /deployments/limits":             dNo(noDeployments),
+	"POST /deployments/seed":               dNo(noDeployments),
+	"POST /deployments/reset":              dNo(noDeployments),
+	"POST /deployments/vault-copy":         dNo(noDeployments),
+	"POST /deployments/backup":             dNo(noDeployments),
+	"GET /deployments/backups":             dNo(noDeployments),
+	"POST /deployments/restore":            dNo(noDeployments),
+	"POST /deployments/backup-schedule":    dNo(noDeployments),
+	"POST /deployments/run-now":            dNo(noDeployments),
+	"POST /deployments/purge":              dNo(noDeployments),
+	"POST /deployments/branch":             dNo(noDeployments),
+	"GET /checkpoints/{rest...}":           dNo(noDeployments),
+
+	"GET /git/log":                    dNo(noNotYet),
+	"GET /git/diff":                   dNo(noNotYet),
+	"GET /git/activity":               dNo(noNotYet),
+	"GET /git/remote-info":            dNo(noNotYet),
+	"GET /code/prs":                   dNo(noNotYet),
+	"GET /code/prs/summary":           dNo(noNotYet),
+	"GET /code/pr":                    dNo(noNotYet),
+	"GET /code/pr/series":             dNo(noNotYet),
+	"GET /templates/updates":          dNo(noNotYet),
+	"GET /templates/{repo}/{rest...}": dNo(noNotYet),
+	"GET /builtins":                   dNo(noNotYet),
+	"GET /builtins/updates":           dNo(noNotYet),
+	"GET /partitions/binds":           dNo(noNotYet),
+	"GET /owner":                      dNo(noNotYet),
+	"GET /access/{user}":              dNo(noNotYet),
+	"GET /status":                     dNo(noNotYet),
+	"GET /tile-assets":                dNo(noNotYet),
+	"GET /openapi.json":               dNo(noNotYet),
+	"GET /vm":                         dNo(noNotYet),
+	"GET /term-net":                   dNo(noNotYet),
+	"GET /native-runtime":             dNo(noNotYet),
+	"GET /chrome":                     dNo(noNotYet),
+	"GET /branding":                   dNo(noNotYet),
+	"GET /workspace-policies":         dNo(noNotYet),
+	"GET /workspace-settings":         dNo(noNotYet),
+	"GET /login/methods":              dNo(noNotYet),
+	"GET /partitions":                 dNo(noNotYet),
+
+	"GET /grants":   dAdminRead(),
+	"GET /bindings": dAdminRead(),
+	"GET /orgs":     dAdminRead(),
+	"GET /limits":   dAdminRead(),
+
+	"GET /owner/preview":                     dNever(neverAdmin),
+	"GET /access":                            dNever(neverAdmin),
+	"GET /access-matrix":                     dNever(neverAdmin),
+	"POST /access-requests/approve":          dNever(neverAdmin),
+	"GET /users":                             dNever(neverAdmin),
+	"DELETE /users/{id}/sessions":            dNever(neverAdmin),
+	"GET /users/{id}/devices":                dNever(neverAdmin),
+	"GET /devices/limits":                    dNever(neverAdmin),
+	"PUT /devices/limits":                    dNever(neverAdmin),
+	"GET /sessions":                          dNever(neverAdmin),
+	"GET /users-directory":                   dNever(neverAdmin),
+	"GET /auth-settings":                     dNever(neverAdmin),
+	"POST /auth-settings/sso/test":           dNever(neverAdmin),
+	"PUT /orgs/{org}/members/{user}":         dNever(neverAdmin),
+	"DELETE /orgs/{org}/members/{user}":      dNever(neverAdmin),
+	"PUT /orgs/{org}/sso-groups":             dNever(neverAdmin),
+	"GET /orgs/{org}/policy":                 dNever(neverAdmin),
+	"GET /policy":                            dNever(neverAdmin),
+	"GET /defaults":                          dNever(neverAdmin),
+	"PUT /defaults":                          dNever(neverAdmin),
+	"GET /net-sets":                          dNever(neverAdmin),
+	"PUT /net-sets/{name}":                   dNever(neverAdmin),
+	"DELETE /net-sets/{name}":                dNever(neverAdmin),
+	"GET /permission-sets":                   dNever(neverAdmin),
+	"PUT /permission-sets/{name}":            dNever(neverAdmin),
+	"DELETE /permission-sets/{name}":         dNever(neverAdmin),
+	"PUT /screens/default":                   dNever(neverAdmin),
+	"PUT /screens/org":                       dNever(neverAdmin),
+	"DELETE /screens/org":                    dNever(neverAdmin),
+	"PUT /screens/folders":                   dNever(neverAdmin),
+	"GET /backups":                           dNever(neverAdmin),
+	"GET /backup-schedule":                   dNever(neverAdmin),
+	"POST /backup-schedule":                  dNever(neverAdmin),
+	"DELETE /backup-schedule":                dNever(neverAdmin),
+	"GET /backup-keys":                       dNever(neverAdmin),
+	"POST /backup-keys/export":               dNever(neverAdmin),
+	"POST /backup-keys/import":               dNever(neverAdmin),
+	"POST /backup/erase":                     dNever(neverAdmin),
+	"GET /partitions/backups":                dNever(neverAdmin),
+	"POST /partitions/restore":               dNever(neverAdmin),
+	"GET /vault-status":                      dNever(neverAdmin),
+	"GET /vaults":                            dNever(neverAdmin),
+	"GET /resources":                         dNever(neverAdmin),
+	"GET /auth-overview":                     dNever(neverAdmin),
+	"GET /backends":                          dNever(neverAdmin),
+	"GET /runtime":                           dNever(neverAdmin),
+	"GET /ingress":                           dNever(neverAdmin),
+	"GET /gpus":                              dNever(neverAdmin),
+	"GET /go-build-versions":                 dNever(neverAdmin),
+	"POST /go-build-versions/check":          dNever(neverAdmin),
+	"POST /go-build-versions/dismiss":        dNever(neverAdmin),
+	"PUT /vm/policy":                         dNever(neverAdmin),
+	"PUT /native-runtime":                    dNever(neverAdmin),
+	"PUT /chrome":                            dNever(neverAdmin),
+	"PUT /branding":                          dNever(neverAdmin),
+	"POST /partitions/limits":                dNever(neverAdmin),
+	"POST /limits/dismiss":                   dNever(neverAdmin),
+	"GET /push/config":                       dNever(neverAdmin),
+	"PUT /push/config":                       dNever(neverAdmin),
+	"GET /app-tunnel":                        dNever(neverAdmin),
+	"PUT /app-tunnel":                        dNever(neverAdmin),
+	"POST /app-tunnel/relay-tokens":          dNever(neverAdmin),
+	"POST /app-tunnel/test":                  dNever(neverAdmin),
+	"DELETE /push/config":                    dNever(neverAdmin),
+	"GET /push/devices":                      dNever(neverAdmin),
+	"DELETE /push/devices/{user}":            dNever(neverAdmin),
+	"DELETE /push/devices/{user}/{deviceId}": dNever(neverAdmin),
+	"GET /partitions/edges":                  dNever(neverAdmin),
+	"POST /partitions/stop":                  dNever(neverAdmin),
+	"POST /partitions/reset":                 dNever(neverAdmin),
+	"POST /partitions/reviewed":              dNever(neverAdmin),
+
+	"GET /access-requests":    dNever(neverConsent),
+	"POST /access-requests":   dNever(neverConsent),
+	"DELETE /access-requests": dNever(neverConsent),
+	"GET /partitions/ledger":  dNever(neverConsent),
+
+	"POST /invite/check":                                   dNever(neverAccount),
+	"GET /devices":                                         dNever(neverAccount),
+	"GET /devices/pairing/{id}":                            dNever(neverAccount),
+	"GET /app-tunnel/client":                               dNever(neverAccount),
+	"GET /devices/push":                                    dNever(neverAccount),
+	"DELETE /devices/push/{deviceId}":                      dNever(neverAccount),
+	"POST /devices/push/activities":                        dNever(neverAccount),
+	"DELETE /devices/push/{deviceId}/activities/{session}": dNever(neverAccount),
+	"GET /push/prefs":                                      dNever(neverAccount),
+	"PUT /push/prefs":                                      dNever(neverAccount),
+	"POST /push/test":                                      dNever(neverAccount),
 }

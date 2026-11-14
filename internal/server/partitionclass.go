@@ -575,4 +575,30 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /agent/history":                                   PartitionNeutral,
 	"GET /agent/history/{id}/events":                       PartitionNeutral,
 	"DELETE /agent/history/{id}":                           PartitionNeutral,
+	// ---- delegation (D228, delegateapi.go): a person's workspace agent.
+	// Their agent's own page — the sealed holder's frame, in their
+	// partition — answers approval requests and pauses; the handlers take
+	// it only under the person's own login. The log and a change set's
+	// decision are the person's own acts; the workspace's switch an admin's ----
+	"GET /delegate/state":                    PartitionNeutral,
+	"PUT /delegate/state":                    PartitionNeutral,
+	"GET /delegate/workspace":                GlobalOnlyRefused,
+	"PUT /delegate/workspace":                GlobalOnlyRefused,
+	"GET /delegate/audit":                    PersonOnly,
+	"POST /delegate/requests":                PartitionNeutral,
+	"GET /delegate/requests":                 PartitionNeutral,
+	"GET /delegate/requests/{id}":            PartitionNeutral,
+	"POST /delegate/requests/{id}/approve":   PartitionNeutral,
+	"POST /delegate/requests/{id}/deny":      PartitionNeutral,
+	"DELETE /delegate/requests/{id}":         PartitionNeutral,
+	"GET /delegate/approvals":                PartitionNeutral,
+	"POST /delegate/approvals":               PartitionNeutral,
+	"DELETE /delegate/approvals/{id}":        PartitionNeutral,
+	"POST /delegate/changesets":              PartitionNeutral,
+	"GET /delegate/changesets":               PartitionNeutral,
+	"GET /delegate/changesets/{id}":          PartitionNeutral,
+	"DELETE /delegate/changesets/{id}":       PartitionNeutral,
+	"POST /delegate/changesets/{id}/approve": PersonOnly,
+	"POST /delegate/changesets/{id}/reject":  PersonOnly,
+	"POST /delegate/changesets/{id}/undo":    PersonOnly,
 }

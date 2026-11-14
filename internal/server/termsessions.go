@@ -9,6 +9,7 @@ package server
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
@@ -120,6 +121,9 @@ func (s *Server) apiTermSessions(w http.ResponseWriter, r *http.Request) {
 		may = nil
 	}
 	rows := s.Term.ListFor(homeKey, r.URL.Query().Get("cwd"), may)
+	if p.Agent != "" { // a person's agent: not the tiles whose org keeps it out (delegate.go)
+		rows = slices.DeleteFunc(rows, func(si term.SessionInfo) bool { return s.delegateHides(p, si.Cwd) })
+	}
 	if homeKey != term.HomeKey(p) || p.ReadOnly() {
 		for i := range rows {
 			if rows[i].Personal() {

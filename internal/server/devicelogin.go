@@ -232,6 +232,15 @@ func (s *Server) apiEnrollCode(w http.ResponseWriter, r *http.Request) {
 // sign-in disabled for it) and retry within the window. Wrong passwords
 // count against the login throttle.
 func (s *Server) enrollStepUp(w http.ResponseWriter, r *http.Request, p auth.Principal, password string) bool {
+	return s.stepUp(w, r, p, password,
+		fmt.Sprintf("adding a device needs a recent sign-in — sign in again, then add it within %d minutes", int(auth.EnrollFreshLogin/time.Minute)),
+		"confirm your password to add a device")
+}
+
+// stepUp is the freshness step-up device enrolment and admin change sets
+// share: p's sign-in is under auth.EnrollFreshLogin old, or password is
+// p's. needSignin and needPassword are the refusals' words.
+func (s *Server) stepUp(w http.ResponseWriter, r *http.Request, p auth.Principal, password, needSignin, needPassword string) bool {
 	if at, ok := s.Auth.LoginTime(p); ok && time.Since(at) <= auth.EnrollFreshLogin {
 		return true
 	}
@@ -247,10 +256,10 @@ func (s *Server) enrollStepUp(w http.ResponseWriter, r *http.Request, p auth.Pri
 		return false
 	}
 	if !pwOK {
-		return refuse(fmt.Sprintf("adding a device needs a recent sign-in — sign in again, then add it within %d minutes", int(auth.EnrollFreshLogin/time.Minute)))
+		return refuse(needSignin)
 	}
 	if body.Password == "" {
-		return refuse("confirm your password to add a device")
+		return refuse(needPassword)
 	}
 	ip := s.ClientIP(r)
 	if s.throttled(w, ip) {

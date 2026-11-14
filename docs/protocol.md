@@ -30,6 +30,7 @@ documented in exactly one of them:
 | [protocol/deployments.md](/docs/protocol/deployments.md) | `/deployments…`, `/checkpoints/…`; the tile deployments conventions |
 | [protocol/sandboxes.md](/docs/protocol/sandboxes.md) | a manager tile's `/sandboxes…` routes |
 | [protocol/devices.md](/docs/protocol/devices.md) | `/devices…`, `/web-ticket`, `/app-tunnel`, `/notify`, `/push/…`; push notifications, Live Activities |
+| [protocol/delegation.md](/docs/protocol/delegation.md) | `/delegate/…`: a person's workspace agent — the delegate call, approval requests and tickets, standing approvals, admin change sets, the audit log |
 | [protocol/llm.md](/docs/protocol/llm.md) | reserved: the LLM connector |
 | [protocol/sealed.md](/docs/protocol/sealed.md) | reserved: sealed components |
 

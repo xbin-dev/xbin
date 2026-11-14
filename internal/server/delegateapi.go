@@ -1,0 +1,625 @@
+package server
+
+// delegateapi.go — the delegation API (docs/protocol/delegation.md): what a
+// person's own clients, and their workspace agent, call about the agent.
+//
+//	the switches   GET/PUT /delegate/state, GET/PUT /delegate/workspace
+//	the log        GET /delegate/audit
+//	approvals      /delegate/requests…  (the agent asks; the person answers)
+//	               /delegate/approvals… (standing approvals: list, give, revoke)
+//	change sets    /delegate/changesets… (changeset.go)
+//
+// Three kinds of caller reach these routes, and each handler says which it
+// takes (delegateActor):
+//
+//   - the PERSON, through their own session, app or device credential;
+//   - the agent's own PAGE: the sealed holder's frame, when its token was
+//     minted under the person's own login (auth.Principal.LoginFrame). The
+//     page is where the agent's approval cards are shown, and it is xbind's
+//     own code, served from the release. It may answer approval requests
+//     and pause the agent — never opt in to admin changes, read the log or
+//     approve a change set;
+//   - the AGENT itself, a delegate principal, through the delegate gate,
+//     for the rows the delegation cap lists: asking, withdrawing, reading
+//     its own requests.
+//
+// Never a tile's other credentials, view-as, or the root token.
+
+import (
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"github.com/xbin-dev/xbin/internal/agent"
+	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/delegation"
+	"github.com/xbin-dev/xbin/internal/events"
+)
+
+const delegationDocs = "/docs/protocol/delegation.md"
+
+func (s *Server) registerDelegationAPI() {
+	s.RegisterAPI("GET /delegate/state", s.apiDelegateState)
+	s.RegisterAPI("PUT /delegate/state", s.apiDelegateStatePut)
+	s.RegisterAPI("GET /delegate/workspace", s.apiDelegateWorkspace)
+	s.RegisterAPI("PUT /delegate/workspace", s.apiDelegateWorkspacePut)
+	s.RegisterAPI("GET /delegate/audit", s.apiDelegateAudit)
+	s.RegisterAPI("POST /delegate/requests", s.apiDelegateRequestNew)
+	s.RegisterAPI("GET /delegate/requests", s.apiDelegateRequests)
+	s.RegisterAPI("GET /delegate/requests/{id}", s.apiDelegateRequest)
+	s.RegisterAPI("POST /delegate/requests/{id}/approve", s.apiDelegateRequestDecide)
+	s.RegisterAPI("POST /delegate/requests/{id}/deny", s.apiDelegateRequestDecide)
+	s.RegisterAPI("DELETE /delegate/requests/{id}", s.apiDelegateRequestWithdraw)
+	s.RegisterAPI("GET /delegate/approvals", s.apiDelegateApprovals)
+	s.RegisterAPI("POST /delegate/approvals", s.apiDelegateApprovalAdd)
+	s.RegisterAPI("DELETE /delegate/approvals/{id}", s.apiDelegateApprovalRevoke)
+	s.registerChangeSetAPI()
+}
+
+// ---- who is calling ----
+
+// delegateActor is the caller of a delegation route: whose agent it is
+// about, and which of the three kinds of caller it is.
+type delegateActor struct {
+	user  string
+	via   string // "session" | "device" | "app" | "cookie", "frame", "delegate"
+	own   bool   // the person's own credential
+	frame bool   // the agent's page, under the person's login
+	agent bool   // the agent itself
+	p     auth.Principal
+}
+
+// delegateActorOf judges p; ok false for everyone the file comment
+// excludes.
+func delegateActorOf(p auth.Principal) (delegateActor, bool) {
+	a := delegateActor{user: p.UserID, via: p.Via, p: p}
+	switch {
+	case p.UserID == "" || p.Impersonator != "" || p.Owner:
+		return a, false
+	case p.Agent != "" && p.Via == "delegate" && p.Component == "":
+		a.agent = true
+	case p.Component == "" && p.Agent == "" && p.Via != "delegate":
+		a.own = true
+	case p.Via == "frame" && auth.HoldsDelegation(p.Component) && p.LoginFrame() && strings.HasPrefix(p.Gen, "s."):
+		a.frame, a.via = true, "frame"
+	default:
+		return a, false
+	}
+	return a, true
+}
+
+// delegateCaller answers the actor of r when it is one of the kinds the
+// route takes; otherwise it writes the 403.
+func (s *Server) delegateCaller(w http.ResponseWriter, r *http.Request, own, frame, agent bool) (delegateActor, bool) {
+	a, ok := delegateActorOf(auth.PrincipalOf(r))
+	if ok && (a.own && own || a.frame && frame || a.agent && agent) {
+		if s.Delegation == nil {
+			WriteError(w, http.StatusNotImplemented, "this xbind keeps no delegation state", delegationDocs)
+			return a, false
+		}
+		return a, true
+	}
+	msg := "this is the person's own act: sign in and do it yourself"
+	if agent && !own {
+		msg = "only a person's workspace agent asks this"
+	}
+	WriteError(w, http.StatusForbidden, msg, delegationDocs)
+	return a, false
+}
+
+// mayOptInAdmin: a workspace admin or an org's admin.
+func mayOptInAdmin(p auth.Principal) bool {
+	return p.User != nil && p.User.IsAdmin() || p.Access != nil && len(p.Access.AdminOrgs()) > 0
+}
+
+// ---- events and pushes ----
+
+// delegateChange is a `delegate` event's data: something about user's
+// agent changed — op "request" (an approval request appeared or was
+// decided), "approval" (a standing approval), "changeset", "state". It
+// goes to the person's own sockets and their agent's page, nobody else's.
+type delegateChange struct {
+	Op   string `json:"op"`
+	ID   string `json:"id,omitempty"`
+	User string `json:"user"`
+}
+
+func (c delegateChange) VisibleTo(p auth.Principal) bool {
+	a, ok := delegateActorOf(p)
+	return ok && !a.agent && a.user == c.User
+}
+
+func (s *Server) delegateEvent(user, op, id string) {
+	if s.Hub != nil {
+		s.Hub.Publish(events.Event{Type: "delegate", Data: delegateChange{Op: op, ID: id, User: user}})
+	}
+}
+
+// delegatePage is where a push about the agent leads: the xbind-served
+// agent page.
+const delegatePage = "xbin/agent"
+
+func (s *Server) delegatePush(user, kind, title, body, collapse string) {
+	if s.DelegatePush != nil {
+		s.DelegatePush(user, kind, title, body, delegatePage, collapse)
+	}
+}
+
+// ---- the switches ----
+
+func (s *Server) delegateStateView(a delegateActor) map[string]any {
+	st := s.Delegation.State(a.user)
+	pend, _ := s.Delegation.Requests(a.user, true)
+	aps, _ := s.Delegation.Approvals(a.user)
+	sets, _ := s.Delegation.ChangeSets(a.user)
+	open := 0
+	for _, cs := range sets {
+		if cs.Open() {
+			open++
+		}
+	}
+	return map[string]any{
+		"user": a.user, "workspace": s.Delegation.Workspace().Enabled,
+		"paused": st.Paused, "adminChanges": st.AdminChanges, "canAdminChanges": mayOptInAdmin(a.p),
+		"pendingRequests": len(pend), "standingApprovals": len(aps), "openChangeSets": open,
+	}
+}
+
+// apiDelegateState — GET /delegate/state: the person, their agent's page or
+// their agent → the switches and what waits for the person.
+func (s *Server) apiDelegateState(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.delegateCaller(w, r, true, true, true)
+	if !ok {
+		return
+	}
+	WriteJSON(w, http.StatusOK, s.delegateStateView(a))
+}
+
+// apiDelegateStatePut — PUT /delegate/state {paused?, adminChanges?}: the
+// person; their agent's page may pause and resume only. Pausing stops the
+// agent's calls at once, the ones running now included. adminChanges is an
+// admin's (a workspace admin, or an org's): 403 for anyone else turning it
+// on.
+func (s *Server) apiDelegateStatePut(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.delegateCaller(w, r, true, true, false)
+	if !ok {
+		return
+	}
+	var body struct {
+		Paused       *bool `json:"paused"`
+		AdminChanges *bool `json:"adminChanges"`
+	}
+	if err := DecodeJSON(r, &body); err != nil || body.Paused == nil && body.AdminChanges == nil {
+		WriteError(w, http.StatusBadRequest, "need {paused?, adminChanges?: bool} with at least one key", delegationDocs)
+		return
+	}
+	if body.AdminChanges != nil {
+		switch {
+		case !a.own:
+			WriteError(w, http.StatusForbidden, "letting your agent propose admin changes is decided in your own session, not on the agent's page", delegationDocs)
+			return
+		case *body.AdminChanges && !mayOptInAdmin(a.p):
+			WriteError(w, http.StatusForbidden, "only a workspace admin or an org's admin has admin changes for an agent to propose", delegationDocs)
+			return
+		}
+	}
+	st, err := s.Delegation.SetState(a.user, func(st *delegation.State) {
+		if body.Paused != nil {
+			st.Paused = *body.Paused
+		}
+		if body.AdminChanges != nil {
+			st.AdminChanges = *body.AdminChanges
+		}
+	})
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "the agent's settings can't be written", delegationDocs)
+		return
+	}
+	if st.Paused {
+		s.CutDelegateStreams(a.user)
+	}
+	s.delegateEvent(a.user, "state", "")
+	WriteJSON(w, http.StatusOK, s.delegateStateView(a))
+}
+
+// apiDelegateWorkspace — GET /delegate/workspace: admin → {enabled, by, at}.
+func (s *Server) apiDelegateWorkspace(w http.ResponseWriter, r *http.Request) {
+	if !s.settingsAdmin(r) || auth.PrincipalOf(r).Agent != "" {
+		WriteError(w, http.StatusForbidden, "admin only", delegationDocs)
+		return
+	}
+	WriteJSON(w, http.StatusOK, s.Delegation.Workspace())
+}
+
+// apiDelegateWorkspacePut — PUT /delegate/workspace {enabled}: admin. Off
+// stops every person's agent at once.
+func (s *Server) apiDelegateWorkspacePut(w http.ResponseWriter, r *http.Request) {
+	p := auth.PrincipalOf(r)
+	if !s.settingsAdmin(r) || p.Agent != "" {
+		WriteError(w, http.StatusForbidden, "admin only", delegationDocs)
+		return
+	}
+	var body struct {
+		Enabled *bool `json:"enabled"`
+	}
+	if err := DecodeJSON(r, &body); err != nil || body.Enabled == nil {
+		WriteError(w, http.StatusBadRequest, "need {enabled: bool}", delegationDocs)
+		return
+	}
+	ws, err := s.Delegation.SetWorkspace(*body.Enabled, p.From())
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "the workspace's switch can't be written", delegationDocs)
+		return
+	}
+	if !ws.Enabled {
+		s.CutDelegateStreams("")
+	}
+	WriteJSON(w, http.StatusOK, ws)
+}
+
+// apiDelegateAudit — GET /delegate/audit[?before=<RFC 3339>&limit=<n>]:
+// "what my agent did" — the caller's own rows, newest first. The person's
+// own session, app or device only: never their agent (it would read what
+// it was refused), its page, a tile, view-as or the root token. An admin
+// reads another person's with ?user=.
+func (s *Server) apiDelegateAudit(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.delegateCaller(w, r, true, false, false)
+	if !ok {
+		return
+	}
+	user := a.user
+	if u := r.URL.Query().Get("user"); u != "" && u != user {
+		if !a.p.IsAdmin() {
+			WriteError(w, http.StatusForbidden, "another person's agent log is an admin's to read", delegationDocs)
+			return
+		}
+		user = u
+	}
+	var before time.Time
+	if b := r.URL.Query().Get("before"); b != "" {
+		t, err := time.Parse(time.RFC3339, b)
+		if err != nil {
+			WriteError(w, http.StatusBadRequest, "before is an RFC 3339 time", delegationDocs)
+			return
+		}
+		before = t
+	}
+	limit := 0
+	for _, c := range r.URL.Query().Get("limit") {
+		if c < '0' || c > '9' || limit > 1000 {
+			limit = 0
+			break
+		}
+		limit = limit*10 + int(c-'0')
+	}
+	rows, err := s.delegateAuditLog().Read(user, before, limit)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "the log can't be read", delegationDocs)
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"user": user, "calls": rows})
+}
+
+// ---- approval requests ----
+
+// apiDelegateRequestNew — POST /delegate/requests {method, path, body? |
+// bodyBase64?, summary?}: the agent asks its person to approve one side
+// effect — a non-GET call to a tile's API, a POST /term/sessions or a
+// POST /templates/new — exactly as it will send it. xbind judges the call
+// as the gate will (the cap, the tile's rules, the person's level), stores
+// it pending with its own description, and tells the person. →
+// the request. 400 for a call that needs no approval or isn't delegated;
+// 403 for one the tile or its org refuses anyway; 409 past the pending
+// limit.
+func (s *Server) apiDelegateRequestNew(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.delegateCaller(w, r, false, false, true)
+	if !ok {
+		return
+	}
+	p := a.p
+	r.Body = http.MaxBytesReader(w, r.Body, delegation.MaxBody*2)
+	var in struct {
+		Method     string `json:"method"`
+		Path       string `json:"path"`
+		Body       string `json:"body"`
+		BodyBase64 string `json:"bodyBase64"`
+		Summary    string `json:"summary"`
+	}
+	if err := DecodeJSON(r, &in); err != nil || in.Method == "" || in.Path == "" {
+		WriteError(w, http.StatusBadRequest, "need {method, path, body? | bodyBase64?, summary?}", delegationDocs)
+		return
+	}
+	body := []byte(in.Body)
+	if in.BodyBase64 != "" {
+		b, err := base64.StdEncoding.DecodeString(in.BodyBase64)
+		if err != nil || in.Body != "" {
+			WriteError(w, http.StatusBadRequest, "bodyBase64 is standard base64, given instead of body", delegationDocs)
+			return
+		}
+		body = b
+	}
+	method := strings.ToUpper(in.Method)
+	u, err := url.ParseRequestURI(in.Path)
+	if err != nil || u.Host != "" || u.Scheme != "" || !strings.HasPrefix(u.Path, "/api/") {
+		WriteError(w, http.StatusBadRequest, "path is the call's path under /api/, with its query", delegationDocs)
+		return
+	}
+	sr, err := http.NewRequestWithContext(r.Context(), method, u.RequestURI(), nil)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, "not a method and a path", delegationDocs)
+		return
+	}
+	v := s.delegateVerdict(sr, p)
+	switch {
+	case v.deny != "":
+		WriteError(w, http.StatusBadRequest, "this call isn't delegated: "+v.deny, delegationDocs)
+		return
+	case !v.effect || !(v.tileAPI || v.row.ticket):
+		WriteError(w, http.StatusBadRequest, "this call needs no approval: make it", delegationDocs)
+		return
+	}
+	req := delegation.Request{User: a.user, Agent: p.Agent, Method: method, Target: requestTarget(sr), Tile: v.tile, Summary: in.Summary, Kind: delegation.KindCall}
+	preview := map[string]any{"class": v.class, "reversible": false}
+	switch {
+	case v.tileAPI:
+		dp, ok := s.policy().(DelegatePolicy)
+		if !ok {
+			WriteError(w, http.StatusForbidden, "this xbind has no tile routing for a person's agent", delegationDocs)
+			return
+		}
+		level, role, _, err := dp.DelegateTile(p, v.tile, true)
+		if err != nil {
+			WriteError(w, http.StatusForbidden, err.Error(), delegationDocs)
+			return
+		}
+		preview["tile"], preview["owner"], preview["level"], preview["role"] = v.tile, s.policy().OwnerOf(v.tile), level, role
+	case v.pattern == "POST /term/sessions":
+		req.Kind = delegation.KindSession
+		ask, why := s.sessionPreview(p, body)
+		if why != "" {
+			WriteError(w, http.StatusForbidden, why, delegationDocs)
+			return
+		}
+		req.Tile = ask["tile"].(string)
+		preview["tile"], preview["owner"], preview["session"] = req.Tile, s.policy().OwnerOf(req.Tile), ask
+	default:
+		req.Kind = delegation.KindTemplate
+	}
+	req.Preview = preview
+	out, err := s.Delegation.NewRequest(req, body)
+	switch {
+	case errors.Is(err, delegation.ErrTooMany):
+		WriteError(w, http.StatusConflict, err.Error(), delegationDocs)
+		return
+	case err != nil:
+		WriteError(w, http.StatusBadRequest, err.Error(), delegationDocs)
+		return
+	}
+	s.delegateEvent(a.user, "request", out.ID)
+	what := method + " " + strings.TrimPrefix(u.Path, "/api/")
+	if out.Kind == delegation.KindSession {
+		what = "start a tile agent on " + out.Tile
+	}
+	s.delegatePush(a.user, "agent.approval", "Your agent asks for your approval",
+		"It wants to "+what+". Open your agent to see exactly what, and approve or deny it.", "agent-approval:"+out.ID)
+	WriteJSON(w, http.StatusOK, out)
+}
+
+// sessionPreview is what a person is shown of a POST /term/sessions body
+// their agent wants approved — the tile, the harness, the mode and whether
+// it asks before acting, the sandbox pickers — or why the start would be
+// refused anyway.
+func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, string) {
+	var b struct {
+		Cwd, Kind, Provider, Mode, Net, GPU, Name, Model, Resume string
+		API                                                      *bool
+		VM                                                       bool
+		Options                                                  map[string]string
+	}
+	if json.Unmarshal(body, &b) != nil || b.Cwd == "" || b.Provider == "" {
+		return nil, "a session start names its tile and harness: {cwd, kind:\"agent\", provider, …}"
+	}
+	tile := strings.Trim(b.Cwd, "/")
+	prov, ok := agent.Lookup(b.Provider)
+	if !ok {
+		return nil, fmt.Sprintf("unknown provider %q", b.Provider)
+	}
+	mode, err := prov.ResolveMode(b.Mode)
+	if err != nil {
+		return nil, err.Error()
+	}
+	if !p.CanTerminalTileVia(tile) {
+		return nil, p.UserID + " doesn't have terminal access to " + tile + ": their agent can't start a tile agent there"
+	}
+	if err := s.agentPolicy().SessionAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: tile, Model: p.AgentModel}, prov.ID); err != nil {
+		return nil, err.Error()
+	}
+	model := b.Model
+	if model == "" {
+		model = b.Options["model"]
+	}
+	return map[string]any{
+		"tile": tile, "provider": prov.ID, "providerName": prov.Name, "mode": mode,
+		"asks": prov.Safe(mode), // false: this mode lets the tile agent act without asking
+		"net":  b.Net, "api": b.API == nil || *b.API, "vm": b.VM, "gpu": b.GPU, "model": model, "name": b.Name, "resume": b.Resume != "",
+	}, ""
+}
+
+// apiDelegateRequests — GET /delegate/requests[?all=1]: the person or
+// their agent's page → their pending requests (all: the decided ones of the
+// last day too), oldest first.
+func (s *Server) apiDelegateRequests(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.delegateCaller(w, r, true, true, false)
+	if !ok {
+		return
+	}
+	rows, err := s.Delegation.Requests(a.user, r.URL.Query().Get("all") == "")
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "the requests can't be read", delegationDocs)
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"requests": rows})
+}
+
+// apiDelegateRequest — GET /delegate/requests/{id}: the person, their
+// agent's page or their agent → one request (its state says whether it is
+// a ticket yet).
+func (s *Server) apiDelegateRequest(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.delegateCaller(w, r, true, true, true)
+	if !ok {
+		return
+	}
+	req, found := s.Delegation.Request(a.user, r.PathValue("id"))
+	if !found {
+		WriteError(w, http.StatusNotFound, "no such request", delegationDocs)
+		return
+	}
+	WriteJSON(w, http.StatusOK, req)
+}
+
+// apiDelegateRequestDecide — POST /delegate/requests/{id}/approve
+// [{grant: "once" | "hour" | "always"}] and …/deny: the person or their
+// agent's page. once (the default) makes the request a ticket for exactly
+// that call, good for 15 minutes; hour and always — a tile API call only —
+// also record a standing approval of that tile's API. → {request,
+// approval?}.
+func (s *Server) apiDelegateRequestDecide(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.delegateCaller(w, r, true, true, false)
+	if !ok {
+		return
+	}
+	grant := ""
+	if strings.HasSuffix(r.URL.Path, "/approve") {
+		var body struct {
+			Grant string `json:"grant"`
+		}
+		if r.ContentLength != 0 {
+			if err := DecodeJSON(r, &body); err != nil {
+				WriteError(w, http.StatusBadRequest, `need {grant?: "once" | "hour" | "always"}`, delegationDocs)
+				return
+			}
+		}
+		grant = body.Grant
+		if grant == "" {
+			grant = delegation.GrantOnce
+		}
+	}
+	req, ap, err := s.Delegation.Decide(a.user, r.PathValue("id"), grant, a.via)
+	switch {
+	case errors.Is(err, delegation.ErrNoRequest):
+		WriteError(w, http.StatusNotFound, err.Error(), delegationDocs)
+		return
+	case errors.Is(err, delegation.ErrNotPending):
+		WriteError(w, http.StatusConflict, err.Error(), delegationDocs)
+		return
+	case err != nil:
+		WriteError(w, http.StatusBadRequest, err.Error(), delegationDocs)
+		return
+	}
+	out := map[string]any{"request": req}
+	if ap != nil {
+		out["approval"] = ap
+		s.delegateEvent(a.user, "approval", ap.ID)
+	}
+	s.delegateAudit(delegation.Call{User: a.user, Agent: req.Agent, Method: req.Method, Path: strings.SplitN(req.Target, "?", 2)[0], Tile: req.Tile,
+		Class: "decision:" + req.State, Effect: true, Status: http.StatusOK, Ticket: req.ID, Under: req.Grant})
+	s.delegateEvent(a.user, "request", req.ID)
+	WriteJSON(w, http.StatusOK, out)
+}
+
+// apiDelegateRequestWithdraw — DELETE /delegate/requests/{id}: the agent
+// (it no longer wants it), the person or the agent's page.
+func (s *Server) apiDelegateRequestWithdraw(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.delegateCaller(w, r, true, true, true)
+	if !ok {
+		return
+	}
+	req, err := s.Delegation.Withdraw(a.user, r.PathValue("id"))
+	switch {
+	case errors.Is(err, delegation.ErrNoRequest):
+		WriteError(w, http.StatusNotFound, err.Error(), delegationDocs)
+		return
+	case err != nil:
+		WriteError(w, http.StatusConflict, err.Error(), delegationDocs)
+		return
+	}
+	s.delegateEvent(a.user, "request", req.ID)
+	WriteJSON(w, http.StatusOK, req)
+}
+
+// ---- standing approvals ----
+
+// apiDelegateApprovals — GET /delegate/approvals: the person, their agent's
+// page or their agent → the standing approvals that hold now.
+func (s *Server) apiDelegateApprovals(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.delegateCaller(w, r, true, true, true)
+	if !ok {
+		return
+	}
+	rows, err := s.Delegation.Approvals(a.user)
+	if err != nil {
+		WriteError(w, http.StatusInternalServerError, "the approvals can't be read", delegationDocs)
+		return
+	}
+	WriteJSON(w, http.StatusOK, map[string]any{"approvals": rows})
+}
+
+// apiDelegateApprovalAdd — POST /delegate/approvals {tile, grant: "hour" |
+// "always"}: the person or their agent's page lets the agent call that
+// tile's API without asking each time. The tile must be one they can read.
+func (s *Server) apiDelegateApprovalAdd(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.delegateCaller(w, r, true, true, false)
+	if !ok {
+		return
+	}
+	var body struct {
+		Tile  string `json:"tile"`
+		Grant string `json:"grant"`
+	}
+	if err := DecodeJSON(r, &body); err != nil || body.Tile == "" {
+		WriteError(w, http.StatusBadRequest, `need {tile, grant: "hour" | "always"}`, delegationDocs)
+		return
+	}
+	tile := strings.Trim(body.Tile, "/")
+	known := s.Reg == nil
+	if s.Reg != nil {
+		_, known = s.Reg.Component(tile)
+	}
+	if !known || a.p.Access == nil || !a.p.Access.CanReadTile(tile) {
+		WriteError(w, http.StatusNotFound, "no tile "+tile+" that you can read", delegationDocs)
+		return
+	}
+	ap, err := s.Delegation.AddApproval(a.user, tile, body.Grant, a.via)
+	if err != nil {
+		WriteError(w, http.StatusBadRequest, err.Error(), delegationDocs)
+		return
+	}
+	s.delegateAudit(delegation.Call{User: a.user, Method: "POST", Path: "/api/xbin/delegate/approvals", Tile: tile, Class: "decision:approval", Effect: true, Status: http.StatusOK, Under: body.Grant})
+	s.delegateEvent(a.user, "approval", ap.ID)
+	WriteJSON(w, http.StatusOK, ap)
+}
+
+// apiDelegateApprovalRevoke — DELETE /delegate/approvals/{id}: the person
+// or their agent's page. The next call needs a ticket again.
+func (s *Server) apiDelegateApprovalRevoke(w http.ResponseWriter, r *http.Request) {
+	a, ok := s.delegateCaller(w, r, true, true, false)
+	if !ok {
+		return
+	}
+	found, err := s.Delegation.RevokeApproval(a.user, r.PathValue("id"))
+	switch {
+	case err != nil:
+		WriteError(w, http.StatusInternalServerError, "the approvals can't be written", delegationDocs)
+		return
+	case !found:
+		WriteError(w, http.StatusNotFound, "no such approval", delegationDocs)
+		return
+	}
+	s.delegateEvent(a.user, "approval", r.PathValue("id"))
+	w.WriteHeader(http.StatusNoContent)
+}

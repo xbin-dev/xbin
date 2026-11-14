@@ -22,6 +22,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/branding"
+	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/term"
@@ -47,9 +48,20 @@ type Server struct {
 	Brand *branding.Store
 	// Settings is the workspace settings file (D175, wssettings.go); nil = none.
 	Settings *wssettings.Store
-	// DelegateLog is the per-person audit log of delegate calls
-	// (delegate.go); nil = none kept.
-	DelegateLog DelegateLog
+	// Delegation is what xbind keeps for people's workspace agents — the
+	// switches, approvals, change sets and the audit log (delegate.go;
+	// internal/delegation); nil = the closed state: nothing is approved.
+	Delegation *delegation.Store
+	// AgentPolicy answers the orgs' agent rules and people's agent
+	// preferences for the delegate gate; nil refuses (delegation.NoPolicy).
+	AgentPolicy delegation.Policy
+	// DelegatePush tells a person, on their devices, that their agent waits
+	// for them (an approval request, a change set); nil = no push.
+	DelegatePush func(user, kind, title, body, link, collapse string)
+	// ChangeSets previews admin change-set operations (changeset.go: the
+	// broker's); nil = change sets can't be proposed.
+	ChangeSets ChangePreviewer
+	delegateRT delegateRuntime // the gate's rate limit and running calls
 
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.

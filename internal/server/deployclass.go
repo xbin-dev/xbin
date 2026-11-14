@@ -429,6 +429,29 @@ var routeClasses = map[string]RouteClass{
 	"POST /partitions/mail":     PrimaryOnly,
 	"GET /partitions/mail":      PrimaryOnly,
 	"POST /partitions/mail/ack": PrimaryOnly,
+	// ---- delegation (D228, delegateapi.go): no deployment dimension — the
+	// handlers take a person, their sealed agent's page or their agent ----
+	"GET /delegate/state":                    Neutral,
+	"PUT /delegate/state":                    Neutral,
+	"GET /delegate/workspace":                Neutral,
+	"PUT /delegate/workspace":                Neutral,
+	"GET /delegate/audit":                    Neutral,
+	"POST /delegate/requests":                Neutral,
+	"GET /delegate/requests":                 Neutral,
+	"GET /delegate/requests/{id}":            Neutral,
+	"POST /delegate/requests/{id}/approve":   Neutral,
+	"POST /delegate/requests/{id}/deny":      Neutral,
+	"DELETE /delegate/requests/{id}":         Neutral,
+	"GET /delegate/approvals":                Neutral,
+	"POST /delegate/approvals":               Neutral,
+	"DELETE /delegate/approvals/{id}":        Neutral,
+	"POST /delegate/changesets":              Neutral,
+	"GET /delegate/changesets":               Neutral,
+	"GET /delegate/changesets/{id}":          Neutral,
+	"DELETE /delegate/changesets/{id}":       Neutral,
+	"POST /delegate/changesets/{id}/approve": Neutral,
+	"POST /delegate/changesets/{id}/reject":  Neutral,
+	"POST /delegate/changesets/{id}/undo":    Neutral,
 }
 
 // classGate applies D127r to one /api/xbin request, r2 as the API mux sees it.

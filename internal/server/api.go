@@ -30,6 +30,7 @@ func (s *Server) registerCoreAPI() {
 	s.RegisterAPI("GET /openapi.json", s.apiOpenAPI)
 	s.RegisterAPI("POST /impersonate", s.apiImpersonate)          // view as user (impersonate.go)
 	s.RegisterAPI("POST /impersonate/stop", s.apiImpersonateStop) // …and back
+	s.registerDelegationAPI()                                     // people's workspace agents: switches, approvals, change sets, the log (delegateapi.go, D228)
 	s.registerTermAPI()                                           // the session directory (termsessions.go, D73)
 	s.registerNativeAPI()                                         // the workspace's native-runtime switch (native.go)
 	s.registerChromeAPI()                                         // admin-approved chrome (chrome.go, D118)
@@ -149,6 +150,9 @@ type componentInfo struct {
 	Deps        []string `json:"deps,omitempty"`
 	ManifestErr string   `json:"manifestError,omitempty"`
 	Owner       string   `json:"owner,omitempty"` // "user:<id>" | "org:<id>" | "" (D24)
+	// Agent is the manifest's "agent" when it narrows what a person's
+	// workspace agent may use of the tile's API: "off" | "read". Absent: full.
+	Agent string `json:"agent,omitempty"`
 	// Chrome marks trusted workspace chrome (plans/auth.md §6): bx-frame does
 	// NOT sandbox these frames — they act as the signed-in human.
 	Chrome bool `json:"chrome,omitempty"`
@@ -217,6 +221,9 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 		if !isChrome(c.Path) && !p.CanReadTile(c.Path) && !s.codeGranted(p, c.Path) {
 			continue
 		}
+		if !isChrome(c.Path) && s.delegateHides(p, c.Path) { // a person's agent: not the tiles whose org keeps it out
+			continue
+		}
 		ci := componentInfo{
 			Path: c.Path, Scope: c.Scope, Runtime: c.Manifest.Runtime,
 			Title: c.Manifest.DisplayTitle(), Icon: c.Manifest.DisplayIcon(),
@@ -226,6 +233,9 @@ func (s *Server) apiComponents(w http.ResponseWriter, r *http.Request) {
 			Native: s.nativeOf(c),
 		}
 		ci.Owner = s.policy().OwnerOf(c.Path)
+		if a := c.Manifest.AgentAccess(); a != registry.AgentFull {
+			ci.Agent = a
+		}
 		if !ci.Chrome {
 			ci.Sandbox = s.sandboxExtras(c.Path)
 			ci.Origin = s.tileOriginURL(c.Path)
@@ -262,6 +272,9 @@ func (s *Server) apiComponent(w http.ResponseWriter, r *http.Request) {
 		HasIndex: c.HasIndex, Deps: c.Manifest.Deps, ManifestErr: c.ManifestErr,
 		Chrome: s.trustedChrome(c.Path, c), ChromeRequested: s.chromeRequested(c),
 		Native: s.nativeOf(c),
+	}
+	if a := c.Manifest.AgentAccess(); a != registry.AgentFull {
+		ci.Agent = a
 	}
 	if !ci.Chrome {
 		ci.Sandbox = s.sandboxExtras(c.Path)

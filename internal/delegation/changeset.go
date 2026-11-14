@@ -58,6 +58,28 @@ type ChangeOp struct {
 	Args json.RawMessage `json:"args"`
 }
 
+// AdminCall is the admin API request that applies an operation: what xbind
+// runs, as the approving person, through the handler everyone uses.
+type AdminCall struct {
+	Method string          `json:"method"`
+	Path   string          `json:"path"` // below /api/xbin
+	Body   json.RawMessage `json:"body,omitempty"`
+}
+
+// ChangePreview is xbind's description of one operation, computed without
+// changing anything: the checks of the handler that would apply it, and
+// the state it would change.
+type ChangePreview struct {
+	Line     string
+	Before   json.RawMessage
+	After    json.RawMessage
+	Effects  []string
+	Warnings []string
+	Blocked  string    // why the handler would refuse it; "" when it would apply
+	Inverse  *ChangeOp // what undoes it, when something does
+	Call     AdminCall
+}
+
 // ChangeItem is one operation of a set, as xbind described it.
 type ChangeItem struct {
 	N int `json:"n"`

@@ -1,8 +1,9 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
-	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,74 +16,139 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
+	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
+	"github.com/xbin-dev/xbin/internal/users"
 	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // dHolder stands in for the sealed workspace-agent component.
 const dHolder = "xbin/agent"
 
-// dWorld is two servers over one Auth: full, the real handler (the term
-// server's: every core route with its own handler), and inv, whose API mux
-// holds a stub for EVERY route of the inventory (the class tables' keys) —
-// a stub says it ran — plus a stub component proxy. alice and dave are
-// admins, bob a user; each of alice and bob has a partition of the holder.
+// dWorld is two servers over one Auth and one delegation store: full, the
+// real handler (the term server's: every core route with its own handler,
+// the delegation API included), and inv, whose API mux holds a stub for
+// EVERY route of the inventory (the delegate table's keys) — a stub says it
+// ran — plus a stub component proxy. alice and dave are admins; bob is a
+// user who reads apps/x and apps/mail; each of alice and bob has a
+// partition of the holder. Workspace agents are on, the agent policy allows
+// every tile and starts nothing unasked.
 type dWorld struct {
-	t    *testing.T
-	full http.Handler
-	s    *Server
-	inv  http.Handler
-	invS *Server
-	log  *delegation.Log
+	t      *testing.T
+	full   http.Handler
+	s      *Server
+	inv    http.Handler
+	invS   *Server
+	store  *delegation.Store
+	policy *dPolicy
 
 	mu   sync.Mutex
-	off  map[string]error // the off switch, per person
-	tile []auth.Principal // the principals the stub component proxy saw
+	tile []tileCall // what the stub component proxy saw
+}
+
+type tileCall struct {
+	p      auth.Principal
+	method string
+	path   string
+	body   string
+	ctx    context.Context
+}
+
+// dPolicy is the world's delegation.Policy and its servers' tile routing
+// (DelegatePolicy): everything allowed, until a test narrows it.
+type dPolicy struct {
+	NoopPolicy
+	mu    sync.Mutex
+	deny  map[string]error                 // tile → the org's refusal
+	prefs map[string]delegation.StartPrefs // user → starts without asking
+	asked []delegation.Subject
+}
+
+func (d *dPolicy) TileAllows(s delegation.Subject) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.asked = append(d.asked, s)
+	return d.deny[s.Tile]
+}
+func (d *dPolicy) SessionAllows(s delegation.Subject, _ string) error { return d.TileAllows(s) }
+func (d *dPolicy) StartPrefs(user, _, _ string) (delegation.StartPrefs, bool) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	p, ok := d.prefs[user]
+	return p, ok
+}
+func (d *dPolicy) DelegateTile(p auth.Principal, tile string, write bool) (string, string, bool, error) {
+	if err := d.TileAllows(delegation.Subject{Holder: p.Agent, User: p.UserID, Tile: tile, Model: p.AgentModel}); err != nil {
+		return "", "", false, err
+	}
+	return "write", "writer", false, nil
+}
+func (d *dPolicy) set(f func(*dPolicy)) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	f(d)
+}
+func (d *dPolicy) last() delegation.Subject {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.asked[len(d.asked)-1]
 }
 
 func delegateWorld(t *testing.T) *dWorld {
 	t.Helper()
 	full, s := termServer(t)
-	w := &dWorld{t: t, full: full, s: s, off: map[string]error{}, log: delegation.Open(t.TempDir())}
+	w := &dWorld{t: t, full: full, s: s, store: delegation.OpenStore(t.TempDir()),
+		policy: &dPolicy{deny: map[string]error{}, prefs: map[string]delegation.StartPrefs{}}}
 	t.Cleanup(auth.TestSealDelegate(dHolder))
+	if _, err := s.Auth.Users.Upsert(users.User{ID: "bob", Role: users.RoleUser, Tiles: map[string]string{"apps/x": users.LevelRead, "apps/mail": users.LevelRead}}, ""); err != nil {
+		t.Fatal(err)
+	}
 	s.Auth.SetPartitionCoverage(func(string, util.Partition, string) bool { return true })
-	s.Auth.SetDelegationGate(func(_, user string) error {
-		w.mu.Lock()
-		defer w.mu.Unlock()
-		return w.off[user]
-	})
-	for _, u := range []string{"alice", "bob"} {
+	s.Auth.SetDelegationGate(DelegationGate(w.store, true, false))
+	if _, err := w.store.SetWorkspace(true, "test"); err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []string{"alice", "bob", "dave"} {
 		s.Auth.RegisterInstancePartition("d-"+u, dHolder, "", util.UserPartition(u), "uid-"+u)
 	}
 	s.Auth.RegisterInstance("i-main", "apps/x")
 	s.Auth.RegisterInstanceDeployment("i-dev", "apps/x", "dev")
-	s.DelegateLog = w.log
+	s.Delegation, s.AgentPolicy, s.Pol = w.store, w.policy, w.policy
+	s.Term.AgentPolicy = w.policy
 
 	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "apps", "x"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(root, "apps", "x", "xbin.json"), []byte(`{}`), 0o644); err != nil {
-		t.Fatal(err)
+	for _, tile := range []string{"apps/x", "apps/mail"} {
+		if err := os.MkdirAll(filepath.Join(root, filepath.FromSlash(tile)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, filepath.FromSlash(tile), "xbin.json"), []byte(`{}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 	reg, err := registry.Open(root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s.Reg = reg // the static plane asks it
-	w.invS = &Server{Auth: s.Auth, Reg: reg, DelegateLog: w.log}
-	for pattern := range RouteClasses() {
+	w.invS = &Server{Auth: s.Auth, Reg: reg, Delegation: w.store, AgentPolicy: w.policy, Pol: w.policy, Hub: events.NewHub()}
+	for pattern := range DelegateClasses() {
 		w.invS.RegisterAPI(pattern, func(rw http.ResponseWriter, r *http.Request) { rw.Header().Set("X-Ran", pattern) })
 	}
-	w.invS.RegisterAPI("GET /delegate/audit", w.invS.apiDelegateAudit) // mounted with the workspace agent; here for its test
 	w.invS.ComponentAPI = http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
 		w.mu.Lock()
-		w.tile = append(w.tile, auth.PrincipalOf(r))
+		w.tile = append(w.tile, tileCall{p: auth.PrincipalOf(r), method: r.Method, path: r.URL.Path, body: string(b), ctx: r.Context()})
 		w.mu.Unlock()
 		rw.Header().Set("X-Ran", "tile")
 	})
 	w.inv = w.invS.authedAPI(http.HandlerFunc(w.invS.handleAPI))
 	return w
+}
+
+func (w *dWorld) tileCalls() []tileCall {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return append([]tileCall(nil), w.tile...)
 }
 
 // cred puts one kind of credential on a request.
@@ -120,8 +186,27 @@ func delegateCred(tok string) cred {
 	}
 }
 
+func header(k, v string) cred { return func(r *http.Request) { r.Header.Set(k, v) } }
+
+// frame is tile's frame for user as a terminal or the root token would
+// mint it: no login of the person's behind it.
 func (w *dWorld) frame(tile, user string) cred {
 	tok := w.s.Auth.MintFrameToken(tile, user, time.Minute)
+	return func(r *http.Request) { r.Header.Set(auth.FrameTokenHeader, tok) }
+}
+
+// loginFrame is tile's frame for user under their own login: the token a
+// document served to their browser session carries.
+func (w *dWorld) loginFrame(tile, user string) cred {
+	w.t.Helper()
+	sid := w.s.Auth.NewSession(user, "")
+	r := httptest.NewRequest("GET", "/", nil)
+	r.AddCookie(&http.Cookie{Name: auth.CookieName, Value: sid})
+	p, ok := w.s.Auth.FromRequest(r)
+	if !ok {
+		w.t.Fatal("no session principal")
+	}
+	tok := w.s.Auth.MintFrameTokenFor(p, tile, time.Minute)
 	return func(r *http.Request) { r.Header.Set(auth.FrameTokenHeader, tok) }
 }
 
@@ -134,6 +219,38 @@ func (w *dWorld) do(h http.Handler, method, path, body string, creds ...cred) *h
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, r)
 	return rec
+}
+
+func decode[T any](t *testing.T, rec *httptest.ResponseRecorder) T {
+	t.Helper()
+	var v T
+	if err := json.Unmarshal(rec.Body.Bytes(), &v); err != nil {
+		t.Fatalf("%d %s: %v", rec.Code, rec.Body.String(), err)
+	}
+	return v
+}
+
+// ask posts an approval request as the agent and returns it.
+func (w *dWorld) ask(agent cred, method, path, body string) delegation.Request {
+	w.t.Helper()
+	in, _ := json.Marshal(map[string]string{"method": method, "path": path, "body": body, "summary": "the agent's words"})
+	rec := w.do(w.full, "POST", "/api/xbin/delegate/requests", string(in), agent)
+	if rec.Code != 200 {
+		w.t.Fatalf("ask %s %s: %d %s", method, path, rec.Code, rec.Body.String())
+	}
+	return decode[delegation.Request](w.t, rec)
+}
+
+// approve approves request id as the person.
+func (w *dWorld) approve(person cred, id, grant string) {
+	w.t.Helper()
+	body := ""
+	if grant != "" {
+		body = `{"grant":"` + grant + `"}`
+	}
+	if rec := w.do(w.full, "POST", "/api/xbin/delegate/requests/"+id+"/approve", body, person); rec.Code != 200 {
+		w.t.Fatalf("approve %s: %d %s", id, rec.Code, rec.Body.String())
+	}
 }
 
 // routeURL is a request for a route pattern: its method (GET for a pattern
@@ -157,13 +274,34 @@ func routeURL(pattern string) (method, path string) {
 
 // The authz matrix: every route of the inventory, for every kind of
 // principal. A delegate reaches exactly the rows the delegation cap lists
-// (delegateclass.go) and is refused everywhere else before a handler runs;
-// every other kind of principal reaches what the gates that existed before
-// delegation let it reach — the delegate gate changes nothing for them.
+// (delegateclass.go) — less what needs its person's approval or opt-in —
+// and is refused everywhere else before a handler runs; every other kind of
+// principal reaches what the gates that existed before delegation let it
+// reach: the delegate gate changes nothing for them.
 func TestDelegateAuthzMatrix(t *testing.T) {
 	w := delegateWorld(t)
-	isRead := func(m string) bool { return m == "GET" || m == "HEAD" }
+	if _, err := w.store.SetState("dave", func(st *delegation.State) { st.AdminChanges = true }); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	w.invS.delegateRT.now = func() time.Time { now = now.Add(time.Minute); return now } // the matrix is no burst of acts
+	readOnly := func(m string) bool { return m == "GET" || m == "HEAD" }
 	personOnly := func(p string) bool { return PartitionClassOf(p) == PersonOnly }
+	delegated := func(adminReads, admin bool) func(string, string) bool {
+		return func(_, p string) bool {
+			row := delegateClasses[p]
+			switch {
+			case p == "GET /components/{path...}" && !admin:
+				return false // the matrix asks for a/b, a tile bob can't read: refused at the person's level
+
+			case delegateUnconverted[p] != "", row.ticket: // a ticketed act without a ticket or a preference
+				return false
+			case row.class == DelegateAdminRead:
+				return adminReads
+			}
+			return row.class == DelegateRead || row.class == DelegateAct
+		}
+	}
 	kinds := []struct {
 		name string
 		cred cred
@@ -172,7 +310,7 @@ func TestDelegateAuthzMatrix(t *testing.T) {
 		{"a person (a user)", w.cookie("bob"), func(string, string) bool { return true }},
 		{"an admin", w.cookie("alice"), func(string, string) bool { return true }},
 		{"view-as (an admin viewing as bob)", w.viewAs("alice", "bob"), func(m, p string) bool {
-			return (isRead(m) && !personOnly(p)) || p == "POST /impersonate/stop"
+			return (readOnly(m) && !personOnly(p)) || p == "POST /impersonate/stop"
 		}},
 		{"an element (apps/x's frame, driven by bob)", w.frame("apps/x", "bob"), func(_, p string) bool { return !personOnly(p) }},
 		{"an element (apps/x's backend)", bearer("i-main"), func(_, p string) bool { return !personOnly(p) }},
@@ -181,26 +319,22 @@ func TestDelegateAuthzMatrix(t *testing.T) {
 			return (c == DeploymentScoped || c == Neutral && primaryOnlyFor[p] != "instance") && !personOnly(p)
 		}},
 		{"nobody", func(*http.Request) {}, func(string, string) bool { return false }},
-		{"a delegate (bob's agent)", delegateCred("d-bob"), func(_, p string) bool {
-			c := DelegateClassOf(p)
-			return (c == DelegateRead || c == DelegateAct) && delegateUnconverted[p] == ""
-		}},
-		{"a delegate (alice's agent; alice is an admin)", delegateCred("d-alice"), func(_, p string) bool {
-			c := DelegateClassOf(p)
-			return (c == DelegateRead || c == DelegateAct) && delegateUnconverted[p] == ""
-		}},
+		{"a delegate (bob's agent)", delegateCred("d-bob"), delegated(false, false)},
+		{"a delegate (alice's agent; alice is an admin who didn't opt in)", delegateCred("d-alice"), delegated(false, true)},
+		{"a delegate (dave's agent; dave is an admin who opted in)", delegateCred("d-dave"), delegated(true, true)},
 		{"a credential that delegates nothing (apps/x's backend's token)", delegateCred("i-main"), func(string, string) bool { return false }},
+		{"a delegate credential off the gateway socket", header("Authorization", auth.DelegateScheme+" d-bob"), func(string, string) bool { return false }},
 	}
-	patterns := make([]string, 0, len(RouteClasses()))
-	for p := range RouteClasses() {
+	patterns := make([]string, 0, len(DelegateClasses()))
+	for p := range DelegateClasses() {
 		patterns = append(patterns, p)
 	}
 	sort.Strings(patterns)
-	if len(patterns) < 300 {
+	if len(patterns) < 320 {
 		t.Fatalf("the inventory has %d routes: the class table shrank?", len(patterns))
 	}
 	for _, k := range kinds {
-		delegate := strings.HasPrefix(k.name, "a delegate")
+		delegate := strings.HasPrefix(k.name, "a delegate (")
 		ran := 0
 		for _, p := range patterns {
 			method, path := routeURL(p)
@@ -212,8 +346,11 @@ func TestDelegateAuthzMatrix(t *testing.T) {
 			if got != want {
 				t.Errorf("%s: %s ran=%v, want %v (%d %s)", k.name, p, got, want, rec.Code, strings.TrimSpace(rec.Body.String()))
 			}
+			if !got && rec.Header().Get("X-Ran") != "" {
+				t.Errorf("%s: %s ran another route's handler (%s)", k.name, p, rec.Header().Get("X-Ran"))
+			}
 			if delegate && !got {
-				if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `"refusal":"not-delegated"`) {
+				if rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `"refusal":"`) {
 					t.Errorf("%s: %s refused with %d %s, want the gate's 403", k.name, p, rec.Code, strings.TrimSpace(rec.Body.String()))
 				}
 				if why := delegateClasses[p].why; why != "" && !strings.Contains(rec.Body.String(), why[:40]) {
@@ -221,73 +358,71 @@ func TestDelegateAuthzMatrix(t *testing.T) {
 				}
 			}
 		}
-		t.Logf("%-62s reaches %3d of %d routes", k.name, ran, len(patterns))
+		t.Logf("%-66s reaches %3d of %d routes", k.name, ran, len(patterns))
 	}
 }
 
-// The table itself: every row is a route that exists; a read row is a GET
-// and an act row isn't; nothing a person must do themselves, and nothing on
-// the never-list of the plan, is ever listed as delegated.
+// The table itself. (Its completeness over the routes xbind really mounts
+// is internal/apicheck's TestDelegateRouteClasses.)
 func TestDelegateNeverList(t *testing.T) {
-	inv := RouteClasses()
 	for p, row := range delegateClasses {
-		if _, ok := inv[p]; !ok {
-			t.Errorf("delegateclass.go lists %s, which is no route", p)
+		if (row.class == DelegateNever || row.class == DelegateRefused) != (row.why != "") {
+			t.Errorf("%s: class %s, reason %q", p, row.class, row.why)
 		}
-		method, _, _ := strings.Cut(p, " ")
-		switch row.class {
-		case DelegateRead:
-			if method != "GET" {
-				t.Errorf("%s is listed as a read", p)
-			}
-		case DelegateAct:
-			if method == "GET" {
-				t.Errorf("%s is listed as an act", p)
-			}
-		case DelegateNever:
-			if row.why == "" {
-				t.Errorf("%s is on the never-list without a reason", p)
-			}
-		}
-		if row.class != DelegateNever && PartitionClassOf(p) == PersonOnly {
-			t.Errorf("%s is a person's own act (partitionclass.go) and listed as delegated", p)
+		if row.tile != nil && !row.class.Allowed() {
+			t.Errorf("%s names a tile and isn't delegated", p)
 		}
 	}
-	for p := range delegateUnconverted {
-		if c := DelegateClassOf(p); c != DelegateRead && c != DelegateAct {
-			t.Errorf("delegateUnconverted lists %s, which isn't delegated", p)
-		}
-	}
-	// the plan's never-list (plans/workspace-agent.md §4), by route: a later
-	// edit that lists one of these fails here
+	// the never-list (docs/auth.md §Delegation), by route: a later edit that
+	// delegates one of these fails here
 	for _, p := range []string{
 		"POST /term/sessions/{id}/permissions/{pid}", "POST /term/sessions/{id}/elicitations/{eid}", // answering a tile agent
-		"POST /term/sessions/{id}/options", "POST /term/sessions/{id}/restart", // …or deciding what it asks
-		"DELETE /term/sessions/{id}", "POST /lifecycle", // ending and deleting
+		"POST /term/sessions/{id}/options", "POST /term/sessions/{id}/restart", "PATCH /term/sessions/{id}", // …or deciding what it asks
+		"POST /lifecycle", "DELETE /agent/history/{id}", // deleting
 		"POST /create", "POST /clone", "POST /git/import", "POST /code/prs", "POST /code/pr/comment", "POST /code/pr/state", // code writes
 		"POST /account/password", "POST /devices/enroll", "POST /devices/enroll-code", "DELETE /devices/{id}", "POST /web-ticket", // the account
 		"GET /frame-token", "POST /path-tickets", "POST /impersonate", // other identities
 		"POST /partitions/consents", "DELETE /partitions/consents", "POST /partitions/binds", // the person's own consents
 		"POST /grants", "DELETE /grants", "POST /bindings", "DELETE /bindings", "POST /limits", "PUT /access", "POST /users", // the admin API
-		"PATCH /auth-settings", "POST /vault-unseal", "POST /vault-rekey", "POST /auth-rotate-token", // never in a change set either
+		"PATCH /auth-settings", "POST /vault-unseal", "POST /vault-rekey", "POST /auth-rotate-token", "GET /users", "GET /vaults", "GET /sessions",
+		"GET /vault/{rest...}", "PUT /kv/{rest...}", "POST /bus/publish", // a tile's stores
+		// answering itself
+		"POST /delegate/requests/{id}/approve", "POST /delegate/requests/{id}/deny", "POST /delegate/approvals", "DELETE /delegate/approvals/{id}",
+		"PUT /delegate/state", "PUT /delegate/workspace", "GET /delegate/audit",
+		"POST /delegate/changesets/{id}/approve", "POST /delegate/changesets/{id}/reject", "POST /delegate/changesets/{id}/undo",
 	} {
 		if DelegateClassOf(p) != DelegateNever {
 			t.Errorf("%s must be on the never-list, and is %s", p, DelegateClassOf(p))
 		}
 	}
-	// every admin, governance and store write stays undelegated: whatever a
-	// delegate may do that isn't a GET is one of these, and nothing else
-	acts := []string{}
+	// whatever a delegate may do that isn't a read is one of these, and
+	// nothing else; a new one is a decision
+	var acts, tickets, admin []string
 	for p, row := range delegateClasses {
-		if row.class == DelegateAct {
+		switch {
+		case row.class == DelegateAct && row.ticket:
+			tickets = append(tickets, p)
+		case row.class == DelegateAct:
 			acts = append(acts, p)
+		case row.class == DelegateAdminRead:
+			admin = append(admin, p)
 		}
 	}
-	sort.Strings(acts)
-	want := []string{"DELETE /term/sessions/{id}/queue", "DELETE /term/sessions/{id}/queue/{qid}", "POST /templates/new",
-		"POST /term/sessions", "POST /term/sessions/{id}/cancel", "POST /term/sessions/{id}/prompt", "POST /term/sessions/{id}/queue"}
-	if strings.Join(acts, "\n") != strings.Join(want, "\n") {
-		t.Errorf("the delegated side effects are\n%s\nwant\n%s\n(a new one is a decision: plans/wsagent/s2-delegation.md)", strings.Join(acts, "\n"), strings.Join(want, "\n"))
+	for _, c := range []struct {
+		name string
+		got  []string
+		want string
+	}{
+		{"acts that need the person's approval", tickets, "POST /templates/new\nPOST /term/sessions"},
+		{"acts that need none (driving its own sessions, asking)", acts, "DELETE /delegate/changesets/{id}\nDELETE /delegate/requests/{id}\nDELETE /term/sessions/{id}\n" +
+			"DELETE /term/sessions/{id}/queue\nDELETE /term/sessions/{id}/queue/{qid}\nPOST /delegate/changesets\nPOST /delegate/requests\n" +
+			"POST /term/sessions/{id}/cancel\nPOST /term/sessions/{id}/prompt\nPOST /term/sessions/{id}/queue"},
+		{"admin reads", admin, "GET /bindings\nGET /grants\nGET /limits\nGET /orgs"},
+	} {
+		sort.Strings(c.got)
+		if got := strings.Join(c.got, "\n"); got != c.want {
+			t.Errorf("the %s are\n%s\nwant\n%s", c.name, got, c.want)
+		}
 	}
 }
 
@@ -302,7 +437,6 @@ func TestDelegateCannotAnswerOrLeaveTheAPI(t *testing.T) {
 		{"POST", "/api/xbin/term/sessions/nope/elicitations/e1", `{"action":"accept","content":{}}`, neverAnswer},
 		{"POST", "/api/xbin/term/sessions/nope/options", `{"id":"mode","value":"bypassPermissions"}`, neverSettings},
 		{"POST", "/api/xbin/term/sessions/nope/restart", `{}`, neverSettings},
-		{"DELETE", "/api/xbin/term/sessions/nope", "", neverDelete},
 	} {
 		// the person: the handler runs and finds no such session
 		if rec := w.do(w.full, c.method, c.path, c.body, alice); rec.Code != http.StatusNotFound {
@@ -317,6 +451,7 @@ func TestDelegateCannotAnswerOrLeaveTheAPI(t *testing.T) {
 	for _, c := range []struct{ method, path, body string }{
 		{"POST", "/api/xbin/term/sessions/nope/prompt", `{"text":"hi"}`}, {"POST", "/api/xbin/term/sessions/nope/queue", `{"text":"hi"}`},
 		{"POST", "/api/xbin/term/sessions/nope/cancel", ""}, {"GET", "/api/xbin/term/sessions/nope", ""}, {"GET", "/api/xbin/term/sessions/nope/events", ""},
+		{"GET", "/api/xbin/term/sessions/nope/log", ""}, {"GET", "/api/xbin/term/sessions/nope/diff?turn=1", ""}, {"DELETE", "/api/xbin/term/sessions/nope", ""},
 	} {
 		if rec := w.do(w.full, c.method, c.path, c.body, agent); rec.Code != http.StatusNotFound {
 			t.Errorf("alice's agent %s %s: %d %s, want the handler's 404", c.method, c.path, rec.Code, rec.Body.String())
@@ -331,7 +466,7 @@ func TestDelegateCannotAnswerOrLeaveTheAPI(t *testing.T) {
 		t.Errorf("?user= by an admin's agent: %d %s", rec.Code, rec.Body.String())
 	}
 	if rec := w.do(w.full, "GET", "/api/xbin/probe", "", agent); rec.Code != http.StatusForbidden {
-		t.Errorf("an unlisted route: %d", rec.Code)
+		t.Errorf("a route without a row: %d", rec.Code)
 	}
 
 	// no terminal, no static plane, no event socket, no docs, no pages
@@ -343,222 +478,12 @@ func TestDelegateCannotAnswerOrLeaveTheAPI(t *testing.T) {
 			t.Errorf("alice's agent %s %s: %d, want 401 (the credential is nobody's there)", c.method, c.path, rec.Code)
 		}
 	}
+	// off the gateway socket the scheme is no credential, on /api/ too
+	if rec := w.do(w.full, "GET", "/api/xbin/whoami", "", header("Authorization", auth.DelegateScheme+" d-alice")); rec.Code != http.StatusUnauthorized {
+		t.Errorf("off the gateway: %d", rec.Code)
+	}
 	// the delegate scheme beside a real session is judged as the delegate
 	if rec := w.do(w.inv, "POST", "/api/xbin/users", `{}`, alice, delegateCred("d-bob")); rec.Code != http.StatusForbidden || rec.Header().Get("X-Ran") != "" {
 		t.Errorf("an admin's cookie beside bob's delegate credential: %d ran %q", rec.Code, rec.Header().Get("X-Ran"))
-	}
-}
-
-// One agent session create as the person: the person's own gates decide
-// (terminal level on the tile), then the delegate's narrowing — and the
-// create stops only at the missing bx, after every gate (the session itself
-// runs in internal/term's TestAgentSessionAsDelegate).
-func TestDelegateCreatesAgentSession(t *testing.T) {
-	w := delegateWorld(t)
-	create := func(c cred, body string) (int, string) {
-		rec := w.do(w.full, "POST", "/api/xbin/term/sessions", body, c)
-		return rec.Code, strings.TrimSpace(rec.Body.String())
-	}
-	alice, bob := delegateCred("d-alice"), delegateCred("d-bob")
-	if c, b := create(alice, `{"cwd":"apps/x","kind":"agent","provider":"claude"}`); c != 503 || !strings.Contains(b, "bx binary") {
-		t.Errorf("alice's agent: %d %s, want every gate passed (503: no bx here)", c, b)
-	}
-	if c, b := create(alice, `{"cwd":"apps/x","kind":"agent","provider":"claude","model":"sonnet"}`); c != 503 {
-		t.Errorf("alice's agent, a model: %d %s", c, b)
-	}
-	// bob holds no terminal level on apps/x: his agent is refused as he is
-	if c, b := create(bob, `{"cwd":"apps/x","kind":"agent","provider":"claude"}`); c != 403 || !strings.Contains(b, "terminal access") {
-		t.Errorf("bob's agent: %d %s", c, b)
-	}
-	if c, b := create(w.cookie("bob"), `{"cwd":"apps/x","kind":"agent","provider":"claude"}`); c != 403 || !strings.Contains(b, "terminal access") {
-		t.Errorf("bob: %d %s", c, b)
-	}
-	// a mode that stops asking the person is answering for them
-	for _, body := range []string{
-		`{"cwd":"apps/x","kind":"agent","provider":"claude","mode":"bypassPermissions"}`,
-		`{"cwd":"apps/x","kind":"agent","provider":"claude","mode":"acceptEdits"}`,
-		`{"cwd":"apps/x","kind":"agent","provider":"claude","options":{"mode":"bypassPermissions"}}`,
-		`{"cwd":"apps/x","kind":"agent","provider":"claude","vm":true}`,
-	} {
-		if c, b := create(alice, body); c != 403 || !strings.Contains(b, "workspace agent") {
-			t.Errorf("alice's agent %s: %d %s", body, c, b)
-		}
-		if c, b := create(w.cookie("alice"), body); c != 503 { // alice herself picks freely
-			t.Errorf("alice %s: %d %s", body, c, b)
-		}
-	}
-	// never a shell
-	if c, _ := create(alice, `{"cwd":"apps/x","kind":"shell"}`); c != 400 {
-		t.Errorf("a shell: %d", c)
-	}
-}
-
-type dPolicy struct {
-	NoopPolicy
-	deny map[string]error
-}
-
-func (d dPolicy) DelegateTile(p auth.Principal, tile string) (string, string, error) {
-	if err := d.deny[tile]; err != nil {
-		return "", "", err
-	}
-	return "write", "writer", nil
-}
-
-// One tile API read as the person: the gate hands the component proxy the
-// person's delegate principal (the broker's Route and the proxy's headers
-// are TestRouteDelegate and TestDelegateCallReachesBackend). Then the dry
-// run, the off switch and the audit log.
-func TestDelegateTileCallAuditAndOffSwitch(t *testing.T) {
-	w := delegateWorld(t)
-	bob := delegateCred("d-bob")
-	rec := w.do(w.inv, "GET", "/api/apps/x/notes?q=secret", "", bob)
-	if rec.Code != 200 || rec.Header().Get("X-Ran") != "tile" || len(w.tile) != 1 {
-		t.Fatalf("the tile read: %d ran %q (%d calls)", rec.Code, rec.Header().Get("X-Ran"), len(w.tile))
-	}
-	if p := w.tile[0]; p.UserID != "bob" || p.Via != "delegate" || p.Agent != dHolder || p.Component != "" || p.IsAdmin() || p.User == nil {
-		t.Fatalf("the proxy saw %+v", p)
-	}
-	if rec := w.do(w.inv, "POST", "/api/apps/x/send", `{"to":"x"}`, bob); rec.Code != 200 || len(w.tile) != 2 {
-		t.Fatalf("the tile write: %d", rec.Code)
-	}
-	// no socket, no path ticket
-	up := func(r *http.Request) { r.Header.Set("Upgrade", "websocket") }
-	if rec := w.do(w.inv, "GET", "/api/apps/x/ws", "", bob, up); rec.Code != 403 || !strings.Contains(rec.Body.String(), "plain requests") {
-		t.Errorf("an upgrade: %d %s", rec.Code, rec.Body.String())
-	}
-	if rec := w.do(w.inv, "GET", "/api/~ticket/x", "", bob); rec.Code != 403 {
-		t.Errorf("a path ticket: %d", rec.Code)
-	}
-
-	// the dry run: what the call would be; nothing runs
-	w.invS.Pol = dPolicy{deny: map[string]error{}}
-	dry := func(r *http.Request) { r.Header.Set(HeaderDryRun, "1") }
-	rec = w.do(w.inv, "POST", "/api/apps/x/send", `{"to":"x"}`, bob, dry)
-	var out map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &out)
-	if rec.Code != 200 || rec.Header().Get("X-Ran") != "" || len(w.tile) != 2 || out["dryRun"] != true || out["allowed"] != true ||
-		out["sideEffect"] != true || out["reversible"] != false || out["tile"] != "apps/x" || out["role"] != "writer" || out["level"] != "write" || out["as"] != "bob" {
-		t.Errorf("the dry run: %d ran %q %v", rec.Code, rec.Header().Get("X-Ran"), out)
-	}
-	w.invS.Pol = dPolicy{deny: map[string]error{"apps/x": errors.New("Finance has switched the workspace agent off for its tiles")}}
-	rec = w.do(w.inv, "GET", "/api/apps/x/notes", "", bob, dry)
-	out = nil
-	_ = json.Unmarshal(rec.Body.Bytes(), &out)
-	if out["allowed"] != false || !strings.Contains(out["refusal"].(string), "Finance") || out["sideEffect"] != false {
-		t.Errorf("a dry run of a call the tile's org blocks: %v", out)
-	}
-	w.invS.Pol = nil
-	if rec := w.do(w.inv, "POST", "/api/xbin/grants", `{}`, bob, dry); rec.Code != 403 { // a dry run is no way round the cap
-		t.Errorf("a dry run of an undelegated route: %d", rec.Code)
-	}
-	if rec := w.do(w.inv, "POST", "/api/xbin/term/sessions", `{}`, bob, dry); rec.Code != 200 || rec.Header().Get("X-Ran") != "" {
-		t.Errorf("a dry run of a session create: %d ran %q", rec.Code, rec.Header().Get("X-Ran"))
-	}
-
-	// the person pauses their agent: at once, for them alone
-	w.mu.Lock()
-	w.off["bob"] = errors.New("bob paused their agent")
-	w.mu.Unlock()
-	for _, c := range [][2]string{{"GET", "/api/apps/x/notes"}, {"GET", "/api/xbin/components"}, {"POST", "/api/xbin/term/sessions"}} {
-		rec := w.do(w.inv, c[0], c[1], "{}", bob)
-		if rec.Code != 403 || rec.Header().Get("X-Ran") != "" || !strings.Contains(rec.Body.String(), "bob paused their agent") {
-			t.Errorf("paused, %s %s: %d ran %q %s", c[0], c[1], rec.Code, rec.Header().Get("X-Ran"), rec.Body.String())
-		}
-	}
-	if rec := w.do(w.inv, "GET", "/api/xbin/components", "", delegateCred("d-alice")); rec.Code != 200 {
-		t.Errorf("alice's agent while bob's is paused: %d", rec.Code)
-	}
-	if rec := w.do(w.inv, "GET", "/api/xbin/components", "", delegateCred("nope")); rec.Code != 401 {
-		t.Errorf("an unknown token: %d", rec.Code)
-	}
-	w.mu.Lock()
-	delete(w.off, "bob")
-	w.mu.Unlock()
-
-	// the audit log: every side effect and refusal, reads once a minute,
-	// never a query or a body
-	for i := 0; i < 3; i++ {
-		w.do(w.inv, "GET", "/api/xbin/components", "", bob)
-	}
-	rows, err := w.log.Read("bob", time.Time{}, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	type key struct {
-		method, path, class string
-		status              int
-	}
-	seen := map[key]delegation.Call{}
-	for _, c := range rows {
-		if c.User != "bob" || c.Agent != dHolder || c.Time.IsZero() || strings.Contains(c.Path, "?") || strings.Contains(c.Path, "secret") {
-			t.Errorf("row %+v", c)
-		}
-		seen[key{c.Method, c.Path, c.Class, c.Status}] = c
-	}
-	for _, k := range []struct {
-		key
-		effect, dry bool
-		refused     string
-		tile        string
-	}{
-		{key{"GET", "/api/apps/x/notes", "tile-read", 200}, false, false, "", "apps/x"},
-		{key{"POST", "/api/apps/x/send", "tile-write", 200}, true, false, "", "apps/x"},
-		{key{"GET", "/api/apps/x/ws", "unlisted", 403}, false, false, "plain requests", ""},
-		{key{"POST", "/api/xbin/grants", "never", 403}, false, false, "admin API is never delegated", ""},
-		{key{"POST", "/api/xbin/term/sessions", "act", 200}, true, true, "", ""},
-		{key{"GET", "/api/xbin/components", "read", 200}, false, false, "", ""},
-	} {
-		c, ok := seen[k.key]
-		if !ok {
-			t.Errorf("no audit row for %+v (have %d rows)", k.key, len(rows))
-			continue
-		}
-		if k.refused != "" && !strings.Contains(c.Refused, k.refused) || k.refused == "" && c.Refused != "" && !c.DryRun {
-			t.Errorf("%+v: refused %q, want %q", k.key, c.Refused, k.refused)
-		}
-		if k.tile != "" && c.Tile != k.tile {
-			t.Errorf("%+v: tile %q, want %q", k.key, c.Tile, k.tile)
-		}
-		if k.refused == "" && !k.dry && c.Effect != k.effect {
-			t.Errorf("%+v: effect %v", k.key, c.Effect)
-		}
-	}
-	reads := 0
-	for _, c := range rows {
-		if c.Method == "GET" && c.Path == "/api/xbin/components" && c.Status == 200 {
-			reads++
-		}
-	}
-	if reads != 1 {
-		t.Errorf("3 repeated reads wrote %d rows, want 1 (coalesced)", reads)
-	}
-	// while paused nothing was recorded as done, and an unknown token wrote nothing anywhere
-	if other, _ := w.log.Read("alice", time.Time{}, 0); len(other) != 1 {
-		t.Errorf("alice's log has %d rows, want her one read", len(other))
-	}
-
-	// reading it: the person's own; an admin with ?user=; never the agent,
-	// a tile, view-as or another user
-	read := func(q string, c ...cred) (int, string) {
-		rec := w.do(w.inv, "GET", "/api/xbin/delegate/audit"+q, "", c...)
-		return rec.Code, rec.Body.String()
-	}
-	if c, b := read("", w.cookie("bob")); c != 200 || !strings.Contains(b, `"path":"/api/apps/x/send"`) || !strings.Contains(b, `"user":"bob"`) {
-		t.Errorf("bob reads his log: %d %s", c, b)
-	}
-	if c, b := read("?limit=2", w.cookie("bob")); c != 200 || strings.Count(b, `"ts"`) != 2 {
-		t.Errorf("limit: %d %s", c, b)
-	}
-	if c, b := read("?user=bob", w.cookie("alice")); c != 200 || !strings.Contains(b, `"path":"/api/apps/x/send"`) {
-		t.Errorf("an admin reads bob's: %d %s", c, b)
-	}
-	if c, _ := read("?user=alice", w.cookie("bob")); c != 403 {
-		t.Errorf("bob reads alice's: %d", c)
-	}
-	for name, c := range map[string]cred{"the agent": bob, "a tile's frame": w.frame("apps/x", "bob"), "view-as": w.viewAs("alice", "bob"), "a backend": bearer("i-main")} {
-		if code, _ := read("", c); code != 403 {
-			t.Errorf("%s reads the log: %d", name, code)
-		}
 	}
 }
