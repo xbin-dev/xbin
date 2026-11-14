@@ -237,7 +237,14 @@ var edgeVerdict func(b *Broker, d Decision, caller, callerDep, target, role stri
 // Then the partition the call reaches, when either end is partitioned
 // (routePartition, plans/partitions/02 §4); the rules above don't change.
 func (b *Broker) Route(p auth.Principal, target *registry.Component, qualifier string) Decision {
-	return b.routePartition(p, target, b.routeDeployment(p, target, qualifier))
+	if why := holderRefusal(p.Component, target.Path); why != "" && !isDelivery(p) {
+		return Decision{Deny: errors.New(why)} // whatever xbin.json grants (delegation.go)
+	}
+	d := b.routePartition(p, target, b.routeDeployment(p, target, qualifier))
+	if p.Agent != "" {
+		b.countDelegate(p, target.Path, d)
+	}
+	return d
 }
 
 // routeDeployment is Route's deployment rules.

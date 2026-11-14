@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/xbin-dev/xbin/internal/auth"
+	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/util"
 )
@@ -30,6 +31,7 @@ func TestRouteDelegate(t *testing.T) {
 	b := w.b
 	const holder = "apps/q"
 	t.Cleanup(auth.TestSealDelegate(holder))
+	b.AgentPolicy = delegation.OpenPolicy{}
 	comp := func(path string) *registry.Component {
 		c, ok := b.Reg.Component(path)
 		if !ok {
@@ -68,6 +70,22 @@ func TestRouteDelegate(t *testing.T) {
 	}
 	alice, bob, carol := delegateOf(t, w, "alice", holder), delegateOf(t, w, "bob", holder), delegateOf(t, w, "carol", holder)
 
+	// every allowed call is counted in the person's partition's egress
+	// ledger, as any partitioned tile's code's calls are; a refused one isn't
+	var counted []string
+	withSeam(t, &partitionEdgeSeam, func(_ *Broker, user, from, to string) { counted = append(counted, user+" "+from+"→"+to) })
+	defer func() {
+		want := "alice apps/q→apps/x,bob apps/q→apps/x,alice apps/q→apps/pg,bob apps/q→apps/pu"
+		if got := strings.Join(counted[:min(4, len(counted))], ","); got != want {
+			t.Errorf("the ledger counted %s, want first %s", got, want)
+		}
+		for _, c := range counted {
+			if strings.HasPrefix(c, "carol") || strings.HasPrefix(c, "dave") {
+				t.Errorf("a refused call was counted: %s", c)
+			}
+		}
+	}()
+
 	// the tile API read, as the person: reader for a person with read
 	check("alice's agent, a reader", alice, "apps/x", "", want{role: "reader", level: "read"})
 	// an admin's agent holds the admin's level on the tile — writer — never the admin role
@@ -103,15 +121,27 @@ func TestRouteDelegate(t *testing.T) {
 		t.Errorf("bob in person: %+v", d)
 	}
 
-	// the org's switch (plans/workspace-agent.md §5.6): filtered by the TILE
-	withSeam(t, &delegateTileGate, func(_ *Broker, h, user, tile string) error {
-		if tile == "apps/x" {
-			return errors.New("Finance has switched the workspace agent off for its tiles")
+	// the org's rules (the agent-policy package's answer): filtered by the
+	// TILE, on the model the agent says it is on
+	var asked []delegation.Subject
+	b.AgentPolicy = policyFunc(func(s delegation.Subject) error {
+		asked = append(asked, s)
+		if s.Tile == "apps/x" && s.Model != "private-1" {
+			return errors.New("Finance allows private models only")
 		}
 		return nil
 	})
-	check("the tile's org switched agents off", alice, "apps/x", "", want{deny: "Finance has switched"})
+	check("the tile's org refuses the model", alice, "apps/x", "", want{deny: "Finance allows private models only"})
+	onPrivate := alice
+	onPrivate.AgentModel = "private-1"
+	check("…and allows a private one", onPrivate, "apps/x", "", want{role: "reader", level: "read"})
 	check("another tile still answers", alice, "apps/pg", "", want{role: "reader", level: "read", part: "user:alice"})
+	if n := len(asked); n < 3 || asked[n-1] != (delegation.Subject{Holder: holder, User: "alice", Tile: "apps/pg"}) {
+		t.Errorf("the policy was asked %+v", asked)
+	}
+	b.AgentPolicy = nil // no policy installed: nothing is reached
+	check("no agent policy", alice, "apps/pg", "", want{deny: "rules aren't set up"})
+	b.AgentPolicy = delegation.OpenPolicy{}
 
 	// consent: with the workspace asking people first, the holder is
 	// another tile's code reaching the person's data, like any other
@@ -125,5 +155,85 @@ func TestRouteDelegate(t *testing.T) {
 	d := b.RouteGlobal(alice, comp("apps/pg"), "")
 	if d.Deny != nil || d.Partition != util.PartitionGlobal || d.Role != "reader" || d.Attribute == nil || d.Attribute.Agent != holder {
 		t.Errorf("alice's agent at apps/pg's global instance: %+v (attribute %+v)", d, d.Attribute)
+	}
+}
+
+// policyFunc is a delegation.Policy from one function (tile and session
+// rules alike; nothing starts unasked).
+type policyFunc func(delegation.Subject) error
+
+func (f policyFunc) TileAllows(s delegation.Subject) error              { return f(s) }
+func (f policyFunc) SessionAllows(s delegation.Subject, _ string) error { return f(s) }
+func (policyFunc) StartPrefs(string, string, string) (delegation.StartPrefs, bool) {
+	return delegation.StartPrefs{}, false
+}
+
+// A tile's manifest says how much of its API a person's agent may use
+// ("agent": off | read | full; absent is full, an unknown word off), read
+// from the code the tile's primary runs.
+func TestDelegateManifestKnob(t *testing.T) {
+	w := partRouteWS(t)
+	b := w.b
+	const holder = "apps/q"
+	t.Cleanup(auth.TestSealDelegate(holder))
+	b.AgentPolicy = delegation.OpenPolicy{}
+	alice := delegateOf(t, w, "alice", holder)
+	for _, c := range []struct {
+		manifest          string
+		read, write, only bool
+	}{
+		{`{"runtime":"go"}`, true, true, false},
+		{`{"runtime":"go","agent":"full"}`, true, true, false},
+		{`{"runtime":"go","agent":"read"}`, true, false, true},
+		{`{"runtime":"go","agent":"off"}`, false, false, false},
+		{`{"runtime":"go","agent":"everything"}`, false, false, false}, // a word this xbind doesn't know
+	} {
+		w.write(map[string]string{"apps/x/xbin.json": c.manifest})
+		w.rescan()
+		_, _, only, rerr := b.DelegateTile(alice, "apps/x", false)
+		_, _, _, werr := b.DelegateTile(alice, "apps/x", true)
+		if (rerr == nil) != c.read || (werr == nil) != c.write || only != c.only {
+			t.Errorf("%s: read %v write %v readOnly %v", c.manifest, rerr, werr, only)
+		}
+		comp, _ := b.Reg.Component("apps/x")
+		d := b.Route(alice, comp, "")
+		if (d.Deny == nil) != c.read || d.Deny == nil && d.Attribute.ReadOnly != c.only {
+			t.Errorf("%s: Route %+v (attribute %+v)", c.manifest, d, d.Attribute)
+		}
+	}
+}
+
+// Nothing reaches a sealed holder but its own principals and people: no
+// tile's call — whatever xbin.json grants — and no new grant or binding.
+func TestSealedHolderIsNoTarget(t *testing.T) {
+	w := partRouteWS(t) // the fixture grants apps/q → apps/x, and nothing on apps/x itself
+	b := w.b
+	t.Cleanup(auth.TestSealDelegate("apps/pg"))
+	comp, _ := b.Reg.Component("apps/pg")
+	// apps/x and apps/q hold approved grants on apps/pg: refused all the same
+	for _, p := range []auth.Principal{instanceOf("apps/x", ""), instanceOf("apps/q", "user:alice"), frameOf("apps/x", "alice")} {
+		if d := b.Route(p, comp, ""); d.Deny == nil || !strings.Contains(d.Deny.Error(), "sealed system component") {
+			t.Errorf("%s reached the holder: %+v", p.Component, d)
+		}
+	}
+	// its own frame and an admin in person still do
+	if d := b.Route(frameOf("apps/pg", "alice"), comp, ""); d.Deny != nil {
+		t.Errorf("the holder's own frame: %v", d.Deny)
+	}
+	if d := b.Route(personP(t, w, "bob"), comp, ""); d.Deny != nil {
+		t.Errorf("an admin in person: %v", d.Deny)
+	}
+	// another holder's delegate doesn't either
+	t.Cleanup(auth.TestSealDelegate("apps/q"))
+	b.AgentPolicy = delegation.OpenPolicy{}
+	if d := b.Route(delegateOf(t, w, "alice", "apps/q"), comp, ""); d.Deny == nil || !strings.Contains(d.Deny.Error(), "sealed system component") {
+		t.Errorf("a delegate reached another holder: %+v", d)
+	}
+	if holderRefusal("apps/x", "apps/pg") == "" || holderRefusal("apps/pg", "apps/pg") != "" || holderRefusal("", "apps/pg") != "" || holderRefusal("apps/x", "apps/pu") != "" {
+		t.Error("holderRefusal")
+	}
+	// a person is asked for the holder's edges like any approved edge's
+	if !b.edgeGranted("apps/q", "apps/pu") || b.edgeGranted("apps/q", "apps/q") {
+		t.Error("edgeGranted for a holder")
 	}
 }

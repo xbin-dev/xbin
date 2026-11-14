@@ -235,36 +235,19 @@ type limitsPostBody struct {
 }
 
 func (b *Broker) apiLimitsPost(w http.ResponseWriter, r *http.Request) {
-	v, ok := b.limitsActor(w, auth.PrincipalOf(r))
-	if !ok {
-		return
-	}
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
 	var body limitsPostBody
 	if err := server.DecodeJSON(r, &body); err != nil {
-		server.WriteError(w, http.StatusBadRequest, "need {tile? | scope?, kind, value, source, restart?, force?}", limitsDocs)
+		if _, ok := b.limitsActor(w, auth.PrincipalOf(r)); ok { // the actor's refusal first, as always
+			server.WriteError(w, http.StatusBadRequest, "need {tile? | scope?, kind, value, source, restart?, force?}", limitsDocs)
+		}
 		return
 	}
-	k, ok := parseKind(w, body.Kind)
+	v, t, ci, ok := b.limitsCheck(w, auth.PrincipalOf(r), body)
 	if !ok {
 		return
 	}
-	switch {
-	case !limits.ValidSource(body.Source):
-		server.WriteError(w, http.StatusBadRequest, limits.ErrSource.Error(), limitsDocs)
-		return
-	case body.Value <= 0:
-		server.WriteError(w, http.StatusBadRequest, "value is a positive number of "+k.Meta().Unit, limitsDocs)
-		return
-	}
-	t, ok := b.limitTarget(w, v, body.Tile, body.Scope, k)
-	if !ok || b.unreadable(w) {
-		return
-	}
-	if !t.hasFacts {
-		b.diskScopeFacts(&t)
-	}
-	kf := t.kf
+	k, kf := t.kind, t.kf
 	if body.Restart && kf.applies() && body.Value == kf.effective(entryIn(b.tlDoc(), t.key, k)) {
 		b.restartAt(w, v, t, body) // "restart now" at the value that holds: records nothing
 		return
@@ -273,8 +256,7 @@ func (b *Broker) apiLimitsPost(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, why.code, why.msg, limitsDocs)
 		return
 	}
-	ci := b.capInputs(k)[k]
-	status, msg := b.decide(v, t, body, ci)
+	status, msg, _ := b.decide(v, t, body, ci, false)
 	if status != http.StatusOK {
 		server.WriteError(w, status, msg, limitsDocs)
 		return
@@ -283,6 +265,35 @@ func (b *Broker) apiLimitsPost(w http.ResponseWriter, r *http.Request) {
 	slog.Info("audit", "who", v.p.From(), "method", "POST", "path", "/limits", "status", http.StatusOK, "tile", t.tile, "scope", t.scope,
 		"kind", string(k), "value", body.Value, "default", kf.def, "source", body.Source, "force", body.Force, "restart", body.Restart)
 	b.writeTargetRow(w, v, t)
+}
+
+// limitsCheck is what POST /limits decides about body by p before it
+// touches the store: who is acting, the kind, the value's shape, the
+// target and its facts. It writes the refusal itself (ok false). The
+// handler and a change set's preview (changeset.go) share it.
+func (b *Broker) limitsCheck(w http.ResponseWriter, p auth.Principal, body limitsPostBody) (v limitsViewer, t limitTarget, ci capInput, ok bool) {
+	if v, ok = b.limitsActor(w, p); !ok {
+		return v, t, ci, false
+	}
+	k, ok := parseKind(w, body.Kind)
+	if !ok {
+		return v, t, ci, false
+	}
+	switch {
+	case !limits.ValidSource(body.Source):
+		server.WriteError(w, http.StatusBadRequest, limits.ErrSource.Error(), limitsDocs)
+		return v, t, ci, false
+	case body.Value <= 0:
+		server.WriteError(w, http.StatusBadRequest, "value is a positive number of "+k.Meta().Unit, limitsDocs)
+		return v, t, ci, false
+	}
+	if t, ok = b.limitTarget(w, v, body.Tile, body.Scope, k); !ok || b.unreadable(w) {
+		return v, t, ci, false
+	}
+	if !t.hasFacts {
+		b.diskScopeFacts(&t)
+	}
+	return v, t, b.capInputs(k)[k], true
 }
 
 // restartAt is POST /limits at the limit that already holds, with restart:
@@ -362,18 +373,21 @@ func (t limitTarget) describe() string {
 // decide records the decision under the store's lock, re-checking fit
 // there: two approvals can't both take the same room. It answers the
 // status and, on a refusal, why.
-func (b *Broker) decide(v limitsViewer, t limitTarget, body limitsPostBody, ci capInput) (int, string) {
+func (b *Broker) decide(v limitsViewer, t limitTarget, body limitsPostBody, ci capInput, dry bool) (status int, msg string, cur int64) {
 	k, kf := t.kind, t.kf
 	s := &b.tl
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	f := b.tlDocLocked()
 	if !s.read {
-		return http.StatusInternalServerError, fmt.Sprintf("%s can't be read (%v): fix or remove it by hand", tileLimitsRel, s.bad)
+		return http.StatusInternalServerError, fmt.Sprintf("%s can't be read (%v): fix or remove it by hand", tileLimitsRel, s.bad), 0
 	}
-	cur := kf.effective(entryIn(f, t.key, k))
+	cur = kf.effective(entryIn(f, t.key, k))
 	if fits, why := ci.at(f, t.key).Fit(cur, body.Value); !fits && !(body.Force && v.admin) {
-		return http.StatusConflict, fmt.Sprintf("%s of %s doesn't fit the workspace: %s", limits.Format(k, body.Value), k.Meta().Label, why)
+		return http.StatusConflict, fmt.Sprintf("%s of %s doesn't fit the workspace: %s", limits.Format(k, body.Value), k.Meta().Label, why), cur
+	}
+	if dry { // a change set's preview: every check ran, nothing is recorded
+		return http.StatusOK, "", cur
 	}
 	next := cloneFile(f)
 	bk := bookIn(next, t.key, k)
@@ -387,9 +401,9 @@ func (b *Broker) decide(v limitsViewer, t limitTarget, body limitsPostBody, ci c
 	bk.Limits[k] = e
 	delete(bk.Hits, k) // a decision on the kind clears its hit
 	if err := b.tlSaveLocked(next, true); err != nil {
-		return http.StatusInternalServerError, err.Error()
+		return http.StatusInternalServerError, err.Error(), cur
 	}
-	return http.StatusOK, ""
+	return http.StatusOK, "", cur
 }
 
 // afterDecision runs a decision's effects, with no store lock held: the

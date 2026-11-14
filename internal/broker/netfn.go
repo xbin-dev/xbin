@@ -725,24 +725,36 @@ func provideRole(def registry.Iface) string {
 // nothing of its spawn depends on who binds it (the binding's grant is
 // checked per call), and a restart would cut every other consumer's calls
 // in flight — a sandbox manager's relayed terminals and long polls.
-func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
-	p := auth.PrincipalOf(r)
-	var body struct {
-		Component string   `json:"component"`
-		Slot      string   `json:"slot"`
-		Provider  string   `json:"provider"`  // single ref (back-compat)
-		Providers []string `json:"providers"` // full set for multi slots (replaces)
-		Host      string   `json:"host"`      // exposes http: exact public hostname
-		Zone      string   `json:"zone"`      // exposes http: delegated wildcard zone
-		Listen    string   `json:"listen"`    // exposes stream: host listen address
-		// Add appends this one binding to the slot instead of replacing it —
-		// an exposed endpoint takes many routes (D79). A DELETE naming a
-		// provider and/or host|zone|listen removes just the matching ones.
-		Add bool `json:"add"`
-	}
-	if err := server.DecodeJSON(r, &body); err != nil || body.Component == "" || body.Slot == "" {
-		server.WriteError(w, http.StatusBadRequest, "need {component, slot, provider|providers}")
-		return
+// bindingBody is POST and DELETE /bindings' body.
+type bindingBody struct {
+	Component string   `json:"component"`
+	Slot      string   `json:"slot"`
+	Provider  string   `json:"provider"`  // single ref (back-compat)
+	Providers []string `json:"providers"` // full set for multi slots (replaces)
+	Host      string   `json:"host"`      // exposes http: exact public hostname
+	Zone      string   `json:"zone"`      // exposes http: delegated wildcard zone
+	Listen    string   `json:"listen"`    // exposes stream: host listen address
+	// Add appends this one binding to the slot instead of replacing it —
+	// an exposed endpoint takes many routes (D79). A DELETE naming a
+	// provider and/or host|zone|listen removes just the matching ones.
+	Add bool `json:"add"`
+}
+
+// bindingPlan is what a /bindings request would do: cur, the slot's
+// binding now; next, after it (empty = the slot goes); delta, what changes
+// — the part the org-admin gate judges (D26/D41), so an org admin can add
+// or drop its own route beside routes it didn't wire; del, an unbind.
+type bindingPlan struct {
+	cur, next, delta registry.Binding
+	del              bool
+}
+
+// bindingCheck is everything POST and DELETE /bindings decide about body
+// by p before they write (remove: a DELETE): the plan, or the refusal. The
+// handler and a change set's preview (changeset.go) share it.
+func (b *Broker) bindingCheck(p auth.Principal, body bindingBody, remove bool) (bindingPlan, *refused) {
+	if body.Component == "" || body.Slot == "" {
+		return bindingPlan{}, &refused{http.StatusBadRequest, "need {component, slot, provider|providers}", ""}
 	}
 	refs := body.Providers
 	if len(refs) == 0 && body.Provider != "" {
@@ -751,18 +763,15 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 	route := registry.BindRef{Host: strings.ToLower(strings.TrimSpace(body.Host)),
 		Zone: strings.ToLower(strings.TrimSpace(body.Zone)), Listen: strings.TrimSpace(body.Listen)}
 	named := body.Provider != "" || route.Host != "" || route.Zone != "" || route.Listen != ""
-	del := r.Method == http.MethodDelete || len(refs) == 0
+	del := remove || len(refs) == 0
 	binding := registry.BindTo(refs...)
 	if len(binding) == 1 {
 		binding[0].Host, binding[0].Zone, binding[0].Listen = route.Host, route.Zone, route.Listen
 	}
-	// next: the slot's binding after this request (empty = the slot goes);
-	// delta: what changes — the part the org-admin gate judges (D26/D41), so
-	// an org admin can add or drop its own route beside routes it didn't wire
 	cur := b.Reg.Workspace().Bindings[body.Component][body.Slot]
 	next, delta := binding, binding
 	switch {
-	case r.Method == http.MethodDelete && named: // one route (or every route through one provider)
+	case remove && named: // one route (or every route through one provider)
 		next, delta = nil, nil
 		for _, e := range cur {
 			if (body.Provider == "" || e.Ref == body.Provider) && (route.Host == "" || e.Host == route.Host) &&
@@ -773,39 +782,56 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if len(delta) == 0 {
-			server.WriteError(w, http.StatusNotFound, "no such binding on "+body.Component+"."+body.Slot)
-			return
+			return bindingPlan{}, &refused{http.StatusNotFound, "no such binding on " + body.Component + "." + body.Slot, ""}
 		}
 	case del:
 		next, delta = nil, nil
 	case body.Add:
 		if len(binding) != 1 {
-			server.WriteError(w, http.StatusBadRequest, "add takes one provider (with its host|zone|listen)")
-			return
+			return bindingPlan{}, &refused{http.StatusBadRequest, "add takes one provider (with its host|zone|listen)", ""}
 		}
 		next = append(append(registry.Binding{}, cur...), binding[0])
 	}
 	if !b.IsAdmin(p) {
 		for _, ref := range refs { // a named set is a workspace-admin act (D65)
 			if strings.HasPrefix(ref, NetRefSet) {
-				server.WriteError(w, http.StatusForbidden, "binding a named network set ("+ref+") is a workspace-admin act — an org admin binds org (the union of the sets attached to the org), or asks a workspace admin to attach the set", "/docs/auth.md")
-				return
+				return bindingPlan{}, &refused{http.StatusForbidden, "binding a named network set (" + ref + ") is a workspace-admin act — an org admin binds org (the union of the sets attached to the org), or asks a workspace admin to attach the set", "/docs/auth.md"}
 			}
 		}
 		// D26: an org admin may wire bindings for tiles their org OWNS when
 		// every normalized target is intra-org or allowance-covered (unbind
 		// always). Everyone else: workspace admin only.
 		if !b.orgAdminMayBind(p, body.Component, body.Slot, delta, del) {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "not approvable by you — bindings are wired by a workspace admin, an org admin within their org's allowance (D26), or a personal tile's owner within their own allowance (D88)", "docs": "/docs/auth.md"})
-			return
+			return bindingPlan{}, &refused{http.StatusForbidden, "not approvable by you — bindings are wired by a workspace admin, an org admin within their org's allowance (D26), or a personal tile's owner within their own allowance (D88)", "/docs/auth.md"}
 		}
 	}
 	if !del {
+		for _, e := range next { // no tile binds to a sealed holder (delegation.go)
+			prov, _ := splitRef(e.Ref)
+			if why := holderRefusal(body.Component, prov); why != "" {
+				return bindingPlan{}, &refused{http.StatusConflict, why, "/docs/auth.md"}
+			}
+		}
 		if err := b.validateBinding(body.Component, body.Slot, next); err != nil {
-			server.WriteError(w, bindingStatus(err), err.Error()) // 409: a bindConflict (personalbind_api.go)
-			return
+			return bindingPlan{}, &refused{bindingStatus(err), err.Error(), ""} // 409: a bindConflict (personalbind_api.go)
 		}
 	}
+	return bindingPlan{cur: cur, next: next, delta: delta, del: del}, nil
+}
+
+func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
+	p := auth.PrincipalOf(r)
+	var body bindingBody
+	if err := server.DecodeJSON(r, &body); err != nil {
+		server.WriteError(w, http.StatusBadRequest, "need {component, slot, provider|providers}")
+		return
+	}
+	plan, why := b.bindingCheck(p, body, r.Method == http.MethodDelete)
+	if why != nil {
+		why.write(w)
+		return
+	}
+	next, delta, del := plan.next, plan.delta, plan.del
 	// Restart both the old and new provider (roster change) + the component.
 	oldProvider := b.netProvider(body.Component)
 	if err := b.Reg.MutateWorkspace(func(ws *registry.WorkspaceManifest) {

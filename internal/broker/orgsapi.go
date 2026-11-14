@@ -134,6 +134,9 @@ func (b *Broker) apiOrgsList(w http.ResponseWriter, r *http.Request) {
 	out := []orgView{}
 	for _, o := range st.Orgs() {
 		if b.canManageOrg(p, o.ID) {
+			if server.IsDelegateAdminRead(r) {
+				o.SSOGroups = nil // an agent's admin read: what change sets cover, never sign-in configuration
+			}
 			out = append(out, b.orgView(o))
 		}
 	}
@@ -582,6 +585,16 @@ func matchesTile(pat, path string) bool {
 	return false
 }
 
+// accessCheck is what PUT /access decides about sharing tile with id by p
+// before it writes: who manages the tile's access.
+// The handler and a change set's preview (changeset.go) share it.
+func (b *Broker) accessCheck(p auth.Principal, tile, id string) *refused {
+	if !b.mayManageTile(p, tile) {
+		return &refused{http.StatusForbidden, "tile access is managed by its owner, the owning org's admins, or a workspace admin", "/docs/auth.md"}
+	}
+	return nil
+}
+
 // PUT /access {tile, kind: user|org, id, level|""} — writes/clears an EXACT
 // entry (user.Tiles / org.Tiles). Gated by mayManageTile (D24: sharing is an
 // ownership right).
@@ -601,9 +614,8 @@ func (b *Broker) apiAccessPut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Tile = strings.Trim(body.Tile, "/")
-	p := auth.PrincipalOf(r)
-	if !b.mayManageTile(p, body.Tile) {
-		server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "tile access is managed by its owner, the owning org's admins, or a workspace admin", "docs": "/docs/auth.md"})
+	if why := b.accessCheck(auth.PrincipalOf(r), body.Tile, body.ID); why != nil {
+		why.write(w)
 		return
 	}
 	var err error

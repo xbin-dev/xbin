@@ -20,6 +20,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/builtins"
+	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/obs"
 	"github.com/xbin-dev/xbin/internal/registry"
@@ -52,9 +53,12 @@ type Broker struct {
 	templates *builtins.TemplateSet // embedded builtin template catalog (nil = none)
 	updater   *builtins.Updater     // builtin update tracking (nil = none)
 	Users     *users.Store          // human users (nil = single-user/root-only)
-	disk      *diskMon              // per-scope disk quota + low-disk write-blocking + alerts
-	tl        tileLimitState        // per-tile resource limits: decisions, hits, the runtime's sources (D203; tilelimits.go)
-	tileSbx   tileSbxSlot           // the tile-sandbox runtime's hooks (tilesbx_hooks.go)
+	// AgentPolicy answers the orgs' rules for people's workspace agents
+	// (delegation.go); nil refuses every delegate call (delegation.NoPolicy).
+	AgentPolicy delegation.Policy
+	disk        *diskMon       // per-scope disk quota + low-disk write-blocking + alerts
+	tl          tileLimitState // per-tile resource limits: decisions, hits, the runtime's sources (D203; tilelimits.go)
+	tileSbx     tileSbxSlot    // the tile-sandbox runtime's hooks (tilesbx_hooks.go)
 	// Settings is the workspace settings store (D175/D180) the server's
 	// routes share — the partitioned tiles' switches (policies.go); nil:
 	// the workspace's own, opened on first use.
@@ -337,8 +341,10 @@ func (b *Broker) Register(srv *server.Server) {
 	b.registerTileLimits(srv) // GET/POST/DELETE /limits, POST /limits/dismiss (D203; tilelimits_api.go)
 	b.obs = &obs.Plane{Root: b.Reg.Root, Hub: b.Hub, IsAdmin: b.IsAdmin,
 		HasComponent: func(p string) bool { _, ok := b.Reg.Component(p); return ok },
-		Primary:      b.primaryOf, Addressed: b.addressed, PartitionID: b.partitionID, PartitionLog: b.PartitionLog}
+		Primary:      b.primaryOf, Addressed: b.addressed, PartitionID: b.partitionID, PartitionLog: b.PartitionLog,
+		AgentHides: srv.DelegateHides} // a person's agent sees no status of a tile whose org keeps it out
 	b.obs.Register(srv)
+	srv.ChangeSets = b // admin change sets' previews (changeset.go)
 	srv.InstallPolicy(brokerPolicy{b})
 }
 
@@ -716,41 +722,65 @@ func (b *Broker) grantRestart(g registry.Grant) {
 	}
 }
 
-func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply func(*registry.WorkspaceManifest, registry.Grant)) (registry.Grant, bool) {
-	p := auth.PrincipalOf(r)
-	var g registry.Grant
-	if err := server.DecodeJSON(r, &g); err != nil || g.From == "" || g.Target == "" || g.Role == "" {
-		server.WriteError(w, http.StatusBadRequest, "need {from, target, role}")
-		return registry.Grant{}, false
+// refused is a handler's refusal: the status, the text and the docs page
+// ("" none) — what server.WriteError takes.
+type refused struct {
+	status    int
+	msg, docs string
+}
+
+func (e *refused) write(w http.ResponseWriter) { server.WriteError(w, e.status, e.msg, e.docs) }
+
+// grantCheck is everything POST and DELETE /grants decide about grant g by
+// p before they write (revoke: a DELETE): who may approve it, and whether
+// it can stand. nil: it would be written. The handler and a change set's
+// preview (changeset.go) share it, so a previewed grant is judged exactly
+// as the applied one.
+func (b *Broker) grantCheck(p auth.Principal, g registry.Grant, revoke bool) *refused {
+	if g.From == "" || g.Target == "" || g.Role == "" {
+		return &refused{http.StatusBadRequest, "need {from, target, role}", ""}
 	}
 	if !b.IsAdmin(p) {
 		// D26: an org admin may approve for tiles their org OWNS when the
 		// target is intra-org or allowance-covered (revokes always) — the
 		// ceiling check below still applies to every approver.
-		if !b.orgAdminMayGrant(p, g, r.Method == http.MethodDelete) {
-			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "not approvable by you — grants are approved by a workspace admin, an org admin within their org's allowance (D26), or a personal tile's owner within their own allowance (D88)", "docs": "/docs/auth.md"})
-			return registry.Grant{}, false
+		if !b.orgAdminMayGrant(p, g, revoke) {
+			return &refused{http.StatusForbidden, "not approvable by you — grants are approved by a workspace admin, an org admin within their org's allowance (D26), or a personal tile's owner within their own allowance (D88)", "/docs/auth.md"}
 		}
+	}
+	if why := holderRefusal(g.From, g.Target); why != "" && !revoke {
+		return &refused{http.StatusConflict, why, "/docs/auth.md"}
 	}
 	// Egress is no longer a grant — it's a `net` interface binding. Reject new
 	// net:* grants loudly (rather than storing a silent no-op); DELETE still
 	// works so a stale net:* grant from an older workspace can be cleaned up.
-	if r.Method == http.MethodPost && strings.HasPrefix(g.Target, "net:") {
-		server.WriteError(w, http.StatusBadRequest, "network egress is not a grant — bind a `net` interface instead: `bx bind "+g.From+" net=internet` or POST /api/xbin/bindings (see plans/interfaces.md)")
-		return registry.Grant{}, false
+	if !revoke && strings.HasPrefix(g.Target, "net:") {
+		return &refused{http.StatusBadRequest, "network egress is not a grant — bind a `net` interface instead: `bx bind " + g.From + " net=internet` or POST /api/xbin/bindings (see plans/interfaces.md)", ""}
 	}
 	// Policy ceiling (D20): approving a grant the ceiling would nullify is a
 	// config error — refuse it with the blocking row named. Revoking (DELETE)
 	// is always allowed so over-ceiling rows can be cleaned up.
-	if r.Method == http.MethodPost {
+	if !revoke {
 		if msg := b.ceilingBlockMsg(g.From, g.Target); msg != "" {
-			server.WriteError(w, http.StatusBadRequest, msg)
-			return registry.Grant{}, false
+			return &refused{http.StatusBadRequest, msg, ""}
 		}
 		if err := b.grantRefusal(g); err != nil { // D127k, PD-28 (partitionmode.go)
-			server.WriteError(w, http.StatusConflict, err.Error())
-			return registry.Grant{}, false
+			return &refused{http.StatusConflict, err.Error(), ""}
 		}
+	}
+	return nil
+}
+
+func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply func(*registry.WorkspaceManifest, registry.Grant)) (registry.Grant, bool) {
+	p := auth.PrincipalOf(r)
+	var g registry.Grant
+	if err := server.DecodeJSON(r, &g); err != nil {
+		server.WriteError(w, http.StatusBadRequest, "need {from, target, role}")
+		return registry.Grant{}, false
+	}
+	if why := b.grantCheck(p, g, r.Method == http.MethodDelete); why != nil {
+		why.write(w)
+		return registry.Grant{}, false
 	}
 	// Audit provenance (D33): stamp who approved, and log the full triple so
 	// the audit trail answers "who approved what", not just "who POSTed".
