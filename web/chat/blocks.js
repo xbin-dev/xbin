@@ -374,12 +374,14 @@ export function adopt(parent, child) {
 
 /**
  * nest(flat, idOf): a flat list whose blocks name the subagent call they
- * ran under (`parent`) → the list with those blocks moved into that call's
+ * ran under (`parent`) → a list with those blocks moved into that call's
  * `children`, in order. idOf(toolBlock) is the id `parent` is matched with
  * (default: its record's id). A block whose parent isn't in the list (paged
  * out) stays where it is, `parent` still set — an orphan; a loop of parents
- * leaves its blocks flat. For a reducer that holds rows rather than folding
- * events in order.
+ * leaves its blocks flat. The flat list's blocks are not changed: a call
+ * that gains children is a copy of its block (so blocks a reducer caches can
+ * be nested again). For a reducer that holds rows rather than folding
+ * events in order; nothing to nest returns the list itself.
  */
 export function nest(flat, idOf = (b) => b.rec.id) {
   if (!flat.some((b) => b.parent)) return flat;
@@ -394,8 +396,10 @@ export function nest(flat, idOf = (b) => b.rec.id) {
   const place = (b) => {
     placed.add(b);
     const ks = (kids.get(b) || []).filter((c) => !placed.has(c));
-    if (ks.length) { b.children = b.children || []; for (const c of ks) b.children.push(up(place(c), b)); }
-    return b;
+    if (!ks.length) return b;
+    const box = { ...b, children: [...(b.children || [])] };
+    for (const c of ks) box.children.push(up(place(c), box));
+    return box;
   };
   const out = top.map(place);
   for (const b of flat) if (!placed.has(b)) out.push(b);
@@ -476,12 +480,15 @@ export function plain(x) {
  *           a word that goes with a rejection — the host sends it the way its agent takes it
  * @property {(block: AskBlock, answer: {action: string, content?: object}) => (Promise<boolean>|void)} answer
  *           answer a question: accept (content: the form's values), decline, cancel
+ * @property {(text: string) => (boolean|Promise<boolean>)} [confirm]  ask the reader to confirm an `explicit` option
+ *           (default: the browser's confirm)
+ * @property {(block: ChatBlock) => string} [note]  a word under a request's card: why the last answer to it was refused ('' none)
  * @property {(block: ChatBlock, set: ChangeSet, file: FileChange) => {state: string, text?: string, cut?: boolean, note?: string}} fileDiff
  *           one file's diff of a change set: state 'ok' (text: its unified diff; cut: not all of it), 'loading', or 'none' (note says why)
  * @property {(block: ChatBlock, file: ChatFile) => {linked: boolean, thumb?: string}} [fileState]  is a message's file still there; a thumbnail
  * @property {(block: ChatBlock, file: ChatFile) => void} [openFile]
  * @property {(block: AgentBlock) => void} [openAgent]  show the sub-conversation on its own
- * @property {(block: AgentBlock) => void} [loadAgent]  its blocks are wanted (the card was opened)
+ * @property {(block: AgentBlock, again?: boolean) => void} [loadAgent]  its blocks are wanted (the card was opened; again: after an error)
  * @property {(block: AgentBlock) => string} [agentError]  why they could not be read ('' no error)
  * @property {(block: ChatBlock, depth: number) => any} [other]  draw a block the kit has no view for — or one the host
  *           draws its own way: asked first, null leaves it to the kit

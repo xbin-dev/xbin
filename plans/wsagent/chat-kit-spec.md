@@ -1,0 +1,443 @@
+# Chat kit — the block model, the tool record, the fixtures (F0)
+
+> Status: live — specified and pinned by tests; no shipped module changed
+> (2026-11-14, branch `wsagent/a0-spec`). Step F0 of
+> `plans/agent-dedupe.md` §3. Everything later in the dedupe — the kit's
+> models (F2) and views (F3), AgTT onto the kit (F4), `sdk/acp`'s tool
+> record (B1) — is tested against what this step fixes.
+
+What exists after F0:
+
+| File | What |
+|---|---|
+| `web/chat/blocks.js` (`/vendor/chat/blocks.js`) | the block model: typedefs of every kind, the tool record, `ChatCtx`; helpers `block`, `up`, `bump`, `adopt`, `nest`, `inner`, `walk`, `find`, `Versions`, `plain`, `newToolRecord`, `toolDone`, `toolState` |
+| `web/chat/rev.js` (`/vendor/chat/rev.js`) | `KIT = 1`, the revision a tile probes |
+| `sdk/acp/testdata/transcripts/<name>.json` | 8 event logs in xbind's served shape |
+| `…/<name>.records.json`, `…/<name>.blocks.json` | each log's expected tool records and expected blocks |
+| `…/<name>.agtt.json` | the run view AgTT's backend makes of the log, per checkpoint |
+| `sdk/acp/acptest/transcripts_test.go` | generates the logs from real machinery and fails when they drift |
+| `builtin-templates/agent/_backend/transcripts_test.go` | feeds the logs through `harness_map.go`, writes/compares the views |
+| `hack/chat-fixtures.test.mjs` | today's `web/agent-fold.js` against the expectations |
+| `hack/chat-fixtures-agtt.test.mjs` | today's `model/fold.js` over the views against the same expectations |
+| `hack/chat-fixtures/{reference,web,agtt,expect}.mjs` | the record's rules (executable), the two adapters, the expectations' builder and the gap list |
+| `hack/chat-fixtures/rows-bench.cjs` | the templates-vs-elements measurement of §7 |
+
+## 1. The block model
+
+A transcript is an ordered list of **blocks**. Two reducers produce them
+(`web/agent-fold.js` from ACP events; AgTT's `model/fold.js` from a run
+view); the kit's views read nothing else. The typedefs in
+`web/chat/blocks.js` are normative; this section is their summary and the
+reasons.
+
+Every block: `k` (key), `v` (version), `kind`, and optionally `parent` (the
+id of the subagent call it ran under) and `at` (ms since the epoch).
+
+- **`k` is a string**, unique among all blocks of a transcript (nested ones
+  too) and the same whenever the block is folded again. Each reducer keeps
+  its own id space: the Agent tab's is the seq of the event that opened the
+  block (D130), AgTT's is its row ids (`m12`, `c<call id>`, `draft-text`).
+  Keys are never compared across reducers.
+- **`v` is a number** that changes whenever anything a view of the block
+  reads changed — a nested block's change included. Same `(k, v)`: same
+  picture (it is what `guard` and memos key on). The Agent tab bumps in
+  place (`bump`, up the `$up` chain); a reducer that rebuilds objects (AgTT:
+  identity means unchanged) takes versions from `Versions.of(k, token)`.
+- **`$`-prefixed fields are runtime-only** (`$up`, `$memo`): not part of the
+  contract, never serialised (`plain`). Today's `up`, `ui` and `$memo` on
+  the Agent tab's blocks become `$up`, the host's open-state (`ChatCtx`),
+  and `$memo`.
+- **An absent optional field is its zero value** (`''`, `0`, `false`,
+  `null`, `[]`). In fixture JSON zero values are left out, except a block's
+  `k`/`kind`, a record's `id`/`kind`/`title`/`status`, and an `exitCode` of
+  0 (its zero value is `null`).
+- A reducer hands its host a **Transcript**: `{blocks, tail?, plan?,
+  usage?}`. `tail` is the blocks that wait on a person and are not in
+  `blocks`; `plan` the newest plan; `usage` `{used, size, cost?}`.
+
+### Kinds
+
+| Kind | Fields (beyond k, v, kind) | Agent tab today | AgTT today |
+|---|---|---|---|
+| `user` | `text`, `files[]` (`name`, `path`, `mime`, `size`, `sizeText`), `sender`, `steered`, `ref` | `msg` role user | `user` |
+| `assistant` | `text`, `mid`, `model`, `usage` | `msg` any other role (grows while it streams) | `assistant` (a stored row) |
+| `draft` | `text` | never | `draft` (`draft-text`) |
+| `thought` | `text`, `live`, `ms` | `thought` | `think` (a row's reasoning, or `draft-think`) |
+| `tool` | `rec` (ToolRecord), `state`, `children`, `result` | `tool` (the record itself) | `tool` (`acp` + args + result) |
+| `agent` | `title`, `ref`, `state`, `phase`, `steps`, `task`, `answer`, `blocks`, `tail`, `provider` | never | `agent` (a spawned child run) |
+| `changes` | `turn`, `set` (ChangeSet) | `changes` (`files.changed` of a turn) | never |
+| `plan` | `entries[]` (`content`, `status`, `priority`) | `plan` (a row, one per turn) | the summary's `harness.plan` (a pin) |
+| `perm` | `pid`, `callId`, `tool`, `options[]`, `rule`, `title`, `description`, `defaultToNo`, `plan`, `calls`, `by`, `optionId`, `park` | `perm` (kept, with its answer) | the park (`pendingState` kind approval) |
+| `ask` | `eid`, `callId`, `message`, `mode`, `schema`, `url`, `action`, `by`, `content`, `park` | `ask` (kept, with its answer) | the park (kind question), or the built-in "The agent is asking" card |
+| `signin` | `provider`, `command`, `methods[]`, `device`, `park` | the banner under the transcript (`status.login`) | the park (kind login) |
+| `notice` | `text` (first line = heading) | `notice` (xbind's line) | `notice` (engine-written user rows, automation prompts) |
+| `turn` | `turn`, `stopReason`, `usage`, `error` | `turn` | never (run status; `error`/`cancel` steps) |
+| `gap` | — | `gap` | never ("… earlier messages" is host chrome) |
+
+A reducer may emit kinds of its own (AgTT's `step`: journal lines with
+preview and live-page buttons); the kit asks the host to draw those
+(`ChatCtx.other`).
+
+### Decisions where the two sides differ
+
+| # | Question | Decision | Why |
+|---|---|---|---|
+| K1 | Tool block: flat record (web) or presentational fields (AgTT's `headline`, `fam`, `sub`, `outcome`)? | `rec` holds the record; `state` and `children` beside it; headline, icon, outcome and chips are derived by `chat/tools.js` (F2) | one record shape for Go, JS and Swift; AgTT's precomputed words become derivations |
+| K2 | Where do requests sit? | a `perm`/`ask`/`signin` block may be in `blocks` (the Agent tab: where it was asked, kept with its answer) or in `tail` (AgTT: under the transcript while it waits, gone afterwards) | the plan's "each host keeps its own placement" |
+| K3 | The plan: a row or a pin? | a `plan` block either way; a host that pins it reads `Transcript.plan` | same |
+| K4 | Streaming text | the Agent tab emits a growing `assistant` (its key is known from the first chunk); AgTT emits `draft`, replaced (another key) by the row's `assistant` | AgTT has no row id until the flush; forcing one kind would change a key mid-stream on one side |
+| K5 | A call's state | `TOOL_STATES`: ACP's status as `pending · running · done · error · stopped`, plus `approval` (an unanswered request names the call), `writing` and `waiting` (AgTT's own engine) — `toolState(rec, hint)` | AgTT shows "needs approval" on the card; the Agent tab gets it too (gap W2) |
+| K6 | An id used again | a `tool.call` for an id whose record is over, **or** was made in an earlier turn, starts a new record | union of AgTT's rule (ended → new, `h1:id#2`) and the web's (per turn); each has one half today |
+| K7 | A later `content` list without diffs / text | keeps the diffs / text there were | AgTT's `mergeTool`; the web replaces the list whole and loses an edit's diff when its completion carries only a message |
+| K8 | Text content | `rec.text`: the text items joined by a blank line | AgTT's; the web renders items one by one — item boundaries are lost, the markdown sniff runs on the joined text |
+| K9 | Diffs | `rec.diffs[]` always has `path`, `status`, `add`, `del`; plus `patch` (AgTT's backend) **or** `oldText`/`newText` (the web) | the plan's "a patch or an old/new pair"; counts by LCS on both sides (they agree on every fixture) |
+| K10 | `files` | `rec.files`: paths of locations then diffs, each once (AgTT's). The web's `t.files` (a snapshot diff) is `rec.changed` | two different things had one name |
+| K11 | Output | `rec.output` raw (ANSI kept) + `rec.outputTruncated` (bytes dropped before it); capping is the reducer's choice (AgTT's backend keeps 64 KiB; the web keeps all) | views strip and tail; the fact that something was dropped must survive |
+| K12 | `rawOutput` | not in the record | nobody draws it |
+| K13 | Permission option names | ACP's (`optionId`, `name`, `kind`) + `explicit` | both sides already hold these; `explicit` comes from the shared Go rule (B1 `escalation.go`) |
+| K14 | `perm.rule` | `{kind, title}` or `null` when "always" cannot be scoped (the web's `scoped:false`, AgTT's absent rule) | one way to say it |
+| K15 | Plan approval | `perm.plan = {text, path}` (not a flag); `tool.content` still carries the list when the host has it | the card needs the text; AgTT says it once |
+| K16 | Questions | `mode`: `form` (schema), `url` (a page), `text` (AgTT's built-in "answer below") | the web ignores url today (gap W4); `text` is drawn today by AgTT |
+| K17 | Sign-in | a block (`signin`), not host chrome | one card (F5); each host places it (`tail`) |
+| K18 | A message's files | `size` in bytes or `null`, `sizeText` when only words are known | the web has bytes, AgTT a parsed "2 KB" |
+| K19 | AgTT's built-in approval of several calls | a `perm` with `calls[]` and the host's own options | so the kit can draw it without a second card |
+| K20 | Unknown kinds | drawn by the host (`ChatCtx.other`, asked first for every block) | AgTT's `ui.ext.block` seam, kept |
+
+## 2. The tool record
+
+`ToolRecord` (`web/chat/blocks.js`): `id`, `kind`, `title`, `label`, `name`,
+`status`, `parent`, `subagent`, `planReview`, `rawInput`, `locations[]`,
+`files[]`, `text`, `terminal`, `output`, `outputTruncated`, `exitCode`,
+`diffs[]`, `changed`.
+
+Merge rules (executable in `hack/chat-fixtures/reference.mjs`, which
+`sdk/acp/toolrec.go` and `/vendor/chat/tools.js` must reproduce; the
+fixtures' `<name>.records.json` are its output):
+
+1. A field an event carries replaces the record's. `outputDelta` appends
+   to `output`; `output` replaces what was gathered. `parent` is the first
+   one said. An unknown `kind` reads as `other`.
+2. `content` is read into `text`, `diffs` and `terminal`; a list with no
+   text keeps the text, one with no diffs keeps the diffs (K7).
+3. `files` = locations' paths, then diffs' paths, each once (K10).
+4. A diff item is `added` when it has no old text, `deleted` when the call
+   is a delete, else `modified`; `add`/`del` are the lines the texts do not
+   share (common head and tail apart, LCS between; a final newline ends the
+   last line).
+5. Id reuse: K6. A `tool.update` never starts a record.
+6. `files.changed` naming a call sets the newest record of that id's
+   `changed` (the turn may be over).
+7. A capping reducer keeps the newest 64 KiB of output, cut between
+   characters, and counts the dropped bytes in `outputTruncated`.
+
+Go proposal for `sdk/acp/toolrec.go` (B1; **not added here**). JSON is the
+fixtures' form: zero values omitted, `id`/`kind`/`title`/`status` always.
+
+```go
+// ToolRecord is one tool call: its tool.call and tool.update events merged.
+type ToolRecord struct {
+	ID              string          `json:"id"`
+	Kind            string          `json:"kind"` // an ACP ToolKind; "other" when unknown
+	Title           string          `json:"title"`
+	Label           string          `json:"label,omitempty"`
+	Name            string          `json:"name,omitempty"`
+	Status          string          `json:"status"` // pending | in_progress | completed | failed | cancelled
+	Parent          string          `json:"parent,omitempty"`
+	Subagent        bool            `json:"subagent,omitempty"`
+	PlanReview      bool            `json:"planReview,omitempty"`
+	RawInput        json.RawMessage `json:"rawInput,omitempty"`
+	Locations       []ToolLocation  `json:"locations,omitempty"`
+	Files           []string        `json:"files,omitempty"`
+	Text            string          `json:"text,omitempty"`
+	Terminal        bool            `json:"terminal,omitempty"`
+	Output          string          `json:"output,omitempty"`
+	OutputTruncated int64           `json:"outputTruncated,omitempty"`
+	ExitCode        *int            `json:"exitCode,omitempty"`
+	Diffs           []ToolDiff      `json:"diffs,omitempty"`
+	Changed         *ChangeSet      `json:"changed,omitempty"` // set by the embedder (xbind's snapshots)
+}
+
+type ToolLocation struct {
+	Path string `json:"path"`
+	Line *int   `json:"line,omitempty"`
+}
+
+// ToolDiff: Patch (a unified diff, Truncated when cut at a hunk), or the two texts (OldText nil: a new file).
+type ToolDiff struct {
+	Path      string  `json:"path"`
+	Status    string  `json:"status"` // added | modified | deleted
+	Add       int     `json:"add,omitempty"`
+	Del       int     `json:"del,omitempty"`
+	Patch     string  `json:"patch,omitempty"`
+	Truncated bool    `json:"truncated,omitempty"`
+	OldText   *string `json:"oldText,omitempty"`
+	NewText   string  `json:"newText,omitempty"`
+}
+
+type ChangeSet struct {
+	Files []FileChange `json:"files"`
+	Patch *ChangePatch `json:"patch,omitempty"`
+}
+
+// ToolRecords folds a session's tool events (the id-reuse rule included).
+type ToolRecords struct{ /* held: id → newest record; turn */ }
+
+func (r *ToolRecords) Apply(ev Event) (rec *ToolRecord, isNew bool) // tool.call, tool.update; turn.end moves the turn
+func (rec *ToolRecord) Merge(d ToolEvent, capOutput bool)
+```
+
+`harnessMeta` (AgTT) maps onto it field for field (`Tool` → `Name`;
+`Text`, `RawInput` stop being engine-private); `internal/agent/page.go`
+uses `ToolRecords` for its cuts.
+
+## 3. Mapping: the Agent tab (`hack/chat-fixtures/web.mjs`)
+
+| Today (`agent-fold.js`, `agent-tools.js`) | Block field |
+|---|---|
+| `b.key` (seq, or −n) | `k` (as a string) |
+| `b.v`; `b.up`, `b.ui`, `b.$memo` | `v`; `$up`, host open-state, `$memo` |
+| `msg` `role==='user'`: `text`, `files[{name,mime,size}]`, `steered` | `user`: `text`, `files`, `steered` |
+| `msg` other roles: `text`, `mid` | `assistant`: `text`, `mid` |
+| `thought`: `text`, `t0`, `t1`, `done` | `thought`: `text`, `at=t0`, `ms=t1−t0`, `live=!done` |
+| `tool`: `id`, `tk`, `title`, `label`, `name`, `status`, `parent`, `subagent`, `planReview`, `rawInput`, `exitCode`, `output` | `rec.id`, `rec.kind`, … same names |
+| `tool.content[]` (the last list): text items / diff items / terminal item | `rec.text` (joined) / `rec.diffs` (`oldText`, `newText`, counts) / `rec.terminal` |
+| `tool.files` `{changes, patch}` | `rec.changed` `{files, patch}` |
+| `tool.rawOutput` | dropped (K12) |
+| `tool.children`, `tool.t0` | `children`, `at` |
+| — (not kept: `locations`) | `rec.locations`, `rec.files` (gap W1) |
+| `changes`: `turn`, `changes`, `patch` | `changes`: `turn`, `set.files`, `set.patch` |
+| `plan.entries` | `plan.entries` |
+| `perm`: `pid`, `tool{id,name,title,kind,rawInput,content}`, `options`, `rule{kind,title,scoped}`, `meta{title,description,defaultToNo}`, `by`, `optionId` | `pid`, `callId=tool.id`, `tool{title,kind,name,rawInput,content,command}`, `options`, `rule` (null unless scoped), `title`, `description`, `defaultToNo`, `plan` (from `isPlanApproval`/`planText`/`rawInput.planFilePath`), `by`, `optionId` |
+| `ask`: `eid`, `toolCallId`, `message`, `schema`, `action`, `by`, `content` | same; `callId`; `mode='form'` (gap W4) |
+| `turn`: `turn`, `stopReason`, `usage`, `error` | same |
+| `notice.text`, `gap` | same |
+| `fold.st.last.login` `{needed, provider, command}` | `tail: [signin]` |
+| `fold.st.usage` | `Transcript.usage` |
+
+## 4. Mapping: AgTT (`hack/chat-fixtures/agtt.mjs`)
+
+| Today (`model/fold.js` block, run view) | Block field |
+|---|---|
+| `b.id` | `k` |
+| identity of the fold's block (FoldCache) | `v` via `Versions.of(k, block)` |
+| `user`: `text`, `files[{path,mime,size}]`, `msgId`, `sender` | `user`: `text`, `files[{name, path, mime, size:null, sizeText}]`, `ref`, `sender` |
+| `notice.text` | `notice.text` |
+| `think`: `text`, `ms`, `live`, `started`, `parent` | `thought`: `text`, `ms`, `live`, `at`, `parent` |
+| `assistant`: `text`, `model`, `usage`, `parent` | same |
+| `draft.text` | `draft.text` |
+| `tool` with `acp`: `callId` (`h<gen>:<id>#n`), `acp.kind/title/label/tool/status/parent/subagent/planReview/locations/files/exitCode/output/outputTruncated/diffs` | `rec.id` (the agent's own id), `rec.kind/title/label/name/status/parent/…/diffs` (patch form) |
+| `tool.args` (rawInput's fields + `summary`) | `rec.rawInput` (`summary` removed, `rawSummary` → `summary`) |
+| `tool.result` (the row's content) | `rec.text` when the row holds the call's text (not a placeholder, an "edited …" line or the output's tail); else derived by the view |
+| `tool.state` (`acpState` + placeholder) | `state` (`running` → `pending`/`running` by `rec.status`) |
+| `tool.kids` | `children` |
+| `tool.headline`, `fam`, `sub`, `outcome` | derived from `rec` (K1) |
+| `tool` without `acp` (AgTT's own tools) | `rec` made of `name`, the family's kind, `headline` as `title`, `args`, the result as `text`; `result` |
+| `agent`: `link.label`/`headline`, `childId`, `state`, `link.phase`/`child.status`, `child.llmCalls`, `task`, `result`, `blocks`, `pendingApproval`, `harness` | `agent`: `title`, `ref`, `state`, `phase`, `steps`, `task`, `answer`, `blocks`, `tail`, `provider` |
+| `step` (journal line) | host-private kind `step` (`ChatCtx.other`) |
+| `run.pendingState` kind approval + `harness{pid, callId, options[+explicit], tool{title,kind,name,label,command,rawInput,content}, rule, defaultToNo, description, planApproval, plan}`, `park` | `tail: [perm]` — `pid`, `callId`, `options`, `tool`, `rule`, `defaultToNo`, `description`, `plan{text, path}`, `park` |
+| kind question + `harness{eid, callId, message, schema, url}` | `tail: [ask]` |
+| kind login + `harness.login{command, methods, device}` | `tail: [signin]` (`provider` = the summary's name) |
+| kind approval without `harness` (`toolCalls`) | `tail: [perm]` with `calls[]`, options Approve / Deny |
+| waiting on a question without `harness` (`run.result`) | `tail: [ask]` `mode:'text'` |
+| `run.harness.plan.entries`, `run.harness.usage` | `Transcript.plan`, `Transcript.usage` |
+
+## 5. Fields that cannot match today
+
+The tests compare each reducer's blocks with the expectation **through
+that reducer's gaps** (`GAPS` in `hack/chat-fixtures/expect.mjs`); a gap the
+fixtures stop showing fails the test, so this list is exact. Closing one is
+deleting its line.
+
+Agent tab (to close in F2/F3):
+
+| Gap | Field | Why |
+|---|---|---|
+| W1 | `rec.locations`, `rec.files` | `foldTool` keeps no locations |
+| W2 | `tool.state` `approval` → `pending` | the fold does not tie a request to its call's card |
+| W3 | `perm.options[].explicit` | no escalation rule runs for the Agent tab (B1 adds `explicit` to `permission.request`) |
+| W4 | `ask.mode`, `ask.url` | the fold drops them: every question is a form |
+
+Not reached by a fixture, pinned by inline cases in
+`hack/chat-fixtures.test.mjs`: K7 (the web loses a diff when a later
+content list has none) and K6's first half (an id reused within a turn
+merges into one card). Not exercised at all: `perm.tool.label` (no fixture
+asks about a labelled call).
+
+AgTT (to close in F4, or permanent by design — marked P):
+
+| Gap | Field | Why |
+|---|---|---|
+| A1 (P) | `k`, `user.ref` | the template's own row ids |
+| A2 (P) | `turn`, `changes` blocks | never rows: the run's status and the summary's counts say them |
+| A3 (P) | `plan` placement | the summary's plan, pinned: compared as `Transcript.plan` |
+| A4 (P) | `perm`/`ask` placement and history | the park: in `tail` while it waits, not drawn once answered |
+| A5 | a url `ask` | the backend answers it itself (declined, or shown as the sign-in's device code) |
+| A6 (P) | `step` blocks | the template's own kind (the test pins which appear: `error` + `note` in `signin`) |
+| A7 | `draft` for the streaming answer; `assistant.mid` | no row yet (K4); rows carry no message id |
+| A8 | `user.sender` | a row says who sent it; the log does not |
+| A9 | `thought.ms` | a coding agent's thinking is not timed |
+| A10 | `rec.terminal`; `rec.rawInput` `{}` vs none; `rec.text` while the call runs | the lift (`acp`) has no terminal mark and no text; arguments are rawInput + summary |
+| A11 | `diffs[].patch`/`truncated` vs `oldText`/`newText` | K9: each side has one form |
+| A12 | `rec.changed` | xbind's snapshots |
+| A13 | `perm.title` (the request's `meta.title`), `perm.park`, a plan's `tool.content` | the park keeps neither the heading nor (for a plan) the content list |
+| A14 | `signin.park` | the sign-in is a park |
+
+Also true but not shown by the fixtures (the direct feed has no
+`acp.Client`): a real sign-in park lists `methods` and may carry a
+`device`; a turn refused signed out parks on the sign-in at once, where the
+feed writes an `error` step first (noted in the backend test's header).
+
+## 6. `ChatCtx` — what a view may ask of its host
+
+A view is `(block, ctx) => template`. `ctx` replaces today's reach into
+the host. The typedef is in `web/chat/blocks.js`.
+
+| `ChatCtx` | Agent tab today (`agent-cards.js`, `bx-agent.js`) | AgTT today (`ui`, `ctx.app`) |
+|---|---|---|
+| `running`, `ended` | `this._status()==='running'`, `this.ended` | `busy(run.status)`; — |
+| `agentName` | `_provName()` | `who.name` (`nameOf(run.harness)`) |
+| `me` | — | `ui.me()` |
+| `can.answer`, `can.raise` | always / — | `who.talk` (`access(v).talk`), `who.owner` (`ownerOf`) |
+| `isOpen(block, slot, dflt)` | `a._isOpen(owner, slot)` (default applied by `?open`) | `ui.isOpen(id[:slot], dflt)` |
+| `setOpen(block, slot, open, dflt)` | `a._toggled(e, owner, slot, dflt)`, `a._openSlot(owner, slot)` (+ keep the view, `_touch`) | `ui.toggle(id[:slot], dflt)` |
+| `permit(block, {optionId, decision, feedback})` | `a._permit(pid, decision, optionId)`; `a._rejectPlan` + `a._planFeedback[pid]` (feedback sent as the next prompt) | `ctx.app.harness.permit(runId, {option, park, feedback})`; `ui.act.approve(runId, yes, how, park)` |
+| `answer(block, {action, content})` | `a._answer(eid, action, content, fields)` | `ctx.app.harness.answer(runId, action, content, park)` |
+| `confirm(text)` | — | `confirm(optionConfirm(name, o))` |
+| `note(block)` | `this._error` (the status line) | `ui.approveNote(runId)` |
+| `fileDiff(block, set, file)` | `a._fileDiff(owner, f, c, sel)` (`FileDiffs`: inline part, else the `/diff` route) | — (patches are on the row) |
+| `fileState(block, file)`, `openFile(block, file)` | — | `ui.file(msgId, f)`, `ui.act.openFile(path)` |
+| `openAgent`, `loadAgent`, `agentError` | — | `ui.act.select(childId)`, `ui.act.loadChild` / `retryRead`, `ui.readError(childId)` |
+| `other(block, depth)` | — | `ui.ext.block(b, ui, depth)`; `stepTpl` (`act.openPreview`, `act.openLive`) |
+| `repaint()` | `a.requestUpdate()` | `ctx.paint()` |
+| (recursion into `children`) | `a._block(c)` | `blocksTpl(kids, ui, depth+1)` — the kit's own, no host call |
+
+Form values (`a._askVals`, the template's `forms` map) and plan feedback
+are the widgets' own state: those widgets are elements (§7). Slots in use
+today: `body`, `files`, `f:<path>`, `<slot>:all`, `diff<i>`, `task`, `raw`,
+`full`, `d:<path>`.
+
+## 7. Performance baseline, and templates vs elements
+
+**Baseline** — `agentLongPerf`, `AGENT_PERF=950` (≈2000 blocks), CPU 4×,
+master 83c03745 + this branch (no shipped module changed), three runs
+(`PORT=18810 … ./hack/ui-harness/run.sh --keep agentLongPerf`, then
+`--shots` twice):
+
+| Measure | run 1 | run 2 | run 3 |
+|---|---|---|---|
+| 950 units streamed, unthrottled | 616 ms | 550 ms | 550 ms |
+| reopen: window open → transcript at the bottom | 34 ms | 35 ms | 27 ms |
+| reopen: reload → transcript at the bottom | 1648 ms | 1462 ms | 1432 ms |
+| held after reopen | 134 blocks, 30 rendered, 200 events | same | same |
+| JS heap after reopen | 11.2 MiB | 11.3 MiB | 11.1 MiB |
+| a fresh tab: mounted → at the bottom | 76 ms (1 long task, 50 ms) | 65 ms (0) | 72 ms (0) |
+| 30 more units at the bottom | 167 ms; 2 long tasks, max 83, total 166 ms | 128 ms; 2, max 76, total 152 | 144 ms; 2, max 71, total 142 |
+
+The bar for F3 and F4 is the worst run of each row (run it three times:
+single runs vary by ~15 %).
+
+**Templates or elements for rows?** Measured with
+`hack/chat-fixtures/rows-bench.cjs` (the same rows — a markdown message, an
+edit call's card, a thought every tenth — drawn three ways in one
+LitElement's scroller; CPU 4×; median of 5):
+
+| Rows | Way | first render | 200 updates of the last row | window step (+30 top, −30 bottom) | heap |
+|---|---|---|---|---|---|
+| 30 | template fn + `guard([v])` | 20.9 ms | 141.5 ms | 30.4 ms | 0.9 MiB |
+| 30 | element, shadow root | 24.0 | 140.5 | 30.1 | 1.0 |
+| 30 | element, light DOM | 23.0 | 141.1 | 28.6 | 1.0 |
+| 120 | template fn | 50.2 | 163.1 | 20.3 | 1.1 |
+| 120 | element, shadow root | 53.4 | 169.4 | 20.3 | 1.2 |
+| 120 | element, light DOM | 52.8 | 175.7 | 32.5 | 1.2 |
+| 2000 | template fn | 659.5 | 467.5 | 166.8 | 3.3 |
+| 2000 | element, shadow root | 769.6 | 669.4 | 179.9 | 4.0 |
+| 2000 | element, light DOM | 767.2 | 725.6 | 221.9 | 3.9 |
+
+At the sizes the transcript renders (30 rows first, at most ~120 in the
+window) elements are 3 ms slower on first render and within 8 % on streamed
+updates — noise at five runs — and the light-DOM variant's window step at
+120 rows was 12 ms slower. At "load all" (2000 rows) elements cost 17 % more
+on first render, 43–55 % more per streamed update and 21 % more heap.
+
+**Recommendation: rows are lit template functions of `(block, ctx)`.**
+Elements buy no speed, and they cost what the two hosts rely on:
+
+- the transcript's selection and rich copy (D199) and "a selection survives
+  the stream" need rows in one tree — a selection does not span shadow
+  roots;
+- AgTT's rows are light DOM under its page stylesheet, measured as direct
+  children by `chat-window.js`, and its tests and the harness select
+  `.tcard[data-k]`; the Agent tab's are in its shadow root. One CSS text
+  and template functions serve both; a row element would have to be light
+  DOM (no encapsulation gained) and adds a global `customElements` name
+  that an old template instance and a new xbind would both define;
+- it is what both sides are today (`toolCard(a, t)`, `toolTpl(b, ui)`), so
+  F3 and F4 move code instead of rewriting it.
+
+Elements stay for widgets with state of their own: the question form, the
+plan-feedback box, the sign-in card, the composer.
+
+## 8. The fixtures
+
+`sdk/acp/testdata/transcripts/` — plain JSON, no JS-only values.
+
+| Log | Covers | Checkpoints (seq) |
+|---|---|---|
+| `text` | thoughts then text; text streamed under one message id; usage on each turn's end | 8 (mid-thought), 20 (mid-answer), 24 |
+| `tools` | a call of every ACP kind (locations, a diff, terminal output + exit 0); output deltas; a nested subagent | 33 (output streaming), 45 (inside the subagent), 52 |
+| `plan` | a plan's three states | 7, 13 |
+| `permission` | rejected; allow-always (a rule); answered by the rule; a plan approval answered with a mode-raising option (`explicit`) — id `t1` in three turns | 8, 19, 43 (each waiting), 50 |
+| `questions` | a form elicitation answered, then declined — id `ask1` reused | 8, 21 (waiting), 28 |
+| `signin` | auth-needed status and a failed turn; a url elicitation (device code) accepted and completed; the turn again | 8 (signed out), 9 (the url question), 19 |
+| `id-reuse` | one id, two turns, output that must not accumulate | 25 |
+| `xbind-shell` | a real xbind capture: ANSI output, exit 3, `files.changed` per call and per turn, id `run1` reused | 22 |
+
+- `<name>.json`: `{name, about, source, flags, steps, checkpoints, events:
+  [{seq, ts, type, data}]}`. Seven are played by
+  `sdk/acp/acptest/transcripts_test.go` (acptest scripts through
+  `acp.Client` over a pipe; `ts` synthetic: 2026-01-01T00:00:00Z + 100 ms
+  per event); the test compares on every run and rewrites with
+  `ACP_TRANSCRIPTS_WRITE=1`. `xbind-shell.json` holds the events of the
+  native fixture `shell.json` (`internal/term` `TestAgentCaptureFixtures`)
+  unchanged — the node test fails when the two differ.
+- `<name>.records.json`: `{records: [{seq, turn, rec}]}` after the last
+  event.
+- `<name>.blocks.json`: `{checkpoints: [{seq, blocks, tail?, plan?,
+  usage?}]}` — `k` is the Agent tab's key; `v` and `at` are left out.
+- `<name>.agtt.json`: `{views: [{seq, view}]}` — `view` is `GET
+  /runs/{id}/view` cut to `run` (status, pendingState, harness summary),
+  `messages`, `steps`, `links`, `drafts`; row `created` is the seq of the
+  event that wrote it; park ids, clocks and offsets are zeroed.
+
+The expectation is the model's reading of a log: the Agent tab's blocks
+with what that fold drops put back from the log (`expect.mjs` header), and
+`explicit` taken from AgTT's backend (the one thing no log says).
+
+Regenerating: the three commands in `hack/chat-fixtures.test.mjs`'s header,
+in order. Swift: `native/tools/agent-parity.mjs` can read `<name>.json`
+as it reads its own fixtures (`events` has the same shape); the parity
+fixture was not touched.
+
+What the AgTT backend test stands in for, by hand (its header): the user
+row and turn start (the pass's), filing a permission in `acp.Permissions`
+(the client's), skipping url questions (answered through the client).
+
+## 9. Open questions
+
+1. **D-number**: K1–K20 are recorded here only. `plans/DECISIONS.md` needs
+   an entry when Track A lands; none was allocated (parallel agents collide
+   on numbers).
+2. **`explicit` for the Agent tab** depends on B1's `escalation.go`; until
+   then the expectation's `explicit` is AgTT's `optionRaises`.
+3. **K8 (joined text)** loses item boundaries the Agent tab renders today
+   (each text item sniffed for markdown on its own). If F3 finds a harness
+   that relies on it, `rec.text` becomes `texts: string[]` — an additive
+   change while nothing reads `text` yet.
+4. **`notice` and `gap`** have no shared fixture (xbind writes `notice` on a
+   layer move, D175; the tab synthesises `gap`); `hack/agent-fold.test.mjs`
+   covers them.
+5. **The Swift port** keeps its own fold and fixtures; moving
+   `ParityTests` onto `<name>.blocks.json` is F2's regeneration step.
+6. **docs**: `/vendor/chat/*` is listed in `docs/frontend-kit.md` as the
+   kit's first modules with the shapes "only grow" promise; the plan's
+   "needs xbind ≥" compat statement is F4's.

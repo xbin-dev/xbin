@@ -646,6 +646,30 @@ sits in an element marked `data-bx-content` and isn't counted as an emoji.
 kind of document, the relay, the hint cookie, density, fonts in every
 asset mode.
 
+### The chat kit's fixtures
+
+`web/chat/blocks.js` is the block model the chat kit draws from
+([frontend-kit.md](/docs/frontend-kit.md)); two reducers make its blocks —
+the Agent tab's fold (`web/agent-fold.js`) and the agent template's
+(`model/fold.js`, over rows its backend made of the same events). Both are
+held to one set of fixtures, `sdk/acp/testdata/transcripts/`:
+
+| File | Made by | Held by |
+|---|---|---|
+| `<name>.json` — an event log, xbind's served shape, with checkpoints | `sdk/acp/acptest` `TestTranscripts`: the scripted agent through `acp.Client` (`xbind-shell.json`: the native capture's events) | the same test (`go test ./sdk/...`) fails when the client no longer emits it |
+| `<name>.agtt.json` — the agent template's run view at each checkpoint | the template backend's `TestChatTranscripts` (the log through `harness_map.go`) | the same test (`make tile-check`) |
+| `<name>.records.json`, `<name>.blocks.json` — the log's tool records and its blocks | `hack/chat-fixtures/expect.mjs` | `hack/chat-fixtures.test.mjs` (the Agent tab's fold) and `hack/chat-fixtures-agtt.test.mjs` (the template's), both in `make js-test` |
+
+A reducer that cannot produce a field yet has a **gap** in
+`hack/chat-fixtures/expect.mjs` (`GAPS`: an id, the reason, what makes the
+two sides comparable); the tests compare through the gaps and fail when a
+listed gap no longer shows — delete its line when you close one. A change
+that moves a fixture regenerates in this order, reviewing each diff (the
+header of `hack/chat-fixtures.test.mjs` has the commands): the logs
+(`ACP_TRANSCRIPTS_WRITE=1`), the template's views
+(`CHAT_TRANSCRIPTS_WRITE=1`), the expectations (`CHAT_FIXTURES_WRITE=1`).
+The files are plain JSON so the Swift port and `sdk/acp` can read them.
+
 ## The native reference (`docs/native.md`)
 
 The builder reference for a tile's `native.js` is partly generated: the

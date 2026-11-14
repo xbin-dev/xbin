@@ -232,6 +232,8 @@ test('blocks.js: nest puts a subagent\'s blocks under its call, leaves an orphan
   const seen = [];
   model.walk(out, (b, depth) => seen.push(b.k + depth));
   assert.deepEqual(seen, ['u0', 'a0', 't1', 'b1', 'c0', 'm0']);
+  assert.equal(flat[1].children, null, 'the flat list\'s blocks are as they were');
+  assert.deepEqual(model.nest(flat)[1].children.map((b) => b.k), ['t', 'b'], 'nested again: the same, not twice');
   const plainList = [model.block('user', 'u2', { text: 'hi' })];
   assert.equal(model.nest(plainList), plainList, 'nothing to nest: the list itself');
 });
