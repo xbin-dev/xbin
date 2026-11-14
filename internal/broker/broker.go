@@ -82,6 +82,14 @@ type Broker struct {
 	// only, whatever tile they name: the Go build versions alert (D166),
 	// which names tiles and their dependency versions.
 	AdminAlerts func() []Alert
+	// AdminShellAlerts, if set, is a source of alerts GET /alerts also
+	// shows an admin's shell: a trusted chrome frame minted under a
+	// workspace admin's own login (AdminShell), whose token is otherwise
+	// no admin's. The LLM connector's notices (D226) — a quota reached,
+	// nothing set up — so an admin meets them where they work, in a shell
+	// of any age; the admin's own session and the admin console get them
+	// through AdminAlerts.
+	AdminShellAlerts func() []Alert
 
 	// OnStructureChange, if set, is called after the broker changes the
 	// component tree (e.g. a tile import) so the host can reconcile deps/

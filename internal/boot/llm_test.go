@@ -15,6 +15,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/xbin-dev/xbin/internal/users"
 )
 
 // covers D226 — the LLM connector through a real boot, configured by the
@@ -233,5 +235,53 @@ func TestLLMHostFileStopsBoot(t *testing.T) {
 	defer cancel()
 	if err := Run(ctx, cfg); err == nil || !strings.Contains(err.Error(), "XBIN_LLM_CONFIG") {
 		t.Fatalf("Run with an invalid XBIN_LLM_CONFIG: %v", err)
+	}
+}
+
+// covers D226 — the connector's notices reach the workspace's admins
+// through GET /alerts (the broker's AdminAlerts chain, after the earlier
+// sources), and nobody else: on a workspace where nothing is configured
+// that is the setup alert, which names /xbin/llm and carries the route
+// that dismisses it for the workspace.
+func TestLLMAlertsReachAdmins(t *testing.T) {
+	d := zsBoot(t, zsWorkspace(t))
+	owner := "Bearer " + d.owner
+	if _, err := d.st.Users.Upsert(users.User{ID: "ana", Role: users.RoleUser}, "password1"); err != nil {
+		t.Fatal(err)
+	}
+	ana := "Cookie: xbin_session=" + d.st.Auth.NewSession("ana", "127.0.0.1")
+	setup := func(cred string) map[string]any {
+		t.Helper()
+		code, b := d.do(t, "GET", "/api/xbin/alerts", cred)
+		var out struct{ Alerts []map[string]any }
+		if code != 200 || json.Unmarshal(b, &out) != nil {
+			t.Fatalf("alerts: %d %s", code, b)
+		}
+		for _, a := range out.Alerts {
+			if a["kind"] == "llm-setup" {
+				return a
+			}
+		}
+		return nil
+	}
+	a := setup(owner)
+	if a == nil || a["level"] != "warn" || a["dismiss"] != "/llm/setup/dismiss" || !strings.Contains(fmt.Sprint(a["message"]), "/xbin/llm") {
+		t.Fatalf("the owner's setup alert: %+v", a)
+	}
+	if a := setup(ana); a != nil {
+		t.Errorf("a person who is not an admin got it: %+v", a)
+	}
+	if code, b := d.do(t, "POST", "/api/xbin/llm/setup/dismiss", ana); code != http.StatusForbidden {
+		t.Errorf("their dismissal: %d %s", code, b)
+	}
+	if code, b := d.do(t, "POST", "/api/xbin"+fmt.Sprint(a["dismiss"]), owner); code != 200 {
+		t.Fatalf("the owner's dismissal: %d %s", code, b)
+	}
+	if a := setup(owner); a != nil {
+		t.Errorf("after the dismissal: %+v", a)
+	}
+	// the page it names is served
+	if code, b := d.do(t, "GET", "/xbin/llm", owner); code != 200 || !strings.Contains(string(b), "<bx-llm-page>") {
+		t.Errorf("GET /xbin/llm: %d %.80s", code, b)
 	}
 }

@@ -3,6 +3,7 @@ package boot
 import (
 	"path/filepath"
 
+	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/llm"
 	"github.com/xbin-dev/xbin/internal/server"
 )
@@ -20,8 +21,8 @@ func (st *State) setupLLM(srv *server.Server) error {
 		// upstream keys an admin sets are sealed under the vault barrier;
 		// in the clear only in the plaintext vault mode, like every vault file
 		Vault: brk.Barrier(), AllowPlaintext: brk.AllowInsecureVault,
-		IsAdmin: brk.IsAdmin,
-		Bound:   brk.LLMBound, // the binding is the authorization, asked per call
+		IsAdmin: brk.IsAdmin, AdminShell: brk.AdminShell,
+		Bound: brk.LLMBound, // the binding is the authorization, asked per call
 		// a person's orgs, for the orgs' quota overrides: active memberships only
 		OrgsOf: func(user string) []string {
 			if userStore == nil {
@@ -42,5 +43,22 @@ func (st *State) setupLLM(srv *server.Server) error {
 	st.LLM = svc
 	svc.Register(srv)
 	brk.LLMOffered = svc.Configured // pickers offer xbin:llm once an upstream exists
+	// its notices for admins — a quota reached, the setup card (llm/alerts.go)
+	// — reach an admin's own session and the admin console (AdminAlerts) and
+	// the shell an admin drives (AdminShellAlerts); each a single func:
+	// chained after the earlier sources, never overwritten
+	chain := func(prev func() []broker.Alert) func() []broker.Alert {
+		return func() []broker.Alert {
+			var out []broker.Alert
+			if prev != nil {
+				out = prev()
+			}
+			for _, a := range svc.Alerts() {
+				out = append(out, broker.Alert{Level: a.Level, Kind: a.Kind, Message: a.Message, Dismiss: a.Dismiss})
+			}
+			return out
+		}
+	}
+	brk.AdminAlerts, brk.AdminShellAlerts = chain(brk.AdminAlerts), chain(brk.AdminShellAlerts)
 	return nil
 }

@@ -26,7 +26,7 @@ func llmEndpoints() []ep {
 			"OpenAI's model list: every upstream's models as <upstream>/<model> (an upstream's own model objects kept: context sizes pass through), the aliases and xbin/default, xbin/<role> with alias_of. upstream_errors names upstreams whose own list couldn't be read (detail for admins)." + oaiErr,
 			nil, nil, "{object: \"list\", data: [{id, object, owned_by, alias_of?, …}], upstream_errors?}"},
 		{"GET", "/llm", llmTag, "The connector as the caller meets it", "authenticated",
-			"configured (an upstream exists), enabled, callable (the caller's calls would be admitted; reason and code when not), url (the OpenAI base, /api/xbin/llm/v1), ref (xbin:llm, what an llm slot binds to), people, host (a deployment file is in force), defaults, the caller's user and component, and quota {user, orgs?, limits, workspace, state: ok|warn|stop} — each limit {name, value, source, action, used, resets, state}. Always 200.",
+			"configured (an upstream exists), enabled, callable (the caller's calls would be admitted; reason and code when not), url (the OpenAI base, /api/xbin/llm/v1), ref (xbin:llm, what an llm slot binds to), people, host (a deployment file is in force), defaults, the caller's user and component, and quota {user, orgs?, limits, workspace, state: ok|warn|stop} — each limit {name, value, source, action, used, resets, state}; a person's own sign-in reads user and quota also when their direct calls aren't admitted (the calls tiles make for them count against the same limits). Always 200.",
 			nil, nil, "{configured, enabled, callable, reason?, code?, url, ref, people, host, defaults, user?, component?, admin?, quota?}"},
 		{"GET", "/llm/preferred", llmTag, "The workspace's default models (the llm-gw convention)", caller,
 			"use=<role>: {use, model} — that role's model as <upstream>/<model>, the default model when the role has none, \"\" when neither. No use: {preferred: {default?, <role>…}, useTypes}. The shape the llm-gw tile answers, so a tile resolves its default model from either provider." + oaiErr,
@@ -60,5 +60,8 @@ func llmEndpoints() []ep {
 			"Only what is named changes: workspace (everyone together), default (each person), users and orgs {<id>: quota}. A person's quota is their own override, else the most generous of their orgs' per limit, else the default — each limit on its own. Windows are UTC days and months. 400 invalid; 409 {locked} for a part the host's file sets. → as GET. Audited.",
 			nil, jsonBody("the rules to change", oapi{"workspace": quota, "default": quota,
 				"users": oapi{"type": "object", "description": "{<user id>: quota | null}"}, "orgs": oapi{"type": "object", "description": "{<org id>: quota | null}"}}), "{quotas, locks}"},
+		{"POST", "/llm/setup/dismiss", llmTag, "Dismiss the setup alert", "admin, or the shell an admin drives",
+			"While no upstream exists and no admin has changed the connector, GET /alerts carries one alert of kind llm-setup for admins and the shell an admin drives, naming /xbin/llm (its dismiss is this route). A POST ends it for the workspace, for good. Nothing else changes.",
+			nil, nil, "{ok}"},
 	}
 }

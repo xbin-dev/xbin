@@ -476,6 +476,7 @@ var partitionClasses = map[string]PartitionClass{
 	"GET /llm/usage":                         GlobalOnlyRefused,
 	"GET /llm/quotas":                        GlobalOnlyRefused,
 	"PUT /llm/quotas":                        GlobalOnlyRefused,
+	"POST /llm/setup/dismiss":                GlobalOnlyRefused,
 	"DELETE /push/config":                    GlobalOnlyRefused,
 	"GET /push/devices":                      GlobalOnlyRefused,
 	"DELETE /push/devices/{user}":            GlobalOnlyRefused,
