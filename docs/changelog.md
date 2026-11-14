@@ -12,6 +12,38 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-14
 
+- **Orgs constrain agents** (D229; [auth.md](/docs/auth.md) §Agent
+  constraints, [protocol/orgs.md](/docs/protocol/orgs.md) §Agent
+  constraints). An org can now say what agents may do on its tiles:
+  `workspaceAgent` on or off, the coding-agent `harnesses` an agent session
+  may run there (`any` or a list of ids), and the `models` that may see
+  their data (`any`, `private`, or a list of LLM connector ids) —
+  `PUT /api/xbin/orgs/<org>/agents`, `bx org agents <org>`; `GET /orgs`
+  carries `agents`. The workspace sets the outer bounds and the default
+  for whose credentials serve a coding agent
+  (`GET`/`PUT /api/xbin/agents/policy`, `bx org agents`): an org only
+  narrows them. Workspace admins set both; an org's admin sets their own
+  org, in their own session. A tile falls under the org that owns it and
+  every org it is shared into, and the strictest wins. **With nothing set,
+  nothing changes.**
+  - **Agent sessions follow the tile's harness list.**
+    `GET /api/xbin/agent/providers?cwd=<tile>` lists only what may run
+    there, and `POST /api/xbin/term/sessions` answers 403 with the reason
+    ("Finance allows these coding agents only: claude, codex (not
+    gemini)") for anything else. A session already running keeps running;
+    it can't be restarted, or resumed once it ended, while its harness is
+    disallowed. Without `cwd` the list is the whole catalog, as before.
+  - **The connection view.** `GET /api/xbin/agents/connection
+    ?model=&orgs=&tiles=&whatIf=` (and `bx agent connection`) lists every
+    org and tile a person can see as `connected`, `hidden` (left out of
+    the scope), `blocked` (with the reason) or `no-access`, with totals
+    ("14 tiles · 3 orgs connected · 6 not connected") and what a model
+    change would connect and disconnect
+    ([protocol/agents.md](/docs/protocol/agents.md) §The connection view).
+  - **`origin` on a session.** A `GET /term/sessions` row and a
+    `GET /agent/history` entry carry `origin: "agent"` and `originBy` when
+    the person's workspace agent started the session; absent otherwise.
+  - New event type `agents` (`{org}`) when the rules change.
 - **docs: the protocol reference is split by topic.** `/docs/protocol.md`
   had reached the size limit of a served doc, so its route tables and
   WebSocket sections moved, unchanged, to one page per area under

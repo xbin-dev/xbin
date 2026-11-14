@@ -514,6 +514,9 @@ func (st *State) stepBroker() error {
 	// D54: a terminal's network on an org-owned tile is the org's network
 	// sets; the broker knows ownership + sets, the term manager asks.
 	st.Term.TermNet = brk.TermNetFor
+	// D229: the harnesses an agent session may run on a tile are its orgs'
+	// and the workspace's to say; the broker knows both.
+	st.Term.AgentGate = func(_ auth.Principal, tile, harness string) error { return brk.AgentHarnessGate(tile, harness) }
 	brk.HoldTermEnv = st.Term.HoldEnv // a restore swaps the terminal layer in whole (WP-9)
 	brk.ExternalURL = st.externalURL
 	brk.SweepNamespaces()               // crashed data acts become partial, unclaimed namespaces orphaned (08-data §9.3)

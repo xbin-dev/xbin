@@ -133,6 +133,11 @@ type AgentOpen struct {
 	// of the tile, "" for the default (target.go). A resumed session doesn't
 	// take its history entry's: the client names it again.
 	Deployment string
+	// Origin and OriginBy say who opened the session when it wasn't its
+	// person: OriginAgent and the component acting for them. Set by xbind's
+	// own callers, never read from a request; a resumed session takes its
+	// history entry's.
+	Origin, OriginBy string
 }
 
 // OpenAgentWith is OpenAgent with the sandbox pickers.
@@ -169,10 +174,19 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 		if name == "" {
 			name = meta.Name
 		}
+		if a.Origin == "" { // who opened the conversation first
+			a.Origin, a.OriginBy = meta.Origin, meta.OriginBy
+		}
 	}
 	prov, ok := agent.Lookup(providerID)
 	if !ok {
 		return SessionInfo{}, 400, fmt.Errorf("unknown provider %q (GET /api/xbin/agent/providers lists them)", providerID)
+	}
+	if err := m.HarnessAllowed(p, rel, prov.ID); err != nil { // the tile's orgs' harness rules (D229)
+		if resume != "" {
+			return SessionInfo{}, 403, fmt.Errorf("this session can't be resumed here any more: %w", err)
+		}
+		return SessionInfo{}, 403, err
 	}
 	if mode, err = prov.ResolveMode(mode); err != nil {
 		return SessionInfo{}, 400, err
@@ -182,6 +196,9 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	}
 	o := m.openOptsFor(p, rel, cwd, normalizeNet(netMode), a.GPU, !a.NoAPI)
 	o.kind, o.vm = KindAgent, a.VM
+	if a.Origin == OriginAgent {
+		o.origin, o.originBy = OriginAgent, a.OriginBy // SessionInfo.Origin: "started by your agent"
+	}
 	if code, err := m.pickTarget(p, &o, rel, a.Deployment); err != nil {
 		return SessionInfo{}, code, err
 	}
@@ -204,6 +221,20 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 		m.Rename(s.ID, name)
 	}
 	return m.row(s), 200, nil
+}
+
+// OriginAgent is SessionInfo.Origin of a session a person's workspace agent
+// opened for them under delegation (auth/delegate.go).
+const OriginAgent = "agent"
+
+// HarnessAllowed answers why an agent session of harness may not open on
+// tile for p (AgentGate: the tile's orgs' harness rules, D229), nil when it
+// may — and always nil with no gate installed.
+func (m *Manager) HarnessAllowed(p auth.Principal, tile, harness string) error {
+	if m.AgentGate == nil {
+		return nil
+	}
+	return m.AgentGate(p, tile, harness)
 }
 
 // Info is one session's directory row.
@@ -337,7 +368,8 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target, part: o.part,
-		born: time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
+		origin: o.origin,
+		born:   time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
 	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
 	drv := acp.New()
@@ -365,6 +397,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		}
 		return &agent.Process{Stdin: stdin, Stdout: stdout, Stderr: stderr, Kill: s.kill}, nil
 	}
+	s.originBy = o.originBy // with origin: who opened it for its person (OpenAgentWith)
 	cfg := agent.Config{Provider: prov, Mode: mode, Options: options, ResumeID: resumeID, Cwd: start, Env: agentEnv, Argv: prov.Argv, Spawn: spawn,
 		Perms: st.perms, Version: Version, Log: st.logf, Meta: map[string]string{"tile": rel}}
 	go s.agentPump(m, func() {

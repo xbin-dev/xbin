@@ -481,6 +481,13 @@ var partitionClasses = map[string]PartitionClass{
 	"PUT /orgs/{org}/limits": GlobalOnlyRefused,
 	"GET /limits":            PartitionNeutral,
 
+	// ---- org constraints on agents (D229): admins', and a person's own
+	// connection view ----
+	"GET /agents/policy":     GlobalOnlyRefused,
+	"PUT /agents/policy":     GlobalOnlyRefused,
+	"PUT /orgs/{org}/agents": GlobalOnlyRefused,
+	"GET /agents/connection": GlobalOnlyRefused,
+
 	// ---- partitions' governance acts (02 §8): their handlers judge the
 	// person and refuse the target tile's own credentials. A mode decision
 	// is a tile manager's (or the admin tile's frame driven by one), never

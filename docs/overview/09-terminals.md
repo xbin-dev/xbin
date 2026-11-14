@@ -724,6 +724,18 @@ read-only and offers a fresh start on the tile instead.
 Start one from a pane's **`+`** menu in the terminal window, or from a shell:
 `bx agent run --provider opencode "list the files here"` (docs/bx.md).
 
+**Which agents a tile offers is its orgs' to say (D229).** An org can list
+the harnesses an agent session may run on its tiles, and the workspace can
+bound the list for everyone (docs/auth.md §Agent constraints). The `+`
+menu and the chooser then offer only those (`GET
+/api/xbin/agent/providers?cwd=<tile>`), and opening any other is refused
+with the reason — "Finance allows these coding agents only: claude, codex
+(not gemini)". A rule decides what starts next: a session already running
+keeps running; it can't be restarted or resumed while its harness is
+disallowed, and its transcript stays readable. A session your **workspace
+agent** started for you is yours like any other; the directory marks it
+(`origin: "agent"`).
+
 ## The logs dock
 
 The terminal window also carries the tile's read-only **logs**, in a dock

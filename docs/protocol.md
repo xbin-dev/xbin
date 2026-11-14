@@ -15,13 +15,13 @@ documented in exactly one of them:
 |---|---|
 | [protocol/core.md](/docs/protocol/core.md) | routes outside `/api/xbin/`: `/healthz`, `/login…`, `/logout`, `/c/…`, `/vendor/`, `/docs/`, `/xbin/…` pages, `/api/<tile>/…`, path tickets |
 | [protocol/users.md](/docs/protocol/users.md) | `/frame-token`, `/path-tickets`, `/whoami`, `/impersonate`, `/users`, `/account/password`, `/login`, `/invite/…`, `/sessions`, `/auth-settings`, `/auth-rotate-token` |
-| [protocol/orgs.md](/docs/protocol/orgs.md) | `/orgs`, `/permission-sets`, `/net-sets`, `/owner`, `/access…`, `/users-directory`, `/policy`, `/partitions/limits`, `/limits` |
+| [protocol/orgs.md](/docs/protocol/orgs.md) | `/orgs`, `/permission-sets`, `/net-sets`, `/owner`, `/access…`, `/users-directory`, `/policy`, `/agents/policy`, `/partitions/limits`, `/limits` |
 | [protocol/grants.md](/docs/protocol/grants.md) | `/auth-overview`, `/grants`, `/bindings`, `/iface-instances`, `/ingress…` |
 | [protocol/workspace.md](/docs/protocol/workspace.md) | `/prefs`, `/screens`, `/branding`, `/native-runtime`, `/workspace-settings`, `/workspace-policies`, `/chrome`, `/defaults` |
 | [protocol/tiles.md](/docs/protocol/tiles.md) | `/components`, `/tile-assets`, `/create`, `/clone`, `/builtins`, `/templates`, `/lifecycle`, `/tile-report` |
 | [protocol/code.md](/docs/protocol/code.md) | `/code/…`, `/git/…`, change proposals (`/code/prs`, `/code/pr`) |
 | [protocol/runtime.md](/docs/protocol/runtime.md) | `/status`, `/backends`, `/runtime`, `/gpus`, `/go-build-versions`, `/vm`, `/sandboxes?tile=`, `/tile-status`, `/term-net`, `/logs`, `/alerts` |
-| [protocol/agents.md](/docs/protocol/agents.md) | `/term/sessions…`, `/agent/providers`, `/agent/history`; agent session events |
+| [protocol/agents.md](/docs/protocol/agents.md) | `/term/sessions…`, `/agent/providers`, `/agent/history`, `/agents/connection`; agent session events |
 | [protocol/terminals.md](/docs/protocol/terminals.md) | `/ws/term`, the terminal wire |
 | [protocol/events.md](/docs/protocol/events.md) | `/ws/events` |
 | [protocol/resources.md](/docs/protocol/resources.md) | `/vaults`, `/resources`, `/vault…`, `/kv`, `/blob`, `/bus`, `/cron`; bus push delivery |

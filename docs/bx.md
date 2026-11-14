@@ -129,6 +129,10 @@ bx limits approve <tile> [<kind>…] | raise <tile> <kind> [+25%|+50%|+100%|<siz
 bx org limits <org> [--set memory=8G,disk=500G,…] [--rm <kind>]
                                        an org's per-tile ceilings (workspace
                                        admin)
+bx org agents [<org>] [--workspace-agent on|off] [--harnesses any|none|<id,…>]
+              [--models any|private|none|<id,…>] [--credentials own-first|connector]
+                                       what agents may do on an org's tiles
+                                       (D229); no org: the workspace's bounds
 bx policies [ls] [--json] | set partition-consent|credential-reset-confirm on|off
                                        alias of bx settings for the partitioned
                                        tiles' two switches (v0.3.66's; D180)
@@ -253,6 +257,10 @@ bx agent attach <id> [--since n] | ls [--tile p] | stop <id>
                                        replay + follow · list yours · end one
 bx agent set <id> <option> <value>    change a setting the agent offers
                                        (model, effort, …) for its next turn
+bx agent connection [--model m] [--orgs a,b] [--tiles x,y] [--what-if m]
+                                       what a workspace agent session with
+                                       that model and scope is connected to,
+                                       and why not (D229)
 bx agent history [--tile p]            your PAST sessions — the transcripts
                                        kept when one ended (resumable or
                                        read-only per the agent)
@@ -480,6 +488,21 @@ the backend so a size that applies at its next start (a VM's) applies now;
 change them (`PUT /api/xbin/orgs/<org>/limits`). Every command exits 6
 against an xbind without tile limits. The page `/xbin/limits` does the same
 in a browser.
+
+**`bx org agents`** — org constraints on agents (D229,
+[auth.md](/docs/auth.md) §Agent constraints). `bx org agents <org>` prints
+an org's rules; a flag sets one and leaves the others
+(`PUT /api/xbin/orgs/<org>/agents`): `--workspace-agent on|off`,
+`--harnesses any|none|claude,codex`, `--models
+any|private|none|local,hosted/small`. With no org it reads and sets the
+workspace's bounds (`/api/xbin/agents/policy`), which also take
+`--credentials own-first|connector`. An org's list must sit within the
+bounds. `bx agent connection --model hosted/big` prints what a workspace
+agent session with that model is connected to — the totals, then each org
+and tile with its state and the reason it is blocked; `--orgs` and
+`--tiles` are the session's scope, `--what-if <model>` adds what a model
+change would connect and disconnect. `--json` prints the API's answer.
+Exits 6 against an xbind without agent constraints.
 
 **`bx policies`** — an alias, kept from v0.3.66: the partitioned tiles'
 two switches are workspace settings since D180 (**`bx settings`**, below).

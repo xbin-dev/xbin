@@ -71,6 +71,11 @@ type HistoryMeta struct {
 	ACPSessionID string `json:"acpSessionId,omitempty"` // the agent's own id for it
 	Loadable     bool   `json:"loadable"`               // the agent can reopen it (resume)
 	Deployment   string `json:"deployment,omitempty"`   // the session's named target (D127p); absent: it followed the primary
+	// Origin and OriginBy are the session's (SessionInfo): "agent" and the
+	// component, for one the person's workspace agent opened; a session
+	// resumed from this entry keeps them.
+	Origin   string `json:"origin,omitempty"`
+	OriginBy string `json:"originBy,omitempty"`
 }
 
 type historyFile struct {
@@ -129,7 +134,7 @@ func (m *Manager) saveHistory(s *Session) {
 		ID: s.ID, Cwd: s.Cwd, Provider: prov, Mode: mode, Name: name,
 		Created: born.UTC().Format(time.RFC3339), Ended: time.Now().UTC().Format(time.RFC3339),
 		Turns: turns, Preview: firstPrompt(evs), ACPSessionID: acpID, Loadable: loadable && acpID != "",
-		Deployment: s.target.Deployment,
+		Deployment: s.target.Deployment, Origin: s.origin, OriginBy: s.originBy,
 	}, Events: evs}
 	dir := m.sessionHistoryDir(s)
 	if err := os.MkdirAll(dir, 0o755); err != nil {

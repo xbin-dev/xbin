@@ -34,6 +34,7 @@ type SessionInfo struct {
 	Kind       string  `json:"kind"`    // shell | agent (agent.go, D74)
 	VM         bool    `json:"vm"`      // a VM sandbox (vm.go)
 	Provider   string  `json:"provider,omitempty"`
+	OriginBy   string  `json:"originBy,omitempty"` // with origin "agent": the component that opened it (the workspace agent's path)
 	Mode       string  `json:"mode,omitempty"`
 	Model      string  `json:"model,omitempty"`     // the agent's current model option, when it exposes one
 	Status     string  `json:"status,omitempty"`    // starting | idle | running | waiting_permission | error | exited
@@ -44,7 +45,11 @@ type SessionInfo struct {
 	Partition string `json:"partition,omitempty"`
 	// Purpose is set by xbind only: "signin" for a guided sign-in's shell,
 	// which no tab shows (purpose.go); absent on every other session.
-	Purpose  string `json:"purpose,omitempty"`
+	Purpose string `json:"purpose,omitempty"`
+	// Origin is set by xbind only: "agent" for a session the person's
+	// workspace agent opened for them (agent.go); absent when they opened
+	// it themselves.
+	Origin   string `json:"origin,omitempty"`
 	personal bool   // a person's session on a partitioned tile (Personal)
 }
 
@@ -62,7 +67,7 @@ func (s *Session) info() SessionInfo {
 	}
 	si := SessionInfo{
 		ID: s.ID, Cwd: s.Cwd, Net: s.Net, Label: s.Label, Scopes: scopes,
-		GPU: s.gpu, API: s.api, Name: s.name, Kind: KindShell, VM: s.vm, Purpose: s.purpose,
+		GPU: s.gpu, API: s.api, Name: s.name, Kind: KindShell, VM: s.vm, Purpose: s.purpose, Origin: s.origin,
 		Created:    s.born.UTC().Format(time.RFC3339),
 		LastActive: s.hub.LastActive().UTC().Format(time.RFC3339),
 		Clients:    s.hub.Clients(), EnvHeld: s.envKey != "",
@@ -74,6 +79,7 @@ func (s *Session) info() SessionInfo {
 		st.mu.Unlock()
 		si.Pending = st.perms.Count()
 		si.Questions = len(st.drv.PendingElicitations())
+		si.OriginBy = s.originBy
 	}
 	return si
 }

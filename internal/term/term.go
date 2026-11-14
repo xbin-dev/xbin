@@ -72,10 +72,15 @@ type Session struct {
 	target  sessionTarget // the target deployment, fixed at start (target.go)
 	part    sessionPart   // its partition on a partitioned tile, fixed at start (partition.go)
 	purpose string        // "" or PurposeSignin, fixed at start (purpose.go)
+	origin  string        // "" or OriginAgent: opened by its person's workspace agent (agent.go), fixed at start
 
 	// hub is the session's side of the /ws/term wire: its scrollback, the
 	// attached sockets, the last activity (the reaper's clock) and the exit.
 	hub *termwire.Hub
+
+	// originBy: with origin, the component that opened it for its person
+	// (agent.go); fixed at start.
+	originBy string
 
 	mu sync.Mutex
 }
@@ -157,6 +162,11 @@ type Manager struct {
 	BxPath   string
 	OnEvent  func(cwd string, ev SessionEvent)
 	OnStatus func(cwd string, st StatusChange) // an agent session's status/pending counts changed (agentstatus.go)
+	// AgentGate answers why an agent session of harness (a provider id) may
+	// not open, resume or restart on tile for p — the harness rules of the
+	// tile's orgs and the workspace (D229; the broker's, wired by boot). A
+	// running session is never asked again. nil ⇒ every harness may run.
+	AgentGate func(p auth.Principal, tile, harness string) error
 
 	// Cgroup, when set (main wires it under cgroup delegation), puts each
 	// RESTRICTED session's sandbox into a resource-limited leaf (D17d) so a
@@ -324,11 +334,13 @@ type openOpts struct {
 	readable   []string          // allow-list view: components bound into the mount (D40)
 	rootFiles  map[string][]byte // allow-list view: staged root-file contents (D40)
 	kind       string            // KindShell (default) or KindAgent: the sandbox entry (agent.go)
+	originBy   string            // with origin: the component that opened it for its person
 	vm         bool              // a VM sandbox (vm.go)
 	launch     *sbxLaunch        // what the setup learnt (sbx.go; set by create/createAgent)
 	target     sessionTarget     // the target deployment (pickTarget, target.go)
 	part       sessionPart       // the partition on a partitioned tile (pickPartition, partition.go)
 	purpose    string            // "" or PurposeSignin: a guided sign-in's shell (purpose.go)
+	origin     string            // "" or OriginAgent (agent.go)
 }
 
 // prepare is the part of opening a session that both kinds share: the cwd,
@@ -428,7 +440,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target, part: o.part,
-		purpose: o.purpose, name: nameFor(o.purpose),
+		purpose: o.purpose, name: nameFor(o.purpose), origin: o.origin,
 		born: time.Now(), hub: termwire.NewHub(maxScrollback),
 	}
 	// before the PTY's first byte (pump hasn't started): this start moved the
