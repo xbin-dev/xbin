@@ -101,6 +101,9 @@ func (s *Store) normDefaultsLocked(d NewUserDefaults) (NewUserDefaults, error) {
 		if levelRank(l) == 0 && l != LevelNone { // none = a seeded explicit exclusion (D31)
 			return out, fmt.Errorf("newUsers.tiles[%q]: unknown level %q (want read|write|terminal|none)", pat, l)
 		}
+		if err := sealedLevel(strings.Trim(pat, "/"), l); err != nil {
+			return out, err
+		}
 		if out.Tiles == nil {
 			out.Tiles = map[string]string{}
 		}

@@ -607,6 +607,12 @@ func (b *Broker) apiRestore(w http.ResponseWriter, r *http.Request) {
 	}
 	// Restore a single file: stream it back without touching live state.
 	// xbind extracts it (an archiver can't read a sealed archive).
+	if body.File != "" && util.SealedPath(strings.Trim(body.Component, "/")) {
+		// its archive is its data, which only the component reads (D227):
+		// an admin restores it whole, and never reads a file out of it
+		server.WriteError(w, http.StatusBadRequest, server.SealedRefusal(strings.Trim(body.Component, "/"), "its backup is restored whole; a file is never read out of it"), server.SealedDocs)
+		return
+	}
 	if body.File != "" {
 		ver := body.Version
 		if ver == "" {

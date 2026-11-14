@@ -22,6 +22,8 @@ import (
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/agentpolicy"
+
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // Policy deny kinds (D20): the capability classes a policy row may strip from
@@ -199,6 +201,9 @@ func (s *Store) SetOwner(path, ref string) error {
 	path = strings.Trim(path, "/")
 	if path == "" {
 		return fmt.Errorf("component path required")
+	}
+	if util.SealedPath(path) {
+		return fmt.Errorf("%s is a system component, managed by xbin: it has no owner", path)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -1386,6 +1391,9 @@ func (s *Store) SetDefaultTiles(m map[string]string) error {
 			return fmt.Errorf("defaultTiles[%q]: unknown level %q (want read|write|terminal)", pat, l)
 		}
 	}
+	if err := sealedLevels(m); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	nm := make(map[string]string, len(m))
@@ -1434,10 +1442,23 @@ func (s *Store) SetUserTile(id, path, level string) error {
 }
 
 // sealedLevel refuses an access entry above read on a sealed component's
-// path: the level is read or nothing there (capSealed).
+// path: the level is read or nothing there (capSealed). An entry that
+// names the path is refused wherever it is written — one entry, a user's
+// whole map, the defaults; a pattern that reaches it ("*", "xbin/*") is not
+// an entry for it, and gives read (TileLevel).
 func sealedLevel(path, level string) error {
-	if capSealed(path, level) != level {
+	if !strings.Contains(path, "*") && capSealed(path, level) != level {
 		return fmt.Errorf("%s is a system component, managed by xbin: access to it is read or none (the %s level doesn't exist on it)", path, level)
+	}
+	return nil
+}
+
+// sealedLevels is sealedLevel over a map of entries.
+func sealedLevels(tiles map[string]string) error {
+	for path, level := range tiles {
+		if err := sealedLevel(strings.Trim(strings.TrimSpace(path), "/"), level); err != nil {
+			return err
+		}
 	}
 	return nil
 }

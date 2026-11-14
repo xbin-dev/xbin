@@ -390,10 +390,12 @@ none, so a workspace sees no change. When a later release adds one:
   used to answer 400 or 404 (no such tile could exist); it now answers as
   [protocol/sealed.md](/docs/protocol/sealed.md) lists — still a refusal
   wherever the operation doesn't apply.
-- **Access entries above read** on a path under `xbin/` (which no tile
-  could be at) are refused by `PUT /api/xbin/access`; a pattern such as
+- **Access entries above read** that name a path under `xbin/` (which no
+  tile could be at) are refused wherever entries are written (`PUT
+  /api/xbin/access`, a user's `tiles`, the defaults); a pattern such as
   `*` at terminal level keeps its meaning for tiles and reads as read
-  access on a sealed component.
+  access on a sealed component. A `users.json` that already holds such an
+  entry still loads, and the entry reads as read.
 - **A tile whose path maps to a sealed component's data key** — a
   top-level directory literally named `xbin~<name>` for a component
   `xbin/<name>` — would share its encrypted volumes. The sealed component

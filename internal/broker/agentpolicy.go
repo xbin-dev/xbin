@@ -153,8 +153,8 @@ func (b *Broker) agentInput(p auth.Principal, scope agentpolicy.Scope, model *ag
 	in := agentpolicy.Input{Scope: scope, Model: model}
 	seen := map[string]bool{}
 	for _, c := range b.Reg.Components() {
-		if c.IsTemplate() || c.Path == "root" || c.Path == "shell" || !p.CanReadTile(c.Path) {
-			continue
+		if c.IsTemplate() || c.Sealed || c.Path == "root" || c.Path == "shell" || !p.CanReadTile(c.Path) {
+			continue // a sealed component is never a target: no agent connects to one (D227)
 		}
 		t := agentpolicy.Tile{Path: c.Path, Name: c.Manifest.DisplayTitle()}
 		if b.Users != nil {

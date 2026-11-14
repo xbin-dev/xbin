@@ -258,25 +258,46 @@ func TestSealedRouteAnswers(t *testing.T) {
 
 	t.Run("levels above read don't exist", func(t *testing.T) {
 		on("POST /users", "PATCH /users/{id}", "PUT /defaults", "PUT /permission-sets/{name}", "PATCH /orgs/{org}", "POST /orgs", "GET /access-matrix")
-		// an entry or a pattern above read gives read
-		code, body := api("POST", "/users", map[string]any{"id": "wide", "name": "wide", "role": "user", "password": "pw-wide-pw-pw",
-			"tiles": map[string]string{"*": "terminal", probePath: "terminal"}})
-		expect(t, "a user with terminal everywhere", code, body, 200)
+		// an entry that names it above read is refused on every route that
+		// writes entries; a pattern that reaches it is kept, and gives read
+		code, body := api("POST", "/users", map[string]any{"id": "named", "name": "named", "role": "user", "password": "pw-named-pw-pw",
+			"tiles": map[string]string{probePath: "terminal"}})
+		expect(t, "a new user with an entry at terminal", code, body, 400, "is a system component, managed by xbin", "read or none")
+		code, body = api("POST", "/users", map[string]any{"id": "wide", "name": "wide", "role": "user", "password": "pw-wide-pw-pw",
+			"tiles": map[string]string{"*": "terminal", "xbin/*": "write", probePath: "read"}})
+		expect(t, "a user with terminal everywhere by pattern", code, body, 200)
 		code, body = api("PATCH", "/users/wide", map[string]any{"tiles": map[string]string{"*": "terminal", probePath: "write"}})
-		expect(t, "PATCH /users", code, body, 200)
+		expect(t, "PATCH /users with an entry at write", code, body, 400, "read or none")
+		code, body = api("PUT", "/defaults", map[string]any{"defaultTiles": map[string]string{probePath: "terminal"}})
+		expect(t, "PUT /defaults with an entry at terminal", code, body, 400, "read or none")
+		code, body = api("PUT", "/defaults", map[string]any{"newUsers": map[string]any{"tiles": map[string]string{probePath: "write"}}})
+		expect(t, "PUT /defaults: new users' entry at write", code, body, 400, "read or none")
+		_, was := api("GET", "/defaults", nil)
+		var defaults struct {
+			DefaultTiles map[string]string `json:"defaultTiles"`
+		}
+		_ = json.Unmarshal([]byte(was), &defaults)
+		code, body = api("PUT", "/defaults", map[string]any{"defaultTiles": map[string]string{"xbin/*": "terminal"}})
+		expect(t, "PUT /defaults with a pattern", code, body, 200)
+		if code, body = api("GET", "/frame-token?component="+probePath, nil, nobody); code != 200 {
+			t.Errorf("a default pattern over xbin/* gives nobody read: %d %s", code, body)
+		}
+		if code, body = d.do("GET", "/ws/term?cwd="+probePath, nil, nobody); code != 403 {
+			t.Errorf("…and a terminal, at its terminal level: %d %s", code, body)
+		}
+		code, body = api("PUT", "/defaults", map[string]any{"defaultTiles": defaults.DefaultTiles})
+		expect(t, "putting the defaults back", code, body, 200)
 		code, body = api("POST", "/orgs", map[string]any{"id": "team", "name": "Team"})
 		expect(t, "POST /orgs", code, body, 200)
-		code, body = api("PATCH", "/orgs/team", map[string]any{"tiles": map[string]string{probePath: "terminal"}})
-		if code != 200 && code != 400 {
+		code, body = api("PATCH", "/orgs/team", map[string]any{"name": "The team"})
+		if code >= 500 {
 			t.Errorf("PATCH /orgs: %d %s", code, body)
 		}
+		code, body = api("PUT", "/access", map[string]any{"tile": probePath, "kind": "org", "id": "team", "level": "write"})
+		expect(t, "an org's entry at write", code, body, 400, "read or none")
 		code, body = api("PUT", "/permission-sets/everything", map[string]any{"tiles": map[string]string{"*": "terminal"}})
 		if code >= 500 {
 			t.Errorf("PUT /permission-sets: %d %s", code, body)
-		}
-		code, body = api("PUT", "/defaults", map[string]any{"tiles": map[string]string{"xbin/*": "terminal"}})
-		if code >= 500 {
-			t.Errorf("PUT /defaults: %d %s", code, body)
 		}
 		code, body = api("GET", "/access-matrix", nil)
 		expect(t, "GET /access-matrix", code, body, 200)
@@ -454,6 +475,8 @@ func TestSealedRouteAnswers(t *testing.T) {
 		expect(t, "POST /backup", code, body, 502, "no archiver bound")
 		code, body = api("POST", "/restore", map[string]any{"component": probePath})
 		expect(t, "POST /restore", code, body, 502, "no archiver bound")
+		code, body = api("POST", "/restore", map[string]any{"component": probePath, "file": "data/kv.json"})
+		expect(t, "reading a file out of its backup", code, body, 400, systemMsg+"its backup is restored whole")
 		code, body = api("GET", "/backups?component="+probePath, nil)
 		expect(t, "GET /backups", code, body, 200, `"versions":[]`)
 		code, body = api("POST", "/backup-schedule", map[string]any{"component": probePath, "schedule": "@daily"})
@@ -465,6 +488,10 @@ func TestSealedRouteAnswers(t *testing.T) {
 	})
 
 	t.Run("as for a tile", func(t *testing.T) {
+		on("GET /llm/usage")
+		if code, body := api("GET", "/llm/usage?component="+probePath, nil); code != 200 {
+			t.Errorf("GET /llm/usage?component=%s: %d %s", probePath, code, body)
+		}
 		on("GET /sandboxes", "GET /term/sessions", "GET /agent/history", "PUT /screens/default", "PUT /screens/folders", "PUT /screens/org",
 			"GET /partitions", "GET /partitions/backups", "GET /partitions/ledger", "POST /partitions/purge", "POST /partitions/reset",
 			"POST /partitions/restore", "POST /partitions/stop", "POST /partitions/share-log", "DELETE /partitions/share-log",

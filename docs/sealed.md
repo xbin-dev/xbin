@@ -69,8 +69,11 @@ API):
 
 - **Who has access.** Read, or none: `bx access` / the Access panel /
   `PUT /api/xbin/access`. A person with read access may use it. Levels
-  above read don't exist on it: an entry that asks for one is refused, and
-  a pattern such as `*` at terminal level gives read.
+  above read don't exist on it. An entry that names it at `write` or
+  `terminal` is refused with the reason wherever entries are written (one
+  entry, a new or edited user's whole list, the workspace defaults, an
+  access request). A pattern that reaches it, such as `*` or `xbin/*` at
+  terminal level, is kept and gives read.
 - **Whether it is on.** Enabled, disabled or hidden (`POST
   /api/xbin/lifecycle`). It can't be offloaded: there is no source to
   archive.
@@ -78,9 +81,61 @@ API):
   ([isolation.md](/docs/isolation.md) → Resource limits; `/xbin/limits`).
 - **What its slots are bound to.** Only the slots the release declares
   (`bx bind xbin/<name> <slot>=<provider>`, the Interfaces tab,
-  `POST /api/xbin/bindings`).
+  `POST /api/xbin/bindings`). The release may give a slot a **default**:
+  a built-in provider it is bound to while you haven't bound it — for
+  example its `llm` slot to the workspace's LLM connector (`xbin:llm`),
+  once the connector is configured. Your choice always wins and no upgrade
+  or restart undoes it: bind the slot to something else, or unbind it and
+  it stays unbound. To go back to the default, bind the default provider
+  yourself. `/xbin/system` and `GET /api/xbin/sealed` say which binding is
+  the default's (`byDefault`). A default binding is not written to
+  `xbin.json`.
 
 Everything else is fixed by the release.
+
+### What an admin can and cannot see
+
+A workspace admin runs a sealed component; they don't get to read what
+people keep in it.
+
+**An admin can see** each component's state, version and hold reason; who
+has access; its limits and usage; the log of its shared (global) instance;
+which people have a partition of it and whether it runs; the list of its
+backups.
+
+**An admin can do**, for a partitioned sealed component, what they can do
+for any partitioned tile ([partitions.md](/docs/partitions.md)): stop a
+person's instance, reset or purge a person's partition, back partitions up
+and restore one — into the same person's partition only, and the person is
+told.
+
+**An admin cannot**:
+
+- read or write its resources, its secrets or its registrations through
+  the API (`/kv`, `/blob`, `/vault`, the bus, cron): those answer only the
+  component itself;
+- open another person's partition: an admin's own requests reach the
+  admin's own partition, as anyone's do. Restoring a partition backup into
+  a different person's partition, or into the shared instance, is refused;
+- read a person's partition log, unless that person shares it
+  (`bx partition share-log`), for at most 14 days;
+- read a backup through xbind: no route answers an archive's contents, and
+  a single file can't be read out of a sealed component's backup
+  (`POST /api/xbin/restore` with `file` is refused for one). A backup is
+  restored whole, in place. Each person's partition has archives of its
+  own, sealed under that partition's key
+  ([partitions.md](/docs/partitions.md) → Backups);
+- open a terminal, a coding agent or a view-as session inside it: there is
+  no terminal, and viewing the workspace as someone opens none of their
+  partitions.
+
+What this does not change, for a sealed component as for every
+partitioned tile ([partitions.md](/docs/partitions.md)): a workspace admin
+controls accounts and the workspace's backup keys. Someone who can reset a
+person's credentials can sign in as that person (it is recorded and the
+person is told), and someone who exports the backup keys and holds the
+archives can decrypt them outside xbind. A plaintext-vault workspace
+(`--insecure-vault`) archives no partition at all.
 
 ### Where to look
 
