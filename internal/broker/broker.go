@@ -197,12 +197,14 @@ func (b *Broker) Close() {
 	if b.disk != nil {
 		b.disk.close()
 	}
+	// partition mail's doorbells and sweep, waited for (partitionmail_bell.go):
+	// before the flushes, so a ring's last delivery is in what they save
+	b.closeMail()
 	if b.kv != nil {
 		b.kv.close() // kv.db and every namespace's file (deploydata.go)
 	}
 	b.flushLedgers()   // counts not yet saved (partitionledger.go)
 	b.flushLimitHits() // hits not yet saved (tilelimits.go)
-	b.closeMail()      // partition mail's doorbells and sweep (partitionmail_bell.go)
 }
 
 func New(reg *registry.Registry, hub *events.Hub, scopeUIDs bool) (*Broker, error) {
