@@ -137,6 +137,21 @@ func sealedView(ws WorkspaceManifest, codes []SealedCode) WorkspaceManifest {
 		ws.Grants = kept
 	}
 	ws.Bindings = withoutSealedProviders(ws.Bindings)
+	// a sealed component is switched off, never offloaded (there is no
+	// source or archive to bring back): a file that says so reads disabled
+	for comp, state := range ws.Lifecycle {
+		if util.SealedPath(comp) && IsOffloaded(state) {
+			lc := make(map[string]string, len(ws.Lifecycle))
+			for k, v := range ws.Lifecycle {
+				if util.SealedPath(k) && IsOffloaded(v) {
+					v = StateDisabled
+				}
+				lc[k] = v
+			}
+			ws.Lifecycle = lc
+			break
+		}
+	}
 	for comp, slots := range ws.Bindings {
 		if !util.SealedPath(comp) {
 			continue

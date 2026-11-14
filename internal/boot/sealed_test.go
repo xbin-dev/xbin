@@ -18,6 +18,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -752,4 +753,68 @@ func TestSealedUpgradeAndDowngrade(t *testing.T) {
 	if code, body := d.ownCall("xbin/counter", "GET", key, nil); code != 200 || !strings.Contains(body, "written-by-v1") {
 		t.Errorf("its data after the round trip: %d %s", code, body)
 	}
+}
+
+// The strict tile asset modes serve a sealed component's frontend as they
+// serve a pinned tile's: tokens mode from the asset plane under the
+// document's <base>, origins mode on an origin of its own.
+func TestSealedFrontendInStrictAssetModes(t *testing.T) {
+	if testing.Short() {
+		t.Skip("boots a workspace twice")
+	}
+	quiet(t)
+	table := []sealed.Spec{probeSpec()}
+
+	t.Run("tokens", func(t *testing.T) {
+		d := startSealed(t, probeWorkspace(t), table, func(c *Config) { c.TileAssets = "tokens" })
+		code, body := d.do("GET", "/c/"+probePath+"/", nil)
+		m := regexp.MustCompile(`<base href="(/c/~[^"]+/xbin/probe/)"`).FindStringSubmatch(body)
+		if code != 200 || m == nil {
+			t.Fatalf("its document has no asset <base>: %d %s", code, body)
+		}
+		if code, body := d.do("GET", m[1]+"app.js", nil, ""); code != 200 || !strings.Contains(body, "r1") {
+			t.Errorf("its module through the asset token: %d %s", code, body)
+		}
+		for _, outside := range []string{"../counter/app.js", "../../apps/plain/index.html", "../../../.xbin/token"} {
+			if code, body := d.do("GET", m[1]+outside, nil, ""); code == 200 && strings.Contains(body, "r1") {
+				t.Errorf("the asset token reached %s: %s", outside, body)
+			}
+		}
+	})
+
+	t.Run("origins", func(t *testing.T) {
+		d := startSealed(t, probeWorkspace(t), table, func(c *Config) {
+			c.TileAssets, c.TilesDomain = "origins", "xbin.localhost"
+			c.ExternalURL = "http://xbin.localhost:" + c.Listen[strings.LastIndex(c.Listen, ":")+1:]
+		})
+		code, body := d.do("GET", "/api/xbin/components?sealed=1", nil)
+		var rows []struct{ Path, Origin string }
+		if code != 200 || json.Unmarshal([]byte(body), &rows) != nil {
+			t.Fatalf("GET /components?sealed=1: %d %s", code, body)
+		}
+		origins := map[string]string{}
+		for _, r := range rows {
+			origins[r.Path] = r.Origin
+		}
+		if origins[probePath] == "" || origins[probePath] == origins["apps/plain"] {
+			t.Fatalf("its origin: %q (a tile's: %q)", origins[probePath], origins["apps/plain"])
+		}
+		// on its origin, without the tile's credential: a tile's answer
+		at := func(path string) (int, string) {
+			req, _ := http.NewRequest("GET", d.base+"/c/"+path+"/app.js", nil)
+			req.Host = strings.TrimPrefix(origins[path], "http://")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			b, _ := io.ReadAll(resp.Body)
+			return resp.StatusCode, string(b)
+		}
+		sc, sb := at(probePath)
+		tc, tb := at("apps/plain")
+		if sc != tc || sc == 200 || sb != tb {
+			t.Errorf("its origin without a credential answers %d %q; a tile's %d %q", sc, sb, tc, tb)
+		}
+	})
 }

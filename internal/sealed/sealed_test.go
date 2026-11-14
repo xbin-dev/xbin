@@ -69,8 +69,8 @@ func TestTableValidation(t *testing.T) {
 	if _, err := Load([]Spec{spec(""), spec("")}); err == nil {
 		t.Error("a repeated name loaded")
 	}
-	if len(Table()) != 0 {
-		t.Error("the compiled-in table is not empty: a workspace in the wild would see a component appear")
+	if !fixtureTable && len(Table()) != 0 {
+		t.Error("the compiled-in table is not empty: a workspace in the wild would see a component appear (a release that ships one edits this test with it)")
 	}
 }
 
@@ -142,7 +142,7 @@ func TestWorkspaceFileSpeaksForNoSealedComponent(t *testing.T) {
  "bindings":{
   "xbin/fix":{"llm":"apps/llm","net":"internet","@archive":"apps/arch"},
   "apps/a":{"inbox":["xbin/fix","apps/b"],"other":"xbin/fix"}},
- "lifecycle":{"xbin/fix":"disabled"}}`
+ "lifecycle":{"xbin/fix":"offloaded-full","apps/a":"offloaded"}}`
 	if err := os.WriteFile(filepath.Join(ws, "xbin.json"), []byte(file), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -161,8 +161,11 @@ func TestWorkspaceFileSpeaksForNoSealedComponent(t *testing.T) {
 	if b := w.Bindings["apps/a"]; len(b) != 1 || len(b["inbox"]) != 1 || b["inbox"].First() != "apps/b" {
 		t.Errorf("bindings naming the sealed component as provider survive: %+v", b)
 	}
-	if reg.LifecycleState("xbin/fix") != registry.StateDisabled {
-		t.Error("an admin's disable isn't read")
+	if reg.LifecycleState("xbin/fix") != registry.StateDisabled || w.Lifecycle["xbin/fix"] != registry.StateDisabled {
+		t.Errorf("an offloaded state in the file reads %q: a sealed component is off, never offloaded", reg.LifecycleState("xbin/fix"))
+	}
+	if reg.LifecycleState("apps/a") != registry.StateOffloaded {
+		t.Error("a tile's offloaded state changed")
 	}
 	// and the file is as it was
 	if b, _ := os.ReadFile(filepath.Join(ws, "xbin.json")); string(b) != file {

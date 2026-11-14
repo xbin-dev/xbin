@@ -43,6 +43,11 @@
 #                       built (hack/build-xbin-iroh.sh bin), else bin/fakeiroh
 #                       (built here); the apptunnel and pairing passes pair
 #                       real phones through it (bin/tunnelpair)
+#   HARNESS_GO_TAGS=sealedfixture ./run.sh …   build xbind with these go
+#                       build tags: sealedfixture gives it two fixture
+#                       system components (internal/sealed/table_fixture.go),
+#                       which the systemPage pass lists and the oldScaffold
+#                       pass checks an old shell never shows
 #   HARNESS_SEED=demo ./run.sh --keep [pass…]   seed the demo film set
 #                       (hack/demo/seed.sh: Larkspan, a fictional company's
 #                       workspace — hack/demo/README.md) instead of the test
@@ -190,7 +195,7 @@ start() {
   echo "xbind did not come up; see $H/xbind.log" >&2; exit 1
 }
 build() {
-  (cd "$REPO" && go build -o bin/xbind ./cmd/xbind && CGO_ENABLED=0 go build -o bin/bx ./cmd/bx && go build -o bin/fakeacp ./hack/fakeacp && go build -o bin/fakeopenai ./hack/fakeopenai \
+  (cd "$REPO" && go build ${HARNESS_GO_TAGS:+-tags "$HARNESS_GO_TAGS"} -o bin/xbind ./cmd/xbind && CGO_ENABLED=0 go build -o bin/bx ./cmd/bx && go build -o bin/fakeacp ./hack/fakeacp && go build -o bin/fakeopenai ./hack/fakeopenai \
     && CGO_ENABLED=0 go build -o bin/fakeiroh ./hack/fakeiroh && go build -o bin/tunnelpair ./hack/tunnelpair)
   # VMs need the in-guest agent beside xbind (the demo set's coding
   # sandboxes are VMs; without it they stay empty)

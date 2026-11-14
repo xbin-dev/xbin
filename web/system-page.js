@@ -25,7 +25,7 @@ const pageCss = css`
   header .grow { flex: 1; }
   h1 { font: var(--bx-font-heading, 600 20px/26px "Bricolage Grotesque", "Arial Black", system-ui, sans-serif);
     letter-spacing: var(--bx-tracking-heading, -0.01em); margin: 0; }
-  h2 { font: 600 15px/20px "Instrument Sans", system-ui, sans-serif; margin: 0; overflow-wrap: anywhere; }
+  h2 { font: inherit; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
   h3 { font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); color: var(--bx-muted, #A3A6B6);
     text-transform: uppercase; letter-spacing: 0.04em; margin: 16px 0 4px; }
   .lead { color: var(--bx-muted, #A3A6B6); max-width: 72ch; margin: 8px 0 16px; }
@@ -40,9 +40,9 @@ const pageCss = css`
     padding: 12px; margin: 12px 0; }
   .top { display: flex; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
   .top .grow { flex: 1; min-width: 14em; }
-  .badge { display: inline-block; padding: 0 8px; border-radius: 999px; border: 1px solid var(--bx-border-strong, #666A7E);
+  .badge { display: inline-block; padding: 0 8px; border-radius: var(--bx-radius, 2px); border: 1px solid var(--bx-border-strong, #666A7E);
     font: var(--bx-font-meta, 400 12px/18px "Instrument Sans", system-ui, sans-serif); white-space: nowrap; }
-  .badge.ok { border-color: var(--bx-ok, #5DD39E); color: var(--bx-ok, #5DD39E); }
+  .badge.ok { border-color: var(--bx-ok, #A3CF5E); color: var(--bx-ok, #A3CF5E); }
   .badge.held { border-color: var(--bx-danger, #FF7A7A); color: var(--bx-danger, #FF7A7A); }
   .badge.off { color: var(--bx-muted, #A3A6B6); }
   dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 8px 0 0; }

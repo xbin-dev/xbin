@@ -28,3 +28,5 @@ func table() []Spec {
 		{Name: "people", Title: "Fixture people", Source: src, Authored: "apps/fixture", Partition: []string{"user", "global"}},
 	}
 }
+
+const fixtureTable = true

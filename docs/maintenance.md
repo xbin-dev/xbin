@@ -986,6 +986,14 @@ a tile limits alert (D203) and checks the old shell and admin console show
 its words, `/xbin/limits` in them. Under the overlay
 — the default run — it `SKIP`s, said so, so only a run with the switch covers
 it (give a `--shots` run against that instance the switch too).
+`systemPage` drives `/xbin/system` (D227) against the real API, and
+`oldScaffold` checks the last release's shell and admin console show no
+tile, card or sidebar row for a system component while `/xbin/system` lists
+them. A default xbind has none, so both `SKIP` that part, said so; build
+the harness xbind with the fixture table to run it:
+`HARNESS_GO_TAGS=sealedfixture` (two fixture components,
+`internal/sealed/table_fixture.go`; `bin/xbind` is then a fixture build —
+rebuild it before using it for anything else).
 `limitsCaps` drives the tile limits (D203) end to end against the real API
 in both themes: the harness xbind enforces only the data disk quota (no
 cgroup delegation, VM runtime or tile sandboxes), so its tiles root their
@@ -1028,6 +1036,7 @@ hack/ui-harness/run.sh --shots windows    # one pass against the running instanc
 hack/ui-harness/run.sh --restart          # rebuild xbind, same workspace, every pass
 HARNESS_ISOLATE=1 hack/ui-harness/run.sh --keep livereload   # xbind with --isolate on $XBIN_TEST_ROOTFS
 HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep oldScaffold  # no --dev-overlay: the workspace's own scaffold (below)
+HARNESS_GO_TAGS=sealedfixture HARNESS_NO_OVERLAY=1 hack/ui-harness/run.sh --keep oldScaffold systemPage  # with two fixture system components
 HARNESS_THEME=light hack/ui-harness/run.sh --shots appearance themeCanary  # a light system (default dark)
 hack/ui-harness/app-help-shots.sh         # the iOS app's help screenshots (native/AGENTS.md)
 (cd hack/ui-harness && node shots.js --list)

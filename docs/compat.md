@@ -333,6 +333,10 @@ none, so a workspace sees no change. When a later release adds one:
   components would offer a terminal, the source view, deployments and
   grants on such a row, none of which exist for it. `sealed: true` is a new
   optional field on the rows of a caller that asked.
+- **One place an old shell does name one**: its "interfaces to bind"
+  prompt (from `GET /bindings`) lists a sealed component whose declared
+  slot is unbound. Binding it there works — it is one of the four things
+  an admin decides — and Dismiss hides it as for a tile.
 - **The surface that is always there** is `/xbin/system`, a page xbind
   serves itself (as `/xbin/limits` and `/xbin/devices`): an admin on a
   workspace with an old scaffold sees each system component there, why one

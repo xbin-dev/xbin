@@ -314,6 +314,9 @@ func (r *Registry) LifecycleState(comp string) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	if s := r.workspace.Lifecycle[comp]; s != "" {
+		if util.SealedPath(comp) && IsOffloaded(s) {
+			return StateDisabled // a sealed component is never offloaded (sealedView)
+		}
 		return s
 	}
 	return StateEnabled
