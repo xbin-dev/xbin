@@ -38,7 +38,11 @@ overview is the map that puts them in context.
 **Reference:**
 
 - [overview/](/docs/overview/00-index.md) — the top-down system tour (start at `00-index.md`)
-- [protocol.md](/docs/protocol.md) — every HTTP/WS endpoint, header, and event
+- [protocol.md](/docs/protocol.md) — every HTTP/WS endpoint, header, and event:
+  the conventions they share and the index of the topic pages under
+  `/docs/protocol/` (one per area: [core.md](/docs/protocol/core.md),
+  [agents.md](/docs/protocol/agents.md),
+  [events.md](/docs/protocol/events.md), …)
 - [isolation.md](/docs/isolation.md) — sandboxes, terminal scoping, the dev layer, egress
 - [ingress.md](/docs/ingress.md) — publishing tiles: public HTTP(S) + TCP/UDP endpoints
 - [agent-inbox.md](/docs/agent-inbox.md) — the contract between chat adapters

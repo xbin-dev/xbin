@@ -130,7 +130,8 @@ func (s *Server) RegisterAPI(pattern string, h http.HandlerFunc) {
 
 // APIRoutes returns every pattern mounted with RegisterAPI so far, in
 // registration order — the inventory the route-drift test
-// (internal/apicheck) reconciles against openapi.go and docs/protocol.md.
+// (internal/apicheck) reconciles against openapi.go and the protocol
+// reference (docs/protocol.md and its topic pages, docs/protocol/*.md).
 func (s *Server) APIRoutes() []string { return slices.Clone(s.apiPatterns) }
 
 // CoreRoutes returns the top-level mux patterns the last Handler() call

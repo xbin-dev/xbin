@@ -1,6 +1,6 @@
 # Agent code dedupe — plan
 
-> Status: **plan only, nothing implemented** (2026-11-14, against master
+> Status: live — being built since 2026-11-14 (against master
 > 83c03745). Companion to `plans/workspace-agent.md` (issue #51, first
 > checkbox: "render / ACP / agent loop extracted and deduped between AgTT and
 > tile agents"). Owner decisions of 2026-11-14: **shared chat kit, two
