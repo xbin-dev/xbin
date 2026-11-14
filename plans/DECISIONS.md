@@ -13912,7 +13912,73 @@ Deviations and refinements made while implementing; all deliberate:
     interface with a test double, because S4 landed its design while this
     was built and the gate (which route accepts which bearer) is the part
     that must not be improvised later.
-  - **Open** for the owner: whether `people` should default to `everyone`
-    once quotas exist; whether calls nobody acts in should get a quota of
-    their own (per component) beside the workspace total; whether a warn
-    should also raise an admin alert.
+  - **Decided by the owner (2026-11-14)**, of what the core left open:
+    `people` stays default `admins`; binding `xbin:llm` stays a workspace
+    admin's act; calls nobody acts in stay under the workspace total alone
+    (usage lists them as their own row); a quota that warns raises an admin
+    alert as one that stops does.
+  - **The admin UI (package B1b).** One element, two homes:
+    `<bx-llm-admin>` (`web/llm-admin.js` and its parts — `llm-upstreams`,
+    `llm-quotas`, `llm-usage`) is xbind's own page **`/xbin/llm`**
+    (`web/llm.html`, served as `/xbin/limits` is: no transform, top-level
+    only, a CSP of `'self'`) and the admin console's **workspace → LLM**
+    tab (`tabs/llm.js`, a sibling the entry imports relatively, passing
+    `xbin.fetch`). The page exists whatever scaffold a workspace runs,
+    which is what lets every alert name it. Words and arithmetic are
+    `web/llm-kit.js` (pure, `hack/llm-kit.test.mjs`); **every call is in
+    `web/llm-client.js`**, so a route the core moves is a one-file change.
+    - **Locks are drawn, never inferred**: a control is disabled and
+      marked "Set by your host" exactly when `locks` names its path (or
+      `*`); the form never sends a locked row (`modelsChanges` skips them),
+      and xbind's 409 is the authority either way. `lockAll` gets one note
+      at the top instead of thirty badges being the only signal.
+    - **A key is write-only in the UI too**: a masked field, sent once,
+      gone from the DOM after the save; edit opens with an empty field
+      ("unchanged"). The harness asserts the key is in no text, attribute
+      or field value afterwards.
+    - **Who sees what is xbind's answer, not the page's**: the page tries
+      `GET /llm/config`; 403 switches it to `<bx-llm-me>` — the person's
+      own quota and usage, from `GET /llm` and `GET /llm/usage`, which
+      already answer only their own. `GET /llm`'s `admin` is not used for
+      this: it is only set for a caller who is admitted.
+    - **Server additions, kept to `internal/llm/alerts.go`**: (1)
+      `Service.Alerts()`, chained into the broker's `AdminAlerts`
+      (`boot/llm.go`): a reached quota per person — the verdict's limit,
+      its source (their own, org `<id>`, the default), stop or warn, the
+      reset — `crit` for a workspace quota that stops, one summary row
+      past five people, computed from the meter's windows on each read and
+      stored nowhere, so it ends with the window or a raise. (2) The setup
+      alert `llm-setup` with `POST /llm/setup/dismiss`: shown only while
+      nothing is configured, no admin has saved anything (`store.Set ==
+      0`), the host doesn't lock all, and `data/llm/setup.json` is absent
+      — the file's presence is the whole state, so the alert can't
+      outlive a dismissal through a cache. (3) `GET /llm` answers a
+      person's own `user` and `quota` when their direct calls aren't
+      admitted: under the default people switch a member's calls all go
+      through tiles, and their limits were otherwise unreadable to them.
+    - **The setup card is the alert.** The console draws kind `llm-setup`
+      as a card (Set up…, dismiss) instead of a row; an old console or
+      shell shows the row, whose text names `/xbin/llm`. No second source
+      of truth, and one dismissal covers every surface. It is `warn`
+      because alerts have two levels and old shells style only those.
+    - **An admin's shell gets the connector's alerts; found while
+      building.** `AdminAlerts` never reached a shell: a shell reads
+      `/alerts` with its frame token, which is no admin's (only an admin's
+      own session, the owner token and the admin console are). So "an
+      alert usable by old shells" needed a rule: the broker gains
+      `AdminShellAlerts`, answered to a trusted chrome frame minted under a
+      workspace admin's own login (`Broker.AdminShell` =
+      `chromeFrameDriver` + `IsAdmin` of the driver — the rule D203's
+      raises already use; such a document runs with the admin's cookie, so
+      the token learns nothing the page couldn't fetch). `AdminShell` is
+      not `IsAdmin`: that frame manages nothing, and of the connector's
+      routes it may only POST the setup alert's dismissal (a shell posts
+      an alert's `dismiss` with its own token). Only the connector's
+      alerts go this way; the other admin-only alerts (Go build versions,
+      backup keys, consent files, settings) stay where they were — moving
+      them is a separate call.
+    - **Not done here**: a banner for the affected person in the shell
+      (the alert chain has no per-person source; they read it on the page
+      and in their call's refusal); live updates (the connector emits no
+      event; the page reloads after its own writes and has a Refresh on
+      usage); per-component quotas.

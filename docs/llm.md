@@ -11,6 +11,9 @@ offers the connector.
 
 - endpoint: `/api/xbin/llm/v1` — `chat/completions`, `responses`, `models`
   ([protocol/llm.md](/docs/protocol/llm.md))
+- page: `/xbin/llm` — an admin configures it there; everyone else reads
+  their own usage and quota
+- admin console: workspace → LLM (the same page, inside the console)
 - binding ref: `xbin:llm` (the provider of the `openai` service)
 - CLI: `bx llm` ([bx.md](/docs/bx.md))
 - host configuration: `XBIN_LLM_CONFIG` ([config.md](/docs/config.md))
@@ -19,6 +22,37 @@ The optional `llm-gw` tile is unchanged and still works. A tile binds its
 `llm` slot to either, or (a multi slot) to both.
 
 ## Setting it up (admins)
+
+Open **`/xbin/llm`** — or the admin console's **workspace → LLM**, which is
+the same page — or use `bx llm`. Until a provider exists, the admin console
+shows one card, *Set up an LLM for this workspace*, that leads there, and
+an admin's shell a banner saying the same (admins only; **dismiss** — in
+either, or *Stop reminding* on the page — ends it for the workspace). The page, top to
+bottom:
+
+1. **Status** — not set up, on, or off; the endpoint; a note when the
+   vault is sealed or a default names a model that doesn't exist. *Connector
+   on* refuses every call when unticked.
+2. **Providers** — *Add a provider*: a name, the base URL, the API key (a
+   masked field; once saved the key is never shown again — the row reads
+   its last four characters), the models, the `private` mark and prices.
+   **Test** makes a one-line call through the provider and answers in the
+   row.
+3. **Models** — the default model, the model of each role (`xbin/agent`,
+   `xbin/harness`, or a role you add) and aliases; one *Save models*.
+4. **Who may call directly** — admins (the default), everyone, nobody.
+5. **Quotas** — the workspace total, the default for each person, and
+   overrides per person and per organisation; each limit *stops calls* or
+   *warns only*. A person's quota is also in the console's users → *LLM
+   quota…*, an org's on its page.
+6. **Usage** — this month per person and per component, today and the
+   month so far, tokens and cost; a click on a column header sorts.
+
+A setting your host's deployment file holds (§The host's file, below) is
+read-only, marked **Set by your host**; a connector the host locks entirely says so at the top of the
+page.
+
+The same from a terminal:
 
 ```sh
 bx llm upstream add openai https://api.openai.com/v1     # asks for the key
@@ -176,6 +210,24 @@ for every call as well, and is the only one for calls nobody acts in.
 A quota is checked before a call starts, against what is already metered:
 the calls in flight when a limit is reached finish.
 
+### When a limit is reached
+
+- **The person** reads it on `/xbin/llm` — their own page shows each limit
+  as a bar and says in a sentence what ran out and when it is back — and
+  in the refusal of their call (`429`, a stopping limit) or its
+  `X-XBin-LLM-Quota` header (a warning one). `GET /api/xbin/llm` answers a
+  person's own `quota` whether or not the people switch admits their
+  direct calls: the calls tiles make for them count against the same
+  limits.
+- **The workspace's admins** get an alert (`GET /api/xbin/alerts`, kind
+  `llm-quota`; a banner in an admin's shell, the admin console's alert bar)
+  naming
+  the person, the limit, where it comes from — their own quota, an org's,
+  the default — whether their calls are refused or only warned about, when
+  it resets, and `/xbin/llm`. A workspace quota that refuses every call is
+  critical. More than five people at a limit are one alert. It goes when
+  the window resets or the quota is raised.
+
 ## Keys and the vault
 
 A key an admin sets is stored in xbind's vault — sealed in
@@ -197,8 +249,9 @@ connector's own, never as the caller's `401`.
 ## The host's file (`XBIN_LLM_CONFIG`)
 
 Whoever runs xbind can configure the connector from a file, and what the
-file sets is **locked**: the admin API and console show it read-only as
-"set by your host", and refuse to change it. A hosted instance uses it to
+file sets is **locked**: the page and the admin console show it read-only
+with **Set by your host** and its controls disabled, and the admin API
+refuses to change it. A hosted instance uses it to
 bring its own models and hold quotas the workspace's admins can't lift.
 
 ```jsonc
@@ -258,6 +311,8 @@ bring its own models and hold quotas the workspace's admins can't lift.
   to call a tile with); bind tiles to one or the other.
 - The connector doesn't retry: a provider's `429` or `5xx` passes with its
   `Retry-After`, and the client's own retry applies.
-- Nothing injects the connector into terminals or agent sessions yet, and
-  the admin console has no section for it: `bx llm` and the API are the way
-  in.
+- Nothing injects the connector into terminals or agent sessions yet.
+- A person is told about their quota on `/xbin/llm` and in their calls'
+  answers; their shell has no banner for it (the alert is the admins').
+- Calls a tile makes for nobody in particular are held by the workspace
+  total only; usage lists them as their own row, *no person*.

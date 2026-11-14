@@ -311,6 +311,46 @@ policies), which are now the *defaults*.
   one ignores `data/tile-limits.json`), and its next write of `users.json`
   drops the orgs' ceilings.
 
+## The LLM connector (D226)
+
+A workspace that never configures the connector runs exactly as before:
+its routes answer "not configured", no picker offers `xbin:llm`, and
+nothing is written under `data/llm/`.
+
+- **One thing an admin sees after the upgrade**: the setup card. While no
+  upstream exists and no admin has changed the connector, `GET /alerts`
+  carries one alert of kind `llm-setup` for workspace admins and the shell
+  an admin drives — nobody else gets it — whose words name `/xbin/llm` and
+  `bx llm upstream add`: a banner in an admin's shell, a card in the admin
+  console. Its `dismiss` route ends it for the workspace, for good; adding
+  an upstream ends it too. A host whose file locks every setting never
+  shows it.
+- **Old shells and admin consoles** (rule 4) have no LLM tab and no card.
+  They show the alert as a line of text, which is why the text names the
+  page; `/xbin/llm` is xbind's own page and needs no scaffold: a workspace
+  admin configures everything there (providers, default models, who may
+  call, quotas, usage), and everyone else reads their own usage and quota.
+  A shell or console that knows an alert's `dismiss` route dismisses it
+  with that (xbind accepts the post from the shell an admin drives); one
+  that doesn't shows the line until an admin stops the reminder on
+  `/xbin/llm` (*Stop reminding*) or adds a provider. Quota alerts
+  (`llm-quota`) are lines of text in the same way.
+- **The console's new files are siblings**: `tabs/llm.js`, imported
+  relatively; `admin.js`, `plain-tabs.js`, `shared.js` and the users and
+  organisations tabs keep their names. The tab's elements are xbind's
+  (`/vendor/llm-admin.js`, `/vendor/llm-quotas.js` and the modules they
+  import); those URLs are frozen like every `/vendor/` module a scaffold
+  imports (rule 3).
+- **Additive wire.** New: `POST /api/xbin/llm/setup/dismiss`, the page
+  `/xbin/llm`, alert kinds `llm-setup` and `llm-quota`; `GET /api/xbin/llm`
+  now answers `user` and `quota` to a person whose direct calls aren't
+  admitted, too (rule 2). The two alert kinds are the first admin notices
+  an admin's shell is answered: every other admin-only alert stays with
+  the admin's own sign-in and the admin console, as before.
+- **State.** `data/llm/setup.json` marks the card dismissed; an older xbind
+  ignores it. **Downgrading** below the connector leaves `data/llm/`
+  unread.
+
 ## What this does *not* promise
 
 - Undocumented internals: `.xbin/` contents, the on-disk shape of
