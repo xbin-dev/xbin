@@ -1471,6 +1471,56 @@ decide, and the admin console decides only under an admin driver. Every
 decision is recorded with its approver in `data/tile-limits.json` and the
 audit log.
 
+**Agent constraints (D229).** An org says what agents may do on its tiles:
+
+| Rule | Values | Governs |
+|---|---|---|
+| `workspaceAgent` | `on` (default) · `off` | whether people's workspace agents may work on the org's tiles at all |
+| `harnesses` | `any` (default) · a list of harness ids (`claude`, `codex`, …) | which coding agents an agent session on its tiles may run — for the person who opens one themselves and for a workspace agent alike |
+| `models` | `any` (default) · `private` · a list of LLM connector ids (an upstream, or `upstream/model`) | which models may see its tiles' data: a workspace agent's current model must satisfy it |
+
+The workspace has the same three rules as **outer bounds**, plus the
+default for whose credentials serve a coding agent's model calls
+(`own-first`: the person's own sign-in when they have one, else the LLM
+connector; `connector`: forced for everyone).
+
+- **Filtering follows the tile's org, on every call.** A tile falls under
+  the org that owns it and every org it is shared into, and under the
+  workspace's bounds. Every one of them must allow the call, so a tile
+  shared into several orgs gets the strictest, and a tile in no org
+  (personal, or workspace-owned) follows the bounds alone. The refusal
+  names the org and the rule: "Finance allows private models only".
+- **Who sets what.** Workspace admins (and the `xbin:users` capability):
+  the bounds (`PUT /agents/policy`) and any org's rules
+  (`PUT /orgs/<org>/agents`). An admin of an org: their own org's rules —
+  in their own session only. A tile driven by them, a terminal's token and
+  an agent session's token are refused, so a coding agent can't widen the
+  rules it runs under; viewing as someone sets nothing. Members read the
+  rules where they apply (the connection view, the refusal's reason).
+- **An org only narrows.** A list entry the bounds don't cover is refused
+  when it is written, for a workspace admin too. Bounds tightened later
+  need no rewrite of the orgs: each call is asked against both.
+- **A rule decides what starts next.** A session already running is never
+  ended; it can't be restarted or, once ended, resumed while its harness is
+  disallowed (the refusal says why, and the transcript stays readable).
+  `GET /agent/providers?cwd=<tile>` lists what may start there.
+- **`private` is the connector's word.** Whether a model's upstream is
+  private is the LLM connector's configuration; no caller can claim it.
+- **What it is not.** The harness list governs the agent sessions xbind
+  starts. Someone with a terminal on the tile can still run any CLI they
+  install there: a terminal's reach is governed by access levels and
+  network sets, as before.
+
+Each person also keeps **agent preferences** (`GET`/`PUT /agent/prefs`):
+what their sessions start with, and whether their workspace agent may start
+a tile agent session without asking (default: it asks) and with which mode,
+network and tile-API access. Only the person's own session reads or writes
+them — never a tile, a terminal, an agent session, the root token or
+view-as — and the workspace agent is handed them by xbind and can't change
+them. `bx org agents`, the admin console's organisations tab and
+[protocol/orgs.md](/docs/protocol/orgs.md) §Agent constraints have the
+detail.
+
 **Permission sets (D28).** Named, reusable `{allow, policy, termApi,
 termNet}` bundles attached to orgs *by reference* (`sets: […]`, multiple per
 org): effective allowance = union(sets)∪extras; set ceiling rows join the
