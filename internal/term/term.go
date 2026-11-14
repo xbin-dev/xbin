@@ -72,6 +72,7 @@ type Session struct {
 	target  sessionTarget // the target deployment, fixed at start (target.go)
 	part    sessionPart   // its partition on a partitioned tile, fixed at start (partition.go)
 	purpose string        // "" or PurposeSignin, fixed at start (purpose.go)
+	origin  string        // "" or OriginAgent: opened by its person's workspace agent (agent.go), fixed at start
 
 	// hub is the session's side of the /ws/term wire: its scrollback, the
 	// attached sockets, the last activity (the reaper's clock) and the exit.
@@ -329,6 +330,7 @@ type openOpts struct {
 	target     sessionTarget     // the target deployment (pickTarget, target.go)
 	part       sessionPart       // the partition on a partitioned tile (pickPartition, partition.go)
 	purpose    string            // "" or PurposeSignin: a guided sign-in's shell (purpose.go)
+	origin     string            // "" or OriginAgent (agent.go)
 }
 
 // prepare is the part of opening a session that both kinds share: the cwd,
@@ -428,7 +430,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
 		cleanup: cleanup, relay: rl, envKey: envKey, homeKey: o.homeKey, token: token,
 		baseOld: m.layerOutdated(envKey), gpu: o.gpu, api: o.api, target: o.target, part: o.part,
-		purpose: o.purpose, name: nameFor(o.purpose),
+		purpose: o.purpose, name: nameFor(o.purpose), origin: o.origin,
 		born: time.Now(), hub: termwire.NewHub(maxScrollback),
 	}
 	// before the PTY's first byte (pump hasn't started): this start moved the

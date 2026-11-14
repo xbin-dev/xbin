@@ -244,6 +244,8 @@ func (b *Broker) Route(p auth.Principal, target *registry.Component, qualifier s
 func (b *Broker) routeDeployment(p auth.Principal, target *registry.Component, qualifier string) Decision {
 	t := target.Path
 	switch {
+	case p.Agent != "" || p.Via == "delegate":
+		return b.routeDelegate(p, target, qualifier) // a person's workspace agent (delegation.go)
 	case isDelivery(p):
 		dep := cmp.Or(p.Deployment, util.MainDeployment)
 		switch {

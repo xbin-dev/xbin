@@ -47,6 +47,9 @@ type Server struct {
 	Brand *branding.Store
 	// Settings is the workspace settings file (D175, wssettings.go); nil = none.
 	Settings *wssettings.Store
+	// DelegateLog is the per-person audit log of delegate calls
+	// (delegate.go); nil = none kept.
+	DelegateLog DelegateLog
 
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.

@@ -199,6 +199,10 @@ func (b *Broker) addressedPartition(p auth.Principal, tile string) (util.Partiti
 		// anonymous principal
 		refused := fmt.Errorf("sign in as a person: %s keeps each person's data apart", tile)
 		switch {
+		case p.UserID != "" && p.Agent != "" && b.Policies().PartitionConsent && !partitionConsentHolds(b, p.UserID, p.Agent, tile):
+			// their workspace agent (delegation.go) is another tile's code
+			// reaching their data: it needs their consent like any other
+			return "", fmt.Errorf("%s hasn't let %s use their %s data (they allow it at /xbin/partitions)", p.UserID, p.Agent, tile)
 		case p.UserID != "":
 			return b.userPartition(p.UserID, tile)
 		case !own && !p.Owner:

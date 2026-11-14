@@ -39,3 +39,18 @@ func (a *Auth) TestExpireWebTickets() {
 		}
 	}
 }
+
+// TestSealDelegate marks component as a sealed system component holding
+// delegation (delegate.go) until the returned function runs. Test-only: the
+// daemon's table is compiled in.
+func TestSealDelegate(component string) (restore func()) {
+	prev, had := sealedDelegates[component]
+	sealedDelegates[component] = true
+	return func() {
+		if had {
+			sealedDelegates[component] = prev
+		} else {
+			delete(sealedDelegates, component)
+		}
+	}
+}

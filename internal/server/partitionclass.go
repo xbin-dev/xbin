@@ -134,7 +134,7 @@ func (s *Server) partitionGate(r2 *http.Request) (*http.Request, http.HandlerFun
 	if class == PersonOnly {
 		// a person's own session, app or device credential only: never a
 		// tile's, view-as, or one that names no person (the root token)
-		if p.Component != "" || p.Impersonator != "" || p.UserID == "" {
+		if p.Component != "" || p.Impersonator != "" || p.UserID == "" || p.Agent != "" { // nor their workspace agent (delegate.go)
 			return r2, refusal(http.StatusForbidden, "this is a person's own act: sign in and do it yourself — a tile's credentials can't")
 		}
 		return r2, nil

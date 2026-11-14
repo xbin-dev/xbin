@@ -72,6 +72,10 @@ func (s *Server) RegisterPublicAPI(pattern string, h http.HandlerFunc) {
 func (s *Server) authedAPI(next http.Handler) http.Handler {
 	gated := s.authed(next)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if auth.IsDelegateRequest(r) { // a person's workspace agent: its own gate, whatever else r carries (delegate.go)
+			s.serveDelegate(w, r, next)
+			return
+		}
 		if isPathTicket(r) { // its own credential, in the path (pathticket.go, D135)
 			s.servePathTicket(w, r, "")
 			return
