@@ -10,6 +10,25 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-14
+
+- **Frontend kit: one markdown renderer for untrusted text, and tiles may
+  import it** (D224; [frontend-kit.md](/docs/frontend-kit.md)).
+  `/vendor/bx-md.js` — the Agent tab's and the screen text blocks' renderer
+  — moves from the shell-only modules to the ones a tile may import: `md`,
+  `mdInto`, `mdCssText`, and new `closedFence`, `mdEpoch`, `onHighlighter`.
+  New `/vendor/chat/md.js` is the same renderer without the code highlighter
+  up front (it is imported on the first fence that needs it; code is plain
+  until then), and new `/vendor/chat/rev.js` exports `KIT`, the revision of
+  the chat kit this xbind serves, for a page that must check before it
+  imports the kit. The renderer has a marked instance of its own: xbind's
+  modules no longer change the `marked` a document imports from
+  `/vendor/marked.esm.js`. One change in what it draws, in the Agent tab
+  and in a screen's text: a code fence counts as closed (and is coloured)
+  only when its last line is a fence of the same character at least as long
+  as the opening one — a block still being written whose last line was a
+  shorter or different fence used to be coloured early.
+
 ## 2026-11-09
 
 - **Agent template Projects: a new project is made in a wizard, and can
