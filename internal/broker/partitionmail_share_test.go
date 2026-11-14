@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -52,9 +51,8 @@ func TestMailStartKeepsBackoff(t *testing.T) {
 	pk := util.PartitionKey("alice", uid)
 	var mu sync.Mutex
 	var at []time.Time
-	var done atomic.Bool // the test is over: a ring in flight starts nothing (its record would land in a removed TempDir)
 	calls := fakeMailDispatch(t, b, func(c bellCall) int {
-		if c.p.Partition == util.UserPartition("alice") && !done.Load() {
+		if c.p.Partition == util.UserPartition("alice") {
 			mu.Lock()
 			at = append(at, time.Now())
 			mu.Unlock()
@@ -137,12 +135,8 @@ func TestMailStartKeepsBackoff(t *testing.T) {
 		t.Errorf("a new item kept the backoff at its last step: %+v", bl)
 	}
 	ms.bellMu.Unlock()
-	// stop ringing: a ring in flight may still start her partition (and arm
-	// a bell again) once, so forget the bells again after it had its moment
-	done.Store(true)
-	b.forgetBellsOf("apps/pg")
-	time.Sleep(50 * time.Millisecond)
-	b.forgetBellsOf("apps/pg")
+	// a ring still in flight may start her partition once more and write its
+	// record: the broker's close (the fixture's cleanup) waits for it
 }
 
 // covers S20 04§3 — the global inbox is every person's to mail, so each

@@ -2,20 +2,32 @@
 // (test/terminal.mjs, test/harness-term.mjs): the terminal element and its
 // pieces served at /vendor/ as xbind serves them (serveTerminal), and a
 // fake of the manager's tty WebSocket in the page (FAKE_TTY).
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const web = process.env.BX_WEB || join(here, '..', '..', '..', 'web');
 
-// serveTerminal(ctx): /vendor/bx-terminal.js and every module and asset it loads.
+// serveTerminal(ctx): /vendor/bx-terminal.js and every module, script and
+// sheet it loads — found by following the quoted '/vendor/…' references from
+// the element's own source, so a module xbind's terminal gains is served
+// with no list here to fall behind (one did: the pane then never opened).
+// The kit and the glyphs are serveKit's (kit.mjs).
 export async function serveTerminal(ctx) {
-  const vendorFile = { 'bx-terminal.js': join(web, 'bx-terminal.js'), 'bx-scroll.js': join(web, 'bx-scroll.js'), 'term-predict.js': join(web, 'term-predict.js'),
-    'term-src.js': join(web, 'term-src.js'), 'term-links.js': join(web, 'term-links.js'),
-    'xterm.js': join(web, 'vendor', 'xterm.js'), 'addon-fit.js': join(web, 'vendor', 'addon-fit.js'),
-    'addon-web-links.js': join(web, 'vendor', 'addon-web-links.js'), 'xterm.css': join(web, 'vendor', 'xterm.css') };
-  for (const [name, file] of Object.entries(vendorFile)) {
+  const kits = new Set(['bx-kit.js', 'bx-icons.js']);
+  const files = new Map();
+  const walk = (name) => {
+    if (files.has(name) || kits.has(name)) return;
+    const own = join(web, name);
+    const file = existsSync(own) ? own : join(web, 'vendor', name);
+    if (!existsSync(file)) return;
+    files.set(name, file);
+    if (file !== own || !name.endsWith('.js')) return; // a vendored library or a sheet: it loads nothing of xbind's
+    for (const m of readFileSync(file, 'utf8').matchAll(/['"`]\/vendor\/([\w./-]+)['"`]/g)) walk(m[1]);
+  };
+  walk('bx-terminal.js');
+  for (const [name, file] of files) {
     await ctx.route(`**/vendor/${name}`, (r) => r.fulfill({ contentType: name.endsWith('.css') ? 'text/css' : 'text/javascript', body: readFileSync(file, 'utf8') }));
   }
 }

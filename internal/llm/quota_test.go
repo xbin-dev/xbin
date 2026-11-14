@@ -122,10 +122,10 @@ func TestMeterPersistsAndRolls(t *testing.T) {
 	m := newMeter(dir, log)
 	u := sdkllm.Usage{InputTokens: 100, OutputTokens: 50, CachedTokens: 40, ReasoningTokens: 10, TotalTokens: 150}
 	d1 := time.Date(2026, 11, 30, 23, 0, 0, 0, time.UTC)
-	m.record(d1, "ann", "apps/agent", "main/gpt-5", u, 0.25, true, false)
-	m.record(d1, "ann", "apps/agent", "main/gpt-5", u, 0.25, true, false)
-	m.record(d1, "ann", "", "main/local", u, 0, false, false)                   // no price: unpriced
-	m.record(d1, "", "apps/cron", "main/gpt-5", sdkllm.Usage{}, 0, false, true) // failed, nobody acting
+	recordUsage(m, d1, "ann", "apps/agent", "main/gpt-5", u, 0.25, true, false)
+	recordUsage(m, d1, "ann", "apps/agent", "main/gpt-5", u, 0.25, true, false)
+	recordUsage(m, d1, "ann", "", "main/local", u, 0, false, false)                   // no price: unpriced
+	recordUsage(m, d1, "", "apps/cron", "main/gpt-5", sdkllm.Usage{}, 0, false, true) // failed, nobody acting
 	person, ws := m.windows(d1, "ann")
 	if person != (window{dayTokens: 450, monthTokens: 450, dayCost: 0.5, monthCost: 0.5}) || ws != person {
 		t.Errorf("windows: %+v, %+v", person, ws)
@@ -135,10 +135,10 @@ func TestMeterPersistsAndRolls(t *testing.T) {
 	if person, ws := m.windows(d2, "ann"); person != (window{}) || ws != (window{}) {
 		t.Errorf("after the month rolled: %+v, %+v", person, ws)
 	}
-	m.record(d2, "ann", "", "main/gpt-5", u, 1, true, false)
+	recordUsage(m, d2, "ann", "", "main/gpt-5", u, 1, true, false)
 	m.close()
 	// a call that ends while xbind stops is still saved
-	m.record(d2, "late", "", "main/gpt-5", u, 0, false, false)
+	recordUsage(m, d2, "late", "", "main/gpt-5", u, 0, false, false)
 	if raw, _ := os.ReadFile(filepath.Join(dir, "2026-12.json")); !strings.Contains(string(raw), `"late"`) {
 		t.Errorf("a count after close was not written: %s", raw)
 	}
@@ -188,7 +188,7 @@ func TestMeterPersistsAndRolls(t *testing.T) {
 	}
 	m3 := newMeter(dir, log)
 	jan := time.Date(2027, 1, 5, 0, 0, 0, 0, time.UTC)
-	m3.record(jan, "ann", "", "main/gpt-5", u, 0, false, false)
+	recordUsage(m3, jan, "ann", "", "main/gpt-5", u, 0, false, false)
 	if person, _ := m3.windows(jan, "ann"); person.dayTokens != 150 {
 		t.Errorf("a broken month still counts in memory: %+v", person)
 	}
@@ -201,7 +201,7 @@ func TestMeterPersistsAndRolls(t *testing.T) {
 		t.Fatal(err)
 	}
 	m4 := newMeter(dir, log)
-	m4.record(time.Date(2027, 2, 1, 0, 0, 0, 0, time.UTC), "ann", "", "main/gpt-5", u, 0, false, false)
+	recordUsage(m4, time.Date(2027, 2, 1, 0, 0, 0, 0, time.UTC), "ann", "", "main/gpt-5", u, 0, false, false)
 	m4.close()
 	if _, err := os.Stat(filepath.Join(dir, "2020-01.json")); err == nil {
 		t.Error("a month older than the retention stayed")
@@ -298,4 +298,18 @@ func TestUsageScopes(t *testing.T) {
 			t.Errorf("PUT /llm/quotas %v: %d %s", bad, a.code, a.body)
 		}
 	}
+}
+
+// recordUsage counts one call the way account does.
+func recordUsage(m *meter, now time.Time, user, component, model string, u sdkllm.Usage, cost float64, priced, failed bool) {
+	c := Counters{Requests: 1, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, CachedTokens: u.CachedTokens, ReasoningTokens: u.ReasoningTokens}
+	switch {
+	case failed:
+		c.Failed = 1
+	case priced:
+		c.Cost = cost
+	case !u.Zero():
+		c.Unpriced = 1
+	}
+	m.record(now, user, component, model, c)
 }

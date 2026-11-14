@@ -43,6 +43,11 @@ async function open(me) {
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${ORIGIN}/`);
+  // the page's load isn't the app's: boot.js loads agent.js after asking
+  // which xbind this is (D224), so a click right now meets a gear nobody
+  // listens to yet. The list is read once /me answered (model/app.js
+  // start): by then the gear is wired and the tabs know who asks
+  await page.waitForFunction(() => window.__calls.some((c) => /\/conversations\?/.test(c.url)));
   return { page, errors, ctx };
 }
 const calls = (page, method, re) => page.evaluate(([m, s]) => window.__calls.filter((c) => c.method === m && new RegExp(s).test(c.url))

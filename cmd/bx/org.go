@@ -25,17 +25,20 @@ import (
 //	                        [--set '<json>']          IdP-group → membership rules (D53)
 //	bx org rm  <id>
 //	bx org policy [<org>] [--set '<rows json>']
+//	bx org agents [<org>] [--workspace-agent on|off] [--harnesses …] [--models …]   (D229, orgagents.go)
 //	bx owner <tile> [--transfer user:<id>|org:<id>|workspace]
 //	bx permset ls | set <name> [--allow a,b] [--policy '<json>']
 //	                 [--term-api[=false]] [--term-net[=false]] | rm <name>
 
 func cmdOrg(args []string) error {
 	if len(args) < 1 {
-		return fmt.Errorf("usage: bx org ls | add <id> [flags] | set <id> [flags] | member <org> … | sso-groups <org> … | rm <id> | policy [<org>] [--set '<json>']")
+		return fmt.Errorf("usage: bx org ls | add <id> [flags] | set <id> [flags] | member <org> … | sso-groups <org> … | rm <id> | policy [<org>] [--set '<json>'] | limits <org> … | agents [<org>] …")
 	}
 	switch args[0] {
 	case "limits": // per-tile resource ceilings (D203; limits.go)
 		return dcCommand(cmdOrgLimits)(args[1:])
+	case "agents": // constraints on agents (D229; orgagents.go)
+		return dcCommand(cmdOrgAgents)(args[1:])
 	case "ls":
 		orgs, err := fetchOrgs()
 		if err != nil {

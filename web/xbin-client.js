@@ -37,6 +37,9 @@
  *   xbin.notify(level,msg) — one-shot user notification (toast)
  *   xbin.copy({text,html}) — copy to the person's clipboard, text and HTML
  *                             (the embedder writes it; → Promise<boolean>)
+ *   xbin.openSession({tile, session}) — show one of the person's terminal or
+ *                             agent sessions in its tile's window
+ *                             (→ Promise<boolean>: whether it was shown)
  *   xbin.meta({title, icon, badge}) — what the shell shows for this tile
  *                             while this page is open (D194): a title in
  *                             place of its name (beside its path), an icon
@@ -384,6 +387,26 @@ function copy({ text = '', html = '' } = {}) {
   });
 }
 
+// xbin.openSession({tile, session}) → Promise<boolean> (D229): ask the
+// workspace to show one of the person's sessions — an agent session this
+// tile started for them, say — in its tile's terminal window: the tab of a
+// live one, the transcript of one that ended. `tile` defaults to this
+// tile. Resolves true when the workspace showed it (or followed the link to
+// its tile), false when it couldn't — the session isn't the viewer's or is
+// gone, the page isn't in a workspace shell (the app, a bare tab), or
+// nothing answered within 3 s. Call it from a click: where the workspace
+// has to follow a link to get there, it only does so on one. The window
+// lists the viewer's own sessions, so asking grants nothing.
+function openSession({ tile = self, session = '' } = {}) {
+  if (!embedded || appBridge) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const id = nextId();
+    const t = setTimeout(() => { pending.delete(id); resolve(false); }, 3000);
+    pending.set(id, (ok) => { clearTimeout(t); resolve(!!ok); });
+    window.parent.postMessage({ type: 'xbin:open-session', id, tile: String(tile), session: String(session) }, PARENT);
+  });
+}
+
 // xbin.dialog(spec) → Promise<{button, values}>. Shell-rendered trusted modal
 // (title/message/fields/buttons — plain data, no markup). Resolves with the
 // clicked button's value (null on dismiss) and the field values. Falls back to
@@ -620,4 +643,4 @@ if (document.querySelector('link[rel~="stylesheet"][href*="/vendor/theme.css"]')
 // /vendor/xb-native.js adds the methods (docs/frontend-kit.md).
 const nativeApi = (window.xbin && typeof window.xbin.native === 'object' && window.xbin.native) || (meta('xbin-native') ? {} : null);
 
-window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, copy, status, clearStatus, notify, meta: setMeta, ...(deployment ? { deployment } : {}), ...(partition ? { partition } : {}), ...(nativeApi ? { native: nativeApi } : {}) });
+window.xbin = Object.freeze({ self, iface, fetch: bfetch, ws: bws, url: burl, download, bus, events, dialog, window: openWindow, copy, openSession, status, clearStatus, notify, meta: setMeta, ...(deployment ? { deployment } : {}), ...(partition ? { partition } : {}), ...(nativeApi ? { native: nativeApi } : {}) });

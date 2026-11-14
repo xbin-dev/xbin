@@ -15,6 +15,7 @@
  * says which xbind it needs instead of failing on a missing export.
  *
  *   1  /vendor/chat/md.js; /vendor/bx-md.js gains closedFence, mdEpoch and
- *      onHighlighter
+ *      onHighlighter; /vendor/chat/blocks.js: the block model (kinds, the
+ *      tool record, keys and versions, nesting)
  */
 export const KIT = 1;

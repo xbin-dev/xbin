@@ -289,6 +289,15 @@ element showing eg aggregate numbers)".
   the person starts a new session. Notebook pages carry their org and are
   not injected or readable outside the scope.
 
+Landed (D229, package B3b): `Org.Agents` and the workspace's bounds, the
+policy engine (`internal/agentpolicy`), the gates the delegation package
+calls (`Broker.WorkspaceAgentGate`, `Broker.AgentHarnessGate`), the
+connection view with its totals and `whatIf` (`GET /agents/connection`),
+the harness list on sessions people start, server-side agent preferences
+(`internal/agentprefs`), `origin`, and `open({session})` with its link.
+Open: the picker, chip and panel (D, E); the engine's model-change rule
+and notebook scoping (C); wiring the delegate gate (B3a).
+
 ### 5.7 Harness credentials (decided: connector by default + sign-ins held by xbind)
 - Harnesses that accept a custom endpoint use the connector with no sign-in
   (5.4).

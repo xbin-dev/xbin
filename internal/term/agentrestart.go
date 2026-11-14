@@ -44,6 +44,11 @@ func (m *Manager) RestartAgentOnto(p auth.Principal, id, net, gpu string, api bo
 	s.mu.Lock()
 	name, inVM := s.name, s.vm
 	s.mu.Unlock()
+	// a harness the tile's orgs no longer allow can't open again: refused
+	// before the session ends, so it keeps running as it is (D229)
+	if err := m.HarnessAllowed(p, s.Cwd, provider); err != nil {
+		return SessionInfo{}, false, 403, fmt.Errorf("this session keeps running, but can't restart: %w", err)
+	}
 	if vm != nil {
 		inVM = *vm // nil keeps the session's sandbox kind
 	}

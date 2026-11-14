@@ -30,7 +30,19 @@ import (
 //
 // A quota is checked before a call starts, against what is already
 // metered: a call in flight finishes, so a limit can be passed by the calls
-// running when it is reached.
+// running when it is reached — by at most what the caller's concurrency
+// cap (Settings.Concurrency) lets run at once.
+//
+// What the host's file sets is a ceiling. Its default holds every user and
+// org entry an admin writes (resolve); its users, orgs and workspace parts
+// are locked whole.
+//
+// Cost limits count the calls whose model has a price: the upstream's
+// price table (a "*" entry prices every model it doesn't name), else what
+// the provider reported. A call on a model without any price counts as
+// unpriced, for nothing toward a cost limit — token limits still hold it —
+// and the connector raises one admin alert while cost limits are in force
+// and such calls exist (alerts.go).
 
 // Quota is a set of limits. A limit of 0 says nothing (the next source
 // decides); Unlimited (-1) lifts it.
@@ -59,6 +71,13 @@ type QuotaRules struct {
 	Default   *Quota           `json:"default,omitempty"`   // each person
 	Users     map[string]Quota `json:"users,omitempty"`
 	Orgs      map[string]Quota `json:"orgs,omitempty"`
+
+	// What the host's file set (merge fills these; they are not stored).
+	// ceiling is the host's default: the most any entry an admin wrote can
+	// give. hostUsers and hostOrgs say the Users or Orgs in force are the
+	// host's own, which the ceiling doesn't hold — the host wrote them.
+	ceiling             *Quota
+	hostUsers, hostOrgs bool
 }
 
 func (q Quota) validate(what string) error {
@@ -107,7 +126,7 @@ func (r QuotaRules) validate() error {
 }
 
 func (r QuotaRules) clone() QuotaRules {
-	out := QuotaRules{Users: cloneMap(r.Users), Orgs: cloneMap(r.Orgs)}
+	out := QuotaRules{Users: cloneMap(r.Users), Orgs: cloneMap(r.Orgs), ceiling: r.ceiling, hostUsers: r.hostUsers, hostOrgs: r.hostOrgs}
 	if r.Workspace != nil {
 		q := *r.Workspace
 		out.Workspace = &q
@@ -193,10 +212,33 @@ func (r QuotaRules) resolve(user string, orgs []string) []Limit {
 		}
 		return a
 	}
+	// The host's default is a ceiling over what an admin wrote: a user or
+	// org entry of the admin's that is lower narrows a person's limit (and
+	// may only warn at its own value); one that is higher, or unlimited,
+	// gives nothing. Either way the ceiling itself still applies, with the
+	// host's action. The host's own user and org entries are not held by it.
+	ceilAction := ActionStop
+	if r.ceiling != nil && r.ceiling.Action != "" {
+		ceilAction = r.ceiling.Action
+	}
 	var out []Limit
 	for _, name := range limitNames {
+		ceil := 0.0
+		if r.ceiling != nil && r.ceiling.limit(name) > 0 {
+			ceil = r.ceiling.limit(name)
+		}
+		// held: v is what an entry of the admin's asks for under a ceiling
+		held := func(src *source, v float64, unlimited bool) {
+			if !unlimited && v < ceil {
+				out = append(out, Limit{Name: name, Value: v, Source: src.name, Action: action(src)})
+			}
+			out = append(out, Limit{Name: name, Value: ceil, Source: "default", Action: ceilAction})
+		}
 		if own != nil && own.q.limit(name) != 0 {
-			if v := own.q.limit(name); v != Unlimited {
+			switch v := own.q.limit(name); {
+			case ceil > 0 && !r.hostUsers:
+				held(own, v, v == Unlimited)
+			case v != Unlimited:
 				out = append(out, Limit{Name: name, Value: v, Source: own.name, Action: action(own)})
 			}
 			continue
@@ -206,18 +248,26 @@ func (r QuotaRules) resolve(user string, orgs []string) []Limit {
 			switch v := orgSrc[i].q.limit(name); {
 			case v == Unlimited:
 				unlimited = true
+				if bestSrc == nil {
+					bestSrc = &orgSrc[i]
+				}
 			case v > best:
 				best, bestSrc = v, &orgSrc[i]
 			}
 		}
-		if unlimited {
-			continue
-		}
 		if bestSrc != nil {
-			out = append(out, Limit{Name: name, Value: best, Source: bestSrc.name, Action: action(bestSrc)})
+			switch {
+			case ceil > 0 && !r.hostOrgs:
+				held(bestSrc, best, unlimited)
+			case !unlimited:
+				out = append(out, Limit{Name: name, Value: best, Source: bestSrc.name, Action: action(bestSrc)})
+			}
 			continue
 		}
-		if def != nil && def.q.limit(name) > 0 {
+		switch {
+		case ceil > 0:
+			out = append(out, Limit{Name: name, Value: ceil, Source: "default", Action: ceilAction})
+		case def != nil && def.q.limit(name) > 0:
 			out = append(out, Limit{Name: name, Value: def.q.limit(name), Source: def.name, Action: action(def)})
 		}
 	}

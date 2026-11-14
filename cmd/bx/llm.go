@@ -23,17 +23,20 @@ import (
 func init() { moreCmds["llm"] = cmdLLM }
 
 const llmUsage = `  bx llm [status] [--json]              the LLM connector: upstreams, default models, your quota
-  bx llm upstream add <name> <base-url> [--key-file <f> | --key-stdin | --key <k>]
+  bx llm upstream add <name> <base-url> [--key-file <f> | --key-stdin | --no-key]
                  [--models a,b] [--private] [--price <model>=<in>:<out>[:<cached-in>]]…
                                         add a provider (the key goes to the vault; it is
-                                        asked for when no --key… is given: Enter for none)
+                                        asked for when no --key… is given: Enter for none;
+                                        never on the command line). --price '*=…' prices
+                                        every model the upstream has no price for
   bx llm upstream set <name> [--url <u>] [--key…|--no-key] [--models a,b|--any-model]
                  [--private|--public] [--price …]
   bx llm upstream rm <name> | test <name> [<model>]
   bx llm models [--json]                the models offered (<upstream>/<model>, aliases)
   bx llm default [set <model> [--role agent|harness|…] | unset [--role <role>]]
   bx llm alias [set <alias> <model> | rm <alias>]      "*" catches every unknown model name
-  bx llm on | off | people admins|everyone|nobody
+  bx llm on | off | people admins|everyone|nobody | concurrency <n>
+                                        concurrency: calls one caller may have in flight
   bx llm sessions [harnesses=own-first|connector|off] [terminals=on|off] [openai-env=on|off]
                                         what coding agents and terminals get of it
   bx llm usage [--month] [--from <day>] [--to <day>] [--user <id>] [--component <tile>] [--json]
@@ -108,9 +111,11 @@ type llmConfig struct {
 		LockAll bool   `json:"lockAll"`
 		Error   string `json:"error"`
 	} `json:"host"`
-	Vault      string   `json:"vault"`
-	Problems   []string `json:"problems"`
-	StoreError string   `json:"storeError"`
+	Vault       string   `json:"vault"`
+	Problems    []string `json:"problems"`
+	StoreError  string   `json:"storeError"`
+	Concurrency int      `json:"concurrency"`
+	Notices     []string `json:"notices"`
 }
 
 type llmLimit struct {
@@ -223,6 +228,12 @@ func cmdLLM(args []string) error {
 		return llmPutConfig(map[string]any{"people": pos[1]})
 	case "sessions":
 		return llmSessionsCmd(pos[1:], usage)
+	case "concurrency":
+		n, err := strconv.Atoi(strings.Join(pos[1:], " "))
+		if err != nil {
+			return usage
+		}
+		return llmPutConfig(map[string]any{"concurrency": n})
 	case "usage":
 		return llmUsageCmd(pos[1:], jsonOut)
 	case "quota", "quotas":
@@ -324,6 +335,9 @@ func printLLMConfig(v llmConfig) {
 		fmt.Printf("  ! %s\n", v.StoreError)
 	}
 	fmt.Printf("  people who may call directly: %s%s\n", v.People, lock("people"))
+	if v.Concurrency > 0 {
+		fmt.Printf("  calls in flight per caller: %d%s\n", v.Concurrency, lock("concurrency"))
+	}
 	printLLMSessions(v.Sessions, lock)
 	if v.Vault != "open" && v.Vault != "" {
 		fmt.Printf("  vault: %s\n", v.Vault)
@@ -367,6 +381,9 @@ func printLLMConfig(v llmConfig) {
 	}
 	for _, p := range v.Problems {
 		fmt.Printf("  ! %s\n", p)
+	}
+	for _, n := range v.Notices {
+		fmt.Printf("  note: %s\n", n)
 	}
 }
 
@@ -433,9 +450,11 @@ func llmUpstreamCmd(args []string) error {
 		} else if u := one("--url"); u != "" {
 			body["baseURL"] = u
 		}
+		if _, given := vals["--key"]; given {
+			// a key on the command line is in the shell's history and in every process listing
+			return errors.New("bx llm takes no key on the command line: pass --key-file <file> or --key-stdin, or run it without one and type the key when asked")
+		}
 		switch {
-		case one("--key") != "":
-			body["key"] = one("--key")
 		case one("--key-file") != "":
 			b, err := os.ReadFile(one("--key-file"))
 			if err != nil {

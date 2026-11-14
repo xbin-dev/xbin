@@ -51,7 +51,12 @@ GET    /term/sessions             authenticated. the caller's live terminal
                                    row with that purpose (never an agent
                                    row, and never by its name). Such a
                                    session is named xbin:sign-in and ends
-                                   15 minutes after it opened
+                                   15 minutes after it opened. A row with
+                                   origin:"agent" (set by xbind only;
+                                   absent on a session its person opened)
+                                   is one the person's workspace agent
+                                   started for them (D229). It is the
+                                   person's session in every other way
 PATCH  /term/sessions/<id>        creator or admin (on a partitioned tile
                                    the creator only: 403 for an admin on
                                    another person's session). {name}: name
@@ -63,7 +68,15 @@ PATCH  /term/sessions/<id>        creator or admin (on a partitioned tile
 GET    /agent/providers?cwd=<tile>
                                    authenticated. cwd is optional. the coding agents this daemon
                                    runs: [{id,name,modes:[{id,name,explicit?}],
-                                   defaultMode,login,signin?,llm?}] (D74; explicit
+                                   defaultMode,login,signin?,llm?}] — with
+                                   ?cwd=<tile> (one the caller can read),
+                                   only the harnesses that tile's orgs and
+                                   the workspace allow (D229,
+                                   protocol/orgs.md §Agent constraints):
+                                   what a launcher offers there; [] when
+                                   none is. Without cwd, or for a tile the
+                                   caller can't read, the whole catalog
+                                   (D74; explicit
                                    modes are never defaults; login is the
                                    shell command that signs the CLI in — the
                                    agent uses the session's $HOME, no vault
@@ -137,7 +150,14 @@ POST   /term/sessions             terminal-level on the tile (a shell's own
                                    it has no wire for, a session without
                                    network), 400 another word. 400 unknown
                                    provider/mode, 403, 409 per-user limit,
-                                   503 vault sealed / no bx. net/api/gpu:
+                                   503 vault sealed / no bx. 403 with the
+                                   reason when the tile's orgs or the
+                                   workspace don't allow the harness
+                                   ("Finance allows these coding agents
+                                   only: claude, codex (not gemini)", D229)
+                                   — a resume of a past session of such a
+                                   harness too; its transcript stays
+                                   readable. net/api/gpu:
                                    the sandbox pickers a shell's socket
                                    takes (api false = code-only, no
                                    terminal token). Shells still open on
@@ -250,7 +270,11 @@ POST   /term/sessions/<id>/restart
                                    agent can (session/load; resumed true,
                                    its history entry superseded), else
                                    fresh (the transcript stays in
-                                   /agent/history).
+                                   /agent/history). 403 with the reason,
+                                   and the session keeps running, when its
+                                   harness is no longer allowed on the tile
+                                   (D229): a restart would end it and could
+                                   not open it again.
                                    ?deployment=<name>: restart onto that
                                    target (the primary's name follows the
                                    primary; 403 a protected primary, 404
@@ -351,7 +375,9 @@ GET    /term/sessions/<id>/diff   creator or admin. ?toolCallId=<id> |
 GET    /agent/history             terminal-level. Your past agent sessions,
                                    newest first: [{id, cwd, provider, mode,
                                    name, created, ended, turns, preview,
-                                   loadable}] — the transcripts kept when a
+                                   loadable, origin?}] (origin "agent":
+                                   your workspace agent started it) — the
+                                   transcripts kept when a
                                    session ended or the daemon stopped (per
                                    user × tile, the newest 20 per tile;
                                    never-prompted sessions are not kept).
@@ -370,7 +396,101 @@ GET    /agent/history/<id>/events terminal-level (own). {meta, events} — the
                                    ?before=&limit= → {meta, …a page} as on a
                                    live session
 DELETE /agent/history/<id>        terminal-level (own) → 204 (forget it)
+GET    /agent/prefs               a person's own session, app or device
+                                   (403 a tile's credentials, a terminal's
+                                   or an agent session's token, view-as,
+                                   the root token). your agent preferences
+                                   (D229; §Agent preferences below),
+                                   defaults filled in
+PUT    /agent/prefs               the same callers. a JSON merge patch (RFC
+                                   7386) of them → the preferences now;
+                                   400 says what was refused
+GET    /agents/connection         a person, for themselves — their session,
+                                   app, device or workspace agent; 403 a
+                                   tile's credentials. what a workspace
+                                   agent session is connected to (D229;
+                                   §The connection view below).
+                                   ?model=<upstream/model>&orgs=&tiles=
+                                   &whatIf=<upstream/model>
 ```
+
+### Agent preferences
+
+What a person's agent sessions start with, kept by xbind per person
+(before D229 the tile window kept its part in the browser):
+
+```jsonc
+{"harness": "claude",                 // the harness a new agent session starts with ("" none yet)
+ "lastKind": "agent",                 // the launcher's last choice: "shell" | "agent" | ""
+ "harnesses": {                       // per harness id, what a session of it starts with
+   "claude": {"mode": "acceptEdits",  //   a mode of the harness, never an explicit (bypass) one
+              "model": "opus",        //   the model option's value
+              "options": {"effort": "high"},   // the agent's other settings, by option id
+              "credentials": "own"}}, //   "own" | "connector"; absent: the workspace's default
+ "agentSessions": {                   // sessions your workspace agent starts on tiles
+   "start": "ask",                    //   "ask" (default): it asks you first | "allow"
+   "modes": {"claude": "plan"},       //   per harness; absent: the harness's asking mode. Only modes
+                                      //   xbind knows keep asking (never an explicit one)
+   "net": "none",                     //   the network picker's value; absent: the default network
+   "api": true}}                      //   tile-API access; absent: yes
+```
+
+`PUT` merges: `{"harnesses": {"claude": {"options": {"effort": null}}}}`
+removes one option and leaves the rest. A client applies `harnesses` itself
+when it opens a session (`POST /term/sessions {mode, model, options}`);
+xbind never starts a person's own session in a saved mode by itself.
+`agentSessions` is read by xbind when the person's workspace agent starts a
+session — the agent can't read or write these routes — and checked again
+on every read: a stored mode this xbind doesn't know to keep asking is
+replaced by the harness's asking mode. `credentials` follows the
+precedence rule: the session's own choice, then this saved default, then
+the workspace's (`GET /agents/policy`) — unless the workspace forces the
+connector. A user id given to a new person keeps the launcher's
+conveniences and resets `agentSessions`.
+
+### The connection view
+
+`GET /agents/connection` lists every org the caller has to do with and
+every tile they can read, as one workspace agent session would see them:
+
+```jsonc
+{"model": {"upstream": "hosted", "model": "big", "private": false},
+ "scope": {"orgs": [], "tiles": []},
+ "bounds": {"workspaceAgent": "on", "harnesses": "any", "models": "any"},
+ "orgs": [{"id": "finance", "name": "Finance", "kind": "org",        // kind "workspace": the tiles in no org (id "workspace")
+           "state": "blocked", "reason": "Finance allows private models only", "rule": "models",
+           "tiles": 2, "connected": 0,                               // connected < tiles: partly connected
+           "rules": {"workspaceAgent": "on", "harnesses": "any", "models": "private"}}],
+ "tiles": [{"tile": "apps/ledger", "name": "Ledger", "org": "finance",   // org: the group it is listed under
+            "orgs": ["eng", "finance"],                              // every org whose rules apply, when more than one
+            "state": "blocked", "reason": "Finance allows private models only", "by": "finance", "rule": "models",
+            "harnesses": ["claude"]}],                               // what an agent session there may run: "any" | [ids]
+ "counts": {"tiles": 14, "orgs": 3, "notConnected": 6, "hidden": 2, "blocked": 4, "noAccess": 0,
+            "summary": "14 tiles · 3 orgs connected · 6 not connected"},
+ "whatIf": {"model": {…}, "connect": [/* tile rows */], "disconnect": [/* tile rows, with the reason */], "counts": {…}}}
+```
+
+| `state` | Means |
+|---|---|
+| `connected` | in the scope, and every rule allows it with this model |
+| `hidden` | the person left it out of the scope |
+| `blocked` | a rule of the workspace or of one of the tile's orgs refuses it — `reason` says which and why, `by` names the org (`workspace` for the bounds), `rule` is `workspaceAgent`, `models` or `harnesses`. Blocked wins over hidden: choosing it would not connect it |
+| `no-access` | the scope names it and the caller can't see it — or it doesn't exist (not told apart) |
+
+- `model` is the session's model. xbind asks the LLM connector whether its
+  upstream is private; nothing the caller sends can say so. With no model,
+  only a `models` rule of `any` is satisfied.
+- `orgs` and `tiles` are the scope: comma-separated or repeated; `orgs`
+  takes `workspace` for the tiles in no org. Neither: everything the
+  caller can see. An org in the scope takes in every tile under it; a tile
+  can be named alone.
+- `whatIf` names another model and adds what changing to it would connect
+  and disconnect, before anything changes.
+- A tile under several orgs is listed once, under the org that owns it
+  (else the first it is shared into), and blocked by the strictest of them.
+- The route answers the person its credential names: their own session, or
+  their workspace agent's. An org the caller is no member of and none of
+  whose tiles they read is never named.
 
 ## Agent session events
 

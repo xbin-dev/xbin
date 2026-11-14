@@ -46,6 +46,7 @@ import { FileDiffs } from '/vendor/agent-diffs.js';
 import { agentTestApi } from '/vendor/agent-testapi.js';
 import { slashQuery, matchCommands, commandHint } from '/vendor/agent-slash.js';
 import { queueURL, stop, queueChips, fitComposer } from '/vendor/agent-queue.js';
+import { agentPrefs } from '/vendor/agent-prefs.js';
 import '/vendor/agent-signin.js';
 
 export class BxAgent extends LitElement {
@@ -119,7 +120,7 @@ export class BxAgent extends LitElement {
     this._hostRO = new ResizeObserver(() => { if (this._stale && !this._hidden()) this.requestUpdate(); });
     this._hostRO.observe(this);
     if (this.history) { this._loadHistory(); return; }
-    this._loadProviders(); // for the sign-in (D178) and mode names, every path
+    this._providersP = this._loadProviders(); // for the sign-in (D178) and mode names, every path
     if (this.session) { this._open(); return; }
     this._maybeEager();
   }
@@ -258,14 +259,39 @@ export class BxAgent extends LitElement {
 
   // ---- data ----
 
+  // The catalog for a session that exists (its names, modes and sign-in);
+  // for one about to start, what this tile's orgs allow (?cwd=, D229) — the
+  // chooser offers the person's own harness first when it is among them.
   async _loadProviders() {
     try {
-      const r = await fetch('/api/xbin/agent/providers');
+      const fresh = !this.session && !this.resume;
+      const r = await fetch('/api/xbin/agent/providers' + (fresh && this.component ? `?cwd=${encodeURIComponent(this.component)}` : ''));
       if (!r.ok) return;
       const ps = await r.json();
       this._providers = ps;
-      if (ps.length && !this._provider && !this.session) { this._provider = ps[0].id; this._mode = ps[0].defaultMode || ''; }
+      if (!ps.length || this._provider || this.session) return;
+      await agentPrefs().load();
+      if (this._provider || this.session) return; // chosen meanwhile
+      const p = ps.find((x) => x.id === agentPrefs().harness) || ps[0];
+      this._provider = p.id; this._mode = p.defaultMode || '';
     } catch { /* offline; the composer still shows */ }
+  }
+
+  // the provider row of this tab's harness (a bare id while the catalog loads)
+  _provRow() {
+    const id = this._provider || this.provider || this._tx.meta?.provider || '';
+    return (this._providers || []).find((p) => p.id === id) || { id, modes: [] };
+  }
+
+  // What a new session starts with (D229): the mode picked in the chooser,
+  // else the person's saved mode, model and settings for this harness
+  // (agent-prefs.js; never a bypass mode), else the provider's default. A
+  // resumed session keeps its own.
+  async _startWith() {
+    if (this.resume) return { mode: this._mode };
+    await Promise.all([this._providersP, agentPrefs().load()]).catch(() => { });
+    const saved = agentPrefs().startWith(this._provRow());
+    return { ...saved, mode: this._modePicked ? this._mode : (this.mode || saved.mode || this._mode) };
   }
 
   // Launched from the + menu / chooser with a provider chosen: create the
@@ -424,9 +450,10 @@ export class BxAgent extends LitElement {
   async _create() {
     this._creating = true; this._error = '';
     try {
+      const start = await this._startWith();
       const r = await fetch('/api/xbin/term/sessions', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ cwd: this.component, kind: 'agent', provider: this._provider, mode: this._mode, resume: this.resume || undefined, vm: this.vm || undefined }),
+        body: JSON.stringify({ cwd: this.component, kind: 'agent', provider: this._provider, mode: start.mode, model: start.model, options: start.options, resume: this.resume || undefined, vm: this.vm || undefined }),
       });
       const info = await r.json().catch(() => ({}));
       if (!r.ok) { this._error = info.error || `could not start (${r.status})`; this._authErr = this._looksAuth(this._error); return false; }
@@ -491,7 +518,12 @@ export class BxAgent extends LitElement {
     if (!this.session) return;
     fetch(`/api/xbin/term/sessions/${encodeURIComponent(this.session)}/options`,
       { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ id, value }) })
-      .then(async (r) => { if (!r.ok) this._error = (await r.json().catch(() => ({}))).error || `could not set ${id}`; else { this._error = ''; this._refetch(); } });
+      .then(async (r) => {
+        if (!r.ok) { this._error = (await r.json().catch(() => ({}))).error || `could not set ${id}`; return; }
+        this._error = ''; this._refetch();
+        // the next session of this harness starts the same way (D229)
+        agentPrefs().rememberOption(this._provRow(), id === 'mode' ? { id } : this._options().find((o) => o.id === id) || { id }, String(value));
+      });
   }
 
   // the agent's session settings (model, effort, …): the last status event's
@@ -698,11 +730,11 @@ export class BxAgent extends LitElement {
     const ps = this._providers || [];
     const prov = ps.find((p) => p.id === this._provider);
     return html`<div class="chooser">
-      <select title="provider" @change=${(e) => { this._provider = e.target.value; const p = ps.find((x) => x.id === e.target.value); this._mode = p?.defaultMode || ''; }}>
+      <select title="provider" @change=${(e) => { this._provider = e.target.value; const p = ps.find((x) => x.id === e.target.value); this._mode = p?.defaultMode || ''; this._modePicked = false; }}>
         ${ps.length ? ps.map((p) => html`<option value=${p.id} ?selected=${p.id === this._provider}>${p.name}</option>`)
           : html`<option>loading…</option>`}
       </select>
-      ${prov?.modes?.length ? html`<select title="mode" @change=${(e) => { this._mode = e.target.value; }}>
+      ${prov?.modes?.length ? html`<select title="mode" @change=${(e) => { this._mode = e.target.value; this._modePicked = true; }}>
         ${prov.modes.map((m) => html`<option value=${m.id} ?selected=${m.id === this._curMode()}>${m.name}${m.explicit ? ' (caution)' : ''}</option>`)}
       </select>` : nothing}
       ${llmHint(prov) ? html`<span class="hint" title=${prov.llm.note || ''}>${llmHint(prov)}</span>` : nothing}

@@ -42,6 +42,10 @@ type Caller struct {
 	Admin bool
 	// Label is an LLM key's label ("" otherwise), for the log.
 	Label string
+	// ReadOnly, when set, is why this caller may read (models, status) and
+	// not call: a tile's non-primary deployment under the read clamp of its
+	// edge policy (docs/auth.md, the edge policy).
+	ReadOnly string
 }
 
 // refusal is an answer that stops a call, in OpenAI's error shape.
@@ -91,8 +95,9 @@ func (s *Service) identify(r *http.Request, snap *snapshot) (Caller, *refusal) {
 	p := auth.PrincipalOf(r)
 	if tok, ok := bearerKey(r); ok || p.Via == "llm" {
 		g, live := s.keySource.Resolve(tok)
-		if !ok || !live {
-			return Caller{}, refuse(http.StatusUnauthorized, "invalid_api_key", "this LLM key is not valid (it expired, was revoked, or its session ended)")
+		if !ok || !live || !s.keyHolds(g) {
+			return Caller{}, refuse(http.StatusUnauthorized, "invalid_api_key",
+				"this LLM key is not valid (it expired or was revoked, its session ended, or its owner no longer has the access it was made under)")
 		}
 		return Caller{User: g.User, Component: g.Component, Via: "key", Label: g.Label}, nil
 	}
@@ -101,14 +106,15 @@ func (s *Service) identify(r *http.Request, snap *snapshot) (Caller, *refusal) {
 			return Caller{}, refuse(http.StatusForbidden, "xbin_llm_not_bound",
 				p.Component+" is not bound to the workspace's LLM connector: a workspace admin binds its llm slot to xbin:llm (bx bind "+p.Component+" <slot>=xbin:llm)")
 		}
-		c := Caller{Component: p.Component, Via: "component"}
-		switch id, isPart := p.Partition.User(); {
-		case isPart:
-			c.User = id // a person's partition acts for that person
-		case p.UserID != "":
-			c.User = p.UserID // the person driving the frame, terminal or agent session
-		case p.Via == "frame" || p.Via == "terminal":
-			c.User = OwnerUser // the root token's own frames and terminals
+		c := Caller{Component: p.Component, Via: "component", User: actor(p)}
+		if s.opt.Edge != nil { // a non-primary deployment uses the binding by the tile's edge policy
+			switch mode, why := s.opt.Edge(p); mode {
+			case EdgeFull:
+			case EdgeRead:
+				c.ReadOnly = why
+			default:
+				return Caller{}, refuse(http.StatusForbidden, "xbin_llm_edge", why)
+			}
 		}
 		return c, nil
 	}
@@ -156,4 +162,61 @@ func (s *Service) admit(r *http.Request, snap *snapshot) (Caller, *refusal) {
 		return Caller{}, ref
 	}
 	return s.identify(r, snap)
+}
+
+// actor is the person acting through an element principal: the person of a
+// partition's backend, the person driving a frame, terminal or agent
+// session, the owner for the root token's own frames and terminals, nobody
+// for a backend that serves everyone.
+func actor(p auth.Principal) string {
+	switch id, isPart := p.Partition.User(); {
+	case isPart:
+		return id
+	case p.UserID != "":
+		return p.UserID
+	case p.Via == "frame" || p.Via == "terminal":
+		return OwnerUser
+	}
+	return ""
+}
+
+// The edge modes Options.Edge answers.
+const (
+	EdgeFull  = "full"  // the tile's primary: the binding as it is
+	EdgeRead  = "read"  // a non-primary deployment under the read clamp: models and status only
+	EdgeBlock = "block" // a non-primary deployment whose edge policy blocks the binding
+)
+
+// keyHolds reports whether a live key's grant still stands: its person
+// exists, is enabled and can still open the tile it was minted for, and —
+// a key minted under a tile's binding — the tile is still bound. Asked on
+// every call, so a disabled person's keys stop at once, whoever forgot to
+// revoke them.
+func (s *Service) keyHolds(g KeyGrant) bool {
+	if g.User != OwnerUser && s.opt.KeyOwner != nil && !s.opt.KeyOwner(g.User, g.Component) {
+		return false
+	}
+	if g.Bound && (s.opt.Bound == nil || !s.opt.Bound(g.Component)) {
+		return false
+	}
+	return true
+}
+
+// UserGone ends every LLM key of a person who was signed out everywhere,
+// disabled or deleted (the broker's OnUserSignedOut).
+func (s *Service) UserGone(user string) int {
+	if s.llmKeys == nil {
+		return 0
+	}
+	return s.llmKeys.RevokeWhere(func(g KeyGrant) bool { return g.User == user })
+}
+
+// BindingChanged ends the keys minted under component's binding once the
+// binding is gone (the broker's OnGrantChange, which a bind or unbind
+// fires).
+func (s *Service) BindingChanged(component string) int {
+	if s.llmKeys == nil || (s.opt.Bound != nil && s.opt.Bound(component)) {
+		return 0
+	}
+	return s.llmKeys.RevokeWhere(func(g KeyGrant) bool { return g.Bound && g.Component == component })
 }

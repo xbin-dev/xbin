@@ -26,9 +26,8 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     takes `llm: "connector" | "own"` (`bx agent run --llm`), a session row
     gains `llm`, a `notice` event says when the connector serves, and `GET
     /api/xbin/agent/providers` gains `llm` per row — `{use, connector,
-    note?, signedIn?}` — and an optional `?cwd=`
-    ([protocol/agents.md](/docs/protocol/agents.md)); rows are unchanged
-    without a connector.
+    note?, signedIn?}` ([protocol/agents.md](/docs/protocol/agents.md));
+    rows are unchanged without a connector.
   - **Terminals** get `XBIN_LLM_URL` and `XBIN_LLM_KEY`; `OPENAI_BASE_URL`
     and `OPENAI_API_KEY` only with `bx llm sessions openai-env=on`.
   - **The credential is a per-session LLM key** (`xbl_…`), never the
@@ -56,6 +55,72 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   who serves a session ([sdk.md](/docs/sdk.md) §Driving a coding agent).
   `acp.Fake` takes a connector too, and the scripted agent (`acptest`)
   gains the `llm-call` script.
+- **Orgs constrain agents** (D229; [auth.md](/docs/auth.md) §Agent
+  constraints, [protocol/orgs.md](/docs/protocol/orgs.md) §Agent
+  constraints). An org can now say what agents may do on its tiles:
+  `workspaceAgent` on or off, the coding-agent `harnesses` an agent session
+  may run there (`any` or a list of ids), and the `models` that may see
+  their data (`any`, `private`, or a list of LLM connector ids) —
+  `PUT /api/xbin/orgs/<org>/agents`, `bx org agents <org>`; `GET /orgs`
+  carries `agents`. The workspace sets the outer bounds and the default
+  for whose credentials serve a coding agent
+  (`GET`/`PUT /api/xbin/agents/policy`, `bx org agents`): an org only
+  narrows them. Workspace admins set both; an org's admin sets their own
+  org, in their own session. A tile falls under the org that owns it and
+  every org it is shared into, and the strictest wins. **With nothing set,
+  nothing changes.**
+  - **Agent sessions follow the tile's harness list.**
+    `GET /api/xbin/agent/providers?cwd=<tile>` lists only what may run
+    there, and `POST /api/xbin/term/sessions` answers 403 with the reason
+    ("Finance allows these coding agents only: claude, codex (not
+    gemini)") for anything else. A session already running keeps running;
+    it can't be restarted, or resumed once it ended, while its harness is
+    disallowed. Without `cwd` the list is the whole catalog, as before.
+  - **The connection view.** `GET /api/xbin/agents/connection
+    ?model=&orgs=&tiles=&whatIf=` (and `bx agent connection`) lists every
+    org and tile a person can see as `connected`, `hidden` (left out of
+    the scope), `blocked` (with the reason) or `no-access`, with totals
+    ("14 tiles · 3 orgs connected · 6 not connected") and what a model
+    change would connect and disconnect
+    ([protocol/agents.md](/docs/protocol/agents.md) §The connection view).
+  - **`origin` on a session.** A `GET /term/sessions` row and a
+    `GET /agent/history` entry carry `origin: "agent"` when the person's
+    workspace agent started the session; absent otherwise.
+  - New event type `agents` (`{org}`) when the rules change.
+- **Agent preferences live on the server** (D229;
+  [protocol/agents.md](/docs/protocol/agents.md) §Agent preferences).
+  `GET`/`PUT /api/xbin/agent/prefs` keep, per person: the harness a new
+  agent session starts with, per harness the mode, model, options and
+  whose credentials (`own` | `connector`), and what their workspace agent
+  may start a tile agent session with (`agentSessions`: `start` ask —
+  the default — or allow, a mode per harness, the network and tile-API
+  pickers). `PUT` is a JSON merge patch. Only the person's own session
+  reads or writes them: a tile's credentials, a terminal's or an agent
+  session's token, view-as and the root token get 403. A bypass
+  (`explicit`) mode can't be saved. **The tile window's launcher and Agent
+  tab now use them**: the last session kind and harness you started, and
+  the mode, model and settings you last picked for a harness, follow you
+  to every browser, and a new agent session starts with them. What the
+  launcher remembered in this browser (`localStorage`) is moved over on
+  first use and still answers where the server can't (the root token,
+  `--no-auth`). New shared module `/vendor/agent-prefs.js`.
+- **Open a session from outside its tile's window** (D229;
+  [elements.md](/docs/elements.md) §`<bx-frame>`, §Links to a place in
+  your tile). `<bx-frame>`'s `open({session})` shows one of the viewer's
+  sessions on the tile — a live one's tab, an ended one's transcript — and
+  resolves whether it found it. A tile's page asks with
+  **`xbin.openSession({tile, session})`** (frame message
+  `xbin:open-session`), and a link can carry it:
+  `/c/root/?tile=apps/notes&session=<id>`. A session's tab that your
+  workspace agent started is marked "your agent". The shell part is a few
+  lines in the scaffold's `shell/route.js` and `shell/shell-route.js`
+  (`bx builtin update`); an older shell treats the link as a link to the
+  tile, and `xbin.openSession` still works for a tile on the page.
+- **Admin console: agent rules.** The organisations tab gained an
+  **agents** panel on each org's page and one for the workspace's bounds
+  under the list (new scaffold file `tiles/admin/tabs/org-agents.js`;
+  `bx builtin update`). `bx org agents` and the API do the same for a
+  workspace whose console predates it.
 - **xbind has an LLM connector built in** (D226; [llm.md](/docs/llm.md),
   routes in [protocol/llm.md](/docs/protocol/llm.md)). One
   OpenAI-compatible endpoint, `/api/xbin/llm/v1` (`chat/completions`,
@@ -88,6 +153,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     a new credential kind, the LLM key (`xbl_…`, good for the connector's
     routes only — [auth.md](/docs/auth.md) §LLM keys; nothing hands them
     out yet).
+  - What a caller can't do to it: a call abandoned mid-answer is still
+    metered (the provider's answer is read for 5 s more,
+    `XBIN_LLM_CANCEL_GRACE`, then charged as an estimate — usage rows carry
+    `estimated`); model names a caller makes up are counted together as
+    `<upstream>/(unknown)`; one caller has 16 calls in flight (`429
+    xbin_llm_busy`; the `concurrency` setting); an alias never takes over a
+    name the configuration has; a stored key never follows an upstream to
+    another address. A tile's non-primary deployments use the binding by
+    the tile's edge policy: read-clamped by default (models, no calls).
   - Not yet: an admin console section, the connector in terminals and
     agent sessions, an Anthropic-wire route, `llm-gw` as an upstream.
 - **docs: the protocol reference is split by topic.** `/docs/protocol.md`

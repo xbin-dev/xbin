@@ -119,11 +119,17 @@ const (
 // event's "response.usage". The last usage seen wins. It never fails and
 // holds at most usageLineMax bytes: Write always accepts everything.
 type StreamUsage struct {
-	line  []byte
-	over  bool // the current line passed usageLineMax: line holds its tail
-	usage Usage
-	ok    bool
+	line   []byte
+	over   bool // the current line passed usageLineMax: line holds its tail
+	usage  Usage
+	ok     bool
+	events int64
 }
+
+// Events is how many data events the stream has carried so far ("[DONE]"
+// and the usage chunk included). A relay whose stream ended without a usage
+// block estimates from it: providers send about a token per event.
+func (s *StreamUsage) Events() int64 { return s.events }
 
 // Write takes the next bytes of the stream.
 func (s *StreamUsage) Write(p []byte) (int, error) {
@@ -162,6 +168,9 @@ func (s *StreamUsage) end() {
 			s.usage, s.ok = u, true
 		}
 	}
+	if bytes.HasPrefix(l, sseData) || (s.over && len(l) > 0) {
+		s.events++
+	}
 	s.line, s.over = s.line[:0], false
 }
 
@@ -180,10 +189,15 @@ func (s *StreamUsage) Usage() (Usage, bool) {
 type BodyUsage struct {
 	buf  []byte
 	over bool
+	n    int64
 }
+
+// Bytes is how much of the body has been written so far.
+func (b *BodyUsage) Bytes() int64 { return b.n }
 
 // Write takes the next bytes of the body.
 func (b *BodyUsage) Write(p []byte) (int, error) {
+	b.n += int64(len(p))
 	b.buf = append(b.buf, p...)
 	if len(b.buf) > usageBodyMax {
 		b.over = true

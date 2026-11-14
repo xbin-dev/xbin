@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -55,12 +56,22 @@ func (s *Server) SessionEvent(cwd string, ev term.SessionEvent) {
 	s.Hub.Publish(events.Event{Type: "session", Topic: "session." + ev.ID, Component: cwd, Data: ev})
 }
 
-// apiAgentProviders lists what this daemon can run — each row with `llm`,
-// what a session of the caller's would run on, while the workspace has an
-// LLM connector for agent sessions (agentllm.go); exactly the catalog
-// otherwise.
+// apiAgentProviders lists what this daemon can run — with ?cwd=<tile>, what
+// an agent session may run on that tile: the harnesses its orgs and the
+// workspace allow (D229; a harness left out is refused by POST
+// /term/sessions with the reason). A tile the caller can't read is answered
+// as no tile: the whole catalog. Each row carries `llm`, what a session of
+// the caller's would run on, while the workspace has an LLM connector for
+// agent sessions (agentllm.go); exactly the catalog's rows otherwise.
 func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
-	WriteJSON(w, http.StatusOK, s.withAgentLLM(r, agent.Providers()))
+	provs := agent.Providers()
+	p := auth.PrincipalOf(r)
+	// (a tile's own credentials ask about their tile only: CanReadTile passes
+	// every element)
+	if cwd := strings.Trim(r.URL.Query().Get("cwd"), "/"); cwd != "" && s.Term != nil && p.CanReadTile(cwd) && (p.Component == "" || p.Component == cwd) {
+		provs = slices.DeleteFunc(provs, func(pr agent.Provider) bool { return s.Term.HarnessAllowed(p, cwd, pr.ID) != nil })
+	}
+	WriteJSON(w, http.StatusOK, s.withAgentLLM(r, provs))
 }
 
 // apiAgentCreate opens an agent session: {cwd, kind:"agent", provider,

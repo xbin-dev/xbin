@@ -56,6 +56,25 @@ func TestStreamUsageAnyChunking(t *testing.T) {
 	}
 }
 
+// A relay whose stream broke off before its usage estimates from the
+// events it relayed, and from a plain body's size.
+func TestEventAndByteCounts(t *testing.T) {
+	raw := fixture(t, "chat-stream-fake.sse")
+	var s StreamUsage
+	_, _ = s.Write(raw[:len(raw)/2])
+	half := s.Events()
+	_, _ = s.Write(raw[len(raw)/2:])
+	if _, ok := s.Usage(); !ok || half == 0 || s.Events() != int64(bytes.Count(raw, []byte("data:"))) || half >= s.Events() {
+		t.Errorf("events: %d at half, %d at the end, %d data lines", half, s.Events(), bytes.Count(raw, []byte("data:")))
+	}
+	var b BodyUsage
+	_, _ = b.Write([]byte("0123456789"))
+	_, _ = b.Write([]byte("abc"))
+	if b.Bytes() != 13 {
+		t.Errorf("bytes: %d", b.Bytes())
+	}
+}
+
 func TestStreamUsageNone(t *testing.T) {
 	// a chat stream whose request didn't ask for usage, and whose text
 	// mentions the word
@@ -283,10 +302,25 @@ func TestRewriteRequest(t *testing.T) {
 		string(m["stream_options"]) != `{"continuous_usage_stats":true,"include_usage":true}` || string(m["messages"]) != `[{"role":"user","content":"hi"}]` {
 		t.Errorf("rewritten: %s", out)
 	}
-	// nothing to change: the same bytes
-	same := `{"model":"gpt-5","input":"hi"}`
-	if out, info, err := RewriteRequest([]byte(same), "gpt-5", false); err != nil || string(out) != same || info.Stream {
-		t.Errorf("unchanged: %s, %+v, %v", out, info, err)
+	// the body is always written anew: a member sent twice goes out once, with the value that was read
+	twice := `{"stream":true,"model":"gpt-5","input":"hi","stream":false}`
+	out, info, err = RewriteRequest([]byte(twice), "gpt-5", false)
+	if err != nil || info.Stream || string(out) != `{"input":"hi","model":"gpt-5","stream":false}` {
+		t.Errorf("a duplicated member: %s, %+v, %v", out, info, err)
+	}
+	// "stream" is a boolean: anything a lenient upstream might still read as true is refused
+	for _, bad := range []string{`"true"`, `1`, `"yes"`, `{}`, `[true]`} {
+		if _, err := OpenRequest([]byte(`{"model":"m","stream":` + bad + `}`)); !errors.Is(err, ErrBadStream) {
+			t.Errorf("stream %s: %v", bad, err)
+		}
+	}
+	if r, err := OpenRequest([]byte(`{"model":"m","stream":null,"background":true}`)); err != nil || r.Stream || string(r.Member("background")) != "true" || r.Member("absent") != nil {
+		t.Errorf("stream null: %+v, %v", r, err)
+	}
+	for _, bad := range []string{`{"model":5}`, `{"model":["m"]}`} {
+		if _, err := OpenRequest([]byte(bad)); !errors.Is(err, ErrBadModel) {
+			t.Errorf("%s: %v", bad, err)
+		}
 	}
 	// a client's include_usage:false is overridden; a non-streaming call gains no stream_options
 	out, _, _ = RewriteRequest([]byte(`{"model":"m","stream":true,"stream_options":{"include_usage":false}}`), "", true)
@@ -299,6 +333,9 @@ func TestRewriteRequest(t *testing.T) {
 	}
 	if _, _, err := RewriteRequest([]byte(`[1]`), "m", true); err == nil {
 		t.Error("a body that is no object is an error")
+	}
+	if _, err := OpenRequest([]byte(`null`)); !errors.Is(err, ErrNotObject) {
+		t.Errorf("null: %v", err)
 	}
 }
 

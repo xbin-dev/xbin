@@ -24,7 +24,11 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"net/http"
 	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -50,6 +54,15 @@ type Options struct {
 	// Bound reports a component whose llm slot is bound to the connector
 	// (the broker's LLMBound). nil = none.
 	Bound func(component string) bool
+	// Edge says how a bound tile's principal may use its binding: EdgeFull
+	// for the tile's primary, EdgeRead or EdgeBlock (with the refusal's
+	// text) for a non-primary deployment, by the tile's edge policy (the
+	// broker's LLMEdge). nil = every bound principal is full.
+	Edge func(p auth.Principal) (mode, why string)
+	// KeyOwner reports whether the person an LLM key is metered to still
+	// holds what it was minted under: they exist, are enabled, and (when
+	// component is not "") can still open that tile. nil = not asked.
+	KeyOwner func(user, component string) bool
 	// OrgsOf lists the orgs a person is an active member of (for the orgs'
 	// quota overrides). nil = none.
 	OrgsOf func(user string) []string
@@ -58,6 +71,9 @@ type Options struct {
 	Policy CallPolicy
 	// Plane is the data plane (nil: the in-daemon Proxy).
 	Plane Connector
+	// Grace is how long the in-daemon Proxy keeps an upstream call whose
+	// client went away, to read its usage (0: DefaultGrace).
+	Grace time.Duration
 	// Keys holds the LLM keys (nil: a store of its own, reached with Keys()).
 	Keys KeySource
 	Now  func() time.Time
@@ -90,6 +106,9 @@ type Service struct {
 	keySource KeySource
 	models    modelCache
 
+	flightMu sync.Mutex
+	flight   map[string]int // caller → its calls in flight (serve.go)
+
 	mu       sync.Mutex // serializes changes to the admin's store
 	store    storeFile
 	storeErr error // the store can't be read: nothing is written over it
@@ -112,7 +131,11 @@ func New(o Options) (*Service, error) {
 		keys:  &keyStore{path: filepath.Join(o.Dir, "keys.json"), vault: o.Vault, allowPlain: o.AllowPlaintext},
 		meter: newMeter(filepath.Join(o.Dir, "usage"), o.Log)}
 	if s.plane == nil {
-		s.plane = NewProxy(o.Log)
+		p := NewProxy(o.Log)
+		if o.Grace > 0 {
+			p.Grace = o.Grace
+		}
+		s.plane = p
 	}
 	if s.keySource == nil {
 		s.llmKeys = NewKeys(o.Now)
@@ -220,17 +243,46 @@ type TestResult struct {
 	Tokens int64  `json:"tokens,omitempty"` // what the test call used
 }
 
-// Test makes a small call through one upstream: a one-line chat completion
-// with model, or — for an upstream that passes names through and no model
-// given — its model list. The call is metered like any other, to who.
+// Test makes a small call through one upstream: a one-token chat
+// completion with model, or — for an upstream that passes names through
+// and no model given — its model list. It is a call like any other: it
+// needs the connector on, passes the policy, takes one of who's slots,
+// stops at who's quotas (and the workspace's), and is metered to who — so
+// an admin's test can't spend what the host's settings hold back.
 func (s *Service) Test(ctx context.Context, name, model string, who Caller) (TestResult, error) {
 	snap := s.current()
 	u, ok := snap.upstreams[name]
 	if !ok {
 		return TestResult{}, errNoUpstream(name)
 	}
+	if !snap.enabled {
+		why := "the LLM connector is off: turn it on to test an upstream (bx llm on)"
+		if snap.locked("enabled") {
+			why = "the LLM connector is turned off by your host: its upstreams can't be tested"
+		}
+		return TestResult{}, &apiError{status: http.StatusConflict, msg: why}
+	}
+	if model != "" && validModelName("model", model) != nil {
+		return TestResult{}, badRequest("model: a model name is 1–" + strconv.Itoa(maxModelName) + " characters without spaces")
+	}
 	if model == "" && len(u.Models) > 0 {
 		model = u.Models[0]
+	}
+	if model != "" && len(u.Models) > 0 && !slices.Contains(u.Models, model) {
+		return TestResult{}, badRequest("the upstream " + name + " doesn't offer " + model + " (it offers: " + strings.Join(u.Models, ", ") + ")")
+	}
+	if s.opt.Policy != nil {
+		if err := s.opt.Policy(who, UpstreamInfo{Name: u.Name, Private: u.Private, Host: u.Host}, model); err != nil {
+			return TestResult{}, &apiError{status: http.StatusForbidden, msg: err.Error()}
+		}
+	}
+	release, ref := s.enter(snap, who)
+	if ref == nil {
+		defer release()
+		ref = s.checkQuota(snap, who, http.Header{})
+	}
+	if ref != nil {
+		return TestResult{}, &apiError{status: ref.status, msg: ref.err.Message}
 	}
 	start := s.now()
 	res := TestResult{Model: model}
@@ -254,9 +306,9 @@ func (s *Service) Test(ctx context.Context, name, model string, who Caller) (Tes
 		res.OK, res.Models = true, len(models)
 		return done()
 	}
-	out, body := s.testCall(ctx, t, model)
+	out, body, sent := s.testCall(ctx, t, model)
 	res.Status = out.Status
-	s.account(who, u, model, out)
+	s.account(who, u, model, s.meterName(ctx, u, model), out, sent)
 	switch {
 	case out.OK():
 		res.OK, res.Tokens = true, out.Usage.TotalTokens

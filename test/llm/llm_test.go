@@ -15,8 +15,11 @@
 //     fake's chunks reach the client spread over time, not at once) with
 //     the usage chunk the caller didn't ask for, and is metered to the
 //     person; a streamed Responses call the same;
-//   - a client that goes away ends the upstream's call (the fake, 6 s
-//     into nothing, records the hang-up);
+//   - a client that goes away ends the upstream's call after the grace
+//     (XBIN_LLM_CANCEL_GRACE=1s here; the fake, 6 s into nothing, records
+//     the hang-up), and the call is still metered — as an estimate;
+//   - a made-up model name is metered as <upstream>/(unknown), and a
+//     malformed one refused;
 //   - a per-user quota stops at its limit with 429, naming the quota and
 //     the UTC midnight it resets at, and holds nobody else;
 //   - a tile is refused until an admin binds its llm slot to xbin:llm, a
@@ -141,7 +144,7 @@ func chat(model, text string, stream bool) map[string]any {
 
 type usageRow struct {
 	Day, User, Component, Model   string
-	Requests, Failed              int64
+	Requests, Failed, Estimated   int64
 	InputTokens, OutputTokens     int64
 	CachedTokens, ReasoningTokens int64
 	Cost                          float64
@@ -151,6 +154,9 @@ func TestConnector(t *testing.T) {
 	a := xbindtest.Require(t)
 	fakeAddr, xbindAddr := addrs(t)
 	fake := startFake(t, a, fakeAddr)
+
+	began := time.Now()
+	step := func(what string) { t.Helper(); t.Logf("%5.1fs  %s", time.Since(began).Seconds(), what) }
 
 	// every answer the test reads, for the secrets check at the end
 	var seen bytes.Buffer
@@ -170,7 +176,7 @@ func TestConnector(t *testing.T) {
 	}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	d := xbindtest.Start(t, a, xbindtest.Options{Auth: true, Addr: xbindAddr, Env: []string{"XBIN_LLM_CONFIG=" + hostFile}})
+	d := xbindtest.Start(t, a, xbindtest.Options{Auth: true, Addr: xbindAddr, Env: []string{"XBIN_LLM_CONFIG=" + hostFile, "XBIN_LLM_CANCEL_GRACE=1s"}})
 	call := func(method, path string, body any, hdrs ...xbindtest.Header) xbindtest.Resp {
 		t.Helper()
 		r := d.Call(t, method, path, body, hdrs...)
@@ -204,6 +210,7 @@ func TestConnector(t *testing.T) {
 	bob, cy := bearer(d.Login(t, "bob", pw)), bearer(d.Login(t, "cy", pw))
 
 	// ---- booted from the deployment file: in force, and locked ----
+	step("booted from the deployment file: in force, and locked")
 	var view struct {
 		Configured bool
 		People     string
@@ -251,6 +258,7 @@ func TestConnector(t *testing.T) {
 	}
 
 	// ---- the admin's own upstream, with bx ----
+	step("the admin's own upstream, with bx")
 	keyFile := filepath.Join(t.TempDir(), "mine.key")
 	if err := os.WriteFile(keyFile, []byte(adminKey+"\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -274,6 +282,7 @@ func TestConnector(t *testing.T) {
 	}
 
 	// ---- a streamed call: relayed as it arrives, metered ----
+	step("a streamed call: relayed as it arrives, metered")
 	stream := func(path string, body any, h xbindtest.Header) (lines []string, at []time.Duration) {
 		t.Helper()
 		raw, _ := json.Marshal(body)
@@ -333,6 +342,7 @@ func TestConnector(t *testing.T) {
 	}
 
 	// ---- a client that goes away ends the upstream call ----
+	step("a client that goes away ends the upstream call")
 	type fakeReq struct {
 		ID       int64
 		Last     string
@@ -378,8 +388,34 @@ func TestConnector(t *testing.T) {
 		last := rs[len(rs)-1]
 		return last.Canceled && last.End != 0, fmt.Sprintf("%+v", last)
 	})
+	// …and the call was not free: it is cy's, charged an estimate of what was sent
+	xbindtest.Eventually(t, 10*time.Second, "the abandoned call metered as an estimate", func() (bool, string) {
+		rows := usage("", cy)
+		return len(rows) == 1 && rows[0].Requests == 1 && rows[0].Estimated == 1 && rows[0].InputTokens > 10 && rows[0].Cost > 0, fmt.Sprintf("%+v", rows)
+	})
+
+	// ---- a caller's own model names make no rows of their own ----
+	step("a caller's own model names make no rows of their own")
+	for i := 0; i < 5; i++ {
+		must(200, "POST", "/api/xbin/llm/v1/chat/completions", chat(fmt.Sprintf("mine/made-up-%d", i), "hello", false), cy) // the fake answers any name
+	}
+	if rows := usage("?model=" + "mine/(unknown)"); len(rows) != 1 || rows[0].Requests != 5 || rows[0].User != "cy" {
+		t.Errorf("five made-up model names: %+v", rows)
+	}
+	for _, row := range usage("") {
+		if strings.Contains(row.Model, "made-up") {
+			t.Errorf("a caller's own model name has a usage row: %+v", row)
+		}
+	}
+	if r := call("POST", "/api/xbin/llm/v1/chat/completions", chat("mine/"+strings.Repeat("x", 300), "hello", false), cy); r.Status != 400 || errCode(r) != "xbin_llm_model" {
+		t.Errorf("a model name past the cap: %d %s", r.Status, r)
+	}
+	if r := call("POST", "/api/xbin/llm/v1/chat/completions", `{"model":"house/fake-chat","stream":"true","messages":[{"role":"user","content":"hello"}]}`, cy, xbindtest.H("Content-Type", "application/json")); r.Status != 400 {
+		t.Errorf("a stream flag that is no boolean: %d %s", r.Status, r)
+	}
 
 	// ---- a per-user quota stops at its limit and names its reset ----
+	step("a per-user quota stops at its limit and names its reset")
 	// bob has used 240 tokens; with 300 a day one more call starts, and the next is refused
 	out, err = bx(t, d, "llm", "quota", "set", "user:bob", "tokens/day=300")
 	note([]byte(out))
@@ -417,6 +453,7 @@ func TestConnector(t *testing.T) {
 	}
 
 	// ---- a tile calls by its binding, and the call is the person's ----
+	step("a tile calls by its binding, and the call is the person's")
 	d.WriteTile(t, "apps/talk", map[string]string{
 		"xbin.json":  `{"title": "Talk", "interfaces": {"llm": {"kind": "http", "service": "openai"}}}`,
 		"index.html": `<!doctype html><title>talk</title>`,
@@ -449,6 +486,7 @@ func TestConnector(t *testing.T) {
 	}
 
 	// ---- a restart keeps the counters and the settings ----
+	step("a restart keeps the counters and the settings")
 	total := func() (requests, in int64) {
 		for _, row := range usage("") {
 			requests, in = requests+row.Requests, in+row.InputTokens
@@ -457,7 +495,7 @@ func TestConnector(t *testing.T) {
 	}
 	reqsBefore, inBefore := total()
 	d.Restart(t)
-	if reqs, in := total(); reqs != reqsBefore || in != inBefore || reqs < 7 {
+	if reqs, in := total(); reqs != reqsBefore || in != inBefore || reqs < 12 {
 		t.Errorf("usage after a restart: %d requests, %d input tokens; before: %d, %d", reqs, in, reqsBefore, inBefore)
 	}
 	must(200, "GET", "/api/xbin/llm/config", nil).Decode(t, &view)
@@ -467,6 +505,7 @@ func TestConnector(t *testing.T) {
 	must(200, "POST", "/api/xbin/llm/upstreams/mine/test", map[string]any{"model": "fake-chat"}) // its key was read back out of the vault
 
 	// ---- the keys are nowhere they shouldn't be ----
+	step("the keys are nowhere they shouldn't be")
 	logged, err := os.ReadFile(d.LogPath())
 	if err != nil {
 		t.Fatal(err)
@@ -497,6 +536,9 @@ func TestConnector(t *testing.T) {
 		}
 		if bytes.Contains(b, []byte("Hello from the fake model")) && where != "an answer" {
 			t.Errorf("a model's answer appears in %s", where)
+		}
+		if bytes.Contains(b, []byte("made-up-")) && where != "an answer" {
+			t.Errorf("a caller's own model name appears in %s", where)
 		}
 	}
 }

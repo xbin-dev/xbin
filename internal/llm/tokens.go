@@ -29,12 +29,16 @@ const KeyPrefix = "xbl_"
 
 // KeyGrant is what an LLM key stands for.
 type KeyGrant struct {
-	ID        string    `json:"id"`                  // names the key in listings and for Revoke; not secret
-	User      string    `json:"user"`                // the person its calls are metered to ("owner": the root token's; "": nobody — a component's key for a backend that serves everyone)
-	Component string    `json:"component,omitempty"` // the tile it was minted for or by
-	Label     string    `json:"label,omitempty"`     // what it is for: a session id, a harness and run
-	Sandbox   string    `json:"sandbox,omitempty"`   // the sandbox it was handed to, when one
-	Expires   time.Time `json:"expires"`
+	ID        string `json:"id"`                  // names the key in listings and for Revoke; not secret
+	User      string `json:"user"`                // the person its calls are metered to ("owner": the root token's; "": nobody — a component's key for a backend that serves everyone)
+	Component string `json:"component,omitempty"` // the tile it was minted for or by
+	Label     string `json:"label,omitempty"`     // what it is for: a session id, a harness and run
+	Sandbox   string `json:"sandbox,omitempty"`   // the sandbox it was handed to, when one
+	// Bound: the key was minted under Component's binding to the connector
+	// (a component asking for a key for work it runs): it is refused once
+	// the tile is no longer bound, and revoked when the binding goes.
+	Bound   bool      `json:"bound,omitempty"`
+	Expires time.Time `json:"expires"`
 }
 
 // KeySource resolves a presented LLM key. *Keys is the implementation; a

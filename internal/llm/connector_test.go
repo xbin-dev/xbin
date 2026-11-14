@@ -227,58 +227,116 @@ func readAll(br *bufio.Reader) (string, error) {
 	}
 }
 
-// covers D226 — a client that goes away ends the upstream call.
-func TestCancellationReachesTheUpstream(t *testing.T) {
-	r := newRig(t, "")
-	up := newUpstream(t)
-	up.hold = make(chan struct{}) // never released
-	r.addUpstream("main", up, nil)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		r.mux.ServeHTTP(w, req.WithContext(auth.WithPrincipal(req.Context(), pOwner)))
-	}))
-	defer srv.Close()
-	ctx, cancel := context.WithCancel(context.Background())
-	body, _ := json.Marshal(chatBody("gpt-5", true))
-	req, _ := http.NewRequestWithContext(ctx, "POST", srv.URL+"/llm/v1/responses", strings.NewReader(string(body)))
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	br := bufio.NewReader(resp.Body)
-	first := make(chan string, 1)
-	go func() {
-		line, _ := br.ReadString('\n')
-		first <- line
-	}()
-	select {
-	case line := <-first:
-		if !strings.Contains(line, "first") {
-			t.Fatalf("first line: %q", line)
+// covers D226 — a client that goes away is still charged. The upstream call
+// outlives it by the grace: when the answer ends within it, its usage is
+// metered as the provider reported it; when it doesn't, the upstream call
+// is ended and what was relayed is charged as an estimate, marked so, and
+// the quotas see it.
+func TestHangUpIsNotFree(t *testing.T) {
+	hangUp := func(t *testing.T, r *rig, up *fakeUpstream) {
+		t.Helper()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			r.mux.ServeHTTP(w, req.WithContext(auth.WithPrincipal(req.Context(), pUser("bob"))))
+		}))
+		t.Cleanup(srv.Close)
+		ctx, cancel := context.WithCancel(context.Background())
+		body, _ := json.Marshal(chatBody("gpt-5", true))
+		req, _ := http.NewRequestWithContext(ctx, "POST", srv.URL+"/llm/v1/chat/completions", strings.NewReader(string(body)))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
 		}
-	case <-time.After(5 * time.Second):
-		close(up.hold)
-		t.Fatal("the first event did not arrive while the upstream held the stream")
+		br := bufio.NewReader(resp.Body)
+		first := make(chan string, 1)
+		go func() {
+			line, _ := br.ReadString('\n')
+			first <- line
+		}()
+		select {
+		case line := <-first:
+			if !strings.Contains(line, "first") {
+				t.Fatalf("first line: %q", line)
+			}
+		case <-time.After(5 * time.Second):
+			close(up.hold)
+			t.Fatal("the first event did not arrive while the upstream held the stream")
+		}
+		cancel()
+		resp.Body.Close()
 	}
-	cancel()
-	resp.Body.Close()
-	select {
-	case <-up.canceled:
-	case <-time.After(5 * time.Second):
-		t.Fatal("the upstream's request was not canceled when the client went away")
+	row := func(t *testing.T, r *rig) UsageRow {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for {
+			if rows := r.usageRows(""); len(rows) == 1 {
+				return rows[0]
+			} else if time.Now().After(deadline) {
+				t.Fatalf("the hung-up call's row: %+v", rows)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 	}
-	// counted as a request that reported no usage
-	deadline := time.Now().Add(5 * time.Second)
-	for {
+	setup := func(t *testing.T) (*rig, *fakeUpstream) {
+		r := newRig(t, "")
+		up := newUpstream(t)
+		up.hold = make(chan struct{})
+		r.addUpstream("main", up, map[string]any{"prices": map[string]any{"gpt-5": map[string]any{"in": 1000000.0, "out": 1000000.0}}})
+		r.must(200, pOwner, "PUT", "/llm/config", map[string]any{"people": "everyone"})
+		return r, up
+	}
+
+	t.Run("the answer ends within the grace: the provider's usage", func(t *testing.T) {
+		r, up := setup(t)
+		hangUp(t, r, up)
+		close(up.hold) // the upstream finishes, nobody listening
+		got := row(t, r)
+		if got.Requests != 1 || got.InputTokens != 100 || got.OutputTokens != 20 || got.Estimated != 0 || got.Failed != 0 || got.User != "bob" {
+			t.Errorf("metered: %+v", got)
+		}
+		select {
+		case <-up.canceled:
+			t.Error("the upstream call was cut although its answer ended within the grace")
+		default:
+		}
+	})
+	t.Run("it doesn't: the upstream is cut, and an estimate is charged", func(t *testing.T) {
+		r, up := setup(t)
+		start := time.Now()
+		hangUp(t, r, up) // the upstream never finishes
+		select {
+		case <-up.canceled:
+			if d := time.Since(start); d < testGrace {
+				t.Errorf("the upstream call was cut %v after the hang-up: before its grace", d)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("the upstream's request was not ended after the client went away")
+		}
+		got := row(t, r)
+		sent, _ := json.Marshal(up.lastBody())
+		wantIn := int64(len(sent)+3) / 4 // one token per four bytes of the request, as it was sent
+		if got.Requests != 1 || got.Estimated != 1 || got.OutputTokens != 1 || got.InputTokens < wantIn-2 || got.InputTokens > wantIn+2 || got.Failed != 0 || got.Cost <= 0 {
+			t.Errorf("the estimate: %+v (want about %d in, 1 out: one event was relayed)", got, wantIn)
+		}
+		// the quota sees the estimate
+		r.must(200, pOwner, "PUT", "/llm/quotas", map[string]any{"users": map[string]any{"bob": map[string]any{"tokensPerDay": 5}}})
+		if a := r.do(pUser("bob"), "POST", "/llm/v1/chat/completions", chatBody("gpt-5", false)); a.code != 429 {
+			t.Errorf("bob's next call, past a quota the estimate filled: %d %s", a.code, a.body)
+		}
+	})
+	t.Run("an answer that reports no usage is estimated too", func(t *testing.T) {
+		r := newRig(t, "")
+		quiet := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(w, 200, map[string]any{"choices": []any{map[string]any{"message": map[string]any{"role": "assistant", "content": strings.Repeat("word ", 80)}}}})
+		}))
+		defer quiet.Close()
+		r.must(200, pOwner, "PUT", "/llm/upstreams/quiet", map[string]any{"baseURL": quiet.URL, "models": []string{"m"}})
+		a := r.must(200, pOwner, "POST", "/llm/v1/chat/completions", chatBody("m", false))
 		rows := r.usageRows("")
-		if len(rows) == 1 && rows[0].Requests == 1 && rows[0].Failed == 1 && rows[0].InputTokens == 0 {
-			break
+		if len(rows) != 1 || rows[0].Estimated != 1 || rows[0].OutputTokens != int64(len(a.body)+3)/4 || rows[0].InputTokens == 0 || rows[0].Unpriced != 1 {
+			t.Errorf("a usage-less answer of %d bytes: %+v", len(a.body), rows)
 		}
-		if time.Now().After(deadline) {
-			t.Fatalf("the canceled call's row: %+v", rows)
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	})
 }
 
 // covers D226 — a quota stops at its limit with 429 naming the quota and
