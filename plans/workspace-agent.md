@@ -1,6 +1,6 @@
 # Workspace agent (issue #51) — plan
 
-> Status: **plan only, nothing implemented** (rev 2, 2026-11-14, against
+> Status: **live** — plan only, nothing implemented (rev 2, 2026-11-14, against
 > master 83c03745). Rev 2 records the owner's decisions of 2026-11-14
 > (section 9) and moves the dedupe into `plans/agent-dedupe.md`. Decisions
 > get their D-numbers when the work lands (D223 is the latest today).
