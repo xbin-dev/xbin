@@ -91,17 +91,17 @@ type agentState struct {
 	status    string
 	turn      uint64
 	text      []byte
-	acpID     string      // the agent's own session id (after the handshake)
-	loadable  bool        // the agent can reopen acpID later (session/load) — resume
-	resumed   string      // the history entry this session reopened (superseded when this one is saved)
-	snap      *snapper    // files.changed snapshots of the tile (agentdiff.go); nil = off
-	published statusKey   // the last summary handed to OnStatus (agentstatus.go)
-	prompting atomic.Bool // a prompt is being taken (ReservePrompt)
-	attachDir string      // the daemon's attachments dir (isolation off), removed with the session
-	replay    replayState // a resume's replay, logged but not published one by one (agentpage.go); under mu
-	queue     []queueItem // messages held for the running turn's end (agentqueue.go, D197); under mu
-	flushing  bool        // the queue is being sent as a prompt; under mu
-	queueing  atomic.Bool // a message for the queue is being taken (ReserveQueue)
+	acpID     string         // the agent's own session id (after the handshake)
+	loadable  bool           // the agent can reopen acpID later (session/load) — resume
+	resumed   string         // the history entry this session reopened (superseded when this one is saved)
+	snap      *snapper       // files.changed snapshots of the tile (agentdiff.go); nil = off
+	published sdkacp.Summary // the last summary handed to OnStatus (agentstatus.go)
+	prompting atomic.Bool    // a prompt is being taken (ReservePrompt)
+	attachDir string         // the daemon's attachments dir (isolation off), removed with the session
+	replay    replayState    // a resume's replay, logged but not published one by one (agentpage.go); under mu
+	queue     []queueItem    // messages held for the running turn's end (agentqueue.go, D197); under mu
+	flushing  bool           // the queue is being sent as a prompt; under mu
+	queueing  atomic.Bool    // a message for the queue is being taken (ReserveQueue)
 }
 
 func (st *agentState) logf(line string) {
@@ -534,7 +534,7 @@ func (s *Session) logEvent(m *Manager, e agent.Event) {
 		if d.Status != "" {
 			st.status = d.Status
 		}
-		flush := len(st.queue) > 0 && (d.Status == agent.StatusIdle || d.Status == agent.StatusError) // the turn ended: what is held goes in (D197)
+		flush := len(st.queue) > 0 && sdkacp.TurnOver(d.Status) // the turn ended: what is held goes in (D197)
 		if d.CurrentMode != "" {
 			st.mode = d.CurrentMode
 		}
@@ -600,7 +600,7 @@ func (m *Manager) ReservePrompt(id string) (release func(), err error) {
 		return nil, err
 	}
 	st.mu.Lock()
-	running := st.status == agent.StatusRunning || st.status == agent.StatusWaiting || st.status == agent.StatusCancelling
+	running := st.busyLocked()
 	st.mu.Unlock()
 	if running || !st.prompting.CompareAndSwap(false, true) {
 		return nil, agent.ErrBusy
@@ -629,7 +629,7 @@ func (m *Manager) AgentPromptWith(ctx context.Context, id string, p agent.Prompt
 		return 0, fmt.Errorf("the agent did not start: %w", startErr)
 	}
 	st.mu.Lock()
-	busy := st.status == agent.StatusRunning || st.status == agent.StatusWaiting || st.status == agent.StatusCancelling
+	busy := st.busyLocked()
 	st.mu.Unlock()
 	if !busy { // (a refused prompt must not move a running turn's base)
 		st.snap.turnStart(2 * time.Second) // the turn's base: edits made between turns are not the agent's

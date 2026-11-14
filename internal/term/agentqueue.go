@@ -26,6 +26,7 @@ import (
 
 	"github.com/xbin-dev/xbin/internal/agent"
 	"github.com/xbin-dev/xbin/internal/util"
+	sdkacp "github.com/xbin-dev/xbin/sdk/acp"
 )
 
 // EvQueue is the session's held messages after a change ({items, sent?,
@@ -84,9 +85,7 @@ type queueData struct {
 }
 
 // busyLocked: a turn runs (or waits for an answer, or is being cancelled).
-func (st *agentState) busyLocked() bool {
-	return st.status == agent.StatusRunning || st.status == agent.StatusWaiting || st.status == agent.StatusCancelling
-}
+func (st *agentState) busyLocked() bool { return sdkacp.Busy(st.status) }
 
 // ReserveQueue takes the session's one queueing slot before the request's
 // body is read (like ReservePrompt: a message's files are tens of MiB
@@ -299,7 +298,7 @@ func (m *Manager) kickQueue(s *Session) {
 // ended (idle, or the turn failed) and no prompt is being taken (st.mu
 // held).
 func (st *agentState) queueSendable() bool {
-	return (st.status == agent.StatusIdle || st.status == agent.StatusError) && !st.prompting.Load()
+	return sdkacp.TurnOver(st.status) && !st.prompting.Load()
 }
 
 // flushQueue sends what is held as one prompt: the messages in order, their

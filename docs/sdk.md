@@ -400,6 +400,21 @@ pure: no I/O, no goroutine, no clock of its own.
   owner, judged with the mode its adapter started in).
   `acp.ModeOption(options)` is an adapter's config option of category
   `mode`; `state.Mode()` the session's current mode either way.
+- **Status words** (`summary.go`): a session in a word and in a line.
+  `acp.Busy(status)` — a turn runs (`running`, `waiting_permission`,
+  `cancelling`); `acp.TurnOver(status)` — it takes a prompt (`idle`,
+  `error`). `acp.StateOf(status, signedOut)` is the word a list shows:
+  `acp.StateStarting`, `StateReady`, `StateWorking`, `StateLogin`,
+  `StateFailed`, `StateStopped`. `acp.Summary{Status, Pending, Questions,
+  Turn}` is what an inbox compares (`==`) to know something changed —
+  xbind's `term` event with `op: "status"` carries exactly these — with
+  `Busy()` and `Waiting()` (it waits on a person). `acp.Need{Kind, Agent,
+  What}` is what it waits for (`acp.NeedApproval`, `NeedQuestion`,
+  `NeedLogin`) in words: `Heading()` ("Permission needed", "Question",
+  "Sign in to ‹agent›") and `Text()` ("‹agent› wants to run ‹what› —
+  approve or deny.", the question's own words, "‹agent› needs you to sign
+  in to it."; bounded). xbind's notifications and the agent template's
+  "Needs you" use them, so a person reads one wording.
 
 The codec is exported too — `acp.NewConn(r, w)` / `acp.NewConnWith(r, w,
 acp.ConnOptions{IDPrefix, Offset})` (`Call`, `CallCtx`, `Notify`, `Reply`,

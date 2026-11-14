@@ -371,8 +371,8 @@ func (r *ToolRecord) mergeContent(raw json.RawMessage, p ToolPolicy) {
 	}
 	if len(text) > 0 {
 		r.Text = strings.Join(text, "\n\n")
-		if p.TextMax > 0 && len(r.Text) > p.TextMax {
-			r.Text = strings.ToValidUTF8(r.Text[:p.TextMax], "") + "…"
+		if p.TextMax > 0 {
+			r.Text = clipText(r.Text, p.TextMax)
 		}
 	}
 	if len(diffs) > 0 {

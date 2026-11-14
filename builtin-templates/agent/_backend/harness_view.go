@@ -210,16 +210,18 @@ func harnessSummary(d *DB, r *Run) map[string]any {
 	if !hsRunning(hs.State) { // no adapter: what the next start sets (PATCH /runs/{id}/harness stores it)
 		st = withChoices(st, h)
 	}
-	state := map[string]string{hsNone: "stopped", hsStopped: "stopped", hsStarting: "starting", hsLogin: "login",
-		hsLost: "lost", hsFailed: "failed"}[hs.State]
-	if hs.State == hsLive {
-		state = "ready"
-		if hs.PromptState != "" || r.Status == statusRunning || r.Status == statusWaiting {
-			state = "working"
-		}
+	// the state's word is sdk/acp's (StateOf: the words xbind's lists say of
+	// a tile agent session too), from the session's status in ACP's terms;
+	// "lost" is this engine's own — an adapter that is gone and may be
+	// taken up again
+	status := map[string]string{hsStarting: acp.StatusStarting, hsLogin: acp.StatusError, hsFailed: acp.StatusError,
+		hsLive: acp.StatusIdle}[hs.State] // anything else: no adapter ("": stopped)
+	if hs.State == hsLive && (hs.PromptState != "" || r.Status == statusRunning || r.Status == statusWaiting) {
+		status = acp.StatusRunning
 	}
-	if state == "" {
-		state = "stopped"
+	state := acp.StateOf(status, hs.State == hsLogin)
+	if hs.State == hsLost {
+		state = "lost"
 	}
 	errText := ""
 	if state == "lost" || state == "failed" {
@@ -258,7 +260,7 @@ func harnessSummary(d *DB, r *Run) map[string]any {
 		case "question":
 			title = p.Harness.Message
 		case "login":
-			title = "Sign in to " + name
+			title = acp.Need{Kind: acp.NeedLogin, Agent: name}.Heading()
 		}
 		out["pending"] = map[string]any{"park": p.Park, "kind": p.Kind, "title": title}
 	}

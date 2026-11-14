@@ -47,5 +47,7 @@
 // toolrec.go the tool record (ToolRecord, ToolRecords: a call's events
 // merged, an id used again, what output a reducer keeps); escalation.go
 // whether a permission option raises the session's mode
-// (Provider.OptionRaises, ModeOpen — what marks an option Explicit).
+// (Provider.OptionRaises, ModeOpen — what marks an option Explicit);
+// summary.go a session in a word and a line (Busy, TurnOver, StateOf,
+// Summary, and Need: what it waits on a person for, in words).
 package acp

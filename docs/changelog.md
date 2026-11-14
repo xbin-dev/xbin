@@ -12,6 +12,21 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-14
 
+- **sdk/acp: status words — `Busy`, `TurnOver`, `StateOf`, `Summary`,
+  `Need` (D225).** New, additive (`/docs/sdk.md` "The session rules"):
+  the status classes, a session's state in one word (`starting`, `ready`,
+  `working`, `login`, `failed`, `stopped`), the summary an inbox compares,
+  and what a session waits on a person for as a heading and a sentence.
+  xbind's agent-session summaries and notifications and the agent
+  template's "Needs you" now take their words from it. **Wording that
+  changed** — xbind's push notifications for a tile agent session, only
+  when the request says nothing of itself: a permission request without a
+  title reads "The agent wants to run a command — approve or deny." (was
+  "A tool call is waiting for your answer."), a question without a message
+  "The agent is waiting for your answer." (was "The agent is asking you
+  something."). Titles ("Permission needed — ‹tile›", "Question —
+  ‹tile›"), every other body, the `term` status event and the agent
+  template's texts and `harness.state` words are unchanged.
 - **Agent sessions: a permission option that raises the mode says so —
   `explicit: true` (D225).** A `permission.request`'s options (the event,
   `GET /term/sessions/<id>`'s `permissions`, the tail page's
