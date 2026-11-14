@@ -10,6 +10,14 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-09
+
+- **Agent template: a model that goes quiet mid-answer is given 5 minutes,
+  not 90 s.** Some upstreams (kimi-k3, deepseek-v4.1-flash through llm-gw)
+  send a tool call whole once it is composed, so a large one, such as a file
+  written in one call, was minutes of silence that the agent cut as a stalled
+  stream, again and again. The 90 s bound still holds until the first byte.
+
 ## 2026-11-08
 
 - **Agent template Projects: a project wiki, and the coordinator reads
@@ -55,14 +63,6 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   (action `cancel`, by `agent`), as a withdrawn permission already did
   ([sdk.md](/docs/sdk.md), [protocol.md](/docs/protocol.md)). New
   `Provider.LoginFiles`: where each CLI keeps its login.
-
-## 2026-11-09
-
-- **Agent template: a model that goes quiet mid-answer is given 5 minutes,
-  not 90 s.** Some upstreams (kimi-k3, deepseek-v4.1-flash through llm-gw)
-  send a tool call whole once it is composed, so a large one, such as a file
-  written in one call, was minutes of silence that the agent cut as a stalled
-  stream, again and again. The 90 s bound still holds until the first byte.
 
 ## 2026-11-03
 
