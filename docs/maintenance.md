@@ -300,7 +300,13 @@ decision, and `assets_test.go` refuses:
   file not named after its directory (a tool a tile ships under `bin/`) is
   never matched.
 - **files over 512 KB** outside `web/vendor/` — the vendored frontend deps
-  are the only big files by design.
+  are the only big files by design. A doc that grows without end is split
+  before it gets there: the protocol reference is one page per topic
+  (`docs/protocol/<topic>.md`, Route inventory below), and the changelog
+  keeps its recent weeks in `docs/changelog.md` with older months moved,
+  unchanged, to `docs/changelog/<YYYY-MM>.md` and listed under its "Older
+  entries" — cut whole months from the old end, leave the top to the
+  entries being added.
 - **nested repos and dependency trees** (`.git`, `node_modules`, `.claude`,
   `deps`): `all:` embeds dotfiles too.
 - **pointers into `plans/`**. The design records are *not* embedded, so a
