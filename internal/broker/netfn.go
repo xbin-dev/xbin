@@ -338,6 +338,10 @@ func (b *Broker) HTTPSlots(comp string) map[string]ResolvedIface {
 		}
 		ri := ResolvedIface{Def: req}
 		for _, ref := range ws.Bindings[comp][slot].Refs() {
+			if hb, ok := httpBuiltinFor(ref, req.Service); ok { // xbind's own service (builtin_http.go)
+				ri.Endpoints = append(ri.Endpoints, IfaceEndpoint{Provider: ref, URL: hb.URL})
+				continue
+			}
 			prov, inst := splitRef(ref)
 			p, ok := b.Reg.Component(prov)
 			if !ok {
@@ -679,6 +683,7 @@ func (b *Broker) bindOptions(comp string, req registry.Iface, wsAdmin bool) []bi
 	case registry.KindSandboxNet: // builtins only: no host, no provider tiles
 		builtins = b.sandboxNetBuiltinOptions(comp, wsAdmin)
 	case "http":
+		builtins = b.httpBuiltinOptions(req, wsAdmin) // the LLM connector, once configured (builtin_http.go)
 		for _, p := range b.Reg.Components() {
 			if p.Path == comp {
 				continue
@@ -786,7 +791,11 @@ func (b *Broker) apiBindingSet(w http.ResponseWriter, r *http.Request) {
 		next = append(append(registry.Binding{}, cur...), binding[0])
 	}
 	if !b.IsAdmin(p) {
-		for _, ref := range refs { // a named set is a workspace-admin act (D65)
+		for _, ref := range refs { // a named set is a workspace-admin act (D65); so is the LLM connector (D226)
+			if ref == LLMRef && r.Method != http.MethodDelete {
+				server.WriteError(w, http.StatusForbidden, "binding the workspace's LLM connector ("+LLMRef+") is a workspace-admin act: its calls spend the workspace's LLM quota", "/docs/llm.md")
+				return
+			}
 			if strings.HasPrefix(ref, NetRefSet) {
 				server.WriteError(w, http.StatusForbidden, "binding a named network set ("+ref+") is a workspace-admin act — an org admin binds org (the union of the sets attached to the org), or asks a workspace admin to attach the set", "/docs/auth.md")
 				return
@@ -953,6 +962,12 @@ func (b *Broker) validateBinding(comp, slot string, binding registry.Binding) er
 				return fmt.Errorf("%s", msg)
 			}
 		case "http":
+			if handled, err := validateHTTPBuiltin(ref, def); handled { // xbin:llm (builtin_http.go)
+				if err != nil {
+					return err
+				}
+				continue
+			}
 			p, ok := b.Reg.Component(prov)
 			if !ok {
 				return fmt.Errorf("no such provider: %s", prov)

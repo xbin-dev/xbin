@@ -164,6 +164,10 @@ type Broker struct {
 	// Version is the xbind version, stamped into backup manifests.
 	Version string
 
+	// LLMOffered reports whether the LLM connector is configured, so pickers
+	// offer it for openai slots (builtin_http.go, D226); nil = never.
+	LLMOffered func() bool
+
 	// AllowInsecureVault permits storing secrets as plaintext at rest when no
 	// encryption barrier is configured (dev / --insecure-vault only). When
 	// false, vault writes without a barrier are refused rather than written
