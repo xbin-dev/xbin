@@ -408,7 +408,7 @@ func (b *Broker) parseRes(target string) (resTarget, *registry.Resource, bool) {
 	}
 	scopes := b.Reg.Scopes()
 	p := rest
-	for p != "." && p != "" {
+	for p != "." && p != "" && p != "/" { // path.Dir("/") is "/": "res:/x" must end the walk
 		dir := path.Dir(p)
 		if sm, ok := scopes[dir]; ok && dir != "." {
 			name := strings.TrimPrefix(rest, dir+"/")

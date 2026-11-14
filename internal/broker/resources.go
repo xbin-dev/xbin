@@ -670,7 +670,7 @@ func (b *Broker) resScope(target string) (resTarget, bool) {
 		return resTarget{Name: name}, true
 	}
 	scopes := b.Reg.Scopes()
-	for p := rest; p != "." && p != ""; {
+	for p := rest; p != "." && p != "" && p != "/"; { // path.Dir("/") is "/": "res:/x" must end the walk
 		dir := path.Dir(p)
 		if _, ok := scopes[dir]; ok && dir != "." {
 			return resTarget{Scope: dir, Name: strings.TrimPrefix(rest, dir+"/")}, true
