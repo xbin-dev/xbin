@@ -196,8 +196,9 @@ function tabInfo(f, ref) {
   if (M.isSession(ref)) {
     const t = f._sessions[sessionAt(f, ref)];
     const name = t ? sessionLabel(t) : '…';
-    return { label: name, icon: t?.kind === 'agent' ? 'agent' : 'terminal', ended: !!t?.ended,
-      title: `${name}${t?.ended ? ' (ended)' : ''} — double-click to rename · drag to another pane, or to a pane's edge to split` };
+    const byAgent = t?.origin === 'agent'; // the person's workspace agent opened it (D229)
+    return { label: name, icon: t?.kind === 'agent' ? 'agent' : 'terminal', ended: !!t?.ended, note: byAgent ? 'your agent' : undefined,
+      title: `${name}${t?.ended ? ' (ended)' : ''}${byAgent ? ' — started by your agent' : ''} — double-click to rename · drag to another pane, or to a pane's edge to split` };
   }
   if (ref.startsWith('f:')) return { label: base(ref.slice(2)), icon: 'file', title: ref.slice(2) };
   if (ref.startsWith('w:')) return { label: base(ref.slice(2)), icon: 'diff', note: 'changes', title: `${ref.slice(2)} — changes not yet committed` };

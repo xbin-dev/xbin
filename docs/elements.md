@@ -397,6 +397,16 @@ nothing a link to `/c/<tile>/#<fragment>` couldn't: your page decides what
 its fragment means — treat it as input, never as a command to act on
 unasked.
 
+**A link to a session** (D229). `?tile=apps/notes&session=<id>` opens the
+tile's terminal window on one of the viewer's own sessions there — a
+terminal, or an agent session: its tab while it is live, its transcript
+once it has ended. The `session` part is a request, taken once on landing
+and dropped from the URL (the window's state is not part of a place). A
+session that isn't the viewer's on that tile says so in the strip above
+the canvas; a shell from before D229 ignores the parameter and lands on
+the tile. From your own page, ask for the same with
+`xbin.openSession({tile, session})` (below).
+
 The scaffold's admin console (`#users`, `#orgs/<id>`) and welcome notes
 (`#storage/kv`) do both. A page that keeps no fragment is linked to as a
 tile, opened where it starts.
@@ -503,6 +513,15 @@ Horizontal scroll on a tile is a bug — avoid it at all cost.
   sends the page there (`xbin:navigate`) — before the frame has loaded,
   its first load carries it. The shell's links use both (§Links to a
   place in your tile).
+- **The terminal window, from outside** (D229): `open(layout)` opens the
+  frame's terminal window (`'term'`, `'code'`, `'logs'`, `'prs'`,
+  `'deployments'`; none keeps it as it is), and `open({session, layout?})`
+  shows one of the viewer's sessions on the tile in it — the tab of a live
+  session, the read-only transcript of one that ended — resolving `true`,
+  or `false` when the id is neither (not theirs, another tile's, gone). A
+  tile's page asks for it with `xbin.openSession` (below), which reaches
+  the frame as the cancelable event `bx-open-session` `{from, tile,
+  session}` for the embedder to take.
 - **Auto-height**: the framed document reports its size via xbin-client
   (with hysteresis, so no resize loops). Set `height` for a fixed frame.
   The mode follows the element live (D187): setting or removing `height`
@@ -876,6 +895,21 @@ inputs and editable text keep the native menu.)
   `text/html` and `text/plain` on `e.clipboardData` to shape it. A right-click
   with a selection already leads the shell's tile menu with Copy, and that
   Copy now writes the selection's HTML too.
+
+- **`xbin.openSession({tile, session}) → Promise<boolean>`** — show one of
+  the person's sessions (a terminal or an agent session, by its id from
+  `GET /api/xbin/term/sessions` or `/agent/history`) in its tile's terminal
+  window (D229): the tab of a live one, the transcript of one that ended.
+  `tile` defaults to your own. The shell finds the tile on the person's
+  screens or opens it, brings it to the front and opens its window on the
+  session; your page stays where it is. Resolves `true` when the workspace
+  took the request, `false` when it couldn't — the viewer doesn't list the
+  tile, the page isn't in a workspace shell (the app, a bare tab), or
+  nothing answered in 3 s. Call it from a click: a shell from before D229
+  is given a link to the tile instead, and the frame follows a link only on
+  the click that asked. The window lists the viewer's own sessions, so the
+  request reveals and grants nothing: a session that isn't theirs simply
+  isn't found.
 
 **Permissions & trust.** Spawning UI is a tile affordance, not a privileged
 capability — no grant is required — but four things bound it:

@@ -54,7 +54,25 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   pickers). `PUT` is a JSON merge patch. Only the person's own session
   reads or writes them: a tile's credentials, a terminal's or an agent
   session's token, view-as and the root token get 403. A bypass
-  (`explicit`) mode can't be saved.
+  (`explicit`) mode can't be saved. **The tile window's launcher and Agent
+  tab now use them**: the last session kind and harness you started, and
+  the mode, model and settings you last picked for a harness, follow you
+  to every browser, and a new agent session starts with them. What the
+  launcher remembered in this browser (`localStorage`) is moved over on
+  first use and still answers where the server can't (the root token,
+  `--no-auth`). New shared module `/vendor/agent-prefs.js`.
+- **Open a session from outside its tile's window** (D229;
+  [elements.md](/docs/elements.md) §`<bx-frame>`, §Links to a place in
+  your tile). `<bx-frame>`'s `open({session})` shows one of the viewer's
+  sessions on the tile — a live one's tab, an ended one's transcript — and
+  resolves whether it found it. A tile's page asks with
+  **`xbin.openSession({tile, session})`** (frame message
+  `xbin:open-session`), and a link can carry it:
+  `/c/root/?tile=apps/notes&session=<id>`. A session's tab that your
+  workspace agent started is marked "your agent". The shell part is a few
+  lines in the scaffold's `shell/route.js` and `shell/shell-route.js`
+  (`bx builtin update`); an older shell treats the link as a link to the
+  tile, and `xbin.openSession` still works for a tile on the page.
 - **docs: the protocol reference is split by topic.** `/docs/protocol.md`
   had reached the size limit of a served doc, so its route tables and
   WebSocket sections moved, unchanged, to one page per area under

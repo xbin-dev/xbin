@@ -732,9 +732,13 @@ menu and the chooser then offer only those (`GET
 with the reason — "Finance allows these coding agents only: claude, codex
 (not gemini)". A rule decides what starts next: a session already running
 keeps running; it can't be restarted or resumed while its harness is
-disallowed, and its transcript stays readable. A session your **workspace
-agent** started for you is yours like any other; the directory marks it
-(`origin: "agent"`).
+disallowed, and its transcript stays readable. What you last picked — the
+harness, and per harness the mode, model and settings — is remembered on
+the server (`/api/xbin/agent/prefs`), so every browser you sign into
+starts a session the same way; a bypass mode is never remembered. A
+session your **workspace agent** started for you is yours like any other;
+the directory marks it (`origin: "agent"`) and its tab says "started by
+your agent".
 
 ## The logs dock
 
