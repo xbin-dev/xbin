@@ -257,6 +257,45 @@ err = c.Prompt(ctx, acp.Prompt{Text: "fix the build"}) // acp.ErrBusy while a tu
   `--codex-auth` it signs in as codex does (a key through `authenticate`,
   kept in `auth.json` and in memory); `printenv N` prints its own
   environment variable N as Claude Code's Bash tool would.
+- **An LLM connector.** `p.Connector` says how the CLI is pointed at an
+  OpenAI-compatible endpoint a host serves in place of the vendor's —
+  xbind's built-in connector ([llm.md](/docs/llm.md)) — from its
+  environment alone, and `p.ConnectorEnv(acp.ConnectorParams{URL, Key,
+  Models, Model, Serves})` renders it for one session: `Set` (the
+  variables, `Lines()` sorted, `Apply(env)` merged), `Unset` (variables to
+  drop) and `UsesKey` (false: the session has no use for the key — revoke
+  it). One table for every host that runs these CLIs:
+
+  | Provider | Wire | Kind | What is set |
+  |---|---|---|---|
+  | `opencode` | `chat` | additive | `OPENCODE_CONFIG_CONTENT`: an inline config declaring the provider `xbin` ("LLM by xbin") with `Models`, its key read from `XBIN_LLM_KEY`; its `model` member (`xbin/<Model>`) only when the connector serves |
+  | `codex` | `responses` | replacing | `DEFAULT_AUTH_REQUEST` (codex-acp's gateway auth: the base URL and the key as a header) and `CODEX_CONFIG` `{"model": <Model>}`; unset `CODEX_API_KEY`, `OPENAI_API_KEY`, `MODEL_PROVIDER` |
+  | `claude` | `anthropic` | replacing | `ANTHROPIC_BASE_URL` (the URL without `/v1`), `ANTHROPIC_AUTH_TOKEN`, `ANTHROPIC_MODEL` and the three `ANTHROPIC_DEFAULT_*_MODEL`, `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`; unset `ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN` |
+  | `gemini` | — | | no `Connector`: the CLI speaks Google's wire only |
+
+  Whenever anything is set, so are `XBIN_LLM_URL` and `XBIN_LLM_KEY`
+  (`acp.ConnectorURLEnv`, `ConnectorKeyEnv`). `Wire` is what the CLI
+  speaks (`acp.WireChat`, `WireResponses`, `WireAnthropic`): offer the
+  connector for a provider only where your connector serves it (xbind's
+  serves `chat` and `responses` today). **Additive**: the CLI keeps the
+  person's own providers beside the connector's, so it is always declared
+  and `Serves` only decides the default model. **Replacing**: the
+  variables take the place of the person's sign-in, so with `Serves:
+  acp.ServeOwn` nothing is rendered. `Never` lists variables a host never
+  puts the connector's key in (it would go to the vendor's own address, or
+  replace the person's sign-in).
+  Who serves is the host's to decide first:
+  `acp.ConnectorServes(session, saved, workspace, own)` — the session's
+  choice, else the person's saved default, else the workspace's
+  (`acp.UseConnector`, `UseOwn`, `UseOwnFirst`; nothing said is
+  own-first), where `own` is `p.HasOwnLogin(env, exists)`: a key of
+  `p.Keys` in the environment, or one of `p.LoginFiles` — shell words,
+  `acp.ExpandWord(word, getenv)` expands them — where the CLI runs. A
+  sign-in the person already has keeps working. The key should be narrow
+  and short-lived (xbind's LLM keys: `xbin.LLMKeyFor`, below): Codex
+  writes its environment to `$CODEX_HOME/shell_snapshots`. `acp.Fake`
+  takes a connector as codex does (or, with `--llm-additive` in its argv,
+  as opencode does) and its `llm-call <text>` script calls it.
 - **Prompts with files.** `acp.PrepareAttachments` checks and normalises
   them (limits: `acp.Max*`). Each file is first dropped where the agent
   runs — `ClientOptions.Drop` returns the path — then an image goes inline
@@ -361,8 +400,9 @@ prompt: `echo` by default, `perm` and `perm-edit` (a permission request),
 `perm2…` (two at once), `plan…` (a plan approval), `ask…` (a form
 question), `subagent…`, `think…`, `todo` (plan updates), `cards` (one tool
 call of every kind), `run: <cmd>` (a `terminal/*` round trip), `slow`,
-`stall` (nothing until `session/cancel`), `fail` (signed out), `crash`, and
-more — the package doc lists every script and what it sends.
+`stall` (nothing until `session/cancel`), `fail` (signed out), `crash`,
+`llm-call <text>` (one call to the LLM connector its environment names),
+and more — the package doc lists every script and what it sends.
 
 ```go
 import "github.com/xbin-dev/xbin/sdk/acp/acptest"

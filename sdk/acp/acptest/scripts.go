@@ -208,6 +208,8 @@ func (f *fake) turn(t *turnState, text string, files []string) {
 		f.update(map[string]any{"sessionUpdate": acp.UpToolCallUpdate, "toolCallId": "t1", "status": "completed",
 			"content": []map[string]any{{"type": "content", "content": acp.ContentBlock{Type: "text", Text: "a.txt b.txt"}}}})
 		f.say("listed")
+	case strings.HasPrefix(text, "llm-call"):
+		f.say(f.llmCall(strings.TrimPrefix(text, "llm-call"))) // one call to the injected LLM connector (llm.go)
 	case strings.HasPrefix(text, "printenv "):
 		// as Claude Code's own Bash tool: a child of the agent's process,
 		// its environment inherited (a hook prints on stderr)
