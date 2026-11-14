@@ -3,6 +3,7 @@ package boot
 import (
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -117,4 +118,65 @@ func TestSealedPageFollowsTheRelease(t *testing.T) {
 	if code, body, _ := call(d, "/api/xbin/counter/hello", ""); code != 200 || !strings.HasPrefix(body, "code-2 ") {
 		t.Errorf("a call naming no code: %d %s", code, body)
 	}
+}
+
+// What a browser is sent of a sealed component is the release's bytes from
+// memory, never the copy under .xbin/sealed/; and that copy — what its
+// backend runs in — is checked against the release before every start and
+// written again when it differs.
+func TestSealedFilesAreTheReleasesNotTheDisks(t *testing.T) {
+	if testing.Short() {
+		t.Skip("boots a workspace and builds a backend")
+	}
+	quiet(t)
+	ws := filepath.Join(t.TempDir(), "ws")
+	if err := InitWorkspace(ws); err != nil {
+		t.Fatal(err)
+	}
+	d := startSealed(t, ws, []sealed.Spec{{Name: "counter", Source: sealedCounter("code-1"), Authored: "apps/counter"}})
+	c, ok := d.st.Sealed.Component("xbin/counter")
+	if !ok {
+		t.Fatal("no sealed component")
+	}
+	served := func(what string) {
+		t.Helper()
+		if code, body := d.do("GET", "/c/xbin/counter/app.js", nil); code != 200 || body != "export const version = 'code-1';\n" {
+			t.Errorf("%s: app.js is %d %q", what, code, body)
+		}
+		if code, body := d.do("GET", "/c/xbin/counter/", nil); code != 200 || !strings.Contains(body, "<body>code-1</body>") || strings.Contains(body, "planted") {
+			t.Errorf("%s: its document is %d %s", what, code, body)
+		}
+		if code, _ := d.do("GET", "/c/xbin/counter/planted.js", nil); code != 404 {
+			t.Errorf("%s: a file the release doesn't have answers %d", what, code)
+		}
+	}
+	served("as booted")
+	if code, body := d.do("GET", "/api/xbin/counter/hello", nil); code != 200 {
+		t.Fatalf("its backend: %d %s", code, body)
+	}
+	// someone writes into xbind's copy
+	for name, body := range map[string]string{"app.js": "export const version = 'planted';\n", "index.html": "<html><body>planted</body></html>", "planted.js": "planted"} {
+		p := filepath.Join(c.Dir, name)
+		_ = os.Chmod(p, 0o644)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	served("with its files on disk changed")
+	// the next start of its backend puts the release's files back
+	for _, state := range []string{"disabled", "enabled"} {
+		if code, body := d.do("POST", "/api/xbin/lifecycle", map[string]any{"component": "xbin/counter", "state": state}); code != 200 {
+			t.Fatalf("lifecycle %s: %d %s", state, code, body)
+		}
+	}
+	if code, body := d.do("GET", "/api/xbin/counter/hello", nil); code != 200 || !strings.HasPrefix(body, "code-1 ") {
+		t.Fatalf("its backend after a restart: %d %s", code, body)
+	}
+	if b, _ := os.ReadFile(filepath.Join(c.Dir, "app.js")); string(b) != "export const version = 'code-1';\n" {
+		t.Errorf("after a start its tree on disk still holds %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(c.Dir, "planted.js")); err == nil {
+		t.Error("a planted file survived a start")
+	}
+	served("after the restart")
 }

@@ -22,8 +22,10 @@ func sealedBuildMain(args []string) {
 // sealedBuild is `xbind sealed-build`: compile the backend of every Go
 // component of the compiled-in table into --out as <name>-<digest>, for
 // --os/--arch (default: the go command's), and remove what else is there;
+// with sealed.json, the manifest of what each was built from and its hash;
 // --list prints the file names a release's bin/sealed must hold instead,
-// --check verifies --out holds exactly those.
+// --check verifies --out holds exactly those, each the file its manifest
+// lists and built against the SDK at --sdk.
 func sealedBuild(args []string) error {
 	fs := flag.NewFlagSet("sealed-build", flag.ContinueOnError)
 	out := fs.String("out", "bin/sealed", "the directory the backends are built into")
@@ -31,7 +33,7 @@ func sealedBuild(args []string) error {
 	goos := fs.String("os", "", "target GOOS (default: the go command's)")
 	goarch := fs.String("arch", "", "target GOARCH (default: the go command's)")
 	list := fs.Bool("list", false, "print the file names bin/sealed must hold, and build nothing")
-	check := fs.Bool("check", false, "verify --out holds exactly those files, and build nothing")
+	check := fs.Bool("check", false, "verify --out holds exactly those files, as its sealed.json lists them and built against --sdk, and build nothing")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -47,24 +49,11 @@ func sealedBuild(args []string) error {
 		}
 		return nil
 	case *check:
-		ents, err := os.ReadDir(*out)
-		if err != nil && (len(want) > 0 || !os.IsNotExist(err)) {
+		n, err := set.CheckBuilds(*out, *sdk)
+		if err != nil {
 			return err
 		}
-		have := map[string]bool{}
-		for _, e := range ents {
-			have[e.Name()] = true
-		}
-		for _, n := range want {
-			if !have[n] {
-				return fmt.Errorf("%s has no %s: the release would hold that component (no-build)", *out, n)
-			}
-			delete(have, n)
-		}
-		for n := range have {
-			return fmt.Errorf("%s holds %s, which isn't a build of this source", *out, n)
-		}
-		fmt.Printf("sealed-build: %s holds this source's %d backend(s)\n", *out, len(want))
+		fmt.Printf("sealed-build: %s holds this source's %d backend(s), as its %s says\n", *out, n, sealed.ManifestName)
 		return nil
 	}
 	have, err := set.Build(sealed.BuildOptions{Out: *out, SDK: *sdk, GOOS: *goos, GOARCH: *goarch, Log: os.Stderr})

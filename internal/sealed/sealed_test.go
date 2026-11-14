@@ -234,6 +234,29 @@ func TestHolds(t *testing.T) {
 			t.Fatal("a non-executable file was accepted as the build")
 		}
 		_ = os.Chmod(filepath.Join(bin, "fix-"+id), 0o755)
+		// executable and named for this source, but nothing lists it: a
+		// name alone is not trusted
+		if h, held := open(t, ws, Options{Isolate: true, BinDir: bin}, spec("")).Hold("xbin/fix"); !held || !strings.Contains(h.Reason, "isn't listed in sealed.json") {
+			t.Fatalf("an unlisted file was accepted as the build: %+v", h)
+		}
+		list := func(source, sum string) {
+			t.Helper()
+			m := BuildManifest{Schema: 1, Builds: map[string]BuildEntry{"fix-" + id: {Component: "xbin/fix", Source: source, SHA256: sum, Size: int64(len("#!/bin/sh\n"))}}}
+			b, _ := json.Marshal(m)
+			if err := os.WriteFile(filepath.Join(bin, ManifestName), b, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		sum, _, _ := FileSum(filepath.Join(bin, "fix-"+id))
+		list("another source's digest", sum)
+		if h, held := open(t, ws, Options{Isolate: true, BinDir: bin}, spec("")).Hold("xbin/fix"); !held || !strings.Contains(h.Reason, "a build of other source") {
+			t.Fatalf("a file listed for other source was accepted: %+v", h)
+		}
+		list(probe.Components()[0].Digest, strings.Repeat("0", 64))
+		if h, held := open(t, ws, Options{Isolate: true, BinDir: bin}, spec("")).Hold("xbin/fix"); !held || !strings.Contains(h.Reason, "SHA-256 differs") {
+			t.Fatalf("a file that isn't the one listed was accepted: %+v", h)
+		}
+		list(probe.Components()[0].Digest, sum)
 		s = open(t, ws, Options{Isolate: true, BinDir: bin}, spec(""))
 		if h, held := s.Hold("xbin/fix"); held {
 			t.Fatalf("held with its build present: %+v", h)

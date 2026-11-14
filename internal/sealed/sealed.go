@@ -173,6 +173,9 @@ type Component struct {
 	// Prebuilt is the release's build of its backend ("" = none in this
 	// install).
 	Prebuilt string
+	// prebuiltSum is Prebuilt's SHA-256, as the install's manifest gives
+	// it; noBuild is why there is no Prebuilt though a file may be there.
+	prebuiltSum, noBuild string
 	// Partitioned says it runs one backend per person in this boot: the
 	// table's mode, unless a development xbind without sandboxes runs it as
 	// one instance.
@@ -270,11 +273,26 @@ func Open(specs []Spec, o Options) (*Set, error) {
 	if err := s.Materialize(o.Workspace); err != nil {
 		return nil, err
 	}
+	var man BuildManifest
+	var manErr error
+	if o.BinDir != "" {
+		man, manErr = ReadManifest(o.BinDir)
+	}
 	for _, c := range s.comps {
 		c.Partitioned = len(c.Partition) > 0 && (o.Isolate || !o.Dev)
-		if o.BinDir != "" {
-			if p := filepath.Join(o.BinDir, BuildName(c)); executable(p) {
-				c.Prebuilt = p
+		if o.BinDir != "" && c.Runtime == "go" {
+			// the release's build: the file the install's manifest lists
+			// for this source, with the hash it gives (build.go)
+			p := filepath.Join(o.BinDir, BuildName(c))
+			switch why := man.mismatch(c, p); {
+			case !executable(p):
+				c.noBuild = "is missing"
+			case manErr != nil:
+				c.noBuild = "can't be checked: " + manErr.Error()
+			case why != "":
+				c.noBuild = why
+			default:
+				c.Prebuilt, c.prebuiltSum = p, man.Builds[BuildName(c)].SHA256
 			}
 		}
 		s.settle(c)
@@ -391,7 +409,7 @@ func (s *Set) Registry() []registry.SealedCode {
 	out := make([]registry.SealedCode, 0, len(s.comps))
 	for _, c := range s.comps {
 		sc := registry.SealedCode{
-			Path: c.Path, ID: c.ID(), Dir: c.Dir, Title: c.Title,
+			Path: c.Path, ID: c.ID(), Dir: c.Dir, Files: c.Files, Title: c.Title,
 			Manifest: c.Files["xbin.json"], Scope: c.Files["scope.json"],
 			Slots: slices.Clone(c.Slots), Grants: slices.Clone(c.Grants), Defaults: maps.Clone(c.Defaults), Providers: maps.Clone(c.Providers),
 		}

@@ -1018,6 +1018,7 @@ install_files() {
   install -d -m 0755 "$PREFIX/bin/sealed.new"
   if [ -d "$XBIN_PREBUILT_BIN/sealed" ]; then
     for b in "$XBIN_PREBUILT_BIN/sealed"/*; do
+      # (sealed.json is the manifest of their hashes: xbind runs only a file it lists)
       [ -f "$b" ] && install -m 0755 "$b" "$PREFIX/bin/sealed.new/$(basename "$b")"
     done
   fi

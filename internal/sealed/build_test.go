@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"testing/fstest"
 )
@@ -77,8 +78,21 @@ func TestBuildNamesAndTargets(t *testing.T) {
 		f.Close()
 	}
 	ents, _ := os.ReadDir(out)
-	if len(ents) != 1 {
+	if len(ents) != 2 { // the build and the manifest that lists it
 		t.Errorf("stale builds survived: %v", ents)
+	}
+	man, err := ReadManifest(out)
+	sum, size, _ := FileSum(filepath.Join(out, want[0]))
+	sdkSum, _ := TreeDigest("../../sdk")
+	if e := man.Builds[want[0]]; err != nil || len(man.Builds) != 1 || e.SHA256 != sum || e.Size != size || e.Source != set.Components()[0].Digest ||
+		e.Component != "xbin/fix" || e.SDK != sdkSum || e.Go != runtime.Version() || e.OS != "linux" || e.Arch != runtime.GOARCH {
+		t.Errorf("the manifest: %+v (%v), want the build's hash %s, its source, the SDK %s, %s", man, err, sum, sdkSum, runtime.Version())
+	}
+	if n, err := set.CheckBuilds(out, "../../sdk"); err != nil || n != 1 {
+		t.Errorf("CheckBuilds on a fresh build: %d %v", n, err)
+	}
+	if _, err := set.CheckBuilds(out, t.TempDir()); err == nil || !strings.Contains(err.Error(), "another xbin SDK") {
+		t.Errorf("CheckBuilds against another SDK tree: %v", err)
 	}
 
 	// the install that holds it runs it; other code's build is not it
@@ -96,6 +110,59 @@ func TestBuildNamesAndTargets(t *testing.T) {
 	}
 	if h, held := s.Hold("xbin/fix"); !held || h.Code != HoldNoBuild {
 		t.Errorf("a build of other code was accepted: %+v", h)
+	}
+
+	// What runs is verified before every start, not only at boot.
+	s, err = Open([]Spec{buildable("one")}, Options{Workspace: ws, Isolate: true, BinDir: out, Release: "v"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := s.Components()[0]
+	if why := s.Admit("xbin/fix"); why != "" {
+		t.Fatalf("a sound install: %s", why)
+	}
+	// its tree, changed on disk between two starts: written again
+	page := filepath.Join(c.Dir, "index.html")
+	if err := os.Chmod(page, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(page, []byte("planted"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(c.Dir, "extra.js"), []byte("planted"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if why := s.Admit("xbin/fix"); why != "" {
+		t.Fatalf("a changed tree should be written again, not held: %s", why)
+	}
+	if b, _ := os.ReadFile(page); string(b) != string(c.Files["index.html"]) {
+		t.Errorf("the tree was not written again: index.html is %q", b)
+	}
+	if _, err := os.Stat(filepath.Join(c.Dir, "extra.js")); err == nil {
+		t.Error("a planted file survived in its tree")
+	}
+	// its build, replaced after boot: not run
+	bin := filepath.Join(out, want[0])
+	orig, _ := os.ReadFile(bin)
+	if err := os.WriteFile(bin, append([]byte("#!/bin/sh\n# planted\n"), orig...), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if why := s.Admit("xbin/fix"); !strings.Contains(why, "no longer the file this xbin install shipped") {
+		t.Errorf("a replaced build was admitted: %q", why)
+	}
+	if h, held := s.Hold("xbin/fix"); !held || h.Code != HoldNoBuild {
+		t.Errorf("after a replaced build: %+v %v", h, held)
+	}
+	// and a boot on that install doesn't take it either
+	s, err = Open([]Spec{buildable("one")}, Options{Workspace: ws, Isolate: true, BinDir: out, Release: "v"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h, held := s.Hold("xbin/fix"); !held || !strings.Contains(h.Reason, "SHA-256 differs") {
+		t.Errorf("a boot with a replaced build: %+v %v", h, held)
+	}
+	if _, err := set.CheckBuilds(out, "../../sdk"); err == nil || !strings.Contains(err.Error(), "SHA-256 differs") {
+		t.Errorf("CheckBuilds with a replaced build: %v", err)
 	}
 }
 

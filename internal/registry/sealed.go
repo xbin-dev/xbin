@@ -40,6 +40,10 @@ type SealedCode struct {
 	// (xbind's own data, under .xbin/): what backends run in and files are
 	// served from.
 	Dir string
+	// Files is the tree itself, as the release holds it in memory: slash
+	// path → bytes (read-only). What is served of a sealed component is
+	// served from here, never from the copy at Dir (Registry.SealedFile).
+	Files map[string][]byte
 	// Title is what people see it called; "" = its manifest's.
 	Title string
 	// Manifest and Scope are its xbin.json and scope.json (nil: none), from
@@ -322,6 +326,30 @@ func (r *Registry) SealedDefault(comp, slot string) (ref string, applied bool) {
 	}
 	_, explicit := r.workspace.Bindings[comp][slot]
 	return ref, !explicit && r.SealedProvider != nil && r.SealedProvider(ref)
+}
+
+// SealedFile answers file rel (a slash path) of the sealed component at
+// path from the release's own bytes: the bytes; or dir when rel is a
+// directory of its tree; ok false when it has no such file. The bytes are
+// the release's and must not be changed.
+func (r *Registry) SealedFile(path, rel string) (data []byte, dir, ok bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	rel = strings.Trim(rel, "/")
+	for _, sc := range r.sealed {
+		if sc.Path != path {
+			continue
+		}
+		if b, has := sc.Files[rel]; has {
+			return b, false, true
+		}
+		for name := range sc.Files {
+			if rel == "" || strings.HasPrefix(name, rel+"/") {
+				return nil, true, true
+			}
+		}
+	}
+	return nil, false, false
 }
 
 // SealedBindingAllowed reports whether the sealed component at comp may
