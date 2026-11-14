@@ -55,8 +55,10 @@ type ConfigView struct {
 	Defaults   Defaults          `json:"defaults"`
 	Aliases    map[string]string `json:"aliases"`
 	Quotas     QuotaRules        `json:"quotas"`
+	// Concurrency is how many calls one caller may have in flight.
+	Concurrency int `json:"concurrency"`
 	// Locks maps a setting's path (enabled, people, upstreams.<name>,
-	// defaults.model, defaults.roles.<role>, aliases.<alias>,
+	// defaults.model, defaults.roles.<role>, aliases.<alias>, concurrency,
 	// quotas.workspace|default|users|orgs; "*" when the host locks every
 	// setting) to its lock.
 	Locks    map[string]Lock `json:"locks"`
@@ -66,8 +68,11 @@ type ConfigView struct {
 	// StoreError: the admin's own settings file can't be read (they are not
 	// in force, and nothing is written over the file).
 	StoreError string `json:"storeError,omitempty"`
-	Set        int64  `json:"set,omitempty"`
-	By         string `json:"by,omitempty"`
+	// Notices: what the write this view answers did beyond what was asked
+	// (an upstream's key removed because its address changed).
+	Notices []string `json:"notices,omitempty"`
+	Set     int64    `json:"set,omitempty"`
+	By      string   `json:"by,omitempty"`
 }
 
 func lockOf() Lock { return Lock{Locked: true, Reason: LockReason} }
@@ -113,7 +118,7 @@ func (s *Service) configView() ConfigView {
 	v := ConfigView{Configured: snap.configured(), Enabled: snap.enabled, People: snap.people, Upstreams: []UpstreamView{},
 		Defaults: Defaults{Model: snap.defaults.Model, Roles: maps.Clone(snap.defaults.Roles)}, Aliases: maps.Clone(snap.aliases),
 		Quotas: snap.quotas.clone(), Locks: locksView(snap), Host: HostView{Active: snap.host, LockAll: snap.lockAll, Error: snap.hostErr},
-		Vault: s.keys.state(), Problems: snap.problems(), Set: set, By: by}
+		Vault: s.keys.state(), Problems: snap.problems(), Set: set, By: by, Concurrency: snap.concurrency}
 	if v.Problems == nil {
 		v.Problems = []string{}
 	}

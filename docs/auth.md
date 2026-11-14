@@ -321,7 +321,10 @@ from a header or the request body:
   `xbin:` capability stands in for it, and a tile driven by an admin gets
   nothing extra. The call is metered to the tile and to the person acting:
   a partition's person, the person driving the frame or session, nobody
-  for a backend that isn't a person's partition.
+  for a backend that isn't a person's partition. The binding is the tile's
+  primary's: a credential bound to a non-primary deployment uses it by the
+  tile's edge policy (§Tile deployments, the edge policy) — read-clamped
+  by default: the model list and status, no calls.
 - **The settings** (`/api/xbin/llm/config`, `/upstreams`, `/quotas`) are a
   workspace admin's — their own sign-in, the owner token, or the admin
   console (`xbin:admin`); usage is read by the person it is about or an
@@ -345,6 +348,11 @@ are for).
 - Anywhere else a request presenting one is `401`, whatever other
   credential it carries. A key can't read the connector's settings or
   usage, mint anything, or reach a tile.
+- A key stands only as long as what it was minted under, asked on every
+  call: its person exists, is enabled and can still open the tile it was
+  made for; a key minted under a tile's binding to the connector also
+  needs the tile still bound. Signing a person out everywhere, disabling or
+  deleting them, and removing such a binding end the keys as well.
 - The worst a leaked key does is spend its person's LLM quota until it
   expires or is revoked.
 
@@ -716,7 +724,13 @@ tile's policy for it, set by a tile manager:
 
 **What the read clamp costs.** llm-gw guards its completions with `writer`,
 so an LLM-using tile's non-primary deployments can list models but can't run
-a turn. The agent template reaches its sandbox managers through the custom
+a turn. An interface slot bound to xbind's own LLM connector (`xbin:llm`,
+§The LLM connector) is an edge like one bound to a provider tile, standing
+for `writer`: under `read` the connector serves a non-primary deployment
+its model list and status and refuses its calls (403 `xbin_llm_edge`,
+naming the deployment, the edge and the policy), under `block` it refuses
+everything, and a tile manager chooses between the two in the Deployments
+panel. The agent template reaches its sandbox managers through the custom
 role `consumer`, which implies no `reader`, so its non-primary deployments
 can't use them at all. Test such work from the primary, or from a tile of
 its own.

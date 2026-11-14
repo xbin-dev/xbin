@@ -21,7 +21,7 @@ The optional `llm-gw` tile is unchanged and still works. A tile binds its
 ## Setting it up (admins)
 
 ```sh
-bx llm upstream add openai https://api.openai.com/v1     # asks for the key
+bx llm upstream add openai https://api.openai.com/v1     # asks for the key (never on the command line)
 bx llm upstream test openai gpt-5                        # a one-line call through it
 bx llm default set openai/gpt-5                          # the model of a call that names none
 bx llm default set openai/gpt-5-mini --role harness      # xbin/harness
@@ -43,7 +43,14 @@ optionally:
   when no price is set.
 
 Upstream URLs come only from this configuration, never from a request, and
-a provider's redirect is never followed.
+a provider's redirect is never followed. A key is only ever sent to the
+address it was set for: change an upstream's scheme, host or port without
+giving its key again and the stored key is removed (the answer's `notices`
+say so).
+
+`bx llm upstream test` makes the smallest call there is (one word in, one
+token out). It is a call like any other: metered to you, held by your
+quota and the workspace's, and refused while the connector is off.
 
 ### Model names
 
@@ -53,19 +60,33 @@ resolves to, first match wins:
 1. no model, or `xbin/default` → the default model; `xbin/<role>` → that
    role's model (`agent`: the workspace agent, `harness`: coding harnesses,
    or any role you add), else the default;
-2. an alias → its target;
-3. `<upstream>/<model>` → that upstream. With a `models` list the model
+2. `<upstream>/<model>` → that upstream. With a `models` list the model
    must be on it; without one the provider judges the name;
-4. a bare name → the one upstream that lists it; or, when the workspace has
-   a single upstream that passes names through, that upstream;
-5. anything else → the alias `*`, when you set one;
-6. otherwise the call is refused with `404 model_not_found`.
+3. a bare name on exactly one upstream's `models` list → that upstream;
+4. an alias → its target;
+5. any other name, when the workspace has a single upstream that passes
+   names through → that upstream;
+6. anything else → the alias `*`, when you set one;
+7. otherwise the call is refused with `404 model_not_found`.
 
 An unknown name is never silently mapped to the default: a client that asked
 for one model isn't billed for another unless an admin said so. Coding CLIs
 send their own model names; map them with aliases
 (`bx llm alias set gpt-6-astra openai/gpt-5`), or catch every unknown name
 with `bx llm alias set '*' openai/gpt-5`.
+
+An alias adds a name; it never takes one over. A name under an upstream
+(`openai/…`) or on an upstream's `models` list always means that model, so
+an alias can't be given such a name (400), and one that ends up shadowed —
+an upstream added later, by you or by your host — is simply never used
+(the configuration's `problems` say so).
+
+A model name is at most 200 characters, without spaces. On an upstream that
+passes names through, a call is metered and logged under its model's name
+only when the upstream's own `/models` list has it; every other name —
+whether the provider answered it or refused it — is counted together as
+`<upstream>/(unknown)`. A caller chooses what it asks for, never how many
+rows your usage has.
 
 `GET /api/xbin/llm/v1/models` lists every upstream's models, the aliases
 and `xbin/default`, `xbin/<role>`.
@@ -82,9 +103,31 @@ and `xbin/default`, `xbin/<role>`.
   `everyone` or `nobody` — `bx llm people everyone`.
 - **An LLM key** — a narrow credential good for these routes only
   ([auth.md](/docs/auth.md) §LLM keys), for coding tools in terminals and
-  agent sessions. Nothing hands them out yet.
+  agent sessions. A key stops when its person is disabled or deleted, loses
+  the tile it was made for, or — a key made under a tile's binding — the
+  tile is unbound. Nothing hands them out yet.
 
 `bx llm off` stops every call; `bx llm on` resumes.
+
+**One caller, so many calls at once.** A person (or, for calls nobody acts
+in, a tile) may have 16 calls in flight; the next one is answered `429
+xbin_llm_busy` with `Retry-After: 1`. `bx llm concurrency <n>` changes it.
+
+**A tile's non-primary deployments** ([tile-deployments.md](/docs/tile-deployments.md))
+use the binding by the tile's edge policy, like a slot bound to a provider
+tile ([auth.md](/docs/auth.md), the edge policy): `read` by default — they
+can list models and read the connector's status, and their calls are
+refused (`403 xbin_llm_edge`) — or `block`, which a tile manager sets in
+the Deployments panel. Run model calls from the primary.
+
+**Adding an upstream is an admin's power over the host's network.** xbind
+itself calls the address you give — a provider on the internet, a model
+server on the LAN, something on the host's loopback — and relays what it
+answers to whoever may call the connector. Private and loopback addresses
+are allowed on purpose (local model servers are a main use), so treat "may
+add upstreams" as "may make xbind reach that address". A host that doesn't
+want its workspace admins to have it sets `"lockAll": true` in its file
+(below): then nobody adds or changes an upstream through the API.
 
 ## Using it from a tile
 
@@ -110,12 +153,16 @@ req.Header.Set("Content-Type", "application/json")
 resp, err := xbin.Client().Do(req) // streams as the model answers
 ```
 
-- The body is OpenAI's, passed through as sent. Two members are rewritten:
-  `model` (to the provider's own name) and, on a streamed chat completion,
-  `stream_options.include_usage` (always true — the stream ends with a
-  usage chunk whose `choices` is empty).
-- The answer streams as it arrives; closing the request ends the provider's
-  call.
+- The body is OpenAI's: every member you send reaches the provider (written
+  anew, each once — a member sent twice goes out with its last value). Two
+  are rewritten: `model` (to the provider's own name) and, on a streamed
+  chat completion, `stream_options.include_usage` (always true — the stream
+  ends with a usage chunk whose `choices` is empty). `stream` must be
+  `true` or `false`; a Responses call with `background: true` is refused,
+  since its answer — and its usage — would never pass through.
+- The answer streams as it arrives. Closing the request ends the provider's
+  call a few seconds later (see Usage: a call you abandon is still
+  metered).
 - Errors are OpenAI-shaped (`{"error": {"message", "type", "code"}}`), so an
   OpenAI SDK pointed at the URL shows them.
 - `GET <url>/preferred?use=<role>` answers `{use, model}` — the convention
@@ -143,8 +190,25 @@ Only counts are kept — never a prompt, an answer or a key. A person reads
 their own rows (`GET /api/xbin/llm/usage`), a workspace admin everyone's.
 They live in `data/llm/usage/<YYYY-MM>.json`, 24 months of them.
 
-A call a client abandons mid-answer is counted as a request without tokens:
-the provider reports usage at the end of an answer.
+**A call you abandon is not free.** Providers report a call's usage at the
+end of its answer and bill what they generated. So when a client goes away
+(or stops reading for two minutes), the connector keeps reading the
+provider's answer for a grace of 5 seconds (`XBIN_LLM_CANCEL_GRACE`) to
+catch that usage, then ends the provider's call. If the usage came, the
+call is metered exactly. If it didn't, the call is charged an **estimate**
+— one input token per four bytes of the request, one output token per
+stream event relayed (per four bytes of a plain answer) — and the row
+counts it under `estimated`. The same estimate covers a provider that
+reports no usage at all. Quotas see estimates like any other use.
+
+**Backups.** `data/llm/` — the settings, the sealed keys and the usage
+files — is the daemon's own state, like the rest of `data/` outside tiles'
+resources: no tile backup contains it, and restoring a tile changes none of
+it. Whoever backs up the workspace directory backs it up. After restoring
+that directory, settings and usage are as they were; `keys.json` opens only
+with the vault barrier it was sealed under (the same `data/vault/`
+restored, unsealed with its passphrase) — otherwise upstreams read "its key
+is missing" and the keys are set again.
 
 ## Quotas
 
@@ -174,7 +238,18 @@ orgs gets the best of them, as with access. The `workspace` quota is checked
 for every call as well, and is the only one for calls nobody acts in.
 
 A quota is checked before a call starts, against what is already metered:
-the calls in flight when a limit is reached finish.
+the calls in flight when a limit is reached finish. A limit can therefore
+be passed by at most what one caller's calls in flight use — 16 calls by
+default (`bx llm concurrency`).
+
+**Cost quotas and models without a price.** A cost limit counts the calls
+whose model has a price: the upstream's `prices` (an entry `"*"` prices
+every model the table doesn't name: `bx llm upstream set openai --price
+'*=5:15'`), else what the provider itself reported. A call on a model with
+no price at all counts for nothing toward a cost limit; it is marked
+`unpriced` in usage, token limits still hold it, and while cost limits are
+in force and such calls exist this month, workspace admins see one alert
+naming the models.
 
 ## Keys and the vault
 
@@ -218,8 +293,7 @@ bring its own models and hold quotas the workspace's admins can't lift.
   "aliases": { "*": "house/gpt-5" },
   "quotas": {
     "workspace": { "costPerMonth": 500 },
-    "default": { "tokensPerDay": 2000000 },
-    "users": {}                           // present, so locked: no per-user overrides
+    "default": { "tokensPerDay": 2000000 }   // a ceiling: admins may narrow it per user or org
   }
   // "lockAll": true                      // every setting is the host's
 }
@@ -236,9 +310,14 @@ bring its own models and hold quotas the workspace's admins can't lift.
 - `"lockAll": true` makes every setting the host's: the admin's own
   settings and upstreams are not in force, and what the file leaves out
   keeps its default.
-- A quota a host must be able to hold against the workspace's admins is
-  `quotas.workspace` (nothing lifts it), or `default` together with
-  `"users": {}` and `"orgs": {}`.
+- **The host's quotas are a ceiling.** `quotas.workspace` holds everyone
+  and nothing lifts it. `quotas.default` holds each person, and the
+  workspace's admins can only narrow it: a per-user or per-org entry of
+  theirs that is lower applies (it may warn at its own value; the host's
+  limit still stops), one that is higher or `unlimited` gives nothing. The
+  host's own `users` and `orgs` entries are the host's to give and may
+  exceed its default.
+- `concurrency` (calls in flight per caller) is lockable like the rest.
 - The file is read at boot — xbind does not start with a file it can't
   read, so a host never runs without the limits it wrote — and again when
   it or a key file changes (looked at every couple of seconds while the
@@ -258,6 +337,7 @@ bring its own models and hold quotas the workspace's admins can't lift.
   to call a tile with); bind tiles to one or the other.
 - The connector doesn't retry: a provider's `429` or `5xx` passes with its
   `Retry-After`, and the client's own retry applies.
+- Responses calls run in the background (`background: true`) are refused.
 - Nothing injects the connector into terminals or agent sessions yet, and
   the admin console has no section for it: `bx llm` and the API are the way
   in.

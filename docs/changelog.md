@@ -44,6 +44,15 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
     a new credential kind, the LLM key (`xbl_…`, good for the connector's
     routes only — [auth.md](/docs/auth.md) §LLM keys; nothing hands them
     out yet).
+  - What a caller can't do to it: a call abandoned mid-answer is still
+    metered (the provider's answer is read for 5 s more,
+    `XBIN_LLM_CANCEL_GRACE`, then charged as an estimate — usage rows carry
+    `estimated`); model names a caller makes up are counted together as
+    `<upstream>/(unknown)`; one caller has 16 calls in flight (`429
+    xbin_llm_busy`; the `concurrency` setting); an alias never takes over a
+    name the configuration has; a stored key never follows an upstream to
+    another address. A tile's non-primary deployments use the binding by
+    the tile's edge policy: read-clamped by default (models, no calls).
   - Not yet: an admin console section, the connector in terminals and
     agent sessions, an Anthropic-wire route, `llm-gw` as an upstream.
 - **docs: the protocol reference is split by topic.** `/docs/protocol.md`

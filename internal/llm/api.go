@@ -6,6 +6,7 @@ import (
 	"io"
 	"maps"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -214,7 +215,10 @@ func (s *Service) apiStatus(w http.ResponseWriter, r *http.Request) {
 			v.User, v.Component = id.User, id.Component
 		}
 	} else {
-		v.Callable, v.User, v.Component, v.Admin = true, c.User, c.Component, c.Admin
+		v.Callable, v.User, v.Component, v.Admin = c.ReadOnly == "", c.User, c.Component, c.Admin
+		if c.ReadOnly != "" { // a non-primary deployment under the read clamp: models, not calls
+			v.Reason, v.Code = c.ReadOnly, "xbin_llm_edge"
+		}
 		q := s.quotaView(snap, c)
 		v.Quota = &q
 	}
@@ -245,10 +249,11 @@ func (s *Service) apiPutConfig(w http.ResponseWriter, r *http.Request) {
 			Model *string           `json:"model"`
 			Roles map[string]string `json:"roles"`
 		} `json:"defaults"`
-		Aliases map[string]string `json:"aliases"`
+		Aliases     map[string]string `json:"aliases"`
+		Concurrency *int              `json:"concurrency"`
 	}
 	if err := decode(r, &body); err != nil {
-		server.WriteError(w, http.StatusBadRequest, "need {enabled?, people?: admins|everyone|nobody, defaults?: {model?, roles?: {<role>: <model>}}, aliases?: {<alias>: <model>}}", docs)
+		server.WriteError(w, http.StatusBadRequest, "need {enabled?, people?: admins|everyone|nobody, defaults?: {model?, roles?: {<role>: <model>}}, aliases?: {<alias>: <model>}, concurrency?}", docs)
 		return
 	}
 	err := s.change(r, func(next *Settings, snap *snapshot) error {
@@ -297,9 +302,20 @@ func (s *Service) apiPutConfig(w http.ResponseWriter, r *http.Request) {
 			}
 			if t == "" {
 				delete(next.Aliases, a)
-			} else {
-				next.Aliases[a] = t
+				continue
 			}
+			// an alias adds a name; it never takes over a model of an
+			// upstream in force — the admin's or the host's
+			if up := aliasUpstream(a, snap.upstreams); up != "" {
+				return badRequest(shadowErr(a, up).Error())
+			}
+			if a != AliasAny && len(snap.offering(a)) > 0 {
+				return badRequest("alias " + a + ": the upstream " + snap.offering(a)[0] + " lists a model of that name — an alias can't stand in for one")
+			}
+			next.Aliases[a] = t
+		}
+		if body.Concurrency != nil && !hold("concurrency", *body.Concurrency == snap.concurrency) {
+			next.Concurrency = *body.Concurrency
 		}
 		if len(locked) > 0 {
 			return lockedErr(locked...)
@@ -336,6 +352,7 @@ func (s *Service) apiPutUpstream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.PathValue("name")
+	var notices []string
 	var body struct {
 		Kind    *string            `json:"kind"`
 		BaseURL *string            `json:"baseURL"`
@@ -369,8 +386,11 @@ func (s *Service) apiPutUpstream(w http.ResponseWriter, r *http.Request) {
 		if body.Kind != nil {
 			u.Kind = *body.Kind
 		}
+		moved := false
 		if body.BaseURL != nil {
+			was := u.BaseURL
 			u.BaseURL = strings.TrimRight(strings.TrimSpace(*body.BaseURL), "/")
+			moved = exists && !sameAddress(was, u.BaseURL)
 		}
 		if body.Models != nil {
 			u.Models = *body.Models
@@ -390,11 +410,25 @@ func (s *Service) apiPutUpstream(w http.ResponseWriter, r *http.Request) {
 				return err
 			}
 			u.HasKey = true
+		case moved && u.HasKey:
+			// the key was given for another address: it never follows the
+			// upstream to a new scheme, host or port. (While the vault is
+			// sealed it can't be cut out of the sealed file; unmarked here,
+			// it is not used again.)
+			_ = s.keys.set(name, "")
+			u.HasKey = false
+			notices = append(notices, "the key of upstream "+name+" was removed: its address changed, and a key is only ever sent to the address it was set for — set it again (bx llm upstream set "+name+" --key-stdin)")
 		case body.Key != nil || !exists: // key "": remove it; a new upstream never inherits a key left under its name
 			if err := s.keys.set(name, ""); err != nil && (u.HasKey || body.Key != nil) {
 				return err
 			}
 			u.HasKey = false
+		}
+		// a new upstream's name takes its models' names from any alias written under it
+		for a := range next.Aliases {
+			if !exists && aliasUpstream(a, map[string]Upstream{name: u}) != "" {
+				return badRequest("upstream " + name + ": the alias " + a + " is named like one of its models — remove the alias first (bx llm alias rm " + a + ")")
+			}
 		}
 		if next.Upstreams == nil {
 			next.Upstreams = map[string]Upstream{}
@@ -406,7 +440,29 @@ func (s *Service) apiPutUpstream(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, err)
 		return
 	}
-	server.WriteJSON(w, http.StatusOK, s.configView())
+	v := s.configView()
+	v.Notices = notices
+	server.WriteJSON(w, http.StatusOK, v)
+}
+
+// sameAddress reports whether two base URLs name the same scheme, host and
+// port: where a key goes.
+func sameAddress(a, b string) bool {
+	ua, err1 := url.Parse(a)
+	ub, err2 := url.Parse(b)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	port := func(u *url.URL) string {
+		if p := u.Port(); p != "" {
+			return p
+		}
+		if u.Scheme == "https" {
+			return "443"
+		}
+		return "80"
+	}
+	return ua.Scheme == ub.Scheme && strings.EqualFold(ua.Hostname(), ub.Hostname()) && port(ua) == port(ub)
 }
 
 // apiDeleteUpstream — DELETE /llm/upstreams/{name}: the upstream and its
@@ -449,9 +505,14 @@ func (s *Service) apiTestUpstream(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "need {model?}", docs)
 		return
 	}
+	// metered to the admin who runs it: their own sign-in, the owner, or
+	// the person driving the admin console
 	p := auth.PrincipalOf(r)
 	who := Caller{User: p.UserID, Component: p.Component, Via: "test", Admin: true}
-	if who.User == "" && p.Component == "" {
+	switch {
+	case p.Component != "":
+		who.User = actor(p)
+	case p.Owner:
 		who.User = OwnerUser
 	}
 	res, err := s.Test(r.Context(), r.PathValue("name"), body.Model, who)

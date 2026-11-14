@@ -696,6 +696,12 @@ func (c *countingWriter) Write(b []byte) (int, error) {
 	respBytes.Add(int64(n))
 	return n, err
 }
+
+// Unwrap lets http.ResponseController reach the connection through the
+// counter: a handler that streams sets a deadline on each write (the LLM
+// connector's relay), so a client that stops reading doesn't pin it.
+func (c *countingWriter) Unwrap() http.ResponseWriter { return c.ResponseWriter }
+
 func (c *countingWriter) Flush() {
 	if f, ok := c.ResponseWriter.(http.Flusher); ok {
 		f.Flush()

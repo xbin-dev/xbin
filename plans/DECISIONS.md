@@ -13785,8 +13785,8 @@ Deviations and refinements made while implementing; all deliberate:
   Anthropic-wire route are later packages.
   - **In the daemon, behind one interface.** `internal/llm` serves
     `/api/xbin/llm/v1/{chat/completions,responses,models}`: a streaming
-    reverse proxy that holds nothing back, ties the upstream call to the
-    client's context, bounds a call by silence (10 minutes without headers
+    reverse proxy that holds nothing back, ends the upstream call when its
+    client goes (after a grace, below), bounds a call by silence (10 minutes without headers
     or without a byte) and never by total time, caps a request at 32 MiB,
     and follows no redirect. Everything that touches an upstream is
     `llm.Connector` (three methods, a target resolved from configuration
@@ -13865,7 +13865,8 @@ Deviations and refinements made while implementing; all deliberate:
     none or `xbin/default` → the default; `xbin/<role>` → the role's model
     (`agent`, `harness`, any an admin adds), else the default; an alias; a
     prefixed name; a bare name one upstream lists, or any name on a single
-    passthrough upstream. **An unknown name is refused, not mapped to the
+    passthrough upstream (the review, below, put aliases after what
+    configuration names). **An unknown name is refused, not mapped to the
     default** — a client billed for a model it didn't ask for is a
     surprise only an admin may arrange, with the alias `*` (S4: Codex sends
     its own default model name). An upstream's `models` list is an
@@ -13879,8 +13880,8 @@ Deviations and refinements made while implementing; all deliberate:
     is the upstream's price table (USD per million tokens, cached input
     priced apart), else what the provider itself reported. A streamed chat
     completion is forced to `stream_options.include_usage`, or a client
-    could opt out of being metered. A call abandoned mid-stream counts as a
-    request without tokens: the provider reports usage last.
+    could opt out of being metered. A call abandoned mid-stream is not free (the
+    review, below).
   - **Quotas.** Tokens and cost per UTC day and month; `stop` (429 in
     OpenAI's shape, `insufficient_quota`, naming the quota and its reset,
     with `Retry-After`) or `warn` (a header and the status). A person's
@@ -13899,8 +13900,9 @@ Deviations and refinements made while implementing; all deliberate:
     the body should it be echoed.
   - **Nothing changes unconfigured** (compat): the routes answer 503 "not
     configured", no picker lists `xbin:llm`, no file is written. Route
-    classes: the calls are neutral for deployments and partition-scoped
-    (a partition's credential is stamped with its person, which is the
+    classes: the calls are neutral (the handler reads the tile's edge
+    policy for a non-primary deployment, below) and partition-scoped (a
+    partition's credential is stamped with its person, which is the
     attribution); the settings are primary-only and refused to partitions.
     Model calls are left out of the audit log (metered instead; the audit
     writer would also have hidden the flush); settings changes are audited.
@@ -13916,3 +13918,57 @@ Deviations and refinements made while implementing; all deliberate:
     once quotas exist; whether calls nobody acts in should get a quota of
     their own (per component) beside the workspace total; whether a warn
     should also raise an admin alert.
+  - **After an independent review (2026-11-14)** — what a caller, an admin
+    or a deployment could do that it shouldn't:
+    - *A caller-chosen model name made a usage row and a Warn line each.*
+      Names are bounded (200 characters, no spaces); on a pass-through
+      upstream a call is metered and logged under its model only when the
+      upstream's own list (cached; fetched once when missing) has it, and
+      as `<upstream>/(unknown)` otherwise, accepted or refused.
+    - *A cancelled stream was free.* The upstream call now outlives its
+      client by a grace (5 s, `XBIN_LLM_CANCEL_GRACE`) in which the answer
+      is read for its usage; then it is cut. Without usage — also from a
+      provider that reports none, or a stream that broke off — the call is
+      charged an estimate, stated in the docs and marked `estimated`: a
+      token per four request bytes in, a token per stream event (or four
+      answer bytes) out. The grace is short on purpose: generation nobody
+      reads is money too.
+    - *A non-primary deployment called in full.* The binding to `xbin:llm`
+      is an edge like a slot bound to a provider tile (role `writer`):
+      read-clamped by default — models and status, no calls, as llm-gw's
+      reader — or blocked by a tile manager; `docs/auth.md` and this entry
+      now say the same. The builtin is an edge and never a grant role
+      (`xbin:` is the governance namespace).
+    - *An admin's alias could redirect a host-locked model.* Resolution
+      puts everything configuration names — `<upstream>/<model>`, a listed
+      bare name — before aliases, and such alias names are refused.
+    - *A stored key followed a repointed base URL.* Changing scheme, host
+      or port drops the key unless the request brings one. Private and
+      loopback upstreams stay allowed (local model servers); the docs say
+      adding upstreams is an admin's reach into the host's network, and
+      that `lockAll` removes it.
+    - *Lenient parsing.* `stream` is a boolean or 400; the upstream always
+      gets a re-marshalled body (a duplicated member can't be read two
+      ways); Responses `background: true` is refused until it can be
+      metered.
+    - *The upstream test* needs the connector on, stops at the quotas,
+      sends one word for one token, and is metered to the admin running it.
+    - *Resources.* A per-caller cap on calls in flight (`concurrency`, 16,
+      lockable; 429 `xbin_llm_busy`) — which also bounds how far concurrent
+      calls overshoot a quota; who is calling, the cap and the quotas are
+      checked before the body is read; each write to the client has a
+      deadline, so one that stops reading is treated as gone.
+    - *LLM keys* are refused once their person is disabled, deleted or
+      lost the tile they were minted for, and (minted under a binding) once
+      the tile is unbound; sign-out-everywhere and unbinding revoke them.
+      `bx llm` takes no key on the command line.
+    - *Quotas (the owner's calls).* A host-set default is a ceiling: the
+      admin's per-user and per-org entries narrow it and never widen it,
+      with no empty `users` block needed; the host's own entries are the
+      host's to give. A model without a price counts for nothing toward a
+      cost limit: an upstream's `"*"` price is the default price, and
+      without one the calls are `unpriced`, token limits still hold, and
+      admins get one alert while cost limits are in force.
+    - *Backups.* `data/llm` is daemon state: in no tile backup, untouched
+      by a tile restore; restoring the workspace directory brings it back,
+      the keys readable only under the barrier that sealed them.

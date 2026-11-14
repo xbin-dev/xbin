@@ -439,7 +439,11 @@ err = llm.ReadSSE(resp.Body, func(_ string, data []byte) error {
   `io.Writer`s — and asks `Usage()` at the end.
 - **A relay** rewrites a client's request without dropping members it
   doesn't know: `llm.OpenRequest(body)` gives the model and whether it
-  streams, `.Body(model, streamUsage)` the body to send. `JoinURL(base,
+  streams (`ErrBadStream` when `stream` is no boolean: a relay must read
+  what its upstream will), `.Member(name)` any other member, and
+  `.Body(model, streamUsage)` the body to send — always written anew, each
+  member once. `StreamUsage.Events()` and `BodyUsage.Bytes()` say how much
+  passed, for an estimate when an answer ends without its usage. `JoinURL(base,
   path)` joins a provider's base URL with or without `/v1`.
 - **Prices**: `llm.PriceTable{"gpt-5": {In: 1.25, Out: 10}}.Cost(model,
   usage)` in USD (per million tokens; `CachedIn` prices cached input).
