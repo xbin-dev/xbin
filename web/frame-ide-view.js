@@ -280,7 +280,7 @@ function stage(f, placed) {
     const style = at ? `${box(at, TAB_H)}; display:${t.kind === 'agent' ? 'flex' : 'block'}` : 'display:none';
     const focus = () => { const id = M.paneOf(f._ide, refOf(t)); if (id) activateTab(f, id, refOf(t)); };
     return t.kind === 'agent'
-      ? html`<bx-agent style=${style} data-key=${t.key} @pointerdown=${focus} @focusin=${focus}
+      ? html`<bx-agent style=${style} data-key=${t.key} .ask=${(spec) => f._ask(spec)} @pointerdown=${focus} @focusin=${focus}
           component=${f.src} session=${t.id ?? nothing} provider=${t.history || t.restarting ? nothing : (t.provider || nothing)} ?ended=${!!t.ended} ?restarting=${!!t.restarting} ?vm=${!!t.vm}
           history=${t.history || nothing} resume=${t.resume || nothing}
           @bx-session=${(ev) => f._gotSession(t.key, ev)}

@@ -564,6 +564,40 @@ export function patchLines(patch) {
   return out;
 }
 
+/** The lines of one file's diff a card shows before "Show all". */
+export const DIFF_LINES = 400;
+
+/** lineCount(s): the lines of a patch (its final newline ends the last one). */
+export function lineCount(s) {
+  if (!s) return 0;
+  let n = 0;
+  for (let i = s.indexOf('\n'); i >= 0; i = s.indexOf('\n', i + 1)) n++;
+  return s.endsWith('\n') ? n : n + 1;
+}
+
+/** headLines(s, n): the first n lines of s. */
+export function headLines(s, n) {
+  let i = -1;
+  for (let k = 0; k < n; k++) {
+    i = s.indexOf('\n', i + 1);
+    if (i < 0) return s;
+  }
+  return s.slice(0, i + 1);
+}
+
+const DIFF_HEADER = /^(diff --git |index |--- |\+\+\+ |new file mode|deleted file mode|similarity index|dissimilarity index)/;
+
+/**
+ * diffBody(s): one file's diff without git's header lines (its row already
+ * names the file and its status) — a rename, a mode change or "Binary files
+ * … differ" stay, as does everything from the first hunk on.
+ */
+export function diffBody(s) {
+  const at = s.search(/^@@/m);
+  const kept = (at < 0 ? s : s.slice(0, at)).split('\n').filter((l) => l && !DIFF_HEADER.test(l));
+  return (kept.length ? kept.join('\n') + '\n' : '') + (at < 0 ? '' : s.slice(at));
+}
+
 const clip = (s, n) => { s = String(s ?? ''); return s.length > n ? s.slice(0, n - 1) + '…' : s; };
 
 /** The lines of a diff a request's card previews. */

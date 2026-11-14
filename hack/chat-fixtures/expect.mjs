@@ -172,8 +172,7 @@ function prune(x, drop) {
 export const GAPS = {
   // the Agent tab's fold (web/agent-fold.js, web/agent-tools.js)
   web: [
-    { id: 'W2', why: 'the fold does not connect a permission request to its call\'s card: the card says pending while the request waits',
-      expected: (t) => each(t, (b) => { if (b.kind === 'tool' && b.state === 'approval') b.state = 'pending'; }) },
+    // (none: W1–W4 are closed — the fold keeps the kit's record, a question's mode, `explicit`, and ties a request to its call's card)
   ],
   // the agent template (its backend's rows, model/fold.js)
   agtt: [
