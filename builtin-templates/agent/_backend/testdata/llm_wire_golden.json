@@ -1,0 +1,1585 @@
+{
+ "chat-body/content-parts": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "[{\"type\":\"text\",\"text\":\"a\"},{\"type\":\"text\",\"text\":\"b\"}]"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true
+ },
+ "chat-body/details-only": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "Out."
+   },
+   "Reasoning": "S",
+   "ReasoningRaw": [
+    {
+     "index": 0,
+     "summary": "S",
+     "type": "reasoning.summary"
+    },
+    {
+     "data": "E",
+     "index": 1,
+     "type": "reasoning.encrypted"
+    }
+   ],
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true
+ },
+ "chat-body/error-object": {
+  "reply": {
+   "Msg": {
+    "role": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "err": "llm upstream error: no such model",
+  "final": true
+ },
+ "chat-body/error-odd": {
+  "reply": {
+   "Msg": {
+    "role": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "err": "llm upstream error: {\"code\":500}",
+  "final": true
+ },
+ "chat-body/error-string": {
+  "reply": {
+   "Msg": {
+    "role": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "err": "llm upstream error: \"boom\"",
+  "final": true
+ },
+ "chat-body/length": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "cut"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 1,
+    "completion_tokens": 2,
+    "total_tokens": 3,
+    "reasoning_tokens": 9
+   },
+   "Finish": "length",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true
+ },
+ "chat-body/no-choices": {
+  "reply": {
+   "Msg": {
+    "role": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "err": "llm-gw returned no choices"
+ },
+ "chat-body/not-json": {
+  "reply": {
+   "Msg": {
+    "role": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "err": "llm-gw bad response: invalid character '\u003c' looking for beginning of value"
+ },
+ "chat-body/plain": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "Hello."
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 100,
+    "completion_tokens": 20,
+    "total_tokens": 120,
+    "reasoning_tokens": 7
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true
+ },
+ "chat-body/reasoning": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "Out."
+   },
+   "Reasoning": "AB",
+   "ReasoningRaw": [
+    {
+     "index": 0,
+     "text": "C",
+     "type": "reasoning.text"
+    }
+   ],
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true
+ },
+ "chat-body/tool-calls": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "c1",
+      "type": "function",
+      "function": {
+       "name": "note",
+       "arguments": "{\"text\":\"x\"}"
+      }
+     },
+     {
+      "id": "c2",
+      "type": "function",
+      "function": {
+       "name": "bash",
+       "arguments": "{}"
+      }
+     }
+    ]
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 5,
+    "completion_tokens": 6,
+    "total_tokens": 0
+   },
+   "Finish": "tool_calls",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": false
+ },
+ "chat-body/tool-calls-none": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "hi"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": false
+ },
+ "chat-stream/content-parts-delta": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "said"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|said"
+  ]
+ },
+ "chat-stream/details-only": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "42"
+   },
+   "Reasoning": "Plan: answer.",
+   "ReasoningRaw": [
+    {
+     "index": 0,
+     "summary": "Plan: answer.",
+     "type": "reasoning.summary"
+    }
+   ],
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "thinking|Plan: ",
+   "thinking|Plan: answer.",
+   "text|42"
+  ]
+ },
+ "chat-stream/error-null": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "fine"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|fine"
+  ]
+ },
+ "chat-stream/error-object": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "par"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|par"
+  ],
+  "err": "llm upstream error: model overloaded",
+  "final": true
+ },
+ "chat-stream/error-string": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "err": "llm upstream error: \"boom\"",
+  "final": true
+ },
+ "chat-stream/error-without-message": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "err": "llm upstream error: {\"code\":\"rate_limited\",\"type\":\"x\"}",
+  "final": true
+ },
+ "chat-stream/finish-length": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "cut"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "length",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|cut"
+  ]
+ },
+ "chat-stream/frame-crlf": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "ab"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|a",
+   "text|ab"
+  ]
+ },
+ "chat-stream/frame-empty": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true
+ },
+ "chat-stream/frame-no-blank-lines": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "ab"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|a",
+   "text|ab"
+  ]
+ },
+ "chat-stream/frame-not-json": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "ab"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|a",
+   "text|ab"
+  ]
+ },
+ "chat-stream/frame-padded": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "abc"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|a",
+   "text|ab",
+   "text|abc"
+  ]
+ },
+ "chat-stream/openai": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "The \"usage\" field is { reported last."
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 2048,
+    "completion_tokens": 310,
+    "total_tokens": 2358,
+    "reasoning_tokens": 192
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|The \"usage\" field",
+   "text|The \"usage\" field is { reported last."
+  ]
+ },
+ "chat-stream/reasoning-three-names": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "Done."
+   },
+   "Reasoning": "Let me think. ",
+   "ReasoningRaw": [
+    {
+     "index": 0,
+     "signature": "sig",
+     "text": "Step one, step two",
+     "type": "reasoning.text"
+    },
+    {
+     "data": "AAA",
+     "index": 1,
+     "type": "reasoning.encrypted"
+    }
+   ],
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "thinking|Let me ",
+   "thinking|Let me think. ",
+   "text|Done."
+  ]
+ },
+ "chat-stream/think-tags": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "The answer."
+   },
+   "Reasoning": "pondering",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "thinking|pondering",
+   "text|The answer."
+  ]
+ },
+ "chat-stream/tool-calls": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "call_b",
+      "type": "function",
+      "function": {
+       "name": "note",
+       "arguments": "{\"text\":\"x\"}"
+      }
+     },
+     {
+      "id": "call_a",
+      "type": "function",
+      "function": {
+       "name": "bash",
+       "arguments": "{\"command\":\"ls\"}"
+      }
+     }
+    ]
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 100,
+    "completion_tokens": 20,
+    "total_tokens": 120,
+    "reasoning_tokens": 9
+   },
+   "Finish": "tool_calls",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": false,
+  "events": [
+   "tool|0|call_b|note|",
+   "tool|0|call_b|note|{\"text\":",
+   "tool|1|call_a|bash|{\"command\":\"ls\"}",
+   "tool|0|call_b|note|{\"text\":\"x\"}"
+  ]
+ },
+ "chat-stream/tool-calls-no-finish": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "c1",
+      "type": "function",
+      "function": {
+       "name": "note",
+       "arguments": "{}"
+      }
+     }
+    ]
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "tool_calls",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": false,
+  "events": [
+   "tool|0|c1|note|{}"
+  ]
+ },
+ "chat-stream/usage-every-chunk": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "ab"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 10,
+    "completion_tokens": 2,
+    "total_tokens": 12
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|a",
+   "text|ab"
+  ]
+ },
+ "chat-stream/usage-extras": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "a"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 10,
+    "completion_tokens": 4,
+    "total_tokens": 14
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|a"
+  ]
+ },
+ "chat-stream/usage-no-total": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "a"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 5,
+    "completion_tokens": 6,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|a"
+  ]
+ },
+ "chat-stream/usage-on-content-chunk": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "a"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 3,
+    "completion_tokens": 1,
+    "total_tokens": 4
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|a"
+  ]
+ },
+ "chat-stream/usage-reasoning-apart": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "a"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 10,
+    "completion_tokens": 4,
+    "total_tokens": 114,
+    "reasoning_tokens": 100
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|a"
+  ]
+ },
+ "models": [
+  {
+   "id": "gpt-5",
+   "provider": "",
+   "ref": "",
+   "owned_by": "openai"
+  },
+  {
+   "id": "claude",
+   "provider": "",
+   "ref": "",
+   "contextWindow": 200000
+  },
+  {
+   "id": "or",
+   "provider": "",
+   "ref": "",
+   "contextWindow": 128000
+  },
+  {
+   "id": "or-top",
+   "provider": "",
+   "ref": "",
+   "contextWindow": 64000
+  },
+  {
+   "id": "groq",
+   "provider": "",
+   "ref": "",
+   "contextWindow": 131072
+  },
+  {
+   "id": "vllm",
+   "provider": "",
+   "ref": "",
+   "contextWindow": 32768
+  },
+  {
+   "id": "lmstudio",
+   "provider": "",
+   "ref": "",
+   "contextWindow": 8192
+  },
+  {
+   "id": "gemini",
+   "provider": "",
+   "ref": "",
+   "contextWindow": 1048576
+  },
+  {
+   "id": "ours",
+   "provider": "apps/llm-gw",
+   "ref": "apps/llm-gw|ours",
+   "contextWindow": 4096
+  },
+  {
+   "id": "fast",
+   "provider": "",
+   "ref": "",
+   "owned_by": "alias",
+   "alias_of": "default/gpt-5"
+  },
+  {
+   "id": "zero",
+   "provider": "",
+   "ref": ""
+  },
+  {
+   "id": "odd",
+   "provider": "",
+   "ref": ""
+  },
+  {
+   "id": "",
+   "provider": "",
+   "ref": "",
+   "contextWindow": 10
+  },
+  {
+   "id": "",
+   "provider": "",
+   "ref": "",
+   "owned_by": "nobody"
+  }
+ ],
+ "paths": "/v1/chat/completions /v1/responses",
+ "request/chat": "{\"model\":\"kimi-k3\",\"messages\":[{\"role\":\"system\",\"content\":\"You are an agent.\"},{\"role\":\"user\",\"content\":\"hello\"},{\"role\":\"system\",\"content\":\"A later system note.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"look \\u003c\\u0026\\u003e\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,xx\"}}]},{\"role\":\"user\",\"content\":\"[#1 user] not parts\",\"name\":\"alice\"},{\"role\":\"assistant\",\"content\":\"calling\",\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{\\\"text\\\":\\\"x\\\"}\"}},{\"id\":\"call_2\",\"type\":\"\",\"function\":{\"name\":\"bash\",\"arguments\":\"{}\"}}],\"reasoning_details\":[{\"type\":\"reasoning.text\",\"text\":\"T\",\"index\":0}]},{\"role\":\"tool\",\"content\":\"noted\",\"name\":\"note\",\"tool_call_id\":\"call_1\"},{\"role\":\"tool\",\"content\":\"\",\"tool_call_id\":\"call_2\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_3\",\"type\":\"function\",\"function\":{\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"}}]},{\"role\":\"tool\",\"content\":{\"files\":[\"a\"]},\"tool_call_id\":\"call_3\"},{\"role\":\"assistant\",\"tool_calls\":[{\"id\":\"call_4\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{}\"}}]},{\"role\":\"tool\",\"content\":\"ok\",\"tool_call_id\":\"call_4\"},{\"role\":\"assistant\",\"content\":\"Done.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"bare\",\"description\":\"\",\"parameters\":{\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"nil-schema\",\"description\":\"\",\"parameters\":null}}],\"stream\":true,\"stream_options\":{\"include_usage\":true},\"reasoning_effort\":\"high\"}",
+ "request/chat-no-tools": "{\"model\":\"m\",\"messages\":[{\"role\":\"system\",\"content\":\"You are an agent.\"},{\"role\":\"user\",\"content\":\"hello\"},{\"role\":\"system\",\"content\":\"A later system note.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"look \\u003c\\u0026\\u003e\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,xx\"}}]},{\"role\":\"user\",\"content\":\"[#1 user] not parts\",\"name\":\"alice\"},{\"role\":\"assistant\",\"content\":\"calling\",\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{\\\"text\\\":\\\"x\\\"}\"}},{\"id\":\"call_2\",\"type\":\"\",\"function\":{\"name\":\"bash\",\"arguments\":\"{}\"}}]},{\"role\":\"tool\",\"content\":\"noted\",\"name\":\"note\",\"tool_call_id\":\"call_1\"},{\"role\":\"tool\",\"content\":\"\",\"tool_call_id\":\"call_2\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_3\",\"type\":\"function\",\"function\":{\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"}}]},{\"role\":\"tool\",\"content\":{\"files\":[\"a\"]},\"tool_call_id\":\"call_3\"},{\"role\":\"assistant\",\"tool_calls\":[{\"id\":\"call_4\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{}\"}}]},{\"role\":\"tool\",\"content\":\"ok\",\"tool_call_id\":\"call_4\"},{\"role\":\"assistant\",\"content\":\"Done.\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true}}",
+ "request/chat-other-model": "{\"model\":\"gpt-4.1\",\"messages\":[{\"role\":\"system\",\"content\":\"You are an agent.\"},{\"role\":\"user\",\"content\":\"hello\"},{\"role\":\"system\",\"content\":\"A later system note.\"},{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"look \\u003c\\u0026\\u003e\"},{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,xx\"}}]},{\"role\":\"user\",\"content\":\"[#1 user] not parts\",\"name\":\"alice\"},{\"role\":\"assistant\",\"content\":\"calling\",\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{\\\"text\\\":\\\"x\\\"}\"}},{\"id\":\"call_2\",\"type\":\"\",\"function\":{\"name\":\"bash\",\"arguments\":\"{}\"}}]},{\"role\":\"tool\",\"content\":\"noted\",\"name\":\"note\",\"tool_call_id\":\"call_1\"},{\"role\":\"tool\",\"content\":\"\",\"tool_call_id\":\"call_2\"},{\"role\":\"assistant\",\"content\":\"\",\"tool_calls\":[{\"id\":\"call_3\",\"type\":\"function\",\"function\":{\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"}}]},{\"role\":\"tool\",\"content\":{\"files\":[\"a\"]},\"tool_call_id\":\"call_3\"},{\"role\":\"assistant\",\"tool_calls\":[{\"id\":\"call_4\",\"type\":\"function\",\"function\":{\"name\":\"note\",\"arguments\":\"{}\"}}]},{\"role\":\"tool\",\"content\":\"ok\",\"tool_call_id\":\"call_4\"},{\"role\":\"assistant\",\"content\":\"Done.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"bare\",\"description\":\"\",\"parameters\":{\"type\":\"object\"}}},{\"type\":\"function\",\"function\":{\"name\":\"nil-schema\",\"description\":\"\",\"parameters\":null}}]}",
+ "request/responses": "{\"model\":\"gpt-5\",\"instructions\":\"You are an agent.\",\"input\":[{\"role\":\"user\",\"content\":\"hello\"},{\"role\":\"developer\",\"content\":\"A later system note.\"},{\"role\":\"user\",\"content\":[{\"text\":\"look \\u003c\\u0026\\u003e\",\"type\":\"input_text\"},{\"image_url\":\"data:image/png;base64,xx\",\"type\":\"input_image\"}]},{\"role\":\"user\",\"content\":\"[#1 user] not parts\"},{\"role\":\"assistant\",\"content\":\"calling\"},{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"note\",\"arguments\":\"{\\\"text\\\":\\\"x\\\"}\"},{\"type\":\"function_call\",\"call_id\":\"call_2\",\"name\":\"bash\",\"arguments\":\"{}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_1\",\"output\":\"noted\"},{\"type\":\"function_call_output\",\"call_id\":\"call_2\",\"output\":\"\"},{\"type\":\"reasoning\",\"id\":\"rs_1\",\"encrypted_content\":\"E\",\"summary\":[]},{\"type\":\"function_call\",\"call_id\":\"call_3\",\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_3\",\"output\":\"{\\\"files\\\":[\\\"a\\\"]}\"},{\"type\":\"function_call\",\"call_id\":\"call_4\",\"name\":\"note\",\"arguments\":\"{}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_4\",\"output\":\"ok\"},{\"role\":\"assistant\",\"content\":\"Done.\"}],\"tools\":[{\"type\":\"function\",\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"bare\",\"parameters\":{\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"nil-schema\",\"parameters\":null}],\"stream\":true,\"reasoning\":{\"effort\":\"low\",\"summary\":\"auto\"},\"store\":false,\"include\":[\"reasoning.encrypted_content\"]}",
+ "request/responses-plain": "{\"model\":\"gpt-4.1\",\"instructions\":\"You are an agent.\",\"input\":[{\"role\":\"user\",\"content\":\"hello\"},{\"role\":\"developer\",\"content\":\"A later system note.\"},{\"role\":\"user\",\"content\":[{\"text\":\"look \\u003c\\u0026\\u003e\",\"type\":\"input_text\"},{\"image_url\":\"data:image/png;base64,xx\",\"type\":\"input_image\"}]},{\"role\":\"user\",\"content\":\"[#1 user] not parts\"},{\"role\":\"assistant\",\"content\":\"calling\"},{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"note\",\"arguments\":\"{\\\"text\\\":\\\"x\\\"}\"},{\"type\":\"function_call\",\"call_id\":\"call_2\",\"name\":\"bash\",\"arguments\":\"{}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_1\",\"output\":\"noted\"},{\"type\":\"function_call_output\",\"call_id\":\"call_2\",\"output\":\"\"},{\"type\":\"function_call\",\"call_id\":\"call_3\",\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_3\",\"output\":\"{\\\"files\\\":[\\\"a\\\"]}\"},{\"type\":\"function_call\",\"call_id\":\"call_4\",\"name\":\"note\",\"arguments\":\"{}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_4\",\"output\":\"ok\"},{\"role\":\"assistant\",\"content\":\"Done.\"}],\"tools\":[{\"type\":\"function\",\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"bare\",\"parameters\":{\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"nil-schema\",\"parameters\":null}],\"store\":false}",
+ "request/responses-reasoning": "{\"model\":\"openai/o4-mini\",\"instructions\":\"You are an agent.\",\"input\":[{\"role\":\"user\",\"content\":\"hello\"},{\"role\":\"developer\",\"content\":\"A later system note.\"},{\"role\":\"user\",\"content\":[{\"text\":\"look \\u003c\\u0026\\u003e\",\"type\":\"input_text\"},{\"image_url\":\"data:image/png;base64,xx\",\"type\":\"input_image\"}]},{\"role\":\"user\",\"content\":\"[#1 user] not parts\"},{\"role\":\"assistant\",\"content\":\"calling\"},{\"type\":\"function_call\",\"call_id\":\"call_1\",\"name\":\"note\",\"arguments\":\"{\\\"text\\\":\\\"x\\\"}\"},{\"type\":\"function_call\",\"call_id\":\"call_2\",\"name\":\"bash\",\"arguments\":\"{}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_1\",\"output\":\"noted\"},{\"type\":\"function_call_output\",\"call_id\":\"call_2\",\"output\":\"\"},{\"type\":\"function_call\",\"call_id\":\"call_3\",\"name\":\"bash\",\"arguments\":\"{\\\"command\\\":\\\"ls\\\"}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_3\",\"output\":\"{\\\"files\\\":[\\\"a\\\"]}\"},{\"type\":\"function_call\",\"call_id\":\"call_4\",\"name\":\"note\",\"arguments\":\"{}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_4\",\"output\":\"ok\"},{\"role\":\"assistant\",\"content\":\"Done.\"}],\"tools\":[{\"type\":\"function\",\"name\":\"note\",\"description\":\"Jot a note.\",\"parameters\":{\"properties\":{\"text\":{\"type\":\"string\"}},\"required\":[\"text\"],\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"bare\",\"parameters\":{\"type\":\"object\"}},{\"type\":\"function\",\"name\":\"nil-schema\",\"parameters\":null}],\"reasoning\":{\"summary\":\"auto\"},\"store\":false,\"include\":[\"reasoning.encrypted_content\"]}",
+ "responses-body/completed": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "Hello.",
+    "tool_calls": [
+     {
+      "id": "call_1",
+      "type": "function",
+      "function": {
+       "name": "note",
+       "arguments": "{\"text\":\"x\"}"
+      }
+     }
+    ]
+   },
+   "Reasoning": "First.\n\nSecond.\n\nThird.",
+   "ReasoningRaw": [
+    {
+     "type": "reasoning",
+     "id": "rs_1",
+     "encrypted_content": "ENC",
+     "summary": [
+      {
+       "type": "summary_text",
+       "text": "First."
+      },
+      {
+       "type": "summary_text",
+       "text": "Second."
+      }
+     ]
+    },
+    {
+     "type": "reasoning",
+     "id": "rs_2",
+     "summary": [
+      {
+       "type": "summary_text",
+       "text": "Third."
+      }
+     ]
+    }
+   ],
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 100,
+    "completion_tokens": 20,
+    "total_tokens": 120,
+    "reasoning_tokens": 7
+   },
+   "Finish": "tool_calls",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": false
+ },
+ "responses-body/empty-call": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "c",
+      "type": "function",
+      "function": {
+       "name": "n",
+       "arguments": ""
+      }
+     }
+    ]
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "tool_calls",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": false
+ },
+ "responses-body/error-object": {
+  "reply": {
+   "Msg": {
+    "role": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "err": "llm upstream error: The model failed.",
+  "final": true
+ },
+ "responses-body/error-string": {
+  "reply": {
+   "Msg": {
+    "role": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "err": "llm upstream error: \"boom\"",
+  "final": true
+ },
+ "responses-body/failed": {
+  "reply": {
+   "Msg": {
+    "role": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "err": "llm upstream error: the model's response failed",
+  "final": true
+ },
+ "responses-body/incomplete": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "cut"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "content_filter",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true
+ },
+ "responses-body/no-total": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "a"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 7,
+    "completion_tokens": 8,
+    "total_tokens": 15
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true
+ },
+ "responses-body/not-json": {
+  "reply": {
+   "Msg": {
+    "role": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "err": "llm-gw bad response: invalid character 'o' in literal null (expecting 'u')"
+ },
+ "responses-stream/arguments-done-wins": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+     {
+      "id": "c",
+      "type": "function",
+      "function": {
+       "name": "n",
+       "arguments": "{\"a\":2}"
+      }
+     }
+    ]
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "tool_calls",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": false,
+  "events": [
+   "tool|0|c|n|{\"a\"",
+   "tool|0|c|n|{\"a\":1"
+  ]
+ },
+ "responses-stream/error-event": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "err": "llm upstream error: Slow down.",
+  "final": true
+ },
+ "responses-stream/error-event-bare": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "err": "llm upstream error: {\"type\":\"error\",\"code\":429}",
+  "final": true
+ },
+ "responses-stream/failed-bare": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "err": "llm upstream error: the model's response failed",
+  "final": true
+ },
+ "responses-stream/failed-null-error": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "err": "llm upstream error: the model's response failed",
+  "final": true
+ },
+ "responses-stream/failed-odd-error": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": ""
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "err": "llm upstream error: {\"code\":\"server_error\"}",
+  "final": true
+ },
+ "responses-stream/failed-with-error": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "par"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|par"
+  ],
+  "err": "llm upstream error: The model failed.",
+  "final": true
+ },
+ "responses-stream/frame-no-blank-lines": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "ab"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|a",
+   "text|ab"
+  ]
+ },
+ "responses-stream/incomplete": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "cut"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 1,
+    "completion_tokens": 2,
+    "total_tokens": 3
+   },
+   "Finish": "max_output_tokens",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|cut"
+  ]
+ },
+ "responses-stream/items-only": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "whole text",
+    "tool_calls": [
+     {
+      "id": "call_9",
+      "type": "function",
+      "function": {
+       "name": "bash",
+       "arguments": "{\"command\":\"ls\"}"
+      }
+     }
+    ]
+   },
+   "Reasoning": "",
+   "ReasoningRaw": [
+    {
+     "type": "reasoning",
+     "id": "rs_1",
+     "summary": [
+      {
+       "type": "summary_text",
+       "text": "unseen"
+      }
+     ]
+    }
+   ],
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "tool_calls",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": false
+ },
+ "responses-stream/no-usage": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "a"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|a"
+  ]
+ },
+ "responses-stream/openai": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "Counted once.",
+    "tool_calls": [
+     {
+      "id": "call_1",
+      "type": "function",
+      "function": {
+       "name": "note",
+       "arguments": "{\"text\":\"x\"}"
+      }
+     }
+    ]
+   },
+   "Reasoning": "Counting.\n\nThen answer.",
+   "ReasoningRaw": [
+    {
+     "type": "reasoning",
+     "id": "rs_1",
+     "encrypted_content": "ENC",
+     "summary": [
+      {
+       "type": "summary_text",
+       "text": "Counting."
+      },
+      {
+       "type": "summary_text",
+       "text": "Then answer."
+      }
+     ]
+    }
+   ],
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 4096,
+    "completion_tokens": 640,
+    "total_tokens": 4736,
+    "reasoning_tokens": 512
+   },
+   "Finish": "tool_calls",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": false,
+  "events": [
+   "thinking|Count",
+   "thinking|Counting.",
+   "thinking|Counting.\n\nThen answer.",
+   "text|Counted ",
+   "text|Counted once.",
+   "tool|0|call_1|note|",
+   "tool|0|call_1|note|{\"text\":",
+   "tool|0|call_1|note|{\"text\":\"x\"}"
+  ]
+ },
+ "responses-stream/reasoning-text": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "ok"
+   },
+   "Reasoning": "raw \n\nthoughts\n\nsummary",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "thinking|raw ",
+   "thinking|raw \n\nthoughts",
+   "thinking|raw \n\nthoughts\n\nsummary",
+   "text|ok"
+  ]
+ },
+ "responses-stream/unknown-events": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "a"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "total_tokens": 0
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|a"
+  ]
+ },
+ "responses-stream/usage-no-total": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "a"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 100,
+    "completion_tokens": 20,
+    "total_tokens": 120,
+    "reasoning_tokens": 7
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|a"
+  ]
+ },
+ "responses-stream/usage-odd-total": {
+  "reply": {
+   "Msg": {
+    "role": "assistant",
+    "content": "a"
+   },
+   "Reasoning": "",
+   "ReasoningRaw": null,
+   "ReasoningMs": 0,
+   "Usage": {
+    "prompt_tokens": 100,
+    "completion_tokens": 20,
+    "total_tokens": 50,
+    "reasoning_tokens": 70
+   },
+   "Finish": "stop",
+   "Wire": "",
+   "Model": ""
+  },
+  "toolCallsNil": true,
+  "events": [
+   "text|a"
+  ]
+ }
+}

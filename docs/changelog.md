@@ -10,6 +10,43 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-15
+
+- **SDK: `sdk/llm` reads a stream a data line at a time, and its types
+  write the wire too** (D226; [sdk.md](/docs/sdk.md) §Calling a model).
+  `llm.ReadData(r, fn)` hands each `data:` line's payload to `fn` by itself
+  — how Chat Completions and the Responses API write a stream, and it reads
+  a server that leaves out the blank line between events (`ReadSSE` still
+  reads events as the SSE format defines them). `llm.ChatChunkChoice`,
+  `llm.InputDetails` and `llm.OutputDetails` name what were unnamed struct
+  types inside `ChatChunk`, `ChatUsage` and `ResponsesUsage`, so a fake
+  upstream or a translating proxy can build its answers from them; code
+  that reads their fields is unchanged.
+- **llm-gw v11: usage, prices and upstream URLs through `sdk/llm`** (D226).
+  The gateway's backend reads token usage, prices a call and joins a
+  backend's base URL with the SDK's shared wire code in place of its own
+  copies. What it counts is unchanged — the usage block of either wire from
+  an answer's last 8 KiB, a price by the upstream's exact model id — except
+  that a cost may differ in its last binary digit; a stored price may now
+  carry `cachedIn` (USD per million input tokens read from a prompt cache).
+  Like every builtin tile it builds against the SDK of the xbind it ships
+  with: v11 needs this release's xbind ([compat.md](/docs/compat.md) "What
+  this does not promise"); an llm-gw you already run keeps building against
+  the newer SDK, which only grew.
+- **Agent template: its model wires read through `sdk/llm`** (D226). The
+  template's backend takes the wire types of Chat Completions and of the
+  Responses API, the stream reader and the model list's context sizes from
+  the SDK in place of its own copies. Nothing it sends or reads changes:
+  requests are encoded byte for byte as before, and answers — reasoning
+  under each provider's name, tool-call fragments, usage as the provider
+  counted it, errors in whatever shape a server sends them, streams with or
+  without blank lines — are read the same (58 recorded answers and six
+  requests are pinned in its tests). A template with this change needs
+  this release's xbind, as template code written against a later SDK always
+  does ([compat.md](/docs/compat.md) "What this does not promise"): update
+  xbind before you merge it into an instance. An instance you already have
+  keeps building against the newer SDK, which only grew.
+
 ## 2026-11-14
 
 - **The LLM connector has a page and an admin console tab** (D226;

@@ -282,6 +282,12 @@ func parseConfig(raw string) Config {
 }
 
 // --- OpenAI-compatible wire types ---------------------------------------
+//
+// The engine's own: a message, a tool call, a tool and a usage block as the
+// transcript stores them and every tool builds them, written to the chat
+// wire as they are. What an answer looks like on either wire — a chunk, a
+// body, an event, a provider's usage block — is sdk/llm's (llm_chat.go,
+// llm_responses.go).
 
 type wireMsg struct {
 	Role string `json:"role"`

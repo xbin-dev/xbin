@@ -133,15 +133,19 @@ type ToolCallDelta struct {
 // ChatChunk is one data payload of a Chat Completions stream. The usage
 // chunk has no choices; an upstream failure mid-stream arrives as Error.
 type ChatChunk struct {
-	ID      string `json:"id,omitempty"`
-	Model   string `json:"model,omitempty"`
-	Choices []struct {
-		Index        int             `json:"index"`
-		Delta        ChatReplyFields `json:"delta"`
-		FinishReason *string         `json:"finish_reason"`
-	} `json:"choices"`
-	Usage *ChatUsage `json:"usage,omitempty"`
-	Error *Error     `json:"error,omitempty"`
+	ID      string            `json:"id,omitempty"`
+	Model   string            `json:"model,omitempty"`
+	Choices []ChatChunkChoice `json:"choices"`
+	Usage   *ChatUsage        `json:"usage,omitempty"`
+	Error   *Error            `json:"error,omitempty"`
+}
+
+// ChatChunkChoice is one choice of a ChatChunk: FinishReason is null until
+// the chunk that ends the reply.
+type ChatChunkChoice struct {
+	Index        int             `json:"index"`
+	Delta        ChatReplyFields `json:"delta"`
+	FinishReason *string         `json:"finish_reason"`
 }
 
 // rawString is a JSON value's string when it is one, "" otherwise.

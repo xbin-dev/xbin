@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"io"
 	"math"
 	"net/http/httptest"
 	"os"
@@ -377,6 +378,78 @@ func TestErrors(t *testing.T) {
 		if got := TypeForStatus(status); got != want {
 			t.Errorf("TypeForStatus(%d) = %q, want %q", status, got, want)
 		}
+	}
+}
+
+// ReadData takes each data line by itself: the wires' streams read as with
+// ReadSSE, and so does a server that leaves out the blank lines, pads its
+// lines or names no event.
+func TestReadData(t *testing.T) {
+	for _, f := range []string{"chat-stream-openai.sse", "chat-stream-fake.sse", "responses-stream-openai.sse", "responses-stream-fake.sse"} {
+		var want, got []string
+		if err := ReadSSE(bytes.NewReader(fixture(t, f)), func(_ string, d []byte) error { want = append(want, string(d)); return nil }); err != nil {
+			t.Fatal(err)
+		}
+		if err := ReadData(bytes.NewReader(fixture(t, f)), func(d []byte) error { got = append(got, string(d)); return nil }); err != nil {
+			t.Fatal(err)
+		}
+		if len(want) == 0 || strings.Join(got, "\n") != strings.Join(want, "\n") {
+			t.Errorf("%s: ReadData read %d payloads, ReadSSE %d", f, len(got), len(want))
+		}
+	}
+	var got []string
+	in := ": keep-alive\r\nevent: a\r\ndata: {\"n\":1}\r\ndata:{\"n\":2}\n  data:   {\"n\":3}  \ndata:\n\nid: 7\ndata: [DONE]\ndata: {\"after\":true}\n"
+	if err := ReadData(strings.NewReader(in), func(d []byte) error { got = append(got, string(d)); return nil }); err != nil ||
+		strings.Join(got, ",") != `{"n":1},{"n":2},{"n":3}` {
+		t.Errorf("framing: %q, %v", got, err)
+	}
+	// a last line without its newline is read; fn's error stops the read
+	got = nil
+	_ = ReadData(strings.NewReader("data: 1\ndata: 2"), func(d []byte) error { got = append(got, string(d)); return nil })
+	stop := errors.New("stop")
+	if err := ReadData(strings.NewReader("data: 1\ndata: 2\n"), func([]byte) error { return stop }); err != stop || strings.Join(got, ",") != "1,2" {
+		t.Errorf("fn's error: %v; last line: %q", err, got)
+	}
+	// a read error is returned as it is, and a line past MaxSSELine ends both readers
+	broken := errors.New("broken")
+	if err := ReadData(io.MultiReader(strings.NewReader("data: 1\n"), errReader{broken}), func([]byte) error { return nil }); err != broken {
+		t.Errorf("a read error: %v", err)
+	}
+	long := io.MultiReader(strings.NewReader("data: "), io.LimitReader(zeros{}, MaxSSELine+64<<10))
+	if err := ReadData(long, func([]byte) error { return nil }); err != ErrSSELineTooLong {
+		t.Errorf("a line too long: %v", err)
+	}
+}
+
+type errReader struct{ err error }
+
+func (e errReader) Read([]byte) (int, error) { return 0, e.err }
+
+type zeros struct{}
+
+func (zeros) Read(p []byte) (int, error) {
+	for i := range p {
+		p[i] = '0'
+	}
+	return len(p), nil
+}
+
+// What a server writes with the types: a chunk's choice and a usage block's
+// details are named, so a fake upstream or a translating proxy builds them.
+func TestEmittedShapes(t *testing.T) {
+	stop := "stop"
+	b, _ := json.Marshal(ChatChunk{Choices: []ChatChunkChoice{{Delta: ChatReplyFields{Content: json.RawMessage(`"hi"`)}, FinishReason: &stop}}})
+	if string(b) != `{"choices":[{"index":0,"delta":{"content":"hi"},"finish_reason":"stop"}]}` {
+		t.Errorf("chunk: %s", b)
+	}
+	b, _ = json.Marshal(ChatChunk{Choices: []ChatChunkChoice{}, Usage: &ChatUsage{PromptTokens: 100, CompletionTokens: 20, TotalTokens: 120,
+		CompletionTokensDetails: &OutputDetails{ReasoningTokens: 9}}})
+	if string(b) != `{"choices":[],"usage":{"prompt_tokens":100,"completion_tokens":20,"total_tokens":120,"completion_tokens_details":{"reasoning_tokens":9}}}` {
+		t.Errorf("usage chunk: %s", b)
+	}
+	b, _ = json.Marshal(ResponsesUsage{InputTokens: 100, OutputTokens: 20, TotalTokens: 120, InputTokensDetails: &InputDetails{CachedTokens: 64}})
+	if string(b) != `{"input_tokens":100,"output_tokens":20,"total_tokens":120,"input_tokens_details":{"cached_tokens":64}}` {
+		t.Errorf("responses usage: %s", b)
 	}
 }
 
