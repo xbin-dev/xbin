@@ -342,6 +342,47 @@ successor):
   `stopReason: "error"`, `why` in its error). False when nothing waits on
   it (the agent answered).
 
+**The session rules** (D225). What a host does with the event stream is
+the same whoever hosts the session — xbind's tile agent sessions and the
+agent template's coding agents call these, and so can your backend. Each is
+pure: no I/O, no goroutine, no clock of its own.
+
+- **The tool record** (`toolrec.go`). `acp.ToolRecord` is one tool call,
+  its `tool.call` and `tool.update` events merged: `ID`, `Kind` (an ACP
+  kind; `other` when unknown), `Title`, `Label`, `Name`, `Status`, `Parent`,
+  `Subagent`, `PlanReview`, `RawInput`, `Locations`, `Files` (the
+  locations' paths, then the diffs', each once), `Text` (the content's text
+  items joined by a blank line), `Terminal`, `Output` + `OutputTruncated`,
+  `ExitCode`, `Diffs` (`acp.ToolDiff`: the two texts with line counts, or a
+  patch), `Changed` (an `acp.ChangeSet`, from an embedder's
+  `files.changed` — `acp.EvFilesChanged`). Its JSON leaves zero values out,
+  except `id`, `kind`, `title`, `status`.
+  - `var recs acp.ToolRecords` folds a session: `recs.Apply(ev)` returns
+    the `*acp.ToolEntry` (`Seq`, `Turn`, `N`: which call of its id, `Rec`)
+    a tool event landed on and whether it began it; it also reads
+    `files.changed` (a call's) and `turn.end`. `Entries()` lists them in
+    the order they began, `Newest(id)` is an id's current one.
+    `Observe(evType, id, status)` and `EndTurn(turn)` are the id rule
+    alone, for a reader that needs no records (a pager).
+  - `rec.Merge(acp.ToolEvent, acp.ToolPolicy)` is the merge itself
+    (`acp.ParseToolEvent(ev.Data)` reads an event; `Fields()` are the keys
+    it carried). A field an event carries replaces the record's;
+    `outputDelta` appends and `output` replaces; `parent` is the first one
+    said; a later `content` list without text keeps the text, one without
+    diffs keeps the diffs.
+  - **An id used again** — `acp.StartsToolRecord(evType, held, sameTurn)`:
+    a `tool.call` for an id whose record is over (`rec.Done()`,
+    `acp.ToolDone(status)`), or was made in an earlier turn, starts a new
+    record; a `tool.update` never starts a second one.
+  - `acp.ToolPolicy` is what your reducer keeps: `OutputMax` (the newest
+    bytes of output, cut between characters, the rest counted in
+    `OutputTruncated`; 0 keeps all), `TextMax`, and `Diff` to store an
+    edit your way (a patch instead of two texts). `rec.OutputTail(n)` is
+    the newest `n` bytes for a result line.
+  - `ToolEvent.OutputChunk()` says whether a `tool.update` is a bare output
+    chunk (`{id, outputDelta, parent?}`); `chunk.Add(next)` merges two of
+    one call — what a log does to keep a chatty command a few events.
+
 The codec is exported too — `acp.NewConn(r, w)` / `acp.NewConnWith(r, w,
 acp.ConnOptions{IDPrefix, Offset})` (`Call`, `CallCtx`, `Notify`, `Reply`,
 `Serve`, `Expect` to adopt a call an earlier process sent, `Offset`),

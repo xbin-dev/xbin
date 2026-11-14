@@ -35,6 +35,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/sandbox/relay"
 	"github.com/xbin-dev/xbin/internal/termwire"
 	"github.com/xbin-dev/xbin/internal/util"
+	sdkacp "github.com/xbin-dev/xbin/sdk/acp"
 )
 
 // Session kinds (SessionInfo.kind).
@@ -404,7 +405,7 @@ func sortedKeys(m map[string]string) []string {
 }
 
 // delta is a message/thought delta being coalesced (a tool's output run:
-// agentpage.go's outRun).
+// sdk/acp's OutputChunk, agentpage.go).
 type delta struct {
 	Role        string          `json:"role,omitempty"`
 	Text        string          `json:"text"`
@@ -426,7 +427,7 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 	st := s.agent
 	var pend *agent.Event
 	var pd delta
-	var po outRun
+	var po sdkacp.OutputChunk
 	var timer, stTimer <-chan time.Time // delta coalescing; status-change coalescing (agentstatus.go)
 	flush := func() {
 		if pend != nil {
@@ -462,8 +463,7 @@ func (s *Session) agentPump(m *Manager, onExit func()) {
 				continue
 			}
 			if o, ok := outputChunk(e); ok {
-				if pend != nil && pend.Type == agent.EvToolUpdate && po.ID == o.ID && po.Parent == o.Parent {
-					po.OutputDelta += o.OutputDelta
+				if pend != nil && pend.Type == agent.EvToolUpdate && po.Add(o) {
 					continue
 				}
 				flush()

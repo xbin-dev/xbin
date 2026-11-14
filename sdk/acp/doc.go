@@ -40,4 +40,10 @@
 // state.go taking a session over; steer.go steering a running turn;
 // auth.go signing the agent in; signin.go a CLI's own sign-in driven for a
 // person (a provider's Signin, and reading what it prints).
+//
+// The session rules — what a host does with the events, the same whoever
+// hosts the session (xbind's tile agent sessions and the agent template's
+// coding agents both call them; each file is pure: no I/O, no goroutines):
+// toolrec.go the tool record (ToolRecord, ToolRecords: a call's events
+// merged, an id used again, what output a reducer keeps).
 package acp

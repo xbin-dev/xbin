@@ -18,7 +18,9 @@ const evHarness = "harness"
 // harnessMeta is msgMeta.harness: on a tool row the call as the adapter
 // described it (lifted to `acp`), on an assistant row only Parent (its text
 // belongs to a harness-internal subagent). RawInput and Text are the
-// engine's own (merging updates), never lifted.
+// engine's own (merging updates), never lifted. It is the stored form of
+// sdk/acp's ToolRecord (hcall.meta, recOf: `tool` is its Name, a diff its
+// patch form) — rows written by earlier versions read as they were.
 type harnessMeta struct {
 	Kind            string          `json:"kind,omitempty"`
 	Title           string          `json:"title,omitempty"`
@@ -38,10 +40,7 @@ type harnessMeta struct {
 	Text            string          `json:"text,omitempty"`
 }
 
-type hLocation struct {
-	Path string `json:"path"`
-	Line *int   `json:"line,omitempty"`
-}
+type hLocation = acp.ToolLocation
 
 type hDiff struct {
 	Path      string `json:"path"`

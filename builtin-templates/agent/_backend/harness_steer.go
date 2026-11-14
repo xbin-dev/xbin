@@ -308,6 +308,7 @@ func (s *hsess) endDetached(why string) {
 		s.quiet = nil
 	}
 	s.mu.Unlock()
+	s.turnOver()
 	rests := false
 	mark := s.workMark() // the end's poke may send a queued prompt before the rest (harness_partition.go)
 	_ = s.commit(nil, func(t *DB, hs *harnessSession) error {

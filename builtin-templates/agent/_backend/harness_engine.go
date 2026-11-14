@@ -76,6 +76,7 @@ type hsess struct {
 
 	reuseMu sync.Mutex
 	reuse   map[string]int // an adapter's call id used again for a new call → its count (sid)
+	turns   int            // turns ended here (turnNo): a call knows the turn it was made in
 
 	inflight  *heldPrompt       // the prompt of the turn in flight (a sign-in holds it)
 	detached  bool              // the adapter runs a turn of its own (harness_steer.go)

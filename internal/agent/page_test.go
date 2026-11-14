@@ -100,6 +100,46 @@ func TestSafeCuts(t *testing.T) {
 	}
 }
 
+// An id used again (the tool record's rule, sdk/acp ToolRecords): in a later
+// turn it is a new call's card, whether the earlier call ended or not, and
+// an update still lands on the newest call of its id; in one turn, once the
+// earlier call is over, it is a new card too — kept in one page with the
+// earlier one, for a client whose fold still merges the two.
+func TestSafeCutsIDReuse(t *testing.T) {
+	evs := logOf(
+		ev(EvToolCall, map[string]any{"id": "t", "status": "in_progress"}),  // 0 never ends
+		ev(EvTurnEnd, map[string]any{"turn": 1, "stopReason": "end_turn"}),  // 1
+		ev(EvToolCall, map[string]any{"id": "t", "status": "in_progress"}),  // 2 turn 2: a new call
+		ev(EvToolUpdate, map[string]any{"id": "t", "status": "completed"}),  // 3
+		ev(EvMessageDelta, map[string]any{"role": "agent", "text": "x"}),    // 4
+		ev(EvToolCall, map[string]any{"id": "t", "status": "in_progress"}),  // 5 again in turn 2, the earlier over: a new call
+		ev(EvToolUpdate, map[string]any{"id": "t", "status": "completed"}),  // 6
+		ev(EvTurnEnd, map[string]any{"turn": 2, "stopReason": "end_turn"}),  // 7
+		ev(EvToolUpdate, map[string]any{"id": "t", "outputDelta": "late"}),  // 8 turn 3: an update lands on the call of 5
+		ev(evFilesChanged, map[string]any{"toolCallId": "t", "changes": 0}), // 9 … and so does its snapshot
+		ev(EvTurnEnd, map[string]any{"stopReason": "end_turn"}),             // 10 an end that names no turn
+		ev(EvToolCall, map[string]any{"id": "t", "status": "completed"}),    // 11 turn 4
+	)
+	got := safeIdx(evs, Open{})
+	// 2: turn 2's call is its own card (0's never ended, and is closed by
+	// its turn's end); 3–9 one span: the call of 5 is kept with the call of
+	// 2 (an older fold), and is touched until 9; 10, 11: after it; 12: the
+	// log's end, nothing open.
+	if want := []int{0, 1, 2, 10, 11, 12}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("safe cuts\n got %v\nwant %v", got, want)
+	}
+	// the running turn's call is open; a finished one of the same id before it is not
+	run := logOf(
+		ev(EvToolCall, map[string]any{"id": "t", "status": "completed"}),
+		ev(EvTurnEnd, map[string]any{"turn": 1, "stopReason": "end_turn"}),
+		ev(EvToolCall, map[string]any{"id": "t", "status": "in_progress"}),
+		ev(EvStatus, map[string]any{"status": "running"}),
+	)
+	if got := safeIdx(run, Open{}); !reflect.DeepEqual(got, []int{0, 1, 2}) {
+		t.Fatalf("the running turn's call: cuts %v, want [0 1 2]", got)
+	}
+}
+
 // turns builds n turns: a prompt, a two-delta answer, a call and its update,
 // the end.
 func turns(n int) []Event {

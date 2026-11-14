@@ -36,14 +36,14 @@ func (s *hsess) onPermission(ev acp.Event) {
 	c := s.call(tc.ID)
 	if c == nil && tc.ID != "" { // asked before the adapter announced the call
 		title, kind := tc.Title, tc.Kind
-		s.newCall(acp.Event{Type: acp.EvToolCall}, hToolEv{ID: tc.ID, Title: &title, Kind: &kind, Status: "pending",
+		s.newCall(acp.Event{Type: acp.EvToolCall}, acp.ToolEvent{ID: tc.ID, Title: &title, Kind: &kind, Status: acp.ToolPending,
 			Name: tc.Name, RawInput: tc.RawInput, Content: tc.Content})
 		c = s.call(tc.ID)
 	}
 	park := &hPark{CallID: s.sid(tc.ID), PID: d.PID, RPCID: string(ev.Wire.RPCID)}
 	kind := tc.Kind
 	if kind == "" && c != nil {
-		kind = c.meta.Kind
+		kind = c.rec.Kind
 	}
 	for _, o := range d.Options {
 		park.Options = append(park.Options, hOption{OptionID: o.OptionID, Name: o.Name, Kind: o.Kind, Explicit: s.raises(o, kind)})
@@ -60,8 +60,8 @@ func (s *hsess) onPermission(ev acp.Event) {
 		tool.Command = cmd
 	}
 	if c != nil {
-		tool.Label = c.meta.Label
-		tool.Title = orStr(tool.Title, c.meta.Title)
+		tool.Label = c.rec.Label
+		tool.Title = orStr(tool.Title, c.rec.Title)
 	}
 	park.Tool = tool
 	if tc.Kind != acp.KindSwitchMode && (d.Rule.Kind != "" || d.Rule.Title != "") {
@@ -69,12 +69,12 @@ func (s *hsess) onPermission(ev acp.Event) {
 	}
 	park.DefaultToNo, _ = d.Meta["defaultToNo"].(bool)
 	park.Description, _ = d.Meta["description"].(string)
-	if tc.Kind == acp.KindSwitchMode || (c != nil && c.meta.PlanReview) {
+	if tc.Kind == acp.KindSwitchMode || (c != nil && c.rec.PlanReview) {
 		park.PlanApproval = true
 		if p, ok := raw["plan"].(string); ok {
 			park.Plan = p
 		} else if c != nil {
-			park.Plan = c.meta.Text
+			park.Plan = c.rec.Text
 		}
 		if park.Plan != "" {
 			tool.Content = nil // the call's content is the plan: said once, as `plan`

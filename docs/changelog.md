@@ -12,6 +12,28 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-14
 
+- **sdk/acp: the tool record (D225).** New, additive: `acp.ToolRecord`
+  (one tool call, its `tool.call` / `tool.update` events merged),
+  `acp.ToolRecords` (a session's fold: `Apply`, `Entries`, `Newest`,
+  `Observe`, `EndTurn`), `ToolEntry`, `ToolEvent` / `ParseToolEvent`,
+  `ToolPolicy`, `ToolDiff`, `ToolLocation`, `ChangeSet`, `FileChange`,
+  `ChangePatch`, `OutputChunk`, `StartsToolRecord`, `ToolDone`,
+  `NewToolRecord`, `NewToolRecords`, the `Tool*` status constants and
+  `EvFilesChanged` — `/docs/sdk.md` "The session rules". xbind's event
+  pager and the agent template's backend now use it, so they agree on one
+  reading of a call. What changes in the **agent template** (a new
+  instance, or one that merges the template; it needs the SDK of this
+  xbind, as any newer template does — `/docs/compat.md`): a call id the
+  coding agent uses again in a later turn is a new card even when the
+  earlier call never reported its end (it was merged into the earlier
+  card); a call's kept output and its result's tail are cut between
+  characters, never inside one; a tool kind ACP doesn't define is stored
+  as `other` (the tool row's name was `acp:<that kind>`); a permission
+  request for a call the agent has not announced yet makes the card with
+  the request's arguments and content (a plan approval shows its plan
+  then). The tool row's `acp` object is unchanged for every other call.
+  xbind's `GET …/events?before=` pages: a page is never cut between two
+  calls that share an id within one turn; nothing else moves.
 - **docs: the protocol reference is split by topic.** `/docs/protocol.md`
   had reached the size limit of a served doc, so its route tables and
   WebSocket sections moved, unchanged, to one page per area under

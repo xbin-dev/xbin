@@ -101,7 +101,10 @@ func TestChatTranscripts(t *testing.T) {
 	}
 }
 
-func chatTranscriptViews(t *testing.T, dir string, tr chatTranscript) {
+// chatFeed is a coding agent's conversation with no adapter: a harness
+// session whose events a test applies by hand (hsess.apply), in order.
+func chatFeed(t *testing.T, title string) (*Agent, *http.ServeMux, *Run, *hsess) {
+	t.Helper()
 	ag, mux := accessFixture(t)
 	// the events are applied here, in the log's order: no pass of the engine's runs
 	ag.eng.mu.Lock()
@@ -112,7 +115,7 @@ func chatTranscriptViews(t *testing.T, dir string, tr chatTranscript) {
 	cfg := defaultConfig()
 	cfg.Engine, cfg.Class = engineHarness, "coding"
 	cfg.Harness = &HarnessConfig{Provider: "fake", Ref: "apps/cs/sb-1", Cwd: "/w/apps/x", By: "alice"}
-	run, err := ag.startRunOpts(runOpts{Title: tr.Name, Cfg: cfg, Hold: true,
+	run, err := ag.startRunOpts(runOpts{Title: title, Cfg: cfg, Hold: true,
 		Stamp: runStamp{Owner: "alice", Visibility: visPrivate, TeamRole: roleViewer, Origin: "chat"}})
 	if err != nil {
 		t.Fatal(err)
@@ -131,6 +134,11 @@ func chatTranscriptViews(t *testing.T, dir string, tr chatTranscript) {
 		delete(ag.eng.harness, run.ID)
 		ag.eng.mu.Unlock()
 	})
+	return ag, mux, run, s
+}
+
+func chatTranscriptViews(t *testing.T, dir string, tr chatTranscript) {
+	ag, mux, run, s := chatFeed(t, tr.Name)
 
 	stamp := func(seq uint64) { // rows written since the last event are that event's
 		for _, table := range []string{"messages", "steps"} {
