@@ -104,6 +104,9 @@ func (s *Server) apiChromePut(w http.ResponseWriter, r *http.Request) {
 	}
 	path := strings.Trim(body.Path, "/")
 	switch {
+	case util.SealedPath(path): // decided on the handler's own value; the route gate is only the early answer
+		WriteError(w, http.StatusBadRequest, SealedRefusal(path, "what it is trusted with is fixed by the xbin release"), SealedDocs)
+		return
 	case !util.ComponentPathOK(path):
 		apiErr(w, http.StatusBadRequest, "bad tile path")
 		return

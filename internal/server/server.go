@@ -55,6 +55,11 @@ type Server struct {
 	// ComponentAPI serves /api/<component-path>/… (runner-backed reverse
 	// proxy). The request it receives has the caller principal in context.
 	ComponentAPI http.Handler
+	// SealedGateOff switches the sealed route gate (sealedclass.go) off.
+	// Tests only: the gate is the early answer, never the boundary, and the
+	// boundary is tested without it. Nothing sets it from a flag, a file or
+	// the environment.
+	SealedGateOff bool
 	// BackendState answers a tile's primary backend's state for /components
 	// (D196: idle, building, starting, healthy, failed; "" when never run).
 	// nil (tests): no row carries one.
@@ -269,6 +274,12 @@ func (s *Server) authed(next http.Handler) http.Handler {
 			refuseReadOnly(w, r)
 			return
 		}
+		// A sealed component's page holds a viewer's token: its own backend
+		// and nothing of xbind's or another tile's (sealed.go).
+		if SealedViewer(p) && !sealedViewerAllowed(r, p) {
+			refuseSealedViewer(w, r, p)
+			return
+		}
 		next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), p)))
 	})
 }
@@ -305,6 +316,11 @@ func (s *Server) authedStatic(next http.Handler) http.Handler {
 				return
 			}
 			http.Error(w, "unauthorized — sign in at /login", http.StatusUnauthorized)
+			return
+		}
+		// a sealed component's viewer loads its own page's files (sealed.go)
+		if own := "/c/" + p.Component + "/"; SealedViewer(p) && !(strings.HasPrefix(r.URL.Path, own) && !strings.Contains(r.URL.Path, "/../") && !strings.HasSuffix(r.URL.Path, "/..")) {
+			refuseSealedViewer(w, r, p)
 			return
 		}
 		next.ServeHTTP(w, r.WithContext(auth.WithPrincipal(r.Context(), p)))

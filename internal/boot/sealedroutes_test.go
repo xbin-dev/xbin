@@ -13,7 +13,6 @@ package boot
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"net/url"
 	"os"
@@ -36,7 +35,7 @@ const (
 
 func probeSpec() sealed.Spec {
 	return sealed.Spec{Name: "probe", Title: "Probe", Source: sealedCounter("r1"), Authored: "apps/counter",
-		Slots: []string{"llm"}, Grants: []registry.Use{{Target: "cap:open-links", Role: "writer"}}}
+		Slots: []string{"llm"}, Providers: map[string][]string{"llm": {"apps/prov"}}, Grants: []registry.Use{{Target: "cap:open-links", Role: "writer"}}}
 }
 
 // probeWorkspace is a workspace with two ordinary tiles beside the sealed
@@ -166,15 +165,24 @@ func TestSealedRouteAnswers(t *testing.T) {
 		}
 	})
 
-	// ---- Self rows: the component's own credentials pass the gate ----
+	// ---- Self rows: its backend's credential passes; its page's doesn't ----
 	t.Run("its own credentials", func(t *testing.T) {
-		code, body := api("GET", "/frame-token?component="+probePath, nil)
-		var ft struct{ Token string }
-		if code != 200 || json.Unmarshal([]byte(body), &ft) != nil || ft.Token == "" {
-			t.Fatalf("its frame token: %d %s", code, body)
+		if code, body := d.ownCall(probePath, "PUT", "/api/xbin/kv/"+probeRes+"/k", "v"); code != 200 {
+			t.Errorf("its backend's kv write: %d %s", code, body)
 		}
-		own := func(method, path string, body any) (int, string) {
-			req, _ := http.NewRequest(method, d.base+"/api/xbin"+path, strings.NewReader(mustJSON(body)))
+		if code, body := d.ownCall(probePath, "GET", "/api/xbin/kv/"+probeRes+"/k", nil); code != 200 {
+			t.Errorf("its backend's kv read: %d %s", code, body)
+		}
+		if code, body := api("GET", "/kv/"+probeRes+"/k", nil); code != 403 || !strings.Contains(body, systemMsg) {
+			t.Errorf("an admin's read of its kv: %d %s", code, body)
+		}
+		framed := func(component, method, path string, body any) (int, string) {
+			code, out := api("GET", "/frame-token?component="+component, nil)
+			var ft struct{ Token string }
+			if code != 200 || json.Unmarshal([]byte(out), &ft) != nil || ft.Token == "" {
+				t.Fatalf("the frame token of %s: %d %s", component, code, out)
+			}
+			req, _ := http.NewRequest(method, d.base+path, strings.NewReader(mustJSON(body)))
 			req.Header.Set("X-XBin-Frame-Token", ft.Token)
 			req.Header.Set("Content-Type", "application/json")
 			resp, err := http.DefaultClient.Do(req)
@@ -182,33 +190,52 @@ func TestSealedRouteAnswers(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer resp.Body.Close()
-			b := new(strings.Builder)
-			_, _ = fmt.Fprint(b, readAll(resp))
-			return resp.StatusCode, b.String()
+			return resp.StatusCode, readAll(resp)
 		}
-		if code, body := own("PUT", "/kv/"+probeRes+"/k", "v"); code != 200 {
-			t.Errorf("its own kv write: %d %s", code, body)
+		// its page — the root token's own frame of it — holds a viewer's
+		// token: the component's backend, its own renewal, and nothing else
+		const viewer = "its page reaches its own backend only"
+		for _, c := range []struct{ method, path string }{
+			{"GET", "/api/xbin/kv/" + probeRes + "/k"}, {"PUT", "/api/xbin/kv/" + probeRes + "/k"},
+			{"POST", "/api/xbin/bus/publish"}, {"PUT", "/api/xbin/cron/jobs"}, {"POST", "/api/xbin/tile-report"},
+			{"GET", "/api/xbin/components"}, {"GET", "/api/xbin/users"}, {"GET", "/api/xbin/llm/v1/models"},
+			{"GET", "/api/apps/plain/x"}, {"GET", "/api/xbin/probe/../kv/" + probeRes + "/k"}, {"GET", "/c/apps/plain/index.html"},
+		} {
+			if code, body := framed(probePath, c.method, c.path, "v"); code != 403 || !strings.Contains(body, viewer) {
+				t.Errorf("its page's %s %s: %d %s\n\twant 403: %s", c.method, c.path, code, body, viewer)
+			}
 		}
-		if code, body := own("GET", "/kv/"+probeRes+"/k", nil); code != 200 {
-			t.Errorf("its own kv read: %d %s", code, body)
+		if code, body := framed(probePath, "GET", "/api/"+probePath+"/hello", nil); code != 200 || !strings.Contains(body, "self="+probePath) {
+			t.Errorf("its page's call to its own backend: %d %s", code, body)
 		}
-		if code, body := api("GET", "/kv/"+probeRes+"/k", nil); code != 403 {
-			t.Errorf("an admin's read of its kv: %d %s", code, body)
+		if code, body := framed(probePath, "GET", "/api/xbin/frame-token?component="+probePath, nil); code != 200 {
+			t.Errorf("its page's renewal of its token: %d %s", code, body)
+		}
+		if code, body := framed(probePath, "GET", "/api/xbin/frame-token?component=apps/plain", nil); code != 403 {
+			t.Errorf("its page asking for another tile's token: %d %s", code, body)
+		}
+		if code, body := framed(probePath, "GET", "/c/"+probePath+"/app.js", nil); code != 200 {
+			t.Errorf("its page's own script: %d %s", code, body)
 		}
 		// another tile's credentials are not its own
-		_, body = api("GET", "/frame-token?component=apps/plain", nil)
-		var other struct{ Token string }
-		_ = json.Unmarshal([]byte(body), &other)
-		req, _ := http.NewRequest("GET", d.base+"/api/xbin/kv/"+probeRes+"/k", nil)
-		req.Header.Set("X-XBin-Frame-Token", other.Token)
+		if code, body := framed("apps/plain", "GET", "/api/xbin/kv/"+probeRes+"/k", nil); code != 403 || !strings.Contains(body, systemMsg) {
+			t.Errorf("another tile's read of its kv: %d %s", code, body)
+		}
+		// one key twice in a body is refused by the gate before anything
+		// reads it two ways ({"component":"xbin/x","component":null})
+		req, _ := http.NewRequest("PUT", d.base+"/api/xbin/cron/jobs", strings.NewReader(`{"component":"`+probePath+`","component":null,"name":"j","schedule":"@every 1h","path":"/hello","role":"reader"}`))
+		req.Header.Set("Authorization", "Bearer "+d.token)
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if b := readAll(resp); resp.StatusCode != 403 || !strings.Contains(b, systemMsg) {
-			t.Errorf("another tile's read of its kv: %d %s", resp.StatusCode, b)
+		if b := readAll(resp); resp.StatusCode != 400 || !strings.Contains(b, "names component twice") {
+			t.Errorf("a body naming component twice: %d %s", resp.StatusCode, b)
 		}
 		resp.Body.Close()
+		if code, body := api("GET", "/cron/jobs?sealed=1", nil); code != 200 || strings.Contains(body, probePath) {
+			t.Errorf("a job was registered for it: %d %s", code, body)
+		}
 	})
 
 	// ---- the Handled rows ----
@@ -335,7 +362,9 @@ func TestSealedRouteAnswers(t *testing.T) {
 		code, body := api("POST", "/bindings", map[string]any{"component": probePath, "slot": "llm", "provider": "apps/prov"})
 		expect(t, "binding its declared slot", code, body, 200)
 		code, body = api("POST", "/bindings", map[string]any{"component": probePath, "slot": "net", "provider": "internet"})
-		expect(t, "a slot the table doesn't give it", code, body, 400, "does not request an interface slot")
+		expect(t, "a slot the table doesn't give it", code, body, 400, systemMsg+"its release names the providers its net slot may be bound to")
+		code, body = api("POST", "/bindings", map[string]any{"component": probePath, "slot": "llm", "provider": "apps/plain"})
+		expect(t, "its declared slot, to a provider its release doesn't name", code, body, 400, systemMsg+"its release names the providers its llm slot may be bound to, and apps/plain is not one")
 		code, body = api("POST", "/bindings", map[string]any{"component": probePath, "slot": "@archive", "provider": "apps/prov"})
 		expect(t, "a pseudo-slot", code, body, 400, systemMsg)
 		code, body = api("POST", "/bindings", map[string]any{"component": "apps/plain", "slot": "llm", "provider": probePath})

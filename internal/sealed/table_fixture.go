@@ -24,7 +24,9 @@ func table() []Spec {
 		panic(err)
 	}
 	return []Spec{
-		{Name: "probe", Title: "Fixture probe", Source: src, Authored: "apps/fixture", Slots: []string{"llm"}},
+		{Name: "probe", Title: "Fixture probe", Source: src, Authored: "apps/fixture", Slots: []string{"llm"},
+			// the fixture alone lets a workspace tile in: the tests bind it
+			Providers: map[string][]string{"llm": {"apps/prov", "apps/llm"}}},
 		{Name: "people", Title: "Fixture people", Source: src, Authored: "apps/fixture", Partition: []string{"user", "global"}},
 	}
 }

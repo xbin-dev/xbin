@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"cmp"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -904,6 +905,18 @@ func (b *Broker) validateBinding(comp, slot string, binding registry.Binding) er
 	if util.SealedPath(comp) && strings.HasPrefix(slot, "@") {
 		return fmt.Errorf("%s", server.SealedRefusal(comp, "only the interface slots its release declares are bound (its backups go to the workspace's archiver)"))
 	}
+	if util.SealedPath(comp) {
+		// Who a sealed component talks to is the release's decision: a slot
+		// binds to its default provider or one its table entry names, and
+		// to nothing else — a model provider reads what people say to it
+		// (registry.SealedCode.BindingAllowed; the workspace file's writer
+		// refuses such a row again).
+		for _, ref := range refs {
+			if !b.Reg.SealedBindingAllowed(comp, slot, ref) {
+				return fmt.Errorf("%s", server.SealedRefusal(comp, fmt.Sprintf("its release names the providers its %s slot may be bound to, and %s is not one", slot, ref)))
+			}
+		}
+	}
 	if strings.HasPrefix(slot, "@") { // pseudo-slots are single-valued
 		if len(refs) > 1 {
 			return fmt.Errorf("%s takes a single provider", slot)
@@ -1056,6 +1069,9 @@ func (b *Broker) apiIfaceInstancesSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	comp := body.Component
+	if sealedRefused(w, cmp.Or(sealedNone(comp, sealedNoIface), sealedNone(p.Component, sealedNoIface))) {
+		return // not an admin for it, and not the component for itself (sealedguard.go)
+	}
 	switch {
 	case p.Component != "":
 		if comp != "" && comp != p.Component {

@@ -763,6 +763,7 @@ func (st *State) stepServer() error {
 		Reg: st.Reg, Auth: st.Auth, Hub: st.Hub, Term: st.Term,
 		WebFS: st.webFS, DocsFS: st.docsFS,
 		ComponentAPI: st.Proxy, Version: st.Cfg.Version,
+		SealedGateOff:  st.Cfg.sealedGateOff,
 		TrustedProxies: st.trusted,
 		ExternalURL:    st.externalURL,
 		Overlay:        st.overlay,

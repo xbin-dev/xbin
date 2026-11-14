@@ -486,6 +486,9 @@ func (b *Broker) apiOwnerTransfer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	body.Tile = strings.Trim(body.Tile, "/")
+	if sealedRefused(w, sealedNone(body.Tile, sealedNoOwner)) {
+		return // (sealedguard.go; the users store refuses it again, SetOwner)
+	}
 	if _, _, err := users.ParseOwner(body.To); err != nil {
 		server.WriteError(w, http.StatusBadRequest, err.Error())
 		return

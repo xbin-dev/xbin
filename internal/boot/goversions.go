@@ -13,12 +13,14 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/broker"
 	"github.com/xbin-dev/xbin/internal/runner"
 	"github.com/xbin-dev/xbin/internal/server"
+	"github.com/xbin-dev/xbin/internal/util"
 )
 
 // goVersionsDelay is how long after boot the first pass waits: the boot's
@@ -98,6 +100,10 @@ func (st *State) registerGoVersionsAPI(srv *server.Server) {
 		}
 		if err := server.DecodeJSON(r, &body); err != nil && !errors.Is(err, io.EOF) {
 			server.WriteError(w, http.StatusBadRequest, "bad body: "+err.Error(), "/docs/protocol.md")
+			return
+		}
+		if util.SealedPath(strings.Trim(body.Tile, "/")) { // on the handler's own value (D227)
+			server.WriteError(w, http.StatusBadRequest, util.SealedRefusal(strings.Trim(body.Tile, "/"), "it is built by the xbin release"), server.SealedDocs)
 			return
 		}
 		if err := gv.Dismiss(body.Tile); errors.Is(err, runner.ErrGoVersionsUnknownTile) {

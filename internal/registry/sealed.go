@@ -55,6 +55,10 @@ type SealedCode struct {
 	// workspace file has no entry for the slot and the provider is
 	// available (Registry.SealedProvider): slot → ref.
 	Defaults map[string]string
+	// Providers names, per slot, the providers the slot may be bound to
+	// beside its default: slot → refs. A slot binds to nothing else,
+	// whoever asks (BindingAllowed).
+	Providers map[string][]string
 	// Grants are the grants the table gives it, read as rows of the grant
 	// table (Workspace) that no workspace file holds.
 	Grants []Use
@@ -120,15 +124,90 @@ func (r *Registry) addSealed(comps map[string]*Component, scopes map[string]*Sco
 	return codes
 }
 
+// BindingAllowed reports whether the sealed component sc may have slot
+// bound to the provider ref ("<provider>[#<instance>]"): a slot the table
+// gives it, and its default provider or one the table lists for the slot.
+// Who a sealed component talks to is the release's decision — its model
+// provider reads what people say to it — never a workspace file's alone.
+func (sc SealedCode) BindingAllowed(slot, ref string) bool {
+	if !slices.Contains(sc.Slots, slot) || ref == "" {
+		return false
+	}
+	bare, _, _ := strings.Cut(ref, "#")
+	return bare == sc.Defaults[slot] || slices.Contains(sc.Providers[slot], bare)
+}
+
+// SealedRowError is MutateWorkspace's refusal of a change that would write
+// a row about a sealed component the file may not hold.
+type SealedRowError struct{ Row string }
+
+func (e *SealedRowError) Error() string {
+	return "the workspace file takes no such row about a system component (" + e.Row + "): it is managed by xbin"
+}
+
+// sealedRows names what a workspace file must not say about sealed
+// components: the rows sealedView would not honour. MutateWorkspace refuses
+// a change that adds one, so whatever a request's handler read, no such row
+// is written; a row already in a hand-edited file is left (and ignored).
+func sealedRows(ws WorkspaceManifest, codes []SealedCode) map[string]bool {
+	rows := map[string]bool{}
+	for _, g := range ws.Grants {
+		if util.SealedPath(g.From) || util.SealedTarget(g.Target) {
+			rows["grant "+g.From+" → "+g.Target+" ("+g.Role+")"] = true
+		}
+	}
+	code := func(path string) (SealedCode, bool) {
+		i := slices.IndexFunc(codes, func(sc SealedCode) bool { return sc.Path == path })
+		if i < 0 {
+			return SealedCode{}, false
+		}
+		return codes[i], true
+	}
+	for comp, slots := range ws.Bindings {
+		for slot, b := range slots {
+			sc, known := code(comp)
+			for _, ref := range b {
+				switch {
+				case util.SealedPath(ref.Ref):
+					rows["binding "+comp+" "+slot+" → "+ref.Ref] = true
+				case util.SealedPath(comp) && (!known || !sc.BindingAllowed(slot, ref.Ref)):
+					rows["binding "+comp+" "+slot+" → "+ref.Ref] = true
+				}
+			}
+			if util.SealedPath(comp) && len(b) == 0 && (!known || !slices.Contains(sc.Slots, slot)) {
+				rows["binding "+comp+" "+slot] = true
+			}
+		}
+	}
+	for comp := range ws.IfaceInstances {
+		if util.SealedPath(comp) {
+			rows["ifaceInstances "+comp] = true
+		}
+	}
+	for comp := range ws.IngressHosts {
+		if util.SealedPath(comp) {
+			rows["ingressHosts "+comp] = true
+		}
+	}
+	for comp, state := range ws.Lifecycle {
+		if util.SealedPath(comp) && IsOffloaded(state) {
+			rows["lifecycle "+comp+" "+state] = true
+		}
+	}
+	return rows
+}
+
 // sealedView is the workspace manifest as everything but its own file
 // reads it (Workspace): no row of the file speaks for, or reaches into, a
-// sealed component — a grant from one, a grant on one or on its resources,
-// a binding of a slot the table doesn't give it — and the table's grants
-// are there as rows. The file itself is never rewritten for this.
+// sealed component — a grant from one, a grant on one, on its resources or
+// on its source, a binding of a slot the table doesn't give it or to a
+// provider the table doesn't allow, an instance or ingress host of one —
+// and the table's grants are there as rows. The file itself is never
+// rewritten for this.
 func sealedView(ws WorkspaceManifest, codes []SealedCode, available func(ref string) bool) WorkspaceManifest {
-	sealedTarget := func(t string) bool {
-		return util.SealedPath(t) || strings.HasPrefix(t, "res:"+util.SealedPrefix)
-	}
+	sealedTarget := util.SealedTarget
+	ws.IfaceInstances = withoutSealedKeys(ws.IfaceInstances)
+	ws.IngressHosts = withoutSealedKeys(ws.IngressHosts)
 	if slices.ContainsFunc(ws.Grants, func(g Grant) bool { return util.SealedPath(g.From) || sealedTarget(g.Target) }) || len(codes) > 0 {
 		kept := make([]Grant, 0, len(ws.Grants))
 		for _, g := range ws.Grants {
@@ -164,15 +243,17 @@ func sealedView(ws WorkspaceManifest, codes []SealedCode, available func(ref str
 		if !util.SealedPath(comp) {
 			continue
 		}
-		var has []string
+		var code SealedCode
 		for _, sc := range codes {
 			if sc.Path == comp {
-				has = sc.Slots
+				code = sc
 			}
 		}
 		kept := map[string]Binding{}
 		for slot, b := range slots {
-			if slices.Contains(has, slot) {
+			// a declared slot, bound (or unbound: the empty entry) to
+			// providers the table allows; anything else reads as no entry
+			if slices.Contains(code.Slots, slot) && !slices.ContainsFunc(b, func(r BindRef) bool { return !code.BindingAllowed(slot, r.Ref) }) {
 				kept[slot] = b
 			}
 		}
@@ -241,6 +322,39 @@ func (r *Registry) SealedDefault(comp, slot string) (ref string, applied bool) {
 	}
 	_, explicit := r.workspace.Bindings[comp][slot]
 	return ref, !explicit && r.SealedProvider != nil && r.SealedProvider(ref)
+}
+
+// SealedBindingAllowed reports whether the sealed component at comp may
+// have slot bound to ref (SealedCode.BindingAllowed); false for a path
+// that is no registered sealed component.
+func (r *Registry) SealedBindingAllowed(comp, slot, ref string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for _, sc := range r.sealed {
+		if sc.Path == comp {
+			return sc.BindingAllowed(slot, ref)
+		}
+	}
+	return false
+}
+
+// withoutSealedKeys is m without its entries for paths under xbin/,
+// copying only when it has one.
+func withoutSealedKeys[V any](m map[string]V) map[string]V {
+	dirty := false
+	for k := range m {
+		dirty = dirty || util.SealedPath(k)
+	}
+	if !dirty {
+		return m
+	}
+	out := make(map[string]V, len(m))
+	for k, v := range m {
+		if !util.SealedPath(k) {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // withoutSealedProviders drops every binding ref that names a sealed

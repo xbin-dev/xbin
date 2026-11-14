@@ -266,6 +266,18 @@ func (p *Plane) Authorize(pr auth.Principal, op Op, s Subject) (Grant, error) {
 	return Grant{P: pr, Op: op, Subject: s}, nil
 }
 
+// errSealed refuses a sealed component as a deployment operation's tile: it
+// always runs the release's code, and has no record, checkpoint or
+// deployment to act on (D227). The plane refuses it where it judges an
+// operation (judge) and where it writes a record (index.commit), whatever
+// read the request.
+func errSealed(tile string) *Error {
+	return &Error{Status: http.StatusBadRequest, Kind: KindPolicy, Msg: util.SealedRefusal(tile, SealedWhat)}
+}
+
+// SealedWhat completes the refusal of a sealed component by this plane.
+const SealedWhat = "it has no deployments: it always runs the xbin release's code"
+
 // Recheck judges an authorized operation again at its commit, against the
 // record as it stands now (T9): protection turned on, the primary reassigned
 // or the record removed since the request refuses it with the errors
@@ -421,6 +433,9 @@ func (p *Plane) judge(pr auth.Principal, op Op, s Subject, viewAs bool) *Error {
 	a, ok := acts[op]
 	if !ok || s.Tile == "" {
 		return &Error{Status: http.StatusInternalServerError, Msg: "deployments: " + string(op) + " judged without a known operation and a tile"}
+	}
+	if util.SealedPath(s.Tile) {
+		return errSealed(s.Tile) // whoever asks: the root token and admins too (D227)
 	}
 	if viewAs && !a.read && pr.ReadOnly() {
 		return &Error{Status: http.StatusForbidden, Kind: KindAuthority, Msg: readOnlyMsg}

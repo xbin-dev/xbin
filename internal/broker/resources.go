@@ -687,6 +687,9 @@ func (b *Broker) resScope(target string) (resTarget, bool) {
 // the read clamp: a deployment beyond its tile's primary never writes any
 // data but its own (08-data §7) (D127a).
 func (b *Broker) allowAt(p auth.Principal, ra reach, want string) error {
+	if err := sealedOwn(p, ra.rt.Scope, sealedOwnRes); err != nil {
+		return err // whichever branch below would have answered (sealedguard.go)
+	}
 	id := ra.rt.String()
 	switch _, res, ok := b.parseRes(id); {
 	case ok && res != nil:

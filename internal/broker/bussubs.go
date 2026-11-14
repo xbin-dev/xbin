@@ -572,6 +572,9 @@ func (b *Broker) apiBusSubsPut(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "a subscription belongs to a component — admins name it with \"component\"", docs)
 		return
 	}
+	if sealedRefused(w, cmp.Or(sealedOwn(p, s.Component, sealedOwnRegs), sealedOwn(p, s.Resource, sealedOwnRegs))) {
+		return // a sealed component's deliveries are its backend's to register (sealedguard.go)
+	}
 	if b.partitionParamRefused(w, r, s.Component) || b.globalAddressRegRefused(w, s.Component, s.Path, "bus") {
 		return
 	}
@@ -633,6 +636,9 @@ func (b *Broker) apiBusSubsDelete(w http.ResponseWriter, r *http.Request) {
 	comp := r.URL.Query().Get("component")
 	if !b.IsAdmin(p) {
 		comp = p.Component // only your own
+	}
+	if sealedRefused(w, sealedOwn(p, comp, sealedOwnRegs)) {
+		return
 	}
 	if b.partitionParamRefused(w, r, comp) {
 		return

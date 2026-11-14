@@ -95,7 +95,10 @@ type Config struct {
 	Sealed []sealed.Spec
 	// SealedBin is the directory of the release's prebuilt sealed backends
 	// ("" ⇒ sealed/ beside the xbind binary); tests point it at a fixture.
-	SealedBin       string
+	SealedBin string
+	// sealedGateOff serves without the sealed route gate (tests only, and
+	// only from this package: server.Server.SealedGateOff).
+	sealedGateOff   bool
 	Listener        net.Listener
 	Ready           func(addr string)
 	Privileges      Privileges

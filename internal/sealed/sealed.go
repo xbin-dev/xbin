@@ -84,6 +84,15 @@ type Spec struct {
 	// configured); an admin's binding of the slot, or their unbinding it,
 	// always wins and is never overwritten (registry.sealedView).
 	Defaults map[string]string
+	// Providers names, for some of Slots, the providers an admin may bind
+	// the slot to beside its default: slot → refs. A slot binds to nothing
+	// else. The provider of a slot sees what the component sends it — a
+	// model provider reads every person's conversation and steers what the
+	// component then does with their access — so which providers are
+	// possible is the release's decision, and a row that lets a workspace
+	// tile in says so here, in review. (The workspace agent's model slot
+	// allows only its default, xbind's own connector.)
+	Providers map[string][]string
 	// Grants are the cross-scope grants the release gives it (its own
 	// scope's resources need none). No admin adds to or removes from them.
 	Grants []registry.Use
@@ -227,6 +236,16 @@ func Load(specs []Spec) (*Set, error) {
 			}
 			if ref == "" || strings.Contains(ref, "/") {
 				return nil, fmt.Errorf("sealed component %s: slot %q defaults to %q — a default is a builtin provider's ref, never a tile's path", p, slot, ref)
+			}
+		}
+		for slot, refs := range sp.Providers {
+			if !slices.Contains(sp.Slots, slot) {
+				return nil, fmt.Errorf("sealed component %s: providers for slot %q, which the table doesn't give it", p, slot)
+			}
+			for _, ref := range refs {
+				if ref == "" || strings.Contains(ref, "#") || util.SealedPath(ref) {
+					return nil, fmt.Errorf("sealed component %s: slot %q allows provider %q — a provider is a builtin's ref or a tile's path, without an instance, and never a sealed component", p, slot, ref)
+				}
 			}
 		}
 		for _, g := range sp.Grants {
@@ -374,7 +393,7 @@ func (s *Set) Registry() []registry.SealedCode {
 		sc := registry.SealedCode{
 			Path: c.Path, ID: c.ID(), Dir: c.Dir, Title: c.Title,
 			Manifest: c.Files["xbin.json"], Scope: c.Files["scope.json"],
-			Slots: slices.Clone(c.Slots), Grants: slices.Clone(c.Grants), Defaults: maps.Clone(c.Defaults),
+			Slots: slices.Clone(c.Slots), Grants: slices.Clone(c.Grants), Defaults: maps.Clone(c.Defaults), Providers: maps.Clone(c.Providers),
 		}
 		if c.Partitioned {
 			sc.Partition = slices.Clone(c.Partition)

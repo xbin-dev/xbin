@@ -385,6 +385,9 @@ func (b *Broker) attributedAccess(userID string) *users.Access {
 // container (apps/o/sales) above existing org tiles — and paths whose scope
 // data key another scope has (registry.ScopeKeyClash).
 func (b *Broker) guardNewComponentTree(path string) error {
+	if err := sealedNone(path, sealedNoCreate); err != nil {
+		return err // every creation path passes here: create, clone, import, template, builtin (sealedguard.go)
+	}
 	if owner, _, ok := b.Reg.Resolve(path); ok && owner != nil {
 		if owner.Path == path {
 			return fmt.Errorf("%s already exists", path)

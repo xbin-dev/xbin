@@ -106,6 +106,10 @@ func (st *State) registerRuntimeAPI(srv *server.Server) {
 	srv.RegisterAPI("GET /term-net", func(w http.ResponseWriter, r *http.Request) {
 		p := auth.PrincipalOf(r)
 		tile := strings.Trim(r.URL.Query().Get("tile"), "/")
+		if util.SealedPath(tile) { // no terminal level exists on one (auth.CanTerminalTile); say why
+			server.WriteError(w, http.StatusBadRequest, util.SealedRefusal(tile, "it has no terminal"), server.SealedDocs)
+			return
+		}
 		if tile == "" || !p.CanTerminalTile(tile) {
 			server.WriteJSON(w, http.StatusForbidden, map[string]string{"error": "no terminal access to this tile"})
 			return

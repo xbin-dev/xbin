@@ -10,9 +10,10 @@ package server
 //
 //   - SealedRefused: a sealed path in one of the row's parameters is
 //     refused (400), for admins and the root token too;
-//   - SealedSelf: only the sealed component's own credentials pass (403
-//     otherwise): its resources, secrets and registrations are its own, not
-//     an admin's to read or write;
+//   - SealedSelf: only the sealed component's backend passes — its
+//     instance credential (403 otherwise): its resources, secrets,
+//     registrations and status are its own, not an admin's to read or
+//     write, and not its page's (a frame token of one is a viewer's);
 //   - SealedHandled: the handler knows the rule (What says it);
 //   - SealedNoTile: the route names no tile.
 //
@@ -21,6 +22,15 @@ package server
 // over the route inventory keeps the table complete (internal/apicheck's
 // TestSealedRouteClasses), and internal/boot's TestSealedRouteAnswers
 // drives every Refused, Self and Handled row through a real daemon.
+//
+// THE GATE IS NOT THE BOUNDARY. It reads a request's parameters a second
+// time, beside the handler, and two readers of one body can disagree; it is
+// the early answer with the reason, for a caller who made a mistake. What
+// keeps a sealed component sealed are the refusals where the work is done —
+// the functions that act on a component (broker/sealedguard.go lists them)
+// and the credential rule for its page's token (sealedViewerAllowed) — and
+// internal/boot's TestSealedBoundaryWithoutTheGate runs every Refused and
+// Self row with this gate switched off.
 
 import (
 	"bytes"
@@ -74,9 +84,7 @@ const SealedDocs = "/docs/sealed.md"
 
 // SealedRefusal is the text of a refusal about the sealed component (or
 // name under xbin/) path.
-func SealedRefusal(path, what string) string {
-	return path + " is a system component, managed by xbin: " + what
-}
+func SealedRefusal(path, what string) string { return util.SealedRefusal(path, what) }
 
 // SealedRules returns a copy of the table, pattern → rule.
 func SealedRules() map[string]SealedRule {
@@ -91,16 +99,13 @@ func SealedRules() map[string]SealedRule {
 // one, or one's resource; and the component-ish name to show.
 func sealedName(v string) (string, bool) {
 	v = strings.Trim(strings.TrimSpace(v), "/")
-	if rest, ok := strings.CutPrefix(v, "res:"); ok {
-		return v, util.SealedPath(rest)
-	}
-	return v, util.SealedPath(v)
+	return v, util.SealedTarget(v)
 }
 
 // sealedOwn reports whether name (a path, a path below, or a resource) is
 // comp's own.
 func sealedOwn(comp, name string) bool {
-	name = strings.TrimPrefix(name, "res:")
+	name = strings.TrimPrefix(strings.TrimPrefix(name, "res:"), "code:")
 	return comp != "" && (name == comp || strings.HasPrefix(name, comp+"/"))
 }
 
@@ -108,7 +113,7 @@ func sealedOwn(comp, name string) bool {
 // or Self route; nil lets the handler run. r2 is the inner request (its
 // path what follows /api/xbin). A body it had to read is put back.
 func (s *Server) sealedGate(r2 *http.Request) http.HandlerFunc {
-	if s.apiMux == nil {
+	if s.apiMux == nil || s.SealedGateOff {
 		return nil
 	}
 	_, pattern := s.apiMux.Handler(r2)
@@ -127,22 +132,34 @@ func (s *Server) sealedGate(r2 *http.Request) http.HandlerFunc {
 		}
 	}
 	if len(rule.Body) > 0 && r2.Body != nil && r2.Body != http.NoBody {
-		// The whole body, as the handler's own decoder would buffer it (these
-		// are JSON control calls); put back for the handler.
-		b, err := io.ReadAll(r2.Body)
-		r2.Body.Close()
+		// These are JSON control calls: the first sealedGateBody bytes are
+		// read and put back. A longer body is the handler's alone to read —
+		// the gate is the early answer, not the boundary.
+		body := r2.Body
+		b, err := io.ReadAll(io.LimitReader(body, sealedGateBody+1))
 		if err != nil {
+			body.Close()
 			return refusal(http.StatusBadRequest, "the request body couldn't be read")
 		}
-		r2.Body = io.NopCloser(bytes.NewReader(b))
-		names = append(names, sealedBodyNames(b, rule.Body)...)
+		r2.Body = struct {
+			io.Reader
+			io.Closer
+		}{io.MultiReader(bytes.NewReader(b), body), body}
+		if len(b) <= sealedGateBody {
+			got, twice := sealedBodyNames(b, rule.Body)
+			if twice != "" {
+				return refusal(http.StatusBadRequest, "the request body names "+twice+" twice")
+			}
+			names = append(names, got...)
+		}
 	}
 	p := auth.PrincipalOf(r2)
 	for _, v := range names {
 		name, sealed := sealedName(v)
 		switch {
 		case !sealed:
-		case rule.Class == SealedSelf && sealedOwn(p.Component, name):
+		case rule.Class == SealedSelf && sealedOwn(p.Component, name) && p.Via == "instance":
+			// its backend's own credential — never its page's, a viewer's (sealed.go)
 		case rule.Class == SealedSelf:
 			return sealedRefusal(http.StatusForbidden, name, rule.What)
 		default:
@@ -152,23 +169,39 @@ func (s *Server) sealedGate(r2 *http.Request) http.HandlerFunc {
 	return nil
 }
 
+// sealedGateBody is how much of a body the gate reads.
+const sealedGateBody = 1 << 20
+
 // sealedBodyNames are the values of the fields keys in the JSON object body
 // begins with, read the way the handlers' decoder (encoding/json into a
-// struct) reads them, so the gate sees every value a handler could: the
-// first JSON value of the body (what follows it is ignored there too), and
-// keys matched without regard to case — "Target" fills a field tagged
-// "target". Every match counts, though the decoder keeps the last. A value
-// is a string or a list of strings; anything else names nothing.
-func sealedBodyNames(body []byte, keys []string) []string {
-	var fields map[string]json.RawMessage
-	if json.NewDecoder(bytes.NewReader(body)).Decode(&fields) != nil {
-		return nil // not an object: the handler refuses it
+// struct) reads them: the first JSON value of the body (what follows it is
+// ignored there too), and keys matched without regard to case — "Target"
+// fills a field tagged "target". A value is a string or a list of strings;
+// anything else names nothing. twice names a key of keys the object has
+// more than once (in any case): a struct decode and this one can then
+// disagree about its value — {"tile":"xbin/x","tile":null} leaves a struct
+// field at xbin/x — so the gate refuses such a body outright.
+func sealedBodyNames(body []byte, keys []string) (names []string, twice string) {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil, "" // not an object: the handler refuses it
 	}
-	var names []string
-	for name, raw := range fields {
-		if !slices.ContainsFunc(keys, func(k string) bool { return strings.EqualFold(k, name) }) {
+	seen := map[string]bool{}
+	for dec.More() {
+		t, err := dec.Token()
+		name, ok := t.(string)
+		var raw json.RawMessage
+		if err != nil || !ok || dec.Decode(&raw) != nil {
+			return names, "" // malformed from here: the handler's decoder fails too
+		}
+		i := slices.IndexFunc(keys, func(k string) bool { return strings.EqualFold(k, name) })
+		if i < 0 {
 			continue
 		}
+		if seen[keys[i]] {
+			return nil, keys[i]
+		}
+		seen[keys[i]] = true
 		var one string
 		var many []string
 		switch {
@@ -178,7 +211,7 @@ func sealedBodyNames(body []byte, keys []string) []string {
 			names = append(names, many...)
 		}
 	}
-	return names
+	return names, ""
 }
 
 // sealedRefusal answers with the API's error shape, pointing at the sealed
@@ -194,7 +227,7 @@ var sealedRules = map[string]SealedRule{
 	// ---- refused: the operation doesn't exist for a sealed component ----
 	"DELETE /bindings":                     {Class: SealedRefused, Body: []string{"provider", "providers"}, What: "it is never the provider of a binding"},
 	"DELETE /grants":                       {Class: SealedRefused, Body: []string{"from", "target"}, What: "its grants are fixed by the xbin release, and nothing is granted a call into it or its resources"},
-	"DELETE /partitions/consents":          {Class: SealedRefused, Query: []string{"to"}, Body: []string{"to"}, What: "no tile reaches people's partitions of it"},
+	"DELETE /partitions/consents":          {Class: SealedRefused, Query: []string{"from", "to"}, Body: []string{"from", "to"}, What: "no tile reaches people's partitions of it"},
 	"DELETE /sandboxes/{name}":             {Class: SealedRefused, Query: []string{"tile"}, What: "it runs no tile sandboxes"},
 	"GET /checkpoints/{rest...}":           {Class: SealedRefused, Rest: true, What: "it has no checkpoints: its code is the xbin release's"},
 	"GET /code/file":                       {Class: SealedRefused, Query: []string{"component"}, What: "it has no source to read: its code is the xbin release's"},
@@ -247,7 +280,7 @@ var sealedRules = map[string]SealedRule{
 	"POST /go-build-versions/dismiss":      {Class: SealedRefused, Body: []string{"tile"}, What: "it is built by the xbin release"},
 	"POST /grants":                         {Class: SealedRefused, Body: []string{"from", "target"}, What: "its grants are fixed by the xbin release, and nothing is granted a call into it or its resources"},
 	"POST /owner":                          {Class: SealedRefused, Body: []string{"tile"}, What: "it has no owner: workspace admins manage it"},
-	"POST /partitions/consents":            {Class: SealedRefused, Body: []string{"to"}, What: "no tile reaches people's partitions of it"},
+	"POST /partitions/consents":            {Class: SealedRefused, Query: []string{"from", "to"}, Body: []string{"from", "to"}, What: "no tile reaches people's partitions of it"},
 	"POST /partitions/mode":                {Class: SealedRefused, Body: []string{"tile"}, What: "its partition mode and its code are the xbin release's"},
 	"POST /partitions/reviewed":            {Class: SealedRefused, Body: []string{"tile"}, What: "its partition mode and its code are the xbin release's"},
 	"POST /sandboxes":                      {Class: SealedRefused, Body: []string{"tile"}, What: "it runs no tile sandboxes"},
@@ -267,6 +300,7 @@ var sealedRules = map[string]SealedRule{
 	"GET /kv/{rest...}":                {Class: SealedSelf, Rest: true, What: "only it reads and writes its own resources"},
 	"GET /vault/{rest...}":             {Class: SealedSelf, Rest: true, What: "only it reads and writes its own secrets"},
 	"POST /bus/publish":                {Class: SealedSelf, Body: []string{"resource"}, What: "only it publishes on its own bus"},
+	"POST /tile-report":                {Class: SealedSelf, Query: []string{"component"}, Body: []string{"component"}, What: "only it reports its own status"},
 	"PUT /blob/{rest...}":              {Class: SealedSelf, Rest: true, What: "only it reads and writes its own resources"},
 	"PUT /bus/subscriptions":           {Class: SealedSelf, Body: []string{"component", "resource"}, What: "only it registers its own deliveries"},
 	"PUT /cron/jobs":                   {Class: SealedSelf, Body: []string{"component", "resource"}, What: "only it registers its own deliveries"},
@@ -477,7 +511,6 @@ var sealedRules = map[string]SealedRule{
 	"POST /term/sessions/{id}/prompt":                      {Class: SealedNoTile},
 	"POST /term/sessions/{id}/queue":                       {Class: SealedNoTile},
 	"POST /term/sessions/{id}/restart":                     {Class: SealedNoTile},
-	"POST /tile-report":                                    {Class: SealedNoTile},
 	"POST /users/{id}/invite":                              {Class: SealedNoTile},
 	"POST /vault-rekey":                                    {Class: SealedNoTile},
 	"POST /vault-seal":                                     {Class: SealedNoTile},

@@ -7,6 +7,7 @@
 package broker
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"log/slog"
@@ -552,6 +553,9 @@ func (b *Broker) allowRes(p auth.Principal, target string, want string) error {
 	if !ok || res == nil {
 		return fmt.Errorf("unknown resource %s", target)
 	}
+	if err := sealedOwn(p, rt.Scope, sealedOwnRes); err != nil {
+		return err // a sealed component's resources are its backend's alone: no admin shortcut (sealedguard.go)
+	}
 	if p.IsAdmin() {
 		return nil
 	}
@@ -740,6 +744,11 @@ func (b *Broker) grantMutation(w http.ResponseWriter, r *http.Request, apply fun
 	var g registry.Grant
 	if err := server.DecodeJSON(r, &g); err != nil || g.From == "" || g.Target == "" || g.Role == "" {
 		server.WriteError(w, http.StatusBadRequest, "need {from, target, role}")
+		return registry.Grant{}, false
+	}
+	// a sealed component's grants are the release's: no row from one, on
+	// one, on its resources or on its source (sealedguard.go)
+	if sealedRefused(w, cmp.Or(sealedNone(g.From, sealedNoGrant), sealedNone(g.Target, sealedNoGrant))) {
 		return registry.Grant{}, false
 	}
 	if !b.IsAdmin(p) {

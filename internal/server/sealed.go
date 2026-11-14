@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/events"
 	"github.com/xbin-dev/xbin/internal/registry"
 	"github.com/xbin-dev/xbin/internal/util"
@@ -180,4 +181,59 @@ func (s *Server) sealedReload(path string) {
 	if !recent {
 		s.Hub.Publish(events.Event{Type: "reload", Component: path})
 	}
+}
+
+// A sealed component's frame token is a viewer's (D227). A tile's frame
+// token carries the tile's authority — its page may use the tile's
+// resources and grants directly — because a tile's page and backend are one
+// author's code under one trust. A sealed component's backend is xbind's
+// own code holding what the release gave it (people's partitions, table
+// grants, a bound model provider), and its page runs in the browser of
+// whoever may read it: the token that page holds must not be the
+// component. So the principal such a token authenticates reaches
+//
+//   - the component's own backend, /api/xbin/<name>/… (which sees the
+//     viewer and decides);
+//   - its own renewal and "who am I" (GET /frame-token, GET /whoami);
+//   - the events socket (reload and status events for its component; a bus
+//     subscription is refused where it is authorized, broker.allowAt);
+//
+// and nothing else that takes a credential: no /api/xbin route, no other
+// tile's API, no terminal. The rule keys on the credential, never on a
+// request's parameters, and sits in authed, which every authenticated route
+// passes. Only the backend's own instance credential acts as the component
+// (broker.sealedActor).
+
+// SealedViewer reports the principal of a sealed component's frame token.
+func SealedViewer(p auth.Principal) bool {
+	return p.Via == "frame" && util.SealedPath(p.Component)
+}
+
+// sealedViewerAllowed reports whether a sealed component's viewer may send r.
+func sealedViewerAllowed(r *http.Request, p auth.Principal) bool {
+	path := r.URL.Path
+	if strings.Contains(path, "/../") || strings.HasSuffix(path, "/..") || strings.Contains(path, "//") {
+		return false // only a path that reads one way
+	}
+	if own := "/api/" + p.Component; strings.HasPrefix(path, own+"/") || path == own {
+		return true
+	}
+	switch path {
+	case "/api/xbin/frame-token", "/api/xbin/whoami":
+		return r.Method == http.MethodGet
+	case "/ws/events":
+		return true
+	}
+	return false
+}
+
+// refuseSealedViewer answers a request a sealed component's viewer may not
+// send.
+func refuseSealedViewer(w http.ResponseWriter, r *http.Request, p auth.Principal) {
+	msg := SealedRefusal(p.Component, "its page reaches its own backend only; what it holds is its backend's to use")
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		WriteError(w, http.StatusForbidden, msg, SealedDocs)
+		return
+	}
+	http.Error(w, msg, http.StatusForbidden)
 }

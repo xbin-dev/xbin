@@ -39,7 +39,7 @@ func sealedCounter(version string) fs.FS {
 		"xbin.json": {Data: []byte(`{"runtime":"go","title":"Sealed counter","expose":{"roles":{"reader":"read","writer":"write"}},
   "interfaces":{"llm":{"kind":"http","service":"openai"},"net":{"kind":"net"}},
   "uses":[{"target":"res:apps/counter/state","role":"writer"},{"target":"res:apps/counter/events","role":"writer"}]}`)},
-		"scope.json":  {Data: []byte(`{"resources":{"state":{"type":"kv"},"events":{"type":"bus"}}}`)},
+		"scope.json":  {Data: []byte(`{"resources":{"state":{"type":"kv"},"events":{"type":"bus"},"files":{"type":"blob"}}}`)},
 		"index.html":  {Data: []byte("<!doctype html><html><head><title>sealed</title></head><body>" + version + "</body></html>")},
 		"app.js":      {Data: []byte("export const version = '" + version + "';\n")},
 		"go.mod.tile": {Data: []byte("module counter\n\ngo 1.24\n\nrequire github.com/xbin-dev/xbin/sdk v0.0.0\n")},
@@ -560,29 +560,14 @@ func TestSealedAgentTemplateHosted(t *testing.T) {
 	}
 }
 
-// ownCall sends a request with the sealed component's own frame token (the
-// owner's frame of it): how its page, and so its people, reach it.
+// ownCall sends a request as the sealed component's backend: with an
+// instance credential registered for it, as the one xbind hands its
+// process. (Its page's frame token is a viewer's and reaches none of this.)
 func (d *sealedDaemon) ownCall(component, method, path string, body any) (int, string) {
 	d.t.Helper()
-	code, tok := d.do("GET", "/api/xbin/frame-token?component="+component, nil)
-	var ft struct{ Token string }
-	if code != 200 || json.Unmarshal([]byte(tok), &ft) != nil || ft.Token == "" {
-		d.t.Fatalf("the frame token of %s: %d %s", component, code, tok)
-	}
-	var rd io.Reader
-	if body != nil {
-		b, _ := json.Marshal(body)
-		rd = bytes.NewReader(b)
-	}
-	req, _ := http.NewRequest(method, d.base+path, rd)
-	req.Header.Set("X-XBin-Frame-Token", ft.Token)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		d.t.Fatal(err)
-	}
-	defer resp.Body.Close()
-	b, _ := io.ReadAll(resp.Body)
-	return resp.StatusCode, string(b)
+	tok := "test-instance-" + strings.ReplaceAll(component, "/", "-")
+	d.st.Auth.RegisterInstance(tok, component)
+	return d.do(method, path, body, tok)
 }
 
 func (d *sealedDaemon) sealedRow(path string) sealedRow {

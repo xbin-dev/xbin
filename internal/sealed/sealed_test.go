@@ -33,7 +33,8 @@ func fixture(body string) fs.FS {
 }
 
 func spec(body string) Spec {
-	return Spec{Name: "fix", Source: fixture(body), Authored: "apps/fix", Slots: []string{"llm"}}
+	return Spec{Name: "fix", Source: fixture(body), Authored: "apps/fix", Slots: []string{"llm"},
+		Providers: map[string][]string{"llm": {"apps/llm", "apps/gw"}}}
 }
 
 func open(t *testing.T, ws string, o Options, specs ...Spec) *Set {
@@ -453,6 +454,10 @@ func TestDefaultBindings(t *testing.T) {
 		{"nothing in the file, the provider not available", `{"schema":1}`, false, nil, false},
 		{"an admin's binding", `{"schema":1,"bindings":{"xbin/fix":{"llm":"apps/gw"}}}`, true, []string{"apps/gw"}, false},
 		{"an admin's unbind", `{"schema":1,"bindings":{"xbin/fix":{"llm":[]}}}`, true, nil, false},
+		// a provider the release doesn't name reads as no binding at all:
+		// the admin's row stands in the file, so no default takes its place
+		{"a hand-edited binding to a provider the table doesn't allow", `{"schema":1,"bindings":{"xbin/fix":{"llm":"apps/evil"}}}`, true, nil, false},
+		{"…among allowed ones", `{"schema":1,"bindings":{"xbin/fix":{"llm":["apps/gw","apps/evil"]}}}`, true, nil, false},
 		{"another component's binding only", `{"schema":1,"bindings":{"apps/a":{"llm":"apps/gw"}}}`, true, []string{"xbin:llm"}, true},
 	}
 	for _, c := range cases {

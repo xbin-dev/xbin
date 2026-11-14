@@ -286,6 +286,9 @@ func (b *Broker) apiCronPut(w http.ResponseWriter, r *http.Request) {
 		server.WriteError(w, http.StatusBadRequest, "owner-registered jobs need \"component\"")
 		return
 	}
+	if sealedRefused(w, cmp.Or(sealedOwn(p, j.Component, sealedOwnRegs), sealedOwn(p, j.Resource, sealedOwnRegs))) {
+		return // a sealed component's deliveries are its backend's to register (sealedguard.go)
+	}
 	if b.partitionParamRefused(w, r, j.Component) || b.globalAddressRegRefused(w, j.Component, j.Path, "cron") {
 		return
 	}
@@ -337,6 +340,9 @@ func (b *Broker) apiCronDelete(w http.ResponseWriter, r *http.Request) {
 	comp := r.URL.Query().Get("component")
 	if !b.IsAdmin(p) {
 		comp = p.Component // unprivileged callers can only delete their own
+	}
+	if sealedRefused(w, sealedOwn(p, comp, sealedOwnRegs)) {
+		return
 	}
 	if b.partitionParamRefused(w, r, comp) {
 		return

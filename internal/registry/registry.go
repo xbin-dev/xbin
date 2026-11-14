@@ -664,8 +664,13 @@ func (r *Registry) ImportMapFor(c *Component) map[string]string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := map[string]string{}
-	for k, v := range r.workspace.ImportMap {
-		out[k] = v
+	// A sealed component's documents get xbind's own map and its embedded
+	// scope's, never the workspace file's: a key there ("lit", "/c/xbin/…/")
+	// would point the release's frontend at a workspace's code (D227).
+	if c == nil || !c.Sealed {
+		for k, v := range r.workspace.ImportMap {
+			out[k] = v
+		}
 	}
 	if c != nil && c.Scope != "" {
 		if sm, ok := r.scopes[c.Scope]; ok {
@@ -679,10 +684,30 @@ func (r *Registry) ImportMapFor(c *Component) map[string]string {
 
 // MutateWorkspace applies fn to the workspace manifest and persists it as
 // formatted JSON. Used for grant changes; the file is machine-managed.
+//
+// A change that would add a row about a sealed component that the file may
+// not hold (sealedRows) is undone and refused with a *SealedRowError: this
+// is where such a row would be written, so it is where it is refused,
+// whatever the caller checked.
 func (r *Registry) MutateWorkspace(fn func(*WorkspaceManifest)) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	had := sealedRows(r.workspace, r.sealed)
+	snap, err := json.Marshal(r.workspace)
+	if err != nil {
+		return err
+	}
 	fn(&r.workspace)
+	for row := range sealedRows(r.workspace, r.sealed) {
+		if !had[row] {
+			var prev WorkspaceManifest
+			if err := json.Unmarshal(snap, &prev); err != nil {
+				return err
+			}
+			r.workspace = prev
+			return &SealedRowError{Row: row}
+		}
+	}
 	b, err := jsonMarshalIndent(r.workspace)
 	if err != nil {
 		return err

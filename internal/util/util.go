@@ -80,6 +80,28 @@ const SealedPrefix = "xbin/"
 // SealedPath reports whether p lies in the sealed components' namespace.
 func SealedPath(p string) bool { return strings.HasPrefix(p, SealedPrefix) }
 
+// SealedTarget reports whether t — a grant target, or any name a request
+// gives for a component or a resource — names something in the sealed
+// components' namespace: a path there (a call), a resource of one
+// ("res:xbin/…") or one's source ("code:xbin/…").
+func SealedTarget(t string) bool {
+	t = strings.TrimSpace(t)
+	for _, scheme := range []string{"res:", "code:"} {
+		if rest, ok := strings.CutPrefix(t, scheme); ok {
+			t = rest
+			break
+		}
+	}
+	return SealedPath(strings.TrimLeft(t, "/"))
+}
+
+// SealedRefusal is the text of a refusal about the sealed component (or
+// name under xbin/) path; what completes the sentence. Users read "system
+// component" (D227).
+func SealedRefusal(path, what string) string {
+	return path + " is a system component, managed by xbin: " + what
+}
+
 // SealedComponentPath reports whether p has the shape of a sealed
 // component's own path: xbin/<name>, the name lowercase letters, digits
 // and "-", starting with a letter, at most 24 characters. Such a path is
