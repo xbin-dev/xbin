@@ -581,8 +581,19 @@ stay byte for byte what it was.
 `hasIcon`) and `web/chat/md.js` the markdown renderer for untrusted text
 (`mdInto`, `mdCssText`, `closedFence`, `onHighlighter`, `useHighlighter`;
 D224 — the agent template's copy became a re-export, and a new copy would be
-a second sanitizing policy). `make js-check` refuses a second definition of
-any of them in the shipped trees — import from `/vendor/…` by absolute URL instead
+a second sanitizing policy), `web/chat/tools.js` the model of a tool call
+(`mergeTool`, `stripAnsi`, `outputTail`, `describeCommand`, `unifiedDiff`,
+`joinPatches`, `patchLines`, `diffFiles`, `diffTotals`, `contentPreview`,
+`diffsPreview`, `filesStat`, `rawText`) and `web/chat/ask.js` the model of
+what an agent asks (`formFields`, `formContent`, `missingRequired`,
+`nativeSchema`, `nativeContent`, `cleanCode`, `slashQuery`, `matchCommands`,
+`commandHint`, `optionConfirm`, `modeConfirm`, `composerWords`,
+`steerTracker`; D224 — the Agent tab and the agent template each had these
+and they had drifted: two escape rules, a form reader that labelled a plain
+enum's choices "false"). `make js-check` refuses a second definition of
+any of them in the shipped trees — a module that must keep an old name
+re-exports it (`export { stripAnsi } from '/vendor/chat/tools.js'`, which
+the check does not match); import from `/vendor/…` by absolute URL instead
 ([frontend-kit.md](/docs/frontend-kit.md) lists what tiles may import and
 why bare specifiers are banned).
 
@@ -667,7 +678,7 @@ held to one set of fixtures, `sdk/acp/testdata/transcripts/`:
 |---|---|---|
 | `<name>.json` — an event log, xbind's served shape, with checkpoints | `sdk/acp/acptest` `TestTranscripts`: the scripted agent through `acp.Client` (`xbind-shell.json`: the native capture's events) | the same test (`go test ./sdk/...`) fails when the client no longer emits it |
 | `<name>.agtt.json` — the agent template's run view at each checkpoint | the template backend's `TestChatTranscripts` (the log through `harness_map.go`) | the same test (`make tile-check`) |
-| `<name>.records.json`, `<name>.blocks.json` — the log's tool records and its blocks | `hack/chat-fixtures/expect.mjs` | `hack/chat-fixtures.test.mjs` (the Agent tab's fold) and `hack/chat-fixtures-agtt.test.mjs` (the template's), both in `make js-test` |
+| `<name>.records.json`, `<name>.blocks.json` — the log's tool records and its blocks | `hack/chat-fixtures/expect.mjs` — the records are what `web/chat/tools.js` (`records()`, the kit's merge rules) makes of the log | `hack/chat-fixtures.test.mjs` (the Agent tab's fold) and `hack/chat-fixtures-agtt.test.mjs` (the template's, and that the kit says each call the same from either side's record), both in `make js-test` |
 
 A reducer that cannot produce a field yet has a **gap** in
 `hack/chat-fixtures/expect.mjs` (`GAPS`: an id, the reason, what makes the

@@ -14169,3 +14169,108 @@ Deviations and refinements made while implementing; all deliberate:
   - **Not here.** The guided sign-in driver (`guided.go`) and anything
     about credentials land with the sign-in store (B4); the provider table
     for the LLM connector with the connector.
+  - **F2 — the models: `/vendor/chat/tools.js` and `/vendor/chat/ask.js`;
+    `KIT` 2 (2026-11-14).** Both pure (their only imports are each other
+    and `blocks.js`, relative, so node tests and the parity script load
+    them without a resolver). `tools.js` is one tool call read from its
+    `ToolRecord`: the merge of an agent's events (`mergeTool`,
+    `ToolRecords` — the executable rules of
+    `plans/wsagent/chat-kit-spec.md` §2, which lived in
+    `hack/chat-fixtures/reference.mjs` and are now shipped code the
+    fixtures hold), headline, subline, outcome and state chips,
+    `stripAnsi`, the output's tail, diff helpers, plan approval. `ask.js`
+    is a permission request's card, a question's form, the slash menu, the
+    composer's words, `cleanCode`.
+    - *The old modules stay, thin.* `web/agent-tools.js`,
+      `web/agent-slash.js` and `signin-scan.js`'s `cleanCode` re-export
+      (URLs and names are frozen, rule 3; the Swift port is held to them).
+      `agent-tools.js` is also the adapter from the Agent tab's old record
+      (`tk`, the last content list) to the kit; `newTool` now carries the
+      kit's record too (`rec`, kept by `mergeTool`), so the fold holds
+      what the views of F3 will read while today's cards keep reading the
+      old fields. The two outputs are one string: the rules differ only
+      when one event carries a whole output and a delta (the old record:
+      the whole one wins; the kit, as the template's backend and
+      `sdk/acp`'s record: delta appended after it), and equal lengths mean
+      equal texts. The template's `model/harness-heads.js`,
+      `model/harness-ask.js` and `model/harness-signins.js` keep every
+      export and become adapters from its rows (`acp:<kind>`, arguments
+      with `summary`, the `acp` lift, the park) to the kit's record and
+      blocks (`acpRecord`, `permBlock`, `askBlock`).
+    - *Headline: one chain.* Label → a `description` argument → a shell
+      command read by `describeCommand` (the Agent tab's) → the title's
+      first line → a reading by kind (the template's `acpReading`) → name
+      → id. The template gets it through `acpHeadline` (the fold passes
+      the tool row's `acp`); a summary that is neither the lift's title
+      nor the kind is taken as the label, so hand-made rows and rows from
+      before the lift read as they did. **`/vendor/agent-tools.js`
+      `headline` keeps its old chain** (no reading by kind:
+      `{reading: false}`): the Swift port is held to that export and its
+      parity corpus has no call the reading would change; the Agent tab's
+      cards get the full chain when they move to the kit (F3), with the
+      port.
+    - *One `stripAnsi`.* There were three rules (the Agent tab's, the
+      template's for a call's output, the template's for a CI log). The
+      kit's is the richest escape rule of the three: CSI with any
+      parameter byte, an OSC up to its own terminator, character-set
+      designations, the 8-bit CSI. The Agent tab's old rule left
+      `ESC[1;2:3m` and `ESC ( B` in the text and ate a hyperlink's text
+      (and everything up to the last terminator). Three outputs of the
+      parity corpus changed; `XbinAgent`'s `stripANSI` regex changed with
+      them (`swift test` on Linux, 113 tests). The CI log's function is
+      the kit's plus what a log adds (CR ends a line, control characters
+      go).
+    - *One form reader: the template's superset* (`anyOf` single choice,
+      `enumNames`, defaults, "Other" answering a required choice) — with
+      its bug fixed: a plain `enum` without `enumNames` was labelled
+      "false" per choice (`(Array.isArray(names) && names[i]) ?? o`). The
+      parity corpus found it; no parity output changed.
+    - *One slash rule: the Agent tab's.* Prefix matches first, then names
+      **or descriptions** containing the query, at most **8**; a draft is
+      a command in progress while it is `/[\w:.-]*`. The template's was
+      names only, at most 12, `/[^\s/]*`. Eight because the same number
+      has to fit a phone's menu and a small tab (a host with room passes
+      another `max`); descriptions because a person who types "/pull"
+      means the command that shows pull request comments.
+    - *`patchLines` is not deleted* (the plan had it go for `bx-code.js`
+      `diffHTML`). `bx-code.js` is a lit element module with highlight.js
+      behind a bare `lit` import: a tile page loads it lazily and, on a
+      workspace whose import map has no `lit`, never — the template draws
+      a patch plain until then. That plain drawing's line classes are the
+      kit's `patchLines` now (one home, re-exported by the template).
+    - *`commandOf`*: the Agent tab's reading (`command` string or argv,
+      else `cmd`, else `script`; a string command's `args`) for both; the
+      template read `command`/`cmd` only.
+    - *The native view on an older xbind.* `native/*` imports the models,
+      which now import the kit, and a static import cannot ask first. On
+      an xbind without revision 2 the import is a 404, `native.js` fails
+      to load, the runtime reports `{op: "error", kind: "module"}` — one
+      of the app's fatal kinds — and the app shows the tile's web page,
+      whose `boot.js` says "needs xbind ≥ v0.3.80". No guard was added to
+      `native.js`: a guarded dynamic entry would be a second load path,
+      and the failure is already whole (no tree, no request to the
+      backend — `hack/agent-template-boot.test.mjs` plays both older
+      xbinds with `hack/xbn/older-xbind.mjs`).
+    - *Guards.* js-check's duplicate ban gains `mergeTool`, `stripAnsi`,
+      `outputTail`, `describeCommand`, `unifiedDiff`, `joinPatches`,
+      `patchLines`, `diffFiles`, `diffTotals`, `contentPreview`,
+      `diffsPreview`, `filesStat`, `rawText` (tools.js) and `formFields`,
+      `formContent`, `missingRequired`, `nativeSchema`, `nativeContent`,
+      `cleanCode`, `slashQuery`, `matchCommands`, `commandHint`,
+      `optionConfirm`, `modeConfirm`, `composerWords`, `steerTracker`
+      (ask.js). `hack/chat-tools.test.mjs` and `hack/chat-ask.test.mjs`
+      hold the kit and that the old modules' functions are the kit's own;
+      `hack/chat-fixtures-agtt.test.mjs` holds that the kit says every
+      call of the shared transcripts the same from either reducer's
+      record. Fixture gaps closed: W1 (locations, files), W4 (a
+      question's mode and url).
+    - *Open after F2.* The Agent tab's cards still read the old record:
+      the reading by kind, the `approval` state on a call's card (W2) and
+      the confirmation of an `explicit` option arrive with its views
+      (F3); `explicit` itself needs xbind's `permission.request` to carry
+      it (W3, `sdk/acp`'s escalation rule). The fold's id-reuse rule is
+      still per turn only (K6's other half is `ToolRecords`'). A whole
+      output and a delta in one event: the kit follows the spec's
+      reference (delta after the whole output); the Agent tab's old order
+      (the whole output wins) may be the better reading — to settle with
+      `sdk/acp`'s record, no fixture has one.

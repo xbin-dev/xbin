@@ -18,6 +18,7 @@ import { md, mdInto, mdCssText } from '/vendor/bx-md.js';
 import { diffHTML, diffStats, langFor, codeCss } from '/vendor/bx-code.js';
 import '/vendor/bx-icons.js';
 import { headline, commandOf, isPlanApproval, planText, stripAnsi, rawText, unifiedDiff, filesStat, formFields, formContent } from '/vendor/agent-tools.js';
+import { question } from '/vendor/chat/ask.js';
 import { cached } from '/vendor/agent-fold.js';
 import { DIFF_LINES, lineCount, headLines, diffBody } from '/vendor/agent-diffs.js';
 
@@ -211,10 +212,28 @@ function subagentCard(a, t) {
 // MCP server's form): each question with its choices — radios or checkboxes,
 // an option's description beside it — and its "Other" box; Submit answers,
 // Skip declines (the agent hears the user skipped). Settled, it shows what
-// was answered.
+// was answered. A field starts at its schema's default; a question that is a
+// page to open (mode url) is its link, then Done.
 export function askCard(a, b) {
-  const fields = formFields(b.schema);
+  const q = question(b);
   const who = whoOf(b.by);
+  if (q.mode === 'url') {
+    const page = q.url ? html`<a class="mono" href=${q.url} target="_blank" rel="noopener noreferrer">${q.url}</a>` : html`<span class="mono">${q.text}</span>`;
+    if (b.action) {
+      const verb = b.action === 'accept' ? 'opened' : b.action === 'complete' ? 'done' : b.action === 'decline' ? 'skipped' : 'cancelled';
+      return html`<div class="perm ask settled-card"><div class="q md" .innerHTML=${cached(b, 'q', () => md(b.message || 'A page to open'))}></div>
+        <div class="settled">${verb} by ${who}</div></div>`;
+    }
+    return html`<div class="perm ask">
+      <div class="q md" .innerHTML=${md(b.message || 'The agent asks you to open a page')}></div>
+      <div class="field">${page}</div>
+      <div class="btns">
+        <button class="allow primary" @click=${() => a._answer(b.eid, 'accept', {})}>Done</button>
+        <button class="deny" @click=${() => a._answer(b.eid, 'decline')}>Skip</button>
+      </div>
+    </div>`;
+  }
+  const fields = q.fields || formFields(b.schema);
   if (b.action) {
     const c = b.content || {};
     const verb = b.action === 'accept' ? 'answered' : b.action === 'decline' ? 'skipped' : 'cancelled';
@@ -237,16 +256,17 @@ export function askCard(a, b) {
 function fieldRow(f, vals, set, eid) {
   const opt = (o, input) => html`<label class="opt">${input}<span><b>${o.title}</b>${o.description ? html` <span class="od">${o.description}</span>` : nothing}</span></label>`;
   let body;
+  const now = vals[f.key] ?? f.dflt; // untouched, a field shows its schema's default (formContent answers it)
   if (f.kind === 'radio') {
-    body = f.options.map((o) => opt(o, html`<input type="radio" name=${eid + '-' + f.key} .checked=${vals[f.key] === o.value} @change=${() => set(f.key, o.value)}>`));
+    body = f.options.map((o) => opt(o, html`<input type="radio" name=${eid + '-' + f.key} .checked=${now === o.value} @change=${() => set(f.key, o.value)}>`));
   } else if (f.kind === 'check') {
-    const cur = Array.isArray(vals[f.key]) ? vals[f.key] : [];
+    const cur = Array.isArray(now) ? now : [];
     body = f.options.map((o) => opt(o, html`<input type="checkbox" .checked=${cur.includes(o.value)}
       @change=${(e) => set(f.key, e.target.checked ? [...cur.filter((x) => x !== o.value), o.value] : cur.filter((x) => x !== o.value))}>`));
   } else if (f.kind === 'bool') {
-    body = html`<label class="opt"><input type="checkbox" .checked=${vals[f.key] === true} @change=${(e) => set(f.key, e.target.checked)}><span>yes</span></label>`;
+    body = html`<label class="opt"><input type="checkbox" .checked=${now === true} @change=${(e) => set(f.key, e.target.checked)}><span>yes</span></label>`;
   } else {
-    body = html`<input class="txt" type=${f.kind === 'number' ? 'number' : 'text'} .value=${vals[f.key] ?? ''} @input=${(e) => set(f.key, e.target.value)}>`;
+    body = html`<input class="txt" type=${f.kind === 'number' ? 'number' : 'text'} .value=${now ?? ''} @input=${(e) => set(f.key, e.target.value)}>`;
   }
   return html`<div class="field">
     ${f.title ? html`<div class="fh">${f.title}${f.required ? ' *' : ''}</div>` : nothing}
@@ -421,6 +441,7 @@ export const cardsCss = [codeCss, css`
   .perm button.primary:hover { background: var(--bx-accent-hover, #A9B4FF); border-color: var(--bx-accent-hover, #A9B4FF); }
   .perm .settled { color: var(--bx-muted, #A3A6B6); font: var(--bx-font-meta, 400 12px/16px "Instrument Sans", system-ui, sans-serif); }
   .ask .field { border-top: 1px solid var(--bx-border, #33353F); padding-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+  .ask .field a { color: var(--bx-link, #8C9BFF); overflow-wrap: anywhere; } /* a question that is a page to open */
   .ask .fh { font-weight: 600; }
   .ask .fd { color: var(--bx-text, #E9EAF0); }
   .ask .opts { display: flex; flex-direction: column; gap: 2px; }

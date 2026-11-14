@@ -92,12 +92,21 @@ function checkHTML(file) {
 // (D184: a copy of either is a theme that stops following the person), and
 // chat/md.js the markdown renderer for untrusted text (D224: a copy is a
 // second sanitizing policy to keep right; `md` itself is too common a name
-// to ban, its companions are not).
+// to ban, its companions are not). chat/tools.js and chat/ask.js are the one
+// model of a tool call and of what an agent asks (D224): the Agent tab and
+// the agent template each had these, and the copies had drifted — two
+// stripAnsi rules, two form readers (one labelled a plain enum's choices
+// "false"), two slash menus. The old modules re-export (`export { x } from`),
+// which this does not match; names an adapter keeps for another signature
+// (headline, commandOf, slashCommands), or that mean something else
+// elsewhere (lineDiff), are not listed.
 const KIT = { 'web/bx-kit.js': /^(?:export )?(?:const|function|async function) (api|xbinApi|selfApi|jbody|esc|deepActive|pathHas|clampBox|clampWin)\b/,
   'web/bx-code.js': /^(?:export )?(?:const|function) (escHTML|langFor|hl|diffHTML|LANG_BY_EXT)\b/,
   'web/bx-theme.js': /^(?:export )?(?:const|function) (setAppearance|applyAppearanceMessage|appearanceMessage|onAppearance|rememberTheme)\b/,
   'web/bx-icons.js': /^(?:export )?(?:const|function) (iconSvg|hasIcon)\b/,
-  'web/chat/md.js': /^(?:export )?(?:const|function) (mdInto|mdCssText|closedFence|onHighlighter|useHighlighter)\b/ };
+  'web/chat/md.js': /^(?:export )?(?:const|function) (mdInto|mdCssText|closedFence|onHighlighter|useHighlighter)\b/,
+  'web/chat/tools.js': /^(?:export )?(?:const|function) (mergeTool|stripAnsi|outputTail|describeCommand|unifiedDiff|joinPatches|patchLines|diffFiles|diffTotals|contentPreview|diffsPreview|filesStat|rawText)\b/,
+  'web/chat/ask.js': /^(?:export )?(?:const|function) (formFields|formContent|missingRequired|nativeSchema|nativeContent|cleanCode|slashQuery|matchCommands|commandHint|optionConfirm|modeConfirm|composerWords|steerTracker)\b/ };
 function checkKitDuplicates(file) {
   const rel = relative(ROOT, file);
   if (rel.startsWith('hack/')) return;

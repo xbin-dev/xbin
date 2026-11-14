@@ -217,6 +217,58 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   then). The tool row's `acp` object is unchanged for every other call.
   xbind's `GET …/events?before=` pages: a page is never cut between two
   calls that share an id within one turn; nothing else moves.
+- **Frontend kit: `/vendor/chat/tools.js` and `/vendor/chat/ask.js` — one
+  model of a tool call and of what an agent asks; the chat kit's `KIT` is
+  2** (D224; [frontend-kit.md](/docs/frontend-kit.md)). Two new pure
+  modules a tile may import, made of what xbind's Agent tab and the agent
+  template each had: `tools.js` reads a call from its `ToolRecord` (the
+  merge of an agent's `tool.call` / `tool.update` events, headline, the
+  command under it, outcome and state chips, `stripAnsi`, the output's
+  tail, diffs as a patch or as the two texts, plan approval); `ask.js` a
+  permission request as its card (option order, who sees an option that
+  stops the agent asking, what "always" remembers), a question as a form or
+  a page to open, the slash menu, the composer's words while a turn runs.
+  `/vendor/agent-tools.js`, `/vendor/agent-slash.js` and
+  `/vendor/signin-scan.js`'s `cleanCode` are re-exports now: every name
+  they exported is there and says what it said, with the changes below.
+  An event log's tool block in the Agent tab's fold (`/vendor/agent-fold.js`)
+  also carries `rec`, the kit's record (its locations and files; a diff a
+  later content list left out; `changed`), and a question's block its
+  `mode` and `url`.
+- **Agent tab: what changes in it.** Command output: a terminal hyperlink
+  keeps its text (it was dropped, with everything up to the last link),
+  and colours written with colon sub-parameters (`ESC[38:2::…m`), a
+  character-set designation (`ESC ( B`) and the 8-bit CSI are stripped
+  (they showed as stray characters). A question's form: a single choice
+  written as `anyOf`, labels from `enumNames`, and schema `default`s (drawn
+  chosen; an untouched field answers its default) are read; a choice
+  without a title is called by its value; a required choice answered in
+  its "Other" box counts as answered. A question that is a page to open
+  (URL mode) is drawn as its link with Done / Skip. The iOS app's port
+  follows the output rule in its next build.
+- **Agent template: a coding agent's calls and requests are said by
+  xbind's chat kit, and the page needs chat kit revision 2 (xbind ≥
+  v0.3.80).** `model/harness-heads.js`, `model/harness-ask.js` and
+  `cleanCode` in `model/harness-signins.js` keep their exports and become
+  adapters from the template's rows to the kit. What reads differently:
+  - a call's headline. With the agent's own label (Claude Code's
+    description of a command) nothing changes. Without one, a shell command
+    is read ("Python script (12 lines) → main.go", "Edit a.txt (sed)",
+    else its first line) with the command under it, where it was the
+    command's first hundred characters; a title of several lines is its
+    first; a call with neither label nor title is read from its arguments
+    ("Read /w/a.go:10–49") where it said its kind ("read"), and an untitled
+    command is `make test`, not `$ make test`;
+  - a command given as `script`, and a string command's `args`, are read;
+  - a question's plain `enum` (no `enumNames`) is labelled by its values —
+    every choice was labelled "false";
+  - the slash menu also finds a command by its description, offers at most
+    8 (it was 12, by name only), and opens while the draft is `/` and a
+    name of letters, digits, `_`, `:`, `.` and `-`.
+  The template's native view imports these models, so on an xbind older
+  than v0.3.80 its `native.js` does not load: the app shows the tile's web
+  page ([native.md](/docs/native.md) → Fallback), which says "This agent
+  needs xbind ≥ v0.3.80". Instances you already have are not touched.
 - **docs: the protocol reference is split by topic.** `/docs/protocol.md`
   had reached the size limit of a served doc, so its route tables and
   WebSocket sections moved, unchanged, to one page per area under
@@ -259,7 +311,7 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   v0.3.80 — update xbind" instead of the app. Instances you already have
   are not touched and keep working on this and later xbinds; this is about
   merging a newer template into an instance on an older xbind — update
-  xbind first. The native view is unaffected. What the template's chat
+  xbind first. (The native view: see the entry above.) What the template's chat
   draws differently: code is coloured up to 32 KiB a block (it was 20,000
   characters), a fence's language becomes a `language-…` class only when
   it is a plain name, and an image's placeholder carries the class `md-img`

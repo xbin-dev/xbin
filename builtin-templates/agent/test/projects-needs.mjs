@@ -10,8 +10,9 @@
 //   node test/projects-needs.mjs        (needs playwright + a chromium build)
 import { ORIGIN, STUB, serveTile, launch, checker } from './backend.mjs';
 import { PROJ_STUB, projSeed } from './projects-stub.mjs';
-import { needSplit, needOf, pinWords } from '../model/project-pins.js';
-import { needRows, toneOf, ageWords } from '../model/project-needs.js';
+// the models, after ./kit.mjs (through backend.mjs) said where /vendor/ is: they import xbind's kit by URL
+const { needSplit, needOf, pinWords } = await import('../model/project-pins.js');
+const { needRows, toneOf, ageWords } = await import('../model/project-needs.js');
 
 const { ok, done } = checker();
 const NOW = Date.now();

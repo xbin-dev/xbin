@@ -7,14 +7,13 @@
 // Run by `make js-test`.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { registerHooks } from 'node:module';
+import { installHooks } from './xbn/hooks.mjs';
 import { readFileSync, readdirSync } from 'node:fs';
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url);
 const MODEL = new URL('model/', TPL);
 // The model imports the frontend kit by its served URL; here it is the file.
-const KIT = new URL('../web/bx-kit.js', import.meta.url).href;
-registerHooks({ resolve: (spec, ctx, next) => (spec === '/vendor/bx-kit.js' ? { url: KIT, shortCircuit: true } : next(spec, ctx)) });
+installHooks(); // /vendor/<name> as xbind serves it: the kit the template's modules import (web/<name>)
 
 // --- a scripted backend ---------------------------------------------------------
 

@@ -14,11 +14,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { runNative } from './xbn/node.mjs';
 import { PHONE } from './agent-template-native-caps.mjs'; // the phone stack (rev-1 split): the tests walk its nav
-import { projSeed, partitionSeed, task } from '../builtin-templates/agent/test/projects-stub.mjs';
-import { moreSeed, teamSeed, ev, coordMsgs, overviewSeed } from '../builtin-templates/agent/test/projects-more-stub.mjs';
-import { feedWords, plain, httpsUrl, projectFeed, coordTail, coordState } from '../builtin-templates/agent/model/project-feed.js';
-import { boardWords, boardColumns, securityDiff, projectTeam } from '../builtin-templates/agent/model/project-team.js';
-import { upgradeOffer, candidateWords } from '../builtin-templates/agent/model/project-upgrade.js';
+import { installHooks } from './xbn/hooks.mjs';
+
+installHooks(); // /vendor/<name> as xbind serves it: the kit the template's models import (web/<name>)
+const { projSeed, partitionSeed, task } = await import('../builtin-templates/agent/test/projects-stub.mjs');
+const { moreSeed, teamSeed, ev, coordMsgs, overviewSeed } = await import('../builtin-templates/agent/test/projects-more-stub.mjs');
+const { feedWords, plain, httpsUrl, projectFeed, coordTail, coordState } = await import('../builtin-templates/agent/model/project-feed.js');
+const { boardWords, boardColumns, securityDiff, projectTeam } = await import('../builtin-templates/agent/model/project-team.js');
+const { upgradeOffer, candidateWords } = await import('../builtin-templates/agent/model/project-upgrade.js');
 
 const TPL = new URL('../builtin-templates/agent/', import.meta.url).pathname;
 const NOW = Date.UTC(2026, 8, 21, 12);

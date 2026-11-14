@@ -4,8 +4,9 @@
 // (builtin-templates/agent/_backend/harness_map.go — its transcripts_test.go
 // applies each log and keeps the run's view at every checkpoint as
 // <name>.agtt.json), and model/fold.js folds a view. This test folds those
-// views with TODAY's model/fold.js, says the result in the chat kit's block
-// model through hack/chat-fixtures/agtt.mjs, and holds it to the same
+// views with model/fold.js, says the result in the chat kit's block model
+// through hack/chat-fixtures/agtt.mjs — a call and a request by the
+// template's own adapters to the kit — and holds it to the same
 // <name>.blocks.json the Agent tab's fold is held to
 // (hack/chat-fixtures.test.mjs, where regenerating is described) — after
 // both went through the gaps hack/chat-fixtures/expect.mjs lists for the
@@ -13,9 +14,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { walk, KINDS, plain, TOOL_STATES } from '../web/chat/blocks.js';
-import { fold, FoldCache } from '../builtin-templates/agent/model/fold.js';
 import { load, shown, through, canon, each, GAPS } from './chat-fixtures/expect.mjs';
-import { agttTranscript, tileView, callIdOf, rawInputOf } from './chat-fixtures/agtt.mjs';
+import { installHooks } from './xbn/hooks.mjs';
+
+installHooks(); // /vendor/<name> as xbind serves it: the kit the template's models import (web/<name>)
+const { fold, FoldCache } = await import('../builtin-templates/agent/model/fold.js');
+const { rawInputOf, acpRecord, acpHeadline } = await import('../builtin-templates/agent/model/harness-heads.js');
+const { headline, subline, outcome, stateChip, oneLine } = await import('../web/chat/tools.js');
+const { agttTranscript, tileView, callIdOf } = await import('./chat-fixtures/agtt.mjs');
 
 const all = load();
 
@@ -60,6 +66,47 @@ for (const t of all) {
     }
   });
 }
+
+test('one call, one reading: the kit says a call the same from either reducer\'s record', () => {
+  let calls = 0;
+  for (const t of all) {
+    for (const [i, cp] of t.blocks.checkpoints.entries()) {
+      const want = [], have = [];
+      each(cp, (b) => { if (b.kind === 'tool') want.push(b); }); // the expectation: the Agent tab's reading of the log
+      walk(agttTranscript(tileView(t.agtt.views[i].view)).blocks, (b) => { if (b.kind === 'tool') have.push(b); });
+      assert.deepEqual(have.map((b) => b.rec.id), want.map((b) => b.rec.id), `${t.name} at ${cp.seq}: the same calls`);
+      for (const [n, b] of have.entries()) {
+        const w = want[n], at = `${t.name} at ${cp.seq}, call ${b.rec.id}`;
+        calls++;
+        assert.equal(headline(b.rec), headline(w.rec), `${at}: headline`);
+        assert.equal(subline(b.rec), subline(w.rec), `${at}: the command under it`);
+        assert.deepEqual(stateChip(b.rec, b.state), stateChip(w.rec, w.state), `${at}: state chip`);
+        // (a call's text is not on its row while it runs, gap A10: an outcome is said of a finished call)
+        assert.deepEqual(outcome(b.rec), outcome(w.rec), `${at}: outcome`);
+      }
+    }
+  }
+  assert.ok(calls > 40, `${calls} calls compared`);
+});
+
+test('the template\'s fold says a coding agent\'s call with the kit\'s headline of its record', () => {
+  let seen = 0;
+  for (const t of all) {
+    for (const v of t.agtt.views) {
+      const blocks = [];
+      const walkFold = (list) => { for (const b of list || []) { blocks.push(b); walkFold(b.kids); } };
+      walkFold(fold(tileView(v.view), () => null));
+      for (const b of blocks.filter((x) => x.k === 'tool' && x.acp)) {
+        seen++;
+        const a = JSON.parse(b.args || '{}');
+        assert.equal(b.headline, oneLine(headline(acpRecord(b, a)), 100), `${t.name} at ${v.seq}: ${b.callId}`);
+        assert.equal(b.headline, acpHeadline(b.name, a, b.acp));
+        assert.equal(b.sub, subline(acpRecord(b, a)));
+      }
+    }
+  }
+  assert.ok(seen > 40, `${seen} calls`);
+});
 
 test('each of the template\'s gaps is one the transcripts show', () => {
   // without a gap, some checkpoint differs: none is listed that the template has closed
@@ -135,10 +182,11 @@ test('the template\'s own tools, subagents and parks say themselves in the model
 
 test('a stored call id and a call\'s arguments read back as the agent\'s own', () => {
   assert.deepEqual(['h1:t1', 'h12:t1#3', 't1'].map(callIdOf), ['t1', 't1', 't1']);
-  assert.deepEqual(rawInputOf('{"cmd":"ls","summary":"run ls"}'), { cmd: 'ls' });
-  assert.deepEqual(rawInputOf('{"summary":"run ls","rawSummary":"the agent\'s own"}'), { summary: "the agent's own" });
-  assert.equal(rawInputOf('{"summary":"x","rawInput":"plain text"}'), 'plain text');
-  assert.equal(rawInputOf('{"summary":"x"}'), null);
+  assert.deepEqual(rawInputOf({ cmd: 'ls', summary: 'run ls' }), { cmd: 'ls' });
+  assert.deepEqual(rawInputOf({ summary: 'run ls', rawSummary: "the agent's own" }), { summary: "the agent's own" });
+  assert.equal(rawInputOf({ summary: 'x', rawInput: 'plain text' }), 'plain text');
+  assert.equal(rawInputOf({ summary: 'x' }), null);
+  assert.equal(rawInputOf(null), null);
 });
 
 test('the adapter hands the fold\'s own blocks on: a cached fold keeps what did not change', () => {

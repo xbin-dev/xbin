@@ -156,7 +156,16 @@ says so):
    shared rule would change output). The guard (`/vendor/chat/rev.js`,
    the template's `boot.js`) landed here rather than in F4.
 3. **F2 — models.** `chat/tools.js`, `chat/ask.js`; old modules re-export;
-   Swift fixtures regenerated.
+   Swift fixtures regenerated. *Landed (D224 "F2",
+   `plans/wsagent/chat-kit-spec.md` §10), with these changes to the table
+   above:* `patchLines` stays, in the kit (`bx-code.js` needs lit and
+   highlight.js, so a tile page draws a patch plain first); plan feedback
+   is `permAnswer` → `{verdict, feedback}` and each host still sends it its
+   own way; the Agent tab's cards keep reading its old record until F3 —
+   the fold already holds the kit's record beside it — so the bypass
+   confirmation and the reading by kind in a headline reach the tab with
+   its views. Three `stripAnsi` outputs of the Swift parity corpus changed
+   and the port's regex with them.
 4. **F3 — views.** The kit; `<bx-agent>` moves onto it. `agent-cards.js`
    and `agent-css.js` stay as re-exports.
 5. **F4 — AgTT onto the kit**, one view at a time (tool cards, asks,
