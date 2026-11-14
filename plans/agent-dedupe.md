@@ -146,7 +146,15 @@ says so):
    blocks) under `sdk/acp/testdata/`, read by Go, node and Swift tests. A
    spike on the `agentlongperf` harness pass settles templates vs elements
    for rows and records today's numbers.
-2. **F1 — markdown.** One module, one `Marked` instance.
+2. **F1 — markdown.** One module, one `Marked` instance. *Landed (D224),
+   with one change to the table above:* the renderer is
+   `/vendor/chat/md.js` (lazy highlighter) and `/vendor/bx-md.js` is that
+   module with the highlighter loaded up front — scaffold copies of
+   `shell-blocks.js` in workspaces call `md()` once and can't follow a
+   lazy highlighter. `chat-md.js` re-exports `/vendor/chat/md.js`.
+   rt-markdown has its own instance and keeps its stricter link rule (one
+   shared rule would change output). The guard (`/vendor/chat/rev.js`,
+   the template's `boot.js`) landed here rather than in F4.
 3. **F2 — models.** `chat/tools.js`, `chat/ask.js`; old modules re-export;
    Swift fixtures regenerated.
 4. **F3 — views.** The kit; `<bx-agent>` moves onto it. `agent-cards.js`

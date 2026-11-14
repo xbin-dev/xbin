@@ -13673,3 +13673,101 @@ Deviations and refinements made while implementing; all deliberate:
   - **Once only**, across restarts; a failed task #1 still starts the wiki
     step, which says what failed. The `[project starter` marker is defused
     in text from outside, like the coordinator's other markers.
+
+- **D224 — One chat kit for the Agent tab, the agent template and the
+  workspace agent; a newer template needs its xbind (2026-11-14; issue
+  #51).** The Agent tab (`web/agent-*.js`), the agent template
+  (`builtin-templates/agent/`) and, next, the workspace agent draw the same
+  things — markdown, tool cards, asks, a composer — from separate
+  implementations (`plans/agent-dedupe.md` §1). They move onto one kit
+  under `web/chat/` (`/vendor/chat/…`), public and additive like the rest
+  of the frontend kit, a step at a time. This entry grows with the steps;
+  the first is markdown (F1).
+  - **One HTML renderer: `/vendor/chat/md.js`.** `web/bx-md.js` and the
+    template's `chat-md.js` were two renderers with one policy (raw HTML
+    escaped, images as text, links on safe schemes) and small differences.
+    The kit's has both sides' parts: the template's line-based closed-fence
+    check and optional highlighter, the web's block memo, `mdCssText`.
+    Exports: `md`, `mdInto(el, s, memo?)`, `mdCssText`, `closedFence`,
+    `mdEpoch`, `onHighlighter`, `useHighlighter`.
+  - **Its own `Marked` instance.** Both old modules called `marked.use()`
+    on the one shared `marked` of `/vendor/marked.esm.js`, so two renderers
+    in a document would have stacked their options. The kit's instance is
+    its own, and so is `web/xb/rt-markdown.js`'s (it built a `Lexer` from a
+    full options object per call to stay clear of exactly that): an old
+    template instance still configures the shared `marked` in its own
+    document, and nothing of xbind's listens. rt-markdown's tokens are
+    byte-identical (`native/tools/markdown-parity.mjs` rewrites
+    `expected.json` unchanged), so Swift's `MarkdownLexer` is not touched.
+  - **`/vendor/bx-md.js` stays the renderer with the highlighter up
+    front; the lazy one is the new URL.** The plan had `bx-md.js` itself
+    go lazy ("plain text until the highlighter loads"). It can't: scaffold
+    copies of `shell/shell-blocks.js` in workspaces import `md` from it and
+    draw `unsafeHTML(md(text))` once — they know nothing of `mdEpoch`, so a
+    lazy `md` would leave a text block's code plain until some later
+    render (rule 3 freezes what a served URL does, not only that it
+    answers). A static import is the one way to have the highlighter
+    before the first call (top-level await was ruled out: WebKit's
+    multi-importer bug, and `bx-md.js` has two importers in the Agent
+    tab). So `bx-md.js` is four lines: import highlight.js, hand it to the
+    kit (`useHighlighter`), re-export. Both URLs are the same module state
+    in a document. The Agent tab keeps `bx-md.js` and its behaviour; the
+    template takes the lazy URL and keeps its own (no 127 KB before its
+    first paint). A host picks by which URL it imports.
+  - **The unifications, each the safer or the already-served rule.**
+    (1) *Closed fence*: line-based — the last line is a fence of the
+    opening character, at least as long (the web's regex took any trailing
+    fence line, so a ```` block whose last line was ``` was coloured while
+    still open). (2) *Size cap*: 32 KiB, the web's — what `bx-md.js`
+    callers in the wild already get; the template's 20,000 characters goes
+    (blocks between the two are now coloured there). (3) *Language class*:
+    the web's allowlist `^[\w+#.-]+$`, else no class attribute at all (the
+    template escaped any string into the attribute); highlighting needs
+    the same name (every highlight.js name and alias passes). (4) *Image
+    class*: `md-img`; the template's page gains a `.md-img` rule equal to
+    its `.muted`. (5) *CSS*: `mdCssText` for shadow roots as before; the
+    template keeps its own global `.md` rules, which differ on purpose
+    (coloured headings and list markers, #26) — moving it onto
+    `mdCssText` would have changed its look. (6) *mdInto*: one function
+    with the optional memo and the epoch; a memo is dropped when the epoch
+    moves.
+  - **Not unified: link safety between HTML and tokens.** The HTML
+    renderer refuses `javascript:`, `data:` and `vbscript:` and keeps
+    everything else (relative links, anchors, `tel:`); rt-markdown allows
+    only `http`, `https` and `mailto`, because a native app opens what it
+    is given. One rule would change one side's output (relative links in
+    the wiki and in screen text, or the Swift parity corpus), so both
+    stay, and rt-markdown's header says so.
+  - **A newer template needs its xbind: `/vendor/chat/rev.js` and
+    `boot.js`.** Template instances are forks in workspaces, never updated
+    by an upgrade, and they import xbind's modules by `/vendor/` URL. Old
+    instance on new xbind keeps working (nothing served is removed). New
+    template on old xbind is the new case: a static import of a module or
+    export the old xbind lacks fails the whole graph — a blank page. No
+    second code path is kept for it (that would be the duplicate this
+    programme removes); instead `rev.js` exports `KIT`, a number that only
+    goes up as the kit grows (1 = the markdown renderer), and the
+    template's `index.html` starts `boot.js`, which imports `rev.js`
+    guarded, compares `KIT` with `NEEDS.kit`, and either imports
+    `agent.js` or replaces the page with "This agent needs xbind ≥ v0.3.80
+    — update xbind" and a link to `/docs/install.md` (on the workspace's
+    origin when the tile has its own). A failure of `agent.js` itself is
+    re-raised with `reportError` — an uncaught error as a failing `<script
+    type="module">` was — never that message. `index.html` preloads
+    `agent.js` (`modulepreload`) so the probe costs no round trip. The
+    native view imports only models and `/vendor/xb-native.js`, nothing of
+    the kit: it needs no guard, and where the app falls back to the web
+    page (`docs/native.md` §Fallback) that page carries the guard.
+    `docs/compat.md` states it under "What this does not promise", next to
+    the Go case it mirrors (new SDK calls don't build on an older xbind).
+  - **Guards.** `make js-check` refuses a second definition of `mdInto`,
+    `mdCssText`, `closedFence`, `onHighlighter` or `useHighlighter` in the
+    shipped trees (`md` is too common a name to ban);
+    `hack/agent-template-boot.test.mjs` fails when the template asks for a
+    kit revision this checkout doesn't serve; the template's
+    `test/needs-xbind.mjs` drives the page with the kit, without it (404),
+    with an older one, and with a broken `agent.js`.
+  - **Open.** `NEEDS.xbind` is `v0.3.80`, the release after v0.3.79 — the
+    first that can carry this; whoever cuts the release this lands in
+    checks the number. Later steps (tool and ask models, views, composer)
+    add to this entry and raise `KIT`.

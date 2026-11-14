@@ -9,7 +9,7 @@
 //
 //   node test/attach.mjs        (needs playwright + a chromium build)
 import { readFileSync, readdirSync } from 'node:fs';
-import { serveKit, tileHtml } from './kit.mjs';
+import { serveKit, tileHtml, MARKED_STUB } from './kit.mjs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -57,7 +57,7 @@ await serveKit(page);
 await page.route('**/vendor/lit-all.min.js', (r) => r.fulfill({ contentType: 'text/javascript',
   body: readFileSync(process.env.BX_VENDOR ? join(process.env.BX_VENDOR, 'lit-all.min.js') : join(here, '..', '..', '..', 'web', 'vendor', 'lit-all.min.js'), 'utf8') }));
 await page.route('**/vendor/marked.esm.js', (r) =>
-  r.fulfill({ contentType: 'text/javascript', body: 'export const marked={parse:(s)=>s,use(){}};' }));
+  r.fulfill({ contentType: 'text/javascript', body: MARKED_STUB }));
 
 // The stub backend. window.__fail makes the named upload fail once;
 // window.__detail is what GET /runs/{id} returns.

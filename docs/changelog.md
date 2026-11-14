@@ -28,6 +28,20 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   only when its last line is a fence of the same character at least as long
   as the opening one — a block still being written whose last line was a
   shorter or different fence used to be coloured early.
+- **Agent template: its chat's markdown is xbind's renderer, and a newer
+  template needs xbind ≥ v0.3.80 for its page** (D224;
+  [compat.md](/docs/compat.md) §What this does not promise). `chat-md.js`
+  is now a re-export of `/vendor/chat/md.js`, and `index.html` starts
+  `boot.js`, which checks the chat kit's revision before it loads
+  `agent.js`: on an older xbind the page says "This agent needs xbind ≥
+  v0.3.80 — update xbind" instead of the app. Instances you already have
+  are not touched and keep working on this and later xbinds; this is about
+  merging a newer template into an instance on an older xbind — update
+  xbind first. The native view is unaffected. What the template's chat
+  draws differently: code is coloured up to 32 KiB a block (it was 20,000
+  characters), a fence's language becomes a `language-…` class only when
+  it is a plain name, and an image's placeholder carries the class `md-img`
+  (it was `muted`; `index.html` colours it the same).
 
 ## 2026-11-09
 
