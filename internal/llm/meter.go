@@ -214,7 +214,6 @@ func (m *meter) record(now time.Time, user, component, model string, u sdkllm.Us
 		c.Unpriced = 1
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	day, month := m.roll(now)
 	d := m.doc(month)
 	k := rowKey{day, user, component, model}
@@ -224,8 +223,13 @@ func (m *meter) record(now time.Time, user, component, model string, u sdkllm.Us
 	d.rows[k].add(c)
 	d.dirty = true
 	m.addWindow(user, true, c.InputTokens+c.OutputTokens, c.Cost)
-	if m.timer == nil && !m.closed {
+	late := m.closed // a call that ended while xbind was stopping: no timer will come for it
+	if m.timer == nil && !late {
 		m.timer = time.AfterFunc(flushGap, m.flush)
+	}
+	m.mu.Unlock()
+	if late {
+		m.flush()
 	}
 }
 

@@ -137,6 +137,11 @@ func TestMeterPersistsAndRolls(t *testing.T) {
 	}
 	m.record(d2, "ann", "", "main/gpt-5", u, 1, true, false)
 	m.close()
+	// a call that ends while xbind stops is still saved
+	m.record(d2, "late", "", "main/gpt-5", u, 0, false, false)
+	if raw, _ := os.ReadFile(filepath.Join(dir, "2026-12.json")); !strings.Contains(string(raw), `"late"`) {
+		t.Errorf("a count after close was not written: %s", raw)
+	}
 
 	for _, month := range []string{"2026-11", "2026-12"} {
 		raw, err := os.ReadFile(filepath.Join(dir, month+".json"))
@@ -153,7 +158,7 @@ func TestMeterPersistsAndRolls(t *testing.T) {
 	}
 
 	m2 := newMeter(dir, log)
-	rows := m2.query("2026-11-01", "2026-12-31", false, nil)
+	rows := m2.query("2026-11-01", "2026-12-31", false, func(user, _, _ string) bool { return user != "late" })
 	if len(rows) != 4 {
 		t.Fatalf("rows read back: %+v", rows)
 	}
