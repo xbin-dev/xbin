@@ -121,7 +121,7 @@ bx llm [status] [--json]               the LLM connector (D226; docs/llm.md):
                                        upstreams, default models, who may call,
                                        your quota — locked settings read "set
                                        by your host"
-bx llm upstream add <name> <base-url> [--key-file <f> | --key-stdin | --key <k> | --no-key]
+bx llm upstream add <name> <base-url> [--key-file <f> | --key-stdin | --no-key]
           [--models a,b] [--private] [--price <model>=<in>:<out>[:<cached-in>]]…
           | set <name> [--url <u>] [--models a,b | --any-model] [--private | --public] [--key… | --no-key] [--price …]
           | rm <name> | test <name> [<model>]
@@ -130,9 +130,11 @@ bx llm upstream add <name> <base-url> [--key-file <f> | --key-stdin | --key <k> 
 bx llm models [--json]                 the models it offers
 bx llm default [set <model> [--role <role>] | unset [--role <role>]]
 bx llm alias [set <alias> <model> | rm <alias>] | on | off | people admins|everyone|nobody
+          | concurrency <n>
                                        default models (xbin/default, xbin/<role>),
                                        model aliases ("*": every unknown name),
-                                       the switches (admin)
+                                       the switches, calls in flight per caller
+                                       (admin)
 bx llm usage [--month] [--from <day>] [--to <day>] [--user <id>] [--component <tile>] [--json]
                                        what was used: yours, or everyone's (admin)
 bx llm quota [show [<user>]] | set <default|workspace|user:<id>|org:<id>>
@@ -491,20 +493,25 @@ each marked `[set by your host]` when the host's deployment file
 `upstream add <name> <base-url>` adds a provider (an OpenAI-compatible API,
 with or without `/v1` in the URL) and asks for its key without echo; pass
 `--key-file <f>` or `--key-stdin` in a script, `--no-key` for a server that
-takes none (`--key <k>` works too, and lands in your shell history). The
-key is stored in xbind's vault and never printed again: the listing shows
-its last four characters. `--models a,b` limits what the upstream offers
+takes none. A key is never taken from the command line (it would stay in
+the shell's history and show in process listings): `--key` is refused.
+The key is stored in xbind's vault and never printed again: the listing
+shows its last four characters. `upstream set --url` to another scheme,
+host or port removes the stored key unless the same command gives one — a
+key is only sent to the address it was set for — and prints a note. `--models a,b` limits what the upstream offers
 (`--any-model` on `set` lifts the list: its own `/models` and any name pass
 through); `--private` marks it for org constraints; `--price
 gpt-5=1.25:10:0.125` prices a model in USD per million input, output and
-cached-input tokens. `upstream test <name> [<model>]` makes a one-line call
-through it (metered to you) and exits non-zero with the provider's message
-when it fails. `default set <model>` sets the model of a call that names
+cached-input tokens (`--price '*=5:15'`: every model without a price of its
+own). `upstream test <name> [<model>]` makes the smallest call through it —
+metered to you, held by your quota, refused while the connector is off —
+and exits non-zero with the provider's message when it fails. `default set <model>` sets the model of a call that names
 none (`xbin/default`); `--role agent|harness|<any>` sets `xbin/<role>`.
 `alias set <alias> <model>` maps a name clients send (`'*'`: every name
 nothing else resolves). `people everyone|admins|nobody` says which
 signed-in people may call directly — tiles are admitted by binding their
-slot: `bx bind <tile> <slot>=xbin:llm`. `usage` prints the counters per day
+slot: `bx bind <tile> <slot>=xbin:llm`. `concurrency <n>` sets how many
+calls one caller may have in flight (16 unless set). `usage` prints the counters per day
 (`--month`: per month): your own, or — a workspace admin — everyone's,
 narrowed with `--user`, `--component`; a `+` after a cost means some calls
 used a model without a price. `quota set` takes a target (`default`: each
