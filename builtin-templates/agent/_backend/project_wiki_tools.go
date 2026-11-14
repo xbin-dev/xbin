@@ -95,40 +95,67 @@ func wikiToolSpecs(write bool) []toolSpec {
 	)
 }
 
-// wikiRole is what run may do with the wiki: its project, who it writes
-// as, and whether it may write now. ok false: no wiki tools at all.
+// wikiRole is what run may do with a knowledge store: which one (its
+// store id: a project's id for a project's wiki, DB.knowID's for any other
+// owner), who it writes as, and whether it may write now.
 type wikiRole struct {
-	p     *Project
+	store int64
 	actor wikiActor
 	write bool
 	why   string // a write refused: why
 }
 
-// wikiRoleOf resolves run's role in a project's wiki, from the database
-// (the coordinator through coordinatorOf, a research subagent through its
-// root coordinator, a task through its row).
+// wikiRoleOf resolves run's role in a knowledge store, from the database:
+// the Knowledge hook of the coordinator profile whose origin run has
+// (coord_profile.go) — for Projects, projWikiRole. errNoWiki: it has none.
 func (ag *Agent) wikiRoleOf(run *Run, cfg Config) (*wikiRole, error) {
-	d := ag.db
-	if run == nil || hostedID(run.ID) || !d.features {
+	if run == nil || hostedID(run.ID) || !ag.db.features {
 		return nil, errNoWiki
 	}
+	if p := coordProfiles.byOrigin[run.Origin]; p != nil && p.Knowledge != nil {
+		if r, err := p.Knowledge(ag, run, cfg); r != nil || err != nil {
+			return r, err
+		}
+	}
+	return nil, errNoWiki
+}
+
+// researchRootOf is the project a research subagent reads and its root —
+// which must still be that project's live coordinator.
+func (ag *Agent) researchRootOf(run *Run, cfg Config) (*Project, *Run, error) {
+	d := ag.db
+	if run == nil || hostedID(run.ID) || !d.features || cfg.CodeRead == nil {
+		return nil, nil, errNoWiki
+	}
+	root, err := d.getRun(rootOf(run))
+	if err != nil || run.ParentID == 0 {
+		return nil, nil, errNoWiki
+	}
+	rcfg, err := d.runConfig(root.ID)
+	if err != nil {
+		return nil, nil, errNoWiki
+	}
+	p, err := ag.coordinatorOf(d, root, rcfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	if p.ID != cfg.CodeRead.Project {
+		return nil, nil, errNoWiki
+	}
+	return p, root, nil
+}
+
+// projWikiRole (the project profile's Knowledge) resolves run's role in
+// its project's wiki (the coordinator through coordinatorOf, a research
+// subagent through its root coordinator, a task through its row).
+func (ag *Agent) projWikiRole(run *Run, cfg Config) (*wikiRole, error) {
+	d := ag.db
 	if cfg.CodeRead != nil { // a research subagent: its root must still be the project's coordinator
-		root, err := d.getRun(rootOf(run))
-		if err != nil || run.ParentID == 0 {
-			return nil, errNoWiki
-		}
-		rcfg, err := d.runConfig(root.ID)
-		if err != nil {
-			return nil, errNoWiki
-		}
-		p, err := ag.coordinatorOf(d, root, rcfg)
+		p, root, err := ag.researchRootOf(run, cfg)
 		if err != nil {
 			return nil, err
 		}
-		if p.ID != cfg.CodeRead.Project {
-			return nil, errNoWiki
-		}
-		return &wikiRole{p: p, write: true, actor: wikiActor{By: researchBy(run, root.Owner), Run: run.ID, At: headsAt(cfg.CodeRead.Heads)}}, nil
+		return &wikiRole{store: p.ID, write: true, actor: wikiActor{By: researchBy(run, root.Owner), Run: run.ID, At: headsAt(cfg.CodeRead.Heads)}}, nil
 	}
 	if run.Depth != 0 || run.ParentID != 0 || run.Origin != originProject {
 		return nil, errNoWiki
@@ -140,7 +167,7 @@ func (ag *Agent) wikiRoleOf(run *Run, cfg Config) (*wikiRole, error) {
 		if err != nil {
 			return nil, err
 		}
-		return &wikiRole{p: p, write: true, actor: wikiActor{By: "coordinator (" + run.Owner + ")", Run: run.ID}}, nil
+		return &wikiRole{store: p.ID, write: true, actor: wikiActor{By: "coordinator (" + run.Owner + ")", Run: run.ID}}, nil
 	case ref.isTask():
 		if run.Engine == engineHarness {
 			return nil, errNoWiki // its files (project_wiki_sync.go)
@@ -149,7 +176,7 @@ func (ag *Agent) wikiRoleOf(run *Run, cfg Config) (*wikiRole, error) {
 		if p == nil {
 			return nil, errNoWiki
 		}
-		r := &wikiRole{p: p, actor: wikiActor{By: fmt.Sprintf("task #%d", k.N), Run: run.ID, Task: k.N, At: d.taskAt(k)}}
+		r := &wikiRole{store: p.ID, actor: wikiActor{By: fmt.Sprintf("task #%d", k.N), Run: run.ID, Task: k.N, At: d.taskAt(k)}}
 		if d.dreamOf(k.ID).Active { // its dream round's turn (project_dream.go)
 			r.write, r.actor.By = true, fmt.Sprintf("task #%d (dream)", k.N)
 		} else {
@@ -169,7 +196,7 @@ func wikiToolsFor(cfg Config, run *Run) []toolSpec {
 	if ag == nil || run == nil || cfg.CodeRead != nil { // a research subagent's list is its own (codeReadToolSpecs)
 		return nil
 	}
-	if run.Depth != 0 || run.ParentID != 0 || run.Origin != originProject {
+	if run.Depth != 0 || run.ParentID != 0 || coordProfiles.byOrigin[run.Origin] == nil {
 		return nil
 	}
 	r, err := ag.wikiRoleOf(run, cfg)
@@ -194,7 +221,7 @@ func (ag *Agent) runWikiTool(_ context.Context, run *Run, cfg Config, name strin
 	if wikiWrites[name] && !r.write {
 		return "", errors.New(orStr(r.why, "you can't change this project's wiki"))
 	}
-	d, pid := ag.db, r.p.ID
+	d, pid := ag.db, r.store
 	slugArg := func() (string, error) { return wikiSlug(str(args["slug"])) }
 	switch name {
 	case "wiki_search":

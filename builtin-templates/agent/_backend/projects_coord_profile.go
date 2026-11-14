@@ -32,8 +32,9 @@ func init() {
 			}
 			return p, nil
 		},
-		Pending: coordPending,
-		Deliver: coordUpdateOf,
+		Pending:   coordPending,
+		Deliver:   coordUpdateOf,
+		Knowledge: (*Agent).projWikiRole,
 	})
 	coordProject.mustRegister(projCoordTools()...)
 }

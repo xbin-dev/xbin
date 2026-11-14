@@ -179,7 +179,7 @@ func projCoordTools() []coordTool {
 				return f(ctx, ag, c.Run, c.Scope.(*Project), c.Args)
 			}
 		} else if name == "research" {
-			t.Engine = (*Engine).researchTool
+			t.Engine = researchTool((*Engine).research)
 		}
 		out = append(out, t)
 	}
