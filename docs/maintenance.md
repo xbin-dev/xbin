@@ -16,6 +16,7 @@ hack/dev-setup.sh       # once per machine (and after an upgrade): what the chec
 make check              # the guards (make guards: fmt-check vet js-check js-test native-check theme-check shellcheck pins-offline large-files website-guard), then test
 make integration-deps   # once, and after a pull: the helpers (prebuilt), Firecracker, xbind/bx/xbin-vmagent, .rootfs if missing
 make integration        # when the runner / sandbox / broker path changed
+make agent-ui-check     # when the agent template's page, or what it loads from web/, changed (Playwright)
 make hooks              # once per clone: the sub-second subset runs pre-commit
 ```
 
@@ -79,7 +80,10 @@ machine's cargo), and CI runs it as a job of its own; `make website-check` runs 
 guard and then every page of xbin.dev in Chromium (`hack/website-check.mjs`,
 Playwright from `PLAYWRIGHT_DIR`; six widths in light, dark and reduced motion:
 console errors, requests that leave the local server, horizontal overflow, layout
-shift, focus rings, missing images; `website/README.md` → "Checks").
+shift, focus rings, missing images; `website/README.md` → "Checks"); `make
+agent-ui-check` runs the agent template's browser scripts (Playwright from
+`PLAYWRIGHT_DIR` too; "Builtin tiles and templates" below), and CI runs it as
+a job of its own.
 
 ### Integration shards
 
@@ -564,6 +568,41 @@ stay byte for byte what it was.
   excluded); a changed hash with an unchanged version is a red line. After
   the bump, `UPDATE_TILE_VERSIONS=1 go test ./internal/builtins -run
   TestTileVersions` moves the baseline.
+- `make agent-ui-check` (`hack/agent-ui-check.mjs`; CI's `agent-ui` job)
+  runs the agent template's browser scripts —
+  `builtin-templates/agent/test/*.mjs`: the template's real page in Chromium
+  against the stubbed backend of `test/backend.mjs`, with `/vendor/` served
+  from this checkout's `web/` — every one, 8 at a time (at most the cores),
+  each in its own node and browser: about 40 scripts in 20 s. Run it when
+  the template's page changed, or anything of `web/` it loads (the kit, the
+  chat kit, `bx-terminal`, the native reference renderer): nothing else
+  drives those together. A script passes only when it exits 0, prints no
+  `SKIP` line and ends with `all … checks passed`; a script still running
+  after `AGENT_UI_TIMEOUT` (180 s) is stopped and fails. The scripts
+  `import('playwright')` as they do inside a workspace, where the rootfs has
+  it; `hack/playwright-dir.mjs` (a module hook the runner preloads) answers
+  that import from `PLAYWRIGHT_DIR`, and without Playwright, or its
+  Chromium, the target stops with what to install instead of skipping —
+  run by hand the scripts skipped quietly, which is how four of them went
+  stale unseen. `make agent-ui-check AGENT_UI="attach ci"` runs those;
+  `AGENT_UI_JOBS=1` one at a time. It is not in `make check`: that stays
+  browser-free. Rules for a script, each one a failure this target has
+  already had:
+  - It is every `.mjs` in `test/` that `NOT_SCRIPTS`
+    (`hack/agent-ui-check.mjs`) doesn't name: a new helper gets a line
+    there with what it is, or the target fails on it (no verdict line);
+    `hack/agent-ui-check.test.mjs` (`make js-test`) holds the list against
+    the directory and the runner against a fake template.
+  - Its last line is `all <what> checks passed` (`checker().done`), and it
+    exits non-zero otherwise.
+  - Wait for a condition, never read once or sleep. The page's load isn't
+    the app's — `boot.js` imports `agent.js` after asking which xbind this
+    is (D224) — so wait for something the app drew, or a request it made,
+    before the first click; and what follows an element leaving the page
+    (a terminal's socket closing) comes a task later.
+  - Serve what the page imports by following its imports
+    (`fake-tty.mjs` `serveTerminal`), not from a list of today's modules;
+    read a limit from the page's own module, not a copy of its number.
 - The pure cores have tests that run under `make tile-check`: traefik's
   static/dynamic config renderers are pinned verbatim, the egress approver's
   packet decoding likewise.
