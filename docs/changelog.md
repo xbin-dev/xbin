@@ -10,6 +10,14 @@ Maintainers: every builder-visible change lands an entry here in the same
 commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 `AGENTS.md`).
 
+## 2026-11-14
+
+- **Tests: the `fake` agent provider is `acp.Fake`.** An xbind started with
+  `XBIN_AGENT_FAKE` (tests, the UI harness) lists the scripted agent in
+  `GET /agent/providers` with the modes `sdk/acp`'s `Fake` has — `ask`
+  ("Ask before acting"), `auto`, `yolo` — where it listed `ask` and `yolo`.
+  Nothing changes for an xbind without that variable.
+
 ## 2026-11-09
 
 - **Agent template Projects: a new project is made in a wizard, and can
