@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
-import { Fold, cached } from '../web/agent-fold.js';
+import { Fold, cached, foldStatus, newStatus, llmHint } from '../web/agent-fold.js';
 import { newTool, foldTool } from '../web/agent-tools.js';
 
 // bx-agent's _blocks() before D124, verbatim but for `this._events`
@@ -303,4 +303,17 @@ test('steered messages and the queue', () => {
   assert.deepEqual(f.st.queue.map((q) => q.id), ['q1']);
   f.push({ seq: 6, ts: 60, type: 'queue', data: { items: [], sent: ['q1'] } });
   assert.deepEqual(f.st.queue, []);
+});
+
+test('a notice that names who serves the model calls moves the digest (D226)', () => {
+  const st = newStatus();
+  foldStatus(st, { type: 'notice', data: { text: 'the layer moved' } });
+  assert.equal(st.llm, undefined);
+  foldStatus(st, { type: 'notice', data: { text: 'Model calls go through…', llm: 'connector' } });
+  assert.equal(st.llm, 'connector');
+  const f = new Fold().reset([{ seq: 1, type: 'notice', data: { text: 'Model calls go through…', llm: 'connector' } }]);
+  assert.equal(f.st.llm, 'connector');
+  assert.equal(f.blocks[0].kind, 'notice');
+  assert.equal(llmHint({ llm: { use: 'own-first' } }), 'your sign-in, else LLM by xbin');
+  assert.equal(llmHint({ id: 'claude' }), '');
 });

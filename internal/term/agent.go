@@ -13,7 +13,9 @@ package term
 // answer a permission — the first wins. The agent authenticates from the
 // session's per-user $HOME (D6) — the same home a shell terminal gets, so a
 // `claude auth login` / `codex login` / … done once in a terminal serves the
-// agent on every tile. There are no provider keys in the tile vault.
+// agent on every tile. There are no provider keys in the tile vault. With an
+// LLM connector configured the CLI may be pointed at it instead, with a key
+// of the session's own (llmhook.go).
 
 import (
 	"context"
@@ -101,6 +103,8 @@ type agentState struct {
 	queue     []queueItem // messages held for the running turn's end (agentqueue.go, D197); under mu
 	flushing  bool        // the queue is being sent as a prompt; under mu
 	queueing  atomic.Bool // a message for the queue is being taken (ReserveQueue)
+	llm       *llmSession // the session's hold on the LLM connector (llmhook.go); nil = none
+	llmChoice string      // the session's own choice of who serves it, kept for a restart
 }
 
 func (st *agentState) logf(line string) {
@@ -133,6 +137,10 @@ type AgentOpen struct {
 	// of the tile, "" for the default (target.go). A resumed session doesn't
 	// take its history entry's: the client names it again.
 	Deployment string
+	// LLM is the session's own choice of who serves its model calls where
+	// the workspace has an LLM connector: "connector", "own", or "" — the
+	// person's saved default, then the workspace's (llmhook.go).
+	LLM string
 }
 
 // OpenAgentWith is OpenAgent with the sandbox pickers.
@@ -182,6 +190,9 @@ func (m *Manager) OpenAgentWith(p auth.Principal, a AgentOpen) (SessionInfo, int
 	}
 	o := m.openOptsFor(p, rel, cwd, normalizeNet(netMode), a.GPU, !a.NoAPI)
 	o.kind, o.vm = KindAgent, a.VM
+	if code, err := m.llmChoice(&o, rel, prov, a.LLM); err != nil { // llmhook.go
+		return SessionInfo{}, code, err
+	}
 	if code, err := m.pickTarget(p, &o, rel, a.Deployment); err != nil {
 		return SessionInfo{}, code, err
 	}
@@ -277,7 +288,8 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		return nil, err
 	}
 	o.launch = &sbxLaunch{}
-	start := o.startDir(dir, homeDir) // $HOME on a partitioned tile (partition.go)
+	revokeTok = m.llmArm(&o, rel, &prov, revokeTok) // the session's LLM key, ended with its token (llmhook.go)
+	start := o.startDir(dir, homeDir)               // $HOME on a partitioned tile (partition.go)
 	cmd, cleanup, postStart, envKey, env, err := m.shellCmd(start, rel, homeDir, token, o)
 	if err != nil {
 		revokeTok()
@@ -331,7 +343,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	}
 	st := &agentState{log: agent.NewLog(0, 0), perms: agent.NewPermissions(), provider: prov,
 		ready: make(chan struct{}), done: make(chan struct{}), gone: make(chan struct{}), mode: mode, status: agent.StatusStarting, resumed: resumed,
-		attachDir: attachDir, replay: replayState{on: resumeID != ""}}
+		attachDir: attachDir, replay: replayState{on: resumeID != ""}, llm: o.llm, llmChoice: o.llmChoice}
 	s := &Session{
 		ID: id, Cwd: rel, Net: o.net, cmd: cmd, kind: KindAgent, agent: st, pgid: postStart == nil, vm: o.vm,
 		NetNote: o.netNote, Label: o.label, Scopes: o.scopes,
@@ -340,8 +352,8 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		born: time.Now(), hub: termwire.NewHub(0), // no terminal socket: the hub keeps its activity clock
 	}
 	st.snap = newSnapper(dir, func(e agent.Event) { s.logEvent(m, e) })
-	drv := acp.New()
-	st.drv = drv // before the session is visible: info() and the API read it
+	drv := acp.NewFor(func(h acp.HelloParams) { s.llmHello(m, h) }) // who serves its model calls (llmhook.go)
+	st.drv = drv                                                    // before the session is visible: info() and the API read it
 	m.mu.Lock()
 	m.sessions[s.ID] = s
 	m.mu.Unlock()
@@ -350,6 +362,7 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 	if o.launch.baseMoved != "" { // D175: this start moved the tile's layer to the current base
 		s.sayBaseMoved(m, o.layerKey(rel), o.movedLayer()) // the layer it moved: on a partitioned tile its person's (partition.go)
 	}
+	s.llmSay(m) // why it runs without the workspace's LLM connector, when that needs saying (llmhook.go)
 
 	// The agent's env: the sandbox env (with the per-user $HOME the CLI reads
 	// its login from) plus the provider's own non-secret knobs. No API keys —
@@ -359,7 +372,8 @@ func (m *Manager) createAgent(o openOpts, prov agent.Provider, mode string, opti
 		agentEnv = append(agentEnv, k+"="+prov.Env[k])
 	}
 	spawn := func(ctx context.Context, cfg agent.Config) (*agent.Process, error) {
-		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: start, AttachDir: attachDir})
+		params, _ := json.Marshal(acp.SpawnParams{Argv: cfg.Argv, Env: cfg.Env, Cwd: start, AttachDir: attachDir,
+			LLM: m.llmSpawn(o, prov, cfg.Env)}) // the connector's environment, settled by the host (llmhook.go)
 		if err := acp.Encode(stdin, &acp.Message{Method: acp.MXbinSpawn, Params: params}); err != nil {
 			return nil, err
 		}

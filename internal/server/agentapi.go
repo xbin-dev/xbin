@@ -55,13 +55,19 @@ func (s *Server) SessionEvent(cwd string, ev term.SessionEvent) {
 	s.Hub.Publish(events.Event{Type: "session", Topic: "session." + ev.ID, Component: cwd, Data: ev})
 }
 
-// apiAgentProviders lists what this daemon can run.
+// apiAgentProviders lists what this daemon can run — each row with `llm`,
+// what a session of the caller's would run on, while the workspace has an
+// LLM connector for agent sessions (agentllm.go); exactly the catalog
+// otherwise.
 func (s *Server) apiAgentProviders(w http.ResponseWriter, r *http.Request) {
-	WriteJSON(w, http.StatusOK, agent.Providers())
+	WriteJSON(w, http.StatusOK, s.withAgentLLM(r, agent.Providers()))
 }
 
 // apiAgentCreate opens an agent session: {cwd, kind:"agent", provider,
-// mode?, net?, api?, gpu?, vm?, name?, resume?} → SessionInfo (status starting).
+// mode?, net?, api?, gpu?, vm?, name?, resume?, llm?} → SessionInfo (status starting).
+// llm picks who serves its model calls where the workspace has an LLM
+// connector — "connector" or "own"; absent, the person's saved default,
+// then the workspace's.
 // ?deployment= is the session's target (D127p) — the body never gains a field:
 // a deployment of the tile, echoed in the SessionInfo; absent, the default.
 // net/api/gpu/vm are the sandbox pickers a shell's socket takes (api false = a
@@ -75,6 +81,7 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	var body struct {
 		Cwd, Kind, Provider, Mode, Net, GPU, Name, Model, Resume string
+		LLM                                                      string // who serves its model calls: connector | own (agentllm.go)
 		API                                                      *bool
 		VM                                                       bool
 		Options                                                  map[string]string
@@ -102,7 +109,7 @@ func (s *Server) apiAgentCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	info, code, err := s.Term.OpenAgentWith(auth.PrincipalOf(r), term.AgentOpen{Cwd: body.Cwd, Net: body.Net, GPU: body.GPU,
 		NoAPI: body.API != nil && !*body.API, VM: body.VM, Provider: body.Provider, Mode: body.Mode, Name: body.Name, Resume: body.Resume, Options: body.Options,
-		Deployment: r.URL.Query().Get("deployment")})
+		Deployment: r.URL.Query().Get("deployment"), LLM: body.LLM})
 	if err != nil {
 		agentOpenErr(w, code, err)
 		return

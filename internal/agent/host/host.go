@@ -157,8 +157,12 @@ func (h *Host) daemonLoop() {
 	}
 }
 
-// spawn starts the agent with exactly the env the daemon gave.
+// spawn starts the agent with exactly the env the daemon gave — after the
+// LLM connector's part of it is settled here, where the session's $HOME
+// shows whether the person has a sign-in of their own (llm.go).
 func (h *Host) spawn(p acp.SpawnParams) error {
+	hello := acp.HelloParams{Version: Version}
+	p.Env, hello.LLM, hello.Logins = settleLLM(p.Env, p.LLM)
 	cmd := exec.Command(p.Argv[0], p.Argv[1:]...)
 	cmd.Env = p.Env
 	cmd.Dir = p.Cwd
@@ -182,7 +186,7 @@ func (h *Host) spawn(p acp.SpawnParams) error {
 	h.agent = acp.NewConn(nil, inW)
 	h.exit = h.reaper.Claim(cmd.Process.Pid)
 	close(h.spawned)
-	_ = h.daemon.Notify(acp.MXbinHello, acp.HelloParams{Version: Version})
+	_ = h.daemon.Notify(acp.MXbinHello, hello)
 	return nil
 }
 

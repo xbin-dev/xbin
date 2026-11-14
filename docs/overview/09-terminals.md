@@ -564,6 +564,20 @@ agent that cannot offers a fresh start instead). On a partitioned tile the
 transcript is kept with the person's partition instead (the same listing
 shows it), and goes when a partition mode switch deletes the tile's data.
 
+**Whose models.** By default the CLI signs in from the session's `$HOME`
+(a login done once in a terminal, or the Agent tab's guided sign-in). Where
+the workspace has an **LLM connector** ([/docs/llm.md](/docs/llm.md), D226)
+the CLI can run on it instead, with no sign-in: xbind renders the
+connector's variables for the harness (OpenCode's inline provider config,
+Codex's gateway sign-in) with an LLM key of the session's own, and the
+agent host — the only party that sees the session's `$HOME` — applies them
+unless the person's own sign-in serves the session (the session's choice,
+their saved default, then the workspace's `own-first` | `connector` |
+`off`). The key is in the agent's environment only, is good for the
+connector's model routes only, and is revoked when the session ends. A
+plain terminal gets `XBIN_LLM_URL` and `XBIN_LLM_KEY` the same way. A
+session with no network (`net: none`) reaches no connector.
+
 A long conversation stays quick (D124, D130): the Agent tab reads only the
 tail of the log when it opens, folds what arrives, renders at most once a
 frame (not at all while the tab is hidden), and keeps only the part of the

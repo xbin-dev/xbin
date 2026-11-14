@@ -191,6 +191,8 @@ type Manager struct {
 	TilePartitioned    func(path string) (tile string, partitioned bool)
 	PersonPartitionKey func(userID string) string
 
+	LLMHook // the workspace's LLM connector for sessions: LLM, Prefs (llmhook.go, D226)
+
 	// SigninLife is how long a guided sign-in's shell (?purpose=signin,
 	// purpose.go) lives before xbind ends it. 0 ⇒ 15 minutes.
 	SigninLife time.Duration
@@ -329,6 +331,7 @@ type openOpts struct {
 	target     sessionTarget     // the target deployment (pickTarget, target.go)
 	part       sessionPart       // the partition on a partitioned tile (pickPartition, partition.go)
 	purpose    string            // "" or PurposeSignin: a guided sign-in's shell (purpose.go)
+	llmOpts                      // its hold on the LLM connector, when it gets one (llmhook.go)
 }
 
 // prepare is the part of opening a session that both kinds share: the cwd,
@@ -394,6 +397,7 @@ func (m *Manager) create(o openOpts) (*Session, error) {
 		return nil, err
 	}
 	o.launch = &sbxLaunch{}
+	revokeTok = m.llmArm(&o, rel, nil, revokeTok) // the terminal's LLM key, ended with its token (llmhook.go)
 	cmd, cleanup, postStart, envKey, _, err := m.shellCmd(o.startDir(dir, homeDir), rel, homeDir, token, o)
 	if err != nil {
 		revokeTok()
@@ -524,6 +528,7 @@ func (m *Manager) shellCmd(dir, rel, homeDir, token string, o openOpts) (*exec.C
 	if token != "" {
 		cmd.Env = append(cmd.Env, "XBIN_TOKEN="+token)
 	}
+	cmd.Env = append(cmd.Env, o.llmShellEnv(cmd.Env)...) // a terminal's XBIN_LLM_* (llmhook.go)
 	return cmd, func() {}, nil, "", cmd.Env, nil
 }
 

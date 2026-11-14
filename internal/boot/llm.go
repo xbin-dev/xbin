@@ -13,6 +13,8 @@ import (
 // it up sees nothing new. A host file that can't be read stops the boot:
 // xbind doesn't run without the limits its host wrote.
 func (st *State) setupLLM(srv *server.Server) error {
+	// (agent sessions and terminals reach it through term.Manager.LLM, tile
+	// sandboxes through the LLM-only listener serve() opens: llmsessions.go)
 	brk, userStore := st.Broker, st.Users
 	svc, err := llm.New(llm.Options{
 		Dir:      filepath.Join(st.WS, "data", "llm"),
@@ -41,6 +43,9 @@ func (st *State) setupLLM(srv *server.Server) error {
 	}
 	st.LLM = svc
 	svc.Register(srv)
+	if st.Term != nil { // agent sessions and terminals on the connector (llmsessions.go)
+		st.Term.LLM = llmSessions{svc}
+	}
 	brk.LLMOffered = svc.Configured // pickers offer xbin:llm once an upstream exists
 	return nil
 }

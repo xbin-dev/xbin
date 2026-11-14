@@ -12,6 +12,42 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
 
 ## 2026-11-14
 
+- **Coding agents and terminals run on the workspace's LLM connector by
+  default** (D226; [llm.md](/docs/llm.md) §Coding agents and terminals).
+  Nothing changes for a workspace with no connector configured: no new
+  variable, no new behaviour.
+  - **Agent sessions**: OpenCode and Codex start pointed at the connector
+    with no sign-in — OpenCode with the provider "LLM by xbin" declared
+    beside the person's own, Codex through its gateway sign-in. A person's
+    own sign-in keeps working and, by default, wins (`own-first`); a
+    workspace admin can make the connector the rule (`bx llm sessions
+    harnesses=connector`) or switch it off. Claude Code and Gemini CLI keep
+    running on the person's own sign-in. `POST /api/xbin/term/sessions`
+    takes `llm: "connector" | "own"` (`bx agent run --llm`), a session row
+    gains `llm`, a `notice` event says when the connector serves, and `GET
+    /api/xbin/agent/providers` gains `llm` per row — `{use, connector,
+    note?, signedIn?}` — and an optional `?cwd=`
+    ([protocol/agents.md](/docs/protocol/agents.md)); rows are unchanged
+    without a connector.
+  - **Terminals** get `XBIN_LLM_URL` and `XBIN_LLM_KEY`; `OPENAI_BASE_URL`
+    and `OPENAI_API_KEY` only with `bx llm sessions openai-env=on`.
+  - **The credential is a per-session LLM key** (`xbl_…`), never the
+    terminal token: good for the connector's model routes only, metered to
+    the session's person and tile, revoked when the session ends.
+  - **Settings**: `sessions: {harnesses, terminals, openaiEnv}` in `PUT
+    /api/xbin/llm/config` and the host's `XBIN_LLM_CONFIG` (lockable), read
+    back by `GET /api/xbin/llm` and `/llm/config`; `bx llm sessions`.
+- **A tile bound to `xbin:llm` can ask for an LLM key** for a coding tool it
+  runs in a sandbox: `POST /api/xbin/llm/keys` → `{id, token, expires, …}`,
+  `DELETE /api/xbin/llm/keys/<id>` ([protocol/llm.md](/docs/protocol/llm.md)
+  §Keys for a tile's harnesses). The key is for the person the tile's
+  credential acts for, and no one else.
+- **Go SDK, `sdk/acp`**: `Provider.Connector`, `Provider.ConnectorEnv`,
+  `acp.ConnectorServes`, `Provider.HasOwnLogin` and `acp.ExpandWord` — how
+  each coding CLI is pointed at an LLM connector from its environment, and
+  who serves a session ([sdk.md](/docs/sdk.md) §Driving a coding agent).
+  `acp.Fake` takes a connector too, and the scripted agent (`acptest`)
+  gains the `llm-call` script.
 - **xbind has an LLM connector built in** (D226; [llm.md](/docs/llm.md),
   routes in [protocol/llm.md](/docs/protocol/llm.md)). One
   OpenAI-compatible endpoint, `/api/xbin/llm/v1` (`chat/completions`,

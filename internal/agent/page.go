@@ -60,6 +60,10 @@ type PageState struct {
 	Turn         uint64          `json:"turn"`            // the last turn number ended before the page
 	Permissions  []Pending       `json:"permissions,omitempty"`
 	Elicitations []Elicitation   `json:"elicitations,omitempty"`
+	// LLM is who serves the session's model calls now — "connector" or
+	// "own" — on the tail page of a live session the workspace's LLM
+	// connector is offered to (term's llmhook.go, D226); "" otherwise.
+	LLM string `json:"llm,omitempty"`
 	// Queue is the messages held for the running turn's end now (the tail
 	// page of a live session; term's queue, D197): the items a `queue`
 	// event carries. A client takes it before the page's events, whose

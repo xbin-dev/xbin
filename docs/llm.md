@@ -6,11 +6,13 @@ coding tools share one LLM setup — the keys in one place, every call metered
 to the person it was made for, quotas where an admin or a host wants them.
 
 It is off until someone configures it. A workspace that never adds an
-upstream sees nothing new: the routes answer "not configured" and no picker
-offers the connector.
+upstream sees nothing new: the routes answer "not configured", no picker
+offers the connector, and no session's environment changes.
 
 - endpoint: `/api/xbin/llm/v1` — `chat/completions`, `responses`, `models`
   ([protocol/llm.md](/docs/protocol/llm.md))
+- coding agents and terminals are pointed at it by default (§Coding agents
+  and terminals)
 - binding ref: `xbin:llm` (the provider of the `openai` service)
 - CLI: `bx llm` ([bx.md](/docs/bx.md))
 - host configuration: `XBIN_LLM_CONFIG` ([config.md](/docs/config.md))
@@ -81,8 +83,10 @@ and `xbin/default`, `xbin/<role>`.
   their own sign-in), by the **people switch**: `admins` (the default),
   `everyone` or `nobody` — `bx llm people everyone`.
 - **An LLM key** — a narrow credential good for these routes only
-  ([auth.md](/docs/auth.md) §LLM keys), for coding tools in terminals and
-  agent sessions. Nothing hands them out yet.
+  ([auth.md](/docs/auth.md) §LLM keys). xbind gives one to each agent
+  session and terminal it points at the connector, and a bound tile asks
+  for one for a coding tool it runs in a sandbox (§Coding agents and
+  terminals).
 
 `bx llm off` stops every call; `bx llm on` resumes.
 
@@ -129,6 +133,137 @@ person of a partition's backend ([partitions.md](/docs/partitions.md)), the
 person driving a frame, a terminal or an agent session. A backend that
 serves everyone (not a person's partition) acts for nobody: its calls are
 metered to the tile and held by the workspace quota only.
+
+## Coding agents and terminals
+
+Once the connector serves calls, the coding tools people run on tiles are
+pointed at it — no sign-in, no setup — unless the person has a sign-in of
+their own, which keeps working.
+
+```sh
+bx llm default set openai/gpt-5-mini --role harness   # the model harnesses start on
+bx llm sessions                                       # what is in force
+bx llm sessions harnesses=connector                   # the connector, whatever people are signed in to
+bx llm sessions terminals=off openai-env=on           # the terminal switches
+```
+
+### Agent sessions
+
+An agent session (the Agent tab, `bx agent run`) starts its CLI with the
+connector in its environment. What each harness gets:
+
+| Harness | Through the connector | What xbind sets |
+|---|---|---|
+| OpenCode | yes — beside the person's own providers | an inline config (`OPENCODE_CONFIG_CONTENT`) declaring the provider **LLM by xbin** with the connector's models, so they can always be picked; its `model` — what makes it the session's default — only when the connector serves the session |
+| Codex | yes — in place of a sign-in | codex-acp's gateway sign-in (`DEFAULT_AUTH_REQUEST`) and the model (`CODEX_CONFIG`), only when the connector serves the session |
+| Claude Code | not yet | nothing: it speaks Anthropic's Messages wire, which the connector doesn't relay yet. It runs on the person's own sign-in |
+| Gemini CLI | no | nothing: it has no OpenAI-compatible mode. Own sign-in only |
+
+**Who serves a session**, first that says so:
+
+1. the session's own choice — `llm: "connector" | "own"` on `POST
+   /term/sessions`, `bx agent run --llm`;
+2. the person's saved default for that harness;
+3. the workspace's `harnesses` switch: `own-first` (the default) — the
+   person's own sign-in when the session finds one in their `$HOME`
+   (`opencode auth login`, `codex login`; a provider key in the
+   environment counts), else the connector; `connector` — the connector,
+   whatever they are signed in to; `off` — agent sessions get nothing.
+
+So with `own-first` a person who signed OpenCode in keeps their models as
+the default and gains the connector's in the picker, and a person with no
+sign-in gets the connector's model — never, silently, OpenCode's own free
+third-party models. Asking for the connector where it can't serve (Claude
+Code, no default model, a session with no network) is refused with the
+reason; it is never dropped quietly.
+
+The session says what it runs on: a first line in the transcript when the
+connector serves it, `llm: "connector" | "own"` in its row, and `GET
+/agent/providers` tells a launcher beforehand, per harness
+([protocol/agents.md](/docs/protocol/agents.md)).
+
+The default model is `xbin/harness` — the `harness` role's model, else the
+default model, else the first model an upstream lists — resolved when the
+session starts. Codex has no metadata for a model it doesn't know and says
+so in its answers ("Model metadata … not found"); its own model names stay
+in its picker and work when an upstream serves them or an alias maps them
+(§Model names).
+
+### Terminals
+
+A tile terminal gets, while the `terminals` switch is on (the default):
+
+- `XBIN_LLM_URL` — the connector's OpenAI base URL as the terminal reaches
+  it (`$XBIN_URL/api/xbin/llm/v1`);
+- `XBIN_LLM_KEY` — the terminal's own LLM key.
+
+```sh
+curl -s "$XBIN_LLM_URL/chat/completions" -H "Authorization: Bearer $XBIN_LLM_KEY" \
+  -H 'Content-Type: application/json' -d '{"messages":[{"role":"user","content":"hello"}]}'
+OPENAI_BASE_URL=$XBIN_LLM_URL OPENAI_API_KEY=$XBIN_LLM_KEY some-tool   # one tool, on purpose
+```
+
+`OPENAI_BASE_URL` and `OPENAI_API_KEY` — the pair most tools read — are set
+only with the `openaiEnv` switch (`bx llm sessions openai-env=on`), off by
+default: everything started in the terminal inherits its environment, and a
+tool that reads the key but not the base URL sends the key to OpenAI. A
+person whose terminals hold no tile API token (no `termApi` grant) gets no
+LLM key in one either; a guided sign-in's shell gets none.
+
+### The key
+
+Every session has an **LLM key** of its own (`xbl_…`,
+[auth.md](/docs/auth.md) §LLM keys) — never its terminal token, which is
+the tile's API credential:
+
+- good for `/api/xbin/llm/v1/…` only; anywhere else it is a `401`;
+- metered to the person who opened the session and to the tile, and held
+  by that person's quota;
+- minted when the session opens, revoked when it ends — closed, crashed,
+  restarted (the new session has a new key), xbind stopped. A resumed
+  session gets a fresh one;
+- an agent session's is in the agent's own environment only — not in the
+  sandbox's, and not in the terminals the agent opens through xbind.
+  Where the person's own sign-in serves a harness that takes the connector
+  *in place of* a sign-in (Codex), the key is revoked at once.
+
+Coding tools keep things: **Codex writes its environment, the key in it, to
+`~/.codex/shell_snapshots/`**, and xbind does not clean a person's home.
+What stays there is a key that stopped working when its session ended; for
+as long as the session lives, whatever else reads that home (the person's
+other terminals) could spend their quota with it — which a terminal of
+theirs can already do with its own key.
+
+### The network path
+
+The connector is reached at xbind's own address (`XBIN_URL`), which a
+session's sandbox reaches whatever network scope it has — the tile's `net`
+rules never block it — except one: a session with **no network** (`net:
+none`) has no route to xbind at all. It gets no key; an agent session says
+so in its first line and runs on the person's own sign-in.
+
+### Sandboxes made by a sandbox manager
+
+A coding agent the agent template runs lives in a sandbox a manager tile
+made ([sandbox-manager.md](/docs/sandbox-manager.md)), which by design
+reaches nothing of xbind. Two things connect it:
+
+- **the sandbox** is created with the connector asked for (`llm: true` in
+  the manager's create request; on xbind's own runtime `net.llm`). xbind
+  then forwards one port of the sandbox's gateway —
+  `http://10.0.2.2:4180/v1` — to its **LLM-only listener**: the three
+  model routes for an LLM key, nothing else of xbind, with any egress
+  class, `none` included. The sandbox's row names the address (`llm.url`);
+  a manager or an xbind that doesn't know the field leaves it out, and the
+  consumer runs the agent on its own sign-in;
+- **the key** is the consumer's to ask for: a tile whose `llm` slot is
+  bound to `xbin:llm` calls `xbin.LLMKeyFor` ([sdk.md](/docs/sdk.md); `POST
+  /api/xbin/llm/keys`) for the person it acts for, hands the key to the
+  agent as an exec's environment, and revokes it when the run ends.
+
+The agent template does both: bind its `llm` slot to `xbin:llm` and a
+coding agent with no sign-in of its own — none saved by the person, none in
+the sandbox — starts on the connector.
 
 ## Usage
 
@@ -216,6 +351,7 @@ bring its own models and hold quotas the workspace's admins can't lift.
   },
   "defaults": { "model": "house/gpt-5", "roles": { "harness": "house/gpt-5-mini" } },
   "aliases": { "*": "house/gpt-5" },
+  "sessions": { "harnesses": "connector", "openaiEnv": false },
   "quotas": {
     "workspace": { "costPerMonth": 500 },
     "default": { "tokensPerDay": 2000000 },
@@ -226,10 +362,12 @@ bring its own models and hold quotas the workspace's admins can't lift.
 ```
 
 - The settings are the admin API's (`enabled`, `people`, `upstreams`,
-  `defaults`, `aliases`, `quotas`), with a key named by file (`keyFile`).
+  `defaults`, `aliases`, `sessions`, `quotas`), with a key named by file
+  (`keyFile`).
 - **What it sets is locked, piece by piece**: `enabled`, `people`, each
-  upstream it defines, the default model, each role and alias it names, and
-  each part of `quotas` it mentions (`workspace`, `default`, `users`,
+  upstream it defines, the default model, each role and alias it names,
+  each `sessions` switch it sets (`harnesses`, `terminals`, `openaiEnv`),
+  and each part of `quotas` it mentions (`workspace`, `default`, `users`,
   `orgs` — an empty `{}` locks that part with nothing in it). What it
   leaves out stays the admin's: their own upstreams, other aliases, the
   quota parts it didn't mention.
@@ -258,6 +396,9 @@ bring its own models and hold quotas the workspace's admins can't lift.
   to call a tile with); bind tiles to one or the other.
 - The connector doesn't retry: a provider's `429` or `5xx` passes with its
   `Retry-After`, and the client's own retry applies.
-- Nothing injects the connector into terminals or agent sessions yet, and
-  the admin console has no section for it: `bx llm` and the API are the way
-  in.
+- Claude Code and Gemini CLI can't run on the connector yet (their wires
+  aren't relayed), and a session with no network can't reach it.
+- A person's saved default per harness has no surface yet: the workspace's
+  switch and a session's own choice decide.
+- The admin console has no section for the connector: `bx llm` and the API
+  are the way in.

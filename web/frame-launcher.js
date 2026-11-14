@@ -16,6 +16,7 @@
  */
 import { html, css, nothing } from 'lit';
 import { uid, makeStore } from '/vendor/term-sessions.js';
+import { llmHint } from '/vendor/agent-fold.js';
 import { loadDeployIfShown, launchBanner, launchTarget, targetQuery, targetRefused } from '/vendor/frame-deploy.js';
 
 const prefs = makeStore();
@@ -186,7 +187,7 @@ export function launcher(f) {
     <div class="lcards">
       ${card('Bash', (vm ? 'a shell in a VM sandbox' : 'a shell in the sandbox') + target, () => f._startKind('shell'), 'terminal')}
       ${provs.length
-        ? provs.map((p) => card(p.name, (vm ? 'coding agent, in a VM' : 'coding agent') + target, () => f._startKind('agent', p.id), 'agent'))
+        ? provs.map((p) => card(p.name, (vm ? 'coding agent, in a VM' : 'coding agent') + target + (llmHint(p) ? ` · ${llmHint(p)}` : ''), () => f._startKind('agent', p.id), 'agent'))
         : html`<span class="lsub">loading agents…</span>`}
     </div>
     ${recent.length ? html`<div class="lrecent">

@@ -38,6 +38,7 @@ import '/vendor/bx-icons.js';
 import { onEvent } from '/vendor/events-socket.js';
 import { headline, missingRequired } from '/vendor/agent-tools.js';
 import { Transcript, PAGE_LIMIT } from '/vendor/agent-pages.js';
+import { llmHint } from '/vendor/agent-fold.js';
 import { ScrollWindow } from '/vendor/scroll-window.js';
 import { toolCard, permCard, changesCard, askCard, cardsCss, mdLive } from '/vendor/agent-cards.js';
 import { agentCss } from '/vendor/agent-css.js';
@@ -642,6 +643,7 @@ export class BxAgent extends LitElement {
           <span>${this.history ? 'past session' : this.session ? (status === 'waiting_permission' ? 'waiting for you' : status.replace('_', ' ')) : 'not started'}</span>
           ${this._curMode() && !this._options().length ? html`<span>· ${this._curMode()}</span>` : nothing}
           ${this._usage()}
+          ${this.session && this._tx.st.llm === 'connector' ? html`<span title="model calls go through this workspace's LLM connector, metered to you">· LLM by xbin</span>` : nothing}
           ${this._followUp ? html`<span title=${this._followUp.text}>· your feedback goes in when the turn ends</span>` : nothing}
           ${this._error || this._statusDetail() ? html`<span class="err">${this._error || this._statusDetail()}</span>` : nothing}
         </div>
@@ -703,6 +705,7 @@ export class BxAgent extends LitElement {
       ${prov?.modes?.length ? html`<select title="mode" @change=${(e) => { this._mode = e.target.value; }}>
         ${prov.modes.map((m) => html`<option value=${m.id} ?selected=${m.id === this._curMode()}>${m.name}${m.explicit ? ' (caution)' : ''}</option>`)}
       </select>` : nothing}
+      ${llmHint(prov) ? html`<span class="hint" title=${prov.llm.note || ''}>${llmHint(prov)}</span>` : nothing}
     </div>`;
   }
 
