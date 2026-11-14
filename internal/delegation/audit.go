@@ -4,18 +4,20 @@
 // sets a delegate proposes.
 package delegation
 
-// audit.go — "what my agent did": one row per delegate call, per person.
+// audit.go — "what my agent did": the rows the delegate gate writes, per
+// person.
 //
 //   - Where: <dir>/<hex(user id)>/audit-YYYY-MM.jsonl, appended, 0600 under
 //     xbind's own data directory: no sandbox writes there (D78), and no tile
 //     — the agent's component included — reads it.
 //   - What: who, which sealed component, method, path WITHOUT its query,
 //     the tile and the delegation class, the status, and the refusal's
-//     reason. Never a body, a query or a header: a call's content stays in
-//     the tile it went to.
-//   - How much: every side effect and every refusal is a row. Successful
-//     reads repeat (an agent polls), so one row per (method, path) a minute
-//     is written; the rest are counted into the next row (N).
+//     reason; for an approved side effect, the ticket or standing approval
+//     it ran under. Never a body, a query or a header: a call's content
+//     stays in the tile it went to.
+//   - Which calls: the gate decides (internal/server/delegate.go) — every
+//     act, every tile call, every refusal, every read of code, logs and
+//     admin state; not the listing reads a UI makes all day.
 //   - How long: KeepMonths monthly files; older ones are removed when a new
 //     month's file is first written.
 
@@ -36,9 +38,6 @@ import (
 // KeepMonths is how many monthly files a person's log keeps.
 const KeepMonths = 13
 
-// readWindow coalesces a person's repeated successful reads of one path.
-const readWindow = time.Minute
-
 // Call is one row.
 type Call struct {
 	Time    time.Time `json:"ts"`
@@ -52,7 +51,8 @@ type Call struct {
 	DryRun  bool      `json:"dryRun,omitempty"`  // asked what it would do; nothing ran
 	Status  int       `json:"status"`            // the HTTP status answered
 	Refused string    `json:"refused,omitempty"` // why the gate refused it, when it did
-	N       int       `json:"n,omitempty"`       // reads of this path coalesced into this row, beyond itself
+	Ticket  string    `json:"ticket,omitempty"`  // the approved request it ran under
+	Under   string    `json:"under,omitempty"`   // …or the standing approval, or "preference" for a session started unasked
 }
 
 // Log is the store. A nil *Log records nothing.
@@ -61,26 +61,19 @@ type Log struct {
 	now func() time.Time
 
 	mu    sync.Mutex
-	reads map[string]*readMark // user \x00 method \x00 path → the window
-	month map[string]string    // user → the month last written (prune once a month)
-}
-
-type readMark struct {
-	at time.Time
-	n  int
+	month map[string]string // user → the month last written (prune once a month)
 }
 
 // Open is the log under dir (created at the first row).
 func Open(dir string) *Log {
-	return &Log{dir: dir, now: time.Now, reads: map[string]*readMark{}, month: map[string]string{}}
+	return &Log{dir: dir, now: time.Now, month: map[string]string{}}
 }
 
 func userDir(dir, user string) string { return filepath.Join(dir, hex.EncodeToString([]byte(user))) }
 
 const monthFmt = "2006-01"
 
-// Append records c (its Time is set here when zero). A successful read that
-// repeats one written within the last minute is counted, not written.
+// Append records c (its Time is set here when zero).
 func (l *Log) Append(c Call) error {
 	if l == nil || c.User == "" {
 		return nil
@@ -89,23 +82,6 @@ func (l *Log) Append(c Call) error {
 	defer l.mu.Unlock()
 	if c.Time.IsZero() {
 		c.Time = l.now().UTC()
-	}
-	if !c.Effect && c.Refused == "" && !c.DryRun && c.Status < 400 {
-		key := c.User + "\x00" + c.Method + "\x00" + c.Path
-		if m := l.reads[key]; m != nil && c.Time.Sub(m.at) < readWindow {
-			m.n++
-			return nil
-		} else if m != nil {
-			c.N = m.n
-		}
-		l.reads[key] = &readMark{at: c.Time}
-		if len(l.reads) > 4096 { // forget the windows that closed
-			for k, m := range l.reads {
-				if c.Time.Sub(m.at) >= readWindow {
-					delete(l.reads, k)
-				}
-			}
-		}
 	}
 	dir := userDir(l.dir, c.User)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
