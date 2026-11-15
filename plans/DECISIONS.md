@@ -13777,6 +13777,26 @@ Deviations and refinements made while implementing; all deliberate:
     Kept for the sealed-components merge: under `--dev --no-auth` the
     holder's single global instance is the implicit owner's delegate
     (`TestDelegateNoAuthGlobalHolder`, skipped until then).
+  - **After the second review (2026-11-15).** What changed in the design:
+    a tile's agent level is xbind's record, raised only by a person who
+    manages the tile (`data/agent-levels.json`; the manifest lowers, never
+    raises; the consoles' level is the release's); a delegate's tile call
+    forwards an allowlist of request headers, a ticket binds the whole
+    `Content-Type`, a tile's redirect headers are dropped and `AsPerson()`
+    follows none; a missing tile and an unreadable one are one refusal; a
+    binary body is approved only as `unseen`; applying a change set takes
+    an explicit non-empty list, its names are validated before they reach
+    a line, and sets are capped (50 decided, 30 days, 256 KiB); every
+    audit field is bounded and a bad line is skipped and counted; a
+    delegate's session start is strict (`acp.Config.Strict`: the mode in
+    force or no session, only a model or thinking level set) and a
+    preference is its harness's; the cap's golden pins the audit flag and
+    tile function and is not regenerated in CI; the agent template's rule
+    lists reads too and covers the adapters, bus and mailbox. **A holder
+    is never trusted chrome**: "the person's own session" is a request
+    with the person's session and no component, which is exactly what
+    chrome's documents send — `trustedChrome` is false for a holder,
+    `PUT /chrome` refuses one, and boot stops on a conflict.
 - **D224 — One chat kit for the Agent tab, the agent template and the
   workspace agent; a newer template needs its xbind (2026-11-14; issue
   #51).** The Agent tab (`web/agent-*.js`), the agent template

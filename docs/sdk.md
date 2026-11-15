@@ -833,7 +833,10 @@ xbin.WithTicket(req, ask.ID)         // once, within 15 minutes; another method,
 resp, err = xbin.AsPerson().Do(req)  // query, body or content type is ErrBadTicket
 ```
 
-A body is approved as JSON; `xbin.RequestApprovalAs(ctx, method, path,
+`AsPerson()` follows no redirect — a tile's 3xx is the response you get,
+and `DelegateRefusal` reports it as an error: the call a person approved is
+one call. A body is approved as JSON (send exactly `Content-Type:
+application/json`, or the type you asked with: the whole header is bound); `xbin.RequestApprovalAs(ctx, method, path,
 contentType, body, summary)` asks for another content type.
 `xbin.StandingApprovals(ctx)` lists what the person lets their agent do
 without a ticket — each one call (`Scope "call"`: `Method` on `Path`) or

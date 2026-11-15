@@ -174,12 +174,28 @@ commit; breaking ones add `changes/YYYY-MM-DD-<slug>.md` (rules: repo
   applies them as the person), and the person's audit log of what their
   agent did. A `delegate` event on `/ws/events`;
   push kinds `agent.approval` and `agent.changeset`.
+- **A tile's `"agent"` level is raised only by a person**
+  ([protocol/delegation.md](/docs/protocol/delegation.md) §A tile's agent
+  level). A manifest lowers the level at once; one that states more than
+  xbind has on record, or drops the key after stating less, changes nothing
+  until someone who manages the tile approves it (`GET` / `PUT
+  /api/xbin/agent-levels`; an `agent-level` alert; `agentRequested` on
+  `/components` rows). A tile that never stated a level is `full`, and its
+  first value is taken as is. A workspace's consoles are `off` whatever
+  their copy of the manifest says.
+- **A delegate's call to a tile carries a fixed list of request headers**
+  (Accept…, Content-Type, the conditionals, Range, Cache-Control,
+  User-Agent) and a tile's answer to it no `Location`: write a tile's API
+  so an agent needs neither a custom header nor a redirect.
 - **SDK: `xbin.AsPerson()` and the delegate helpers** (`RequestApproval`,
   `RequestApprovalAs`, `ApprovalOf`, `StandingApprovals`, `WithTicket`,
   `WithAgentModel`, `DryRun`, `ProposeChanges`,
   `ChangeSetOf`, `DelegateRefusal` and its `Err…` values) — for xbind's own
   workspace-agent component; from any other tile they answer 401
-  ([sdk.md](/docs/sdk.md)).
+  ([sdk.md](/docs/sdk.md)). `AsPerson()` follows no redirect. `sdk/acp`:
+  `Config.Strict` — a start whose mode the harness refuses, or that asks
+  for an option other than a model or a thinking level, fails (xbind sets
+  it for sessions a workspace agent opens).
 - **Agent sessions: `origin`.** A session row, and its history entry,
   carries `origin: "agent"` when the person's workspace agent opened it
   (`GET /term/sessions`, `GET /agent/history`). Absent otherwise.

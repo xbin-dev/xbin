@@ -53,6 +53,16 @@ Authorization: XBin-Delegate <XBIN_TOKEN>
   and `--no-auth` excepted).
 - A request that carries the scheme is judged as the delegate's or refused,
   whatever else it carries.
+- A call to a tile's API carries **these request headers and no other**
+  to the tile: `Accept`, `Accept-Encoding`, `Accept-Language`,
+  `Content-Type`, `Content-Length`, `If-Match`, `If-None-Match`,
+  `If-Modified-Since`, `If-Unmodified-Since`, `Range`, `Cache-Control`,
+  `User-Agent` (xbind adds its `X-XBin-*`). Cookies, `Origin`, forwarded
+  addresses, `Content-Encoding` and every `X-…` switch are dropped: a
+  header a tile could act on would be a part of the call nobody approved.
+- A tile's answer never sends the call on: `Location`, `Content-Location`
+  and `Refresh` are removed from it (the status stays). Every request is
+  judged as it arrives, on its own.
 - The method judged is the method made: `X-HTTP-Method-Override`,
   `X-HTTP-Method` and `X-Method-Override` are removed before a tile sees
   the call, and a call whose query carries `_method` is refused (`403`).
@@ -75,6 +85,11 @@ forwards them):
 | acts | `POST /term/sessions` (approval, or the person's preference), `POST /templates/new` (approval); on sessions **it opened**: `…/prompt`, `…/queue`, `DELETE …/queue[/<qid>]`, `…/cancel`, `DELETE /term/sessions/<id>`; asking: `POST`/`DELETE /delegate/requests…`, `POST`/`DELETE /delegate/changesets…` |
 | admin reads, only for an admin who opted in | `GET /grants`, `/bindings`, `/orgs` (without SSO group rules), `/limits` — answered as the person |
 | refused | everything else: `403 {error, refusal: "not-delegated", class}`. In particular: answering a tile agent's permission request or question, a session's options and restart, terminals, deleting or disabling tiles, code writes and pull requests, the account, devices and sign-in tickets, frame tokens and path tickets, view-as, a person's consents, tile stores, the admin API, and every approval on this page |
+
+A tile that isn't there and a tile the person can't read get **one
+answer** — `403 {refusal: "tile"}` with the same words, naming no tile — on
+a call, its dry run, a request for approval and the routes that name a
+tile.
 
 Listings leave out the tiles whose org keeps the workspace agent out (on
 the model it says it is on) — the rows of `/components`, `/tile-report`,
@@ -189,8 +204,9 @@ agent's sandbox can ask and can read, and nothing more.
    `agent.approval`).
 3. Approved, the request **is a ticket**: for 15 minutes, once, the agent
    makes that call with `X-XBin-Ticket: <id>`. Another method, path, query,
-   body or content type — or a path that now resolves to another tile — is
-   `403 {refusal: "ticket"}` and spends nothing.
+   body or `Content-Type` (the whole of it: type and parameters) — or a
+   path that now resolves to another tile — is `403 {refusal: "ticket"}`
+   and spends nothing.
 
 ```
 POST   /delegate/requests       the person's agent only. {method, path,
@@ -217,8 +233,11 @@ POST   /delegate/requests/<id>/approve
                                  the person, in their own session, app or
                                  device — never the agent's page (403).
                                  {grant?: "once" | "hour" | "always",
-                                 scope?: "call" | "tile"} → {request,
-                                 approval?}. once is the default; hour and
+                                 scope?: "call" | "tile", unseen?: true}
+                                 → {request, approval?}. A request whose
+                                 body can't be shown (bodyBinary) is
+                                 approved only with unseen: true — 409
+                                 {unseen, bodySize, bodySha256} without. once is the default; hour and
                                  always (a tile API call only) also record
                                  a standing approval — of this call
                                  (scope "call", the default) or of every
@@ -240,7 +259,11 @@ A request:
  grant?, created, decided?, expires, decidedVia?}
 ```
 
-`body` is shown while the request is pending or approved, when it is text;
+`body` is shown while the request is pending or approved, when it is text.
+A body that isn't — not UTF-8, or with control characters — sets
+`bodyBinary`, and `preview.body` is `{binary: true, size, sha256}`: show
+that, and that approving it approves bytes nobody read (`approvedUnseen` is
+recorded on the request);
 `summary` is the agent's own text — show it as the agent's. For a tile
 call `preview.standing` is `{call, tile}`: xbind's sentence for what each
 standing scope would allow from then on — show the one the person is about
@@ -259,7 +282,11 @@ one it opens only when the person's agent preferences allow starts without
 asking, and then the mode, network and API access are the preference's:
 sending `mode`, `net` or `api` is `403`. Either way: the tile's default
 deployment, a harness the tile's org allows, never a tile that is itself a
-workspace agent, and the session's row carries `origin: "agent"`. An agent
+workspace agent. The start is strict: a mode the harness won't take ends
+the session (it is never run in the harness's own mode instead), and of
+its options only a model or a thinking level is set — any other ends it.
+A preference applies to the harness it was set for, in a mode that asks.
+Also: and the session's row carries `origin: "agent"`. An agent
 resumes only past sessions it started.
 
 ## Standing approvals
@@ -317,9 +344,10 @@ POST   /delegate/changesets/<id>/approve
                                  the person whose agent proposed it, in
                                  their own session, app or device. {items?:
                                  [n, …], password?} → the set with each
-                                 item's result. Without items: all of
-                                 them; items: [] applies none (the set
-                                 ends rejected). Needs a sign-in under 10
+                                 item's result. items is required and
+                                 not empty: no body, null and [] apply
+                                 nothing (400; the set stays proposed).
+                                 Needs a sign-in under 10
                                  minutes old, or the password in the body:
                                  403 {error, stepUp: "password" | "signin"}
                                  otherwise, as for adding a device
@@ -381,7 +409,13 @@ A change set:
   `rejected` — the person left it out; `blocked`.
 - The set is not atomic: what was applied stays. `applied` when every
   chosen item applied, else `partial`.
-- A proposal expires after 7 days.
+- A proposal expires after 7 days. A person keeps at most 10 waiting and
+  50 decided sets (the oldest go), a decided one for 30 days; an operation
+  carries at most 4 KiB of arguments and a set 256 KiB (`413`).
+- Every name an operation carries (`from`, `target`, `role`, `component`,
+  `slot`, `provider`, `host`, `zone`, `listen`, `org`, `tile`, `level`,
+  `kind`) is at most 200 bytes of letters, digits and `._~:@#/*+=,[]-`
+  (`400` otherwise): they are written into xbind's line.
 
 ## A tile's agent level
 
@@ -424,7 +458,7 @@ PUT    /agent-levels            the tile's owner, an admin of the owning
 ```
 GET    /delegate/audit          the person, in their own session, app or
                                  device; an admin with ?user=<id>. {user,
-                                 calls}, newest first; ?before=<RFC 3339>,
+                                 calls, skipped?}, newest first; ?before=<RFC 3339>,
                                  ?limit=<n> (default 200, at most 1000)
 ```
 
@@ -436,7 +470,9 @@ tile reads, refusals, dry runs and reads of code, logs and admin state up
 to 60 in a burst and one a second after that, per person: the next row's
 `n` says how many were left out before it. Not for the listing reads a UI
 makes. Never a body, a query or a header; a path is cut at 512 bytes.
-Thirteen months are kept. The agent, its
+Every field is bounded when written (a name 256 bytes, a row 4 KiB), and a
+line of the log that is no row is skipped and counted (`skipped`), never an
+error. Thirteen months are kept. The agent, its
 page, tiles and view-as sessions can't read it.
 
 ## Events and pushes
@@ -445,7 +481,8 @@ page, tiles and view-as sessions can't read it.
 person's own sockets and their agent's page — `op`: `request` (one
 appeared, was decided, withdrawn or used), `approval`, `changeset`,
 `state`. Refetch the list it names. Pushes: `agent.approval` (a request
-waits) and `agent.changeset` (a proposal waits). Their link is the path of
+waits — one notification a person: the same collapse key, a count, at most
+one a minute) and `agent.changeset` (a proposal waits). Their link is the path of
 the sealed component that is the person's agent (the `agent` of the request
 or change set); their text is xbind's, never the agent's.
 

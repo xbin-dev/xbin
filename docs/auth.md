@@ -942,10 +942,22 @@ workspace's `partitionConsent` on it needs their consent for
 > `user:<id>` at role `reader` or `writer`. Judge a caller by
 > `X-XBin-Role` or `X-XBin-User-Level`, never by the `user:` prefix.
 
+**The agent's page is never the person.** A component that holds
+delegation is never trusted chrome: its page is sandboxed and holds a frame
+token, not the person's session — so it can show a request and pause the
+agent, and approve nothing. xbind refuses to approve such a component as
+chrome and refuses to start if one is.
+
 A tile says how much of its API agents may use with **`"agent"`** in its
 manifest: `"full"` (the default: everything the person's level allows —
 writes still need the person's approval), `"read"` (`GET` and `HEAD`
-only) or `"off"`. xbind's approval is of a *call*; what the call means is
+only) or `"off"`. The manifest can **lower** the level at once; it can't
+raise it: a manifest that states more than the level xbind has on record —
+or drops the key after stating less — waits for someone who manages the
+tile (its owner, the owning org's admins, a workspace admin) to approve it
+in their own session (`PUT /api/xbin/agent-levels`; they get an alert). The
+manifest is the tile's own file, and a tile agent can write it. xbind's
+approval is of a *call*; what the call means is
 the tile's to know. A tile whose API answers its own approvals, questions
 or sign-ins, or hands out secrets, must refuse those routes to a caller
 with `X-XBin-Agent` itself, or say `"read"` or `"off"`:

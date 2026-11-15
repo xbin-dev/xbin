@@ -141,7 +141,9 @@ JSONC (comments and trailing commas allowed). Everything is optional.
   // acts for them (docs/auth.md §Delegation): "full" — the default, absent
   // means it — everything that person's level allows, each write approved
   // by them; "read" — GET and HEAD only; "off" — nothing. An unknown word
-  // reads as "off". Such calls carry X-XBin-Agent. Decide it — see
+  // reads as "off". Such calls carry X-XBin-Agent. Lowering it here takes
+  // effect at once; raising it (or removing the line after it said less)
+  // waits for someone who manages the tile to approve it. Decide it — see
   // "A person's agent" under API contract below — and say why in a comment.
   "agent": "full",
 
