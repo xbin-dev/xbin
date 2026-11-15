@@ -280,12 +280,17 @@ GET    /docs/page               signed in. ?path=&section= → {path, title,
   session's own tile is under that org's rule (its sessions run on the LLM
   connector alone, which asks the rule for every call), or the session is
   held to the connector — not merely offered it — on a model the rule
-  allows. A session on its person's own sign-in is refused wherever a
+  allows (the connector's model it calls: the one its model setting names
+  when that is one of the connector's, else the connector's default). A session on its person's own sign-in is refused wherever a
   tainted org has a model rule other than `any`: nobody can say which
   model it calls — and so is a running session nothing says who serves
   (a workspace with no connector, or one not settled yet). A session that
-  isn't started yet has no model to judge,
-  so a start passes only on a tile under the rule. An org with no model
+  isn't started yet is judged by what xbind can vouch for beforehand: a
+  start passes on a tile under the rule, and where the agents policy holds
+  coding agents to the connector (the workspace's `connector-only`) when
+  every model the session may start on — the one the start names and the
+  connector's default — satisfies the rule; a start that would run on the
+  person's own sign-in, or by their choice, is refused. An org with no model
   rule binds nothing. Reading a session — its row, events, log or diff —
   adds its tile's orgs to the taint like any other read. A session's
   person changing its model later is their own act: it isn't judged again.

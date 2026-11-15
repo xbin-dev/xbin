@@ -60,7 +60,13 @@ func (s *Server) delegateSends(w http.ResponseWriter, r *http.Request, id, text 
 		why, refusal = modeRefusal(info, s.Term.AgentOriginMode(id), p.UserID), "mode"
 	}
 	if why == "" {
-		why, refusal = s.sendRefusal(p, sendTargetOf(info)), "taint"
+		t := sendTargetOf(info)
+		if t.served == agentpolicy.ServedConnector {
+			// the connector's model it calls — the row's is the harness's own
+			// name for its setting, which needn't be one of the connector's
+			t.model = s.Term.AgentConnectorModel(id)
+		}
+		why, refusal = s.sendRefusal(p, t), "taint"
 	}
 	if why == "" {
 		return true
@@ -132,17 +138,43 @@ func (s *Server) sendRefusal(p auth.Principal, t sendTarget) string {
 	return ""
 }
 
-// startRefusal is why a delegate's start on tile with a first prompt is
-// refused whatever approves it: the prompt begins with a harness command,
-// or the conversation's taint keeps it from briefing a session there (the
-// session isn't started yet, so only a tile whose own rules hold its
-// sessions to the tainted orgs' satisfies them).
-func (s *Server) startRefusal(p auth.Principal, tile, prompt string) (refusal, why string) {
-	if why := harnessCommand(prompt); why != "" {
+// startRefusal is why a delegate's start is refused whatever approves it:
+// its first prompt begins with a harness command, or the conversation's
+// taint keeps it from briefing a session there. The session isn't started
+// yet, so its model source is what xbind can vouch for beforehand
+// (term.DelegateStartSource): a tile whose own rules hold its sessions to
+// the tainted orgs' satisfies them; so does a session the agents policy
+// holds to the connector, when every model it may start on — the one the
+// start names and the connector's default — satisfies them. A start that
+// would run on its person's own sign-in, or by a choice, is vouched for by
+// nothing.
+func (s *Server) startRefusal(p auth.Principal, ask sessionAsk) (refusal, why string) {
+	if why := harnessCommand(ask.Prompt); why != "" {
 		return "command", why
 	}
-	if why := s.sendRefusal(p, sendTarget{tile: tile}); why != "" {
-		return "taint", why
+	if h, ok := s.handleOf(p); !ok || len(h.Tainted) == 0 {
+		return "", "" // nothing to hold it to: don't resolve a harness for it
+	}
+	targets := []sendTarget{{tile: ask.Cwd}}
+	if s.Term != nil {
+		harness := ask.Provider
+		if harness == "" {
+			harness = s.startDefaults(p, ask.Cwd).Harness
+		}
+		if held, models := s.Term.DelegateStartSource(p.UserID, ask.Cwd, harness, cmp.Or(ask.Model, ask.Options["model"])); held {
+			targets = targets[:0]
+			for _, m := range models {
+				targets = append(targets, sendTarget{tile: ask.Cwd, served: agentpolicy.ServedConnector, model: m})
+			}
+			if len(targets) == 0 { // held, and the connector names no model: the tile's own rule or nothing
+				targets = append(targets, sendTarget{tile: ask.Cwd, served: agentpolicy.ServedConnector})
+			}
+		}
+	}
+	for _, t := range targets {
+		if why := s.sendRefusal(p, t); why != "" {
+			return "taint", why
+		}
 	}
 	return "", ""
 }
@@ -155,6 +187,8 @@ type sessionAsk struct {
 	API                              *bool
 	VM                               bool
 	Resume                           string
+	Model                            string
+	Options                          map[string]string
 }
 
 func sessionAskOf(body []byte) sessionAsk {

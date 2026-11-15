@@ -88,6 +88,23 @@ func TestTaintBindsAStart(t *testing.T) {
 		t.Fatalf("a start on Finance's own tile: %d %s", c, b)
 	}
 
+	// where the agents policy holds coding agents to the LLM connector, the
+	// start is judged by the models it may run on: the one it names (and
+	// the connector's default, when there is one)
+	w.s.Term.Credentials = func(user, tile, harness, choice string) term.CredentialRule {
+		return term.CredentialRule{Use: "connector", Forced: true}
+	}
+	if c, b := start(`{"cwd":"apps/x","kind":"agent","provider":"claude","model":"local/llama","prompt":"fix the bug"}`); c != 503 {
+		t.Fatalf("held to the connector, on a model Finance allows: %d %s", c, b)
+	}
+	if c, b := start(`{"cwd":"apps/x","kind":"agent","provider":"claude","model":"hosted/big","prompt":"fix the bug"}`); c != 403 || !strings.Contains(b, `"refusal":"taint"`) {
+		t.Fatalf("held to the connector, on a hosted model: %d %s", c, b)
+	}
+	if c, b := start(onX); c != 403 || !strings.Contains(b, `"refusal":"taint"`) {
+		t.Fatalf("held to the connector, and nothing says on which model: %d %s", c, b)
+	}
+	w.s.Term.Credentials = nil
+
 	// a first prompt that is a harness command is nobody's to approve
 	const slash = `{"cwd":"apps/mail","kind":"agent","provider":"claude","prompt":"  /model opus"}`
 	if c, b := start(slash); c != 403 || !strings.Contains(b, `"refusal":"command"`) {

@@ -42,6 +42,7 @@ import (
 	"github.com/xbin-dev/xbin/internal/auth"
 	"github.com/xbin-dev/xbin/internal/delegation"
 	"github.com/xbin-dev/xbin/internal/util"
+	sdkacp "github.com/xbin-dev/xbin/sdk/acp"
 )
 
 // OriginAgent is SessionInfo.Origin of a session a person's workspace agent
@@ -137,6 +138,57 @@ func (m *Manager) AgentOrigin(id string) string {
 		return s.origin
 	}
 	return ""
+}
+
+// DelegateStartSource is who would serve the model calls of an agent
+// session of harness started for userID on tile rel, as far as xbind can
+// vouch for it before it exists: held reports that the agents policy gives
+// the session the LLM connector alone (CredentialRule.Forced — the
+// workspace's connector-only mode, or a model rule on the tile), and
+// models are the ones it may start on: the model the start asks for
+// (asked; checked against the connector's when the session opens) and the
+// connector's default for a harness, which it runs on when the start names
+// none or the harness doesn't take the one named. Not held: nothing says
+// which model it will call (the person's own sign-in, or a choice).
+func (m *Manager) DelegateStartSource(userID, rel, harness, asked string) (held bool, models []string) {
+	rule := m.credentialRule(openOpts{userID: userID}, rel, harness, "")
+	if !rule.Forced {
+		return false, nil
+	}
+	if asked != "" {
+		models = append(models, asked)
+	}
+	if m.LLM != nil {
+		if offer, ok := m.LLM.Offer(context.Background(), llmUser(openOpts{userID: userID}), rel, KindAgent); ok && offer.Model != "" && offer.Model != asked {
+			models = append(models, offer.Model)
+		}
+	}
+	return true, models
+}
+
+// AgentConnectorModel is the connector's model that live agent session id
+// calls, as far as xbind knows: the one its model setting names, when that
+// is one of the connector's as the harness writes it (ModelPrefix + id),
+// else the connector's default, which the CLI was started on — a harness's
+// own name for its default ("fake-default") is no model of the
+// connector's. "" for a session the connector doesn't serve, and for an
+// unknown id.
+func (m *Manager) AgentConnectorModel(id string) string {
+	_, st, err := m.agentOf(id)
+	if err != nil || st.llm == nil || st.llmServes() != sdkacp.ServeConnector {
+		return ""
+	}
+	st.mu.Lock()
+	cur, k := st.model, st.provider.Connector
+	st.mu.Unlock()
+	if k != nil && cur != "" {
+		for _, cm := range st.llm.offer.Models {
+			if cur == k.ModelPrefix+cm.ID {
+				return cm.ID
+			}
+		}
+	}
+	return st.llm.offer.Model
 }
 
 // AgentOriginMode is the mode live session id was opened in by the sealed

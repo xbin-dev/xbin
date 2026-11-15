@@ -618,7 +618,7 @@ func (s *Server) serveDelegate(w http.ResponseWriter, r *http.Request, next http
 			body, _ := io.ReadAll(http.MaxBytesReader(w, r.Body, delegation.MaxBody))
 			ask := sessionAskOf(body)
 			row.Tile, preview["tile"] = ask.Cwd, ask.Cwd
-			if _, why := s.startRefusal(p, ask.Cwd, ask.Prompt); why != "" {
+			if _, why := s.startRefusal(p, ask); why != "" {
 				preview["allowed"], preview["refusal"] = false, why
 			} else if s.startsUnasked(p, ask) {
 				preview["needsApproval"], preview["under"] = false, "preference"
@@ -797,7 +797,7 @@ func (s *Server) delegateApproval(w http.ResponseWriter, r *http.Request, p auth
 	if session {
 		asked := sessionAskOf(body)
 		row.Tile = asked.Cwd
-		if refusal, why := s.startRefusal(p, asked.Cwd, asked.Prompt); why != "" { // before a ticket is spent
+		if refusal, why := s.startRefusal(p, asked); why != "" { // before a ticket is spent
 			return nil, http.StatusForbidden, refusal, why
 		}
 	}

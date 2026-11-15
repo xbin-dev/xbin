@@ -580,7 +580,7 @@ func (s *Server) sessionPreview(p auth.Principal, body []byte) (map[string]any, 
 	if len(b.Prompt) > maxStartPrompt {
 		return nil, fmt.Sprintf("a start's first prompt is at most %d KiB", maxStartPrompt>>10)
 	}
-	if _, why := s.startRefusal(p, strings.Trim(b.Cwd, "/"), b.Prompt); why != "" {
+	if _, why := s.startRefusal(p, sessionAskOf(body)); why != "" {
 		return nil, why // no approval makes it startable: don't put it in front of the person
 	}
 	// what the request leaves out, xbind fills from the person's

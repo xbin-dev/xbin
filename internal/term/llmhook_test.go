@@ -302,6 +302,19 @@ func TestAgentLLMConnectorOnly(t *testing.T) {
 	if row, _ := r.m.Info(info.ID); row.LLM != sdkacp.ServeConnector {
 		t.Errorf("row llm %q", row.LLM)
 	}
+	// which of the connector's models it calls: its default — the harness's
+	// own name for its setting is no model of the connector's — and what a
+	// start would be vouched for beforehand (the workspace agent's taint
+	// rule asks both: server/delegatesend.go)
+	if got := r.m.AgentConnectorModel(info.ID); got != f.offer.Model || r.m.AgentConnectorModel("nope") != "" {
+		t.Errorf("the connector's model the session calls: %q, want its default %q", got, f.offer.Model)
+	}
+	if held, models := r.m.DelegateStartSource("alice", "apps/x", "fake", ""); !held || len(models) != 1 || models[0] != f.offer.Model {
+		t.Errorf("a start under connector-only: held %v on %v, want the connector's default", held, models)
+	}
+	if held, models := r.m.DelegateStartSource("alice", "apps/x", "fake", "up/other"); !held || len(models) != 2 || models[0] != "up/other" {
+		t.Errorf("a start that names a model: held %v on %v, want both it and the default", held, models)
+	}
 	r.endSession(t, info.ID)
 	// no model the tile may use: no connector, no session
 	f.offer.Model = ""
@@ -320,6 +333,11 @@ func TestAgentLLMConnectorOnly(t *testing.T) {
 	if llm["claude"].Use != "unavailable" || llm["gemini"].Use != "unavailable" || llm["fake"].Use != sdkacp.ServeConnector || llm["opencode"].Use != sdkacp.ServeConnector ||
 		!llm["fake"].Forced || llm["fake"].Reason != "Finance allows private models only" {
 		t.Errorf("the listing under connector-only: claude %+v fake %+v", llm["claude"], llm["fake"])
+	}
+	// nothing forces the connector: nothing vouches for a start's model
+	r.m.Credentials = nil
+	if held, models := r.m.DelegateStartSource("alice", "apps/x", "fake", "up/m1"); held || models != nil {
+		t.Errorf("a start where the person may use their own sign-in: held %v %v", held, models)
 	}
 	// the workspace's own connector-only: forced, with no org's reason
 	r.m.Credentials = policy("connector-only", "", nil)
